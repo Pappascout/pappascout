@@ -198,11 +198,11 @@ def parse(
         ),
     ),
 ) -> None:
-    """Parsi demo kierrostauluksi.
+    """Parsi demo kierros- ja näytepistetauluiksi.
 
-    Kirjoittaa ``parsed/<map_demo_id>/rounds.parquet``-taulun ja sen
-    manifestin. Jos manifesti täsmää, vaihe ohitetaan eikä demoa lueta
-    uudelleen.
+    Kirjoittaa ``parsed/<map_demo_id>/rounds.parquet``- ja ``ticks.parquet``-
+    taulut sekä niiden manifestin. Jos manifesti täsmää, vaihe ohitetaan eikä
+    demoa lueta uudelleen.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
@@ -216,7 +216,7 @@ def parse(
         settings.parse,
         archive,
         map_demo_id,
-        parse_stage.default_parser(),
+        parse_stage.default_parser(settings.parse),
         demo_path=demo_path,
         force=pakota,
     )
@@ -297,6 +297,8 @@ def _render_parse(tulos: StageResult, regulation_rounds: int) -> str:
             )
         )
 
+    rivit.extend(_naytepisteet(stats, kierrokset))
+
     if "tick_rate" in stats and not stats.get("tick_rate_measured", True):
         rivit.append(
             _rivi(
@@ -312,6 +314,89 @@ def _render_parse(tulos: StageResult, regulation_rounds: int) -> str:
     rivit.append(_rivi("Ajoaika", _sekunnit(tulos.duration_s)))
 
     return "\n".join(rivit)
+
+
+def _naytepisteet(stats: dict, kierrokset: int) -> list[str]:
+    """Näytepisteiden ja ensikontaktien rivit ``parse``-tulosteeseen.
+
+    Ilman näitä käyttäjä ei näe, syntyikö asetelmadata lainkaan: kierrosluku
+    näyttäisi samalta myös silloin, kun ``ticks.parquet`` on tyhjä. Nolla on
+    siksi yhtä tärkeä kertoa kuin suuri luku, ja se sanotaan ääneen.
+    """
+    if "ticks_unreadable" in stats:
+        return [
+            _rivi(
+                "Näytepisteet",
+                f"lukuja ei saatu ({stats['ticks_unreadable']})",
+            )
+        ]
+    if "tick_rows" not in stats:
+        return []
+
+    rivit: list[str] = []
+    pisteet = int(stats.get("sample_points", 0) or 0)
+    tick_rivit = int(stats.get("tick_rows", 0) or 0)
+    naytteistetyt = int(stats.get("sample_rounds", 0) or 0)
+
+    if pisteet:
+        rivit.append(
+            _rivi(
+                "Näytepisteet",
+                f"{pisteet} ({naytteistetyt}/{kierrokset} kierroksella, "
+                f"rivejä {tick_rivit})",
+            )
+        )
+    else:
+        rivit.append(
+            _rivi(
+                "Näytepisteet",
+                "0 -- asetelmadataa ei syntynyt",
+            )
+        )
+
+    # Kierros ilman yhtään näytepistettä voi johtua kolmesta syystä: ankkuri
+    # puuttuu, kierros ratkesi ennen ensimmäistä näytepistettä, tai
+    # näytepisteajat ovat väärin. Erotus kerrotaan, syytä ei arvata.
+    ilman = kierrokset - naytteistetyt
+    if ilman > 0:
+        rivit.append(
+            _rivi(
+                "Ilman näytepistettä",
+                f"{ilman} kierrosta (ankkuri puuttuu tai kierros ratkesi "
+                "ennen ensimmäistä näytepistettä)",
+            )
+        )
+
+    kontaktit = int(stats.get("first_contact_rounds", 0) or 0)
+    if kontaktit:
+        rivit.append(_rivi("Ensikontaktit", f"{kontaktit}/{kierrokset} kierroksella"))
+    else:
+        rivit.append(
+            _rivi(
+                "Ensikontaktit",
+                "0 -- yhdeltäkään kierrokselta ei löytynyt ristiinpuolista osumaa",
+            )
+        )
+
+    # Adapterin omat havainnot: näitä ei voi laskea valmiista taulusta.
+    vajaat = int(stats.get("partial_samples", 0) or 0)
+    if vajaat:
+        rivit.append(
+            _rivi(
+                "Vajaat näytepisteet",
+                f"{vajaat} (pelaajia vähemmän kuin täydellä pisteellä)",
+            )
+        )
+    tuntemattomat = int(stats.get("unknown_side_events", 0) or 0)
+    if tuntemattomat:
+        rivit.append(
+            _rivi(
+                "Puoli tuntematon",
+                f"{tuntemattomat} vahinkotapahtumaa ohitettiin ensikontaktia "
+                "etsittäessä",
+            )
+        )
+    return rivit
 
 
 @app.command("classify")

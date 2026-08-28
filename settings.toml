@@ -75,19 +75,37 @@ ot_start_money = 12500
 # Näytepisteet sekunteina viimeisestä round_freeze_endistä.
 # ~6 s CT-suunta näkyy, ~10-15 s T rush erottuu defaultista, 25-30 s ja 45 s
 # näyttävät kierroksen kehityksen. [domain] [spine] AD-3 oletus [6, 15, 30, 45].
+# Arvojen on oltava positiivisia, äärellisiä, keskenään eri suuria ja enintään
+# kierroksen keston (115 s) mittaisia; lataus tarkistaa tämän.
 snapshot_seconds = [6.0, 15.0, 30.0, 45.0]
 
 # Ensikontakti = ensimmäinen player_hurt, jossa tekijä on vastapuolella ja ase ei
 # ole utility. Nämä aseet eivät siis kelpaa ensikontaktiksi. [spine] AD-5.
-# Nimet kartoitetaan demoparser2:n tapahtumanimiin Story 1.2:ssa.
+#
+# Nimet on luettu demoparser2:n player_hurt-tapahtuman weapon-kentästä
+# (Story 2.1). Ancient-demossa esiintyivät: ak47, awp, deagle, elite, famas,
+# fiveseven, galilar, glock, hegrenade, hkp2000, inferno, knife, m4a1, mac10,
+# molotov, mp7, mp9, nova, p250, planted_c4, smokegrenade, ssg08, tec9.
+#
+# Merkintä [havaittu] = ase esiintyy Ancient-demon vahinkotapahtumissa.
+# Merkintä [oletettu] = nimi on CS2:n vakionimi, mutta tällä aseella ei ollut
+# Ancientissa yhtään vahinkotapahtumaa, joten kirjoitusasua ei ole todennettu.
+# Väärä kirjoitusasu ei kaada mitään -- se vain jättää aseen poissulkematta,
+# jolloin utilityosuma voisi laskea ensikontaktiksi.
 first_contact_exclude_weapons = [
-    "hegrenade",
-    "flashbang",
-    "smokegrenade",
-    "decoy",
-    "molotov",
-    "incgrenade",
-    "inferno",
+    "hegrenade",     # [havaittu]
+    "flashbang",     # [oletettu] flash tekee vahinkoa vain harvoin
+    "smokegrenade",  # [havaittu]
+    "decoy",         # [oletettu] harjoitusgranaatti, vahinko poikkeuksellista
+    "molotov",       # [havaittu] T-puolen polttopullo
+    "incgrenade",    # [oletettu] CT-puolen vastine; Ancientissa ei osunut
+    "inferno",       # [havaittu] palava alue, jonka molotov/incgrenade jättää
+    # planted_c4 = istutetun pommin räjähdysvahinko. Pommi räjähtää vasta
+    # kierroksen lopussa, joten se ei voi olla mielekäs *ensimmäinen* kontakti.
+    # Jos se olisi kierroksen ainoa ristiinpuolinen vahinko, ensikontaktin
+    # näytepiste laskeutuisi kierroksen viimeiselle sekunnille ja väittäisi
+    # sitä "ensikontaktin asetelmaksi". [havaittu] [lisätty katselmuksessa]
+    "planted_c4",
 ]
 
 # Jos player_hurt-tapahtumaa ei löydy, käytetään ensimmäistä player_deathia.

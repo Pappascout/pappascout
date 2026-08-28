@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+from functools import lru_cache
 from pathlib import Path
 
 import polars as pl
@@ -25,6 +26,7 @@ from conftest import (
     ANCIENT_ZST,
     NUKE_ROUNDS,
     NUKE_ZST,
+    REAL_SETTINGS,
     require_demo,
 )
 from pappascout.adapters.decompress import (
@@ -35,22 +37,62 @@ from pappascout.adapters.decompress import (
     is_compressed,
     readable_demo,
 )
-from pappascout.adapters.demo_parser import Demoparser2Rounds
-from pappascout.adapters.protocols import ROUNDS_ADAPTER_COLUMNS, DemoRoundsParser
+from pappascout.adapters.demo_parser import Demoparser2Adapter
+from pappascout.adapters.protocols import (
+    ROUNDS_ADAPTER_COLUMNS,
+    TICKS_ADAPTER_COLUMNS,
+    DemoParser,
+)
 from pappascout.domain.rounds import CT_WIN_REASONS, T_WIN_REASONS
 from pappascout.domain.rounds import REQUIRED_COLUMNS as NUMBERING_COLUMNS
 from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
-from pappascout.domain.schemas import ROUNDS
+from pappascout.domain.models import load_settings
+from pappascout.domain.schemas import ROUNDS, TICKS
 from pappascout.errors import ParseError
 
 FAKE_DEMO = DEMO_MAGIC + b"\x00" + b"tekaistua sisaltoa" * 64
+
+#: Näytepisteet, joita demotestit käyttävät. Sama lista kuin ``settings.toml``in
+#: ``[parse]``-osiossa; :func:`test_snapshot_seconds_match_the_real_settings`
+#: pitää huolen siitä, etteivät ne pääse erkanemaan. Vakiona eikä
+#: asetuslatauksena, jottei moduulin tuonti lue tiedostoja -- se tapahtuisi
+#: myös ``-m "not demo"`` -ajossa, jossa mitään demoa ei kosketa.
+SNAPSHOT_SECONDS: tuple[float, ...] = (6.0, 15.0, 30.0, 45.0)
+
+
+@lru_cache(maxsize=1)
+def _parse_settings():
+    """Oikeat ``[parse]``-asetukset, luettuna vasta kun niitä tarvitaan."""
+    return load_settings(REAL_SETTINGS, env_files=()).parse
+
+
+def real_parser() -> Demoparser2Adapter:
+    """Adapteri tuotannon ensikontaktisäännöillä.
+
+    Demotestit ajetaan tuotannon arvoilla -- keksityillä poissulkulistoilla ne
+    eivät todistaisi mitään oikeasta ajosta.
+    """
+    asetukset = _parse_settings()
+    return Demoparser2Adapter(
+        exclude_weapons=asetukset.first_contact_exclude_weapons,
+        fallback_death=asetukset.first_contact_fallback_death,
+    )
+
+
+def test_snapshot_seconds_match_the_real_settings() -> None:
+    """Testien näytepisteet ovat samat kuin tuotannon.
+
+    Jos ne erkanisivat, demotestien luvut (94 näytepistettä) mittaisivat eri
+    konfiguraatiota kuin se, jolla arkisto oikeasti syntyy.
+    """
+    assert tuple(_parse_settings().snapshot_seconds) == SNAPSHOT_SECONDS
 
 
 # --- Portti -------------------------------------------------------------------
 
 
 def test_adapter_implements_the_port() -> None:
-    assert isinstance(Demoparser2Rounds(), DemoRoundsParser)
+    assert isinstance(Demoparser2Adapter(), DemoParser)
 
 
 def test_port_contract_is_an_exact_column_set() -> None:
@@ -68,6 +110,17 @@ def test_port_contract_is_an_exact_column_set() -> None:
     }
     assert set(NUMBERING_COLUMNS) <= set(ROUNDS_ADAPTER_COLUMNS)
     assert len(ROUNDS_ADAPTER_COLUMNS) == len(set(ROUNDS_ADAPTER_COLUMNS))
+
+
+def test_ticks_port_contract_is_ticks_without_the_archive_id() -> None:
+    """Näytepistetaulun sopimus on ``TICKS`` ilman ``map_demo_id``:tä.
+
+    Kaikki muu on mukana, myös ``round_no`` -- se on adapterin taulussa aina
+    tyhjä, mutta sen paikka on varattu, jotta vaihe voi täyttää sen ilman että
+    sarakkeiden järjestys muuttuu.
+    """
+    assert set(TICKS_ADAPTER_COLUMNS) == set(TICKS) - {"map_demo_id"}
+    assert len(TICKS_ADAPTER_COLUMNS) == len(set(TICKS_ADAPTER_COLUMNS))
 
 
 # --- Tunnistus ja purku --------------------------------------------------------
@@ -149,12 +202,14 @@ def test_text_file_fails_before_demoparser_is_called(tmp_path: Path) -> None:
     path = tmp_path / "eidemo.dem"
     path.write_text("ei demo", encoding="utf-8")
     with pytest.raises(ParseError, match="PBDEMS2"):
-        Demoparser2Rounds().parse_rounds(path)
+        Demoparser2Adapter().parse_demo(path, SNAPSHOT_SECONDS).rounds
 
 
 def test_missing_file_is_a_finnish_error(tmp_path: Path) -> None:
     with pytest.raises(ParseError) as exc:
-        Demoparser2Rounds().parse_rounds(tmp_path / "ei-ole.dem")
+        Demoparser2Adapter().parse_demo(
+            tmp_path / "ei-ole.dem", SNAPSHOT_SECONDS
+        )
     assert "ei löytynyt" in str(exc.value)
 
 
@@ -163,7 +218,7 @@ def test_broken_zstd_is_a_finnish_error(tmp_path: Path) -> None:
     katkaistu = tmp_path / "katkennut.dem.zst"
     katkaistu.write_bytes(ehja[: len(ehja) // 2])
     with pytest.raises(ParseError) as exc:
-        Demoparser2Rounds().parse_rounds(katkaistu)
+        Demoparser2Adapter().parse_demo(katkaistu, SNAPSHOT_SECONDS).rounds
     assert "purku epäonnistui" in str(exc.value)
 
 
@@ -172,7 +227,7 @@ def test_truncated_demo_is_a_finnish_error(tmp_path: Path) -> None:
     path = tmp_path / "katkennut.dem"
     path.write_bytes(FAKE_DEMO)
     with pytest.raises(ParseError) as exc:
-        Demoparser2Rounds().parse_rounds(path)
+        Demoparser2Adapter().parse_demo(path, SNAPSHOT_SECONDS).rounds
     assert "Lataa demo uudelleen" in str(exc.value) or "katkennut" in str(exc.value)
 
 
@@ -187,7 +242,7 @@ def test_zstd_compressed_error_page_is_refused(tmp_path: Path) -> None:
     polku.write_bytes(zstandard.ZstdCompressor().compress(sivu))
 
     with pytest.raises(ParseError) as exc:
-        Demoparser2Rounds().parse_rounds(polku)
+        Demoparser2Adapter().parse_demo(polku, SNAPSHOT_SECONDS).rounds
     viesti = str(exc.value)
     assert "PBDEMS2" in viesti
     assert "ei ole CS2-demo" in viesti
@@ -197,7 +252,7 @@ def test_gzip_compressed_error_page_is_refused(tmp_path: Path) -> None:
     polku = tmp_path / "lataus.dem.gz"
     polku.write_bytes(gzip.compress(b"<html>403 Forbidden</html>"))
     with pytest.raises(ParseError, match="PBDEMS2"):
-        Demoparser2Rounds().parse_rounds(polku)
+        Demoparser2Adapter().parse_demo(polku, SNAPSHOT_SECONDS).rounds
 
 
 @pytest.mark.parametrize(
@@ -237,7 +292,7 @@ def test_partial_decompression_leaves_no_tmp_file(tmp_path: Path) -> None:
 
 @pytest.mark.demo
 def test_ancient_has_twenty_one_played_rounds() -> None:
-    df = Demoparser2Rounds().parse_rounds(require_demo(ANCIENT_DEM))
+    df = real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
     pelatut = mark_played_rounds(df).filter(pl.col("round_no").is_not_null())
     assert pelatut["round_no"].n_unique() == ANCIENT_ROUNDS
     assert pelatut.height == ANCIENT_ROUNDS * 2
@@ -248,7 +303,7 @@ def test_ancient_has_twenty_one_played_rounds() -> None:
 
 @pytest.mark.demo
 def test_ancient_columns_match_the_port_contract() -> None:
-    df = Demoparser2Rounds().parse_rounds(require_demo(ANCIENT_DEM))
+    df = real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
     assert tuple(df.columns) == ROUNDS_ADAPTER_COLUMNS
     for name, dtype in ROUNDS.items():
         if name == "map_demo_id":
@@ -261,7 +316,9 @@ def test_ancient_columns_match_the_port_contract() -> None:
 @pytest.mark.demo
 def test_ancient_knife_round_is_present_but_unnumbered() -> None:
     """Puukkokierros on demossa, mutta se ei ole pelattu kierros."""
-    df = mark_played_rounds(Demoparser2Rounds().parse_rounds(require_demo(ANCIENT_DEM)))
+    df = mark_played_rounds(
+        real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
+    )
     numeroimattomat = df.filter(pl.col("round_no").is_null())
     assert numeroimattomat.height == 2  # yksi rivi kummallekin joukkueelle
     assert numeroimattomat["round_raw"].unique().to_list() == [1]
@@ -271,7 +328,7 @@ def test_ancient_knife_round_is_present_but_unnumbered() -> None:
 def test_ancient_observations_are_plausible() -> None:
     """Havaitut arvot ovat oikeasta demosta, eivät johdettuja tai tyhjiä."""
     df = mark_played_rounds(
-        Demoparser2Rounds().parse_rounds(require_demo(ANCIENT_DEM))
+        real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
     ).filter(pl.col("round_no").is_not_null())
 
     assert df["tick_rate"].unique().to_list() == [64.0]
@@ -299,7 +356,7 @@ def test_ancient_observations_are_plausible() -> None:
 def test_ancient_pistol_round_shows_a_pistol_economy() -> None:
     """Kierros 1 on pistoolikierros: varustearvo on murto-osa täydestä."""
     df = mark_played_rounds(
-        Demoparser2Rounds().parse_rounds(require_demo(ANCIENT_DEM))
+        real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
     ).filter(pl.col("round_no") == 1)
     assert df.height == 2
     # 5 pelaajaa x (pistooli 200 + kevlar 650..1000) -> selvästi alle 10 000 $.
@@ -309,10 +366,12 @@ def test_ancient_pistol_round_shows_a_pistol_economy() -> None:
 
 @pytest.mark.demo
 def test_zst_and_dem_give_byte_identical_tables(tmp_path: Path) -> None:
-    """Sama demo pakattuna ja purettuna tuottaa saman taulun tavu tavulta."""
-    purettu = Demoparser2Rounds().parse_rounds(require_demo(ANCIENT_DEM))
-    pakattu = Demoparser2Rounds().parse_rounds(require_demo(ANCIENT_ZST))
+    """Sama demo pakattuna ja purettuna tuottaa samat taulut tavu tavulta."""
+    dem = real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
+    zst = real_parser().parse_demo(require_demo(ANCIENT_ZST), SNAPSHOT_SECONDS)
+    purettu, pakattu = dem.rounds, zst.rounds
     assert purettu.equals(pakattu)
+    assert dem.ticks.equals(zst.ticks)
 
     a = tmp_path / "a.parquet"
     b = tmp_path / "b.parquet"
@@ -326,7 +385,7 @@ def test_zst_and_dem_give_byte_identical_tables(tmp_path: Path) -> None:
 @pytest.mark.demo
 def test_nuke_reaches_round_twenty_eight_in_overtime() -> None:
     df = mark_played_rounds(
-        Demoparser2Rounds().parse_rounds(require_demo(NUKE_ZST))
+        real_parser().parse_demo(require_demo(NUKE_ZST), SNAPSHOT_SECONDS).rounds
     ).filter(pl.col("round_no").is_not_null())
     assert df["round_no"].max() == NUKE_ROUNDS
     assert df.height == NUKE_ROUNDS * 2
@@ -352,7 +411,7 @@ def test_real_demos_obey_the_cs2_win_rule(
     joukkueella.
     """
     df = mark_played_rounds(
-        Demoparser2Rounds().parse_rounds(require_demo(demo_nimi))
+        real_parser().parse_demo(require_demo(demo_nimi), SNAPSHOT_SECONDS).rounds
     ).filter(pl.col("round_no").is_not_null())
 
     assert df["round_no"].n_unique() == odotetut_kierrokset
@@ -372,7 +431,236 @@ def test_round_raw_is_the_demo_own_counter() -> None:
     1..21 vastaavat raaka-arvoja 2..22. Aukko on nimenomaan se todiste, että
     puukkokierros ohitettiin.
     """
-    df = mark_played_rounds(Demoparser2Rounds().parse_rounds(require_demo(ANCIENT_DEM)))
+    df = mark_played_rounds(
+        real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
+    )
     pelatut = df.filter(pl.col("round_no").is_not_null())
     assert sorted(pelatut["round_raw"].unique().to_list()) == list(range(2, 23))
     assert df.filter(pl.col("round_no").is_null())["round_raw"].unique().to_list() == [1]
+
+
+# --- Näytepisteet oikeasta demosta ---------------------------------------------
+
+#: Ancientin ``env_cs_place``-alueet, luettu demosta 2026-08-29. Pelin omat
+#: alueet ovat noin kaksi kertaa karkeampia kuin Total CS -calloutit: esimerkiksi
+#: A-sitelle johtava Ramp on omansa, mutta Donut ja Cave sulautuvat naapureihin.
+#: Lista on tarkoituksella kiinteä -- demosta johdettu joukko hyväksyisi minkä
+#: tahansa nimen ja lakkaisi olemasta tarkistus.
+ANCIENT_PLACES: frozenset[str] = frozenset(
+    {
+        "Alley",
+        "BombsiteA",
+        "BombsiteB",
+        "CTSpawn",
+        "House",
+        "MainHall",
+        "Middle",
+        "Outside",
+        "Ramp",
+        "Ruins",
+        "SideEntrance",
+        "SideHall",
+        "TSideLower",
+        "TSideUpper",
+        "TSpawn",
+        "TopofMid",
+        "Tunnel",
+        "Water",
+    }
+)
+
+#: Ancientin T-puolen alueet. CT-pelaaja ei voi olla näissä kuuden sekunnin
+#: kohdalla; jos on, puolet ovat menneet väärin päin ja jokainen asetelma
+#: olisi kohdistettu väärälle joukkueelle.
+T_SIDE_PLACES: frozenset[str] = frozenset(
+    {"TSpawn", "TSideUpper", "TSideLower", "Outside", "Tunnel"}
+)
+
+
+@pytest.fixture(scope="module")
+def ancient_tables():
+    """Ancient-demon taulut ja diagnostiikka. Parsitaan kerran, ei testiä kohden."""
+    adapteri = real_parser()
+    tables = adapteri.parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
+    return tables, adapteri.diagnostics
+
+
+@pytest.fixture(scope="module")
+def ancient_ticks(ancient_tables) -> pl.DataFrame:
+    """Ancient-demon näytepistetaulu."""
+    return ancient_tables[0].ticks
+
+
+@pytest.mark.demo
+def test_ancient_ticks_match_the_port_contract(ancient_ticks: pl.DataFrame) -> None:
+    assert tuple(ancient_ticks.columns) == TICKS_ADAPTER_COLUMNS
+    for name in TICKS_ADAPTER_COLUMNS:
+        assert ancient_ticks.schema[name] == TICKS[name], name
+    assert ancient_ticks["round_no"].null_count() == ancient_ticks.height
+    assert not ancient_ticks.is_empty()
+
+
+@pytest.mark.demo
+def test_ancient_samples_ten_players_at_every_point(
+    ancient_ticks: pl.DataFrame,
+) -> None:
+    """Kaikki kymmenen tallennetaan joka näytepisteessä, myös kuolleet.
+
+    Puukkokierros (``round_raw`` 1) on poikkeus: siinä yksi pelaaja ei ollut
+    vielä liittynyt joukkueeseen, joten rivejä on yhdeksän. Kierros ei ole
+    pelattu eikä päädy arkistoon, joten poikkeus ei näy tuloksessa -- mutta
+    sitä ei myöskään paikata keksimällä kymmenettä riviä.
+    """
+    pelatut = ancient_ticks.filter(pl.col("round_raw") > 1)
+    per_piste = pelatut.group_by("round_raw", "sample_kind", "sample_t_s").len()
+    assert per_piste["len"].unique().to_list() == [10]
+    assert pelatut["round_raw"].n_unique() == ANCIENT_ROUNDS
+
+
+@pytest.mark.demo
+def test_ancient_has_no_sample_after_the_round_ended(
+    ancient_ticks: pl.DataFrame,
+) -> None:
+    """Hyväksymiskriteeri: lyhyt kierros ei saa 45 sekunnin pistettä.
+
+    Todiste on siinä, että aikapisteiden määrä **vaihtelee** kierroksittain:
+    jos kaikilla olisi neljä, rajausta ei tapahtuisi lainkaan.
+    """
+    aika = ancient_ticks.filter(pl.col("sample_kind") == "time")
+    per_kierros = aika.group_by("round_raw").agg(
+        pl.col("sample_t_s").n_unique().alias("pisteita")
+    )
+    maarat = set(per_kierros["pisteita"].to_list())
+    assert maarat <= set(range(1, len(SNAPSHOT_SECONDS) + 1))
+    assert len(maarat) > 1, "yksikään kierros ei jäänyt lyhyeksi -- rajaus ei purrut"
+    assert set(aika["sample_t_s"].unique().to_list()) <= set(SNAPSHOT_SECONDS)
+
+
+@pytest.mark.demo
+def test_ancient_areas_are_real_callouts(ancient_ticks: pl.DataFrame) -> None:
+    """Hyväksymiskriteeri: kierroksen 1 alueet ovat Ancientin callouteja.
+
+    ``round_raw`` 2 on pelattu kierros 1 (puukkokierros on 1). Alueiden nimet
+    ovat pelin omia ``env_cs_place``-nimiä, ja niiden on kuuluttava Ancientin
+    nimijoukkoon -- pelkkä "ei tyhjä" menisi läpi myös väärältä kartalta
+    luetuilla nimillä tai steamideilla.
+    """
+    eka = ancient_ticks.filter(pl.col("round_raw") == 2)
+    alueet = {a for a in eka["area"].to_list() if a}
+    assert alueet, "kierroksen 1 alueet olivat tyhjiä"
+    assert alueet <= ANCIENT_PLACES, sorted(alueet - ANCIENT_PLACES)
+    # CT-pelaajien on oltava CT-puolen alueilla kierroksen alussa: kuuden
+    # sekunnin kohdalla kukaan ei ole vielä ehtinyt T-puolen alueille.
+    ct_alussa = eka.filter(
+        (pl.col("side") == "CT") & (pl.col("sample_t_s") == min(SNAPSHOT_SECONDS))
+    )
+    assert ct_alussa.height == 5
+    assert not (set(ct_alussa["area"].to_list()) & T_SIDE_PLACES), (
+        "CT-pelaaja oli T-puolen alueella kuuden sekunnin kohdalla -- puolet "
+        "ovat todennäköisesti väärin päin"
+    )
+    # Ja sama toisin päin: T:t eivät ole ehtineet CT-spawniin.
+    t_alussa = eka.filter(
+        (pl.col("side") == "T") & (pl.col("sample_t_s") == min(SNAPSHOT_SECONDS))
+    )
+    assert t_alussa.height == 5
+    assert "CTSpawn" not in t_alussa["area"].to_list()
+
+
+@pytest.mark.demo
+def test_ancient_uses_only_ancient_place_names(ancient_ticks: pl.DataFrame) -> None:
+    """Koko demon alueiden on oltava Ancientin nimiä, ei vain kierroksen 1."""
+    alueet = {a for a in ancient_ticks["area"].to_list() if a}
+    assert alueet <= ANCIENT_PLACES, sorted(alueet - ANCIENT_PLACES)
+    assert len(alueet) > 5, "vain muutama alue -- näytteistys osunee samaan hetkeen"
+
+
+@pytest.mark.demo
+def test_ancient_coordinates_are_present_even_without_an_area(
+    ancient_ticks: pl.DataFrame,
+) -> None:
+    """Tuntematon alue jää nulliksi, mutta riviä ei pudoteta."""
+    assert ancient_ticks["x"].null_count() == 0
+    assert ancient_ticks["y"].null_count() == 0
+    nimettomat = ancient_ticks.filter(pl.col("area").is_null())
+    if not nimettomat.is_empty():
+        assert nimettomat["x"].null_count() == 0
+
+
+@pytest.mark.demo
+def test_ancient_first_contact_is_found_on_every_round(
+    ancient_ticks: pl.DataFrame,
+) -> None:
+    """Ensikontakti löytyy Ancientissa jokaiselta kierrokselta.
+
+    ``settings.toml`` perustelee ``planted_c4``:n poisjätön sillä, että
+    ensikontakti löytyy ilman sitä joka kierrokselta. Tämä testi on se väite:
+    jos se pettää, kommentti on väärässä eikä toisin päin.
+    """
+    kontakti = ancient_ticks.filter(pl.col("sample_kind") == "first_contact")
+    kierroksia = ancient_ticks["round_raw"].n_unique()
+    assert kontakti["round_raw"].n_unique() == kierroksia
+    # sample_t_s ja t_s kertovat saman hetken, eivät jää tyhjiksi.
+    assert kontakti["sample_t_s"].null_count() == 0
+    assert (kontakti["sample_t_s"] == kontakti["t_s"]).all()
+    # Kontakti tapahtuu kierroksen sisällä, ei ennen ankkuria.
+    assert kontakti["t_s"].min() > 0
+
+
+@pytest.mark.demo
+def test_ancient_sample_point_count_is_exact(ancient_ticks: pl.DataFrame) -> None:
+    """Ancientin näytepisteiden tarkka määrä -- README lainaa tätä lukua.
+
+    21 pelattua kierrosta ja neljä näytepistettä antaisi 84 aikapistettä, mutta
+    kierroksen päättymisen jälkeisiä pisteitä ei ole: todellinen luku on 73.
+    Ensikontakteja on yksi per kierros, ja puukkokierros (``round_raw`` 1) tuo
+    omansa päälle -- yhteensä 94 näytepistettä 21 pelatulta kierrokselta.
+    """
+    pelatut = ancient_ticks.filter(pl.col("round_raw") > 1)
+    pisteita = pelatut.select("round_raw", "sample_kind", "sample_t_s").n_unique()
+    aikapisteita = (
+        pelatut.filter(pl.col("sample_kind") == "time")
+        .select("round_raw", "sample_t_s")
+        .n_unique()
+    )
+    kontakteja = (
+        pelatut.filter(pl.col("sample_kind") == "first_contact")
+        .select("round_raw")
+        .n_unique()
+    )
+    assert aikapisteita == 73
+    assert kontakteja == ANCIENT_ROUNDS == 21
+    assert pisteita == 94
+    assert pisteita < ANCIENT_ROUNDS * (len(SNAPSHOT_SECONDS) + 1)
+    assert pelatut.height == 940
+
+
+@pytest.mark.demo
+def test_ancient_reports_no_partial_samples(ancient_tables) -> None:
+    """Pelatuilla kierroksilla ei ole vajaita näytepisteitä.
+
+    Vajaat ovat puukkokierroksen molemmat näytepisteet -- sen 6 sekunnin piste
+    ja sen ensikontakti -- joissa yksi pelaaja ei ollut vielä liittynyt
+    joukkueeseen. Kaksi on siis oikea luku; suurempi tarkoittaisi propivikaa.
+    Puukkokierros ei ole pelattu eikä päädy arkistoon, joten vajaus ei näy
+    tuloksessa; se näkyy vain tässä luvussa, ja siinä se kuuluukin näkyä.
+    """
+    diagnostiikka = ancient_tables[1]
+    assert diagnostiikka.partial_samples == 2
+    assert diagnostiikka.unknown_side_events == 0
+
+
+@pytest.mark.demo
+def test_ancient_alive_flag_thins_out_over_the_round(
+    ancient_ticks: pl.DataFrame,
+) -> None:
+    """Elossaolo on havainto: myöhemmällä pisteellä elossa on vähemmän."""
+    aika = ancient_ticks.filter(pl.col("sample_kind") == "time")
+    per_piste = (
+        aika.group_by("sample_t_s")
+        .agg(pl.col("is_alive").mean().alias("osuus"))
+        .sort("sample_t_s")
+    )
+    osuudet = per_piste["osuus"].to_list()
+    assert osuudet[0] == 1.0, "ensimmäisellä pisteellä kaikkien pitäisi olla elossa"
+    assert osuudet[-1] < osuudet[0]

@@ -19,14 +19,22 @@ Tässä paketissa on kolme osaa:
     (``CCSPlayerPawn.*``) esiintyvät.
 
 ``demo_parser`` tuodaan tarkoituksella vain nimellä (``from
-pappascout.adapters.demo_parser import Demoparser2Rounds``): näin pelkkä
+pappascout.adapters.demo_parser import Demoparser2Adapter``): näin pelkkä
 ``import pappascout.adapters`` ei lataa demoparser2:ta.
 """
 
 from pappascout.adapters.protocols import (
     ROUNDS_ADAPTER_COLUMNS,
-    DemoRoundsParser,
+    TICKS_ADAPTER_COLUMNS,
+    DemoParser,
+    DemoTables,
     ParseDiagnostics,
 )
 
-__all__ = ["DemoRoundsParser", "ParseDiagnostics", "ROUNDS_ADAPTER_COLUMNS"]
+__all__ = [
+    "DemoParser",
+    "DemoTables",
+    "ParseDiagnostics",
+    "ROUNDS_ADAPTER_COLUMNS",
+    "TICKS_ADAPTER_COLUMNS",
+]

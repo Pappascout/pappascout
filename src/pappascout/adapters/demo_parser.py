@@ -1,8 +1,8 @@
-"""demoparser2-toteutus kierrostaululle (AD-8).
+"""demoparser2-toteutus kierros- ja näytepistetaululle (AD-8).
 
 **Tämä on ainoa moduuli, jossa pelin propinimet esiintyvät.** Vaihe näkee vain
-:class:`~pappascout.adapters.protocols.DemoRoundsParser`-portin, joten
-demoparser2:n vaihtaminen tai päivittäminen ei kosketa putkea.
+:class:`~pappascout.adapters.protocols.DemoParser`-portin, joten demoparser2:n
+vaihtaminen tai päivittäminen ei kosketa putkea.
 
 Kaikki alla käytetyt kentät on **todettu oikeasta demosta** (ks.
 ``_bmad-output/implementation-artifacts/demoparser2-kentat.md``), ei arvattu.
@@ -51,11 +51,26 @@ ovat luettavissa, ja ``players_freeze_end`` on saman joukon koko. Jakaja on
 siis aina sama joukko kuin osoittaja: kolmen pelaajan summa viidellä jaettuna
 näyttäisi ecolta, vaikka joukkue olisi ostanut täyden.
 
+Näytepisteet
+------------
+Sama lukukerta tuottaa myös ``ticks``-taulun: rivi per (pelaaja, kierros,
+näytepiste). Näytepisteet valitsee :mod:`pappascout.domain.sampling`, joka on
+puhdas funktio -- adapterin osuus on lukea propit valituilta tickeiltä ja
+kertoa domainille, kummalla puolella kukin pelaaja on.
+
+Kierrosrajat, kokoonpanot ja tickrate lasketaan **kerran** ja käytetään
+molempiin tauluihin. Siksi portti palauttaa ne yhdessä
+(:class:`~pappascout.adapters.protocols.DemoTables`): kaksi erillistä kutsua
+tekisi kokoonpanojen tunnistuksen kahdesti, ja jos tulokset joskus eroaisivat,
+``lineup_key`` olisi tauluissa eri eikä liitos enää osuisi.
+
 Muistinkäyttö
 -------------
 Demoa ei ladata muistiin kokonaan. ``parse_ticks`` kutsutaan **vain
-kierrosrajojen tickeille** (Ancient: 44 tickiä, ~440 riviä), ei koko
-tickisarjalle. Pakattu demo puretaan virtaavasti temp-tiedostoon.
+kierrosrajojen ja näytepisteiden tickeille** (Ancient: 44 + noin 100 tickiä,
+~1 500 riviä), ei koko tickisarjalle. Kutsuja on kaksi eikä yksi, koska
+näytepisteiden tickit riippuvat tickratesta, joka mitataan vasta
+kierrosrajojen lukemista. Pakattu demo puretaan virtaavasti temp-tiedostoon.
 """
 
 from __future__ import annotations
@@ -63,6 +78,7 @@ from __future__ import annotations
 import hashlib
 import statistics
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -70,14 +86,29 @@ from typing import Any
 import polars as pl
 
 from pappascout.adapters.decompress import readable_demo
-from pappascout.adapters.protocols import ROUNDS_ADAPTER_COLUMNS, ParseDiagnostics
-from pappascout.domain.schemas import ROUNDS
+from pappascout.adapters.protocols import (
+    ROUNDS_ADAPTER_COLUMNS,
+    TICKS_ADAPTER_COLUMNS,
+    DemoTables,
+    ParseDiagnostics,
+)
+from pappascout.domain.sampling import (
+    FIRST_CONTACT_SAMPLE,
+    DamageEvent,
+    RoundBounds,
+    SamplePoint,
+    first_contact_tick,
+    sample_ticks,
+    seconds_since_freeze_end,
+)
+from pappascout.domain.schemas import ROUNDS, TICKS
 from pappascout.errors import ParseError
 
 __all__ = [
-    "Demoparser2Rounds",
+    "Demoparser2Adapter",
     "TEAM_SIDES",
     "TICK_PROPS",
+    "SAMPLE_TICK_PROPS",
     "DEFAULT_TICK_RATE",
     "TICK_RATE_MIN",
     "TICK_RATE_MAX",
@@ -98,6 +129,16 @@ _LIFE_STATE = "CCSPlayerPawn.m_lifeState"
 _TEAM_SCORE = "CCSTeam.m_iScore"
 _ROUND_START_TIME = "CCSGameRulesProxy.CCSGameRules.m_fRoundStartTime"
 
+#: Pelin oma aluenimi (``env_cs_place``). Noin kaksi kertaa karkeampi kuin
+#: Total CS -callout; tyhjä merkkijono tarkoittaa aluetta, jolle peli ei anna
+#: nimeä, ja se säilyy taulussa ``null``:na.
+_PLACE_NAME = "CCSPlayerPawn.m_szLastPlaceName"
+
+#: Pelaajan koordinaatit. demoparser2 palauttaa nämä valmiiksi float32:na.
+_X = "X"
+_Y = "Y"
+_Z = "Z"
+
 #: Propit, jotka luetaan kierrosrajojen tickeistä.
 TICK_PROPS: tuple[str, ...] = (
     _TEAM_NUM,
@@ -111,8 +152,29 @@ TICK_PROPS: tuple[str, ...] = (
     _ROUND_START_TIME,
 )
 
+#: Propit, jotka luetaan näytepisteiden tickeistä. Lyhyempi lista kuin
+#: kierrosrajoilla: asetelmasta tarvitaan vain paikka, puoli ja elossaolo --
+#: talousarvot ovat kierroksen ominaisuus, eivät hetken.
+SAMPLE_TICK_PROPS: tuple[str, ...] = (
+    _TEAM_NUM,
+    _LIFE_STATE,
+    _PLACE_NAME,
+    _X,
+    _Y,
+    _Z,
+)
+
 #: ``m_iTeamNum`` -> puoli. 0 ja 1 ovat katsoja ja liittymätön, eivät joukkueita.
 TEAM_SIDES: dict[int, str] = {2: "T", 3: "CT"}
+
+#: Sarakkeet, jotka ``player_hurt``- ja ``player_death``-tapahtumissa on oltava.
+#: Molemmat tarjoavat kaikki neljä demoparser2 0.42.0:ssa.
+DAMAGE_COLUMNS: tuple[str, ...] = (
+    "tick",
+    "attacker_steamid",
+    "user_steamid",
+    "weapon",
+)
 
 #: Elossa olevan pelaajan ``m_lifeState``. Muut arvot ovat kuollut tai kuolemassa.
 _ALIVE = 0
@@ -170,28 +232,50 @@ class _Segment:
     round_raw: int = 0
 
 
-class Demoparser2Rounds:
-    """Lukee kierrostaulun demoparser2:lla.
+class Demoparser2Adapter:
+    """Lukee kierros- ja näytepistetaulun demoparser2:lla.
 
-    Toteuttaa :class:`~pappascout.adapters.protocols.DemoRoundsParser`-portin.
+    Toteuttaa :class:`~pappascout.adapters.protocols.DemoParser`-portin.
+
+    Args:
+        exclude_weapons: Aseet, jotka eivät kelpaa ensikontaktiksi
+            (``[parse].first_contact_exclude_weapons``). Oletus on tarkoituksella
+            tyhjä: adapteri ei lue asetuksia, vaan vaihe antaa listan.
+        fallback_death: Saako ensikontakti tulla ``player_death``-tapahtumasta,
+            jos kelvollista ``player_hurt``ia ei ole
+            (``[parse].first_contact_fallback_death``).
 
     Attributes:
         diagnostics: Viimeisimmän parsinnan havainnot, jotka eivät mahdu
-            ``ROUNDS``-sopimukseen. ``None`` ennen ensimmäistä kutsua.
+            taulusopimuksiin. ``None`` ennen ensimmäistä kutsua.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        exclude_weapons: Sequence[str] = (),
+        fallback_death: bool = True,
+    ) -> None:
+        self.exclude_weapons = tuple(exclude_weapons)
+        self.fallback_death = fallback_death
         self.diagnostics: ParseDiagnostics | None = None
 
-    def parse_rounds(self, path: Path) -> pl.DataFrame:
+    def parse_demo(
+        self, path: Path, sample_seconds: Sequence[float]
+    ) -> DemoTables:
         """Ks. portin dokumentaatio."""
         path = Path(path)
         with readable_demo(path) as demo_path:
-            return self._parse(demo_path, path)
+            return self._parse(demo_path, path, tuple(sample_seconds))
 
     # -- Sisäinen ------------------------------------------------------------
 
-    def _parse(self, demo_path: Path, alkuperainen: Path) -> pl.DataFrame:
+    def _parse(
+        self,
+        demo_path: Path,
+        alkuperainen: Path,
+        sample_seconds: tuple[float, ...],
+    ) -> DemoTables:
         parser = self._open(demo_path, alkuperainen)
         freeze_ticks = self._freeze_end_ticks(parser, alkuperainen)
         round_ends = self._round_ends(parser, alkuperainen)
@@ -210,13 +294,34 @@ class Demoparser2Rounds:
         )
         by_tick = self._read_ticks(parser, wanted, alkuperainen)
         tick_rate, measured = self._tick_rate(by_tick, freeze_ticks)
-        frame = self._build_frame(segments, by_tick, tick_rate)
+
+        lineups = [_Lineup(), _Lineup()]
+        sivut = self._assign_sides(segments, by_tick, lineups)
+        avaimet = self._lineup_keys(lineups)
+        rounds = self._build_frame(segments, by_tick, tick_rate, sivut, avaimet)
+
+        pisteet, tuntemattomat = self._sample_points(
+            parser,
+            alkuperainen,
+            segments,
+            sivut,
+            lineups,
+            by_tick,
+            tick_rate,
+            sample_seconds,
+        )
+        ticks, vajaat = self._build_ticks_frame(
+            pisteet, parser, alkuperainen, segments, sivut, avaimet
+        )
+
         self.diagnostics = ParseDiagnostics(
             tick_rate=tick_rate,
             tick_rate_measured=measured,
             rounds_seen=len(segments),
+            partial_samples=vajaat,
+            unknown_side_events=tuntemattomat,
         )
-        return frame
+        return DemoTables(rounds=rounds, ticks=ticks)
 
     def _open(self, demo_path: Path, alkuperainen: Path) -> Any:
         from demoparser2 import DemoParser as _Demoparser2
@@ -308,7 +413,7 @@ class Demoparser2Rounds:
         for orpo in freeze_ticks[i:]:
             segments.append(_Segment(None, orpo, None, None, None))
 
-        Demoparser2Rounds._assign_round_raw(segments)
+        Demoparser2Adapter._assign_round_raw(segments)
         return segments
 
     @staticmethod
@@ -454,14 +559,13 @@ class Demoparser2Rounds:
         siisti = float(pyoristetty) if abs(rate - pyoristetty) < 0.05 else float(rate)
         return siisti, True
 
-    def _build_frame(
-        self,
-        segments: list[_Segment],
-        by_tick: dict[int, list[dict[str, Any]]],
-        tick_rate: float,
-    ) -> pl.DataFrame:
-        lineups = [_Lineup(), _Lineup()]
-        sivut = self._assign_sides(segments, by_tick, lineups)
+    @staticmethod
+    def _lineup_keys(lineups: list[_Lineup]) -> list[str]:
+        """Kokoonpanojen tunnisteet; ne eivät saa olla samat.
+
+        Sama tunniste tarkoittaisi, ettei joukkueita voi erottaa toisistaan --
+        ja silloin jokainen joukkuekohtainen luku olisi molempien summa.
+        """
         avaimet = [lineup.key() for lineup in lineups]
         if avaimet[0] == avaimet[1]:
             raise ParseError(
@@ -470,7 +574,16 @@ class Demoparser2Rounds:
                 "Kierrosrajojen tickeissä näkyy sama pelaajajoukko molemmilla "
                 "puolilla. Demo on todennäköisesti vioittunut."
             )
+        return avaimet
 
+    def _build_frame(
+        self,
+        segments: list[_Segment],
+        by_tick: dict[int, list[dict[str, Any]]],
+        tick_rate: float,
+        sivut: list[tuple[str, str]],
+        avaimet: list[str],
+    ) -> pl.DataFrame:
         anchor_score = [
             _total_score(by_tick.get(s.freeze_end_tick or -1) or []) for s in segments
         ]
@@ -640,6 +753,398 @@ class Demoparser2Rounds:
         if not rivit:
             return pl.DataFrame(schema=schema)
         return pl.DataFrame(rivit, schema=schema, orient="row")
+
+    # -- Näytepisteet --------------------------------------------------------
+
+    def _sample_points(
+        self,
+        parser: Any,
+        alkuperainen: Path,
+        segments: list[_Segment],
+        sivut: list[tuple[str, str]],
+        lineups: list[_Lineup],
+        by_tick: dict[int, list[dict[str, Any]]],
+        tick_rate: float,
+        sample_seconds: tuple[float, ...],
+    ) -> tuple[list[SamplePoint], int]:
+        """Valitse hetket, joilta pelaajien sijainnit luetaan.
+
+        Aikapisteet tulevat suoraan :func:`~pappascout.domain.sampling.sample_ticks`
+        -funktiolta. Ensikontakti ratkaistaan kierros kerrallaan, koska sen
+        sääntö vaatii tiedon siitä, kummalla puolella kumpikin pelaaja oli
+        **tällä** kierroksella -- puolet vaihtuvat puoliajalla.
+
+        Returns:
+            ``(näytepisteet, tuntemattoman puolen takia ohitetut tapahtumat)``.
+        """
+        bounds = [
+            RoundBounds(
+                round_raw=s.round_raw,
+                freeze_end_tick=s.freeze_end_tick,
+                end_tick=s.end_tick,
+            )
+            for s in segments
+        ]
+        points = sample_ticks(bounds, tick_rate, sample_seconds)
+
+        hurt = self._damage_events(parser, "player_hurt", alkuperainen)
+        deaths = (
+            self._damage_events(parser, "player_death", alkuperainen)
+            if self.fallback_death
+            else []
+        )
+        if not hurt and not deaths:
+            return _sorted_points(points), 0
+
+        lineup_of = _lineup_index_by_player(lineups)
+        tuntemattomat = 0
+        for index, rajat in enumerate(bounds):
+            if not rajat.is_samplable:
+                continue
+            puolet = _side_lookup(lineup_of, sivut[index], segments[index], by_tick)
+            omat_hurt, a = _with_sides(hurt, rajat, puolet)
+            omat_deaths, b = _with_sides(deaths, rajat, puolet)
+            tuntemattomat += a + b
+            tick = first_contact_tick(
+                omat_hurt,
+                rajat,
+                exclude_weapons=self.exclude_weapons,
+                death_events=omat_deaths,
+                fallback_death=self.fallback_death,
+            )
+            if tick is None:
+                continue
+            assert rajat.freeze_end_tick is not None  # is_samplable
+            t_s = seconds_since_freeze_end(tick, rajat.freeze_end_tick, tick_rate)
+            points.append(
+                SamplePoint(
+                    round_raw=rajat.round_raw,
+                    tick=tick,
+                    sample_kind=FIRST_CONTACT_SAMPLE,
+                    sample_t_s=t_s,
+                    t_s=t_s,
+                )
+            )
+        return _sorted_points(points), tuntemattomat
+
+    def _damage_events(
+        self, parser: Any, name: str, alkuperainen: Path
+    ) -> list[tuple[int, str | None, str | None, str | None]]:
+        """Lue ``player_hurt``- tai ``player_death``-tapahtumat.
+
+        Puolia ei liitetä tässä: sama pelaaja on eri puolella ennen ja jälkeen
+        puoliajan, joten kuvaus on kierroskohtainen.
+
+        Returns:
+            ``(tick, attacker_id, victim_id, weapon)``. Puuttuva tapahtuma ei
+            ole virhe -- kierros voi ratketa ilman yhtään vahinkoa.
+        """
+        frame = self._event(parser, name, alkuperainen)
+        if frame is None:
+            # Tapahtumaa ei ole demossa lainkaan. Se on mahdollista (kierros
+            # voi ratketa ilman vahinkoa), joten se ei ole virhe.
+            return []
+
+        puuttuvat = [
+            sarake for sarake in DAMAGE_COLUMNS if sarake not in frame.columns
+        ]
+        if puuttuvat:
+            raise ParseError(
+                f"Demon {alkuperainen.name} tapahtumasta {name!r} puuttuu "
+                f"sarake: {', '.join(puuttuvat)}.\n"
+                "Ilman sitä jokainen tapahtuma hylättäisiin äänettömästi ja "
+                "tulos väittäisi, ettei yhdelläkään kierroksella ollut "
+                "ensikontaktia. Kenttä on todennäköisesti nimetty uudelleen "
+                "demoparser2:n päivityksessä -- päivitä "
+                "adapters/demo_parser.py:n DAMAGE_COLUMNS."
+            )
+
+        rivit: list[tuple[int, str | None, str | None, str | None]] = []
+        for row in frame.to_dict("records"):
+            tick = _as_int(row.get("tick"))
+            if tick is None:
+                continue
+            rivit.append(
+                (
+                    tick,
+                    _as_str(row.get("attacker_steamid")),
+                    _as_str(row.get("user_steamid")),
+                    _as_str(row.get("weapon")),
+                )
+            )
+        return rivit
+
+    def _build_ticks_frame(
+        self,
+        points: list[SamplePoint],
+        parser: Any,
+        alkuperainen: Path,
+        segments: list[_Segment],
+        sivut: list[tuple[str, str]],
+        avaimet: list[str],
+    ) -> tuple[pl.DataFrame, int]:
+        """Lue pelaajien sijainnit näytepisteiden tickeiltä ja rakenna taulu.
+
+        Rivi syntyy **jokaisesta** pelaajasta, myös kuolleesta: kuolleiden
+        suodatus on aggregoinnin työ (AD-10), ei parsinnan. Tuntematon alue
+        jää ``null``:ksi, mutta koordinaatit tallentuvat silti -- riviä ei
+        pudoteta hiljaa.
+
+        Returns:
+            ``(taulu, vajaiden näytepisteiden määrä)``. Vajaa näytepiste on
+            sellainen, jolta saatiin vähemmän pelaajia kuin demon parhaalta
+            pisteeltä. Luku raportoidaan, koska systemaattinen propivika
+            näkyisi muuten vasta vinoutuneina aggregaatteina.
+        """
+        if not points:
+            return self._typed_ticks_frame([]), 0
+
+        wanted = sorted({p.tick for p in points})
+        by_tick = self._read_sample_ticks(parser, wanted, alkuperainen)
+        # sivut on segmenttien järjestyksessä, mutta näytepiste tuntee vain
+        # round_raw-arvon, joten kuvaus tarvitaan takaisin segmentti-indeksiin.
+        index_by_raw = {s.round_raw: index for index, s in enumerate(segments)}
+        avain_puolelle = [
+            _keys_by_side(sivut[index], avaimet, segment)
+            for index, segment in enumerate(segments)
+        ]
+
+        rivit: list[dict[str, Any]] = []
+        pelaajia_pisteella: list[int] = []
+        for point in points:
+            segment_index = index_by_raw.get(point.round_raw)
+            if segment_index is None:  # pragma: no cover - sample_ticks takaa
+                continue
+            avaimet_side = avain_puolelle[segment_index]
+            tickin_rivit = by_tick.get(point.tick, ())
+            if not tickin_rivit:
+                raise ParseError(
+                    f"Demon {alkuperainen.name} naytepisteeltä "
+                    f"(round_raw={point.round_raw}, {point.sample_kind}, "
+                    f"t={point.sample_t_s:g} s, tick={point.tick}) ei saatu "
+                    "yhtään pelaajariviä.\n"
+                    "Tick on kierroksen rajojen sisällä, joten tyhjä tulos "
+                    "tarkoittaa että demo on vioittunut tai demoparser2 ei "
+                    "palauta tältä tickiltä mitään. Näytepiste laskettaisiin "
+                    "mukaan lukuihin mutta puuttuisi taulusta."
+                )
+            pelaajia_pisteella.append(len(tickin_rivit))
+            for rivi in tickin_rivit:
+                side = rivi["side"]
+                rivit.append(
+                    {
+                        "round_raw": point.round_raw,
+                        "round_no": None,
+                        "player_id": rivi["steamid"],
+                        "lineup_key": avaimet_side[side],
+                        "side": side,
+                        "sample_kind": point.sample_kind,
+                        "sample_t_s": point.sample_t_s,
+                        "t_s": point.t_s,
+                        "x": rivi["x"],
+                        "y": rivi["y"],
+                        "z": rivi["z"],
+                        "area": rivi["area"],
+                        "is_alive": rivi["alive"],
+                    }
+                )
+
+        # Odotettu pelaajamäärä luetaan demosta itsestään: [thresholds] ei näy
+        # tähän vaiheeseen (AD-3), joten roster_size'a ei voi käyttää.
+        täysi = max(pelaajia_pisteella, default=0)
+        vajaat = sum(1 for määrä in pelaajia_pisteella if määrä < täysi)
+        return self._typed_ticks_frame(rivit), vajaat
+
+    def _read_sample_ticks(
+        self, parser: Any, ticks: list[int], alkuperainen: Path
+    ) -> dict[int, list[dict[str, Any]]]:
+        """Lue sijaintipropit annetuilta tickeiltä ja ryhmittele tickin mukaan."""
+        if not ticks:
+            return {}
+        try:
+            frame = parser.parse_ticks(list(SAMPLE_TICK_PROPS), ticks=ticks)
+        except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
+            raise ParseError(
+                f"Demon {alkuperainen.name} näytepisteitä ei voitu lukea: {exc}\n"
+                "Tiedosto on todennäköisesti vioittunut tai demoparser2:n "
+                "versio ei tunne näitä kenttiä. Aja: uv sync"
+            ) from exc
+
+        saadut = set(getattr(frame, "columns", ()))
+        puuttuvat = [
+            name
+            for name in (*SAMPLE_TICK_PROPS, "tick", "steamid")
+            if name not in saadut
+        ]
+        if puuttuvat:
+            raise ParseError(
+                "demoparser2 ei palauttanut kaikkia näytepisteen kenttiä "
+                f"demosta {alkuperainen.name}. Puuttuu: {', '.join(puuttuvat)}.\n"
+                "Kenttä on todennäköisesti nimetty uudelleen demoparser2:n "
+                "päivityksessä. Ilman tarkistusta asetelmataulu näyttäisi "
+                "kelvolliselta mutta olisi tyhjä tai paikaton. Päivitä "
+                "adapters/demo_parser.py:n propinimet."
+            )
+
+        by_tick: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        for row in frame.to_dict("records"):
+            steamid = _as_str(row.get("steamid"))
+            side = TEAM_SIDES.get(_as_int(row.get(_TEAM_NUM)) or -1)
+            tick = _as_int(row.get("tick"))
+            if steamid is None or side is None or tick is None:
+                # Katsojat ja liittymättömät eivät ole kierroksen osapuolia.
+                continue
+            life_state = _as_int(row.get(_LIFE_STATE))
+            if life_state is None:
+                # is_alive ei ole nullable, joten puuttuva arvo muuttuisi
+                # hiljaa arvoksi False ja elossa oleva pelaaja katoaisi
+                # aggregoinnista. Tuntematon alue saa jäädä nulliksi, mutta
+                # tämä ei voi.
+                raise ParseError(
+                    f"Demon {alkuperainen.name} tickistä {tick} puuttuu "
+                    f"pelaajan {steamid} {_LIFE_STATE}.\n"
+                    "Elossaolo on pakollinen havainto: puuttuvasta arvosta "
+                    "tulisi 'kuollut', ja pelaaja katoaisi asetelmasta "
+                    "äänettömästi. Tarkista demoparser2:n versio."
+                )
+            by_tick[tick].append(
+                {
+                    "steamid": steamid,
+                    "side": side,
+                    # Tyhjä aluenimi on pelin tapa sanoa "ei nimettyä aluetta".
+                    # Se säilyy null:na; koordinaatit kertovat silti paikan.
+                    "area": _as_str(row.get(_PLACE_NAME)),
+                    "x": _as_float(row.get(_X)),
+                    "y": _as_float(row.get(_Y)),
+                    "z": _as_float(row.get(_Z)),
+                    "alive": life_state == _ALIVE,
+                }
+            )
+        return dict(by_tick)
+
+    @staticmethod
+    def _typed_ticks_frame(rivit: list[dict[str, Any]]) -> pl.DataFrame:
+        """Rakenna näytepistetaulu sopimuksen tyypeillä.
+
+        Tyypit annetaan eksplisiittisesti samasta syystä kuin kierrostaulussa:
+        pelkistä null-arvoista Polars päättelisi ``Null``-tyypin.
+        """
+        schema: dict[str, Any] = {name: TICKS[name] for name in TICKS_ADAPTER_COLUMNS}
+        if not rivit:
+            return pl.DataFrame(schema=schema)
+        return pl.DataFrame(rivit, schema=schema, orient="row")
+
+
+def _keys_by_side(
+    sivut: tuple[str, str], avaimet: list[str], segment: _Segment
+) -> dict[str, str]:
+    """Puoli -> kokoonpanotunniste yhdellä kierroksella.
+
+    Sanakirja eikä ``sivut.index(side)``: jos puolikuvaus olisi jostain syystä
+    ``("T", "T")``, ``.index`` palauttaisi molemmille nollan ja **molemmat
+    joukkueet saisivat saman lineup_keyn**. Taulu näyttäisi kelvolliselta,
+    mutta jokainen joukkuekohtainen luku olisi molempien summa -- täsmälleen se
+    ristiinkytkentä, jonka :meth:`Demoparser2Adapter._lineup_keys` estää
+    kierrostaulussa.
+    """
+    if sivut[0] == sivut[1]:
+        raise ParseError(
+            f"Kierroksella (round_raw={segment.round_raw}, "
+            f"freeze_end_tick={segment.freeze_end_tick}) molemmille "
+            f"kokoonpanoille tuli sama puoli {sivut[0]!r}.\n"
+            "Puolet eivät erotu, joten näytepisteiden rivit kohdistuisivat "
+            "samalle joukkueelle. Demo on todennäköisesti vioittunut."
+        )
+    return {sivut[0]: avaimet[0], sivut[1]: avaimet[1]}
+
+
+def _lineup_index_by_player(lineups: list[_Lineup]) -> dict[str, int]:
+    """Pelaaja -> kokoonpanon indeksi.
+
+    Pelaaja, joka on ehtinyt näkyä molemmissa kokoonpanoissa, jätetään pois:
+    hänen puoltaan ei voi päätellä, ja arvaus kohdistaisi kontaktin väärin
+    päin. Sellaista ei normaalissa demossa esiinny.
+    """
+    tulos: dict[str, int] = {}
+    molemmissa = lineups[0].members & lineups[1].members
+    for index, lineup in enumerate(lineups):
+        for steamid in lineup.members - molemmissa:
+            tulos[steamid] = index
+    return tulos
+
+
+def _side_lookup(
+    lineup_of: dict[str, int],
+    sivut: tuple[str, str],
+    segment: _Segment,
+    by_tick: dict[int, list[dict[str, Any]]],
+) -> dict[str, str]:
+    """Pelaaja -> puoli **tällä kierroksella**.
+
+    Ensisijainen lähde on kokoonpano: puoli tulee kierroksen omasta
+    kuvauksesta, ei pelaajasta, koska joukkueet vaihtavat puolta puoliajalla ja
+    jatkoajassa.
+
+    Varalähteenä on kierroksen oman tickin ``m_iTeamNum``. Sitä tarvitaan
+    pelaajalle, joka ei ole kummassakaan kokoonpanossa -- kesken karttaa tullut
+    tai uudelleenyhdistänyt pelaaja. Ilman varalähdetta hanen vahinkonsa
+    hylättäisiin äänettömästi ja kierros voisi menettaa ensikontaktinsa.
+    """
+    puolet = {steamid: sivut[index] for steamid, index in lineup_of.items()}
+    for tick in (segment.freeze_end_tick, segment.end_tick):
+        for rivi in by_tick.get(tick or -1) or ():
+            puolet.setdefault(rivi["steamid"], rivi["side"])
+    return puolet
+
+
+def _with_sides(
+    events: list[tuple[int, str | None, str | None, str | None]],
+    bounds: RoundBounds,
+    puolet: dict[str, str],
+) -> tuple[list[DamageEvent], int]:
+    """Rajaa tapahtumat kierrokseen ja liitä niihin pelaajien puolet.
+
+    Returns:
+        ``(tapahtumat, montako jäi ilman puolta)``. Jälkimmäinen luku päätyy
+        diagnostiikkaan: äänettömästi hylätty vahinko voisi viedä kierrokselta
+        ensikontaktin, eikä mikään kertoisi siitä.
+    """
+    if bounds.freeze_end_tick is None or bounds.end_tick is None:
+        return [], 0
+    alku, loppu = bounds.freeze_end_tick, bounds.end_tick
+
+    tulos: list[DamageEvent] = []
+    tuntemattomat = 0
+    for tick, attacker, victim, weapon in events:
+        if not alku <= tick <= loppu:
+            continue
+        attacker_side = puolet.get(attacker) if attacker else None
+        victim_side = puolet.get(victim) if victim else None
+        # Maailman aiheuttama vahinko (attacker None) on tunnettu tapaus eikä
+        # puuttuva havainto, joten sitä ei lasketa tuntemattomaksi.
+        if (attacker and attacker_side is None) or (victim and victim_side is None):
+            tuntemattomat += 1
+        tulos.append(
+            DamageEvent(
+                tick=tick,
+                attacker_id=attacker,
+                victim_id=victim,
+                weapon=weapon,
+                attacker_side=attacker_side,
+                victim_side=victim_side,
+            )
+        )
+    return tulos, tuntemattomat
+
+
+def _sorted_points(points: list[SamplePoint]) -> list[SamplePoint]:
+    """Näytepisteet vakaassa järjestyksessä.
+
+    ``sample_kind`` on avaimessa, koska ensikontakti voi osua tasan
+    konfiguroidulle sekunnille. Ilman sitä kahden rivin järjestys riippuisi
+    syötejärjestyksestä, ja sama demo tuottaisi eri tavut eri ajoilla.
+    """
+    return sorted(points, key=lambda p: (p.round_raw, p.sample_t_s, p.sample_kind))
 
 
 def _vaadi_edellinen(

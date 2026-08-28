@@ -11,6 +11,7 @@ periytyä mistään, ja tuonti pysyy kevyenä.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -18,12 +19,18 @@ from typing import Protocol, runtime_checkable
 import polars as pl
 
 from pappascout.domain.rounds import REQUIRED_COLUMNS as _NUMBERING_COLUMNS
-from pappascout.domain.schemas import ROUNDS
+from pappascout.domain.schemas import ROUNDS, TICKS
 
-__all__ = ["DemoRoundsParser", "ParseDiagnostics", "ROUNDS_ADAPTER_COLUMNS"]
+__all__ = [
+    "DemoParser",
+    "DemoTables",
+    "ParseDiagnostics",
+    "ROUNDS_ADAPTER_COLUMNS",
+    "TICKS_ADAPTER_COLUMNS",
+]
 
-#: Sarakkeet, jotka :meth:`DemoRoundsParser.parse_rounds` palauttaa
-#: **tarkalleen** -- ei enempää eikä vähempää.
+#: Sarakkeet, jotka kierrostaulussa ovat **tarkalleen** -- ei enempää eikä
+#: vähempää.
 #:
 #: Kaksi eroa ``ROUNDS``-sopimukseen:
 #:
@@ -40,6 +47,41 @@ ROUNDS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
     [name for name in ROUNDS if name != "map_demo_id"]
     + [name for name in _NUMBERING_COLUMNS if name not in ROUNDS]
 )
+
+#: Sarakkeet, jotka näytepistetaulussa ovat **tarkalleen** -- ei enempää eikä
+#: vähempää.
+#:
+#: Yksi ero ``TICKS``-sopimukseen: ``map_demo_id`` puuttuu samasta syystä kuin
+#: kierrostaulussa. ``round_no`` on mukana mutta **aina tyhjä**: adapteri tuntee
+#: vain demon oman ``round_raw``-laskurin, ja numeroinnin omistaa
+#: :func:`~pappascout.domain.rounds.mark_played_rounds`, jota vain
+#: ``stages.parse`` kutsuu. Vaihe liittää numeron avaimella ``round_raw`` ja
+#: pudottaa samalla numeroimattomien kierrosten rivit.
+TICKS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
+    name for name in TICKS if name != "map_demo_id"
+)
+
+
+@dataclass(frozen=True)
+class DemoTables:
+    """Yhden demon molemmat parsitut taulut samasta lukukerrasta.
+
+    Portti palauttaa ne yhdessä eikä kahdella kutsulla, ja syy on
+    yhdenmukaisuus eikä nopeus: ``lineup_key``, ``side`` ja ``round_raw``
+    lasketaan **kerran** ja päätyvät samoina molempiin tauluihin. Kaksi
+    erillistä kutsua tekisi kokoonpanojen tunnistuksen kahdesti, ja jos ne
+    joskus eroaisivat, liitos ``(map_demo_id, round_no)`` menisi hiljaa
+    ristiin.
+
+    Sivutuotteena 233 MB:n demo puretaan ja luetaan vain kerran.
+
+    Attributes:
+        rounds: Kierrostaulu, sarakkeet :data:`ROUNDS_ADAPTER_COLUMNS`.
+        ticks: Näytepistetaulu, sarakkeet :data:`TICKS_ADAPTER_COLUMNS`.
+    """
+
+    rounds: pl.DataFrame
+    ticks: pl.DataFrame
 
 
 @dataclass(frozen=True)
@@ -58,35 +100,62 @@ class ParseDiagnostics:
             ``False``, jos jouduttiin turvautumaan oletukseen.
         rounds_seen: Demosta löytyneiden kierrosrajojen määrä, pelatut ja
             pelaamattomat yhteensä.
+        partial_samples: Näytepisteet, joilta saatiin vähemmän pelaajia kuin
+            demon parhaalta pisteeltä. Nolla on normaali tulos; systemaattinen
+            propivika näkyisi tässä luvussa jo parsintavaiheessa eikä vasta
+            vinoutuneina aggregaatteina.
+        unknown_side_events: Vahinkotapahtumat, joissa tekijän tai uhrin puolta
+            ei saatu selville. Ne eivät kelpaa ensikontaktiksi, joten kierros
+            voi menettää kontaktinsa -- luku kertoo, milloin niin kävi.
+
+    Näytepisteiden ja ensikontaktien **määrät eivät ole täällä**: ne luetaan
+    valmiista taulusta vaiheessa. Adapteri laskisi ne numeroimattomat
+    kierrokset mukaan lukien, ja sama nimi eri nimittäjällä luetaan väärin.
     """
 
     tick_rate: float
     tick_rate_measured: bool
     rounds_seen: int
+    partial_samples: int = 0
+    unknown_side_events: int = 0
 
 
 @runtime_checkable
-class DemoRoundsParser(Protocol):
-    """Portti, joka lukee demosta kierrostaulun.
+class DemoParser(Protocol):
+    """Portti, joka lukee demosta kierros- ja näytepistetaulun.
 
     Toteutuksen on palautettava **havaitut** arvot sellaisenaan: ei
-    kierrostyyppiluokittelua, ei loss countia, ei muuta johdettua. Ainoa
-    päättely, joka tähän kuuluu, on kierrosrajojen tunnistaminen.
+    kierrostyyppiluokittelua, ei loss countia, ei aggregointia, ei muuta
+    johdettua. Ainoa päättely, joka tähän kuuluu, on kierrosrajojen
+    tunnistaminen ja näytepisteiden valinta niiden sisältä.
     """
 
-    def parse_rounds(self, path: Path) -> pl.DataFrame:
-        """Lue demo ja palauta kierrostaulu.
+    def parse_demo(
+        self, path: Path, sample_seconds: Sequence[float]
+    ) -> DemoTables:
+        """Lue demo ja palauta sen molemmat taulut.
 
         Args:
             path: Demotiedosto, joko ``.dem`` tai pakattu ``.dem.zst`` /
                 ``.dem.gz``.
+            sample_seconds: Näytepisteet sekunteina kierroksen
+                freezetime-ankkurista (``[parse].snapshot_seconds``).
 
         Returns:
-            Pitkä taulu, kaksi riviä per kierros (yksi kummallekin
-            joukkueelle). Sarakkeet ja tyypit ovat täsmälleen
-            :data:`ROUNDS_ADAPTER_COLUMNS`. ``round_no`` on kaikilla riveillä
-            ``null`` -- numeroinnin päättää ``domain.rounds.mark_played_rounds``,
-            jota vain ``stages.parse`` kutsuu.
+            :class:`DemoTables`.
+
+            ``rounds`` on pitkä taulu, kaksi riviä per kierros (yksi
+            kummallekin joukkueelle), sarakkeet täsmälleen
+            :data:`ROUNDS_ADAPTER_COLUMNS`.
+
+            ``ticks`` on rivi per (pelaaja, kierros, näytepiste), sarakkeet
+            täsmälleen :data:`TICKS_ADAPTER_COLUMNS`. Rivejä on vain
+            kierroksilta, joilla on freezetime-ankkuri ja päättymistick, eikä
+            yhtään näytepistettä kierroksen päättymisen jälkeen.
+
+            Molemmissa tauluissa ``round_no`` on kaikilla riveillä ``null`` --
+            numeroinnin päättää ``domain.rounds.mark_played_rounds``, jota vain
+            ``stages.parse`` kutsuu.
 
         Raises:
             ~pappascout.errors.ParseError: Jos tiedosto ei ole CS2-demo tai

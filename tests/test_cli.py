@@ -294,7 +294,12 @@ def test_pipeline_packages_expose_their_contracts() -> None:
     odotetut = {
         "pappascout.stages": ("StageResult", "archive_paths"),
         "pappascout.stages.parse": ("run", "resolve_demo", "default_parser"),
-        "pappascout.adapters": ("DemoRoundsParser", "ROUNDS_ADAPTER_COLUMNS"),
+        "pappascout.adapters": (
+            "DemoParser",
+            "DemoTables",
+            "ROUNDS_ADAPTER_COLUMNS",
+            "TICKS_ADAPTER_COLUMNS",
+        ),
     }
     for nimi, symbolit in odotetut.items():
         moduuli = importlib.import_module(nimi)

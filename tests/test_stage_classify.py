@@ -18,16 +18,18 @@ from conftest import (
     ANCIENT_ROUNDS,
     NUKE_ROUNDS,
     NUKE_ZST,
+    REAL_SETTINGS,
     has_temp_leftovers,
     require_demo,
     settings_text,
 )
+from pappascout.adapters.protocols import TICKS_ADAPTER_COLUMNS, DemoTables
 from pappascout.archive.manifest import Manifest
 from pappascout.archive.paths import ArchivePaths
-from pappascout.domain.models import load_settings
 from pappascout.domain.economy import per_player
+from pappascout.domain.models import load_settings
 from pappascout.domain.rounds import mark_played_rounds
-from pappascout.domain.schemas import CLASSIFIED, ROUNDS, validate
+from pappascout.domain.schemas import CLASSIFIED, ROUNDS, TICKS, validate
 from pappascout.errors import PappascoutError, SchemaError
 from pappascout.stages import classify as classify_stage
 from pappascout.stages import parse as parse_stage
@@ -120,6 +122,40 @@ def settings(settings_file: Path):
     return load_settings(settings_file, env_files=())
 
 
+def _minimal_ticks(frame: pl.DataFrame) -> pl.DataFrame:
+    """Yksi näytepiste per kierrosrivi, portin sopimuksen mukaisena.
+
+    Luokittelu ei lue näytepisteitä lainkaan, mutta ``parse`` kieltäytyy
+    kirjoittamasta tyhjää asetelmataulua ei-tyhjälle kierrostaululle. Tämä
+    pitää kiinnikkeen rehellisenä: se tuottaa sen mitä oikea adapteri
+    tuottaisi, ei tyhjää kuorta.
+    """
+    rivit = [
+        {
+            "round_raw": rivi["round_no"],
+            "round_no": None,
+            "player_id": f"{rivi['lineup_key']}-1",
+            "lineup_key": rivi["lineup_key"],
+            "side": rivi["side"],
+            "sample_kind": "time",
+            "sample_t_s": 6.0,
+            "t_s": 6.0,
+            "x": 1.0,
+            "y": 2.0,
+            "z": 3.0,
+            "area": "Middle",
+            "is_alive": True,
+        }
+        for rivi in frame.iter_rows(named=True)
+        if rivi["round_no"] is not None
+    ]
+    return pl.DataFrame(
+        rivit,
+        schema={name: TICKS[name] for name in TICKS_ADAPTER_COLUMNS},
+        orient="row",
+    )
+
+
 def parsi(
     arkisto: ArchivePaths,
     frame: pl.DataFrame,
@@ -145,9 +181,15 @@ def parsi(
         pl.col("round_no").alias("score_end"),
     )
 
+    # Näytepistetaulu on Story 2.1:n tulos eikä vaikuta luokitteluun, mutta se
+    # ei saa olla tyhjä: parse hylkää asetelmattoman tuloksen. Feikki antaa
+    # siksi yhden näytepisteen per kierros, samoilla avaimilla kuin
+    # kierrostaulussa.
+    tickit = _minimal_ticks(frame)
+
     class Fake:
-        def parse_rounds(self, path: Path) -> pl.DataFrame:
-            return adapteri
+        def parse_demo(self, path: Path, sample_seconds) -> DemoTables:
+            return DemoTables(rounds=adapteri, ticks=tickit)
 
     parse_stage.run(
         parse_settings, arkisto, MAP_DEMO_ID, Fake(), demo_path=demo, force=force
@@ -713,9 +755,18 @@ def test_inputs_carry_the_money_that_was_available(settings, parsittu) -> None:
 
 def real_rounds(demo_nimi: str, map_demo_id: str) -> pl.DataFrame:
     """Oikean demon kierrostaulu ``ROUNDS``-muodossa, ilman arkistoa."""
-    from pappascout.adapters.demo_parser import Demoparser2Rounds
+    from pappascout.adapters.demo_parser import Demoparser2Adapter
 
-    raaka = mark_played_rounds(Demoparser2Rounds().parse_rounds(require_demo(demo_nimi)))
+    # Yksi näytepiste riittää: tämä apuri käyttää vain kierrostaulua, ja
+    # portti palauttaa molemmat samasta lukukerrasta. Poissulkulista on
+    # tuotannon, jotta adapteri ajetaan samoilla säännöillä kuin oikeasti.
+    asetukset = load_settings(REAL_SETTINGS, env_files=()).parse
+    adapteri = Demoparser2Adapter(
+        exclude_weapons=asetukset.first_contact_exclude_weapons,
+        fallback_death=asetukset.first_contact_fallback_death,
+    )
+    tables = adapteri.parse_demo(require_demo(demo_nimi), (6.0,))
+    raaka = mark_played_rounds(tables.rounds)
     df = raaka.filter(pl.col("round_no").is_not_null()).select(
         pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
         *[pl.col(name) for name in ROUNDS if name != "map_demo_id"],

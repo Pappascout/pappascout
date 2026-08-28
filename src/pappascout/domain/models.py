@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import tomllib
+from math import isfinite
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -46,6 +47,7 @@ __all__ = [
     "SETTINGS_FILENAME",
     "SETTINGS_ENV_VAR",
     "SETTINGS_SECTIONS",
+    "MAX_SNAPSHOT_SECONDS",
 ]
 
 SETTINGS_FILENAME = "settings.toml"
@@ -55,6 +57,10 @@ SETTINGS_ENV_VAR = "PAPPASCOUT_SETTINGS"
 SETTINGS_SECTIONS: frozenset[str] = frozenset(
     {"project", "league", "parse", "thresholds", "economy"}
 )
+
+#: Näytepisteen yläraja sekunteina. CS2:n kierros kestää 1.55 = 115 s, joten
+#: sitä suurempi arvo ei voi osua yhdelläkään kierrokselle.
+MAX_SNAPSHOT_SECONDS = 115.0
 
 PositiveInt = Annotated[int, Field(gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
@@ -117,6 +123,57 @@ class ParseSettings(_Section):
     #: lähimmän elossa olevan pelaajan alueen. None = ei napsautusta, jolloin
     #: detonate_area jää nulliksi. Kalibroidaan Epicissä 2 oikeilla demoilla.
     area_snap_units: PositiveInt | None = None
+
+    @model_validator(mode="after")
+    def _check_snapshot_seconds(self) -> "ParseSettings":
+        """Näytepisteajat ovat asetus, joten ne on tarkistettava latauksessa.
+
+        Kolme tapaa mennä rikki hiljaa:
+
+        * **Tyhjä lista** pääsi läpi ``min_length=1``-tarkistuksesta vain, jos
+          avain puuttuu kokonaan -- mutta ``[]`` on eri asia: silloin taulussa
+          olisi pelkkiä ensikontakteja, ja virheellinen konfiguraatio näyttäisi
+          onnistuneelta ajolta.
+        * **NaN tai ääretön** kaataisi ``round()``-kutsun kesken parsinnan,
+          satojen megatavujen lukemisen jälkeen.
+        * **Kirjoitusvirhe** kuten ``450.0`` (tarkoitettu ``45.0``) ei kaataisi
+          mitään: piste vain putoaisi jokaiselta kierrokselta, ja taulu olisi
+          hiljaa vajaa.
+        """
+        if not self.snapshot_seconds:
+            raise ValueError(
+                "snapshot_seconds on tyhjä. Ilman näytepisteitä asetelmataulu "
+                "jäisi pelkkien ensikontaktien varaan."
+            )
+        for arvo in self.snapshot_seconds:
+            if not isfinite(arvo):
+                raise ValueError(
+                    f"snapshot_seconds sisältää arvon {arvo!r}, joka ei ole "
+                    "äärellinen luku."
+                )
+            if arvo <= 0:
+                raise ValueError(
+                    f"snapshot_seconds sisältää arvon {arvo:g}, joka ei ole "
+                    "positiivinen. Näytepisteet mitataan freezetimen lopusta "
+                    "eteenpäin; nolla olisi ankkuri itse, jossa kukaan ei ole "
+                    "vielä liikkunut."
+                )
+            if arvo > MAX_SNAPSHOT_SECONDS:
+                raise ValueError(
+                    f"snapshot_seconds sisältää arvon {arvo:g} s, joka ylittää "
+                    f"kierroksen keston ({MAX_SNAPSHOT_SECONDS:g} s). Piste "
+                    "putoaisi jokaiselta kierrokselta, joten se on lähes "
+                    "varmasti kirjoitusvirhe."
+                )
+        kaksoiskappaleet = sorted(
+            {a for a in self.snapshot_seconds if self.snapshot_seconds.count(a) > 1}
+        )
+        if kaksoiskappaleet:
+            raise ValueError(
+                "snapshot_seconds sisältää saman ajan kahdesti: "
+                f"{', '.join(f'{a:g}' for a in kaksoiskappaleet)}."
+            )
+        return self
 
 
 class ThresholdSettings(_Section):

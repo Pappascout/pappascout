@@ -1,9 +1,9 @@
 """``stages.parse`` -- vaiheen testit ilman demoja.
 
-Vaihe näkee demon vain portin takaa (AD-8), joten sen koko logiikka -- taulun
-validointi, atominen kirjoitus, manifesti ja ohitus -- testataan feikillä, joka
-rakentaa kierrostaulun käsin. Yksikään näistä testeistä ei tarvitse
-demotiedostoa.
+Vaihe näkee demon vain portin takaa (AD-8), joten sen koko logiikka -- taulujen
+validointi, kierrosnumeron liittäminen näytepisteisiin, atominen kirjoitus,
+manifesti ja ohitus -- testataan feikillä, joka rakentaa kierros- ja
+näytepistetaulun käsin. Yksikään näistä testeistä ei tarvitse demotiedostoa.
 """
 
 from __future__ import annotations
@@ -15,11 +15,16 @@ import polars as pl
 import pytest
 
 from conftest import has_temp_leftovers, settings_text
-from pappascout.adapters.protocols import ROUNDS_ADAPTER_COLUMNS
+from pappascout.adapters.protocols import (
+    ROUNDS_ADAPTER_COLUMNS,
+    TICKS_ADAPTER_COLUMNS,
+    DemoTables,
+)
 from pappascout.archive.manifest import Manifest
 from pappascout.archive.paths import ArchivePaths
+from pappascout.constants import SAMPLE_KINDS, SIDES
 from pappascout.domain.models import load_settings
-from pappascout.domain.schemas import ROUNDS
+from pappascout.domain.schemas import ROUNDS, TICKS
 from pappascout.errors import DemoUnavailable, PappascoutError, ParseError, SchemaError
 from pappascout.stages import parse as parse_stage
 
@@ -29,6 +34,14 @@ MAP_DEMO_ID = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1"
 ADAPTER_SCHEMA: dict[str, object] = {
     name: ROUNDS.get(name, pl.Int32) for name in ROUNDS_ADAPTER_COLUMNS
 }
+
+#: Näytepistetaulun tyypit portin takana: ``TICKS`` ilman ``map_demo_id``:tä.
+TICKS_ADAPTER_SCHEMA: dict[str, object] = {
+    name: TICKS[name] for name in TICKS_ADAPTER_COLUMNS
+}
+
+#: Näytepisteet, joilla feikki rakentaa tick-rivinsä.
+SAMPLE_SECONDS = (6.0, 15.0)
 
 
 # --- Feikki portin taakse ------------------------------------------------------
@@ -92,21 +105,82 @@ def build_rounds(
     return pl.DataFrame(rivit, schema=dict(ADAPTER_SCHEMA), orient="row")
 
 
+def build_ticks(
+    rounds: pl.DataFrame,
+    *,
+    sample_seconds: tuple[float, ...] = SAMPLE_SECONDS,
+    first_contact_rounds: tuple[int, ...] = (),
+    lyhyet: dict[int, float] | None = None,
+    contact_t_s: float = 9.5,
+) -> pl.DataFrame:
+    """Näytepistetaulu ``build_rounds``-taulua vastaavana, kuten adapteri sen antaisi.
+
+    Adapteri näytteistää **kaikki** ankkuroidut kierrosrajat, myös warmupin ja
+    puukkokierroksen: se ei tunne numerointisääntöä. Vaiheen tehtävä on pudottaa
+    ne, joten feikin on tuotettava ne mukaan.
+
+    Args:
+        rounds: Kierrostaulu, josta ``round_raw``, ``side`` ja ``lineup_key``
+            luetaan -- avaimet eivät saa erota tauluissa.
+        sample_seconds: Aikapisteet.
+        first_contact_rounds: Ne ``round_raw``-arvot, joilta löytyi ensikontakti.
+        lyhyet: ``round_raw -> kierroksen kesto sekunteina``. Näytepiste, joka
+            ylittää keston, jätetään pois -- kuten oikeassa demossa.
+    """
+    kesto = lyhyet or {}
+    rivit: list[dict[str, object]] = []
+    for kierros in rounds.iter_rows(named=True):
+        raw = kierros["round_raw"]
+        if kierros["freeze_end_tick"] is None:
+            continue  # ankkuriton kierros ei tuota näytepisteitä
+        hetket: list[tuple[str, float]] = [
+            ("time", s) for s in sample_seconds if s <= kesto.get(raw, 1e9)
+        ]
+        if raw in first_contact_rounds:
+            hetket.append(("first_contact", contact_t_s))
+        for kind, t_s in hetket:
+            for index in range(5):
+                rivit.append(
+                    {
+                        "round_raw": raw,
+                        "round_no": None,
+                        "player_id": f"{kierros['lineup_key']}-{index}",
+                        "lineup_key": kierros["lineup_key"],
+                        "side": kierros["side"],
+                        "sample_kind": kind,
+                        "sample_t_s": t_s,
+                        "t_s": t_s,
+                        "x": 10.0 * index,
+                        "y": -10.0 * index,
+                        "z": 1.0,
+                        "area": None if index == 4 else "Ramp",
+                        "is_alive": index < 4,
+                    }
+                )
+    return pl.DataFrame(rivit, schema=dict(TICKS_ADAPTER_SCHEMA), orient="row")
+
+
 class FakeParser:
     """Portin toteutus, joka ei koske demoparser2:een."""
 
     def __init__(
-        self, frame: pl.DataFrame | None = None, virhe: Exception | None = None
+        self,
+        frame: pl.DataFrame | None = None,
+        virhe: Exception | None = None,
+        ticks: pl.DataFrame | None = None,
     ):
         self.frame = frame if frame is not None else build_rounds()
+        self.ticks = ticks if ticks is not None else build_ticks(self.frame)
         self.virhe = virhe
         self.kutsut = 0
+        self.nahdyt_sekunnit: list[tuple[float, ...]] = []
 
-    def parse_rounds(self, path: Path) -> pl.DataFrame:
+    def parse_demo(self, path: Path, sample_seconds) -> DemoTables:
         self.kutsut += 1
+        self.nahdyt_sekunnit.append(tuple(sample_seconds))
         if self.virhe is not None:
             raise self.virhe
-        return self.frame
+        return DemoTables(rounds=self.frame, ticks=self.ticks)
 
 
 # --- Kiinnikkeet ---------------------------------------------------------------
@@ -206,7 +280,10 @@ def test_writes_a_manifest_with_only_the_parse_section(
     assert manifest.stage == "parse"
     assert manifest.status == "ok"
     assert list(manifest.tool_versions) == ["demoparser2"]
-    assert manifest.outputs == ["parsed/" + MAP_DEMO_ID + "/rounds.parquet"]
+    assert manifest.outputs == [
+        f"parsed/{MAP_DEMO_ID}/rounds.parquet",
+        f"parsed/{MAP_DEMO_ID}/ticks.parquet",
+    ]
     assert manifest.inputs[0].result_id == f"demo/{MAP_DEMO_ID}"
 
 
@@ -232,6 +309,333 @@ def test_rows_are_sorted_by_round(parse_settings, arkisto, demo) -> None:
     aja(parse_settings, arkisto, FakeParser(build_rounds(5)), demo)
     df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "rounds"))
     assert df["round_no"].to_list() == sorted(df["round_no"].to_list())
+
+
+# --- Näytepistetaulu -----------------------------------------------------------
+
+
+def test_writes_a_valid_ticks_table(parse_settings, arkisto, demo) -> None:
+    """Hyväksymiskriteeri: ``ticks.parquet`` läpäisee ``validate(TICKS)``."""
+    rounds = build_rounds(pelatut=3, warmup=0)
+    tulos = aja(
+        parse_settings, arkisto, FakeParser(rounds, ticks=build_ticks(rounds)), demo
+    )
+
+    table = arkisto.parsed_table(MAP_DEMO_ID, "ticks")
+    assert table.is_file()
+    df = pl.read_parquet(table)
+    assert list(df.columns) == list(TICKS)
+    assert df.schema == dict(TICKS)
+    assert df["map_demo_id"].unique().to_list() == [MAP_DEMO_ID]
+    # 3 kierrosta x 2 joukkuetta x 2 näytepistettä x 5 pelaajaa.
+    assert df.height == 60
+    assert tulos.stats["tick_rows"] == 60
+    assert tulos.stats["sample_points"] == 6  # kierros x hetki
+    assert tulos.stats["sample_rounds"] == 3
+
+
+def test_ticks_are_listed_among_the_outputs(parse_settings, arkisto, demo) -> None:
+    tulos = aja(parse_settings, arkisto, FakeParser(), demo)
+    assert [p.name for p in tulos.outputs] == ["rounds.parquet", "ticks.parquet"]
+
+
+def test_ticks_get_the_round_number_from_the_rounds_table(
+    parse_settings, arkisto, demo
+) -> None:
+    """Numeroinnin omistaa domain.rounds; vaihe vain liittää sen."""
+    rounds = build_rounds(pelatut=3, warmup=0)
+    aja(parse_settings, arkisto, FakeParser(rounds, ticks=build_ticks(rounds)), demo)
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "ticks"))
+
+    assert df["round_no"].null_count() == 0
+    assert sorted(df["round_no"].unique().to_list()) == [1, 2, 3]
+    # round_raw säilyy demon omana numerona rinnalla.
+    parit = set(zip(df["round_raw"].to_list(), df["round_no"].to_list()))
+    assert parit == {(1, 1), (2, 2), (3, 3)}
+
+
+def test_unnumbered_rounds_produce_no_tick_rows(parse_settings, arkisto, demo) -> None:
+    """I/O-matriisi: warmup ja puukkokierros -> ei tick-rivejä.
+
+    Adapteri näytteistää ne, koska se ei tunne numerointisääntöä; tämä testi
+    lukitsee sen, että vaihe pudottaa ne samalla päätöksellä kuin
+    kierrostaulusta.
+    """
+    rounds = build_rounds(pelatut=2, warmup=3)
+    tulos = aja(
+        parse_settings, arkisto, FakeParser(rounds, ticks=build_ticks(rounds)), demo
+    )
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "ticks"))
+
+    assert sorted(df["round_no"].unique().to_list()) == [1, 2]
+    # Numeroimattomat round_raw-arvot 1..3 eivät ole taulussa.
+    assert sorted(df["round_raw"].unique().to_list()) == [4, 5]
+    assert tulos.stats["skipped_rounds"] == 3
+
+
+def test_a_round_without_an_anchor_has_no_tick_rows(
+    parse_settings, arkisto, demo
+) -> None:
+    """I/O-matriisi: ankkuriton kierros on rounds-taulussa mutta ei ticksissä."""
+    rounds = build_rounds(3, warmup=0, ilman_ankkuria=(2,))
+    aja(parse_settings, arkisto, FakeParser(rounds, ticks=build_ticks(rounds)), demo)
+
+    kierrokset = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "rounds"))
+    ticks = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "ticks"))
+    assert 2 in kierrokset["round_no"].to_list()
+    assert sorted(ticks["round_no"].unique().to_list()) == [1, 3]
+
+
+def test_a_short_round_keeps_only_the_points_it_reached(
+    parse_settings, arkisto, demo
+) -> None:
+    """Hyväksymiskriteeri: ei näytepistettä kierroksen päättymisen jälkeen."""
+    rounds = build_rounds(pelatut=2, warmup=0)
+    ticks = build_ticks(rounds, lyhyet={2: 10.0})  # round_raw 2 ratkesi 10 s
+    aja(parse_settings, arkisto, FakeParser(rounds, ticks=ticks), demo)
+
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "ticks"))
+    lyhyt = df.filter(pl.col("round_no") == 2)
+    assert sorted(lyhyt["sample_t_s"].unique().to_list()) == [6.0]
+    pitka = df.filter(pl.col("round_no") == 1)
+    assert sorted(pitka["sample_t_s"].unique().to_list()) == [6.0, 15.0]
+
+
+def test_first_contact_rows_are_counted_separately(
+    parse_settings, arkisto, demo
+) -> None:
+    rounds = build_rounds(pelatut=3, warmup=0)
+    ticks = build_ticks(rounds, first_contact_rounds=(1, 3))
+    tulos = aja(parse_settings, arkisto, FakeParser(rounds, ticks=ticks), demo)
+
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "ticks"))
+    kontakti = df.filter(pl.col("sample_kind") == "first_contact")
+    assert sorted(kontakti["round_no"].unique().to_list()) == [1, 3]
+    assert tulos.stats["first_contact_rounds"] == 2
+
+
+def test_lineup_keys_join_across_the_two_tables(
+    parse_settings, arkisto, demo
+) -> None:
+    """Liitos ``(map_demo_id, round_no)`` ei saa mennä ristiin joukkueissa."""
+    aja(parse_settings, arkisto, FakeParser(), demo)
+    kierrokset = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "rounds"))
+    ticks = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "ticks"))
+
+    liitos = ticks.join(
+        kierrokset.select("map_demo_id", "round_no", "lineup_key", "side"),
+        on=["map_demo_id", "round_no", "lineup_key", "side"],
+        how="inner",
+    )
+    assert liitos.height == ticks.height
+
+
+def test_ticks_rows_are_sorted_by_round_and_time(
+    parse_settings, arkisto, demo
+) -> None:
+    aja(parse_settings, arkisto, FakeParser(build_rounds(4, warmup=0)), demo)
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "ticks"))
+    avaimet = list(zip(df["round_no"].to_list(), df["sample_t_s"].to_list()))
+    assert avaimet == sorted(avaimet)
+
+
+def test_the_stage_passes_the_configured_sample_seconds_to_the_port(
+    parse_settings, arkisto, demo
+) -> None:
+    """Näytepisteajat ovat asetus eivätkä koodia (AD-3)."""
+    parser = FakeParser()
+    aja(parse_settings, arkisto, parser, demo)
+    assert parser.nahdyt_sekunnit == [tuple(parse_settings.snapshot_seconds)]
+
+
+def test_a_ticks_table_breaking_the_port_contract_is_rejected(
+    parse_settings, arkisto, demo
+) -> None:
+    rounds = build_rounds()
+    rikki = build_ticks(rounds).drop("area")
+    with pytest.raises(SchemaError) as exc:
+        aja(parse_settings, arkisto, FakeParser(rounds, ticks=rikki), demo)
+    assert "area" in str(exc.value)
+    assert "näytepistetaulun" in str(exc.value)
+
+
+def test_an_extra_ticks_column_is_a_contract_break_too(
+    parse_settings, arkisto, demo
+) -> None:
+    rounds = build_rounds()
+    rikki = build_ticks(rounds).with_columns(pl.lit(1).alias("ylimaarainen"))
+    with pytest.raises(SchemaError) as exc:
+        aja(parse_settings, arkisto, FakeParser(rounds, ticks=rikki), demo)
+    assert "ylimaarainen" in str(exc.value)
+
+
+def test_an_empty_ticks_table_with_rounds_is_refused(
+    parse_settings, arkisto, demo
+) -> None:
+    """Kierroksia mutta ei yhtään näytepistettä on virhe, ei ok-tulos.
+
+    Tyhjä asetelmataulu jäisi manifestin perusteella pysyvästi ohitetuksi, ja
+    aggregointi raportoisi kartan ilman yhtään asetelmaa -- tasan se hiljainen
+    tyhjyys, jonka koko sopimuksen on tarkoitus estää.
+    """
+    rounds = build_rounds(pelatut=2, warmup=0)
+    tyhja = pl.DataFrame(schema=dict(TICKS_ADAPTER_SCHEMA))
+    with pytest.raises(ParseError) as exc:
+        aja(parse_settings, arkisto, FakeParser(rounds, ticks=tyhja), demo)
+    assert "näytepistettä" in str(exc.value)
+
+    assert not arkisto.parsed_table(MAP_DEMO_ID, "ticks").exists()
+    assert Manifest.read(arkisto.parsed_manifest(MAP_DEMO_ID)).status == "parse_failed"
+
+
+def test_a_failure_leaves_no_partial_ticks_table(
+    parse_settings, arkisto, demo
+) -> None:
+    with pytest.raises(ParseError):
+        aja(parse_settings, arkisto, FakeParser(virhe=ParseError("rikki")), demo)
+    assert not arkisto.parsed_table(MAP_DEMO_ID, "ticks").exists()
+    assert not has_temp_leftovers(arkisto.root)
+
+
+def test_a_missing_ticks_table_forces_a_reparse(
+    parse_settings, arkisto, demo
+) -> None:
+    """Puolikas tulos ei ole ajantasainen tulos."""
+    parser = FakeParser()
+    aja(parse_settings, arkisto, parser, demo)
+    arkisto.parsed_table(MAP_DEMO_ID, "ticks").unlink()
+
+    tulos = aja(parse_settings, arkisto, parser, demo)
+    assert not tulos.skipped
+    assert parser.kutsut == 2
+
+
+def test_an_archive_parsed_by_an_older_version_is_reparsed(
+    parse_settings, arkisto, demo
+) -> None:
+    """Story 1.3:n arkisto ei saa jäädä ilman ``ticks.parquet``-taulua.
+
+    ``ParseSettings`` ei muuttunut Story 2.1:ssä, joten ``params_hash`` on
+    identtinen. Manifestin ``outputs_present()`` tarkistaa vain ne polut, jotka
+    **levyllä oleva** manifesti nimeää -- ja vanha manifesti nimeää vain
+    kierrostaulun. Ilman erillistä tarkistusta ajo ohitettaisiin, asetelmataulu
+    ei syntyisi koskaan, ja käyttäjälle kerrottaisiin "Tulos on ajan tasalla".
+    """
+    parser = FakeParser()
+    aja(parse_settings, arkisto, parser, demo)
+
+    # Kelaa arkisto Story 1.3:n muotoon: manifesti nimeää vain rounds-taulun
+    # ja ticks-taulua ei ole.
+    manifest_polku = arkisto.parsed_manifest(MAP_DEMO_ID)
+    manifest = json.loads(manifest_polku.read_text(encoding="utf-8"))
+    manifest["outputs"] = [f"parsed/{MAP_DEMO_ID}/rounds.parquet"]
+    manifest_polku.write_text(json.dumps(manifest), encoding="utf-8")
+    arkisto.parsed_table(MAP_DEMO_ID, "ticks").unlink()
+
+    tulos = aja(parse_settings, arkisto, parser, demo)
+
+    assert not tulos.skipped, "vanha arkisto olisi jäänyt ilman asetelmataulua"
+    assert parser.kutsut == 2
+    assert arkisto.parsed_table(MAP_DEMO_ID, "ticks").is_file()
+
+
+def test_a_failed_second_write_never_looks_up_to_date(
+    parse_settings, arkisto, demo, monkeypatch
+) -> None:
+    """Kahden taulun kirjoitus on yksi tapahtuma.
+
+    Jos ticks-kirjoitus kaatuu peräkkäisissä lohkoissa, arkistoon jäisi
+    kierrostaulu ilman pariaan -- ja koska manifesti kirjoitettaisiin silti,
+    seuraava ajo ohittaisi vaiheen ja kertoisi iloisesti kierrosmäärän.
+    """
+    alkuperainen = pl.DataFrame.write_parquet
+    kutsut = {"n": 0}
+
+    def kaatuva(self, *args, **kwargs):
+        kutsut["n"] += 1
+        if kutsut["n"] == 2:
+            raise OSError("levy täyttyi kesken kirjoituksen")
+        return alkuperainen(self, *args, **kwargs)
+
+    monkeypatch.setattr(pl.DataFrame, "write_parquet", kaatuva)
+
+    parser = FakeParser(build_rounds(pelatut=5, warmup=0))
+    with pytest.raises(OSError):
+        aja(parse_settings, arkisto, parser, demo)
+
+    monkeypatch.undo()
+
+    # Kumpikaan taulu ei jäänyt paikalleen, ja manifesti kertoo virheestä.
+    assert not arkisto.parsed_table(MAP_DEMO_ID, "rounds").exists()
+    assert not arkisto.parsed_table(MAP_DEMO_ID, "ticks").exists()
+    assert not has_temp_leftovers(arkisto.root)
+    assert Manifest.read(arkisto.parsed_manifest(MAP_DEMO_ID)).status == "parse_failed"
+
+    # Ja seuraava ajo ei ohita.
+    tulos = aja(parse_settings, arkisto, FakeParser(build_rounds(5, warmup=0)), demo)
+    assert not tulos.skipped
+    assert tulos.stats["rounds"] == 5
+    assert tulos.stats["sample_rounds"] == 5
+
+
+def test_ticks_are_sorted_deterministically_by_kind_too(
+    parse_settings, arkisto, demo
+) -> None:
+    """Ensikontakti voi osua tasan konfiguroidulle sekunnille.
+
+    Ilman ``sample_kind``ia lajitteluavaimessa kahden rivin järjestys riippuisi
+    syötejärjestyksestä, ja sama demo tuottaisi eri tavut eri ajoilla.
+    """
+    rounds = build_rounds(pelatut=2, warmup=0)
+    ticks = build_ticks(rounds, first_contact_rounds=(1, 2), contact_t_s=6.0)
+    aja(parse_settings, arkisto, FakeParser(rounds, ticks=ticks), demo)
+
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "ticks"))
+    paallekkain = df.filter(pl.col("sample_t_s") == 6.0)
+    assert set(paallekkain["sample_kind"].unique()) == {"time", "first_contact"}
+    # sample_kind on Enum, joten Polars lajittelee sen luettelon
+    # järjestyksessä (time, first_contact) eikä aakkosittain. Kumpi tahansa
+    # kelpaa; olennaista on että järjestys on määrätty eikä satunnainen.
+    lajit = {nimi: index for index, nimi in enumerate(SAMPLE_KINDS)}
+    puolet = {nimi: index for index, nimi in enumerate(SIDES)}
+    avaimet = [
+        (
+            rivi["round_no"],
+            lajit[rivi["sample_kind"]],
+            puolet[rivi["side"]],
+            rivi["player_id"],
+        )
+        for rivi in paallekkain.iter_rows(named=True)
+    ]
+    assert avaimet == sorted(avaimet)
+
+
+def test_unreadable_ticks_do_not_hide_the_round_counts(
+    parse_settings, arkisto, demo
+) -> None:
+    """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
+    aja(parse_settings, arkisto, FakeParser(build_rounds(pelatut=4, warmup=0)), demo)
+    arkisto.parsed_table(MAP_DEMO_ID, "ticks").write_bytes(b"ei parquetia")
+
+    tulos = aja(parse_settings, arkisto, FakeParser(), demo)
+    assert tulos.skipped
+    assert tulos.stats["rounds"] == 4
+    assert "ticks_unreadable" in tulos.stats
+    assert "unreadable" not in tulos.stats
+
+
+def test_skipped_run_reports_the_tick_counts_too(
+    parse_settings, arkisto, demo
+) -> None:
+    """Ohitettu ajo lukee luvut valmiista tauluista, ei parsi demoa."""
+    rounds = build_rounds(pelatut=3, warmup=0)
+    ticks = build_ticks(rounds, first_contact_rounds=(2,))
+    aja(parse_settings, arkisto, FakeParser(rounds, ticks=ticks), demo)
+
+    tulos = aja(parse_settings, arkisto, FakeParser(rounds, ticks=ticks), demo)
+    assert tulos.skipped
+    assert tulos.stats["tick_rows"] == 70  # 60 aikapistettä + 10 ensikontaktia
+    assert tulos.stats["first_contact_rounds"] == 1
 
 
 # --- Ohitus --------------------------------------------------------------------

@@ -1,15 +1,23 @@
-"""``parse`` -- putken ensimmäinen vaihe: demosta kierrostaulu.
+"""``parse`` -- putken ensimmäinen vaihe: demosta kierros- ja näytepistetaulu.
 
 Vaihe lukee yhden demon portin takaa ja kirjoittaa arkistoon
-``parsed/<map_demo_id>/rounds.parquet`` sekä sen manifestin. Taulussa on kaksi
-riviä jokaista **pelattua** kierrosta kohden, yksi kummallekin joukkueelle, ja
-kaikki arvot ovat demosta *havaittuja*: raha ja varustearvo freezetimen
-lopussa, kierroksen alun varustearvo, eloonjääneet, voittaja ja voiton syy.
-Kierrostyyppi, loss count ja muut johdokset syntyvät vasta ``classify``-
-vaiheessa, joka laskee ne joka ajolla uudelleen.
+``parsed/<map_demo_id>/rounds.parquet``, ``.../ticks.parquet`` sekä niiden
+yhteisen manifestin.
 
-Mitä tauluun päätyy
--------------------
+``rounds`` on kaksi riviä jokaista **pelattua** kierrosta kohden, yksi
+kummallekin joukkueelle, ja kaikki arvot ovat demosta *havaittuja*: raha ja
+varustearvo freezetimen lopussa, kierroksen alun varustearvo, eloonjääneet,
+voittaja ja voiton syy. Kierrostyyppi, loss count ja muut johdokset syntyvät
+vasta ``classify``-vaiheessa, joka laskee ne joka ajolla uudelleen.
+
+``ticks`` on rivi per (pelaaja, kierros, näytepiste): alue, koordinaatit ja
+elossaolo muutamassa hetkessä kierroksen alusta (``[parse].snapshot_seconds``)
+sekä ensikontaktin hetkellä. Kymmenen pelaajaa tallentuu joka näytepisteessä
+``is_alive``-lipulla; kuolleiden suodatus ja aggregointi ovat myöhempien
+vaiheiden työtä (AD-10).
+
+Mitä tauluihin päätyy
+---------------------
 Warmup-kierrokset, puukkokierros ja ``mp_restartgame``-nollaukset **eivät ole
 pelattuja kierroksia**: ne eivät saa kierrosnumeroa eivätkä päädy tauluun.
 ``round_raw`` on demon oma kierroslaskuri, joten ohitetut kierrokset näkyvät
@@ -17,6 +25,11 @@ taulussa aukkona (Ancient: ``round_no`` 1..21 vastaa ``round_raw`` 2..22) --
 niiden lukumäärä kerrotaan myös ajon yhteenvedossa. Päätöksen tekee yksi ainoa
 funktio, :func:`~pappascout.domain.rounds.mark_played_rounds`, jota vain tämä
 vaihe kutsuu.
+
+Sama päätös rajaa myös näytepisteet: adapteri näytteistää kaikki ankkuroidut
+kierrosrajat, ja vaihe pudottaa numeroimattomien kierrosten rivit samalla, kun
+se liittää ``round_no``:n avaimella ``round_raw``. Näin puukkokierros ei tuota
+tick-rivejä, eikä adapterin tarvitse tuntea numerointisääntöä.
 
 Tarkistukset ennen kirjoitusta
 ------------------------------
@@ -47,22 +60,30 @@ aina ohittaa lipulla ``force``.
 Virhepolitiikka
 ---------------
 Sääntö on yksi: **kelvollista tulosta ei koskaan ylikirjoiteta
-epäonnistumisella.** Jos parsinta kaatuu ja arkistossa on jo ehjä
-``rounds.parquet`` ja sen ``ok``-manifesti, molemmat jätetään koskematta.
-Muussa tapauksessa kirjoitetaan ``parse_failed``-manifesti, joka estää
-ohituksen ja kertoo syyn. Vajaata taulua ei synny kummassakaan tapauksessa,
-koska kirjoitus on atominen ja tapahtuu vasta kaikkien tarkistusten jälkeen.
+epäonnistumisella.** Jos parsinta kaatuu ja arkistossa on jo ehjät taulut ja
+niiden ``ok``-manifesti, kaikki jätetään koskematta. Muussa tapauksessa
+kirjoitetaan ``parse_failed``-manifesti, joka estää ohituksen ja kertoo syyn.
+Vajaata taulua ei synny kummassakaan tapauksessa, koska kirjoitukset ovat
+atomisia ja tapahtuvat vasta kaikkien tarkistusten jälkeen. Manifesti
+kirjoitetaan viimeisenä, joten keskeytynyt ajo näkyy seuraavalla kerralla
+puuttuvana tuloksena eikä ajantasaisena.
 """
 
 from __future__ import annotations
 
 import json
 import time
+from contextlib import ExitStack
 from pathlib import Path, PurePosixPath
 
 import polars as pl
 
-from pappascout.adapters.protocols import ROUNDS_ADAPTER_COLUMNS, DemoRoundsParser
+from pappascout.adapters.protocols import (
+    ROUNDS_ADAPTER_COLUMNS,
+    TICKS_ADAPTER_COLUMNS,
+    DemoParser,
+    DemoTables,
+)
 from pappascout.archive.atomic_write import atomic_path
 from pappascout.archive.manifest import (
     Manifest,
@@ -79,13 +100,15 @@ from pappascout.archive.paths import (
 )
 from pappascout.domain.models import ParseSettings
 from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
-from pappascout.domain.schemas import ROUNDS, validate
+from pappascout.domain.sampling import FIRST_CONTACT_SAMPLE
+from pappascout.domain.schemas import ROUNDS, TICKS, validate
 from pappascout.errors import DemoUnavailable, ParseError, SchemaError
 from pappascout.stages import StageResult
 
 __all__ = [
     "STAGE",
     "TABLE",
+    "TICKS_TABLE",
     "TOOLS",
     "run",
     "resolve_demo",
@@ -95,6 +118,7 @@ __all__ = [
 
 STAGE = "parse"
 TABLE = "rounds"
+TICKS_TABLE = "ticks"
 
 #: Työkalut, joiden versio muuttaa tämän vaiheen tuloksen (manifest-moduulin
 #: sääntö). Pappascoutin omaa versiota ei merkitä: korjauspäivitys ei saa
@@ -102,19 +126,27 @@ TABLE = "rounds"
 TOOLS = ("demoparser2",)
 
 #: Virheet, joista kirjataan yksikkökohtainen tila manifestiin (AD-9).
-_TALLENNETTAVAT = (ParseError, SchemaError, OSError)
+_TALLENNETTAVAT = (ParseError, SchemaError, OSError, pl.exceptions.PolarsError)
 
 
-def default_parser() -> DemoRoundsParser:
+def default_parser(settings: ParseSettings) -> DemoParser:
     """Tuotannon demoparser2-toteutus.
 
     Tuonti on funktion sisällä, jotta tämän moduulin tuominen ei lataa
     demoparser2:ta -- vaihe itse tuntee vain portin, ja testit antavat sille
     feikin.
-    """
-    from pappascout.adapters.demo_parser import Demoparser2Rounds
 
-    return Demoparser2Rounds()
+    Args:
+        settings: ``[parse]``-osio. Ensikontaktin säännön parametrit ovat
+            asetuksia eivätkä koodia, joten adapteri saa ne kutsussa eikä lue
+            niitä itse.
+    """
+    from pappascout.adapters.demo_parser import Demoparser2Adapter
+
+    return Demoparser2Adapter(
+        exclude_weapons=settings.first_contact_exclude_weapons,
+        fallback_death=settings.first_contact_fallback_death,
+    )
 
 
 def map_demo_id_from_path(path: Path) -> str:
@@ -206,7 +238,12 @@ def _params_hash(settings: ParseSettings) -> str:
     return compute_params_hash(settings.model_dump(mode="json"))
 
 
-def _check_port_columns(df: pl.DataFrame) -> None:
+def _check_port_columns(
+    df: pl.DataFrame,
+    odotetut_sarakkeet: tuple[str, ...],
+    taulu: str,
+    sopimus: str,
+) -> None:
     """Tarkista adapterin tuottama taulu ennen jatkokäsittelyä.
 
     Vaatimus on **täsmällinen sarakejoukko**, ei osajoukko: ylimääräinen sarake
@@ -214,7 +251,7 @@ def _check_port_columns(df: pl.DataFrame) -> None:
     päätyisi hiljaa mukaan tai kaatuisi vasta domain-kerroksessa.
     """
     saadut = set(df.columns)
-    odotetut = set(ROUNDS_ADAPTER_COLUMNS)
+    odotetut = set(odotetut_sarakkeet)
     puuttuvat = sorted(odotetut - saadut)
     ylimaaraiset = sorted(saadut - odotetut)
     if not puuttuvat and not ylimaaraiset:
@@ -225,9 +262,9 @@ def _check_port_columns(df: pl.DataFrame) -> None:
     if ylimaaraiset:
         osat.append(f"ylimääräisiä: {', '.join(ylimaaraiset)}")
     raise SchemaError(
-        f"Demoportti palautti sopimuksen vastaisen kierrostaulun -- "
+        f"Demoportti palautti sopimuksen vastaisen {taulu} -- "
         f"{'; '.join(osat)}.\n"
-        "Portin sopimus on adapters/protocols.py:n ROUNDS_ADAPTER_COLUMNS."
+        f"Portin sopimus on adapters/protocols.py:n {sopimus}."
     )
 
 
@@ -256,8 +293,8 @@ def _check_two_rows_per_round(df: pl.DataFrame) -> None:
     )
 
 
-def _stats(df: pl.DataFrame, ohitetut: int = 0) -> dict[str, object]:
-    """Käyttäjälle näytettävät luvut valmiista taulusta."""
+def _round_stats(df: pl.DataFrame, ohitetut: int = 0) -> dict[str, object]:
+    """Kierrostaulun luvut."""
     if df.is_empty():
         return {
             "rounds": 0,
@@ -277,28 +314,87 @@ def _stats(df: pl.DataFrame, ohitetut: int = 0) -> dict[str, object]:
     }
 
 
-def _existing_stats(table_abs: Path) -> dict[str, object]:
-    """Luvut ohitettuun ajoon: luetaan valmis taulu, ei parsita demoa.
+def _stats(
+    df: pl.DataFrame, ticks: pl.DataFrame, ohitetut: int = 0
+) -> dict[str, object]:
+    """Käyttäjälle näytettävät luvut valmiista tauluista."""
+    luvut = _round_stats(df, ohitetut)
+    luvut.update(_tick_stats(ticks))
+    return luvut
+
+
+def _tick_stats(ticks: pl.DataFrame) -> dict[str, object]:
+    """Näytepisteiden luvut.
+
+    ``sample_points`` on kierros x hetki, ei rivimäärä: kymmenen pelaajan rivit
+    ovat sama näytepiste. ``first_contact_rounds`` kertoo, monellako
+    kierroksella kontakti ylipäätään löytyi -- pelkkä rivimäärä ei paljastaisi,
+    jos sääntö jäisi puremattomaksi.
+    """
+    if ticks.is_empty():
+        return {
+            "tick_rows": 0,
+            "sample_points": 0,
+            "sample_rounds": 0,
+            "first_contact_rounds": 0,
+        }
+    contact = ticks.filter(pl.col("sample_kind") == FIRST_CONTACT_SAMPLE)
+    return {
+        "tick_rows": int(ticks.height),
+        "sample_points": int(
+            ticks.select("round_no", "sample_kind", "sample_t_s").n_unique()
+        ),
+        "sample_rounds": int(ticks["round_no"].n_unique()),
+        "first_contact_rounds": int(contact["round_no"].n_unique()),
+    }
+
+
+def _read_table(path: Path) -> pl.DataFrame | str:
+    """Lue taulu tai palauta virheen kuvaus merkkijonona."""
+    try:
+        return pl.read_parquet(path)
+    except (OSError, pl.exceptions.PolarsError) as exc:
+        return f"{type(exc).__name__}: {exc}"
+
+
+def _existing_stats(table_abs: Path, ticks_abs: Path) -> dict[str, object]:
+    """Luvut ohitettuun ajoon: luetaan valmiit taulut, ei parsita demoa.
+
+    Taulut luetaan **erikseen**. Yhteinen try-lohko hukkaisi kierrosluvut
+    silloin, kun vain näytepistetaulu on lukukelvoton, ja käyttäjä näkisi
+    "lukuja ei saatu" myös siitä mikä oli aivan ehjä.
 
     Jos tulosta ei saada luettua, palautetaan tieto siitä eikä nollia --
     nollarivi näyttäisi siltä, että demossa ei ollut yhtään kierrosta.
     """
-    try:
-        return _stats(pl.read_parquet(table_abs))
-    except (OSError, pl.exceptions.PolarsError) as exc:
-        return {"unreadable": f"{type(exc).__name__}: {exc}"}
+    rounds = _read_table(table_abs)
+    ticks = _read_table(ticks_abs)
+
+    if isinstance(rounds, str) and isinstance(ticks, str):
+        return {"unreadable": rounds}
+
+    luvut: dict[str, object] = {}
+    if isinstance(rounds, str):
+        luvut["unreadable"] = rounds
+    else:
+        luvut.update(_round_stats(rounds))
+    if isinstance(ticks, str):
+        luvut["ticks_unreadable"] = ticks
+    else:
+        luvut.update(_tick_stats(ticks))
+    return luvut
 
 
 def run(
     settings: ParseSettings,
     archive: ArchivePaths,
     map_demo_id: str,
-    parser: DemoRoundsParser,
+    parser: DemoParser,
     *,
     demo_path: Path | None = None,
     force: bool = False,
 ) -> StageResult:
-    """Parsi yksi demo kierrostauluksi.
+    """Parsi yksi demo kierros- ja näytepistetauluiksi.
 
     Args:
         settings: ``[parse]``-osio -- ainoa osio, jonka tämä vaihe näkee.
@@ -310,8 +406,9 @@ def run(
 
     Returns:
         :class:`~pappascout.stages.StageResult`, jossa ``stats`` kertoo
-        kierrosten määrän, rivimäärän, suurimman kierrosnumeron sekä
-        ohitettujen ja ankkurittomien kierrosten lukumäärän.
+        kierrosten määrän, rivimäärän, suurimman kierrosnumeron, ohitettujen ja
+        ankkurittomien kierrosten lukumäärän sekä näytepisteiden ja
+        ensikontaktien määrän.
 
     Raises:
         DemoUnavailable: Jos demoa ei löydy tai sitä ei voi lukea.
@@ -327,8 +424,10 @@ def run(
     demo_path = Path(demo_path)
 
     table_rel = parsed_table(map_demo_id, TABLE)
+    ticks_rel = parsed_table(map_demo_id, TICKS_TABLE)
     manifest_rel = parsed_manifest(map_demo_id)
     table_abs = archive.resolve(table_rel)
+    ticks_abs = archive.resolve(ticks_rel)
     manifest_abs = archive.resolve(manifest_rel)
 
     result_id = str(PurePosixPath("parsed") / map_demo_id)
@@ -341,6 +440,12 @@ def run(
     params_hash = _params_hash(settings)
     versiot = tool_versions(*TOOLS)
 
+    # Tulokset, jotka **tämän version** ajo tuottaa. Manifestin oma
+    # outputs-lista ei riita ohituksen ehdoksi: vanha manifesti nimeaa vain ne
+    # taulut, jotka silloinen koodi osasi kirjoittaa, joten uusi taulu ei
+    # koskaan syntyisi arkistoon jo parsituille demoille.
+    odotetut_tulokset = ((table_rel, table_abs), (ticks_rel, ticks_abs))
+
     olemassa = Manifest.read_if_exists(manifest_abs)
     if (
         not force
@@ -351,6 +456,7 @@ def run(
             tool_versions=versiot,
             root=archive.root,
         )
+        and all(polku.is_file() for _, polku in odotetut_tulokset)
     ):
         return StageResult(
             stage=STAGE,
@@ -364,16 +470,21 @@ def run(
                 "parsia uudelleen."
             ),
             duration_s=time.perf_counter() - aloitus,
-            stats=_existing_stats(table_abs),
+            stats=_existing_stats(table_abs, ticks_abs),
         )
 
     try:
-        df, ohitetut = _parse_table(parser, demo_path, map_demo_id)
+        df, ticks, ohitetut = _parse_tables(parser, settings, demo_path, map_demo_id)
+        # Kirjoitus on saman virhekäsittelyn sisällä kuin parsinta: levy voi
+        # täyttyä tai OneDrive lukita tiedoston, ja silloinkin manifestiin on
+        # jäätävä merkintä epäonnistumisesta -- muuten seuraava ajo ohittaisi
+        # vaiheen puolikkaan tuloksen päältä.
+        _write_tables(((table_abs, df), (ticks_abs, ticks)))
     except _TALLENNETTAVAT as exc:
         _record_failure(
             archive=archive,
             manifest_abs=manifest_abs,
-            table_abs=table_abs,
+            tables_abs=(table_abs, ticks_abs),
             olemassa=olemassa,
             result_id=result_id,
             params_hash=params_hash,
@@ -383,9 +494,8 @@ def run(
         )
         raise
 
-    with atomic_path(table_abs) as tmp:
-        df.write_parquet(tmp)
-
+    # Manifesti viimeisenä: keskeytynyt ajo näkyy seuraavalla kerralla
+    # puuttuvana tuloksena eikä ajantasaisena.
     Manifest.new(
         result_id=result_id,
         stage=STAGE,
@@ -393,39 +503,79 @@ def run(
         inputs=inputs,
         tool_versions=versiot,
         status="ok",
-        outputs=(str(table_rel),),
+        outputs=(str(table_rel), str(ticks_rel)),
     ).write(manifest_abs)
 
-    stats = _stats(df, ohitetut)
+    stats = _stats(df, ticks, ohitetut)
     diagnostics = getattr(parser, "diagnostics", None)
     if diagnostics is not None:
         stats["tick_rate"] = diagnostics.tick_rate
         stats["tick_rate_measured"] = diagnostics.tick_rate_measured
+        # Näitä kahta ei voi laskea valmiista taulusta: vajaa näytepiste ja
+        # ohitettu vahinkotapahtuma näkyvät vain siinä hetkessä, kun demoa
+        # luetaan. Ohitetussa ajossa ne siis puuttuvat, ja se on oikein.
+        stats["partial_samples"] = getattr(diagnostics, "partial_samples", 0)
+        stats["unknown_side_events"] = getattr(
+            diagnostics, "unknown_side_events", 0
+        )
 
     return StageResult(
         stage=STAGE,
         unit=map_demo_id,
         status="ok",
         skipped=False,
-        outputs=(table_rel,),
+        outputs=(table_rel, ticks_rel),
         manifest_path=manifest_rel,
         duration_s=time.perf_counter() - aloitus,
         stats=stats,
     )
 
 
-def _parse_table(
-    parser: DemoRoundsParser, demo_path: Path, map_demo_id: str
-) -> tuple[pl.DataFrame, int]:
-    """Lue demo ja rakenna valmis, tarkistettu ``ROUNDS``-taulu.
+def _write_tables(tables: tuple[tuple[Path, pl.DataFrame], ...]) -> None:
+    """Kirjoita kaikki taulut yhtenä tapahtumana.
+
+    Kumpikin taulu menee ensin omaan väliaikaistiedostoonsa, ja vasta kun
+    **jokainen** on kirjoitettu, ne siirretään kohteisiinsa. Peräkkäiset
+    ``atomic_path``-lohkot eivät riitä: jos toinen kirjoitus kaatuu, ensimmäinen
+    olisi jo paikallaan ja arkistoon jäisi kierrostaulu, joka kertoo 21
+    kierrosta, sekä näytepistetaulu, joka tuntee niistä kaksi -- yhdistelmä,
+    joka läpäisisi jokaisen skeematarkistuksen.
+
+    Siirto itse ei ole yksi atominen operaatio (kaksi ``os.replace``-kutsua),
+    mutta niiden väliin jäävä ikkuna on mikrosekunteja eikä sisällä I/O:ta.
+    """
+    with ExitStack() as stack:
+        kirjoitettavat = [
+            (stack.enter_context(atomic_path(target)), frame)
+            for target, frame in tables
+        ]
+        for tmp, frame in kirjoitettavat:
+            frame.write_parquet(tmp)
+    # ExitStack purkaa lohkot vasta tässä, ja jokainen atomic_path tekee oman
+    # renamensa. Poikkeus missä tahansa kirjoituksessa siivoaa kaikki
+    # väliaikaistiedostot eikä koske kohteisiin.
+
+
+def _parse_tables(
+    parser: DemoParser,
+    settings: ParseSettings,
+    demo_path: Path,
+    map_demo_id: str,
+) -> tuple[pl.DataFrame, pl.DataFrame, int]:
+    """Lue demo ja rakenna valmiit, tarkistetut ``ROUNDS``- ja ``TICKS``-taulut.
 
     Returns:
-        ``(taulu, ohitettujen kierrosten määrä)``.
+        ``(kierrostaulu, näytepistetaulu, ohitettujen kierrosten määrä)``.
     """
-    raaka = parser.parse_rounds(demo_path)
-    _check_port_columns(raaka)
+    tables: DemoTables = parser.parse_demo(demo_path, settings.snapshot_seconds)
+    _check_port_columns(
+        tables.rounds, ROUNDS_ADAPTER_COLUMNS, "kierrostaulun", "ROUNDS_ADAPTER_COLUMNS"
+    )
+    _check_port_columns(
+        tables.ticks, TICKS_ADAPTER_COLUMNS, "näytepistetaulun", "TICKS_ADAPTER_COLUMNS"
+    )
 
-    numeroitu = mark_played_rounds(raaka)
+    numeroitu = mark_played_rounds(tables.rounds)
     ohitetut = int(
         numeroitu.filter(pl.col("round_no").is_null())["round_raw"].n_unique()
     )
@@ -449,14 +599,58 @@ def _parse_table(
     validate(df, ROUNDS, TABLE)
     check_win_reasons(df)
     _check_two_rows_per_round(df)
-    return df, ohitetut
+
+    ticks = _number_ticks(tables.ticks, numeroitu, map_demo_id)
+    validate(ticks, TICKS, TICKS_TABLE)
+
+    if ticks.is_empty():
+        raise ParseError(
+            f"Demosta {demo_path.name} syntyi {df['round_no'].n_unique()} "
+            "pelattua kierrosta mutta ei yhtään näytepistettä.\n"
+            "Tyhjää asetelmataulua ei kirjoiteta ok-tuloksena: se jäisi "
+            "manifestin perusteella pysyvästi ohitetuksi ja aggregointi "
+            "raportoisi kartan ilman yhtään asetelmaa. Tarkista "
+            "[parse].snapshot_seconds ja se, löytyykö kierroksilta "
+            "freezetime-ankkuri."
+        )
+
+    return df, ticks, ohitetut
+
+
+def _number_ticks(
+    ticks: pl.DataFrame, numeroitu: pl.DataFrame, map_demo_id: str
+) -> pl.DataFrame:
+    """Liitä näytepisteisiin ``round_no`` ja pudota numeroimattomat kierrokset.
+
+    Adapteri näytteistää kaikki ankkuroidut kierrosrajat, koska se ei tunne
+    numerointisääntöä -- sen omistaa
+    :func:`~pappascout.domain.rounds.mark_played_rounds`. Warmupin ja
+    puukkokierroksen rivit poistuvat siis vasta tässä, samalla päätöksellä kuin
+    kierrostaulusta, jolloin taulut eivät voi olla eri mieltä siitä mikä
+    kierros pelattiin.
+    """
+    numerot = (
+        numeroitu.select("round_raw", "round_no")
+        .unique(subset=["round_raw"], keep="first")
+        .filter(pl.col("round_no").is_not_null())
+    )
+    liitetty = (
+        ticks.drop("round_no")
+        .join(numerot, on="round_raw", how="inner")
+        .select(
+            pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
+            *[pl.col(name) for name in TICKS if name != "map_demo_id"],
+        )
+        .sort("round_no", "sample_t_s", "sample_kind", "side", "player_id")
+    )
+    return liitetty
 
 
 def _record_failure(
     *,
     archive: ArchivePaths,
     manifest_abs: Path,
-    table_abs: Path,
+    tables_abs: tuple[Path, ...],
     olemassa: Manifest | None,
     result_id: str,
     params_hash: str,
@@ -466,15 +660,18 @@ def _record_failure(
 ) -> None:
     """Kirjaa epäonnistuminen manifestiin -- mutta älä tuhoa ehjää tulosta.
 
-    Jos arkistossa on jo kelvollinen taulu ja sen ``ok``-manifesti, molemmat
+    Jos arkistossa on jo kelvolliset taulut ja niiden ``ok``-manifesti, kaikki
     jätetään paikalleen. Muuten manifestiin kirjataan ``parse_failed``, joka
     sekä kertoo syyn että estää ohituksen seuraavalla ajolla.
+
+    **Kaikkien** taulujen on oltava paikallaan: vanha ``rounds`` uuden
+    ``ticks``-taulun kanssa olisi puolikas tulos, joka näyttäisi ehjältä.
     """
     ehja_tulos = (
         olemassa is not None
         and olemassa.status == "ok"
         and olemassa.outputs_present(archive.root)
-        and table_abs.is_file()
+        and all(polku.is_file() for polku in tables_abs)
     )
     if ehja_tulos:
         return
@@ -488,3 +685,4 @@ def _record_failure(
         reason=reason,
         outputs=(),
     ).write(manifest_abs)
+

@@ -98,12 +98,24 @@ TICKS: Schema = {
     "lineup_key": pl.Utf8,
     "side": _SIDE,
     "sample_kind": _SAMPLE_KIND,  # "time" tai "first_contact"
-    "sample_t_s": pl.Float64,  # s -- nimellisaika, first_contactilla null
+    # s -- nimellisaika. HUOM: arvolla on kaksi eri semantiikkaa, jotka
+    # erottaa vain sample_kind:
+    #   sample_kind = "time"          -> [parse].snapshot_seconds -luku
+    #                                    sellaisenaan (6.0, 15.0, ...), sama
+    #                                    joka kierroksella, vertailukelpoinen
+    #   sample_kind = "first_contact" -> mitattu hetki, sama kuin t_s, eri
+    #                                    joka kierroksella
+    # Siksi ryhmittely on aina tehtävä parilla (sample_kind, sample_t_s).
+    # Pelkällä sample_t_s:llä ryhmittely sekoittaisi kaksi eri asiaa: 15.0
+    # tarkoittaisi sekä "15 sekunnin näyte" että "kierros, jolla ensikontakti
+    # sattui olemaan 15,0 s".
+    "sample_t_s": pl.Float64,
     "t_s": pl.Float64,  # s -- aika viimeisestä round_freeze_endistä
     "x": pl.Float32,
     "y": pl.Float32,
     "z": pl.Float32,
-    "area": pl.Utf8,  # pelin last_place_name
+    # pelin last_place_name; tuntematon alue on null, koordinaatit silti mukana
+    "area": pl.Utf8,
     "is_alive": pl.Boolean,
 }
 

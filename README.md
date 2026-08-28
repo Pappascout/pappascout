@@ -41,7 +41,7 @@ FACEIT_DOWNLOADS_TOKEN=<Downloads API -token>
 ```powershell
 uv run pappascout info          # asetukset, arkiston tila ja avainten tila
 uv run pappascout info --koko   # sama, mutta laskee myös arkiston yhteiskoon
-uv run pappascout parse <tiedosto|map_demo_id>   # demosta kierrostaulu
+uv run pappascout parse <tiedosto|map_demo_id>   # demosta kierrokset ja asetelmat
 uv run pappascout classify <map_demo_id> --team <tunniste> --show  # kierrostyypit
 uv run pappascout classify <map_demo_id> --kaikki-joukkueet        # molemmat joukkueet
 uv run pappascout --version
@@ -49,17 +49,42 @@ uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
 ```
 
-`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon
-`parsed/<map_demo_id>/rounds.parquet`-taulun: kaksi riviä jokaista pelattua
-kierrosta kohden, yksi kummallekin joukkueelle. Ilman polkua annettu tunniste
-etsitään arkiston `demos/`- ja `import/`-hakemistoista. Toisella ajolla vaihe
-ohitetaan, jos manifesti täsmää -- `[thresholds]`-arvon muuttaminen **ei**
-aiheuta uudelleenparsintaa.
+`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon kaksi
+taulua yhdellä lukukerralla:
+
+* `parsed/<map_demo_id>/rounds.parquet` -- kaksi riviä jokaista pelattua
+  kierrosta kohden, yksi kummallekin joukkueelle.
+* `parsed/<map_demo_id>/ticks.parquet` -- rivi per (pelaaja, kierros,
+  näytepiste): alue, koordinaatit ja elossaolo. Näytepisteet ovat
+  `[parse].snapshot_seconds` (oletus 6/15/30/45 s freezetimen lopusta) sekä
+  **ensikontakti**, eli ensimmäinen ristiinpuolinen osuma muulla kuin
+  utilityaseella.
+
+Ilman polkua annettu tunniste etsitään arkiston `demos/`- ja
+`import/`-hakemistoista. Toisella ajolla vaihe ohitetaan, jos manifesti täsmää
+-- `[thresholds]`-arvon muuttaminen **ei** aiheuta uudelleenparsintaa, mutta
+`[parse].snapshot_seconds`-muutos aiheuttaa.
 
 Warmup, puukkokierros ja uudelleenkäynnistykset eivät ole pelattuja kierroksia
-eivätkä päädy tauluun. `round_raw` on demoparser2:n `round_end`-tapahtuman oma
-kierrosnumero, joten ohitetut kierrokset näkyvät siinä aukkona: Ancientilla
-`round_no` 1..21 vastaa `round_raw`-arvoja 2..22.
+eivätkä päädy kumpaankaan tauluun. `round_raw` on demoparser2:n
+`round_end`-tapahtuman oma kierrosnumero, joten ohitetut kierrokset näkyvät
+siinä aukkona: Ancientilla `round_no` 1..21 vastaa `round_raw`-arvoja 2..22.
+
+Näytepisteitä on eri määrä eri kierroksilla: piste, joka osuisi kierroksen
+päättymisen jälkeen, jätetään pois. Jos kierros ratkeaa 28 sekunnissa, 30 ja 45
+sekunnin pisteitä ei ole olemassa.
+
+Ancient-demo havainnollistaa: 21 pelattua kierrosta ja neljä näytepistettä
+antaisi 84 aikapistettä, mutta rajauksen jälkeen niitä on **73**. Ensikontakti
+löytyy joka kierrokselta, eli 21 lisää -- yhteensä **94 näytepistettä** ja 940
+riviä. Luvut on lukittu testiin `test_ancient_sample_point_count_is_exact`.
+
+Kaikki kymmenen pelaajaa tallentuvat joka näytepisteessä `is_alive`-lipulla;
+kuolleiden suodatus on aggregoinnin työ.
+
+`sample_t_s` tarkoittaa aikapisteellä asetuksen lukua ja ensikontaktilla
+mitattua hetkeä, joten ryhmittely on aina tehtävä parilla
+`(sample_kind, sample_t_s)`.
 
 `--pakota` ohittaa manifestin ja parsii joka tapauksessa.
 
@@ -121,13 +146,14 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/domain/models.py` | Typatut asetusosiot ja `load_settings()` |
 | `src/pappascout/domain/rounds.py` | `mark_played_rounds()` -- ainoa paikka, joka päättää `round_no`:n -- ja `check_win_reasons()` |
 | `src/pappascout/domain/economy.py` | `loss_counts()` ja `classify_round()` -- kierrostyypin talouspäättely |
+| `src/pappascout/domain/sampling.py` | `sample_ticks()` ja `first_contact_tick()` -- näytepisteiden valinta ja ensikontaktin sääntö |
 | `src/pappascout/archive/paths.py` | Arkiston hakemistorakenne suhteellisina polkuina |
 | `src/pappascout/archive/atomic_write.py` | Atominen kirjoitus (`*.tmp-<host>` -> `rename`) |
 | `src/pappascout/archive/manifest.py` | `Manifest`-malli, `is_current()` ja vaiheiden ohitussopimus |
 | `src/pappascout/adapters/protocols.py` | Portit, jotka vaiheet ottavat parametrina |
 | `src/pappascout/adapters/decompress.py` | `.dem.zst`-purku ja `PBDEMS2`-otsikkotarkistus |
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
-| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + manifesti |
+| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/cli/` | Typer-komennot |
 
