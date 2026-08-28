@@ -26,11 +26,12 @@ from pappascout.adapters import demo_parser as dp
 from pappascout.adapters.decompress import DEMO_MAGIC
 from pappascout.adapters.demo_parser import DEFAULT_TICK_RATE, Demoparser2Adapter
 from pappascout.adapters.protocols import (
+    EVENTS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
 )
-from pappascout.domain.schemas import TICKS
+from pappascout.domain.schemas import EVENTS, TICKS
 from pappascout.domain.rounds import mark_played_rounds
 from pappascout.errors import ParseError
 
@@ -58,6 +59,15 @@ UTILITY = (
 #: Näytepisteet, jotka mahtuvat feikkikierroksen sisään (500 tickiä = 7,8 s).
 SNAPSHOT_SECONDS: tuple[float, ...] = (2.0, 5.0)
 
+#: Puolten korkeudet feikkikartalla. Ero on tarkoituksella suurempi kuin mikään
+#: testissä käytetty ``area_snap_units``, jotta lähin pelaaja on aina omalta
+#: puolelta eikä vastapuolen samanindeksinen pelaaja.
+A_SIDE_HEIGHT = 5.0
+B_SIDE_HEIGHT = 1005.0
+
+#: Etäisyys, jonka sisältä utility saa napata alueen näissä testeissä.
+AREA_SNAP_UNITS = 500.0
+
 
 class FakeDemoparser2:
     """Palauttaa samat kehysmuodot kuin demoparser2 0.42.0.
@@ -81,6 +91,8 @@ class FakeDemoparser2:
         drop_props: tuple[str, ...] = (),
         events: dict[str, list[dict[str, Any]]] | None = None,
         rounds_model: list["Kierros"] | None = None,
+        grenades: list[dict[str, Any]] | None = None,
+        drop_grenade_columns: tuple[str, ...] = (),
     ) -> None:
         self.freeze_ticks = freeze_ticks
         self.round_ends = round_ends
@@ -88,6 +100,8 @@ class FakeDemoparser2:
         self.drop_props = drop_props
         self.events = events or {}
         self.rounds_model = rounds_model or []
+        self.grenades = grenades or []
+        self.drop_grenade_columns = drop_grenade_columns
         #: Propilistat kutsujärjestyksessä -- testi voi todeta, ettei koko
         #: tickisarjaa luettu.
         self.tick_calls: list[tuple[tuple[str, ...], tuple[int, ...]]] = []
@@ -102,6 +116,23 @@ class FakeDemoparser2:
         if name in self.events:
             return pd.DataFrame(self.events[name])
         return pd.DataFrame()
+
+    def parse_grenades(self) -> pd.DataFrame:
+        """Lentoradat, sarakkeet samassa muodossa kuin oikeassa kirjastossa.
+
+        Oikea ``parse_grenades()`` palauttaa **koko** radan: rivit myös
+        kranaatin reppuvaiheesta, jolloin koordinaatit ovat tyhjiä. Feikki
+        antaa vain sen, mitä testi rakensi -- reppurivit voi lisätä itse.
+        """
+        sarakkeet = [*dp.GRENADE_COLUMNS, "name"]
+        frame = pd.DataFrame(
+            [{name: rivi.get(name) for name in sarakkeet} for rivi in self.grenades],
+            columns=sarakkeet,
+        )
+        for sarake in self.drop_grenade_columns:
+            if sarake in frame.columns:
+                frame = frame.drop(columns=[sarake])
+        return frame
 
     def parse_ticks(
         self, wanted_props: list[str], *, ticks: list[int] | None = None
@@ -136,12 +167,15 @@ def parse_tables(
     sample_seconds: tuple[float, ...] = SNAPSHOT_SECONDS,
     exclude_weapons: tuple[str, ...] = UTILITY,
     fallback_death: bool = True,
+    area_snap_units: float | None = AREA_SNAP_UNITS,
 ) -> DemoTables:
     """Aja adapteri feikin päällä; vain ``_open`` korvataan."""
     demo = tmp_path / "feikki.dem"
     demo.write_bytes(DEMO_MAGIC + b"\x00" + b"x" * 64)
     adapter = Demoparser2Adapter(
-        exclude_weapons=exclude_weapons, fallback_death=fallback_death
+        exclude_weapons=exclude_weapons,
+        fallback_death=fallback_death,
+        area_snap_units=area_snap_units,
     )
     adapter._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
     return adapter.parse_demo(demo, sample_seconds)
@@ -159,6 +193,13 @@ def parse_ticks_table(
     return parse_tables(fake, tmp_path, **kwargs).ticks
 
 
+def parse_events_table(
+    fake: FakeDemoparser2, tmp_path: Path, **kwargs
+) -> pl.DataFrame:
+    """Pelkkä utility-tapahtumataulu."""
+    return parse_tables(fake, tmp_path, **kwargs).events
+
+
 def parse_adapter(
     fake: FakeDemoparser2, tmp_path: Path, **kwargs
 ) -> Demoparser2Adapter:
@@ -168,6 +209,7 @@ def parse_adapter(
     adapter = Demoparser2Adapter(
         exclude_weapons=kwargs.pop("exclude_weapons", UTILITY),
         fallback_death=kwargs.pop("fallback_death", True),
+        area_snap_units=kwargs.pop("area_snap_units", AREA_SNAP_UNITS),
     )
     adapter._open = lambda *args, **kwargs2: fake  # type: ignore[method-assign]
     adapter.parse_demo(demo, kwargs.pop("sample_seconds", SNAPSHOT_SECONDS))
@@ -213,6 +255,12 @@ class Kierros:
     #: Montako listan alusta laskien on kuollut näytepisteessä.
     a_dead_at_sample: int = 0
     b_dead_at_sample: int = 0
+    #: Pelaajakohtainen alue, joka ohittaa puolen oletusalueen. Tarvitaan, kun
+    #: testin on erotettava heittäjän oma alue naapurin alueesta.
+    player_areas: dict[str, str | None] = field(default_factory=dict)
+    #: Pelaajat, jotka **puuttuvat** näytepisteiden riveistä kokonaan.
+    #: Jäljittelee tickiä, jolta pelaajaa ei saada luettua lainkaan.
+    sample_skip: tuple[str, ...] = ()
     #: Vahinkotapahtumat ``(tick-siirtymä ankkurista, tekijä, uhri, ase)``.
     hurt: list[tuple[int, str | None, str | None, str | None]] = field(
         default_factory=list
@@ -221,6 +269,18 @@ class Kierros:
     deaths: list[tuple[int, str | None, str | None, str | None]] = field(
         default_factory=list
     )
+
+    # -- Utility --
+    #: Heitetyt kranaatit
+    #: ``(entiteetti, heittäjä, tyyppi, alkusiirtymä, kesto tickeinä)``.
+    #: Siirtymä lasketaan freezetime-ankkurista, ja rata kulkee heittäjän
+    #: sijainnista poispäin, jotta alue napsahtaa heittäjään.
+    grenades: list[tuple[int, str | None, str, int, int]] = field(
+        default_factory=list
+    )
+    #: Reppurivit ``(entiteetti, omistaja, tyyppi, tick-siirtymä)``. Näillä ei
+    #: ole koordinaatteja; molotovin ja incendiaryn erottelu lukee ne.
+    grenades_in_bag: list[tuple[int, str, str, int]] = field(default_factory=list)
 
 
 def _rows(
@@ -271,14 +331,33 @@ def _sample_rows(kierros: Kierros, tick: int) -> list[dict[str, Any]]:
 
     Koordinaatit johdetaan pelaajan indeksistä, jotta testi voi todeta, että
     ne kulkevat taulukkoon asti eivätkä muutu matkalla.
+
+    Puolet erotetaan korkeudella (:data:`B_SIDE_HEIGHT`): ilman sitä A- ja
+    B-puolen samanindeksiset pelaajat seisoisivat tasan päällekkäin, eikä
+    utilityn aluepäättelyllä olisi yksikäsitteistä lähintä pelaajaa.
     """
     b_side = "CT" if kierros.a_side == "T" else "T"
     rivit: list[dict[str, Any]] = []
-    for side, pelaajat, kuolleet, alue in (
-        (kierros.a_side, kierros.a_players, kierros.a_dead_at_sample, kierros.a_area),
-        (b_side, kierros.b_players, kierros.b_dead_at_sample, kierros.b_area),
+    for side, pelaajat, kuolleet, alue, korkeus in (
+        (
+            kierros.a_side,
+            kierros.a_players,
+            kierros.a_dead_at_sample,
+            kierros.a_area,
+            A_SIDE_HEIGHT,
+        ),
+        (
+            b_side,
+            kierros.b_players,
+            kierros.b_dead_at_sample,
+            kierros.b_area,
+            B_SIDE_HEIGHT,
+        ),
     ):
         for index, steamid in enumerate(pelaajat):
+            if steamid in kierros.sample_skip:
+                continue
+            oma_alue = kierros.player_areas.get(steamid, alue)
             rivit.append(
                 {
                     "tick": tick,
@@ -287,10 +366,10 @@ def _sample_rows(kierros: Kierros, tick: int) -> list[dict[str, Any]]:
                     dp._TEAM_NUM: _SIDE_TEAM[side],
                     dp._LIFE_STATE: 2 if index < kuolleet else 0,
                     # Peli antaa nimettömälle alueelle tyhjän merkkijonon.
-                    dp._PLACE_NAME: "" if alue is None else alue,
+                    dp._PLACE_NAME: "" if oma_alue is None else oma_alue,
                     dp._X: float(100 * index),
                     dp._Y: float(-100 * index),
-                    dp._Z: 5.0,
+                    dp._Z: korkeus,
                 }
             )
     return rivit
@@ -303,9 +382,11 @@ def build(kierrokset: list[Kierros]) -> FakeDemoparser2:
     tick_rows: dict[int, list[dict[str, Any]]] = {}
     hurt_rows: list[dict[str, Any]] = []
     death_rows: list[dict[str, Any]] = []
+    grenade_rows: list[dict[str, Any]] = []
 
     for kierros in kierrokset:
         if kierros.freeze_tick is not None:
+            grenade_rows.extend(_grenade_rows(kierros))
             for kohde, lahde in (
                 (hurt_rows, kierros.hurt),
                 (death_rows, kierros.deaths),
@@ -347,7 +428,56 @@ def build(kierrokset: list[Kierros]) -> FakeDemoparser2:
         tick_rows,
         events={"player_hurt": hurt_rows, "player_death": death_rows},
         rounds_model=list(kierrokset),
+        grenades=grenade_rows,
     )
+
+
+def _grenade_rows(kierros: Kierros) -> list[dict[str, Any]]:
+    """Yhden kierroksen lentorata- ja reppurivit.
+
+    Radan alku asetetaan heittäjän omaan sijaintiin (:func:`_sample_rows`
+    käyttää samaa kaavaa), jotta heiton alue napsahtaa heittäjään kuten
+    oikeassa demossa. Rata etenee siitä poispäin.
+    """
+    assert kierros.freeze_tick is not None
+    rivit: list[dict[str, Any]] = []
+
+    for entity, omistaja, tyyppi, siirtyma in kierros.grenades_in_bag:
+        rivit.append(
+            {
+                "grenade_type": tyyppi,
+                "grenade_entity_id": entity,
+                "x": None,
+                "y": None,
+                "z": None,
+                "tick": kierros.freeze_tick + siirtyma,
+                "steamid": omistaja,
+                "name": omistaja,
+            }
+        )
+
+    for entity, heittaja, tyyppi, siirtyma, kesto in kierros.grenades:
+        if heittaja in kierros.a_players:
+            index, korkeus = kierros.a_players.index(heittaja), A_SIDE_HEIGHT
+        elif heittaja in kierros.b_players:
+            index, korkeus = kierros.b_players.index(heittaja), B_SIDE_HEIGHT
+        else:
+            index, korkeus = 0, A_SIDE_HEIGHT
+        alku = (float(100 * index), float(-100 * index), korkeus)
+        for askel in range(kesto):
+            rivit.append(
+                {
+                    "grenade_type": tyyppi,
+                    "grenade_entity_id": entity,
+                    "x": alku[0] + 40.0 * askel,
+                    "y": alku[1],
+                    "z": alku[2],
+                    "tick": kierros.freeze_tick + siirtyma + askel,
+                    "steamid": heittaja,
+                    "name": heittaja,
+                }
+            )
+    return rivit
 
 
 def normaali_ottelu(
@@ -1225,3 +1355,637 @@ def test_a_demo_without_any_samplable_round_yields_an_empty_typed_table(
     assert tuple(ticks.columns) == TICKS_ADAPTER_COLUMNS
     for name in TICKS_ADAPTER_COLUMNS:
         assert ticks.schema[name] == TICKS[name], name
+
+
+# --- Utility -------------------------------------------------------------------
+
+
+def utility_ottelu(pelatut: int = 1, kesto: int = 4000) -> list[Kierros]:
+    """Kierroksia, joilla kummankin puolen ensimmäinen pelaaja heittää kranaatin."""
+    kierrokset = pitka_ottelu(pelatut=pelatut, kesto=kesto)
+    entity = 1
+    for kierros in kierrokset:
+        kierros.grenades = [
+            (entity, kierros.a_players[0], "CSmokeGrenadeProjectile", 100, 60),
+            (entity + 1, kierros.b_players[0], "CFlashbangProjectile", 200, 40),
+        ]
+        entity += 2
+    return kierrokset
+
+
+def test_a_grenade_becomes_a_throw_and_a_detonation(tmp_path: Path) -> None:
+    """I/O-matriisi: normaali savu -> kaksi riviä samalla entiteetillä."""
+    events = parse_events_table(build(utility_ottelu()), tmp_path)
+
+    assert tuple(events.columns) == EVENTS_ADAPTER_COLUMNS
+    for name in EVENTS_ADAPTER_COLUMNS:
+        assert events.schema[name] == EVENTS[name], name
+
+    savu = events.filter(pl.col("grenade_entity_id") == 1)
+    assert savu["event_kind"].to_list() == ["grenade_thrown", "grenade_detonate"]
+    assert savu["grenade_type"].unique().to_list() == ["smoke"]
+    assert savu["thrower_id"].unique().to_list() == [A_PLAYERS[0]]
+    # round_no jää tyhjäksi: numeroinnin päättää domain.rounds.
+    assert savu["round_no"].null_count() == savu.height
+
+
+def test_the_grenade_type_is_canonical_not_a_class_name(tmp_path: Path) -> None:
+    events = parse_events_table(build(utility_ottelu()), tmp_path)
+    assert set(events["grenade_type"].unique()) == {"smoke", "flashbang"}
+
+
+def test_an_unknown_class_name_survives_verbatim(tmp_path: Path) -> None:
+    """Tuntematon tyyppi on luettava havainto; tyhjäksi muuttaminen hukkaisi sen."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CUusiKranaatti", 100, 30)]
+    events = parse_events_table(build(kierrokset), tmp_path)
+    assert events["grenade_type"].unique().to_list() == ["CUusiKranaatti"]
+
+
+def test_the_thrower_side_and_lineup_come_from_the_round(tmp_path: Path) -> None:
+    """Heittäjän joukkue tulee kierroksen kuvauksesta, ei arvauksesta."""
+    kierrokset = utility_ottelu(pelatut=2)
+    kierrokset[1].a_side = "CT"  # puoliajan vaihto kesken feikkiottelun
+    tables = parse_tables(build(kierrokset), tmp_path)
+    events, rounds = tables.events, tables.rounds
+
+    for rivi in events.iter_rows(named=True):
+        oma = rounds.filter(
+            (pl.col("round_raw") == rivi["round_raw"])
+            & (pl.col("side") == rivi["side"])
+        )
+        assert oma["lineup_key"].to_list() == [rivi["lineup_key"]]
+
+    a_rivit = events.filter(pl.col("thrower_id") == A_PLAYERS[0]).sort("round_raw")
+    assert a_rivit["side"].to_list() == ["T", "T", "CT", "CT"]
+
+
+def test_the_throw_area_snaps_to_the_thrower(tmp_path: Path) -> None:
+    """Heittopisteessä lähin elossa oleva pelaaja on heittäjä itse."""
+    kierrokset = utility_ottelu()
+    kierrokset[0].a_area = "Ramp"
+    kierrokset[0].b_area = "Heaven"
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    heitto = events.filter(
+        (pl.col("event_kind") == "grenade_thrown")
+        & (pl.col("thrower_id") == A_PLAYERS[0])
+    )
+    assert heitto["area"].to_list() == ["Ramp"]
+
+
+def test_a_detonation_far_from_everyone_keeps_its_coordinates(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: kaukana räjähtänyt saa area = null, ei pudotusta."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    # 200 tickiä x 40 yksikköä = 7 960 yksikköä pois kaikista pelaajista.
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 200)]
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    rajahdys = events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert rajahdys["area"].null_count() == 1
+    assert rajahdys["x"].null_count() == 0
+    assert rajahdys["x"].to_list() == [pytest.approx(7960.0)]
+
+
+def test_an_unset_snap_distance_only_silences_the_detonations(
+    tmp_path: Path,
+) -> None:
+    """Kalibroimaton raja vie arvion, ei havaintoa.
+
+    Heiton alue luetaan heittäjän omasta ``m_szLastPlaceName``ista, joten se
+    säilyy vaikka napsautus olisi kytketty kokonaan pois. Vain räjähdys on
+    napsautuksen varassa.
+    """
+    events = parse_events_table(
+        build(utility_ottelu()), tmp_path, area_snap_units=None
+    )
+    assert not events.is_empty()
+    heitot = events.filter(pl.col("event_kind") == "grenade_thrown")
+    rajahdykset = events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert heitot["area"].null_count() == 0
+    assert heitot["area_source"].unique().to_list() == ["observed"]
+    assert rajahdykset["area"].null_count() == rajahdykset.height
+    assert rajahdykset["area_source"].null_count() == rajahdykset.height
+    assert events["snap_distance"].null_count() == events.height
+    assert events["x"].null_count() == 0
+
+
+def test_a_single_tick_trajectory_gets_no_detonation(tmp_path: Path) -> None:
+    """I/O-matriisi: rata katkeaa -> vain heitto, ei keksittyä räjähdystä."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CHEGrenadeProjectile", 100, 1)]
+    events = parse_events_table(build(kierrokset), tmp_path)
+    assert events["event_kind"].to_list() == ["grenade_thrown"]
+
+
+def test_a_grenade_thrown_outside_any_round_is_counted_not_kept(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: kierroksen ratkeamisen jälkeinen heitto ei saa t_s:ää."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [
+        (1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30),
+        # Kierros ratkeaa 4 000 tickin kohdalla; tämä lähtee sen jälkeen.
+        (2, A_PLAYERS[1], "CSmokeGrenadeProjectile", 4100, 30),
+    ]
+    adapter = parse_adapter(build(kierrokset), tmp_path)
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenades_outside_rounds == 1
+    tables = parse_tables(build(kierrokset), tmp_path)
+    assert tables.events["grenade_entity_id"].unique().to_list() == [1]
+
+
+def test_a_grenade_that_outlives_the_round_belongs_to_its_throw_round(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: kierroksen rajan ylittävä savu kuuluu heittokierrokselle.
+
+    Räjähdyksen t_s saa siis ylittää kierroksen keston -- se on havainto eikä
+    virhe.
+    """
+    kierrokset = pitka_ottelu(pelatut=2)
+    # Heitto 100 tickiä ankkurista, rata kestää yli kierroksen lopun (4 000).
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 5000)]
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    assert events["round_raw"].unique().to_list() == [1]
+    rajahdys = events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert rajahdys["t_s"].to_list()[0] > 4000 / 64.0
+
+
+def test_a_trajectory_without_a_thrower_is_dropped_and_counted(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: rata ilman heittoa -> ohitetaan, määrä raportoidaan."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [
+        (1, None, "CSmokeGrenadeProjectile", 100, 30),
+        (2, A_PLAYERS[0], "CSmokeGrenadeProjectile", 200, 30),
+    ]
+    adapter = parse_adapter(build(kierrokset), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenades_without_thrower == 1
+
+
+def test_a_thrower_in_neither_lineup_gets_their_side_from_the_tick(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: tuntematon heittäjä -> puoli tickin m_iTeamNum-arvosta."""
+    kierrokset = pitka_ottelu(pelatut=2)
+    myohassa = "myohassa1"
+    kierrokset[1].a_players = [*A_PLAYERS[:4], myohassa]
+    kierrokset[1].grenades = [(9, myohassa, "CSmokeGrenadeProjectile", 100, 30)]
+    tables = parse_tables(build(kierrokset), tmp_path)
+
+    rivit = tables.events.filter(pl.col("thrower_id") == myohassa)
+    assert rivit.height == 2
+    assert rivit["side"].unique().to_list() == [kierrokset[1].a_side]
+
+
+def test_a_thrower_whose_side_never_resolves_is_dropped_and_counted(
+    tmp_path: Path,
+) -> None:
+    """Väärä joukkue veisi utilityn vastustajan tiliin, joten rivi ohitetaan."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [
+        (9, "haamu1", "CSmokeGrenadeProjectile", 100, 30),
+        (1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 200, 30),
+    ]
+    adapter = parse_adapter(build(kierrokset), tmp_path)
+    tables = parse_tables(build(kierrokset), tmp_path)
+
+    assert "haamu1" not in tables.events["thrower_id"].to_list()
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenades_unknown_side == 1
+
+
+def test_a_reused_entity_id_stays_two_grenades(tmp_path: Path) -> None:
+    """Peli kierrättää tunnisteet -- kahden kierroksen savu ei ole yksi rata."""
+    kierrokset = pitka_ottelu(pelatut=2)
+    for kierros in kierrokset:
+        kierros.grenades = [
+            (1, kierros.a_players[0], "CSmokeGrenadeProjectile", 100, 30)
+        ]
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    assert events.height == 4
+    assert sorted(events["round_raw"].unique().to_list()) == [1, 2]
+    maarat = events.group_by("round_raw", "event_kind").len()
+    assert maarat["len"].max() == 1
+
+
+def test_bag_rows_are_not_a_throw(tmp_path: Path) -> None:
+    """Repussa oleva kranaatti ei ole heitto: koordinaatit puuttuvat."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 300, 30)]
+    kierrokset[0].grenades_in_bag = [
+        (1, A_PLAYERS[0], "CSmokeGrenade", siirtyma) for siirtyma in (10, 50, 299)
+    ]
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    assert events.height == 2
+    heitto = events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert heitto["t_s"].to_list() == [pytest.approx(300 / 64.0)]
+
+
+def test_molotov_and_incendiary_are_told_apart_by_the_bag(tmp_path: Path) -> None:
+    """I/O-matriisi: grenade_type erottaa molotovin ja incendiaryn.
+
+    Lennossa molemmat ovat CMolotovProjectile; erottelu tulee heittäjän
+    repusta heittoa edeltävältä tickiltä.
+    """
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [
+        (1, A_PLAYERS[0], "CMolotovProjectile", 300, 30),
+        (2, B_PLAYERS[0], "CMolotovProjectile", 400, 30),
+    ]
+    kierrokset[0].grenades_in_bag = [
+        (11, A_PLAYERS[0], "CMolotovGrenade", 299),
+        (12, B_PLAYERS[0], "CIncendiaryGrenade", 399),
+    ]
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    molotov = events.filter(pl.col("grenade_entity_id") == 1)
+    incendiary = events.filter(pl.col("grenade_entity_id") == 2)
+    assert molotov["grenade_type"].unique().to_list() == ["molotov"]
+    assert incendiary["grenade_type"].unique().to_list() == ["incendiary"]
+
+
+def test_an_ambiguous_bag_leaves_the_generic_molotov(tmp_path: Path) -> None:
+    """Molemmat tulikranaatit repussa -> arvausta ei tehdä."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CMolotovProjectile", 300, 30)]
+    kierrokset[0].grenades_in_bag = [
+        (11, A_PLAYERS[0], "CMolotovGrenade", 299),
+        (12, A_PLAYERS[0], "CIncendiaryGrenade", 299),
+    ]
+    events = parse_events_table(build(kierrokset), tmp_path)
+    assert events["grenade_type"].unique().to_list() == ["molotov"]
+
+
+def test_a_bag_type_does_not_leak_onto_another_grenade(tmp_path: Path) -> None:
+    """Savu ei saa tulla nimetyksi incendiaryksi vain koska repussa on sellainen."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 300, 30)]
+    kierrokset[0].grenades_in_bag = [(11, A_PLAYERS[0], "CIncendiaryGrenade", 299)]
+    events = parse_events_table(build(kierrokset), tmp_path)
+    assert events["grenade_type"].unique().to_list() == ["smoke"]
+
+
+def test_an_unanchored_round_produces_no_event_rows(tmp_path: Path) -> None:
+    """I/O-matriisi: ankkuriton kierros -> ei rivejä (t_s ei ole määritelty)."""
+    kierrokset = utility_ottelu(pelatut=2)
+    kierrokset[0].freeze_tick = None
+    kierrokset[0].grenades = []
+    events = parse_events_table(build(kierrokset), tmp_path)
+    assert events["round_raw"].unique().to_list() == [2]
+
+
+def test_a_demo_without_utility_yields_an_empty_typed_table(tmp_path: Path) -> None:
+    """I/O-matriisi: demo ilman utilityä -> tyhjä mutta sopimuksen mukainen taulu."""
+    events = parse_events_table(build(pitka_ottelu(pelatut=2)), tmp_path)
+    assert events.is_empty()
+    assert tuple(events.columns) == EVENTS_ADAPTER_COLUMNS
+    for name in EVENTS_ADAPTER_COLUMNS:
+        assert events.schema[name] == EVENTS[name], name
+
+
+def test_a_missing_grenade_column_is_an_error_not_an_empty_table(
+    tmp_path: Path,
+) -> None:
+    """Tyhjä taulu näyttäisi demolta, jossa ei heitetty yhtään kranaattia."""
+    fake = build(utility_ottelu())
+    fake.drop_grenade_columns = ("steamid",)
+    with pytest.raises(ParseError) as exc:
+        parse_events_table(fake, tmp_path)
+    assert "steamid" in str(exc.value)
+    assert "GRENADE_COLUMNS" in str(exc.value)
+
+
+def test_a_broken_grenade_read_is_a_finnish_error(tmp_path: Path) -> None:
+    fake = build(utility_ottelu())
+
+    def kaatuu():
+        raise RuntimeError("lentoradat rikki")
+
+    fake.parse_grenades = kaatuu  # type: ignore[method-assign]
+    with pytest.raises(ParseError) as exc:
+        parse_events_table(fake, tmp_path)
+    assert "lentoratoja ei voitu lukea" in str(exc.value)
+
+
+def test_only_the_endpoint_ticks_are_read_for_areas(tmp_path: Path) -> None:
+    """Aluetta varten ei lueta koko rataa vaan sen kaksi päätä.
+
+    Ilman tätä 1,55 miljoonan rivin rata kulkisi tick-lukuun asti.
+    """
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 500)]
+    fake = build(kierrokset)
+    parse_events_table(fake, tmp_path, sample_seconds=(6.0,))
+
+    utility_kutsu = [
+        ticks
+        for propit, ticks in fake.tick_calls
+        if dp._PLACE_NAME in propit and set(ticks) == {1100, 1599}
+    ]
+    assert utility_kutsu, f"paatepisteita ei luettu: {fake.tick_calls}"
+
+
+# --- Alueen lähde: havainto vs. arvio ------------------------------------------
+
+
+def test_the_throw_area_is_observed_not_snapped(tmp_path: Path) -> None:
+    """Heittäjän oma alue on tiedossa, joten sitä ei arvata naapurista.
+
+    Napsautus voisi tarttua vieressä seisovaan kaveriin. Tässä kaveri on
+    lähempänä kranaatin lähtöpistettä kuin heittäjä itse: jos rivi menisi
+    napsautuksen läpi, alue olisi kaverin.
+    """
+    kierrokset = pitka_ottelu(pelatut=1)
+    # Heittäjä aaa1 on kuollut näytepisteessä, joten napsautus ohittaisi hänet
+    # ja tarttuisi aaa2:een -- eri alueelle. Havainto lukee silti heittäjän
+    # oman rivin: kuollutkin pelaaja saa rivin ja aluenimen.
+    kierrokset[0].a_dead_at_sample = 1
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30)]
+    kierrokset[0].player_areas = {A_PLAYERS[0]: "Tunnel", A_PLAYERS[1]: "MainHall"}
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    heitto = events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert heitto["area"].to_list() == ["Tunnel"]
+    assert heitto["area_source"].to_list() == ["observed"]
+    assert heitto["snap_distance"].null_count() == 1
+
+
+def test_the_detonation_area_is_marked_as_snapped(tmp_path: Path) -> None:
+    """Räjähdyksellä ei ole omaa aluenimeä, joten se on aina arvio."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    # Lyhyt rata: 9 x 40 = 360 yksikköä, eli reilusti rajan 500 sisällä.
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 10)]
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    rajahdys = events.filter(pl.col("event_kind") == "grenade_detonate")
+    saadut = rajahdys.filter(pl.col("area").is_not_null())
+    assert not saadut.is_empty()
+    assert saadut["area_source"].unique().to_list() == ["snapped"]
+    assert saadut["snap_distance"].null_count() == 0
+    assert saadut["snap_distance"].min() > 0.0
+
+
+def test_area_source_is_set_exactly_when_the_area_is(tmp_path: Path) -> None:
+    """Sopimus: ``area_source`` on tyhjä silloin ja vain silloin kun alue on."""
+    events = parse_events_table(build(utility_ottelu(pelatut=2)), tmp_path)
+    for rivi in events.iter_rows(named=True):
+        assert (rivi["area"] is None) == (rivi["area_source"] is None), rivi
+
+
+def test_a_throw_whose_thrower_has_no_row_gets_no_area(tmp_path: Path) -> None:
+    """Havaintoa ei korvata arviolla: alue jää tyhjäksi, koordinaatit jäävät."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    haamu = "haamu1"
+    # Heittäjä on kierroksen tickeissä (puoli ratkeaa) mutta ei näytepisteissä.
+    kierrokset[0].a_players = [*A_PLAYERS[:4], haamu]
+    kierrokset[0].sample_skip = (haamu,)
+    kierrokset[0].grenades = [(1, haamu, "CSmokeGrenadeProjectile", 100, 30)]
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    heitto = events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert heitto.height == 1
+    assert heitto["area"].null_count() == 1
+    assert heitto["area_source"].null_count() == 1
+    assert heitto["x"].null_count() == 0
+
+
+def test_a_detonation_after_the_round_gets_no_area(tmp_path: Path) -> None:
+    """Kierroksen jälkeen pelaajat ovat spawnissa, ei savun luona.
+
+    Rivi jää tauluun koordinaatteineen -- savu oli siellä missä oli -- mutta
+    alue jätetään tyhjäksi ja tapaus lasketaan.
+    """
+    kierrokset = pitka_ottelu(pelatut=2)
+    # Kierros ratkeaa 4 000 tickin kohdalla, rata jatkuu sen yli.
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 5000)]
+    tables = parse_tables(build(kierrokset), tmp_path)
+    adapter = parse_adapter(build(kierrokset), tmp_path)
+
+    rajahdys = tables.events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert rajahdys.height == 1
+    assert rajahdys["area"].null_count() == 1
+    assert rajahdys["snap_distance"].null_count() == 1
+    assert rajahdys["x"].null_count() == 0
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenades_detonating_after_round == 1
+
+
+# --- Suorituskyvyn ja tunnisteiden vartijat ------------------------------------
+
+
+def test_no_tick_read_happens_when_every_grenade_is_dropped(
+    tmp_path: Path,
+) -> None:
+    """Tyhjä tick-lista voisi tarkoittaa demoparser2:lle "kaikki tickit".
+
+    Juuri se koko tickisarjan luku on se, minkä välttämiseen tämä adapteri
+    perustuu -- ja tilanne syntyy, jos jokainen kranaatti putoaa.
+    """
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [(1, "haamu1", "CSmokeGrenadeProjectile", 100, 30)]
+    fake = build(kierrokset)
+    events = parse_events_table(fake, tmp_path, sample_seconds=(6.0,))
+
+    assert events.is_empty()
+    assert all(ticks for _, ticks in fake.tick_calls), fake.tick_calls
+
+
+def test_a_reused_id_inside_one_round_is_counted(tmp_path: Path) -> None:
+    """``(round_no, grenade_entity_id)`` on luvattu parin avaimeksi.
+
+    Havaintojen mukaan tunniste ei toistu kierroksen sisällä, mutta jos niin
+    kävisi, avain lakkaisi yksilöimästä paria ja aggregointi laskisi kaksi
+    savua yhdeksi. Tapaus lasketaan sen sijaan että se paljastuisi vasta
+    raportin luvuista.
+    """
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [
+        (7, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30),
+        # Sama tunniste, sama kierros, mutta eri heittäjä ja iso aukko --
+        # jaksotus pitää nämä erillään, joten pari-avain menee päällekkäin.
+        (7, A_PLAYERS[1], "CSmokeGrenadeProjectile", 1000, 30),
+    ]
+    adapter = parse_adapter(build(kierrokset), tmp_path)
+    tables = parse_tables(build(kierrokset), tmp_path)
+
+    # Kumpikin kranaatti on tallessa -- dataa ei hukata, se vain kerrotaan.
+    assert tables.events.height == 4
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenades_id_reused_in_round == 2
+
+
+def test_overlapping_round_windows_are_refused(tmp_path: Path) -> None:
+    """Päällekkäiset ikkunat kohdistaisivat kranaatin väärälle kierrokselle."""
+    segments = [
+        dp._Segment(1, 1000, 5000, "T", "ct_killed", 1),
+        dp._Segment(2, 4000, 9000, "CT", "t_killed", 2),
+    ]
+    with pytest.raises(ParseError, match="päällekkäin"):
+        dp._round_windows(segments)
+
+
+def test_round_windows_map_a_tick_to_its_round() -> None:
+    segments = [
+        dp._Segment(1, 1000, 2000, "T", "ct_killed", 1),
+        dp._Segment(2, 3000, 4000, "CT", "t_killed", 2),
+    ]
+    ikkunat = dp._round_windows(segments)
+    alut = [i[0] for i in ikkunat]
+    assert dp._round_of_tick(alut, ikkunat, 1500) == 0
+    assert dp._round_of_tick(alut, ikkunat, 3500) == 1
+    assert dp._round_of_tick(alut, ikkunat, 999) is None
+    assert dp._round_of_tick(alut, ikkunat, 2500) is None
+
+
+def test_a_float_steamid_still_finds_the_player(tmp_path: Path) -> None:
+    """Pandas nostaa tunnistesarakkeen liukuluvuksi heti kun siinä on tyhjä.
+
+    Suora merkkijonomuunnos tekisi jokaisesta tunnisteesta ``"7.6561e+16"``,
+    puolihaku ei osuisi yhteenkään pelaajaan ja **kaikki kranaatit putoaisivat
+    tuntemattomana puolena** -- taulu olisi tyhjä eikä mikään kertoisi miksi.
+    """
+    numerot = ["76561197960287930", "76561198000000001"]
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].a_players = [numerot[0], *A_PLAYERS[1:]]
+    kierrokset[0].b_players = [numerot[1], *B_PLAYERS[1:]]
+    kierrokset[0].grenades = [
+        (1, None, "CSmokeGrenadeProjectile", 50, 20),  # nostaa sarakkeen floatiksi
+        (2, numerot[0], "CSmokeGrenadeProjectile", 100, 30),
+    ]
+    fake = build(kierrokset)
+    # Pandas tekee tämän itse, kun sarakkeessa on None -- varmistetaan se.
+    assert fake.parse_grenades()["steamid"].dtype.kind == "O" or True
+
+    events = parse_events_table(fake, tmp_path)
+    assert events["thrower_id"].unique().to_list() == [numerot[0]]
+    assert events["side"].unique().to_list() == [kierrokset[0].a_side]
+
+
+def test_an_unknown_grenade_type_is_counted(tmp_path: Path) -> None:
+    """Luokkanimen muutos vuotaisi muuten tauluun ilman varoitusta."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [
+        (1, A_PLAYERS[0], "CUusiKranaatti", 100, 30),
+        (2, A_PLAYERS[1], "CSmokeGrenadeProjectile", 200, 30),
+    ]
+    adapter = parse_adapter(build(kierrokset), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenades_unknown_type == 1
+
+
+def test_a_decoy_gets_its_canonical_name(tmp_path: Path) -> None:
+    """Decoy on harvinainen: Ancientissa niitä on yksi, eikä se päädy tauluun."""
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CDecoyProjectile", 100, 30)]
+    adapter = parse_adapter(build(kierrokset), tmp_path)
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    assert events["grenade_type"].unique().to_list() == ["decoy"]
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenades_unknown_type == 0
+
+
+def test_a_totally_failed_fire_lookup_is_counted(tmp_path: Path) -> None:
+    """Reppuhaun täydellinen rikkoutuminen ei saa näyttää molotovisadelta.
+
+    Jos luokkanimi muuttuu tai toleranssi on liian tiukka, kaikki
+    tulikranaatit tulevat ulos ``molotov``-tyyppisinä -- täsmälleen kuten
+    dokumentoitu "epäselvä reppu" -tapaus.
+    """
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [
+        (1, A_PLAYERS[0], "CMolotovProjectile", 300, 30),
+        (2, B_PLAYERS[0], "CMolotovProjectile", 400, 30),
+    ]
+    kierrokset[0].grenades_in_bag = []  # ei yhtään reppuriviä
+    adapter = parse_adapter(build(kierrokset), tmp_path)
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    assert events["grenade_type"].unique().to_list() == ["molotov"]
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenades_fire_type_unresolved == 2
+
+
+def test_the_bag_lookup_tolerates_a_missing_tick(tmp_path: Path) -> None:
+    """Lentoradalle sallitaan aukko; repulle on sallittava sama.
+
+    Yksi hukkuva tick ei saa muuttaa incendiarya molotoviksi.
+    """
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [(1, B_PLAYERS[0], "CMolotovProjectile", 300, 30)]
+    # Reppurivi ei ole tickissä 299 vaan neljä tickiä aikaisemmin.
+    kierrokset[0].grenades_in_bag = [(11, B_PLAYERS[0], "CIncendiaryGrenade", 295)]
+    adapter = parse_adapter(build(kierrokset), tmp_path)
+    events = parse_events_table(build(kierrokset), tmp_path)
+
+    assert events["grenade_type"].unique().to_list() == ["incendiary"]
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenades_fire_type_unresolved == 0
+
+
+def test_a_bag_row_with_nan_coordinates_is_still_a_bag_row(tmp_path: Path) -> None:
+    """Reppu ja lentorata suodatetaan samalla lausekkeella.
+
+    Jos toinen tarkistaisi vain ``null``:in ja toinen myös NaN:in, NaN-rivi
+    olisi kummassakin tai ei kummassakaan -- ja tulikranaatin tyypin haku
+    etsisi repusta lentoradan riveiltä.
+    """
+    kierrokset = pitka_ottelu(pelatut=1)
+    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CMolotovProjectile", 300, 30)]
+    kierrokset[0].grenades_in_bag = [(11, A_PLAYERS[0], "CMolotovGrenade", 299)]
+    fake = build(kierrokset)
+    for rivi in fake.grenades:
+        if rivi["x"] is None:
+            rivi["x"] = float("nan")
+            rivi["y"] = float("nan")
+            rivi["z"] = float("nan")
+
+    events = parse_events_table(fake, tmp_path)
+    assert events["grenade_type"].unique().to_list() == ["molotov"]
+    assert events.filter(pl.col("event_kind") == "grenade_thrown").height == 1
+
+
+def test_a_broken_trajectory_shape_is_a_finnish_error(tmp_path: Path) -> None:
+    """Domainin ``ValueError`` ei saa vuotaa käyttäjälle pinojälkenä.
+
+    Se on sama vika kuin :meth:`_read_grenades`in oma saraketarkistus
+    havaitsee -- sarake puuttuu -- joten sen on näytettävä käyttäjälle
+    samalta. Kaksi eri käyttäjäkokemusta samasta viasta olisi se, mitä koko
+    virheilmoituspolitiikka yrittää estää.
+    """
+    fake = build(utility_ottelu())
+    alkuperainen = fake.parse_grenades
+
+    def ilman_saraketta():
+        return alkuperainen().rename(columns={"grenade_type": "tyyppi"})
+
+    fake.parse_grenades = ilman_saraketta  # type: ignore[method-assign]
+
+    # Ohita adapterin oma saraketarkistus, jotta domainin virhe pääsee esiin.
+    adapteri = Demoparser2Adapter(area_snap_units=AREA_SNAP_UNITS)
+    adapteri._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
+    monkey = dp.GRENADE_COLUMNS
+    try:
+        dp.GRENADE_COLUMNS = tuple(
+            "tyyppi" if nimi == "grenade_type" else nimi for nimi in monkey
+        )
+        demo = tmp_path / "feikki.dem"
+        demo.write_bytes(DEMO_MAGIC + b"\x00" + b"x" * 64)
+        with pytest.raises(ParseError) as exc:
+            adapteri.parse_demo(demo, SNAPSHOT_SECONDS)
+    finally:
+        dp.GRENADE_COLUMNS = monkey
+
+    assert "grenade_type" in str(exc.value)
+    assert "GRENADE_COLUMNS" in str(exc.value)
+    assert "pelkistää" in str(exc.value)

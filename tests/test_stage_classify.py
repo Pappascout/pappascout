@@ -23,13 +23,17 @@ from conftest import (
     require_demo,
     settings_text,
 )
-from pappascout.adapters.protocols import TICKS_ADAPTER_COLUMNS, DemoTables
+from pappascout.adapters.protocols import (
+    EVENTS_ADAPTER_COLUMNS,
+    TICKS_ADAPTER_COLUMNS,
+    DemoTables,
+)
 from pappascout.archive.manifest import Manifest
 from pappascout.archive.paths import ArchivePaths
 from pappascout.domain.economy import per_player
 from pappascout.domain.models import load_settings
 from pappascout.domain.rounds import mark_played_rounds
-from pappascout.domain.schemas import CLASSIFIED, ROUNDS, TICKS, validate
+from pappascout.domain.schemas import CLASSIFIED, EVENTS, ROUNDS, TICKS, validate
 from pappascout.errors import PappascoutError, SchemaError
 from pappascout.stages import classify as classify_stage
 from pappascout.stages import parse as parse_stage
@@ -187,9 +191,16 @@ def parsi(
     # kierrostaulussa.
     tickit = _minimal_ticks(frame)
 
+    # Utility ei vaikuta luokitteluun lainkaan, ja tyhjä tapahtumataulu on
+    # kelvollinen tulos -- toisin kuin tyhjä asetelmataulu. Kiinnike antaa siis
+    # tyhjän mutta sopimuksen mukaisen taulun.
+    tapahtumat = pl.DataFrame(
+        schema={name: EVENTS[name] for name in EVENTS_ADAPTER_COLUMNS}
+    )
+
     class Fake:
         def parse_demo(self, path: Path, sample_seconds) -> DemoTables:
-            return DemoTables(rounds=adapteri, ticks=tickit)
+            return DemoTables(rounds=adapteri, ticks=tickit, events=tapahtumat)
 
     parse_stage.run(
         parse_settings, arkisto, MAP_DEMO_ID, Fake(), demo_path=demo, force=force

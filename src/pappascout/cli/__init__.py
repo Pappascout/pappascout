@@ -198,11 +198,11 @@ def parse(
         ),
     ),
 ) -> None:
-    """Parsi demo kierros- ja näytepistetauluiksi.
+    """Parsi demo kierros-, näytepiste- ja tapahtumatauluiksi.
 
-    Kirjoittaa ``parsed/<map_demo_id>/rounds.parquet``- ja ``ticks.parquet``-
-    taulut sekä niiden manifestin. Jos manifesti täsmää, vaihe ohitetaan eikä
-    demoa lueta uudelleen.
+    Kirjoittaa ``parsed/<map_demo_id>/rounds.parquet``-, ``ticks.parquet``- ja
+    ``events.parquet``-taulut sekä niiden manifestin. Jos manifesti täsmää,
+    vaihe ohitetaan eikä demoa lueta uudelleen.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
@@ -298,6 +298,7 @@ def _render_parse(tulos: StageResult, regulation_rounds: int) -> str:
         )
 
     rivit.extend(_naytepisteet(stats, kierrokset))
+    rivit.extend(_utility(stats, kierrokset))
 
     if "tick_rate" in stats and not stats.get("tick_rate_measured", True):
         rivit.append(
@@ -394,6 +395,141 @@ def _naytepisteet(stats: dict, kierrokset: int) -> list[str]:
                 "Puoli tuntematon",
                 f"{tuntemattomat} vahinkotapahtumaa ohitettiin ensikontaktia "
                 "etsittäessä",
+            )
+        )
+    return rivit
+
+
+def _utility(stats: dict, kierrokset: int) -> list[str]:
+    """Utility-tapahtumien rivit ``parse``-tulosteeseen.
+
+    Neljä kysymystä, neljä lukua: **syntyikö** utilitydataa (heitot),
+    **päättyikö** rata (räjähdykset), **osuiko** aluepäättely ja **katosiko**
+    matkalla mitään. Nolla heittoa on kelvollinen tulos -- demossa on voitu
+    jättää utility heittämättä -- mutta se sanotaan ääneen, koska kierrosluku
+    näyttäisi muuten samalta myös rikkoutuneella lukemisella.
+    """
+    if "events_unreadable" in stats:
+        return [_rivi("Utility", f"lukuja ei saatu ({stats['events_unreadable']})")]
+    if "event_rows" not in stats:
+        return []
+
+    rivit: list[str] = []
+    heitot = int(stats.get("utility_throws", 0) or 0)
+    rajahdykset = int(stats.get("utility_detonations", 0) or 0)
+    utility_kierrokset = int(stats.get("utility_rounds", 0) or 0)
+
+    if heitot:
+        rivit.append(
+            _rivi(
+                "Utility",
+                f"{heitot} heittoa, {rajahdykset} räjähdystä "
+                f"({utility_kierrokset}/{kierrokset} kierroksella)",
+            )
+        )
+    else:
+        rivit.append(_rivi("Utility", "0 heittoa -- utilitydataa ei syntynyt"))
+
+    # Räjähtämätön kranaatti on normaali (pelaaja kuolee heitto kädessä), mutta
+    # suuri erotus tarkoittaisi, ettei radan loppua tunnisteta. Toiseen suuntaan
+    # se on mahdoton: räjähdys syntyy vain heiton parina, joten negatiivinen
+    # erotus on vika eikä havainto -- eikä sitä tulosteta miinusmerkkisenä
+    # "puuttuvien" lukuna.
+    if rajahdykset > heitot:
+        rivit.append(
+            _rivi(
+                "Räjähdyksiä liikaa",
+                f"{rajahdykset - heitot} enemmän kuin heittoja -- "
+                "utility-taulu on epäjohdonmukainen",
+            )
+        )
+    elif heitot > rajahdykset:
+        rivit.append(_rivi("Ilman räjähdystä", f"{heitot - rajahdykset} kranaattia"))
+
+    if heitot:
+        rivit.extend(_utility_alueet(stats))
+
+    # Adapterin ja vaiheen omat havainnot: pudotettua kranaattia ei näe
+    # valmiista taulusta. Otsikot mahtuvat _PARSE_LABEL_WIDTHiin, jotta
+    # arvosarake pysyy suorassa.
+    for avain, otsikko, selite in (
+        (
+            "grenades_without_thrower",
+            "Ilman heittäjää",
+            "lentorataa ohitettiin",
+        ),
+        (
+            "grenades_outside_rounds",
+            "Ilman kierrosta",
+            "kranaattia (lämmittely tai kierroksen ratkeamisen jälkeen)",
+        ),
+        (
+            "utility_unnumbered_rounds",
+            "Ei kierrosnumeroa",
+            "heittoa numeroimattomilta kierroksilta (warmup, puukkokierros)",
+        ),
+        (
+            "grenades_unknown_side",
+            "Ilman puolta",
+            "kranaattia ohitettiin (heittäjän joukkue ei ratkennut)",
+        ),
+        (
+            "grenades_unknown_type",
+            "Tuntematon tyyppi",
+            "kranaattia -- demoparser2:n luokkanimi ei ole listalla",
+        ),
+        (
+            "grenades_fire_type_unresolved",
+            "Tulityyppi auki",
+            "kranaattia jäi molotoviksi (incendiary-erottelu ei ratkennut)",
+        ),
+        (
+            "grenades_detonating_after_round",
+            "Räjähdys myöhässä",
+            "kierroksen päättymisen jälkeen -- alue jätettiin tyhjäksi",
+        ),
+        (
+            "grenade_ticks_without_players",
+            "Tickillä ei rivejä",
+            "päätepistettä ilman pelaajia -- aluetta ei voitu edes yrittää",
+        ),
+        (
+            "grenades_id_reused_in_round",
+            "Tunniste toistuu",
+            "kranaattiparia samalla tunnisteella kierroksen sisällä",
+        ),
+    ):
+        maara = int(stats.get(avain, 0) or 0)
+        if maara:
+            rivit.append(_rivi(otsikko, f"{maara} {selite}"))
+    return rivit
+
+
+def _utility_alueet(stats: dict) -> list[str]:
+    """Alueen lähteet erikseen: havainto, arvio ja puuttuva.
+
+    Kolme lukua eikä yksi, koska ne ovat eri laatua olevaa tietoa. Heiton alue
+    on heittäjän oma ``m_szLastPlaceName`` eli havainto; räjähdyksen alue on
+    lähimmältä pelaajalta johdettu arvio. Yhteen niputettuna raportin lukija
+    luulisi molempia yhtä varmoiksi.
+    """
+    havaitut = int(stats.get("utility_area_observed", 0) or 0)
+    napsautetut = int(stats.get("utility_area_snapped", 0) or 0)
+    nimettomat = int(stats.get("utility_area_unnamed", 0) or 0)
+    ilman = int(stats.get("utility_without_area", 0) or 0)
+    rivit = [
+        _rivi(
+            "Utilityn alue",
+            f"{havaitut} havaittua, {napsautetut} napsautettua, "
+            f"{ilman} ilman aluetta",
+        )
+    ]
+    if nimettomat:
+        rivit.append(
+            _rivi(
+                "Nimetön alue",
+                f"{nimettomat} tapahtumaa (lähin pelaaja löytyi, mutta pelillä "
+                "ei ole nimeä hänen alueelleen)",
             )
         )
     return rivit

@@ -1,9 +1,9 @@
 """``stages.parse`` -- vaiheen testit ilman demoja.
 
 Vaihe näkee demon vain portin takaa (AD-8), joten sen koko logiikka -- taulujen
-validointi, kierrosnumeron liittäminen näytepisteisiin, atominen kirjoitus,
-manifesti ja ohitus -- testataan feikillä, joka rakentaa kierros- ja
-näytepistetaulun käsin. Yksikään näistä testeistä ei tarvitse demotiedostoa.
+validointi, kierrosnumeron liittäminen näytepisteisiin ja tapahtumiin, atominen
+kirjoitus, manifesti ja ohitus -- testataan feikillä, joka rakentaa kaikki
+kolme taulua käsin. Yksikään näistä testeistä ei tarvitse demotiedostoa.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import pytest
 
 from conftest import has_temp_leftovers, settings_text
 from pappascout.adapters.protocols import (
+    EVENTS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
@@ -24,7 +25,7 @@ from pappascout.archive.manifest import Manifest
 from pappascout.archive.paths import ArchivePaths
 from pappascout.constants import SAMPLE_KINDS, SIDES
 from pappascout.domain.models import load_settings
-from pappascout.domain.schemas import ROUNDS, TICKS
+from pappascout.domain.schemas import EVENTS, ROUNDS, TICKS
 from pappascout.errors import DemoUnavailable, PappascoutError, ParseError, SchemaError
 from pappascout.stages import parse as parse_stage
 
@@ -38,6 +39,11 @@ ADAPTER_SCHEMA: dict[str, object] = {
 #: Näytepistetaulun tyypit portin takana: ``TICKS`` ilman ``map_demo_id``:tä.
 TICKS_ADAPTER_SCHEMA: dict[str, object] = {
     name: TICKS[name] for name in TICKS_ADAPTER_COLUMNS
+}
+
+#: Tapahtumataulun tyypit portin takana: ``EVENTS`` ilman ``map_demo_id``:tä.
+EVENTS_ADAPTER_SCHEMA: dict[str, object] = {
+    name: EVENTS[name] for name in EVENTS_ADAPTER_COLUMNS
 }
 
 #: Näytepisteet, joilla feikki rakentaa tick-rivinsä.
@@ -160,6 +166,66 @@ def build_ticks(
     return pl.DataFrame(rivit, schema=dict(TICKS_ADAPTER_SCHEMA), orient="row")
 
 
+def build_events(
+    rounds: pl.DataFrame,
+    *,
+    per_round: int = 2,
+    unexploded: tuple[int, ...] = (),
+    without_area: tuple[int, ...] = (),
+) -> pl.DataFrame:
+    """Tapahtumataulu ``build_rounds``-taulua vastaavana, kuten adapteri sen antaisi.
+
+    Adapteri tuottaa rivejä **kaikilta ankkuroiduilta** kierrosrajoilta, myös
+    lämmittelystä ja puukkokierrokselta -- se ei tunne numerointisääntöä.
+
+    Args:
+        rounds: Kierrostaulu, josta ``round_raw``, ``side`` ja ``lineup_key``
+            luetaan; avaimet eivät saa erota tauluissa.
+        per_round: Montako kranaattia kumpikin joukkue heittää kierroksella.
+        unexploded: Ne ``grenade_entity_id``:t, joilta räjähdysrivi puuttuu.
+        without_area: Ne ``grenade_entity_id``:t, joiden alue jäi tyhjäksi.
+    """
+    rivit: list[dict[str, object]] = []
+    entity = 0
+    for kierros in rounds.iter_rows(named=True):
+        if kierros["freeze_end_tick"] is None:
+            continue  # ankkuriton kierros ei tuota tapahtumia
+        for index in range(per_round):
+            entity += 1
+            hetket: list[tuple[str, float]] = [("grenade_thrown", 5.0 + index)]
+            if entity not in unexploded:
+                hetket.append(("grenade_detonate", 7.0 + index))
+            for kind, t_s in hetket:
+                rivit.append(
+                    {
+                        "round_raw": kierros["round_raw"],
+                        "round_no": None,
+                        "event_kind": kind,
+                        "grenade_entity_id": entity,
+                        "grenade_type": "smoke" if index == 0 else "flashbang",
+                        "thrower_id": f"{kierros['lineup_key']}-{index}",
+                        "lineup_key": kierros["lineup_key"],
+                        "side": kierros["side"],
+                        "t_s": t_s,
+                        "x": 100.0 * index,
+                        "y": -100.0 * index,
+                        "z": 2.0,
+                        "area": None if entity in without_area else "Ramp",
+                        # Heiton alue on havainto, räjähdyksen arvio -- kuten
+                        # oikea adapteri ne tuottaa.
+                        "area_source": (
+                            None
+                            if entity in without_area
+                            else ("observed" if kind == "grenade_thrown" else "snapped")
+                        ),
+                        "snap_distance": (
+                            None if kind == "grenade_thrown" else 120.0
+                        ),
+                    }
+                )
+    return pl.DataFrame(rivit, schema=dict(EVENTS_ADAPTER_SCHEMA), orient="row")
+
+
 class FakeParser:
     """Portin toteutus, joka ei koske demoparser2:een."""
 
@@ -168,9 +234,11 @@ class FakeParser:
         frame: pl.DataFrame | None = None,
         virhe: Exception | None = None,
         ticks: pl.DataFrame | None = None,
+        events: pl.DataFrame | None = None,
     ):
         self.frame = frame if frame is not None else build_rounds()
         self.ticks = ticks if ticks is not None else build_ticks(self.frame)
+        self.events = events if events is not None else build_events(self.frame)
         self.virhe = virhe
         self.kutsut = 0
         self.nahdyt_sekunnit: list[tuple[float, ...]] = []
@@ -180,7 +248,7 @@ class FakeParser:
         self.nahdyt_sekunnit.append(tuple(sample_seconds))
         if self.virhe is not None:
             raise self.virhe
-        return DemoTables(rounds=self.frame, ticks=self.ticks)
+        return DemoTables(rounds=self.frame, ticks=self.ticks, events=self.events)
 
 
 # --- Kiinnikkeet ---------------------------------------------------------------
@@ -283,6 +351,7 @@ def test_writes_a_manifest_with_only_the_parse_section(
     assert manifest.outputs == [
         f"parsed/{MAP_DEMO_ID}/rounds.parquet",
         f"parsed/{MAP_DEMO_ID}/ticks.parquet",
+        f"parsed/{MAP_DEMO_ID}/events.parquet",
     ]
     assert manifest.inputs[0].result_id == f"demo/{MAP_DEMO_ID}"
 
@@ -334,9 +403,15 @@ def test_writes_a_valid_ticks_table(parse_settings, arkisto, demo) -> None:
     assert tulos.stats["sample_rounds"] == 3
 
 
-def test_ticks_are_listed_among_the_outputs(parse_settings, arkisto, demo) -> None:
+def test_all_three_tables_are_listed_among_the_outputs(
+    parse_settings, arkisto, demo
+) -> None:
     tulos = aja(parse_settings, arkisto, FakeParser(), demo)
-    assert [p.name for p in tulos.outputs] == ["rounds.parquet", "ticks.parquet"]
+    assert [p.name for p in tulos.outputs] == [
+        "rounds.parquet",
+        "ticks.parquet",
+        "events.parquet",
+    ]
 
 
 def test_ticks_get_the_round_number_from_the_rounds_table(
@@ -542,7 +617,7 @@ def test_an_archive_parsed_by_an_older_version_is_reparsed(
 def test_a_failed_second_write_never_looks_up_to_date(
     parse_settings, arkisto, demo, monkeypatch
 ) -> None:
-    """Kahden taulun kirjoitus on yksi tapahtuma.
+    """Kolmen taulun kirjoitus on yksi tapahtuma.
 
     Jos ticks-kirjoitus kaatuu peräkkäisissä lohkoissa, arkistoon jäisi
     kierrostaulu ilman pariaan -- ja koska manifesti kirjoitettaisiin silti,
@@ -565,9 +640,10 @@ def test_a_failed_second_write_never_looks_up_to_date(
 
     monkeypatch.undo()
 
-    # Kumpikaan taulu ei jäänyt paikalleen, ja manifesti kertoo virheestä.
+    # Yksikään taulu ei jäänyt paikalleen, ja manifesti kertoo virheestä.
     assert not arkisto.parsed_table(MAP_DEMO_ID, "rounds").exists()
     assert not arkisto.parsed_table(MAP_DEMO_ID, "ticks").exists()
+    assert not arkisto.parsed_table(MAP_DEMO_ID, "events").exists()
     assert not has_temp_leftovers(arkisto.root)
     assert Manifest.read(arkisto.parsed_manifest(MAP_DEMO_ID)).status == "parse_failed"
 
@@ -636,6 +712,274 @@ def test_skipped_run_reports_the_tick_counts_too(
     assert tulos.skipped
     assert tulos.stats["tick_rows"] == 70  # 60 aikapistettä + 10 ensikontaktia
     assert tulos.stats["first_contact_rounds"] == 1
+
+
+# --- Tapahtumataulu ------------------------------------------------------------
+
+
+def test_writes_a_valid_events_table(parse_settings, arkisto, demo) -> None:
+    """Hyväksymiskriteeri: ``events.parquet`` läpäisee ``validate(EVENTS)``."""
+    rounds = build_rounds(pelatut=3, warmup=0)
+    tulos = aja(
+        parse_settings, arkisto, FakeParser(rounds, events=build_events(rounds)), demo
+    )
+
+    table = arkisto.parsed_table(MAP_DEMO_ID, "events")
+    assert table.is_file()
+    df = pl.read_parquet(table)
+    assert list(df.columns) == list(EVENTS)
+    assert df.schema == dict(EVENTS)
+    assert df["map_demo_id"].unique().to_list() == [MAP_DEMO_ID]
+    # 3 kierrosta x 2 joukkuetta x 2 kranaattia x 2 riviä.
+    assert df.height == 24
+    assert tulos.stats["event_rows"] == 24
+    assert tulos.stats["utility_throws"] == 12
+    assert tulos.stats["utility_detonations"] == 12
+    assert tulos.stats["utility_rounds"] == 3
+
+
+def test_every_grenade_has_at_most_one_throw_and_one_detonation(
+    parse_settings, arkisto, demo
+) -> None:
+    """Hyväksymiskriteeri: pari on pari, ei kolmea riviä."""
+    rounds = build_rounds(pelatut=4, warmup=0)
+    aja(parse_settings, arkisto, FakeParser(rounds, events=build_events(rounds)), demo)
+
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "events"))
+    maarat = df.group_by("round_no", "grenade_entity_id", "event_kind").len()
+    assert maarat["len"].max() == 1
+
+
+def test_an_unexploded_grenade_has_no_invented_detonation(
+    parse_settings, arkisto, demo
+) -> None:
+    """I/O-matriisi: rata katkeaa -> vain ``grenade_thrown``."""
+    rounds = build_rounds(pelatut=2, warmup=0)
+    events = build_events(rounds, unexploded=(1,))
+    tulos = aja(parse_settings, arkisto, FakeParser(rounds, events=events), demo)
+
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "events"))
+    yksinainen = df.filter(pl.col("grenade_entity_id") == 1)
+    assert yksinainen["event_kind"].to_list() == ["grenade_thrown"]
+    assert tulos.stats["utility_throws"] - tulos.stats["utility_detonations"] == 1
+
+
+def test_events_get_the_round_number_from_the_rounds_table(
+    parse_settings, arkisto, demo
+) -> None:
+    rounds = build_rounds(pelatut=3, warmup=0)
+    aja(parse_settings, arkisto, FakeParser(rounds, events=build_events(rounds)), demo)
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "events"))
+
+    assert df["round_no"].null_count() == 0
+    assert sorted(df["round_no"].unique().to_list()) == [1, 2, 3]
+
+
+def test_unnumbered_rounds_produce_no_event_rows(
+    parse_settings, arkisto, demo
+) -> None:
+    """I/O-matriisi: heitto numeroimattomalla kierroksella -> ei rivejä."""
+    rounds = build_rounds(pelatut=2, warmup=3)
+    aja(parse_settings, arkisto, FakeParser(rounds, events=build_events(rounds)), demo)
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "events"))
+
+    assert sorted(df["round_no"].unique().to_list()) == [1, 2]
+    assert sorted(df["round_raw"].unique().to_list()) == [4, 5]
+
+
+def test_a_round_without_an_anchor_has_no_event_rows(
+    parse_settings, arkisto, demo
+) -> None:
+    """I/O-matriisi: ankkuriton kierros -> ei rivejä (``t_s`` ei määritelty)."""
+    rounds = build_rounds(3, warmup=0, ilman_ankkuria=(2,))
+    aja(parse_settings, arkisto, FakeParser(rounds, events=build_events(rounds)), demo)
+
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "events"))
+    assert sorted(df["round_no"].unique().to_list()) == [1, 3]
+
+
+def test_an_empty_events_table_is_a_valid_result(
+    parse_settings, arkisto, demo
+) -> None:
+    """I/O-matriisi: demo ilman utilityä -> tyhjä ``events.parquet``.
+
+    Toisin kuin tyhjä kierros- tai näytepistetaulu, tämä ei ole virhe: demossa
+    on aina pelattuja kierroksia, mutta utility voi aidosti puuttua. Virhe
+    estäisi koko demon parsinnan tiedosta, joka on itsessään havainto.
+    """
+    rounds = build_rounds(pelatut=2, warmup=0)
+    tyhja = pl.DataFrame(schema=dict(EVENTS_ADAPTER_SCHEMA))
+    tulos = aja(parse_settings, arkisto, FakeParser(rounds, events=tyhja), demo)
+
+    assert tulos.status == "ok"
+    table = arkisto.parsed_table(MAP_DEMO_ID, "events")
+    assert table.is_file()
+    df = pl.read_parquet(table)
+    assert df.is_empty()
+    assert df.schema == dict(EVENTS)
+    assert tulos.stats["event_rows"] == 0
+    assert tulos.stats["utility_throws"] == 0
+
+
+def test_events_without_an_area_are_counted(parse_settings, arkisto, demo) -> None:
+    """I/O-matriisi: räjähdys kaukana kaikista -> ``area = null``, ei pudotusta."""
+    rounds = build_rounds(pelatut=2, warmup=0)
+    events = build_events(rounds, without_area=(2, 4))
+    tulos = aja(parse_settings, arkisto, FakeParser(rounds, events=events), demo)
+
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "events"))
+    aluettomat = df.filter(pl.col("area").is_null())
+    assert aluettomat.height == 4  # kaksi kranaattia x kaksi riviä
+    # Koordinaatit säilyvät, vaikka alue ei ratkennut.
+    assert aluettomat["x"].null_count() == 0
+    assert aluettomat["area_source"].null_count() == 4
+    assert tulos.stats["utility_without_area"] == 4
+
+
+def test_observed_and_snapped_areas_are_counted_separately(
+    parse_settings, arkisto, demo
+) -> None:
+    """Havainto ja arvio ovat eri laatua olevaa tietoa eivätkä saa niputtua.
+
+    Ilman erottelua raportti esittäisi räjähdyksen arvion yhtä varmana kuin
+    heittäjän oman alueen.
+    """
+    rounds = build_rounds(pelatut=2, warmup=0)
+    tulos = aja(
+        parse_settings, arkisto, FakeParser(rounds, events=build_events(rounds)), demo
+    )
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "events"))
+
+    heitot = df.filter(pl.col("event_kind") == "grenade_thrown")
+    rajahdykset = df.filter(pl.col("event_kind") == "grenade_detonate")
+    assert heitot["area_source"].unique().to_list() == ["observed"]
+    assert rajahdykset["area_source"].unique().to_list() == ["snapped"]
+    # Napsautusetäisyys on vain arviolla -- havainto ei ole minkään päässä.
+    assert heitot["snap_distance"].null_count() == heitot.height
+    assert rajahdykset["snap_distance"].null_count() == 0
+    assert tulos.stats["utility_area_observed"] == heitot.height
+    assert tulos.stats["utility_area_snapped"] == rajahdykset.height
+
+
+def test_utility_on_unnumbered_rounds_is_counted_not_just_dropped(
+    parse_settings, arkisto, demo
+) -> None:
+    """Kolme muuta pudotussyytä raportoidaan -- tämä ei saa olla poikkeus."""
+    rounds = build_rounds(pelatut=2, warmup=3)
+    tulos = aja(
+        parse_settings, arkisto, FakeParser(rounds, events=build_events(rounds)), demo
+    )
+    # 3 numeroimatonta kierrosta x 2 joukkuetta x 2 kranaattia = 12 heittoa.
+    assert tulos.stats["utility_unnumbered_rounds"] == 12
+
+
+def test_lineup_keys_join_from_events_to_rounds(
+    parse_settings, arkisto, demo
+) -> None:
+    """Heittäjän joukkue on sama kuin kierrostaulussa; ei ristiinkytkentää."""
+    aja(parse_settings, arkisto, FakeParser(), demo)
+    kierrokset = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "rounds"))
+    events = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "events"))
+
+    liitos = events.join(
+        kierrokset.select("map_demo_id", "round_no", "lineup_key", "side"),
+        on=["map_demo_id", "round_no", "lineup_key", "side"],
+        how="inner",
+    )
+    assert liitos.height == events.height
+
+
+def test_event_rows_are_sorted_deterministically(
+    parse_settings, arkisto, demo
+) -> None:
+    """Saman kranaatin heitto tulee aina ennen sen räjähdystä."""
+    rounds = build_rounds(pelatut=3, warmup=0)
+    aja(parse_settings, arkisto, FakeParser(rounds, events=build_events(rounds)), demo)
+
+    df = pl.read_parquet(arkisto.parsed_table(MAP_DEMO_ID, "events"))
+    avaimet = list(zip(df["round_no"].to_list(), df["grenade_entity_id"].to_list()))
+    assert avaimet == sorted(avaimet)
+    for _, ryhma in df.group_by("grenade_entity_id", maintain_order=True):
+        assert ryhma["event_kind"].to_list()[0] == "grenade_thrown"
+
+
+def test_an_events_table_breaking_the_port_contract_is_rejected(
+    parse_settings, arkisto, demo
+) -> None:
+    rounds = build_rounds()
+    rikki = build_events(rounds).drop("area")
+    with pytest.raises(SchemaError) as exc:
+        aja(parse_settings, arkisto, FakeParser(rounds, events=rikki), demo)
+    assert "area" in str(exc.value)
+    assert "tapahtumataulun" in str(exc.value)
+
+
+def test_a_missing_events_table_forces_a_reparse(
+    parse_settings, arkisto, demo
+) -> None:
+    """Puolikas tulos ei ole ajantasainen tulos."""
+    parser = FakeParser()
+    aja(parse_settings, arkisto, parser, demo)
+    arkisto.parsed_table(MAP_DEMO_ID, "events").unlink()
+
+    tulos = aja(parse_settings, arkisto, parser, demo)
+    assert not tulos.skipped
+    assert parser.kutsut == 2
+
+
+def test_an_archive_parsed_before_utility_is_reparsed(
+    parse_settings, arkisto, demo
+) -> None:
+    """Story 2.1:n arkisto ei saa jäädä ilman ``events.parquet``-taulua.
+
+    Sama ansa kuin Story 2.1:ssä: ``ParseSettings`` muuttui vain
+    ``area_snap_units``-kentän oletuksella, ja jos se on sama, ``params_hash``
+    on identtinen. Manifestin ``outputs_present()`` tarkistaa vain ne polut,
+    jotka **levyllä oleva** manifesti nimeää.
+    """
+    parser = FakeParser()
+    aja(parse_settings, arkisto, parser, demo)
+
+    manifest_polku = arkisto.parsed_manifest(MAP_DEMO_ID)
+    manifest = json.loads(manifest_polku.read_text(encoding="utf-8"))
+    manifest["outputs"] = [
+        f"parsed/{MAP_DEMO_ID}/rounds.parquet",
+        f"parsed/{MAP_DEMO_ID}/ticks.parquet",
+    ]
+    manifest_polku.write_text(json.dumps(manifest), encoding="utf-8")
+    arkisto.parsed_table(MAP_DEMO_ID, "events").unlink()
+
+    tulos = aja(parse_settings, arkisto, parser, demo)
+
+    assert not tulos.skipped, "vanha arkisto olisi jäänyt ilman utility-taulua"
+    assert arkisto.parsed_table(MAP_DEMO_ID, "events").is_file()
+
+
+def test_unreadable_events_do_not_hide_the_other_counts(
+    parse_settings, arkisto, demo
+) -> None:
+    aja(parse_settings, arkisto, FakeParser(build_rounds(pelatut=4, warmup=0)), demo)
+    arkisto.parsed_table(MAP_DEMO_ID, "events").write_bytes(b"ei parquetia")
+
+    tulos = aja(parse_settings, arkisto, FakeParser(), demo)
+    assert tulos.skipped
+    assert tulos.stats["rounds"] == 4
+    assert "events_unreadable" in tulos.stats
+    assert "unreadable" not in tulos.stats
+
+
+def test_skipped_run_reports_the_event_counts_too(
+    parse_settings, arkisto, demo
+) -> None:
+    rounds = build_rounds(pelatut=3, warmup=0)
+    events = build_events(rounds)
+    parser = FakeParser(rounds, events=events)
+    aja(parse_settings, arkisto, parser, demo)
+
+    tulos = aja(parse_settings, arkisto, parser, demo)
+    assert tulos.skipped
+    assert tulos.stats["utility_throws"] == 12
+    assert tulos.stats["utility_detonations"] == 12
 
 
 # --- Ohitus --------------------------------------------------------------------
@@ -926,3 +1270,70 @@ def test_resolve_demo_lists_the_searched_paths(arkisto) -> None:
 def test_unsafe_identifier_is_refused(arkisto) -> None:
     with pytest.raises(PappascoutError):
         parse_stage.resolve_demo(arkisto, "../pako")
+
+
+# --- Portin kytkentä asetuksiin ------------------------------------------------
+
+
+def test_default_parser_hands_every_parse_setting_to_the_adapter(
+    parse_settings,
+) -> None:
+    """Kytkentä on koodin ainoa kohta, jota mikään muu testi ei kata.
+
+    Jokainen muu testi rakentaa adapterin itse ja antaa parametrit käsin, joten
+    jos yksikin kwarg katoaisi tästä, koko testijoukko menisi läpi ja
+    tuotannossa arvo olisi hiljaa oletuksensa: ``area_snap_units=None`` tekisi
+    jokaisesta alueesta tyhjän, ``exclude_weapons=()`` päästäisi utilityosuman
+    ensikontaktiksi ja ``fallback_death`` kääntyisi päinvastaiseksi vasta jos
+    asetus olisi epätosi.
+    """
+    portti = parse_stage.default_parser(parse_settings)
+
+    assert portti.area_snap_units == parse_settings.area_snap_units
+    assert portti.area_snap_units is not None, "asetus on kalibroitu, ei None"
+    assert list(portti.exclude_weapons) == list(
+        parse_settings.first_contact_exclude_weapons
+    )
+    assert portti.fallback_death == parse_settings.first_contact_fallback_death
+
+
+def test_default_parser_notices_a_changed_snap_distance(settings_file: Path) -> None:
+    """Asetuksen muutos on näyttävä portilla asti, ei vain asetusoliossa."""
+    muutettu = settings_file.parent / "muutettu.toml"
+    muutettu.write_text(
+        settings_text(
+            settings_file.parent / "arkisto",
+            **{"area_snap_units = 500": "area_snap_units = 300"},
+        ),
+        encoding="utf-8",
+    )
+    asetukset = load_settings(muutettu, env_files=()).parse
+    assert parse_stage.default_parser(asetukset).area_snap_units == 300
+
+
+def test_changing_the_snap_distance_forces_a_reparse(
+    tmp_path: Path, arkisto, demo
+) -> None:
+    """``area_snap_units`` muuttaa jokaisen rivin ``area``-arvon.
+
+    Se on siis oltava ``params_hash``issa: muuten arkistoon jäisi vanhalla
+    rajalla laskettu utility-taulu, ja käyttäjälle kerrottaisiin "tulos on ajan
+    tasalla". Vertailukohtana ``[thresholds]``-muutos, joka ei saa parsia
+    uudelleen -- sama tiedosto, eri osio.
+    """
+    perus = tmp_path / "perus.toml"
+    perus.write_text(settings_text(arkisto.root), encoding="utf-8")
+    muutettu = tmp_path / "muutettu.toml"
+    muutettu.write_text(
+        settings_text(
+            arkisto.root, **{"area_snap_units = 500": "area_snap_units = 300"}
+        ),
+        encoding="utf-8",
+    )
+
+    parser = FakeParser()
+    aja(load_settings(perus, env_files=()).parse, arkisto, parser, demo)
+    tulos = aja(load_settings(muutettu, env_files=()).parse, arkisto, parser, demo)
+
+    assert not tulos.skipped, "vanhalla rajalla laskettu alue olisi jäänyt voimaan"
+    assert parser.kutsut == 2

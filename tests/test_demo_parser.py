@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import math
 from functools import lru_cache
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from pappascout.adapters.decompress import (
 )
 from pappascout.adapters.demo_parser import Demoparser2Adapter
 from pappascout.adapters.protocols import (
+    EVENTS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoParser,
@@ -47,7 +49,7 @@ from pappascout.domain.rounds import CT_WIN_REASONS, T_WIN_REASONS
 from pappascout.domain.rounds import REQUIRED_COLUMNS as NUMBERING_COLUMNS
 from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
 from pappascout.domain.models import load_settings
-from pappascout.domain.schemas import ROUNDS, TICKS
+from pappascout.domain.schemas import EVENTS, ROUNDS, TICKS
 from pappascout.errors import ParseError
 
 FAKE_DEMO = DEMO_MAGIC + b"\x00" + b"tekaistua sisaltoa" * 64
@@ -67,15 +69,17 @@ def _parse_settings():
 
 
 def real_parser() -> Demoparser2Adapter:
-    """Adapteri tuotannon ensikontaktisäännöillä.
+    """Adapteri tuotannon ensikontakti- ja aluesäännöillä.
 
-    Demotestit ajetaan tuotannon arvoilla -- keksityillä poissulkulistoilla ne
-    eivät todistaisi mitään oikeasta ajosta.
+    Demotestit ajetaan tuotannon arvoilla -- keksityillä poissulkulistoilla tai
+    keksityllä ``area_snap_units``illa ne eivät todistaisi mitään oikeasta
+    ajosta.
     """
     asetukset = _parse_settings()
     return Demoparser2Adapter(
         exclude_weapons=asetukset.first_contact_exclude_weapons,
         fallback_death=asetukset.first_contact_fallback_death,
+        area_snap_units=asetukset.area_snap_units,
     )
 
 
@@ -110,6 +114,16 @@ def test_port_contract_is_an_exact_column_set() -> None:
     }
     assert set(NUMBERING_COLUMNS) <= set(ROUNDS_ADAPTER_COLUMNS)
     assert len(ROUNDS_ADAPTER_COLUMNS) == len(set(ROUNDS_ADAPTER_COLUMNS))
+
+
+def test_events_port_contract_is_events_without_the_archive_id() -> None:
+    """Tapahtumataulun sopimus on ``EVENTS`` ilman ``map_demo_id``:tä.
+
+    Kranaatin oma juokseva numero ei ole mukana: se on adapterin sisäinen
+    parin avain, joka kuolee ennen kuin taulu ylittää portin.
+    """
+    assert set(EVENTS_ADAPTER_COLUMNS) == set(EVENTS) - {"map_demo_id"}
+    assert len(EVENTS_ADAPTER_COLUMNS) == len(set(EVENTS_ADAPTER_COLUMNS))
 
 
 def test_ticks_port_contract_is_ticks_without_the_archive_id() -> None:
@@ -664,3 +678,327 @@ def test_ancient_alive_flag_thins_out_over_the_round(
     osuudet = per_piste["osuus"].to_list()
     assert osuudet[0] == 1.0, "ensimmäisellä pisteellä kaikkien pitäisi olla elossa"
     assert osuudet[-1] < osuudet[0]
+
+
+# --- Utility oikeasta demosta --------------------------------------------------
+
+#: Ancientin utility-luvut, mitattu 2026-08-29. Kiinteät luvut eivät ole
+#: itsetarkoitus: ne ovat ainoa tapa huomata, jos lentoratojen jaksotus alkaa
+#: yhdistää tai katkaista kranaatteja väärin. Yksikin virhe siirtäisi näitä.
+ANCIENT_GRENADES = 373
+ANCIENT_GRENADE_TYPES: dict[str, int] = {
+    "smoke": 96,
+    "flashbang": 95,
+    "he": 90,
+    "incendiary": 62,
+    "molotov": 30,
+}
+#: ``[parse].area_snap_units``, jolla :data:`ANCIENT_DETONATIONS_WITH_AREA` on
+#: mitattu. Luku ei tarkoita mitään ilman rajaa, joten testi tarkistaa
+#: esiehdon eikä oleta sitä.
+CALIBRATED_SNAP_UNITS = 500
+
+#: CS2:n kierrosaika ja pommin ajastin sekunteina. Kierros voi jatkua näiden
+#: summan verran ankkurista, joten heiton t_s ei voi ylittää sitä.
+ROUND_SECONDS = 115.0
+BOMB_SECONDS = 40.0
+
+#: Räjähdykset, joille lähin elossa oleva pelaaja oli enintään
+#: :data:`CALIBRATED_SNAP_UNITS`in päässä.
+#:
+#: Kalibrointimittaus antoi 178/374, mutta taulussa luku on pienempi kahdesta
+#: syystä: yksi kranaatti lähtee kierrosten ulkopuolella, ja
+#: :data:`ANCIENT_DETONATIONS_AFTER_ROUND` räjähdystä osuu kierroksen
+#: päättymisen jälkeen, jolloin aluetta ei napsauteta lainkaan -- pelaajat
+#: ovat jo seuraavan kierroksen spawnissa.
+ANCIENT_DETONATIONS_WITH_AREA = 170
+
+#: Räjähdykset kierroksen päättymisen jälkeen. Käytännössä savuja, jotka
+#: haihtuvat vasta seuraavan ostoajan puolella.
+ANCIENT_DETONATIONS_AFTER_ROUND = 22
+
+#: Demon omat räjähdystapahtumat ja niitä vastaava kanoninen tyyppi.
+#: ``inferno_startburn`` puuttuu listalta tarkoituksella: palo syntyy **eri**
+#: entiteettinä muutama tick radan päättymisen jälkeen, joten sen paikka ei ole
+#: sama piste vaan lähellä sitä.
+DETONATE_EVENTS: tuple[tuple[str, str], ...] = (
+    ("smokegrenade_detonate", "smoke"),
+    ("hegrenade_detonate", "he"),
+    ("flashbang_detonate", "flashbang"),
+)
+
+
+@pytest.fixture(scope="module")
+def ancient_events(ancient_tables) -> pl.DataFrame:
+    """Ancient-demon utility-tapahtumataulu."""
+    return ancient_tables[0].events
+
+
+@pytest.mark.demo
+def test_ancient_events_match_the_port_contract(ancient_events: pl.DataFrame) -> None:
+    assert tuple(ancient_events.columns) == EVENTS_ADAPTER_COLUMNS
+    for name in EVENTS_ADAPTER_COLUMNS:
+        assert ancient_events.schema[name] == EVENTS[name], name
+    assert ancient_events["round_no"].null_count() == ancient_events.height
+    assert not ancient_events.is_empty()
+
+
+@pytest.mark.demo
+def test_ancient_grenade_count_is_exact(ancient_events: pl.DataFrame) -> None:
+    """Hyväksymiskriteeri: jokaisesta kranaatista heitto ja räjähdys."""
+    heitot = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
+    rajahdykset = ancient_events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert heitot.height == ANCIENT_GRENADES
+    assert rajahdykset.height == ANCIENT_GRENADES
+    assert ancient_events.height == 2 * ANCIENT_GRENADES
+
+
+@pytest.mark.demo
+def test_ancient_grenade_types_are_plausible(ancient_events: pl.DataFrame) -> None:
+    """Savut, flashit, HE:t ja tulikranaatit uskottavina määrinä."""
+    heitot = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
+    laskut = {
+        rivi["grenade_type"]: rivi["len"]
+        for rivi in heitot.group_by("grenade_type").len().iter_rows(named=True)
+    }
+    assert laskut == ANCIENT_GRENADE_TYPES
+
+
+@pytest.mark.demo
+def test_ancient_fire_grenades_follow_the_side_that_can_buy_them(
+    ancient_events: pl.DataFrame,
+) -> None:
+    """Molotov on T:n ja incendiary CT:n ase -- erottelu ei tule puolesta.
+
+    Tyyppi luetaan heittäjän repusta, ei puolesta, joten tämä on riippumaton
+    tarkistus: jos erottelu olisi rikki, jakauma menisi ristiin. Poikkeuksia
+    saa olla vähän (pudotettu kranaatti poimitaan), mutta ei paljon.
+    """
+    tuli = ancient_events.filter(
+        pl.col("grenade_type").is_in(["molotov", "incendiary"])
+    )
+    jakauma = {
+        (rivi["side"], rivi["grenade_type"]): rivi["len"]
+        for rivi in tuli.group_by("side", "grenade_type").len().iter_rows(named=True)
+    }
+    assert jakauma.get(("T", "molotov"), 0) > 0
+    assert jakauma.get(("CT", "incendiary"), 0) > 0
+    # T ei voi ostaa incendiarya lainkaan.
+    assert jakauma.get(("T", "incendiary"), 0) == 0
+    # CT:llä molotov on aina poimittu, joten niitä on selvä vähemmistö.
+    assert jakauma.get(("CT", "molotov"), 0) < jakauma[("CT", "incendiary")] / 4
+
+
+@pytest.mark.demo
+def test_ancient_entity_ids_are_unique_within_a_round(
+    ancient_events: pl.DataFrame,
+) -> None:
+    """Hyväksymiskriteeri: korkeintaan yksi heitto ja yksi räjähdys per kranaatti.
+
+    Tunniste **kierrätetään** demon aikana, joten avain on
+    ``(round_raw, grenade_entity_id)`` eikä pelkkä tunniste. Tämä testi lukitsee
+    sen, että avain riittää: kierroksen sisällä tunniste ei toistu.
+    """
+    maarat = ancient_events.group_by(
+        "round_raw", "grenade_entity_id", "event_kind"
+    ).len()
+    assert maarat["len"].max() == 1
+
+    # Ja koko demossa se toistuu -- juuri siksi kierros on osa avainta.
+    koko_demo = ancient_events.group_by("grenade_entity_id", "event_kind").len()
+    assert koko_demo["len"].max() > 1
+
+
+@pytest.mark.demo
+def test_ancient_throw_area_is_always_observed(ancient_events: pl.DataFrame) -> None:
+    """Heiton alue tulee heittäjältä itseltään, ei lähimmältä pelaajalta.
+
+    Kaikki 373 heittoa saavat alueen, koska heittäjä on aina paikalla omalla
+    tickillään. Jos tämä luku ei ole täysi, joko koordinaatit tai puolet ovat
+    menneet sekaisin.
+    """
+    heitot = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert heitot["area"].null_count() == 0
+    assert heitot["area_source"].unique().to_list() == ["observed"]
+    # Havainto ei ole minkään päässä: napsautusetäisyys kuuluu vain arviolle.
+    assert heitot["snap_distance"].null_count() == heitot.height
+
+
+@pytest.mark.demo
+def test_ancient_throw_areas_are_real_callouts(ancient_events: pl.DataFrame) -> None:
+    """Heittäjän oma alue on Ancientin oma callout, ei mikään muu."""
+    heitot = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
+    alueet = set(heitot["area"].drop_nulls().unique().to_list())
+    assert alueet <= ANCIENT_PLACES, alueet - ANCIENT_PLACES
+
+
+@pytest.mark.demo
+def test_ancient_snap_distances_are_within_the_configured_limit(
+    ancient_events: pl.DataFrame,
+) -> None:
+    """Napsautusetäisyys on olemassa täsmälleen napsautetuilla riveillä.
+
+    Ilman etäisyyttä kuluttaja ei voisi erottaa 40 yksikön osumaa 490 yksikön
+    arvauksesta -- ja oman kalibroinnin mukaan vain 76 % rajan sisällä
+    olevista tapauksista on paikallisesti yksiselitteisiä.
+    """
+    raja = _parse_settings().area_snap_units
+    assert raja == CALIBRATED_SNAP_UNITS
+
+    napsautetut = ancient_events.filter(pl.col("area_source") == "snapped")
+    assert not napsautetut.is_empty()
+    assert napsautetut["snap_distance"].null_count() == 0
+    assert napsautetut["snap_distance"].max() <= raja
+    assert napsautetut["snap_distance"].min() > 0.0
+
+
+@pytest.mark.demo
+def test_ancient_detonation_areas_are_real_callouts(
+    ancient_events: pl.DataFrame,
+) -> None:
+    """Alue on Ancientin oma callout tai tyhjä -- ei koskaan keksitty nimi."""
+    assert _parse_settings().area_snap_units == CALIBRATED_SNAP_UNITS
+
+    rajahdykset = ancient_events.filter(pl.col("event_kind") == "grenade_detonate")
+    alueet = set(rajahdykset["area"].drop_nulls().unique().to_list())
+    assert alueet <= ANCIENT_PLACES, alueet - ANCIENT_PLACES
+    assert rajahdykset.height - rajahdykset["area"].null_count() == (
+        ANCIENT_DETONATIONS_WITH_AREA
+    )
+    saadut = rajahdykset.filter(pl.col("area").is_not_null())
+    assert saadut["area_source"].unique().to_list() == ["snapped"]
+
+
+@pytest.mark.demo
+def test_ancient_area_source_is_set_exactly_when_the_area_is(
+    ancient_events: pl.DataFrame,
+) -> None:
+    """Sopimus: ``area_source`` on tyhjä silloin ja vain silloin kun alue on."""
+    ristiriidat = ancient_events.filter(
+        pl.col("area").is_null() != pl.col("area_source").is_null()
+    )
+    assert ristiriidat.is_empty(), ristiriidat.head(3).to_dicts()
+
+
+@pytest.mark.demo
+def test_ancient_coordinates_are_kept_even_without_an_area(
+    ancient_events: pl.DataFrame,
+) -> None:
+    """I/O-matriisi: kaukana räjähtänyt saa ``area = null``, ei pudotusta."""
+    aluettomat = ancient_events.filter(pl.col("area").is_null())
+    assert not aluettomat.is_empty()
+    for sarake in ("x", "y", "z"):
+        assert aluettomat[sarake].null_count() == 0
+
+
+@pytest.mark.demo
+def test_ancient_events_stay_inside_their_round(
+    ancient_events: pl.DataFrame,
+) -> None:
+    """Heitto tapahtuu kierroksen sisällä; räjähdys saa jäädä sen ulkopuolelle.
+
+    Kierroksen lopussa heitetty savu palaa vasta seuraavan puolella, ja se
+    kuuluu silti heittokierrokselle -- mutta heiton itsensä on oltava
+    kierroksen rajoissa, muuten ``t_s`` ei tarkoita mitään.
+    """
+    heitot = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert heitot["t_s"].min() >= 0.0
+    # CS2:n kierrosaika on 115 s, mutta istutettu pommi jatkaa kierrosta vielä
+    # 40 sekunnilla: post plant -savu 130 sekunnin kohdalla on normaali, ei
+    # virhe. Raja on siis 115 + 40 eikä 115.
+    assert heitot["t_s"].max() <= ROUND_SECONDS + BOMB_SECONDS
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize(("tapahtuma", "tyyppi"), DETONATE_EVENTS)
+def test_ancient_detonation_point_matches_the_games_own_event(
+    ancient_events: pl.DataFrame, tapahtuma: str, tyyppi: str
+) -> None:
+    """Radan viimeinen piste on räjähdyspaikka -- riippumaton tarkistus.
+
+    Demossa on omat räjähdystapahtumansa, joissa on ``x, y, z``. Niitä ei
+    lueta ajossa (kolme ylimääräistä tapahtumalukua ilman lisätietoa), mutta
+    ne kelpaavat testin totuudeksi: jos jaksotus katkaisisi radan liian
+    aikaisin, räjähdyspaikka olisi jossain lentoradan varrella.
+    """
+    from demoparser2 import DemoParser as _Demoparser2
+
+    parser = _Demoparser2(str(require_demo(ANCIENT_DEM)))
+    havaitut = pl.from_pandas(parser.parse_event(tapahtuma))
+    omat = ancient_events.filter(
+        (pl.col("event_kind") == "grenade_detonate")
+        & (pl.col("grenade_type") == tyyppi)
+    )
+    # Vertailu tehdään **taulusta tapahtumiin**, ei toisin päin: pudotettu
+    # kranaatti (kierroksen ulkopuolinen heitto, tuntematon puoli) puuttuu
+    # taulusta täysin oikeutetusti, eikä testi saa vaatia että pudonneet
+    # sattuisivat aina olemaan muuta tyyppiä kuin tämä.
+    assert not omat.is_empty()
+    assert omat.height <= havaitut.height
+
+    # Paritus entiteettitunnisteella; sama tunniste esiintyy useasti, joten
+    # riittää että jokin sen radoista päättyy tapahtuman paikkaan. Sallittu ero
+    # on yksi pelin yksikkö -- mitattu ero on alle 0,03, ja lentoradan varrella
+    # oleva piste olisi satojen yksiköiden päässä.
+    paikat: dict[int, list[tuple[float, float, float]]] = {}
+    for rivi in omat.iter_rows(named=True):
+        paikat.setdefault(int(rivi["grenade_entity_id"]), []).append(
+            (float(rivi["x"]), float(rivi["y"]), float(rivi["z"]))
+        )
+
+    for entity, pisteet in paikat.items():
+        kohteet = [
+            (float(r["x"]), float(r["y"]), float(r["z"]))
+            for r in havaitut.iter_rows(named=True)
+            if int(r["entityid"]) == entity
+        ]
+        assert kohteet, f"{tapahtuma}: entiteetille {entity} ei ole tapahtumaa"
+        for piste in pisteet:
+            etaisyydet = [math.dist(piste, kohde) for kohde in kohteet]
+            assert min(etaisyydet) < 1.0, (
+                f"{tapahtuma} entiteetti {entity}: radan pää on "
+                f"{min(etaisyydet):.1f} yksikön päässä lähimmästä "
+                "räjähdyspaikasta"
+            )
+
+
+@pytest.mark.demo
+def test_ancient_utility_diagnostics_are_clean(ancient_tables) -> None:
+    """Pudotettu kranaatti on poikkeus, ei normaali tulos."""
+    diagnostics = ancient_tables[1]
+    assert diagnostics.grenades_without_thrower == 0
+    assert diagnostics.grenades_unknown_side == 0
+    # Yksi kranaatti lähtee kierroksen ratkeamisen jälkeen -- se on oikea
+    # havainto eikä vika, mutta sille ei ole t_s:ää.
+    assert diagnostics.grenades_outside_rounds == 1
+    # Tunnisteet kierrätetään demon aikana mutta eivät kierroksen sisällä,
+    # joten (round_no, grenade_entity_id) riittää parin avaimeksi.
+    assert diagnostics.grenades_id_reused_in_round == 0
+    # Luokkanimet ja tulikranaatin erottelu ovat ajan tasalla.
+    assert diagnostics.grenades_unknown_type == 0
+    assert diagnostics.grenades_fire_type_unresolved == 0
+    # Tämä on ainoa luku, joka on suoraan vika: päätepistetick ilman pelaajia
+    # tarkoittaisi, ettei aluetta voitu edes yrittää.
+    assert diagnostics.grenade_ticks_without_players == 0
+    # Savu haihtuu usein vasta seuraavan ostoajan puolella; niille ei
+    # napsauteta aluetta, koska pelaajat ovat jo spawnissa.
+    assert (
+        diagnostics.grenades_detonating_after_round
+        == ANCIENT_DETONATIONS_AFTER_ROUND
+    )
+
+
+@pytest.mark.demo
+def test_nuke_utility_is_read_too() -> None:
+    """Toinen kartta, toinen nimistö: aluepäättely ei saa olla Ancient-kohtainen."""
+    tables = real_parser().parse_demo(require_demo(NUKE_ZST), SNAPSHOT_SECONDS)
+    events = tables.events
+    assert not events.is_empty()
+    heitot = events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert heitot["area"].null_count() == 0
+    assert heitot["area_source"].unique().to_list() == ["observed"]
+    rajahdykset = events.filter(pl.col("event_kind") == "grenade_detonate")
+    # Nuken calloutit ovat tiheämmässä kuin Ancientin, joten alue ratkeaa
+    # useammin -- mutta ei koskaan kaikille.
+    saadut = rajahdykset.height - rajahdykset["area"].null_count()
+    assert 0 < saadut < rajahdykset.height

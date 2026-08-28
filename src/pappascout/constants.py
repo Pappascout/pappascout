@@ -21,6 +21,8 @@ __all__ = [
     "SampleKind",
     "EVENT_KINDS",
     "EventKind",
+    "AREA_SOURCES",
+    "AreaSource",
     "ROSTER_CLASSES",
     "RosterClass",
     "ROUND_TYPE_FI",
@@ -79,6 +81,20 @@ SampleKind = Literal["time", "first_contact"]
 #: Utility-tapahtuman laji (AD-5). Tarkat demoparser2-nimet lukitaan Story 1.2:ssa.
 EVENT_KINDS: Final[tuple[str, ...]] = ("grenade_thrown", "grenade_detonate")
 EventKind = Literal["grenade_thrown", "grenade_detonate"]
+
+#: Mistä utility-tapahtuman alue on peräisin (AD-5).
+#:
+#: ``observed``
+#:     Heittäjän oma ``m_szLastPlaceName`` samalta tickiltä. Heittorivillä alue
+#:     on siis havainto, ei arvio.
+#: ``snapped``
+#:     Lähimmän elossa olevan pelaajan alue etäisyysrajan sisältä. Räjähdyksellä
+#:     ei ole omaa aluenimeä, joten se on aina approksimaatio.
+#:
+#: ``null`` tarkoittaa, ettei aluetta saatu lainkaan. Ilman tätä saraketta
+#: raportti ei voisi erottaa varmaa tietoa arviosta.
+AREA_SOURCES: Final[tuple[str, ...]] = ("observed", "snapped")
+AreaSource = Literal["observed", "snapped"]
 
 #: Rosterikynnyksen luokka per MapDemo (AD-6).
 ROSTER_CLASSES: Final[tuple[str, ...]] = ("5/5", "4/5")

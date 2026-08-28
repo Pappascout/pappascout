@@ -19,7 +19,7 @@ from typing import Protocol, runtime_checkable
 import polars as pl
 
 from pappascout.domain.rounds import REQUIRED_COLUMNS as _NUMBERING_COLUMNS
-from pappascout.domain.schemas import ROUNDS, TICKS
+from pappascout.domain.schemas import EVENTS, ROUNDS, TICKS
 
 __all__ = [
     "DemoParser",
@@ -27,6 +27,7 @@ __all__ = [
     "ParseDiagnostics",
     "ROUNDS_ADAPTER_COLUMNS",
     "TICKS_ADAPTER_COLUMNS",
+    "EVENTS_ADAPTER_COLUMNS",
 ]
 
 #: Sarakkeet, jotka kierrostaulussa ovat **tarkalleen** -- ei enempää eikä
@@ -61,27 +62,42 @@ TICKS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
     name for name in TICKS if name != "map_demo_id"
 )
 
+#: Sarakkeet, jotka utility-tapahtumataulussa ovat **tarkalleen** -- ei enempää
+#: eikä vähempää.
+#:
+#: Sama kaksi poikkeusta kuin näytepistetaulussa: ``map_demo_id`` puuttuu ja
+#: ``round_no`` on mukana mutta aina tyhjä. Kranaatin oma juokseva numero
+#: (``grenade_no``) **ei** ole mukana: se on adapterin sisäinen parin avain,
+#: joka kuolee ennen kuin taulu ylittää portin.
+EVENTS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
+    name for name in EVENTS if name != "map_demo_id"
+)
+
 
 @dataclass(frozen=True)
 class DemoTables:
-    """Yhden demon molemmat parsitut taulut samasta lukukerrasta.
+    """Yhden demon kaikki parsitut taulut samasta lukukerrasta.
 
-    Portti palauttaa ne yhdessä eikä kahdella kutsulla, ja syy on
+    Portti palauttaa ne yhdessä eikä kolmella kutsulla, ja syy on
     yhdenmukaisuus eikä nopeus: ``lineup_key``, ``side`` ja ``round_raw``
-    lasketaan **kerran** ja päätyvät samoina molempiin tauluihin. Kaksi
-    erillistä kutsua tekisi kokoonpanojen tunnistuksen kahdesti, ja jos ne
-    joskus eroaisivat, liitos ``(map_demo_id, round_no)`` menisi hiljaa
-    ristiin.
+    lasketaan **kerran** ja päätyvät samoina kaikkiin tauluihin. Erilliset
+    kutsut tekisivät kokoonpanojen tunnistuksen uudelleen, ja jos ne joskus
+    eroaisivat, liitos ``(map_demo_id, round_no)`` menisi hiljaa ristiin.
 
     Sivutuotteena 233 MB:n demo puretaan ja luetaan vain kerran.
 
     Attributes:
         rounds: Kierrostaulu, sarakkeet :data:`ROUNDS_ADAPTER_COLUMNS`.
         ticks: Näytepistetaulu, sarakkeet :data:`TICKS_ADAPTER_COLUMNS`.
+        events: Utility-tapahtumataulu, sarakkeet
+            :data:`EVENTS_ADAPTER_COLUMNS`. Kenttä on pakollinen eikä sillä ole
+            oletusta: tyhjä oletus antaisi vanhan portin toteutuksen näyttää
+            demolta, jossa ei heitetty yhtään kranaattia.
     """
 
     rounds: pl.DataFrame
     ticks: pl.DataFrame
+    events: pl.DataFrame
 
 
 @dataclass(frozen=True)
@@ -107,10 +123,40 @@ class ParseDiagnostics:
         unknown_side_events: Vahinkotapahtumat, joissa tekijän tai uhrin puolta
             ei saatu selville. Ne eivät kelpaa ensikontaktiksi, joten kierros
             voi menettää kontaktinsa -- luku kertoo, milloin niin kävi.
+        grenades_without_thrower: Lentoradat, joilta puuttuu heittäjä. Rivi
+            jäisi ilman joukkuetta, joten kranaatti ohitetaan kokonaan.
+        grenades_outside_rounds: Kranaatit, joiden heitto ei osu yhdenkään
+            kierroksen rajojen sisään -- käytännössä lämmittely ennen
+            ensimmäistä ankkuria tai kierroksen ratkeamisen jälkeinen heitto.
+            Niille ei ole ``t_s``:ää, joten niitä ei voi kohdistaa mihinkään
+            kierrokseen.
+        grenades_unknown_side: Kranaatit, joiden heittäjän puolta ei saatu
+            selville sen paremmin kokoonpanosta kuin kierroksen omasta
+            tickistä. Väärä joukkue veisi utilityn vastustajan tiliin, joten
+            rivi ohitetaan.
+        grenades_unknown_type: Kranaatit, joiden luokkanimeä ei tunneta. Nimi
+            säilyy taulussa sellaisenaan; luku paljastaa demoparser2:n
+            uudelleennimeämisen ennen kuin se näkyy raportissa.
+        grenades_fire_type_unresolved: Tulikranaatit, joiden
+            molotov/incendiary-erottelu ei ratkennut. Tyypiksi jää
+            ``molotov``, joten ilman lukua erottelun täydellinen rikkoutuminen
+            näyttäisi demolta, jossa heitettiin pelkkiä molotoveja.
+        grenades_detonating_after_round: Räjähdykset, jotka osuvat kierroksen
+            päättymisen jälkeen. Rivi jää tauluun koordinaatteineen, mutta
+            aluetta ei napsauteta -- pelaajat ovat jo seuraavan kierroksen
+            spawnissa.
+        grenade_ticks_without_players: Päätepisteen tickit, joilta ei saatu
+            yhtään pelaajariviä. **Vika eikä havainto**: aluetta ei voitu edes
+            yrittää, ja ilman omaa lukuaan se sekoittuisi rehellisiin
+            "kukaan ei ollut lähellä" -tapauksiin.
+        grenades_id_reused_in_round: Kranaattiparit, joiden tunniste toistuu
+            saman kierroksen sisällä. Sopimus lupaa, että
+            ``(round_no, grenade_entity_id)`` yksilöi parin.
 
-    Näytepisteiden ja ensikontaktien **määrät eivät ole täällä**: ne luetaan
-    valmiista taulusta vaiheessa. Adapteri laskisi ne numeroimattomat
-    kierrokset mukaan lukien, ja sama nimi eri nimittäjällä luetaan väärin.
+    Näytepisteiden, ensikontaktien ja utility-tapahtumien **määrät eivät ole
+    täällä**: ne luetaan valmiista taulusta vaiheessa. Adapteri laskisi ne
+    numeroimattomat kierrokset mukaan lukien, ja sama nimi eri nimittäjällä
+    luetaan väärin.
     """
 
     tick_rate: float
@@ -118,11 +164,19 @@ class ParseDiagnostics:
     rounds_seen: int
     partial_samples: int = 0
     unknown_side_events: int = 0
+    grenades_without_thrower: int = 0
+    grenades_outside_rounds: int = 0
+    grenades_unknown_side: int = 0
+    grenades_unknown_type: int = 0
+    grenades_fire_type_unresolved: int = 0
+    grenades_detonating_after_round: int = 0
+    grenade_ticks_without_players: int = 0
+    grenades_id_reused_in_round: int = 0
 
 
 @runtime_checkable
 class DemoParser(Protocol):
-    """Portti, joka lukee demosta kierros- ja näytepistetaulun.
+    """Portti, joka lukee demosta kierros-, näytepiste- ja tapahtumataulun.
 
     Toteutuksen on palautettava **havaitut** arvot sellaisenaan: ei
     kierrostyyppiluokittelua, ei loss countia, ei aggregointia, ei muuta
@@ -133,7 +187,7 @@ class DemoParser(Protocol):
     def parse_demo(
         self, path: Path, sample_seconds: Sequence[float]
     ) -> DemoTables:
-        """Lue demo ja palauta sen molemmat taulut.
+        """Lue demo ja palauta sen kaikki taulut.
 
         Args:
             path: Demotiedosto, joko ``.dem`` tai pakattu ``.dem.zst`` /
@@ -153,7 +207,16 @@ class DemoParser(Protocol):
             kierroksilta, joilla on freezetime-ankkuri ja päättymistick, eikä
             yhtään näytepistettä kierroksen päättymisen jälkeen.
 
-            Molemmissa tauluissa ``round_no`` on kaikilla riveillä ``null`` --
+            ``events`` on rivi per utility-tapahtuma, sarakkeet täsmälleen
+            :data:`EVENTS_ADAPTER_COLUMNS`. Heitto ja räjähdys ovat kaksi riviä,
+            jotka yhdistää ``(round_raw, grenade_entity_id)`` -- pelkkä
+            tunniste ei riitä, koska peli kierrättää ne demon aikana.
+            Räjähtämätön kranaatti tuottaa vain heiton. ``area_source``
+            erottaa havaitun heittoalueen johdetusta räjähdysalueesta, ja
+            ``snap_distance`` kertoo jälkimmäisen etäisyyden. Tyhjä taulu on
+            kelvollinen tulos -- demossa ei ollut utilityä.
+
+            Kaikissa tauluissa ``round_no`` on kaikilla riveillä ``null`` --
             numeroinnin päättää ``domain.rounds.mark_played_rounds``, jota vain
             ``stages.parse`` kutsuu.
 

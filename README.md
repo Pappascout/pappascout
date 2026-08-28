@@ -49,7 +49,7 @@ uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
 ```
 
-`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon kaksi
+`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon kolme
 taulua yhdellä lukukerralla:
 
 * `parsed/<map_demo_id>/rounds.parquet` -- kaksi riviä jokaista pelattua
@@ -59,14 +59,29 @@ taulua yhdellä lukukerralla:
   `[parse].snapshot_seconds` (oletus 6/15/30/45 s freezetimen lopusta) sekä
   **ensikontakti**, eli ensimmäinen ristiinpuolinen osuma muulla kuin
   utilityaseella.
+* `parsed/<map_demo_id>/events.parquet` -- rivi per utility-tapahtuma. Heitto
+  ja räjähdys ovat kaksi riviä, jotka yhdistää `(round_no,
+  grenade_entity_id)`. Utility mitataan **heitoista, ei ostoista**, ja se
+  luetaan lentoradoista -- `grenade_thrown`-tapahtumaa ei ole olemassa.
+  Heiton alue on **havainto** -- heittäjän oma `m_szLastPlaceName` samalta
+  tickiltä. Räjähdyksellä ei ole omaa aluenimeä, joten sen alue johdetaan
+  lähimmän elossa olevan pelaajan alueesta, jos hän on enintään
+  `[parse].area_snap_units`in päässä; muuten `area` jää tyhjäksi mutta
+  koordinaatit tallentuvat. `area_source` (`observed` / `snapped`) erottaa nämä
+  kaksi ja `snap_distance` kertoo arvion etäisyyden, jotta raportti voi
+  myöhemmin sanoa "3 savua Rampille (2 varmaa)". Tyhjä taulu on kelvollinen
+  tulos: utility voi aidosti puuttua.
 
 Ilman polkua annettu tunniste etsitään arkiston `demos/`- ja
-`import/`-hakemistoista. Toisella ajolla vaihe ohitetaan, jos manifesti täsmää
--- `[thresholds]`-arvon muuttaminen **ei** aiheuta uudelleenparsintaa, mutta
-`[parse].snapshot_seconds`-muutos aiheuttaa.
+`import/`-hakemistoista. Toisella ajolla vaihe ohitetaan, jos manifesti täsmää.
+Ohituksen ehto lasketaan **koko `[parse]`-osiosta**, joten esimerkiksi
+`snapshot_seconds`- tai `area_snap_units`-muutos aiheuttaa uudelleenparsinnan
+-- jälkimmäinen muuttaa jokaisen räjähdysrivin `area`-arvon, joten vanha tulos
+ei olisi enää ajan tasalla. `[thresholds]`-arvon muuttaminen **ei** aiheuta
+uudelleenparsintaa: se on eri osio eikä tämä vaihe edes näe sitä.
 
 Warmup, puukkokierros ja uudelleenkäynnistykset eivät ole pelattuja kierroksia
-eivätkä päädy kumpaankaan tauluun. `round_raw` on demoparser2:n
+eivätkä päädy yhteenkään tauluun. `round_raw` on demoparser2:n
 `round_end`-tapahtuman oma kierrosnumero, joten ohitetut kierrokset näkyvät
 siinä aukkona: Ancientilla `round_no` 1..21 vastaa `round_raw`-arvoja 2..22.
 
@@ -147,13 +162,14 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/domain/rounds.py` | `mark_played_rounds()` -- ainoa paikka, joka päättää `round_no`:n -- ja `check_win_reasons()` |
 | `src/pappascout/domain/economy.py` | `loss_counts()` ja `classify_round()` -- kierrostyypin talouspäättely |
 | `src/pappascout/domain/sampling.py` | `sample_ticks()` ja `first_contact_tick()` -- näytepisteiden valinta ja ensikontaktin sääntö |
+| `src/pappascout/domain/utility.py` | `grenade_endpoints()` ja `snap_area()` -- lentoradan pelkistys kahteen pisteeseen ja alueen johtaminen koordinaateista |
 | `src/pappascout/archive/paths.py` | Arkiston hakemistorakenne suhteellisina polkuina |
 | `src/pappascout/archive/atomic_write.py` | Atominen kirjoitus (`*.tmp-<host>` -> `rename`) |
 | `src/pappascout/archive/manifest.py` | `Manifest`-malli, `is_current()` ja vaiheiden ohitussopimus |
 | `src/pappascout/adapters/protocols.py` | Portit, jotka vaiheet ottavat parametrina |
 | `src/pappascout/adapters/decompress.py` | `.dem.zst`-purku ja `PBDEMS2`-otsikkotarkistus |
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
-| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + manifesti |
+| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/cli/` | Typer-komennot |
 

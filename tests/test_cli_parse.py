@@ -49,6 +49,23 @@ DEFAULT_STATS: dict[str, object] = {
     "first_contact_rounds": 20,
     "partial_samples": 0,
     "unknown_side_events": 0,
+    "event_rows": 300,
+    "utility_throws": 152,
+    "utility_detonations": 148,
+    "utility_rounds": 21,
+    "utility_area_observed": 152,
+    "utility_area_snapped": 52,
+    "utility_area_unnamed": 0,
+    "utility_without_area": 96,
+    "utility_unnumbered_rounds": 0,
+    "grenades_without_thrower": 0,
+    "grenades_outside_rounds": 0,
+    "grenades_unknown_side": 0,
+    "grenades_unknown_type": 0,
+    "grenades_fire_type_unresolved": 0,
+    "grenades_detonating_after_round": 0,
+    "grenade_ticks_without_players": 0,
+    "grenades_id_reused_in_round": 0,
 }
 
 
@@ -430,3 +447,163 @@ def test_missing_demo_is_finnish_without_a_traceback(
     assert "Virhe:" in virhe
     assert "ei löytynyt" in virhe
     assert "Traceback" not in virhe
+
+
+# --- Utility -------------------------------------------------------------------
+
+
+def test_reports_utility_throws_detonations_and_areas() -> None:
+    """Neljä lukua, neljä eri kysymystä: syntyikö, päättyikö, osuiko, katosiko."""
+    tuloste = _render_parse(parse_result(), regulation_rounds=24)
+    rivi = arvo(tuloste, "Utility ")
+    assert rivi.startswith("152 heittoa, 148 räjähdystä")
+    assert "21/21 kierroksella" in rivi
+    assert arvo(tuloste, "Ilman räjähdystä").startswith("4 kranaattia")
+    assert arvo(tuloste, "Utilityn alue") == (
+        "152 havaittua, 52 napsautettua, 96 ilman aluetta"
+    )
+
+
+def test_observed_and_snapped_areas_are_never_lumped_together() -> None:
+    """Heiton alue on havainto, räjähdyksen arvio -- yhteen niputettuna
+    raportin lukija luulisi molempia yhtä varmoiksi."""
+    rivi = arvo(_render_parse(parse_result(), regulation_rounds=24), "Utilityn alue")
+    assert "havaittua" in rivi
+    assert "napsautettua" in rivi
+
+
+def test_an_unnamed_nearest_area_gets_its_own_line() -> None:
+    """"Kukaan ei ollut lähellä" ja "lähin oli nimettömällä alueella" eroavat."""
+    tulos = parse_result(stats=stats(utility_area_unnamed=7))
+    rivi = arvo(_render_parse(tulos, regulation_rounds=24), "Nimetön alue")
+    assert rivi.startswith("7 tapahtumaa")
+
+
+def test_a_clean_run_hides_the_unnamed_area_line() -> None:
+    assert "Nimetön alue" not in _render_parse(parse_result(), regulation_rounds=24)
+
+
+def test_more_detonations_than_throws_is_never_a_negative_count() -> None:
+    """Miinusmerkkinen "ilman räjähdystä" olisi luettavissa väärin päin.
+
+    Räjähdys syntyy vain heiton parina, joten ylimäärä on vika eikä havainto.
+    """
+    tulos = parse_result(stats=stats(utility_throws=10, utility_detonations=13))
+    tuloste = _render_parse(tulos, regulation_rounds=24)
+    assert "Ilman räjähdystä" not in tuloste
+    assert arvo(tuloste, "Räjähdyksiä liikaa").startswith("3 enemmän")
+
+
+def test_utility_dropped_by_the_stage_is_reported() -> None:
+    """Numeroimattomilta kierroksilta pudonnut utility ei saa kadota hiljaa."""
+    tulos = parse_result(stats=stats(utility_unnumbered_rounds=9))
+    rivi = arvo(_render_parse(tulos, regulation_rounds=24), "Ei kierrosnumeroa")
+    assert rivi.startswith("9 heittoa")
+
+
+def test_the_remaining_utility_diagnostics_are_reported() -> None:
+    """Jokainen hiljainen pudotus- tai epävarmuussyy näkyy omalla rivillään."""
+    tulos = parse_result(
+        stats=stats(
+            grenades_unknown_type=2,
+            grenades_fire_type_unresolved=5,
+            grenades_detonating_after_round=3,
+            grenade_ticks_without_players=1,
+            grenades_id_reused_in_round=4,
+        )
+    )
+    tuloste = _render_parse(tulos, regulation_rounds=24)
+    assert arvo(tuloste, "Tuntematon tyyppi").startswith("2 kranaattia")
+    assert arvo(tuloste, "Tulityyppi auki").startswith("5 kranaattia")
+    assert arvo(tuloste, "Räjähdys myöhässä").startswith("3 kierroksen")
+    assert arvo(tuloste, "Tickillä ei rivejä").startswith("1 päätepistettä")
+    assert arvo(tuloste, "Tunniste toistuu").startswith("4 kranaattiparia")
+
+
+def test_zero_utility_is_said_out_loud() -> None:
+    """Nolla ei saa hukkua: kierrosluku näyttäisi samalta tyhjällä taululla."""
+    tulos = parse_result(
+        stats=stats(
+            event_rows=0,
+            utility_throws=0,
+            utility_detonations=0,
+            utility_rounds=0,
+            utility_area_observed=0,
+            utility_area_snapped=0,
+            utility_area_unnamed=0,
+            utility_without_area=0,
+        )
+    )
+    tuloste = _render_parse(tulos, regulation_rounds=24)
+    assert arvo(tuloste, "Utility").startswith("0 heittoa --")
+    assert "Utilityn alue" not in tuloste
+
+
+def test_every_grenade_detonated_hides_the_difference_line() -> None:
+    tulos = parse_result(stats=stats(utility_detonations=152))
+    assert "Ilman räjähdystä" not in _render_parse(tulos, regulation_rounds=24)
+
+
+def test_dropped_grenades_are_reported_not_hidden() -> None:
+    """Pudotettua kranaattia ei näe valmiista taulusta -- luku on ainoa jälki."""
+    tulos = parse_result(
+        stats=stats(
+            grenades_without_thrower=2,
+            grenades_outside_rounds=7,
+            grenades_unknown_side=1,
+        )
+    )
+    tuloste = _render_parse(tulos, regulation_rounds=24)
+    assert arvo(tuloste, "Ilman heittäjää").startswith("2 lentorataa")
+    assert arvo(tuloste, "Ilman kierrosta").startswith("7 kranaattia")
+    assert arvo(tuloste, "Ilman puolta").startswith("1 kranaattia")
+
+
+def test_a_clean_run_hides_the_dropped_grenade_lines() -> None:
+    tuloste = _render_parse(parse_result(), regulation_rounds=24)
+    assert "Ilman heittäjää" not in tuloste
+    assert "Ilman kierrosta" not in tuloste
+    assert "Ilman puolta" not in tuloste
+
+
+def test_unreadable_events_do_not_hide_the_other_counts() -> None:
+    """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
+    luvut = stats()
+    for avain in (
+        "event_rows",
+        "utility_throws",
+        "utility_detonations",
+        "utility_rounds",
+        "utility_area_observed",
+        "utility_area_snapped",
+        "utility_area_unnamed",
+        "utility_without_area",
+    ):
+        luvut.pop(avain)
+    luvut["events_unreadable"] = "OSError: rikki"
+    tuloste = _render_parse(
+        parse_result(skipped=True, stats=luvut), regulation_rounds=24
+    )
+    assert arvo(tuloste, "Kierrokset") == "21 (rivejä 42)"
+    assert arvo(tuloste, "Näytepisteet").startswith("78 ")
+    assert arvo(tuloste, "Utility").startswith("lukuja ei saatu")
+
+
+def test_utility_lines_are_absent_when_the_result_was_unreadable() -> None:
+    """Ilman lukuja ei keksitä nollaa -- se väittäisi tyhjää tulosta."""
+    tulos = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
+    assert "Utility" not in _render_parse(tulos, regulation_rounds=24)
+
+
+def test_all_three_output_tables_are_listed() -> None:
+    tulos = parse_result(
+        outputs=(
+            PurePosixPath("parsed/1-abc-1/rounds.parquet"),
+            PurePosixPath("parsed/1-abc-1/ticks.parquet"),
+            PurePosixPath("parsed/1-abc-1/events.parquet"),
+        )
+    )
+    tuloste = _render_parse(tulos, regulation_rounds=24)
+    assert "rounds.parquet" in tuloste
+    assert "ticks.parquet" in tuloste
+    assert "events.parquet" in tuloste

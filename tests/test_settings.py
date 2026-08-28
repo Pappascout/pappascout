@@ -401,8 +401,11 @@ def test_parse_values(settings_file: Path) -> None:
     assert s.parse.snapshot_seconds == [6.0, 15.0, 30.0, 45.0]
     assert s.parse.first_contact_fallback_death is True
     assert "hegrenade" in s.parse.first_contact_exclude_weapons
-    # Kalibroimatonta arvoa ei keksitä: null kunnes Epic 2 mittaa sen.
-    assert s.parse.area_snap_units is None
+    # Mitattu Ancient-demon 374 lentoradasta Story 2.2:ssa: rajan 500 sisällä
+    # alue saadaan 178:lle, ja niistä 76 %:ssa kaikki rajan sisällä olevat
+    # pelaajat ovat samalla alueella. Raja koskee vain räjähdystä -- heiton
+    # alue luetaan heittäjältä itseltään. Arvo on asetus eikä koodia.
+    assert s.parse.area_snap_units == 500
 
 
 def test_threshold_values(settings_file: Path) -> None:

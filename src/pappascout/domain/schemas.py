@@ -36,6 +36,7 @@ from __future__ import annotations
 import polars as pl
 
 from pappascout.constants import (
+    AREA_SOURCES,
     EVENT_KINDS,
     ROSTER_CLASSES,
     ROUND_TYPES,
@@ -63,6 +64,7 @@ _ROUND_TYPE = pl.Enum(list(ROUND_TYPES))
 _UNIT_STATUS = pl.Enum(list(UNIT_STATUSES))
 _SAMPLE_KIND = pl.Enum(list(SAMPLE_KINDS))
 _EVENT_KIND = pl.Enum(list(EVENT_KINDS))
+_AREA_SOURCE = pl.Enum(list(AREA_SOURCES))
 _ROSTER_CLASS = pl.Enum(list(ROSTER_CLASSES))
 
 
@@ -120,10 +122,16 @@ TICKS: Schema = {
 }
 
 # Utility-tapahtumataulu (AD-5). Heitto ja räjähdys ovat kaksi riviä, jotka
-# yhdistää grenade_entity_id. area ja x, y, z tarkoittavat event_kindin mukaan
-# joko heitto- tai räjähdyspaikkaa; räjähdyksen area on lähimmän elossa olevan
-# pelaajan alue, jos etäisyys alittaa parse.area_snap_units, muuten null.
+# yhdistää (round_no, grenade_entity_id) -- pelkkä entiteettitunniste ei riitä,
+# koska peli kierrättää tunnisteet demon aikana. area ja x, y, z tarkoittavat
+# event_kindin mukaan joko heitto- tai räjähdyspaikkaa.
 # Utility mitataan heitoista, ei ostoista.
+#
+# Alue on kahdenlaista tietoa, ja area_source kertoo kummasta on kyse:
+# heittorivillä se on heittäjän oma m_szLastPlaceName (havainto), räjähdyksellä
+# lähimmän elossa olevan pelaajan alue etäisyysrajan parse.area_snap_units
+# sisältä (approksimaatio). Ilman erottelua raportti esittäisi arvion
+# havaintona.
 EVENTS: Schema = {
     "map_demo_id": pl.Utf8,  # {match_id}-{map_index}, liitosavain
     "round_raw": pl.Int32,
@@ -139,6 +147,13 @@ EVENTS: Schema = {
     "y": pl.Float32,
     "z": pl.Float32,
     "area": pl.Utf8,
+    # observed = heittäjän oma alue, snapped = lähimmältä pelaajalta johdettu.
+    # null aina ja vain silloin, kun area on null.
+    "area_source": _AREA_SOURCE,
+    # Etäisyys pelin yksiköissä lähimpään elossa olevaan pelaajaan silloin, kun
+    # alue napsautettiin. null, jos alue on havaittu tai jos napsautusta ei
+    # tehty. Kuluttaja erottaa tästä 40 yksikön osuman 490 yksikön arviosta.
+    "snap_distance": pl.Float32,
 }
 
 # classify-vaiheen tallentamat päätöksen syötteet (AD-4): kaikki vertailuun

@@ -1,4 +1,4 @@
-"""demoparser2-toteutus kierros- ja näytepistetaululle (AD-8).
+"""demoparser2-toteutus kierros-, näytepiste- ja tapahtumataululle (AD-8).
 
 **Tämä on ainoa moduuli, jossa pelin propinimet esiintyvät.** Vaihe näkee vain
 :class:`~pappascout.adapters.protocols.DemoParser`-portin, joten demoparser2:n
@@ -64,19 +64,51 @@ molempiin tauluihin. Siksi portti palauttaa ne yhdessä
 tekisi kokoonpanojen tunnistuksen kahdesti, ja jos tulokset joskus eroaisivat,
 ``lineup_key`` olisi tauluissa eri eikä liitos enää osuisi.
 
+Utility
+-------
+``grenade_thrown``-tapahtumaa **ei ole olemassa**, joten utility luetaan
+``parse_grenades()``-lentoradoista: radan ensimmäinen piste on heitto ja
+viimeinen räjähdys. Taulu on demon suurin yksittäinen erä -- Ancientissa
+1 553 329 riviä -- ja se pelkistetään kahteen riviin per kranaatti heti
+:func:`~pappascout.domain.utility.grenade_endpoints`illa, jolloin eteenpäin
+kulkee noin 750 riviä.
+
+Kaksi asiaa raakadatassa yllättää, ja molemmat on todettu Ancient-demolla:
+
+* **Suurin osa riveistä ei ole lentorataa.** Kranaatti saa rivin myös pelaajan
+  repussa ollessaan, ja silloin ``x, y, z`` ovat tyhjiä; 1,34 miljoonaa riviä
+  1,55:stä on tällaisia. Lennossa tyyppi on ``...Projectile``, repussa ei.
+* **``grenade_entity_id`` kierrätetään.** 374 lentorataa mahtuu 187
+  tunnisteeseen. Jaksotus on siksi ``grenade_endpoints``in vastuulla, ei
+  ryhmittelyn tunnisteen mukaan.
+
+Lennossa molotov ja incendiary ovat molemmat ``CMolotovProjectile``. Erottelu
+tehdään heittäjän repussa olevasta tyypistä heittoa edeltävällä tickillä
+(``CMolotovGrenade`` / ``CIncendiaryGrenade``); jos se ei ratkea yksiselitteisesti,
+tyypiksi jää ``molotov``.
+
+Räjähdyksen paikka on ristiintarkistettu demon omiin tapahtumiin
+(``smokegrenade_detonate``, ``hegrenade_detonate``, ``flashbang_detonate``):
+radan viimeinen piste osuu niihin 0,024 pelin yksikön tarkkuudella kaikissa
+281 tapauksessa. Tapahtumia ei silti lueta ajossa -- rata riittää, ja kolme
+ylimääräistä tapahtumalukua maksaisi ilman lisätietoa.
+
 Muistinkäyttö
 -------------
 Demoa ei ladata muistiin kokonaan. ``parse_ticks`` kutsutaan **vain
-kierrosrajojen ja näytepisteiden tickeille** (Ancient: 44 + noin 100 tickiä,
-~1 500 riviä), ei koko tickisarjalle. Kutsuja on kaksi eikä yksi, koska
-näytepisteiden tickit riippuvat tickratesta, joka mitataan vasta
-kierrosrajojen lukemista. Pakattu demo puretaan virtaavasti temp-tiedostoon.
+kierrosrajojen, näytepisteiden ja kranaattien päätepisteiden tickeille**
+(Ancient: 44 + noin 100 + noin 750 tickiä), ei koko tickisarjalle. Kutsuja on
+kolme eikä yksi, koska näytepisteiden tickit riippuvat tickratesta, joka
+mitataan vasta kierrosrajojen lukemisesta, ja kranaattien tickit selviävät
+vasta lentoradoista. Pakattu demo puretaan virtaavasti temp-tiedostoon.
 """
 
 from __future__ import annotations
 
 import hashlib
 import statistics
+import warnings
+from bisect import bisect_right
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -87,6 +119,7 @@ import polars as pl
 
 from pappascout.adapters.decompress import readable_demo
 from pappascout.adapters.protocols import (
+    EVENTS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
@@ -101,7 +134,16 @@ from pappascout.domain.sampling import (
     sample_ticks,
     seconds_since_freeze_end,
 )
-from pappascout.domain.schemas import ROUNDS, TICKS
+from pappascout.domain.schemas import EVENTS, ROUNDS, TICKS
+from pappascout.domain.utility import (
+    DETONATE,
+    THROWN,
+    PlayerPoint,
+    flight_point,
+    grenade_endpoints,
+    snap_area,
+    trajectory_gap_ticks,
+)
 from pappascout.errors import ParseError
 
 __all__ = [
@@ -109,6 +151,10 @@ __all__ = [
     "TEAM_SIDES",
     "TICK_PROPS",
     "SAMPLE_TICK_PROPS",
+    "GRENADE_COLUMNS",
+    "GRENADE_TYPES",
+    "FIRE_ITEM_TYPES",
+    "MOLOTOV_PROJECTILE",
     "DEFAULT_TICK_RATE",
     "TICK_RATE_MIN",
     "TICK_RATE_MAX",
@@ -163,6 +209,42 @@ SAMPLE_TICK_PROPS: tuple[str, ...] = (
     _Y,
     _Z,
 )
+
+#: Sarakkeet, jotka ``parse_grenades()``-taulussa on oltava. ``name`` on
+#: mukana kirjastossa mutta jätetään lukematta: pelaajan nimi voi vaihtua
+#: kesken ottelun, ja tunniste on ``steamid``.
+GRENADE_COLUMNS: tuple[str, ...] = (
+    "grenade_type",
+    "grenade_entity_id",
+    "x",
+    "y",
+    "z",
+    "tick",
+    "steamid",
+)
+
+#: Pelin luokkanimi lennossa -> kanoninen kranaattityyppi.
+#:
+#: Nämä ovat ``parse_grenades()``in ``grenade_type``-arvot niillä riveillä,
+#: joilla on koordinaatit. Tuntematon nimi säilyy sellaisenaan: se on
+#: harvinainen mutta luettava tulos, kun taas tyhjäksi muuttaminen hukkaisi
+#: havainnon.
+GRENADE_TYPES: dict[str, str] = {
+    "CSmokeGrenadeProjectile": "smoke",
+    "CFlashbangProjectile": "flashbang",
+    "CHEGrenadeProjectile": "he",
+    "CMolotovProjectile": "molotov",
+    "CDecoyProjectile": "decoy",
+}
+
+#: Lennossa molotov ja incendiary ovat **sama** luokka.
+MOLOTOV_PROJECTILE = "CMolotovProjectile"
+
+#: Repussa ne erottuvat. Tästä kranaatin oikea tyyppi saadaan takaisin.
+FIRE_ITEM_TYPES: dict[str, str] = {
+    "CMolotovGrenade": "molotov",
+    "CIncendiaryGrenade": "incendiary",
+}
 
 #: ``m_iTeamNum`` -> puoli. 0 ja 1 ovat katsoja ja liittymätön, eivät joukkueita.
 TEAM_SIDES: dict[int, str] = {2: "T", 3: "CT"}
@@ -232,6 +314,50 @@ class _Segment:
     round_raw: int = 0
 
 
+@dataclass(frozen=True)
+class _UtilityCounts:
+    """Kranaatit, jotka eivät päätyneet tauluun sellaisenaan -- ja syy.
+
+    Nämä eivät ole tauluun sopivia sarakkeita: pudotettu kranaatti ei voi olla
+    rivi, eikä ratkeamaton tyyppi erotu ratkaistusta muuten kuin lukuna. Kaikki
+    kulkevat siksi diagnostiikkaan ja sieltä ajon yhteenvetoon.
+
+    Nolla on tavoitetila, mutta ei jokaiselle: ``outside_rounds`` on
+    normaalisti 1-2, koska kierroksen ratkeamisen jälkeen heitetään yhä
+    kranaatteja eikä niille ole ``t_s``:ää.
+
+    Attributes:
+        without_thrower: Rata ilman heittäjää.
+        outside_rounds: Heitto, joka ei osu yhdenkään kierroksen rajoihin.
+        unknown_side: Heittäjä, jonka puolta ei saatu selville.
+        unknown_type: Kranaatti, jonka luokkanimeä ei tunneta. Nimi säilyy
+            taulussa sellaisenaan, mutta luku paljastaa demoparser2:n
+            uudelleennimeämisen ennen kuin se näkyy raportissa.
+        fire_type_unresolved: Tulikranaatti, jonka molotov/incendiary-erottelu
+            ei ratkennut. Tyypiksi jää ``molotov``, joten ilman lukua
+            reppuhaun täydellinen rikkoutuminen näyttäisi täsmälleen samalta
+            kuin demo, jossa heitettiin pelkkiä molotoveja.
+        detonating_after_round: Räjähdys, joka osuu kierroksen päättymisen
+            jälkeen. Rivi jää tauluun koordinaatteineen, mutta aluetta ei
+            napsauteta: pelaajat ovat jo seuraavan kierroksen spawnissa.
+        ticks_without_players: Päätepisteen tick, jolta ei saatu yhtään
+            pelaajariviä. Toisin kuin muut tämän luokan luvut, tämä on **vika**
+            eikä havainto -- se tarkoittaa, ettei aluetta voitu edes yrittää.
+        id_reused_in_round: Kranaattipari, jonka tunniste toistuu saman
+            kierroksen sisällä. Sopimus lupaa, että
+            ``(round_no, grenade_entity_id)`` yksilöi parin.
+    """
+
+    without_thrower: int = 0
+    outside_rounds: int = 0
+    unknown_side: int = 0
+    unknown_type: int = 0
+    fire_type_unresolved: int = 0
+    detonating_after_round: int = 0
+    ticks_without_players: int = 0
+    id_reused_in_round: int = 0
+
+
 class Demoparser2Adapter:
     """Lukee kierros- ja näytepistetaulun demoparser2:lla.
 
@@ -244,6 +370,10 @@ class Demoparser2Adapter:
         fallback_death: Saako ensikontakti tulla ``player_death``-tapahtumasta,
             jos kelvollista ``player_hurt``ia ei ole
             (``[parse].first_contact_fallback_death``).
+        area_snap_units: Enimmäisetäisyys, jolta utility-tapahtuman alue saa
+            napata lähimmän elossa olevan pelaajan alueen
+            (``[parse].area_snap_units``). ``None`` = ei napsautusta, jolloin
+            ``area`` jää tyhjäksi mutta koordinaatit tallentuvat.
 
     Attributes:
         diagnostics: Viimeisimmän parsinnan havainnot, jotka eivät mahdu
@@ -255,9 +385,11 @@ class Demoparser2Adapter:
         *,
         exclude_weapons: Sequence[str] = (),
         fallback_death: bool = True,
+        area_snap_units: float | None = None,
     ) -> None:
         self.exclude_weapons = tuple(exclude_weapons)
         self.fallback_death = fallback_death
+        self.area_snap_units = area_snap_units
         self.diagnostics: ParseDiagnostics | None = None
 
     def parse_demo(
@@ -313,6 +445,9 @@ class Demoparser2Adapter:
         ticks, vajaat = self._build_ticks_frame(
             pisteet, parser, alkuperainen, segments, sivut, avaimet
         )
+        events, utility = self._build_events_frame(
+            parser, alkuperainen, segments, sivut, avaimet, lineups, by_tick, tick_rate
+        )
 
         self.diagnostics = ParseDiagnostics(
             tick_rate=tick_rate,
@@ -320,8 +455,16 @@ class Demoparser2Adapter:
             rounds_seen=len(segments),
             partial_samples=vajaat,
             unknown_side_events=tuntemattomat,
+            grenades_without_thrower=utility.without_thrower,
+            grenades_outside_rounds=utility.outside_rounds,
+            grenades_unknown_side=utility.unknown_side,
+            grenades_unknown_type=utility.unknown_type,
+            grenades_fire_type_unresolved=utility.fire_type_unresolved,
+            grenades_detonating_after_round=utility.detonating_after_round,
+            grenade_ticks_without_players=utility.ticks_without_players,
+            grenades_id_reused_in_round=utility.id_reused_in_round,
         )
-        return DemoTables(rounds=rounds, ticks=ticks)
+        return DemoTables(rounds=rounds, ticks=ticks, events=events)
 
     def _open(self, demo_path: Path, alkuperainen: Path) -> Any:
         from demoparser2 import DemoParser as _Demoparser2
@@ -1033,6 +1176,511 @@ class Demoparser2Adapter:
         if not rivit:
             return pl.DataFrame(schema=schema)
         return pl.DataFrame(rivit, schema=schema, orient="row")
+
+    # -- Utility -------------------------------------------------------------
+
+    def _build_events_frame(
+        self,
+        parser: Any,
+        alkuperainen: Path,
+        segments: list[_Segment],
+        sivut: list[tuple[str, str]],
+        avaimet: list[str],
+        lineups: list[_Lineup],
+        by_tick: dict[int, list[dict[str, Any]]],
+        tick_rate: float,
+    ) -> tuple[pl.DataFrame, _UtilityCounts]:
+        """Lue lentoradat ja rakenna niistä ``EVENTS``-muotoinen taulu.
+
+        Järjestys on tarkoituksellinen: rata pelkistetään päätepisteiksi
+        **ennen** kuin mitään muuta tehdään, jolloin 1,55 miljoonaa riviä
+        kutistuu noin 750:een eikä kulje vaiheiden läpi kokonaisena.
+
+        Kierros ratkeaa **heitosta**: kierroksen lopussa heitetty savu kuuluu
+        sille kierrokselle, jolta se lähti, vaikka se palaisi vasta seuraavan
+        puolella. Molemmat rivit saavat siis saman ``round_raw``:n, ja
+        räjähdyksen ``t_s`` voi ylittää kierroksen keston -- se on oikea
+        havainto eikä virhe.
+
+        Alue on kahdenlaista tietoa. Heittäjällä on oma ``m_szLastPlaceName``
+        samalta tickiltä, joten heiton alue on **havainto**
+        (``area_source = "observed"``). Kranaatilla ei ole aluenimeä, joten
+        räjähdyksen alue on lähimmältä elossa olevalta pelaajalta johdettu
+        **approksimaatio** (``"snapped"``), ja sen etäisyys tallentuu, jotta
+        kuluttaja voi erottaa varman osuman kaukaisesta arviosta.
+
+        Returns:
+            ``(taulu, luvut)``. Taulu on tyhjä mutta sopimuksen mukainen, jos
+            demossa ei ollut yhtään heitettyä kranaattia.
+        """
+        raaka = self._read_grenades(parser, alkuperainen)
+        if raaka.is_empty():
+            return self._typed_events_frame([]), _UtilityCounts()
+
+        paatepisteet, ilman_heittajaa = self._endpoints(raaka, tick_rate, alkuperainen)
+        if paatepisteet.is_empty():
+            return (
+                self._typed_events_frame([]),
+                _UtilityCounts(without_thrower=ilman_heittajaa),
+            )
+        tuntematon_tyyppi = _unknown_type_count(paatepisteet)
+        paatepisteet, tuli_auki = _name_fire_grenades(
+            paatepisteet, raaka, trajectory_gap_ticks(tick_rate)
+        )
+
+        ikkunat = _round_windows(segments)
+        alut = [ikkuna[0] for ikkuna in ikkunat]
+
+        heiton_kierros: dict[int, int] = {}
+        ulkopuolella = 0
+        heitot = paatepisteet.filter(pl.col("event_kind") == THROWN)
+        for row in heitot.iter_rows(named=True):
+            index = _round_of_tick(alut, ikkunat, row["tick"])
+            if index is None:
+                ulkopuolella += 1
+                continue
+            heiton_kierros[row["grenade_no"]] = index
+
+        lineup_of = _lineup_index_by_player(lineups)
+        puolet_kierroksella: dict[int, dict[str, str]] = {}
+        avaimet_kierroksella: dict[int, dict[str, str]] = {}
+
+        valitut: list[dict[str, Any]] = []
+        tuntematon_puoli = 0
+        for row in paatepisteet.iter_rows(named=True):
+            index = heiton_kierros.get(row["grenade_no"])
+            if index is None:
+                continue
+            if index not in puolet_kierroksella:
+                puolet_kierroksella[index] = _side_lookup(
+                    lineup_of, sivut[index], segments[index], by_tick
+                )
+                avaimet_kierroksella[index] = _keys_by_side(
+                    sivut[index], avaimet, segments[index]
+                )
+            side = puolet_kierroksella[index].get(row["thrower_id"])
+            if side is None:
+                # Kranaatti pudotetaan kokonaan, mutta lasketaan kerran --
+                # heitosta, jotta luku on kranaatteja eikä rivejä.
+                if row["event_kind"] == THROWN:
+                    tuntematon_puoli += 1
+                continue
+            valitut.append(
+                {
+                    **row,
+                    "_segment": index,
+                    "_side": side,
+                    "_lineup": avaimet_kierroksella[index][side],
+                }
+            )
+
+        wanted = sorted({r["tick"] for r in valitut})
+        # Tyhjä lista **ei** saa mennä parse_ticksille: se voisi tarkoittaa
+        # "kaikki tickit", eli juuri sen koko tickisarjan luvun, jonka tämä
+        # moduuli lupaa välttää. Tilanne syntyy, jos jokainen kranaatti putoaa
+        # kierrosten ulkopuolisena tai tuntemattoman puolen takia.
+        paikat = (
+            self._read_sample_ticks(parser, wanted, alkuperainen) if wanted else {}
+        )
+        tyhjat_tickit = sum(1 for tick in wanted if not paikat.get(tick))
+
+        rivit: list[dict[str, Any]] = []
+        rajahdys_myohassa = 0
+        for r in valitut:
+            segment = segments[r["_segment"]]
+            freeze_end = segment.freeze_end_tick
+            end_tick = segment.end_tick
+            if freeze_end is None or end_tick is None:
+                # _round_windows rakennetaan vain ankkurillisista kierroksista,
+                # joten tämä ei voi tapahtua. Tarkistus on silti oikea eikä
+                # assert: assert katoaa python -O:lla, ja seurauksena olisi
+                # TypeError kesken 233 MB:n demon parsinnan.
+                raise ParseError(
+                    f"Demon {alkuperainen.name} kranaatti kohdistui kierrokselle "
+                    f"(round_raw={segment.round_raw}), jolta puuttuu ankkuri tai "
+                    "päättymistick.\n"
+                    "Ilman niitä t_s:ää ei voi laskea. Demo on todennäköisesti "
+                    "vioittunut."
+                )
+            tickin_pelaajat = paikat.get(r["tick"], ())
+            if r["event_kind"] == DETONATE and r["tick"] > end_tick:
+                rajahdys_myohassa += 1
+            alue, lahde, etaisyys = self._resolve_area(r, end_tick, tickin_pelaajat)
+            rivit.append(
+                {
+                    "round_raw": segment.round_raw,
+                    "round_no": None,
+                    "event_kind": r["event_kind"],
+                    "grenade_entity_id": r["grenade_entity_id"],
+                    "grenade_type": r["grenade_type"],
+                    "thrower_id": r["thrower_id"],
+                    "lineup_key": r["_lineup"],
+                    "side": r["_side"],
+                    "t_s": seconds_since_freeze_end(r["tick"], freeze_end, tick_rate),
+                    "x": r["x"],
+                    "y": r["y"],
+                    "z": r["z"],
+                    "area": alue,
+                    "area_source": lahde,
+                    "snap_distance": etaisyys,
+                }
+            )
+
+        frame = self._typed_events_frame(rivit)
+        luvut = _UtilityCounts(
+            without_thrower=ilman_heittajaa,
+            outside_rounds=ulkopuolella,
+            unknown_side=tuntematon_puoli,
+            unknown_type=tuntematon_tyyppi,
+            fire_type_unresolved=tuli_auki,
+            detonating_after_round=rajahdys_myohassa,
+            ticks_without_players=tyhjat_tickit,
+            id_reused_in_round=_id_reuse_count(frame),
+        )
+        return frame, luvut
+
+    def _resolve_area(
+        self,
+        rivi: dict[str, Any],
+        end_tick: int,
+        tickin_pelaajat: Sequence[dict[str, Any]],
+    ) -> tuple[str | None, str | None, float | None]:
+        """Päätä rivin alue, sen lähde ja mahdollinen napsautusetäisyys.
+
+        Heitolle alue on **havainto**: heittäjä itse on paikalla ja hänen
+        ``m_szLastPlaceName``insä on luettavissa samalta tickiltä. Napsautus
+        voisi tarttua vieressä seisovaan kaveriin, vaikka oikea vastaus on
+        tiedossa.
+
+        Räjähdykselle alue on approksimaatio -- paitsi jos rata jatkuu
+        kierroksen päättymisen yli. Silloin tickin pelaajat ovat jo seuraavan
+        kierroksen spawnissa, ja napsautus kertoisi missä joukkue on **nyt**
+        eikä missä savu on. Alue jätetään silloin tyhjäksi ja tapaus lasketaan.
+        """
+        if rivi["event_kind"] == THROWN:
+            for pelaaja in tickin_pelaajat:
+                if pelaaja["steamid"] == rivi["thrower_id"]:
+                    alue = pelaaja["area"]
+                    return alue, ("observed" if alue is not None else None), None
+            return None, None, None
+
+        if rivi["tick"] > end_tick:
+            return None, None, None
+
+        osuma = snap_area(
+            rivi["x"],
+            rivi["y"],
+            rivi["z"],
+            [
+                PlayerPoint(
+                    x=p["x"], y=p["y"], z=p["z"], area=p["area"], is_alive=p["alive"]
+                )
+                for p in tickin_pelaajat
+            ],
+            self.area_snap_units,
+        )
+        lahde = "snapped" if osuma.area is not None else None
+        return osuma.area, lahde, osuma.distance
+
+    def _endpoints(
+        self, raaka: pl.DataFrame, tick_rate: float, alkuperainen: Path
+    ) -> tuple[pl.DataFrame, int]:
+        """Kutsu domainin pelkistystä ja käännä sen virheet suomeksi.
+
+        Puuttuva sarake voi paljastua kahdessa kohdassa: Polars nostaa
+        ``ColumnNotFoundError``in jo muunnoksessa, ja ``grenade_endpoints``
+        nostaa ``ValueError``in omassa tarkistuksessaan. Kumpi tahansa on sama
+        vika kuin :meth:`_read_grenades`in oma tarkistus havaitsee, joten
+        kaikkien kolmen on näytettävä käyttäjälle samalta -- eikä paljaalta
+        pinojäljeltä.
+        """
+        try:
+            return grenade_endpoints(
+                _trajectory_frame(raaka),
+                max_gap_ticks=trajectory_gap_ticks(tick_rate),
+            )
+        except (ValueError, pl.exceptions.PolarsError) as exc:
+            raise ParseError(
+                f"Demon {alkuperainen.name} lentoratoja ei voitu pelkistää: "
+                f"{exc}\n"
+                "Kenttä on todennäköisesti nimetty uudelleen demoparser2:n "
+                "päivityksessä. Päivitä adapters/demo_parser.py:n "
+                "GRENADE_COLUMNS."
+            ) from exc
+
+    def _read_grenades(self, parser: Any, alkuperainen: Path) -> pl.DataFrame:
+        """Lue ``parse_grenades()`` ja tarkista, että sarakkeet ovat tallella.
+
+        Tyhjä tulos ei ole virhe: demossa ei välttämättä heitetty yhtään
+        kranaattia. Puuttuva **sarake** on virhe, koska silloin tulos olisi
+        tyhjä eikä sitä voisi erottaa utilityttömästä demosta.
+        """
+        try:
+            frame = parser.parse_grenades()
+        except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
+            raise ParseError(
+                f"Demon {alkuperainen.name} lentoratoja ei voitu lukea: {exc}\n"
+                "Tiedosto on todennäköisesti vioittunut tai demoparser2:n "
+                "versio ei tunne parse_grenades-metodia. Aja: uv sync"
+            ) from exc
+
+        if frame is None or not hasattr(frame, "columns") or len(frame) == 0:
+            return pl.DataFrame()
+
+        puuttuvat = [name for name in GRENADE_COLUMNS if name not in frame.columns]
+        if puuttuvat:
+            raise ParseError(
+                "demoparser2 ei palauttanut kaikkia lentoradan kenttiä demosta "
+                f"{alkuperainen.name}. Puuttuu: {', '.join(puuttuvat)}.\n"
+                "Kenttä on todennäköisesti nimetty uudelleen demoparser2:n "
+                "päivityksessä. Ilman tarkistusta utility-taulu olisi tyhjä ja "
+                "näyttäisi demolta, jossa ei heitetty yhtään kranaattia. "
+                "Päivitä adapters/demo_parser.py:n GRENADE_COLUMNS."
+            )
+        return _as_polars(frame, GRENADE_COLUMNS)
+
+    @staticmethod
+    def _typed_events_frame(rivit: list[dict[str, Any]]) -> pl.DataFrame:
+        """Rakenna tapahtumataulu sopimuksen tyypeillä ja vakaassa järjestyksessä.
+
+        Lajittelu on eksplisiittinen: matkan varrella tehdyt liitokset eivät
+        säilytä rivijärjestystä, ja sama demo tuottaisi muuten eri tavut eri
+        ajoilla. ``event_kind`` on Enum, joten sen järjestys on luettelon
+        järjestys -- heitto ennen räjähdystä.
+        """
+        schema: dict[str, Any] = {
+            name: EVENTS[name] for name in EVENTS_ADAPTER_COLUMNS
+        }
+        if not rivit:
+            return pl.DataFrame(schema=schema)
+        return pl.DataFrame(rivit, schema=schema, orient="row").sort(
+            "round_raw", "grenade_entity_id", "event_kind", "t_s"
+        )
+
+
+def _as_polars(frame: Any, columns: Sequence[str]) -> pl.DataFrame:
+    """Muunna demoparser2:n taulu Polarsiksi, vain pyydetyt sarakkeet.
+
+    Sarakevalinta tehdään **ennen** muunnosta: ``name`` on 1,55 miljoonan rivin
+    merkkijonosarake, jota ei tarvita mihinkään -- tunniste on ``steamid``.
+    """
+    if isinstance(frame, pl.DataFrame):
+        return frame.select(columns)
+    return pl.from_pandas(frame[list(columns)])
+
+
+def _thrower_id() -> pl.Expr:
+    """``steamid`` merkkijonoksi niin, ettei tunniste mene liukuluvuksi.
+
+    Pandas nostaa kokonaislukusarakkeen ``float64``:ksi heti kun siinä on yksi
+    tyhjä arvo. Suora ``cast(Utf8)`` tekisi silloin jokaisesta tunnisteesta
+    muotoa ``"7.6561e+16"``, puolihaku ei osuisi yhteenkään pelaajaan ja
+    **kaikki kranaatit putoaisivat tuntemattomana puolena** -- taulu olisi
+    tyhjä eikä mikään kertoisi miksi. Kierto kokonaisluvun kautta antaa saman
+    desimaalimuodon kuin tickien ``steamid``.
+    """
+    return pl.coalesce(
+        pl.col("steamid").cast(pl.Int64, strict=False).cast(pl.Utf8),
+        pl.col("steamid").cast(pl.Utf8, strict=False),
+    )
+
+
+def _trajectory_frame(raaka: pl.DataFrame) -> pl.DataFrame:
+    """Lentorata domainin sarakenimillä ja tyypeillä."""
+    return raaka.select(
+        pl.col("grenade_entity_id").cast(pl.Int32),
+        pl.col("grenade_type").cast(pl.Utf8),
+        _thrower_id().alias("thrower_id"),
+        pl.col("tick").cast(pl.Int32),
+        pl.col("x").cast(pl.Float32),
+        pl.col("y").cast(pl.Float32),
+        pl.col("z").cast(pl.Float32),
+    )
+
+
+def _unknown_type_count(paatepisteet: pl.DataFrame) -> int:
+    """Kranaatit, joiden luokkanimeä ei tunneta.
+
+    Tuntematon nimi säilyy taulussa sellaisenaan -- se on luettava havainto --
+    mutta demoparser2:n uudelleennimeäminen vuotaisi muuten tauluun ilman
+    varoitusta, ja raportti näyttäisi utilityä, jonka tyyppi on pelin
+    C++-luokan nimi.
+    """
+    return int(
+        paatepisteet.filter(
+            (pl.col("event_kind") == THROWN)
+            & ~pl.col("grenade_type").is_in(list(GRENADE_TYPES))
+        ).height
+    )
+
+
+def _name_fire_grenades(
+    paatepisteet: pl.DataFrame, raaka: pl.DataFrame, tolerance: int
+) -> tuple[pl.DataFrame, int]:
+    """Käännä luokkanimet kanonisiksi ja erota molotov incendiarystä.
+
+    Lennossa molemmat ovat ``CMolotovProjectile``, joten erottelu on haettava
+    heittäjän repusta heittoa edeltävältä hetkeltä: siellä kranaatti on yhä
+    ``CMolotovGrenade`` tai ``CIncendiaryGrenade``. Haku on ``join_asof`` eikä
+    tarkka tick: lentoradalle sallitaan pieni aukko, ja repulle on sallittava
+    sama -- yksi hukkuva tick ei saa muuttaa incendiarya molotoviksi.
+
+    Molemmat tulikranaatit repussa (poimittu vastustajan pudottama) jättää
+    tyypin ratkaisematta; arvaus antaisi puolet ajasta väärän vastauksen ja
+    näyttäisi silti havainnolta.
+
+    Returns:
+        ``(taulu, ratkeamattomat)``. Jälkimmäinen kattaa sekä osumattomat että
+        epäselvät. Ilman lukua reppuhaun **täydellinen** epäonnistuminen --
+        luokkanimen muutos, liian tiukka toleranssi -- näyttäisi täsmälleen
+        samalta kuin demo, jossa heitettiin pelkkiä molotoveja.
+    """
+    kanoniset = paatepisteet.with_columns(
+        pl.col("grenade_type").replace(GRENADE_TYPES)
+    )
+    tuliheitot = (
+        paatepisteet.filter(
+            (pl.col("event_kind") == THROWN)
+            & (pl.col("grenade_type") == MOLOTOV_PROJECTILE)
+        )
+        .select("grenade_no", "thrower_id", pl.col("tick").alias("throw_tick"))
+        .sort("throw_tick")
+    )
+    if tuliheitot.is_empty():
+        return kanoniset, 0
+
+    repussa = raaka.filter(~flight_point()).select(
+        _thrower_id().alias("thrower_id"),
+        pl.col("tick").cast(pl.Int32),
+        pl.col("grenade_type").cast(pl.Utf8),
+    )
+
+    # Yksi asof-liitos per tyyppi: se kertoo, kumpia tulikranaatteja heittäjällä
+    # oli repussa juuri ennen heittoa. Kaksi osumaa on epäselvä tapaus, yksi
+    # ratkaisee tyypin, nolla jättää sen auki.
+    nimet = list(FIRE_ITEM_TYPES.values())
+    osumat = tuliheitot.select("grenade_no")
+    for luokka, nimi in FIRE_ITEM_TYPES.items():
+        oma = (
+            repussa.filter(pl.col("grenade_type") == luokka)
+            .select("thrower_id", "tick")
+            .unique()
+            .sort("tick")
+        )
+        if oma.is_empty():
+            osumat = osumat.with_columns(pl.lit(False).alias(nimi))
+            continue
+        with warnings.catch_warnings():
+            # Polars ei voi tarkistaa lajittelua, kun ryhmittely on annettu, ja
+            # varoittaa siitä joka kutsulla. Molemmat kehykset on lajiteltu
+            # tickin mukaan tässä funktiossa, joten varoitus olisi pelkkää
+            # kohinaa käyttäjän ruudulla kesken parsinnan.
+            warnings.simplefilter("ignore", UserWarning)
+            liitos = tuliheitot.join_asof(
+                oma,
+                left_on="throw_tick",
+                right_on="tick",
+                by="thrower_id",
+                strategy="backward",
+                tolerance=tolerance,
+            ).select("grenade_no", pl.col("tick").is_not_null().alias(nimi))
+        osumat = osumat.join(liitos, on="grenade_no", how="left")
+
+    ratkaisut = osumat.with_columns(
+        pl.sum_horizontal(
+            [pl.col(nimi).fill_null(False).cast(pl.Int8) for nimi in nimet]
+        ).alias("_osumia")
+    )
+    auki = int(ratkaisut.filter(pl.col("_osumia") != 1).height)
+
+    yksiselitteiset = ratkaisut.filter(pl.col("_osumia") == 1).select(
+        "grenade_no",
+        pl.coalesce(
+            [
+                pl.when(pl.col(nimi).fill_null(False)).then(
+                    pl.lit(nimi, dtype=pl.Utf8)
+                )
+                for nimi in nimet
+            ]
+        ).alias("fire_type"),
+    )
+    if yksiselitteiset.is_empty():
+        return kanoniset, auki
+
+    nimetty = (
+        kanoniset.join(yksiselitteiset, on="grenade_no", how="left")
+        .with_columns(
+            pl.when(pl.col("fire_type").is_not_null())
+            .then(pl.col("fire_type"))
+            .otherwise(pl.col("grenade_type"))
+            .alias("grenade_type")
+        )
+        .drop("fire_type")
+        .sort("grenade_no", "tick")
+    )
+    return nimetty, auki
+
+
+def _id_reuse_count(frame: pl.DataFrame) -> int:
+    """Kranaatit, joiden tunniste toistuu **saman kierroksen sisällä**.
+
+    ``(round_no, grenade_entity_id)`` on luvattu parin avaimeksi kaikelle
+    myöhemmälle työlle. Peli kierrättää tunnisteet demon aikana, mutta ei
+    havaintojen mukaan kierroksen sisällä. Jos niin joskus kävisi, avain
+    lakkaisi yksilöimästä paria ja aggregointi laskisi kaksi savua yhdeksi --
+    joten tapaus lasketaan ja kerrotaan sen sijaan, että se paljastuisi vasta
+    raportin luvuista.
+    """
+    if frame.is_empty():
+        return 0
+    return int(
+        frame.group_by("round_raw", "grenade_entity_id", "event_kind")
+        .len()
+        .filter(pl.col("len") > 1)
+        .height
+    )
+
+
+def _round_windows(segments: list[_Segment]) -> list[tuple[int, int, int]]:
+    """Kierrosten ``[ankkuri, loppu]``-ikkunat aikajärjestyksessä.
+
+    Raises:
+        ParseError: Jos ikkunat menevät päällekkäin. Silloin
+            :func:`_round_of_tick`in binäärihaku voisi kohdistaa kranaatin
+            väärälle kierrokselle -- ja kierroksen jokainen utility-havainto
+            olisi väärän joukkueen suunnitelmaa.
+    """
+    ikkunat = sorted(
+        (s.freeze_end_tick, s.end_tick, index)
+        for index, s in enumerate(segments)
+        if s.freeze_end_tick is not None and s.end_tick is not None
+    )
+    for eka, toka in zip(ikkunat, ikkunat[1:]):
+        if toka[0] <= eka[1]:
+            raise ParseError(
+                "Demon kierrosrajat menevät päällekkäin: kierros alkaa tickistä "
+                f"{toka[0]} vaikka edellinen päättyy vasta tickissä {eka[1]}.\n"
+                "Kranaattia ei voi silloin kohdistaa yksikäsitteisesti "
+                "kierrokselle. Demo on todennäköisesti vioittunut."
+            )
+    return ikkunat
+
+
+def _round_of_tick(
+    alut: list[int], ikkunat: list[tuple[int, int, int]], tick: int
+) -> int | None:
+    """Kierros, jonka rajojen sisään tick osuu, tai ``None``.
+
+    Ikkunat eivät mene päällekkäin (:func:`_round_windows` varmistaa sen),
+    joten viimeinen ankkuri ennen tickiä on ainoa ehdokas. ``None`` tarkoittaa
+    lämmittelyä ennen ensimmäistä ankkuria tai heittoa kierroksen ratkeamisen
+    ja seuraavan ostoajan välissä; kummallakaan ``t_s`` ei ole määritelty.
+    """
+    sija = bisect_right(alut, tick) - 1
+    if sija < 0:
+        return None
+    _, loppu, index = ikkunat[sija]
+    return index if tick <= loppu else None
 
 
 def _keys_by_side(

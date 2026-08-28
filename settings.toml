@@ -112,11 +112,36 @@ first_contact_exclude_weapons = [
 # [spine] AD-5.
 first_contact_fallback_death = true
 
-# area_snap_units: enimmäisetäisyys, jolta räjähdyksen alue saa napata lähimmän
-# elossa olevan pelaajan alueen. Arvoa ei ole vielä kalibroitu oikeilla demoilla,
-# joten se on tarkoituksella asettamatta -- silloin detonate_area jää nulliksi.
-# Asetetaan Epicissä 2 utility-työn yhteydessä. [spine] AD-5, Open Question 4.
-# area_snap_units = <ei vielä kalibroitu>
+# Enimmäisetäisyys pelin yksiköissä, jolta utility-tapahtuman alue saa napata
+# lähimmän elossa olevan pelaajan alueen. [spine] AD-5, Open Question 4.
+#
+# Kranaatilla ei ole last_place_name-kenttää, joten alue on johdettava
+# koordinaateista. Tämä on sen ainoa säädin: liian suuri arvo antaa
+# naapurialueen calloutin, liian pieni jättää alueen tyhjäksi. **Väärä alue on
+# pahempi kuin puuttuva**, joten arvo on tarkoituksella varovainen. Jos avain
+# poistetaan, alue jää aina nulliksi mutta koordinaatit tallentuvat silti.
+#
+# Raja koskee **vain räjähdystä**. Heiton alue luetaan heittäjän omasta
+# m_szLastPlaceName-propista samalta tickiltä, eli se on havainto eikä arvio;
+# EVENTS-taulun area_source erottaa nämä kaksi toisistaan ja snap_distance
+# kertoo arvion etäisyyden rivikohtaisesti.
+#
+# Mitattu Ancient-demon 374 lentoradasta (Story 2.2). Kaikki 374 ovat mukana
+# kalibroinnissa, myös se yksi, joka lähtee kierroksen ratkeamisen jälkeen eikä
+# siksi päädy taulun 373 kranaatin joukkoon:
+#   - heittopiste: lähin elossa oleva pelaaja on heittäjä itse 374/374
+#     kerralla, ja etäisyys on 38-91 yksikköä (kranaatti lähtee kädestä). Tämä
+#     mittaus perusteli sen, että heittoalue kannattaa lukea suoraan
+#     heittäjältä eikä napsauttaa lainkaan.
+#   - räjähdyspiste: mediaanietäisyys lähimpään pelaajaan on 532 yksikköä.
+#     Rajalla 500 alue saadaan 178/374 tapahtumalle, ja niistä 76 %:ssa kaikki
+#     rajan sisällä olevat pelaajat ovat samalla alueella. Rajalla 1000
+#     kattavuus nousee 91 %:iin mutta yksimielisyys romahtaa 35 %:iin -- silloin
+#     "lähin pelaaja" ei enää kerro kranaatin aluetta vaan naapurin.
+#
+# [kalibroi] Arvo on Story 2.2:n mittaus kahdelta kartalta. Useampi kartta voi
+# säätää sitä; snap_distance-sarake antaa aineiston siihen ilman uutta ajoa.
+area_snap_units = 500
 
 
 [thresholds]
