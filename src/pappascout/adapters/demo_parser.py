@@ -43,6 +43,14 @@ hetkessä jo kasvanut (todennettu molemmista testidemoista), eikä nollausta
 enää tule. Sama varalähde on käytössä myös silloin, kun seuraavalta
 kierrokselta puuttuu ankkuri.
 
+Kenen arvot summataan
+---------------------
+Freezetimen lopun summat (raha, käytetty raha, varustearvo, kierroksen alun
+varustearvo) lasketaan vain niistä pelaajista, joiden **kaikki** nämä propit
+ovat luettavissa, ja ``players_freeze_end`` on saman joukon koko. Jakaja on
+siis aina sama joukko kuin osoittaja: kolmen pelaajan summa viidellä jaettuna
+näyttäisi ecolta, vaikka joukkue olisi ostanut täyden.
+
 Muistinkäyttö
 -------------
 Demoa ei ladata muistiin kokonaan. ``parse_ticks`` kutsutaan **vain
@@ -79,6 +87,10 @@ __all__ = [
 
 _TEAM_NUM = "CCSPlayerController.m_iTeamNum"
 _ACCOUNT = "CCSPlayerController.CCSPlayerController_InGameMoneyServices.m_iAccount"
+_CASH_SPENT = (
+    "CCSPlayerController.CCSPlayerController_InGameMoneyServices"
+    ".m_iCashSpentThisRound"
+)
 _EQUIP_FREEZE_END = "CCSPlayerPawn.m_unFreezetimeEndEquipmentValue"
 _EQUIP_ROUND_START = "CCSPlayerPawn.m_unRoundStartEquipmentValue"
 _EQUIP_CURRENT = "CCSPlayerPawn.m_unCurrentEquipmentValue"
@@ -90,6 +102,7 @@ _ROUND_START_TIME = "CCSGameRulesProxy.CCSGameRules.m_fRoundStartTime"
 TICK_PROPS: tuple[str, ...] = (
     _TEAM_NUM,
     _ACCOUNT,
+    _CASH_SPENT,
     _EQUIP_FREEZE_END,
     _EQUIP_ROUND_START,
     _EQUIP_CURRENT,
@@ -384,6 +397,7 @@ class Demoparser2Rounds:
                     "steamid": steamid,
                     "side": side,
                     "account": _as_int(row.get(_ACCOUNT)),
+                    "cash_spent": _as_int(row.get(_CASH_SPENT)),
                     "equip_freeze_end": _as_int(row.get(_EQUIP_FREEZE_END)),
                     "equip_round_start": _as_int(row.get(_EQUIP_ROUND_START)),
                     "equip_current": _as_int(row.get(_EQUIP_CURRENT)),
@@ -482,7 +496,9 @@ class Demoparser2Rounds:
 
             saasto_nyt: list[int | None] = [None, None]
             for tiimi, side in enumerate(sivut[index]):
-                omat_freeze = [r for r in freeze_rivit if r["side"] == side]
+                omat_freeze = _readable(
+                    [r for r in freeze_rivit if r["side"] == side]
+                )
                 omat_end = [r for r in end_rivit if r["side"] == side]
                 elossa = [r for r in omat_end if r["alive"]]
                 saasto_nyt[tiimi] = (
@@ -505,12 +521,20 @@ class Demoparser2Rounds:
                         "money_freeze_end": _sum_or_none(
                             [r["account"] for r in omat_freeze]
                         ),
+                        "money_spent": _sum_or_none(
+                            [r["cash_spent"] for r in omat_freeze]
+                        ),
                         "equip_freeze_end": _sum_or_none(
                             [r["equip_freeze_end"] for r in omat_freeze]
                         ),
                         "equip_round_start": _sum_or_none(
                             [r["equip_round_start"] for r in omat_freeze]
                         ),
+                        # Kynnykset ovat per pelaaja, joten jakaja on
+                        # havaittava eikä oletettava: vajaalla pelaava
+                        # joukkue näyttäisi viidellä jaettuna ecolta.
+                        # Jakaja on sama joukko kuin summissa (ks. _readable).
+                        "players_freeze_end": len(omat_freeze) or None,
                         "survivors": len(elossa) if omat_end else None,
                         "survivors_equip_prev": edellinen_saasto[tiimi],
                         "freeze_end_tick": segment.freeze_end_tick,
@@ -683,6 +707,29 @@ def _as_side(value: Any) -> str | None:
         return None
     text = text.upper()
     return text if text in ("T", "CT") else None
+
+
+#: Propit, joiden on oltava luettavissa, jotta pelaaja lasketaan mukaan
+#: freezetimen lopun summiin ja niiden jakajaan.
+_FREEZE_END_PROPS: tuple[str, ...] = (
+    "account",
+    "cash_spent",
+    "equip_freeze_end",
+    "equip_round_start",
+)
+
+
+def _readable(rivit: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Pelaajat, joiden freezetimen lopun arvot ovat kaikki luettavissa.
+
+    Sekä summa että sen jakaja lasketaan **tästä samasta joukosta**. Jos
+    summattaisiin vain luettavat mutta jaettaisiin kaikilla riveillä, kolmen
+    pelaajan varustearvo jaettuna viidellä aliarvioisi tuloksen 40 prosenttia
+    ja työntäisi kierroksen ecoksi -- hiljaa ja uskottavan näköisesti.
+    """
+    return [
+        r for r in rivit if all(r.get(name) is not None for name in _FREEZE_END_PROPS)
+    ]
 
 
 def _sum_or_none(values: list[int | None]) -> int | None:

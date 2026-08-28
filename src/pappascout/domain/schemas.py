@@ -77,9 +77,11 @@ ROUNDS: Schema = {
     "side": _SIDE,  # rivin joukkueen puoli tällä kierroksella
     "won": pl.Boolean,
     "win_reason": pl.Utf8,
-    "money_freeze_end": pl.Int32,  # $ balance-summa freezetimen lopussa
+    "money_freeze_end": pl.Int32,  # $ jäljelle jäänyt saldo freezetimen lopussa
+    "money_spent": pl.Int32,  # $ tällä kierroksella käytetty raha (cash_spent)
     "equip_freeze_end": pl.Int32,  # $ current_equip_value-summa freezetimen lopussa
     "equip_round_start": pl.Int32,  # $ round_start_equip_value-summa
+    "players_freeze_end": pl.Int32,  # pelaajat, joiden arvot olivat luettavissa
     "survivors": pl.Int32,  # elossa kierroksen lopussa
     "survivors_equip_prev": pl.Int32,  # $ edelliseltä kierrokselta säästynyt varustearvo
     "freeze_end_tick": pl.Int32,  # viimeinen round_freeze_end -tick, null jos puuttuu
@@ -133,16 +135,26 @@ EVENTS: Schema = {
 CLASSIFIED_INPUTS = pl.Struct(
     {
         "money_freeze_end": pl.Int32,
+        # Käytettävissä ollut raha = money_freeze_end + money_spent. Story 1.4
+        # kalibroi eco-saannon tämän varaan; Story 1.3 vain tallentaa sen.
+        "money_spent": pl.Int32,
         "equip_freeze_end": pl.Int32,
         "equip_round_start": pl.Int32,
         "survivors_prev": pl.Int32,
         "survivors_equip_prev": pl.Int32,
         "prev_round_won": pl.Boolean,
+        # players = jakaja, jota per pelaaja -arvoissa oikeasti käytettiin;
+        # players_readable = montako pelaajaa oli luettavissa. Ne eroavat vain,
+        # jos havainto oli rajojen 1..roster_size ulkopuolella.
         "players": pl.Int32,
+        "players_readable": pl.Int32,
         "full_equip_min": pl.Int32,
         "half_equip_min": pl.Int32,
         "eco_money_max": pl.Int32,
         "eco_money_max_low_loss": pl.Int32,
+        "eco_loss_count_min": pl.Int32,
+        # Kumpi kahdesta eco-rajasta oli tällä kierroksella voimassa.
+        "eco_money_max_applied": pl.Int32,
         "force_money_min": pl.Int32,
         "force_money_max": pl.Int32,
         "anomaly_equip_max_after_win": pl.Int32,

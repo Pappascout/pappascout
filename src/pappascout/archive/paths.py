@@ -9,7 +9,7 @@ Puu on lukittu spinen konventiotaulukossa::
     index/next_opponent/<team_key>.json          kirjoittaa vain discover
     demos/<map_demo_id>.dem.zst  + .meta.json    kirjoittaa vain fetch / import
     parsed/<map_demo_id>/{ticks,events,rounds}.parquet + manifest
-    classified/<team_key>/<map_demo_id>.parquet
+    classified/<team_key>/<map_demo_id>.parquet + .md + manifest
     aggregates/<team_key>/report.json
     reports/<team_key>/<YYYY-MM-DDTHHMM>-<team_slug>.md
     import/                                      saapuvien kansio
@@ -52,6 +52,7 @@ __all__ = [
     "parsed_table",
     "parsed_manifest",
     "classified",
+    "classified_round_list",
     "classified_manifest",
     "report_json",
     "report_manifest",
@@ -176,6 +177,21 @@ def classified(team_key: str, map_demo_id: str) -> PurePosixPath:
         PurePosixPath("classified")
         / safe_component(team_key, "team_key")
         / f"{safe_component(map_demo_id, 'map_demo_id')}.parquet"
+    )
+
+
+def classified_round_list(team_key: str, map_demo_id: str) -> PurePosixPath:
+    """Kierroslista Markdownina, ``classify``-vaiheen toinen tulos.
+
+    Sama lista kuin ``--show`` tulostaa, mutta tiedostona: Veeti lukee sen
+    demon rinnalla ja tarkistaa jokaisen päätöksen perustelun ja lähtöarvot.
+    Tiedosto on ``classify``-vaiheen omassa hakemistossa, koska ``reports/`` on
+    ``render``-vaiheen aluetta eikä vaihe kirjoita toisen vaiheen tulosalueelle.
+    """
+    return (
+        PurePosixPath("classified")
+        / safe_component(team_key, "team_key")
+        / f"{safe_component(map_demo_id, 'map_demo_id')}.md"
     )
 
 
@@ -313,6 +329,9 @@ class ArchivePaths:
 
     def classified(self, team_key: str, map_demo_id: str) -> Path:
         return self.resolve(classified(team_key, map_demo_id))
+
+    def classified_round_list(self, team_key: str, map_demo_id: str) -> Path:
+        return self.resolve(classified_round_list(team_key, map_demo_id))
 
     def classified_manifest(self, team_key: str, map_demo_id: str) -> Path:
         return self.resolve(classified_manifest(team_key, map_demo_id))

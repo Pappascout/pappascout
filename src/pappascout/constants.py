@@ -24,6 +24,7 @@ __all__ = [
     "ROSTER_CLASSES",
     "RosterClass",
     "ROUND_TYPE_FI",
+    "UNCLASSIFIED",
 ]
 
 #: Rivin joukkueen puoli.
@@ -41,6 +42,11 @@ ROUND_TYPES: Final[tuple[str, ...]] = (
     "anomaly",
 )
 RoundType = Literal["pistol", "eco", "half", "force", "full", "ot", "anomaly"]
+
+#: Kierros, jota ei voitu luokitella lainkaan (havainto puuttuu). Ei ole
+#: kierrostyyppi vaan sen puuttuminen: taulussa ``round_type`` on ``null``,
+#: ja tämä on sen ainoa näkyvä nimi tulosteissa ja luvuissa.
+UNCLASSIFIED: Final[str] = "luokittelematon"
 
 #: Raporttimallin suomennokset. Vain otsikoissa – dataan ei kirjoiteta suomea.
 ROUND_TYPE_FI: Final[dict[str, str]] = {

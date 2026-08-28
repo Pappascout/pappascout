@@ -124,6 +124,9 @@ class Kierros:
     round_start_time: float | None = None
     #: Jätä toisen puolen pistelukema pois (yksipuolinen mittaus).
     score_only_side: str | None = None
+    #: Montako A-puolen pelaajaa jää ilman luettavia freezetime-arvoja.
+    #: Jäljittelee tickiä, jossa osa propeista on tyhjiä.
+    a_unreadable: int = 0
 
 
 def _rows(
@@ -145,15 +148,21 @@ def _rows(
         else:
             score = puolikkaat[side]
         for index, steamid in enumerate(pelaajat):
+            lukukelvoton = (
+                side == kierros.a_side
+                and not at_end
+                and index < kierros.a_unreadable
+            )
             rivit.append(
                 {
                     "tick": tick,
                     "steamid": steamid,
                     "name": steamid,
                     dp._TEAM_NUM: _SIDE_TEAM[side],
-                    dp._ACCOUNT: 800,
-                    dp._EQUIP_FREEZE_END: 4200,
-                    dp._EQUIP_ROUND_START: 200,
+                    dp._ACCOUNT: None if lukukelvoton else 800,
+                    dp._CASH_SPENT: None if lukukelvoton else 4000,
+                    dp._EQUIP_FREEZE_END: None if lukukelvoton else 4200,
+                    dp._EQUIP_ROUND_START: None if lukukelvoton else 200,
                     dp._EQUIP_CURRENT: 3000,
                     dp._LIFE_STATE: 0 if (at_end and index < elossa) else 1,
                     dp._TEAM_SCORE: score,
@@ -583,3 +592,60 @@ def test_survivors_and_carry_over_follow_the_team_not_the_side(
     )
     assert toinen_kierros["side"].to_list() == ["CT"]
     assert toinen_kierros["survivors_equip_prev"].to_list() == [2 * 3000]
+
+
+def test_player_count_is_observed_not_assumed(tmp_path: Path) -> None:
+    """``players_freeze_end`` on havainto: neljä pelaajaa -> 4, viisi -> 5.
+
+    Kynnykset ovat per pelaaja, joten jakaja on luettava demosta. Ilman tätä
+    testia sarakkeen arvoa ei todennettaisi missään -- vain sen olemassaolo.
+    """
+    kierrokset = normaali_ottelu(pelatut=2, knife=False)
+    kierrokset[0].a_players = A_PLAYERS[:4]
+
+    df = parse_with(build(kierrokset), tmp_path)
+    a_avain = df.filter(pl.col("side") == "T")["lineup_key"][0]
+    omat = df.filter(pl.col("lineup_key") == a_avain).sort("round_raw")
+    assert omat["players_freeze_end"].to_list() == [4, 5]
+    vastustaja = df.filter(pl.col("lineup_key") != a_avain).sort("round_raw")
+    assert vastustaja["players_freeze_end"].to_list() == [5, 5]
+
+
+def test_round_without_an_anchor_has_no_player_count(tmp_path: Path) -> None:
+    """Ilman freezetime-ankkuria ei ole mitään laskettavaa -- ei myöskään nollaa."""
+    kierrokset = normaali_ottelu(pelatut=2, knife=False)
+    kierrokset[1].freeze_tick = None
+
+    df = parse_with(build(kierrokset), tmp_path)
+    ankkuriton = df.filter(pl.col("status") == "no_freeze_end")
+    assert ankkuriton.height == 2
+    assert ankkuriton["players_freeze_end"].null_count() == 2
+
+
+def test_sums_and_their_divisor_come_from_the_same_players(tmp_path: Path) -> None:
+    """Osoittaja ja nimittäjä samasta joukosta.
+
+    Kolmen pelaajan summa viidellä jaettuna aliarvioisi varustearvon 40 % ja
+    työntäisi kierroksen ecoksi -- hiljaa ja uskottavan näköisesti.
+    """
+    kierrokset = normaali_ottelu(pelatut=1, knife=False)
+    kierrokset[0].a_unreadable = 2  # kahden pelaajan propit tyhjiä
+
+    df = parse_with(build(kierrokset), tmp_path)
+    a_avain = df.filter(pl.col("side") == "T")["lineup_key"][0]
+    rivi = df.filter(pl.col("lineup_key") == a_avain).row(0, named=True)
+
+    assert rivi["players_freeze_end"] == 3
+    assert rivi["equip_freeze_end"] == 3 * 4200
+    assert rivi["money_freeze_end"] == 3 * 800
+    assert rivi["money_spent"] == 3 * 4000
+    # Per pelaaja -arvo pysyy oikeana, koska jakaja on sama joukko.
+    assert rivi["equip_freeze_end"] / rivi["players_freeze_end"] == 4200
+
+
+def test_money_spent_is_read_from_the_demo(tmp_path: Path) -> None:
+    """Käytettävissä ollut raha = jäljelle jäänyt + käytetty."""
+    df = parse_with(build(normaali_ottelu(pelatut=1, knife=False)), tmp_path)
+    rivi = df.row(0, named=True)
+    assert rivi["money_spent"] == 5 * 4000
+    assert rivi["money_freeze_end"] + rivi["money_spent"] == 5 * 4800

@@ -72,6 +72,7 @@ def build_rounds(
                     "money_freeze_end": None if ankkuriton else 3000 + index,
                     "equip_freeze_end": None if ankkuriton else 20000 + index,
                     "equip_round_start": None if ankkuriton else 1000 + index,
+                    "players_freeze_end": None if ankkuriton else 5,
                     "survivors": index,
                     "survivors_equip_prev": 500,
                     "freeze_end_tick": None if ankkuriton else 1000 * round_raw,

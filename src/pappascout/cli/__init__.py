@@ -4,10 +4,11 @@ CLI on ohut: se lukee asetukset, valitsee vaiheet ja näyttää tuloksen. Se ei
 kutsu adaptereita eikä arkistoa suoraan, eikä siinä ole analyysilogiikkaa --
 sama putki ajetaan myöhemmin web-kuoren takaa muuttamatta domainia.
 
-Komentoja on kaksi: ``info`` näyttää asetukset, arkiston tilan ja avainten
-tilan paljastamatta avainten arvoja, ja ``parse`` ajaa putken ensimmäisen
-vaiheen yhdelle demolle. Loput (``scout``, ``next``, ``collect``, ``import``,
-``report``) tulevat myöhemmissä storyissa.
+Komentoja on kolme: ``info`` näyttää asetukset, arkiston tilan ja avainten
+tilan paljastamatta avainten arvoja, ``parse`` ajaa putken ensimmäisen vaiheen
+yhdelle demolle ja ``classify`` luokittelee sen kierrokset yhden joukkueen
+näkökulmasta. Loput (``scout``, ``next``, ``collect``, ``import``, ``report``)
+tulevat myöhemmissä storyissa.
 
 Arkistoon ja adaptereihin ei kosketa täältä: polut pyydetään
 ``stages.archive_paths``ilta ja demoportti ``stages.parse.default_parser``ilta.
@@ -25,9 +26,11 @@ import sys
 import typer
 
 from pappascout import __version__
+from pappascout.constants import ROUND_TYPES, UNCLASSIFIED
 from pappascout.domain.models import Settings, load_settings, secrets_env_path
 from pappascout.errors import PappascoutError
 from pappascout.stages import StageResult, archive_paths
+from pappascout.stages import classify as classify_stage
 from pappascout.stages import parse as parse_stage
 
 __all__ = ["app", "main"]
@@ -309,6 +312,199 @@ def _render_parse(tulos: StageResult, regulation_rounds: int) -> str:
     rivit.append(_rivi("Ajoaika", _sekunnit(tulos.duration_s)))
 
     return "\n".join(rivit)
+
+
+@app.command("classify")
+def classify(
+    kohde: str = typer.Argument(
+        ...,
+        metavar="MAP_DEMO_ID",
+        help="Parsitun demon tunniste, sama jolla parse ajettiin.",
+    ),
+    team: str | None = typer.Option(
+        None,
+        "--team",
+        help=(
+            "Subjektijoukkueen kokoonpanotunniste (lineup_key) tai sen "
+            "yksikäsitteinen alkuosa. Ilman tätä komento listaa demon "
+            "kokoonpanot."
+        ),
+    ),
+    kaikki: bool = typer.Option(
+        False,
+        "--kaikki-joukkueet",
+        help=(
+            "Luokittele demo molempien joukkueiden näkökulmasta. Kumpikin saa "
+            "oman tuloksensa; --team jätetään huomiotta."
+        ),
+    ),
+    show: bool = typer.Option(
+        False,
+        "--show",
+        help=(
+            "Tulosta kierroslista: kierros, puoli, raha ja varustearvo per "
+            "pelaaja, loss count, tyyppi ja perustelu."
+        ),
+    ),
+    pakota: bool = typer.Option(
+        False,
+        "--pakota",
+        help="Luokittele vaikka manifesti täsmäisi.",
+    ),
+) -> None:
+    """Luokittele parsitun demon kierrokset yhden joukkueen näkökulmasta.
+
+    Kirjoittaa ``classified/<team_key>/<map_demo_id>.parquet``-taulun, saman
+    sisällön kierroslistana Markdownina ja manifestin. Demoa ei lueta, joten
+    kynnysten säätö ja uudelleenajo valmistuvat sekunneissa.
+    """
+    settings = load_settings()
+    archive = archive_paths(settings.project)
+
+    joukkueet: list[str | None]
+    if kaikki:
+        joukkueet = list(classify_stage.team_keys(archive, kohde))
+    else:
+        joukkueet = [team]
+
+    for index, valinta in enumerate(joukkueet):
+        if index:
+            typer.echo("")
+        tulos = classify_stage.run(
+            settings.thresholds,
+            settings.league,
+            archive,
+            kohde,
+            valinta,
+            force=pakota,
+        )
+        typer.echo(_render_classify(tulos))
+        if show:
+            rivit = tulos.stats.get("rows")
+            typer.echo("")
+            if rivit:
+                typer.echo(_render_round_list(rivit))
+            else:
+                typer.echo(
+                    "Kierroslistaa ei saatu luettua tuloksesta. Aja komento "
+                    "uudelleen lipulla --pakota."
+                )
+
+
+def _render_classify(tulos: StageResult) -> str:
+    """Kokoa ``classify``-komennon yhteenveto.
+
+    Erotettu omaksi funktiokseen, jotta tuloste on testattavissa ilman
+    komentorivin ajamista.
+    """
+    stats = tulos.stats
+    rivit: list[str] = []
+    rivit.append(f"{'Ohitettu' if tulos.skipped else 'Luokiteltu'}: {tulos.unit}")
+
+    if tulos.status != "ok":
+        rivit.append(_rivi("Tila", str(tulos.status)))
+    if tulos.reason:
+        rivit.append(_rivi("Syy", tulos.reason))
+
+    joukkue = stats.get("team_key")
+    if joukkue:
+        rivit.append(_rivi("Joukkue", str(joukkue)))
+
+    if "unreadable" in stats:
+        rivit.append(_rivi("Kierrokset", f"lukuja ei saatu ({stats['unreadable']})"))
+        rivit.append(_rivi("Ajoaika", _sekunnit(tulos.duration_s)))
+        return "\n".join(rivit)
+
+    rivit.append(_rivi("Kierrokset", str(int(stats.get("rounds", 0) or 0))))
+
+    jakauma = stats.get("by_type") or {}
+    if jakauma:
+        # Kierrostyyppien vakiojärjestys, jotta tuloste on vertailukelpoinen
+        # ajosta toiseen; tuntemattomat lopuksi.
+        jarjestys = [t for t in ROUND_TYPES if t in jakauma]
+        jarjestys += [t for t in sorted(jakauma) if t not in ROUND_TYPES]
+        rivit.append(_rivi("Tyypit", ", ".join(f"{t} {jakauma[t]}" for t in jarjestys)))
+
+    # AD-9: luokittelematon kierros ei saa hukkua tyyppijakaumaan, joten se on
+    # omalla rivillään -- ja vain siellä.
+    luokittelematta = int(stats.get("unclassified", 0) or 0)
+    if luokittelematta:
+        rivit.append(
+            _rivi(
+                UNCLASSIFIED.capitalize(),
+                f"{luokittelematta} (havainto puuttuu, syy näkyy kierroslistassa)",
+            )
+        )
+
+    numeroimattomat = int(stats.get("unnumbered", 0) or 0)
+    if numeroimattomat:
+        rivit.append(
+            _rivi(
+                "Numeroimattomat",
+                f"{numeroimattomat} (ei kierrosnumeroa, jätetty luokittelun "
+                "ulkopuolelle)",
+            )
+        )
+
+    for polku in tulos.outputs:
+        rivit.append(_rivi("Tulos", str(polku)))
+    if tulos.manifest_path is not None:
+        rivit.append(_rivi("Manifesti", str(tulos.manifest_path)))
+    rivit.append(_rivi("Ajoaika", _sekunnit(tulos.duration_s)))
+    return "\n".join(rivit)
+
+
+#: Perustelu ei mahdu sarakkeeksi, joten se tulostetaan omalle sisennetylle
+#: rivilleen -- katkaistu perustelu ei kelpaa, koska juuri sitä vasten
+#: luokittelu tarkistetaan demosta.
+_REASON_COLUMN = "reason"
+
+
+def _render_round_list(rivit: list[dict]) -> str:
+    """Kierroslista konsoliin.
+
+    Tämä on se tuloste, jolla käyttäjä tarkistaa luokittelun demoa vasten:
+    jokaisella kierroksella näkyvät sekä päätös että ne arvot, joihin se nojasi.
+    Sarakkeet tulevat vaiheen omasta ``ROUND_LIST_COLUMNS``-määrittelystä, joten
+    konsoli ja Markdown eivät voi esittää eri asioita.
+    """
+    if not rivit:
+        return "Kierroksia ei ole."
+
+    kapeat = [
+        (index, otsikko)
+        for index, (otsikko, avain) in enumerate(classify_stage.ROUND_LIST_COLUMNS)
+        if avain != _REASON_COLUMN
+    ]
+    perustelu_index = next(
+        index
+        for index, (_, avain) in enumerate(classify_stage.ROUND_LIST_COLUMNS)
+        if avain == _REASON_COLUMN
+    )
+
+    solut = [classify_stage.round_list_cells(rivi) for rivi in rivit]
+    otsikot = [otsikko for _, otsikko in kapeat]
+    leveydet = [
+        max(len(otsikko), *(len(r[index]) for r in solut))
+        for index, otsikko in kapeat
+    ]
+
+    tulos: list[str] = []
+    tulos.append("  ".join(o.ljust(w) for o, w in zip(otsikot, leveydet)).rstrip())
+    tulos.append("  ".join("-" * w for w in leveydet))
+    for rivin_solut in solut:
+        kapeat_solut = [rivin_solut[index] for index, _ in kapeat]
+        tulos.append(
+            "  ".join(s.ljust(w) for s, w in zip(kapeat_solut, leveydet)).rstrip()
+        )
+        perustelu = rivin_solut[perustelu_index].strip()
+        if perustelu:
+            tulos.append(f"    {perustelu}")
+    tulos.append("")
+    tulos.append("Rahaluvut ovat $/pelaaja freezetimen lopussa. Käytössä = jäljellä +")
+    tulos.append("käytetty; jäljellä on saldo ostojen jälkeen, joten")
+    tulos.append("säästökierroksella se on suuri.")
+    return "\n".join(tulos)
 
 
 def _sekunnit(arvo: float) -> str:

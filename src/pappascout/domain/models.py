@@ -165,6 +165,13 @@ class ThresholdSettings(_Section):
                 f"full_equip_min ({self.full_equip_min}); muuten puoliostoa ei "
                 "voi koskaan erottaa täydestä ostosta."
             )
+        if self.anomaly_equip_max_after_win >= self.half_equip_min:
+            raise ValueError(
+                f"anomaly_equip_max_after_win ({self.anomaly_equip_max_after_win}) "
+                f"on oltava pienempi kuin half_equip_min ({self.half_equip_min}); "
+                "muuten poikkeaman ja puoliston rajat menevät päällekkäin eikä "
+                "matalaa varustearvoa voi erottaa puoliostosta."
+            )
         if self.force_money_min > self.force_money_max:
             raise ValueError(
                 f"force_money_min ({self.force_money_min}) on suurempi kuin "
