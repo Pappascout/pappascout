@@ -1,19 +1,20 @@
 """Kerrossäännön testit.
 
 Spinen riippuvuuskaavio on ``cli -> stages -> {domain, adapters, archive}`` ja
-``adapters -> domain``. Kaksi sen säännöistä on valvottavissa koneellisesti jo
-nyt, ja ne ovat tässä:
+``adapters -> domain``. Kaikki sen säännöt ovat nyt valvottavissa
+koneellisesti:
 
-* ``domain`` ei tuo mitään muista pappascout-paketeista, ja
-* ``archive`` ei riipu ``domain``ista -- se on putki, ei domain-mallien säilö.
+* ``domain`` ei tuo mitään muista pappascout-paketeista,
+* ``archive`` ei riipu ``domain``ista -- se on putki, ei domain-mallien säilö,
+* ``adapters`` ei tunne arkistoa, vaiheita eikä komentoriviä,
+* ``stages`` ei kutsu komentoriviä takaisin, ja
+* ``cli`` **ei kutsu adaptereita eikä arkistoa suoraan**.
 
-Spinen kolmas sääntö, "``cli`` ei kutsu adaptereita eikä arkistoa suoraan", on
-tässä valvottu vain osittain. ``cli`` **saa** tässä testissä tuoda ``archive``-
-ja ``domain``-paketit, koska ``info`` lukee asetukset ja näyttää arkiston
-polun ilman yhtäkään vaihetta. Kun ``stages`` syntyy Story 1.2:ssa, tämä
-löysennys pitää poistaa: silloin ``cli`` kutsuu ``stages.pipeline``ia eikä
-arkistoa enää suoraan. ``adapters`` ja ``stages`` ovat ``cli``:ltä kiellettyjä
-jo nyt.
+Viimeinen sääntö oli Story 1.1:ssä löysennetty: ``info`` tarvitsi arkiston
+polun, eikä ``stages``-pakettia ollut olemassa. Story 1.2 poisti löysennyksen.
+Polut pyydetään nyt ``stages.archive_paths``ilta ja demoportti
+``stages.parse.default_parser``ilta, joten komentorivi näkee vain ``stages``-
+ja ``domain``-paketit.
 """
 
 from __future__ import annotations
@@ -30,9 +31,8 @@ FORBIDDEN = {
     "domain": {"archive", "adapters", "stages", "cli"},
     "archive": {"domain", "adapters", "stages", "cli"},
     "adapters": {"archive", "stages", "cli"},
-    # Ks. moduulin docstring: archive ja domain sallitaan väliaikaisesti,
-    # kunnes stages on olemassa.
-    "cli": {"adapters", "stages"},
+    "stages": {"cli"},
+    "cli": {"adapters", "archive"},
 }
 
 #: Vain olemassa olevat paketit -- lista kasvaa itsestään, kun vaiheet tulevat.

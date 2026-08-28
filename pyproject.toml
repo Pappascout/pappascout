@@ -31,3 +31,7 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "demo: vaatii oikean demotiedoston; ohittaa itsensa siististi jos tiedostoa ei ole",
+]
+addopts = ["--strict-markers"]

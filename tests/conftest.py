@@ -9,6 +9,8 @@ megatavujen OneDrive-arkiston -- tulos riippuisi koneesta.
 
 from __future__ import annotations
 
+import os
+import tomllib
 from pathlib import Path
 
 import polars as pl
@@ -19,6 +21,60 @@ from pappascout.domain.schemas import Schema
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_SETTINGS = REPO_ROOT / "settings.toml"
+
+
+def _real_import_dir() -> Path | None:
+    """Oikeiden demojen hakemisto -- ratkaistaan **tuontihetkellä**.
+
+    Polku on laskettava ennen kuin ``_isolate_from_machine`` ohjaa
+    ``USERPROFILE``:n väliaikaishakemistoon; muuten demo-testit eivät löytäisi
+    mitään edes koneella, jolla demot ovat.
+
+    Returns:
+        Hakemisto tai ``None``, jos asetustiedostoa ei voitu lukea. ``None`` on
+        tarkoituksella eri asia kuin olemassa oleva polku: keksitty
+        paikkamerkkipolku kertoisi demo-testin ohitusviestissä hakemistosta,
+        jota ei ole koskaan ollut olemassakaan.
+    """
+    try:
+        data = tomllib.loads(REAL_SETTINGS.read_text(encoding="utf-8"))
+        raw = str(data["project"]["archive_root"])
+    except (OSError, KeyError, tomllib.TOMLDecodeError):  # pragma: no cover
+        return None
+    return Path(os.path.expandvars(raw)).expanduser() / "import"
+
+
+#: Oikeiden demojen hakemisto, tai ``None`` jos sitä ei voitu päätellä.
+#: ``PAPPASCOUT_TEST_DEMOS`` ylikirjoittaa sen.
+_YMPARISTOSTA = os.environ.get("PAPPASCOUT_TEST_DEMOS")
+DEMO_DIR: Path | None = Path(_YMPARISTOSTA) if _YMPARISTOSTA else _real_import_dir()
+
+#: Testiaineisto (``_bmad-output/implementation-artifacts/testiaineisto.md``).
+ANCIENT_DEM = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1.dem"
+ANCIENT_ZST = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1.dem.zst"
+NUKE_ZST = "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1.dem.zst"
+
+#: Odotetut tulokset oikeista demoista (FACEIT Data API, haettu 2026-08-28).
+ANCIENT_ROUNDS = 21
+NUKE_ROUNDS = 28
+
+
+def require_demo(name: str) -> Path:
+    """Palauta oikean demon polku tai ohita testi selkeällä syyllä.
+
+    Demot ovat 100-230 MB eivätkä kuulu repoon, joten toisella koneella tai
+    CI:ssä testin on ohituttava -- ei kaaduttava. Ohitusviesti kertoo aina,
+    mistä etsittiin, jotta puuttuva demo erottuu väärästä polusta.
+    """
+    if DEMO_DIR is None:
+        pytest.skip(
+            "Demohakemistoa ei voitu päätellä settings.tomlista. Aseta "
+            "ympäristömuuttuja PAPPASCOUT_TEST_DEMOS."
+        )
+    path = DEMO_DIR / name
+    if not path.is_file():
+        pytest.skip(f"Oikeaa demoa ei ole tällä koneella: {path}")
+    return path
 
 #: Ympäristömuuttujat, jotka eivät saa vuotaa koneelta testeihin.
 LEAKY_ENV_VARS = (

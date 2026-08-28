@@ -4,10 +4,14 @@ CLI on ohut: se lukee asetukset, valitsee vaiheet ja näyttää tuloksen. Se ei
 kutsu adaptereita eikä arkistoa suoraan, eikä siinä ole analyysilogiikkaa --
 sama putki ajetaan myöhemmin web-kuoren takaa muuttamatta domainia.
 
-Tässä storyssa on vain ``info``, joka todistaa että runko toimii: se näyttää
-asetukset, arkiston tilan ja avainten tilan paljastamatta avainten arvoja.
-Putken komennot (``parse``, ``scout``, ``next``, ``collect``, ``import``,
+Komentoja on kaksi: ``info`` näyttää asetukset, arkiston tilan ja avainten
+tilan paljastamatta avainten arvoja, ja ``parse`` ajaa putken ensimmäisen
+vaiheen yhdelle demolle. Loput (``scout``, ``next``, ``collect``, ``import``,
 ``report``) tulevat myöhemmissä storyissa.
+
+Arkistoon ja adaptereihin ei kosketa täältä: polut pyydetään
+``stages.archive_paths``ilta ja demoportti ``stages.parse.default_parser``ilta.
+Riippuvuusnuoli on ``cli -> stages -> {domain, adapters, archive}``.
 
 Käyttäjä ei koodaa itse, joten mikään virhe ei saa päätyä ruudulle raakana
 pinojälkenä: :func:`main` muuntaa ne suomenkielisiksi viesteiksi ja
@@ -21,9 +25,10 @@ import sys
 import typer
 
 from pappascout import __version__
-from pappascout.archive.paths import ArchivePaths
 from pappascout.domain.models import Settings, load_settings, secrets_env_path
 from pappascout.errors import PappascoutError
+from pappascout.stages import StageResult, archive_paths
+from pappascout.stages import parse as parse_stage
 
 __all__ = ["app", "main"]
 
@@ -114,7 +119,7 @@ def _render_info(settings: Settings, show_size: bool = False) -> str:
             satoja megatavuja demoja, ja koko puun läpikäynti tekisi nopeasta
             tilannekatsauksesta hitaan.
     """
-    archive = ArchivePaths.from_settings(settings.project.archive_root)
+    archive = archive_paths(settings.project)
     rivit: list[str] = []
 
     rivit.append(f"Pappascout {__version__}")
@@ -169,6 +174,146 @@ def _render_info(settings: Settings, show_size: bool = False) -> str:
         rivit.append(f"  {nimi:<{leveys}} {settings.secret_status(nimi)}")
 
     return "\n".join(rivit)
+
+
+@app.command("parse")
+def parse(
+    kohde: str = typer.Argument(
+        ...,
+        metavar="TIEDOSTO|MAP_DEMO_ID",
+        help=(
+            "Demotiedoston polku tai map_demo_id, jolloin demo etsitään "
+            "arkiston demos- ja import-hakemistoista."
+        ),
+    ),
+    pakota: bool = typer.Option(
+        False,
+        "--pakota",
+        help=(
+            "Parsi vaikka manifesti täsmäisi. Käytä, jos epäilet että arkiston "
+            "tulos on vanhentunut."
+        ),
+    ),
+) -> None:
+    """Parsi demo kierrostauluksi.
+
+    Kirjoittaa ``parsed/<map_demo_id>/rounds.parquet``-taulun ja sen
+    manifestin. Jos manifesti täsmää, vaihe ohitetaan eikä demoa lueta
+    uudelleen.
+    """
+    settings = load_settings()
+    archive = archive_paths(settings.project)
+    map_demo_id, demo_path = parse_stage.resolve_demo(archive, kohde)
+
+    # 233 MB:n demo vie sekunteja, pakattu enemmän. Ilman tätä riviä käyttäjä
+    # katsoo tyhjää ruutua eikä tiedä, käynnistyikö mikään.
+    typer.echo(f"Parsitaan {map_demo_id} ({demo_path.name})...", err=True)
+
+    tulos = parse_stage.run(
+        settings.parse,
+        archive,
+        map_demo_id,
+        parse_stage.default_parser(),
+        demo_path=demo_path,
+        force=pakota,
+    )
+    typer.echo(_render_parse(tulos, regulation_rounds=2 * settings.league.mr))
+
+
+#: Tulosteen sarakeleveys, jotta arvot linjautuvat otsikoiden alle.
+_PARSE_LABEL_WIDTH = 20
+
+
+def _rivi(otsikko: str, arvo: str) -> str:
+    """Muotoile yksi tulosterivi tasalevyisellä otsikkosarakkeella."""
+    return f"  {otsikko:<{_PARSE_LABEL_WIDTH}}{arvo}"
+
+
+def _render_parse(tulos: StageResult, regulation_rounds: int) -> str:
+    """Kokoa ``parse``-komennon tuloste.
+
+    Erotettu omaksi funktiokseen, jotta tuloste on testattavissa ilman
+    komentorivin ajamista.
+
+    Args:
+        tulos: Vaiheen palauttama tulos.
+        regulation_rounds: Säännönmukaisten kierrosten määrä (MR12 -> 24).
+            Tätä käytetään **vain** tulosteen jatkoaikamaininnassa; vaihe itse
+            ei näe liiga- eikä kynnysasetuksia (AD-3).
+    """
+    stats = tulos.stats
+    rivit: list[str] = []
+
+    rivit.append(f"{'Ohitettu' if tulos.skipped else 'Parsittu'}: {tulos.unit}")
+
+    # AD-9: tila näytetään aina kun se ei ole ok, jottei epäonnistunut yksikkö
+    # näytä onnistuneelta.
+    if tulos.status != "ok":
+        rivit.append(_rivi("Tila", str(tulos.status)))
+    if tulos.reason:
+        rivit.append(_rivi("Syy", tulos.reason))
+
+    if "unreadable" in stats:
+        rivit.append(_rivi("Kierrokset", f"lukuja ei saatu ({stats['unreadable']})"))
+        rivit.append(_rivi("Ajoaika", _sekunnit(tulos.duration_s)))
+        return "\n".join(rivit)
+
+    kierrokset = int(stats.get("rounds", 0) or 0)
+    rivit.append(
+        _rivi("Kierrokset", f"{kierrokset} (rivejä {int(stats.get('rows', 0) or 0)})")
+    )
+
+    suurin = int(stats.get("max_round_no", 0) or 0)
+    if suurin > regulation_rounds:
+        rivit.append(
+            _rivi(
+                "Jatkoaika",
+                f"kyllä -- kierroksia {suurin}, säännönmukaisia {regulation_rounds}",
+            )
+        )
+    else:
+        rivit.append(_rivi("Jatkoaika", f"ei ({suurin}/{regulation_rounds})"))
+
+    # Ohitetussa ajossa lukua ei ole: numeroimattomat kierrokset eivät ole
+    # taulussa, joten niiden määrää ei voi lukea valmiista tuloksesta.
+    ohitetut = int(stats.get("skipped_rounds", 0) or 0)
+    if not tulos.skipped and ohitetut:
+        rivit.append(
+            _rivi(
+                "Ohitetut kierrokset",
+                f"{ohitetut} (warmup, puukkokierros ja uudelleenkäynnistykset)",
+            )
+        )
+
+    ankkuriton = int(stats.get("no_freeze_end", 0) or 0)
+    if ankkuriton:
+        rivit.append(
+            _rivi(
+                "Ilman ankkuria",
+                f"{ankkuriton} (freezetime-tick puuttuu, kierros silti mukana)",
+            )
+        )
+
+    if "tick_rate" in stats and not stats.get("tick_rate_measured", True):
+        rivit.append(
+            _rivi(
+                "Tickrate",
+                f"{stats['tick_rate']:g} (oletus -- demosta ei saatu mitattua)",
+            )
+        )
+
+    for polku in tulos.outputs:
+        rivit.append(_rivi("Tulos", str(polku)))
+    if tulos.manifest_path is not None:
+        rivit.append(_rivi("Manifesti", str(tulos.manifest_path)))
+    rivit.append(_rivi("Ajoaika", _sekunnit(tulos.duration_s)))
+
+    return "\n".join(rivit)
+
+
+def _sekunnit(arvo: float) -> str:
+    """Sekunnit suomalaisella desimaalipilkulla."""
+    return f"{arvo:.1f} s".replace(".", ",")
 
 
 def main() -> None:

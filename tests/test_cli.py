@@ -1,10 +1,12 @@
-"""CLI:n testit: ``info`` on ensimmäinen ajettava komento.
+"""CLI:n testit: ``info`` ja ``parse``.
 
-Kaksi vaatimusta, jotka näissä testeissä lukitaan:
+Kolme vaatimusta, jotka näissä testeissä lukitaan:
 
-* avaimen **tila** näkyy, avaimen **arvo** ei koskaan, ja
+* avaimen **tila** näkyy, avaimen **arvo** ei koskaan,
 * käyttäjä ei näe koskaan raakaa pinojälkeä -- jokainen virhe tulee ulos
-  suomenkielisenä rivinä ja paluukoodina.
+  suomenkielisenä rivinä ja paluukoodina, ja
+* ``parse``-komennon tuloste kertoo kierrosten määrän, jatkoajan, ohitetut
+  kierrokset ja ajoajan.
 """
 
 from __future__ import annotations
@@ -280,15 +282,27 @@ def test_human_size(tavut: int, odotettu: str) -> None:
 # --- Rakenne ------------------------------------------------------------------
 
 
-def test_no_pipeline_stages_exist_yet() -> None:
-    """Story 1.1 pystyttää sopimukset -- putken vaiheita ei ole vielä.
+def test_pipeline_packages_expose_their_contracts() -> None:
+    """Story 1.2 loi putken ensimmäisen vaiheen ja sen portin.
 
-    HUOM: tämä testi poistetaan Story 1.2:ssa, kun ``stages.parse`` syntyy.
-    Se on tässä vain varmistamassa, ettei tämä story vahingossa toteuttanut
-    putkea, jota sen ei pitänyt koskea.
+    Korvaa Story 1.1:n ``test_no_pipeline_stages_exist_yet``-testin, joka
+    vartioi sitä, ettei runkostory toteuta putkea etuajassa. Tarkistetaan
+    nimetty symboli eikä pelkkää tuontia: tyhjä paketti läpäisisi jälkimmäisen.
     """
     import importlib
 
-    for moduuli in ("pappascout.stages", "pappascout.adapters"):
-        with pytest.raises(ModuleNotFoundError):
-            importlib.import_module(moduuli)
+    odotetut = {
+        "pappascout.stages": ("StageResult", "archive_paths"),
+        "pappascout.stages.parse": ("run", "resolve_demo", "default_parser"),
+        "pappascout.adapters": ("DemoRoundsParser", "ROUNDS_ADAPTER_COLUMNS"),
+    }
+    for nimi, symbolit in odotetut.items():
+        moduuli = importlib.import_module(nimi)
+        for symboli in symbolit:
+            assert hasattr(moduuli, symboli), f"{nimi}.{symboli}"
+
+
+def test_help_lists_parse() -> None:
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "parse" in result.output
