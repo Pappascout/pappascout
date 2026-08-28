@@ -1,0 +1,36 @@
+# Avaimet. Varsinainen avaintiedosto on %USERPROFILE%\.pappascout\.env eli
+# kokonaan repon ja OneDriven ulkopuolella; tämä estää projektin varakopion
+# päätymisen versionhallintaan.
+.env
+.env.*
+
+# Demot. Yksi pakkaamaton demo on ~233 MB -- niitä ei versioida koskaan.
+*.dem
+*.dem.gz
+*.dem.zst
+
+# Arkisto. Pysyvä tila on OneDrivessa, ei repossa.
+# Juurikiinnitetty: ilman kauttaviivaa alussa tämä osuisi myös lähdekoodiin
+# src/pappascout/archive/, jolloin koko paketti jäisi gitin ulkopuolelle.
+/archive/
+
+# Atomisen kirjoituksen väliaikaistiedostot (*.tmp-<host>-<pid>-<sattuma>)
+*.tmp-*
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Työkalut
+.pytest_cache/
+.ruff_cache/
+
+# uv.lock EI ole tässä listassa tarkoituksella: se versioidaan, jotta molemmat
+# koneet saavat täsmälleen samat riippuvuusversiot.

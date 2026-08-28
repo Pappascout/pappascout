@@ -1,0 +1,276 @@
+# Pappascoutin asetukset.
+#
+# Osiot vastaavat AD-3:n partitiota: jokainen vaihe saa parametrikseen vain oman
+# osansa, joten kynnysten muuttaminen ei aiheuta uudelleenparsintaa.
+#
+# Jokainen luku on jäljitettävissä lähteeseen. Merkinnät:
+#   [addendum]  = PRD:n addendum, luku 6 (CS2-talousmalli) tai luku 4/5
+#   [domain]    = domain-tutkimus 2026-08-27
+#   [spine]     = ARCHITECTURE-SPINE, AD-3 / AD-6 / AD-7 / AD-10
+#   [kalibroi]  = lähtöarvo, jonka Story 1.4 säätää oikeilla demoilla
+#
+# Avaimia EI kirjoiteta tähän tiedostoon. Ne luetaan koneen omasta tiedostosta
+# %USERPROFILE%\.pappascout\.env (FACEIT_API_KEY, FACEIT_DOWNLOADS_TOKEN).
+
+
+[project]
+# Oma joukkue. [domain] Pappaliigan kausi 13.
+own_team_name = "PotkukelkkaPeek"
+
+# Arkisto on OneDrivessa ja molempien koneiden yhteinen; koodirepo ei ole.
+# [spine] AD-7.
+#
+# Polussa saa kayttaa ymparistomuuttujia (%USERPROFILE%) ja tildea (~); ne
+# laajennetaan latausvaiheessa, joten sama versioitu rivi toimii molemmilla
+# koneilla vaikka kayttajanimi olisi eri.
+#
+# Yksittaisen ajon voi ohjata toiseen arkistoon muokkaamatta tata tiedostoa
+# asettamalla ymparistomuuttujan PAPPASCOUT_ARCHIVE_ROOT, esim. PowerShellissa:
+#   $env:PAPPASCOUT_ARCHIVE_ROOT = 'D:\pappascout-testiarkisto'
+archive_root = '%USERPROFILE%\OneDrive - Finnpark Oy\Finnpark\MDM\Claude code\pappascout-archive'
+
+# Kaikki käyttäjälle näkyvä teksti on suomeksi.
+language = "fi"
+
+# Arkiston lukon vanhenemisaika sekunteina. [spine] AD-7 oletus 600.
+lock_ttl_seconds = 600
+
+
+[league]
+# Pappaliigan kausi 13, alkoi 3.8.2026. [domain]
+season = 13
+
+# Pappaliigan FACEIT organizer -id, jonka kautta kausien championshipit löytyvät.
+# [addendum] luku 5.
+organizer_id = "1bfc69fa-5a21-4ed9-9ef3-37edbd7210d8"
+
+# Nykyinen kausi ensin. Edellisten kausien id:t lisätään tähän listaan, kun
+# historiaa halutaan mukaan otantaan.
+championship_ids = ["94681888-b5da-4ab5-bf50-f44b666b98a3"]
+
+# Kauden 13 karttapooli. Overpass poistui Active Dutysta 7/2026, Cache tuli
+# tilalle; Pappaliiga lukitsee poolin kauden alkaessa. [domain]
+map_pool = [
+    "de_mirage",
+    "de_inferno",
+    "de_dust2",
+    "de_nuke",
+    "de_ancient",
+    "de_anubis",
+    "de_cache",
+]
+
+# PotkukelkkaPeek banaa lähes aina Miragen ja Dust II:n. [domain]
+own_default_bans = ["de_mirage", "de_dust2"]
+
+# MR12: 12 kierrosta per puoli, 13 voittaa. [addendum]
+mr = 12
+
+# Jatkoajan aloitusraha Pappaliigan sääntökirjassa 12 500 $ (pro-turnauksissa
+# yleisesti 10 000 $). [domain] [addendum]
+ot_start_money = 12500
+
+
+[parse]
+# Näytepisteet sekunteina viimeisestä round_freeze_endistä.
+# ~6 s CT-suunta näkyy, ~10-15 s T rush erottuu defaultista, 25-30 s ja 45 s
+# näyttävät kierroksen kehityksen. [domain] [spine] AD-3 oletus [6, 15, 30, 45].
+snapshot_seconds = [6.0, 15.0, 30.0, 45.0]
+
+# Ensikontakti = ensimmäinen player_hurt, jossa tekijä on vastapuolella ja ase ei
+# ole utility. Nämä aseet eivät siis kelpaa ensikontaktiksi. [spine] AD-5.
+# Nimet kartoitetaan demoparser2:n tapahtumanimiin Story 1.2:ssa.
+first_contact_exclude_weapons = [
+    "hegrenade",
+    "flashbang",
+    "smokegrenade",
+    "decoy",
+    "molotov",
+    "incgrenade",
+    "inferno",
+]
+
+# Jos player_hurt-tapahtumaa ei löydy, käytetään ensimmäistä player_deathia.
+# [spine] AD-5.
+first_contact_fallback_death = true
+
+# area_snap_units: enimmäisetäisyys, jolta räjähdyksen alue saa napata lähimmän
+# elossa olevan pelaajan alueen. Arvoa ei ole vielä kalibroitu oikeilla demoilla,
+# joten se on tarkoituksella asettamatta -- silloin detonate_area jää nulliksi.
+# Asetetaan Epicissä 2 utility-työn yhteydessä. [spine] AD-5, Open Question 4.
+# area_snap_units = <ei vielä kalibroitu>
+
+
+[thresholds]
+# Pistoolikierrokset tunnistetaan kierrosnumerosta, ei rahasta. MR12:ssa
+# kierrokset 1 ja 13. Puukkokierros ei saa kierrosnumeroa. [addendum] [spine] AD-3
+pistol_rounds = [1, 13]
+
+# Säännönmukaisia kierroksia 24 (2 x 12). Tämän yli menevä kierros on jatkoaikaa
+# eikä sitä luokitella talouden perusteella. [addendum] [spine] AD-3
+regulation_rounds = 24
+
+# --- Varustearvorajat, dollaria PER PELAAJA ---
+
+# Täysi osto: kivääri + kevlar (+kypärä) + kaksi utilitya. T:llä AK 2700 + 1000 +
+# ~500 ~= 4200, CT:llä M4 2900 + kevlar 650 + ~500 ~= 4050. CT ostaa usein
+# kevlarin ilman kypärää, eikä kypärän puute saa pudottaa kierrosta pois
+# full-luokasta. [addendum] käyttäjän linjaus 2026-08-28 [kalibroi]
+full_equip_min = 4000
+
+# Puoliosto (semi/half): varustearvo 3000-4000 per pelaaja tai 2-3 kivääriä.
+# [addendum] heuristiikka 4 [kalibroi]
+half_equip_min = 3000
+
+# Matala varustearvo VOITON jälkeen on poikkeama (save-virhe), ei eco.
+# [addendum] heuristiikka 2 [spine] AD-4 vaihe 5 [kalibroi]
+anomaly_equip_max_after_win = 2000
+
+# --- Raharajat, dollaria PER PELAAJA ---
+
+# Rahaa ~2000 per pelaaja ja loss count vähintään 2 -> eco.
+# [addendum] heuristiikka 1b [kalibroi]
+eco_money_max = 2000
+eco_loss_count_min = 2
+
+# Loss countin ollessa 1 eco vaatii ~3000 per pelaaja, muuten force.
+# [addendum] heuristiikka 1b [kalibroi]
+eco_money_max_low_loss = 3000
+
+# 1500-2500 usealla pelaajalla -> force ("ostetaan tyhjäksi").
+# [addendum] heuristiikka 1b [kalibroi]
+force_money_min = 1500
+force_money_max = 2500
+
+# --- Loss count ---
+# Puoliaika alkaa arvosta 1 (pistoolihäviö 1900 $). Voitto laskee laskuria
+# yhdellä portaalla, ei nollaa. Rajat 0-4. [addendum] [spine] AD-4
+loss_count_half_start = 1
+loss_count_min = 0
+loss_count_max = 4
+
+# --- Joukkueidentiteetti ja rosterikynnys ---
+# Lineupit liitetään samaan team_keyhin, kun yhteisiä pelaajia on vähintään 3.
+# [spine] AD-3, AD-6
+team_identity_min_common = 3
+
+# Rosterikynnys arvioidaan per kartta: 5/5 vakiorosterista tai vähintään 4/5 +
+# ulkopuolinen. Pappaliigassa saa tehdä enintään 2 vaihtoa karttojen välissä.
+# [spine] AD-6 [domain]
+roster_size = 5
+roster_min_regulars = 4
+
+# --- Otanta ja poikkeamat ---
+# Alle tämän kierrosmäärän otanta merkitään raportissa pieneksi. [spine] AD-3
+small_sample_rounds = 3
+
+# Stack = vähintään 4 pelaajaa samalla alueella samassa näytepisteessä.
+# [spine] AD-10
+stack_min_players = 4
+
+
+[economy]
+# CS2:n talousmalli. Näitä EI käytetä kierroksen luokitteluun -- luokittelu nojaa
+# havaittuun rahaan ja varustearvoon. Talousmalli selittää raporttiliitteessä,
+# miksi joukkueella oli se raha joka sillä oli. Kaikki luvut [addendum] luku 6,
+# lähde Counter-Strike Wiki (CS2-sarake), haettu 2026-08-27/28.
+
+start_money = 800
+max_money = 16000
+
+# Loss bonus -portaat. Indeksi = loss count, joten puoliajan alku (loss count 1)
+# antaa pistoolihäviöstä 1900 $.
+loss_bonus_steps = [1400, 1900, 2400, 2900, 3400]
+
+win_reward_elimination = 3250
+win_reward_bomb = 3500
+
+# Asennettu pommi hävityssä kierroksessa: CS2:ssa 600 $ (CS:GO:ssa 800 $).
+plant_bonus_loss = 600
+plant_reward = 300
+defuse_reward = 300
+
+# CT saa 50 $ per pelaaja jokaisesta CT-taposta (patch 1.45.0, 7/2025).
+ct_kill_bonus = 50
+
+# Alivoimaisen joukkueen bonus.
+short_handed_bonus = 1000
+
+[economy.kill_rewards]
+# Perusarvo aseluokittain, sen jälkeen asekohtaiset poikkeukset.
+default = 300
+rifle = 300
+pistol = 300
+lmg = 300
+grenade = 300
+smg = 600
+shotgun = 900
+knife = 1500
+p90 = 300
+xm1014 = 600
+awp = 100
+cz75_auto = 300
+zeus_x27 = 100
+
+[economy.prices]
+# Ostovalikon hinnat CS2:ssa. Avaimet ovat luettavia nimiä; kartoitus
+# demoparser2:n asenimiin tehdään adapterissa Story 1.2:ssa.
+# Ristiriita ratkaistu: M4A4 on 2900 (Counter-Strike Wiki + Valven patch notes
+# 29.1.2025), ei critfeedin väittämä 3100. MP9 1250 ja MAC-10 1050 vahvistettu
+# pelistä 2026-08-28.
+
+# Varusteet
+kevlar = 650
+kevlar_helmet = 1000
+zeus_x27 = 200
+defuse_kit = 400
+
+# Kranaatit
+smoke = 300
+he = 300
+flashbang = 200
+decoy = 50
+molotov = 400
+incendiary = 500
+
+# Aloituspistoolit
+glock = 200
+usp_s = 200
+p2000 = 200
+
+# Pistoolit
+dual_berettas = 300
+p250 = 300
+tec9 = 500
+five_seven = 500
+cz75_auto = 500
+desert_eagle = 700
+r8_revolver = 600
+
+# Konepistoolit ja haulikot
+mac10 = 1050
+mp9 = 1250
+mp7 = 1400
+mp5_sd = 1400
+ump45 = 1200
+p90 = 2350
+pp_bizon = 1400
+nova = 1050
+sawed_off = 1100
+mag7 = 1300
+xm1014 = 2000
+m249 = 5200
+negev = 1700
+
+# Kiväärit ja tarkkuuskiväärit
+galil = 1800
+famas = 1950
+ak47 = 2700
+m4a4 = 2900
+m4a1_s = 2900
+sg553 = 3000
+aug = 3300
+ssg08 = 1700
+awp = 4750
+g3sg1 = 5000
+scar20 = 5000
