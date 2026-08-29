@@ -179,9 +179,12 @@ class ParseSettings(_Section):
 class ThresholdSettings(_Section):
     """``[thresholds]`` -- kaikki luokittelun ja otannan rajat.
 
-    Nämä ovat kalibroitavia lähtöarvoja, eivät lopullisia totuuksia. Story 1.4
-    säätää ne oikeilla Pappaliiga-demoilla. Rahamäärät ovat dollareita
-    **per pelaaja**.
+    Luokittelun kynnykset on kalibroitu 2026-08-29 ihmisen antamaa
+    totuustaulua vasten (``kalibrointi-kierrostyypit.md``); perustelut ja
+    havaintoväli ovat ``settings.toml``in kommenteissa. Ne eivät silti ole
+    lopullisia totuuksia: otannan rajat odottavat yhä omaa aineistoaan, ja
+    ``force_money_left_max`` odottaa ensimmäistä kiistatonta puoliostoa.
+    Rahamäärät ovat dollareita **per pelaaja**.
     """
 
     # Kierrosnumeroon perustuvat säännöt (AD-4 vaiheet 1 ja 2)
@@ -190,15 +193,13 @@ class ThresholdSettings(_Section):
 
     # Varustearvorajat (AD-4 vaiheet 3 ja 5)
     full_equip_min: PositiveInt = 4000
-    half_equip_min: PositiveInt = 3000
     anomaly_equip_max_after_win: PositiveInt = 2000
 
-    # Raharajat (AD-4 vaihe 4)
-    eco_money_max: PositiveInt = 2000
-    eco_loss_count_min: NonNegativeInt = 2
-    eco_money_max_low_loss: PositiveInt = 3000
-    force_money_min: PositiveInt = 1500
-    force_money_max: PositiveInt = 2500
+    # Raharajat (AD-4 vaihe 4). Force ja puoliosto eroavat **taskuun jätetystä
+    # rahasta**, eivät varustearvosta, ja molempien edellytys on se, että
+    # joukkue oikeasti osti: force_buy_min on forcen ehto, ei vain sen kaista.
+    force_buy_min: PositiveInt = 1500
+    force_money_left_max: PositiveInt = 1000
 
     # Loss count -säännöt
     loss_count_half_start: NonNegativeInt = 1
@@ -216,23 +217,29 @@ class ThresholdSettings(_Section):
 
     @model_validator(mode="after")
     def _check_ranges_are_consistent(self) -> "ThresholdSettings":
-        if self.half_equip_min >= self.full_equip_min:
-            raise ValueError(
-                f"half_equip_min ({self.half_equip_min}) on oltava pienempi kuin "
-                f"full_equip_min ({self.full_equip_min}); muuten puoliostoa ei "
-                "voi koskaan erottaa täydestä ostosta."
-            )
-        if self.anomaly_equip_max_after_win >= self.half_equip_min:
+        if self.anomaly_equip_max_after_win >= self.full_equip_min:
             raise ValueError(
                 f"anomaly_equip_max_after_win ({self.anomaly_equip_max_after_win}) "
-                f"on oltava pienempi kuin half_equip_min ({self.half_equip_min}); "
-                "muuten poikkeaman ja puoliston rajat menevät päällekkäin eikä "
-                "matalaa varustearvoa voi erottaa puoliostosta."
+                f"on oltava pienempi kuin full_equip_min ({self.full_equip_min}); "
+                "muuten voiton jälkeinen poikkeamaraja söisi täyden oston, ja "
+                "jokainen voitettu kierros olisi joko poikkeama tai täysi osto "
+                "sen mukaan, kumpi raja sattuu olemaan ylempänä."
             )
-        if self.force_money_min > self.force_money_max:
+        if self.force_money_left_max >= self.force_buy_min:
             raise ValueError(
-                f"force_money_min ({self.force_money_min}) on suurempi kuin "
-                f"force_money_max ({self.force_money_max}); väli on tyhjä."
+                f"force_money_left_max ({self.force_money_left_max}) on oltava "
+                f"pienempi kuin force_buy_min ({self.force_buy_min}); jos "
+                "taskuun saa jäädä enemmän rahaa kuin ostaminen ylipäätään "
+                "vaatii, jokainen hävityn jälkeinen ostos on force eikä "
+                "puoliostoa voi koskaan saavuttaa."
+            )
+        if self.force_buy_min >= self.full_equip_min:
+            raise ValueError(
+                f"force_buy_min ({self.force_buy_min}) on oltava pienempi kuin "
+                f"full_equip_min ({self.full_equip_min}); muuten jokainen "
+                "forcen ehdon täyttävä ostos nostaisi varustearvon jo täyden "
+                "oston rajalle, eikä forcea eikä puoliostoa voisi koskaan "
+                "saavuttaa."
             )
         if self.loss_count_min >= self.loss_count_max:
             raise ValueError(

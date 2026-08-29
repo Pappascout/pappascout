@@ -126,12 +126,52 @@ Raha on kierrostaulussa kahtena lukuna. `money_freeze_end` on **jäljelle
 jäänyt** saldo ostoajan jälkeen -- säästökierroksella se on suuri ja täydellä
 ostolla pieni -- ja `money_spent` on kierroksella käytetty raha. Näiden summa
 on se raha, joka joukkueella oli ostoaikana käytettävissä. Ostettu varustemäärä
-on vastaavasti erotus `equip_freeze_end - equip_round_start`, ja se on se
-havainto, joka erottaa forcen ecosta.
+on vastaavasti erotus `equip_freeze_end - equip_round_start`.
 
-Kierros, jota mikään sääntö ei kata, on `anomaly` perusteluineen -- ei
-"luultavasti eco". Ne ovat tarkalleen ne kierrokset, joille Story 1.4 hakee
-rajan.
+### Miten kierrostyyppi ratkeaa
+
+Kynnykset on kalibroitu 2026-08-29 ihmisen antamaa totuustaulua vasten
+(15 kierrosta, katsottu 2D-replaynä). Kolme sääntöä ovat **sääntöjä, eivät
+kynnyksiä** -- niitä ei viilata luvuilla:
+
+1. **Säästö on aina reaktio häviöön.** Voitetun kierroksen jälkeen joukkue
+   tekee normaalin oston. Voiton jälkeen ei siis koskaan `eco`, `force` eikä
+   `half`.
+2. **Force ja puoliosto eroavat taskuun jätetystä rahasta**, eivät
+   varustearvosta. Force = ostettiin tyhjäksi. Puoliosto = ostettiin, mutta
+   jätettiin varaa seuraavalle kierrokselle.
+3. **Säästetty ase ei ole ostos.** Ratkaisee tällä kierroksella ostettu summa,
+   ei varustearvo -- eloon jääneiden kalusto nostaa varustearvoa ilman että
+   mitään ostettiin.
+
+Ensimmäinen osuva sääntö voittaa. Järjestys on: numeroidaanko kierros ->
+puuttuuko havainto -> pistoolikierros -> jatkoaika -> laskiko varustearvo
+(`anomaly`) -> täysi osto varustearvosta -> onko edellistä kierrosta
+(`anomaly`) -> voiton jälkeen `full` (tai `anomaly`, jos varustearvo on liian
+matala ollakseen osto) -> hävityn jälkeen nämä neljä riviä, kaikki per pelaaja:
+
+```
+varusteet >= full_equip_min                                    -> full
+ostettu >= force_buy_min ja jäljellä <= force_money_left_max    -> force
+ostettu >= force_buy_min                                       -> half
+muuten                                                         -> eco
+```
+
+Häviön haara on tyhjentävä, joten talouspäättelyyn ei jää poikkeamaksi
+putoavaa väliä. `anomaly` on varattu tilanteille, joissa **havainto** on
+ristiriitainen (varustearvo laski ostoaikana, edellistä kierrosta ei ole) tai
+joissa voiton jälkeen ei ostettu käytännössä mitään. Jokainen päätös kantaa
+suomenkielisen perustelun ja kaikki vertailuun käytetyt arvot, joten sen voi
+tarkistaa demoa vasten.
+
+Kaikki vertailut tehdään pyöristetyillä per pelaaja -arvoilla -- tasan niillä
+luvuilla, jotka perustelu ja kierroslista näyttävät. Perustelu ei siis voi
+sanoa "jäi 1 000 $ eli yli 1 000 $".
+
+`force_money_left_max` on näistä kynnyksistä ainoa, joka nojaa päättelyyn eikä
+havaintoon: kalibrointiaineistossa ei ole yhtäkään kiistatonta puoliostoa,
+joten rajan yläpuolta ei ole nähty. Se säädetään uudelleen, kun ensimmäinen
+sellainen kierros tulee vastaan.
 
 Oikeaa demoa vaativat testit on merkitty `@pytest.mark.demo`, ja ne ohittavat
 itsensä siististi, jos 100-230 MB:n demoja ei ole koneella. Demot etsitään

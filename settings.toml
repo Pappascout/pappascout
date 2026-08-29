@@ -158,32 +158,57 @@ regulation_rounds = 24
 # Täysi osto: kivääri + kevlar (+kypärä) + kaksi utilitya. T:llä AK 2700 + 1000 +
 # ~500 ~= 4200, CT:llä M4 2900 + kevlar 650 + ~500 ~= 4050. CT ostaa usein
 # kevlarin ilman kypärää, eikä kypärän puute saa pudottaa kierrosta pois
-# full-luokasta. [addendum] käyttäjän linjaus 2026-08-28 [kalibroi]
+# full-luokasta.
+#
+# Tämä raja tunnistaa täyden oston SUORAAN varustearvosta. Se ei ole ainoa
+# reitti full-luokkaan: voiton jälkeen kaikki normaalit ostot ovat full
+# (sääntö S1) riippumatta varustearvosta. Kalibrointiaineiston full-riveistä
+# viisi (5330-5680) ylittää tämän rajan, ja kaksi (kierros 2 CT = 3200 ja
+# kierros 14 T = 3550) jää sen alle -- ne päätyvät fulliksi voiton jälkeisen
+# säännön kautta. Rajaa EI siis lasketa niiden alle: se erottaa "osti
+# selvästi täyden" hävityn kierroksen jälkeen, ja aineiston korkein häviön
+# jälkeinen ostokierros on 2910 (kierros 20 T, force).
+# [addendum] käyttäjän linjaus 2026-08-28 [kalibroitu 2026-08-29]
 full_equip_min = 4000
 
-# Puoliosto (semi/half): varustearvo 3000-4000 per pelaaja tai 2-3 kivääriä.
-# [addendum] heuristiikka 4 [kalibroi]
-half_equip_min = 3000
-
 # Matala varustearvo VOITON jälkeen on poikkeama (save-virhe), ei eco.
-# [addendum] heuristiikka 2 [spine] AD-4 vaihe 5 [kalibroi]
+# Aineiston matalin VOITON jälkeinen varustearvo on 3200 (kierros 2 CT), joten
+# 2000 jättää 1200 $ marginaalin eikä yksikään havaittu normaali osto putoa
+# poikkeamaksi. Rajan alapuolelle ei ole havaintoa: aineistossa ei ole
+# yhtäkään voiton jälkeistä save-kierrosta, joten alaraja nojaa siihen, että
+# 2000 $/pelaaja on liian vähän ollakseen osto.
+# [addendum] heuristiikka 2 [spine] AD-4 vaihe 5 [kalibroitu 2026-08-29]
 anomaly_equip_max_after_win = 2000
 
 # --- Raharajat, dollaria PER PELAAJA ---
 
-# Rahaa ~2000 per pelaaja ja loss count vähintään 2 -> eco.
-# [addendum] heuristiikka 1b [kalibroi]
-eco_money_max = 2000
-eco_loss_count_min = 2
+# Hävityn kierroksen jälkeen: force ja puoliosto edellyttävät molemmat, että
+# joukkue oikeasti osti tällä kierroksella (equip_freeze_end -
+# equip_round_start). Säästetty ase ei ole ostos (sääntö S3), joten pelkkä
+# korkea varustearvo ei riitä.
+#
+# HAVAITTU raja. Aineistossa forcet ostivat 1840-2710 ja ecot 120-950 per
+# pelaaja, eli välissä 950-1840 ei ole yhtään havaintoa. Valittu 1500 on
+# tuossa välissä ja jättää marginaalin molempiin suuntiin (550 ecoihin, 340
+# forceihin) -- se ei ole välin keskikohta (1395) eikä sen tarvitse olla,
+# olennaista on ettei kumpikaan havaittu joukko ole lähellä. 1500 $ on myös
+# se summa, jolla saa kevlarin ja paremman pistoolin.
+# [addendum] heuristiikka 1b [kalibroitu 2026-08-29]
+force_buy_min = 1500
 
-# Loss countin ollessa 1 eco vaatii ~3000 per pelaaja, muuten force.
-# [addendum] heuristiikka 1b [kalibroi]
-eco_money_max_low_loss = 3000
-
-# 1500-2500 usealla pelaajalla -> force ("ostetaan tyhjäksi").
-# [addendum] heuristiikka 1b [kalibroi]
-force_money_min = 1500
-force_money_max = 2500
+# Force ja puoliosto eroavat TASKUUN JÄTETYSTÄ rahasta (sääntö S2): force
+# osti tyhjäksi, puoliosto jätti varaa seuraavalle kierrokselle.
+#
+# PÄÄTELTY raja, ei havaittu -- ainoa tällainen näistä kynnyksistä.
+# Aineiston forceilla jäi taskuun 270 ja 750 per pelaaja, mutta aineistossa ei
+# ole YHTÄÄN puoliostoa, joten rajan yläpuolta ei ole havaittu lainkaan.
+# (Ecojen 2060-3090 ei ole oikea vertailujoukko: ne erottuvat jo siitä, ettei
+# niissä ostettu, eivät tästä rajasta.) 1000 $ nojaa siihen, että sillä
+# rahalla ei enää saa mitään merkittävää, ja jättää havaittuihin forceihin
+# 250 $ marginaalin. Tämä raja on tarkoitus säätää uudelleen, kun ensimmäinen
+# kiistaton puoliosto nähdään.
+# [addendum] heuristiikka 1b [päätelty 2026-08-29, odottaa havaintoa]
+force_money_left_max = 1000
 
 # --- Loss count ---
 # Puoliaika alkaa arvosta 1 (pistoolihäviö 1900 $). Voitto laskee laskuria

@@ -4,8 +4,8 @@ Tämä moduuli on ``classify``-vaiheen aivot. Se ei lue demoa, tiedostoja eikä
 asetustiedostoa -- se saa kierrostaulun rivit ja ``[thresholds]``-osion ja
 palauttaa jokaiselle kierrokselle tyypin, **ihmisluettavan perustelun** ja
 **kaikki vertailuun käytetyt arvot**. Perustelu ja lähtöarvot eivät ole koriste:
-ilman niitä kynnysten kalibrointi Story 1.4:ssä olisi arvailua, eikä Veeti
-pystyisi tarkistamaan työkalun näkemystä demoa vasten.
+ilman niitä kynnysten kalibrointi olisi arvailua, eikä Veeti pystyisi
+tarkistamaan työkalun näkemystä demoa vasten.
 
 Mitä havaitaan ja mitä johdetaan
 --------------------------------
@@ -23,19 +23,39 @@ ostolla *pieni*. Käytettävissä ollut raha saadaan summana::
 
     käytettävissä = money_freeze_end + money_spent
 
-Se on se luku, jota käyttäjän alkuperäinen sääntö ("hävityn jälkeen ~2 000
-$/pelaaja ja loss count >= 2 -> eco") tarkoittaa. **Story 1.3 vain tallentaa
-sen** perusteluun ja ``inputs``-rakenteeseen; sääntöjen kytkeminen siihen on
-Story 1.4:n kalibrointityötä, eikä sitä tehdä täällä etukäteen.
+Kalibrointi 2026-08-29 osoitti, että **päätös nojaa jäljelle jääneeseen
+saldoon**, ei käytettävissä olleeseen rahaan: se erottaa forcen puoliostosta
+(S2 alla). Käytettävissä ollut raha kulkee yhä perustelussa ja
+``inputs``-rakenteessa, koska se selittää lukijalle, mistä joukkueen tilanne
+syntyi, mutta yksikään sääntö ei enää vertaa siihen.
 
 Ostettu summa on erotus ``equip_freeze_end - equip_round_start``. Se on ainoa
 suoraan havaittu mittari sille, ostiko joukkue vai ei, ja juuri se erottaa
-forcen ecosta (I/O-matriisin sanoin: *"ostettu lähes tyhjäksi"*).
+ostokierroksen (force tai puoliosto) ecosta.
 
 Oletuspistooli (Glock / USP-S / P2000) on ilmainen mutta lasketaan
 varustearvoon **200 $:n** arvoisena, joten jokaisella pelaajalla on aina
 vähintään 200 $ varustearvoa ja täysi eco on joukkueena noin 1 000 $, ei 0.
 Kynnykset pidetään raa'assa varustearvossa; pistoolin osuutta ei vähennetä.
+
+Kolme kovaa sääntöä (kalibrointi 2026-08-29)
+--------------------------------------------
+Nämä ovat sääntöjä, eivät kynnyksiä. Niitä ei viilata luvuilla. Ne tulevat
+``kalibrointi-kierrostyypit.md``-dokumentista, joka on ihmisen antama totuus:
+jos tämä moduuli ja se dokumentti ovat eri mieltä, **tämä moduuli on väärässä**.
+
+* **S1 -- Säästö on aina reaktio häviöön.** Voitetun kierroksen jälkeen
+  joukkue tekee normaalin oston. Voiton jälkeen ei siis koskaan ``eco``,
+  ``force`` eikä ``half``; ainoa poikkeus on niin matala varustearvo, ettei se
+  ole osto lainkaan -- se on ``anomaly``.
+* **S2 -- Force ja puoliosto eroavat taskuun jätetystä rahasta, eivät
+  varustearvosta.** Force = ostettiin tyhjäksi, eli ``money_freeze_end`` jäi
+  ``force_money_left_max``iin tai sen alle. Puoliosto = ostettiin, mutta
+  jätettiin varaa seuraavalle kierrokselle.
+* **S3 -- Säästetty ase ei ole ostos.** Ratkaisee tällä kierroksella ostettu
+  summa (``equip_freeze_end - equip_round_start``), ei varustearvo. Eloon
+  jääneiden säästämä kalusto nostaa varustearvoa ilman että mitään ostettiin,
+  ja varustearvoon nojaava sääntö kääntäisi sellaisen econ puoliostoksi.
 
 Sääntöjärjestys
 ---------------
@@ -48,36 +68,75 @@ Järjestys on tarkoituksella jyrkkä, ja ensimmäinen osuma voittaa:
    kierroksella, ja kääntäisi aidon säästön forceksi.
 2. **Pistooli** -- kierrosnumerosta (``pistol_rounds``), ei rahasta.
 3. **Jatkoaika** -- ``round_no > regulation_rounds``.
-4. **Täysi osto** -- varustearvo/pelaaja ``>= full_equip_min``.
-5. **Negatiivinen ostos** -- varustearvo laski kierroksen alusta freezetimen
+4. **Negatiivinen ostos** -- varustearvo laski kierroksen alusta freezetimen
    loppuun. Havainnot ovat ristiriidassa, joten tulos on ``anomaly``; nollaan
-   vaimentaminen piilottaisi virheen.
+   vaimentaminen piilottaisi virheen. Tämä on **ennen** täyttä ostoa: jos
+   havainnot ovat keskenään ristiriidassa, niistä ei lueta luokkaa, oli
+   varustearvo miten korkea tahansa.
+5. **Täysi osto** -- varustearvo/pelaaja ``>= full_equip_min``.
 6. **Edellistä kierrosta ei ole** -- eco, force ja puoliosto ovat sääntöjä
    *suhteessa edelliseen kierrokseen*, joten ilman sitä tulos on ``anomaly``.
-7. **Voiton jälkeen** -- matala varustearvo on ``anomaly``, ei ``eco``;
-   puoliosto kelpaa myös voiton jälkeen (I/O-matriisi ei rajaa sitä hävittyyn
-   kierrokseen).
-8. **Hävityn jälkeen** -- puoliosto, sitten force ja lopuksi eco.
+7. **Voiton jälkeen** (S1) -- ``full``, paitsi jos varustearvo jäi
+   ``anomaly_equip_max_after_win``iin tai sen alle: silloin ``anomaly``.
+   Voiton jälkeen ei ole ecoa, forcea eikä puoliostoa.
+8. **Hävityn jälkeen** -- neljä riviä, kaikki per pelaaja::
 
-Aukot ovat poikkeamia, eivät arvauksia
+       varusteet >= full_equip_min                                   -> full
+       ostettu >= force_buy_min ja jäljellä <= force_money_left_max   -> force
+       ostettu >= force_buy_min                                      -> half
+       muuten                                                        -> eco
+
+   Ensimmäinen rivi on sama sääntö kuin vaihe 5 ja osuu jo siellä; se on
+   tässä siksi, että häviön haara olisi luettavissa yksinään.
+
+Miksi täysi osto ratkaistaan ennen edellisen kierroksen tuntemista
+-------------------------------------------------------------------
+Kalibrointidokumentin johdettu järjestys tarkistaa edellisen kierroksen ennen
+täyttä ostoa. Tässä moduulissa vaihe 5 on tarkoituksella ennen vaihetta 6:
+5 000 $/pelaaja on täysi osto riippumatta siitä, tunnetaanko edellinen kierros.
+Vasta puoliajan ensimmäisellä kierroksella ja kierrosnumeroiden aukossa
+edellistä ei ole, ja niissä ``anomaly`` väittäisi ilmiselvästä täydestä ostosta,
+ettei sitä voi luokitella. Edellisen kierroksen tuntemista tarvitaan vain
+econ, forcen ja puolioston erottamiseen toisistaan -- ei täyden oston
+tunnistamiseen. Järjestys on pinnattu testillä, jotta se ei muutu vahingossa.
+
+Miksi ``force_buy_min`` on forcen **ehto**, ei sen kaista
+---------------------------------------------------------
+Vanha malli vertasi ostettua summaa kaistaan ``force_money_min`` ..
+``force_money_max``. Yläraja teki kalibrointidemon kierroksesta 20
+poikkeaman: 2 710 $/pelaaja ylitti kaistan mutta jäi täyden oston alle, eikä
+mikään sääntö kattanut sitä. Ylhäältä rajaa nyt ``full_equip_min``, joten
+kaistaa ei tarvita.
+
+Alaraja sen sijaan tarvitaan, eikä pelkkä "raha loppui" riitä forceksi: köyhä
+joukkue, joka ostaa panssarin ja pistoolin viimeisillä rahoillaan, tyhjensi
+kassan mutta ei forcannut. Siksi ``force_buy_min`` on molempien ostosääntöjen
+(force ja puoliosto) yhteinen edellytys, ja vasta sen jälkeen
+``force_money_left_max`` erottaa forcen puoliostosta (S2).
+
+Kahden raharajan todistusvoima on eri
 --------------------------------------
-Kummallakin puolella (voitto ja häviö) sääntöjen väliin jäävä tilanne on
-``anomaly`` perusteluineen, ei "luultavasti eco". Tunnetut aukot ovat
-``anomaly_equip_max_after_win``in ja ``half_equip_min``in väli sekä
-``force_money_max``in ylittävä ostos, joka silti jää puoliostorajan alle. Ne
-eivät ole vika vaan tarkalleen se joukko kierroksia, joille Story 1.4:n on
-löydettävä raja -- kalibroimaton eco olisi pahempi, koska se näyttäisi
-oikealta.
+``force_buy_min`` **on havaittu**: kalibrointiaineiston forcet ostivat
+1 840-2 710 ja ecot 120-950 $/pelaaja, eli valittu 1 500 on tyhjässä välissä
+ja marginaalia jää molempiin suuntiin (550 ecoihin, 340 forceihin). Se ei ole
+välin keskikohta eikä sen tarvitse olla; olennaista on, että kumpikaan havaittu
+joukko ei ole lähellä.
 
-Miksi force tarkistetaan ennen econ raharajaa
----------------------------------------------
-I/O-matriisin eco-rivi ja force-rivi menevät päällekkäin: molemmat kuvaavat
-tilannetta, jossa rahaa on vähän. Ainoa havainto, joka erottaa ne, on se
-ostiko joukkue vai ei. Siksi ``force_money_min`` ja ``force_money_max``
-verrataan **ostettuun summaan**: joukkue, joka pani 1 500-2 500 $/pelaaja
-kiinni halpaan kalustoon, on forcannut. Kaistan ylittävä ostos, joka silti
-jäi puoliostorajan alle, on ``anomaly`` -- se tarkoittaa, että
-``force_money_max`` ja ``half_equip_min`` eivät kohtaa.
+``force_money_left_max`` **on päättely, ei havainto.** Aineiston forceilla jäi
+taskuun 270 ja 750, mutta *puoliostoja ei aineistossa ole yhtäkään*. Raja
+erottaa forcen puoliostosta, joten sen toinen puoli on kokonaan havaitsematta:
+1 000 $ sanoo vain, että sillä rahalla ei enää saa mitään merkittävää.
+Marginaali havaittuihin forceihin on 250 $. **Tämä on ainoa kynnys, joka
+odottaa ensimmäistä kiistatonta puoliostoa** -- kun sellainen nähdään, raja
+säädetään sitä vasten.
+
+Aukkoja ei enää ole
+-------------------
+Häviön haara on tyhjentävä: neljäs rivi (``eco``) kattaa kaiken, mitä kolme
+ensimmäistä eivät kata, joten talouspäättelyyn ei jää poikkeamaksi putoavaa
+väliä. ``anomaly`` on nyt varattu tilanteille, joissa **havainto** on
+ristiriitainen (negatiivinen ostos, puuttuva tai epäjatkuva edellinen kierros)
+tai joissa voiton jälkeen ei ostettu käytännössä mitään.
 
 Tunnetut rajaukset
 ------------------
@@ -86,9 +145,12 @@ Tunnetut rajaukset
   ``league.ot_start_money``, ei eco-sykliä), eikä ``[league]``-osio vaikuta
   tässä storyssa päättelyyn lainkaan -- vain manifestin parametrihashiin ja
   kierroslistan otsikkoon. Jatkoajan oma talouspäättely on v2.
-* ``anomaly_equip_max_after_win`` toimii tässä myös hävityn kierroksen
-  puolella econ ylärajana. Nimi kertoo sen alkuperäisen käyttötarkoituksen;
-  jos Story 1.4 tarvitsee kaksi eri rajaa, ne erotetaan silloin.
+* ``force_money_left_max`` on ainoa kynnys, jonka toista puolta ei ole
+  havaittu: kalibrointiaineistossa ei ole yhtäkään kiistatonta puoliostoa.
+  Se säädetään uudelleen, kun sellainen kierros nähdään.
+* ``loss_count`` ei enää osallistu päätökseen. Se on mukana perustelussa ja
+  ``inputs``-rakenteessa, koska se kertoo lukijalle joukkueen taloustilanteen,
+  mutta kalibrointiaineisto osoitti, ettei sitä tarvita econ erottamiseen.
 
 Moduuli on puhdas ja testataan käsin rakennetuilla tauluilla ilman demoja.
 """
@@ -164,13 +226,8 @@ INPUT_FIELDS: tuple[str, ...] = (
     "players",
     "players_readable",
     "full_equip_min",
-    "half_equip_min",
-    "eco_money_max",
-    "eco_money_max_low_loss",
-    "eco_loss_count_min",
-    "eco_money_max_applied",
-    "force_money_min",
-    "force_money_max",
+    "force_buy_min",
+    "force_money_left_max",
     "anomaly_equip_max_after_win",
 )
 
@@ -178,9 +235,14 @@ INPUT_FIELDS: tuple[str, ...] = (
 def available_money(rivi: Mapping[str, Any]) -> int | None:
     """Kierroksella käytettävissä ollut raha = jäljelle jäänyt + käytetty.
 
-    ``None``, jos kumpikaan osa ei ole tiedossa. Tämä on se luku, jota
-    ``[thresholds]``-osion eco- ja force-raharajat alun perin tarkoittavat;
-    Story 1.3 näyttää sen mutta ei vielä luokittele sen perusteella.
+    ``None``, jos kumpikaan osa ei ole tiedossa.
+
+    **Yksikään sääntö ei vertaa tähän lukuun.** Force ja puoliosto eroavat
+    jäljelle jääneestä saldosta (``force_money_left_max``) ja eco erottuu
+    ostetusta summasta (``force_buy_min``). Käytettävissä ollut raha on
+    perustelussa ja ``inputs``-rakenteessa siksi, että se selittää lukijalle,
+    mistä joukkueen tilanne syntyi -- ja siksi, ettei jäljelle jäänyttä saldoa
+    luulisi käytettävissä olleeksi rahaksi.
     """
     jaljella = rivi.get("money_freeze_end")
     kaytetty = rivi.get("money_spent")
@@ -310,7 +372,7 @@ def classify_round(
     """
     pelaajat, luettavat, jakaja_ok = _players(rivi, kynnykset)
     edellinen = _continuous_previous(rivi, edellinen)
-    inputs = _inputs(rivi, edellinen, kynnykset, pelaajat, luettavat, loss_count)
+    inputs = _inputs(rivi, edellinen, kynnykset, pelaajat, luettavat)
 
     round_no = rivi.get("round_no")
     if round_no is None:
@@ -369,25 +431,38 @@ def classify_round(
             inputs,
         )
 
-    varusteet_pp = int(varusteet) / pelaajat
+    # Kaikki vertailtavat luvut pyöristetään **kerran** per pelaaja -arvoiksi,
+    # ja perustelu tulostaa tasan samat luvut. Jos vertailu tehtäisiin
+    # pyöristämättömällä liukuluvulla, perustelu voisi sanoa "jäi 1000 $ eli
+    # yli 1000 $" -- teksti ja päätös olisivat keskenään ristiriidassa juuri
+    # siinä rajatapauksessa, jonka lukija haluaa tarkistaa.
+    # Raha, varustearvo ja kierroksen alun varustearvo on juuri todettu
+    # olemassa oleviksi ja pelaajia on aina vähintään yksi, joten nämä eivät
+    # voi olla None.
+    varusteet_pp = per_player(varusteet, pelaajat) or 0
     ostettu = int(varusteet) - int(alkuvarusteet)
-    ostettu_pp = ostettu / pelaajat
+    ostettu_pp = per_player(ostettu, pelaajat) or 0
+    raha_pp = per_player(raha, pelaajat) or 0
+
+    # Ristiriitainen havainto ennen täyttä ostoa: jos varustearvo laski
+    # ostoaikana, luvuista ei lueta luokkaa, oli varustearvo miten korkea
+    # tahansa. Merkki luetaan joukkuesummasta, koska pyöristys per pelaaja
+    # voisi vaimentaa pienen laskun nollaan.
+    if ostettu < 0:
+        return Decision(
+            "anomaly",
+            f"Varustearvo laski kierroksen alusta freezetimen loppuun "
+            f"({ostettu} $ joukkueena, {_d(ostettu_pp)} $/pelaaja), mikä ei ole "
+            "ostotapahtuma. Havainnot ovat ristiriidassa, eikä erotusta "
+            f"vaimenneta nollaan. {perusta}",
+            inputs,
+        )
 
     if varusteet_pp >= kynnykset.full_equip_min:
         return Decision(
             "full",
             f"Täysi osto: varustearvo {_d(varusteet_pp)} $/pelaaja vähintään "
             f"{kynnykset.full_equip_min} $. {perusta}",
-            inputs,
-        )
-
-    if ostettu < 0:
-        return Decision(
-            "anomaly",
-            f"Varustearvo laski kierroksen alusta freezetimen loppuun "
-            f"({_d(ostettu_pp)} $/pelaaja), mikä ei ole ostotapahtuma. "
-            "Havainnot ovat ristiriidassa, eikä erotusta vaimenneta nollaan. "
-            f"{perusta}",
             inputs,
         )
 
@@ -402,6 +477,8 @@ def classify_round(
         )
 
     if bool(edellinen_won):
+        # S1: säästö on reaktio häviöön, joten voiton jälkeen ei ole ecoa,
+        # forcea eikä puoliostoa -- vain normaali osto tai poikkeama.
         if varusteet_pp <= kynnykset.anomaly_equip_max_after_win:
             return Decision(
                 "anomaly",
@@ -411,101 +488,52 @@ def classify_round(
                 f"tämä on poikkeama eikä eco. {perusta}",
                 inputs,
             )
-        if varusteet_pp >= kynnykset.half_equip_min:
+        return Decision(
+            "full",
+            f"Normaali osto voitetun kierroksen jälkeen: varustearvo "
+            f"{_d(varusteet_pp)} $/pelaaja ylittää matalan varustearvon rajan "
+            f"{kynnykset.anomaly_equip_max_after_win} $. Säästö on aina reaktio "
+            "häviöön, joten voiton jälkeen ei tehdä ecoa, forcea eikä "
+            f"puoliostoa. {perusta}",
+            inputs,
+        )
+
+    # Edellinen kierros hävittiin. Täysi osto on jo ratkaistu vaiheessa 5,
+    # joten jäljellä ovat force, puoliosto ja eco. Molempien ostosääntöjen
+    # yhteinen edellytys on, että joukkue oikeasti osti (S3): säästetty ase
+    # nostaa varustearvoa, mutta ei ole ostos.
+    if ostettu_pp >= kynnykset.force_buy_min:
+        if raha_pp <= kynnykset.force_money_left_max:
             return Decision(
-                "half",
-                f"Puoliosto voiton jälkeen: varustearvo {_d(varusteet_pp)} "
-                f"$/pelaaja välillä {kynnykset.half_equip_min}-"
-                f"{kynnykset.full_equip_min} $. {perusta}",
+                "force",
+                f"Force hävityn kierroksen jälkeen: ostettu {_d(ostettu_pp)} "
+                f"$/pelaaja eli vähintään {kynnykset.force_buy_min} $, ja "
+                f"taskuun jäi vain {_d(raha_pp)} $/pelaaja eli enintään "
+                f"{kynnykset.force_money_left_max} $ -- ostettu tyhjäksi, "
+                f"seuraavalle kierrokselle ei jätetty varaa. {perusta}",
                 inputs,
             )
         return Decision(
-            "anomaly",
-            f"Varustearvo {_d(varusteet_pp)} $/pelaaja jää voiton jälkeen "
-            f"poikkeamarajan ({kynnykset.anomaly_equip_max_after_win} $) ja "
-            f"puoliostorajan ({kynnykset.half_equip_min} $) väliin, eikä mikään "
-            f"sääntö kata sitä. {perusta}",
-            inputs,
-        )
-
-    # Edellinen kierros hävittiin: puoliosto, force, eco.
-    if varusteet_pp >= kynnykset.half_equip_min:
-        return Decision(
             "half",
-            f"Puoliosto hävityn kierroksen jälkeen: varustearvo "
-            f"{_d(varusteet_pp)} $/pelaaja välillä {kynnykset.half_equip_min}-"
-            f"{kynnykset.full_equip_min} $. {perusta}",
+            f"Puoliosto hävityn kierroksen jälkeen: ostettu {_d(ostettu_pp)} "
+            f"$/pelaaja eli vähintään {kynnykset.force_buy_min} $, mutta "
+            f"taskuun jäi {_d(raha_pp)} $/pelaaja eli yli "
+            f"{kynnykset.force_money_left_max} $ -- ostettiin, mutta jätettiin "
+            f"varaa seuraavalle kierrokselle. {perusta}",
             inputs,
         )
 
-    if ostettu_pp > kynnykset.force_money_max:
-        return Decision(
-            "anomaly",
-            f"Ostettu {_d(ostettu_pp)} $/pelaaja ylittää forcen kaistan "
-            f"({kynnykset.force_money_min}-{kynnykset.force_money_max} $), "
-            f"mutta varustearvo jäi {_d(varusteet_pp)} $/pelaaja alle "
-            f"puoliostorajan {kynnykset.half_equip_min} $. Mikään sääntö ei "
-            "kata tätä: force_money_max ja half_equip_min eivät kohtaa. "
-            f"{perusta}",
-            inputs,
-        )
-
-    if ostettu_pp >= kynnykset.force_money_min:
-        return Decision(
-            "force",
-            f"Force hävityn kierroksen jälkeen: ostettu {_d(ostettu_pp)} "
-            f"$/pelaaja eli forcen kaistalla {kynnykset.force_money_min}-"
-            f"{kynnykset.force_money_max} $, mutta varustearvo jäi "
-            f"{_d(varusteet_pp)} $/pelaaja alle puoliostorajan "
-            f"{kynnykset.half_equip_min} $ -- ostettu lähes tyhjäksi. "
-            f"{perusta}",
-            inputs,
-        )
-
-    if varusteet_pp > kynnykset.anomaly_equip_max_after_win:
-        return Decision(
-            "anomaly",
-            f"Joukkue ei ostanut (ostettu {_d(ostettu_pp)} $/pelaaja alle "
-            f"forcen rajan {kynnykset.force_money_min} $), mutta varustearvo "
-            f"{_d(varusteet_pp)} $/pelaaja on silti matalan varustearvon rajan "
-            f"({kynnykset.anomaly_equip_max_after_win} $) yläpuolella. Ei eco "
-            f"eikä force -- poikkeama, jolle Story 1.4 hakee rajan. {perusta}",
-            inputs,
-        )
-
-    raja = _eco_bar(kynnykset, loss_count)
-    kaytettavissa = available_money(rivi)
-    kaytettavissa_pp = None if kaytettavissa is None else kaytettavissa / pelaajat
-    if kaytettavissa_pp is None:
-        tuki = "käytettävissä ollutta rahaa ei tiedetä"
-    elif kaytettavissa_pp <= raja:
-        tuki = (
-            f"käytettävissä oli vain {_d(kaytettavissa_pp)} $/pelaaja eli "
-            f"eco-rajan {raja} $ verran tai alle"
-        )
-    else:
-        tuki = (
-            f"käytettävissä oli {_d(kaytettavissa_pp)} $/pelaaja eli yli "
-            f"eco-rajan {raja} $, joten raja kaipaa kalibrointia"
-        )
     return Decision(
         "eco",
         f"Eco hävityn kierroksen jälkeen: ostettu vain {_d(ostettu_pp)} "
-        f"$/pelaaja eli alle forcen rajan {kynnykset.force_money_min} $, ja "
-        f"varustearvo {_d(varusteet_pp)} $/pelaaja jäi matalan varustearvon "
-        f"rajaan {kynnykset.anomaly_equip_max_after_win} $; {tuki}. {perusta}",
+        f"$/pelaaja eli alle forcen edellytyksen {kynnykset.force_buy_min} $. "
+        f"Varustearvo {_d(varusteet_pp)} $/pelaaja ei ratkaise: säästetty "
+        f"kalusto ei ole tällä kierroksella tehty ostos. {perusta}",
         inputs,
     )
 
 
 # -- Apurit --------------------------------------------------------------------
-
-
-def _eco_bar(kynnykset: ThresholdSettings, loss_count: int) -> int:
-    """Voimassa oleva eco-raharaja: matalalla loss countilla oma rajansa."""
-    if loss_count >= kynnykset.eco_loss_count_min:
-        return kynnykset.eco_money_max
-    return kynnykset.eco_money_max_low_loss
 
 
 def _continuous_previous(
@@ -567,7 +595,6 @@ def _inputs(
     kynnykset: ThresholdSettings,
     pelaajat: int,
     luettavat: int | None,
-    loss_count: int,
 ) -> dict[str, Any]:
     """Kokoa päätöksen lähtöarvot ``CLASSIFIED_INPUTS``-rakenteeseen.
 
@@ -591,13 +618,8 @@ def _inputs(
         "players": pelaajat,
         "players_readable": luettavat,
         "full_equip_min": kynnykset.full_equip_min,
-        "half_equip_min": kynnykset.half_equip_min,
-        "eco_money_max": kynnykset.eco_money_max,
-        "eco_money_max_low_loss": kynnykset.eco_money_max_low_loss,
-        "eco_loss_count_min": kynnykset.eco_loss_count_min,
-        "eco_money_max_applied": _eco_bar(kynnykset, loss_count),
-        "force_money_min": kynnykset.force_money_min,
-        "force_money_max": kynnykset.force_money_max,
+        "force_buy_min": kynnykset.force_buy_min,
+        "force_money_left_max": kynnykset.force_money_left_max,
         "anomaly_equip_max_after_win": kynnykset.anomaly_equip_max_after_win,
     }
 

@@ -145,22 +145,62 @@ def test_invalid_value_is_reported_with_field_name(tmp_path: Path) -> None:
 # --- Osioiden sisäiset ja väliset ristiriidat --------------------------------
 
 
-def test_half_must_be_below_full(tmp_path: Path) -> None:
+def test_the_after_win_anomaly_bar_must_stay_below_a_full_buy(
+    tmp_path: Path,
+) -> None:
+    """Muuten poikkeamaraja söisi täyden oston voiton jälkeiseltä haaralta."""
     kohde = _write_variant(
-        tmp_path, **{"half_equip_min = 3000": "half_equip_min = 4000"}
+        tmp_path,
+        **{"anomaly_equip_max_after_win = 2000": "anomaly_equip_max_after_win = 4000"},
     )
     with pytest.raises(SettingsError) as exc:
         load_settings(kohde)
-    assert "half_equip_min" in str(exc.value)
+    assert "anomaly_equip_max_after_win" in str(exc.value)
 
 
-def test_force_money_range_must_not_be_empty(tmp_path: Path) -> None:
+def test_money_left_max_must_stay_below_the_purchase_threshold(
+    tmp_path: Path,
+) -> None:
+    """P2: ilman tätä ``half`` on tavoittamaton eikä mikään huomauta.
+
+    Jos taskuun saa jäädä enemmän rahaa kuin ostaminen ylipäätään vaatii,
+    jokainen hävityn jälkeinen ostos on force.
+    """
     kohde = _write_variant(
-        tmp_path, **{"force_money_min = 1500": "force_money_min = 3000"}
+        tmp_path,
+        **{"force_money_left_max = 1000": "force_money_left_max = 100000"},
     )
     with pytest.raises(SettingsError) as exc:
         load_settings(kohde)
-    assert "force_money_min" in str(exc.value)
+    assert "force_money_left_max" in str(exc.value)
+
+
+def test_force_buy_min_must_stay_below_a_full_buy(tmp_path: Path) -> None:
+    """Muuten forcea eikä puoliostoa voisi koskaan saavuttaa."""
+    kohde = _write_variant(
+        tmp_path, **{"force_buy_min = 1500": "force_buy_min = 4000"}
+    )
+    with pytest.raises(SettingsError) as exc:
+        load_settings(kohde)
+    assert "force_buy_min" in str(exc.value)
+
+
+def test_a_retired_threshold_left_in_settings_is_refused(tmp_path: Path) -> None:
+    """I/O-matriisi: ``force_money_max`` poistui, joten sen jättäminen on virhe.
+
+    ``extra="forbid"`` tekee puolittaisesta siivouksesta ajonaikaisen virheen,
+    ei hiljaista jäännettä: käyttäjä luulisi muuten säätävänsä rajaa, jolla ei
+    ole enää lukijaa.
+    """
+    kohde = _write_variant(
+        tmp_path,
+        **{"force_money_left_max = 1000": "force_money_left_max = 1000\nforce_money_max = 2500"},
+    )
+    with pytest.raises(SettingsError) as exc:
+        load_settings(kohde)
+    viesti = str(exc.value)
+    assert "force_money_max" in viesti
+    assert "thresholds" in viesti
 
 
 def test_loss_count_min_must_be_below_max(tmp_path: Path) -> None:
@@ -413,7 +453,14 @@ def test_threshold_values(settings_file: Path) -> None:
     t = s.thresholds
     assert t.pistol_rounds == [1, 13]
     assert t.regulation_rounds == 24
+    # Kalibroitu 2026-08-29 kalibrointi-kierrostyypit.md:n totuustaulua vasten.
+    # Nämä neljä ovat lukittuja: perustelu kullekin arvolle on settings.tomlin
+    # kommentissa, ja arvon muuttaminen ilman tämän testin muuttamista
+    # tarkoittaisi, että perustelu jäi lukematta.
     assert t.full_equip_min == 4000
+    assert t.anomaly_equip_max_after_win == 2000
+    assert t.force_buy_min == 1500
+    assert t.force_money_left_max == 1000
     assert t.loss_count_half_start == 1
     assert t.loss_count_min == 0
     assert t.loss_count_max == 4

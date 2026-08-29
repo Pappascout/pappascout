@@ -640,12 +640,12 @@ def render_round_list_markdown(
         f"aloitusraha {league.ot_start_money} $"
     )
     osat.append(
-        f"- Kynnykset ($/pelaaja): full {thresholds.full_equip_min}, half "
-        f"{thresholds.half_equip_min}, matala varustearvo "
-        f"{thresholds.anomaly_equip_max_after_win}, eco {thresholds.eco_money_max} "
-        f"(loss count < {thresholds.eco_loss_count_min}: "
-        f"{thresholds.eco_money_max_low_loss}), force "
-        f"{thresholds.force_money_min}-{thresholds.force_money_max}"
+        f"- Kynnykset ($/pelaaja): täysi osto vähintään "
+        f"{thresholds.full_equip_min}, matala varustearvo voiton jälkeen "
+        f"enintään {thresholds.anomaly_equip_max_after_win}; hävityn jälkeen "
+        f"osto vaatii ostettua vähintään {thresholds.force_buy_min} ja erottuu "
+        f"forceksi, jos taskuun jäi enintään "
+        f"{thresholds.force_money_left_max} (muuten puoliosto), ja muuten eco"
     )
     osat.append(
         f"- Loss count: puoliajan alku {thresholds.loss_count_half_start}, rajat "

@@ -162,8 +162,9 @@ EVENTS: Schema = {
 CLASSIFIED_INPUTS = pl.Struct(
     {
         "money_freeze_end": pl.Int32,
-        # Käytettävissä ollut raha = money_freeze_end + money_spent. Story 1.4
-        # kalibroi eco-saannon tämän varaan; Story 1.3 vain tallentaa sen.
+        # Käytettävissä ollut raha = money_freeze_end + money_spent. Se on
+        # mukana perustelua ja tarkistusta varten; kalibrointi 2026-08-29
+        # osoitti, että säännöt nojaavat jäljelle jääneeseen saldoon.
         "money_spent": pl.Int32,
         "equip_freeze_end": pl.Int32,
         "equip_round_start": pl.Int32,
@@ -176,14 +177,11 @@ CLASSIFIED_INPUTS = pl.Struct(
         "players": pl.Int32,
         "players_readable": pl.Int32,
         "full_equip_min": pl.Int32,
-        "half_equip_min": pl.Int32,
-        "eco_money_max": pl.Int32,
-        "eco_money_max_low_loss": pl.Int32,
-        "eco_loss_count_min": pl.Int32,
-        # Kumpi kahdesta eco-rajasta oli tällä kierroksella voimassa.
-        "eco_money_max_applied": pl.Int32,
-        "force_money_min": pl.Int32,
-        "force_money_max": pl.Int32,
+        # Force ja puoliosto: molempien edellytys on ostettu summa
+        # (force_buy_min), ja ne eroavat toisistaan taskuun jääneestä rahasta
+        # (force_money_left_max). Varustearvo ei erota niitä.
+        "force_buy_min": pl.Int32,
+        "force_money_left_max": pl.Int32,
         "anomaly_equip_max_after_win": pl.Int32,
     }
 )

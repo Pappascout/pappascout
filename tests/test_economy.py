@@ -233,7 +233,7 @@ def test_eco_after_a_loss_when_the_team_did_not_buy(kynnykset) -> None:
 
 
 def test_force_after_a_loss_when_the_team_bought_itself_empty(kynnykset) -> None:
-    """Todennettu tilanne: ostettu 2 380 $/pelaaja, saldoa jäljellä 30 $."""
+    """I/O-matriisi: ostettiin tyhjäksi -- 2 380 $/pelaaja, saldoa jäljellä 30 $."""
     paatos = classify_round(
         rivi(
             round_no=23,
@@ -247,7 +247,124 @@ def test_force_after_a_loss_when_the_team_bought_itself_empty(kynnykset) -> None
         loss_count=2,
     )
     assert paatos.round_type == "force"
-    assert "ostettu lähes tyhjäksi" in paatos.reason
+    assert "ostettu tyhjäksi" in paatos.reason
+    # S2: perustelu nimeää molemmat vertailuun käytetyt arvot.
+    assert str(kynnykset.force_buy_min) in paatos.reason
+    assert str(kynnykset.force_money_left_max) in paatos.reason
+
+
+def test_half_after_a_loss_when_the_team_left_money_in_the_pocket(kynnykset) -> None:
+    """I/O-matriisi: ostettiin ja jätettiin varaa -- sama ostos, eri saldo.
+
+    S2: force ja puoliosto eroavat **taskuun jätetystä rahasta**. Tämä on
+    tasan edellisen testin pari: ostos on sama, mutta rahaa jäi seuraavalle
+    kierrokselle.
+    """
+    yhteiset = dict(
+        round_no=23, equip_freeze_end=12900, equip_round_start=1000, money_spent=11900
+    )
+    tyhjaksi = classify_round(
+        rivi(money_freeze_end=5 * kynnykset.force_money_left_max, **yhteiset),
+        edellinen(won=False, round_no=22),
+        kynnykset,
+        loss_count=2,
+    )
+    varaa = classify_round(
+        rivi(money_freeze_end=5 * (kynnykset.force_money_left_max + 100), **yhteiset),
+        edellinen(won=False, round_no=22),
+        kynnykset,
+        loss_count=2,
+    )
+    assert tyhjaksi.round_type == "force"
+    assert varaa.round_type == "half"
+    assert "jätettiin varaa" in varaa.reason
+
+
+def test_the_purchase_threshold_is_inclusive_at_exactly_the_limit(
+    kynnykset,
+) -> None:
+    """``>=``, ei ``>``: tasan rajalla oleva ostos on jo ostos.
+
+    Rajan molemmat naapurit on pinnattu muualla; tämä pinnaa itse rajan.
+    Ilman tätä ``>=`` voi vaihtua merkiksi ``>`` ilman että mikään huomauttaa.
+    """
+    def paatos(ostettu_pp: int) -> str | None:
+        return classify_round(
+            rivi(
+                equip_freeze_end=5 * (ostettu_pp + 300),
+                equip_round_start=5 * 300,
+                money_freeze_end=5 * 100,
+            ),
+            edellinen(won=False),
+            kynnykset,
+            loss_count=2,
+        ).round_type
+
+    assert paatos(kynnykset.force_buy_min) == "force"
+    assert paatos(kynnykset.force_buy_min - 1) == "eco"
+
+
+def test_the_money_left_threshold_is_inclusive_at_exactly_the_limit(
+    kynnykset,
+) -> None:
+    """``<=``, ei ``<``: tasan rajalle jäänyt raha on yhä "ostettu tyhjäksi"."""
+    def paatos(jaljella_pp: int) -> str | None:
+        return classify_round(
+            rivi(
+                equip_freeze_end=5 * 2000,
+                equip_round_start=5 * 300,
+                money_freeze_end=5 * jaljella_pp,
+            ),
+            edellinen(won=False),
+            kynnykset,
+            loss_count=2,
+        ).round_type
+
+    assert paatos(kynnykset.force_money_left_max) == "force"
+    assert paatos(kynnykset.force_money_left_max + 1) == "half"
+
+
+def test_the_reason_never_contradicts_its_own_rounded_number(kynnykset) -> None:
+    """P13: vertailu ja perustelun luku ovat sama pyöristetty luku.
+
+    Pyöristämätön vertailu tuottaisi tekstin "taskuun jäi 1000 $/pelaaja eli
+    yli 1000 $" -- juuri siinä rajatapauksessa, jonka lukija haluaa tarkistaa.
+    """
+    raja = kynnykset.force_money_left_max
+    paatos = classify_round(
+        rivi(
+            equip_freeze_end=5 * 2000,
+            equip_round_start=5 * 300,
+            money_freeze_end=5 * raja + 2,  # 1000,4 $/pelaaja -> pyöristyy 1000:een
+        ),
+        edellinen(won=False),
+        kynnykset,
+        loss_count=2,
+    )
+    assert paatos.round_type == "force"
+    assert f"taskuun jäi vain {raja} $/pelaaja eli enintään {raja} $" in paatos.reason
+
+
+def test_a_poor_team_that_did_not_buy_is_an_eco_not_a_force(kynnykset) -> None:
+    """I/O-matriisi: köyhä joukkue -- kassa tyhjä, mutta ostos jäi rajan alle.
+
+    Pelkkä "raha loppui" ei ole force: panssarin ja pistoolin viimeisillä
+    rahoillaan ostava joukkue tyhjensi kassan mutta ei forcannut. Siksi
+    ``force_buy_min`` on forcen **edellytys**, ei vain sen kaista.
+    """
+    paatos = classify_round(
+        rivi(
+            equip_freeze_end=5 * 1200,
+            equip_round_start=5 * 300,
+            money_freeze_end=50,
+            money_spent=4500,
+        ),
+        edellinen(won=False),
+        kynnykset,
+        loss_count=3,
+    )
+    assert paatos.round_type == "eco"
+    assert str(kynnykset.force_buy_min) in paatos.reason
 
 
 def test_force_and_eco_differ_only_by_what_was_bought(kynnykset) -> None:
@@ -268,37 +385,55 @@ def test_force_and_eco_differ_only_by_what_was_bought(kynnykset) -> None:
     assert saastetty.round_type == "eco"
 
 
-def test_purchase_above_the_force_band_is_an_anomaly(kynnykset) -> None:
-    """``force_money_max`` on kynnys, ei koriste: kaistan ylitys ei ole force."""
-    ostos = 5 * (kynnykset.force_money_max + 200)
+def test_a_large_purchase_below_full_is_still_a_force(kynnykset) -> None:
+    """Forcella ei ole ylärajaa: ylhäältä rajaa ``full_equip_min``.
+
+    Kalibrointidemon kierros 20 (2 710 $/pelaaja ostettu, 2 910 varusteita)
+    putosi vanhan kaistan yläpuolelle ja luokittui poikkeamaksi. Kaista
+    poistui, joten sama tilanne on nyt force.
+    """
+    ostos_pp = 2710
     paatos = classify_round(
         rivi(
-            equip_freeze_end=ostos + 1000,
-            equip_round_start=1000,
-            money_freeze_end=100,
+            equip_freeze_end=5 * 2910,
+            equip_round_start=5 * (2910 - ostos_pp),
+            money_freeze_end=5 * 270,
         ),
         edellinen(won=False),
         kynnykset,
         loss_count=2,
     )
-    assert paatos.round_type == "anomaly"
-    assert str(kynnykset.force_money_max) in paatos.reason
+    assert paatos.round_type == "force"
 
 
-def test_half_buy_is_between_the_two_equipment_thresholds(kynnykset) -> None:
-    paatos = classify_round(
-        rivi(equip_freeze_end=5 * 3500, equip_round_start=1000),
+def test_equipment_value_alone_does_not_make_a_half_buy(kynnykset) -> None:
+    """S2: puoliosto ei ratkea varustearvosta vaan taskuun jääneestä rahasta.
+
+    Sama varustearvo, sama ostos, eri saldo -- ja tulos on eri. Jos joku
+    kytkee varustearvorajan takaisin puolioston päätökseen, tämä testi kaatuu.
+    """
+    yhteiset = dict(equip_freeze_end=5 * 3500, equip_round_start=1000)
+    tyhjaksi = classify_round(
+        rivi(money_freeze_end=5 * 200, **yhteiset),
         edellinen(won=False),
         kynnykset,
         loss_count=2,
     )
-    assert paatos.round_type == "half"
+    varaa = classify_round(
+        rivi(money_freeze_end=5 * 2500, **yhteiset),
+        edellinen(won=False),
+        kynnykset,
+        loss_count=2,
+    )
+    assert tyhjaksi.round_type == "force"
+    assert varaa.round_type == "half"
 
 
-def test_half_buy_is_allowed_after_a_win_too(kynnykset) -> None:
-    """I/O-matriisin puoliostorivillä ei ole hävittyä kierrosta ehtona.
+def test_a_half_buy_is_never_played_after_a_win(kynnykset) -> None:
+    """S1: säästö on aina reaktio häviöön, joten voiton jälkeen on normaali osto.
 
-    Todennettu tilanne: pistoolin voittanut CT ostaa 3 200 $/pelaaja.
+    Kalibroinnin kierros 2: pistoolin voittanut CT ostaa 3 200 $/pelaaja.
+    Vanha luokittelija sanoi ``half``; Veeti sanoo ``full``.
     """
     paatos = classify_round(
         rivi(round_no=2, equip_freeze_end=16000, equip_round_start=1100),
@@ -306,7 +441,8 @@ def test_half_buy_is_allowed_after_a_win_too(kynnykset) -> None:
         kynnykset,
         loss_count=1,
     )
-    assert paatos.round_type == "half"
+    assert paatos.round_type == "full"
+    assert "voitetun kierroksen jälkeen" in paatos.reason
 
 
 def test_low_value_after_a_win_is_an_anomaly_not_an_eco(kynnykset) -> None:
@@ -324,40 +460,47 @@ def test_low_value_after_a_win_is_an_anomaly_not_an_eco(kynnykset) -> None:
     assert "voiton jälkeen" in paatos.reason
 
 
-def test_unclassifiable_gap_after_a_win_is_an_anomaly_with_a_reason(
-    kynnykset,
-) -> None:
-    """Ei arvausta: sääntöjen väliin jäävä tilanne on poikkeama, ei eco."""
-    valissa = (kynnykset.anomaly_equip_max_after_win + kynnykset.half_equip_min) // 2
-    paatos = classify_round(
-        rivi(equip_freeze_end=5 * valissa, equip_round_start=5 * (valissa - 100)),
-        edellinen(won=True),
-        kynnykset,
-        loss_count=1,
-    )
-    assert paatos.round_type == "anomaly"
-    assert str(kynnykset.half_equip_min) in paatos.reason
+def test_there_is_no_gap_left_after_a_win(kynnykset) -> None:
+    """S1: voiton jälkeen on vain normaali osto tai poikkeama, ei väliä.
 
-
-def test_unclassifiable_gap_after_a_loss_is_an_anomaly_too(kynnykset) -> None:
-    """Aukkosääntö pätee molemmin puolin, muuten eco yliraportoituisi.
-
-    Joukkue ei ostanut (alle forcen rajan) mutta sillä on silti matalan
-    varustearvon rajan ylittävä kalusto -- ei eco eikä force.
+    Vanha luokittelija jätti poikkeamarajan ja puoliostorajan väliin aukon,
+    joka putosi poikkeamaksi. Testi ajetaan koko sillä välillä, joka jää
+    poikkeamarajan ja täyden oston väliin.
     """
-    valissa = (kynnykset.anomaly_equip_max_after_win + kynnykset.half_equip_min) // 2
+    ala = kynnykset.anomaly_equip_max_after_win
+    yla = kynnykset.full_equip_min
+    for varusteet_pp in (ala + 1, (ala + yla) // 2, yla - 1):
+        paatos = classify_round(
+            rivi(
+                equip_freeze_end=5 * varusteet_pp,
+                equip_round_start=5 * (varusteet_pp - 100),
+            ),
+            edellinen(won=True),
+            kynnykset,
+            loss_count=1,
+        )
+        assert paatos.round_type == "full", varusteet_pp
+
+
+def test_a_saved_rifle_does_not_turn_an_eco_into_a_buy(kynnykset) -> None:
+    """S3: säästetty ase nostaa varustearvoa, mutta ei ole ostos.
+
+    Kalibroinnin kierros 11 CT: yksi säästetty M4, ostettu 600 $/pelaaja.
+    Veeti sanoo ``eco`` -- korkea varustearvo ei saa kääntää sitä ostokseksi.
+    """
     paatos = classify_round(
         rivi(
-            equip_freeze_end=5 * valissa,
-            equip_round_start=5 * (valissa - 100),
-            money_freeze_end=20000,
+            equip_freeze_end=5 * 1580,
+            equip_round_start=5 * (1580 - 600),
+            money_freeze_end=5 * 2280,
+            money_spent=5 * 600,
         ),
         edellinen(won=False),
         kynnykset,
         loss_count=3,
     )
-    assert paatos.round_type == "anomaly"
-    assert "Ei eco" in paatos.reason
+    assert paatos.round_type == "eco"
+    assert "säästetty kalusto ei ole" in paatos.reason
 
 
 def test_negative_purchase_is_an_anomaly_not_silenced_to_zero(kynnykset) -> None:
@@ -372,6 +515,42 @@ def test_negative_purchase_is_an_anomaly_not_silenced_to_zero(kynnykset) -> None
     assert "laski" in paatos.reason
 
 
+def test_a_negative_purchase_beats_the_full_buy_rule(kynnykset) -> None:
+    """I/O-matriisin rivi on ehdoton: negatiivinen ostos -> anomaly.
+
+    Korkea varustearvo ei saa peittää ristiriitaista havaintoa. Jos
+    täyden oston tarkistus siirtyisi tämän eteen, kierros luokittuisi
+    fulliksi ja rikkinäinen havainto katoaisi näkyvistä.
+    """
+    paatos = classify_round(
+        rivi(
+            equip_freeze_end=5 * (kynnykset.full_equip_min + 1000),
+            equip_round_start=5 * (kynnykset.full_equip_min + 2000),
+        ),
+        edellinen(won=False),
+        kynnykset,
+        loss_count=2,
+    )
+    assert paatos.round_type == "anomaly"
+    assert "laski" in paatos.reason
+
+
+def test_a_small_negative_purchase_is_not_rounded_away(kynnykset) -> None:
+    """Merkki luetaan joukkuesummasta, ei pyöristetystä per pelaaja -luvusta.
+
+    Kahden dollarin lasku viidellä pelaajalla pyöristyy nollaan per pelaaja.
+    Se on silti ristiriitainen havainto, eikä sitä saa vaimentaa.
+    """
+    paatos = classify_round(
+        rivi(equip_freeze_end=9998, equip_round_start=10000),
+        edellinen(won=False),
+        kynnykset,
+        loss_count=2,
+    )
+    assert paatos.round_type == "anomaly"
+    assert "-2 $ joukkueena" in paatos.reason
+
+
 # --- Edellisen kierroksen jatkuvuus ---------------------------------------------
 
 
@@ -379,6 +558,25 @@ def test_missing_previous_round_is_an_anomaly(kynnykset) -> None:
     paatos = classify_round(rivi(equip_freeze_end=5000), None, kynnykset, loss_count=1)
     assert paatos.round_type == "anomaly"
     assert "edelliseen kierrokseen" in paatos.reason
+
+
+def test_a_full_buy_is_recognised_even_without_a_previous_round(kynnykset) -> None:
+    """Tietoinen poikkeus kalibrointidokumentin johdetusta järjestyksestä.
+
+    5 000 $/pelaaja on täysi osto riippumatta siitä, tunnetaanko edellinen
+    kierros. Puoliajan ensimmäisellä kierroksella ja kierrosnumeroiden aukossa
+    edellistä ei ole, ja ``anomaly`` väittäisi siellä ilmiselvästä täydestä
+    ostosta, ettei sitä voi luokitella. Edellistä tarvitaan vain econ, forcen
+    ja puolioston erottamiseen toisistaan.
+    """
+    paatos = classify_round(
+        rivi(equip_freeze_end=5 * kynnykset.full_equip_min),
+        None,
+        kynnykset,
+        loss_count=1,
+    )
+    assert paatos.round_type == "full"
+    assert paatos.inputs["prev_round_won"] is None
 
 
 def test_a_gap_in_round_numbers_breaks_the_previous_round(kynnykset) -> None:
@@ -407,7 +605,12 @@ def test_a_side_change_breaks_the_previous_round(kynnykset) -> None:
 
 def test_a_contiguous_previous_round_is_used(kynnykset) -> None:
     paatos = classify_round(
-        rivi(round_no=14, side="CT", equip_freeze_end=5 * 3500),
+        rivi(
+            round_no=14,
+            side="CT",
+            equip_freeze_end=5 * 3500,
+            money_freeze_end=5 * 2500,
+        ),
         edellinen(won=False, round_no=13, side="CT", survivors=2),
         kynnykset,
         loss_count=2,
@@ -541,11 +744,11 @@ def test_every_decision_carries_money_and_loss_count_in_its_reason(
         assert f"loss count {lc}" in paatos.reason, paatos
 
 
-def test_eco_reason_compares_against_money_that_was_available(kynnykset) -> None:
-    """Jäljelle jäänyt saldo ei tue ecoa -- käytettävissä ollut raha tukee.
+def test_eco_reason_names_the_purchase_it_compared_against(kynnykset) -> None:
+    """Eco ratkeaa ostetusta summasta, ja perustelu näyttää molemmat luvut.
 
-    Moduuli selittää, että saldo on säästökierroksella suuri; perustelun on
-    puhuttava samasta suunnasta kuin semantiikka.
+    Perustelu kertoo silti myös rahan molemmat suunnat, jotta lukija ei sekoita
+    jäljelle jäänyttä saldoa käytettävissä olleeseen rahaan.
     """
     paatos = classify_round(
         rivi(
@@ -560,11 +763,10 @@ def test_eco_reason_compares_against_money_that_was_available(kynnykset) -> None
         loss_count=2,
     )
     assert paatos.round_type == "eco"
-    kaytettavissa = per_player(9000 + 600, 5)
     matala = paatos.reason.lower()
-    assert f"käytettävissä oli vain {kaytettavissa} $/pelaaja" in matala
-    assert f"eco-rajan {kynnykset.eco_money_max} $ verran tai alle" in matala
-    # Jäljelle jäänyt saldo yksin ei riitä perusteeksi kumpaankaan suuntaan.
+    assert f"ostettu vain {per_player(600, 5)} $/pelaaja" in matala
+    assert f"alle forcen edellytyksen {kynnykset.force_buy_min} $" in matala
+    assert f"käytettävissä {per_player(9000 + 600, 5)} $/pelaaja" in matala
     assert "jäljellä 1800 $/pelaaja" in matala
 
 
@@ -584,28 +786,32 @@ def test_inputs_match_the_classified_schema_exactly(kynnykset) -> None:
 def test_inputs_carry_every_threshold_the_rules_compare_against(kynnykset) -> None:
     paatos = classify_round(rivi(), edellinen(False), kynnykset, loss_count=2)
     assert paatos.inputs["full_equip_min"] == kynnykset.full_equip_min
-    assert paatos.inputs["half_equip_min"] == kynnykset.half_equip_min
-    assert paatos.inputs["eco_money_max"] == kynnykset.eco_money_max
-    assert paatos.inputs["eco_money_max_low_loss"] == kynnykset.eco_money_max_low_loss
-    assert paatos.inputs["eco_loss_count_min"] == kynnykset.eco_loss_count_min
-    assert paatos.inputs["force_money_min"] == kynnykset.force_money_min
-    assert paatos.inputs["force_money_max"] == kynnykset.force_money_max
+    assert paatos.inputs["force_buy_min"] == kynnykset.force_buy_min
+    assert paatos.inputs["force_money_left_max"] == kynnykset.force_money_left_max
     assert (
         paatos.inputs["anomaly_equip_max_after_win"]
         == kynnykset.anomaly_equip_max_after_win
     )
 
 
-def test_inputs_record_which_eco_limit_was_in_force(kynnykset) -> None:
-    """Story 1.4 ei voi kalibroida jälkikäteen, jos rajaa pitää arvata."""
-    matala = classify_round(
-        rivi(), edellinen(False), kynnykset, loss_count=kynnykset.eco_loss_count_min - 1
-    )
-    korkea = classify_round(
-        rivi(), edellinen(False), kynnykset, loss_count=kynnykset.eco_loss_count_min
-    )
-    assert matala.inputs["eco_money_max_applied"] == kynnykset.eco_money_max_low_loss
-    assert korkea.inputs["eco_money_max_applied"] == kynnykset.eco_money_max
+def test_inputs_no_longer_carry_the_retired_thresholds(kynnykset) -> None:
+    """Poistuneet kynnykset poistuivat kaikkialta, myös lähtöarvoista.
+
+    Puolittainen siivous jättäisi taulun sarakkeen, jolla ei ole lukijaa --
+    ja seuraava lukija luulisi sen kertovan jotain päätöksestä.
+    """
+    paatos = classify_round(rivi(), edellinen(False), kynnykset, loss_count=2)
+    for poistunut in (
+        "eco_money_max",
+        "eco_money_max_low_loss",
+        "eco_loss_count_min",
+        "eco_money_max_applied",
+        "force_money_min",
+        "force_money_max",
+        "half_equip_min",
+    ):
+        assert poistunut not in paatos.inputs
+        assert not hasattr(kynnykset, poistunut)
 
 
 def test_inputs_carry_the_previous_round_state(kynnykset) -> None:

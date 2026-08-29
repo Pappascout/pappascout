@@ -325,8 +325,26 @@ def test_writes_a_readable_round_list_beside_the_table(settings, parsittu) -> No
     assert MAP_DEMO_ID in teksti
     assert teksti.count("\n|") >= 6, "rivi jokaiselle kierrokselle"
     # Kynnykset ovat mukana, muuten lista ei kerro mitä vasten päätös tehtiin.
-    assert str(settings.thresholds.full_equip_min) in teksti
+    # Tarkistus kohdistuu otsikon LAUSEESEEN, ei pelkkään lukuun: fikstuurin
+    # rahasummat sisältävät samoja numeroita, joten irrallinen "1000" löytyisi
+    # taulukon riveiltä vaikka otsikko olisi rikki.
+    t = settings.thresholds
+    otsikko = next(r for r in teksti.splitlines() if r.startswith("- Kynnykset"))
+    assert f"täysi osto vähintään {t.full_equip_min}" in otsikko
+    assert f"voiton jälkeen enintään {t.anomaly_equip_max_after_win}" in otsikko
+    assert f"ostettua vähintään {t.force_buy_min}" in otsikko
+    assert f"taskuun jäi enintään {t.force_money_left_max}" in otsikko
     assert str(settings.league.ot_start_money) in teksti
+    # Poistuneita kynnyksiä ei mainita: otsikko kertoo vain sen, mitä
+    # luokittelu oikeasti vertaili.
+    for poistunut in (
+        "eco_money_max",
+        "eco_loss_count_min",
+        "force_money_min",
+        "force_money_max",
+        "half_equip_min",
+    ):
+        assert poistunut not in teksti
     assert str(polku.relative_to(parsittu.root)).replace("\\", "/") in [
         str(o) for o in tulos.outputs
     ]
@@ -366,6 +384,38 @@ def test_second_run_is_skipped(settings, parsittu) -> None:
 def test_force_overrides_a_matching_manifest(settings, parsittu) -> None:
     aja(settings, parsittu)
     assert not aja(settings, parsittu, force=True).skipped
+
+
+def test_a_stale_inputs_struct_is_recomputed_not_read(settings, parsittu) -> None:
+    """Vanha tulos, jonka ``inputs``-rakenne on eri muotoa, ajetaan uudelleen.
+
+    ``inputs``-structin kentät muuttuivat kalibroinnissa 2026-08-29 ilman että
+    manifestin skeemaversio muuttui, joten täsmäävä manifesti voi osoittaa
+    vanhamuotoiseen tauluun. Sen on johdettava uudelleenlaskentaan -- ei
+    kaatumiseen eikä hiljaiseen vanhan tuloksen palauttamiseen.
+    """
+    aja(settings, parsittu)
+    polku = parsittu.classified(A, MAP_DEMO_ID)
+    assert aja(settings, parsittu).skipped, "esiehto: manifesti täsmää"
+
+    # Kirjoita taulu uudelleen vanhanmallisella inputs-rakenteella: poistetut
+    # kynnykset takaisin, uudet pois.
+    df = pl.read_parquet(polku)
+    vanha = []
+    for i in df["inputs"].to_list():
+        poistuvat = ("force_buy_min", "force_money_left_max")
+        rivi = {k: v for k, v in i.items() if k not in poistuvat}
+        rivi["eco_money_max"] = 2000
+        rivi["force_money_min"] = 1500
+        vanha.append(rivi)
+    df.with_columns(pl.Series("inputs", vanha)).write_parquet(polku)
+
+    tulos = aja(settings, parsittu)
+    assert not tulos.skipped, "vanhamuotoista tulosta ei saa palauttaa sellaisenaan"
+    assert tulos.status == "ok"
+    kentat = set(pl.read_parquet(polku)["inputs"].to_list()[0])
+    assert "force_buy_min" in kentat
+    assert "eco_money_max" not in kentat
 
 
 def test_threshold_change_reruns_classify_but_not_parse(
@@ -754,10 +804,10 @@ def test_inputs_carry_the_money_that_was_available(settings, parsittu) -> None:
     for inputs in df["inputs"].to_list():
         assert inputs["money_spent"] == 20000
         assert inputs["money_freeze_end"] + inputs["money_spent"] == 25000
-        assert inputs["eco_loss_count_min"] == settings.thresholds.eco_loss_count_min
-        assert inputs["eco_money_max_applied"] in (
-            settings.thresholds.eco_money_max,
-            settings.thresholds.eco_money_max_low_loss,
+        assert inputs["force_buy_min"] == settings.thresholds.force_buy_min
+        assert (
+            inputs["force_money_left_max"]
+            == settings.thresholds.force_money_left_max
         )
 
 
