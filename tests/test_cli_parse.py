@@ -43,9 +43,9 @@ DEFAULT_STATS: dict[str, object] = {
     "max_round_no": 21,
     "skipped_rounds": 1,
     "no_freeze_end": 0,
-    "armed_threshold": 950,
     "armed_distribution": {0: 3, 4: 1, 5: 38},
     "armed_missing": 0,
+    "armed_unknown_items": (),
     "tick_rows": 780,
     "sample_points": 78,
     "sample_rounds": 21,
@@ -310,19 +310,101 @@ def test_every_round_sampled_hides_the_difference_line() -> None:
 
 
 def test_armed_player_distribution_is_reported() -> None:
-    """Jakauma ja kynnys kerrotaan ajon yhteydessä.
+    """Jakauma ja sääntö kerrotaan ajon yhteydessä.
 
-    Väärä kynnys ei näy taulussa mitenkään: se läpäisisi jokaisen
+    Väärä sääntö ei näy taulussa mitenkään: se läpäisisi jokaisen
     skeematarkistuksen. Jakauma on halvin tapa huomata se ajossa eikä vasta
-    raportissa, ja kynnyksen luku tarvitaan sen tulkitsemiseen.
+    raportissa, ja säännön nimeäminen tarvitaan sen tulkitsemiseen.
     """
     line = field_value(
         _render_parse(parse_result(), regulation_rounds=24), "Aseistettuja"
     )
-    assert line.startswith("kynnys 950 $/pelaaja; ")
+    assert line.startswith("panssari ja ase hallussa; ")
     assert "0 -> 3 riviä" in line
     assert "4 -> 1 riviä" in line
     assert "5 -> 38 riviä" in line
+
+
+def test_unknown_inventory_items_are_named_with_their_counts() -> None:
+    """Tuntemattomat nimet kerrotaan esiintymämäärineen, ei vain lasketa.
+
+    Luokittelu on sallittujen aseiden luettelo, joten tuntematon nimi ei
+    aseista ketään. Uusi veitsiskini on odotettu tulos ja uusi **ase** on
+    merkki siitä, että luettelo on jäänyt jälkeen -- ilman nimiä ne
+    näyttäisivät täsmälleen samalta. Määrä erottaa ne vielä tarkemmin: yksi
+    eksoottinen veitsi näkyy kerran, nimeämismuutos joka rivillä.
+    """
+    result = parse_result(
+        stats=stats(armed_unknown_items=(("Uusi Ase", 12), ("Outo Veitsi", 1)))
+    )
+    line = field_value(
+        _render_parse(result, regulation_rounds=24), "Tuntemattomat esineet"
+    )
+    assert line.startswith("2 eri esinenimeä: Uusi Ase x12, Outo Veitsi x1")
+    assert "ei laskettu aseeksi" in line
+
+
+def test_one_unknown_item_is_named_in_the_singular() -> None:
+    """Yksi nimi ei ole "1 eri esinenimeä"."""
+    result = parse_result(stats=stats(armed_unknown_items=(("Outo Veitsi", 1),)))
+    line = field_value(
+        _render_parse(result, regulation_rounds=24), "Tuntemattomat esineet"
+    )
+    assert line.startswith("1 esinenimi: Outo Veitsi x1")
+
+
+def test_unknown_item_list_is_truncated() -> None:
+    """Satojen nimien rivi ei ole luettava -- eikä se ole edes tarpeen.
+
+    Jos demoparser2 muuttaa nimeämistapaansa, **jokainen** nimi on
+    tuntematon. Silloin käyttäjän on nähtävä yhdellä silmäyksellä että jokin
+    on pahasti pielessä, ei selattava kolmea riviä nimiä.
+    """
+    many = tuple((f"Nimi {index:02d}", 1) for index in range(30))
+    result = parse_result(stats=stats(armed_unknown_items=many))
+    line = field_value(
+        _render_parse(result, regulation_rounds=24), "Tuntemattomat esineet"
+    )
+    assert line.startswith("30 eri esinenimeä: ")
+    assert "Nimi 19 x1" in line
+    assert "Nimi 20" not in line
+    assert "(+10 muuta)" in line
+
+
+def test_no_unknown_inventory_items_says_so() -> None:
+    """Tyhjä luettelo sanotaan ääneen: se on ajon terve tulos."""
+    line = field_value(
+        _render_parse(parse_result(), regulation_rounds=24),
+        "Tuntemattomat esineet",
+    )
+    assert line == "ei yhtään"
+
+
+def test_unknown_item_line_is_absent_when_the_run_was_skipped() -> None:
+    """Ohitettu ajo ei tiedä nimiä: rivi puuttuu, se ei väitä tyhjää.
+
+    Nimet eivät ole taulussa -- ne eivät aseista ketään -- joten ohitetusta
+    ajosta niitä ei voi lukea takaisin. "Ei yhtään" olisi silloin väite,
+    jota mikään ei tue.
+    """
+    numbers = stats()
+    numbers.pop("armed_unknown_items")
+    assert "Tuntemattomat esineet" not in _render_parse(
+        parse_result(stats=numbers), regulation_rounds=24
+    )
+
+
+def test_unknown_item_line_says_when_the_port_does_not_report() -> None:
+    """Kolmas tila: tuore ajo portilla, joka ei kerro tuntemattomia.
+
+    ``None`` on eri asia kuin tyhjä. Jos ne yhdistettäisiin, portin
+    hiljeneminen näyttäisi siltä, että jokainen nimi tunnistettiin.
+    """
+    result = parse_result(stats=stats(armed_unknown_items=None))
+    line = field_value(
+        _render_parse(result, regulation_rounds=24), "Tuntemattomat esineet"
+    )
+    assert "ei tiedossa" in line
 
 
 def test_armed_player_line_separates_a_skewed_distribution_from_a_healthy_one() -> None:
@@ -359,6 +441,7 @@ def test_armed_player_line_is_absent_without_the_numbers() -> None:
     """Lukukelvoton tulos ei saa väittää jakaumaa, jota ei ole."""
     numbers = stats()
     numbers.pop("armed_distribution")
+    numbers.pop("armed_unknown_items")
     assert "Aseistettuja" not in _render_parse(
         parse_result(stats=numbers), regulation_rounds=24
     )

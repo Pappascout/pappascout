@@ -231,6 +231,47 @@ def logs_dir(host: str) -> PurePosixPath:
     return PurePosixPath("logs") / safe_component(host, "host")
 
 
+#: Laajentamaton ympäristömuuttuja polussa: ``%NIMI%`` tai ``${NIMI}``.
+#:
+#: Paljas ``$NIMI`` on mukana vain muualla kuin Windowsilla. Windows-poluissa
+#: dollari on laillinen hakemistonimen merkki (``$Recycle.Bin``,
+#: hallintajaot), joten sen kieltäminen hylkäisi kelvollisia polkuja. Kaksi
+#: yksiselitteistä muotoa riittää: juuri ``%NIMI%`` on se, jonka
+#: ``settings.toml`` sisältää.
+_UNEXPANDED_VAR = (
+    re.compile(r"%([A-Za-z_][A-Za-z0-9_]*)%|\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+    if os.name == "nt"
+    else re.compile(
+        r"%([A-Za-z_][A-Za-z0-9_]*)%|\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"
+    )
+)
+
+
+def _check_expanded(expanded: str, raw: str, source: str) -> None:
+    """Kaadu, jos ympäristömuuttuja jäi laajentamatta.
+
+    Args:
+        expanded: ``os.path.expandvars``in tulos.
+        raw: Alkuperäinen arvo, virheviestiä varten.
+        source: Mistä arvo tuli, jotta käyttäjä tietää mitä korjata.
+
+    Raises:
+        PappascoutError: Viesti nimeää puuttuvan muuttujan.
+    """
+    match = _UNEXPANDED_VAR.search(expanded)
+    if match is None:
+        return
+    name = match.group(1) or match.group(2)
+    raise PappascoutError(
+        f"Arkiston juuren polussa on ympäristömuuttuja {name}, jota ei ole "
+        f"asetettu tällä koneella.\n"
+        f"Arvo tulee kohteesta {source} ja on {raw!r}.\n"
+        f"Aseta {name} tai kirjoita polku kokonaan auki. Ilman tätä "
+        "tarkistusta arkisto kirjoitettaisiin hakemistoon, jonka nimi on "
+        f"kirjaimellisesti {match.group(0)!r}."
+    )
+
+
 @dataclass(frozen=True)
 class ArchivePaths:
     """Arkiston juuri ja siihen sidotut absoluuttiset polut.
@@ -252,10 +293,25 @@ class ArchivePaths:
         Ympäristömuuttuja ``PAPPASCOUT_ARCHIVE_ROOT`` ylikirjoittaa asetuksen
         kokonaan -- se on tapa osoittaa toinen arkisto muokkaamatta versioitua
         tiedostoa.
+
+        Raises:
+            PappascoutError: Jos laajennuksen jälkeen polussa on yhä
+                laajentamaton ympäristömuuttuja. ``os.path.expandvars``
+                **jättää ``%NIMI%``:n sellaisenaan**, jos muuttujaa ei ole --
+                se ei nosta virhettä eikä palauta tyhjää. Ilman tätä
+                tarkistusta ajo loisi hakemiston, jonka nimi on kirjaimellisesti
+                ``%USERPROFILE%``, kirjoittaisi koko arkiston sinne ja näyttäisi
+                onnistuneen. Kahden koneen arkisto hajoaisi hiljaa.
         """
         override = os.environ.get(ARCHIVE_ROOT_ENV_VAR)
         raw = override if override else str(archive_root)
+        source = (
+            f"ympäristömuuttuja {ARCHIVE_ROOT_ENV_VAR}"
+            if override
+            else "asetus [project].archive_root"
+        )
         expanded = os.path.expandvars(str(raw))
+        _check_expanded(expanded, raw, source)
         return cls(root=Path(expanded).expanduser())
 
     def resolve(self, relative: PurePosixPath | str) -> Path:

@@ -25,7 +25,6 @@ import pytest
 from pappascout.adapters import demo_parser as dp
 from pappascout.adapters.decompress import DEMO_MAGIC
 from pappascout.adapters.demo_parser import (
-    DEFAULT_ARMED_PLAYER_EQUIP_MIN,
     DEFAULT_TICK_RATE,
     Demoparser2Adapter,
 )
@@ -72,14 +71,18 @@ B_SIDE_HEIGHT = 1005.0
 #: Etäisyys, jonka sisältä utility saa napata alueen näissä testeissä.
 AREA_SNAP_UNITS = 500.0
 
-#: Kalustokynnys näissä testeissä. **Ei omaa literaalia**: adapterin oletus
-#: on sidottu ``ParseSettings``-oletukseen testissä
-#: ``test_adapter_default_matches_the_setting``, joka on sidottu
-#: ``settings.toml``iin testissä ``test_parse_values`` -- ketju pitää tämän
-#: arvon samana kuin tuotannon ilman erillistä vartijaa. Feikin
-#: oletusvarustearvo 4200 ylittää sen, joten normaalissa ottelussa kaikki
-#: viisi ovat aseistettuja.
-ARMED_PLAYER_EQUIP_MIN = DEFAULT_ARMED_PLAYER_EQUIP_MIN
+#: Feikin oletustavaraluettelo: veitsi, ilmainen pistooli, ostettu kivääri ja
+#: yksi savu. Vastaa oletusvarustearvoa 4200 (200 + 2700 + 300 + kevlar 1000),
+#: joten normaalissa ottelussa kaikki viisi ovat aseistettuja.
+DEFAULT_INVENTORY: tuple[str, ...] = (
+    "knife",
+    "Glock-18",
+    "AK-47",
+    "Smoke Grenade",
+)
+
+#: Oletuspanssari feikissä. Yli nollan, eli aseistumisen panssariehto täyttyy.
+DEFAULT_ARMOR = 100
 
 
 class FakeDemoparser2:
@@ -181,7 +184,6 @@ def parse_tables(
     exclude_weapons: tuple[str, ...] = UTILITY,
     fallback_death: bool = True,
     area_snap_units: float | None = AREA_SNAP_UNITS,
-    armed_player_equip_min: int = ARMED_PLAYER_EQUIP_MIN,
 ) -> DemoTables:
     """Aja adapteri feikin päällä; vain ``_open`` korvataan."""
     demo = tmp_path / "feikki.dem"
@@ -190,7 +192,6 @@ def parse_tables(
         exclude_weapons=exclude_weapons,
         fallback_death=fallback_death,
         area_snap_units=area_snap_units,
-        armed_player_equip_min=armed_player_equip_min,
     )
     adapter._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
     return adapter.parse_demo(demo, sample_seconds)
@@ -225,9 +226,6 @@ def parse_adapter(
         exclude_weapons=kwargs.pop("exclude_weapons", UTILITY),
         fallback_death=kwargs.pop("fallback_death", True),
         area_snap_units=kwargs.pop("area_snap_units", AREA_SNAP_UNITS),
-        armed_player_equip_min=kwargs.pop(
-            "armed_player_equip_min", ARMED_PLAYER_EQUIP_MIN
-        ),
     )
     adapter._open = lambda *args, **kwargs2: fake  # type: ignore[method-assign]
     adapter.parse_demo(demo, kwargs.pop("sample_seconds", SNAPSHOT_SECONDS))
@@ -265,9 +263,19 @@ class Round:
     #: Jäljittelee tickiä, jossa osa propeista on tyhjiä.
     a_unreadable: int = 0
     #: Pelaajakohtainen varustearvo freezetimen lopussa kokoonpanolle A,
-    #: indeksin mukaan. ``None`` = kaikilla oletusarvo 4200. Tarvitaan
-    #: kalustolaskuriin: joukkuesumma ei kerro, miten arvo jakautuu.
+    #: indeksin mukaan. ``None`` = kaikilla oletusarvo 4200.
     a_equip_freeze_end: list[int] | None = None
+    #: Pelaajakohtainen tavaraluettelo kokoonpanolle A, indeksin mukaan.
+    #: ``None`` listana = kaikilla :data:`DEFAULT_INVENTORY`; yksittäinen
+    #: ``None`` alkiona = propia ei saatu luettua (eri asia kuin tyhjä lista).
+    #: Tästä kalustolaskuri ratkeaa: aseistaminen on nimiä, ei summaa.
+    a_inventory: list[tuple[str, ...] | None] | None = None
+    #: Pelaajakohtainen panssariarvo kokoonpanolle A, indeksin mukaan.
+    #: ``None`` listana = kaikilla :data:`DEFAULT_ARMOR`; yksittäinen ``None``
+    #: alkiona = propia ei saatu luettua. Tämä ero on oltava ilmaistavissa:
+    #: lukukelvoton panssari ja nolla panssaria ovat eri asioita, ja
+    #: jälkimmäinen on havainto.
+    a_armor: list[int | None] | None = None
 
     # -- Näytepisteet --
     #: Alue, jolla kokoonpano A on näytepisteissä. ``None`` = pelin nimetön
@@ -343,6 +351,26 @@ def _rows(
                     f"{len(own_equip)} vs. {len(round_spec.a_players)}"
                 )
                 equip_freeze_end = own_equip[index]
+
+            # Kalustolaskuri lukee tavaraluettelon ja panssarin, ei
+            # varustearvoa. Sama pituustarkistus kuin yllä ja samasta syystä:
+            # lyhyt lista jättäisi loput oletusaseistukseen vaieten.
+            inventory: tuple[str, ...] | None = DEFAULT_INVENTORY
+            own_inventory = round_spec.a_inventory
+            if own_inventory is not None and side == round_spec.a_side:
+                assert len(own_inventory) == len(round_spec.a_players), (
+                    "a_inventory ja a_players ovat eri mittaiset: "
+                    f"{len(own_inventory)} vs. {len(round_spec.a_players)}"
+                )
+                inventory = own_inventory[index]
+            armor: int | None = DEFAULT_ARMOR
+            own_armor = round_spec.a_armor
+            if own_armor is not None and side == round_spec.a_side:
+                assert len(own_armor) == len(round_spec.a_players), (
+                    "a_armor ja a_players ovat eri mittaiset: "
+                    f"{len(own_armor)} vs. {len(round_spec.a_players)}"
+                )
+                armor = own_armor[index]
             rows.append(
                 {
                     "tick": tick,
@@ -354,6 +382,10 @@ def _rows(
                     dp._EQUIP_FREEZE_END: None if unreadable else equip_freeze_end,
                     dp._EQUIP_ROUND_START: None if unreadable else 200,
                     dp._EQUIP_CURRENT: 3000,
+                    dp._ARMOR_VALUE: armor,
+                    dp._INVENTORY: (
+                        None if inventory is None else list(inventory)
+                    ),
                     dp._LIFE_STATE: 0 if (at_end and index < alive_count) else 1,
                     dp._TEAM_SCORE: score,
                     dp._ROUND_START_TIME: round_spec.round_start_time,
@@ -954,11 +986,35 @@ def test_sums_and_their_divisor_come_from_the_same_players(tmp_path: Path) -> No
     assert row["equip_freeze_end"] / row["players_freeze_end"] == 4200
 
 
-# --- Kalustolaskuri (Story 1.5) -----------------------------------------------
+# --- Kalustolaskuri (Story 1.6) -----------------------------------------------
 #
 # ``players_armed_freeze_end`` on ainoa havainto, jota joukkuesummasta ei voi
-# johtaa: kaksi AK:ta ja kolme tyhjää antaa saman summan kuin viisi puolinaista.
-# Alla on I/O-matriisin jokainen rivi omana testinään.
+# johtaa: kaksi AK:ta ja kolme tyhjää antaa saman summan kuin viisi
+# puolinaista. Sääntö on **panssari ja vähintään yksi ase hallussa**, luettuna
+# tavaraluettelosta -- ei varustearvosta, joka on ase + panssari + kranaatit
+# yhtenä lukuna. Alla on spesifikaation I/O-matriisin jokainen rivi omana
+# testinään.
+
+#: Aseistava asetelma: veitsi, ostettu kivääri ja savu. Panssari tulee
+#: :data:`DEFAULT_ARMOR`ista.
+FULL_BUY: tuple[str, ...] = ("Bayonet", "AK-47", "Smoke Grenade")
+
+#: Se 1250 $:n tapaus, joka sai Story 1.5:n laskurin näyttämään aseistetulta:
+#: ilmaispistooli, panssari ja kaksi valoa, ei yhtään ostettua asetta.
+FREE_PISTOL_AND_UTILITY: tuple[str, ...] = (
+    "M9 Bayonet",
+    "Glock-18",
+    "Flashbang",
+    "Flashbang",
+)
+
+#: Ilmaispistooli ja veitsi: aseeton, vaikka panssari olisi.
+FREE_PISTOL: tuple[str, ...] = ("knife", "Glock-18")
+
+#: Nimi, jota luokittelu ei voi tuntea. **Ei oikea veitsiskini**: sellainen
+#: päätyisi ennen pitkää KNIVES-joukkoon uudesta demoerästä, ja nämä testit
+#: hajoaisivat syystä, joka ei liity niiden aiheeseen.
+UNKNOWN_ITEM = "Ei-Ole-Olemassa-9000"
 
 
 def _armed_row(
@@ -972,77 +1028,281 @@ def _armed_row(
     )
 
 
-def test_full_buy_arms_every_player(tmp_path: Path) -> None:
-    """Viidellä pelaajalla kivääri ja kevlar -> laskuri on 5."""
+def _armed_with(
+    tmp_path: Path,
+    inventories: list[tuple[str, ...] | None],
+    armor: list[int] | None = None,
+) -> dict[str, Any]:
+    """Yksi kierros annetuilla tavaraluetteloilla; kokoonpano A:n rivi."""
     rounds = normal_match(played=1, knife=False)
-    rounds[0].a_equip_freeze_end = [4200] * 5
+    rounds[0].a_players = list(A_PLAYERS[: len(inventories)])
+    rounds[0].a_inventory = list(inventories)
+    if armor is not None:
+        rounds[0].a_armor = list(armor)
+    return _armed_row(rounds, tmp_path)
 
-    row = _armed_row(rounds, tmp_path)
+
+def test_full_buy_arms_every_player(tmp_path: Path) -> None:
+    """Viidellä pelaajalla ostettu ase ja panssari -> laskuri on 5."""
+    row = _armed_with(tmp_path, [FULL_BUY] * 5)
     assert row[ARMED_COLUMN] == 5
     assert row["players_freeze_end"] == 5
 
 
-def test_eco_counts_zero_armed_and_zero_is_an_observation(tmp_path: Path) -> None:
-    """Viidellä oletuspistooli (200 $) -> ``0``, ei ``null``.
+def test_upgraded_pistol_with_armor_is_armed(tmp_path: Path) -> None:
+    """Parempi pistooli riittää aseeksi: veitsi + Tec-9 + panssari."""
+    row = _armed_with(tmp_path, [("knife_t", "Tec-9")] + [FULL_BUY] * 4)
+    assert row[ARMED_COLUMN] == 5
 
-    Nolla on tässä havainto: tiedetään, ettei **kukaan yltänyt
-    kynnykseen**. Se ei ole sama väite kuin "kenelläkään ei ollut
-    kalustoa" -- viisi pelaajaa pelkillä kevlareilla (650 $) tuottaisi
-    myös nollan. ``null`` väittäisi, ettei asiaa saatu luettua, ja
-    jättäisi econ pois aineistosta, jota vasten puolioston raja joskus
-    kalibroidaan.
+
+def test_free_pistol_with_armor_is_not_armed(tmp_path: Path) -> None:
+    """Ilmaispistooli ja panssari eivät aseista: ostettua asetta ei ole.
+
+    Tämä on koko Story 1.6:n syy. Story 1.5:n laskuri katsoi varustearvoa, ja
+    Glock + kevlar oli 850 $ -- kynnyksen alla vain niukasti. Kaksi valoa
+    päälle teki siitä 1250 $ eli "aseistetun" ilman yhtään ostettua asetta.
+    """
+    row = _armed_with(tmp_path, [FREE_PISTOL] + [FULL_BUY] * 4)
+    assert row[ARMED_COLUMN] == 4
+
+
+def test_free_pistol_with_armor_and_utility_is_not_armed(tmp_path: Path) -> None:
+    """Juuri se 1250 $:n tapaus: ilmaispistooli, panssari ja kaksi valoa."""
+    row = _armed_with(tmp_path, [FREE_PISTOL_AND_UTILITY] + [FULL_BUY] * 4)
+    assert row[ARMED_COLUMN] == 4
+
+
+def test_weapon_without_armor_is_not_armed(tmp_path: Path) -> None:
+    """Ase ilman panssaria ei aseista.
+
+    Käyttäjän määritelmä on "kevlar **ja** jokin parannettu ase": kumpikaan
+    yksin ei riitä. Tämä on Ancientin kierroksen 21 p250-pelaajan tapaus --
+    hän putoaa panssarin puutteeseen, ei kaluston arvoon.
+    """
+    row = _armed_with(
+        tmp_path,
+        [("knife_t", "AK-47")] + [FULL_BUY] * 4,
+        armor=[0, 100, 100, 100, 100],
+    )
+    assert row[ARMED_COLUMN] == 4
+
+
+def test_armor_without_a_weapon_is_not_armed(tmp_path: Path) -> None:
+    """Panssari ilman asetta ei aseista: pelkkä veitsi."""
+    row = _armed_with(tmp_path, [("Falchion Knife",)] + [FULL_BUY] * 4)
+    assert row[ARMED_COLUMN] == 4
+
+
+def test_zeus_is_not_a_weapon(tmp_path: Path) -> None:
+    """Zeus on kertakäyttöinen eikä korvaa asetta."""
+    row = _armed_with(
+        tmp_path, [("knife", "Glock-18", "Zeus x27")] + [FULL_BUY] * 4
+    )
+    assert row[ARMED_COLUMN] == 4
+
+
+def test_c4_does_not_change_the_verdict(tmp_path: Path) -> None:
+    """C4 on tehtäväesine: se ei aseista eikä kumoa asetta."""
+    row = _armed_with(
+        tmp_path, [("knife_t", "AK-47", "C4 Explosive")] + [FULL_BUY] * 4
+    )
+    assert row[ARMED_COLUMN] == 5
+
+
+def test_shotgun_is_a_weapon(tmp_path: Path) -> None:
+    """Haulikko on ostettu ase siinä missä kivääri."""
+    row = _armed_with(tmp_path, [("knife", "Nova")] + [FULL_BUY] * 4)
+    assert row[ARMED_COLUMN] == 5
+
+
+def test_unknown_knife_skin_does_not_arm_and_is_reported(tmp_path: Path) -> None:
+    """Tuntematon nimi ei ole ase, ja se raportoidaan.
+
+    Veitset ovat avoin joukko, jota Valve kasvattaa. Kiellettyjen luettelo
+    vanhenisi hiljaa jokaisen kauppapäivityksen myötä; sallittujen luettelo
+    vanhenee näkyvästi ja väärään suuntaan. Molemmat puolet on todettava
+    samassa testissä: pelkkä "ei aseistettu" menisi läpi myös silloin, jos
+    nimi pudotettaisiin vaieten.
+
+    Nimi on tarkoituksella keksitty (:data:`UNKNOWN_ITEM`) eikä oikea
+    veitsiskini: oikea nimi päätyisi ennen pitkää luokitteluun uudesta
+    demoerästä, ja silloin tämä testi hajoaisi syystä, joka ei liity sen
+    aiheeseen.
     """
     rounds = normal_match(played=1, knife=False)
-    rounds[0].a_equip_freeze_end = [200] * 5
+    rounds[0].a_inventory = [(UNKNOWN_ITEM, "Glock-18")] + [FULL_BUY] * 4
 
-    row = _armed_row(rounds, tmp_path)
+    adapter = parse_adapter(build(rounds), tmp_path)
+    assert adapter.diagnostics is not None
+    # Esiintymämäärä on mukana: yksi eksoottinen veitsi ja demoparser2:n
+    # nimeämismuutos, joka osuu joka riviin, näyttäisivät pelkkänä nimenä
+    # täsmälleen samalta.
+    assert adapter.diagnostics.unknown_inventory_items == ((UNKNOWN_ITEM, 1),)
+
+    assert _armed_row(rounds, tmp_path)[ARMED_COLUMN] == 4
+
+
+def test_unknown_name_is_counted_every_time_it_appears(tmp_path: Path) -> None:
+    """Sama tuntematon nimi neljällä pelaajalla raportoidaan neljänä.
+
+    Määrä on se signaali, joka erottaa yhden oudon esineen siitä, että koko
+    nimistö on vaihtunut. Ilman sitä molemmat olisivat "1 eri esinenimeä".
+    """
+    rounds = normal_match(played=1, knife=False)
+    rounds[0].a_inventory = [(UNKNOWN_ITEM, "AK-47")] * 4 + [FULL_BUY]
+
+    adapter = parse_adapter(build(rounds), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.unknown_inventory_items == ((UNKNOWN_ITEM, 4),)
+
+
+def test_unknown_name_is_reported_even_from_an_unreadable_player(
+    tmp_path: Path,
+) -> None:
+    """Nimi raportoidaan, vaikka pelaaja putoaisi laskurin joukosta.
+
+    ``_readable`` pudottaa pelaajan, jonka talouskentät puuttuvat. Jos
+    tuntemattomat nimet skannattaisiin vasta suodatuksen jälkeen, uusi asenimi
+    jäisi raportoimatta juuri siitä demosta, joka sen toi -- ja luettelo
+    vanhenisi hiljaa, mitä vastaan koko raportti on olemassa.
+    """
+    rounds = normal_match(played=1, knife=False)
+    rounds[0].a_unreadable = 1
+    rounds[0].a_inventory = [(UNKNOWN_ITEM, "AK-47")] + [FULL_BUY] * 4
+
+    adapter = parse_adapter(build(rounds), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.unknown_inventory_items == ((UNKNOWN_ITEM, 1),)
+
+
+def test_known_names_leave_no_unknowns(tmp_path: Path) -> None:
+    """Tunnettu aineisto ei tuota yhtään tuntematonta nimeä.
+
+    Ilman tätä testi yllä toteaisi vain, että *jokin* nimi päätyy listalle --
+    tyhjän listan on oltava normaali tulos, jotta lista on luettava.
+    """
+    adapter = parse_adapter(build(normal_match(played=2, knife=False)), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.unknown_inventory_items == ()
+    assert adapter.diagnostics.armed_unreadable_rows == 0
+
+
+def test_empty_inventory_is_an_observation_not_a_gap(tmp_path: Path) -> None:
+    """Tyhjä tavaraluettelo: ``0``, ei ``null``.
+
+    Nolla on tässä havainto -- tiedetään, ettei kukaan ollut aseistettu.
+    ``null`` väittäisi, ettei asiaa saatu luettua, ja jättäisi econ pois
+    aineistosta, jota vasten puolioston raja joskus kalibroidaan.
+    """
+    row = _armed_with(tmp_path, [()] * 5)
+    assert row[ARMED_COLUMN] == 0
+    assert row["players_freeze_end"] == 5
+
+
+def test_eco_counts_zero_armed_and_zero_is_an_observation(tmp_path: Path) -> None:
+    """Viidellä pelkkä ilmaispistooli -> ``0``, ei ``null``."""
+    row = _armed_with(tmp_path, [FREE_PISTOL] * 5)
     assert row[ARMED_COLUMN] == 0
     assert row["players_freeze_end"] == 5
 
 
 def test_half_buy_counts_only_the_armed_players(tmp_path: Path) -> None:
-    """Kolmella kevlar + parempi pistooli, kahdella oletus -> ``3``.
+    """Kolmella panssari + parempi pistooli, kahdella ilmaispistooli -> ``3``.
 
-    Juuri tämä tapaus on syy koko sarakkeelle: joukkuesumma
-    3 * 950 + 2 * 200 = 3250 on sama kuin viidellä pelaajalla 650 $ kullakin,
-    eikä summasta voi päätellä kummasta on kyse.
+    Juuri tämä tapaus on syy koko sarakkeelle, ja se todetaan tässä
+    molemmilta puolilta: varustearvo asetetaan samaksi 3 250 $:ksi, jonka
+    viisi pelkkää kevlaria (5 x 650) tuottaisi, ja laskuri antaa silti
+    kolme. Summasta ei siis voi päätellä kumpi asetelma on kyseessä.
     """
     rounds = normal_match(played=1, knife=False)
+    rounds[0].a_inventory = [("knife", "P250")] * 3 + [FREE_PISTOL] * 2
     rounds[0].a_equip_freeze_end = [950, 950, 950, 200, 200]
 
     row = _armed_row(rounds, tmp_path)
     assert row[ARMED_COLUMN] == 3
-    assert row["equip_freeze_end"] == 3 * 950 + 2 * 200
+    assert row["equip_freeze_end"] == 3 * 950 + 2 * 200 == 5 * 650
 
 
-def test_equipment_exactly_at_the_threshold_counts(tmp_path: Path) -> None:
-    """Vertailu on ``>=``: tasan kynnyksen verran riittää.
+def test_missing_inventory_for_the_whole_team_is_null_not_zero(
+    tmp_path: Path,
+) -> None:
+    """Yhdeltäkään pelaajalta ei saatu tavaraluetteloa: ``null``, ei ``0``.
 
-    Kynnys on kevlar 650 + parempi pistooli 300 = 950, eli tasan se osto,
-    jonka sen on tarkoitus tunnistaa. ``>`` jättäisi juuri sen ulkopuolelle.
+    Nolla väittäisi "kukaan ei ollut aseistettu" ja kelpaisi ecoksi.
+    ``players_freeze_end`` säilyy, koska tavaraluettelo ei ole niiden
+    proppien joukossa, jotka pudottavat pelaajan summista: jakaja ei saa
+    muuttua tämänkään takia.
     """
-    threshold = ARMED_PLAYER_EQUIP_MIN
-    rounds = normal_match(played=1, knife=False)
-    rounds[0].a_equip_freeze_end = [
-        threshold - 1,
-        threshold,
-        threshold + 1,
-        200,
-        200,
-    ]
-
-    row = _armed_row(rounds, tmp_path)
-    assert row[ARMED_COLUMN] == 2
+    row = _armed_with(tmp_path, [None] * 5)
+    assert row["players_freeze_end"] == 5
+    assert row[ARMED_COLUMN] is None
 
 
-def test_armed_count_uses_the_configured_threshold(tmp_path: Path) -> None:
-    """Kynnys on asetus eikä koodia: sama data, eri kynnys, eri luku."""
-    rounds = normal_match(played=1, knife=False)
-    rounds[0].a_equip_freeze_end = [1800, 1250, 950, 200, 200]
+def test_one_missing_inventory_empties_the_whole_row(tmp_path: Path) -> None:
+    """Yhdeltä puuttuva tavaraluettelo tyhjentää koko laskurin.
 
-    assert _armed_row(rounds, tmp_path)[ARMED_COLUMN] == 3
-    high = _armed_row(rounds, tmp_path, armed_player_equip_min=1500)
-    assert high[ARMED_COLUMN] == 1
+    Osittainen luku olisi hiljainen valhe. Pelaaja **pysyy**
+    ``players_freeze_end``in jakajassa, koska tavaraluettelo ei kuulu niihin
+    proppeihin, jotka pudottavat hänet summista -- jakajan on oltava sama
+    joukko rivin kaikille luvuille. Siksi "4/5" väittäisi, että yksi oli
+    aseeton, vaikka totuus on ettei häntä saatu luettua: lukuvirhe näyttäisi
+    säästökierrokselta.
+    """
+    row = _armed_with(tmp_path, [None] + [FULL_BUY] * 4)
+    assert row["players_freeze_end"] == 5
+    assert row[ARMED_COLUMN] is None
+
+
+def test_one_unreadable_armor_empties_the_whole_row(tmp_path: Path) -> None:
+    """Sama koskee panssaria -- ja juuri se meni aiemmin hiljaa ohi.
+
+    ``armor_value`` ei ole niiden proppien joukossa, jotka pudottavat pelaajan
+    summista, joten lukukelvoton panssari näytti aiemmin täsmälleen samalta
+    kuin panssarittomuus: pelaaja jäi jakajaan ja putosi osoittajasta.
+    """
+    row = _armed_with(
+        tmp_path, [FULL_BUY] * 5, armor=[None, 100, 100, 100, 100]
+    )
+    assert row["players_freeze_end"] == 5
+    assert row[ARMED_COLUMN] is None
+
+
+def test_zero_armor_is_an_observation_but_missing_armor_is_not(
+    tmp_path: Path,
+) -> None:
+    """``0`` ja ``None`` ovat panssarissa eri asioita.
+
+    Ilman tätä paria edellinen testi menisi läpi myös toteutuksella, joka
+    tyhjentää rivin aina kun joltakulta puuttuu panssari **arvona nolla**.
+    Nolla on havainto: pelaaja ei ostanut kevlaria.
+    """
+    zeros = _armed_with(tmp_path, [FULL_BUY] * 5, armor=[0, 100, 100, 100, 100])
+    assert zeros[ARMED_COLUMN] == 4
+
+    missing = _armed_with(
+        tmp_path, [FULL_BUY] * 5, armor=[None, 100, 100, 100, 100]
+    )
+    assert missing[ARMED_COLUMN] is None
+
+
+def test_unreadable_armed_rows_are_counted_but_anchorless_ones_are_not(
+    tmp_path: Path,
+) -> None:
+    """Lukuvirhe on oma lukunsa, ankkuriton kierros ei ole.
+
+    Molemmat tuottavat ``null``-laskurin, mutta vain toinen on vika. Ilman
+    erillistä lukua propivika hukkuisi normaaleihin puutteisiin, ja
+    kalustolaskuri voisi olla rikki koko demossa ilman että mikään kertoo.
+    """
+    rounds = normal_match(played=2, knife=False)
+    rounds[0].a_armor = [None] * 5
+    rounds[1].freeze_tick = None
+
+    adapter = parse_adapter(build(rounds), tmp_path)
+    assert adapter.diagnostics is not None
+    # Yksi rivi: kokoonpano A:n rivi ensimmäiseltä kierrokselta. Toisen
+    # kierroksen kaksi tyhjää laskuria ovat ankkurittomia eivätkä lukuvirheitä.
+    assert adapter.diagnostics.armed_unreadable_rows == 1
 
 
 def test_armed_count_and_player_count_come_from_the_same_players(
@@ -1051,13 +1311,9 @@ def test_armed_count_and_player_count_come_from_the_same_players(
     """Vajaa joukkue: laskuri ja jakaja ovat samasta joukosta.
 
     Kaksi eri jakajaa samalla rivillä olisi vika, joka näkyisi vasta
-    raportissa -- ``3/5`` ja ``3/4`` ovat eri väitteitä.
+    raportissa -- ``2/5`` ja ``2/4`` ovat eri väitteitä.
     """
-    rounds = normal_match(played=1, knife=False)
-    rounds[0].a_players = A_PLAYERS[:4]
-    rounds[0].a_equip_freeze_end = [4200, 4200, 200, 200]
-
-    row = _armed_row(rounds, tmp_path)
+    row = _armed_with(tmp_path, [FULL_BUY, FULL_BUY, FREE_PISTOL, FREE_PISTOL])
     assert row["players_freeze_end"] == 4
     assert row[ARMED_COLUMN] == 2
 
@@ -1065,35 +1321,29 @@ def test_armed_count_and_player_count_come_from_the_same_players(
 def test_unreadable_player_is_dropped_not_counted_as_unarmed(
     tmp_path: Path,
 ) -> None:
-    """Puuttuva arvo pudottaa pelaajan joukosta; kynnyksen alitus ei pudota.
+    """Puuttuva talousarvo pudottaa pelaajan joukosta; aseettomuus ei pudota.
 
     Nämä ovat kaksi eri asiaa, ja ne erottaa vain jakaja. Testi ajaa saman
-    asetelman kahdesti: ensin pelaaja 0 on lukukelvoton, sitten sama arvo
-    on luettavissa mutta kynnyksen alla. Laskuri on kummassakin 4 -- ero
-    näkyy ``players_freeze_end``issä (4 vs. 5). Jos molemmilla olisi 4200,
-    testi ei erottaisi selityksiä toisistaan lainkaan.
+    asetelman kahdesti: ensin pelaaja 0 on lukukelvoton, sitten sama pelaaja
+    on luettavissa mutta aseeton. Laskuri on kummassakin 4 -- ero näkyy
+    ``players_freeze_end``issä (4 vs. 5).
     """
-    below = ARMED_PLAYER_EQUIP_MIN - 1
-
     unreadable = normal_match(played=1, knife=False)
     unreadable[0].a_unreadable = 1
-    unreadable[0].a_equip_freeze_end = [below, 4200, 4200, 4200, 4200]
+    unreadable[0].a_inventory = [FREE_PISTOL] + [FULL_BUY] * 4
     dropped = _armed_row(unreadable, tmp_path)
     assert dropped["players_freeze_end"] == 4
     assert dropped[ARMED_COLUMN] == 4
 
     readable = normal_match(played=1, knife=False)
-    readable[0].a_equip_freeze_end = [below, 4200, 4200, 4200, 4200]
+    readable[0].a_inventory = [FREE_PISTOL] + [FULL_BUY] * 4
     kept = _armed_row(readable, tmp_path)
     assert kept["players_freeze_end"] == 5
     assert kept[ARMED_COLUMN] == 4
 
 
 def test_no_readable_player_gives_null_not_zero(tmp_path: Path) -> None:
-    """Yhdenkään pelaajan arvoja ei saatu: ``null``, ei ``0``.
-
-    Nolla väittäisi "kenelläkään ei ollut kalustoa" ja kelpaisi ecoksi.
-    """
+    """Yhdenkään pelaajan arvoja ei saatu: ``null``, ei ``0``."""
     rounds = normal_match(played=1, knife=False)
     rounds[0].a_unreadable = 5
 
@@ -1116,7 +1366,13 @@ def test_round_without_an_anchor_has_no_armed_count(tmp_path: Path) -> None:
 def test_armed_count_never_exceeds_the_player_count(tmp_path: Path) -> None:
     """Invariantti koko taulussa: ``0 <= laskuri <= players_freeze_end``."""
     rounds = normal_match(played=3)
-    rounds[1].a_equip_freeze_end = [4200, 950, 200, 200, 200]
+    rounds[1].a_inventory = [
+        FULL_BUY,
+        ("knife", "P250"),
+        FREE_PISTOL,
+        FREE_PISTOL,
+        FREE_PISTOL,
+    ]
     rounds[2].a_players = A_PLAYERS[:4]
     rounds[3].a_unreadable = 2
 
@@ -1133,13 +1389,84 @@ def test_armed_count_never_exceeds_the_player_count(tmp_path: Path) -> None:
         == df["players_freeze_end"].null_count()
     )
 
-
 def test_money_spent_is_read_from_the_demo(tmp_path: Path) -> None:
-    """Käytettävissä ollut raha = jäljelle jäänyt + käytetty."""
+    """Käytettävissä ollut raha = jäljelle jäänyt + käytetty.
+
+    Ei kalustolaskurin testi vaan ``economy.py``:n nojaama identiteetti: se
+    lukee käytettävissä olleen rahan näiden kahden summana. Testi asuu tässä
+    tiedostossa, koska se on adapterin lukema havainto.
+    """
     df = parse_with(build(normal_match(played=1, knife=False)), tmp_path)
     row = df.row(0, named=True)
     assert row["money_spent"] == 5 * 4000
     assert row["money_freeze_end"] + row["money_spent"] == 5 * 4800
+
+
+# --- Tavaraluettelon muodot ----------------------------------------------------
+#
+# ``inventory`` on ensimmäinen listamuotoinen sarake, jonka adapteri lukee.
+# Feikki syöttää aina ``list[str]`` tai ``None``, joten kirjaston muut
+# mahdolliset muodot jäisivät ilman näitä kokonaan kattamatta -- ja jos
+# demoparser2 joskus palauttaisi tavaraluettelon yhtenä merkkijonona, jokainen
+# pelaaja olisi aseeton, sarake olisi läpeensä nolla ja koko sarja pysyisi
+# vihreänä koneella, jolla ei ole demoja.
+
+
+def test_inventory_reads_a_list_of_names() -> None:
+    """Tavallinen muoto: lista merkkijonoja."""
+    assert dp._as_inventory(["AK-47", "Smoke Grenade"]) == (
+        "AK-47",
+        "Smoke Grenade",
+    )
+
+
+def test_inventory_reads_a_numpy_style_sequence() -> None:
+    """Mikä tahansa iteroituva kelpaa -- pandas voi palauttaa taulukon."""
+    import numpy as np
+
+    assert dp._as_inventory(np.array(["AK-47", "P250"], dtype=object)) == (
+        "AK-47",
+        "P250",
+    )
+
+
+def test_empty_inventory_is_not_the_same_as_a_missing_one() -> None:
+    """``()`` on havainto ("ei mitään"), ``None`` ei ole.
+
+    Tämä ero kantaa koko laskurin ``null``-säännön: tyhjä luettelo tarkoittaa
+    aseetonta pelaajaa, puuttuva tarkoittaa tyhjää riviä.
+    """
+    assert dp._as_inventory([]) == ()
+    assert dp._as_inventory(None) is None
+
+
+def test_inventory_nan_is_missing_not_empty() -> None:
+    """Pandas nostaa puuttuvan arvon NaN:ksi, ei ``None``:ksi.
+
+    NaN tyhjänä luettelona väittäisi "pelaajalla ei ollut mitään", eli
+    lukuvirhe näyttäisi ecolta.
+    """
+    assert dp._as_inventory(float("nan")) is None
+
+
+def test_inventory_as_a_bare_string_is_one_name_not_characters() -> None:
+    """Yksittäinen merkkijono on yksi nimi, ei kirjainten lista.
+
+    Merkkijonon iterointi antaisi viisi yhden merkin "esinettä", jokainen
+    tuntematon -- ja koska tuntematon ei aseista, jokainen pelaaja olisi
+    aseeton. Sarake olisi läpeensä nolla ja näyttäisi kelvolliselta.
+    """
+    assert dp._as_inventory("AK-47") == ("AK-47",)
+
+
+def test_inventory_drops_unreadable_entries_but_keeps_the_rest() -> None:
+    """Yksittäinen tyhjä alkio ei kaada koko luetteloa."""
+    assert dp._as_inventory(["AK-47", None, "", "P250"]) == ("AK-47", "P250")
+
+
+def test_inventory_of_an_unreadable_type_is_missing() -> None:
+    """Mitä tahansa muuta ei tulkita -- ``None`` sanoo "ei luettu"."""
+    assert dp._as_inventory(42) is None
 
 
 # --- Näytepistetaulu -----------------------------------------------------------

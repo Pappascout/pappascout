@@ -22,12 +22,9 @@ from typing import NamedTuple
 import pytest
 
 from pappascout.adapters.demo_parser import _armed_count
+from pappascout.constants import KNOWN_INVENTORY_ITEMS
 from pappascout.domain.economy import classify_round
-from pappascout.domain.models import (
-    ParseSettings,
-    ThresholdSettings,
-    load_settings,
-)
+from pappascout.domain.models import ThresholdSettings, load_settings
 
 #: Kokoonpanon koko, jolla dokumentin per pelaaja -luvut on laskettu.
 PLAYERS = 5
@@ -94,16 +91,6 @@ TRUTH_TABLE: tuple[Round, ...] = (
 @pytest.fixture
 def thresholds(settings_file: Path) -> ThresholdSettings:
     return load_settings(settings_file, env_files=()).thresholds
-
-
-@pytest.fixture
-def parse_settings(settings_file: Path) -> ParseSettings:
-    """``[parse]``-osio: kalustokynnys luetaan oikeasta asetustiedostosta.
-
-    Testi, joka keksisi oman kynnyksensä, ei todistaisi mitään siitä arvosta,
-    jolla arkisto oikeasti syntyy.
-    """
-    return load_settings(settings_file, env_files=()).parse
 
 
 def _rows(k: Round) -> tuple[dict, dict | None]:
@@ -269,41 +256,43 @@ def test_every_threshold_keeps_a_margin_to_the_nearest_observation(
     )
 
 
-# --- Kalustolaskuri (Story 1.5) ------------------------------------------------
+# --- Kalustolaskuri (Story 1.6) ------------------------------------------------
 #
 # Nämä ovat samaa ihmisen antamaa totuutta kuin yllä oleva taulu, mutta
-# pelaajakohtaisina varustearvoina. Ne asuvat täällä eivätkä demotestissä,
+# pelaajakohtaisina havaintoina. Ne asuvat täällä eivätkä demotestissä,
 # koska ``pytest -m "not demo"`` on se ajo, jolla totuustaulu on tarkoitus
 # säilyä: demotesti ohittaa itsensä koneella, jolla demoja ei ole, ja
 # kalibrointi jäisi silloin valvomatta.
 #
-# Arvot on luettu Ancientista freezetimen lopun tickiltä 2026-08-29, ja
-# tavaraluettelo on tarkistettu samalta tickiltä. Kolme kalibrointihavaintoa:
+# TAVARALUETTELO JA PANSSARI on luettu Ancientista freezetimen lopun tickiltä
+# 2026-08-29 (kierrokset 19, 20 ja 21). Story 1.5:ssä tässä olivat samojen
+# pelaajien varustearvot ja kynnys 950 $; Story 1.6 vaihtoi mittarin
+# havaintoon, koska varustearvo on ase + panssari + kranaatit yhtenä lukuna
+# eikä erota ostettua asetta ilmaisesta pistoolista ja kahdesta valosta.
 #
-#   200  = veitsi + USP-S, ei panssaria     (pelkkä ilmainen oletuspistooli)
-#   300  = veitsi + P250, ei panssaria      (ostettu pistooli KORVAA ilmaisen)
-#   1250 = veitsi + Glock + C4 + 2 valoa, kevlar
-#
-# Keskimmäinen ratkaisee kynnyksen laskutavan: kevlar 650 + p250 300 = 950,
-# ei 1150. Viimeinen on laskurin tunnustettu rajaus -- se laskeutuu
-# aseistetuksi ilman yhtään parannettua asetta, koska varustearvo ei erota
-# asetta panssarista ja kranaateista.
+# LUKEMAT EIVÄT MUUTTUNEET (4/5, 5/5, 2/5) -- mutta kierroksen 21 luku
+# perustuu nyt oikeaan syyhyn. Veeti kuvasi kierroksen: "kahdella
+# kevlar+pistooli ja yhdellä 300 $:n p250 ilman kevlaria". Vanha kynnys
+# pudotti p250-pelaajan siksi, että 300 < 950; uusi sääntö pudottaa hänet
+# siksi, ettei hänellä ole panssaria. Sama luku, eri väite -- ja jälkimmäinen
+# on se, jonka Veeti sanoi.
 
 
 class ArmedRound(NamedTuple):
-    """Yhden kierroksen pelaajakohtaiset varustearvot ja Veetin kuvaus.
+    """Yhden kierroksen pelaajakohtaiset havainnot ja Veetin kuvaus.
 
     Attributes:
         round_no: Kierrosnumero.
         side: Puoli, jonka rivi tämä on.
-        equip: Varustearvo $/pelaaja, viisi lukua nousevassa järjestyksessä.
-        armed: Montako niistä ylittää kynnyksen -- odotusarvo.
+        players: Viisi paria ``(tavaraluettelo, panssariarvo)`` demosta
+            luettuna.
+        armed: Montako niistä on aseistettu -- odotusarvo.
         basis: Veetin sanallinen kuvaus, kalibrointidokumentista.
     """
 
     round_no: int
     side: str
-    equip: tuple[int, ...]
+    players: tuple[tuple[tuple[str, ...], int], ...]
     armed: int
     basis: str
 
@@ -312,23 +301,46 @@ ARMED_TRUTH: tuple[ArmedRound, ...] = (
     ArmedRound(
         19,
         "CT",
-        (200, 2200, 2450, 2550, 2800),
+        (
+            (("Skeleton Knife", "Desert Eagle", "Smoke Grenade",
+              "High Explosive Grenade", "Incendiary Grenade"), 100),
+            (("Huntsman Knife", "Five-SeveN", "Flashbang",
+              "Incendiary Grenade"), 100),
+            (("knife", "USP-S"), 0),
+            (("Shadow Daggers", "P2000", "SSG 08"), 100),
+            (("knife", "USP-S", "MP9"), 100),
+        ),
         4,
-        'force, "ostivat tyhjäksi"; yksi jäi ilmaiseen oletuspistooliin',
+        'force, "ostivat tyhjäksi"; yksi jäi ilmaiseen oletuspistooliin '
+        "eikä ostanut panssaria",
     ),
     ArmedRound(
         20,
         "T",
-        (1500, 1700, 2550, 4400, 4400),
+        (
+            (("knife_t", "Tec-9", "Flashbang"), 100),
+            (("knife_t", "Glock-18", "AK-47", "Smoke Grenade", "Flashbang"), 100),
+            (("M9 Bayonet", "Glock-18", "AK-47", "Smoke Grenade", "Flashbang"), 100),
+            (("Talon Knife", "Tec-9"), 100),
+            (("Bowie Knife", "Glock-18", "C4 Explosive", "MAC-10",
+              "Smoke Grenade"), 100),
+        ),
         5,
         "2x AK, 2x tec9, 1x mac10, kaikilla kevlar+kypärä -- kaikki viisi",
     ),
     ArmedRound(
         21,
         "T",
-        (200, 300, 500, 1250, 1300),
+        (
+            (("knife_t", "C4 Explosive", "P250"), 100),
+            (("knife_t", "Glock-18", "Smoke Grenade"), 0),
+            (("M9 Bayonet", "P250"), 0),
+            (("Talon Knife", "Glock-18"), 0),
+            (("Bowie Knife", "P250"), 100),
+        ),
         2,
-        "eco: kahdella kevlar+pistooli; 300 $:n p250 jää kynnyksen alle",
+        'eco, "pitävät econ": kahdella kevlar+pistooli, yhdellä 300 $:n p250 '
+        "ilman kevlaria",
     ),
 )
 
@@ -336,61 +348,102 @@ ARMED_TRUTH: tuple[ArmedRound, ...] = (
 @pytest.mark.parametrize(
     "k", ARMED_TRUTH, ids=[f"k{k.round_no}-{k.side}" for k in ARMED_TRUTH]
 )
-def test_armed_player_count_matches_the_human_reading(
-    k: ArmedRound, parse_settings
-) -> None:
+def test_armed_player_count_matches_the_human_reading(k: ArmedRound) -> None:
     """Laskuri antaa sen luvun, jonka Veeti näki replaystä.
 
     Sääntö luetaan adapterilta eikä kirjoiteta tässä uudelleen: testi, joka
-    laskisi omalla ``>=``-lausekkeellaan, todistaisi vain oman lausekkeensa.
+    tarkistaisi omalla lausekkeellaan onko pelaajalla ase, todistaisi vain
+    oman lausekkeensa.
     """
-    rows = [{"equip_freeze_end": value} for value in k.equip]
-    counted = _armed_count(rows, parse_settings.armed_player_equip_min)
+    rows = [
+        {"inventory": inventory, "armor_value": armor}
+        for inventory, armor in k.players
+    ]
+    counted = _armed_count(rows)
     assert counted == k.armed, (
         f"Kierros {k.round_no} {k.side}: dokumentti sanoo {k.armed} "
         f"({k.basis}), laskuri sanoi {counted}. "
-        "Dokumentti on totuus -- korjaa kynnys tai laskenta, ei tätä taulua."
+        "Dokumentti on totuus -- korjaa sääntö tai aseluettelo, ei tätä taulua."
     )
 
 
-def test_armed_threshold_keeps_a_margin_to_the_nearest_observation(
-    parse_settings,
-) -> None:
-    """Kynnys ei saa olla kosketusetäisyydellä havaitusta varustearvosta.
+def test_calibration_inventories_contain_no_unknown_names() -> None:
+    """Kalibroinnin jokainen nimi on luokittelussa.
 
-    Aineiston lähimmät havainnot ovat 950:n molemmin puolin: 500 alapuolella
-    (Glock + savu) ja 1250 yläpuolella (Glock + kevlar + kaksi valoa).
-    Marginaalit ovat 450 ja 300, eli molemmat ylittävät
-    :data:`MIN_MARGIN`-etäisyyden. Ilman tätä kynnyksen viilaaminen 501:een
-    menisi läpi, vaikka yksi halvin mahdollinen ostos kääntäisi laskurin.
+    Tuntematon nimi ei ole ase, joten tuntematon **ase** laskisi luvun
+    hiljaa alas ja yllä oleva testi kaatuisi vasta lopputulokseen. Tämä
+    nimeää syyn suoraan. Samalla se on aineistokohtainen vartija: jos
+    aseluettelosta poistetaan nimi, tämä kertoo mikä.
     """
-    threshold = parse_settings.armed_player_equip_min
-    observations = sorted(value for k in ARMED_TRUTH for value in k.equip)
-    below = [v for v in observations if v < threshold]
-    at_or_above = [v for v in observations if v >= threshold]
-    assert below and at_or_above, "kynnys on aineiston ulkopuolella"
-
-    assert threshold - max(below) >= MIN_MARGIN
-    assert min(at_or_above) - threshold >= MIN_MARGIN
+    unknown: set[str] = set()
+    for k in ARMED_TRUTH:
+        for inventory, _armor in k.players:
+            unknown |= set(inventory) - KNOWN_INVENTORY_ITEMS
+    assert unknown == set()
 
 
-def test_armed_count_needs_the_whole_distribution_not_the_team_sum(
-    parse_settings,
-) -> None:
+def test_unknown_name_does_not_arm_the_player() -> None:
+    """Tuntematon nimi ei aseista, vaikka pelaajalla olisi panssari.
+
+    Luokittelu on sallittujen aseiden luettelo: uusi veitsiskini ei saa
+    aseistaa ketään. Raportoinnin puoli on adapterin testeissä, koska nimet
+    kerätään kaikilta ankkurin riveiltä eikä vasta laskurissa.
+
+    Nimi on tarkoituksella keksitty eikä oikea veitsiskini: oikea nimi
+    päätyisi ennen pitkää luokitteluun uudesta demoerästä.
+    """
+    rows = [{"inventory": ("Ei-Ole-Olemassa-9000", "Glock-18"), "armor_value": 100}]
+    assert _armed_count(rows) == 0
+
+
+def test_unreadable_armor_or_inventory_empties_the_count() -> None:
+    """Lukukelvoton havainto on ``null``, ei osittainen luku.
+
+    Pelaaja pysyy ``players_freeze_end``in jakajassa, joten osittainen luku
+    väittäisi häntä aseettomaksi -- lukuvirhe näyttäisi säästökierrokselta.
+    Nolla ja tyhjä luettelo ovat sen sijaan havaintoja.
+    """
+    armed = {"inventory": ("Bowie Knife", "P250"), "armor_value": 100}
+
+    assert _armed_count([armed, {"inventory": None, "armor_value": 100}]) is None
+    assert _armed_count([armed, {"inventory": (), "armor_value": None}]) is None
+    # Havaintoja, eivät puutteita.
+    assert _armed_count([armed, {"inventory": (), "armor_value": 0}]) == 1
+
+
+def test_armed_count_needs_the_whole_distribution_not_the_team_sum() -> None:
     """Sama joukkuesumma, eri laskuri -- tämä on koko sarakkeen olemassaolon syy.
 
-    Kolme pelaajaa kynnyksellä ja kaksi ilmaisella pistoolilla antaa saman
-    summan kuin viisi pelaajaa 650 $:n kevlareilla. Ensimmäinen on puoliosto,
+    Kolme pelaajaa kevlarilla ja ostetulla pistoolilla (950 $ kukin) ja kaksi
+    ilmaispistoolilla (200 $) antaa saman joukkuesumman 3250 kuin viisi
+    pelaajaa pelkillä kevlareilla (650 $ kukin). Ensimmäinen on puoliosto,
     jälkimmäinen ei ole, eikä ``equip_freeze_end`` erota niitä.
     """
-    threshold = parse_settings.armed_player_equip_min  # 950
-    half_buy = [threshold, threshold, threshold, 200, 200]  # 3250
-    kevlars_only = [650, 650, 650, 650, 650]  # 3250
+    half_buy = [
+        {"inventory": ("knife", "P250"), "armor_value": 100} for _ in range(3)
+    ] + [
+        {"inventory": ("knife", "Glock-18"), "armor_value": 0} for _ in range(2)
+    ]
+    kevlars_only = [
+        {"inventory": ("knife", "Glock-18"), "armor_value": 100} for _ in range(5)
+    ]
 
-    assert sum(half_buy) == sum(kevlars_only)
-    assert _armed_count(
-        [{"equip_freeze_end": v} for v in half_buy], threshold
-    ) == 3
-    assert _armed_count(
-        [{"equip_freeze_end": v} for v in kevlars_only], threshold
-    ) == 0
+    assert _armed_count(half_buy) == 3
+    assert _armed_count(kevlars_only) == 0
+
+
+def test_armor_and_weapon_are_both_required() -> None:
+    """Kevlar ilman asetta ei riitä, eikä ase ilman kevlaria.
+
+    Veetin määritelmä on "kevlar **ja** jokin parannettu ase". Kierroksen 21
+    p250-pelaaja on jälkimmäinen tapaus, ja kierroksen 19 pelkkä-USP-pelaaja
+    edellinen: molemmat esiintyvät aineistossa, joten kumpaakaan ehtoa ei voi
+    pudottaa väittämättä jotain, mitä Veeti ei sanonut.
+    """
+    weapon_no_armor = [{"inventory": ("M9 Bayonet", "P250"), "armor_value": 0}]
+    armor_no_weapon = [{"inventory": ("knife", "USP-S"), "armor_value": 100}]
+    both = [{"inventory": ("Bowie Knife", "P250"), "armor_value": 100}]
+
+    assert _armed_count(weapon_no_armor) == 0
+    assert _armed_count(armor_no_weapon) == 0
+    assert _armed_count(both) == 1

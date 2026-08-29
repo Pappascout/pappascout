@@ -129,40 +129,76 @@ on se raha, joka joukkueella oli ostoaikana käytettävissä. Ostettu varustemä
 on vastaavasti erotus `equip_freeze_end - equip_round_start`.
 
 Kaluston **jakauma** on omana havaintonaan: `players_armed_freeze_end` kertoo,
-monenko pelaajan oma varustearvo ylsi kynnykseen
-`[parse].armed_player_equip_min` (oletus 950 $ = kevlar 650 + p250 300).
-Joukkuesumma ei kerro tätä -- kaksi AK:ta ja kolme tyhjää antaa saman summan
-kuin viisi puolinaista. Luku on aina väliltä `0`-`players_freeze_end`; `0` on
-havainto ja tarkoittaa **"kukaan ei yltänyt kynnykseen"** (viisi pelaajaa
-pelkillä 650 $:n kevlareilla tuottaa myös nollan), ja `null` tarkoittaa, ettei
-havaintoa saatu lainkaan.
+monellako pelaajalla oli freezetimen lopussa **panssari ja vähintään yksi ase
+hallussa**. Se on käyttäjän oma määritelmä ("kevlar ja jokin parannettu ase --
+parempi pistooli, SMG tai halpa kivääri") suoraan mitattuna: ase luetaan
+pelaajan tavaraluettelosta ja panssari `m_ArmorValue`-propista. Joukkuesumma ei
+kerro tätä -- kaksi AK:ta ja kolme tyhjää antaa saman summan kuin viisi
+puolinaista. Luku on aina väliltä `0`-`players_freeze_end`; `0` on havainto ja
+tarkoittaa **"kukaan ei ollut aseistettu"**, ja `null` tarkoittaa, ettei
+havaintoa saatu.
 
-Kynnys on `[parse]`- eikä `[thresholds]`-osiossa siksi, että parsinnan
-parametrihash lasketaan vain `[parse]`-osiosta: muualla sen muutos jättäisi
-arkiston laskurin hiljaa vanhentuneeksi. Sen muuttaminen siis **pakottaa
-uudelleenparsinnan**, toisin kuin `[thresholds]`-arvot. Luokittelu ei vielä
-käytä lukua: puolioston sääntö odottaa aineistoon ensimmäistä kiistatonta
+Kevlar ilman asetta ei riitä eikä ase ilman kevlaria. Kypärää ei vaadita: CT
+ostaa usein pelkän kevlarin, koska AK tappaa päähän kypärästä huolimatta.
+Kranaatit, C4 ja Zeus eivät ole aseita. Luokittelu ei vielä muuta kierrostyypin
+päättelyä: puolioston sääntö odottaa aineistoon ensimmäistä kiistatonta
 puoliostoa, jota vasten sen voi kalibroida.
 
-> **Rajaus: laskuri mittaa kaluston arvoa, ei aseen luokkaa.** Varustearvo on
-> ase + panssari + kranaatit yhtenä lukuna, eikä sitä voi purkaa osiin.
-> Ancientista mitattuna Glock + kevlar + kaksi valoa on 1250 $ ja laskeutuu
-> siis aseistetuksi, vaikka pelaajalla ei ole yhtään parannettua asetta.
-> Alkuperäinen määritelmä oli "kevlar ja jokin parannettu ase", joten laskuri
-> on sen approksimaatio -- tietoinen, ei vika. Tarkempi erottelu vaatisi
-> asekohtaisen havainnon, ja se on erillinen päätös.
+> **Hallussapito, ei ostos.** Tavaraluettelo luetaan freezetimen lopusta, joten
+> edelliseltä kierrokselta säästetty tai vainajalta poimittu kivääri lasketaan
+> samoin kuin juuri ostettu. Se on tarkoitus: kierroksen kannalta ratkaisee
+> mitä kädessä on, ei mistä se tuli, ja säästetty AK on yhtä vaarallinen kuin
+> ostettu. Ainoa poikkeus ovat oletuspistoolit (Glock-18, USP-S, P2000), jotka
+> rajataan ulos siksi, että ne saa joka kierros ilmaiseksi -- niiden
+> hallussapito ei kerro mitään.
 
-Samasta mittauksesta: **ostettu pistooli korvaa ilmaisen oletuspistoolin** eikä
-tule sen päälle. P250 yksinään on varustearvona 300 $, ei 500 $, joten kevlar +
-p250 on 950 $ eikä 1150 $.
+> **Miksi tavaraluettelo eikä varustearvo.** Story 1.5:n laskuri vertasi
+> pelaajan varustearvoa kynnykseen 950 $. Varustearvo on ase + panssari +
+> kranaatit yhtenä lukuna, eikä sitä voi purkaa osiin: Ancientista mitattuna
+> Glock + kevlar + kaksi valoa on 1250 $ ja laskeutui siis aseistetuksi ilman
+> yhtäkään asetta. Story 1.6 vaihtoi arvon havaintoon, ja asetus
+> `[parse].armed_player_equip_min` poistui.
+
+**Lukukelvoton havainto tyhjentää koko rivin.** Jos yhdenkin luettavan pelaajan
+panssari tai tavaraluettelo puuttuu, laskuri on `null` -- ei se luku, joka
+saataisiin lopuista. Pelaaja pysyy `players_freeze_end`in jakajassa, joten
+`4/5` väittäisi, että yksi oli aseeton, vaikka totuus on ettei häntä saatu
+luettua: vaiettu lukuvirhe näyttäisi säästökierrokselta. Tyhjä tavaraluettelo
+ja `0` panssaria ovat sen sijaan **havaintoja** eivätkä puutteita.
+
+**Tuntematon nimi ei ole ase.** Aseluokittelu (`src/pappascout/constants.py`)
+on sallittujen aseiden luettelo, ei kiellettyjen. Se tuntee **57 esinenimeä**,
+joista **31 aseistaa**. Veitset ovat avoin joukko -- kuudessa demossa on jo 15
+eri skininimeä, ja Valve lisää niitä -- kun taas aseita tulee peliin harvoin.
+Kiellettyjen luettelo vanhenisi jokaisen kauppapäivityksen myötä ja tekisi sen
+hiljaa; sallittujen luettelo vanhenee näkyvästi ja väärään suuntaan (uusi ase
+jää laskematta, mikä on turvallisempi virhe kuin veitsi joka aseistaa).
+
+Luettelo ei ole asetus, koska käyttäjä ei säädä esinenimiä -- mutta sen muutos
+**pakottaa uudelleenparsinnan** siinä missä `[parse]`-asetuksetkin: `parse`
+laskee luokittelun sisällöstä tiivisteen ja ottaa sen parametrihashiin. Käsin
+nostettava versionumero toimisi vain, jos kukaan ei unohda.
 
 `parse` tulostaa laskurin jakauman ajon yhteydessä rivillä `Aseistettuja`, esim.
-`kynnys 950 $/pelaaja; 0 -> 5 riviä, 1 -> 2 riviä, ..., 5 -> 30 riviä`. Se on
-itsetarkistus: väärä kynnys tuottaisi taulun, joka läpäisee jokaisen
+`panssari ja ase hallussa; 0 -> 5 riviä, 1 -> 2 riviä, ..., 5 -> 30 riviä`. Se
+on itsetarkistus: väärä sääntö tuottaisi taulun, joka läpäisee jokaisen
 skeematarkistuksen, mutta jakaumasta sen näkee heti. Pelkät ääripäät eivät
 riittäisi -- 41 riviä nollaa ja yksi viitonen näyttäisi samalta kuin terve
 jakauma. Jos havaintoa ei saatu yhdeltäkään riviltä, rivi sanoo sen ääneen
 (`ei yhtään havaintoa`), ja puuttuvien rivien määrä kerrotaan erikseen.
+
+Rivi `Tuntemattomat esineet` nimeää ne tavaraluettelon nimet, joita luokittelu
+ei tunne, esiintymämäärineen (`Uusi Ase x12`). Ne eivät aseista ketään, joten
+ilman tätä riviä uusi ase ja uusi veitsiskini näyttäisivät täsmälleen samalta:
+jakauma vain valuisi hiljaa alaspäin. Määrä erottaa nekin toisistaan -- yksi
+eksoottinen veitsi näkyy kerran, demoparser2:n nimeämismuutos joka rivillä.
+Rivillä on **kolme tilaa, jotka on syytä osata lukea**:
+
+| Rivi | Mitä se tarkoittaa |
+|---|---|
+| `ei yhtään` | Tuore ajo, jokainen nimi tunnistettiin. Terve tulos. |
+| `N eri esinenimeä: …` | Tuore ajo, luettelo on jäänyt jälkeen. Yli 20 nimeä katkaistaan (`+N muuta`). |
+| **rivi puuttuu kokonaan** | **Ohitettu ajo.** Nimet eivät ole taulussa -- ne eivät aseista ketään -- joten niitä ei voi lukea takaisin ilman `--pakota`a. Ei siis vika. |
 
 ### Miten kierrostyyppi ratkeaa
 

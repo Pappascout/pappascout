@@ -107,6 +107,7 @@ from pappascout.archive.paths import (
     parsed_table,
     safe_component,
 )
+from pappascout.constants import weapon_classification_digest
 from pappascout.domain.models import ParseSettings
 from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
 from pappascout.domain.sampling import FIRST_CONTACT_SAMPLE
@@ -165,7 +166,6 @@ def default_parser(settings: ParseSettings) -> DemoParser:
         exclude_weapons=settings.first_contact_exclude_weapons,
         fallback_death=settings.first_contact_fallback_death,
         area_snap_units=settings.area_snap_units,
-        armed_player_equip_min=settings.armed_player_equip_min,
     )
 
 
@@ -255,7 +255,25 @@ def _demo_fingerprint(archive: ArchivePaths, map_demo_id: str, demo_path: Path) 
 
 
 def _params_hash(settings: ParseSettings) -> str:
-    return compute_params_hash(settings.model_dump(mode="json"))
+    """Parametrihash: ``[parse]``-osio **ja** aseluokittelun tiiviste.
+
+    Kalustolaskuri lukee aseluettelon koodista eikä asetuksista, joten pelkkä
+    osion hash jättäisi luettelon muutoksen näkymättömäksi: arkiston vanha
+    laskuri jäisi voimaan eikä mikään kertoisi siitä. Tiiviste luokittelun
+    sisällöstä pakottaa uudelleenparsinnan ilman että kenenkään tarvitsee
+    muistaa nostaa versionumeroa.
+
+    Osiot ovat **kaksitasoisessa rakenteessa** eivätkä sisaruksina samassa
+    sanakirjassa: sisarusavaimena tiivisteen voisi peittää samanniminen
+    ``[parse]``-asetus, ja se pitäisi torjua vartijalla, jota mikään ei voi
+    laukaista. Sisäkkäisyys tekee törmäyksen mahdottomaksi rakenteen tasolla.
+    """
+    return compute_params_hash(
+        {
+            "parse": settings.model_dump(mode="json"),
+            "weapon_classification": weapon_classification_digest(),
+        }
+    )
 
 
 def _check_port_columns(
@@ -344,8 +362,9 @@ def _armed_stats(df: pl.DataFrame) -> dict[str, object]:
     """Kalustolaskurin **arvojakauma** kierrostaulusta.
 
     Jakauma kerrotaan ajon yhteydessä, koska laskuri on ainoa havainto, jonka
-    oikeellisuuden voi tarkistaa vain katsomalla sitä: väärä kynnys tuottaisi
-    taulun, joka läpäisee jokaisen skeematarkistuksen.
+    oikeellisuuden voi tarkistaa vain katsomalla sitä: väärä sääntö tai
+    vanhentunut aseluettelo tuottaisi taulun, joka läpäisee jokaisen
+    skeematarkistuksen.
 
     Nimenomaan jakauma eikä ääripäät: 41 riviä nollaa ja yksi viitonen antaisi
     ``0-5``, joka näyttää terveeltä. ``{0: 41, 5: 1}`` ei näytä.
@@ -473,7 +492,6 @@ def _existing_stats(
     table_abs: Path,
     ticks_abs: Path,
     events_abs: Path,
-    armed_threshold: int,
 ) -> dict[str, object]:
     """Luvut ohitettuun ajoon: luetaan valmiit taulut, ei parsita demoa.
 
@@ -487,18 +505,15 @@ def _existing_stats(
     rounds = _read_table(table_abs)
     ticks = _read_table(ticks_abs)
     events = _read_table(events_abs)
-    # Kynnys tulee asetuksista eikä taulusta: ohitus edellyttää täsmäävää
-    # parametrihashia, joten se on sama arvo, jolla taulu on laskettu.
-    threshold: dict[str, object] = {"armed_threshold": armed_threshold}
 
     # Kierros- ja näytepistetaulu ovat vaiheen ydintulos. Jos **kumpikaan** ei
     # aukea, koko tulos on lukukelvoton eikä siitä koota osittaista
     # yhteenvetoa: pelkkien utility-lukujen näyttäminen antaisi vaikutelman
     # ajantasaisesta tuloksesta.
     if isinstance(rounds, str) and isinstance(ticks, str):
-        return {"unreadable": rounds, **threshold}
+        return {"unreadable": rounds}
 
-    stats: dict[str, object] = dict(threshold)
+    stats: dict[str, object] = {}
     if isinstance(rounds, str):
         stats["unreadable"] = rounds
     else:
@@ -606,12 +621,7 @@ def run(
                 "parsia uudelleen."
             ),
             duration_s=time.perf_counter() - started,
-            stats=_existing_stats(
-                table_abs,
-                ticks_abs,
-                events_abs,
-                settings.armed_player_equip_min,
-            ),
+            stats=_existing_stats(table_abs, ticks_abs, events_abs),
         )
 
     try:
@@ -639,6 +649,8 @@ def run(
         )
         raise
 
+    diagnostics = getattr(parser, "diagnostics", None)
+
     # Manifesti viimeisenä: keskeytynyt ajo näkyy seuraavalla kerralla
     # puuttuvana tuloksena eikä ajantasaisena.
     Manifest.new(
@@ -652,13 +664,20 @@ def run(
     ).write(manifest_abs)
 
     stats = _stats(df, ticks, events, skipped_rounds)
-    # Kynnys tulosteeseen: "0 -> 5 riviä" on tulkittavissa vain, jos tiedetään
-    # mitä vasten vertailu tehtiin. Rivin koko tarkoitus on itsetarkistus.
-    stats["armed_threshold"] = settings.armed_player_equip_min
+    # Tuntemattomat tavaraluettelon nimet: ne eivät ole taulussa, koska ne
+    # eivät aseista ketään -- ilman tätä riviä uusi ase näyttäisi täsmälleen
+    # samalta kuin uusi veitsiskini. Avain asetetaan **jokaisessa tuoreessa
+    # ajossa**, myös silloin kun portti ei raportoi niitä: puuttuva avain
+    # tarkoittaa ohitettua ajoa, ja ``None`` porttia joka ei osaa kertoa.
+    # Ilman eroa nämä kolme tilaa näyttäisivät tulosteessa samalta.
+    stats["armed_unknown_items"] = (
+        None
+        if diagnostics is None
+        else tuple(getattr(diagnostics, "unknown_inventory_items", ()) or ())
+    )
     # Vain tuoreesta ajosta: numeroimattomien kierrosten rivit eivät ole
     # taulussa, joten ohitetusta ajosta lukua ei voi lukea takaisin.
     stats["utility_unnumbered_rounds"] = unnumbered
-    diagnostics = getattr(parser, "diagnostics", None)
     if diagnostics is not None:
         stats["tick_rate"] = diagnostics.tick_rate
         stats["tick_rate_measured"] = diagnostics.tick_rate_measured
@@ -667,6 +686,9 @@ def run(
         # kun demoa luetaan. Ohitetussa ajossa ne siis puuttuvat, ja se on
         # oikein.
         stats["partial_samples"] = getattr(diagnostics, "partial_samples", 0)
+        stats["armed_unreadable_rows"] = getattr(
+            diagnostics, "armed_unreadable_rows", 0
+        )
         stats["unknown_side_events"] = getattr(
             diagnostics, "unknown_side_events", 0
         )

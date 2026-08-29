@@ -159,6 +159,76 @@ def test_env_var_overrides_the_setting(
     assert archive.root == tmp_path / "toinen"
 
 
+def test_unset_variable_is_an_error_not_a_literal_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Laajentamaton ``%NIMI%`` kaataa ajon eikä muutu hakemiston nimeksi.
+
+    ``os.path.expandvars`` **jättää ``%NIMI%``:n sellaisenaan**, jos muuttujaa
+    ei ole -- se ei nosta virhettä eikä palauta tyhjää. Ilman tätä
+    tarkistusta ajo loi hakemiston, jonka nimi oli kirjaimellisesti
+    ``%USERPROFILE%``, kirjoitti koko arkiston sinne ja näytti onnistuneen.
+    Käyttäjällä on kaksi konetta, joten arkisto hajoaisi hiljaa.
+
+    Näin oikeasti kävi: repoon syntyi ``%USERPROFILE%``-niminen hakemisto
+    täysine polkupuineen.
+    """
+    monkeypatch.delenv("EI_ASETETTU_MUUTTUJA", raising=False)
+    monkeypatch.delenv(ARCHIVE_ROOT_ENV_VAR, raising=False)
+
+    with pytest.raises(PappascoutError) as exc:
+        ArchivePaths.from_settings("%EI_ASETETTU_MUUTTUJA%/arkisto")
+
+    message = str(exc.value)
+    # Nimeää puuttuvan muuttujan ja kertoo mistä arvo tuli.
+    assert "EI_ASETETTU_MUUTTUJA" in message
+    assert "archive_root" in message
+
+
+def test_unset_variable_in_the_env_override_names_the_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sama tarkistus koskee ympäristömuuttujan kautta annettua polkua.
+
+    Viesti nimeää eri lähteen: käyttäjän on tiedettävä kumpaa korjata, kun
+    ``PAPPASCOUT_ARCHIVE_ROOT`` ohittaa asetuksen kokonaan.
+    """
+    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, "%TOINEN_PUUTTUVA%/arkisto")
+    monkeypatch.delenv("TOINEN_PUUTTUVA", raising=False)
+
+    with pytest.raises(PappascoutError) as exc:
+        ArchivePaths.from_settings("C:/ei-valia")
+
+    message = str(exc.value)
+    assert "TOINEN_PUUTTUVA" in message
+    assert ARCHIVE_ROOT_ENV_VAR in message
+
+
+def test_braced_variable_is_checked_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``${NIMI}`` on yhtä yksiselitteinen paikkamerkki kuin ``%NIMI%``."""
+    monkeypatch.delenv(ARCHIVE_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv("KOLMAS_PUUTTUVA", raising=False)
+
+    with pytest.raises(PappascoutError, match="KOLMAS_PUUTTUVA"):
+        ArchivePaths.from_settings("${KOLMAS_PUUTTUVA}/arkisto")
+
+
+def test_a_set_variable_still_expands_without_complaint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Vartija ei saa hylätä polkuja, jotka laajenevat oikein.
+
+    Ilman tätä paria edellinen testi menisi läpi myös toteutuksella, joka
+    kaatuu jokaiseen prosenttimerkkiin.
+    """
+    monkeypatch.delenv(ARCHIVE_ROOT_ENV_VAR, raising=False)
+    monkeypatch.setenv("ON_ASETETTU", str(tmp_path))
+    archive = ArchivePaths.from_settings("%ON_ASETETTU%/arkisto")
+    assert archive.root == tmp_path / "arkisto"
+
+
 def test_real_settings_root_expands_to_an_absolute_path() -> None:
     """Oikean asetustiedoston polku laajenee absoluuttiseksi tällä koneella."""
     from conftest import REAL_SETTINGS

@@ -50,6 +50,8 @@ from pappascout.domain.rounds import REQUIRED_COLUMNS as NUMBERING_COLUMNS
 from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
 from pappascout.domain.models import load_settings
 from pappascout.domain.schemas import ARMED_COLUMN, EVENTS, ROUNDS, TICKS
+
+from test_calibration import ARMED_TRUTH
 from pappascout.errors import ParseError
 
 FAKE_DEMO = DEMO_MAGIC + b"\x00" + b"tekaistua sisaltoa" * 64
@@ -80,7 +82,6 @@ def real_parser() -> Demoparser2Adapter:
         exclude_weapons=parse_settings.first_contact_exclude_weapons,
         fallback_death=parse_settings.first_contact_fallback_death,
         area_snap_units=parse_settings.area_snap_units,
-        armed_player_equip_min=parse_settings.armed_player_equip_min,
     )
 
 
@@ -417,21 +418,19 @@ def test_ancient_armed_player_count_matches_the_human_reading() -> None:
     **Sääntö itse on kalibroitu demovapaassa** ``test_calibration.py``:ssä
     (``ARMED_TRUTH``), jotta ``pytest -m "not demo"`` valvoo sitä myös
     koneella, jolla demoja ei ole. Tämä testi tarkistaa toisen puolen samasta
-    väitteestä: että alla luetellut pelaajakohtaiset varustearvot todella
-    tulevat demosta ulos, eivätkä ole taulukkoon kirjattu muistikuva.
+    väitteestä: että samat tavaraluettelot ja panssariarvot todella tulevat
+    demosta ulos, eivätkä ole taulukkoon kirjattu muistikuva.
 
-    Havaitut pelaajakohtaiset varustearvot freezetimen lopussa:
+    Havainnot freezetimen lopussa:
 
-    * K19 CT ``[200, 2200, 2450, 2550, 2800]`` -> **4**. Force, "ostivat
-      tyhjäksi"; yksi jäi ilmaiseen oletuspistooliin (200 $) eikä siksi laskeudu
-      mukaan.
-    * K20 T ``[1500, 1700, 2550, 4400, 4400]`` -> **5**. "2x AK, 2x tec9,
-      1x mac10, kaikilla kevlar+kypärä" -- kaikki viisi.
-    * K21 T ``[200, 300, 500, 1250, 1300]`` -> **2**. Eco: kahdella
-      kevlar+pistooli (1250 ja 1300), ja 300 $:n p250 jää kynnyksen alle.
-      Ostettu pistooli **korvaa** ilmaisen eikä tule sen päälle, joten P250
-      yksinään on 300 eikä 500 -- mitattu Ancientista tavaraluetteloa vasten.
-      Rivi 500 on Glock + savu, ei p250.
+    * K19 CT -> **4**. Force, "ostivat tyhjäksi"; yksi jäi ilmaiseen
+      oletuspistooliin eikä ostanut panssaria.
+    * K20 T -> **5**. "2x AK, 2x tec9, 1x mac10, kaikilla kevlar+kypärä" --
+      kaikki viisi.
+    * K21 T -> **2**. Eco: kahdella kevlar + ostettu pistooli, ja kolmas
+      p250-pelaaja putoaa **panssarin puutteeseen**. Story 1.5:n kynnys
+      pudotti hänet siksi, että 300 $ < 950 $; sama luku, mutta nyt oikeasta
+      syystä.
     """
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
@@ -445,6 +444,78 @@ def test_ancient_armed_player_count_matches_the_human_reading() -> None:
     assert armed(19, "CT") == 4
     assert armed(20, "T") == 5
     assert armed(21, "T") == 2
+
+
+@pytest.mark.demo
+def test_ancient_inventories_match_the_calibration_table() -> None:
+    """``ARMED_TRUTH``in tavaraluettelot ja panssarit ovat demosta, ei muistista.
+
+    Edellinen testi toteaa vain kolme lukua, ja ne osuisivat myös silloin, jos
+    taulun rivit olisivat ajautuneet erilleen demosta ja sääntö kompensoisi
+    eron. Tämä lukee samat kolme ankkuria uudelleen ja vertaa **jokaisen
+    pelaajan** tavaraluettelon ja panssarin taulun riviin.
+
+    Vertailu on joukkona: taulun pelaajajärjestys on dokumentin, ei demon.
+    """
+    from demoparser2 import DemoParser as _Demoparser2
+
+    from pappascout.adapters.decompress import readable_demo
+
+    df = mark_played_rounds(
+        real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    wanted = {(k.round_no, k.side): k for k in ARMED_TRUTH}
+    anchors = {
+        (row["round_no"], row["side"]): row["freeze_end_tick"]
+        for row in df.iter_rows(named=True)
+        if (row["round_no"], row["side"]) in wanted
+    }
+    assert len(anchors) == len(wanted)
+
+    adapter = real_parser()
+    with readable_demo(require_demo(ANCIENT_DEM)) as demo_path:
+        by_tick = adapter._read_ticks(
+            _Demoparser2(str(demo_path)),
+            sorted(set(anchors.values())),
+            require_demo(ANCIENT_DEM),
+        )
+
+    for key, truth in wanted.items():
+        _round_no, side = key
+        rows = [r for r in by_tick[anchors[key]] if r["side"] == side]
+        observed = sorted(
+            (tuple(sorted(r["inventory"])), r["armor_value"]) for r in rows
+        )
+        expected = sorted(
+            (tuple(sorted(inventory)), armor) for inventory, armor in truth.players
+        )
+        assert observed == expected, (
+            f"Kierros {truth.round_no} {truth.side}: demo ja ARMED_TRUTH "
+            f"eroavat.\nDemo: {observed}\nTaulu: {expected}"
+        )
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", [ANCIENT_DEM, NUKE_ZST])
+def test_real_demo_has_no_unknown_inventory_items(demo_name: str) -> None:
+    """Aseluokittelu tuntee jokaisen nimen, jonka testidemot sisältävät.
+
+    Tuntematon nimi ei aseista ketään, joten tuntematon **ase** laskisi
+    laskurin hiljaa alas. Testi ei vaadi, että luettelo kattaa koko pelin --
+    se vaatii, että se kattaa sen aineiston, jota vasten laskuri on
+    kalibroitu. Uusi demo saa tuoda uusia nimiä; silloin tämä kertoo mitkä.
+
+    Samalla todetaan, ettei yhdelläkään rivillä jäänyt panssari tai
+    tavaraluettelo lukematta: se tyhjentäisi laskurin, ja tyhjä rivi
+    näyttäisi ankkurittomalta kierrokselta.
+    """
+    adapter = real_parser()
+    adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.unknown_inventory_items == ()
+    assert adapter.diagnostics.armed_unreadable_rows == 0
 
 
 @pytest.mark.demo
@@ -473,8 +544,9 @@ def test_armed_count_stays_within_its_divisor(demo_name: str) -> None:
         (pl.col(ARMED_COLUMN) >= 0)
         & (pl.col(ARMED_COLUMN) <= pl.col("players_freeze_end"))
     ).to_series().all()
-    # Kynnys erottaa oikeasti: pelkkä yksi arvo koko taulussa tarkoittaisi,
-    # että se on aineiston ulkopuolella eikä sen sisällä.
+    # Sääntö erottaa oikeasti: pelkkä yksi arvo koko taulussa tarkoittaisi,
+    # ettei se pure aineistoon lainkaan -- esimerkiksi että jokainen nimi on
+    # tuntematon ja laskuri siis aina nolla.
     assert observed[ARMED_COLUMN].n_unique() > 1
 
 

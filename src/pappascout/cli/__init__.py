@@ -223,8 +223,10 @@ def parse(
     typer.echo(_render_parse(result, regulation_rounds=2 * settings.league.mr))
 
 
-#: Tulosteen sarakeleveys, jotta arvot linjautuvat otsikoiden alle.
-_PARSE_LABEL_WIDTH = 20
+#: Tulosteen sarakeleveys, jotta arvot linjautuvat otsikoiden alle. Pisin
+#: otsikko on "Tuntemattomat esineet" (21 merkkiä), ja arvo tarvitsee vähintään
+#: yhden välilyönnin eteensä.
+_PARSE_LABEL_WIDTH = 22
 
 
 def _line(label: str, value: str) -> str:
@@ -318,29 +320,43 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
     return "\n".join(lines)
 
 
+#: Sääntö, jolla ``players_armed_freeze_end`` lasketaan. Tulostetaan aina
+#: jakauman kanssa: ilman sitä lukuja ei voi tulkita, ja rivin koko tarkoitus
+#: on olla itsetarkistus ajon yhteydessä.
+_ARMED_RULE = "panssari ja ase hallussa"
+
+#: Montako tuntematonta nimeä tulostetaan enintään. Jos demoparser2 muuttaa
+#: nimeämistapaansa, **jokainen** nimi on tuntematon: ilman katkaisua rivi
+#: olisi satojen nimien mittainen juuri silloin, kun käyttäjän pitäisi nähdä
+#: yhdellä silmäyksellä että jokin on pahasti pielessä.
+_MAX_UNKNOWN_ITEMS = 20
+
+
 def _armed_players(stats: dict) -> list[str]:
     """Kalustolaskurin arvojakauma ``parse``-tulosteeseen.
 
-    Laskuri on havainto, jonka voi tarkistaa vain katsomalla: väärä kynnys
+    Laskuri on havainto, jonka voi tarkistaa vain katsomalla: väärä sääntö
     tuottaisi taulun, joka läpäisee jokaisen skeematarkistuksen. Siksi tässä
     tulostetaan **jakauma eikä ääripäät** -- 41 riviä nollaa ja yksi viitonen
     antaisi ``0-5``, joka näyttää terveeltä, mutta ``0 -> 41, 5 -> 1`` ei.
 
-    Kynnys tulostetaan lukuna: ilman sitä jakaumaa ei voi tulkita, ja rivin
-    koko tarkoitus on olla itsetarkistus ajon yhteydessä.
+    Tuntemattomat tavaraluettelon nimet saavat oman rivinsä. Ne eivät aseista
+    ketään (luokittelu on sallittujen aseiden luettelo), joten ilman riviä uusi
+    ase ja uusi veitsiskini näyttäisivät täsmälleen samalta: jakauma vain
+    valuisi hiljaa alaspäin.
     """
     distribution = stats.get("armed_distribution")
     if distribution is None:
-        return []
+        return _armed_unknown_items(stats)
 
-    threshold = stats.get("armed_threshold")
-    prefix = "" if threshold is None else f"kynnys {int(threshold)} $/pelaaja; "
+    prefix = f"{_ARMED_RULE}; "
     missing = int(stats.get("armed_missing", 0) or 0)
 
     if not distribution:
-        return [
+        lines = [
             _line("Aseistettuja", f"{prefix}ei yhtään havaintoa ({missing} riviä)")
         ]
+        return lines + _armed_unknown_items(stats)
 
     spread = ", ".join(
         f"{value} -> {rows} riviä" for value, rows in sorted(distribution.items())
@@ -348,7 +364,65 @@ def _armed_players(stats: dict) -> list[str]:
     text = f"{prefix}{spread}"
     if missing:
         text += f"; havainto puuttuu {missing} riviltä"
-    return [_line("Aseistettuja", text)]
+    return [_line("Aseistettuja", text)] + _armed_unknown_items(stats)
+
+
+def _armed_unknown_items(stats: dict) -> list[str]:
+    """Tavaraluettelon nimet, joita aseluokittelu ei tunne.
+
+    Kolme eri tilaa, jotka on pidettävä erillään:
+
+    ``armed_unknown_items`` puuttuu
+        Ohitettu ajo. Nimiä ei ole taulussa -- ne eivät aseista ketään --
+        joten niitä ei voi lukea takaisin. Rivi jätetään pois kokonaan.
+    arvo on ``None``
+        Tuore ajo portilla, joka ei raportoi tuntemattomia. Rivi sanoo sen
+        ääneen: "ei yhtään" olisi väite, jota mikään ei tue.
+    arvo on tyhjä
+        Tuore ajo, jossa jokainen nimi tunnistettiin. Se on terve tulos, ja
+        se sanotaan ääneen.
+
+    Esiintymämäärä tulostetaan nimen perässä (``Uusi Ase x3``): se erottaa
+    yhden eksoottisen veitsen demoparser2:n nimeämismuutoksesta, joka osuu
+    joka riviin.
+    """
+    if "armed_unknown_items" not in stats:
+        return []
+    items = stats.get("armed_unknown_items")
+    if items is None:
+        return [
+            _line(
+                "Tuntemattomat esineet",
+                "ei tiedossa (demoportti ei raportoi tuntemattomia nimiä)",
+            )
+        ]
+    items = tuple(items)
+    if not items:
+        return [_line("Tuntemattomat esineet", "ei yhtään")]
+
+    shown = items[:_MAX_UNKNOWN_ITEMS]
+    listed = ", ".join(_unknown_item(item) for item in shown)
+    hidden = len(items) - len(shown)
+    if hidden:
+        listed += f" (+{hidden} muuta)"
+    count = (
+        "1 esinenimi" if len(items) == 1 else f"{len(items)} eri esinenimeä"
+    )
+    return [
+        _line(
+            "Tuntemattomat esineet",
+            f"{count}: {listed} "
+            "(ei laskettu aseeksi -- lisää tunnistettu ase constants.py:hyn)",
+        )
+    ]
+
+
+def _unknown_item(item: object) -> str:
+    """Muotoile yksi tuntematon nimi esiintymämäärineen."""
+    if isinstance(item, (tuple, list)) and len(item) == 2:
+        name, seen = item
+        return f"{name} x{int(seen)}"
+    return str(item)
 
 
 def _sample_points(stats: dict, rounds: int) -> list[str]:

@@ -20,6 +20,7 @@ from pappascout.adapters.protocols import (
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
+    ParseDiagnostics,
 )
 from pappascout.archive.manifest import Manifest
 from pappascout.archive.paths import ArchivePaths
@@ -1071,19 +1072,34 @@ def test_parse_setting_change_triggers_a_reparse(tmp_path: Path, archive, demo) 
     assert parser.calls == 2
 
 
-def test_params_hash_covers_the_armed_threshold(tmp_path: Path, archive) -> None:
-    """Hash lasketaan koko ``ParseSettings``-osiosta -- todettuna, ei oletettuna.
+def test_params_hash_covers_the_weapon_classification(
+    parse_settings, monkeypatch
+) -> None:
+    """Aseluokittelun muutos mitätöi arkiston, vaikka asetukset eivät muutu.
+
+    Luokittelu on koodia eikä asetus, joten pelkkä ``[parse]``-osion hash
+    jättäisi sen muutoksen näkymättömäksi: taulu olisi laskettu vanhalla
+    aseluettelolla, manifesti täsmäisi ja arkistoon jäisi hiljaa vanhentunut
+    laskuri. Vaihtoehto olisi käsin nostettava versionumero -- se toimii vain
+    jos kukaan ei unohda.
+    """
+    before = parse_stage._params_hash(parse_settings)
+    monkeypatch.setattr(
+        parse_stage, "weapon_classification_digest", lambda: "toinen-tiiviste"
+    )
+    assert parse_stage._params_hash(parse_settings) != before
+
+
+def test_params_hash_still_covers_the_parse_section(
+    tmp_path: Path, archive
+) -> None:
+    """Hash lasketaan myös koko ``ParseSettings``-osiosta -- todettuna.
 
     ``_params_hash`` dumppaa osion sellaisenaan, joten uusi kenttä *pitäisi*
     tulla hashiin automaattisesti. Juuri siksi se tarkistetaan: hiljainen
-    poikkeus (esim. ``exclude``-lista) jäisi muuten huomaamatta.
-
-    Tämä on koko sijoituksen syy. Jos kynnys olisi ``[economy]``- tai
-    ``[thresholds]``-osiossa, hash ei muuttuisi, ajo ohitettaisiin ja
-    arkistoon jäisi vanhalla kynnyksellä laskettu sarake ilman varoitusta.
-    Ohitusmekanismi itse on jo katettu
-    ``test_parse_setting_change_triggers_a_reparse``issa, joten tässä
-    testataan vain se, että kenttä on hashissa.
+    poikkeus (esim. ``exclude``-lista) jäisi muuten huomaamatta, ja
+    luokittelun tiivisteen lisääminen dictiin on juuri sellainen kohta,
+    jossa osio olisi voinut jäädä pois.
     """
     base_toml = tmp_path / "perus.toml"
     base_toml.write_text(settings_text(archive.root), encoding="utf-8")
@@ -1091,15 +1107,37 @@ def test_params_hash_covers_the_armed_threshold(tmp_path: Path, archive) -> None
     changed_toml.write_text(
         settings_text(
             archive.root,
-            **{"armed_player_equip_min = 950": "armed_player_equip_min = 951"},
+            **{"area_snap_units = 500": "area_snap_units = 501"},
         ),
         encoding="utf-8",
     )
 
     base = load_settings(base_toml, env_files=()).parse
     changed = load_settings(changed_toml, env_files=()).parse
-    assert "armed_player_equip_min" in base.model_dump(mode="json")
+    assert "area_snap_units" in base.model_dump(mode="json")
     assert parse_stage._params_hash(base) != parse_stage._params_hash(changed)
+
+
+def test_params_hash_keeps_the_section_and_the_digest_apart(
+    parse_settings, monkeypatch
+) -> None:
+    """Asetusosio ja tiiviste ovat eri tasoilla, eivät sisaruksina.
+
+    Sisarusavaimena samanniminen ``[parse]``-asetus voisi peittää tiivisteen,
+    ja sitä pitäisi torjua vartijalla, jota mikään ei voi laukaista.
+    Kaksitasoinen rakenne tekee törmäyksen mahdottomaksi, ja tämä toteaa
+    että molemmat puolet ovat oikeasti hashissa: kummankin muutos riittää.
+    """
+    before = parse_stage._params_hash(parse_settings)
+
+    monkeypatch.setattr(
+        parse_stage, "weapon_classification_digest", lambda: "toinen-tiiviste"
+    )
+    only_digest_changed = parse_stage._params_hash(parse_settings)
+    assert only_digest_changed != before
+
+    other_section = parse_settings.model_copy(update={"area_snap_units": 501})
+    assert parse_stage._params_hash(other_section) != only_digest_changed
 
 
 def test_old_table_without_the_column_is_reparsed_not_rejected(
@@ -1119,7 +1157,7 @@ def test_old_table_without_the_column_is_reparsed_not_rejected(
     old.write_parquet(table)
     manifest_path = archive.parsed_manifest(MAP_DEMO_ID)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["params_hash"] = "vanha-hash-ilman-kalustokynnysta"
+    manifest["params_hash"] = "vanha-hash-ilman-kalustolaskuria"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     result = run_parse(parse_settings, archive, parser, demo)
@@ -1158,10 +1196,6 @@ def test_run_reports_the_armed_distribution(parse_settings, archive, demo) -> No
 
     assert result.stats["armed_distribution"] == {4: 3, 5: 3}
     assert result.stats["armed_missing"] == 0
-    assert (
-        result.stats["armed_threshold"]
-        == parse_settings.armed_player_equip_min
-    )
 
 
 def test_skipped_run_reports_the_armed_distribution_too(
@@ -1169,8 +1203,10 @@ def test_skipped_run_reports_the_armed_distribution_too(
 ) -> None:
     """Ohitettu ajo lukee jakauman valmiista taulusta, ei muistista.
 
-    Kynnys tulee asetuksista: ohitus edellyttää täsmäävää parametrihashia,
-    joten se on sama arvo, jolla taulu on laskettu.
+    Tuntemattomia nimiä ohitettu ajo **ei** raportoi: ne eivät ole taulussa,
+    koska ne eivät aseista ketään, eikä niitä voi lukea takaisin ilman demoa.
+    Puuttuva avain on siis oikea tulos -- keksitty tyhjä lista väittäisi,
+    ettei tuntemattomia ollut.
     """
     parser = FakeParser(build_rounds(played=3))
     run_parse(parse_settings, archive, parser, demo)
@@ -1179,10 +1215,7 @@ def test_skipped_run_reports_the_armed_distribution_too(
 
     assert result.skipped
     assert result.stats["armed_distribution"] == {4: 3, 5: 3}
-    assert (
-        result.stats["armed_threshold"]
-        == parse_settings.armed_player_equip_min
-    )
+    assert "armed_unknown_items" not in result.stats
 
 
 def test_armed_distribution_counts_rounds_without_an_anchor_as_missing(
@@ -1194,6 +1227,93 @@ def test_armed_distribution_counts_rounds_without_an_anchor_as_missing(
 
     assert result.stats["armed_missing"] == 2  # yksi rivi per joukkue
     assert result.stats["armed_distribution"] == {4: 2, 5: 2}
+
+
+def test_run_reports_the_unknown_inventory_items(
+    parse_settings, archive, demo
+) -> None:
+    """Tuntemattomat tavaraluettelon nimet kulkevat diagnostiikasta lukuihin.
+
+    Ilman tätä tuottaja ja kuluttaja testataan vain erikseen: adapteri
+    kerää nimet ja tuloste osaa muotoilla ne, mutta väliltä puuttuisi se
+    yksi rivi, joka siirtää ne. Tuntematon nimi ei aseista ketään, joten
+    ilman tulostetta uusi ase näyttäisi täsmälleen samalta kuin uusi
+    veitsiskini: jakauma vain valuisi hiljaa alaspäin.
+    """
+    parser = FakeParser(build_rounds(played=3))
+    parser.diagnostics = ParseDiagnostics(
+        tick_rate=64.0,
+        tick_rate_measured=True,
+        rounds_seen=3,
+        unknown_inventory_items=(("Ei-Ole-Olemassa-9000", 3), ("Uusi Ase", 1)),
+    )
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.stats["armed_unknown_items"] == (
+        ("Ei-Ole-Olemassa-9000", 3),
+        ("Uusi Ase", 1),
+    )
+
+
+def test_run_reports_an_empty_unknown_list_as_empty(
+    parse_settings, archive, demo
+) -> None:
+    """Tyhjä on eri asia kuin puuttuva.
+
+    Tyhjä luettelo on tuore ajo, jossa jokainen nimi tunnistettiin; avaimen
+    puuttuminen on ohitettu ajo, josta nimiä ei voi lukea takaisin. Vain
+    edellisestä saa sanoa "ei yhtään".
+    """
+    parser = FakeParser(build_rounds(played=3))
+    parser.diagnostics = ParseDiagnostics(
+        tick_rate=64.0, tick_rate_measured=True, rounds_seen=3
+    )
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.stats["armed_unknown_items"] == ()
+
+
+def test_fresh_run_without_diagnostics_is_not_the_same_as_a_skipped_one(
+    parse_settings, archive, demo
+) -> None:
+    """Portti, joka ei raportoi tuntemattomia, saa oman tilansa.
+
+    Kolme tilaa on pidettävä erillään: avain puuttuu (ohitettu ajo, nimiä ei
+    voi lukea takaisin), ``None`` (tuore ajo, portti ei kerro) ja tyhjä
+    (tuore ajo, jokainen nimi tunnistettiin). Ilman eroa tuloste väittäisi
+    diagnostiikattomasta ajosta samaa kuin ohitetusta.
+    """
+    parser = FakeParser(build_rounds(played=3))
+    assert not hasattr(parser, "diagnostics")
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert not result.skipped
+    assert "armed_unknown_items" in result.stats
+    assert result.stats["armed_unknown_items"] is None
+
+
+def test_unreadable_armed_rows_reach_the_stats(
+    parse_settings, archive, demo
+) -> None:
+    """Kalustolaskurin lukuvirheet kulkevat diagnostiikasta lukuihin.
+
+    Luku on vika eikä havainto: ilman sitä laskuri voisi olla tyhjä koko
+    demossa propivian takia, ja tulos näyttäisi vain säästökierroksilta.
+    """
+    parser = FakeParser(build_rounds(played=3))
+    parser.diagnostics = ParseDiagnostics(
+        tick_rate=64.0,
+        tick_rate_measured=True,
+        rounds_seen=3,
+        armed_unreadable_rows=2,
+    )
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.stats["armed_unreadable_rows"] == 2
 
 
 def test_missing_output_forces_a_reparse(parse_settings, archive, demo) -> None:

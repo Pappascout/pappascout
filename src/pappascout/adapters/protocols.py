@@ -152,6 +152,20 @@ class ParseDiagnostics:
         grenades_id_reused_in_round: Kranaattiparit, joiden tunniste toistuu
             saman kierroksen sisällä. Sopimus lupaa, että
             ``(round_no, grenade_entity_id)`` yksilöi parin.
+        unknown_inventory_items: Tavaraluettelon nimet, joita aseluokittelu ei
+            tunne, pareina ``(nimi, esiintymiä)`` aakkosjärjestyksessä.
+            Tuntematon nimi **ei aseista** pelaajaa (luokittelu on sallittujen
+            luettelo), joten ilman tätä listaa uusi veitsiskini ja uusi ase
+            näyttäisivät täsmälleen samalta: ei kummastakaan mitään jälkeä.
+            Esiintymämäärä on mukana, koska se erottaa ne toisistaan: yksi
+            eksoottinen veitsi näkyy kerran tai kaksi, demoparser2:n
+            nimeämismuutos joka rivillä. Tyhjä on normaali tulos.
+        armed_unreadable_rows: Joukkuerivit, joilla kalustolaskuri jäi tyhjäksi
+            siksi, että jonkun pelaajan panssari tai tavaraluettelo ei ollut
+            luettavissa. **Vika eikä havainto**: ankkurittomat kierrokset
+            eivät ole tässä luvussa, joten nollasta poikkeava arvo tarkoittaa
+            propivikaa. Ilman omaa lukuaan se sekoittuisi rehellisiin
+            "ei havaintoa" -riveihin.
 
     Näytepisteiden, ensikontaktien ja utility-tapahtumien **määrät eivät ole
     täällä**: ne luetaan valmiista taulusta vaiheessa. Adapteri laskisi ne
@@ -172,6 +186,8 @@ class ParseDiagnostics:
     grenades_detonating_after_round: int = 0
     grenade_ticks_without_players: int = 0
     grenades_id_reused_in_round: int = 0
+    unknown_inventory_items: tuple[tuple[str, int], ...] = ()
+    armed_unreadable_rows: int = 0
 
 
 @runtime_checkable

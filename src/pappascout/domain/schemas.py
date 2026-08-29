@@ -91,10 +91,16 @@ ROUNDS: Schema = {
     "equip_freeze_end": pl.Int32,  # $ current_equip_value-summa freezetimen lopussa
     "equip_round_start": pl.Int32,  # $ round_start_equip_value-summa
     "players_freeze_end": pl.Int32,  # pelaajat, joiden arvot olivat luettavissa
-    # Edellisistä ne, joiden OMA varustearvo ylsi parse.armed_player_equip_miniin.
+    # Edellisistä ne, joilla oli PANSSARI JA VÄHINTÄÄN YKSI ASE HALLUSSA
+    # freezetimen lopussa. Luettu tavaraluettelosta ja m_ArmorValuesta, ei
+    # varustearvosta: varustearvo on ase + panssari + kranaatit yhtenä lukuna
+    # eikä erota asetta ilmaisesta pistoolista ja kahdesta valosta. HALLUSSAPITO
+    # EIKÄ OSTOS: säästetty tai poimittu kivääri laskeutuu samoin kuin ostettu.
     # Joukkuesumma ei kerro tätä: kaksi AK:ta ja kolme tyhjää antaa saman summan
     # kuin viisi puolinaista. Aina 0..players_freeze_end; null kun havaintoa ei
-    # ole lainkaan -- nolla tarkoittaa "kukaan ei yltänyt kynnykseen".
+    # ole lainkaan -- nolla tarkoittaa "kukaan ei ollut aseistettu".
+    # Null myös silloin, kun yhdenkin pelaajan panssari tai tavaraluettelo on
+    # lukukelvoton: osittainen luku näyttäisi säästöltä eikä lukuvirheeltä.
     ARMED_COLUMN: pl.Int32,
     "survivors": pl.Int32,  # elossa kierroksen lopussa
     "survivors_equip_prev": pl.Int32,  # $ edelliseltä kierrokselta säästynyt varustearvo
