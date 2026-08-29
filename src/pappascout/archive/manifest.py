@@ -184,6 +184,37 @@ class Manifest(BaseModel):
         base = Path(root)
         return [name for name in self.outputs if not (base / Path(name)).exists()]
 
+    def fingerprint(self) -> str:
+        """Tämän tuloksen tunniste **manifestin sisällöstä**.
+
+        Seuraava vaihe kirjoittaa arvon omaan
+        :attr:`ManifestInput.sha256`-kenttäänsä. **Se ei ole tiedoston
+        tiiviste** vaan sha256 tämän manifestin parametrihashista,
+        syötteistä, työkaluversioista, tulostiedostoista ja tilasta. Vaiheen
+        tulostauluja ei hashata -- ne ovat johdettuja, ja niiden identiteetti
+        on juuri se, mistä ne johdettiin.
+
+        Luontihetki jätetään pois tarkoituksella: sama syöte samoilla
+        asetuksilla tuottaa saman tuloksen, eikä pelkkä uudelleenajo
+        (``--pakota``) saa pakottaa seuraavaa vaihetta ajamaan uudelleen.
+        Kaikki muu on mukana, joten muuttunut demo, muuttunut asetus tai
+        vaihtunut työkaluversio näkyy heti.
+
+        Yksi määritelmä, koska sekä ``classify`` että ``aggregate``
+        tunnistavat syötteensä näin -- kaksi kopiota erkanisi ennemmin tai
+        myöhemmin, ja silloin toinen vaihe ohittaisi työn, jonka toinen ajaisi
+        uudelleen.
+        """
+        return compute_params_hash(
+            {
+                "params_hash": self.params_hash,
+                "inputs": sorted([i.result_id, i.sha256] for i in self.inputs),
+                "tool_versions": dict(self.tool_versions),
+                "outputs": sorted(self.outputs),
+                "status": self.status,
+            }
+        )
+
     def write(self, path: Path | str) -> Path:
         """Kirjoita manifesti atomisesti JSONina."""
         text = self.model_dump_json(indent=2)

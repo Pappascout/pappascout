@@ -18,6 +18,7 @@ __all__ = [
     "DemoUnavailable",
     "ParseError",
     "SchemaError",
+    "AggregateError",
     "LockError",
     "SettingsError",
 ]
@@ -44,6 +45,17 @@ class ParseError(PappascoutError):
 
 class SchemaError(PappascoutError):
     """Taulu ei vastaa jaettua skeemasopimusta (AD-2)."""
+
+
+class AggregateError(PappascoutError):
+    """Aggregoinnin otantatarkistus ei mennyt läpi (Story 2.3).
+
+    Nostetaan silloin, kun jakauman ``n``-arvojen summa ei täsmää otannan
+    ``m``:ään. Se ei ole muotoiluvirhe vaan merkki siitä, että kierros katosi
+    matkalla: joko liitos ``(map_demo_id, round_no)`` jätti rivin ulkopuolelle
+    tai jakaumasta puuttuu nollalokero. Kumpikin tuottaisi raportin, joka
+    näyttää oikealta mutta väittää väärää otantaa -- siksi ajo pysähtyy.
+    """
 
 
 class LockError(PappascoutError):

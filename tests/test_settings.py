@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from conftest import REAL_SETTINGS, settings_text
 from pappascout.domain.models import (
+    AggregateSettings,
     MAX_BUY_WINDOW_SECONDS,
     MAX_SNAPSHOT_SECONDS,
     REMOVED_SETTINGS,
@@ -626,6 +627,51 @@ def test_threshold_values(settings_file: Path) -> None:
     assert t.loss_count_max == 4
     assert t.team_identity_min_common == 3
     assert t.small_sample_rounds == 3
+
+
+@pytest.mark.parametrize(
+    "value,message",
+    [
+        ([10.0, 5.0], "aidosti kasvava"),
+        ([5.0, 5.0], "aidosti kasvava"),
+        ([0.0], "ei ole positiivinen"),
+        ([-1.0], "ei ole positiivinen"),
+        ([float("nan")], "äärellinen"),
+        ([float("inf")], "äärellinen"),
+        # Kaksi rajaa, jotka näyttävät samalta lokeron nimessä.
+        ([5.000000001, 5.000000002], "samalta lokeron nimessä"),
+    ],
+)
+def test_utility_seconds_buckets_are_checked_at_load(
+    value: list[float], message: str
+) -> None:
+    """Järjestämätön tai mahdoton raja jäisi muuten hiljaa tyhjäksi lokeroksi."""
+    with pytest.raises(ValidationError, match=message):
+        AggregateSettings(utility_seconds_buckets=value)
+
+
+def test_utility_seconds_buckets_may_be_empty() -> None:
+    """Aikaikkunan poistaminen on kelvollinen valinta, ei koodimuutos."""
+    a = AggregateSettings(utility_seconds_buckets=[])
+    assert a.utility_seconds_buckets == []
+
+
+def test_aggregate_section_is_read_from_the_settings_file(
+    settings_file: Path,
+) -> None:
+    """``[aggregate]`` on oma osionsa, jotta classify ei hashaa sitä."""
+    s = _load(settings_file)
+    assert s.aggregate.utility_seconds_buckets == [5.0, 10.0, 20.0]
+    assert not hasattr(s.thresholds, "utility_seconds_buckets")
+
+
+def test_aggregate_default_matches_the_settings_file() -> None:
+    """Koodioletus ei saa erota asetustiedostosta.
+
+    Tyhjä oletus tuottaisi hiljaa yhden lokeron raportin, jos avain unohtuisi
+    tiedostosta -- eikä mikään kertoisi että aikaikkunat katosivat.
+    """
+    assert AggregateSettings().utility_seconds_buckets == [5.0, 10.0, 20.0]
 
 
 def test_economy_values(settings_file: Path) -> None:

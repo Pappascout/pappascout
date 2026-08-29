@@ -4,11 +4,12 @@ CLI on ohut: se lukee asetukset, valitsee vaiheet ja näyttää tuloksen. Se ei
 kutsu adaptereita eikä arkistoa suoraan, eikä siinä ole analyysilogiikkaa --
 sama putki ajetaan myöhemmin web-kuoren takaa muuttamatta domainia.
 
-Komentoja on kolme: ``info`` näyttää asetukset, arkiston tilan ja avainten
+Komentoja on neljä: ``info`` näyttää asetukset, arkiston tilan ja avainten
 tilan paljastamatta avainten arvoja, ``parse`` ajaa putken ensimmäisen vaiheen
-yhdelle demolle ja ``classify`` luokittelee sen kierrokset yhden joukkueen
-näkökulmasta. Loput (``scout``, ``next``, ``collect``, ``import``, ``report``)
-tulevat myöhemmissä storyissa.
+yhdelle demolle, ``classify`` luokittelee sen kierrokset yhden joukkueen
+näkökulmasta ja ``aggregate`` kokoaa joukkueen luokitellut kierrokset yhdeksi
+``report.json``-tiedostoksi. Loput (``scout``, ``next``, ``collect``,
+``import``, ``report``) tulevat myöhemmissä storyissa.
 
 Arkistoon ja adaptereihin ei kosketa täältä: polut pyydetään
 ``stages.archive_paths``ilta ja demoportti ``stages.parse.default_parser``ilta.
@@ -26,10 +27,16 @@ import sys
 import typer
 
 from pappascout import __version__
-from pappascout.constants import ROUND_TYPES, UNCLASSIFIED
+from pappascout.constants import (
+    ROUND_TYPES,
+    SAMPLE_BUCKET_FI,
+    SAMPLE_BUCKETS,
+    UNCLASSIFIED,
+)
 from pappascout.domain.models import Settings, load_settings, secrets_env_path
 from pappascout.errors import PappascoutError
 from pappascout.stages import StageResult, archive_paths
+from pappascout.stages import aggregate as aggregate_stage
 from pappascout.stages import classify as classify_stage
 from pappascout.stages import parse as parse_stage
 
@@ -1048,6 +1055,144 @@ def _render_round_list(rows: list[dict]) -> str:
     result.append("käytetty; jäljellä on saldo ostojen jälkeen, joten")
     result.append("säästökierroksella se on suuri.")
     return "\n".join(result)
+
+
+@app.command("aggregate")
+def aggregate(
+    team: str | None = typer.Option(
+        None,
+        "--team",
+        help=(
+            "Joukkueen tunniste (classified/-hakemiston nimi) tai sen "
+            "yksikäsitteinen alkuosa. Ilman tätä ajo päättyy virheeseen, "
+            "joka listaa arkiston joukkueet."
+        ),
+    ),
+    force: bool = typer.Option(
+        False,
+        "--pakota",
+        help="Aggregoi vaikka manifesti täsmäisi.",
+    ),
+) -> None:
+    """Kokoa joukkueen luokitellut kierrokset yhdeksi report.json-tiedostoksi.
+
+    Vaihe laskee kaiken: pelaajamäärät alueittain jokaisessa näytepisteessä,
+    utilityn heitto- ja räjähdysalueet aikaikkunoineen sekä ensikontaktin
+    alueet -- kartta, puoli ja kierrostyyppi kerrallaan, jokainen väite
+    otannallaan. Se ei valitse mitä raportissa sanotaan; sen tekee render.
+    """
+    settings = load_settings()
+    archive = archive_paths(settings.project)
+    result = aggregate_stage.run(
+        settings.thresholds,
+        settings.league,
+        archive,
+        team,
+        aggregate_settings=settings.aggregate,
+        force=force,
+    )
+    typer.echo(_render_aggregate(result))
+
+
+def _render_aggregate(result: StageResult) -> str:
+    """Kokoa ``aggregate``-komennon yhteenveto.
+
+    Erotettu omaksi funktiokseen, jotta tuloste on testattavissa ilman
+    komentorivin ajamista. Otannat ovat tulosteen tärkein osa: käyttäjä
+    tarkistaa niistä, tuliko mukaan se aineisto, jonka hän odotti.
+    """
+    stats = result.stats
+    lines: list[str] = []
+    lines.append(f"{'Ohitettu' if result.skipped else 'Aggregoitu'}: {result.unit}")
+
+    if result.reason:
+        lines.append(_line("Syy", result.reason))
+
+    lineups = stats.get("lineup_keys") or []
+    if len(lineups) > 1:
+        lines.append(
+            _line(
+                "Kokoonpanot",
+                f"{', '.join(str(k) for k in lineups)} (liitetty samaksi "
+                "joukkueeksi yhteisten pelaajien perusteella)",
+            )
+        )
+    roster = stats.get("roster") or []
+    if roster:
+        lines.append(_line("Rosteri", f"{len(roster)} pelaajaa havaittu"))
+
+    lines.append(
+        _line(
+            "Otanta",
+            f"{int(stats.get('demos', 0) or 0)} demoa, "
+            f"{int(stats.get('rounds', 0) or 0)} kierrosta",
+        )
+    )
+    sample = stats.get("sample") or {}
+    if sample:
+        # Lokeroiden avaimet ovat englanniksi, koska ne ovat osa report.jsonin
+        # sopimusta; tuloste on suomeksi kuten kaikki muukin käyttäjälle
+        # näkyvä teksti. Sama työnjako kuin ROUND_TYPE_FI:llä.
+        lines.append(
+            _line(
+                "Lokerot",
+                ", ".join(
+                    f"{SAMPLE_BUCKET_FI[name]} {sample[name]['demos']} demoa / "
+                    f"{sample[name]['rounds']} kierrosta"
+                    for name in SAMPLE_BUCKETS
+                    if name in sample
+                ),
+            )
+        )
+
+    unclassified = int(stats.get("unclassified", 0) or 0)
+    if unclassified:
+        lines.append(
+            _line(
+                "Luokittelemattomat",
+                f"{unclassified} kierrosta (havainto puuttuu, ei mukana "
+                "rakenteessa)",
+            )
+        )
+
+    unpaired = int(stats.get("unpaired_detonations", 0) or 0)
+    if unpaired:
+        lines.append(
+            _line(
+                "Parittomat räjähdykset",
+                f"{unpaired} (heittoriviä ei löytynyt; ei mukana utilityn "
+                "luvuissa)",
+            )
+        )
+
+    for entry in stats.get("maps") or []:
+        lines.append("")
+        source = (
+            "" if entry["map_name_source"] == "map_demo_id" else " (nimi tuntematon)"
+        )
+        lines.append(
+            f"{entry['map_name']}{source}: {entry['demos']} demoa, "
+            f"{entry['rounds']} kierrosta"
+        )
+        for side in entry["sides"]:
+            types = ", ".join(
+                f"{name} {count}" for name, count in side["round_types"].items()
+            )
+            small = side["small_samples"]
+            note = f"  [pieni otanta: {', '.join(small)}]" if small else ""
+            lines.append(f"  {side['side']}: {types}{note}")
+
+    for missing in stats.get("missing_demos") or []:
+        lines.append("")
+        lines.append(_line("Puuttuva demo", f"{missing['match']}: {missing['reason']}"))
+
+    lines.append("")
+    for path in result.outputs:
+        lines.append(_line("Tulos", str(path)))
+    if result.manifest_path is not None:
+        lines.append(_line("Manifesti", str(result.manifest_path)))
+    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+    return "\n".join(lines)
 
 
 def _seconds(value: float) -> str:

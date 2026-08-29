@@ -351,6 +351,35 @@ small_sample_rounds = 3
 stack_min_players = 4
 
 
+[aggregate]
+# Vain aggregate-vaiheen omat arvot (AD-3).
+#
+# MIKSI OMA OSIO EIKÄ [thresholds]. classify laskee parametrihashinsa koko
+# [thresholds]-osiosta, koska osittainen hash vaatisi listan siitä, mitä
+# kenttiä säännöt sattuvat lukemaan -- ja se lista vanhenisi hiljaa. Hinta
+# on, että mikä tahansa lisäys sinne mitätöi jokaisen luokitellun demon.
+# classify ei lue tämän osion arvoja lainkaan, joten niiden säätäminen ei saa
+# pakottaa uudelleenluokittelua. Osiointi tekee siitä rakenteellisen: vaihe
+# näkee vain oman osansa.
+
+# Utilityn aikaikkunoiden rajat sekunteina kierroksen alusta (Story 2.3).
+#
+# Kranaatilla on tarkka t_s, näytepisteillä ei, joten heitot niputetaan
+# ikkunoihin: nämä rajat tuottavat lokerot 0-5, 5-10, 10-20 ja 20+ (raja
+# kuuluu aina ylempään lokeroon). Ilman niputusta jokainen heitto olisi oma
+# ainutkertainen havaintonsa eikä yksikään kuvio toistuisi.
+#
+# MIKSI ASETUS EIKÄ KOODI: "insta mid talo savu" ja kolmekymmentä sekuntia
+# myöhemmin heitetty savu ovat eri asia, mutta se missä kohtaa raja kulkee on
+# pelaajan tulkinta eikä mittaus. Rajojen siirtäminen ajaa vain aggregoinnin
+# uudelleen -- ei parsintaa eikä luokittelua.
+#
+# EI HAVAINTOA. Ensimmäinen lokero 0-5 s vastaa tavoiteanalyysin sanaa
+# "insta"; loput ovat karkea porrastus, jota aineisto ei ole vielä koetellut.
+# [lausuttu 2026-08-30, odottaa havaintoa]
+utility_seconds_buckets = [5.0, 10.0, 20.0]
+
+
 [economy]
 # CS2:n talousmalli. Kaikki luvut [addendum] luku 6, lähde Counter-Strike Wiki
 # (CS2-sarake), haettu 2026-08-27/28.

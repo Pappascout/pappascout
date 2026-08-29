@@ -294,6 +294,12 @@ def test_pipeline_packages_expose_their_contracts() -> None:
     expected = {
         "pappascout.stages": ("StageResult", "archive_paths"),
         "pappascout.stages.parse": ("run", "resolve_demo", "default_parser"),
+        "pappascout.stages.classify": ("run", "resolve_team", "team_keys"),
+        "pappascout.stages.aggregate": ("run", "resolve_team", "team_keys"),
+        # Story 2.3: raporttimalli on aggregointi- ja render-vaiheen jaettu
+        # sopimus, joten sen nimi ja skeemaversio ovat osa rakennetta.
+        "pappascout.domain.report": ("Report", "REPORT_SCHEMA_VERSION"),
+        "pappascout.domain.aggregate": ("build_report", "positions_for"),
         "pappascout.adapters": (
             "DemoParser",
             "DemoTables",

@@ -14,6 +14,8 @@ import pytest
 
 from pappascout import constants
 from pappascout.constants import (
+    SAMPLE_BUCKETS,
+    SAMPLE_BUCKET_FI,
     ARMING_WEAPONS,
     EVENT_KINDS,
     GRENADES,
@@ -257,3 +259,15 @@ def test_digest_changes_when_a_class_stops_arming(monkeypatch) -> None:
     )
     monkeypatch.setattr(constants, "_CLASSIFICATION", disarmed)
     assert weapon_classification_digest() != before
+
+
+def test_every_sample_bucket_has_a_finnish_name() -> None:
+    """Kolmas lokero ei saa jäädä pois tulosteesta suomennoksen puuttuessa.
+
+    ``cli`` iteroi :data:`SAMPLE_BUCKETS`in yli ja hakee nimen
+    :data:`SAMPLE_BUCKET_FI`:stä, joten puuttuva avain kaataisi ajon --
+    ja kaksi samaa suomennosta sulauttaisi kaksi lokeroa yhdeksi riviksi.
+    """
+    assert set(SAMPLE_BUCKET_FI) == set(SAMPLE_BUCKETS)
+    assert len(set(SAMPLE_BUCKET_FI.values())) == len(SAMPLE_BUCKETS)
+    assert SAMPLE_BUCKETS == ("league", "other", "unknown")

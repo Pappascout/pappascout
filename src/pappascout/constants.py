@@ -27,6 +27,9 @@ __all__ = [
     "ROSTER_CLASSES",
     "RosterClass",
     "ROUND_TYPE_FI",
+    "SAMPLE_BUCKETS",
+    "SampleBucketName",
+    "SAMPLE_BUCKET_FI",
     "UNCLASSIFIED",
     "KNIVES",
     "DEFAULT_PISTOLS",
@@ -71,6 +74,22 @@ ROUND_TYPE_FI: Final[dict[str, str]] = {
     "full": "default",
     "ot": "jatkoaika",
     "anomaly": "poikkeama",
+}
+
+#: Otannan kolme lokeroa (Story 2.3). **Kolme, ei kaksi:** ``is_league`` syntyy
+#: vasta ``select``-vaiheessa (Epic 3), joten käsin tuodulla demolla se on
+#: ``null``. Kahden lokeron jako pakottaisi merkitsemään sellaisen demon joko
+#: liigaotteluksi tai muuksi, ja kumpikin olisi väärin.
+SAMPLE_BUCKETS: Final[tuple[str, ...]] = ("league", "other", "unknown")
+SampleBucketName = Literal["league", "other", "unknown"]
+
+#: Lokeroiden suomennokset. Vain tulosteessa -- dataan ei kirjoiteta suomea,
+#: aivan kuten :data:`ROUND_TYPE_FI`ssä. Avaimet pysyvät englanniksi, koska ne
+#: ovat osa ``report.json``in sopimusta.
+SAMPLE_BUCKET_FI: Final[dict[str, str]] = {
+    "league": "liiga",
+    "other": "muut",
+    "unknown": "tuntematon",
 }
 
 #: Yksikön (Match / MapDemo) käsittelytila (AD-9).

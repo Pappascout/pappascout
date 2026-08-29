@@ -37,6 +37,7 @@ __all__ = [
     "LeagueSettings",
     "ParseSettings",
     "ThresholdSettings",
+    "AggregateSettings",
     "EconomySettings",
     "Settings",
     "load_settings",
@@ -57,7 +58,7 @@ SETTINGS_ENV_VAR = "PAPPASCOUT_SETTINGS"
 
 #: Ainoat sallitut ylätason avaimet ``settings.toml``-tiedostossa (AD-3).
 SETTINGS_SECTIONS: frozenset[str] = frozenset(
-    {"project", "league", "parse", "thresholds", "economy"}
+    {"project", "league", "parse", "thresholds", "aggregate", "economy"}
 )
 
 #: Asetukset, jotka on **poistettu**, ja se mihin ne menivät.
@@ -409,6 +410,84 @@ class ThresholdSettings(_Section):
         return self
 
 
+class AggregateSettings(_Section):
+    """``[aggregate]`` -- vain ``aggregate``-vaiheen omat arvot (AD-3).
+
+    **Miksi oma osio eikä ``[thresholds]``.** ``classify`` laskee
+    parametrihashinsa koko ``[thresholds]``-osiosta, koska osittainen hash
+    vaatisi listan siitä, mitä kenttiä säännöt sattuvat lukemaan -- ja se
+    lista vanhenisi hiljaa. Hinta on, että mikä tahansa lisäys kyseiseen
+    osioon mitätöi jokaisen luokitellun demon. Utilityn aikaikkunat ovat
+    puhtaasti aggregoinnin esitysvalinta, eikä ``classify`` lue niitä
+    lainkaan, joten niiden säätäminen ei saa pakottaa uudelleenluokittelua.
+    Osiointi tekee siitä rakenteellisen: ``classify`` ei näe tätä osiota.
+    """
+
+    #: Aikaikkunoiden rajat sekunteina kierroksen alusta. Rajat ``[5, 10, 20]``
+    #: tuottavat lokerot ``0-5``, ``5-10``, ``10-20`` ja ``20+``; raja kuuluu
+    #: aina ylempään lokeroon. Oletus on **sama kuin settings.tomlissa**:
+    #: tyhjä oletus tuottaisi hiljaa yhden lokeron raportin, jos avain
+    #: unohtuisi tiedostosta.
+    utility_seconds_buckets: list[float] = Field(
+        default_factory=lambda: [5.0, 10.0, 20.0]
+    )
+
+    @model_validator(mode="after")
+    def _check_utility_buckets(self) -> "AggregateSettings":
+        """Aikaikkunat ovat asetus, joten ne tarkistetaan latauksessa.
+
+        Neljä tapaa mennä rikki hiljaa:
+
+        * **NaN tai ääretön** liukuisi vertailujen läpi ja päätyisi lokeron
+          nimeen, joka ei tarkoita mitään.
+        * **Negatiivinen tai nolla** raja tuottaisi lokeron, johon ei voi osua
+          yksikään heitto: ``t_s`` mitataan freezetimen lopusta eteenpäin.
+        * **Järjestämätön tai toistuva** lista tuottaisi lokeron, jonka
+          alaraja on ylärajaa suurempi -- se ei kaatuisi, vaan jäisi tyhjäksi
+          ja veisi heitot naapurilokeroon.
+        * **Kaksi rajaa, jotka näyttävät samalta nimessä** (esimerkiksi
+          ``5.0000001`` ja ``5.0000002``) tuottaisivat kaksi lokeroa samalla
+          nimellä, jolloin raportin rivi olisi monitulkintainen. Nimi
+          muotoillaan lyhimpään esitysmuotoon, joten tarkistus tehdään
+          nimistä eikä luvuista.
+
+        Tyhjä lista on sallittu ja tarkoittaa yhtä lokeroa (``kaikki``):
+        aikaikkunan poistaminen on kelvollinen valinta eikä sen tarvitse olla
+        koodimuutos.
+        """
+        previous: float | None = None
+        for value in self.utility_seconds_buckets:
+            if not isfinite(value):
+                raise ValueError(
+                    f"utility_seconds_buckets sisältää arvon {value!r}, joka "
+                    "ei ole äärellinen luku."
+                )
+            if value <= 0:
+                raise ValueError(
+                    f"utility_seconds_buckets sisältää arvon {value:g}, joka "
+                    "ei ole positiivinen. Aikaikkunat mitataan freezetimen "
+                    "lopusta eteenpäin, joten nolla olisi ensimmäisen lokeron "
+                    "alaraja eikä sen yläraja."
+                )
+            if previous is not None and value <= previous:
+                raise ValueError(
+                    "utility_seconds_buckets on oltava aidosti kasvava; "
+                    f"{value:g} tulee arvon {previous:g} jälkeen. "
+                    "Järjestämättömässä listassa olisi lokero, jonka alaraja "
+                    "on ylärajaa suurempi -- se jäisi hiljaa tyhjäksi."
+                )
+            previous = value
+        names = [f"{v:g}" for v in self.utility_seconds_buckets]
+        if len(names) != len(set(names)):
+            raise ValueError(
+                "utility_seconds_buckets sisältää kaksi rajaa, jotka "
+                f"näyttävät samalta lokeron nimessä ({', '.join(names)}). "
+                "Nimi muotoillaan lyhimpään esitysmuotoon, joten kaksi "
+                "lähekkäistä arvoa tuottaisi kaksi lokeroa samalla nimellä."
+            )
+        return self
+
+
 class EconomySettings(_Section):
     """``[economy]`` -- CS2:n talousmalli.
 
@@ -472,6 +551,7 @@ class Settings(BaseSettings):
     league: LeagueSettings
     parse: ParseSettings
     thresholds: ThresholdSettings
+    aggregate: AggregateSettings
     economy: EconomySettings
 
     faceit_api_key: SecretStr | None = None

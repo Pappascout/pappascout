@@ -51,7 +51,8 @@ olevalta.
 Syötteenä on ``parse``-vaiheen tulos. Sen tunniste kirjoitetaan
 ``ManifestInput.sha256``-kenttään, mutta **se ei ole tiedoston tiiviste** vaan
 parsinnan manifestin sisällöstä laskettu parametrihash (ks.
-:func:`_parse_fingerprint`). Kenttä on manifestimallissa nimetty tiivisteeksi,
+:meth:`~pappascout.archive.manifest.Manifest.fingerprint`). Kenttä on
+manifestimallissa nimetty tiivisteeksi,
 koska ``parse`` kirjoittaa siihen demon sha256:n; tässä vaiheessa syöte on
 toisen vaiheen tulos, jolla ei ole omaa tiivistettä, joten sen identiteetti
 lasketaan manifestista. Vertailu toimii samoin kummassakin tapauksessa:
@@ -168,9 +169,13 @@ def run(
     manifest_abs = archive.resolve(manifest_rel)
 
     inputs = [
+        # Syötteen tunniste on parsinnan MANIFESTIN sisällöstä, ei
+        # kierrostaulun tiivisteestä: taulu on johdettu tuloste, ja sen
+        # identiteetti on juuri se, mistä se johdettiin. Sama määritelmä
+        # kuin aggregate-vaiheessa.
         ManifestInput(
             result_id=parse_manifest.result_id,
-            sha256=_parse_fingerprint(parse_manifest),
+            sha256=parse_manifest.fingerprint(),
         )
     ]
     params_hash = _params_hash(thresholds, league, economy)
@@ -350,32 +355,6 @@ def _read_parse_manifest(archive: ArchivePaths, map_demo_id: str) -> Manifest:
             "--pakota"
         )
     return manifest
-
-
-def _parse_fingerprint(manifest: Manifest) -> str:
-    """Parsinnan tuloksen tunniste manifestin sisällöstä.
-
-    **Ei tiedoston tiiviste.** Arvo kirjoitetaan ``ManifestInput.sha256``
-    -kenttään, koska se on manifestimallin syötetunnistekenttä, mutta se on
-    sha256 parsinnan manifestin *sisällöstä*: sen parametrihashista,
-    syötteistä, työkaluversioista, tulostiedostoista ja tilasta. Kierrostaulua
-    itseään ei hashata -- se on johdettu tuloste, ja sen identiteetti on juuri
-    se, mistä se johdettiin.
-
-    Luontihetki jätetään pois tarkoituksella: sama demo samoilla
-    ``[parse]``-asetuksilla tuottaa saman tuloksen, eikä pelkkä uudelleenajo
-    (``parse --pakota``) saa pakottaa uutta luokittelua. Kaikki muu on mukana,
-    joten muuttunut demo, muuttunut asetus tai vaihtunut demoparser2 näkyy heti.
-    """
-    return compute_params_hash(
-        {
-            "params_hash": manifest.params_hash,
-            "inputs": sorted([i.result_id, i.sha256] for i in manifest.inputs),
-            "tool_versions": dict(manifest.tool_versions),
-            "outputs": sorted(manifest.outputs),
-            "status": manifest.status,
-        }
-    )
 
 
 def _params_hash(

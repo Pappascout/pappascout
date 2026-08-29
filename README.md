@@ -44,6 +44,7 @@ uv run pappascout info --koko   # sama, mutta laskee myös arkiston yhteiskoon
 uv run pappascout parse <tiedosto|map_demo_id>   # demosta kierrokset ja asetelmat
 uv run pappascout classify <map_demo_id> --team <tunniste> --show  # kierrostyypit
 uv run pappascout classify <map_demo_id> --kaikki-joukkueet        # molemmat joukkueet
+uv run pappascout aggregate --team <tunniste>                      # report.json
 uv run pappascout --version
 uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
@@ -259,6 +260,105 @@ Rivillä on **kolme tilaa, jotka on syytä osata lukea**:
 | `N eri esinenimeä: …` | Tuore ajo, luettelo on jäänyt jälkeen. Yli 20 nimeä katkaistaan (`+N muuta`). |
 | **rivi puuttuu kokonaan** | **Ohitettu ajo.** Nimet eivät ole taulussa -- ne eivät aseista ketään -- joten niitä ei voi lukea takaisin ilman `--pakota`a. Ei siis vika. |
 
+### `aggregate` -- luokitelluista kierroksista `report.json`
+
+`aggregate` lukee joukkueen luokitellut kierrokset ja niiden näytepiste- ja
+tapahtumataulut ja kirjoittaa **yhden tiedoston**:
+`aggregates/<team_key>/report.json` sekä sen manifestin. Demoa ei lueta, joten
+ajo valmistuu sekunneissa. Tiedosto on pydantic-malli
+`domain.report.Report`, ja se on `aggregate`-vaiheen ja tulevan
+`render`-vaiheen **jaettu sopimus**: `render` ei laske mitään, vaan kaikki
+luvut ovat valmiina.
+
+Rakenne on `maps[] -> sides[] -> round_types[]`, ja jokaisella tasolla on
+otanta. Kierrostyypin alla on viisi havaintoa:
+
+| Kenttä | Mihin se vastaa |
+| --- | --- |
+| `positions[].areas[].players_dist[]` | *"3A ja 2B"*, *"2-ramp"* -- pelaajamäärä alueittain näytepisteessä |
+| `utility[]` | *"T-spawnista CT-savu B sitelle"*, *"insta mid talo savu"* |
+| `utility_counts[]` | *"2 savua 2 valoo"* -- montako heitettiin kierroksella |
+| `players_armed` | monellako oli panssari ja ase ostoajan lopussa |
+| `first_contact[]` | *"otti kontaktin partsi käytävällä"* |
+
+**Jokainen väite kantaa otantansa.** `n` = kierrokset, joissa havainto tehtiin;
+`m` = kyseisen puolen ja kierrostyypin kierrokset, joilta havainto oli
+luettavissa. `players_dist` sisältää myös arvon `0` (alue oli tyhjä), joten
+`n`-arvojen summa yhden alueen yli on aina `m`. Se on tarkistus eikä koriste:
+malli itse nostaa `AggregateError`in, jos summa ei täsmää -- silloin kierros on
+kadonnut liitoksessa, ja raportti näyttäisi oikealta mutta väittäisi väärää
+otantaa. Sama tarkistus tehdään myös **tasojen välillä**: kierrostyyppien summa
+on puolen otanta, puolien summa kartan ja karttojen summa koko raportin.
+
+**`first_contact[]` on tarkoituksella poikkeus tähän sääntöön.** Se laskee
+läsnäoloa eikä pelaajamäärää: sama kierros tuottaa havainnon jokaiselle
+alueelle, jolla joukkueella oli elossa oleva pelaaja sillä hetkellä, joten
+`n`-arvojen summa on suurempi kuin `m`. Täysi jakauma samalta hetkeltä on
+`positions`-listan `first_contact`-näytepisteessä, ja sitä `Σ n = m` koskee
+normaalisti.
+
+`m` on aina **näytepisteen oma**. 45 sekunnin näyte puuttuu kierrokselta, joka
+ratkesi 30 sekunnissa, ja `rounds_missing` kertoo erotuksen. Jos `m`:ksi
+otettaisiin kierrostyypin kokonaismäärä, ratkennut kierros näkyisi jokaisella
+alueella arvona "0 pelaajaa" eli väitteenä, että alue oli tyhjä.
+
+**Kolme lokeroa, ei kahta.** `is_league` syntyy vasta `select`-vaiheessa
+(Epic 3), joten käsin tuoduilla demoilla se on `null`. Otanta on siksi
+`{league, other, unknown}` jokaisella tasolla. Kahden lokeron jako pakottaisi
+merkitsemään käsin tuodut demot joko liigaotteluiksi tai muiksi, ja kumpikin
+olisi väärin.
+
+**Aggregointi ei valitse mitä raportoidaan.** Se laskee jokaisen
+kierrostyypin, myös täydet ostot ja jatkoajan. Säästökierrosten ja defaultin
+eri käsittely on esitysvalinta ja kuuluu raporttiin: jos aggregointi
+suodattaisi, valinnan muuttaminen vaatisi uudelleenlaskennan. Se ei myöskään
+tulkitse -- sanoja "fake" tai "rush" ei ole missään kentässä.
+
+**Kaksi eri kynnysjoukkoa, eikä niitä saa sekoittaa.** `thresholds_used` on
+**tämän aggregointiajon** `[thresholds]`- ja `[aggregate]`-osiot;
+`classify_thresholds` on ne arvot, joilla kierrokset *oikeasti luokiteltiin*,
+luettuna `CLASSIFIED.inputs`-sarakkeesta. Ajo **keskeytyy** kahdessa
+tapauksessa: jos kierrokset on luokiteltu eri kynnyksillä keskenään
+(sekoitus tuottaisi luvun, joka ei tarkoita yhtä asiaa), tai jos ne eroavat
+nykyisistä asetuksista (kynnystä on muutettu eikä `classify`a ole ajettu
+uudelleen, jolloin raportti nimeäisi kynnykset joilla yhtäkään kierrosta ei
+luokiteltu). Kummassakin viesti kertoo, mitä ajaa seuraavaksi.
+
+**Kokoonpanot liitetään joukkueeksi.** Kokoonpanotunniste on tiiviste kartalla
+pelanneista pelaajista, joten yksi vaihto tuottaa uuden tunnisteen -- ja
+neljästä liigademosta yksi on toisen tunnisteen alla. Vaihe liittää
+kokoonpanot, joilla on vähintään `[thresholds].team_identity_min_common`
+yhteistä pelaajaa, ja kirjaa liitetyt tunnisteet kenttään
+`team.lineup_keys`. Ilman liittämistä raportti näkisi kolme demoa neljästä
+eikä kertoisi menettäneensä yhtä.
+
+**Kartan nimi on johdettu.** Sitä ei ole yhdessäkään taulussa, joten se
+päätellään `map_demo_id`:stä karttapoolia vasten (`Ancient_vs_kaljukostaja` ->
+`de_ancient`). `map_name_source` kertoo onnistuiko päättely; tuntematon kartta
+jää omaksi haarakseen tunnisteensa nimellä eikä sulaudu toiseen.
+
+**Puuttuva demo ei katoa.** Demo, jonka luokittelu on arkistossa mutta
+parsinta puuttuu, päätyy `missing_demos[]`-listaan syyn kanssa eikä kaada ajoa.
+Sama koskee kokoonpanoa, jonka näytepistetaulua ei saatu luettua lainkaan:
+sitä ei voi liittää joukkueeseen, mutta sen demot kirjataan silti. Kierros
+ilman kierrostyyppiä ei mahdu rakenteeseen, mutta sen lukumäärä on kentässä
+`unclassified_rounds`, ja räjähdys ilman heittoriviä kentässä
+`unpaired_detonations`.
+
+Utilityn aikaikkunat ovat asetus (`[aggregate].utility_seconds_buckets`,
+oletus `[5, 10, 20]` eli lokerot `0-5`, `5-10`, `10-20`, `20+`; raja kuuluu
+ylempään lokeroon). **`[aggregate]` on oma osionsa juuri tätä varten:**
+`classify` laskee parametrihashinsa koko `[thresholds]`-osiosta, joten
+aikaikkunoiden säätäminen sieltä käsin mitätöisi jokaisen luokitellun demon
+turhaan.
+
+Aggregoinnin parametrihash lasketaan koko `[aggregate]`-osiosta sekä niistä
+`[thresholds]`- ja `[league]`-avaimista, jotka vaihe todella lukee
+(`small_sample_rounds`, `team_identity_min_common`, `map_pool`). Muun
+kynnysarvon muuttaminen ei siis mitätöi raporttia -- se ajaa `classify`n
+uudelleen, ja se näkyy jo syötteiden tunnisteissa. `--pakota` ohittaa
+manifestin.
+
 ### Miten kierrostyyppi ratkeaa
 
 Kynnykset on kalibroitu 2026-08-29 ihmisen antamaa totuustaulua vasten
@@ -363,7 +463,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 
 | Polku | Sisältö |
 | --- | --- |
-| `settings.toml` | Kaikki numerot: `[project] [league] [parse] [thresholds] [economy]` |
+| `settings.toml` | Kaikki numerot: `[project] [league] [parse] [thresholds] [aggregate] [economy]` |
 | `src/pappascout/constants.py` | Jaetut enum-luettelot (kierrostyyppi, puoli, tila) |
 | `src/pappascout/errors.py` | `PappascoutError` ja alaluokat |
 | `src/pappascout/domain/schemas.py` | Polars-skeemat `ROUNDS`, `TICKS`, `EVENTS`, `CLASSIFIED` ja `validate()` |
@@ -380,6 +480,9 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
 | `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
+| `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |
+| `src/pappascout/domain/aggregate.py` | Jakaumat ja otannat puhtaina funktioina; `build_report()` |
+| `src/pappascout/stages/aggregate.py` | `aggregate`-vaihe: luokitelluista kierroksista `aggregates/<team_key>/report.json` + manifesti |
 | `src/pappascout/cli/` | Typer-komennot |
 
 Riippuvuusnuoli on `cli -> stages -> {domain, adapters, archive}` ja
