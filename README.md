@@ -128,6 +128,42 @@ ostolla pieni -- ja `money_spent` on kierroksella käytetty raha. Näiden summa
 on se raha, joka joukkueella oli ostoaikana käytettävissä. Ostettu varustemäärä
 on vastaavasti erotus `equip_freeze_end - equip_round_start`.
 
+Kaluston **jakauma** on omana havaintonaan: `players_armed_freeze_end` kertoo,
+monenko pelaajan oma varustearvo ylsi kynnykseen
+`[parse].armed_player_equip_min` (oletus 950 $ = kevlar 650 + p250 300).
+Joukkuesumma ei kerro tätä -- kaksi AK:ta ja kolme tyhjää antaa saman summan
+kuin viisi puolinaista. Luku on aina väliltä `0`-`players_freeze_end`; `0` on
+havainto ja tarkoittaa **"kukaan ei yltänyt kynnykseen"** (viisi pelaajaa
+pelkillä 650 $:n kevlareilla tuottaa myös nollan), ja `null` tarkoittaa, ettei
+havaintoa saatu lainkaan.
+
+Kynnys on `[parse]`- eikä `[thresholds]`-osiossa siksi, että parsinnan
+parametrihash lasketaan vain `[parse]`-osiosta: muualla sen muutos jättäisi
+arkiston laskurin hiljaa vanhentuneeksi. Sen muuttaminen siis **pakottaa
+uudelleenparsinnan**, toisin kuin `[thresholds]`-arvot. Luokittelu ei vielä
+käytä lukua: puolioston sääntö odottaa aineistoon ensimmäistä kiistatonta
+puoliostoa, jota vasten sen voi kalibroida.
+
+> **Rajaus: laskuri mittaa kaluston arvoa, ei aseen luokkaa.** Varustearvo on
+> ase + panssari + kranaatit yhtenä lukuna, eikä sitä voi purkaa osiin.
+> Ancientista mitattuna Glock + kevlar + kaksi valoa on 1250 $ ja laskeutuu
+> siis aseistetuksi, vaikka pelaajalla ei ole yhtään parannettua asetta.
+> Alkuperäinen määritelmä oli "kevlar ja jokin parannettu ase", joten laskuri
+> on sen approksimaatio -- tietoinen, ei vika. Tarkempi erottelu vaatisi
+> asekohtaisen havainnon, ja se on erillinen päätös.
+
+Samasta mittauksesta: **ostettu pistooli korvaa ilmaisen oletuspistoolin** eikä
+tule sen päälle. P250 yksinään on varustearvona 300 $, ei 500 $, joten kevlar +
+p250 on 950 $ eikä 1150 $.
+
+`parse` tulostaa laskurin jakauman ajon yhteydessä rivillä `Aseistettuja`, esim.
+`kynnys 950 $/pelaaja; 0 -> 5 riviä, 1 -> 2 riviä, ..., 5 -> 30 riviä`. Se on
+itsetarkistus: väärä kynnys tuottaisi taulun, joka läpäisee jokaisen
+skeematarkistuksen, mutta jakaumasta sen näkee heti. Pelkät ääripäät eivät
+riittäisi -- 41 riviä nollaa ja yksi viitonen näyttäisi samalta kuin terve
+jakauma. Jos havaintoa ei saatu yhdeltäkään riviltä, rivi sanoo sen ääneen
+(`ei yhtään havaintoa`), ja puuttuvien rivien määrä kerrotaan erikseen.
+
 ### Miten kierrostyyppi ratkeaa
 
 Kynnykset on kalibroitu 2026-08-29 ihmisen antamaa totuustaulua vasten

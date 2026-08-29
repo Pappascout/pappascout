@@ -21,8 +21,13 @@ from typing import NamedTuple
 
 import pytest
 
+from pappascout.adapters.demo_parser import _armed_count
 from pappascout.domain.economy import classify_round
-from pappascout.domain.models import ThresholdSettings, load_settings
+from pappascout.domain.models import (
+    ParseSettings,
+    ThresholdSettings,
+    load_settings,
+)
 
 #: Kokoonpanon koko, jolla dokumentin per pelaaja -luvut on laskettu.
 PLAYERS = 5
@@ -89,6 +94,16 @@ TRUTH_TABLE: tuple[Round, ...] = (
 @pytest.fixture
 def thresholds(settings_file: Path) -> ThresholdSettings:
     return load_settings(settings_file, env_files=()).thresholds
+
+
+@pytest.fixture
+def parse_settings(settings_file: Path) -> ParseSettings:
+    """``[parse]``-osio: kalustokynnys luetaan oikeasta asetustiedostosta.
+
+    Testi, joka keksisi oman kynnyksensä, ei todistaisi mitään siitä arvosta,
+    jolla arkisto oikeasti syntyy.
+    """
+    return load_settings(settings_file, env_files=()).parse
 
 
 def _rows(k: Round) -> tuple[dict, dict | None]:
@@ -252,3 +267,130 @@ def test_every_threshold_keeps_a_margin_to_the_nearest_observation(
         margin(highest_after_loss, thresholds.full_equip_min)
         >= MIN_MARGIN
     )
+
+
+# --- Kalustolaskuri (Story 1.5) ------------------------------------------------
+#
+# Nämä ovat samaa ihmisen antamaa totuutta kuin yllä oleva taulu, mutta
+# pelaajakohtaisina varustearvoina. Ne asuvat täällä eivätkä demotestissä,
+# koska ``pytest -m "not demo"`` on se ajo, jolla totuustaulu on tarkoitus
+# säilyä: demotesti ohittaa itsensä koneella, jolla demoja ei ole, ja
+# kalibrointi jäisi silloin valvomatta.
+#
+# Arvot on luettu Ancientista freezetimen lopun tickiltä 2026-08-29, ja
+# tavaraluettelo on tarkistettu samalta tickiltä. Kolme kalibrointihavaintoa:
+#
+#   200  = veitsi + USP-S, ei panssaria     (pelkkä ilmainen oletuspistooli)
+#   300  = veitsi + P250, ei panssaria      (ostettu pistooli KORVAA ilmaisen)
+#   1250 = veitsi + Glock + C4 + 2 valoa, kevlar
+#
+# Keskimmäinen ratkaisee kynnyksen laskutavan: kevlar 650 + p250 300 = 950,
+# ei 1150. Viimeinen on laskurin tunnustettu rajaus -- se laskeutuu
+# aseistetuksi ilman yhtään parannettua asetta, koska varustearvo ei erota
+# asetta panssarista ja kranaateista.
+
+
+class ArmedRound(NamedTuple):
+    """Yhden kierroksen pelaajakohtaiset varustearvot ja Veetin kuvaus.
+
+    Attributes:
+        round_no: Kierrosnumero.
+        side: Puoli, jonka rivi tämä on.
+        equip: Varustearvo $/pelaaja, viisi lukua nousevassa järjestyksessä.
+        armed: Montako niistä ylittää kynnyksen -- odotusarvo.
+        basis: Veetin sanallinen kuvaus, kalibrointidokumentista.
+    """
+
+    round_no: int
+    side: str
+    equip: tuple[int, ...]
+    armed: int
+    basis: str
+
+
+ARMED_TRUTH: tuple[ArmedRound, ...] = (
+    ArmedRound(
+        19,
+        "CT",
+        (200, 2200, 2450, 2550, 2800),
+        4,
+        'force, "ostivat tyhjäksi"; yksi jäi ilmaiseen oletuspistooliin',
+    ),
+    ArmedRound(
+        20,
+        "T",
+        (1500, 1700, 2550, 4400, 4400),
+        5,
+        "2x AK, 2x tec9, 1x mac10, kaikilla kevlar+kypärä -- kaikki viisi",
+    ),
+    ArmedRound(
+        21,
+        "T",
+        (200, 300, 500, 1250, 1300),
+        2,
+        "eco: kahdella kevlar+pistooli; 300 $:n p250 jää kynnyksen alle",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "k", ARMED_TRUTH, ids=[f"k{k.round_no}-{k.side}" for k in ARMED_TRUTH]
+)
+def test_armed_player_count_matches_the_human_reading(
+    k: ArmedRound, parse_settings
+) -> None:
+    """Laskuri antaa sen luvun, jonka Veeti näki replaystä.
+
+    Sääntö luetaan adapterilta eikä kirjoiteta tässä uudelleen: testi, joka
+    laskisi omalla ``>=``-lausekkeellaan, todistaisi vain oman lausekkeensa.
+    """
+    rows = [{"equip_freeze_end": value} for value in k.equip]
+    counted = _armed_count(rows, parse_settings.armed_player_equip_min)
+    assert counted == k.armed, (
+        f"Kierros {k.round_no} {k.side}: dokumentti sanoo {k.armed} "
+        f"({k.basis}), laskuri sanoi {counted}. "
+        "Dokumentti on totuus -- korjaa kynnys tai laskenta, ei tätä taulua."
+    )
+
+
+def test_armed_threshold_keeps_a_margin_to_the_nearest_observation(
+    parse_settings,
+) -> None:
+    """Kynnys ei saa olla kosketusetäisyydellä havaitusta varustearvosta.
+
+    Aineiston lähimmät havainnot ovat 950:n molemmin puolin: 500 alapuolella
+    (Glock + savu) ja 1250 yläpuolella (Glock + kevlar + kaksi valoa).
+    Marginaalit ovat 450 ja 300, eli molemmat ylittävät
+    :data:`MIN_MARGIN`-etäisyyden. Ilman tätä kynnyksen viilaaminen 501:een
+    menisi läpi, vaikka yksi halvin mahdollinen ostos kääntäisi laskurin.
+    """
+    threshold = parse_settings.armed_player_equip_min
+    observations = sorted(value for k in ARMED_TRUTH for value in k.equip)
+    below = [v for v in observations if v < threshold]
+    at_or_above = [v for v in observations if v >= threshold]
+    assert below and at_or_above, "kynnys on aineiston ulkopuolella"
+
+    assert threshold - max(below) >= MIN_MARGIN
+    assert min(at_or_above) - threshold >= MIN_MARGIN
+
+
+def test_armed_count_needs_the_whole_distribution_not_the_team_sum(
+    parse_settings,
+) -> None:
+    """Sama joukkuesumma, eri laskuri -- tämä on koko sarakkeen olemassaolon syy.
+
+    Kolme pelaajaa kynnyksellä ja kaksi ilmaisella pistoolilla antaa saman
+    summan kuin viisi pelaajaa 650 $:n kevlareilla. Ensimmäinen on puoliosto,
+    jälkimmäinen ei ole, eikä ``equip_freeze_end`` erota niitä.
+    """
+    threshold = parse_settings.armed_player_equip_min  # 950
+    half_buy = [threshold, threshold, threshold, 200, 200]  # 3250
+    kevlars_only = [650, 650, 650, 650, 650]  # 3250
+
+    assert sum(half_buy) == sum(kevlars_only)
+    assert _armed_count(
+        [{"equip_freeze_end": v} for v in half_buy], threshold
+    ) == 3
+    assert _armed_count(
+        [{"equip_freeze_end": v} for v in kevlars_only], threshold
+    ) == 0

@@ -43,6 +43,9 @@ DEFAULT_STATS: dict[str, object] = {
     "max_round_no": 21,
     "skipped_rounds": 1,
     "no_freeze_end": 0,
+    "armed_threshold": 950,
+    "armed_distribution": {0: 3, 4: 1, 5: 38},
+    "armed_missing": 0,
     "tick_rows": 780,
     "sample_points": 78,
     "sample_rounds": 21,
@@ -303,6 +306,61 @@ def test_rounds_without_any_sample_point_are_named() -> None:
 def test_every_round_sampled_hides_the_difference_line() -> None:
     assert "Ilman näytepistettä" not in _render_parse(
         parse_result(), regulation_rounds=24
+    )
+
+
+def test_armed_player_distribution_is_reported() -> None:
+    """Jakauma ja kynnys kerrotaan ajon yhteydessä.
+
+    Väärä kynnys ei näy taulussa mitenkään: se läpäisisi jokaisen
+    skeematarkistuksen. Jakauma on halvin tapa huomata se ajossa eikä vasta
+    raportissa, ja kynnyksen luku tarvitaan sen tulkitsemiseen.
+    """
+    line = field_value(
+        _render_parse(parse_result(), regulation_rounds=24), "Aseistettuja"
+    )
+    assert line.startswith("kynnys 950 $/pelaaja; ")
+    assert "0 -> 3 riviä" in line
+    assert "4 -> 1 riviä" in line
+    assert "5 -> 38 riviä" in line
+
+
+def test_armed_player_line_separates_a_skewed_distribution_from_a_healthy_one() -> None:
+    """Ääripäät eivät riitä: 41 riviä nollaa ja yksi viitonen on eri asia.
+
+    Molemmat tuottaisivat ääripäinä "0-5", joka näyttää terveeltä. Tämä on
+    koko syy siihen, että rivillä on jakauma eikä min ja max.
+    """
+    healthy = parse_result(stats=stats(armed_distribution={0: 3, 4: 1, 5: 38}))
+    skewed = parse_result(stats=stats(armed_distribution={0: 41, 5: 1}))
+
+    healthy_line = field_value(_render_parse(healthy, regulation_rounds=24), "Aseistettuja")
+    skewed_line = field_value(_render_parse(skewed, regulation_rounds=24), "Aseistettuja")
+
+    assert healthy_line != skewed_line
+    assert "0 -> 41 riviä" in skewed_line
+    assert "5 -> 1 riviä" in skewed_line
+
+
+def test_armed_player_line_names_the_rows_without_an_observation() -> None:
+    result = parse_result(stats=stats(armed_missing=2))
+    line = field_value(_render_parse(result, regulation_rounds=24), "Aseistettuja")
+    assert line.endswith("havainto puuttuu 2 riviltä")
+
+
+def test_armed_player_line_says_when_there_is_no_observation_at_all() -> None:
+    """Tyhjä jakauma ei ole nolla: se on "ei tiedetä" jokaisella rivillä."""
+    result = parse_result(stats=stats(armed_distribution={}, armed_missing=42))
+    line = field_value(_render_parse(result, regulation_rounds=24), "Aseistettuja")
+    assert "ei yhtään havaintoa (42 riviä)" in line
+
+
+def test_armed_player_line_is_absent_without_the_numbers() -> None:
+    """Lukukelvoton tulos ei saa väittää jakaumaa, jota ei ole."""
+    numbers = stats()
+    numbers.pop("armed_distribution")
+    assert "Aseistettuja" not in _render_parse(
+        parse_result(stats=numbers), regulation_rounds=24
     )
 
 

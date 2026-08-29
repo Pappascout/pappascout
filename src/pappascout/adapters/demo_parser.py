@@ -51,6 +51,16 @@ ovat luettavissa, ja ``players_freeze_end`` on saman joukon koko. Jakaja on
 siis aina sama joukko kuin osoittaja: kolmen pelaajan summa viidellä jaettuna
 näyttäisi ecolta, vaikka joukkue olisi ostanut täyden.
 
+``players_armed_freeze_end`` lasketaan **samasta joukosta**: montako pelaajaa
+ylsi omalla varustearvollaan kynnykseen ``[parse].armed_player_equip_min``.
+Summa ei kerro sitä -- kaksi AK:ta ja kolme tyhjää antaa saman summan kuin
+viisi puolinaista.
+
+Laskuri mittaa **ostetun kaluston arvoa, ei aseen luokkaa**: varustearvo on ase
++ panssari + kranaatit yhtenä lukuna, joten Glock + kevlar + kaksi valoa
+(1250 $, mitattu Ancientista) laskeutuu aseistetuksi ilman yhtään parannettua
+asetta. Se on tietoinen approksimaatio, ei vika.
+
 Näytepisteet
 ------------
 Sama lukukerta tuottaa myös ``ticks``-taulun: rivi per (pelaaja, kierros,
@@ -134,7 +144,7 @@ from pappascout.domain.sampling import (
     sample_ticks,
     seconds_since_freeze_end,
 )
-from pappascout.domain.schemas import EVENTS, ROUNDS, TICKS
+from pappascout.domain.schemas import ARMED_COLUMN, EVENTS, ROUNDS, TICKS
 from pappascout.domain.utility import (
     DETONATE,
     THROWN,
@@ -144,7 +154,7 @@ from pappascout.domain.utility import (
     snap_area,
     trajectory_gap_ticks,
 )
-from pappascout.errors import ParseError
+from pappascout.errors import ParseError, SchemaError
 
 __all__ = [
     "Demoparser2Adapter",
@@ -158,7 +168,14 @@ __all__ = [
     "DEFAULT_TICK_RATE",
     "TICK_RATE_MIN",
     "TICK_RATE_MAX",
+    "DEFAULT_ARMED_PLAYER_EQUIP_MIN",
 ]
+
+#: Varustearvon alaraja ($ per pelaaja), jolla pelaaja lasketaan aseistetuksi,
+#: kun vaihe ei anna arvoa. Sama luku kuin ``ParseSettings``-oletus; testi
+#: :func:`tests.test_settings.test_adapter_default_matches_the_setting` pitää ne
+#: yhdessä. Adapteri ei lue asetuksia itse -- ``stages.parse`` antaa arvon.
+DEFAULT_ARMED_PLAYER_EQUIP_MIN = 950
 
 # -- Pelin kentät -------------------------------------------------------------
 
@@ -374,6 +391,16 @@ class Demoparser2Adapter:
             napata lähimmän elossa olevan pelaajan alueen
             (``[parse].area_snap_units``). ``None`` = ei napsautusta, jolloin
             ``area`` jää tyhjäksi mutta koordinaatit tallentuvat.
+        armed_player_equip_min: Varustearvon alaraja ($ per pelaaja), jonka
+            saavuttanut pelaaja lasketaan ``players_armed_freeze_end``iin
+            (``[parse].armed_player_equip_min``). Vertailu on ``>=``.
+
+    Raises:
+        SchemaError: Jos ``armed_player_equip_min`` ei ole positiivinen.
+            ``ParseSettings`` tarkistaa saman, mutta vain asetuslatauksessa:
+            suoraan rakennettu adapteri laskisi nollalla tai negatiivisella
+            kynnyksellä **jokaisen** luettavan pelaajan aseistetuksi, ja taulu
+            näyttäisi silti kelvolliselta.
 
     Attributes:
         diagnostics: Viimeisimmän parsinnan havainnot, jotka eivät mahdu
@@ -386,10 +413,19 @@ class Demoparser2Adapter:
         exclude_weapons: Sequence[str] = (),
         fallback_death: bool = True,
         area_snap_units: float | None = None,
+        armed_player_equip_min: int = DEFAULT_ARMED_PLAYER_EQUIP_MIN,
     ) -> None:
+        if armed_player_equip_min <= 0:
+            raise SchemaError(
+                f"armed_player_equip_min on {armed_player_equip_min}; "
+                "kalustokynnyksen on oltava positiivinen. Nollalla tai "
+                "negatiivisella arvolla jokainen luettava pelaaja laskeutuisi "
+                "aseistetuksi eikä sarake kertoisi mitään."
+            )
         self.exclude_weapons = tuple(exclude_weapons)
         self.fallback_death = fallback_death
         self.area_snap_units = area_snap_units
+        self.armed_player_equip_min = armed_player_equip_min
         self.diagnostics: ParseDiagnostics | None = None
 
     def parse_demo(
@@ -791,6 +827,12 @@ class Demoparser2Adapter:
                         # joukkue näyttäisi viidellä jaettuna ecolta.
                         # Jakaja on sama joukko kuin summissa (ks. _readable).
                         "players_freeze_end": len(own_freeze) or None,
+                        # Sama joukko kuin summissa ja jakajassa. Kaksi eri
+                        # jakajaa samalla rivillä olisi vika, joka näkyisi
+                        # vasta raportissa.
+                        ARMED_COLUMN: _armed_count(
+                            own_freeze, self.armed_player_equip_min
+                        ),
                         "survivors": len(alive) if own_end else None,
                         "survivors_equip_prev": previous_saved[team_index],
                         "freeze_end_tick": segment.freeze_end_tick,
@@ -1883,6 +1925,30 @@ def _readable(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         r for r in rows if all(r.get(name) is not None for name in _FREEZE_END_PROPS)
     ]
+
+
+def _armed_count(own_freeze: list[dict[str, Any]], equip_min: int) -> int | None:
+    """Montako pelaajaa ylsi kalustokynnykseen freezetimen lopussa.
+
+    Joukkuesumma ei kerro tätä: kaksi AK:ta ja kolme tyhjää antaa saman summan
+    kuin viisi puolinaista. Laskuri lasketaan **samasta joukosta** kuin summat
+    ja ``players_freeze_end`` (ks. :func:`_readable`), joten rivillä on vain
+    yksi jakaja.
+
+    Args:
+        own_freeze: :func:`_readable`-suodatettu joukkueen pelaajajoukko.
+        equip_min: ``[parse].armed_player_equip_min``; vertailu on ``>=``, eli
+            tasan kynnyksen verran riittää.
+
+    Returns:
+        Aseistettujen määrä, tai ``None`` jos yhdenkään pelaajan arvoja ei
+        saatu luettua. **Nolla ei ole puuttuva havainto**: se on tieto siitä,
+        ettei kukaan yltänyt kynnykseen. ``None`` sanoo "ei tiedetä" --
+        esimerkiksi kierros ilman freezetime-ankkuria.
+    """
+    if not own_freeze:
+        return None
+    return sum(1 for r in own_freeze if r["equip_freeze_end"] >= equip_min)
 
 
 def _sum_or_none(values: list[int | None]) -> int | None:

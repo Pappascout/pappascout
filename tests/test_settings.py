@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from conftest import REAL_SETTINGS, settings_text
 from pappascout.domain.models import (
+    ARMED_PLAYER_EQUIP_MAX,
     SETTINGS_ENV_VAR,
     EconomySettings,
     LeagueSettings,
@@ -446,6 +447,106 @@ def test_parse_values(settings_file: Path) -> None:
     # pelaajat ovat samalla alueella. Raja koskee vain räjähdystä -- heiton
     # alue luetaan heittäjältä itseltään. Arvo on asetus eikä koodia.
     assert s.parse.area_snap_units == 500
+    # Kevlar 650 + p250 300. Ostettu pistooli korvaa ilmaisen oletuspistoolin
+    # eikä tule sen päälle (mitattu Ancientista 2026-08-29), joten summa on
+    # 950 eikä 1150. Arvon muuttaminen ilman tämän testin muuttamista
+    # tarkoittaisi, että settings.tomlin perustelu jäi lukematta.
+    assert s.parse.armed_player_equip_min == 950
+
+
+def test_armed_threshold_lives_in_the_parse_section(settings_file: Path) -> None:
+    """Kynnys kuuluu ``[parse]``-osioon, ei ``[thresholds]``- eikä ``[economy]``iin.
+
+    Syy on mekaaninen eikä maun asia: ``parse``-manifestin parametrihash
+    lasketaan vain ``[parse]``-osiosta, joten muualle sijoitettuna kynnyksen
+    muutos ei mitätöisi parsittua taulua ja laskuri jäisi arkistoon hiljaa
+    vanhentuneena.
+    """
+    s = _load(settings_file)
+    assert "armed_player_equip_min" in ParseSettings.model_fields
+    assert "armed_player_equip_min" not in ThresholdSettings.model_fields
+    assert "armed_player_equip_min" not in EconomySettings.model_fields
+    assert not hasattr(s.thresholds, "armed_player_equip_min")
+    assert not hasattr(s.economy, "armed_player_equip_min")
+
+
+def test_adapter_default_matches_the_setting() -> None:
+    """Adapterin oletuskynnys on sama luku kuin ``ParseSettings``-oletus.
+
+    Adapteri ei lue asetuksia, joten sillä on oma oletuksensa niitä kutsujia
+    varten, jotka eivät anna arvoa. Jos oletukset erkanisivat, sellainen ajo
+    laskisi laskurin eri kynnyksellä kuin tuotanto -- eikä mikään kertoisi
+    siitä.
+    """
+    from pappascout.adapters.demo_parser import DEFAULT_ARMED_PLAYER_EQUIP_MIN
+
+    assert (
+        DEFAULT_ARMED_PLAYER_EQUIP_MIN
+        == ParseSettings.model_fields["armed_player_equip_min"].default
+    )
+
+
+def test_armed_threshold_is_derived_from_the_prices(settings_file: Path) -> None:
+    """Kynnys on kevlarin ja p250:n summa -- sidottuna, ei kommenttina.
+
+    Perustelu elää ``[economy.prices]``-osiossa, jota ``parse`` ei lue. Ilman
+    tätä sidontaa hinnan korjaus jättäisi kynnyksen hiljaa vanhaksi, ja
+    ``settings.toml``in perustelu olisi väärässä ilman että mikään kertoisi.
+
+    Ostettu pistooli **korvaa** ilmaisen oletuspistoolin eikä tule sen
+    päälle: mitattuna Ancientista P250 yksinään on 300 $ eikä 500 $. Siksi
+    summassa ei ole oletuspistoolin 200 $:a.
+    """
+    s = _load(settings_file)
+    prices = s.economy.prices
+    assert s.parse.armed_player_equip_min == prices["kevlar"] + prices["p250"]
+
+
+def test_armed_threshold_must_be_positive(tmp_path: Path) -> None:
+    """Nolla kynnyksenä tekisi jokaisesta luettavasta pelaajasta aseistetun."""
+    target = _write_variant(
+        tmp_path, **{"armed_player_equip_min = 950": "armed_player_equip_min = 0"}
+    )
+    with pytest.raises(SettingsError):
+        _load(target)
+
+
+def test_armed_threshold_has_an_upper_bound(tmp_path: Path) -> None:
+    """Liian korkea kynnys on hiljainen konfiguraatiovirhe, ei mielipide.
+
+    ``PositiveInt`` yksin hyväksyisi arvon 100000, jolloin sarake olisi joka
+    rivillä 0 eikä mikään kertoisi siitä -- sama hiljainen vika, jota vastaan
+    ``_check_snapshot_seconds`` on samassa luokassa kirjoitettu. Yläraja on
+    täyden oston tienoilla: sen yli kynnys ei enää erottelisi puoliostoa vaan
+    täyttä ostoa, ja siihen on jo ``thresholds.full_equip_min``.
+    """
+    assert ARMED_PLAYER_EQUIP_MAX == 5000
+    target = _write_variant(
+        tmp_path,
+        **{
+            "armed_player_equip_min = 950": (
+                f"armed_player_equip_min = {ARMED_PLAYER_EQUIP_MAX + 1}"
+            )
+        },
+    )
+    with pytest.raises(SettingsError):
+        _load(target)
+
+
+def test_adapter_rejects_a_non_positive_threshold() -> None:
+    """Adapteri tarkistaa kynnyksen itse, ei luota asetuslataukseen.
+
+    ``PositiveInt`` suojaa vain ``settings.toml``ista tulevaa arvoa. Suoraan
+    rakennettu adapteri -- testeissä ja tulevissa kutsujissa -- laskisi
+    nollalla jokaisen luettavan pelaajan aseistetuksi, ja taulu näyttäisi
+    silti kelvolliselta.
+    """
+    from pappascout.adapters.demo_parser import Demoparser2Adapter
+    from pappascout.errors import SchemaError
+
+    for value in (0, -1):
+        with pytest.raises(SchemaError, match="armed_player_equip_min"):
+            Demoparser2Adapter(armed_player_equip_min=value)
 
 
 def test_threshold_values(settings_file: Path) -> None:

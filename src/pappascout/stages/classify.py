@@ -262,7 +262,21 @@ def _read_rounds(
             "--pakota"
         ) from exc
 
-    validate(df, ROUNDS, "rounds")
+    # validate puhuu oletuksena kehittäjälle ("lisää sarake tai korjaa taulun
+    # tuottanut vaihe -- sopimus on tiedostossa domain/schemas.py"). Se on
+    # väärä neuvo tässä: taulu tulee arkistosta, sen on kirjoittanut ohjelman
+    # oma aiempi versio, eikä käyttäjä korjaa sitä koodia muokkaamalla.
+    # Korjaus on ajaa parsinta uudelleen, joten se on myös se, mitä viesti
+    # sanoo. Sarakkeen nimi säilyy diagnoosiksi.
+    validate(
+        df,
+        ROUNDS,
+        "rounds",
+        advice=(
+            "Taulu on parsittu ohjelman vanhemmalla versiolla. Aja parsinta "
+            f"uudelleen: uv run pappascout parse {map_demo_id} --pakota"
+        ),
+    )
 
     # Väärä parquet oikeassa polussa luokiteltaisiin muuten väärän tunnisteen
     # alle, ja tulos näyttäisi täysin kelvolliselta.

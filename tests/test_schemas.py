@@ -14,6 +14,7 @@ from pappascout.constants import ROUND_TYPES, SIDES, UNIT_STATUSES
 from pappascout.domain.schemas import (
     CLASSIFIED,
     EVENTS,
+    ARMED_COLUMN,
     ROUNDS,
     SCHEMAS,
     TICKS,
@@ -74,6 +75,27 @@ def test_missing_is_reported_before_wrong_type() -> None:
     assert "round_no" in str(exc.value)
 
 
+def test_advice_replaces_the_developer_instruction() -> None:
+    """Kutsuja voi vaihtaa toimintaohjeen, muttei diagnoosia.
+
+    Oletusohje puhuu kehittäjälle, koska sopimusta rikkoo useimmiten koodi.
+    Arkistosta luettu taulu on eri tilanne: sen on rikkonut ohjelman oma
+    aiempi versio, eikä käyttäjä korjaa sitä muokkaamalla schemas.py:tä.
+    """
+    df = empty_frame(ROUNDS).drop("round_no")
+
+    with pytest.raises(SchemaError) as default:
+        validate(df, ROUNDS, "rounds")
+    assert "domain/schemas.py" in str(default.value)
+
+    with pytest.raises(SchemaError) as replaced:
+        validate(df, ROUNDS, "rounds", advice="Aja parsinta uudelleen.")
+    message = str(replaced.value)
+    assert "round_no" in message  # diagnoosi säilyy
+    assert message.endswith("Aja parsinta uudelleen.")
+    assert "domain/schemas.py" not in message
+
+
 def test_column_order_does_not_matter() -> None:
     """Sarakkeiden järjestys ei ole osa sopimusta."""
     df = empty_frame(ROUNDS)
@@ -91,6 +113,30 @@ def test_rounds_has_one_row_per_team_columns() -> None:
     assert ROUNDS["side"] == pl.Enum(list(SIDES))
     assert "lineup_key" in ROUNDS
     assert ROUNDS["status"] == pl.Enum(list(UNIT_STATUSES))
+
+
+def test_rounds_carries_the_armed_player_count() -> None:
+    """Kalustolaskuri kuuluu kierrostaulun sopimukseen kokonaislukuna.
+
+    Sarakkeiden **järjestystä ei tarkisteta**: tämän moduulin oma
+    ``test_column_order_does_not_matter`` ja ``validate``in
+    docstring sanovat, ettei järjestys ole osa sopimusta -- järjestysvaatimus
+    tässä olisi ristiriita niiden kanssa.
+    """
+    assert ARMED_COLUMN in ROUNDS
+    assert ROUNDS[ARMED_COLUMN] == pl.Int32
+
+
+def test_armed_player_count_is_not_a_classify_input() -> None:
+    """Story 1.5 tuottaa vain havainnon: luokittelusäännöt eivät muutu.
+
+    Jos sarake ilmestyisi ``CLASSIFY_COLUMNS``iin, puolioston sääntö olisi jo
+    muuttunut -- eikä sitä tehdä ennen kuin aineistossa on nähty kiistaton
+    puoliosto, jota vasten sen voi kalibroida.
+    """
+    from pappascout.domain.economy import CLASSIFY_COLUMNS
+
+    assert ARMED_COLUMN not in CLASSIFY_COLUMNS
 
 
 def test_money_and_equip_columns_are_integer_dollars() -> None:

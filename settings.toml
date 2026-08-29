@@ -7,7 +7,8 @@
 #   [addendum]  = PRD:n addendum, luku 6 (CS2-talousmalli) tai luku 4/5
 #   [domain]    = domain-tutkimus 2026-08-27
 #   [spine]     = ARCHITECTURE-SPINE, AD-3 / AD-6 / AD-7 / AD-10
-#   [kalibroi]  = lähtöarvo, jonka Story 1.4 säätää oikeilla demoilla
+#   [kalibroi]  = arvo, joka on tarkoitus säätää oikealla aineistolla; rivin
+#                 oma kommentti kertoo mitä havaintoa se odottaa
 #
 # Avaimia EI kirjoiteta tähän tiedostoon. Ne luetaan koneen omasta tiedostosta
 # %USERPROFILE%\.pappascout\.env (FACEIT_API_KEY, FACEIT_DOWNLOADS_TOKEN).
@@ -142,6 +143,51 @@ first_contact_fallback_death = true
 # [kalibroi] Arvo on Story 2.2:n mittaus kahdelta kartalta. Useampi kartta voi
 # säätää sitä; snap_distance-sarake antaa aineiston siihen ilman uutta ajoa.
 area_snap_units = 500
+
+# Varustearvon alaraja ($ PER PELAAJA), jonka saavuttanut pelaaja lasketaan
+# aseistetuksi kierrosrivin sarakkeeseen players_armed_freeze_end.
+#
+# Miksi [parse] eikä [economy], vaikka luku on johdettu hinnoista: [spine] AD-3
+# jakaa asetukset vaiheittain, ja jokainen vaihe hashaa vain oman osionsa.
+# Hinnat ovat [economy.prices]-osiossa, mutta parse ei lue sitä lainkaan. Jos
+# kynnys olisi siellä, tämän tiedoston muokkaus jättäisi arkiston vanhan
+# laskurin voimaan ilman varoitusta. Sijoitus seuraa siis sitä, KUKA LUKEE
+# ARVON, ei sitä mistä luku on johdettu.
+#
+# 950 = [economy.prices].kevlar 650 + [economy.prices].p250 300. Yhteys on
+# sidottu testissä (test_armed_threshold_is_derived_from_the_prices), joten
+# hinnan muuttuessa kynnys ei jää hiljaa vanhaksi.
+#
+# OSTETTU PISTOOLI KORVAA ILMAISEN. Mitattu Ancientista 2026-08-29 lukemalla
+# varustearvo ja tavaraluettelo samalta tickiltä:
+#   200  = veitsi + USP-S, ei panssaria      (pelkkä ilmainen oletuspistooli)
+#   300  = veitsi + P250, ei panssaria       (P250 EI ole 300 + 200)
+#   500  = veitsi + Glock + savu
+#   650  = veitsi, kevlar
+#   850  = veitsi + Glock, kevlar
+#   1250 = veitsi + Glock + C4 + 2 valoa, kevlar
+# Kevlar + P250 on siis 950 eikä 1150. Ilman tätä mittausta laskutapa olisi
+# ollut 200 $ pielessä.
+#
+# SMG (mac10 1050, mp9 1250) ja halpa kivääri (galil 1800, famas 1950)
+# ylittävät kynnyksen selvästi kevlarin kanssa, joten käyttäjän määritelmä
+# "kevlar ja parempi pistooli, SMG tai halpa kivääri" mahtuu kokonaan rajan
+# yläpuolelle. Vertailu on >=, eli tasan 950 riittää.
+#
+# RAJAUS -- LASKURI MITTAA KALUSTON ARVOA, EI ASEEN LUOKKAA. Varustearvo on
+# ase + panssari + kranaatit yhtenä lukuna, eikä sitä voi purkaa osiin. Yllä
+# oleva rivi 1250 on juuri se tapaus: Glock + kevlar + kaksi valoa laskeutuu
+# aseistetuksi, vaikka pelaajalla ei ole yhtään parannettua asetta. Laskuri on
+# siis approksimaatio käyttäjän määritelmälle, ei sen tarkka toteutus.
+# Tarkempi erottelu vaatisi asekohtaisen havainnon -- erillinen päätös.
+#
+# Kynnyksen muutos mitätöi arkiston parse-manifestit ja pakottaa
+# uudelleenparsinnan -- se on tarkoitus, ei sivuvaikutus. Yläraja on 5000
+# (domain/models.py: ARMED_PLAYER_EQUIP_MAX): sen yli kynnys ei enää erottelisi
+# puoliostoa vaan täyttä ostoa ja tuottaisi hiljaa pelkkiä nollia.
+#
+# [addendum] käyttäjän linjaus 2026-08-29 [kalibroi] odottaa havaittua puoliostoa
+armed_player_equip_min = 950
 
 
 [thresholds]

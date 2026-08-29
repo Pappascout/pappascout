@@ -297,6 +297,7 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
             )
         )
 
+    lines.extend(_armed_players(stats))
     lines.extend(_sample_points(stats, rounds))
     lines.extend(_utility(stats, rounds))
 
@@ -315,6 +316,39 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
     lines.append(_line("Ajoaika", _seconds(result.duration_s)))
 
     return "\n".join(lines)
+
+
+def _armed_players(stats: dict) -> list[str]:
+    """Kalustolaskurin arvojakauma ``parse``-tulosteeseen.
+
+    Laskuri on havainto, jonka voi tarkistaa vain katsomalla: väärä kynnys
+    tuottaisi taulun, joka läpäisee jokaisen skeematarkistuksen. Siksi tässä
+    tulostetaan **jakauma eikä ääripäät** -- 41 riviä nollaa ja yksi viitonen
+    antaisi ``0-5``, joka näyttää terveeltä, mutta ``0 -> 41, 5 -> 1`` ei.
+
+    Kynnys tulostetaan lukuna: ilman sitä jakaumaa ei voi tulkita, ja rivin
+    koko tarkoitus on olla itsetarkistus ajon yhteydessä.
+    """
+    distribution = stats.get("armed_distribution")
+    if distribution is None:
+        return []
+
+    threshold = stats.get("armed_threshold")
+    prefix = "" if threshold is None else f"kynnys {int(threshold)} $/pelaaja; "
+    missing = int(stats.get("armed_missing", 0) or 0)
+
+    if not distribution:
+        return [
+            _line("Aseistettuja", f"{prefix}ei yhtään havaintoa ({missing} riviä)")
+        ]
+
+    spread = ", ".join(
+        f"{value} -> {rows} riviä" for value, rows in sorted(distribution.items())
+    )
+    text = f"{prefix}{spread}"
+    if missing:
+        text += f"; havainto puuttuu {missing} riviltä"
+    return [_line("Aseistettuja", text)]
 
 
 def _sample_points(stats: dict, rounds: int) -> list[str]:

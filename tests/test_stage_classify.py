@@ -33,7 +33,14 @@ from pappascout.archive.paths import ArchivePaths
 from pappascout.domain.economy import per_player
 from pappascout.domain.models import load_settings
 from pappascout.domain.rounds import mark_played_rounds
-from pappascout.domain.schemas import CLASSIFIED, EVENTS, ROUNDS, TICKS, validate
+from pappascout.domain.schemas import (
+    ARMED_COLUMN,
+    CLASSIFIED,
+    EVENTS,
+    ROUNDS,
+    TICKS,
+    validate,
+)
 from pappascout.errors import PappascoutError, SchemaError
 from pappascout.stages import classify as classify_stage
 from pappascout.stages import parse as parse_stage
@@ -578,6 +585,37 @@ def test_rounds_table_that_breaks_the_contract_is_refused(
     pl.read_parquet(path).drop("survivors").write_parquet(path)
     with pytest.raises(SchemaError, match="survivors"):
         run_classify(settings, parsed)
+
+
+def test_outdated_rounds_table_tells_the_user_to_reparse(
+    settings, parsed
+) -> None:
+    """Vanha taulu on käyttäjän tilanne, ei kehittäjän.
+
+    ``validate`` puhuu kehittäjälle: "Lisää sarake tai korjaa taulun
+    tuottanut vaihe -- sopimus on tiedostossa domain/schemas.py." Se on
+    väärä neuvo sille, joka ei koodaa itse: arkistossa oleva taulu on
+    parsittu vanhemmalla versiolla, ja korjaus on ajaa parsinta uudelleen.
+
+    Sarake on kalustolaskuri, koska se on tuorein ``ROUNDS``-laajennus ja
+    siten se, jonka vuoksi tämä tilanne oikeasti syntyy.
+    """
+    path = parsed.parsed_table(MAP_DEMO_ID, "rounds")
+    pl.read_parquet(path).drop(ARMED_COLUMN).write_parquet(path)
+
+    with pytest.raises(SchemaError) as exc:
+        run_classify(settings, parsed)
+
+    message = str(exc.value)
+    # Diagnoosi säilyy: viesti nimeää sarakkeen, joka puuttuu.
+    assert ARMED_COLUMN in message
+    # Neuvo on käyttäjän tekemä toimenpide, ei koodimuutos.
+    assert "parsittu ohjelman vanhemmalla versiolla" in message
+    assert f"pappascout parse {MAP_DEMO_ID} --pakota" in message
+    # Kehittäjän ohje ei saa vuotaa mukaan: se kehottaisi muokkaamaan koodia,
+    # jota käyttäjä ei kirjoita.
+    assert "domain/schemas.py" not in message
+    assert "Lisää sarake" not in message
 
 
 def test_a_round_without_an_anchor_does_not_break_the_run(

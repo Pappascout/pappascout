@@ -48,6 +48,7 @@ __all__ = [
     "SETTINGS_ENV_VAR",
     "SETTINGS_SECTIONS",
     "MAX_SNAPSHOT_SECONDS",
+    "ARMED_PLAYER_EQUIP_MAX",
 ]
 
 SETTINGS_FILENAME = "settings.toml"
@@ -61,6 +62,12 @@ SETTINGS_SECTIONS: frozenset[str] = frozenset(
 #: Näytepisteen yläraja sekunteina. CS2:n kierros kestää 1.55 = 115 s, joten
 #: sitä suurempi arvo ei voi osua yhdelläkään kierrokselle.
 MAX_SNAPSHOT_SECONDS = 115.0
+
+#: Suurin sallittu arvo asetukselle ``parse.armed_player_equip_min``, $/pelaaja.
+#: Täysi osto on noin 4200-5100 $/pelaaja, joten tätä korkeampi kynnys ei enää
+#: erottelisi puoliostoa vaan täyttä ostoa -- ja tuottaisi hiljaa pelkkiä
+#: nollia. Ks. :class:`ParseSettings`.
+ARMED_PLAYER_EQUIP_MAX = 5000
 
 PositiveInt = Annotated[int, Field(gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
@@ -123,6 +130,31 @@ class ParseSettings(_Section):
     #: lähimmän elossa olevan pelaajan alueen. None = ei napsautusta, jolloin
     #: detonate_area jää nulliksi. Kalibroidaan Epicissä 2 oikeilla demoilla.
     area_snap_units: PositiveInt | None = None
+    #: Varustearvon alaraja ($ per pelaaja), jonka saavuttanut pelaaja lasketaan
+    #: aseistetuksi sarakkeeseen ``players_armed_freeze_end``.
+    #:
+    #: Kuuluu **tähän** osioon eikä ``[economy]``- tai ``[thresholds]``-osioon,
+    #: vaikka luku on johdettu ostovalikon hinnoista: ``parse``-manifestin
+    #: parametrihash lasketaan vain tästä osiosta, joten muualle sijoitettuna
+    #: kynnyksen muutos ei mitätöisi parsittua taulua ja laskuri jäisi hiljaa
+    #: vanhentuneeksi. Sijoitus seuraa sitä, **kuka lukee arvon**, ei sitä
+    #: mistä luku on johdettu.
+    #:
+    #: **Mittaa ostetun kaluston arvoa, ei aseen luokkaa.** Varustearvo on ase
+    #: + panssari + kranaatit yhtenä lukuna, joten Glock + kevlar + kaksi
+    #: valoa (1250 $) laskeutuu aseistetuksi ilman yhtään parannettua asetta.
+    #: Laskuri on siis approksimaatio käyttäjän määritelmälle "kevlar ja jokin
+    #: parannettu ase"; tarkempi erottelu vaatisi asekohtaisen havainnon.
+    #:
+    #: Yläraja on vartija hiljaista konfiguraatiovirhettä vastaan: kynnys
+    #: täyden oston yläpuolella tekisi sarakkeesta joka rivillä nollan, eikä
+    #: mikään kertoisi siitä. Ancientin suurin havaittu pelaajakohtainen
+    #: varustearvo on 7150 $ ja täysi osto noin 4200-5100 $, joten sen yli
+    #: kynnys ei enää erottelisi puoliostoa vaan täyttä ostoa -- ja siihen on
+    #: jo ``thresholds.full_equip_min``.
+    armed_player_equip_min: PositiveInt = Field(
+        default=950, le=ARMED_PLAYER_EQUIP_MAX
+    )
 
     @model_validator(mode="after")
     def _check_snapshot_seconds(self) -> "ParseSettings":

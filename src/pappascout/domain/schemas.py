@@ -48,6 +48,7 @@ from pappascout.errors import SchemaError
 
 __all__ = [
     "ROUNDS",
+    "ARMED_COLUMN",
     "TICKS",
     "EVENTS",
     "CLASSIFIED",
@@ -68,6 +69,12 @@ _AREA_SOURCE = pl.Enum(list(AREA_SOURCES))
 _ROSTER_CLASS = pl.Enum(list(ROSTER_CLASSES))
 
 
+#: Kalustolaskurin sarakkeen nimi. Vakiona, koska sitä lukevat adapteri (joka
+#: laskee luvun), ``stages.parse`` (joka raportoi sen jakauman) ja testit --
+#: kovakoodattuina merkkijonoina ne erkanisivat toisistaan huomaamatta.
+ARMED_COLUMN = "players_armed_freeze_end"
+
+
 # Kierrostaulu: kaksi riviä per kierros, yksi kummallekin joukkueelle (AD-5).
 # round_no on null warmupissa, puukkokierroksella ja mp_restartgame-nollauksissa
 # -- vain parse asettaa sen.
@@ -84,6 +91,11 @@ ROUNDS: Schema = {
     "equip_freeze_end": pl.Int32,  # $ current_equip_value-summa freezetimen lopussa
     "equip_round_start": pl.Int32,  # $ round_start_equip_value-summa
     "players_freeze_end": pl.Int32,  # pelaajat, joiden arvot olivat luettavissa
+    # Edellisistä ne, joiden OMA varustearvo ylsi parse.armed_player_equip_miniin.
+    # Joukkuesumma ei kerro tätä: kaksi AK:ta ja kolme tyhjää antaa saman summan
+    # kuin viisi puolinaista. Aina 0..players_freeze_end; null kun havaintoa ei
+    # ole lainkaan -- nolla tarkoittaa "kukaan ei yltänyt kynnykseen".
+    ARMED_COLUMN: pl.Int32,
     "survivors": pl.Int32,  # elossa kierroksen lopussa
     "survivors_equip_prev": pl.Int32,  # $ edelliseltä kierrokselta säästynyt varustearvo
     "freeze_end_tick": pl.Int32,  # viimeinen round_freeze_end -tick, null jos puuttuu
@@ -217,7 +229,12 @@ def _type_name(dtype: object) -> str:
     return str(dtype)
 
 
-def validate(df: pl.DataFrame, schema: Schema, name: str) -> pl.DataFrame:
+def validate(
+    df: pl.DataFrame,
+    schema: Schema,
+    name: str,
+    advice: str | None = None,
+) -> pl.DataFrame:
     """Tarkista, että ``df`` vastaa täsmälleen sopimusta ``schema``.
 
     Tarkistus on tiukka molempiin suuntiin: puuttuva sarake, ylimääräinen sarake
@@ -228,6 +245,13 @@ def validate(df: pl.DataFrame, schema: Schema, name: str) -> pl.DataFrame:
         df: Tarkistettava taulu.
         schema: Sopimus muodossa ``{sarakenimi: Polars-tyyppi}``.
         name: Taulun nimi virheilmoitusta varten, esimerkiksi ``"rounds"``.
+        advice: Korvaava toimintaohje virheilmoituksen loppuun. Oletusohje
+            puhuu kehittäjälle ("lisää sarake tai korjaa taulun tuottanut
+            vaihe"), koska useimmiten sopimusta rikkoo koodi. Arkistosta
+            luettu taulu on eri tilanne: sen on rikkonut ohjelman oma
+            aiempi versio, eikä käyttäjä voi korjata sitä koodia
+            muokkaamalla. Silloin kutsuja antaa oman ohjeensa, jotta
+            väärä neuvo ei päädy käyttäjän silmille.
 
     Returns:
         Sama ``df`` muuttumattomana.
@@ -243,8 +267,12 @@ def validate(df: pl.DataFrame, schema: Schema, name: str) -> pl.DataFrame:
         listing = ", ".join(f"{col} ({_type_name(schema[col])})" for col in missing)
         raise SchemaError(
             f"Taulusta {name!r} puuttuu sarake: {listing}. "
-            "Lisää sarake tai korjaa taulun tuottanut vaihe -- "
-            "sopimus on tiedostossa domain/schemas.py."
+            + (
+                advice
+                if advice is not None
+                else "Lisää sarake tai korjaa taulun tuottanut vaihe -- "
+                "sopimus on tiedostossa domain/schemas.py."
+            )
         )
 
     extra = [col for col in actual if col not in schema]
@@ -252,7 +280,12 @@ def validate(df: pl.DataFrame, schema: Schema, name: str) -> pl.DataFrame:
         listing = ", ".join(f"{col} ({_type_name(actual[col])})" for col in extra)
         raise SchemaError(
             f"Taulussa {name!r} on ylimääräinen sarake: {listing}. "
-            "Poista sarake tai lisää se sopimukseen tiedostossa domain/schemas.py."
+            + (
+                advice
+                if advice is not None
+                else "Poista sarake tai lisää se sopimukseen tiedostossa "
+                "domain/schemas.py."
+            )
         )
 
     wrong = [
@@ -265,7 +298,11 @@ def validate(df: pl.DataFrame, schema: Schema, name: str) -> pl.DataFrame:
         )
         raise SchemaError(
             f"Taulun {name!r} sarakkeella on väärä tyyppi -- {listing}. "
-            "Muunna sarake oikeaan tyyppiin ennen kirjoitusta."
+            + (
+                advice
+                if advice is not None
+                else "Muunna sarake oikeaan tyyppiin ennen kirjoitusta."
+            )
         )
 
     return df

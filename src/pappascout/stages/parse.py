@@ -110,7 +110,13 @@ from pappascout.archive.paths import (
 from pappascout.domain.models import ParseSettings
 from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
 from pappascout.domain.sampling import FIRST_CONTACT_SAMPLE
-from pappascout.domain.schemas import EVENTS, ROUNDS, TICKS, validate
+from pappascout.domain.schemas import (
+    ARMED_COLUMN,
+    EVENTS,
+    ROUNDS,
+    TICKS,
+    validate,
+)
 from pappascout.domain.utility import DETONATE, THROWN
 from pappascout.errors import DemoUnavailable, ParseError, SchemaError
 from pappascout.stages import StageResult
@@ -159,6 +165,7 @@ def default_parser(settings: ParseSettings) -> DemoParser:
         exclude_weapons=settings.first_contact_exclude_weapons,
         fallback_death=settings.first_contact_fallback_death,
         area_snap_units=settings.area_snap_units,
+        armed_player_equip_min=settings.armed_player_equip_min,
     )
 
 
@@ -309,21 +316,57 @@ def _check_two_rows_per_round(df: pl.DataFrame) -> None:
 def _round_stats(df: pl.DataFrame, skipped_rounds: int = 0) -> dict[str, object]:
     """Kierrostaulun luvut."""
     if df.is_empty():
-        return {
+        stats: dict[str, object] = {
             "rounds": 0,
             "rows": 0,
             "max_round_no": 0,
             "skipped_rounds": skipped_rounds,
             "no_freeze_end": 0,
         }
+    else:
+        stats = {
+            "rounds": int(df["round_no"].n_unique()),
+            "rows": int(df.height),
+            "max_round_no": int(df["round_no"].max() or 0),
+            "skipped_rounds": skipped_rounds,
+            "no_freeze_end": int(
+                df.filter(pl.col("status") == "no_freeze_end")["round_no"].n_unique()
+            ),
+        }
+    # Myös tyhjästä taulusta: muut luvut palautetaan nollina, joten laskurin
+    # puuttuminen tekisi tyhjästä ajosta samannäköisen kuin laskurittomasta
+    # versiosta.
+    stats.update(_armed_stats(df))
+    return stats
+
+
+def _armed_stats(df: pl.DataFrame) -> dict[str, object]:
+    """Kalustolaskurin **arvojakauma** kierrostaulusta.
+
+    Jakauma kerrotaan ajon yhteydessä, koska laskuri on ainoa havainto, jonka
+    oikeellisuuden voi tarkistaa vain katsomalla sitä: väärä kynnys tuottaisi
+    taulun, joka läpäisee jokaisen skeematarkistuksen.
+
+    Nimenomaan jakauma eikä ääripäät: 41 riviä nollaa ja yksi viitonen antaisi
+    ``0-5``, joka näyttää terveeltä. ``{0: 41, 5: 1}`` ei näytä.
+
+    Returns:
+        ``armed_distribution`` (arvo -> rivien määrä, arvon mukaan
+        järjestettynä) ja ``armed_missing`` (rivit, joilta havainto puuttuu).
+    """
+    column = df[ARMED_COLUMN]
+    counts = (
+        df.filter(pl.col(ARMED_COLUMN).is_not_null())
+        .group_by(ARMED_COLUMN)
+        .len()
+        .sort(ARMED_COLUMN)
+    )
     return {
-        "rounds": int(df["round_no"].n_unique()),
-        "rows": int(df.height),
-        "max_round_no": int(df["round_no"].max() or 0),
-        "skipped_rounds": skipped_rounds,
-        "no_freeze_end": int(
-            df.filter(pl.col("status") == "no_freeze_end")["round_no"].n_unique()
-        ),
+        "armed_distribution": {
+            int(value): int(rows)
+            for value, rows in zip(counts[ARMED_COLUMN], counts["len"])
+        },
+        "armed_missing": int(column.null_count()),
     }
 
 
@@ -427,7 +470,10 @@ def _read_table(path: Path) -> pl.DataFrame | str:
 
 
 def _existing_stats(
-    table_abs: Path, ticks_abs: Path, events_abs: Path
+    table_abs: Path,
+    ticks_abs: Path,
+    events_abs: Path,
+    armed_threshold: int,
 ) -> dict[str, object]:
     """Luvut ohitettuun ajoon: luetaan valmiit taulut, ei parsita demoa.
 
@@ -441,15 +487,18 @@ def _existing_stats(
     rounds = _read_table(table_abs)
     ticks = _read_table(ticks_abs)
     events = _read_table(events_abs)
+    # Kynnys tulee asetuksista eikä taulusta: ohitus edellyttää täsmäävää
+    # parametrihashia, joten se on sama arvo, jolla taulu on laskettu.
+    threshold: dict[str, object] = {"armed_threshold": armed_threshold}
 
     # Kierros- ja näytepistetaulu ovat vaiheen ydintulos. Jos **kumpikaan** ei
     # aukea, koko tulos on lukukelvoton eikä siitä koota osittaista
     # yhteenvetoa: pelkkien utility-lukujen näyttäminen antaisi vaikutelman
     # ajantasaisesta tuloksesta.
     if isinstance(rounds, str) and isinstance(ticks, str):
-        return {"unreadable": rounds}
+        return {"unreadable": rounds, **threshold}
 
-    stats: dict[str, object] = {}
+    stats: dict[str, object] = dict(threshold)
     if isinstance(rounds, str):
         stats["unreadable"] = rounds
     else:
@@ -557,7 +606,12 @@ def run(
                 "parsia uudelleen."
             ),
             duration_s=time.perf_counter() - started,
-            stats=_existing_stats(table_abs, ticks_abs, events_abs),
+            stats=_existing_stats(
+                table_abs,
+                ticks_abs,
+                events_abs,
+                settings.armed_player_equip_min,
+            ),
         )
 
     try:
@@ -598,6 +652,9 @@ def run(
     ).write(manifest_abs)
 
     stats = _stats(df, ticks, events, skipped_rounds)
+    # Kynnys tulosteeseen: "0 -> 5 riviä" on tulkittavissa vain, jos tiedetään
+    # mitä vasten vertailu tehtiin. Rivin koko tarkoitus on itsetarkistus.
+    stats["armed_threshold"] = settings.armed_player_equip_min
     # Vain tuoreesta ajosta: numeroimattomien kierrosten rivit eivät ole
     # taulussa, joten ohitetusta ajosta lukua ei voi lukea takaisin.
     stats["utility_unnumbered_rounds"] = unnumbered

@@ -25,7 +25,7 @@ from pappascout.archive.manifest import Manifest
 from pappascout.archive.paths import ArchivePaths
 from pappascout.constants import SAMPLE_KINDS, SIDES
 from pappascout.domain.models import load_settings
-from pappascout.domain.schemas import EVENTS, ROUNDS, TICKS
+from pappascout.domain.schemas import ARMED_COLUMN, EVENTS, ROUNDS, TICKS
 from pappascout.errors import DemoUnavailable, PappascoutError, ParseError, SchemaError
 from pappascout.stages import parse as parse_stage
 
@@ -92,6 +92,9 @@ def build_rounds(
                     "equip_freeze_end": None if no_anchor else 20000 + index,
                     "equip_round_start": None if no_anchor else 1000 + index,
                     "players_freeze_end": None if no_anchor else 5,
+                    # Adapteri antaa laskurin valmiina; vaihe vain kuljettaa
+                    # sen. Puolikohtainen ero tekee kuljetuksesta todettavan.
+                    ARMED_COLUMN: None if no_anchor else 5 - index,
                     "survivors": index,
                     "survivors_equip_prev": 500,
                     "freeze_end_tick": None if no_anchor else 1000 * round_raw,
@@ -1066,6 +1069,131 @@ def test_parse_setting_change_triggers_a_reparse(tmp_path: Path, archive, demo) 
 
     assert not result.skipped
     assert parser.calls == 2
+
+
+def test_params_hash_covers_the_armed_threshold(tmp_path: Path, archive) -> None:
+    """Hash lasketaan koko ``ParseSettings``-osiosta -- todettuna, ei oletettuna.
+
+    ``_params_hash`` dumppaa osion sellaisenaan, joten uusi kenttä *pitäisi*
+    tulla hashiin automaattisesti. Juuri siksi se tarkistetaan: hiljainen
+    poikkeus (esim. ``exclude``-lista) jäisi muuten huomaamatta.
+
+    Tämä on koko sijoituksen syy. Jos kynnys olisi ``[economy]``- tai
+    ``[thresholds]``-osiossa, hash ei muuttuisi, ajo ohitettaisiin ja
+    arkistoon jäisi vanhalla kynnyksellä laskettu sarake ilman varoitusta.
+    Ohitusmekanismi itse on jo katettu
+    ``test_parse_setting_change_triggers_a_reparse``issa, joten tässä
+    testataan vain se, että kenttä on hashissa.
+    """
+    base_toml = tmp_path / "perus.toml"
+    base_toml.write_text(settings_text(archive.root), encoding="utf-8")
+    changed_toml = tmp_path / "muutettu.toml"
+    changed_toml.write_text(
+        settings_text(
+            archive.root,
+            **{"armed_player_equip_min = 950": "armed_player_equip_min = 951"},
+        ),
+        encoding="utf-8",
+    )
+
+    base = load_settings(base_toml, env_files=()).parse
+    changed = load_settings(changed_toml, env_files=()).parse
+    assert "armed_player_equip_min" in base.model_dump(mode="json")
+    assert parse_stage._params_hash(base) != parse_stage._params_hash(changed)
+
+
+def test_old_table_without_the_column_is_reparsed_not_rejected(
+    parse_settings, archive, demo
+) -> None:
+    """Arkiston vanha ``rounds.parquet`` ilman uutta saraketta ei kaada ajoa.
+
+    Vanhan koodin kirjoittama manifesti on hashattu ilman kalustokynnystä,
+    joten ohitusehto ei täyty ja demo parsitaan uudelleen. Skeemavirhe johtaa
+    siis **ajoon**, ei poikkeukseen -- eikä vanha taulu jää hiljaa voimaan.
+    """
+    parser = FakeParser(build_rounds(played=3))
+    run_parse(parse_settings, archive, parser, demo)
+
+    table = archive.parsed_table(MAP_DEMO_ID, "rounds")
+    old = pl.read_parquet(table).drop(ARMED_COLUMN)
+    old.write_parquet(table)
+    manifest_path = archive.parsed_manifest(MAP_DEMO_ID)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["params_hash"] = "vanha-hash-ilman-kalustokynnysta"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert not result.skipped
+    assert parser.calls == 2
+    fresh = pl.read_parquet(table)
+    assert ARMED_COLUMN in fresh.columns
+    assert fresh.schema == dict(ROUNDS)
+
+
+def test_armed_count_survives_the_write(parse_settings, archive, demo) -> None:
+    """Laskuri kulkee adapterilta levylle asti muuttumattomana."""
+    run_parse(parse_settings, archive, FakeParser(build_rounds(played=3)), demo)
+
+    df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "rounds"))
+    assert df[ARMED_COLUMN].dtype == pl.Int32
+    assert df.filter(pl.col("side") == "T")[ARMED_COLUMN].to_list() == [5, 5, 5]
+    assert df.filter(pl.col("side") == "CT")[ARMED_COLUMN].to_list() == [4, 4, 4]
+
+
+def test_run_reports_the_armed_distribution(parse_settings, archive, demo) -> None:
+    """``run()`` palauttaa ne avaimet, joita tuloste lukee.
+
+    Ilman tätä tuottaja ja kuluttaja testataan vain erikseen: tilastofunktio
+    käsin rakennettua taulua vasten ja tuloste käsin kirjoitettua dictiä
+    vasten. Kun välistä poistettiin ``stats.update(_armed_stats(df))``, 124
+    testiä meni läpi ja "Aseistettuja"-rivi vain katosi tulosteesta.
+
+    ``build_rounds`` antaa T:lle 5 ja CT:lle 4 joka kierroksella, joten
+    jakauma on tarkalleen tiedossa.
+    """
+    result = run_parse(
+        parse_settings, archive, FakeParser(build_rounds(played=3)), demo
+    )
+
+    assert result.stats["armed_distribution"] == {4: 3, 5: 3}
+    assert result.stats["armed_missing"] == 0
+    assert (
+        result.stats["armed_threshold"]
+        == parse_settings.armed_player_equip_min
+    )
+
+
+def test_skipped_run_reports_the_armed_distribution_too(
+    parse_settings, archive, demo
+) -> None:
+    """Ohitettu ajo lukee jakauman valmiista taulusta, ei muistista.
+
+    Kynnys tulee asetuksista: ohitus edellyttää täsmäävää parametrihashia,
+    joten se on sama arvo, jolla taulu on laskettu.
+    """
+    parser = FakeParser(build_rounds(played=3))
+    run_parse(parse_settings, archive, parser, demo)
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.skipped
+    assert result.stats["armed_distribution"] == {4: 3, 5: 3}
+    assert (
+        result.stats["armed_threshold"]
+        == parse_settings.armed_player_equip_min
+    )
+
+
+def test_armed_distribution_counts_rounds_without_an_anchor_as_missing(
+    parse_settings, archive, demo
+) -> None:
+    """Ankkuriton kierros ei ole nolla vaan puuttuva havainto."""
+    parser = FakeParser(build_rounds(played=3, without_anchor=(2,)))
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.stats["armed_missing"] == 2  # yksi rivi per joukkue
+    assert result.stats["armed_distribution"] == {4: 2, 5: 2}
 
 
 def test_missing_output_forces_a_reparse(parse_settings, archive, demo) -> None:

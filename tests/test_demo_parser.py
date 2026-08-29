@@ -49,7 +49,7 @@ from pappascout.domain.rounds import CT_WIN_REASONS, T_WIN_REASONS
 from pappascout.domain.rounds import REQUIRED_COLUMNS as NUMBERING_COLUMNS
 from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
 from pappascout.domain.models import load_settings
-from pappascout.domain.schemas import EVENTS, ROUNDS, TICKS
+from pappascout.domain.schemas import ARMED_COLUMN, EVENTS, ROUNDS, TICKS
 from pappascout.errors import ParseError
 
 FAKE_DEMO = DEMO_MAGIC + b"\x00" + b"tekaistua sisaltoa" * 64
@@ -80,6 +80,7 @@ def real_parser() -> Demoparser2Adapter:
         exclude_weapons=parse_settings.first_contact_exclude_weapons,
         fallback_death=parse_settings.first_contact_fallback_death,
         area_snap_units=parse_settings.area_snap_units,
+        armed_player_equip_min=parse_settings.armed_player_equip_min,
     )
 
 
@@ -407,6 +408,74 @@ def test_nuke_reaches_round_twenty_eight_in_overtime() -> None:
     overtime = df.filter(pl.col("round_no") > 24)
     assert sorted(overtime["round_no"].unique().to_list()) == [25, 26, 27, 28]
     assert overtime["won"].null_count() == 0
+
+
+@pytest.mark.demo
+def test_ancient_armed_player_count_matches_the_human_reading() -> None:
+    """Kalustolaskuri kierroksilla 19-21 vasten ihmisen antamaa totuutta.
+
+    **Sääntö itse on kalibroitu demovapaassa** ``test_calibration.py``:ssä
+    (``ARMED_TRUTH``), jotta ``pytest -m "not demo"`` valvoo sitä myös
+    koneella, jolla demoja ei ole. Tämä testi tarkistaa toisen puolen samasta
+    väitteestä: että alla luetellut pelaajakohtaiset varustearvot todella
+    tulevat demosta ulos, eivätkä ole taulukkoon kirjattu muistikuva.
+
+    Havaitut pelaajakohtaiset varustearvot freezetimen lopussa:
+
+    * K19 CT ``[200, 2200, 2450, 2550, 2800]`` -> **4**. Force, "ostivat
+      tyhjäksi"; yksi jäi ilmaiseen oletuspistooliin (200 $) eikä siksi laskeudu
+      mukaan.
+    * K20 T ``[1500, 1700, 2550, 4400, 4400]`` -> **5**. "2x AK, 2x tec9,
+      1x mac10, kaikilla kevlar+kypärä" -- kaikki viisi.
+    * K21 T ``[200, 300, 500, 1250, 1300]`` -> **2**. Eco: kahdella
+      kevlar+pistooli (1250 ja 1300), ja 300 $:n p250 jää kynnyksen alle.
+      Ostettu pistooli **korvaa** ilmaisen eikä tule sen päälle, joten P250
+      yksinään on 300 eikä 500 -- mitattu Ancientista tavaraluetteloa vasten.
+      Rivi 500 on Glock + savu, ei p250.
+    """
+    df = mark_played_rounds(
+        real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    def armed(round_no: int, side: str) -> int:
+        row = df.filter((pl.col("round_no") == round_no) & (pl.col("side") == side))
+        assert row.height == 1, (round_no, side)
+        return row[ARMED_COLUMN][0]
+
+    assert armed(19, "CT") == 4
+    assert armed(20, "T") == 5
+    assert armed(21, "T") == 2
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", [ANCIENT_DEM, NUKE_ZST])
+def test_armed_count_stays_within_its_divisor(demo_name: str) -> None:
+    """``0 <= players_armed_freeze_end <= players_freeze_end`` joka rivillä.
+
+    Laskuri ja jakaja tulevat samasta pelaajajoukosta, joten rajan ylitys
+    tarkoittaisi kahta eri jakajaa samalla rivillä -- vika, joka näkyisi vasta
+    raportissa. Ja koska joukko on sama, havainto on aina molemmissa tai ei
+    kummassakaan.
+    """
+    df = mark_played_rounds(
+        real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    assert (
+        df[ARMED_COLUMN].null_count() == df["players_freeze_end"].null_count()
+    )
+    # Ankkuriton kierros on laillinen havainto, ei virhe: suodatetaan pois sen
+    # sijaan että vaadittaisiin, ettei niitä ole. Muuten tuleva demo kaataisi
+    # tämän testin väärästä syystä.
+    observed = df.filter(pl.col(ARMED_COLUMN).is_not_null())
+    assert not observed.is_empty()
+    assert observed.select(
+        (pl.col(ARMED_COLUMN) >= 0)
+        & (pl.col(ARMED_COLUMN) <= pl.col("players_freeze_end"))
+    ).to_series().all()
+    # Kynnys erottaa oikeasti: pelkkä yksi arvo koko taulussa tarkoittaisi,
+    # että se on aineiston ulkopuolella eikä sen sisällä.
+    assert observed[ARMED_COLUMN].n_unique() > 1
 
 
 @pytest.mark.demo
