@@ -576,9 +576,9 @@ def round_list_rows(df: pl.DataFrame) -> list[dict[str, object]]:
     for r in df.sort("round_no").iter_rows(named=True):
         inputs = r["inputs"] or {}
         players = int(inputs.get("players") or 0)
-        money = inputs.get("money_freeze_end")
+        money = inputs.get("money_buy_end")
         spent = inputs.get("money_spent")
-        equip = inputs.get("equip_freeze_end")
+        equip = inputs.get("equip_buy_end")
         equip_start = inputs.get("equip_round_start")
         rows.append(
             {
@@ -667,11 +667,13 @@ def render_round_list_markdown(
     )
     parts.append("")
     parts.append(
-        "Kaikki rahaluvut ovat dollareita per pelaaja freezetimen lopussa. "
+        "Kaikki rahaluvut ovat dollareita per pelaaja ostoajan lopussa "
+        "(freezetimen loppu + [parse].buy_window_seconds, katkaistuna "
+        "kierroksen ensimmäiseen kuolemaan). "
         "**Käytössä** = jäljellä + käytetty eli se raha, joka joukkueella oli "
         "ostoaikana. **Jäljellä** on saldo ostojen jälkeen, joten "
         "säästökierroksella se on suuri. **Ostettu** on varustearvon kasvu "
-        "kierroksen alusta freezetimen loppuun."
+        "kierroksen alusta ostoajan loppuun."
     )
     parts.append("")
 

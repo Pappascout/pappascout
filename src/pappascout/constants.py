@@ -116,7 +116,7 @@ RosterClass = Literal["5/5", "4/5"]
 # -- Aseluokittelu (Story 1.6) -------------------------------------------------
 #
 # Nämä nimet ovat demoparser2:n ``inventory``-listan arvoja, luettu
-# freezetimen lopun tickiltä. Nimet on **mitattu kuudesta demosta** (Ancient,
+# ostoajan lopun tickiltä. Nimet on **mitattu kuudesta demosta** (Ancient,
 # Nuke ja neljä Pappaliiga-demoa; Ancientin .dem ja .dem.zst ovat sama ottelu),
 # ei arvattu: 48 eri nimeä. Yhdeksän muuta pelin asetta on luettelossa, vaikka
 # niitä ei näissä demoissa esiintynyt -- ne ovat pelissä olemassa, ja
@@ -131,7 +131,7 @@ RosterClass = Literal["5/5", "4/5"]
 # turvallisempi virhe kuin veitsi joka aseistaa.
 #
 # HALLUSSAPITO, EI OSTOS. Luettelo kertoo, mikä *ase* aseistaa pelaajan, ei
-# sitä ostiko hän sen. Tavaraluettelo luetaan freezetimen lopusta, joten
+# sitä ostiko hän sen. Tavaraluettelo luetaan ostoajan lopusta, joten
 # edelliseltä kierrokselta säästetty tai vainajalta poimittu kivääri laskeutuu
 # samoin kuin juuri ostettu. Se on tarkoitus eikä puute: kierroksen kannalta
 # ratkaisee mitä kädessä on, ei mistä se tuli, ja säästetty AK on tismalleen

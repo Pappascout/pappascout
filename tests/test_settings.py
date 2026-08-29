@@ -14,6 +14,8 @@ from pydantic import ValidationError
 
 from conftest import REAL_SETTINGS, settings_text
 from pappascout.domain.models import (
+    MAX_BUY_WINDOW_SECONDS,
+    MAX_SNAPSHOT_SECONDS,
     REMOVED_SETTINGS,
     SETTINGS_ENV_VAR,
     SETTINGS_SECTIONS,
@@ -593,3 +595,107 @@ def test_settings_env_var_pointing_nowhere_is_an_error(
     message = str(exc.value)
     assert SETTINGS_ENV_VAR in message
     assert str(missing) in message
+
+
+# --- Ostoikkuna (Story 1.9) ---------------------------------------------------
+
+
+def test_buy_window_is_the_games_own_rule(settings_file: Path) -> None:
+    """Ostoikkuna on 20 s, eli CS2:n oma ostoaika kierroksen alusta.
+
+    Arvo on **linjaus, jonka mittaus tukee**, ei kalibroitu kynnys, joten se
+    ei saa liukua aineiston mukana. Viidestä liigademosta (106 kierrosta)
+    mitattuna ostaminen loppui viimeistään 19,4 s kohdalla, mikä on
+    yhteensopiva 20 sekunnin ostoajan kanssa -- mutta 19,4 ei ole se luku,
+    joka tänne kuuluu, eikä mittaus voi kertoa mitä 20,5 s kohdalla olisi
+    tapahtunut.
+    """
+    s = _load(settings_file)
+    assert s.parse.buy_window_seconds == 20.0
+
+
+def test_a_negative_buy_window_is_refused(tmp_path: Path) -> None:
+    """Negatiivinen ikkuna siirtäisi mittauspisteen freezetimen sisään.
+
+    Silloin talous luettaisiin hetkestä, jolloin joukkue ei ole vielä edes
+    ostanut, eikä mikään kaatuisi -- luvut olisivat vain hiljaa liian pienet.
+    """
+    path = _write_variant(
+        tmp_path, **{"buy_window_seconds = 20.0": "buy_window_seconds = -1.0"}
+    )
+    with pytest.raises(SettingsError) as exc:
+        _load(path)
+    assert "buy_window_seconds" in str(exc.value)
+
+
+def test_a_buy_window_longer_than_a_round_is_refused(tmp_path: Path) -> None:
+    """Kierrosta pidempi ikkuna on kirjoitusvirhe, ei valinta.
+
+    Mittauspiste rajautuu joka tapauksessa kierroksen loppuun, joten arvo ei
+    mittaisi mitään uutta -- se vain näyttäisi asetustiedostossa siltä, että
+    ostoaika kestää koko kierroksen.
+    """
+    path = _write_variant(
+        tmp_path, **{"buy_window_seconds = 20.0": "buy_window_seconds = 200.0"}
+    )
+    with pytest.raises(SettingsError) as exc:
+        _load(path)
+    assert "buy_window_seconds" in str(exc.value)
+
+
+def test_a_zero_buy_window_is_allowed(tmp_path: Path) -> None:
+    """Nolla on kelvollinen: se tarkoittaa "mittaa freezetimen lopusta".
+
+    Se on Story 1.9:ää edeltävä käyttäytyminen ja ainoa tapa toistaa vanha
+    mittaus ilman koodimuutosta.
+    """
+    path = _write_variant(
+        tmp_path, **{"buy_window_seconds = 20.0": "buy_window_seconds = 0.0"}
+    )
+    assert _load(path).parse.buy_window_seconds == 0.0
+
+
+@pytest.mark.parametrize("literal", ["nan", "inf", "-inf"])
+def test_a_non_finite_buy_window_is_refused(tmp_path: Path, literal: str) -> None:
+    """``nan`` ja ääretön eivät saa mennä läpi vertailujen välistä.
+
+    TOML osaa nämä literaalit, ja ``nan`` läpäisee jokaisen vertailun:
+    ``nan < 0`` on epätosi ja ``nan > raja`` on epätosi. Pelkistä vertailuista
+    koostuva tarkistus päästäisi arvon läpi, ja ``round(nan * tick_rate)``
+    kaatuisi vasta parsinnan sisällä -- sen jälkeen kun 400 MB:n demo on jo
+    purettu ja luettu. Ääretön kaatuisi samassa kohdassa.
+    """
+    path = _write_variant(
+        tmp_path,
+        **{"buy_window_seconds = 20.0": f"buy_window_seconds = {literal}"},
+    )
+    with pytest.raises(SettingsError) as exc:
+        _load(path)
+    message = str(exc.value)
+    assert "buy_window_seconds" in message
+    assert "äärellinen" in message
+
+
+def test_the_buy_window_bound_is_its_own_not_the_snapshot_bound() -> None:
+    """Ostoikkunan yläraja on oma vakionsa, ei näytepisteiden raja.
+
+    Yhteinen vakio kytkisi kaksi riippumatonta asetusta toisiinsa: kumman
+    tahansa säätäminen siirtäisi toisen rajaa huomaamatta. Näytepisteiden raja
+    on kierroksen kesto (115 s), jonka alta menisi läpi esimerkiksi 100 s --
+    arvo, jolla mittauspiste ei enää olisi ostoaika vaan mielivaltainen hetki
+    kierroksen keskellä.
+    """
+    assert MAX_BUY_WINDOW_SECONDS < MAX_SNAPSHOT_SECONDS
+
+
+def test_a_window_below_the_round_length_but_above_the_bound_is_refused(
+    tmp_path: Path,
+) -> None:
+    """100 s on kierrosta lyhyempi mutta silti liikaa -- eikä mene äänettömästi."""
+    path = _write_variant(
+        tmp_path, **{"buy_window_seconds = 20.0": "buy_window_seconds = 100.0"}
+    )
+    assert 100.0 < MAX_SNAPSHOT_SECONDS
+    with pytest.raises(SettingsError) as exc:
+        _load(path)
+    assert "buy_window_seconds" in str(exc.value)

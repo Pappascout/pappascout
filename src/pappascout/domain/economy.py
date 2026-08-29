@@ -9,19 +9,19 @@ tarkistamaan työkalun näkemystä demoa vasten.
 
 Mitä havaitaan ja mitä johdetaan
 --------------------------------
-``parse`` havaitsee: raha ja käytetty raha freezetimen lopussa, varustearvo
-freezetimen lopussa, kierroksen alun varustearvo, luettavissa olleiden
+``parse`` havaitsee: raha ja käytetty raha ostoajan lopussa, varustearvo
+ostoajan lopussa, kierroksen alun varustearvo, luettavissa olleiden
 pelaajien määrä, eloonjääneet ja voittaja. Tämä moduuli johtaa niistä loss
 countin ja kierrostyypin. Mitään johdettua ei kirjoiteta takaisin
 ``parsed/``-hakemistoon.
 
 Rahan kaksi suuntaa -- lue tämä ennen kuin muutat kynnyksiä
 -----------------------------------------------------------
-``money_freeze_end`` on **jäljelle jäänyt saldo ostoajan jälkeen**, ei
+``money_buy_end`` on **jäljelle jäänyt saldo ostoajan jälkeen**, ei
 käytettävissä ollut raha. Säästökierroksella se on siksi *suuri* ja täydellä
 ostolla *pieni*. Käytettävissä ollut raha saadaan summana::
 
-    käytettävissä = money_freeze_end + money_spent
+    käytettävissä = money_buy_end + money_spent
 
 Kalibrointi 2026-08-29 osoitti, että **päätös nojaa jäljelle jääneeseen
 saldoon**, ei käytettävissä olleeseen rahaan: se erottaa forcen puoliostosta
@@ -29,7 +29,7 @@ saldoon**, ei käytettävissä olleeseen rahaan: se erottaa forcen puoliostosta
 ``inputs``-rakenteessa, koska se selittää lukijalle, mistä joukkueen tilanne
 syntyi, mutta yksikään sääntö ei enää vertaa siihen.
 
-Ostettu summa on erotus ``equip_freeze_end - equip_round_start``. Se on ainoa
+Ostettu summa on erotus ``equip_buy_end - equip_round_start``. Se on ainoa
 suoraan havaittu mittari sille, ostiko joukkue vai ei, ja juuri se erottaa
 ostokierroksen (force tai puoliosto) ecosta.
 
@@ -49,11 +49,11 @@ jos tämä moduuli ja se dokumentti ovat eri mieltä, **tämä moduuli on väär
   ``force`` eikä ``half``; ainoa poikkeus on niin matala varustearvo, ettei se
   ole osto lainkaan -- se on ``anomaly``.
 * **S2 -- Force ja puoliosto eroavat taskuun jätetystä rahasta, eivät
-  varustearvosta.** Force = ostettiin tyhjäksi, eli ``money_freeze_end`` jäi
+  varustearvosta.** Force = ostettiin tyhjäksi, eli ``money_buy_end`` jäi
   ``force_money_left_max``iin tai sen alle. Puoliosto = ostettiin, mutta
   jätettiin varaa seuraavalle kierrokselle.
 * **S3 -- Säästetty ase ei ole ostos.** Ratkaisee tällä kierroksella ostettu
-  summa (``equip_freeze_end - equip_round_start``), ei varustearvo. Eloon
+  summa (``equip_buy_end - equip_round_start``), ei varustearvo. Eloon
   jääneiden säästämä kalusto nostaa varustearvoa ilman että mitään ostettiin,
   ja varustearvoon nojaava sääntö kääntäisi sellaisen econ puoliostoksi.
 
@@ -205,20 +205,20 @@ CLASSIFY_COLUMNS: tuple[str, ...] = (
     "round_no",
     "side",
     "status",
-    "money_freeze_end",
+    "money_buy_end",
     "money_spent",
-    "equip_freeze_end",
+    "equip_buy_end",
     "equip_round_start",
-    "players_freeze_end",
+    "players_buy_end",
     "survivors_equip_prev",
 )
 
 #: ``CLASSIFIED_INPUTS``-rakenteen kentät siinä järjestyksessä, jossa ne
 #: kirjoitetaan. Nimet on lukittu ``domain/schemas.py``:ssä.
 INPUT_FIELDS: tuple[str, ...] = (
-    "money_freeze_end",
+    "money_buy_end",
     "money_spent",
-    "equip_freeze_end",
+    "equip_buy_end",
     "equip_round_start",
     "survivors_prev",
     "survivors_equip_prev",
@@ -244,7 +244,7 @@ def available_money(row: Mapping[str, Any]) -> int | None:
     mistä joukkueen tilanne syntyi -- ja siksi, ettei jäljelle jäänyttä saldoa
     luulisi käytettävissä olleeksi rahaksi.
     """
-    left = row.get("money_freeze_end")
+    left = row.get("money_buy_end")
     spent = row.get("money_spent")
     if left is None and spent is None:
         return None
@@ -386,12 +386,12 @@ def classify_round(
         return Decision(
             None,
             f"Kierrosta {round_no} ei luokitella: kierroksen tila on "
-            f"{status!r}, eli freezetimen lopun havainnot puuttuvat.",
+            f"{status!r}, eli ostoajan lopun havainnot puuttuvat.",
             inputs,
         )
 
-    money = row.get("money_freeze_end")
-    equip = row.get("equip_freeze_end")
+    money = row.get("money_buy_end")
+    equip = row.get("equip_buy_end")
     equip_start = row.get("equip_round_start")
     missing = [
         name
@@ -405,7 +405,7 @@ def classify_round(
     if missing:
         return Decision(
             None,
-            f"Kierrosta {round_no} ei luokitella: freezetimen lopusta puuttuu "
+            f"Kierrosta {round_no} ei luokitella: ostoajan lopusta puuttuu "
             f"{', '.join(missing)}. Puuttuvaa arvoa ei korvata nollalla, koska "
             "se väittäisi koko varustearvon ostetuksi tällä kierroksella.",
             inputs,
@@ -451,7 +451,7 @@ def classify_round(
     if bought < 0:
         return Decision(
             "anomaly",
-            f"Varustearvo laski kierroksen alusta freezetimen loppuun "
+            f"Varustearvo laski kierroksen alusta ostoajan loppuun "
             f"({bought} $ joukkueena, {_d(bought_pp)} $/pelaaja), mikä ei ole "
             "ostotapahtuma. Havainnot ovat ristiriidassa, eikä erotusta "
             f"vaimenneta nollaan. {basis}",
@@ -582,7 +582,7 @@ def _players(
             f"thresholds.roster_size on {thresholds.roster_size}; per pelaaja "
             "-arvoja ei voi laskea, koska jakaja olisi nolla tai negatiivinen."
         )
-    observed = row.get("players_freeze_end")
+    observed = row.get("players_buy_end")
     readable = None if observed is None else int(observed)
     if readable is not None and 1 <= readable <= thresholds.roster_size:
         return readable, readable, True
@@ -599,14 +599,14 @@ def _inputs(
     """Kokoa päätöksen lähtöarvot ``CLASSIFIED_INPUTS``-rakenteeseen.
 
     Ostettu summa ei ole omana kenttänään: se on erotus
-    ``equip_freeze_end - equip_round_start``, ja molemmat ovat mukana.
-    Käytettävissä ollut raha on vastaavasti ``money_freeze_end + money_spent``.
+    ``equip_buy_end - equip_round_start``, ja molemmat ovat mukana.
+    Käytettävissä ollut raha on vastaavasti ``money_buy_end + money_spent``.
     Kumpikin on siis jäljitettävissä ilman skeemamuutosta.
     """
     return {
-        "money_freeze_end": _i(row.get("money_freeze_end")),
+        "money_buy_end": _i(row.get("money_buy_end")),
         "money_spent": _i(row.get("money_spent")),
-        "equip_freeze_end": _i(row.get("equip_freeze_end")),
+        "equip_buy_end": _i(row.get("equip_buy_end")),
         "equip_round_start": _i(row.get("equip_round_start")),
         "survivors_prev": None if previous is None else _i(previous.get("survivors")),
         "survivors_equip_prev": _i(row.get("survivors_equip_prev")),
@@ -639,12 +639,12 @@ def _basis(
     suunnat, jotta lukija ei sekoita jäljelle jäänyttä saldoa käytettävissä
     olleeseen rahaan.
     """
-    equip = row.get("equip_freeze_end")
+    equip = row.get("equip_buy_end")
     start = row.get("equip_round_start")
     bought = None if equip is None or start is None else int(equip) - int(start)
     parts = [
         f"Käytettävissä {_pp(available_money(row), players)}"
-        f" (jäljellä {_pp(row.get('money_freeze_end'), players)}"
+        f" (jäljellä {_pp(row.get('money_buy_end'), players)}"
         f", käytetty {_pp(row.get('money_spent'), players)})",
         f"varusteet {_pp(equip, players)}",
         f"ostettu {_pp(bought, players)}",

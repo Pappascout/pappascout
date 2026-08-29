@@ -84,6 +84,7 @@ def real_parser() -> Demoparser2Adapter:
         exclude_weapons=parse_settings.first_contact_exclude_weapons,
         fallback_death=parse_settings.first_contact_fallback_death,
         area_snap_units=parse_settings.area_snap_units,
+        buy_window_seconds=parse_settings.buy_window_seconds,
     )
 
 
@@ -354,8 +355,8 @@ def test_ancient_observations_are_plausible() -> None:
     assert set(df["side"].unique().to_list()) == {"T", "CT"}
     assert df["won"].null_count() == 0
     assert df["win_reason"].null_count() == 0
-    assert df["money_freeze_end"].null_count() == 0
-    assert df["equip_freeze_end"].null_count() == 0
+    assert df["money_buy_end"].null_count() == 0
+    assert df["equip_buy_end"].null_count() == 0
     assert df["survivors"].is_between(0, 5).all()
     assert df["status"].unique().to_list() == ["ok"]
 
@@ -378,8 +379,8 @@ def test_ancient_pistol_round_shows_a_pistol_economy() -> None:
     ).filter(pl.col("round_no") == 1)
     assert df.height == 2
     # 5 pelaajaa x (pistooli 200 + kevlar 650..1000) -> selvästi alle 10 000 $.
-    assert df["equip_freeze_end"].max() < 10_000
-    assert df["equip_freeze_end"].min() > 0
+    assert df["equip_buy_end"].max() < 10_000
+    assert df["equip_buy_end"].min() > 0
 
 
 @pytest.mark.demo
@@ -423,12 +424,15 @@ def test_ancient_armed_player_count_matches_the_human_reading() -> None:
     väitteestä: että samat tavaraluettelot ja panssariarvot todella tulevat
     demosta ulos, eivätkä ole taulukkoon kirjattu muistikuva.
 
-    Havainnot freezetimen lopussa:
+    Havainnot **ostoajan lopussa** (Story 1.9; ennen sitä ankkurista):
 
-    * K19 CT -> **4**. Force, "ostivat tyhjäksi"; yksi jäi ilmaiseen
-      oletuspistooliin eikä ostanut panssaria.
+    * K19 CT -> **5**, ennen 4. Viides pelaaja osti kevlarin ja Deaglen vasta
+      freezetimen jälkeen, joten ankkurista luettuna hän näytti jääneen
+      ilmaiseen oletuspistooliin. Veetin tuomio "ostivat tyhjäksi" **vahvistuu**
+      -- taskuun jäi 150 $ eikä 3 750 $ -- mutta hänen huomionsa "yksi jäi
+      ilman panssaria" oli lukema väärältä hetkeltä.
     * K20 T -> **5**. "2x AK, 2x tec9, 1x mac10, kaikilla kevlar+kypärä" --
-      kaikki viisi.
+      kaikki viisi, sama kummastakin hetkestä.
     * K21 T -> **2**. Eco: kahdella kevlar + ostettu pistooli, ja kolmas
       p250-pelaaja putoaa **panssarin puutteeseen**. Story 1.5:n kynnys
       pudotti hänet siksi, että 300 $ < 950 $; sama luku, mutta nyt oikeasta
@@ -443,7 +447,7 @@ def test_ancient_armed_player_count_matches_the_human_reading() -> None:
         assert row.height == 1, (round_no, side)
         return row[ARMED_COLUMN][0]
 
-    assert armed(19, "CT") == 4
+    assert armed(19, "CT") == 5
     assert armed(20, "T") == 5
     assert armed(21, "T") == 2
 
@@ -454,8 +458,12 @@ def test_ancient_inventories_match_the_calibration_table() -> None:
 
     Edellinen testi toteaa vain kolme lukua, ja ne osuisivat myös silloin, jos
     taulun rivit olisivat ajautuneet erilleen demosta ja sääntö kompensoisi
-    eron. Tämä lukee samat kolme ankkuria uudelleen ja vertaa **jokaisen
-    pelaajan** tavaraluettelon ja panssarin taulun riviin.
+    eron. Tämä lukee samat kolme **mittauspistettä** uudelleen ja vertaa
+    jokaisen pelaajan tavaraluettelon ja panssarin taulun riviin.
+
+    Tick on ``buy_end_tick`` eikä ``freeze_end_tick``: laskuri lasketaan siltä,
+    joten ankkurin lukeminen tässä vertaisi taulua hetkeen, jota tuote ei
+    käytä.
 
     Vertailu on joukkona: taulun pelaajajärjestys on dokumentin, ei demon.
     """
@@ -469,7 +477,7 @@ def test_ancient_inventories_match_the_calibration_table() -> None:
 
     wanted = {(k.round_no, k.side): k for k in ARMED_TRUTH}
     anchors = {
-        (row["round_no"], row["side"]): row["freeze_end_tick"]
+        (row["round_no"], row["side"]): row["buy_end_tick"]
         for row in df.iter_rows(named=True)
         if (row["round_no"], row["side"]) in wanted
     }
@@ -533,7 +541,7 @@ def test_real_demo_has_no_unknown_inventory_items(demo_name: str) -> None:
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_armed_count_stays_within_its_divisor(demo_name: str) -> None:
-    """``0 <= players_armed_freeze_end <= players_freeze_end`` joka rivillä.
+    """``0 <= players_armed_buy_end <= players_buy_end`` joka rivillä.
 
     Laskuri ja jakaja tulevat samasta pelaajajoukosta, joten rajan ylitys
     tarkoittaisi kahta eri jakajaa samalla rivillä -- vika, joka näkyisi vasta
@@ -545,7 +553,7 @@ def test_armed_count_stays_within_its_divisor(demo_name: str) -> None:
     ).filter(pl.col("round_no").is_not_null())
 
     assert (
-        df[ARMED_COLUMN].null_count() == df["players_freeze_end"].null_count()
+        df[ARMED_COLUMN].null_count() == df["players_buy_end"].null_count()
     )
     # Ankkuriton kierros on laillinen havainto, ei virhe: suodatetaan pois sen
     # sijaan että vaadittaisiin, ettei niitä ole. Muuten tuleva demo kaataisi
@@ -554,7 +562,7 @@ def test_armed_count_stays_within_its_divisor(demo_name: str) -> None:
     assert not observed.is_empty()
     assert observed.select(
         (pl.col(ARMED_COLUMN) >= 0)
-        & (pl.col(ARMED_COLUMN) <= pl.col("players_freeze_end"))
+        & (pl.col(ARMED_COLUMN) <= pl.col("players_buy_end"))
     ).to_series().all()
     # Sääntö erottaa oikeasti: pelkkä yksi arvo koko taulussa tarkoittaisi,
     # ettei se pure aineistoon lainkaan -- esimerkiksi että jokainen nimi on
@@ -660,15 +668,15 @@ def test_league_demo_counters_are_observations(
     ).filter(pl.col("round_no").is_not_null())
 
     for name in (
-        "money_freeze_end",
+        "money_buy_end",
         "money_spent",
-        "equip_freeze_end",
-        "players_freeze_end",
+        "equip_buy_end",
+        "players_buy_end",
         "survivors",
     ):
         assert df[name].null_count() == 0, name
-    assert df["players_freeze_end"].unique().to_list() == [5]
-    assert df["equip_freeze_end"].min() > 0
+    assert df["players_buy_end"].unique().to_list() == [5]
+    assert df["equip_buy_end"].min() > 0
     # Jokainen kierros ratkeaa jommalle kummalle: tasan yksi voittaja per
     # kierros ja tasan kaksi riviä.
     assert df.filter(pl.col("won"))["round_no"].n_unique() == expected_rounds
@@ -679,7 +687,7 @@ def test_league_demo_counters_are_observations(
     # kun täysi osto on noin 21 000 $.
     pistol = df.filter(pl.col("round_no") == 1)
     assert pistol.height == 2
-    assert pistol["equip_freeze_end"].max() < 10_000
+    assert pistol["equip_buy_end"].max() < 10_000
 
 
 @pytest.mark.demo
@@ -1446,3 +1454,337 @@ def test_nuke_utility_is_read_too() -> None:
     # useammin -- mutta ei koskaan kaikille.
     received = detonations.height - detonations["area"].null_count()
     assert 0 < received < detonations.height
+
+
+# --- Ostoaika oikeissa demoissa (Story 1.9) ------------------------------------
+
+
+#: ``inferno_vs_ryhmarama``, kierros 6, Ryhmä Rämä T-puolella. Veeti katsoi
+#: tämän kierroksen demosta ja luki siitä luvut, jotka eivät täsmänneet
+#: työkalun tuottamiin -- se oli koko vian löytöhavainto.
+#:
+#: Freezetimen lopussa varusteita 11 550 ja rahaa 6 600; kaksi sekuntia
+#: myöhemmin 15 350 ja 2 400. Kolme viidestä pelaajasta osti vasta silloin.
+INFERNO_ROUND_6 = {
+    "equip_buy_end": 15_350,
+    "money_buy_end": 2_400,
+    "armed": 5,
+}
+
+#: Samat pelaajat, samat aseet, Veetin lukemina. Kolme näistä on ostettu vasta
+#: freezetimen jälkeen; ankkurista luettuna kaikilla kolmella on Glock.
+INFERNO_ROUND_6_WEAPONS = {
+    "petemonni": "P250",
+    "Toumee": "Tec-9",
+    "Manetsu": "AK-47",
+}
+
+
+@pytest.mark.demo
+def test_inferno_round_six_matches_the_human_reading() -> None:
+    """Vian löytökierros tuottaa nyt ne luvut, jotka Veeti luki demosta.
+
+    Kolme lukua yhdessä, koska ne rikkoutuivat yhdessä: varustearvo
+    aliarvioitiin, taskuun jäänyt raha yliarvioitiin ja aseistettujen laskuri
+    antoi 2 vaikka totuus oli 5. Yksikään niistä ei olisi paljastanut vikaa
+    yksinään -- laskurin 2 näytti uskottavalta ecolta.
+    """
+    df = mark_played_rounds(
+        real_parser()
+        .parse_demo(require_demo("inferno_vs_ryhmarama.dem"), SNAPSHOT_SECONDS)
+        .rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    row = df.filter((pl.col("round_no") == 6) & (pl.col("side") == "T"))
+    assert row.height == 1
+    observed = row.to_dicts()[0]
+
+    assert observed["equip_buy_end"] == INFERNO_ROUND_6["equip_buy_end"]
+    assert observed["money_buy_end"] == INFERNO_ROUND_6["money_buy_end"]
+    assert observed[ARMED_COLUMN] == INFERNO_ROUND_6["armed"]
+    # Mittauspiste on ankkurin jälkeen mutta ennen ikkunan loppua: kierroksen
+    # ensimmäinen kuolema (18,1 s) katkaisi ikkunan.
+    assert observed["buy_end_tick"] > observed["freeze_end_tick"]
+
+
+@pytest.mark.demo
+def test_inferno_round_six_players_hold_the_weapons_veeti_saw() -> None:
+    """Pelaajakohtaiset aseet, ei vain joukkuesumma.
+
+    Summa 15 350 osuisi myös silloin, jos mittauspiste olisi oikea mutta
+    tavaraluettelo luettaisiin väärältä tickiltä -- ja juuri tavaraluettelo
+    ratkaisee aseistettujen laskurin. Veeti nimesi kolme asetta, jotka
+    ostettiin vasta freezetimen jälkeen; ankkurista luettuna kaikilla kolmella
+    on yhä ilmainen Glock.
+    """
+    from demoparser2 import DemoParser as _Demoparser2
+
+    from pappascout.adapters.decompress import readable_demo
+
+    demo = require_demo("inferno_vs_ryhmarama.dem")
+    adapter = real_parser()
+    df = mark_played_rounds(
+        adapter.parse_demo(demo, SNAPSHOT_SECONDS).rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    row = df.filter((pl.col("round_no") == 6) & (pl.col("side") == "T")).to_dicts()[0]
+
+    with readable_demo(demo) as demo_path:
+        parser = _Demoparser2(str(demo_path))
+        frame = parser.parse_ticks(["inventory"], ticks=[row["buy_end_tick"]])
+    inventories = {
+        str(record["name"]): tuple(record["inventory"] or ())
+        for record in frame.to_dict("records")
+    }
+
+    for player, weapon in INFERNO_ROUND_6_WEAPONS.items():
+        assert player in inventories, sorted(inventories)
+        assert weapon in inventories[player], (
+            f"{player}: Veeti näki {weapon!r}, demo antoi "
+            f"{inventories[player]}"
+        )
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
+def test_no_purchase_is_lost_behind_the_death_cut(demo_name: str) -> None:
+    """Kuoleman katkaisu ei maksa yhtään ostosta -- todettuna, ei oletettuna.
+
+    Tämä on ostoikkunan koko kompromissi yhtenä lukuna. Ikkuna on 20 s, mutta
+    kuolema katkaisee sen noin puolella kierroksista; jos joku ostaisi vielä
+    katkaisun jälkeen, mittaus menettäisi ostoksen. Mitattuna kaikista kuudesta
+    demosta niin ei käy kertaakaan.
+
+    Katkaisujen määrää **ei** väitetä nollaksi: se on normaali polku eikä
+    vika. Väite koskee vain sen hintaa.
+    """
+    adapter = real_parser()
+    adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+
+    assert adapter.diagnostics is not None
+    cuts = adapter.diagnostics.buy_window_cuts
+    assert sum(missed for _, missed in cuts) == 0
+    assert adapter.diagnostics.buy_window_ticks_without_players == 0
+    # Katkaisuja on, eli ikkuna todella rajautuu kuolemaan. Ilman tätä
+    # rivi menisi läpi myös silloin, jos kuolemia ei luettaisi lainkaan.
+    assert cuts, "yhtäkään ikkunaa ei katkaistu -- kuolemia ei ilmeisesti lueta"
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
+def test_the_measurement_point_stays_inside_its_round(demo_name: str) -> None:
+    """Mittauspiste on ankkurin jälkeen, ikkunan sisällä ja sama molemmilla.
+
+    Kolme invarianttia, joista jokainen rikkoutuisi eri tavalla: mittauspiste
+    ennen ankkuria lukisi freezetimen sisältä, ikkunan lopun jälkeen se ei
+    enää olisi ostoaika, ja joukkuekohtainen piste tekisi kahden rivin
+    summista vertailukelvottomat.
+
+    Neljäs raja -- kierroksen loppu -- on omassa testissään
+    :func:`test_the_measurement_never_reaches_the_next_round`, koska se vaatii
+    vertailun **seuraavaan** kierrokseen eikä ole luettavissa yhdeltä riviltä.
+    """
+    df = mark_played_rounds(
+        real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    assert df["buy_end_tick"].null_count() == 0
+    assert (df["buy_end_tick"] >= df["freeze_end_tick"]).all()
+
+    window_ticks = round(_parse_settings().buy_window_seconds * df["tick_rate"][0])
+    assert (df["buy_end_tick"] - df["freeze_end_tick"] <= window_ticks).all()
+
+    per_round = df.group_by("round_no").agg(
+        pl.col("buy_end_tick").n_unique().alias("ticks")
+    )
+    assert per_round["ticks"].unique().to_list() == [1]
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
+def test_the_anchor_reading_is_what_it_was_before_the_window(demo_name: str) -> None:
+    """Ikkuna 0 toistaa Story 1.9:ää edeltävän mittauksen sellaisenaan.
+
+    Varustearvo luetaan nyt propista ``m_unCurrentEquipmentValue`` eikä
+    ``m_unFreezetimeEndEquipmentValue``sta -- jälkimmäinen ei päivity
+    freezetimen jälkeen, joten sillä koko korjaus jäisi näkymättömäksi.
+    Ankkurilla nämä kaksi ovat sama luku, ja juuri se tekee vaihdosta
+    turvallisen: ilman sitä propinvaihto olisi voinut siirtää jokaisen luvun
+    hiljaa.
+
+    Vertailuarvot ovat kalibrointidokumentin ja vikaraportin lukuja, jotka on
+    mitattu vanhalla propilla.
+    """
+    parse_settings = _parse_settings()
+    adapter = Demoparser2Adapter(
+        exclude_weapons=parse_settings.first_contact_exclude_weapons,
+        fallback_death=parse_settings.first_contact_fallback_death,
+        area_snap_units=parse_settings.area_snap_units,
+        buy_window_seconds=0.0,
+    )
+    df = mark_played_rounds(
+        adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    assert (df["buy_end_tick"] == df["freeze_end_tick"]).all()
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.buy_window_cuts == ()
+
+    if demo_name != ANCIENT_DEM:
+        return
+    # Ancientin kalibrointiluvut vanhalla mittauksella, dokumentista
+    # (kalibrointi-kierrostyypit.md, totuustaulu; $/pelaaja x 5).
+    def equip(round_no: int, side: str) -> int:
+        row = df.filter((pl.col("round_no") == round_no) & (pl.col("side") == side))
+        assert row.height == 1, (round_no, side)
+        return int(row["equip_buy_end"][0])
+
+    assert equip(19, "CT") == 2_040 * 5
+    assert equip(20, "T") == 2_910 * 5
+    assert equip(21, "T") == 710 * 5
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
+def test_the_round_start_equipment_is_the_same_at_both_ticks(demo_name: str) -> None:
+    """``m_unRoundStartEquipmentValue`` ei muutu ostoikkunan aikana.
+
+    Ostettu summa on ``equip_buy_end - equip_round_start``, ja se on sääntö
+    S3:n koko perusta. Vähennettävä luetaan nyt myöhemmältä tickiltä kuin
+    ennen, ja **juuri tässä tarinassa osoittautui**, että toinen samannäköinen
+    kenttä (``m_unFreezetimeEndEquipmentValue``) ei käyttäydy odotetusti
+    myöhemmältä tickiltä luettuna. Sama oletus ei saa jäädä toisen kentän
+    kohdalla pelkän mittauksen varaan.
+
+    Vertailu tehdään pelaajakohtaisesti molemmilta tickeiltä: jos kenttä
+    joskus alkaa elää kierroksen aikana, ostettu summa liukuisi hiljaa ja
+    S3 kääntäisi säästöjä ostoiksi.
+    """
+    from demoparser2 import DemoParser as _Demoparser2
+
+    from pappascout.adapters.decompress import readable_demo
+
+    demo = require_demo(demo_name)
+    adapter = real_parser()
+    df = mark_played_rounds(adapter.parse_demo(demo, SNAPSHOT_SECONDS).rounds).filter(
+        pl.col("round_no").is_not_null()
+    )
+
+    pairs = {
+        (int(row["freeze_end_tick"]), int(row["buy_end_tick"]))
+        for row in df.iter_rows(named=True)
+        if row["freeze_end_tick"] is not None and row["buy_end_tick"] is not None
+    }
+    moved = {(a, b) for a, b in pairs if a != b}
+    assert moved, "yksikään mittauspiste ei siirtynyt ankkurista"
+
+    wanted = sorted({tick for pair in moved for tick in pair})
+    with readable_demo(demo) as demo_path:
+        by_tick = adapter._read_ticks(_Demoparser2(str(demo_path)), wanted, demo)
+
+    compared = 0
+    for anchor_tick, buy_tick in sorted(moved):
+        at_anchor = {r["steamid"]: r["equip_round_start"] for r in by_tick[anchor_tick]}
+        for row in by_tick[buy_tick]:
+            before = at_anchor.get(row["steamid"])
+            if before is None or row["equip_round_start"] is None:
+                continue
+            compared += 1
+            assert row["equip_round_start"] == before, (
+                f"{demo_name}: pelaajan {row['steamid']} "
+                "round_start_equip_value muuttui ankkurin ja mittauspisteen "
+                f"välillä ({before} -> {row['equip_round_start']}). "
+                "Ostettu summa ei ole enää luotettava."
+            )
+    assert compared >= 5 * len(moved), (compared, len(moved))
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
+def test_the_measurement_never_reaches_the_next_round(demo_name: str) -> None:
+    """Mittauspiste ei yllä seuraavan kierroksen ankkuriin.
+
+    Kierroksen loppuun rajautuminen on kolmas raja mittauspisteen kaavassa,
+    eikä sitä ole tähän asti todettu oikealla demolla lainkaan -- feikissä
+    kierros on 39 s, joten 20 sekunnin ikkuna mahtuu aina sisään. Oikeassa
+    demossa kierros voi ratketa alle 20 sekunnissa, ja silloin rajaton ikkuna
+    lukisi seuraavan kierroksen talousarvot tämän kierroksen riville.
+    """
+    df = mark_played_rounds(
+        real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    per_round = (
+        df.group_by("round_no")
+        .agg(
+            pl.col("freeze_end_tick").first().alias("anchor"),
+            pl.col("buy_end_tick").first().alias("measured"),
+        )
+        .sort("round_no")
+    )
+    anchors = per_round["anchor"].to_list()
+    measured = per_round["measured"].to_list()
+
+    for index in range(len(anchors) - 1):
+        assert measured[index] < anchors[index + 1], (
+            f"{demo_name}: kierroksen {per_round['round_no'][index]} "
+            f"mittauspiste {measured[index]} yltää seuraavan kierroksen "
+            f"ankkuriin {anchors[index + 1]}."
+        )
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
+def test_the_buy_window_reports_no_broken_measurement(demo_name: str) -> None:
+    """Mittauspisteen vikalaskurit ovat nollia koko aineistossa.
+
+    Nämä neljä ovat **vikoja eivätkä havaintoja**: tyhjä ostotick, ankkurilta
+    kadonneet pelaajat, kokonaan tyhjäksi jäänyt joukkuerivi ja tarkistamatta
+    jäänyt katkaisu. Yksikään ei laukea kuudessa demossa, ja juuri siksi ne on
+    pinnattava: nollasta poikkeava arvo on merkki siitä, että jokin
+    mittauspisteen oletus on rikki.
+
+    Palautukset ja niiden jättämä vanhentunut varustearvo **eivät** ole tässä:
+    ne ovat pelin käyttäytymistä eivätkä meidän vikojamme, ja niillä on omat
+    testinsä.
+    """
+    adapter = real_parser()
+    adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+
+    diagnostics = adapter.diagnostics
+    assert diagnostics is not None
+    assert diagnostics.buy_window_ticks_without_players == 0
+    assert diagnostics.buy_window_players_lost == 0
+    assert diagnostics.buy_window_sides_without_rows == 0
+    assert diagnostics.buy_window_unchecked_cuts == ()
+    assert [missed for _, missed in diagnostics.buy_window_cuts] == [
+        0 for _ in diagnostics.buy_window_cuts
+    ]
+
+
+@pytest.mark.demo
+def test_refunds_are_observed_and_stay_rare() -> None:
+    """Palautuksia esiintyy, ja niiden jättämä vanhentunut arvo on harvinaista.
+
+    Molemmat luvut ovat pelin käyttäytymistä eivätkä vikoja, mutta ne on
+    pinnattava kahdesta suunnasta. Nolla palautusta tarkoittaisi, ettei
+    tunnistus enää toimi -- ``cash_spent``in lasku on niiden ainoa
+    yksikäsitteinen merkki. Suuri määrä vanhentunutta arvoa taas tarkoittaisi,
+    ettei varustearvoon voi luottaa; mitattuna se on yksi pelaajarivi koko
+    aineistossa.
+    """
+    refunds = 0
+    stale = 0
+    for demo_name in ALL_DEMOS:
+        adapter = real_parser()
+        adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+        assert adapter.diagnostics is not None
+        refunds += adapter.diagnostics.buy_window_refunds
+        stale += adapter.diagnostics.buy_window_stale_equipment
+
+    assert refunds > 0, "palautuksia ei havaittu lainkaan -- tunnistus on rikki"
+    # 8 palautusta ja 1 vanhentunut arvo, mitattu 2026-08-29. Rajat ovat
+    # väljät, koska luvut ovat aineiston ominaisuus eivätkä sopimus; tiukka
+    # yhtäsuuruus kaatuisi heti kun aineistoon lisätään demo.
+    assert refunds <= 20, refunds
+    assert stale <= 3, stale

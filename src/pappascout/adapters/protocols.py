@@ -180,6 +180,60 @@ class ParseDiagnostics:
             Esiintymämäärä on mukana, koska se erottaa ne toisistaan: yksi
             eksoottinen veitsi näkyy kerran tai kaksi, demoparser2:n
             nimeämismuutos joka rivillä. Tyhjä on normaali tulos.
+        buy_window_seconds: Ostoikkunan pituus, jolla tämä ajo tehtiin
+            (``[parse].buy_window_seconds``). Mukana siksi, että ajon tuloste
+            kertoisi mistä hetkestä luvut on luettu -- ilman sitä lukija ei
+            näe, mittasiko ajo ankkurista vai ostoajan lopusta. ``None``
+            tarkoittaa porttia, joka ei kerro sitä; se on eri asia kuin 0,0.
+        buy_window_cuts: Kuoleman katkaisemat kierrokset pareina
+            ``(round_raw, montako ostosta jäi katkaisun taakse)``.
+            **Pareina eikä valmiina lukuna**, koska adapteri ei tiedä mitkä
+            kierrokset päätyvät tauluun: puukkokierros saa oman
+            ``round_raw``:nsa mutta ``stages.parse`` pudottaa sen. Vaihe
+            suodattaa nämä pelattuja kierroksia vasten ja laskee vasta siitä
+            käyttäjälle näytettävät luvut -- sama sääntö kuin näytepisteillä ja
+            utilityllä (ks. tämän luokan loppuhuomautus).
+
+            Katkaisu on **havainto eikä vika**: se on sääntö, koska kuolleen
+            tavaraluettelo tyhjenee ja panssari nollautuu, ja se osuu noin
+            puoleen kierroksista (69/134 mitatussa aineistossa). Menetettyjen ostojen **kuuluu olla nolla**:
+            mitatussa aineistossa (134 kierrosta) yksikään kuolema ei edellä
+            viimeistä ostoa.
+        buy_window_unchecked_cuts: Katkaistut kierrokset (``round_raw``),
+            joilla menetettyjä ostoja **ei voitu tarkistaa**: ikkunan lopun
+            tickiltä ei saatu yhdeltäkään pelaajalta luettavaa
+            ``cash_spent``-arvoa. Ilman tätä menetettyjen ostojen nolla
+            tarkoittaisi kahta eri asiaa -- "mitään ei menetetty" ja
+            "ei tiedetä".
+        buy_window_ticks_without_players: Kierrokset, joilla ostoajan lopun
+            tickiltä ei saatu yhtään pelaajariviä ja mittaus palautui
+            ankkuriin. **Vika eikä havainto**: käytännössä demo on katkennut
+            kesken kierroksen. Ilman varasääntöä koko kierroksen talous olisi
+            tyhjä. Tällaista kierrosta ei kirjata katkaisuksi, koska mittaus ei
+            silloin osunut katkaisukohtaan lainkaan.
+        buy_window_players_lost: Pelaajat, jotka olivat luettavissa ankkurilla
+            mutta eivät enää mittauspisteessä, joukkueriveittäin laskettuna.
+            Summat ja jakaja kutistuvat yhdessä, joten per pelaaja -arvot
+            pysyvät oikeina -- mutta joukkue näyttää pelaavan vajaalla, ja se
+            on eri väite kuin "yhteys katkesi kesken kierroksen".
+        buy_window_sides_without_rows: Joukkuerivit, joilta mittauspisteessä ei
+            saatu yhtään luettavaa pelaajaa, vaikka ankkurilla saatiin. Rivi
+            menee tauluun tyhjänä mutta tilalla ``ok``, ja ``classify`` jättää
+            sen luokittelematta puuttuvan havainnon takia -- oikea
+            lopputulos, mutta ilman tätä lukua kukaan ei saisi tietää miksi.
+        buy_window_refunds: Pelaajarivit, joilla ``cash_spent`` **pieneni**
+            ankkurin ja mittauspisteen välillä eli ostos palautettiin. Prop
+            kasvaa vain ostoista, joten lasku on yksikäsitteinen merkki
+            palautuksesta eikä sekoitu kuolemaan. Mitattu: 8 pelaajariviä
+            7 kierroksella kuudesta demosta.
+        buy_window_stale_equipment: Pelaajarivit, joilla varustearvo nousi
+            ilman että pelaaja osti, sai panssaria tai muutti
+            tavaraluetteloaan. Se on palautuksen jättämä vanhentunut lukema:
+            CS2 palauttaa rahan ja panssarin oikein, mutta
+            ``m_unCurrentEquipmentValue`` ei aina laske mukana. Mitattu:
+            1 pelaajarivi 134 kierroksesta, vaikutus enintään 1 000 $ per
+            pelaaja eli 200 $/pelaaja joukkuetasolla. **Ei koske aseistettujen
+            laskuria**, joka lukee tavaraluettelon ja panssarin.
         armed_unreadable_rows: Joukkuerivit, joilla kalustolaskuri jäi tyhjäksi
             siksi, että jonkun pelaajan panssari tai tavaraluettelo ei ollut
             luettavissa. **Vika eikä havainto**: ankkurittomat kierrokset
@@ -191,6 +245,22 @@ class ParseDiagnostics:
     täällä**: ne luetaan valmiista taulusta vaiheessa. Adapteri laskisi ne
     numeroimattomat kierrokset mukaan lukien, ja sama nimi eri nimittäjällä
     luetaan väärin.
+
+    **Sama koskee ostoikkunaa**, ja siksi ``buy_window_cuts`` ja
+    ``buy_window_unchecked_cuts`` ovat ``round_raw``-numeroita eivätkä valmiita
+    lukuja: puukkokierros saa oman ``round_raw``:nsa, mutta se ei ole kierros
+    eikä päädy tauluun. Adapterin laskema "13 katkaisua" olisi 12 siinä
+    taulussa, jonka käyttäjä näkee -- ja mittaushetkien jakauma alkaisi
+    sekunnin murto-osista, koska puukkokierros ratkeaa ennen ikkunan loppua.
+    Mittaushetkien jakauma lasketaankin kokonaan vaiheessa sarakkeista
+    ``freeze_end_tick`` ja ``buy_end_tick``.
+
+    Pelaajakohtaiset vikalaskurit (``buy_window_players_lost``,
+    ``buy_window_sides_without_rows``, ``buy_window_ticks_without_players``,
+    ``buy_window_refunds``, ``buy_window_stale_equipment``) ovat sen sijaan
+    kokonaislukuja ja **sisältävät puukkokierroksen**. Ne ovat vikalaskureita,
+    joiden odotusarvo on nolla, joten puukkokierroksella havaittu vika on yhtä
+    kertomisen arvoinen kuin muillakin -- eikä sitä saa suodattaa pois.
     """
 
     tick_rate: float
@@ -209,6 +279,14 @@ class ParseDiagnostics:
     grenades_sharing_an_entity_id: int = 0
     unknown_inventory_items: tuple[tuple[str, int], ...] = ()
     armed_unreadable_rows: int = 0
+    buy_window_seconds: float | None = None
+    buy_window_cuts: tuple[tuple[int, int], ...] = ()
+    buy_window_unchecked_cuts: tuple[int, ...] = ()
+    buy_window_ticks_without_players: int = 0
+    buy_window_players_lost: int = 0
+    buy_window_sides_without_rows: int = 0
+    buy_window_refunds: int = 0
+    buy_window_stale_equipment: int = 0
 
 
 @runtime_checkable

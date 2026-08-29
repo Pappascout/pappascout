@@ -145,19 +145,45 @@ Kynnykset ovat `[thresholds]`-osiossa, eivät koodissa. Niiden muuttaminen ajaa
 `classify`-vaiheen uudelleen mutta **ei** parsintaa: luokittelun parametrihash
 lasketaan vain `[thresholds]`- ja `[league]`-osioista.
 
-Raha on kierrostaulussa kahtena lukuna. `money_freeze_end` on **jäljelle
-jäänyt** saldo ostoajan jälkeen -- säästökierroksella se on suuri ja täydellä
-ostolla pieni -- ja `money_spent` on kierroksella käytetty raha. Näiden summa
-on se raha, joka joukkueella oli ostoaikana käytettävissä. Ostettu varustemäärä
-on vastaavasti erotus `equip_freeze_end - equip_round_start`.
+**Talous mitataan ostoajan lopusta, ei freezetimen lopusta.** CS2:n ostoaika
+jatkuu kierroksen alettua, ja noin puolella kierroksista ostetaan vielä silloin
+(52 kierroksella 106:sta viidessä liigademossa) -- ankkurista luettuna ne ostot
+jäisivät näkymättömiin. Mittauspiste on
 
-Kaluston **jakauma** on omana havaintonaan: `players_armed_freeze_end` kertoo,
-monellako pelaajalla oli freezetimen lopussa **panssari ja vähintään yksi ase
+```
+max(freezetimen loppu,
+    min(freezetimen loppu + [parse].buy_window_seconds,
+        kierroksen ensimmäistä kuolemaa EDELTÄVÄ tick,
+        kierroksen loppu))
+```
+
+se on **yksi tick koko kierrokselle**, ja se tallentuu sarakkeeseen
+`buy_end_tick`. Kuolemaa *edeltävä* tick eikä kuoleman tick, koska kuolleen
+tavaraluettelo on jo tyhjä ja panssari nolla; uloin `max` estää mittauspistettä
+valumasta freezetimen sisään, jos kuolema osuu heti ankkurin jälkeen. Ikkunan
+pituus on asetus, oletus 20 s -- linjaus, jonka mittaus tukee, ei kalibroitu
+kynnys.
+
+Kuolema katkaisee ikkunan, koska kuolleen tavaraluettelo tyhjenee ja panssari
+nollautuu. Se laukeaa **noin puolella kierroksista** -- kuudessa demossa
+(134 pelattua kierrosta) 69 kierroksella eli 51 %:lla -- joten katkaisujen
+määrä ei ole hälytys. Hälytys on se, **maksoiko katkaisu jotain**: ajon tuloste kertoo
+montako pelaajaa osti vielä katkaisun jälkeen ja montaako katkaisua ei voitu
+tarkistaa lainkaan. Samassa aineistossa molemmat ovat nolla.
+
+Raha on kierrostaulussa kahtena lukuna. `money_buy_end` on **jäljelle jäänyt**
+saldo ostoajan jälkeen -- säästökierroksella se on suuri ja täydellä ostolla
+pieni -- ja `money_spent` on kierroksella käytetty raha. Näiden summa on se
+raha, joka joukkueella oli ostoaikana käytettävissä. Ostettu varustemäärä on
+vastaavasti erotus `equip_buy_end - equip_round_start`.
+
+Kaluston **jakauma** on omana havaintonaan: `players_armed_buy_end` kertoo,
+monellako pelaajalla oli ostoajan lopussa **panssari ja vähintään yksi ase
 hallussa**. Se on käyttäjän oma määritelmä ("kevlar ja jokin parannettu ase --
 parempi pistooli, SMG tai halpa kivääri") suoraan mitattuna: ase luetaan
 pelaajan tavaraluettelosta ja panssari `m_ArmorValue`-propista. Joukkuesumma ei
 kerro tätä -- kaksi AK:ta ja kolme tyhjää antaa saman summan kuin viisi
-puolinaista. Luku on aina väliltä `0`-`players_freeze_end`; `0` on havainto ja
+puolinaista. Luku on aina väliltä `0`-`players_buy_end`; `0` on havainto ja
 tarkoittaa **"kukaan ei ollut aseistettu"**, ja `null` tarkoittaa, ettei
 havaintoa saatu.
 
@@ -167,7 +193,7 @@ Kranaatit, C4 ja Zeus eivät ole aseita. Luokittelu ei vielä muuta kierrostyypi
 päättelyä: puolioston sääntö odottaa aineistoon ensimmäistä kiistatonta
 puoliostoa, jota vasten sen voi kalibroida.
 
-> **Hallussapito, ei ostos.** Tavaraluettelo luetaan freezetimen lopusta, joten
+> **Hallussapito, ei ostos.** Tavaraluettelo luetaan ostoajan lopusta, joten
 > edelliseltä kierrokselta säästetty tai vainajalta poimittu kivääri lasketaan
 > samoin kuin juuri ostettu. Se on tarkoitus: kierroksen kannalta ratkaisee
 > mitä kädessä on, ei mistä se tuli, ja säästetty AK on yhtä vaarallinen kuin
@@ -184,7 +210,7 @@ puoliostoa, jota vasten sen voi kalibroida.
 
 **Lukukelvoton havainto tyhjentää koko rivin.** Jos yhdenkin luettavan pelaajan
 panssari tai tavaraluettelo puuttuu, laskuri on `null` -- ei se luku, joka
-saataisiin lopuista. Pelaaja pysyy `players_freeze_end`in jakajassa, joten
+saataisiin lopuista. Pelaaja pysyy `players_buy_end`in jakajassa, joten
 `4/5` väittäisi, että yksi oli aseeton, vaikka totuus on ettei häntä saatu
 luettua: vaiettu lukuvirhe näyttäisi säästökierrokselta. Tyhjä tavaraluettelo
 ja `0` panssaria ovat sen sijaan **havaintoja** eivätkä puutteita.

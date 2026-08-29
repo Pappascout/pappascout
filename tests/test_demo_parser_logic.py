@@ -14,7 +14,7 @@ adapterissa ajetaan oikeasti. Nämä testit ajetaan aina, myös ``-m "not demo"`
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -184,14 +184,23 @@ def parse_tables(
     exclude_weapons: tuple[str, ...] = UTILITY,
     fallback_death: bool = True,
     area_snap_units: float | None = AREA_SNAP_UNITS,
+    buy_window_seconds: float = 0.0,
 ) -> DemoTables:
-    """Aja adapteri feikin päällä; vain ``_open`` korvataan."""
+    """Aja adapteri feikin päällä; vain ``_open`` korvataan.
+
+    ``buy_window_seconds`` on oletuksena **0**, eli mittauspiste on ankkuri.
+    Se ei ole tuotannon arvo vaan neutraali: valtaosa näistä testeistä mittaa
+    jotain muuta kuin ostoikkunaa, eikä niiden pidä joutua rakentamaan rivejä
+    ikkunan lopun tickille vain pysyäkseen luettavina. Ikkunan omat testit
+    antavat arvon nimenomaisesti.
+    """
     demo = tmp_path / "feikki.dem"
     demo.write_bytes(DEMO_MAGIC + b"\x00" + b"x" * 64)
     adapter = Demoparser2Adapter(
         exclude_weapons=exclude_weapons,
         fallback_death=fallback_death,
         area_snap_units=area_snap_units,
+        buy_window_seconds=buy_window_seconds,
     )
     adapter._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
     return adapter.parse_demo(demo, sample_seconds)
@@ -226,6 +235,7 @@ def parse_adapter(
         exclude_weapons=kwargs.pop("exclude_weapons", UTILITY),
         fallback_death=kwargs.pop("fallback_death", True),
         area_snap_units=kwargs.pop("area_snap_units", AREA_SNAP_UNITS),
+        buy_window_seconds=kwargs.pop("buy_window_seconds", 0.0),
     )
     adapter._open = lambda *args, **kwargs2: fake  # type: ignore[method-assign]
     adapter.parse_demo(demo, kwargs.pop("sample_seconds", SNAPSHOT_SECONDS))
@@ -264,7 +274,7 @@ class Round:
     a_unreadable: int = 0
     #: Pelaajakohtainen varustearvo freezetimen lopussa kokoonpanolle A,
     #: indeksin mukaan. ``None`` = kaikilla oletusarvo 4200.
-    a_equip_freeze_end: list[int] | None = None
+    a_equip_buy_end: list[int] | None = None
     #: Pelaajakohtainen tavaraluettelo kokoonpanolle A, indeksin mukaan.
     #: ``None`` listana = kaikilla :data:`DEFAULT_INVENTORY`; yksittäinen
     #: ``None`` alkiona = propia ei saatu luettua (eri asia kuin tyhjä lista).
@@ -276,6 +286,32 @@ class Round:
     #: lukukelvoton panssari ja nolla panssaria ovat eri asioita, ja
     #: jälkimmäinen on havainto.
     a_armor: list[int | None] | None = None
+    #: Pelaajakohtainen raha (``m_iAccount``) kokoonpanolle A, indeksin mukaan.
+    #: ``None`` = kaikilla oletusarvo 800.
+    a_account: list[int | None] | None = None
+    #: Pelaajakohtainen ``m_iCashSpentThisRound`` kokoonpanolle A, indeksin
+    #: mukaan. ``None`` = kaikilla oletusarvo 4000. Tämä on ainoa mittari
+    #: sille, ostiko pelaaja vielä mittauspisteen jälkeen, joten ostoikkunan
+    #: testien on voitava asettaa se tickikohtaisesti.
+    a_cash_spent: list[int | None] | None = None
+    #: Ostoajan tickit: ``{siirtymä ankkurista: kentät, jotka korvataan}``.
+    #: Arvo annetaan :func:`dataclasses.replace`lle, joten avaimet ovat tämän
+    #: luokan kenttien nimiä (``a_equip_buy_end``, ``a_inventory``,
+    #: ``a_armor``, ``a_account``, ``a_cash_spent``). Ilman tätä ostoikkunan
+    #: lopun tickillä olisi täsmälleen samat arvot kuin ankkurilla, eikä
+    #: yksikään ikkunatesti voisi näyttää eroa.
+    after_freeze: dict[int, dict[str, Any]] = field(default_factory=dict)
+    #: Siirtymät ankkurista, joilta feikki palauttaa **tyhjän rivijoukon**.
+    #: Jäljittelee tickiä, jolta demoparser2 ei anna yhtään pelaajaa --
+    #: käytännössä kesken katkennutta demoa. Ilman tätä sellaista tickiä ei
+    #: voi rakentaa: feikki tarjoaa kierroksen sisäiselle tickille aina
+    #: vähintään näytepisterivit.
+    blank_after_freeze: tuple[int, ...] = ()
+    #: Montako kokoonpanon A pelaajaa **puuttuu riveistä kokonaan**. Eri asia
+    #: kuin :attr:`a_unreadable`, jossa rivi on mutta propit ovat tyhjiä:
+    #: tässä pelaajaa ei ole tickillä lainkaan, ja summa sekä jakaja
+    #: kutistuvat yhdessä.
+    a_absent: int = 0
 
     # -- Näytepisteet --
     #: Alue, jolla kokoonpano A on näytepisteissä. ``None`` = pelin nimetön
@@ -332,6 +368,12 @@ def _rows(
         else:
             score = half_scores[side]
         for index, steamid in enumerate(players):
+            if (
+                side == round_spec.a_side
+                and not at_end
+                and index < round_spec.a_absent
+            ):
+                continue
             unreadable = (
                 side == round_spec.a_side
                 and not at_end
@@ -339,18 +381,18 @@ def _rows(
             )
             # Kalustolaskuri lukee pelaajakohtaisen arvon, joten testin on
             # voitava asettaa se pelaajittain eikä vain summana.
-            equip_freeze_end = 4200
-            own_equip = round_spec.a_equip_freeze_end
+            equip_buy_end = 4200
+            own_equip = round_spec.a_equip_buy_end
             if own_equip is not None and side == round_spec.a_side:
                 # Lyhyt lista on testin kirjoitusvirhe, ei tarkoitus:
                 # ylimenevät pelaajat saisivat vaieten oletuksen 4200 ja
                 # laskeutuisivat aseistetuiksi, jolloin testi mittaisi eri
                 # asetelmaa kuin se väittää.
                 assert len(own_equip) == len(round_spec.a_players), (
-                    "a_equip_freeze_end ja a_players ovat eri mittaiset: "
+                    "a_equip_buy_end ja a_players ovat eri mittaiset: "
                     f"{len(own_equip)} vs. {len(round_spec.a_players)}"
                 )
-                equip_freeze_end = own_equip[index]
+                equip_buy_end = own_equip[index]
 
             # Kalustolaskuri lukee tavaraluettelon ja panssarin, ei
             # varustearvoa. Sama pituustarkistus kuin yllä ja samasta syystä:
@@ -371,17 +413,46 @@ def _rows(
                     f"{len(own_armor)} vs. {len(round_spec.a_players)}"
                 )
                 armor = own_armor[index]
+
+            # Raha ja käytetty raha samalla kaavalla kuin muut
+            # pelaajakohtaiset arvot: ostoikkunan testien on voitava näyttää,
+            # että osto siirtää rahaa taskusta kalustoon.
+            account: int | None = 800
+            spent: int | None = 4000
+            if side == round_spec.a_side:
+                if round_spec.a_account is not None:
+                    assert len(round_spec.a_account) == len(round_spec.a_players), (
+                        "a_account ja a_players ovat eri mittaiset: "
+                        f"{len(round_spec.a_account)} vs. "
+                        f"{len(round_spec.a_players)}"
+                    )
+                    account = round_spec.a_account[index]
+                if round_spec.a_cash_spent is not None:
+                    assert len(round_spec.a_cash_spent) == len(
+                        round_spec.a_players
+                    ), (
+                        "a_cash_spent ja a_players ovat eri mittaiset: "
+                        f"{len(round_spec.a_cash_spent)} vs. "
+                        f"{len(round_spec.a_players)}"
+                    )
+                    spent = round_spec.a_cash_spent[index]
             rows.append(
                 {
                     "tick": tick,
                     "steamid": steamid,
                     "name": steamid,
                     dp._TEAM_NUM: _SIDE_TEAM[side],
-                    dp._ACCOUNT: None if unreadable else 800,
-                    dp._CASH_SPENT: None if unreadable else 4000,
-                    dp._EQUIP_FREEZE_END: None if unreadable else equip_freeze_end,
+                    dp._ACCOUNT: None if unreadable else account,
+                    dp._CASH_SPENT: None if unreadable else spent,
                     dp._EQUIP_ROUND_START: None if unreadable else 200,
-                    dp._EQUIP_CURRENT: 3000,
+                    # Ostoajan lopun varustearvo luetaan tästä propista, ei
+                    # m_unFreezetimeEndEquipmentValuesta: pelin oma
+                    # freezetime-tilannekuva ei päivity ostoajalla, joten se
+                    # antaisi myöhemmältä tickiltä yhä ankkurin luvun.
+                    # Lopputickillä arvo on eloonjääneiden säästämä kalusto.
+                    dp._EQUIP_CURRENT: (
+                        3000 if at_end else (None if unreadable else equip_buy_end)
+                    ),
                     dp._ARMOR_VALUE: armor,
                     dp._INVENTORY: (
                         None if inventory is None else list(inventory)
@@ -475,6 +546,22 @@ def build(rounds: list[Round]) -> FakeDemoparser2:
                 at_end=False,
                 total_score=round_spec.score_at_freeze,
             )
+            # Ostoajan tickit. Ne ovat tavallisia kierroksen sisäisiä tickejä
+            # eivätkä lopputickejä: pelaajat ovat elossa ja arvot ovat ne,
+            # jotka testi antoi.
+            for offset, overrides in round_spec.after_freeze.items():
+                tick = round_spec.freeze_tick + offset
+                tick_rows[tick] = _rows(
+                    replace(round_spec, **overrides),
+                    tick,
+                    at_end=False,
+                    total_score=round_spec.score_at_freeze,
+                )
+            # Tyhjä tick on **eri asia kuin puuttuva**: puuttuvalle feikki
+            # tarjoaa näytepisterivit, tyhjälle ei mitään. Vain jälkimmäinen
+            # laukaisee adapterin varasäännön.
+            for offset in round_spec.blank_after_freeze:
+                tick_rows[round_spec.freeze_tick + offset] = []
         if round_spec.end_tick is not None:
             round_ends.append(
                 {
@@ -1121,7 +1208,7 @@ def test_round_end_without_an_anchor_is_kept_with_its_own_status(
     no_anchor = df.filter(pl.col("status") == "no_freeze_end")
     assert no_anchor.height == 2
     assert no_anchor["freeze_end_tick"].null_count() == 2
-    assert no_anchor["money_freeze_end"].null_count() == 2
+    assert no_anchor["money_buy_end"].null_count() == 2
     # Pistelukemat periytyvät naapureista, joten kierros pysyy pelattuna.
     assert no_anchor["score_start"].unique().to_list() == [1]
     assert no_anchor["score_end"].unique().to_list() == [2]
@@ -1346,7 +1433,7 @@ def test_survivors_and_carry_over_follow_the_team_not_the_side(
 
 
 def test_player_count_is_observed_not_assumed(tmp_path: Path) -> None:
-    """``players_freeze_end`` on havainto: neljä pelaajaa -> 4, viisi -> 5.
+    """``players_buy_end`` on havainto: neljä pelaajaa -> 4, viisi -> 5.
 
     Kynnykset ovat per pelaaja, joten jakaja on luettava demosta. Ilman tätä
     testia sarakkeen arvoa ei todennettaisi missään -- vain sen olemassaolo.
@@ -1357,9 +1444,9 @@ def test_player_count_is_observed_not_assumed(tmp_path: Path) -> None:
     df = parse_with(build(rounds), tmp_path)
     a_key = df.filter(pl.col("side") == "T")["lineup_key"][0]
     own_rows = df.filter(pl.col("lineup_key") == a_key).sort("round_raw")
-    assert own_rows["players_freeze_end"].to_list() == [4, 5]
+    assert own_rows["players_buy_end"].to_list() == [4, 5]
     opponent = df.filter(pl.col("lineup_key") != a_key).sort("round_raw")
-    assert opponent["players_freeze_end"].to_list() == [5, 5]
+    assert opponent["players_buy_end"].to_list() == [5, 5]
 
 
 def test_round_without_an_anchor_has_no_player_count(tmp_path: Path) -> None:
@@ -1370,7 +1457,7 @@ def test_round_without_an_anchor_has_no_player_count(tmp_path: Path) -> None:
     df = parse_with(build(rounds), tmp_path)
     no_anchor = df.filter(pl.col("status") == "no_freeze_end")
     assert no_anchor.height == 2
-    assert no_anchor["players_freeze_end"].null_count() == 2
+    assert no_anchor["players_buy_end"].null_count() == 2
 
 
 def test_sums_and_their_divisor_come_from_the_same_players(tmp_path: Path) -> None:
@@ -1386,17 +1473,17 @@ def test_sums_and_their_divisor_come_from_the_same_players(tmp_path: Path) -> No
     a_key = df.filter(pl.col("side") == "T")["lineup_key"][0]
     row = df.filter(pl.col("lineup_key") == a_key).row(0, named=True)
 
-    assert row["players_freeze_end"] == 3
-    assert row["equip_freeze_end"] == 3 * 4200
-    assert row["money_freeze_end"] == 3 * 800
+    assert row["players_buy_end"] == 3
+    assert row["equip_buy_end"] == 3 * 4200
+    assert row["money_buy_end"] == 3 * 800
     assert row["money_spent"] == 3 * 4000
     # Per pelaaja -arvo pysyy oikeana, koska jakaja on sama joukko.
-    assert row["equip_freeze_end"] / row["players_freeze_end"] == 4200
+    assert row["equip_buy_end"] / row["players_buy_end"] == 4200
 
 
 # --- Kalustolaskuri (Story 1.6) -----------------------------------------------
 #
-# ``players_armed_freeze_end`` on ainoa havainto, jota joukkuesummasta ei voi
+# ``players_armed_buy_end`` on ainoa havainto, jota joukkuesummasta ei voi
 # johtaa: kaksi AK:ta ja kolme tyhjää antaa saman summan kuin viisi
 # puolinaista. Sääntö on **panssari ja vähintään yksi ase hallussa**, luettuna
 # tavaraluettelosta -- ei varustearvosta, joka on ase + panssari + kranaatit
@@ -1454,7 +1541,7 @@ def test_full_buy_arms_every_player(tmp_path: Path) -> None:
     """Viidellä pelaajalla ostettu ase ja panssari -> laskuri on 5."""
     row = _armed_with(tmp_path, [FULL_BUY] * 5)
     assert row[ARMED_COLUMN] == 5
-    assert row["players_freeze_end"] == 5
+    assert row["players_buy_end"] == 5
 
 
 def test_upgraded_pistol_with_armor_is_armed(tmp_path: Path) -> None:
@@ -1604,14 +1691,14 @@ def test_empty_inventory_is_an_observation_not_a_gap(tmp_path: Path) -> None:
     """
     row = _armed_with(tmp_path, [()] * 5)
     assert row[ARMED_COLUMN] == 0
-    assert row["players_freeze_end"] == 5
+    assert row["players_buy_end"] == 5
 
 
 def test_eco_counts_zero_armed_and_zero_is_an_observation(tmp_path: Path) -> None:
     """Viidellä pelkkä ilmaispistooli -> ``0``, ei ``null``."""
     row = _armed_with(tmp_path, [FREE_PISTOL] * 5)
     assert row[ARMED_COLUMN] == 0
-    assert row["players_freeze_end"] == 5
+    assert row["players_buy_end"] == 5
 
 
 def test_half_buy_counts_only_the_armed_players(tmp_path: Path) -> None:
@@ -1624,11 +1711,11 @@ def test_half_buy_counts_only_the_armed_players(tmp_path: Path) -> None:
     """
     rounds = normal_match(played=1, knife=False)
     rounds[0].a_inventory = [("knife", "P250")] * 3 + [FREE_PISTOL] * 2
-    rounds[0].a_equip_freeze_end = [950, 950, 950, 200, 200]
+    rounds[0].a_equip_buy_end = [950, 950, 950, 200, 200]
 
     row = _armed_row(rounds, tmp_path)
     assert row[ARMED_COLUMN] == 3
-    assert row["equip_freeze_end"] == 3 * 950 + 2 * 200 == 5 * 650
+    assert row["equip_buy_end"] == 3 * 950 + 2 * 200 == 5 * 650
 
 
 def test_missing_inventory_for_the_whole_team_is_null_not_zero(
@@ -1637,12 +1724,12 @@ def test_missing_inventory_for_the_whole_team_is_null_not_zero(
     """Yhdeltäkään pelaajalta ei saatu tavaraluetteloa: ``null``, ei ``0``.
 
     Nolla väittäisi "kukaan ei ollut aseistettu" ja kelpaisi ecoksi.
-    ``players_freeze_end`` säilyy, koska tavaraluettelo ei ole niiden
+    ``players_buy_end`` säilyy, koska tavaraluettelo ei ole niiden
     proppien joukossa, jotka pudottavat pelaajan summista: jakaja ei saa
     muuttua tämänkään takia.
     """
     row = _armed_with(tmp_path, [None] * 5)
-    assert row["players_freeze_end"] == 5
+    assert row["players_buy_end"] == 5
     assert row[ARMED_COLUMN] is None
 
 
@@ -1650,14 +1737,14 @@ def test_one_missing_inventory_empties_the_whole_row(tmp_path: Path) -> None:
     """Yhdeltä puuttuva tavaraluettelo tyhjentää koko laskurin.
 
     Osittainen luku olisi hiljainen valhe. Pelaaja **pysyy**
-    ``players_freeze_end``in jakajassa, koska tavaraluettelo ei kuulu niihin
+    ``players_buy_end``in jakajassa, koska tavaraluettelo ei kuulu niihin
     proppeihin, jotka pudottavat hänet summista -- jakajan on oltava sama
     joukko rivin kaikille luvuille. Siksi "4/5" väittäisi, että yksi oli
     aseeton, vaikka totuus on ettei häntä saatu luettua: lukuvirhe näyttäisi
     säästökierrokselta.
     """
     row = _armed_with(tmp_path, [None] + [FULL_BUY] * 4)
-    assert row["players_freeze_end"] == 5
+    assert row["players_buy_end"] == 5
     assert row[ARMED_COLUMN] is None
 
 
@@ -1671,7 +1758,7 @@ def test_one_unreadable_armor_empties_the_whole_row(tmp_path: Path) -> None:
     row = _armed_with(
         tmp_path, [FULL_BUY] * 5, armor=[None, 100, 100, 100, 100]
     )
-    assert row["players_freeze_end"] == 5
+    assert row["players_buy_end"] == 5
     assert row[ARMED_COLUMN] is None
 
 
@@ -1722,7 +1809,7 @@ def test_armed_count_and_player_count_come_from_the_same_players(
     raportissa -- ``2/5`` ja ``2/4`` ovat eri väitteitä.
     """
     row = _armed_with(tmp_path, [FULL_BUY, FULL_BUY, FREE_PISTOL, FREE_PISTOL])
-    assert row["players_freeze_end"] == 4
+    assert row["players_buy_end"] == 4
     assert row[ARMED_COLUMN] == 2
 
 
@@ -1734,19 +1821,19 @@ def test_unreadable_player_is_dropped_not_counted_as_unarmed(
     Nämä ovat kaksi eri asiaa, ja ne erottaa vain jakaja. Testi ajaa saman
     asetelman kahdesti: ensin pelaaja 0 on lukukelvoton, sitten sama pelaaja
     on luettavissa mutta aseeton. Laskuri on kummassakin 4 -- ero näkyy
-    ``players_freeze_end``issä (4 vs. 5).
+    ``players_buy_end``issä (4 vs. 5).
     """
     unreadable = normal_match(played=1, knife=False)
     unreadable[0].a_unreadable = 1
     unreadable[0].a_inventory = [FREE_PISTOL] + [FULL_BUY] * 4
     dropped = _armed_row(unreadable, tmp_path)
-    assert dropped["players_freeze_end"] == 4
+    assert dropped["players_buy_end"] == 4
     assert dropped[ARMED_COLUMN] == 4
 
     readable = normal_match(played=1, knife=False)
     readable[0].a_inventory = [FREE_PISTOL] + [FULL_BUY] * 4
     kept = _armed_row(readable, tmp_path)
-    assert kept["players_freeze_end"] == 5
+    assert kept["players_buy_end"] == 5
     assert kept[ARMED_COLUMN] == 4
 
 
@@ -1756,7 +1843,7 @@ def test_no_readable_player_gives_null_not_zero(tmp_path: Path) -> None:
     rounds[0].a_unreadable = 5
 
     row = _armed_row(rounds, tmp_path)
-    assert row["players_freeze_end"] is None
+    assert row["players_buy_end"] is None
     assert row[ARMED_COLUMN] is None
 
 
@@ -1772,7 +1859,7 @@ def test_round_without_an_anchor_has_no_armed_count(tmp_path: Path) -> None:
 
 
 def test_armed_count_never_exceeds_the_player_count(tmp_path: Path) -> None:
-    """Invariantti koko taulussa: ``0 <= laskuri <= players_freeze_end``."""
+    """Invariantti koko taulussa: ``0 <= laskuri <= players_buy_end``."""
     rounds = normal_match(played=3)
     rounds[1].a_inventory = [
         FULL_BUY,
@@ -1789,12 +1876,12 @@ def test_armed_count_never_exceeds_the_player_count(tmp_path: Path) -> None:
     assert observed.height > 0
     assert observed.select(
         (pl.col(ARMED_COLUMN) >= 0)
-        & (pl.col(ARMED_COLUMN) <= pl.col("players_freeze_end"))
+        & (pl.col(ARMED_COLUMN) <= pl.col("players_buy_end"))
     ).to_series().all()
     # Havainto on aina molemmissa tai ei kummassakaan -- sama joukko.
     assert (
         df[ARMED_COLUMN].null_count()
-        == df["players_freeze_end"].null_count()
+        == df["players_buy_end"].null_count()
     )
 
 def test_money_spent_is_read_from_the_demo(tmp_path: Path) -> None:
@@ -1807,7 +1894,7 @@ def test_money_spent_is_read_from_the_demo(tmp_path: Path) -> None:
     df = parse_with(build(normal_match(played=1, knife=False)), tmp_path)
     row = df.row(0, named=True)
     assert row["money_spent"] == 5 * 4000
-    assert row["money_freeze_end"] + row["money_spent"] == 5 * 4800
+    assert row["money_buy_end"] + row["money_spent"] == 5 * 4800
 
 
 # --- Tavaraluettelon muodot ----------------------------------------------------
@@ -3014,3 +3101,717 @@ def test_a_broken_trajectory_shape_is_a_finnish_error(tmp_path: Path) -> None:
     assert "grenade_type" in str(exc.value)
     assert "GRENADE_COLUMNS" in str(exc.value)
     assert "pelkistää" in str(exc.value)
+
+
+# --- Ostoaika (Story 1.9) ------------------------------------------------------
+#
+# Talous luetaan ostoajan lopusta eikä freezetimen lopusta. Mittauspiste on
+# min(ankkuri + buy_window_seconds, ensimmäistä kuolemaa edeltävä tick,
+# kierroksen loppu), ja se on **yksi tick koko kierrokselle**.
+#
+# Nämä testit ovat I/O-matriisin rivit. Ne rakentavat ostoajan tickin rivit
+# nimenomaisesti (``after_freeze``), koska feikki palauttaa muuten kierroksen
+# sisäiseltä tickiltä pelkät näytepisterivit -- eli juuri sen, mitä testi ei
+# tarkoita.
+
+
+#: Ostoikkuna näissä testeissä; sama kuin tuotannon oletus. Feikin tickrate on
+#: DEFAULT_TICK_RATE (mitattavaa kelloa ei ole), joten ikkuna on tasan
+#: :data:`BUY_WINDOW_TICKS` tickiä ja mittauspiste on ennustettava.
+BUY_WINDOW_SECONDS = 20.0
+BUY_WINDOW_TICKS = int(BUY_WINDOW_SECONDS * DEFAULT_TICK_RATE)
+
+#: Kierroksen pituus tickeinä ostoikkunan testeissä: 39 s, eli ikkuna mahtuu
+#: kokonaan sisään. Feikin muut ottelut ovat 500 tickiä (7,8 s) pitkiä, jolloin
+#: ikkuna rajautuisi aina kierroksen loppuun eikä mittaisi mitään.
+BUY_ROUND_TICKS = 2500
+
+#: Kohdekierroksen ankkuri. Vakiona, jotta testit voivat lausua tickit suoraan
+#: eivätkä vain suhteessa toisiinsa.
+BUY_ANCHOR = 1000 + BUY_ROUND_TICKS + 1000
+
+
+def buy_match(length: int = BUY_ROUND_TICKS, **subject: Any) -> list[Round]:
+    """Kaksi pelattua kierrosta; **jälkimmäinen** on testin kohde.
+
+    Kohde on toisena, jotta edellisen kierroksen olemassaolo ei ole muuttuja.
+    Ensimmäinen kierros saa ostoajan tickilleen rivit sellaisenaan
+    (``after_freeze={BUY_WINDOW_TICKS: {}}``): ilman niitä sen oma talous jäisi
+    tyhjäksi, ja tyhjä rivi näyttäisi vialta jota testi ei tarkoita.
+
+    Args:
+        length: Kohdekierroksen pituus tickeinä.
+        **subject: Kohdekierroksen kentät, jotka korvataan.
+    """
+    first = Round(
+        demo_round=1,
+        freeze_tick=1000,
+        end_tick=1000 + BUY_ROUND_TICKS,
+        winner="CT",
+        reason="t_killed",
+        score_at_freeze=0,
+        score_at_end=1,
+        alive=(0, 3),
+        after_freeze={BUY_WINDOW_TICKS: {}},
+    )
+    fields: dict[str, Any] = {
+        "demo_round": 2,
+        "freeze_tick": BUY_ANCHOR,
+        "end_tick": BUY_ANCHOR + length,
+        "winner": "CT",
+        "reason": "t_killed",
+        "score_at_freeze": 1,
+        "score_at_end": 2,
+        "alive": (0, 3),
+    }
+    fields.update(subject)
+    return [first, Round(**fields)]
+
+
+def cut_rounds(adapter: Demoparser2Adapter) -> tuple[int, ...]:
+    """Kuoleman katkaisemat kierrokset ``round_raw``-numeroina.
+
+    Adapteri antaa katkaisut pareina eikä lukuna, koska se ei tiedä mitkä
+    kierrokset päätyvät tauluun -- puukkokierros saa oman numeronsa mutta
+    ``stages.parse`` pudottaa sen. Nämä apurit lukevat parit niin kuin vaihe
+    lukee ne.
+    """
+    assert adapter.diagnostics is not None
+    return tuple(round_raw for round_raw, _ in adapter.diagnostics.buy_window_cuts)
+
+
+def lost_purchases(adapter: Demoparser2Adapter) -> int:
+    """Katkaisun taakse jääneet ostot yhteensä."""
+    assert adapter.diagnostics is not None
+    return sum(missed for _, missed in adapter.diagnostics.buy_window_cuts)
+
+
+def buy_row(df: pl.DataFrame, side: str = "T") -> dict[str, Any]:
+    """Kohdekierroksen (``round_raw`` 2) rivi annetulta puolelta."""
+    rows = df.filter((pl.col("round_raw") == 2) & (pl.col("side") == side))
+    assert rows.height == 1, rows
+    return rows.to_dicts()[0]
+
+
+def test_a_purchase_after_the_freeze_shows_up_in_the_economy(tmp_path: Path) -> None:
+    """I/O-matriisi: myöhäinen osto näkyy varustearvossa ja rahassa.
+
+    Tämä on vian ydin. Yksi pelaaja ostaa kiväärin freezetimen jälkeen;
+    ankkurista luettuna ostoa ei ole olemassa. Molemmat luvut tarkistetaan,
+    koska ne liikkuvat vastakkaisiin suuntiin: varustearvo nousee ja taskuun
+    jäänyt raha laskee. Vain toisen tarkistaminen menisi läpi myös silloin,
+    jos mittauspiste olisi siirtynyt vain toiselle sarakkeelle.
+    """
+    bought = {
+        "a_equip_buy_end": [4200, 4200, 4200, 4200, 6900],
+        "a_account": [800, 800, 800, 800, 100],
+        "a_cash_spent": [4000, 4000, 4000, 4000, 4700],
+    }
+    fake = build(buy_match(after_freeze={BUY_WINDOW_TICKS: bought}))
+
+    anchor = buy_row(parse_with(fake, tmp_path, buy_window_seconds=0.0))
+    assert (anchor["equip_buy_end"], anchor["money_buy_end"]) == (21000, 4000)
+
+    after = buy_row(
+        parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    )
+    assert (after["equip_buy_end"], after["money_buy_end"]) == (23700, 3300)
+    assert after["money_spent"] == 20700
+    assert after["buy_end_tick"] == BUY_ANCHOR + BUY_WINDOW_TICKS
+
+
+def test_when_nobody_buys_after_the_freeze_the_numbers_do_not_move(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: jos ikkunan aikana ei osteta, tulos on entinen.
+
+    Tämä on korjauksen hinta-arvio: mittauspisteen siirto ei saa muuttaa
+    yhtäkään lukua niillä kierroksilla, joilla kaikki ostettiin freezetimessä.
+    """
+    fake = build(buy_match(after_freeze={BUY_WINDOW_TICKS: {}}))
+
+    anchor = buy_row(parse_with(fake, tmp_path, buy_window_seconds=0.0))
+    after = buy_row(
+        parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    )
+
+    economy = (
+        "money_buy_end",
+        "money_spent",
+        "equip_buy_end",
+        "equip_round_start",
+        "players_buy_end",
+        ARMED_COLUMN,
+    )
+    assert [anchor[name] for name in economy] == [after[name] for name in economy]
+    # Mittauspiste itse siirtyi, vaikka luvut eivät -- muuten testi todistaisi
+    # vain, ettei ikkunaa otettu käyttöön lainkaan.
+    assert anchor["buy_end_tick"] == BUY_ANCHOR
+    assert after["buy_end_tick"] == BUY_ANCHOR + BUY_WINDOW_TICKS
+
+
+def test_a_death_cuts_the_window_short(tmp_path: Path) -> None:
+    """I/O-matriisi: kuolema 8 s kohdalla katkaisee 20 sekunnin ikkunan.
+
+    Mitataan **8 sekunnin kohdalta**, ei ikkunan lopusta: kuolleen pelaajan
+    tavaraluettelo tyhjenee, joten myöhempi tick kadottaisi hänen kalustonsa.
+    """
+    death_offset = int(8.0 * DEFAULT_TICK_RATE)
+    at_cut = {"a_equip_buy_end": [4200, 4200, 4200, 4200, 6900]}
+    fake = build(
+        buy_match(
+            deaths=[(death_offset, "bbb1", "aaa1", "ak47")],
+            after_freeze={death_offset - 1: at_cut, BUY_WINDOW_TICKS: at_cut},
+        )
+    )
+
+    row = buy_row(parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS))
+    assert row["buy_end_tick"] == BUY_ANCHOR + death_offset - 1
+    assert row["equip_buy_end"] == 23700
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert cut_rounds(adapter) == (2,)
+    assert lost_purchases(adapter) == 0
+
+
+def test_the_measurement_point_is_the_tick_before_the_death(tmp_path: Path) -> None:
+    """Mittauspiste on kuolemaa **edeltävä** tick, ei kuolintick.
+
+    Kuolintickillä uhrin tavaraluettelo on jo tyhjä ja panssari nolla. Jos
+    mittaus osuisi siihen, joukkueesta katoaisi yhden pelaajan koko kalusto --
+    eri vika kuin liian aikainen mittaus, mutta yhtä hiljainen. Feikki antaa
+    kuolintickille juuri sen tilan, jonka oikea demo antaa, ja testi vaatii
+    ettei sitä lueta.
+    """
+    death_offset = 512
+    dead = {
+        "a_inventory": [(), *([DEFAULT_INVENTORY] * 4)],
+        "a_armor": [0, *([DEFAULT_ARMOR] * 4)],
+        "a_equip_buy_end": [0, 4200, 4200, 4200, 4200],
+    }
+    fake = build(
+        buy_match(
+            deaths=[(death_offset, "bbb1", "aaa1", "ak47")],
+            after_freeze={death_offset - 1: {}, death_offset: dead},
+        )
+    )
+
+    row = buy_row(parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS))
+    assert row["buy_end_tick"] == BUY_ANCHOR + death_offset - 1
+    # Vainaja on vielä mukana: viisi aseistettua ja täysi varustearvo.
+    assert row[ARMED_COLUMN] == 5
+    assert row["equip_buy_end"] == 21000
+
+
+def test_a_purchase_left_behind_by_the_death_cut_is_reported(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: kuolema ennen ostoa -- ostot jäävät näkemättä, ja se sanotaan.
+
+    Tämä on ainoa tilanne, jossa ikkunan katkaisu maksaa jotain, eikä sitä ole
+    mitatussa aineistossa (134 kierrosta) kertaakaan nähty. Ajo ei kaadu, mutta
+    diagnostiikka kertoo montako ostosta jäi katkaisun taakse -- ``cash_spent``
+    kasvaa vain ostoista, joten sen kasvu on suora mittari.
+    """
+    death_offset = int(2.0 * DEFAULT_TICK_RATE)
+    later_buy = {
+        "a_equip_buy_end": [4200, 4200, 4200, 6900, 6900],
+        "a_cash_spent": [4000, 4000, 4000, 4700, 4700],
+    }
+    fake = build(
+        buy_match(
+            deaths=[(death_offset, "bbb1", "aaa1", "ak47")],
+            after_freeze={death_offset - 1: {}, BUY_WINDOW_TICKS: later_buy},
+        )
+    )
+
+    row = buy_row(parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS))
+    assert row["buy_end_tick"] == BUY_ANCHOR + death_offset - 1
+    # Ostot jäivät katkaisun taakse, joten luvut ovat ankkurin luvut.
+    assert row["equip_buy_end"] == 21000
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert cut_rounds(adapter) == (2,)
+    assert lost_purchases(adapter) == 2
+
+
+def test_the_window_never_reaches_past_the_end_of_the_round(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: kierros loppuu ennen ikkunan loppua -> mitataan lopusta.
+
+    Ilman rajausta mittauspiste osuisi seuraavan kierroksen puolelle, ja
+    talousarvot olisivat väärän kierroksen.
+    """
+    short = 600  # 9,4 s -- lyhyempi kuin 20 sekunnin ikkuna
+    fake = build(buy_match(length=short))
+
+    row = buy_row(parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS))
+    assert row["buy_end_tick"] == BUY_ANCHOR + short
+    assert row["buy_end_tick"] < BUY_ANCHOR + BUY_WINDOW_TICKS
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    # Kierroksen loppuun rajautuminen ei ole kuoleman katkaisu eikä sitä saa
+    # laskea sellaiseksi -- muuten laskuri väittäisi kuolemia, joita ei ollut.
+    assert cut_rounds(adapter) == ()
+
+
+def test_a_round_without_an_anchor_has_no_measurement_point(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: ankkuriton kierros -- arvot ``null`` kuten ennenkin.
+
+    Ilman ankkuria ei ole hetkeä, josta ikkuna alkaisi, joten mittauspistettä
+    ei voi olla. Kierros pysyy silti taulussa ja kantaa oman tilansa (AD-9).
+    """
+    rounds = buy_match()
+    rounds[1] = replace(rounds[1], freeze_tick=None)
+    fake = build(rounds)
+
+    row = buy_row(parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS))
+    assert row["status"] == "no_freeze_end"
+    assert row["freeze_end_tick"] is None
+    assert row["buy_end_tick"] is None
+    assert row["equip_buy_end"] is None
+    assert row["money_buy_end"] is None
+
+
+def test_a_dropped_weapon_picked_up_by_a_teammate_keeps_the_team_sum(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: pudotettu ase siirtyy, joukkueen summa ei muutu.
+
+    Pudottajan varustearvo laskee ja poimijan nousee saman verran, joten
+    joukkuesumma säilyy -- yhteinen mittaustick sulkee kaksoislaskennan pois.
+    Aseistettujen laskuri **seuraa hallussapitoa**: pudottaja putoaa laskurista
+    ja poimija nousee siihen, joten luku pysyy samana mutta eri syystä.
+    """
+    unarmed = ("knife", "Glock-18")  # ilmainen pistooli ei aseista
+    armed = ("knife", "Glock-18", "AK-47", "Smoke Grenade")
+    anchor = {
+        "a_inventory": [armed, unarmed, armed, armed, armed],
+        "a_equip_buy_end": [4200, 1500, 4200, 4200, 4200],
+    }
+    after_drop = {
+        "a_inventory": [unarmed, armed, armed, armed, armed],
+        "a_equip_buy_end": [1500, 4200, 4200, 4200, 4200],
+    }
+    fake = build(buy_match(**anchor, after_freeze={BUY_WINDOW_TICKS: after_drop}))
+
+    before = buy_row(parse_with(fake, tmp_path, buy_window_seconds=0.0))
+    after = buy_row(
+        parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    )
+
+    assert before["equip_buy_end"] == after["equip_buy_end"] == 18300
+    assert before[ARMED_COLUMN] == after[ARMED_COLUMN] == 4
+
+
+def test_the_window_is_one_tick_for_both_teams(tmp_path: Path) -> None:
+    """Mittauspiste on sama molemmilla joukkueilla, myös katkaistuna.
+
+    Joukkuekohtainen piste eriyttäisi rivit toisistaan, eikä kahden eri
+    hetkestä luettua joukkuesummaa voi verrata keskenään.
+    """
+    death_offset = 512
+    fake = build(
+        buy_match(
+            deaths=[(death_offset, "bbb1", "aaa1", "ak47")],
+            after_freeze={death_offset - 1: {}, BUY_WINDOW_TICKS: {}},
+        )
+    )
+    df = parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+
+    ticks = {
+        row["buy_end_tick"] for row in df.filter(pl.col("round_raw") == 2).to_dicts()
+    }
+    assert ticks == {BUY_ANCHOR + death_offset - 1}
+
+
+def test_a_zero_window_measures_the_anchor(tmp_path: Path) -> None:
+    """Ikkuna 0 on kelvollinen valinta ja tarkoittaa ankkuria.
+
+    Se on tämän tarinan edeltävä käyttäytyminen, ja se on ainoa tapa ajaa
+    vanha mittaus uudelleen ilman koodimuutosta -- esimerkiksi vertailtaessa,
+    mitä korjaus muutti.
+    """
+    fake = build(buy_match(after_freeze={BUY_WINDOW_TICKS: {}}))
+    row = buy_row(parse_with(fake, tmp_path, buy_window_seconds=0.0))
+    assert row["buy_end_tick"] == row["freeze_end_tick"] == BUY_ANCHOR
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=0.0)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.buy_window_seconds == 0.0
+    assert cut_rounds(adapter) == ()
+
+
+# --- Ostoikkunan reunatapaukset (Story 1.9, katselmus) -------------------------
+
+
+def test_a_death_exactly_on_the_anchor_still_cuts_the_window(tmp_path: Path) -> None:
+    """Kuolema tasan ankkurilla katkaisee ikkunan.
+
+    Haku on :func:`bisect.bisect_left` juuri tämän takia. ``bisect_right``
+    ohittaisi ankkurilla olevan kuoleman, ikkuna jatkuisi loppuun asti ja
+    mittaus lukisi ruumiin -- tyhjän tavaraluettelon ja nollan panssarin.
+    """
+    dead = {
+        "a_inventory": [(), *([DEFAULT_INVENTORY] * 4)],
+        "a_armor": [0, *([DEFAULT_ARMOR] * 4)],
+    }
+    fake = build(
+        buy_match(
+            deaths=[(0, "bbb1", "aaa1", "ak47")],
+            after_freeze={BUY_WINDOW_TICKS: dead},
+        )
+    )
+
+    row = buy_row(parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS))
+    assert row["buy_end_tick"] == BUY_ANCHOR
+    assert row[ARMED_COLUMN] == 5
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert cut_rounds(adapter) == (2,)
+
+
+def test_an_unresolved_round_does_not_reach_into_the_next_one(
+    tmp_path: Path,
+) -> None:
+    """Ratkeamaton kierros rajautuu seuraavan kierrosrajan ankkuriin.
+
+    Kierroksella, joka ei ratkennut (demo katkesi kesken), ei ole
+    ``end_tick``iä. Ilman varasääntöä ikkuna jatkuisi ankkurista 20 sekuntia
+    riippumatta siitä, alkaako seuraava kierros sitä ennen -- ja mittaus
+    lukisi seuraavan kierroksen talousarvot tämän kierroksen riville.
+    """
+    rounds = buy_match()
+    # Kohdekierros jää ratkeamatta, ja sen jälkeen tulee vielä yksi ankkuri
+    # 400 tickin päässä eli selvästi ennen ikkunan loppua. Rivit rakennetaan
+    # rajalle asti, jottei testi mittaisi vahingossa tyhjän tickin
+    # varasääntöä sen sijaan mitä se väittää mittaavansa.
+    rounds[1] = replace(
+        rounds[1],
+        end_tick=None,
+        winner=None,
+        reason=None,
+        after_freeze={399: {}},
+    )
+    rounds.append(
+        Round(
+            demo_round=None,
+            freeze_tick=BUY_ANCHOR + 400,
+            end_tick=None,
+            score_at_freeze=1,
+            score_at_end=1,
+        )
+    )
+    fake = build(rounds)
+
+    df = parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    row = buy_row(df)
+    assert row["buy_end_tick"] == BUY_ANCHOR + 399
+    assert row["buy_end_tick"] < BUY_ANCHOR + BUY_WINDOW_TICKS
+
+
+def test_an_empty_buy_tick_falls_back_to_the_anchor_and_is_counted(
+    tmp_path: Path,
+) -> None:
+    """Varasääntö: tyhjältä ostotickiltä ei mitata, vaan palataan ankkuriin.
+
+    Ilman varasääntöä koko kierroksen talous olisi ``null`` -- kierros
+    katoaisi luokittelusta, vaikka ankkurin havainnot ovat tallessa. Palautus
+    on silti **vika eikä havainto**, joten se lasketaan omaan lukuunsa: se on
+    ainoa polku, jonka ``ParseDiagnostics`` merkitsee niin.
+    """
+    fake = build(buy_match(blank_after_freeze=(BUY_WINDOW_TICKS,)))
+
+    row = buy_row(parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS))
+    assert row["buy_end_tick"] == BUY_ANCHOR == row["freeze_end_tick"]
+    # Talous on ankkurin talous eikä tyhjä.
+    assert row["equip_buy_end"] == 21000
+    assert row["players_buy_end"] == 5
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.buy_window_ticks_without_players == 1
+
+
+def test_the_fallback_is_not_blamed_on_the_death_cut(tmp_path: Path) -> None:
+    """Tyhjä tick ja kuoleman katkaisu samalla kierroksella eivät sekoitu.
+
+    Kun mittaus palautuu ankkuriin, mittauspiste ei ole katkaisukohta, joten
+    ero ikkunan loppuun on tyhjän tickin syytä eikä kuoleman. Ilman erottelua
+    menetetyt ostot kirjautuisivat väärän vian tilille, ja käyttäjä etsisi
+    ongelmaa kuolemista.
+    """
+    death_offset = 512
+    later_buy = {
+        "a_equip_buy_end": [4200, 4200, 4200, 6900, 6900],
+        "a_cash_spent": [4000, 4000, 4000, 4700, 4700],
+    }
+    fake = build(
+        buy_match(
+            deaths=[(death_offset, "bbb1", "aaa1", "ak47")],
+            blank_after_freeze=(death_offset - 1,),
+            after_freeze={BUY_WINDOW_TICKS: later_buy},
+        )
+    )
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.buy_window_ticks_without_players == 1
+    assert cut_rounds(adapter) == ()
+    assert lost_purchases(adapter) == 0
+
+
+def test_a_cut_that_cannot_be_checked_is_told_apart_from_a_clean_one(
+    tmp_path: Path,
+) -> None:
+    """Menetettyjen ostojen nollalla on kaksi syytä, ja ne erotetaan.
+
+    Jos ikkunan lopun tickiltä ei saada yhtään luettavaa ``cash_spent``-arvoa,
+    vertailua ei voi tehdä. Silloin ``purchases_after_cut`` on nolla, mutta se
+    tarkoittaa "ei tiedetä" eikä "ei menetetty" -- ja tarinan tärkein luku ei
+    saa lukea tyhjää nollaa kenenkään huomaamatta.
+    """
+    death_offset = 512
+    fake = build(
+        buy_match(
+            deaths=[(death_offset, "bbb1", "aaa1", "ak47")],
+            after_freeze={death_offset - 1: {}},
+            blank_after_freeze=(BUY_WINDOW_TICKS,),
+        )
+    )
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    assert cut_rounds(adapter) == (2,)
+    assert lost_purchases(adapter) == 0
+    assert adapter.diagnostics.buy_window_unchecked_cuts == (2,)
+
+
+def test_a_lost_purchase_names_its_round(tmp_path: Path) -> None:
+    """Menetetty ostos on jäljitettävissä kierrokseen.
+
+    Yksi luku koko demolle ei anna käyttäjälle mitään, mistä jatkaa.
+    ``round_raw`` on se numero, jolla kierroksen löytää sekä taulusta että
+    demosta.
+    """
+    death_offset = int(2.0 * DEFAULT_TICK_RATE)
+    later_buy = {"a_cash_spent": [4000, 4000, 4000, 4700, 4700]}
+    fake = build(
+        buy_match(
+            deaths=[(death_offset, "bbb1", "aaa1", "ak47")],
+            after_freeze={death_offset - 1: {}, BUY_WINDOW_TICKS: later_buy},
+        )
+    )
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    # Pari kertoo sekä kierroksen että hinnan: yksi luku ei jäljittyisi
+    # mihinkään, ja vaihe tarvitsee numeron pudottaakseen puukkokierroksen.
+    assert adapter.diagnostics.buy_window_cuts == ((2, 2),)
+
+
+def test_players_missing_from_the_buy_tick_are_counted(tmp_path: Path) -> None:
+    """Ostotickiltä kadonneet pelaajat eivät saa kutistua hiljaa.
+
+    Summa ja jakaja kutistuvat yhdessä, joten per pelaaja -arvot pysyvät
+    oikeina -- ja juuri siksi vika on hiljainen: joukkue näyttää pelaavan
+    vajaalla, mikä on uskottava havainto mutta väärä väite.
+    """
+    fake = build(buy_match(after_freeze={BUY_WINDOW_TICKS: {"a_absent": 2}}))
+
+    row = buy_row(parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS))
+    assert row["players_buy_end"] == 3
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.buy_window_players_lost == 2
+    assert adapter.diagnostics.buy_window_sides_without_rows == 0
+
+
+def test_a_side_that_vanishes_entirely_is_counted(tmp_path: Path) -> None:
+    """Kokonaan kadonnut joukkuerivi on tyhjä mutta tilaltaan ``ok``.
+
+    ``classify`` jättää sen luokittelematta puuttuvan havainnon takia, mikä on
+    oikea lopputulos -- mutta ilman omaa lukuaan kukaan ei saisi tietää miksi
+    kierros katosi raportista.
+    """
+    fake = build(buy_match(after_freeze={BUY_WINDOW_TICKS: {"a_absent": 5}}))
+
+    row = buy_row(parse_with(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS))
+    assert row["status"] == "ok"
+    assert row["players_buy_end"] is None
+    assert row["equip_buy_end"] is None
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.buy_window_players_lost == 5
+    assert adapter.diagnostics.buy_window_sides_without_rows == 1
+
+
+def test_a_refund_during_the_window_is_counted(tmp_path: Path) -> None:
+    """Palautettu ostos tunnistetaan ``cash_spent``in **laskusta**.
+
+    Prop kasvaa vain ostoista, joten lasku voi tarkoittaa vain palautusta.
+    Tunnusmerkkinä ei käytetä "panssari katosi eikä arvo laskenut", koska
+    kuolema tuottaa täsmälleen saman jäljen ja on paljon yleisempi.
+    """
+    refunded = {
+        "a_cash_spent": [3350, 4000, 4000, 4000, 4000],
+        "a_account": [1450, 800, 800, 800, 800],
+        "a_equip_buy_end": [3550, 4200, 4200, 4200, 4200],
+    }
+    fake = build(buy_match(after_freeze={BUY_WINDOW_TICKS: refunded}))
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.buy_window_refunds == 1
+    assert adapter.diagnostics.buy_window_stale_equipment == 0
+
+
+def test_equipment_value_that_rises_without_a_purchase_is_counted(
+    tmp_path: Path,
+) -> None:
+    """Palautuksen jättämä vanhentunut varustearvo saa oman lukunsa.
+
+    Mitattu ``Anubis_vs_ryhmarama`` kierroksesta 3: pelaaja osti kevlarin ja
+    kypärän ja palautti ne, molemmat kahden luetun tickin **välissä**. Raha ja
+    panssari palautuivat oikein, mutta ``m_unCurrentEquipmentValue`` jäi
+    1 200:aan eikä palannut 200:aan. Molemmilla luetuilla tickeillä
+    ``cash_spent`` on sama, joten palautus näkyy vain tästä: arvo nousi ilman
+    että pelaaja osti, sai panssaria tai muutti tavaraluetteloaan.
+    """
+    stale = {"a_equip_buy_end": [5200, 4200, 4200, 4200, 4200]}
+    fake = build(buy_match(after_freeze={BUY_WINDOW_TICKS: stale}))
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.buy_window_stale_equipment == 1
+    assert adapter.diagnostics.buy_window_refunds == 0
+
+
+def test_a_normal_purchase_is_not_mistaken_for_stale_equipment(
+    tmp_path: Path,
+) -> None:
+    """Tavallinen myöhäinen osto ei saa laukaista vanhentuneen arvon laskuria.
+
+    Se on koko tarinan tavallisin tapahtuma: jos laskuri osuisi siihen, se
+    näyttäisi joka ajossa satoja "vikoja" eikä kertoisi mitään.
+    """
+    bought = {
+        "a_equip_buy_end": [6900, 4200, 4200, 4200, 4200],
+        "a_cash_spent": [4700, 4000, 4000, 4000, 4000],
+        "a_account": [100, 800, 800, 800, 800],
+    }
+    fake = build(buy_match(after_freeze={BUY_WINDOW_TICKS: bought}))
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.buy_window_stale_equipment == 0
+    assert adapter.diagnostics.buy_window_refunds == 0
+
+
+def test_an_unknown_item_seen_only_on_the_anchor_is_still_reported(
+    tmp_path: Path,
+) -> None:
+    """Tuntemattomat nimet skannataan molemmilta tickeiltä.
+
+    Pelaaja, joka pudottaa tai vaihtaa aseen ostoajan aikana, kantaa nimeä vain
+    ankkurilla. Pelkästä mittauspisteestä katsottuna sellaista nimeä ei olisi
+    koskaan ollut olemassa -- ja tuntematon nimi ei aseista ketään, joten se
+    laskisi kalustolaskuria hiljaa alaspäin ilman että mikään kertoisi syytä.
+    """
+    only_at_anchor = ("knife", "Glock-18", "Ei-Ole-Olemassa-9000")
+    fake = build(
+        buy_match(
+            a_inventory=[only_at_anchor, *([DEFAULT_INVENTORY] * 4)],
+            after_freeze={BUY_WINDOW_TICKS: {}},
+        )
+    )
+
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.unknown_inventory_items == (
+        ("Ei-Ole-Olemassa-9000", 1),
+    )
+
+
+def test_an_unknown_item_on_both_ticks_is_counted_once_per_round(
+    tmp_path: Path,
+) -> None:
+    """Kahden tickin skannaus ei saa kaksinkertaistaa esiintymämääriä.
+
+    Esiintymämäärä on se, joka erottaa yhden eksoottisen veitsen
+    demoparser2:n nimeämismuutoksesta. Jos jokainen nimi laskettaisiin
+    kahdesti, molemmat näyttäisivät kaksi kertaa yleisemmiltä eikä lukua voisi
+    verrata mihinkään.
+    """
+    unknown = ("knife", "Glock-18", "Ei-Ole-Olemassa-9000")
+    fake = build(
+        buy_match(
+            a_inventory=[unknown, *([DEFAULT_INVENTORY] * 4)],
+            after_freeze={BUY_WINDOW_TICKS: {}},
+        )
+    )
+    # Sama nimi on molemmilla tickeillä, koska after_freeze ei muuta mitään.
+    adapter = parse_adapter(fake, tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.unknown_inventory_items == (
+        ("Ei-Ole-Olemassa-9000", 1),
+    )
+
+
+def test_the_window_cuts_even_when_first_contact_ignores_deaths(
+    tmp_path: Path,
+) -> None:
+    """Ikkunan katkaisu ei riipu ensikontaktin asetuksesta.
+
+    ``first_contact_fallback_death`` ratkaisee vain sen, saako ensikontakti
+    tulla kuolemasta. Jos kuolemien lukeminen palautettaisiin sen taakse --
+    kuten se oli ennen tätä tarinaa -- ikkuna lakkaisi katkeamasta hiljaa
+    juuri niillä ajoilla, joilla asetus on epätosi.
+    """
+    death_offset = 512
+    fake = build(
+        buy_match(
+            deaths=[(death_offset, "bbb1", "aaa1", "ak47")],
+            after_freeze={death_offset - 1: {}, BUY_WINDOW_TICKS: {}},
+        )
+    )
+
+    row = buy_row(
+        parse_with(
+            fake,
+            tmp_path,
+            buy_window_seconds=BUY_WINDOW_SECONDS,
+            fallback_death=False,
+        )
+    )
+    assert row["buy_end_tick"] == BUY_ANCHOR + death_offset - 1
+
+
+def test_two_rounds_can_have_different_measurement_points(tmp_path: Path) -> None:
+    """Mittauspiste on kierroskohtainen, ei koko demon vakio.
+
+    Katkaistu ja katkaisematon kierros samassa demossa: edellinen mitataan
+    kuolemaa edeltävältä tickiltä, jälkimmäinen ikkunan lopusta. Juuri tästä
+    ``stages.parse`` laskee mittaushetkien jakauman ajon tulosteeseen, joten
+    sarakkeen on erotettava nämä kaksi.
+    """
+    death_offset = 512
+    rounds = buy_match(after_freeze={BUY_WINDOW_TICKS: {}})
+    rounds[1] = replace(
+        rounds[1],
+        deaths=[(death_offset, "bbb1", "aaa1", "ak47")],
+        after_freeze={death_offset - 1: {}, BUY_WINDOW_TICKS: {}},
+    )
+    df = parse_with(build(rounds), tmp_path, buy_window_seconds=BUY_WINDOW_SECONDS)
+
+    offsets = {
+        int(row["buy_end_tick"] - row["freeze_end_tick"])
+        for row in df.to_dicts()
+        if row["buy_end_tick"] is not None
+    }
+    assert offsets == {death_offset - 1, BUY_WINDOW_TICKS}

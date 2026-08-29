@@ -72,7 +72,7 @@ _ROSTER_CLASS = pl.Enum(list(ROSTER_CLASSES))
 #: Kalustolaskurin sarakkeen nimi. Vakiona, koska sitä lukevat adapteri (joka
 #: laskee luvun), ``stages.parse`` (joka raportoi sen jakauman) ja testit --
 #: kovakoodattuina merkkijonoina ne erkanisivat toisistaan huomaamatta.
-ARMED_COLUMN = "players_armed_freeze_end"
+ARMED_COLUMN = "players_armed_buy_end"
 
 
 # Kierrostaulu: kaksi riviä per kierros, yksi kummallekin joukkueelle (AD-5).
@@ -86,18 +86,18 @@ ROUNDS: Schema = {
     "side": _SIDE,  # rivin joukkueen puoli tällä kierroksella
     "won": pl.Boolean,
     "win_reason": pl.Utf8,
-    "money_freeze_end": pl.Int32,  # $ jäljelle jäänyt saldo freezetimen lopussa
+    "money_buy_end": pl.Int32,  # $ jäljelle jäänyt saldo ostoajan lopussa
     "money_spent": pl.Int32,  # $ tällä kierroksella käytetty raha (cash_spent)
-    "equip_freeze_end": pl.Int32,  # $ current_equip_value-summa freezetimen lopussa
+    "equip_buy_end": pl.Int32,  # $ current_equip_value-summa ostoajan lopussa
     "equip_round_start": pl.Int32,  # $ round_start_equip_value-summa
-    "players_freeze_end": pl.Int32,  # pelaajat, joiden arvot olivat luettavissa
+    "players_buy_end": pl.Int32,  # pelaajat, joiden arvot olivat luettavissa
     # Edellisistä ne, joilla oli PANSSARI JA VÄHINTÄÄN YKSI ASE HALLUSSA
-    # freezetimen lopussa. Luettu tavaraluettelosta ja m_ArmorValuesta, ei
+    # ostoajan lopussa. Luettu tavaraluettelosta ja m_ArmorValuesta, ei
     # varustearvosta: varustearvo on ase + panssari + kranaatit yhtenä lukuna
     # eikä erota asetta ilmaisesta pistoolista ja kahdesta valosta. HALLUSSAPITO
     # EIKÄ OSTOS: säästetty tai poimittu kivääri laskeutuu samoin kuin ostettu.
     # Joukkuesumma ei kerro tätä: kaksi AK:ta ja kolme tyhjää antaa saman summan
-    # kuin viisi puolinaista. Aina 0..players_freeze_end; null kun havaintoa ei
+    # kuin viisi puolinaista. Aina 0..players_buy_end; null kun havaintoa ei
     # ole lainkaan -- nolla tarkoittaa "kukaan ei ollut aseistettu".
     # Null myös silloin, kun yhdenkin pelaajan panssari tai tavaraluettelo on
     # lukukelvoton: osittainen luku näyttäisi säästöltä eikä lukuvirheeltä.
@@ -105,6 +105,32 @@ ROUNDS: Schema = {
     "survivors": pl.Int32,  # elossa kierroksen lopussa
     "survivors_equip_prev": pl.Int32,  # $ edelliseltä kierrokselta säästynyt varustearvo
     "freeze_end_tick": pl.Int32,  # viimeinen round_freeze_end -tick, null jos puuttuu
+    # Tick, jolta talousarvot yllä on luettu:
+    #   max(freeze_end_tick,
+    #       min(freeze_end_tick + [parse].buy_window_seconds,
+    #           kierroksen ensimmäistä kuolemaa EDELTÄVÄ tick,
+    #           kierroksen loppu))
+    # Sama molemmilla saman kierroksen riveillä -- pelaaja- tai
+    # joukkuekohtainen piste laskisi kuolleen pudottaman ja poimitun aseen
+    # kahdesti. Null aina ja vain silloin, kun freeze_end_tick on null.
+    #
+    # Sarake on olemassa, jotta luku on tarkistettavissa demoa vasten: ilman
+    # sitä freeze_end_tick väittäisi olevansa mittaushetki, ja juuri sellainen
+    # valhe piilotti tämän vian alun perin (Story 1.9).
+    #
+    # MITÄ SE EI KERRO: yhtäsuuruus freeze_end_tickin kanssa on MONITULKINTAINEN.
+    # Se tarkoittaa joko asetusta buy_window_seconds = 0 (mittaa ankkurista),
+    # kuolemaa heti ankkurin jälkeen, tai varasääntöä, johon parse palasi kun
+    # ostoajan tickiltä ei saatu yhtään pelaajaa. Rivin status on kaikissa
+    # kolmessa "ok", eikä classify voi erottaa niitä -- erottelu on ajon
+    # tulosteessa (stages.parse -> ParseDiagnostics), koska UNIT_STATUSES on
+    # jaettu sopimus eikä sitä laajenneta yhden vaiheen tarpeeseen.
+    #
+    # classify EI lue tätä saraketta (ks. economy.CLASSIFY_COLUMNS): mittaus on
+    # parsinnan vastuu, ja luokittelusääntö nojaa lukuihin eikä hetkeen, josta
+    # ne luettiin. Sarake on jäljitettävyyttä varten, ja ajon tuloste kertoo
+    # mittaushetkien jakauman.
+    "buy_end_tick": pl.Int32,
     "tick_rate": pl.Float32,
     "status": _UNIT_STATUS,
 }
@@ -197,12 +223,12 @@ EVENTS: Schema = {
 # Kynnysarvot ovat dollareita per pelaaja, samat kuin [thresholds]-osiossa.
 CLASSIFIED_INPUTS = pl.Struct(
     {
-        "money_freeze_end": pl.Int32,
-        # Käytettävissä ollut raha = money_freeze_end + money_spent. Se on
+        "money_buy_end": pl.Int32,
+        # Käytettävissä ollut raha = money_buy_end + money_spent. Se on
         # mukana perustelua ja tarkistusta varten; kalibrointi 2026-08-29
         # osoitti, että säännöt nojaavat jäljelle jääneeseen saldoon.
         "money_spent": pl.Int32,
-        "equip_freeze_end": pl.Int32,
+        "equip_buy_end": pl.Int32,
         "equip_round_start": pl.Int32,
         "survivors_prev": pl.Int32,
         "survivors_equip_prev": pl.Int32,

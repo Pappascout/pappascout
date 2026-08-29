@@ -51,11 +51,16 @@ class Round(NamedTuple):
         side: Puoli, jonka näkökulmasta rivi on.
         prev_won: Voittiko joukkue edellisen kierroksen; ``None``, jos
             edellistä kierrosta ei ole (kierros 1).
-        left: ``money_freeze_end`` $/pelaaja.
-        bought: ``equip_freeze_end - equip_round_start`` $/pelaaja.
-        equip: ``equip_freeze_end`` $/pelaaja.
+        left: Taskuun jäänyt raha $/pelaaja.
+        bought: Ostettu summa $/pelaaja.
+        equip: Varustearvo $/pelaaja.
         truth: Veetin antama kierrostyyppi.
         basis: Veetin sanallinen peruste, dokumentista.
+
+    **Tuomio on Veetin, luvut ovat mittaus.** Luvut päivitetään, kun
+    mittaushetki muuttuu (ks. taulun muutosloki); tuomioon ei kosketa. Ilman
+    päivitystä tämä testi pinnaisi säännön syötteillä, joita tuote ei enää
+    tuota.
     """
 
     round_no: int
@@ -69,22 +74,56 @@ class Round(NamedTuple):
 
 
 #: Totuustaulu sellaisenaan, dokumentin rivijärjestyksessä.
+#:
+#: **Tuomiot ovat Veetin**, luvut ovat mittaus. Story 1.9 siirsi mittaushetken
+#: freezetimen lopusta ostoajan loppuun, ja luvut on päivitetty siihen
+#: hetkeen -- muuten tämä taulu pinnaisi säännön syötteillä, joita tuote ei
+#: enää tuota, ja :func:`test_every_threshold_keeps_a_margin_to_the_nearest_observation`
+#: mittaisi etäisyyttä havaintoihin joita ei enää tehdä. Se olisi pahempi kuin
+#: vanhentunut luku: uusi mittaus vain **nostaa** varustearvoja, joten vartija
+#: voisi mennä läpi silloinkin kun sen premissi on datassa rikki.
+#:
+#: MUUTOSLOKI 2026-08-29 (Story 1.9), $/pelaaja, ``jäljellä / ostettu /
+#: varusteet``. Seitsemän riviä muuttui, kahdeksan pysyi ennallaan, eikä
+#: yksikään **tuomio** muuttunut:
+#:
+#: ===========  =========================  =========================
+#: Kierros      Ennen (freezetimen loppu)  Jälkeen (ostoajan loppu)
+#: ===========  =========================  =========================
+#: 1 T           270 /  530 /  730          140 /  660 /  860
+#: 2 CT         1010 / 2890 / 3200          520 / 3380 / 3690
+#: 17 T         3090 /  950 / 1150         3400 /  800 / 1000
+#: 19 T         1580 / 3940 / 5330         1540 / 3920 / 5310
+#: 19 CT         750 / 1840 / 2040           30 / 2520 / 2720
+#: 20 T          270 / 2710 / 2910          210 / 2830 / 3030
+#: 21 T         2260 /  510 /  710         2220 /  550 /  750
+#: ===========  =========================  =========================
+#:
+#: Suurin muutos on 19 CT: viides pelaaja osti kevlarin ja Desert Eaglen vasta
+#: freezetimen jälkeen, joten "ostivat tyhjäksi" **vahvistuu** -- taskuun jäi
+#: 30 $/pelaaja eikä 750 $. Kierros 17 T on ainoa, jolla raha kasvoi ja
+#: varusteet laskivat: siellä palautettiin ostos ikkunan aikana.
+#:
+#: Luvut on luettu tuotannon asetuksilla ajetusta parsinnasta, ja
+#: :func:`test_ancient_calibration_verdicts_hold_on_the_real_demo`
+#: (demotesti) ajaa saman ketjun oikealla demolla, jottei tämä taulu voi
+#: ajautua erilleen siitä huomaamatta.
 TRUTH_TABLE: tuple[Round, ...] = (
     Round(1, "CT", None, 110, 650, 850, "pistol", "pistoolikierros"),
-    Round(1, "T", None, 270, 530, 730, "pistol", "pistoolikierros"),
-    Round(2, "CT", True, 1010, 2890, 3200, "full", "voitti pistoolin (S1)"),
+    Round(1, "T", None, 140, 660, 860, "pistol", "pistoolikierros"),
+    Round(2, "CT", True, 520, 3380, 3690, "full", "voitti pistoolin (S1)"),
     Round(2, "T", False, 2060, 120, 320, "eco", "yksi p250, yksi valo, yksi savu"),
     Round(11, "T", True, 2350, 3790, 5510, "full", "voitti edellisen"),
     Round(11, "CT", False, 2280, 600, 1580, "eco", "yksi säästetty M4 (S3)"),
     Round(14, "T", True, 530, 2960, 3550, "full", "voitti kierroksen 13 (S1)"),
     Round(17, "CT", True, 630, 3520, 5560, "full", "voitti edellisen"),
-    Round(17, "T", False, 3090, 950, 1150, "eco", "raha säästetään AWP:hen"),
-    Round(19, "T", True, 1580, 3940, 5330, "full", "voitti edellisen"),
-    Round(19, "CT", False, 750, 1840, 2040, "force", "ostivat tyhjäksi (S2)"),
+    Round(17, "T", False, 3400, 800, 1000, "eco", "raha säästetään AWP:hen"),
+    Round(19, "T", True, 1540, 3920, 5310, "full", "voitti edellisen"),
+    Round(19, "CT", False, 30, 2520, 2720, "force", "ostivat tyhjäksi (S2)"),
     Round(20, "CT", True, 1350, 2660, 5550, "full", "voitti edellisen"),
-    Round(20, "T", False, 270, 2710, 2910, "force", "2x AK, 2x tec9; tyhjäksi"),
+    Round(20, "T", False, 210, 2830, 3030, "force", "2x AK, 2x tec9; tyhjäksi"),
     Round(21, "CT", True, 2700, 2720, 5680, "full", "voitti edellisen"),
-    Round(21, "T", False, 2260, 510, 710, "eco", "pitävät econ"),
+    Round(21, "T", False, 2220, 550, 750, "eco", "pitävät econ"),
 )
 
 
@@ -105,11 +144,11 @@ def _rows(k: Round) -> tuple[dict, dict | None]:
         "round_no": k.round_no,
         "side": k.side,
         "status": "ok",
-        "money_freeze_end": k.left * PLAYERS,
+        "money_buy_end": k.left * PLAYERS,
         "money_spent": k.bought * PLAYERS,
-        "equip_freeze_end": k.equip * PLAYERS,
+        "equip_buy_end": k.equip * PLAYERS,
         "equip_round_start": (k.equip - k.bought) * PLAYERS,
-        "players_freeze_end": PLAYERS,
+        "players_buy_end": PLAYERS,
         "survivors_equip_prev": 0,
     }
     if k.prev_won is None:
@@ -264,18 +303,38 @@ def test_every_threshold_keeps_a_margin_to_the_nearest_observation(
 # säilyä: demotesti ohittaa itsensä koneella, jolla demoja ei ole, ja
 # kalibrointi jäisi silloin valvomatta.
 #
-# TAVARALUETTELO JA PANSSARI on luettu Ancientista freezetimen lopun tickiltä
+# TAVARALUETTELO JA PANSSARI on luettu Ancientista **ostoajan lopun** tickiltä
 # 2026-08-29 (kierrokset 19, 20 ja 21). Story 1.5:ssä tässä olivat samojen
 # pelaajien varustearvot ja kynnys 950 $; Story 1.6 vaihtoi mittarin
 # havaintoon, koska varustearvo on ase + panssari + kranaatit yhtenä lukuna
 # eikä erota ostettua asetta ilmaisesta pistoolista ja kahdesta valosta.
 #
-# LUKEMAT EIVÄT MUUTTUNEET (4/5, 5/5, 2/5) -- mutta kierroksen 21 luku
-# perustuu nyt oikeaan syyhyn. Veeti kuvasi kierroksen: "kahdella
-# kevlar+pistooli ja yhdellä 300 $:n p250 ilman kevlaria". Vanha kynnys
-# pudotti p250-pelaajan siksi, että 300 < 950; uusi sääntö pudottaa hänet
-# siksi, ettei hänellä ole panssaria. Sama luku, eri väite -- ja jälkimmäinen
-# on se, jonka Veeti sanoi.
+# STORY 1.9 SIIRSI MITTAUSHETKEÄ, ja yksi luku muuttui: **kierros 19 CT on
+# 5/5, ei 4/5**. Kolmas pelaaja osti kevlarin ja Desert Eaglen vasta
+# freezetimen jälkeen (ankkurilla ('knife', 'USP-S'), panssari 0; ostoajan
+# lopussa ('knife', 'Desert Eagle', 'Smoke Grenade'), panssari 100). Veetin
+# TUOMIO ei muutu -- kierros on force, ja "ostivat tyhjäksi" jopa vahvistuu,
+# koska taskuun jäi 150 $ eikä 3 750 $ -- mutta hänen sanansa "yksi jäi
+# ilmaiseen oletuspistooliin" oli lukema väärältä hetkeltä. Kierrokset 20 ja
+# 21 pysyivät ennallaan (5/5 ja 2/5).
+#
+# TAVARALUETTELOT OVAT MYÖHEMMÄSTÄ HETKESTÄ kuin ennen, ja se näkyy niissä
+# kahdella tavalla, jotka **eivät** vaikuta laskuriin:
+#
+#   * heitetyt kranaatit ovat poissa ja istutettu C4 vaihtanut paikkaa
+#     (kierros 20 T mitataan 19,0 s, kierros 21 T 17,2 s ankkurin jälkeen)
+#   * panssari on ottanut osumia: kierroksella 21 arvot ovat 90 ja 89, eivät
+#     100
+#
+# Kumpikaan ei liikuta laskuria: sääntö on "panssari **ja vähintään yksi ase**
+# hallussa", eikä kranaatti ole ase eikä 90 ole nolla. Jos jompikumpi joskus
+# alkaa liikuttaa lukua, se näkyy täällä ennen kuin se näkyy raportissa.
+#
+# Kierroksen 21 luku perustuu edelleen oikeaan syyhyn. Veeti kuvasi
+# kierroksen: "kahdella kevlar+pistooli ja yhdellä 300 $:n p250 ilman
+# kevlaria". Vanha kynnys pudotti p250-pelaajan siksi, että 300 < 950; uusi
+# sääntö pudottaa hänet siksi, ettei hänellä ole panssaria. Sama luku, eri
+# väite -- ja jälkimmäinen on se, jonka Veeti sanoi.
 
 
 class ArmedRound(NamedTuple):
@@ -302,28 +361,26 @@ ARMED_TRUTH: tuple[ArmedRound, ...] = (
         19,
         "CT",
         (
-            (("Skeleton Knife", "Desert Eagle", "Smoke Grenade",
-              "High Explosive Grenade", "Incendiary Grenade"), 100),
-            (("Huntsman Knife", "Five-SeveN", "Flashbang",
-              "Incendiary Grenade"), 100),
-            (("knife", "USP-S"), 0),
+            (("Skeleton Knife", "Desert Eagle"), 100),
+            (("Huntsman Knife", "Five-SeveN"), 100),
+            (("knife", "Desert Eagle", "Smoke Grenade"), 100),
             (("Shadow Daggers", "P2000", "SSG 08"), 100),
-            (("knife", "USP-S", "MP9"), 100),
+            (("knife", "USP-S", "MP9", "High Explosive Grenade"), 100),
         ),
-        4,
-        'force, "ostivat tyhjäksi"; yksi jäi ilmaiseen oletuspistooliin '
-        "eikä ostanut panssaria",
+        5,
+        'force, "ostivat tyhjäksi": kaikki viisi aseistautuivat, ja taskuun '
+        "jäi 150 $/pelaaja",
     ),
     ArmedRound(
         20,
         "T",
         (
-            (("knife_t", "Tec-9", "Flashbang"), 100),
-            (("knife_t", "Glock-18", "AK-47", "Smoke Grenade", "Flashbang"), 100),
-            (("M9 Bayonet", "Glock-18", "AK-47", "Smoke Grenade", "Flashbang"), 100),
+            (("knife_t", "Tec-9"), 100),
+            (("knife_t", "Glock-18", "AK-47", "Flashbang"), 100),
+            (("M9 Bayonet", "Glock-18", "AK-47"), 100),
             (("Talon Knife", "Tec-9"), 100),
-            (("Bowie Knife", "Glock-18", "C4 Explosive", "MAC-10",
-              "Smoke Grenade"), 100),
+            (("Bowie Knife", "Glock-18", "MAC-10", "Smoke Grenade",
+              "Flashbang"), 100),
         ),
         5,
         "2x AK, 2x tec9, 1x mac10, kaikilla kevlar+kypärä -- kaikki viisi",
@@ -332,11 +389,11 @@ ARMED_TRUTH: tuple[ArmedRound, ...] = (
         21,
         "T",
         (
-            (("knife_t", "C4 Explosive", "P250"), 100),
-            (("knife_t", "Glock-18", "Smoke Grenade"), 0),
+            (("knife_t", "C4 Explosive", "P250"), 90),
+            (("knife_t", "Glock-18"), 0),
             (("M9 Bayonet", "P250"), 0),
             (("Talon Knife", "Glock-18"), 0),
-            (("Bowie Knife", "P250"), 100),
+            (("Bowie Knife", "P250"), 89),
         ),
         2,
         'eco, "pitävät econ": kahdella kevlar+pistooli, yhdellä 300 $:n p250 '
@@ -399,7 +456,7 @@ def test_unknown_name_does_not_arm_the_player() -> None:
 def test_unreadable_armor_or_inventory_empties_the_count() -> None:
     """Lukukelvoton havainto on ``null``, ei osittainen luku.
 
-    Pelaaja pysyy ``players_freeze_end``in jakajassa, joten osittainen luku
+    Pelaaja pysyy ``players_buy_end``in jakajassa, joten osittainen luku
     väittäisi häntä aseettomaksi -- lukuvirhe näyttäisi säästökierrokselta.
     Nolla ja tyhjä luettelo ovat sen sijaan havaintoja.
     """
@@ -417,7 +474,7 @@ def test_armed_count_needs_the_whole_distribution_not_the_team_sum() -> None:
     Kolme pelaajaa kevlarilla ja ostetulla pistoolilla (950 $ kukin) ja kaksi
     ilmaispistoolilla (200 $) antaa saman joukkuesumman 3250 kuin viisi
     pelaajaa pelkillä kevlareilla (650 $ kukin). Ensimmäinen on puoliosto,
-    jälkimmäinen ei ole, eikä ``equip_freeze_end`` erota niitä.
+    jälkimmäinen ei ole, eikä ``equip_buy_end`` erota niitä.
     """
     half_buy = [
         {"inventory": ("knife", "P250"), "armor_value": 100} for _ in range(3)

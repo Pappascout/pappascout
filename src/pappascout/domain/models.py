@@ -48,6 +48,7 @@ __all__ = [
     "SETTINGS_ENV_VAR",
     "SETTINGS_SECTIONS",
     "MAX_SNAPSHOT_SECONDS",
+    "MAX_BUY_WINDOW_SECONDS",
     "REMOVED_SETTINGS",
 ]
 
@@ -68,7 +69,7 @@ SETTINGS_SECTIONS: frozenset[str] = frozenset(
 #: tilanne, ei poikkeus.
 REMOVED_SETTINGS: Final[dict[tuple[str, str], str]] = {
     ("parse", "armed_player_equip_min"): (
-        "Poistui Story 1.6:ssa. Kalustolaskuri players_armed_freeze_end ei "
+        "Poistui Story 1.6:ssa. Kalustolaskuri players_armed_buy_end ei "
         "enää vertaa varustearvoa kynnykseen vaan lukee havainnon: pelaaja on "
         "aseistettu, jos hänellä on panssari ja vähintään yksi ase hallussa. "
         "Aseluettelo on koodissa (src/pappascout/constants.py), koska se on "
@@ -80,6 +81,18 @@ REMOVED_SETTINGS: Final[dict[tuple[str, str], str]] = {
 #: Näytepisteen yläraja sekunteina. CS2:n kierros kestää 1.55 = 115 s, joten
 #: sitä suurempi arvo ei voi osua yhdelläkään kierrokselle.
 MAX_SNAPSHOT_SECONDS = 115.0
+
+#: Ostoikkunan yläraja sekunteina. **Oma raja, ei lainattu**
+#: :data:`MAX_SNAPSHOT_SECONDS`ista: ne ovat kaksi riippumatonta asetusta, ja
+#: yhteinen vakio kytkisi ne toisiinsa niin, että toisen säätäminen siirtäisi
+#: toisen rajaa huomaamatta.
+#:
+#: Arvo on **kaksinkertainen pelin ostoaikaan** (20 s). Se päästää läpi
+#: turnaussäännön, joka poikkeaa oletuksesta, mutta torjuu kirjoitusvirheen
+#: (``200.0``) ja arvon, jolla mittauspiste ei enää olisi ostoaika vaan
+#: mielivaltainen hetki kierroksen keskellä. Ilman omaa rajaa 100,0 s menisi
+#: läpi äänettömästi.
+MAX_BUY_WINDOW_SECONDS = 40.0
 
 PositiveInt = Annotated[int, Field(gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
@@ -133,6 +146,25 @@ class ParseSettings(_Section):
     """
 
     snapshot_seconds: list[float] = Field(min_length=1)
+    #: Ostoajan pituus sekunteina freezetimen päättymisestä. Talouden
+    #: mittauspiste on::
+    #:
+    #:     max(ankkuri,
+    #:         min(ankkuri + tämä,
+    #:             ensimmäistä kuolemaa EDELTÄVÄ tick,
+    #:             kierroksen loppu))
+    #:
+    #: eikä freezetimen loppu: CS2:n ostoaika jatkuu kierroksen alettua, ja
+    #: noin puolella kierroksista ostetaan vielä sen jälkeen. Kuolemaa
+    #: **edeltävä** tick eikä kuoleman tick, koska kuolleen tavaraluettelo on
+    #: jo tyhjä; uloin ``max`` on alaraja, joka estää mittauspistettä valumasta
+    #: freezetimen sisään.
+    #:
+    #: Oletus 20,0 on **linjaus, jonka mittaus tukee** eikä kalibroitu arvo --
+    #: perustelu, mittaukset ja niiden rajat ovat ``settings.toml``in
+    #: rivikommentissa. Sallittu väli 0..:data:`MAX_BUY_WINDOW_SECONDS`;
+    #: 0 tarkoittaa "mittaa ankkurista".
+    buy_window_seconds: float = 20.0
     #: Aseet, jotka eivät kelpaa ensikontaktiksi (AD-5: "ase ei ole utility").
     first_contact_exclude_weapons: list[str] = Field(default_factory=list)
     #: Jos ensikontaktia ei löydy player_hurt-tapahtumista, käytetäänkö
@@ -143,7 +175,7 @@ class ParseSettings(_Section):
     #: detonate_area jää nulliksi. Kalibroidaan Epicissä 2 oikeilla demoilla.
     area_snap_units: PositiveInt | None = None
 
-    # Kalustolaskurilla (``players_armed_freeze_end``) **ei ole asetusta**.
+    # Kalustolaskurilla (``players_armed_buy_end``) **ei ole asetusta**.
     # Story 1.5:n ``armed_player_equip_min`` mittasi varustearvoa, joka on ase
     # + panssari + kranaatit yhtenä lukuna; Story 1.6 vaihtoi mittarin
     # havaintoon "panssari ja vähintään yksi ase hallussa", ja aseluettelo on
@@ -154,6 +186,51 @@ class ParseSettings(_Section):
     # Laskuri mittaa **hallussapitoa, ei ostosta**: säästetty tai poimittu
     # kivääri laskeutuu samoin kuin ostettu, koska kierroksen kannalta
     # ratkaisee mitä kädessä on. Ks. :mod:`pappascout.constants`.
+
+    @model_validator(mode="after")
+    def _check_buy_window(self) -> "ParseSettings":
+        """Ostoikkuna on asetus, joten se on tarkistettava latauksessa.
+
+        Kolme tapaa mennä rikki hiljaa:
+
+        * **NaN tai ääretön** kaataisi ``round()``-kutsun kesken parsinnan,
+          satojen megatavujen lukemisen jälkeen.
+        * **Negatiivinen** siirtäisi mittauspisteen freezetimen sisään, eli
+          ennen kuin joukkue on edes ostanut. Nolla on sallittu ja tarkoittaa
+          "mittaa freezetimen lopusta" -- se on tämän tarinan edeltävä
+          käyttäytyminen, ja se on kelvollinen valinta.
+        * **Ylärajan ylittävä** ikkuna ei mittaisi mitään uutta: mittauspiste
+          rajautuu joka tapauksessa kierroksen loppuun ja ensimmäiseen
+          kuolemaan, joten liian iso arvo on lähes varmasti kirjoitusvirhe.
+          Raja on :data:`MAX_BUY_WINDOW_SECONDS` eikä näytepisteiden raja.
+        """
+        value = self.buy_window_seconds
+        # isfinite ENSIN eikä vertailujen jälkeen: nan on pienempi, suurempi
+        # ja yhtä suuri kuin mikä tahansa -- kaikki False. Vertailuista
+        # koostuva tarkistus päästäisi sen läpi, ja round(nan * tick_rate)
+        # kaatuisi vasta parsinnan sisällä, sen jälkeen kun 400 MB:n demo on
+        # jo purettu ja luettu.
+        if not isfinite(value):
+            raise ValueError(
+                f"buy_window_seconds on {value!r}, joka ei ole äärellinen luku. "
+                "Ostoikkuna kerrotaan tickratella parsinnan aikana, joten "
+                "nan ja ääretön kaatuisivat vasta demon lukemisen jälkeen."
+            )
+        if value < 0:
+            raise ValueError(
+                f"buy_window_seconds on {value:g}, joka on negatiivinen. "
+                "Ostoaika mitataan freezetimen lopusta eteenpäin; negatiivinen "
+                "arvo siirtäisi mittauspisteen freezetimen sisään."
+            )
+        if value > MAX_BUY_WINDOW_SECONDS:
+            raise ValueError(
+                f"buy_window_seconds on {value:g} s, joka ylittää ostoikkunan "
+                f"ylärajan ({MAX_BUY_WINDOW_SECONDS:g} s eli kaksi kertaa "
+                "pelin oma ostoaika). Mittauspiste rajautuu joka tapauksessa "
+                "kierroksen loppuun ja ensimmäiseen kuolemaan, joten sitä "
+                "suurempi arvo ei mittaisi mitään uutta."
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_snapshot_seconds(self) -> "ParseSettings":

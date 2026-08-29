@@ -43,11 +43,11 @@ def row(**overrides) -> dict:
         "side": "T",
         "won": True,
         "status": "ok",
-        "money_freeze_end": 5000,
+        "money_buy_end": 5000,
         "money_spent": 20000,
-        "equip_freeze_end": 25000,
+        "equip_buy_end": 25000,
         "equip_round_start": 5000,
-        "players_freeze_end": 5,
+        "players_buy_end": 5,
         "survivors_equip_prev": 0,
         "survivors": 0,
     }
@@ -160,7 +160,7 @@ def test_empty_side_is_refused_instead_of_silently_resetting(thresholds) -> None
 def test_pistol_round_is_decided_by_the_round_number(thresholds, round_no) -> None:
     """Pistooli ratkeaa numerosta ennen kuin rahaa katsotaan lainkaan."""
     decision = classify_round(
-        row(round_no=round_no, equip_freeze_end=25000),
+        row(round_no=round_no, equip_buy_end=25000),
         previous(won=True, round_no=round_no - 1),
         thresholds,
         loss_count=1,
@@ -172,7 +172,7 @@ def test_pistol_round_is_decided_by_the_round_number(thresholds, round_no) -> No
 @pytest.mark.parametrize("round_no", [25, 26, 27, 28])
 def test_overtime_round_gets_no_economy_reasoning(thresholds, round_no) -> None:
     decision = classify_round(
-        row(round_no=round_no, equip_freeze_end=1000, money_freeze_end=60000),
+        row(round_no=round_no, equip_buy_end=1000, money_buy_end=60000),
         previous(won=False, round_no=round_no - 1),
         thresholds,
         loss_count=4,
@@ -193,7 +193,7 @@ def test_regulation_round_is_never_overtime(thresholds) -> None:
 
 def test_full_buy_is_decided_from_the_equipment_value(thresholds) -> None:
     decision = classify_round(
-        row(equip_freeze_end=5 * thresholds.full_equip_min),
+        row(equip_buy_end=5 * thresholds.full_equip_min),
         previous(won=False),
         thresholds,
         loss_count=2,
@@ -204,7 +204,7 @@ def test_full_buy_is_decided_from_the_equipment_value(thresholds) -> None:
 def test_full_buy_wins_over_the_after_loss_rules(thresholds) -> None:
     """Täysi osto ratkeaa varustearvosta, vaikka edellinen olisi hävitty."""
     decision = classify_round(
-        row(equip_freeze_end=25000, money_freeze_end=100),
+        row(equip_buy_end=25000, money_buy_end=100),
         previous(won=False),
         thresholds,
         loss_count=4,
@@ -217,9 +217,9 @@ def test_eco_after_a_loss_when_the_team_did_not_buy(thresholds) -> None:
     decision = classify_round(
         row(
             round_no=2,
-            equip_freeze_end=2000,
+            equip_buy_end=2000,
             equip_round_start=1000,
-            money_freeze_end=10100,
+            money_buy_end=10100,
             money_spent=600,
         ),
         previous(won=False, round_no=1),
@@ -237,9 +237,9 @@ def test_force_after_a_loss_when_the_team_bought_itself_empty(thresholds) -> Non
     decision = classify_round(
         row(
             round_no=23,
-            equip_freeze_end=12900,
+            equip_buy_end=12900,
             equip_round_start=1000,
-            money_freeze_end=150,
+            money_buy_end=150,
             money_spent=11900,
         ),
         previous(won=False, round_no=22),
@@ -261,16 +261,16 @@ def test_half_after_a_loss_when_the_team_left_money_in_the_pocket(thresholds) ->
     kierrokselle.
     """
     shared = dict(
-        round_no=23, equip_freeze_end=12900, equip_round_start=1000, money_spent=11900
+        round_no=23, equip_buy_end=12900, equip_round_start=1000, money_spent=11900
     )
     bought_empty = classify_round(
-        row(money_freeze_end=5 * thresholds.force_money_left_max, **shared),
+        row(money_buy_end=5 * thresholds.force_money_left_max, **shared),
         previous(won=False, round_no=22),
         thresholds,
         loss_count=2,
     )
     left_room = classify_round(
-        row(money_freeze_end=5 * (thresholds.force_money_left_max + 100), **shared),
+        row(money_buy_end=5 * (thresholds.force_money_left_max + 100), **shared),
         previous(won=False, round_no=22),
         thresholds,
         loss_count=2,
@@ -291,9 +291,9 @@ def test_the_purchase_threshold_is_inclusive_at_exactly_the_limit(
     def decision(bought_pp: int) -> str | None:
         return classify_round(
             row(
-                equip_freeze_end=5 * (bought_pp + 300),
+                equip_buy_end=5 * (bought_pp + 300),
                 equip_round_start=5 * 300,
-                money_freeze_end=5 * 100,
+                money_buy_end=5 * 100,
             ),
             previous(won=False),
             thresholds,
@@ -311,9 +311,9 @@ def test_the_money_left_threshold_is_inclusive_at_exactly_the_limit(
     def decision(left_pp: int) -> str | None:
         return classify_round(
             row(
-                equip_freeze_end=5 * 2000,
+                equip_buy_end=5 * 2000,
                 equip_round_start=5 * 300,
-                money_freeze_end=5 * left_pp,
+                money_buy_end=5 * left_pp,
             ),
             previous(won=False),
             thresholds,
@@ -333,9 +333,9 @@ def test_the_reason_never_contradicts_its_own_rounded_number(thresholds) -> None
     limit = thresholds.force_money_left_max
     decision = classify_round(
         row(
-            equip_freeze_end=5 * 2000,
+            equip_buy_end=5 * 2000,
             equip_round_start=5 * 300,
-            money_freeze_end=5 * limit + 2,  # 1000,4 $/pelaaja -> pyöristyy 1000:een
+            money_buy_end=5 * limit + 2,  # 1000,4 $/pelaaja -> pyöristyy 1000:een
         ),
         previous(won=False),
         thresholds,
@@ -354,9 +354,9 @@ def test_a_poor_team_that_did_not_buy_is_an_eco_not_a_force(thresholds) -> None:
     """
     decision = classify_round(
         row(
-            equip_freeze_end=5 * 1200,
+            equip_buy_end=5 * 1200,
             equip_round_start=5 * 300,
-            money_freeze_end=50,
+            money_buy_end=50,
             money_spent=4500,
         ),
         previous(won=False),
@@ -370,13 +370,13 @@ def test_a_poor_team_that_did_not_buy_is_an_eco_not_a_force(thresholds) -> None:
 def test_force_and_eco_differ_only_by_what_was_bought(thresholds) -> None:
     """Sama varustearvo, eri ostos: erottava havainto on ostettu summa."""
     bought = classify_round(
-        row(equip_freeze_end=9000, equip_round_start=1000, money_freeze_end=500),
+        row(equip_buy_end=9000, equip_round_start=1000, money_buy_end=500),
         previous(won=False),
         thresholds,
         loss_count=2,
     )
     saved = classify_round(
-        row(equip_freeze_end=9000, equip_round_start=8000, money_freeze_end=500),
+        row(equip_buy_end=9000, equip_round_start=8000, money_buy_end=500),
         previous(won=False),
         thresholds,
         loss_count=2,
@@ -395,9 +395,9 @@ def test_a_large_purchase_below_full_is_still_a_force(thresholds) -> None:
     purchase_pp = 2710
     decision = classify_round(
         row(
-            equip_freeze_end=5 * 2910,
+            equip_buy_end=5 * 2910,
             equip_round_start=5 * (2910 - purchase_pp),
-            money_freeze_end=5 * 270,
+            money_buy_end=5 * 270,
         ),
         previous(won=False),
         thresholds,
@@ -412,15 +412,15 @@ def test_equipment_value_alone_does_not_make_a_half_buy(thresholds) -> None:
     Sama varustearvo, sama ostos, eri saldo -- ja tulos on eri. Jos joku
     kytkee varustearvorajan takaisin puolioston päätökseen, tämä testi kaatuu.
     """
-    shared = dict(equip_freeze_end=5 * 3500, equip_round_start=1000)
+    shared = dict(equip_buy_end=5 * 3500, equip_round_start=1000)
     bought_empty = classify_round(
-        row(money_freeze_end=5 * 200, **shared),
+        row(money_buy_end=5 * 200, **shared),
         previous(won=False),
         thresholds,
         loss_count=2,
     )
     left_room = classify_round(
-        row(money_freeze_end=5 * 2500, **shared),
+        row(money_buy_end=5 * 2500, **shared),
         previous(won=False),
         thresholds,
         loss_count=2,
@@ -436,7 +436,7 @@ def test_a_half_buy_is_never_played_after_a_win(thresholds) -> None:
     Vanha luokittelija sanoi ``half``; Veeti sanoo ``full``.
     """
     decision = classify_round(
-        row(round_no=2, equip_freeze_end=16000, equip_round_start=1100),
+        row(round_no=2, equip_buy_end=16000, equip_round_start=1100),
         previous(won=True, round_no=1),
         thresholds,
         loss_count=1,
@@ -448,9 +448,9 @@ def test_a_half_buy_is_never_played_after_a_win(thresholds) -> None:
 def test_low_value_after_a_win_is_an_anomaly_not_an_eco(thresholds) -> None:
     decision = classify_round(
         row(
-            equip_freeze_end=5 * thresholds.anomaly_equip_max_after_win,
+            equip_buy_end=5 * thresholds.anomaly_equip_max_after_win,
             equip_round_start=1000,
-            money_freeze_end=50000,
+            money_buy_end=50000,
         ),
         previous(won=True),
         thresholds,
@@ -472,7 +472,7 @@ def test_there_is_no_gap_left_after_a_win(thresholds) -> None:
     for equip_pp in (low + 1, (low + high) // 2, high - 1):
         decision = classify_round(
             row(
-                equip_freeze_end=5 * equip_pp,
+                equip_buy_end=5 * equip_pp,
                 equip_round_start=5 * (equip_pp - 100),
             ),
             previous(won=True),
@@ -490,9 +490,9 @@ def test_a_saved_rifle_does_not_turn_an_eco_into_a_buy(thresholds) -> None:
     """
     decision = classify_round(
         row(
-            equip_freeze_end=5 * 1580,
+            equip_buy_end=5 * 1580,
             equip_round_start=5 * (1580 - 600),
-            money_freeze_end=5 * 2280,
+            money_buy_end=5 * 2280,
             money_spent=5 * 600,
         ),
         previous(won=False),
@@ -506,7 +506,7 @@ def test_a_saved_rifle_does_not_turn_an_eco_into_a_buy(thresholds) -> None:
 def test_negative_purchase_is_an_anomaly_not_silenced_to_zero(thresholds) -> None:
     """Varustearvon lasku ei ole ostotapahtuma; nolla piilottaisi ristiriidan."""
     decision = classify_round(
-        row(equip_freeze_end=10000, equip_round_start=14000),
+        row(equip_buy_end=10000, equip_round_start=14000),
         previous(won=False),
         thresholds,
         loss_count=2,
@@ -524,7 +524,7 @@ def test_a_negative_purchase_beats_the_full_buy_rule(thresholds) -> None:
     """
     decision = classify_round(
         row(
-            equip_freeze_end=5 * (thresholds.full_equip_min + 1000),
+            equip_buy_end=5 * (thresholds.full_equip_min + 1000),
             equip_round_start=5 * (thresholds.full_equip_min + 2000),
         ),
         previous(won=False),
@@ -542,7 +542,7 @@ def test_a_small_negative_purchase_is_not_rounded_away(thresholds) -> None:
     Se on silti ristiriitainen havainto, eikä sitä saa vaimentaa.
     """
     decision = classify_round(
-        row(equip_freeze_end=9998, equip_round_start=10000),
+        row(equip_buy_end=9998, equip_round_start=10000),
         previous(won=False),
         thresholds,
         loss_count=2,
@@ -555,7 +555,7 @@ def test_a_small_negative_purchase_is_not_rounded_away(thresholds) -> None:
 
 
 def test_missing_previous_round_is_an_anomaly(thresholds) -> None:
-    decision = classify_round(row(equip_freeze_end=5000), None, thresholds, loss_count=1)
+    decision = classify_round(row(equip_buy_end=5000), None, thresholds, loss_count=1)
     assert decision.round_type == "anomaly"
     assert "edelliseen kierrokseen" in decision.reason
 
@@ -570,7 +570,7 @@ def test_a_full_buy_is_recognised_even_without_a_previous_round(thresholds) -> N
     ja puolioston erottamiseen toisistaan.
     """
     decision = classify_round(
-        row(equip_freeze_end=5 * thresholds.full_equip_min),
+        row(equip_buy_end=5 * thresholds.full_equip_min),
         None,
         thresholds,
         loss_count=1,
@@ -582,7 +582,7 @@ def test_a_full_buy_is_recognised_even_without_a_previous_round(thresholds) -> N
 def test_a_gap_in_round_numbers_breaks_the_previous_round(thresholds) -> None:
     """``rivit[index - 1]`` ei ole edellinen kierros, jos numeroissa on aukko."""
     decision = classify_round(
-        row(round_no=8, equip_freeze_end=5000),
+        row(round_no=8, equip_buy_end=5000),
         previous(won=False, round_no=5),
         thresholds,
         loss_count=2,
@@ -594,7 +594,7 @@ def test_a_gap_in_round_numbers_breaks_the_previous_round(thresholds) -> None:
 def test_a_side_change_breaks_the_previous_round(thresholds) -> None:
     """Puolen vaihtuminen tarkoittaa, että edellinen kierros on toiselta puoliajalta."""
     decision = classify_round(
-        row(round_no=14, side="CT", equip_freeze_end=5000),
+        row(round_no=14, side="CT", equip_buy_end=5000),
         previous(won=False, round_no=13, side="T"),
         thresholds,
         loss_count=1,
@@ -608,8 +608,8 @@ def test_a_contiguous_previous_round_is_used(thresholds) -> None:
         row(
             round_no=14,
             side="CT",
-            equip_freeze_end=5 * 3500,
-            money_freeze_end=5 * 2500,
+            equip_buy_end=5 * 3500,
+            money_buy_end=5 * 2500,
         ),
         previous(won=False, round_no=13, side="CT", survivors=2),
         thresholds,
@@ -627,13 +627,13 @@ def test_per_player_values_use_the_observed_player_count(thresholds) -> None:
     """Neljällä pelaajalla sama joukkuesumma ylittää täyden oston rajan."""
     total = 4 * thresholds.full_equip_min
     four_players = classify_round(
-        row(equip_freeze_end=total, players_freeze_end=4),
+        row(equip_buy_end=total, players_buy_end=4),
         previous(won=False),
         thresholds,
         loss_count=2,
     )
     five_players = classify_round(
-        row(equip_freeze_end=total, players_freeze_end=5),
+        row(equip_buy_end=total, players_buy_end=5),
         previous(won=False),
         thresholds,
         loss_count=2,
@@ -648,7 +648,7 @@ def test_per_player_values_use_the_observed_player_count(thresholds) -> None:
 def test_unknown_player_count_falls_back_and_says_so(thresholds) -> None:
     """I/O-matriisi: jos määrä ei ole tiedossa, se kirjataan perusteluun."""
     decision = classify_round(
-        row(players_freeze_end=None), previous(won=False), thresholds, loss_count=2
+        row(players_buy_end=None), previous(won=False), thresholds, loss_count=2
     )
     assert decision.inputs["players"] == thresholds.roster_size
     assert decision.inputs["players_readable"] is None
@@ -661,7 +661,7 @@ def test_player_count_outside_the_roster_is_refused_as_a_divisor(
 ) -> None:
     """Ylimääräinen tai vanhentunut rivi tickissä aliarvioisi per pelaaja -arvot."""
     decision = classify_round(
-        row(players_freeze_end=observed),
+        row(players_buy_end=observed),
         previous(won=False),
         thresholds,
         loss_count=2,
@@ -675,11 +675,11 @@ def test_round_without_a_freeze_anchor_is_not_classified(thresholds) -> None:
     decision = classify_round(
         row(
             status="no_freeze_end",
-            money_freeze_end=None,
+            money_buy_end=None,
             money_spent=None,
-            equip_freeze_end=None,
+            equip_buy_end=None,
             equip_round_start=None,
-            players_freeze_end=None,
+            players_buy_end=None,
         ),
         previous(won=False),
         thresholds,
@@ -691,7 +691,7 @@ def test_round_without_a_freeze_anchor_is_not_classified(thresholds) -> None:
 
 def test_missing_observation_without_a_status_is_not_classified(thresholds) -> None:
     decision = classify_round(
-        row(equip_freeze_end=None), previous(won=False), thresholds, loss_count=2
+        row(equip_buy_end=None), previous(won=False), thresholds, loss_count=2
     )
     assert decision.round_type is None
     assert "varustearvo" in decision.reason
@@ -704,7 +704,7 @@ def test_missing_round_start_equipment_is_not_classified(thresholds) -> None:
     tasan päinvastoin kuin demossa tapahtui.
     """
     decision = classify_round(
-        row(equip_freeze_end=9000, equip_round_start=None),
+        row(equip_buy_end=9000, equip_round_start=None),
         previous(won=False),
         thresholds,
         loss_count=2,
@@ -731,11 +731,11 @@ def test_every_decision_carries_money_and_loss_count_in_its_reason(
         (row(round_no=25), previous(False, round_no=24), 3),
         (row(), previous(False), 2),
         (
-            row(equip_freeze_end=2000, equip_round_start=1000),
+            row(equip_buy_end=2000, equip_round_start=1000),
             previous(False),
             2,
         ),
-        (row(equip_freeze_end=2000), previous(True), 1),
+        (row(equip_buy_end=2000), previous(True), 1),
     ]
     for r, e, lc in cases:
         decision = classify_round(r, e, thresholds, loss_count=lc)
@@ -753,9 +753,9 @@ def test_eco_reason_names_the_purchase_it_compared_against(thresholds) -> None:
     decision = classify_round(
         row(
             round_no=2,
-            equip_freeze_end=1600,
+            equip_buy_end=1600,
             equip_round_start=1000,
-            money_freeze_end=9000,
+            money_buy_end=9000,
             money_spent=600,
         ),
         previous(won=False, round_no=1),
@@ -771,9 +771,9 @@ def test_eco_reason_names_the_purchase_it_compared_against(thresholds) -> None:
 
 
 def test_available_money_is_the_sum_of_left_and_spent() -> None:
-    assert available_money({"money_freeze_end": 100, "money_spent": 900}) == 1000
-    assert available_money({"money_freeze_end": None, "money_spent": None}) is None
-    assert available_money({"money_freeze_end": 100, "money_spent": None}) == 100
+    assert available_money({"money_buy_end": 100, "money_spent": 900}) == 1000
+    assert available_money({"money_buy_end": None, "money_spent": None}) is None
+    assert available_money({"money_buy_end": 100, "money_spent": None}) == 100
 
 
 def test_inputs_match_the_classified_schema_exactly(thresholds) -> None:
@@ -830,9 +830,9 @@ def test_bought_and_available_are_recoverable_without_new_columns(thresholds) ->
     """Molemmat johdokset saa ``inputs``-rakenteesta ilman skeemamuutosta."""
     decision = classify_round(
         row(
-            equip_freeze_end=12000,
+            equip_buy_end=12000,
             equip_round_start=1000,
-            money_freeze_end=400,
+            money_buy_end=400,
             money_spent=11000,
         ),
         previous(won=False),
@@ -840,15 +840,15 @@ def test_bought_and_available_are_recoverable_without_new_columns(thresholds) ->
         loss_count=2,
     )
     assert (
-        decision.inputs["equip_freeze_end"] - decision.inputs["equip_round_start"] == 11000
+        decision.inputs["equip_buy_end"] - decision.inputs["equip_round_start"] == 11000
     )
-    assert decision.inputs["money_freeze_end"] + decision.inputs["money_spent"] == 11400
+    assert decision.inputs["money_buy_end"] + decision.inputs["money_spent"] == 11400
 
 
 def test_per_player_rounds_the_same_way_everywhere(thresholds) -> None:
     """Sama luku ei saa poiketa dollarilla taulukossa ja perustelussa."""
     decision = classify_round(
-        row(equip_freeze_end=12345, equip_round_start=1000),
+        row(equip_buy_end=12345, equip_round_start=1000),
         previous(won=False),
         thresholds,
         loss_count=2,
@@ -872,7 +872,7 @@ def test_decision_unpacks_as_a_triple(thresholds) -> None:
 def test_a_threshold_change_changes_the_verdict(thresholds) -> None:
     """Kynnykset ovat asetuksia, eivät koodia: sama rivi, eri raja, eri tulos."""
     stricter = thresholds.model_copy(update={"full_equip_min": 6000})
-    r = row(equip_freeze_end=25000, equip_round_start=1000)
+    r = row(equip_buy_end=25000, equip_round_start=1000)
     assert classify_round(r, previous(False), thresholds, loss_count=2).round_type == (
         "full"
     )

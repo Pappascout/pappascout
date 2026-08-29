@@ -301,6 +301,7 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
             )
         )
 
+    lines.extend(_buy_window(stats))
     lines.extend(_armed_players(stats))
     lines.extend(_sample_points(stats, rounds))
     lines.extend(_utility(stats, rounds))
@@ -322,10 +323,178 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
     return "\n".join(lines)
 
 
-#: Sääntö, jolla ``players_armed_freeze_end`` lasketaan. Tulostetaan aina
+#: Montako kierrosnumeroa tulostetaan, kun ostoja jäi katkaisun taakse.
+#: Katkaisu osuu noin puoleen kierroksista, joten pahimmillaan lista olisi koko
+#: ottelun mittainen -- ja juuri silloin käyttäjän pitäisi nähdä yhdellä
+#: silmäyksellä, että kyse on systemaattisesta viasta eikä yhdestä kierroksesta.
+_MAX_LOST_PURCHASE_ROUNDS = 10
+
+
+def _buy_window(stats: dict) -> list[str]:
+    """Ostoikkunan rivit ``parse``-tulosteeseen.
+
+    Kolme asiaa, jotka on sanottava ääneen:
+
+    **Mistä hetkestä luvut on luettu.** Talous mitataan ostoajan lopusta eikä
+    freezetimen lopusta, ja mittaushetki on asetus. Ilman riviä kaksi eri
+    asetuksella ajettua tulosta näyttäisivät samalta. Rivi kertoo myös
+    mittaushetkien todellisen jakauman: asetus lupaa ikkunan pituuden, mutta
+    kuoleman katkaisu vetää mediaanin usein sen alle.
+
+    **Maksoiko kuoleman katkaisu jotain.** Kuolema katkaisee ikkunan noin
+    puolella kierroksista -- se on normaali polku eikä poikkeus, joten pelkkä
+    katkaisujen määrä ei ole hälytys. Hälytys on
+    ``buy_window_purchases_after_cut``: jos joku osti vielä katkaisun jälkeen,
+    mittaus menetti ostoksen. Sen kuuluu olla nolla, ja **nolla sanotaan
+    ääneen** -- vaiettu nolla ei erottuisi vaietusta viidestä. Nollalla on
+    kaksi eri syytä, joten tarkistamatta jääneet katkaisut sanotaan erikseen.
+
+    **Mitä mittauspisteessä meni pieleen.** Tyhjä tick, kadonneet pelaajat,
+    kokonaan tyhjä joukkuerivi ja palautuksen jättämä vanhentunut varustearvo
+    saavat kukin rivinsä vain kun luku on nollasta poikkeava: ne ovat vikoja
+    eivätkä normaalia, joten nollan toistaminen hukuttaisi ne.
+
+    Ohitetussa ajossa rivit jätetään pois: mittauspiste on tauluissa
+    (``buy_end_tick``), mutta katkaisujen ja menetettyjen ostosten määrää ei
+    voi lukea valmiista tuloksesta.
+    """
+    if "buy_window_truncated_by_death" not in stats:
+        return []
+
+    lines: list[str] = [_line("Mittauspiste", _measurement_point(stats))]
+
+    truncated = int(stats.get("buy_window_truncated_by_death", 0) or 0)
+    missed = int(stats.get("buy_window_purchases_after_cut", 0) or 0)
+    unchecked = int(stats.get("buy_window_cuts_unchecked", 0) or 0)
+
+    if truncated:
+        cut = (
+            f"{_rounds_fi(truncated)} mitattiin aiemmin, koska kierroksen "
+            "ensimmäinen kuolema katkaisi ikkunan"
+        )
+    else:
+        cut = "ei yhtään -- ikkuna ylsi loppuun joka kierroksella"
+    if missed:
+        cut += f"; {_players_fi(missed)} osti vielä katkaisun jälkeen"
+        rounds = tuple(stats.get("buy_window_rounds_with_lost_purchases") or ())
+        if rounds:
+            shown = rounds[:_MAX_LOST_PURCHASE_ROUNDS]
+            listed = ", ".join(str(number) for number in shown)
+            if len(rounds) > len(shown):
+                listed += f" (+{len(rounds) - len(shown)} muuta)"
+            cut += f" -- kierrokset (round_raw) {listed}"
+        else:
+            cut += " -- ostoja jäi mittauksen taakse"
+    else:
+        cut += "; yksikään osto ei jäänyt katkaisun taakse"
+    if unchecked:
+        cut += (
+            f"; {_rounds_fi(unchecked)} ei voitu tarkistaa lainkaan "
+            "(ikkunan lopun tickiltä ei saatu pelaajia)"
+        )
+    lines.append(_line("Kuoleman katkaisu", cut))
+
+    lines.extend(_buy_window_faults(stats))
+    return lines
+
+
+def _measurement_point(stats: dict) -> str:
+    """Rivin ``Mittauspiste`` teksti: mistä hetkestä talousluvut on luettu.
+
+    Kolme tilaa on pidettävä erillään. ``buy_window_seconds`` puuttuu tai on
+    ``None``, kun portti ei kerro ikkunaa -- silloin mittaushetkeä ei tiedetä
+    eikä sitä saa väittää. Nolla tarkoittaa ankkuria, ja se sanotaan
+    freezetimen lopuksi: "ostoajan loppu, ikkuna 0,0 s" olisi totta mutta
+    harhaanjohtavaa, koska juuri sen niminen mittaus oli tämän tarinan vika.
+    Positiivinen arvo on ostoajan loppu.
+    """
+    window = stats.get("buy_window_seconds")
+    if window is None:
+        return "ei tiedossa (demoportti ei kerro ostoikkunan pituutta)"
+
+    window = float(window)
+    if not window:
+        return "talous luettu freezetimen lopusta (ikkuna 0,0 s)"
+
+    text = f"talous luettu ostoajan lopusta (ikkuna {_seconds(window)}"
+    # Ikkuna lasketaan tickratesta. Jos sitä ei saatu mitattua, myös sekunnit
+    # ovat oletuksen varassa -- ja rivi, joka tulostaa sekunnit yhtä varmasti
+    # kummassakin tapauksessa, väittäisi mittausta.
+    if "tick_rate" in stats and not stats.get("tick_rate_measured", True):
+        text += ", tickrate oletus"
+    text += ")"
+
+    offsets = stats.get("buy_end_offsets_s")
+    if offsets:
+        low, middle, high = (float(value) for value in offsets)
+        text += (
+            f"; mitattu {_seconds(low)}-{_seconds(high)} ankkurista, "
+            f"mediaani {_seconds(middle)}"
+        )
+    return text
+
+
+def _buy_window_faults(stats: dict) -> list[str]:
+    """Mittauspisteen viat omina riveinään -- vain kun luku on nollasta poikkeava.
+
+    Nämä neljä ovat kaikki **vikoja eivätkä havaintoja**, toisin kuin kuoleman
+    katkaisu. Nollan toistaminen joka ajossa opettaisi lukijan ohittamaan ne.
+    """
+    lines: list[str] = []
+    empty = int(stats.get("buy_window_ticks_without_players", 0) or 0)
+    if empty:
+        lines.append(
+            _line(
+                "Ostoajan tick tyhjä",
+                f"{_rounds_fi(empty)} -- tickiltä ei saatu pelaajia, mittaus "
+                "palautui freezetimen ankkuriin",
+            )
+        )
+
+    lost = int(stats.get("buy_window_players_lost", 0) or 0)
+    sides = int(stats.get("buy_window_sides_without_rows", 0) or 0)
+    if lost:
+        text = (
+            f"{_players_fi(lost)} oli luettavissa ankkurilla mutta ei enää "
+            "mittauspisteessä"
+        )
+        if sides:
+            text += (
+                f"; {sides} joukkueriviä jäi kokonaan tyhjäksi, eikä niitä "
+                "luokitella"
+            )
+        lines.append(_line("Kadonneet pelaajat", text))
+
+    stale = int(stats.get("buy_window_stale_equipment", 0) or 0)
+    if stale:
+        lines.append(
+            _line(
+                "Vanhentunut arvo",
+                f"{_players_fi(stale)}: arvo nousi ilman ostosta -- "
+                "palautetun ostoksen jälki, enintään 1000 $/pelaaja",
+            )
+        )
+    return lines
+
+
+def _rounds_fi(count: int) -> str:
+    """``1 kierros`` / ``13 kierrosta`` -- suomen partitiivi taipuu luvulla 1."""
+    return f"{count} kierros" if count == 1 else f"{count} kierrosta"
+
+
+def _players_fi(count: int) -> str:
+    """``1 pelaaja`` / ``2 pelaajaa``.
+
+    Yksi menetetty ostos on juuri se tapaus, jota rivi on kertomassa, joten
+    "1 pelaajaa" olisi väärin juuri silloin kun rivi eniten merkitsee.
+    """
+    return f"{count} pelaaja" if count == 1 else f"{count} pelaajaa"
+
+
+#: Sääntö, jolla ``players_armed_buy_end`` lasketaan. Tulostetaan aina
 #: jakauman kanssa: ilman sitä lukuja ei voi tulkita, ja rivin koko tarkoitus
 #: on olla itsetarkistus ajon yhteydessä.
-_ARMED_RULE = "panssari ja ase hallussa"
+_ARMED_RULE = "panssari ja ase hallussa ostoajan lopussa"
 
 #: Montako tuntematonta nimeä tulostetaan enintään. Jos demoparser2 muuttaa
 #: nimeämistapaansa, **jokainen** nimi on tuntematon: ilman katkaisua rivi
@@ -874,7 +1043,7 @@ def _render_round_list(rows: list[dict]) -> str:
         if reason:
             result.append(f"    {reason}")
     result.append("")
-    result.append("Rahaluvut ovat $/pelaaja freezetimen lopussa. Käytössä = jäljellä +")
+    result.append("Rahaluvut ovat $/pelaaja ostoajan lopussa. Käytössä = jäljellä +")
     result.append("käytetty; jäljellä on saldo ostojen jälkeen, joten")
     result.append("säästökierroksella se on suuri.")
     return "\n".join(result)

@@ -21,6 +21,7 @@ from typer.testing import CliRunner
 
 from pappascout.cli import (
     _PARSE_LABEL_WIDTH,
+    _PARSE_LABEL_WIDTH,
     EXIT_KNOWN_ERROR,
     _render_parse,
     app,
@@ -44,6 +45,17 @@ DEFAULT_STATS: dict[str, object] = {
     "skipped_rounds": 1,
     "match_restarts": 0,
     "no_freeze_end": 0,
+    "buy_window_seconds": 20.0,
+    "buy_end_offsets_s": (10.4, 18.4, 20.0),
+    "buy_window_truncated_by_death": 13,
+    "buy_window_purchases_after_cut": 0,
+    "buy_window_cuts_unchecked": 0,
+    "buy_window_rounds_with_lost_purchases": (),
+    "buy_window_ticks_without_players": 0,
+    "buy_window_players_lost": 0,
+    "buy_window_sides_without_rows": 0,
+    "buy_window_refunds": 0,
+    "buy_window_stale_equipment": 0,
     "armed_distribution": {0: 3, 4: 1, 5: 38},
     "armed_missing": 0,
     "armed_unknown_items": (),
@@ -383,7 +395,7 @@ def test_armed_player_distribution_is_reported() -> None:
     line = field_value(
         _render_parse(parse_result(), regulation_rounds=24), "Aseistettuja"
     )
-    assert line.startswith("panssari ja ase hallussa; ")
+    assert line.startswith("panssari ja ase hallussa ostoajan lopussa; ")
     assert "0 -> 3 riviä" in line
     assert "4 -> 1 riviä" in line
     assert "5 -> 38 riviä" in line
@@ -822,3 +834,306 @@ def test_all_three_output_tables_are_listed() -> None:
     assert "rounds.parquet" in output_text
     assert "ticks.parquet" in output_text
     assert "events.parquet" in output_text
+
+
+# --- Ostoikkuna (Story 1.9) ---------------------------------------------------
+
+
+def test_the_measurement_point_is_always_named() -> None:
+    """Ajo kertoo, mistä hetkestä talousluvut on luettu.
+
+    Mittaushetki on asetus, joten kaksi eri arvolla ajettua tulosta ovat eri
+    lukuja samannäköisessä taulussa. Ilman tätä riviä lukija ei voi tietää
+    kumpaa hän katsoo.
+    """
+    text = _render_parse(
+        parse_result(stats=stats(buy_window_seconds=20.0)), regulation_rounds=24
+    )
+    line = field_value(text, "Mittauspiste")
+    assert "ostoajan lopusta" in line
+    assert "20,0 s" in line
+
+
+def test_a_zero_window_says_it_measured_the_anchor() -> None:
+    """Ikkuna 0 mittaa freezetimen lopusta, ja se sanotaan sillä nimellä.
+
+    "Ostoajan loppu, ikkuna 0,0 s" olisi totta mutta harhaanjohtavaa: juuri
+    sen niminen mittaus oli se vika, jonka tämä tarina korjaa.
+    """
+    text = _render_parse(
+        parse_result(stats=stats(buy_window_seconds=0.0)), regulation_rounds=24
+    )
+    assert "freezetimen lopusta" in field_value(text, "Mittauspiste")
+
+
+def test_a_clean_death_cut_is_reported_as_zero_not_silence() -> None:
+    """Nolla menetettyä ostosta sanotaan ääneen.
+
+    Kuolema katkaisee ikkunan noin puolella kierroksista, joten katkaisujen
+    määrä ei ole hälytys. Hälytys on se, jäikö ostoja katkaisun taakse -- ja
+    vaiettu nolla ei erottuisi vaietusta viidestä.
+    """
+    text = _render_parse(
+        parse_result(
+            stats=stats(
+                buy_window_seconds=20.0,
+                buy_window_truncated_by_death=13,
+                buy_window_purchases_after_cut=0,
+            )
+        ),
+        regulation_rounds=24,
+    )
+    line = field_value(text, "Kuoleman katkaisu")
+    assert "13 kierrosta" in line
+    assert "yksikään osto ei jäänyt" in line
+
+
+def test_a_purchase_lost_behind_the_cut_is_reported() -> None:
+    """Menetetty ostos näkyy tulosteessa lukuna, ei pelkkänä katkaisumääränä."""
+    text = _render_parse(
+        parse_result(
+            stats=stats(
+                buy_window_seconds=20.0,
+                buy_window_truncated_by_death=4,
+                buy_window_purchases_after_cut=2,
+            )
+        ),
+        regulation_rounds=24,
+    )
+    line = field_value(text, "Kuoleman katkaisu")
+    assert "2 pelaajaa osti vielä katkaisun jälkeen" in line
+
+
+def test_a_skipped_run_does_not_claim_a_clean_buy_window() -> None:
+    """Ohitetusta ajosta lukuja ei ole, joten rivejä ei myöskään ole.
+
+    Katkaisujen ja menetettyjen ostosten määrää ei voi lukea valmiista
+    taulusta. "Ei yhtään" olisi väite, jota mikään ei tue -- sama sääntö kuin
+    uudelleenaloituksilla ja tuntemattomilla esineillä.
+    """
+    numbers = {
+        key: value
+        for key, value in DEFAULT_STATS.items()
+        if not key.startswith("buy_window_")
+    }
+    text = _render_parse(
+        parse_result(skipped=True, stats=numbers), regulation_rounds=24
+    )
+    assert "Mittauspiste" not in text
+    assert "Kuoleman katkaisu" not in text
+
+
+def test_an_unknown_buy_window_is_not_claimed_to_be_the_anchor() -> None:
+    """Portti, joka ei kerro ikkunaa, ei saa näyttää ankkurimittaukselta.
+
+    ``None`` ja ``0.0`` ovat eri asioita: jälkimmäinen on valinta, edellinen
+    tietämättömyys. "Talous luettu freezetimen lopusta" olisi varma väite
+    hetkestä, jota mikään ei tue.
+    """
+    text = _render_parse(
+        parse_result(stats=stats(buy_window_seconds=None)), regulation_rounds=24
+    )
+    line = field_value(text, "Mittauspiste")
+    assert "ei tiedossa" in line
+    assert "freezetimen lopusta" not in line
+
+
+def test_a_defaulted_tick_rate_makes_the_window_an_estimate() -> None:
+    """Ikkuna lasketaan tickratesta, joten mittaamaton tickrate on kerrottava.
+
+    Rivi tulostaa sekunnit yhtä varmasti kummassakin tapauksessa, joten ilman
+    tätä lisäystä oletukseen nojaava 20,0 s näyttäisi mittaukselta.
+    """
+    text = _render_parse(
+        parse_result(
+            stats=stats(
+                buy_window_seconds=20.0, tick_rate=64.0, tick_rate_measured=False
+            )
+        ),
+        regulation_rounds=24,
+    )
+    assert "tickrate oletus" in field_value(text, "Mittauspiste")
+
+
+def test_the_real_measurement_offsets_are_shown() -> None:
+    """Asetus lupaa ikkunan pituuden; jakauma kertoo mihin mittaus osui.
+
+    Se on ``buy_end_tick``-sarakkeen ainoa näkyvä muoto: jos ikkuna on 20 s
+    mutta mediaani 12 s, kuolema katkaisee ikkunan useammin kuin ei.
+    """
+    text = _render_parse(
+        parse_result(
+            stats=stats(buy_window_seconds=20.0, buy_end_offsets_s=(3.5, 12.0, 20.0))
+        ),
+        regulation_rounds=24,
+    )
+    line = field_value(text, "Mittauspiste")
+    assert "3,5 s-20,0 s" in line
+    assert "mediaani 12,0 s" in line
+
+
+def test_an_unchecked_cut_is_told_apart_from_a_clean_one() -> None:
+    """Tarkistamatta jäänyt katkaisu sanotaan erikseen.
+
+    Ilman sitä ``buy_window_purchases_after_cut``in nolla tarkoittaisi kahta
+    eri asiaa: "mitään ei menetetty" ja "ei tiedetä".
+    """
+    text = _render_parse(
+        parse_result(
+            stats=stats(
+                buy_window_seconds=20.0,
+                buy_window_truncated_by_death=6,
+                buy_window_purchases_after_cut=0,
+                buy_window_cuts_unchecked=2,
+            )
+        ),
+        regulation_rounds=24,
+    )
+    line = field_value(text, "Kuoleman katkaisu")
+    assert "yksikään osto ei jäänyt" in line
+    assert "2 kierrosta ei voitu tarkistaa" in line
+
+
+def test_a_lost_purchase_names_the_rounds() -> None:
+    """Menetetty ostos on jäljitettävissä: rivi nimeää kierrokset.
+
+    Yksi luku koko demolle ei anna käyttäjälle mitään mistä jatkaa.
+    """
+    text = _render_parse(
+        parse_result(
+            stats=stats(
+                buy_window_seconds=20.0,
+                buy_window_truncated_by_death=4,
+                buy_window_purchases_after_cut=2,
+                buy_window_rounds_with_lost_purchases=(7, 12),
+            )
+        ),
+        regulation_rounds=24,
+    )
+    line = field_value(text, "Kuoleman katkaisu")
+    assert "2 pelaajaa osti vielä katkaisun jälkeen" in line
+    assert "round_raw) 7, 12" in line
+
+
+def test_the_singular_forms_are_finnish() -> None:
+    """Luvulla 1 partitiivi taipuu: "1 kierros", "1 pelaaja".
+
+    Yksi menetetty ostos on juuri se tapaus, jota rivi on kertomassa, joten
+    "1 pelaajaa" olisi väärin juuri silloin kun rivi eniten merkitsee.
+    """
+    text = _render_parse(
+        parse_result(
+            stats=stats(
+                buy_window_seconds=20.0,
+                buy_window_truncated_by_death=1,
+                buy_window_purchases_after_cut=1,
+                buy_window_rounds_with_lost_purchases=(9,),
+            )
+        ),
+        regulation_rounds=24,
+    )
+    line = field_value(text, "Kuoleman katkaisu")
+    assert "1 kierros mitattiin aiemmin" in line
+    assert "1 pelaaja osti vielä" in line
+
+
+def test_an_empty_buy_tick_is_reported_as_a_fault() -> None:
+    """Tyhjä ostotick on vika, ja se saa oman rivinsä.
+
+    Se on ainoa polku, jonka ``ParseDiagnostics`` merkitsee sanoilla "vika eikä
+    havainto", ja ilman riviä mittaus olisi hiljaa palannut ankkuriin.
+    """
+    text = _render_parse(
+        parse_result(
+            stats=stats(
+                buy_window_seconds=20.0, buy_window_ticks_without_players=2
+            )
+        ),
+        regulation_rounds=24,
+    )
+    line = field_value(text, "Ostoajan tick tyhjä")
+    assert "2 kierrosta" in line
+    assert "palautui freezetimen ankkuriin" in line
+
+
+def test_players_lost_from_the_buy_tick_are_reported() -> None:
+    """Kadonneet pelaajat ja kokonaan tyhjä joukkuerivi näkyvät samalla rivillä."""
+    text = _render_parse(
+        parse_result(
+            stats=stats(
+                buy_window_seconds=20.0,
+                buy_window_players_lost=5,
+                buy_window_sides_without_rows=1,
+            )
+        ),
+        regulation_rounds=24,
+    )
+    line = field_value(text, "Kadonneet pelaajat")
+    assert "5 pelaajaa" in line
+    assert "1 joukkueriviä jäi kokonaan tyhjäksi" in line
+
+
+def test_stale_equipment_gets_its_own_line() -> None:
+    """Palautuksen jättämä vanhentunut varustearvo kerrotaan ja rajataan."""
+    text = _render_parse(
+        parse_result(
+            stats=stats(buy_window_seconds=20.0, buy_window_stale_equipment=1)
+        ),
+        regulation_rounds=24,
+    )
+    line = field_value(text, "Vanhentunut arvo")
+    assert "1 pelaaja" in line
+    assert "1000 $/pelaaja" in line
+
+
+def test_a_clean_run_does_not_print_the_fault_lines() -> None:
+    """Nollat eivät toistu joka ajossa.
+
+    Nämä neljä ovat vikoja eivätkä normaalia. Nollan toistaminen opettaisi
+    lukijan ohittamaan rivin juuri ennen kuin se kerran merkitsee.
+    """
+    text = _render_parse(parse_result(), regulation_rounds=24)
+    for label in (
+        "Ostoajan tick tyhjä",
+        "Kadonneet pelaajat",
+        "Vanhentunut arvo",
+    ):
+        assert label not in text
+
+
+def test_every_parse_label_fits_the_column() -> None:
+    """Jokainen otsikko mahtuu sarakkeeseen, myös harvoin näkyvät.
+
+    ``_line`` täyttää otsikon kiinteään leveyteen; liian pitkä otsikko syö
+    välilyönnin ja arvo liimautuu siihen kiinni ("Vanhentunut varustearvo1
+    pelaaja"). Vikarivit näkyvät vain kun jokin on rikki, joten ilman tätä
+    testiä muotoiluvirhe paljastuisi vasta silloin kun rivin pitäisi olla
+    selkein mahdollinen.
+    """
+    every = stats(
+        buy_window_seconds=20.0,
+        buy_window_truncated_by_death=3,
+        buy_window_purchases_after_cut=1,
+        buy_window_rounds_with_lost_purchases=(4,),
+        buy_window_cuts_unchecked=1,
+        buy_window_ticks_without_players=1,
+        buy_window_players_lost=2,
+        buy_window_sides_without_rows=1,
+        buy_window_stale_equipment=1,
+        armed_unknown_items=(("Tuntematon Ase", 3),),
+    )
+    text = _render_parse(parse_result(stats=every), regulation_rounds=24)
+
+    for line in text.splitlines():
+        if not line.startswith("  ") or ":" in line[:4]:
+            continue
+        body = line[2:]
+        label = body.rstrip()
+        if "  " not in body:
+            continue
+        head = body.split("  ", 1)[0]
+        assert len(head) <= _PARSE_LABEL_WIDTH - 1, (
+            f"otsikko {head!r} on {len(head)} merkkiä; sarakkeeseen mahtuu "
+            f"{_PARSE_LABEL_WIDTH - 1}"
+        )
+        assert label

@@ -80,6 +80,62 @@ ot_start_money = 12500
 # kierroksen keston (115 s) mittaisia; lataus tarkistaa tämän.
 snapshot_seconds = [6.0, 15.0, 30.0, 45.0]
 
+# Ostoajan pituus sekunteina freezetimen päättymisestä. Talousluvut luetaan
+# ostoajan lopusta, ei freezetimen lopusta. Mittauspiste on
+#
+#   max(freezetimen loppu,
+#       min(freezetimen loppu + tämä,
+#           kierroksen ensimmäistä kuolemaa EDELTÄVÄ tick,
+#           kierroksen loppu))
+#
+# Kuolemaa EDELTÄVÄ tick eikä kuoleman tick: kuolleen tavaraluettelo on jo
+# tyhjä ja panssari nolla, joten kuolintickiltä luettuna joukkueesta katoaisi
+# yhden pelaajan koko kalusto. Uloin max on alaraja, joka estää mittauspistettä
+# valumasta freezetimen sisään, jos kuolema osuu heti ankkurin jälkeen.
+#
+# MIKSI 20 -- LINJAUS, JOKA ON YHTEENSOPIVA MITTAUKSEN KANSSA.
+# Käyttäjä 2026-08-29: "Buy time on mielestäni 20 sekuntia jokaisen kierroksen
+# alusta eli freezetimen päätyttyä." Sana "mielestäni" on siinä, joten tätä ei
+# esitetä todistettuna pelin sääntönä vaan linjauksena, jonka mittaus tukee:
+# viidestä liigademosta (106 kierrosta, 52:lla ostettiin vielä freezetimen
+# jälkeen) ostaminen oli valmis 20 sekunnin kohdalla 100 %:ssa. Mittaus on
+# yhteensopiva 20 sekunnin ostoajan kanssa muttei todista sitä -- pisin
+# havaittu osto oli 19,4 s, eikä aineisto voi kertoa mitä 20,5 sekunnin
+# kohdalla olisi tapahtunut.
+#
+# Linjaus on silti vahvempi peruste kuin kalibroitu arvo, ja kolmesta syystä:
+#
+#  1. Se ei vaadi kalibrointia eikä vanhene uuden aineiston myötä. Viisi
+#     sekuntia kattaisi 85 % ja olisi käyttäjän oma arvio, mutta se olisi luku
+#     joka pitäisi säätää joka kerta kun uusi demo tuo pidemmän oston.
+#     Kertymä: 3 s 62 %, 5 s 85 %, 8 s 92 %, 15 s 98 %, 20 s 100 %.
+#     Mediaani 2,1 s, p90 5,8 s, max 19,4 s.
+#  2. Se ei maksa mitään. Yhdelläkään 106 kierroksesta ei kuolla ennen kuin
+#     ostaminen loppuu, joten pidempi ikkuna ei tuo roskaa mukanaan. Ajo
+#     mittaa tämän joka kerta uudelleen ja kertoo tuloksen rivillä "Kuoleman
+#     katkaisu" -- jos ikkuna joskus alkaa maksaa, se ei jää huomaamatta.
+#  3. Hännän kahdeksan kierrosta (5,1 · 5,2 · 5,8 · 6,1 · 11,0 · 11,3 · 13,5 ·
+#     19,4 s) ovat juuri ne kiinnostavat: kymmenen sekunnin miettiminen
+#     tarkoittaa vaikeaa ostopäätöstä forcen ja säästön väliltä, mikä on
+#     scoutingin kannalta arvokkaampaa kuin rutiinitäysosto.
+#
+# Mittauspiste on **yksi tick koko kierrokselle**, ei pelaajakohtainen:
+# mittaushetkellä kukaan ei ole vielä kuollut eikä siis ehtinyt pudottaa
+# asettaan, joten kaksoislaskenta (joukkuekaveri poimii vainajan kiväärin) on
+# rakenteellisesti poissuljettu.
+#
+# Kuoleman katkaisu on normaali polku eikä poikkeus: kuudessa demossa
+# (134 pelattua kierrosta) se osuu 69 kierrokseen eli 51 %:iin, joten
+# efektiivinen mittaushetki on usein 10-20 s eikä 20 s. Ajon tuloste kertoo
+# todellisen jakauman kierroslistan kanssa samasta taulusta.
+#
+# Arvon muuttaminen mitätöi parsinnan tuloksen ([parse]-osio on osa
+# parametrihashia), eli demot parsitaan uudelleen. Sallittu väli on 0-40 s;
+# 0 tarkoittaa "mittaa freezetimen lopusta" eli tätä edeltänyttä
+# käyttäytymistä.
+# [domain] käyttäjän linjaus 2026-08-29 [mitattu viidestä liigademosta]
+buy_window_seconds = 20.0
+
 # Ensikontakti = ensimmäinen player_hurt, jossa tekijä on vastapuolella ja ase ei
 # ole utility. Nämä aseet eivät siis kelpaa ensikontaktiksi. [spine] AD-5.
 #
@@ -144,7 +200,7 @@ first_contact_fallback_death = true
 # säätää sitä; snap_distance-sarake antaa aineiston siihen ilman uutta ajoa.
 area_snap_units = 500
 
-# Kalustolaskurilla players_armed_freeze_end ei ole asetusta: se on havainto
+# Kalustolaskurilla players_armed_buy_end ei ole asetusta: se on havainto
 # (panssari ja ase hallussa), ja aseluettelo on src/pappascout/constants.py:ssä.
 # Story 1.5:n armed_player_equip_min poistui -- ks. domain/models.py:n
 # REMOVED_SETTINGS, joka kertoo sen vanhaan tiedostoon jättäneelle mitä tehdä.
@@ -189,7 +245,7 @@ anomaly_equip_max_after_win = 2000
 # --- Raharajat, dollaria PER PELAAJA ---
 
 # Hävityn kierroksen jälkeen: force ja puoliosto edellyttävät molemmat, että
-# joukkue oikeasti osti tällä kierroksella (equip_freeze_end -
+# joukkue oikeasti osti tällä kierroksella (equip_buy_end -
 # equip_round_start). Säästetty ase ei ole ostos (sääntö S3), joten pelkkä
 # korkea varustearvo ei riitä.
 #

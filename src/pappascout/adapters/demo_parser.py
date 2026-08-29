@@ -12,13 +12,61 @@ Kierrosrajat
 Kierros rajautuu kahden tapahtuman väliin:
 
 ``round_freeze_end``
-    Ostoajan loppu. Tässä hetkessä luetaan **havaitut lähtöarvot**: raha,
-    varustearvo freezetimen lopussa, kierroksen alun varustearvo ja puoli.
+    Freezetimen loppu, kierroksen **ankkuri**. Siitä lasketaan kaikki ajat
+    (``t_s``) ja siitä alkaa ostoaika. Puoli luetaan tästä hetkestä.
 ``round_end``
     Kierroksen ratkeaminen. Tässä hetkessä luetaan voittaja, voiton syy,
     eloonjääneet ja heidän varusteensa. Pelaajat eivät ole vielä syntyneet
     uudelleen -- ``round_officially_ended`` olisi liian myöhään, siinä
     kaikki kymmenen ovat jo elossa.
+
+Ostoaika
+--------
+**Talousarvoja ei lueta ankkurista.** CS2:n ostoaika jatkuu freezetimen
+päättymisen jälkeen, ja **noin puolella kierroksista ostetaan vielä silloin**:
+mitattuna viidestä liigademosta 52 kierroksella 106:sta. Osuus vaihtelee
+ottelusta toiseen rajusti -- Anubiksessa se oli 20 kierrosta 22:sta eli 91 %,
+Nukella 7/23 eli 30 % -- joten "noin puolet" on aineiston keskiarvo eikä luku,
+johon yksittäisen demon voi olettaa asettuvan. Ankkurista luettu varustearvo
+aliarvioi kaluston, yliarvioi taskuun jääneen rahan ja antaa liian pienen
+luvun aseistetuille.
+
+Talousarvot luetaan siksi **ostoajan lopusta**::
+
+    buy_end_tick = min(freeze_end_tick + buy_window_seconds,
+                       ensimmäistä kuolemaa edeltävä tick,
+                       kierroksen loppu)
+
+Kolme asiaa, jotka tässä on todettu demosta eikä oletettu:
+
+* **``m_unFreezetimeEndEquipmentValue`` ei päivity freezetimen jälkeen.** Se on
+  pelin oma tilannekuva ankkurihetkestä, joten myöhemmältä tickiltä luettuna se
+  antaa täsmälleen saman luvun. Ostoajan lopun kalusto on siksi luettava
+  propista ``m_unCurrentEquipmentValue``. Ankkurihetkellä nämä kaksi ovat sama
+  luku, joten ikkuna 0 s antaa saman tuloksen kuin ennen tätä muutosta.
+  (Mitattu: ``inferno_vs_ryhmarama`` kierros 6, ankkuri 11 550 $ molemmilla
+  propeilla; +2 s freezetimen prop yhä 11 550, current 15 350 -- ja 15 350 on
+  se luku, jonka käyttäjä luki demosta.)
+* **Kuolema tyhjentää tavaraluettelon ja panssarin.** Kuolleen pelaajan
+  ``inventory`` on ``[]`` ja ``m_ArmorValue`` 0 heti kuolintickillä, joten
+  häntä ei saa lukea: kalustolaskuri putoaisi. Siksi ikkuna katkeaa
+  ensimmäistä kuolemaa **edeltävään** tickiin eikä kuolintickiin.
+  (Varustearvo sen sijaan ei nollaudu kuolemasta, mutta se ei muuta sääntöä.)
+* **Yksi tick koko kierrokselle.** Kun mittaushetkellä kukaan ei ole vielä
+  kuollut, kukaan ei ole myöskään ehtinyt pudottaa asetta kuollessaan --
+  kaksoislaskenta (joukkuekaveri poimii vainajan kiväärin) on siis
+  rakenteellisesti poissuljettu, eikä pelaajakohtaista "viimeinen elossa"
+  -pistettä tarvita. Mittaushetkellä joukkue on koskematon.
+
+Katkaisu **laukeaa noin puolella kierroksista** eikä ole reunatapaus:
+kuudessa demossa (134 pelattua kierrosta) se osuu 69 kierrokseen eli 51 %:iin. Aineistossa
+yksikään kuolema ei silti edellä viimeistä ostoa. Koska päällekkäisyys on
+mahdollinen -- ostaminen on valmis 8 s mennessä 92 %:ssa niistä kierroksista
+joilla ostettiin ankkurin jälkeen, ja aikaisin kuolema on 9,8 s -- katkaisun
+hinta mitataan joka ajolla: ``buy_window_purchases_after_cut`` kertoo, montako
+pelaajaa osti vielä katkaisupisteen jälkeen, ja ``buy_window_cuts_unchecked``
+sen, montaako katkaisua ei voitu tarkistaa lainkaan. Molempien kuuluu olla
+nolla.
 
 ``round_end`` **on olemassa** demoparser2 0.42.0:ssa, vaikka se ei näy
 ``list_game_events()``-listalla. Se palauttaa sarakkeet ``round``, ``tick``,
@@ -65,14 +113,14 @@ kierrokselta puuttuu ankkuri.
 
 Kenen arvot summataan
 ---------------------
-Freezetimen lopun summat (raha, käytetty raha, varustearvo, kierroksen alun
+Ostoajan lopun summat (raha, käytetty raha, varustearvo, kierroksen alun
 varustearvo) lasketaan vain niistä pelaajista, joiden **kaikki** nämä propit
-ovat luettavissa, ja ``players_freeze_end`` on saman joukon koko. Jakaja on
+ovat luettavissa, ja ``players_buy_end`` on saman joukon koko. Jakaja on
 siis aina sama joukko kuin osoittaja: kolmen pelaajan summa viidellä jaettuna
 näyttäisi ecolta, vaikka joukkue olisi ostanut täyden.
 
-``players_armed_freeze_end`` lasketaan **samasta joukosta**: montako pelaajaa
-oli aseistettu freezetimen lopussa. Summa ei kerro sitä -- kaksi AK:ta ja kolme
+``players_armed_buy_end`` lasketaan **samasta joukosta**: montako pelaajaa
+oli aseistettu ostoajan lopussa. Summa ei kerro sitä -- kaksi AK:ta ja kolme
 tyhjää antaa saman summan kuin viisi puolinaista.
 
 Aseistettu = **panssari ja vähintään yksi ase hallussa**. Ase luetaan pelaajan
@@ -81,7 +129,7 @@ varustearvosta: varustearvo on ase + panssari + kranaatit yhtenä lukuna, joten
 Glock + kevlar + kaksi valoa (1250 $, mitattu Ancientista) näyttäisi
 aseistetulta ilman yhtään asetta.
 
-**Hallussapito, ei ostos.** Tavaraluettelo luetaan freezetimen lopusta, joten
+**Hallussapito, ei ostos.** Tavaraluettelo luetaan ostoajan lopusta, joten
 edelliseltä kierrokselta säästetty tai vainajalta poimittu kivääri laskeutuu
 samoin kuin juuri ostettu. Kierroksen kannalta ratkaisee mitä kädessä on, ei
 mistä se tuli. Oletuspistoolit rajataan silti ulos: ne saa joka kierros
@@ -89,7 +137,7 @@ ilmaiseksi, joten niiden hallussapito ei kerro mitään.
 
 **Lukukelvoton havainto tyhjentää koko rivin.** Jos yhdenkin luettavan pelaajan
 panssari tai tavaraluettelo puuttuu, laskuri on ``null`` -- ei se luku, joka
-saataisiin lopuista. Pelaaja pysyy ``players_freeze_end``in jakajassa, joten
+saataisiin lopuista. Pelaaja pysyy ``players_buy_end``in jakajassa, joten
 hiljainen pudotus näyttäisi säästökierrokselta eikä lukuvirheeltä.
 
 Luokittelu on **sallittujen aseiden luettelo** (:mod:`pappascout.constants`),
@@ -146,11 +194,19 @@ ylimääräistä tapahtumalukua maksaisi ilman lisätietoa.
 Muistinkäyttö
 -------------
 Demoa ei ladata muistiin kokonaan. ``parse_ticks`` kutsutaan **vain
-kierrosrajojen, näytepisteiden ja kranaattien päätepisteiden tickeille**
-(Ancient: 44 + noin 100 + noin 750 tickiä), ei koko tickisarjalle. Kutsuja on
-kolme eikä yksi, koska näytepisteiden tickit riippuvat tickratesta, joka
-mitataan vasta kierrosrajojen lukemisesta, ja kranaattien tickit selviävät
-vasta lentoradoista. Pakattu demo puretaan virtaavasti temp-tiedostoon.
+kierrosrajojen, ostoaikojen loppujen, näytepisteiden ja kranaattien
+päätepisteiden tickeille** (Ancient: 44 + 21 + noin 100 + noin 750 tickiä), ei
+koko tickisarjalle. Kutsuja on neljä eikä yksi, koska sekä ostoajan loppu että
+näytepisteiden tickit riippuvat tickratesta, joka mitataan vasta kierrosrajojen
+lukemisesta, ja kranaattien tickit selviävät vasta lentoradoista. Pakattu demo
+puretaan virtaavasti temp-tiedostoon.
+
+Ostoikkuna maksaa yhden ylimääräisen ``parse_ticks``-kutsun (Ancient: 21
+mittauspistettä) ja yhden ``parse_event("player_death")``-kutsun. Jälkimmäinen
+tehtiin ennen vain silloin, kun ensikontaktin varasääntö oli päällä; nyt se
+tehdään aina, koska ikkunan katkaisu ei saa riippua ensikontaktin asetuksesta.
+Tapahtumaluku on kertaluokkia halvempi kuin tickiluku, ja se tehdään kerran ja
+jaetaan molemmille käyttäjille.
 """
 
 from __future__ import annotations
@@ -158,7 +214,7 @@ from __future__ import annotations
 import hashlib
 import statistics
 import warnings
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -220,8 +276,13 @@ _CASH_SPENT = (
     "CCSPlayerController.CCSPlayerController_InGameMoneyServices"
     ".m_iCashSpentThisRound"
 )
-_EQUIP_FREEZE_END = "CCSPlayerPawn.m_unFreezetimeEndEquipmentValue"
 _EQUIP_ROUND_START = "CCSPlayerPawn.m_unRoundStartEquipmentValue"
+
+#: Pelaajan kaluston arvo **juuri nyt**. Tämä on ostoajan lopun varustearvon
+#: lähde, ei ``m_unFreezetimeEndEquipmentValue``: jälkimmäinen on pelin
+#: tilannekuva ankkurihetkestä eikä päivity freezetimen jälkeen, joten
+#: myöhemmältä tickiltä luettuna se antaisi yhä ankkurin luvun ja koko korjaus
+#: jäisi näkymättömäksi. Ankkurilla nämä kaksi ovat sama luku.
 _EQUIP_CURRENT = "CCSPlayerPawn.m_unCurrentEquipmentValue"
 _ARMOR_VALUE = "CCSPlayerPawn.m_ArmorValue"
 
@@ -250,7 +311,6 @@ TICK_PROPS: tuple[str, ...] = (
     _TEAM_NUM,
     _ACCOUNT,
     _CASH_SPENT,
-    _EQUIP_FREEZE_END,
     _EQUIP_ROUND_START,
     _EQUIP_CURRENT,
     _ARMOR_VALUE,
@@ -458,6 +518,61 @@ class _UtilityCounts:
 
 
 @dataclass
+class _BuyWindowCounters:
+    """Ostoikkunan havainnot, jotka eivät mahdu ``ROUNDS``-sopimukseen.
+
+    Attributes:
+        cuts: Kuoleman katkaisemat kierrokset pareina ``(round_raw, montako
+            ostosta jäi katkaisun taakse)``. **Pareina eikä lukuna**, koska
+            adapteri ei tiedä mitkä kierrokset päätyvät tauluun: puukkokierros
+            saa oman ``round_raw``:nsa mutta ``stages.parse`` pudottaa sen,
+            ja pelkkä yhteisluku sisältäisi sen ilman että sitä voisi enää
+            vähentää pois. Vaihe suodattaa nämä pelattuja kierroksia vasten.
+
+            Katkaisu itsessään on **havainto eikä vika**: se on sääntö, koska
+            kuolleen tavaraluettelo tyhjenee, ja se osuu noin puoleen
+            kierroksista. Menetettyjen ostojen **kuuluu olla nolla**.
+        unchecked_cuts: Katkaistut kierrokset (``round_raw``), joilla
+            menetettyjä ostoja **ei voitu tarkistaa**: ikkunan lopun tickiltä
+            ei saatu yhdeltäkään pelaajalta luettavaa ``cash_spent``-arvoa.
+            Ilman tätä menetettyjen ostojen nolla tarkoittaisi kahta eri asiaa
+            -- "mitään ei menetetty" ja "ei tiedetä".
+        ticks_without_players: Kierrokset, joilla ostoajan lopun tickiltä ei
+            saatu yhtään pelaajariviä ja mittaus palautui ankkuriin. **Vika
+            eikä havainto**: käytännössä demo on katkennut kesken kierroksen.
+            Ilman varasääntöä koko kierroksen talous olisi tyhjä. Tällaisella
+            kierroksella katkaisua **ei** kirjata: mitään ei mitattu ikkunan
+            lopusta, joten menetetyt ostot eivät ole kuoleman katkaisun syytä.
+        players_lost: Joukkuerivit kertaa pelaajat, jotka olivat luettavissa
+            ankkurilla mutta eivät enää mittauspisteessä. Summat ja jakaja
+            kutistuvat yhdessä, joten per pelaaja -arvot pysyvät oikeina --
+            mutta joukkue näyttää pelaavan vajaalla, ja se on eri väite kuin
+            "yhteys katkesi kesken kierroksen".
+        sides_without_rows: Joukkuerivit, joilta mittauspisteessä ei saatu
+            yhtään luettavaa pelaajaa, vaikka ankkurilla saatiin. Rivi menee
+            tauluun tyhjänä mutta tilalla ``ok``, ja ``classify`` jättää sen
+            luokittelematta puuttuvan havainnon takia -- oikea lopputulos,
+            mutta ilman tätä lukua kukaan ei saisi tietää miksi.
+        refunds: Pelaajarivit, joilla ``cash_spent`` pieneni ankkurin ja
+            mittauspisteen välillä eli ostos palautettiin. Prop kasvaa vain
+            ostoista, joten lasku on yksikäsitteinen merkki palautuksesta.
+        stale_equipment: Pelaajarivit, joilla varustearvo nousi ilman että
+            pelaaja osti, sai panssaria tai muutti tavaraluetteloaan. Se on
+            palautuksen jättämä vanhentunut lukema (ks.
+            :func:`_refunds_and_stale_equipment`). Mitattu: 1 rivi 134
+            kierroksesta, enintään 1 000 $ per pelaaja.
+    """
+
+    cuts: list[tuple[int, int]] = field(default_factory=list)
+    unchecked_cuts: list[int] = field(default_factory=list)
+    ticks_without_players: int = 0
+    players_lost: int = 0
+    sides_without_rows: int = 0
+    refunds: int = 0
+    stale_equipment: int = 0
+
+
+@dataclass
 class _ArmedCounters:
     """Kalustolaskurin havainnot, jotka eivät mahdu ``ROUNDS``-sopimukseen.
 
@@ -492,6 +607,11 @@ class Demoparser2Adapter:
             napata lähimmän elossa olevan pelaajan alueen
             (``[parse].area_snap_units``). ``None`` = ei napsautusta, jolloin
             ``area`` jää tyhjäksi mutta koordinaatit tallentuvat.
+        buy_window_seconds: Ostoajan pituus sekunteina freezetimen lopusta
+            (``[parse].buy_window_seconds``). Oletus on tarkoituksella
+            **0.0** eikä pelin 20 s: adapteri ei lue asetuksia, ja neutraali
+            oletus tarkoittaa "mittaa ankkurista", eli täsmälleen sitä mitä
+            tämä luokka teki ennen ostoikkunaa. Vaihe antaa oikean arvon.
     Aseistettujen laskurilla ei ole asetuksia: sääntö on "panssari ja
     vähintään yksi ase hallussa", ja aseluettelo on :mod:`pappascout.constants`.
     Luettelon muutos mitätöi arkiston ``stages.parse``in parametrihashin
@@ -508,10 +628,12 @@ class Demoparser2Adapter:
         exclude_weapons: Sequence[str] = (),
         fallback_death: bool = True,
         area_snap_units: float | None = None,
+        buy_window_seconds: float = 0.0,
     ) -> None:
         self.exclude_weapons = tuple(exclude_weapons)
         self.fallback_death = fallback_death
         self.area_snap_units = area_snap_units
+        self.buy_window_seconds = float(buy_window_seconds)
         self.diagnostics: ParseDiagnostics | None = None
 
     def parse_demo(
@@ -549,14 +671,35 @@ class Demoparser2Adapter:
         by_tick = self._read_ticks(parser, wanted, original_path)
         tick_rate, measured = self._tick_rate(by_tick, freeze_ticks)
 
+        # Kuolemat luetaan **aina**, myös kun first_contact_fallback_death on
+        # epätosi: ne rajaavat ostoikkunan, koska kuolleen tavaraluettelo
+        # tyhjenee, eikä se saa riippua ensikontaktin asetuksesta. Asetus
+        # ratkaisee vain sen, saako ensikontakti tulla kuolemasta. Sama luku
+        # annetaan näytepisteille, jottei tapahtumaa parsita kahdesti.
+        deaths = self._damage_events(parser, "player_death", original_path)
+        death_ticks = sorted(tick for tick, *_ in deaths)
+        buy_ticks, window_ticks = _buy_end_ticks(
+            segments, death_ticks, tick_rate, self.buy_window_seconds
+        )
+        extra = sorted(
+            {
+                tick
+                for tick in (*buy_ticks, *window_ticks)
+                if tick is not None and tick not in by_tick
+            }
+        )
+        if extra:
+            by_tick.update(self._read_ticks(parser, extra, original_path))
+
         lineups = [_Lineup(), _Lineup()]
         sides = self._assign_sides(segments, by_tick, lineups)
         lineup_keys = self._lineup_keys(lineups)
-        # Kalustolaskurin omat havainnot palautuvat taulun mukana eivätkä
-        # kerry kutsujan antamaan olioon: muuttuva ulosparametri lakkaisi
-        # hiljaa toimimasta, jos joku unohtaisi välittää sen eteenpäin.
-        rounds, armed = self._build_frame(
-            segments, by_tick, tick_rate, sides, lineup_keys
+        # Kalustolaskurin ja ostoikkunan omat havainnot palautuvat taulun
+        # mukana eivätkä kerry kutsujan antamaan olioon: muuttuva
+        # ulosparametri lakkaisi hiljaa toimimasta, jos joku unohtaisi
+        # välittää sen eteenpäin.
+        rounds, armed, buy = self._build_frame(
+            segments, by_tick, tick_rate, sides, lineup_keys, buy_ticks, window_ticks
         )
 
         points, unknown_sides = self._sample_points(
@@ -568,6 +711,7 @@ class Demoparser2Adapter:
             by_tick,
             tick_rate,
             sample_seconds,
+            deaths,
         )
         ticks, partial = self._build_ticks_frame(
             points, parser, original_path, segments, sides, lineup_keys
@@ -593,6 +737,14 @@ class Demoparser2Adapter:
             grenades_sharing_an_entity_id=utility.sharing_an_entity_id,
             unknown_inventory_items=tuple(sorted(armed.unknown_items.items())),
             armed_unreadable_rows=armed.unreadable_rows,
+            buy_window_seconds=self.buy_window_seconds,
+            buy_window_cuts=tuple(sorted(buy.cuts)),
+            buy_window_unchecked_cuts=tuple(sorted(buy.unchecked_cuts)),
+            buy_window_ticks_without_players=buy.ticks_without_players,
+            buy_window_players_lost=buy.players_lost,
+            buy_window_sides_without_rows=buy.sides_without_rows,
+            buy_window_refunds=buy.refunds,
+            buy_window_stale_equipment=buy.stale_equipment,
         )
         return DemoTables(rounds=rounds, ticks=ticks, events=events)
 
@@ -888,7 +1040,6 @@ class Demoparser2Adapter:
                     "side": side,
                     "account": _as_int(row.get(_ACCOUNT)),
                     "cash_spent": _as_int(row.get(_CASH_SPENT)),
-                    "equip_freeze_end": _as_int(row.get(_EQUIP_FREEZE_END)),
                     "equip_round_start": _as_int(row.get(_EQUIP_ROUND_START)),
                     "equip_current": _as_int(row.get(_EQUIP_CURRENT)),
                     "armor_value": _as_int(row.get(_ARMOR_VALUE)),
@@ -970,8 +1121,23 @@ class Demoparser2Adapter:
         tick_rate: float,
         sides: list[tuple[str, str]],
         lineup_keys: list[str],
-    ) -> tuple[pl.DataFrame, _ArmedCounters]:
+        buy_ticks: list[int | None],
+        window_ticks: list[int | None],
+    ) -> tuple[pl.DataFrame, _ArmedCounters, _BuyWindowCounters]:
+        """Rakenna kierrostaulu.
+
+        Talousarvot luetaan ``buy_ticks[index]``-tickiltä (ostoajan loppu),
+        voittaja ja eloonjääneet ``segment.end_tick``iltä. Ankkuri
+        ``freeze_end_tick`` on yhä rivillä, mutta siitä ei enää lueta lukuja --
+        se on kierroksen aikanollakohta.
+
+        ``window_ticks[index]`` on ei-``None`` vain silloin, kun kuolema
+        katkaisi ikkunan: se on se tick, jolta olisi mitattu ilman katkaisua,
+        ja sitä käytetään pelkästään sen laskemiseen, jäikö ostoja katkaisun
+        taakse (``cash_spent`` kasvaa vain ostoista, ei kuolemista).
+        """
         armed = _ArmedCounters()
+        buy = _BuyWindowCounters()
         anchor_score = [
             _total_score(by_tick.get(s.freeze_end_tick or -1) or []) for s in segments
         ]
@@ -985,19 +1151,33 @@ class Demoparser2Adapter:
             freeze_rows = by_tick.get(segment.freeze_end_tick or -1) or []
             end_rows = by_tick.get(segment.end_tick or -1) or []
 
-            # Tuntemattomat nimet skannataan **kaikilta** ankkurin riveiltä,
-            # ei vain laskuriin kelpaavilta: uusi asenimi voi esiintyä
-            # ensimmäisen kerran pelaajalla, jonka talousarvot eivät ole
-            # luettavissa (_readable pudottaa hänet), ja silloin se jäisi
-            # raportoimatta juuri siitä demosta, joka sen toi.
-            #
-            # Jäljelle jäävä rajaus: kierros ilman freezetime-ankkuria ei
-            # tuota yhtään riviä, joten sen nimiä ei nähdä lainkaan. Nimi
-            # esiintyy silloin lähes varmasti myös jollain toisella
-            # kierroksella, joten se ei ole hiljainen aukko vaan viive.
-            for row in freeze_rows:
+            # Ostoajan lopun tick. Varasääntö on tarkoituksella ankkuri eikä
+            # tyhjä joukko: jos tick jää demon lopun taakse, koko kierroksen
+            # talous olisi muuten null. Palautus lasketaan, koska se on vika.
+            buy_tick = buy_ticks[index]
+            buy_rows = by_tick.get(buy_tick if buy_tick is not None else -1) or []
+            fell_back = False
+            if buy_tick is not None and not buy_rows and freeze_rows:
+                buy.ticks_without_players += 1
+                fell_back = True
+                buy_tick = segment.freeze_end_tick
+                buy_rows = freeze_rows
+
+            # Tuntemattomat nimet skannataan **molemmilta tickeiltä** ja
+            # kaikilta riveiltä, ei vain laskuriin kelpaavilta. Kaksi syytä:
+            # uusi asenimi voi esiintyä ensimmäisen kerran pelaajalla, jonka
+            # talousarvot eivät ole luettavissa (_readable pudottaa hänet), ja
+            # ase voi olla hallussa vain toisella tickillä -- pelaaja, joka
+            # pudottaa tai vaihtaa aseen ostoajan aikana, näyttäisi vain
+            # toisesta hetkestä katsottuna siltä ettei nimeä koskaan ollut.
+            # Sama nimi samalla pelaajalla lasketaan silti kerran per kierros,
+            # jottei kahden tickin luku kaksinkertaistaisi esiintymämääriä.
+            seen_unknown: set[tuple[str, str]] = set()
+            for row in (*freeze_rows, *buy_rows):
                 for name in row.get("inventory") or ():
-                    if name not in KNOWN_INVENTORY_ITEMS:
+                    key = (row["steamid"], name)
+                    if name not in KNOWN_INVENTORY_ITEMS and key not in seen_unknown:
+                        seen_unknown.add(key)
                         armed.unknown_items[name] += 1
 
             # Numeroimaton segmentti (ottelun uudelleenaloitus) ei ole
@@ -1024,19 +1204,55 @@ class Demoparser2Adapter:
             if score_end is None:
                 score_end = end_score[index]
 
+            # Kuoleman katkaisema ikkuna: kerrotaan aina, ja lisäksi katsotaan
+            # **maksoiko se mitään**. cash_spent kasvaa vain ostoista eikä
+            # reagoi kuolemiin, joten sen kasvu katkaisun ja ikkunan lopun
+            # välillä on suora mittari sille, montako ostosta jäi mittauksen
+            # taakse.
+            #
+            # Varasääntöön pudonnutta kierrosta ei kirjata katkaisuksi.
+            # Mittauspiste on silloin ankkuri eikä katkaisukohta, joten
+            # ikkunan loppuun verrattu ero olisi tyhjän tickin syytä eikä
+            # kuoleman -- ja se on jo laskettu omaan lukuunsa.
+            window_tick = window_ticks[index]
+            if window_tick is not None and not fell_back:
+                missed, compared = _purchases_between(
+                    buy_rows, by_tick.get(window_tick) or []
+                )
+                buy.cuts.append((segment.round_raw, missed))
+                if not compared:
+                    buy.unchecked_cuts.append(segment.round_raw)
+
+            # Palautettu ostos ja sen jättämä vanhentunut varustearvo. Vain
+            # silloin kun tickit ovat eri: samalta tickiltä verrattuna jokainen
+            # arvo on triviaalisti sama.
+            if buy_tick is not None and buy_tick != segment.freeze_end_tick:
+                refunds, stale = _refunds_and_stale_equipment(freeze_rows, buy_rows)
+                buy.refunds += refunds
+                buy.stale_equipment += stale
+
             saved_now: list[int | None] = [None, None]
             for team_index, side in enumerate(sides[index]):
-                own_freeze = _readable(
-                    [r for r in freeze_rows if r["side"] == side]
-                )
+                own_buy = _readable([r for r in buy_rows if r["side"] == side])
                 own_end = [r for r in end_rows if r["side"] == side]
                 alive = [r for r in own_end if r["alive"]]
-                armed_count = _armed_count(own_freeze)
+                armed_count = _armed_count(own_buy)
                 # Tyhjä joukko on ankkuriton kierros, ei lukuvirhe -- vain
                 # jälkimmäinen lasketaan, jotta luku kertoo propivikaa eikä
                 # normaalia puutetta.
-                if armed_count is None and own_freeze:
+                if armed_count is None and own_buy:
                     armed.unreadable_rows += 1
+
+                # Ankkurilla luettavissa olleet pelaajat, jotka eivät ole enää
+                # mittauspisteessä. Summa ja jakaja kutistuvat yhdessä, joten
+                # per pelaaja -arvot pysyvät oikeina -- mutta joukkue näyttää
+                # pelaavan vajaalla, ja se on eri väite kuin "yhteys katkesi".
+                if not fell_back:
+                    at_anchor = _readable([r for r in freeze_rows if r["side"] == side])
+                    if len(own_buy) < len(at_anchor):
+                        buy.players_lost += len(at_anchor) - len(own_buy)
+                        if not own_buy:
+                            buy.sides_without_rows += 1
                 saved_now[team_index] = (
                     _sum_or_zero([r["equip_current"] for r in alive])
                     if own_end
@@ -1054,23 +1270,23 @@ class Demoparser2Adapter:
                             else segment.winner_side == side
                         ),
                         "win_reason": segment.win_reason,
-                        "money_freeze_end": _sum_or_none(
-                            [r["account"] for r in own_freeze]
+                        "money_buy_end": _sum_or_none(
+                            [r["account"] for r in own_buy]
                         ),
                         "money_spent": _sum_or_none(
-                            [r["cash_spent"] for r in own_freeze]
+                            [r["cash_spent"] for r in own_buy]
                         ),
-                        "equip_freeze_end": _sum_or_none(
-                            [r["equip_freeze_end"] for r in own_freeze]
+                        "equip_buy_end": _sum_or_none(
+                            [r["equip_current"] for r in own_buy]
                         ),
                         "equip_round_start": _sum_or_none(
-                            [r["equip_round_start"] for r in own_freeze]
+                            [r["equip_round_start"] for r in own_buy]
                         ),
                         # Kynnykset ovat per pelaaja, joten jakaja on
                         # havaittava eikä oletettava: vajaalla pelaava
                         # joukkue näyttäisi viidellä jaettuna ecolta.
                         # Jakaja on sama joukko kuin summissa (ks. _readable).
-                        "players_freeze_end": len(own_freeze) or None,
+                        "players_buy_end": len(own_buy) or None,
                         # Sama joukko kuin summissa ja jakajassa. Kaksi eri
                         # jakajaa samalla rivillä olisi vika, joka näkyisi
                         # vasta raportissa.
@@ -1078,6 +1294,7 @@ class Demoparser2Adapter:
                         "survivors": len(alive) if own_end else None,
                         "survivors_equip_prev": previous_saved[team_index],
                         "freeze_end_tick": segment.freeze_end_tick,
+                        "buy_end_tick": buy_tick,
                         "tick_rate": tick_rate,
                         "status": (
                             "ok"
@@ -1090,7 +1307,7 @@ class Demoparser2Adapter:
                 )
             previous_saved = saved_now
 
-        return self._typed_frame(rows), armed
+        return self._typed_frame(rows), armed, buy
 
     @staticmethod
     def _assign_sides(
@@ -1206,6 +1423,7 @@ class Demoparser2Adapter:
         by_tick: dict[int, list[dict[str, Any]]],
         tick_rate: float,
         sample_seconds: tuple[float, ...],
+        all_deaths: list[tuple[int, str | None, str | None, str | None]],
     ) -> tuple[list[SamplePoint], int]:
         """Valitse hetket, joilta pelaajien sijainnit luetaan.
 
@@ -1213,6 +1431,12 @@ class Demoparser2Adapter:
         -funktiolta. Ensikontakti ratkaistaan kierros kerrallaan, koska sen
         sääntö vaatii tiedon siitä, kummalla puolella kumpikin pelaaja oli
         **tällä** kierroksella -- puolet vaihtuvat puoliajalla.
+
+        Args:
+            all_deaths: ``player_death``-tapahtumat, jotka ``_parse`` on jo
+                lukenut ostoikkunaa varten. Ne annetaan tänne eikä parsita
+                uudelleen; ``fallback_death`` ratkaisee vain sen, saako
+                ensikontakti tulla niistä.
 
         Returns:
             ``(näytepisteet, tuntemattoman puolen takia ohitetut tapahtumat)``.
@@ -1239,11 +1463,7 @@ class Demoparser2Adapter:
         points = sample_ticks(bounds, tick_rate, sample_seconds)
 
         hurt = self._damage_events(parser, "player_hurt", original_path)
-        deaths = (
-            self._damage_events(parser, "player_death", original_path)
-            if self.fallback_death
-            else []
-        )
+        deaths = all_deaths if self.fallback_death else []
         if not hurt and not deaths:
             return _sorted_points(points), 0
 
@@ -2233,18 +2453,280 @@ def _as_side(value: Any) -> str | None:
     return text if text in ("T", "CT") else None
 
 
+# -- Ostoaika -----------------------------------------------------------------
+
+
+def _buy_end_ticks(
+    segments: list[_Segment],
+    death_ticks: list[int],
+    tick_rate: float,
+    window_seconds: float,
+) -> tuple[list[int | None], list[int | None]]:
+    """Valitse jokaiselle kierrokselle tick, jolta talousarvot luetaan.
+
+    Mittauspiste on::
+
+        max(freeze_end_tick,
+            min(freeze_end_tick + window_seconds * tick_rate,
+                kierroksen ensimmäistä kuolemaa EDELTÄVÄ tick,
+                kierroksen yläraja))
+
+    Uloin ``max`` ei ole koriste: ilman sitä kuolema tasan ankkuria seuraavalla
+    tickillä työntäisi mittauspisteen ankkuria aiemmaksi eli freezetimen
+    sisään.
+
+    Kierroksen yläraja on ``end_tick``. Jos kierros ei ratkennut (demo katkesi
+    kesken), ylärajaksi otetaan **seuraavan kierrosrajan ankkuria edeltävä
+    tick**: ilman sitä ikkuna valuisi seuraavan kierroksen puolelle ja lukisi
+    sen talousarvot tämän kierroksen riville.
+
+    **Kuolemaa edeltävä tick, ei kuoleman tick.** Kuolintickillä uhrin
+    ``inventory`` on jo tyhjä ja ``m_ArmorValue`` 0 (mitattu:
+    ``inferno_vs_ryhmarama`` kierros 6, tick 42236). Tasan kuolintickiltä
+    luettuna joukkueesta katoaisi yhden pelaajan koko kalusto -- eri vika kuin
+    liian aikainen mittaus, mutta yhtä hiljainen. Haku on siksi
+    :func:`~bisect.bisect_left`, joka ottaa mukaan myös **tasan ankkurilla**
+    olevan kuoleman; ``bisect_right`` ohittaisi sen ja lukisi ruumiin.
+
+    **Yksi tick koko kierrokselle.** Kun mittaushetkellä kukaan ei ole vielä
+    kuollut, kukaan ei ole myöskään ehtinyt pudottaa asetta kuollessaan, joten
+    kaksoislaskennan lähde (joukkuekaveri poimii vainajan kiväärin) on
+    rakenteellisesti poissuljettu. Pelaajakohtaista "viimeinen elossa"
+    -pistettä ei siis tarvita: mittaushetkellä joukkue on koskematon.
+
+    **Katkaisu on normaali polku, ei reunatapaus.** Mitattuna kuudesta demosta
+    (134 pelattua kierrosta) kuolema katkaisee ikkunan 69 kierroksella eli
+    **51 %:lla**. Kierroksen ensimmäinen kuolema osuu aikaisintaan 9,80 s
+    kohdalle ja mediaanina 19,7 s kohdalle; 8 sekunnin sisään ei kuolla
+    yhdelläkään kierroksella. Efektiivinen mittaushetki on siis usein
+    10-20 s eikä 20 s.
+
+    Päällekkäisyys ostamisen kanssa on kapea mutta todellinen: niistä
+    kierroksista, joilla ostettiin vielä freezetimen jälkeen, ostaminen oli
+    valmis 8 s mennessä 92 %:ssa, ja aikaisin kuolema on 9,8 s. Samassa
+    aineistossa yksikään kuolema ei edellä viimeistä ostoa, mutta neljä
+    kierrosta ostaa vielä 11,0 / 11,3 / 13,5 / 19,4 s kohdalla. Siksi
+    katkaisun hinta **mitataan joka ajolla** (:func:`_purchases_between`) eikä
+    oleteta nollaksi.
+
+    Args:
+        segments: Kierrosrajat.
+        death_ticks: Kaikkien ``player_death``-tapahtumien tickit nousevassa
+            järjestyksessä.
+        tick_rate: Käytetty tickrate. Voi olla mittaamaton oletus, jolloin myös
+            ikkunan pituus tickeinä on oletus -- ``stages.parse`` kertoo sen
+            käyttäjälle, tämä funktio ei voi tietää eroa.
+        window_seconds: ``[parse].buy_window_seconds``.
+
+    Returns:
+        ``(mittauspisteet, katkaisemattomat ikkunan loput)``, molemmat
+        segmenttien järjestyksessä.
+
+        Mittauspiste on ``None``, jos kierroksella ei ole ankkuria tai jos se
+        ei ole kierros lainkaan (ottelun uudelleenaloitus).
+
+        Jälkimmäinen lista on ``None`` kaikkialla muualla paitsi niillä
+        kierroksilla, joilla kuolema katkaisi ikkunan: siellä se on se tick,
+        jolta olisi mitattu ilman katkaisua. Sitä ei käytetä mittaukseen vaan
+        vain sen laskemiseen, jäikö ostoja katkaisun taakse.
+    """
+    # Ikkunan pituus tickeinä. Nimi ei ole ``window_ticks``, koska kutsujalla
+    # se tarkoittaa listaa tickejä; sama nimi kahdelle eri asialle on juuri se
+    # sekaannus, jota tämä moduuli muuten välttää.
+    window_length = max(0, round(window_seconds * tick_rate))
+    measured: list[int | None] = []
+    uncut: list[int | None] = []
+
+    for index, segment in enumerate(segments):
+        anchor = segment.freeze_end_tick
+        if anchor is None or segment.round_raw is None:
+            measured.append(None)
+            uncut.append(None)
+            continue
+
+        limit = anchor + window_length
+        bound = _round_upper_bound(segments, index, anchor)
+        if bound is not None:
+            limit = min(limit, bound)
+        limit = max(limit, anchor)
+
+        # Ensimmäinen kuolema ankkurilla tai sen jälkeen. bisect, koska tickit
+        # ovat järjestyksessä ja niitä on demossa satoja.
+        position = bisect_left(death_ticks, anchor)
+        first_death = death_ticks[position] if position < len(death_ticks) else None
+
+        cut = None if first_death is None else max(anchor, first_death - 1)
+        if cut is not None and cut < limit:
+            measured.append(cut)
+            uncut.append(limit)
+        else:
+            # Kuolema ikkunan jälkeen, tai ikkuna on jo nollan mittainen:
+            # ikkuna ei lyhentynyt, joten katkaisua ei myöskään raportoida.
+            # Nolla-arvon kirjaaminen katkaisuksi tekisi laskurista kohinaa.
+            measured.append(limit)
+            uncut.append(None)
+    return measured, uncut
+
+
+def _round_upper_bound(
+    segments: list[_Segment], index: int, anchor: int
+) -> int | None:
+    """Viimeinen tick, joka vielä kuuluu kierrokselle ``index``.
+
+    Ratkennut kierros päättyy omaan ``end_tick``iinsä. Ratkeamattomalla (demo
+    katkesi kesken) sitä ei ole, ja silloin raja otetaan **seuraavasta
+    kierrosrajasta**: ostoikkuna ei saa yltää seuraavan kierroksen ankkuriin,
+    koska siellä luetut talousarvot olisivat jo seuraavan kierroksen.
+
+    Ottelun uudelleenaloitus kelpaa rajaksi siinä missä kierroskin: se ei ole
+    kierros, mutta se on hetki, jonka jälkeen tämän kierroksen arvot eivät enää
+    ole voimassa.
+
+    Returns:
+        Yläraja, tai ``None`` jos kierros on demon viimeinen eikä sillä ole
+        päättymistä -- silloin rajaa ei ole olemassa eikä sitä keksitä.
+    """
+    if segments[index].end_tick is not None:
+        return segments[index].end_tick
+    for later in segments[index + 1 :]:
+        if later.freeze_end_tick is not None and later.freeze_end_tick > anchor:
+            return later.freeze_end_tick - 1
+    return None
+
+
+def _purchases_between(
+    at_measurement: list[dict[str, Any]],
+    at_window_end: list[dict[str, Any]],
+) -> tuple[int, int]:
+    """Menetetyt ostot ikkunan katkaisun takana -- ja montako voitiin tarkistaa.
+
+    ``m_iCashSpentThisRound`` kasvaa **vain ostoista** eikä reagoi kuolemiin
+    tai pudotettuihin aseisiin, ja se on pelaajan controllerissa eikä
+    pawnissa, joten se säilyy myös kuoleman yli. Se on siksi ainoa turvallinen
+    mittari sille, maksoiko ikkunan katkaisu jotain.
+
+    Menetettyjen ostojen **kuuluu olla nolla**. Nollasta poikkeava arvo
+    tarkoittaa, että joku osti sen jälkeen kun ikkuna katkaistiin, eli mittaus
+    menetti ostoksen -- ja se on sanottava ajon tulosteessa ääneen eikä
+    vaiettava.
+
+    Vertailtujen määrä palautuu mukana, koska **nollalla on kaksi eri syytä**:
+    mitään ei menetetty, tai vertailua ei voitu tehdä lainkaan (ikkunan lopun
+    tickiltä ei saatu rivejä). Ilman erottelua tarinan tärkein luku voisi lukea
+    tyhjää nollaa ilman että mikään kertoisi siitä.
+
+    Args:
+        at_measurement: Pelaajarivit mittauspisteen tickiltä.
+        at_window_end: Pelaajarivit siltä tickiltä, jolle ikkuna olisi
+            yltänyt ilman katkaisua.
+
+    Returns:
+        ``(menetettyjä ostoja, vertailtuja pelaajia)``. Ensimmäinen on niiden
+        pelaajien määrä, joiden ``cash_spent`` on jälkimmäisellä tickillä
+        suurempi kuin ensimmäisellä. Pelaaja, joka puuttuu jommaltakummalta
+        tickiltä tai jolta luku ei ole luettavissa, ei kelpaa havainnoksi eikä
+        kasvata kumpaakaan lukua.
+    """
+    before = {
+        r["steamid"]: r["cash_spent"]
+        for r in at_measurement
+        if r["cash_spent"] is not None
+    }
+    missed = 0
+    compared = 0
+    for row in at_window_end:
+        spent = row["cash_spent"]
+        earlier = before.get(row["steamid"])
+        if spent is None or earlier is None:
+            continue
+        compared += 1
+        if spent > earlier:
+            missed += 1
+    return missed, compared
+
+
+def _refunds_and_stale_equipment(
+    at_anchor: list[dict[str, Any]],
+    at_measurement: list[dict[str, Any]],
+) -> tuple[int, int]:
+    """Palautetut ostokset ikkunan aikana -- ja niiden jättämä vanhentunut arvo.
+
+    CS2:ssa juuri ostetun tavaran voi palauttaa muutaman sekunnin ajan. Raha ja
+    panssari palautuvat oikein, mutta **varustearvo ei aina laske mukana**:
+    mitattuna ``Anubis_vs_ryhmarama`` kierros 3 CT, jossa pelaaja osti kevlarin
+    ja kypärän 0,4 s kohdalla ja palautti ne 1,9 s kohdalla -- ``m_iAccount``
+    ja ``m_ArmorValue`` palasivat lähtöarvoihinsa (450 -> 1 450 ja 100 -> 0),
+    mutta ``m_unCurrentEquipmentValue`` jäi 1 200:aan eikä palannut 200:aan.
+
+    Kaksi lukua, koska ne ovat eri havaintoja:
+
+    ``palautuksia``
+        ``cash_spent`` **pieneni** ankkurin ja mittauspisteen välillä. Prop
+        kasvaa vain ostoista, joten lasku voi tarkoittaa vain palautusta --
+        yksikäsitteinen merkki, joka ei sekoitu kuolemaan. Mitattu: 8
+        pelaajariviä 7 kierroksella kuudesta demosta, ja näissä varustearvo
+        seurasi palautusta oikein.
+    ``vanhentunutta arvoa``
+        Varustearvo **nousi**, vaikka pelaaja ei ostanut (``cash_spent``
+        ennallaan), ei saanut panssaria (``m_ArmorValue`` ennallaan) eikä hänen
+        tavaraluettelonsa muuttunut. Mitään ei tullut, joten arvon on oltava
+        vanhentunut. Tämä on se jälki, jonka **kokonaan kahden luetun tickin
+        välissä** tapahtunut palautus jättää: molemmilla tickeillä
+        ``cash_spent`` on sama, eikä palautus näy mitenkään muuten. Mitattu:
+        1 pelaajarivi 134 kierroksesta, vaikutus 1 000 $ eli joukkuetasolla
+        200 $/pelaaja.
+
+    **Ei tunnisteta jäljestä "panssari katosi eikä arvo laskenut."** Kuolema
+    tuottaa täsmälleen saman jäljen ja on kymmenkertaisesti yleisempi, joten
+    sellainen laskuri mittaisi kuolemia eikä palautuksia. Molemmat ehdot yllä
+    vaativat päinvastoin, ettei panssari muuttunut.
+
+    **Ei koske aseistettujen laskuria.** Se lukee tavaraluettelon ja
+    ``m_ArmorValue``n, jotka molemmat palautuvat oikein; vanhentuminen koskee
+    vain varustearvoa.
+
+    Returns:
+        ``(palautuksia, vanhentunutta arvoa)`` pelaajariveinä.
+    """
+    anchor_by_id = {r["steamid"]: r for r in at_anchor}
+    refunds = 0
+    stale = 0
+    for row in at_measurement:
+        earlier = anchor_by_id.get(row["steamid"])
+        if earlier is None:
+            continue
+        spent_before, spent_now = earlier["cash_spent"], row["cash_spent"]
+        if spent_before is None or spent_now is None:
+            continue
+        if spent_now < spent_before:
+            refunds += 1
+            continue
+        equip_before, equip_now = earlier["equip_current"], row["equip_current"]
+        armor_before, armor_now = earlier["armor_value"], row["armor_value"]
+        if None in (equip_before, equip_now, armor_before, armor_now):
+            continue
+        if (
+            equip_now > equip_before
+            and spent_now == spent_before
+            and armor_now == armor_before
+            and (earlier.get("inventory") or ()) == (row.get("inventory") or ())
+        ):
+            stale += 1
+    return refunds, stale
+
+
 #: Propit, joiden on oltava luettavissa, jotta pelaaja lasketaan mukaan
-#: freezetimen lopun summiin ja niiden jakajaan.
-_FREEZE_END_PROPS: tuple[str, ...] = (
+#: ostoajan lopun summiin ja niiden jakajaan.
+_BUY_END_PROPS: tuple[str, ...] = (
     "account",
     "cash_spent",
-    "equip_freeze_end",
+    "equip_current",
     "equip_round_start",
 )
 
 
 def _readable(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Pelaajat, joiden freezetimen lopun arvot ovat kaikki luettavissa.
+    """Pelaajat, joiden ostoajan lopun arvot ovat kaikki luettavissa.
 
     Sekä summa että sen jakaja lasketaan **tästä samasta joukosta**. Jos
     summattaisiin vain luettavat mutta jaettaisiin kaikilla riveillä, kolmen
@@ -2252,12 +2734,12 @@ def _readable(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ja työntäisi kierroksen ecoksi -- hiljaa ja uskottavan näköisesti.
     """
     return [
-        r for r in rows if all(r.get(name) is not None for name in _FREEZE_END_PROPS)
+        r for r in rows if all(r.get(name) is not None for name in _BUY_END_PROPS)
     ]
 
 
 #: Propit, joiden on oltava luettavissa, jotta kalustolaskurin voi laskea.
-#: Nämä **eivät** ole :data:`_FREEZE_END_PROPS`issa: pelaaja pysyy summissa ja
+#: Nämä **eivät** ole :data:`_BUY_END_PROPS`issa: pelaaja pysyy summissa ja
 #: niiden jakajassa, vaikka nämä puuttuisivat, koska jakajan on oltava sama
 #: joukko kaikille rivin luvuille.
 _ARMED_PROPS: tuple[str, ...] = ("armor_value", "inventory")
@@ -2285,6 +2767,11 @@ def _is_armed(row: dict[str, Any]) -> bool:
     laskeutuu samoin kuin ostettu. Oletuspistoolit ovat silti ulkona, koska ne
     saa joka kierros ilmaiseksi.
 
+    Rivi on ostoajan lopun tickiltä, joka on valittu ennen kierroksen
+    ensimmäistä kuolemaa (ks. :func:`_buy_end_ticks`). Kuolleen pelaajan
+    ``inventory`` on tyhjä ja panssari 0, joten kuolintickiltä luettuna tämä
+    palauttaisi ``False`` riippumatta siitä, mitä pelaaja osti.
+
     Kutsuja on jo varmistanut :func:`_armed_readable`illa, että arvot ovat
     luettavissa -- tässä ``None`` tulkittaisiin "ei panssaria" ja "ei
     tavaroita", eli lukuvirhe näyttäisi säästöltä.
@@ -2296,18 +2783,18 @@ def _is_armed(row: dict[str, Any]) -> bool:
     return any(name in ARMING_WEAPONS for name in row.get("inventory") or ())
 
 
-def _armed_count(own_freeze: list[dict[str, Any]]) -> int | None:
-    """Montako pelaajaa oli aseistettu freezetimen lopussa.
+def _armed_count(own_buy: list[dict[str, Any]]) -> int | None:
+    """Montako pelaajaa oli aseistettu ostoajan lopussa.
 
     Aseistettu = **panssari ja vähintään yksi ase hallussa**. Joukkuesumma ei
     kerro tätä: kaksi AK:ta ja kolme tyhjää antaa saman summan kuin viisi
     puolinaista, eikä varustearvo ylipäätään erota asetta panssarista ja
     kranaateista. Laskuri lasketaan **samasta joukosta** kuin summat ja
-    ``players_freeze_end`` (ks. :func:`_readable`), joten rivillä on vain yksi
+    ``players_buy_end`` (ks. :func:`_readable`), joten rivillä on vain yksi
     jakaja.
 
     Args:
-        own_freeze: :func:`_readable`-suodatettu joukkueen pelaajajoukko.
+        own_buy: :func:`_readable`-suodatettu joukkueen pelaajajoukko.
 
     Returns:
         Aseistettujen määrä, tai ``None`` jos lukua ei voi antaa.
@@ -2321,15 +2808,15 @@ def _armed_count(own_freeze: list[dict[str, Any]]) -> int | None:
         * **yhdenkin** pelaajan panssari tai tavaraluettelo on lukukelvoton.
 
         Jälkimmäinen tyhjentää koko rivin eikä vain pudota yhtä pelaajaa,
-        koska pelaaja pysyy silti ``players_freeze_end``in jakajassa: "3/5"
+        koska pelaaja pysyy silti ``players_buy_end``in jakajassa: "3/5"
         väittäisi, että kaksi oli aseetonta, vaikka totuus on ettei heitä
         saatu luettua. Vaiettu lukuvirhe näyttäisi säästökierrokselta.
     """
-    if not own_freeze:
+    if not own_buy:
         return None
-    if not all(_armed_readable(row) for row in own_freeze):
+    if not all(_armed_readable(row) for row in own_buy):
         return None
-    return sum(1 for row in own_freeze if _is_armed(row))
+    return sum(1 for row in own_buy if _is_armed(row))
 
 
 def _sum_or_none(values: list[int | None]) -> int | None:

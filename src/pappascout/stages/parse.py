@@ -6,7 +6,7 @@ Vaihe lukee yhden demon portin takaa ja kirjoittaa arkistoon
 
 ``rounds`` on kaksi riviä jokaista **pelattua** kierrosta kohden, yksi
 kummallekin joukkueelle, ja kaikki arvot ovat demosta *havaittuja*: raha ja
-varustearvo freezetimen lopussa, kierroksen alun varustearvo, eloonjääneet,
+varustearvo ostoajan lopussa, kierroksen alun varustearvo, eloonjääneet,
 voittaja ja voiton syy. Kierrostyyppi, loss count ja muut johdokset syntyvät
 vasta ``classify``-vaiheessa, joka laskee ne joka ajolla uudelleen.
 
@@ -176,6 +176,7 @@ def default_parser(settings: ParseSettings) -> DemoParser:
         exclude_weapons=settings.first_contact_exclude_weapons,
         fallback_death=settings.first_contact_fallback_death,
         area_snap_units=settings.area_snap_units,
+        buy_window_seconds=settings.buy_window_seconds,
     )
 
 
@@ -444,6 +445,92 @@ def _armed_stats(df: pl.DataFrame) -> dict[str, object]:
         },
         "armed_missing": int(column.null_count()),
     }
+
+
+def _buy_window_stats(
+    df: pl.DataFrame, diagnostics: object
+) -> dict[str, object]:
+    """Ostoikkunan luvut **pelatuista kierroksista**, ei kaikista kierrosrajoista.
+
+    Adapteri antaa katkaisut ``round_raw``-numeroina eikä valmiina lukuina, ja
+    syy on puukkokierros: se saa oman ``round_raw``:nsa mutta ei ole kierros
+    eikä päädy tauluun. Adapterin laskema luku sisältäisi sen, eikä sitä voisi
+    enää vähentää pois -- käyttäjä näkisi "13 katkaisua" taulussa, jossa niitä
+    on 12. Sama koskee mittaushetkien jakaumaa: puukkokierros ratkeaa ennen
+    ikkunan loppua, joten sen mukanaolo vetäisi jakauman alarajan sekunnin
+    murto-osiin ja väittäisi mittausta, jota kierroslistalla ei ole.
+
+    Mittaushetkien jakauma lasketaan kokonaan täällä, suoraan kirjoitettavasta
+    taulusta: se on ``buy_end_tick``-sarakkeen ainoa näkyvä muoto, ja jos
+    sarake ja tuloste voisivat erkaantua, tarkistettavuus olisi näennäistä.
+
+    Args:
+        df: Valmis kierrostaulu, vain pelatut kierrokset.
+        diagnostics: Portin diagnostiikka, tai ``None``.
+
+    Returns:
+        Vain ne avaimet, jotka voidaan laskea. Puuttuva avain tarkoittaa
+        ohitettua ajoa, ja ``cli`` jättää rivin silloin pois -- "ei yhtään"
+        olisi väite, jota mikään ei tue.
+    """
+    if diagnostics is None:
+        return {}
+
+    played = set(df["round_raw"].to_list()) if not df.is_empty() else set()
+    cuts = [
+        (round_raw, missed)
+        for round_raw, missed in getattr(diagnostics, "buy_window_cuts", ()) or ()
+        if round_raw in played
+    ]
+    unchecked = [
+        round_raw
+        for round_raw in getattr(diagnostics, "buy_window_unchecked_cuts", ()) or ()
+        if round_raw in played
+    ]
+
+    stats: dict[str, object] = {
+        "buy_window_seconds": getattr(diagnostics, "buy_window_seconds", None),
+        "buy_end_offsets_s": _buy_end_offsets(df),
+        "buy_window_truncated_by_death": len(cuts),
+        "buy_window_purchases_after_cut": sum(missed for _, missed in cuts),
+        "buy_window_cuts_unchecked": len(unchecked),
+        "buy_window_rounds_with_lost_purchases": tuple(
+            round_raw for round_raw, missed in cuts if missed
+        ),
+    }
+    for name in (
+        "buy_window_ticks_without_players",
+        "buy_window_players_lost",
+        "buy_window_sides_without_rows",
+        "buy_window_refunds",
+        "buy_window_stale_equipment",
+    ):
+        stats[name] = getattr(diagnostics, name, 0)
+    return stats
+
+
+def _buy_end_offsets(df: pl.DataFrame) -> tuple[float, float, float] | None:
+    """Mittaushetkien jakauma sekunteina ankkurista: ``(pienin, mediaani, suurin)``.
+
+    Asetus lupaa ikkunan pituuden; nämä kolme lukua kertovat mihin mittaus
+    oikeasti osui. Jos ikkuna on 20 s mutta mediaani 12 s, kuolema katkaisee
+    ikkunan useammin kuin ei -- eikä sitä näe asetuksesta.
+
+    Returns:
+        Kolmikko sekunteina, tai ``None`` jos yhdelläkään rivillä ei ole
+        molempia tickejä eikä kelvollista tickratea.
+    """
+    if df.is_empty():
+        return None
+    frame = df.filter(
+        pl.col("buy_end_tick").is_not_null()
+        & pl.col("freeze_end_tick").is_not_null()
+        & (pl.col("tick_rate") > 0)
+    )
+    if frame.is_empty():
+        return None
+    offsets = (frame["buy_end_tick"] - frame["freeze_end_tick"]) / frame["tick_rate"]
+    return float(offsets.min()), float(offsets.median()), float(offsets.max())
 
 
 def _stats(
@@ -761,6 +848,9 @@ def run(
     ).write(manifest_abs)
 
     stats = _stats(df, ticks, events, skipped_rounds)
+    # Ostoikkunan luvut lasketaan **valmiista taulusta**, jotta puukkokierros
+    # ei ole niissä mukana; ks. _buy_window_stats.
+    stats.update(_buy_window_stats(df, diagnostics))
     # Tuntemattomat tavaraluettelon nimet: ne eivät ole taulussa, koska ne
     # eivät aseista ketään -- ilman tätä riviä uusi ase näyttäisi täsmälleen
     # samalta kuin uusi veitsiskini. Avain asetetaan **jokaisessa tuoreessa
@@ -794,6 +884,10 @@ def run(
         stats["armed_unreadable_rows"] = getattr(
             diagnostics, "armed_unreadable_rows", 0
         )
+        # Ostoikkuna: mistä hetkestä luvut on luettu, kuinka usein kuolema
+        # katkaisi ikkunan ja **maksoiko katkaisu jotain**. Viimeinen on
+        # tämän tarinan tärkein luku: se on ainoa merkki siitä, että
+        # kompromissi puri, eikä sitä voi laskea valmiista taulusta.
         stats["unknown_side_events"] = getattr(
             diagnostics, "unknown_side_events", 0
         )

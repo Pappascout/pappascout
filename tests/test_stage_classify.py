@@ -42,6 +42,7 @@ from pappascout.domain.schemas import (
     validate,
 )
 from pappascout.errors import PappascoutError, SchemaError
+from test_calibration import TRUTH_TABLE
 from pappascout.stages import classify as classify_stage
 from pappascout.stages import parse as parse_stage
 
@@ -92,14 +93,17 @@ def round_rows(
                 "side": side,
                 "won": won,
                 "win_reason": win_reason,
-                "money_freeze_end": None if status != "ok" else money,
+                "money_buy_end": None if status != "ok" else money,
                 "money_spent": None if status != "ok" else spent,
-                "equip_freeze_end": None if status != "ok" else equip,
+                "equip_buy_end": None if status != "ok" else equip,
                 "equip_round_start": None if status != "ok" else start,
-                "players_freeze_end": None if status != "ok" else players,
+                "players_buy_end": None if status != "ok" else players,
                 "survivors": 2 if won else 0,
                 "survivors_equip_prev": 0,
                 "freeze_end_tick": None if status != "ok" else 1000 * round_no,
+                # Eri kuin ankkuri, kuten oikeassa ajossa: tyhjäksi jätetty
+                # sarake ei paljastaisi, jos vaihe pudottaisi sen matkalta.
+                "buy_end_tick": None if status != "ok" else 1000 * round_no + 1280,
                 "tick_rate": 64.0,
                 "status": status,
             }
@@ -745,7 +749,7 @@ def test_markdown_row_matches_the_parquet_row(settings, parsed) -> None:
     # Ja per pelaaja -arvot vastaavat inputs-rakennetta.
     inputs = expected["inputs"]
     assert fields["Varusteet"] == str(
-        per_player(inputs["equip_freeze_end"], inputs["players"])
+        per_player(inputs["equip_buy_end"], inputs["players"])
     )
 
 
@@ -841,7 +845,7 @@ def test_inputs_carry_the_money_that_was_available(settings, parsed) -> None:
     df = pl.read_parquet(parsed.classified(A, MAP_DEMO_ID))
     for inputs in df["inputs"].to_list():
         assert inputs["money_spent"] == 20000
-        assert inputs["money_freeze_end"] + inputs["money_spent"] == 25000
+        assert inputs["money_buy_end"] + inputs["money_spent"] == 25000
         assert inputs["force_buy_min"] == settings.thresholds.force_buy_min
         assert (
             inputs["force_money_left_max"]
@@ -857,12 +861,16 @@ def real_rounds(demo_name: str, map_demo_id: str) -> pl.DataFrame:
     from pappascout.adapters.demo_parser import Demoparser2Adapter
 
     # Yksi näytepiste riittää: tämä apuri käyttää vain kierrostaulua, ja
-    # portti palauttaa molemmat samasta lukukerrasta. Poissulkulista on
-    # tuotannon, jotta adapteri ajetaan samoilla säännöillä kuin oikeasti.
+    # portti palauttaa molemmat samasta lukukerrasta. Poissulkulista **ja
+    # ostoikkuna** ovat tuotannon, jotta adapteri ajetaan samoilla säännöillä
+    # kuin oikeasti. Ilman ikkunaa adapterin oletus on 0,0 eli mittaus
+    # ankkurilta, ja koko tämän tiedoston demopohjainen sarja varmentaisi
+    # tuomioita luvuista, joita tuote ei enää tuota.
     parse_settings_real = load_settings(REAL_SETTINGS, env_files=()).parse
     adapter = Demoparser2Adapter(
         exclude_weapons=parse_settings_real.first_contact_exclude_weapons,
         fallback_death=parse_settings_real.first_contact_fallback_death,
+        buy_window_seconds=parse_settings_real.buy_window_seconds,
     )
     tables = adapter.parse_demo(require_demo(demo_name), (6.0,))
     raw = mark_played_rounds(tables.rounds)
@@ -953,4 +961,86 @@ def test_opponent_type_matches_the_other_teams_own_type(
 
     assert own.sort("round_no")["round_type"].to_list() == (
         other.sort("round_no")["opp_round_type"].to_list()
+    )
+
+
+# --- Kalibrointi oikealla demolla (Story 1.9) ---------------------------------
+
+
+@pytest.mark.demo
+def test_ancient_calibration_verdicts_hold_on_the_real_demo(
+    settings_file: Path,
+) -> None:
+    """Kalibroinnin 15 tuomiota **oikeasta demosta**, ei käsin rakennetusta rivistä.
+
+    ``test_calibration.py`` pinnaa säännön: annetuilla luvuilla se antaa
+    Veetin tuomion. Se ei voi todeta, että demosta luetaan **ne luvut** --
+    taulun rivit ovat siellä syöte, ja jos mittaus ajautuu erilleen, sääntö
+    menee yhä läpi omilla luvuillaan.
+
+    Tämä sulkee ketjun toisesta päästä: demo parsitaan tuotannon asetuksilla,
+    luokitellaan tuotannon kynnyksillä, ja jokaisen 15 rivin tuomiota
+    verrataan Veetin antamaan. Aiempi varmistus,
+    :func:`test_ancient_has_no_unclassified_rounds`, tyytyy siihen ettei arvo
+    ole tyhjä -- minkä ``anomaly`` ja mikä tahansa väärä tuomio täyttää, eikä
+    se kata kolmeatoista näistä viidestätoista rivistä lainkaan.
+
+    **Luvut tarkistetaan tuomion lisäksi**, koska tuomio kestää yllättävän
+    suuria muutoksia: kierros 21 T on eco sekä 710 että 750 dollarilla, joten
+    pelkkä tuomio ei huomaisi mittauspisteen liukumista.
+    """
+    thresholds = load_settings(settings_file, env_files=()).thresholds
+    df = real_rounds(ANCIENT_DEM, "ancient")
+
+    observed: dict[tuple[int, str], dict] = {}
+    for team in df["lineup_key"].unique().to_list():
+        result, _ = classify_stage.classify_rounds(df, team, thresholds, "ancient")
+        for row in result.iter_rows(named=True):
+            observed[(int(row["round_no"]), str(row["side"]))] = row
+
+    for k in TRUTH_TABLE:
+        row = observed.get((k.round_no, k.side))
+        assert row is not None, f"kierros {k.round_no} {k.side} puuttuu demosta"
+
+        assert row["round_type"] == k.truth, (
+            f"Kierros {k.round_no} {k.side}: Veeti sanoo {k.truth!r} "
+            f"({k.basis}), demosta luokiteltuna {row['round_type']!r}. "
+            f"Perustelu: {row['reason']}"
+        )
+
+        inputs = row["inputs"]
+        players = int(inputs["players"])
+        left = per_player(inputs["money_buy_end"], players)
+        equip = per_player(inputs["equip_buy_end"], players)
+        bought = per_player(
+            inputs["equip_buy_end"] - inputs["equip_round_start"], players
+        )
+        assert (left, bought, equip) == (k.left, k.bought, k.equip), (
+            f"Kierros {k.round_no} {k.side}: totuustaulun luvut ovat "
+            f"{(k.left, k.bought, k.equip)}, demo antaa "
+            f"{(left, bought, equip)} (jäljellä / ostettu / varusteet, "
+            "$/pelaaja). Päivitä taulun luvut ja muutosloki -- tuomioon ei "
+            "kosketa."
+        )
+
+
+@pytest.mark.demo
+def test_the_calibration_demo_is_measured_from_the_buy_window(
+    settings_file: Path,
+) -> None:
+    """Kalibrointidemo mitataan ostoajan lopusta, ei ankkurista.
+
+    Edellinen testi menisi läpi myös silloin, jos sekä mittaus että
+    totuustaulu palautuisivat yhtä matkaa ankkuriin -- kaksi virhettä, jotka
+    kumoavat toisensa. Tämä toteaa mittauspisteen suoraan: jokaisella
+    kierroksella on ``buy_end_tick``, ja niistä ainakin yksi on ankkurin
+    jäljessä.
+    """
+    df = real_rounds(ANCIENT_DEM, "ancient")
+
+    assert df["buy_end_tick"].null_count() == 0
+    later = df.filter(pl.col("buy_end_tick") > pl.col("freeze_end_tick"))
+    assert later.height > 0, (
+        "yhdelläkään kierroksella mittauspiste ei ole ankkurin jäljessä -- "
+        "real_rounds ajaa todennäköisesti ilman tuotannon ostoikkunaa"
     )

@@ -89,16 +89,21 @@ def build_rounds(
                     "side": side,
                     "won": side == "T",
                     "win_reason": "ct_killed",
-                    "money_freeze_end": None if no_anchor else 3000 + index,
-                    "equip_freeze_end": None if no_anchor else 20000 + index,
+                    "money_buy_end": None if no_anchor else 3000 + index,
+                    "equip_buy_end": None if no_anchor else 20000 + index,
                     "equip_round_start": None if no_anchor else 1000 + index,
-                    "players_freeze_end": None if no_anchor else 5,
+                    "players_buy_end": None if no_anchor else 5,
                     # Adapteri antaa laskurin valmiina; vaihe vain kuljettaa
                     # sen. Puolikohtainen ero tekee kuljetuksesta todettavan.
                     ARMED_COLUMN: None if no_anchor else 5 - index,
                     "survivors": index,
                     "survivors_equip_prev": 500,
                     "freeze_end_tick": None if no_anchor else 1000 * round_raw,
+                    # Mittauspiste on tarkoituksella eri kuin ankkuri: jos se
+                    # jätettäisiin täyttämättä, Polars täyttäisi sen tyhjällä
+                    # eikä yksikään vaihetesti näkisi saraketta koskaan
+                    # täytettynä.
+                    "buy_end_tick": None if no_anchor else 1000 * round_raw + 1280,
                     "tick_rate": 64.0,
                     "status": "no_freeze_end" if no_anchor else "ok",
                     "score_start": start,
@@ -1809,3 +1814,153 @@ def test_changing_the_snap_distance_forces_a_reparse(
 
     assert not result.skipped, "vanhalla rajalla laskettu alue olisi jäänyt voimaan"
     assert parser.calls == 2
+
+
+# --- Ostoikkuna (Story 1.9) ---------------------------------------------------
+
+
+def test_default_parser_hands_the_buy_window_to_the_adapter(parse_settings) -> None:
+    """Ostoikkuna on kytkettävä portille asti.
+
+    Adapterin oletus on **0**, eli mittaus ankkurista. Jos kwarg unohtuisi
+    tästä, koko putki mittaisi hiljaa freezetimen lopusta -- täsmälleen se
+    vika, jonka Story 1.9 korjaa -- eikä yksikään muu testi huomaisi sitä,
+    koska ne rakentavat adapterin itse.
+    """
+    port = parse_stage.default_parser(parse_settings)
+
+    assert port.buy_window_seconds == parse_settings.buy_window_seconds
+    assert port.buy_window_seconds > 0, "asetus on pelin sääntö, ei nolla"
+
+
+def test_changing_the_buy_window_forces_a_reparse(
+    tmp_path: Path, archive, demo
+) -> None:
+    """I/O-matriisi: ``buy_window_seconds`` muuttuu -> ``parse`` ajetaan uudelleen.
+
+    Ikkuna siirtää jokaisen talousrivin mittaushetkeä, joten vanha tulos ei ole
+    ajan tasalla. Se on ``[parse]``-osiossa juuri siksi: kynnysten säätö ei
+    parsi uudelleen, mutta mittauspisteen siirto parsii.
+    """
+    base_toml = tmp_path / "perus.toml"
+    base_toml.write_text(settings_text(archive.root), encoding="utf-8")
+    changed_toml = tmp_path / "muutettu.toml"
+    changed_toml.write_text(
+        settings_text(
+            archive.root,
+            **{"buy_window_seconds = 20.0": "buy_window_seconds = 5.0"},
+        ),
+        encoding="utf-8",
+    )
+
+    parser = FakeParser()
+    run_parse(load_settings(base_toml, env_files=()).parse, archive, parser, demo)
+    result = run_parse(
+        load_settings(changed_toml, env_files=()).parse, archive, parser, demo
+    )
+
+    assert not result.skipped
+    assert parser.calls == 2
+
+
+def test_the_knife_round_is_not_counted_in_the_buy_window_numbers(
+    parse_settings, archive, demo
+) -> None:
+    """Ostoikkunan luvut lasketaan **pelatuista** kierroksista.
+
+    Puukkokierros saa oman ``round_raw``:nsa, mutta se ei ole kierros eikä
+    päädy tauluun. Adapteri ei tiedä sitä, joten se antaa katkaisut
+    ``round_raw``-numeroina ja vaihe suodattaa ne. Ilman suodatusta käyttäjä
+    näkisi rivin "3 kierrosta mitattiin aiemmin" taulussa, jossa niitä on
+    kaksi -- ja mittaushetkien jakauma alkaisi puukkokierroksen sekunnin
+    murto-osista.
+
+    ``build_rounds`` tuottaa yhden numeroimattoman kierroksen (``round_raw``
+    1) ja kolme pelattua (2-4), joten katkaisu numerolla 1 on juuri se, jonka
+    on kadottava.
+    """
+
+    class _Cutting(FakeParser):
+        diagnostics = ParseDiagnostics(
+            tick_rate=64.0,
+            tick_rate_measured=True,
+            rounds_seen=4,
+            buy_window_seconds=20.0,
+            # Puukkokierros (1) ja kaksi pelattua (2, 3); kierroksella 3 jäi
+            # yksi ostos katkaisun taakse.
+            buy_window_cuts=((1, 4), (2, 0), (3, 1)),
+            buy_window_unchecked_cuts=(1, 2),
+        )
+
+    result = run_parse(parse_settings, archive, _Cutting(), demo)
+    stats = result.stats
+
+    assert stats["buy_window_truncated_by_death"] == 2
+    # Puukkokierroksen neljä menetettyä ostosta eivät ole taulussa, joten ne
+    # eivät saa olla luvussakaan.
+    assert stats["buy_window_purchases_after_cut"] == 1
+    assert stats["buy_window_rounds_with_lost_purchases"] == (3,)
+    assert stats["buy_window_cuts_unchecked"] == 1
+
+
+def test_the_measurement_offsets_come_from_the_written_table(
+    parse_settings, archive, demo
+) -> None:
+    """Mittaushetkien jakauma lasketaan siitä taulusta, joka kirjoitetaan.
+
+    Se on ``buy_end_tick``-sarakkeen ainoa näkyvä muoto. Jos jakauma tulisi
+    muualta, sarake ja tuloste voisivat erkaantua, ja tarkistettavuus olisi
+    näennäistä.
+
+    ``build_rounds`` asettaa mittauspisteen 1280 tickin päähän ankkurista
+    jokaisella kierroksella, eli 20,0 sekuntiin tickratella 64.
+    """
+
+    class _Measured(FakeParser):
+        diagnostics = ParseDiagnostics(
+            tick_rate=64.0,
+            tick_rate_measured=True,
+            rounds_seen=4,
+            buy_window_seconds=20.0,
+        )
+
+    result = run_parse(parse_settings, archive, _Measured(), demo)
+    assert result.stats["buy_end_offsets_s"] == (20.0, 20.0, 20.0)
+
+
+def test_a_port_without_buy_window_diagnostics_claims_nothing(
+    parse_settings, archive, demo
+) -> None:
+    """Portti, joka ei kerro ostoikkunasta, ei saa tuottaa nollia.
+
+    ``getattr``-oletus 0 tekisi tuntemattomasta puhtaan ajon näköisen: "ei
+    yhtään katkaisua" olisi väite, jota mikään ei tue.
+    """
+
+    class _Silent(FakeParser):
+        diagnostics = ParseDiagnostics(
+            tick_rate=64.0, tick_rate_measured=True, rounds_seen=4
+        )
+
+    result = run_parse(parse_settings, archive, _Silent(), demo)
+    assert result.stats["buy_window_seconds"] is None
+    assert result.stats["buy_window_truncated_by_death"] == 0
+    assert result.stats["buy_window_purchases_after_cut"] == 0
+
+
+def test_a_skipped_run_has_no_buy_window_numbers(
+    parse_settings, archive, demo
+) -> None:
+    """Ohitetussa ajossa lukuja ei ole, eikä niitä keksitä.
+
+    Katkaisuja ja menetettyjä ostoja ei voi lukea valmiista taulusta, joten
+    avaimet puuttuvat kokonaan ja ``cli`` jättää rivit pois -- sama sääntö
+    kuin uudelleenaloituksilla ja tuntemattomilla esineillä.
+    """
+    parser = FakeParser()
+    run_parse(parse_settings, archive, parser, demo)
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.skipped
+    assert "buy_window_truncated_by_death" not in result.stats
+    assert "buy_end_offsets_s" not in result.stats

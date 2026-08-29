@@ -173,8 +173,8 @@ def test_classified_keeps_decision_inputs() -> None:
     """Jokainen luokiteltu rivi kantaa perustelun ja päätöksen syötteet."""
     assert CLASSIFIED["reason"] == pl.Utf8
     fields = {field.name for field in CLASSIFIED["inputs"].fields}
-    assert "equip_freeze_end" in fields
-    assert "money_freeze_end" in fields
+    assert "equip_buy_end" in fields
+    assert "money_buy_end" in fields
     assert "full_equip_min" in fields
 
 
