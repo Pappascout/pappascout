@@ -39,6 +39,15 @@ numeroimattomien kierrosten rivit samalla, kun se liittää ``round_no``:n
 avaimella ``round_raw``. Näin puukkokierros ei tuota tick- eikä
 tapahtumarivejä, eikä adapterin tarvitse tuntea numerointisääntöä.
 
+Yhden tapauksen ratkaisee jo adapteri: **ottelun uudelleenaloitus**. Sillä on
+freezetime-ankkuri mutta ei ``round_end``iä, ja demon oma kierrosnumerointi
+jatkuu sen yli yhdellä -- se ei siis ole kierros lainkaan, eikä sillä ole edes
+``round_raw``:ta, jonka varassa se voisi kulkea tänne asti. Adapteri ei tuota
+siitä yhtään riviä, ja kertoo lukumäärän diagnostiikassaan
+(``match_restarts``); vaihe välittää sen ajon yhteenvetoon. Luku on eri asia
+kuin yllä mainittu ohitettujen kierrosten määrä: ohitettu kierros on taulussa
+ilman ``round_no``:ta, uudelleenaloitus ei ole taulussa lainkaan.
+
 Tarkistukset ennen kirjoitusta
 ------------------------------
 Vaihe validoi sekä lukemansa että kirjoittamansa taulun (AD-2), ja lisäksi
@@ -675,6 +684,14 @@ def run(
         if diagnostics is None
         else tuple(getattr(diagnostics, "unknown_inventory_items", ()) or ())
     )
+    # Ottelun uudelleenaloitus ei tuota riviä yhteenkään tauluun, joten sen
+    # määrää **ei voi laskea valmiista tuloksesta**. Kolme tilaa on pidettävä
+    # erillään täsmälleen kuten yllä: avain puuttuu (ohitettu ajo), ``None``
+    # (tuore ajo, portti ei kerro) ja luku (tuore ajo, portti kertoo). Ilman
+    # eroa välimuistista ajettu demo väittäisi hiljaa "ei uudelleenaloitusta".
+    stats["match_restarts"] = (
+        None if diagnostics is None else getattr(diagnostics, "match_restarts", None)
+    )
     # Vain tuoreesta ajosta: numeroimattomien kierrosten rivit eivät ole
     # taulussa, joten ohitetusta ajosta lukua ei voi lukea takaisin.
     stats["utility_unnumbered_rounds"] = unnumbered
@@ -787,8 +804,8 @@ def _parse_tables(
     if df.is_empty():
         raise ParseError(
             f"Demosta {demo_path.name} ei löytynyt yhtään pelattua kierrosta "
-            f"({skipped_rounds} kierrosrajaa oli warmupia, puukkokierros tai "
-            "uudelleenkäynnistys).\n"
+            f"({skipped_rounds} kierrosrajaa oli warmupia tai "
+            "puukkokierros).\n"
             "Tyhjää tulosta ei kirjoiteta -- muuten se jäisi manifestin "
             "perusteella pysyvästi ohitetuksi. Tarkista, että demo on koko "
             "ottelun tallenne."

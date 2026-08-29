@@ -25,6 +25,8 @@ from conftest import (
     ANCIENT_DEM,
     ANCIENT_ROUNDS,
     ANCIENT_ZST,
+    LEAGUE_DEMO_FILES,
+    LEAGUE_DEMOS,
     NUKE_ROUNDS,
     NUKE_ZST,
     REAL_SETTINGS,
@@ -496,8 +498,18 @@ def test_ancient_inventories_match_the_calibration_table() -> None:
         )
 
 
+#: Kaikki koneella olevat demot: kaksi vanhaa testidemoa ja neljä liigademoa.
+#: Aineistoa koskevat väitteet ajetaan koko aineistolla -- liigademot ovat se
+#: aineisto, jota vasten tuote lopulta arvioidaan.
+ALL_DEMOS: tuple[str, ...] = (
+    ANCIENT_DEM,
+    NUKE_ZST,
+    *(name for name, _ in LEAGUE_DEMOS),
+)
+
+
 @pytest.mark.demo
-@pytest.mark.parametrize("demo_name", [ANCIENT_DEM, NUKE_ZST])
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_real_demo_has_no_unknown_inventory_items(demo_name: str) -> None:
     """Aseluokittelu tuntee jokaisen nimen, jonka testidemot sisältävät.
 
@@ -519,7 +531,7 @@ def test_real_demo_has_no_unknown_inventory_items(demo_name: str) -> None:
 
 
 @pytest.mark.demo
-@pytest.mark.parametrize("demo_name", [ANCIENT_DEM, NUKE_ZST])
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_armed_count_stays_within_its_divisor(demo_name: str) -> None:
     """``0 <= players_armed_freeze_end <= players_freeze_end`` joka rivillä.
 
@@ -553,7 +565,7 @@ def test_armed_count_stays_within_its_divisor(demo_name: str) -> None:
 @pytest.mark.demo
 @pytest.mark.parametrize(
     "demo_name,expected_rounds",
-    [(ANCIENT_DEM, ANCIENT_ROUNDS), (NUKE_ZST, NUKE_ROUNDS)],
+    [(ANCIENT_DEM, ANCIENT_ROUNDS), (NUKE_ZST, NUKE_ROUNDS), *LEAGUE_DEMOS],
 )
 def test_real_demos_obey_the_cs2_win_rule(
     demo_name: str, expected_rounds: int
@@ -592,6 +604,130 @@ def test_round_raw_is_the_demo_own_counter() -> None:
     played = df.filter(pl.col("round_no").is_not_null())
     assert sorted(played["round_raw"].unique().to_list()) == list(range(2, 23))
     assert df.filter(pl.col("round_no").is_null())["round_raw"].unique().to_list() == [1]
+
+
+# --- Liigademot ja ottelun uudelleenaloitus -------------------------------------
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name,expected_rounds", LEAGUE_DEMOS)
+def test_league_demo_parses_despite_the_match_restart(
+    demo_name: str, expected_rounds: int
+) -> None:
+    """Liigademo parsiutuu, ja uudelleenaloitus jää kierrosten ulkopuolelle.
+
+    Nämä neljä kaatuivat aiemmin monotonisuustarkistukseen: puukkokierroksen
+    jälkeinen uudelleenaloitus sai naapurista numeron, joka osui heti perään
+    demon omaan numeroon. Nyt se jää numeroimattomaksi, ja kierrosmäärä on
+    demon ``round_end``-tapahtumien määrä miinus puukkokierros.
+    """
+    parser = real_parser()
+    df = mark_played_rounds(
+        parser.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
+    )
+    played = df.filter(pl.col("round_no").is_not_null())
+
+    assert played["round_no"].n_unique() == expected_rounds
+    assert played.height == 2 * expected_rounds
+    assert sorted(played["round_no"].unique().to_list()) == list(
+        range(1, expected_rounds + 1)
+    )
+    # Puukkokierros on demon kierros 1, joten pelatut alkavat raaka-arvosta 2.
+    # Uudelleenaloitusta ei ole taulussa lainkaan, joten jono on aukoton.
+    assert sorted(played["round_raw"].unique().to_list()) == list(
+        range(2, expected_rounds + 2)
+    )
+    assert df.filter(pl.col("round_no").is_null())["round_raw"].to_list() == [1, 1]
+
+    assert parser.diagnostics is not None
+    # Tasan yksi: useampi tarkoittaisi eri ilmiötä, ja parsinta pysähtyisi.
+    assert parser.diagnostics.match_restarts == 1
+    assert parser.diagnostics.rounds_seen == expected_rounds + 2
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name,expected_rounds", LEAGUE_DEMOS)
+def test_league_demo_counters_are_observations(
+    demo_name: str, expected_rounds: int
+) -> None:
+    """Liigademon havainnot ovat demosta eivätkä tyhjiä tai oletettuja.
+
+    Uudelleenaloitus katkaisee kaluston ja rahan ketjun heti demon alussa, ja
+    juuri siinä kohdassa hiljainen tyhjä rivi olisi helppo jäädä huomaamatta.
+    """
+    df = mark_played_rounds(
+        real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    for name in (
+        "money_freeze_end",
+        "money_spent",
+        "equip_freeze_end",
+        "players_freeze_end",
+        "survivors",
+    ):
+        assert df[name].null_count() == 0, name
+    assert df["players_freeze_end"].unique().to_list() == [5]
+    assert df["equip_freeze_end"].min() > 0
+    # Jokainen kierros ratkeaa jommalle kummalle: tasan yksi voittaja per
+    # kierros ja tasan kaksi riviä.
+    assert df.filter(pl.col("won"))["round_no"].n_unique() == expected_rounds
+    assert df.group_by("round_no").len()["len"].unique().to_list() == [2]
+    # Ensimmäinen kierros on pistoolikierros myös uudelleenaloituksen jälkeen:
+    # jos numerointi olisi siirtynyt yhdellä, tämä osuisi täyteen ostoon.
+    # 5 pelaajaa x (pistooli 200..800 + kevlar 650..1000) -> alle 10 000 $,
+    # kun täysi osto on noin 21 000 $.
+    pistol = df.filter(pl.col("round_no") == 1)
+    assert pistol.height == 2
+    assert pistol["equip_freeze_end"].max() < 10_000
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name,expected_rounds", LEAGUE_DEMOS)
+def test_league_round_count_matches_the_demos_own_event_stream(
+    demo_name: str, expected_rounds: int
+) -> None:
+    """Kierrosmäärän oraakkeli luetaan demosta **ohi oman numerointimme**.
+
+    ``LEAGUE_DEMOS``in luvut mitattiin adapterilla, eli sillä koodilla jota ne
+    testaavat. Yksin ne siis todistaisivat vain, ettei tulos ole muuttunut --
+    eivät sitä, että se on oikea. Tässä sama luku johdetaan demoparser2:n
+    raa'asta tapahtumavirrasta: ``round_end``-tapahtumien määrä miinus
+    puukkokierros. Mikään tämän tarinan koodista ei ole välissä.
+
+    Ensimmäinen ``round_end`` on tyhjä alkuarvo tickissä 1 (ks.
+    :mod:`pappascout.adapters.demo_parser`), joten se rajataan pois samalla
+    ehdolla kuin adapterissa -- se on kirjaston ominaisuus eikä meidän
+    sääntömme.
+    """
+    from demoparser2 import DemoParser as _Demoparser2
+
+    frame = _Demoparser2(str(require_demo(demo_name))).parse_event("round_end")
+    ends = sum(1 for tick in frame["tick"] if tick > 1)
+    assert ends - 1 == expected_rounds
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", [name for name, _ in LEAGUE_DEMOS])
+def test_league_demo_is_the_file_the_numbers_were_measured_from(
+    demo_name: str,
+) -> None:
+    """Koko ja tiiviste erottavat **väärän** kopion puuttuvasta.
+
+    Liigademot ovat korvaamattomia: FACEIT ei enää tarjoa niitä. Puuttuva demo
+    saa ohittaa testin siististi, mutta väärä tai keskeneräinen kopio ei saa
+    mennä läpi hiljaa -- silloin koko uudelleenaloituksen regressiosarja ajaisi
+    eri aineistolla kuin se väittää.
+    """
+    path = require_demo(demo_name)
+    size, digest = LEAGUE_DEMO_FILES[demo_name]
+    assert path.stat().st_size == size, f"{demo_name}: koko ei täsmää"
+
+    reader = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            reader.update(chunk)
+    assert reader.hexdigest() == digest, f"{demo_name}: tiiviste ei täsmää"
 
 
 # --- Näytepisteet oikeasta demosta ---------------------------------------------

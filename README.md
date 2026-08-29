@@ -80,10 +80,28 @@ Ohituksen ehto lasketaan **koko `[parse]`-osiosta**, joten esimerkiksi
 ei olisi enää ajan tasalla. `[thresholds]`-arvon muuttaminen **ei** aiheuta
 uudelleenparsintaa: se on eri osio eikä tämä vaihe edes näe sitä.
 
-Warmup, puukkokierros ja uudelleenkäynnistykset eivät ole pelattuja kierroksia
-eivätkä päädy yhteenkään tauluun. `round_raw` on demoparser2:n
-`round_end`-tapahtuman oma kierrosnumero, joten ohitetut kierrokset näkyvät
-siinä aukkona: Ancientilla `round_no` 1..21 vastaa `round_raw`-arvoja 2..22.
+Warmup ja puukkokierros eivät ole pelattuja kierroksia eivätkä päädy
+yhteenkään tauluun. `round_raw` on demoparser2:n `round_end`-tapahtuman oma
+kierrosnumero, joten ne näkyvät siinä aukkona: Ancientilla `round_no` 1..21
+vastaa `round_raw`-arvoja 2..22. Ajon yhteenveto kertoo niiden määrän rivillä
+`Ohitetut kierrokset`.
+
+**Ottelun uudelleenaloitus** on oma tapauksensa, eikä se jätä aukkoa. Sillä on
+freezetime-ankkuri mutta ei `round_end`-tapahtumaa, ja demon oma
+kierrosnumerointi jatkuu sen yli yhdellä -- se ei siis kuluta kierrosnumeroa
+eikä ole kierros lainkaan. Liigademoissa niitä on tasan yksi, heti
+puukkokierroksen jälkeen. Uudelleenaloitus ei saa `round_raw`-arvoa eikä tuota
+riviä yhteenkään tauluun, ja sen määrä kerrotaan omalla rivillään
+`Uudelleenaloitukset` -- ohitettujen kierrosten luku **ei** sisällä sitä.
+
+Tunnistus nojaa havaintoihin eikä sijaintiin, ja epävarmuus pysäyttää ajon sen
+sijaan että kierros pudotettaisiin hiljaa. `parse` keskeytyy suomenkieliseen
+virheeseen, jos numeroimattoman kierrosrajan yli demon numerointi **hyppää**
+(väliin on jäänyt kierros, jota ei tunnistettu) tai jos uudelleenaloituksia on
+useampi kuin yksi (tuntematon ilmiö). Kummassakin viesti kertoo
+freezetime-tickit, joista demon voi avata. Kierrosraja, jolla on `round_end`
+mutta ei demon omaa numeroa, on kierros eikä uudelleenaloitus: se numeroidaan
+naapurista kuten ennenkin.
 
 Näytepisteitä on eri määrä eri kierroksilla: piste, joka osuisi kierroksen
 päättymisen jälkeen, jätetään pois. Jos kierros ratkeaa 28 sekunnissa, 30 ja 45

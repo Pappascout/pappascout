@@ -1316,6 +1316,53 @@ def test_unreadable_armed_rows_reach_the_stats(
     assert result.stats["armed_unreadable_rows"] == 2
 
 
+def test_match_restarts_reach_the_stats(
+    parse_settings, archive, demo
+) -> None:
+    """Uudelleenaloitusten määrä kulkee diagnostiikasta lukuihin.
+
+    Ottelun uudelleenaloitus ei tuota riviä yhteenkään tauluun, joten sen
+    määrää **ei voi laskea valmiista tuloksesta**. Ilman tätä yhtä riviä
+    pudotus olisi hiljainen: adapteri tietäisi sen, mutta kukaan ei kertoisi.
+    """
+    parser = FakeParser(build_rounds(played=3))
+    parser.diagnostics = ParseDiagnostics(
+        tick_rate=64.0,
+        tick_rate_measured=True,
+        rounds_seen=4,
+        match_restarts=1,
+    )
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.stats["match_restarts"] == 1
+
+
+def test_zero_match_restarts_is_not_the_same_as_no_answer(
+    parse_settings, archive, demo
+) -> None:
+    """Kolme tilaa pidetään erillään, kuten tuntemattomilla esineillä.
+
+    Portti, joka ei raportoi uudelleenaloituksia, saa ``None``:n; portti joka
+    raportoi nollan saa nollan. Ohitetussa ajossa avainta ei ole lainkaan.
+    Ilman eroa välimuistista ajettu demo väittäisi hiljaa "ei
+    uudelleenaloitusta".
+    """
+    reporting = FakeParser(build_rounds(played=3))
+    reporting.diagnostics = ParseDiagnostics(
+        tick_rate=64.0, tick_rate_measured=True, rounds_seen=3, match_restarts=0
+    )
+    assert run_parse(parse_settings, archive, reporting, demo).stats[
+        "match_restarts"
+    ] == 0
+
+    silent = FakeParser(build_rounds(played=3))
+    assert not hasattr(silent, "diagnostics")
+    result = run_parse(parse_settings, archive, silent, demo, force=True)
+    assert "match_restarts" in result.stats
+    assert result.stats["match_restarts"] is None
+
+
 def test_missing_output_forces_a_reparse(parse_settings, archive, demo) -> None:
     """OneDrive voi olla vielä siirtämässä tulosta -- manifesti ei yksin riitä."""
     parser = FakeParser()

@@ -58,6 +58,67 @@ NUKE_ZST = "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1.dem.zst"
 ANCIENT_ROUNDS = 21
 NUKE_ROUNDS = 28
 
+#: Pappaliigan viime kauden demot ja niiden pelatut kierrokset.
+#:
+#: **Korvaamatonta aineistoa.** FACEIT ei enää tarjoa näitä (säilytys ~30 pv),
+#: eikä uusintaa ole. Ne ovat ainoa liigadata, jota vasten ottelun
+#: uudelleenaloituksen käsittely on todennettu, eivätkä ne ole repossa vaan
+#: arkiston ``import/``-hakemistossa. :func:`require_demo` ohittaa testin
+#: siististi, jos niitä ei ole -- eli toisella koneella koko regressiosarja
+#: haihtuu äänettömästi. Siksi koko ja tiiviste ovat kirjattuina
+#: :data:`LEAGUE_DEMO_FILES`iin: väärä tai typistynyt kopio erottuu
+#: puuttuvasta.
+#:
+#: Kaikissa neljässä on puukkokierroksen jälkeen ottelun uudelleenaloitus: oma
+#: ``round_freeze_end`` ilman ``round_end``iä, ja demon oma kierrosnumerointi
+#: jatkuu sen yli yhdellä. Se pelataan, mutta se ei ole kierros. Kuvion mittaus
+#: on tallessa BMAD-projektin tiedostossa
+#: ``_bmad-output/implementation-artifacts/vika-kierrosnumerointi.md``, joka on
+#: **tämän repon ulkopuolella**; olennainen sisältö on toistettu
+#: :mod:`pappascout.adapters.demo_parser`in moduulidokumentaatiossa, jottei
+#: testi nojaa tiedostoon jota täällä ei ole.
+#:
+#: **Kierrosmäärän oraakkeli ei ole oman koodimme tuotos.** Se on demon omien
+#: ``round_end``-tapahtumien määrä miinus puukkokierros, luettuna suoraan
+#: demoparser2:n tapahtumavirrasta ohi kierrosnumeroinnistamme. Sama johdos
+#: ajetaan testinä
+#: (``test_league_round_count_matches_the_demos_own_event_stream``), joten luku
+#: ei voi ajautua yhtä matkaa numeroinnin kanssa.
+#:
+#: **Älä käytä puolikohtaisia voittoja ottelun tuloksena.** Puolet vaihtuvat
+#: puoliajalla, joten ``round_end``in ``winner``-kentän T/CT-jakauma ei ole
+#: joukkueen tulos vaan puolen tulos.
+LEAGUE_DEMOS: tuple[tuple[str, int], ...] = (
+    ("Ancient_vs_kaljukostaja.dem", 20),
+    ("Anubis_vs_ryhmarama.dem", 22),
+    ("Nuke_vs_imuaijat.dem", 23),
+    ("inferno_vs_ryhmarama.dem", 20),
+)
+
+#: Liigademojen koko tavuina ja SHA-256, mitattu 2026-08-29.
+#:
+#: Nämä eivät ole varmuuskopio vaan **tunniste**: jos arkiston tiedosto ei
+#: täsmää, testien luvut eivät koske sitä tiedostoa. Puuttuva demo ohitetaan
+#: siististi, mutta väärä demo ei saa mennä läpi hiljaa.
+LEAGUE_DEMO_FILES: dict[str, tuple[int, str]] = {
+    "Ancient_vs_kaljukostaja.dem": (
+        379_946_762,
+        "286e3f79fb192386e1fa9fea1503b91fa17ee24efde9aa11d35e63348fc8ecff",
+    ),
+    "Anubis_vs_ryhmarama.dem": (
+        437_437_483,
+        "4e1525551c9be68ee2ea66a5dce60b75a38aca19e97be89f0e37f58d8ccf336f",
+    ),
+    "Nuke_vs_imuaijat.dem": (
+        444_162_824,
+        "7290f40bd0ff7721ca6f3c989d357b5d8d47396f1ccba6916a1f7bfda3616e9f",
+    ),
+    "inferno_vs_ryhmarama.dem": (
+        453_514_645,
+        "a33e8bbf1054dc6b17b030a9b86f015b0e9138444a3d42e70fea1446e94021b1",
+    ),
+}
+
 
 def require_demo(name: str) -> Path:
     """Palauta oikean demon polku tai ohita testi selkeällä syyllä.

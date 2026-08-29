@@ -286,9 +286,11 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
         lines.append(
             _line(
                 "Ohitetut kierrokset",
-                f"{skipped_rounds} (warmup, puukkokierros ja uudelleenkäynnistykset)",
+                f"{skipped_rounds} (warmup ja puukkokierros)",
             )
         )
+
+    lines.extend(_match_restarts(stats))
 
     no_anchor = int(stats.get("no_freeze_end", 0) or 0)
     if no_anchor:
@@ -365,6 +367,48 @@ def _armed_players(stats: dict) -> list[str]:
     if missing:
         text += f"; havainto puuttuu {missing} riviltä"
     return [_line("Aseistettuja", text)] + _armed_unknown_items(stats)
+
+
+def _match_restarts(stats: dict) -> list[str]:
+    """Ottelun uudelleenaloitukset ``parse``-tulosteeseen.
+
+    Uudelleenaloitus ei ole kierros: se ei päädy tauluun lainkaan, joten se
+    **ei sisälly** ohitettujen kierrosten lukuun. Oma rivinsä siis, muuten
+    kaksi riviä laskisi saman asian tai pudotus jäisi hiljaiseksi.
+
+    Kolme tilaa pidetään erillään samoin kuin :func:`_armed_unknown_items`issa:
+
+    ``match_restarts`` puuttuu
+        Ohitettu ajo. Uudelleenaloitus ei ole tauluissa, joten sen määrää ei
+        voi lukea valmiista tuloksesta. Rivi jätetään pois kokonaan.
+    arvo on ``None``
+        Tuore ajo portilla, joka ei raportoi uudelleenaloituksia. "Ei yhtään"
+        olisi väite, jota mikään ei tue.
+    arvo on luku
+        Tuore ajo, jossa portti kertoi luvun. Myös nolla sanotaan ääneen.
+    """
+    if "match_restarts" not in stats:
+        return []
+    value = stats.get("match_restarts")
+    if value is None:
+        return [
+            _line(
+                "Uudelleenaloitukset",
+                "ei tiedossa (demoportti ei raportoi uudelleenaloituksia)",
+            )
+        ]
+    count = int(value)
+    if not count:
+        return [_line("Uudelleenaloitukset", "ei yhtään")]
+    # Yksikkö taipuu: "1 kierrosraja", "2 kierrosrajaa".
+    boundaries = "kierrosraja" if count == 1 else "kierrosrajaa"
+    return [
+        _line(
+            "Uudelleenaloitukset",
+            f"{count} {boundaries} ilman demon omaa numeroa "
+            "-- ei kierros, ei riviä tauluun",
+        )
+    ]
 
 
 def _armed_unknown_items(stats: dict) -> list[str]:

@@ -114,8 +114,22 @@ class ParseDiagnostics:
         tick_rate: Käytetty tickrate.
         tick_rate_measured: ``True``, jos tickrate mitattiin demosta;
             ``False``, jos jouduttiin turvautumaan oletukseen.
-        rounds_seen: Demosta löytyneiden kierrosrajojen määrä, pelatut ja
-            pelaamattomat yhteensä.
+        rounds_seen: Demosta löytyneiden **kierrosrajojen** määrä. Mukana ovat
+            pelatut ja pelaamattomat kierrokset sekä ne rajat, jotka eivät ole
+            kierroksia lainkaan (``match_restarts``). Luku on siis aina
+            vähintään yhtä suuri kuin kierrosten määrä.
+        match_restarts: Ottelun uudelleenaloitukset. Uudelleenaloituksella on
+            freezetime-ankkuri mutta ei ``round_end``iä, ja demon oma
+            kierrosnumerointi **jatkuu sen yli yhdellä** -- se ei siis kuluta
+            kierrosnumeroa. Liigaotteluissa niitä on tasan yksi, heti
+            puukkokierroksen jälkeen. Se pelataan, mutta se ei ole kierros eikä
+            se tuota riviä yhteenkään tauluun -- samoin kuin puukkokierros.
+            Luku raportoidaan, koska pudotus ei saa olla hiljainen; nolla on
+            vanhojen demojen normaali tulos.
+
+            **Eri asia kuin** ``stages.parse``in ``utility_unnumbered_rounds``,
+            joka laskee heittoja kierroksilta joilta puuttuu ``round_no``.
+            Tässä puuttuu ``round_raw``, eikä kierrosta ole olemassakaan.
         partial_samples: Näytepisteet, joilta saatiin vähemmän pelaajia kuin
             demon parhaalta pisteeltä. Nolla on normaali tulos; systemaattinen
             propivika näkyisi tässä luvussa jo parsintavaiheessa eikä vasta
@@ -176,6 +190,7 @@ class ParseDiagnostics:
     tick_rate: float
     tick_rate_measured: bool
     rounds_seen: int
+    match_restarts: int = 0
     partial_samples: int = 0
     unknown_side_events: int = 0
     grenades_without_thrower: int = 0

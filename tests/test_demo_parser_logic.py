@@ -601,6 +601,80 @@ def normal_match(
     return rounds
 
 
+def insert_restart(
+    rounds: list[Round],
+    after: int,
+    *,
+    score: int | None = None,
+    offset: int = 100,
+    tickrate: float = 64.0,
+) -> list[Round]:
+    """Lisää ottelun uudelleenaloitus kierroksen ``after`` jälkeen.
+
+    Uudelleenaloitus on freezetime-ankkuri **ilman** ``round_end``iä. Se ei
+    kuluta demon omaa kierrosnumeroa, joten ympäröivien kierrosten numeroihin
+    ei kosketa -- juuri se tekee siitä havaittavan uudelleenaloituksen eikä
+    kadonneen kierroksen.
+
+    Args:
+        rounds: Kierroslista, jota muokataan paikallaan.
+        after: Kierros, jonka jälkeen uudelleenaloitus tulee.
+        score: Yhteispistemäärä uudelleenaloituksen ankkurissa. Oletus on
+            edellisen kierroksen lopputilanne; ``0`` jäljittelee
+            ``mp_restartgame``-nollausta.
+        offset: Tickejä edellisen kierroksen päättymisestä. On mahduttava
+            seuraavan kierroksen ankkuriin asti (feikissä 500 tickiä).
+    """
+    host = rounds[after]
+    assert host.freeze_tick is not None and host.end_tick is not None
+    assert host.round_start_time is not None
+    tick = host.end_tick + offset
+    rounds.insert(
+        after + 1,
+        Round(
+            demo_round=None,
+            freeze_tick=tick,
+            end_tick=None,
+            score_at_freeze=host.score_at_end if score is None else score,
+            round_start_time=(
+                host.round_start_time + (tick - host.freeze_tick) / tickrate
+            ),
+        ),
+    )
+    return rounds
+
+
+def restarted_match(
+    played: int = 3, *, restarts: int = 1, tickrate: float = 64.0
+) -> list[Round]:
+    """Puukkokierros, ottelun uudelleenaloitus ja N pelattua kierrosta.
+
+    Tämä on liigademojen kuvio: heti puukkokierroksen jälkeen tulee oma
+    ``round_freeze_end`` **ilman** yhtään ``round_end``iä, ja peli jatkuu sen
+    jälkeen normaalisti. Uudelleenaloitus nollaa pistemäärän, joten sen
+    ankkurin lukema on 0 -- juuri siitä puukkokierroksen piste katoaa.
+
+    Kuvio on mitattu kaikista neljästä liigademosta; mittaus on tallessa
+    tiedostossa ``vika-kierrosnumerointi.md``, joka on tämän repon
+    ulkopuolella BMAD-projektin hakemistossa
+    ``_bmad-output/implementation-artifacts/``. Olennainen sisältö on
+    toistettu tässä ja :mod:`pappascout.adapters.demo_parser`in
+    moduulidokumentaatiossa, jottei testi nojaa tiedostoon jota repossa ei ole.
+
+    Args:
+        restarts: Montako **peräkkäistä** uudelleenaloitusta rakennetaan. Yli
+            yksi on tuntematon ilmiö, jonka parsinnan on määrä pysäyttää.
+    """
+    rounds = normal_match(played=played, knife=True, tickrate=tickrate)
+    # Käännetyssä järjestyksessä: jokainen menee puukkokierroksen perään, joten
+    # viimeisenä lisätty jää ensimmäiseksi ja tickit nousevat listassa.
+    for number in reversed(range(restarts)):
+        insert_restart(
+            rounds, 0, score=0, offset=100 * (number + 1), tickrate=tickrate
+        )
+    return rounds
+
+
 def numbers(df: pl.DataFrame) -> list[int | None]:
     return (
         mark_played_rounds(df)
@@ -677,13 +751,18 @@ def test_unfinished_last_round_is_not_numbered(tmp_path: Path) -> None:
     assert unfinished["win_reason"].null_count() == 2
 
 
-def test_orphan_freeze_anchor_in_the_middle_becomes_its_own_round(
+def test_orphan_freeze_anchor_before_the_first_round_becomes_its_own_round(
     tmp_path: Path,
 ) -> None:
-    """Kaksi freeze-ankkuria yhtä round_endiä kohden.
+    """Kaksi freeze-ankkuria ennen ensimmäistä round_endiä.
 
-    Ensimmäinen ankkuri jää ilman tulosta; se ei ole pelattu kierros, mutta
-    sen on säilyttävä omana kierroksenaan, jottei numerointi siirry.
+    ``_segments`` antaa ankkurin **viimeiselle** ennen päättymistä, joten
+    ylimääräinen ankkuri päätyy listan **alkuun** -- ei keskelle, vaikka se
+    kierroslistassa kirjoitetaan väliin. Alussa oleva numeroimaton segmentti ei
+    ole uudelleenaloitus: ennen demon ensimmäistä omaa numeroa ei ole arvoa,
+    johon törmätä, joten se saa numeronsa taaksepäin laskettuna ja säilyy
+    omana kierroksenaan. Keskellä oleva tapaus on
+    :func:`test_match_restart_after_the_knife_round_is_not_a_round`.
     """
     rounds = normal_match(played=2, knife=False)
     rounds.insert(
@@ -699,6 +778,335 @@ def test_orphan_freeze_anchor_in_the_middle_becomes_its_own_round(
     df = parse_with(build(rounds), tmp_path)
     assert df.height == 6
     assert numbers(df) == [1, None, 2]
+
+
+def test_match_restart_after_the_knife_round_is_not_a_round(tmp_path: Path) -> None:
+    """I/O-matriisi: liigademo -- uudelleenaloitus keskellä jää numeroimatta.
+
+    Uudelleenaloitus pelataan, mutta se ei ole kierros: se ei saa demon omaa
+    numeroa eikä se tuota riviä kierrostauluun. Muut kierrokset pitävät demon
+    omat numeronsa, joten numerointi ei siirry.
+    """
+    df = parse_with(build(restarted_match(played=3)), tmp_path)
+
+    assert sorted(df["round_raw"].unique().to_list()) == [1, 2, 3, 4]
+    assert df.height == 2 * 4  # puukkokierros + 3 pelattua, uudelleenaloitus ei
+    assert numbers(df) == [None, 1, 2, 3]
+
+
+def test_match_restart_is_counted_and_reported(tmp_path: Path) -> None:
+    """I/O-matriisi: raportointi -- pudotus ei saa olla hiljainen."""
+    adapter = parse_adapter(build(restarted_match(played=3)), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.match_restarts == 1
+    # Kierrosraja on silti nähty: puukkokierros + uudelleenaloitus + 3 pelattua.
+    assert adapter.diagnostics.rounds_seen == 5
+
+
+def test_normal_demo_has_no_match_restarts(tmp_path: Path) -> None:
+    """I/O-matriisi: vanha demo -- jokaisella segmentillä oma round_end."""
+    adapter = parse_adapter(build(normal_match(played=3)), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.match_restarts == 0
+
+
+def test_a_lost_round_is_not_mistaken_for_a_restart(tmp_path: Path) -> None:
+    """Numerointi hyppää numeroimattoman rajan yli -> kierros on kadonnut.
+
+    Sijainti ei riitä tunnusmerkiksi: kadonnut kierros näyttää listassa
+    täsmälleen uudelleenaloitukselta. Ero on demon omassa numeroinnissa --
+    uudelleenaloitus ei kuluta kierrosnumeroa, kadonnut kierros kuluttaa.
+    Hiljainen pudotus veisi kierroksen pois jokaisesta taulusta ja raportoisi
+    sen vielä uudelleenaloituksena.
+    """
+    rounds = normal_match(played=2, knife=False)
+    rounds[1].demo_round = 3  # demosta puuttuu kierros 2
+    insert_restart(rounds, 0)
+
+    with pytest.raises(ParseError, match="hyppää numeroimattoman"):
+        parse_with(build(rounds), tmp_path)
+
+
+def test_a_resolved_round_without_a_number_is_not_a_restart(
+    tmp_path: Path,
+) -> None:
+    """Ratkennut kierros ilman demon omaa numeroa on kierros, ei uudelleenaloitus.
+
+    Toinen havaittava erotin: uudelleenaloituksella ei ole ``round_end``iä.
+    Segmentti, jolla se on, on kierros -- se numeroidaan naapurista eikä
+    pudoteta, eikä sitä lasketa uudelleenaloitukseksi.
+    """
+    rounds = normal_match(played=3, knife=False)
+    rounds[1].demo_round = None  # round_end ilman round-kenttää
+
+    df = parse_with(build(rounds), tmp_path)
+    assert sorted(df["round_raw"].unique().to_list()) == [1, 2, 3]
+    assert df.height == 2 * 3
+
+    adapter = parse_adapter(build(rounds), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.match_restarts == 0
+
+
+def test_restart_in_the_middle_of_the_match_is_recognised(tmp_path: Path) -> None:
+    """Uudelleenaloitus ei ole sidottu puukkokierroksen jälkeiseen paikkaan.
+
+    Liigademoissa se on aina indeksissä 1, mutta tunnistus nojaa havaintoihin
+    eikä siihen. Tässä se on kesken ottelun eikä nollaa pistemäärää.
+    """
+    rounds = normal_match(played=4)
+    insert_restart(rounds, 2)  # kolmannen kierrosrajan jälkeen
+
+    df = parse_with(build(rounds), tmp_path)
+    assert sorted(df["round_raw"].unique().to_list()) == [1, 2, 3, 4, 5]
+    assert df.height == 2 * 5
+    assert numbers(df) == [None, 1, 2, 3, 4]
+
+
+def test_restart_and_an_unfinished_last_round_live_in_the_same_demo(
+    tmp_path: Path,
+) -> None:
+    """Molemmat säännöt samassa demossa: keskellä pudotus, hännässä täyttö."""
+    rounds = restarted_match(played=2)
+    rounds.append(
+        Round(
+            demo_round=None,
+            freeze_tick=4000,
+            end_tick=None,
+            score_at_freeze=2,
+            round_start_time=100.0 + 3000 / 64.0,
+        )
+    )
+
+    df = parse_with(build(rounds), tmp_path)
+    # Uudelleenaloitus ei saa numeroa; ratkeamaton viimeinen saa sen naapurista.
+    assert sorted(df["round_raw"].unique().to_list()) == [1, 2, 3, 4]
+    assert numbers(df) == [None, 1, 2, None]
+    unfinished = df.filter(pl.col("round_raw") == 4)
+    assert unfinished["won"].null_count() == 2
+
+    adapter = parse_adapter(build(rounds), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.match_restarts == 1
+
+
+def test_restart_players_never_enter_the_lineups(tmp_path: Path) -> None:
+    """Uudelleenaloituksen lukemat eivät saa saastuttaa kokoonpanoja.
+
+    Uudelleenaloitus on juuri se hetki, jolloin joukkue- ja puolitila on
+    epävakain: pelaajia siirretään ja yhdistetään uudelleen. Yksikin väärä
+    lukema jäisi pysyvästi ``lineups``iin ja voisi kääntää puolet kaikille sen
+    jälkeisille kierroksille -- eli kohdistaa voitot ja talousarvot väärälle
+    joukkueelle.
+    """
+    clean = parse_with(build(restarted_match(played=3)), tmp_path)
+
+    polluted = restarted_match(played=3)
+    polluted[1].a_players = [f"outo{n}" for n in range(5)]
+    polluted[1].b_players = [f"muukalainen{n}" for n in range(5)]
+    dirty = parse_with(build(polluted), tmp_path)
+
+    assert sorted(clean["lineup_key"].unique().to_list()) == sorted(
+        dirty["lineup_key"].unique().to_list()
+    )
+
+
+def test_round_after_a_restart_keeps_its_score_start(tmp_path: Path) -> None:
+    """Pistelukeman varasääntö ei saa pysähtyä uudelleenaloitukseen.
+
+    Uudelleenaloituksen jälkeisellä kierroksella on aina oma ankkuri --
+    ``_segments`` antaa ankkurin viimeiselle rajalle ennen päättymistä --
+    mutta sen **lukema** voi olla hylätty (yksipuolinen pistemäärä). Silloin
+    varasääntö hakee edellisen lukeman. Uudelleenaloituksella ei ole
+    lopputickiä, ja sitä edeltävän kierroksen lopputick on nollausta
+    edeltävältä hetkeltä: ilman uudelleenaloituksen omaa ankkuria kierros
+    saisi ``score_start == score_end`` ja putoaisi pelattujen joukosta.
+    """
+    rounds = restarted_match(played=3)
+    rounds[2].score_only_side = rounds[2].a_side
+    rounds[2].score_at_freeze = 99  # yksipuolinen lukema ei kelpaa
+
+    df = parse_with(build(rounds), tmp_path)
+    first_after = df.filter(pl.col("round_raw") == 2)
+    assert first_after["score_start"].unique().to_list() == [0]
+    assert numbers(df) == [None, 1, 2, 3]
+
+
+def test_restart_breaks_the_saved_equipment_chain(tmp_path: Path) -> None:
+    """Uudelleenaloitus nollaa kaluston, joten ketju katkeaa siihen.
+
+    Ilman katkoa uudelleenaloitusta seuraava pistoolikierros perisi
+    puukkokierroksen eloonjääneiden varustearvon luokittelun syötteeksi --
+    juuri se kierros, jonka luokitus menisi väärin.
+    """
+    df = parse_with(build(restarted_match(played=3)), tmp_path)
+
+    first_after = df.filter(pl.col("round_raw") == 2)
+    assert first_after["survivors_equip_prev"].null_count() == 2
+    # Ketju jatkuu normaalisti heti seuraavasta kierroksesta.
+    later = df.filter(pl.col("round_raw") == 3)
+    assert later["survivors_equip_prev"].null_count() == 0
+
+
+def test_sample_points_stay_aligned_with_their_segment_after_a_restart(
+    tmp_path: Path,
+) -> None:
+    """Uudelleenaloituksen suodatus ei saa siirtää puolikuvausta yhdellä.
+
+    ``_sample_points`` näytteistää vain numeroidut segmentit, mutta ``sides``
+    ja ``segments`` ovat segmenttien järjestyksessä. Ilman alkuperäistä
+    indeksiä uudelleenaloituksen jälkeiset kierrokset lukisivat edellisen
+    segmentin tickit -- ja ensikontakti ratkeaisi väärän kierroksen
+    havainnoista.
+    """
+    swap = "vaihtopelaaja"
+    rounds = restarted_match(played=3)
+    # Puolet vaihtuvat kesken ottelun, jotta segmenttien kuvaukset eroavat.
+    for round_spec in rounds[3:]:
+        round_spec.a_side = "CT"
+    # Pelaaja, joka ehtii molempiin kokoonpanoihin, jää lineup_ofin
+    # ulkopuolelle. Hänen puolensa ratkeaa vasta **kierroksen oman tickin**
+    # kautta -- juuri siitä indeksistä, jonka suodatus voi siirtää.
+    rounds[2].a_players = [swap, *A_PLAYERS[1:]]
+    rounds[3].b_players = [swap, *B_PLAYERS[1:]]
+    rounds[2].hurt = [(10, swap, B_PLAYERS[1], "ak47")]
+
+    ticks = parse_ticks_table(build(rounds), tmp_path)
+    contact = ticks.filter(pl.col("sample_kind") == "first_contact")
+    assert contact["round_raw"].unique().to_list() == [2]
+
+    adapter = parse_adapter(build(rounds), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.unknown_side_events == 0
+
+
+def test_the_restart_never_reaches_the_side_key_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Puolikuvaus rakennetaan vasta kun näytepiste sitä tarvitsee.
+
+    ``_keys_by_side`` nostaa ``ParseError``in, jos molemmille kokoonpanoille
+    tuli sama puoli. Ahne rakennus antaisi uudelleenaloitukselle vallan kaataa
+    koko ajon, vaikka se ei tuota riviä yhteenkään tauluun -- ja virheviesti
+    kertoisi sen ``round_raw``:ksi ``None``, joka ei kerro lukijalle mitään.
+    """
+    seen: list[int | None] = []
+    original = dp._keys_by_side
+
+    def spy(sides, lineup_keys, segment):
+        seen.append(segment.round_raw)
+        return original(sides, lineup_keys, segment)
+
+    monkeypatch.setattr(dp, "_keys_by_side", spy)
+    parse_ticks_table(build(restarted_match(played=3)), tmp_path)
+
+    assert seen, "sääntöä ei ajettu lainkaan"
+    assert None not in seen
+    assert sorted(set(seen)) == [1, 2, 3, 4]
+
+
+def test_restart_utility_does_not_leak_into_the_event_table(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: uudelleenaloitus ei tuota riviä EVENTS-tauluun."""
+    rounds = restarted_match(played=2)
+    rounds[1].grenades = [(9001, A_PLAYERS[0], "CSmokeGrenadeProjectile", 50, 5)]
+    rounds[2].grenades = [(9002, A_PLAYERS[0], "CSmokeGrenadeProjectile", 50, 5)]
+    tables = parse_tables(build(rounds), tmp_path)
+
+    thrown = tables.events["grenade_entity_id"].unique().to_list()
+    assert 9001 not in thrown
+    assert 9002 in thrown
+    # Kumpikaan muu taulu ei tunne kierrosta, jota kierrostaulussa ei ole.
+    known = set(tables.rounds["round_raw"].to_list())
+    assert set(tables.ticks["round_raw"].to_list()) <= known
+    assert set(tables.events["round_raw"].to_list()) <= known
+
+    adapter = parse_adapter(build(rounds), tmp_path)
+    assert adapter.diagnostics is not None
+    # Uudelleenaloituksella ei ole kierrosikkunaa, joten sen aikana heitetty
+    # kranaatti kirjautuu samaan lukuun kuin lämmittelyheitot. Se on luvun
+    # oikea paikka, mutta se on sanottava ääneen: muuten liigademon
+    # yhteenvedossa luku näyttää vialta jota ei ole.
+    assert adapter.diagnostics.grenades_outside_rounds == 1
+
+
+def test_unfinished_last_round_still_takes_its_number_from_the_neighbour(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: ratkeamaton viimeinen kierros -- naapuritäyttö säilyy.
+
+    Hännässä oleva numeroimaton segmentti on aito kierros, jonka demo katkaisi
+    kesken. Se ei ole uudelleenaloitus, ja sen on saatava numeronsa naapurista
+    kuten ennenkin.
+    """
+    rounds = normal_match(played=2, knife=False)
+    rounds.append(
+        Round(
+            demo_round=None,
+            freeze_tick=9000,
+            end_tick=None,
+            score_at_freeze=2,
+            round_start_time=250.0,
+        )
+    )
+    df = parse_with(build(rounds), tmp_path)
+
+    assert sorted(df["round_raw"].unique().to_list()) == [1, 2, 3]
+    assert df.height == 2 * 3
+
+
+def test_two_restarts_in_a_row_halt_the_parse(tmp_path: Path) -> None:
+    """I/O-matriisi: useampi uudelleenaloitus -> pysähdytään, ei arvata."""
+    with pytest.raises(ParseError, match="uudelleenaloitukselta näyttävää"):
+        parse_with(build(restarted_match(played=3, restarts=2)), tmp_path)
+
+
+def test_two_restarts_apart_from_each_other_halt_the_parse(
+    tmp_path: Path,
+) -> None:
+    """Raja on demokohtainen eikä peräkkäisyyteen sidottu."""
+    rounds = restarted_match(played=4)
+    insert_restart(rounds, 3)  # toinen keskelle ottelua
+
+    with pytest.raises(ParseError, match="uudelleenaloitukselta näyttävää") as err:
+        parse_with(build(rounds), tmp_path)
+    # Virhe kertoo tickit, joista demon voi avata -- ei listaindeksejä.
+    assert "1600" in str(err.value)
+
+
+def test_the_restart_limit_is_read_from_the_constant(tmp_path: Path) -> None:
+    """Viestit johdetaan vakiosta, jottei rajan nosto jätä niitä valehtelemaan."""
+    with pytest.raises(ParseError) as err:
+        parse_with(build(restarted_match(played=3, restarts=2)), tmp_path)
+    assert f"enintään {dp.MAX_MATCH_RESTARTS}" in str(err.value)
+
+
+def test_public_names_all_exist() -> None:
+    """``__all__`` ei saa luvata nimeä, jota moduulissa ei ole."""
+    assert "MAX_MATCH_RESTARTS" in dp.__all__
+    for name in dp.__all__:
+        assert hasattr(dp, name), name
+
+
+def test_segments_without_any_round_end_keep_the_running_count(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: kaikki segmentit numeroimattomia -> varasääntö säilyy."""
+    rounds = [
+        Round(
+            demo_round=None,
+            freeze_tick=1000 + 1000 * index,
+            end_tick=None,
+            score_at_freeze=0,
+            round_start_time=100.0 + index * 1000 / 64.0,
+        )
+        for index in range(3)
+    ]
+    df = parse_with(build(rounds), tmp_path)
+
+    assert sorted(df["round_raw"].unique().to_list()) == [1, 2, 3]
+    assert df.height == 2 * 3
 
 
 def test_round_end_without_an_anchor_is_kept_with_its_own_status(

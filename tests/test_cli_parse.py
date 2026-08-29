@@ -42,6 +42,7 @@ DEFAULT_STATS: dict[str, object] = {
     "rows": 42,
     "max_round_no": 21,
     "skipped_rounds": 1,
+    "match_restarts": 0,
     "no_freeze_end": 0,
     "armed_distribution": {0: 3, 4: 1, 5: 38},
     "armed_missing": 0,
@@ -205,6 +206,69 @@ def test_hides_the_skip_line_when_nothing_was_skipped() -> None:
         )
     )
     assert "Ohitetut kierrokset" not in _render_parse(result, regulation_rounds=24)
+
+
+def test_reports_match_restarts_separately_from_skipped_rounds() -> None:
+    """Ottelun uudelleenaloitus ei ole edes kierros, joten sillä on oma rivi.
+
+    Se ei sisälly ohitettujen kierrosten lukuun: uudelleenaloitus ei tule
+    kierrostauluun lainkaan, kun taas ohitettu kierros on siellä ilman
+    kierrosnumeroa. Siksi ohitettujen kierrosten rivi ei myöskään enää
+    mainitse uudelleenkäynnistyksiä -- kaksi riviä laskisi saman asian.
+    """
+    result = parse_result(
+        stats=stats(
+            rounds=20,
+            rows=40,
+            max_round_no=20,
+            skipped_rounds=1,
+            match_restarts=1,
+            no_freeze_end=0,
+        )
+    )
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Uudelleenaloitukset") == (
+        "1 kierrosraja ilman demon omaa numeroa -- ei kierros, ei riviä tauluun"
+    )
+    assert field_value(output_text, "Ohitetut kierrokset") == (
+        "1 (warmup ja puukkokierros)"
+    )
+
+
+def test_more_than_one_restart_takes_the_plural() -> None:
+    """``1 kierrosraja`` mutta ``2 kierrosrajaa`` -- luku taivuttaa yksikön."""
+    result = parse_result(stats=stats(match_restarts=2))
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Uudelleenaloitukset").startswith(
+        "2 kierrosrajaa "
+    )
+
+
+def test_says_out_loud_when_there_were_no_restarts() -> None:
+    """Nolla on havainto: tuore ajo sanoo sen ääneen eikä vaikene."""
+    result = parse_result(stats=stats(match_restarts=0))
+    assert field_value(
+        _render_parse(result, regulation_rounds=24), "Uudelleenaloitukset"
+    ) == "ei yhtään"
+
+
+def test_a_port_that_cannot_report_restarts_is_not_a_zero() -> None:
+    """``None`` on eri asia kuin nolla: väitettä ei tehdä ilman havaintoa."""
+    result = parse_result(stats=stats(match_restarts=None))
+    assert field_value(
+        _render_parse(result, regulation_rounds=24), "Uudelleenaloitukset"
+    ).startswith("ei tiedossa")
+
+
+def test_a_skipped_run_does_not_claim_there_were_no_restarts() -> None:
+    """Ohitetussa ajossa avainta ei ole: rivi jätetään pois kokonaan.
+
+    Uudelleenaloitus ei ole missään taulussa, joten sen määrää ei voi lukea
+    valmiista tuloksesta. Nolla olisi väite, jota mikään ei tue.
+    """
+    without = {k: v for k, v in DEFAULT_STATS.items() if k != "match_restarts"}
+    result = parse_result(skipped=True, stats=without)
+    assert "Uudelleenaloitukset" not in _render_parse(result, regulation_rounds=24)
 
 
 def test_reports_rounds_without_a_freeze_anchor() -> None:

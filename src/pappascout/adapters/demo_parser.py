@@ -29,6 +29,26 @@ lukien), ja se päätyy sellaisenaan ``round_raw``-sarakkeeseen.
 Kierrosnumeroa **ei päätetä täällä**: adapteri palauttaa ``round_no``-sarakkeen
 tyhjänä, ja ``stages.parse`` kutsuu ``domain.rounds.mark_played_rounds``ia.
 
+Yksi kierrosraja ratkeaa silti jo täällä: **ottelun uudelleenaloitus**.
+Liigademoissa puukkokierroksen jälkeen tulee oma ``round_freeze_end`` ilman
+yhtään ``round_end``iä, ja peli jatkuu sen jälkeen normaalisti. Se ei ole
+kierros, ja koska sillä ei ole demon omaa numeroa, se ei voi saada
+``round_raw``:takaan -- ilman sitä ``stages.parse`` ei voisi tunnistaa sen
+rivejä. Siksi se jää tässä numeroimattomaksi eikä tuota riviä yhteenkään
+tauluun; lukumäärä kulkee diagnostiikassa ajon yhteenvetoon.
+
+Tunnistus on **havaintoihin eikä sijaintiin** perustuva: uudelleenaloituksella
+ei ole ``round_end``iä *ja* demon oma numerointi jatkuu sen yli yhdellä. Kumpi
+tahansa ehto rikki keskeyttää parsinnan sen sijaan että kierros pudotettaisiin
+hiljaa. Ks. :meth:`Demoparser2Adapter._assign_round_raw` ja
+:meth:`Demoparser2Adapter._match_restarts`.
+
+Uudelleenaloituksen aikana heitetty utility ei kuulu millekään kierrokselle:
+sillä ei ole kierrosikkunaa, joten heitto päätyy lukuun
+``grenades_outside_rounds`` -- samaan, jossa lämmittelyheitot ovat. Luku on
+siis liigademossa normaalisti hieman suurempi kuin vanhassa demossa, eikä se
+ole vika.
+
 Pistemäärän mittauspisteet
 --------------------------
 ``score_start`` luetaan kierroksen omasta freezetime-ankkurista ja ``score_end``
@@ -186,6 +206,7 @@ __all__ = [
     "DEFAULT_TICK_RATE",
     "TICK_RATE_MIN",
     "TICK_RATE_MAX",
+    "MAX_MATCH_RESTARTS",
 ]
 
 # -- Pelin kentät -------------------------------------------------------------
@@ -308,6 +329,19 @@ DEFAULT_TICK_RATE = 64.0
 TICK_RATE_MIN = 16.0
 TICK_RATE_MAX = 256.0
 
+#: Montako ottelun uudelleenaloitusta yhdessä demossa hyväksytään.
+#:
+#: Uudelleenaloitus on kierrosraja, jolla on freezetime-ankkuri mutta ei
+#: ``round_end``iä, ja jonka **yli demon oma kierrosnumerointi jatkuu
+#: yhdellä**. Liigaotteluissa niitä on tasan yksi, heti puukkokierroksen
+#: jälkeen. Useampi tarkoittaisi ilmiötä, jota ei ole vielä nähty; silloin
+#: parsinta pysähtyy eikä arvaa.
+#:
+#: Kaikki tästä johdetut viestit lukevat luvun täältä, jotta rajan nostaminen
+#: ei jätä tekstejä valehtelemaan (ks.
+#: :meth:`Demoparser2Adapter._match_restarts`).
+MAX_MATCH_RESTARTS = 1
+
 
 @dataclass
 class _Lineup:
@@ -342,14 +376,35 @@ class _Lineup:
 
 @dataclass
 class _Segment:
-    """Yksi kierros demossa, pelattu tai ei."""
+    """Yksi kierrosraja demossa: pelattu kierros, ratkeamaton tai uudelleenaloitus.
+
+    Attributes:
+        demo_round: Demon oma kierrosnumero ``round_end``-tapahtuman
+            ``round``-kentästä. ``None`` = segmentti ei ratkennut, tai
+            demoparser2 ei antanut numeroa.
+        freeze_end_tick: Kierroksen ankkuri, viimeinen ``round_freeze_end``
+            ennen päättymistä. ``None`` = ankkuria ei ole, jolloin
+            freezetimen lopun havaintoja ei voi lukea (``status`` kertoo sen).
+        end_tick: Kierroksen ratkeamishetki ``round_end``-tapahtumasta.
+            ``None`` = kierros ei ratkennut: demo katkesi kesken, tai
+            segmentti ei ole kierros lainkaan.
+        winner_side: Voittanut puoli (``"T"``/``"CT"``), tai ``None`` jos
+            kierros ei ratkennut.
+        win_reason: Voiton syy demon omalla nimellä, tai ``None`` samasta
+            syystä kuin ``winner_side``.
+        round_raw: Segmentille annettu demon oma kierrosnumero. ``None``
+            tarkoittaa **ottelun uudelleenaloitusta**: se pelattiin, mutta se
+            ei ole kierros eikä se tuota riviä yhteenkään tauluun -- samoin
+            kuin puukkokierros. Ks.
+            :meth:`Demoparser2Adapter._assign_round_raw`.
+    """
 
     demo_round: int | None
     freeze_end_tick: int | None
     end_tick: int | None
     winner_side: str | None
     win_reason: str | None
-    round_raw: int = 0
+    round_raw: int | None = None
 
 
 @dataclass(frozen=True)
@@ -519,6 +574,7 @@ class Demoparser2Adapter:
             tick_rate=tick_rate,
             tick_rate_measured=measured,
             rounds_seen=len(segments),
+            match_restarts=sum(1 for s in segments if s.round_raw is None),
             partial_samples=partial,
             unknown_side_events=unknown_sides,
             grenades_without_thrower=utility.without_thrower,
@@ -631,36 +687,64 @@ class Demoparser2Adapter:
     def _assign_round_raw(segments: list[_Segment]) -> None:
         """Anna jokaiselle kierrokselle demon oma juokseva numero.
 
-        Arvo tulee ``round_end``-tapahtuman ``round``-kentästä. Kierros, joka ei
-        koskaan ratkennut, ei saa sitä kentästä; sille johdetaan naapureista
-        arvo, joka säilyttää järjestyksen. Jos johdettu arvo törmäisi demon
-        omaan arvoon, numerointi olisi epäjohdonmukainen eikä sitä hyväksytä.
+        Arvo tulee ``round_end``-tapahtuman ``round``-kentästä. Segmentti, joka
+        jää ilman omaa arvoa, käsitellään sen mukaan **mistä kohtaa listaa se
+        löytyy ja mitä siitä on havaittu**:
+
+        * **Listan hännässä** se on ratkeamaton kierros: demo katkesi kesken,
+          eikä ``round_end``iä enää tule. Sille johdetaan naapureista arvo,
+          joka säilyttää järjestyksen.
+        * **Listan alussa**, ennen demon ensimmäistä omaa numeroa, se saa
+          arvonsa taaksepäin laskettuna. Numerointi voi alkaa mistä tahansa,
+          eikä sitä ennen ole arvoa, johon törmätä.
+        * **Keskellä** se on ottelun uudelleenaloitus -- mutta vain jos
+          havainnot sanovat niin. Sen ratkaisee
+          :meth:`_match_restarts`, joka keskeyttää parsinnan jos ehdot eivät
+          täyty. Uudelleenaloitus jää **numeroimattomaksi**
+          (``round_raw = None``) samalla mekanismilla kuin puukkokierros:
+          naapurista täyttäminen antaisi sille numeron, jonka demo käyttää
+          heti perään uudelleen.
+
+        Raises:
+            ParseError: Jos keskellä oleva numeroimaton kierrosraja ei täytä
+                uudelleenaloituksen ehtoja, jos niitä on enemmän kuin
+                :data:`MAX_MATCH_RESTARTS`, tai jos numerointi ei kasva
+                tasaisesti.
         """
         if not segments:
             return
         raws: list[int | None] = [s.demo_round for s in segments]
+        own = [index for index, value in enumerate(raws) if value is not None]
 
-        previous: int | None = None
-        for index, value in enumerate(raws):
-            if value is not None:
-                previous = value
-                continue
-            if previous is not None:
-                previous += 1
-                raws[index] = previous
-
-        first_index = next((i for i, v in enumerate(raws) if v is not None), None)
-        if first_index is None:
+        if not own:
+            # Yhdelläkään segmentillä ei ole demon omaa numeroa. Järjestys on
+            # silti tiedossa, joten varasääntö on juokseva numerointi.
             raws = list(range(1, len(raws) + 1))
         else:
-            value = raws[first_index]
+            first_own, last_own = own[0], own[-1]
+
+            # Häntä: näiden jälkeen ei tule enää yhtään demon omaa numeroa,
+            # joten ne ovat ratkeamattomia kierroksia.
+            value = raws[last_own]
             assert value is not None
-            for index in range(first_index - 1, -1, -1):
+            for index in range(last_own + 1, len(raws)):
+                value += 1
+                raws[index] = value
+
+            # Alku: ennen ensimmäistä omaa numeroa ei ole arvoa, johon törmätä.
+            value = raws[first_own]
+            assert value is not None
+            for index in range(first_own - 1, -1, -1):
                 value -= 1
                 raws[index] = value
 
-        for first, second in zip(raws, raws[1:]):
-            if first is None or second is None or second <= first:
+            # Keskelle jääneet tarkistetaan havaintoja vasten; hyväksytyt
+            # jäävät None:ksi eli numeroimattomiksi.
+            Demoparser2Adapter._match_restarts(segments, raws, own)
+
+        known = [value for value in raws if value is not None]
+        for first, second in zip(known, known[1:]):
+            if second <= first:
                 raise ParseError(
                     "Demon oma kierrosnumerointi ei kasva tasaisesti "
                     f"({first} -> {second}).\n"
@@ -669,8 +753,92 @@ class Demoparser2Adapter:
                 )
 
         for segment, number in zip(segments, raws):
-            assert number is not None
             segment.round_raw = number
+
+    @staticmethod
+    def _match_restarts(
+        segments: list[_Segment], raws: list[int | None], own: list[int]
+    ) -> list[int]:
+        """Keskellä olevat kierrosrajat, jotka ovat ottelun uudelleenaloituksia.
+
+        Tunnistus perustuu **havaintoihin eikä sijaintiin**. Pelkkä "keskellä
+        ja ilman numeroa" ei riitä: samalta näyttäisi myös kierros, jonka
+        rajojen tunnistus hukkasi, ja sen pudottaminen veisi kierroksen pois
+        jokaisesta taulusta ja nimeäisi sen vielä uudelleenaloitukseksi.
+
+        Uudelleenaloitus täyttää molemmat ehdot:
+
+        * **Ei ``round_end``iä.** Segmentti, joka ratkesi mutta jolta puuttuu
+          demon oma numero, on kierros ilman numeroa -- ei uudelleenaloitus.
+          Se numeroidaan naapurista kuten ennenkin: kierros on olemassa, joten
+          sitä ei pudoteta. Jos johdettu numero törmää demon omaan,
+          monotonisuustarkistus hoitaa sen.
+        * **Demon oma numerointi jatkuu sen yli yhdellä.** Uudelleenaloitus ei
+          kuluta kierrosnumeroa, joten sen molemmin puolin numerot ovat
+          peräkkäiset. Hyppy tarkoittaa, että väliin on jäänyt kierros; se
+          keskeyttää parsinnan, koska pudotus siirtäisi kaiken jälkeen tulevan.
+
+        Args:
+            segments: Kierrosrajat aikajärjestyksessä.
+            raws: Kullekin segmentille päätetty numero; ``None`` niillä, joita
+                ei ole numeroitu. **Muutetaan paikallaan**: aukot, jotka eivät
+                ole uudelleenaloituksia, täytetään tässä.
+            own: Niiden segmenttien indeksit, joilla on demon oma numero.
+
+        Returns:
+            Uudelleenaloitusten indeksit ``segments``-listassa. Ne jäävät
+            ``raws``issa ``None``:ksi.
+
+        Raises:
+            ParseError: Jos demon numerointi hyppää numeroimattoman
+                kierrosrajan yli, tai jos uudelleenaloituksia on enemmän kuin
+                :data:`MAX_MATCH_RESTARTS`.
+        """
+        restarts: list[int] = []
+        for previous, following in zip(own, own[1:]):
+            gap = list(range(previous + 1, following))
+            if not gap:
+                continue
+
+            if any(segments[i].end_tick is not None for i in gap):
+                # Väliin jäi kierros, joka ratkesi mutta jolta puuttuu demon
+                # oma numero. Se on kierros eikä uudelleenaloitus, joten se
+                # numeroidaan naapurista -- pudottaminen veisi sen pois
+                # jokaisesta taulusta ja nimeäisi sen vielä väärin.
+                value = raws[previous]
+                assert value is not None
+                for index in gap:
+                    value += 1
+                    raws[index] = value
+                continue
+
+            before, after = raws[previous], raws[following]
+            assert before is not None and after is not None
+            if after != before + 1:
+                ticks = ", ".join(str(segments[i].freeze_end_tick) for i in gap)
+                raise ParseError(
+                    "Demon oma kierrosnumerointi hyppää numeroimattoman "
+                    f"kierrosrajan yli ({before} -> {after}, freezetime-tickit "
+                    f"{ticks}).\n"
+                    "Uudelleenaloituksen yli numerointi jatkuisi yhdellä, joten "
+                    "väliin on jäänyt kierros, jota kierrosrajojen tunnistus ei "
+                    "löytänyt. Sitä ei pudoteta arvaamalla: katso demoa "
+                    "listatuista tickeistä ja kerro havainto kehittäjälle."
+                )
+
+            restarts.extend(gap)
+
+        if len(restarts) > MAX_MATCH_RESTARTS:
+            ticks = ", ".join(str(segments[i].freeze_end_tick) for i in restarts)
+            raise ParseError(
+                f"Demossa on {len(restarts)} ottelun uudelleenaloitukselta "
+                f"näyttävää kierrosrajaa (freezetime-tickit {ticks}), mutta "
+                f"enintään {MAX_MATCH_RESTARTS} hyväksytään.\n"
+                "Useampi tarkoittaa ilmiötä, jota ei ole vielä nähty, eikä sitä "
+                "arvata. Avaa demo listatuista tickeistä ja kerro havainto "
+                "kehittäjälle ennen kuin tulosta käytetään."
+            )
+        return restarts
 
     def _read_ticks(
         self, parser: Any, ticks: list[int], original_path: Path
@@ -826,9 +994,23 @@ class Demoparser2Adapter:
                     if name not in KNOWN_INVENTORY_ITEMS:
                         armed.unknown_items[name] += 1
 
+            # Numeroimaton segmentti (ottelun uudelleenaloitus) ei ole
+            # kierros: se ei tuota riviä. Ankkurin tavaraluettelot luetaan
+            # silti yllä, koska uusi asenimi voi esiintyä ensimmäisen kerran
+            # juuri siinä. Segmentti pysyy listassa, jotta edellisen
+            # kierroksen ``score_end`` luetaan yhä **sen** ankkurista --
+            # juuri siitä lukemasta puukkokierroksen nollaus näkyy.
+            if segment.round_raw is None:
+                # Uudelleenaloitus nollaa kaluston, joten seuraava kierros ei
+                # peri eloonjääneiden varusteita sitä edeltäneeltä
+                # kierrokselta. Sama tulos kuin ennenkin: haamulla ei ole
+                # päättymistickiä, joten sen oma summa olisi tyhjä.
+                previous_saved = [None, None]
+                continue
+
             score_start = anchor_score[index]
-            if score_start is None and index > 0:
-                score_start = end_score[index - 1]
+            if score_start is None:
+                score_start = _score_before(index, segments, anchor_score, end_score)
             if score_start is None:
                 score_start = end_score[index]
 
@@ -922,6 +1104,14 @@ class Demoparser2Adapter:
         parsinta keskeytetään. Hiljainen oletus kohdistaisi voitot väärälle
         joukkueelle.
 
+        **Ottelun uudelleenaloitus ohitetaan kokonaan.** Se on juuri se hetki,
+        jolloin joukkue- ja puolitila on epävakain: pelaajia siirretään,
+        yhdistetään uudelleen ja puolet asetetaan uusiksi. Yksikin väärä lukema
+        siellä jäisi pysyvästi ``lineups``iin ja voisi kääntää puolet kaikille
+        sen jälkeisille kierroksille. Segmentti saa silti oman alkionsa, jotta
+        lista pysyy segmenttien mittaisena; sitä ei käytetä mihinkään, koska
+        uudelleenaloitus ei tuota riviä yhteenkään tauluun.
+
         Returns:
             Kierroksittain pari ``(kokoonpanon 0 puoli, kokoonpanon 1 puoli)``.
         """
@@ -929,6 +1119,11 @@ class Demoparser2Adapter:
         previous: tuple[str, str] | None = None
 
         for segment in segments:
+            if segment.round_raw is None:
+                result.append(
+                    _require_previous(previous, segment, "ottelun uudelleenaloitus")
+                )
+                continue
             rows = (
                 by_tick.get(segment.freeze_end_tick or -1)
                 or by_tick.get(segment.end_tick or -1)
@@ -1016,14 +1211,25 @@ class Demoparser2Adapter:
         Returns:
             ``(näytepisteet, tuntemattoman puolen takia ohitetut tapahtumat)``.
         """
-        bounds = [
-            RoundBounds(
-                round_raw=s.round_raw,
-                freeze_end_tick=s.freeze_end_tick,
-                end_tick=s.end_tick,
+        # Ottelun uudelleenaloitusta ei näytteistetä: sillä ei ole
+        # kierrosnumeroa, johon rivit kiinnittyisivät. Alkuperäinen indeksi
+        # kulkee mukana, koska ``sides`` ja ``segments`` ovat segmenttien
+        # järjestyksessä -- ilman sitä kaikki uudelleenaloituksen jälkeiset
+        # kierrokset lukisivat edellisen segmentin puolet.
+        sampled: list[tuple[int, _Segment]] = []
+        bounds: list[RoundBounds] = []
+        for index, segment in enumerate(segments):
+            raw = segment.round_raw
+            if raw is None:
+                continue
+            sampled.append((index, segment))
+            bounds.append(
+                RoundBounds(
+                    round_raw=raw,
+                    freeze_end_tick=segment.freeze_end_tick,
+                    end_tick=segment.end_tick,
+                )
             )
-            for s in segments
-        ]
         points = sample_ticks(bounds, tick_rate, sample_seconds)
 
         hurt = self._damage_events(parser, "player_hurt", original_path)
@@ -1037,9 +1243,10 @@ class Demoparser2Adapter:
 
         lineup_of = _lineup_index_by_player(lineups)
         unknown_sides = 0
-        for index, round_bounds in enumerate(bounds):
+        for position, round_bounds in enumerate(bounds):
             if not round_bounds.is_samplable:
                 continue
+            index = sampled[position][0]
             player_sides = _side_lookup(lineup_of, sides[index], segments[index], by_tick)
             own_hurt, a = _with_sides(hurt, round_bounds, player_sides)
             own_deaths, b = _with_sides(deaths, round_bounds, player_sides)
@@ -1142,11 +1349,17 @@ class Demoparser2Adapter:
         by_tick = self._read_sample_ticks(parser, wanted, original_path)
         # sides on segmenttien järjestyksessä, mutta näytepiste tuntee vain
         # round_raw-arvon, joten kuvaus tarvitaan takaisin segmentti-indeksiin.
-        index_by_raw = {s.round_raw: index for index, s in enumerate(segments)}
-        keys_per_round = [
-            _keys_by_side(sides[index], lineup_keys, segment)
-            for index, segment in enumerate(segments)
-        ]
+        index_by_raw = {
+            s.round_raw: index
+            for index, s in enumerate(segments)
+            if s.round_raw is not None
+        }
+        # Laiskasti eikä ahnaasti: _keys_by_side nostaa ParseErrorin, jos
+        # molemmille kokoonpanoille tuli sama puoli. Ahne rakennus antaisi
+        # uudelleenaloitukselle vallan kaataa koko ajon, vaikka se ei tuota
+        # riviä yhteenkään tauluun -- ja virheviesti kertoisi sen round_raw:ksi
+        # ``None``, joka ei auta lukijaa mihinkään.
+        keys_per_round: dict[int, dict[str, str]] = {}
 
         rows: list[dict[str, Any]] = []
         players_per_point: list[int] = []
@@ -1154,7 +1367,12 @@ class Demoparser2Adapter:
             segment_index = index_by_raw.get(point.round_raw)
             if segment_index is None:  # pragma: no cover - sample_ticks takaa
                 continue
-            side_keys = keys_per_round[segment_index]
+            side_keys = keys_per_round.get(segment_index)
+            if side_keys is None:
+                side_keys = _keys_by_side(
+                    sides[segment_index], lineup_keys, segments[segment_index]
+                )
+                keys_per_round[segment_index] = side_keys
             tick_rows = by_tick.get(point.tick, ())
             if not tick_rows:
                 raise ParseError(
@@ -2090,6 +2308,36 @@ def _sum_or_none(values: list[int | None]) -> int | None:
 def _sum_or_zero(values: list[int | None]) -> int:
     """Summaa arvot; tyhjä joukko on nolla (kukaan ei jäänyt henkiin)."""
     return sum(v for v in values if v is not None)
+
+
+def _score_before(
+    index: int,
+    segments: list[_Segment],
+    anchor_score: list[int | None],
+    end_score: list[int | None],
+) -> int | None:
+    """Yhteispistemäärä juuri ennen kierrosta ``index``, kun ankkuri puuttuu.
+
+    Varasääntöä kysytään vain kierrokselta, jolla ei ole omaa
+    freezetime-ankkuria. Lähin aiempi lukema kelpaa, mutta **ottelun
+    uudelleenaloituksen kohdalla luetaan sen ankkuri eikä lopputickiä**:
+    lopputickiä sillä ei ole lainkaan, ja sitä edeltävän kierroksen lukema on
+    *nollausta edeltävältä* hetkeltä. Puukkokierroksen jälkeen se olisi 1
+    vaikka pistemäärä on juuri nollattu -- silloin uudelleenaloitusta seuraava
+    kierros saisi ``score_start == score_end`` ja putoaisi pelattujen joukosta.
+
+    Returns:
+        Lukema, tai ``None`` jos yhtään ei löytynyt.
+    """
+    for back in range(index - 1, -1, -1):
+        value = (
+            anchor_score[back]
+            if segments[back].round_raw is None
+            else end_score[back]
+        )
+        if value is not None:
+            return value
+    return None
 
 
 def _total_score(rows: list[dict[str, Any]]) -> int | None:
