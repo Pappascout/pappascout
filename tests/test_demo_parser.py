@@ -51,7 +51,13 @@ from pappascout.domain.rounds import CT_WIN_REASONS, T_WIN_REASONS
 from pappascout.domain.rounds import REQUIRED_COLUMNS as NUMBERING_COLUMNS
 from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
 from pappascout.domain.models import load_settings
-from pappascout.domain.schemas import ARMED_COLUMN, EVENTS, ROUNDS, TICKS
+from pappascout.domain.schemas import (
+    ARMED_COLUMN,
+    EVENTS,
+    MONEY_DISTRIBUTION_COLUMN,
+    ROUNDS,
+    TICKS,
+)
 
 from test_calibration import ARMED_TRUTH
 from pappascout.errors import ParseError
@@ -1469,6 +1475,19 @@ INFERNO_ROUND_6 = {
     "equip_buy_end": 15_350,
     "money_buy_end": 2_400,
     "armed": 5,
+    # Veetin lukemat saldot pelaajittain (kalibrointidokumentti): 150, 0, 500,
+    # 1 750, 0. Summa on sama 2 400 -- ja juuri se on ongelma: summasta ei näe,
+    # että vain yksi pelaaja pääsee 4 000 dollariin häviöbonuksen kanssa.
+    "money_players": [1_750, 500, 150, 0, 0],
+}
+
+#: Sama kierrokselta 10, jonka Veeti kutsui puoliostoksi. Molemmilla on viisi
+#: aseistettua pelaajaa, joten kalusto ei erota niitä -- vain jakauma erottaa.
+INFERNO_ROUND_10 = {
+    "equip_buy_end": 11_900,
+    "money_buy_end": 7_900,
+    "armed": 5,
+    "money_players": [2_150, 2_050, 2_000, 900, 800],
 }
 
 #: Samat pelaajat, samat aseet, Veetin lukemina. Kolme näistä on ostettu vasta
@@ -1502,9 +1521,41 @@ def test_inferno_round_six_matches_the_human_reading() -> None:
     assert observed["equip_buy_end"] == INFERNO_ROUND_6["equip_buy_end"]
     assert observed["money_buy_end"] == INFERNO_ROUND_6["money_buy_end"]
     assert observed[ARMED_COLUMN] == INFERNO_ROUND_6["armed"]
+    assert (
+        list(observed[MONEY_DISTRIBUTION_COLUMN])
+        == INFERNO_ROUND_6["money_players"]
+    )
     # Mittauspiste on ankkurin jälkeen mutta ennen ikkunan loppua: kierroksen
     # ensimmäinen kuolema (18,1 s) katkaisi ikkunan.
     assert observed["buy_end_tick"] > observed["freeze_end_tick"]
+
+
+@pytest.mark.demo
+def test_inferno_rounds_six_and_ten_differ_only_in_the_distribution() -> None:
+    """Kaksi kierrosta, sama kalusto, eri tuomio -- ero on jakaumassa.
+
+    Molemmissa on viisi aseistettua pelaajaa, joten puolioston ehto A ei
+    erota niitä lainkaan. Veeti kutsui kierrosta 6 forceksi ja kierrosta 10
+    puoliostoksi, ja perusteli sen sillä kuka pystyy ostamaan seuraavalla
+    kierroksella. Tämä testi pinnaa **havainnon**, josta se luetaan; säännön
+    oma testi on ``test_calibration.py``:ssä eikä tarvitse demoa.
+    """
+    df = mark_played_rounds(
+        real_parser()
+        .parse_demo(require_demo("inferno_vs_ryhmarama.dem"), SNAPSHOT_SECONDS)
+        .rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    for round_no, expected in ((6, INFERNO_ROUND_6), (10, INFERNO_ROUND_10)):
+        row = df.filter((pl.col("round_no") == round_no) & (pl.col("side") == "T"))
+        assert row.height == 1, round_no
+        observed = row.to_dicts()[0]
+        assert observed[ARMED_COLUMN] == expected["armed"], round_no
+        assert observed["money_buy_end"] == expected["money_buy_end"], round_no
+        assert observed["equip_buy_end"] == expected["equip_buy_end"], round_no
+        assert (
+            list(observed[MONEY_DISTRIBUTION_COLUMN]) == expected["money_players"]
+        ), round_no
 
 
 @pytest.mark.demo

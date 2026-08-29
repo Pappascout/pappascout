@@ -76,6 +76,16 @@ REMOVED_SETTINGS: Final[dict[tuple[str, str], str]] = {
         "pelin aseiden joukko eikä säädettävä arvo. Poista rivi tiedostosta -- "
         "mitään ei tarvitse laittaa tilalle."
     ),
+    ("thresholds", "force_money_left_max"): (
+        "Poistui Story 1.10:ssä. Se oli kiinteä raja taskuun jääneelle rahalle "
+        "per pelaaja, eli joukkuesumma viidellä jaettuna -- ja juuri keskiarvo "
+        "peitti sen, mistä puoliostossa on kyse. Tilalle tulivat "
+        "normal_buy_money_min (oletus 4000), normal_buy_players_min (oletus 3) "
+        "ja armed_players_min (oletus 3): puoliosto erotetaan forcesta sillä, "
+        "moniko pelaaja pystyy normaaliin ostoon seuraavalla kierroksella, ja "
+        "ecosta sillä, moniko oli aseistettu. Lisää kolme uutta riviä ja poista "
+        "tämä."
+    ),
 }
 
 #: Näytepisteen yläraja sekunteina. CS2:n kierros kestää 1.55 = 115 s, joten
@@ -289,10 +299,25 @@ class ThresholdSettings(_Section):
 
     Luokittelun kynnykset on kalibroitu 2026-08-29 ihmisen antamaa
     totuustaulua vasten (``kalibrointi-kierrostyypit.md``); perustelut ja
-    havaintoväli ovat ``settings.toml``in kommenteissa. Ne eivät silti ole
-    lopullisia totuuksia: otannan rajat odottavat yhä omaa aineistoaan, ja
-    ``force_money_left_max`` odottaa ensimmäistä kiistatonta puoliostoa.
-    Rahamäärät ovat dollareita **per pelaaja**.
+    havaintoväli ovat ``settings.toml``in kommenteissa.
+
+    **Kaikki eivät ole havaintoja.** Erottelu on ``settings.toml``issa
+    rivikohtaisena merkintänä, ja se on tarkoitus säilyttää:
+
+    * ``[kalibroitu]`` -- arvo on aineiston tyhjässä välissä ja marginaali
+      lähimpään havaintoon on mitattu (``full_equip_min``, ``force_buy_min``,
+      ``anomaly_equip_max_after_win``, ``normal_buy_money_min``).
+    * ``[lausuttu]`` -- arvo tulee käyttäjän sanomasta säännöstä, eikä
+      yksikään mitattu kierros koettele sitä (``armed_players_min``).
+    * ``[päätelty, odottaa havaintoa]`` -- arvo on päättelyä, ja aineisto
+      antaisi saman tuloksen laajalla välillä (``normal_buy_players_min``).
+
+    Otannan rajat (``small_sample_rounds``, ``stack_min_players``,
+    ``roster_*``) odottavat yhä omaa aineistoaan.
+
+    Rahamäärät ovat dollareita **per pelaaja**, paitsi
+    ``normal_buy_money_min``, joka on **yhden pelaajan** oma saldo eikä
+    joukkueen keskiarvo.
     """
 
     # Kierrosnumeroon perustuvat säännöt (AD-4 vaiheet 1 ja 2)
@@ -303,11 +328,23 @@ class ThresholdSettings(_Section):
     full_equip_min: PositiveInt = 4000
     anomaly_equip_max_after_win: PositiveInt = 2000
 
-    # Raharajat (AD-4 vaihe 4). Force ja puoliosto eroavat **taskuun jätetystä
-    # rahasta**, eivät varustearvosta, ja molempien edellytys on se, että
-    # joukkue oikeasti osti: force_buy_min on forcen ehto, ei vain sen kaista.
+    # Raharajat (AD-4 vaihe 4). Osto on kaikkien häviön jälkeisten luokkien
+    # yhteinen edellytys: force_buy_min on forcen ja puolioston ehto, ei vain
+    # niiden kaista.
     force_buy_min: PositiveInt = 1500
-    force_money_left_max: PositiveInt = 1000
+
+    # Puolioston kaksi ehtoa (Story 1.10). MOLEMPIEN on täytyttävä.
+    #
+    # A: montako pelaajaa oli aseistettu -- erottaa puolioston ECOSTA.
+    # B: montako pelaajaa pystyy normaaliin ostoon seuraavalla kierroksella,
+    #    kun taskuun jääneeseen rahaan lisätään häviöbonus -- erottaa
+    #    puolioston FORCESTA.
+    #
+    # normal_buy_money_min on YHDEN PELAAJAN oma saldo, ei joukkueen keskiarvo.
+    # Ero on koko säännön syy: keskiarvo peittää jakauman.
+    armed_players_min: PositiveInt = 3
+    normal_buy_money_min: PositiveInt = 4000
+    normal_buy_players_min: PositiveInt = 3
 
     # Loss count -säännöt
     loss_count_half_start: NonNegativeInt = 1
@@ -333,14 +370,15 @@ class ThresholdSettings(_Section):
                 "jokainen voitettu kierros olisi joko poikkeama tai täysi osto "
                 "sen mukaan, kumpi raja sattuu olemaan ylempänä."
             )
-        if self.force_money_left_max >= self.force_buy_min:
-            raise ValueError(
-                f"force_money_left_max ({self.force_money_left_max}) on oltava "
-                f"pienempi kuin force_buy_min ({self.force_buy_min}); jos "
-                "taskuun saa jäädä enemmän rahaa kuin ostaminen ylipäätään "
-                "vaatii, jokainen hävityn jälkeinen ostos on force eikä "
-                "puoliostoa voi koskaan saavuttaa."
-            )
+        for name in ("armed_players_min", "normal_buy_players_min"):
+            value = getattr(self, name)
+            if value > self.roster_size:
+                raise ValueError(
+                    f"{name} ({value}) on suurempi kuin roster_size "
+                    f"({self.roster_size}), joten ehto ei voi täyttyä "
+                    "yhdelläkään kierroksella eikä puoliostoa voisi koskaan "
+                    "saavuttaa."
+                )
         if self.force_buy_min >= self.full_equip_min:
             raise ValueError(
                 f"force_buy_min ({self.force_buy_min}) on oltava pienempi kuin "
@@ -372,11 +410,15 @@ class ThresholdSettings(_Section):
 
 
 class EconomySettings(_Section):
-    """``[economy]`` -- CS2:n talousmalli raporttiliitteen laskelmia varten.
+    """``[economy]`` -- CS2:n talousmalli.
 
-    Näitä ei käytetä kierroksen luokitteluun; luokittelu nojaa havaittuun rahaan
-    ja varustearvoon. Talousmalli selittää raportissa, miksi joukkueella oli se
-    raha joka sillä oli.
+    Yksi näistä osallistuu kierroksen luokitteluun: ``loss_bonus_steps``.
+    Puoliosto erotetaan forcesta sillä, pystyykö pelaaja normaaliin ostoon
+    seuraavalla kierroksella, ja se riippuu häviöbonuksesta -- joka on suoraan
+    loss countin funktio ja vaihtelee 1 400-3 400 $. Siksi ``classify`` saa
+    tämän osion ja sen sisältö on mukana vaiheen parametrihashissa (Story
+    1.10). Muut arvot selittävät raportissa, miksi joukkueella oli se raha
+    joka sillä oli.
     """
 
     start_money: PositiveInt = 800
@@ -470,6 +512,28 @@ class Settings(BaseSettings):
                 f"vaihtelee välillä {self.thresholds.loss_count_min}-"
                 f"{self.thresholds.loss_count_max} eli portaita tarvitaan "
                 f"{expected_steps}. Laskuri indeksoi tätä listaa suoraan."
+            )
+        # Puolioston ehto B vertaa "oma saldo + häviöbonus" -summaa arvoon
+        # normal_buy_money_min, ja summa katkaistaan rahakattoon. Molemmat
+        # rajat ovat [economy]-osiossa, joten saavutettavuutta ei voi
+        # tarkistaa kummankaan osion sisällä yksin -- ja ilman tarkistusta
+        # kumpi tahansa luokka katoaisi äänettömästi.
+        smallest_bonus = min(self.economy.loss_bonus_steps)
+        if self.thresholds.normal_buy_money_min <= smallest_bonus:
+            raise ValueError(
+                f"thresholds.normal_buy_money_min "
+                f"({self.thresholds.normal_buy_money_min}) on enintään pienin "
+                f"häviöbonus ({smallest_bonus}), joten jokainen pelaaja "
+                "läpäisisi ehdon B ilman senttiäkään omaa rahaa eikä yksikään "
+                "hävityn jälkeinen ostos voisi enää olla force."
+            )
+        if self.thresholds.normal_buy_money_min > self.economy.max_money:
+            raise ValueError(
+                f"thresholds.normal_buy_money_min "
+                f"({self.thresholds.normal_buy_money_min}) ylittää rahakaton "
+                f"economy.max_money ({self.economy.max_money}), joten yksikään "
+                "pelaaja ei voi koskaan täyttää ehtoa B eikä puoliostoa voi "
+                "saavuttaa."
             )
         return self
 

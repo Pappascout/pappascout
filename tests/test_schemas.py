@@ -15,6 +15,7 @@ from pappascout.domain.schemas import (
     CLASSIFIED,
     EVENTS,
     ARMED_COLUMN,
+    MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
     SCHEMAS,
     TICKS,
@@ -127,24 +128,48 @@ def test_rounds_carries_the_armed_player_count() -> None:
     assert ROUNDS[ARMED_COLUMN] == pl.Int32
 
 
-def test_armed_player_count_is_not_a_classify_input() -> None:
-    """Story 1.5 tuottaa vain havainnon: luokittelusäännöt eivät muutu.
+def test_rounds_carries_the_per_player_money_distribution() -> None:
+    """Rahajakauma on lista kokonaislukuja, yksi per luettavissa ollut pelaaja.
 
-    Jos sarake ilmestyisi ``CLASSIFY_COLUMNS``iin, puolioston sääntö olisi jo
-    muuttunut -- eikä sitä tehdä ennen kuin aineistossa on nähty kiistaton
-    puoliosto, jota vasten sen voi kalibroida.
+    Joukkuesumma ``money_buy_end`` on yhä paikallaan: se on eri kysymys.
+    Jakauma vastaa siihen, mihin summa ei pysty -- moniko yksittäinen pelaaja
+    pystyy ostamaan seuraavalla kierroksella.
+    """
+    assert MONEY_DISTRIBUTION_COLUMN in ROUNDS
+    assert ROUNDS[MONEY_DISTRIBUTION_COLUMN] == pl.List(pl.Int32)
+    assert ROUNDS["money_buy_end"] == pl.Int32
+
+
+def test_the_half_buy_observations_are_classify_inputs() -> None:
+    """Puolioston kaksi ehtoa luetaan kierrostaulusta, eivät joukkuesummasta.
+
+    Story 1.5 ja 1.6 tuottivat kalustolaskurin havaintona ilman sääntöä;
+    Story 1.9 korjasi mittaushetken; Story 1.10 otti molemmat käyttöön. Jos
+    kumpi tahansa sarake katoaisi ``CLASSIFY_COLUMNS``ista, sääntö putoaisi
+    takaisin keskiarvoon -- ja juuri se oli vika.
     """
     from pappascout.domain.economy import CLASSIFY_COLUMNS
 
-    assert ARMED_COLUMN not in CLASSIFY_COLUMNS
+    assert ARMED_COLUMN in CLASSIFY_COLUMNS
+    assert MONEY_DISTRIBUTION_COLUMN in CLASSIFY_COLUMNS
 
 
 def test_money_and_equip_columns_are_integer_dollars() -> None:
-    """Konventio: *money* ja *equip* ovat kokonaislukuja dollareita."""
+    """Konventio: *money* ja *equip* ovat kokonaislukuja dollareita.
+
+    Rahajakauma on lista samaa tyyppiä: yksi kokonaisluku per pelaaja. Sama
+    konventio, eri muoto -- ja muoto on koko sarakkeen olemassaolon syy.
+    """
     for schema in SCHEMAS.values():
         for name, dtype in schema.items():
-            if "money" in name or "equip" in name:
-                assert dtype == pl.Int32, name
+            if "money" not in name and "equip" not in name:
+                continue
+            expected = (
+                pl.List(pl.Int32)
+                if name == MONEY_DISTRIBUTION_COLUMN
+                else pl.Int32
+            )
+            assert dtype == expected, name
 
 
 def test_second_columns_are_float() -> None:

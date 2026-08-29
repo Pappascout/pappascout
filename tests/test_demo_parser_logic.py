@@ -34,7 +34,12 @@ from pappascout.adapters.protocols import (
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
 )
-from pappascout.domain.schemas import ARMED_COLUMN, EVENTS, TICKS
+from pappascout.domain.schemas import (
+    ARMED_COLUMN,
+    EVENTS,
+    MONEY_DISTRIBUTION_COLUMN,
+    TICKS,
+)
 from pappascout.domain.rounds import mark_played_rounds
 from pappascout.errors import ParseError
 
@@ -1479,6 +1484,72 @@ def test_sums_and_their_divisor_come_from_the_same_players(tmp_path: Path) -> No
     assert row["money_spent"] == 3 * 4000
     # Per pelaaja -arvo pysyy oikeana, koska jakaja on sama joukko.
     assert row["equip_buy_end"] / row["players_buy_end"] == 4200
+
+
+# --- Pelaajakohtainen rahajakauma (Story 1.10) --------------------------------
+#
+# Joukkuesumma ei kerro, moniko pelaaja pystyy ostamaan seuraavalla
+# kierroksella, ja juuri se erottaa puolioston forcesta. Sarake säilyttää
+# samat luvut, jotka ``money_buy_end`` summaa -- ei uutta demokenttää.
+
+
+def test_money_distribution_keeps_every_balance_not_just_the_sum(
+    tmp_path: Path,
+) -> None:
+    """Mitatut saldot säilyvät sellaisinaan, laskevasti lajiteltuina.
+
+    Luvut ovat ``inferno_vs_ryhmarama``n kierrokselta 10 (Veetin puoliosto):
+    2 150, 2 000, 2 050, 800, 900. Summa 7 900 on sama kuin ennen, mutta se ei
+    kertoisi, että kaikki viisi pystyvät ostamaan -- eikä erottaisi tätä
+    joukkueesta, jolla yhdellä olisi 7 900 ja neljällä nolla.
+    """
+    balances = [2150, 2000, 2050, 800, 900]
+    rounds = normal_match(played=1, knife=False)
+    rounds[0].a_account = list(balances)
+
+    df = parse_with(build(rounds), tmp_path)
+    a_key = df.filter(pl.col("side") == "T")["lineup_key"][0]
+    row = df.filter(pl.col("lineup_key") == a_key).row(0, named=True)
+
+    assert row[MONEY_DISTRIBUTION_COLUMN] == sorted(balances, reverse=True)
+    assert sum(row[MONEY_DISTRIBUTION_COLUMN]) == row["money_buy_end"]
+
+
+def test_money_distribution_comes_from_the_same_players_as_the_sum(
+    tmp_path: Path,
+) -> None:
+    """Jakauman pituus on ``players_buy_end``, ei kokoonpanon koko.
+
+    Kaksi pelaajaa on lukukelvottomia, joten heidän saldonsa ei ole tiedossa.
+    Nolla heidän tilalleen väittäisi heitä rahattomiksi ja työntäisi
+    kierroksen forceksi -- juuri sellainen hiljainen väärinluku on tämän
+    sarakkeen olemassaolon syy.
+    """
+    rounds = normal_match(played=1, knife=False)
+    rounds[0].a_unreadable = 2
+
+    df = parse_with(build(rounds), tmp_path)
+    a_key = df.filter(pl.col("side") == "T")["lineup_key"][0]
+    row = df.filter(pl.col("lineup_key") == a_key).row(0, named=True)
+
+    assert len(row[MONEY_DISTRIBUTION_COLUMN]) == row["players_buy_end"] == 3
+    assert sum(row[MONEY_DISTRIBUTION_COLUMN]) == row["money_buy_end"]
+
+
+def test_round_without_an_anchor_has_no_money_distribution(tmp_path: Path) -> None:
+    """Ilman ankkuria ei ole jakaumaa -- eikä myöskään tyhjää listaa.
+
+    Tyhjä lista väittäisi havainnoksi sen, ettei ketään ollut. ``null``
+    sanoo, ettei ketään saatu luettua, ja luokittelu jättää kierroksen
+    luokittelematta sen sijaan että arvaisi.
+    """
+    rounds = normal_match(played=2, knife=False)
+    rounds[1].freeze_tick = None
+
+    df = parse_with(build(rounds), tmp_path)
+    no_anchor = df.filter(pl.col("status") == "no_freeze_end")
+    assert no_anchor.height == 2
+    assert no_anchor[MONEY_DISTRIBUTION_COLUMN].null_count() == 2
 
 
 # --- Kalustolaskuri (Story 1.6) -----------------------------------------------

@@ -258,19 +258,71 @@ anomaly_equip_max_after_win = 2000
 # [addendum] heuristiikka 1b [kalibroitu 2026-08-29]
 force_buy_min = 1500
 
-# Force ja puoliosto eroavat TASKUUN JÄTETYSTÄ rahasta (sääntö S2): force
-# osti tyhjäksi, puoliosto jätti varaa seuraavalle kierrokselle.
+# --- Puolioston kaksi ehtoa (Story 1.10) ---
 #
-# PÄÄTELTY raja, ei havaittu -- ainoa tällainen näistä kynnyksistä.
-# Aineiston forceilla jäi taskuun 270 ja 750 per pelaaja, mutta aineistossa ei
-# ole YHTÄÄN puoliostoa, joten rajan yläpuolta ei ole havaittu lainkaan.
-# (Ecojen 2060-3090 ei ole oikea vertailujoukko: ne erottuvat jo siitä, ettei
-# niissä ostettu, eivät tästä rajasta.) 1000 $ nojaa siihen, että sillä
-# rahalla ei enää saa mitään merkittävää, ja jättää havaittuihin forceihin
-# 250 $ marginaalin. Tämä raja on tarkoitus säätää uudelleen, kun ensimmäinen
-# kiistaton puoliosto nähdään.
-# [addendum] heuristiikka 1b [päätelty 2026-08-29, odottaa havaintoa]
-force_money_left_max = 1000
+# Veetin määritelmä on kaksisuuntainen: "Puoliosto ei ole force silloin kun
+# seuraavalla kierroksella mahdollistetaan normaali osto, ja ei ole eco kun
+# käytössä on tarpeeksi arvoa." MOLEMPIEN ehtojen on täytyttävä.
+#
+# Ehto A erottaa puolioston ECOSTA, ehto B FORCESTA. Ne mittaavat eri asiaa:
+# A katsoo tälle kierrokselle ostettua kalustoa, B seuraavan kierroksen
+# ostovoimaa.
+#
+# MITÄ AINEISTO SANOO -- ja mitä se ei sano. Kuudessa demossa on 23 hävityn
+# kierroksen jälkeistä ostokierrosta, ja poistunut kiinteä raja
+# force_money_left_max antaisi niistä JOKAISELLE saman luokan kuin ehdot A ja
+# B. Yksikään mitattu kierros ei siis vielä erota näitä sääntöjä toisistaan.
+# Ero näkyy vasta epätasaisella jakaumalla, ja säännön peruste on käyttäjän
+# oma määritelmä, joka on pelaajakohtainen -- ei mittaus, joka olisi kumonnut
+# edellisen säännön.
+
+
+# EHTO A: vähintään tämän monella pelaajalla oli panssari ja jokin parannettu
+# ase ostoajan lopussa (havainto players_armed_buy_end). Alle sen kierrosta ei
+# oikeasti pelata, ja kyseessä on eco vaikka rahaa olisi liikkunut.
+#
+# Veetin oma raja: "vähintään kolmella pelaajalla on kevlar ja jokin
+# parannettu ase -- parempi pistooli, SMG tai halpa kivääri".
+#
+# EI HAVAINTOA. Aineiston ainoa vähän aseistettu kierros (Ancient 21 T, 2/5)
+# ratkeaa jo ostorajalla force_buy_min eikä koskaan saavuta ehtoa A, joten
+# tämä kynnys ei ole kalibroitu mitään vasten. Se on käyttäjän lausuma sääntö
+# ja pysyy sellaisena, kunnes nähdään kierros, jolla ostettiin kunnolla mutta
+# aseistettuja oli alle kolme.
+# [lausuttu 2026-08-29, ei havaintoa]
+armed_players_min = 3
+
+# EHTO B: montako pelaajaa pystyy normaaliin ostoon SEURAAVALLA kierroksella.
+# Pelaaja pystyy, jos hänen oma saldonsa ostoajan lopussa plus häviöbonus
+# yltää arvoon normal_buy_money_min. Summa katkaistaan [economy].max_moneyyn.
+#
+# normal_buy_money_min on YHDEN PELAAJAN OMA SALDO, ei joukkueen keskiarvo.
+# Tämä on koko säännön syy: joukkue jolla yhdellä on 5 000 ja neljällä nolla
+# saa saman keskiarvon kuin joukkue jolla kaikilla on 1 000, mutta
+# edellisessä neljä viidestä ei voi ostaa mitään. Keskiarvo antaa myös
+# mahdottomia lukuja: kierros 19 CT näytti "30 $/pelaaja", kun todelliset
+# saldot olivat 0, 0, 50, 50, 50 -- kaikki hinnat ovat viidenkymmenen
+# monikertoja, joten 30 ei voi olla kenenkään saldo.
+#
+# 4000 $ on sama luku kuin full_equip_min ja samasta syystä: kivääri +
+# kevlar (+kypärä) + pari utilitya maksaa sen. Häviöbonus luetaan
+# [economy].loss_bonus_steps -portaista loss countin mukaan (1400-3400 $)
+# INDEKSILLÄ loss_count: laskuri kuvaa tilaa kierrokseen mentäessä, ja juuri
+# se porras maksetaan, jos kierros hävitään.
+#
+# HAVAITTU, marginaali mitattu molempiin suuntiin: kierroksella 6 rikkaimman
+# pelaajan ostovoima on 1750 + 1900 = 3650 (marginaali 350 alaspäin, force)
+# ja kierroksella 10 köyhimmän 800 + 3400 = 4200 (marginaali 200 ylöspäin,
+# puoliosto). Molemmat ylittävät testien MIN_MARGINin 200 $.
+# [kalibroitu 2026-08-29, inferno_vs_ryhmarama kierrokset 6 ja 10]
+normal_buy_money_min = 4000
+
+# Montako pelaajaa ehdon B on koskettava. EI HAVAINTOA: kierroksella 6
+# ostokykyisiä on 0/5 ja kierroksella 10 kaikki 5/5, joten mikä tahansa arvo
+# väliltä 1-5 tuottaisi samat tuomiot. 3 on valittu symmetriseksi ehdon A
+# kanssa -- "puolet joukkueesta ja yksi päälle".
+# [päätelty 2026-08-29, odottaa havaintoa]
+normal_buy_players_min = 3
 
 # --- Loss count ---
 # Puoliaika alkaa arvosta 1 (pistoolihäviö 1900 $). Voitto laskee laskuria
@@ -300,16 +352,23 @@ stack_min_players = 4
 
 
 [economy]
-# CS2:n talousmalli. Näitä EI käytetä kierroksen luokitteluun -- luokittelu nojaa
-# havaittuun rahaan ja varustearvoon. Talousmalli selittää raporttiliitteessä,
-# miksi joukkueella oli se raha joka sillä oli. Kaikki luvut [addendum] luku 6,
-# lähde Counter-Strike Wiki (CS2-sarake), haettu 2026-08-27/28.
+# CS2:n talousmalli. Kaikki luvut [addendum] luku 6, lähde Counter-Strike Wiki
+# (CS2-sarake), haettu 2026-08-27/28.
+#
+# YKSI NÄISTÄ OSALLISTUU LUOKITTELUUN: loss_bonus_steps. Puolioston ehto B
+# kysyy, pystyykö pelaaja normaaliin ostoon seuraavalla kierroksella, ja
+# vastaus riippuu häviöbonuksesta. Siksi tämän osion muuttaminen invalidoi
+# classify-vaiheen tuloksen -- muttei parsintaa. Muut arvot selittävät
+# raporttiliitteessä, miksi joukkueella oli se raha joka sillä oli.
 
 start_money = 800
 max_money = 16000
 
 # Loss bonus -portaat. Indeksi = loss count, joten puoliajan alku (loss count 1)
 # antaa pistoolihäviöstä 1900 $.
+#
+# LUOKITTELU LUKEE TÄTÄ (puolioston ehto B). Portaita on oltava tasan
+# loss_count_max + 1, ja asetusten lataus tarkistaa sen.
 loss_bonus_steps = [1400, 1900, 2400, 2900, 3400]
 
 win_reward_elimination = 3250

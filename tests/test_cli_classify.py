@@ -29,6 +29,7 @@ from pappascout.cli import (
 from pappascout.constants import UNCLASSIFIED
 from pappascout.domain.models import (
     SETTINGS_ENV_VAR,
+    EconomySettings,
     LeagueSettings,
     ThresholdSettings,
 )
@@ -105,9 +106,12 @@ def fake_stage(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
     """Korvaa ``stages.classify.run``; palauta se mitä vaiheelle annettiin."""
     seen: dict[str, object] = {"kutsut": []}
 
-    def fake_run(thresholds, league, archive, map_demo_id, team, **kwargs):
+    def fake_run(
+        thresholds, league, archive, map_demo_id, team, *, economy, **kwargs
+    ):
         seen["thresholds"] = thresholds
         seen["league"] = league
+        seen["economy"] = economy
         seen["archive"] = archive
         seen["unit"] = map_demo_id
         seen["team"] = team
@@ -251,6 +255,11 @@ def test_round_list_marks_an_unclassified_round() -> None:
         "-",
         "-",
         "1",
+        # Bonus, Aseist. ja Ostokyky: puuttuva laskuri on viiva eikä "0/5".
+        # Nolla väittäisi havainnoksi sen, ettei kukaan pystynyt ostamaan.
+        "-",
+        "-",
+        "-",
     ]
     assert "0" not in data_line
     assert "no_freeze_end" in output_text
@@ -287,19 +296,30 @@ def test_empty_round_list_says_so() -> None:
 # --- Komento ------------------------------------------------------------------------
 
 
-def test_stage_gets_only_the_threshold_and_league_sections(fake_stage) -> None:
-    """AD-3: vaihe ei saa nähdä ``[parse]``-, ``[economy]``- eikä ``[project]``-osiota."""
+def test_stage_gets_only_the_three_sections_it_reads(fake_stage) -> None:
+    """AD-3: vaihe ei saa nähdä ``[parse]``- eikä ``[project]``-osiota.
+
+    ``[economy]`` tuli mukaan Story 1.10:ssä, koska puolioston ehto B lukee
+    siitä häviöbonuksen portaat. Partitio ei silti löystynyt: vaihe saa yhä
+    valmiit osiot eikä koko ``Settings``-oliota, joten se ei voi vahingossa
+    alkaa lukea arkiston polkua tai parsinnan ikkunaa.
+    """
     result = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM])
     assert result.exit_code == 0, result.output
 
     thresholds = fake_stage["thresholds"]
     league = fake_stage["league"]
+    economy = fake_stage["economy"]
     assert isinstance(thresholds, ThresholdSettings)
     assert isinstance(league, LeagueSettings)
+    assert isinstance(economy, EconomySettings)
+    assert economy.loss_bonus_steps
     for forbidden in ("parse", "economy", "project", "league"):
         assert not hasattr(thresholds, forbidden)
     for forbidden in ("parse", "economy", "project", "thresholds"):
         assert not hasattr(league, forbidden)
+    for forbidden in ("parse", "project", "thresholds", "league"):
+        assert not hasattr(economy, forbidden)
     assert fake_stage["unit"] == DEMO_ID
     assert fake_stage["team"] == TEAM
     assert fake_stage["kwargs"]["force"] is False

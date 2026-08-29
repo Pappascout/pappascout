@@ -162,21 +162,64 @@ def test_the_after_win_anomaly_bar_must_stay_below_a_full_buy(
     assert "anomaly_equip_max_after_win" in str(exc.value)
 
 
-def test_money_left_max_must_stay_below_the_purchase_threshold(
-    tmp_path: Path,
-) -> None:
+def test_a_player_counter_above_the_roster_is_refused(tmp_path: Path) -> None:
     """P2: ilman tätä ``half`` on tavoittamaton eikä mikään huomauta.
 
-    Jos taskuun saa jäädä enemmän rahaa kuin ostaminen ylipäätään vaatii,
-    jokainen hävityn jälkeinen ostos on force.
+    Puolioston molemmat ehdot ovat pelaajalaskureita. Jos kumpi tahansa
+    vaatii enemmän pelaajia kuin kokoonpanossa on, ehto ei voi täyttyä
+    yhdelläkään kierroksella -- ja jokainen hävityn jälkeinen ostos olisi
+    force tai eco.
+    """
+    for name in ("armed_players_min", "normal_buy_players_min"):
+        target = _write_variant(tmp_path, **{f"{name} = 3": f"{name} = 6"})
+        with pytest.raises(SettingsError) as exc:
+            load_settings(target)
+        assert name in str(exc.value)
+        assert "roster_size" in str(exc.value)
+
+
+def test_a_threshold_below_the_smallest_loss_bonus_makes_force_unreachable(
+    tmp_path: Path,
+) -> None:
+    """Ehto B menisi läpi ilman senttiäkään omaa rahaa.
+
+    Poistunut ``force_money_left_max < force_buy_min`` varmisti, että
+    puoliosto on saavutettavissa. Sen tilalle tarvitaan vartija molempiin
+    suuntiin, ja tämä on toinen: jos kynnys on enintään pienin häviöbonus,
+    jokainen pelaaja täyttää ehdon B aina eikä yksikään hävityn jälkeinen
+    ostos voi enää olla force.
+
+    Raja on kahden osion välissä (``[thresholds]`` ja ``[economy]``), joten
+    kumpikaan ei voi tarkistaa sitä yksin.
     """
     target = _write_variant(
         tmp_path,
-        **{"force_money_left_max = 1000": "force_money_left_max = 100000"},
+        **{"normal_buy_money_min = 4000": "normal_buy_money_min = 1400"},
     )
     with pytest.raises(SettingsError) as exc:
         load_settings(target)
-    assert "force_money_left_max" in str(exc.value)
+    message = str(exc.value)
+    assert "normal_buy_money_min" in message
+    assert "force" in message
+
+
+def test_a_threshold_above_the_money_ceiling_makes_a_half_buy_unreachable(
+    tmp_path: Path,
+) -> None:
+    """Sama vartija toiseen suuntaan: kukaan ei voi koskaan täyttää ehtoa B.
+
+    Ostovoima katkaistaan rahakattoon, joten kattoa suurempi kynnys on
+    saavuttamaton -- ja puoliosto katoaisi äänettömästi kokonaan.
+    """
+    target = _write_variant(
+        tmp_path,
+        **{"normal_buy_money_min = 4000": "normal_buy_money_min = 20000"},
+    )
+    with pytest.raises(SettingsError) as exc:
+        load_settings(target)
+    message = str(exc.value)
+    assert "normal_buy_money_min" in message
+    assert "max_money" in message
 
 
 def test_force_buy_min_must_stay_below_a_full_buy(tmp_path: Path) -> None:
@@ -198,7 +241,7 @@ def test_a_retired_threshold_left_in_settings_is_refused(tmp_path: Path) -> None
     """
     target = _write_variant(
         tmp_path,
-        **{"force_money_left_max = 1000": "force_money_left_max = 1000\nforce_money_max = 2500"},
+        **{"force_buy_min = 1500": "force_buy_min = 1500\nforce_money_max = 2500"},
     )
     with pytest.raises(SettingsError) as exc:
         load_settings(target)
@@ -511,6 +554,32 @@ def test_old_settings_file_gets_a_migration_message(tmp_path: Path) -> None:
     assert "Poista rivi" in message
 
 
+def test_the_retired_money_left_threshold_names_its_three_replacements(
+    tmp_path: Path,
+) -> None:
+    """Story 1.10 poisti ``force_money_left_max``: ohje kertoo mitä tilalle.
+
+    Kolme uutta kynnystä yhden tilalle on juuri se muutos, jota käyttäjä ei
+    voi arvata. Ilman ohjetta hän näkisi vain "tuntematon avain".
+    """
+    target = _write_variant(
+        tmp_path,
+        **{"force_buy_min = 1500": "force_buy_min = 1500\nforce_money_left_max = 1000"},
+    )
+    with pytest.raises(SettingsError) as exc:
+        _load(target)
+
+    message = str(exc.value)
+    assert "force_money_left_max" in message
+    assert "[thresholds]" in message
+    for replacement in (
+        "normal_buy_money_min",
+        "normal_buy_players_min",
+        "armed_players_min",
+    ):
+        assert replacement in message
+
+
 def test_every_removed_setting_has_an_instruction() -> None:
     """Jokainen poistettu asetus kertoo mitä tehdä, ei vain että se poistui.
 
@@ -547,7 +616,11 @@ def test_threshold_values(settings_file: Path) -> None:
     assert t.full_equip_min == 4000
     assert t.anomaly_equip_max_after_win == 2000
     assert t.force_buy_min == 1500
-    assert t.force_money_left_max == 1000
+    # Puolioston kaksi ehtoa (Story 1.10). Ehto A on Veetin lausuma raja,
+    # ehto B kalibroitu inferno_vs_ryhmaraman kierroksia 6 ja 10 vasten.
+    assert t.armed_players_min == 3
+    assert t.normal_buy_money_min == 4000
+    assert t.normal_buy_players_min == 3
     assert t.loss_count_half_start == 1
     assert t.loss_count_min == 0
     assert t.loss_count_max == 4

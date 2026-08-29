@@ -918,6 +918,7 @@ def classify(
             archive,
             target,
             choice,
+            economy=settings.economy,
             force=force,
         )
         typer.echo(_render_classify(result))

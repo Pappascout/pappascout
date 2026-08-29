@@ -19,6 +19,7 @@ from conftest import (
     NUKE_ROUNDS,
     NUKE_ZST,
     REAL_SETTINGS,
+    even_split,
     has_temp_leftovers,
     require_demo,
     settings_text,
@@ -37,6 +38,7 @@ from pappascout.domain.schemas import (
     ARMED_COLUMN,
     CLASSIFIED,
     EVENTS,
+    MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
     TICKS,
     validate,
@@ -98,6 +100,16 @@ def round_rows(
                 "equip_buy_end": None if status != "ok" else equip,
                 "equip_round_start": None if status != "ok" else start,
                 "players_buy_end": None if status != "ok" else players,
+                # Puolioston kaksi havaintoa johdetaan muista arvoista, jotta
+                # rivi on sisäisesti johdonmukainen: jakauman summa on
+                # money_buy_end ja laskurin katto players_buy_end. Testi, joka
+                # tutkii nimenomaan niitä, rakentaa oman rivinsä.
+                ARMED_COLUMN: None if status != "ok" else players,
+                MONEY_DISTRIBUTION_COLUMN: (
+                    None
+                    if status != "ok" or not players
+                    else even_split(money, players)
+                ),
                 "survivors": 2 if won else 0,
                 "survivors_equip_prev": 0,
                 "freeze_end_tick": None if status != "ok" else 1000 * round_no,
@@ -226,7 +238,13 @@ def parsed(archive: ArchivePaths, settings) -> ArchivePaths:
 
 def run_classify(settings, archive, team=A, **kwargs):
     return classify_stage.run(
-        settings.thresholds, settings.league, archive, MAP_DEMO_ID, team, **kwargs
+        settings.thresholds,
+        settings.league,
+        archive,
+        MAP_DEMO_ID,
+        team,
+        economy=settings.economy,
+        **kwargs,
     )
 
 
@@ -344,7 +362,18 @@ def test_writes_a_readable_round_list_beside_the_table(settings, parsed) -> None
     assert f"täysi osto vähintään {t.full_equip_min}" in header_line
     assert f"voiton jälkeen enintään {t.anomaly_equip_max_after_win}" in header_line
     assert f"ostettua vähintään {t.force_buy_min}" in header_line
-    assert f"taskuun jäi enintään {t.force_money_left_max}" in header_line
+    # Puolioston kaksi ehtoa ovat omalla rivillään: ne eivät ole
+    # dollarikynnyksiä per pelaaja vaan pelaajalaskureita, ja yhteen lauseeseen
+    # ahdettuna kumpikaan ei olisi luettavissa.
+    half_line = next(r for r in text.splitlines() if r.startswith("- Puolioston"))
+    assert f"vähintään {t.armed_players_min} pelaajaa aseistettuna" in half_line
+    assert f"vähintään {t.normal_buy_players_min} pelaajaa" in half_line
+    assert f"vähintään {t.normal_buy_money_min} $" in half_line
+    # Häviöbonuksen portaat ovat mukana: ilman niitä ehdon B luku ei ole
+    # tarkistettavissa, koska bonus ei näy missään muualla listassa.
+    bonus_line = next(r for r in text.splitlines() if r.startswith("- Ehto B"))
+    for step in settings.economy.loss_bonus_steps:
+        assert str(step) in bonus_line
     assert str(settings.league.ot_start_money) in text
     # Poistuneita kynnyksiä ei mainita: otsikko kertoo vain sen, mitä
     # luokittelu oikeasti vertaili.
@@ -409,15 +438,28 @@ def test_a_stale_inputs_struct_is_recomputed_not_read(settings, parsed) -> None:
     path = parsed.classified(A, MAP_DEMO_ID)
     assert run_classify(settings, parsed).skipped, "esiehto: manifesti täsmää"
 
-    # Kirjoita taulu uudelleen vanhanmallisella inputs-rakenteella: poistetut
-    # kynnykset takaisin, uudet pois.
+    # Kirjoita taulu uudelleen vanhanmallisella inputs-rakenteella:
+    # poistetut kynnykset takaisin, uudet pois. Molempien on oltava
+    # oikeasti poistuneita tai oikeasti uusia -- elävän avaimen
+    # poistaminen testaisi eri asiaa kuin mitä nimi lupaa.
     df = pl.read_parquet(path)
     old_inputs = []
     for i in df["inputs"].to_list():
-        retired_keys = ("force_buy_min", "force_money_left_max")
-        row = {k: v for k, v in i.items() if k not in retired_keys}
+        removed_in_this_story = (
+            "money_players",
+            "players_armed",
+            "players_can_buy",
+            "loss_bonus_if_lost",
+            "armed_players_min",
+            "normal_buy_money_min",
+            "normal_buy_players_min",
+        )
+        row = {
+            k: v for k, v in i.items() if k not in removed_in_this_story
+        }
         row["eco_money_max"] = 2000
         row["force_money_min"] = 1500
+        row["force_money_left_max"] = 1000
         old_inputs.append(row)
     df.with_columns(pl.Series("inputs", old_inputs)).write_parquet(path)
 
@@ -777,6 +819,7 @@ def test_markdown_escapes_everything_that_would_break_the_table(settings) -> Non
         team_key=A,
         thresholds=settings.thresholds,
         league=settings.league,
+        economy=settings.economy,
     )
     table_lines = [r for r in text.splitlines() if r.startswith("| 1 |")]
     assert len(table_lines) == 1, "rivinvaihto ei saa katkaista solua"
@@ -848,9 +891,14 @@ def test_inputs_carry_the_money_that_was_available(settings, parsed) -> None:
         assert inputs["money_buy_end"] + inputs["money_spent"] == 25000
         assert inputs["force_buy_min"] == settings.thresholds.force_buy_min
         assert (
-            inputs["force_money_left_max"]
-            == settings.thresholds.force_money_left_max
+            inputs["normal_buy_money_min"]
+            == settings.thresholds.normal_buy_money_min
         )
+        # Story 1.10: jakauma ja molempien ehtojen laskurit kulkevat mukana,
+        # jotta kierroslistan rivi on tarkistettavissa ilman uutta ajoa.
+        assert sum(inputs["money_players"]) == inputs["money_buy_end"]
+        assert inputs["players_can_buy"] is not None
+        assert inputs["loss_bonus_if_lost"] in settings.economy.loss_bonus_steps
 
 
 # --- Oikeat demot ----------------------------------------------------------------
@@ -897,10 +945,11 @@ def subject_key(df: pl.DataFrame) -> str:
 @pytest.mark.demo
 def test_ancient_first_three_rounds_are_pistol_eco_full(settings_file: Path) -> None:
     """Regressio: todennettu jakso pistooli -> säästö -> täysi osto."""
-    thresholds = load_settings(settings_file, env_files=()).thresholds
+    loaded = load_settings(settings_file, env_files=())
+    thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(ANCIENT_DEM, "ancient")
     df_, rows = classify_stage.classify_rounds(
-        df, subject_key(df), thresholds, "ancient"
+        df, subject_key(df), thresholds, "ancient", economy=economy
     )
     assert df_.height == ANCIENT_ROUNDS
     assert df_.sort("round_no")["round_type"].to_list()[:3] == ["pistol", "eco", "full"]
@@ -910,19 +959,23 @@ def test_ancient_first_three_rounds_are_pistol_eco_full(settings_file: Path) -> 
 
 @pytest.mark.demo
 def test_ancient_has_no_unclassified_rounds(settings_file: Path) -> None:
-    thresholds = load_settings(settings_file, env_files=()).thresholds
+    loaded = load_settings(settings_file, env_files=())
+    thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(ANCIENT_DEM, "ancient")
     result, _ = classify_stage.classify_rounds(
-        df, subject_key(df), thresholds, "ancient"
+        df, subject_key(df), thresholds, "ancient", economy=economy
     )
     assert result["round_type"].null_count() == 0
 
 
 @pytest.mark.demo
 def test_nuke_overtime_rounds_get_no_economy_reasoning(settings_file: Path) -> None:
-    thresholds = load_settings(settings_file, env_files=()).thresholds
+    loaded = load_settings(settings_file, env_files=())
+    thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(NUKE_ZST, "nuke")
-    result, _ = classify_stage.classify_rounds(df, subject_key(df), thresholds, "nuke")
+    result, _ = classify_stage.classify_rounds(
+        df, subject_key(df), thresholds, "nuke", economy=economy
+    )
 
     assert result.height == NUKE_ROUNDS
     overtime = result.filter(pl.col("round_no") > thresholds.regulation_rounds)
@@ -934,9 +987,12 @@ def test_nuke_overtime_rounds_get_no_economy_reasoning(settings_file: Path) -> N
 
 @pytest.mark.demo
 def test_nuke_first_three_rounds_are_pistol_eco_full(settings_file: Path) -> None:
-    thresholds = load_settings(settings_file, env_files=()).thresholds
+    loaded = load_settings(settings_file, env_files=())
+    thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(NUKE_ZST, "nuke")
-    result, _ = classify_stage.classify_rounds(df, subject_key(df), thresholds, "nuke")
+    result, _ = classify_stage.classify_rounds(
+        df, subject_key(df), thresholds, "nuke", economy=economy
+    )
     assert result.sort("round_no")["round_type"].to_list()[:3] == [
         "pistol",
         "eco",
@@ -951,13 +1007,18 @@ def test_nuke_first_three_rounds_are_pistol_eco_full(settings_file: Path) -> Non
 def test_opponent_type_matches_the_other_teams_own_type(
     settings_file: Path, demo_name: str, identifier: str
 ) -> None:
-    thresholds = load_settings(settings_file, env_files=()).thresholds
+    loaded = load_settings(settings_file, env_files=())
+    thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(demo_name, identifier)
     a = subject_key(df)
     b = next(k for k in df["lineup_key"].unique().to_list() if k != a)
 
-    own, _ = classify_stage.classify_rounds(df, a, thresholds, identifier)
-    other, _ = classify_stage.classify_rounds(df, b, thresholds, identifier)
+    own, _ = classify_stage.classify_rounds(
+        df, a, thresholds, identifier, economy=economy
+    )
+    other, _ = classify_stage.classify_rounds(
+        df, b, thresholds, identifier, economy=economy
+    )
 
     assert own.sort("round_no")["round_type"].to_list() == (
         other.sort("round_no")["opp_round_type"].to_list()
@@ -989,12 +1050,15 @@ def test_ancient_calibration_verdicts_hold_on_the_real_demo(
     suuria muutoksia: kierros 21 T on eco sekä 710 että 750 dollarilla, joten
     pelkkä tuomio ei huomaisi mittauspisteen liukumista.
     """
-    thresholds = load_settings(settings_file, env_files=()).thresholds
+    loaded = load_settings(settings_file, env_files=())
+    thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(ANCIENT_DEM, "ancient")
 
     observed: dict[tuple[int, str], dict] = {}
     for team in df["lineup_key"].unique().to_list():
-        result, _ = classify_stage.classify_rounds(df, team, thresholds, "ancient")
+        result, _ = classify_stage.classify_rounds(
+            df, team, thresholds, "ancient", economy=economy
+        )
         for row in result.iter_rows(named=True):
             observed[(int(row["round_no"]), str(row["side"]))] = row
 

@@ -189,9 +189,8 @@ havaintoa saatu.
 
 Kevlar ilman asetta ei riitä eikä ase ilman kevlaria. Kypärää ei vaadita: CT
 ostaa usein pelkän kevlarin, koska AK tappaa päähän kypärästä huolimatta.
-Kranaatit, C4 ja Zeus eivät ole aseita. Luokittelu ei vielä muuta kierrostyypin
-päättelyä: puolioston sääntö odottaa aineistoon ensimmäistä kiistatonta
-puoliostoa, jota vasten sen voi kalibroida.
+Kranaatit, C4 ja Zeus eivät ole aseita. Laskuri on puolioston **ehto A**
+(Story 1.10): se erottaa puolioston ecosta.
 
 > **Hallussapito, ei ostos.** Tavaraluettelo luetaan ostoajan lopusta, joten
 > edelliseltä kierrokselta säästetty tai vainajalta poimittu kivääri lasketaan
@@ -214,6 +213,17 @@ saataisiin lopuista. Pelaaja pysyy `players_buy_end`in jakajassa, joten
 `4/5` väittäisi, että yksi oli aseeton, vaikka totuus on ettei häntä saatu
 luettua: vaiettu lukuvirhe näyttäisi säästökierrokselta. Tyhjä tavaraluettelo
 ja `0` panssaria ovat sen sijaan **havaintoja** eivätkä puutteita.
+
+**Rahan jakauma on omana havaintonaan.** `money_players_buy_end` säilyttää ne
+samat saldot, jotka `money_buy_end` summaa -- yksi luku per luettavissa ollut
+pelaaja, laskevasti lajiteltuna. Uutta demokenttää ei tarvita: arvot olivat jo
+käsillä, ja tähän asti ne vain summattiin. Summa ei kerro, moniko yksittäinen
+pelaaja pystyy ostamaan seuraavalla kierroksella, ja juuri se on puolioston
+ehto B. Keskiarvo antaa myös mahdottomia lukuja: mitattu kierros näytti
+"30 $/pelaaja", kun todelliset saldot olivat 0, 0, 50, 50, 50 -- kaikki
+hinnat ovat viidenkymmenen monikertoja, joten 30 ei voi olla kenenkään saldo.
+Lista on aina täsmälleen `players_buy_end` pitkä, ja `null` silloin kun
+`players_buy_end` on `null`.
 
 **Tuntematon nimi ei ole ase.** Aseluokittelu (`src/pappascout/constants.py`)
 on sallittujen aseiden luettelo, ei kiellettyjen. Se tuntee **57 esinenimeä**,
@@ -260,7 +270,8 @@ kynnyksiä** -- niitä ei viilata luvuilla:
    `half`.
 2. **Force ja puoliosto eroavat taskuun jätetystä rahasta**, eivät
    varustearvosta. Force = ostettiin tyhjäksi. Puoliosto = ostettiin, mutta
-   jätettiin varaa seuraavalle kierrokselle.
+   jätettiin varaa seuraavalle kierrokselle -- ja "varaa" mitataan
+   **pelaajakohtaisesti**, ei joukkueen keskiarvosta.
 3. **Säästetty ase ei ole ostos.** Ratkaisee tällä kierroksella ostettu summa,
    ei varustearvo -- eloon jääneiden kalusto nostaa varustearvoa ilman että
    mitään ostettiin.
@@ -269,30 +280,67 @@ Ensimmäinen osuva sääntö voittaa. Järjestys on: numeroidaanko kierros ->
 puuttuuko havainto -> pistoolikierros -> jatkoaika -> laskiko varustearvo
 (`anomaly`) -> täysi osto varustearvosta -> onko edellistä kierrosta
 (`anomaly`) -> voiton jälkeen `full` (tai `anomaly`, jos varustearvo on liian
-matala ollakseen osto) -> hävityn jälkeen nämä neljä riviä, kaikki per pelaaja:
+matala ollakseen osto) -> hävityn jälkeen näin:
 
 ```
-varusteet >= full_equip_min                                    -> full
-ostettu >= force_buy_min ja jäljellä <= force_money_left_max    -> force
-ostettu >= force_buy_min                                       -> half
-muuten                                                         -> eco
+varusteet >= full_equip_min                       -> full
+ostettu < force_buy_min                           -> eco
+ostettu >= force_buy_min:
+    havainto puuttuu tai on ristiriitainen        -> ei luokitella
+    ehto A ei täyty (liian harva aseistettu)      -> eco
+    raha ei siirry seuraavalle kierrokselle       -> force
+    ehto A täyttyy, ehto B ei                     -> force
+    molemmat täyttyvät                            -> half
 ```
+
+**Puolioston kaksi ehtoa (Story 1.10).** Käyttäjän määritelmä on
+kaksisuuntainen -- *"puoliosto ei ole force silloin kun seuraavalla
+kierroksella mahdollistetaan normaali osto, ja ei ole eco kun käytössä on
+tarpeeksi arvoa"* -- ja molempien ehtojen on täytyttävä:
+
+- **Ehto A, kalusto.** Vähintään `armed_players_min` pelaajalla oli panssari
+  ja ase ostoajan lopussa. Erottaa puolioston **ecosta**.
+- **Ehto B, ensi kierroksen varallisuus.** Vähintään
+  `normal_buy_players_min` pelaajaa yltää arvoon `normal_buy_money_min`, kun
+  omaan saldoon lisätään häviöbonus (`[economy].loss_bonus_steps`, indeksinä
+  loss count) ja summa katkaistaan rahakattoon. Erottaa puolioston
+  **forcesta**.
+
+Ehto B lasketaan **pelaajakohtaisesta rahajakaumasta**
+(`money_players_buy_end`), ei joukkuesummasta: joukkue jolla yhdellä on 5 000
+ja neljällä nolla saa saman keskiarvon kuin joukkue jolla kaikilla on 1 000,
+mutta edellisessä neljä viidestä ei voi ostaa mitään. Puoliajan viimeisellä
+kierroksella ehtoa B ei lasketa lainkaan -- raha ei siirry
+pistoolikierrokselle eikä jatkoajalle, joten sitä ei ole jätetty varaa varten.
 
 Häviön haara on tyhjentävä, joten talouspäättelyyn ei jää poikkeamaksi
 putoavaa väliä. `anomaly` on varattu tilanteille, joissa **havainto** on
 ristiriitainen (varustearvo laski ostoaikana, edellistä kierrosta ei ole) tai
-joissa voiton jälkeen ei ostettu käytännössä mitään. Jokainen päätös kantaa
-suomenkielisen perustelun ja kaikki vertailuun käytetyt arvot, joten sen voi
-tarkistaa demoa vasten.
+joissa voiton jälkeen ei ostettu käytännössä mitään. Puuttuva tai
+ristiriitainen pelaajakohtainen havainto ei tuota `anomaly`a vaan jättää
+kierroksen **luokittelematta**: syy kerrotaan, eikä luokkaa arvata. Jokainen
+päätös kantaa suomenkielisen perustelun ja kaikki vertailuun käytetyt arvot,
+joten sen voi tarkistaa demoa vasten.
 
-Kaikki vertailut tehdään pyöristetyillä per pelaaja -arvoilla -- tasan niillä
+Rahamäärät vertaillaan pyöristetyillä per pelaaja -arvoilla -- tasan niillä
 luvuilla, jotka perustelu ja kierroslista näyttävät. Perustelu ei siis voi
-sanoa "jäi 1 000 $ eli yli 1 000 $".
+sanoa "ostettu 1 500 $ eli alle 1 500 $". Ehdot A ja B eivät jaa mitään:
+ne lasketaan suoraan pelaajakohtaisista havainnoista.
 
-`force_money_left_max` on näistä kynnyksistä ainoa, joka nojaa päättelyyn eikä
-havaintoon: kalibrointiaineistossa ei ole yhtäkään kiistatonta puoliostoa,
-joten rajan yläpuolta ei ole nähty. Se säädetään uudelleen, kun ensimmäinen
-sellainen kierros tulee vastaan.
+**Mikä on mitattu ja mikä ei.** `normal_buy_money_min` on kalibroitu kahta
+havaittua kierrosta vasten (marginaali 350 $ alas, 200 $ ylös).
+`armed_players_min` on **käyttäjän lausuma sääntö**, jota yksikään mitattu
+kierros ei koettele, ja `normal_buy_players_min` on päättelyä: aineisto antaisi
+saman tuloksen millä tahansa arvolla väliltä 1-5. `settings.toml` merkitsee
+eron rivikohtaisesti (`[kalibroitu]`, `[lausuttu]`, `[päätelty]`).
+
+Kuudessa demossa on 23 hävityn kierroksen jälkeistä ostokierrosta, ja
+**poistunut kiinteä raja `force_money_left_max` antaisi niistä jokaiselle
+saman luokan** kuin ehdot A ja B. Yksikään mitattu kierros ei siis vielä erota
+uutta sääntöä vanhasta; ero näkyy vasta epätasaisella jakaumalla, ja se on
+pinnattu käsin rakennetuilla testiriveillä (sama joukkuesumma, eri jakauma,
+eri tuomio). Säännön peruste on käyttäjän oma määritelmä, joka on
+pelaajakohtainen -- ei mittaus, joka olisi kumonnut edellisen säännön.
 
 Oikeaa demoa vaativat testit on merkitty `@pytest.mark.demo`, ja ne ohittavat
 itsensä siististi, jos 100-230 MB:n demoja ei ole koneella. Demot etsitään

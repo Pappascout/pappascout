@@ -37,10 +37,16 @@ tulevat joukkueindeksistä ja ottelutiedoista, joita Epic 1 ei hae. Arvaus
 
 Uudelleenajo
 ------------
-Manifestin ``params_hash`` lasketaan **vain** ``[thresholds]``- ja
-``[league]``-osioista (AD-3), ja ``tool_versions`` on tyhjä, koska laskenta on
-puhdasta domain-koodia. Kynnysarvon muuttaminen invalidoi siis tämän vaiheen
-muttei parsintaa: tulos valmistuu sekunneissa, koska demoa ei lueta.
+Manifestin ``params_hash`` lasketaan **vain** ``[thresholds]``-, ``[league]``-
+ja ``[economy]``-osioista (AD-3), ja ``tool_versions`` on tyhjä, koska laskenta
+on puhdasta domain-koodia. Kynnysarvon muuttaminen invalidoi siis tämän
+vaiheen muttei parsintaa: tulos valmistuu sekunneissa, koska demoa ei lueta.
+
+``[economy]`` tuli mukaan Story 1.10:ssä. Puolioston ehto B kysyy, pystyykö
+pelaaja normaaliin ostoon seuraavalla kierroksella, ja vastaus riippuu
+häviöbonuksesta (``loss_bonus_steps``). Ilman osiota hashissa portaan
+muuttaminen jättäisi vanhan tuloksen paikalleen ja näyttäisi ajan tasalla
+olevalta.
 
 Syötteenä on ``parse``-vaiheen tulos. Sen tunniste kirjoitetaan
 ``ManifestInput.sha256``-kenttään, mutta **se ei ole tiedoston tiiviste** vaan
@@ -72,12 +78,17 @@ from pappascout.archive.paths import (
 )
 from pappascout.constants import ROUND_TYPE_FI, UNCLASSIFIED
 from pappascout.domain.economy import (
+    CLASSIFY_COLUMNS,
     Decision,
     classify_round,
     loss_counts,
     per_player,
 )
-from pappascout.domain.models import LeagueSettings, ThresholdSettings
+from pappascout.domain.models import (
+    EconomySettings,
+    LeagueSettings,
+    ThresholdSettings,
+)
 from pappascout.domain.schemas import CLASSIFIED, ROUNDS, validate
 from pappascout.errors import PappascoutError, SchemaError
 from pappascout.stages import StageResult
@@ -111,14 +122,20 @@ def run(
     map_demo_id: str,
     team: str | None,
     *,
+    economy: EconomySettings,
     force: bool = False,
 ) -> StageResult:
     """Luokittele yhden demon kierrokset yhden joukkueen näkökulmasta.
 
     Args:
         thresholds: ``[thresholds]``-osio.
-        league: ``[league]``-osio. Molemmat ovat mukana parametrihashissa
-            (AD-3), eikä vaihe näe muita osioita.
+        league: ``[league]``-osio.
+        economy: ``[economy]``-osio, **avainsanaparametrina**. Siitä
+            luetaan ``loss_bonus_steps`` ja ``max_money`` (puolioston ehto
+            B). Kaikki kolme osiota ovat mukana parametrihashissa (AD-3),
+            eikä vaihe näe muita. Avainsana siksi, että kolme
+            pydantic-osiota peräkkäin menisi positionaalisesti vaihtaen
+            läpi ilman että mikään huomauttaisi.
         archive: Arkiston polut.
         map_demo_id: Yksikön tunniste.
         team: Subjektijoukkueen kokoonpanotunniste tai sen yksikäsitteinen
@@ -156,7 +173,7 @@ def run(
             sha256=_parse_fingerprint(parse_manifest),
         )
     ]
-    params_hash = _params_hash(thresholds, league)
+    params_hash = _params_hash(thresholds, league, economy)
 
     existing = Manifest.read_if_exists(manifest_abs)
     ready = None
@@ -189,7 +206,9 @@ def run(
             ),
         )
 
-    df, rows = classify_rounds(rounds, team_key, thresholds, map_demo_id)
+    df, rows = classify_rounds(
+        rounds, team_key, thresholds, map_demo_id, economy=economy
+    )
 
     with atomic_path(table_abs) as tmp:
         df.write_parquet(tmp)
@@ -201,6 +220,7 @@ def run(
             team_key=team_key,
             thresholds=thresholds,
             league=league,
+            economy=economy,
         ),
     )
 
@@ -358,12 +378,25 @@ def _parse_fingerprint(manifest: Manifest) -> str:
     )
 
 
-def _params_hash(thresholds: ThresholdSettings, league: LeagueSettings) -> str:
-    """AD-3: vain nämä kaksi osiota vaikuttavat luokittelun tulokseen."""
+def _params_hash(
+    thresholds: ThresholdSettings,
+    league: LeagueSettings,
+    economy: EconomySettings,
+) -> str:
+    """AD-3: vain nämä kolme osiota vaikuttavat luokittelun tulokseen.
+
+    ``[economy]`` on mukana kokonaisena, vaikka luokittelu lukee siitä vain
+    ``loss_bonus_steps``. Osittainen hash vaatisi listan siitä, mitä osion
+    kentistä säännöt sattuvat lukemaan -- ja se lista vanhenisi hiljaa
+    ensimmäisenä päivänä, jona sääntö lukee yhden kentän lisää. Hinta on
+    tarpeeton uudelleenajo, kun jokin muu talousarvo muuttuu; se maksaa
+    sekunteja, koska demoa ei lueta.
+    """
     return compute_params_hash(
         {
             "thresholds": thresholds.model_dump(mode="json"),
             "league": league.model_dump(mode="json"),
+            "economy": economy.model_dump(mode="json"),
         }
     )
 
@@ -462,6 +495,8 @@ def classify_rounds(
     team_key: str,
     thresholds: ThresholdSettings,
     map_demo_id: str,
+    *,
+    economy: EconomySettings,
 ) -> tuple[pl.DataFrame, list[dict[str, object]]]:
     """Rakenna ``CLASSIFIED``-taulu ja kierroslistan rivit kierrostaulusta.
 
@@ -492,8 +527,10 @@ def classify_rounds(
             "Kierrostaulussa on oltava tasan kaksi riviä per kierros."
         )
 
-    subject_decisions, subject_loss = _classify_team(subject, thresholds)
-    opponent_decisions, _ = _classify_team(opponent, thresholds)
+    subject_decisions, subject_loss = _classify_team(
+        subject, thresholds, economy=economy
+    )
+    opponent_decisions, _ = _classify_team(opponent, thresholds, economy=economy)
 
     table: list[dict[str, object]] = []
     for index, row in enumerate(subject.iter_rows(named=True)):
@@ -523,20 +560,29 @@ def classify_rounds(
 
 
 def _classify_team(
-    team_rounds: pl.DataFrame, thresholds: ThresholdSettings
+    team_rounds: pl.DataFrame,
+    thresholds: ThresholdSettings,
+    *,
+    economy: EconomySettings,
 ) -> tuple[list[Decision], list[int]]:
     """Luokittele yhden joukkueen kaikki kierrokset järjestyksessä.
 
     Palauttaa myös loss countit, jotta niitä ei lasketa kahdesti samalle
     joukkueelle -- kaksi laskentaa voisi erkaantua toisistaan.
+
+    Riveiltä poimitaan **tasan** ``domain.economy.CLASSIFY_COLUMNS``, ja se on
+    tarkoituksellista: sopimus siitä, mitä luokittelu lukee, on silloin
+    koodissa eikä kommentissa. Sarakkeen pudottaminen listalta pudottaa sen
+    myös päätöksestä, joten lista ei voi vanhentua hiljaa.
     """
     counters = loss_counts(team_rounds, thresholds)
-    rows = team_rounds.to_dicts()
+    rows = team_rounds.select(list(CLASSIFY_COLUMNS)).to_dicts()
     decisions = [
         classify_round(
             row,
             rows[index - 1] if index > 0 else None,
             thresholds,
+            economy=economy,
             loss_count=counters[index],
         )
         for index, row in enumerate(rows)
@@ -548,6 +594,13 @@ def _classify_team(
 
 #: Kierroslistan sarakkeet: ``(otsikko, avain)``. Sekä konsoli että Markdown
 #: rakennetaan tästä, jotta ne eivät voi esittää eri sarakkeita.
+#:
+#: **Ratkaisevat luvut ovat taulukossa, eivät vain proosassa.** Hyvitys ja
+#: kaksi pelaajalaskuria (``Aseist.``, ``Ostokyky``) ovat ne, joista
+#: häviön jälkeinen luokka ratkeaa; ilman niitä lukija näkisi taulukossa
+#: vain ``Jäljellä``-sarakkeen, joka on **joukkueen keskiarvo** eikä
+#: ratkaise mitään. Keskiarvo on silti mukana, koska se kertoo joukkueen
+#: kokonaistilanteen -- otsikko sanoo kumpi on kumpi.
 ROUND_LIST_COLUMNS: tuple[tuple[str, str], ...] = (
     ("Kierros", "round_no"),
     ("Puoli", "side"),
@@ -559,10 +612,24 @@ ROUND_LIST_COLUMNS: tuple[tuple[str, str], ...] = (
     ("Ostettu", "spent_per_player"),
     ("Varusteet", "equip_per_player"),
     ("Loss", "loss_count"),
+    ("Bonus", "loss_bonus_if_lost"),
+    ("Aseist.", "armed_of_players"),
+    ("Ostokyky", "can_buy_of_players"),
     ("Perustelu", "reason"),
 )
 
 _RESULT_WORDS: dict[bool | None, str] = {True: "voitto", False: "häviö", None: "-"}
+
+
+def _counter(value: object, players: int) -> str | None:
+    """Pelaajalaskuri muodossa ``"4/5"``, tai ``None`` jos lukua ei ole.
+
+    Nimittäjä on sama jakaja kuin per pelaaja -arvoissa, joten rivin kaikki
+    luvut puhuvat samasta joukosta.
+    """
+    if value is None or not players:
+        return None
+    return f"{int(value)}/{players}"
 
 
 def round_list_rows(df: pl.DataFrame) -> list[dict[str, object]]:
@@ -603,6 +670,16 @@ def round_list_rows(df: pl.DataFrame) -> list[dict[str, object]]:
                 ),
                 "equip_per_player": per_player(equip, players),
                 "players": players or None,
+                # Pelaajalaskurit näytetään muodossa "4/5": pelkkä luku
+                # 4 ei kerro, oliko joukkue täysilukuinen -- ja juuri se
+                # ratkaisee, mitä vasten kynnystä verrattiin.
+                "loss_bonus_if_lost": inputs.get("loss_bonus_if_lost"),
+                "armed_of_players": _counter(
+                    inputs.get("players_armed"), players
+                ),
+                "can_buy_of_players": _counter(
+                    inputs.get("players_can_buy"), players
+                ),
                 "reason": r["reason"],
             }
         )
@@ -632,6 +709,7 @@ def render_round_list_markdown(
     team_key: str,
     thresholds: ThresholdSettings,
     league: LeagueSettings,
+    economy: EconomySettings,
 ) -> str:
     """Kirjoita kierroslista Markdowniksi, jotta sen voi lukea demon rinnalla.
 
@@ -657,13 +735,38 @@ def render_round_list_markdown(
         f"- Kynnykset ($/pelaaja): täysi osto vähintään "
         f"{thresholds.full_equip_min}, matala varustearvo voiton jälkeen "
         f"enintään {thresholds.anomaly_equip_max_after_win}; hävityn jälkeen "
-        f"osto vaatii ostettua vähintään {thresholds.force_buy_min} ja erottuu "
-        f"forceksi, jos taskuun jäi enintään "
-        f"{thresholds.force_money_left_max} (muuten puoliosto), ja muuten eco"
+        f"osto vaatii ostettua vähintään {thresholds.force_buy_min}, muuten eco"
+    )
+    parts.append(
+        f"- Puolioston kaksi ehtoa, **molempien** on täytyttävä: A) "
+        f"vähintään {thresholds.armed_players_min} pelaajaa aseistettuna "
+        f"(erottaa ecosta) ja B) vähintään "
+        f"{thresholds.normal_buy_players_min} pelaajaa, joiden **oma** "
+        f"saldo + häviöbonus on vähintään "
+        f"{thresholds.normal_buy_money_min} $ (erottaa forcesta)"
+    )
+    parts.append(
+        "- Ehto B lasketaan **pelaajakohtaisesta rahajakaumasta**, ei "
+        "keskiarvosta: keskiarvo peittää jakauman ja voi osua arvoon, jota "
+        "kukaan ei voi pitää. Häviöbonus on loss countin porras (portaat "
+        + ", ".join(str(s) for s in economy.loss_bonus_steps)
+        + f" $), ja summa katkaistaan rahakattoon {economy.max_money} $. "
+        "Puoliajan viimeisellä kierroksella ehtoa B ei lasketa lainkaan: "
+        "raha ei siirry pistoolikierrokselle eikä jatkoajalle, joten sitä "
+        "ei ole jätetty varaa varten."
     )
     parts.append(
         f"- Loss count: puoliajan alku {thresholds.loss_count_half_start}, rajat "
         f"{thresholds.loss_count_min}-{thresholds.loss_count_max}"
+    )
+    parts.append("")
+    parts.append(
+        "**Aseist.** ja **Ostokyky** ovat pelaajalaskureita, ja niistä "
+        "hävityn kierroksen jälkeinen luokka ratkeaa. **Bonus** on se "
+        "häviöbonus, jolla ostokyky laskettiin; tyhjä tarkoittaa, ettei "
+        "ehtoa B lasketa tällä kierroksella (jatkoaika tai puoliajan viimeinen "
+        "kierros). **Jäljellä** on sen sijaan joukkueen keskiarvo eikä "
+        "ratkaise mitään -- pelaajakohtaiset saldot ovat perustelussa."
     )
     parts.append("")
     parts.append(

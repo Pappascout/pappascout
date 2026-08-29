@@ -164,6 +164,24 @@ def _isolate_from_machine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.delenv("HOMEPATH", raising=False)
 
 
+def even_split(total: int, players: int) -> list[int]:
+    """Jaa joukkuesumma pelaajille mahdollisimman tasan, laskevasti.
+
+    **Oletus, ei havainto.** Kierrostaulu kirjaa pelaajakohtaisen jakauman,
+    mutta käsin rakennetut rivit ja vanhat totuustaulut kirjaavat vain
+    joukkuesumman. Tasajako pitää rivin sisäisesti johdonmukaisena (jakauman
+    summa on ``money_buy_end``) ilman että jokainen testi kirjoittaa viisi
+    lukua.
+
+    Yksi paikka, koska tämä on juuri se oletus, jonka Story 1.10 sanoo
+    oletukseksi: kaksi kopiota erkanisi toisistaan ja kumpikin näyttäisi
+    itsenäiseltä todisteelta. Testi, joka tutkii nimenomaan jakaumaa, antaa
+    sen itse.
+    """
+    base, extra = divmod(int(total), players)
+    return [base + 1] * extra + [base] * (players - extra)
+
+
 def empty_frame(schema: Schema) -> pl.DataFrame:
     """Rakenna tyhjä DataFrame, joka vastaa täsmälleen annettua sopimusta."""
     return pl.DataFrame(schema=dict(schema))

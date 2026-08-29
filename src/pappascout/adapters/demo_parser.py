@@ -123,6 +123,19 @@ näyttäisi ecolta, vaikka joukkue olisi ostanut täyden.
 oli aseistettu ostoajan lopussa. Summa ei kerro sitä -- kaksi AK:ta ja kolme
 tyhjää antaa saman summan kuin viisi puolinaista.
 
+``money_players_buy_end`` on samasta joukosta myös: **rahasaldot yksi pelaaja
+kerrallaan**, laskevasti lajiteltuna. Arvot ovat samat, jotka
+``money_buy_end`` summaa; tässä ne vain säilytetään. Syy on sama kuin
+kalustolaskurilla: joukkue jolla yhdellä on 5 000 ja neljällä nolla saa saman
+summan kuin joukkue jolla kaikilla on 1 000, mutta jälkimmäisessä kaikki
+viisi pystyvät ostamaan seuraavalla kierroksella ja edellisessä yksi. Juuri
+se erottaa puolioston forcesta (``domain.economy``, ehto B).
+
+Järjestys on lajiteltu eikä pelaajajärjestys: rivillä ei ole pelaajien
+tunnisteita, joten alkion paikka ei kerro kenestä on kyse. Lajittelu tekee
+lukemasta toistettavan riippumatta siitä, missä järjestyksessä tickin rivit
+sattuvat tulemaan.
+
 Aseistettu = **panssari ja vähintään yksi ase hallussa**. Ase luetaan pelaajan
 tavaraluettelosta (``inventory``) ja panssari propista ``m_ArmorValue``, eikä
 varustearvosta: varustearvo on ase + panssari + kranaatit yhtenä lukuna, joten
@@ -241,7 +254,13 @@ from pappascout.domain.sampling import (
     sample_ticks,
     seconds_since_freeze_end,
 )
-from pappascout.domain.schemas import ARMED_COLUMN, EVENTS, ROUNDS, TICKS
+from pappascout.domain.schemas import (
+    ARMED_COLUMN,
+    EVENTS,
+    MONEY_DISTRIBUTION_COLUMN,
+    ROUNDS,
+    TICKS,
+)
 from pappascout.domain.utility import (
     DETONATE,
     THROWN,
@@ -1287,6 +1306,18 @@ class Demoparser2Adapter:
                         # joukkue näyttäisi viidellä jaettuna ecolta.
                         # Jakaja on sama joukko kuin summissa (ks. _readable).
                         "players_buy_end": len(own_buy) or None,
+                        # Sama joukko ja sama järjestys joka ajolla:
+                        # rahasaldot yksi pelaaja kerrallaan, laskevasti
+                        # lajiteltuna. Arvot ovat jo käsillä -- tähän asti ne
+                        # vain summattiin, ja summa peittää juuri sen mistä
+                        # puolioston säännössä on kyse.
+                        MONEY_DISTRIBUTION_COLUMN: (
+                            sorted(
+                                (int(r["account"]) for r in own_buy),
+                                reverse=True,
+                            )
+                            or None
+                        ),
                         # Sama joukko kuin summissa ja jakajassa. Kaksi eri
                         # jakajaa samalla rivillä olisi vika, joka näkyisi
                         # vasta raportissa.

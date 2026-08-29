@@ -49,6 +49,7 @@ from pappascout.errors import SchemaError
 __all__ = [
     "ROUNDS",
     "ARMED_COLUMN",
+    "MONEY_DISTRIBUTION_COLUMN",
     "TICKS",
     "EVENTS",
     "CLASSIFIED",
@@ -70,9 +71,14 @@ _ROSTER_CLASS = pl.Enum(list(ROSTER_CLASSES))
 
 
 #: Kalustolaskurin sarakkeen nimi. Vakiona, koska sitä lukevat adapteri (joka
-#: laskee luvun), ``stages.parse`` (joka raportoi sen jakauman) ja testit --
-#: kovakoodattuina merkkijonoina ne erkanisivat toisistaan huomaamatta.
+#: laskee luvun), ``stages.parse`` (joka raportoi sen jakauman), ``classify``
+#: (joka lukee siitä ehdon A) ja testit -- kovakoodattuina merkkijonoina ne
+#: erkanisivat toisistaan huomaamatta.
 ARMED_COLUMN = "players_armed_buy_end"
+
+#: Pelaajakohtaisen rahajakauman sarakkeen nimi. Sama syy vakiolle kuin yllä:
+#: adapteri kirjoittaa, ``classify`` lukee, testit vertaavat.
+MONEY_DISTRIBUTION_COLUMN = "money_players_buy_end"
 
 
 # Kierrostaulu: kaksi riviä per kierros, yksi kummallekin joukkueelle (AD-5).
@@ -91,6 +97,27 @@ ROUNDS: Schema = {
     "equip_buy_end": pl.Int32,  # $ current_equip_value-summa ostoajan lopussa
     "equip_round_start": pl.Int32,  # $ round_start_equip_value-summa
     "players_buy_end": pl.Int32,  # pelaajat, joiden arvot olivat luettavissa
+    # Edellisten rahasaldot yksi pelaaja kerrallaan, laskevassa
+    # suuruusjärjestyksessä. SAMA JOUKKO kuin money_buy_endin summassa ja
+    # players_buy_endin jakajassa, joten pituus on aina players_buy_end.
+    #
+    # MIKSI SUMMA EI RIITÄ: puoliosto erotetaan forcesta sillä, moniko pelaaja
+    # pystyy normaaliin ostoon seuraavalla kierroksella, ja se on
+    # pelaajakohtainen kysymys. Joukkue jolla yhdellä on 5 000 ja neljällä
+    # nolla saa saman summan kuin joukkue jolla kaikilla on 1 000, mutta
+    # edellisessä neljä viidestä ei voi ostaa mitään. Keskiarvo antaa myös
+    # mahdottomia lukuja: mitattu kierros 19 CT näytti "30 $/pelaaja", kun
+    # todelliset saldot olivat 0, 0, 50, 50, 50 -- kaikki hinnat ovat
+    # viidenkymmenen monikertoja, joten 30 ei voi olla kenenkään saldo.
+    #
+    # JÄRJESTYS ON LAJITELTU eikä pelaajajärjestys: rivillä ei ole pelaajien
+    # tunnisteita, joten alkion paikka ei kerro kenestä on kyse, ja lajittelu
+    # tekee lukemasta toistettavan tickin rivijärjestyksestä riippumatta.
+    #
+    # null aina ja vain silloin, kun players_buy_end on null (ankkuriton
+    # kierros). Tyhjää listaa ei kirjoiteta: se väittäisi havainnoksi sen,
+    # ettei ketään ollut.
+    MONEY_DISTRIBUTION_COLUMN: pl.List(pl.Int32),
     # Edellisistä ne, joilla oli PANSSARI JA VÄHINTÄÄN YKSI ASE HALLUSSA
     # ostoajan lopussa. Luettu tavaraluettelosta ja m_ArmorValuesta, ei
     # varustearvosta: varustearvo on ase + panssari + kranaatit yhtenä lukuna
@@ -228,6 +255,10 @@ CLASSIFIED_INPUTS = pl.Struct(
         # mukana perustelua ja tarkistusta varten; kalibrointi 2026-08-29
         # osoitti, että säännöt nojaavat jäljelle jääneeseen saldoon.
         "money_spent": pl.Int32,
+        # Jakauma sellaisenaan, jotta kierroslistan rivi on tarkistettavissa
+        # demoa vasten ilman uutta parsintaa. Ilman tätä lukija näkisi vain
+        # laskurin "5/5 pystyy ostamaan" eikä voisi tarkistaa sitä.
+        "money_players": pl.List(pl.Int32),
         "equip_buy_end": pl.Int32,
         "equip_round_start": pl.Int32,
         "survivors_prev": pl.Int32,
@@ -238,12 +269,26 @@ CLASSIFIED_INPUTS = pl.Struct(
         # jos havainto oli rajojen 1..roster_size ulkopuolella.
         "players": pl.Int32,
         "players_readable": pl.Int32,
+        # Ehdon A havainto (ROUNDS.players_armed_buy_end) ja ehdon B kaksi
+        # johdosta: häviöbonus, joka olisi voimassa jos tämä kierros hävitään,
+        # ja niiden pelaajien määrä, joilla se ja taskuun jäänyt raha riittävät
+        # normaaliin ostoon. players_can_buy on null, jos jakaumaa ei saatu.
+        "players_armed": pl.Int32,
+        "loss_bonus_if_lost": pl.Int32,
+        "players_can_buy": pl.Int32,
         "full_equip_min": pl.Int32,
-        # Force ja puoliosto: molempien edellytys on ostettu summa
-        # (force_buy_min), ja ne eroavat toisistaan taskuun jääneestä rahasta
-        # (force_money_left_max). Varustearvo ei erota niitä.
+        # Force, puoliosto ja eco: kaikkien edellytys on ostettu summa
+        # (force_buy_min). Sen jälkeen kaksi ehtoa, joiden MOLEMPIEN on
+        # täytyttävä, jotta kierros on puoliosto:
+        #   A  armed_players_min                 erottaa puolioston ECOSTA
+        #   B  normal_buy_money_min +
+        #      normal_buy_players_min            erottaa puolioston FORCESTA
+        # Kumpikaan ei riitä yksin: mitattu inferno_vs_ryhmarama, kierrokset 6
+        # (force) ja 10 (puoliosto), joilla ehto A on identtinen (5/5).
         "force_buy_min": pl.Int32,
-        "force_money_left_max": pl.Int32,
+        "armed_players_min": pl.Int32,
+        "normal_buy_money_min": pl.Int32,
+        "normal_buy_players_min": pl.Int32,
         "anomaly_equip_max_after_win": pl.Int32,
     }
 )
