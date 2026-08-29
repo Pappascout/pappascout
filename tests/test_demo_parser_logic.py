@@ -2751,28 +2751,102 @@ def test_no_tick_read_happens_when_every_grenade_is_dropped(
     assert all(ticks for _, ticks in fake.tick_calls), fake.tick_calls
 
 
-def test_a_reused_id_inside_one_round_is_counted(tmp_path: Path) -> None:
-    """``(round_no, grenade_entity_id)`` on luvattu parin avaimeksi.
+def test_shared_entity_ids_are_counted_as_trajectories(tmp_path: Path) -> None:
+    """Laskettava yksikkö on lentorata, ei pari eikä tapahtumalaji.
 
-    Havaintojen mukaan tunniste ei toistu kierroksen sisällä, mutta jos niin
-    kävisi, avain lakkaisi yksilöimästä paria ja aggregointi laskisi kaksi
-    savua yhdeksi. Tapaus lasketaan sen sijaan että se paljastuisi vasta
-    raportin luvuista.
+    **Kolme** rataa yhdellä tunnisteella on 3. Aiempi versio ryhmitteli
+    ``(round_raw, grenade_entity_id, event_kind)`` ja laski ryhmiä, jolloin
+    tämä sama tilanne antoi luvun 2 -- kaksi ryhmää, heitot ja räjähdykset --
+    eli luku ei kertonut ratojen määrää vaan tapahtumalajien määrän. Kolme
+    rataa eikä kaksi juuri siksi, että kahdella luvut sattuisivat yhteen.
     """
     rounds = long_match(played=1)
     rounds[0].grenades = [
         (7, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30),
         # Sama tunniste, sama kierros, mutta eri heittäjä ja iso aukko --
-        # jaksotus pitää nämä erillään, joten pari-avain menee päällekkäin.
+        # jaksotus pitää nämä erillään, joten vanha pari-avain menisi
+        # päällekkäin.
         (7, A_PLAYERS[1], "CSmokeGrenadeProjectile", 1000, 30),
+        (7, B_PLAYERS[0], "CSmokeGrenadeProjectile", 2000, 30),
     ]
     adapter = parse_adapter(build(rounds), tmp_path)
     tables = parse_tables(build(rounds), tmp_path)
 
-    # Kumpikin kranaatti on tallessa -- dataa ei hukata, se vain kerrotaan.
-    assert tables.events.height == 4
+    # Jokainen kranaatti on tallessa -- dataa ei hukata, se vain kerrotaan.
+    assert tables.events.height == 6
     assert adapter.diagnostics is not None
-    assert adapter.diagnostics.grenades_id_reused_in_round == 2
+    assert adapter.diagnostics.grenades_sharing_an_entity_id == 3
+
+
+def test_a_lone_entity_id_is_not_counted_as_shared(tmp_path: Path) -> None:
+    """Nolla on tavoitetila: yksi rata per tunniste ei ole jaettu tunniste."""
+    rounds = long_match(played=1)
+    rounds[0].grenades = [
+        (7, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30),
+        (8, A_PLAYERS[1], "CSmokeGrenadeProjectile", 1000, 30),
+    ]
+    adapter = parse_adapter(build(rounds), tmp_path)
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenades_sharing_an_entity_id == 0
+
+
+def test_a_shared_entity_id_still_gets_two_trajectory_ids(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: tunniste toistuu kierroksella -> eri lentoratatunnisteet.
+
+    Sama tilanne kuin edellä, mutta katsottuna taulusta: pelin tunniste on
+    molemmilla sama, ``grenade_no`` ei. Ilman jälkimmäistä taulussa ei olisi
+    yhtään saraketta, joka erottaisi nämä kaksi savua toisistaan.
+    """
+    rounds = long_match(played=1)
+    rounds[0].grenades = [
+        (7, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30),
+        (7, A_PLAYERS[1], "CSmokeGrenadeProjectile", 1000, 30),
+    ]
+    events = parse_tables(build(rounds), tmp_path).events
+
+    assert events["grenade_entity_id"].unique().to_list() == [7]
+    assert events["grenade_no"].n_unique() == 2
+    # Hyväksymiskriteeri: (grenade_no, event_kind) on yksikäsitteinen.
+    keys = events.select("grenade_no", "event_kind")
+    assert keys.height == keys.unique().height
+    # Heitto ja räjähdys jakavat numeron -- se on niiden ainoa side.
+    for _, pair in events.group_by("grenade_no", maintain_order=True):
+        assert sorted(pair["event_kind"].to_list()) == [
+            "grenade_detonate",
+            "grenade_thrown",
+        ]
+    # Ja ne ovat **vierekkäin**: pelin tunnisteella lajiteltuna kaikki heitot
+    # tulisivat ennen kaikkia räjähdyksiä, ja pari hajoaisi taulun eri kohtiin.
+    assert events["grenade_no"].to_list() == sorted(events["grenade_no"].to_list())
+    assert events["event_kind"].to_list() == [
+        "grenade_thrown",
+        "grenade_detonate",
+        "grenade_thrown",
+        "grenade_detonate",
+    ]
+
+
+def test_the_trajectory_id_is_stable_across_two_parses(tmp_path: Path) -> None:
+    """I/O-matriisi: sama syöte uudelleen -> samat tunnisteet.
+
+    Vakaus on ehto eikä mukavuus: vaihtuvat numerot tekisivät arkiston
+    uudelleenparsinnasta muutoksen näköisen ilman muutosta.
+    """
+    rounds = long_match(played=2)
+    for played in rounds[-2:]:
+        played.grenades = [
+            (7, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30),
+            (7, B_PLAYERS[0], "CSmokeGrenadeProjectile", 1000, 30),
+            (9, A_PLAYERS[1], "CHEGrenadeProjectile", 300, 20),
+        ]
+    first = parse_tables(build(rounds), tmp_path).events
+    second = parse_tables(build(rounds), tmp_path).events
+
+    assert not first.is_empty()
+    assert first.equals(second)
 
 
 def test_overlapping_round_windows_are_refused(tmp_path: Path) -> None:

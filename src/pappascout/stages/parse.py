@@ -17,11 +17,12 @@ sekä ensikontaktin hetkellä. Kymmenen pelaajaa tallentuu joka näytepisteessä
 vaiheiden työtä (AD-10).
 
 ``events`` on rivi per utility-tapahtuma: heitto ja räjähdys ovat kaksi riviä,
-jotka yhdistää ``(round_no, grenade_entity_id)``. Utility mitataan **heitoista,
-ei ostoista** -- utilityä dropataan, joten ostaja ja heittäjä voivat olla eri
-pelaajat. **Tyhjä tapahtumataulu on kelvollinen tulos**, toisin kuin tyhjä
-kierros- tai näytepistetaulu: demossa on voitu jättää utility heittämättä,
-mutta pelattuja kierroksia ja asetelmia siinä on aina.
+jotka yhdistää ``grenade_no``, lentoradan demokohtainen tunniste. Kahden demon
+taulut yhdistetään parilla ``(map_demo_id, grenade_no)``. Utility mitataan
+**heitoista, ei ostoista** -- utilityä dropataan, joten ostaja ja heittäjä
+voivat olla eri pelaajat. **Tyhjä tapahtumataulu on kelvollinen tulos**,
+toisin kuin tyhjä kierros- tai näytepistetaulu: demossa on voitu jättää utility
+heittämättä, mutta pelattuja kierroksia ja asetelmia siinä on aina.
 
 Mitä tauluihin päätyy
 ---------------------
@@ -340,6 +341,53 @@ def _check_two_rows_per_round(df: pl.DataFrame) -> None:
     )
 
 
+def _check_grenade_key(events: pl.DataFrame) -> None:
+    """Varmista, että ``(map_demo_id, grenade_no, event_kind)`` yksilöi rivin.
+
+    ``validate`` tarkistaa sarakkeet ja tyypit muttei avainta, ja juuri avain
+    on tämän taulun koko lupaus: aggregointi liittää utilityn kierroksiin sillä
+    oletuksella, ettei liitos monista rivejä. Rikkoutunut avain läpäisisi
+    skeeman ja näkyisi vasta raportin luvuissa kaksinkertaisena savuna --
+    täsmälleen se hiljainen vika, jonka takia ``grenade_no`` ylipäätään on
+    olemassa.
+
+    ``map_demo_id`` on avaimessa mukana, koska ``grenade_no`` juoksee **demon
+    sisällä**: kahden demon taulut yhdistävä ``aggregate`` tarvitsee parin.
+    Yhden demon taulussa se on vakio eikä muuta tulosta, mutta väite on
+    kirjoitettava siinä muodossa, jossa sitä käytetään.
+
+    Raises:
+        SchemaError: Jos numero puuttuu tai jos sama avain esiintyy kahdesti.
+    """
+    if events.is_empty():
+        return
+
+    missing = int(events["grenade_no"].null_count())
+    if missing:
+        raise SchemaError(
+            f"Tapahtumataulussa on {missing} riviä ilman grenade_no-numeroa.\n"
+            "Numero on heiton ja räjähdyksen ainoa side; ilman sitä riviä ei "
+            "voi liittää mihinkään."
+        )
+
+    key = events.select("map_demo_id", "grenade_no", "event_kind")
+    if key.height == key.unique().height:
+        return
+    duplicates = (
+        events.group_by("map_demo_id", "grenade_no", "event_kind")
+        .len()
+        .filter(pl.col("len") > 1)
+        .sort("grenade_no")
+        .head(5)
+    )
+    raise SchemaError(
+        "Tapahtumataulun avain (map_demo_id, grenade_no, event_kind) ei ole "
+        f"yksikäsitteinen: {key.height - key.unique().height} riviä on "
+        "kaksoiskappaleita.\n"
+        f"Ensimmäiset toistuvat avaimet: {duplicates.to_dicts()}"
+    )
+
+
 def _round_stats(df: pl.DataFrame, skipped_rounds: int = 0) -> dict[str, object]:
     """Kierrostaulun luvut."""
     if df.is_empty():
@@ -497,6 +545,43 @@ def _read_table(path: Path) -> pl.DataFrame | str:
         return f"{type(exc).__name__}: {exc}"
 
 
+def _schema_is_current(
+    table_abs: Path, ticks_abs: Path, events_abs: Path
+) -> bool:
+    """Vastaavatko arkiston valmiit taulut yhä voimassa olevaa sopimusta.
+
+    Täsmäävä manifesti ei yksin riitä -- sama syy kuin
+    :func:`pappascout.stages.classify._usable_result`issa. Tulostaulun skeema
+    voi muuttua ilman että manifestin sisältö muuttuu: parametrihash lasketaan
+    ``[parse]``-osiosta ja demoparser2:n versiosta (AD-3), eikä kumpikaan
+    liiku, kun ``EVENTS`` saa uuden sarakkeen. Ilman tätä tarkistusta vanha
+    taulu jäisi hiljaa voimaan ja näyttäisi ajantasaiselta, kunnes joku
+    myöhempi vaihe kaatuisi siihen.
+
+    Lukukelvoton taulu on **eri vika eikä tämän funktion asia**: se ei parane
+    demon uudelleenluvusta sen todennäköisemmin kuin ilman sitä, ja sillä on
+    jo oma raportointinsa :func:`_existing_stats`issa. Tässä ratkaistaan vain
+    se, onko ehjä taulu edelleen sopimuksen mukainen.
+
+    Returns:
+        ``False`` heti ensimmäisestä sopimusrikosta -- silloin vaihe ajetaan
+        uudelleen ja taulut kirjoitetaan nykyisillä sarakkeilla.
+    """
+    for path, schema, name in (
+        (table_abs, ROUNDS, TABLE),
+        (ticks_abs, TICKS, TICKS_TABLE),
+        (events_abs, EVENTS, EVENTS_TABLE),
+    ):
+        df = _read_table(path)
+        if isinstance(df, str):
+            continue
+        try:
+            validate(df, schema, name)
+        except SchemaError:
+            return False
+    return True
+
+
 def _existing_stats(
     table_abs: Path,
     ticks_abs: Path,
@@ -617,6 +702,9 @@ def run(
             root=archive.root,
         )
         and all(path.is_file() for _, path in expected_outputs)
+        # Sopimus viimeisenä: se lukee taulut, ja halvemmat ehdot karsivat
+        # suurimman osan ajoista jo ennen sitä.
+        and _schema_is_current(table_abs, ticks_abs, events_abs)
     ):
         return StageResult(
             stage=STAGE,
@@ -721,7 +809,7 @@ def run(
             "grenades_fire_type_unresolved",
             "grenades_detonating_after_round",
             "grenade_ticks_without_players",
-            "grenades_id_reused_in_round",
+            "grenades_sharing_an_entity_id",
         ):
             stats[name] = getattr(diagnostics, name, 0)
 
@@ -835,6 +923,7 @@ def _parse_tables(
     # estäisi koko demon parsinnan tiedosta, joka on itsessään havainto.
     events, unnumbered = _number_events(tables.events, numbered, map_demo_id)
     validate(events, EVENTS, EVENTS_TABLE)
+    _check_grenade_key(events)
 
     return df, ticks, events, skipped_rounds, unnumbered
 
@@ -877,10 +966,16 @@ def _number_events(
     lämmittelyssä ja puukkokierroksella heitetty utility poistuu tässä, jolloin
     taulut eivät voi olla eri mieltä siitä mikä kierros pelattiin.
 
-    Lajitteluavain on ``(round_no, grenade_entity_id, event_kind, t_s)``.
-    ``event_kind`` on ennen ``t_s``:ää, jotta saman kranaatin heitto tulee aina
-    ennen sen räjähdystä silloinkin, kun molemmilla on sama ``t_s``; se on
+    Lajitteluavain on ``(round_no, grenade_no, event_kind, t_s)``.
+    ``grenade_no`` on **ennen** ``event_kind``ia, jotta radan kaksi riviä
+    pysyvät vierekkäin: pelin tunnisteella lajiteltuna kierrätetyn tunnisteen
+    kaikki heitot tulisivat ennen sen kaikkia räjähdyksiä, ja pari hajoaisi
+    taulun eri kohtiin. ``event_kind`` on ennen ``t_s``:ää, jotta heitto tulee
+    aina ennen räjähdystään silloinkin, kun molemmilla on sama ``t_s``; se on
     Enum, joten järjestys on luettelon järjestys eikä aakkosjärjestys.
+    ``grenade_no`` on yksikäsitteinen, joten avain määrää järjestyksen
+    täysin -- pelin oma tunniste ei ole lajittelussa lainkaan, koska se ei
+    erota kahta rataa toisistaan.
 
     Returns:
         ``(taulu, pudonneet heitot)``. Jälkimmäinen lasketaan, koska kolme
@@ -899,7 +994,7 @@ def _number_events(
             pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
             *[pl.col(name) for name in EVENTS if name != "map_demo_id"],
         )
-        .sort("round_no", "grenade_entity_id", "event_kind", "t_s")
+        .sort("round_no", "grenade_no", "event_kind", "t_s")
     )
     before = int(events.filter(pl.col("event_kind") == THROWN).height)
     after = int(joined.filter(pl.col("event_kind") == THROWN).height)

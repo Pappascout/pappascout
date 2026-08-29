@@ -178,6 +178,99 @@ def test_classified_keeps_decision_inputs() -> None:
     assert "full_equip_min" in fields
 
 
+# --- EVENTS: lentoradan tunniste ---------------------------------------------
+
+
+def test_events_carries_a_trajectory_id_of_its_own() -> None:
+    """Sopimuksessa on sarake, joka yksilöi lentoradan.
+
+    Ilman sitä taulussa ei ole yhtään saraketta, joka erottaisi kaksi samaa
+    entiteettitunnistetta kantavaa rataa toisistaan.
+    """
+    assert EVENTS["grenade_no"] == pl.Int32
+
+
+def test_events_keeps_the_games_own_entity_id_too() -> None:
+    """Pelin tunniste on ainoa side takaisin demoon, joten se säilyy.
+
+    Se ei yksilöi kranaattia -- peli kierrättää sen myös kierroksen sisällä --
+    mutta ilman sitä kranaattia ei voi enää etsiä katselimesta. Kaksi eri
+    saraketta eikä yksi korvattu: havainto ja johdos pidetään erillään.
+    """
+    assert EVENTS["grenade_entity_id"] == pl.Int32
+    assert "grenade_no" in EVENTS
+    assert "grenade_entity_id" in EVENTS
+
+
+def events_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
+    """Sopimuksen mukainen tapahtumataulu; nimeämättömät sarakkeet ``null``.
+
+    Taulu rakennetaan ``EVENTS``in omista sarakkeista ja tyypeistä, joten
+    testi kaatuu heti, jos sarake katoaa sopimuksesta. Käsin kirjoitettu
+    kehys menisi läpi silloinkin -- se ei tuo tuotantokoodista mitään.
+    """
+    return pl.DataFrame(
+        {name: [row.get(name) for row in rows] for name in EVENTS},
+        schema=dict(EVENTS),
+    )
+
+
+def test_the_trajectory_id_makes_the_utility_join_safe() -> None:
+    """Hyväksymiskriteeri: liitos uudella tunnisteella ei monista rivejä.
+
+    Aineisto on kolme rataa samalla entiteettitunnisteella samalla
+    kierroksella, kuten ``inferno_vs_ryhmarama`` kierroksella 11. Liitos
+    tehdään taulusta itseensä avaimella, koska juuri se on väite: avaimella
+    haettu rivi on yksi rivi.
+    """
+    events = events_frame(
+        [
+            {
+                "map_demo_id": "m1-0",
+                "round_no": 11,
+                "grenade_no": number,
+                "grenade_entity_id": 564,
+                "event_kind": "grenade_thrown",
+            }
+            for number in (40, 41, 42)
+        ]
+    )
+
+    new_key = ["map_demo_id", "grenade_no", "event_kind"]
+    assert events.select(new_key).is_unique().all()
+    assert events.join(events.select(new_key), on=new_key, how="inner").height == 3
+
+    # Vanha avain ei erota rivejä toisistaan lainkaan: sama liitos monistaa
+    # kolme riviä yhdeksäksi.
+    old_key = ["map_demo_id", "round_no", "grenade_entity_id", "event_kind"]
+    assert not events.select(old_key).is_unique().any()
+    assert events.join(events.select(old_key), on=old_key, how="inner").height == 9
+
+
+def test_the_trajectory_id_is_unique_across_demos_only_with_map_demo_id() -> None:
+    """Numero juoksee demon sisällä, joten demojen välinen avain on pari.
+
+    ``aggregate`` lukee kymmeniä demoja yhteen kehykseen. Pelkkä
+    ``grenade_no`` osuisi silloin ristiin kahden demon kranaattien välillä --
+    sama vika kuin ``round_no``lla ilman ``map_demo_id``:tä.
+    """
+    events = events_frame(
+        [
+            {
+                "map_demo_id": demo,
+                "round_no": 1,
+                "grenade_no": 40,
+                "grenade_entity_id": 564,
+                "event_kind": "grenade_thrown",
+            }
+            for demo in ("m1-0", "m2-0")
+        ]
+    )
+
+    assert events.select("map_demo_id", "grenade_no", "event_kind").is_unique().all()
+    assert not events.select("grenade_no", "event_kind").is_unique().any()
+
+
 # --- map_demo_id: aggregoinnin liitosavain -----------------------------------
 
 

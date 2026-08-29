@@ -17,6 +17,14 @@ viimeisestä -- eri kierrokselta, eri pelaajalta, eri kartan puolelta. Rata on
 siksi katkaistava **yhtenäisiin jaksoihin**: tunnisteen, heittäjän tai tyypin
 vaihtuminen aloittaa uuden kranaatin, samoin tickeihin jäävä aukko.
 
+Kierros ei pelasta tunnistetta. Pitkään näytti siltä, että kierrätys tapahtuu
+vain kierrosten välillä ja että ``(round_no, grenade_entity_id)`` riittäisi
+avaimeksi. Liigademot osoittivat toisin: ``inferno_vs_ryhmarama`` kierroksella
+11 tunniste 564 kantaa **kolme eri lentorataa** saman kierroksen sisällä --
+molotov 9,2 s, flashbang 18,0 s ja incendiary 64,2 s. Jaksotus erottaa ne
+oikein, mutta pari ei yksilöi niitä -- siksi jokainen rata saa oman
+``grenade_no``:nsa, joka on yksikäsitteinen koko demossa.
+
 Miksi koordinaatiton rivi ei ole rata
 -------------------------------------
 Kranaatilla on rivejä myös silloin, kun se on pelaajan repussa: tyyppi on
@@ -101,11 +109,23 @@ TRAJECTORY_COLUMNS: tuple[str, ...] = (
 
 #: Sarakkeet, jotka :func:`grenade_endpoints` palauttaa.
 #:
-#: ``grenade_no`` on kranaatin juokseva numero demossa ja **ainoa luotettava
-#: parin avain**: ``grenade_entity_id`` kierrätetään, joten se ei yksilöi
-#: kranaattia. Se ei päädy ``EVENTS``-tauluun -- adapteri käyttää sitä vain
+#: ``grenade_no`` on lentoradan juokseva numero demossa ja **ainoa luotettava
+#: parin avain**: ``grenade_entity_id`` kierrätetään -- myös saman kierroksen
+#: sisällä -- joten se ei yksilöi kranaattia. Numero on yksikäsitteinen
+#: **koko demossa**, ei vain kierroksen sisällä: kierroskohtainen juokseva
+#: numero näyttäisi yksikäsitteiseltä, mutta pettäisi heti kun aggregointi
+#: liittää kahden kierroksen utilityn yhteen kehykseen.
+#:
+#: Numero **päätyy ``EVENTS``-tauluun sellaisenaan** (Story 1.8): se on ainoa
+#: sarake, jolla heitto ja räjähdys yhdistyvät, ja adapteri käyttää sitä myös
 #: liittääkseen kierroksen, puolen ja alueen molempiin riveihin samalla
 #: päätöksellä.
+#:
+#: Muoto: numerointi **alkaa nollasta** ja kasvaa heiton tickin mukaan. Se on
+#: yksikäsitteinen mutta ei yhtenäinen väli ``0..n-1``: heittäjätön rata
+#: pudotetaan jo täällä, ja ``stages.parse`` pudottaa lisäksi
+#: numeroimattomien kierrosten rivit, joten valmiissa taulussa on aukkoja.
+#: Numero ei siis ole indeksi eikä sen suurin arvo ole kranaattien määrä.
 ENDPOINT_COLUMNS: tuple[str, ...] = (
     "grenade_no",
     "grenade_entity_id",
@@ -249,6 +269,10 @@ def grenade_endpoints(
         ``päätepisteet`` on pitkä taulu, sarakkeet :data:`ENDPOINT_COLUMNS`:
         yksi ``grenade_thrown``-rivi jokaisesta kranaatista ja
         ``grenade_detonate``-rivi niistä, joiden rata on yhtä pistettä pidempi.
+        Jokainen rata saa oman ``grenade_no``:nsa, joka on yksikäsitteinen
+        koko taulussa ja **sama radan molemmilla riveillä** -- se on heiton ja
+        räjähdyksen ainoa side. Numerointi on vakaa: sama syöte antaa samat
+        numerot, koska jaksotus ja sen lajitteluavain ovat deterministisiä.
         **Yhden pisteen rata ei tuota räjähdystä**: se on ainoa radasta itsestään
         luettavissa oleva merkki siitä, ettei kranaatti koskaan lentänyt --
         keksitty räjähdys samaan pisteeseen väittäisi savua siellä, missä sitä
@@ -288,6 +312,16 @@ def grenade_endpoints(
     if runs.is_empty():
         return pl.DataFrame(schema=_ENDPOINT_SCHEMA), without_thrower.height
 
+    # Numerointi on tunnisteen koko määritelmä, ja kaksi asiaa on pidettävä
+    # yhtä aikaa totena. **Yksikäsitteisyys**: rivi-indeksi juoksee koko
+    # demon yli, joten sama numero ei voi osua kahdelle radalle edes saman
+    # kierroksen sisällä -- juuri se rikkoi vanhan
+    # (round_no, grenade_entity_id) -avaimen. **Vakaus**: lajitteluavain
+    # (throw_tick, grenade_entity_id) on yksikäsitteinen, koska saman
+    # tunnisteen jaksot ovat aikajärjestyksessä eivätkä voi alkaa samalta
+    # tickiltä. Järjestys ei siis riipu lajittelun vakaudesta, ja sama demo
+    # samoilla asetuksilla antaa samat numerot joka ajolla -- muuten arkiston
+    # uudelleenparsinta näyttäisi muutokselta.
     runs = runs.sort("throw_tick", "grenade_entity_id").with_row_index(
         "grenade_no"
     )
@@ -373,8 +407,28 @@ def _aggregate_runs(flight: pl.DataFrame, max_gap_ticks: int) -> pl.DataFrame:
     tickeihin jää ``max_gap_ticks``:iä suurempi aukko. ``ne_missing`` eikä
     ``!=``: tyhjä heittäjä on jaksossa yhtä hyvä arvo kuin mikä tahansa muu, ja
     ``!=`` palauttaisi sille ``null``:in, jolloin jaksoraja jäisi huomaamatta.
+
+    Lajitteluavain on ``(tunniste, tick)`` **ja sen perässä jokainen jäljellä
+    oleva sarake**. Kaksi ensimmäistä määräävät järjestyksen; loput ovat
+    pelkkiä tasapelin ratkaisijoita, eivätkä ne siirrä yhtäkään riviä
+    tilanteessa, jossa pari on yksikäsitteinen.
+
+    Ne ovat mukana determinismin takia. Jaksoraja luetaan viereisistä
+    riveistä, joten se riippuu lajittelun tuloksesta, eikä Polarsin lajittelu
+    ole vakaa: kaksi riviä samalla tunnisteella ja samalla tickillä voisivat
+    vaihtaa paikkaa ajojen välillä. Silloin **jaksotus itse** -- ei vain
+    numerointi -- olisi määräämätön, ja ``grenade_no``:n vakaus olisi tyhjä
+    lupaus. Kun avaimessa on jokainen sarake, järjestys on rivien
+    **sisällön** funktio: kaksi täsmälleen samanlaista riviä ovat keskenään
+    vaihdettavissa, joten tulos on sama riippumatta siitä missä
+    järjestyksessä demoparser2 rivit antoi.
     """
-    frame = flight.sort("grenade_entity_id", "tick")
+    tie_break = [
+        name
+        for name in TRAJECTORY_COLUMNS
+        if name not in ("grenade_entity_id", "tick")
+    ]
+    frame = flight.sort("grenade_entity_id", "tick", *tie_break)
     run_start = (
         pl.col("grenade_entity_id").ne_missing(pl.col("grenade_entity_id").shift(1))
         | pl.col("thrower_id").ne_missing(pl.col("thrower_id").shift(1))

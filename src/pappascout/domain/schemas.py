@@ -11,7 +11,7 @@ Neljä taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
     näytepiste).
 ``EVENTS``
     ``parsed/<map_demo_id>/events.parquet`` -- rivi per utility-tapahtuma.
-    Heitto ja räjähdys ovat kaksi riviä, jotka yhdistää ``grenade_entity_id``.
+    Heitto ja räjähdys ovat kaksi riviä, jotka yhdistää ``grenade_no``.
 ``CLASSIFIED``
     ``classified/<team_key>/<map_demo_id>.parquet`` -- **yksi rivi per kierros**
     subjektijoukkueen näkökulmasta. Sisältää ``classify``-vaiheen johdokset.
@@ -140,10 +140,9 @@ TICKS: Schema = {
 }
 
 # Utility-tapahtumataulu (AD-5). Heitto ja räjähdys ovat kaksi riviä, jotka
-# yhdistää (round_no, grenade_entity_id) -- pelkkä entiteettitunniste ei riitä,
-# koska peli kierrättää tunnisteet demon aikana. area ja x, y, z tarkoittavat
-# event_kindin mukaan joko heitto- tai räjähdyspaikkaa.
-# Utility mitataan heitoista, ei ostoista.
+# yhdistää grenade_no -- lentoradan oma tunniste, joka on yksikäsitteinen koko
+# demossa. area ja x, y, z tarkoittavat event_kindin mukaan joko heitto- tai
+# räjähdyspaikkaa. Utility mitataan heitoista, ei ostoista.
 #
 # Alue on kahdenlaista tietoa, ja area_source kertoo kummasta on kyse:
 # heittorivillä se on heittäjän oma m_szLastPlaceName (havainto), räjähdyksellä
@@ -155,6 +154,25 @@ EVENTS: Schema = {
     "round_raw": pl.Int32,
     "round_no": pl.Int32,
     "event_kind": _EVENT_KIND,
+    # Lentoradan tunniste: juokseva numero demon sisällä, heiton tickin mukaan
+    # järjestettynä. YKSIKÄSITTEINEN KOKO DEMOSSA, ei vain kierroksen sisällä,
+    # ja heitto ja räjähdys jakavat sen -- se on niiden ainoa side.
+    # Yksi demo: (grenade_no, event_kind) yksilöi rivin.
+    # Monta demoa: (map_demo_id, grenade_no, event_kind) -- numero juoksee
+    # demon sisällä, joten aggregate tarvitsee map_demo_idin mukaan.
+    # MUOTO: alkaa nollasta ja kasvaa, mutta EI OLE YHTENÄINEN VÄLI 0..n-1.
+    # Numerointi tehdään ennen kuin parse pudottaa lämmittelyn ja
+    # puukkokierroksen rivit, joten valmiissa taulussa on aukkoja. Numeroa ei
+    # siis saa käyttää indeksinä eikä sen suurinta arvoa kranaattien määränä.
+    # VAKAA saman syötteen yli: jaksotus on deterministinen, joten
+    # uudelleenparsinta antaa samat numerot.
+    "grenade_no": pl.Int32,
+    # Pelin oma entiteettitunniste. EI YKSILÖI KRANAATTIA: peli kierrättää
+    # tunnisteet demon aikana ja myös SAMAN KIERROKSEN SISÄLLÄ. Mitattu:
+    # inferno_vs_ryhmarama, kierros 11, tunniste 564 = kolme eri lentorataa
+    # (molotov 9,2 s, flashbang 18,0 s, incendiary 64,2 s).
+    # Sarake on tallessa siksi, että se on ainoa side takaisin demoon --
+    # kranaatin löytää sillä katselimesta. Avaimena sitä ei saa käyttää.
     "grenade_entity_id": pl.Int32,
     "grenade_type": pl.Utf8,
     "thrower_id": pl.Utf8,

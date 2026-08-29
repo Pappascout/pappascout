@@ -60,9 +60,14 @@ taulua yhdellä lukukerralla:
   **ensikontakti**, eli ensimmäinen ristiinpuolinen osuma muulla kuin
   utilityaseella.
 * `parsed/<map_demo_id>/events.parquet` -- rivi per utility-tapahtuma. Heitto
-  ja räjähdys ovat kaksi riviä, jotka yhdistää `(round_no,
-  grenade_entity_id)`. Utility mitataan **heitoista, ei ostoista**, ja se
-  luetaan lentoradoista -- `grenade_thrown`-tapahtumaa ei ole olemassa.
+  ja räjähdys ovat kaksi riviä, jotka yhdistää `grenade_no`: lentoradan oma
+  tunniste, joka on yksikäsitteinen koko demossa (demojen kesken pari
+  `(map_demo_id, grenade_no)`). Pelin oma `grenade_entity_id` on tallessa
+  omana sarakkeenaan, mutta se **ei yksilöi kranaattia** -- peli kierrättää
+  tunnisteet myös saman kierroksen sisällä, ja se on mukana vain siksi, että
+  sillä löytää kranaatin demosta uudelleen. Utility mitataan **heitoista, ei
+  ostoista**, ja se luetaan lentoradoista -- `grenade_thrown`-tapahtumaa ei
+  ole olemassa.
   Heiton alue on **havainto** -- heittäjän oma `m_szLastPlaceName` samalta
   tickiltä. Räjähdyksellä ei ole omaa aluenimeä, joten sen alue johdetaan
   lähimmän elossa olevan pelaajan alueesta, jos hän on enintään

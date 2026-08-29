@@ -1067,21 +1067,29 @@ def test_ancient_fire_grenades_follow_the_side_that_can_buy_them(
 
 
 @pytest.mark.demo
-def test_ancient_entity_ids_are_unique_within_a_round(
+def test_ancient_data_claim_entity_ids_recycle_only_between_rounds(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """Hyväksymiskriteeri: korkeintaan yksi heitto ja yksi räjähdys per kranaatti.
+    """**AINEISTOVÄITE, EI SOPIMUS.** Miksi vika ei näkynyt ensimmäisillä demoilla.
 
-    Tunniste **kierrätetään** demon aikana, joten avain on
-    ``(round_raw, grenade_entity_id)`` eikä pelkkä tunniste. Tämä testi lukitsee
-    sen, että avain riittää: kierroksen sisällä tunniste ei toistu.
+    Tämä testi ei lupaa mitään ``EVENTS``-taulusta. Se kuvaa yhden demon
+    sisältöä: Ancientilla pelin oma tunniste toistuu demon aikana muttei
+    kierroksen sisällä, joten vanha avain ``(round_raw, grenade_entity_id)``
+    näytti riittävän. Liigademot osoittivat toisin -- ks.
+    :func:`test_inferno_id_564_is_three_trajectories_on_one_round`.
+
+    Testi on tallessa siksi, että se dokumentoi juuri sen aineiston
+    rajallisuuden, joka johti väärään sopimukseen. Jos se joskus kaatuu, se
+    tarkoittaa että Ancient-demo on vaihtunut -- ei että sopimus olisi rikki.
+    Sopimuksen tae on
+    :func:`test_the_trajectory_id_is_unique_in_every_demo`.
     """
     counts = ancient_events.group_by(
         "round_raw", "grenade_entity_id", "event_kind"
     ).len()
     assert counts["len"].max() == 1
 
-    # Ja koko demossa se toistuu -- juuri siksi kierros on osa avainta.
+    # Koko demossa tunniste toistuu -- se ei siis yksilöi kranaattia.
     whole_demo = ancient_events.group_by("grenade_entity_id", "event_kind").len()
     assert whole_demo["len"].max() > 1
 
@@ -1248,9 +1256,10 @@ def test_ancient_utility_diagnostics_are_clean(ancient_tables) -> None:
     # Yksi kranaatti lähtee kierroksen ratkeamisen jälkeen -- se on oikea
     # havainto eikä vika, mutta sille ei ole t_s:ää.
     assert diagnostics.grenades_outside_rounds == 1
-    # Tunnisteet kierrätetään demon aikana mutta eivät kierroksen sisällä,
-    # joten (round_no, grenade_entity_id) riittää parin avaimeksi.
-    assert diagnostics.grenades_id_reused_in_round == 0
+    # Ancientilla tunnisteet kierrätetään demon aikana mutta eivät kierroksen
+    # sisällä. Liigademoissa kierrätetään myös kierroksen sisällä, ja siksi
+    # taulun avain on grenade_no eikä pelin oma tunniste.
+    assert diagnostics.grenades_sharing_an_entity_id == 0
     # Luokkanimet ja tulikranaatin erottelu ovat ajan tasalla.
     assert diagnostics.grenades_unknown_type == 0
     assert diagnostics.grenades_fire_type_unresolved == 0
@@ -1263,6 +1272,164 @@ def test_ancient_utility_diagnostics_are_clean(ancient_tables) -> None:
         diagnostics.grenades_detonating_after_round
         == ANCIENT_DETONATIONS_AFTER_ROUND
     )
+
+
+#: Liigademo, jossa kierrätys näkyy. Nimi luetaan :data:`LEAGUE_DEMOS`ista
+#: eikä kirjoiteta uudelleen: oma kopio vanhenisi hiljaa, ja ``require_demo``
+#: ohittaisi testin muka puuttuvana demona.
+INFERNO_DEMO = next(name for name, _ in LEAGUE_DEMOS if name.startswith("inferno"))
+
+#: ``inferno_vs_ryhmarama`` kierroksella 11 pelin tunniste 564 kantaa **kolme**
+#: eri lentorataa. Mitattu arkiston ``events.parquet``ista 2026-08-29, ja se on
+#: koko Story 1.8:n olemassaolon syy: pari ``(round_no, grenade_entity_id)`` ei
+#: yksilöi kranaattia.
+#:
+#: Adapterin taulussa ``round_no`` on aina tyhjä -- numeroinnin omistaa
+#: ``stages.parse`` -- joten kierros nimetään tässä demon omalla laskurilla.
+#: ``round_raw`` 12 on ``round_no`` 11: puukkokierros ja ottelun
+#: uudelleenaloitus eivät ole pelattuja kierroksia.
+INFERNO_REUSED_ROUND_RAW = 12
+INFERNO_REUSED_ENTITY = 564
+
+#: Tunnisteen 564 kolme rataa **ennen tätä muutosta**, luettuna arkiston
+#: ``events.parquet``ista. Uusi sarake ei saa muuttaa yhtäkään näistä: jaksotus
+#: pysyy ennallaan, ja vain tunniste on uusi. Ajat verrataan toleranssilla --
+#: väite on "sama havainto", ei "sama liukulukubitti".
+INFERNO_564_THROWS: tuple[tuple[str, float], ...] = (
+    ("molotov", 9.1875),
+    ("flashbang", 18.015625),
+    ("incendiary", 64.21875),
+)
+INFERNO_564_DETONATIONS: tuple[tuple[str, float], ...] = (
+    ("molotov", 10.15625),
+    ("flashbang", 19.625),
+    ("incendiary", 65.78125),
+)
+
+#: Sallitut tapahtumalajit yhtä ``grenade_no``:ta kohden. Räjähtämätön
+#: kranaatti tuottaa vain heiton, joten kaksi riviä on sallittua muttei
+#: pakollista -- ja kaksi riviä on aina juuri tämä pari, ei kaksi heittoa.
+GRENADE_ROW_SHAPES: tuple[tuple[str, ...], ...] = (
+    ("grenade_thrown",),
+    ("grenade_thrown", "grenade_detonate"),
+)
+
+
+@lru_cache(maxsize=None)
+def parsed_demo(demo_name: str):
+    """Demon taulut ja diagnostiikka, parsittuna **kerran per ajo**.
+
+    Sama kuvio kuin ``ancient_tables``-fikstuurissa, mutta nimellä
+    parametroituna: kuusi 100-230 MB:n demoa ei mahdu parsittavaksi uudelleen
+    joka testissä. ``require_demo`` on kutsun sisällä, jotta puuttuva demo
+    ohittaa testin siististi eikä välimuistiin jää ohitusta.
+    """
+    adapter = real_parser()
+    tables = adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+    return tables, adapter.diagnostics
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
+def test_the_trajectory_id_is_unique_in_every_demo(demo_name: str) -> None:
+    """Hyväksymiskriteeri: ``(grenade_no, event_kind)`` on yksikäsitteinen.
+
+    Väite koskee **koko taulua** eikä kierrosta, ja se ajetaan kaikilla
+    kuudella demolla. Kahdella vanhalla testidemolla myös vanha avain olisi
+    mennyt läpi -- juuri siksi väite on ajettava sillä aineistolla, jossa vika
+    näkyi.
+
+    Jokainen väite kestää **tyhjän taulun**: demo ilman utilityä on
+    kelvollinen tulos, eikä sopimustesti saa vaatia aineistolta sisältöä.
+    Se, että näissä kuudessa demossa utilityä on, on erillinen aineistoväite
+    tämän testin lopussa.
+    """
+    events = parsed_demo(demo_name)[0].events
+
+    assert events["grenade_no"].null_count() == 0
+    keys = events.select("grenade_no", "event_kind")
+    assert keys.height == keys.unique().height
+
+    # Pelin oma tunniste säilyy -- se on ainoa side takaisin demoon.
+    assert events["grenade_entity_id"].null_count() == 0
+
+    # Heitto ja räjähdys jakavat numeron, eikä kaksi riviä voi olla kaksi
+    # heittoa. Väite on muodosta eikä lukumäärästä, joten se pitää myös
+    # räjähtämättömälle kranaatille.
+    shapes = (
+        events.group_by("grenade_no")
+        .agg(pl.col("event_kind").sort().cast(pl.Utf8).alias("kinds"))["kinds"]
+        .to_list()
+    )
+    assert all(tuple(kinds) in GRENADE_ROW_SHAPES for kinds in shapes)
+
+    # Aineistoväite, ei sopimus: näissä kuudessa demossa utilityä heitettiin.
+    assert not events.is_empty()
+
+
+@pytest.mark.demo
+def test_inferno_id_564_is_three_trajectories_on_one_round() -> None:
+    """Hyväksymiskriteeri: tunniste 564 hajoaa kolmeen -- ajat ja tyypit ennallaan.
+
+    Tämä on se mitattu tapaus, jota vanha sopimus ei kestänyt. Uuden
+    tunnisteen on erotettava radat toisistaan **muuttamatta havaintoa**:
+    jaksotukseen ei kosketa, joten ajat ja kranaattityypit ovat samat kuin
+    ennen muutosta.
+    """
+    events = parsed_demo(INFERNO_DEMO)[0].events
+    subset = events.filter(
+        (pl.col("round_raw") == INFERNO_REUSED_ROUND_RAW)
+        & (pl.col("grenade_entity_id") == INFERNO_REUSED_ENTITY)
+    ).sort("t_s")
+
+    throws = subset.filter(pl.col("event_kind") == "grenade_thrown")
+    detonations = subset.filter(pl.col("event_kind") == "grenade_detonate")
+
+    def observed(frame: pl.DataFrame) -> list[tuple[str, float]]:
+        return list(zip(frame["grenade_type"].to_list(), frame["t_s"].to_list()))
+
+    def expected(pairs: tuple[tuple[str, float], ...]) -> list[tuple[str, object]]:
+        # Toleranssi tickin murto-osan verran: väite on sama havainto, ei sama
+        # liukulukubitti. Tickrate- tai pyöristysmuutos ei saa näyttää siltä,
+        # että jaksotus muuttui.
+        return [(name, pytest.approx(t_s, abs=0.02)) for name, t_s in pairs]
+
+    # Havainto on ennallaan: samat kolme tyyppiä samoilla hetkillä.
+    assert observed(throws) == expected(INFERNO_564_THROWS)
+    assert observed(detonations) == expected(INFERNO_564_DETONATIONS)
+
+    # Kolme rataa, kolme tunnistetta -- ja pelin oma tunniste on yhä sama.
+    assert throws["grenade_no"].n_unique() == 3
+    assert subset["grenade_no"].n_unique() == 3
+    assert subset["grenade_entity_id"].unique().to_list() == [INFERNO_REUSED_ENTITY]
+
+    # Heitto ja räjähdys jakavat numeron: se on niiden ainoa side.
+    for _, pair in subset.group_by("grenade_no", maintain_order=True):
+        assert sorted(pair["event_kind"].to_list()) == [
+            "grenade_detonate",
+            "grenade_thrown",
+        ]
+
+
+@pytest.mark.demo
+def test_parsing_the_same_demo_twice_gives_identical_tables() -> None:
+    """Hyväksymiskriteeri: sama demo kahdesti -> identtiset taulut.
+
+    Tunnisteen vakaus on ehto: jos numerot vaihtuisivat ajojen välillä,
+    arkiston uudelleenparsinta näyttäisi muutokselta ilman muutosta.
+
+    Väite on tässä heikko -- deterministinen funktio samalla syötteellä --
+    ja sen vahva muoto on ``test_utility.py``:n puolella, jossa lentoratojen
+    **rivijärjestys sekoitetaan** ennen jaksotusta. Demolla sitä ei voi tehdä,
+    joten tämä varmistaa vain, ettei koko putkeen ole jäänyt satunnaisuutta
+    (hajautusjärjestys, rinnakkaisuus). Ensimmäinen parsinta on jaettu muiden
+    testien kanssa, joten hinta on yksi ylimääräinen luku eikä kaksi.
+    """
+    first = parsed_demo(ANCIENT_DEM)[0]
+    second = real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
+
+    assert not first.events.is_empty()
+    assert first.events.equals(second.events)
 
 
 @pytest.mark.demo

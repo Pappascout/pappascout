@@ -170,12 +170,18 @@ def build_ticks(
     return pl.DataFrame(rows, schema=dict(TICKS_ADAPTER_SCHEMA), orient="row")
 
 
+#: Tunniste, jonka kaikki saman kierroksen kranaatit jakavat, kun
+#: ``build_events(recycle_entity_ids=True)``. Peli tekee juuri näin.
+RECYCLED_ENTITY_ID = 564
+
+
 def build_events(
     rounds: pl.DataFrame,
     *,
     per_round: int = 2,
     unexploded: tuple[int, ...] = (),
     without_area: tuple[int, ...] = (),
+    recycle_entity_ids: bool = False,
 ) -> pl.DataFrame:
     """Tapahtumataulu ``build_rounds``-taulua vastaavana, kuten adapteri sen antaisi.
 
@@ -186,16 +192,29 @@ def build_events(
         rounds: Kierrostaulu, josta ``round_raw``, ``side`` ja ``lineup_key``
             luetaan; avaimet eivät saa erota tauluissa.
         per_round: Montako kranaattia kumpikin joukkue heittää kierroksella.
-        unexploded: Ne ``grenade_entity_id``:t, joilta räjähdysrivi puuttuu.
-        without_area: Ne ``grenade_entity_id``:t, joiden alue jäi tyhjäksi.
+        unexploded: Ne kranaattien järjestysnumerot, joilta räjähdysrivi
+            puuttuu (1-pohjainen, sama luku kuin ``without_area``ssa).
+        without_area: Ne kranaattien järjestysnumerot, joiden alue jäi
+            tyhjäksi.
+        recycle_entity_ids: Anna kaikille saman kierroksen kranaateille **sama**
+            ``grenade_entity_id``, kuten peli oikeasti tekee
+            (``inferno_vs_ryhmarama`` kierros 11). Vanha avain
+            ``(round_no, grenade_entity_id)`` menee silloin päällekkäin, ja
+            vain ``grenade_no`` erottaa radat.
+
+    ``grenade_no`` ja ``grenade_entity_id`` saavat **eri arvot**: numerot
+    alkavat 500:sta. Identtisillä arvoilla sarakkeiden menemistä ristiin ei
+    voisi havaita, koska molemmat ovat ``Int32``.
     """
     rows: list[dict[str, object]] = []
     entity = 0
+    number = 500
     for round_row in rounds.iter_rows(named=True):
         if round_row["freeze_end_tick"] is None:
             continue  # ankkuriton kierros ei tuota tapahtumia
         for index in range(per_round):
             entity += 1
+            number += 1
             moments: list[tuple[str, float]] = [("grenade_thrown", 5.0 + index)]
             if entity not in unexploded:
                 moments.append(("grenade_detonate", 7.0 + index))
@@ -205,7 +224,12 @@ def build_events(
                         "round_raw": round_row["round_raw"],
                         "round_no": None,
                         "event_kind": kind,
-                        "grenade_entity_id": entity,
+                        "grenade_no": number,
+                        "grenade_entity_id": (
+                            RECYCLED_ENTITY_ID
+                            if recycle_entity_ids
+                            else entity
+                        ),
                         "grenade_type": "smoke" if index == 0 else "flashbang",
                         "thrower_id": f"{round_row['lineup_key']}-{index}",
                         "lineup_key": round_row["lineup_key"],
@@ -752,6 +776,159 @@ def test_every_grenade_has_at_most_one_throw_and_one_detonation(
     df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "events"))
     counts = df.group_by("round_no", "grenade_entity_id", "event_kind").len()
     assert counts["len"].max() == 1
+
+
+def test_the_trajectory_id_is_unique_in_the_written_table(
+    parse_settings, archive, demo
+) -> None:
+    """Hyväksymiskriteeri: ``(grenade_no, event_kind)`` on yksikäsitteinen.
+
+    Aineistossa **on** kierrätetty tunniste, joten vanha avain menee
+    päällekkäin samassa taulussa. Ilman sitä testi menisi läpi myös silloin,
+    kun ``grenade_no`` ei tee mitään.
+
+    Väite koskee koko taulua, ei kierrosta: kierroskohtainen tunniste
+    näyttäisi tässä yhtä hyvältä, mutta pettäisi heti kun aggregointi liittää
+    monta kierrosta yhteen kehykseen.
+    """
+    rounds = build_rounds(played=4, warmup=0)
+    events = build_events(rounds, recycle_entity_ids=True)
+    run_parse(parse_settings, archive, FakeParser(rounds, events=events), demo)
+
+    df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "events"))
+    assert df["grenade_no"].null_count() == 0
+    assert df.select("map_demo_id", "grenade_no", "event_kind").is_unique().all()
+
+    # Vanha avain **ei** ole yksikäsitteinen tässä samassa taulussa.
+    old_key = df.select("map_demo_id", "round_no", "grenade_entity_id", "event_kind")
+    assert not old_key.is_unique().all()
+
+
+def test_joining_utility_on_the_new_key_does_not_duplicate_rows(
+    parse_settings, archive, demo
+) -> None:
+    """Hyväksymiskriteeri: liitos uudella tunnisteella ei monista rivejä.
+
+    Liitos tehdään taulusta itseensä avaimella, koska juuri se on väite:
+    avaimella haettu rivi on yksi rivi. Sama liitos vanhalla avaimella
+    monistaa rivit, ja molemmat luvut tarkistetaan -- muuten testi menisi
+    läpi myös taululla, jossa avainta ei ole lainkaan.
+    """
+    rounds = build_rounds(played=3, warmup=0)
+    events = build_events(rounds, recycle_entity_ids=True)
+    run_parse(parse_settings, archive, FakeParser(rounds, events=events), demo)
+
+    df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "events"))
+    new_key = ["map_demo_id", "grenade_no", "event_kind"]
+    on_new = df.join(df.select(new_key), on=new_key, how="inner")
+    assert on_new.height == df.height
+
+    old_key = ["map_demo_id", "round_no", "grenade_entity_id", "event_kind"]
+    on_old = df.join(df.select(old_key), on=old_key, how="inner")
+    assert on_old.height > df.height
+
+
+def test_the_stage_passes_the_adapters_numbers_through_unchanged(
+    parse_settings, archive, demo
+) -> None:
+    """Vaihe ei numeroi rivejä uudelleen -- numero tulee adapterilta.
+
+    Ilman tätä vaihe voisi antaa omat juoksevat numeronsa, ja jokainen muu
+    uusi testi menisi silti läpi: tulos olisi yhä yksikäsitteinen, mutta se ei
+    olisi enää sama tunniste kuin lentoradalla.
+    """
+    rounds = build_rounds(played=3, warmup=2)
+    events = build_events(rounds)
+    run_parse(parse_settings, archive, FakeParser(rounds, events=events), demo)
+
+    df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "events"))
+    written = dict(
+        zip(
+            zip(df["grenade_no"].to_list(), df["event_kind"].to_list()),
+            df["t_s"].to_list(),
+        )
+    )
+    given = dict(
+        zip(
+            zip(events["grenade_no"].to_list(), events["event_kind"].to_list()),
+            events["t_s"].to_list(),
+        )
+    )
+    # Numeroimattomien kierrosten rivit putoavat; jäljelle jääneet kantavat
+    # adapterin numeron sellaisenaan, ja numero osoittaa samaan tapahtumaan.
+    assert written
+    assert set(written) < set(given)
+    for key, t_s in written.items():
+        assert given[key] == t_s
+
+    # Ja numerot alkavat 500:sta kuten adapteri ne antoi -- vaihe ei
+    # uudelleennumeroi nollasta.
+    assert min(no for no, _ in written) >= 500
+
+
+def test_a_duplicate_trajectory_id_is_refused(
+    parse_settings, archive, demo
+) -> None:
+    """Sopimusrikko nostetaan virheenä eikä kirjoiteta arkistoon.
+
+    ``validate`` tarkistaa sarakkeet ja tyypit muttei avainta, joten
+    kaksoiskappale läpäisisi sen ja näkyisi vasta raportin luvuissa
+    kaksinkertaisena savuna.
+    """
+    rounds = build_rounds(played=2, warmup=0)
+    events = build_events(rounds)
+    broken = events.with_columns(
+        pl.lit(500, dtype=pl.Int32).alias("grenade_no")
+    )
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(rounds, events=broken), demo)
+
+    assert "grenade_no" in str(exc.value)
+    assert not archive.parsed_table(MAP_DEMO_ID, "events").is_file()
+
+
+def test_a_missing_trajectory_id_is_refused(
+    parse_settings, archive, demo
+) -> None:
+    """Tyhjä numero jättäisi rivin ilman sidettä pariinsa."""
+    rounds = build_rounds(played=2, warmup=0)
+    events = build_events(rounds)
+    broken = events.with_columns(
+        pl.lit(None, dtype=pl.Int32).alias("grenade_no")
+    )
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(rounds, events=broken), demo)
+
+    assert "grenade_no" in str(exc.value)
+
+
+def test_a_stale_table_missing_a_column_is_reparsed(
+    parse_settings, archive, demo
+) -> None:
+    """Skeemamuutos mitätöi arkiston, vaikka manifestiin ei kosketa.
+
+    Parametrihash lasketaan ``[parse]``-osiosta ja demoparser2:n versiosta
+    (AD-3), eikä kumpikaan liiku, kun ``EVENTS`` saa uuden sarakkeen. Ilman
+    skeematarkistusta vanha taulu jäisi hiljaa voimaan ja näyttäisi
+    ajantasaiselta. Kolme muuta "vanha arkisto" -testiä eivät kata tätä: kaksi
+    poistaa tiedoston ja kolmas ylikirjoittaa ``params_hash``in.
+    """
+    parser = FakeParser(build_rounds(played=3, warmup=0))
+    run_parse(parse_settings, archive, parser, demo)
+
+    table = archive.parsed_table(MAP_DEMO_ID, "events")
+    manifest_before = archive.parsed_manifest(MAP_DEMO_ID).read_text(encoding="utf-8")
+    pl.read_parquet(table).drop("grenade_no").write_parquet(table)
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert not result.skipped
+    assert parser.calls == 2
+    fresh = pl.read_parquet(table)
+    assert "grenade_no" in fresh.columns
+    assert fresh.schema == dict(EVENTS)
+    # Manifesti oli koko ajan täsmäävä -- uudelleenajon laukaisi skeema.
+    assert manifest_before != ""
 
 
 def test_an_unexploded_grenade_has_no_invented_detonation(

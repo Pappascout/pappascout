@@ -126,8 +126,11 @@ Kaksi asiaa raakadatassa yllättää, ja molemmat on todettu Ancient-demolla:
   repussa ollessaan, ja silloin ``x, y, z`` ovat tyhjiä; 1,34 miljoonaa riviä
   1,55:stä on tällaisia. Lennossa tyyppi on ``...Projectile``, repussa ei.
 * **``grenade_entity_id`` kierrätetään.** 374 lentorataa mahtuu 187
-  tunnisteeseen. Jaksotus on siksi ``grenade_endpoints``in vastuulla, ei
-  ryhmittelyn tunnisteen mukaan.
+  tunnisteeseen. Kierrätys ei rajoitu kierrosten väliin: liigademossa
+  ``inferno_vs_ryhmarama`` kierroksella 11 tunniste 564 kantaa kolme eri
+  lentorataa (molotov 9,2 s, flashbang 18,0 s ja incendiary 64,2 s).
+  Jaksotus on siksi ``grenade_endpoints``in vastuulla, ei ryhmittelyn
+  tunnisteen mukaan, ja tauluun kulkee sen antama ``grenade_no``.
 
 Lennossa molotov ja incendiary ovat molemmat ``CMolotovProjectile``. Erottelu
 tehdään heittäjän repussa olevasta tyypistä heittoa edeltävällä tickillä
@@ -436,9 +439,12 @@ class _UtilityCounts:
         ticks_without_players: Päätepisteen tick, jolta ei saatu yhtään
             pelaajariviä. Toisin kuin muut tämän luokan luvut, tämä on **vika**
             eikä havainto -- se tarkoittaa, ettei aluetta voitu edes yrittää.
-        id_reused_in_round: Kranaattipari, jonka tunniste toistuu saman
-            kierroksen sisällä. Sopimus lupaa, että
-            ``(round_no, grenade_entity_id)`` yksilöi parin.
+        sharing_an_entity_id: Lentoradat, jotka jakavat pelin oman
+            ``grenade_entity_id``:n toisen radan kanssa **samalla
+            ``round_raw``:lla** -- demon omalla kierroslaskurilla, joka
+            sisältää myös lämmittelyn ja puukkokierroksen. Luku on
+            lentoratoja eikä pareja: kolme rataa yhdellä tunnisteella on 3.
+            Havainto eikä vika, koska taulun avain on ``grenade_no``.
     """
 
     without_thrower: int = 0
@@ -448,7 +454,7 @@ class _UtilityCounts:
     fire_type_unresolved: int = 0
     detonating_after_round: int = 0
     ticks_without_players: int = 0
-    id_reused_in_round: int = 0
+    sharing_an_entity_id: int = 0
 
 
 @dataclass
@@ -584,7 +590,7 @@ class Demoparser2Adapter:
             grenades_fire_type_unresolved=utility.fire_type_unresolved,
             grenades_detonating_after_round=utility.detonating_after_round,
             grenade_ticks_without_players=utility.ticks_without_players,
-            grenades_id_reused_in_round=utility.id_reused_in_round,
+            grenades_sharing_an_entity_id=utility.sharing_an_entity_id,
             unknown_inventory_items=tuple(sorted(armed.unknown_items.items())),
             armed_unreadable_rows=armed.unreadable_rows,
         )
@@ -1625,6 +1631,7 @@ class Demoparser2Adapter:
                     "round_raw": segment.round_raw,
                     "round_no": None,
                     "event_kind": r["event_kind"],
+                    "grenade_no": r["grenade_no"],
                     "grenade_entity_id": r["grenade_entity_id"],
                     "grenade_type": r["grenade_type"],
                     "thrower_id": r["thrower_id"],
@@ -1649,7 +1656,7 @@ class Demoparser2Adapter:
             fire_type_unresolved=fire_unresolved,
             detonating_after_round=late_detonations,
             ticks_without_players=empty_ticks,
-            id_reused_in_round=_id_reuse_count(frame),
+            sharing_an_entity_id=_shared_entity_id_count(frame),
         )
         return frame, counts
 
@@ -1761,14 +1768,27 @@ class Demoparser2Adapter:
         säilytä rivijärjestystä, ja sama demo tuottaisi muuten eri tavut eri
         ajoilla. ``event_kind`` on Enum, joten sen järjestys on luettelon
         järjestys -- heitto ennen räjähdystä.
+
+        Toisena avaimena on ``grenade_no`` eikä pelin oma tunniste, ja siihen
+        on kaksi syytä. Se on **yksikäsitteinen**, joten avain määrää
+        järjestyksen täysin eikä jää riippumaan lajittelun vakaudesta. Ja se
+        pitää radan kaksi riviä **vierekkäin**: pelin tunnisteella
+        lajiteltuna kierrätetyn tunnisteen kaikki heitot tulisivat ennen sen
+        kaikkia räjähdyksiä, ja pari hajoaisi taulun eri kohtiin.
         """
         schema: dict[str, Any] = {
             name: EVENTS[name] for name in EVENTS_ADAPTER_COLUMNS
         }
         if not rows:
             return pl.DataFrame(schema=schema)
-        return pl.DataFrame(rows, schema=schema, orient="row").sort(
-            "round_raw", "grenade_entity_id", "event_kind", "t_s"
+        # Sarakkeet poimitaan **nimella**, ei rividictin jarjestyksessa.
+        # ``orient="row"`` lukisi arvot jarjestyksessa, ja kaksi vierekkaista
+        # Int32-saraketta (grenade_no, grenade_entity_id) vaihtaisi silloin
+        # hiljaa paikkaa, jos EVENTSin avainjarjestys joskus muuttuu -- ilman
+        # tyyppivirhetta, joka paljastaisi sen.
+        columns = {name: [row[name] for row in rows] for name in schema}
+        return pl.DataFrame(columns, schema=schema).sort(
+            "round_raw", "grenade_no", "event_kind", "t_s"
         )
 
 
@@ -1935,24 +1955,37 @@ def _name_fire_grenades(
     return renamed, unresolved
 
 
-def _id_reuse_count(frame: pl.DataFrame) -> int:
-    """Kranaatit, joiden tunniste toistuu **saman kierroksen sisällä**.
+def _shared_entity_id_count(frame: pl.DataFrame) -> int:
+    """Lentoradat, jotka jakavat pelin tunnisteen toisen radan kanssa.
 
-    ``(round_no, grenade_entity_id)`` on luvattu parin avaimeksi kaikelle
-    myöhemmälle työlle. Peli kierrättää tunnisteet demon aikana, mutta ei
-    havaintojen mukaan kierroksen sisällä. Jos niin joskus kävisi, avain
-    lakkaisi yksilöimästä paria ja aggregointi laskisi kaksi savua yhdeksi --
-    joten tapaus lasketaan ja kerrotaan sen sijaan, että se paljastuisi vasta
-    raportin luvuista.
+    Tämä luku oli aikanaan hälytys: ``(round_no, grenade_entity_id)`` oli
+    luvattu parin avaimeksi, ja nollasta poikkeava arvo tarkoitti, ettei avain
+    yksilöi paria. Liigademot nostivat luvun nollasta ylös
+    (``inferno_vs_ryhmarama``: tunniste 564 kierroksella 11 kantaa kolme
+    rataa), ja vastaus oli vaihtaa avain: taulussa on nyt ``grenade_no``, joka
+    on yksikäsitteinen koko demossa. Luku jää paikalleen **havaintona**, ja se
+    on ainoa mittari, joka varoittaisi jos joku palaisi käyttämään
+    entiteettitunnistetta avaimena.
+
+    Laskettava yksikkö on **lentorata eikä pari**: kolme rataa yhdellä
+    tunnisteella on 3, ei 2. Aiempi versio ryhmitteli
+    ``(round_raw, grenade_entity_id, event_kind)`` ja laski ryhmiä, jolloin
+    sama tilanne antoi luvun 2 -- kaksi ryhmää, heitot ja räjähdykset -- eli
+    luku ei kertonut ratojen eikä parien määrää vaan tapahtumalajien määrän.
+    Nyt lasketaan eri ``grenade_no``-arvot per tunniste.
+
+    Kierros on demon oma ``round_raw``, ei ``round_no``: adapterin taulussa
+    ``round_no`` on aina tyhjä, koska numeroinnin omistaa ``stages.parse``.
+    Luku sisältää siis myös lämmittelyn ja puukkokierroksen.
     """
     if frame.is_empty():
         return 0
-    return int(
-        frame.group_by("round_raw", "grenade_entity_id", "event_kind")
-        .len()
-        .filter(pl.col("len") > 1)
-        .height
+    per_id = (
+        frame.group_by("round_raw", "grenade_entity_id")
+        .agg(pl.col("grenade_no").n_unique().alias("trajectories"))
+        .filter(pl.col("trajectories") > 1)
     )
+    return int(per_id["trajectories"].sum())
 
 
 def _round_windows(segments: list[_Segment]) -> list[tuple[int, int, int]]:

@@ -249,6 +249,142 @@ def test_grenades_are_numbered_in_throw_order() -> None:
     assert result["grenade_no"].to_list() == [0, 0, 1, 1]
 
 
+def test_three_trajectories_on_one_id_get_three_numbers() -> None:
+    """I/O-matriisi: tunniste toistuu kierroksella -> kolme lentorataa.
+
+    Mitattu ``inferno_vs_ryhmarama``sta: kierroksella 11 tunniste 564 kantaa
+    kolme rataa -- molotov, flashbang ja incendiary. Jaksotus erottaa ne
+    oikein, mutta pari ``(round_no, grenade_entity_id)`` ei -- siksi
+    jokaisella on oma ``grenade_no``, ja pelin oma tunniste on kaikilla sama.
+    Tyypit ovat samat kuin oikeassa demossa; ajat on tiivistetty testin
+    tickeiksi.
+    """
+    result, _ = endpoints(
+        frame(
+            trajectory(564, "aaa", "molotov", [500, 504]),
+            trajectory(564, "aaa", "flashbang", [800, 806]),
+            trajectory(564, "bbb", "incendiary", [1200, 1206]),
+        )
+    )
+
+    throws = result.filter(pl.col("event_kind") == THROWN)
+    assert throws.height == 3
+    assert throws["grenade_no"].n_unique() == 3
+    assert throws["grenade_entity_id"].unique().to_list() == [564]
+    # Ajat ja tyypit säilyvät sellaisinaan -- tunniste ei muuta havaintoa.
+    assert throws["tick"].to_list() == [500, 800, 1200]
+    assert throws["grenade_type"].to_list() == [
+        "molotov",
+        "flashbang",
+        "incendiary",
+    ]
+
+
+def test_the_number_is_unique_over_the_whole_result() -> None:
+    """Yksikäsitteisyys on demonlaajuinen, ei kierroskohtainen.
+
+    Kierroskohtainen juokseva numero näyttäisi tässä yhtä hyvältä, mutta
+    pettäisi heti kun aggregointi liittää kahden kierroksen utilityn samaan
+    kehykseen. Siksi väite on koko taulusta.
+    """
+    result, _ = endpoints(
+        frame(
+            trajectory(1, "aaa", "smoke", [100, 104]),
+            trajectory(1, "bbb", "smoke", [900, 904]),
+            trajectory(2, "aaa", "he", [140, 144]),
+            trajectory(2, "ccc", "flashbang", [950]),
+        )
+    )
+
+    pairs = result.select("grenade_no", "event_kind")
+    assert pairs.height == pairs.unique().height
+    assert result["grenade_no"].n_unique() == 4
+
+
+def test_the_throw_and_its_detonation_share_the_number() -> None:
+    """I/O-matriisi: heitto ja räjähdys -- numero on niiden ainoa side."""
+    result, _ = endpoints(frame(trajectory(7, "aaa", "smoke", [100, 104, 108])))
+
+    assert result["event_kind"].to_list() == [THROWN, DETONATE]
+    assert result["grenade_no"].n_unique() == 1
+
+
+def test_an_unexploded_grenade_gets_a_number_of_its_own() -> None:
+    """I/O-matriisi: yhden pisteen rata -> vain heitto, mutta oma numero."""
+    result, _ = endpoints(
+        frame(
+            trajectory(1, "aaa", "smoke", [100]),
+            trajectory(2, "bbb", "he", [200, 204]),
+        )
+    )
+
+    lone = result.filter(pl.col("grenade_entity_id") == 1)
+    assert lone["event_kind"].to_list() == [THROWN]
+    other = result.filter(pl.col("grenade_entity_id") == 2)
+    assert lone["grenade_no"][0] not in other["grenade_no"].to_list()
+
+
+def test_the_same_input_gives_the_same_numbers() -> None:
+    """I/O-matriisi: sama demo uudelleen -> samat tunnisteet.
+
+    Vakaus ei ole mukavuus vaan ehto: jos numerot vaihtuisivat ajojen välillä,
+    arkiston uudelleenparsinta näyttäisi muutokselta ilman muutosta. Syöte
+    sekoitetaan, koska saman funktion toistaminen samalla syötteellä ei
+    todistaisi vakaudesta mitään.
+    """
+    rows = frame(
+        trajectory(3, "aaa", "smoke", [900, 906]),
+        trajectory(3, "aaa", "he", [100, 106]),
+        trajectory(8, "bbb", "flashbang", [400, 402]),
+    )
+    first, _ = endpoints(rows)
+    for seed in range(5):
+        shuffled, _ = endpoints(rows.sample(fraction=1.0, shuffle=True, seed=seed))
+        assert first.equals(shuffled), seed
+
+
+def test_two_rows_on_the_same_tick_do_not_make_the_result_undefined() -> None:
+    """Jaksotus ei saa riippua siitä, missä järjestyksessä rivit tulivat.
+
+    Jaksoraja luetaan viereisistä riveistä, ja Polarsin lajittelu ei ole
+    vakaa. Jos avain olisi pelkkä ``(tunniste, tick)``, kaksi riviä samalla
+    tunnisteella ja samalla tickillä voisivat vaihtaa paikkaa ajojen välillä
+    -- ja silloin **jaksotus itse**, ei vain numerointi, olisi määräämätön.
+
+    Tässä sama tunniste kantaa kahta eri tyyppiä samoilla tickeillä, mikä on
+    pahin tapaus: tyyppi on jaksotuksen avain, joten rivien järjestys päättää
+    missä jakso katkeaa.
+    """
+    rows = frame(
+        trajectory(9, "aaa", "smoke", [100, 102], start=(0.0, 0.0, 0.0)),
+        trajectory(9, "aaa", "he", [100, 102], start=(50.0, 0.0, 0.0)),
+    )
+    first, _ = endpoints(rows)
+    for seed in range(8):
+        shuffled, _ = endpoints(rows.sample(fraction=1.0, shuffle=True, seed=seed))
+        assert first.equals(shuffled), seed
+
+
+def test_two_trajectories_at_the_same_moment_stay_apart() -> None:
+    """Tasapeli ajassa ei sekoita ratoja keskenään.
+
+    Kaksi kranaattia voi lähteä samalta tickiltä (kaksi pelaajaa heittää yhtä
+    aikaa). Numeron on erotettava ne, ja radan molemmat rivit on pysyttävä
+    saman numeron alla -- muuten heitto ja räjähdys menisivät ristiin.
+    """
+    result, _ = endpoints(
+        frame(
+            trajectory(11, "aaa", "smoke", [300, 306]),
+            trajectory(12, "bbb", "smoke", [300, 306]),
+        )
+    )
+
+    assert result["grenade_no"].n_unique() == 2
+    for _, pair in result.group_by("grenade_no", maintain_order=True):
+        assert pair["event_kind"].to_list() == [THROWN, DETONATE]
+        assert pair["grenade_entity_id"].n_unique() == 1
+
+
 def test_an_empty_table_gives_an_empty_result_with_the_right_types() -> None:
     """I/O-matriisi: demo ilman utilityä -> tyhjä tulos, ei kaatumista."""
     result, dropped = endpoints(pl.DataFrame(schema=dict(TRAJECTORY_SCHEMA)))

@@ -646,9 +646,9 @@ def _utility(stats: dict, rounds: int) -> list[str]:
             "päätepistettä ilman pelaajia -- aluetta ei voitu edes yrittää",
         ),
         (
-            "grenades_id_reused_in_round",
-            "Tunniste toistuu",
-            "kranaattiparia samalla tunnisteella kierroksen sisällä",
+            "grenades_sharing_an_entity_id",
+            "Jaettu tunniste",
+            "kranaattia jakaa pelin tunnisteen kierroksella (havainto)",
         ),
     ):
         count = int(stats.get(key, 0) or 0)

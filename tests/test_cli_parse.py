@@ -69,7 +69,7 @@ DEFAULT_STATS: dict[str, object] = {
     "grenades_fire_type_unresolved": 0,
     "grenades_detonating_after_round": 0,
     "grenade_ticks_without_players": 0,
-    "grenades_id_reused_in_round": 0,
+    "grenades_sharing_an_entity_id": 0,
 }
 
 
@@ -707,14 +707,18 @@ def test_utility_dropped_by_the_stage_is_reported() -> None:
 
 
 def test_the_remaining_utility_diagnostics_are_reported() -> None:
-    """Jokainen hiljainen pudotus- tai epävarmuussyy näkyy omalla rivillään."""
+    """Jokainen hiljainen pudotus- tai epävarmuussyy näkyy omalla rivillään.
+
+    Rivit tarkistetaan myös leveydeltään: yhteenvedon sarakkeet menevät
+    sekaisin, jos yksi kuvaus on kaksi kertaa muiden mittainen.
+    """
     result = parse_result(
         stats=stats(
             grenades_unknown_type=2,
             grenades_fire_type_unresolved=5,
             grenades_detonating_after_round=3,
             grenade_ticks_without_players=1,
-            grenades_id_reused_in_round=4,
+            grenades_sharing_an_entity_id=4,
         )
     )
     output_text = _render_parse(result, regulation_rounds=24)
@@ -722,7 +726,13 @@ def test_the_remaining_utility_diagnostics_are_reported() -> None:
     assert field_value(output_text, "Tulityyppi auki").startswith("5 kranaattia")
     assert field_value(output_text, "Räjähdys myöhässä").startswith("3 kierroksen")
     assert field_value(output_text, "Tickillä ei rivejä").startswith("1 päätepistettä")
-    assert field_value(output_text, "Tunniste toistuu").startswith("4 kranaattiparia")
+
+    # Jaettu tunniste on **havainto eikä vika**, ja rivin on sanottava se.
+    # Koko arvo tarkistetaan, ei vain alkuosaa: pelkkä startswith päästi läpi
+    # sekä väärän yksikön ("kranaattiparia") että parquet-sarakkeen nimen.
+    shared = field_value(output_text, "Jaettu tunniste")
+    assert shared == "4 kranaattia jakaa pelin tunnisteen kierroksella (havainto)"
+    assert "grenade_no" not in output_text
 
 
 def test_zero_utility_is_said_out_loud() -> None:

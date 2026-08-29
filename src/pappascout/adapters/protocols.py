@@ -66,9 +66,10 @@ TICKS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
 #: eikä vähempää.
 #:
 #: Sama kaksi poikkeusta kuin näytepistetaulussa: ``map_demo_id`` puuttuu ja
-#: ``round_no`` on mukana mutta aina tyhjä. Kranaatin oma juokseva numero
-#: (``grenade_no``) **ei** ole mukana: se on adapterin sisäinen parin avain,
-#: joka kuolee ennen kuin taulu ylittää portin.
+#: ``round_no`` on mukana mutta aina tyhjä. Lentoradan oma juokseva numero
+#: (``grenade_no``) **on** mukana: se on heiton ja räjähdyksen ainoa side, ja
+#: se on yksikäsitteinen koko demossa toisin kuin ``grenade_entity_id``.
+#: Demojen välillä avain on pari ``(map_demo_id, grenade_no)``.
 EVENTS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
     name for name in EVENTS if name != "map_demo_id"
 )
@@ -163,9 +164,14 @@ class ParseDiagnostics:
             yhtään pelaajariviä. **Vika eikä havainto**: aluetta ei voitu edes
             yrittää, ja ilman omaa lukuaan se sekoittuisi rehellisiin
             "kukaan ei ollut lähellä" -tapauksiin.
-        grenades_id_reused_in_round: Kranaattiparit, joiden tunniste toistuu
-            saman kierroksen sisällä. Sopimus lupaa, että
-            ``(round_no, grenade_entity_id)`` yksilöi parin.
+        grenades_sharing_an_entity_id: Lentoradat, jotka jakavat pelin oman
+            ``grenade_entity_id``:n toisen radan kanssa samalla
+            ``round_raw``:lla. **Havainto eikä vika**: taulun avain on
+            ``grenade_no``, joka on yksikäsitteinen koko demossa, joten
+            kierrätys ei sekoita mitään. Luku on lentoratoja eikä pareja --
+            kolme rataa yhdellä tunnisteella on 3 -- ja se on tallessa siksi,
+            että juuri se paljasti, ettei pari
+            ``(round_no, grenade_entity_id)`` kelvannut avaimeksi.
         unknown_inventory_items: Tavaraluettelon nimet, joita aseluokittelu ei
             tunne, pareina ``(nimi, esiintymiä)`` aakkosjärjestyksessä.
             Tuntematon nimi **ei aseista** pelaajaa (luokittelu on sallittujen
@@ -200,7 +206,7 @@ class ParseDiagnostics:
     grenades_fire_type_unresolved: int = 0
     grenades_detonating_after_round: int = 0
     grenade_ticks_without_players: int = 0
-    grenades_id_reused_in_round: int = 0
+    grenades_sharing_an_entity_id: int = 0
     unknown_inventory_items: tuple[tuple[str, int], ...] = ()
     armed_unreadable_rows: int = 0
 
@@ -240,8 +246,11 @@ class DemoParser(Protocol):
 
             ``events`` on rivi per utility-tapahtuma, sarakkeet täsmälleen
             :data:`EVENTS_ADAPTER_COLUMNS`. Heitto ja räjähdys ovat kaksi riviä,
-            jotka yhdistää ``(round_raw, grenade_entity_id)`` -- pelkkä
-            tunniste ei riitä, koska peli kierrättää ne demon aikana.
+            jotka yhdistää ``grenade_no`` -- pelin oma ``grenade_entity_id``
+            ei kelpaa avaimeksi, koska se kierrätetään myös saman kierroksen
+            sisällä. ``grenade_no`` alkaa nollasta ja kasvaa heiton tickin
+            mukaan; se on yksikäsitteinen mutta **ei yhtenäinen väli**, koska
+            vaihe pudottaa numeroimattomien kierrosten rivit.
             Räjähtämätön kranaatti tuottaa vain heiton. ``area_source``
             erottaa havaitun heittoalueen johdetusta räjähdysalueesta, ja
             ``snap_distance`` kertoo jälkimmäisen etäisyyden. Tyhjä taulu on
