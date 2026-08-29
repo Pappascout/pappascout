@@ -24,23 +24,23 @@ def test_home_is_redirected_to_tmp(tmp_path: Path) -> None:
 
 def test_real_secrets_file_is_out_of_reach() -> None:
     """secrets_env_path() ei osu taman koneen oikeaan avaintiedostoon."""
-    polku = secrets_env_path()
-    assert not polku.exists()
-    assert ".pappascout" in str(polku)
+    path = secrets_env_path()
+    assert not path.exists()
+    assert ".pappascout" in str(path)
 
 
 def test_leaky_env_vars_are_cleared() -> None:
-    for nimi in LEAKY_ENV_VARS:
-        assert nimi not in os.environ, nimi
+    for name in LEAKY_ENV_VARS:
+        assert name not in os.environ, name
 
 
 def test_settings_fixture_points_away_from_the_real_archive(
     settings_file: Path, tmp_path: Path
 ) -> None:
     s = load_settings(settings_file, env_files=())
-    juuri = ArchivePaths.from_settings(s.project.archive_root).root
-    assert juuri == tmp_path / "arkisto"
-    assert "OneDrive" not in str(juuri)
+    root = ArchivePaths.from_settings(s.project.archive_root).root
+    assert root == tmp_path / "arkisto"
+    assert "OneDrive" not in str(root)
 
 
 def test_even_the_real_settings_cannot_reach_the_real_archive() -> None:
@@ -51,6 +51,6 @@ def test_even_the_real_settings_cannot_reach_the_real_archive() -> None:
     asetustiedoston.
     """
     s = load_settings(REAL_SETTINGS, env_files=())
-    juuri = ArchivePaths.from_settings(s.project.archive_root).root
-    assert juuri.is_relative_to(Path.home())
-    assert not juuri.exists()
+    root = ArchivePaths.from_settings(s.project.archive_root).root
+    assert root.is_relative_to(Path.home())
+    assert not root.exists()

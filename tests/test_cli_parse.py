@@ -34,7 +34,7 @@ runner = CliRunner()
 DEMO_ID = "1-abc-1"
 
 #: Sarake, josta arvot alkavat: kahden välilyönnin sisennys + otsikkosarake.
-_ARVOSARAKE = 2 + _PARSE_LABEL_WIDTH
+_VALUE_COLUMN = 2 + _PARSE_LABEL_WIDTH
 
 #: Vaiheen luvut onnistuneesta ajosta -- 21 kierrosta, neljä näytepistettä.
 DEFAULT_STATS: dict[str, object] = {
@@ -69,9 +69,9 @@ DEFAULT_STATS: dict[str, object] = {
 }
 
 
-def parse_result(**muutokset) -> StageResult:
+def parse_result(**overrides) -> StageResult:
     """Vaiheen tulos oletusarvoilla; testi muuttaa vain sen mitä tutkii."""
-    oletus: dict[str, object] = {
+    defaults: dict[str, object] = {
         "stage": "parse",
         "unit": DEMO_ID,
         "status": "ok",
@@ -81,24 +81,24 @@ def parse_result(**muutokset) -> StageResult:
         "duration_s": 12.34,
         "stats": dict(DEFAULT_STATS),
     }
-    oletus.update(muutokset)
-    return StageResult(**oletus)  # type: ignore[arg-type]
+    defaults.update(overrides)
+    return StageResult(**defaults)  # type: ignore[arg-type]
 
 
-def stats(**muutokset) -> dict[str, object]:
+def stats(**overrides) -> dict[str, object]:
     """Vaiheen luvut oletuksilla; testi muuttaa vain sen mitä tutkii."""
-    luvut = dict(DEFAULT_STATS)
-    luvut.update(muutokset)
-    return luvut
+    numbers = dict(DEFAULT_STATS)
+    numbers.update(overrides)
+    return numbers
 
 
-def arvo(tuloste: str, otsikko: str) -> str:
+def field_value(output_text: str, label: str) -> str:
     """Poimi yhden rivin arvo otsikon perusteella."""
-    for rivi in tuloste.splitlines():
-        kuori = rivi.strip()
-        if kuori.startswith(otsikko):
-            return kuori[len(otsikko) :].strip()
-    raise AssertionError(f"rivia {otsikko!r} ei ole tulosteessa:" + chr(10) + tuloste)
+    for line in output_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(label):
+            return stripped[len(label) :].strip()
+    raise AssertionError(f"rivia {label!r} ei ole tulosteessa:" + chr(10) + output_text)
 
 
 @pytest.fixture
@@ -110,38 +110,38 @@ def demo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def vale_vaihe(settings_file: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
+def fake_stage(settings_file: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     """Korvaa ``stages.parse.run`` ja portti; palauta se mitä vaiheelle annettiin."""
-    nahty: dict[str, object] = {}
+    seen: dict[str, object] = {}
 
-    def vale_run(settings, archive, map_demo_id, parser, **kwargs):
-        nahty["settings"] = settings
-        nahty["archive"] = archive
-        nahty["unit"] = map_demo_id
-        nahty["parser"] = parser
-        nahty["kwargs"] = kwargs
-        return nahty.get("tulos") or parse_result(unit=map_demo_id)
+    def fake_run(settings, archive, map_demo_id, parser, **kwargs):
+        seen["settings"] = settings
+        seen["archive"] = archive
+        seen["unit"] = map_demo_id
+        seen["parser"] = parser
+        seen["kwargs"] = kwargs
+        return seen.get("tulos") or parse_result(unit=map_demo_id)
 
-    def vale_portti(settings):
+    def fake_port(settings):
         # Ensikontaktin sääntö on asetus, joten portti saa [parse]-osion.
-        nahty["portin_asetukset"] = settings
+        seen["portin_asetukset"] = settings
         return "portti"
 
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
-    monkeypatch.setattr("pappascout.stages.parse.run", vale_run)
-    monkeypatch.setattr("pappascout.stages.parse.default_parser", vale_portti)
-    return nahty
+    monkeypatch.setattr("pappascout.stages.parse.run", fake_run)
+    monkeypatch.setattr("pappascout.stages.parse.default_parser", fake_port)
+    return seen
 
 
 # --- Tuloste -------------------------------------------------------------------
 
 
 def test_reports_rounds_skips_and_duration() -> None:
-    tuloste = _render_parse(parse_result(), regulation_rounds=24)
-    assert arvo(tuloste, "Kierrokset") == "21 (rivejä 42)"
-    assert arvo(tuloste, "Ohitetut kierrokset").startswith("1 (warmup")
-    assert arvo(tuloste, "Ajoaika") == "12,3 s"
-    assert "rounds.parquet" in tuloste
+    output_text = _render_parse(parse_result(), regulation_rounds=24)
+    assert field_value(output_text, "Kierrokset") == "21 (rivejä 42)"
+    assert field_value(output_text, "Ohitetut kierrokset").startswith("1 (warmup")
+    assert field_value(output_text, "Ajoaika") == "12,3 s"
+    assert "rounds.parquet" in output_text
 
 
 def test_columns_line_up() -> None:
@@ -150,7 +150,7 @@ def test_columns_line_up() -> None:
     Pisin otsikko on ``Ohitetut kierrokset``; ennen sen lisäämistä tuloste
     hyppäsi juuri sillä rivillä sarakkeen yli.
     """
-    tulos = parse_result(
+    result = parse_result(
         stats=stats(
             rounds=21,
             rows=42,
@@ -161,23 +161,23 @@ def test_columns_line_up() -> None:
             tick_rate_measured=False,
         )
     )
-    rivit = _render_parse(tulos, regulation_rounds=24).splitlines()[1:]
-    assert len(rivit) >= 6
+    lines = _render_parse(result, regulation_rounds=24).splitlines()[1:]
+    assert len(lines) >= 6
 
-    for rivi in rivit:
-        assert rivi.startswith("  "), rivi
+    for line in lines:
+        assert line.startswith("  "), line
         # Arvo alkaa aina samasta sarakkeesta, ja otsikko mahtuu sen eteen.
-        assert rivi[_ARVOSARAKE] != " ", f"arvo ei ala sarakkeesta: {rivi!r}"
-        assert rivi[_ARVOSARAKE - 1] == " ", f"otsikko ja arvo kiinni: {rivi!r}"
-        assert rivi[2:_ARVOSARAKE].strip(), f"otsikko puuttuu: {rivi!r}"
+        assert line[_VALUE_COLUMN] != " ", f"arvo ei ala sarakkeesta: {line!r}"
+        assert line[_VALUE_COLUMN - 1] == " ", f"otsikko ja arvo kiinni: {line!r}"
+        assert line[2:_VALUE_COLUMN].strip(), f"otsikko puuttuu: {line!r}"
 
 
 def test_mentions_overtime_only_when_earned() -> None:
-    assert arvo(_render_parse(parse_result(), regulation_rounds=24), "Jatkoaika") == (
+    assert field_value(_render_parse(parse_result(), regulation_rounds=24), "Jatkoaika") == (
         "ei (21/24)"
     )
 
-    jatkoaika = parse_result(
+    overtime = parse_result(
         stats=stats(
             rounds=28,
             rows=56,
@@ -186,13 +186,13 @@ def test_mentions_overtime_only_when_earned() -> None:
             no_freeze_end=0,
         )
     )
-    rivi = arvo(_render_parse(jatkoaika, regulation_rounds=24), "Jatkoaika")
-    assert rivi.startswith("kyllä")
-    assert "28" in rivi
+    line = field_value(_render_parse(overtime, regulation_rounds=24), "Jatkoaika")
+    assert line.startswith("kyllä")
+    assert "28" in line
 
 
 def test_hides_the_skip_line_when_nothing_was_skipped() -> None:
-    tulos = parse_result(
+    result = parse_result(
         stats=stats(
             rounds=21,
             rows=42,
@@ -201,11 +201,11 @@ def test_hides_the_skip_line_when_nothing_was_skipped() -> None:
             no_freeze_end=0,
         )
     )
-    assert "Ohitetut kierrokset" not in _render_parse(tulos, regulation_rounds=24)
+    assert "Ohitetut kierrokset" not in _render_parse(result, regulation_rounds=24)
 
 
 def test_reports_rounds_without_a_freeze_anchor() -> None:
-    tulos = parse_result(
+    result = parse_result(
         stats=stats(
             rounds=21,
             rows=42,
@@ -214,23 +214,23 @@ def test_reports_rounds_without_a_freeze_anchor() -> None:
             no_freeze_end=2,
         )
     )
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert arvo(tuloste, "Ilman ankkuria").startswith("2 (freezetime")
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Ilman ankkuria").startswith("2 (freezetime")
 
 
 def test_says_when_the_stage_was_skipped() -> None:
-    tulos = parse_result(skipped=True, reason="Tulos on ajan tasalla.")
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert tuloste.startswith("Ohitettu:")
-    assert arvo(tuloste, "Syy") == "Tulos on ajan tasalla."
+    result = parse_result(skipped=True, reason="Tulos on ajan tasalla.")
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert output_text.startswith("Ohitettu:")
+    assert field_value(output_text, "Syy") == "Tulos on ajan tasalla."
 
 
 def test_shows_a_non_ok_status_and_its_reason() -> None:
     """AD-9: epäonnistunut yksikkö ei saa näyttää onnistuneelta."""
-    tulos = parse_result(status="no_freeze_end", reason="Ankkuri puuttui.")
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert arvo(tuloste, "Tila") == "no_freeze_end"
-    assert arvo(tuloste, "Syy") == "Ankkuri puuttui."
+    result = parse_result(status="no_freeze_end", reason="Ankkuri puuttui.")
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Tila") == "no_freeze_end"
+    assert field_value(output_text, "Syy") == "Ankkuri puuttui."
 
 
 def test_ok_status_is_not_repeated_on_its_own_line() -> None:
@@ -238,7 +238,7 @@ def test_ok_status_is_not_repeated_on_its_own_line() -> None:
 
 
 def test_says_when_the_tick_rate_is_a_default() -> None:
-    tulos = parse_result(
+    result = parse_result(
         stats=stats(
             rounds=21,
             rows=42,
@@ -249,11 +249,11 @@ def test_says_when_the_tick_rate_is_a_default() -> None:
             tick_rate_measured=False,
         )
     )
-    assert "oletus" in arvo(_render_parse(tulos, regulation_rounds=24), "Tickrate")
+    assert "oletus" in field_value(_render_parse(result, regulation_rounds=24), "Tickrate")
 
 
 def test_measured_tick_rate_is_not_mentioned() -> None:
-    tulos = parse_result(
+    result = parse_result(
         stats=stats(
             rounds=21,
             rows=42,
@@ -264,14 +264,14 @@ def test_measured_tick_rate_is_not_mentioned() -> None:
             tick_rate_measured=True,
         )
     )
-    assert "Tickrate" not in _render_parse(tulos, regulation_rounds=24)
+    assert "Tickrate" not in _render_parse(result, regulation_rounds=24)
 
 
 def test_never_claims_zero_rounds_when_the_result_is_unreadable() -> None:
-    tulos = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert "lukuja ei saatu" in tuloste
-    assert arvo(tuloste, "Kierrokset").startswith("lukuja ei saatu")
+    result = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert "lukuja ei saatu" in output_text
+    assert field_value(output_text, "Kierrokset").startswith("lukuja ei saatu")
 
 
 # --- Näytepisteet ja ensikontaktit ---------------------------------------------
@@ -279,11 +279,11 @@ def test_never_claims_zero_rounds_when_the_result_is_unreadable() -> None:
 
 def test_reports_sample_points_and_first_contacts() -> None:
     """Käyttäjän on nähtävä, että asetelmadata syntyi."""
-    tuloste = _render_parse(parse_result(), regulation_rounds=24)
-    rivi = arvo(tuloste, "Näytepisteet")
-    assert rivi.startswith("78 (21/21 kierroksella")
-    assert "780" in rivi
-    assert arvo(tuloste, "Ensikontaktit") == "20/21 kierroksella"
+    output_text = _render_parse(parse_result(), regulation_rounds=24)
+    line = field_value(output_text, "Näytepisteet")
+    assert line.startswith("78 (21/21 kierroksella")
+    assert "780" in line
+    assert field_value(output_text, "Ensikontaktit") == "20/21 kierroksella"
 
 
 def test_rounds_without_any_sample_point_are_named() -> None:
@@ -292,12 +292,12 @@ def test_rounds_without_any_sample_point_are_named() -> None:
     Ankkurin puute ja hyvin lyhyt kierros tuottavat saman nollan, joten
     yhden syyn nimeäminen olisi arvaus.
     """
-    tulos = parse_result(stats=stats(sample_rounds=18))
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert arvo(tuloste, "Näytepisteet").startswith("78 (18/21 kierroksella")
-    rivi = arvo(tuloste, "Ilman näytepistettä")
-    assert rivi.startswith("3 kierrosta")
-    assert "ankkuri" in rivi
+    result = parse_result(stats=stats(sample_rounds=18))
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Näytepisteet").startswith("78 (18/21 kierroksella")
+    line = field_value(output_text, "Ilman näytepistettä")
+    assert line.startswith("3 kierrosta")
+    assert "ankkuri" in line
 
 
 def test_every_round_sampled_hides_the_difference_line() -> None:
@@ -308,109 +308,109 @@ def test_every_round_sampled_hides_the_difference_line() -> None:
 
 def test_partial_sample_points_are_reported() -> None:
     """Vajaa näytepiste on adapterin havainto -- taulusta sitä ei näe."""
-    tulos = parse_result(stats=stats(partial_samples=4))
-    rivi = arvo(_render_parse(tulos, regulation_rounds=24), "Vajaat näytepisteet")
-    assert rivi.startswith("4 (")
+    result = parse_result(stats=stats(partial_samples=4))
+    line = field_value(_render_parse(result, regulation_rounds=24), "Vajaat näytepisteet")
+    assert line.startswith("4 (")
 
 
 def test_events_with_an_unknown_side_are_reported() -> None:
-    tulos = parse_result(stats=stats(unknown_side_events=2))
-    rivi = arvo(_render_parse(tulos, regulation_rounds=24), "Puoli tuntematon")
-    assert rivi.startswith("2 vahinkotapahtumaa")
+    result = parse_result(stats=stats(unknown_side_events=2))
+    line = field_value(_render_parse(result, regulation_rounds=24), "Puoli tuntematon")
+    assert line.startswith("2 vahinkotapahtumaa")
 
 
 def test_clean_run_hides_both_diagnostic_lines() -> None:
-    tuloste = _render_parse(parse_result(), regulation_rounds=24)
-    assert "Vajaat näytepisteet" not in tuloste
-    assert "Puoli tuntematon" not in tuloste
+    output_text = _render_parse(parse_result(), regulation_rounds=24)
+    assert "Vajaat näytepisteet" not in output_text
+    assert "Puoli tuntematon" not in output_text
 
 
 def test_unreadable_ticks_do_not_hide_the_round_counts() -> None:
     """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
-    luvut = stats()
-    for avain in (
+    numbers = stats()
+    for key in (
         "tick_rows",
         "sample_points",
         "sample_rounds",
         "first_contact_rounds",
     ):
-        luvut.pop(avain)
-    luvut["ticks_unreadable"] = "OSError: rikki"
-    tuloste = _render_parse(
-        parse_result(skipped=True, stats=luvut), regulation_rounds=24
+        numbers.pop(key)
+    numbers["ticks_unreadable"] = "OSError: rikki"
+    output_text = _render_parse(
+        parse_result(skipped=True, stats=numbers), regulation_rounds=24
     )
-    assert arvo(tuloste, "Kierrokset") == "21 (rivejä 42)"
-    assert arvo(tuloste, "Näytepisteet").startswith("lukuja ei saatu")
+    assert field_value(output_text, "Kierrokset") == "21 (rivejä 42)"
+    assert field_value(output_text, "Näytepisteet").startswith("lukuja ei saatu")
 
 
 def test_zero_sample_points_is_said_out_loud() -> None:
     """Nolla ei saa hukkua: kierrosluku näyttäisi samalta tyhjällä taululla."""
-    tulos = parse_result(
+    result = parse_result(
         stats=stats(tick_rows=0, sample_points=0, sample_rounds=0,
                     first_contact_rounds=0)
     )
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert arvo(tuloste, "Näytepisteet").startswith("0 --")
-    assert arvo(tuloste, "Ensikontaktit").startswith("0 --")
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Näytepisteet").startswith("0 --")
+    assert field_value(output_text, "Ensikontaktit").startswith("0 --")
 
 
 def test_zero_first_contacts_is_said_out_loud_even_with_samples() -> None:
     """Purematon ensikontaktisääntö ei saa näyttää normaalilta ajolta."""
-    tulos = parse_result(stats=stats(first_contact_rounds=0))
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert arvo(tuloste, "Näytepisteet").startswith("78 ")
-    assert arvo(tuloste, "Ensikontaktit").startswith("0 --")
+    result = parse_result(stats=stats(first_contact_rounds=0))
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Näytepisteet").startswith("78 ")
+    assert field_value(output_text, "Ensikontaktit").startswith("0 --")
 
 
 def test_sample_lines_are_absent_when_the_result_was_unreadable() -> None:
     """Ilman lukuja ei keksitä nollaa -- se väittäisi tyhjää tulosta."""
-    tulos = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert "Näytepisteet" not in tuloste
-    assert "Ensikontaktit" not in tuloste
+    result = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert "Näytepisteet" not in output_text
+    assert "Ensikontaktit" not in output_text
 
 
 def test_both_output_tables_are_listed() -> None:
-    tulos = parse_result(
+    result = parse_result(
         outputs=(
             PurePosixPath("parsed/1-abc-1/rounds.parquet"),
             PurePosixPath("parsed/1-abc-1/ticks.parquet"),
         )
     )
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert "rounds.parquet" in tuloste
-    assert "ticks.parquet" in tuloste
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert "rounds.parquet" in output_text
+    assert "ticks.parquet" in output_text
 
 
 # --- Komento -------------------------------------------------------------------
 
 
-def test_stage_gets_only_the_parse_section(vale_vaihe, demo: Path) -> None:
+def test_stage_gets_only_the_parse_section(fake_stage, demo: Path) -> None:
     """AD-3: vaihe ei saa nähdä kynnyksiä eikä liiga-asetuksia."""
     result = runner.invoke(app, ["parse", str(demo)])
     assert result.exit_code == 0, result.output
 
-    settings = vale_vaihe["settings"]
+    settings = fake_stage["settings"]
     assert isinstance(settings, ParseSettings)
-    for kielletty in ("thresholds", "league", "economy", "project"):
-        assert not hasattr(settings, kielletty)
-    assert vale_vaihe["unit"] == DEMO_ID
-    assert vale_vaihe["parser"] == "portti"
+    for forbidden in ("thresholds", "league", "economy", "project"):
+        assert not hasattr(settings, forbidden)
+    assert fake_stage["unit"] == DEMO_ID
+    assert fake_stage["parser"] == "portti"
     # Portti saa saman [parse]-osion: ensikontaktin sääntö on asetus.
-    assert vale_vaihe["portin_asetukset"] is settings
-    assert vale_vaihe["kwargs"]["force"] is False
-    assert vale_vaihe["kwargs"]["demo_path"] == demo
+    assert fake_stage["portin_asetukset"] is settings
+    assert fake_stage["kwargs"]["force"] is False
+    assert fake_stage["kwargs"]["demo_path"] == demo
 
 
-def test_force_flag_reaches_the_stage(vale_vaihe, demo: Path) -> None:
+def test_force_flag_reaches_the_stage(fake_stage, demo: Path) -> None:
     result = runner.invoke(app, ["parse", str(demo), "--pakota"])
     assert result.exit_code == 0, result.output
-    assert vale_vaihe["kwargs"]["force"] is True
+    assert fake_stage["kwargs"]["force"] is True
 
 
-def test_overtime_line_uses_the_league_format(vale_vaihe, demo: Path) -> None:
+def test_overtime_line_uses_the_league_format(fake_stage, demo: Path) -> None:
     """Säännönmukaisten kierrosten määrä on 2 x liigan MR-arvo."""
-    vale_vaihe["tulos"] = parse_result(
+    fake_stage["tulos"] = parse_result(
         stats=stats(
             rounds=28,
             rows=56,
@@ -425,7 +425,7 @@ def test_overtime_line_uses_the_league_format(vale_vaihe, demo: Path) -> None:
     assert "säännönmukaisia 24" in result.output
 
 
-def test_run_is_announced_before_it_starts(vale_vaihe, demo: Path) -> None:
+def test_run_is_announced_before_it_starts(fake_stage, demo: Path) -> None:
     """Useiden sekuntien hiljaisuus näyttäisi jumittumiselta."""
     result = runner.invoke(app, ["parse", str(demo)])
     assert result.exit_code == 0, result.output
@@ -443,10 +443,10 @@ def test_missing_demo_is_finnish_without_a_traceback(
         main()
 
     assert exc.value.code == EXIT_KNOWN_ERROR
-    virhe = capsys.readouterr().err
-    assert "Virhe:" in virhe
-    assert "ei löytynyt" in virhe
-    assert "Traceback" not in virhe
+    error = capsys.readouterr().err
+    assert "Virhe:" in error
+    assert "ei löytynyt" in error
+    assert "Traceback" not in error
 
 
 # --- Utility -------------------------------------------------------------------
@@ -454,12 +454,12 @@ def test_missing_demo_is_finnish_without_a_traceback(
 
 def test_reports_utility_throws_detonations_and_areas() -> None:
     """Neljä lukua, neljä eri kysymystä: syntyikö, päättyikö, osuiko, katosiko."""
-    tuloste = _render_parse(parse_result(), regulation_rounds=24)
-    rivi = arvo(tuloste, "Utility ")
-    assert rivi.startswith("152 heittoa, 148 räjähdystä")
-    assert "21/21 kierroksella" in rivi
-    assert arvo(tuloste, "Ilman räjähdystä").startswith("4 kranaattia")
-    assert arvo(tuloste, "Utilityn alue") == (
+    output_text = _render_parse(parse_result(), regulation_rounds=24)
+    line = field_value(output_text, "Utility ")
+    assert line.startswith("152 heittoa, 148 räjähdystä")
+    assert "21/21 kierroksella" in line
+    assert field_value(output_text, "Ilman räjähdystä").startswith("4 kranaattia")
+    assert field_value(output_text, "Utilityn alue") == (
         "152 havaittua, 52 napsautettua, 96 ilman aluetta"
     )
 
@@ -467,16 +467,16 @@ def test_reports_utility_throws_detonations_and_areas() -> None:
 def test_observed_and_snapped_areas_are_never_lumped_together() -> None:
     """Heiton alue on havainto, räjähdyksen arvio -- yhteen niputettuna
     raportin lukija luulisi molempia yhtä varmoiksi."""
-    rivi = arvo(_render_parse(parse_result(), regulation_rounds=24), "Utilityn alue")
-    assert "havaittua" in rivi
-    assert "napsautettua" in rivi
+    line = field_value(_render_parse(parse_result(), regulation_rounds=24), "Utilityn alue")
+    assert "havaittua" in line
+    assert "napsautettua" in line
 
 
 def test_an_unnamed_nearest_area_gets_its_own_line() -> None:
     """"Kukaan ei ollut lähellä" ja "lähin oli nimettömällä alueella" eroavat."""
-    tulos = parse_result(stats=stats(utility_area_unnamed=7))
-    rivi = arvo(_render_parse(tulos, regulation_rounds=24), "Nimetön alue")
-    assert rivi.startswith("7 tapahtumaa")
+    result = parse_result(stats=stats(utility_area_unnamed=7))
+    line = field_value(_render_parse(result, regulation_rounds=24), "Nimetön alue")
+    assert line.startswith("7 tapahtumaa")
 
 
 def test_a_clean_run_hides_the_unnamed_area_line() -> None:
@@ -488,22 +488,22 @@ def test_more_detonations_than_throws_is_never_a_negative_count() -> None:
 
     Räjähdys syntyy vain heiton parina, joten ylimäärä on vika eikä havainto.
     """
-    tulos = parse_result(stats=stats(utility_throws=10, utility_detonations=13))
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert "Ilman räjähdystä" not in tuloste
-    assert arvo(tuloste, "Räjähdyksiä liikaa").startswith("3 enemmän")
+    result = parse_result(stats=stats(utility_throws=10, utility_detonations=13))
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert "Ilman räjähdystä" not in output_text
+    assert field_value(output_text, "Räjähdyksiä liikaa").startswith("3 enemmän")
 
 
 def test_utility_dropped_by_the_stage_is_reported() -> None:
     """Numeroimattomilta kierroksilta pudonnut utility ei saa kadota hiljaa."""
-    tulos = parse_result(stats=stats(utility_unnumbered_rounds=9))
-    rivi = arvo(_render_parse(tulos, regulation_rounds=24), "Ei kierrosnumeroa")
-    assert rivi.startswith("9 heittoa")
+    result = parse_result(stats=stats(utility_unnumbered_rounds=9))
+    line = field_value(_render_parse(result, regulation_rounds=24), "Ei kierrosnumeroa")
+    assert line.startswith("9 heittoa")
 
 
 def test_the_remaining_utility_diagnostics_are_reported() -> None:
     """Jokainen hiljainen pudotus- tai epävarmuussyy näkyy omalla rivillään."""
-    tulos = parse_result(
+    result = parse_result(
         stats=stats(
             grenades_unknown_type=2,
             grenades_fire_type_unresolved=5,
@@ -512,17 +512,17 @@ def test_the_remaining_utility_diagnostics_are_reported() -> None:
             grenades_id_reused_in_round=4,
         )
     )
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert arvo(tuloste, "Tuntematon tyyppi").startswith("2 kranaattia")
-    assert arvo(tuloste, "Tulityyppi auki").startswith("5 kranaattia")
-    assert arvo(tuloste, "Räjähdys myöhässä").startswith("3 kierroksen")
-    assert arvo(tuloste, "Tickillä ei rivejä").startswith("1 päätepistettä")
-    assert arvo(tuloste, "Tunniste toistuu").startswith("4 kranaattiparia")
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Tuntematon tyyppi").startswith("2 kranaattia")
+    assert field_value(output_text, "Tulityyppi auki").startswith("5 kranaattia")
+    assert field_value(output_text, "Räjähdys myöhässä").startswith("3 kierroksen")
+    assert field_value(output_text, "Tickillä ei rivejä").startswith("1 päätepistettä")
+    assert field_value(output_text, "Tunniste toistuu").startswith("4 kranaattiparia")
 
 
 def test_zero_utility_is_said_out_loud() -> None:
     """Nolla ei saa hukkua: kierrosluku näyttäisi samalta tyhjällä taululla."""
-    tulos = parse_result(
+    result = parse_result(
         stats=stats(
             event_rows=0,
             utility_throws=0,
@@ -534,42 +534,42 @@ def test_zero_utility_is_said_out_loud() -> None:
             utility_without_area=0,
         )
     )
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert arvo(tuloste, "Utility").startswith("0 heittoa --")
-    assert "Utilityn alue" not in tuloste
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Utility").startswith("0 heittoa --")
+    assert "Utilityn alue" not in output_text
 
 
 def test_every_grenade_detonated_hides_the_difference_line() -> None:
-    tulos = parse_result(stats=stats(utility_detonations=152))
-    assert "Ilman räjähdystä" not in _render_parse(tulos, regulation_rounds=24)
+    result = parse_result(stats=stats(utility_detonations=152))
+    assert "Ilman räjähdystä" not in _render_parse(result, regulation_rounds=24)
 
 
 def test_dropped_grenades_are_reported_not_hidden() -> None:
     """Pudotettua kranaattia ei näe valmiista taulusta -- luku on ainoa jälki."""
-    tulos = parse_result(
+    result = parse_result(
         stats=stats(
             grenades_without_thrower=2,
             grenades_outside_rounds=7,
             grenades_unknown_side=1,
         )
     )
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert arvo(tuloste, "Ilman heittäjää").startswith("2 lentorataa")
-    assert arvo(tuloste, "Ilman kierrosta").startswith("7 kranaattia")
-    assert arvo(tuloste, "Ilman puolta").startswith("1 kranaattia")
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Ilman heittäjää").startswith("2 lentorataa")
+    assert field_value(output_text, "Ilman kierrosta").startswith("7 kranaattia")
+    assert field_value(output_text, "Ilman puolta").startswith("1 kranaattia")
 
 
 def test_a_clean_run_hides_the_dropped_grenade_lines() -> None:
-    tuloste = _render_parse(parse_result(), regulation_rounds=24)
-    assert "Ilman heittäjää" not in tuloste
-    assert "Ilman kierrosta" not in tuloste
-    assert "Ilman puolta" not in tuloste
+    output_text = _render_parse(parse_result(), regulation_rounds=24)
+    assert "Ilman heittäjää" not in output_text
+    assert "Ilman kierrosta" not in output_text
+    assert "Ilman puolta" not in output_text
 
 
 def test_unreadable_events_do_not_hide_the_other_counts() -> None:
     """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
-    luvut = stats()
-    for avain in (
+    numbers = stats()
+    for key in (
         "event_rows",
         "utility_throws",
         "utility_detonations",
@@ -579,31 +579,31 @@ def test_unreadable_events_do_not_hide_the_other_counts() -> None:
         "utility_area_unnamed",
         "utility_without_area",
     ):
-        luvut.pop(avain)
-    luvut["events_unreadable"] = "OSError: rikki"
-    tuloste = _render_parse(
-        parse_result(skipped=True, stats=luvut), regulation_rounds=24
+        numbers.pop(key)
+    numbers["events_unreadable"] = "OSError: rikki"
+    output_text = _render_parse(
+        parse_result(skipped=True, stats=numbers), regulation_rounds=24
     )
-    assert arvo(tuloste, "Kierrokset") == "21 (rivejä 42)"
-    assert arvo(tuloste, "Näytepisteet").startswith("78 ")
-    assert arvo(tuloste, "Utility").startswith("lukuja ei saatu")
+    assert field_value(output_text, "Kierrokset") == "21 (rivejä 42)"
+    assert field_value(output_text, "Näytepisteet").startswith("78 ")
+    assert field_value(output_text, "Utility").startswith("lukuja ei saatu")
 
 
 def test_utility_lines_are_absent_when_the_result_was_unreadable() -> None:
     """Ilman lukuja ei keksitä nollaa -- se väittäisi tyhjää tulosta."""
-    tulos = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
-    assert "Utility" not in _render_parse(tulos, regulation_rounds=24)
+    result = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
+    assert "Utility" not in _render_parse(result, regulation_rounds=24)
 
 
 def test_all_three_output_tables_are_listed() -> None:
-    tulos = parse_result(
+    result = parse_result(
         outputs=(
             PurePosixPath("parsed/1-abc-1/rounds.parquet"),
             PurePosixPath("parsed/1-abc-1/ticks.parquet"),
             PurePosixPath("parsed/1-abc-1/events.parquet"),
         )
     )
-    tuloste = _render_parse(tulos, regulation_rounds=24)
-    assert "rounds.parquet" in tuloste
-    assert "ticks.parquet" in tuloste
-    assert "events.parquet" in tuloste
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert "rounds.parquet" in output_text
+    assert "ticks.parquet" in output_text
+    assert "events.parquet" in output_text

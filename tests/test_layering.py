@@ -45,11 +45,11 @@ PACKAGES = {"cli", "stages", "domain", "adapters", "archive", "templates"}
 
 def _imported_packages(path: Path) -> set[str]:
     """Lue tiedosto ja kerää sen tuomat pappascout-alipaketit."""
-    oma = path.relative_to(SRC).parts[0] if path.parent != SRC else ""
-    return _scan(path.read_text(encoding="utf-8"), oma, str(path))
+    own_package = path.relative_to(SRC).parts[0] if path.parent != SRC else ""
+    return _scan(path.read_text(encoding="utf-8"), own_package, str(path))
 
 
-def _scan(source: str, oma_paketti: str, filename: str = "<koe>") -> set[str]:
+def _scan(source: str, own_package: str, filename: str = "<koe>") -> set[str]:
     """Kerää tiedoston tuomat pappascout-alipaketit.
 
     Kattaa kolme muotoa:
@@ -84,35 +84,35 @@ def _scan(source: str, oma_paketti: str, filename: str = "<koe>") -> set[str]:
 
         # Suhteellinen tuonti. level 1 = oma paketti, level 2 = pappascout-juuri.
         if node.module:
-            juuri = node.module.split(".")[0]
-            if node.level >= 2 and juuri in PACKAGES:
-                found.add(juuri)
-            elif node.level == 1 and oma_paketti in PACKAGES:
-                found.add(oma_paketti)
+            top_package = node.module.split(".")[0]
+            if node.level >= 2 and top_package in PACKAGES:
+                found.add(top_package)
+            elif node.level == 1 and own_package in PACKAGES:
+                found.add(own_package)
         elif node.level >= 2:
             # from .. import archive
             for alias in node.names:
                 if alias.name in PACKAGES:
                     found.add(alias.name)
 
-    found.discard(oma_paketti)
+    found.discard(own_package)
     return found
 
 
 @pytest.mark.parametrize("package", EXISTING)
 def test_package_respects_dependency_arrows(package: str) -> None:
     directory = SRC / package
-    kielletyt = FORBIDDEN[package]
+    forbidden = FORBIDDEN[package]
     for path in directory.rglob("*.py"):
-        rikkeet = _imported_packages(path) & kielletyt
-        assert not rikkeet, (
+        violations = _imported_packages(path) & forbidden
+        assert not violations, (
             f"{path.relative_to(SRC)} tuo kielletyn paketin: "
-            f"{', '.join(sorted(rikkeet))}"
+            f"{', '.join(sorted(violations))}"
         )
 
 
 @pytest.mark.parametrize(
-    "lahde,odotettu",
+    "source_code,expected",
     [
         ("from ..archive import manifest", {"archive"}),
         ("from ..stages.parse import run", {"stages"}),
@@ -123,19 +123,19 @@ def test_package_respects_dependency_arrows(package: str) -> None:
         ("import polars as pl", set()),
     ],
 )
-def test_import_forms_are_all_detected(lahde: str, odotettu: set) -> None:
+def test_import_forms_are_all_detected(source_code: str, expected: set) -> None:
     """Sääntöä ei saa kiertää suhteellisella tuonnilla.
 
     Lähde annetaan merkkijonona, jotta testi ei kirjoita mitään src-puuhun.
     """
-    assert _scan(lahde, "domain") == odotettu
+    assert _scan(source_code, "domain") == expected
 
 
 def test_absolute_imports_are_detected() -> None:
     """Nykyinen koodi tuo domainin ja archiven vain absoluuttisesti."""
-    loydot = _imported_packages(SRC / "archive" / "manifest.py")
-    assert "archive" not in loydot  # oma paketti ei ole riippuvuus
-    assert "domain" not in loydot
+    found_imports = _imported_packages(SRC / "archive" / "manifest.py")
+    assert "archive" not in found_imports  # oma paketti ei ole riippuvuus
+    assert "domain" not in found_imports
 
 
 def test_domain_does_no_file_io_except_settings_loading() -> None:
@@ -144,6 +144,6 @@ def test_domain_does_no_file_io_except_settings_loading() -> None:
     ``schemas`` sisältää pelisäännöt ja taulusopimukset eikä saa avata
     tiedostoja; ``models`` lataa asetukset, mikä on sen ainoa tehtävä.
     """
-    lahde = (SRC / "domain" / "schemas.py").read_text(encoding="utf-8")
-    for kielletty in ("open(", "read_text", "write_text", "read_parquet"):
-        assert kielletty not in lahde, kielletty
+    source_code = (SRC / "domain" / "schemas.py").read_text(encoding="utf-8")
+    for forbidden in ("open(", "read_text", "write_text", "read_parquet"):
+        assert forbidden not in source_code, forbidden

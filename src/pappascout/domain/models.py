@@ -97,11 +97,11 @@ class LeagueSettings(_Section):
 
     @model_validator(mode="after")
     def _check_bans_are_in_pool(self) -> "LeagueSettings":
-        ulkopuolella = [m for m in self.own_default_bans if m not in self.map_pool]
-        if ulkopuolella:
+        outside = [m for m in self.own_default_bans if m not in self.map_pool]
+        if outside:
             raise ValueError(
                 "own_default_bans sisältää kartan, jota ei ole karttapoolissa: "
-                f"{', '.join(ulkopuolella)}. Poistuiko kartta Active Dutysta?"
+                f"{', '.join(outside)}. Poistuiko kartta Active Dutysta?"
             )
         return self
 
@@ -145,33 +145,33 @@ class ParseSettings(_Section):
                 "snapshot_seconds on tyhjä. Ilman näytepisteitä asetelmataulu "
                 "jäisi pelkkien ensikontaktien varaan."
             )
-        for arvo in self.snapshot_seconds:
-            if not isfinite(arvo):
+        for value in self.snapshot_seconds:
+            if not isfinite(value):
                 raise ValueError(
-                    f"snapshot_seconds sisältää arvon {arvo!r}, joka ei ole "
+                    f"snapshot_seconds sisältää arvon {value!r}, joka ei ole "
                     "äärellinen luku."
                 )
-            if arvo <= 0:
+            if value <= 0:
                 raise ValueError(
-                    f"snapshot_seconds sisältää arvon {arvo:g}, joka ei ole "
+                    f"snapshot_seconds sisältää arvon {value:g}, joka ei ole "
                     "positiivinen. Näytepisteet mitataan freezetimen lopusta "
                     "eteenpäin; nolla olisi ankkuri itse, jossa kukaan ei ole "
                     "vielä liikkunut."
                 )
-            if arvo > MAX_SNAPSHOT_SECONDS:
+            if value > MAX_SNAPSHOT_SECONDS:
                 raise ValueError(
-                    f"snapshot_seconds sisältää arvon {arvo:g} s, joka ylittää "
+                    f"snapshot_seconds sisältää arvon {value:g} s, joka ylittää "
                     f"kierroksen keston ({MAX_SNAPSHOT_SECONDS:g} s). Piste "
                     "putoaisi jokaiselta kierrokselta, joten se on lähes "
                     "varmasti kirjoitusvirhe."
                 )
-        kaksoiskappaleet = sorted(
+        duplicates = sorted(
             {a for a in self.snapshot_seconds if self.snapshot_seconds.count(a) > 1}
         )
-        if kaksoiskappaleet:
+        if duplicates:
             raise ValueError(
                 "snapshot_seconds sisältää saman ajan kahdesti: "
-                f"{', '.join(f'{a:g}' for a in kaksoiskappaleet)}."
+                f"{', '.join(f'{a:g}' for a in duplicates)}."
             )
         return self
 
@@ -288,10 +288,10 @@ class EconomySettings(_Section):
 
     @model_validator(mode="after")
     def _check_loss_bonus_is_ascending(self) -> "EconomySettings":
-        askeleet = self.loss_bonus_steps
-        if any(a >= b for a, b in zip(askeleet, askeleet[1:])):
+        steps = self.loss_bonus_steps
+        if any(a >= b for a, b in zip(steps, steps[1:])):
             raise ValueError(
-                f"loss_bonus_steps ei ole nouseva: {askeleet}. "
+                f"loss_bonus_steps ei ole nouseva: {steps}. "
                 "Portaiden on kasvettava, koska laskuri kasvaa häviöistä."
             )
         if self.start_money > self.max_money:
@@ -340,28 +340,28 @@ class Settings(BaseSettings):
         Jos ne eroavat, luokittelu tuottaisi hiljaa vääriä kierrostyyppejä koko
         arkiston läpi.
         """
-        odotettu_saannonmukaiset = 2 * self.league.mr
-        if self.thresholds.regulation_rounds != odotettu_saannonmukaiset:
+        expected_regulation = 2 * self.league.mr
+        if self.thresholds.regulation_rounds != expected_regulation:
             raise ValueError(
                 f"thresholds.regulation_rounds ({self.thresholds.regulation_rounds}) "
                 f"ei vastaa liigan formaattia MR{self.league.mr}, joka tarkoittaa "
-                f"{odotettu_saannonmukaiset} säännönmukaista kierrosta."
+                f"{expected_regulation} säännönmukaista kierrosta."
             )
-        odotetut_pistoolit = [1, self.league.mr + 1]
-        if self.thresholds.pistol_rounds != odotetut_pistoolit:
+        expected_pistols = [1, self.league.mr + 1]
+        if self.thresholds.pistol_rounds != expected_pistols:
             raise ValueError(
                 f"thresholds.pistol_rounds ({self.thresholds.pistol_rounds}) ei "
                 f"vastaa liigan formaattia MR{self.league.mr}: pistoolikierrokset "
-                f"ovat {odotetut_pistoolit} (kierros 1 ja puoliajan 1. kierros)."
+                f"ovat {expected_pistols} (kierros 1 ja puoliajan 1. kierros)."
             )
-        odotetut_portaat = self.thresholds.loss_count_max + 1
-        if len(self.economy.loss_bonus_steps) != odotetut_portaat:
+        expected_steps = self.thresholds.loss_count_max + 1
+        if len(self.economy.loss_bonus_steps) != expected_steps:
             raise ValueError(
                 f"economy.loss_bonus_steps sisältää "
                 f"{len(self.economy.loss_bonus_steps)} porrasta, mutta loss count "
                 f"vaihtelee välillä {self.thresholds.loss_count_min}-"
                 f"{self.thresholds.loss_count_max} eli portaita tarvitaan "
-                f"{odotetut_portaat}. Laskuri indeksoi tätä listaa suoraan."
+                f"{expected_steps}. Laskuri indeksoi tätä listaa suoraan."
             )
         return self
 
@@ -378,10 +378,10 @@ class Settings(BaseSettings):
     def _require_secret(self, value: SecretStr | None, name: str) -> str:
         if value is not None and value.get_secret_value().strip():
             return value.get_secret_value()
-        polku = self.secrets_file or secrets_env_path()
+        path = self.secrets_file or secrets_env_path()
         raise SettingsError(
             f"Avainta {name} ei löytynyt.\n"
-            f"Lisää tiedostoon {polku} rivi:\n"
+            f"Lisää tiedostoon {path} rivi:\n"
             f"    {name}=<oma avaimesi>\n"
             "Tiedosto on koneen oma eikä se ole OneDrivessa tai versionhallinnassa."
         )
@@ -448,25 +448,25 @@ def find_settings_file(start: Path | None = None) -> Path:
     """
     from_env = os.environ.get(SETTINGS_ENV_VAR)
     if from_env:
-        pyydetty = Path(from_env)
-        if not pyydetty.is_file():
+        requested = Path(from_env)
+        if not requested.is_file():
             raise SettingsError(
                 f"Ympäristömuuttuja {SETTINGS_ENV_VAR} osoittaa tiedostoon "
-                f"{pyydetty}, jota ei ole.\n"
+                f"{requested}, jota ei ole.\n"
                 "Korjaa polku tai poista muuttuja, jolloin settings.toml "
                 "etsitään työhakemistosta."
             )
-        return pyydetty
+        return requested
 
     candidates = settings_search_paths(start)
     for path in candidates:
         if path.is_file():
             return path
-    listaus = "\n".join(f"    {path}" for path in candidates)
+    listing = "\n".join(f"    {path}" for path in candidates)
     raise SettingsError(
         "Asetustiedostoa settings.toml ei löytynyt.\n"
         "Etsin näistä poluista:\n"
-        f"{listaus}\n"
+        f"{listing}\n"
         "Siirry projektin juureen tai aseta ympäristömuuttuja "
         f"{SETTINGS_ENV_VAR} osoittamaan tiedostoon."
     )
@@ -544,8 +544,8 @@ def load_settings(
 
 def _format_validation_error(exc: _ValidationError) -> str:
     """Muotoile pydanticin virheet lyhyeksi suomenkieliseksi listaksi."""
-    rivit = []
+    lines = []
     for error in exc.errors():
-        kohta = ".".join(str(part) for part in error["loc"]) or "(juuri)"
-        rivit.append(f"    {kohta}: {error['msg']}")
-    return "\n".join(rivit)
+        location = ".".join(str(part) for part in error["loc"]) or "(juuri)"
+        lines.append(f"    {location}: {error['msg']}")
+    return "\n".join(lines)

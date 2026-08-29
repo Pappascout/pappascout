@@ -25,7 +25,7 @@ from pappascout.domain.economy import classify_round
 from pappascout.domain.models import ThresholdSettings, load_settings
 
 #: Kokoonpanon koko, jolla dokumentin per pelaaja -luvut on laskettu.
-PELAAJIA = 5
+PLAYERS = 5
 
 #: Pienin hyväksyttävä etäisyys kynnyksestä lähimpään havaintoon, $/pelaaja.
 #:
@@ -38,10 +38,10 @@ PELAAJIA = 5
 #: Nykyisillä arvoilla tiukin marginaali on 250 $ (force_money_left_max = 1000
 #: vs. havaittu force, jolla jäi 750). Jos jokin kynnys viilataan aineiston
 #: reunaan, tämä kaatuu.
-MIN_MARGINAALI = 200
+MIN_MARGIN = 200
 
 
-class Kierros(NamedTuple):
+class Round(NamedTuple):
     """Yksi rivi kalibrointidokumentin totuustaulusta.
 
     Attributes:
@@ -49,49 +49,49 @@ class Kierros(NamedTuple):
         side: Puoli, jonka näkökulmasta rivi on.
         prev_won: Voittiko joukkue edellisen kierroksen; ``None``, jos
             edellistä kierrosta ei ole (kierros 1).
-        jaljella: ``money_freeze_end`` $/pelaaja.
-        ostettu: ``equip_freeze_end - equip_round_start`` $/pelaaja.
-        varusteet: ``equip_freeze_end`` $/pelaaja.
-        totuus: Veetin antama kierrostyyppi.
-        peruste: Veetin sanallinen peruste, dokumentista.
+        left: ``money_freeze_end`` $/pelaaja.
+        bought: ``equip_freeze_end - equip_round_start`` $/pelaaja.
+        equip: ``equip_freeze_end`` $/pelaaja.
+        truth: Veetin antama kierrostyyppi.
+        basis: Veetin sanallinen peruste, dokumentista.
     """
 
     round_no: int
     side: str
     prev_won: bool | None
-    jaljella: int
-    ostettu: int
-    varusteet: int
-    totuus: str
-    peruste: str
+    left: int
+    bought: int
+    equip: int
+    truth: str
+    basis: str
 
 
 #: Totuustaulu sellaisenaan, dokumentin rivijärjestyksessä.
-TOTUUSTAULU: tuple[Kierros, ...] = (
-    Kierros(1, "CT", None, 110, 650, 850, "pistol", "pistoolikierros"),
-    Kierros(1, "T", None, 270, 530, 730, "pistol", "pistoolikierros"),
-    Kierros(2, "CT", True, 1010, 2890, 3200, "full", "voitti pistoolin (S1)"),
-    Kierros(2, "T", False, 2060, 120, 320, "eco", "yksi p250, yksi valo, yksi savu"),
-    Kierros(11, "T", True, 2350, 3790, 5510, "full", "voitti edellisen"),
-    Kierros(11, "CT", False, 2280, 600, 1580, "eco", "yksi säästetty M4 (S3)"),
-    Kierros(14, "T", True, 530, 2960, 3550, "full", "voitti kierroksen 13 (S1)"),
-    Kierros(17, "CT", True, 630, 3520, 5560, "full", "voitti edellisen"),
-    Kierros(17, "T", False, 3090, 950, 1150, "eco", "raha säästetään AWP:hen"),
-    Kierros(19, "T", True, 1580, 3940, 5330, "full", "voitti edellisen"),
-    Kierros(19, "CT", False, 750, 1840, 2040, "force", "ostivat tyhjäksi (S2)"),
-    Kierros(20, "CT", True, 1350, 2660, 5550, "full", "voitti edellisen"),
-    Kierros(20, "T", False, 270, 2710, 2910, "force", "2x AK, 2x tec9; tyhjäksi"),
-    Kierros(21, "CT", True, 2700, 2720, 5680, "full", "voitti edellisen"),
-    Kierros(21, "T", False, 2260, 510, 710, "eco", "pitävät econ"),
+TRUTH_TABLE: tuple[Round, ...] = (
+    Round(1, "CT", None, 110, 650, 850, "pistol", "pistoolikierros"),
+    Round(1, "T", None, 270, 530, 730, "pistol", "pistoolikierros"),
+    Round(2, "CT", True, 1010, 2890, 3200, "full", "voitti pistoolin (S1)"),
+    Round(2, "T", False, 2060, 120, 320, "eco", "yksi p250, yksi valo, yksi savu"),
+    Round(11, "T", True, 2350, 3790, 5510, "full", "voitti edellisen"),
+    Round(11, "CT", False, 2280, 600, 1580, "eco", "yksi säästetty M4 (S3)"),
+    Round(14, "T", True, 530, 2960, 3550, "full", "voitti kierroksen 13 (S1)"),
+    Round(17, "CT", True, 630, 3520, 5560, "full", "voitti edellisen"),
+    Round(17, "T", False, 3090, 950, 1150, "eco", "raha säästetään AWP:hen"),
+    Round(19, "T", True, 1580, 3940, 5330, "full", "voitti edellisen"),
+    Round(19, "CT", False, 750, 1840, 2040, "force", "ostivat tyhjäksi (S2)"),
+    Round(20, "CT", True, 1350, 2660, 5550, "full", "voitti edellisen"),
+    Round(20, "T", False, 270, 2710, 2910, "force", "2x AK, 2x tec9; tyhjäksi"),
+    Round(21, "CT", True, 2700, 2720, 5680, "full", "voitti edellisen"),
+    Round(21, "T", False, 2260, 510, 710, "eco", "pitävät econ"),
 )
 
 
 @pytest.fixture
-def kynnykset(settings_file: Path) -> ThresholdSettings:
+def thresholds(settings_file: Path) -> ThresholdSettings:
     return load_settings(settings_file, env_files=()).thresholds
 
 
-def _rivit(k: Kierros) -> tuple[dict, dict | None]:
+def _rows(k: Round) -> tuple[dict, dict | None]:
     """Kierrosrivi ja sen edellinen kierros ``ROUNDS``-muodossa.
 
     Per pelaaja -luvut kerrotaan viidellä, jotta ``classify_round`` päätyy
@@ -99,49 +99,49 @@ def _rivit(k: Kierros) -> tuple[dict, dict | None]:
     kuulu totuustauluun eikä vaikuta yhteenkään sääntöön; se asetetaan
     ostetun summan mukaiseksi, jotta perustelun rahaluvut ovat uskottavia.
     """
-    rivi = {
+    row = {
         "round_no": k.round_no,
         "side": k.side,
         "status": "ok",
-        "money_freeze_end": k.jaljella * PELAAJIA,
-        "money_spent": k.ostettu * PELAAJIA,
-        "equip_freeze_end": k.varusteet * PELAAJIA,
-        "equip_round_start": (k.varusteet - k.ostettu) * PELAAJIA,
-        "players_freeze_end": PELAAJIA,
+        "money_freeze_end": k.left * PLAYERS,
+        "money_spent": k.bought * PLAYERS,
+        "equip_freeze_end": k.equip * PLAYERS,
+        "equip_round_start": (k.equip - k.bought) * PLAYERS,
+        "players_freeze_end": PLAYERS,
         "survivors_equip_prev": 0,
     }
     if k.prev_won is None:
-        return rivi, None
-    edellinen = {
+        return row, None
+    previous = {
         "round_no": k.round_no - 1,
         "side": k.side,
         "won": k.prev_won,
         "survivors": 0,
     }
-    return rivi, edellinen
+    return row, previous
 
 
-def _tunnus(k: Kierros) -> str:
-    return f"k{k.round_no}-{k.side}-{k.totuus}"
+def _test_id(k: Round) -> str:
+    return f"k{k.round_no}-{k.side}-{k.truth}"
 
 
-@pytest.mark.parametrize("k", TOTUUSTAULU, ids=[_tunnus(k) for k in TOTUUSTAULU])
-def test_truth_table_row_matches_the_classifier(k: Kierros, kynnykset) -> None:
+@pytest.mark.parametrize("k", TRUTH_TABLE, ids=[_test_id(k) for k in TRUTH_TABLE])
+def test_truth_table_row_matches_the_classifier(k: Round, thresholds) -> None:
     """Jokainen dokumentin rivi luokittuu siksi, mitä Veeti näki replaystä."""
-    rivi, edellinen = _rivit(k)
-    paatos = classify_round(rivi, edellinen, kynnykset, loss_count=2)
-    assert paatos.round_type == k.totuus, (
-        f"Kierros {k.round_no} {k.side}: dokumentti sanoo {k.totuus!r} "
-        f"({k.peruste}), luokittelija sanoi {paatos.round_type!r}. "
-        f"Perustelu: {paatos.reason}"
+    row, previous = _rows(k)
+    decision = classify_round(row, previous, thresholds, loss_count=2)
+    assert decision.round_type == k.truth, (
+        f"Kierros {k.round_no} {k.side}: dokumentti sanoo {k.truth!r} "
+        f"({k.basis}), luokittelija sanoi {decision.round_type!r}. "
+        f"Perustelu: {decision.reason}"
     )
 
 
 def test_the_truth_table_has_every_row_from_the_document() -> None:
     """15 riviä, ei yhtään ohitettua: taulu on tarinan mittatikku."""
-    assert len(TOTUUSTAULU) == 15
-    assert len({(k.round_no, k.side) for k in TOTUUSTAULU}) == 15
-    assert {k.side for k in TOTUUSTAULU} == {"CT", "T"}
+    assert len(TRUTH_TABLE) == 15
+    assert len({(k.round_no, k.side) for k in TRUTH_TABLE}) == 15
+    assert {k.side for k in TRUTH_TABLE} == {"CT", "T"}
 
 
 def test_the_two_sides_of_a_round_cannot_both_have_won_the_previous_one() -> None:
@@ -152,20 +152,20 @@ def test_the_two_sides_of_a_round_cannot_both_have_won_the_previous_one() -> Non
     kierroksen kaksi puolta ovat vastustajia, joten edellisen kierroksen
     voitti tasan toinen -- tai kumpikaan ei tiedä sitä (kierros 1).
     """
-    kierroksittain: dict[int, list[Kierros]] = {}
-    for k in TOTUUSTAULU:
-        kierroksittain.setdefault(k.round_no, []).append(k)
+    by_round: dict[int, list[Round]] = {}
+    for k in TRUTH_TABLE:
+        by_round.setdefault(k.round_no, []).append(k)
 
-    parit = {no: rivit for no, rivit in kierroksittain.items() if len(rivit) == 2}
-    assert parit, "taulussa ei ole yhtään kierrosta molemmilta puolilta"
+    pairs = {no: rows for no, rows in by_round.items() if len(rows) == 2}
+    assert pairs, "taulussa ei ole yhtään kierrosta molemmilta puolilta"
 
-    for no, rivit in parit.items():
-        voitot = [k.prev_won for k in rivit]
-        if all(v is None for v in voitot):
+    for no, rows in pairs.items():
+        prev_wins = [k.prev_won for k in rows]
+        if all(v is None for v in prev_wins):
             continue  # kierros 1: edellistä kierrosta ei ole kummallakaan
-        assert sorted(voitot, key=str) == [False, True], (
+        assert sorted(prev_wins, key=str) == [False, True], (
             f"Kierros {no}: edellisen kierroksen voitti tasan toinen puoli, "
-            f"mutta taulussa lukee {voitot}."
+            f"mutta taulussa lukee {prev_wins}."
         )
 
 
@@ -180,75 +180,75 @@ def test_the_truth_table_covers_the_four_observed_round_types() -> None:
     saa puoliostorivin, tämä testi kaatuu -- ja se on hyvä, koska silloin
     puolioston raja pitää säätää havaintoa vasten.
     """
-    assert {k.totuus for k in TOTUUSTAULU} == {"pistol", "full", "force", "eco"}
-    assert not [k for k in TOTUUSTAULU if k.totuus in ("half", "anomaly")]
+    assert {k.truth for k in TRUTH_TABLE} == {"pistol", "full", "force", "eco"}
+    assert not [k for k in TRUTH_TABLE if k.truth in ("half", "anomaly")]
 
 
-@pytest.mark.parametrize("k", TOTUUSTAULU, ids=[_tunnus(k) for k in TOTUUSTAULU])
-def test_the_loss_counter_never_changes_the_verdict(k: Kierros, kynnykset) -> None:
+@pytest.mark.parametrize("k", TRUTH_TABLE, ids=[_test_id(k) for k in TRUTH_TABLE])
+def test_the_loss_counter_never_changes_the_verdict(k: Round, thresholds) -> None:
     """Loss count ei ole enää sääntö vaan taustatieto perustelussa.
 
     Jos jokin tuleva muutos kytkee laskurin takaisin päätökseen, tämä testi
     kaatuu ennen kuin totuustaulu ehtii mennä hiljaa rikki.
     """
-    rivi, edellinen = _rivit(k)
-    tyypit = {
-        classify_round(rivi, edellinen, kynnykset, loss_count=lc).round_type
-        for lc in range(kynnykset.loss_count_min, kynnykset.loss_count_max + 1)
+    row, previous = _rows(k)
+    types = {
+        classify_round(row, previous, thresholds, loss_count=lc).round_type
+        for lc in range(thresholds.loss_count_min, thresholds.loss_count_max + 1)
     }
-    assert tyypit == {k.totuus}
+    assert types == {k.truth}
 
 
 def test_every_threshold_keeps_a_margin_to_the_nearest_observation(
-    kynnykset,
+    thresholds,
 ) -> None:
     """Kynnys ei saa olla kosketusetäisyydellä havaitusta kierroksesta.
 
     Pelkkä välin merkin tarkistus ("forcet yläpuolella, ecot alapuolella")
     menisi läpi myös arvolla, jonka marginaali on 10 $. Tämä vaatii
-    :data:`MIN_MARGINAALI`-etäisyyden siihen suuntaan, johon aineistossa on
+    :data:`MIN_MARGIN`-etäisyyden siihen suuntaan, johon aineistossa on
     havaintoja.
     """
-    haviot = [k for k in TOTUUSTAULU if k.prev_won is False]
-    forcet = [k for k in haviot if k.totuus == "force"]
-    ecot = [k for k in haviot if k.totuus == "eco"]
-    voitot = [k for k in TOTUUSTAULU if k.prev_won is True]
-    assert forcet and ecot and voitot
+    losses = [k for k in TRUTH_TABLE if k.prev_won is False]
+    forces = [k for k in losses if k.truth == "force"]
+    ecos = [k for k in losses if k.truth == "eco"]
+    wins = [k for k in TRUTH_TABLE if k.prev_won is True]
+    assert forces and ecos and wins
 
-    def marginaali(havainto: int, kynnys: int) -> int:
-        return abs(havainto - kynnys)
+    def margin(observation: int, threshold: int) -> int:
+        return abs(observation - threshold)
 
     # force_buy_min: molemmilla puolilla on havaintoja, joten marginaali
     # vaaditaan molempiin suuntiin.
-    lahin_force = min(k.ostettu for k in forcet)
-    lahin_eco = max(k.ostettu for k in ecot)
-    assert lahin_eco < kynnykset.force_buy_min <= lahin_force
-    assert marginaali(lahin_force, kynnykset.force_buy_min) >= MIN_MARGINAALI
-    assert marginaali(lahin_eco, kynnykset.force_buy_min) >= MIN_MARGINAALI
+    nearest_force = min(k.bought for k in forces)
+    nearest_eco = max(k.bought for k in ecos)
+    assert nearest_eco < thresholds.force_buy_min <= nearest_force
+    assert margin(nearest_force, thresholds.force_buy_min) >= MIN_MARGIN
+    assert margin(nearest_eco, thresholds.force_buy_min) >= MIN_MARGIN
 
     # force_money_left_max: puoliostoja ei ole havaittu, joten vain
     # force-puoli on mitattavissa. Ecot eivät ole vertailujoukko -- ne
     # erottuvat jo siitä, ettei niissä ostettu.
-    korkein_force = max(k.jaljella for k in forcet)
-    assert korkein_force <= kynnykset.force_money_left_max
+    highest_force = max(k.left for k in forces)
+    assert highest_force <= thresholds.force_money_left_max
     assert (
-        marginaali(korkein_force, kynnykset.force_money_left_max) >= MIN_MARGINAALI
+        margin(highest_force, thresholds.force_money_left_max) >= MIN_MARGIN
     )
 
     # anomaly_equip_max_after_win: yksikään havaittu voiton jälkeinen osto ei
     # saa pudota poikkeamaksi (P9).
-    matalin_voiton_jalkeen = min(k.varusteet for k in voitot)
-    assert matalin_voiton_jalkeen > kynnykset.anomaly_equip_max_after_win
+    lowest_after_win = min(k.equip for k in wins)
+    assert lowest_after_win > thresholds.anomaly_equip_max_after_win
     assert (
-        marginaali(matalin_voiton_jalkeen, kynnykset.anomaly_equip_max_after_win)
-        >= MIN_MARGINAALI
+        margin(lowest_after_win, thresholds.anomaly_equip_max_after_win)
+        >= MIN_MARGIN
     )
 
     # full_equip_min: aineiston korkein häviön jälkeinen kierros ei saa yltää
     # täyden oston rajalle, muuten force luokittuisi fulliksi.
-    korkein_havion_jalkeen = max(k.varusteet for k in haviot)
-    assert korkein_havion_jalkeen < kynnykset.full_equip_min
+    highest_after_loss = max(k.equip for k in losses)
+    assert highest_after_loss < thresholds.full_equip_min
     assert (
-        marginaali(korkein_havion_jalkeen, kynnykset.full_equip_min)
-        >= MIN_MARGINAALI
+        margin(highest_after_loss, thresholds.full_equip_min)
+        >= MIN_MARGIN
     )

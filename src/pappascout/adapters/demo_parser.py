@@ -405,17 +405,17 @@ class Demoparser2Adapter:
     def _parse(
         self,
         demo_path: Path,
-        alkuperainen: Path,
+        original_path: Path,
         sample_seconds: tuple[float, ...],
     ) -> DemoTables:
-        parser = self._open(demo_path, alkuperainen)
-        freeze_ticks = self._freeze_end_ticks(parser, alkuperainen)
-        round_ends = self._round_ends(parser, alkuperainen)
+        parser = self._open(demo_path, original_path)
+        freeze_ticks = self._freeze_end_ticks(parser, original_path)
+        round_ends = self._round_ends(parser, original_path)
         segments = self._segments(freeze_ticks, round_ends)
 
         if not segments:
             raise ParseError(
-                f"Demosta {alkuperainen.name} ei löytynyt yhtään kierrosta.\n"
+                f"Demosta {original_path.name} ei löytynyt yhtään kierrosta.\n"
                 "Tiedosto on todennäköisesti katkennut kesken latauksen. "
                 "Lataa demo uudelleen."
             )
@@ -424,37 +424,37 @@ class Demoparser2Adapter:
             {s.freeze_end_tick for s in segments if s.freeze_end_tick is not None}
             | {s.end_tick for s in segments if s.end_tick is not None}
         )
-        by_tick = self._read_ticks(parser, wanted, alkuperainen)
+        by_tick = self._read_ticks(parser, wanted, original_path)
         tick_rate, measured = self._tick_rate(by_tick, freeze_ticks)
 
         lineups = [_Lineup(), _Lineup()]
-        sivut = self._assign_sides(segments, by_tick, lineups)
-        avaimet = self._lineup_keys(lineups)
-        rounds = self._build_frame(segments, by_tick, tick_rate, sivut, avaimet)
+        sides = self._assign_sides(segments, by_tick, lineups)
+        lineup_keys = self._lineup_keys(lineups)
+        rounds = self._build_frame(segments, by_tick, tick_rate, sides, lineup_keys)
 
-        pisteet, tuntemattomat = self._sample_points(
+        points, unknown_sides = self._sample_points(
             parser,
-            alkuperainen,
+            original_path,
             segments,
-            sivut,
+            sides,
             lineups,
             by_tick,
             tick_rate,
             sample_seconds,
         )
-        ticks, vajaat = self._build_ticks_frame(
-            pisteet, parser, alkuperainen, segments, sivut, avaimet
+        ticks, partial = self._build_ticks_frame(
+            points, parser, original_path, segments, sides, lineup_keys
         )
         events, utility = self._build_events_frame(
-            parser, alkuperainen, segments, sivut, avaimet, lineups, by_tick, tick_rate
+            parser, original_path, segments, sides, lineup_keys, lineups, by_tick, tick_rate
         )
 
         self.diagnostics = ParseDiagnostics(
             tick_rate=tick_rate,
             tick_rate_measured=measured,
             rounds_seen=len(segments),
-            partial_samples=vajaat,
-            unknown_side_events=tuntemattomat,
+            partial_samples=partial,
+            unknown_side_events=unknown_sides,
             grenades_without_thrower=utility.without_thrower,
             grenades_outside_rounds=utility.outside_rounds,
             grenades_unknown_side=utility.unknown_side,
@@ -466,30 +466,30 @@ class Demoparser2Adapter:
         )
         return DemoTables(rounds=rounds, ticks=ticks, events=events)
 
-    def _open(self, demo_path: Path, alkuperainen: Path) -> Any:
+    def _open(self, demo_path: Path, original_path: Path) -> Any:
         from demoparser2 import DemoParser as _Demoparser2
 
         try:
             return _Demoparser2(str(demo_path))
         except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
             raise ParseError(
-                f"Demoa {alkuperainen.name} ei voitu avata: {exc}\n"
+                f"Demoa {original_path.name} ei voitu avata: {exc}\n"
                 "Tiedosto on todennäköisesti vioittunut. Lataa demo uudelleen."
             ) from exc
 
-    def _freeze_end_ticks(self, parser: Any, alkuperainen: Path) -> list[int]:
-        frame = self._event(parser, "round_freeze_end", alkuperainen)
+    def _freeze_end_ticks(self, parser: Any, original_path: Path) -> list[int]:
+        frame = self._event(parser, "round_freeze_end", original_path)
         if frame is None or "tick" not in frame.columns:
             return []
         return sorted({int(t) for t in frame["tick"].tolist()})
 
-    def _round_ends(self, parser: Any, alkuperainen: Path) -> list[dict[str, Any]]:
+    def _round_ends(self, parser: Any, original_path: Path) -> list[dict[str, Any]]:
         """Kierrosten päättymiset aikajärjestyksessä.
 
         Ensimmäinen rivi (tick 1, ``round`` 0, tyhjä voittaja) on demoparser2:n
         alkuarvo eikä kierros, joten se pudotetaan.
         """
-        frame = self._event(parser, "round_end", alkuperainen)
+        frame = self._event(parser, "round_end", original_path)
         if frame is None or "tick" not in frame.columns:
             return []
         ends: list[dict[str, Any]] = []
@@ -508,12 +508,12 @@ class Demoparser2Adapter:
         ends.sort(key=lambda r: r["tick"])
         return ends
 
-    def _event(self, parser: Any, name: str, alkuperainen: Path) -> Any:
+    def _event(self, parser: Any, name: str, original_path: Path) -> Any:
         try:
             frame = parser.parse_event(name)
         except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
             raise ParseError(
-                f"Demon {alkuperainen.name} tapahtumaa {name!r} ei voitu lukea: "
+                f"Demon {original_path.name} tapahtumaa {name!r} ei voitu lukea: "
                 f"{exc}\n"
                 "Tiedosto on todennäköisesti katkennut. Lataa demo uudelleen."
             ) from exc
@@ -534,27 +534,27 @@ class Demoparser2Adapter:
         kierroksen; kierros pysyy mukana, mutta ilman tulosta.
         """
         segments: list[_Segment] = []
-        odottavat: list[int] = []
+        pending: list[int] = []
         i = 0
         for end in round_ends:
             while i < len(freeze_ticks) and freeze_ticks[i] < end["tick"]:
-                odottavat.append(freeze_ticks[i])
+                pending.append(freeze_ticks[i])
                 i += 1
             # Kaikki paitsi viimeinen ankkuri jäivät ilman päättymistä.
-            for orpo in odottavat[:-1]:
-                segments.append(_Segment(None, orpo, None, None, None))
+            for orphan in pending[:-1]:
+                segments.append(_Segment(None, orphan, None, None, None))
             segments.append(
                 _Segment(
                     demo_round=end["round"],
-                    freeze_end_tick=odottavat[-1] if odottavat else None,
+                    freeze_end_tick=pending[-1] if pending else None,
                     end_tick=end["tick"],
                     winner_side=end["winner"],
                     win_reason=end["reason"],
                 )
             )
-            odottavat = []
-        for orpo in freeze_ticks[i:]:
-            segments.append(_Segment(None, orpo, None, None, None))
+            pending = []
+        for orphan in freeze_ticks[i:]:
+            segments.append(_Segment(None, orphan, None, None, None))
 
         Demoparser2Adapter._assign_round_raw(segments)
         return segments
@@ -572,40 +572,40 @@ class Demoparser2Adapter:
             return
         raws: list[int | None] = [s.demo_round for s in segments]
 
-        edellinen: int | None = None
-        for index, arvo in enumerate(raws):
-            if arvo is not None:
-                edellinen = arvo
+        previous: int | None = None
+        for index, value in enumerate(raws):
+            if value is not None:
+                previous = value
                 continue
-            if edellinen is not None:
-                edellinen += 1
-                raws[index] = edellinen
+            if previous is not None:
+                previous += 1
+                raws[index] = previous
 
-        ensimmainen = next((i for i, v in enumerate(raws) if v is not None), None)
-        if ensimmainen is None:
+        first_index = next((i for i, v in enumerate(raws) if v is not None), None)
+        if first_index is None:
             raws = list(range(1, len(raws) + 1))
         else:
-            arvo = raws[ensimmainen]
-            assert arvo is not None
-            for index in range(ensimmainen - 1, -1, -1):
-                arvo -= 1
-                raws[index] = arvo
+            value = raws[first_index]
+            assert value is not None
+            for index in range(first_index - 1, -1, -1):
+                value -= 1
+                raws[index] = value
 
-        for eka, toka in zip(raws, raws[1:]):
-            if eka is None or toka is None or toka <= eka:
+        for first, second in zip(raws, raws[1:]):
+            if first is None or second is None or second <= first:
                 raise ParseError(
                     "Demon oma kierrosnumerointi ei kasva tasaisesti "
-                    f"({eka} -> {toka}).\n"
+                    f"({first} -> {second}).\n"
                     "Kierrosrajat eivät vastaa demoparser2:n round_end-numeroita, "
                     "joten kierroksia ei voi tunnistaa luotettavasti."
                 )
 
-        for segment, numero in zip(segments, raws):
-            assert numero is not None
-            segment.round_raw = numero
+        for segment, number in zip(segments, raws):
+            assert number is not None
+            segment.round_raw = number
 
     def _read_ticks(
-        self, parser: Any, ticks: list[int], alkuperainen: Path
+        self, parser: Any, ticks: list[int], original_path: Path
     ) -> dict[int, list[dict[str, Any]]]:
         """Lue propit annetuista tickeistä ja ryhmittele tickin mukaan."""
         if not ticks:
@@ -614,19 +614,19 @@ class Demoparser2Adapter:
             frame = parser.parse_ticks(list(TICK_PROPS), ticks=ticks)
         except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
             raise ParseError(
-                f"Demon {alkuperainen.name} tick-arvoja ei voitu lukea: {exc}\n"
+                f"Demon {original_path.name} tick-arvoja ei voitu lukea: {exc}\n"
                 "Tiedosto on todennäköisesti vioittunut tai demoparser2:n "
                 "versio ei tunne näitä kenttiä. Aja: uv sync"
             ) from exc
 
-        saadut = set(getattr(frame, "columns", ()))
-        puuttuvat = [
-            name for name in (*TICK_PROPS, "tick", "steamid") if name not in saadut
+        received = set(getattr(frame, "columns", ()))
+        missing = [
+            name for name in (*TICK_PROPS, "tick", "steamid") if name not in received
         ]
-        if puuttuvat:
+        if missing:
             raise ParseError(
                 "demoparser2 ei palauttanut kaikkia pyydettyjä kenttiä demosta "
-                f"{alkuperainen.name}. Puuttuu: {', '.join(puuttuvat)}.\n"
+                f"{original_path.name}. Puuttuu: {', '.join(missing)}.\n"
                 "Kenttä on todennäköisesti nimetty uudelleen demoparser2:n "
                 "päivityksessä. Ilman tarkistusta taulu näyttäisi kelvolliselta "
                 "mutta olisi tyhjä. Päivitä adapters/demo_parser.py:n propinimet."
@@ -673,34 +673,34 @@ class Demoparser2Adapter:
             :data:`DEFAULT_TICK_RATE` ja ``False`` -- vaihe kertoo sen
             käyttäjälle, jottei oletus mene läpi mittauksena.
         """
-        havainnot: list[float] = []
-        edellinen: tuple[int, float] | None = None
+        observations: list[float] = []
+        previous: tuple[int, float] | None = None
         for tick in freeze_ticks:
-            rivit = by_tick.get(tick) or []
-            aika = next(
+            rows = by_tick.get(tick) or []
+            time_s = next(
                 (
                     r["round_start_time"]
-                    for r in rivit
+                    for r in rows
                     if r["round_start_time"] is not None
                 ),
                 None,
             )
-            if aika is None:
+            if time_s is None:
                 continue
-            if edellinen is not None:
-                d_tick = tick - edellinen[0]
-                d_aika = aika - edellinen[1]
-                if d_tick > 0 and d_aika > 0:
-                    havainnot.append(d_tick / d_aika)
-            edellinen = (tick, aika)
-        if not havainnot:
+            if previous is not None:
+                d_tick = tick - previous[0]
+                d_time = time_s - previous[1]
+                if d_tick > 0 and d_time > 0:
+                    observations.append(d_tick / d_time)
+            previous = (tick, time_s)
+        if not observations:
             return DEFAULT_TICK_RATE, False
-        rate = statistics.median(havainnot)
+        rate = statistics.median(observations)
         if not TICK_RATE_MIN <= rate <= TICK_RATE_MAX:
             return DEFAULT_TICK_RATE, False
-        pyoristetty = round(rate)
-        siisti = float(pyoristetty) if abs(rate - pyoristetty) < 0.05 else float(rate)
-        return siisti, True
+        rounded = round(rate)
+        clean = float(rounded) if abs(rate - rounded) < 0.05 else float(rate)
+        return clean, True
 
     @staticmethod
     def _lineup_keys(lineups: list[_Lineup]) -> list[str]:
@@ -709,23 +709,23 @@ class Demoparser2Adapter:
         Sama tunniste tarkoittaisi, ettei joukkueita voi erottaa toisistaan --
         ja silloin jokainen joukkuekohtainen luku olisi molempien summa.
         """
-        avaimet = [lineup.key() for lineup in lineups]
-        if avaimet[0] == avaimet[1]:
+        lineup_keys = [lineup.key() for lineup in lineups]
+        if lineup_keys[0] == lineup_keys[1]:
             raise ParseError(
                 "Molemmille joukkueille tuli sama kokoonpanotunniste, joten "
                 "niitä ei voi erottaa toisistaan.\n"
                 "Kierrosrajojen tickeissä näkyy sama pelaajajoukko molemmilla "
                 "puolilla. Demo on todennäköisesti vioittunut."
             )
-        return avaimet
+        return lineup_keys
 
     def _build_frame(
         self,
         segments: list[_Segment],
         by_tick: dict[int, list[dict[str, Any]]],
         tick_rate: float,
-        sivut: list[tuple[str, str]],
-        avaimet: list[str],
+        sides: list[tuple[str, str]],
+        lineup_keys: list[str],
     ) -> pl.DataFrame:
         anchor_score = [
             _total_score(by_tick.get(s.freeze_end_tick or -1) or []) for s in segments
@@ -733,12 +733,12 @@ class Demoparser2Adapter:
         end_score = [_total_score(by_tick.get(s.end_tick or -1) or []) for s in segments]
 
         # Edellisen kierroksen eloonjääneiden varustearvo, joukkueittain.
-        edellinen_saasto: list[int | None] = [None, None]
-        rivit: list[dict[str, Any]] = []
+        previous_saved: list[int | None] = [None, None]
+        rows: list[dict[str, Any]] = []
 
         for index, segment in enumerate(segments):
-            freeze_rivit = by_tick.get(segment.freeze_end_tick or -1) or []
-            end_rivit = by_tick.get(segment.end_tick or -1) or []
+            freeze_rows = by_tick.get(segment.freeze_end_tick or -1) or []
+            end_rows = by_tick.get(segment.end_tick or -1) or []
 
             score_start = anchor_score[index]
             if score_start is None and index > 0:
@@ -750,23 +750,23 @@ class Demoparser2Adapter:
             if score_end is None:
                 score_end = end_score[index]
 
-            saasto_nyt: list[int | None] = [None, None]
-            for tiimi, side in enumerate(sivut[index]):
-                omat_freeze = _readable(
-                    [r for r in freeze_rivit if r["side"] == side]
+            saved_now: list[int | None] = [None, None]
+            for team_index, side in enumerate(sides[index]):
+                own_freeze = _readable(
+                    [r for r in freeze_rows if r["side"] == side]
                 )
-                omat_end = [r for r in end_rivit if r["side"] == side]
-                elossa = [r for r in omat_end if r["alive"]]
-                saasto_nyt[tiimi] = (
-                    _sum_or_zero([r["equip_current"] for r in elossa])
-                    if omat_end
+                own_end = [r for r in end_rows if r["side"] == side]
+                alive = [r for r in own_end if r["alive"]]
+                saved_now[team_index] = (
+                    _sum_or_zero([r["equip_current"] for r in alive])
+                    if own_end
                     else None
                 )
-                rivit.append(
+                rows.append(
                     {
                         "round_raw": segment.round_raw,
                         "round_no": None,
-                        "lineup_key": avaimet[tiimi],
+                        "lineup_key": lineup_keys[team_index],
                         "side": side,
                         "won": (
                             None
@@ -775,24 +775,24 @@ class Demoparser2Adapter:
                         ),
                         "win_reason": segment.win_reason,
                         "money_freeze_end": _sum_or_none(
-                            [r["account"] for r in omat_freeze]
+                            [r["account"] for r in own_freeze]
                         ),
                         "money_spent": _sum_or_none(
-                            [r["cash_spent"] for r in omat_freeze]
+                            [r["cash_spent"] for r in own_freeze]
                         ),
                         "equip_freeze_end": _sum_or_none(
-                            [r["equip_freeze_end"] for r in omat_freeze]
+                            [r["equip_freeze_end"] for r in own_freeze]
                         ),
                         "equip_round_start": _sum_or_none(
-                            [r["equip_round_start"] for r in omat_freeze]
+                            [r["equip_round_start"] for r in own_freeze]
                         ),
                         # Kynnykset ovat per pelaaja, joten jakaja on
                         # havaittava eikä oletettava: vajaalla pelaava
                         # joukkue näyttäisi viidellä jaettuna ecolta.
                         # Jakaja on sama joukko kuin summissa (ks. _readable).
-                        "players_freeze_end": len(omat_freeze) or None,
-                        "survivors": len(elossa) if omat_end else None,
-                        "survivors_equip_prev": edellinen_saasto[tiimi],
+                        "players_freeze_end": len(own_freeze) or None,
+                        "survivors": len(alive) if own_end else None,
+                        "survivors_equip_prev": previous_saved[team_index],
                         "freeze_end_tick": segment.freeze_end_tick,
                         "tick_rate": tick_rate,
                         "status": (
@@ -804,9 +804,9 @@ class Demoparser2Adapter:
                         "score_end": score_end,
                     }
                 )
-            edellinen_saasto = saasto_nyt
+            previous_saved = saved_now
 
-        return self._typed_frame(rivit)
+        return self._typed_frame(rows)
 
     @staticmethod
     def _assign_sides(
@@ -829,59 +829,59 @@ class Demoparser2Adapter:
         Returns:
             Kierroksittain pari ``(kokoonpanon 0 puoli, kokoonpanon 1 puoli)``.
         """
-        tulos: list[tuple[str, str]] = []
-        edellinen: tuple[str, str] | None = None
+        result: list[tuple[str, str]] = []
+        previous: tuple[str, str] | None = None
 
         for segment in segments:
-            rivit = (
+            rows = (
                 by_tick.get(segment.freeze_end_tick or -1)
                 or by_tick.get(segment.end_tick or -1)
                 or []
             )
-            joukot = {
-                side: {r["steamid"] for r in rivit if r["side"] == side}
+            sets_by_side = {
+                side: {r["steamid"] for r in rows if r["side"] == side}
                 for side in ("T", "CT")
             }
-            if not joukot["T"] and not joukot["CT"]:
-                tulos.append(_vaadi_edellinen(edellinen, segment, "ei pelaajia"))
+            if not sets_by_side["T"] and not sets_by_side["CT"]:
+                result.append(_require_previous(previous, segment, "ei pelaajia"))
                 continue
 
             if not lineups[0].members and not lineups[1].members:
-                if not joukot["T"] or not joukot["CT"]:
+                if not sets_by_side["T"] or not sets_by_side["CT"]:
                     raise ParseError(
                         "Ensimmäiseltä tunnistetulta kierrokselta löytyi "
                         "pelaajia vain toiselta puolelta, joten kokoonpanoja ei "
                         "voi erottaa.\n"
                         "Demo on todennäköisesti katkennut alusta."
                     )
-                lineups[0].members |= joukot["T"]
-                lineups[1].members |= joukot["CT"]
-                edellinen = ("T", "CT")
-                tulos.append(edellinen)
+                lineups[0].members |= sets_by_side["T"]
+                lineups[1].members |= sets_by_side["CT"]
+                previous = ("T", "CT")
+                result.append(previous)
                 continue
 
-            suora = sum(
-                len(joukot[side] & lineups[i].members)
+            direct = sum(
+                len(sets_by_side[side] & lineups[i].members)
                 for i, side in enumerate(("T", "CT"))
             )
-            vaihdettu = sum(
-                len(joukot[side] & lineups[i].members)
+            swapped = sum(
+                len(sets_by_side[side] & lineups[i].members)
                 for i, side in enumerate(("CT", "T"))
             )
-            if suora == vaihdettu:
-                sivut = _vaadi_edellinen(
-                    edellinen, segment, "kokoonpanot eivät erotu toisistaan"
+            if direct == swapped:
+                sides = _require_previous(
+                    previous, segment, "kokoonpanot eivät erotu toisistaan"
                 )
             else:
-                sivut = ("T", "CT") if suora > vaihdettu else ("CT", "T")
-            for i, side in enumerate(sivut):
-                lineups[i].members |= joukot[side]
-            edellinen = sivut
-            tulos.append(sivut)
-        return tulos
+                sides = ("T", "CT") if direct > swapped else ("CT", "T")
+            for i, side in enumerate(sides):
+                lineups[i].members |= sets_by_side[side]
+            previous = sides
+            result.append(sides)
+        return result
 
     @staticmethod
-    def _typed_frame(rivit: list[dict[str, Any]]) -> pl.DataFrame:
+    def _typed_frame(rows: list[dict[str, Any]]) -> pl.DataFrame:
         """Rakenna taulu sopimuksen tyypeillä.
 
         Tyypit annetaan eksplisiittisesti, koska pelkistä null-arvoista Polars
@@ -893,18 +893,18 @@ class Demoparser2Adapter:
         schema: dict[str, Any] = {
             name: ROUNDS.get(name, pl.Int32) for name in ROUNDS_ADAPTER_COLUMNS
         }
-        if not rivit:
+        if not rows:
             return pl.DataFrame(schema=schema)
-        return pl.DataFrame(rivit, schema=schema, orient="row")
+        return pl.DataFrame(rows, schema=schema, orient="row")
 
     # -- Näytepisteet --------------------------------------------------------
 
     def _sample_points(
         self,
         parser: Any,
-        alkuperainen: Path,
+        original_path: Path,
         segments: list[_Segment],
-        sivut: list[tuple[str, str]],
+        sides: list[tuple[str, str]],
         lineups: list[_Lineup],
         by_tick: dict[int, list[dict[str, Any]]],
         tick_rate: float,
@@ -930,9 +930,9 @@ class Demoparser2Adapter:
         ]
         points = sample_ticks(bounds, tick_rate, sample_seconds)
 
-        hurt = self._damage_events(parser, "player_hurt", alkuperainen)
+        hurt = self._damage_events(parser, "player_hurt", original_path)
         deaths = (
-            self._damage_events(parser, "player_death", alkuperainen)
+            self._damage_events(parser, "player_death", original_path)
             if self.fallback_death
             else []
         )
@@ -940,38 +940,38 @@ class Demoparser2Adapter:
             return _sorted_points(points), 0
 
         lineup_of = _lineup_index_by_player(lineups)
-        tuntemattomat = 0
-        for index, rajat in enumerate(bounds):
-            if not rajat.is_samplable:
+        unknown_sides = 0
+        for index, round_bounds in enumerate(bounds):
+            if not round_bounds.is_samplable:
                 continue
-            puolet = _side_lookup(lineup_of, sivut[index], segments[index], by_tick)
-            omat_hurt, a = _with_sides(hurt, rajat, puolet)
-            omat_deaths, b = _with_sides(deaths, rajat, puolet)
-            tuntemattomat += a + b
+            player_sides = _side_lookup(lineup_of, sides[index], segments[index], by_tick)
+            own_hurt, a = _with_sides(hurt, round_bounds, player_sides)
+            own_deaths, b = _with_sides(deaths, round_bounds, player_sides)
+            unknown_sides += a + b
             tick = first_contact_tick(
-                omat_hurt,
-                rajat,
+                own_hurt,
+                round_bounds,
                 exclude_weapons=self.exclude_weapons,
-                death_events=omat_deaths,
+                death_events=own_deaths,
                 fallback_death=self.fallback_death,
             )
             if tick is None:
                 continue
-            assert rajat.freeze_end_tick is not None  # is_samplable
-            t_s = seconds_since_freeze_end(tick, rajat.freeze_end_tick, tick_rate)
+            assert round_bounds.freeze_end_tick is not None  # is_samplable
+            t_s = seconds_since_freeze_end(tick, round_bounds.freeze_end_tick, tick_rate)
             points.append(
                 SamplePoint(
-                    round_raw=rajat.round_raw,
+                    round_raw=round_bounds.round_raw,
                     tick=tick,
                     sample_kind=FIRST_CONTACT_SAMPLE,
                     sample_t_s=t_s,
                     t_s=t_s,
                 )
             )
-        return _sorted_points(points), tuntemattomat
+        return _sorted_points(points), unknown_sides
 
     def _damage_events(
-        self, parser: Any, name: str, alkuperainen: Path
+        self, parser: Any, name: str, original_path: Path
     ) -> list[tuple[int, str | None, str | None, str | None]]:
         """Lue ``player_hurt``- tai ``player_death``-tapahtumat.
 
@@ -982,19 +982,19 @@ class Demoparser2Adapter:
             ``(tick, attacker_id, victim_id, weapon)``. Puuttuva tapahtuma ei
             ole virhe -- kierros voi ratketa ilman yhtään vahinkoa.
         """
-        frame = self._event(parser, name, alkuperainen)
+        frame = self._event(parser, name, original_path)
         if frame is None:
             # Tapahtumaa ei ole demossa lainkaan. Se on mahdollista (kierros
             # voi ratketa ilman vahinkoa), joten se ei ole virhe.
             return []
 
-        puuttuvat = [
-            sarake for sarake in DAMAGE_COLUMNS if sarake not in frame.columns
+        missing = [
+            column for column in DAMAGE_COLUMNS if column not in frame.columns
         ]
-        if puuttuvat:
+        if missing:
             raise ParseError(
-                f"Demon {alkuperainen.name} tapahtumasta {name!r} puuttuu "
-                f"sarake: {', '.join(puuttuvat)}.\n"
+                f"Demon {original_path.name} tapahtumasta {name!r} puuttuu "
+                f"sarake: {', '.join(missing)}.\n"
                 "Ilman sitä jokainen tapahtuma hylättäisiin äänettömästi ja "
                 "tulos väittäisi, ettei yhdelläkään kierroksella ollut "
                 "ensikontaktia. Kenttä on todennäköisesti nimetty uudelleen "
@@ -1002,12 +1002,12 @@ class Demoparser2Adapter:
                 "adapters/demo_parser.py:n DAMAGE_COLUMNS."
             )
 
-        rivit: list[tuple[int, str | None, str | None, str | None]] = []
+        rows: list[tuple[int, str | None, str | None, str | None]] = []
         for row in frame.to_dict("records"):
             tick = _as_int(row.get("tick"))
             if tick is None:
                 continue
-            rivit.append(
+            rows.append(
                 (
                     tick,
                     _as_str(row.get("attacker_steamid")),
@@ -1015,16 +1015,16 @@ class Demoparser2Adapter:
                     _as_str(row.get("weapon")),
                 )
             )
-        return rivit
+        return rows
 
     def _build_ticks_frame(
         self,
         points: list[SamplePoint],
         parser: Any,
-        alkuperainen: Path,
+        original_path: Path,
         segments: list[_Segment],
-        sivut: list[tuple[str, str]],
-        avaimet: list[str],
+        sides: list[tuple[str, str]],
+        lineup_keys: list[str],
     ) -> tuple[pl.DataFrame, int]:
         """Lue pelaajien sijainnit näytepisteiden tickeiltä ja rakenna taulu.
 
@@ -1043,26 +1043,26 @@ class Demoparser2Adapter:
             return self._typed_ticks_frame([]), 0
 
         wanted = sorted({p.tick for p in points})
-        by_tick = self._read_sample_ticks(parser, wanted, alkuperainen)
-        # sivut on segmenttien järjestyksessä, mutta näytepiste tuntee vain
+        by_tick = self._read_sample_ticks(parser, wanted, original_path)
+        # sides on segmenttien järjestyksessä, mutta näytepiste tuntee vain
         # round_raw-arvon, joten kuvaus tarvitaan takaisin segmentti-indeksiin.
         index_by_raw = {s.round_raw: index for index, s in enumerate(segments)}
-        avain_puolelle = [
-            _keys_by_side(sivut[index], avaimet, segment)
+        keys_per_round = [
+            _keys_by_side(sides[index], lineup_keys, segment)
             for index, segment in enumerate(segments)
         ]
 
-        rivit: list[dict[str, Any]] = []
-        pelaajia_pisteella: list[int] = []
+        rows: list[dict[str, Any]] = []
+        players_per_point: list[int] = []
         for point in points:
             segment_index = index_by_raw.get(point.round_raw)
             if segment_index is None:  # pragma: no cover - sample_ticks takaa
                 continue
-            avaimet_side = avain_puolelle[segment_index]
-            tickin_rivit = by_tick.get(point.tick, ())
-            if not tickin_rivit:
+            side_keys = keys_per_round[segment_index]
+            tick_rows = by_tick.get(point.tick, ())
+            if not tick_rows:
                 raise ParseError(
-                    f"Demon {alkuperainen.name} naytepisteeltä "
+                    f"Demon {original_path.name} naytepisteeltä "
                     f"(round_raw={point.round_raw}, {point.sample_kind}, "
                     f"t={point.sample_t_s:g} s, tick={point.tick}) ei saatu "
                     "yhtään pelaajariviä.\n"
@@ -1071,35 +1071,35 @@ class Demoparser2Adapter:
                     "palauta tältä tickiltä mitään. Näytepiste laskettaisiin "
                     "mukaan lukuihin mutta puuttuisi taulusta."
                 )
-            pelaajia_pisteella.append(len(tickin_rivit))
-            for rivi in tickin_rivit:
-                side = rivi["side"]
-                rivit.append(
+            players_per_point.append(len(tick_rows))
+            for row in tick_rows:
+                side = row["side"]
+                rows.append(
                     {
                         "round_raw": point.round_raw,
                         "round_no": None,
-                        "player_id": rivi["steamid"],
-                        "lineup_key": avaimet_side[side],
+                        "player_id": row["steamid"],
+                        "lineup_key": side_keys[side],
                         "side": side,
                         "sample_kind": point.sample_kind,
                         "sample_t_s": point.sample_t_s,
                         "t_s": point.t_s,
-                        "x": rivi["x"],
-                        "y": rivi["y"],
-                        "z": rivi["z"],
-                        "area": rivi["area"],
-                        "is_alive": rivi["alive"],
+                        "x": row["x"],
+                        "y": row["y"],
+                        "z": row["z"],
+                        "area": row["area"],
+                        "is_alive": row["alive"],
                     }
                 )
 
         # Odotettu pelaajamäärä luetaan demosta itsestään: [thresholds] ei näy
         # tähän vaiheeseen (AD-3), joten roster_size'a ei voi käyttää.
-        täysi = max(pelaajia_pisteella, default=0)
-        vajaat = sum(1 for määrä in pelaajia_pisteella if määrä < täysi)
-        return self._typed_ticks_frame(rivit), vajaat
+        full_count = max(players_per_point, default=0)
+        partial = sum(1 for count in players_per_point if count < full_count)
+        return self._typed_ticks_frame(rows), partial
 
     def _read_sample_ticks(
-        self, parser: Any, ticks: list[int], alkuperainen: Path
+        self, parser: Any, ticks: list[int], original_path: Path
     ) -> dict[int, list[dict[str, Any]]]:
         """Lue sijaintipropit annetuilta tickeiltä ja ryhmittele tickin mukaan."""
         if not ticks:
@@ -1108,21 +1108,21 @@ class Demoparser2Adapter:
             frame = parser.parse_ticks(list(SAMPLE_TICK_PROPS), ticks=ticks)
         except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
             raise ParseError(
-                f"Demon {alkuperainen.name} näytepisteitä ei voitu lukea: {exc}\n"
+                f"Demon {original_path.name} näytepisteitä ei voitu lukea: {exc}\n"
                 "Tiedosto on todennäköisesti vioittunut tai demoparser2:n "
                 "versio ei tunne näitä kenttiä. Aja: uv sync"
             ) from exc
 
-        saadut = set(getattr(frame, "columns", ()))
-        puuttuvat = [
+        received = set(getattr(frame, "columns", ()))
+        missing = [
             name
             for name in (*SAMPLE_TICK_PROPS, "tick", "steamid")
-            if name not in saadut
+            if name not in received
         ]
-        if puuttuvat:
+        if missing:
             raise ParseError(
                 "demoparser2 ei palauttanut kaikkia näytepisteen kenttiä "
-                f"demosta {alkuperainen.name}. Puuttuu: {', '.join(puuttuvat)}.\n"
+                f"demosta {original_path.name}. Puuttuu: {', '.join(missing)}.\n"
                 "Kenttä on todennäköisesti nimetty uudelleen demoparser2:n "
                 "päivityksessä. Ilman tarkistusta asetelmataulu näyttäisi "
                 "kelvolliselta mutta olisi tyhjä tai paikaton. Päivitä "
@@ -1144,7 +1144,7 @@ class Demoparser2Adapter:
                 # aggregoinnista. Tuntematon alue saa jäädä nulliksi, mutta
                 # tämä ei voi.
                 raise ParseError(
-                    f"Demon {alkuperainen.name} tickistä {tick} puuttuu "
+                    f"Demon {original_path.name} tickistä {tick} puuttuu "
                     f"pelaajan {steamid} {_LIFE_STATE}.\n"
                     "Elossaolo on pakollinen havainto: puuttuvasta arvosta "
                     "tulisi 'kuollut', ja pelaaja katoaisi asetelmasta "
@@ -1166,26 +1166,26 @@ class Demoparser2Adapter:
         return dict(by_tick)
 
     @staticmethod
-    def _typed_ticks_frame(rivit: list[dict[str, Any]]) -> pl.DataFrame:
+    def _typed_ticks_frame(rows: list[dict[str, Any]]) -> pl.DataFrame:
         """Rakenna näytepistetaulu sopimuksen tyypeillä.
 
         Tyypit annetaan eksplisiittisesti samasta syystä kuin kierrostaulussa:
         pelkistä null-arvoista Polars päättelisi ``Null``-tyypin.
         """
         schema: dict[str, Any] = {name: TICKS[name] for name in TICKS_ADAPTER_COLUMNS}
-        if not rivit:
+        if not rows:
             return pl.DataFrame(schema=schema)
-        return pl.DataFrame(rivit, schema=schema, orient="row")
+        return pl.DataFrame(rows, schema=schema, orient="row")
 
     # -- Utility -------------------------------------------------------------
 
     def _build_events_frame(
         self,
         parser: Any,
-        alkuperainen: Path,
+        original_path: Path,
         segments: list[_Segment],
-        sivut: list[tuple[str, str]],
-        avaimet: list[str],
+        sides: list[tuple[str, str]],
+        lineup_keys: list[str],
         lineups: list[_Lineup],
         by_tick: dict[int, list[dict[str, Any]]],
         tick_rate: float,
@@ -1213,80 +1213,80 @@ class Demoparser2Adapter:
             ``(taulu, luvut)``. Taulu on tyhjä mutta sopimuksen mukainen, jos
             demossa ei ollut yhtään heitettyä kranaattia.
         """
-        raaka = self._read_grenades(parser, alkuperainen)
-        if raaka.is_empty():
+        raw = self._read_grenades(parser, original_path)
+        if raw.is_empty():
             return self._typed_events_frame([]), _UtilityCounts()
 
-        paatepisteet, ilman_heittajaa = self._endpoints(raaka, tick_rate, alkuperainen)
-        if paatepisteet.is_empty():
+        endpoints, without_thrower = self._endpoints(raw, tick_rate, original_path)
+        if endpoints.is_empty():
             return (
                 self._typed_events_frame([]),
-                _UtilityCounts(without_thrower=ilman_heittajaa),
+                _UtilityCounts(without_thrower=without_thrower),
             )
-        tuntematon_tyyppi = _unknown_type_count(paatepisteet)
-        paatepisteet, tuli_auki = _name_fire_grenades(
-            paatepisteet, raaka, trajectory_gap_ticks(tick_rate)
+        unknown_type = _unknown_type_count(endpoints)
+        endpoints, fire_unresolved = _name_fire_grenades(
+            endpoints, raw, trajectory_gap_ticks(tick_rate)
         )
 
-        ikkunat = _round_windows(segments)
-        alut = [ikkuna[0] for ikkuna in ikkunat]
+        windows = _round_windows(segments)
+        starts = [window[0] for window in windows]
 
-        heiton_kierros: dict[int, int] = {}
-        ulkopuolella = 0
-        heitot = paatepisteet.filter(pl.col("event_kind") == THROWN)
-        for row in heitot.iter_rows(named=True):
-            index = _round_of_tick(alut, ikkunat, row["tick"])
+        round_of_throw: dict[int, int] = {}
+        outside = 0
+        throws = endpoints.filter(pl.col("event_kind") == THROWN)
+        for row in throws.iter_rows(named=True):
+            index = _round_of_tick(starts, windows, row["tick"])
             if index is None:
-                ulkopuolella += 1
+                outside += 1
                 continue
-            heiton_kierros[row["grenade_no"]] = index
+            round_of_throw[row["grenade_no"]] = index
 
         lineup_of = _lineup_index_by_player(lineups)
-        puolet_kierroksella: dict[int, dict[str, str]] = {}
-        avaimet_kierroksella: dict[int, dict[str, str]] = {}
+        sides_by_round: dict[int, dict[str, str]] = {}
+        keys_by_round: dict[int, dict[str, str]] = {}
 
-        valitut: list[dict[str, Any]] = []
-        tuntematon_puoli = 0
-        for row in paatepisteet.iter_rows(named=True):
-            index = heiton_kierros.get(row["grenade_no"])
+        selected: list[dict[str, Any]] = []
+        unknown_side_count = 0
+        for row in endpoints.iter_rows(named=True):
+            index = round_of_throw.get(row["grenade_no"])
             if index is None:
                 continue
-            if index not in puolet_kierroksella:
-                puolet_kierroksella[index] = _side_lookup(
-                    lineup_of, sivut[index], segments[index], by_tick
+            if index not in sides_by_round:
+                sides_by_round[index] = _side_lookup(
+                    lineup_of, sides[index], segments[index], by_tick
                 )
-                avaimet_kierroksella[index] = _keys_by_side(
-                    sivut[index], avaimet, segments[index]
+                keys_by_round[index] = _keys_by_side(
+                    sides[index], lineup_keys, segments[index]
                 )
-            side = puolet_kierroksella[index].get(row["thrower_id"])
+            side = sides_by_round[index].get(row["thrower_id"])
             if side is None:
                 # Kranaatti pudotetaan kokonaan, mutta lasketaan kerran --
                 # heitosta, jotta luku on kranaatteja eikä rivejä.
                 if row["event_kind"] == THROWN:
-                    tuntematon_puoli += 1
+                    unknown_side_count += 1
                 continue
-            valitut.append(
+            selected.append(
                 {
                     **row,
                     "_segment": index,
                     "_side": side,
-                    "_lineup": avaimet_kierroksella[index][side],
+                    "_lineup": keys_by_round[index][side],
                 }
             )
 
-        wanted = sorted({r["tick"] for r in valitut})
+        wanted = sorted({r["tick"] for r in selected})
         # Tyhjä lista **ei** saa mennä parse_ticksille: se voisi tarkoittaa
         # "kaikki tickit", eli juuri sen koko tickisarjan luvun, jonka tämä
         # moduuli lupaa välttää. Tilanne syntyy, jos jokainen kranaatti putoaa
         # kierrosten ulkopuolisena tai tuntemattoman puolen takia.
-        paikat = (
-            self._read_sample_ticks(parser, wanted, alkuperainen) if wanted else {}
+        positions = (
+            self._read_sample_ticks(parser, wanted, original_path) if wanted else {}
         )
-        tyhjat_tickit = sum(1 for tick in wanted if not paikat.get(tick))
+        empty_ticks = sum(1 for tick in wanted if not positions.get(tick))
 
-        rivit: list[dict[str, Any]] = []
-        rajahdys_myohassa = 0
-        for r in valitut:
+        rows: list[dict[str, Any]] = []
+        late_detonations = 0
+        for r in selected:
             segment = segments[r["_segment"]]
             freeze_end = segment.freeze_end_tick
             end_tick = segment.end_tick
@@ -1296,17 +1296,17 @@ class Demoparser2Adapter:
                 # assert: assert katoaa python -O:lla, ja seurauksena olisi
                 # TypeError kesken 233 MB:n demon parsinnan.
                 raise ParseError(
-                    f"Demon {alkuperainen.name} kranaatti kohdistui kierrokselle "
+                    f"Demon {original_path.name} kranaatti kohdistui kierrokselle "
                     f"(round_raw={segment.round_raw}), jolta puuttuu ankkuri tai "
                     "päättymistick.\n"
                     "Ilman niitä t_s:ää ei voi laskea. Demo on todennäköisesti "
                     "vioittunut."
                 )
-            tickin_pelaajat = paikat.get(r["tick"], ())
+            tick_players = positions.get(r["tick"], ())
             if r["event_kind"] == DETONATE and r["tick"] > end_tick:
-                rajahdys_myohassa += 1
-            alue, lahde, etaisyys = self._resolve_area(r, end_tick, tickin_pelaajat)
-            rivit.append(
+                late_detonations += 1
+            area, source, distance = self._resolve_area(r, end_tick, tick_players)
+            rows.append(
                 {
                     "round_raw": segment.round_raw,
                     "round_no": None,
@@ -1320,30 +1320,30 @@ class Demoparser2Adapter:
                     "x": r["x"],
                     "y": r["y"],
                     "z": r["z"],
-                    "area": alue,
-                    "area_source": lahde,
-                    "snap_distance": etaisyys,
+                    "area": area,
+                    "area_source": source,
+                    "snap_distance": distance,
                 }
             )
 
-        frame = self._typed_events_frame(rivit)
-        luvut = _UtilityCounts(
-            without_thrower=ilman_heittajaa,
-            outside_rounds=ulkopuolella,
-            unknown_side=tuntematon_puoli,
-            unknown_type=tuntematon_tyyppi,
-            fire_type_unresolved=tuli_auki,
-            detonating_after_round=rajahdys_myohassa,
-            ticks_without_players=tyhjat_tickit,
+        frame = self._typed_events_frame(rows)
+        counts = _UtilityCounts(
+            without_thrower=without_thrower,
+            outside_rounds=outside,
+            unknown_side=unknown_side_count,
+            unknown_type=unknown_type,
+            fire_type_unresolved=fire_unresolved,
+            detonating_after_round=late_detonations,
+            ticks_without_players=empty_ticks,
             id_reused_in_round=_id_reuse_count(frame),
         )
-        return frame, luvut
+        return frame, counts
 
     def _resolve_area(
         self,
-        rivi: dict[str, Any],
+        row: dict[str, Any],
         end_tick: int,
-        tickin_pelaajat: Sequence[dict[str, Any]],
+        tick_players: Sequence[dict[str, Any]],
     ) -> tuple[str | None, str | None, float | None]:
         """Päätä rivin alue, sen lähde ja mahdollinen napsautusetäisyys.
 
@@ -1357,33 +1357,33 @@ class Demoparser2Adapter:
         kierroksen spawnissa, ja napsautus kertoisi missä joukkue on **nyt**
         eikä missä savu on. Alue jätetään silloin tyhjäksi ja tapaus lasketaan.
         """
-        if rivi["event_kind"] == THROWN:
-            for pelaaja in tickin_pelaajat:
-                if pelaaja["steamid"] == rivi["thrower_id"]:
-                    alue = pelaaja["area"]
-                    return alue, ("observed" if alue is not None else None), None
+        if row["event_kind"] == THROWN:
+            for player in tick_players:
+                if player["steamid"] == row["thrower_id"]:
+                    area = player["area"]
+                    return area, ("observed" if area is not None else None), None
             return None, None, None
 
-        if rivi["tick"] > end_tick:
+        if row["tick"] > end_tick:
             return None, None, None
 
-        osuma = snap_area(
-            rivi["x"],
-            rivi["y"],
-            rivi["z"],
+        snap = snap_area(
+            row["x"],
+            row["y"],
+            row["z"],
             [
                 PlayerPoint(
                     x=p["x"], y=p["y"], z=p["z"], area=p["area"], is_alive=p["alive"]
                 )
-                for p in tickin_pelaajat
+                for p in tick_players
             ],
             self.area_snap_units,
         )
-        lahde = "snapped" if osuma.area is not None else None
-        return osuma.area, lahde, osuma.distance
+        source = "snapped" if snap.area is not None else None
+        return snap.area, source, snap.distance
 
     def _endpoints(
-        self, raaka: pl.DataFrame, tick_rate: float, alkuperainen: Path
+        self, raw: pl.DataFrame, tick_rate: float, original_path: Path
     ) -> tuple[pl.DataFrame, int]:
         """Kutsu domainin pelkistystä ja käännä sen virheet suomeksi.
 
@@ -1396,19 +1396,19 @@ class Demoparser2Adapter:
         """
         try:
             return grenade_endpoints(
-                _trajectory_frame(raaka),
+                _trajectory_frame(raw),
                 max_gap_ticks=trajectory_gap_ticks(tick_rate),
             )
         except (ValueError, pl.exceptions.PolarsError) as exc:
             raise ParseError(
-                f"Demon {alkuperainen.name} lentoratoja ei voitu pelkistää: "
+                f"Demon {original_path.name} lentoratoja ei voitu pelkistää: "
                 f"{exc}\n"
                 "Kenttä on todennäköisesti nimetty uudelleen demoparser2:n "
                 "päivityksessä. Päivitä adapters/demo_parser.py:n "
                 "GRENADE_COLUMNS."
             ) from exc
 
-    def _read_grenades(self, parser: Any, alkuperainen: Path) -> pl.DataFrame:
+    def _read_grenades(self, parser: Any, original_path: Path) -> pl.DataFrame:
         """Lue ``parse_grenades()`` ja tarkista, että sarakkeet ovat tallella.
 
         Tyhjä tulos ei ole virhe: demossa ei välttämättä heitetty yhtään
@@ -1419,7 +1419,7 @@ class Demoparser2Adapter:
             frame = parser.parse_grenades()
         except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
             raise ParseError(
-                f"Demon {alkuperainen.name} lentoratoja ei voitu lukea: {exc}\n"
+                f"Demon {original_path.name} lentoratoja ei voitu lukea: {exc}\n"
                 "Tiedosto on todennäköisesti vioittunut tai demoparser2:n "
                 "versio ei tunne parse_grenades-metodia. Aja: uv sync"
             ) from exc
@@ -1427,11 +1427,11 @@ class Demoparser2Adapter:
         if frame is None or not hasattr(frame, "columns") or len(frame) == 0:
             return pl.DataFrame()
 
-        puuttuvat = [name for name in GRENADE_COLUMNS if name not in frame.columns]
-        if puuttuvat:
+        missing = [name for name in GRENADE_COLUMNS if name not in frame.columns]
+        if missing:
             raise ParseError(
                 "demoparser2 ei palauttanut kaikkia lentoradan kenttiä demosta "
-                f"{alkuperainen.name}. Puuttuu: {', '.join(puuttuvat)}.\n"
+                f"{original_path.name}. Puuttuu: {', '.join(missing)}.\n"
                 "Kenttä on todennäköisesti nimetty uudelleen demoparser2:n "
                 "päivityksessä. Ilman tarkistusta utility-taulu olisi tyhjä ja "
                 "näyttäisi demolta, jossa ei heitetty yhtään kranaattia. "
@@ -1440,7 +1440,7 @@ class Demoparser2Adapter:
         return _as_polars(frame, GRENADE_COLUMNS)
 
     @staticmethod
-    def _typed_events_frame(rivit: list[dict[str, Any]]) -> pl.DataFrame:
+    def _typed_events_frame(rows: list[dict[str, Any]]) -> pl.DataFrame:
         """Rakenna tapahtumataulu sopimuksen tyypeillä ja vakaassa järjestyksessä.
 
         Lajittelu on eksplisiittinen: matkan varrella tehdyt liitokset eivät
@@ -1451,9 +1451,9 @@ class Demoparser2Adapter:
         schema: dict[str, Any] = {
             name: EVENTS[name] for name in EVENTS_ADAPTER_COLUMNS
         }
-        if not rivit:
+        if not rows:
             return pl.DataFrame(schema=schema)
-        return pl.DataFrame(rivit, schema=schema, orient="row").sort(
+        return pl.DataFrame(rows, schema=schema, orient="row").sort(
             "round_raw", "grenade_entity_id", "event_kind", "t_s"
         )
 
@@ -1485,9 +1485,9 @@ def _thrower_id() -> pl.Expr:
     )
 
 
-def _trajectory_frame(raaka: pl.DataFrame) -> pl.DataFrame:
+def _trajectory_frame(raw: pl.DataFrame) -> pl.DataFrame:
     """Lentorata domainin sarakenimillä ja tyypeillä."""
-    return raaka.select(
+    return raw.select(
         pl.col("grenade_entity_id").cast(pl.Int32),
         pl.col("grenade_type").cast(pl.Utf8),
         _thrower_id().alias("thrower_id"),
@@ -1498,7 +1498,7 @@ def _trajectory_frame(raaka: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def _unknown_type_count(paatepisteet: pl.DataFrame) -> int:
+def _unknown_type_count(endpoints: pl.DataFrame) -> int:
     """Kranaatit, joiden luokkanimeä ei tunneta.
 
     Tuntematon nimi säilyy taulussa sellaisenaan -- se on luettava havainto --
@@ -1507,7 +1507,7 @@ def _unknown_type_count(paatepisteet: pl.DataFrame) -> int:
     C++-luokan nimi.
     """
     return int(
-        paatepisteet.filter(
+        endpoints.filter(
             (pl.col("event_kind") == THROWN)
             & ~pl.col("grenade_type").is_in(list(GRENADE_TYPES))
         ).height
@@ -1515,7 +1515,7 @@ def _unknown_type_count(paatepisteet: pl.DataFrame) -> int:
 
 
 def _name_fire_grenades(
-    paatepisteet: pl.DataFrame, raaka: pl.DataFrame, tolerance: int
+    endpoints: pl.DataFrame, raw: pl.DataFrame, tolerance: int
 ) -> tuple[pl.DataFrame, int]:
     """Käännä luokkanimet kanonisiksi ja erota molotov incendiarystä.
 
@@ -1535,21 +1535,21 @@ def _name_fire_grenades(
         luokkanimen muutos, liian tiukka toleranssi -- näyttäisi täsmälleen
         samalta kuin demo, jossa heitettiin pelkkiä molotoveja.
     """
-    kanoniset = paatepisteet.with_columns(
+    canonical = endpoints.with_columns(
         pl.col("grenade_type").replace(GRENADE_TYPES)
     )
-    tuliheitot = (
-        paatepisteet.filter(
+    fire_throws = (
+        endpoints.filter(
             (pl.col("event_kind") == THROWN)
             & (pl.col("grenade_type") == MOLOTOV_PROJECTILE)
         )
         .select("grenade_no", "thrower_id", pl.col("tick").alias("throw_tick"))
         .sort("throw_tick")
     )
-    if tuliheitot.is_empty():
-        return kanoniset, 0
+    if fire_throws.is_empty():
+        return canonical, 0
 
-    repussa = raaka.filter(~flight_point()).select(
+    in_inventory = raw.filter(~flight_point()).select(
         _thrower_id().alias("thrower_id"),
         pl.col("tick").cast(pl.Int32),
         pl.col("grenade_type").cast(pl.Utf8),
@@ -1558,17 +1558,17 @@ def _name_fire_grenades(
     # Yksi asof-liitos per tyyppi: se kertoo, kumpia tulikranaatteja heittäjällä
     # oli repussa juuri ennen heittoa. Kaksi osumaa on epäselvä tapaus, yksi
     # ratkaisee tyypin, nolla jättää sen auki.
-    nimet = list(FIRE_ITEM_TYPES.values())
-    osumat = tuliheitot.select("grenade_no")
-    for luokka, nimi in FIRE_ITEM_TYPES.items():
-        oma = (
-            repussa.filter(pl.col("grenade_type") == luokka)
+    names = list(FIRE_ITEM_TYPES.values())
+    matches = fire_throws.select("grenade_no")
+    for class_name, name in FIRE_ITEM_TYPES.items():
+        own = (
+            in_inventory.filter(pl.col("grenade_type") == class_name)
             .select("thrower_id", "tick")
             .unique()
             .sort("tick")
         )
-        if oma.is_empty():
-            osumat = osumat.with_columns(pl.lit(False).alias(nimi))
+        if own.is_empty():
+            matches = matches.with_columns(pl.lit(False).alias(name))
             continue
         with warnings.catch_warnings():
             # Polars ei voi tarkistaa lajittelua, kun ryhmittely on annettu, ja
@@ -1576,39 +1576,39 @@ def _name_fire_grenades(
             # tickin mukaan tässä funktiossa, joten varoitus olisi pelkkää
             # kohinaa käyttäjän ruudulla kesken parsinnan.
             warnings.simplefilter("ignore", UserWarning)
-            liitos = tuliheitot.join_asof(
-                oma,
+            joined = fire_throws.join_asof(
+                own,
                 left_on="throw_tick",
                 right_on="tick",
                 by="thrower_id",
                 strategy="backward",
                 tolerance=tolerance,
-            ).select("grenade_no", pl.col("tick").is_not_null().alias(nimi))
-        osumat = osumat.join(liitos, on="grenade_no", how="left")
+            ).select("grenade_no", pl.col("tick").is_not_null().alias(name))
+        matches = matches.join(joined, on="grenade_no", how="left")
 
-    ratkaisut = osumat.with_columns(
+    resolved = matches.with_columns(
         pl.sum_horizontal(
-            [pl.col(nimi).fill_null(False).cast(pl.Int8) for nimi in nimet]
+            [pl.col(name).fill_null(False).cast(pl.Int8) for name in names]
         ).alias("_osumia")
     )
-    auki = int(ratkaisut.filter(pl.col("_osumia") != 1).height)
+    unresolved = int(resolved.filter(pl.col("_osumia") != 1).height)
 
-    yksiselitteiset = ratkaisut.filter(pl.col("_osumia") == 1).select(
+    unambiguous = resolved.filter(pl.col("_osumia") == 1).select(
         "grenade_no",
         pl.coalesce(
             [
-                pl.when(pl.col(nimi).fill_null(False)).then(
-                    pl.lit(nimi, dtype=pl.Utf8)
+                pl.when(pl.col(name).fill_null(False)).then(
+                    pl.lit(name, dtype=pl.Utf8)
                 )
-                for nimi in nimet
+                for name in names
             ]
         ).alias("fire_type"),
     )
-    if yksiselitteiset.is_empty():
-        return kanoniset, auki
+    if unambiguous.is_empty():
+        return canonical, unresolved
 
-    nimetty = (
-        kanoniset.join(yksiselitteiset, on="grenade_no", how="left")
+    renamed = (
+        canonical.join(unambiguous, on="grenade_no", how="left")
         .with_columns(
             pl.when(pl.col("fire_type").is_not_null())
             .then(pl.col("fire_type"))
@@ -1618,7 +1618,7 @@ def _name_fire_grenades(
         .drop("fire_type")
         .sort("grenade_no", "tick")
     )
-    return nimetty, auki
+    return renamed, unresolved
 
 
 def _id_reuse_count(frame: pl.DataFrame) -> int:
@@ -1650,24 +1650,24 @@ def _round_windows(segments: list[_Segment]) -> list[tuple[int, int, int]]:
             väärälle kierrokselle -- ja kierroksen jokainen utility-havainto
             olisi väärän joukkueen suunnitelmaa.
     """
-    ikkunat = sorted(
+    windows = sorted(
         (s.freeze_end_tick, s.end_tick, index)
         for index, s in enumerate(segments)
         if s.freeze_end_tick is not None and s.end_tick is not None
     )
-    for eka, toka in zip(ikkunat, ikkunat[1:]):
-        if toka[0] <= eka[1]:
+    for first, second in zip(windows, windows[1:]):
+        if second[0] <= first[1]:
             raise ParseError(
                 "Demon kierrosrajat menevät päällekkäin: kierros alkaa tickistä "
-                f"{toka[0]} vaikka edellinen päättyy vasta tickissä {eka[1]}.\n"
+                f"{second[0]} vaikka edellinen päättyy vasta tickissä {first[1]}.\n"
                 "Kranaattia ei voi silloin kohdistaa yksikäsitteisesti "
                 "kierrokselle. Demo on todennäköisesti vioittunut."
             )
-    return ikkunat
+    return windows
 
 
 def _round_of_tick(
-    alut: list[int], ikkunat: list[tuple[int, int, int]], tick: int
+    starts: list[int], windows: list[tuple[int, int, int]], tick: int
 ) -> int | None:
     """Kierros, jonka rajojen sisään tick osuu, tai ``None``.
 
@@ -1676,34 +1676,34 @@ def _round_of_tick(
     lämmittelyä ennen ensimmäistä ankkuria tai heittoa kierroksen ratkeamisen
     ja seuraavan ostoajan välissä; kummallakaan ``t_s`` ei ole määritelty.
     """
-    sija = bisect_right(alut, tick) - 1
-    if sija < 0:
+    position = bisect_right(starts, tick) - 1
+    if position < 0:
         return None
-    _, loppu, index = ikkunat[sija]
-    return index if tick <= loppu else None
+    _, end, index = windows[position]
+    return index if tick <= end else None
 
 
 def _keys_by_side(
-    sivut: tuple[str, str], avaimet: list[str], segment: _Segment
+    sides: tuple[str, str], lineup_keys: list[str], segment: _Segment
 ) -> dict[str, str]:
     """Puoli -> kokoonpanotunniste yhdellä kierroksella.
 
-    Sanakirja eikä ``sivut.index(side)``: jos puolikuvaus olisi jostain syystä
+    Sanakirja eikä ``sides.index(side)``: jos puolikuvaus olisi jostain syystä
     ``("T", "T")``, ``.index`` palauttaisi molemmille nollan ja **molemmat
     joukkueet saisivat saman lineup_keyn**. Taulu näyttäisi kelvolliselta,
     mutta jokainen joukkuekohtainen luku olisi molempien summa -- täsmälleen se
     ristiinkytkentä, jonka :meth:`Demoparser2Adapter._lineup_keys` estää
     kierrostaulussa.
     """
-    if sivut[0] == sivut[1]:
+    if sides[0] == sides[1]:
         raise ParseError(
             f"Kierroksella (round_raw={segment.round_raw}, "
             f"freeze_end_tick={segment.freeze_end_tick}) molemmille "
-            f"kokoonpanoille tuli sama puoli {sivut[0]!r}.\n"
+            f"kokoonpanoille tuli sama puoli {sides[0]!r}.\n"
             "Puolet eivät erotu, joten näytepisteiden rivit kohdistuisivat "
             "samalle joukkueelle. Demo on todennäköisesti vioittunut."
         )
-    return {sivut[0]: avaimet[0], sivut[1]: avaimet[1]}
+    return {sides[0]: lineup_keys[0], sides[1]: lineup_keys[1]}
 
 
 def _lineup_index_by_player(lineups: list[_Lineup]) -> dict[str, int]:
@@ -1713,17 +1713,17 @@ def _lineup_index_by_player(lineups: list[_Lineup]) -> dict[str, int]:
     hänen puoltaan ei voi päätellä, ja arvaus kohdistaisi kontaktin väärin
     päin. Sellaista ei normaalissa demossa esiinny.
     """
-    tulos: dict[str, int] = {}
-    molemmissa = lineups[0].members & lineups[1].members
+    result: dict[str, int] = {}
+    in_both = lineups[0].members & lineups[1].members
     for index, lineup in enumerate(lineups):
-        for steamid in lineup.members - molemmissa:
-            tulos[steamid] = index
-    return tulos
+        for steamid in lineup.members - in_both:
+            result[steamid] = index
+    return result
 
 
 def _side_lookup(
     lineup_of: dict[str, int],
-    sivut: tuple[str, str],
+    sides: tuple[str, str],
     segment: _Segment,
     by_tick: dict[int, list[dict[str, Any]]],
 ) -> dict[str, str]:
@@ -1738,17 +1738,17 @@ def _side_lookup(
     tai uudelleenyhdistänyt pelaaja. Ilman varalähdetta hanen vahinkonsa
     hylättäisiin äänettömästi ja kierros voisi menettaa ensikontaktinsa.
     """
-    puolet = {steamid: sivut[index] for steamid, index in lineup_of.items()}
+    player_sides = {steamid: sides[index] for steamid, index in lineup_of.items()}
     for tick in (segment.freeze_end_tick, segment.end_tick):
-        for rivi in by_tick.get(tick or -1) or ():
-            puolet.setdefault(rivi["steamid"], rivi["side"])
-    return puolet
+        for row in by_tick.get(tick or -1) or ():
+            player_sides.setdefault(row["steamid"], row["side"])
+    return player_sides
 
 
 def _with_sides(
     events: list[tuple[int, str | None, str | None, str | None]],
     bounds: RoundBounds,
-    puolet: dict[str, str],
+    player_sides: dict[str, str],
 ) -> tuple[list[DamageEvent], int]:
     """Rajaa tapahtumat kierrokseen ja liitä niihin pelaajien puolet.
 
@@ -1759,20 +1759,20 @@ def _with_sides(
     """
     if bounds.freeze_end_tick is None or bounds.end_tick is None:
         return [], 0
-    alku, loppu = bounds.freeze_end_tick, bounds.end_tick
+    start, end = bounds.freeze_end_tick, bounds.end_tick
 
-    tulos: list[DamageEvent] = []
-    tuntemattomat = 0
+    result: list[DamageEvent] = []
+    unknown_sides = 0
     for tick, attacker, victim, weapon in events:
-        if not alku <= tick <= loppu:
+        if not start <= tick <= end:
             continue
-        attacker_side = puolet.get(attacker) if attacker else None
-        victim_side = puolet.get(victim) if victim else None
+        attacker_side = player_sides.get(attacker) if attacker else None
+        victim_side = player_sides.get(victim) if victim else None
         # Maailman aiheuttama vahinko (attacker None) on tunnettu tapaus eikä
         # puuttuva havainto, joten sitä ei lasketa tuntemattomaksi.
         if (attacker and attacker_side is None) or (victim and victim_side is None):
-            tuntemattomat += 1
-        tulos.append(
+            unknown_sides += 1
+        result.append(
             DamageEvent(
                 tick=tick,
                 attacker_id=attacker,
@@ -1782,7 +1782,7 @@ def _with_sides(
                 victim_side=victim_side,
             )
         )
-    return tulos, tuntemattomat
+    return result, unknown_sides
 
 
 def _sorted_points(points: list[SamplePoint]) -> list[SamplePoint]:
@@ -1795,19 +1795,19 @@ def _sorted_points(points: list[SamplePoint]) -> list[SamplePoint]:
     return sorted(points, key=lambda p: (p.round_raw, p.sample_t_s, p.sample_kind))
 
 
-def _vaadi_edellinen(
-    edellinen: tuple[str, str] | None, segment: _Segment, syy: str
+def _require_previous(
+    previous: tuple[str, str] | None, segment: _Segment, reason: str
 ) -> tuple[str, str]:
     """Palauta edellisen kierroksen puolikuvaus tai keskeytä.
 
     Oletus ``("T", "CT")`` olisi arvaus, joka näyttäisi toimivan mutta
     kohdistaisi kierroksen havainnot väärälle joukkueelle.
     """
-    if edellinen is not None:
-        return edellinen
+    if previous is not None:
+        return previous
     raise ParseError(
         f"Kierroksen (freeze_end_tick={segment.freeze_end_tick}, "
-        f"round_end_tick={segment.end_tick}) puolia ei voitu määrittää: {syy}, "
+        f"round_end_tick={segment.end_tick}) puolia ei voitu määrittää: {reason}, "
         "eikä edellistä kierrosta ole, josta kuvauksen voisi periä.\n"
         "Puolen arvaaminen kohdistaisi kierroksen havainnot väärälle "
         "joukkueelle, joten parsinta keskeytetään. Demo on todennäköisesti "
@@ -1872,7 +1872,7 @@ _FREEZE_END_PROPS: tuple[str, ...] = (
 )
 
 
-def _readable(rivit: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _readable(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Pelaajat, joiden freezetimen lopun arvot ovat kaikki luettavissa.
 
     Sekä summa että sen jakaja lasketaan **tästä samasta joukosta**. Jos
@@ -1881,14 +1881,14 @@ def _readable(rivit: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ja työntäisi kierroksen ecoksi -- hiljaa ja uskottavan näköisesti.
     """
     return [
-        r for r in rivit if all(r.get(name) is not None for name in _FREEZE_END_PROPS)
+        r for r in rows if all(r.get(name) is not None for name in _FREEZE_END_PROPS)
     ]
 
 
 def _sum_or_none(values: list[int | None]) -> int | None:
     """Summaa arvot; ``None`` jos yhtään havaintoa ei ole."""
-    kelvolliset = [v for v in values if v is not None]
-    return sum(kelvolliset) if kelvolliset else None
+    valid = [v for v in values if v is not None]
+    return sum(valid) if valid else None
 
 
 def _sum_or_zero(values: list[int | None]) -> int:
@@ -1896,7 +1896,7 @@ def _sum_or_zero(values: list[int | None]) -> int:
     return sum(v for v in values if v is not None)
 
 
-def _total_score(rivit: list[dict[str, Any]]) -> int | None:
+def _total_score(rows: list[dict[str, Any]]) -> int | None:
     """Joukkueiden yhteispistemäärä yhdessä tickissä.
 
     Summa kestää puoliajan vaihdon: joukkuekohtaiset pisteet vaihtavat paikkaa,
@@ -1907,9 +1907,9 @@ def _total_score(rivit: list[dict[str, Any]]) -> int | None:
     pelattujen joukosta -- tai pysyä mukana väärällä numerolla.
     """
     per_side: dict[str, int] = {}
-    for rivi in rivit:
-        if rivi["team_score"] is not None:
-            per_side.setdefault(rivi["side"], rivi["team_score"])
+    for row in rows:
+        if row["team_score"] is not None:
+            per_side.setdefault(row["side"], row["team_score"])
     if len(per_side) != len(TEAM_SIDES):
         return None
     return sum(per_side.values())

@@ -42,89 +42,89 @@ def test_temp_suffix_is_unique_per_call() -> None:
     Ilman uniikkia osaa toinen ajo ylikirjoittaisi ensimmäisen väliaikais-
     tiedoston kesken kirjoituksen ja lopputulos olisi sekoitus molempia.
     """
-    nimet = {temp_suffix() for _ in range(50)}
-    assert len(nimet) == 50
+    names = {temp_suffix() for _ in range(50)}
+    assert len(names) == 50
 
 
 def test_parallel_writes_to_same_target_do_not_collide(tmp_path: Path) -> None:
     """Kaksi yhtaikaista kirjoitusta samaan kohteeseen käyttää eri tmp-tiedostoa."""
-    kohde = tmp_path / "tulos.parquet"
-    with atomic_path(kohde) as eka:
-        with atomic_path(kohde) as toka:
-            assert eka != toka
-            eka.write_bytes(b"eka")
-            toka.write_bytes(b"toka")
+    target = tmp_path / "tulos.parquet"
+    with atomic_path(target) as first:
+        with atomic_path(target) as second:
+            assert first != second
+            first.write_bytes(b"eka")
+            second.write_bytes(b"toka")
         # Sisempi lohko valmistui ensin.
-        assert kohde.read_bytes() == b"toka"
-    assert kohde.read_bytes() == b"eka"
+        assert target.read_bytes() == b"toka"
+    assert target.read_bytes() == b"eka"
     assert not has_temp_leftovers(tmp_path)
 
 
 def test_write_creates_file_and_leaves_no_temp(tmp_path: Path) -> None:
-    kohde = tmp_path / "alihakemisto" / "tulos.json"
-    atomic_write_json(kohde, {"round_no": 1})
-    assert json.loads(kohde.read_text(encoding="utf-8")) == {"round_no": 1}
+    target = tmp_path / "alihakemisto" / "tulos.json"
+    atomic_write_json(target, {"round_no": 1})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"round_no": 1}
     assert not has_temp_leftovers(tmp_path)
 
 
 def test_text_and_bytes_round_trip(tmp_path: Path) -> None:
-    teksti = tmp_path / "a.txt"
-    atomic_write_text(teksti, "ääkköset ovat sallittuja")
-    assert teksti.read_text(encoding="utf-8") == "ääkköset ovat sallittuja"
+    text_file = tmp_path / "a.txt"
+    atomic_write_text(text_file, "ääkköset ovat sallittuja")
+    assert text_file.read_text(encoding="utf-8") == "ääkköset ovat sallittuja"
 
-    tavut = tmp_path / "b.bin"
-    atomic_write_bytes(tavut, b"\x00\x01\x02")
-    assert tavut.read_bytes() == b"\x00\x01\x02"
+    bytes_file = tmp_path / "b.bin"
+    atomic_write_bytes(bytes_file, b"\x00\x01\x02")
+    assert bytes_file.read_bytes() == b"\x00\x01\x02"
 
 
 def test_interrupted_write_leaves_no_target(tmp_path: Path) -> None:
     """Kirjoitus kaatuu kesken -> kohdetiedostoa ei ole, tmp siivottu."""
-    kohde = tmp_path / "tulos.parquet"
+    target = tmp_path / "tulos.parquet"
 
     with pytest.raises(RuntimeError):
-        with atomic_path(kohde) as tmp:
+        with atomic_path(target) as tmp:
             tmp.write_bytes(b"puolikas")
             raise RuntimeError("parsinta katkesi")
 
-    assert not kohde.exists()
+    assert not target.exists()
     assert not has_temp_leftovers(tmp_path)
 
 
 def test_interrupted_write_keeps_old_intact_version(tmp_path: Path) -> None:
     """Kirjoitus kaatuu kesken -> vanha ehjä versio jää paikalleen."""
-    kohde = tmp_path / "tulos.parquet"
-    atomic_write_bytes(kohde, b"vanha ehja versio")
+    target = tmp_path / "tulos.parquet"
+    atomic_write_bytes(target, b"vanha ehja versio")
 
     with pytest.raises(RuntimeError):
-        with atomic_path(kohde) as tmp:
+        with atomic_path(target) as tmp:
             tmp.write_bytes(b"uusi puolikas")
             raise RuntimeError("levy tayttyi")
 
-    assert kohde.read_bytes() == b"vanha ehja versio"
+    assert target.read_bytes() == b"vanha ehja versio"
     assert not has_temp_leftovers(tmp_path)
 
 
 def test_successful_write_replaces_old_version(tmp_path: Path) -> None:
-    kohde = tmp_path / "tulos.parquet"
-    atomic_write_bytes(kohde, b"vanha")
-    atomic_write_bytes(kohde, b"uusi")
-    assert kohde.read_bytes() == b"uusi"
+    target = tmp_path / "tulos.parquet"
+    atomic_write_bytes(target, b"vanha")
+    atomic_write_bytes(target, b"uusi")
+    assert target.read_bytes() == b"uusi"
     assert not has_temp_leftovers(tmp_path)
 
 
 def test_target_appears_only_after_context_exits(tmp_path: Path) -> None:
     """Kohde ei näy osittaisena missään vaiheessa."""
-    kohde = tmp_path / "tulos.parquet"
-    with atomic_path(kohde) as tmp:
+    target = tmp_path / "tulos.parquet"
+    with atomic_path(target) as tmp:
         tmp.write_bytes(b"sisalto")
-        assert not kohde.exists()
-    assert kohde.read_bytes() == b"sisalto"
+        assert not target.exists()
+    assert target.read_bytes() == b"sisalto"
 
 
 def test_forgetting_to_write_is_an_error(tmp_path: Path) -> None:
     """Tyhjä lohko ei saa tuottaa tyhjää kohdetiedostoa hiljaa."""
-    kohde = tmp_path / "tulos.parquet"
+    target = tmp_path / "tulos.parquet"
     with pytest.raises(FileNotFoundError):
-        with atomic_path(kohde):
+        with atomic_path(target):
             pass
-    assert not kohde.exists()
+    assert not target.exists()

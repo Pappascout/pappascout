@@ -39,12 +39,12 @@ RELATIVE_FUNCS = [
     "func,args", RELATIVE_FUNCS, ids=lambda v: getattr(v, "__name__", "")
 )
 def test_paths_are_relative_and_posix(func, args) -> None:
-    tulos = func(*args)
-    assert isinstance(tulos, PurePosixPath)
-    teksti = str(tulos)
-    assert not tulos.is_absolute()
-    assert "\\" not in teksti
-    assert ":" not in teksti
+    result = func(*args)
+    assert isinstance(result, PurePosixPath)
+    text = str(result)
+    assert not result.is_absolute()
+    assert "\\" not in text
+    assert ":" not in text
 
 
 def test_archive_tree_matches_the_convention() -> None:
@@ -83,18 +83,18 @@ def test_unknown_parsed_table_is_rejected() -> None:
 
 
 @pytest.mark.parametrize(
-    "paha",
+    "unsafe",
     ["..", ".", "../..", "a/b", "a\\b", "", "C:", "x" * 121, "team key", "a:b"],
 )
-def test_unsafe_identifiers_are_rejected(paha: str) -> None:
+def test_unsafe_identifiers_are_rejected(unsafe: str) -> None:
     """Tunniste ei saa karata arkiston juuresta eikä rikkoa polkua."""
     with pytest.raises(PappascoutError):
-        safe_component(paha, "team_key")
+        safe_component(unsafe, "team_key")
 
 
-@pytest.mark.parametrize("hyva", ["team-abc", "1234-0", "1-8ffb4c53-0", "kone_1", "a.b"])
-def test_safe_identifiers_pass_through(hyva: str) -> None:
-    assert safe_component(hyva, "team_key") == hyva
+@pytest.mark.parametrize("safe", ["team-abc", "1234-0", "1-8ffb4c53-0", "kone_1", "a.b"])
+def test_safe_identifiers_pass_through(safe: str) -> None:
+    assert safe_component(safe, "team_key") == safe
 
 
 def test_path_builders_reject_traversal() -> None:
@@ -114,21 +114,21 @@ def test_path_builders_reject_traversal() -> None:
 
 def test_resolve_and_relative_round_trip(tmp_path: Path) -> None:
     archive = ArchivePaths.from_settings(tmp_path)
-    suhteellinen = paths.parsed_table("1234-0", "rounds")
-    absoluuttinen = archive.resolve(suhteellinen)
-    assert absoluuttinen == tmp_path / "parsed" / "1234-0" / "rounds.parquet"
+    relative_path = paths.parsed_table("1234-0", "rounds")
+    absolute_path = archive.resolve(relative_path)
+    assert absolute_path == tmp_path / "parsed" / "1234-0" / "rounds.parquet"
 
-    absoluuttinen.parent.mkdir(parents=True)
-    absoluuttinen.write_bytes(b"x")
-    assert archive.relative(absoluuttinen) == suhteellinen
+    absolute_path.parent.mkdir(parents=True)
+    absolute_path.write_bytes(b"x")
+    assert archive.relative(absolute_path) == relative_path
 
 
 def test_resolve_rejects_absolute_paths(tmp_path: Path) -> None:
     """Absoluuttinen polku manifestissa on aina virhe, ei hiljainen hyväksyntä."""
     archive = ArchivePaths.from_settings(tmp_path)
-    for paha in ("C:/muualla/tulos.parquet", "/etc/passwd"):
+    for unsafe in ("C:/muualla/tulos.parquet", "/etc/passwd"):
         with pytest.raises(PappascoutError) as exc:
-            archive.resolve(paha)
+            archive.resolve(unsafe)
         assert "suhteellinen" in str(exc.value)
 
 

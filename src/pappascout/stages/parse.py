@@ -138,7 +138,7 @@ EVENTS_TABLE = "events"
 TOOLS = ("demoparser2",)
 
 #: Virheet, joista kirjataan yksikkökohtainen tila manifestiin (AD-9).
-_TALLENNETTAVAT = (ParseError, SchemaError, OSError, pl.exceptions.PolarsError)
+_RECORDED_ERRORS = (ParseError, SchemaError, OSError, pl.exceptions.PolarsError)
 
 
 def default_parser(settings: ParseSettings) -> DemoParser:
@@ -192,23 +192,23 @@ def resolve_demo(archive: ArchivePaths, target: str) -> tuple[str, Path]:
         return map_demo_id_from_path(candidate), candidate
 
     map_demo_id = safe_component(target, "map_demo_id")
-    loydetty = archive.find_demo(map_demo_id)
-    if loydetty is not None:
-        return map_demo_id, loydetty
+    found = archive.find_demo(map_demo_id)
+    if found is not None:
+        return map_demo_id, found
 
     import_dir = archive.import_dir()
     for suffix in DEMO_SUFFIXES:
-        polku = import_dir / f"{map_demo_id}{suffix}"
-        if polku.is_file():
-            return map_demo_id, polku
+        path = import_dir / f"{map_demo_id}{suffix}"
+        if path.is_file():
+            return map_demo_id, path
 
-    etsityt = [str(archive.demo(map_demo_id, s)) for s in DEMO_SUFFIXES]
-    etsityt += [str(import_dir / f"{map_demo_id}{s}") for s in DEMO_SUFFIXES]
-    listaus = "\n".join(f"    {p}" for p in etsityt)
+    searched = [str(archive.demo(map_demo_id, s)) for s in DEMO_SUFFIXES]
+    searched += [str(import_dir / f"{map_demo_id}{s}") for s in DEMO_SUFFIXES]
+    listing = "\n".join(f"    {p}" for p in searched)
     raise DemoUnavailable(
         f"Demoa {map_demo_id} ei löytynyt.\n"
         "Etsin näistä poluista:\n"
-        f"{listaus}\n"
+        f"{listing}\n"
         "Kopioi demo arkiston import-hakemistoon tai anna tiedoston polku "
         "suoraan komennolle."
     )
@@ -253,9 +253,9 @@ def _params_hash(settings: ParseSettings) -> str:
 
 def _check_port_columns(
     df: pl.DataFrame,
-    odotetut_sarakkeet: tuple[str, ...],
-    taulu: str,
-    sopimus: str,
+    expected_columns: tuple[str, ...],
+    table_name: str,
+    contract: str,
 ) -> None:
     """Tarkista adapterin tuottama taulu ennen jatkokäsittelyä.
 
@@ -263,21 +263,21 @@ def _check_port_columns(
     tarkoittaa, että portin toteutus ja sopimus ovat erkaantuneet, ja se
     päätyisi hiljaa mukaan tai kaatuisi vasta domain-kerroksessa.
     """
-    saadut = set(df.columns)
-    odotetut = set(odotetut_sarakkeet)
-    puuttuvat = sorted(odotetut - saadut)
-    ylimaaraiset = sorted(saadut - odotetut)
-    if not puuttuvat and not ylimaaraiset:
+    received = set(df.columns)
+    expected = set(expected_columns)
+    missing = sorted(expected - received)
+    extra = sorted(received - expected)
+    if not missing and not extra:
         return
-    osat = []
-    if puuttuvat:
-        osat.append(f"puuttuu: {', '.join(puuttuvat)}")
-    if ylimaaraiset:
-        osat.append(f"ylimääräisiä: {', '.join(ylimaaraiset)}")
+    parts = []
+    if missing:
+        parts.append(f"puuttuu: {', '.join(missing)}")
+    if extra:
+        parts.append(f"ylimääräisiä: {', '.join(extra)}")
     raise SchemaError(
-        f"Demoportti palautti sopimuksen vastaisen {taulu} -- "
-        f"{'; '.join(osat)}.\n"
-        f"Portin sopimus on adapters/protocols.py:n {sopimus}."
+        f"Demoportti palautti sopimuksen vastaisen {table_name} -- "
+        f"{'; '.join(parts)}.\n"
+        f"Portin sopimus on adapters/protocols.py:n {contract}."
     )
 
 
@@ -288,10 +288,10 @@ def _check_two_rows_per_round(df: pl.DataFrame) -> None:
     puuttuva pari läpäisisi skeeman mutta kaksinkertaistaisi tai puolittaisi
     joukkuekohtaiset summat kaikessa myöhemmässä analyysissa.
     """
-    kierroksia = df["round_no"].n_unique()
-    if df.height == 2 * kierroksia:
+    round_count = df["round_no"].n_unique()
+    if df.height == 2 * round_count:
         return
-    poikkeavat = (
+    deviating = (
         df.group_by("round_no")
         .len()
         .filter(pl.col("len") != 2)
@@ -299,28 +299,28 @@ def _check_two_rows_per_round(df: pl.DataFrame) -> None:
         .head(5)
     )
     raise SchemaError(
-        f"Kierrostaulussa on {df.height} riviä {kierroksia} kierrokselle; "
+        f"Kierrostaulussa on {df.height} riviä {round_count} kierrokselle; "
         "pitäisi olla tasan kaksi riviä per kierros (yksi kummallekin "
         "joukkueelle).\n"
-        f"Poikkeavat kierrokset: {poikkeavat.to_dicts()}"
+        f"Poikkeavat kierrokset: {deviating.to_dicts()}"
     )
 
 
-def _round_stats(df: pl.DataFrame, ohitetut: int = 0) -> dict[str, object]:
+def _round_stats(df: pl.DataFrame, skipped_rounds: int = 0) -> dict[str, object]:
     """Kierrostaulun luvut."""
     if df.is_empty():
         return {
             "rounds": 0,
             "rows": 0,
             "max_round_no": 0,
-            "skipped_rounds": ohitetut,
+            "skipped_rounds": skipped_rounds,
             "no_freeze_end": 0,
         }
     return {
         "rounds": int(df["round_no"].n_unique()),
         "rows": int(df.height),
         "max_round_no": int(df["round_no"].max() or 0),
-        "skipped_rounds": ohitetut,
+        "skipped_rounds": skipped_rounds,
         "no_freeze_end": int(
             df.filter(pl.col("status") == "no_freeze_end")["round_no"].n_unique()
         ),
@@ -331,13 +331,13 @@ def _stats(
     df: pl.DataFrame,
     ticks: pl.DataFrame,
     events: pl.DataFrame,
-    ohitetut: int = 0,
+    skipped_rounds: int = 0,
 ) -> dict[str, object]:
     """Käyttäjälle näytettävät luvut valmiista tauluista."""
-    luvut = _round_stats(df, ohitetut)
-    luvut.update(_tick_stats(ticks))
-    luvut.update(_event_stats(events))
-    return luvut
+    stats = _round_stats(df, skipped_rounds)
+    stats.update(_tick_stats(ticks))
+    stats.update(_event_stats(events))
+    return stats
 
 
 def _tick_stats(ticks: pl.DataFrame) -> dict[str, object]:
@@ -400,15 +400,15 @@ def _event_stats(events: pl.DataFrame) -> dict[str, object]:
             "utility_area_unnamed": 0,
             "utility_without_area": 0,
         }
-    laji = events["event_kind"]
-    lahde = events["area_source"]
+    kinds = events["event_kind"]
+    sources = events["area_source"]
     return {
         "event_rows": int(events.height),
-        "utility_throws": int((laji == THROWN).sum()),
-        "utility_detonations": int((laji == DETONATE).sum()),
+        "utility_throws": int((kinds == THROWN).sum()),
+        "utility_detonations": int((kinds == DETONATE).sum()),
         "utility_rounds": int(events["round_no"].n_unique()),
-        "utility_area_observed": int((lahde == "observed").sum()),
-        "utility_area_snapped": int((lahde == "snapped").sum()),
+        "utility_area_observed": int((sources == "observed").sum()),
+        "utility_area_snapped": int((sources == "snapped").sum()),
         "utility_area_unnamed": int(
             events.filter(
                 pl.col("area").is_null() & pl.col("snap_distance").is_not_null()
@@ -449,20 +449,20 @@ def _existing_stats(
     if isinstance(rounds, str) and isinstance(ticks, str):
         return {"unreadable": rounds}
 
-    luvut: dict[str, object] = {}
+    stats: dict[str, object] = {}
     if isinstance(rounds, str):
-        luvut["unreadable"] = rounds
+        stats["unreadable"] = rounds
     else:
-        luvut.update(_round_stats(rounds))
+        stats.update(_round_stats(rounds))
     if isinstance(ticks, str):
-        luvut["ticks_unreadable"] = ticks
+        stats["ticks_unreadable"] = ticks
     else:
-        luvut.update(_tick_stats(ticks))
+        stats.update(_tick_stats(ticks))
     if isinstance(events, str):
-        luvut["events_unreadable"] = events
+        stats["events_unreadable"] = events
     else:
-        luvut.update(_event_stats(events))
-    return luvut
+        stats.update(_event_stats(events))
+    return stats
 
 
 def run(
@@ -497,7 +497,7 @@ def run(
             sisältö rikkoo CS2:n sääntöjä.
         ~pappascout.errors.SchemaError: Jos tulos ei vastaa sopimusta.
     """
-    aloitus = time.perf_counter()
+    started = time.perf_counter()
     map_demo_id = safe_component(map_demo_id, "map_demo_id")
 
     if demo_path is None:
@@ -521,47 +521,47 @@ def run(
         )
     ]
     params_hash = _params_hash(settings)
-    versiot = tool_versions(*TOOLS)
+    versions = tool_versions(*TOOLS)
 
     # Tulokset, jotka **tämän version** ajo tuottaa. Manifestin oma
     # outputs-lista ei riita ohituksen ehdoksi: vanha manifesti nimeaa vain ne
     # taulut, jotka silloinen koodi osasi kirjoittaa, joten uusi taulu ei
     # koskaan syntyisi arkistoon jo parsituille demoille.
-    odotetut_tulokset = (
+    expected_outputs = (
         (table_rel, table_abs),
         (ticks_rel, ticks_abs),
         (events_rel, events_abs),
     )
 
-    olemassa = Manifest.read_if_exists(manifest_abs)
+    existing = Manifest.read_if_exists(manifest_abs)
     if (
         not force
-        and olemassa is not None
-        and olemassa.is_current(
+        and existing is not None
+        and existing.is_current(
             inputs=inputs,
             params_hash=params_hash,
-            tool_versions=versiot,
+            tool_versions=versions,
             root=archive.root,
         )
-        and all(polku.is_file() for _, polku in odotetut_tulokset)
+        and all(path.is_file() for _, path in expected_outputs)
     ):
         return StageResult(
             stage=STAGE,
             unit=map_demo_id,
             status="ok",
             skipped=True,
-            outputs=tuple(PurePosixPath(o) for o in olemassa.outputs),
+            outputs=tuple(PurePosixPath(o) for o in existing.outputs),
             manifest_path=manifest_rel,
             reason=(
                 "Tulos on ajan tasalla: manifesti täsmää eikä demoa tarvitse "
                 "parsia uudelleen."
             ),
-            duration_s=time.perf_counter() - aloitus,
+            duration_s=time.perf_counter() - started,
             stats=_existing_stats(table_abs, ticks_abs, events_abs),
         )
 
     try:
-        df, ticks, events, ohitetut, numeroimattomat = _parse_tables(
+        df, ticks, events, skipped_rounds, unnumbered = _parse_tables(
             parser, settings, demo_path, map_demo_id
         )
         # Kirjoitus on saman virhekäsittelyn sisällä kuin parsinta: levy voi
@@ -571,16 +571,16 @@ def run(
         _write_tables(
             ((table_abs, df), (ticks_abs, ticks), (events_abs, events))
         )
-    except _TALLENNETTAVAT as exc:
+    except _RECORDED_ERRORS as exc:
         _record_failure(
             archive=archive,
             manifest_abs=manifest_abs,
             tables_abs=(table_abs, ticks_abs, events_abs),
-            olemassa=olemassa,
+            existing=existing,
             result_id=result_id,
             params_hash=params_hash,
             inputs=inputs,
-            versiot=versiot,
+            versions=versions,
             reason=str(exc),
         )
         raise
@@ -592,15 +592,15 @@ def run(
         stage=STAGE,
         params_hash=params_hash,
         inputs=inputs,
-        tool_versions=versiot,
+        tool_versions=versions,
         status="ok",
         outputs=(str(table_rel), str(ticks_rel), str(events_rel)),
     ).write(manifest_abs)
 
-    stats = _stats(df, ticks, events, ohitetut)
+    stats = _stats(df, ticks, events, skipped_rounds)
     # Vain tuoreesta ajosta: numeroimattomien kierrosten rivit eivät ole
     # taulussa, joten ohitetusta ajosta lukua ei voi lukea takaisin.
-    stats["utility_unnumbered_rounds"] = numeroimattomat
+    stats["utility_unnumbered_rounds"] = unnumbered
     diagnostics = getattr(parser, "diagnostics", None)
     if diagnostics is not None:
         stats["tick_rate"] = diagnostics.tick_rate
@@ -619,7 +619,7 @@ def run(
         stats["grenades_outside_rounds"] = getattr(
             diagnostics, "grenades_outside_rounds", 0
         )
-        for nimi in (
+        for name in (
             "grenades_unknown_side",
             "grenades_unknown_type",
             "grenades_fire_type_unresolved",
@@ -627,7 +627,7 @@ def run(
             "grenade_ticks_without_players",
             "grenades_id_reused_in_round",
         ):
-            stats[nimi] = getattr(diagnostics, nimi, 0)
+            stats[name] = getattr(diagnostics, name, 0)
 
     return StageResult(
         stage=STAGE,
@@ -636,7 +636,7 @@ def run(
         skipped=False,
         outputs=(table_rel, ticks_rel, events_rel),
         manifest_path=manifest_rel,
-        duration_s=time.perf_counter() - aloitus,
+        duration_s=time.perf_counter() - started,
         stats=stats,
     )
 
@@ -656,11 +656,11 @@ def _write_tables(tables: tuple[tuple[Path, pl.DataFrame], ...]) -> None:
     I/O:ta.
     """
     with ExitStack() as stack:
-        kirjoitettavat = [
+        pending_writes = [
             (stack.enter_context(atomic_path(target)), frame)
             for target, frame in tables
         ]
-        for tmp, frame in kirjoitettavat:
+        for tmp, frame in pending_writes:
             frame.write_parquet(tmp)
     # ExitStack purkaa lohkot vasta tässä, ja jokainen atomic_path tekee oman
     # renamensa. Poikkeus missä tahansa kirjoituksessa siivoaa kaikki
@@ -694,13 +694,13 @@ def _parse_tables(
         "EVENTS_ADAPTER_COLUMNS",
     )
 
-    numeroitu = mark_played_rounds(tables.rounds)
-    ohitetut = int(
-        numeroitu.filter(pl.col("round_no").is_null())["round_raw"].n_unique()
+    numbered = mark_played_rounds(tables.rounds)
+    skipped_rounds = int(
+        numbered.filter(pl.col("round_no").is_null())["round_raw"].n_unique()
     )
-    pelatut = numeroitu.filter(pl.col("round_no").is_not_null())
+    played = numbered.filter(pl.col("round_no").is_not_null())
 
-    df = pelatut.select(
+    df = played.select(
         pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
         *[pl.col(name) for name in ROUNDS if name != "map_demo_id"],
     ).sort("round_no", "side")
@@ -708,7 +708,7 @@ def _parse_tables(
     if df.is_empty():
         raise ParseError(
             f"Demosta {demo_path.name} ei löytynyt yhtään pelattua kierrosta "
-            f"({ohitetut} kierrosrajaa oli warmupia, puukkokierros tai "
+            f"({skipped_rounds} kierrosrajaa oli warmupia, puukkokierros tai "
             "uudelleenkäynnistys).\n"
             "Tyhjää tulosta ei kirjoiteta -- muuten se jäisi manifestin "
             "perusteella pysyvästi ohitetuksi. Tarkista, että demo on koko "
@@ -719,7 +719,7 @@ def _parse_tables(
     check_win_reasons(df)
     _check_two_rows_per_round(df)
 
-    ticks = _number_ticks(tables.ticks, numeroitu, map_demo_id)
+    ticks = _number_ticks(tables.ticks, numbered, map_demo_id)
     validate(ticks, TICKS, TICKS_TABLE)
 
     if ticks.is_empty():
@@ -737,14 +737,14 @@ def _parse_tables(
     # demossa on aina pelattuja kierroksia ja asetelmia, mutta utility voi
     # aidosti puuttua (harjoitusottelu, pelkkiä pistoolikierroksia). Virhe
     # estäisi koko demon parsinnan tiedosta, joka on itsessään havainto.
-    events, numeroimattomat = _number_events(tables.events, numeroitu, map_demo_id)
+    events, unnumbered = _number_events(tables.events, numbered, map_demo_id)
     validate(events, EVENTS, EVENTS_TABLE)
 
-    return df, ticks, events, ohitetut, numeroimattomat
+    return df, ticks, events, skipped_rounds, unnumbered
 
 
 def _number_ticks(
-    ticks: pl.DataFrame, numeroitu: pl.DataFrame, map_demo_id: str
+    ticks: pl.DataFrame, numbered: pl.DataFrame, map_demo_id: str
 ) -> pl.DataFrame:
     """Liitä näytepisteisiin ``round_no`` ja pudota numeroimattomat kierrokset.
 
@@ -755,25 +755,25 @@ def _number_ticks(
     kierrostaulusta, jolloin taulut eivät voi olla eri mieltä siitä mikä
     kierros pelattiin.
     """
-    numerot = (
-        numeroitu.select("round_raw", "round_no")
+    numbers = (
+        numbered.select("round_raw", "round_no")
         .unique(subset=["round_raw"], keep="first")
         .filter(pl.col("round_no").is_not_null())
     )
-    liitetty = (
+    joined = (
         ticks.drop("round_no")
-        .join(numerot, on="round_raw", how="inner")
+        .join(numbers, on="round_raw", how="inner")
         .select(
             pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
             *[pl.col(name) for name in TICKS if name != "map_demo_id"],
         )
         .sort("round_no", "sample_t_s", "sample_kind", "side", "player_id")
     )
-    return liitetty
+    return joined
 
 
 def _number_events(
-    events: pl.DataFrame, numeroitu: pl.DataFrame, map_demo_id: str
+    events: pl.DataFrame, numbered: pl.DataFrame, map_demo_id: str
 ) -> tuple[pl.DataFrame, int]:
     """Liitä tapahtumiin ``round_no`` ja pudota numeroimattomat kierrokset.
 
@@ -791,23 +791,23 @@ def _number_events(
         muuta utilityn pudotussyytä raportoidaan nimenomaan siksi, ettei
         utility katoa hiljaa -- eikä tämä saa olla poikkeus.
     """
-    numerot = (
-        numeroitu.select("round_raw", "round_no")
+    numbers = (
+        numbered.select("round_raw", "round_no")
         .unique(subset=["round_raw"], keep="first")
         .filter(pl.col("round_no").is_not_null())
     )
-    liitetty = (
+    joined = (
         events.drop("round_no")
-        .join(numerot, on="round_raw", how="inner")
+        .join(numbers, on="round_raw", how="inner")
         .select(
             pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
             *[pl.col(name) for name in EVENTS if name != "map_demo_id"],
         )
         .sort("round_no", "grenade_entity_id", "event_kind", "t_s")
     )
-    ennen = int(events.filter(pl.col("event_kind") == THROWN).height)
-    jalkeen = int(liitetty.filter(pl.col("event_kind") == THROWN).height)
-    return liitetty, ennen - jalkeen
+    before = int(events.filter(pl.col("event_kind") == THROWN).height)
+    after = int(joined.filter(pl.col("event_kind") == THROWN).height)
+    return joined, before - after
 
 
 def _record_failure(
@@ -815,11 +815,11 @@ def _record_failure(
     archive: ArchivePaths,
     manifest_abs: Path,
     tables_abs: tuple[Path, ...],
-    olemassa: Manifest | None,
+    existing: Manifest | None,
     result_id: str,
     params_hash: str,
     inputs: list[ManifestInput],
-    versiot: dict[str, str],
+    versions: dict[str, str],
     reason: str,
 ) -> None:
     """Kirjaa epäonnistuminen manifestiin -- mutta älä tuhoa ehjää tulosta.
@@ -831,20 +831,20 @@ def _record_failure(
     **Kaikkien** taulujen on oltava paikallaan: vanha ``rounds`` uuden
     ``ticks``-taulun kanssa olisi puolikas tulos, joka näyttäisi ehjältä.
     """
-    ehja_tulos = (
-        olemassa is not None
-        and olemassa.status == "ok"
-        and olemassa.outputs_present(archive.root)
-        and all(polku.is_file() for polku in tables_abs)
+    intact_result = (
+        existing is not None
+        and existing.status == "ok"
+        and existing.outputs_present(archive.root)
+        and all(path.is_file() for path in tables_abs)
     )
-    if ehja_tulos:
+    if intact_result:
         return
     Manifest.new(
         result_id=result_id,
         stage=STAGE,
         params_hash=params_hash,
         inputs=inputs,
-        tool_versions=versiot,
+        tool_versions=versions,
         status="parse_failed",
         reason=reason,
         outputs=(),

@@ -191,7 +191,7 @@ def sample_ticks(
             sisään, jossa pelaajat eivät ole vielä liikkuneet.
     """
     _check_tick_rate(tick_rate)
-    sekunnit = _unique_sorted_seconds(sample_seconds)
+    seconds_list = _unique_sorted_seconds(sample_seconds)
 
     points: list[SamplePoint] = []
     for bounds in segments:
@@ -200,7 +200,7 @@ def sample_ticks(
         freeze_end = bounds.freeze_end_tick
         end = bounds.end_tick
         assert freeze_end is not None and end is not None  # is_samplable
-        for seconds in sekunnit:
+        for seconds in seconds_list:
             tick = freeze_end + round(seconds * tick_rate)
             if tick > end:
                 # Kierros ratkesi ennen tätä hetkeä: pistettä ei ole olemassa.
@@ -252,18 +252,18 @@ def first_contact_tick(
     """
     if not round_bounds.is_samplable:
         return None
-    kielletyt = {
+    excluded_weapons = {
         w
         for w in (normalize_weapon(name) for name in exclude_weapons)
         if w is not None
     }
 
-    osuma = _first_matching(hurt_events, round_bounds, kielletyt)
-    if osuma is not None:
-        return osuma
+    hit = _first_matching(hurt_events, round_bounds, excluded_weapons)
+    if hit is not None:
+        return hit
     if not fallback_death:
         return None
-    return _first_matching(death_events, round_bounds, kielletyt)
+    return _first_matching(death_events, round_bounds, excluded_weapons)
 
 
 # -- Sisäinen -----------------------------------------------------------------
@@ -297,14 +297,14 @@ def _is_contact(
     if event.attacker_side == event.victim_side:
         # Oma vahinko. Se ei kerro vastustajan asetelmasta mitään.
         return False
-    ase = normalize_weapon(event.weapon)
-    if ase is None:
+    weapon_name = normalize_weapon(event.weapon)
+    if weapon_name is None:
         # Tuntematon tai tyhjä asenimi ei kelpaa kontaktiksi. Tyhjä nimi ei ole
         # poissuljettujen listalla, joten se menisi muuten läpi juuri kuin
         # kiväärillä ammuttu osuma -- ja ensikontakti voisi aikaistua hetkeen,
         # jonka lähdettä ei tunneta.
         return False
-    return ase not in excluded
+    return weapon_name not in excluded
 
 
 def _check_tick_rate(tick_rate: float) -> None:
@@ -317,12 +317,12 @@ def _check_tick_rate(tick_rate: float) -> None:
 
 def _unique_sorted_seconds(sample_seconds: Sequence[float]) -> list[float]:
     """Näytepisteet nousevassa järjestyksessä, kaksoiskappaleet poistettuna."""
-    arvot = [float(s) for s in sample_seconds]
-    negatiiviset = [s for s in arvot if s < 0]
-    if negatiiviset:
+    values = [float(s) for s in sample_seconds]
+    negative = [s for s in values if s < 0]
+    if negative:
         raise ValueError(
-            f"Näytepiste {negatiiviset[0]:g} s on negatiivinen. Näytepisteet "
+            f"Näytepiste {negative[0]:g} s on negatiivinen. Näytepisteet "
             "mitataan freezetimen lopusta eteenpäin, joten negatiivinen arvo "
             "osoittaisi ostoaikaan, jossa pelaajat eivät ole vielä liikkuneet."
         )
-    return sorted(set(arvot))
+    return sorted(set(values))

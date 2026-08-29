@@ -270,10 +270,10 @@ def compute_params_hash(params: Mapping[str, Any]) -> str:
             params, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         )
     except TypeError as exc:
-        pahat = _offending_keys(params)
+        offending = _offending_keys(params)
         raise PappascoutError(
             "Parametrihashia ei voi laskea: asetusosassa on arvo, jota ei voi "
-            f"esittää JSONina ({pahat or exc}).\n"
+            f"esittää JSONina ({offending or exc}).\n"
             "Muunna arvo ensin JSON-tyypiksi, esimerkiksi "
             'settings.parse.model_dump(mode="json").\n'
             "Syy tiukkuudelle: esimerkiksi WindowsPath merkkijonoutuu "
@@ -285,23 +285,23 @@ def compute_params_hash(params: Mapping[str, Any]) -> str:
 
 def _offending_keys(params: Mapping[str, Any]) -> str:
     """Etsi avaimet, joiden arvo ei ole JSON-serialisoituva."""
-    pahat: list[str] = []
+    offending: list[str] = []
 
-    def walk(value: Any, polku: str) -> None:
+    def walk(value: Any, path: str) -> None:
         if value is None or isinstance(value, (str, int, float, bool)):
             return
         if isinstance(value, Mapping):
-            for avain, alarvo in value.items():
-                walk(alarvo, f"{polku}.{avain}" if polku else str(avain))
+            for key, item in value.items():
+                walk(item, f"{path}.{key}" if path else str(key))
             return
         if isinstance(value, (list, tuple)):
-            for i, alarvo in enumerate(value):
-                walk(alarvo, f"{polku}[{i}]")
+            for i, item in enumerate(value):
+                walk(item, f"{path}[{i}]")
             return
-        pahat.append(f"{polku} = {type(value).__name__}")
+        offending.append(f"{path} = {type(value).__name__}")
 
     walk(dict(params), "")
-    return ", ".join(pahat)
+    return ", ".join(offending)
 
 
 def tool_versions(*names: str) -> dict[str, str]:
@@ -317,13 +317,13 @@ def tool_versions(*names: str) -> dict[str, str]:
             tuottaisi manifestin, joka näyttää täsmäävän vaikka työkalu on
             vaihtunut.
     """
-    versiot: dict[str, str] = {}
-    for nimi in names:
+    versions: dict[str, str] = {}
+    for name in names:
         try:
-            versiot[nimi] = _package_version(nimi)
+            versions[name] = _package_version(name)
         except PackageNotFoundError as exc:
             raise PappascoutError(
-                f"Pakettia {nimi} ei ole asennettu, joten sen versiota ei voi "
+                f"Pakettia {name} ei ole asennettu, joten sen versiota ei voi "
                 "kirjata manifestiin. Aja: uv sync"
             ) from exc
-    return versiot
+    return versions

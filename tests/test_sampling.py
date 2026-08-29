@@ -43,12 +43,12 @@ UTILITY = (
 SECONDS = [6.0, 15.0, 30.0, 45.0]
 
 
-def bounds(kesto_s: float, *, round_raw: int = 1) -> RoundBounds:
+def bounds(duration_s: float, *, round_raw: int = 1) -> RoundBounds:
     """Kierros, joka ratkeaa ``kesto_s`` sekunnin kuluttua ankkurista."""
     return RoundBounds(
         round_raw=round_raw,
         freeze_end_tick=FREEZE,
-        end_tick=FREEZE + round(kesto_s * RATE),
+        end_tick=FREEZE + round(duration_s * RATE),
     )
 
 
@@ -86,10 +86,10 @@ def test_sample_kinds_are_exactly_the_schema_enum() -> None:
 
 def test_a_long_round_gets_every_configured_sample_point() -> None:
     """I/O-matriisi: yli 45 s kestävä kierros saa kaikki neljä aikapistettä."""
-    pisteet = sample_ticks([bounds(90)], RATE, SECONDS)
-    assert [p.sample_t_s for p in pisteet] == SECONDS
-    assert {p.sample_kind for p in pisteet} == {TIME_SAMPLE}
-    assert [p.tick for p in pisteet] == [
+    points = sample_ticks([bounds(90)], RATE, SECONDS)
+    assert [p.sample_t_s for p in points] == SECONDS
+    assert {p.sample_kind for p in points} == {TIME_SAMPLE}
+    assert [p.tick for p in points] == [
         FREEZE + 6 * 64,
         FREEZE + 15 * 64,
         FREEZE + 30 * 64,
@@ -98,16 +98,16 @@ def test_a_long_round_gets_every_configured_sample_point() -> None:
 
 
 def test_seconds_become_ticks_from_the_freeze_end_anchor() -> None:
-    piste = sample_ticks([bounds(90)], RATE, [15.0])[0]
-    assert piste.tick == FREEZE + 15 * 64
-    assert piste.t_s == pytest.approx(15.0)
-    assert piste.round_raw == 1
+    point = sample_ticks([bounds(90)], RATE, [15.0])[0]
+    assert point.tick == FREEZE + 15 * 64
+    assert point.t_s == pytest.approx(15.0)
+    assert point.round_raw == 1
 
 
 def test_a_short_round_loses_the_points_it_never_reached() -> None:
     """I/O-matriisi: 28 sekunnissa ratkennut kierros saa vain 6 ja 15."""
-    pisteet = sample_ticks([bounds(28)], RATE, SECONDS)
-    assert [p.sample_t_s for p in pisteet] == [6.0, 15.0]
+    points = sample_ticks([bounds(28)], RATE, SECONDS)
+    assert [p.sample_t_s for p in points] == [6.0, 15.0]
 
 
 def test_a_very_short_round_gets_no_time_samples_at_all() -> None:
@@ -121,16 +121,16 @@ def test_a_very_short_round_gets_no_time_samples_at_all() -> None:
 
 def test_a_point_exactly_at_the_end_tick_is_kept() -> None:
     """Kierroksen ratkeamishetki ei ole vielä "sen jälkeen"."""
-    pisteet = sample_ticks([bounds(30)], RATE, [30.0])
-    assert len(pisteet) == 1
-    assert pisteet[0].tick == bounds(30).end_tick
+    points = sample_ticks([bounds(30)], RATE, [30.0])
+    assert len(points) == 1
+    assert points[0].tick == bounds(30).end_tick
 
 
 def test_a_point_one_tick_past_the_end_is_dropped() -> None:
-    rajat = RoundBounds(
+    round_bounds = RoundBounds(
         round_raw=1, freeze_end_tick=FREEZE, end_tick=FREEZE + 30 * 64 - 1
     )
-    assert sample_ticks([rajat], RATE, [30.0]) == []
+    assert sample_ticks([round_bounds], RATE, [30.0]) == []
 
 
 def test_t_s_is_computed_from_the_chosen_tick_not_the_nominal_second() -> None:
@@ -138,12 +138,12 @@ def test_t_s_is_computed_from_the_chosen_tick_not_the_nominal_second() -> None:
 
     Ilman tätä eroa taulu väittäisi hetkeä, jota ei luettu.
     """
-    piste = sample_ticks([bounds(90)], 63.7, [6.0])[0]
-    odotettu_tick = FREEZE + round(6.0 * 63.7)  # 382
-    assert piste.tick == odotettu_tick
-    assert piste.sample_t_s == 6.0
-    assert piste.t_s == pytest.approx((odotettu_tick - FREEZE) / 63.7)
-    assert piste.t_s != 6.0
+    point = sample_ticks([bounds(90)], 63.7, [6.0])[0]
+    expected_tick = FREEZE + round(6.0 * 63.7)  # 382
+    assert point.tick == expected_tick
+    assert point.sample_t_s == 6.0
+    assert point.t_s == pytest.approx((expected_tick - FREEZE) / 63.7)
+    assert point.t_s != 6.0
 
 
 def test_a_round_without_a_freeze_anchor_is_not_sampled() -> None:
@@ -152,26 +152,26 @@ def test_a_round_without_a_freeze_anchor_is_not_sampled() -> None:
     Ilman ankkuria ``t_s`` ei ole määritelty, eikä kierrosta voi verrata
     muihin.
     """
-    rajat = RoundBounds(round_raw=3, freeze_end_tick=None, end_tick=FREEZE + 10_000)
-    assert sample_ticks([rajat], RATE, SECONDS) == []
+    round_bounds = RoundBounds(round_raw=3, freeze_end_tick=None, end_tick=FREEZE + 10_000)
+    assert sample_ticks([round_bounds], RATE, SECONDS) == []
 
 
 def test_a_round_that_never_ended_is_not_sampled() -> None:
     """Ilman päättymistickiä pisteitä ei voi rajata kierrokseen."""
-    rajat = RoundBounds(round_raw=3, freeze_end_tick=FREEZE, end_tick=None)
-    assert sample_ticks([rajat], RATE, SECONDS) == []
+    round_bounds = RoundBounds(round_raw=3, freeze_end_tick=FREEZE, end_tick=None)
+    assert sample_ticks([round_bounds], RATE, SECONDS) == []
 
 
 def test_a_round_whose_bounds_are_reversed_is_not_sampled() -> None:
-    rajat = RoundBounds(round_raw=3, freeze_end_tick=FREEZE, end_tick=FREEZE - 100)
-    assert sample_ticks([rajat], RATE, SECONDS) == []
+    round_bounds = RoundBounds(round_raw=3, freeze_end_tick=FREEZE, end_tick=FREEZE - 100)
+    assert sample_ticks([round_bounds], RATE, SECONDS) == []
 
 
 def test_points_are_ordered_by_round_and_time_whatever_the_input_order() -> None:
-    pisteet = sample_ticks(
+    points = sample_ticks(
         [bounds(90, round_raw=2), bounds(90, round_raw=1)], RATE, [30.0, 6.0]
     )
-    assert [(p.round_raw, p.sample_t_s) for p in pisteet] == [
+    assert [(p.round_raw, p.sample_t_s) for p in points] == [
         (2, 6.0),
         (2, 30.0),
         (1, 6.0),
@@ -181,14 +181,14 @@ def test_points_are_ordered_by_round_and_time_whatever_the_input_order() -> None
 
 def test_a_duplicated_sample_second_produces_one_point() -> None:
     """Asetustiedoston kirjoitusvirhe ei saa kahdentaa otantaa."""
-    pisteet = sample_ticks([bounds(90)], RATE, [6.0, 6.0, 15.0])
-    assert [p.sample_t_s for p in pisteet] == [6.0, 15.0]
+    points = sample_ticks([bounds(90)], RATE, [6.0, 6.0, 15.0])
+    assert [p.sample_t_s for p in points] == [6.0, 15.0]
 
 
 def test_zero_seconds_is_the_anchor_itself() -> None:
-    piste = sample_ticks([bounds(90)], RATE, [0.0])[0]
-    assert piste.tick == FREEZE
-    assert piste.t_s == 0.0
+    point = sample_ticks([bounds(90)], RATE, [0.0])[0]
+    assert point.tick == FREEZE
+    assert point.t_s == 0.0
 
 
 @pytest.mark.parametrize("rate", [0.0, -64.0])
@@ -213,8 +213,8 @@ def test_seconds_since_freeze_end_matches_the_rounds_table_formula() -> None:
 
 def test_the_first_cross_side_hit_is_the_contact() -> None:
     """I/O-matriisi: ensimmäinen ristiinpuolinen osuma ei-utilityaseella."""
-    tapahtumat = [hurt(30.0), hurt(12.0), hurt(20.0)]
-    tick = first_contact_tick(tapahtumat, bounds(90), exclude_weapons=UTILITY)
+    events = [hurt(30.0), hurt(12.0), hurt(20.0)]
+    tick = first_contact_tick(events, bounds(90), exclude_weapons=UTILITY)
     assert tick == FREEZE + round(12.0 * RATE)
 
 
@@ -228,33 +228,33 @@ def test_utility_only_damage_is_not_a_contact() -> None:
 
     Kierros on silti mukana, se vain jää ilman ``first_contact``-rivejä.
     """
-    tapahtumat = [hurt(20.0, weapon="molotov"), hurt(25.0, weapon="inferno")]
-    assert first_contact_tick(tapahtumat, bounds(90), exclude_weapons=UTILITY) is None
+    events = [hurt(20.0, weapon="molotov"), hurt(25.0, weapon="inferno")]
+    assert first_contact_tick(events, bounds(90), exclude_weapons=UTILITY) is None
 
 
 def test_utility_damage_does_not_hide_a_later_real_contact() -> None:
-    tapahtumat = [hurt(10.0, weapon="hegrenade"), hurt(22.0, weapon="awp")]
-    tick = first_contact_tick(tapahtumat, bounds(90), exclude_weapons=UTILITY)
+    events = [hurt(10.0, weapon="hegrenade"), hurt(22.0, weapon="awp")]
+    tick = first_contact_tick(events, bounds(90), exclude_weapons=UTILITY)
     assert tick == FREEZE + round(22.0 * RATE)
 
 
 def test_friendly_fire_is_not_a_contact() -> None:
     """I/O-matriisi: tekijä samalla puolella."""
-    oma = hurt(10.0, attacker="t1", victim="t2", victim_side="T")
-    vastustaja = hurt(40.0)
-    tick = first_contact_tick([oma, vastustaja], bounds(90), exclude_weapons=UTILITY)
+    same_side = hurt(10.0, attacker="t1", victim="t2", victim_side="T")
+    opponent = hurt(40.0)
+    tick = first_contact_tick([same_side, opponent], bounds(90), exclude_weapons=UTILITY)
     assert tick == FREEZE + round(40.0 * RATE)
 
 
 def test_self_damage_is_not_a_contact() -> None:
     """I/O-matriisi: tekijä = uhri."""
-    itse = hurt(10.0, attacker="t1", victim="t1", victim_side="T")
-    assert first_contact_tick([itse], bounds(90), exclude_weapons=UTILITY) is None
+    self_damage = hurt(10.0, attacker="t1", victim="t1", victim_side="T")
+    assert first_contact_tick([self_damage], bounds(90), exclude_weapons=UTILITY) is None
 
 
 def test_world_damage_without_an_attacker_is_not_a_contact() -> None:
     """Putoamisvahingolla ei ole tekijää, joten se ei kerro kohtaamisesta."""
-    putoaminen = DamageEvent(
+    fall_damage = DamageEvent(
         tick=FREEZE + 640,
         attacker_id=None,
         victim_id="ct1",
@@ -262,20 +262,20 @@ def test_world_damage_without_an_attacker_is_not_a_contact() -> None:
         attacker_side=None,
         victim_side="CT",
     )
-    assert first_contact_tick([putoaminen], bounds(90), exclude_weapons=UTILITY) is None
+    assert first_contact_tick([fall_damage], bounds(90), exclude_weapons=UTILITY) is None
 
 
 def test_a_player_whose_side_is_unknown_is_not_a_contact() -> None:
     """Puolen arvaaminen kohdistaisi kontaktin väärälle joukkueelle."""
-    tuntematon = hurt(10.0, attacker_side=None)
-    assert first_contact_tick([tuntematon], bounds(90), exclude_weapons=UTILITY) is None
+    unknown_side = hurt(10.0, attacker_side=None)
+    assert first_contact_tick([unknown_side], bounds(90), exclude_weapons=UTILITY) is None
 
 
 def test_damage_outside_the_round_belongs_to_another_round() -> None:
     """Kierroksen jälkeinen osuma kuuluu seuraavaan kierrokseen, ei tähän."""
-    rajat = bounds(30)
-    jalkeen = hurt(45.0)
-    ennen = DamageEvent(
+    round_bounds = bounds(30)
+    after_end = hurt(45.0)
+    before_start = DamageEvent(
         tick=FREEZE - 500,
         attacker_id="t1",
         victim_id="ct1",
@@ -284,17 +284,17 @@ def test_damage_outside_the_round_belongs_to_another_round() -> None:
         victim_side="CT",
     )
     assert (
-        first_contact_tick([jalkeen, ennen], rajat, exclude_weapons=UTILITY) is None
+        first_contact_tick([after_end, before_start], round_bounds, exclude_weapons=UTILITY) is None
     )
 
 
 def test_death_is_the_fallback_when_no_hurt_event_qualifies() -> None:
-    kuolema = hurt(18.0)
+    death = hurt(18.0)
     tick = first_contact_tick(
         [],
         bounds(90),
         exclude_weapons=UTILITY,
-        death_events=[kuolema],
+        death_events=[death],
         fallback_death=True,
     )
     assert tick == FREEZE + round(18.0 * RATE)
@@ -335,8 +335,8 @@ def test_a_death_by_utility_is_not_a_contact_either() -> None:
 
 def test_a_round_without_an_anchor_has_no_contact() -> None:
     """Ilman ankkuria kontaktin hetkeä ei voisi ilmaista ``t_s``:nä."""
-    rajat = RoundBounds(round_raw=1, freeze_end_tick=None, end_tick=FREEZE + 5000)
-    assert first_contact_tick([hurt(10.0)], rajat, exclude_weapons=UTILITY) is None
+    round_bounds = RoundBounds(round_raw=1, freeze_end_tick=None, end_tick=FREEZE + 5000)
+    assert first_contact_tick([hurt(10.0)], round_bounds, exclude_weapons=UTILITY) is None
 
 
 def test_an_empty_exclude_list_lets_utility_count() -> None:
@@ -349,7 +349,7 @@ def test_an_empty_exclude_list_lets_utility_count() -> None:
 
 
 @pytest.mark.parametrize(
-    "syote,odotettu",
+    "raw_name,expected",
     [
         ("hegrenade", "hegrenade"),
         ("weapon_hegrenade", "hegrenade"),
@@ -359,8 +359,8 @@ def test_an_empty_exclude_list_lets_utility_count() -> None:
         (None, None),
     ],
 )
-def test_weapon_names_are_compared_normalised(syote, odotettu) -> None:
-    assert normalize_weapon(syote) == odotettu
+def test_weapon_names_are_compared_normalised(raw_name, expected) -> None:
+    assert normalize_weapon(raw_name) == expected
 
 
 def test_the_exclude_list_is_normalised_too() -> None:

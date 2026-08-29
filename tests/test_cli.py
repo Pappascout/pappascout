@@ -59,21 +59,21 @@ def test_info_shows_settings_archive_and_key_status(
 ) -> None:
     env = env_file(FACEIT_API_KEY=FAKE_KEY, FACEIT_DOWNLOADS_TOKEN=FAKE_TOKEN)
     settings = load_settings(settings_file, env_files=(env,))
-    tuloste = _render_info(settings)
+    output_text = _render_info(settings)
 
     # Asetukset
-    assert "PotkukelkkaPeek" in tuloste
-    assert "de_mirage" in tuloste
-    assert "MR12" in tuloste
-    assert "12500" in tuloste
-    assert "4000" in tuloste
-    assert str(settings_file) in tuloste
+    assert "PotkukelkkaPeek" in output_text
+    assert "de_mirage" in output_text
+    assert "MR12" in output_text
+    assert "12500" in output_text
+    assert "4000" in output_text
+    assert str(settings_file) in output_text
 
     # Avaimet: tila kyllä, arvo ei
-    assert "FACEIT_API_KEY" in tuloste
-    assert "asetettu" in tuloste
-    assert FAKE_KEY not in tuloste
-    assert FAKE_TOKEN not in tuloste
+    assert "FACEIT_API_KEY" in output_text
+    assert "asetettu" in output_text
+    assert FAKE_KEY not in output_text
+    assert FAKE_TOKEN not in output_text
 
 
 def test_info_reports_missing_key_without_crashing(
@@ -81,28 +81,28 @@ def test_info_reports_missing_key_without_crashing(
 ) -> None:
     env = env_file(FACEIT_DOWNLOADS_TOKEN=FAKE_TOKEN)
     settings = load_settings(settings_file, env_files=(env,))
-    tuloste = _render_info(settings)
-    avainrivi = _section(tuloste, "Avaimet")
-    assert "FACEIT_API_KEY" in avainrivi
-    assert "puuttuu" in avainrivi
-    assert FAKE_TOKEN not in tuloste
+    output_text = _render_info(settings)
+    keys_section = _section(output_text, "Avaimet")
+    assert "FACEIT_API_KEY" in keys_section
+    assert "puuttuu" in keys_section
+    assert FAKE_TOKEN not in output_text
 
 
 def test_info_is_finnish(settings_file: Path) -> None:
     settings = load_settings(settings_file, env_files=())
-    tuloste = _render_info(settings)
-    for sana in ("Asetukset", "Oma joukkue", "Karttapooli", "Arkisto", "Avaimet"):
-        assert sana in tuloste
+    output_text = _render_info(settings)
+    for word in ("Asetukset", "Oma joukkue", "Karttapooli", "Arkisto", "Avaimet"):
+        assert word in output_text
 
 
-def _section(tuloste: str, otsikko: str) -> str:
+def _section(output_text: str, heading: str) -> str:
     """Poimi yhden osion rivit, jotta assertio ei osu vahingossa toiseen osioon."""
-    rivit = tuloste.splitlines()
-    alku = rivit.index(otsikko) + 1
-    loppu = alku
-    while loppu < len(rivit) and rivit[loppu].startswith("  "):
-        loppu += 1
-    return "\n".join(rivit[alku:loppu])
+    lines = output_text.splitlines()
+    start = lines.index(heading) + 1
+    end = start
+    while end < len(lines) and lines[end].startswith("  "):
+        end += 1
+    return "\n".join(lines[start:end])
 
 
 # --- info: arkiston rivi -----------------------------------------------------
@@ -113,57 +113,57 @@ def test_info_reports_missing_archive_precisely(
 ) -> None:
     """Arkiston puuttuminen näkyy arkisto-osiossa, eikä hakemistoa luoda."""
     settings = load_settings(settings_file, env_files=())
-    arkisto_osio = _section(_render_info(settings), "Arkisto")
+    archive_section = _section(_render_info(settings), "Arkisto")
 
-    puuttuva = tmp_path / "arkisto"
-    assert str(puuttuva) in arkisto_osio
-    assert "Tila" in arkisto_osio
-    assert "puuttuu" in arkisto_osio
-    assert "löytyy" not in arkisto_osio
-    assert not puuttuva.exists()
+    missing_dir = tmp_path / "arkisto"
+    assert str(missing_dir) in archive_section
+    assert "Tila" in archive_section
+    assert "puuttuu" in archive_section
+    assert "löytyy" not in archive_section
+    assert not missing_dir.exists()
 
 
 def test_info_reports_existing_archive(tmp_path: Path) -> None:
-    arkisto = tmp_path / "arkisto"
-    (arkisto / "index").mkdir(parents=True)
-    (arkisto / "index" / "teams.json").write_bytes(b"12345")
+    archive_dir = tmp_path / "arkisto"
+    (archive_dir / "index").mkdir(parents=True)
+    (archive_dir / "index" / "teams.json").write_bytes(b"12345")
 
-    kohde = tmp_path / "settings.toml"
-    kohde.write_text(settings_text(arkisto), encoding="utf-8")
-    settings = load_settings(kohde, env_files=())
+    target = tmp_path / "settings.toml"
+    target.write_text(settings_text(archive_dir), encoding="utf-8")
+    settings = load_settings(target, env_files=())
 
-    osio = _section(_render_info(settings), "Arkisto")
-    assert "löytyy" in osio
-    assert "puuttuu" not in osio
+    section = _section(_render_info(settings), "Arkisto")
+    assert "löytyy" in section
+    assert "puuttuu" not in section
     # Kokoa ei lasketa ilman --koko.
-    assert "ei laskettu" in osio
-    assert "tavua" not in osio
+    assert "ei laskettu" in section
+    assert "tavua" not in section
 
 
 def test_info_computes_size_only_when_asked(tmp_path: Path) -> None:
     """NFR-1: info on nopea tilannekatsaus, joten koko on valinnainen."""
-    arkisto = tmp_path / "arkisto"
-    (arkisto / "index").mkdir(parents=True)
-    (arkisto / "index" / "teams.json").write_bytes(b"12345")
+    archive_dir = tmp_path / "arkisto"
+    (archive_dir / "index").mkdir(parents=True)
+    (archive_dir / "index" / "teams.json").write_bytes(b"12345")
 
-    kohde = tmp_path / "settings.toml"
-    kohde.write_text(settings_text(arkisto), encoding="utf-8")
-    settings = load_settings(kohde, env_files=())
+    target = tmp_path / "settings.toml"
+    target.write_text(settings_text(archive_dir), encoding="utf-8")
+    settings = load_settings(target, env_files=())
 
-    osio = _section(_render_info(settings, show_size=True), "Arkisto")
-    assert "5 tavua" in osio
-    assert "ei laskettu" not in osio
+    section = _section(_render_info(settings, show_size=True), "Arkisto")
+    assert "5 tavua" in section
+    assert "ei laskettu" not in section
 
 
-def test_koko_flag_runs_end_to_end(
+def test_size_flag_runs_end_to_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    arkisto = tmp_path / "arkisto"
-    arkisto.mkdir()
-    (arkisto / "x.json").write_bytes(b"1234")
-    kohde = tmp_path / "settings.toml"
-    kohde.write_text(settings_text(arkisto), encoding="utf-8")
-    monkeypatch.setenv(SETTINGS_ENV_VAR, str(kohde))
+    archive_dir = tmp_path / "arkisto"
+    archive_dir.mkdir()
+    (archive_dir / "x.json").write_bytes(b"1234")
+    target = tmp_path / "settings.toml"
+    target.write_text(settings_text(archive_dir), encoding="utf-8")
+    monkeypatch.setenv(SETTINGS_ENV_VAR, str(target))
 
     result = runner.invoke(app, ["info", "--koko"])
     assert result.exit_code == 0, result.output
@@ -193,11 +193,11 @@ def test_secrets_path_shown_comes_from_cli_module(
     settings_file: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Ilman .env-tiedostoa info näyttää cli:n oman oletuspolun."""
-    vale = tmp_path / "vale" / ".env"
-    monkeypatch.setattr("pappascout.cli.secrets_env_path", lambda: vale)
+    fake_path = tmp_path / "vale" / ".env"
+    monkeypatch.setattr("pappascout.cli.secrets_env_path", lambda: fake_path)
     settings = load_settings(settings_file, env_files=())
     assert settings.secrets_file is None
-    assert str(vale) in _render_info(settings)
+    assert str(fake_path) in _render_info(settings)
 
 
 # --- main(): virheiden käsittely (NFR-1) -------------------------------------
@@ -217,10 +217,10 @@ def test_main_turns_known_error_into_finnish_line(
         main()
 
     assert exc.value.code == EXIT_KNOWN_ERROR
-    virhe = capsys.readouterr().err
-    assert virhe.startswith("Virhe:")
-    assert "Traceback" not in virhe
-    assert "settings.toml" in virhe
+    err_text = capsys.readouterr().err
+    assert err_text.startswith("Virhe:")
+    assert "Traceback" not in err_text
+    assert "settings.toml" in err_text
 
 
 def test_main_never_shows_a_traceback_for_a_bug(
@@ -229,19 +229,19 @@ def test_main_never_shows_a_traceback_for_a_bug(
     """Ohjelmavirhe -> paluukoodi 2 ja lyhyt suomenkielinen rivi."""
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
 
-    def raja():
+    def boom():
         raise RuntimeError("odottamaton hajoaminen")
 
-    monkeypatch.setattr("pappascout.cli.load_settings", lambda *a, **k: raja())
+    monkeypatch.setattr("pappascout.cli.load_settings", lambda *a, **k: boom())
     monkeypatch.setattr("sys.argv", ["pappascout", "info"])
 
     with pytest.raises(SystemExit) as exc:
         main()
 
     assert exc.value.code == EXIT_UNEXPECTED_ERROR
-    virhe = capsys.readouterr().err
-    assert virhe.startswith("Odottamaton virhe:")
-    assert "Traceback" not in virhe
+    err_text = capsys.readouterr().err
+    assert err_text.startswith("Odottamaton virhe:")
+    assert "Traceback" not in err_text
 
 
 def test_main_exits_zero_on_success(
@@ -261,7 +261,7 @@ def test_main_exits_zero_on_success(
 
 
 @pytest.mark.parametrize(
-    "tavut,odotettu",
+    "num_bytes,expected",
     [
         (0, "0 tavua"),
         (1, "1 tavua"),
@@ -275,8 +275,8 @@ def test_main_exits_zero_on_success(
         (5 * 1024**5, "5,0 Pt"),
     ],
 )
-def test_human_size(tavut: int, odotettu: str) -> None:
-    assert _human_size(tavut) == odotettu
+def test_human_size(num_bytes: int, expected: str) -> None:
+    assert _human_size(num_bytes) == expected
 
 
 # --- Rakenne ------------------------------------------------------------------
@@ -291,7 +291,7 @@ def test_pipeline_packages_expose_their_contracts() -> None:
     """
     import importlib
 
-    odotetut = {
+    expected = {
         "pappascout.stages": ("StageResult", "archive_paths"),
         "pappascout.stages.parse": ("run", "resolve_demo", "default_parser"),
         "pappascout.adapters": (
@@ -301,10 +301,10 @@ def test_pipeline_packages_expose_their_contracts() -> None:
             "TICKS_ADAPTER_COLUMNS",
         ),
     }
-    for nimi, symbolit in odotetut.items():
-        moduuli = importlib.import_module(nimi)
-        for symboli in symbolit:
-            assert hasattr(moduuli, symboli), f"{nimi}.{symboli}"
+    for name, symbols in expected.items():
+        module = importlib.import_module(name)
+        for symbol in symbols:
+            assert hasattr(module, symbol), f"{name}.{symbol}"
 
 
 def test_help_lists_parse() -> None:

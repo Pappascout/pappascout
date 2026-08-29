@@ -46,8 +46,8 @@ def _real_import_dir() -> Path | None:
 
 #: Oikeiden demojen hakemisto, tai ``None`` jos sitä ei voitu päätellä.
 #: ``PAPPASCOUT_TEST_DEMOS`` ylikirjoittaa sen.
-_YMPARISTOSTA = os.environ.get("PAPPASCOUT_TEST_DEMOS")
-DEMO_DIR: Path | None = Path(_YMPARISTOSTA) if _YMPARISTOSTA else _real_import_dir()
+_FROM_ENV = os.environ.get("PAPPASCOUT_TEST_DEMOS")
+DEMO_DIR: Path | None = Path(_FROM_ENV) if _FROM_ENV else _real_import_dir()
 
 #: Testiaineisto (``_bmad-output/implementation-artifacts/testiaineisto.md``).
 ANCIENT_DEM = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1.dem"
@@ -95,10 +95,10 @@ def _isolate_from_machine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     # Path.home() lukee Windowsilla USERPROFILE:n ja muualla HOME:n. Kumpikin
     # ohjataan tyhjään hakemistoon, jotta secrets_env_path() ei osu oikeaan
     # avaintiedostoon.
-    koti = tmp_path / "koti"
-    koti.mkdir(exist_ok=True)
-    monkeypatch.setenv("HOME", str(koti))
-    monkeypatch.setenv("USERPROFILE", str(koti))
+    home_dir = tmp_path / "koti"
+    home_dir.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setenv("USERPROFILE", str(home_dir))
     monkeypatch.delenv("HOMEDRIVE", raising=False)
     monkeypatch.delenv("HOMEPATH", raising=False)
 
@@ -128,21 +128,21 @@ def settings_text(archive_root: Path | str, **replacements: str) -> str:
     Testit käyttävät samoja lukuja kuin tuotanto -- muuten ne eivät todistaisi
     mitään oikeasta asetustiedostosta -- mutta eivät koskaan oikeaa arkistoa.
     """
-    teksti = REAL_SETTINGS.read_text(encoding="utf-8")
-    rivi = next(r for r in teksti.splitlines() if r.startswith("archive_root"))
-    teksti = teksti.replace(rivi, f"archive_root = '{archive_root}'")
-    for vanha, uusi in replacements.items():
-        assert vanha in teksti, f"korvattavaa ei löydy: {vanha}"
-        teksti = teksti.replace(vanha, uusi)
-    return teksti
+    text = REAL_SETTINGS.read_text(encoding="utf-8")
+    line = next(r for r in text.splitlines() if r.startswith("archive_root"))
+    text = text.replace(line, f"archive_root = '{archive_root}'")
+    for old, new in replacements.items():
+        assert old in text, f"korvattavaa ei löydy: {old}"
+        text = text.replace(old, new)
+    return text
 
 
 @pytest.fixture
 def settings_file(tmp_path: Path) -> Path:
     """Kopio oikeasta ``settings.toml``ista, arkisto ohjattuna tmp_pathiin."""
-    arkisto = tmp_path / "arkisto"
+    archive_dir = tmp_path / "arkisto"
     target = tmp_path / "settings.toml"
-    target.write_text(settings_text(arkisto), encoding="utf-8")
+    target.write_text(settings_text(archive_dir), encoding="utf-8")
     return target
 
 

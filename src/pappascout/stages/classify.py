@@ -136,18 +136,18 @@ def run(
         ~pappascout.errors.SchemaError: Jos kierrostaulu tai tulos ei vastaa
             sopimusta.
     """
-    aloitus = time.perf_counter()
+    started = time.perf_counter()
     map_demo_id = safe_component(map_demo_id, "map_demo_id")
 
-    rounds, numeroimattomat = _read_rounds(archive, map_demo_id)
+    rounds, unnumbered = _read_rounds(archive, map_demo_id)
     parse_manifest = _read_parse_manifest(archive, map_demo_id)
     team_key = resolve_team(rounds, team, map_demo_id)
 
     table_rel = classified(team_key, map_demo_id)
-    lista_rel = classified_round_list(team_key, map_demo_id)
+    list_rel = classified_round_list(team_key, map_demo_id)
     manifest_rel = classified_manifest(team_key, map_demo_id)
     table_abs = archive.resolve(table_rel)
-    lista_abs = archive.resolve(lista_rel)
+    list_abs = archive.resolve(list_rel)
     manifest_abs = archive.resolve(manifest_rel)
 
     inputs = [
@@ -158,45 +158,45 @@ def run(
     ]
     params_hash = _params_hash(thresholds, league)
 
-    olemassa = Manifest.read_if_exists(manifest_abs)
-    valmis = None
+    existing = Manifest.read_if_exists(manifest_abs)
+    ready = None
     if (
         not force
-        and olemassa is not None
-        and olemassa.is_current(
+        and existing is not None
+        and existing.is_current(
             inputs=inputs,
             params_hash=params_hash,
             tool_versions={},
             root=archive.root,
         )
     ):
-        valmis = _usable_result(table_abs)
-    if valmis is not None:
+        ready = _usable_result(table_abs)
+    if ready is not None:
         return StageResult(
             stage=STAGE,
             unit=map_demo_id,
             status="ok",
             skipped=True,
-            outputs=tuple(PurePosixPath(o) for o in olemassa.outputs),
+            outputs=tuple(PurePosixPath(o) for o in existing.outputs),
             manifest_path=manifest_rel,
             reason=(
                 "Tulos on ajan tasalla: manifesti täsmää eikä kierroksia "
                 "tarvitse luokitella uudelleen."
             ),
-            duration_s=time.perf_counter() - aloitus,
+            duration_s=time.perf_counter() - started,
             stats=_stats(
-                round_list_rows(valmis), team_key, lista_rel, numeroimattomat
+                round_list_rows(ready), team_key, list_rel, unnumbered
             ),
         )
 
-    df, rivit = classify_rounds(rounds, team_key, thresholds, map_demo_id)
+    df, rows = classify_rounds(rounds, team_key, thresholds, map_demo_id)
 
     with atomic_path(table_abs) as tmp:
         df.write_parquet(tmp)
     atomic_write_text(
-        lista_abs,
+        list_abs,
         render_round_list_markdown(
-            rivit,
+            rows,
             map_demo_id=map_demo_id,
             team_key=team_key,
             thresholds=thresholds,
@@ -211,7 +211,7 @@ def run(
         inputs=inputs,
         tool_versions={},
         status="ok",
-        outputs=(str(table_rel), str(lista_rel)),
+        outputs=(str(table_rel), str(list_rel)),
     ).write(manifest_abs)
 
     return StageResult(
@@ -219,10 +219,10 @@ def run(
         unit=map_demo_id,
         status="ok",
         skipped=False,
-        outputs=(table_rel, lista_rel),
+        outputs=(table_rel, list_rel),
         manifest_path=manifest_rel,
-        duration_s=time.perf_counter() - aloitus,
-        stats=_stats(rivit, team_key, lista_rel, numeroimattomat),
+        duration_s=time.perf_counter() - started,
+        stats=_stats(rows, team_key, list_rel, unnumbered),
     )
 
 
@@ -246,18 +246,18 @@ def _read_rounds(
         PappascoutError: Jos taulua ei ole, sitä ei voi lukea, se on tyhjä tai
             se kuuluu toiselle demolle.
     """
-    polku = archive.resolve(parsed_table(map_demo_id, "rounds"))
-    if not polku.is_file():
+    path = archive.resolve(parsed_table(map_demo_id, "rounds"))
+    if not path.is_file():
         raise PappascoutError(
-            f"Demoa {map_demo_id} ei ole vielä parsittu: tiedostoa {polku} ei "
+            f"Demoa {map_demo_id} ei ole vielä parsittu: tiedostoa {path} ei "
             "ole.\n"
             f"Aja ensin: uv run pappascout parse {map_demo_id}"
         )
     try:
-        df = pl.read_parquet(polku)
+        df = pl.read_parquet(path)
     except (OSError, pl.exceptions.PolarsError) as exc:
         raise PappascoutError(
-            f"Kierrostaulua {polku} ei voitu lukea: {exc}\n"
+            f"Kierrostaulua {path} ei voitu lukea: {exc}\n"
             f"Aja parsinta uudelleen: uv run pappascout parse {map_demo_id} "
             "--pakota"
         ) from exc
@@ -266,30 +266,30 @@ def _read_rounds(
 
     # Väärä parquet oikeassa polussa luokiteltaisiin muuten väärän tunnisteen
     # alle, ja tulos näyttäisi täysin kelvolliselta.
-    vieraat = sorted(
+    foreign = sorted(
         {str(v) for v in df["map_demo_id"].unique().to_list() if v != map_demo_id}
     )
-    if vieraat:
+    if foreign:
         raise PappascoutError(
-            f"Kierrostaulu {polku} sisältää toisen demon rivejä "
-            f"({', '.join(vieraat)}), vaikka sen pitäisi olla demon "
+            f"Kierrostaulu {path} sisältää toisen demon rivejä "
+            f"({', '.join(foreign)}), vaikka sen pitäisi olla demon "
             f"{map_demo_id} taulu.\n"
             f"Poista hakemisto ja aja parsinta uudelleen: uv run pappascout "
             f"parse {map_demo_id} --pakota"
         )
 
-    numeroidut = df.filter(pl.col("round_no").is_not_null())
-    numeroimattomat = int(
+    numbered = df.filter(pl.col("round_no").is_not_null())
+    unnumbered = int(
         df.filter(pl.col("round_no").is_null())["round_raw"].n_unique()
     )
-    if numeroidut.is_empty():
+    if numbered.is_empty():
         raise PappascoutError(
-            f"Kierrostaulussa {polku} ei ole yhtään numeroitua kierrosta, joten "
+            f"Kierrostaulussa {path} ei ole yhtään numeroitua kierrosta, joten "
             "luokiteltavaa ei ole.\n"
             f"Aja parsinta uudelleen: uv run pappascout parse {map_demo_id} "
             "--pakota"
         )
-    return numeroidut, numeroimattomat
+    return numbered, unnumbered
 
 
 def _read_parse_manifest(archive: ArchivePaths, map_demo_id: str) -> Manifest:
@@ -299,11 +299,11 @@ def _read_parse_manifest(archive: ArchivePaths, map_demo_id: str) -> Manifest:
         PappascoutError: Jos manifestia ei ole tai parsinta ei onnistunut.
             Vanhentuneen tai epäonnistuneen parsinnan päälle ei luokitella.
     """
-    polku = archive.resolve(parsed_manifest(map_demo_id))
-    manifest = Manifest.read_if_exists(polku)
+    path = archive.resolve(parsed_manifest(map_demo_id))
+    manifest = Manifest.read_if_exists(path)
     if manifest is None:
         raise PappascoutError(
-            f"Parsinnan manifestia ei löytynyt polusta {polku}, joten "
+            f"Parsinnan manifestia ei löytynyt polusta {path}, joten "
             "luokittelun syötettä ei voi tunnistaa.\n"
             f"Aja ensin: uv run pappascout parse {map_demo_id}"
         )
@@ -374,40 +374,40 @@ def resolve_team(df: pl.DataFrame, team: str | None, map_demo_id: str) -> str:
             Viesti listaa aina demon kokoonpanot, joten seuraava komento on
             suoraan kopioitavissa.
     """
-    kokoonpanot = _lineups(df)
+    lineups = _lineups(df)
     if team is None:
         raise PappascoutError(
             "Kerro --team-valinnalla, kumman joukkueen näkökulmasta demo "
-            f"{map_demo_id} luokitellaan.\n{_lineup_listing(kokoonpanot)}"
+            f"{map_demo_id} luokitellaan.\n{_lineup_listing(lineups)}"
         )
 
-    haku = team.strip().lower()
-    osumat = [k for k in kokoonpanot if k["lineup_key"].lower() == haku]
-    if not osumat:
-        osumat = [k for k in kokoonpanot if k["lineup_key"].lower().startswith(haku)]
-    if len(osumat) == 1:
-        return safe_component(str(osumat[0]["lineup_key"]), "team_key")
+    query = team.strip().lower()
+    matches = [k for k in lineups if k["lineup_key"].lower() == query]
+    if not matches:
+        matches = [k for k in lineups if k["lineup_key"].lower().startswith(query)]
+    if len(matches) == 1:
+        return safe_component(str(matches[0]["lineup_key"]), "team_key")
 
-    ongelma = (
+    problem = (
         f"Kokoonpanotunniste {team!r} täsmää useampaan kuin yhteen kokoonpanoon."
-        if osumat
+        if matches
         else (
             f"Kokoonpanotunniste {team!r} ei täsmää kumpaankaan demon "
             f"{map_demo_id} kokoonpanoon."
         )
     )
-    raise PappascoutError(f"{ongelma}\n{_lineup_listing(kokoonpanot)}")
+    raise PappascoutError(f"{problem}\n{_lineup_listing(lineups)}")
 
 
 def _lineups(df: pl.DataFrame) -> list[dict[str, object]]:
     """Demon kokoonpanot tunnisteineen, aloituspuolineen ja voittoineen."""
-    ensimmainen = df["round_no"].min()
-    yhteenveto = (
+    first_round = df["round_no"].min()
+    summary = (
         df.group_by("lineup_key")
         .agg(
             pl.col("won").fill_null(False).sum().alias("wins"),
             pl.col("side")
-            .filter(pl.col("round_no") == ensimmainen)
+            .filter(pl.col("round_no") == first_round)
             .first()
             .alias("first_side"),
         )
@@ -419,24 +419,24 @@ def _lineups(df: pl.DataFrame) -> list[dict[str, object]]:
             "wins": int(r["wins"] or 0),
             "first_side": None if r["first_side"] is None else str(r["first_side"]),
         }
-        for r in yhteenveto.iter_rows(named=True)
+        for r in summary.iter_rows(named=True)
     ]
 
 
-def _lineup_listing(kokoonpanot: list[dict[str, object]]) -> str:
-    if not kokoonpanot:
+def _lineup_listing(lineups: list[dict[str, object]]) -> str:
+    if not lineups:
         return "Kierrostaulussa ei ole yhtään kokoonpanoa."
-    rivit = [
+    rows = [
         f"    {k['lineup_key']}  (aloitti puolella {k['first_side'] or '?'}, "
         f"voitti {k['wins']} kierrosta)"
-        for k in kokoonpanot
+        for k in lineups
     ]
-    esimerkki = str(kokoonpanot[0]["lineup_key"])[:8]
+    example = str(lineups[0]["lineup_key"])[:8]
     return (
         "Demon kokoonpanot ovat:\n"
-        + "\n".join(rivit)
+        + "\n".join(rows)
         + "\nAnna tunniste kokonaan tai sen alkuosa, esimerkiksi:\n"
-        + f"    --team {esimerkki}"
+        + f"    --team {example}"
     )
 
 
@@ -459,42 +459,42 @@ def classify_rounds(
     kierroshistoriallaan; subjektin rivi saa vastustajan tyypin
     ``opp_round_type``-sarakkeeseen.
     """
-    subjekti = rounds.filter(pl.col("lineup_key") == team_key).sort("round_no")
-    vastustaja = rounds.filter(pl.col("lineup_key") != team_key).sort("round_no")
+    subject = rounds.filter(pl.col("lineup_key") == team_key).sort("round_no")
+    opponent = rounds.filter(pl.col("lineup_key") != team_key).sort("round_no")
 
-    muut = int(vastustaja["lineup_key"].n_unique())
-    if muut != 1:
-        loydetyt = sorted({str(k) for k in rounds["lineup_key"].unique().to_list()})
+    others = int(opponent["lineup_key"].n_unique())
+    if others != 1:
+        found = sorted({str(k) for k in rounds["lineup_key"].unique().to_list()})
         raise SchemaError(
-            f"Kierrostaulussa on {len(loydetyt)} kokoonpanoa "
-            f"({', '.join(loydetyt)}), joten vastustajaa ei voi tunnistaa "
+            f"Kierrostaulussa on {len(found)} kokoonpanoa "
+            f"({', '.join(found)}), joten vastustajaa ei voi tunnistaa "
             "yksikäsitteisesti. Kierrostaulussa on oltava tasan kaksi "
             "kokoonpanoa."
         )
-    if subjekti["round_no"].to_list() != vastustaja["round_no"].to_list():
+    if subject["round_no"].to_list() != opponent["round_no"].to_list():
         raise SchemaError(
             "Joukkueiden kierrosnumerot eivät täsmää keskenään, joten "
             "vastustajan kierrostyyppiä ei voi liittää oikealle riville. "
             "Kierrostaulussa on oltava tasan kaksi riviä per kierros."
         )
 
-    subjektin_paatokset, subjektin_loss = _classify_team(subjekti, thresholds)
-    vastustajan_paatokset, _ = _classify_team(vastustaja, thresholds)
+    subject_decisions, subject_loss = _classify_team(subject, thresholds)
+    opponent_decisions, _ = _classify_team(opponent, thresholds)
 
-    taulu: list[dict[str, object]] = []
-    for index, rivi in enumerate(subjekti.iter_rows(named=True)):
-        paatos = subjektin_paatokset[index]
-        taulu.append(
+    table: list[dict[str, object]] = []
+    for index, row in enumerate(subject.iter_rows(named=True)):
+        decision = subject_decisions[index]
+        table.append(
             {
                 "map_demo_id": map_demo_id,
-                "round_no": rivi["round_no"],
-                "side": rivi["side"],
-                "won": rivi["won"],
-                "round_type": paatos.round_type,
-                "opp_round_type": vastustajan_paatokset[index].round_type,
-                "loss_count": subjektin_loss[index],
-                "reason": paatos.reason,
-                "inputs": paatos.inputs,
+                "round_no": row["round_no"],
+                "side": row["side"],
+                "won": row["won"],
+                "round_type": decision.round_type,
+                "opp_round_type": opponent_decisions[index].round_type,
+                "loss_count": subject_loss[index],
+                "reason": decision.reason,
+                "inputs": decision.inputs,
                 # Tulevat joukkueindeksistä (Epic 3); arvaus olisi pahempi kuin
                 # tyhjä.
                 "is_league": None,
@@ -502,7 +502,7 @@ def classify_rounds(
             }
         )
 
-    df = pl.DataFrame(taulu, schema=dict(CLASSIFIED))
+    df = pl.DataFrame(table, schema=dict(CLASSIFIED))
     validate(df, CLASSIFIED, TABLE)
     # Sama funktio kuin ohitetussa ajossa: kierroslistalla on vain yksi polku.
     return df, round_list_rows(df)
@@ -516,18 +516,18 @@ def _classify_team(
     Palauttaa myös loss countit, jotta niitä ei lasketa kahdesti samalle
     joukkueelle -- kaksi laskentaa voisi erkaantua toisistaan.
     """
-    laskurit = loss_counts(team_rounds, thresholds)
-    rivit = team_rounds.to_dicts()
-    paatokset = [
+    counters = loss_counts(team_rounds, thresholds)
+    rows = team_rounds.to_dicts()
+    decisions = [
         classify_round(
-            rivi,
-            rivit[index - 1] if index > 0 else None,
+            row,
+            rows[index - 1] if index > 0 else None,
             thresholds,
-            loss_count=laskurit[index],
+            loss_count=counters[index],
         )
-        for index, rivi in enumerate(rivit)
+        for index, row in enumerate(rows)
     ]
-    return paatokset, laskurit
+    return decisions, counters
 
 
 # -- Kierroslista ------------------------------------------------------------------
@@ -548,7 +548,7 @@ ROUND_LIST_COLUMNS: tuple[tuple[str, str], ...] = (
     ("Perustelu", "reason"),
 )
 
-_TULOS_SANAT: dict[bool | None, str] = {True: "voitto", False: "häviö", None: "-"}
+_RESULT_WORDS: dict[bool | None, str] = {True: "voitto", False: "häviö", None: "-"}
 
 
 def round_list_rows(df: pl.DataFrame) -> list[dict[str, object]]:
@@ -558,15 +558,15 @@ def round_list_rows(df: pl.DataFrame) -> list[dict[str, object]]:
     Per pelaaja -arvot lasketaan ``inputs``-rakenteesta samalla pyöristyksellä
     kuin perustelussa (``domain.economy.per_player``).
     """
-    rivit: list[dict[str, object]] = []
+    rows: list[dict[str, object]] = []
     for r in df.sort("round_no").iter_rows(named=True):
         inputs = r["inputs"] or {}
-        pelaajat = int(inputs.get("players") or 0)
-        raha = inputs.get("money_freeze_end")
-        kaytetty = inputs.get("money_spent")
-        varusteet = inputs.get("equip_freeze_end")
-        alku = inputs.get("equip_round_start")
-        rivit.append(
+        players = int(inputs.get("players") or 0)
+        money = inputs.get("money_freeze_end")
+        spent = inputs.get("money_spent")
+        equip = inputs.get("equip_freeze_end")
+        equip_start = inputs.get("equip_round_start")
+        rows.append(
             {
                 "round_no": int(r["round_no"]),
                 "side": str(r["side"]),
@@ -576,43 +576,43 @@ def round_list_rows(df: pl.DataFrame) -> list[dict[str, object]]:
                     None if r["opp_round_type"] is None else str(r["opp_round_type"])
                 ),
                 "loss_count": r["loss_count"],
-                "money_per_player": per_player(raha, pelaajat),
+                "money_per_player": per_player(money, players),
                 "money_available_per_player": per_player(
-                    None if raha is None and kaytetty is None
-                    else int(raha or 0) + int(kaytetty or 0),
-                    pelaajat,
+                    None if money is None and spent is None
+                    else int(money or 0) + int(spent or 0),
+                    players,
                 ),
                 "spent_per_player": per_player(
-                    None if varusteet is None or alku is None
-                    else int(varusteet) - int(alku),
-                    pelaajat,
+                    None if equip is None or equip_start is None
+                    else int(equip) - int(equip_start),
+                    players,
                 ),
-                "equip_per_player": per_player(varusteet, pelaajat),
-                "players": pelaajat or None,
+                "equip_per_player": per_player(equip, players),
+                "players": players or None,
                 "reason": r["reason"],
             }
         )
-    return rivit
+    return rows
 
 
-def round_list_cells(rivi: dict[str, object]) -> tuple[str, ...]:
+def round_list_cells(row: dict[str, object]) -> tuple[str, ...]:
     """Yhden rivin solut :data:`ROUND_LIST_COLUMNS`-järjestyksessä."""
-    solut: list[str] = []
-    for _, avain in ROUND_LIST_COLUMNS:
-        arvo = rivi.get(avain)
-        if avain == "won":
-            solut.append(_TULOS_SANAT[None if arvo is None else bool(arvo)])
-        elif avain == "reason":
-            solut.append(str(arvo or ""))
-        elif avain in ("round_type", "opp_round_type"):
-            solut.append(str(arvo) if arvo else UNCLASSIFIED)
+    cells: list[str] = []
+    for _, key in ROUND_LIST_COLUMNS:
+        value = row.get(key)
+        if key == "won":
+            cells.append(_RESULT_WORDS[None if value is None else bool(value)])
+        elif key == "reason":
+            cells.append(str(value or ""))
+        elif key in ("round_type", "opp_round_type"):
+            cells.append(str(value) if value else UNCLASSIFIED)
         else:
-            solut.append("-" if arvo is None else str(arvo))
-    return tuple(solut)
+            cells.append("-" if value is None else str(value))
+    return tuple(cells)
 
 
 def render_round_list_markdown(
-    rivit: list[dict[str, object]],
+    rows: list[dict[str, object]],
     *,
     map_demo_id: str,
     team_key: str,
@@ -628,18 +628,18 @@ def render_round_list_markdown(
     teksti. Ajohetki ei ole tässä vaan manifestin ``created_at``-kentässä --
     muuten tiedosto muuttuisi joka ajolla eikä eroa voisi katsoa.
     """
-    osat: list[str] = []
-    osat.append(f"# Kierroslista -- {map_demo_id}")
-    osat.append("")
-    osat.append(f"- Joukkue (kokoonpanotunniste): `{team_key}`")
-    osat.append(f"- Kierroksia: {len(rivit)}")
-    osat.append(
+    parts: list[str] = []
+    parts.append(f"# Kierroslista -- {map_demo_id}")
+    parts.append("")
+    parts.append(f"- Joukkue (kokoonpanotunniste): `{team_key}`")
+    parts.append(f"- Kierroksia: {len(rows)}")
+    parts.append(
         f"- Liigaformaatti: MR{league.mr}, säännönmukaisia kierroksia "
         f"{thresholds.regulation_rounds}, pistoolikierrokset "
         f"{', '.join(str(r) for r in thresholds.pistol_rounds)}, jatkoajan "
         f"aloitusraha {league.ot_start_money} $"
     )
-    osat.append(
+    parts.append(
         f"- Kynnykset ($/pelaaja): täysi osto vähintään "
         f"{thresholds.full_equip_min}, matala varustearvo voiton jälkeen "
         f"enintään {thresholds.anomaly_equip_max_after_win}; hävityn jälkeen "
@@ -647,42 +647,42 @@ def render_round_list_markdown(
         f"forceksi, jos taskuun jäi enintään "
         f"{thresholds.force_money_left_max} (muuten puoliosto), ja muuten eco"
     )
-    osat.append(
+    parts.append(
         f"- Loss count: puoliajan alku {thresholds.loss_count_half_start}, rajat "
         f"{thresholds.loss_count_min}-{thresholds.loss_count_max}"
     )
-    osat.append("")
-    osat.append(
+    parts.append("")
+    parts.append(
         "Kaikki rahaluvut ovat dollareita per pelaaja freezetimen lopussa. "
         "**Käytössä** = jäljellä + käytetty eli se raha, joka joukkueella oli "
         "ostoaikana. **Jäljellä** on saldo ostojen jälkeen, joten "
         "säästökierroksella se on suuri. **Ostettu** on varustearvon kasvu "
         "kierroksen alusta freezetimen loppuun."
     )
-    osat.append("")
+    parts.append("")
 
-    otsikot = [o for o, _ in ROUND_LIST_COLUMNS]
-    osat.append("| " + " | ".join(otsikot) + " |")
-    osat.append("|" + "|".join(["---"] * len(otsikot)) + "|")
-    for rivi in rivit:
-        osat.append("| " + " | ".join(_md(s) for s in round_list_cells(rivi)) + " |")
+    headers = [o for o, _ in ROUND_LIST_COLUMNS]
+    parts.append("| " + " | ".join(headers) + " |")
+    parts.append("|" + "|".join(["---"] * len(headers)) + "|")
+    for row in rows:
+        parts.append("| " + " | ".join(_md(s) for s in round_list_cells(row)) + " |")
 
-    osat.append("")
-    osat.append("## Kierrostyypit")
-    osat.append("")
-    for arvo, suomeksi in ROUND_TYPE_FI.items():
-        osat.append(f"- `{arvo}` -- {suomeksi}")
-    osat.append(f"- `{UNCLASSIFIED}` -- havainto puuttui, kierrosta ei luokiteltu")
-    osat.append("")
-    osat.append(
+    parts.append("")
+    parts.append("## Kierrostyypit")
+    parts.append("")
+    for value, label_fi in ROUND_TYPE_FI.items():
+        parts.append(f"- `{value}` -- {label_fi}")
+    parts.append(f"- `{UNCLASSIFIED}` -- havainto puuttui, kierrosta ei luokiteltu")
+    parts.append("")
+    parts.append(
         "`is_league` ja `roster_class` jäävät tässä vaiheessa tyhjiksi: ne "
         "tulevat joukkueindeksistä, joka syntyy vasta Epicissä 3."
     )
-    osat.append("")
-    return "\n".join(osat)
+    parts.append("")
+    return "\n".join(parts)
 
 
-def _md(teksti: str) -> str:
+def _md(text: str) -> str:
     """Suojaa solun sisältö Markdown-taulukkoa varten.
 
     Putkimerkki katkaisisi solun ja rivinvaihto koko taulukon; backtick
@@ -690,7 +690,7 @@ def _md(teksti: str) -> str:
     perusteluista, jotka ovat vapaata tekstiä.
     """
     return (
-        teksti.replace("\\", "\\\\")
+        text.replace("\\", "\\\\")
         .replace("|", "\\|")
         .replace("`", "\\`")
         .replace("\r\n", " ")
@@ -703,33 +703,33 @@ def _md(teksti: str) -> str:
 
 
 def _stats(
-    rivit: list[dict[str, object]],
+    rows: list[dict[str, object]],
     team_key: str,
-    lista_rel: PurePosixPath,
-    numeroimattomat: int,
+    list_rel: PurePosixPath,
+    unnumbered: int,
 ) -> dict[str, object]:
     """Käyttäjälle näytettävät luvut.
 
     ``by_type`` sisältää vain oikeat kierrostyypit; luokittelemattomat ovat
     omana lukunaan, jotta niitä ei näytetä kahdesti.
     """
-    jakauma: dict[str, int] = {}
-    luokittelematta = 0
-    for rivi in rivit:
-        tyyppi = rivi["round_type"]
-        if tyyppi is None:
-            luokittelematta += 1
+    distribution: dict[str, int] = {}
+    unclassified = 0
+    for row in rows:
+        round_type = row["round_type"]
+        if round_type is None:
+            unclassified += 1
             continue
-        avain = str(tyyppi)
-        jakauma[avain] = jakauma.get(avain, 0) + 1
+        key = str(round_type)
+        distribution[key] = distribution.get(key, 0) + 1
     return {
         "team_key": team_key,
-        "rounds": len(rivit),
-        "by_type": jakauma,
-        "unclassified": luokittelematta,
-        "unnumbered": numeroimattomat,
-        "round_list": str(lista_rel),
-        "rows": rivit,
+        "rounds": len(rows),
+        "by_type": distribution,
+        "unclassified": unclassified,
+        "unnumbered": unnumbered,
+        "round_list": str(list_rel),
+        "rows": rows,
     }
 
 

@@ -42,24 +42,24 @@ def _manifest(**overrides) -> Manifest:
 @pytest.fixture
 def archive(tmp_path: Path) -> Path:
     """Arkiston juuri, jossa manifestin tulostiedosto on olemassa."""
-    tulos = tmp_path / OUTPUT
-    tulos.parent.mkdir(parents=True, exist_ok=True)
-    tulos.write_bytes(b"parquet")
+    output = tmp_path / OUTPUT
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"parquet")
     return tmp_path
 
 
 def test_round_trip_through_disk(tmp_path: Path) -> None:
-    kohde = tmp_path / "parse.manifest.json"
-    alkuperainen = _manifest()
-    alkuperainen.write(kohde)
+    target = tmp_path / "parse.manifest.json"
+    original = _manifest()
+    original.write(target)
 
-    luettu = Manifest.read(kohde)
-    assert luettu.result_id == alkuperainen.result_id
-    assert luettu.stage == "parse"
-    assert luettu.params_hash == "hash-1"
-    assert luettu.tool_versions == TOOLS
-    assert [i.key() for i in luettu.inputs] == [i.key() for i in INPUTS]
-    assert luettu.status == "ok"
+    read_back = Manifest.read(target)
+    assert read_back.result_id == original.result_id
+    assert read_back.stage == "parse"
+    assert read_back.params_hash == "hash-1"
+    assert read_back.tool_versions == TOOLS
+    assert [i.key() for i in read_back.inputs] == [i.key() for i in INPUTS]
+    assert read_back.status == "ok"
     assert not has_temp_leftovers(tmp_path)
 
 
@@ -91,9 +91,9 @@ def test_changed_params_hash_forces_rerun(archive: Path) -> None:
 
 def test_changed_input_forces_rerun(archive: Path) -> None:
     m = _manifest()
-    muuttunut = [ManifestInput(result_id="demo:1-0", sha256="c" * 64), INPUTS[1]]
+    changed = [ManifestInput(result_id="demo:1-0", sha256="c" * 64), INPUTS[1]]
     assert not m.is_current(
-        inputs=muuttunut, params_hash="hash-1", tool_versions=TOOLS, root=archive
+        inputs=changed, params_hash="hash-1", tool_versions=TOOLS, root=archive
     )
 
 
@@ -107,9 +107,9 @@ def test_missing_input_forces_rerun(archive: Path) -> None:
 def test_changed_tool_version_forces_rerun(archive: Path) -> None:
     """demoparser2:n päivitys invalidoi parsinnan tuloksen."""
     m = _manifest()
-    uusi = {"demoparser2": "0.43.0"}
+    new = {"demoparser2": "0.43.0"}
     assert not m.is_current(
-        inputs=INPUTS, params_hash="hash-1", tool_versions=uusi, root=archive
+        inputs=INPUTS, params_hash="hash-1", tool_versions=new, root=archive
     )
 
 
@@ -126,10 +126,10 @@ def test_non_ok_status_is_never_current(status: str, archive: Path) -> None:
 
 def test_timestamp_does_not_affect_currency(archive: Path) -> None:
     """Aikaleima ei ole osa vertailua -- muuten mikään ei ohittuisi koskaan."""
-    vanha = _manifest()
-    uusi = _manifest()
-    assert uusi.created_at >= vanha.created_at
-    for m in (vanha, uusi):
+    old = _manifest()
+    new = _manifest()
+    assert new.created_at >= old.created_at
+    for m in (old, new):
         assert m.is_current(
             inputs=INPUTS, params_hash="hash-1", tool_versions=TOOLS, root=archive
         )
@@ -188,20 +188,20 @@ def test_foreign_schema_version_is_not_current(archive: Path) -> None:
 
 def test_newer_schema_version_has_its_own_message(tmp_path: Path) -> None:
     """Uudempi manifesti ei ole 'vioittunut' -- viesti kertoo oikean syyn."""
-    kohde = tmp_path / "uusi.manifest.json"
-    _manifest().model_copy(update={"schema_version": "2.0.0"}).write(kohde)
+    target = tmp_path / "uusi.manifest.json"
+    _manifest().model_copy(update={"schema_version": "2.0.0"}).write(target)
     with pytest.raises(PappascoutError) as exc:
-        Manifest.read(kohde)
-    viesti = str(exc.value)
-    assert "uudemmalla versiolla" in viesti
-    assert MANIFEST_SCHEMA_VERSION in viesti
-    assert "vioittunut" not in viesti
+        Manifest.read(target)
+    message = str(exc.value)
+    assert "uudemmalla versiolla" in message
+    assert MANIFEST_SCHEMA_VERSION in message
+    assert "vioittunut" not in message
 
 
 def test_newer_schema_version_is_treated_as_missing(tmp_path: Path) -> None:
-    kohde = tmp_path / "uusi.manifest.json"
-    _manifest().model_copy(update={"schema_version": "2.0.0"}).write(kohde)
-    assert Manifest.read_if_exists(kohde) is None
+    target = tmp_path / "uusi.manifest.json"
+    _manifest().model_copy(update={"schema_version": "2.0.0"}).write(target)
+    assert Manifest.read_if_exists(target) is None
 
 
 # --- Lukuvirheet --------------------------------------------------------------
@@ -219,16 +219,16 @@ def test_read_if_exists_returns_none_for_missing(tmp_path: Path) -> None:
 
 def test_read_if_exists_treats_corrupt_as_missing(tmp_path: Path) -> None:
     """Vioittunut manifesti ei kaada ajoa, vaan vaihe ajetaan uudelleen."""
-    rikki = tmp_path / "rikki.manifest.json"
-    rikki.write_text("{ ei ole jsonia", encoding="utf-8")
-    assert Manifest.read_if_exists(rikki) is None
+    broken = tmp_path / "rikki.manifest.json"
+    broken.write_text("{ ei ole jsonia", encoding="utf-8")
+    assert Manifest.read_if_exists(broken) is None
 
 
 def test_corrupt_manifest_read_says_what_to_do(tmp_path: Path) -> None:
-    rikki = tmp_path / "rikki.manifest.json"
-    rikki.write_text('{"result_id": "x"}', encoding="utf-8")
+    broken = tmp_path / "rikki.manifest.json"
+    broken.write_text('{"result_id": "x"}', encoding="utf-8")
     with pytest.raises(PappascoutError) as exc:
-        Manifest.read(rikki)
+        Manifest.read(broken)
     assert "vioittunut" in str(exc.value)
 
 
@@ -236,9 +236,9 @@ def test_corrupt_manifest_read_says_what_to_do(tmp_path: Path) -> None:
 
 
 def test_tool_versions_reads_installed_packages() -> None:
-    versiot = tool_versions("demoparser2", "polars")
-    assert set(versiot) == {"demoparser2", "polars"}
-    assert all(v and v[0].isdigit() for v in versiot.values())
+    versions = tool_versions("demoparser2", "polars")
+    assert set(versions) == {"demoparser2", "polars"}
+    assert all(v and v[0].isdigit() for v in versions.values())
 
 
 def test_tool_versions_rejects_unknown_package() -> None:
@@ -281,9 +281,9 @@ def test_params_hash_rejects_non_json_values() -> None:
     """WindowsPath merkkijonoutuisi koneriippuvasti -> eri hash eri koneella."""
     with pytest.raises(PappascoutError) as exc:
         compute_params_hash({"parse": {"archive_root": Path("C:/arkisto")}})
-    viesti = str(exc.value)
-    assert "parse.archive_root" in viesti
-    assert "Path" in viesti
+    message = str(exc.value)
+    assert "parse.archive_root" in message
+    assert "Path" in message
 
 
 # --- AD-3:n ydinlupaus: kynnysmuutos ei uudelleenparsi ------------------------

@@ -263,14 +263,14 @@ def grenade_endpoints(
         ValueError: Jos taulusta puuttuu sarake. Ilman tarkistusta tulos olisi
             tyhjä taulu, joka näyttäisi demolta ilman utilityä.
     """
-    puuttuvat = [name for name in TRAJECTORY_COLUMNS if name not in trajectories.columns]
-    if puuttuvat:
+    missing = [name for name in TRAJECTORY_COLUMNS if name not in trajectories.columns]
+    if missing:
         raise ValueError(
-            f"Lentoratataulusta puuttuu sarake: {', '.join(puuttuvat)}. "
+            f"Lentoratataulusta puuttuu sarake: {', '.join(missing)}. "
             f"Odotetut sarakkeet ovat {', '.join(TRAJECTORY_COLUMNS)}."
         )
 
-    lento = trajectories.select(TRAJECTORY_COLUMNS).filter(
+    flight = trajectories.select(TRAJECTORY_COLUMNS).filter(
         pl.col("grenade_entity_id").is_not_null()
         & pl.col("tick").is_not_null()
         # Tyhjä tyyppi ei kelpaa: se on EVENTS-sopimuksessa pakollinen, joten
@@ -278,37 +278,37 @@ def grenade_endpoints(
         & pl.col("grenade_type").is_not_null()
         & flight_point()
     )
-    if lento.is_empty():
+    if flight.is_empty():
         return pl.DataFrame(schema=_ENDPOINT_SCHEMA), 0
 
-    jaksot = _aggregate_runs(lento, max_gap_ticks)
+    runs = _aggregate_runs(flight, max_gap_ticks)
 
-    ilman_heittajaa = jaksot.filter(pl.col("thrower_id").is_null())
-    jaksot = jaksot.filter(pl.col("thrower_id").is_not_null())
-    if jaksot.is_empty():
-        return pl.DataFrame(schema=_ENDPOINT_SCHEMA), ilman_heittajaa.height
+    without_thrower = runs.filter(pl.col("thrower_id").is_null())
+    runs = runs.filter(pl.col("thrower_id").is_not_null())
+    if runs.is_empty():
+        return pl.DataFrame(schema=_ENDPOINT_SCHEMA), without_thrower.height
 
-    jaksot = jaksot.sort("throw_tick", "grenade_entity_id").with_row_index(
+    runs = runs.sort("throw_tick", "grenade_entity_id").with_row_index(
         "grenade_no"
     )
 
-    tulos = pl.concat(
+    result = pl.concat(
         [
-            _endpoint_rows(jaksot, THROWN, "throw"),
-            _endpoint_rows(jaksot.filter(pl.col("points") > 1), DETONATE, "detonate"),
+            _endpoint_rows(runs, THROWN, "throw"),
+            _endpoint_rows(runs.filter(pl.col("points") > 1), DETONATE, "detonate"),
         ]
     )
     # Järjestys on osa sopimusta: heitto tulee aina ennen räjähdystään. Pelkkä
     # tick riittäisi oikeassa demossa, mutta ei ole invariantti -- laji on
     # siksi eksplisiittinen avain eikä nojaa merkkijonojen aakkosjärjestykseen,
     # jossa "grenade_detonate" tulisi ennen "grenade_thrownia".
-    tulos = tulos.sort(
+    result = result.sort(
         "grenade_no",
         pl.col("event_kind").replace_strict({THROWN: 0, DETONATE: 1}, return_dtype=pl.Int8),
         "tick",
     )
 
-    return tulos.select(ENDPOINT_COLUMNS).cast(_ENDPOINT_SCHEMA), ilman_heittajaa.height
+    return result.select(ENDPOINT_COLUMNS).cast(_ENDPOINT_SCHEMA), without_thrower.height
 
 
 def snap_area(
@@ -347,26 +347,26 @@ def snap_area(
     if not math.isfinite(x) or not math.isfinite(y) or not math.isfinite(z):
         return AreaSnap(None, None)
 
-    lyhin: float | None = None
-    alue: str | None = None
+    shortest: float | None = None
+    area_name: str | None = None
     for player in players_at_tick:
         if not player.is_alive:
             continue
         if player.x is None or player.y is None or player.z is None:
             continue
-        etaisyys = math.dist((x, y, z), (player.x, player.y, player.z))
-        if lyhin is None or etaisyys < lyhin:
-            lyhin = etaisyys
-            alue = player.area
-    if lyhin is None or lyhin > max_units:
+        distance = math.dist((x, y, z), (player.x, player.y, player.z))
+        if shortest is None or distance < shortest:
+            shortest = distance
+            area_name = player.area
+    if shortest is None or shortest > max_units:
         return AreaSnap(None, None)
-    return AreaSnap(alue, lyhin)
+    return AreaSnap(area_name, shortest)
 
 
 # -- Sisäinen -----------------------------------------------------------------
 
 
-def _aggregate_runs(lento: pl.DataFrame, max_gap_ticks: int) -> pl.DataFrame:
+def _aggregate_runs(flight: pl.DataFrame, max_gap_ticks: int) -> pl.DataFrame:
     """Katkaise rata yhtenäisiin jaksoihin ja tiivistä jokainen päätepisteiksi.
 
     Jakso vaihtuu, kun tunniste, heittäjä tai kranaattityyppi vaihtuu tai
@@ -374,16 +374,16 @@ def _aggregate_runs(lento: pl.DataFrame, max_gap_ticks: int) -> pl.DataFrame:
     ``!=``: tyhjä heittäjä on jaksossa yhtä hyvä arvo kuin mikä tahansa muu, ja
     ``!=`` palauttaisi sille ``null``:in, jolloin jaksoraja jäisi huomaamatta.
     """
-    kehys = lento.sort("grenade_entity_id", "tick")
-    alku = (
+    frame = flight.sort("grenade_entity_id", "tick")
+    run_start = (
         pl.col("grenade_entity_id").ne_missing(pl.col("grenade_entity_id").shift(1))
         | pl.col("thrower_id").ne_missing(pl.col("thrower_id").shift(1))
         | pl.col("grenade_type").ne_missing(pl.col("grenade_type").shift(1))
         | ((pl.col("tick") - pl.col("tick").shift(1)) > max_gap_ticks)
     )
-    kehys = kehys.with_columns(alku.fill_null(True).cum_sum().alias("_run"))
+    frame = frame.with_columns(run_start.fill_null(True).cum_sum().alias("_run"))
 
-    return kehys.group_by("_run", maintain_order=True).agg(
+    return frame.group_by("_run", maintain_order=True).agg(
         pl.col("grenade_entity_id").first(),
         pl.col("grenade_type").first(),
         pl.col("thrower_id").first(),
@@ -399,16 +399,16 @@ def _aggregate_runs(lento: pl.DataFrame, max_gap_ticks: int) -> pl.DataFrame:
     )
 
 
-def _endpoint_rows(jaksot: pl.DataFrame, event_kind: str, etuliite: str) -> pl.DataFrame:
+def _endpoint_rows(runs: pl.DataFrame, event_kind: str, prefix: str) -> pl.DataFrame:
     """Poimi jaksoista joko heitto- tai räjähdysrivit."""
-    return jaksot.select(
+    return runs.select(
         pl.col("grenade_no"),
         pl.col("grenade_entity_id"),
         pl.col("grenade_type"),
         pl.col("thrower_id"),
         pl.lit(event_kind, dtype=pl.Utf8).alias("event_kind"),
-        pl.col(f"{etuliite}_tick").alias("tick"),
-        pl.col(f"{etuliite}_x").alias("x"),
-        pl.col(f"{etuliite}_y").alias("y"),
-        pl.col(f"{etuliite}_z").alias("z"),
+        pl.col(f"{prefix}_tick").alias("tick"),
+        pl.col(f"{prefix}_x").alias("x"),
+        pl.col(f"{prefix}_y").alias("y"),
+        pl.col(f"{prefix}_z").alias("z"),
     )

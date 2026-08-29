@@ -62,13 +62,13 @@ def _human_size(num_bytes: int) -> str:
     """
     if num_bytes < 1024:
         return f"{num_bytes} tavua"
-    arvo = float(num_bytes)
-    yksikko = _SIZE_UNITS[0]
-    for yksikko in _SIZE_UNITS:
-        arvo /= 1024
-        if arvo < 1024:
+    value = float(num_bytes)
+    unit = _SIZE_UNITS[0]
+    for unit in _SIZE_UNITS:
+        value /= 1024
+        if value < 1024:
             break
-    return f"{arvo:.1f} {yksikko}".replace(".", ",")
+    return f"{value:.1f} {unit}".replace(".", ",")
 
 
 def _version_callback(value: bool) -> None:
@@ -92,7 +92,7 @@ def _root(
 
 @app.command("info")
 def info(
-    koko: bool = typer.Option(
+    size: bool = typer.Option(
         False,
         "--koko",
         help=(
@@ -107,7 +107,7 @@ def info(
     asetettu.
     """
     settings = load_settings()
-    typer.echo(_render_info(settings, show_size=koko))
+    typer.echo(_render_info(settings, show_size=size))
 
 
 def _render_info(settings: Settings, show_size: bool = False) -> str:
@@ -123,65 +123,65 @@ def _render_info(settings: Settings, show_size: bool = False) -> str:
             tilannekatsauksesta hitaan.
     """
     archive = archive_paths(settings.project)
-    rivit: list[str] = []
+    lines: list[str] = []
 
-    rivit.append(f"Pappascout {__version__}")
-    rivit.append("")
+    lines.append(f"Pappascout {__version__}")
+    lines.append("")
 
-    rivit.append("Asetukset")
-    rivit.append(f"  Asetustiedosto     {settings.settings_file}")
-    rivit.append(f"  Oma joukkue        {settings.project.own_team_name}")
-    rivit.append(f"  Kieli              {settings.project.language}")
-    rivit.append(f"  Kausi              {settings.league.season}")
-    rivit.append(f"  Championshipit     {', '.join(settings.league.championship_ids)}")
-    rivit.append(f"  Karttapooli        {', '.join(settings.league.map_pool)}")
-    rivit.append(
+    lines.append("Asetukset")
+    lines.append(f"  Asetustiedosto     {settings.settings_file}")
+    lines.append(f"  Oma joukkue        {settings.project.own_team_name}")
+    lines.append(f"  Kieli              {settings.project.language}")
+    lines.append(f"  Kausi              {settings.league.season}")
+    lines.append(f"  Championshipit     {', '.join(settings.league.championship_ids)}")
+    lines.append(f"  Karttapooli        {', '.join(settings.league.map_pool)}")
+    lines.append(
         "  Omat vakiobanit    "
         + (", ".join(settings.league.own_default_bans) or "ei asetettu")
     )
-    rivit.append(
+    lines.append(
         f"  Formaatti          MR{settings.league.mr}, "
         f"jatkoajan aloitusraha {settings.league.ot_start_money} $"
     )
-    rivit.append(
+    lines.append(
         "  Näytepisteet       "
         + ", ".join(f"{s:g} s" for s in settings.parse.snapshot_seconds)
     )
-    rivit.append(
+    lines.append(
         f"  Täyden oston raja  {settings.thresholds.full_equip_min} $ / pelaaja"
     )
-    rivit.append(
+    lines.append(
         "  Pistoolikierrokset "
         + ", ".join(str(r) for r in settings.thresholds.pistol_rounds)
         + f"; säännönmukaisia kierroksia {settings.thresholds.regulation_rounds}"
     )
-    rivit.append("")
+    lines.append("")
 
-    rivit.append("Arkisto")
-    rivit.append(f"  Polku              {archive.root}")
+    lines.append("Arkisto")
+    lines.append(f"  Polku              {archive.root}")
     if not archive.exists():
-        rivit.append(
+        lines.append(
             "  Tila               puuttuu -- hakemisto luodaan ensimmäisellä ajolla"
         )
     elif show_size:
-        rivit.append(f"  Tila               löytyy, {_human_size(archive.total_size_bytes())}")
+        lines.append(f"  Tila               löytyy, {_human_size(archive.total_size_bytes())}")
     else:
-        rivit.append("  Tila               löytyy")
-        rivit.append("  Koko               ei laskettu (--koko laskee sen)")
-    rivit.append("")
+        lines.append("  Tila               löytyy")
+        lines.append("  Koko               ei laskettu (--koko laskee sen)")
+    lines.append("")
 
-    rivit.append("Avaimet")
-    rivit.append(f"  Tiedosto           {settings.secrets_file or secrets_env_path()}")
-    leveys = max(len(nimi) for nimi in _SECRET_NAMES)
-    for nimi in _SECRET_NAMES:
-        rivit.append(f"  {nimi:<{leveys}} {settings.secret_status(nimi)}")
+    lines.append("Avaimet")
+    lines.append(f"  Tiedosto           {settings.secrets_file or secrets_env_path()}")
+    width = max(len(name) for name in _SECRET_NAMES)
+    for name in _SECRET_NAMES:
+        lines.append(f"  {name:<{width}} {settings.secret_status(name)}")
 
-    return "\n".join(rivit)
+    return "\n".join(lines)
 
 
 @app.command("parse")
 def parse(
-    kohde: str = typer.Argument(
+    target: str = typer.Argument(
         ...,
         metavar="TIEDOSTO|MAP_DEMO_ID",
         help=(
@@ -189,7 +189,7 @@ def parse(
             "arkiston demos- ja import-hakemistoista."
         ),
     ),
-    pakota: bool = typer.Option(
+    force: bool = typer.Option(
         False,
         "--pakota",
         help=(
@@ -206,118 +206,118 @@ def parse(
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
-    map_demo_id, demo_path = parse_stage.resolve_demo(archive, kohde)
+    map_demo_id, demo_path = parse_stage.resolve_demo(archive, target)
 
     # 233 MB:n demo vie sekunteja, pakattu enemmän. Ilman tätä riviä käyttäjä
     # katsoo tyhjää ruutua eikä tiedä, käynnistyikö mikään.
     typer.echo(f"Parsitaan {map_demo_id} ({demo_path.name})...", err=True)
 
-    tulos = parse_stage.run(
+    result = parse_stage.run(
         settings.parse,
         archive,
         map_demo_id,
         parse_stage.default_parser(settings.parse),
         demo_path=demo_path,
-        force=pakota,
+        force=force,
     )
-    typer.echo(_render_parse(tulos, regulation_rounds=2 * settings.league.mr))
+    typer.echo(_render_parse(result, regulation_rounds=2 * settings.league.mr))
 
 
 #: Tulosteen sarakeleveys, jotta arvot linjautuvat otsikoiden alle.
 _PARSE_LABEL_WIDTH = 20
 
 
-def _rivi(otsikko: str, arvo: str) -> str:
+def _line(label: str, value: str) -> str:
     """Muotoile yksi tulosterivi tasalevyisellä otsikkosarakkeella."""
-    return f"  {otsikko:<{_PARSE_LABEL_WIDTH}}{arvo}"
+    return f"  {label:<{_PARSE_LABEL_WIDTH}}{value}"
 
 
-def _render_parse(tulos: StageResult, regulation_rounds: int) -> str:
+def _render_parse(result: StageResult, regulation_rounds: int) -> str:
     """Kokoa ``parse``-komennon tuloste.
 
     Erotettu omaksi funktiokseen, jotta tuloste on testattavissa ilman
     komentorivin ajamista.
 
     Args:
-        tulos: Vaiheen palauttama tulos.
+        result: Vaiheen palauttama tulos.
         regulation_rounds: Säännönmukaisten kierrosten määrä (MR12 -> 24).
             Tätä käytetään **vain** tulosteen jatkoaikamaininnassa; vaihe itse
             ei näe liiga- eikä kynnysasetuksia (AD-3).
     """
-    stats = tulos.stats
-    rivit: list[str] = []
+    stats = result.stats
+    lines: list[str] = []
 
-    rivit.append(f"{'Ohitettu' if tulos.skipped else 'Parsittu'}: {tulos.unit}")
+    lines.append(f"{'Ohitettu' if result.skipped else 'Parsittu'}: {result.unit}")
 
     # AD-9: tila näytetään aina kun se ei ole ok, jottei epäonnistunut yksikkö
     # näytä onnistuneelta.
-    if tulos.status != "ok":
-        rivit.append(_rivi("Tila", str(tulos.status)))
-    if tulos.reason:
-        rivit.append(_rivi("Syy", tulos.reason))
+    if result.status != "ok":
+        lines.append(_line("Tila", str(result.status)))
+    if result.reason:
+        lines.append(_line("Syy", result.reason))
 
     if "unreadable" in stats:
-        rivit.append(_rivi("Kierrokset", f"lukuja ei saatu ({stats['unreadable']})"))
-        rivit.append(_rivi("Ajoaika", _sekunnit(tulos.duration_s)))
-        return "\n".join(rivit)
+        lines.append(_line("Kierrokset", f"lukuja ei saatu ({stats['unreadable']})"))
+        lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+        return "\n".join(lines)
 
-    kierrokset = int(stats.get("rounds", 0) or 0)
-    rivit.append(
-        _rivi("Kierrokset", f"{kierrokset} (rivejä {int(stats.get('rows', 0) or 0)})")
+    rounds = int(stats.get("rounds", 0) or 0)
+    lines.append(
+        _line("Kierrokset", f"{rounds} (rivejä {int(stats.get('rows', 0) or 0)})")
     )
 
-    suurin = int(stats.get("max_round_no", 0) or 0)
-    if suurin > regulation_rounds:
-        rivit.append(
-            _rivi(
+    max_round = int(stats.get("max_round_no", 0) or 0)
+    if max_round > regulation_rounds:
+        lines.append(
+            _line(
                 "Jatkoaika",
-                f"kyllä -- kierroksia {suurin}, säännönmukaisia {regulation_rounds}",
+                f"kyllä -- kierroksia {max_round}, säännönmukaisia {regulation_rounds}",
             )
         )
     else:
-        rivit.append(_rivi("Jatkoaika", f"ei ({suurin}/{regulation_rounds})"))
+        lines.append(_line("Jatkoaika", f"ei ({max_round}/{regulation_rounds})"))
 
     # Ohitetussa ajossa lukua ei ole: numeroimattomat kierrokset eivät ole
     # taulussa, joten niiden määrää ei voi lukea valmiista tuloksesta.
-    ohitetut = int(stats.get("skipped_rounds", 0) or 0)
-    if not tulos.skipped and ohitetut:
-        rivit.append(
-            _rivi(
+    skipped_rounds = int(stats.get("skipped_rounds", 0) or 0)
+    if not result.skipped and skipped_rounds:
+        lines.append(
+            _line(
                 "Ohitetut kierrokset",
-                f"{ohitetut} (warmup, puukkokierros ja uudelleenkäynnistykset)",
+                f"{skipped_rounds} (warmup, puukkokierros ja uudelleenkäynnistykset)",
             )
         )
 
-    ankkuriton = int(stats.get("no_freeze_end", 0) or 0)
-    if ankkuriton:
-        rivit.append(
-            _rivi(
+    no_anchor = int(stats.get("no_freeze_end", 0) or 0)
+    if no_anchor:
+        lines.append(
+            _line(
                 "Ilman ankkuria",
-                f"{ankkuriton} (freezetime-tick puuttuu, kierros silti mukana)",
+                f"{no_anchor} (freezetime-tick puuttuu, kierros silti mukana)",
             )
         )
 
-    rivit.extend(_naytepisteet(stats, kierrokset))
-    rivit.extend(_utility(stats, kierrokset))
+    lines.extend(_sample_points(stats, rounds))
+    lines.extend(_utility(stats, rounds))
 
     if "tick_rate" in stats and not stats.get("tick_rate_measured", True):
-        rivit.append(
-            _rivi(
+        lines.append(
+            _line(
                 "Tickrate",
                 f"{stats['tick_rate']:g} (oletus -- demosta ei saatu mitattua)",
             )
         )
 
-    for polku in tulos.outputs:
-        rivit.append(_rivi("Tulos", str(polku)))
-    if tulos.manifest_path is not None:
-        rivit.append(_rivi("Manifesti", str(tulos.manifest_path)))
-    rivit.append(_rivi("Ajoaika", _sekunnit(tulos.duration_s)))
+    for path in result.outputs:
+        lines.append(_line("Tulos", str(path)))
+    if result.manifest_path is not None:
+        lines.append(_line("Manifesti", str(result.manifest_path)))
+    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
 
-    return "\n".join(rivit)
+    return "\n".join(lines)
 
 
-def _naytepisteet(stats: dict, kierrokset: int) -> list[str]:
+def _sample_points(stats: dict, rounds: int) -> list[str]:
     """Näytepisteiden ja ensikontaktien rivit ``parse``-tulosteeseen.
 
     Ilman näitä käyttäjä ei näe, syntyikö asetelmadata lainkaan: kierrosluku
@@ -326,7 +326,7 @@ def _naytepisteet(stats: dict, kierrokset: int) -> list[str]:
     """
     if "ticks_unreadable" in stats:
         return [
-            _rivi(
+            _line(
                 "Näytepisteet",
                 f"lukuja ei saatu ({stats['ticks_unreadable']})",
             )
@@ -334,22 +334,22 @@ def _naytepisteet(stats: dict, kierrokset: int) -> list[str]:
     if "tick_rows" not in stats:
         return []
 
-    rivit: list[str] = []
-    pisteet = int(stats.get("sample_points", 0) or 0)
-    tick_rivit = int(stats.get("tick_rows", 0) or 0)
-    naytteistetyt = int(stats.get("sample_rounds", 0) or 0)
+    lines: list[str] = []
+    points = int(stats.get("sample_points", 0) or 0)
+    tick_rows = int(stats.get("tick_rows", 0) or 0)
+    sampled_rounds = int(stats.get("sample_rounds", 0) or 0)
 
-    if pisteet:
-        rivit.append(
-            _rivi(
+    if points:
+        lines.append(
+            _line(
                 "Näytepisteet",
-                f"{pisteet} ({naytteistetyt}/{kierrokset} kierroksella, "
-                f"rivejä {tick_rivit})",
+                f"{points} ({sampled_rounds}/{rounds} kierroksella, "
+                f"rivejä {tick_rows})",
             )
         )
     else:
-        rivit.append(
-            _rivi(
+        lines.append(
+            _line(
                 "Näytepisteet",
                 "0 -- asetelmadataa ei syntynyt",
             )
@@ -358,49 +358,49 @@ def _naytepisteet(stats: dict, kierrokset: int) -> list[str]:
     # Kierros ilman yhtään näytepistettä voi johtua kolmesta syystä: ankkuri
     # puuttuu, kierros ratkesi ennen ensimmäistä näytepistettä, tai
     # näytepisteajat ovat väärin. Erotus kerrotaan, syytä ei arvata.
-    ilman = kierrokset - naytteistetyt
-    if ilman > 0:
-        rivit.append(
-            _rivi(
+    without_samples = rounds - sampled_rounds
+    if without_samples > 0:
+        lines.append(
+            _line(
                 "Ilman näytepistettä",
-                f"{ilman} kierrosta (ankkuri puuttuu tai kierros ratkesi "
+                f"{without_samples} kierrosta (ankkuri puuttuu tai kierros ratkesi "
                 "ennen ensimmäistä näytepistettä)",
             )
         )
 
-    kontaktit = int(stats.get("first_contact_rounds", 0) or 0)
-    if kontaktit:
-        rivit.append(_rivi("Ensikontaktit", f"{kontaktit}/{kierrokset} kierroksella"))
+    contacts = int(stats.get("first_contact_rounds", 0) or 0)
+    if contacts:
+        lines.append(_line("Ensikontaktit", f"{contacts}/{rounds} kierroksella"))
     else:
-        rivit.append(
-            _rivi(
+        lines.append(
+            _line(
                 "Ensikontaktit",
                 "0 -- yhdeltäkään kierrokselta ei löytynyt ristiinpuolista osumaa",
             )
         )
 
     # Adapterin omat havainnot: näitä ei voi laskea valmiista taulusta.
-    vajaat = int(stats.get("partial_samples", 0) or 0)
-    if vajaat:
-        rivit.append(
-            _rivi(
+    partial = int(stats.get("partial_samples", 0) or 0)
+    if partial:
+        lines.append(
+            _line(
                 "Vajaat näytepisteet",
-                f"{vajaat} (pelaajia vähemmän kuin täydellä pisteellä)",
+                f"{partial} (pelaajia vähemmän kuin täydellä pisteellä)",
             )
         )
-    tuntemattomat = int(stats.get("unknown_side_events", 0) or 0)
-    if tuntemattomat:
-        rivit.append(
-            _rivi(
+    unknown = int(stats.get("unknown_side_events", 0) or 0)
+    if unknown:
+        lines.append(
+            _line(
                 "Puoli tuntematon",
-                f"{tuntemattomat} vahinkotapahtumaa ohitettiin ensikontaktia "
+                f"{unknown} vahinkotapahtumaa ohitettiin ensikontaktia "
                 "etsittäessä",
             )
         )
-    return rivit
+    return lines
 
 
-def _utility(stats: dict, kierrokset: int) -> list[str]:
+def _utility(stats: dict, rounds: int) -> list[str]:
     """Utility-tapahtumien rivit ``parse``-tulosteeseen.
 
     Neljä kysymystä, neljä lukua: **syntyikö** utilitydataa (heitot),
@@ -410,49 +410,49 @@ def _utility(stats: dict, kierrokset: int) -> list[str]:
     näyttäisi muuten samalta myös rikkoutuneella lukemisella.
     """
     if "events_unreadable" in stats:
-        return [_rivi("Utility", f"lukuja ei saatu ({stats['events_unreadable']})")]
+        return [_line("Utility", f"lukuja ei saatu ({stats['events_unreadable']})")]
     if "event_rows" not in stats:
         return []
 
-    rivit: list[str] = []
-    heitot = int(stats.get("utility_throws", 0) or 0)
-    rajahdykset = int(stats.get("utility_detonations", 0) or 0)
-    utility_kierrokset = int(stats.get("utility_rounds", 0) or 0)
+    lines: list[str] = []
+    throws = int(stats.get("utility_throws", 0) or 0)
+    detonations = int(stats.get("utility_detonations", 0) or 0)
+    utility_rounds = int(stats.get("utility_rounds", 0) or 0)
 
-    if heitot:
-        rivit.append(
-            _rivi(
+    if throws:
+        lines.append(
+            _line(
                 "Utility",
-                f"{heitot} heittoa, {rajahdykset} räjähdystä "
-                f"({utility_kierrokset}/{kierrokset} kierroksella)",
+                f"{throws} heittoa, {detonations} räjähdystä "
+                f"({utility_rounds}/{rounds} kierroksella)",
             )
         )
     else:
-        rivit.append(_rivi("Utility", "0 heittoa -- utilitydataa ei syntynyt"))
+        lines.append(_line("Utility", "0 heittoa -- utilitydataa ei syntynyt"))
 
     # Räjähtämätön kranaatti on normaali (pelaaja kuolee heitto kädessä), mutta
     # suuri erotus tarkoittaisi, ettei radan loppua tunnisteta. Toiseen suuntaan
     # se on mahdoton: räjähdys syntyy vain heiton parina, joten negatiivinen
     # erotus on vika eikä havainto -- eikä sitä tulosteta miinusmerkkisenä
     # "puuttuvien" lukuna.
-    if rajahdykset > heitot:
-        rivit.append(
-            _rivi(
+    if detonations > throws:
+        lines.append(
+            _line(
                 "Räjähdyksiä liikaa",
-                f"{rajahdykset - heitot} enemmän kuin heittoja -- "
+                f"{detonations - throws} enemmän kuin heittoja -- "
                 "utility-taulu on epäjohdonmukainen",
             )
         )
-    elif heitot > rajahdykset:
-        rivit.append(_rivi("Ilman räjähdystä", f"{heitot - rajahdykset} kranaattia"))
+    elif throws > detonations:
+        lines.append(_line("Ilman räjähdystä", f"{throws - detonations} kranaattia"))
 
-    if heitot:
-        rivit.extend(_utility_alueet(stats))
+    if throws:
+        lines.extend(_utility_areas(stats))
 
     # Adapterin ja vaiheen omat havainnot: pudotettua kranaattia ei näe
     # valmiista taulusta. Otsikot mahtuvat _PARSE_LABEL_WIDTHiin, jotta
     # arvosarake pysyy suorassa.
-    for avain, otsikko, selite in (
+    for key, label, description in (
         (
             "grenades_without_thrower",
             "Ilman heittäjää",
@@ -499,13 +499,13 @@ def _utility(stats: dict, kierrokset: int) -> list[str]:
             "kranaattiparia samalla tunnisteella kierroksen sisällä",
         ),
     ):
-        maara = int(stats.get(avain, 0) or 0)
-        if maara:
-            rivit.append(_rivi(otsikko, f"{maara} {selite}"))
-    return rivit
+        count = int(stats.get(key, 0) or 0)
+        if count:
+            lines.append(_line(label, f"{count} {description}"))
+    return lines
 
 
-def _utility_alueet(stats: dict) -> list[str]:
+def _utility_areas(stats: dict) -> list[str]:
     """Alueen lähteet erikseen: havainto, arvio ja puuttuva.
 
     Kolme lukua eikä yksi, koska ne ovat eri laatua olevaa tietoa. Heiton alue
@@ -513,31 +513,31 @@ def _utility_alueet(stats: dict) -> list[str]:
     lähimmältä pelaajalta johdettu arvio. Yhteen niputettuna raportin lukija
     luulisi molempia yhtä varmoiksi.
     """
-    havaitut = int(stats.get("utility_area_observed", 0) or 0)
-    napsautetut = int(stats.get("utility_area_snapped", 0) or 0)
-    nimettomat = int(stats.get("utility_area_unnamed", 0) or 0)
-    ilman = int(stats.get("utility_without_area", 0) or 0)
-    rivit = [
-        _rivi(
+    observed = int(stats.get("utility_area_observed", 0) or 0)
+    snapped = int(stats.get("utility_area_snapped", 0) or 0)
+    unnamed = int(stats.get("utility_area_unnamed", 0) or 0)
+    without_area = int(stats.get("utility_without_area", 0) or 0)
+    lines = [
+        _line(
             "Utilityn alue",
-            f"{havaitut} havaittua, {napsautetut} napsautettua, "
-            f"{ilman} ilman aluetta",
+            f"{observed} havaittua, {snapped} napsautettua, "
+            f"{without_area} ilman aluetta",
         )
     ]
-    if nimettomat:
-        rivit.append(
-            _rivi(
+    if unnamed:
+        lines.append(
+            _line(
                 "Nimetön alue",
-                f"{nimettomat} tapahtumaa (lähin pelaaja löytyi, mutta pelillä "
+                f"{unnamed} tapahtumaa (lähin pelaaja löytyi, mutta pelillä "
                 "ei ole nimeä hänen alueelleen)",
             )
         )
-    return rivit
+    return lines
 
 
 @app.command("classify")
 def classify(
-    kohde: str = typer.Argument(
+    target: str = typer.Argument(
         ...,
         metavar="MAP_DEMO_ID",
         help="Parsitun demon tunniste, sama jolla parse ajettiin.",
@@ -551,7 +551,7 @@ def classify(
             "kokoonpanot."
         ),
     ),
-    kaikki: bool = typer.Option(
+    all_teams: bool = typer.Option(
         False,
         "--kaikki-joukkueet",
         help=(
@@ -567,7 +567,7 @@ def classify(
             "pelaaja, loss count, tyyppi ja perustelu."
         ),
     ),
-    pakota: bool = typer.Option(
+    force: bool = typer.Option(
         False,
         "--pakota",
         help="Luokittele vaikka manifesti täsmäisi.",
@@ -582,29 +582,29 @@ def classify(
     settings = load_settings()
     archive = archive_paths(settings.project)
 
-    joukkueet: list[str | None]
-    if kaikki:
-        joukkueet = list(classify_stage.team_keys(archive, kohde))
+    teams: list[str | None]
+    if all_teams:
+        teams = list(classify_stage.team_keys(archive, target))
     else:
-        joukkueet = [team]
+        teams = [team]
 
-    for index, valinta in enumerate(joukkueet):
+    for index, choice in enumerate(teams):
         if index:
             typer.echo("")
-        tulos = classify_stage.run(
+        result = classify_stage.run(
             settings.thresholds,
             settings.league,
             archive,
-            kohde,
-            valinta,
-            force=pakota,
+            target,
+            choice,
+            force=force,
         )
-        typer.echo(_render_classify(tulos))
+        typer.echo(_render_classify(result))
         if show:
-            rivit = tulos.stats.get("rows")
+            lines = result.stats.get("rows")
             typer.echo("")
-            if rivit:
-                typer.echo(_render_round_list(rivit))
+            if lines:
+                typer.echo(_render_round_list(lines))
             else:
                 typer.echo(
                     "Kierroslistaa ei saatu luettua tuloksesta. Aja komento "
@@ -612,67 +612,67 @@ def classify(
                 )
 
 
-def _render_classify(tulos: StageResult) -> str:
+def _render_classify(result: StageResult) -> str:
     """Kokoa ``classify``-komennon yhteenveto.
 
     Erotettu omaksi funktiokseen, jotta tuloste on testattavissa ilman
     komentorivin ajamista.
     """
-    stats = tulos.stats
-    rivit: list[str] = []
-    rivit.append(f"{'Ohitettu' if tulos.skipped else 'Luokiteltu'}: {tulos.unit}")
+    stats = result.stats
+    lines: list[str] = []
+    lines.append(f"{'Ohitettu' if result.skipped else 'Luokiteltu'}: {result.unit}")
 
-    if tulos.status != "ok":
-        rivit.append(_rivi("Tila", str(tulos.status)))
-    if tulos.reason:
-        rivit.append(_rivi("Syy", tulos.reason))
+    if result.status != "ok":
+        lines.append(_line("Tila", str(result.status)))
+    if result.reason:
+        lines.append(_line("Syy", result.reason))
 
-    joukkue = stats.get("team_key")
-    if joukkue:
-        rivit.append(_rivi("Joukkue", str(joukkue)))
+    team_key = stats.get("team_key")
+    if team_key:
+        lines.append(_line("Joukkue", str(team_key)))
 
     if "unreadable" in stats:
-        rivit.append(_rivi("Kierrokset", f"lukuja ei saatu ({stats['unreadable']})"))
-        rivit.append(_rivi("Ajoaika", _sekunnit(tulos.duration_s)))
-        return "\n".join(rivit)
+        lines.append(_line("Kierrokset", f"lukuja ei saatu ({stats['unreadable']})"))
+        lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+        return "\n".join(lines)
 
-    rivit.append(_rivi("Kierrokset", str(int(stats.get("rounds", 0) or 0))))
+    lines.append(_line("Kierrokset", str(int(stats.get("rounds", 0) or 0))))
 
-    jakauma = stats.get("by_type") or {}
-    if jakauma:
+    distribution = stats.get("by_type") or {}
+    if distribution:
         # Kierrostyyppien vakiojärjestys, jotta tuloste on vertailukelpoinen
         # ajosta toiseen; tuntemattomat lopuksi.
-        jarjestys = [t for t in ROUND_TYPES if t in jakauma]
-        jarjestys += [t for t in sorted(jakauma) if t not in ROUND_TYPES]
-        rivit.append(_rivi("Tyypit", ", ".join(f"{t} {jakauma[t]}" for t in jarjestys)))
+        order = [t for t in ROUND_TYPES if t in distribution]
+        order += [t for t in sorted(distribution) if t not in ROUND_TYPES]
+        lines.append(_line("Tyypit", ", ".join(f"{t} {distribution[t]}" for t in order)))
 
     # AD-9: luokittelematon kierros ei saa hukkua tyyppijakaumaan, joten se on
     # omalla rivillään -- ja vain siellä.
-    luokittelematta = int(stats.get("unclassified", 0) or 0)
-    if luokittelematta:
-        rivit.append(
-            _rivi(
+    unclassified = int(stats.get("unclassified", 0) or 0)
+    if unclassified:
+        lines.append(
+            _line(
                 UNCLASSIFIED.capitalize(),
-                f"{luokittelematta} (havainto puuttuu, syy näkyy kierroslistassa)",
+                f"{unclassified} (havainto puuttuu, syy näkyy kierroslistassa)",
             )
         )
 
-    numeroimattomat = int(stats.get("unnumbered", 0) or 0)
-    if numeroimattomat:
-        rivit.append(
-            _rivi(
+    unnumbered = int(stats.get("unnumbered", 0) or 0)
+    if unnumbered:
+        lines.append(
+            _line(
                 "Numeroimattomat",
-                f"{numeroimattomat} (ei kierrosnumeroa, jätetty luokittelun "
+                f"{unnumbered} (ei kierrosnumeroa, jätetty luokittelun "
                 "ulkopuolelle)",
             )
         )
 
-    for polku in tulos.outputs:
-        rivit.append(_rivi("Tulos", str(polku)))
-    if tulos.manifest_path is not None:
-        rivit.append(_rivi("Manifesti", str(tulos.manifest_path)))
-    rivit.append(_rivi("Ajoaika", _sekunnit(tulos.duration_s)))
-    return "\n".join(rivit)
+    for path in result.outputs:
+        lines.append(_line("Tulos", str(path)))
+    if result.manifest_path is not None:
+        lines.append(_line("Manifesti", str(result.manifest_path)))
+    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+    return "\n".join(lines)
 
 
 #: Perustelu ei mahdu sarakkeeksi, joten se tulostetaan omalle sisennetylle
@@ -681,7 +681,7 @@ def _render_classify(tulos: StageResult) -> str:
 _REASON_COLUMN = "reason"
 
 
-def _render_round_list(rivit: list[dict]) -> str:
+def _render_round_list(rows: list[dict]) -> str:
     """Kierroslista konsoliin.
 
     Tämä on se tuloste, jolla käyttäjä tarkistaa luokittelun demoa vasten:
@@ -689,48 +689,48 @@ def _render_round_list(rivit: list[dict]) -> str:
     Sarakkeet tulevat vaiheen omasta ``ROUND_LIST_COLUMNS``-määrittelystä, joten
     konsoli ja Markdown eivät voi esittää eri asioita.
     """
-    if not rivit:
+    if not rows:
         return "Kierroksia ei ole."
 
-    kapeat = [
-        (index, otsikko)
-        for index, (otsikko, avain) in enumerate(classify_stage.ROUND_LIST_COLUMNS)
-        if avain != _REASON_COLUMN
+    narrow = [
+        (index, label)
+        for index, (label, key) in enumerate(classify_stage.ROUND_LIST_COLUMNS)
+        if key != _REASON_COLUMN
     ]
-    perustelu_index = next(
+    reason_index = next(
         index
-        for index, (_, avain) in enumerate(classify_stage.ROUND_LIST_COLUMNS)
-        if avain == _REASON_COLUMN
+        for index, (_, key) in enumerate(classify_stage.ROUND_LIST_COLUMNS)
+        if key == _REASON_COLUMN
     )
 
-    solut = [classify_stage.round_list_cells(rivi) for rivi in rivit]
-    otsikot = [otsikko for _, otsikko in kapeat]
-    leveydet = [
-        max(len(otsikko), *(len(r[index]) for r in solut))
-        for index, otsikko in kapeat
+    cells = [classify_stage.round_list_cells(row) for row in rows]
+    headers = [label for _, label in narrow]
+    widths = [
+        max(len(label), *(len(r[index]) for r in cells))
+        for index, label in narrow
     ]
 
-    tulos: list[str] = []
-    tulos.append("  ".join(o.ljust(w) for o, w in zip(otsikot, leveydet)).rstrip())
-    tulos.append("  ".join("-" * w for w in leveydet))
-    for rivin_solut in solut:
-        kapeat_solut = [rivin_solut[index] for index, _ in kapeat]
-        tulos.append(
-            "  ".join(s.ljust(w) for s, w in zip(kapeat_solut, leveydet)).rstrip()
+    result: list[str] = []
+    result.append("  ".join(o.ljust(w) for o, w in zip(headers, widths)).rstrip())
+    result.append("  ".join("-" * w for w in widths))
+    for row_cells in cells:
+        narrow_cells = [row_cells[index] for index, _ in narrow]
+        result.append(
+            "  ".join(s.ljust(w) for s, w in zip(narrow_cells, widths)).rstrip()
         )
-        perustelu = rivin_solut[perustelu_index].strip()
-        if perustelu:
-            tulos.append(f"    {perustelu}")
-    tulos.append("")
-    tulos.append("Rahaluvut ovat $/pelaaja freezetimen lopussa. Käytössä = jäljellä +")
-    tulos.append("käytetty; jäljellä on saldo ostojen jälkeen, joten")
-    tulos.append("säästökierroksella se on suuri.")
-    return "\n".join(tulos)
+        reason = row_cells[reason_index].strip()
+        if reason:
+            result.append(f"    {reason}")
+    result.append("")
+    result.append("Rahaluvut ovat $/pelaaja freezetimen lopussa. Käytössä = jäljellä +")
+    result.append("käytetty; jäljellä on saldo ostojen jälkeen, joten")
+    result.append("säästökierroksella se on suuri.")
+    return "\n".join(result)
 
 
-def _sekunnit(arvo: float) -> str:
+def _seconds(value: float) -> str:
     """Sekunnit suomalaisella desimaalipilkulla."""
-    return f"{arvo:.1f} s".replace(".", ",")
+    return f"{value:.1f} s".replace(".", ",")
 
 
 def main() -> None:

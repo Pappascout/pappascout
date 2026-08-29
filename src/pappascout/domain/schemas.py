@@ -240,18 +240,18 @@ def validate(df: pl.DataFrame, schema: Schema, name: str) -> pl.DataFrame:
 
     missing = [col for col in schema if col not in actual]
     if missing:
-        rivit = ", ".join(f"{col} ({_type_name(schema[col])})" for col in missing)
+        listing = ", ".join(f"{col} ({_type_name(schema[col])})" for col in missing)
         raise SchemaError(
-            f"Taulusta {name!r} puuttuu sarake: {rivit}. "
+            f"Taulusta {name!r} puuttuu sarake: {listing}. "
             "Lisää sarake tai korjaa taulun tuottanut vaihe -- "
             "sopimus on tiedostossa domain/schemas.py."
         )
 
     extra = [col for col in actual if col not in schema]
     if extra:
-        rivit = ", ".join(f"{col} ({_type_name(actual[col])})" for col in extra)
+        listing = ", ".join(f"{col} ({_type_name(actual[col])})" for col in extra)
         raise SchemaError(
-            f"Taulussa {name!r} on ylimääräinen sarake: {rivit}. "
+            f"Taulussa {name!r} on ylimääräinen sarake: {listing}. "
             "Poista sarake tai lisää se sopimukseen tiedostossa domain/schemas.py."
         )
 
@@ -259,12 +259,12 @@ def validate(df: pl.DataFrame, schema: Schema, name: str) -> pl.DataFrame:
         (col, schema[col], actual[col]) for col in schema if actual[col] != schema[col]
     ]
     if wrong:
-        rivit = "; ".join(
+        listing = "; ".join(
             f"{col}: odotettiin {_type_name(exp)}, saatiin {_type_name(got)}"
             for col, exp, got in wrong
         )
         raise SchemaError(
-            f"Taulun {name!r} sarakkeella on väärä tyyppi -- {rivit}. "
+            f"Taulun {name!r} sarakkeella on väärä tyyppi -- {listing}. "
             "Muunna sarake oikeaan tyyppiin ennen kirjoitusta."
         )
 

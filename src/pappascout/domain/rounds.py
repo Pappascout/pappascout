@@ -104,11 +104,11 @@ def mark_played_rounds(df: pl.DataFrame) -> pl.DataFrame:
             kuin yhdellä. Silloin kierrosrajojen tunnistus on pudottanut
             kierroksen välistä, eikä numerointi enää vastaisi demoa.
     """
-    puuttuvat = [name for name in REQUIRED_COLUMNS if name not in df.columns]
-    if puuttuvat:
+    missing = [name for name in REQUIRED_COLUMNS if name not in df.columns]
+    if missing:
         raise SchemaError(
             "mark_played_rounds tarvitsee sarakkeet "
-            f"{', '.join(REQUIRED_COLUMNS)}; puuttuu: {', '.join(puuttuvat)}."
+            f"{', '.join(REQUIRED_COLUMNS)}; puuttuu: {', '.join(missing)}."
         )
 
     if df.is_empty():
@@ -139,7 +139,7 @@ def mark_played_rounds(df: pl.DataFrame) -> pl.DataFrame:
         & pl.col("score_start").is_not_null()
         & (pl.col("score_end") > pl.col("score_start"))
     )
-    numeroidut = per_round.with_columns(
+    numbered = per_round.with_columns(
         pl.when(played)
         .then(played.cast(pl.Int32).cum_sum())
         .otherwise(pl.lit(None, dtype=pl.Int32))
@@ -149,8 +149,8 @@ def mark_played_rounds(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(
         pl.col("round_raw")
         .replace_strict(
-            old=numeroidut["round_raw"],
-            new=numeroidut["round_no"],
+            old=numbered["round_raw"],
+            new=numbered["round_no"],
             return_dtype=pl.Int32,
         )
         .alias("round_no")
@@ -165,17 +165,17 @@ def _check_score_steps(per_round: pl.DataFrame) -> None:
     jota ei tunnistettu. Hiljainen hyväksyntä siirtäisi kaikkien seuraavien
     kierrosten numeroinnin yhdellä.
     """
-    liikaa = per_round.filter(
+    too_many = per_round.filter(
         pl.col("score_start").is_not_null()
         & pl.col("score_end").is_not_null()
         & ((pl.col("score_end") - pl.col("score_start")) > 1)
     )
-    if liikaa.is_empty():
+    if too_many.is_empty():
         return
-    rivi = liikaa.row(0, named=True)
+    row = too_many.row(0, named=True)
     raise ParseError(
-        f"Kierroksella round_raw={rivi['round_raw']} yhteispistemäärä kasvoi "
-        f"{rivi['score_start']} -> {rivi['score_end']} eli enemmän kuin "
+        f"Kierroksella round_raw={row['round_raw']} yhteispistemäärä kasvoi "
+        f"{row['score_start']} -> {row['score_end']} eli enemmän kuin "
         "yhdellä.\n"
         "Kierrosrajojen tunnistuksesta on jäänyt kierros välistä, joten "
         "numerointi ei vastaisi demoa. Tarkista demo ja demoparser2:n versio."
@@ -204,43 +204,43 @@ def check_win_reasons(df: pl.DataFrame) -> pl.DataFrame:
         SchemaError: Jos vaadittu sarake puuttuu.
         ParseError: Jos jokin kierros rikkoo säännön.
     """
-    tarvitaan = ("side", "won", "win_reason")
-    puuttuvat = [name for name in tarvitaan if name not in df.columns]
-    if puuttuvat:
+    required = ("side", "won", "win_reason")
+    missing = [name for name in required if name not in df.columns]
+    if missing:
         raise SchemaError(
             "check_win_reasons tarvitsee sarakkeet "
-            f"{', '.join(tarvitaan)}; puuttuu: {', '.join(puuttuvat)}."
+            f"{', '.join(required)}; puuttuu: {', '.join(missing)}."
         )
     if df.is_empty():
         return df
 
-    voittajat = df.filter(
+    winners = df.filter(
         pl.col("won").fill_null(False) & pl.col("win_reason").is_not_null()
     )
-    for rivi in voittajat.iter_rows(named=True):
-        side = str(rivi["side"])
-        reason = str(rivi["win_reason"])
-        sallitut = WIN_REASONS.get(side)
-        if sallitut is None:
+    for row in winners.iter_rows(named=True):
+        side = str(row["side"])
+        reason = str(row["win_reason"])
+        allowed = WIN_REASONS.get(side)
+        if allowed is None:
             raise ParseError(
                 f"Tuntematon puoli {side!r} kierrostaulussa. Sallitut ovat "
                 f"{', '.join(sorted(WIN_REASONS))}."
             )
-        if reason in sallitut:
+        if reason in allowed:
             continue
-        kierros = rivi.get("round_no") or rivi.get("round_raw")
-        toinen = "CT" if side == "T" else "T"
-        vihje = (
-            f" Syy {reason!r} kuuluu puolelle {toinen}, joten puolet ovat "
+        round_id = row.get("round_no") or row.get("round_raw")
+        other_side = "CT" if side == "T" else "T"
+        hint = (
+            f" Syy {reason!r} kuuluu puolelle {other_side}, joten puolet ovat "
             "todennäköisesti väärin päin."
-            if reason in WIN_REASONS[toinen]
+            if reason in WIN_REASONS[other_side]
             else " Syy ei ole tunnettu CS2:n kierroksen lopetustapa."
         )
         raise ParseError(
-            f"Kierroksella {kierros} puoli {side} voitti syyllä {reason!r}, "
+            f"Kierroksella {round_id} puoli {side} voitti syyllä {reason!r}, "
             "mikä on CS2:n sääntöjen vastaista.\n"
-            f"{side} voi voittaa vain näin: {', '.join(sorted(sallitut))}."
-            f"{vihje}\n"
+            f"{side} voi voittaa vain näin: {', '.join(sorted(allowed))}."
+            f"{hint}\n"
             "Parsinta on mennyt pieleen -- tulosta ei kirjoiteta."
         )
     return df

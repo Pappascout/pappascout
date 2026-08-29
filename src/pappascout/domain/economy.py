@@ -232,7 +232,7 @@ INPUT_FIELDS: tuple[str, ...] = (
 )
 
 
-def available_money(rivi: Mapping[str, Any]) -> int | None:
+def available_money(row: Mapping[str, Any]) -> int | None:
     """Kierroksella käytettävissä ollut raha = jäljelle jäänyt + käytetty.
 
     ``None``, jos kumpikaan osa ei ole tiedossa.
@@ -244,23 +244,23 @@ def available_money(rivi: Mapping[str, Any]) -> int | None:
     mistä joukkueen tilanne syntyi -- ja siksi, ettei jäljelle jäänyttä saldoa
     luulisi käytettävissä olleeksi rahaksi.
     """
-    jaljella = rivi.get("money_freeze_end")
-    kaytetty = rivi.get("money_spent")
-    if jaljella is None and kaytetty is None:
+    left = row.get("money_freeze_end")
+    spent = row.get("money_spent")
+    if left is None and spent is None:
         return None
-    return int(jaljella or 0) + int(kaytetty or 0)
+    return int(left or 0) + int(spent or 0)
 
 
-def per_player(arvo: Any, pelaajat: int) -> int | None:
+def per_player(value: Any, players: int) -> int | None:
     """Dollarimäärä per pelaaja kokonaislukuna.
 
     **Ainoa** paikka, jossa per pelaaja -arvo pyöristetään. Taulukko ja
     perustelu näyttävät siksi samalla rivillä saman luvun; kaksi eri
     pyöristystä erottaisi ne toisistaan dollarilla.
     """
-    if arvo is None or not pelaajat:
+    if value is None or not players:
         return None
-    return round(int(arvo) / pelaajat)
+    return round(int(value) / players)
 
 
 def loss_counts(team_rounds: pl.DataFrame, thresholds: ThresholdSettings) -> list[int]:
@@ -292,60 +292,60 @@ def loss_counts(team_rounds: pl.DataFrame, thresholds: ThresholdSettings) -> lis
             tai rivit eivät ole nousevassa kierrosjärjestyksessä ilman
             toistoja.
     """
-    puuttuvat = [name for name in LOSS_COUNT_COLUMNS if name not in team_rounds.columns]
-    if puuttuvat:
+    missing = [name for name in LOSS_COUNT_COLUMNS if name not in team_rounds.columns]
+    if missing:
         raise SchemaError(
             "loss_counts tarvitsee sarakkeet "
-            f"{', '.join(LOSS_COUNT_COLUMNS)}; puuttuu: {', '.join(puuttuvat)}."
+            f"{', '.join(LOSS_COUNT_COLUMNS)}; puuttuu: {', '.join(missing)}."
         )
     if team_rounds.is_empty():
         return []
 
-    rivit = team_rounds.select(list(LOSS_COUNT_COLUMNS)).to_dicts()
-    numerot = [r["round_no"] for r in rivit]
-    if any(n is None for n in numerot):
+    rows = team_rounds.select(list(LOSS_COUNT_COLUMNS)).to_dicts()
+    numbers = [r["round_no"] for r in rows]
+    if any(n is None for n in numbers):
         raise SchemaError(
             "loss_counts: round_no sisältää tyhjiä arvoja. Loss count on "
             "kierrosten järjestykseen sidottu laskuri, joten numeroimaton "
             "kierros ei voi olla mukana."
         )
-    if any(r["side"] is None for r in rivit):
+    if any(r["side"] is None for r in rows):
         raise SchemaError(
             "loss_counts: side sisältää tyhjiä arvoja. Puoliaika tunnistetaan "
             "puolen vaihtumisesta, joten tyhjä puoli nollaisi laskurin "
             "äänettömästi ja vääristäisi kaikki seuraavat kierrokset."
         )
-    if any(b <= a for a, b in zip(numerot, numerot[1:])):
+    if any(b <= a for a, b in zip(numbers, numbers[1:])):
         raise SchemaError(
             "loss_counts: rivit eivät ole nousevassa kierrosjärjestyksessä tai "
             "sama kierros esiintyy kahdesti. Anna yhden joukkueen rivit "
             "järjestettynä round_no-sarakkeen mukaan."
         )
 
-    tulos: list[int] = []
-    laskuri = thresholds.loss_count_half_start
-    edellinen_side: str | None = None
-    edellinen_won: bool | None = None
+    result: list[int] = []
+    counter = thresholds.loss_count_half_start
+    previous_side: str | None = None
+    previous_won: bool | None = None
 
-    for rivi in rivit:
-        side = str(rivi["side"])
-        if edellinen_side is None or side != edellinen_side:
-            laskuri = thresholds.loss_count_half_start
-        elif edellinen_won is True:
-            laskuri = max(thresholds.loss_count_min, laskuri - 1)
-        elif edellinen_won is False:
-            laskuri = min(thresholds.loss_count_max, laskuri + 1)
-        tulos.append(laskuri)
-        edellinen_side = side
-        edellinen_won = None if rivi["won"] is None else bool(rivi["won"])
+    for row in rows:
+        side = str(row["side"])
+        if previous_side is None or side != previous_side:
+            counter = thresholds.loss_count_half_start
+        elif previous_won is True:
+            counter = max(thresholds.loss_count_min, counter - 1)
+        elif previous_won is False:
+            counter = min(thresholds.loss_count_max, counter + 1)
+        result.append(counter)
+        previous_side = side
+        previous_won = None if row["won"] is None else bool(row["won"])
 
-    return tulos
+    return result
 
 
 def classify_round(
-    rivi: Mapping[str, Any],
-    edellinen: Mapping[str, Any] | None,
-    kynnykset: ThresholdSettings,
+    row: Mapping[str, Any],
+    previous: Mapping[str, Any] | None,
+    thresholds: ThresholdSettings,
     *,
     loss_count: int,
 ) -> Decision:
@@ -356,13 +356,13 @@ def classify_round(
     perusteluineen.
 
     Args:
-        rivi: Kierrosrivi, sarakkeet :data:`CLASSIFY_COLUMNS`.
-        edellinen: Saman joukkueen edellinen kierrosrivi tai ``None``.
+        row: Kierrosrivi, sarakkeet :data:`CLASSIFY_COLUMNS`.
+        previous: Saman joukkueen edellinen kierrosrivi tai ``None``.
             **Jatkuvuus tarkistetaan täällä**: rivi kelpaa edelliseksi vain,
             jos sen ``round_no`` on tasan yksi pienempi ja ``side`` on sama.
             Muuten kierroksella ei ole edellistä, eikä voiton tai häviön
             jälkeisiä sääntöjä sovelleta.
-        kynnykset: ``[thresholds]``-osio.
+        thresholds: ``[thresholds]``-osio.
         loss_count: Tähän kierrokseen mentäessä voimassa oleva laskuri,
             :func:`loss_counts`-funktiosta.
 
@@ -370,18 +370,18 @@ def classify_round(
         :class:`Decision`, joka purkautuu myös muodossa
         ``(round_type, reason, inputs)``.
     """
-    pelaajat, luettavat, jakaja_ok = _players(rivi, kynnykset)
-    edellinen = _continuous_previous(rivi, edellinen)
-    inputs = _inputs(rivi, edellinen, kynnykset, pelaajat, luettavat)
+    players, readable, divisor_ok = _players(row, thresholds)
+    previous = _continuous_previous(row, previous)
+    inputs = _inputs(row, previous, thresholds, players, readable)
 
-    round_no = rivi.get("round_no")
+    round_no = row.get("round_no")
     if round_no is None:
         return Decision(
             None, "Kierrosta ei ole numeroitu, joten sitä ei luokitella.", inputs
         )
     round_no = int(round_no)
 
-    status = rivi.get("status")
+    status = row.get("status")
     if status is not None and str(status) != "ok":
         return Decision(
             None,
@@ -390,44 +390,44 @@ def classify_round(
             inputs,
         )
 
-    raha = rivi.get("money_freeze_end")
-    varusteet = rivi.get("equip_freeze_end")
-    alkuvarusteet = rivi.get("equip_round_start")
-    puuttuu = [
-        nimi
-        for nimi, arvo in (
-            ("raha", raha),
-            ("varustearvo", varusteet),
-            ("kierroksen alun varustearvo", alkuvarusteet),
+    money = row.get("money_freeze_end")
+    equip = row.get("equip_freeze_end")
+    equip_start = row.get("equip_round_start")
+    missing = [
+        name
+        for name, value in (
+            ("raha", money),
+            ("varustearvo", equip),
+            ("kierroksen alun varustearvo", equip_start),
         )
-        if arvo is None
+        if value is None
     ]
-    if puuttuu:
+    if missing:
         return Decision(
             None,
             f"Kierrosta {round_no} ei luokitella: freezetimen lopusta puuttuu "
-            f"{', '.join(puuttuu)}. Puuttuvaa arvoa ei korvata nollalla, koska "
+            f"{', '.join(missing)}. Puuttuvaa arvoa ei korvata nollalla, koska "
             "se väittäisi koko varustearvon ostetuksi tällä kierroksella.",
             inputs,
         )
 
-    perusta = _perusta(rivi, kynnykset, pelaajat, luettavat, loss_count, jakaja_ok)
+    basis = _basis(row, thresholds, players, readable, loss_count, divisor_ok)
 
-    if round_no in kynnykset.pistol_rounds:
+    if round_no in thresholds.pistol_rounds:
         return Decision(
             "pistol",
             f"Kierros {round_no} on pistoolikierros "
-            f"({_lista(kynnykset.pistol_rounds)}), joten talouspäättelyä ei "
-            f"sovelleta. {perusta}",
+            f"({_listing(thresholds.pistol_rounds)}), joten talouspäättelyä ei "
+            f"sovelleta. {basis}",
             inputs,
         )
 
-    if round_no > kynnykset.regulation_rounds:
+    if round_no > thresholds.regulation_rounds:
         return Decision(
             "ot",
             f"Kierros {round_no} on jatkoaikaa (säännönmukaisia kierroksia "
-            f"{kynnykset.regulation_rounds}), joten talouspäättelyä ei "
-            f"sovelleta. {perusta}",
+            f"{thresholds.regulation_rounds}), joten talouspäättelyä ei "
+            f"sovelleta. {basis}",
             inputs,
         )
 
@@ -439,62 +439,62 @@ def classify_round(
     # Raha, varustearvo ja kierroksen alun varustearvo on juuri todettu
     # olemassa oleviksi ja pelaajia on aina vähintään yksi, joten nämä eivät
     # voi olla None.
-    varusteet_pp = per_player(varusteet, pelaajat) or 0
-    ostettu = int(varusteet) - int(alkuvarusteet)
-    ostettu_pp = per_player(ostettu, pelaajat) or 0
-    raha_pp = per_player(raha, pelaajat) or 0
+    equip_pp = per_player(equip, players) or 0
+    bought = int(equip) - int(equip_start)
+    bought_pp = per_player(bought, players) or 0
+    money_pp = per_player(money, players) or 0
 
     # Ristiriitainen havainto ennen täyttä ostoa: jos varustearvo laski
     # ostoaikana, luvuista ei lueta luokkaa, oli varustearvo miten korkea
     # tahansa. Merkki luetaan joukkuesummasta, koska pyöristys per pelaaja
     # voisi vaimentaa pienen laskun nollaan.
-    if ostettu < 0:
+    if bought < 0:
         return Decision(
             "anomaly",
             f"Varustearvo laski kierroksen alusta freezetimen loppuun "
-            f"({ostettu} $ joukkueena, {_d(ostettu_pp)} $/pelaaja), mikä ei ole "
+            f"({bought} $ joukkueena, {_d(bought_pp)} $/pelaaja), mikä ei ole "
             "ostotapahtuma. Havainnot ovat ristiriidassa, eikä erotusta "
-            f"vaimenneta nollaan. {perusta}",
+            f"vaimenneta nollaan. {basis}",
             inputs,
         )
 
-    if varusteet_pp >= kynnykset.full_equip_min:
+    if equip_pp >= thresholds.full_equip_min:
         return Decision(
             "full",
-            f"Täysi osto: varustearvo {_d(varusteet_pp)} $/pelaaja vähintään "
-            f"{kynnykset.full_equip_min} $. {perusta}",
+            f"Täysi osto: varustearvo {_d(equip_pp)} $/pelaaja vähintään "
+            f"{thresholds.full_equip_min} $. {basis}",
             inputs,
         )
 
-    edellinen_won = None if edellinen is None else edellinen.get("won")
-    if edellinen_won is None:
+    previous_won = None if previous is None else previous.get("won")
+    if previous_won is None:
         return Decision(
             "anomaly",
             "Edellistä kierrosta ei ole tai sen tulosta ei tiedetä, joten "
             "eco-, force- ja puoliostosääntöjä ei voi soveltaa -- ne pätevät "
-            f"vain suhteessa edelliseen kierrokseen. {perusta}",
+            f"vain suhteessa edelliseen kierrokseen. {basis}",
             inputs,
         )
 
-    if bool(edellinen_won):
+    if bool(previous_won):
         # S1: säästö on reaktio häviöön, joten voiton jälkeen ei ole ecoa,
         # forcea eikä puoliostoa -- vain normaali osto tai poikkeama.
-        if varusteet_pp <= kynnykset.anomaly_equip_max_after_win:
+        if equip_pp <= thresholds.anomaly_equip_max_after_win:
             return Decision(
                 "anomaly",
-                f"Matala varustearvo voiton jälkeen: {_d(varusteet_pp)} "
-                f"$/pelaaja enintään {kynnykset.anomaly_equip_max_after_win} $. "
+                f"Matala varustearvo voiton jälkeen: {_d(equip_pp)} "
+                f"$/pelaaja enintään {thresholds.anomaly_equip_max_after_win} $. "
                 "Ecoa, forcea eikä puoliostoa ei pelata voiton jälkeen, joten "
-                f"tämä on poikkeama eikä eco. {perusta}",
+                f"tämä on poikkeama eikä eco. {basis}",
                 inputs,
             )
         return Decision(
             "full",
             f"Normaali osto voitetun kierroksen jälkeen: varustearvo "
-            f"{_d(varusteet_pp)} $/pelaaja ylittää matalan varustearvon rajan "
-            f"{kynnykset.anomaly_equip_max_after_win} $. Säästö on aina reaktio "
+            f"{_d(equip_pp)} $/pelaaja ylittää matalan varustearvon rajan "
+            f"{thresholds.anomaly_equip_max_after_win} $. Säästö on aina reaktio "
             "häviöön, joten voiton jälkeen ei tehdä ecoa, forcea eikä "
-            f"puoliostoa. {perusta}",
+            f"puoliostoa. {basis}",
             inputs,
         )
 
@@ -502,33 +502,33 @@ def classify_round(
     # joten jäljellä ovat force, puoliosto ja eco. Molempien ostosääntöjen
     # yhteinen edellytys on, että joukkue oikeasti osti (S3): säästetty ase
     # nostaa varustearvoa, mutta ei ole ostos.
-    if ostettu_pp >= kynnykset.force_buy_min:
-        if raha_pp <= kynnykset.force_money_left_max:
+    if bought_pp >= thresholds.force_buy_min:
+        if money_pp <= thresholds.force_money_left_max:
             return Decision(
                 "force",
-                f"Force hävityn kierroksen jälkeen: ostettu {_d(ostettu_pp)} "
-                f"$/pelaaja eli vähintään {kynnykset.force_buy_min} $, ja "
-                f"taskuun jäi vain {_d(raha_pp)} $/pelaaja eli enintään "
-                f"{kynnykset.force_money_left_max} $ -- ostettu tyhjäksi, "
-                f"seuraavalle kierrokselle ei jätetty varaa. {perusta}",
+                f"Force hävityn kierroksen jälkeen: ostettu {_d(bought_pp)} "
+                f"$/pelaaja eli vähintään {thresholds.force_buy_min} $, ja "
+                f"taskuun jäi vain {_d(money_pp)} $/pelaaja eli enintään "
+                f"{thresholds.force_money_left_max} $ -- ostettu tyhjäksi, "
+                f"seuraavalle kierrokselle ei jätetty varaa. {basis}",
                 inputs,
             )
         return Decision(
             "half",
-            f"Puoliosto hävityn kierroksen jälkeen: ostettu {_d(ostettu_pp)} "
-            f"$/pelaaja eli vähintään {kynnykset.force_buy_min} $, mutta "
-            f"taskuun jäi {_d(raha_pp)} $/pelaaja eli yli "
-            f"{kynnykset.force_money_left_max} $ -- ostettiin, mutta jätettiin "
-            f"varaa seuraavalle kierrokselle. {perusta}",
+            f"Puoliosto hävityn kierroksen jälkeen: ostettu {_d(bought_pp)} "
+            f"$/pelaaja eli vähintään {thresholds.force_buy_min} $, mutta "
+            f"taskuun jäi {_d(money_pp)} $/pelaaja eli yli "
+            f"{thresholds.force_money_left_max} $ -- ostettiin, mutta jätettiin "
+            f"varaa seuraavalle kierrokselle. {basis}",
             inputs,
         )
 
     return Decision(
         "eco",
-        f"Eco hävityn kierroksen jälkeen: ostettu vain {_d(ostettu_pp)} "
-        f"$/pelaaja eli alle forcen edellytyksen {kynnykset.force_buy_min} $. "
-        f"Varustearvo {_d(varusteet_pp)} $/pelaaja ei ratkaise: säästetty "
-        f"kalusto ei ole tällä kierroksella tehty ostos. {perusta}",
+        f"Eco hävityn kierroksen jälkeen: ostettu vain {_d(bought_pp)} "
+        f"$/pelaaja eli alle forcen edellytyksen {thresholds.force_buy_min} $. "
+        f"Varustearvo {_d(equip_pp)} $/pelaaja ei ratkaise: säästetty "
+        f"kalusto ei ole tällä kierroksella tehty ostos. {basis}",
         inputs,
     )
 
@@ -537,7 +537,7 @@ def classify_round(
 
 
 def _continuous_previous(
-    rivi: Mapping[str, Any], edellinen: Mapping[str, Any] | None
+    row: Mapping[str, Any], previous: Mapping[str, Any] | None
 ) -> Mapping[str, Any] | None:
     """Palauta edellinen kierros vain, jos se oikeasti on edellinen.
 
@@ -546,21 +546,21 @@ def _continuous_previous(
     tai puuttuu kokonaan -- silloin voiton ja häviön jälkeiset säännöt eivät
     päde, eikä niitä sovelleta arvaamalla.
     """
-    if edellinen is None:
+    if previous is None:
         return None
-    nyt = rivi.get("round_no")
-    ennen = edellinen.get("round_no")
-    if nyt is None or ennen is None or int(ennen) != int(nyt) - 1:
+    current = row.get("round_no")
+    before = previous.get("round_no")
+    if current is None or before is None or int(before) != int(current) - 1:
         return None
-    if rivi.get("side") is None or edellinen.get("side") is None:
+    if row.get("side") is None or previous.get("side") is None:
         return None
-    if str(edellinen["side"]) != str(rivi["side"]):
+    if str(previous["side"]) != str(row["side"]):
         return None
-    return edellinen
+    return previous
 
 
 def _players(
-    rivi: Mapping[str, Any], kynnykset: ThresholdSettings
+    row: Mapping[str, Any], thresholds: ThresholdSettings
 ) -> tuple[int, int | None, bool]:
     """Jakaja per pelaaja -arvoille.
 
@@ -577,24 +577,24 @@ def _players(
     Returns:
         ``(jakaja, luettavien määrä havaintona, kelpasiko havainto)``.
     """
-    if kynnykset.roster_size < 1:
+    if thresholds.roster_size < 1:
         raise SchemaError(
-            f"thresholds.roster_size on {kynnykset.roster_size}; per pelaaja "
+            f"thresholds.roster_size on {thresholds.roster_size}; per pelaaja "
             "-arvoja ei voi laskea, koska jakaja olisi nolla tai negatiivinen."
         )
-    havaittu = rivi.get("players_freeze_end")
-    luettavat = None if havaittu is None else int(havaittu)
-    if luettavat is not None and 1 <= luettavat <= kynnykset.roster_size:
-        return luettavat, luettavat, True
-    return kynnykset.roster_size, luettavat, False
+    observed = row.get("players_freeze_end")
+    readable = None if observed is None else int(observed)
+    if readable is not None and 1 <= readable <= thresholds.roster_size:
+        return readable, readable, True
+    return thresholds.roster_size, readable, False
 
 
 def _inputs(
-    rivi: Mapping[str, Any],
-    edellinen: Mapping[str, Any] | None,
-    kynnykset: ThresholdSettings,
-    pelaajat: int,
-    luettavat: int | None,
+    row: Mapping[str, Any],
+    previous: Mapping[str, Any] | None,
+    thresholds: ThresholdSettings,
+    players: int,
+    readable: int | None,
 ) -> dict[str, Any]:
     """Kokoa päätöksen lähtöarvot ``CLASSIFIED_INPUTS``-rakenteeseen.
 
@@ -604,33 +604,33 @@ def _inputs(
     Kumpikin on siis jäljitettävissä ilman skeemamuutosta.
     """
     return {
-        "money_freeze_end": _i(rivi.get("money_freeze_end")),
-        "money_spent": _i(rivi.get("money_spent")),
-        "equip_freeze_end": _i(rivi.get("equip_freeze_end")),
-        "equip_round_start": _i(rivi.get("equip_round_start")),
-        "survivors_prev": None if edellinen is None else _i(edellinen.get("survivors")),
-        "survivors_equip_prev": _i(rivi.get("survivors_equip_prev")),
+        "money_freeze_end": _i(row.get("money_freeze_end")),
+        "money_spent": _i(row.get("money_spent")),
+        "equip_freeze_end": _i(row.get("equip_freeze_end")),
+        "equip_round_start": _i(row.get("equip_round_start")),
+        "survivors_prev": None if previous is None else _i(previous.get("survivors")),
+        "survivors_equip_prev": _i(row.get("survivors_equip_prev")),
         "prev_round_won": (
             None
-            if edellinen is None or edellinen.get("won") is None
-            else bool(edellinen["won"])
+            if previous is None or previous.get("won") is None
+            else bool(previous["won"])
         ),
-        "players": pelaajat,
-        "players_readable": luettavat,
-        "full_equip_min": kynnykset.full_equip_min,
-        "force_buy_min": kynnykset.force_buy_min,
-        "force_money_left_max": kynnykset.force_money_left_max,
-        "anomaly_equip_max_after_win": kynnykset.anomaly_equip_max_after_win,
+        "players": players,
+        "players_readable": readable,
+        "full_equip_min": thresholds.full_equip_min,
+        "force_buy_min": thresholds.force_buy_min,
+        "force_money_left_max": thresholds.force_money_left_max,
+        "anomaly_equip_max_after_win": thresholds.anomaly_equip_max_after_win,
     }
 
 
-def _perusta(
-    rivi: Mapping[str, Any],
-    kynnykset: ThresholdSettings,
-    pelaajat: int,
-    luettavat: int | None,
+def _basis(
+    row: Mapping[str, Any],
+    thresholds: ThresholdSettings,
+    players: int,
+    readable: int | None,
     loss_count: int,
-    jakaja_ok: bool,
+    divisor_ok: bool,
 ) -> str:
     """Jokaisen perustelun yhteinen loppuosa.
 
@@ -639,51 +639,51 @@ def _perusta(
     suunnat, jotta lukija ei sekoita jäljelle jäänyttä saldoa käytettävissä
     olleeseen rahaan.
     """
-    varusteet = rivi.get("equip_freeze_end")
-    alku = rivi.get("equip_round_start")
-    ostettu = None if varusteet is None or alku is None else int(varusteet) - int(alku)
-    osat = [
-        f"Käytettävissä {_pp(available_money(rivi), pelaajat)}"
-        f" (jäljellä {_pp(rivi.get('money_freeze_end'), pelaajat)}"
-        f", käytetty {_pp(rivi.get('money_spent'), pelaajat)})",
-        f"varusteet {_pp(varusteet, pelaajat)}",
-        f"ostettu {_pp(ostettu, pelaajat)}",
+    equip = row.get("equip_freeze_end")
+    start = row.get("equip_round_start")
+    bought = None if equip is None or start is None else int(equip) - int(start)
+    parts = [
+        f"Käytettävissä {_pp(available_money(row), players)}"
+        f" (jäljellä {_pp(row.get('money_freeze_end'), players)}"
+        f", käytetty {_pp(row.get('money_spent'), players)})",
+        f"varusteet {_pp(equip, players)}",
+        f"ostettu {_pp(bought, players)}",
         f"loss count {loss_count}",
     ]
-    if jakaja_ok and luettavat is not None and luettavat < kynnykset.roster_size:
-        jakaja = (
-            f"vain {luettavat} pelaajan arvot olivat luettavissa "
-            f"(kokoonpano {kynnykset.roster_size}), ja jakajana on se määrä"
+    if divisor_ok and readable is not None and readable < thresholds.roster_size:
+        divisor = (
+            f"vain {readable} pelaajan arvot olivat luettavissa "
+            f"(kokoonpano {thresholds.roster_size}), ja jakajana on se määrä"
         )
-    elif jakaja_ok:
-        jakaja = f"{pelaajat} pelaajaa"
-    elif luettavat is None:
-        jakaja = (
+    elif divisor_ok:
+        divisor = f"{players} pelaajaa"
+    elif readable is None:
+        divisor = (
             "pelaajamäärä ei ollut luettavissa, jaettu asetuksen roster_size "
-            f"arvolla {kynnykset.roster_size}"
+            f"arvolla {thresholds.roster_size}"
         )
     else:
-        jakaja = (
-            f"luettu pelaajamäärä {luettavat} on sallitun välin "
-            f"1-{kynnykset.roster_size} ulkopuolella, jaettu asetuksen "
-            f"roster_size arvolla {kynnykset.roster_size}"
+        divisor = (
+            f"luettu pelaajamäärä {readable} on sallitun välin "
+            f"1-{thresholds.roster_size} ulkopuolella, jaettu asetuksen "
+            f"roster_size arvolla {thresholds.roster_size}"
         )
-    return f"({'; '.join(osat)}; {jakaja}.)"
+    return f"({'; '.join(parts)}; {divisor}.)"
 
 
-def _pp(arvo: Any, pelaajat: int) -> str:
-    luku = per_player(arvo, pelaajat)
-    return "ei tiedossa" if luku is None else f"{luku} $/pelaaja"
+def _pp(value: Any, players: int) -> str:
+    number = per_player(value, players)
+    return "ei tiedossa" if number is None else f"{number} $/pelaaja"
 
 
-def _d(arvo: float) -> str:
+def _d(value: float) -> str:
     """Dollarimäärä ilman desimaaleja; sama pyöristys kuin :func:`per_player`."""
-    return str(round(arvo))
+    return str(round(value))
 
 
-def _lista(arvot: list[int]) -> str:
-    return "kierrokset " + ", ".join(str(a) for a in arvot)
+def _listing(values: list[int]) -> str:
+    return "kierrokset " + ", ".join(str(a) for a in values)
 
 
-def _i(arvo: Any) -> int | None:
-    return None if arvo is None else int(arvo)
+def _i(value: Any) -> int | None:
+    return None if value is None else int(value)

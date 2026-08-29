@@ -75,11 +75,11 @@ def real_parser() -> Demoparser2Adapter:
     keksityllä ``area_snap_units``illa ne eivät todistaisi mitään oikeasta
     ajosta.
     """
-    asetukset = _parse_settings()
+    parse_settings = _parse_settings()
     return Demoparser2Adapter(
-        exclude_weapons=asetukset.first_contact_exclude_weapons,
-        fallback_death=asetukset.first_contact_fallback_death,
-        area_snap_units=asetukset.area_snap_units,
+        exclude_weapons=parse_settings.first_contact_exclude_weapons,
+        fallback_death=parse_settings.first_contact_fallback_death,
+        area_snap_units=parse_settings.area_snap_units,
     )
 
 
@@ -157,46 +157,46 @@ def test_zstd_and_gzip_are_recognised_from_content_not_suffix(tmp_path: Path) ->
 
 
 def test_zstd_round_trip_is_byte_identical(tmp_path: Path) -> None:
-    lahde = tmp_path / "a.dem.zst"
-    lahde.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
-    kohde = decompress_to(lahde, tmp_path / "ulos.dem")
-    assert kohde.read_bytes() == FAKE_DEMO
+    source = tmp_path / "a.dem.zst"
+    source.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
+    target = decompress_to(source, tmp_path / "ulos.dem")
+    assert target.read_bytes() == FAKE_DEMO
 
 
 def test_gzip_round_trip_is_byte_identical(tmp_path: Path) -> None:
-    lahde = tmp_path / "a.dem.gz"
-    lahde.write_bytes(gzip.compress(FAKE_DEMO))
-    kohde = decompress_to(lahde, tmp_path / "ulos.dem")
-    assert kohde.read_bytes() == FAKE_DEMO
+    source = tmp_path / "a.dem.gz"
+    source.write_bytes(gzip.compress(FAKE_DEMO))
+    target = decompress_to(source, tmp_path / "ulos.dem")
+    assert target.read_bytes() == FAKE_DEMO
 
 
 def test_readable_demo_cleans_up_the_temp_file(tmp_path: Path) -> None:
-    lahde = tmp_path / "a.dem.zst"
-    lahde.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
-    with readable_demo(lahde) as purettu:
-        assert purettu.read_bytes() == FAKE_DEMO
-        tilapainen = purettu
-    assert not tilapainen.exists()
-    assert not tilapainen.parent.exists()
+    source = tmp_path / "a.dem.zst"
+    source.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
+    with readable_demo(source) as decompressed:
+        assert decompressed.read_bytes() == FAKE_DEMO
+        temp_path = decompressed
+    assert not temp_path.exists()
+    assert not temp_path.parent.exists()
 
 
 def test_readable_demo_does_not_copy_an_uncompressed_demo(tmp_path: Path) -> None:
-    lahde = tmp_path / "a.dem"
-    lahde.write_bytes(FAKE_DEMO)
-    with readable_demo(lahde) as polku:
-        assert polku == lahde
+    source = tmp_path / "a.dem"
+    source.write_bytes(FAKE_DEMO)
+    with readable_demo(source) as path:
+        assert path == source
 
 
 def test_decompression_never_writes_into_the_archive(tmp_path: Path) -> None:
     """Purku menee koneen temp-hakemistoon, ei OneDrive-arkistoon."""
-    arkisto = tmp_path / "arkisto"
-    arkisto.mkdir()
-    lahde = arkisto / "import" / "a.dem.zst"
-    lahde.parent.mkdir()
-    lahde.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
-    with readable_demo(lahde) as purettu:
-        assert arkisto not in purettu.parents
-    assert list(arkisto.rglob("*.dem")) == []
+    archive_dir = tmp_path / "arkisto"
+    archive_dir.mkdir()
+    source = archive_dir / "import" / "a.dem.zst"
+    source.parent.mkdir()
+    source.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
+    with readable_demo(source) as decompressed:
+        assert archive_dir not in decompressed.parents
+    assert list(archive_dir.rglob("*.dem")) == []
 
 
 # --- Virheet -------------------------------------------------------------------
@@ -207,9 +207,9 @@ def test_text_file_with_dem_suffix_is_a_finnish_error(tmp_path: Path) -> None:
     path.write_text("Tämä on tekstitiedosto, ei demo.\n", encoding="utf-8")
     with pytest.raises(ParseError) as exc:
         check_demo_magic(path)
-    viesti = str(exc.value)
-    assert "PBDEMS2" in viesti
-    assert "ei ole CS2-demo" in viesti
+    message = str(exc.value)
+    assert "PBDEMS2" in message
+    assert "ei ole CS2-demo" in message
 
 
 def test_text_file_fails_before_demoparser_is_called(tmp_path: Path) -> None:
@@ -228,11 +228,11 @@ def test_missing_file_is_a_finnish_error(tmp_path: Path) -> None:
 
 
 def test_broken_zstd_is_a_finnish_error(tmp_path: Path) -> None:
-    ehja = zstandard.ZstdCompressor().compress(FAKE_DEMO)
-    katkaistu = tmp_path / "katkennut.dem.zst"
-    katkaistu.write_bytes(ehja[: len(ehja) // 2])
+    intact = zstandard.ZstdCompressor().compress(FAKE_DEMO)
+    truncated = tmp_path / "katkennut.dem.zst"
+    truncated.write_bytes(intact[: len(intact) // 2])
     with pytest.raises(ParseError) as exc:
-        Demoparser2Adapter().parse_demo(katkaistu, SNAPSHOT_SECONDS).rounds
+        Demoparser2Adapter().parse_demo(truncated, SNAPSHOT_SECONDS).rounds
     assert "purku epäonnistui" in str(exc.value)
 
 
@@ -251,26 +251,26 @@ def test_zstd_compressed_error_page_is_refused(tmp_path: Path) -> None:
     Se pakkautuu moitteettomasti zstd-tiedostoksi, joten purku onnistuu --
     virheen on tultava vasta puretun sisällön otsikkotarkistuksesta.
     """
-    sivu = b"<html><head><title>404</title></head><body>Not Found</body></html>"
-    polku = tmp_path / "lataus.dem.zst"
-    polku.write_bytes(zstandard.ZstdCompressor().compress(sivu))
+    error_page = b"<html><head><title>404</title></head><body>Not Found</body></html>"
+    path = tmp_path / "lataus.dem.zst"
+    path.write_bytes(zstandard.ZstdCompressor().compress(error_page))
 
     with pytest.raises(ParseError) as exc:
-        Demoparser2Adapter().parse_demo(polku, SNAPSHOT_SECONDS).rounds
-    viesti = str(exc.value)
-    assert "PBDEMS2" in viesti
-    assert "ei ole CS2-demo" in viesti
+        Demoparser2Adapter().parse_demo(path, SNAPSHOT_SECONDS).rounds
+    message = str(exc.value)
+    assert "PBDEMS2" in message
+    assert "ei ole CS2-demo" in message
 
 
 def test_gzip_compressed_error_page_is_refused(tmp_path: Path) -> None:
-    polku = tmp_path / "lataus.dem.gz"
-    polku.write_bytes(gzip.compress(b"<html>403 Forbidden</html>"))
+    path = tmp_path / "lataus.dem.gz"
+    path.write_bytes(gzip.compress(b"<html>403 Forbidden</html>"))
     with pytest.raises(ParseError, match="PBDEMS2"):
-        Demoparser2Adapter().parse_demo(polku, SNAPSHOT_SECONDS).rounds
+        Demoparser2Adapter().parse_demo(path, SNAPSHOT_SECONDS).rounds
 
 
 @pytest.mark.parametrize(
-    "nimi,odotettu",
+    "name,expected",
     [
         ("1-abc-1-1.dem.zst", "1-abc-1-1.dem"),
         ("1-abc-1-1.dem.gz", "1-abc-1-1.dem"),
@@ -279,26 +279,26 @@ def test_gzip_compressed_error_page_is_refused(tmp_path: Path) -> None:
         ("ilman-paatetta.zst", "ilman-paatetta.dem"),
     ],
 )
-def test_decompressed_name_keeps_the_whole_name(nimi: str, odotettu: str) -> None:
+def test_decompressed_name_keeps_the_whole_name(name: str, expected: str) -> None:
     """Nimeä ei katkaista ensimmäisestä pisteestä.
 
     FACEITin tiedostonimissä on useita pisteitä, ja katkaisu tuottaisi eri
     demoille helposti saman purkunimen.
     """
-    assert decompressed_name(Path("/x") / nimi) == odotettu
+    assert decompressed_name(Path("/x") / name) == expected
 
 
 def test_partial_decompression_leaves_no_tmp_file(tmp_path: Path) -> None:
     """Keskeytynyt purku ei saa jättää tiedostoa, joka näyttäisi demolta."""
-    ehja = zstandard.ZstdCompressor().compress(FAKE_DEMO)
-    katkaistu = tmp_path / "katkennut.dem.zst"
-    katkaistu.write_bytes(ehja[: len(ehja) // 2])
-    kohde = tmp_path / "ulos" / "katkennut.dem"
+    intact = zstandard.ZstdCompressor().compress(FAKE_DEMO)
+    truncated = tmp_path / "katkennut.dem.zst"
+    truncated.write_bytes(intact[: len(intact) // 2])
+    target = tmp_path / "ulos" / "katkennut.dem"
 
     with pytest.raises(ParseError):
-        decompress_to(katkaistu, kohde)
-    assert not kohde.exists()
-    assert list(kohde.parent.glob("*.tmp")) == []
+        decompress_to(truncated, target)
+    assert not target.exists()
+    assert list(target.parent.glob("*.tmp")) == []
 
 
 # --- Oikeat demot --------------------------------------------------------------
@@ -307,10 +307,10 @@ def test_partial_decompression_leaves_no_tmp_file(tmp_path: Path) -> None:
 @pytest.mark.demo
 def test_ancient_has_twenty_one_played_rounds() -> None:
     df = real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
-    pelatut = mark_played_rounds(df).filter(pl.col("round_no").is_not_null())
-    assert pelatut["round_no"].n_unique() == ANCIENT_ROUNDS
-    assert pelatut.height == ANCIENT_ROUNDS * 2
-    assert sorted(pelatut["round_no"].unique().to_list()) == list(
+    played = mark_played_rounds(df).filter(pl.col("round_no").is_not_null())
+    assert played["round_no"].n_unique() == ANCIENT_ROUNDS
+    assert played.height == ANCIENT_ROUNDS * 2
+    assert sorted(played["round_no"].unique().to_list()) == list(
         range(1, ANCIENT_ROUNDS + 1)
     )
 
@@ -333,9 +333,9 @@ def test_ancient_knife_round_is_present_but_unnumbered() -> None:
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
     )
-    numeroimattomat = df.filter(pl.col("round_no").is_null())
-    assert numeroimattomat.height == 2  # yksi rivi kummallekin joukkueelle
-    assert numeroimattomat["round_raw"].unique().to_list() == [1]
+    unnumbered = df.filter(pl.col("round_no").is_null())
+    assert unnumbered.height == 2  # yksi rivi kummallekin joukkueelle
+    assert unnumbered["round_raw"].unique().to_list() == [1]
 
 
 @pytest.mark.demo
@@ -360,10 +360,10 @@ def test_ancient_observations_are_plausible() -> None:
     assert per_round["voittajia"].unique().to_list() == [1]
 
     # Ancient päättyi 13-8 (FACEIT). Voitot jakautuvat siten kokoonpanoittain.
-    voitot = sorted(
+    wins = sorted(
         df.group_by("lineup_key").agg(pl.col("won").sum())["won"].to_list()
     )
-    assert voitot == [8, 13]
+    assert wins == [8, 13]
 
 
 @pytest.mark.demo
@@ -383,14 +383,14 @@ def test_zst_and_dem_give_byte_identical_tables(tmp_path: Path) -> None:
     """Sama demo pakattuna ja purettuna tuottaa samat taulut tavu tavulta."""
     dem = real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
     zst = real_parser().parse_demo(require_demo(ANCIENT_ZST), SNAPSHOT_SECONDS)
-    purettu, pakattu = dem.rounds, zst.rounds
-    assert purettu.equals(pakattu)
+    decompressed, compressed = dem.rounds, zst.rounds
+    assert decompressed.equals(compressed)
     assert dem.ticks.equals(zst.ticks)
 
     a = tmp_path / "a.parquet"
     b = tmp_path / "b.parquet"
-    purettu.write_parquet(a)
-    pakattu.write_parquet(b)
+    decompressed.write_parquet(a)
+    compressed.write_parquet(b)
     assert hashlib.sha256(a.read_bytes()).hexdigest() == (
         hashlib.sha256(b.read_bytes()).hexdigest()
     )
@@ -404,18 +404,18 @@ def test_nuke_reaches_round_twenty_eight_in_overtime() -> None:
     assert df["round_no"].max() == NUKE_ROUNDS
     assert df.height == NUKE_ROUNDS * 2
     # Jatkoajan kierrokset 25-28 ovat mukana normaalisti.
-    jatkoaika = df.filter(pl.col("round_no") > 24)
-    assert sorted(jatkoaika["round_no"].unique().to_list()) == [25, 26, 27, 28]
-    assert jatkoaika["won"].null_count() == 0
+    overtime = df.filter(pl.col("round_no") > 24)
+    assert sorted(overtime["round_no"].unique().to_list()) == [25, 26, 27, 28]
+    assert overtime["won"].null_count() == 0
 
 
 @pytest.mark.demo
 @pytest.mark.parametrize(
-    "demo_nimi,odotetut_kierrokset",
+    "demo_name,expected_rounds",
     [(ANCIENT_DEM, ANCIENT_ROUNDS), (NUKE_ZST, NUKE_ROUNDS)],
 )
 def test_real_demos_obey_the_cs2_win_rule(
-    demo_nimi: str, odotetut_kierrokset: int
+    demo_name: str, expected_rounds: int
 ) -> None:
     """CS2:n sääntö pitää molemmissa oikeissa demoissa.
 
@@ -425,16 +425,16 @@ def test_real_demos_obey_the_cs2_win_rule(
     joukkueella.
     """
     df = mark_played_rounds(
-        real_parser().parse_demo(require_demo(demo_nimi), SNAPSHOT_SECONDS).rounds
+        real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
     ).filter(pl.col("round_no").is_not_null())
 
-    assert df["round_no"].n_unique() == odotetut_kierrokset
+    assert df["round_no"].n_unique() == expected_rounds
     check_win_reasons(df)  # nostaa ParseErrorin, jos sääntö pettää
 
-    voitot = df.filter(pl.col("won"))
-    for side, sallitut in (("T", T_WIN_REASONS), ("CT", CT_WIN_REASONS)):
-        syyt = set(voitot.filter(pl.col("side") == side)["win_reason"].unique())
-        assert syyt <= set(sallitut), (side, syyt)
+    wins = df.filter(pl.col("won"))
+    for side, allowed in (("T", T_WIN_REASONS), ("CT", CT_WIN_REASONS)):
+        reasons = set(wins.filter(pl.col("side") == side)["win_reason"].unique())
+        assert reasons <= set(allowed), (side, reasons)
 
 
 @pytest.mark.demo
@@ -448,8 +448,8 @@ def test_round_raw_is_the_demo_own_counter() -> None:
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
     )
-    pelatut = df.filter(pl.col("round_no").is_not_null())
-    assert sorted(pelatut["round_raw"].unique().to_list()) == list(range(2, 23))
+    played = df.filter(pl.col("round_no").is_not_null())
+    assert sorted(played["round_raw"].unique().to_list()) == list(range(2, 23))
     assert df.filter(pl.col("round_no").is_null())["round_raw"].unique().to_list() == [1]
 
 
@@ -494,9 +494,9 @@ T_SIDE_PLACES: frozenset[str] = frozenset(
 @pytest.fixture(scope="module")
 def ancient_tables():
     """Ancient-demon taulut ja diagnostiikka. Parsitaan kerran, ei testiä kohden."""
-    adapteri = real_parser()
-    tables = adapteri.parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
-    return tables, adapteri.diagnostics
+    adapter = real_parser()
+    tables = adapter.parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
+    return tables, adapter.diagnostics
 
 
 @pytest.fixture(scope="module")
@@ -525,10 +525,10 @@ def test_ancient_samples_ten_players_at_every_point(
     pelattu eikä päädy arkistoon, joten poikkeus ei näy tuloksessa -- mutta
     sitä ei myöskään paikata keksimällä kymmenettä riviä.
     """
-    pelatut = ancient_ticks.filter(pl.col("round_raw") > 1)
-    per_piste = pelatut.group_by("round_raw", "sample_kind", "sample_t_s").len()
-    assert per_piste["len"].unique().to_list() == [10]
-    assert pelatut["round_raw"].n_unique() == ANCIENT_ROUNDS
+    played = ancient_ticks.filter(pl.col("round_raw") > 1)
+    per_point = played.group_by("round_raw", "sample_kind", "sample_t_s").len()
+    assert per_point["len"].unique().to_list() == [10]
+    assert played["round_raw"].n_unique() == ANCIENT_ROUNDS
 
 
 @pytest.mark.demo
@@ -540,14 +540,14 @@ def test_ancient_has_no_sample_after_the_round_ended(
     Todiste on siinä, että aikapisteiden määrä **vaihtelee** kierroksittain:
     jos kaikilla olisi neljä, rajausta ei tapahtuisi lainkaan.
     """
-    aika = ancient_ticks.filter(pl.col("sample_kind") == "time")
-    per_kierros = aika.group_by("round_raw").agg(
+    time_samples = ancient_ticks.filter(pl.col("sample_kind") == "time")
+    per_round = time_samples.group_by("round_raw").agg(
         pl.col("sample_t_s").n_unique().alias("pisteita")
     )
-    maarat = set(per_kierros["pisteita"].to_list())
-    assert maarat <= set(range(1, len(SNAPSHOT_SECONDS) + 1))
-    assert len(maarat) > 1, "yksikään kierros ei jäänyt lyhyeksi -- rajaus ei purrut"
-    assert set(aika["sample_t_s"].unique().to_list()) <= set(SNAPSHOT_SECONDS)
+    counts = set(per_round["pisteita"].to_list())
+    assert counts <= set(range(1, len(SNAPSHOT_SECONDS) + 1))
+    assert len(counts) > 1, "yksikään kierros ei jäänyt lyhyeksi -- rajaus ei purrut"
+    assert set(time_samples["sample_t_s"].unique().to_list()) <= set(SNAPSHOT_SECONDS)
 
 
 @pytest.mark.demo
@@ -559,34 +559,34 @@ def test_ancient_areas_are_real_callouts(ancient_ticks: pl.DataFrame) -> None:
     nimijoukkoon -- pelkkä "ei tyhjä" menisi läpi myös väärältä kartalta
     luetuilla nimillä tai steamideilla.
     """
-    eka = ancient_ticks.filter(pl.col("round_raw") == 2)
-    alueet = {a for a in eka["area"].to_list() if a}
-    assert alueet, "kierroksen 1 alueet olivat tyhjiä"
-    assert alueet <= ANCIENT_PLACES, sorted(alueet - ANCIENT_PLACES)
+    first_round = ancient_ticks.filter(pl.col("round_raw") == 2)
+    areas = {a for a in first_round["area"].to_list() if a}
+    assert areas, "kierroksen 1 alueet olivat tyhjiä"
+    assert areas <= ANCIENT_PLACES, sorted(areas - ANCIENT_PLACES)
     # CT-pelaajien on oltava CT-puolen alueilla kierroksen alussa: kuuden
     # sekunnin kohdalla kukaan ei ole vielä ehtinyt T-puolen alueille.
-    ct_alussa = eka.filter(
+    ct_at_start = first_round.filter(
         (pl.col("side") == "CT") & (pl.col("sample_t_s") == min(SNAPSHOT_SECONDS))
     )
-    assert ct_alussa.height == 5
-    assert not (set(ct_alussa["area"].to_list()) & T_SIDE_PLACES), (
+    assert ct_at_start.height == 5
+    assert not (set(ct_at_start["area"].to_list()) & T_SIDE_PLACES), (
         "CT-pelaaja oli T-puolen alueella kuuden sekunnin kohdalla -- puolet "
         "ovat todennäköisesti väärin päin"
     )
     # Ja sama toisin päin: T:t eivät ole ehtineet CT-spawniin.
-    t_alussa = eka.filter(
+    t_at_start = first_round.filter(
         (pl.col("side") == "T") & (pl.col("sample_t_s") == min(SNAPSHOT_SECONDS))
     )
-    assert t_alussa.height == 5
-    assert "CTSpawn" not in t_alussa["area"].to_list()
+    assert t_at_start.height == 5
+    assert "CTSpawn" not in t_at_start["area"].to_list()
 
 
 @pytest.mark.demo
 def test_ancient_uses_only_ancient_place_names(ancient_ticks: pl.DataFrame) -> None:
     """Koko demon alueiden on oltava Ancientin nimiä, ei vain kierroksen 1."""
-    alueet = {a for a in ancient_ticks["area"].to_list() if a}
-    assert alueet <= ANCIENT_PLACES, sorted(alueet - ANCIENT_PLACES)
-    assert len(alueet) > 5, "vain muutama alue -- näytteistys osunee samaan hetkeen"
+    areas = {a for a in ancient_ticks["area"].to_list() if a}
+    assert areas <= ANCIENT_PLACES, sorted(areas - ANCIENT_PLACES)
+    assert len(areas) > 5, "vain muutama alue -- näytteistys osunee samaan hetkeen"
 
 
 @pytest.mark.demo
@@ -596,9 +596,9 @@ def test_ancient_coordinates_are_present_even_without_an_area(
     """Tuntematon alue jää nulliksi, mutta riviä ei pudoteta."""
     assert ancient_ticks["x"].null_count() == 0
     assert ancient_ticks["y"].null_count() == 0
-    nimettomat = ancient_ticks.filter(pl.col("area").is_null())
-    if not nimettomat.is_empty():
-        assert nimettomat["x"].null_count() == 0
+    unnamed = ancient_ticks.filter(pl.col("area").is_null())
+    if not unnamed.is_empty():
+        assert unnamed["x"].null_count() == 0
 
 
 @pytest.mark.demo
@@ -611,14 +611,14 @@ def test_ancient_first_contact_is_found_on_every_round(
     ensikontakti löytyy ilman sitä joka kierrokselta. Tämä testi on se väite:
     jos se pettää, kommentti on väärässä eikä toisin päin.
     """
-    kontakti = ancient_ticks.filter(pl.col("sample_kind") == "first_contact")
-    kierroksia = ancient_ticks["round_raw"].n_unique()
-    assert kontakti["round_raw"].n_unique() == kierroksia
+    contacts = ancient_ticks.filter(pl.col("sample_kind") == "first_contact")
+    round_count = ancient_ticks["round_raw"].n_unique()
+    assert contacts["round_raw"].n_unique() == round_count
     # sample_t_s ja t_s kertovat saman hetken, eivät jää tyhjiksi.
-    assert kontakti["sample_t_s"].null_count() == 0
-    assert (kontakti["sample_t_s"] == kontakti["t_s"]).all()
+    assert contacts["sample_t_s"].null_count() == 0
+    assert (contacts["sample_t_s"] == contacts["t_s"]).all()
     # Kontakti tapahtuu kierroksen sisällä, ei ennen ankkuria.
-    assert kontakti["t_s"].min() > 0
+    assert contacts["t_s"].min() > 0
 
 
 @pytest.mark.demo
@@ -630,23 +630,23 @@ def test_ancient_sample_point_count_is_exact(ancient_ticks: pl.DataFrame) -> Non
     Ensikontakteja on yksi per kierros, ja puukkokierros (``round_raw`` 1) tuo
     omansa päälle -- yhteensä 94 näytepistettä 21 pelatulta kierrokselta.
     """
-    pelatut = ancient_ticks.filter(pl.col("round_raw") > 1)
-    pisteita = pelatut.select("round_raw", "sample_kind", "sample_t_s").n_unique()
-    aikapisteita = (
-        pelatut.filter(pl.col("sample_kind") == "time")
+    played = ancient_ticks.filter(pl.col("round_raw") > 1)
+    point_count = played.select("round_raw", "sample_kind", "sample_t_s").n_unique()
+    time_point_count = (
+        played.filter(pl.col("sample_kind") == "time")
         .select("round_raw", "sample_t_s")
         .n_unique()
     )
-    kontakteja = (
-        pelatut.filter(pl.col("sample_kind") == "first_contact")
+    contact_count = (
+        played.filter(pl.col("sample_kind") == "first_contact")
         .select("round_raw")
         .n_unique()
     )
-    assert aikapisteita == 73
-    assert kontakteja == ANCIENT_ROUNDS == 21
-    assert pisteita == 94
-    assert pisteita < ANCIENT_ROUNDS * (len(SNAPSHOT_SECONDS) + 1)
-    assert pelatut.height == 940
+    assert time_point_count == 73
+    assert contact_count == ANCIENT_ROUNDS == 21
+    assert point_count == 94
+    assert point_count < ANCIENT_ROUNDS * (len(SNAPSHOT_SECONDS) + 1)
+    assert played.height == 940
 
 
 @pytest.mark.demo
@@ -659,9 +659,9 @@ def test_ancient_reports_no_partial_samples(ancient_tables) -> None:
     Puukkokierros ei ole pelattu eikä päädy arkistoon, joten vajaus ei näy
     tuloksessa; se näkyy vain tässä luvussa, ja siinä se kuuluukin näkyä.
     """
-    diagnostiikka = ancient_tables[1]
-    assert diagnostiikka.partial_samples == 2
-    assert diagnostiikka.unknown_side_events == 0
+    diagnostics_obj = ancient_tables[1]
+    assert diagnostics_obj.partial_samples == 2
+    assert diagnostics_obj.unknown_side_events == 0
 
 
 @pytest.mark.demo
@@ -669,15 +669,15 @@ def test_ancient_alive_flag_thins_out_over_the_round(
     ancient_ticks: pl.DataFrame,
 ) -> None:
     """Elossaolo on havainto: myöhemmällä pisteellä elossa on vähemmän."""
-    aika = ancient_ticks.filter(pl.col("sample_kind") == "time")
-    per_piste = (
-        aika.group_by("sample_t_s")
+    time_samples = ancient_ticks.filter(pl.col("sample_kind") == "time")
+    per_point = (
+        time_samples.group_by("sample_t_s")
         .agg(pl.col("is_alive").mean().alias("osuus"))
         .sort("sample_t_s")
     )
-    osuudet = per_piste["osuus"].to_list()
-    assert osuudet[0] == 1.0, "ensimmäisellä pisteellä kaikkien pitäisi olla elossa"
-    assert osuudet[-1] < osuudet[0]
+    shares = per_point["osuus"].to_list()
+    assert shares[0] == 1.0, "ensimmäisellä pisteellä kaikkien pitäisi olla elossa"
+    assert shares[-1] < shares[0]
 
 
 # --- Utility oikeasta demosta --------------------------------------------------
@@ -746,22 +746,22 @@ def test_ancient_events_match_the_port_contract(ancient_events: pl.DataFrame) ->
 @pytest.mark.demo
 def test_ancient_grenade_count_is_exact(ancient_events: pl.DataFrame) -> None:
     """Hyväksymiskriteeri: jokaisesta kranaatista heitto ja räjähdys."""
-    heitot = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
-    rajahdykset = ancient_events.filter(pl.col("event_kind") == "grenade_detonate")
-    assert heitot.height == ANCIENT_GRENADES
-    assert rajahdykset.height == ANCIENT_GRENADES
+    throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
+    detonations = ancient_events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert throws.height == ANCIENT_GRENADES
+    assert detonations.height == ANCIENT_GRENADES
     assert ancient_events.height == 2 * ANCIENT_GRENADES
 
 
 @pytest.mark.demo
 def test_ancient_grenade_types_are_plausible(ancient_events: pl.DataFrame) -> None:
     """Savut, flashit, HE:t ja tulikranaatit uskottavina määrinä."""
-    heitot = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
-    laskut = {
-        rivi["grenade_type"]: rivi["len"]
-        for rivi in heitot.group_by("grenade_type").len().iter_rows(named=True)
+    throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
+    counts_by_type = {
+        row["grenade_type"]: row["len"]
+        for row in throws.group_by("grenade_type").len().iter_rows(named=True)
     }
-    assert laskut == ANCIENT_GRENADE_TYPES
+    assert counts_by_type == ANCIENT_GRENADE_TYPES
 
 
 @pytest.mark.demo
@@ -774,19 +774,19 @@ def test_ancient_fire_grenades_follow_the_side_that_can_buy_them(
     tarkistus: jos erottelu olisi rikki, jakauma menisi ristiin. Poikkeuksia
     saa olla vähän (pudotettu kranaatti poimitaan), mutta ei paljon.
     """
-    tuli = ancient_events.filter(
+    fire_grenades = ancient_events.filter(
         pl.col("grenade_type").is_in(["molotov", "incendiary"])
     )
-    jakauma = {
-        (rivi["side"], rivi["grenade_type"]): rivi["len"]
-        for rivi in tuli.group_by("side", "grenade_type").len().iter_rows(named=True)
+    distribution = {
+        (row["side"], row["grenade_type"]): row["len"]
+        for row in fire_grenades.group_by("side", "grenade_type").len().iter_rows(named=True)
     }
-    assert jakauma.get(("T", "molotov"), 0) > 0
-    assert jakauma.get(("CT", "incendiary"), 0) > 0
+    assert distribution.get(("T", "molotov"), 0) > 0
+    assert distribution.get(("CT", "incendiary"), 0) > 0
     # T ei voi ostaa incendiarya lainkaan.
-    assert jakauma.get(("T", "incendiary"), 0) == 0
+    assert distribution.get(("T", "incendiary"), 0) == 0
     # CT:llä molotov on aina poimittu, joten niitä on selvä vähemmistö.
-    assert jakauma.get(("CT", "molotov"), 0) < jakauma[("CT", "incendiary")] / 4
+    assert distribution.get(("CT", "molotov"), 0) < distribution[("CT", "incendiary")] / 4
 
 
 @pytest.mark.demo
@@ -799,14 +799,14 @@ def test_ancient_entity_ids_are_unique_within_a_round(
     ``(round_raw, grenade_entity_id)`` eikä pelkkä tunniste. Tämä testi lukitsee
     sen, että avain riittää: kierroksen sisällä tunniste ei toistu.
     """
-    maarat = ancient_events.group_by(
+    counts = ancient_events.group_by(
         "round_raw", "grenade_entity_id", "event_kind"
     ).len()
-    assert maarat["len"].max() == 1
+    assert counts["len"].max() == 1
 
     # Ja koko demossa se toistuu -- juuri siksi kierros on osa avainta.
-    koko_demo = ancient_events.group_by("grenade_entity_id", "event_kind").len()
-    assert koko_demo["len"].max() > 1
+    whole_demo = ancient_events.group_by("grenade_entity_id", "event_kind").len()
+    assert whole_demo["len"].max() > 1
 
 
 @pytest.mark.demo
@@ -817,19 +817,19 @@ def test_ancient_throw_area_is_always_observed(ancient_events: pl.DataFrame) -> 
     tickillään. Jos tämä luku ei ole täysi, joko koordinaatit tai puolet ovat
     menneet sekaisin.
     """
-    heitot = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
-    assert heitot["area"].null_count() == 0
-    assert heitot["area_source"].unique().to_list() == ["observed"]
+    throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert throws["area"].null_count() == 0
+    assert throws["area_source"].unique().to_list() == ["observed"]
     # Havainto ei ole minkään päässä: napsautusetäisyys kuuluu vain arviolle.
-    assert heitot["snap_distance"].null_count() == heitot.height
+    assert throws["snap_distance"].null_count() == throws.height
 
 
 @pytest.mark.demo
 def test_ancient_throw_areas_are_real_callouts(ancient_events: pl.DataFrame) -> None:
     """Heittäjän oma alue on Ancientin oma callout, ei mikään muu."""
-    heitot = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
-    alueet = set(heitot["area"].drop_nulls().unique().to_list())
-    assert alueet <= ANCIENT_PLACES, alueet - ANCIENT_PLACES
+    throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
+    areas = set(throws["area"].drop_nulls().unique().to_list())
+    assert areas <= ANCIENT_PLACES, areas - ANCIENT_PLACES
 
 
 @pytest.mark.demo
@@ -842,14 +842,14 @@ def test_ancient_snap_distances_are_within_the_configured_limit(
     arvauksesta -- ja oman kalibroinnin mukaan vain 76 % rajan sisällä
     olevista tapauksista on paikallisesti yksiselitteisiä.
     """
-    raja = _parse_settings().area_snap_units
-    assert raja == CALIBRATED_SNAP_UNITS
+    limit = _parse_settings().area_snap_units
+    assert limit == CALIBRATED_SNAP_UNITS
 
-    napsautetut = ancient_events.filter(pl.col("area_source") == "snapped")
-    assert not napsautetut.is_empty()
-    assert napsautetut["snap_distance"].null_count() == 0
-    assert napsautetut["snap_distance"].max() <= raja
-    assert napsautetut["snap_distance"].min() > 0.0
+    snapped = ancient_events.filter(pl.col("area_source") == "snapped")
+    assert not snapped.is_empty()
+    assert snapped["snap_distance"].null_count() == 0
+    assert snapped["snap_distance"].max() <= limit
+    assert snapped["snap_distance"].min() > 0.0
 
 
 @pytest.mark.demo
@@ -859,14 +859,14 @@ def test_ancient_detonation_areas_are_real_callouts(
     """Alue on Ancientin oma callout tai tyhjä -- ei koskaan keksitty nimi."""
     assert _parse_settings().area_snap_units == CALIBRATED_SNAP_UNITS
 
-    rajahdykset = ancient_events.filter(pl.col("event_kind") == "grenade_detonate")
-    alueet = set(rajahdykset["area"].drop_nulls().unique().to_list())
-    assert alueet <= ANCIENT_PLACES, alueet - ANCIENT_PLACES
-    assert rajahdykset.height - rajahdykset["area"].null_count() == (
+    detonations = ancient_events.filter(pl.col("event_kind") == "grenade_detonate")
+    areas = set(detonations["area"].drop_nulls().unique().to_list())
+    assert areas <= ANCIENT_PLACES, areas - ANCIENT_PLACES
+    assert detonations.height - detonations["area"].null_count() == (
         ANCIENT_DETONATIONS_WITH_AREA
     )
-    saadut = rajahdykset.filter(pl.col("area").is_not_null())
-    assert saadut["area_source"].unique().to_list() == ["snapped"]
+    received = detonations.filter(pl.col("area").is_not_null())
+    assert received["area_source"].unique().to_list() == ["snapped"]
 
 
 @pytest.mark.demo
@@ -874,10 +874,10 @@ def test_ancient_area_source_is_set_exactly_when_the_area_is(
     ancient_events: pl.DataFrame,
 ) -> None:
     """Sopimus: ``area_source`` on tyhjä silloin ja vain silloin kun alue on."""
-    ristiriidat = ancient_events.filter(
+    conflicts = ancient_events.filter(
         pl.col("area").is_null() != pl.col("area_source").is_null()
     )
-    assert ristiriidat.is_empty(), ristiriidat.head(3).to_dicts()
+    assert conflicts.is_empty(), conflicts.head(3).to_dicts()
 
 
 @pytest.mark.demo
@@ -885,10 +885,10 @@ def test_ancient_coordinates_are_kept_even_without_an_area(
     ancient_events: pl.DataFrame,
 ) -> None:
     """I/O-matriisi: kaukana räjähtänyt saa ``area = null``, ei pudotusta."""
-    aluettomat = ancient_events.filter(pl.col("area").is_null())
-    assert not aluettomat.is_empty()
-    for sarake in ("x", "y", "z"):
-        assert aluettomat[sarake].null_count() == 0
+    without_area = ancient_events.filter(pl.col("area").is_null())
+    assert not without_area.is_empty()
+    for column in ("x", "y", "z"):
+        assert without_area[column].null_count() == 0
 
 
 @pytest.mark.demo
@@ -901,18 +901,18 @@ def test_ancient_events_stay_inside_their_round(
     kuuluu silti heittokierrokselle -- mutta heiton itsensä on oltava
     kierroksen rajoissa, muuten ``t_s`` ei tarkoita mitään.
     """
-    heitot = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
-    assert heitot["t_s"].min() >= 0.0
+    throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert throws["t_s"].min() >= 0.0
     # CS2:n kierrosaika on 115 s, mutta istutettu pommi jatkaa kierrosta vielä
     # 40 sekunnilla: post plant -savu 130 sekunnin kohdalla on normaali, ei
     # virhe. Raja on siis 115 + 40 eikä 115.
-    assert heitot["t_s"].max() <= ROUND_SECONDS + BOMB_SECONDS
+    assert throws["t_s"].max() <= ROUND_SECONDS + BOMB_SECONDS
 
 
 @pytest.mark.demo
-@pytest.mark.parametrize(("tapahtuma", "tyyppi"), DETONATE_EVENTS)
+@pytest.mark.parametrize(("event_name", "grenade_kind"), DETONATE_EVENTS)
 def test_ancient_detonation_point_matches_the_games_own_event(
-    ancient_events: pl.DataFrame, tapahtuma: str, tyyppi: str
+    ancient_events: pl.DataFrame, event_name: str, grenade_kind: str
 ) -> None:
     """Radan viimeinen piste on räjähdyspaikka -- riippumaton tarkistus.
 
@@ -924,40 +924,40 @@ def test_ancient_detonation_point_matches_the_games_own_event(
     from demoparser2 import DemoParser as _Demoparser2
 
     parser = _Demoparser2(str(require_demo(ANCIENT_DEM)))
-    havaitut = pl.from_pandas(parser.parse_event(tapahtuma))
-    omat = ancient_events.filter(
+    observed = pl.from_pandas(parser.parse_event(event_name))
+    own_rows = ancient_events.filter(
         (pl.col("event_kind") == "grenade_detonate")
-        & (pl.col("grenade_type") == tyyppi)
+        & (pl.col("grenade_type") == grenade_kind)
     )
     # Vertailu tehdään **taulusta tapahtumiin**, ei toisin päin: pudotettu
     # kranaatti (kierroksen ulkopuolinen heitto, tuntematon puoli) puuttuu
     # taulusta täysin oikeutetusti, eikä testi saa vaatia että pudonneet
     # sattuisivat aina olemaan muuta tyyppiä kuin tämä.
-    assert not omat.is_empty()
-    assert omat.height <= havaitut.height
+    assert not own_rows.is_empty()
+    assert own_rows.height <= observed.height
 
     # Paritus entiteettitunnisteella; sama tunniste esiintyy useasti, joten
     # riittää että jokin sen radoista päättyy tapahtuman paikkaan. Sallittu ero
     # on yksi pelin yksikkö -- mitattu ero on alle 0,03, ja lentoradan varrella
     # oleva piste olisi satojen yksiköiden päässä.
-    paikat: dict[int, list[tuple[float, float, float]]] = {}
-    for rivi in omat.iter_rows(named=True):
-        paikat.setdefault(int(rivi["grenade_entity_id"]), []).append(
-            (float(rivi["x"]), float(rivi["y"]), float(rivi["z"]))
+    positions: dict[int, list[tuple[float, float, float]]] = {}
+    for row in own_rows.iter_rows(named=True):
+        positions.setdefault(int(row["grenade_entity_id"]), []).append(
+            (float(row["x"]), float(row["y"]), float(row["z"]))
         )
 
-    for entity, pisteet in paikat.items():
-        kohteet = [
+    for entity, points in positions.items():
+        targets = [
             (float(r["x"]), float(r["y"]), float(r["z"]))
-            for r in havaitut.iter_rows(named=True)
+            for r in observed.iter_rows(named=True)
             if int(r["entityid"]) == entity
         ]
-        assert kohteet, f"{tapahtuma}: entiteetille {entity} ei ole tapahtumaa"
-        for piste in pisteet:
-            etaisyydet = [math.dist(piste, kohde) for kohde in kohteet]
-            assert min(etaisyydet) < 1.0, (
-                f"{tapahtuma} entiteetti {entity}: radan pää on "
-                f"{min(etaisyydet):.1f} yksikön päässä lähimmästä "
+        assert targets, f"{event_name}: entiteetille {entity} ei ole tapahtumaa"
+        for point in points:
+            distances = [math.dist(point, target) for target in targets]
+            assert min(distances) < 1.0, (
+                f"{event_name} entiteetti {entity}: radan pää on "
+                f"{min(distances):.1f} yksikön päässä lähimmästä "
                 "räjähdyspaikasta"
             )
 
@@ -994,11 +994,11 @@ def test_nuke_utility_is_read_too() -> None:
     tables = real_parser().parse_demo(require_demo(NUKE_ZST), SNAPSHOT_SECONDS)
     events = tables.events
     assert not events.is_empty()
-    heitot = events.filter(pl.col("event_kind") == "grenade_thrown")
-    assert heitot["area"].null_count() == 0
-    assert heitot["area_source"].unique().to_list() == ["observed"]
-    rajahdykset = events.filter(pl.col("event_kind") == "grenade_detonate")
+    throws = events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert throws["area"].null_count() == 0
+    assert throws["area_source"].unique().to_list() == ["observed"]
+    detonations = events.filter(pl.col("event_kind") == "grenade_detonate")
     # Nuken calloutit ovat tiheämmässä kuin Ancientin, joten alue ratkeaa
     # useammin -- mutta ei koskaan kaikille.
-    saadut = rajahdykset.height - rajahdykset["area"].null_count()
-    assert 0 < saadut < rajahdykset.height
+    received = detonations.height - detonations["area"].null_count()
+    assert 0 < received < detonations.height

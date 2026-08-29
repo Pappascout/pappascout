@@ -43,8 +43,8 @@ TEAM = "aaaaaaaaaaaaaaaa"
 TEAM_B = "bbbbbbbbbbbbbbbb"
 
 
-def rivi(**muutokset) -> dict:
-    oletus = {
+def row(**overrides) -> dict:
+    defaults = {
         "round_no": 1,
         "side": "T",
         "won": False,
@@ -58,12 +58,12 @@ def rivi(**muutokset) -> dict:
         "players": 5,
         "reason": "Kierros 1 on pistoolikierros (kierrokset 1, 13).",
     }
-    oletus.update(muutokset)
-    return oletus
+    defaults.update(overrides)
+    return defaults
 
 
-def classify_result(**muutokset) -> StageResult:
-    oletus: dict[str, object] = {
+def classify_result(**overrides) -> StageResult:
+    defaults: dict[str, object] = {
         "stage": "classify",
         "unit": DEMO_ID,
         "status": "ok",
@@ -82,79 +82,79 @@ def classify_result(**muutokset) -> StageResult:
             "unnumbered": 0,
             "round_list": f"classified/{TEAM}/{DEMO_ID}.md",
             "rows": [
-                rivi(),
-                rivi(round_no=2, round_type="eco", opp_round_type="full", loss_count=2),
-                rivi(round_no=3, round_type="full", won=True),
+                row(),
+                row(round_no=2, round_type="eco", opp_round_type="full", loss_count=2),
+                row(round_no=3, round_type="full", won=True),
             ],
         },
     }
-    oletus.update(muutokset)
-    return StageResult(**oletus)  # type: ignore[arg-type]
+    defaults.update(overrides)
+    return StageResult(**defaults)  # type: ignore[arg-type]
 
 
-def arvo(tuloste: str, otsikko: str) -> str:
-    for r in tuloste.splitlines():
-        kuori = r.strip()
-        if kuori.startswith(otsikko):
-            return kuori[len(otsikko) :].strip()
-    raise AssertionError(f"rivia {otsikko!r} ei ole tulosteessa:" + chr(10) + tuloste)
+def field_value(output_text: str, label: str) -> str:
+    for r in output_text.splitlines():
+        stripped = r.strip()
+        if stripped.startswith(label):
+            return stripped[len(label) :].strip()
+    raise AssertionError(f"rivia {label!r} ei ole tulosteessa:" + chr(10) + output_text)
 
 
 @pytest.fixture
-def vale_vaihe(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
+def fake_stage(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
     """Korvaa ``stages.classify.run``; palauta se mitä vaiheelle annettiin."""
-    nahty: dict[str, object] = {"kutsut": []}
+    seen: dict[str, object] = {"kutsut": []}
 
-    def vale_run(thresholds, league, archive, map_demo_id, team, **kwargs):
-        nahty["thresholds"] = thresholds
-        nahty["league"] = league
-        nahty["archive"] = archive
-        nahty["unit"] = map_demo_id
-        nahty["team"] = team
-        nahty["kwargs"] = kwargs
-        nahty["kutsut"].append(team)  # type: ignore[union-attr]
-        virhe = nahty.get("virhe")
-        if virhe is not None:
-            raise virhe  # type: ignore[misc]
-        return nahty.get("tulos") or classify_result(unit=map_demo_id)
+    def fake_run(thresholds, league, archive, map_demo_id, team, **kwargs):
+        seen["thresholds"] = thresholds
+        seen["league"] = league
+        seen["archive"] = archive
+        seen["unit"] = map_demo_id
+        seen["team"] = team
+        seen["kwargs"] = kwargs
+        seen["kutsut"].append(team)  # type: ignore[union-attr]
+        error = seen.get("virhe")
+        if error is not None:
+            raise error  # type: ignore[misc]
+        return seen.get("tulos") or classify_result(unit=map_demo_id)
 
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
-    monkeypatch.setattr("pappascout.stages.classify.run", vale_run)
+    monkeypatch.setattr("pappascout.stages.classify.run", fake_run)
     monkeypatch.setattr(
-        "pappascout.stages.classify.team_keys", lambda archive, kohde: [TEAM, TEAM_B]
+        "pappascout.stages.classify.team_keys", lambda archive, target: [TEAM, TEAM_B]
     )
-    return nahty
+    return seen
 
 
 # --- Yhteenveto -------------------------------------------------------------------
 
 
 def test_summary_reports_team_rounds_and_type_distribution() -> None:
-    tuloste = _render_classify(classify_result())
-    assert tuloste.startswith("Luokiteltu:")
-    assert arvo(tuloste, "Joukkue") == TEAM
-    assert arvo(tuloste, "Kierrokset") == "3"
-    assert arvo(tuloste, "Tyypit") == "pistol 1, eco 1, full 1"
-    assert arvo(tuloste, "Ajoaika") == "0,4 s"
+    output_text = _render_classify(classify_result())
+    assert output_text.startswith("Luokiteltu:")
+    assert field_value(output_text, "Joukkue") == TEAM
+    assert field_value(output_text, "Kierrokset") == "3"
+    assert field_value(output_text, "Tyypit") == "pistol 1, eco 1, full 1"
+    assert field_value(output_text, "Ajoaika") == "0,4 s"
 
 
 def test_summary_lists_both_outputs() -> None:
     """Parquet ja kierroslista ovat molemmat ajon tuloksia."""
-    tuloste = _render_classify(classify_result())
-    assert ".parquet" in tuloste
-    assert ".md" in tuloste
+    output_text = _render_classify(classify_result())
+    assert ".parquet" in output_text
+    assert ".md" in output_text
 
 
 def test_summary_says_when_the_stage_was_skipped() -> None:
-    tulos = classify_result(skipped=True, reason="Tulos on ajan tasalla.")
-    tuloste = _render_classify(tulos)
-    assert tuloste.startswith("Ohitettu:")
-    assert arvo(tuloste, "Syy") == "Tulos on ajan tasalla."
+    result = classify_result(skipped=True, reason="Tulos on ajan tasalla.")
+    output_text = _render_classify(result)
+    assert output_text.startswith("Ohitettu:")
+    assert field_value(output_text, "Syy") == "Tulos on ajan tasalla."
 
 
 def test_summary_shows_unclassified_rounds_exactly_once() -> None:
     """Luokittelematon on tila, ei kierrostyyppi -- ei siis tyyppijakaumaan."""
-    tulos = classify_result(
+    result = classify_result(
         stats={
             "team_key": TEAM,
             "rounds": 3,
@@ -164,14 +164,14 @@ def test_summary_shows_unclassified_rounds_exactly_once() -> None:
             "rows": [],
         }
     )
-    tuloste = _render_classify(tulos)
-    assert arvo(tuloste, UNCLASSIFIED.capitalize()).startswith("1 (havainto puuttuu")
-    assert tuloste.lower().count(UNCLASSIFIED) == 1
-    assert arvo(tuloste, "Tyypit") == "pistol 2"
+    output_text = _render_classify(result)
+    assert field_value(output_text, UNCLASSIFIED.capitalize()).startswith("1 (havainto puuttuu")
+    assert output_text.lower().count(UNCLASSIFIED) == 1
+    assert field_value(output_text, "Tyypit") == "pistol 2"
 
 
 def test_summary_reports_rounds_dropped_for_having_no_number() -> None:
-    tulos = classify_result(
+    result = classify_result(
         stats={
             "team_key": TEAM,
             "rounds": 3,
@@ -181,55 +181,55 @@ def test_summary_reports_rounds_dropped_for_having_no_number() -> None:
             "rows": [],
         }
     )
-    assert arvo(_render_classify(tulos), "Numeroimattomat").startswith("2 (")
+    assert field_value(_render_classify(result), "Numeroimattomat").startswith("2 (")
 
 
 def test_summary_hides_the_counters_that_are_zero() -> None:
-    tuloste = _render_classify(classify_result())
-    assert UNCLASSIFIED.capitalize() not in tuloste
-    assert "Numeroimattomat" not in tuloste
+    output_text = _render_classify(classify_result())
+    assert UNCLASSIFIED.capitalize() not in output_text
+    assert "Numeroimattomat" not in output_text
 
 
 def test_summary_never_claims_zero_rounds_when_unreadable() -> None:
-    tulos = classify_result(
+    result = classify_result(
         skipped=True, stats={"team_key": TEAM, "unreadable": "OSError: rikki"}
     )
-    assert "lukuja ei saatu" in _render_classify(tulos)
+    assert "lukuja ei saatu" in _render_classify(result)
 
 
 # --- Kierroslista -----------------------------------------------------------------
 
 
 def test_round_list_shows_every_input_the_decision_used() -> None:
-    tuloste = _render_round_list([rivi()])
-    for otsikko in ("Kierros", "Puoli", "Tyyppi", "Käytössä", "Jäljellä", "Ostettu",
+    output_text = _render_round_list([row()])
+    for label in ("Kierros", "Puoli", "Tyyppi", "Käytössä", "Jäljellä", "Ostettu",
                     "Varusteet", "Loss"):
-        assert otsikko in tuloste
-    assert "270" in tuloste
-    assert "1070" in tuloste
-    assert "530" in tuloste
-    assert "730" in tuloste
-    assert "pistol" in tuloste
+        assert label in output_text
+    assert "270" in output_text
+    assert "1070" in output_text
+    assert "530" in output_text
+    assert "730" in output_text
+    assert "pistol" in output_text
 
 
 def test_round_list_never_truncates_the_reason() -> None:
     """Perustelu on juuri se, jota vasten luokittelu tarkistetaan demosta."""
-    pitka = "Eco hävityn kierroksen jälkeen: " + "x" * 200
-    tuloste = _render_round_list([rivi(reason=pitka)])
-    assert pitka in tuloste
+    long_reason = "Eco hävityn kierroksen jälkeen: " + "x" * 200
+    output_text = _render_round_list([row(reason=long_reason)])
+    assert long_reason in output_text
 
 
 def test_round_list_shows_the_opponent_type_too() -> None:
-    tuloste = _render_round_list([rivi(round_type="eco", opp_round_type="full")])
-    assert "eco" in tuloste
-    assert "full" in tuloste
+    output_text = _render_round_list([row(round_type="eco", opp_round_type="full")])
+    assert "eco" in output_text
+    assert "full" in output_text
 
 
 def test_round_list_marks_an_unclassified_round() -> None:
     """Puuttuva luokittelu näkyy nimeltä ja puuttuva arvo viivana, ei nollana."""
-    tuloste = _render_round_list(
+    output_text = _render_round_list(
         [
-            rivi(
+            row(
                 round_type=None,
                 money_per_player=None,
                 money_available_per_player=None,
@@ -239,8 +239,8 @@ def test_round_list_marks_an_unclassified_round() -> None:
             )
         ]
     )
-    datarivi = tuloste.splitlines()[2]
-    assert datarivi.split() == [
+    data_line = output_text.splitlines()[2]
+    assert data_line.split() == [
         "1",
         "T",
         "häviö",
@@ -252,32 +252,32 @@ def test_round_list_marks_an_unclassified_round() -> None:
         "-",
         "1",
     ]
-    assert "0" not in datarivi
-    assert "no_freeze_end" in tuloste
+    assert "0" not in data_line
+    assert "no_freeze_end" in output_text
 
 
 def test_round_list_columns_line_up() -> None:
-    rivit = [rivi(), rivi(round_no=12, round_type="anomaly", money_per_player=12345)]
-    rivit_ulos = [r for r in _render_round_list(rivit).splitlines() if r]
-    otsikko, viiva = rivit_ulos[0], rivit_ulos[1]
-    assert len(viiva) >= len(otsikko) - 2
-    assert set(viiva.replace(" ", "")) == {"-"}
+    rows = [row(), row(round_no=12, round_type="anomaly", money_per_player=12345)]
+    out_lines = [r for r in _render_round_list(rows).splitlines() if r]
+    label, rule_line = out_lines[0], out_lines[1]
+    assert len(rule_line) >= len(label) - 2
+    assert set(rule_line.replace(" ", "")) == {"-"}
 
 
 def test_console_and_markdown_share_one_column_definition() -> None:
     """Kaksi sarakemäärittelyä erkanisi, ja tulosteet väittäisivät eri asioita."""
-    otsikot = [o for o, _ in ROUND_LIST_COLUMNS]
-    tuloste = _render_round_list([rivi()])
-    otsikkorivi = tuloste.splitlines()[0]
+    headers = [o for o, _ in ROUND_LIST_COLUMNS]
+    output_text = _render_round_list([row()])
+    header_line = output_text.splitlines()[0]
     # Perustelu on omalla rivillään, muut sarakkeet otsikkorivillä.
-    for otsikko in otsikot[:-1]:
-        assert otsikko in otsikkorivi
-    assert otsikot[-1] == "Perustelu"
+    for label in headers[:-1]:
+        assert label in header_line
+    assert headers[-1] == "Perustelu"
     # Solut tulevat vaiheen omasta funktiosta, eivät komentorivin kopiosta.
-    solut = round_list_cells(rivi())
-    assert len(solut) == len(ROUND_LIST_COLUMNS)
-    for solu in solut[:-1]:
-        assert solu in tuloste
+    cells = round_list_cells(row())
+    assert len(cells) == len(ROUND_LIST_COLUMNS)
+    for cell in cells[:-1]:
+        assert cell in output_text
 
 
 def test_empty_round_list_says_so() -> None:
@@ -287,56 +287,56 @@ def test_empty_round_list_says_so() -> None:
 # --- Komento ------------------------------------------------------------------------
 
 
-def test_stage_gets_only_the_threshold_and_league_sections(vale_vaihe) -> None:
+def test_stage_gets_only_the_threshold_and_league_sections(fake_stage) -> None:
     """AD-3: vaihe ei saa nähdä ``[parse]``-, ``[economy]``- eikä ``[project]``-osiota."""
     result = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM])
     assert result.exit_code == 0, result.output
 
-    thresholds = vale_vaihe["thresholds"]
-    league = vale_vaihe["league"]
+    thresholds = fake_stage["thresholds"]
+    league = fake_stage["league"]
     assert isinstance(thresholds, ThresholdSettings)
     assert isinstance(league, LeagueSettings)
-    for kielletty in ("parse", "economy", "project", "league"):
-        assert not hasattr(thresholds, kielletty)
-    for kielletty in ("parse", "economy", "project", "thresholds"):
-        assert not hasattr(league, kielletty)
-    assert vale_vaihe["unit"] == DEMO_ID
-    assert vale_vaihe["team"] == TEAM
-    assert vale_vaihe["kwargs"]["force"] is False
+    for forbidden in ("parse", "economy", "project", "league"):
+        assert not hasattr(thresholds, forbidden)
+    for forbidden in ("parse", "economy", "project", "thresholds"):
+        assert not hasattr(league, forbidden)
+    assert fake_stage["unit"] == DEMO_ID
+    assert fake_stage["team"] == TEAM
+    assert fake_stage["kwargs"]["force"] is False
 
 
-def test_force_flag_reaches_the_stage(vale_vaihe) -> None:
+def test_force_flag_reaches_the_stage(fake_stage) -> None:
     result = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM, "--pakota"])
     assert result.exit_code == 0, result.output
-    assert vale_vaihe["kwargs"]["force"] is True
+    assert fake_stage["kwargs"]["force"] is True
 
 
-def test_round_list_is_printed_only_with_show(vale_vaihe) -> None:
-    ilman = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM])
-    assert "Kierros " not in ilman.output
+def test_round_list_is_printed_only_with_show(fake_stage) -> None:
+    without_show = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM])
+    assert "Kierros " not in without_show.output
 
-    kanssa = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM, "--show"])
-    assert kanssa.exit_code == 0, kanssa.output
-    assert "Kierros" in kanssa.output
-    assert "pistoolikierros" in kanssa.output
+    with_show = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM, "--show"])
+    assert with_show.exit_code == 0, with_show.output
+    assert "Kierros" in with_show.output
+    assert "pistoolikierros" in with_show.output
 
 
-def test_all_teams_flag_classifies_both_lineups(vale_vaihe) -> None:
+def test_all_teams_flag_classifies_both_lineups(fake_stage) -> None:
     """Molemmat joukkueet luokitellaan joka tapauksessa -- tämä myös tallentaa ne."""
     result = runner.invoke(app, ["classify", DEMO_ID, "--kaikki-joukkueet"])
     assert result.exit_code == 0, result.output
-    assert vale_vaihe["kutsut"] == [TEAM, TEAM_B]
+    assert fake_stage["kutsut"] == [TEAM, TEAM_B]
     assert result.output.count("Luokiteltu:") == 2
 
 
-def test_missing_team_is_passed_through_as_none(vale_vaihe) -> None:
+def test_missing_team_is_passed_through_as_none(fake_stage) -> None:
     """Vaihe päättää virheilmoituksen, koska vain se tuntee demon kokoonpanot."""
     runner.invoke(app, ["classify", DEMO_ID])
-    assert vale_vaihe["team"] is None
+    assert fake_stage["team"] is None
 
 
-def test_missing_round_list_tells_what_to_do(vale_vaihe) -> None:
-    vale_vaihe["tulos"] = classify_result(
+def test_missing_round_list_tells_what_to_do(fake_stage) -> None:
+    fake_stage["tulos"] = classify_result(
         skipped=True, stats={"team_key": TEAM, "unreadable": "OSError: rikki"}
     )
     result = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM, "--show"])
@@ -346,9 +346,9 @@ def test_missing_round_list_tells_what_to_do(vale_vaihe) -> None:
 
 
 def test_unknown_team_is_finnish_without_a_traceback(
-    vale_vaihe, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    fake_stage, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
-    vale_vaihe["virhe"] = PappascoutError(
+    fake_stage["virhe"] = PappascoutError(
         "Kokoonpanotunniste 'xxx' ei täsmää kumpaankaan demon kokoonpanoon.\n"
         "Demon kokoonpanot ovat:\n    aaa\n    bbb"
     )
@@ -359,7 +359,7 @@ def test_unknown_team_is_finnish_without_a_traceback(
         main()
 
     assert exc.value.code == EXIT_KNOWN_ERROR
-    virhe = capsys.readouterr().err
-    assert "ei täsmää" in virhe
-    assert "kokoonpanot ovat" in virhe
-    assert "Traceback" not in virhe
+    error = capsys.readouterr().err
+    assert "ei täsmää" in error
+    assert "kokoonpanot ovat" in error
+    assert "Traceback" not in error

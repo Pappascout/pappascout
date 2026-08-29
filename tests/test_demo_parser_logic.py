@@ -124,25 +124,25 @@ class FakeDemoparser2:
         kranaatin reppuvaiheesta, jolloin koordinaatit ovat tyhjiä. Feikki
         antaa vain sen, mitä testi rakensi -- reppurivit voi lisätä itse.
         """
-        sarakkeet = [*dp.GRENADE_COLUMNS, "name"]
+        columns = [*dp.GRENADE_COLUMNS, "name"]
         frame = pd.DataFrame(
-            [{name: rivi.get(name) for name in sarakkeet} for rivi in self.grenades],
-            columns=sarakkeet,
+            [{name: row.get(name) for name in columns} for row in self.grenades],
+            columns=columns,
         )
-        for sarake in self.drop_grenade_columns:
-            if sarake in frame.columns:
-                frame = frame.drop(columns=[sarake])
+        for column in self.drop_grenade_columns:
+            if column in frame.columns:
+                frame = frame.drop(columns=[column])
         return frame
 
     def parse_ticks(
         self, wanted_props: list[str], *, ticks: list[int] | None = None
     ) -> pd.DataFrame:
         self.tick_calls.append((tuple(wanted_props), tuple(ticks or ())))
-        rivit = [r for tick in (ticks or []) for r in self._rows_at(tick)]
-        sarakkeet = [*wanted_props, "tick", "steamid", "name"]
+        rows = [r for tick in (ticks or []) for r in self._rows_at(tick)]
+        columns = [*wanted_props, "tick", "steamid", "name"]
         frame = pd.DataFrame(
-            [{name: rivi.get(name) for name in sarakkeet} for rivi in rivit],
-            columns=sarakkeet,
+            [{name: row.get(name) for name in columns} for row in rows],
+            columns=columns,
         )
         for prop in self.drop_props:
             if prop in frame.columns:
@@ -152,11 +152,11 @@ class FakeDemoparser2:
     def _rows_at(self, tick: int) -> list[dict[str, Any]]:
         if tick in self.tick_rows:
             return self.tick_rows[tick]
-        for kierros in self.rounds_model:
-            if kierros.freeze_tick is None or kierros.end_tick is None:
+        for round_spec in self.rounds_model:
+            if round_spec.freeze_tick is None or round_spec.end_tick is None:
                 continue
-            if kierros.freeze_tick <= tick <= kierros.end_tick:
-                return _sample_rows(kierros, tick)
+            if round_spec.freeze_tick <= tick <= round_spec.end_tick:
+                return _sample_rows(round_spec, tick)
         return []
 
 
@@ -220,7 +220,7 @@ def parse_adapter(
 
 
 @dataclass
-class Kierros:
+class Round:
     """Yksi kierros feikkidemossa."""
 
     demo_round: int | None
@@ -284,49 +284,49 @@ class Kierros:
 
 
 def _rows(
-    kierros: Kierros, tick: int, *, at_end: bool, total_score: int
+    round_spec: Round, tick: int, *, at_end: bool, total_score: int
 ) -> list[dict[str, Any]]:
     """Rakenna yhden tickin pelaajarivit."""
-    b_side = "CT" if kierros.a_side == "T" else "T"
+    b_side = "CT" if round_spec.a_side == "T" else "T"
     # Yhteispistemäärä jaetaan puolikkaiksi; testien kannalta merkitystä on
     # vain summalla, jonka adapteri laskee.
-    puolikkaat = {kierros.a_side: total_score, b_side: 0}
+    half_scores = {round_spec.a_side: total_score, b_side: 0}
 
-    rivit: list[dict[str, Any]] = []
-    for side, pelaajat, elossa in (
-        (kierros.a_side, kierros.a_players, kierros.alive[0]),
-        (b_side, kierros.b_players, kierros.alive[1]),
+    rows: list[dict[str, Any]] = []
+    for side, players, alive_count in (
+        (round_spec.a_side, round_spec.a_players, round_spec.alive[0]),
+        (b_side, round_spec.b_players, round_spec.alive[1]),
     ):
-        if kierros.score_only_side is not None and side != kierros.score_only_side:
+        if round_spec.score_only_side is not None and side != round_spec.score_only_side:
             score: int | None = None
         else:
-            score = puolikkaat[side]
-        for index, steamid in enumerate(pelaajat):
-            lukukelvoton = (
-                side == kierros.a_side
+            score = half_scores[side]
+        for index, steamid in enumerate(players):
+            unreadable = (
+                side == round_spec.a_side
                 and not at_end
-                and index < kierros.a_unreadable
+                and index < round_spec.a_unreadable
             )
-            rivit.append(
+            rows.append(
                 {
                     "tick": tick,
                     "steamid": steamid,
                     "name": steamid,
                     dp._TEAM_NUM: _SIDE_TEAM[side],
-                    dp._ACCOUNT: None if lukukelvoton else 800,
-                    dp._CASH_SPENT: None if lukukelvoton else 4000,
-                    dp._EQUIP_FREEZE_END: None if lukukelvoton else 4200,
-                    dp._EQUIP_ROUND_START: None if lukukelvoton else 200,
+                    dp._ACCOUNT: None if unreadable else 800,
+                    dp._CASH_SPENT: None if unreadable else 4000,
+                    dp._EQUIP_FREEZE_END: None if unreadable else 4200,
+                    dp._EQUIP_ROUND_START: None if unreadable else 200,
                     dp._EQUIP_CURRENT: 3000,
-                    dp._LIFE_STATE: 0 if (at_end and index < elossa) else 1,
+                    dp._LIFE_STATE: 0 if (at_end and index < alive_count) else 1,
                     dp._TEAM_SCORE: score,
-                    dp._ROUND_START_TIME: kierros.round_start_time,
+                    dp._ROUND_START_TIME: round_spec.round_start_time,
                 }
             )
-    return rivit
+    return rows
 
 
-def _sample_rows(kierros: Kierros, tick: int) -> list[dict[str, Any]]:
+def _sample_rows(round_spec: Round, tick: int) -> list[dict[str, Any]]:
     """Näytepisteen rivit: paikka, puoli ja elossaolo, ei talousarvoja.
 
     Koordinaatit johdetaan pelaajan indeksistä, jotta testi voi todeta, että
@@ -336,46 +336,46 @@ def _sample_rows(kierros: Kierros, tick: int) -> list[dict[str, Any]]:
     B-puolen samanindeksiset pelaajat seisoisivat tasan päällekkäin, eikä
     utilityn aluepäättelyllä olisi yksikäsitteistä lähintä pelaajaa.
     """
-    b_side = "CT" if kierros.a_side == "T" else "T"
-    rivit: list[dict[str, Any]] = []
-    for side, pelaajat, kuolleet, alue, korkeus in (
+    b_side = "CT" if round_spec.a_side == "T" else "T"
+    rows: list[dict[str, Any]] = []
+    for side, players, dead_count, area, height in (
         (
-            kierros.a_side,
-            kierros.a_players,
-            kierros.a_dead_at_sample,
-            kierros.a_area,
+            round_spec.a_side,
+            round_spec.a_players,
+            round_spec.a_dead_at_sample,
+            round_spec.a_area,
             A_SIDE_HEIGHT,
         ),
         (
             b_side,
-            kierros.b_players,
-            kierros.b_dead_at_sample,
-            kierros.b_area,
+            round_spec.b_players,
+            round_spec.b_dead_at_sample,
+            round_spec.b_area,
             B_SIDE_HEIGHT,
         ),
     ):
-        for index, steamid in enumerate(pelaajat):
-            if steamid in kierros.sample_skip:
+        for index, steamid in enumerate(players):
+            if steamid in round_spec.sample_skip:
                 continue
-            oma_alue = kierros.player_areas.get(steamid, alue)
-            rivit.append(
+            own_area = round_spec.player_areas.get(steamid, area)
+            rows.append(
                 {
                     "tick": tick,
                     "steamid": steamid,
                     "name": steamid,
                     dp._TEAM_NUM: _SIDE_TEAM[side],
-                    dp._LIFE_STATE: 2 if index < kuolleet else 0,
+                    dp._LIFE_STATE: 2 if index < dead_count else 0,
                     # Peli antaa nimettömälle alueelle tyhjän merkkijonon.
-                    dp._PLACE_NAME: "" if oma_alue is None else oma_alue,
+                    dp._PLACE_NAME: "" if own_area is None else own_area,
                     dp._X: float(100 * index),
                     dp._Y: float(-100 * index),
-                    dp._Z: korkeus,
+                    dp._Z: height,
                 }
             )
-    return rivit
+    return rows
 
 
-def build(kierrokset: list[Kierros]) -> FakeDemoparser2:
+def build(rounds: list[Round]) -> FakeDemoparser2:
     """Kokoa feikki kierroslistasta."""
     freeze_ticks: list[int] = []
     round_ends: list[dict[str, Any]] = []
@@ -384,119 +384,119 @@ def build(kierrokset: list[Kierros]) -> FakeDemoparser2:
     death_rows: list[dict[str, Any]] = []
     grenade_rows: list[dict[str, Any]] = []
 
-    for kierros in kierrokset:
-        if kierros.freeze_tick is not None:
-            grenade_rows.extend(_grenade_rows(kierros))
-            for kohde, lahde in (
-                (hurt_rows, kierros.hurt),
-                (death_rows, kierros.deaths),
+    for round_spec in rounds:
+        if round_spec.freeze_tick is not None:
+            grenade_rows.extend(_grenade_rows(round_spec))
+            for target, source in (
+                (hurt_rows, round_spec.hurt),
+                (death_rows, round_spec.deaths),
             ):
-                for siirtyma, tekija, uhri, ase in lahde:
-                    kohde.append(
+                for offset, attacker, victim, weapon in source:
+                    target.append(
                         {
-                            "tick": kierros.freeze_tick + siirtyma,
-                            "attacker_steamid": tekija,
-                            "user_steamid": uhri,
-                            "weapon": ase,
+                            "tick": round_spec.freeze_tick + offset,
+                            "attacker_steamid": attacker,
+                            "user_steamid": victim,
+                            "weapon": weapon,
                         }
                     )
-            freeze_ticks.append(kierros.freeze_tick)
-            tick_rows[kierros.freeze_tick] = _rows(
-                kierros,
-                kierros.freeze_tick,
+            freeze_ticks.append(round_spec.freeze_tick)
+            tick_rows[round_spec.freeze_tick] = _rows(
+                round_spec,
+                round_spec.freeze_tick,
                 at_end=False,
-                total_score=kierros.score_at_freeze,
+                total_score=round_spec.score_at_freeze,
             )
-        if kierros.end_tick is not None:
+        if round_spec.end_tick is not None:
             round_ends.append(
                 {
-                    "reason": kierros.reason,
-                    "round": kierros.demo_round,
-                    "tick": kierros.end_tick,
-                    "winner": kierros.winner,
+                    "reason": round_spec.reason,
+                    "round": round_spec.demo_round,
+                    "tick": round_spec.end_tick,
+                    "winner": round_spec.winner,
                 }
             )
-            tick_rows[kierros.end_tick] = _rows(
-                kierros,
-                kierros.end_tick,
+            tick_rows[round_spec.end_tick] = _rows(
+                round_spec,
+                round_spec.end_tick,
                 at_end=True,
-                total_score=kierros.score_at_end,
+                total_score=round_spec.score_at_end,
             )
     return FakeDemoparser2(
         sorted(freeze_ticks),
         round_ends,
         tick_rows,
         events={"player_hurt": hurt_rows, "player_death": death_rows},
-        rounds_model=list(kierrokset),
+        rounds_model=list(rounds),
         grenades=grenade_rows,
     )
 
 
-def _grenade_rows(kierros: Kierros) -> list[dict[str, Any]]:
+def _grenade_rows(round_spec: Round) -> list[dict[str, Any]]:
     """Yhden kierroksen lentorata- ja reppurivit.
 
     Radan alku asetetaan heittäjän omaan sijaintiin (:func:`_sample_rows`
     käyttää samaa kaavaa), jotta heiton alue napsahtaa heittäjään kuten
     oikeassa demossa. Rata etenee siitä poispäin.
     """
-    assert kierros.freeze_tick is not None
-    rivit: list[dict[str, Any]] = []
+    assert round_spec.freeze_tick is not None
+    rows: list[dict[str, Any]] = []
 
-    for entity, omistaja, tyyppi, siirtyma in kierros.grenades_in_bag:
-        rivit.append(
+    for entity, owner, grenade_type, offset in round_spec.grenades_in_bag:
+        rows.append(
             {
-                "grenade_type": tyyppi,
+                "grenade_type": grenade_type,
                 "grenade_entity_id": entity,
                 "x": None,
                 "y": None,
                 "z": None,
-                "tick": kierros.freeze_tick + siirtyma,
-                "steamid": omistaja,
-                "name": omistaja,
+                "tick": round_spec.freeze_tick + offset,
+                "steamid": owner,
+                "name": owner,
             }
         )
 
-    for entity, heittaja, tyyppi, siirtyma, kesto in kierros.grenades:
-        if heittaja in kierros.a_players:
-            index, korkeus = kierros.a_players.index(heittaja), A_SIDE_HEIGHT
-        elif heittaja in kierros.b_players:
-            index, korkeus = kierros.b_players.index(heittaja), B_SIDE_HEIGHT
+    for entity, thrower, grenade_type, offset, duration in round_spec.grenades:
+        if thrower in round_spec.a_players:
+            index, height = round_spec.a_players.index(thrower), A_SIDE_HEIGHT
+        elif thrower in round_spec.b_players:
+            index, height = round_spec.b_players.index(thrower), B_SIDE_HEIGHT
         else:
-            index, korkeus = 0, A_SIDE_HEIGHT
-        alku = (float(100 * index), float(-100 * index), korkeus)
-        for askel in range(kesto):
-            rivit.append(
+            index, height = 0, A_SIDE_HEIGHT
+        start = (float(100 * index), float(-100 * index), height)
+        for step in range(duration):
+            rows.append(
                 {
-                    "grenade_type": tyyppi,
+                    "grenade_type": grenade_type,
                     "grenade_entity_id": entity,
-                    "x": alku[0] + 40.0 * askel,
-                    "y": alku[1],
-                    "z": alku[2],
-                    "tick": kierros.freeze_tick + siirtyma + askel,
-                    "steamid": heittaja,
-                    "name": heittaja,
+                    "x": start[0] + 40.0 * step,
+                    "y": start[1],
+                    "z": start[2],
+                    "tick": round_spec.freeze_tick + offset + step,
+                    "steamid": thrower,
+                    "name": thrower,
                 }
             )
-    return rivit
+    return rows
 
 
-def normaali_ottelu(
-    pelatut: int = 3, *, knife: bool = True, tickrate: float = 64.0
-) -> list[Kierros]:
+def normal_match(
+    played: int = 3, *, knife: bool = True, tickrate: float = 64.0
+) -> list[Round]:
     """Puukkokierros + N pelattua kierrosta, kuten oikeassa demossa.
 
     Puukkokierroksen piste nollataan, joten sen ``score_at_end`` on 1 mutta
     seuraavan kierroksen ankkurissa lukema on taas 0.
     """
-    kierrokset: list[Kierros] = []
+    rounds: list[Round] = []
     tick = 1000
-    aika = 100.0
+    time_s = 100.0
     demo_round = 1
-    pisteet = 0
+    points = 0
 
     if knife:
-        kierrokset.append(
-            Kierros(
+        rounds.append(
+            Round(
                 demo_round=demo_round,
                 freeze_tick=tick,
                 end_tick=tick + 500,
@@ -505,35 +505,35 @@ def normaali_ottelu(
                 score_at_freeze=0,
                 score_at_end=1,  # nollataan mp_restartgamella
                 alive=(4, 0),
-                round_start_time=aika,
+                round_start_time=time_s,
             )
         )
         demo_round += 1
         tick += 1000
-        aika += 1000 / tickrate
+        time_s += 1000 / tickrate
 
-    for _ in range(pelatut):
-        kierrokset.append(
-            Kierros(
+    for _ in range(played):
+        rounds.append(
+            Round(
                 demo_round=demo_round,
                 freeze_tick=tick,
                 end_tick=tick + 500,
                 winner="CT",
                 reason="t_killed",
-                score_at_freeze=pisteet,
-                score_at_end=pisteet + 1,
+                score_at_freeze=points,
+                score_at_end=points + 1,
                 alive=(0, 3),
-                round_start_time=aika,
+                round_start_time=time_s,
             )
         )
-        pisteet += 1
+        points += 1
         demo_round += 1
         tick += 1000
-        aika += 1000 / tickrate
-    return kierrokset
+        time_s += 1000 / tickrate
+    return rounds
 
 
-def numerot(df: pl.DataFrame) -> list[int | None]:
+def numbers(df: pl.DataFrame) -> list[int | None]:
     return (
         mark_played_rounds(df)
         .unique(subset=["round_raw"], keep="first", maintain_order=True)
@@ -546,13 +546,13 @@ def numerot(df: pl.DataFrame) -> list[int | None]:
 
 
 def test_frame_matches_the_port_contract_exactly(tmp_path: Path) -> None:
-    df = parse_with(build(normaali_ottelu()), tmp_path)
+    df = parse_with(build(normal_match()), tmp_path)
     assert tuple(df.columns) == ROUNDS_ADAPTER_COLUMNS
     assert df["round_no"].null_count() == df.height
 
 
 def test_two_rows_per_round(tmp_path: Path) -> None:
-    df = parse_with(build(normaali_ottelu(pelatut=5)), tmp_path)
+    df = parse_with(build(normal_match(played=5)), tmp_path)
     assert df.height == 2 * 6  # puukkokierros + 5
     assert df.group_by("round_raw").len()["len"].unique().to_list() == [2]
 
@@ -562,16 +562,16 @@ def test_two_rows_per_round(tmp_path: Path) -> None:
 
 def test_round_raw_comes_from_the_demo_not_from_a_counter(tmp_path: Path) -> None:
     """Demon oma ``round``-kenttä päätyy sellaisenaan tauluun."""
-    kierrokset = normaali_ottelu(pelatut=2)
-    for offset, kierros in enumerate(kierrokset):
-        kierros.demo_round = 40 + offset  # demon oma numerointi ei ala ykkösestä
-    df = parse_with(build(kierrokset), tmp_path)
+    rounds = normal_match(played=2)
+    for offset, round_spec in enumerate(rounds):
+        round_spec.demo_round = 40 + offset  # demon oma numerointi ei ala ykkösestä
+    df = parse_with(build(rounds), tmp_path)
     assert sorted(df["round_raw"].unique().to_list()) == [40, 41, 42]
 
 
 def test_knife_round_is_not_played(tmp_path: Path) -> None:
-    df = parse_with(build(normaali_ottelu(pelatut=3)), tmp_path)
-    assert numerot(df) == [None, 1, 2, 3]
+    df = parse_with(build(normal_match(played=3)), tmp_path)
+    assert numbers(df) == [None, 1, 2, 3]
 
 
 def test_last_round_score_end_comes_from_its_own_round_end_tick(
@@ -583,18 +583,18 @@ def test_last_round_score_end_comes_from_its_own_round_end_tick(
     kierroksilla. Ilman tätä testiä jokaisen ottelun viimeinen kierros voisi
     pudota hiljaa pois.
     """
-    df = parse_with(build(normaali_ottelu(pelatut=3)), tmp_path)
-    viimeinen = df.filter(pl.col("round_raw") == pl.col("round_raw").max())
-    assert viimeinen["score_start"].unique().to_list() == [2]
-    assert viimeinen["score_end"].unique().to_list() == [3]
-    assert numerot(df)[-1] == 3
+    df = parse_with(build(normal_match(played=3)), tmp_path)
+    last_round = df.filter(pl.col("round_raw") == pl.col("round_raw").max())
+    assert last_round["score_start"].unique().to_list() == [2]
+    assert last_round["score_end"].unique().to_list() == [3]
+    assert numbers(df)[-1] == 3
 
 
 def test_unfinished_last_round_is_not_numbered(tmp_path: Path) -> None:
     """Demo katkesi kesken kierroksen: ankkuri ilman round_endiä."""
-    kierrokset = normaali_ottelu(pelatut=2)
-    kierrokset.append(
-        Kierros(
+    rounds = normal_match(played=2)
+    rounds.append(
+        Round(
             demo_round=None,
             freeze_tick=9000,
             end_tick=None,
@@ -602,11 +602,11 @@ def test_unfinished_last_round_is_not_numbered(tmp_path: Path) -> None:
             round_start_time=250.0,
         )
     )
-    df = parse_with(build(kierrokset), tmp_path)
-    assert numerot(df) == [None, 1, 2, None]
-    keskeneraiset = df.filter(pl.col("round_raw") == df["round_raw"].max())
-    assert keskeneraiset["won"].null_count() == 2
-    assert keskeneraiset["win_reason"].null_count() == 2
+    df = parse_with(build(rounds), tmp_path)
+    assert numbers(df) == [None, 1, 2, None]
+    unfinished = df.filter(pl.col("round_raw") == df["round_raw"].max())
+    assert unfinished["won"].null_count() == 2
+    assert unfinished["win_reason"].null_count() == 2
 
 
 def test_orphan_freeze_anchor_in_the_middle_becomes_its_own_round(
@@ -617,45 +617,45 @@ def test_orphan_freeze_anchor_in_the_middle_becomes_its_own_round(
     Ensimmäinen ankkuri jää ilman tulosta; se ei ole pelattu kierros, mutta
     sen on säilyttävä omana kierroksenaan, jottei numerointi siirry.
     """
-    kierrokset = normaali_ottelu(pelatut=2, knife=False)
-    kierrokset.insert(
+    rounds = normal_match(played=2, knife=False)
+    rounds.insert(
         1,
-        Kierros(
+        Round(
             demo_round=None,
-            freeze_tick=kierrokset[0].freeze_tick + 100,
+            freeze_tick=rounds[0].freeze_tick + 100,
             end_tick=None,
             score_at_freeze=1,
             round_start_time=110.0,
         ),
     )
-    df = parse_with(build(kierrokset), tmp_path)
+    df = parse_with(build(rounds), tmp_path)
     assert df.height == 6
-    assert numerot(df) == [1, None, 2]
+    assert numbers(df) == [1, None, 2]
 
 
 def test_round_end_without_an_anchor_is_kept_with_its_own_status(
     tmp_path: Path,
 ) -> None:
     """Kierros ilman freezetime-ankkuria on mukana ja saa numeron."""
-    kierrokset = normaali_ottelu(pelatut=3, knife=False)
-    kierrokset[1].freeze_tick = None
-    df = parse_with(build(kierrokset), tmp_path)
+    rounds = normal_match(played=3, knife=False)
+    rounds[1].freeze_tick = None
+    df = parse_with(build(rounds), tmp_path)
 
-    assert numerot(df) == [1, 2, 3]
-    ankkuriton = df.filter(pl.col("status") == "no_freeze_end")
-    assert ankkuriton.height == 2
-    assert ankkuriton["freeze_end_tick"].null_count() == 2
-    assert ankkuriton["money_freeze_end"].null_count() == 2
+    assert numbers(df) == [1, 2, 3]
+    no_anchor = df.filter(pl.col("status") == "no_freeze_end")
+    assert no_anchor.height == 2
+    assert no_anchor["freeze_end_tick"].null_count() == 2
+    assert no_anchor["money_freeze_end"].null_count() == 2
     # Pistelukemat periytyvät naapureista, joten kierros pysyy pelattuna.
-    assert ankkuriton["score_start"].unique().to_list() == [1]
-    assert ankkuriton["score_end"].unique().to_list() == [2]
+    assert no_anchor["score_start"].unique().to_list() == [1]
+    assert no_anchor["score_end"].unique().to_list() == [2]
 
 
 def test_inconsistent_demo_round_numbers_are_refused(tmp_path: Path) -> None:
-    kierrokset = normaali_ottelu(pelatut=3, knife=False)
-    kierrokset[2].demo_round = kierrokset[1].demo_round  # sama numero kahdesti
+    rounds = normal_match(played=3, knife=False)
+    rounds[2].demo_round = rounds[1].demo_round  # sama numero kahdesti
     with pytest.raises(ParseError, match="kierrosnumerointi"):
-        parse_with(build(kierrokset), tmp_path)
+        parse_with(build(rounds), tmp_path)
 
 
 # --- Kokoonpanot ja puolet -----------------------------------------------------
@@ -663,29 +663,29 @@ def test_inconsistent_demo_round_numbers_are_refused(tmp_path: Path) -> None:
 
 def test_half_time_switch_keeps_the_lineup_key(tmp_path: Path) -> None:
     """Puolet vaihtuvat, joukkueet eivät."""
-    kierrokset = normaali_ottelu(pelatut=4, knife=False)
-    for kierros in kierrokset[2:]:
-        kierros.a_side = "CT"
+    rounds = normal_match(played=4, knife=False)
+    for round_spec in rounds[2:]:
+        round_spec.a_side = "CT"
 
-    df = parse_with(build(kierrokset), tmp_path)
+    df = parse_with(build(rounds), tmp_path)
     assert df["lineup_key"].n_unique() == 2
 
-    a_avain = df.filter(pl.col("round_raw") == kierrokset[0].demo_round).filter(
+    a_key = df.filter(pl.col("round_raw") == rounds[0].demo_round).filter(
         pl.col("side") == "T"
     )["lineup_key"][0]
-    myohemmin = df.filter(pl.col("round_raw") == kierrokset[-1].demo_round).filter(
+    later_key = df.filter(pl.col("round_raw") == rounds[-1].demo_round).filter(
         pl.col("side") == "CT"
     )["lineup_key"][0]
-    assert a_avain == myohemmin
+    assert a_key == later_key
 
 
 def test_substitute_does_not_split_the_team(tmp_path: Path) -> None:
     """Yksi pelaaja vaihtuu kesken kartan: kokoonpano pysyy samana joukkueena."""
-    kierrokset = normaali_ottelu(pelatut=4, knife=False)
-    for kierros in kierrokset[2:]:
-        kierros.a_players = [*A_PLAYERS[:4], "sijainen"]
+    rounds = normal_match(played=4, knife=False)
+    for round_spec in rounds[2:]:
+        round_spec.a_players = [*A_PLAYERS[:4], "sijainen"]
 
-    df = parse_with(build(kierrokset), tmp_path)
+    df = parse_with(build(rounds), tmp_path)
     assert df["lineup_key"].n_unique() == 2
     # Molemmilla joukkueilla on yhtä monta riviä -- kolmatta joukkuetta ei synny.
     assert df.group_by("lineup_key").len()["len"].unique().to_list() == [4]
@@ -695,35 +695,35 @@ def test_side_assignment_never_guesses_when_teams_do_not_separate(
     tmp_path: Path,
 ) -> None:
     """Tasapelissä peritään edellisen kierroksen kuvaus, ei oleteta (T, CT)."""
-    kierrokset = normaali_ottelu(pelatut=3, knife=False)
-    kierrokset[1].a_side = "CT"  # joukkueet vaihtoivat puolta
+    rounds = normal_match(played=3, knife=False)
+    rounds[1].a_side = "CT"  # joukkueet vaihtoivat puolta
     # Kolmas kierros: aivan uudet pelaajat -> kumpikaan kuvaus ei voita.
-    kierrokset[2].a_players = ["uusi1", "uusi2"]
-    kierrokset[2].b_players = ["uusi3", "uusi4"]
-    kierrokset[2].a_side = "T"
+    rounds[2].a_players = ["uusi1", "uusi2"]
+    rounds[2].b_players = ["uusi3", "uusi4"]
+    rounds[2].a_side = "T"
 
-    df = parse_with(build(kierrokset), tmp_path)
+    df = parse_with(build(rounds), tmp_path)
     # Edellinen kuvaus oli "A on CT", joten se peritään: kokoonpano 0 on CT.
-    kolmas = df.filter(pl.col("round_raw") == kierrokset[2].demo_round)
-    eka_avain = df["lineup_key"][0]
-    assert kolmas.filter(pl.col("lineup_key") == eka_avain)["side"].to_list() == ["CT"]
+    third_round = df.filter(pl.col("round_raw") == rounds[2].demo_round)
+    first_key = df["lineup_key"][0]
+    assert third_round.filter(pl.col("lineup_key") == first_key)["side"].to_list() == ["CT"]
 
 
 def test_first_round_with_only_one_side_is_refused(tmp_path: Path) -> None:
-    kierrokset = normaali_ottelu(pelatut=2, knife=False)
-    kierrokset[0].b_players = []
+    rounds = normal_match(played=2, knife=False)
+    rounds[0].b_players = []
     with pytest.raises(ParseError, match="vain toiselta puolelta"):
-        parse_with(build(kierrokset), tmp_path)
+        parse_with(build(rounds), tmp_path)
 
 
 def test_round_without_players_and_without_history_is_refused(
     tmp_path: Path,
 ) -> None:
-    kierrokset = normaali_ottelu(pelatut=2, knife=False)
-    kierrokset[0].a_players = []
-    kierrokset[0].b_players = []
+    rounds = normal_match(played=2, knife=False)
+    rounds[0].a_players = []
+    rounds[0].b_players = []
     with pytest.raises(ParseError, match="puolia ei voitu määrittää"):
-        parse_with(build(kierrokset), tmp_path)
+        parse_with(build(rounds), tmp_path)
 
 
 def test_empty_lineup_never_produces_a_key() -> None:
@@ -742,12 +742,12 @@ def test_one_sided_score_reading_is_not_a_sum() -> None:
     ja kierros voisi sen takia pudota pelattujen joukosta tai jäädä mukaan
     väärällä numerolla.
     """
-    molemmat = [
+    both_sides = [
         {"side": "T", "team_score": 7},
         {"side": "CT", "team_score": 5},
     ]
-    assert dp._total_score(molemmat) == 12
-    assert dp._total_score(molemmat[:1]) is None
+    assert dp._total_score(both_sides) == 12
+    assert dp._total_score(both_sides[:1]) is None
     assert dp._total_score([{"side": "T", "team_score": None}]) is None
     assert dp._total_score([]) is None
 
@@ -756,24 +756,24 @@ def test_one_sided_anchor_falls_back_to_a_trustworthy_neighbour(
     tmp_path: Path,
 ) -> None:
     """Hylätty lukema korvataan naapurilla, ei puolikkaalla summalla."""
-    kierrokset = normaali_ottelu(pelatut=3, knife=False)
-    kierrokset[1].score_only_side = kierrokset[1].a_side
+    rounds = normal_match(played=3, knife=False)
+    rounds[1].score_only_side = rounds[1].a_side
     # Jos yksipuolinen lukema kelpaisi, score_start olisi tämä 99.
-    kierrokset[1].score_at_freeze = 99
+    rounds[1].score_at_freeze = 99
 
-    df = parse_with(build(kierrokset), tmp_path)
-    toinen = df.filter(pl.col("round_raw") == kierrokset[1].demo_round)
-    assert toinen["score_start"].unique().to_list() == [1]
-    assert numerot(df) == [1, 2, 3]
+    df = parse_with(build(rounds), tmp_path)
+    other = df.filter(pl.col("round_raw") == rounds[1].demo_round)
+    assert other["score_start"].unique().to_list() == [1]
+    assert numbers(df) == [1, 2, 3]
 
 
 def test_score_jump_larger_than_one_is_refused(tmp_path: Path) -> None:
     """Kahden pisteen hyppy tarkoittaa, että kierros jäi tunnistamatta."""
-    kierrokset = normaali_ottelu(pelatut=3, knife=False)
-    kierrokset[2].score_at_freeze = 5  # aukko toisen ja kolmannen välissä
-    kierrokset[2].score_at_end = 6
+    rounds = normal_match(played=3, knife=False)
+    rounds[2].score_at_freeze = 5  # aukko toisen ja kolmannen välissä
+    rounds[2].score_at_end = 6
 
-    df = parse_with(build(kierrokset), tmp_path)
+    df = parse_with(build(rounds), tmp_path)
     with pytest.raises(ParseError, match="enemmän kuin"):
         mark_played_rounds(df)
 
@@ -782,7 +782,7 @@ def test_score_jump_larger_than_one_is_refused(tmp_path: Path) -> None:
 
 
 def test_tick_rate_is_measured_from_the_game_clock(tmp_path: Path) -> None:
-    adapter = parse_adapter(build(normaali_ottelu(pelatut=4)), tmp_path)
+    adapter = parse_adapter(build(normal_match(played=4)), tmp_path)
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.tick_rate == 64.0
     assert adapter.diagnostics.tick_rate_measured is True
@@ -790,20 +790,20 @@ def test_tick_rate_is_measured_from_the_game_clock(tmp_path: Path) -> None:
 
 def test_tick_rate_measurement_uses_the_median(tmp_path: Path) -> None:
     """Yksi poikkeava kierrosväli ei saa siirtää tulosta."""
-    kierrokset = normaali_ottelu(pelatut=5, knife=False)
-    kierrokset[2].round_start_time = kierrokset[2].round_start_time + 40  # kellon hyppy
-    adapter = parse_adapter(build(kierrokset), tmp_path)
+    rounds = normal_match(played=5, knife=False)
+    rounds[2].round_start_time = rounds[2].round_start_time + 40  # kellon hyppy
+    adapter = parse_adapter(build(rounds), tmp_path)
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.tick_rate == 64.0
     assert adapter.diagnostics.tick_rate_measured is True
 
 
 def test_tick_rate_falls_back_to_the_default_without_a_clock(tmp_path: Path) -> None:
-    kierrokset = normaali_ottelu(pelatut=3)
-    for kierros in kierrokset:
-        kierros.round_start_time = None
+    rounds = normal_match(played=3)
+    for round_spec in rounds:
+        round_spec.round_start_time = None
 
-    adapter = parse_adapter(build(kierrokset), tmp_path)
+    adapter = parse_adapter(build(rounds), tmp_path)
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.tick_rate == DEFAULT_TICK_RATE
     assert adapter.diagnostics.tick_rate_measured is False
@@ -811,19 +811,19 @@ def test_tick_rate_falls_back_to_the_default_without_a_clock(tmp_path: Path) -> 
 
 def test_absurd_tick_rate_is_rejected_as_a_measurement(tmp_path: Path) -> None:
     """Järkevyysrajojen ulkopuolinen arvo on mittausvirhe, ei totuus."""
-    kierrokset = normaali_ottelu(pelatut=4, knife=False)
-    for index, kierros in enumerate(kierrokset):
+    rounds = normal_match(played=4, knife=False)
+    for index, round_spec in enumerate(rounds):
         # 1000 tickiä / 0,001 s = 1 000 000 tickiä sekunnissa.
-        kierros.round_start_time = 100.0 + index * 0.001
+        round_spec.round_start_time = 100.0 + index * 0.001
 
-    adapter = parse_adapter(build(kierrokset), tmp_path)
+    adapter = parse_adapter(build(rounds), tmp_path)
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.tick_rate == DEFAULT_TICK_RATE
     assert adapter.diagnostics.tick_rate_measured is False
 
 
 def test_diagnostics_report_every_round_boundary(tmp_path: Path) -> None:
-    adapter = parse_adapter(build(normaali_ottelu(pelatut=6)), tmp_path)
+    adapter = parse_adapter(build(normal_match(played=6)), tmp_path)
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.rounds_seen == 7  # puukkokierros mukaan lukien
 
@@ -835,7 +835,7 @@ def test_diagnostics_report_every_round_boundary(tmp_path: Path) -> None:
 def test_missing_prop_is_named_in_the_error(tmp_path: Path, prop: str) -> None:
     """Uudelleennimetty kenttä tuottaisi muuten rakenteellisesti kelvollisen
     mutta täysin tyhjän taulun."""
-    fake = build(normaali_ottelu(pelatut=2))
+    fake = build(normal_match(played=2))
     fake.drop_props = (prop,)
     with pytest.raises(ParseError) as exc:
         parse_with(fake, tmp_path)
@@ -854,19 +854,19 @@ def test_survivors_and_carry_over_follow_the_team_not_the_side(
     tmp_path: Path,
 ) -> None:
     """Eloonjääneiden varusteet siirtyvät joukkueelle, myös puolenvaihdossa."""
-    kierrokset = normaali_ottelu(pelatut=3, knife=False)
-    kierrokset[0].alive = (2, 0)  # kokoonpano A jätti kaksi henkiin
-    for kierros in kierrokset[1:]:
-        kierros.a_side = "CT"
+    rounds = normal_match(played=3, knife=False)
+    rounds[0].alive = (2, 0)  # kokoonpano A jätti kaksi henkiin
+    for round_spec in rounds[1:]:
+        round_spec.a_side = "CT"
 
-    df = parse_with(build(kierrokset), tmp_path)
-    a_avain = df["lineup_key"][0]
-    toinen_kierros = df.filter(
-        (pl.col("round_raw") == kierrokset[1].demo_round)
-        & (pl.col("lineup_key") == a_avain)
+    df = parse_with(build(rounds), tmp_path)
+    a_key = df["lineup_key"][0]
+    second_round = df.filter(
+        (pl.col("round_raw") == rounds[1].demo_round)
+        & (pl.col("lineup_key") == a_key)
     )
-    assert toinen_kierros["side"].to_list() == ["CT"]
-    assert toinen_kierros["survivors_equip_prev"].to_list() == [2 * 3000]
+    assert second_round["side"].to_list() == ["CT"]
+    assert second_round["survivors_equip_prev"].to_list() == [2 * 3000]
 
 
 def test_player_count_is_observed_not_assumed(tmp_path: Path) -> None:
@@ -875,26 +875,26 @@ def test_player_count_is_observed_not_assumed(tmp_path: Path) -> None:
     Kynnykset ovat per pelaaja, joten jakaja on luettava demosta. Ilman tätä
     testia sarakkeen arvoa ei todennettaisi missään -- vain sen olemassaolo.
     """
-    kierrokset = normaali_ottelu(pelatut=2, knife=False)
-    kierrokset[0].a_players = A_PLAYERS[:4]
+    rounds = normal_match(played=2, knife=False)
+    rounds[0].a_players = A_PLAYERS[:4]
 
-    df = parse_with(build(kierrokset), tmp_path)
-    a_avain = df.filter(pl.col("side") == "T")["lineup_key"][0]
-    omat = df.filter(pl.col("lineup_key") == a_avain).sort("round_raw")
-    assert omat["players_freeze_end"].to_list() == [4, 5]
-    vastustaja = df.filter(pl.col("lineup_key") != a_avain).sort("round_raw")
-    assert vastustaja["players_freeze_end"].to_list() == [5, 5]
+    df = parse_with(build(rounds), tmp_path)
+    a_key = df.filter(pl.col("side") == "T")["lineup_key"][0]
+    own_rows = df.filter(pl.col("lineup_key") == a_key).sort("round_raw")
+    assert own_rows["players_freeze_end"].to_list() == [4, 5]
+    opponent = df.filter(pl.col("lineup_key") != a_key).sort("round_raw")
+    assert opponent["players_freeze_end"].to_list() == [5, 5]
 
 
 def test_round_without_an_anchor_has_no_player_count(tmp_path: Path) -> None:
     """Ilman freezetime-ankkuria ei ole mitään laskettavaa -- ei myöskään nollaa."""
-    kierrokset = normaali_ottelu(pelatut=2, knife=False)
-    kierrokset[1].freeze_tick = None
+    rounds = normal_match(played=2, knife=False)
+    rounds[1].freeze_tick = None
 
-    df = parse_with(build(kierrokset), tmp_path)
-    ankkuriton = df.filter(pl.col("status") == "no_freeze_end")
-    assert ankkuriton.height == 2
-    assert ankkuriton["players_freeze_end"].null_count() == 2
+    df = parse_with(build(rounds), tmp_path)
+    no_anchor = df.filter(pl.col("status") == "no_freeze_end")
+    assert no_anchor.height == 2
+    assert no_anchor["players_freeze_end"].null_count() == 2
 
 
 def test_sums_and_their_divisor_come_from_the_same_players(tmp_path: Path) -> None:
@@ -903,64 +903,64 @@ def test_sums_and_their_divisor_come_from_the_same_players(tmp_path: Path) -> No
     Kolmen pelaajan summa viidellä jaettuna aliarvioisi varustearvon 40 % ja
     työntäisi kierroksen ecoksi -- hiljaa ja uskottavan näköisesti.
     """
-    kierrokset = normaali_ottelu(pelatut=1, knife=False)
-    kierrokset[0].a_unreadable = 2  # kahden pelaajan propit tyhjiä
+    rounds = normal_match(played=1, knife=False)
+    rounds[0].a_unreadable = 2  # kahden pelaajan propit tyhjiä
 
-    df = parse_with(build(kierrokset), tmp_path)
-    a_avain = df.filter(pl.col("side") == "T")["lineup_key"][0]
-    rivi = df.filter(pl.col("lineup_key") == a_avain).row(0, named=True)
+    df = parse_with(build(rounds), tmp_path)
+    a_key = df.filter(pl.col("side") == "T")["lineup_key"][0]
+    row = df.filter(pl.col("lineup_key") == a_key).row(0, named=True)
 
-    assert rivi["players_freeze_end"] == 3
-    assert rivi["equip_freeze_end"] == 3 * 4200
-    assert rivi["money_freeze_end"] == 3 * 800
-    assert rivi["money_spent"] == 3 * 4000
+    assert row["players_freeze_end"] == 3
+    assert row["equip_freeze_end"] == 3 * 4200
+    assert row["money_freeze_end"] == 3 * 800
+    assert row["money_spent"] == 3 * 4000
     # Per pelaaja -arvo pysyy oikeana, koska jakaja on sama joukko.
-    assert rivi["equip_freeze_end"] / rivi["players_freeze_end"] == 4200
+    assert row["equip_freeze_end"] / row["players_freeze_end"] == 4200
 
 
 def test_money_spent_is_read_from_the_demo(tmp_path: Path) -> None:
     """Käytettävissä ollut raha = jäljelle jäänyt + käytetty."""
-    df = parse_with(build(normaali_ottelu(pelatut=1, knife=False)), tmp_path)
-    rivi = df.row(0, named=True)
-    assert rivi["money_spent"] == 5 * 4000
-    assert rivi["money_freeze_end"] + rivi["money_spent"] == 5 * 4800
+    df = parse_with(build(normal_match(played=1, knife=False)), tmp_path)
+    row = df.row(0, named=True)
+    assert row["money_spent"] == 5 * 4000
+    assert row["money_freeze_end"] + row["money_spent"] == 5 * 4800
 
 
 # --- Näytepistetaulu -----------------------------------------------------------
 
 
-def pitka_ottelu(pelatut: int = 2, kesto: int = 4000) -> list[Kierros]:
+def long_match(played: int = 2, duration: int = 4000) -> list[Round]:
     """Kierroksia, jotka kestävät riittävän kauan oikeille näytepisteille.
 
     ``normaali_ottelu``n kierrokset ovat 500 tickiä eli 7,8 sekuntia; 45
     sekunnin pistettä ei niissä voisi tutkia lainkaan.
     """
-    kierrokset: list[Kierros] = []
+    rounds: list[Round] = []
     tick = 1000
-    aika = 100.0
-    pisteet = 0
-    for numero in range(1, pelatut + 1):
-        kierrokset.append(
-            Kierros(
-                demo_round=numero,
+    time_s = 100.0
+    points = 0
+    for number in range(1, played + 1):
+        rounds.append(
+            Round(
+                demo_round=number,
                 freeze_tick=tick,
-                end_tick=tick + kesto,
+                end_tick=tick + duration,
                 winner="CT",
                 reason="t_killed",
-                score_at_freeze=pisteet,
-                score_at_end=pisteet + 1,
+                score_at_freeze=points,
+                score_at_end=points + 1,
                 alive=(0, 3),
-                round_start_time=aika,
+                round_start_time=time_s,
             )
         )
-        pisteet += 1
-        aika += (kesto + 1000) / 64.0
-        tick += kesto + 1000
-    return kierrokset
+        points += 1
+        time_s += (duration + 1000) / 64.0
+        tick += duration + 1000
+    return rounds
 
 
 def test_ticks_frame_matches_the_port_contract_exactly(tmp_path: Path) -> None:
-    ticks = parse_ticks_table(build(pitka_ottelu()), tmp_path)
+    ticks = parse_ticks_table(build(long_match()), tmp_path)
     assert tuple(ticks.columns) == TICKS_ADAPTER_COLUMNS
     for name in TICKS_ADAPTER_COLUMNS:
         assert ticks.schema[name] == TICKS[name], name
@@ -971,40 +971,40 @@ def test_ticks_frame_matches_the_port_contract_exactly(tmp_path: Path) -> None:
 def test_every_player_gets_a_row_at_every_sample_point(tmp_path: Path) -> None:
     """10 pelaajaa x 4 näytepistettä x 2 kierrosta = 80 riviä."""
     ticks = parse_ticks_table(
-        build(pitka_ottelu(pelatut=2)), tmp_path, sample_seconds=(6.0, 15.0, 30.0, 45.0)
+        build(long_match(played=2)), tmp_path, sample_seconds=(6.0, 15.0, 30.0, 45.0)
     )
-    aika = ticks.filter(pl.col("sample_kind") == "time")
-    assert aika.height == 80
-    per_piste = aika.group_by("round_raw", "sample_t_s").len()
-    assert per_piste["len"].unique().to_list() == [10]
+    time_s = ticks.filter(pl.col("sample_kind") == "time")
+    assert time_s.height == 80
+    per_point = time_s.group_by("round_raw", "sample_t_s").len()
+    assert per_point["len"].unique().to_list() == [10]
 
 
 def test_a_short_round_has_no_points_after_it_ended(tmp_path: Path) -> None:
     """Hyväksymiskriteeri: 28 sekunnissa ratkennut kierros saa vain 6 ja 15."""
-    kierrokset = pitka_ottelu(pelatut=1, kesto=28 * 64)
+    rounds = long_match(played=1, duration=28 * 64)
     ticks = parse_ticks_table(
-        build(kierrokset), tmp_path, sample_seconds=(6.0, 15.0, 30.0, 45.0)
+        build(rounds), tmp_path, sample_seconds=(6.0, 15.0, 30.0, 45.0)
     )
-    aika = ticks.filter(pl.col("sample_kind") == "time")
-    assert sorted(aika["sample_t_s"].unique().to_list()) == [6.0, 15.0]
-    assert aika["t_s"].max() <= 28.0
+    time_s = ticks.filter(pl.col("sample_kind") == "time")
+    assert sorted(time_s["sample_t_s"].unique().to_list()) == [6.0, 15.0]
+    assert time_s["t_s"].max() <= 28.0
 
 
 def test_area_and_coordinates_come_from_the_sample_tick(tmp_path: Path) -> None:
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].a_area = "Ramp"
-    kierrokset[0].b_area = "Heaven"
-    ticks = parse_ticks_table(build(kierrokset), tmp_path, sample_seconds=(6.0,))
+    rounds = long_match(played=1)
+    rounds[0].a_area = "Ramp"
+    rounds[0].b_area = "Heaven"
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
 
-    a_puoli = ticks.filter(pl.col("side") == kierrokset[0].a_side)
-    assert a_puoli["area"].unique().to_list() == ["Ramp"]
-    b_side = "CT" if kierrokset[0].a_side == "T" else "T"
+    a_side_of = ticks.filter(pl.col("side") == rounds[0].a_side)
+    assert a_side_of["area"].unique().to_list() == ["Ramp"]
+    b_side = "CT" if rounds[0].a_side == "T" else "T"
     assert ticks.filter(pl.col("side") == b_side)["area"].unique().to_list() == [
         "Heaven"
     ]
     # Koordinaatit johdettiin pelaajan indeksistä; ne eivät ole nollia.
-    assert sorted(a_puoli["x"].to_list()) == [0.0, 100.0, 200.0, 300.0, 400.0]
-    assert a_puoli["z"].unique().to_list() == [5.0]
+    assert sorted(a_side_of["x"].to_list()) == [0.0, 100.0, 200.0, 300.0, 400.0]
+    assert a_side_of["z"].unique().to_list() == [5.0]
 
 
 def test_an_unnamed_area_stays_null_but_the_coordinates_remain(
@@ -1014,31 +1014,31 @@ def test_an_unnamed_area_stays_null_but_the_coordinates_remain(
 
     Riviä ei pudoteta -- tuntematon sijainti raportoidaan koordinaatteina.
     """
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].a_area = None
-    ticks = parse_ticks_table(build(kierrokset), tmp_path, sample_seconds=(6.0,))
+    rounds = long_match(played=1)
+    rounds[0].a_area = None
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
 
-    tuntematon = ticks.filter(pl.col("side") == kierrokset[0].a_side)
-    assert tuntematon.height == 5
-    assert tuntematon["area"].null_count() == 5
-    assert tuntematon["x"].null_count() == 0
+    unknown_area = ticks.filter(pl.col("side") == rounds[0].a_side)
+    assert unknown_area.height == 5
+    assert unknown_area["area"].null_count() == 5
+    assert unknown_area["x"].null_count() == 0
 
 
 def test_a_dead_player_still_gets_a_row(tmp_path: Path) -> None:
     """I/O-matriisi: kuolleiden suodatus on aggregoinnin työ, ei parsinnan."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].a_dead_at_sample = 2
-    ticks = parse_ticks_table(build(kierrokset), tmp_path, sample_seconds=(6.0,))
+    rounds = long_match(played=1)
+    rounds[0].a_dead_at_sample = 2
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
 
-    omat = ticks.filter(pl.col("side") == kierrokset[0].a_side)
-    assert omat.height == 5
-    assert omat["is_alive"].sum() == 3
+    own_rows = ticks.filter(pl.col("side") == rounds[0].a_side)
+    assert own_rows.height == 5
+    assert own_rows["is_alive"].sum() == 3
     assert ticks["is_alive"].sum() == 8
 
 
 def test_lineup_key_is_the_same_in_both_tables(tmp_path: Path) -> None:
     """Sama joukkue, sama avain -- muuten liitos menisi hiljaa ristiin."""
-    tables = parse_tables(build(pitka_ottelu(pelatut=2)), tmp_path)
+    tables = parse_tables(build(long_match(played=2)), tmp_path)
     assert set(tables.ticks["lineup_key"].unique()) == set(
         tables.rounds["lineup_key"].unique()
     )
@@ -1046,43 +1046,43 @@ def test_lineup_key_is_the_same_in_both_tables(tmp_path: Path) -> None:
 
 
 def test_lineup_key_follows_the_team_through_the_side_switch(tmp_path: Path) -> None:
-    kierrokset = pitka_ottelu(pelatut=4)
-    for kierros in kierrokset[2:]:
-        kierros.a_side = "CT"
+    rounds = long_match(played=4)
+    for round_spec in rounds[2:]:
+        round_spec.a_side = "CT"
 
-    tables = parse_tables(build(kierrokset), tmp_path)
+    tables = parse_tables(build(rounds), tmp_path)
     ticks = tables.ticks
-    a_avain = tables.rounds.filter(
+    a_key = tables.rounds.filter(
         (pl.col("round_raw") == 1) & (pl.col("side") == "T")
     )["lineup_key"][0]
 
-    eka = ticks.filter((pl.col("round_raw") == 1) & (pl.col("lineup_key") == a_avain))
-    viimeinen = ticks.filter(
-        (pl.col("round_raw") == 4) & (pl.col("lineup_key") == a_avain)
+    first = ticks.filter((pl.col("round_raw") == 1) & (pl.col("lineup_key") == a_key))
+    last_round = ticks.filter(
+        (pl.col("round_raw") == 4) & (pl.col("lineup_key") == a_key)
     )
-    assert eka["side"].unique().to_list() == ["T"]
-    assert viimeinen["side"].unique().to_list() == ["CT"]
+    assert first["side"].unique().to_list() == ["T"]
+    assert last_round["side"].unique().to_list() == ["CT"]
 
 
 def test_an_unanchored_round_produces_no_tick_rows(tmp_path: Path) -> None:
     """I/O-matriisi: ``status = "no_freeze_end"`` -> ei tick-rivejä."""
-    kierrokset = pitka_ottelu(pelatut=3)
-    kierrokset[1].freeze_tick = None
-    ticks = parse_ticks_table(build(kierrokset), tmp_path)
+    rounds = long_match(played=3)
+    rounds[1].freeze_tick = None
+    ticks = parse_ticks_table(build(rounds), tmp_path)
     assert sorted(ticks["round_raw"].unique().to_list()) == [1, 3]
 
 
 def test_only_the_needed_ticks_are_read(tmp_path: Path) -> None:
     """Koko tickisarjaa ei lueta: pyydetyt tickit ovat näytepisteitä."""
-    fake = build(pitka_ottelu(pelatut=2))
+    fake = build(long_match(played=2))
     parse_ticks_table(fake, tmp_path, sample_seconds=(6.0, 15.0))
-    naytepisteet = next(
-        ticks for propit, ticks in fake.tick_calls if dp._PLACE_NAME in propit
+    sample_points = next(
+        ticks for props, ticks in fake.tick_calls if dp._PLACE_NAME in props
     )
-    assert len(naytepisteet) == 4  # 2 kierrosta x 2 pistettä
+    assert len(sample_points) == 4  # 2 kierrosta x 2 pistettä
     # Talousproppeja ei lueta uudelleen näytepisteiltä.
     assert dp._ACCOUNT not in next(
-        propit for propit, _ in fake.tick_calls if dp._PLACE_NAME in propit
+        props for props, _ in fake.tick_calls if dp._PLACE_NAME in props
     )
 
 
@@ -1096,7 +1096,7 @@ def test_a_missing_sample_prop_is_named_in_the_error(
     ``m_iTeamNum`` luetaan jo kierrosrajoilta, joten niiden katoaminen jää
     kiinni aiemmin ja toisella viestillä.
     """
-    fake = build(pitka_ottelu(pelatut=2))
+    fake = build(long_match(played=2))
     fake.drop_props = (prop,)
     with pytest.raises(ParseError) as exc:
         parse_ticks_table(fake, tmp_path)
@@ -1109,27 +1109,27 @@ def test_a_missing_sample_prop_is_named_in_the_error(
 
 def test_first_contact_produces_its_own_sample_point(tmp_path: Path) -> None:
     """Hyväksymiskriteeri: tulitaistelun kierrokselta löytyy first_contact."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].hurt = [
+    rounds = long_match(played=1)
+    rounds[0].hurt = [
         (20 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47"),
         (10 * 64, A_PLAYERS[1], B_PLAYERS[1], "awp"),
     ]
-    ticks = parse_ticks_table(build(kierrokset), tmp_path, sample_seconds=(6.0,))
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
 
-    kontakti = ticks.filter(pl.col("sample_kind") == "first_contact")
-    assert kontakti.height == 10
-    assert kontakti["t_s"].unique().to_list() == [10.0]
+    contact = ticks.filter(pl.col("sample_kind") == "first_contact")
+    assert contact.height == 10
+    assert contact["t_s"].unique().to_list() == [10.0]
     # sample_t_s kertoo saman hetken -- rivi ei jää ilman aikaleimaa.
-    assert kontakti["sample_t_s"].unique().to_list() == [10.0]
+    assert contact["sample_t_s"].unique().to_list() == [10.0]
 
 
 def test_utility_only_damage_leaves_the_round_without_a_contact(
     tmp_path: Path,
 ) -> None:
     """I/O-matriisi: ainoa vahinko molotovista -> ei ensikontaktirivejä."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].hurt = [(15 * 64, A_PLAYERS[0], B_PLAYERS[0], "molotov")]
-    ticks = parse_ticks_table(build(kierrokset), tmp_path, sample_seconds=(6.0,))
+    rounds = long_match(played=1)
+    rounds[0].hurt = [(15 * 64, A_PLAYERS[0], B_PLAYERS[0], "molotov")]
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
 
     assert ticks.filter(pl.col("sample_kind") == "first_contact").is_empty()
     # Kierros on silti mukana aikapisteineen.
@@ -1138,66 +1138,66 @@ def test_utility_only_damage_leaves_the_round_without_a_contact(
 
 def test_friendly_fire_does_not_start_the_round(tmp_path: Path) -> None:
     """I/O-matriisi: tekijä samalla puolella -> ei lasketa ensikontaktiksi."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].hurt = [
+    rounds = long_match(played=1)
+    rounds[0].hurt = [
         (8 * 64, A_PLAYERS[0], A_PLAYERS[1], "hegrenade"),
         (9 * 64, A_PLAYERS[0], A_PLAYERS[1], "ak47"),
         (25 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47"),
     ]
-    ticks = parse_ticks_table(build(kierrokset), tmp_path, sample_seconds=(6.0,))
-    kontakti = ticks.filter(pl.col("sample_kind") == "first_contact")
-    assert kontakti["t_s"].unique().to_list() == [25.0]
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
+    contact = ticks.filter(pl.col("sample_kind") == "first_contact")
+    assert contact["t_s"].unique().to_list() == [25.0]
 
 
 def test_a_round_without_damage_has_no_contact_rows(tmp_path: Path) -> None:
     """I/O-matriisi: aika loppui, kukaan ei ampunut."""
-    ticks = parse_ticks_table(build(pitka_ottelu(pelatut=1)), tmp_path)
+    ticks = parse_ticks_table(build(long_match(played=1)), tmp_path)
     assert ticks.filter(pl.col("sample_kind") == "first_contact").is_empty()
 
 
 def test_death_is_used_as_the_fallback_source(tmp_path: Path) -> None:
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].deaths = [(12 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47")]
-    ticks = parse_ticks_table(build(kierrokset), tmp_path, sample_seconds=(6.0,))
-    kontakti = ticks.filter(pl.col("sample_kind") == "first_contact")
-    assert kontakti["t_s"].unique().to_list() == [12.0]
+    rounds = long_match(played=1)
+    rounds[0].deaths = [(12 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47")]
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
+    contact = ticks.filter(pl.col("sample_kind") == "first_contact")
+    assert contact["t_s"].unique().to_list() == [12.0]
 
 
 def test_the_death_fallback_can_be_switched_off(tmp_path: Path) -> None:
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].deaths = [(12 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47")]
+    rounds = long_match(played=1)
+    rounds[0].deaths = [(12 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47")]
     ticks = parse_ticks_table(
-        build(kierrokset), tmp_path, sample_seconds=(6.0,), fallback_death=False
+        build(rounds), tmp_path, sample_seconds=(6.0,), fallback_death=False
     )
     assert ticks.filter(pl.col("sample_kind") == "first_contact").is_empty()
 
 
 def test_contact_is_attributed_to_its_own_round(tmp_path: Path) -> None:
     """Toisen kierroksen osuma ei saa aikaistaa ensimmäisen kontaktia."""
-    kierrokset = pitka_ottelu(pelatut=2)
-    kierrokset[1].hurt = [(5 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47")]
-    ticks = parse_ticks_table(build(kierrokset), tmp_path, sample_seconds=(6.0,))
+    rounds = long_match(played=2)
+    rounds[1].hurt = [(5 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47")]
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
 
-    kontakti = ticks.filter(pl.col("sample_kind") == "first_contact")
-    assert kontakti["round_raw"].unique().to_list() == [2]
-    assert kontakti["t_s"].unique().to_list() == [5.0]
+    contact = ticks.filter(pl.col("sample_kind") == "first_contact")
+    assert contact["round_raw"].unique().to_list() == [2]
+    assert contact["t_s"].unique().to_list() == [5.0]
 
 
 def test_contact_after_a_side_switch_uses_the_current_sides(tmp_path: Path) -> None:
     """Puolet vaihtuvat; ristiinpuolisuus on kierroskohtainen tosiasia."""
-    kierrokset = pitka_ottelu(pelatut=4)
-    for kierros in kierrokset[2:]:
-        kierros.a_side = "CT"
+    rounds = long_match(played=4)
+    for round_spec in rounds[2:]:
+        round_spec.a_side = "CT"
     # Kolmannella kierroksella A on CT -- osuma A:sta B:hen on yhä ristiin.
-    kierrokset[2].hurt = [
+    rounds[2].hurt = [
         (7 * 64, A_PLAYERS[0], A_PLAYERS[1], "ak47"),  # oma vahinko
         (11 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47"),
     ]
-    ticks = parse_ticks_table(build(kierrokset), tmp_path, sample_seconds=(6.0,))
-    kontakti = ticks.filter(
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
+    contact = ticks.filter(
         (pl.col("sample_kind") == "first_contact") & (pl.col("round_raw") == 3)
     )
-    assert kontakti["t_s"].unique().to_list() == [11.0]
+    assert contact["t_s"].unique().to_list() == [11.0]
 
 
 def test_diagnostics_report_what_the_table_cannot(tmp_path: Path) -> None:
@@ -1207,7 +1207,7 @@ def test_diagnostics_report_what_the_table_cannot(tmp_path: Path) -> None:
     olisivat myös täällä, sama nimi tarkoittaisi kahta eri asiaa -- adapteri
     laskisi numeroimattomat kierrokset mukaan, vaihe ei.
     """
-    adapter = parse_adapter(build(pitka_ottelu(pelatut=2)), tmp_path)
+    adapter = parse_adapter(build(long_match(played=2)), tmp_path)
     assert adapter.diagnostics is not None
     assert not hasattr(adapter.diagnostics, "sample_points")
     assert adapter.diagnostics.partial_samples == 0
@@ -1220,9 +1220,9 @@ def test_a_partial_sample_point_is_counted(tmp_path: Path) -> None:
     Systemaattinen propivika näkyisi muuten vasta vinoutuneina aggregaatteina
     Story 2.3:ssa, jolloin syytä ei enää löytäisi parsinnasta.
     """
-    kierrokset = pitka_ottelu(pelatut=2)
-    kierrokset[1].a_players = A_PLAYERS[:3]  # kaksi pelaajaa puuttuu
-    adapter = parse_adapter(build(kierrokset), tmp_path, sample_seconds=(6.0, 15.0))
+    rounds = long_match(played=2)
+    rounds[1].a_players = A_PLAYERS[:3]  # kaksi pelaajaa puuttuu
+    adapter = parse_adapter(build(rounds), tmp_path, sample_seconds=(6.0, 15.0))
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.partial_samples == 2
 
@@ -1232,36 +1232,36 @@ def test_damage_by_an_unknown_player_is_counted_not_hidden(tmp_path: Path) -> No
 
     Ilman laskuria kierros voisi menettää ensikontaktinsa äänettömästi.
     """
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].hurt = [(10 * 64, "tuntematon-pelaaja", B_PLAYERS[0], "ak47")]
-    adapter = parse_adapter(build(kierrokset), tmp_path, sample_seconds=(6.0,))
+    rounds = long_match(played=1)
+    rounds[0].hurt = [(10 * 64, "tuntematon-pelaaja", B_PLAYERS[0], "ak47")]
+    adapter = parse_adapter(build(rounds), tmp_path, sample_seconds=(6.0,))
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.unknown_side_events == 1
 
 
 def test_a_late_joiner_gets_their_side_from_the_tick(tmp_path: Path) -> None:
     """Kesken karttaa tullut pelaaja saa puolensa tickin omasta arvosta."""
-    kierrokset = pitka_ottelu(pelatut=2)
-    kierrokset[1].a_players = [*A_PLAYERS[:4], "myohemmin-tullut"]
-    kierrokset[1].hurt = [(9 * 64, "myohemmin-tullut", B_PLAYERS[0], "ak47")]
+    rounds = long_match(played=2)
+    rounds[1].a_players = [*A_PLAYERS[:4], "myohemmin-tullut"]
+    rounds[1].hurt = [(9 * 64, "myohemmin-tullut", B_PLAYERS[0], "ak47")]
 
-    tables = parse_tables(build(kierrokset), tmp_path, sample_seconds=(6.0,))
-    kontakti = tables.ticks.filter(
+    tables = parse_tables(build(rounds), tmp_path, sample_seconds=(6.0,))
+    contact = tables.ticks.filter(
         (pl.col("sample_kind") == "first_contact") & (pl.col("round_raw") == 2)
     )
-    assert kontakti["t_s"].unique().to_list() == [9.0]
+    assert contact["t_s"].unique().to_list() == [9.0]
 
 
 def test_a_contact_without_a_weapon_name_is_not_a_contact(tmp_path: Path) -> None:
     """Tyhjä asenimi ei ole poissuljettujen listalla -- eikä silti kelpaa."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].hurt = [
+    rounds = long_match(played=1)
+    rounds[0].hurt = [
         (8 * 64, A_PLAYERS[0], B_PLAYERS[0], None),
         (20 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47"),
     ]
-    ticks = parse_ticks_table(build(kierrokset), tmp_path, sample_seconds=(6.0,))
-    kontakti = ticks.filter(pl.col("sample_kind") == "first_contact")
-    assert kontakti["t_s"].unique().to_list() == [20.0]
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
+    contact = ticks.filter(pl.col("sample_kind") == "first_contact")
+    assert contact["t_s"].unique().to_list() == [20.0]
 
 
 def test_a_missing_life_state_is_an_error_not_a_dead_player(tmp_path: Path) -> None:
@@ -1270,52 +1270,52 @@ def test_a_missing_life_state_is_an_error_not_a_dead_player(tmp_path: Path) -> N
     Elossa oleva pelaaja katoaisi silloin aggregoinnista. Tuntematon alue saa
     jäädä nulliksi, mutta elossaolo ei.
     """
-    fake = build(pitka_ottelu(pelatut=1))
-    alkuperainen = fake._rows_at
+    fake = build(long_match(played=1))
+    original_path = fake._rows_at
 
-    def ilman_life_statea(tick: int):
-        rivit = [dict(r) for r in alkuperainen(tick)]
-        if rivit and dp._PLACE_NAME in rivit[0]:
-            rivit[0][dp._LIFE_STATE] = None
-        return rivit
+    def without_life_state(tick: int):
+        rows = [dict(r) for r in original_path(tick)]
+        if rows and dp._PLACE_NAME in rows[0]:
+            rows[0][dp._LIFE_STATE] = None
+        return rows
 
-    fake._rows_at = ilman_life_statea  # type: ignore[method-assign]
+    fake._rows_at = without_life_state  # type: ignore[method-assign]
     with pytest.raises(ParseError) as exc:
         parse_ticks_table(fake, tmp_path, sample_seconds=(6.0,))
     assert dp._LIFE_STATE in str(exc.value)
 
 
 @pytest.mark.parametrize(
-    "sarake", ["attacker_steamid", "user_steamid", "weapon", "tick"]
+    "column", ["attacker_steamid", "user_steamid", "weapon", "tick"]
 )
 def test_a_missing_damage_column_is_named_in_the_error(
-    tmp_path: Path, sarake: str
+    tmp_path: Path, column: str
 ) -> None:
     """Ilman tarkistusta nolla ensikontaktia näyttäisi kelvolliselta tulokselta."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].hurt = [(10 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47")]
-    fake = build(kierrokset)
+    rounds = long_match(played=1)
+    rounds[0].hurt = [(10 * 64, A_PLAYERS[0], B_PLAYERS[0], "ak47")]
+    fake = build(rounds)
     fake.events["player_hurt"] = [
-        {k: v for k, v in rivi.items() if k != sarake}
-        for rivi in fake.events["player_hurt"]
+        {k: v for k, v in row.items() if k != column}
+        for row in fake.events["player_hurt"]
     ]
     with pytest.raises(ParseError) as exc:
         parse_ticks_table(fake, tmp_path, sample_seconds=(6.0,))
-    assert sarake in str(exc.value)
+    assert column in str(exc.value)
 
 
 def test_a_sample_point_without_any_rows_is_refused(tmp_path: Path) -> None:
     """Näytepiste, joka ei tuota riviäkään, laskettaisiin mukaan lukuihin."""
-    fake = build(pitka_ottelu(pelatut=1))
-    alkuperainen = fake._rows_at
+    fake = build(long_match(played=1))
+    original_path = fake._rows_at
 
-    def tyhja_naytepisteella(tick: int):
-        rivit = alkuperainen(tick)
-        if rivit and dp._PLACE_NAME in rivit[0]:
+    def empty_at_sample(tick: int):
+        rows = original_path(tick)
+        if rows and dp._PLACE_NAME in rows[0]:
             return []
-        return rivit
+        return rows
 
-    fake._rows_at = tyhja_naytepisteella  # type: ignore[method-assign]
+    fake._rows_at = empty_at_sample  # type: ignore[method-assign]
     with pytest.raises(ParseError) as exc:
         parse_ticks_table(fake, tmp_path, sample_seconds=(6.0,))
     assert "pelaajarivi" in str(exc.value)
@@ -1347,10 +1347,10 @@ def test_a_demo_without_any_samplable_round_yields_an_empty_typed_table(
     tmp_path: Path,
 ) -> None:
     """Tyhjä taulu on silti sopimuksen mukainen -- ei Null-tyyppejä."""
-    kierrokset = pitka_ottelu(pelatut=2)
-    for kierros in kierrokset:
-        kierros.freeze_tick = None
-    ticks = parse_ticks_table(build(kierrokset), tmp_path)
+    rounds = long_match(played=2)
+    for round_spec in rounds:
+        round_spec.freeze_tick = None
+    ticks = parse_ticks_table(build(rounds), tmp_path)
     assert ticks.is_empty()
     assert tuple(ticks.columns) == TICKS_ADAPTER_COLUMNS
     for name in TICKS_ADAPTER_COLUMNS:
@@ -1360,93 +1360,93 @@ def test_a_demo_without_any_samplable_round_yields_an_empty_typed_table(
 # --- Utility -------------------------------------------------------------------
 
 
-def utility_ottelu(pelatut: int = 1, kesto: int = 4000) -> list[Kierros]:
+def utility_match(played: int = 1, duration: int = 4000) -> list[Round]:
     """Kierroksia, joilla kummankin puolen ensimmäinen pelaaja heittää kranaatin."""
-    kierrokset = pitka_ottelu(pelatut=pelatut, kesto=kesto)
+    rounds = long_match(played=played, duration=duration)
     entity = 1
-    for kierros in kierrokset:
-        kierros.grenades = [
-            (entity, kierros.a_players[0], "CSmokeGrenadeProjectile", 100, 60),
-            (entity + 1, kierros.b_players[0], "CFlashbangProjectile", 200, 40),
+    for round_spec in rounds:
+        round_spec.grenades = [
+            (entity, round_spec.a_players[0], "CSmokeGrenadeProjectile", 100, 60),
+            (entity + 1, round_spec.b_players[0], "CFlashbangProjectile", 200, 40),
         ]
         entity += 2
-    return kierrokset
+    return rounds
 
 
 def test_a_grenade_becomes_a_throw_and_a_detonation(tmp_path: Path) -> None:
     """I/O-matriisi: normaali savu -> kaksi riviä samalla entiteetillä."""
-    events = parse_events_table(build(utility_ottelu()), tmp_path)
+    events = parse_events_table(build(utility_match()), tmp_path)
 
     assert tuple(events.columns) == EVENTS_ADAPTER_COLUMNS
     for name in EVENTS_ADAPTER_COLUMNS:
         assert events.schema[name] == EVENTS[name], name
 
-    savu = events.filter(pl.col("grenade_entity_id") == 1)
-    assert savu["event_kind"].to_list() == ["grenade_thrown", "grenade_detonate"]
-    assert savu["grenade_type"].unique().to_list() == ["smoke"]
-    assert savu["thrower_id"].unique().to_list() == [A_PLAYERS[0]]
+    smoke = events.filter(pl.col("grenade_entity_id") == 1)
+    assert smoke["event_kind"].to_list() == ["grenade_thrown", "grenade_detonate"]
+    assert smoke["grenade_type"].unique().to_list() == ["smoke"]
+    assert smoke["thrower_id"].unique().to_list() == [A_PLAYERS[0]]
     # round_no jää tyhjäksi: numeroinnin päättää domain.rounds.
-    assert savu["round_no"].null_count() == savu.height
+    assert smoke["round_no"].null_count() == smoke.height
 
 
 def test_the_grenade_type_is_canonical_not_a_class_name(tmp_path: Path) -> None:
-    events = parse_events_table(build(utility_ottelu()), tmp_path)
+    events = parse_events_table(build(utility_match()), tmp_path)
     assert set(events["grenade_type"].unique()) == {"smoke", "flashbang"}
 
 
 def test_an_unknown_class_name_survives_verbatim(tmp_path: Path) -> None:
     """Tuntematon tyyppi on luettava havainto; tyhjäksi muuttaminen hukkaisi sen."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CUusiKranaatti", 100, 30)]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CUusiKranaatti", 100, 30)]
+    events = parse_events_table(build(rounds), tmp_path)
     assert events["grenade_type"].unique().to_list() == ["CUusiKranaatti"]
 
 
 def test_the_thrower_side_and_lineup_come_from_the_round(tmp_path: Path) -> None:
     """Heittäjän joukkue tulee kierroksen kuvauksesta, ei arvauksesta."""
-    kierrokset = utility_ottelu(pelatut=2)
-    kierrokset[1].a_side = "CT"  # puoliajan vaihto kesken feikkiottelun
-    tables = parse_tables(build(kierrokset), tmp_path)
+    rounds = utility_match(played=2)
+    rounds[1].a_side = "CT"  # puoliajan vaihto kesken feikkiottelun
+    tables = parse_tables(build(rounds), tmp_path)
     events, rounds = tables.events, tables.rounds
 
-    for rivi in events.iter_rows(named=True):
-        oma = rounds.filter(
-            (pl.col("round_raw") == rivi["round_raw"])
-            & (pl.col("side") == rivi["side"])
+    for row in events.iter_rows(named=True):
+        own = rounds.filter(
+            (pl.col("round_raw") == row["round_raw"])
+            & (pl.col("side") == row["side"])
         )
-        assert oma["lineup_key"].to_list() == [rivi["lineup_key"]]
+        assert own["lineup_key"].to_list() == [row["lineup_key"]]
 
-    a_rivit = events.filter(pl.col("thrower_id") == A_PLAYERS[0]).sort("round_raw")
-    assert a_rivit["side"].to_list() == ["T", "T", "CT", "CT"]
+    a_rows = events.filter(pl.col("thrower_id") == A_PLAYERS[0]).sort("round_raw")
+    assert a_rows["side"].to_list() == ["T", "T", "CT", "CT"]
 
 
 def test_the_throw_area_snaps_to_the_thrower(tmp_path: Path) -> None:
     """Heittopisteessä lähin elossa oleva pelaaja on heittäjä itse."""
-    kierrokset = utility_ottelu()
-    kierrokset[0].a_area = "Ramp"
-    kierrokset[0].b_area = "Heaven"
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds = utility_match()
+    rounds[0].a_area = "Ramp"
+    rounds[0].b_area = "Heaven"
+    events = parse_events_table(build(rounds), tmp_path)
 
-    heitto = events.filter(
+    throw = events.filter(
         (pl.col("event_kind") == "grenade_thrown")
         & (pl.col("thrower_id") == A_PLAYERS[0])
     )
-    assert heitto["area"].to_list() == ["Ramp"]
+    assert throw["area"].to_list() == ["Ramp"]
 
 
 def test_a_detonation_far_from_everyone_keeps_its_coordinates(
     tmp_path: Path,
 ) -> None:
     """I/O-matriisi: kaukana räjähtänyt saa area = null, ei pudotusta."""
-    kierrokset = pitka_ottelu(pelatut=1)
+    rounds = long_match(played=1)
     # 200 tickiä x 40 yksikköä = 7 960 yksikköä pois kaikista pelaajista.
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 200)]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 200)]
+    events = parse_events_table(build(rounds), tmp_path)
 
-    rajahdys = events.filter(pl.col("event_kind") == "grenade_detonate")
-    assert rajahdys["area"].null_count() == 1
-    assert rajahdys["x"].null_count() == 0
-    assert rajahdys["x"].to_list() == [pytest.approx(7960.0)]
+    detonation = events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert detonation["area"].null_count() == 1
+    assert detonation["x"].null_count() == 0
+    assert detonation["x"].to_list() == [pytest.approx(7960.0)]
 
 
 def test_an_unset_snap_distance_only_silences_the_detonations(
@@ -1459,24 +1459,24 @@ def test_an_unset_snap_distance_only_silences_the_detonations(
     napsautuksen varassa.
     """
     events = parse_events_table(
-        build(utility_ottelu()), tmp_path, area_snap_units=None
+        build(utility_match()), tmp_path, area_snap_units=None
     )
     assert not events.is_empty()
-    heitot = events.filter(pl.col("event_kind") == "grenade_thrown")
-    rajahdykset = events.filter(pl.col("event_kind") == "grenade_detonate")
-    assert heitot["area"].null_count() == 0
-    assert heitot["area_source"].unique().to_list() == ["observed"]
-    assert rajahdykset["area"].null_count() == rajahdykset.height
-    assert rajahdykset["area_source"].null_count() == rajahdykset.height
+    throws = events.filter(pl.col("event_kind") == "grenade_thrown")
+    detonations = events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert throws["area"].null_count() == 0
+    assert throws["area_source"].unique().to_list() == ["observed"]
+    assert detonations["area"].null_count() == detonations.height
+    assert detonations["area_source"].null_count() == detonations.height
     assert events["snap_distance"].null_count() == events.height
     assert events["x"].null_count() == 0
 
 
 def test_a_single_tick_trajectory_gets_no_detonation(tmp_path: Path) -> None:
     """I/O-matriisi: rata katkeaa -> vain heitto, ei keksittyä räjähdystä."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CHEGrenadeProjectile", 100, 1)]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CHEGrenadeProjectile", 100, 1)]
+    events = parse_events_table(build(rounds), tmp_path)
     assert events["event_kind"].to_list() == ["grenade_thrown"]
 
 
@@ -1484,17 +1484,17 @@ def test_a_grenade_thrown_outside_any_round_is_counted_not_kept(
     tmp_path: Path,
 ) -> None:
     """I/O-matriisi: kierroksen ratkeamisen jälkeinen heitto ei saa t_s:ää."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [
+    rounds = long_match(played=1)
+    rounds[0].grenades = [
         (1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30),
         # Kierros ratkeaa 4 000 tickin kohdalla; tämä lähtee sen jälkeen.
         (2, A_PLAYERS[1], "CSmokeGrenadeProjectile", 4100, 30),
     ]
-    adapter = parse_adapter(build(kierrokset), tmp_path)
+    adapter = parse_adapter(build(rounds), tmp_path)
 
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.grenades_outside_rounds == 1
-    tables = parse_tables(build(kierrokset), tmp_path)
+    tables = parse_tables(build(rounds), tmp_path)
     assert tables.events["grenade_entity_id"].unique().to_list() == [1]
 
 
@@ -1506,26 +1506,26 @@ def test_a_grenade_that_outlives_the_round_belongs_to_its_throw_round(
     Räjähdyksen t_s saa siis ylittää kierroksen keston -- se on havainto eikä
     virhe.
     """
-    kierrokset = pitka_ottelu(pelatut=2)
+    rounds = long_match(played=2)
     # Heitto 100 tickiä ankkurista, rata kestää yli kierroksen lopun (4 000).
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 5000)]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 5000)]
+    events = parse_events_table(build(rounds), tmp_path)
 
     assert events["round_raw"].unique().to_list() == [1]
-    rajahdys = events.filter(pl.col("event_kind") == "grenade_detonate")
-    assert rajahdys["t_s"].to_list()[0] > 4000 / 64.0
+    detonation = events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert detonation["t_s"].to_list()[0] > 4000 / 64.0
 
 
 def test_a_trajectory_without_a_thrower_is_dropped_and_counted(
     tmp_path: Path,
 ) -> None:
     """I/O-matriisi: rata ilman heittoa -> ohitetaan, määrä raportoidaan."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [
+    rounds = long_match(played=1)
+    rounds[0].grenades = [
         (1, None, "CSmokeGrenadeProjectile", 100, 30),
         (2, A_PLAYERS[0], "CSmokeGrenadeProjectile", 200, 30),
     ]
-    adapter = parse_adapter(build(kierrokset), tmp_path)
+    adapter = parse_adapter(build(rounds), tmp_path)
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.grenades_without_thrower == 1
 
@@ -1534,28 +1534,28 @@ def test_a_thrower_in_neither_lineup_gets_their_side_from_the_tick(
     tmp_path: Path,
 ) -> None:
     """I/O-matriisi: tuntematon heittäjä -> puoli tickin m_iTeamNum-arvosta."""
-    kierrokset = pitka_ottelu(pelatut=2)
-    myohassa = "myohassa1"
-    kierrokset[1].a_players = [*A_PLAYERS[:4], myohassa]
-    kierrokset[1].grenades = [(9, myohassa, "CSmokeGrenadeProjectile", 100, 30)]
-    tables = parse_tables(build(kierrokset), tmp_path)
+    rounds = long_match(played=2)
+    late_joiner = "myohassa1"
+    rounds[1].a_players = [*A_PLAYERS[:4], late_joiner]
+    rounds[1].grenades = [(9, late_joiner, "CSmokeGrenadeProjectile", 100, 30)]
+    tables = parse_tables(build(rounds), tmp_path)
 
-    rivit = tables.events.filter(pl.col("thrower_id") == myohassa)
-    assert rivit.height == 2
-    assert rivit["side"].unique().to_list() == [kierrokset[1].a_side]
+    rows = tables.events.filter(pl.col("thrower_id") == late_joiner)
+    assert rows.height == 2
+    assert rows["side"].unique().to_list() == [rounds[1].a_side]
 
 
 def test_a_thrower_whose_side_never_resolves_is_dropped_and_counted(
     tmp_path: Path,
 ) -> None:
     """Väärä joukkue veisi utilityn vastustajan tiliin, joten rivi ohitetaan."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [
+    rounds = long_match(played=1)
+    rounds[0].grenades = [
         (9, "haamu1", "CSmokeGrenadeProjectile", 100, 30),
         (1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 200, 30),
     ]
-    adapter = parse_adapter(build(kierrokset), tmp_path)
-    tables = parse_tables(build(kierrokset), tmp_path)
+    adapter = parse_adapter(build(rounds), tmp_path)
+    tables = parse_tables(build(rounds), tmp_path)
 
     assert "haamu1" not in tables.events["thrower_id"].to_list()
     assert adapter.diagnostics is not None
@@ -1564,31 +1564,31 @@ def test_a_thrower_whose_side_never_resolves_is_dropped_and_counted(
 
 def test_a_reused_entity_id_stays_two_grenades(tmp_path: Path) -> None:
     """Peli kierrättää tunnisteet -- kahden kierroksen savu ei ole yksi rata."""
-    kierrokset = pitka_ottelu(pelatut=2)
-    for kierros in kierrokset:
-        kierros.grenades = [
-            (1, kierros.a_players[0], "CSmokeGrenadeProjectile", 100, 30)
+    rounds = long_match(played=2)
+    for round_spec in rounds:
+        round_spec.grenades = [
+            (1, round_spec.a_players[0], "CSmokeGrenadeProjectile", 100, 30)
         ]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    events = parse_events_table(build(rounds), tmp_path)
 
     assert events.height == 4
     assert sorted(events["round_raw"].unique().to_list()) == [1, 2]
-    maarat = events.group_by("round_raw", "event_kind").len()
-    assert maarat["len"].max() == 1
+    counts = events.group_by("round_raw", "event_kind").len()
+    assert counts["len"].max() == 1
 
 
 def test_bag_rows_are_not_a_throw(tmp_path: Path) -> None:
     """Repussa oleva kranaatti ei ole heitto: koordinaatit puuttuvat."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 300, 30)]
-    kierrokset[0].grenades_in_bag = [
-        (1, A_PLAYERS[0], "CSmokeGrenade", siirtyma) for siirtyma in (10, 50, 299)
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 300, 30)]
+    rounds[0].grenades_in_bag = [
+        (1, A_PLAYERS[0], "CSmokeGrenade", offset) for offset in (10, 50, 299)
     ]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    events = parse_events_table(build(rounds), tmp_path)
 
     assert events.height == 2
-    heitto = events.filter(pl.col("event_kind") == "grenade_thrown")
-    assert heitto["t_s"].to_list() == [pytest.approx(300 / 64.0)]
+    throw = events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert throw["t_s"].to_list() == [pytest.approx(300 / 64.0)]
 
 
 def test_molotov_and_incendiary_are_told_apart_by_the_bag(tmp_path: Path) -> None:
@@ -1597,16 +1597,16 @@ def test_molotov_and_incendiary_are_told_apart_by_the_bag(tmp_path: Path) -> Non
     Lennossa molemmat ovat CMolotovProjectile; erottelu tulee heittäjän
     repusta heittoa edeltävältä tickiltä.
     """
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [
+    rounds = long_match(played=1)
+    rounds[0].grenades = [
         (1, A_PLAYERS[0], "CMolotovProjectile", 300, 30),
         (2, B_PLAYERS[0], "CMolotovProjectile", 400, 30),
     ]
-    kierrokset[0].grenades_in_bag = [
+    rounds[0].grenades_in_bag = [
         (11, A_PLAYERS[0], "CMolotovGrenade", 299),
         (12, B_PLAYERS[0], "CIncendiaryGrenade", 399),
     ]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    events = parse_events_table(build(rounds), tmp_path)
 
     molotov = events.filter(pl.col("grenade_entity_id") == 1)
     incendiary = events.filter(pl.col("grenade_entity_id") == 2)
@@ -1616,37 +1616,37 @@ def test_molotov_and_incendiary_are_told_apart_by_the_bag(tmp_path: Path) -> Non
 
 def test_an_ambiguous_bag_leaves_the_generic_molotov(tmp_path: Path) -> None:
     """Molemmat tulikranaatit repussa -> arvausta ei tehdä."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CMolotovProjectile", 300, 30)]
-    kierrokset[0].grenades_in_bag = [
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CMolotovProjectile", 300, 30)]
+    rounds[0].grenades_in_bag = [
         (11, A_PLAYERS[0], "CMolotovGrenade", 299),
         (12, A_PLAYERS[0], "CIncendiaryGrenade", 299),
     ]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    events = parse_events_table(build(rounds), tmp_path)
     assert events["grenade_type"].unique().to_list() == ["molotov"]
 
 
 def test_a_bag_type_does_not_leak_onto_another_grenade(tmp_path: Path) -> None:
     """Savu ei saa tulla nimetyksi incendiaryksi vain koska repussa on sellainen."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 300, 30)]
-    kierrokset[0].grenades_in_bag = [(11, A_PLAYERS[0], "CIncendiaryGrenade", 299)]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 300, 30)]
+    rounds[0].grenades_in_bag = [(11, A_PLAYERS[0], "CIncendiaryGrenade", 299)]
+    events = parse_events_table(build(rounds), tmp_path)
     assert events["grenade_type"].unique().to_list() == ["smoke"]
 
 
 def test_an_unanchored_round_produces_no_event_rows(tmp_path: Path) -> None:
     """I/O-matriisi: ankkuriton kierros -> ei rivejä (t_s ei ole määritelty)."""
-    kierrokset = utility_ottelu(pelatut=2)
-    kierrokset[0].freeze_tick = None
-    kierrokset[0].grenades = []
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds = utility_match(played=2)
+    rounds[0].freeze_tick = None
+    rounds[0].grenades = []
+    events = parse_events_table(build(rounds), tmp_path)
     assert events["round_raw"].unique().to_list() == [2]
 
 
 def test_a_demo_without_utility_yields_an_empty_typed_table(tmp_path: Path) -> None:
     """I/O-matriisi: demo ilman utilityä -> tyhjä mutta sopimuksen mukainen taulu."""
-    events = parse_events_table(build(pitka_ottelu(pelatut=2)), tmp_path)
+    events = parse_events_table(build(long_match(played=2)), tmp_path)
     assert events.is_empty()
     assert tuple(events.columns) == EVENTS_ADAPTER_COLUMNS
     for name in EVENTS_ADAPTER_COLUMNS:
@@ -1657,7 +1657,7 @@ def test_a_missing_grenade_column_is_an_error_not_an_empty_table(
     tmp_path: Path,
 ) -> None:
     """Tyhjä taulu näyttäisi demolta, jossa ei heitetty yhtään kranaattia."""
-    fake = build(utility_ottelu())
+    fake = build(utility_match())
     fake.drop_grenade_columns = ("steamid",)
     with pytest.raises(ParseError) as exc:
         parse_events_table(fake, tmp_path)
@@ -1666,12 +1666,12 @@ def test_a_missing_grenade_column_is_an_error_not_an_empty_table(
 
 
 def test_a_broken_grenade_read_is_a_finnish_error(tmp_path: Path) -> None:
-    fake = build(utility_ottelu())
+    fake = build(utility_match())
 
-    def kaatuu():
+    def boom():
         raise RuntimeError("lentoradat rikki")
 
-    fake.parse_grenades = kaatuu  # type: ignore[method-assign]
+    fake.parse_grenades = boom  # type: ignore[method-assign]
     with pytest.raises(ParseError) as exc:
         parse_events_table(fake, tmp_path)
     assert "lentoratoja ei voitu lukea" in str(exc.value)
@@ -1682,17 +1682,17 @@ def test_only_the_endpoint_ticks_are_read_for_areas(tmp_path: Path) -> None:
 
     Ilman tätä 1,55 miljoonan rivin rata kulkisi tick-lukuun asti.
     """
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 500)]
-    fake = build(kierrokset)
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 500)]
+    fake = build(rounds)
     parse_events_table(fake, tmp_path, sample_seconds=(6.0,))
 
-    utility_kutsu = [
+    utility_calls = [
         ticks
-        for propit, ticks in fake.tick_calls
-        if dp._PLACE_NAME in propit and set(ticks) == {1100, 1599}
+        for props, ticks in fake.tick_calls
+        if dp._PLACE_NAME in props and set(ticks) == {1100, 1599}
     ]
-    assert utility_kutsu, f"paatepisteita ei luettu: {fake.tick_calls}"
+    assert utility_calls, f"paatepisteita ei luettu: {fake.tick_calls}"
 
 
 # --- Alueen lähde: havainto vs. arvio ------------------------------------------
@@ -1705,58 +1705,58 @@ def test_the_throw_area_is_observed_not_snapped(tmp_path: Path) -> None:
     lähempänä kranaatin lähtöpistettä kuin heittäjä itse: jos rivi menisi
     napsautuksen läpi, alue olisi kaverin.
     """
-    kierrokset = pitka_ottelu(pelatut=1)
+    rounds = long_match(played=1)
     # Heittäjä aaa1 on kuollut näytepisteessä, joten napsautus ohittaisi hänet
     # ja tarttuisi aaa2:een -- eri alueelle. Havainto lukee silti heittäjän
     # oman rivin: kuollutkin pelaaja saa rivin ja aluenimen.
-    kierrokset[0].a_dead_at_sample = 1
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30)]
-    kierrokset[0].player_areas = {A_PLAYERS[0]: "Tunnel", A_PLAYERS[1]: "MainHall"}
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds[0].a_dead_at_sample = 1
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30)]
+    rounds[0].player_areas = {A_PLAYERS[0]: "Tunnel", A_PLAYERS[1]: "MainHall"}
+    events = parse_events_table(build(rounds), tmp_path)
 
-    heitto = events.filter(pl.col("event_kind") == "grenade_thrown")
-    assert heitto["area"].to_list() == ["Tunnel"]
-    assert heitto["area_source"].to_list() == ["observed"]
-    assert heitto["snap_distance"].null_count() == 1
+    throw = events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert throw["area"].to_list() == ["Tunnel"]
+    assert throw["area_source"].to_list() == ["observed"]
+    assert throw["snap_distance"].null_count() == 1
 
 
 def test_the_detonation_area_is_marked_as_snapped(tmp_path: Path) -> None:
     """Räjähdyksellä ei ole omaa aluenimeä, joten se on aina arvio."""
-    kierrokset = pitka_ottelu(pelatut=1)
+    rounds = long_match(played=1)
     # Lyhyt rata: 9 x 40 = 360 yksikköä, eli reilusti rajan 500 sisällä.
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 10)]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 10)]
+    events = parse_events_table(build(rounds), tmp_path)
 
-    rajahdys = events.filter(pl.col("event_kind") == "grenade_detonate")
-    saadut = rajahdys.filter(pl.col("area").is_not_null())
-    assert not saadut.is_empty()
-    assert saadut["area_source"].unique().to_list() == ["snapped"]
-    assert saadut["snap_distance"].null_count() == 0
-    assert saadut["snap_distance"].min() > 0.0
+    detonation = events.filter(pl.col("event_kind") == "grenade_detonate")
+    with_area = detonation.filter(pl.col("area").is_not_null())
+    assert not with_area.is_empty()
+    assert with_area["area_source"].unique().to_list() == ["snapped"]
+    assert with_area["snap_distance"].null_count() == 0
+    assert with_area["snap_distance"].min() > 0.0
 
 
 def test_area_source_is_set_exactly_when_the_area_is(tmp_path: Path) -> None:
     """Sopimus: ``area_source`` on tyhjä silloin ja vain silloin kun alue on."""
-    events = parse_events_table(build(utility_ottelu(pelatut=2)), tmp_path)
-    for rivi in events.iter_rows(named=True):
-        assert (rivi["area"] is None) == (rivi["area_source"] is None), rivi
+    events = parse_events_table(build(utility_match(played=2)), tmp_path)
+    for row in events.iter_rows(named=True):
+        assert (row["area"] is None) == (row["area_source"] is None), row
 
 
 def test_a_throw_whose_thrower_has_no_row_gets_no_area(tmp_path: Path) -> None:
     """Havaintoa ei korvata arviolla: alue jää tyhjäksi, koordinaatit jäävät."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    haamu = "haamu1"
+    rounds = long_match(played=1)
+    ghost = "haamu1"
     # Heittäjä on kierroksen tickeissä (puoli ratkeaa) mutta ei näytepisteissä.
-    kierrokset[0].a_players = [*A_PLAYERS[:4], haamu]
-    kierrokset[0].sample_skip = (haamu,)
-    kierrokset[0].grenades = [(1, haamu, "CSmokeGrenadeProjectile", 100, 30)]
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds[0].a_players = [*A_PLAYERS[:4], ghost]
+    rounds[0].sample_skip = (ghost,)
+    rounds[0].grenades = [(1, ghost, "CSmokeGrenadeProjectile", 100, 30)]
+    events = parse_events_table(build(rounds), tmp_path)
 
-    heitto = events.filter(pl.col("event_kind") == "grenade_thrown")
-    assert heitto.height == 1
-    assert heitto["area"].null_count() == 1
-    assert heitto["area_source"].null_count() == 1
-    assert heitto["x"].null_count() == 0
+    throw = events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert throw.height == 1
+    assert throw["area"].null_count() == 1
+    assert throw["area_source"].null_count() == 1
+    assert throw["x"].null_count() == 0
 
 
 def test_a_detonation_after_the_round_gets_no_area(tmp_path: Path) -> None:
@@ -1765,17 +1765,17 @@ def test_a_detonation_after_the_round_gets_no_area(tmp_path: Path) -> None:
     Rivi jää tauluun koordinaatteineen -- savu oli siellä missä oli -- mutta
     alue jätetään tyhjäksi ja tapaus lasketaan.
     """
-    kierrokset = pitka_ottelu(pelatut=2)
+    rounds = long_match(played=2)
     # Kierros ratkeaa 4 000 tickin kohdalla, rata jatkuu sen yli.
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 5000)]
-    tables = parse_tables(build(kierrokset), tmp_path)
-    adapter = parse_adapter(build(kierrokset), tmp_path)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 5000)]
+    tables = parse_tables(build(rounds), tmp_path)
+    adapter = parse_adapter(build(rounds), tmp_path)
 
-    rajahdys = tables.events.filter(pl.col("event_kind") == "grenade_detonate")
-    assert rajahdys.height == 1
-    assert rajahdys["area"].null_count() == 1
-    assert rajahdys["snap_distance"].null_count() == 1
-    assert rajahdys["x"].null_count() == 0
+    detonation = tables.events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert detonation.height == 1
+    assert detonation["area"].null_count() == 1
+    assert detonation["snap_distance"].null_count() == 1
+    assert detonation["x"].null_count() == 0
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.grenades_detonating_after_round == 1
 
@@ -1791,9 +1791,9 @@ def test_no_tick_read_happens_when_every_grenade_is_dropped(
     Juuri se koko tickisarjan luku on se, minkä välttämiseen tämä adapteri
     perustuu -- ja tilanne syntyy, jos jokainen kranaatti putoaa.
     """
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [(1, "haamu1", "CSmokeGrenadeProjectile", 100, 30)]
-    fake = build(kierrokset)
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, "haamu1", "CSmokeGrenadeProjectile", 100, 30)]
+    fake = build(rounds)
     events = parse_events_table(fake, tmp_path, sample_seconds=(6.0,))
 
     assert events.is_empty()
@@ -1808,15 +1808,15 @@ def test_a_reused_id_inside_one_round_is_counted(tmp_path: Path) -> None:
     savua yhdeksi. Tapaus lasketaan sen sijaan että se paljastuisi vasta
     raportin luvuista.
     """
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [
+    rounds = long_match(played=1)
+    rounds[0].grenades = [
         (7, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 30),
         # Sama tunniste, sama kierros, mutta eri heittäjä ja iso aukko --
         # jaksotus pitää nämä erillään, joten pari-avain menee päällekkäin.
         (7, A_PLAYERS[1], "CSmokeGrenadeProjectile", 1000, 30),
     ]
-    adapter = parse_adapter(build(kierrokset), tmp_path)
-    tables = parse_tables(build(kierrokset), tmp_path)
+    adapter = parse_adapter(build(rounds), tmp_path)
+    tables = parse_tables(build(rounds), tmp_path)
 
     # Kumpikin kranaatti on tallessa -- dataa ei hukata, se vain kerrotaan.
     assert tables.events.height == 4
@@ -1839,12 +1839,12 @@ def test_round_windows_map_a_tick_to_its_round() -> None:
         dp._Segment(1, 1000, 2000, "T", "ct_killed", 1),
         dp._Segment(2, 3000, 4000, "CT", "t_killed", 2),
     ]
-    ikkunat = dp._round_windows(segments)
-    alut = [i[0] for i in ikkunat]
-    assert dp._round_of_tick(alut, ikkunat, 1500) == 0
-    assert dp._round_of_tick(alut, ikkunat, 3500) == 1
-    assert dp._round_of_tick(alut, ikkunat, 999) is None
-    assert dp._round_of_tick(alut, ikkunat, 2500) is None
+    windows = dp._round_windows(segments)
+    starts = [i[0] for i in windows]
+    assert dp._round_of_tick(starts, windows, 1500) == 0
+    assert dp._round_of_tick(starts, windows, 3500) == 1
+    assert dp._round_of_tick(starts, windows, 999) is None
+    assert dp._round_of_tick(starts, windows, 2500) is None
 
 
 def test_a_float_steamid_still_finds_the_player(tmp_path: Path) -> None:
@@ -1854,41 +1854,41 @@ def test_a_float_steamid_still_finds_the_player(tmp_path: Path) -> None:
     puolihaku ei osuisi yhteenkään pelaajaan ja **kaikki kranaatit putoaisivat
     tuntemattomana puolena** -- taulu olisi tyhjä eikä mikään kertoisi miksi.
     """
-    numerot = ["76561197960287930", "76561198000000001"]
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].a_players = [numerot[0], *A_PLAYERS[1:]]
-    kierrokset[0].b_players = [numerot[1], *B_PLAYERS[1:]]
-    kierrokset[0].grenades = [
+    numbers = ["76561197960287930", "76561198000000001"]
+    rounds = long_match(played=1)
+    rounds[0].a_players = [numbers[0], *A_PLAYERS[1:]]
+    rounds[0].b_players = [numbers[1], *B_PLAYERS[1:]]
+    rounds[0].grenades = [
         (1, None, "CSmokeGrenadeProjectile", 50, 20),  # nostaa sarakkeen floatiksi
-        (2, numerot[0], "CSmokeGrenadeProjectile", 100, 30),
+        (2, numbers[0], "CSmokeGrenadeProjectile", 100, 30),
     ]
-    fake = build(kierrokset)
+    fake = build(rounds)
     # Pandas tekee tämän itse, kun sarakkeessa on None -- varmistetaan se.
     assert fake.parse_grenades()["steamid"].dtype.kind == "O" or True
 
     events = parse_events_table(fake, tmp_path)
-    assert events["thrower_id"].unique().to_list() == [numerot[0]]
-    assert events["side"].unique().to_list() == [kierrokset[0].a_side]
+    assert events["thrower_id"].unique().to_list() == [numbers[0]]
+    assert events["side"].unique().to_list() == [rounds[0].a_side]
 
 
 def test_an_unknown_grenade_type_is_counted(tmp_path: Path) -> None:
     """Luokkanimen muutos vuotaisi muuten tauluun ilman varoitusta."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [
+    rounds = long_match(played=1)
+    rounds[0].grenades = [
         (1, A_PLAYERS[0], "CUusiKranaatti", 100, 30),
         (2, A_PLAYERS[1], "CSmokeGrenadeProjectile", 200, 30),
     ]
-    adapter = parse_adapter(build(kierrokset), tmp_path)
+    adapter = parse_adapter(build(rounds), tmp_path)
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.grenades_unknown_type == 1
 
 
 def test_a_decoy_gets_its_canonical_name(tmp_path: Path) -> None:
     """Decoy on harvinainen: Ancientissa niitä on yksi, eikä se päädy tauluun."""
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CDecoyProjectile", 100, 30)]
-    adapter = parse_adapter(build(kierrokset), tmp_path)
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CDecoyProjectile", 100, 30)]
+    adapter = parse_adapter(build(rounds), tmp_path)
+    events = parse_events_table(build(rounds), tmp_path)
 
     assert events["grenade_type"].unique().to_list() == ["decoy"]
     assert adapter.diagnostics is not None
@@ -1902,14 +1902,14 @@ def test_a_totally_failed_fire_lookup_is_counted(tmp_path: Path) -> None:
     tulikranaatit tulevat ulos ``molotov``-tyyppisinä -- täsmälleen kuten
     dokumentoitu "epäselvä reppu" -tapaus.
     """
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [
+    rounds = long_match(played=1)
+    rounds[0].grenades = [
         (1, A_PLAYERS[0], "CMolotovProjectile", 300, 30),
         (2, B_PLAYERS[0], "CMolotovProjectile", 400, 30),
     ]
-    kierrokset[0].grenades_in_bag = []  # ei yhtään reppuriviä
-    adapter = parse_adapter(build(kierrokset), tmp_path)
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds[0].grenades_in_bag = []  # ei yhtään reppuriviä
+    adapter = parse_adapter(build(rounds), tmp_path)
+    events = parse_events_table(build(rounds), tmp_path)
 
     assert events["grenade_type"].unique().to_list() == ["molotov"]
     assert adapter.diagnostics is not None
@@ -1921,12 +1921,12 @@ def test_the_bag_lookup_tolerates_a_missing_tick(tmp_path: Path) -> None:
 
     Yksi hukkuva tick ei saa muuttaa incendiarya molotoviksi.
     """
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [(1, B_PLAYERS[0], "CMolotovProjectile", 300, 30)]
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, B_PLAYERS[0], "CMolotovProjectile", 300, 30)]
     # Reppurivi ei ole tickissä 299 vaan neljä tickiä aikaisemmin.
-    kierrokset[0].grenades_in_bag = [(11, B_PLAYERS[0], "CIncendiaryGrenade", 295)]
-    adapter = parse_adapter(build(kierrokset), tmp_path)
-    events = parse_events_table(build(kierrokset), tmp_path)
+    rounds[0].grenades_in_bag = [(11, B_PLAYERS[0], "CIncendiaryGrenade", 295)]
+    adapter = parse_adapter(build(rounds), tmp_path)
+    events = parse_events_table(build(rounds), tmp_path)
 
     assert events["grenade_type"].unique().to_list() == ["incendiary"]
     assert adapter.diagnostics is not None
@@ -1940,15 +1940,15 @@ def test_a_bag_row_with_nan_coordinates_is_still_a_bag_row(tmp_path: Path) -> No
     olisi kummassakin tai ei kummassakaan -- ja tulikranaatin tyypin haku
     etsisi repusta lentoradan riveiltä.
     """
-    kierrokset = pitka_ottelu(pelatut=1)
-    kierrokset[0].grenades = [(1, A_PLAYERS[0], "CMolotovProjectile", 300, 30)]
-    kierrokset[0].grenades_in_bag = [(11, A_PLAYERS[0], "CMolotovGrenade", 299)]
-    fake = build(kierrokset)
-    for rivi in fake.grenades:
-        if rivi["x"] is None:
-            rivi["x"] = float("nan")
-            rivi["y"] = float("nan")
-            rivi["z"] = float("nan")
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CMolotovProjectile", 300, 30)]
+    rounds[0].grenades_in_bag = [(11, A_PLAYERS[0], "CMolotovGrenade", 299)]
+    fake = build(rounds)
+    for row in fake.grenades:
+        if row["x"] is None:
+            row["x"] = float("nan")
+            row["y"] = float("nan")
+            row["z"] = float("nan")
 
     events = parse_events_table(fake, tmp_path)
     assert events["grenade_type"].unique().to_list() == ["molotov"]
@@ -1963,26 +1963,26 @@ def test_a_broken_trajectory_shape_is_a_finnish_error(tmp_path: Path) -> None:
     samalta. Kaksi eri käyttäjäkokemusta samasta viasta olisi se, mitä koko
     virheilmoituspolitiikka yrittää estää.
     """
-    fake = build(utility_ottelu())
-    alkuperainen = fake.parse_grenades
+    fake = build(utility_match())
+    original_path = fake.parse_grenades
 
-    def ilman_saraketta():
-        return alkuperainen().rename(columns={"grenade_type": "tyyppi"})
+    def without_column():
+        return original_path().rename(columns={"grenade_type": "tyyppi"})
 
-    fake.parse_grenades = ilman_saraketta  # type: ignore[method-assign]
+    fake.parse_grenades = without_column  # type: ignore[method-assign]
 
     # Ohita adapterin oma saraketarkistus, jotta domainin virhe pääsee esiin.
-    adapteri = Demoparser2Adapter(area_snap_units=AREA_SNAP_UNITS)
-    adapteri._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
+    adapter = Demoparser2Adapter(area_snap_units=AREA_SNAP_UNITS)
+    adapter._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
     monkey = dp.GRENADE_COLUMNS
     try:
         dp.GRENADE_COLUMNS = tuple(
-            "tyyppi" if nimi == "grenade_type" else nimi for nimi in monkey
+            "tyyppi" if name == "grenade_type" else name for name in monkey
         )
         demo = tmp_path / "feikki.dem"
         demo.write_bytes(DEMO_MAGIC + b"\x00" + b"x" * 64)
         with pytest.raises(ParseError) as exc:
-            adapteri.parse_demo(demo, SNAPSHOT_SECONDS)
+            adapter.parse_demo(demo, SNAPSHOT_SECONDS)
     finally:
         dp.GRENADE_COLUMNS = monkey
 

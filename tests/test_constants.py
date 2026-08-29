@@ -28,7 +28,7 @@ from pappascout.constants import (
     UNIT_STATUSES,
 )
 
-PARIT = [
+PAIRS = [
     ("SIDES", SIDES, Side),
     ("ROUND_TYPES", ROUND_TYPES, RoundType),
     ("UNIT_STATUSES", UNIT_STATUSES, UnitStatus),
@@ -38,15 +38,15 @@ PARIT = [
 ]
 
 
-@pytest.mark.parametrize("nimi,arvot,tyyppi", PARIT, ids=[p[0] for p in PARIT])
-def test_literal_matches_runtime_tuple(nimi: str, arvot: tuple, tyyppi) -> None:
+@pytest.mark.parametrize("name,values,literal_type", PAIRS, ids=[p[0] for p in PAIRS])
+def test_literal_matches_runtime_tuple(name: str, values: tuple, literal_type) -> None:
     """Tyyppivihje ja ajonaikainen luettelo sisaltavat samat arvot."""
-    assert set(get_args(tyyppi)) == set(arvot), nimi
+    assert set(get_args(literal_type)) == set(values), name
 
 
-@pytest.mark.parametrize("nimi,arvot,tyyppi", PARIT, ids=[p[0] for p in PARIT])
-def test_values_are_unique(nimi: str, arvot: tuple, tyyppi) -> None:
-    assert len(set(arvot)) == len(arvot), nimi
+@pytest.mark.parametrize("name,values,literal_type", PAIRS, ids=[p[0] for p in PAIRS])
+def test_values_are_unique(name: str, values: tuple, literal_type) -> None:
+    assert len(set(values)) == len(values), name
 
 
 def test_finnish_labels_cover_every_round_type() -> None:

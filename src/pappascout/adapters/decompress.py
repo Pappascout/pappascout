@@ -147,7 +147,7 @@ def decompress_to(source: Path, target: Path) -> Path:
         ParseError: Jos purku epäonnistuu tai kohdehakemistoa ei voi luoda.
     """
     head = _head(source, 4)
-    lahteen_koko = _size(source)
+    source_size = _size(source)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -172,7 +172,7 @@ def decompress_to(source: Path, target: Path) -> Path:
         # zstd ei nosta poikkeusta katkenneesta kehyksestä vaan lopettaa
         # hiljaa. Tyhjä tulos on siksi ainoa merkki siitä, että lataus jäi
         # kesken.
-        if lahteen_koko > 0 and _size(tmp) == 0:
+        if source_size > 0 and _size(tmp) == 0:
             raise ParseError(
                 f"Demon {source.name} purku epäonnistui: tuloksena oli tyhjä "
                 "tiedosto.\n"
@@ -181,10 +181,10 @@ def decompress_to(source: Path, target: Path) -> Path:
             )
         os.replace(tmp, target)
     except ParseError:
-        _poista(tmp)
+        _remove(tmp)
         raise
     except Exception as exc:  # noqa: BLE001 - kirjastojen virheet vaihtelevat
-        _poista(tmp)
+        _remove(tmp)
         raise ParseError(
             f"Demon {source.name} purku epäonnistui: {exc}\n"
             "Tiedosto on todennäköisesti keskeneräinen tai vioittunut. "
@@ -193,7 +193,7 @@ def decompress_to(source: Path, target: Path) -> Path:
     return target
 
 
-def _poista(path: Path) -> None:
+def _remove(path: Path) -> None:
     """Siivoa väliaikaistiedosto; puuttuva tiedosto ei ole virhe."""
     try:
         path.unlink(missing_ok=True)
