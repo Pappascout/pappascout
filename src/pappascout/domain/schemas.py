@@ -1,6 +1,6 @@
 """Jaetut Polars-taulusopimukset (AD-2, AD-4, AD-5).
 
-Viisi taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
+Kuusi taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
 
 ``ROUNDS``
     ``parsed/<map_demo_id>/rounds.parquet`` -- pitkä taulu, **kaksi riviä per
@@ -16,6 +16,10 @@ Viisi taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
     ``parsed/<map_demo_id>/lineups.parquet`` -- rivi per (kokoonpano, pelaaja).
     Pelaajan nimi ja hänen klaaninimensä, eli joukkueen **identiteetti** --
     ei kierroskohtainen havainto.
+``DEATHS``
+    ``parsed/<map_demo_id>/deaths.parquet`` -- rivi per kuolema. Uhri ja
+    ampuja molemmat alueineen ja koordinaatteineen; kuolemalla on **kaksi
+    toimijaa**, joten se ei mahdu ``EVENTS``-taulun yhden toimijan muotoon.
 ``CLASSIFIED``
     ``classified/<team_key>/<map_demo_id>.parquet`` -- **yksi rivi per kierros**
     subjektijoukkueen näkökulmasta. Sisältää ``classify``-vaiheen johdokset.
@@ -57,6 +61,7 @@ __all__ = [
     "TICKS",
     "EVENTS",
     "LINEUPS",
+    "DEATHS",
     "CLASSIFIED",
     "CLASSIFIED_INPUTS",
     "SCHEMAS",
@@ -282,6 +287,67 @@ LINEUPS: Schema = {
 }
 
 
+# Kuolemataulu: rivi per kuolema (Story 2.7).
+#
+# MIKSI OMA TAULU EIKÄ ``EVENTS``-TAULUUN. ``EVENTS``in konventio on, että
+# rivin ``lineup_key``, ``side`` ja ``x, y, z`` kuvaavat **rivin oman
+# joukkueen** yhtä toimijaa yhdessä paikassa. Kuolemalla on kaksi toimijaa, ja
+# molempien paikka on merkityksellinen: "Luola kuolee" on uhrin alue, "Vihu
+# meni secret pihalta" on ampujan. Kahtena rivinä se vaatisi ``thrower_id``:n
+# ja ``grenade_no``:n uudelleennimeämisen, yhtenä rivinä viisi uutta
+# nullable-saraketta, jotka olisivat null jokaisella kranaattirivillä ja
+# päinvastoin -- eli juuri sen tiukan skeemavalidoinnin heikentämisen, johon
+# koko sopimus nojaa.
+#
+# MOLEMMAT ALUEET OVAT HAVAINTOJA. ``user_last_place_name`` ja
+# ``attacker_last_place_name`` tulevat samalta ``player_death``-tapahtumalta
+# eivätkä ole napsautuksia, joten taulussa ei ole ``area_source``- eikä
+# ``snap_distance``-saraketta -- ne ovat olemassa juuri kranaatin
+# approksimaatiota varten. Mitattu 2026-08-30 ``Ancient_vs_kaljukostaja``:
+# uhrin alue puuttui 0/151 tapahtumalta, ampujan 2/151.
+#
+# AMPUJATON KUOLEMA ON AITO TAPAUS. Putoaminen ja pommi tuottavat rivin, jolla
+# jokainen ``attacker_*`` on null. Riviä ei pudoteta: uhri kuoli, ja se on
+# havainto. Samat kaksi riviä ovat ne, joilta ampujan alue puuttuu -- ne ovat
+# ``planted_c4``-kuolemia, joissa ampujaa ei ole lainkaan. Alue ei siis
+# kadonnut: ampujaa ei ollut.
+#
+# EI JOHDETTUJA KÄSITTEITÄ. Taulussa ei ole tradea, entryä eikä duel-voittoa.
+# Ne ovat tulkintaa, ja työnjako on: havainto koneelta, tulkinta ihmiseltä.
+DEATHS: Schema = {
+    "map_demo_id": pl.Utf8,  # {match_id}-{map_index}, liitosavain
+    "round_raw": pl.Int32,  # demoparser2:n oma kierroslaskuri
+    "round_no": pl.Int32,  # 1-pohjainen pelattu kierros
+    "t_s": pl.Float64,  # s -- aika viimeisestä round_freeze_endistä
+    # Uhri. Nämä kentät ovat rivin identiteetti: kuolema ilman uhria ei ole
+    # kuolema, joten rivi, jolta ne puuttuvat, ei päädy tauluun lainkaan.
+    "victim_id": pl.Utf8,  # SteamID64
+    "victim_lineup_key": pl.Utf8,  # uhrin kokoonpano tällä kierroksella
+    "victim_side": _SIDE,
+    "victim_x": pl.Float32,
+    "victim_y": pl.Float32,
+    "victim_z": pl.Float32,
+    # Pelin last_place_name kuolinhetkellä. Havainto, ei napsautus.
+    "victim_area": pl.Utf8,
+    # Ampuja. **Kaikki null tai ei yhtään**: ampujaton kuolema on aito tapaus
+    # (putoaminen, pommi), ja puolikas ampuja olisi vika. Poikkeus on
+    # ``attacker_area``, joka saa puuttua yksinään -- alue on havainto siinä
+    # missä muutkin, ja sen puuttuminen on eri asia kuin ampujan puuttuminen.
+    # Poikkeus on myös ``attacker_side`` ja sen mukana ``attacker_lineup_key``:
+    # ne ovat kierroksen puolikuvauksesta johdettuja, eivät tapahtuman omia.
+    "attacker_id": pl.Utf8,
+    "attacker_lineup_key": pl.Utf8,
+    "attacker_side": _SIDE,
+    "attacker_x": pl.Float32,
+    "attacker_y": pl.Float32,
+    "attacker_z": pl.Float32,
+    "attacker_area": pl.Utf8,
+    # Ase pelin omalla nimellä (``ak47``, ``planted_c4``, ``knife_butterfly``).
+    # Sellaisenaan eikä luokiteltuna: luokittelu olisi tulkintaa.
+    "weapon": pl.Utf8,
+}
+
+
 # classify-vaiheen tallentamat päätöksen syötteet (AD-4): kaikki vertailuun
 # käytetyt arvot, jotta raportin kierrosliite on tarkistettavissa demoa vasten.
 # Kynnysarvot ovat dollareita per pelaaja, samat kuin [thresholds]-osiossa.
@@ -353,6 +419,7 @@ SCHEMAS: dict[str, Schema] = {
     "ticks": TICKS,
     "events": EVENTS,
     "lineups": LINEUPS,
+    "deaths": DEATHS,
     "classified": CLASSIFIED,
 }
 

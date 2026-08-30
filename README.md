@@ -51,7 +51,7 @@ uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
 ```
 
-`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon neljä
+`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon viisi
 taulua yhdellä lukukerralla:
 
 * `parsed/<map_demo_id>/rounds.parquet` -- kaksi riviä jokaista pelattua
@@ -87,6 +87,19 @@ taulua yhdellä lukukerralla:
   edelleen pelkistä SteamID:istä, joten nimet eivät siirrä yhtäkään arkiston
   hakemistoa. Nimi on **havainto**: puuttuva klaani on `null` eikä tunniste,
   ja tyhjä merkkijono ei ole nimi.
+* `parsed/<map_demo_id>/deaths.parquet` -- rivi per kuolema: uhri ja ampuja
+  **molemmat** alueineen ja koordinaatteineen. Oma taulu eikä
+  `events.parquet`iin lisätty tapahtumatyyppi, koska kuolemalla on kaksi
+  toimijaa ja molempien paikka on merkityksellinen -- "Luola kuolee" on uhrin
+  alue, "Vihu meni secret pihalta" on ampujan. Molemmat alueet ovat
+  **havaintoja** samalta `player_death`-tapahtumalta, joten taulussa ei ole
+  `area_source`ia eikä `snap_distance`ia; ne ovat olemassa vain kranaatin
+  approksimaatiota varten. Ampujaton kuolema (putoaminen, pommi) on aito
+  tapaus: jokainen `attacker_*` on silloin `null` eikä riviä pudoteta.
+  Puukkokierroksella kuollaan oikeasti, ja ne rivit putoavat samassa
+  liitoksessa kuin näytepisteet ja kranaatit -- ajon yhteenveto kertoo
+  montako. Johdettuja käsitteitä (trade, entry, duel-voitto) taulussa ei ole:
+  ne ovat tulkintaa, ja työnjako on havainto koneelta, tulkinta ihmiseltä.
 
 Ilman polkua annettu tunniste etsitään arkiston `demos/`- ja
 `import/`-hakemistoista. Toisella ajolla vaihe ohitetaan, jos manifesti täsmää.
@@ -281,7 +294,7 @@ ajo valmistuu sekunneissa. Tiedosto on pydantic-malli
 luvut ovat valmiina.
 
 Rakenne on `maps[] -> sides[] -> round_types[]`, ja jokaisella tasolla on
-otanta. Kierrostyypin alla on viisi havaintoa:
+otanta. Kierrostyypin alla on kuusi havaintoa:
 
 | Kenttä | Mihin se vastaa |
 | --- | --- |
@@ -290,6 +303,7 @@ otanta. Kierrostyypin alla on viisi havaintoa:
 | `utility_counts[]` | *"2 savua 2 valoo"* -- montako heitettiin kierroksella |
 | `players_armed` | monellako oli panssari ja ase ostoajan lopussa |
 | `first_contact[]` | *"otti kontaktin partsi käytävällä"* |
+| `deaths` | *"Luola kuolee nii pelaa siteltä"* ja *"Vihu meni secret pihalta"* -- ensimmäisen oman kuoleman ajoitus ja alue, sekä tapot ampujan alueen mukaan |
 
 **Jokainen väite kantaa otantansa.** `n` = kierrokset, joissa havainto tehtiin;
 `m` = kyseisen puolen ja kierrostyypin kierrokset, joilta havainto oli
@@ -300,12 +314,23 @@ kadonnut liitoksessa, ja raportti näyttäisi oikealta mutta väittäisi väär�
 otantaa. Sama tarkistus tehdään myös **tasojen välillä**: kierrostyyppien summa
 on puolen otanta, puolien summa kartan ja karttojen summa koko raportin.
 
-**`first_contact[]` on tarkoituksella poikkeus tähän sääntöön.** Se laskee
-läsnäoloa eikä pelaajamäärää: sama kierros tuottaa havainnon jokaiselle
-alueelle, jolla joukkueella oli elossa oleva pelaaja sillä hetkellä, joten
-`n`-arvojen summa on suurempi kuin `m`. Täysi jakauma samalta hetkeltä on
-`positions`-listan `first_contact`-näytepisteessä, ja sitä `Σ n = m` koskee
-normaalisti.
+**Kaksi kenttää on tarkoituksella poikkeus tähän sääntöön.**
+
+`first_contact[]` laskee läsnäoloa eikä pelaajamäärää: sama kierros tuottaa
+havainnon jokaiselle alueelle, jolla joukkueella oli elossa oleva pelaaja
+sillä hetkellä, joten `n`-arvojen summa on suurempi kuin `m`. Täysi jakauma
+samalta hetkeltä on `positions`-listan `first_contact`-näytepisteessä, ja
+sitä `Σ n = m` koskee normaalisti.
+
+`deaths.kills[]` on poikkeus toisella tavalla: siellä **`m` ei ole
+kierroksia vaan tappoja**. `Σ n = m` pätee, mutta nimittäjä on eri, ja
+kierrostyypillä on yleensä enemmän tappoja kuin kierroksia -- `4/6` tarkoittaa
+siis neljää tappoa kuudesta eikä neljää kierrosta kuudesta. Siksi raportti
+kirjoittaa juuri tälle riville yksikön näkyviin (`Middle (4/6 taposta)`).
+`deaths.first_death_areas[]` sen sijaan laskee kierroksia normaalisti:
+jokaisella kierroksella on täsmälleen yksi ensimmäinen kuolema, ja
+kierrokset joilla joukkue ei menettänyt ketään ovat `deaths.rounds_missing`
+eivätkä nollarivi.
 
 `m` on aina **näytepisteen oma**. 45 sekunnin näyte puuttuu kierrokselta, joka
 ratkesi 30 sekunnissa, ja `rounds_missing` kertoo erotuksen. Jos `m`:ksi
@@ -448,6 +473,24 @@ tiedostonimen.
 > ja kirjoitetaan yli). Jo kirjoitetut Markdown-raportit jäävät paikoilleen
 > vanhoina; niitä ei koskaan ylikirjoiteta.
 
+**Kuolemat selittävät muut rivit, eivätkä ole oma lukunsa.** Jokainen
+kierrostyyppi saa enintään **kaksi** kuolemariviä: mistä ja milloin joukkue
+menetti ensimmäisen pelaajansa, ja miltä alueilta se teki tappoja. Raja on
+`render.view.MAX_DEATH_LINES`, ja sen ylitys on virhe eikä hiljainen kasvu.
+
+Tapporivin otanta on ainoa koko raportissa, joka **ei laske kierroksia**:
+kierrostyypillä on yleensä enemmän tappoja kuin kierroksia, joten rivi sanoo
+yksikkönsä itse (`Middle (4/6 taposta)`) eikä vain lukuohjeessa. Alue on
+**ampujan** oma alue tappohetkellä, ei uhrin.
+
+> **Kuolemataulu pakottaa koko arkiston uudelleenajon.** Muutos toi uuden
+> taulun (`deaths.parquet`) ja nosti `REPORT_SCHEMA_VERSION`in `2.0.0` ->
+> `3.0.0`, koska `RoundTypeReport` sai pakollisen `deaths`-kentän. Seuraukset
+> ovat samat kuin nimillä: `parse` ei hyväksy tulosta ajan tasalla olevana
+> ilman `deaths.parquet`ia, joten pelkkä `uv run pappascout parse <id>`
+> riittää, ja jokainen `report.json` aggregoidaan uudelleen. Jo kirjoitetut
+> Markdown-raportit jäävät paikoilleen vanhoina.
+
 Manifesti on **raporttikohtainen** (`<raportin nimi>.manifest.json`) ja
 jäljitettävyyttä varten. Yhteinen manifesti kestäisi huonosti juuri sitä
 rinnakkaisuutta, jonka varalta nimi varataan: kaksi yhtaikaista ajoa saisi
@@ -581,7 +624,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/adapters/protocols.py` | Portit, jotka vaiheet ottavat parametrina |
 | `src/pappascout/adapters/decompress.py` | `.dem.zst`-purku ja `PBDEMS2`-otsikkotarkistus |
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
-| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + manifesti |
+| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + `deaths.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |
 | `src/pappascout/domain/aggregate.py` | Jakaumat ja otannat puhtaina funktioina; `build_report()` |

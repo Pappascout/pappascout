@@ -77,10 +77,22 @@ def test_map_demo_id_is_match_id_and_zero_based_map_index() -> None:
     assert str(paths.demo("1-8ffb4c53-0")).endswith("1-8ffb4c53-0.dem.zst")
 
 
-@pytest.mark.parametrize("table", ["rounds", "ticks", "events", "lineups"])
-def test_parse_writes_exactly_four_tables(table: str) -> None:
+@pytest.mark.parametrize(
+    "table", ["rounds", "ticks", "events", "lineups", "deaths"]
+)
+def test_parse_writes_exactly_five_tables(table: str) -> None:
     assert table in paths.PARSED_TABLES
     assert str(paths.parsed_table("d", table)).endswith(f"{table}.parquet")
+
+
+def test_the_parametrised_list_is_the_whole_contract() -> None:
+    """Luettelo ei saa jäädä jälkeen sopimuksesta.
+
+    Parametrilista on käsin kirjoitettu, ja ilman tätä väitettä uusi taulu
+    lisättäisiin ``PARSED_TABLES``iin mutta ei tänne -- eikä sen polkua
+    testattaisi koskaan. Juuri niin kävi ``deaths``ille.
+    """
+    assert len(paths.PARSED_TABLES) == 5
 
 
 def test_unknown_parsed_table_is_rejected() -> None:

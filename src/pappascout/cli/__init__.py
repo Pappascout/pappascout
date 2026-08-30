@@ -207,10 +207,11 @@ def parse(
         ),
     ),
 ) -> None:
-    """Parsi demo kierros-, näytepiste-, tapahtuma- ja kokoonpanotauluiksi.
+    """Parsi demo viideksi tauluksi.
 
     Kirjoittaa ``parsed/<map_demo_id>/rounds.parquet``-, ``ticks.parquet``-,
-    ``events.parquet``- ja ``lineups.parquet``-taulut sekä niiden manifestin.
+    ``events.parquet``-, ``lineups.parquet``- ja ``deaths.parquet``-taulut
+    sekä niiden manifestin.
     Jos manifesti täsmää, vaihe ohitetaan eikä demoa lueta uudelleen.
     """
     settings = load_settings()
@@ -314,6 +315,7 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
     lines.extend(_armed_players(stats))
     lines.extend(_sample_points(stats, rounds))
     lines.extend(_utility(stats, rounds))
+    lines.extend(_deaths(stats, rounds))
     lines.extend(_lineups(stats))
 
     if "tick_rate" in stats and not stats.get("tick_rate_measured", True):
@@ -728,6 +730,99 @@ def _sample_points(stats: dict, rounds: int) -> list[str]:
                 "etsittäessä",
             )
         )
+    return lines
+
+
+def _deaths(stats: dict, rounds: int) -> list[str]:
+    """Kuolemataulun rivit ``parse``-tulosteeseen (Story 2.7).
+
+    Kolme kysymystä, joihin tuloste vastaa:
+
+    **Syntyikö aineistoa.** Rivimäärä ja se, monellako kierroksella kuoltiin.
+    Jälkimmäinen on mukana siksi, että pelkkä rivimäärä ei paljastaisi, jos
+    kaikki kuolemat kasautuisivat yhdelle kierrokselle.
+
+    **Katosiko jotain.** Numeroimattomat kierrokset (puukkokierros), tickitön
+    kuolema, rajojen ulkopuoliset kuolemat, uhriton tapahtuma ja puoleton uhri
+    ovat eri syitä eivätkä saa niputtua yhdeksi. Ensimmäinen on **odotettu**
+    liigademossa -- siellä puukkokierroksella kuollaan -- ja loput ovat
+    nollia tavoitetilassa.
+
+    **Onko havainto ehjä.** Ampujaton kuolema on havainto (putoaminen,
+    pommi), puuttuva alue ei ole. Ne ovat siksi eri riveillä: yhteinen luku
+    näyttäisi aluevialta, jota ei ole.
+    """
+    if "deaths_unreadable" in stats:
+        return [_line("Kuolemat", f"lukuja ei saatu ({stats['deaths_unreadable']})")]
+    if "death_rows" not in stats:
+        return []
+
+    rows = int(stats["death_rows"])
+    death_rounds = int(stats.get("death_rounds", 0) or 0)
+    lines = [_line("Kuolemat", f"{rows} ({death_rounds}/{rounds} kierroksella)")]
+
+    # Puukkokierroksen kuolemat: odotettu luku, ei vika. Ilman sitä pudotus
+    # olisi hiljainen -- ja juuri se pudotus on tämän taulun ainoa
+    # puukkokierrossääntö.
+    unnumbered = int(stats.get("deaths_unnumbered_rounds", 0) or 0)
+    if unnumbered:
+        lines.append(
+            _line(
+                "Numeroimattomilta",
+                f"{unnumbered} kuolemaa (warmup ja puukkokierros)",
+            )
+        )
+
+    without_attacker = int(stats.get("deaths_without_attacker", 0) or 0)
+    if without_attacker:
+        lines.append(
+            _line(
+                "Ampujaton kuolema",
+                f"{without_attacker} (putoaminen tai pommi; havainto eikä vika)",
+            )
+        )
+
+    for key, label in (
+        ("deaths_without_victim_area", "Uhri ilman aluetta"),
+        ("deaths_without_attacker_area", "Ampuja ilman aluetta"),
+    ):
+        count = int(stats.get(key, 0) or 0)
+        if count:
+            lines.append(
+                _line(label, f"{count} riviä (koordinaatit silti tallessa)")
+            )
+
+    for key, label, detail in (
+        (
+            "deaths_without_tick",
+            "Kuolema ilman tickiä",
+            "rivi pudotettiin: ilman tickiä kierrosta eikä t_s:ää ole",
+        ),
+        (
+            "deaths_outside_rounds",
+            "Kierrosten välissä",
+            "ei kuulu millekään kierrokselle, joten t_s:ää ei ole",
+        ),
+        (
+            "deaths_without_victim",
+            "Kuolema ilman uhria",
+            "rivi pudotettiin: tapahtumalta puuttui user_steamid",
+        ),
+        (
+            "deaths_without_victim_side",
+            "Uhri ilman puolta",
+            "rivi pudotettiin: kuolema ei kuulu kummallekaan joukkueelle",
+        ),
+        (
+            "deaths_attacker_without_side",
+            "Ampuja ilman puolta",
+            "rivi säilyi, ampujan kokoonpano jäi tyhjäksi",
+        ),
+    ):
+        count = int(stats.get(key, 0) or 0)
+        if count:
+            lines.append(_line(label, f"{count} ({detail})"))
+
     return lines
 
 

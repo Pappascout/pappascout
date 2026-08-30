@@ -91,6 +91,20 @@ DEFAULT_STATS: dict[str, object] = {
     ),
     "lineup_name_conflicts": 0,
     "lineup_clan_conflicts": 0,
+    # Kuolemataulu (Story 2.7). Nämä ovat oletuksissa, jotta jokainen
+    # kuolemarivin otsikko on leveysvartijan nähtävissä -- vartija renderöi
+    # tästä sanakirjasta, eikä avaimeton lohko tulostu koskaan.
+    "death_rows": 141,
+    "death_rounds": 20,
+    "deaths_without_attacker": 1,
+    "deaths_without_victim_area": 0,
+    "deaths_without_attacker_area": 0,
+    "deaths_unnumbered_rounds": 6,
+    "deaths_without_tick": 0,
+    "deaths_outside_rounds": 4,
+    "deaths_without_victim": 0,
+    "deaths_without_victim_side": 0,
+    "deaths_attacker_without_side": 0,
 }
 
 
@@ -1130,22 +1144,39 @@ def test_every_parse_label_fits_the_column() -> None:
         buy_window_sides_without_rows=1,
         buy_window_stale_equipment=1,
         armed_unknown_items=(("Tuntematon Ase", 3),),
+        # Kuolemalohkon vikarivit tulostuvat vain nollasta poikkeavina, ja
+        # juuri ne ovat pisimmät otsikot koko tulosteessa.
+        deaths_without_victim_area=1,
+        deaths_without_attacker_area=1,
+        deaths_without_tick=1,
+        deaths_without_victim=1,
+        deaths_without_victim_side=1,
+        deaths_attacker_without_side=1,
     )
     text = _render_parse(parse_result(stats=every), regulation_rounds=24)
 
+    seen = 0
     for line in text.splitlines():
         if not line.startswith("  ") or ":" in line[:4]:
             continue
         body = line[2:]
-        label = body.rstrip()
-        if "  " not in body:
+        if not body.strip():
             continue
-        head = body.split("  ", 1)[0]
-        assert len(head) <= _PARSE_LABEL_WIDTH - 1, (
-            f"otsikko {head!r} on {len(head)} merkkiä; sarakkeeseen mahtuu "
-            f"{_PARSE_LABEL_WIDTH - 1}"
+        seen += 1
+        # Väite on **täytteestä**, ei erottimen etsimisestä. Liian pitkä
+        # otsikko syö oman täytteensä, jolloin arvo alkaa heti sen perästä
+        # eikä riviltä löydy kahta peräkkäistä välilyöntiä lainkaan --
+        # ja juuri sitä erotinta vanha versio etsi. Se siis ohitti
+        # täsmälleen ne rivit, joita sen piti tarkistaa.
+        column = body[:_PARSE_LABEL_WIDTH]
+        assert column != column.rstrip(), (
+            f"otsikko {body.split('  ')[0]!r} täyttää koko "
+            f"{_PARSE_LABEL_WIDTH} merkin sarakkeen, joten arvo liimautuu "
+            "siihen kiinni"
         )
-        assert label
+    # Ilman tätä tyhjä tuloste läpäisisi vartijan: silmukka ei kävisi
+    # kertaakaan eikä yksikään väite suoriutuisi.
+    assert seen > 20, f"vain {seen} otsikkoriviä tarkistettavana"
 
 
 # --- Kokoonpanolohko (Story 2.6) -------------------------------------------------

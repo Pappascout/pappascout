@@ -14,23 +14,26 @@ import pytest
 from pydantic import ValidationError
 
 from pappascout.domain.report import (
-    REPORT_SCHEMA_VERSION,
     AreaDistribution,
     ArmedCount,
     ArmedPlayers,
+    DeathReport,
     FirstContactArea,
+    FirstDeathArea,
     GrenadeCount,
+    KillArea,
     MapReport,
     MissingDemo,
     PlayersCount,
     Position,
+    REPORT_SCHEMA_VERSION,
     Report,
     RosterEntry,
     RoundTypeReport,
+    SLUG_FALLBACK,
     Sample,
     SampleBucket,
     SideReport,
-    SLUG_FALLBACK,
     TeamReport,
     UtilityCounts,
     UtilityUse,
@@ -433,6 +436,7 @@ def full_report() -> Report:
             m=1, rounds_unknown=0, counts=[ArmedCount(armed=0, n=1)]
         ),
         first_contact=[],
+        deaths=DeathReport(m=0, rounds_missing=1),
     )
     return Report(
         generated_at=datetime(2026, 8, 30, 12, 0, tzinfo=UTC),
@@ -510,6 +514,7 @@ def side_with(rounds: int) -> SideReport:
                 utility_counts=[],
                 players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
                 first_contact=[],
+                deaths=DeathReport(m=0, rounds_missing=rounds),
             )
         ],
     )
@@ -531,6 +536,7 @@ def test_a_side_must_be_the_sum_of_its_round_types() -> None:
                     utility_counts=[],
                     players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
                     first_contact=[],
+                    deaths=DeathReport(m=0, rounds_missing=2),
                 )
             ],
         )
@@ -580,6 +586,7 @@ def test_a_round_moving_between_buckets_is_caught() -> None:
                     utility_counts=[],
                     players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
                     first_contact=[],
+                    deaths=DeathReport(m=0, rounds_missing=3),
                 )
             ],
         )
@@ -622,3 +629,199 @@ def test_unclassified_rounds_stay_outside_the_sample() -> None:
     )
     assert report.sample.rounds == 3
     assert report.unclassified_rounds == 4
+
+
+# --- DeathReport (Story 2.7) ---------------------------------------------------
+
+
+def test_the_first_death_distribution_must_sum_to_its_sample() -> None:
+    """``Σ n = m``. Ilman tätä luku ei tarkoita mitään."""
+    with pytest.raises(AggregateError, match="ensimmäisen kuoleman alueissa"):
+        DeathReport(
+            m=3,
+            rounds_missing=0,
+            first_death_areas=[FirstDeathArea(area="Cave", n=2, m=3)],
+        )
+
+
+def test_every_first_death_area_shares_the_same_sample() -> None:
+    """Kaksi eri nimittäjää samassa jakaumassa eivät ole vertailukelpoisia."""
+    with pytest.raises(AggregateError, match="väittää otannakseen"):
+        DeathReport(
+            m=2,
+            rounds_missing=0,
+            first_death_areas=[
+                FirstDeathArea(area="Cave", n=1, m=2),
+                FirstDeathArea(area="Long", n=1, m=1),
+            ],
+        )
+
+
+def test_the_same_first_death_area_may_not_appear_twice() -> None:
+    with pytest.raises(ValueError, match="sama alue kahdesti"):
+        DeathReport(
+            m=2,
+            rounds_missing=0,
+            first_death_areas=[
+                FirstDeathArea(area="Cave", n=1, m=2),
+                FirstDeathArea(area="Cave", n=1, m=2),
+            ],
+        )
+
+
+def test_a_first_death_area_cannot_exceed_the_rounds() -> None:
+    with pytest.raises(AggregateError, match="Ensimmäisen kuoleman alue"):
+        FirstDeathArea(area="Cave", n=3, m=2)
+
+
+def test_the_kill_distribution_must_sum_to_the_kills() -> None:
+    """Tappojakauman nimittäjä on **tappoja**, ja summan on täsmättävä."""
+    with pytest.raises(AggregateError, match="tappoalueissa"):
+        DeathReport(
+            m=0,
+            rounds_missing=0,
+            kills_total=5,
+            kills=[KillArea(area="Middle", n=4, m=5)],
+        )
+
+
+def test_every_kill_area_shares_the_same_denominator() -> None:
+    with pytest.raises(AggregateError, match="Tappoalue"):
+        DeathReport(
+            m=0,
+            rounds_missing=0,
+            kills_total=3,
+            kills=[
+                KillArea(area="Middle", n=2, m=3),
+                KillArea(area="Long", n=1, m=1),
+            ],
+        )
+
+
+def test_the_same_kill_area_may_not_appear_twice() -> None:
+    with pytest.raises(ValueError, match="sama alue kahdesti"):
+        DeathReport(
+            m=0,
+            rounds_missing=0,
+            kills_total=2,
+            kills=[
+                KillArea(area="Middle", n=1, m=2),
+                KillArea(area="Middle", n=1, m=2),
+            ],
+        )
+
+
+def test_a_kill_area_cannot_exceed_the_kills() -> None:
+    with pytest.raises(AggregateError, match="Tappoalue"):
+        KillArea(area="Middle", n=3, m=2)
+
+
+def test_a_median_without_a_single_death_is_refused() -> None:
+    """Mediaani ilman havaintoja olisi luku tyhjästä."""
+    with pytest.raises(AggregateError, match="mediaani"):
+        DeathReport(m=0, rounds_missing=4, first_death_seconds_median=24.0)
+
+
+def test_the_kill_sample_may_exceed_the_round_count() -> None:
+    """Tappoja on yleensä enemmän kuin kierroksia -- se **ei** ole virhe.
+
+    Tämä on toinen puoli edellisistä vartijoista: jos ``Σ n = m`` sidottaisiin
+    kierroksiin, oikea aineisto kaatuisi jokaisella kierrostyypillä.
+    """
+    entry = DeathReport(
+        m=2,
+        rounds_missing=0,
+        first_death_areas=[FirstDeathArea(area="Cave", n=2, m=2)],
+        kills_total=9,
+        kills=[KillArea(area="Middle", n=9, m=9)],
+    )
+    assert entry.kills_total > entry.m
+
+
+def test_an_empty_death_report_is_a_valid_result() -> None:
+    """Kierrostyyppi, jolla joukkue ei kuollut eikä tappanut, on kelvollinen."""
+    entry = DeathReport(m=0, rounds_missing=3)
+    assert entry.first_death_areas == []
+    assert entry.kills == []
+    assert entry.first_death_seconds_median is None
+
+
+def test_the_round_type_report_requires_its_death_block() -> None:
+    """Ei oletusta: tyhjä oletus näyttäisi kierrostyypiltä, jolla ei kuoltu.
+
+    Juuri se ero on syy skeemaversion nostoon -- vanha ``report.json`` ei saa
+    validoitua tätä mallia vasten hiljaa.
+    """
+    with pytest.raises(ValidationError, match="deaths"):
+        RoundTypeReport(
+            round_type="pistol",
+            sample=sample(unknown=1),
+            small_sample=True,
+            positions=[],
+            utility=[],
+            utility_counts=[],
+            players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+            first_contact=[],
+        )
+
+
+def test_the_schema_version_says_the_structure_changed() -> None:
+    """Uusi pakollinen kenttä = vanha raportti ei validoidu; versio nousee."""
+    assert REPORT_SCHEMA_VERSION == "3.0.0"
+
+
+def _round_type_with(entry: DeathReport, rounds: int) -> RoundTypeReport:
+    """Kierrostyyppi annetulla kuolemaosuudella ja otannalla."""
+    return RoundTypeReport(
+        round_type="pistol",
+        sample=sample(unknown=rounds),
+        small_sample=False,
+        positions=[],
+        utility=[],
+        utility_counts=[],
+        players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+        first_contact=[],
+        deaths=entry,
+    )
+
+
+def test_the_deaths_must_cover_the_round_types_whole_sample() -> None:
+    """Kuolemien kierrokset ovat täsmälleen kierrostyypin kierrokset.
+
+    ``Σ n = m`` pitää myös silloin, kun ``m`` on laskettu **väärästä
+    kierrosjoukosta**: jakauma olisi sisäisesti johdonmukainen ja hiljaa
+    väärä. Ilman tätä ristiintarkistusta väärä ``round_keys`` tuottaisi
+    raportin, jonka jokainen lehti näyttää oikealta.
+    """
+    covers_three = DeathReport(
+        m=1,
+        rounds_missing=2,
+        first_death_seconds_median=20.0,
+        first_death_areas=[FirstDeathArea(area="Cave", n=1, m=1)],
+    )
+    with pytest.raises(AggregateError, match="kuolemat kattavat 3 kierrosta"):
+        _round_type_with(covers_three, rounds=4)
+
+
+def test_a_death_block_that_covers_the_sample_is_accepted() -> None:
+    """Vartijan toinen haara: oikein laskettu osuus menee läpi.
+
+    Ilman tätä edellinen testi todistaisi vain, että jokin nostaa
+    poikkeuksen.
+    """
+    entry = _round_type_with(
+        DeathReport(
+            m=1,
+            rounds_missing=3,
+            first_death_seconds_median=20.0,
+            first_death_areas=[FirstDeathArea(area="Cave", n=1, m=1)],
+        ),
+        rounds=4,
+    )
+    assert entry.deaths.m + entry.deaths.rounds_missing == entry.sample.rounds
+
+
+def test_too_many_covered_rounds_is_refused_too() -> None:
+    """Ero kumpaankin suuntaan on sama vika, ja molemmat on estettävä."""
+    with pytest.raises(AggregateError, match="kuolemat kattavat 5 kierrosta"):
+        _round_type_with(DeathReport(m=0, rounds_missing=5), rounds=4)

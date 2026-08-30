@@ -2,8 +2,8 @@
 
 Vaihe lukee arkistosta joukkueen luokitellut kierrokset
 (``classified/<team_key>/<map_demo_id>.parquet``) sekä niiden näytepiste-,
-tapahtuma- ja kokoonpanotaulut
-(``parsed/<map_demo_id>/{ticks,events,lineups}.parquet``) ja kirjoittaa
+tapahtuma-, kokoonpano- ja kuolemataulut
+(``parsed/<map_demo_id>/{ticks,events,lineups,deaths}.parquet``) ja kirjoittaa
 **yhden tiedoston**: ``aggregates/<team_key>/report.json``, joka on
 :class:`~pappascout.domain.report.Report`-malli JSONina. Demoa ei lueta.
 
@@ -118,6 +118,7 @@ from pappascout.domain.report import (
 )
 from pappascout.domain.schemas import (
     CLASSIFIED,
+    DEATHS,
     EVENTS,
     LINEUPS,
     TICKS,
@@ -513,7 +514,7 @@ def _demo_unusable(
     kanssa, ja raportti kertoo sen. Yksittäinen puuttuva demo ei saa viedä
     koko otantaa -- se veisi mukanaan kolme muuta, jotka ovat kunnossa.
     """
-    for table in ("ticks", "events", "lineups"):
+    for table in ("ticks", "events", "lineups", "deaths"):
         if not archive.resolve(parsed_table(map_demo_id, table)).is_file():
             return (
                 f"Parsittua taulua {table}.parquet ei ole arkistossa. "
@@ -550,16 +551,48 @@ def _aggregate(
     tick_frames: list[pl.DataFrame] = []
     event_frames: list[pl.DataFrame] = []
     lineup_frames: list[pl.DataFrame] = []
+    death_frames: list[pl.DataFrame] = []
 
     for lineup, demo in sources.demos:
         classified_frames.append(_read_classified(archive, lineup, demo))
         tick_frames.append(_read_parsed(archive, demo, "ticks", TICKS))
         event_frames.append(_read_parsed(archive, demo, "events", EVENTS))
         lineup_frames.append(_read_parsed(archive, demo, "lineups", LINEUPS))
+        death_frames.append(_read_parsed(archive, demo, "deaths", DEATHS))
 
     lineups = set(sources.lineup_keys)
     ticks = pl.concat(tick_frames).filter(pl.col("lineup_key").is_in(lineups))
     events = pl.concat(event_frames).filter(pl.col("lineup_key").is_in(lineups))
+    # Kuolemataulussa suodatus on **kahdesta sarakkeesta**: rivi kuuluu
+    # joukkueelle, jos joko uhri tai ampuja on sen kokoonpanossa. Pelkkä
+    # ``victim_lineup_key`` pudottaisi omat tapot ja pelkkä
+    # ``attacker_lineup_key`` omat kuolemat. Vastustajien keskinäinen kuolema
+    # putoaa, koska kumpikaan ehto ei täyty. Rivien jako kuolemiksi ja
+    # tapoiksi tehdään ``domain.aggregate.deaths_for``issa, joka näkee
+    # molemmat sarakkeet.
+    #
+    # ``fill_null(False)`` on **välttämätön eikä koriste**: ampujaton kuolema
+    # (putoaminen, pommi) jättää ``attacker_lineup_key``in tyhjäksi, ja
+    # Polarsissa ``is_in`` antaa nullille nullin. Ilman täyttöä ehto nojaisi
+    # siihen, että ``true | null`` on tosi -- oikein tänään, mutta hiljainen
+    # riippuvuus kolmiarvoisen logiikan yksityiskohdasta. Juuri se rivi on
+    # oma kuolema, jonka katoaminen näkyisi raportissa vain puuttuvana.
+    deaths = pl.concat(death_frames).filter(
+        pl.col("victim_lineup_key").is_in(lineups).fill_null(False)
+        | pl.col("attacker_lineup_key").is_in(lineups).fill_null(False)
+    )
+    if deaths.is_empty():
+        raise PappascoutError(
+            f"Joukkueen {sources.team_key} demoista ei löytynyt yhtään "
+            "kuolemaa, jossa se olisi uhrina tai ampujana.\n"
+            "``parse`` kieltäytyy kirjoittamasta tyhjää kuolemataulua, joten "
+            "tyhjä tulos tarkoittaa että kokoonpanosuodatin ei osunut: "
+            "kuolemataulut on kirjoitettu eri kokoonpanotunnisteilla kuin "
+            "mitä tälle joukkueelle on liitetty. Aja parsinta uudelleen: "
+            "uv run pappascout parse <map_demo_id> --pakota\n"
+            "Ilman tätä tarkistusta jokainen kierrostyyppi raportoisi "
+            "'ei omia kuolemia' -- eli havaintona sen, ettei havaintoa ole."
+        )
     # Vain tämän joukkueen kokoonpanot: sama demo sisältää molempien
     # joukkueiden rivit, ja suodattamatta vastustajan klaaninimi äänestäisi
     # otsikosta.
@@ -606,6 +639,7 @@ def _aggregate(
         classified=pl.concat(classified_frames),
         ticks=ticks,
         events=events,
+        deaths=deaths,
         team=team,
         thresholds=thresholds,
         aggregate=aggregate_settings,

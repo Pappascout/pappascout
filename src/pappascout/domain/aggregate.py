@@ -1,13 +1,13 @@
 """Aggregoinnin laskenta puhtaina funktioina (Story 2.3).
 
-Moduuli ottaa vastaan valmiit taulut (``CLASSIFIED``, ``TICKS``, ``EVENTS``) ja
-palauttaa :class:`~pappascout.domain.report.Report`-mallin. **Ei tiedostoja, ei
-arkistoa, ei asetusten latausta** -- kaikki tämän moduulin testit rakentavat
-taulunsa käsin, eikä yksikään niistä tarvitse demoa.
+Moduuli ottaa vastaan valmiit taulut (``CLASSIFIED``, ``TICKS``, ``EVENTS``,
+``DEATHS``) ja palauttaa :class:`~pappascout.domain.report.Report`-mallin.
+**Ei tiedostoja, ei arkistoa, ei asetusten latausta** -- kaikki tämän moduulin
+testit rakentavat taulunsa käsin, eikä yksikään niistä tarvitse demoa.
 
 Mitä täällä lasketaan
 ---------------------
-Viisi havaintoa, jokainen otantansa kanssa, tasolla kartta -> puoli ->
+Kuusi havaintoa, jokainen otantansa kanssa, tasolla kartta -> puoli ->
 kierrostyyppi:
 
 ``positions``
@@ -26,11 +26,20 @@ kierrostyyppi:
 ``first_contact``
     Millä alueilla joukkueella oli pelaaja ensikontaktin hetkellä. Tästä
     luetaan *"otti kontaktin partsi käytävällä"*.
+``deaths``
+    Missä ja milloin joukkue menetti ensimmäisen pelaajansa, ja miltä
+    alueilta se teki tappoja. Tästä luetaan *"Luola kuolee nii pelaa
+    siteltä"* ja *"Vihu meni secret pihalta"*.
 
 Kaksi sääntöä, jotka eivät jousta
 ---------------------------------
 **Pelaajamäärä lasketaan vain elossa olevista.** Kuollut pelaaja ei tuota
 riviä alueelle; hän on kierroksella mukana, mutta ei kartalla.
+
+**Yksi jakauma laskee tappoja eikä kierroksia.** ``deaths``in tappopuoli on
+ainoa kohta, jossa ``m`` ei ole kierroksia: kierrostyypillä voi olla enemmän
+tappoja kuin kierroksia. Ero on kirjoitettu :class:`DeathReport`in
+sopimukseen, ja raportti muotoilee juuri sen rivin eri yksiköllä.
 
 **Otanta on aina näytepisteen oma.** ``m`` on niiden kierrosten määrä, joilla
 kyseinen näytepiste on olemassa -- ei kierrostyypin kaikkien kierrosten määrä.
@@ -74,8 +83,11 @@ from pappascout.domain.report import (
     AreaDistribution,
     ArmedCount,
     ArmedPlayers,
+    DeathReport,
     FirstContactArea,
+    FirstDeathArea,
     GrenadeCount,
+    KillArea,
     MapReport,
     MissingDemo,
     PlayersCount,
@@ -117,6 +129,7 @@ __all__ = [
     "unpaired_detonations",
     "armed_players_for",
     "first_contact_areas",
+    "deaths_for",
     "check_rounds_are_unique",
     "classify_thresholds",
     "CLASSIFY_THRESHOLD_KEYS",
@@ -685,8 +698,156 @@ def first_contact_areas(
         FirstContactArea(area=area, n=len(rounds), m=m)
         for area, rounds in present.items()
     ]
-    areas.sort(key=lambda a: (-a.n, _area_sort_key(a.area)))
+    areas.sort(key=lambda a: _by_count_then_area((a.area, a.n)))
     return areas
+
+
+# -- Kuolemat --------------------------------------------------------------------
+
+
+def deaths_for(
+    deaths: Sequence[Mapping[str, Any]],
+    round_keys: Sequence[RoundKey],
+    lineup_keys: Iterable[str],
+) -> DeathReport:
+    """Joukkueen omat kuolemat ja tapot yhdelle kierrostyypille.
+
+    Kaksi reunajakaumaa, ja ne luetaan **saman taulun eri sarakkeista**:
+    ``victim_lineup_key`` kertoo omat kuolemat, ``attacker_lineup_key`` omat
+    tapot. Sama rivi voi olla molempia -- teamkillissä joukkueen pelaaja
+    tappoi joukkuekaverinsa -- eikä kumpaakaan suodateta pois: havainto on
+    että pelaaja kuoli ja että ampuja oli tietyllä alueella, ja teamkillin
+    erottaminen olisi tulkintaa.
+
+    **Ensimmäinen kuolema kierroksella** on se, jolla on pienin ``t_s``.
+    Tasatilanne -- kaksi joukkuekaveria samalla tickillä -- ratkeaa uhrin
+    tunnisteella, jotta sama aineisto antaa saman tuloksen ajosta toiseen.
+    Rivi, jolta ``t_s`` puuttuu, on järjestyksessä viimeisenä eikä
+    ensimmäisenä: puuttuva aika ei ole nolla.
+
+    **Tappoalue on ampujan oma alue**, ei uhrin. Juuri niin tavoiteanalyysin
+    rivi "Vihu meni secret pihalta" on kirjoitettu: se kertoo mistä ampuja
+    ampui.
+
+    **Itsemurha ei ole tappo.** Rivi, jolla ampuja ja uhri ovat sama pelaaja,
+    on oma kuolema muttei oma tappo: tapporivi kertoo mistä joukkue ampuu, ja
+    itsemurhan alue on paikka josta kukaan ei ampunut. Teamkill sen sijaan
+    lasketaan molempiin -- siinä joukkuekaveri **oikeasti ampui** tuolta
+    alueelta. Mitattu 2026-08-30: 0 itsemurhaa ja 1 teamkill 591 kuolemasta.
+
+    Args:
+        deaths: ``DEATHS``-rivit. **Ei suodatettuna kokoonpanoon**: funktio
+            tarvitsee molemmat sarakkeet, ja kutsuja ei voi tietää kumpi
+            niistä osuu.
+        round_keys: Tämän haaran kierrokset.
+        lineup_keys: Joukkueen kokoonpanotunnisteet.
+
+    Returns:
+        :class:`~pappascout.domain.report.DeathReport`. Tyhjä mutta
+        kelvollinen, jos haarassa ei kuoltu.
+    """
+    keys = set(round_keys)
+    own = set(lineup_keys)
+
+    first: dict[RoundKey, tuple[tuple[int, float, str], Mapping[str, Any]]] = {}
+    kills: Counter[str | None] = Counter()
+    kills_total = 0
+
+    for row in deaths:
+        key = _round_key(row)
+        if key is None or key not in keys:
+            continue
+        suicide = (
+            row["attacker_id"] is not None
+            and row["attacker_id"] == row["victim_id"]
+        )
+        if row["attacker_lineup_key"] in own and not suicide:
+            kills[_observed_area(row["attacker_area"])] += 1
+            kills_total += 1
+        if row["victim_lineup_key"] not in own:
+            continue
+        order = _death_order(row)
+        current = first.get(key)
+        if current is None or order < current[0]:
+            first[key] = (order, row)
+
+    moments = [
+        float(row["t_s"])
+        for _, row in first.values()
+        if row["t_s"] is not None
+    ]
+    areas: Counter[str | None] = Counter(
+        _observed_area(row["victim_area"]) for _, row in first.values()
+    )
+    m = len(first)
+
+    # Yleisin alue ensin, tasatilanne aakkosin ja tuntematon viimeisenä --
+    # sama järjestys kuin ensikontaktin alueilla, jotta raportin rivit
+    # luetaan samalla tavalla.
+    first_areas = [
+        FirstDeathArea(area=area, n=n, m=m)
+        for area, n in sorted(areas.items(), key=_by_count_then_area)
+    ]
+    kill_areas = [
+        KillArea(area=area, n=n, m=kills_total)
+        for area, n in sorted(kills.items(), key=_by_count_then_area)
+    ]
+    return DeathReport(
+        m=m,
+        rounds_missing=len(round_keys) - m,
+        first_death_seconds_median=(
+            round(median(moments), 3) if moments else None
+        ),
+        first_death_areas=first_areas,
+        kills_total=kills_total,
+        kills=kill_areas,
+    )
+
+
+def _observed_area(value: Any) -> str | None:
+    """Alue havaintona: tyhjä merkkijono **ei ole alue** vaan ``None``.
+
+    ``parse`` kirjoittaa jo nyt tyhjän ``last_place_name``in ``null``:na, mutta
+    sopimus sallii merkkijonon eikä vanhalla versiolla kirjoitettu taulu ole
+    käynyt sitä sääntöä läpi. Ilman normalisointia sama havainto tulisi
+    jakaumaan **kahdesti**: mallin kaksoiskappaletarkistus vertaa raaka-arvoja
+    (``""`` ja ``None`` ovat eri), mutta raportti näyttää molemmat nimellä
+    "tuntematon alue" -- eli yksi rivi kertoisi saman asian kaksi kertaa eri
+    luvuilla.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _by_count_then_area(item: tuple[str | None, int]) -> tuple[int, int, str]:
+    """Lajitteluavain aluejakaumalle: yleisin ensin, tuntematon viimeisenä.
+
+    **Yksi kirjoitusasu yhdelle säännölle.** Sekä ensikontaktin, ensimmäisen
+    kuoleman että tappojen alueet järjestyvät näin, ja kaksi kopiota
+    erkanisivat: raportin rivit luetaan samalla tavalla, joten niiden on myös
+    järjestyttävä samalla tavalla.
+    """
+    area, count = item
+    return (-count, *_area_sort_key(area))
+
+
+def _death_order(row: Mapping[str, Any]) -> tuple[int, float, str]:
+    """Järjestysavain kierroksen sisällä: aika ensin, uhrin tunniste sitten.
+
+    Ensimmäinen alkio erottaa **puuttuvan ajan nollasta**: ilman sitä rivi,
+    jolta ``t_s`` puuttuu, olisi kierroksen ensimmäinen kuolema. Uhrin
+    tunniste tekee tasatilanteesta toistettavan -- kaksi joukkuekaveria voi
+    kuolla samalla tickillä, eikä rivijärjestys saa ratkaista kumpi näkyy
+    raportissa.
+    """
+    t_s = row["t_s"]
+    return (
+        1 if t_s is None else 0,
+        0.0 if t_s is None else float(t_s),
+        str(row["victim_id"]),
+    )
 
 
 # -- Utility ---------------------------------------------------------------------
@@ -967,6 +1128,7 @@ def build_report(
     classified: pl.DataFrame,
     ticks: pl.DataFrame,
     events: pl.DataFrame,
+    deaths: pl.DataFrame,
     team: TeamReport,
     thresholds: ThresholdSettings,
     aggregate: AggregateSettings,
@@ -984,6 +1146,11 @@ def build_report(
         ticks: Kaikkien demojen ``TICKS``-rivit, **suodatettuna joukkueen
             kokoonpanoihin**.
         events: Kaikkien demojen ``EVENTS``-rivit, samoin suodatettuna.
+        deaths: Kaikkien demojen ``DEATHS``-rivit. Suodatus on **erilainen**:
+            rivi kuuluu joukkueelle, jos joko uhri tai ampuja on sen
+            kokoonpanossa, joten yhden sarakkeen suodatus pudottaisi joko
+            kuolemat tai tapot. Rivien jako niiden kesken tehdään täällä
+            (:func:`deaths_for`) joukkueen ``lineup_keys``-listaa vasten.
         team: Joukkueen tiedot; ``aggregate``-vaihe kokoaa ne arkistosta.
         thresholds: ``[thresholds]``-osio. Siitä luetaan
             ``small_sample_rounds``.
@@ -1004,6 +1171,7 @@ def build_report(
     rows = classified.to_dicts()
     tick_rows = ticks.to_dicts()
     event_rows = events.to_dicts()
+    death_rows = deaths.to_dicts()
 
     check_rounds_are_unique(rows)
     buckets = demo_buckets(rows)
@@ -1022,12 +1190,14 @@ def build_report(
 
     ticks_by_demo = _group_by_demo(tick_rows)
     events_by_demo = _group_by_demo(event_rows)
+    deaths_by_demo = _group_by_demo(death_rows)
 
     maps: list[MapReport] = []
     for (map_name, source), demos in by_map.items():
         map_rows = [r for demo in demos for r in by_demo[demo]]
         map_ticks = [r for demo in demos for r in ticks_by_demo.get(demo, [])]
         map_events = [r for demo in demos for r in events_by_demo.get(demo, [])]
+        map_deaths = [r for demo in demos for r in deaths_by_demo.get(demo, [])]
         maps.append(
             MapReport(
                 map_name=map_name,
@@ -1038,9 +1208,11 @@ def build_report(
                     map_rows,
                     map_ticks,
                     map_events,
+                    map_deaths,
                     buckets,
                     thresholds,
                     aggregate,
+                    team.lineup_keys,
                 ),
             )
         )
@@ -1079,9 +1251,11 @@ def _sides_for(
     rows: Sequence[Mapping[str, Any]],
     ticks: Sequence[Mapping[str, Any]],
     events: Sequence[Mapping[str, Any]],
+    deaths: Sequence[Mapping[str, Any]],
     buckets: Mapping[str, str],
     thresholds: ThresholdSettings,
     aggregate: AggregateSettings,
+    lineup_keys: Sequence[str],
 ) -> list[SideReport]:
     """Puolet vakiojärjestyksessä; puoli, jolla ei ole kierroksia, jää pois."""
     sides: list[SideReport] = []
@@ -1094,7 +1268,14 @@ def _sides_for(
                 side=side,
                 sample=sample_for(side_rows, buckets),
                 round_types=_round_types_for(
-                    side_rows, ticks, events, buckets, thresholds, aggregate
+                    side_rows,
+                    ticks,
+                    events,
+                    deaths,
+                    buckets,
+                    thresholds,
+                    aggregate,
+                    lineup_keys,
                 ),
             )
         )
@@ -1105,9 +1286,11 @@ def _round_types_for(
     rows: Sequence[Mapping[str, Any]],
     ticks: Sequence[Mapping[str, Any]],
     events: Sequence[Mapping[str, Any]],
+    deaths: Sequence[Mapping[str, Any]],
     buckets: Mapping[str, str],
     thresholds: ThresholdSettings,
     aggregate: AggregateSettings,
+    lineup_keys: Sequence[str],
 ) -> list[RoundTypeReport]:
     """Kierrostyypit vakiojärjestyksessä.
 
@@ -1150,6 +1333,7 @@ def _round_types_for(
                 utility_counts=utility_counts_for(events, keys),
                 players_armed=armed_players_for(type_rows),
                 first_contact=first_contact_areas(ticks, keys),
+                deaths=deaths_for(deaths, keys, lineup_keys),
             )
         )
     return reports

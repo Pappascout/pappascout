@@ -32,6 +32,12 @@ laskee läsnäoloa eikä pelaajamäärää, joten sama kierros tuottaa havainnon
 jokaiselle alueelle, jolla joukkueella oli pelaaja. Täysi jakauma samalta
 hetkeltä on ``positions``-listan ``first_contact``-näytepisteessä.
 
+Yhdessä paikassa ``m`` **ei ole kierroksia**: :class:`KillArea` laskee tappoja,
+joten sen ``Σ n = tappojen määrä``. Kierrostyypillä voi olla enemmän tappoja
+kuin kierroksia, joten "n/m kierroksesta" olisi siellä suoraan väärä lause --
+ja :class:`DeathReport`in dokumentaatio sanoo sen ääneen, koska raportti
+muotoilee juuri sen rivin eri yksiköllä.
+
 Kolme lokeroa, ei kahta
 -----------------------
 ``is_league`` syntyy vasta ``select``-vaiheessa (Epic 3), joten käsin tuoduilla
@@ -92,6 +98,9 @@ __all__ = [
     "ArmedCount",
     "ArmedPlayers",
     "FirstContactArea",
+    "FirstDeathArea",
+    "KillArea",
+    "DeathReport",
     "RoundTypeReport",
     "SideReport",
     "MapReport",
@@ -105,7 +114,7 @@ __all__ = [
 #: vanha ``report.json`` enää validoidu -- silloin ``render`` kertoo, että
 #: aggregointi on ajettava uudelleen, sen sijaan että se muotoilisi puolikkaan
 #: raportin hiljaa.
-REPORT_SCHEMA_VERSION = "2.0.0"
+REPORT_SCHEMA_VERSION = "3.0.0"
 
 
 #: Merkit, jotka eivät kelpaa tiedostonimeen. Slug on ASCII-osajoukko, koska
@@ -514,6 +523,174 @@ class FirstContactArea(_Node):
         return self
 
 
+class FirstDeathArea(_Node):
+    """Alue, jolla joukkue menetti **ensimmäisen** pelaajansa kierroksella.
+
+    Tästä luetaan tavoiteanalyysin rivi *"Luola kuolee nii pelaa
+    siteltä/nyypästä ja longilta"*: kierroksen ensimmäinen oma kuolema on se,
+    joka selittää mitä joukkue teki sen jälkeen.
+
+    ``Σ n = m`` **pätee tässä**, toisin kuin :class:`FirstContactArea`ssa:
+    jokaisella kierroksella on täsmälleen yksi ensimmäinen kuolema, joten se
+    tuottaa havainnon täsmälleen yhdelle alueelle. ``m`` on niiden kierrosten
+    määrä, joilla joukkue **menetti pelaajan**; kierrokset, joilla kukaan ei
+    kuollut, ovat :attr:`DeathReport.rounds_missing`issä eivätkä nollarivinä
+    -- nollarivi väittäisi havainnoksi sen, ettei havaintoa ole.
+    """
+
+    #: Uhrin oma ``last_place_name`` kuolinhetkellä. **Havainto**, ei arvio.
+    #: ``null`` = pelin aluenimeä ei saatu; rivi ei katoa.
+    area: str | None
+    n: int = Field(gt=0)
+    m: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _check_counts(self) -> FirstDeathArea:
+        if self.n > self.m:
+            raise AggregateError(
+                f"Ensimmäisen kuoleman alue {self.area!r} esiintyy {self.n} "
+                f"kierroksella, vaikka kierroksia on {self.m}."
+            )
+        return self
+
+
+class KillArea(_Node):
+    """Alue, jolta joukkueen pelaaja teki tapon.
+
+    Tästä luetaan tavoiteanalyysin rivi *"Vihu meni secret pihalta"*: alue on
+    **ampujan oma** ``last_place_name`` tappohetkellä, ei uhrin.
+
+    ``m`` **ei ole kierroksia vaan tappoja**, ja ``Σ n = m`` sen yli. Ero
+    :class:`AreaDistribution`iin on olennainen: siellä jokainen kierros
+    tuottaa yhden havainnon jokaiselle alueelle, tässä jokainen **tappo**
+    tuottaa yhden havainnon yhdelle alueelle. Kierrostyypillä voi olla
+    enemmän tappoja kuin kierroksia, joten lukua ei saa lukea muodossa
+    "n kierroksella m:stä".
+    """
+
+    area: str | None
+    n: int = Field(gt=0)
+    m: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _check_counts(self) -> KillArea:
+        if self.n > self.m:
+            raise AggregateError(
+                f"Tappoalue {self.area!r} esiintyy {self.n} tapossa, vaikka "
+                f"tappoja on {self.m}."
+            )
+        return self
+
+
+class DeathReport(_Node):
+    """Joukkueen omat kuolemat ja tapot yhdellä kierrostyypillä.
+
+    Kaksi reunajakaumaa, ja niillä on **eri nimittäjä**. Sekaannus olisi
+    helppo ja kallis, joten se on kirjoitettu tähän:
+
+    ``first_death_areas``
+        Missä joukkue menetti ensimmäisen pelaajansa. Yksi havainto per
+        kierros, joten ``Σ n = m`` ja ``m`` on **kierroksia**.
+    ``kills``
+        Mistä joukkueen pelaajat tekivät tappoja. Yksi havainto per **tappo**,
+        joten ``Σ n = kills_total`` ja luku voi ylittää kierrosten määrän.
+
+    ``rounds_missing`` on ne kierrokset, joilla joukkue **ei menettänyt
+    yhtään pelaajaa**. Se on oma lukunsa eikä nollarivi: alue "ei kuollut" ei
+    ole alue, ja ilman erillistä lukua ``Σ n = m`` pettäisi.
+
+    **Omat tapot sisältävät teamkillin.** Jos joukkueen pelaaja tappaa
+    joukkuekaverinsa, rivi on sekä oma kuolema että oma tappo. Kummankaan
+    pois suodattaminen olisi tulkintaa: havainto on, että pelaaja kuoli ja
+    että ampuja oli tietyllä alueella. Teamkill on harvinainen (1 kpl 591
+    kuolemasta, mitattu 2026-08-30), mutta jos se joskus näkyy raportin
+    luvussa, se näkyy siksi että se tapahtui.
+
+    **Itsemurha ei ole tappo.** Jos ampuja ja uhri ovat sama pelaaja, rivi on
+    oma kuolema muttei oma tappo. Se ei ole tulkinta vaan sama havainto
+    luettuna oikein: "tapot alueittain" kertoo, **mistä joukkue ampuu**, ja
+    itsemurhan alue on paikka, josta kukaan ei ampunut. Mitattu aineistossa
+    0/591, joten vika olisi ollut latentti -- ja siksi se on kirjoitettu
+    säännöksi eikä jätetty tapahtumatta.
+    """
+
+    #: Kierrokset, joilla joukkue menetti vähintään yhden pelaajan.
+    m: int = Field(ge=0)
+    #: Kierrokset, joilla joukkue ei menettänyt yhtäkään pelaajaa.
+    rounds_missing: int = Field(ge=0)
+    #: Ensimmäisen oman kuoleman ajoituksen mediaani sekunteina, tai ``null``
+    #: jos yhdeltäkään kierrokselta ei saatu ajoitusta.
+    first_death_seconds_median: float | None = None
+    first_death_areas: list[FirstDeathArea] = Field(default_factory=list)
+    #: Joukkueen omat tapot yhteensä. Tämä on ``kills``-listan nimittäjä.
+    kills_total: int = Field(default=0, ge=0)
+    kills: list[KillArea] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_first_death_sample(self) -> DeathReport:
+        """``Σ n = m`` ja jokainen alue jakaa saman otannan.
+
+        Ilman jälkimmäistä kaksi aluetta voisi väittää eri nimittäjää, ja
+        raportin kaksi lukua samasta jakaumasta eivät olisi vertailukelpoisia.
+        """
+        for entry in self.first_death_areas:
+            if entry.m != self.m:
+                raise AggregateError(
+                    f"Ensimmäisen kuoleman alue {entry.area!r} väittää "
+                    f"otannakseen {entry.m}, mutta kierroksia joilla joukkue "
+                    f"menetti pelaajan on {self.m}."
+                )
+        total = sum(entry.n for entry in self.first_death_areas)
+        if total != self.m:
+            raise AggregateError(
+                "Otanta ei täsmää ensimmäisen kuoleman alueissa: n-arvojen "
+                f"summa on {total}, mutta kierroksia joilla joukkue menetti "
+                f"pelaajan on {self.m}.\n"
+                "Jokaisella sellaisella kierroksella on täsmälleen yksi "
+                "ensimmäinen kuolema, joten summan on oltava sama luku."
+            )
+        seen = [entry.area for entry in self.first_death_areas]
+        if len(seen) != len(set(seen)):
+            raise ValueError(
+                "Ensimmäisen kuoleman jakaumassa on sama alue kahdesti."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_kill_sample(self) -> DeathReport:
+        """``Σ n = kills_total``, ja nimittäjä on tappoja eikä kierroksia."""
+        for entry in self.kills:
+            if entry.m != self.kills_total:
+                raise AggregateError(
+                    f"Tappoalue {entry.area!r} väittää otannakseen "
+                    f"{entry.m}, mutta tappoja on {self.kills_total}."
+                )
+        total = sum(entry.n for entry in self.kills)
+        if total != self.kills_total:
+            raise AggregateError(
+                "Otanta ei täsmää tappoalueissa: n-arvojen summa on "
+                f"{total}, mutta tappoja on {self.kills_total}.\n"
+                "Jokainen tappo kuuluu täsmälleen yhdelle alueelle -- myös "
+                "silloin, kun alue on tuntematon."
+            )
+        seen = [entry.area for entry in self.kills]
+        if len(seen) != len(set(seen)):
+            raise ValueError("Tappojakaumassa on sama alue kahdesti.")
+        return self
+
+    @model_validator(mode="after")
+    def _check_median_has_a_sample(self) -> DeathReport:
+        """Mediaani ilman yhtäkään kuolemaa olisi luku tyhjästä."""
+        if self.first_death_seconds_median is not None and self.m == 0:
+            raise AggregateError(
+                "Ensimmäisen kuoleman mediaani on "
+                f"{self.first_death_seconds_median}, mutta yhdelläkään "
+                "kierroksella ei kuollut ketään. Mediaani ilman havaintoja "
+                "olisi luku tyhjästä."
+            )
+        return self
+
+
 class RoundTypeReport(_Node):
     """Yhden kierrostyypin kaikki havainnot yhdellä kartalla ja puolella.
 
@@ -530,6 +707,38 @@ class RoundTypeReport(_Node):
     utility_counts: list[UtilityCounts]
     players_armed: ArmedPlayers
     first_contact: list[FirstContactArea]
+    #: Omat kuolemat ja tapot. Ei oletusta: tyhjä oletus antaisi vanhalla
+    #: versiolla lasketun haaran näyttää kierrostyypiltä, jolla kukaan ei
+    #: kuollut -- ja juuri se on ero, jonka skeemaversio erottaa.
+    deaths: DeathReport
+
+    @model_validator(mode="after")
+    def _check_deaths_cover_the_rounds(self) -> RoundTypeReport:
+        """Kuolemien kierrokset ovat täsmälleen kierrostyypin kierrokset.
+
+        ``Σ n = m`` valvotaan :class:`DeathReport`in sisällä, mutta se pitää
+        myös silloin kun ``m`` on laskettu **väärästä kierrosjoukosta**:
+        jakauma olisi sisäisesti johdonmukainen ja hiljaa väärä. Jokainen muu
+        taso tarkistaa kierrossummansa ylöspäin (:func:`_check_rounds_add_up`),
+        ja tämä on kuolemien vastine sille.
+
+        Raises:
+            AggregateError: Jos kuolleet ja kuolemattomat kierrokset eivät
+                yhdessä ole kierrostyypin otanta.
+        """
+        covered = self.deaths.m + self.deaths.rounds_missing
+        if covered != self.sample.rounds:
+            raise AggregateError(
+                f"Kierrostyypin {self.round_type} kuolemat kattavat "
+                f"{covered} kierrosta ({self.deaths.m} joilla joukkue "
+                f"menetti pelaajan, {self.deaths.rounds_missing} joilla ei), "
+                f"mutta kierrostyypin otanta on {self.sample.rounds} "
+                "kierrosta.\n"
+                "Ero tarkoittaa, että kuolemat on laskettu eri "
+                "kierrosjoukosta kuin muut havainnot -- jakauma näyttäisi "
+                "silti sisäisesti oikealta."
+            )
+        return self
 
 
 class SideReport(_Node):

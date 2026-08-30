@@ -19,7 +19,7 @@ from typing import Protocol, runtime_checkable
 import polars as pl
 
 from pappascout.domain.rounds import REQUIRED_COLUMNS as _NUMBERING_COLUMNS
-from pappascout.domain.schemas import EVENTS, LINEUPS, ROUNDS, TICKS
+from pappascout.domain.schemas import DEATHS, EVENTS, LINEUPS, ROUNDS, TICKS
 
 __all__ = [
     "DemoParser",
@@ -29,6 +29,7 @@ __all__ = [
     "TICKS_ADAPTER_COLUMNS",
     "EVENTS_ADAPTER_COLUMNS",
     "LINEUPS_ADAPTER_COLUMNS",
+    "DEATHS_ADAPTER_COLUMNS",
 ]
 
 #: Sarakkeet, jotka kierrostaulussa ovat **tarkalleen** -- ei enempää eikä
@@ -86,6 +87,19 @@ LINEUPS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
     name for name in LINEUPS if name != "map_demo_id"
 )
 
+#: Sarakkeet, jotka kuolemataulussa ovat **tarkalleen** -- ei enempää eikä
+#: vähempää.
+#:
+#: Sama kaksi poikkeusta kuin näytepiste- ja tapahtumataulussa:
+#: ``map_demo_id`` puuttuu ja ``round_no`` on mukana mutta **aina tyhjä**.
+#: Adapteri tuntee vain demon oman ``round_raw``-laskurin, ja numeroinnin
+#: omistaa :func:`~pappascout.domain.rounds.mark_played_rounds`. Juuri siksi
+#: puukkokierroksen kuolemat -- joita aineistossa oikeasti on -- putoavat
+#: samalla mekanismilla kuin sen näytepisteet ja kranaatit eivätkä erikseen.
+DEATHS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
+    name for name in DEATHS if name != "map_demo_id"
+)
+
 
 @dataclass(frozen=True)
 class DemoTables:
@@ -111,12 +125,18 @@ class DemoTables:
             klaaninimensä. Kenttä on pakollinen samasta syystä kuin
             ``events``: tyhjä oletus antaisi nimettömän portin näyttää
             demolta, jossa nimiä ei ole.
+        deaths: Kuolemataulu, sarakkeet :data:`DEATHS_ADAPTER_COLUMNS`. Rivi
+            per kuolema, uhri ja ampuja molemmat alueineen. Kenttä on
+            pakollinen samasta syystä kuin kaksi edellistä: tyhjä oletus
+            antaisi vanhan portin toteutuksen näyttää demolta, jossa kukaan ei
+            kuollut.
     """
 
     rounds: pl.DataFrame
     ticks: pl.DataFrame
     events: pl.DataFrame
     lineups: pl.DataFrame
+    deaths: pl.DataFrame
 
 
 @dataclass(frozen=True)
@@ -265,6 +285,32 @@ class ParseDiagnostics:
             rikkoutunut oletus näyttäisi taulussa täsmälleen samalta kuin ehjä.
             Nollasta poikkeava luku on siis se oire, josta puolen kautta
             lukemisen ansan varoitus puhuu.
+        deaths_without_tick: Kuolemat, joilta tick ei ollut luettavissa.
+            Ilman tickiä kuolemaa ei voi kohdistaa kierrokseen eikä laskea
+            ``t_s``:ää. Nolla on odotusarvo; luku on olemassa siksi, että
+            jokainen muu pudotussyy raportoidaan eikä tämä saa olla poikkeus.
+        deaths_outside_rounds: Kuolemat, jotka eivät osu yhdenkään kierroksen
+            rajojen sisään -- lämmittely ennen ensimmäistä ankkuria tai
+            kuolema kierroksen ratkeamisen ja seuraavan ostoajan välissä.
+            Niille ei ole ``t_s``:ää, joten niitä ei voi kohdistaa mihinkään
+            kierrokseen. **Eri asia kuin puukkokierroksen kuolemat**: ne ovat
+            kierroksen sisällä, saavat ``round_raw``:nsa ja putoavat vasta
+            ``stages.parse``in numeroinnissa muiden taulujen mukana.
+        deaths_without_victim: Kuolemat **ilman uhria**: tapahtumalta
+            puuttuu ``user_steamid`` kokonaan. Eri asia kuin puuttuva puoli,
+            ja siksi oma lukunsa -- yhdistettynä se näyttäisi puolen
+            päättelyn vialta, jota ei ole.
+        deaths_without_victim_side: Kuolemat, joiden uhri tunnetaan mutta
+            joiden puolta ei saatu selville sen paremmin kokoonpanosta,
+            kierroksen omasta tickistä kuin tapahtuman ``user_team_num``
+            -kentästä. Rivi pudotetaan: ``victim_lineup_key`` on koko taulun
+            liitosavain, ja ilman sitä kuolema ei kuulu kenellekään.
+        deaths_attacker_without_side: Kuolemat, joiden **ampujan** puolta ei
+            saatu selville, vaikka ampuja tunnetaan. Rivi säilyy ja ampujan
+            havainnot (tunniste, koordinaatit, alue) sen mukana; vain
+            ``attacker_side`` ja ``attacker_lineup_key`` jäävät tyhjiksi.
+            Pudottaminen veisi uhrin kuoleman mukanaan, ja ampujan
+            tyhjentäminen hukkaisi havainnon, joka on luettavissa.
         armed_unreadable_rows: Joukkuerivit, joilla kalustolaskuri jäi tyhjäksi
             siksi, että jonkun pelaajan panssari tai tavaraluettelo ei ollut
             luettavissa. **Vika eikä havainto**: ankkurittomat kierrokset
@@ -311,6 +357,11 @@ class ParseDiagnostics:
     unknown_inventory_items: tuple[tuple[str, int], ...] = ()
     lineup_name_conflicts: int = 0
     lineup_clan_conflicts: int = 0
+    deaths_without_tick: int = 0
+    deaths_outside_rounds: int = 0
+    deaths_without_victim: int = 0
+    deaths_without_victim_side: int = 0
+    deaths_attacker_without_side: int = 0
     armed_unreadable_rows: int = 0
     buy_window_seconds: float | None = None
     buy_window_cuts: tuple[tuple[int, int], ...] = ()
@@ -324,7 +375,7 @@ class ParseDiagnostics:
 
 @runtime_checkable
 class DemoParser(Protocol):
-    """Portti, joka lukee demosta kierros-, näytepiste- ja tapahtumataulun.
+    """Portti, joka lukee demosta kaikki viisi taulua.
 
     Toteutuksen on palautettava **havaitut** arvot sellaisenaan: ei
     kierrostyyppiluokittelua, ei loss countia, ei aggregointia, ei muuta
@@ -375,10 +426,20 @@ class DemoParser(Protocol):
             merkkijono ole nimi. Klaani luetaan pelaajakohtaisesti eikä puolen
             kautta -- puoli vaihtaa joukkuetta puoliajalla.
 
-            ``round_no`` on ``rounds``-, ``ticks``- ja ``events``-tauluissa
-            kaikilla riveillä ``null`` -- numeroinnin päättää
-            ``domain.rounds.mark_played_rounds``, jota vain ``stages.parse``
-            kutsuu. ``lineups``-taulussa saraketta ei ole lainkaan.
+            ``deaths`` on rivi per kuolema, sarakkeet täsmälleen
+            :data:`DEATHS_ADAPTER_COLUMNS`. Uhrin ja ampujan alue ovat
+            **havaintoja** samalta tapahtumalta eivätkä napsautuksia, joten
+            taulussa ei ole ``area_source``ia. Ampujaton kuolema (putoaminen,
+            pommi) on aito tapaus: jokainen ``attacker_*`` on silloin ``null``
+            eikä riviä pudoteta. Tyhjä taulu ei ole kelvollinen tulos --
+            pelatussa ottelussa kuollaan, joten tyhjä taulu tarkoittaa
+            rikkinäistä porttia.
+
+            ``round_no`` on ``rounds``-, ``ticks``-, ``events``- ja
+            ``deaths``-tauluissa kaikilla riveillä ``null`` -- numeroinnin
+            päättää ``domain.rounds.mark_played_rounds``, jota vain
+            ``stages.parse`` kutsuu. ``lineups``-taulussa saraketta ei ole
+            lainkaan.
 
         Raises:
             ~pappascout.errors.ParseError: Jos tiedosto ei ole CS2-demo tai

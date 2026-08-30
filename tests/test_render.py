@@ -33,8 +33,11 @@ from pappascout.domain.report import (
     AreaDistribution,
     ArmedCount,
     ArmedPlayers,
+    DeathReport,
     FirstContactArea,
+    FirstDeathArea,
     GrenadeCount,
+    KillArea,
     MapReport,
     MissingDemo,
     PlayersCount,
@@ -50,6 +53,8 @@ from pappascout.domain.report import (
     UtilityUse,
     slugify,
 )
+from pappascout.errors import PappascoutError
+from pappascout.render import view as view_module
 from pappascout.render import (
     build_view,
     render_report,
@@ -60,9 +65,11 @@ from pappascout.render import (
 from pappascout.render.view import (
     GRENADE_ORDER,
     GRENADE_TYPE_FI,
+    MAX_DEATH_LINES,
     PATTERN_ROUND_TYPES,
     ROUND_TYPE_ORDER,
     UNKNOWN_AREA,
+    Claim,
     pattern_min_rounds,
 )
 
@@ -183,6 +190,39 @@ def use(
     )
 
 
+def deaths(
+    *,
+    first: dict[str | None, int] | None = None,
+    rounds_missing: int = 0,
+    median: float | None = None,
+    kills: dict[str | None, int] | None = None,
+) -> DeathReport:
+    """Kuolemaosuus raporttiin.
+
+    ``first`` on alue -> kierrokset, ``kills`` alue -> tapot. Nimittäjät
+    lasketaan summista, koska juuri se on mallin sopimus: ensimmäisen
+    kuoleman jakauman ``m`` on kierroksia ja tappojakauman ``m`` tappoja.
+
+    ``rounds_missing`` on annettava niin, että ``m + rounds_missing`` on
+    kierrostyypin otanta -- malli tarkistaa sen. :func:`round_type` täyttää
+    sen puolestasi, kun kuolemaosuutta ei anneta.
+    """
+    first = first or {}
+    kills = kills or {}
+    m = sum(first.values())
+    total = sum(kills.values())
+    return DeathReport(
+        m=m,
+        rounds_missing=rounds_missing,
+        first_death_seconds_median=median,
+        first_death_areas=[
+            FirstDeathArea(area=area, n=n, m=m) for area, n in first.items() if n
+        ],
+        kills_total=total,
+        kills=[KillArea(area=area, n=n, m=total) for area, n in kills.items() if n],
+    )
+
+
 def round_type(
     name: str,
     rounds: int,
@@ -192,6 +232,7 @@ def round_type(
     utility_counts: list[UtilityCounts] | None = None,
     players_armed: ArmedPlayers | None = None,
     first_contact: list[FirstContactArea] | None = None,
+    death_report: DeathReport | None = None,
     small_sample: bool | None = None,
 ) -> RoundTypeReport:
     return RoundTypeReport(
@@ -203,6 +244,13 @@ def round_type(
         utility_counts=utility_counts or [],
         players_armed=players_armed or armed(0, {}),
         first_contact=first_contact or [],
+        # Ilman kuolemia jokainen kierros on "ei omia kuolemia" -- ja mallin
+        # ristiintarkistus vaatii, että kuolemat kattavat koko otannan.
+        deaths=(
+            death_report
+            if death_report is not None
+            else deaths(rounds_missing=rounds)
+        ),
     )
 
 
@@ -740,14 +788,31 @@ def test_a_round_type_that_does_not_exist_gets_no_empty_heading() -> None:
 
 
 def test_a_round_type_without_observations_says_so_rather_than_going_silent() -> None:
-    """Kierrostyyppi ilman havaintoja ja kynnyksen syömä lohko ovat eri asia."""
-    empty = map_report(
+    """Kierrostyyppi ilman havaintoja ja kynnyksen syömä lohko ovat eri asia.
+
+    Kierrosmäärä on itsessään havainto: jos kierroksia on, joukkue joko
+    menetti pelaajia tai ei, ja kummastakin kerrotaan. "Ei havaintoja" on
+    siksi varattu lohkolle, jolla ei ole yhtään kierrosta -- muuten se
+    väittäisi tietämättömyyttä tilanteessa, josta tiedetään jotain.
+    """
+    nothing = map_report(
         "de_nuke",
-        [side("T", [round_type("eco", 4), round_type("full", 8)])],
+        [side("T", [round_type("eco", 0)])],
     )
-    text = render(report([empty]))
-    assert "Ei havaintoja tältä kierrostyypiltä." in text
-    assert "Ei kuvioita, jotka ylittäisivät kynnyksen." in text
+    assert "Ei havaintoja tältä kierrostyypiltä." in render(report([nothing]))
+
+    # Sama lohko kierroksineen kertoo, ettei kukaan kuollut -- eikä väitä
+    # olevansa havainnoton.
+    played = map_report("de_nuke", [side("T", [round_type("eco", 4)])])
+    text = render(report([played]))
+    assert "ei omia kuolemia 4 kierroksella" in text
+    assert "Ei havaintoja tältä kierrostyypiltä." not in text
+
+    # Täysillä ostoilla suodatussääntö kerrotaan yhä, vaikka lohkossa on rivi.
+    default = map_report("de_nuke", [side("T", [round_type("full", 8)])])
+    assert "Vain kuviot, jotka toistuvat vähintään 3 kierroksella" in render(
+        report([default])
+    )
 
 
 def test_a_side_without_round_types_is_not_a_bare_heading() -> None:
@@ -1384,6 +1449,8 @@ GOLDEN = """\
 - 6 s: Ramp 2 (1/4 kierroksesta)
 - ensikontakti (mediaani 9,1 s): Ramp 1 (2/4 kierroksesta)
 - utility: savu 1 kpl (1/4 kierroksesta)
+- ensimmäinen kuolema (mediaani 24,0 s): Cave (2/3 kierroksesta), Long (1/3 kierroksesta) -- ei omia kuolemia 1 kierroksella
+- tapot alueittain: Middle (4/6 taposta), BombsiteB (2/6 taposta)
 
 ## Kierrosliite
 
@@ -1395,6 +1462,7 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 
 - Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on kierrokset, joissa havainto tehtiin, m kyseisen kierrostyypin kaikki kierrokset.
 - Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui.
+- Tapot alueittain: alue on **ampujan** oma alue tappohetkellä, ja otanta (n/m taposta) laskee tappoja eikä kierroksia -- kierrostyypillä on yleensä enemmän tappoja kuin kierroksia.
 - Raportti kuvaa vain havainnot. Tulkinta ja vastastrategia ovat lukijan.
 """
 
@@ -1415,6 +1483,16 @@ def golden_report() -> Report:
                             first_contact_position([area("Ramp", 4, {1: 2, 0: 2})], 4),
                         ],
                         utility_counts=[counts("smoke", 4, {1: 1, 0: 3})],
+                        # Kuolemat ovat mukana, koska juuri tämä kiinnike
+                        # lukitsee dokumentin muodon: ilman niitä rivien
+                        # paikka, huomautus ja uusi lukuohjekappale eivät
+                        # olisi missään lukittuja.
+                        death_report=deaths(
+                            first={"Cave": 2, "Long": 1},
+                            rounds_missing=1,
+                            median=24.0,
+                            kills={"Middle": 4, "BombsiteB": 2},
+                        ),
                     )
                 ],
             )
@@ -1425,3 +1503,228 @@ def golden_report() -> Report:
 
 def test_the_whole_document_matches_the_golden_output() -> None:
     assert render(golden_report()) == GOLDEN
+
+
+# --- Kuolemat ja tapot (Story 2.7) ---------------------------------------------
+
+
+#: Kierroksia :func:`death_report`in lohkossa.
+DEATH_ROUNDS = 4
+
+
+def death_report(**kwargs) -> Report:
+    """Yhden pistoolikierroslohkon raportti annetulla kuolemaosuudella.
+
+    ``rounds_missing`` täytetään niin, että kuolemat kattavat koko otannan --
+    muuten mallin ristiintarkistus hylkäisi jokaisen kutsun, jossa
+    kuolemattomia kierroksia ei ole laskettu käsin.
+    """
+    kwargs.setdefault(
+        "rounds_missing", DEATH_ROUNDS - sum((kwargs.get("first") or {}).values())
+    )
+    entry = round_type(
+        "pistol", DEATH_ROUNDS, death_report=deaths(**kwargs)
+    )
+    return report([map_report("de_ancient", [side("CT", [entry])])])
+
+
+def test_a_round_type_gets_at_most_two_death_lines() -> None:
+    """Rajaus: enintään kaksi riviä kierrostyyppiä kohden.
+
+    Raportti on jo satoja rivejä, ja kuolemat lisättiin selittämään muita
+    rivejä eivätkä olemaan oma lukunsa. Rivit lasketaan **luetteloriveistä**,
+    ei merkkijonohaulla: näkymä on se, jota malli latoo.
+    """
+    view = build_view(
+        death_report(
+            first={"Cave": 3, "Long": 1},
+            median=24.0,
+            kills={"Middle": 4, "BombsiteB": 2},
+        )
+    )
+    lines = view.maps[0].sides[0].round_types[0].lines
+    labels = [line.label for line in lines]
+    # Kaksi literaalina eikä vakiona: vakio verrattuna itseensä on tautologia,
+    # joka menisi läpi myös silloin kun raja nostetaan vahingossa. Sama sääntö
+    # kuin skeemaversion pinnauksella.
+    assert len(lines) == 2
+    assert MAX_DEATH_LINES == 2
+    assert labels == ["ensimmäinen kuolema (mediaani 24,0 s)", "tapot alueittain"]
+
+
+def test_the_first_death_line_reads_like_the_target_analysis() -> None:
+    """*"Ensimmäinen kuolema mediaani 24 s, useimmin Cave (3/4 kierroksesta)"*."""
+    text = render(death_report(first={"Cave": 3, "Long": 1}, median=24.0))
+    assert "- ensimmäinen kuolema (mediaani 24,0 s): Cave (3/4 kierroksesta)" in text
+    assert "Long (1/4 kierroksesta)" in text
+
+
+def test_the_kill_line_reads_like_the_target_analysis() -> None:
+    """*"Tapot: Middle 4, BombsiteB 2"* -- alue ja määrä, suurin ensin."""
+    text = render(death_report(kills={"BombsiteB": 2, "Middle": 4}))
+    assert (
+        "- tapot alueittain: Middle (4/6 taposta), BombsiteB (2/6 taposta)"
+        in text
+    )
+
+
+def test_the_kill_sample_is_kills_not_rounds() -> None:
+    """Nimittäjä on tappoja, ja rivi sanoo sen itse.
+
+    Rivi luetaan yksinään, kaukana lukuohjeesta. "4/6 kierroksesta" olisi
+    neljän kierroksen lohkossa suoraan mahdoton lause.
+    """
+    view = build_view(death_report(kills={"Middle": 4, "BombsiteB": 2}))
+    line = next(
+        line
+        for line in view.maps[0].sides[0].round_types[0].lines
+        if line.label == "tapot alueittain"
+    )
+    assert [c.unit for c in line.claims] == ["taposta", "taposta"]
+    assert [c.sample_text for c in line.claims] == [
+        "4/6 taposta",
+        "2/6 taposta",
+    ]
+
+
+def test_every_other_claim_still_counts_rounds() -> None:
+    """Yksikkö on poikkeus eikä uusi oletus."""
+    assert Claim(text="Cave", n=1, m=2).sample_text == "1/2 kierroksesta"
+
+
+def test_rounds_without_an_own_death_are_said_out_loud() -> None:
+    """Kierros, jolla joukkue ei menettänyt ketään, ei katoa hiljaa."""
+    text = render(death_report(first={"Cave": 2}, median=20.0, rounds_missing=2))
+    assert "ei omia kuolemia 2 kierroksella" in text
+
+
+def test_a_first_death_line_without_a_median_is_still_labelled() -> None:
+    """Ajoituksen puuttuminen ei saa viedä aluetta."""
+    view = build_view(death_report(first={"Cave": 1}))
+    assert (
+        view.maps[0].sides[0].round_types[0].lines[0].label
+        == "ensimmäinen kuolema"
+    )
+
+
+def test_a_round_type_where_nobody_died_still_says_so() -> None:
+    """"Ei omia kuolemia 4 kierroksella" on **havainto**, ei tyhjyys.
+
+    Se kertoo, ettei joukkue menettänyt ketään -- eri asia kuin se, ettei
+    kierrostyypistä tiedetä mitään. Rivi on siis pelkkä otsikko ja huomautus
+    ilman yhtään väitettä, ja juuri se on sääntö: rivi kirjoitetaan kun
+    sillä on väite **tai** havainto.
+    """
+    view = build_view(death_report())
+    lines = view.maps[0].sides[0].round_types[0].lines
+
+    assert [line.label for line in lines] == ["ensimmäinen kuolema"]
+    assert lines[0].claims == ()
+    assert lines[0].note == "ei omia kuolemia 4 kierroksella"
+
+
+def test_a_round_type_without_rounds_gets_no_death_line_at_all() -> None:
+    """Vartijan toinen haara: pelkkä otsikko ilman kumpaakaan ei kelpaa.
+
+    Ilman tätä edellinen testi lukisi kuin rivi kirjoitettaisiin aina.
+    """
+    entry = round_type("pistol", 0, death_report=deaths())
+    view = build_view(report([map_report("de_ancient", [side("CT", [entry])])]))
+
+    assert view.maps[0].sides[0].round_types[0].lines == ()
+
+
+def test_the_kill_line_stands_on_its_own_without_any_deaths() -> None:
+    """Tapporivi ei tarvitse kuolemariviä seurakseen.
+
+    Kierrostyyppi, jolla joukkue tappoi mutta ei menettänyt ketään, on
+    tavallinen -- eikä tapporivi saa kadota siksi, että ensimmäisen kuoleman
+    rivillä ei ole väitteitä.
+    """
+    view = build_view(death_report(kills={"Middle": 2}))
+    labels = [line.label for line in view.maps[0].sides[0].round_types[0].lines]
+
+    assert labels == ["ensimmäinen kuolema", "tapot alueittain"]
+
+
+def test_an_unknown_first_death_area_is_named_and_explained() -> None:
+    """Tuntematon sijainti on eri asia kuin tyhjä alue -- ja se selitetään.
+
+    Pelkkä ``UNKNOWN_AREA in text`` ei todistaisi selitystä: ``_area(None)``
+    palauttaa juuri sen merkkijonon **väitteen tekstiksi**, joten väite
+    menisi läpi vaikka lippu jäisi nostamatta. Legendalause on eri
+    merkkijono, ja vain se kertoo lukijalle mitä nimi tarkoittaa.
+    """
+    text = render(death_report(first={None: 1}, median=9.0))
+    assert f"- ensimmäinen kuolema (mediaani 9,0 s): {UNKNOWN_AREA} " in text
+    assert "pelin aluenimeä ei saatu" in text
+
+
+def test_an_unknown_kill_area_is_named_and_explained() -> None:
+    """Sama tappojen puolella: alueeton tappo ei putoa eikä jää selittämättä.
+
+    Oma testinsä, koska lipun nostaa eri rivi kuin ensimmäisen kuoleman
+    kohdalla -- yhteinen testi jättäisi toisen suorittamatta.
+    """
+    text = render(death_report(kills={None: 2}))
+    assert f"- tapot alueittain: {UNKNOWN_AREA} (2/2 taposta)" in text
+    assert "pelin aluenimeä ei saatu" in text
+
+
+def test_the_unknown_area_note_stays_away_when_every_death_area_is_known() -> None:
+    """Selitys ilman tapausta olisi lukuohje asiasta, jota raportissa ei ole."""
+    text = render(death_report(first={"Cave": 1}, median=9.0, kills={"Middle": 1}))
+    assert "pelin aluenimeä ei saatu" not in text
+
+
+def test_the_kill_note_explains_the_denominator() -> None:
+    """Lukuohje kertoo kerran, mistä tappojen nimittäjä tulee."""
+    text = render(death_report(kills={"Middle": 2}))
+    assert "laskee tappoja eikä kierroksia" in text
+    assert "ampujan" in text
+
+
+def test_the_kill_note_is_absent_when_no_kill_line_was_written() -> None:
+    """Selitys ilman riviä olisi lukuohje asiasta, jota raportissa ei ole."""
+    text = render(death_report(first={"Cave": 1}, median=9.0))
+    assert "laskee tappoja eikä kierroksia" not in text
+
+
+def test_the_pattern_threshold_also_applies_to_deaths() -> None:
+    """Täysillä ostoilla kerrotaan vain toistuvat kuviot -- myös kuolemista."""
+    entry = round_type(
+        "full",
+        10,
+        death_report=deaths(
+            first={"Cave": 4, "Long": 1},
+            rounds_missing=5,
+            median=20.0,
+            kills={"Middle": 5, "Pit": 1},
+        ),
+    )
+    text = render(report([map_report("de_ancient", [side("CT", [entry])])]))
+    assert "Cave (4/5 kierroksesta)" in text
+    assert "Long" not in text
+    assert "Middle (5/6 taposta)" in text
+    assert "Pit" not in text
+    assert "harvinaisempaa havaintoa jäi pois" in text
+
+
+def test_saving_rounds_keep_every_death_observation() -> None:
+    """Säästökierroksilla jokainen havainto kirjoitetaan."""
+    text = render(death_report(first={"Cave": 3, "Long": 1}, median=20.0))
+    assert "Cave" in text and "Long" in text
+
+
+def test_exceeding_the_death_line_limit_is_an_error_not_a_quiet_growth(
+    monkeypatch,
+) -> None:
+    """Vartija on olemassa ja puree.
+
+    Rajan ylitys ei voi syntyä nykyisellä koodilla, joten se rakennetaan
+    laskemalla raja alas. Ilman tätä testiä vartija olisi väite, jota mikään
+    ei todenna -- ja sellainen vartija katoaa seuraavassa muokkauksessa.
+    """
+    monkeypatch.setattr(view_module, "MAX_DEATH_LINES", 1)
+    with pytest.raises(PappascoutError, match="Kuolemarivejä syntyi 2"):
+        build_view(death_report(first={"Cave": 1}, median=9.0, kills={"Middle": 1}))

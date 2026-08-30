@@ -117,6 +117,7 @@ class FakeDemoparser2:
         rounds_model: list["Kierros"] | None = None,
         grenades: list[dict[str, Any]] | None = None,
         drop_grenade_columns: tuple[str, ...] = (),
+        drop_death_columns: tuple[str, ...] = (),
     ) -> None:
         self.freeze_ticks = freeze_ticks
         self.round_ends = round_ends
@@ -126,11 +127,21 @@ class FakeDemoparser2:
         self.rounds_model = rounds_model or []
         self.grenades = grenades or []
         self.drop_grenade_columns = drop_grenade_columns
+        #: Sarakkeet, jotka pudotetaan ``player_death``-tuloksesta. Kirjaston
+        #: uudelleennimeäminen näkyy juuri näin: tapahtuma tulee, mutta
+        #: pyydettyä pelaajakenttää ei ole.
+        self.drop_death_columns = drop_death_columns
+        #: Tapahtumakutsut pareina ``(nimi, pyydetyt pelaajakentät)``, jotta
+        #: testi voi todeta ettei ``player_death``ia luettu kahdesti.
+        self.event_calls: list[tuple[str, tuple[str, ...]]] = []
         #: Propilistat kutsujärjestyksessä -- testi voi todeta, ettei koko
         #: tickisarjaa luettu.
         self.tick_calls: list[tuple[tuple[str, ...], tuple[int, ...]]] = []
 
-    def parse_event(self, name: str) -> pd.DataFrame:
+    def parse_event(
+        self, name: str, *, player: list[str] | None = None
+    ) -> pd.DataFrame:
+        self.event_calls.append((name, tuple(player or ())))
         if name == "round_freeze_end":
             return pd.DataFrame({"tick": list(self.freeze_ticks)})
         if name == "round_end":
@@ -138,7 +149,12 @@ class FakeDemoparser2:
             dummy = {"reason": None, "round": 0, "tick": 1, "winner": None}
             return pd.DataFrame([dummy, *self.round_ends])
         if name in self.events:
-            return pd.DataFrame(self.events[name])
+            frame = pd.DataFrame(self.events[name])
+            if name == "player_death":
+                for column in self.drop_death_columns:
+                    if column in frame.columns:
+                        frame = frame.drop(columns=[column])
+            return frame
         return pd.DataFrame()
 
     def parse_grenades(self) -> pd.DataFrame:
@@ -353,10 +369,27 @@ class Round:
     hurt: list[tuple[int, str | None, str | None, str | None]] = field(
         default_factory=list
     )
-    #: Kuolemat samassa muodossa; ensikontaktin varalähde.
+    #: Kuolemat samassa muodossa; ensikontaktin varalähde **ja**
+    #: kuolemataulun lähde. Pelaajakohtaiset kentät (alue, koordinaatit,
+    #: puoli) johdetaan pelaajasta samalla kaavalla kuin näytepisteissä, jotta
+    #: taulut eivät ole eri mieltä siitä missä kukin oli.
     deaths: list[tuple[int, str | None, str | None, str | None]] = field(
         default_factory=list
     )
+    #: Pelaajakohtainen alue **kuolinhetkellä**, ohittaa näytepisteen alueen.
+    #: Arvo ``None`` = peli ei antanut aluenimeä; se tulee demosta tyhjänä
+    #: merkkijonona. Tarvitaan, kun testin on erotettava uhrin alue ampujan
+    #: alueesta tai näytettävä puuttuva alue.
+    death_areas: dict[str, str | None] = field(default_factory=dict)
+    #: Raa'at kentät, jotka kirjoitetaan **jokaisen** tämän kierroksen
+    #: kuolemarivin päälle. Tarvitaan silloin, kun testin on rakennettava
+    #: kirjaston tuottama poikkeava rivi, jota tavallinen johdos ei tuota --
+    #: esimerkiksi ampujaton kuolema, jolla on silti ampujan alue.
+    death_row_overrides: dict[str, Any] = field(default_factory=dict)
+    #: Pelaajakohtainen ``team_num`` kuolintapahtumassa, ohittaa puolesta
+    #: johdetun arvon. ``None`` = katsoja tai tuntematon; se on ainoa tapa
+    #: rakentaa kuolema, jonka puolta ei saa selville mistään.
+    death_teams: dict[str, int | None] = field(default_factory=dict)
 
     # -- Utility --
     #: Heitetyt kranaatit
@@ -494,6 +527,63 @@ def _rows(
     return rows
 
 
+def _death_player_fields(
+    round_spec: Round, steamid: str | None, prefix: str
+) -> dict[str, Any]:
+    """Yhden pelaajan kentät kuolintapahtumassa, etuliitteellä varustettuna.
+
+    Kirjasto palauttaa pyydetyt kentät etuliitteillä ``user_`` ja
+    ``attacker_``, ja **ampujaton kuolema jättää jokaisen ampujakentän
+    tyhjäksi** -- juuri niin kuin putoaminen ja pommi oikeassa demossa.
+
+    Alue ja koordinaatit johdetaan samasta kaavasta kuin näytepisteissä, jotta
+    kuolemataulu ja näytepistetaulu eivät voi olla eri mieltä siitä, missä
+    pelaaja oli. Poikkeukset annetaan :attr:`Round.death_areas`illa ja
+    :attr:`Round.death_teams`illa.
+    """
+    fields: dict[str, Any] = {
+        f"{prefix}_last_place_name": None,
+        f"{prefix}_X": None,
+        f"{prefix}_Y": None,
+        f"{prefix}_Z": None,
+        f"{prefix}_team_num": None,
+    }
+    if steamid is None:
+        return fields
+
+    b_side = "CT" if round_spec.a_side == "T" else "T"
+    if steamid in round_spec.a_players:
+        side = round_spec.a_side
+        index = round_spec.a_players.index(steamid)
+        default_area = round_spec.a_area
+        height = A_SIDE_HEIGHT
+    elif steamid in round_spec.b_players:
+        side = b_side
+        index = round_spec.b_players.index(steamid)
+        default_area = round_spec.b_area
+        height = B_SIDE_HEIGHT
+    else:
+        # Pelaaja, jota kumpikaan kokoonpano ei tunne. Puoli tulee silloin
+        # vain tapahtuman omasta team_numista -- tai ei mistään.
+        fields[f"{prefix}_team_num"] = round_spec.death_teams.get(steamid)
+        area = round_spec.death_areas.get(steamid)
+        fields[f"{prefix}_last_place_name"] = "" if area is None else area
+        return fields
+
+    area = round_spec.death_areas.get(
+        steamid, round_spec.player_areas.get(steamid, default_area)
+    )
+    # Peli antaa nimettömälle alueelle tyhjän merkkijonon, ei nullia.
+    fields[f"{prefix}_last_place_name"] = "" if area is None else area
+    fields[f"{prefix}_X"] = float(100 * index)
+    fields[f"{prefix}_Y"] = float(-100 * index)
+    fields[f"{prefix}_Z"] = height
+    fields[f"{prefix}_team_num"] = round_spec.death_teams.get(
+        steamid, _SIDE_TEAM[side]
+    )
+    return fields
+
+
 def _sample_rows(round_spec: Round, tick: int) -> list[dict[str, Any]]:
     """Näytepisteen rivit: paikka, puoli ja elossaolo, ei talousarvoja.
 
@@ -555,19 +645,28 @@ def build(rounds: list[Round]) -> FakeDemoparser2:
     for round_spec in rounds:
         if round_spec.freeze_tick is not None:
             grenade_rows.extend(_grenade_rows(round_spec))
-            for target, source in (
-                (hurt_rows, round_spec.hurt),
-                (death_rows, round_spec.deaths),
-            ):
-                for offset, attacker, victim, weapon in source:
-                    target.append(
-                        {
-                            "tick": round_spec.freeze_tick + offset,
-                            "attacker_steamid": attacker,
-                            "user_steamid": victim,
-                            "weapon": weapon,
-                        }
-                    )
+            for offset, attacker, victim, weapon in round_spec.hurt:
+                hurt_rows.append(
+                    {
+                        "tick": round_spec.freeze_tick + offset,
+                        "attacker_steamid": attacker,
+                        "user_steamid": victim,
+                        "weapon": weapon,
+                    }
+                )
+            for offset, attacker, victim, weapon in round_spec.deaths:
+                row = {
+                    "tick": round_spec.freeze_tick + offset,
+                    "attacker_steamid": attacker,
+                    "user_steamid": victim,
+                    "weapon": weapon,
+                }
+                row.update(_death_player_fields(round_spec, victim, "user"))
+                row.update(
+                    _death_player_fields(round_spec, attacker, "attacker")
+                )
+                row.update(round_spec.death_row_overrides)
+                death_rows.append(row)
             freeze_ticks.append(round_spec.freeze_tick)
             tick_rows[round_spec.freeze_tick] = _rows(
                 round_spec,
@@ -4065,3 +4164,500 @@ def test_the_name_is_the_most_observed_one_and_ties_go_alphabetically(tmp_path) 
     assert _most_observed(Counter({"tertseli": 2, "Laetikko": 2})) == "Laetikko"
     assert _most_observed(Counter()) is None
     assert _most_observed(None) is None
+
+
+# --- Kuolemat (Story 2.7) ------------------------------------------------------
+
+
+def parse_deaths_table(
+    fake: FakeDemoparser2, tmp_path: Path, **kwargs
+) -> pl.DataFrame:
+    """Pelkkä kuolemataulu."""
+    return parse_tables(fake, tmp_path, **kwargs).deaths
+
+
+def death_match(**overrides: Any) -> list[Round]:
+    """Kaksi kierrosta, kummallakin yksi kuolema; puukkokierros mukana.
+
+    Uhri on kokoonpanosta A ja ampuja kokoonpanosta B, eli tavallinen tappo.
+    Puukkokierroksella kuollaan myös -- juuri se on tämän taulun ainoa
+    puukkokierrosta koskeva väite.
+    """
+    rounds = normal_match(played=2)
+    for round_spec in rounds:
+        round_spec.deaths = [(64, B_PLAYERS[1], A_PLAYERS[0], "ak47")]
+        for name, value in overrides.items():
+            setattr(round_spec, name, value)
+    return rounds
+
+
+def test_every_death_becomes_a_row_with_both_actors(tmp_path: Path) -> None:
+    """I/O-matriisi: normaali demo -> rivi per kuolema, uhri ja ampuja."""
+    df = parse_deaths_table(build(death_match()), tmp_path)
+
+    assert df.height == 3  # puukkokierros + kaksi pelattua
+    assert set(df.columns) == set(dp.DEATHS_ADAPTER_COLUMNS)
+    row = df.filter(pl.col("round_raw") == 2).to_dicts()[0]
+    assert row["victim_id"] == A_PLAYERS[0]
+    assert row["victim_side"] == "T"
+    assert row["victim_area"] == "TSpawn"
+    assert row["attacker_id"] == B_PLAYERS[1]
+    assert row["attacker_side"] == "CT"
+    assert row["attacker_area"] == "CTSpawn"
+    assert row["weapon"] == "ak47"
+
+
+def test_the_victim_area_is_an_observation_not_a_snap(tmp_path: Path) -> None:
+    """Uhrin ja ampujan alue ovat kummankin **omat**, eivät toistensa.
+
+    Napsautus lähimpään pelaajaan antaisi molemmille saman alueen. Testi
+    asettaa uhrin ja ampujan eri alueille ja vaatii, että molemmat säilyvät.
+    """
+    rounds = death_match()
+    for round_spec in rounds:
+        round_spec.death_areas = {A_PLAYERS[0]: "Cave", B_PLAYERS[1]: "Middle"}
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    assert set(df["victim_area"].to_list()) == {"Cave"}
+    assert set(df["attacker_area"].to_list()) == {"Middle"}
+
+
+def test_coordinates_reach_the_table_for_both_actors(tmp_path: Path) -> None:
+    """Koordinaatit ovat rivillä, jotta tuntematon alue ei vie sijaintia."""
+    df = parse_deaths_table(build(death_match()), tmp_path)
+    row = df.to_dicts()[0]
+
+    # A_PLAYERS[0] on indeksi 0, B_PLAYERS[1] indeksi 1 (ks. _sample_rows).
+    assert (row["victim_x"], row["victim_y"]) == (0.0, 0.0)
+    assert row["victim_z"] == A_SIDE_HEIGHT
+    assert (row["attacker_x"], row["attacker_y"]) == (100.0, -100.0)
+    assert row["attacker_z"] == B_SIDE_HEIGHT
+
+
+def test_t_s_is_measured_from_the_freeze_end_anchor(tmp_path: Path) -> None:
+    """Sama jaksotus kuin utilityllä: aika on sekunteja ankkurista."""
+    rounds = death_match()
+    for round_spec in rounds:
+        round_spec.deaths = [(128, B_PLAYERS[1], A_PLAYERS[0], "ak47")]
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    # Feikin tickrate on mitattu 64:ksi, joten 128 tickiä = 2,0 s.
+    assert set(df["t_s"].to_list()) == {2.0}
+
+
+def test_the_adapter_never_numbers_a_round(tmp_path: Path) -> None:
+    """``round_no`` on adapterilta aina tyhjä -- numeroinnin omistaa parse."""
+    df = parse_deaths_table(build(death_match()), tmp_path)
+    assert df["round_no"].null_count() == df.height
+    assert df["round_raw"].null_count() == 0
+
+
+def test_the_knife_round_produces_real_death_rows(tmp_path: Path) -> None:
+    """Puukkokierroksella kuollaan, ja adapteri tuottaa siitä rivit.
+
+    Tämä on koko pudotusmekanismin edellytys: jos adapteri suodattaisi ne
+    itse, ``stages.parse``in liitos ei tekisi mitään eikä väite
+    "sama mekanismi kuin muissa tauluissa" tarkoittaisi mitään.
+    """
+    rounds = death_match()
+    knife = rounds[0]
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    assert knife.demo_round in df["round_raw"].to_list()
+
+
+def test_a_death_without_an_attacker_keeps_its_row(tmp_path: Path) -> None:
+    """I/O-matriisi: putoaminen tai pommi -> ampujan kentät null, rivi jää."""
+    rounds = death_match()
+    for round_spec in rounds:
+        round_spec.deaths = [(64, None, A_PLAYERS[0], "planted_c4")]
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    assert df.height == 3
+    for name in (
+        "attacker_id",
+        "attacker_lineup_key",
+        "attacker_side",
+        "attacker_x",
+        "attacker_y",
+        "attacker_z",
+        "attacker_area",
+    ):
+        assert df[name].null_count() == df.height, name
+    # Uhri on silti kokonainen.
+    assert df["victim_id"].null_count() == 0
+    assert df["victim_area"].null_count() == 0
+    assert set(df["weapon"].to_list()) == {"planted_c4"}
+
+
+def test_an_attacker_without_an_area_keeps_the_rest(tmp_path: Path) -> None:
+    """I/O-matriisi: ampujan alue puuttuu -> muut ampujan kentät ennallaan."""
+    rounds = death_match()
+    for round_spec in rounds:
+        round_spec.death_areas = {B_PLAYERS[1]: None}
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    assert df["attacker_area"].null_count() == df.height
+    assert df["attacker_id"].null_count() == 0
+    assert df["attacker_side"].null_count() == 0
+    assert df["attacker_x"].null_count() == 0
+
+
+def test_a_victim_without_an_area_keeps_the_row_and_the_coordinates(
+    tmp_path: Path,
+) -> None:
+    """Tuntematon sijainti raportoidaan koordinaatteina; riviä ei pudoteta."""
+    rounds = death_match()
+    for round_spec in rounds:
+        round_spec.death_areas = {A_PLAYERS[0]: None}
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    assert df["victim_area"].null_count() == df.height
+    assert df["victim_x"].null_count() == 0
+    assert df.height == 3
+
+
+def test_a_teamkill_keeps_both_actors_in_the_same_lineup(tmp_path: Path) -> None:
+    """I/O-matriisi: oma joukkue tekijänä -> ampujan kokoonpano on uhrin."""
+    rounds = death_match()
+    for round_spec in rounds:
+        round_spec.deaths = [(64, A_PLAYERS[1], A_PLAYERS[0], "ak47")]
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    assert df["victim_lineup_key"].to_list() == df["attacker_lineup_key"].to_list()
+    assert set(df["attacker_side"].to_list()) == {"T"}
+
+
+def test_a_death_outside_every_round_is_dropped_and_counted(
+    tmp_path: Path,
+) -> None:
+    """Kierrosten välissä kuollut ei kuulu millekään kierrokselle.
+
+    Sillä ei ole ``t_s``:ää, joten sitä ei voi kohdistaa -- mutta pudotus ei
+    saa olla hiljainen.
+    """
+    rounds = normal_match(played=2, knife=False)
+    # Kierroksen 1 päättymisen jälkeen mutta ennen kierroksen 2 ankkuria.
+    late = rounds[0].end_tick - rounds[0].freeze_tick + 5
+    rounds[0].deaths = [
+        (64, B_PLAYERS[1], A_PLAYERS[0], "ak47"),
+        (late, B_PLAYERS[1], A_PLAYERS[1], "ak47"),
+    ]
+    adapter = parse_adapter(build(rounds), tmp_path)
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.deaths_outside_rounds == 1
+
+
+def test_a_side_the_round_does_not_know_comes_from_the_event(
+    tmp_path: Path,
+) -> None:
+    """Varalähde: kesken karttaa tullut pelaaja saa puolensa tapahtumasta.
+
+    Ilman varalähdettä hänen kuolemansa putoaisi taulusta -- ja juuri
+    sellainen pelaaja on se, jonka kuolema selittää mitä joukkue teki
+    seuraavaksi.
+    """
+    rounds = normal_match(played=2, knife=False)
+    newcomer = "myohemmin_tullut"
+    for round_spec in rounds:
+        round_spec.deaths = [(64, B_PLAYERS[1], newcomer, "ak47")]
+        round_spec.death_teams = {newcomer: _SIDE_TEAM["T"]}
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    assert df.height == 2
+    assert set(df["victim_id"].to_list()) == {newcomer}
+    assert set(df["victim_side"].to_list()) == {"T"}
+    # Kokoonpano tulee kierroksen puolikuvauksesta, ei tyhjästä.
+    assert df["victim_lineup_key"].null_count() == 0
+
+
+def test_a_victim_without_any_side_is_dropped_and_counted(
+    tmp_path: Path,
+) -> None:
+    """Kuolema, joka ei kuulu kummallekaan joukkueelle, ei kelpaa liitokseen."""
+    rounds = normal_match(played=2, knife=False)
+    ghost = "katsoja"
+    for round_spec in rounds:
+        round_spec.deaths = [(64, B_PLAYERS[1], ghost, "ak47")]
+        round_spec.death_teams = {ghost: None}
+    adapter = parse_adapter(build(rounds), tmp_path)
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    assert df.is_empty()
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.deaths_without_victim_side == 2
+
+
+def test_an_attacker_without_a_side_keeps_the_row_and_is_counted(
+    tmp_path: Path,
+) -> None:
+    """Ampujan puolen puuttuminen ei saa viedä uhrin kuolemaa.
+
+    Rivi säilyy ja ampujan omat havainnot sen mukana; vain puoli ja
+    kokoonpano jäävät tyhjiksi.
+    """
+    rounds = normal_match(played=2, knife=False)
+    ghost = "tuntematon_ampuja"
+    for round_spec in rounds:
+        round_spec.deaths = [(64, ghost, A_PLAYERS[0], "ak47")]
+        round_spec.death_teams = {ghost: None}
+        round_spec.death_areas = {ghost: "Middle"}
+    adapter = parse_adapter(build(rounds), tmp_path)
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    assert df.height == 2
+    assert df["victim_id"].null_count() == 0
+    assert set(df["attacker_id"].to_list()) == {ghost}
+    assert df["attacker_side"].null_count() == 2
+    assert df["attacker_lineup_key"].null_count() == 2
+    assert set(df["attacker_area"].to_list()) == {"Middle"}
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.deaths_attacker_without_side == 2
+
+
+def test_zero_is_not_the_same_as_no_answer_for_death_counters(
+    tmp_path: Path,
+) -> None:
+    """Tavoitetila on nolla, ja nollan on oltava luettavissa."""
+    adapter = parse_adapter(build(death_match()), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.deaths_outside_rounds == 0
+    assert adapter.diagnostics.deaths_without_victim_side == 0
+    assert adapter.diagnostics.deaths_attacker_without_side == 0
+
+
+def test_death_rows_are_sorted_deterministically(tmp_path: Path) -> None:
+    """Kaksi joukkuekaveria samalla tickillä: järjestys ei saa arpoa.
+
+    Ilman uhrin tunnistetta lajitteluavaimessa sama demo tuottaisi eri tavut
+    eri ajoilla, ja arkisto näyttäisi muuttuneen ilman että mikään muuttui.
+    """
+    rounds = normal_match(played=1, knife=False)
+    rounds[0].deaths = [
+        (64, B_PLAYERS[1], A_PLAYERS[2], "ak47"),
+        (64, B_PLAYERS[1], A_PLAYERS[0], "ak47"),
+        (64, B_PLAYERS[1], A_PLAYERS[1], "ak47"),
+    ]
+    first = parse_deaths_table(build(rounds), tmp_path)
+    second = parse_deaths_table(build(rounds), tmp_path)
+
+    assert first["victim_id"].to_list() == [
+        A_PLAYERS[0],
+        A_PLAYERS[1],
+        A_PLAYERS[2],
+    ]
+    assert first.equals(second)
+
+
+def test_player_death_is_read_only_once(tmp_path: Path) -> None:
+    """Kuolemataulu, ostoikkuna ja ensikontakti jakavat saman lukukerran.
+
+    Kaksi kutsua maksaisi turhaan ja -- pahempaa -- voisi antaa eri
+    rivijoukon, jolloin ostoikkuna ja kuolemataulu näkisivät eri demon.
+    """
+    fake = build(death_match())
+    parse_tables(fake, tmp_path, buy_window_seconds=20.0)
+
+    calls = [name for name, _ in fake.event_calls if name == "player_death"]
+    assert calls == ["player_death"]
+
+
+def test_the_player_fields_are_requested_by_name(tmp_path: Path) -> None:
+    """Pelaajakentät pyydetään nimeltä; ilman niitä alueita ei tulisi."""
+    fake = build(death_match())
+    parse_tables(fake, tmp_path)
+
+    requested = dict(fake.event_calls)["player_death"]
+    assert set(requested) == set(dp.DEATH_PLAYER_PROPS)
+    assert "last_place_name" in requested
+
+
+def test_an_empty_death_event_is_not_an_error_here(tmp_path: Path) -> None:
+    """Adapteri ei päätä tyhjyydestä -- ``stages.parse`` näkee kierrosluvun."""
+    rounds = normal_match(played=2, knife=False)
+    df = parse_deaths_table(build(rounds), tmp_path)
+    assert df.is_empty()
+    assert set(df.columns) == set(dp.DEATHS_ADAPTER_COLUMNS)
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "user_last_place_name",
+        "user_X",
+        "user_team_num",
+        "attacker_last_place_name",
+        "attacker_X",
+        "attacker_team_num",
+    ],
+)
+def test_missing_death_column_is_named_in_the_error(
+    tmp_path: Path, column: str
+) -> None:
+    """Uudelleennimetty kenttä tuottaisi alueettoman mutta kelvollisen taulun.
+
+    Sama vartija kuin ``test_missing_prop_is_named_in_the_error``illa, mutta
+    eri mekanismi: nämä kentät tulevat ``parse_event``ista eivätkä
+    ``parse_ticks``istä, joten ``drop_props`` ei koske niihin.
+    """
+    fake = build(death_match())
+    fake.drop_death_columns = (column,)
+    with pytest.raises(ParseError) as exc:
+        parse_tables(fake, tmp_path)
+    assert column in str(exc.value)
+    assert "DEATH_COLUMNS" in str(exc.value)
+
+
+def test_every_requested_player_prop_is_required_in_both_prefixes() -> None:
+    """Sopimuslista johdetaan pyydetyistä propeista, ei kirjoiteta käsin.
+
+    Kaksi käsin kirjoitettua listaa erkanisi: uusi proppi tulisi pyydetyksi
+    mutta jäisi tarkistamatta, ja sen katoaminen näkyisi vain tyhjinä
+    sarakkeina.
+    """
+    for prop in dp.DEATH_PLAYER_PROPS:
+        assert f"user_{prop}" in dp.DEATH_COLUMNS
+        assert f"attacker_{prop}" in dp.DEATH_COLUMNS
+    # Avustajaa ei lueta: puolet tyhjää eikä yksikään raportin rivi nojaa
+    # siihen.
+    assert not any(c.startswith("assister_") for c in dp.DEATH_COLUMNS)
+
+
+def test_the_two_column_lists_stay_apart() -> None:
+    """``DAMAGE_COLUMNS`` ja ``DEATH_COLUMNS`` ovat erillisiä eivätkä sisäkkäisiä.
+
+    Ne korjataan eri paikoista, ja juuri siksi virheilmoitus nimeää puuttuvan
+    sarakkeen **sen oman luettelon kanssa**. Jos toinen olisi toisen osajoukko,
+    ohje kertoisi puolella tapauksista väärän vakion -- ja se oli koko syy
+    yhdistää lukijat.
+    """
+    assert not set(dp.DAMAGE_COLUMNS) & set(dp.DEATH_COLUMNS)
+
+
+@pytest.mark.parametrize(
+    ("column", "owner"),
+    [
+        ("tick", "DAMAGE_COLUMNS"),
+        ("user_steamid", "DAMAGE_COLUMNS"),
+        ("user_last_place_name", "DEATH_COLUMNS"),
+        ("attacker_team_num", "DEATH_COLUMNS"),
+    ],
+)
+def test_the_error_names_the_list_that_owns_the_missing_column(
+    tmp_path: Path, column: str, owner: str
+) -> None:
+    """Sama uudelleennimeäminen, yksi ohje -- ja se ohje on oikea.
+
+    Ennen yhdistämistä ``user_steamid``in katoaminen kehotti päivittämään
+    ``DEATH_COLUMNS``in yhdellä polulla ja ``DAMAGE_COLUMNS``in toisella.
+    """
+    fake = build(death_match())
+    fake.drop_death_columns = (column,)
+    with pytest.raises(ParseError) as exc:
+        parse_tables(fake, tmp_path)
+    assert f"{column} ({owner})" in str(exc.value)
+
+
+def test_an_attackerless_death_never_carries_an_attacker_place(
+    tmp_path: Path,
+) -> None:
+    """Paikka ilman toimijaa ei pääse tauluun.
+
+    Mitatussa aineistossa kirjasto jättää ampujattoman rivin jokaisen
+    ampujakentän tyhjäksi, mutta se on **havainto eikä sopimus**: jos se
+    joskus jättää alueen tai koordinaatin paikalleen, se laskeutuisi
+    raportissa tapoksi, jota kukaan ei tehnyt. Tässä rakennetaan juuri
+    sellainen rivi.
+    """
+    rounds = normal_match(played=2, knife=False)
+    for round_spec in rounds:
+        round_spec.deaths = [(64, None, A_PLAYERS[0], "planted_c4")]
+        round_spec.death_row_overrides = {
+            "attacker_last_place_name": "Middle",
+            "attacker_X": 11.0,
+            "attacker_Y": 22.0,
+            "attacker_Z": 33.0,
+            "attacker_team_num": _SIDE_TEAM["CT"],
+        }
+    df = parse_deaths_table(build(rounds), tmp_path)
+
+    assert df.height == 2
+    for name in (
+        "attacker_id",
+        "attacker_area",
+        "attacker_x",
+        "attacker_y",
+        "attacker_z",
+        "attacker_side",
+        "attacker_lineup_key",
+    ):
+        assert df[name].null_count() == df.height, name
+
+
+def test_a_death_without_a_victim_gets_its_own_counter(tmp_path: Path) -> None:
+    """Uhriton tapahtuma ei ole puolen päättelyn epäonnistuminen.
+
+    Moduuli erottelee pudotussyyt muualla tarkoituksella
+    (``deaths_without_attacker`` vs. ``deaths_without_attacker_area``);
+    yhdistettynä uhriton rivi näyttäisi ``deaths_without_victim_side``
+    -luvussa vialta, jota ei ole.
+    """
+    rounds = normal_match(played=2, knife=False)
+    for round_spec in rounds:
+        round_spec.deaths = [(64, B_PLAYERS[1], None, "ak47")]
+    adapter = parse_adapter(build(rounds), tmp_path)
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.deaths_without_victim == 2
+    assert adapter.diagnostics.deaths_without_victim_side == 0
+    assert parse_deaths_table(build(rounds), tmp_path).is_empty()
+
+
+def test_a_victim_without_a_side_keeps_its_own_counter(tmp_path: Path) -> None:
+    """Vartijan toinen puoli: tunnettu uhri ilman puolta on eri luku."""
+    rounds = normal_match(played=2, knife=False)
+    ghost = "katsoja"
+    for round_spec in rounds:
+        round_spec.deaths = [(64, B_PLAYERS[1], ghost, "ak47")]
+        round_spec.death_teams = {ghost: None}
+    adapter = parse_adapter(build(rounds), tmp_path)
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.deaths_without_victim == 0
+    assert adapter.diagnostics.deaths_without_victim_side == 2
+
+
+def test_a_death_without_a_tick_is_dropped_and_counted(tmp_path: Path) -> None:
+    """Ilman tickiä kuolemaa ei voi kohdistaa kierrokseen -- eikä hukata.
+
+    Jokainen muu pudotussyy raportoidaan, eikä tämä saa olla poikkeus.
+    """
+    rounds = normal_match(played=2, knife=False)
+    for round_spec in rounds:
+        round_spec.deaths = [(64, B_PLAYERS[1], A_PLAYERS[0], "ak47")]
+    fake = build(rounds)
+    # Kirjaston rivi ilman tickiä: se on kelvollinen kehys mutta osoittaa
+    # ei-mihinkään.
+    fake.events["player_death"][0]["tick"] = None
+
+    adapter = parse_adapter(fake, tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.deaths_without_tick == 1
+    assert adapter.diagnostics.deaths_outside_rounds == 0
+
+
+def test_the_hurt_event_is_read_without_the_player_fields(
+    tmp_path: Path,
+) -> None:
+    """Ensikontakti tarvitsee neljä kenttää, ei kolmeakymmentä.
+
+    Yhteinen lukija ei saa alkaa pyytää pelaajakohtaisia kenttiä myös
+    ``player_hurt``ille: ne olisivat sarakkeita, joita mikään ei lue.
+    """
+    fake = build(death_match())
+    parse_tables(fake, tmp_path)
+
+    requested = dict(fake.event_calls)
+    assert requested["player_hurt"] == ()
+    assert set(requested["player_death"]) == set(dp.DEATH_PLAYER_PROPS)

@@ -42,6 +42,7 @@ from pappascout.adapters.decompress import (
 )
 from pappascout.adapters.demo_parser import Demoparser2Adapter
 from pappascout.adapters.protocols import (
+    DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
@@ -54,6 +55,7 @@ from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
 from pappascout.domain.models import load_settings
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
+    DEATHS,
     EVENTS,
     MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
@@ -1952,3 +1954,195 @@ def test_the_ticks_table_agrees_with_the_lineups_table() -> None:
     # joka ei ehtinyt yhdellekään näytepisteelle, mutta yhtään ylimääräistä
     # siinä ei saa olla.
     assert from_ticks <= from_lineups
+
+
+# --- Kuolemat oikeasta demosta (Story 2.7) -------------------------------------
+
+#: Ampujattomat kuolemat demoittain, mitattu 2026-08-30 **adapterin
+#: tuotoksesta** (ennen kuin ``stages.parse`` pudottaa numeroimattomat
+#: kierrokset). Putoaminen ja pommi ovat aitoja tapauksia, mutta niiden määrä
+#: on pieni ja tunnettu: jos se hyppää, jokin muu on rikki.
+#:
+#: Luvut ovat demokohtaisia eivätkä yhteissumma, koska yhteissumma säilyisi
+#: samana vaikka kaksi demoa vaihtaisi lukujaan keskenään.
+LEAGUE_DEATHS_WITHOUT_ATTACKER: dict[str, int] = {
+    "Ancient_vs_kaljukostaja.dem": 1,
+    "Anubis_vs_ryhmarama.dem": 0,
+    "inferno_vs_ryhmarama.dem": 0,
+    "Nuke_vs_imuaijat.dem": 5,
+}
+
+
+@lru_cache(maxsize=None)
+def _league_deaths(demo_name: str) -> tuple[pl.DataFrame, object]:
+    """Yhden liigademon kuolemataulu ja diagnostiikka, parsittu kerran."""
+    adapter = real_parser()
+    tables = adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+    return tables.deaths, adapter.diagnostics
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(LEAGUE_DEATHS_WITHOUT_ATTACKER))
+def test_real_demo_deaths_match_the_port_contract(demo_name: str) -> None:
+    """Sarakkeet ja tyypit tulevat oikeasta demosta, eivät vain feikistä."""
+    deaths, _ = _league_deaths(demo_name)
+
+    assert tuple(deaths.columns) == DEATHS_ADAPTER_COLUMNS
+    for name in DEATHS_ADAPTER_COLUMNS:
+        assert deaths.schema[name] == DEATHS[name], name
+    assert not deaths.is_empty()
+    # Numeroinnin omistaa stages.parse; adapteri jättää sarakkeen tyhjäksi.
+    assert deaths["round_no"].null_count() == deaths.height
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(LEAGUE_DEATHS_WITHOUT_ATTACKER))
+def test_every_victim_has_an_area_in_a_real_demo(demo_name: str) -> None:
+    """Uhrin alue on koko storyn väite, ja se on **luettava demosta**.
+
+    ``DEATH_COLUMNS``-vartija tarkistaa sarakkeen olemassaolon eikä sisältöä.
+    Jos ``last_place_name`` palaisi tyhjänä merkkijonona, taulu olisi
+    skeemakelvollinen ja jokainen rivi alueeton -- eikä yksikään feikkitesti
+    huomaisi mitään, koska feikki tuottaa alueet itse.
+
+    Mitattu 2026-08-30: 0 puuttuvaa uhrin aluetta 591 kirjoitetusta
+    kuolemasta.
+    """
+    deaths, _ = _league_deaths(demo_name)
+    assert deaths["victim_area"].null_count() == 0
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(LEAGUE_DEATHS_WITHOUT_ATTACKER))
+def test_the_attacker_area_is_missing_only_when_the_attacker_is(
+    demo_name: str,
+) -> None:
+    """Alue ei katoa ampujalta -- ampuja katoaa.
+
+    Kaksi väitettä yhdessä: ampujattomia rivejä on täsmälleen mitattu määrä,
+    ja jokainen puuttuva ampujan alue on **niillä riveillä**. Jälkimmäinen on
+    se, joka erottaa rehellisen putoamisen rikkoutuneesta aluehavainnosta.
+    """
+    deaths, _ = _league_deaths(demo_name)
+
+    without_attacker = deaths.filter(pl.col("attacker_id").is_null())
+    assert without_attacker.height == LEAGUE_DEATHS_WITHOUT_ATTACKER[demo_name]
+
+    # Ampuja tiedossa mutta alue tyhjä: nolla mitatussa aineistossa.
+    unnamed = deaths.filter(
+        pl.col("attacker_id").is_not_null() & pl.col("attacker_area").is_null()
+    )
+    assert unnamed.is_empty(), unnamed.head(3).to_dicts()
+
+    # Ampujaton rivi on kokonaan ampujaton, myös oikeassa demossa.
+    for column in (
+        "attacker_lineup_key",
+        "attacker_side",
+        "attacker_x",
+        "attacker_y",
+        "attacker_z",
+        "attacker_area",
+    ):
+        assert without_attacker[column].null_count() == without_attacker.height
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(LEAGUE_DEATHS_WITHOUT_ATTACKER))
+def test_no_death_is_dropped_for_a_missing_side_in_a_real_demo(
+    demo_name: str,
+) -> None:
+    """Puolen päättely ei saa hukata kuolemia oikeasta ottelusta.
+
+    Luku on adapterin oma laskuri eikä valmis taulu: pudotettu rivi ei ole
+    taulussa, joten sen puuttumista ei voi lukea sieltä. Nolla on odotusarvo,
+    ja nollasta poikkeava arvo tarkoittaisi että ``m_iTeamNum``-koodit tai
+    kokoonpanojen tunnistus ovat muuttuneet.
+    """
+    _, diagnostics = _league_deaths(demo_name)
+
+    assert diagnostics is not None
+    assert diagnostics.deaths_without_victim_side == 0
+    assert diagnostics.deaths_without_victim == 0
+    assert diagnostics.deaths_attacker_without_side == 0
+    assert diagnostics.deaths_without_tick == 0
+
+
+@pytest.mark.demo
+def test_ancient_death_areas_are_real_callouts() -> None:
+    """Molemmat alueet ovat Ancientin omia calloutteja, eivät keksittyjä.
+
+    Sama vartija kuin utilityn heittoalueilla. Ilman sitä
+    ``user_last_place_name`` voisi palata kokonaan eri kentästä -- vaikkapa
+    aseen nimenä -- ja taulu olisi silti kelvollinen.
+    """
+    deaths, _ = _league_deaths(ANCIENT_DEM)
+
+    for column in ("victim_area", "attacker_area"):
+        areas = set(deaths[column].drop_nulls().unique().to_list())
+        assert areas <= ANCIENT_PLACES, (column, areas - ANCIENT_PLACES)
+        assert areas
+
+
+@pytest.mark.demo
+def test_ancient_deaths_carry_coordinates_for_every_actor_present() -> None:
+    """Koordinaatit ovat tallessa aina kun toimija on -- alueesta riippumatta."""
+    deaths, _ = _league_deaths(ANCIENT_DEM)
+
+    for axis in ("victim_x", "victim_y", "victim_z"):
+        assert deaths[axis].null_count() == 0
+    with_attacker = deaths.filter(pl.col("attacker_id").is_not_null())
+    for axis in ("attacker_x", "attacker_y", "attacker_z"):
+        assert with_attacker[axis].null_count() == 0
+
+
+@pytest.mark.demo
+def test_ancient_deaths_stay_inside_their_round() -> None:
+    """Kuolema kuuluu sille kierrokselle, jonka rajojen sisään se osuu.
+
+    ``t_s`` on aika ankkurista, joten negatiivinen arvo tarkoittaisi kuolemaa
+    ennen freezetimen loppua -- eli väärää kierrosta.
+    """
+    deaths, _ = _league_deaths(ANCIENT_DEM)
+    assert deaths["t_s"].null_count() == 0
+    assert deaths["t_s"].min() >= 0.0
+
+
+@pytest.mark.demo
+def test_ancient_victim_side_agrees_with_the_ticks_table() -> None:
+    """Kuoleman puoli on sama kuin näytepistetaulun puoli samalla kierroksella.
+
+    Tämä on se ristiintarkistus, jota feikki ei voi tehdä: se rakentaa
+    molemmat taulut samasta kuvauksesta, joten ne eivät voi olla eri mieltä.
+    Oikeassa demossa ne luetaan eri lähteistä -- ``player_death``-tapahtumasta
+    ja ``parse_ticks``istä -- ja juuri siksi ne voisivat erota.
+    """
+    adapter = real_parser()
+    tables = adapter.parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
+
+    from_ticks = {
+        (row["round_raw"], row["player_id"]): row["lineup_key"]
+        for row in tables.ticks.iter_rows(named=True)
+    }
+    checked = 0
+    for row in tables.deaths.iter_rows(named=True):
+        expected = from_ticks.get((row["round_raw"], row["victim_id"]))
+        if expected is None:
+            continue
+        checked += 1
+        assert row["victim_lineup_key"] == expected, row
+    assert checked > 100, f"vain {checked} riviä vertailtavissa"
+
+
+@pytest.mark.demo
+def test_a_knife_round_really_does_produce_death_rows() -> None:
+    """Puukkokierroksen pudotus ei ole teoriaa: adapteri tuottaa ne rivit.
+
+    Jos adapteri suodattaisi ne itse, ``stages.parse``in liitos ei tekisi
+    mitään eikä väite "sama mekanismi kuin muissa tauluissa" tarkoittaisi
+    mitään. Puukkokierros on liigademon ensimmäinen kierrosraja.
+    """
+    deaths, _ = _league_deaths(ANCIENT_DEM)
+    first_round = deaths["round_raw"].min()
+
+    assert first_round == 1
+    assert deaths.filter(pl.col("round_raw") == 1).height > 0

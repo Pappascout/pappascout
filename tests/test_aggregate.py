@@ -30,6 +30,7 @@ from pappascout.domain.aggregate import (
     team_slug,
     check_rounds_are_unique,
     classify_thresholds,
+    deaths_for,
     unpaired_detonations,
     utility_counts_for,
     utility_uses,
@@ -38,6 +39,7 @@ from pappascout.domain.models import AggregateSettings, ThresholdSettings
 from pappascout.domain.report import MissingDemo, RosterEntry, TeamReport
 from pappascout.domain.schemas import (
     CLASSIFIED,
+    DEATHS,
     EVENTS,
     LINEUPS,
     TICKS,
@@ -239,6 +241,55 @@ def events_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
     return validate(df, EVENTS, "events")
 
 
+def death_row(
+    demo: str,
+    round_no: int,
+    *,
+    victim: str = "p1",
+    victim_lineup: str = TEAM,
+    victim_side: str = "T",
+    victim_area: str | None = "Cave",
+    attacker: str | None = "o1",
+    attacker_lineup: str | None = OPPONENT,
+    attacker_side: str | None = "CT",
+    attacker_area: str | None = "Middle",
+    t_s: float = 24.0,
+    weapon: str = "ak47",
+) -> dict[str, object]:
+    """Yksi kuolemarivi, kuten ``parse`` sen kirjoittaa.
+
+    Oletus on vastustajan tekemä tappo omalle pelaajalle: uhri on
+    :data:`TEAM`in kokoonpanossa ja ampuja :data:`OPPONENT`in. Omat tapot
+    rakennetaan vaihtamalla ``attacker_lineup``.
+    """
+    return {
+        "map_demo_id": demo,
+        "round_raw": round_no + 1,
+        "round_no": round_no,
+        "t_s": t_s,
+        "victim_id": victim,
+        "victim_lineup_key": victim_lineup,
+        "victim_side": victim_side,
+        "victim_x": 1.0,
+        "victim_y": 2.0,
+        "victim_z": 3.0,
+        "victim_area": victim_area,
+        "attacker_id": attacker,
+        "attacker_lineup_key": None if attacker is None else attacker_lineup,
+        "attacker_side": None if attacker is None else attacker_side,
+        "attacker_x": None if attacker is None else 4.0,
+        "attacker_y": None if attacker is None else 5.0,
+        "attacker_z": None if attacker is None else 6.0,
+        "attacker_area": None if attacker is None else attacker_area,
+        "weapon": weapon,
+    }
+
+
+def deaths_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
+    df = pl.DataFrame(rows, schema=dict(DEATHS))
+    return validate(df, DEATHS, "deaths")
+
+
 def team_report(lineups: list[str] | None = None) -> TeamReport:
     keys = lineups or [TEAM]
     return TeamReport(
@@ -258,6 +309,7 @@ def report_for(
     classified: list[dict[str, object]],
     ticks: list[dict[str, object]] | None = None,
     events: list[dict[str, object]] | None = None,
+    deaths: list[dict[str, object]] | None = None,
     *,
     limits: ThresholdSettings | None = None,
     windows: AggregateSettings | None = None,
@@ -268,6 +320,7 @@ def report_for(
         classified=classified_frame(classified),
         ticks=ticks_frame(ticks or []),
         events=events_frame(events or []),
+        deaths=deaths_frame(deaths or []),
         team=team_report(lineups),
         thresholds=limits or thresholds(),
         aggregate=windows or aggregate_settings(),
@@ -1007,3 +1060,415 @@ def test_the_roster_keeps_a_player_whose_name_was_never_read() -> None:
     assert [e.player_id for e in entries] == ["p1", "p2"]
     assert entries[0].display_name == "Sassiz"
     assert entries[1].display_name is None
+
+
+# --- Kuolemat ja tapot (Story 2.7) ---------------------------------------------
+
+
+KEYS = [("Ancient_vs_x", 1), ("Ancient_vs_x", 2)]
+
+
+def test_the_first_death_of_a_round_is_the_earliest_one() -> None:
+    """Ensimmäinen kuolema on pienimmän ``t_s``:n rivi, ei taulun ensimmäinen.
+
+    Rivit annetaan tarkoituksella väärässä järjestyksessä: jos funktio
+    ottaisi ensimmäisen osuman, se poimisi Longin.
+    """
+    report = deaths_for(
+        [
+            death_row("Ancient_vs_x", 1, victim="p2", victim_area="Long", t_s=40.0),
+            death_row("Ancient_vs_x", 1, victim="p1", victim_area="Cave", t_s=12.0),
+        ],
+        KEYS[:1],
+        [TEAM],
+    )
+    assert report.m == 1
+    assert [(a.area, a.n) for a in report.first_death_areas] == [("Cave", 1)]
+    assert report.first_death_seconds_median == 12.0
+
+
+def test_the_first_death_distribution_sums_to_its_own_sample() -> None:
+    """``Σ n = m``, ja ``m`` on kierroksia joilla joukkue menetti pelaajan."""
+    report = deaths_for(
+        [
+            death_row("Ancient_vs_x", 1, victim="p1", victim_area="Cave"),
+            death_row("Ancient_vs_x", 2, victim="p2", victim_area="Long"),
+        ],
+        KEYS,
+        [TEAM],
+    )
+    assert report.m == 2
+    assert sum(a.n for a in report.first_death_areas) == report.m
+    assert {a.m for a in report.first_death_areas} == {2}
+
+
+def test_rounds_without_an_own_death_are_counted_apart() -> None:
+    """Kierros ilman omaa kuolemaa ei ole nollarivi vaan ``rounds_missing``.
+
+    Nollarivi väittäisi havainnoksi sen, ettei havaintoa ole -- ja
+    rikkoisi ``Σ n = m``:n.
+    """
+    report = deaths_for(
+        [death_row("Ancient_vs_x", 1, victim="p1")], KEYS, [TEAM]
+    )
+    assert report.m == 1
+    assert report.rounds_missing == 1
+
+
+def test_the_median_is_measured_from_the_rounds_not_the_rows() -> None:
+    """Mediaani lasketaan kierroksen ensimmäisistä kuolemista.
+
+    Muut saman kierroksen kuolemat eivät saa painaa: viisi kaatunutta
+    pelaajaa yhdellä kierroksella siirtäisi mediaanin loppupäähän.
+    """
+    rows = [
+        death_row("Ancient_vs_x", 1, victim="p1", t_s=10.0),
+        death_row("Ancient_vs_x", 1, victim="p2", t_s=60.0),
+        death_row("Ancient_vs_x", 1, victim="p3", t_s=61.0),
+        death_row("Ancient_vs_x", 2, victim="p1", t_s=20.0),
+    ]
+    report = deaths_for(rows, KEYS, [TEAM])
+    assert report.first_death_seconds_median == 15.0
+
+
+def test_a_tie_on_the_same_tick_is_broken_by_the_victim_id() -> None:
+    """Kaksi joukkuekaveria samalla hetkellä: valinta ei saa riippua
+    rivijärjestyksestä."""
+    rows = [
+        death_row("Ancient_vs_x", 1, victim="p9", victim_area="Long", t_s=12.0),
+        death_row("Ancient_vs_x", 1, victim="p1", victim_area="Cave", t_s=12.0),
+    ]
+    forward = deaths_for(rows, KEYS[:1], [TEAM])
+    backward = deaths_for(list(reversed(rows)), KEYS[:1], [TEAM])
+    assert [a.area for a in forward.first_death_areas] == ["Cave"]
+    assert forward == backward
+
+
+def test_a_death_without_a_time_is_last_not_first() -> None:
+    """Puuttuva aika ei ole nolla.
+
+    Ilman erottelua tyhjä ``t_s`` järjestyisi ennen kaikkia mitattuja ja
+    väittäisi olevansa kierroksen ensimmäinen kuolema.
+    """
+    rows = [
+        death_row("Ancient_vs_x", 1, victim="p1", victim_area="Cave", t_s=30.0),
+        death_row("Ancient_vs_x", 1, victim="p2", victim_area="Long", t_s=None),
+    ]
+    report = deaths_for(rows, KEYS[:1], [TEAM])
+    assert [a.area for a in report.first_death_areas] == ["Cave"]
+    assert report.first_death_seconds_median == 30.0
+
+
+def test_a_round_whose_only_death_has_no_time_still_counts() -> None:
+    """Aika puuttuu, havainto ei: alue on silti kierroksen ensimmäinen."""
+    report = deaths_for(
+        [death_row("Ancient_vs_x", 1, victim="p1", victim_area="Cave", t_s=None)],
+        KEYS[:1],
+        [TEAM],
+    )
+    assert report.m == 1
+    assert [a.area for a in report.first_death_areas] == ["Cave"]
+    assert report.first_death_seconds_median is None
+
+
+def test_kills_are_counted_from_the_attackers_lineup_and_area() -> None:
+    """Tappo on **ampujan** havainto: alue on se, mistä hän ampui."""
+    rows = [
+        death_row(
+            "Ancient_vs_x",
+            1,
+            victim="o1",
+            victim_lineup=OPPONENT,
+            victim_side="CT",
+            victim_area="BombsiteA",
+            attacker="p1",
+            attacker_lineup=TEAM,
+            attacker_side="T",
+            attacker_area="Middle",
+        ),
+        death_row(
+            "Ancient_vs_x",
+            2,
+            victim="o2",
+            victim_lineup=OPPONENT,
+            victim_side="CT",
+            victim_area="BombsiteA",
+            attacker="p2",
+            attacker_lineup=TEAM,
+            attacker_side="T",
+            attacker_area="Middle",
+        ),
+    ]
+    report = deaths_for(rows, KEYS, [TEAM])
+    assert report.kills_total == 2
+    assert [(k.area, k.n) for k in report.kills] == [("Middle", 2)]
+    # Omia kuolemia ei ollut: nämä ovat vastustajan kuolemia.
+    assert report.m == 0
+    assert report.rounds_missing == 2
+
+
+def test_the_kill_sample_counts_kills_not_rounds() -> None:
+    """Tappoja voi olla enemmän kuin kierroksia -- ``Σ n = kills_total``."""
+    rows = [
+        death_row(
+            "Ancient_vs_x",
+            1,
+            victim=f"o{i}",
+            victim_lineup=OPPONENT,
+            victim_side="CT",
+            attacker=f"p{i}",
+            attacker_lineup=TEAM,
+            attacker_side="T",
+            attacker_area="Middle" if i < 3 else "BombsiteB",
+        )
+        for i in range(4)
+    ]
+    report = deaths_for(rows, KEYS[:1], [TEAM])
+    assert report.kills_total == 4
+    assert sum(k.n for k in report.kills) == 4
+    assert {k.m for k in report.kills} == {4}
+    assert [(k.area, k.n) for k in report.kills] == [("Middle", 3), ("BombsiteB", 1)]
+
+
+def test_a_kill_without_an_area_gets_its_own_bucket() -> None:
+    """Tuntematon alue ei putoa: se on eri asia kuin tappojen puuttuminen."""
+    rows = [
+        death_row(
+            "Ancient_vs_x",
+            1,
+            victim="o1",
+            victim_lineup=OPPONENT,
+            victim_side="CT",
+            attacker="p1",
+            attacker_lineup=TEAM,
+            attacker_side="T",
+            attacker_area=None,
+        )
+    ]
+    report = deaths_for(rows, KEYS[:1], [TEAM])
+    assert [(k.area, k.n) for k in report.kills] == [(None, 1)]
+
+
+def test_a_teamkill_is_both_an_own_death_and_an_own_kill() -> None:
+    """Kummankaan suodattaminen olisi tulkintaa.
+
+    Havainto on, että pelaaja kuoli ja että ampuja oli tietyllä alueella.
+    """
+    rows = [
+        death_row(
+            "Ancient_vs_x",
+            1,
+            victim="p1",
+            victim_lineup=TEAM,
+            victim_area="Cave",
+            attacker="p2",
+            attacker_lineup=TEAM,
+            attacker_side="T",
+            attacker_area="Middle",
+        )
+    ]
+    report = deaths_for(rows, KEYS[:1], [TEAM])
+    assert report.m == 1
+    assert [(a.area, a.n) for a in report.first_death_areas] == [("Cave", 1)]
+    assert report.kills_total == 1
+    assert [(k.area, k.n) for k in report.kills] == [("Middle", 1)]
+
+
+def test_a_death_between_two_opponents_is_neither() -> None:
+    """Vastustajien keskinäinen kuolema ei kuulu tähän raporttiin."""
+    rows = [
+        death_row(
+            "Ancient_vs_x",
+            1,
+            victim="o1",
+            victim_lineup=OPPONENT,
+            victim_side="CT",
+            attacker="o2",
+            attacker_lineup=OPPONENT,
+            attacker_side="CT",
+        )
+    ]
+    report = deaths_for(rows, KEYS[:1], [TEAM])
+    assert report.m == 0
+    assert report.kills_total == 0
+
+
+def test_a_death_outside_the_branch_is_ignored() -> None:
+    """Toisen kierrostyypin kierros ei saa vuotaa tähän otantaan."""
+    rows = [
+        death_row("Ancient_vs_x", 1, victim="p1"),
+        death_row("Ancient_vs_x", 9, victim="p1"),
+    ]
+    report = deaths_for(rows, KEYS[:1], [TEAM])
+    assert report.m == 1
+
+
+def test_an_unnumbered_death_row_is_ignored() -> None:
+    """``round_no`` tyhjänä tarkoittaa kierrosta, jota ei pelattu."""
+    row = death_row("Ancient_vs_x", 1, victim="p1")
+    row["round_no"] = None
+    report = deaths_for([row], KEYS, [TEAM])
+    assert report.m == 0
+
+
+def test_several_lineups_of_the_same_team_all_count_as_ours() -> None:
+    """Yksi vaihto tuottaa uuden kokoonpanotunnisteen; molemmat ovat meitä."""
+    other = "cccccccccccccccc"
+    rows = [
+        death_row("Ancient_vs_x", 1, victim="p1", victim_lineup=TEAM),
+        death_row("Ancient_vs_x", 2, victim="p1", victim_lineup=other),
+    ]
+    report = deaths_for(rows, KEYS, [TEAM, other])
+    assert report.m == 2
+
+
+def test_the_death_report_reaches_the_round_type_branch() -> None:
+    """Reunajakauma on rakenteessa siellä, missä raportti sen lukee."""
+    report = report_for(
+        [classified_row("Ancient_vs_x", 1)],
+        [tick_row("Ancient_vs_x", 1, "p1", "BombsiteA")],
+        deaths=[
+            death_row("Ancient_vs_x", 1, victim="p1", victim_area="Cave", t_s=24.0),
+            death_row(
+                "Ancient_vs_x",
+                1,
+                victim="o1",
+                victim_lineup=OPPONENT,
+                victim_side="CT",
+                attacker="p2",
+                attacker_lineup=TEAM,
+                attacker_side="T",
+                attacker_area="Middle",
+                t_s=30.0,
+            ),
+        ],
+    )
+    entry = branch(report, "de_ancient", "T", "pistol")
+    assert entry.deaths.m == 1
+    assert entry.deaths.first_death_seconds_median == 24.0
+    assert [(a.area, a.n) for a in entry.deaths.first_death_areas] == [("Cave", 1)]
+    assert [(k.area, k.n) for k in entry.deaths.kills] == [("Middle", 1)]
+
+
+def test_an_attackerless_own_death_is_counted_as_a_death_and_nothing_else() -> None:
+    """Pommiin tai putoamiseen kuollut oma pelaaja on oma kuolema.
+
+    Parse kohtelee ampujatonta kuolemaa ensiluokkaisena tapauksena, mutta
+    aggregointiin asti se ei kulkenut yhdenkään testin läpi -- ja siellä
+    ``attacker_lineup_key`` on ``null``, mikä on eri asia kuin "ei meidän".
+    Ilman tätä tapausta pommiin kuolleet omat pelaajat voisivat pudota
+    raportista ilman että mikään kaatuu.
+    """
+    report = deaths_for(
+        [
+            death_row(
+                "Ancient_vs_x",
+                1,
+                victim="p1",
+                victim_area="BombsiteB",
+                attacker=None,
+                t_s=95.0,
+            )
+        ],
+        KEYS[:1],
+        [TEAM],
+    )
+    assert report.m == 1
+    assert [(a.area, a.n) for a in report.first_death_areas] == [("BombsiteB", 1)]
+    # Ampujaa ei ole, joten tappoa ei ole -- eikä null-kokoonpano saa osua
+    # omien tappojen suodattimeen.
+    assert report.kills_total == 0
+    assert report.kills == []
+
+
+def test_a_suicide_is_a_death_but_not_a_kill() -> None:
+    """Itsemurhan alue on paikka, josta kukaan ei ampunut.
+
+    Rivi läpäisisi molemmat haarat, koska ampuja on omassa kokoonpanossa.
+    Tappoihin laskettuna se kasvattaisi ``kills_total``ia ja lisäisi
+    "mistä he ampuvat" -riville sijainnin, jota ei ole olemassa.
+    Aineistossa on 0 itsemurhaa 591 kuolemasta, joten vika olisi latentti.
+    """
+    report = deaths_for(
+        [
+            death_row(
+                "Ancient_vs_x",
+                1,
+                victim="p1",
+                victim_area="Cave",
+                attacker="p1",
+                attacker_lineup=TEAM,
+                attacker_side="T",
+                attacker_area="Cave",
+            )
+        ],
+        KEYS[:1],
+        [TEAM],
+    )
+    assert report.m == 1
+    assert [(a.area, a.n) for a in report.first_death_areas] == [("Cave", 1)]
+    assert report.kills_total == 0
+
+
+def test_a_teamkill_is_still_a_kill_beside_the_suicide_rule() -> None:
+    """Vartijan toinen haara: joukkuekaveri **oikeasti ampui** tuolta alueelta.
+
+    Ilman tätä itsemurhasääntö voisi olla kirjoitettu kokoonpanon eikä
+    pelaajan mukaan, ja teamkill katoaisi tapoista sen mukana.
+    """
+    report = deaths_for(
+        [
+            death_row(
+                "Ancient_vs_x",
+                1,
+                victim="p1",
+                attacker="p2",
+                attacker_lineup=TEAM,
+                attacker_side="T",
+                attacker_area="Middle",
+            )
+        ],
+        KEYS[:1],
+        [TEAM],
+    )
+    assert report.kills_total == 1
+    assert [(k.area, k.n) for k in report.kills] == [("Middle", 1)]
+
+
+def test_an_empty_area_string_is_the_same_observation_as_a_missing_one() -> None:
+    """Tyhjä merkkijono ei ole alue.
+
+    Ilman normalisointia sama havainto tulisi jakaumaan kahdesti: mallin
+    kaksoiskappaletarkistus vertaa raaka-arvoja (``""`` ja ``None`` ovat eri),
+    mutta raportti näyttää molemmat nimellä "tuntematon alue" -- eli yksi
+    rivi kertoisi saman asian kaksi kertaa eri luvuilla.
+    """
+    report = deaths_for(
+        [
+            death_row("Ancient_vs_x", 1, victim="p1", victim_area=""),
+            death_row("Ancient_vs_x", 2, victim="p2", victim_area=None),
+        ],
+        KEYS,
+        [TEAM],
+    )
+    assert [(a.area, a.n) for a in report.first_death_areas] == [(None, 2)]
+
+
+def test_an_empty_kill_area_string_collapses_too() -> None:
+    """Sama sääntö tappojen puolella; eri rivi koodissa, eri testi tässä."""
+    rows = [
+        death_row(
+            "Ancient_vs_x",
+            1,
+            victim=f"o{i}",
+            victim_lineup=OPPONENT,
+            victim_side="CT",
+            attacker=f"p{i}",
+            attacker_lineup=TEAM,
+            attacker_side="T",
+            attacker_area=area,
+        )
+        for i, area in enumerate(("", None))
+    ]
+    report = deaths_for(rows, KEYS[:1], [TEAM])
+    assert [(k.area, k.n) for k in report.kills] == [(None, 2)]

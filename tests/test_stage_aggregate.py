@@ -39,6 +39,8 @@ from test_aggregate import (
     aggregate_settings,
     classified_frame,
     classified_row,
+    death_row,
+    deaths_frame,
     event_rows,
     events_frame,
     lineup_row,
@@ -134,6 +136,35 @@ def build_archive(
             event_rows(demo, 1, 0, "smoke", lineup=lineup)
             + event_rows(demo, 1, 1, "he", lineup=OPPONENT, side="CT")
         )
+        # Kaksi kuolemaa kierroksella 1: yksi omalle pelaajalle (oma kuolema)
+        # ja yksi vastustajalle (oma tappo). Molemmat tarvitaan, koska vaihe
+        # suodattaa kahdesta eri sarakkeesta -- yhdellä rivillä toinen
+        # suodatin jäisi todentamatta.
+        deaths = deaths_frame(
+            [
+                death_row(
+                    demo,
+                    1,
+                    victim=f"{lineup}-p0",
+                    victim_lineup=lineup,
+                    attacker=f"{OPPONENT}-p0",
+                    attacker_lineup=OPPONENT,
+                ),
+                death_row(
+                    demo,
+                    1,
+                    victim=f"{OPPONENT}-p1",
+                    victim_lineup=OPPONENT,
+                    victim_side="CT",
+                    victim_area="BombsiteB",
+                    attacker=f"{lineup}-p1",
+                    attacker_lineup=lineup,
+                    attacker_side="T",
+                    attacker_area="Middle",
+                    t_s=30.0,
+                ),
+            ]
+        )
         demo_clan = (clan_by_demo or {}).get(demo, clan)
         lineups = lineups_frame(
             [
@@ -175,6 +206,7 @@ def build_archive(
         ticks.write_parquet(ticks_path)
         events.write_parquet(archive.parsed_table(demo, "events"))
         lineups.write_parquet(archive.parsed_table(demo, "lineups"))
+        deaths.write_parquet(archive.parsed_table(demo, "deaths"))
     return archive
 
 
@@ -489,7 +521,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # Literaali eikä vakio: vakioon vertaaminen olisi tautologia --
     # koodi kirjoitti arvon juuri siitä vakiosta. Kun versio nousee,
     # tämän rivin PITÄÄ kaatua, jotta nosto on tietoinen.
-    assert data["schema_version"] == "2.0.0"
+    assert data["schema_version"] == "3.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -549,7 +581,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "2.0.0"
+    assert read_report(archive).schema_version == "3.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -1042,3 +1074,145 @@ def test_the_lineup_join_can_rest_on_a_player_who_has_no_sample_points(
     run(archive)
     report = read_report(archive)
     assert sorted(report.team.lineup_keys) == sorted([TEAM, other])
+
+
+# --- Kuolemataulu (Story 2.7) --------------------------------------------------
+
+
+def test_own_deaths_and_own_kills_both_reach_the_report(tmp_path: Path) -> None:
+    """Suodatus on kahdesta sarakkeesta, ja molemmat puolet on säilyttävä.
+
+    Pelkkä ``victim_lineup_key`` pudottaisi omat tapot ja pelkkä
+    ``attacker_lineup_key`` omat kuolemat -- ja kumpikin virhe näyttäisi
+    raportissa siltä, että joukkue ei tehnyt sitä mitä se teki.
+    """
+    archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
+    run(archive)
+    entry = read_report(archive).maps[0].sides[0].round_types[0]
+
+    assert entry.deaths.m == 1
+    assert [(a.area, a.n) for a in entry.deaths.first_death_areas] == [("Cave", 1)]
+    assert entry.deaths.kills_total == 1
+    assert [(k.area, k.n) for k in entry.deaths.kills] == [("Middle", 1)]
+
+
+def test_the_opponents_own_deaths_do_not_become_ours(tmp_path: Path) -> None:
+    """Vastustajien keskinäinen kuolema ei kuulu tähän raporttiin."""
+    archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
+    extra = deaths_frame(
+        [
+            death_row(
+                "Ancient_vs_a",
+                1,
+                victim=f"{OPPONENT}-p3",
+                victim_lineup=OPPONENT,
+                victim_side="CT",
+                attacker=f"{OPPONENT}-p4",
+                attacker_lineup=OPPONENT,
+                attacker_side="CT",
+                attacker_area="Ramp",
+            )
+        ]
+    )
+    path = archive.parsed_table("Ancient_vs_a", "deaths")
+    pl.concat([pl.read_parquet(path), extra]).write_parquet(path)
+
+    run(archive, force=True)
+    entry = read_report(archive).maps[0].sides[0].round_types[0]
+    assert entry.deaths.m == 1
+    assert entry.deaths.kills_total == 1
+    assert "Ramp" not in [k.area for k in entry.deaths.kills]
+
+
+def test_a_demo_without_the_deaths_table_is_reported_missing(
+    tmp_path: Path,
+) -> None:
+    """Puuttuva taulu ei kaada ajoa mutta ei myöskään katoa hiljaa."""
+    archive = build_archive(
+        tmp_path, {"Ancient_vs_a": TEAM, "Nuke_vs_b": TEAM}
+    )
+    archive.parsed_table("Nuke_vs_b", "deaths").unlink()
+
+    run(archive)
+    report = read_report(archive)
+    assert [m.match for m in report.missing_demos] == ["Nuke_vs_b"]
+    assert "deaths.parquet" in report.missing_demos[0].reason
+    assert [m.map_name for m in report.maps] == ["de_ancient"]
+
+
+def test_an_outdated_deaths_table_tells_the_user_to_reparse(
+    tmp_path: Path,
+) -> None:
+    """Vanhalla versiolla kirjoitettu taulu ei mene läpi hiljaa."""
+    archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
+    path = archive.parsed_table("Ancient_vs_a", "deaths")
+    pl.read_parquet(path).drop("attacker_area").write_parquet(path)
+
+    with pytest.raises(SchemaError) as exc:
+        run(archive)
+    assert "attacker_area" in str(exc.value)
+    assert "uv run pappascout parse Ancient_vs_a --pakota" in str(exc.value)
+
+
+def test_an_attackerless_own_death_survives_the_lineup_filter(
+    tmp_path: Path,
+) -> None:
+    """Pommiin kuollut oma pelaaja ei saa pudota suodattimessa.
+
+    ``attacker_lineup_key`` on silloin ``null``, ja Polarsissa ``is_in``
+    antaa nullille nullin. Ilman ``fill_null(False)``:ää ehto nojaisi siihen,
+    että ``true | null`` on tosi -- oikein tänään, mutta hiljainen riippuvuus
+    kolmiarvoisen logiikan yksityiskohdasta.
+    """
+    archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
+    only_bomb = deaths_frame(
+        [
+            death_row(
+                "Ancient_vs_a",
+                1,
+                victim=f"{TEAM}-p0",
+                victim_lineup=TEAM,
+                victim_area="BombsiteB",
+                attacker=None,
+                t_s=95.0,
+            )
+        ]
+    )
+    only_bomb.write_parquet(archive.parsed_table("Ancient_vs_a", "deaths"))
+
+    run(archive, force=True)
+    entry = read_report(archive).maps[0].sides[0].round_types[0]
+    assert entry.deaths.m == 1
+    assert [(a.area, a.n) for a in entry.deaths.first_death_areas] == [
+        ("BombsiteB", 1)
+    ]
+    assert entry.deaths.kills_total == 0
+
+
+def test_a_deaths_table_that_names_no_known_lineup_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Tyhjäksi suodattunut kuolemakehys on sama tila, jonka parse kieltää.
+
+    Ilman vartijaa jokainen kierrostyyppi raportoisi "ei omia kuolemia" --
+    eli havaintona sen, ettei havaintoa ole.
+    """
+    archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
+    strangers = deaths_frame(
+        [
+            death_row(
+                "Ancient_vs_a",
+                1,
+                victim="x1",
+                victim_lineup="tuntematonkokoonp",
+                attacker="x2",
+                attacker_lineup="tuntematonkokoonp",
+            )
+        ]
+    )
+    strangers.write_parquet(archive.parsed_table("Ancient_vs_a", "deaths"))
+
+    with pytest.raises(PappascoutError) as exc:
+        run(archive, force=True)
+    assert "yhtään kuolemaa" in str(exc.value)
+    assert "--pakota" in str(exc.value)

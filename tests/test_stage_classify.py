@@ -25,6 +25,7 @@ from conftest import (
     settings_text,
 )
 from pappascout.adapters.protocols import (
+    DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
@@ -38,6 +39,7 @@ from pappascout.domain.rounds import mark_played_rounds
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
     CLASSIFIED,
+    DEATHS,
     EVENTS,
     LINEUPS,
     MONEY_DISTRIBUTION_COLUMN,
@@ -151,6 +153,47 @@ def settings(settings_file: Path):
     return load_settings(settings_file, env_files=())
 
 
+def _minimal_deaths(frame: pl.DataFrame) -> pl.DataFrame:
+    """Kuolemataulu kierrostaulusta, portin sopimuksen mukaisena.
+
+    Luokittelu ei lue kuolemia lainkaan, mutta ``parse`` kieltäytyy
+    kirjoittamasta tyhjää kuolemataulua: pelatussa ottelussa kuollaan.
+    Yksi kuolema per kierros riittää, ja uhri on sama pelaaja kuin
+    :func:`_minimal_ticks`issa, jotta taulut eivät ole eri mieltä.
+    """
+    rows: list[dict[str, object]] = []
+    for row in frame.iter_rows(named=True):
+        if row["round_no"] is None or row["side"] != "T":
+            continue
+        rows.append(
+            {
+                "round_raw": row["round_raw"],
+                "round_no": None,
+                "t_s": 20.0,
+                "victim_id": f"{row['lineup_key']}-1",
+                "victim_lineup_key": row["lineup_key"],
+                "victim_side": row["side"],
+                "victim_x": 1.0,
+                "victim_y": 2.0,
+                "victim_z": 3.0,
+                "victim_area": "Middle",
+                "attacker_id": None,
+                "attacker_lineup_key": None,
+                "attacker_side": None,
+                "attacker_x": None,
+                "attacker_y": None,
+                "attacker_z": None,
+                "attacker_area": None,
+                "weapon": "planted_c4",
+            }
+        )
+    return pl.DataFrame(
+        rows,
+        schema={name: DEATHS[name] for name in DEATHS_ADAPTER_COLUMNS},
+        orient="row",
+    )
+
+
 def _minimal_lineups(frame: pl.DataFrame) -> pl.DataFrame:
     """Kokoonpanotaulu kierrostaulun kokoonpanoista, portin sopimuksen mukaisena.
 
@@ -255,6 +298,7 @@ def write_parse(
     )
 
     lineups_frame = _minimal_lineups(frame)
+    deaths_frame = _minimal_deaths(frame)
 
     class Fake:
         def parse_demo(self, path: Path, sample_seconds) -> DemoTables:
@@ -263,6 +307,7 @@ def write_parse(
                 ticks=ticks_frame,
                 events=events_frame,
                 lineups=lineups_frame,
+                deaths=deaths_frame,
             )
 
     parse_stage.run(

@@ -16,6 +16,7 @@ import pytest
 
 from conftest import has_temp_leftovers, settings_text
 from pappascout.adapters.protocols import (
+    DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
@@ -29,6 +30,7 @@ from pappascout.constants import SAMPLE_KINDS, SIDES
 from pappascout.domain.models import load_settings
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
+    DEATHS,
     EVENTS,
     LINEUPS,
     ROUNDS,
@@ -36,6 +38,7 @@ from pappascout.domain.schemas import (
     validate,
 )
 from pappascout.errors import DemoUnavailable, PappascoutError, ParseError, SchemaError
+from pappascout.stages import StageResult
 from pappascout.stages import parse as parse_stage
 
 MAP_DEMO_ID = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1"
@@ -311,6 +314,88 @@ def build_lineups(
     return pl.DataFrame(rows, schema=dict(LINEUPS_ADAPTER_SCHEMA), orient="row")
 
 
+#: Kuolemataulun tyypit portin takana: ``DEATHS`` ilman ``map_demo_id``:ta.
+DEATHS_ADAPTER_SCHEMA: dict[str, object] = {
+    name: DEATHS[name] for name in DEATHS_ADAPTER_COLUMNS
+}
+
+
+def build_deaths(
+    rounds: pl.DataFrame,
+    *,
+    per_round: int = 1,
+    without_attacker: tuple[int, ...] = (),
+    without_victim_area: tuple[int, ...] = (),
+    without_attacker_area: tuple[int, ...] = (),
+) -> pl.DataFrame:
+    """Kuolemataulu ``build_rounds``-taulua vastaavana, kuten adapteri sen antaisi.
+
+    Adapteri tuottaa rivejä **kaikilta ankkuroiduilta** kierrosrajoilta, myös
+    lämmittelystä ja puukkokierrokselta: puukkokierroksella kuollaan
+    oikeasti, eikä adapteri tunne numerointisääntöä.
+
+    Kuolema kirjataan T-puolen rivin näkökulmasta: uhri on T-kokoonpanosta ja
+    ampuja CT-kokoonpanosta. ``rounds`` on pitkä taulu (kaksi riviä per
+    kierros), joten vain toinen puoli luetaan -- muuten jokainen kuolema
+    syntyisi kahdesti.
+
+    Args:
+        rounds: Kierrostaulu, josta ``round_raw`` ja kokoonpanot luetaan.
+        per_round: Montako kuolemaa kierroksella.
+        without_attacker: Ne kuolemien järjestysnumerot (1-pohjainen), joilta
+            ampuja puuttuu kokonaan -- putoaminen tai pommi.
+        without_victim_area: Numerot, joilta uhrin alue puuttuu.
+        without_attacker_area: Numerot, joilta **vain** ampujan alue puuttuu.
+    """
+    sides = {
+        row["side"]: row["lineup_key"] for row in rounds.iter_rows(named=True)
+    }
+    victim_lineup = sides["T"]
+    attacker_lineup = sides["CT"]
+
+    rows: list[dict[str, object]] = []
+    number = 0
+    for round_row in rounds.iter_rows(named=True):
+        if round_row["side"] != "T" or round_row["freeze_end_tick"] is None:
+            continue
+        for index in range(per_round):
+            number += 1
+            has_attacker = number not in without_attacker
+            rows.append(
+                {
+                    "round_raw": round_row["round_raw"],
+                    "round_no": None,
+                    "t_s": 20.0 + index,
+                    "victim_id": f"{victim_lineup}-{index}",
+                    "victim_lineup_key": victim_lineup,
+                    "victim_side": "T",
+                    "victim_x": 10.0 * index,
+                    "victim_y": -10.0 * index,
+                    "victim_z": 1.0,
+                    "victim_area": (
+                        None if number in without_victim_area else "Cave"
+                    ),
+                    "attacker_id": (
+                        f"{attacker_lineup}-{index}" if has_attacker else None
+                    ),
+                    "attacker_lineup_key": (
+                        attacker_lineup if has_attacker else None
+                    ),
+                    "attacker_side": "CT" if has_attacker else None,
+                    "attacker_x": 20.0 * index if has_attacker else None,
+                    "attacker_y": -20.0 * index if has_attacker else None,
+                    "attacker_z": 2.0 if has_attacker else None,
+                    "attacker_area": (
+                        "Middle"
+                        if has_attacker and number not in without_attacker_area
+                        else None
+                    ),
+                    "weapon": "planted_c4" if not has_attacker else "ak47",
+                }
+            )
+    return pl.DataFrame(rows, schema=dict(DEATHS_ADAPTER_SCHEMA), orient="row")
+
+
 class FakeParser:
     """Portin toteutus, joka ei koske demoparser2:een."""
 
@@ -321,6 +406,7 @@ class FakeParser:
         ticks: pl.DataFrame | None = None,
         events: pl.DataFrame | None = None,
         lineups: pl.DataFrame | None = None,
+        deaths: pl.DataFrame | None = None,
     ):
         self.frame = frame if frame is not None else build_rounds()
         self.ticks = ticks if ticks is not None else build_ticks(self.frame)
@@ -328,6 +414,7 @@ class FakeParser:
         self.lineups = (
             lineups if lineups is not None else build_lineups(self.frame)
         )
+        self.deaths = deaths if deaths is not None else build_deaths(self.frame)
         self.error = error
         self.calls = 0
         self.seen_seconds: list[tuple[float, ...]] = []
@@ -342,6 +429,7 @@ class FakeParser:
             ticks=self.ticks,
             events=self.events,
             lineups=self.lineups,
+            deaths=self.deaths,
         )
 
 
@@ -447,6 +535,7 @@ def test_writes_a_manifest_with_only_the_parse_section(
         f"parsed/{MAP_DEMO_ID}/ticks.parquet",
         f"parsed/{MAP_DEMO_ID}/events.parquet",
         f"parsed/{MAP_DEMO_ID}/lineups.parquet",
+        f"parsed/{MAP_DEMO_ID}/deaths.parquet",
     ]
     assert manifest.inputs[0].result_id == f"demo/{MAP_DEMO_ID}"
 
@@ -498,7 +587,7 @@ def test_writes_a_valid_ticks_table(parse_settings, archive, demo) -> None:
     assert result.stats["sample_rounds"] == 3
 
 
-def test_all_four_tables_are_listed_among_the_outputs(
+def test_all_five_tables_are_listed_among_the_outputs(
     parse_settings, archive, demo
 ) -> None:
     result = run_parse(parse_settings, archive, FakeParser(), demo)
@@ -507,6 +596,7 @@ def test_all_four_tables_are_listed_among_the_outputs(
         "ticks.parquet",
         "events.parquet",
         "lineups.parquet",
+        "deaths.parquet",
     ]
 
 
@@ -2229,3 +2319,670 @@ def test_the_parse_summary_renders_every_key_the_stage_produces(
     assert "Kokoonpanot" in text
     assert "MatureMayhem (aaa)" in text
     assert "KALJUKOSTAJA (bbb)" in text
+
+
+# --- Kuolemataulu (Story 2.7) --------------------------------------------------
+
+
+def read_deaths(archive: ArchivePaths) -> pl.DataFrame:
+    return pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "deaths"))
+
+
+def test_the_deaths_table_is_written_and_carries_the_map_demo_id(
+    parse_settings, archive, demo
+) -> None:
+    """I/O-matriisi: normaali demo -> deaths.parquet sopimuksen mukaisena."""
+    run_parse(parse_settings, archive, FakeParser(), demo)
+    df = read_deaths(archive)
+
+    validate(df, DEATHS, "deaths")
+    assert set(df["map_demo_id"].to_list()) == {MAP_DEMO_ID}
+    assert df.height == 3  # kolme pelattua kierrosta, yksi kuolema kullakin
+
+
+def test_deaths_get_the_round_number_from_the_rounds_table(
+    parse_settings, archive, demo
+) -> None:
+    """Numeroinnin omistaa domain.rounds; vaihe vain liittää sen."""
+    rounds = build_rounds(played=3, warmup=0)
+    run_parse(
+        parse_settings,
+        archive,
+        FakeParser(rounds, ticks=build_ticks(rounds), deaths=build_deaths(rounds)),
+        demo,
+    )
+    df = read_deaths(archive)
+
+    assert df["round_no"].null_count() == 0
+    assert sorted(df["round_no"].unique().to_list()) == [1, 2, 3]
+
+
+def test_knife_round_deaths_are_dropped_by_the_same_join(
+    parse_settings, archive, demo
+) -> None:
+    """I/O-matriisi: puukkokierroksen kuolemat eivät päädy tauluun.
+
+    Adapteri tuottaa ne, koska se ei tunne numerointisääntöä --
+    puukkokierroksella kuollaan oikeasti. Ne putoavat samassa liitoksessa
+    kuin näytepisteet ja kranaatit, ei erillisellä säännöllä.
+    """
+    rounds = build_rounds(played=2, warmup=3)
+    result = run_parse(
+        parse_settings,
+        archive,
+        FakeParser(rounds, ticks=build_ticks(rounds), deaths=build_deaths(rounds)),
+        demo,
+    )
+    df = read_deaths(archive)
+
+    assert sorted(df["round_no"].unique().to_list()) == [1, 2]
+    assert sorted(df["round_raw"].unique().to_list()) == [4, 5]
+    assert result.stats["deaths_unnumbered_rounds"] == 3
+
+
+def test_dropped_deaths_are_counted_not_just_dropped(
+    parse_settings, archive, demo
+) -> None:
+    """Hiljainen pudotus näyttäisi demolta, jossa kuolemia oli vähemmän."""
+    rounds = build_rounds(played=2, warmup=2)
+    result = run_parse(
+        parse_settings,
+        archive,
+        FakeParser(
+            rounds,
+            ticks=build_ticks(rounds),
+            deaths=build_deaths(rounds, per_round=2),
+        ),
+        demo,
+    )
+    assert result.stats["deaths_unnumbered_rounds"] == 4
+    assert result.stats["death_rows"] == 4
+
+
+def test_a_death_without_an_attacker_survives_the_write(
+    parse_settings, archive, demo
+) -> None:
+    """I/O-matriisi: ampujaton kuolema -> attacker_* null, rivi säilyy."""
+    rounds = build_rounds(played=2, warmup=0)
+    result = run_parse(
+        parse_settings,
+        archive,
+        FakeParser(
+            rounds,
+            ticks=build_ticks(rounds),
+            deaths=build_deaths(rounds, without_attacker=(1,)),
+        ),
+        demo,
+    )
+    df = read_deaths(archive)
+
+    assert df.height == 2
+    without = df.filter(pl.col("attacker_id").is_null())
+    assert without.height == 1
+    assert without["victim_id"].null_count() == 0
+    assert without["weapon"].to_list() == ["planted_c4"]
+    assert result.stats["deaths_without_attacker"] == 1
+
+
+def test_an_attacker_without_an_area_is_counted_apart_from_a_missing_attacker(
+    parse_settings, archive, demo
+) -> None:
+    """Ampujaton rivi ei ole aluevika, joten luvut ovat erikseen.
+
+    Yhteinen luku näyttäisi kahdelta aluevialta silloin, kun toinen on
+    rehellinen putoaminen.
+    """
+    rounds = build_rounds(played=3, warmup=0)
+    result = run_parse(
+        parse_settings,
+        archive,
+        FakeParser(
+            rounds,
+            ticks=build_ticks(rounds),
+            deaths=build_deaths(
+                rounds, without_attacker=(1,), without_attacker_area=(2,)
+            ),
+        ),
+        demo,
+    )
+    assert result.stats["deaths_without_attacker"] == 1
+    assert result.stats["deaths_without_attacker_area"] == 1
+    assert result.stats["deaths_without_victim_area"] == 0
+
+
+def test_a_victim_without_an_area_is_counted(
+    parse_settings, archive, demo
+) -> None:
+    """Uhrin alueen puuttuminen on mitatussa aineistossa nolla -- luku kertoo
+    jos se muuttuu."""
+    rounds = build_rounds(played=2, warmup=0)
+    result = run_parse(
+        parse_settings,
+        archive,
+        FakeParser(
+            rounds,
+            ticks=build_ticks(rounds),
+            deaths=build_deaths(rounds, without_victim_area=(1,)),
+        ),
+        demo,
+    )
+    assert result.stats["deaths_without_victim_area"] == 1
+    assert read_deaths(archive)["victim_x"].null_count() == 0
+
+
+def test_death_rows_are_sorted_by_round_and_time(
+    parse_settings, archive, demo
+) -> None:
+    """Vakaa järjestys: sama syöte, samat tavut."""
+    rounds = build_rounds(played=3, warmup=0)
+    run_parse(
+        parse_settings,
+        archive,
+        FakeParser(
+            rounds,
+            ticks=build_ticks(rounds),
+            deaths=build_deaths(rounds, per_round=2),
+        ),
+        demo,
+    )
+    df = read_deaths(archive)
+    assert df["round_no"].to_list() == [1, 1, 2, 2, 3, 3]
+    assert df.sort("round_no", "t_s", "victim_id").equals(df)
+
+
+def test_a_deaths_table_breaking_the_port_contract_is_rejected(
+    parse_settings, archive, demo
+) -> None:
+    """Puuttuva sarake -> suomenkielinen SchemaError, joka nimeää taulun."""
+    rounds = build_rounds()
+    broken = build_deaths(rounds).drop("victim_area")
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(rounds, deaths=broken), demo)
+    assert "victim_area" in str(exc.value)
+    assert "kuolemataulun" in str(exc.value)
+
+
+def test_an_extra_deaths_column_is_a_contract_break_too(
+    parse_settings, archive, demo
+) -> None:
+    """Ylimääräinen sarake tarkoittaa, että portti ja sopimus erkanivat."""
+    rounds = build_rounds()
+    broken = build_deaths(rounds).with_columns(pl.lit(1).alias("ylimaarainen"))
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(rounds, deaths=broken), demo)
+    assert "ylimaarainen" in str(exc.value)
+    assert "kuolemataulun" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "column", ["attacker_x", "attacker_y", "attacker_z", "attacker_area"]
+)
+def test_an_attackerless_death_may_not_carry_attacker_observations(
+    parse_settings, archive, demo, column: str
+) -> None:
+    """Puolikas ampuja on vika, vaikka skeema hyväksyisi jokaisen kentän.
+
+    Paikka ilman toimijaa laskeutuisi raportissa tapoksi, jota kukaan ei
+    tehnyt. Jokainen havaintokenttä testataan erikseen: yksi yhteinen testi
+    menisi läpi, vaikka kolme neljästä ehdosta poistettaisiin.
+    """
+    rounds = build_rounds(played=2, warmup=0)
+    value = "Middle" if column == "attacker_area" else 1.0
+    broken = build_deaths(rounds, without_attacker=(1,)).with_columns(
+        pl.when(pl.col("attacker_id").is_null())
+        .then(pl.lit(value))
+        .otherwise(pl.col(column))
+        .cast(DEATHS[column])
+        .alias(column)
+    )
+    with pytest.raises(SchemaError) as exc:
+        run_parse(
+            parse_settings,
+            archive,
+            FakeParser(rounds, ticks=build_ticks(rounds), deaths=broken),
+            demo,
+        )
+    assert "ampujaa" in str(exc.value)
+    assert column in str(exc.value)
+
+
+def test_an_attackerless_death_with_only_nulls_is_accepted(
+    parse_settings, archive, demo
+) -> None:
+    """Vartijan toinen haara: ehjä ampujaton rivi menee läpi.
+
+    Ilman tätä edellinen testi todistaisi vain, että jokin kaataa ajon.
+    """
+    rounds = build_rounds(played=2, warmup=0)
+    run_parse(
+        parse_settings,
+        archive,
+        FakeParser(
+            rounds,
+            ticks=build_ticks(rounds),
+            deaths=build_deaths(rounds, without_attacker=(1, 2)),
+        ),
+        demo,
+    )
+    assert read_deaths(archive).height == 2
+
+
+def test_an_empty_deaths_table_is_refused_instead_of_written(
+    parse_settings, archive, demo
+) -> None:
+    """Pelatussa ottelussa kuollaan, joten tyhjä taulu on rikkinäinen portti.
+
+    Tyhjä tulos jäisi manifestin perusteella pysyvästi ohitetuksi, ja
+    raportti kertoisi kartasta, jolla kukaan ei kuollut.
+    """
+    rounds = build_rounds(played=2, warmup=0)
+    empty = pl.DataFrame(schema=dict(DEATHS_ADAPTER_SCHEMA))
+    with pytest.raises(ParseError) as exc:
+        run_parse(
+            parse_settings,
+            archive,
+            FakeParser(rounds, ticks=build_ticks(rounds), deaths=empty),
+            demo,
+        )
+    assert "kuolemaa" in str(exc.value)
+    assert not archive.parsed_table(MAP_DEMO_ID, "deaths").exists()
+    assert Manifest.read(archive.parsed_manifest(MAP_DEMO_ID)).status == "parse_failed"
+
+
+def test_an_archive_without_the_deaths_table_is_not_up_to_date(
+    parse_settings, archive, demo
+) -> None:
+    """I/O-matriisi: vanha arkisto ilman deaths.parquet -> ajetaan uudelleen.
+
+    ``ParseSettings`` ei muuttunut, joten parametrihash on identtinen ja
+    vanha manifesti nimeää vain neljä taulua. Ilman erillistä tarkistusta ajo
+    ohitettaisiin ja kuolemataulu ei syntyisi koskaan.
+    """
+    parser = FakeParser()
+    run_parse(parse_settings, archive, parser, demo)
+
+    manifest_path = archive.parsed_manifest(MAP_DEMO_ID)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["outputs"] = [
+        o for o in manifest["outputs"] if not o.endswith("deaths.parquet")
+    ]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    archive.parsed_table(MAP_DEMO_ID, "deaths").unlink()
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert not result.skipped, "vanha arkisto olisi jäänyt ilman kuolemataulua"
+    assert parser.calls == 2
+    assert archive.parsed_table(MAP_DEMO_ID, "deaths").is_file()
+
+
+def test_a_stale_deaths_table_missing_a_column_is_reparsed(
+    parse_settings, archive, demo
+) -> None:
+    """Sopimusmuutos pakottaa uudelleenparsinnan ilman ``--pakota``."""
+    parser = FakeParser()
+    run_parse(parse_settings, archive, parser, demo)
+
+    path = archive.parsed_table(MAP_DEMO_ID, "deaths")
+    pl.read_parquet(path).drop("attacker_area").write_parquet(path)
+
+    result = run_parse(parse_settings, archive, parser, demo)
+    assert not result.skipped
+    assert parser.calls == 2
+    validate(pl.read_parquet(path), DEATHS, "deaths")
+
+
+def test_unreadable_deaths_do_not_hide_the_other_counts(
+    parse_settings, archive, demo
+) -> None:
+    """Yksi lukukelvoton taulu ei saa viedä muiden lukuja.
+
+    Taulut luetaan erikseen: rikkinäinen kuolemataulu kerrotaan omalla
+    avaimellaan, ja kierros-, näytepiste- ja utility-luvut säilyvät.
+    Lukukelvoton taulu on eri vika kuin vanhentunut sopimus, eikä se parane
+    demon uudelleenluvusta -- siksi ajo pysyy ohitettuna.
+    """
+    run_parse(parse_settings, archive, FakeParser(), demo)
+    archive.parsed_table(MAP_DEMO_ID, "deaths").write_text("ei parquetia")
+
+    result = run_parse(parse_settings, archive, FakeParser(), demo)
+    assert result.skipped
+    assert "deaths_unreadable" in result.stats
+    assert "death_rows" not in result.stats
+    assert result.stats["rounds"] == 3
+    assert result.stats["tick_rows"] == 60
+
+
+def test_skipped_run_reports_the_death_counts_too(
+    parse_settings, archive, demo
+) -> None:
+    """Ohitettu ajo lukee luvut valmiista taulusta eikä väitä nollaa."""
+    run_parse(parse_settings, archive, FakeParser(), demo)
+    result = run_parse(parse_settings, archive, FakeParser(), demo)
+
+    assert result.skipped
+    assert result.stats["death_rows"] == 3
+    assert result.stats["death_rounds"] == 3
+    # Numeroimattomilta pudonneita ei voi lukea valmiista taulusta.
+    assert "deaths_unnumbered_rounds" not in result.stats
+
+
+def test_the_deaths_diagnostics_reach_the_stats(
+    parse_settings, archive, demo
+) -> None:
+    """Adapterin omat luvut kulkevat ajon yhteenvetoon sellaisinaan."""
+
+    class WithDiagnostics(FakeParser):
+        diagnostics = ParseDiagnostics(
+            tick_rate=64.0,
+            tick_rate_measured=True,
+            rounds_seen=4,
+            deaths_outside_rounds=2,
+            deaths_without_victim_side=3,
+            deaths_attacker_without_side=4,
+        )
+
+    result = run_parse(parse_settings, archive, WithDiagnostics(), demo)
+    assert result.stats["deaths_outside_rounds"] == 2
+    assert result.stats["deaths_without_victim_side"] == 3
+    assert result.stats["deaths_attacker_without_side"] == 4
+
+
+def test_the_parse_summary_names_every_death_line(
+    parse_settings, archive, demo
+) -> None:
+    """Tuottajan ja kuluttajan avainsopimus jokaiselle uudelle tulosteriville.
+
+    Jokainen rivi tarkistetaan **arvoineen**: pelkkä otsikon etsiminen menisi
+    läpi, vaikka luku olisi väärästä avaimesta.
+    """
+    from pappascout.cli import _render_parse
+
+    class WithDiagnostics(FakeParser):
+        diagnostics = ParseDiagnostics(
+            tick_rate=64.0,
+            tick_rate_measured=True,
+            rounds_seen=6,
+            deaths_outside_rounds=2,
+            deaths_without_victim_side=3,
+            deaths_attacker_without_side=4,
+        )
+
+    rounds = build_rounds(played=3, warmup=2)
+    parser = WithDiagnostics(
+        rounds,
+        ticks=build_ticks(rounds),
+        # Numerot juoksevat KAIKKIEN kierrosrajojen yli, myös warmupin:
+        # numerot 1-2 putoavat numeroimattomina, joten poikkeukset on
+        # asetettava pelatuille kierroksille 3-5.
+        deaths=build_deaths(
+            rounds,
+            without_attacker=(3,),
+            without_victim_area=(4,),
+            without_attacker_area=(5,),
+        ),
+    )
+    text = _render_parse(run_parse(parse_settings, archive, parser, demo), 24)
+
+    assert "Kuolemat" in text and "3 (3/3 kierroksella)" in text
+    assert "Numeroimattomilta" in text and "2 kuolemaa" in text
+    assert "Ampujaton kuolema" in text and "1 (putoaminen" in text
+    assert "Uhri ilman aluetta" in text and "1 riviä" in text
+    assert "Ampuja ilman aluetta" in text
+    assert "Kierrosten välissä" in text and "2 (" in text
+    assert "Uhri ilman puolta" in text and "3 (" in text
+    assert "Ampuja ilman puolta" in text and "4 (" in text
+
+
+def test_the_parse_summary_stays_silent_when_every_death_is_whole(
+    parse_settings, archive, demo
+) -> None:
+    """Nolla on odotusarvo, eikä sitä tulosteta -- vain rivimäärä jää."""
+    from pappascout.cli import _render_parse
+
+    text = _render_parse(
+        run_parse(parse_settings, archive, FakeParser(), demo), 24
+    )
+    assert "Kuolemat" in text and "3 (3/3 kierroksella)" in text
+    assert "Ampujaton kuolema" not in text
+    assert "Uhri ilman aluetta" not in text
+    assert "Ampuja ilman aluetta" not in text
+    assert "Uhri ilman puolta" not in text
+    assert "Ampuja ilman puolta" not in text
+    assert "Kierrosten välissä" not in text
+
+
+def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
+    parse_settings, archive, demo
+) -> None:
+    """Lukukelvoton taulu kerrotaan, ei nollata."""
+    from pappascout.cli import _render_parse
+
+    stats = parse_stage._existing_stats(
+        archive.parsed_table(MAP_DEMO_ID, "rounds"),
+        archive.parsed_table(MAP_DEMO_ID, "ticks"),
+        archive.parsed_table(MAP_DEMO_ID, "events"),
+        archive.parsed_table(MAP_DEMO_ID, "lineups"),
+        archive.parsed_table(MAP_DEMO_ID, "deaths"),
+    )
+    assert "unreadable" in stats
+
+    run_parse(parse_settings, archive, FakeParser(), demo)
+    archive.parsed_table(MAP_DEMO_ID, "deaths").write_text("ei parquetia")
+    stats = parse_stage._existing_stats(
+        archive.parsed_table(MAP_DEMO_ID, "rounds"),
+        archive.parsed_table(MAP_DEMO_ID, "ticks"),
+        archive.parsed_table(MAP_DEMO_ID, "events"),
+        archive.parsed_table(MAP_DEMO_ID, "lineups"),
+        archive.parsed_table(MAP_DEMO_ID, "deaths"),
+    )
+    assert "deaths_unreadable" in stats
+    text = _render_parse(
+        StageResult(
+            stage="parse",
+            unit=MAP_DEMO_ID,
+            status="ok",
+            skipped=True,
+            stats=stats,
+        ),
+        24,
+    )
+    assert "Kuolemat" in text and "lukuja ei saatu" in text
+
+
+# --- Katselmuskierros: uhrin eheys, järjestys ja pudotussyyt -------------------
+
+
+@pytest.mark.parametrize(
+    "column", ["victim_id", "victim_lineup_key", "victim_side"]
+)
+def test_a_death_without_its_victim_is_refused(
+    parse_settings, archive, demo, column: str
+) -> None:
+    """Uhri on rivin identiteetti; ilman sitä rivi katoaisi hiljaa.
+
+    Jokainen näistä on nullable-sarake, joten ``validate`` päästäisi rivin
+    läpi -- ja aggregoinnissa se ei olisi kuolema eikä tappo, koska molemmat
+    suodattimet vertaavat kokoonpanoon. Sarakkeet testataan erikseen: yksi
+    yhteinen testi menisi läpi, vaikka kaksi kolmesta ehdosta poistettaisiin.
+    """
+    rounds = build_rounds(played=2, warmup=0)
+    broken = build_deaths(rounds).with_columns(
+        pl.when(pl.col("round_raw") == pl.col("round_raw").min())
+        .then(None)
+        .otherwise(pl.col(column))
+        .cast(DEATHS[column])
+        .alias(column)
+    )
+    with pytest.raises(SchemaError) as exc:
+        run_parse(
+            parse_settings,
+            archive,
+            FakeParser(rounds, ticks=build_ticks(rounds), deaths=broken),
+            demo,
+        )
+    assert "uhrin" in str(exc.value)
+    assert column in str(exc.value)
+
+
+def test_a_whole_victim_passes_the_guard(parse_settings, archive, demo) -> None:
+    """Vartijan toinen haara: ehjä uhri menee läpi.
+
+    Ilman tätä edellinen testi todistaisi vain, että jokin kaataa ajon.
+    """
+    run_parse(parse_settings, archive, FakeParser(), demo)
+    assert read_deaths(archive).height == 3
+
+
+def test_the_integrity_guards_see_the_knife_round_too(
+    parse_settings, archive, demo
+) -> None:
+    """Vartijat ajetaan **ennen** numerointia, eli koko adapterin tuotokselle.
+
+    Puolinainen rivi tulee todennäköisimmin juuri lämmittelystä ja
+    puukkokierrokselta -- ne ovat kierroksia, joilla pelin tila on epävakain.
+    Numeroinnin jälkeen vartija katsoisi vain sitä osaa aineistoa, jossa
+    vikaa ei odoteta.
+    """
+    rounds = build_rounds(played=2, warmup=2)
+    # Rikotaan **vain** numeroimaton kierros: numeroinnin jälkeen ajettu
+    # vartija ei näkisi tätä riviä lainkaan.
+    broken = build_deaths(rounds).with_columns(
+        pl.when(pl.col("round_raw") <= 2)
+        .then(None)
+        .otherwise(pl.col("victim_id"))
+        .cast(DEATHS["victim_id"])
+        .alias("victim_id")
+    )
+    with pytest.raises(SchemaError) as exc:
+        run_parse(
+            parse_settings,
+            archive,
+            FakeParser(rounds, ticks=build_ticks(rounds), deaths=broken),
+            demo,
+        )
+    assert "uhrin" in str(exc.value)
+
+
+def test_the_attacker_guard_sees_the_knife_round_too(
+    parse_settings, archive, demo
+) -> None:
+    """Sama ampujan vartijalle: pudotettu kierros ei saa piilottaa vikaa."""
+    rounds = build_rounds(played=2, warmup=2)
+    broken = build_deaths(rounds, without_attacker=(1, 2)).with_columns(
+        pl.when(pl.col("attacker_id").is_null())
+        .then(pl.lit("Middle"))
+        .otherwise(pl.col("attacker_area"))
+        .alias("attacker_area")
+    )
+    with pytest.raises(SchemaError) as exc:
+        run_parse(
+            parse_settings,
+            archive,
+            FakeParser(rounds, ticks=build_ticks(rounds), deaths=broken),
+            demo,
+        )
+    assert "ampujaa" in str(exc.value)
+
+
+def test_a_death_without_a_time_sorts_last_in_the_written_table(
+    parse_settings, archive, demo
+) -> None:
+    """Puuttuva aika ei ole nolla -- eikä parquetissa toisin kuin domainissa.
+
+    ``deaths_for`` järjestää tyhjän ``t_s``:n viimeiseksi. Ilman
+    ``nulls_last=True``:tä sama rivi johtaisi kierrostaan taulussa, ja sama
+    asia järjestyisi kahdella eri tavalla riippuen kummasta katsoo.
+    """
+    rounds = build_rounds(played=1, warmup=0)
+    deaths = build_deaths(rounds, per_round=3).with_columns(
+        pl.when(pl.col("victim_id").str.ends_with("-0"))
+        .then(None)
+        .otherwise(pl.col("t_s"))
+        .cast(pl.Float64)
+        .alias("t_s")
+    )
+    run_parse(
+        parse_settings,
+        archive,
+        FakeParser(rounds, ticks=build_ticks(rounds), deaths=deaths),
+        demo,
+    )
+    written = read_deaths(archive)
+
+    assert written["t_s"].to_list()[-1] is None
+    assert written["t_s"].to_list()[0] is not None
+
+
+def test_the_empty_table_error_names_the_counters_it_already_has(
+    parse_settings, archive, demo
+) -> None:
+    """Virheilmoitus ei arvaa syytä, kun luvut ovat kädessä.
+
+    Adapteri erittelee jokaisen pudotussyyn, ja ne on laskettu ennen kuin
+    tyhjyys havaitaan. Ilman niitä ilmoitus nimeäisi kaksi arvausta.
+    """
+
+    class WithDrops(FakeParser):
+        diagnostics = ParseDiagnostics(
+            tick_rate=64.0,
+            tick_rate_measured=True,
+            rounds_seen=3,
+            deaths_outside_rounds=7,
+            deaths_without_victim=2,
+        )
+
+    rounds = build_rounds(played=2, warmup=0)
+    empty = pl.DataFrame(schema=dict(DEATHS_ADAPTER_SCHEMA))
+    with pytest.raises(ParseError) as exc:
+        run_parse(
+            parse_settings,
+            archive,
+            WithDrops(rounds, ticks=build_ticks(rounds), deaths=empty),
+            demo,
+        )
+    message = str(exc.value)
+    assert "kierrosten ulkopuolella 7" in message
+    assert "uhri puuttui 2" in message
+
+
+def test_the_empty_table_error_says_so_when_every_counter_is_zero(
+    parse_settings, archive, demo
+) -> None:
+    """Toinen haara: ilman pudotuksia syy on portti itse."""
+    rounds = build_rounds(played=2, warmup=0)
+    empty = pl.DataFrame(schema=dict(DEATHS_ADAPTER_SCHEMA))
+    with pytest.raises(ParseError) as exc:
+        run_parse(
+            parse_settings,
+            archive,
+            FakeParser(rounds, ticks=build_ticks(rounds), deaths=empty),
+            demo,
+        )
+    message = str(exc.value)
+    assert "ei tuottanut yhtään kuolemaa" in message
+    assert "player_death" in message
+
+
+def test_the_new_drop_counters_reach_the_stats_and_the_summary(
+    parse_settings, archive, demo
+) -> None:
+    """Tickitön ja uhriton kuolema ovat eri syitä, ja molemmat näkyvät."""
+    from pappascout.cli import _render_parse
+
+    class WithDrops(FakeParser):
+        diagnostics = ParseDiagnostics(
+            tick_rate=64.0,
+            tick_rate_measured=True,
+            rounds_seen=4,
+            deaths_without_tick=2,
+            deaths_without_victim=3,
+        )
+
+    result = run_parse(parse_settings, archive, WithDrops(), demo)
+    assert result.stats["deaths_without_tick"] == 2
+    assert result.stats["deaths_without_victim"] == 3
+
+    text = _render_parse(result, 24)
+    assert "Kuolema ilman tickiä" in text and "2 (" in text
+    assert "Kuolema ilman uhria" in text and "3 (" in text

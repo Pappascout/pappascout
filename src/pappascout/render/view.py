@@ -23,6 +23,11 @@ suodatus ei ole hiljainen.
 **Ei tulkintoja.** Rivit kertovat pelaajamääriä, kranaatteja ja alueita.
 Sanoja "fake", "rush" tai "hyvä" ei ole missään -- johtopäätös on lukijan.
 
+**Kuolemat mahtuvat kahteen riviin.** Raportti on jo satoja rivejä, kun
+Veetin oma analyysi on 30. Kuolemat lisättiin siksi, että ne selittävät muut
+rivit -- ei siksi, että ne olisivat oma lukunsa. Raja on
+:data:`MAX_DEATH_LINES`, ja sen ylitys on virhe eikä hiljainen kasvu.
+
 Miksi ensikontaktista näytetään jakauma eikä läsnäololista
 ----------------------------------------------------------
 ``Report`` sisältää ensikontaktin kahdesti: ``round_types[].first_contact``
@@ -50,18 +55,22 @@ from pappascout.constants import (
 )
 from pappascout.domain.report import (
     ArmedPlayers,
+    DeathReport,
     Position,
     Report,
     RoundTypeReport,
     UtilityCounts,
     UtilityUse,
 )
+from pappascout.errors import PappascoutError
 
 __all__ = [
     "GRENADE_TYPE_FI",
     "GRENADE_ORDER",
     "ROUND_TYPE_ORDER",
     "PATTERN_ROUND_TYPES",
+    "MAX_DEATH_LINES",
+    "KILL_SAMPLE_UNIT",
     "UNKNOWN_AREA",
     "Claim",
     "Line",
@@ -123,6 +132,20 @@ ROUND_TYPE_ORDER: tuple[str, ...] = (
 #: yleisin, joten kierroskohtainen kerronta olisi enimmäkseen toistoa.
 PATTERN_ROUND_TYPES: frozenset[str] = frozenset({"full", "ot"})
 
+#: Enintään näin monta riviä kuolemista kierrostyyppiä kohden.
+#:
+#: Raportti on jo satoja rivejä, kun Veetin oma analyysi on 30. Kuolemat
+#: lisättiin siksi, että ne **selittävät muut rivit** -- eivät siksi, että ne
+#: olisivat oma lukunsa. Kaksi riviä: mistä ensimmäinen kuolema tuli ja mistä
+#: joukkue teki tappoja. Luku on vakio eikä asetus, koska se on rajaus eikä
+#: säädin; sen nostaminen on sopimusmuutos ("Ask First").
+MAX_DEATH_LINES = 2
+
+#: Tappojakauman otannan yksikkö. Vakio, koska sekä rivi että lukuohje
+#: puhuvat siitä: kahtena kirjoitettuna toinen jäisi kertomaan kierroksista,
+#: ja juuri se lause on väärä.
+KILL_SAMPLE_UNIT = "taposta"
+
 #: Nimi alueelle, jota ei saatu. Ei tyhjä eikä pois jätetty: tuntematon
 #: sijainti on eri asia kuin tyhjä alue.
 UNKNOWN_AREA = "tuntematon alue"
@@ -150,10 +173,16 @@ class Claim:
     #: Lisätieto, joka ei ole otanta -- esimerkiksi heittojen määrä silloin,
     #: kun samalla kierroksella heitettiin useampi samanlainen kranaatti.
     extra: str | None = None
+    #: Otannan **yksikkö**. Lähes jokainen väite laskee kierroksia, mutta
+    #: tappojakauman nimittäjä on tappoja: kierrostyypillä voi olla enemmän
+    #: tappoja kuin kierroksia, joten "4/6 kierroksesta" olisi siellä suoraan
+    #: väärä lause. Yksikkö on kentässä eikä valmiiksi muotoillussa
+    #: merkkijonossa, jotta ``n`` ja ``m`` pysyvät lukuina näkymässä.
+    unit: str = "kierroksesta"
 
     @property
     def sample_text(self) -> str:
-        return f"{self.n}/{self.m} kierroksesta"
+        return f"{self.n}/{self.m} {self.unit}"
 
 
 @dataclass(frozen=True)
@@ -252,6 +281,7 @@ class _Flags:
     unknown_area: bool = False
     estimated_area: bool = False
     armed_shown: bool = False
+    kills_shown: bool = False
     dropped: int = 0
 
 
@@ -572,6 +602,109 @@ def _first_contact_gap_line(
     )
 
 
+def _death_lines(deaths: DeathReport, min_n: int, flags: _Flags) -> list[Line]:
+    """Enintään :data:`MAX_DEATH_LINES` riviä: ensimmäinen kuolema ja tapot.
+
+    Kaksi riviä, koska kuolemat selittävät muut rivit eivätkä ole oma
+    lukunsa. Ensimmäinen vastaa kysymykseen *"mistä joukkue menettää
+    ensimmäisen pelaajansa ja milloin"* -- tavoiteanalyysin rivi "Luola
+    kuolee nii pelaa siteltä/nyypästä ja longilta". Toinen vastaa
+    kysymykseen *"mistä he ampuvat"* -- "Vihu meni secret pihalta".
+
+    **Tapporivin otanta on tappoja eikä kierroksia**, ja se sanotaan
+    väitteessä itsessään (:data:`KILL_SAMPLE_UNIT`) eikä vain lukuohjeessa:
+    rivi luetaan yksinään, kaukana lukuohjeesta.
+
+    **Milloin rivi kirjoitetaan.** Rivi syntyy, jos sillä on väite **tai**
+    havainto -- ei pelkkä otsikko ilman kumpaakaan. Ensimmäisen kuoleman rivi
+    voi siis olla pelkkä huomautus ilman yhtään aluetta: "ei omia kuolemia 4
+    kierroksella" on **aito havainto**, se kertoo ettei joukkue menettänyt
+    ketään. Tapporivillä vastaavaa ei ole, koska "nolla tappoa" ei ole
+    laskettu mihinkään lukuun. Kierrostyyppi, jolla ei ole kuolemia eikä
+    kierroksia, ei tuota kumpaakaan riviä.
+    """
+    lines: list[Line] = []
+
+    claims: list[tuple[int, str, Claim]] = []
+    for entry in deaths.first_death_areas:
+        if entry.n < min_n:
+            if min_n > 1:
+                flags.dropped += 1
+            continue
+        name = _area(entry.area)
+        if entry.area is None:
+            flags.unknown_area = True
+        claims.append((-entry.n, name, Claim(text=name, n=entry.n, m=entry.m)))
+    note = None
+    if deaths.rounds_missing:
+        note = f"ei omia kuolemia {deaths.rounds_missing} kierroksella"
+    if claims or note is not None:
+        claims.sort(key=lambda item: item[:2])
+        lines.append(
+            Line(
+                label=_first_death_label(deaths),
+                claims=tuple(claim for _, _, claim in claims),
+                note=note,
+            )
+        )
+
+    kill_claims: list[tuple[int, str, Claim]] = []
+    for entry in deaths.kills:
+        if entry.n < min_n:
+            if min_n > 1:
+                flags.dropped += 1
+            continue
+        name = _area(entry.area)
+        if entry.area is None:
+            flags.unknown_area = True
+        kill_claims.append(
+            (
+                -entry.n,
+                name,
+                Claim(text=name, n=entry.n, m=entry.m, unit=KILL_SAMPLE_UNIT),
+            )
+        )
+    if kill_claims:
+        flags.kills_shown = True
+        kill_claims.sort(key=lambda item: item[:2])
+        lines.append(
+            Line(
+                label="tapot alueittain",
+                claims=tuple(claim for _, _, claim in kill_claims),
+            )
+        )
+
+    # Vartija eikä koriste: rivimäärän raja on tämän storyn koko rajaus, ja
+    # kolmas rivi syntyisi hiljaa siitä, että joku lisää lohkon tähän
+    # funktioon. Rajan nostaminen on sopimusmuutos, ei koodimuutos.
+    #
+    # Poikkeus eikä ``assert``: assert katoaa ``python -O``:lla, ja silloin
+    # vartija olisi olemassa vain kehityskoneella -- eli juuri siellä missä
+    # sitä ei tarvita.
+    if len(lines) > MAX_DEATH_LINES:
+        raise PappascoutError(
+            f"Kuolemarivejä syntyi {len(lines)}, vaikka kierrostyyppiä kohden "
+            f"sallitaan {MAX_DEATH_LINES}.\n"
+            "Kyseessä on ohjelmavirhe raportin näkymässä: rivimäärän raja on "
+            "Story 2.7:n rajaus, eikä sen nostaminen ole koodimuutos vaan "
+            "sopimusmuutos."
+        )
+    return lines
+
+
+def _first_death_label(deaths: DeathReport) -> str:
+    """Otsikko: ``ensimmäinen kuolema (mediaani 24 s)``.
+
+    Mediaani on otsikossa eikä omana väitteenään samasta syystä kuin
+    ensikontaktin näytepisteessä: se on koko rivin ajoitus eikä yhden alueen
+    havainto, eikä sillä ole omaa ``n/m``-otantaa.
+    """
+    if deaths.first_death_seconds_median is None:
+        return "ensimmäinen kuolema"
+    median = _median_seconds(deaths.first_death_seconds_median)
+    return f"ensimmäinen kuolema (mediaani {median} s)"
+
+
 def _armed_line(armed: ArmedPlayers, min_n: int, flags: _Flags) -> Line | None:
     """Aseistettujen pelaajien jakauma ostoajan lopussa."""
     claims: list[Claim] = []
@@ -627,6 +760,8 @@ def _round_type_view(
     gap = _first_contact_gap_line(report_type, min_n, flags)
     if gap is not None:
         lines.append(gap)
+
+    lines.extend(_death_lines(report_type.deaths, min_n, flags))
 
     # Kaksi suodatusta koskevaa asiaa -- sääntö ja sen hinta -- ovat samalla
     # rivillä: raportti on lyhyt, ja kaksi kursivoitua alaviitettä jokaisen
@@ -1056,6 +1191,12 @@ def _legend(flags: _Flags) -> list[str]:
             "Aseistettu = panssari JA parannettu ase ostoajan lopussa. Se ei ole "
             "sama asia kuin kevlarien määrä: pistoolikierroksella luku on "
             "yleensä 0, vaikka kaikilla olisi panssari."
+        )
+    if flags.kills_shown:
+        notes.append(
+            "Tapot alueittain: alue on **ampujan** oma alue tappohetkellä, ja "
+            f"otanta (n/m {KILL_SAMPLE_UNIT}) laskee tappoja eikä kierroksia "
+            "-- kierrostyypillä on yleensä enemmän tappoja kuin kierroksia."
         )
     notes.append(
         "Raportti kuvaa vain havainnot. Tulkinta ja vastastrategia ovat lukijan."

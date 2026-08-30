@@ -1,4 +1,4 @@
-"""demoparser2-toteutus kierros-, näytepiste- ja tapahtumataululle (AD-8).
+"""demoparser2-toteutus kaikille viidelle parse-taululle (AD-8).
 
 **Tämä on ainoa moduuli, jossa pelin propinimet esiintyvät.** Vaihe näkee vain
 :class:`~pappascout.adapters.protocols.DemoParser`-portin, joten demoparser2:n
@@ -190,6 +190,45 @@ yhden klaanin kaikilla ankkureilla, myös puoliajan vaihdon yli. Puolen
 (:meth:`_Lineup.key`), joten nimien lisääminen ei siirrä yhtäkään arkiston
 hakemistoa.
 
+Tapot ja kuolemat
+-----------------
+Sama lukukerta tuottaa myös ``deaths``-taulun: rivi per kuolema, uhri ja
+ampuja molemmat alueineen ja koordinaatteineen. ``player_death`` luetaan
+**kerran** kutsulla, joka pyytää pelaajakohtaiset kentät::
+
+    parse_event("player_death", player=["last_place_name", "X", "Y", "Z",
+                                        "team_num"])
+
+Kirjasto palauttaa ne etuliitteillä ``user_*`` (uhri), ``attacker_*`` ja
+``assister_*``. Sama tulos kelpaa myös ostoikkunan rajaamiseen ja
+ensikontaktin varalähteeksi, joten tapahtumaa ei lueta kahdesti.
+
+**Mitattu 2026-08-30, ``Ancient_vs_kaljukostaja``.** Rivejä on 151.
+Kattavuus: ``user_last_place_name`` 151/151, ``attacker_last_place_name``
+149/151, ``assister_last_place_name`` 58/151. Avustaja jätetään pois: se on
+puolet tyhjää eikä yksikään tavoiteanalyysin rivi nojaa siihen. Ne kaksi
+riviä, joilta ampujan alue puuttuu, ovat **samat kaksi**, joilta ampuja
+puuttuu kokonaan (``planted_c4``) -- alue ei siis kadonnut, ampujaa ei ollut.
+
+Alue on **havainto molemmilta**: se tulee samalta tapahtumalta kuin kuolema
+itse, joten napsautusta ei tarvita eikä taulussa ole ``area_source``ia.
+
+Puoli ja kokoonpano luetaan **kierroksen omasta puolikuvauksesta**
+(:meth:`Demoparser2Adapter._assign_sides`) samalla :func:`_side_lookup`illa
+kuin utilityssä, ei tapahtuman ``team_num``-kentästä. Syy on yhdenmukaisuus:
+tapahtumasta luettuna yksi poikkeava lukema panisi kuoleman eri joukkueelle
+kuin mitä ``ticks`` ja ``events`` sanovat samasta pelaajasta samalla
+kierroksella. Tapahtuman oma ``team_num`` on **varalähde** niille pelaajille,
+joita ei ole kummassakaan kokoonpanossa eikä kierroksen ankkuritickillä --
+kesken karttaa tullut tai uudelleenyhdistänyt pelaaja.
+
+Kierros ratkeaa samasta jaksotuksesta kuin utilityssä
+(:func:`_round_windows`, ankkuri = viimeinen ``round_freeze_end``), ja
+``round_no`` jää tyhjäksi: numeroinnin omistaa ``stages.parse``.
+Puukkokierroksella kuollaan oikeasti, ja juuri siksi sen rivit putoavat
+samassa liitoksessa kuin näytepisteet ja kranaatit -- erillistä
+puukkokierrossääntöä ei ole eikä saa olla.
+
 Utility
 -------
 ``grenade_thrown``-tapahtumaa **ei ole olemassa**, joten utility luetaan
@@ -256,6 +295,7 @@ import polars as pl
 
 from pappascout.adapters.decompress import readable_demo
 from pappascout.adapters.protocols import (
+    DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
@@ -275,6 +315,7 @@ from pappascout.domain.sampling import (
 )
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
+    DEATHS,
     EVENTS,
     LINEUPS,
     MONEY_DISTRIBUTION_COLUMN,
@@ -297,6 +338,9 @@ __all__ = [
     "TEAM_SIDES",
     "TICK_PROPS",
     "SAMPLE_TICK_PROPS",
+    "DAMAGE_COLUMNS",
+    "DEATH_PLAYER_PROPS",
+    "DEATH_COLUMNS",
     "GRENADE_COLUMNS",
     "GRENADE_TYPES",
     "FIRE_ITEM_TYPES",
@@ -433,6 +477,39 @@ DAMAGE_COLUMNS: tuple[str, ...] = (
     "attacker_steamid",
     "user_steamid",
     "weapon",
+)
+
+#: Pelaajakohtaiset kentät, jotka pyydetään ``player_death``-tapahtumalta.
+#:
+#: Kirjasto palauttaa jokaisen näistä **kolmella etuliitteellä**: ``user_*``
+#: (uhri), ``attacker_*`` ja ``assister_*``. Avustajaa ei lueta: se on puolet
+#: tyhjää (58/151 mitattuna 2026-08-30) eikä yksikään tavoiteanalyysin rivi
+#: nojaa siihen.
+DEATH_PLAYER_PROPS: tuple[str, ...] = (
+    "last_place_name",
+    "X",
+    "Y",
+    "Z",
+    "team_num",
+)
+
+#: ``player_death``in **pelaajakohtaiset** sarakkeet, etuliitteineen.
+#:
+#: Nämä tulevat :data:`DAMAGE_COLUMNS`-kenttien **lisäksi**, eivät niiden
+#: tilalle: luettelot ovat erillisiä, koska ne korjataan eri paikoista, ja
+#: :meth:`Demoparser2Adapter._damage_rows` nimeää puuttuvan sarakkeen sen
+#: oman luettelon kanssa.
+#:
+#: Puuttuva sarake on virhe eikä tyhjä arvo: ilman tarkistusta kuolemataulu
+#: olisi rakenteellisesti kelvollinen mutta alueeton, ja raportin
+#: "ensimmäinen kuolema, useimmin Cave" -rivi katoaisi kertomatta miksi.
+#: ``*_team_num`` on mukana varalähteenä puolelle, jota kokoonpanoista ei
+#: löydy -- sekin on pakollinen, koska sen katoaminen näkyisi vain
+#: pudotettuina riveinä.
+DEATH_COLUMNS: tuple[str, ...] = tuple(
+    f"{prefix}_{prop}"
+    for prefix in ("user", "attacker")
+    for prop in DEATH_PLAYER_PROPS
 )
 
 #: Elossa olevan pelaajan ``m_lifeState``. Muut arvot ovat kuollut tai kuolemassa.
@@ -606,6 +683,47 @@ class _UtilityCounts:
     sharing_an_entity_id: int = 0
 
 
+@dataclass(frozen=True)
+class _DeathCounts:
+    """Kuolemat, jotka eivät päätyneet tauluun sellaisenaan -- ja syy.
+
+    Nolla on tavoitetila kaikille kolmelle, mutta ``outside_rounds`` voi olla
+    pieni luku aidosti: kierroksen ratkeamisen jälkeen kuollaan yhä, eikä
+    sellaiselle kuolemalle ole ``t_s``:ää.
+
+    **Puukkokierroksen kuolemat eivät ole näissä luvuissa.** Ne ovat
+    kierroksen rajojen sisällä ja saavat ``round_raw``:nsa; ne putoavat vasta
+    ``stages.parse``in numeroinnissa, samalla mekanismilla kuin näytepisteet
+    ja kranaatit, ja niiden määrän kertoo vaihe.
+
+    Attributes:
+        without_tick: Kuolema, jonka tickiä ei saatu luettua. Ilman tickiä
+            kuolemaa ei voi kohdistaa kierrokseen eikä laskea ``t_s``:ää.
+        outside_rounds: Kuolema, joka ei osu yhdenkään kierroksen rajoihin.
+        without_victim: Kuolema **ilman uhria**. Eri asia kuin puuttuva puoli:
+            tässä tapahtumalta puuttuu ``user_steamid`` kokonaan, eikä kyse
+            ole puolen päättelyn epäonnistumisesta. Syyt pidetään erillään
+            samasta syystä kuin ``without_attacker`` ja
+            ``without_attacker_area`` ``stages.parse``in luvuissa: yhdistetty
+            luku näyttäisi päättelyvialta, jota ei ole.
+        without_victim_side: Kuolema, jonka uhri **tunnetaan** mutta jonka
+            puolta ei saatu selville sen paremmin kokoonpanosta, kierroksen
+            ankkuritickistä kuin tapahtuman omasta ``user_team_num``-kentästä.
+            Rivi pudotetaan: ``victim_lineup_key`` on koko taulun
+            liitosavain.
+        attacker_without_side: Kuolema, jonka **ampujan** puoli jäi
+            tuntemattomaksi vaikka ampuja tunnetaan. Rivi säilyy ja ampujan
+            havainnot sen mukana; vain ``attacker_side`` ja
+            ``attacker_lineup_key`` jäävät tyhjiksi.
+    """
+
+    without_tick: int = 0
+    outside_rounds: int = 0
+    without_victim: int = 0
+    without_victim_side: int = 0
+    attacker_without_side: int = 0
+
+
 @dataclass
 class _BuyWindowCounters:
     """Ostoikkunan havainnot, jotka eivät mahdu ``ROUNDS``-sopimukseen.
@@ -765,7 +883,13 @@ class Demoparser2Adapter:
         # tyhjenee, eikä se saa riippua ensikontaktin asetuksesta. Asetus
         # ratkaisee vain sen, saako ensikontakti tulla kuolemasta. Sama luku
         # annetaan näytepisteille, jottei tapahtumaa parsita kahdesti.
-        deaths = self._damage_events(parser, "player_death", original_path)
+        death_rows, deaths_without_tick = self._death_events(
+            parser, original_path
+        )
+        deaths = [
+            (r["tick"], r["attacker_id"], r["victim_id"], r["weapon"])
+            for r in death_rows
+        ]
         death_ticks = sorted(tick for tick, *_ in deaths)
         buy_ticks, window_ticks = _buy_end_ticks(
             segments, death_ticks, tick_rate, self.buy_window_seconds
@@ -808,6 +932,16 @@ class Demoparser2Adapter:
         events, utility = self._build_events_frame(
             parser, original_path, segments, sides, lineup_keys, lineups, by_tick, tick_rate
         )
+        death_frame, death_counts = self._build_deaths_frame(
+            death_rows,
+            segments,
+            sides,
+            lineup_keys,
+            lineups,
+            by_tick,
+            tick_rate,
+            without_tick=deaths_without_tick,
+        )
         # Kokoonpanotaulu rakennetaan vasta tässä, jotta se kantaa kaikki
         # kartan aikana havaitut jäsenet ja nimet -- myös vaihtopelaajan, joka
         # tuli mukaan vasta myöhemmällä kierroksella.
@@ -841,6 +975,11 @@ class Demoparser2Adapter:
                 for votes in lineup.clans.values()
                 if len(votes) > 1
             ),
+            deaths_without_tick=death_counts.without_tick,
+            deaths_outside_rounds=death_counts.outside_rounds,
+            deaths_without_victim=death_counts.without_victim,
+            deaths_without_victim_side=death_counts.without_victim_side,
+            deaths_attacker_without_side=death_counts.attacker_without_side,
             armed_unreadable_rows=armed.unreadable_rows,
             buy_window_seconds=self.buy_window_seconds,
             buy_window_cuts=tuple(sorted(buy.cuts)),
@@ -852,7 +991,11 @@ class Demoparser2Adapter:
             buy_window_stale_equipment=buy.stale_equipment,
         )
         return DemoTables(
-            rounds=rounds, ticks=ticks, events=events, lineups=lineups_frame
+            rounds=rounds,
+            ticks=ticks,
+            events=events,
+            lineups=lineups_frame,
+            deaths=death_frame,
         )
 
     def _open(self, demo_path: Path, original_path: Path) -> Any:
@@ -897,9 +1040,27 @@ class Demoparser2Adapter:
         ends.sort(key=lambda r: r["tick"])
         return ends
 
-    def _event(self, parser: Any, name: str, original_path: Path) -> Any:
+    def _event(
+        self,
+        parser: Any,
+        name: str,
+        original_path: Path,
+        *,
+        player: Sequence[str] | None = None,
+    ) -> Any:
+        """Lue yksi tapahtuma; ``player`` pyytää pelaajakohtaiset kentät.
+
+        Kirjasto lisää pyydetyt kentät kolmella etuliitteellä (``user_*``,
+        ``attacker_*``, ``assister_*``). Parametri on **avainsanallinen ja
+        oletukseltaan tyhjä**, koska useimmat tapahtumat luetaan ilman niitä
+        eikä ylimääräisiä sarakkeita haluta maksaa.
+        """
         try:
-            frame = parser.parse_event(name)
+            frame = (
+                parser.parse_event(name)
+                if player is None
+                else parser.parse_event(name, player=list(player))
+            )
         except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
             raise ParseError(
                 f"Demon {original_path.name} tapahtumaa {name!r} ei voitu lukea: "
@@ -1673,23 +1834,91 @@ class Demoparser2Adapter:
     def _damage_events(
         self, parser: Any, name: str, original_path: Path
     ) -> list[tuple[int, str | None, str | None, str | None]]:
-        """Lue ``player_hurt``- tai ``player_death``-tapahtumat.
+        """``player_hurt`` neljänä kenttänä: ``(tick, tekijä, uhri, ase)``.
+
+        Ensikontaktin sääntö tarvitsee vain nämä, joten pelaajakohtaisia
+        kenttiä ei pyydetä -- ne olisivat 30 saraketta, joita mikään ei lue.
 
         Puolia ei liitetä tässä: sama pelaaja on eri puolella ennen ja jälkeen
         puoliajan, joten kuvaus on kierroskohtainen.
+        """
+        rows, _ = self._damage_rows(parser, name, original_path)
+        return [
+            (r["tick"], r["attacker_id"], r["victim_id"], r["weapon"])
+            for r in rows
+        ]
+
+    def _death_events(
+        self, parser: Any, original_path: Path
+    ) -> tuple[list[dict[str, Any]], int]:
+        """``player_death`` uhrin ja ampujan kentät mukaan lukien.
+
+        Yksi kutsu, kolme käyttäjää: kuolemataulu, ostoikkunan rajaus ja
+        ensikontaktin varalähde. Pelaajakohtaiset kentät maksavat saman
+        tapahtumaluvun kuin ilman niitä, joten erillistä kevyttä kutsua ei ole
+        -- kaksi kutsua voisi lisäksi antaa eri rivijoukon, jos kirjasto
+        joskus muuttuu.
 
         Returns:
-            ``(tick, attacker_id, victim_id, weapon)``. Puuttuva tapahtuma ei
-            ole virhe -- kierros voi ratketa ilman yhtään vahinkoa.
+            ``(rivit, tickittömät)``. Jälkimmäinen on niiden tapahtumien
+            määrä, joilta tick ei ollut luettavissa; ilman tickiä kuolemaa ei
+            voi kohdistaa kierrokseen eikä laskea ``t_s``:ää.
         """
-        frame = self._event(parser, name, original_path)
+        return self._damage_rows(
+            parser, "player_death", original_path, player=DEATH_PLAYER_PROPS
+        )
+
+    def _damage_rows(
+        self,
+        parser: Any,
+        name: str,
+        original_path: Path,
+        *,
+        player: Sequence[str] | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Lue vahinkotapahtuma ja tarkista, että sen sarakkeet ovat tallella.
+
+        Yksi lukija molemmille tapahtumille. Kaksi lähes samanlaista kopiota
+        antaisi **ristiriitaiset korjausohjeet samasta uudelleennimeämisestä**:
+        kadonnut ``user_steamid`` kehottaisi päivittämään toisella polulla
+        ``DAMAGE_COLUMNS``in ja toisella ``DEATH_COLUMNS``in. Tässä jokainen
+        puuttuva sarake nimetään **sen oman luettelon kanssa**, joten ohje on
+        aina se, joka korjaa vian.
+
+        Puuttuva **sarake** on virhe. Ilman tarkistusta ensikontakti häviäisi
+        äänettömästi, ja kuolemataulusta tulisi alueeton mutta
+        rakenteellisesti kelvollinen. Puuttuva **tapahtuma** ei ole virhe --
+        kierros voi ratketa ilman yhtään vahinkoa, ja kuolemataulun tyhjyyden
+        tarkistaa ``stages.parse``, joka näkee myös kierrosten määrän.
+
+        Args:
+            player: Pelaajakohtaiset kentät, jotka kirjasto palauttaa
+                etuliitteillä ``user_*`` ja ``attacker_*``. ``None`` lukee vain
+                :data:`DAMAGE_COLUMNS`-kentät.
+
+        Returns:
+            ``(rivit, tickittömät)``. Rivi on sanakirja, jossa ``tick``,
+            ``attacker_id``, ``victim_id`` ja ``weapon`` ovat aina; muut
+            kentät vain jos ``player`` annettiin. Tickitön tapahtuma
+            **pudotetaan ja lasketaan** -- jokainen muu pudotussyy
+            raportoidaan, eikä tämä saa olla poikkeus.
+        """
+        frame = self._event(parser, name, original_path, player=player)
         if frame is None:
             # Tapahtumaa ei ole demossa lainkaan. Se on mahdollista (kierros
             # voi ratketa ilman vahinkoa), joten se ei ole virhe.
-            return []
+            return [], 0
 
+        # Sarake -> se luettelo, jota kehittäjän on korjattava. Pari eikä
+        # pelkkä nimi: ohje ilman oikeaa luetteloa lähettäisi etsimään väärää
+        # vakiota.
+        required: dict[str, str] = {c: "DAMAGE_COLUMNS" for c in DAMAGE_COLUMNS}
+        if player is not None:
+            required.update({c: "DEATH_COLUMNS" for c in DEATH_COLUMNS})
         missing = [
-            column for column in DAMAGE_COLUMNS if column not in frame.columns
+            f"{column} ({owner})"
+            for column, owner in required.items()
+            if column not in frame.columns
         ]
         if missing:
             raise ParseError(
@@ -1697,25 +1926,208 @@ class Demoparser2Adapter:
                 f"sarake: {', '.join(missing)}.\n"
                 "Ilman sitä jokainen tapahtuma hylättäisiin äänettömästi ja "
                 "tulos väittäisi, ettei yhdelläkään kierroksella ollut "
-                "ensikontaktia. Kenttä on todennäköisesti nimetty uudelleen "
-                "demoparser2:n päivityksessä -- päivitä "
-                "adapters/demo_parser.py:n DAMAGE_COLUMNS."
+                "ensikontaktia -- tai kuolemataulusta tulisi alueeton mutta "
+                "kelvollisen näköinen. Kenttä on todennäköisesti nimetty "
+                "uudelleen demoparser2:n päivityksessä; päivitä suluissa "
+                "nimetty luettelo tiedostossa adapters/demo_parser.py."
             )
 
-        rows: list[tuple[int, str | None, str | None, str | None]] = []
+        rows: list[dict[str, Any]] = []
+        without_tick = 0
         for row in frame.to_dict("records"):
             tick = _as_int(row.get("tick"))
             if tick is None:
+                without_tick += 1
                 continue
-            rows.append(
-                (
-                    tick,
-                    _as_str(row.get("attacker_steamid")),
-                    _as_str(row.get("user_steamid")),
-                    _as_str(row.get("weapon")),
+            entry: dict[str, Any] = {
+                "tick": tick,
+                "attacker_id": _as_str(row.get("attacker_steamid")),
+                "victim_id": _as_str(row.get("user_steamid")),
+                "weapon": _as_str(row.get("weapon")),
+            }
+            if player is not None:
+                entry.update(
+                    {
+                        "victim_area": _as_str(row.get("user_last_place_name")),
+                        "victim_x": _as_float(row.get("user_X")),
+                        "victim_y": _as_float(row.get("user_Y")),
+                        "victim_z": _as_float(row.get("user_Z")),
+                        "victim_team": _as_int(row.get("user_team_num")),
+                        "attacker_area": _as_str(
+                            row.get("attacker_last_place_name")
+                        ),
+                        "attacker_x": _as_float(row.get("attacker_X")),
+                        "attacker_y": _as_float(row.get("attacker_Y")),
+                        "attacker_z": _as_float(row.get("attacker_Z")),
+                        "attacker_team": _as_int(row.get("attacker_team_num")),
+                    }
                 )
+            rows.append(entry)
+        return rows, without_tick
+
+    def _build_deaths_frame(
+        self,
+        death_rows: list[dict[str, Any]],
+        segments: list[_Segment],
+        sides: list[tuple[str, str]],
+        lineup_keys: list[str],
+        lineups: list[_Lineup],
+        by_tick: dict[int, list[dict[str, Any]]],
+        tick_rate: float,
+        *,
+        without_tick: int = 0,
+    ) -> tuple[pl.DataFrame, _DeathCounts]:
+        """Rakenna ``DEATHS``-muotoinen taulu luetuista kuolemista.
+
+        Kierros ratkeaa **kuolintickistä**: sama jaksotus kuin utilityssä
+        (:func:`_round_windows`), joten kuolema kuuluu sille kierrokselle,
+        jonka rajojen sisään se osuu. Kierroksen ulkopuolinen kuolema ei saa
+        ``t_s``:ää eikä siis riviä; puukkokierroksen kuolema saa molemmat ja
+        putoaa vasta ``stages.parse``in numeroinnissa.
+
+        Puoli ja kokoonpano tulevat kierroksen omasta puolikuvauksesta, ja
+        tapahtuman ``team_num`` on varalähde pelaajalle, jota kierros ei
+        tunne. Uhrin puolen puuttuminen pudottaa rivin -- kuolema, joka ei
+        kuulu kummallekaan joukkueelle, ei kelpaa liitoksen kohteeksi.
+        Ampujan puolen puuttuminen ei pudota mitään: ampujan omat havainnot
+        ovat luettavissa, ja tyhjentäminen hukkaisi ne.
+
+        Returns:
+            ``(taulu, luvut)``. Taulu on tyhjä mutta sopimuksen mukainen, jos
+            yksikään kuolema ei osu kierroksen sisään.
+        """
+        if not death_rows:
+            return (
+                self._typed_deaths_frame([]),
+                _DeathCounts(without_tick=without_tick),
             )
-        return rows
+
+        windows = _round_windows(segments)
+        starts = [window[0] for window in windows]
+        lineup_of = _lineup_index_by_player(lineups)
+        sides_by_round: dict[int, dict[str, str]] = {}
+        keys_by_round: dict[int, dict[str, str]] = {}
+
+        rows: list[dict[str, Any]] = []
+        outside = 0
+        without_victim = 0
+        without_victim_side = 0
+        attacker_without_side = 0
+
+        for death in death_rows:
+            index = _round_of_tick(starts, windows, death["tick"])
+            if index is None:
+                outside += 1
+                continue
+            if index not in sides_by_round:
+                sides_by_round[index] = _side_lookup(
+                    lineup_of, sides[index], segments[index], by_tick
+                )
+                keys_by_round[index] = _keys_by_side(
+                    sides[index], lineup_keys, segments[index]
+                )
+            player_sides = sides_by_round[index]
+            keys = keys_by_round[index]
+
+            # Kaksi eri syytä, kaksi eri laskuria. Uhriton tapahtuma ei
+            # ole puolen päättelyn epäonnistuminen, ja yhdistettynä se
+            # näyttäisi vialta, jota ei ole.
+            if death["victim_id"] is None:
+                without_victim += 1
+                continue
+            victim_side = _resolve_side(
+                death["victim_id"], death["victim_team"], player_sides
+            )
+            if victim_side is None:
+                without_victim_side += 1
+                continue
+
+            attacker_side: str | None = None
+            if death["attacker_id"] is not None:
+                attacker_side = _resolve_side(
+                    death["attacker_id"], death["attacker_team"], player_sides
+                )
+                if attacker_side is None:
+                    attacker_without_side += 1
+
+            segment = segments[index]
+            freeze_end = segment.freeze_end_tick
+            if freeze_end is None:  # pragma: no cover - _round_windows takaa
+                raise ParseError(
+                    "Kuolema kohdistui kierrokselle "
+                    f"(round_raw={segment.round_raw}), jolta puuttuu "
+                    "ankkuri.\n"
+                    "Ilman sitä t_s:ää ei voi laskea. Demo on "
+                    "todennäköisesti vioittunut."
+                )
+            has_attacker = death["attacker_id"] is not None
+            rows.append(
+                {
+                    "round_raw": segment.round_raw,
+                    "round_no": None,
+                    "t_s": seconds_since_freeze_end(
+                        death["tick"], freeze_end, tick_rate
+                    ),
+                    "victim_id": death["victim_id"],
+                    "victim_lineup_key": keys[victim_side],
+                    "victim_side": victim_side,
+                    "victim_x": death["victim_x"],
+                    "victim_y": death["victim_y"],
+                    "victim_z": death["victim_z"],
+                    "victim_area": death["victim_area"],
+                    "attacker_id": death["attacker_id"],
+                    "attacker_lineup_key": (
+                        None if attacker_side is None else keys[attacker_side]
+                    ),
+                    "attacker_side": attacker_side,
+                    # Ampujattoman kuoleman jokainen ampujakenttä on tyhjä.
+                    # Koordinaatit ja alue luetaan vain, jos ampuja on:
+                    # maailman aiheuttamalla kuolemalla ei ole paikkaa, ja
+                    # kirjaston jättämä irtoarvo näyttäisi ampujalta.
+                    "attacker_x": death["attacker_x"] if has_attacker else None,
+                    "attacker_y": death["attacker_y"] if has_attacker else None,
+                    "attacker_z": death["attacker_z"] if has_attacker else None,
+                    "attacker_area": (
+                        death["attacker_area"] if has_attacker else None
+                    ),
+                    "weapon": death["weapon"],
+                }
+            )
+
+        counts = _DeathCounts(
+            without_tick=without_tick,
+            outside_rounds=outside,
+            without_victim=without_victim,
+            without_victim_side=without_victim_side,
+            attacker_without_side=attacker_without_side,
+        )
+        return self._typed_deaths_frame(rows), counts
+
+    @staticmethod
+    def _typed_deaths_frame(rows: list[dict[str, Any]]) -> pl.DataFrame:
+        """Rakenna kuolemataulu sopimuksen tyypeillä ja vakaassa järjestyksessä.
+
+        Sarakkeet poimitaan **nimellä** eikä rividictin järjestyksessä, samasta
+        syystä kuin tapahtumataulussa: taulussa on kolme peräkkäistä
+        Float32-saraketta uhrille ja kolme ampujalle, ja ``orient="row"``
+        vaihtaisi ne hiljaa keskenään, jos ``DEATHS``in avainjärjestys joskus
+        muuttuu.
+
+        Lajitteluavain on ``(round_raw, t_s, victim_id)``. ``victim_id`` on
+        mukana, koska kaksi joukkuekaveria voi kuolla samalla tickillä --
+        ilman sitä rivijärjestys riippuisi siitä, missä järjestyksessä
+        kirjasto sattui palauttamaan tapahtumat, ja sama demo tuottaisi eri
+        tavut eri ajoilla.
+        """
+        schema: dict[str, Any] = {
+            name: DEATHS[name] for name in DEATHS_ADAPTER_COLUMNS
+        }
+        if not rows:
+            return pl.DataFrame(schema=schema)
+        columns = {name: [row[name] for row in rows] for name in schema}
+        return pl.DataFrame(columns, schema=schema).sort(
+            "round_raw", "t_s", "victim_id"
+        )
 
     def _build_ticks_frame(
         self,
@@ -2481,6 +2893,53 @@ def _side_lookup(
         for row in by_tick.get(tick or -1) or ():
             player_sides.setdefault(row["steamid"], row["side"])
     return player_sides
+
+
+def _resolve_side(
+    player_id: str | None,
+    team_num: int | None,
+    player_sides: dict[str, str],
+) -> str | None:
+    """Pelaajan puoli: ensin kierroksen kuvaus, sitten tapahtuman oma lukema.
+
+    Ensisijainen lähde on :func:`_side_lookup`in kartta, joka on **saman
+    kierroksen** puolikuvaus -- se, jonka mukaan näytepiste- ja
+    tapahtumataulun rivit on kirjattu. Yhdenmukaisuus on tässä tärkeämpää kuin
+    tuoreus: tapahtumasta luettu poikkeava puoli panisi kuoleman eri
+    joukkueelle kuin mitä muut taulut sanovat samasta pelaajasta samalla
+    kierroksella.
+
+    Varalähde on tapahtuman oma ``team_num``. Se kattaa pelaajan, jota ei ole
+    kummassakaan kokoonpanossa eikä kierroksen ankkuritickillä -- kesken
+    karttaa tullut tai uudelleenyhdistänyt. Ilman sitä hänen kuolemansa
+    putoaisi taulusta.
+
+    **Miksi kuolemataulussa on kolmas taso ja muissa kaksi.** Ketju on
+    lineup -> kierroksen ankkuritick -> tapahtuman oma ``team_num``. Kaksi
+    ensimmäistä ovat :func:`_side_lookup`issa ja jaetut utilityn kanssa;
+    kolmas on vain täällä, ja syy on kenttien saatavuus eikä eri sääntö:
+    ``player_death`` **kantaa puolen mukanaan**, kranaatin lentorata ei. Siksi
+    puoleton kranaatti päätyy lukuun ``grenades_unknown_side`` ja puoleton
+    kuolema ei -- kummallakin luetaan kaikki mitä lähteessä on.
+
+    **Se ei ole väite rosterista.** ``victim_lineup_key`` kertoo, *minkä
+    joukkueen puoli* menetti pelaajan sillä kierroksella; kokoonpanon
+    jäsenluettelo on ``lineups``-taulussa, joka lasketaan ankkuritickeistä
+    eikä tästä. Kesken karttaa liittynyt pelaaja pelaa silti sen joukkueen
+    puolella, ja hänen kuolemansa kuuluu sille -- vaikka rosteritiiviste ei
+    häntä tunne. Näytepistetaulussa sama pelaaja vääristäisi *pelaajamäärän*
+    alueella, mikä on eri väite; siksi siellä ei ole vastaavaa polkua.
+
+    Returns:
+        ``"T"``, ``"CT"`` tai ``None``. ``None`` tarkoittaa, ettei kumpikaan
+        lähde tiennyt: pelaaja on katsoja, liittymätön tai tuntematon.
+    """
+    if player_id is None:
+        return None
+    side = player_sides.get(player_id)
+    if side is not None:
+        return side
+    return TEAM_SIDES.get(team_num if team_num is not None else -1)
 
 
 def _with_sides(

@@ -8,7 +8,7 @@ Puu on lukittu spinen konventiotaulukossa::
     index/selections/<team_key>.json             kirjoittaa vain select
     index/next_opponent/<team_key>.json          kirjoittaa vain discover
     demos/<map_demo_id>.dem.zst  + .meta.json    kirjoittaa vain fetch / import
-    parsed/<map_demo_id>/{ticks,events,rounds,lineups}.parquet + manifest
+    parsed/<map_demo_id>/{ticks,events,rounds,lineups,deaths}.parquet + manifest
     classified/<team_key>/<map_demo_id>.parquet + .md + manifest
     aggregates/<team_key>/report.json
     reports/<team_key>/<YYYY-MM-DDTHHMM>-<team_slug>.md + sama nimi .manifest.json
@@ -72,7 +72,7 @@ DEFAULT_DEMO_SUFFIX = ".dem.zst"
 DEMO_SUFFIXES: tuple[str, ...] = (".dem.zst", ".dem.gz", ".dem")
 
 #: ``parse``-vaiheen kirjoittamat taulut.
-PARSED_TABLES: tuple[str, ...] = ("rounds", "ticks", "events", "lineups")
+PARSED_TABLES: tuple[str, ...] = ("rounds", "ticks", "events", "lineups", "deaths")
 
 LOCK_FILE = PurePosixPath(".lock")
 
@@ -164,7 +164,7 @@ def parsed_dir(map_demo_id: str) -> PurePosixPath:
 
 
 def parsed_table(map_demo_id: str, table: str) -> PurePosixPath:
-    """``rounds``, ``ticks``, ``events`` tai ``lineups`` yhdelle demolle."""
+    """Yksi parsittu taulu yhdelle demolle; ks. :data:`PARSED_TABLES`."""
     if table not in PARSED_TABLES:
         raise ValueError(
             f"Tuntematon parsittu taulu {table!r}. "

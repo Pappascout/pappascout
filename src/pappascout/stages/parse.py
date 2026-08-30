@@ -1,9 +1,9 @@
-"""``parse`` -- putken ensimmäinen vaihe: demosta neljä taulua.
+"""``parse`` -- putken ensimmäinen vaihe: demosta viisi taulua.
 
 Vaihe lukee yhden demon portin takaa ja kirjoittaa arkistoon
 ``parsed/<map_demo_id>/rounds.parquet``, ``.../ticks.parquet``,
-``.../events.parquet``, ``.../lineups.parquet`` sekä niiden yhteisen
-manifestin.
+``.../events.parquet``, ``.../lineups.parquet``, ``.../deaths.parquet``
+sekä niiden yhteisen manifestin.
 
 ``rounds`` on kaksi riviä jokaista **pelattua** kierrosta kohden, yksi
 kummallekin joukkueelle, ja kaikki arvot ovat demosta *havaittuja*: raha ja
@@ -31,6 +31,23 @@ koko kartan ajan, joten sillä ei ole ``round_no``:ta eikä sen rivejä pudoteta
 puukkokierroksen mukana. Nimi on havainto: puuttuva klaani on ``null``, ja
 raportti sanoo puuttumisen ääneen sen sijaan että keksisi korvikkeen.
 
+``deaths`` on rivi per kuolema: uhri ja ampuja molemmat alueineen ja
+koordinaatteineen. Kuolemalla on **kaksi toimijaa**, joten se ei mahdu
+``EVENTS``-taulun yhden toimijan muotoon -- eikä sen alue ole napsautus vaan
+havainto samalta tapahtumalta. Ampujaton kuolema (putoaminen, pommi) on aito
+tapaus: ampujan kentät ovat silloin tyhjiä eikä riviä pudoteta.
+
+**Tyhjä kuolemataulu on virhe, tyhjä tapahtumataulu ei.** Epäsymmetria on
+tarkoituksellinen, ja se seuraa siitä mitä tyhjyys kummassakin tarkoittaa.
+Utility voi aidosti puuttua: joukkue voi jättää kranaatit ostamatta, ja
+"nolla heittoa" on silloin havainto kierroksesta. Kuolema ei ole valinta. CS2:n
+kierros ratkeaa tappamalla tai pommilla, ja pommikin tappaa; koko ottelu ilman
+yhtään kuolemaa ei ole pelattu ottelu. Tyhjä kuolemataulu tarkoittaa siis aina
+lukuvirhettä -- käytännössä uudelleennimettyä ``player_death``-tapahtumaa --
+eikä havaintoa, ja ok-tuloksena se jäisi manifestin perusteella pysyvästi
+ohitetuksi. Virheilmoitus nimeää adapterin omat pudotuslaskurit, joten syy on
+luettavissa eikä arvattavissa.
+
 Mitä tauluihin päätyy
 ---------------------
 Warmup-kierrokset, puukkokierros ja ``mp_restartgame``-nollaukset **eivät ole
@@ -41,11 +58,14 @@ niiden lukumäärä kerrotaan myös ajon yhteenvedossa. Päätöksen tekee yksi 
 funktio, :func:`~pappascout.domain.rounds.mark_played_rounds`, jota vain tämä
 vaihe kutsuu.
 
-Sama päätös rajaa myös näytepisteet ja utility-tapahtumat: adapteri tuottaa
-rivejä kaikilta ankkuroiduilta kierrosrajoilta, ja vaihe pudottaa
-numeroimattomien kierrosten rivit samalla, kun se liittää ``round_no``:n
-avaimella ``round_raw``. Näin puukkokierros ei tuota tick- eikä
-tapahtumarivejä, eikä adapterin tarvitse tuntea numerointisääntöä.
+Sama päätös rajaa myös näytepisteet, utility-tapahtumat ja kuolemat:
+adapteri tuottaa rivejä kaikilta ankkuroiduilta kierrosrajoilta, ja vaihe
+pudottaa numeroimattomien kierrosten rivit samalla, kun se liittää
+``round_no``:n avaimella ``round_raw``. Näin puukkokierros ei tuota tick-,
+tapahtuma- eikä kuolemarivejä, eikä adapterin tarvitse tuntea
+numerointisääntöä. **Puukkokierroksella kuollaan oikeasti**, joten juuri tämä
+liitos on ainoa paikka, jossa ne kuolemat putoavat -- erillistä
+puukkokierrossääntöä ei ole eikä saa olla.
 
 Yhden tapauksen ratkaisee jo adapteri: **ottelun uudelleenaloitus**. Sillä on
 freezetime-ankkuri mutta ei ``round_end``iä, ja demon oma kierrosnumerointi
@@ -108,11 +128,13 @@ from __future__ import annotations
 import json
 import time
 from contextlib import ExitStack
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 import polars as pl
 
 from pappascout.adapters.protocols import (
+    DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
@@ -140,6 +162,7 @@ from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
 from pappascout.domain.sampling import FIRST_CONTACT_SAMPLE
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
+    DEATHS,
     EVENTS,
     LINEUPS,
     ROUNDS,
@@ -156,6 +179,7 @@ __all__ = [
     "TICKS_TABLE",
     "EVENTS_TABLE",
     "LINEUPS_TABLE",
+    "DEATHS_TABLE",
     "TOOLS",
     "run",
     "resolve_demo",
@@ -163,11 +187,39 @@ __all__ = [
     "default_parser",
 ]
 
+@dataclass(frozen=True)
+class _ParsedTables:
+    """Yhden demon valmiit, tarkistetut taulut ja niiden pudotusluvut.
+
+    Dataclass eikä monikko: paluuarvossa on viisi kehystä ja kolme paljasta
+    kokonaislukua, ja kaksi vierekkäistä ``int``:iä on vaihdettavissa
+    keskenään ilman että mikään tyyppitarkistus huomaa. Sama kuvio kuin
+    :class:`~pappascout.adapters.protocols.DemoTables`illa ja adapterin
+    laskuriluokilla -- ja seuraava taulu ei kasvata monikkoa yhdeksään.
+
+    Attributes:
+        skipped_rounds: Numeroimattomat kierrosrajat (warmup, puukkokierros).
+        unnumbered_utility: Numeroimattomilta kierroksilta pudonneet heitot.
+        unnumbered_deaths: Samoin pudonneet kuolemat. Liigademossa aina
+            epätyhjä: puukkokierroksella kuollaan oikeasti.
+    """
+
+    rounds: pl.DataFrame
+    ticks: pl.DataFrame
+    events: pl.DataFrame
+    lineups: pl.DataFrame
+    deaths: pl.DataFrame
+    skipped_rounds: int
+    unnumbered_utility: int
+    unnumbered_deaths: int
+
+
 STAGE = "parse"
 TABLE = "rounds"
 TICKS_TABLE = "ticks"
 EVENTS_TABLE = "events"
 LINEUPS_TABLE = "lineups"
+DEATHS_TABLE = "deaths"
 
 #: Työkalut, joiden versio muuttaa tämän vaiheen tuloksen (manifest-moduulin
 #: sääntö). Pappascoutin omaa versiota ei merkitä: korjauspäivitys ei saa
@@ -558,6 +610,7 @@ def _stats(
     ticks: pl.DataFrame,
     events: pl.DataFrame,
     lineups: pl.DataFrame,
+    deaths: pl.DataFrame,
     skipped_rounds: int = 0,
 ) -> dict[str, object]:
     """Käyttäjälle näytettävät luvut valmiista tauluista."""
@@ -565,6 +618,7 @@ def _stats(
     stats.update(_tick_stats(ticks))
     stats.update(_event_stats(events))
     stats.update(_lineup_stats(lineups))
+    stats.update(_death_stats(deaths))
     return stats
 
 
@@ -646,6 +700,49 @@ def _event_stats(events: pl.DataFrame) -> dict[str, object]:
     }
 
 
+def _death_stats(deaths: pl.DataFrame) -> dict[str, object]:
+    """Kuolemataulun luvut.
+
+    Viisi lukua, viisi eri kysymystä. ``death_rows`` ja ``death_rounds``
+    kertovat, syntyikö aineistoa lainkaan. Kolme muuta ovat kattavuuslukuja,
+    ja ne ovat erikseen siksi, että ne tarkoittavat eri asioita:
+
+    ``deaths_without_attacker``
+        Ampujaton kuolema -- putoaminen tai pommi. **Havainto eikä vika**.
+        Mitattu ``Ancient_vs_kaljukostaja``: kaksi ``planted_c4``-riviä
+        151:stä, joista toinen osui kierrosten väliin eikä siis päädy tähän
+        tauluun lainkaan -- valmiissa taulussa luku on 1.
+    ``deaths_without_victim_area``
+        Uhrin alue puuttuu. Mitatussa aineistossa **nolla**, ja juuri siksi
+        luku on olemassa: nollasta poikkeava arvo tarkoittaa, että
+        aluehavainto on rikkoutunut.
+    ``deaths_without_attacker_area``
+        Ampujan alue puuttuu **vaikka ampuja tunnetaan**. Ampujattomat rivit
+        eivät ole tässä luvussa: ne on jo laskettu yllä, ja yhteinen luku
+        näyttäisi aluevialta.
+    """
+    if deaths.is_empty():
+        return {
+            "death_rows": 0,
+            "death_rounds": 0,
+            "deaths_without_attacker": 0,
+            "deaths_without_victim_area": 0,
+            "deaths_without_attacker_area": 0,
+        }
+    return {
+        "death_rows": int(deaths.height),
+        "death_rounds": int(deaths["round_no"].n_unique()),
+        "deaths_without_attacker": int(deaths["attacker_id"].null_count()),
+        "deaths_without_victim_area": int(deaths["victim_area"].null_count()),
+        "deaths_without_attacker_area": int(
+            deaths.filter(
+                pl.col("attacker_id").is_not_null()
+                & pl.col("attacker_area").is_null()
+            ).height
+        ),
+    }
+
+
 def _lineup_stats(lineups: pl.DataFrame) -> dict[str, object]:
     """Kokoonpanotaulun luvut, **kokoonpano kerrallaan**.
 
@@ -703,7 +800,11 @@ def _read_table(path: Path) -> pl.DataFrame | str:
 
 
 def _schema_is_current(
-    table_abs: Path, ticks_abs: Path, events_abs: Path, lineups_abs: Path
+    table_abs: Path,
+    ticks_abs: Path,
+    events_abs: Path,
+    lineups_abs: Path,
+    deaths_abs: Path,
 ) -> bool:
     """Vastaavatko arkiston valmiit taulut yhä voimassa olevaa sopimusta.
 
@@ -729,6 +830,7 @@ def _schema_is_current(
         (ticks_abs, TICKS, TICKS_TABLE),
         (events_abs, EVENTS, EVENTS_TABLE),
         (lineups_abs, LINEUPS, LINEUPS_TABLE),
+        (deaths_abs, DEATHS, DEATHS_TABLE),
     ):
         df = _read_table(path)
         if isinstance(df, str):
@@ -745,6 +847,7 @@ def _existing_stats(
     ticks_abs: Path,
     events_abs: Path,
     lineups_abs: Path,
+    deaths_abs: Path,
 ) -> dict[str, object]:
     """Luvut ohitettuun ajoon: luetaan valmiit taulut, ei parsita demoa.
 
@@ -759,6 +862,7 @@ def _existing_stats(
     ticks = _read_table(ticks_abs)
     events = _read_table(events_abs)
     lineups = _read_table(lineups_abs)
+    deaths = _read_table(deaths_abs)
 
     # Kierros- ja näytepistetaulu ovat vaiheen ydintulos. Jos **kumpikaan** ei
     # aukea, koko tulos on lukukelvoton eikä siitä koota osittaista
@@ -784,6 +888,10 @@ def _existing_stats(
         stats["lineups_unreadable"] = lineups
     else:
         stats.update(_lineup_stats(lineups))
+    if isinstance(deaths, str):
+        stats["deaths_unreadable"] = deaths
+    else:
+        stats.update(_death_stats(deaths))
     return stats
 
 
@@ -796,7 +904,7 @@ def run(
     demo_path: Path | None = None,
     force: bool = False,
 ) -> StageResult:
-    """Parsi yksi demo kierros-, näytepiste-, tapahtuma- ja kokoonpanotauluiksi.
+    """Parsi yksi demo viideksi tauluksi.
 
     Args:
         settings: ``[parse]``-osio -- ainoa osio, jonka tämä vaihe näkee.
@@ -830,11 +938,13 @@ def run(
     ticks_rel = parsed_table(map_demo_id, TICKS_TABLE)
     events_rel = parsed_table(map_demo_id, EVENTS_TABLE)
     lineups_rel = parsed_table(map_demo_id, LINEUPS_TABLE)
+    deaths_rel = parsed_table(map_demo_id, DEATHS_TABLE)
     manifest_rel = parsed_manifest(map_demo_id)
     table_abs = archive.resolve(table_rel)
     ticks_abs = archive.resolve(ticks_rel)
     events_abs = archive.resolve(events_rel)
     lineups_abs = archive.resolve(lineups_rel)
+    deaths_abs = archive.resolve(deaths_rel)
     manifest_abs = archive.resolve(manifest_rel)
 
     result_id = str(PurePosixPath("parsed") / map_demo_id)
@@ -856,6 +966,7 @@ def run(
         (ticks_rel, ticks_abs),
         (events_rel, events_abs),
         (lineups_rel, lineups_abs),
+        (deaths_rel, deaths_abs),
     )
 
     existing = Manifest.read_if_exists(manifest_abs)
@@ -871,7 +982,9 @@ def run(
         and all(path.is_file() for _, path in expected_outputs)
         # Sopimus viimeisenä: se lukee taulut, ja halvemmat ehdot karsivat
         # suurimman osan ajoista jo ennen sitä.
-        and _schema_is_current(table_abs, ticks_abs, events_abs, lineups_abs)
+        and _schema_is_current(
+            table_abs, ticks_abs, events_abs, lineups_abs, deaths_abs
+        )
     ):
         return StageResult(
             stage=STAGE,
@@ -886,14 +999,13 @@ def run(
             ),
             duration_s=time.perf_counter() - started,
             stats=_existing_stats(
-                table_abs, ticks_abs, events_abs, lineups_abs
+                table_abs, ticks_abs, events_abs, lineups_abs, deaths_abs
             ),
         )
 
     try:
-        df, ticks, events, lineups, skipped_rounds, unnumbered = _parse_tables(
-            parser, settings, demo_path, map_demo_id
-        )
+        parsed = _parse_tables(parser, settings, demo_path, map_demo_id)
+        df = parsed.rounds
         # Kirjoitus on saman virhekäsittelyn sisällä kuin parsinta: levy voi
         # täyttyä tai OneDrive lukita tiedoston, ja silloinkin manifestiin on
         # jäätävä merkintä epäonnistumisesta -- muuten seuraava ajo ohittaisi
@@ -901,16 +1013,23 @@ def run(
         _write_tables(
             (
                 (table_abs, df),
-                (ticks_abs, ticks),
-                (events_abs, events),
-                (lineups_abs, lineups),
+                (ticks_abs, parsed.ticks),
+                (events_abs, parsed.events),
+                (lineups_abs, parsed.lineups),
+                (deaths_abs, parsed.deaths),
             )
         )
     except _RECORDED_ERRORS as exc:
         _record_failure(
             archive=archive,
             manifest_abs=manifest_abs,
-            tables_abs=(table_abs, ticks_abs, events_abs, lineups_abs),
+            tables_abs=(
+                table_abs,
+                ticks_abs,
+                events_abs,
+                lineups_abs,
+                deaths_abs,
+            ),
             existing=existing,
             result_id=result_id,
             params_hash=params_hash,
@@ -936,10 +1055,18 @@ def run(
             str(ticks_rel),
             str(events_rel),
             str(lineups_rel),
+            str(deaths_rel),
         ),
     ).write(manifest_abs)
 
-    stats = _stats(df, ticks, events, lineups, skipped_rounds)
+    stats = _stats(
+        df,
+        parsed.ticks,
+        parsed.events,
+        parsed.lineups,
+        parsed.deaths,
+        parsed.skipped_rounds,
+    )
     # Ostoikkunan luvut lasketaan **valmiista taulusta**, jotta puukkokierros
     # ei ole niissä mukana; ks. _buy_window_stats.
     stats.update(_buy_window_stats(df, diagnostics))
@@ -964,7 +1091,11 @@ def run(
     )
     # Vain tuoreesta ajosta: numeroimattomien kierrosten rivit eivät ole
     # taulussa, joten ohitetusta ajosta lukua ei voi lukea takaisin.
-    stats["utility_unnumbered_rounds"] = unnumbered
+    stats["utility_unnumbered_rounds"] = parsed.unnumbered_utility
+    # Sama sääntö kuin utilityllä, ja tässä se on erityisen tarpeen:
+    # puukkokierroksella kuollaan oikeasti, joten pudotus on aina epätyhjä
+    # liigademossa. Ilman lukua se näyttäisi siltä, ettei kuolemia ollut.
+    stats["deaths_unnumbered_rounds"] = parsed.unnumbered_deaths
     if diagnostics is not None:
         stats["tick_rate"] = diagnostics.tick_rate
         stats["tick_rate_measured"] = diagnostics.tick_rate_measured
@@ -995,6 +1126,11 @@ def run(
             diagnostics, "grenades_outside_rounds", 0
         )
         for name in (
+            "deaths_without_tick",
+            "deaths_outside_rounds",
+            "deaths_without_victim",
+            "deaths_without_victim_side",
+            "deaths_attacker_without_side",
             "grenades_unknown_side",
             "grenades_unknown_type",
             "grenades_fire_type_unresolved",
@@ -1009,7 +1145,7 @@ def run(
         unit=map_demo_id,
         status="ok",
         skipped=False,
-        outputs=(table_rel, ticks_rel, events_rel, lineups_rel),
+        outputs=(table_rel, ticks_rel, events_rel, lineups_rel, deaths_rel),
         manifest_path=manifest_rel,
         duration_s=time.perf_counter() - started,
         stats=stats,
@@ -1047,14 +1183,8 @@ def _parse_tables(
     settings: ParseSettings,
     demo_path: Path,
     map_demo_id: str,
-) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, int, int]:
-    """Lue demo ja rakenna valmiit, tarkistetut taulut.
-
-    Returns:
-        ``(kierrostaulu, näytepistetaulu, tapahtumataulu, kokoonpanotaulu,
-        ohitettujen kierrosten määrä, numeroimattomilta kierroksilta
-        pudonneiden utility-heittojen määrä)``.
-    """
+) -> _ParsedTables:
+    """Lue demo ja rakenna valmiit, tarkistetut taulut."""
     tables: DemoTables = parser.parse_demo(demo_path, settings.snapshot_seconds)
     _check_port_columns(
         tables.rounds, ROUNDS_ADAPTER_COLUMNS, "kierrostaulun", "ROUNDS_ADAPTER_COLUMNS"
@@ -1073,6 +1203,12 @@ def _parse_tables(
         LINEUPS_ADAPTER_COLUMNS,
         "kokoonpanotaulun",
         "LINEUPS_ADAPTER_COLUMNS",
+    )
+    _check_port_columns(
+        tables.deaths,
+        DEATHS_ADAPTER_COLUMNS,
+        "kuolemataulun",
+        "DEATHS_ADAPTER_COLUMNS",
     )
 
     numbered = mark_played_rounds(tables.rounds)
@@ -1126,7 +1262,199 @@ def _parse_tables(
     validate(lineups, LINEUPS, LINEUPS_TABLE)
     _check_lineup_key(lineups, demo_path)
 
-    return df, ticks, events, lineups, skipped_rounds, unnumbered
+    # Eheysvartijat ajetaan **ennen numerointia**, eli adapterin koko
+    # tuotokselle. Numerointi pudottaa lämmittelyn ja puukkokierroksen rivit,
+    # ja juuri ne ovat kierroksia, joilta kirjaston puolinainen rivi
+    # todennäköisimmin tulee -- numeroinnin jälkeen vartija katsoisi vain
+    # sitä osaa aineistoa, jossa vikaa ei odoteta.
+    _check_victim_is_whole(tables.deaths)
+    _check_attacker_is_whole(tables.deaths)
+
+    deaths, unnumbered_deaths = _number_deaths(
+        tables.deaths, numbered, map_demo_id
+    )
+    validate(deaths, DEATHS, DEATHS_TABLE)
+
+    if deaths.is_empty():
+        raise ParseError(
+            f"Demosta {demo_path.name} syntyi {df['round_no'].n_unique()} "
+            "pelattua kierrosta mutta ei yhtään kuolemaa.\n"
+            "Tyhjää kuolemataulua ei kirjoiteta ok-tuloksena: se jäisi "
+            "manifestin perusteella pysyvästi ohitetuksi, ja raportti "
+            "kertoisi kartan, jolla kukaan ei kuollut.\n"
+            + _death_drop_reasons(parser, unnumbered_deaths)
+        )
+
+    return _ParsedTables(
+        rounds=df,
+        ticks=ticks,
+        events=events,
+        lineups=lineups,
+        deaths=deaths,
+        skipped_rounds=skipped_rounds,
+        unnumbered_utility=unnumbered,
+        unnumbered_deaths=unnumbered_deaths,
+    )
+
+
+def _death_drop_reasons(parser: DemoParser, unnumbered: int) -> str:
+    """Miksi kuolemataulu jäi tyhjäksi -- luvut, jotka on jo laskettu.
+
+    Adapteri erittelee jokaisen pudotussyyn omaan laskuriinsa, ja ne ovat
+    kädessä juuri tässä. Ilman niitä virheilmoitus nimeäisi kaksi arvausta
+    ("rikkinäinen portti tai uudelleennimetty tapahtuma") tilanteessa, jossa
+    todellinen syy on luettavissa.
+    """
+    diagnostics = getattr(parser, "diagnostics", None)
+    counts = [
+        ("tick puuttui", "deaths_without_tick"),
+        ("kierrosten ulkopuolella", "deaths_outside_rounds"),
+        ("uhri puuttui", "deaths_without_victim"),
+        ("uhrin puolta ei saatu", "deaths_without_victim_side"),
+    ]
+    named = [
+        f"{label} {value}"
+        for label, name in counts
+        if diagnostics is not None and (value := getattr(diagnostics, name, 0))
+    ]
+    if unnumbered:
+        named.append(f"numeroimattomilla kierroksilla {unnumbered}")
+    if named:
+        return (
+            "Pudotetut kuolemat: " + ", ".join(named) + ".\n"
+            "Jos jokainen luku on nolla, demoportti ei tuottanut yhtään "
+            "kuolemaa; muussa tapauksessa syy on nimetty yllä."
+        )
+    return (
+        "Yksikään pudotuslaskuri ei ole nollasta poikkeava, joten demoportti "
+        "ei tuottanut yhtään kuolemaa. Tarkista, ettei "
+        "player_death-tapahtumaa ole nimetty uudelleen demoparser2:ssa."
+    )
+
+
+def _check_victim_is_whole(deaths: pl.DataFrame) -> None:
+    """Uhri on rivin identiteetti, eikä sitä saa puuttua.
+
+    Kuolema ilman uhria ei ole kuolema. Tyhjä ``victim_id``,
+    ``victim_lineup_key`` tai ``victim_side`` läpäisisi ``validate``in --
+    jokainen niistä on nullable-sarake -- ja aggregointi laskisi rivin
+    **ei kuolemaksi eikä tapoksi**: se katoaisi hiljaa, koska molemmat
+    suodattimet vertaavat kokoonpanoon.
+
+    Ampujalla on oma vartijansa (:func:`_check_attacker_is_whole`), ja se on
+    löysempi tarkoituksella: ampujaton kuolema on aito havainto, uhriton ei
+    ole mitään.
+
+    Raises:
+        SchemaError: Jos yhdeltäkin riviltä puuttuu uhrin tunniste, kokoonpano
+            tai puoli.
+    """
+    if deaths.is_empty():
+        return
+    required = ("victim_id", "victim_lineup_key", "victim_side")
+    broken = deaths.filter(
+        pl.any_horizontal([pl.col(name).is_null() for name in required])
+    )
+    if broken.is_empty():
+        return
+    empty = ", ".join(
+        f"{name}: {broken[name].null_count()}"
+        for name in required
+        if broken[name].null_count()
+    )
+    raise SchemaError(
+        f"Kuolemataulussa on {broken.height} riviä, joilta puuttuu uhrin "
+        f"tieto ({empty}).\n"
+        "Uhri on rivin identiteetti: kuolema ilman uhria ei kuulu "
+        "kummallekaan joukkueelle, joten se katoaisi aggregoinnissa hiljaa "
+        "-- ei kuolemana eikä tappona.\n"
+        "Ensimmäiset rivit: "
+        f"{broken.select('round_raw', 't_s').head(3).to_dicts()}"
+    )
+
+
+def _check_attacker_is_whole(deaths: pl.DataFrame) -> None:
+    """Ampujaton kuolema on **kokonaan** ampujaton.
+
+    Putoaminen ja pommi tuottavat rivin, jolla ampujaa ei ole, ja se on aito
+    havainto. Puolikas ampuja ei ole: rivi, jolla ``attacker_id`` on tyhjä
+    mutta koordinaatit tai alue eivät, väittäisi paikkaa toimijalle, jota ei
+    ole -- ja aggregointi laskisi sen alueen "tapoiksi", joita kukaan ei
+    tehnyt. Skeema ei näe tätä, koska jokainen kenttä on erikseen kelvollinen.
+
+    ``attacker_side`` ja ``attacker_lineup_key`` **eivät** ole tarkistuksessa
+    mukana: ne ovat kierroksen puolikuvauksesta johdettuja eivätkä
+    tapahtuman omia, ja ne voivat puuttua ampujalta, joka tunnetaan.
+    ``attacker_area`` on mukana vain tässä suunnassa -- se saa puuttua
+    yksinään, mutta ei olla olemassa ilman ampujaa.
+
+    Raises:
+        SchemaError: Jos yhdelläkin ampujattomalla rivillä on ampujan
+            havaintoja.
+    """
+    if deaths.is_empty():
+        return
+    observations = ("attacker_x", "attacker_y", "attacker_z", "attacker_area")
+    broken = deaths.filter(
+        pl.col("attacker_id").is_null()
+        & pl.any_horizontal(
+            [pl.col(name).is_not_null() for name in observations]
+        )
+    )
+    if broken.is_empty():
+        return
+    raise SchemaError(
+        f"Kuolemataulussa on {broken.height} riviä, joilla ei ole ampujaa "
+        "mutta on ampujan havaintoja "
+        f"({', '.join(observations)}).\n"
+        "Ampujaton kuolema (putoaminen, pommi) on aito tapaus, mutta silloin "
+        "jokainen ampujan kenttä on tyhjä: paikka ilman toimijaa laskeutuisi "
+        "raportissa tapoksi, jota kukaan ei tehnyt.\n"
+        "Ensimmäiset rivit: "
+        f"{broken.select('round_raw', 't_s', 'victim_id').head(3).to_dicts()}"
+    )
+
+
+def _number_deaths(
+    deaths: pl.DataFrame, numbered: pl.DataFrame, map_demo_id: str
+) -> tuple[pl.DataFrame, int]:
+    """Liitä kuolemiin ``round_no`` ja pudota numeroimattomat kierrokset.
+
+    Sama päätös ja sama liitos kuin näytepisteillä ja utilityllä. Tässä
+    taulussa pudotus on **aina epätyhjä liigademossa**: puukkokierroksella
+    kuollaan oikeasti, ja mitatussa aineistossa se tuottaa kymmenkunta
+    ``player_death``-riviä. Juuri siksi niitä ei suodateta erikseen -- yksi
+    puukkokierrossääntö kahdessa paikassa erkanisi muusta numeroinnista.
+
+    Lajitteluavain on ``(round_no, t_s, victim_id)``: kaksi joukkuekaveria voi
+    kuolla samalla tickillä, ja ilman uhrin tunnistetta niiden järjestys
+    riippuisi liitoksen vakaudesta.
+
+    ``nulls_last=True`` on sama sääntö kuin
+    :func:`~pappascout.domain.aggregate._death_order`issa: **puuttuva aika ei
+    ole nolla**. Ilman sitä ankkuriton kuolema johtaisi kierrostaan
+    parquetissa mutta olisi viimeisenä aggregoinnissa, ja sama asia
+    järjestyisi kahdella eri tavalla riippuen siitä kumpaa katsoo.
+
+    Returns:
+        ``(taulu, pudonneet kuolemat)``. Jälkimmäinen raportoidaan, koska
+        hiljainen pudotus näyttäisi demolta, jossa kuolemia oli vähemmän.
+    """
+    numbers = (
+        numbered.select("round_raw", "round_no")
+        .unique(subset=["round_raw"], keep="first")
+        .filter(pl.col("round_no").is_not_null())
+    )
+    joined = (
+        deaths.drop("round_no")
+        .join(numbers, on="round_raw", how="inner")
+        .select(
+            pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
+            *[pl.col(name) for name in DEATHS if name != "map_demo_id"],
+        )
+        .sort("round_no", "t_s", "victim_id", nulls_last=True)
+    )
+    return joined, int(deaths.height - joined.height)
 
 
 def _build_lineups(lineups: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:

@@ -13,6 +13,7 @@ from conftest import empty_frame
 from pappascout.constants import ROUND_TYPES, SIDES, UNIT_STATUSES
 from pappascout.domain.schemas import (
     CLASSIFIED,
+    DEATHS,
     EVENTS,
     LINEUPS,
     ARMED_COLUMN,
@@ -182,10 +183,19 @@ def test_second_columns_are_float() -> None:
 
 
 def test_coordinates_are_float32() -> None:
-    """Konventio: koordinaatit x, y, z ovat float32."""
+    """Konventio: koordinaatit x, y, z ovat float32.
+
+    Kuolemataulussa koordinaatteja on kaksi joukkoa -- uhrin ja ampujan --
+    ja **molemmat** on tarkistettava. Yhden joukon tarkistaminen jättäisi
+    toisen ajautumaan Float64:ksi, ja tiedostot kasvaisivat ilman että
+    yksikään testi huomaisi.
+    """
     for schema in (TICKS, EVENTS):
         for axis in ("x", "y", "z"):
             assert schema[axis] == pl.Float32
+    for prefix in ("victim", "attacker"):
+        for axis in ("x", "y", "z"):
+            assert DEATHS[f"{prefix}_{axis}"] == pl.Float32
 
 
 def test_round_type_enum_matches_shared_constant() -> None:
@@ -379,5 +389,51 @@ def test_the_roster_keeps_the_steamid_beside_the_name() -> None:
 
 def test_map_demo_id_is_first_column_in_parse_tables() -> None:
     """Liitosavain ensimmaisena helpottaa taulun lukemista kasin."""
-    for schema in (ROUNDS, TICKS, EVENTS, LINEUPS, CLASSIFIED):
+    for schema in (ROUNDS, TICKS, EVENTS, LINEUPS, DEATHS, CLASSIFIED):
         assert next(iter(schema)) == "map_demo_id"
+
+
+# --- DEATHS: kaksi toimijaa, molemmat havaintoina ----------------------------
+
+
+def test_a_death_carries_both_actors_with_their_own_place() -> None:
+    """Kuolemalla on kaksi toimijaa, ja molempien paikka on merkityksellinen.
+
+    Juuri tämä on syy omaan tauluun: ``EVENTS``in konventio on yksi toimija ja
+    yksi paikka riviä kohden. Jos jompikumpi puolisko katoaisi sopimuksesta,
+    taulu palaisi yhden toimijan muotoon eikä "Vihu meni secret pihalta"
+    olisi enää luettavissa mistään.
+    """
+    for prefix in ("victim", "attacker"):
+        assert DEATHS[f"{prefix}_id"] == pl.Utf8
+        assert DEATHS[f"{prefix}_lineup_key"] == pl.Utf8
+        assert DEATHS[f"{prefix}_side"] == pl.Enum(list(SIDES))
+        assert DEATHS[f"{prefix}_area"] == pl.Utf8
+
+
+def test_the_death_areas_are_observations_not_snaps() -> None:
+    """Alue tulee samalta tapahtumalta, joten napsautuksen kenttiä ei ole.
+
+    ``area_source`` ja ``snap_distance`` ovat olemassa kranaatin
+    approksimaatiota varten. Kuolemataulussa ne väittäisivät, että alue on
+    arvio -- ja raportti merkitsisi havainnon arvioksi tai päinvastoin.
+    """
+    assert "area_source" not in DEATHS
+    assert "snap_distance" not in DEATHS
+
+
+def test_deaths_carry_no_derived_concepts() -> None:
+    """Trade, entry ja duel-voitto ovat tulkintaa, eivät havaintoja.
+
+    Työnjako on: havainto koneelta, tulkinta ihmiseltä. Sarake nimeltä
+    ``trade`` tekisi tulkinnasta arkiston totuuden.
+    """
+    for name in ("trade", "is_trade", "entry", "duel", "duel_won", "assister_id"):
+        assert name not in DEATHS
+
+
+def test_the_death_table_joins_to_the_others_on_the_same_key() -> None:
+    """``(map_demo_id, round_no)`` on sama liitosavain kuin muissa tauluissa."""
+    assert DEATHS["map_demo_id"] == pl.Utf8
+    assert DEATHS["round_no"] == pl.Int32
+    assert DEATHS["round_raw"] == pl.Int32
