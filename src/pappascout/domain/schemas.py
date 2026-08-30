@@ -1,6 +1,6 @@
 """Jaetut Polars-taulusopimukset (AD-2, AD-4, AD-5).
 
-Neljä taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
+Viisi taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
 
 ``ROUNDS``
     ``parsed/<map_demo_id>/rounds.parquet`` -- pitkä taulu, **kaksi riviä per
@@ -12,6 +12,10 @@ Neljä taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
 ``EVENTS``
     ``parsed/<map_demo_id>/events.parquet`` -- rivi per utility-tapahtuma.
     Heitto ja räjähdys ovat kaksi riviä, jotka yhdistää ``grenade_no``.
+``LINEUPS``
+    ``parsed/<map_demo_id>/lineups.parquet`` -- rivi per (kokoonpano, pelaaja).
+    Pelaajan nimi ja hänen klaaninimensä, eli joukkueen **identiteetti** --
+    ei kierroskohtainen havainto.
 ``CLASSIFIED``
     ``classified/<team_key>/<map_demo_id>.parquet`` -- **yksi rivi per kierros**
     subjektijoukkueen näkökulmasta. Sisältää ``classify``-vaiheen johdokset.
@@ -52,6 +56,7 @@ __all__ = [
     "MONEY_DISTRIBUTION_COLUMN",
     "TICKS",
     "EVENTS",
+    "LINEUPS",
     "CLASSIFIED",
     "CLASSIFIED_INPUTS",
     "SCHEMAS",
@@ -245,6 +250,38 @@ EVENTS: Schema = {
     "snap_distance": pl.Float32,
 }
 
+# Kokoonpanotaulu: rivi per (kokoonpano, pelaaja) (Story 2.6).
+#
+# MIKSI OMA TAULU EIKÄ SARAKE TICKS-TAULUUN. ``TICKS`` on
+# (pelaaja x kierros x näytepiste) -- neljässä demossa kymmeniä tuhansia
+# rivejä, joilla nimi toistuisi. Nimi ei myöskään ole kierroskohtainen
+# havainto: se on sama koko kartan ajan (mitattu 2026-08-30 viidellä demolla:
+# nolla pelaajaa, joilla olisi useampi nimi tai klaani). Identiteetti kuuluu
+# omaan tauluunsa, ja ``aggregate``n kokoonpanoluku halpeni samalla: se luki
+# ennen koko ``ticks``-taulun saadakseen pelaajajoukon.
+#
+# KLAANI LUETAAN PELAAJAKOHTAISESTI, EI PUOLEN KAUTTA. Sama mittaus:
+# ``parse_ticks(["team_clan_name"])`` antaa jokaiselle SteamID:lle täsmälleen
+# yhden klaanin kaikilla ankkureilla, myös puoliajan vaihdon yli. Puolen
+# (``team_num``) kautta luettuna sama arvo vaihtaa joukkuetta puoliajalla --
+# ``team_num=2`` on 1. puoliajalla ``KALJUKOSTAJA`` ja 2. puoliajalla
+# ``MatureMayhem``. Sitä ansaa ei saa astua.
+#
+# NIMI ON HAVAINTO EIKÄ JOHDOS. Puuttuva klaani on ``null``, ei tunniste eikä
+# tyhjä merkkijono: raportti sanoo puuttumisen ääneen eikä keksi korviketta.
+# SteamID64 (``player_id``) säilyy jokaisella rivillä nimen rinnalla -- nimi on
+# luettavuutta varten, tunniste on ainoa jäljitettävä arvo.
+LINEUPS: Schema = {
+    "map_demo_id": pl.Utf8,  # {match_id}-{map_index}, liitosavain
+    "lineup_key": pl.Utf8,  # kokoonpanotunniste, sama kuin muissa tauluissa
+    "player_id": pl.Utf8,  # SteamID64
+    # Pelaajan nimi demossa; null jos sitä ei saatu luettua.
+    "player_name": pl.Utf8,
+    # Pelaajan klaaninimi (``team_clan_name``); null jos sitä ei ole.
+    "clan_name": pl.Utf8,
+}
+
+
 # classify-vaiheen tallentamat päätöksen syötteet (AD-4): kaikki vertailuun
 # käytetyt arvot, jotta raportin kierrosliite on tarkistettavissa demoa vasten.
 # Kynnysarvot ovat dollareita per pelaaja, samat kuin [thresholds]-osiossa.
@@ -315,6 +352,7 @@ SCHEMAS: dict[str, Schema] = {
     "rounds": ROUNDS,
     "ticks": TICKS,
     "events": EVENTS,
+    "lineups": LINEUPS,
     "classified": CLASSIFIED,
 }
 

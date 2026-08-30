@@ -26,6 +26,7 @@ from conftest import (
 )
 from pappascout.adapters.protocols import (
     EVENTS_ADAPTER_COLUMNS,
+    LINEUPS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
 )
@@ -38,6 +39,7 @@ from pappascout.domain.schemas import (
     ARMED_COLUMN,
     CLASSIFIED,
     EVENTS,
+    LINEUPS,
     MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
     TICKS,
@@ -149,6 +151,37 @@ def settings(settings_file: Path):
     return load_settings(settings_file, env_files=())
 
 
+def _minimal_lineups(frame: pl.DataFrame) -> pl.DataFrame:
+    """Kokoonpanotaulu kierrostaulun kokoonpanoista, portin sopimuksen mukaisena.
+
+    Luokittelu ei lue nimiä lainkaan, mutta ``parse`` kieltäytyy
+    kirjoittamasta tyhjää kokoonpanotaulua: kokoonpanot tunnistetaan
+    jokaisesta demosta.
+    Pelaajatunnisteet ovat samat kuin :func:`_minimal_ticks`issa, jotta
+    taulut eivät ole eri mieltä kokoonpanosta.
+    """
+    rows = [
+        {
+            "lineup_key": lineup,
+            "player_id": f"{lineup}-1",
+            "player_name": f"{lineup}-pelaaja",
+            "clan_name": f"Klaani-{lineup}",
+        }
+        for lineup in sorted(
+            {
+                row["lineup_key"]
+                for row in frame.iter_rows(named=True)
+                if row["round_no"] is not None
+            }
+        )
+    ]
+    return pl.DataFrame(
+        rows,
+        schema={name: LINEUPS[name] for name in LINEUPS_ADAPTER_COLUMNS},
+        orient="row",
+    )
+
+
 def _minimal_ticks(frame: pl.DataFrame) -> pl.DataFrame:
     """Yksi näytepiste per kierrosrivi, portin sopimuksen mukaisena.
 
@@ -221,9 +254,16 @@ def write_parse(
         schema={name: EVENTS[name] for name in EVENTS_ADAPTER_COLUMNS}
     )
 
+    lineups_frame = _minimal_lineups(frame)
+
     class Fake:
         def parse_demo(self, path: Path, sample_seconds) -> DemoTables:
-            return DemoTables(rounds=adapter, ticks=ticks_frame, events=events_frame)
+            return DemoTables(
+                rounds=adapter,
+                ticks=ticks_frame,
+                events=events_frame,
+                lineups=lineups_frame,
+            )
 
     parse_stage.run(
         parse_settings, archive, MAP_DEMO_ID, Fake(), demo_path=demo, force=force

@@ -19,7 +19,7 @@ from typing import Protocol, runtime_checkable
 import polars as pl
 
 from pappascout.domain.rounds import REQUIRED_COLUMNS as _NUMBERING_COLUMNS
-from pappascout.domain.schemas import EVENTS, ROUNDS, TICKS
+from pappascout.domain.schemas import EVENTS, LINEUPS, ROUNDS, TICKS
 
 __all__ = [
     "DemoParser",
@@ -28,6 +28,7 @@ __all__ = [
     "ROUNDS_ADAPTER_COLUMNS",
     "TICKS_ADAPTER_COLUMNS",
     "EVENTS_ADAPTER_COLUMNS",
+    "LINEUPS_ADAPTER_COLUMNS",
 ]
 
 #: Sarakkeet, jotka kierrostaulussa ovat **tarkalleen** -- ei enempää eikä
@@ -74,6 +75,17 @@ EVENTS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
     name for name in EVENTS if name != "map_demo_id"
 )
 
+#: Sarakkeet, jotka kokoonpanotaulussa ovat **tarkalleen** -- ei enempää eikä
+#: vähempää.
+#:
+#: Yksi ero ``LINEUPS``-sopimukseen: ``map_demo_id`` puuttuu samasta syystä kuin
+#: muissa tauluissa. ``round_no``:ta ei ole lainkaan -- kokoonpano ja nimi ovat
+#: kartan ominaisuuksia eivätkä kierroksen, joten numerointi ei koske tätä
+#: taulua eikä sen rivejä pudoteta puukkokierroksen mukana.
+LINEUPS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
+    name for name in LINEUPS if name != "map_demo_id"
+)
+
 
 @dataclass(frozen=True)
 class DemoTables:
@@ -94,11 +106,17 @@ class DemoTables:
             :data:`EVENTS_ADAPTER_COLUMNS`. Kenttä on pakollinen eikä sillä ole
             oletusta: tyhjä oletus antaisi vanhan portin toteutuksen näyttää
             demolta, jossa ei heitetty yhtään kranaattia.
+        lineups: Kokoonpanotaulu, sarakkeet :data:`LINEUPS_ADAPTER_COLUMNS`.
+            Rivi per (kokoonpano, pelaaja): pelaajan nimi ja hänen
+            klaaninimensä. Kenttä on pakollinen samasta syystä kuin
+            ``events``: tyhjä oletus antaisi nimettömän portin näyttää
+            demolta, jossa nimiä ei ole.
     """
 
     rounds: pl.DataFrame
     ticks: pl.DataFrame
     events: pl.DataFrame
+    lineups: pl.DataFrame
 
 
 @dataclass(frozen=True)
@@ -234,6 +252,19 @@ class ParseDiagnostics:
             1 pelaajarivi 134 kierroksesta, vaikutus enintään 1 000 $ per
             pelaaja eli 200 $/pelaaja joukkuetasolla. **Ei koske aseistettujen
             laskuria**, joka lukee tavaraluettelon ja panssarin.
+        lineup_name_conflicts: Pelaajat, joilla havaittiin **useampi kuin yksi
+            nimi** saman kartan ankkuritickeillä.
+        lineup_clan_conflicts: Pelaajat, joilla havaittiin **useampi kuin yksi
+            klaani** saman kartan ankkuritickeillä.
+
+            Molemmat ovat nollia mitatussa aineistossa (viisi demoa,
+            2026-08-30), ja juuri se mittaus on koko kokoonpanotaulun perusta:
+            se sanoo, että nimi on kartan ominaisuus eikä kierroksen, ja että
+            klaani seuraa pelaajaa eikä puolta. Oletus on **ajonaikaisesti
+            tarkistamaton** ilman näitä lukuja: taulu kirjoittaa moodin, joten
+            rikkoutunut oletus näyttäisi taulussa täsmälleen samalta kuin ehjä.
+            Nollasta poikkeava luku on siis se oire, josta puolen kautta
+            lukemisen ansan varoitus puhuu.
         armed_unreadable_rows: Joukkuerivit, joilla kalustolaskuri jäi tyhjäksi
             siksi, että jonkun pelaajan panssari tai tavaraluettelo ei ollut
             luettavissa. **Vika eikä havainto**: ankkurittomat kierrokset
@@ -278,6 +309,8 @@ class ParseDiagnostics:
     grenade_ticks_without_players: int = 0
     grenades_sharing_an_entity_id: int = 0
     unknown_inventory_items: tuple[tuple[str, int], ...] = ()
+    lineup_name_conflicts: int = 0
+    lineup_clan_conflicts: int = 0
     armed_unreadable_rows: int = 0
     buy_window_seconds: float | None = None
     buy_window_cuts: tuple[tuple[int, int], ...] = ()
@@ -334,9 +367,18 @@ class DemoParser(Protocol):
             ``snap_distance`` kertoo jälkimmäisen etäisyyden. Tyhjä taulu on
             kelvollinen tulos -- demossa ei ollut utilityä.
 
-            Kaikissa tauluissa ``round_no`` on kaikilla riveillä ``null`` --
-            numeroinnin päättää ``domain.rounds.mark_played_rounds``, jota vain
-            ``stages.parse`` kutsuu.
+            ``lineups`` on rivi per (kokoonpano, pelaaja), sarakkeet
+            täsmälleen :data:`LINEUPS_ADAPTER_COLUMNS`. Pelaajajoukko on sama,
+            josta ``lineup_key`` on laskettu, joten taulu ja tunniste eivät voi
+            olla eri mieltä. ``player_name`` ja ``clan_name`` ovat
+            **havaintoja**: puuttuva arvo on ``null`` eikä korvike, eikä tyhjä
+            merkkijono ole nimi. Klaani luetaan pelaajakohtaisesti eikä puolen
+            kautta -- puoli vaihtaa joukkuetta puoliajalla.
+
+            ``round_no`` on ``rounds``-, ``ticks``- ja ``events``-tauluissa
+            kaikilla riveillä ``null`` -- numeroinnin päättää
+            ``domain.rounds.mark_played_rounds``, jota vain ``stages.parse``
+            kutsuu. ``lineups``-taulussa saraketta ei ole lainkaan.
 
         Raises:
             ~pappascout.errors.ParseError: Jos tiedosto ei ole CS2-demo tai

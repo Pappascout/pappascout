@@ -51,7 +51,7 @@ uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
 ```
 
-`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon kolme
+`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon neljä
 taulua yhdellä lukukerralla:
 
 * `parsed/<map_demo_id>/rounds.parquet` -- kaksi riviä jokaista pelattua
@@ -78,6 +78,15 @@ taulua yhdellä lukukerralla:
   kaksi ja `snap_distance` kertoo arvion etäisyyden, jotta raportti voi
   myöhemmin sanoa "3 savua Rampille (2 varmaa)". Tyhjä taulu on kelvollinen
   tulos: utility voi aidosti puuttua.
+* `parsed/<map_demo_id>/lineups.parquet` -- rivi per (kokoonpano, pelaaja):
+  pelaajan nimi ja hänen klaaninimensä. **Identiteettitaulu, ei kierrostaulu**:
+  nimi on sama koko kartan ajan, joten sillä ei ole `round_no`:ta eivätkä sen
+  rivit katoa puukkokierroksen mukana. Klaani luetaan **pelaajakohtaisesti**
+  (`team_clan_name` SteamID:n kautta) eikä puolen kautta -- puolen kautta
+  luettuna sama arvo vaihtaisi joukkuetta puoliajalla. `lineup_key` lasketaan
+  edelleen pelkistä SteamID:istä, joten nimet eivät siirrä yhtäkään arkiston
+  hakemistoa. Nimi on **havainto**: puuttuva klaani on `null` eikä tunniste,
+  ja tyhjä merkkijono ei ole nimi.
 
 Ilman polkua annettu tunniste etsitään arkiston `demos/`- ja
 `import/`-hakemistoista. Toisella ajolla vaihe ohitetaan, jos manifesti täsmää.
@@ -405,12 +414,39 @@ Siksi komennossa ei ole `--pakota`-valintaa eikä vaihetta koskaan ohiteta
 manifestin perusteella: käyttäjä ajaa komennon silloin kun hän haluaa
 raportin.
 
-**Joukkueen ja pelaajien nimiä ei ole.** `display_name` on toistaiseksi sama
-kuin joukkuetunniste ja rosteri on SteamID64-numeroita, koska nimet ovat
-demossa (`team_clan_name`, pelaajan `name`) muttei missään parsitussa
-taulussa. Raportti **sanoo sen ääneen** eikä toista tiivistettä nimen paikalla:
-otsikko on "Scouting-raportti -- joukkueen nimi ei tiedossa". Korjaus on
-parsinnan muutos ja oma tarinansa; se on kirjattu `deferred-work.md`:hen.
+**Joukkueen ja pelaajien nimet ovat havaintoja.** `display_name` on demosta
+luettu klaaninimi (`lineups.parquet`:n `clan_name`) ja rosterilla on jokaisella
+rivillä sekä nimi että SteamID64 -- nimi luettavuutta varten, tunniste
+jäljitettävyyttä varten. `display_name_source` kertoo kummasta on kyse:
+`clan_name` = havaittu, `team_key` = havaintoa ei ole. Ilman havaintoa raportti
+**sanoo sen ääneen** eikä toista tiivistettä nimen paikalla: otsikko on
+"Scouting-raportti -- joukkueen nimi ei tiedossa". Jos liitetyt demot antavat
+joukkueelle eri nimen, näytetään useimmin havaittu ja loput luetellaan
+(`display_name_alternatives`) -- ristiriita ei katoa. Äänestys on
+kaksivaiheinen enemmistö: ensin ratkeaa demon sisällä yleisin klaani, sitten
+se saa demonsa yhden äänen. Viiden pelaajan demo ei siis paina viittä kertaa
+yhden pelaajan demoa, eikä yksi eri mieltä oleva pelaaja voi nostaa nimeään
+otsikkoon. Tasatilanne ratkeaa molemmilla tasoilla aakkosjärjestyksessä,
+jotta ajo on toistettava.
+
+Joukkueen **avain** ei muutu: `team_key` on hakemistorakenne
+(`classified/<team_key>/`), ja sen vaihtaminen nimeksi on Epic 3:n
+`select`-vaiheen työtä. Nimi vaihtaa vain sen, mitä näytetään -- ja raportin
+tiedostonimen slugin, joka seuraa näytettävää nimeä
+(`reports/<team_key>/<aikaleima>-maturemayhem.md`). Jos nimestä ei jää yhtään
+ASCII-merkkiä (kyrillinen tai CJK-klaani), slug johdetaan tunnisteesta -- ei
+jaetusta vakiosta, joka antaisi kaikille tällaisille joukkueille saman
+tiedostonimen.
+
+> **Nimet pakottavat koko arkiston uudelleenajon.** Muutos toi uuden taulun
+> (`lineups.parquet`) ja nosti `REPORT_SCHEMA_VERSION`in `1.0.0` -> `2.0.0`,
+> koska `TeamReport.roster` muuttui `list[str]`:stä oliolistaksi. Seuraukset:
+> jokainen arkiston demo on parsittava uudelleen (`parse` ei hyväksy tulosta
+> ajan tasalla olevana ilman `lineups.parquet`ia, joten pelkkä `uv run
+> pappascout parse <id>` riittää -- `--pakota` ei ole tarpeen), ja jokainen
+> `report.json` on aggregoitava uudelleen (vanha versio luetaan tuntemattomana
+> ja kirjoitetaan yli). Jo kirjoitetut Markdown-raportit jäävät paikoilleen
+> vanhoina; niitä ei koskaan ylikirjoiteta.
 
 Manifesti on **raporttikohtainen** (`<raportin nimi>.manifest.json`) ja
 jäljitettävyyttä varten. Yhteinen manifesti kestäisi huonosti juuri sitä
@@ -533,7 +569,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `settings.toml` | Kaikki numerot: `[project] [league] [parse] [thresholds] [aggregate] [economy]` |
 | `src/pappascout/constants.py` | Jaetut enum-luettelot (kierrostyyppi, puoli, tila) |
 | `src/pappascout/errors.py` | `PappascoutError` ja alaluokat |
-| `src/pappascout/domain/schemas.py` | Polars-skeemat `ROUNDS`, `TICKS`, `EVENTS`, `CLASSIFIED` ja `validate()` |
+| `src/pappascout/domain/schemas.py` | Polars-skeemat `ROUNDS`, `TICKS`, `EVENTS`, `LINEUPS`, `CLASSIFIED` ja `validate()` |
 | `src/pappascout/domain/models.py` | Typatut asetusosiot ja `load_settings()` |
 | `src/pappascout/domain/rounds.py` | `mark_played_rounds()` -- ainoa paikka, joka päättää `round_no`:n -- ja `check_win_reasons()` |
 | `src/pappascout/domain/economy.py` | `loss_counts()` ja `classify_round()` -- kierrostyypin talouspäättely |
@@ -545,7 +581,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/adapters/protocols.py` | Portit, jotka vaiheet ottavat parametrina |
 | `src/pappascout/adapters/decompress.py` | `.dem.zst`-purku ja `PBDEMS2`-otsikkotarkistus |
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
-| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + manifesti |
+| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |
 | `src/pappascout/domain/aggregate.py` | Jakaumat ja otannat puhtaina funktioina; `build_report()` |

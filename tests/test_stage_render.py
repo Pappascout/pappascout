@@ -24,7 +24,7 @@ from pappascout.archive.paths import MAX_REPORTS_PER_MINUTE, ArchivePaths, repor
 from pappascout.domain.report import Report
 from pappascout.errors import PappascoutError
 from pappascout.stages import render as render_stage
-from test_render import DEMO_ID, TEAM_KEY, pistol_map, report
+from test_render import DEMO_ID, TEAM_KEY, TEAM_SLUG, pistol_map, report
 
 OTHER_TEAM = "bbbbbbbbbbbbbbbb"
 STAMP = datetime(2026, 8, 30, 3, 7)
@@ -111,7 +111,7 @@ def test_the_file_name_carries_the_timestamp_and_the_team_slug(
 ) -> None:
     archive = build_archive(tmp_path)
     result = run(archive, now=STAMP)
-    assert result.outputs[0].name == f"2026-08-30T0307-{TEAM_KEY}.md"
+    assert result.outputs[0].name == f"2026-08-30T0307-{TEAM_SLUG}.md"
 
 
 def test_running_twice_never_overwrites_the_earlier_report(tmp_path: Path) -> None:
@@ -126,7 +126,7 @@ def test_running_twice_never_overwrites_the_earlier_report(tmp_path: Path) -> No
     second_path = archive.resolve(second.outputs[0])
 
     assert first_path != second_path
-    assert second_path.name == f"2026-08-30T0307-{TEAM_KEY}-02.md"
+    assert second_path.name == f"2026-08-30T0307-{TEAM_SLUG}-02.md"
     assert first_path.is_file()
     assert first_path.read_text(encoding="utf-8") == original
 
@@ -143,7 +143,7 @@ def test_the_ordinal_is_zero_padded_so_the_listing_sorts(tmp_path: Path) -> None
     numbered = [
         path.name
         for path in reports(archive)
-        if path.name != f"2026-08-30T0307-{TEAM_KEY}.md"
+        if path.name != f"2026-08-30T0307-{TEAM_SLUG}.md"
     ]
     assert len(numbered) == 10
     # Aakkosjarjestys on numerojarjestys vain nollataytettyna: ilman taytetta
@@ -225,7 +225,7 @@ def test_a_write_failure_frees_the_name_for_the_next_run(
     with pytest.raises(PappascoutError):
         run(archive, now=STAMP)
     result = run(archive, now=STAMP)
-    assert result.outputs[0].name == f"2026-08-30T0307-{TEAM_KEY}.md"
+    assert result.outputs[0].name == f"2026-08-30T0307-{TEAM_SLUG}.md"
 
 
 def test_an_unwritable_directory_is_a_finnish_error_not_a_stack_trace(
@@ -429,7 +429,7 @@ def test_each_report_gets_its_own_manifest(tmp_path: Path) -> None:
     assert first.manifest_path != second.manifest_path
     assert manifest_of(archive, first).outputs == [str(first.outputs[0])]
     assert manifest_of(archive, second).outputs == [str(second.outputs[0])]
-    assert first.manifest_path.name == f"2026-08-30T0307-{TEAM_KEY}.manifest.json"
+    assert first.manifest_path.name == f"2026-08-30T0307-{TEAM_SLUG}.manifest.json"
 
 
 def test_a_missing_aggregate_manifest_does_not_stop_the_report(

@@ -20,6 +20,8 @@ from pappascout.domain.aggregate import (
     demo_buckets,
     first_contact_areas,
     lineups_of_same_team,
+    roster_entries,
+    team_identity,
     map_name_for,
     players_distribution,
     positions_for,
@@ -33,8 +35,14 @@ from pappascout.domain.aggregate import (
     utility_uses,
 )
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
-from pappascout.domain.report import MissingDemo, TeamReport
-from pappascout.domain.schemas import CLASSIFIED, EVENTS, TICKS, validate
+from pappascout.domain.report import MissingDemo, RosterEntry, TeamReport
+from pappascout.domain.schemas import (
+    CLASSIFIED,
+    EVENTS,
+    LINEUPS,
+    TICKS,
+    validate,
+)
 from pappascout.errors import AggregateError
 
 TEAM = "aaaaaaaaaaaaaaaa"
@@ -146,6 +154,39 @@ def ticks_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
     return validate(df, TICKS, "ticks")
 
 
+#: Klaaninimet, jotka kokoonpanotaulu antaa testiarkistossa. Oikeista demoista
+#: mitattuja: raportin otsikko on juuri tämä merkkijono.
+TEAM_CLAN = "MatureMayhem"
+OPPONENT_CLAN = "KALJUKOSTAJA"
+
+
+def lineup_row(
+    demo: str,
+    player: str,
+    *,
+    lineup: str = TEAM,
+    player_name: str | None = None,
+    clan_name: str | None = TEAM_CLAN,
+) -> dict[str, object]:
+    """Yksi kokoonpanotaulun rivi.
+
+    ``player_name`` ja ``clan_name`` ovat havaintoja: ``None`` tarkoittaa
+    "ei havaittu" eikä sitä korvata tunnisteella.
+    """
+    return {
+        "map_demo_id": demo,
+        "lineup_key": lineup,
+        "player_id": player,
+        "player_name": player_name,
+        "clan_name": clan_name,
+    }
+
+
+def lineups_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
+    df = pl.DataFrame(rows, schema=dict(LINEUPS))
+    return validate(df, LINEUPS, "lineups")
+
+
 def event_rows(
     demo: str,
     round_no: int,
@@ -205,7 +246,10 @@ def team_report(lineups: list[str] | None = None) -> TeamReport:
         slug=team_slug(keys[0]),
         display_name=keys[0],
         lineup_keys=keys,
-        roster=["p1", "p2", "p3", "p4", "p5"],
+        roster=[
+            RosterEntry(player_id=f"p{n}", display_name=f"nimi{n}")
+            for n in range(1, 6)
+        ],
         roster_source="lineups",
     )
 
@@ -834,3 +878,132 @@ def test_utility_rows_are_ordered_by_the_clock_not_the_alphabet() -> None:
     )
     uses = utility_uses(events, [("d", 1)], [5.0, 10.0, 20.0])
     assert [u.seconds_bucket for u in uses] == ["0-5", "5-10", "10-20", "20+"]
+
+
+# --- Joukkueen ja pelaajien nimet (Story 2.6) -----------------------------------
+
+
+def test_a_team_without_a_clan_name_has_no_name_at_all() -> None:
+    """Puuttuva nimi on ``None``, ei tunniste eikä tyhjä merkkijono."""
+    identity = team_identity(
+        [
+            lineup_row("d", "p1", clan_name=None),
+            lineup_row("d", "p2", clan_name=None),
+        ]
+    )
+    assert identity.display_name is None
+    assert identity.alternatives == []
+
+
+def test_an_empty_string_is_not_a_name() -> None:
+    """Vanhalla versiolla kirjoitettu taulu voi sisältää tyhjän merkkijonon."""
+    identity = team_identity([lineup_row("d", "p1", clan_name="   ")])
+    assert identity.display_name is None
+
+
+def test_the_same_clan_in_every_demo_is_the_teams_name() -> None:
+    identity = team_identity(
+        [
+            lineup_row(demo, f"p{i}", clan_name="MatureMayhem")
+            for demo in ("a", "b", "c", "d")
+            for i in range(5)
+        ]
+    )
+    assert identity.display_name == "MatureMayhem"
+    assert identity.alternatives == []
+
+
+def test_conflicting_names_keep_the_most_observed_and_list_the_rest() -> None:
+    """Ristiriita ei katoa: useimmin havaittu naytetaan, muut luetellaan."""
+    rows = [
+        lineup_row(demo, f"p{i}", clan_name="MatureMayhem")
+        for demo in ("a", "b", "c")
+        for i in range(5)
+    ] + [lineup_row("d", f"p{i}", clan_name="MM Academy") for i in range(5)]
+
+    identity = team_identity(rows)
+    assert identity.display_name == "MatureMayhem"
+    assert identity.alternatives == ["MM Academy"]
+
+
+def test_the_vote_is_per_demo_not_per_row() -> None:
+    """Viiden pelaajan demo ei saa äänestää viidesti.
+
+    Ristiriita syntyy siitä, että kaksi *demoa* antaa eri nimen.
+    Rivipohjainen laskenta antaisi viisinkertaisen painon demolle, jossa
+    sattui olemaan viisi pelaajaa.
+    """
+    rows = [lineup_row("a", f"p{i}", clan_name="Aakkoset") for i in range(5)] + [
+        lineup_row("b", "p9", clan_name="Bee"),
+        lineup_row("c", "p9", clan_name="Bee"),
+    ]
+    identity = team_identity(rows)
+    assert identity.display_name == "Bee"
+    assert identity.alternatives == ["Aakkoset"]
+
+
+def test_one_player_cannot_outvote_his_own_team_inside_a_demo() -> None:
+    """Demon sisällä ratkaisee **enemmistö**, ei "yksi ääni per havaittu nimi".
+
+    Neljä pelaajaa kantaa klaania ``Zulu``, yksi klaania ``Alfa``. Ääni per
+    havaittu nimi antaisi molemmille yhden, yhden demon otannalla se on
+    tasatilanne, ja aakkosjärjestys nostaisi otsikkoon nimen jonka yksi ainoa
+    pelaaja kantoi -- eikä siitä jäisi mitään jälkeä raporttiin.
+
+    Vähemmistö ei myöskään ole *demojen välinen* ristiriita, joten se ei kuulu
+    vaihtoehtoisiin nimiin: se on demon sisäinen havainto, ja parsinnan
+    ``lineup_clan_conflicts`` kertoo siitä.
+    """
+    rows = [
+        lineup_row("d", f"p{i}", clan_name="Zulu" if i < 4 else "Alfa")
+        for i in range(5)
+    ]
+    identity = team_identity(rows)
+    assert identity.display_name == "Zulu"
+    assert identity.alternatives == []
+
+
+def test_a_demos_majority_is_one_vote_no_matter_how_many_players_carry_it() -> None:
+    """Kaksi demoa, kaksi ääntä -- vaikka toisessa on viisi pelaajaa."""
+    rows = [
+        lineup_row("iso", f"p{i}", clan_name="Zulu") for i in range(5)
+    ] + [lineup_row("pieni", "p9", clan_name="Alfa")]
+
+    identity = team_identity(rows)
+    # Tasatilanne demojen yli -> aakkoset.
+    assert identity.display_name == "Alfa"
+    assert identity.alternatives == ["Zulu"]
+
+
+def test_a_row_without_a_map_demo_id_is_refused() -> None:
+    """Tunnisteeton rivi sulauttaisi kaikki demot yhdeksi ääneksi."""
+    with pytest.raises(AggregateError, match="map_demo_id"):
+        team_identity([lineup_row("", "p1", clan_name="Zulu")])
+
+
+def test_a_tie_is_resolved_alphabetically_so_the_run_repeats() -> None:
+    """Ilman aakkosjärjestystä tulos riippuisi tiedostojen
+    lukujärjestyksestä."""
+    rows = [
+        lineup_row("b", "p1", clan_name="Zulu"),
+        lineup_row("a", "p1", clan_name="Alfa"),
+    ]
+    assert team_identity(rows).display_name == "Alfa"
+    assert team_identity(list(reversed(rows))).display_name == "Alfa"
+
+
+def test_the_player_name_is_the_most_observed_one() -> None:
+    rows = [
+        lineup_row("a", "p1", player_name="Laetikko"),
+        lineup_row("b", "p1", player_name="Laetikko"),
+        lineup_row("c", "p1", player_name="tertseli"),
+    ]
+    assert team_identity(rows).names["p1"] == "Laetikko"
+
+
+def test_the_roster_keeps_a_player_whose_name_was_never_read() -> None:
+    """Hiljaa pudotettu pelaaja kutistaisi rosterin kertomatta siitä."""
+    entries = roster_entries(["p2", "p1"], {"p1": "Sassiz"})
+    assert [e.player_id for e in entries] == ["p1", "p2"]
+    assert entries[0].display_name == "Sassiz"
+    assert entries[1].display_name is None

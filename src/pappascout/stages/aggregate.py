@@ -1,8 +1,9 @@
 """``aggregate`` -- putken kolmas vaihe: luokitelluista kierroksista raportti.
 
 Vaihe lukee arkistosta joukkueen luokitellut kierrokset
-(``classified/<team_key>/<map_demo_id>.parquet``) sekä niiden näytepiste- ja
-tapahtumataulut (``parsed/<map_demo_id>/{ticks,events}.parquet``) ja kirjoittaa
+(``classified/<team_key>/<map_demo_id>.parquet``) sekä niiden näytepiste-,
+tapahtuma- ja kokoonpanotaulut
+(``parsed/<map_demo_id>/{ticks,events,lineups}.parquet``) ja kirjoittaa
 **yhden tiedoston**: ``aggregates/<team_key>/report.json``, joka on
 :class:`~pappascout.domain.report.Report`-malli JSONina. Demoa ei lueta.
 
@@ -31,6 +32,25 @@ näkisi kolme demoa neljästä eikä kertoisi menettäneensä yhtä. Liitetyt
 tunnisteet kirjataan raporttiin (``team.lineup_keys``), joten päätös on
 tarkistettavissa.
 
+Joukkueen nimi on havainto
+--------------------------
+Nimi luetaan kokoonpanotaulun ``clan_name``-sarakkeesta, joka on demosta
+havaittu arvo. Sitä ei johdeta tiedostonimestä, FACEIT-tunnisteesta eikä
+mistään muusta lähteestä: ilman havaintoa ``display_name`` on ``team_key``
+itse, ``display_name_source`` on ``team_key``, ja raportti sanoo puuttumisen
+ääneen.
+
+**Ristiriita ei katoa.** Jos liitetyt demot antavat joukkueelle eri nimen,
+näytettäväksi valitaan useimmin havaittu ja loput päätyvät kenttään
+``display_name_alternatives``. Ääni on demokohtainen eikä rivikohtainen, ja
+tasatilanne ratkeaa aakkosjärjestyksessä, jotta ajo on toistettava
+(:func:`~pappascout.domain.aggregate.team_identity`).
+
+**Joukkueen avain ei muutu.** ``team_key`` on hakemistorakenne
+(``classified/<team_key>/``), ja sen vaihtaminen nimeksi on Epic 3:n
+``select``-vaiheen työtä. Tämä vaihe vaihtaa vain sen, mitä näytetään -- ja
+tiedostonimen slugin, joka seuraa näytettävää nimeä.
+
 Kartan nimi on johdettu
 -----------------------
 Kartan nimeä ei ole yhdessäkään taulussa -- ``parse`` ei kirjoita sitä. Se
@@ -51,7 +71,7 @@ tämän vaiheen uudelleen mutta ei parsintaa.
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -78,9 +98,12 @@ from pappascout.archive.paths import (
 )
 from pappascout.domain.aggregate import (
     LEAGUE_BUCKETS,
+    SLUG_FALLBACK,
     build_report,
     lineups_of_same_team,
-    team_slug,
+    roster_entries,
+    slugify,
+    team_identity,
 )
 from pappascout.domain.models import (
     AggregateSettings,
@@ -93,7 +116,14 @@ from pappascout.domain.report import (
     Report,
     TeamReport,
 )
-from pappascout.domain.schemas import CLASSIFIED, EVENTS, TICKS, Schema, validate
+from pappascout.domain.schemas import (
+    CLASSIFIED,
+    EVENTS,
+    LINEUPS,
+    TICKS,
+    Schema,
+    validate,
+)
 from pappascout.errors import PappascoutError
 from pappascout.stages import StageResult
 
@@ -365,11 +395,16 @@ def collect_team(
 
     known = {k: v for k, v in members.items() if k in demos_by_lineup}
 
-    # Kokoonpano, jonka yhdeltäkään demolta ei saatu näytepistetaulua, ei ole
+    # Kokoonpano, jonka yhdeltäkään demolta ei saatu kokoonpanotaulua, ei ole
     # vertailtavissa muihin -- eikä siis liitettävissä joukkueeseen. Sen demot
     # eivät saa silti kadota jäljettömiin: ne kirjataan puuttuviksi syyn
     # kanssa, jotta lukija näkee että otannasta puuttuu jotain, vaikka
     # aggregointi ei voi tietää kenelle se kuului.
+    #
+    # **Rivi per demo, ei per kokoonpano.** Yksi demo sisältää molemmat
+    # joukkueet, joten sama tiedosto on kahden hakemiston alla ja tuottaisi
+    # kaksi riviä samasta puutteesta. Mitattu ensimmäisestä ajosta: neljä
+    # riviä kahdesta demosta. Se lukee kuin otannasta puuttuisi neljä ottelua.
     for lineup, lineup_demos in demos_by_lineup.items():
         if lineup in known:
             continue
@@ -377,9 +412,12 @@ def collect_team(
             missing.append(
                 MissingDemo(
                     match=demo,
+                    # Syy sanoo mitä oikeasti tiedetään: lukukelvoton
+                    # kokoonpanotaulu ei kerro kenen demo tämä on, joten sitä
+                    # ei voi väittää *tämän* joukkueen menetetyksi otteluksi.
                     reason=(
-                        f"Kokoonpanon {lineup} näytepistetaulua ei saatu "
-                        "luettua, joten demoa ei voitu liittää joukkueeseen. "
+                        "Kokoonpanotaulua (lineups.parquet) ei saatu luettua, "
+                        "joten ei tiedetä kuuluuko demo tälle joukkueelle. "
                         f"Aja parsinta uudelleen: uv run pappascout parse {demo}"
                     ),
                 )
@@ -388,7 +426,7 @@ def collect_team(
     if team_key not in known:
         raise PappascoutError(
             f"Joukkueen {team_key} kokoonpanoa ei saatu luettua: yhdenkään sen "
-            "demon näytepistetaulua ei löytynyt arkistosta.\n"
+            "demon kokoonpanotaulua (lineups.parquet) ei löytynyt arkistosta.\n"
             "Aja parsinta uudelleen: uv run pappascout parse <map_demo_id>"
         )
 
@@ -407,6 +445,13 @@ def collect_team(
             else:
                 missing.append(MissingDemo(match=demo, reason=reason))
 
+    # Mukaan päässyt demo ei ole puuttuva, vaikka se olisi myös jonkin
+    # lukukelvottoman kokoonpanon alla: sama tiedosto on aina kahden joukkueen
+    # hakemistossa, ja vastustajan lukukelvoton kokoonpano ei vie meiltä
+    # ottelua jonka juuri luimme.
+    included = {demo for _, demo in demos}
+    missing = _unique_by_match(m for m in missing if m.match not in included)
+
     if not demos:
         raise PappascoutError(
             f"Joukkueella {team_key} ei ole yhtäkään demoa, jonka sekä "
@@ -421,11 +466,32 @@ def collect_team(
     return TeamSources(team_key, lineup_keys, demos, sorted(roster), missing)
 
 
+def _unique_by_match(entries: Iterable[MissingDemo]) -> list[MissingDemo]:
+    """Yksi rivi per demo, ensimmäinen syy voittaa.
+
+    Puuttuvat demot luetellaan **otteluina**, koska niin lukija ne laskee.
+    Sama tiedosto on kahden kokoonpanon alla (molemmat joukkueet), ja kahden
+    kokoonpanon alta löytyvä sama puute näyttäisi luettelossa kahdelta eri
+    puuttuvalta ottelulta.
+    """
+    seen: dict[str, MissingDemo] = {}
+    for entry in entries:
+        seen.setdefault(entry.match, entry)
+    return list(seen.values())
+
+
 def _lineup_members(
     archive: ArchivePaths, map_demo_id: str
 ) -> dict[str, set[str]] | None:
-    """Demon kokoonpanot pelaajineen, tai ``None`` jos taulua ei ole."""
-    path = archive.resolve(parsed_table(map_demo_id, "ticks"))
+    """Demon kokoonpanot pelaajineen, tai ``None`` jos taulua ei ole.
+
+    Lähde on ``lineups.parquet`` eikä ``ticks.parquet`` (Story 2.6). Kaksi
+    syytä: kokoonpanotaulu on kymmeniä rivejä siinä missä näytepistetaulu on
+    kymmeniä tuhansia, ja sen pelaajajoukko on **täsmälleen se**, josta
+    ``lineup_key`` on laskettu -- näytepistetaulusta puuttuisi pelaaja, joka
+    ei ehtinyt yhdellekään näytepisteelle.
+    """
+    path = archive.resolve(parsed_table(map_demo_id, "lineups"))
     if not path.is_file():
         return None
     try:
@@ -447,7 +513,7 @@ def _demo_unusable(
     kanssa, ja raportti kertoo sen. Yksittäinen puuttuva demo ei saa viedä
     koko otantaa -- se veisi mukanaan kolme muuta, jotka ovat kunnossa.
     """
-    for table in ("ticks", "events"):
+    for table in ("ticks", "events", "lineups"):
         if not archive.resolve(parsed_table(map_demo_id, table)).is_file():
             return (
                 f"Parsittua taulua {table}.parquet ei ole arkistossa. "
@@ -483,24 +549,57 @@ def _aggregate(
     classified_frames: list[pl.DataFrame] = []
     tick_frames: list[pl.DataFrame] = []
     event_frames: list[pl.DataFrame] = []
+    lineup_frames: list[pl.DataFrame] = []
 
     for lineup, demo in sources.demos:
         classified_frames.append(_read_classified(archive, lineup, demo))
         tick_frames.append(_read_parsed(archive, demo, "ticks", TICKS))
         event_frames.append(_read_parsed(archive, demo, "events", EVENTS))
+        lineup_frames.append(_read_parsed(archive, demo, "lineups", LINEUPS))
 
     lineups = set(sources.lineup_keys)
     ticks = pl.concat(tick_frames).filter(pl.col("lineup_key").is_in(lineups))
     events = pl.concat(event_frames).filter(pl.col("lineup_key").is_in(lineups))
+    # Vain tämän joukkueen kokoonpanot: sama demo sisältää molempien
+    # joukkueiden rivit, ja suodattamatta vastustajan klaaninimi äänestäisi
+    # otsikosta.
+    lineup_rows = (
+        pl.concat(lineup_frames)
+        .filter(pl.col("lineup_key").is_in(lineups))
+        .to_dicts()
+    )
+    identity = team_identity(lineup_rows)
 
     team = TeamReport(
         key=sources.team_key,
-        slug=team_slug(sources.team_key),
-        # Joukkueen nimi tulee joukkueindeksistä (Epic 3). Ennen sitä tunniste
-        # on ainoa nimi, joka on olemassa -- keksitty nimi olisi arvaus.
-        display_name=sources.team_key,
+        # Tiedostonimen slug seuraa nimeä silloin kun nimi on havainto.
+        #
+        # Varapolku on **tunniste eikä jaettu vakio**, ja ketju on kolmiosainen
+        # tarkoituksella: kyrillinen tai CJK-klaaninimi on olemassa ja
+        # havaittu, mutta siitä ei jää yhtään ASCII-merkkiä. ``team_slug``in
+        # oma varapolku antaisi silloin jokaiselle tällaiselle joukkueelle
+        # saman tiedostonimen ``<aikaleima>-joukkue.md``, eli nimi katoaisi ja
+        # tiedostot törmäisivät toisiinsa. Tunnisteesta johdettu slug on
+        # yksikäsitteinen. Sama sääntö on kirjoitettu ``TeamReport``in
+        # sopimukseen, jotta levyltä luettu raportti ei voi olla eri mieltä.
+        slug=(
+            slugify(identity.display_name or "")
+            or slugify(sources.team_key)
+            or SLUG_FALLBACK
+        ),
+        # Nimi on havainto demosta (``LINEUPS.clan_name``), ei johdos. Ilman
+        # havaintoa nimi on tunniste ja lähde sanoo sen ääneen; raportti ei
+        # keksi korviketta tiedostonimestä tai FACEIT-tunnisteesta.
+        display_name=identity.display_name or sources.team_key,
+        display_name_source=(
+            "clan_name" if identity.display_name else "team_key"
+        ),
+        display_name_alternatives=identity.alternatives,
         lineup_keys=sources.lineup_keys,
-        roster=sources.roster,
+        # Pelaajajoukko tulee ``sources.roster``ista eikä nimikartasta:
+        # rosterirvi kirjoitetaan silloinkin, kun nimeä ei saatu, koska
+        # SteamID on ainoa jäljitettävä arvo.
+        roster=roster_entries(sources.roster, identity.names),
         roster_source="lineups",
     )
     return build_report(
@@ -698,7 +797,15 @@ def _stats(report: Report, sources: TeamSources) -> dict[str, Any]:
     return {
         "team_key": report.team.key,
         "lineup_keys": list(report.team.lineup_keys),
-        "roster": list(report.team.roster),
+        "display_name": report.team.display_name,
+        "display_name_source": report.team.display_name_source,
+        "display_name_alternatives": list(report.team.display_name_alternatives),
+        # Rosteri tulosteeseen pareina: nimi ja tunniste rinnakkain, ei
+        # kumpaakaan yksin. Nimi voi olla ``None``, ja se on havainto.
+        "roster": [
+            {"player_id": entry.player_id, "display_name": entry.display_name}
+            for entry in report.team.roster
+        ],
         "demos": report.sample.demos,
         "rounds": report.sample.rounds,
         # Lokerot luetaan yhdestä luettelosta, jotta kolmas lokero ei voi

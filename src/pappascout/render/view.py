@@ -35,6 +35,7 @@ kahdessa muodossa, ja raportin on oltava lyhyt.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -255,6 +256,54 @@ class _Flags:
 
 
 # -- Muotoilu --------------------------------------------------------------------
+
+
+#: Merkit, jotka Markdown tulkitsee rakenteeksi **rivin sisällä**. Luettelo on
+#: kiellettyjen eikä sallittujen, koska Markdownin syntaksi on tunnettu ja
+#: suljettu joukko -- toisin kuin aseiden nimet, joissa sääntö on päinvastoin.
+#:
+#: ``<`` ja ``>`` ovat mukana, koska Markdown päästää raa'an HTML:n läpi:
+#: pelaajan nimi ``<b>`` lihavoisi loppuraportin, ja Discordiin liitettynä
+#: sama teksti kulkee eteenpäin. ``~`` on mukana Discordin yliviivauksen
+#: takia. Kenoviiva on ensimmäisenä, koska se on itse pakomerkki -- jos se
+#: käsiteltäisiin viimeisenä, se pakenisi omat pakomerkkinsä.
+#:
+#: **Mitä listalla EI ole ja miksi.** Sulut, aaltosulkeet, piste, plus,
+#: huutomerkki ja viiva ovat Markdownissa merkitseviä vain tietyssä paikassa
+#: (rivin alussa, tai osana ``[teksti](osoite)``-paria, jonka hakasulkeet jo
+#: pakenevat). Niiden pakeneminen ei estäisi mitään mutta tekisi raakatekstistä
+#: lukukelvottoman -- ja tämä raportti luetaan myös raakana: aineistossa on
+#: pelaaja nimeltä ``--allu-``, joka muuttuisi muotoon ``\-\-allu\-``.
+_MARKDOWN_SPECIALS = "\\`*_[]#|<>~"
+
+#: Peräkkäiset välilyönnit, sarkaimet ja rivinvaihdot. Nimi, jossa on
+#: rivinvaihto, katkaisisi luettelorivin kahdeksi ja tekisi jälkimmäisestä
+#: kappaleen -- eli rikkoisi raportin rakenteen sen sisällön sijaan.
+_WHITESPACE_RUN = re.compile(r"\s+")
+
+
+def markdown_text(value: str) -> str:
+    """Demon antama merkkijono turvallisena Markdownina.
+
+    **Escapetus tehdään täällä eikä datassa.** ``report.json`` säilyttää
+    havainnon sellaisenaan -- se on arkiston totuus, ja pakomerkit siellä
+    tekisivät nimestä eri merkkijonon kuin se, jonka demo antoi. Muotoilu on
+    esityskerroksen asia, ja tämä on esityskerros.
+
+    CS2:n nimissä esiintyy kaikkia Markdownin rakennemerkkejä: klaanit
+    kirjoittavat itsensä muotoon ``*|LOL|*`` ja pelaajat lisäävät nimeensä
+    alaviivoja ja hakasulkeita. Ilman escapetusta rosterirvi lihavoituisi,
+    kursivoituisi tai katoaisi kokonaan linkkisyntaksin sisään.
+
+    Whitespace normalisoidaan samalla: rivinvaihto katkaisisi luettelorivin ja
+    peräkkäiset välilyönnit katoaisivat renderöinnissä joka tapauksessa, joten
+    ne siivotaan näkyvästi eikä hiljaa.
+    """
+    collapsed = _WHITESPACE_RUN.sub(" ", value).strip()
+    return "".join(
+        "\\" + char if char in _MARKDOWN_SPECIALS else char
+        for char in collapsed
+    )
 
 
 def rounds_text(count: int) -> str:
@@ -704,6 +753,18 @@ def _summary(report: Report, threshold: int | None) -> list[SummaryItem]:
                 "yhteisten pelaajien perusteella",
             )
         )
+    if team.display_name_alternatives:
+        items.append(
+            SummaryItem(
+                "Muut havaitut nimet",
+                ", ".join(
+                    markdown_text(name)
+                    for name in team.display_name_alternatives
+                )
+                + " -- demot antavat "
+                "joukkueelle useamman nimen; yllä on useimmin havaittu",
+            )
+        )
     roster_source = (
         "havaittu demoista" if team.roster_source == "lineups" else "joukkueindeksistä"
     )
@@ -711,8 +772,9 @@ def _summary(report: Report, threshold: int | None) -> list[SummaryItem]:
         items.append(
             SummaryItem(
                 "Rosteri",
-                f"{len(team.roster)} pelaajaa ({roster_source}); nimiä ei ole "
-                "saatavilla, joten alla on SteamID64: " + ", ".join(team.roster),
+                f"{len(team.roster)} pelaajaa ({roster_source}); nimi ja "
+                "SteamID64 rinnakkain: "
+                + ", ".join(_roster_text(entry) for entry in team.roster),
             )
         )
     else:
@@ -786,18 +848,44 @@ def _summary(report: Report, threshold: int | None) -> list[SummaryItem]:
 def _team_text(team: Any) -> str:
     """Joukkueen nimi -- tai rehellinen toteamus siitä, ettei sitä ole.
 
-    ``display_name`` on ``aggregate``ssa sama kuin ``key``, koska mikään ei
-    aseta nimeä: joukkueindeksi syntyy vasta Epic 3:ssa. Tiivisteen
-    toistaminen nimen paikalla väittäisi, että ``9ac92660986558d3`` on
-    joukkueen nimi. Nimi on demossa (``team_clan_name``) muttei missään
-    taulussa -- kirjattu ``deferred-work.md``iin.
+    Nimi on **havainto**: se on demon ``team_clan_name`` sellaisena kuin
+    kokoonpanotaulu sen kirjasi. Ilman havaintoa tiivisteen toistaminen nimen
+    paikalla väittäisi, että ``9ac92660986558d3`` on joukkueen nimi -- ja juuri
+    sen takia raportti sanoo puuttumisen ääneen eikä keksi korviketta.
     """
-    if team.display_name != team.key:
-        return f"{team.display_name} (tunniste {team.key})"
+    if _has_name(team):
+        return f"{markdown_text(team.display_name)} (tunniste {team.key})"
     return (
-        f"nimi ei ole tiedossa; tunniste {team.key}. Joukkueen nimi on demossa "
-        "muttei missään parsitussa taulussa, joten raportti ei voi käyttää sitä."
+        f"nimi ei ole tiedossa; tunniste {team.key}. Demoista ei löytynyt "
+        "joukkueelle klaaninimeä (team_clan_name), eikä raportti keksi nimeä "
+        "muusta lähteestä."
     )
+
+
+def _has_name(team: Any) -> bool:
+    """Onko joukkueen nimi havainto vai tunniste sen paikalla.
+
+    Lähde ratkaisee eikä vertailu tunnisteeseen: joukkue voisi olla nimeltään
+    täsmälleen tunnisteensa näköinen, ja silloin vertailu väittäisi havaintoa
+    puuttuvaksi.
+    """
+    return team.display_name_source == "clan_name"
+
+
+def _roster_text(entry: Any) -> str:
+    """Yksi rosterirvi: nimi ja SteamID64 rinnakkain.
+
+    **Molemmat, aina.** Nimi on luettavuutta varten, tunniste on ainoa
+    jäljitettävä arvo -- kumpikaan ei korvaa toista. Jos nimeä ei saatu
+    luettua, se sanotaan ääneen sen sijaan että rivi näyttäisi nimettömältä
+    vahingossa.
+
+    Nimi on demon antama merkkijono, joten se kulkee :func:`markdown_text`in
+    läpi; tunniste on SteamID64 eli pelkkiä numeroita eikä tarvitse sitä.
+    """
+    if entry.display_name:
+        return f"{markdown_text(entry.display_name)} ({entry.player_id})"
+    return f"{entry.player_id} (nimi ei luettavissa)"
 
 
 def _generated_text(moment: datetime) -> str:
@@ -907,13 +995,14 @@ def round_list_demo_ids(report: Report) -> list[str]:
 def _title(report: Report) -> str:
     """Raportin otsikko.
 
-    Kun nimeä ei ole, otsikkoon ei kirjoiteta tiivistettä nimen paikalle:
-    ``# 9ac92660986558d3 -- scouting-raportti`` lukee kuin joukkue olisi
-    nimeltään niin. Tunniste on yhteenvedossa, jossa se on tunniste eikä nimi.
+    Nimi otsikkoon vain jos se on **havaittu**. Ilman havaintoa otsikkoon ei
+    kirjoiteta tiivistettä nimen paikalle: ``# 9ac92660986558d3 --
+    scouting-raportti`` lukee kuin joukkue olisi nimeltään niin. Tunniste on
+    yhteenvedossa, jossa se on tunniste eikä nimi.
     """
     team = report.team
-    if team.display_name != team.key:
-        return f"{team.display_name} -- scouting-raportti"
+    if _has_name(team):
+        return f"{markdown_text(team.display_name)} -- scouting-raportti"
     return "Scouting-raportti -- joukkueen nimi ei tiedossa"
 
 

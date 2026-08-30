@@ -55,10 +55,17 @@ missään kentässä -- vain havaintoja ja lukumääriä. Poikkeavat asetelmat
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from pappascout.constants import (
     SAMPLE_BUCKETS,
@@ -71,6 +78,9 @@ from pappascout.errors import AggregateError
 
 __all__ = [
     "REPORT_SCHEMA_VERSION",
+    "slugify",
+    "team_slug",
+    "SLUG_FALLBACK",
     "SampleBucket",
     "Sample",
     "PlayersCount",
@@ -85,6 +95,7 @@ __all__ = [
     "RoundTypeReport",
     "SideReport",
     "MapReport",
+    "RosterEntry",
     "TeamReport",
     "MissingDemo",
     "Report",
@@ -94,7 +105,43 @@ __all__ = [
 #: vanha ``report.json`` enää validoidu -- silloin ``render`` kertoo, että
 #: aggregointi on ajettava uudelleen, sen sijaan että se muotoilisi puolikkaan
 #: raportin hiljaa.
-REPORT_SCHEMA_VERSION = "1.0.0"
+REPORT_SCHEMA_VERSION = "2.0.0"
+
+
+#: Merkit, jotka eivät kelpaa tiedostonimeen. Slug on ASCII-osajoukko, koska
+#: arkisto on OneDrivessa ja kahden koneen yhteinen.
+_NON_WORD = re.compile(r"[^a-z0-9]+")
+
+#: Slug, jota käytetään kun nimestä ei jää mitään jäljelle. Se on **jaettu
+#: vakio**, joten se ei yksilöi mitään -- kaksi joukkuetta saisi saman
+#: tiedostonimen. Käytä sitä vain viimeisenä keinona, kun edes tunnisteesta ei
+#: saada slugia.
+SLUG_FALLBACK = "joukkue"
+
+
+def slugify(text: str) -> str:
+    """Tiedostonimeen kelpaava muoto, tai **tyhjä merkkijono**.
+
+    Tyhjä paluuarvo on tarkoituksellinen ja se erottaa tämän funktion
+    :func:`team_slug`istä: kyrillinen tai CJK-nimi ei jätä jäljelle yhtään
+    ASCII-merkkiä, ja silloin kutsujan on voitava valita **oma** varapolkunsa.
+    Jaettu vakio antaisi jokaiselle tällaiselle joukkueelle saman
+    tiedostonimen.
+    """
+    return _NON_WORD.sub("-", text.lower()).strip("-")
+
+
+def team_slug(team_key: str) -> str:
+    """Tiedostonimeen kelpaava muoto joukkueen tunnisteesta.
+
+    ``render`` nimeää raportin ``<aika>-<team_slug>.md``, joten slug ei saa
+    sisältää polkuerottimia eikä ääkkösiä.
+
+    Varapolku on :data:`SLUG_FALLBACK`, joka **ei yksilöi mitään**. Kun
+    kutsujalla on toinen ehdokas (esimerkiksi tunniste nimen rinnalla), käytä
+    :func:`slugify`ä ja valitse varapolku itse.
+    """
+    return slugify(team_key) or SLUG_FALLBACK
 
 
 def _check_rounds_add_up(
@@ -535,6 +582,36 @@ class MapReport(_Node):
         return self
 
 
+class RosterEntry(_Node):
+    """Yksi rosteririvi: pelaaja tunnisteineen ja nimineen.
+
+    **Molemmat, aina.** SteamID64 säilyy nimen rinnalla, koska nimi on
+    luettavuutta varten mutta tunniste on ainoa jäljitettävä arvo: nimi voi
+    vaihtua ottelusta toiseen, tunniste ei.
+
+    ``display_name`` on ``None``, jos nimeä ei saatu luettua demosta. Se ei ole
+    sama asia kuin tyhjä merkkijono eikä sitä korvata tunnisteella tässä --
+    korvaus on esitysvalinta ja kuuluu ``render``-vaiheeseen.
+    """
+
+    player_id: str
+    display_name: str | None = None
+
+    @field_validator("display_name")
+    @classmethod
+    def _empty_is_not_a_name(cls, value: str | None) -> str | None:
+        """Tyhjä merkkijono ei ole nimi -- se on ``None``.
+
+        Ilman tätä rosterirvi näyttäisi tyhjän nimen SteamID:n vieressä, mikä
+        lukee kuin nimi olisi tyhjä eikä kuin sitä ei olisi. ``TeamReport``
+        vartioi saman asian joukkueen nimelle; pelaajan nimi ei voi olla
+        löysempi.
+        """
+        if value is None:
+            return None
+        return value.strip() or None
+
+
 class TeamReport(_Node):
     """Joukkue, jonka näkökulmasta raportti on tehty.
 
@@ -542,16 +619,121 @@ class TeamReport(_Node):
     kokoonpanotunniste (``lineup_key``); ``lineup_keys`` kertoo, mitkä
     kokoonpanot liitettiin samaksi joukkueeksi ja millä perusteella
     (``[thresholds].team_identity_min_common`` yhteistä pelaajaa).
+
+    **Nimi on havainto, ei johdos.** ``display_name`` on joukkueen klaaninimi
+    demosta (``LINEUPS.clan_name``) silloin ja vain silloin, kun
+    ``display_name_source`` on ``clan_name``. Ilman havaintoa nimi on tunniste
+    ja lähde ``team_key``, ja raportti sanoo sen ääneen sen sijaan että
+    esittäisi tiivisteen nimenä.
     """
 
     key: str
     slug: str
     display_name: str
+    #: Mistä ``display_name`` tulee. ``clan_name`` = havaittu demosta;
+    #: ``team_key`` = havaintoa ei ole, joten nimi on tunniste itse.
+    display_name_source: Literal["clan_name", "team_key"] = "team_key"
+    #: Muut klaaninimet, joita liitetyistä demoista havaittiin. Ristiriita ei
+    #: katoa: näytettäväksi valitaan useimmin havaittu, ja loput luetellaan
+    #: tässä, jotta lukija näkee että joukkue esiintyi kahdella nimellä.
+    display_name_alternatives: list[str] = Field(default_factory=list)
     lineup_keys: list[str]
-    roster: list[str]
+    roster: list[RosterEntry]
     #: Mistä ``roster`` tulee. ``lineups`` = havaittu demoista;
     #: ``index`` = joukkueindeksistä (Epic 3, ei vielä olemassa).
     roster_source: Literal["lineups", "index"]
+
+    @model_validator(mode="after")
+    def _check_name_source(self) -> TeamReport:
+        """Lähde, nimi, vaihtoehdot ja slug eivät saa olla eri mieltä.
+
+        Ilman tätä ``display_name_source = "clan_name"`` yhdessä tunnisteen
+        kanssa väittäisi tiivistettä havaituksi nimeksi -- ja raportin otsikko
+        rakentuu juuri tämän eron varaan.
+
+        **Slug on osa samaa väitettä.** Se päätyy tiedostonimeen, jonka lukija
+        näkee ennen kuin avaa raportin; slug, joka on eri mieltä nimen kanssa,
+        nimeäisi tiedoston joukkueen mukaan jota raportti ei käsittele. Sitä ei
+        voi vartioida erikseen, koska juuri pari (nimi, slug) on se väite.
+
+        **Vaihtoehtoiset nimet ovat havaintoja.** Tyhjä merkkijono ei ole nimi,
+        sama nimi kahdesti ei ole kaksi havaintoa, eikä näytettävä nimi ole
+        oma vaihtoehtonsa. ``aggregate`` estää nämä jo laskiessaan, mutta
+        ``render`` ja levyltä luettu ``report.json`` nojaavat tähän sopimukseen
+        eivätkä siihen laskentaan.
+        """
+        self._check_alternatives()
+        self._check_slug()
+        if self.display_name_source == "team_key":
+            if self.display_name != self.key:
+                raise AggregateError(
+                    f"Joukkueen nimeksi on merkitty {self.display_name!r}, "
+                    f"mutta lähteeksi {self.display_name_source!r}, joka "
+                    f"tarkoittaa ettei nimeä ole -- silloin nimen on oltava "
+                    f"tunniste {self.key!r} itse."
+                )
+            if self.display_name_alternatives:
+                raise AggregateError(
+                    "Joukkueelle on merkitty vaihtoehtoisia nimiä "
+                    f"({', '.join(self.display_name_alternatives)}), mutta "
+                    "lähteeksi 'team_key', joka tarkoittaa ettei yhtään nimeä "
+                    "havaittu. Vaihtoehdot ovat havaintoja, joten niitä ei voi "
+                    "olla ilman havaittua nimeä."
+                )
+        elif not self.display_name.strip():
+            raise AggregateError(
+                "Joukkueen nimeksi on merkitty tyhjä merkkijono, vaikka "
+                "lähteeksi on merkitty 'clan_name'. Tyhjä merkkijono ei ole "
+                "nimi -- silloin lähde on 'team_key'."
+            )
+        return self
+
+    def _check_alternatives(self) -> None:
+        """Vaihtoehtoiset nimet ovat havaintoja, eivät koristeita."""
+        blank = [name for name in self.display_name_alternatives if not name.strip()]
+        if blank:
+            raise AggregateError(
+                f"Joukkueen {self.key} vaihtoehtoisissa nimissä on "
+                f"{len(blank)} tyhjää merkkijonoa. Tyhjä merkkijono ei ole "
+                "nimi, eikä havaintoa voi esittää sellaisena."
+            )
+        seen = sorted(
+            {
+                name
+                for name in self.display_name_alternatives
+                if self.display_name_alternatives.count(name) > 1
+            }
+        )
+        if seen:
+            raise AggregateError(
+                f"Joukkueen {self.key} vaihtoehtoiset nimet toistuvat: "
+                f"{', '.join(seen)}. Sama nimi kahdesti ei ole kaksi "
+                "havaintoa, ja luettelo väittäisi useampaa ristiriitaa kuin "
+                "havaittiin."
+            )
+        if self.display_name in self.display_name_alternatives:
+            raise AggregateError(
+                f"Joukkueen näytettävä nimi {self.display_name!r} on myös "
+                "omien vaihtoehtojensa joukossa. Vaihtoehdot ovat ne nimet, "
+                "joita EI valittu -- muuten raportti luettelisi valitun nimen "
+                "ristiriitana itsensä kanssa."
+            )
+
+    def _check_slug(self) -> None:
+        """Slug johdetaan näytettävästä nimestä, varapolkuna tunniste.
+
+        Sama sääntö kuin ``aggregate``ssa, kirjoitettuna tähän sopimukseen:
+        levyltä luettu ``report.json`` ei ole käynyt sen laskennan läpi.
+        """
+        expected = slugify(self.display_name) or slugify(self.key) or SLUG_FALLBACK
+        if self.slug != expected:
+            raise AggregateError(
+                f"Joukkueen slug on {self.slug!r}, mutta nimestä "
+                f"{self.display_name!r} johdettuna se olisi {expected!r}.\n"
+                "Slug päätyy raportin tiedostonimeen, joten eri mieltä oleva "
+                "slug nimeäisi tiedoston joukkueen mukaan, jota raportti ei "
+                "käsittele."
+            )
 
 
 class MissingDemo(_Node):

@@ -314,6 +314,7 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
     lines.extend(_armed_players(stats))
     lines.extend(_sample_points(stats, rounds))
     lines.extend(_utility(stats, rounds))
+    lines.extend(_lineups(stats))
 
     if "tick_rate" in stats and not stats.get("tick_rate_measured", True):
         lines.append(
@@ -730,6 +731,69 @@ def _sample_points(stats: dict, rounds: int) -> list[str]:
     return lines
 
 
+def _lineups(stats: dict) -> list[str]:
+    """Kokoonpanotaulun rivit ``parse``-tulosteeseen (Story 2.6).
+
+    Rivi **per kokoonpano**, ei yhteislukuja: demo sisältää molempien
+    joukkueiden pelaajat, joten yhteinen klaaniluettelo on epätyhjä heti kun
+    vastustajalla on nimi eikä siis kerro subjektijoukkueesta mitään. Sama
+    koskee nimettömiä pelaajia.
+
+    Jokaisella rivillä on ``lineup_key``, koska käyttäjän seuraava komento on
+    ``classify --team <lineup_key>``: nimi kertoo kenestä on kyse, tunniste
+    kertoo mitä komentoriville kirjoitetaan.
+    """
+    if "lineups_unreadable" in stats:
+        return [
+            _line("Kokoonpanot", f"lukuja ei saatu ({stats['lineups_unreadable']})")
+        ]
+    if "lineup_rows" not in stats:
+        return []
+
+    # Avain on tarkistettu yllä, joten oletusarvoa ei tarvita: se peittäisi
+    # tuottajan ja kuluttajan erkaantumisen nollana.
+    rows = int(stats["lineup_rows"])
+    lineups = tuple(stats.get("lineups") or ())
+    lines = [_line("Kokoonpanot", f"{rows} pelaajariviä")]
+    for key, clan, players, without_name in lineups:
+        name = str(clan) if clan else "klaaninimeä ei havaittu"
+        detail = f"{name} ({key}) -- {int(players)} pelaajaa"
+        if int(without_name):
+            detail += (
+                f", {int(without_name)} ilman nimeä (raportti näyttää heille "
+                "SteamID64:n)"
+            )
+        lines.append(_line("Kokoonpano", detail))
+
+    lines.extend(_lineup_conflicts(stats))
+    return lines
+
+
+def _lineup_conflicts(stats: dict) -> list[str]:
+    """Pelaajat, joilla havaittiin useampi nimi tai klaani samalla kartalla.
+
+    Nolla on koko kokoonpanotaulun perusoletus: nimi on kartan ominaisuus eikä
+    kierroksen, ja klaani seuraa pelaajaa eikä puolta. Taulu kirjoittaa moodin,
+    joten rikkoutunut oletus näyttäisi siellä ehjältä -- tämä luku on ainoa
+    paikka, jossa se näkyy. Nollaa ei tulosteta, koska se on odotusarvo.
+    """
+    lines: list[str] = []
+    for key, label in (
+        ("lineup_clan_conflicts", "Klaani vaihtui kesken"),
+        ("lineup_name_conflicts", "Nimi vaihtui kesken"),
+    ):
+        count = int(stats.get(key, 0) or 0)
+        if count:
+            lines.append(
+                _line(
+                    label,
+                    f"{count} pelaajalla oli useampi havainto samalla kartalla "
+                    "-- tauluun kirjattiin useimmin havaittu",
+                )
+            )
+    return lines
+
+
 def _utility(stats: dict, rounds: int) -> list[str]:
     """Utility-tapahtumien rivit ``parse``-tulosteeseen.
 
@@ -1110,6 +1174,28 @@ def _render_aggregate(result: StageResult) -> str:
     if result.reason:
         lines.append(_line("Syy", result.reason))
 
+    # Nimi ennen kokoonpanoja: se on ensimmäinen asia, jonka käyttäjä
+    # tarkistaa, ja lähde kertoo onko se havainto vai tunniste sen paikalla.
+    if stats.get("display_name_source") == "clan_name":
+        lines.append(_line("Nimi", f"{stats.get('display_name')} (havaittu demoista)"))
+    elif "display_name_source" in stats:
+        lines.append(
+            _line(
+                "Nimi",
+                "ei havaittu -- raportti puhuu tunnisteesta "
+                f"{stats.get('display_name')}",
+            )
+        )
+    alternatives = stats.get("display_name_alternatives") or []
+    if alternatives:
+        lines.append(
+            _line(
+                "Muut havaitut nimet",
+                f"{', '.join(str(n) for n in alternatives)} (demot antavat "
+                "joukkueelle useamman nimen)",
+            )
+        )
+
     lineups = stats.get("lineup_keys") or []
     if len(lineups) > 1:
         lines.append(
@@ -1121,7 +1207,25 @@ def _render_aggregate(result: StageResult) -> str:
         )
     roster = stats.get("roster") or []
     if roster:
-        lines.append(_line("Rosteri", f"{len(roster)} pelaajaa havaittu"))
+        # Nimet tulosteeseen, tunnisteet raporttiin: komentorivin tuloste on
+        # silmäys, ja kuusi SteamID64:ää täyttäisi sen kertomatta enempää.
+        # Nimetön pelaaja sanotaan ääneen eikä pudoteta.
+        named = ", ".join(
+            str(entry.get("display_name") or entry.get("player_id"))
+            for entry in roster
+        )
+        without = sum(1 for entry in roster if not entry.get("display_name"))
+        lines.append(
+            _line(
+                "Rosteri",
+                f"{len(roster)} pelaajaa havaittu: {named}"
+                + (
+                    f" ({without} ilman nimeä, tunniste sen paikalla)"
+                    if without
+                    else ""
+                ),
+            )
+        )
 
     lines.append(
         _line(

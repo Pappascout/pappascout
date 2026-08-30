@@ -172,6 +172,24 @@ molempiin tauluihin. Siksi portti palauttaa ne yhdessä
 tekisi kokoonpanojen tunnistuksen kahdesti, ja jos tulokset joskus eroaisivat,
 ``lineup_key`` olisi tauluissa eri eikä liitos enää osuisi.
 
+Joukkueen ja pelaajien nimet
+----------------------------
+Sama lukukerta tuottaa myös ``lineups``-taulun: rivi per (kokoonpano, pelaaja),
+jossa pelaajan nimi ja hänen klaaninimensä. Molemmat luetaan **samoilta
+ankkuritickeiltä**, joilta kokoonpanot jo tunnistetaan -- demoa ei lueta
+uudelleen, ja propit ovat samassa ``parse_ticks``-kutsussa.
+
+**Klaani luetaan pelaajakohtaisesti, ei puolen kautta.** Mitattu 2026-08-30
+viidellä demolla: ``team_clan_name`` antaa jokaiselle SteamID:lle täsmälleen
+yhden klaanin kaikilla ankkureilla, myös puoliajan vaihdon yli. Puolen
+(``m_iTeamNum``) kautta luettuna sama arvo vaihtaa joukkuetta puoliajalla --
+``team_num=2`` on 1. puoliajalla ``KALJUKOSTAJA`` ja 2. puoliajalla
+``MatureMayhem``. Se on ansa, jonka pelaajakohtainen luku välttää.
+
+``lineup_key`` **ei muutu**: se lasketaan edelleen pelkistä SteamID:istä
+(:meth:`_Lineup.key`), joten nimien lisääminen ei siirrä yhtäkään arkiston
+hakemistoa.
+
 Utility
 -------
 ``grenade_thrown``-tapahtumaa **ei ole olemassa**, joten utility luetaan
@@ -239,6 +257,7 @@ import polars as pl
 from pappascout.adapters.decompress import readable_demo
 from pappascout.adapters.protocols import (
     EVENTS_ADAPTER_COLUMNS,
+    LINEUPS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
@@ -257,6 +276,7 @@ from pappascout.domain.sampling import (
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
     EVENTS,
+    LINEUPS,
     MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
     TICKS,
@@ -320,6 +340,21 @@ _ROUND_START_TIME = "CCSGameRulesProxy.CCSGameRules.m_fRoundStartTime"
 #: nimeä, ja se säilyy taulussa ``null``:na.
 _PLACE_NAME = "CCSPlayerPawn.m_szLastPlaceName"
 
+#: Pelaajan klaaninimi eli joukkueen nimi demossa. demoparser2:n oma johdettu
+#: sarake (ei propinimi), ja ainoa lähde joukkueen nimelle -- tiedostonimestä
+#: tai FACEIT-tunnisteesta sitä ei saa arvata.
+#:
+#: **Luetaan pelaajakohtaisesti.** Puolen kautta luettuna arvo vaihtaa
+#: joukkuetta puoliajalla; SteamID:n kautta se on vakio koko kartan ajan
+#: (mitattu 2026-08-30, viisi demoa, nolla poikkeusta).
+_CLAN_NAME = "team_clan_name"
+
+#: Pelaajan nimi. demoparser2 lisää sen jokaiseen ``parse_ticks``-tulokseen
+#: automaattisesti ``steamid``in ja ``tick``in rinnalle, joten sitä ei pyydetä
+#: propina -- mutta se **tarkistetaan** palautuneista sarakkeista, jottei
+#: kirjaston muutos jättäisi nimiä hiljaa tyhjiksi.
+_PLAYER_NAME = "name"
+
 #: Pelaajan koordinaatit. demoparser2 palauttaa nämä valmiiksi float32:na.
 _X = "X"
 _Y = "Y"
@@ -328,6 +363,7 @@ _Z = "Z"
 #: Propit, jotka luetaan kierrosrajojen tickeistä.
 TICK_PROPS: tuple[str, ...] = (
     _TEAM_NUM,
+    _CLAN_NAME,
     _ACCOUNT,
     _CASH_SPENT,
     _EQUIP_ROUND_START,
@@ -432,9 +468,43 @@ class _Lineup:
     ``members`` kasvaa kartan aikana, jos joukkue vaihtaa pelaajaa. Tunniste
     lasketaan kaikista kartalla pelanneista, jotta sama kokoonpano tuottaa
     saman avaimen ajosta toiseen.
+
+    ``names`` ja ``clans`` ovat **pelaajakohtaisia** havaintolaskureita, eivät
+    joukkuekohtaisia: klaaninimi luetaan SteamID:n kautta, koska puolen kautta
+    luettuna se vaihtaisi joukkuetta puoliajalla (ks. moduulin
+    dokumentaatio). Laskuri eikä yksi arvo siksi, että ristiriita ratkeaa
+    havaintojen määrällä eikä lukujärjestyksellä -- ja tasatilanne
+    aakkosjärjestyksessä, jotta ajo on toistettava.
+
+    **Tunniste lasketaan yhä pelkistä SteamID:istä.** Nimien lisääminen ei saa
+    muuttaa ``lineup_key``tä: se on arkiston hakemistorakenne.
     """
 
     members: set[str] = field(default_factory=set)
+    names: dict[str, Counter[str]] = field(default_factory=dict)
+    clans: dict[str, Counter[str]] = field(default_factory=dict)
+
+    def observe(self, rows: Sequence[dict[str, Any]], side: str) -> None:
+        """Kirjaa yhden tickin rivit tälle kokoonpanolle kuuluviksi.
+
+        Ottaa mukaan vain annetun puolen rivit, eli täsmälleen saman joukon,
+        joka ennen liitettiin ``members``iin joukko-operaatiolla.
+
+        Tyhjä merkkijono ei ole nimi: ``_read_ticks`` on jo muuttanut sen
+        ``None``:ksi, ja ``None`` jätetään kirjaamatta. Nimen puuttuminen on
+        havainto, ja se näkyy taulussa ``null``:na eikä keksittynä arvona.
+        """
+        for row in rows:
+            if row["side"] != side:
+                continue
+            steamid = row["steamid"]
+            self.members.add(steamid)
+            name = row.get("player_name")
+            if name is not None:
+                self.names.setdefault(steamid, Counter())[name] += 1
+            clan = row.get("clan_name")
+            if clan is not None:
+                self.clans.setdefault(steamid, Counter())[clan] += 1
 
     def key(self) -> str:
         """Kokoonpanon tiiviste.
@@ -738,6 +808,10 @@ class Demoparser2Adapter:
         events, utility = self._build_events_frame(
             parser, original_path, segments, sides, lineup_keys, lineups, by_tick, tick_rate
         )
+        # Kokoonpanotaulu rakennetaan vasta tässä, jotta se kantaa kaikki
+        # kartan aikana havaitut jäsenet ja nimet -- myös vaihtopelaajan, joka
+        # tuli mukaan vasta myöhemmällä kierroksella.
+        lineups_frame = self._build_lineups_frame(lineups, lineup_keys)
 
         self.diagnostics = ParseDiagnostics(
             tick_rate=tick_rate,
@@ -755,6 +829,18 @@ class Demoparser2Adapter:
             grenade_ticks_without_players=utility.ticks_without_players,
             grenades_sharing_an_entity_id=utility.sharing_an_entity_id,
             unknown_inventory_items=tuple(sorted(armed.unknown_items.items())),
+            lineup_name_conflicts=sum(
+                1
+                for lineup in lineups
+                for votes in lineup.names.values()
+                if len(votes) > 1
+            ),
+            lineup_clan_conflicts=sum(
+                1
+                for lineup in lineups
+                for votes in lineup.clans.values()
+                if len(votes) > 1
+            ),
             armed_unreadable_rows=armed.unreadable_rows,
             buy_window_seconds=self.buy_window_seconds,
             buy_window_cuts=tuple(sorted(buy.cuts)),
@@ -765,7 +851,9 @@ class Demoparser2Adapter:
             buy_window_refunds=buy.refunds,
             buy_window_stale_equipment=buy.stale_equipment,
         )
-        return DemoTables(rounds=rounds, ticks=ticks, events=events)
+        return DemoTables(
+            rounds=rounds, ticks=ticks, events=events, lineups=lineups_frame
+        )
 
     def _open(self, demo_path: Path, original_path: Path) -> Any:
         from demoparser2 import DemoParser as _Demoparser2
@@ -1033,8 +1121,13 @@ class Demoparser2Adapter:
             ) from exc
 
         received = set(getattr(frame, "columns", ()))
+        # ``name`` on mukana vaatimuksissa, vaikka sitä ei pyydetä propina:
+        # demoparser2 lisää sen itse, ja ilman tarkistusta kirjaston muutos
+        # jättäisi rosterin nimet hiljaa tyhjiksi.
         missing = [
-            name for name in (*TICK_PROPS, "tick", "steamid") if name not in received
+            name
+            for name in (*TICK_PROPS, "tick", "steamid", _PLAYER_NAME)
+            if name not in received
         ]
         if missing:
             raise ParseError(
@@ -1057,6 +1150,11 @@ class Demoparser2Adapter:
                 {
                     "steamid": steamid,
                     "side": side,
+                    # Identiteetti: nimi ja klaani samalta tickiltä kuin
+                    # kokoonpano. Tyhjä merkkijono muuttuu _as_str:ssä
+                    # None:ksi -- tyhjä ei ole nimi.
+                    "player_name": _as_str(row.get(_PLAYER_NAME)),
+                    "clan_name": _as_str(row.get(_CLAN_NAME)),
                     "account": _as_int(row.get(_ACCOUNT)),
                     "cash_spent": _as_int(row.get(_CASH_SPENT)),
                     "equip_round_start": _as_int(row.get(_EQUIP_ROUND_START)),
@@ -1132,6 +1230,48 @@ class Demoparser2Adapter:
                 "puolilla. Demo on todennäköisesti vioittunut."
             )
         return lineup_keys
+
+    @staticmethod
+    def _build_lineups_frame(
+        lineups: list[_Lineup], lineup_keys: list[str]
+    ) -> pl.DataFrame:
+        """Rakenna kokoonpanotaulu: rivi per (kokoonpano, pelaaja).
+
+        Lähde on sama ankkuritick-joukko, jolta kokoonpanot jo tunnistettiin
+        (:meth:`_assign_sides`), joten demoa ei lueta uudelleen. Rivejä syntyy
+        täsmälleen niistä pelaajista, joista ``lineup_key`` on laskettu -- eli
+        taulun pelaajajoukko ja tunniste eivät voi olla eri mieltä.
+
+        Nimi ja klaani ovat **useimmin havaitut**; tasatilanne ratkeaa
+        aakkosjärjestyksessä, jotta sama demo antaa saman tuloksen ajosta
+        toiseen. Havainnon puuttuminen on ``null`` eikä korvike.
+
+        Moodin valinta **hukkaa ristiriidan**, joten se lasketaan erikseen
+        diagnostiikkaan (``lineup_name_conflicts``, ``lineup_clan_conflicts``).
+        Ilman sitä oletus "yksi nimi ja yksi klaani per pelaaja" olisi
+        ajonaikaisesti tarkistamaton: rikkoutuneena se näyttäisi taulussa
+        täsmälleen samalta kuin ehjänä.
+        """
+        rows: list[dict[str, Any]] = []
+        # strict: pituusero pudottaisi kokoonpanon hiljaa, ja juuri se
+        # invariantti -- taulun pelaajajoukko on se, josta lineup_key on
+        # laskettu -- on tämän taulun koko lupaus.
+        for lineup, key in zip(lineups, lineup_keys, strict=True):
+            for player_id in sorted(lineup.members):
+                rows.append(
+                    {
+                        "lineup_key": key,
+                        "player_id": player_id,
+                        "player_name": _most_observed(lineup.names.get(player_id)),
+                        "clan_name": _most_observed(lineup.clans.get(player_id)),
+                    }
+                )
+        schema: dict[str, Any] = {
+            name: LINEUPS[name] for name in LINEUPS_ADAPTER_COLUMNS
+        }
+        if not rows:
+            return pl.DataFrame(schema=schema)
+        return pl.DataFrame(rows, schema=schema, orient="row")
 
     def _build_frame(
         self,
@@ -1399,8 +1539,8 @@ class Demoparser2Adapter:
                         "voi erottaa.\n"
                         "Demo on todennäköisesti katkennut alusta."
                     )
-                lineups[0].members |= sets_by_side["T"]
-                lineups[1].members |= sets_by_side["CT"]
+                lineups[0].observe(rows, "T")
+                lineups[1].observe(rows, "CT")
                 previous = ("T", "CT")
                 result.append(previous)
                 continue
@@ -1420,7 +1560,7 @@ class Demoparser2Adapter:
             else:
                 sides = ("T", "CT") if direct > swapped else ("CT", "T")
             for i, side in enumerate(sides):
-                lineups[i].members |= sets_by_side[side]
+                lineups[i].observe(rows, side)
             previous = sides
             result.append(sides)
         return result
@@ -2438,6 +2578,22 @@ def _as_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return None if number != number else number
+
+
+def _most_observed(counts: "Counter[str] | None") -> str | None:
+    """Useimmin havaittu arvo, tasatilanne aakkosjärjestyksessä.
+
+    Aakkosjärjestys ei ole makuasia vaan toistettavuus: ``Counter.most_common``
+    palauttaa tasatilanteessa lisäysjärjestyksen, joka riippuu siitä missä
+    järjestyksessä demoparser2 sattui palauttamaan rivit.
+
+    Returns:
+        Arvo, tai ``None`` jos havaintoja ei ole. ``None`` on rehellinen
+        tulos: nimen puuttuminen on havainto eikä syy keksiä korviketta.
+    """
+    if not counts:
+        return None
+    return min(counts.items(), key=lambda item: (-item[1], item[0]))[0]
 
 
 def _as_str(value: Any) -> str | None:

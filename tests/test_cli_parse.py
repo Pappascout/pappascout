@@ -82,6 +82,15 @@ DEFAULT_STATS: dict[str, object] = {
     "grenades_detonating_after_round": 0,
     "grenade_ticks_without_players": 0,
     "grenades_sharing_an_entity_id": 0,
+    # Kokoonpanotaulu (Story 2.6). Rivi per kokoonpano:
+    # (lineup_key, klaani tai None, pelaajia, nimettömiä).
+    "lineup_rows": 10,
+    "lineups": (
+        ("a1b2c3d4e5f60718", "MatureMayhem", 5, 0),
+        ("b4ebc1ae68a589b6", "KALJUKOSTAJA", 5, 0),
+    ),
+    "lineup_name_conflicts": 0,
+    "lineup_clan_conflicts": 0,
 }
 
 
@@ -1137,3 +1146,79 @@ def test_every_parse_label_fits_the_column() -> None:
             f"{_PARSE_LABEL_WIDTH - 1}"
         )
         assert label
+
+
+# --- Kokoonpanolohko (Story 2.6) -------------------------------------------------
+
+
+def test_the_lineup_block_names_the_clan_and_its_lineup_key() -> None:
+    """Nimi kertoo kenestä on kyse, tunniste kertoo mitä komentoriville kirjoitetaan.
+
+    Käyttäjän seuraava komento on ``classify --team <lineup_key>``, ja vaiheella
+    on molemmat arvot kädessä.
+    """
+    output_text = _render_parse(parse_result(), regulation_rounds=24)
+
+    assert field_value(output_text, "Kokoonpanot") == "10 pelaajariviä"
+    lines = [
+        line.strip()
+        for line in output_text.splitlines()
+        if line.strip().startswith("Kokoonpano ")
+    ]
+    assert len(lines) == 2
+    assert "MatureMayhem (a1b2c3d4e5f60718) -- 5 pelaajaa" in lines[0]
+    assert "KALJUKOSTAJA (b4ebc1ae68a589b6) -- 5 pelaajaa" in lines[1]
+
+
+def test_a_lineup_without_a_clan_says_so_on_its_own_row() -> None:
+    """Vastustajan nimi ei saa peittää sitä, ettei tällä joukkueella ole nimeä.
+
+    Yhteinen klaaniluettelo olisi epätyhjä heti kun jommallakummalla on nimi,
+    eikä siis kertoisi kummastakaan mitään.
+    """
+    numbers = stats(
+        lineups=(
+            ("aaaa", None, 5, 5),
+            ("bbbb", "KALJUKOSTAJA", 5, 0),
+        )
+    )
+    output_text = _render_parse(
+        parse_result(stats=numbers), regulation_rounds=24
+    )
+    assert "klaaninimeä ei havaittu (aaaa) -- 5 pelaajaa" in output_text
+    assert "5 ilman nimeä" in output_text
+    assert "KALJUKOSTAJA (bbbb) -- 5 pelaajaa" in output_text
+
+
+def test_a_conflicting_name_or_clan_is_reported_and_zero_is_not() -> None:
+    """Nolla on odotusarvo; poikkeama on se oire, joka on kerrottava."""
+    quiet = _render_parse(parse_result(), regulation_rounds=24)
+    assert "vaihtui kesken" not in quiet
+
+    loud = _render_parse(
+        parse_result(
+            stats=stats(lineup_clan_conflicts=2, lineup_name_conflicts=1)
+        ),
+        regulation_rounds=24,
+    )
+    assert field_value(loud, "Klaani vaihtui kesken").startswith("2 pelaajalla")
+    assert field_value(loud, "Nimi vaihtui kesken").startswith("1 pelaajalla")
+
+
+def test_unreadable_lineups_do_not_hide_the_other_counts() -> None:
+    """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
+    numbers = stats()
+    for key in ("lineup_rows", "lineups"):
+        numbers.pop(key)
+    numbers["lineups_unreadable"] = "OSError: rikki"
+    output_text = _render_parse(
+        parse_result(skipped=True, stats=numbers), regulation_rounds=24
+    )
+    assert field_value(output_text, "Kierrokset") == "21 (rivejä 42)"
+    assert field_value(output_text, "Kokoonpanot").startswith("lukuja ei saatu")
+
+
+def test_the_lineup_block_is_absent_when_the_result_was_unreadable() -> None:
+    """Ilman lukuja ei keksitä nollaa -- se väittäisi tyhjää kokoonpanoa."""
+    result = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
+    assert "Kokoonpano" not in _render_parse(result, regulation_rounds=24)

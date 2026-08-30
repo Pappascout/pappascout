@@ -1,8 +1,9 @@
-"""``parse`` -- putken ensimmäinen vaihe: demosta kolme taulua.
+"""``parse`` -- putken ensimmäinen vaihe: demosta neljä taulua.
 
 Vaihe lukee yhden demon portin takaa ja kirjoittaa arkistoon
 ``parsed/<map_demo_id>/rounds.parquet``, ``.../ticks.parquet``,
-``.../events.parquet`` sekä niiden yhteisen manifestin.
+``.../events.parquet``, ``.../lineups.parquet`` sekä niiden yhteisen
+manifestin.
 
 ``rounds`` on kaksi riviä jokaista **pelattua** kierrosta kohden, yksi
 kummallekin joukkueelle, ja kaikki arvot ovat demosta *havaittuja*: raha ja
@@ -23,6 +24,12 @@ taulut yhdistetään parilla ``(map_demo_id, grenade_no)``. Utility mitataan
 voivat olla eri pelaajat. **Tyhjä tapahtumataulu on kelvollinen tulos**,
 toisin kuin tyhjä kierros- tai näytepistetaulu: demossa on voitu jättää utility
 heittämättä, mutta pelattuja kierroksia ja asetelmia siinä on aina.
+
+``lineups`` on rivi per (kokoonpano, pelaaja): pelaajan nimi ja hänen
+klaaninimensä. Se on **identiteettitaulu**, ei kierrostaulu -- nimi on sama
+koko kartan ajan, joten sillä ei ole ``round_no``:ta eikä sen rivejä pudoteta
+puukkokierroksen mukana. Nimi on havainto: puuttuva klaani on ``null``, ja
+raportti sanoo puuttumisen ääneen sen sijaan että keksisi korvikkeen.
 
 Mitä tauluihin päätyy
 ---------------------
@@ -67,6 +74,15 @@ Manifestin ``params_hash`` lasketaan **vain** ``[parse]``-osiosta, ja
 muuttaminen ei siis voi invalidoida parsintaa -- se on koko AD-3:n
 asetuspartition tarkoitus, ja tämä vaihe ei edes näe muita osioita.
 
+**Skeemamuutos pakottaa uudelleenparsinnan.** Manifestin parametrihash ei
+liiku, kun tauluihin tulee uusi sarake tai kokonaan uusi taulu, joten pelkkä
+manifestin täsmäys ei riitä ohituksen ehdoksi: vaihe vaatii lisäksi, että
+**jokainen** tämän version tuottama taulutiedosto on paikallaan
+(``expected_outputs``) ja että ne vastaavat yhä voimassa olevaa sopimusta
+(:func:`_schema_is_current`). Arkiston demo, jolta ``lineups.parquet``
+puuttuu, ei siis ole ajan tasalla, ja se parsitaan uudelleen ilman
+``--pakota``-lippua.
+
 Demon tiiviste luetaan sen omasta ``.meta.json``-tiedostosta. Jos sitä ei ole
 (käsin arkistoon kopioitu demo), tunnisteena on tiedoston **koko ja
 muokkausaika**: 233 MB:n sha256 jokaisella ajolla olisi hitaampi kuin itse
@@ -98,6 +114,7 @@ import polars as pl
 
 from pappascout.adapters.protocols import (
     EVENTS_ADAPTER_COLUMNS,
+    LINEUPS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoParser,
@@ -124,6 +141,7 @@ from pappascout.domain.sampling import FIRST_CONTACT_SAMPLE
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
     EVENTS,
+    LINEUPS,
     ROUNDS,
     TICKS,
     validate,
@@ -137,6 +155,7 @@ __all__ = [
     "TABLE",
     "TICKS_TABLE",
     "EVENTS_TABLE",
+    "LINEUPS_TABLE",
     "TOOLS",
     "run",
     "resolve_demo",
@@ -148,6 +167,7 @@ STAGE = "parse"
 TABLE = "rounds"
 TICKS_TABLE = "ticks"
 EVENTS_TABLE = "events"
+LINEUPS_TABLE = "lineups"
 
 #: Työkalut, joiden versio muuttaa tämän vaiheen tuloksen (manifest-moduulin
 #: sääntö). Pappascoutin omaa versiota ei merkitä: korjauspäivitys ei saa
@@ -537,12 +557,14 @@ def _stats(
     df: pl.DataFrame,
     ticks: pl.DataFrame,
     events: pl.DataFrame,
+    lineups: pl.DataFrame,
     skipped_rounds: int = 0,
 ) -> dict[str, object]:
     """Käyttäjälle näytettävät luvut valmiista tauluista."""
     stats = _round_stats(df, skipped_rounds)
     stats.update(_tick_stats(ticks))
     stats.update(_event_stats(events))
+    stats.update(_lineup_stats(lineups))
     return stats
 
 
@@ -624,6 +646,54 @@ def _event_stats(events: pl.DataFrame) -> dict[str, object]:
     }
 
 
+def _lineup_stats(lineups: pl.DataFrame) -> dict[str, object]:
+    """Kokoonpanotaulun luvut, **kokoonpano kerrallaan**.
+
+    Erittely ei ole koristetta. Demo sisältää molempien joukkueiden rivit, ja
+    yhteisluku vastaisi eri kysymykseen kuin se, jonka käyttäjä esittää:
+    "onko *tällä* joukkueella nimi" ei ratkea listasta, joka on epätyhjä heti
+    kun vastustajalla on klaani. Sama koskee nimettömiä pelaajia -- ne rivit
+    voisivat kaikki kuulua vastustajalle.
+
+    ``lineup_key`` on mukana jokaisella rivillä, koska käyttäjän seuraava
+    komento on ``classify --team <lineup_key>`` ja vaiheella on molemmat arvot
+    kädessä. Ilman sitä tuloste kertoisi nimen mutta ei sitä, mitä nimen
+    tilalle kirjoitetaan komentoriville.
+
+    Returns:
+        ``lineup_rows`` ja ``lineups``, jälkimmäinen monikkona
+        ``(lineup_key, klaani tai None, pelaajia, nimettömiä)``
+        ``lineup_key``-järjestyksessä.
+    """
+    if lineups.is_empty():
+        return {"lineup_rows": 0, "lineups": ()}
+    grouped = (
+        lineups.group_by("lineup_key")
+        .agg(
+            # Klaani on kokoonpanon ominaisuus: yksi arvo per kokoonpano.
+            # ``max`` on vain deterministinen valinta yhden alkion joukosta --
+            # useampi arvo olisi vika, jonka adapterin
+            # ``lineup_clan_conflicts`` paljastaa.
+            pl.col("clan_name").drop_nulls().unique().sort().alias("clans"),
+            pl.len().alias("players"),
+            pl.col("player_name").null_count().alias("without_name"),
+        )
+        .sort("lineup_key")
+    )
+    return {
+        "lineup_rows": int(lineups.height),
+        "lineups": tuple(
+            (
+                str(row["lineup_key"]),
+                str(row["clans"][0]) if row["clans"] else None,
+                int(row["players"]),
+                int(row["without_name"]),
+            )
+            for row in grouped.iter_rows(named=True)
+        ),
+    }
+
+
 def _read_table(path: Path) -> pl.DataFrame | str:
     """Lue taulu tai palauta virheen kuvaus merkkijonona."""
     try:
@@ -633,7 +703,7 @@ def _read_table(path: Path) -> pl.DataFrame | str:
 
 
 def _schema_is_current(
-    table_abs: Path, ticks_abs: Path, events_abs: Path
+    table_abs: Path, ticks_abs: Path, events_abs: Path, lineups_abs: Path
 ) -> bool:
     """Vastaavatko arkiston valmiit taulut yhä voimassa olevaa sopimusta.
 
@@ -658,6 +728,7 @@ def _schema_is_current(
         (table_abs, ROUNDS, TABLE),
         (ticks_abs, TICKS, TICKS_TABLE),
         (events_abs, EVENTS, EVENTS_TABLE),
+        (lineups_abs, LINEUPS, LINEUPS_TABLE),
     ):
         df = _read_table(path)
         if isinstance(df, str):
@@ -673,6 +744,7 @@ def _existing_stats(
     table_abs: Path,
     ticks_abs: Path,
     events_abs: Path,
+    lineups_abs: Path,
 ) -> dict[str, object]:
     """Luvut ohitettuun ajoon: luetaan valmiit taulut, ei parsita demoa.
 
@@ -686,6 +758,7 @@ def _existing_stats(
     rounds = _read_table(table_abs)
     ticks = _read_table(ticks_abs)
     events = _read_table(events_abs)
+    lineups = _read_table(lineups_abs)
 
     # Kierros- ja näytepistetaulu ovat vaiheen ydintulos. Jos **kumpikaan** ei
     # aukea, koko tulos on lukukelvoton eikä siitä koota osittaista
@@ -707,6 +780,10 @@ def _existing_stats(
         stats["events_unreadable"] = events
     else:
         stats.update(_event_stats(events))
+    if isinstance(lineups, str):
+        stats["lineups_unreadable"] = lineups
+    else:
+        stats.update(_lineup_stats(lineups))
     return stats
 
 
@@ -719,7 +796,7 @@ def run(
     demo_path: Path | None = None,
     force: bool = False,
 ) -> StageResult:
-    """Parsi yksi demo kierros-, näytepiste- ja tapahtumatauluiksi.
+    """Parsi yksi demo kierros-, näytepiste-, tapahtuma- ja kokoonpanotauluiksi.
 
     Args:
         settings: ``[parse]``-osio -- ainoa osio, jonka tämä vaihe näkee.
@@ -752,10 +829,12 @@ def run(
     table_rel = parsed_table(map_demo_id, TABLE)
     ticks_rel = parsed_table(map_demo_id, TICKS_TABLE)
     events_rel = parsed_table(map_demo_id, EVENTS_TABLE)
+    lineups_rel = parsed_table(map_demo_id, LINEUPS_TABLE)
     manifest_rel = parsed_manifest(map_demo_id)
     table_abs = archive.resolve(table_rel)
     ticks_abs = archive.resolve(ticks_rel)
     events_abs = archive.resolve(events_rel)
+    lineups_abs = archive.resolve(lineups_rel)
     manifest_abs = archive.resolve(manifest_rel)
 
     result_id = str(PurePosixPath("parsed") / map_demo_id)
@@ -776,6 +855,7 @@ def run(
         (table_rel, table_abs),
         (ticks_rel, ticks_abs),
         (events_rel, events_abs),
+        (lineups_rel, lineups_abs),
     )
 
     existing = Manifest.read_if_exists(manifest_abs)
@@ -791,7 +871,7 @@ def run(
         and all(path.is_file() for _, path in expected_outputs)
         # Sopimus viimeisenä: se lukee taulut, ja halvemmat ehdot karsivat
         # suurimman osan ajoista jo ennen sitä.
-        and _schema_is_current(table_abs, ticks_abs, events_abs)
+        and _schema_is_current(table_abs, ticks_abs, events_abs, lineups_abs)
     ):
         return StageResult(
             stage=STAGE,
@@ -805,11 +885,13 @@ def run(
                 "parsia uudelleen."
             ),
             duration_s=time.perf_counter() - started,
-            stats=_existing_stats(table_abs, ticks_abs, events_abs),
+            stats=_existing_stats(
+                table_abs, ticks_abs, events_abs, lineups_abs
+            ),
         )
 
     try:
-        df, ticks, events, skipped_rounds, unnumbered = _parse_tables(
+        df, ticks, events, lineups, skipped_rounds, unnumbered = _parse_tables(
             parser, settings, demo_path, map_demo_id
         )
         # Kirjoitus on saman virhekäsittelyn sisällä kuin parsinta: levy voi
@@ -817,13 +899,18 @@ def run(
         # jäätävä merkintä epäonnistumisesta -- muuten seuraava ajo ohittaisi
         # vaiheen puolikkaan tuloksen päältä.
         _write_tables(
-            ((table_abs, df), (ticks_abs, ticks), (events_abs, events))
+            (
+                (table_abs, df),
+                (ticks_abs, ticks),
+                (events_abs, events),
+                (lineups_abs, lineups),
+            )
         )
     except _RECORDED_ERRORS as exc:
         _record_failure(
             archive=archive,
             manifest_abs=manifest_abs,
-            tables_abs=(table_abs, ticks_abs, events_abs),
+            tables_abs=(table_abs, ticks_abs, events_abs, lineups_abs),
             existing=existing,
             result_id=result_id,
             params_hash=params_hash,
@@ -844,10 +931,15 @@ def run(
         inputs=inputs,
         tool_versions=versions,
         status="ok",
-        outputs=(str(table_rel), str(ticks_rel), str(events_rel)),
+        outputs=(
+            str(table_rel),
+            str(ticks_rel),
+            str(events_rel),
+            str(lineups_rel),
+        ),
     ).write(manifest_abs)
 
-    stats = _stats(df, ticks, events, skipped_rounds)
+    stats = _stats(df, ticks, events, lineups, skipped_rounds)
     # Ostoikkunan luvut lasketaan **valmiista taulusta**, jotta puukkokierros
     # ei ole niissä mukana; ks. _buy_window_stats.
     stats.update(_buy_window_stats(df, diagnostics))
@@ -881,6 +973,11 @@ def run(
         # kun demoa luetaan. Ohitetussa ajossa ne siis puuttuvat, ja se on
         # oikein.
         stats["partial_samples"] = getattr(diagnostics, "partial_samples", 0)
+        # Kokoonpanotaulun oletus "yksi nimi ja yksi klaani per pelaaja" ei ole
+        # luettavissa valmiista taulusta: se kirjoittaa moodin, joten
+        # rikkoutunut oletus näyttää siellä ehjältä. Vain tuore ajo tietää.
+        for name in ("lineup_name_conflicts", "lineup_clan_conflicts"):
+            stats[name] = getattr(diagnostics, name, 0)
         stats["armed_unreadable_rows"] = getattr(
             diagnostics, "armed_unreadable_rows", 0
         )
@@ -912,7 +1009,7 @@ def run(
         unit=map_demo_id,
         status="ok",
         skipped=False,
-        outputs=(table_rel, ticks_rel, events_rel),
+        outputs=(table_rel, ticks_rel, events_rel, lineups_rel),
         manifest_path=manifest_rel,
         duration_s=time.perf_counter() - started,
         stats=stats,
@@ -950,13 +1047,13 @@ def _parse_tables(
     settings: ParseSettings,
     demo_path: Path,
     map_demo_id: str,
-) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, int, int]:
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, int, int]:
     """Lue demo ja rakenna valmiit, tarkistetut taulut.
 
     Returns:
-        ``(kierrostaulu, näytepistetaulu, tapahtumataulu, ohitettujen
-        kierrosten määrä, numeroimattomilta kierroksilta pudonneiden
-        utility-heittojen määrä)``.
+        ``(kierrostaulu, näytepistetaulu, tapahtumataulu, kokoonpanotaulu,
+        ohitettujen kierrosten määrä, numeroimattomilta kierroksilta
+        pudonneiden utility-heittojen määrä)``.
     """
     tables: DemoTables = parser.parse_demo(demo_path, settings.snapshot_seconds)
     _check_port_columns(
@@ -970,6 +1067,12 @@ def _parse_tables(
         EVENTS_ADAPTER_COLUMNS,
         "tapahtumataulun",
         "EVENTS_ADAPTER_COLUMNS",
+    )
+    _check_port_columns(
+        tables.lineups,
+        LINEUPS_ADAPTER_COLUMNS,
+        "kokoonpanotaulun",
+        "LINEUPS_ADAPTER_COLUMNS",
     )
 
     numbered = mark_played_rounds(tables.rounds)
@@ -1019,7 +1122,62 @@ def _parse_tables(
     validate(events, EVENTS, EVENTS_TABLE)
     _check_grenade_key(events)
 
-    return df, ticks, events, skipped_rounds, unnumbered
+    lineups = _build_lineups(tables.lineups, map_demo_id)
+    validate(lineups, LINEUPS, LINEUPS_TABLE)
+    _check_lineup_key(lineups, demo_path)
+
+    return df, ticks, events, lineups, skipped_rounds, unnumbered
+
+
+def _build_lineups(lineups: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
+    """Liitä kokoonpanotauluun ``map_demo_id`` ja järjestä rivit.
+
+    Kierrosnumerointia **ei tehdä**: kokoonpano ja nimi ovat kartan
+    ominaisuuksia eivätkä kierroksen, joten puukkokierroksen pudottaminen
+    veisi tästä taulusta pelaajan, joka pelasi kartan.
+    """
+    return lineups.select(
+        pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
+        *[pl.col(name) for name in LINEUPS if name != "map_demo_id"],
+    ).sort("lineup_key", "player_id")
+
+
+def _check_lineup_key(lineups: pl.DataFrame, demo_path: Path) -> None:
+    """Varmista, että ``(lineup_key, player_id)`` yksilöi rivin -- ja on olemassa.
+
+    Kaksi vikaa, jotka läpäisisivät skeeman mutta rikkoisivat raportin:
+
+    * **Tyhjä taulu.** Kokoonpanot tunnistetaan jokaisesta demosta, joten
+      tyhjä taulu tarkoittaa rikkinäistä porttia. Se jäisi manifestin
+      perusteella pysyvästi ohitetuksi, ja jokainen raportti puhuisi
+      tiivisteistä ilman että mikään kertoisi miksi.
+    * **Kaksoisrivi.** ``aggregate`` liittää rosterin tällä avaimella; kahdesti
+      esiintyvä pelaaja näkyisi rosterissa kahdesti.
+    """
+    if lineups.is_empty():
+        raise SchemaError(
+            f"Demosta {demo_path.name} ei syntynyt yhtään kokoonpanoriviä.\n"
+            "Kokoonpanot tunnistetaan jokaisesta demosta, joten tyhjä taulu "
+            "tarkoittaa rikkinäistä demoporttia. Tyhjää tulosta ei kirjoiteta: "
+            "se jäisi manifestin perusteella pysyvästi ohitetuksi ja raportti "
+            "puhuisi tiivisteistä kertomatta miksi."
+        )
+    key = lineups.select("lineup_key", "player_id")
+    if key.height == key.unique().height:
+        return
+    duplicates = (
+        lineups.group_by("lineup_key", "player_id")
+        .len()
+        .filter(pl.col("len") > 1)
+        .sort("lineup_key", "player_id")
+        .head(5)
+    )
+    raise SchemaError(
+        "Kokoonpanotaulun avain (lineup_key, player_id) ei ole "
+        f"yksikäsitteinen: {key.height - key.unique().height} riviä on "
+        "kaksoiskappaleita.\n"
+        f"Ensimmäiset toistuvat avaimet: {duplicates.to_dicts()}"
+    )
 
 
 def _number_ticks(

@@ -77,8 +77,8 @@ def test_map_demo_id_is_match_id_and_zero_based_map_index() -> None:
     assert str(paths.demo("1-8ffb4c53-0")).endswith("1-8ffb4c53-0.dem.zst")
 
 
-@pytest.mark.parametrize("table", ["rounds", "ticks", "events"])
-def test_parse_writes_exactly_three_tables(table: str) -> None:
+@pytest.mark.parametrize("table", ["rounds", "ticks", "events", "lineups"])
+def test_parse_writes_exactly_four_tables(table: str) -> None:
     assert table in paths.PARSED_TABLES
     assert str(paths.parsed_table("d", table)).endswith(f"{table}.parquet")
 

@@ -17,6 +17,7 @@ import pytest
 from conftest import has_temp_leftovers, settings_text
 from pappascout.adapters.protocols import (
     EVENTS_ADAPTER_COLUMNS,
+    LINEUPS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
@@ -26,7 +27,14 @@ from pappascout.archive.manifest import Manifest
 from pappascout.archive.paths import ArchivePaths
 from pappascout.constants import SAMPLE_KINDS, SIDES
 from pappascout.domain.models import load_settings
-from pappascout.domain.schemas import ARMED_COLUMN, EVENTS, ROUNDS, TICKS
+from pappascout.domain.schemas import (
+    ARMED_COLUMN,
+    EVENTS,
+    LINEUPS,
+    ROUNDS,
+    TICKS,
+    validate,
+)
 from pappascout.errors import DemoUnavailable, PappascoutError, ParseError, SchemaError
 from pappascout.stages import parse as parse_stage
 
@@ -259,6 +267,50 @@ def build_events(
     return pl.DataFrame(rows, schema=dict(EVENTS_ADAPTER_SCHEMA), orient="row")
 
 
+#: Kokoonpanotaulun tyypit portin takana: ``LINEUPS`` ilman ``map_demo_id``:ta.
+LINEUPS_ADAPTER_SCHEMA: dict[str, object] = {
+    name: LINEUPS[name] for name in LINEUPS_ADAPTER_COLUMNS
+}
+
+#: Klaaninimet, jotka feikki antaa kokoonpanoille. Oikeista demoista mitattuja.
+CLANS: dict[str, str] = {"aaa": "MatureMayhem", "bbb": "KALJUKOSTAJA"}
+
+
+def build_lineups(
+    rounds: pl.DataFrame,
+    *,
+    without_clan: tuple[str, ...] = (),
+    without_name: tuple[str, ...] = (),
+) -> pl.DataFrame:
+    """Kokoonpanotaulu ``build_rounds``-taulua vastaavana, kuten adapteri sen antaisi.
+
+    Rivi per (kokoonpano, pelaaja) ja **ei kierrosnumeroa**: nimi on kartan
+    ominaisuus eikä kierroksen. Pelaajatunnisteet ovat samat kuin
+    ``build_ticks``issa, jotta taulut eivät ole eri mieltä kokoonpanosta.
+
+    Args:
+        rounds: Kierrostaulu, josta kokoonpanotunnisteet luetaan.
+        without_clan: Ne kokoonpanot, joilta klaaninimi puuttuu.
+        without_name: Ne kokoonpanot, joilta pelaajien nimet puuttuvat.
+    """
+    rows: list[dict[str, object]] = []
+    for lineup in sorted({r["lineup_key"] for r in rounds.iter_rows(named=True)}):
+        for index in range(5):
+            rows.append(
+                {
+                    "lineup_key": lineup,
+                    "player_id": f"{lineup}-{index}",
+                    "player_name": (
+                        None if lineup in without_name else f"{lineup}{index}"
+                    ),
+                    "clan_name": (
+                        None if lineup in without_clan else CLANS.get(lineup, lineup)
+                    ),
+                }
+            )
+    return pl.DataFrame(rows, schema=dict(LINEUPS_ADAPTER_SCHEMA), orient="row")
+
+
 class FakeParser:
     """Portin toteutus, joka ei koske demoparser2:een."""
 
@@ -268,10 +320,14 @@ class FakeParser:
         error: Exception | None = None,
         ticks: pl.DataFrame | None = None,
         events: pl.DataFrame | None = None,
+        lineups: pl.DataFrame | None = None,
     ):
         self.frame = frame if frame is not None else build_rounds()
         self.ticks = ticks if ticks is not None else build_ticks(self.frame)
         self.events = events if events is not None else build_events(self.frame)
+        self.lineups = (
+            lineups if lineups is not None else build_lineups(self.frame)
+        )
         self.error = error
         self.calls = 0
         self.seen_seconds: list[tuple[float, ...]] = []
@@ -281,7 +337,12 @@ class FakeParser:
         self.seen_seconds.append(tuple(sample_seconds))
         if self.error is not None:
             raise self.error
-        return DemoTables(rounds=self.frame, ticks=self.ticks, events=self.events)
+        return DemoTables(
+            rounds=self.frame,
+            ticks=self.ticks,
+            events=self.events,
+            lineups=self.lineups,
+        )
 
 
 # --- Kiinnikkeet ---------------------------------------------------------------
@@ -385,6 +446,7 @@ def test_writes_a_manifest_with_only_the_parse_section(
         f"parsed/{MAP_DEMO_ID}/rounds.parquet",
         f"parsed/{MAP_DEMO_ID}/ticks.parquet",
         f"parsed/{MAP_DEMO_ID}/events.parquet",
+        f"parsed/{MAP_DEMO_ID}/lineups.parquet",
     ]
     assert manifest.inputs[0].result_id == f"demo/{MAP_DEMO_ID}"
 
@@ -436,7 +498,7 @@ def test_writes_a_valid_ticks_table(parse_settings, archive, demo) -> None:
     assert result.stats["sample_rounds"] == 3
 
 
-def test_all_three_tables_are_listed_among_the_outputs(
+def test_all_four_tables_are_listed_among_the_outputs(
     parse_settings, archive, demo
 ) -> None:
     result = run_parse(parse_settings, archive, FakeParser(), demo)
@@ -444,6 +506,7 @@ def test_all_three_tables_are_listed_among_the_outputs(
         "rounds.parquet",
         "ticks.parquet",
         "events.parquet",
+        "lineups.parquet",
     ]
 
 
@@ -575,6 +638,28 @@ def test_an_extra_ticks_column_is_a_contract_break_too(
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(rounds, ticks=broken), demo)
     assert "ylimaarainen" in str(exc.value)
+
+
+def test_a_lineups_table_breaking_the_port_contract_is_rejected(
+    parse_settings, archive, demo
+) -> None:
+    rounds = build_rounds()
+    broken = build_lineups(rounds).drop("clan_name")
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(rounds, lineups=broken), demo)
+    assert "clan_name" in str(exc.value)
+    assert "kokoonpanotaulun" in str(exc.value)
+
+
+def test_an_extra_lineups_column_is_a_contract_break_too(
+    parse_settings, archive, demo
+) -> None:
+    rounds = build_rounds()
+    broken = build_lineups(rounds).with_columns(pl.lit(1).alias("ylimaarainen"))
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(rounds, lineups=broken), demo)
+    assert "ylimaarainen" in str(exc.value)
+    assert "kokoonpanotaulun" in str(exc.value)
 
 
 def test_an_empty_ticks_table_with_rounds_is_refused(
@@ -1964,3 +2049,183 @@ def test_a_skipped_run_has_no_buy_window_numbers(
     assert result.skipped
     assert "buy_window_truncated_by_death" not in result.stats
     assert "buy_end_offsets_s" not in result.stats
+
+
+# --- Kokoonpanotaulu (Story 2.6) -----------------------------------------------
+
+
+def test_the_lineups_table_is_written_and_carries_the_map_demo_id(
+    parse_settings, archive, demo
+) -> None:
+    run_parse(parse_settings, archive, FakeParser(), demo)
+
+    table = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "lineups"))
+    validate(table, LINEUPS, "lineups")
+    assert set(table["map_demo_id"]) == {MAP_DEMO_ID}
+    assert set(table["clan_name"]) == {"MatureMayhem", "KALJUKOSTAJA"}
+    assert table.height == 10
+
+
+def test_the_knife_round_does_not_drop_a_player_from_the_lineups_table(
+    parse_settings, archive, demo
+) -> None:
+    """Kokoonpano on kartan ominaisuus: numerointi ei koske sita.
+
+    Näytepiste- ja tapahtumataulusta puukkokierroksen rivit pudotetaan, mutta
+    pelaaja pelasi kartan -- eikä häntä saa pudottaa rosterista.
+    """
+    run_parse(parse_settings, archive, FakeParser(), demo)
+
+    table = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "lineups"))
+    assert "round_no" not in table.columns
+    assert sorted(table["player_id"]) == sorted(
+        f"{lineup}-{i}" for lineup in ("aaa", "bbb") for i in range(5)
+    )
+
+
+def test_a_missing_clan_name_is_written_as_null_not_as_the_key(
+    parse_settings, archive, demo
+) -> None:
+    frame = build_rounds()
+    parser = FakeParser(frame, lineups=build_lineups(frame, without_clan=("aaa",)))
+    run_parse(parse_settings, archive, parser, demo)
+
+    table = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "lineups"))
+    without = table.filter(pl.col("lineup_key") == "aaa")
+    assert without.height == 5
+    assert without["clan_name"].null_count() == 5
+
+
+def test_an_empty_lineups_table_is_refused_instead_of_written(
+    parse_settings, archive, demo
+) -> None:
+    """Tyhjä taulu jäisi manifestin perusteella pysyvästi ohitetuksi."""
+    empty = pl.DataFrame(schema=dict(LINEUPS_ADAPTER_SCHEMA))
+    parser = FakeParser(lineups=empty)
+
+    with pytest.raises(SchemaError, match="kokoonpanoriviä"):
+        run_parse(parse_settings, archive, parser, demo)
+
+    assert not archive.parsed_table(MAP_DEMO_ID, "lineups").exists()
+
+
+def test_a_duplicate_roster_row_is_refused(parse_settings, archive, demo) -> None:
+    """``aggregate`` liittaa rosterin talla avaimella; kaksoisrivi kahdentaisi pelaajan."""
+    frame = build_rounds()
+    lineups = build_lineups(frame)
+    doubled = pl.concat([lineups, lineups.head(1)])
+    parser = FakeParser(frame, lineups=doubled)
+
+    with pytest.raises(SchemaError, match="lineup_key, player_id"):
+        run_parse(parse_settings, archive, parser, demo)
+
+
+def test_an_archive_without_the_lineups_table_is_not_up_to_date(
+    parse_settings, archive, demo
+) -> None:
+    """Skeemamuutos pakottaa uudelleenparsinnan ilman --pakota-lippua.
+
+    Manifestin parametrihash ei liiku, kun tauluja tulee lisaa, joten pelkka
+    manifestin tasmays hyvaksyisi vanhan tuloksen ajan tasalla olevana.
+    """
+    parser = FakeParser()
+    run_parse(parse_settings, archive, parser, demo)
+    archive.parsed_table(MAP_DEMO_ID, "lineups").unlink()
+
+    result = run_parse(parse_settings, archive, parser, demo)
+    assert not result.skipped
+    assert parser.calls == 2
+    assert archive.parsed_table(MAP_DEMO_ID, "lineups").is_file()
+
+
+def test_the_run_reports_the_clans_per_lineup_not_as_one_list(
+    parse_settings, archive, demo
+) -> None:
+    """Luvut eritellään kokoonpanoittain, koska demossa on kaksi joukkuetta.
+
+    Yhteinen luettelo vastaisi eri kysymykseen kuin se, jonka käyttäjä esittää:
+    "onko *tällä* joukkueella nimi" ei ratkea listasta, joka on epätyhjä heti
+    kun vastustajalla on klaani.
+    """
+    result = run_parse(parse_settings, archive, FakeParser(), demo)
+
+    assert result.stats["lineup_rows"] == 10
+    assert result.stats["lineups"] == (
+        ("aaa", "MatureMayhem", 5, 0),
+        ("bbb", "KALJUKOSTAJA", 5, 0),
+    )
+
+
+def test_one_lineup_without_a_clan_does_not_hide_behind_the_other(
+    parse_settings, archive, demo
+) -> None:
+    """Nimetön kokoonpano näkyy omana rivinään, ei vastustajan nimen alla."""
+    frame = build_rounds()
+    parser = FakeParser(
+        frame,
+        lineups=build_lineups(frame, without_clan=("aaa",), without_name=("aaa",)),
+    )
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.stats["lineups"] == (
+        ("aaa", None, 5, 5),
+        ("bbb", "KALJUKOSTAJA", 5, 0),
+    )
+
+
+def test_the_run_reports_players_whose_name_or_clan_changed_mid_map(
+    parse_settings, archive, demo
+) -> None:
+    """Kokoonpanotaulun perusoletus on ajonaikaisesti tarkistettava.
+
+    Taulu kirjaa useimmin havaitun arvon, joten rikkoutunut oletus näyttää
+    siellä täsmälleen samalta kuin ehjä. Vain diagnostiikka erottaa ne, ja
+    nollasta poikkeava luku on juuri se oire, josta puolen kautta lukemisen
+    ansan varoitus puhuu.
+    """
+    clean = FakeParser()
+    clean.diagnostics = ParseDiagnostics(
+        tick_rate=64.0, tick_rate_measured=True, rounds_seen=4
+    )
+    result = run_parse(parse_settings, archive, clean, demo)
+    assert result.stats["lineup_clan_conflicts"] == 0
+    assert result.stats["lineup_name_conflicts"] == 0
+
+    conflicted = FakeParser()
+    conflicted.diagnostics = ParseDiagnostics(
+        tick_rate=64.0,
+        tick_rate_measured=True,
+        rounds_seen=4,
+        lineup_clan_conflicts=2,
+        lineup_name_conflicts=1,
+    )
+    again = run_parse(parse_settings, archive, conflicted, demo, force=True)
+    assert again.stats["lineup_clan_conflicts"] == 2
+    assert again.stats["lineup_name_conflicts"] == 1
+
+    from pappascout.cli import _render_parse
+
+    text = _render_parse(again, 24)
+    assert "Klaani vaihtui kesken" in text
+    assert "Nimi vaihtui kesken" in text
+    # Nolla on odotusarvo, eikä sitä tulosteta.
+    assert "vaihtui kesken" not in _render_parse(result, 24)
+
+
+def test_the_parse_summary_renders_every_key_the_stage_produces(
+    parse_settings, archive, demo
+) -> None:
+    """Tuottajan ja kuluttajan avainsopimus, valvottuna kuten aggregate-puolella.
+
+    ``_render_parse`` lukee kymmeniä avaimia ``stats``ista. Ilman tätä testiä
+    vaiheen tuottama avain ja komentorivin lukema avain voisivat erota, ja
+    lohko jäisi hiljaa tulostumatta -- ei kaatuisi, vaan katoaisi.
+    """
+    from pappascout.cli import _render_parse
+
+    result = run_parse(parse_settings, archive, FakeParser(), demo)
+    text = _render_parse(result, 24)
+
+    assert "Kokoonpanot" in text
+    assert "MatureMayhem (aaa)" in text
+    assert "KALJUKOSTAJA (bbb)" in text

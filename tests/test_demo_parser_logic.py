@@ -14,6 +14,8 @@ adapterissa ajetaan oikeasti. Nämä testit ajetaan aina, myös ``-m "not demo"`
 
 from __future__ import annotations
 
+import hashlib
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,7 @@ from pappascout.adapters.demo_parser import (
 )
 from pappascout.adapters.protocols import (
     EVENTS_ADAPTER_COLUMNS,
+    LINEUPS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
@@ -230,6 +233,13 @@ def parse_events_table(
     return parse_tables(fake, tmp_path, **kwargs).events
 
 
+def parse_lineups_table(
+    fake: FakeDemoparser2, tmp_path: Path, **kwargs
+) -> pl.DataFrame:
+    """Pelkkä kokoonpanotaulu (Story 2.6)."""
+    return parse_tables(fake, tmp_path, **kwargs).lineups
+
+
 def parse_adapter(
     fake: FakeDemoparser2, tmp_path: Path, **kwargs
 ) -> Demoparser2Adapter:
@@ -263,6 +273,13 @@ class Round:
     reason: str | None = None
     #: Kummalla puolella kokoonpano A on. B on aina vastapuolella.
     a_side: str = "T"
+    #: Kokoonpanojen klaaninimet (``team_clan_name``). ``None`` = peli ei anna
+    #: nimeä, jolloin se tulee demosta tyhjänä merkkijonona.
+    a_clan: str | None = "AlphaClan"
+    b_clan: str | None = "BetaClan"
+    #: Pelaajan näkyvä nimi, tunnisteen mukaan. Puuttuva avain = nimi on
+    #: tunniste itse; arvo ``None`` = nimeä ei saatu luettua.
+    display_names: dict[str, str | None] = field(default_factory=dict)
     #: Yhteispistemäärä freezetime-ankkurissa ja kierroksen lopputickissä.
     score_at_freeze: int = 0
     score_at_end: int = 0
@@ -441,11 +458,18 @@ def _rows(
                         f"{len(round_spec.a_players)}"
                     )
                     spent = round_spec.a_cash_spent[index]
+            clan = (
+                round_spec.a_clan
+                if side == round_spec.a_side
+                else round_spec.b_clan
+            )
             rows.append(
                 {
                     "tick": tick,
                     "steamid": steamid,
-                    "name": steamid,
+                    "name": round_spec.display_names.get(steamid, steamid),
+                    # Peli antaa klaanittomalle joukkueelle tyhjän merkkijonon.
+                    dp._CLAN_NAME: "" if clan is None else clan,
                     dp._TEAM_NUM: _SIDE_TEAM[side],
                     dp._ACCOUNT: None if unreadable else account,
                     dp._CASH_SPENT: None if unreadable else spent,
@@ -1399,7 +1423,19 @@ def test_diagnostics_report_every_round_boundary(tmp_path: Path) -> None:
 # --- Propien katoaminen --------------------------------------------------------
 
 
-@pytest.mark.parametrize("prop", [dp._TEAM_SCORE, dp._ACCOUNT, dp._LIFE_STATE])
+@pytest.mark.parametrize(
+    "prop",
+    [
+        dp._TEAM_SCORE,
+        dp._ACCOUNT,
+        dp._LIFE_STATE,
+        # Story 2.6. ``name`` ei ole pyydetty proppi vaan demoparser2:n itse
+        # lisäämä sarake, ja juuri siksi sen katoaminen olisi hiljaista: taulu
+        # olisi rakenteellisesti kelvollinen mutta jokainen nimi tyhjä.
+        dp._PLAYER_NAME,
+        dp._CLAN_NAME,
+    ],
+)
 def test_missing_prop_is_named_in_the_error(tmp_path: Path, prop: str) -> None:
     """Uudelleennimetty kenttä tuottaisi muuten rakenteellisesti kelvollisen
     mutta täysin tyhjän taulun."""
@@ -3886,3 +3922,146 @@ def test_two_rounds_can_have_different_measurement_points(tmp_path: Path) -> Non
         if row["buy_end_tick"] is not None
     }
     assert offsets == {death_offset - 1, BUY_WINDOW_TICKS}
+
+
+# --- Kokoonpanotaulu: joukkueen ja pelaajien nimet (Story 2.6) ------------------
+
+
+def test_the_lineups_table_has_one_row_per_lineup_and_player(tmp_path) -> None:
+    """Rivi per (kokoonpano, pelaaja) -- ei kierrosta, ei puolta."""
+    table = parse_lineups_table(build(normal_match(played=3)), tmp_path)
+
+    assert list(table.columns) == list(LINEUPS_ADAPTER_COLUMNS)
+    assert table.height == len(A_PLAYERS) + len(B_PLAYERS)
+    assert table.select("lineup_key", "player_id").unique().height == table.height
+
+
+def test_the_clan_name_is_read_per_player_not_through_the_side(tmp_path) -> None:
+    """Puoliajan vaihto ei saa siirtää klaaninimeä joukkueelta toiselle.
+
+    Mitattu 2026-08-30 viidellä demolla: ``team_clan_name`` on SteamID:n
+    kautta vakio koko kartan ajan, mutta puolen (``m_iTeamNum``) kautta
+    luettuna ``team_num=2`` on 1. puoliajalla toinen klaani ja 2.
+    puoliajalla toinen. Tämä testi rakentaa juuri sen vaihdon.
+    """
+    rounds = normal_match(played=4)
+    for round_spec in rounds[3:]:
+        round_spec.a_side = "CT"  # puoliaika: A vaihtaa puolta, klaani ei
+
+    table = parse_lineups_table(build(rounds), tmp_path)
+
+    clans = {
+        row["player_id"]: row["clan_name"] for row in table.iter_rows(named=True)
+    }
+    assert all(clans[p] == "AlphaClan" for p in A_PLAYERS), clans
+    assert all(clans[p] == "BetaClan" for p in B_PLAYERS), clans
+
+
+def test_a_missing_clan_name_stays_null_and_is_not_replaced(tmp_path) -> None:
+    """Tyhjä merkkijono ei ole nimi, eikä tunniste ole korvike."""
+    rounds = normal_match(played=3)
+    for round_spec in rounds:
+        round_spec.a_clan = None
+
+    table = parse_lineups_table(build(rounds), tmp_path)
+
+    a_rows = [r for r in table.iter_rows(named=True) if r["player_id"] in A_PLAYERS]
+    b_rows = [r for r in table.iter_rows(named=True) if r["player_id"] in B_PLAYERS]
+    assert all(r["clan_name"] is None for r in a_rows)
+    assert all(r["clan_name"] == "BetaClan" for r in b_rows)
+
+
+def test_an_unreadable_player_name_keeps_the_row(tmp_path) -> None:
+    """Rivi kirjoitetaan silti: SteamID on ainoa jäljitettävä arvo."""
+    rounds = normal_match(played=3)
+    for round_spec in rounds:
+        round_spec.display_names = {"aaa1": None}
+
+    table = parse_lineups_table(build(rounds), tmp_path)
+
+    row = next(r for r in table.iter_rows(named=True) if r["player_id"] == "aaa1")
+    assert row["player_name"] is None
+    assert row["clan_name"] == "AlphaClan"
+
+
+def test_the_lineup_key_is_still_computed_from_the_steamids_alone(tmp_path) -> None:
+    """Nimien lisääminen ei saa siirtää yhtäkään arkiston hakemistoa.
+
+    ``lineup_key`` on ``classified/<team_key>/`` -hakemiston nimi. Jos nimi
+    vaikuttaisi tiivisteeseen, jokainen vanha tulos jäisi orvoksi.
+    """
+    expected = hashlib.sha256(
+        ",".join(sorted(A_PLAYERS)).encode("utf-8")
+    ).hexdigest()[:16]
+
+    named = parse_lineups_table(build(normal_match(played=3)), tmp_path)
+    rounds = normal_match(played=3)
+    for round_spec in rounds:
+        round_spec.a_clan = None
+        round_spec.b_clan = None
+    nameless = parse_lineups_table(build(rounds), tmp_path)
+
+    keys = {
+        row["lineup_key"]
+        for row in named.iter_rows(named=True)
+        if row["player_id"] in A_PLAYERS
+    }
+    assert keys == {expected}
+    assert set(named["lineup_key"]) == set(nameless["lineup_key"])
+
+
+def test_a_substitute_is_in_the_lineups_table_with_a_name(tmp_path) -> None:
+    """Vaihtopelaaja on aito tapaus aineistossa; hän ei saa kadota."""
+    rounds = normal_match(played=4)
+    substitute = "aaa6"
+    for round_spec in rounds[2:]:
+        round_spec.a_players = [*A_PLAYERS[:4], substitute]
+
+    table = parse_lineups_table(build(rounds), tmp_path)
+
+    players = {
+        row["player_id"] for row in table.iter_rows(named=True)
+        if row["clan_name"] == "AlphaClan"
+    }
+    assert substitute in players
+    assert players == {*A_PLAYERS, substitute}
+
+
+def test_a_clan_or_name_that_changes_mid_map_is_counted(tmp_path) -> None:
+    """Moodin valinta hukkaa ristiriidan, joten se lasketaan erikseen.
+
+    Kokoonpanotaulun perusoletus on "yksi nimi ja yksi klaani per pelaaja
+    kartan aikana". Taulu kirjaa useimmin havaitun arvon, joten rikkoutunut
+    oletus näyttäisi siellä täsmälleen samalta kuin ehjä -- diagnostiikka on
+    ainoa paikka, jossa ero näkyy.
+    """
+    rounds = normal_match(played=4)
+    for round_spec in rounds[3:]:
+        round_spec.a_clan = "AlphaClan Academy"
+    rounds[-1].display_names = {"aaa1": "toinen-nimi"}
+
+    adapter = parse_adapter(build(rounds), tmp_path)
+
+    assert adapter.diagnostics is not None
+    # Kaikki viisi A-pelaajaa nakivat kaksi klaania; yksi heista kaksi nimea.
+    assert adapter.diagnostics.lineup_clan_conflicts == len(A_PLAYERS)
+    assert adapter.diagnostics.lineup_name_conflicts == 1
+
+
+def test_a_map_without_conflicts_reports_zero(tmp_path) -> None:
+    """Nolla on odotusarvo -- ja se on eri asia kuin puuttuva luku."""
+    adapter = parse_adapter(build(normal_match(played=4)), tmp_path)
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.lineup_clan_conflicts == 0
+    assert adapter.diagnostics.lineup_name_conflicts == 0
+
+
+def test_the_name_is_the_most_observed_one_and_ties_go_alphabetically(tmp_path) -> None:
+    """Toistettavuus: sama demo antaa saman nimen ajosta toiseen."""
+    from pappascout.adapters.demo_parser import _most_observed
+
+    assert _most_observed(Counter({"Laetikko": 3, "tertseli": 1})) == "Laetikko"
+    assert _most_observed(Counter({"tertseli": 2, "Laetikko": 2})) == "Laetikko"
+    assert _most_observed(Counter()) is None
+    assert _most_observed(None) is None

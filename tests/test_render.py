@@ -40,6 +40,7 @@ from pappascout.domain.report import (
     PlayersCount,
     Position,
     Report,
+    RosterEntry,
     RoundTypeReport,
     Sample,
     SampleBucket,
@@ -47,6 +48,7 @@ from pappascout.domain.report import (
     TeamReport,
     UtilityCounts,
     UtilityUse,
+    slugify,
 )
 from pappascout.render import (
     build_view,
@@ -66,6 +68,18 @@ from pappascout.render.view import (
 
 TEAM_KEY = "aaaaaaaaaaaaaaaa"
 TEAM_NAME = "MatureMayhem"
+
+#: Slug, jonka oletusraportti saa: se johdetaan NIMESTÄ eikä
+#: tunnisteesta, koska nimi on havainto. Tiedostonimen testit lukevat
+#: sen täältä, jottei sääntö ole kahdessa paikassa eri muodossa.
+TEAM_SLUG = "maturemayhem"
+
+#: Rosteri, jossa jokaisella on nimi ja SteamID64 rinnakkain. Molemmat, aina:
+#: nimi on luettavuutta varten, tunniste on ainoa jäljitettävä arvo.
+DEFAULT_ROSTER = [
+    RosterEntry(player_id=str(n), display_name=f"pelaaja{n}")
+    for n in range(1, 6)
+]
 DEMO_ID = "Ancient_vs_kaljukostaja"
 
 #: Kynnys, jonka raportti kantaa mukanaan. Sama luku kuin
@@ -226,20 +240,34 @@ def report(
     thresholds_used: dict | None = None,
     classify_thresholds: dict | None = None,
     display_name: str = TEAM_NAME,
+    display_name_source: str | None = None,
+    name_alternatives: list[str] | None = None,
+    roster: list[RosterEntry] | None = None,
     generated_at: datetime | None = None,
 ) -> Report:
     entries = maps or []
     rounds = sum(m.sample.rounds for m in entries)
     demos = sum(m.sample.demos for m in entries)
+    # Lähde on kiinnikkeen OMA parametri eikä johdos nimestä. Jos se
+    # johdettaisiin säännöllä "nimi == tunniste", tapaus jota varten
+    # ``_has_name`` on kirjoitettu -- havaittu nimi, joka sattuu olemaan
+    # tunnisteen näköinen -- ei tulisi ajetuksi kertaakaan.
+    source = display_name_source or (
+        "team_key" if display_name == TEAM_KEY else "clan_name"
+    )
     return Report(
         generated_at=generated_at or datetime(2026, 8, 30, 12, 0, tzinfo=UTC),
         tool_versions={"pappascout": "0.1.0"},
         team=TeamReport(
             key=TEAM_KEY,
-            slug=TEAM_KEY,
+            # Slug johdetaan näytettävästä nimestä, kuten ``aggregate`` sen
+            # johtaa; malli vartioi tämän parin.
+            slug=slugify(display_name) or slugify(TEAM_KEY),
             display_name=display_name,
+            display_name_source=source,
+            display_name_alternatives=list(name_alternatives or []),
             lineup_keys=[TEAM_KEY],
-            roster=["1", "2", "3", "4", "5"],
+            roster=list(roster if roster is not None else DEFAULT_ROSTER),
             roster_source="lineups",
         ),
         sample=sample(rounds, demos=demos),
@@ -1033,11 +1061,58 @@ def test_no_presence_line_when_the_distribution_covers_everything() -> None:
 
 
 def test_a_team_without_a_name_says_so_instead_of_repeating_the_hash() -> None:
-    """``display_name == key`` tarkoittaa, ettei nimeä ole -- ei että se on tuo."""
-    entry = report([pistol_map()], display_name=TEAM_KEY)
+    """Lähde ``team_key`` tarkoittaa, ettei nimeä havaittu.
+
+    Otsikkoon ei kirjoiteta tiivistettä nimen paikalle: se lukisi kuin joukkue
+    olisi nimeltään niin. Tunniste on yhteenvedossa, jossa se on tunniste.
+    """
+    entry = report(
+        [pistol_map()], display_name=TEAM_KEY, display_name_source="team_key"
+    )
     text = render(entry)
     assert text.startswith("# Scouting-raportti -- joukkueen nimi ei tiedossa")
     assert "nimi ei ole tiedossa; tunniste " + TEAM_KEY in text
+
+
+def test_an_observed_name_that_looks_like_the_key_is_still_a_name() -> None:
+    """Lähde ratkaisee, ei vertailu tunnisteeseen (``_has_name``).
+
+    Tämä on se ainoa tapaus, jota varten ``_has_name`` on olemassa: joukkueen
+    klaaninimi voi olla täsmälleen tunnisteensa näköinen, ja vertailuun
+    perustuva sääntö väittäisi silloin havaintoa puuttuvaksi -- eli piilottaisi
+    demosta luetun nimen.
+    """
+    entry = report(
+        [pistol_map()], display_name=TEAM_KEY, display_name_source="clan_name"
+    )
+    text = render(entry)
+    assert text.startswith(f"# {TEAM_KEY} -- scouting-raportti")
+    assert "nimi ei ole tiedossa" not in text
+    assert f"{TEAM_KEY} (tunniste {TEAM_KEY})" in text
+
+
+def test_a_name_with_markdown_characters_cannot_break_the_report() -> None:
+    """Demon antama merkkijono ei saa muuttua rakenteeksi (P1).
+
+    CS2:n nimissä esiintyy kaikkia Markdownin rakennemerkkejä. Escapetus
+    tehdään esityshetkellä, ei datassa: ``report.json`` säilyttää havainnon
+    sellaisenaan.
+    """
+    entry = report(
+        [pistol_map()],
+        display_name="*|LOL|*",
+        display_name_source="clan_name",
+        name_alternatives=["<b>hax</b>"],
+        roster=[RosterEntry(player_id="1", display_name="a_b  c" + chr(10) + "d")],
+    )
+    text = render(entry)
+
+    assert text.startswith("# " + chr(92) + "*" + chr(92) + "|LOL" + chr(92) + "|" + chr(92) + "*")
+    assert chr(92) + "<b" + chr(92) + ">hax" in text
+    # Rivinvaihto ja peräkkäiset välilyönnit siivotaan näkyvästi.
+    assert "a" + chr(92) + "_b c d (1)" in text
+    # Malli itse säilyttää havainnon sellaisenaan.
+    assert entry.team.display_name == "*|LOL|*"
 
 
 def test_a_known_team_name_is_used_in_the_title() -> None:
@@ -1046,9 +1121,40 @@ def test_a_known_team_name_is_used_in_the_title() -> None:
     assert f"{TEAM_NAME} (tunniste {TEAM_KEY})" in text
 
 
-def test_the_roster_says_the_numbers_are_ids_not_names() -> None:
+def test_the_roster_shows_the_name_and_the_steamid_side_by_side() -> None:
+    """Nimi ja tunniste rinnakkain, kumpikaan ei korvaa toista (Story 2.6).
+
+    Nimi on luettavuutta varten, SteamID64 on ainoa jäljitettävä arvo.
+    Pelkkä nimi tekisi rosterista tarkistuskelvottoman, pelkkä tunniste
+    lukukelvottoman.
+    """
     text = render(report([pistol_map()]))
-    assert "nimiä ei ole saatavilla, joten alla on SteamID64" in text
+    assert "nimi ja SteamID64 rinnakkain" in text
+    for number in range(1, 6):
+        assert f"pelaaja{number} ({number})" in text
+
+
+def test_a_player_without_a_name_keeps_the_row_and_says_the_name_is_missing() -> None:
+    """Rivi kirjoitetaan silti: hiljaa pudotettu pelaaja kutistaisi rosterin."""
+    entry = report(
+        [pistol_map()],
+        roster=[
+            RosterEntry(player_id="1", display_name="pelaaja1"),
+            RosterEntry(player_id="2"),
+        ],
+    )
+    text = render(entry)
+    assert "pelaaja1 (1)" in text
+    assert "2 (nimi ei luettavissa)" in text
+
+
+def test_conflicting_team_names_are_listed_instead_of_disappearing() -> None:
+    """Useimmin havaittu otsikkoon, muut lueteltuina -- ristiriita ei katoa."""
+    entry = report([pistol_map()], name_alternatives=["MM Academy"])
+    text = render(entry)
+    assert text.startswith(f"# {TEAM_NAME} -- scouting-raportti")
+    assert "Muut havaitut nimet" in text
+    assert "MM Academy" in text
 
 
 def test_thresholds_are_listed_once_and_without_raw_dictionaries() -> None:
@@ -1262,7 +1368,7 @@ GOLDEN = """\
 ## Yhteenveto
 
 - **Joukkue:** MatureMayhem (tunniste aaaaaaaaaaaaaaaa)
-- **Rosteri:** 5 pelaajaa (havaittu demoista); nimiä ei ole saatavilla, joten alla on SteamID64: 1, 2, 3, 4, 5
+- **Rosteri:** 5 pelaajaa (havaittu demoista); nimi ja SteamID64 rinnakkain: pelaaja1 (1), pelaaja2 (2), pelaaja3 (3), pelaaja4 (4), pelaaja5 (5)
 - **Otanta:** 1 demo, 4 kierrosta (demoa/kierrosta: liiga 0 / 0, muut 0 / 0, tuntematon 1 / 4)
 - **Liigatieto:** yhdenkään demon lajia ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otannassa ole yhtään varmistettua liigaottelua
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta

@@ -25,10 +25,12 @@ from pappascout.domain.report import (
     PlayersCount,
     Position,
     Report,
+    RosterEntry,
     RoundTypeReport,
     Sample,
     SampleBucket,
     SideReport,
+    SLUG_FALLBACK,
     TeamReport,
     UtilityCounts,
     UtilityUse,
@@ -56,9 +58,129 @@ def team() -> TeamReport:
         slug="aaaaaaaaaaaaaaaa",
         display_name="aaaaaaaaaaaaaaaa",
         lineup_keys=["aaaaaaaaaaaaaaaa"],
-        roster=["1", "2", "3", "4", "5"],
+        roster=[RosterEntry(player_id=str(n)) for n in range(1, 6)],
         roster_source="lineups",
     )
+
+
+# --- Joukkueen nimi ja rosteri --------------------------------------------------
+
+
+def team_kwargs(**overrides: object) -> dict[str, object]:
+    """Kelvollinen ``TeamReport``, josta testi rikkoo yhden asian kerrallaan."""
+    values: dict[str, object] = {
+        "key": "aaaaaaaaaaaaaaaa",
+        "slug": "aaaaaaaaaaaaaaaa",
+        "display_name": "aaaaaaaaaaaaaaaa",
+        "lineup_keys": ["aaaaaaaaaaaaaaaa"],
+        "roster": [],
+        "roster_source": "lineups",
+    }
+    values.update(overrides)
+    return values
+
+
+def test_a_name_without_a_source_cannot_be_a_name() -> None:
+    """``team_key`` tarkoittaa ettei nimeä ole; silloin nimi on tunniste."""
+    with pytest.raises(AggregateError, match="lähteeksi"):
+        TeamReport(
+            **team_kwargs(
+                display_name="MatureMayhem",
+                slug="maturemayhem",
+                display_name_source="team_key",
+            )
+        )
+
+
+def test_alternatives_cannot_exist_without_an_observed_name() -> None:
+    """Vaihtoehdot ovat havaintoja: niitä ei voi olla ilman havaittua nimeä."""
+    with pytest.raises(AggregateError, match="vaihtoehtoisia nimiä"):
+        TeamReport(
+            **team_kwargs(
+                display_name_source="team_key",
+                display_name_alternatives=["MM Academy"],
+            )
+        )
+
+
+def test_an_empty_string_cannot_be_the_observed_name() -> None:
+    """Tyhjä merkkijono ei ole nimi -- silloin lähde on ``team_key``."""
+    with pytest.raises(AggregateError, match="tyhjä merkkijono"):
+        TeamReport(
+            **team_kwargs(display_name="   ", display_name_source="clan_name")
+        )
+
+
+def test_a_blank_alternative_is_refused() -> None:
+    with pytest.raises(AggregateError, match="tyhjää merkkijonoa"):
+        TeamReport(
+            **team_kwargs(
+                display_name="MatureMayhem",
+                slug="maturemayhem",
+                display_name_source="clan_name",
+                display_name_alternatives=["  "],
+            )
+        )
+
+
+def test_a_repeated_alternative_is_refused() -> None:
+    """Sama nimi kahdesti ei ole kaksi havaintoa."""
+    with pytest.raises(AggregateError, match="toistuvat"):
+        TeamReport(
+            **team_kwargs(
+                display_name="MatureMayhem",
+                slug="maturemayhem",
+                display_name_source="clan_name",
+                display_name_alternatives=["MM Academy", "MM Academy"],
+            )
+        )
+
+
+def test_the_shown_name_cannot_be_its_own_alternative() -> None:
+    with pytest.raises(AggregateError, match="omien vaihtoehtojensa"):
+        TeamReport(
+            **team_kwargs(
+                display_name="MatureMayhem",
+                slug="maturemayhem",
+                display_name_source="clan_name",
+                display_name_alternatives=["MatureMayhem"],
+            )
+        )
+
+
+def test_the_slug_must_follow_the_shown_name() -> None:
+    """Slug päätyy tiedostonimeen, joten se ei saa olla eri mieltä nimestä."""
+    with pytest.raises(AggregateError, match="Joukkueen slug on"):
+        TeamReport(
+            **team_kwargs(
+                display_name="MatureMayhem",
+                slug="aaaaaaaaaaaaaaaa",
+                display_name_source="clan_name",
+            )
+        )
+
+
+def test_a_name_without_ascii_falls_back_to_the_key_not_to_a_shared_constant() -> None:
+    """Kyrillinen klaani: varapolku on tunniste, ei jaettu vakio.
+
+    Jaettu vakio antaisi jokaiselle tällaiselle joukkueelle saman
+    tiedostonimen, jolloin raportit törmäisivät toisiinsa.
+    """
+    team = TeamReport(
+        **team_kwargs(
+            display_name="Кибер",
+            slug="aaaaaaaaaaaaaaaa",
+            display_name_source="clan_name",
+        )
+    )
+    assert team.slug == "aaaaaaaaaaaaaaaa"
+    assert team.slug != SLUG_FALLBACK
+
+
+def test_an_empty_player_name_becomes_no_name() -> None:
+    """Tyhjä nimi SteamID:n vieressä lukisi kuin nimi olisi tyhjä."""
+    assert RosterEntry(player_id="1", display_name="  ").display_name is None
+    assert RosterEntry(player_id="1", display_name="Sassiz").display_name == "Sassiz"
 
 
 # --- Otanta ---------------------------------------------------------------------

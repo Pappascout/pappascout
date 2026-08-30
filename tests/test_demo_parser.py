@@ -43,6 +43,7 @@ from pappascout.adapters.decompress import (
 from pappascout.adapters.demo_parser import Demoparser2Adapter
 from pappascout.adapters.protocols import (
     EVENTS_ADAPTER_COLUMNS,
+    LINEUPS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoParser,
@@ -1839,3 +1840,115 @@ def test_refunds_are_observed_and_stay_rare() -> None:
     # yhtäsuuruus kaatuisi heti kun aineistoon lisätään demo.
     assert refunds <= 20, refunds
     assert stale <= 3, stale
+
+
+# --- Kokoonpanotaulu oikeista demoista (Story 2.6) ------------------------------
+
+#: Liigademojen klaaninimet, mitattu 2026-08-30 suoraan demoista.
+#:
+#: Nämä eivät ole meidän koodimme tuotos: ne ovat pelin oma
+#: ``team_clan_name`` -kenttä jokaisen pelaajan ankkuririvillä. Testi lukee ne
+#: uudelleen, koska juuri nämä merkkijonot päätyvät raportin otsikkoon --
+#: uudelleennimeäminen demoparser2:ssa näkyisi muuten vasta valmiissa
+#: raportissa.
+LEAGUE_CLANS: dict[str, tuple[str, str]] = {
+    "Ancient_vs_kaljukostaja.dem": ("KALJUKOSTAJA", "MatureMayhem"),
+    "Anubis_vs_ryhmarama.dem": ("MatureMayhem", "Ryhma Rama"),
+    "inferno_vs_ryhmarama.dem": ("MatureMayhem", "Ryhma Rama"),
+    "Nuke_vs_imuaijat.dem": ("MatureMayhem", "NadedNConfused"),
+}
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(LEAGUE_CLANS))
+def test_real_demo_gives_ten_players_two_clans_five_each(demo_name: str) -> None:
+    """Kymmenen riviä, kaksi klaania, viisi pelaajaa kumpaankin.
+
+    Vaihtopelaaja tekee poikkeuksen: jos joukkue vaihtoi pelaajaa kesken
+    kartan, rivimäärä on suurempi. Testidemoissa vaihto tapahtuu **karttojen
+    välissä** eikä niiden sisällä, joten jokainen niistä antaa tasan kymmenen.
+    """
+    tables = real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+    lineups = tables.lineups
+
+    assert list(lineups.columns) == list(LINEUPS_ADAPTER_COLUMNS)
+    assert lineups.height == 10
+    assert lineups.select("lineup_key", "player_id").unique().height == 10
+
+    clans = sorted(set(lineups["clan_name"].to_list()))
+    assert clans == list(LEAGUE_CLANS[demo_name])
+    counts = lineups.group_by("clan_name").len()["len"].to_list()
+    assert counts == [5, 5]
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(LEAGUE_CLANS))
+def test_every_player_has_exactly_one_clan_and_one_name(demo_name: str) -> None:
+    """Yksi klaani ja yksi nimi per SteamID -- myös puoliajan vaihdon yli.
+
+    Tämä on se mittaus, jonka takia klaani luetaan pelaajakohtaisesti eikä
+    puolen kautta. Puolen kautta luettuna ``team_num=2`` on 1. puoliajalla
+    toinen joukkue ja 2. puoliajalla toinen.
+
+    **Väite on raakoihin havaintoihin, ei valmiiseen tauluun.** Taulu on
+    kollapsoitu: ``_most_observed`` takaa yhden rivin ja yhden arvon per
+    pelaaja riippumatta siitä, montako klaania havaittiin, joten taulusta
+    luettu "yksi arvo per pelaaja" olisi väite koodin rakenteesta eikä
+    demosta. Ainoa paikka, jossa ero näkyy, on adapterin oma laskuri --
+    ja siksi sitä luetaan tässä.
+    """
+    adapter = real_parser()
+    adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.lineup_clan_conflicts == 0
+    assert adapter.diagnostics.lineup_name_conflicts == 0
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(LEAGUE_CLANS))
+def test_the_lineup_key_matches_the_players_in_the_table(demo_name: str) -> None:
+    """Tunniste on tiiviste taulun omista SteamID:istä, ei mistään muusta.
+
+    Jos nämä erkanisivat, ``aggregate`` liittäisi rosterin joukkueeseen, jota
+    ``lineup_key`` ei tarkoita.
+    """
+    tables = real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+    for key, group in tables.lineups.group_by("lineup_key"):
+        players = sorted(group["player_id"].to_list())
+        expected = hashlib.sha256(
+            ",".join(players).encode("utf-8")
+        ).hexdigest()[:16]
+        assert key[0] == expected
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(LEAGUE_CLANS))
+def test_no_name_is_missing_from_a_league_demo(demo_name: str) -> None:
+    """Liigademoissa jokaisella pelaajalla on nimi ja klaani.
+
+    Eri väite kuin ristiriidattomuus: tämä sanoo, että havainto ylipäätään
+    saatiin. Nullit ovat sallittu tulos sopimuksessa, mutta tässä aineistossa
+    niitä ei ole -- ja jos joskus on, se näkyy raportissa SteamID:nä.
+    """
+    tables = real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+    assert tables.lineups["clan_name"].null_count() == 0
+    assert tables.lineups["player_name"].null_count() == 0
+
+
+@pytest.mark.demo
+def test_the_ticks_table_agrees_with_the_lineups_table() -> None:
+    """Sama kokoonpano molemmissa tauluissa; liitos ei saa mennä ristiin."""
+    tables = real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
+
+    from_ticks = set(
+        tables.ticks.select("lineup_key", "player_id").unique().iter_rows()
+    )
+    from_lineups = set(
+        tables.lineups.select("lineup_key", "player_id").iter_rows()
+    )
+    # Kokoonpanotaulu on kartan totuus: näytepistetaulusta voi puuttua
+    # pelaaja,
+    # joka ei ehtinyt yhdellekään näytepisteelle, mutta yhtään ylimääräistä
+    # siinä ei saa olla.
+    assert from_ticks <= from_lineups

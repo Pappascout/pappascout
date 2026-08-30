@@ -48,7 +48,13 @@ def aggregate_result(**overrides) -> StageResult:
         "stats": {
             "team_key": TEAM,
             "lineup_keys": [TEAM, TEAM_B],
-            "roster": ["1", "2", "3", "4", "5", "6"],
+            "display_name": "MatureMayhem",
+            "display_name_source": "clan_name",
+            "display_name_alternatives": [],
+            "roster": [
+                {"player_id": str(n), "display_name": f"pelaaja{n}"}
+                for n in range(1, 7)
+            ],
             "demos": 4,
             "rounds": 85,
             "sample": {
@@ -272,3 +278,60 @@ def test_a_known_error_becomes_a_finnish_line(
     with pytest.raises(SystemExit) as exit_info:
         main()
     assert exit_info.value.code == EXIT_KNOWN_ERROR
+
+
+# --- Joukkueen nimi ja rosteri tulosteessa (Story 2.6) --------------------------
+
+
+def test_an_observed_name_is_reported_as_observed() -> None:
+    """Lähde on tulosteessa, ei vain nimi.
+
+    Ilman lähdettä lukija ei näe, onko otsikossa havainto vai tunniste sen
+    paikalla -- ja juuri sitä hän tulosteesta tarkistaa.
+    """
+    output_text = _render_aggregate(aggregate_result())
+    assert field_value(output_text, "Nimi") == "MatureMayhem (havaittu demoista)"
+
+
+def test_a_missing_name_says_the_report_speaks_of_the_key() -> None:
+    numbers = dict(aggregate_result().stats)
+    numbers.update(display_name=TEAM, display_name_source="team_key")
+    output_text = _render_aggregate(aggregate_result(stats=numbers))
+    assert field_value(output_text, "Nimi") == (
+        f"ei havaittu -- raportti puhuu tunnisteesta {TEAM}"
+    )
+
+
+def test_conflicting_names_are_listed_and_absent_when_there_is_no_conflict() -> None:
+    assert "Muut havaitut nimet" not in _render_aggregate(aggregate_result())
+
+    numbers = dict(aggregate_result().stats)
+    numbers["display_name_alternatives"] = ["MM Academy", "MM B"]
+    output_text = _render_aggregate(aggregate_result(stats=numbers))
+    assert field_value(output_text, "Muut havaitut nimet").startswith(
+        "MM Academy, MM B"
+    )
+
+
+def test_the_roster_line_lists_the_names_not_just_their_count() -> None:
+    """Kuusi SteamID64:ää täyttäisi tulosteen kertomatta enempää."""
+    output_text = _render_aggregate(aggregate_result())
+    assert field_value(output_text, "Rosteri") == (
+        "6 pelaajaa havaittu: pelaaja1, pelaaja2, pelaaja3, pelaaja4, "
+        "pelaaja5, pelaaja6"
+    )
+
+
+def test_a_player_without_a_name_shows_the_id_and_is_counted() -> None:
+    """Nimetön pelaaja sanotaan ääneen eikä pudoteta."""
+    numbers = dict(aggregate_result().stats)
+    numbers["roster"] = [
+        {"player_id": "1", "display_name": "Sassiz"},
+        {"player_id": "76561198163808926", "display_name": None},
+    ]
+    output_text = _render_aggregate(aggregate_result(stats=numbers))
+    value = field_value(output_text, "Rosteri")
+    assert value == (
+        "2 pelaajaa havaittu: Sassiz, 76561198163808926 "
+        "(1 ilman nimeä, tunniste sen paikalla)"
+    )

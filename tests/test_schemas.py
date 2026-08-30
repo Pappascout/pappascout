@@ -14,6 +14,7 @@ from pappascout.constants import ROUND_TYPES, SIDES, UNIT_STATUSES
 from pappascout.domain.schemas import (
     CLASSIFIED,
     EVENTS,
+    LINEUPS,
     ARMED_COLUMN,
     MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
@@ -340,7 +341,43 @@ def test_classified_joins_to_ticks_on_map_demo_id_and_round_no() -> None:
     assert wrong_join.height > joined.height
 
 
+def test_lineups_is_identity_not_a_round_observation() -> None:
+    """Nimi on kartan ominaisuus, ei kierroksen (Story 2.6).
+
+    Kierrosnumero taulussa tarkoittaisi, että nimi voi vaihtua
+    kierroksittain,
+    ja ``parse`` pudottaisi puukkokierroksen rivit -- eli pelaajan, joka pelasi
+    kartan. Avain on (kokoonpano, pelaaja) eikä (kierros, pelaaja).
+    """
+    assert "round_no" not in LINEUPS
+    assert "round_raw" not in LINEUPS
+    assert "side" not in LINEUPS
+    assert set(LINEUPS) == {
+        "map_demo_id",
+        "lineup_key",
+        "player_id",
+        "player_name",
+        "clan_name",
+    }
+
+
+def test_the_name_never_lands_in_the_ticks_table() -> None:
+    """Nimi ei ole kierroskohtainen havainto eikä saa toistua kymmenissä
+    tuhansissa riveissä."""
+    for column in ("player_name", "clan_name", "name", "team_clan_name"):
+        assert column not in TICKS
+        assert column not in ROUNDS
+        assert column not in EVENTS
+
+
+def test_the_roster_keeps_the_steamid_beside_the_name() -> None:
+    """Nimi on luettavuutta varten; tunniste on ainoa jaljitettava arvo."""
+    assert LINEUPS["player_id"] == pl.Utf8
+    assert LINEUPS["player_name"] == pl.Utf8
+    assert LINEUPS["clan_name"] == pl.Utf8
+
+
 def test_map_demo_id_is_first_column_in_parse_tables() -> None:
     """Liitosavain ensimmaisena helpottaa taulun lukemista kasin."""
-    for schema in (ROUNDS, TICKS, EVENTS, CLASSIFIED):
+    for schema in (ROUNDS, TICKS, EVENTS, LINEUPS, CLASSIFIED):
         assert next(iter(schema)) == "map_demo_id"

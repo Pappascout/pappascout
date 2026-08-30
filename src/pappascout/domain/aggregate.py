@@ -53,6 +53,7 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
 from math import isfinite
 from statistics import median
@@ -69,6 +70,7 @@ from pappascout.constants import (
 )
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
 from pappascout.domain.report import (
+    SLUG_FALLBACK,
     AreaDistribution,
     ArmedCount,
     ArmedPlayers,
@@ -79,6 +81,7 @@ from pappascout.domain.report import (
     PlayersCount,
     Position,
     Report,
+    RosterEntry,
     RoundTypeReport,
     Sample,
     SampleBucket,
@@ -86,6 +89,8 @@ from pappascout.domain.report import (
     TeamReport,
     UtilityCounts,
     UtilityUse,
+    slugify,
+    team_slug,
 )
 from pappascout.errors import AggregateError
 
@@ -96,7 +101,12 @@ __all__ = [
     "seconds_bucket",
     "map_name_for",
     "team_slug",
+    "slugify",
+    "SLUG_FALLBACK",
     "lineups_of_same_team",
+    "TeamIdentity",
+    "team_identity",
+    "roster_entries",
     "demo_buckets",
     "sample_for",
     "players_distribution",
@@ -246,16 +256,6 @@ def map_name_for(
     return map_demo_id, "unknown"
 
 
-def team_slug(team_key: str) -> str:
-    """Tiedostonimeen kelpaava muoto joukkueen tunnisteesta.
-
-    ``render`` nimeää raportin ``<aika>-<team_slug>.md``, joten slug ei saa
-    sisältää polkuerottimia eikä ääkkösiä.
-    """
-    slug = _NON_WORD.sub("-", team_key.lower()).strip("-")
-    return slug or "joukkue"
-
-
 def lineups_of_same_team(
     target: str,
     members: Mapping[str, Iterable[str]],
@@ -295,6 +295,134 @@ def lineups_of_same_team(
         for key, players in members.items()
         if key == target or len(own & set(players)) >= min_common
     )
+
+
+@dataclass(frozen=True)
+class TeamIdentity:
+    """Joukkueen nimi ja rosteri sellaisina kuin ne demoista havaittiin.
+
+    Attributes:
+        display_name: Useimmin havaittu klaaninimi, tai ``None`` jos yhtään ei
+            havaittu. ``None`` on rehellinen tulos: nimen puuttuminen on
+            havainto, ei syy keksiä korviketta tunnisteesta tai
+            tiedostonimestä.
+        alternatives: Muut havaitut klaaninimet aakkosjärjestyksessä.
+            **Ristiriita ei katoa**: jos liitetyt demot antavat joukkueelle eri
+            nimiä, näytettäväksi valitaan useimmin havaittu ja loput
+            luetellaan, jotta lukija näkee että joukkue esiintyi kahdella
+            nimellä.
+        names: ``player_id -> nimi`` niille pelaajille, joilla nimi havaittiin.
+            Puuttuva avain tarkoittaa, ettei nimeä saatu -- rosterirvi
+            kirjoitetaan silti, koska SteamID on aina olemassa.
+    """
+
+    display_name: str | None = None
+    alternatives: list[str] = field(default_factory=list)
+    names: dict[str, str] = field(default_factory=dict)
+
+
+def team_identity(rows: Sequence[Mapping[str, Any]]) -> TeamIdentity:
+    """Päättele joukkueen nimi ja pelaajien nimet kokoonpanoriveistä.
+
+    Args:
+        rows: ``LINEUPS``-taulun rivit, **suodatettuna tämän joukkueen
+            kokoonpanoihin**. Suodatus on kutsujan vastuu: funktio ei tiedä
+            mitkä kokoonpanot ovat sama joukkue.
+
+    Klaaninimen äänestys on **kaksivaiheinen enemmistö**, ei "yksi ääni per
+    demossa havaittu nimi". Ensin ratkaistaan demon sisällä yleisin klaani,
+    sitten se saa demonsa **yhden** äänen, ja lopulta äänestetään demojen yli.
+
+    Ero on ratkaiseva pienellä otannalla. Jos demossa on viisi pelaajaa joista
+    neljällä on klaani ``A`` ja yhdellä ``B``, "ääni per havaittu nimi" antaisi
+    molemmille yhden -- yhden demon otannalla se on tasatilanne, ja
+    aakkosjärjestys voisi nostaa otsikkoon nimen, jonka yksi ainoa pelaaja
+    kantoi. Enemmistö demon sisällä ratkaisee sen oikein, ja demojen yli
+    laskettuna viiden pelaajan demo ei silti paina viittä kertaa yhden pelaajan
+    demoa.
+
+    Tasatilanne ratkeaa **molemmilla tasoilla aakkosjärjestyksessä**, jotta
+    sama arkisto antaa saman raportin ajosta toiseen. Ilman sitä tulos
+    riippuisi siitä, missä järjestyksessä tiedostot sattuivat tulemaan
+    luetuiksi.
+
+    Returns:
+        :class:`TeamIdentity`.
+
+    Raises:
+        AggregateError: Jos jonkin rivin ``map_demo_id`` on tyhjä. Se on
+            halpa vartija kalliille virheelle: tyhjä tunniste sulauttaisi
+            kaikki demot yhdeksi ääneksi, jolloin neljän demon enemmistö
+            kutistuisi yhdeksi eikä mikään kertoisi siitä.
+    """
+    clans_per_demo: dict[str, Counter[str]] = {}
+    name_votes: dict[str, Counter[str]] = {}
+
+    for row in rows:
+        demo = _clean_name(row.get("map_demo_id"))
+        if demo is None:
+            raise AggregateError(
+                "Kokoonpanotaulun rivillä ei ole map_demo_id:tä, joten sitä ei "
+                "voi kohdistaa demoon.\n"
+                "Joukkueen nimi äänestetään demo kerrallaan, ja tunnisteeton "
+                "rivi sulauttaisi kaikki demot yhdeksi ääneksi. Aja parsinta "
+                "uudelleen."
+            )
+        clan = _clean_name(row.get("clan_name"))
+        if clan is not None:
+            clans_per_demo.setdefault(demo, Counter())[clan] += 1
+        player_id = row.get("player_id")
+        name = _clean_name(row.get("player_name"))
+        if player_id is not None and name is not None:
+            name_votes.setdefault(str(player_id), Counter())[name] += 1
+
+    # Vaihe 1: demon sisäinen enemmistö. Vaihe 2: yksi ääni per demo.
+    clan_votes: Counter[str] = Counter(
+        _by_votes(votes)[0] for votes in clans_per_demo.values() if votes
+    )
+    ordered = _by_votes(clan_votes)
+    return TeamIdentity(
+        display_name=ordered[0] if ordered else None,
+        alternatives=sorted(ordered[1:]),
+        names={
+            player_id: _by_votes(votes)[0]
+            for player_id, votes in name_votes.items()
+            if votes
+        },
+    )
+
+
+def roster_entries(
+    player_ids: Iterable[str], names: Mapping[str, str]
+) -> list[RosterEntry]:
+    """Rosteri: jokainen pelaaja tunnisteineen ja nimineen.
+
+    Pelaajajoukko tulee **tunnisteista eikä nimistä**: rivi kirjoitetaan
+    silloinkin, kun nimeä ei saatu, koska SteamID on ainoa jäljitettävä arvo ja
+    hiljaa pudotettu pelaaja kutistaisi rosterin kertomatta siitä.
+    """
+    return [
+        RosterEntry(player_id=player_id, display_name=names.get(player_id))
+        for player_id in sorted(player_ids)
+    ]
+
+
+def _clean_name(value: Any) -> str | None:
+    """Nimi ilman ympäröiviä välilyöntejä, tai ``None``.
+
+    Tyhjä merkkijono ei ole nimi. Sama sääntö kuin parsinnassa, toistettuna
+    tässä siksi, että vanhalla versiolla kirjoitettu taulu voi sisältää tyhjän
+    merkkijonon eikä sitä saa esittää nimenä.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _by_votes(votes: Counter[str]) -> list[str]:
+    """Arvot ääniä laskien, tasatilanne aakkosjärjestyksessä."""
+    return sorted(votes, key=lambda name: (-votes[name], name))
 
 
 # -- Otanta ----------------------------------------------------------------------
