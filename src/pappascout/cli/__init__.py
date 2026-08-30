@@ -207,11 +207,11 @@ def parse(
         ),
     ),
 ) -> None:
-    """Parsi demo kierros-, näytepiste- ja tapahtumatauluiksi.
+    """Parsi demo kierros-, näytepiste-, tapahtuma- ja kokoonpanotauluiksi.
 
-    Kirjoittaa ``parsed/<map_demo_id>/rounds.parquet``-, ``ticks.parquet``- ja
-    ``events.parquet``-taulut sekä niiden manifestin. Jos manifesti täsmää,
-    vaihe ohitetaan eikä demoa lueta uudelleen.
+    Kirjoittaa ``parsed/<map_demo_id>/rounds.parquet``-, ``ticks.parquet``-,
+    ``events.parquet``- ja ``lineups.parquet``-taulut sekä niiden manifestin.
+    Jos manifesti täsmää, vaihe ohitetaan eikä demoa lueta uudelleen.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
