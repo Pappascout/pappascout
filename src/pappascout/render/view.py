@@ -151,9 +151,15 @@ KILL_SAMPLE_UNIT = "taposta"
 #: sijainti on eri asia kuin tyhjä alue.
 UNKNOWN_AREA = "tuntematon alue"
 
-#: Merkintä alueelle, joka on **arvio** eikä havainto (räjähdyksen alue on
-#: napsautettu lähimmästä pelaajasta). Ilman merkintää raportti esittäisi
-#: arvion havaintona.
+#: Merkintä alueelle, joka on **arvio** eikä havainto: räjähdyksen alue on
+#: luettu demon pistepilven lähimmästä ruudusta. Ilman merkintää raportti
+#: esittäisi arvion havaintona.
+#:
+#: Merkintä säilyy, vaikka menetelmä vaihtui Story 2.9:ssä lähimmästä
+#: pelaajasta pistepilveen. Alue on yhä johdos: se on *pelin oma* aluenimi
+#: siitä kohdasta, jossa joku on seissyt lähinnä räjähdystä -- ei
+#: räjähdyspaikan oma nimi, koska sellaista ei ole olemassa. Tarkempi arvio on
+#: yhä arvio.
 ESTIMATE_MARK = " (arvio)"
 
 
@@ -520,7 +526,7 @@ def _utility_use_lines(
         if use.throw_area is None or use.detonate_area is None:
             flags.unknown_area = True
         target = _area(use.detonate_area)
-        if use.area_source == "snapped":
+        if use.area_source == "point_cloud":
             flags.estimated_area = True
             target += ESTIMATE_MARK
         text = f"{_area(use.throw_area)} -> {target}{_bucket_text(use.seconds_bucket)}"
@@ -1265,7 +1271,8 @@ def _legend(flags: _Flags) -> list[str]:
     if flags.estimated_area:
         notes.append(
             "(arvio) räjähdysalueen perässä: kranaatilla ei ole aluenimeä, joten "
-            "alue on napsautettu lähimmästä elossa olevasta pelaajasta."
+            "alue on luettu demon pistepilvestä -- siitä kohdasta kartalla, "
+            "jossa pelaajat ovat lähinnä räjähdystä oikeasti seisoneet."
         )
     notes.extend(_player_counter_legend(flags))
     if flags.kills_shown:

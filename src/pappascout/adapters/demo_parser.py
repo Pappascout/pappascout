@@ -1,4 +1,4 @@
-"""demoparser2-toteutus kaikille viidelle parse-taululle (AD-8).
+"""demoparser2-toteutus kaikille kuudelle parse-taululle (AD-8).
 
 **Tämä on ainoa moduuli, jossa pelin propinimet esiintyvät.** Vaihe näkee vain
 :class:`~pappascout.adapters.protocols.DemoParser`-portin, joten demoparser2:n
@@ -238,7 +238,7 @@ riviä, joilta ampujan alue puuttuu, ovat **samat kaksi**, joilta ampuja
 puuttuu kokonaan (``planted_c4``) -- alue ei siis kadonnut, ampujaa ei ollut.
 
 Alue on **havainto molemmilta**: se tulee samalta tapahtumalta kuin kuolema
-itse, joten napsautusta ei tarvita eikä taulussa ole ``area_source``ia.
+itse, joten sitä ei johdeta mistään eikä taulussa ole ``area_source``ia.
 
 Puoli ja kokoonpano luetaan **kierroksen omasta puolikuvauksesta**
 (:meth:`Demoparser2Adapter._assign_sides`) samalla :func:`_side_lookup`illa
@@ -288,15 +288,80 @@ radan viimeinen piste osuu niihin 0,024 pelin yksikön tarkkuudella kaikissa
 281 tapauksessa. Tapahtumia ei silti lueta ajossa -- rata riittää, ja kolme
 ylimääräistä tapahtumalukua maksaisi ilman lisätietoa.
 
+Pistepilvi ja räjähdyksen alue
+------------------------------
+Sama lukukerta tuottaa myös ``callouts``-taulun: ruudukon siitä, missä
+pelaajat ovat kartalla oikeasti seisoneet ja mikä alue kussakin kohdassa on.
+Se on **räjähdysalueiden lähde**, ja se on tallessa juuri siksi, että johdettu
+alue olisi tarkistettavissa demoa vasten.
+
+**Mikä poistui ja miksi.** Story 2.2 johti räjähdysalueen lähimmästä elossa
+olevasta pelaajasta. Se ei ollut epätarkka vaan rakenteellisesti väärä: savu
+heitetään sinne, missä ketään ei ole -- juuri siksi, että se estää näkyvyyden
+ja pakottaa rotaatioita. Proxy mittasi päinvastaista kuin piti, ja **42 %
+räjähdyksistä jäi kokonaan ilman aluetta** (mitattu neljästä liigademosta,
+1 716 räjähdystä); pistepilvellä osuus on 6,4 %. Menetelmää ei jätetty
+rinnalle varalähteeksi: kaksi menetelmää tekisi rivistä tulkitsemattoman.
+
+**Mitä se maksaa, mitattuna.** Pilvi vaatii ainoan koko demon kattavan
+tickiluvun tässä moduulissa::
+
+    parse_ticks([m_szLastPlaceName, X, Y, Z, m_lifeState])
+
+``Ancient_vs_kaljukostaja`` 2026-08-30: **2,1 s, 1 529 910 riviä**, joista
+elossa ja alue tiedossa 1 092 083. Aineisto pudotetaan ruudukoksi heti -- 32
+yksikön ruutuun mahtuu 7 703 ruutua ja 18 aluetta.
+
+**Muistihuippu on 1,0 GB, ja se on kirjaston eikä tämän moduulin.** Mitattu
+``Nuke_vs_imuaijat`` (1 914 720 riviä) prosessin ``PeakWorkingSetSize``illa:
+lähtötaso 48 MB, ``parse_ticks``in jälkeen 705 MB ja huippu **1 043 MB** jo
+kutsun sisällä; oma Polars-muunnoksemme lisää siihen 44 MB (705 -> 749) ja
+ruudukon rakentaminen 134 MB. Huippu syntyy siis demoparser2:n omasta
+kehyksestä, jossa on 1,9 miljoonaa riviä ja kahdeksan saraketta -- pyydetyt
+viisi propia sekä kirjaston aina lisäämät ``tick``, ``steamid`` ja ``name``.
+
+``del`` pudottaa vain nimen eikä palauta muistia käyttöjärjestelmälle:
+mitattu työjoukko ei pienene ``del frame``in jälkeen lainkaan. Lupaus on siis
+täsmälleen se, mitä se on -- **aineisto ei elä pidempään kuin rakentaminen
+vaatii**, jolloin varaaja voi käyttää alueen uudelleen -- eikä "muisti
+vapautuu".
+
+**Luku on ehdoton, ja se on vaihtokauppa.** Pilvi rakennetaan myös silloin,
+kun demossa ei ole yhtään kranaattia: taulu on oma tuotoksensa, jonka
+``parse`` lupaa kirjoittaa, eikä sen olemassaolo saa riippua siitä sattuiko
+joku heittämään savun. Hinta on noin 2 s ja noin 1 GB huippu per demo.
+Kytkintä ei ole: ehdollinen pilvi tekisi ``callouts.parquet``ista joskus
+olemassa olevan ja joskus puuttuvan, ja ``parse``in ohitussääntö (jokainen
+odotettu tulos paikallaan) muuttuisi arvattavasta arvaamattomaksi.
+
+**Kynnys ei poistu.** "Lähin ruutu löytyy aina" ei ole kattavuutta: mitattu
+maksimietäisyys on 1 074 yksikköä, ja ilman kynnystä raportti väittäisi
+aluetta räjähdykselle, joka tapahtui kaukana kaikesta, missä yksikään pelaaja
+on koskaan seissyt. ``[parse].area_snap_units`` on siksi tallella,
+kalibroituna pistepilveä varten uudelleen.
+
+Räjähdyksen tickeiltä **ei enää lueta pelaajia**: alue tulee pilvestä, ei
+hetkestä. Heiton tickit luetaan yhä, koska heittäjän oma alue on havainto.
+
 Muistinkäyttö
 -------------
 Demoa ei ladata muistiin kokonaan. ``parse_ticks`` kutsutaan **vain
-kierrosrajojen, ostoaikojen loppujen, näytepisteiden ja kranaattien
-päätepisteiden tickeille** (Ancient: 44 + 21 + noin 100 + noin 750 tickiä), ei
-koko tickisarjalle. Kutsuja on neljä eikä yksi, koska sekä ostoajan loppu että
+kierrosrajojen, ostoaikojen loppujen, näytepisteiden ja kranaattien heittojen
+tickeille** (Ancient: 44 + 21 + noin 100 + noin 375 tickiä), ei koko
+tickisarjalle. Näitä kohdennettuja kutsuja on neljä eikä yksi -- pistepilven
+koko demon luku on viides ja oma tapauksensa, ks. alla -- koska sekä ostoajan
+loppu että
 näytepisteiden tickit riippuvat tickratesta, joka mitataan vasta kierrosrajojen
 lukemisesta, ja kranaattien tickit selviävät vasta lentoradoista. Pakattu demo
 puretaan virtaavasti temp-tiedostoon.
+
+**Yksi poikkeus, ja se on tarkoitus.** Pistepilvi luetaan koko demon
+tickisarjasta (:data:`CLOUD_TICK_PROPS`), koska kysymys on "missä kartalla on
+seisottu ja mikä alue se on" eikä "missä joukkue oli tällä hetkellä". Se on
+yksi kutsu, viisi kevyttä proppia ja 2,1 sekuntia, ja tulos pelkistetään
+muutamaan tuhanteen ruutuun ennen kuin mitään muuta tehdään. Pilven laajuus
+on koko demo myös tarkoituksella: lämmittelyn ja puukkokierroksen rivit
+kertovat kartasta yhtä paljon kuin pelattujen kierrosten.
 
 Ostoikkuna maksaa yhden ylimääräisen ``parse_ticks``-kutsun (Ancient: 21
 mittauspistettä) ja yhden ``parse_event("player_death")``-kutsun. Jälkimmäinen
@@ -322,6 +387,7 @@ import polars as pl
 
 from pappascout.adapters.decompress import readable_demo
 from pappascout.adapters.protocols import (
+    CALLOUTS_ADAPTER_COLUMNS,
     DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
@@ -343,6 +409,7 @@ from pappascout.domain.sampling import (
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
     ARMORED_COLUMN,
+    CALLOUT_CLOUD,
     DEATHS,
     EVENTS,
     LINEUPS,
@@ -353,10 +420,11 @@ from pappascout.domain.schemas import (
 from pappascout.domain.utility import (
     DETONATE,
     THROWN,
-    PlayerPoint,
+    build_point_cloud,
+    empty_point_cloud,
     flight_point,
     grenade_endpoints,
-    snap_area,
+    nearest_cells,
     trajectory_gap_ticks,
 )
 from pappascout.errors import ParseError
@@ -366,6 +434,7 @@ __all__ = [
     "TEAM_SIDES",
     "TICK_PROPS",
     "SAMPLE_TICK_PROPS",
+    "CLOUD_TICK_PROPS",
     "DAMAGE_COLUMNS",
     "DEATH_PLAYER_PROPS",
     "DEATH_COLUMNS",
@@ -457,6 +526,25 @@ SAMPLE_TICK_PROPS: tuple[str, ...] = (
     _X,
     _Y,
     _Z,
+)
+
+#: Propit, jotka luetaan **koko demon** tickisarjasta pistepilveä varten.
+#:
+#: Lyhyempi lista kuin näytepisteillä: ``m_iTeamNum`` ei ole mukana, koska
+#: pilvi on kartan ominaisuus eikä joukkueen -- kysymys on "missä tässä
+#: kohdassa on seisottu ja mikä alue se on", eikä siihen vastaa se, kumpi puoli
+#: siellä seisoi. Katsojarivit eivät pilaa pilveä: katsojalla ei ole
+#: ``last_place_name``ia eikä hän ole elossa, joten suodatin pudottaa hänet
+#: samalla ehdolla kuin kuolleen.
+#:
+#: **Tämä on moduulin ainoa koko tickisarjan luku.** Perustelu ja mitattu
+#: hinta ovat moduulin dokumentaatiossa.
+CLOUD_TICK_PROPS: tuple[str, ...] = (
+    _PLACE_NAME,
+    _X,
+    _Y,
+    _Z,
+    _LIFE_STATE,
 )
 
 #: Sarakkeet, jotka ``parse_grenades()``-taulussa on oltava. ``name`` on
@@ -688,11 +776,14 @@ class _UtilityCounts:
             reppuhaun täydellinen rikkoutuminen näyttäisi täsmälleen samalta
             kuin demo, jossa heitettiin pelkkiä molotoveja.
         detonating_after_round: Räjähdys, joka osuu kierroksen päättymisen
-            jälkeen. Rivi jää tauluun koordinaatteineen, mutta aluetta ei
-            napsauteta: pelaajat ovat jo seuraavan kierroksen spawnissa.
-        ticks_without_players: Päätepisteen tick, jolta ei saatu yhtään
+            jälkeen. **Havainto eikä pudotus**: rivi saa alueensa
+            pistepilvestä kuten muutkin. Story 2.2:ssa nämä jätettiin
+            aluettomiksi, koska silloinen menetelmä olisi lukenut alueen
+            seuraavan kierroksen spawnista; syy katosi menetelmän mukana.
+        ticks_without_players: **Heiton** tick, jolta ei saatu yhtään
             pelaajariviä. Toisin kuin muut tämän luokan luvut, tämä on **vika**
-            eikä havainto -- se tarkoittaa, ettei aluetta voitu edes yrittää.
+            eikä havainto -- se tarkoittaa, ettei heittäjän omaa aluetta voitu
+            edes yrittää lukea. Räjähdyksen tickejä ei lueta lainkaan.
         sharing_an_entity_id: Lentoradat, jotka jakavat pelin oman
             ``grenade_entity_id``:n toisen radan kanssa **samalla
             ``round_raw``:lla** -- demon omalla kierroslaskurilla, joka
@@ -709,6 +800,31 @@ class _UtilityCounts:
     detonating_after_round: int = 0
     ticks_without_players: int = 0
     sharing_an_entity_id: int = 0
+
+
+@dataclass(frozen=True)
+class _CloudCounts:
+    """Pistepilven havainnot, jotka eivät mahdu ``CALLOUT_CLOUD``-sopimukseen.
+
+    Ruutujen ja alueiden määrä **ei ole täällä**, eikä myöskään pilveen
+    kelvanneiden rivien määrä: kaikki kolme ovat luettavissa valmiista
+    taulusta. ``observations``-sarakkeen summa **on** kelvanneiden rivien
+    määrä, koska jokainen kelvollinen rivi päätyy täsmälleen yhteen ruutuun --
+    sen laskeminen myös täällä olisi sama luku kahdesta lähteestä. Täällä on
+    vain se, mikä näkyy **vain** lukuhetkellä.
+
+    Attributes:
+        rows_read: Rivit, jotka koko demon tickiluku palautti (rivi per
+            pelaaja per tick). Moduulin suurin yksittäinen erä, ja tämä on
+            ainoa paikka, jossa sen koko näkyy -- valmiissa taulussa on
+            jäljellä vain se osa, joka kelpasi.
+        empty_reason: Miksi pilvi jäi tyhjäksi, tai ``None``. Tyhjä pilvi ei
+            kaada ajoa, mutta ilman syytä se näyttäisi demolta, jossa ei
+            heitetty utilityä.
+    """
+
+    rows_read: int = 0
+    empty_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -845,10 +961,25 @@ class Demoparser2Adapter:
         fallback_death: Saako ensikontakti tulla ``player_death``-tapahtumasta,
             jos kelvollista ``player_hurt``ia ei ole
             (``[parse].first_contact_fallback_death``).
-        area_snap_units: Enimmäisetäisyys, jolta utility-tapahtuman alue saa
-            napata lähimmän elossa olevan pelaajan alueen
-            (``[parse].area_snap_units``). ``None`` = ei napsautusta, jolloin
-            ``area`` jää tyhjäksi mutta koordinaatit tallentuvat.
+        area_snap_units: Enimmäisetäisyys, jolta räjähdyksen alue saa tulla
+            lähimmästä pistepilviruudusta (``[parse].area_snap_units``).
+            ``None`` = ei kynnystä käytössä, jolloin ``area`` jää tyhjäksi
+            mutta koordinaatit ja etäisyys tallentuvat. Se on
+            kalibroimattoman asetuksen rehellinen arvo eikä vika: lähin ruutu
+            löytyy aina, joten kynnyksetön nimeäminen olisi väite eikä mittaus.
+        callout_grid_units: Pistepilven ruudun särmä pelin yksiköissä
+            (``[parse].callout_grid_units``).
+        callout_z_weight: Pystyeron painokerroin, kun räjähdykselle etsitään
+            lähintä ruutua (``[parse].callout_z_weight``).
+        callout_z_tolerance_units: Pystyero, joka on painotuksessa ilmaista
+            (``[parse].callout_z_tolerance_units``). Pelaajan korkeus:
+            kranaatti räjähtää mistä tahansa lattian ja pään väliltä, joten
+            ilman toleranssia pystyrangaistus osuisi normaaliin tapaukseen.
+
+            Kolmen viimeisen oletukset ovat **mitattuja arvoja** eivätkä
+            neutraaleja nollia -- neutraalia ruudun kokoa ei ole olemassa, ja
+            nolla olisi kelvoton. Tuotannossa ne tulevat silti aina vaiheelta:
+            adapteri ei lue asetuksia.
         buy_window_seconds: Ostoajan pituus sekunteina freezetimen lopusta
             (``[parse].buy_window_seconds``). Oletus on tarkoituksella
             **0.0** eikä pelin 20 s: adapteri ei lue asetuksia, ja neutraali
@@ -871,11 +1002,17 @@ class Demoparser2Adapter:
         fallback_death: bool = True,
         area_snap_units: float | None = None,
         buy_window_seconds: float = 0.0,
+        callout_grid_units: int = 32,
+        callout_z_weight: float = 1.0,
+        callout_z_tolerance_units: float = 72.0,
     ) -> None:
         self.exclude_weapons = tuple(exclude_weapons)
         self.fallback_death = fallback_death
         self.area_snap_units = area_snap_units
         self.buy_window_seconds = float(buy_window_seconds)
+        self.callout_grid_units = int(callout_grid_units)
+        self.callout_z_weight = float(callout_z_weight)
+        self.callout_z_tolerance_units = float(callout_z_tolerance_units)
         self.diagnostics: ParseDiagnostics | None = None
 
     def parse_demo(
@@ -964,8 +1101,19 @@ class Demoparser2Adapter:
         ticks, partial = self._build_ticks_frame(
             points, parser, original_path, segments, sides, lineup_keys
         )
+        # Pistepilvi ennen tapahtumataulua: se on räjähdysalueiden lähde,
+        # joten se on oltava kädessä ennen kuin yhtäkään aluetta nimetään.
+        callouts, cloud_counts = self._build_callout_cloud(parser, original_path)
         events, utility = self._build_events_frame(
-            parser, original_path, segments, sides, lineup_keys, lineups, by_tick, tick_rate
+            parser,
+            original_path,
+            segments,
+            sides,
+            lineup_keys,
+            lineups,
+            by_tick,
+            tick_rate,
+            callouts,
         )
         death_frame, death_counts = self._build_deaths_frame(
             death_rows,
@@ -997,6 +1145,8 @@ class Demoparser2Adapter:
             grenades_detonating_after_round=utility.detonating_after_round,
             grenade_ticks_without_players=utility.ticks_without_players,
             grenades_sharing_an_entity_id=utility.sharing_an_entity_id,
+            callout_cloud_rows_read=cloud_counts.rows_read,
+            callout_cloud_empty_reason=cloud_counts.empty_reason,
             unknown_inventory_items=tuple(sorted(armed.unknown_items.items())),
             lineup_name_conflicts=sum(
                 1
@@ -1032,6 +1182,7 @@ class Demoparser2Adapter:
             events=events,
             lineups=lineups_frame,
             deaths=death_frame,
+            callouts=callouts,
         )
 
     def _open(self, demo_path: Path, original_path: Path) -> Any:
@@ -2356,6 +2507,7 @@ class Demoparser2Adapter:
         lineups: list[_Lineup],
         by_tick: dict[int, list[dict[str, Any]]],
         tick_rate: float,
+        cloud: pl.DataFrame,
     ) -> tuple[pl.DataFrame, _UtilityCounts]:
         """Lue lentoradat ja rakenna niistä ``EVENTS``-muotoinen taulu.
 
@@ -2372,9 +2524,17 @@ class Demoparser2Adapter:
         Alue on kahdenlaista tietoa. Heittäjällä on oma ``m_szLastPlaceName``
         samalta tickiltä, joten heiton alue on **havainto**
         (``area_source = "observed"``). Kranaatilla ei ole aluenimeä, joten
-        räjähdyksen alue on lähimmältä elossa olevalta pelaajalta johdettu
-        **approksimaatio** (``"snapped"``), ja sen etäisyys tallentuu, jotta
-        kuluttaja voi erottaa varman osuman kaukaisesta arviosta.
+        räjähdyksen alue luetaan **pistepilvestä**: lähimmän ruudun alue
+        (``"point_cloud"``), ja etäisyys tallentuu, jotta kuluttaja voi
+        erottaa varman osuman kaukaisesta arviosta.
+
+        Räjähdysalueet ratkaistaan **yhtenä eränä** eikä rivi kerrallaan:
+        vertailu on jokainen räjähdys jokaista ruutua vasten, ja erä antaa
+        Polarsin tehdä sen kerran satojen pienten kutsujen sijaan.
+
+        Tickejä luetaan vain **heittojen** kohdalta. Räjähdyksen tickillä ei
+        ole enää mitään luettavaa: sen alue tulee pilvestä eikä siitä, ketkä
+        sattuivat olemaan lähellä.
 
         Returns:
             ``(taulu, luvut)``. Taulu on tyhjä mutta sopimuksen mukainen, jos
@@ -2441,15 +2601,19 @@ class Demoparser2Adapter:
                 }
             )
 
-        wanted = sorted({r["tick"] for r in selected})
-        # Tyhjä lista **ei** saa mennä parse_ticksille: se voisi tarkoittaa
-        # "kaikki tickit", eli juuri sen koko tickisarjan luvun, jonka tämä
-        # moduuli lupaa välttää. Tilanne syntyy, jos jokainen kranaatti putoaa
+        wanted = sorted({r["tick"] for r in selected if r["event_kind"] == THROWN})
+        # Tyhjä lista **ei** saa mennä parse_ticksille: se tarkoittaa
+        # demoparser2:lle "kaikki tickit". Pistepilvi lukee koko tickisarjan
+        # tarkoituksella ja kerran; tämä kutsu ei saa tehdä sitä vahingossa
+        # toista kertaa. Tilanne syntyy, jos jokainen kranaatti putoaa
         # kierrosten ulkopuolisena tai tuntemattoman puolen takia.
         positions = (
             self._read_sample_ticks(parser, wanted, original_path) if wanted else {}
         )
         empty_ticks = sum(1 for tick in wanted if not positions.get(tick))
+        # Räjähdysalueet kerralla: pilvi ei muutu rivien välillä, joten
+        # jokaisen rivin oma haku tekisi saman työn uudelleen.
+        detonation_areas = self._detonation_areas(selected, cloud)
 
         rows: list[dict[str, Any]] = []
         late_detonations = 0
@@ -2469,10 +2633,15 @@ class Demoparser2Adapter:
                     "Ilman niitä t_s:ää ei voi laskea. Demo on todennäköisesti "
                     "vioittunut."
                 )
-            tick_players = positions.get(r["tick"], ())
             if r["event_kind"] == DETONATE and r["tick"] > end_tick:
                 late_detonations += 1
-            area, source, distance = self._resolve_area(r, end_tick, tick_players)
+            if r["event_kind"] == THROWN:
+                area, source, distance = self._throw_area(
+                    r, positions.get(r["tick"], ())
+                )
+            else:
+                area, distance = detonation_areas.get(r["grenade_no"], (None, None))
+                source = "point_cloud" if area is not None else None
             rows.append(
                 {
                     "round_raw": segment.round_raw,
@@ -2507,48 +2676,196 @@ class Demoparser2Adapter:
         )
         return frame, counts
 
-    def _resolve_area(
-        self,
+    @staticmethod
+    def _throw_area(
         row: dict[str, Any],
-        end_tick: int,
         tick_players: Sequence[dict[str, Any]],
     ) -> tuple[str | None, str | None, float | None]:
-        """Päätä rivin alue, sen lähde ja mahdollinen napsautusetäisyys.
+        """Heiton alue: heittäjän oma ``m_szLastPlaceName`` samalta tickiltä.
 
-        Heitolle alue on **havainto**: heittäjä itse on paikalla ja hänen
-        ``m_szLastPlaceName``insä on luettavissa samalta tickiltä. Napsautus
-        voisi tarttua vieressä seisovaan kaveriin, vaikka oikea vastaus on
-        tiedossa.
+        Se on **havainto** eikä johdos, ja siksi tämä polku ei koske
+        pistepilveen lainkaan: pilvi antaisi lähimmän ruudun alueen, vaikka
+        oikea vastaus on luettavissa heittäjältä itseltään. Myös kuollut
+        pelaaja kelpaa -- hän heitti kranaatin ollessaan elossa, ja rivi
+        kertoo hänen oman alueensa.
 
-        Räjähdykselle alue on approksimaatio -- paitsi jos rata jatkuu
-        kierroksen päättymisen yli. Silloin tickin pelaajat ovat jo seuraavan
-        kierroksen spawnissa, ja napsautus kertoisi missä joukkue on **nyt**
-        eikä missä savu on. Alue jätetään silloin tyhjäksi ja tapaus lasketaan.
+        ``snap_distance`` on aina ``None``: havainnolla ei ole etäisyyttä.
+
+        Returns:
+            ``(alue, lähde, etäisyys)``. Kaikki tyhjiä, jos heittäjää ei ole
+            tickin riveissä -- havaintoa ei korvata arviolla.
         """
-        if row["event_kind"] == THROWN:
-            for player in tick_players:
-                if player["steamid"] == row["thrower_id"]:
-                    area = player["area"]
-                    return area, ("observed" if area is not None else None), None
-            return None, None, None
+        for player in tick_players:
+            if player["steamid"] == row["thrower_id"]:
+                area = player["area"]
+                return area, ("observed" if area is not None else None), None
+        return None, None, None
 
-        if row["tick"] > end_tick:
-            return None, None, None
+    def _detonation_areas(
+        self, selected: Sequence[dict[str, Any]], cloud: pl.DataFrame
+    ) -> dict[int, tuple[str | None, float | None]]:
+        """Nimeä kaikki räjähdykset pistepilvestä yhdellä kertaa.
 
-        snap = snap_area(
-            row["x"],
-            row["y"],
-            row["z"],
-            [
-                PlayerPoint(
-                    x=p["x"], y=p["y"], z=p["z"], area=p["area"], is_alive=p["alive"]
-                )
-                for p in tick_players
-            ],
-            self.area_snap_units,
+        Avain on ``grenade_no``, joka on yksikäsitteinen koko demossa ja jolla
+        radalla on **enintään yksi** räjähdysrivi -- pelin oma
+        ``grenade_entity_id`` ei kelpaisi, koska se kierrätetään.
+
+        **Myöhäinen räjähdys ei ole poikkeus.** Story 2.2:ssa kierroksen
+        päättymisen jälkeen räjähtänyt kranaatti jätettiin aluetta vaille,
+        koska silloinen menetelmä olisi lukenut alueen seuraavan kierroksen
+        spawnissa seisovista pelaajista. Pistepilvi ei riipu hetkestä, joten
+        syy katosi menetelmän mukana ja rivi saa alueensa kuten muutkin.
+
+        Returns:
+            ``grenade_no -> (alue, etäisyys)``. Etäisyys on tallessa myös
+            silloin, kun alue jäi kynnyksen taakse; molemmat ovat ``None``
+            vain, jos pilvi on tyhjä tai koordinaatteja ei ole.
+        """
+        rows = [r for r in selected if r["event_kind"] == DETONATE]
+        if not rows:
+            return {}
+        points = pl.DataFrame(
+            {
+                "point_id": [int(r["grenade_no"]) for r in rows],
+                "x": [r["x"] for r in rows],
+                "y": [r["y"] for r in rows],
+                "z": [r["z"] for r in rows],
+            },
+            schema={
+                "point_id": pl.Int64,
+                "x": pl.Float64,
+                "y": pl.Float64,
+                "z": pl.Float64,
+            },
         )
-        source = "snapped" if snap.area is not None else None
-        return snap.area, source, snap.distance
+        named = nearest_cells(
+            points,
+            cloud,
+            grid_units=self.callout_grid_units,
+            z_weight=self.callout_z_weight,
+            z_tolerance_units=self.callout_z_tolerance_units,
+            max_units=self.area_snap_units,
+        )
+        return {
+            int(row["point_id"]): (row["area"], row["distance"])
+            for row in named.iter_rows(named=True)
+        }
+
+    # -- Pistepilvi ----------------------------------------------------------
+
+    def _build_callout_cloud(
+        self, parser: Any, original_path: Path
+    ) -> tuple[pl.DataFrame, _CloudCounts]:
+        """Lue koko demon tickisarja ja pelkistä se ruudukoksi.
+
+        Tämä on moduulin **ainoa** koko demon tickiluku, ja se on tarkoitus:
+        kysymys on "missä kartalla on seisottu ja mikä alue kussakin kohdassa
+        on", eikä siihen vastaa muutaman ankkurin otos. Aineisto pudotetaan
+        ruudukoksi heti, joten miljoona riviä ei kulje eteenpäin.
+
+        Tyhjä pilvi **ei ole virhe**: se on demo, josta ei saatu yhtään
+        elossa-riviä nimetyllä alueella. Silloin jokainen räjähdysalue jää
+        tyhjäksi, ajo jatkuu, ja syy kulkee diagnostiikassa ajon
+        yhteenvetoon.
+
+        Returns:
+            ``(pistepilvi, luvut)``.
+        """
+        frame = self._read_cloud_ticks(parser, original_path)
+        if frame is None:
+            return self._typed_callouts_frame(empty_point_cloud()), _CloudCounts(
+                empty_reason=(
+                    "demoparser2 ei palauttanut yhtään tickiriviä koko demosta"
+                )
+            )
+        # Muunnos ja pelkistys ovat saman virhekäärön sisällä: molemmat
+        # nostavat kirjaston tai domainin oman virhetyypin, ja portin sopimus
+        # lupaa suomenkielisen ParseErrorin. Ilman kääröä demoparser2:n
+        # tyyppimuutos näkyisi paljaana PolarsErrorina keskellä 400 MB:n
+        # parsintaa.
+        try:
+            observations = _cloud_observations(frame)
+            # Pandas-kehys ei ole enää tarpeen. Se ei palauta muistia
+            # käyttöjärjestelmälle -- mitattu työjoukko ei pienene -- mutta se
+            # päästää varaajan käyttämään alueen uudelleen.
+            del frame
+            rows_read = observations.height
+            cloud = build_point_cloud(
+                observations, grid_units=self.callout_grid_units
+            )
+            del observations
+        except (ValueError, pl.exceptions.PolarsError) as exc:
+            raise ParseError(
+                f"Demon {original_path.name} pistepilveä ei voitu rakentaa: "
+                f"{exc}\n"
+                "Joko demoparser2 palautti kentän odottamattomassa tyypissä "
+                "tai [parse].callout_grid_units on kelvoton. Tarkista "
+                "asetukset ja aja: uv sync"
+            ) from exc
+
+        reason = None
+        if cloud.is_empty():
+            reason = (
+                f"{rows_read} tickiriviä luettiin, mutta yhdelläkään ei ollut "
+                "elossa olevaa pelaajaa nimetyllä alueella"
+                if rows_read
+                else "demoparser2 ei palauttanut yhtään tickiriviä koko demosta"
+            )
+        return self._typed_callouts_frame(cloud), _CloudCounts(
+            rows_read=rows_read, empty_reason=reason
+        )
+
+    @staticmethod
+    def _typed_callouts_frame(cloud: pl.DataFrame) -> pl.DataFrame:
+        """Aseta pistepilvelle portin sopimuksen sarakkeet ja tyypit.
+
+        Domain rakentaa pilven omilla tyypeillään; tämä sitoo sen
+        ``CALLOUT_CLOUD``-sopimukseen. Ilman sidosta skeeman tyypin muutos
+        näkyisi vasta vaiheen ``validate``ssa, ja virheilmoitus syyttäisi
+        vaihetta työstä, jonka adapteri jätti tekemättä.
+        """
+        schema: dict[str, Any] = {
+            name: CALLOUT_CLOUD[name] for name in CALLOUTS_ADAPTER_COLUMNS
+        }
+        return cloud.select(CALLOUTS_ADAPTER_COLUMNS).cast(schema)
+
+    def _read_cloud_ticks(self, parser: Any, original_path: Path) -> Any:
+        """Lue :data:`CLOUD_TICK_PROPS` koko demosta ja tarkista sarakkeet.
+
+        Tyhjä tulos ei ole virhe -- pistepilvi jää silloin tyhjäksi ja syy
+        kerrotaan. Puuttuva **sarake** on virhe: ilman tarkistusta pilvi olisi
+        tyhjä eikä sitä voisi erottaa demosta, jossa kukaan ei liikkunut, ja
+        jokainen räjähdys jäisi aluetta vaille kertomatta miksi.
+        """
+        try:
+            frame = parser.parse_ticks(list(CLOUD_TICK_PROPS))
+        except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
+            raise ParseError(
+                f"Demon {original_path.name} pistepilveä ei voitu lukea: {exc}\n"
+                "Tiedosto on todennäköisesti vioittunut tai demoparser2:n "
+                "versio ei tunne näitä kenttiä. Aja: uv sync"
+            ) from exc
+
+        if frame is None or not hasattr(frame, "columns"):
+            return None
+
+        # SARAKKEET ENNEN TYHJYYTTÄ. Uudelleennimetty kenttä voi tuottaa
+        # kehyksen, jossa on sarakkeet mutta nolla riviä, ja tyhjyystarkistus
+        # ensin muuttaisi sopimusrikon havainnoksi "demossa ei ollut tickejä".
+        # Se on juuri se hiljainen tulkinta, jonka tämä vartija estää.
+        missing = [name for name in CLOUD_TICK_PROPS if name not in frame.columns]
+        if missing:
+            raise ParseError(
+                "demoparser2 ei palauttanut kaikkia pistepilven kenttiä "
+                f"demosta {original_path.name}. Puuttuu: {', '.join(missing)}.\n"
+                "Kenttä on todennäköisesti nimetty uudelleen demoparser2:n "
+                "päivityksessä. Ilman tarkistusta pistepilvi olisi tyhjä ja "
+                "jokainen räjähdysalue null -- eikä mikään kertoisi miksi. "
+                "Päivitä adapters/demo_parser.py:n CLOUD_TICK_PROPS."
+            )
+        if len(frame) == 0:
+            return None
+        return frame
 
     def _endpoints(
         self, raw: pl.DataFrame, tick_rate: float, original_path: Path
@@ -2663,6 +2980,36 @@ def _thrower_id() -> pl.Expr:
     return pl.coalesce(
         pl.col("steamid").cast(pl.Int64, strict=False).cast(pl.Utf8),
         pl.col("steamid").cast(pl.Utf8, strict=False),
+    )
+
+
+def _cloud_observations(frame: Any) -> pl.DataFrame:
+    """Pistepilven havainnot domainin sarakenimillä ja tyypeillä.
+
+    Kääntää demoparser2:n propinimet (:data:`CLOUD_TICK_PROPS`) domainin
+    nimiksi (``x``, ``y``, ``z``, ``area``, ``is_alive``), jotta
+    :func:`~pappascout.domain.utility.build_point_cloud` pysyy puhtaana eikä
+    tunne pelin kenttiä. Sama käännös kuin :func:`_trajectory_frame`illa
+    tekee lentoradoille.
+
+    **Tyhjä aluenimi ei ole alue.** Peli antaa nimettömälle alueelle tyhjän
+    merkkijonon, ja se muutetaan tässä ``null``:iksi -- samoin kuin
+    näytepisteillä. Ilman muunnosta pilveen syntyisi ruutuja, joiden alue on
+    ``""``: räjähdys saisi niistä tyhjän nimen ja näyttäisi silti osumalta.
+
+    ``is_alive`` on ``null``, jos ``m_lifeState`` puuttuu. Se **ei** muutu
+    tässä epätodeksi: pilven suodatin hylkää null:in joka tapauksessa, mutta
+    väärä paikka päättää siitä olisi tämä.
+    """
+    return pl.from_pandas(frame[list(CLOUD_TICK_PROPS)]).select(
+        pl.col(_X).cast(pl.Float64).alias("x"),
+        pl.col(_Y).cast(pl.Float64).alias("y"),
+        pl.col(_Z).cast(pl.Float64).alias("z"),
+        pl.when(pl.col(_PLACE_NAME).cast(pl.Utf8).str.len_chars() > 0)
+        .then(pl.col(_PLACE_NAME).cast(pl.Utf8))
+        .otherwise(None)
+        .alias("area"),
+        (pl.col(_LIFE_STATE).cast(pl.Int64) == _ALIVE).alias("is_alive"),
     )
 
 

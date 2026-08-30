@@ -108,6 +108,23 @@ MAX_BUY_WINDOW_SECONDS = 40.0
 PositiveInt = Annotated[int, Field(gt=0)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 
+#: Ei-negatiivinen liukuluku, jonka **ääretön ja NaN eivät kelpaa**.
+#:
+#: ``allow_inf_nan=False`` ei ole koristetta. Pistepilven painotus kertoo
+#: arvolla ja vertaa tulosta kynnykseen; NaN tekisi jokaisesta vertailusta
+#: epätoden, jolloin yksikään räjähdys ei saisi aluetta eikä mikään kertoisi
+#: miksi. Ääretön tekisi saman toisin päin. Kumpikin läpäisisi pelkän
+#: ``ge=0``-rajan (``nan >= 0`` on epätosi, mutta virheilmoitus puhuisi
+#: väärästä asiasta, ja ``inf >= 0`` on tosi).
+NonNegativeFloat = Annotated[float, Field(ge=0.0, allow_inf_nan=False)]
+
+#: Pistepilven ruudun särmä. Rajat ovat suorituskykyä ja mielekkyyttä, eivät
+#: makuasia. **Alaraja 8**: lähimmän haku on ristiintulo pisteiden ja ruutujen
+#: välillä, ja särmä 1 tuottaisi luokkaa miljoona ruutua yhdestä demosta --
+#: sadan tuhannen ruudun sijaan. **Yläraja 1024**: 32 pelaajan leveyttä, eli
+#: sitä karkeampi ruudukko ei enää erottele kartan alueita toisistaan.
+CalloutGridUnits = Annotated[int, Field(ge=8, le=1024)]
+
 
 class _Section(BaseModel):
     """Asetusosion kantaluokka: tuntematon avain on virhe, ei hiljainen ohitus."""
@@ -181,10 +198,51 @@ class ParseSettings(_Section):
     #: Jos ensikontaktia ei löydy player_hurt-tapahtumista, käytetäänkö
     #: ensimmäistä player_death-tapahtumaa.
     first_contact_fallback_death: bool = True
-    #: Enimmäisetäisyys pelin yksiköissä, jolta räjähdyksen alue saa napata
-    #: lähimmän elossa olevan pelaajan alueen. None = ei napsautusta, jolloin
-    #: detonate_area jää nulliksi. Kalibroidaan Epicissä 2 oikeilla demoilla.
-    area_snap_units: PositiveInt | None = None
+    #: Enimmäisetäisyys pelin yksiköissä, jolta räjähdyksen alue saa tulla
+    #: **lähimmästä pistepilviruudusta** (Story 2.9).
+    #:
+    #: **Pakollinen, ei valinnainen.** Se oli ``None``-oletuksellinen niin
+    #: kauan kuin alue napsautettiin lähimmästä pelaajasta ja napsautus oli
+    #: kytkettävissä pois. Pistepilvestä lähin ruutu löytyy **aina**, joten
+    #: kynnyksetön ajo antaisi jokaiselle räjähdykselle alueen etäisyydestä
+    #: riippumatta ja kattavuus olisi aina 100 % -- se ei olisi kattavuutta
+    #: vaan mittarin puuttuminen. Speksin Always-sääntö on "etäisyyskynnys
+    #: säilyy", ja pakollinen kenttä tekee siitä rakenteellisen.
+    #:
+    #: Mitta on painotettu samoin kuin nimeäminen (ks. kolme seuraavaa), joten
+    #: se ei ole euklidinen etäisyys vaan se luku, jolla lähin ruutu valittiin.
+    #: Etäisyys tallentuu ``EVENTS.snap_distance``iin myös silloin, kun se
+    #: ylittää kynnyksen.
+    area_snap_units: PositiveInt
+    #: Pistepilven ruudun särmä pelin yksiköissä. Mitattu 2026-08-30 kahdella
+    #: demolla: 32 puolittaa mediaanietäisyyden 64:ään verrattuna (15 vs. 29).
+    #: Ruutu 64 kattaa hieman enemmän (Ancient 93,2 % vs. 91,8 %), mutta pieni
+    #: etäisyys on se, mikä tekee nimetystä alueesta todennäköisesti oikean.
+    #: Ruutuja on 32:lla noin 7 700-10 500 per demo. Rajat: ks.
+    #: :data:`CalloutGridUnits`.
+    callout_grid_units: CalloutGridUnits = 32
+    #: Pystyeron painokerroin, kun räjähdykselle etsitään lähintä ruutua.
+    #: Kerroskartat (Nuke) vaativat sen: alakerran ruutu on ylhäältä katsoen
+    #: aivan vieressä mutta eri alueella. **Vain toleranssin kanssa** -- ks.
+    #: seuraava.
+    #:
+    #: Oletus on **1.0 eikä 2.0**: mitattuna paino 1 erottaa kerrokset
+    #: täydellisesti (nolla väärää kerrosta molemmilla Nuke-demoilla), ja
+    #: jokainen sitä suurempi paino maksaa kattavuutta ostamatta mitään --
+    #: 99,0 % painolla 1, 98,8 % painolla 2, 97,4 % painolla 3.
+    callout_z_weight: NonNegativeFloat = 1.0
+    #: Pystyero, joka on painotuksessa ilmaista. Pelaajan korkeus 72 yksikköä:
+    #: pistepilvi tallentaa pelaajan sijainnin, mutta kranaatti räjähtää
+    #: mistä tahansa lattian ja pään väliltä (savu ilmassa, molotov
+    #: lattialla), joten ilman toleranssia pystyrangaistus osuisi normaaliin
+    #: tapaukseen. Mitattu: pelkkä paino ilman toleranssia on **huonompi**
+    #: kuin ei painoa lainkaan (mediaani 30 vs. 20); toleranssin kanssa
+    #: mediaani putoaa 15:een.
+    #:
+    #: **Symmetrinen, ja se on mitattu.** Vapaus vain ylöspäin (savu leijuu)
+    #: on mitattuna huonompi: mediaani nousee 15 -> 17 (Ancient) ja
+    #: 14 -> 19 (Nuke) eikä kattavuus parane lainkaan.
+    callout_z_tolerance_units: NonNegativeFloat = 72.0
 
     # Kalustolaskurilla (``players_armed_buy_end``) **ei ole asetusta**.
     # Story 1.5:n ``armed_player_equip_min`` mittasi varustearvoa, joka on ase

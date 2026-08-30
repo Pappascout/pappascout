@@ -11,7 +11,7 @@ koskaan näe.
 
 **Fikstuuri kattaa molemmat variantit jokaisesta haarasta, jossa raportti
 valitsee.** Ensikontaktin näytepiste on eri laji kuin aikanäytepiste, ja
-havaittu räjähdysalue on eri asia kuin napsautettu; kumpaakin paria on
+havaittu räjähdysalue on eri asia kuin pistepilvestä johdettu; kumpaakin paria on
 oltava fikstuurissa, tai vain toinen suunta on suojattu ja väärä oletusarvo
 menee läpi kaikista väitteistä huomaamatta.
 """
@@ -186,7 +186,7 @@ def use(
     m: int,
     throws: int | None = None,
     bucket: str = "0-5",
-    source: str | None = "snapped",
+    source: str | None = "point_cloud",
 ) -> UtilityUse:
     return UtilityUse(
         grenade_type=grenade_type,
@@ -353,7 +353,7 @@ def pistol_map() -> MapReport:
 
     T-puolen lohko kattaa **kaikki** rivilajit, jotka raportti osaa
     kirjoittaa: aikanäytepiste, ensikontaktin näytepiste, kranaattimäärät,
-    kranaattien kohteet (sekä havaittu että napsautettu alue) ja aseistetut.
+    kranaattien kohteet (sekä havaittu että johdettu alue) ja aseistetut.
     """
     return map_report(
         "de_ancient",
@@ -962,13 +962,13 @@ def test_grenade_uses_answer_where_it_went() -> None:
     assert "savu: TSpawn -> Middle (arvio) 0-5 s (1/1 kierroksesta)" in text
 
 
-def test_only_a_snapped_area_is_marked_as_an_estimate() -> None:
+def test_only_a_derived_area_is_marked_as_an_estimate() -> None:
     """Havaittu alue on havainto, eikä sitä saa merkitä arvioksi.
 
-    Fikstuurissa on molemmat suunnat: savun räjähdysalue on napsautettu
-    (``snapped``) ja valon havaittu (``observed``). Ilman havaittua tapausta
+    Fikstuurissa on molemmat suunnat: savun räjähdysalue on johdettu
+    (``point_cloud``) ja valon havaittu (``observed``). Ilman havaittua tapausta
     ehdon poistaminen merkitsisi **jokaisen** alueen arvioksi, ja legenda
-    väittäisi havainnot napsautuksiksi -- ilman että yksikään väite kaatuisi.
+    väittäisi havainnot arvioiksi -- ilman että yksikään väite kaatuisi.
     """
     text = render(report([pistol_map()]))
     assert "savu: TSpawn -> Middle (arvio)" in text
@@ -996,13 +996,13 @@ def test_the_estimate_note_appears_only_when_something_was_estimated() -> None:
     )
     text = render(report([observed_only]))
     assert "(arvio)" not in text
-    assert "napsautettu lähimmästä" not in text
+    assert "pistepilvestä" not in text
 
 
 def test_estimated_detonation_area_is_marked_and_explained() -> None:
     text = render(report([pistol_map()]))
     assert "(arvio)" in text
-    assert "napsautettu lähimmästä elossa olevasta pelaajasta" in text
+    assert "alue on luettu demon pistepilvestä" in text
 
 
 def test_throws_are_reported_when_they_outnumber_the_rounds() -> None:

@@ -1,6 +1,6 @@
 """Jaetut Polars-taulusopimukset (AD-2, AD-4, AD-5).
 
-Kuusi taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
+Seitsemän taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
 
 ``ROUNDS``
     ``parsed/<map_demo_id>/rounds.parquet`` -- pitkä taulu, **kaksi riviä per
@@ -20,6 +20,12 @@ Kuusi taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
     ``parsed/<map_demo_id>/deaths.parquet`` -- rivi per kuolema. Uhri ja
     ampuja molemmat alueineen ja koordinaatteineen; kuolemalla on **kaksi
     toimijaa**, joten se ei mahdu ``EVENTS``-taulun yhden toimijan muotoon.
+``CALLOUT_CLOUD``
+    ``parsed/<map_demo_id>/callouts.parquet`` -- rivi per pistepilven ruutu.
+    Demon omista tickeistä koottu ruudukko siitä, missä pelaajat ovat kartalla
+    seisoneet ja mikä alue kussakin kohdassa on. Räjähdyksen alue luetaan
+    tästä, ja taulu on tallessa, jotta johdettu alue on tarkistettavissa demoa
+    vasten.
 ``CLASSIFIED``
     ``classified/<team_key>/<map_demo_id>.parquet`` -- **yksi rivi per kierros**
     subjektijoukkueen näkökulmasta. Sisältää ``classify``-vaiheen johdokset.
@@ -63,6 +69,7 @@ __all__ = [
     "EVENTS",
     "LINEUPS",
     "DEATHS",
+    "CALLOUT_CLOUD",
     "CLASSIFIED",
     "CLASSIFIED_INPUTS",
     "SCHEMAS",
@@ -265,9 +272,9 @@ TICKS: Schema = {
 #
 # Alue on kahdenlaista tietoa, ja area_source kertoo kummasta on kyse:
 # heittorivillä se on heittäjän oma m_szLastPlaceName (havainto), räjähdyksellä
-# lähimmän elossa olevan pelaajan alue etäisyysrajan parse.area_snap_units
-# sisältä (approksimaatio). Ilman erottelua raportti esittäisi arvion
-# havaintona.
+# demon oman pistepilven lähimmän ruudun alue etäisyysrajan
+# parse.area_snap_units sisältä (approksimaatio). Ilman erottelua raportti
+# esittäisi arvion havaintona.
 EVENTS: Schema = {
     "map_demo_id": pl.Utf8,  # {match_id}-{map_index}, liitosavain
     "round_raw": pl.Int32,
@@ -302,12 +309,25 @@ EVENTS: Schema = {
     "y": pl.Float32,
     "z": pl.Float32,
     "area": pl.Utf8,
-    # observed = heittäjän oma alue, snapped = lähimmältä pelaajalta johdettu.
-    # null aina ja vain silloin, kun area on null.
+    # observed = heittäjän oma alue, point_cloud = demon pistepilvestä
+    # johdettu. null aina ja vain silloin, kun area on null.
     "area_source": _AREA_SOURCE,
-    # Etäisyys pelin yksiköissä lähimpään elossa olevaan pelaajaan silloin, kun
-    # alue napsautettiin. null, jos alue on havaittu tai jos napsautusta ei
-    # tehty. Kuluttaja erottaa tästä 40 yksikön osuman 490 yksikön arviosta.
+    # Painotettu etäisyys lähimpään PISTEPILVIRUUTUUN (CALLOUT_CLOUD):
+    #
+    #     d = sqrt(dx^2 + dy^2 + (callout_z_weight *
+    #                             max(0, |dz| - callout_z_tolerance_units))^2)
+    #
+    # Se ei siis ole euklidinen etäisyys vaan se luku, jolla lähin ruutu
+    # valittiin. Kuluttaja erottaa tästä 15 yksikön osuman 240 yksikön
+    # arviosta. Sarakkeen NIMI on menetelmän jäänne -- "snap" tarkoittaa
+    # kiinnitystä lähimpään ruutuun eikä nappausta pelaajalta; nimen
+    # säilyttämisen peruste on settings.tomlissa area_snap_unitsin yllä.
+    #
+    # ARVO SÄILYY MYÖS KYNNYKSEN YLI. Räjähdys, jonka lähin ruutu on
+    # kauempana kuin parse.area_snap_units, saa area = null mutta pitää
+    # etäisyytensä: se erottaa "kaukana kaikesta missä on seisottu" tapauksesta
+    # "pistepilvi oli tyhjä", jossa myös tämä on null. Heittorivillä arvo on
+    # aina null, koska alue on havainto eikä johdos.
     "snap_distance": pl.Float32,
 }
 
@@ -357,7 +377,7 @@ LINEUPS: Schema = {
 #
 # MOLEMMAT ALUEET OVAT HAVAINTOJA. ``user_last_place_name`` ja
 # ``attacker_last_place_name`` tulevat samalta ``player_death``-tapahtumalta
-# eivätkä ole napsautuksia, joten taulussa ei ole ``area_source``- eikä
+# eivätkä ole johdoksia, joten taulussa ei ole ``area_source``- eikä
 # ``snap_distance``-saraketta -- ne ovat olemassa juuri kranaatin
 # approksimaatiota varten. Mitattu 2026-08-30 ``Ancient_vs_kaljukostaja``:
 # uhrin alue puuttui 0/151 tapahtumalta, ampujan 2/151.
@@ -383,7 +403,7 @@ DEATHS: Schema = {
     "victim_x": pl.Float32,
     "victim_y": pl.Float32,
     "victim_z": pl.Float32,
-    # Pelin last_place_name kuolinhetkellä. Havainto, ei napsautus.
+    # Pelin last_place_name kuolinhetkellä. Havainto, ei johdos.
     "victim_area": pl.Utf8,
     # Ampuja. **Kaikki null tai ei yhtään**: ampujaton kuolema on aito tapaus
     # (putoaminen, pommi), ja puolikas ampuja olisi vika. Poikkeus on
@@ -401,6 +421,61 @@ DEATHS: Schema = {
     # Ase pelin omalla nimellä (``ak47``, ``planted_c4``, ``knife_butterfly``).
     # Sellaisenaan eikä luokiteltuna: luokittelu olisi tulkintaa.
     "weapon": pl.Utf8,
+}
+
+
+# Pistepilvi: rivi per ruutu (Story 2.9).
+#
+# MIKSI TAULU ON OLEMASSA. Räjähdysalue on johdos, ja johdos ilman lähdettään
+# ei ole tarkistettavissa. Sama periaate kuin ROUNDS.buy_end_tickillä:
+# mittausta ei esitetä ilman sitä, mistä se luettiin. Tämän taulun kanssa
+# jokainen ``area_source = "point_cloud"`` -rivi voidaan jäljittää siihen
+# ruutuun, jonka alueen se sai -- ilman sitä lukijan olisi uskottava luku
+# sellaisenaan.
+#
+# MIKSI DEMON OMA JA DEMOKOHTAINEN, EI KARTTAKOHTAINEN ARKISTOTAULU. Karttuva
+# ``callouts/<map>.parquet`` rikkoisi putken perusominaisuuden: saman demon
+# uudelleenparsinta antaisi eri tuloksen sen mukaan, mitä muita demoja
+# arkistossa sattuu olemaan, eikä ``params_hash`` voisi kattaa sitä --
+# manifesti pitäisi tulosta ajan tasalla olevana, vaikka pistepilvi olisi
+# muuttunut alta. Lisäksi karttakohtainen taulu vaatisi kartan nimen
+# havaintona, jota ei vielä ole. Demon oma pilvi ei tarvitse kumpaakaan.
+#
+# RUUTU ON INDEKSI, EI KOORDINAATTI. ``cell_x`` on ``floor(x / grid_units)``,
+# ja ruudun keskipiste on ``(cell_x + 0.5) * grid_units``. Indeksi on tarkka
+# kokonaisluku; keskipiste tallentaisi saman tiedon liukulukuna, jonka
+# pyöristys voisi siirtää ruutua. Särmä (``[parse].callout_grid_units``) ei
+# ole taulussa vaan manifestin parametrihashissa -- sen muuttaminen parsii
+# demon uudelleen, joten taulu ja asetus eivät voi olla eri mieltä.
+CALLOUT_CLOUD: Schema = {
+    "map_demo_id": pl.Utf8,  # {match_id}-{map_index}, liitosavain
+    "cell_x": pl.Int32,  # floor(x / [parse].callout_grid_units)
+    "cell_y": pl.Int32,
+    "cell_z": pl.Int32,
+    # Ruudun alue pelin omalla nimellä (env_cs_place). MOODI eikä ensimmäinen
+    # havainto: ruudun reunalla on aina rivejä naapurialueelta, ja ensimmäinen
+    # rivi olisi kiinni siinä, missä järjestyksessä demoparser2 tickit antoi.
+    # Tasatilanne ratkeaa nimen aakkosjärjestyksellä, jotta sama demo antaa
+    # aina saman pilven. Ei koskaan null: nimetön alue ei pääse pilveen
+    # lainkaan, koska ruutu nimeltä "ei nimeä" nimeäisi räjähdyksen tyhjäksi
+    # ja näyttäisi silti osumalta.
+    "area": pl.Utf8,
+    # Ruudun KAIKKI havainnot, ei vain voittaneen alueen. Aina >= 1: ruutu
+    # syntyy vain havainnosta, joten nolla tarkoittaisi keksittyä ruutua.
+    #
+    # Luku kertoo, kuinka vahvasti ruutu on nähty: yhden tickin ruutu ja
+    # tuhannen tickin ruutu ovat nimeämisessä samanarvoisia, ja se ero on
+    # luettavissa vain tästä.
+    #
+    # OHUITA RUUTUJA EI SUODATETA, ja se on mitattu päätös eikä laiminlyönti.
+    # Epäily oli, että yksittäinen harha-askel synnyttää ruudun, joka voittaa
+    # vilkkaan naapurinsa. Mitattu 2026-08-30 kaikista kuudesta demosta:
+    # yhden havainnon ruutuja on 1 634/55 429 eli 2,9 %, ruudun havaintojen
+    # mediaani on 32-42 ja p10 on 4. Räjähdyksistä 96/2 544 (3,8 %) päätyy
+    # yhden havainnon ruutuun -- ja nekin ovat ruutuja, joissa joku
+    # OIKEASTI seisoi. Suodatin poistaisi kartan reunat ja kulmat, joihin
+    # utility nimenomaan heitetään.
+    "observations": pl.Int32,
 }
 
 
@@ -476,6 +551,7 @@ SCHEMAS: dict[str, Schema] = {
     "events": EVENTS,
     "lineups": LINEUPS,
     "deaths": DEATHS,
+    "callouts": CALLOUT_CLOUD,
     "classified": CLASSIFIED,
 }
 

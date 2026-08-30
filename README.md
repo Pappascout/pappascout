@@ -51,7 +51,7 @@ uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
 ```
 
-`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon viisi
+`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon kuusi
 taulua yhdellä lukukerralla:
 
 * `parsed/<map_demo_id>/rounds.parquet` -- kaksi riviä jokaista pelattua
@@ -71,13 +71,13 @@ taulua yhdellä lukukerralla:
   ostoista**, ja se luetaan lentoradoista -- `grenade_thrown`-tapahtumaa ei
   ole olemassa.
   Heiton alue on **havainto** -- heittäjän oma `m_szLastPlaceName` samalta
-  tickiltä. Räjähdyksellä ei ole omaa aluenimeä, joten sen alue johdetaan
-  lähimmän elossa olevan pelaajan alueesta, jos hän on enintään
-  `[parse].area_snap_units`in päässä; muuten `area` jää tyhjäksi mutta
-  koordinaatit tallentuvat. `area_source` (`observed` / `snapped`) erottaa nämä
-  kaksi ja `snap_distance` kertoo arvion etäisyyden, jotta raportti voi
-  myöhemmin sanoa "3 savua Rampille (2 varmaa)". Tyhjä taulu on kelvollinen
-  tulos: utility voi aidosti puuttua.
+  tickiltä. Räjähdyksellä ei ole omaa aluenimeä, joten sen alue luetaan
+  **pistepilvestä** (`callouts.parquet`): lähimmän ruudun alue, jos se on
+  enintään `[parse].area_snap_units`in päässä; muuten `area` jää tyhjäksi
+  mutta koordinaatit ja `snap_distance` tallentuvat. `area_source`
+  (`observed` / `point_cloud`) erottaa nämä kaksi ja `snap_distance` kertoo
+  arvion etäisyyden, jotta raportti voi myöhemmin sanoa "3 savua Rampille
+  (2 varmaa)". Tyhjä taulu on kelvollinen tulos: utility voi aidosti puuttua.
 * `parsed/<map_demo_id>/lineups.parquet` -- rivi per (kokoonpano, pelaaja):
   pelaajan nimi ja hänen klaaninimensä. **Identiteettitaulu, ei kierrostaulu**:
   nimi on sama koko kartan ajan, joten sillä ei ole `round_no`:ta eivätkä sen
@@ -100,6 +100,32 @@ taulua yhdellä lukukerralla:
   liitoksessa kuin näytepisteet ja kranaatit -- ajon yhteenveto kertoo
   montako. Johdettuja käsitteitä (trade, entry, duel-voitto) taulussa ei ole:
   ne ovat tulkintaa, ja työnjako on havainto koneelta, tulkinta ihmiseltä.
+* `parsed/<map_demo_id>/callouts.parquet` -- **pistepilvi**: rivi per ruudukon
+  ruutu, eli missä pelaajat ovat kartalla oikeasti seisoneet ja mikä alue
+  (`env_cs_place`) kussakin kohdassa on. Se on räjähdysalueiden **lähde**, ja
+  se kirjoitetaan juuri siksi: johdettu alue on tarkistettavissa demoa vasten
+  vain, jos se mistä se johdettiin on tallessa -- sama periaate kuin
+  `rounds.parquet`in `buy_end_tick`-sarakkeella.
+
+  Pilvi rakennetaan **demon omista tickeistä**, ei arkistoon karttuvasta
+  karttakohtaisesta taulusta: karttuva taulu antaisi samalle demolle eri
+  tuloksen sen mukaan, mitä muita demoja arkistossa sattuu olemaan, eikä
+  `params_hash` voisi kattaa sitä. Ruudun särmä, pystyeron paino ja
+  pystytoleranssi ovat `[parse]`-asetuksia (`callout_grid_units` 32,
+  `callout_z_weight` 1.0, `callout_z_tolerance_units` 72) -- jokainen
+  mitattu, ja perustelut ovat `settings.toml`issa taulukoina.
+
+  Se maksaa **yhden koko demon tickiluvun**: noin 2 s ja 1,0 GB muistihuippu
+  per demo, ja huippu syntyy demoparser2:n omasta kehyksestä (1,9 M riviä x 8
+  saraketta), ei pelkistyksestä. Luku tehdään myös silloin, kun demossa ei
+  ole yhtään kranaattia: taulu on oma tuotoksensa, jonka olemassaolo ei saa
+  riippua siitä sattuiko joku heittämään savun.
+
+  **Kynnys ei poistu**, vaikka lähin ruutu löytyy aina: mitattu
+  maksimietäisyys on 1 074 yksikköä, ja ilman kynnystä raportti väittäisi
+  aluetta räjähdykselle, joka tapahtui kaukana kaikesta missä yksikään pelaaja
+  on seissyt. Tyhjä pilvi on kelvollinen tulos -- silloin jokainen
+  räjähdysalue on `null`, ajo ei kaadu ja syy kerrotaan ajon yhteenvedossa.
 
 Ilman polkua annettu tunniste etsitään arkiston `demos/`- ja
 `import/`-hakemistoista. Toisella ajolla vaihe ohitetaan, jos manifesti täsmää.
@@ -588,6 +614,33 @@ yksikkönsä itse (`Middle (4/6 taposta)`) eikä vain lukuohjeessa. Alue on
 > puuttuvan sarakkeen että komennon. Jo kirjoitetut Markdown-raportit jäävät
 > paikoilleen vanhoina.
 
+> **Räjähdysalueen pistepilvi pakottaa koko arkiston uudelleenajon --
+> kolmatta kautta.** Muutos tuo uuden taulun (`callouts.parquet`) *ja*
+> muuttaa `events.parquet`in arvojoukkoa: `area_source`-luettelosta poistui
+> `snapped` ja tilalle tuli `point_cloud`. Vanha taulu ei siis lataudu enää
+> tämän version enumiin, ja `REPORT_SCHEMA_VERSION` nousee `4.0.0` ->
+> `5.0.0`, koska `UtilityUse.area_source` hylkää vanhan arvon.
+>
+> Komennot ovat samat kolme kuin edellä, samassa järjestyksessä, eikä
+> `--pakota` ole tarpeen: `parse` huomaa sekä puuttuvan taulun että
+> vanhentuneen enumin itse.
+>
+> Muutos ei ole tarkennus vaan **menetelmän vaihto**. Räjähdysalue johdettiin
+> aiemmin lähimmästä elossa olevasta pelaajasta, ja se oli rakenteellisesti
+> väärä eikä vain epätarkka: savu heitetään sinne, missä ketään ei ole --
+> juuri siksi, että se estää näkyvyyden ja pakottaa rotaatioita. Neljästä
+> liigademosta **42 %** räjähdyksistä jäi kokonaan ilman aluetta (722/1 716).
+> Pistepilvellä ja kynnyksellä 256 osuus on **4,3 %** (74/1 716). Kynnys on
+> kalibroitu kaikilla kuudella demolla: 2 428/2 544 eli 95,4 % räjähdyksistä
+> saa alueen. Raportin tasolla utility-kuvioita ilman räjähdysaluetta oli
+> 219/591 (37 %) ja on nyt 14/508 (2,8 %).
+>
+> Ajon yhteenveto sai samalla kolme uutta riviä (`Räjähdysalue`,
+> `Etäisyys ruutuun`, `Pistepilvi`) ja menetti yhden: `Nimetön alue` kertoi
+> tapauksesta "lähin pelaaja löytyi, mutta pelillä ei ole nimeä hänen
+> alueelleen", eikä sitä voi enää syntyä -- pistepilveen ei pääse nimetöntä
+> ruutua. Sen tilalla on `Kynnyksen takana`.
+
 Manifesti on **raporttikohtainen** (`<raportin nimi>.manifest.json`) ja
 jäljitettävyyttä varten. Yhteinen manifesti kestäisi huonosti juuri sitä
 rinnakkaisuutta, jonka varalta nimi varataan: kaksi yhtaikaista ajoa saisi
@@ -709,19 +762,19 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `settings.toml` | Kaikki numerot: `[project] [league] [parse] [thresholds] [aggregate] [economy]` |
 | `src/pappascout/constants.py` | Jaetut enum-luettelot (kierrostyyppi, puoli, tila) |
 | `src/pappascout/errors.py` | `PappascoutError` ja alaluokat |
-| `src/pappascout/domain/schemas.py` | Polars-skeemat `ROUNDS`, `TICKS`, `EVENTS`, `LINEUPS`, `CLASSIFIED` ja `validate()` |
+| `src/pappascout/domain/schemas.py` | Polars-skeemat `ROUNDS`, `TICKS`, `EVENTS`, `LINEUPS`, `DEATHS`, `CALLOUT_CLOUD`, `CLASSIFIED` ja `validate()` |
 | `src/pappascout/domain/models.py` | Typatut asetusosiot ja `load_settings()` |
 | `src/pappascout/domain/rounds.py` | `mark_played_rounds()` -- ainoa paikka, joka päättää `round_no`:n -- ja `check_win_reasons()` |
 | `src/pappascout/domain/economy.py` | `loss_counts()` ja `classify_round()` -- kierrostyypin talouspäättely |
 | `src/pappascout/domain/sampling.py` | `sample_ticks()` ja `first_contact_tick()` -- näytepisteiden valinta ja ensikontaktin sääntö |
-| `src/pappascout/domain/utility.py` | `grenade_endpoints()` ja `snap_area()` -- lentoradan pelkistys kahteen pisteeseen ja alueen johtaminen koordinaateista |
+| `src/pappascout/domain/utility.py` | `grenade_endpoints()`, `build_point_cloud()` ja `nearest_cells()` -- lentoradan pelkistys kahteen pisteeseen ja räjähdysalueen johtaminen pistepilvestä |
 | `src/pappascout/archive/paths.py` | Arkiston hakemistorakenne suhteellisina polkuina |
 | `src/pappascout/archive/atomic_write.py` | Atominen kirjoitus (`*.tmp-<host>` -> `rename`) |
 | `src/pappascout/archive/manifest.py` | `Manifest`-malli, `is_current()` ja vaiheiden ohitussopimus |
 | `src/pappascout/adapters/protocols.py` | Portit, jotka vaiheet ottavat parametrina |
 | `src/pappascout/adapters/decompress.py` | `.dem.zst`-purku ja `PBDEMS2`-otsikkotarkistus |
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
-| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + `deaths.parquet` + manifesti |
+| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + `deaths.parquet` + `callouts.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |
 | `src/pappascout/domain/aggregate.py` | Jakaumat ja otannat puhtaina funktioina; `build_report()` |

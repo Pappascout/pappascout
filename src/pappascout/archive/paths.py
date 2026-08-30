@@ -71,8 +71,16 @@ __all__ = [
 DEFAULT_DEMO_SUFFIX = ".dem.zst"
 DEMO_SUFFIXES: tuple[str, ...] = (".dem.zst", ".dem.gz", ".dem")
 
-#: ``parse``-vaiheen kirjoittamat taulut.
-PARSED_TABLES: tuple[str, ...] = ("rounds", "ticks", "events", "lineups", "deaths")
+#: ``parse``-vaiheen kirjoittamat taulut, yksi demoa kohden. Luettelo on
+#: portinvartija: nimi, jota ei ole täällä, ei voi päätyä arkiston polkuun.
+PARSED_TABLES: tuple[str, ...] = (
+    "rounds",
+    "ticks",
+    "events",
+    "lineups",
+    "deaths",
+    "callouts",
+)
 
 LOCK_FILE = PurePosixPath(".lock")
 

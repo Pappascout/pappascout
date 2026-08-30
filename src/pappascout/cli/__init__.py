@@ -207,11 +207,11 @@ def parse(
         ),
     ),
 ) -> None:
-    """Parsi demo viideksi tauluksi.
+    """Parsi demo kuudeksi tauluksi.
 
     Kirjoittaa ``parsed/<map_demo_id>/rounds.parquet``-, ``ticks.parquet``-,
-    ``events.parquet``-, ``lineups.parquet``- ja ``deaths.parquet``-taulut
-    sekä niiden manifestin.
+    ``events.parquet``-, ``lineups.parquet``-, ``deaths.parquet``- ja
+    ``callouts.parquet``-taulut sekä niiden manifestin.
     Jos manifesti täsmää, vaihe ohitetaan eikä demoa lueta uudelleen.
     """
     settings = load_settings()
@@ -316,6 +316,7 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
     lines.extend(_armored_players(stats))
     lines.extend(_sample_points(stats, rounds))
     lines.extend(_utility(stats, rounds))
+    lines.extend(_callouts(stats))
     lines.extend(_deaths(stats, rounds))
     lines.extend(_lineups(stats))
 
@@ -1027,12 +1028,13 @@ def _utility(stats: dict, rounds: int) -> list[str]:
         (
             "grenades_detonating_after_round",
             "Räjähdys myöhässä",
-            "kierroksen päättymisen jälkeen -- alue jätettiin tyhjäksi",
+            "kierroksen päättymisen jälkeen (havainto -- alue tulee "
+            "pistepilvestä kuten muillakin)",
         ),
         (
             "grenade_ticks_without_players",
             "Tickillä ei rivejä",
-            "päätepistettä ilman pelaajia -- aluetta ei voitu edes yrittää",
+            "heittoa ilman pelaajarivejä -- heittäjän aluetta ei voitu yrittää",
         ),
         (
             "grenades_sharing_an_entity_id",
@@ -1051,28 +1053,122 @@ def _utility_areas(stats: dict) -> list[str]:
 
     Kolme lukua eikä yksi, koska ne ovat eri laatua olevaa tietoa. Heiton alue
     on heittäjän oma ``m_szLastPlaceName`` eli havainto; räjähdyksen alue on
-    lähimmältä pelaajalta johdettu arvio. Yhteen niputettuna raportin lukija
-    luulisi molempia yhtä varmoiksi.
+    pistepilven lähimmästä ruudusta johdettu arvio. Yhteen niputettuna
+    raportin lukija luulisi molempia yhtä varmoiksi.
+
+    Kolme lisäriviä ovat Story 2.9:n mittarit, ja ne kerrotaan **joka ajolla**
+    eikä kerran kalibroinnissa:
+
+    ``Räjähdysalue``
+        Kattavuus ``n/m`` ja osuus. Se on ainoa luku, joka vastaa
+        kysymykseen "kuinka moni utility-rivi jää ilman aluetta".
+    ``Etäisyys ruutuun``
+        Mediaani, p90 ja suurin. Asetus kertoo kynnyksen; tämä kertoo, mihin
+        mittaus oikeasti osui -- ja suurin luku on se, joka osoittaa miksi
+        kynnys on olemassa.
+    ``Kynnyksen takana``
+        Räjähdykset, joille lähin ruutu löytyi mutta jäi kynnyksen taakse.
+        Se on kynnyksen **hinta**, ja se on eri asia kuin tyhjä pistepilvi:
+        molemmissa alue puuttuu, mutta vain tässä etäisyys on tiedossa. Rivi
+        näkyy vain kun luku on nollasta poikkeava.
+
+    **Rivi ``Nimetön alue`` poistui Story 2.9:ssä.** Se kertoi tapauksesta
+    "lähin pelaaja löytyi, mutta pelillä ei ole nimeä hänen alueelleen", eikä
+    sitä voi enää syntyä: pistepilveen ei pääse nimetöntä ruutua, joten
+    kynnyksen sisällä osuva räjähdys saa aina nimen. Sen tilalla on
+    ``Kynnyksen takana``, joka vastaa samaan kysymykseen -- "alue puuttui,
+    mutta mittaus onnistui" -- oikealla syyllä. Merkintä on tässä siksi, että
+    kahta ajoa version yli vertaava näkee rivin kadonneen ja saa tietää miksi.
     """
     observed = int(stats.get("utility_area_observed", 0) or 0)
-    snapped = int(stats.get("utility_area_snapped", 0) or 0)
-    unnamed = int(stats.get("utility_area_unnamed", 0) or 0)
+    from_cloud = int(stats.get("utility_area_point_cloud", 0) or 0)
+    beyond = int(stats.get("utility_area_beyond_threshold", 0) or 0)
     without_area = int(stats.get("utility_without_area", 0) or 0)
     lines = [
         _line(
             "Utilityn alue",
-            f"{observed} havaittua, {snapped} napsautettua, "
+            f"{observed} havaittua, {from_cloud} pistepilvestä, "
             f"{without_area} ilman aluetta",
         )
     ]
-    if unnamed:
+
+    coverage = stats.get("utility_detonation_area_coverage")
+    if coverage:
+        # Nimittäjä ei voi olla nolla: vaihe jättää luvun kokonaan pois, jos
+        # räjähdyksiä ei ollut. Sama sääntö kuin muillakin puuttuvilla
+        # avaimilla -- "0/0" olisi väite, jota mikään ei tue.
+        named, total = coverage
+        lines.append(
+            _line("Räjähdysalue", f"{named}/{total} nimetty ({named / total:.0%})")
+        )
+    spread = stats.get("utility_snap_distance")
+    if spread:
+        median, p90, largest = spread
         lines.append(
             _line(
-                "Nimetön alue",
-                f"{unnamed} tapahtumaa (lähin pelaaja löytyi, mutta pelillä "
-                "ei ole nimeä hänen alueelleen)",
+                "Etäisyys ruutuun",
+                f"mediaani {median:.0f}, p90 {p90:.0f}, suurin {largest:.0f} "
+                "yksikköä",
             )
         )
+    if beyond:
+        lines.append(
+            _line(
+                "Kynnyksen takana",
+                f"{beyond} räjähdystä (lähin ruutu löytyi, mutta se on "
+                "kauempana kuin area_snap_units)",
+            )
+        )
+    return lines
+
+
+def _callouts(stats: dict) -> list[str]:
+    """Pistepilven rivit ``parse``-tulosteeseen.
+
+    **Alueiden määrä on tärkeämpi kuin ruutujen.** Ruutujen määrä kertoo vain
+    ruudun koon; alueiden määrä kertoo, tunnistiko pilvi kartan. Mitattu
+    2026-08-30: Ancient 18, Nuke 29, Anubis 28, Inferno 24. Yksinumeroinen
+    luku tarkoittaisi, että ``last_place_name`` tulee enimmäkseen tyhjänä --
+    ja silloin jokainen räjähdysalue olisi arvausta.
+
+    Havainnoista kerrotaan **suhde eikä pelkkä summa**. Osoittaja on taulun
+    oma ``callout_observations`` (kelvolliset rivit) ja nimittäjä
+    diagnostiikan ``callout_cloud_rows_read`` (koko tickiluku); vain
+    jälkimmäistä ei voi lukea valmiista taulusta, joten koko rivi näkyy vain
+    tuoreesta ajosta. Kelvollisten osuus on mitatussa aineistossa 71-78 %, ja
+    romahdus tarkoittaisi rikkinäistä suodatinta.
+    """
+    if "callouts_unreadable" in stats:
+        return [
+            _line("Pistepilvi", f"lukuja ei saatu ({stats['callouts_unreadable']})")
+        ]
+    if "callout_cells" not in stats:
+        return []
+
+    cells = int(stats.get("callout_cells", 0) or 0)
+    areas = int(stats.get("callout_areas", 0) or 0)
+    lines = [
+        _line("Pistepilvi", f"{cells} ruutua, {areas} aluetta")
+        if cells
+        else _line("Pistepilvi", "tyhjä -- yhtäkään räjähdysaluetta ei nimetä")
+    ]
+
+    read = int(stats.get("callout_cloud_rows_read", 0) or 0)
+    # Kelvolliset rivit tulevat taulusta eikä toisesta laskurista: ne ovat
+    # ruutujen havaintojen summa, ja kaksi lähdettä samalle luvulle voisi
+    # erkaantua.
+    usable = int(stats.get("callout_observations", 0) or 0)
+    if read:
+        lines.append(
+            _line(
+                "Pilven havainnot",
+                f"{usable}/{read} tickiriviä kelpasi ({usable / read:.0%} "
+                "elossa ja alue tiedossa)",
+            )
+        )
+    reason = stats.get("callout_cloud_empty_reason")
+    if reason:
+        lines.append(_line("Pilvi tyhjä koska", str(reason)))
     return lines
 
 

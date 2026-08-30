@@ -331,7 +331,7 @@ def test_utility_use_cannot_appear_in_more_rounds_than_exist() -> None:
             grenade_type="smoke",
             throw_area="TSpawn",
             detonate_area="BombsiteB",
-            area_source="snapped",
+            area_source="point_cloud",
             seconds_bucket="0-5",
             n=4,
             throws=4,
@@ -385,13 +385,13 @@ def test_detonate_area_cannot_appear_without_its_source() -> None:
 
 
 def test_area_source_cannot_appear_without_its_area() -> None:
-    """Lähde ilman aluetta väittäisi napsautusta alueelle, jota ei ole."""
+    """Lähde ilman aluetta väittäisi johdosta alueelle, jota ei ole."""
     with pytest.raises(ValidationError, match="ristiriidassa"):
         UtilityUse(
             grenade_type="smoke",
             throw_area="TSpawn",
             detonate_area=None,
-            area_source="snapped",
+            area_source="point_cloud",
             seconds_bucket="0-5",
             n=1,
             throws=1,
@@ -820,8 +820,15 @@ def test_the_two_player_distributions_use_different_field_names() -> None:
 
 
 def test_the_schema_version_says_the_structure_changed() -> None:
-    """Uusi pakollinen kenttä = vanha raportti ei validoidu; versio nousee."""
-    assert REPORT_SCHEMA_VERSION == "4.0.0"
+    """Vanha raportti ei validoidu = versio nousee.
+
+    Ehto ei ole "tuliko uusi kenttä" vaan "validoituuko vanha tiedosto".
+    Story 2.9 ei tuonut yhtään kenttää: se poisti ``AreaSource``-luettelosta
+    arvon ``snapped``, ja se riittää -- vanha ``report.json`` kaatuisi
+    muuten pydanticin virheeseen sen sijaan että ``render`` kertoisi
+    aggregoinnin olevan ajettava uudelleen.
+    """
+    assert REPORT_SCHEMA_VERSION == "5.0.0"
 
 
 def _round_type_with(entry: DeathReport, rounds: int) -> RoundTypeReport:

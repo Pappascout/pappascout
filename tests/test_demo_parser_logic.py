@@ -31,6 +31,7 @@ from pappascout.adapters.demo_parser import (
     Demoparser2Adapter,
 )
 from pappascout.adapters.protocols import (
+    CALLOUTS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
@@ -40,6 +41,7 @@ from pappascout.adapters.protocols import (
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
     ARMORED_COLUMN,
+    CALLOUT_CLOUD,
     EVENTS,
     MONEY_DISTRIBUTION_COLUMN,
     TICKS,
@@ -77,8 +79,16 @@ SNAPSHOT_SECONDS: tuple[float, ...] = (2.0, 5.0)
 A_SIDE_HEIGHT = 5.0
 B_SIDE_HEIGHT = 1005.0
 
-#: Etäisyys, jonka sisältä utility saa napata alueen näissä testeissä.
+#: Etäisyys, jonka sisältä räjähdys saa alueensa näissä testeissä. Väljempi
+#: kuin tuotannon 256, koska feikkikartan pistepilvi on harva: pelaajia on
+#: kymmenen ja he seisovat sadan yksikön välein.
 AREA_SNAP_UNITS = 500.0
+
+#: Pistepilven mitat näissä testeissä. Samat kuin ``settings.toml``issa, jotta
+#: testien luvut mittaavat tuotannon ruudukkoa.
+CALLOUT_GRID_UNITS = 32
+CALLOUT_Z_WEIGHT = 1.0
+CALLOUT_Z_TOLERANCE = 72.0
 
 #: Feikin oletustavaraluettelo: veitsi, ilmainen pistooli, ostettu kivääri ja
 #: yksi savu. Vastaa oletusvarustearvoa 4200 (200 + 2700 + 300 + kevlar 1000),
@@ -103,6 +113,14 @@ class FakeDemoparser2:
     kirjattu kierrosrajaksi, on näytepiste: sen rivit generoidaan siitä
     kierroksesta, jonka sisään tick osuu.
 
+    ``parse_ticks`` **ilman ``ticks``-argumenttia** on koko demon luku, jonka
+    oikea kirjasto tekee pistepilveä varten. Feikki palauttaa siihen jokaisen
+    tuntemansa tickin: kierrosrajat sellaisenaan (niillä ei ole
+    koordinaatteja, aivan kuten oikeassakin kutsussa on rivejä joilta ne
+    puuttuvat) ja kierroksen keskeltä yhden näytepisteen, joka tuottaa
+    pelaajien sijainnit. Näin pistepilvi syntyy samasta aineistosta, jonka
+    näytepisteetkin näkevät.
+
     ``drop_props`` jäljittelee tilannetta, jossa kirjasto on nimennyt kentän
     uudelleen eikä pyydettyä propia enää tule mukana.
     """
@@ -119,6 +137,7 @@ class FakeDemoparser2:
         grenades: list[dict[str, Any]] | None = None,
         drop_grenade_columns: tuple[str, ...] = (),
         drop_death_columns: tuple[str, ...] = (),
+        drop_cloud_props: tuple[str, ...] = (),
     ) -> None:
         self.freeze_ticks = freeze_ticks
         self.round_ends = round_ends
@@ -128,6 +147,12 @@ class FakeDemoparser2:
         self.rounds_model = rounds_model or []
         self.grenades = grenades or []
         self.drop_grenade_columns = drop_grenade_columns
+        #: Propit, jotka pudotetaan **vain koko demon luvusta** eli
+        #: pistepilveltä. Oma listansa siksi, että ``drop_props`` kaataisi
+        #: aiemman kutsun: näytepisteet lukevat samat kentät ja niiden oma
+        #: tarkistus nimeäisi puuttuvan ensin, eikä pistepilven vartija
+        #: pääsisi koskaan ääneen.
+        self.drop_cloud_props = drop_cloud_props
         #: Sarakkeet, jotka pudotetaan ``player_death``-tuloksesta. Kirjaston
         #: uudelleennimeäminen näkyy juuri näin: tapahtuma tulee, mutta
         #: pyydettyä pelaajakenttää ei ole.
@@ -178,17 +203,39 @@ class FakeDemoparser2:
     def parse_ticks(
         self, wanted_props: list[str], *, ticks: list[int] | None = None
     ) -> pd.DataFrame:
+        # Tyhjä tickimonikko kutsulistalla tarkoittaa **koko demon lukua**:
+        # oikealle kirjastolle ``ticks=None`` on juuri se, ja pistepilvi on
+        # ainoa kohta, jossa adapteri sen tekee.
         self.tick_calls.append((tuple(wanted_props), tuple(ticks or ())))
-        rows = [r for tick in (ticks or []) for r in self._rows_at(tick)]
+        whole_demo = ticks is None
+        wanted = list(ticks) if ticks is not None else self._cloud_ticks()
+        rows = [r for tick in wanted for r in self._rows_at(tick)]
         columns = [*wanted_props, "tick", "steamid", "name"]
         frame = pd.DataFrame(
             [{name: row.get(name) for name in columns} for row in rows],
             columns=columns,
         )
-        for prop in self.drop_props:
+        dropped = self.drop_props + (self.drop_cloud_props if whole_demo else ())
+        for prop in dropped:
             if prop in frame.columns:
                 frame = frame.drop(columns=[prop])
         return frame
+
+    def _cloud_ticks(self) -> list[int]:
+        """Tickit, jotka koko demon luku palauttaa.
+
+        Kierrosrajat ovat mukana sellaisenaan -- niiltä puuttuvat
+        koordinaatit, ja juuri sellaisia rivejä oikeassa demossa on. Lisäksi
+        jokaisesta kierroksesta yksi tick sen keskeltä: se putoaa
+        :meth:`_rows_at`issa näytepisterivien haaraan ja tuottaa pelaajien
+        sijainnit, joista pistepilvi syntyy.
+        """
+        ticks = set(self.tick_rows)
+        for round_spec in self.rounds_model:
+            if round_spec.freeze_tick is None or round_spec.end_tick is None:
+                continue
+            ticks.add((round_spec.freeze_tick + round_spec.end_tick) // 2)
+        return sorted(ticks)
 
     def _rows_at(self, tick: int) -> list[dict[str, Any]]:
         if tick in self.tick_rows:
@@ -210,6 +257,9 @@ def parse_tables(
     fallback_death: bool = True,
     area_snap_units: float | None = AREA_SNAP_UNITS,
     buy_window_seconds: float = 0.0,
+    callout_grid_units: int = CALLOUT_GRID_UNITS,
+    callout_z_weight: float = CALLOUT_Z_WEIGHT,
+    callout_z_tolerance_units: float = CALLOUT_Z_TOLERANCE,
 ) -> DemoTables:
     """Aja adapteri feikin päällä; vain ``_open`` korvataan.
 
@@ -226,6 +276,9 @@ def parse_tables(
         fallback_death=fallback_death,
         area_snap_units=area_snap_units,
         buy_window_seconds=buy_window_seconds,
+        callout_grid_units=callout_grid_units,
+        callout_z_weight=callout_z_weight,
+        callout_z_tolerance_units=callout_z_tolerance_units,
     )
     adapter._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
     return adapter.parse_demo(demo, sample_seconds)
@@ -268,6 +321,11 @@ def parse_adapter(
         fallback_death=kwargs.pop("fallback_death", True),
         area_snap_units=kwargs.pop("area_snap_units", AREA_SNAP_UNITS),
         buy_window_seconds=kwargs.pop("buy_window_seconds", 0.0),
+        callout_grid_units=kwargs.pop("callout_grid_units", CALLOUT_GRID_UNITS),
+        callout_z_weight=kwargs.pop("callout_z_weight", CALLOUT_Z_WEIGHT),
+        callout_z_tolerance_units=kwargs.pop(
+            "callout_z_tolerance_units", CALLOUT_Z_TOLERANCE
+        ),
     )
     adapter._open = lambda *args, **kwargs2: fake  # type: ignore[method-assign]
     adapter.parse_demo(demo, kwargs.pop("sample_seconds", SNAPSHOT_SECONDS))
@@ -2948,8 +3006,13 @@ def test_an_unset_snap_distance_only_silences_the_detonations(
     """Kalibroimaton raja vie arvion, ei havaintoa.
 
     Heiton alue luetaan heittäjän omasta ``m_szLastPlaceName``ista, joten se
-    säilyy vaikka napsautus olisi kytketty kokonaan pois. Vain räjähdys on
-    napsautuksen varassa.
+    säilyy vaikka kynnys olisi kokonaan pois. Vain räjähdys on kynnyksen
+    varassa.
+
+    **Etäisyys mitataan silti.** Pistepilvestä lähin ruutu löytyy aina, joten
+    kynnyksen puuttuminen ei tarkoita, ettei mittausta olisi -- se tarkoittaa,
+    ettei sen perusteella nimetä. Juuri se etäisyys on aineisto, josta kynnys
+    kalibroidaan, eikä sitä saa hukata siihen että asetus on vielä tyhjä.
     """
     events = parse_events_table(
         build(utility_match()), tmp_path, area_snap_units=None
@@ -2961,7 +3024,9 @@ def test_an_unset_snap_distance_only_silences_the_detonations(
     assert throws["area_source"].unique().to_list() == ["observed"]
     assert detonations["area"].null_count() == detonations.height
     assert detonations["area_source"].null_count() == detonations.height
-    assert events["snap_distance"].null_count() == events.height
+    # Havainnolla ei ole etäisyyttä, arviolla on -- myös ilman kynnystä.
+    assert throws["snap_distance"].null_count() == throws.height
+    assert detonations["snap_distance"].null_count() == 0
     assert events["x"].null_count() == 0
 
 
@@ -3170,36 +3235,41 @@ def test_a_broken_grenade_read_is_a_finnish_error(tmp_path: Path) -> None:
     assert "lentoratoja ei voitu lukea" in str(exc.value)
 
 
-def test_only_the_endpoint_ticks_are_read_for_areas(tmp_path: Path) -> None:
-    """Aluetta varten ei lueta koko rataa vaan sen kaksi päätä.
+def test_only_the_throw_tick_is_read_for_areas(tmp_path: Path) -> None:
+    """Aluetta varten ei lueta rataa vaan sen alkupää -- eikä loppupäätä.
 
-    Ilman tätä 1,55 miljoonan rivin rata kulkisi tick-lukuun asti.
+    Ilman tätä 1,55 miljoonan rivin rata kulkisi tick-lukuun asti. Ja
+    **räjähdyksen tickiä ei lueta lainkaan**: sen alue tulee pistepilvestä
+    eikä siitä, ketkä sattuivat olemaan lähellä. Rata alkaa tickistä 1100 ja
+    päättyy tickiin 1599; vain edellinen saa tickiluvun.
     """
     rounds = long_match(played=1)
     rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 500)]
     fake = build(rounds)
     parse_events_table(fake, tmp_path, sample_seconds=(6.0,))
 
-    utility_calls = [
-        ticks
+    endpoint_calls = [
+        set(ticks)
         for props, ticks in fake.tick_calls
-        if dp._PLACE_NAME in props and set(ticks) == {1100, 1599}
+        if dp._TEAM_NUM in props and dp._PLACE_NAME in props and 1100 in ticks
     ]
-    assert utility_calls, f"paatepisteita ei luettu: {fake.tick_calls}"
+    assert endpoint_calls == [{1100}], f"vaarat tickit: {fake.tick_calls}"
+    assert not any(1599 in ticks for _, ticks in fake.tick_calls)
 
 
 # --- Alueen lähde: havainto vs. arvio ------------------------------------------
 
 
-def test_the_throw_area_is_observed_not_snapped(tmp_path: Path) -> None:
+def test_the_throw_area_is_observed_not_derived(tmp_path: Path) -> None:
     """Heittäjän oma alue on tiedossa, joten sitä ei arvata naapurista.
 
     Napsautus voisi tarttua vieressä seisovaan kaveriin. Tässä kaveri on
     lähempänä kranaatin lähtöpistettä kuin heittäjä itse: jos rivi menisi
-    napsautuksen läpi, alue olisi kaverin.
+    pistepilven läpi, alue olisi lähimmän ruudun eikä heittäjän oma.
     """
     rounds = long_match(played=1)
-    # Heittäjä aaa1 on kuollut näytepisteessä, joten napsautus ohittaisi hänet
+    # Heittäjä aaa1 on kuollut näytepisteessä, joten kuolleiden suodatin
+    # jättäisi hänet pilven ulkopuolelle
     # ja tarttuisi aaa2:een -- eri alueelle. Havainto lukee silti heittäjän
     # oman rivin: kuollutkin pelaaja saa rivin ja aluenimen.
     rounds[0].a_dead_at_sample = 1
@@ -3213,7 +3283,7 @@ def test_the_throw_area_is_observed_not_snapped(tmp_path: Path) -> None:
     assert throw["snap_distance"].null_count() == 1
 
 
-def test_the_detonation_area_is_marked_as_snapped(tmp_path: Path) -> None:
+def test_the_detonation_area_is_marked_as_derived(tmp_path: Path) -> None:
     """Räjähdyksellä ei ole omaa aluenimeä, joten se on aina arvio."""
     rounds = long_match(played=1)
     # Lyhyt rata: 9 x 40 = 360 yksikköä, eli reilusti rajan 500 sisällä.
@@ -3223,7 +3293,7 @@ def test_the_detonation_area_is_marked_as_snapped(tmp_path: Path) -> None:
     detonation = events.filter(pl.col("event_kind") == "grenade_detonate")
     with_area = detonation.filter(pl.col("area").is_not_null())
     assert not with_area.is_empty()
-    assert with_area["area_source"].unique().to_list() == ["snapped"]
+    assert with_area["area_source"].unique().to_list() == ["point_cloud"]
     assert with_area["snap_distance"].null_count() == 0
     assert with_area["snap_distance"].min() > 0.0
 
@@ -3252,22 +3322,30 @@ def test_a_throw_whose_thrower_has_no_row_gets_no_area(tmp_path: Path) -> None:
     assert throw["x"].null_count() == 0
 
 
-def test_a_detonation_after_the_round_gets_no_area(tmp_path: Path) -> None:
-    """Kierroksen jälkeen pelaajat ovat spawnissa, ei savun luona.
+def test_a_detonation_after_the_round_is_counted_but_not_punished(
+    tmp_path: Path,
+) -> None:
+    """Myöhäinen räjähdys saa alueensa kuten muutkin -- ja lasketaan silti.
 
-    Rivi jää tauluun koordinaatteineen -- savu oli siellä missä oli -- mutta
-    alue jätetään tyhjäksi ja tapaus lasketaan.
+    Story 2.2:ssa nämä jätettiin tarkoituksella aluettomiksi: alue tuli
+    silloin lähimmältä elossa olevalta pelaajalta, ja kierroksen jälkeen se
+    olisi kertonut seuraavan kierroksen spawnin. Pistepilvi ei riipu
+    hetkestä, joten syy katosi menetelmän mukana. Luku jää, koska myöhäinen
+    räjähdys on silti oma ilmiönsä.
     """
     rounds = long_match(played=2)
-    # Kierros ratkeaa 4 000 tickin kohdalla, rata jatkuu sen yli.
-    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 5000)]
-    tables = parse_tables(build(rounds), tmp_path)
-    adapter = parse_adapter(build(rounds), tmp_path)
+    # Kierros ratkeaa tickillä 5 000; rata alkaa 4 950 ja jatkuu sen yli.
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 3950, 100)]
+    # Feikkikartan pistepilvi on harva, joten kynnys on väljä: testi mittaa
+    # sitä, ETTÄ alue annetaan, ei sitä kuinka läheltä.
+    tables = parse_tables(build(rounds), tmp_path, area_snap_units=5000.0)
+    adapter = parse_adapter(build(rounds), tmp_path, area_snap_units=5000.0)
 
     detonation = tables.events.filter(pl.col("event_kind") == "grenade_detonate")
     assert detonation.height == 1
-    assert detonation["area"].null_count() == 1
-    assert detonation["snap_distance"].null_count() == 1
+    assert detonation["area"].null_count() == 0
+    assert detonation["area_source"].to_list() == ["point_cloud"]
+    assert detonation["snap_distance"].null_count() == 0
     assert detonation["x"].null_count() == 0
     assert adapter.diagnostics is not None
     assert adapter.diagnostics.grenades_detonating_after_round == 1
@@ -3276,13 +3354,15 @@ def test_a_detonation_after_the_round_gets_no_area(tmp_path: Path) -> None:
 # --- Suorituskyvyn ja tunnisteiden vartijat ------------------------------------
 
 
-def test_no_tick_read_happens_when_every_grenade_is_dropped(
+def test_the_point_cloud_is_the_only_whole_demo_tick_read(
     tmp_path: Path,
 ) -> None:
-    """Tyhjä tick-lista voisi tarkoittaa demoparser2:lle "kaikki tickit".
+    """Tyhjä tick-lista tarkoittaa demoparser2:lle "kaikki tickit".
 
-    Juuri se koko tickisarjan luku on se, minkä välttämiseen tämä adapteri
-    perustuu -- ja tilanne syntyy, jos jokainen kranaatti putoaa.
+    Koko tickisarja luetaan **tasan kerran**, pistepilveä varten, ja se on
+    tarkoitus. Jokainen muu kutsu nimeää tickinsä -- ja tilanne, jossa yksi
+    niistä voisi vahingossa jäädä tyhjäksi, syntyy juuri tässä: jokainen
+    kranaatti putoaa, joten päätepisteitä ei ole yhtäkään.
     """
     rounds = long_match(played=1)
     rounds[0].grenades = [(1, "haamu1", "CSmokeGrenadeProjectile", 100, 30)]
@@ -3290,7 +3370,8 @@ def test_no_tick_read_happens_when_every_grenade_is_dropped(
     events = parse_events_table(fake, tmp_path, sample_seconds=(6.0,))
 
     assert events.is_empty()
-    assert all(ticks for _, ticks in fake.tick_calls), fake.tick_calls
+    whole_demo = [props for props, ticks in fake.tick_calls if not ticks]
+    assert whole_demo == [dp.CLOUD_TICK_PROPS], fake.tick_calls
 
 
 def test_shared_entity_ids_are_counted_as_trajectories(tmp_path: Path) -> None:
@@ -4910,3 +4991,223 @@ def test_the_hurt_event_is_read_without_the_player_fields(
     requested = dict(fake.event_calls)
     assert requested["player_hurt"] == ()
     assert set(requested["player_death"]) == set(dp.DEATH_PLAYER_PROPS)
+
+
+# --- Pistepilvi (Story 2.9) ----------------------------------------------------
+
+
+def parse_callouts_table(
+    fake: FakeDemoparser2, tmp_path: Path, **kwargs
+) -> pl.DataFrame:
+    """Pelkkä pistepilvi."""
+    return parse_tables(fake, tmp_path, **kwargs).callouts
+
+
+def test_the_cloud_matches_the_port_contract_exactly(tmp_path: Path) -> None:
+    """Sopimus on täsmällinen sarakejoukko, ei osajoukko."""
+    cloud = parse_callouts_table(build(long_match(played=1)), tmp_path)
+    assert list(cloud.columns) == list(CALLOUTS_ADAPTER_COLUMNS)
+    assert cloud.schema == {
+        name: CALLOUT_CLOUD[name] for name in CALLOUTS_ADAPTER_COLUMNS
+    }
+
+
+def test_the_cloud_is_built_from_where_the_players_stood(tmp_path: Path) -> None:
+    """Ruutuja on yksi per erillinen pelaajan sijainti, ja alue on pelin oma.
+
+    Feikkikartalla pelaajat seisovat kohdissa ``(100i, -100i)``, A-puoli
+    matalalla ja B-puoli korkealla. Ruutuja syntyy siis kymmenen ja alueita
+    kaksi -- ja juuri se kaksi on se, mikä erottaa toimivan pilven tyhjästä.
+    """
+    rounds = long_match(played=1)
+    rounds[0].a_area = "Ramp"
+    rounds[0].b_area = "Heaven"
+    cloud = parse_callouts_table(build(rounds), tmp_path)
+    assert cloud.height == 10
+    assert sorted(cloud["area"].unique().to_list()) == ["Heaven", "Ramp"]
+    assert cloud["observations"].min() >= 1
+
+
+def test_the_cloud_is_read_from_the_whole_demo_in_one_call(tmp_path: Path) -> None:
+    """Yksi kutsu, viisi kevyttä proppia, ei tickilistaa.
+
+    Koko tickisarjan luku on kallis, joten se tehdään **kerran**: kaksi
+    kutsua tarkoittaisi, että pilvi rakennetaan kahdesti ja mahdollisesti eri
+    tuloksella.
+    """
+    fake = build(long_match(played=2))
+    parse_callouts_table(fake, tmp_path)
+    whole_demo = [props for props, ticks in fake.tick_calls if not ticks]
+    assert whole_demo == [dp.CLOUD_TICK_PROPS]
+    # Joukkuetta ei kysytä: pilvi on kartan ominaisuus eikä joukkueen.
+    assert dp._TEAM_NUM not in dp.CLOUD_TICK_PROPS
+
+
+def test_the_detonation_area_comes_from_the_cloud(tmp_path: Path) -> None:
+    """Räjähdyksellä ei ole omaa aluenimeä, joten se on aina arvio.
+
+    Lähde on nyt pelin oma aluemäärittely lähimmässä ruudussa eikä
+    naapuripelaaja -- ja ``area_source`` sanoo sen ääneen.
+    """
+    rounds = long_match(played=1)
+    rounds[0].a_area = "Ramp"
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 10)]
+    events = parse_events_table(build(rounds), tmp_path)
+
+    detonation = events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert detonation["area"].to_list() == ["Ramp"]
+    assert detonation["area_source"].to_list() == ["point_cloud"]
+    assert detonation["snap_distance"].null_count() == 0
+    assert detonation["snap_distance"].min() > 0.0
+
+
+def test_a_detonation_beyond_the_threshold_keeps_its_distance(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: räjähdys kaukana -> alue null, ``snap_distance`` tallessa.
+
+    Etäisyys erottaa tämän tyhjästä pistepilvestä: molemmissa alue on null,
+    mutta vain tässä tiedetään kuinka kaukaa se olisi otettu.
+    """
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 10)]
+    events = parse_events_table(build(rounds), tmp_path, area_snap_units=10.0)
+
+    detonation = events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert detonation["area"].null_count() == 1
+    assert detonation["area_source"].null_count() == 1
+    assert detonation["snap_distance"].null_count() == 0
+    # Heiton alue on havainto eikä katoa kynnyksen mukana.
+    throw = events.filter(pl.col("event_kind") == "grenade_thrown")
+    assert throw["area_source"].to_list() == ["observed"]
+
+
+def test_an_empty_cloud_leaves_every_detonation_without_an_area(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: tyhjä pistepilvi -> kaikki räjähdysalueet null.
+
+    Ajo ei kaadu, ja syy kerrotaan: ilman sitä tyhjä pilvi näyttäisi demolta,
+    jossa aluetta ei vain sattunut löytymään.
+    """
+    rounds = long_match(played=1)
+    # Peli ei anna kummallekaan puolelle aluenimeä -> pilveen ei kelpaa mitään.
+    rounds[0].a_area = None
+    rounds[0].b_area = None
+    rounds[0].grenades = [(1, A_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 10)]
+    tables = parse_tables(build(rounds), tmp_path)
+    adapter = parse_adapter(build(rounds), tmp_path)
+
+    assert tables.callouts.is_empty()
+    detonation = tables.events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert detonation.height == 1
+    assert detonation["area"].null_count() == 1
+    assert detonation["snap_distance"].null_count() == 1
+    assert detonation["x"].null_count() == 0
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.callout_cloud_empty_reason is not None
+    assert "elossa olevaa pelaajaa nimetyllä alueella" in (
+        adapter.diagnostics.callout_cloud_empty_reason
+    )
+
+
+def test_the_cloud_reports_the_rows_it_read(tmp_path: Path) -> None:
+    """Luettujen rivien määrä näkyy **vain** lukuhetkellä.
+
+    Kierrosrajojen tickeillä ei ole koordinaatteja eikä aluetta -- aivan
+    kuten oikeassa demossa on rivejä joilta ne puuttuvat -- joten luettuja
+    rivejä on enemmän kuin kelvollisia. Valmiissa taulussa on jäljellä vain
+    kelvollinen osa, joten suhteen nimittäjä on saatavissa vain täältä.
+
+    **Kelvollisten rivien määrää portti ei raportoi**, ja se on tarkoitus:
+    se on ``observations``-sarakkeen summa, koska jokainen kelvollinen rivi
+    päätyy täsmälleen yhteen ruutuun. Kaksi lähdettä samalle luvulle voisi
+    erkaantua.
+    """
+    adapter = parse_adapter(build(long_match(played=2)), tmp_path)
+    assert adapter.diagnostics is not None
+    read = adapter.diagnostics.callout_cloud_rows_read
+    assert not hasattr(adapter.diagnostics, "callout_cloud_rows_usable")
+
+    cloud = parse_callouts_table(build(long_match(played=2)), tmp_path)
+    usable = int(cloud["observations"].sum())
+    assert read > usable > 0
+
+
+def test_a_dead_player_is_not_in_the_demos_cloud(tmp_path: Path) -> None:
+    """Ruumis jää siihen mihin pelaaja kaatui; kuollut ei kerro kartasta."""
+    rounds = long_match(played=1)
+    rounds[0].a_area = "Ramp"
+    rounds[0].b_area = "Heaven"
+    rounds[0].a_dead_at_sample = 5
+    cloud = parse_callouts_table(build(rounds), tmp_path)
+    assert cloud["area"].unique().to_list() == ["Heaven"]
+
+
+@pytest.mark.parametrize("prop", dp.CLOUD_TICK_PROPS)
+def test_a_missing_cloud_prop_is_named_in_the_error(
+    tmp_path: Path, prop: str
+) -> None:
+    """Ilman tarkistusta pistepilvi olisi tyhjä ja jokainen räjähdysalue null.
+
+    Se olisi rakenteellisesti kelvollinen tulos, jonka syytä ei näkisi
+    mistään -- ja manifesti pitäisi sitä ajan tasalla olevana.
+    """
+    fake = build(long_match(played=1))
+    fake.drop_cloud_props = (prop,)
+    with pytest.raises(ParseError) as exc:
+        parse_callouts_table(fake, tmp_path)
+    assert prop in str(exc.value)
+    assert "pistepilven" in str(exc.value)
+    assert "CLOUD_TICK_PROPS" in str(exc.value)
+
+
+def test_the_grid_size_is_a_setting_not_code(tmp_path: Path) -> None:
+    """Karkeampi ruudukko niputtaa naapurisijainnit samaan ruutuun.
+
+    Testi ei mittaa "oikeaa" ruudun kokoa vaan sen, että asetus todella
+    ohjaa ruudukkoa: kovakoodattu arvo antaisi molemmilla saman taulun.
+    """
+    rounds = long_match(played=1)
+    fine = parse_callouts_table(build(rounds), tmp_path, callout_grid_units=32)
+    coarse = parse_callouts_table(build(rounds), tmp_path, callout_grid_units=512)
+    assert fine.height > coarse.height
+
+
+def _detonation_distance(rounds, tmp_path: Path, **kwargs) -> float:
+    """Yhden räjähdyksen etäisyys lähimpään ruutuun annetuilla mitoilla."""
+    events = parse_events_table(build(rounds), tmp_path, **kwargs)
+    detonation = events.filter(pl.col("event_kind") == "grenade_detonate")
+    assert detonation.height == 1
+    return float(detonation["snap_distance"][0])
+
+
+def test_the_z_weight_and_tolerance_are_settings_not_code(tmp_path: Path) -> None:
+    """Painotus on kaksi asetusta, ja molempien on ohjattava mittaa.
+
+    Kerroksellinen kartta on painon olemassaolon syy, ja toleranssi on se,
+    mikä tekee painosta hyödyllisen -- pelkkä paino on mitattuna huonompi
+    kuin ei painoa lainkaan. Tässä mitataan **kytkentä**: kovakoodattu arvo
+    antaisi kaikilla kolmella saman etäisyyden.
+
+    Räjähdys on B-puolen korkeudella, ruudun keskipiste kolme yksikköä siitä.
+    Toleranssin sisällä pystyero on ilmainen, ilman toleranssia se maksaa
+    painon verran.
+    """
+    rounds = long_match(played=1)
+    rounds[0].grenades = [(1, B_PLAYERS[0], "CSmokeGrenadeProjectile", 100, 10)]
+    common = {"area_snap_units": 5000.0, "callout_z_tolerance_units": 0.0}
+
+    no_weight = _detonation_distance(rounds, tmp_path, callout_z_weight=0.0, **common)
+    heavy = _detonation_distance(rounds, tmp_path, callout_z_weight=20.0, **common)
+    forgiving = _detonation_distance(
+        rounds,
+        tmp_path,
+        callout_z_weight=20.0,
+        area_snap_units=5000.0,
+        callout_z_tolerance_units=72.0,
+    )
+
+    assert heavy > no_weight
+    # Toleranssi nielee saman pystyeron kokonaan, joten paino ei enää maksa.
+    assert forgiving == pytest.approx(no_weight)

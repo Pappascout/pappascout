@@ -1,9 +1,9 @@
-"""``parse`` -- putken ensimmäinen vaihe: demosta viisi taulua.
+"""``parse`` -- putken ensimmäinen vaihe: demosta kuusi taulua.
 
 Vaihe lukee yhden demon portin takaa ja kirjoittaa arkistoon
 ``parsed/<map_demo_id>/rounds.parquet``, ``.../ticks.parquet``,
-``.../events.parquet``, ``.../lineups.parquet``, ``.../deaths.parquet``
-sekä niiden yhteisen manifestin.
+``.../events.parquet``, ``.../lineups.parquet``, ``.../deaths.parquet``,
+``.../callouts.parquet`` sekä niiden yhteisen manifestin.
 
 ``rounds`` on kaksi riviä jokaista **pelattua** kierrosta kohden, yksi
 kummallekin joukkueelle, ja kaikki arvot ovat demosta *havaittuja*: raha ja
@@ -33,9 +33,18 @@ raportti sanoo puuttumisen ääneen sen sijaan että keksisi korvikkeen.
 
 ``deaths`` on rivi per kuolema: uhri ja ampuja molemmat alueineen ja
 koordinaatteineen. Kuolemalla on **kaksi toimijaa**, joten se ei mahdu
-``EVENTS``-taulun yhden toimijan muotoon -- eikä sen alue ole napsautus vaan
+``EVENTS``-taulun yhden toimijan muotoon -- eikä sen alue ole johdos vaan
 havainto samalta tapahtumalta. Ampujaton kuolema (putoaminen, pommi) on aito
 tapaus: ampujan kentät ovat silloin tyhjiä eikä riviä pudoteta.
+
+``callouts`` on rivi per pistepilven ruutu: demon omista tickeistä koottu
+ruudukko siitä, missä pelaajat ovat kartalla seisoneet ja mikä alue kussakin
+kohdassa on. Se on ``events``-taulun **räjähdysalueiden lähde**, ja se
+kirjoitetaan juuri siksi: johdettu alue on tarkistettavissa demoa vasten vain,
+jos se mistä se johdettiin on tallessa. Sama periaate kuin
+``ROUNDS.buy_end_tick``-sarakkeella -- mittausta ei esitetä ilman sitä, mistä
+se luettiin. Tyhjä pistepilvi on kelvollinen tulos: silloin jokainen
+räjähdysalue on ``null``, ajo ei kaadu ja syy kerrotaan ajon yhteenvedossa.
 
 **Tyhjä kuolemataulu on virhe, tyhjä tapahtumataulu ei.** Epäsymmetria on
 tarkoituksellinen, ja se seuraa siitä mitä tyhjyys kummassakin tarkoittaa.
@@ -57,6 +66,11 @@ taulussa aukkona (Ancient: ``round_no`` 1..21 vastaa ``round_raw`` 2..22) --
 niiden lukumäärä kerrotaan myös ajon yhteenvedossa. Päätöksen tekee yksi ainoa
 funktio, :func:`~pappascout.domain.rounds.mark_played_rounds`, jota vain tämä
 vaihe kutsuu.
+
+Pistepilvi on **poikkeus, ja se on tarkoitus**: sen rivit eivät putoa
+numeroinnissa. Pilvi on kartan ominaisuus tässä demossa eikä kierroksen
+havainto, ja lämmittelyn ja puukkokierroksen tickit kertovat kartasta yhtä
+paljon kuin pelattujen kierrosten. Sama sääntö kuin kokoonpanotaululla.
 
 Sama päätös rajaa myös näytepisteet, utility-tapahtumat ja kuolemat:
 adapteri tuottaa rivejä kaikilta ankkuroiduilta kierrosrajoilta, ja vaihe
@@ -134,6 +148,7 @@ from pathlib import Path, PurePosixPath
 import polars as pl
 
 from pappascout.adapters.protocols import (
+    CALLOUTS_ADAPTER_COLUMNS,
     DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
@@ -163,6 +178,7 @@ from pappascout.domain.sampling import FIRST_CONTACT_SAMPLE
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
     ARMORED_COLUMN,
+    CALLOUT_CLOUD,
     DEATHS,
     EVENTS,
     LINEUPS,
@@ -181,6 +197,7 @@ __all__ = [
     "EVENTS_TABLE",
     "LINEUPS_TABLE",
     "DEATHS_TABLE",
+    "CALLOUTS_TABLE",
     "TOOLS",
     "run",
     "resolve_demo",
@@ -210,6 +227,7 @@ class _ParsedTables:
     events: pl.DataFrame
     lineups: pl.DataFrame
     deaths: pl.DataFrame
+    callouts: pl.DataFrame
     skipped_rounds: int
     unnumbered_utility: int
     unnumbered_deaths: int
@@ -221,6 +239,7 @@ TICKS_TABLE = "ticks"
 EVENTS_TABLE = "events"
 LINEUPS_TABLE = "lineups"
 DEATHS_TABLE = "deaths"
+CALLOUTS_TABLE = "callouts"
 
 #: Työkalut, joiden versio muuttaa tämän vaiheen tuloksen (manifest-moduulin
 #: sääntö). Pappascoutin omaa versiota ei merkitä: korjauspäivitys ei saa
@@ -250,6 +269,9 @@ def default_parser(settings: ParseSettings) -> DemoParser:
         fallback_death=settings.first_contact_fallback_death,
         area_snap_units=settings.area_snap_units,
         buy_window_seconds=settings.buy_window_seconds,
+        callout_grid_units=settings.callout_grid_units,
+        callout_z_weight=settings.callout_z_weight,
+        callout_z_tolerance_units=settings.callout_z_tolerance_units,
     )
 
 
@@ -691,6 +713,7 @@ def _stats(
     events: pl.DataFrame,
     lineups: pl.DataFrame,
     deaths: pl.DataFrame,
+    callouts: pl.DataFrame,
     skipped_rounds: int = 0,
 ) -> dict[str, object]:
     """Käyttäjälle näytettävät luvut valmiista tauluista."""
@@ -699,6 +722,7 @@ def _stats(
     stats.update(_event_stats(events))
     stats.update(_lineup_stats(lineups))
     stats.update(_death_stats(deaths))
+    stats.update(_callout_stats(callouts))
     return stats
 
 
@@ -740,16 +764,29 @@ def _event_stats(events: pl.DataFrame) -> dict[str, object]:
 
     ``utility_area_observed``
         Heittäjän oma alue. Havainto.
-    ``utility_area_snapped``
-        Räjähdyksen alue lähimmältä elossa olevalta pelaajalta. Arvio, jonka
+    ``utility_area_point_cloud``
+        Räjähdyksen alue demon pistepilven lähimmästä ruudusta. Arvio, jonka
         luotettavuuden ``snap_distance`` kertoo rivikohtaisesti.
-    ``utility_area_unnamed``
-        Napsautus osui, mutta lähimmällä pelaajalla ei ole aluenimeä. Sekin on
-        havainto -- pelin nimeämätön alue -- eikä sama asia kuin "kukaan ei
-        ollut lähellä".
+    ``utility_area_beyond_threshold``
+        Lähin ruutu löytyi, mutta se on kauempana kuin
+        ``[parse].area_snap_units``. **Tämä on kynnyksen hinta ja ainoa
+        paikka, jossa se näkyy.** Ilman omaa lukuaan se sekoittuisi
+        tapaukseen, jossa pistepilvi oli tyhjä -- molemmissa alue on null,
+        mutta vain tässä on etäisyys.
 
     ``utility_without_area`` on näiden ulkopuolelle jäävä loppu: alue puuttuu
     kokonaan.
+
+    Kolme viimeistä lukua ovat **räjähdysten kattavuus**, ja se on Story 2.9:n
+    tärkein mittari: ``utility_detonation_area_coverage`` on niiden
+    räjähdysten osuus, jotka saivat alueen. Se on ainoa luku, joka vastaa
+    kysymykseen "kuinka moni utility-rivi jää ilman aluetta", ja se lasketaan
+    joka ajolla eikä kerran kalibroinnissa.
+
+    Etäisyysjakauma (``utility_snap_distance``) on kolmikko
+    ``(mediaani, p90, suurin)`` pelin yksiköissä, ``None`` jos yksikään
+    räjähdys ei saanut etäisyyttä. Se on kynnyksen valinnan ainoa aineisto:
+    asetus kertoo rajan, tämä kertoo mihin mittaus oikeasti osui.
     """
     if events.is_empty():
         return {
@@ -758,25 +795,93 @@ def _event_stats(events: pl.DataFrame) -> dict[str, object]:
             "utility_detonations": 0,
             "utility_rounds": 0,
             "utility_area_observed": 0,
-            "utility_area_snapped": 0,
-            "utility_area_unnamed": 0,
+            "utility_area_point_cloud": 0,
+            "utility_area_beyond_threshold": 0,
             "utility_without_area": 0,
+            "utility_detonation_area_coverage": None,
+            "utility_snap_distance": None,
         }
     kinds = events["event_kind"]
     sources = events["area_source"]
+    detonations = events.filter(pl.col("event_kind") == DETONATE)
+    named = int(detonations["area"].is_not_null().sum())
     return {
         "event_rows": int(events.height),
         "utility_throws": int((kinds == THROWN).sum()),
-        "utility_detonations": int((kinds == DETONATE).sum()),
+        "utility_detonations": int(detonations.height),
         "utility_rounds": int(events["round_no"].n_unique()),
         "utility_area_observed": int((sources == "observed").sum()),
-        "utility_area_snapped": int((sources == "snapped").sum()),
-        "utility_area_unnamed": int(
+        "utility_area_point_cloud": int((sources == "point_cloud").sum()),
+        "utility_area_beyond_threshold": int(
             events.filter(
                 pl.col("area").is_null() & pl.col("snap_distance").is_not_null()
             ).height
         ),
         "utility_without_area": int(events["area"].null_count()),
+        # Osuus eikä pelkkä osoittaja: 356 aluetta on eri uutinen 400:sta kuin
+        # 4 000:sta, eikä lukija laske sitä itse ajon tulosteesta.
+        "utility_detonation_area_coverage": (
+            None if detonations.is_empty() else (named, int(detonations.height))
+        ),
+        "utility_snap_distance": _snap_distance_spread(detonations),
+    }
+
+
+def _snap_distance_spread(
+    detonations: pl.DataFrame,
+) -> tuple[float, float, float] | None:
+    """Räjähdysten etäisyysjakauma: ``(mediaani, p90, suurin)``.
+
+    Kolme lukua eikä yksi: mediaani kertoo tavallisen tapauksen, p90 sen missä
+    kynnys alkaa purra ja maksimi sen, kuinka kaukana kaukaisin räjähdys on
+    kaikesta, missä yksikään pelaaja on seissyt. Juuri maksimi on se luku,
+    joka osoittaa miksi kynnys on olemassa: ilman sitä "lähin ruutu löytyy
+    aina" näyttäisi kattavuudelta.
+
+    Mukana ovat **kaikki** räjähdykset, joilla on etäisyys -- myös kynnyksen
+    yli jääneet. Ne ovat jakauman häntä, ja sen leikkaaminen pois piilottaisi
+    juuri sen mitä mitataan.
+
+    Returns:
+        Kolmikko, tai ``None`` jos yksikään räjähdys ei saanut etäisyyttä
+        (tyhjä pistepilvi tai ei räjähdyksiä).
+    """
+    measured = detonations.filter(pl.col("snap_distance").is_not_null())
+    if measured.is_empty():
+        return None
+    distances = measured["snap_distance"]
+    return (
+        float(distances.median()),
+        float(distances.quantile(0.9, interpolation="nearest")),
+        float(distances.max()),
+    )
+
+
+def _callout_stats(callouts: pl.DataFrame) -> dict[str, object]:
+    """Pistepilven luvut.
+
+    ``callout_cells`` ja ``callout_areas`` ovat luettavissa valmiista
+    taulusta, joten ne lasketaan täällä eikä adapterissa -- sama sääntö kuin
+    näytepisteillä ja utilityllä.
+
+    **Alueiden määrä on tärkeämpi kuin ruutujen.** Ruutujen määrä kertoo vain
+    ruudun koon; alueiden määrä kertoo, tunnistiko pilvi kartan. Mitattu
+    2026-08-30: Ancient 18, Nuke 29, Anubis 28, Inferno 24. Yksinumeroinen
+    luku tarkoittaisi, että ``last_place_name`` tulee enimmäkseen tyhjänä.
+
+    ``callout_observations`` on kaikkien ruutujen havaintojen summa eli se
+    rivimäärä, joka pilveen kelpasi.
+    """
+    if callouts.is_empty():
+        return {
+            "callout_cells": 0,
+            "callout_areas": 0,
+            "callout_observations": 0,
+        }
+    return {
+        "callout_cells": int(callouts.height),
+        "callout_areas": int(callouts["area"].n_unique()),
+        "callout_observations": int(callouts["observations"].sum()),
     }
 
 
@@ -885,6 +990,7 @@ def _schema_is_current(
     events_abs: Path,
     lineups_abs: Path,
     deaths_abs: Path,
+    callouts_abs: Path,
 ) -> bool:
     """Vastaavatko arkiston valmiit taulut yhä voimassa olevaa sopimusta.
 
@@ -895,6 +1001,11 @@ def _schema_is_current(
     liiku, kun ``EVENTS`` saa uuden sarakkeen. Ilman tätä tarkistusta vanha
     taulu jäisi hiljaa voimaan ja näyttäisi ajantasaiselta, kunnes joku
     myöhempi vaihe kaatuisi siihen.
+
+    Story 2.9 on tästä tarkka esimerkki. ``AREA_SOURCES``-luettelosta poistui
+    arvo ``snapped``, joten vanha ``events.parquet`` ei enää lataudu tämän
+    version Enumiin -- ja ``callouts.parquet`` puuttuu siitä kokonaan. Kumpi
+    tahansa riittää: demo parsitaan uudelleen ilman ``--pakota``-lippua.
 
     Lukukelvoton taulu on **eri vika eikä tämän funktion asia**: se ei parane
     demon uudelleenluvusta sen todennäköisemmin kuin ilman sitä, ja sillä on
@@ -911,6 +1022,7 @@ def _schema_is_current(
         (events_abs, EVENTS, EVENTS_TABLE),
         (lineups_abs, LINEUPS, LINEUPS_TABLE),
         (deaths_abs, DEATHS, DEATHS_TABLE),
+        (callouts_abs, CALLOUT_CLOUD, CALLOUTS_TABLE),
     ):
         df = _read_table(path)
         if isinstance(df, str):
@@ -928,6 +1040,7 @@ def _existing_stats(
     events_abs: Path,
     lineups_abs: Path,
     deaths_abs: Path,
+    callouts_abs: Path,
 ) -> dict[str, object]:
     """Luvut ohitettuun ajoon: luetaan valmiit taulut, ei parsita demoa.
 
@@ -943,6 +1056,7 @@ def _existing_stats(
     events = _read_table(events_abs)
     lineups = _read_table(lineups_abs)
     deaths = _read_table(deaths_abs)
+    callouts = _read_table(callouts_abs)
 
     # Kierros- ja näytepistetaulu ovat vaiheen ydintulos. Jos **kumpikaan** ei
     # aukea, koko tulos on lukukelvoton eikä siitä koota osittaista
@@ -972,6 +1086,10 @@ def _existing_stats(
         stats["deaths_unreadable"] = deaths
     else:
         stats.update(_death_stats(deaths))
+    if isinstance(callouts, str):
+        stats["callouts_unreadable"] = callouts
+    else:
+        stats.update(_callout_stats(callouts))
     return stats
 
 
@@ -984,7 +1102,7 @@ def run(
     demo_path: Path | None = None,
     force: bool = False,
 ) -> StageResult:
-    """Parsi yksi demo viideksi tauluksi.
+    """Parsi yksi demo kuudeksi tauluksi.
 
     Args:
         settings: ``[parse]``-osio -- ainoa osio, jonka tämä vaihe näkee.
@@ -1019,12 +1137,14 @@ def run(
     events_rel = parsed_table(map_demo_id, EVENTS_TABLE)
     lineups_rel = parsed_table(map_demo_id, LINEUPS_TABLE)
     deaths_rel = parsed_table(map_demo_id, DEATHS_TABLE)
+    callouts_rel = parsed_table(map_demo_id, CALLOUTS_TABLE)
     manifest_rel = parsed_manifest(map_demo_id)
     table_abs = archive.resolve(table_rel)
     ticks_abs = archive.resolve(ticks_rel)
     events_abs = archive.resolve(events_rel)
     lineups_abs = archive.resolve(lineups_rel)
     deaths_abs = archive.resolve(deaths_rel)
+    callouts_abs = archive.resolve(callouts_rel)
     manifest_abs = archive.resolve(manifest_rel)
 
     result_id = str(PurePosixPath("parsed") / map_demo_id)
@@ -1047,6 +1167,7 @@ def run(
         (events_rel, events_abs),
         (lineups_rel, lineups_abs),
         (deaths_rel, deaths_abs),
+        (callouts_rel, callouts_abs),
     )
 
     existing = Manifest.read_if_exists(manifest_abs)
@@ -1063,7 +1184,7 @@ def run(
         # Sopimus viimeisenä: se lukee taulut, ja halvemmat ehdot karsivat
         # suurimman osan ajoista jo ennen sitä.
         and _schema_is_current(
-            table_abs, ticks_abs, events_abs, lineups_abs, deaths_abs
+            table_abs, ticks_abs, events_abs, lineups_abs, deaths_abs, callouts_abs
         )
     ):
         return StageResult(
@@ -1079,7 +1200,7 @@ def run(
             ),
             duration_s=time.perf_counter() - started,
             stats=_existing_stats(
-                table_abs, ticks_abs, events_abs, lineups_abs, deaths_abs
+                table_abs, ticks_abs, events_abs, lineups_abs, deaths_abs, callouts_abs
             ),
         )
 
@@ -1097,6 +1218,7 @@ def run(
                 (events_abs, parsed.events),
                 (lineups_abs, parsed.lineups),
                 (deaths_abs, parsed.deaths),
+                (callouts_abs, parsed.callouts),
             )
         )
     except _RECORDED_ERRORS as exc:
@@ -1109,6 +1231,7 @@ def run(
                 events_abs,
                 lineups_abs,
                 deaths_abs,
+                callouts_abs,
             ),
             existing=existing,
             result_id=result_id,
@@ -1136,6 +1259,7 @@ def run(
             str(events_rel),
             str(lineups_rel),
             str(deaths_rel),
+            str(callouts_rel),
         ),
     ).write(manifest_abs)
 
@@ -1145,6 +1269,7 @@ def run(
         parsed.events,
         parsed.lineups,
         parsed.deaths,
+        parsed.callouts,
         parsed.skipped_rounds,
     )
     # Ostoikkunan luvut lasketaan **valmiista taulusta**, jotta puukkokierros
@@ -1223,15 +1348,29 @@ def run(
             "grenades_detonating_after_round",
             "grenade_ticks_without_players",
             "grenades_sharing_an_entity_id",
+            "callout_cloud_rows_read",
         ):
             stats[name] = getattr(diagnostics, name, 0)
+        # Tyhjän pistepilven syy: **vain tuoreesta ajosta**. Valmis taulu
+        # kertoo että pilvi on tyhjä, muttei sitä miksi -- ja juuri se ero
+        # erottaa rikkinäisen propin demosta, jossa kukaan ei liikkunut.
+        stats["callout_cloud_empty_reason"] = getattr(
+            diagnostics, "callout_cloud_empty_reason", None
+        )
 
     return StageResult(
         stage=STAGE,
         unit=map_demo_id,
         status="ok",
         skipped=False,
-        outputs=(table_rel, ticks_rel, events_rel, lineups_rel, deaths_rel),
+        outputs=(
+            table_rel,
+            ticks_rel,
+            events_rel,
+            lineups_rel,
+            deaths_rel,
+            callouts_rel,
+        ),
         manifest_path=manifest_rel,
         duration_s=time.perf_counter() - started,
         stats=stats,
@@ -1295,6 +1434,12 @@ def _parse_tables(
         DEATHS_ADAPTER_COLUMNS,
         "kuolemataulun",
         "DEATHS_ADAPTER_COLUMNS",
+    )
+    _check_port_columns(
+        tables.callouts,
+        CALLOUTS_ADAPTER_COLUMNS,
+        "pistepilven",
+        "CALLOUTS_ADAPTER_COLUMNS",
     )
 
     numbered = mark_played_rounds(tables.rounds)
@@ -1362,6 +1507,17 @@ def _parse_tables(
     )
     validate(deaths, DEATHS, DEATHS_TABLE)
 
+    # Pistepilveä **ei numeroida**: se on kartan ominaisuus tässä demossa eikä
+    # kierroksen havainto, joten sen rivit eivät putoa puukkokierroksen
+    # mukana -- sama sääntö kuin kokoonpanotaululla. Tyhjä pilvi on
+    # kelvollinen tulos, toisin kuin tyhjä kokoonpanotaulu: demo, jossa
+    # last_place_name jää tyhjäksi, on aidosti pilvetön, ja sen seuraus
+    # (kaikki räjähdysalueet null) on oikea lopputulos eikä hiljainen vika --
+    # syy kerrotaan ajon yhteenvedossa.
+    callouts = _build_callouts(tables.callouts, map_demo_id)
+    validate(callouts, CALLOUT_CLOUD, CALLOUTS_TABLE)
+    _check_callout_cells(callouts)
+
     if deaths.is_empty():
         raise ParseError(
             f"Demosta {demo_path.name} syntyi {df['round_no'].n_unique()} "
@@ -1378,6 +1534,7 @@ def _parse_tables(
         events=events,
         lineups=lineups,
         deaths=deaths,
+        callouts=callouts,
         skipped_rounds=skipped_rounds,
         unnumbered_utility=unnumbered,
         unnumbered_deaths=unnumbered_deaths,
@@ -1555,6 +1712,103 @@ def _build_lineups(lineups: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
         pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
         *[pl.col(name) for name in LINEUPS if name != "map_demo_id"],
     ).sort("lineup_key", "player_id")
+
+
+def _build_callouts(callouts: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
+    """Liitä pistepilveen ``map_demo_id`` ja järjestä rivit.
+
+    Kierrosnumerointia **ei tehdä**: pistepilvi on kartan ominaisuus tässä
+    demossa eikä kierroksen havainto, ja puukkokierroksen pudottaminen veisi
+    siitä ruutuja, joissa on oikeasti seisottu. Sama peruste kuin
+    :func:`_build_lineups`illa.
+
+    Lajitteluavain on ruudun koordinaatti, jotta sama demo tuottaa tavu
+    tavulta saman tiedoston -- adapterin oma järjestys riittäisi, mutta
+    kirjoitusjärjestys on osa tuloksen toistettavuutta eikä sitä jätetä
+    toisen kerroksen varaan.
+    """
+    return callouts.select(
+        pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
+        *[pl.col(name) for name in CALLOUT_CLOUD if name != "map_demo_id"],
+    ).sort("cell_x", "cell_y", "cell_z")
+
+
+def _check_callout_cells(callouts: pl.DataFrame) -> None:
+    """Varmista, että ruutu on yksikäsitteinen ja että sillä on alue.
+
+    Kaksi vikaa, jotka läpäisisivät skeeman mutta rikkoisivat räjähdysalueet:
+
+    * **Kaksoisruutu.** Sama ``(cell_x, cell_y, cell_z)`` kahdesti tarkoittaisi,
+      ettei moodivalinta tehnyt työtään: räjähdys saisi alueen sen mukaan,
+      kumpi rivi sattui olemaan lähempänä lajittelussa, ja sama demo voisi
+      antaa eri alueen eri ajolla.
+    * **Nimetön ruutu.** ``area`` on nullable-sarake, joten tyhjä nimi menisi
+      skeemasta läpi -- ja nimeäisi räjähdyksen tyhjäksi *kynnyksen sisällä*.
+      Rivi näyttäisi siis samalta kuin "aluetta ei saatu", vaikka osuma oli
+      hyvä. Nimetön alue ei kuulu pilveen lainkaan, eikä myöskään pelkistä
+      välilyönneistä koostuva nimi: ``strip`` tekee niistä saman asian.
+    * **Havainnoton ruutu.** ``observations`` on ``Int32``, joten nolla ja
+      negatiivinen menisivät skeemasta läpi. Ruutu syntyy vain havainnosta,
+      joten nolla tarkoittaisi keksittyä ruutua -- ja se vääristäisi sekä
+      ``callout_observations``-luvun että ajon kelpoisuussuhteen hiljaa
+      alaspäin.
+
+    Tyhjä taulu ei ole kumpikaan näistä: se on kelvollinen tulos, ja sen syy
+    kerrotaan ajon yhteenvedossa.
+
+    Raises:
+        SchemaError: Nimeää rikkoutuneen invariantin ja enintään viisi riviä.
+    """
+    if callouts.is_empty():
+        return
+
+    unnamed = int(
+        callouts.filter(
+            pl.col("area").is_null()
+            | (pl.col("area").str.strip_chars().str.len_chars() == 0)
+        ).height
+    )
+    if unnamed:
+        raise SchemaError(
+            f"Pistepilvessä on {unnamed} ruutua ilman aluenimeä.\n"
+            "Nimetön ruutu nimeäisi räjähdyksen tyhjäksi kynnyksen sisällä, "
+            "eli rivi näyttäisi samalta kuin 'aluetta ei saatu' vaikka osuma "
+            "oli hyvä. Alueeton havainto ei kuulu pilveen lainkaan -- "
+            "tarkista suodatin funktiossa domain.utility.build_point_cloud."
+        )
+
+    empty_cells = callouts.filter(
+        pl.col("observations").is_null() | (pl.col("observations") < 1)
+    )
+    if not empty_cells.is_empty():
+        raise SchemaError(
+            f"Pistepilvessä on {empty_cells.height} ruutua, jolla ei ole "
+            "yhtään havaintoa.\n"
+            "Ruutu syntyy vain havainnosta, joten nolla tai negatiivinen "
+            "tarkoittaa keksittyä ruutua -- ja se vääristää sekä pilven "
+            "havaintoluvun että ajon kelpoisuussuhteen hiljaa alaspäin.\n"
+            f"Ensimmäiset rivit: "
+            f"{empty_cells.select('cell_x', 'cell_y', 'cell_z', 'observations').head(3).to_dicts()}"
+        )
+
+    key = callouts.select("cell_x", "cell_y", "cell_z")
+    if key.height == key.unique().height:
+        return
+    duplicates = (
+        callouts.group_by("cell_x", "cell_y", "cell_z")
+        .len()
+        .filter(pl.col("len") > 1)
+        .sort("cell_x", "cell_y", "cell_z")
+        .head(5)
+    )
+    raise SchemaError(
+        "Pistepilven avain (cell_x, cell_y, cell_z) ei ole yksikäsitteinen: "
+        f"{key.height - key.unique().height} riviä on kaksoiskappaleita.\n"
+        "Ruudulla on tasan yksi alue -- se on havainnoista yleisin -- ja kaksi "
+        "riviä tarkoittaisi, että räjähdys saisi alueensa lajittelun "
+        "sattumasta.\n"
+        f"Ensimmäiset toistuvat ruudut: {duplicates.to_dicts()}"
+    )
 
 
 def _check_lineup_key(lineups: pl.DataFrame, demo_path: Path) -> None:

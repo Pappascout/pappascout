@@ -25,6 +25,7 @@ from conftest import (
     settings_text,
 )
 from pappascout.adapters.protocols import (
+    CALLOUTS_ADAPTER_COLUMNS,
     DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
@@ -38,6 +39,7 @@ from pappascout.domain.models import load_settings
 from pappascout.domain.rounds import mark_played_rounds
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
+    CALLOUT_CLOUD,
     CLASSIFIED,
     DEATHS,
     EVENTS,
@@ -300,6 +302,13 @@ def write_parse(
     lineups_frame = _minimal_lineups(frame)
     deaths_frame = _minimal_deaths(frame)
 
+    # Pistepilvi ei vaikuta luokitteluun lainkaan, ja tyhjä pilvi on
+    # kelvollinen tulos -- samoin kuin tyhjä tapahtumataulu. Kiinnike antaa
+    # siis tyhjän mutta sopimuksen mukaisen taulun.
+    callouts_frame = pl.DataFrame(
+        schema={name: CALLOUT_CLOUD[name] for name in CALLOUTS_ADAPTER_COLUMNS}
+    )
+
     class Fake:
         def parse_demo(self, path: Path, sample_seconds) -> DemoTables:
             return DemoTables(
@@ -308,6 +317,7 @@ def write_parse(
                 events=events_frame,
                 lineups=lineups_frame,
                 deaths=deaths_frame,
+                callouts=callouts_frame,
             )
 
     parse_stage.run(

@@ -37,49 +37,76 @@ Räjähdyksen alue on johdettu, heiton alue havaittu
 Nämä kaksi eivät ole samaa tietoa, eikä niitä saa laskea samalla tavalla.
 
 **Heittäjällä** on oma ``m_szLastPlaceName`` samalta tickiltä, joten heiton
-alue luetaan suoraan häneltä. Napsautus voisi tarttua vieressä seisovaan
-kaveriin, vaikka oikea vastaus on tiedossa -- siksi :func:`snap_area` ei ole
-mukana heiton polulla lainkaan. Kytkentä on adapterissa; tämä moduuli tarjoaa
-vain napsautuksen.
+alue luetaan suoraan häneltä. Se on havainto, eikä sitä johdeta mistään --
+tämä moduuli ei ole heiton polulla lainkaan.
 
 **Kranaatilla** ei ole ``last_place_name``-kenttää, joten räjähdyksen alue on
-pääteltävä koordinaateista. :func:`snap_area` ottaa lähimmän **elossa olevan**
-pelaajan alueen samalta tickiltä ja jättää sen tyhjäksi, jos ketään ei ole
-riittävän lähellä (``[parse].area_snap_units``). Tämä on tietoinen
-approksimaatio ja ``area_snap_units`` on sen ainoa säädin: liian suuri arvo
-antaa väärän calloutin, liian pieni jättää alueen tyhjäksi. Väärä alue on
-pahempi kuin puuttuva, joten oletus on varovainen.
+pääteltävä koordinaateista. Menetelmä on **pistepilvi**
+(:func:`build_point_cloud`, :func:`nearest_cells`): demon omista tickeistä
+kootaan ruudukko siitä, missä pelaajat ovat kartalla oikeasti seisoneet ja mikä
+alue kussakin kohdassa on, ja räjähdys nimetään lähimmän ruudun alueella.
+
+Miksi ei lähin elossa oleva pelaaja
+------------------------------------
+Story 2.2 johti räjähdysalueen lähimmästä elossa olevasta pelaajasta. Se ei
+ollut epätarkka vaan **rakenteellisesti väärä**: savu heitetään sinne, missä
+ketään ei ole -- juuri siksi, että se estää näkyvyyden ja pakottaa
+rotaatioita. Proxy mittasi siis päinvastaista kuin piti, ja **42 %
+räjähdyksistä jäi kokonaan ilman aluetta** (mitattu neljästä liigademosta,
+1 716 räjähdystä). Pistepilvellä osuus on 6,4 %.
+
+Pistepilvessä lähde on pelin oma aluemäärittely (``env_cs_place``) eikä
+naapuripelaaja. Menetelmää **ei jätetä rinnalle varalähteeksi**: kaksi
+menetelmää tekisi rivistä tulkitsemattoman, koska lukija ei näkisi kummalla
+alue nimettiin.
+
+Kynnys ei poistu
+----------------
+"Lähin ruutu löytyy aina" ei ole kattavuutta. Mitattu maksimietäisyys
+kuudessa demossa on 1 074 yksikköä; ilman kynnystä raportti väittäisi aluetta
+räjähdykselle, joka tapahtui kaukana kaikesta, missä yksikään pelaaja on
+koskaan seissyt. ``[parse].area_snap_units`` on siksi tallella ja
+**pakollinen**, ja se on kalibroitu pistepilveä varten uudelleen: kynnyksellä
+256 alueen saa 2 428/2 544 räjähdyksestä eli 95,4 %.
+
+Etäisyys **säilyy silloinkin**, kun se ylittää kynnyksen: ``area`` jää
+tyhjäksi mutta ``snap_distance`` kertoo kuinka kaukaa alue olisi otettu. Ilman
+sitä "kaukana kaikesta" ja "pistepilvi oli tyhjä" näyttäisivät samalta.
 
 Ero näkyy taulussa asti: ``EVENTS.area_source`` erottaa havainnon arviosta ja
 ``snap_distance`` kertoo arvion etäisyyden. Ilman niitä raportti esittäisi
-490 yksikön päästä poimitun calloutin yhtä varmana kuin heittäjän oman
+600 yksikön päästä poimitun calloutin yhtä varmana kuin heittäjän oman
 alueen.
 
 Moduuli on puhdas: ei tiedostoja, ei demoparser2:ta, ei asetuksia. Pelin omat
 luokkanimet (``CSmokeGrenadeProjectile``) eivät esiinny täällä -- adapteri
 kääntää ne ennen kutsua, jotta tämä logiikka pysyy testattavana käsin
-rakennetuilla radoilla.
+rakennetuilla radoilla. Sama koskee pistepilveä: adapteri lukee tickit, tämä
+moduuli pelkistää ne ruudukoksi.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
-from dataclasses import dataclass
 
 import polars as pl
 
 __all__ = [
-    "AreaSnap",
-    "PlayerPoint",
     "TRAJECTORY_COLUMNS",
     "ENDPOINT_COLUMNS",
+    "CLOUD_OBSERVATION_COLUMNS",
+    "CLOUD_CELL_COLUMNS",
+    "NEAREST_POINT_COLUMNS",
+    "NEAREST_RESULT_COLUMNS",
     "THROWN",
     "DETONATE",
     "MAX_TRAJECTORY_GAP_SECONDS",
+    "NEAREST_CHUNK_POINTS",
+    "build_point_cloud",
+    "empty_point_cloud",
     "flight_point",
     "grenade_endpoints",
-    "snap_area",
+    "nearest_cells",
     "trajectory_gap_ticks",
 ]
 
@@ -168,6 +195,70 @@ _ENDPOINT_SCHEMA: dict[str, pl.DataType | pl.DataTypeClass] = {
     "z": pl.Float32,
 }
 
+#: Sarakkeet, jotka pistepilven havaintotaulussa on oltava.
+#:
+#: Nimet ovat pappascoutin omia eivätkä demoparser2:n: adapteri on jo kääntänyt
+#: ``CCSPlayerPawn.m_szLastPlaceName``in ``area``ksi ja ``m_lifeState``in
+#: ``is_alive``ksi. Koordinaatit ovat samat ``x, y, z`` kuin lentoradoilla,
+#: jolloin :func:`flight_point` kelpaa molemmille eikä koordinaatittoman rivin
+#: sääntöä ole kahdessa paikassa.
+CLOUD_OBSERVATION_COLUMNS: tuple[str, ...] = ("x", "y", "z", "area", "is_alive")
+
+#: Sarakkeet, jotka :func:`build_point_cloud` palauttaa -- ja jotka
+#: ``CALLOUT_CLOUD``-taulussa ovat ``map_demo_id``:n lisäksi.
+#:
+#: ``cell_x``, ``cell_y`` ja ``cell_z`` ovat ruudun **indeksejä** eivätkä
+#: koordinaatteja: koordinaatin saa kertomalla ruudun särmällä. Indeksi eikä
+#: keskipiste siksi, että se on tarkka kokonaisluku -- keskipiste tallentaisi
+#: saman tiedon liukulukuna, jonka pyöristys voisi siirtää ruutua.
+CLOUD_CELL_COLUMNS: tuple[str, ...] = (
+    "cell_x",
+    "cell_y",
+    "cell_z",
+    "area",
+    "observations",
+)
+
+#: Sarakkeet, jotka :func:`nearest_cells`in syötetaulussa on oltava.
+#: ``point_id`` on kutsujan oma avain (``EVENTS.grenade_no``), joka palautuu
+#: tuloksessa sellaisenaan -- funktio ei tunne kranaatteja.
+NEAREST_POINT_COLUMNS: tuple[str, ...] = ("point_id", "x", "y", "z")
+
+#: Sarakkeet, jotka :func:`nearest_cells` palauttaa.
+NEAREST_RESULT_COLUMNS: tuple[str, ...] = ("point_id", "area", "distance")
+
+#: Pistepilven tyypit. Sama peruste kuin :data:`_ENDPOINT_SCHEMA`illa: tyhjästä
+#: listasta Polars päättelisi ``Null``-tyypin.
+_CLOUD_SCHEMA: dict[str, pl.DataType | pl.DataTypeClass] = {
+    "cell_x": pl.Int32,
+    "cell_y": pl.Int32,
+    "cell_z": pl.Int32,
+    "area": pl.Utf8,
+    "observations": pl.Int32,
+}
+
+#: Montako pistettä kerrallaan verrataan pistepilveen (:func:`nearest_cells`).
+#:
+#: Vertailu on ristitulo: jokainen piste jokaista ruutua vasten, ja sen perään
+#: lajittelu. Se on tarkka eikä nojaa hakupuuhun, mutta rivimäärä on tulo.
+#:
+#: **Paloittelu ei ole optimointi vaan yläraja.** Mitatussa aineistossa se
+#: leikkaa huipun 4,8 miljoonasta rivistä 2,7 miljoonaan (455 räjähdystä x
+#: 10 522 ruutua vs. 256 x 10 522) eli 44 % -- ei suuruusluokkaa. Sen arvo on
+#: siinä, ettei huippu **kasva** kranaattien määrän mukana: demo, jossa
+#: heitetään 2 000 kranaattia, mahtuu samaan rajaan.
+#:
+#: **Hinta on mitattu, ei mitätön.** Koko haku (ristitulo + lajittelu) vie
+#: 285-580 ms per demo, kun pilvessä on 7 700-10 500 ruutua ja räjähdyksiä
+#: 373-465. Se on muutama prosentti demon 6-12 sekunnin parsinnasta, mutta se
+#: on kertaluokkia enemmän kuin nolla, ja hakupuu olisi nopeampi -- vain ei
+#: yhtä yksinkertainen eikä yhtä helposti todeksi todistettava.
+#:
+#: Tulokseen palan koko **ei vaikuta**: lähin ruutu on sama riippumatta siitä,
+#: missä erässä piste käsiteltiin, ja :func:`nearest_cells` hylkää
+#: kaksoisavaimet, jotka voisivat monistua palojen rajalla.
+NEAREST_CHUNK_POINTS = 256
+
 
 def flight_point() -> pl.Expr:
     """Lauseke, joka on tosi vain oikealla lentoradan pisteellä.
@@ -205,47 +296,6 @@ def trajectory_gap_ticks(tick_rate: float) -> int:
             "on oltava positiivinen ja äärellinen."
         )
     return max(1, round(MAX_TRAJECTORY_GAP_SECONDS * tick_rate))
-
-
-@dataclass(frozen=True)
-class AreaSnap:
-    """Napsautuksen tulos: alue ja se, kuinka kaukaa se otettiin.
-
-    Attributes:
-        area: Lähimmän elossa olevan pelaajan alue rajan sisältä, tai ``None``.
-        distance: Etäisyys tuohon pelaajaan pelin yksiköissä, tai ``None``, jos
-            napsautusta ei tehty lainkaan. Etäisyys säilyy silloinkin, kun
-            ``area`` jää tyhjäksi -- pelaaja oli rajan sisällä mutta hänen
-            alueellaan ei ole nimeä, ja se on eri asia kuin "ketään ei ollut
-            lähellä".
-    """
-
-    area: str | None
-    distance: float | None
-
-
-@dataclass(frozen=True)
-class PlayerPoint:
-    """Yhden pelaajan sijainti ja alue yhdellä tickillä.
-
-    Attributes:
-        x: Koordinaatti. ``None`` = sijaintia ei saatu, jolloin pelaaja ei voi
-            olla lähin eikä häntä oteta huomioon.
-        y: Koordinaatti.
-        z: Koordinaatti. Korkeus on mukana etäisyydessä, koska Nuken kaltaisilla
-            kerroskartoilla alakerran pelaaja on ylhäältä katsoen aivan
-            vieressä mutta eri alueella.
-        area: Pelin oma aluenimi (``m_szLastPlaceName``). ``None`` = alue, jolle
-            peli ei anna nimeä.
-        is_alive: Kuollut pelaaja ei kerro, minne utility heitettiin -- hänen
-            ruumiinsa jää siihen mihin hän kaatui.
-    """
-
-    x: float | None
-    y: float | None
-    z: float | None
-    area: str | None
-    is_alive: bool
 
 
 def grenade_endpoints(
@@ -345,56 +395,274 @@ def grenade_endpoints(
     return result.select(ENDPOINT_COLUMNS).cast(_ENDPOINT_SCHEMA), without_thrower.height
 
 
-def snap_area(
-    x: float | None,
-    y: float | None,
-    z: float | None,
-    players_at_tick: Iterable[PlayerPoint],
-    max_units: float | None,
-) -> AreaSnap:
-    """Lähimmän elossa olevan pelaajan alue, jos hän on riittävän lähellä.
+def empty_point_cloud() -> pl.DataFrame:
+    """Tyhjä pistepilvi sopimuksen tyypeillä.
+
+    Tyhjä on **kelvollinen tulos**, ei virhe: demo, josta ei saatu yhtään
+    elossa-riviä nimetyllä alueella, on aidosti pilvetön. Sopimuksen mukainen
+    tyhjä taulu on silti pakko rakentaa tyypeistä eikä tyhjästä listasta --
+    Polars päättelisi jälkimmäisestä ``Null``-tyypin, ja kirjoitus kaatuisi
+    vasta arkistoon asti.
+    """
+    return pl.DataFrame(schema=_CLOUD_SCHEMA)
+
+
+def build_point_cloud(
+    observations: pl.DataFrame, *, grid_units: int
+) -> pl.DataFrame:
+    """Pelkistä demon tickit ruudukoksi: missä on seisty ja mikä alue se on.
+
+    Ruudukko on **demon oma**, ei karttakohtainen arkistotaulu. Perustelu on
+    toistettavuus: karttuva taulu antaisi samalle demolle eri tuloksen sen
+    mukaan, mitä muita demoja arkistossa sattuu olemaan, eikä ``params_hash``
+    voisi kattaa sitä.
+
+    Ruudun **alue on moodi** eikä ensimmäinen havainto: ruudun reunalla on
+    aina muutama rivi naapurialueelta, ja ensimmäinen rivi olisi kiinni siinä,
+    missä järjestyksessä demoparser2 tickit antoi. Tasatilanne ratkeaa alueen
+    nimen aakkosjärjestyksellä, jotta sama demo antaa aina saman pilven.
 
     Args:
-        x: Kohteen koordinaatti (räjähdyspaikka).
-        y: Kohteen koordinaatti.
-        z: Kohteen koordinaatti.
-        players_at_tick: Pelaajat **samalta tickiltä**. Toiselta tickiltä
-            luettu asetelma kertoisi, missä joukkue oli hetkeä myöhemmin.
-        max_units: Enimmäisetäisyys pelin yksiköissä. ``None`` = ei napsautusta,
-            jolloin tulos on tyhjä -- se on kalibroimattoman asetuksen
-            rehellinen arvo, ei vika. Myös ei-äärellinen arvo (NaN, ääretön)
-            tulkitaan "ei napsautusta": NaN-vertailu olisi aina epätosi ja
-            poistaisi etäisyysrajan huomaamatta.
+        observations: Rivi per (pelaaja, tick), sarakkeet vähintään
+            :data:`CLOUD_OBSERVATION_COLUMNS`. Kuolleet, alueettomat ja
+            koordinaatittomat rivit saavat olla mukana -- ne suodatetaan
+            täällä, jotta suodatussääntö on yhdessä paikassa.
+        grid_units: Ruudun särmä pelin yksiköissä
+            (``[parse].callout_grid_units``).
 
     Returns:
-        :class:`AreaSnap`. ``area`` on ``None`` kolmessa tapauksessa: ketään ei
-        ole rajan sisällä, lähimmällä pelaajalla ei ole aluenimeä, tai
-        napsautus on kytketty pois. Näistä keskimmäinen erottuu siitä, että
-        ``distance`` on silti asetettu. Toiseksi lähimmän aluetta **ei
-        kokeilla** -- se olisi arvaus, joka näyttäisi täsmälleen samalta kuin
-        havainto.
-    """
-    if max_units is None or not math.isfinite(max_units):
-        return AreaSnap(None, None)
-    if x is None or y is None or z is None:
-        return AreaSnap(None, None)
-    if not math.isfinite(x) or not math.isfinite(y) or not math.isfinite(z):
-        return AreaSnap(None, None)
+        Taulu sarakkeilla :data:`CLOUD_CELL_COLUMNS`, järjestettynä ruudun
+        koordinaateilla. ``observations`` on ruudun **kaikki** havainnot, ei
+        vain voittaneen alueen -- se kertoo, kuinka vahvasti ruutu on nähty.
 
-    shortest: float | None = None
-    area_name: str | None = None
-    for player in players_at_tick:
-        if not player.is_alive:
-            continue
-        if player.x is None or player.y is None or player.z is None:
-            continue
-        distance = math.dist((x, y, z), (player.x, player.y, player.z))
-        if shortest is None or distance < shortest:
-            shortest = distance
-            area_name = player.area
-    if shortest is None or shortest > max_units:
-        return AreaSnap(None, None)
-    return AreaSnap(area_name, shortest)
+    Raises:
+        ValueError: Jos sarake puuttuu tai ``grid_units`` ei ole positiivinen
+            äärellinen luku. Ilman tarkistusta tulos olisi tyhjä pilvi, joka
+            näyttäisi demolta, jossa kukaan ei liikkunut.
+    """
+    if not (grid_units > 0 and math.isfinite(grid_units)):
+        raise ValueError(
+            f"Ruudun koko {grid_units!r} ei kelpaa pistepilveen: sen on oltava "
+            "positiivinen ja äärellinen."
+        )
+    missing = [
+        name for name in CLOUD_OBSERVATION_COLUMNS if name not in observations.columns
+    ]
+    if missing:
+        raise ValueError(
+            f"Pistepilven havaintotaulusta puuttuu sarake: {', '.join(missing)}. "
+            f"Odotetut sarakkeet ovat {', '.join(CLOUD_OBSERVATION_COLUMNS)}."
+        )
+
+    usable = observations.select(CLOUD_OBSERVATION_COLUMNS).filter(
+        pl.col("is_alive").fill_null(False)
+        # Nimetön alue ei kelpaa pilveen: ruutu, jonka nimi on "ei nimeä",
+        # nimeäisi räjähdyksen tyhjäksi ja näyttäisi silti osumalta -- eli
+        # rivi ei erottuisi siitä, ettei aluetta saatu lainkaan.
+        #
+        # **Tyhjä ja pelkkiä välilyöntejä oleva nimi ovat sama asia kuin
+        # null.** Adapteri muuttaa pelin tyhjän merkkijonon jo null:iksi, mutta
+        # sääntö on täällä eikä siellä: tämä funktio on julkinen ja sen
+        # sopimus on "alueeton havainto ei päädy pilveen". Jos ehto olisi vain
+        # adapterissa, toinen kutsuja saisi ruudun nimeltä ``" "``.
+        & (pl.col("area").str.strip_chars().str.len_chars() > 0).fill_null(False)
+        & flight_point()
+    )
+    if usable.is_empty():
+        return empty_point_cloud()
+
+    cells = usable.select(
+        (pl.col("x") // grid_units).cast(pl.Int32).alias("cell_x"),
+        (pl.col("y") // grid_units).cast(pl.Int32).alias("cell_y"),
+        (pl.col("z") // grid_units).cast(pl.Int32).alias("cell_z"),
+        pl.col("area"),
+    )
+    # Kaksi vaihetta: ensin (ruutu, alue) -> havaintoja, sitten ruutua kohden
+    # eniten havaintoja saanut alue. Lajittelu on osa vastausta eikä
+    # esitystapa: se on ainoa asia, joka tekee moodista deterministisen
+    # tasatilanteessa.
+    per_area = cells.group_by("cell_x", "cell_y", "cell_z", "area").len()
+    return (
+        per_area.sort(
+            ["cell_x", "cell_y", "cell_z", "len", "area"],
+            descending=[False, False, False, True, False],
+        )
+        .group_by("cell_x", "cell_y", "cell_z", maintain_order=True)
+        .agg(
+            pl.col("area").first(),
+            pl.col("len").sum().cast(pl.Int32).alias("observations"),
+        )
+        .sort("cell_x", "cell_y", "cell_z")
+        .select(CLOUD_CELL_COLUMNS)
+        .cast(_CLOUD_SCHEMA)
+    )
+
+
+def nearest_cells(
+    points: pl.DataFrame,
+    cloud: pl.DataFrame,
+    *,
+    grid_units: int,
+    z_weight: float,
+    z_tolerance_units: float,
+    max_units: float | None,
+) -> pl.DataFrame:
+    """Nimeä jokainen piste lähimmän pistepilviruudun alueella.
+
+    Etäisyys on painotettu::
+
+        d = sqrt(dx^2 + dy^2 + (z_weight * max(0, |dz| - z_tolerance))^2)
+
+    **Miksi toleranssi.** Pystyero maksaa ilman toleranssia myös silloin, kun
+    se on täysin normaali: pistepilvi tallentaa pelaajan sijainnin, mutta
+    kranaatti räjähtää mistä tahansa lattian ja pään väliltä -- savu ilmassa,
+    molotov lattialla. Mitattuna painon kasvattaminen ilman toleranssia
+    *huonontaa* tulosta (mediaani 20 -> 30 Ancientilla, 20 -> 31 Nukella),
+    ja kun z-erosta vähennetään pelaajan korkeus ennen painotusta, mediaani
+    putoaa 15:een ja 14:ään.
+
+    Toleranssi on **symmetrinen**: vapaus vain ylöspäin nostaa mediaanin
+    15 -> 17 ja 14 -> 19 parantamatta kattavuutta.
+
+    **Miksi paino ylipäätään.** Nuke on kerroksellinen: alakerran ruutu on
+    ylhäältä katsoen aivan vieressä mutta eri alueella. Ilman painoa
+    yläkerran savu **saa** alakerran alueen -- mitattuna 38 räjähdystä
+    ``Nuke_vs_imuaijat``illa ja 25 toisella Nuke-demolla.
+
+    **Miksi paino on 1 eikä enemmän.** Paino 1 riittää: nolla väärän
+    kerroksen aluetta molemmilla Nuke-demoilla. Jokainen sitä suurempi paino
+    maksaa kattavuutta ostamatta mitään -- 99,0 % painolla 1, 98,8 %
+    painolla 2, 97,4 % painolla 3 -- eikä mediaani liiku lainkaan.
+
+    Ruudun edustaja on sen **keskipiste**, ei havaintojen keskiarvo: keskiarvo
+    liikkuisi sen mukaan, mihin kohtaan ruutua pelaajat sattuivat asettumaan,
+    eikä ruudukko olisi enää säännöllinen.
+
+    Args:
+        points: Nimettävät pisteet, sarakkeet :data:`NEAREST_POINT_COLUMNS`.
+            ``point_id`` on kutsujan oma avain, joka palautuu sellaisenaan.
+        cloud: Pistepilvi, sarakkeet :data:`CLOUD_CELL_COLUMNS`.
+        grid_units: Sama ruudun särmä, jolla pilvi rakennettiin.
+        z_weight: Pystyeron painokerroin toleranssin jälkeen.
+        z_tolerance_units: Pystyero, joka on ilmaista (pelaajan korkeus).
+        max_units: Enimmäisetäisyys, jonka sisältä alue saa tulla. ``None`` tai
+            ei-äärellinen = ei kynnystä käytössä, jolloin **aluetta ei anneta
+            lainkaan**. Se on kalibroimattoman asetuksen rehellinen arvo:
+            lähin ruutu löytyy aina, joten kynnyksetön nimeäminen väittäisi
+            aluetta räjähdykselle, joka tapahtui kaukana kaikesta.
+
+    Returns:
+        Rivi per syötepiste, sarakkeet :data:`NEAREST_RESULT_COLUMNS`.
+
+        ``distance`` on **aina** lähimmän ruudun etäisyys, myös kun se ylittää
+        kynnyksen -- juuri se erottaa tapauksen "kaukana kaikesta" tapauksesta
+        "pilvi oli tyhjä", jossa se on ``null``. ``area`` on annettu vain
+        kynnyksen sisällä.
+
+    Raises:
+        ValueError: Jos sarake puuttuu tai painotuksen parametri ei ole
+            äärellinen ei-negatiivinen luku.
+    """
+    for name, value in (
+        ("z_weight", z_weight),
+        ("z_tolerance_units", z_tolerance_units),
+    ):
+        if not (value >= 0 and math.isfinite(value)):
+            raise ValueError(
+                f"{name} on {value!r}, joka ei kelpaa etäisyyden painotukseen: "
+                "sen on oltava äärellinen eikä negatiivinen."
+            )
+    missing = [name for name in NEAREST_POINT_COLUMNS if name not in points.columns]
+    if missing:
+        raise ValueError(
+            f"Nimettävien pisteiden taulusta puuttuu sarake: {', '.join(missing)}. "
+            f"Odotetut sarakkeet ovat {', '.join(NEAREST_POINT_COLUMNS)}."
+        )
+    missing = [name for name in CLOUD_CELL_COLUMNS if name not in cloud.columns]
+    if missing:
+        raise ValueError(
+            f"Pistepilvestä puuttuu sarake: {', '.join(missing)}. "
+            f"Odotetut sarakkeet ovat {', '.join(CLOUD_CELL_COLUMNS)}."
+        )
+    # ``point_id`` on avain, ja lopullinen vasen liitos **monistaisi** rivin,
+    # jos sama avain esiintyisi kahdesti eri paloissa. Tulos olisi silloin
+    # pidempi kuin syöte, ja kutsuja saisi saman kranaatin kahdesti tauluun
+    # ilman että mikään kaatuisi.
+    duplicates = points.height - points["point_id"].n_unique()
+    if duplicates:
+        raise ValueError(
+            f"Nimettävien pisteiden avain point_id ei ole yksikäsitteinen: "
+            f"{duplicates} riviä on kaksoiskappaleita. Tulos monistuisi "
+            "liitoksessa, eli sama piste palautuisi useammin kuin kerran."
+        )
+
+    empty = points.select(
+        pl.col("point_id"),
+        pl.lit(None, dtype=pl.Utf8).alias("area"),
+        pl.lit(None, dtype=pl.Float64).alias("distance"),
+    )
+    if points.is_empty() or cloud.is_empty():
+        return empty
+
+    # Piste ilman koordinaatteja ei voi saada etäisyyttä -- eikä se saa myöskään
+    # pudota: rivi on taulussa joka tapauksessa, ja puuttuva tulos on sen
+    # rehellinen sisältö.
+    locatable = points.filter(flight_point())
+    if locatable.is_empty():
+        return empty
+
+    centers = cloud.select(
+        ((pl.col("cell_x").cast(pl.Float64) + 0.5) * grid_units).alias("_cx"),
+        ((pl.col("cell_y").cast(pl.Float64) + 0.5) * grid_units).alias("_cy"),
+        ((pl.col("cell_z").cast(pl.Float64) + 0.5) * grid_units).alias("_cz"),
+        pl.col("area").alias("_area"),
+    )
+    vertical = (
+        pl.max_horizontal(
+            (pl.col("z").cast(pl.Float64) - pl.col("_cz")).abs() - z_tolerance_units,
+            pl.lit(0.0),
+        )
+        * z_weight
+    )
+    distance = (
+        (pl.col("x").cast(pl.Float64) - pl.col("_cx")) ** 2
+        + (pl.col("y").cast(pl.Float64) - pl.col("_cy")) ** 2
+        + vertical**2
+    ).sqrt()
+
+    # Ristitulo pisteiden ja ruutujen välillä on tarkka ja yksinkertainen,
+    # mutta se kasvaa tulona: 456 räjähdystä x 10 500 ruutua on 4,8 miljoonaa
+    # riviä. Pisteet käsitellään siksi paloissa, jolloin muistihuippu on palan
+    # koko kertaa ruudut eikä koko demo kertaa ruudut.
+    best_frames: list[pl.DataFrame] = []
+    for offset in range(0, locatable.height, NEAREST_CHUNK_POINTS):
+        chunk = locatable.slice(offset, NEAREST_CHUNK_POINTS)
+        best_frames.append(
+            chunk.join(centers, how="cross")
+            .with_columns(distance.alias("_d"))
+            # Lajittelu on osa vastausta: kaksi yhtä kaukaista ruutua eri
+            # alueilla ratkeaa nimen aakkosjärjestyksellä, jotta sama demo
+            # antaa saman alueen joka ajolla.
+            .sort(["point_id", "_d", "_area"])
+            .group_by("point_id", maintain_order=True)
+            .agg(pl.col("_area").first(), pl.col("_d").first())
+        )
+    best = pl.concat(best_frames)
+
+    inside = (
+        pl.col("_d") <= max_units
+        if max_units is not None and math.isfinite(max_units)
+        else pl.lit(False)
+    )
+    return (
+        points.select("point_id")
+        .join(best, on="point_id", how="left")
+        .select(
+            pl.col("point_id"),
+            pl.when(inside).then(pl.col("_area")).otherwise(None).alias("area"),
+            pl.col("_d").cast(pl.Float64).alias("distance"),
+        )
+    )
 
 
 # -- Sisäinen -----------------------------------------------------------------

@@ -9,13 +9,16 @@ kolme taulua käsin. Yksikään näistä testeistä ei tarvitse demotiedostoa.
 from __future__ import annotations
 
 import json
+import inspect
 from pathlib import Path
 
 import polars as pl
 import pytest
 
 from conftest import has_temp_leftovers, settings_text
+from pappascout.adapters.demo_parser import Demoparser2Adapter
 from pappascout.adapters.protocols import (
+    CALLOUTS_ADAPTER_COLUMNS,
     DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
@@ -27,10 +30,11 @@ from pappascout.adapters.protocols import (
 from pappascout.archive.manifest import Manifest
 from pappascout.archive.paths import ArchivePaths
 from pappascout.constants import SAMPLE_KINDS, SIDES
-from pappascout.domain.models import load_settings
+from pappascout.domain.models import ParseSettings, load_settings
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
     ARMORED_COLUMN,
+    CALLOUT_CLOUD,
     DEATHS,
     EVENTS,
     LINEUPS,
@@ -59,8 +63,37 @@ EVENTS_ADAPTER_SCHEMA: dict[str, object] = {
     name: EVENTS[name] for name in EVENTS_ADAPTER_COLUMNS
 }
 
+#: Pistepilven tyypit portin takana: ``CALLOUT_CLOUD`` ilman ``map_demo_id``:tä.
+CALLOUTS_ADAPTER_SCHEMA: dict[str, object] = {
+    name: CALLOUT_CLOUD[name] for name in CALLOUTS_ADAPTER_COLUMNS
+}
+
+#: Ruudun särmä, jolla feikin pistepilvi on rakennettu. Sama kuin
+#: ``settings.toml``in ``callout_grid_units``.
+CALLOUT_GRID = 32
+
 #: Näytepisteet, joilla feikki rakentaa tick-rivinsä.
 SAMPLE_SECONDS = (6.0, 15.0)
+
+
+def build_callouts(cells: int = 4) -> pl.DataFrame:
+    """Pistepilvi, kuten adapteri sen antaisi: rivi per ruutu, ei kierrosnumeroa.
+
+    Ruudut ovat peräkkäisiä ja alueita on kaksi, jotta taulu näyttää siltä
+    mitä oikea pilvi on: monta ruutua alueen sisällä. Havaintomäärät ovat eri
+    suuria, koska ne ovat ruudun oma havainto eivätkä vakio.
+    """
+    rows = [
+        {
+            "cell_x": index,
+            "cell_y": 0,
+            "cell_z": 0,
+            "area": "BombsiteA" if index % 2 == 0 else "Middle",
+            "observations": 10 + index,
+        }
+        for index in range(cells)
+    ]
+    return pl.DataFrame(rows, schema=dict(CALLOUTS_ADAPTER_SCHEMA), orient="row")
 
 
 # --- Feikki portin taakse ------------------------------------------------------
@@ -266,7 +299,7 @@ def build_events(
                         "area_source": (
                             None
                             if entity in without_area
-                            else ("observed" if kind == "grenade_thrown" else "snapped")
+                            else ("observed" if kind == "grenade_thrown" else "point_cloud")
                         ),
                         "snap_distance": (
                             None if kind == "grenade_thrown" else 120.0
@@ -413,6 +446,7 @@ class FakeParser:
         events: pl.DataFrame | None = None,
         lineups: pl.DataFrame | None = None,
         deaths: pl.DataFrame | None = None,
+        callouts: pl.DataFrame | None = None,
     ):
         self.frame = frame if frame is not None else build_rounds()
         self.ticks = ticks if ticks is not None else build_ticks(self.frame)
@@ -421,6 +455,7 @@ class FakeParser:
             lineups if lineups is not None else build_lineups(self.frame)
         )
         self.deaths = deaths if deaths is not None else build_deaths(self.frame)
+        self.callouts = callouts if callouts is not None else build_callouts()
         self.error = error
         self.calls = 0
         self.seen_seconds: list[tuple[float, ...]] = []
@@ -436,6 +471,7 @@ class FakeParser:
             events=self.events,
             lineups=self.lineups,
             deaths=self.deaths,
+            callouts=self.callouts,
         )
 
 
@@ -542,6 +578,7 @@ def test_writes_a_manifest_with_only_the_parse_section(
         f"parsed/{MAP_DEMO_ID}/events.parquet",
         f"parsed/{MAP_DEMO_ID}/lineups.parquet",
         f"parsed/{MAP_DEMO_ID}/deaths.parquet",
+        f"parsed/{MAP_DEMO_ID}/callouts.parquet",
     ]
     assert manifest.inputs[0].result_id == f"demo/{MAP_DEMO_ID}"
 
@@ -593,7 +630,7 @@ def test_writes_a_valid_ticks_table(parse_settings, archive, demo) -> None:
     assert result.stats["sample_rounds"] == 3
 
 
-def test_all_five_tables_are_listed_among_the_outputs(
+def test_all_six_tables_are_listed_among_the_outputs(
     parse_settings, archive, demo
 ) -> None:
     result = run_parse(parse_settings, archive, FakeParser(), demo)
@@ -603,6 +640,7 @@ def test_all_five_tables_are_listed_among_the_outputs(
         "events.parquet",
         "lineups.parquet",
         "deaths.parquet",
+        "callouts.parquet",
     ]
 
 
@@ -1203,7 +1241,7 @@ def test_events_without_an_area_are_counted(parse_settings, archive, demo) -> No
     assert result.stats["utility_without_area"] == 4
 
 
-def test_observed_and_snapped_areas_are_counted_separately(
+def test_observed_and_derived_areas_are_counted_separately(
     parse_settings, archive, demo
 ) -> None:
     """Havainto ja arvio ovat eri laatua olevaa tietoa eivätkä saa niputtua.
@@ -1220,12 +1258,12 @@ def test_observed_and_snapped_areas_are_counted_separately(
     throws = df.filter(pl.col("event_kind") == "grenade_thrown")
     detonations = df.filter(pl.col("event_kind") == "grenade_detonate")
     assert throws["area_source"].unique().to_list() == ["observed"]
-    assert detonations["area_source"].unique().to_list() == ["snapped"]
+    assert detonations["area_source"].unique().to_list() == ["point_cloud"]
     # Napsautusetäisyys on vain arviolla -- havainto ei ole minkään päässä.
     assert throws["snap_distance"].null_count() == throws.height
     assert detonations["snap_distance"].null_count() == 0
     assert result.stats["utility_area_observed"] == throws.height
-    assert result.stats["utility_area_snapped"] == detonations.height
+    assert result.stats["utility_area_point_cloud"] == detonations.height
 
 
 def test_utility_on_unnumbered_rounds_is_counted_not_just_dropped(
@@ -1470,7 +1508,7 @@ def test_params_hash_still_covers_the_parse_section(
     changed_toml.write_text(
         settings_text(
             archive.root,
-            **{"area_snap_units = 500": "area_snap_units = 501"},
+            **{"area_snap_units = 256": "area_snap_units = 257"},
         ),
         encoding="utf-8",
     )
@@ -2122,26 +2160,111 @@ def test_unsafe_identifier_is_refused(archive) -> None:
 # --- Portin kytkentä asetuksiin ------------------------------------------------
 
 
-def test_default_parser_hands_every_parse_setting_to_the_adapter(
-    parse_settings,
-) -> None:
+#: ``[parse]``-asetus -> adapterin attribuutti, jolle se kytketään.
+#:
+#: ``None`` tarkoittaa asetusta, joka **ei** kulje konstruktorin kautta.
+#: Luettelo on täydellinen, ja :func:`test_every_parse_setting_is_in_the_wiring_map`
+#: pitää sen sellaisena: uusi asetus kaataa testin, kunnes sille on päätetty
+#: paikka.
+PORT_WIRING: dict[str, str | None] = {
+    # Annetaan parse_demo-kutsussa, ei konstruktorissa. Oma testinsä:
+    # test_the_stage_passes_the_configured_sample_seconds_to_the_port.
+    "snapshot_seconds": None,
+    "buy_window_seconds": "buy_window_seconds",
+    "first_contact_exclude_weapons": "exclude_weapons",
+    "first_contact_fallback_death": "fallback_death",
+    "area_snap_units": "area_snap_units",
+    "callout_grid_units": "callout_grid_units",
+    "callout_z_weight": "callout_z_weight",
+    "callout_z_tolerance_units": "callout_z_tolerance_units",
+}
+
+#: Arvot, jotka eroavat **sekä** tuotannon asetuksista **että** adapterin
+#: omista oletuksista. Jälkimmäinen on koko testin idea: adapterin oletukset
+#: ovat tarkoituksella samat mitatut luvut kuin asetusten oletukset, joten
+#: pelkkä ``port.x == settings.x`` menisi läpi myös silloin, kun kwarg on
+#: pudonnut kytkennästä kokonaan.
+DISTINCT_SETTINGS: dict[str, object] = {
+    "snapshot_seconds": [7.0, 21.0],
+    "buy_window_seconds": 11.0,
+    "first_contact_exclude_weapons": ["kuvitteellinen_ase"],
+    "first_contact_fallback_death": False,
+    "area_snap_units": 199,
+    "callout_grid_units": 96,
+    "callout_z_weight": 4.5,
+    "callout_z_tolerance_units": 33.0,
+}
+
+
+def test_every_parse_setting_is_in_the_wiring_map() -> None:
+    """Kartan on katettava jokainen ``[parse]``-kenttä.
+
+    Ilman tätä uusi asetus voisi jäädä kytkemättä porttiin, ja
+    :func:`test_default_parser_hands_every_parse_setting_to_the_adapter`
+    väittäisi kattavuutta jota sillä ei ole -- se iteroi juuri tämän kartan
+    yli.
+    """
+    assert set(PORT_WIRING) == set(ParseSettings.model_fields)
+
+
+def test_the_distinct_values_really_differ_from_the_adapter_defaults() -> None:
+    """Esiehto: testiarvo, joka on adapterin oletus, ei todista kytkennästä.
+
+    Juuri tämä ansa oli auki Story 2.9:ssä: adapterin oletukset
+    (``callout_grid_units=32``, ``callout_z_weight=1.0``,
+    ``callout_z_tolerance_units=72.0``) ovat samat luvut kuin asetusten
+    oletukset, joten kytkentärivin poisto olisi jättänyt jokaisen testin
+    vihreäksi.
+    """
+    defaults = inspect.signature(Demoparser2Adapter.__init__).parameters
+    for field, attribute in PORT_WIRING.items():
+        if attribute is None:
+            continue
+        default = defaults[attribute].default
+        assert DISTINCT_SETTINGS[field] != default, (
+            f"{field}: testiarvo on sama kuin adapterin oletus {default!r}, "
+            "joten se ei paljastaisi pudonnutta kytkentää"
+        )
+
+
+def test_default_parser_hands_every_parse_setting_to_the_adapter() -> None:
     """Kytkentä on koodin ainoa kohta, jota mikään muu testi ei kata.
 
     Jokainen muu testi rakentaa adapterin itse ja antaa parametrit käsin, joten
     jos yksikin kwarg katoaisi tästä, koko testijoukko menisi läpi ja
-    tuotannossa arvo olisi hiljaa oletuksensa: ``area_snap_units=None`` tekisi
-    jokaisesta alueesta tyhjän, ``exclude_weapons=()`` päästäisi utilityosuman
-    ensikontaktiksi ja ``fallback_death`` kääntyisi päinvastaiseksi vasta jos
-    asetus olisi epätosi.
-    """
-    port = parse_stage.default_parser(parse_settings)
+    tuotannossa arvo olisi hiljaa oletuksensa: ``exclude_weapons=()``
+    päästäisi utilityosuman ensikontaktiksi, ja pistepilven mitat
+    rakentuisivat adapterin kovakoodatuista luvuista, vaikka käyttäjä olisi
+    säätänyt niitä -- ja koska hänen säätönsä muuttaa ``params_hash``ia, hän
+    saisi täyden uudelleenparsinnan ja "valmis"-yhteenvedon säätämättömällä
+    ruudukolla.
 
+    Arvot ovat siksi **kaikki eri kuin adapterin oletukset**; esiehdon
+    tarkistaa :func:`test_the_distinct_values_really_differ_from_the_adapter_defaults`.
+    """
+    settings = ParseSettings(**DISTINCT_SETTINGS)
+    port = parse_stage.default_parser(settings)
+
+    for field, attribute in PORT_WIRING.items():
+        if attribute is None:
+            continue
+        expected = getattr(settings, field)
+        actual = getattr(port, attribute)
+        if isinstance(expected, list):
+            actual = list(actual)
+        assert actual == expected, f"{field} ei päätynyt portin {attribute}:iin"
+
+
+def test_default_parser_carries_the_real_settings_too(parse_settings) -> None:
+    """Sama kytkentä tuotannon arvoilla: kalibroitu kynnys ei ole None."""
+    port = parse_stage.default_parser(parse_settings)
     assert port.area_snap_units == parse_settings.area_snap_units
     assert port.area_snap_units is not None, "asetus on kalibroitu, ei None"
-    assert list(port.exclude_weapons) == list(
-        parse_settings.first_contact_exclude_weapons
+    assert port.callout_grid_units == parse_settings.callout_grid_units
+    assert port.callout_z_weight == parse_settings.callout_z_weight
+    assert (
+        port.callout_z_tolerance_units == parse_settings.callout_z_tolerance_units
     )
-    assert port.fallback_death == parse_settings.first_contact_fallback_death
 
 
 def test_default_parser_notices_a_changed_snap_distance(settings_file: Path) -> None:
@@ -2150,7 +2273,7 @@ def test_default_parser_notices_a_changed_snap_distance(settings_file: Path) -> 
     changed_toml.write_text(
         settings_text(
             settings_file.parent / "arkisto",
-            **{"area_snap_units = 500": "area_snap_units = 300"},
+            **{"area_snap_units = 256": "area_snap_units = 300"},
         ),
         encoding="utf-8",
     )
@@ -2173,7 +2296,7 @@ def test_changing_the_snap_distance_forces_a_reparse(
     changed_toml = tmp_path / "muutettu.toml"
     changed_toml.write_text(
         settings_text(
-            archive.root, **{"area_snap_units = 500": "area_snap_units = 300"}
+            archive.root, **{"area_snap_units = 256": "area_snap_units = 300"}
         ),
         encoding="utf-8",
     )
@@ -2959,6 +3082,7 @@ def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
         archive.parsed_table(MAP_DEMO_ID, "events"),
         archive.parsed_table(MAP_DEMO_ID, "lineups"),
         archive.parsed_table(MAP_DEMO_ID, "deaths"),
+        archive.parsed_table(MAP_DEMO_ID, "callouts"),
     )
     assert "unreadable" in stats
 
@@ -2970,8 +3094,11 @@ def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
         archive.parsed_table(MAP_DEMO_ID, "events"),
         archive.parsed_table(MAP_DEMO_ID, "lineups"),
         archive.parsed_table(MAP_DEMO_ID, "deaths"),
+        archive.parsed_table(MAP_DEMO_ID, "callouts"),
     )
     assert "deaths_unreadable" in stats
+    # Yksi rikki mennyt taulu ei vie toisen lukuja: pistepilvi on ehjä.
+    assert stats["callout_cells"] == 4
     text = _render_parse(
         StageResult(
             stage="parse",
@@ -3181,3 +3308,374 @@ def test_the_new_drop_counters_reach_the_stats_and_the_summary(
     text = _render_parse(result, 24)
     assert "Kuolema ilman tickiä" in text and "2 (" in text
     assert "Kuolema ilman uhria" in text and "3 (" in text
+
+
+# --- Pistepilvi (Story 2.9) ------------------------------------------------------
+
+
+def test_the_usable_row_count_has_exactly_one_source(
+    parse_settings, archive, demo
+) -> None:
+    """Kelvolliset rivit ovat ruutujen havaintojen summa, eivät oma laskuri.
+
+    Kaksi lähdettä samalle luvulle voi erkaantua: adapterin suodatin ja
+    taulun summa antaisivat eri vastauksen heti, jos toista muutettaisiin.
+    Portti ei siis raportoi lukua lainkaan -- vaihe laskee sen taulusta ja
+    ``cli`` käyttää sitä suhteen osoittajana.
+    """
+    assert not hasattr(ParseDiagnostics(tick_rate=64.0,
+                                        tick_rate_measured=True,
+                                        rounds_seen=1),
+                       "callout_cloud_rows_usable")
+    result = run_parse(parse_settings, archive, FakeParser(), demo)
+    table = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "callouts"))
+    assert result.stats["callout_observations"] == int(table["observations"].sum())
+
+
+def test_writes_a_valid_callout_cloud(parse_settings, archive, demo) -> None:
+    """Hyväksymiskriteeri: ``callouts.parquet`` läpäisee ``validate``in.
+
+    Taulu on räjähdysalueiden **lähde**, ja se kirjoitetaan juuri siksi:
+    johdettu alue on tarkistettavissa demoa vasten vain, jos se mistä se
+    johdettiin on tallessa.
+    """
+    result = run_parse(parse_settings, archive, FakeParser(), demo)
+
+    table = archive.parsed_table(MAP_DEMO_ID, "callouts")
+    assert table.is_file()
+    df = pl.read_parquet(table)
+    validate(df, CALLOUT_CLOUD, "callouts")
+    assert list(df.columns) == list(CALLOUT_CLOUD)
+    assert df["map_demo_id"].unique().to_list() == [MAP_DEMO_ID]
+    assert df.height == 4
+    assert result.stats["callout_cells"] == 4
+    assert result.stats["callout_areas"] == 2
+    # Havainnot ovat ruudun omia lukuja, ei vakio: 10 + 11 + 12 + 13.
+    assert result.stats["callout_observations"] == 46
+
+
+def test_the_cloud_keeps_every_round_including_the_knife_round(
+    parse_settings, archive, demo
+) -> None:
+    """Pistepilveä ei numeroida, joten sen rivit eivät putoa numeroinnissa.
+
+    Pilvi on kartan ominaisuus tässä demossa eikä kierroksen havainto, ja
+    lämmittelyn ja puukkokierroksen tickit kertovat kartasta yhtä paljon kuin
+    pelattujen kierrosten. Sama sääntö kuin kokoonpanotaululla: taulussa ei
+    ole ``round_no``-saraketta lainkaan.
+    """
+    rounds = build_rounds(played=3, warmup=2)
+    run_parse(parse_settings, archive, FakeParser(rounds), demo)
+    df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "callouts"))
+    assert "round_no" not in df.columns
+    assert "round_raw" not in df.columns
+    assert df.height == 4
+
+
+def test_the_cloud_rows_are_sorted_by_cell(parse_settings, archive, demo) -> None:
+    """Sama demo tuottaa tavu tavulta saman tiedoston."""
+    shuffled = build_callouts().sort("cell_x", descending=True)
+    run_parse(
+        parse_settings, archive, FakeParser(callouts=shuffled), demo
+    )
+    df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "callouts"))
+    assert df["cell_x"].to_list() == sorted(df["cell_x"].to_list())
+
+
+def test_an_empty_cloud_is_written_and_does_not_stop_the_run(
+    parse_settings, archive, demo
+) -> None:
+    """I/O-matriisi: tyhjä pistepilvi -> ajo ei kaadu, luvut ovat nollia.
+
+    Tyhjä kuolemataulu on virhe ja tyhjä pistepilvi ei -- ero on siinä mitä
+    tyhjyys tarkoittaa. Kuolema ei ole valinta, mutta demo, jonka
+    ``last_place_name`` jää tyhjäksi, on aidosti pilvetön. Sen seuraus
+    (kaikki räjähdysalueet null) on oikea lopputulos, ja syy kerrotaan
+    diagnostiikassa.
+    """
+    empty = pl.DataFrame(schema=dict(CALLOUTS_ADAPTER_SCHEMA))
+    result = run_parse(
+        parse_settings, archive, FakeParser(callouts=empty), demo
+    )
+    assert result.status == "ok"
+    table = archive.parsed_table(MAP_DEMO_ID, "callouts")
+    assert table.is_file()
+    assert pl.read_parquet(table).is_empty()
+    assert result.stats["callout_cells"] == 0
+    assert result.stats["callout_areas"] == 0
+    assert result.stats["callout_observations"] == 0
+
+
+def test_a_callouts_table_breaking_the_port_contract_is_rejected(
+    parse_settings, archive, demo
+) -> None:
+    broken = build_callouts().drop("observations")
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(callouts=broken), demo)
+    assert "observations" in str(exc.value)
+    assert "pistepilven" in str(exc.value)
+
+
+def test_an_extra_callouts_column_is_a_contract_break_too(
+    parse_settings, archive, demo
+) -> None:
+    broken = build_callouts().with_columns(pl.lit(1).alias("ylimaarainen"))
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(callouts=broken), demo)
+    assert "ylimaarainen" in str(exc.value)
+    assert "pistepilven" in str(exc.value)
+
+
+def test_a_duplicate_cell_is_refused(parse_settings, archive, demo) -> None:
+    """Kaksi riviä samalle ruudulle tarkoittaisi, ettei moodivalinta toiminut.
+
+    Räjähdys saisi alueensa sen mukaan, kumpi rivi sattui olemaan lähempänä
+    lajittelussa, ja sama demo voisi antaa eri alueen eri ajolla. Skeema ei
+    näe tätä: molemmat rivit ovat erikseen kelvollisia.
+    """
+    doubled = pl.concat([build_callouts(), build_callouts().head(1)])
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(callouts=doubled), demo)
+    assert "cell_x, cell_y, cell_z" in str(exc.value)
+    assert "kaksoiskappaleita" in str(exc.value)
+
+
+def test_a_cell_without_an_area_is_refused(parse_settings, archive, demo) -> None:
+    """Nimetön ruutu nimeäisi räjähdyksen tyhjäksi *kynnyksen sisällä*.
+
+    Rivi näyttäisi siis samalta kuin "aluetta ei saatu", vaikka osuma oli
+    hyvä. ``area`` on nullable-sarake, joten skeema päästäisi sen läpi.
+    """
+    nameless = build_callouts().with_columns(
+        pl.lit(None, dtype=pl.Utf8).alias("area")
+    )
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(callouts=nameless), demo)
+    assert "ilman aluenimeä" in str(exc.value)
+
+
+@pytest.mark.parametrize("observations", [0, -1, None])
+def test_a_cell_without_observations_is_refused(
+    parse_settings, archive, demo, observations
+) -> None:
+    """Ruutu syntyy vain havainnosta, joten nolla tarkoittaa keksittyä ruutua.
+
+    ``Int32`` päästää nollan ja negatiivisen läpi, ja avaintarkistus katsoo
+    vain koordinaatteja. Seuraus olisi hiljainen: ``callout_observations`` ja
+    ajon kelpoisuussuhde näyttäisivät todellista pienemmiltä, eikä mikään
+    kertoisi miksi.
+    """
+    broken = build_callouts().with_columns(
+        pl.lit(observations, dtype=pl.Int32).alias("observations")
+    )
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(callouts=broken), demo)
+    assert "yhtään havaintoa" in str(exc.value)
+
+
+def test_a_cell_with_a_blank_area_is_refused(
+    parse_settings, archive, demo
+) -> None:
+    """Pelkkä välilyönti ei ole aluenimi, vaikka se ei olekaan null.
+
+    Tyhjä nimi nimeäisi räjähdyksen tyhjäksi *kynnyksen sisällä*, eli rivi
+    näyttäisi samalta kuin "aluetta ei saatu" vaikka osuma oli hyvä.
+    """
+    broken = build_callouts().with_columns(pl.lit("   ").alias("area"))
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(callouts=broken), demo)
+    assert "ilman aluenimeä" in str(exc.value)
+
+
+def test_a_missing_callouts_table_forces_a_reparse(
+    parse_settings, archive, demo
+) -> None:
+    """Puolikas tulos ei ole ajantasainen tulos.
+
+    Story 2.8:n arkisto on juuri tässä tilassa: manifesti täsmää, mutta
+    ``callouts.parquet`` puuttuu. Ilman tarkistusta ajo ohitettaisiin ja
+    käyttäjälle kerrottaisiin "Tulos on ajan tasalla".
+    """
+    parser = FakeParser()
+    run_parse(parse_settings, archive, parser, demo)
+    archive.parsed_table(MAP_DEMO_ID, "callouts").unlink()
+
+    result = run_parse(parse_settings, archive, parser, demo)
+    assert not result.skipped
+    assert parser.calls == 2
+
+
+def test_an_events_table_with_the_retired_enum_value_is_reparsed(
+    parse_settings, archive, demo
+) -> None:
+    """Story 2.9:n oikea migraatiopolku: vanha ``snapped`` ei lataudu enumiin.
+
+    Tämä on se tilanne, johon käyttäjä oikeasti törmää -- arkistossa on
+    Story 2.8:n ``events.parquet``, jonka ``area_source`` on
+    ``Enum(["observed", "snapped"])``. README, ``constants.py`` ja
+    ``_schema_is_current`` lupaavat kaikki, ettei se kelpaa ja että demo
+    parsitaan uudelleen **ilman** ``--pakota``-lippua. Muut testit kattavat
+    puuttuvan taulun ja pudotetun sarakkeen; tämä kattaa väärän arvojoukon,
+    joka on eri vika: sarakkeet ovat kohdallaan ja rivit luettavissa.
+    """
+    parser = FakeParser()
+    run_parse(parse_settings, archive, parser, demo)
+    assert parser.calls == 1
+
+    table = archive.parsed_table(MAP_DEMO_ID, "events")
+    old_enum = pl.Enum(["observed", "snapped"])
+    stale = pl.read_parquet(table).with_columns(
+        # Arvot palautetaan vanhaan sanastoon: juuri sellainen tiedosto
+        # arkistossa on, kun se on kirjoitettu Story 2.8:n koodilla.
+        pl.col("area_source")
+        .cast(pl.Utf8)
+        .replace("point_cloud", "snapped")
+        .cast(old_enum)
+    )
+    assert stale.schema["area_source"] == old_enum
+    stale.write_parquet(table)
+
+    result = run_parse(parse_settings, archive, parser, demo)
+    assert not result.skipped
+    assert parser.calls == 2
+    # Ja uusi tulos on nykyisellä luettelolla.
+    assert pl.read_parquet(table).schema["area_source"] == EVENTS["area_source"]
+
+
+def test_a_callouts_table_that_no_longer_matches_the_contract_is_reparsed(
+    parse_settings, archive, demo
+) -> None:
+    """Skeemamuutos ei liikuta parametrihashia, joten se on tarkistettava."""
+    parser = FakeParser()
+    run_parse(parse_settings, archive, parser, demo)
+    table = archive.parsed_table(MAP_DEMO_ID, "callouts")
+    pl.read_parquet(table).drop("observations").write_parquet(table)
+
+    result = run_parse(parse_settings, archive, parser, demo)
+    assert not result.skipped
+    assert parser.calls == 2
+
+
+def test_the_cloud_counts_come_back_from_a_skipped_run(
+    parse_settings, archive, demo
+) -> None:
+    """Ruudut ja alueet ovat luettavissa valmiista taulusta, joten ne kerrotaan
+    myös ohitetussa ajossa -- toisin kuin luetut tickirivit."""
+    parser = FakeParser()
+    run_parse(parse_settings, archive, parser, demo)
+    result = run_parse(parse_settings, archive, parser, demo)
+    assert result.skipped
+    assert result.stats["callout_cells"] == 4
+    assert result.stats["callout_areas"] == 2
+    assert "callout_cloud_rows_read" not in result.stats
+
+
+def test_the_cloud_diagnostics_reach_the_stats_and_the_summary(
+    parse_settings, archive, demo
+) -> None:
+    """Luetut ja kelvolliset rivit näkee vain lukuhetkellä.
+
+    Valmis taulu kertoo, montako ruutua syntyi, muttei sitä mistä ne
+    pelkistettiin -- eikä sitä, miksi pilvi jäi tyhjäksi.
+    """
+    from pappascout.cli import _render_parse
+
+    parser = FakeParser(callouts=pl.DataFrame(schema=dict(CALLOUTS_ADAPTER_SCHEMA)))
+    parser.diagnostics = ParseDiagnostics(
+        tick_rate=64.0,
+        tick_rate_measured=True,
+        rounds_seen=3,
+        callout_cloud_rows_read=1529910,
+        callout_cloud_empty_reason="1529910 tickiriviä luettiin, mutta "
+        "yhdelläkään ei ollut elossa olevaa pelaajaa nimetyllä alueella",
+    )
+    result = run_parse(parse_settings, archive, parser, demo)
+    assert result.stats["callout_cloud_rows_read"] == 1529910
+    assert result.stats["callout_cloud_empty_reason"].startswith("1529910 tickiriviä")
+    # Kelvolliset rivit tulevat taulusta, eivät toisesta laskurista.
+    assert result.stats["callout_observations"] == 0
+
+    text = _render_parse(result, regulation_rounds=24)
+    assert "tyhjä -- yhtäkään räjähdysaluetta ei nimetä" in text
+    assert "yhdelläkään ei ollut elossa olevaa pelaajaa" in text
+
+
+def test_the_detonation_area_coverage_and_distance_reach_the_stats(
+    parse_settings, archive, demo
+) -> None:
+    """Kattavuus ja etäisyysjakauma lasketaan valmiista taulusta joka ajolla.
+
+    Ne ovat Story 2.9:n mittarit, eikä niitä saa jättää kalibroinnin varaan:
+    kynnys voi vanhentua uuden kartan myötä, ja silloin sen kuuluu näkyä
+    ajossa eikä vasta raportissa.
+    """
+    rounds = build_rounds(played=2, warmup=0)
+    events = build_events(rounds)
+    # Kaksi räjähdystä neljästä jää kynnyksen taakse: alue null, etäisyys
+    # tallessa. Se on I/O-matriisin rivi "räjähdys kaukana".
+    detonation = pl.col("event_kind") == "grenade_detonate"
+    far = pl.col("grenade_no") % 2 == 1
+    events = events.with_columns(
+        pl.when(detonation & far)
+        .then(None)
+        .otherwise(pl.col("area"))
+        .alias("area"),
+        pl.when(detonation & far)
+        .then(None)
+        .otherwise(pl.col("area_source"))
+        .alias("area_source"),
+        pl.when(detonation)
+        .then(pl.when(far).then(900.0).otherwise(40.0))
+        .otherwise(None)
+        .cast(pl.Float32)
+        .alias("snap_distance"),
+    )
+    result = run_parse(
+        parse_settings, archive, FakeParser(rounds, events=events), demo
+    )
+
+    named, total = result.stats["utility_detonation_area_coverage"]
+    assert total == 8
+    assert named == 4
+    assert result.stats["utility_area_beyond_threshold"] == 4
+    median, p90, largest = result.stats["utility_snap_distance"]
+    assert largest == pytest.approx(900.0)
+    assert median == pytest.approx(470.0)
+
+
+def test_the_distance_spread_reports_three_different_numbers(
+    parse_settings, archive, demo
+) -> None:
+    """Mediaani, p90 ja suurin ovat **kolme eri lukua**, eivät sama kolmesti.
+
+    Ilman tätä kiinnikettä ``p90`` on laskettu mutta havaitsematon: sen voi
+    vaihtaa ``quantile(0.3)``:een eikä yksikään väite kaadu, koska muut
+    testit joko purkavat sen muuttujaan käyttämättä sitä tai vertaavat
+    tulosteessa kovakoodattuun literaaliin. Ja juuri p90 on se luku, jota
+    asetusten docstringit myyvät ainoana ajokohtaisena todisteena kynnyksen
+    kalibroinnista.
+
+    Etäisyydet ovat 10, 20, ..., 200 (20 räjähdystä): mediaani 105, p90
+    (lähin havainto) 180 ja suurin 200. Kolme eri lukua, ja mikä tahansa muu
+    kvantiili antaisi eri tuloksen -- ``quantile(0.3)`` antaisi 60.
+    """
+    rounds = build_rounds(played=5, warmup=0)
+    events = build_events(rounds)
+    detonations = pl.col("event_kind") == "grenade_detonate"
+    # 20 räjähdystä, etäisyydet 10..200 nousevassa järjestyksessä.
+    step = (
+        pl.col("grenade_no").rank("ordinal").over("event_kind").cast(pl.Float32)
+        * 10.0
+    )
+    events = events.with_columns(
+        pl.when(detonations).then(step).otherwise(None).alias("snap_distance")
+    )
+    result = run_parse(
+        parse_settings, archive, FakeParser(rounds, events=events), demo
+    )
+
+    median, p90, largest = result.stats["utility_snap_distance"]
+    assert result.stats["utility_detonations"] == 20
+    assert (median, p90, largest) == pytest.approx((105.0, 180.0, 200.0))
+    # Kolme eri lukua: jos kaksi olisi sama, väite ei erottaisi kvantiileja.
+    assert len({median, p90, largest}) == 3

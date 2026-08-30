@@ -116,7 +116,14 @@ __all__ = [
 #: vanha ``report.json`` enää validoidu -- silloin ``render`` kertoo, että
 #: aggregointi on ajettava uudelleen, sen sijaan että se muotoilisi puolikkaan
 #: raportin hiljaa.
-REPORT_SCHEMA_VERSION = "4.0.0"
+#:
+#: **5.0.0 (Story 2.9): rakenne ei muuttunut, mutta arvojoukko muuttui.**
+#: ``AreaSource``-luettelosta poistui ``snapped`` ja tilalle tuli
+#: ``point_cloud``, joten vanha ``report.json`` ei enää validoidu -- yksikään
+#: kenttä ei kadonnut, mutta ``UtilityUse.area_source`` hylkää vanhan arvon.
+#: Versio nousee siksi täsmälleen samasta syystä kuin puuttuvasta kentästä:
+#: ehto on "validoituuko vanha tiedosto", ei "tuliko uusi kenttä".
+REPORT_SCHEMA_VERSION = "5.0.0"
 
 
 #: Merkit, jotka eivät kelpaa tiedostonimeen. Slug on ASCII-osajoukko, koska
@@ -379,7 +386,8 @@ class UtilityUse(_Node):
     #: Heittäjän oma alue heittohetkellä. **Havainto**, ei arvio.
     throw_area: str | None
     #: Räjähdyksen alue. **Arvio**: kranaatilla ei ole aluenimeä, joten se on
-    #: johdettu lähimmästä elossa olevasta pelaajasta.
+    #: luettu demon pistepilven lähimmästä ruudusta -- siitä kohdasta kartalla,
+    #: jossa pelaajat ovat lähinnä räjähdystä oikeasti seisoneet.
     detonate_area: str | None
     #: Mistä ``detonate_area`` on peräisin. ``null`` aina ja vain silloin, kun
     #: ``detonate_area`` on ``null``. Ilman tätä raportti esittäisi arvion
@@ -412,7 +420,7 @@ class UtilityUse(_Node):
                 f"area_source={self.area_source!r} ovat ristiriidassa: "
                 "kumpikin on joko annettu tai molemmat tyhjiä. Alue ilman "
                 "lähdettä esittäisi arvion havaintona, ja lähde ilman aluetta "
-                "väittäisi napsautusta alueelle, jota ei ole."
+                "väittäisi johdosta alueelle, jota ei ole."
             )
         return self
 

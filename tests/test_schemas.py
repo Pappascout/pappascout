@@ -442,8 +442,8 @@ def test_a_death_carries_both_actors_with_their_own_place() -> None:
         assert DEATHS[f"{prefix}_area"] == pl.Utf8
 
 
-def test_the_death_areas_are_observations_not_snaps() -> None:
-    """Alue tulee samalta tapahtumalta, joten napsautuksen kenttiä ei ole.
+def test_the_death_areas_are_observations_not_derived() -> None:
+    """Alue tulee samalta tapahtumalta, joten johdoksen kenttiä ei ole.
 
     ``area_source`` ja ``snap_distance`` ovat olemassa kranaatin
     approksimaatiota varten. Kuolemataulussa ne väittäisivät, että alue on

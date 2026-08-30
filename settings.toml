@@ -169,36 +169,157 @@ first_contact_exclude_weapons = [
 # [spine] AD-5.
 first_contact_fallback_death = true
 
-# Enimmäisetäisyys pelin yksiköissä, jolta utility-tapahtuman alue saa napata
-# lähimmän elossa olevan pelaajan alueen. [spine] AD-5, Open Question 4.
+# --- Räjähdysalue pistepilvestä (Story 2.9) ---
 #
-# Kranaatilla ei ole last_place_name-kenttää, joten alue on johdettava
-# koordinaateista. Tämä on sen ainoa säädin: liian suuri arvo antaa
-# naapurialueen calloutin, liian pieni jättää alueen tyhjäksi. **Väärä alue on
-# pahempi kuin puuttuva**, joten arvo on tarkoituksella varovainen. Jos avain
-# poistetaan, alue jää aina nulliksi mutta koordinaatit tallentuvat silti.
+# Kranaatilla ei ole last_place_name-kenttää, joten räjähdyksen alue on
+# johdettava koordinaateista. Menetelmä on PISTEPILVI: parse kokoaa demon
+# omista tickeistä ruudukon siitä, missä pelaajat ovat kartalla oikeasti
+# seisoneet ja mikä alue kussakin kohdassa on (last_place_name on pelin oma
+# totuus), ja räjähdys nimetään lähimmän ruudun alueella. Ruudukko
+# kirjoitetaan parsed/<map_demo_id>/callouts.parquet-tauluun, jotta johdettu
+# alue on tarkistettavissa demoa vasten.
 #
-# Raja koskee **vain räjähdystä**. Heiton alue luetaan heittäjän omasta
+# MIKÄ POISTUI. Story 2.2 johti alueen LÄHIMMÄSTÄ ELOSSA OLEVASTA PELAAJASTA.
+# Se ei ollut epätarkka vaan rakenteellisesti väärä: savu heitetään sinne,
+# missä ketään ei ole -- juuri siksi, että se estää näkyvyyden ja pakottaa
+# rotaatioita. Proxy mittasi päinvastaista kuin piti. Menetelmää ei jätetty
+# rinnalle varalähteeksi: kaksi menetelmää tekisi rivistä tulkitsemattoman.
+#
+# MIKSI NIMI ON YHÄ area_snap_units. Sana "snap" on menetelmän jäänne, ja
+# samoin EVENTS-taulun sarake snap_distance. Nimiä EI vaihdettu, vaikka
+# skeemaversio nousi ja arkisto parsitaan joka tapauksessa uudelleen: speksi
+# nimeää molemmat säilytettäviksi (Code Map pyytää "area_snap_units
+# uudelleenkalibroituna" ja "EVENTS.snap_distance docstring"), eli nimet ovat
+# jaettua sanastoa eivätkä toteutuksen yksityiskohta. Lue "snap" siis
+# merkityksessä "kiinnitys lähimpään ruutuun", ei "nappaus pelaajalta".
+#
+# Nämä neljä koskevat vain räjähdystä. Heiton alue luetaan heittäjän omasta
 # m_szLastPlaceName-propista samalta tickiltä, eli se on havainto eikä arvio;
-# EVENTS-taulun area_source erottaa nämä kaksi toisistaan ja snap_distance
-# kertoo arvion etäisyyden rivikohtaisesti.
+# EVENTS-taulun area_source erottaa nämä kaksi ja snap_distance kertoo arvion
+# etäisyyden rivikohtaisesti.
+
+# Pistepilven ruudun särmä pelin yksiköissä.
 #
-# Mitattu Ancient-demon 374 lentoradasta (Story 2.2). Kaikki 374 ovat mukana
-# kalibroinnissa, myös se yksi, joka lähtee kierroksen ratkeamisen jälkeen eikä
-# siksi päädy taulun 373 kranaatin joukkoon:
-#   - heittopiste: lähin elossa oleva pelaaja on heittäjä itse 374/374
-#     kerralla, ja etäisyys on 38-91 yksikköä (kranaatti lähtee kädestä). Tämä
-#     mittaus perusteli sen, että heittoalue kannattaa lukea suoraan
-#     heittäjältä eikä napsauttaa lainkaan.
-#   - räjähdyspiste: mediaanietäisyys lähimpään pelaajaan on 532 yksikköä.
-#     Rajalla 500 alue saadaan 178/374 tapahtumalle, ja niistä 76 %:ssa kaikki
-#     rajan sisällä olevat pelaajat ovat samalla alueella. Rajalla 1000
-#     kattavuus nousee 91 %:iin mutta yksimielisyys romahtaa 35 %:iin -- silloin
-#     "lähin pelaaja" ei enää kerro kranaatin aluetta vaan naapurin.
+# [mitattu 2026-08-30, Ancient_vs_kaljukostaja ja Nuke_vs_imuaijat]
+# Mediaanietäisyys lähimpään ruutuun ja osuus 256 yksikön sisällä:
 #
-# [kalibroi] Arvo on Story 2.2:n mittaus kahdelta kartalta. Useampi kartta voi
-# säätää sitä; snap_distance-sarake antaa aineiston siihen ilman uutta ajoa.
-area_snap_units = 500
+#   ruutu   z-paino/toleranssi   Ancient          Nuke
+#     32          1 / 0          20 -- 89,8 %     20 -- 98,8 %
+#     32          2 / 0          30 -- 86,5 %     31 -- 98,3 %
+#     32          1 / 72         15 -- 91,8 %     14 -- 99,0 %   <- valittu
+#     32          2 / 72         15 -- 89,0 %     14 -- 98,8 %
+#     64          1 / 72         29 -- 93,2 %     26 -- 99,3 %
+#    128          1 / 72         57 -- 90,5 %     47 -- 99,0 %
+#
+# RUUTU 32 EI OLE PARAS KATTAVUUDELTAAN. Ruutu 64 osuu kynnyksen sisään
+# hieman useammin (Ancient 93,2 % vs. 91,8 %), koska karkeampi ruudukko
+# kurottaa kauemmas. Valinta on silti 32, koska mediaanietäisyys puolittuu
+# (15 vs. 29): pieni etäisyys on se, mikä tekee nimetystä alueesta
+# todennäköisesti oikean, kun taas kattavuuden viimeiset prosentit ovat juuri
+# niitä räjähdyksiä, jotka ovat kaukana kaikesta. Väärä alue on pahempi kuin
+# puuttuva.
+#
+# Ruutuja on 32:lla noin 7 700-10 500 per demo, ja aluemäärä on sama kaikilla
+# ruutukoilla (Ancient 18, Nuke 29): hienompi ruudukko ei pilko alueita vaan
+# tarkentaa reunoja.
+#
+# Sallittu väli on 8-1024 yksikköä. Alaraja on suorituskykyraja eikä
+# makuasia: ruutu 1 tuottaisi luokkaa miljoona ruutua, ja lähimmän haku on
+# ristiintulo pisteiden ja ruutujen välillä. Yläraja 1024 on 32 pelaajan
+# leveyttä -- sitä karkeampi ruudukko ei enää erottele alueita.
+#
+# Arvon muuttaminen mitätöi parsinnan tuloksen ([parse]-osio on osa
+# parametrihashia), eli demot parsitaan uudelleen.
+callout_grid_units = 32
+
+# Pystyeron painokerroin, kun räjähdykselle etsitään lähintä ruutua.
+#
+# Kerroskartta vaatii sen: Nukella alakerran ruutu on ylhäältä katsoen aivan
+# vieressä mutta eri alueella, ja ilman painoa yläkerran savu saa alakerran
+# alueen. 0 = ei painoa (pystyero jätetään huomiotta kokonaan).
+#
+# [mitattu 2026-08-30, molemmat Nuke-demot] Väärän kerroksen alueen saaneet
+# yläkerran räjähdykset ja kynnyksen sisään osuvien osuus:
+#
+#   paino   väärä kerros (1-79f7 / Nuke_vs)   kattavuus (1-79f7 / Nuke_vs)
+#     0            25 / 38                       99,8 % / 99,8 %
+#     1             0 /  0                       99,1 % / 99,0 %   <- valittu
+#     2             0 /  0                       97,8 % / 98,8 %
+#     3             0 /  0                       97,4 % / 98,8 %
+#
+# MIKSI 1 EIKÄ 2. Paino 1 riittää kerrosten erottamiseen täydellisesti --
+# nolla väärää molemmilla demoilla -- ja jokainen sitä suurempi paino maksaa
+# kattavuutta ostamatta mitään mitattavaa. Mediaani on sama (15/14) painoilla
+# 1, 2 ja 3. Aiempi oletus 2 valittiin ennen kuin painoa 1 oli verrattu
+# toleranssin kanssa, ja vertailu kumosi sen.
+callout_z_weight = 1.0
+
+# Pystyero, joka on painotuksessa ILMAISTA -- painokerroin koskee vain sen yli
+# menevää osaa: max(0, |dz| - tämä) * callout_z_weight.
+#
+# MITTAUS MUUTTI SUUNNITELMAN. Pelkkä z-paino 2 ilman toleranssia on HUONOMPI
+# kuin ei painoa lainkaan (Ancient mediaani 30 vs. 20, Nuke 31 vs. 20). Syy on
+# ilmeinen jälkikäteen: pistepilvi tallentaa PELAAJAN sijainnin, mutta
+# kranaatti räjähtää mistä tahansa lattian ja pään väliltä -- savu ilmassa,
+# molotov lattialla. Pystysuora rangaistus osuu siis normaaliin tapaukseen.
+# Kun z-erosta vähennetään pelaajan korkeus ennen painotusta, mediaani putoaa
+# 20:stä 15:een (Ancient) ja 14:ään (Nuke).
+#
+# TOLERANSSI ON SYMMETRINEN, ja se on mitattu eikä oletettu. Vapaus vain
+# ylöspäin (savu leijuu, joten alaspäin ei tarvita vapautta) kuulostaa
+# oikealta mutta on mitattuna huonompi: painolla 1 mediaani nousee
+# Ancientilla 15 -> 17 ja Nukella 14 -> 19, eikä kattavuus parane lainkaan
+# (91,8 % ja 99,0 % molemmilla). Syy on molotov ja palo, jotka ovat pelaajan
+# jalkojen tasolla tai sen alla rinteessä -- ja rappusissa pelaajan
+# vertailupiste voi olla kumpaa tahansa puolta räjähdystä.
+#
+# 72 = PELAAJAN KORKEUS pelin yksiköissä, ei sovitettu luku.
+callout_z_tolerance_units = 72
+
+# Enimmäisetäisyys pelin yksiköissä, jolta räjähdyksen alue saa tulla lähimmästä
+# pistepilviruudusta. [spine] AD-5; tämä on vastaus Open Question 4:ään
+# (last_place_name-alueiden karkeus ja räjähdysalueen johtaminen).
+#
+# PAKOLLINEN ASETUS, ei valinnainen. Speksin Always-sääntö on "etäisyyskynnys
+# säilyy", ja ilman arvoa jokainen räjähdys saisi alueen etäisyydestä
+# riippumatta: pistepilvestä lähin ruutu löytyy AINA, joten kynnyksetön
+# kattavuus olisi aina 100 % eikä se olisi kattavuutta vaan mittarin
+# puuttuminen. Mitattu maksimietäisyys on 1 074 yksikköä.
+#
+# ETÄISYYS ON PAINOTETTU samoin kuin nimeäminen (ks. kaksi edellistä), eli se
+# ei ole euklidinen etäisyys vaan se luku, jolla lähin ruutu valittiin.
+#
+# [kalibroitu 2026-08-30, kaikki kuusi demoa, 2 544 räjähdystä,
+#  ruutu 32 / paino 1 / toleranssi 72]
+# Osuma = räjähdys, jonka lähin ruutu on kynnyksen sisällä:
+#
+#   kynnys   osuu         osuus
+#      64    2281/2544    89,7 %
+#     128    2351/2544    92,4 %
+#     192    2397/2544    94,2 %
+#     256    2428/2544    95,4 %   <- valittu
+#     320    2460/2544    96,7 %
+#     384    2481/2544    97,5 %
+#     512    2506/2544    98,5 %
+#    1024    2543/2544    100,0 %
+#
+# Demokohtaisesti kynnyksellä 256: Ancient_vs_kaljukostaja 91,8 %,
+# Anubis_vs_ryhmarama 93,5 %, Nuke_vs_imuaijat 99,0 %,
+# inferno_vs_ryhmarama 98,4 %, testidemot 89,8 % (Ancient) ja 99,1 % (Nuke).
+# Vertailukohta: EDELLINEN MENETELMÄ (lähin elossa oleva pelaaja, kynnys 500)
+# jätti neljästä liigademosta 42 % räjähdyksistä ilman aluetta (722/1 716).
+#
+# MIKSI 256 EIKÄ 512. Kynnys on tarkkuuden ja kattavuuden vaihtokauppa, ja
+# 256:n ja 512:n välissä voitetaan 3,1 prosenttiyksikköä. 256 yksikköä on
+# kahdeksan ruutua eli noin kahdeksan pelaajan leveyttä: sitä kauempana oleva
+# räjähdys ei ole "reunalla" vaan paikassa, jossa kukaan ei ole seissyt --
+# radan ulkopuolelle heitetty savu tai kierroksen päättymisen jälkeen
+# räjähtänyt molotov. Ne jäävät kynnyksen taakse aluetta vaille, mikä on oikea
+# lopputulos. Väärä alue on pahempi kuin puuttuva.
+#
+# Ajo mittaa tämän joka kerta uudelleen: rivit "Räjähdysalue" ja
+# "Etäisyys ruutuun" kertovat kattavuuden ja jakauman ilman uutta kalibrointia.
+area_snap_units = 256
 
 # Kalustolaskurilla players_armed_buy_end ei ole asetusta: se on havainto
 # (panssari ja ase hallussa), ja aseluettelo on src/pappascout/constants.py:ssä.

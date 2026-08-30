@@ -1,9 +1,13 @@
-"""``domain.utility`` -- lentoratojen pelkistys ja alueen johtaminen.
+"""``domain.utility`` -- lentoratojen pelkistys ja räjähdysalue pistepilvestä.
 
-Molemmat funktiot ovat puhtaita, joten jokainen I/O-matriisin rivi on täällä
-yhden kutsun päässä ilman demotiedostoa. Radat rakennetaan käsin, ja ne
+Jokainen funktio on puhdas, joten jokainen I/O-matriisin rivi on täällä yhden
+kutsun päässä ilman demotiedostoa. Radat rakennetaan käsin, ja ne
 jäljittelevät oikean demon rakennetta: kranaatilla on rivejä myös pelaajan
 repussa (koordinaatit tyhjiä), ja ``grenade_entity_id`` kierrätetään.
+
+Pistepilvi rakennetaan samalla tavalla käsin: muutama havainto riittää
+todistamaan moodivalinnan, tasatilanteen ratkaisun, pystypainon ja kynnyksen,
+eikä yksikään niistä vaadi miljoonaa riviä.
 """
 
 from __future__ import annotations
@@ -13,16 +17,37 @@ import pytest
 
 from pappascout.constants import EVENT_KINDS
 from pappascout.domain.utility import (
+    CLOUD_CELL_COLUMNS,
+    CLOUD_OBSERVATION_COLUMNS,
     DETONATE,
     ENDPOINT_COLUMNS,
     MAX_TRAJECTORY_GAP_SECONDS,
+    NEAREST_CHUNK_POINTS,
+    NEAREST_POINT_COLUMNS,
+    NEAREST_RESULT_COLUMNS,
     THROWN,
     TRAJECTORY_COLUMNS,
-    PlayerPoint,
+    build_point_cloud,
+    empty_point_cloud,
     grenade_endpoints,
-    snap_area,
+    nearest_cells,
     trajectory_gap_ticks,
 )
+
+#: Pistepilven ruudun särmä näissä testeissä. Sama kuin ``settings.toml``in
+#: ``callout_grid_units``, jotta testien luvut mittaavat tuotannon ruudukkoa.
+GRID = 32
+
+#: Havaintotaulun tyypit. Eksplisiittisesti, koska yksikin pelkkiä
+#: ``None``-arvoja sisältävä sarake saisi muuten ``Null``-tyypin -- ja
+#: suodatin, jota testataan, kaatuisi eri syystä kuin testi väittää.
+OBSERVATION_SCHEMA: dict[str, object] = {
+    "x": pl.Float64,
+    "y": pl.Float64,
+    "z": pl.Float64,
+    "area": pl.Utf8,
+    "is_alive": pl.Boolean,
+}
 
 #: Feikkidemojen tickrate; radan sallittu aukko lasketaan siitä.
 TICK_RATE = 64.0
@@ -409,83 +434,6 @@ def test_non_finite_coordinates_are_not_a_trajectory_point() -> None:
     assert result["tick"].to_list() == [11, 12]
 
 
-# --- snap_area -----------------------------------------------------------------
-
-
-def player(
-    x: float, y: float, z: float, area: str | None, alive: bool = True
-) -> PlayerPoint:
-    return PlayerPoint(x=x, y=y, z=z, area=area, is_alive=alive)
-
-
-def test_the_nearest_living_player_gives_the_area() -> None:
-    players = [
-        player(100.0, 0.0, 0.0, "Ramp"),
-        player(10.0, 0.0, 0.0, "BombsiteA"),
-    ]
-    assert snap_area(0.0, 0.0, 0.0, players, 500).area == "BombsiteA"
-
-
-def test_a_player_beyond_the_limit_gives_nothing() -> None:
-    """I/O-matriisi: räjähdys kaukana kaikista -> ``area = null``."""
-    players = [player(1000.0, 0.0, 0.0, "Ramp")]
-    assert snap_area(0.0, 0.0, 0.0, players, 500).area is None
-
-
-def test_the_limit_itself_still_counts() -> None:
-    players = [player(500.0, 0.0, 0.0, "Ramp")]
-    assert snap_area(0.0, 0.0, 0.0, players, 500).area == "Ramp"
-
-
-def test_a_dead_player_does_not_give_the_area() -> None:
-    """Ruumis jää siihen mihin pelaaja kaatui eikä kerro utilityn kohteesta."""
-    players = [
-        player(10.0, 0.0, 0.0, "BombsiteA", alive=False),
-        player(200.0, 0.0, 0.0, "Ramp"),
-    ]
-    assert snap_area(0.0, 0.0, 0.0, players, 500).area == "Ramp"
-
-
-def test_height_separates_the_floors_of_a_layered_map() -> None:
-    """Nuken alakerran pelaaja on ylhäältä katsoen vieressä mutta eri alueella."""
-    players = [player(0.0, 0.0, -400.0, "Vents")]
-    assert snap_area(0.0, 0.0, 0.0, players, 300).area is None
-    assert snap_area(0.0, 0.0, 0.0, players, 500).area == "Vents"
-
-
-def test_the_second_nearest_area_is_never_tried() -> None:
-    """Lähimmällä ei ole aluenimeä -> tyhjä, ei naapurin arvausta."""
-    players = [
-        player(10.0, 0.0, 0.0, None),
-        player(20.0, 0.0, 0.0, "Ramp"),
-    ]
-    assert snap_area(0.0, 0.0, 0.0, players, 500).area is None
-
-
-def test_no_players_at_all_gives_nothing() -> None:
-    assert snap_area(0.0, 0.0, 0.0, [], 500).area is None
-
-
-def test_an_unset_limit_disables_snapping() -> None:
-    """``area_snap_units = None`` on kalibroimattoman asetuksen rehellinen arvo."""
-    players = [player(1.0, 0.0, 0.0, "Ramp")]
-    assert snap_area(0.0, 0.0, 0.0, players, None).area is None
-
-
-def test_a_player_without_coordinates_is_ignored() -> None:
-    players = [
-        PlayerPoint(x=None, y=None, z=None, area="BombsiteA", is_alive=True),
-        player(300.0, 0.0, 0.0, "Ramp"),
-    ]
-    assert snap_area(0.0, 0.0, 0.0, players, 500).area == "Ramp"
-
-
-def test_a_target_without_coordinates_gives_nothing() -> None:
-    assert snap_area(None, 0.0, 0.0, [player(1.0, 0.0, 0.0, "Ramp")], 500).area is None
-    nan = float("nan")
-    assert snap_area(nan, 0.0, 0.0, [player(1.0, 0.0, 0.0, "Ramp")], 500).area is None
-
-
 # --- Aukon skaalaus tickratella ------------------------------------------------
 
 
@@ -559,37 +507,388 @@ def test_a_trajectory_of_only_null_types_disappears() -> None:
     assert dropped == 0
 
 
-# --- Napsautusetäisyys ---------------------------------------------------------
+# --- Pistepilven rakentaminen --------------------------------------------------
 
 
-def test_the_snap_distance_is_kept() -> None:
-    """Kuluttajan on erotettava 40 yksikön osuma 490 yksikön arvauksesta."""
-    snap = snap_area(0.0, 0.0, 0.0, [player(300.0, 400.0, 0.0, "Ramp")], 500)
-    assert snap.area == "Ramp"
-    assert snap.distance == pytest.approx(500.0)
+def observations(rows: list[dict[str, object]]) -> pl.DataFrame:
+    """Havaintotaulu sopimuksen tyypeillä."""
+    return pl.DataFrame(rows, schema=OBSERVATION_SCHEMA, orient="row")
 
 
-def test_a_snap_that_found_nobody_has_no_distance() -> None:
-    """Rajan ulkopuolella napsautusta ei tehty, joten etäisyyttäkään ei ole."""
-    snap = snap_area(0.0, 0.0, 0.0, [player(600.0, 0.0, 0.0, "Ramp")], 500)
-    assert snap.area is None
-    assert snap.distance is None
+def seen(
+    x: float,
+    y: float,
+    z: float = 0.0,
+    area: str | None = "BombsiteA",
+    alive: bool = True,
+) -> dict[str, object]:
+    return {"x": x, "y": y, "z": z, "area": area, "is_alive": alive}
 
 
-def test_an_unnamed_nearest_player_keeps_the_distance() -> None:
-    """Nämä kaksi tyhjää aluetta ovat eri asioita, ja etäisyys erottaa ne.
+def test_the_cloud_is_a_grid_of_where_players_stood() -> None:
+    """Kaksi havaintoa samassa ruudussa on yksi ruutu, kaukainen on toinen."""
+    cloud = build_point_cloud(
+        observations([seen(10.0, 10.0), seen(20.0, 12.0), seen(300.0, 300.0, area="Mid")]),
+        grid_units=GRID,
+    )
+    assert cloud.select("cell_x", "cell_y", "cell_z").rows() == [(0, 0, 0), (9, 9, 0)]
+    assert cloud["area"].to_list() == ["BombsiteA", "Mid"]
+    assert cloud["observations"].to_list() == [2, 1]
 
-    "Kukaan ei ollut lähellä" on eri havainto kuin "lähin oli vieressä mutta
-    pelillä ei ole nimeä hänen alueelleen". Ilman etäisyyttä kuluttaja ei voisi
-    erottaa niitä.
+
+def test_the_cell_area_is_the_mode_not_the_first_row() -> None:
+    """Ruudun reunalla on aina rivejä naapurialueelta.
+
+    Ensimmäinen rivi olisi kiinni siinä, missä järjestyksessä demoparser2
+    tickit antoi -- eli sama demo voisi antaa eri alueen eri ajolla.
     """
-    snap = snap_area(0.0, 0.0, 0.0, [player(10.0, 0.0, 0.0, None)], 500)
-    assert snap.area is None
-    assert snap.distance == pytest.approx(10.0)
+    rows = [seen(1.0, 1.0, area="Reuna")] + [seen(2.0, 2.0, area="Keskus")] * 3
+    cloud = build_point_cloud(observations(rows), grid_units=GRID)
+    assert cloud["area"].to_list() == ["Keskus"]
+    # Havainnot ovat ruudun KAIKKI rivit, ei vain voittaneen alueen.
+    assert cloud["observations"].to_list() == [4]
 
 
-@pytest.mark.parametrize("limit", [float("nan"), float("inf")])
-def test_a_non_finite_limit_does_not_remove_the_limit(limit: float) -> None:
-    """NaN-vertailu on aina epätosi, joten raja katoaisi huomaamatta."""
-    far_away = [player(100000.0, 0.0, 0.0, "Ramp")]
-    assert snap_area(0.0, 0.0, 0.0, far_away, limit).area is None
+def test_a_tie_is_broken_by_the_area_name() -> None:
+    """Tasatilanne ei saa jäädä lajittelun sattuman varaan."""
+    rows = [seen(1.0, 1.0, area="Zulu"), seen(2.0, 2.0, area="Alfa")]
+    assert build_point_cloud(observations(rows), grid_units=GRID)["area"].to_list() == [
+        "Alfa"
+    ]
+    # Sama sisältö toisessa järjestyksessä antaa saman vastauksen.
+    assert build_point_cloud(
+        observations(list(reversed(rows))), grid_units=GRID
+    )["area"].to_list() == ["Alfa"]
+
+
+def test_a_dead_player_is_not_in_the_cloud() -> None:
+    """Ruumis jää siihen mihin pelaaja kaatui; kuollut ei liiku kartalla."""
+    rows = [seen(10.0, 10.0, area="Elossa"), seen(300.0, 300.0, area="Ruumis", alive=False)]
+    cloud = build_point_cloud(observations(rows), grid_units=GRID)
+    assert cloud["area"].to_list() == ["Elossa"]
+
+
+def test_an_unnamed_area_is_not_in_the_cloud() -> None:
+    """Ruutu nimeltä "ei nimeä" nimeäisi räjähdyksen tyhjäksi.
+
+    Rivi näyttäisi silti osumalta -- alue null kynnyksen sisältä -- eikä
+    lukija voisi erottaa sitä siitä, ettei aluetta saatu lainkaan.
+    """
+    rows = [seen(10.0, 10.0, area=None), seen(300.0, 300.0, area="Mid")]
+    cloud = build_point_cloud(observations(rows), grid_units=GRID)
+    assert cloud["area"].to_list() == ["Mid"]
+    assert cloud["area"].null_count() == 0
+
+
+def test_a_row_without_coordinates_is_not_in_the_cloud() -> None:
+    rows = [
+        {"x": None, "y": 1.0, "z": 0.0, "area": "Haamu", "is_alive": True},
+        {"x": float("nan"), "y": 1.0, "z": 0.0, "area": "Haamu", "is_alive": True},
+        seen(300.0, 300.0, area="Mid"),
+    ]
+    cloud = build_point_cloud(observations(rows), grid_units=GRID)
+    assert cloud["area"].to_list() == ["Mid"]
+
+
+def test_negative_coordinates_round_downwards() -> None:
+    """CS-kartat ovat origon molemmin puolin, joten katkaisu olisi vika.
+
+    Katkaisu nollaa kohti panisi -1 ja +1 samaan ruutuun, jolloin ruudukko
+    olisi origon kohdalla kaksinkertainen ja kaksi eri aluetta sulautuisi.
+    """
+    cloud = build_point_cloud(
+        observations([seen(-1.0, -1.0), seen(1.0, 1.0, area="Toinen")]),
+        grid_units=GRID,
+    )
+    assert cloud.select("cell_x", "cell_y").rows() == [(-1, -1), (0, 0)]
+
+
+def test_an_empty_cloud_still_has_the_contract_columns() -> None:
+    """I/O-matriisi: tyhjä pistepilvi on kelvollinen tulos, ei virhe."""
+    cloud = build_point_cloud(observations([]), grid_units=GRID)
+    assert cloud.is_empty()
+    assert cloud.columns == list(CLOUD_CELL_COLUMNS)
+    assert cloud.schema == empty_point_cloud().schema
+
+
+def test_a_cloud_of_only_dead_players_is_empty_not_broken() -> None:
+    rows = [seen(10.0, 10.0, alive=False)]
+    assert build_point_cloud(observations(rows), grid_units=GRID).is_empty()
+
+
+def test_the_cloud_does_not_depend_on_the_row_order() -> None:
+    """Hyväksymiskriteeri: sama demo kahdesti -> identtiset taulut.
+
+    Demolla väite on heikko (deterministinen funktio samalla syötteellä).
+    Tämä on sen vahva muoto: **sama sisältö eri järjestyksessä**. Jos
+    moodivalinta nojaisi ryhmittelyn tai lajittelun vakauteen, ruudun alue
+    voisi vaihtua ajojen välillä -- ja räjähdysalue sen mukana.
+    """
+    rows = [seen(1.0, 1.0, area="Alfa")] * 3 + [
+        seen(2.0, 2.0, area="Beeta")
+    ] * 3 + [seen(3.0, 3.0, area="Gamma"), seen(300.0, 300.0, area="Delta")]
+    forwards = build_point_cloud(observations(rows), grid_units=GRID)
+    # Kaksi eri sekoitusta, jotta yksikään ei ole "sama järjestys toisin päin".
+    backwards = build_point_cloud(observations(rows[::-1]), grid_units=GRID)
+    interleaved = build_point_cloud(
+        observations(rows[1::2] + rows[0::2]), grid_units=GRID
+    )
+    assert forwards.equals(backwards)
+    assert forwards.equals(interleaved)
+
+
+@pytest.mark.parametrize("column", CLOUD_OBSERVATION_COLUMNS)
+def test_a_missing_observation_column_is_named(column: str) -> None:
+    """Ilman tarkistusta tulos olisi tyhjä pilvi -- eli demo, jossa kukaan ei
+    liikkunut."""
+    rows = observations([seen(1.0, 1.0)]).drop(column)
+    with pytest.raises(ValueError, match=column):
+        build_point_cloud(rows, grid_units=GRID)
+
+
+@pytest.mark.parametrize("grid", [0, -32, float("nan"), float("inf")])
+def test_an_impossible_grid_size_is_refused(grid: float) -> None:
+    with pytest.raises(ValueError, match="Ruudun koko"):
+        build_point_cloud(observations([seen(1.0, 1.0)]), grid_units=grid)
+
+
+# --- Lähimmän ruudun haku ------------------------------------------------------
+
+
+def points(rows: list[tuple[int, float | None, float | None, float | None]]):
+    return pl.DataFrame(
+        rows,
+        schema={
+            "point_id": pl.Int64,
+            "x": pl.Float64,
+            "y": pl.Float64,
+            "z": pl.Float64,
+        },
+        orient="row",
+    )
+
+
+def two_area_cloud() -> pl.DataFrame:
+    """Kaksi ruutua kaukana toisistaan, eri alueilla."""
+    return build_point_cloud(
+        observations([seen(16.0, 16.0, area="Alaosa"), seen(1000.0, 16.0, area="Ylaosa")]),
+        grid_units=GRID,
+    )
+
+
+def nearest(pts, cloud, *, max_units=256.0, z_weight=2.0, z_tolerance=72.0):
+    """Lähimmän ruudun haku testien oletusmitoilla.
+
+    Paino on tässä **2 eikä tuotannon 1**, ja se on tarkoituksellista: nämä
+    testit mittaavat painotuksen *mekaniikkaa* eivätkä tuotannon
+    kokoonpanoa, ja kahden yksikön kerroin tekee käsin lasketuista
+    odotusarvoista luettavia. Tuotannon arvon vartioi
+    ``tests/test_settings.py``.
+    """
+    return nearest_cells(
+        pts,
+        cloud,
+        grid_units=GRID,
+        z_weight=z_weight,
+        z_tolerance_units=z_tolerance,
+        max_units=max_units,
+    )
+
+
+def test_the_nearest_cell_gives_the_area() -> None:
+    result = nearest(points([(7, 20.0, 20.0, 0.0)]), two_area_cloud())
+    assert result["area"].to_list() == ["Alaosa"]
+    assert result["distance"][0] == pytest.approx(5.657, abs=0.01)
+
+
+def test_the_point_id_comes_back_unchanged() -> None:
+    """Avain on kutsujan oma (``grenade_no``); funktio ei tunne kranaatteja."""
+    result = nearest(points([(41, 20.0, 20.0, 0.0), (7, 20.0, 20.0, 0.0)]), two_area_cloud())
+    assert sorted(result["point_id"].to_list()) == [7, 41]
+
+
+def test_a_point_beyond_the_threshold_keeps_its_distance() -> None:
+    """I/O-matriisi: räjähdys kaukana -> ``area`` null, ``snap_distance`` tallessa.
+
+    Etäisyys on se, mikä erottaa tämän tyhjästä pistepilvestä: molemmissa alue
+    on null, mutta vain tässä tiedetään kuinka kaukaa se olisi otettu.
+    """
+    result = nearest(points([(1, 5000.0, 16.0, 0.0)]), two_area_cloud())
+    assert result["area"].to_list() == [None]
+    # Ruudun keskipiste on 1008 (ruutu 31), joten etaisyys on 3992.
+    assert result["distance"][0] == pytest.approx(3992.0, abs=0.5)
+
+
+def test_the_threshold_itself_still_counts() -> None:
+    """Raja on ``<=`` eikä ``<``: 256 yksikön päässä oleva ruutu kelpaa."""
+    cloud = build_point_cloud(observations([seen(16.0, 16.0, area="Mid")]), grid_units=GRID)
+    exactly = nearest(points([(1, 16.0 + 256.0, 16.0, 0.0)]), cloud, max_units=256.0)
+    assert exactly["area"].to_list() == ["Mid"]
+    just_over = nearest(points([(1, 16.0 + 256.1, 16.0, 0.0)]), cloud, max_units=256.0)
+    assert just_over["area"].to_list() == [None]
+
+
+def test_an_empty_cloud_gives_neither_area_nor_distance() -> None:
+    """I/O-matriisi: tyhjä pistepilvi -> kaikki räjähdysalueet null."""
+    result = nearest(points([(1, 20.0, 20.0, 0.0)]), empty_point_cloud())
+    assert result["area"].to_list() == [None]
+    assert result["distance"].to_list() == [None]
+
+
+def test_a_point_without_coordinates_gives_nothing() -> None:
+    result = nearest(points([(1, None, 20.0, 0.0)]), two_area_cloud())
+    assert result["area"].to_list() == [None]
+    assert result["distance"].to_list() == [None]
+
+
+def test_the_players_own_height_is_free() -> None:
+    """Kranaatti räjähtää mistä tahansa lattian ja pään väliltä.
+
+    Pystyrangaistus ilman toleranssia osuisi juuri normaaliin tapaukseen:
+    savu ilmassa, molotov lattialla. Pelaajan korkeuden verran pystyeroa ei
+    siis saa maksaa mitään.
+    """
+    cloud = build_point_cloud(observations([seen(16.0, 16.0, 16.0, "Mid")]), grid_units=GRID)
+    # Ruudun keskipiste on z = 16; 72 yksikköä ylempänä ero on ilmainen.
+    result = nearest(points([(1, 16.0, 16.0, 16.0 + 72.0)]), cloud)
+    assert result["distance"][0] == pytest.approx(0.0, abs=0.01)
+    assert result["area"].to_list() == ["Mid"]
+
+
+def test_height_beyond_the_tolerance_is_weighted() -> None:
+    """Kerroskartta: alakerran ruutu on ylhäältä katsoen aivan vieressä.
+
+    Savu on tässä täsmälleen alakerran ruudun yläpuolella, 192 yksikköä
+    ylempänä, ja yläkerran ruutu on 224 yksikön päässä samassa tasossa. Ilman
+    painoa alakerta olisi lähempänä (192 < 224) ja savu saisi väärän
+    kerroksen; painotettuna sen etäisyys on 2 * (192 - 72) = 240, eli
+    yläkerta voittaa. Juuri tämä on painon koko tehtävä.
+    """
+    cloud = build_point_cloud(
+        observations(
+            [
+                seen(16.0, 16.0, -180.0, "Alakerta"),
+                seen(240.0, 16.0, 16.0, "Ylakerta"),
+            ]
+        ),
+        grid_units=GRID,
+    )
+    smoke = points([(1, 16.0, 16.0, 16.0)])
+    result = nearest(smoke, cloud, max_units=1000.0)
+    assert result["area"].to_list() == ["Ylakerta"]
+    assert result["distance"][0] == pytest.approx(224.0, abs=0.5)
+    # Ilman painoa ja toleranssia (paino 1, toleranssi 0) alakerta olisi
+    # lähempänä -- se on se virhe, jota vastaan paino on olemassa.
+    unweighted = nearest(
+        smoke, cloud, max_units=1000.0, z_weight=1.0, z_tolerance=0.0
+    )
+    assert unweighted["area"].to_list() == ["Alakerta"]
+    assert unweighted["distance"][0] == pytest.approx(192.0, abs=0.5)
+
+
+@pytest.mark.parametrize("limit", [None, float("nan"), float("inf")])
+def test_a_threshold_that_is_not_a_number_gives_no_area(limit: float | None) -> None:
+    """Kalibroimattoman asetuksen rehellinen arvo, ei rajan katoaminen.
+
+    Lähin ruutu löytyy aina, joten kynnyksetön nimeäminen olisi väite eikä
+    mittaus. Etäisyys mitataan silti -- se on aineisto kalibrointiin.
+    """
+    result = nearest(points([(1, 20.0, 20.0, 0.0)]), two_area_cloud(), max_units=limit)
+    assert result["area"].to_list() == [None]
+    assert result["distance"][0] == pytest.approx(5.657, abs=0.01)
+
+
+def test_an_equal_distance_is_broken_by_the_area_name() -> None:
+    """Kaksi yhtä kaukaista ruutua eri alueilla: sama demo, sama vastaus."""
+    cloud = build_point_cloud(
+        observations([seen(-16.0, 16.0, area="Zulu"), seen(48.0, 16.0, area="Alfa")]),
+        grid_units=GRID,
+    )
+    result = nearest(points([(1, 16.0, 16.0, 0.0)]), cloud, max_units=1000.0)
+    assert result["area"].to_list() == ["Alfa"]
+
+
+def test_chunking_does_not_change_the_answer() -> None:
+    """Palan koko on muistiraja, ei osa vastausta.
+
+    Pisteitä on tässä enemmän kuin yhteen palaan mahtuu, joten sekä
+    paloittelu että sen jälkeinen yhdistäminen tulevat ajetuiksi.
+    """
+    cloud = two_area_cloud()
+    many = points(
+        [(i, 20.0 if i % 2 else 1000.0, 20.0 if i % 2 else 16.0, 0.0)
+         for i in range(NEAREST_CHUNK_POINTS * 2 + 3)]
+    )
+    result = nearest(many, cloud).sort("point_id")
+    assert result.height == many.height
+    odd = result.filter(pl.col("point_id") % 2 == 1)
+    even = result.filter(pl.col("point_id") % 2 == 0)
+    assert odd["area"].unique().to_list() == ["Alaosa"]
+    assert even["area"].unique().to_list() == ["Ylaosa"]
+
+
+def test_no_points_at_all_gives_an_empty_result() -> None:
+    """Tyhjä syöte on kelvollinen: nolla kranaattia on nolla riviä.
+
+    Varhaispaluu on olemassa, koska ristitulo tyhjällä puolella tuottaisi
+    tyhjän kehyksen väärillä tyypeillä -- ja kutsuja liittäisi sen
+    hiljaa tyhjäksi.
+    """
+    empty = points([])
+    result = nearest(empty, two_area_cloud())
+    assert result.is_empty()
+    assert result.columns == list(NEAREST_RESULT_COLUMNS)
+
+
+def test_a_duplicate_point_id_is_refused() -> None:
+    """Avain, joka esiintyy kahdesti, **monistuisi** lopullisessa liitoksessa.
+
+    Palat ryhmitellään erikseen ja yhdistetään, joten sama avain kahdessa
+    palassa tuottaisi kaksi riviä ``best``iin ja sitä kautta neljä riviä
+    tulokseen. Kutsuja saisi saman kranaatin useammin kuin kerran ilman että
+    mikään kaatuisi.
+    """
+    doubled = points([(7, 20.0, 20.0, 0.0), (7, 30.0, 30.0, 0.0)])
+    with pytest.raises(ValueError, match="point_id"):
+        nearest(doubled, two_area_cloud())
+
+
+def test_a_blank_area_is_not_an_area() -> None:
+    """Pelkkä välilyönti ei ole aluenimi, vaikka se ei olekaan null.
+
+    Sääntö on täällä eikä vain adapterissa: tämä funktio on julkinen, ja sen
+    sopimus on "alueeton havainto ei päädy pilveen". Ruutu nimeltä ``" "``
+    nimeäisi räjähdyksen tyhjäksi kynnyksen sisällä ja näyttäisi osumalta.
+    """
+    rows = [seen(10.0, 10.0, area=""), seen(12.0, 12.0, area="   "),
+            seen(300.0, 300.0, area="Mid")]
+    cloud = build_point_cloud(observations(rows), grid_units=GRID)
+    assert cloud["area"].to_list() == ["Mid"]
+
+
+@pytest.mark.parametrize("column", NEAREST_POINT_COLUMNS)
+def test_a_missing_point_column_is_named(column: str) -> None:
+    pts = points([(1, 20.0, 20.0, 0.0)]).drop(column)
+    with pytest.raises(ValueError, match=column):
+        nearest(pts, two_area_cloud())
+
+
+@pytest.mark.parametrize("column", CLOUD_CELL_COLUMNS)
+def test_a_missing_cloud_column_is_named(column: str) -> None:
+    cloud = two_area_cloud().drop(column)
+    with pytest.raises(ValueError, match=column):
+        nearest(points([(1, 20.0, 20.0, 0.0)]), cloud)
+
+
+@pytest.mark.parametrize("weight", [-1.0, float("nan"), float("inf")])
+def test_an_impossible_z_weight_is_refused(weight: float) -> None:
+    with pytest.raises(ValueError, match="z_weight"):
+        nearest(points([(1, 20.0, 20.0, 0.0)]), two_area_cloud(), z_weight=weight)
+
+
+@pytest.mark.parametrize("tolerance", [-1.0, float("nan"), float("inf")])
+def test_an_impossible_z_tolerance_is_refused(tolerance: float) -> None:
+    with pytest.raises(ValueError, match="z_tolerance_units"):
+        nearest(
+            points([(1, 20.0, 20.0, 0.0)]), two_area_cloud(), z_tolerance=tolerance
+        )

@@ -42,6 +42,7 @@ from pappascout.adapters.decompress import (
 )
 from pappascout.adapters.demo_parser import Demoparser2Adapter
 from pappascout.adapters.protocols import (
+    CALLOUTS_ADAPTER_COLUMNS,
     DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
@@ -65,6 +66,7 @@ from pappascout.domain.schemas import (
 
 from test_calibration import ARMED_TRUTH
 from pappascout.errors import ParseError
+from pappascout.stages import parse as parse_stage
 
 FAKE_DEMO = DEMO_MAGIC + b"\x00" + b"tekaistua sisaltoa" * 64
 
@@ -991,25 +993,75 @@ ANCIENT_GRENADE_TYPES: dict[str, int] = {
 #: ``[parse].area_snap_units``, jolla :data:`ANCIENT_DETONATIONS_WITH_AREA` on
 #: mitattu. Luku ei tarkoita mitään ilman rajaa, joten testi tarkistaa
 #: esiehdon eikä oleta sitä.
-CALIBRATED_SNAP_UNITS = 500
+#:
+#: Kalibroitu uudelleen Story 2.9:ssä, kun menetelmä vaihtui pistepilveen:
+#: kuudesta demosta (2 544 räjähdystä) rajan 256 sisään osuu 95,4 %.
+#: Demokohtaiset luvut ovat :data:`DEMO_AREA_COVERAGE`ssa ja summa
+#: :data:`CALIBRATION_TOTAL`issa -- molemmat vartioituina, jotta
+#: ``settings.toml``in taulukko ei voi vanhentua huomaamatta.
+CALIBRATED_SNAP_UNITS = 256
 
 #: CS2:n kierrosaika ja pommin ajastin sekunteina. Kierros voi jatkua näiden
 #: summan verran ankkurista, joten heiton t_s ei voi ylittää sitä.
 ROUND_SECONDS = 115.0
 BOMB_SECONDS = 40.0
 
-#: Räjähdykset, joille lähin elossa oleva pelaaja oli enintään
-#: :data:`CALIBRATED_SNAP_UNITS`in päässä.
+#: Räjähdysalueen kattavuus **demoittain**: nimi -> (nimetty, räjähdyksiä).
 #:
-#: Kalibrointimittaus antoi 178/374, mutta taulussa luku on pienempi kahdesta
-#: syystä: yksi kranaatti lähtee kierrosten ulkopuolella, ja
-#: :data:`ANCIENT_DETONATIONS_AFTER_ROUND` räjähdystä osuu kierroksen
-#: päättymisen jälkeen, jolloin aluetta ei napsauteta lainkaan -- pelaajat
-#: ovat jo seuraavan kierroksen spawnissa.
-ANCIENT_DETONATIONS_WITH_AREA = 170
+#: Mitattu 2026-08-30 kaikista kuudesta demosta asetuksilla ruutu 32 / paino 1
+#: / toleranssi 72 ja kynnys :data:`CALIBRATED_SNAP_UNITS`. Nämä ovat samat
+#: luvut, joilla ``settings.toml``in kynnys on kalibroitu -- ja siksi ne ovat
+#: **täällä** eivätkä vain asetustiedoston kommentissa: kalibrointitaulukko
+#: ilman regressiovartijaa vanhenee ensimmäisessä muutoksessa, joka siirtää
+#: aluetta yhdelläkään demolla.
+#:
+#: Kaksi karttaa ei riitä. Ancient ja Nuke ovat ääripäät (91,8 % ja 99,0 %),
+#: ja juuri välissä olevat Anubis ja Inferno paljastaisivat muutoksen, joka
+#: pitää ääripäät ennallaan mutta rikkoo kaiken muun.
+DEMO_AREA_COVERAGE: dict[str, tuple[int, int]] = {
+    ANCIENT_DEM: (335, 373),
+    NUKE_ZST: (451, 455),
+    "Ancient_vs_kaljukostaja.dem": (367, 400),
+    "Anubis_vs_ryhmarama.dem": (435, 465),
+    "Nuke_vs_imuaijat.dem": (403, 407),
+    "inferno_vs_ryhmarama.dem": (437, 444),
+}
+
+#: Räjähdykset, joiden lähin **pistepilviruutu** oli enintään
+#: :data:`CALIBRATED_SNAP_UNITS`in päässä, Ancientin testidemolla.
+#:
+#: **Tämä luku on Story 2.9:n mitta.** Edellinen menetelmä -- lähin elossa
+#: oleva pelaaja -- antoi 170/373 eli 46 %. Pistepilvi antaa 335/373 eli
+#: 90 %, ja ero ei ole tarkkuudessa vaan siinä mitä mitataan: savu heitetään
+#: sinne, missä ketään ei ole. Jos tämä luku romahtaa, menetelmä on
+#: rikkoutunut -- ja pelkkä kattavuusprosentti tulosteessa ei kertoisi sitä,
+#: koska se laskettaisiin samasta rikkinäisestä tuloksesta.
+#:
+#: Johdettu :data:`DEMO_AREA_COVERAGE`ista, ei kirjoitettu erikseen: kaksi
+#: kopiota samasta luvusta erkanisi.
+ANCIENT_DETONATIONS_WITH_AREA = DEMO_AREA_COVERAGE[ANCIENT_DEM][0]
+
+#: Sama luku **edellisellä menetelmällä** (lähin elossa oleva pelaaja, kynnys
+#: 500), mitattu Story 2.2:ssa. Se on tässä vertailukohtana: ilman sitä
+#: "kattavuus 90 %" ei kerro paranivatko vai huononivatko asiat.
+ANCIENT_DETONATIONS_WITH_THE_OLD_METHOD = 170
+
+#: Kynnyksen 256 kalibroinnin kokonaisluku: 2 428/2 544 eli 95,4 %.
+#: Johdettu demoittaisista luvuista, jotta taulukko ja summa eivät voi
+#: erkaantua.
+CALIBRATION_TOTAL = (
+    sum(named for named, _ in DEMO_AREA_COVERAGE.values()),
+    sum(total for _, total in DEMO_AREA_COVERAGE.values()),
+)
 
 #: Räjähdykset kierroksen päättymisen jälkeen. Käytännössä savuja, jotka
 #: haihtuvat vasta seuraavan ostoajan puolella.
+#:
+#: **Ne saavat alueensa kuten muutkin.** Story 2.2:ssa ne jätettiin
+#: tarkoituksella aluettomiksi, koska silloinen menetelmä olisi lukenut
+#: alueen seuraavan kierroksen spawnissa seisovista pelaajista. Pistepilvi ei
+#: riipu hetkestä, joten syy katosi menetelmän mukana -- ja juuri se on osa
+#: sitä, miksi kattavuus nousi.
 ANCIENT_DETONATIONS_AFTER_ROUND = 22
 
 #: Demon omat räjähdystapahtumat ja niitä vastaava kanoninen tyyppi.
@@ -1123,7 +1175,7 @@ def test_ancient_throw_area_is_always_observed(ancient_events: pl.DataFrame) -> 
     throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
     assert throws["area"].null_count() == 0
     assert throws["area_source"].unique().to_list() == ["observed"]
-    # Havainto ei ole minkään päässä: napsautusetäisyys kuuluu vain arviolle.
+    # Havainto ei ole minkään päässä: etäisyys kuuluu vain arviolle.
     assert throws["snap_distance"].null_count() == throws.height
 
 
@@ -1139,20 +1191,138 @@ def test_ancient_throw_areas_are_real_callouts(ancient_events: pl.DataFrame) -> 
 def test_ancient_snap_distances_are_within_the_configured_limit(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """Napsautusetäisyys on olemassa täsmälleen napsautetuilla riveillä.
+    """Etäisyys on olemassa täsmälleen niillä riveillä, jotka saivat alueen.
 
-    Ilman etäisyyttä kuluttaja ei voisi erottaa 40 yksikön osumaa 490 yksikön
-    arvauksesta -- ja oman kalibroinnin mukaan vain 76 % rajan sisällä
-    olevista tapauksista on paikallisesti yksiselitteisiä.
+    Ilman etäisyyttä kuluttaja ei voisi erottaa 15 yksikön osumaa 240 yksikön
+    arvauksesta, eikä kynnystä voisi kalibroida ilman uutta ajoa.
     """
     limit = _parse_settings().area_snap_units
     assert limit == CALIBRATED_SNAP_UNITS
 
-    snapped = ancient_events.filter(pl.col("area_source") == "snapped")
-    assert not snapped.is_empty()
-    assert snapped["snap_distance"].null_count() == 0
-    assert snapped["snap_distance"].max() <= limit
-    assert snapped["snap_distance"].min() > 0.0
+    named = ancient_events.filter(pl.col("area_source") == "point_cloud")
+    assert not named.is_empty()
+    assert named["snap_distance"].null_count() == 0
+    assert named["snap_distance"].max() <= limit
+    assert named["snap_distance"].min() > 0.0
+
+
+@pytest.mark.demo
+def test_ancient_detonations_beyond_the_threshold_keep_their_distance(
+    ancient_events: pl.DataFrame,
+) -> None:
+    """I/O-matriisi: räjähdys kaukana -> alue null, ``snap_distance`` tallessa.
+
+    **Tämä on se rivi, joka todistaa ettei kynnys ole turha.** Pistepilvestä
+    lähin ruutu löytyy aina, joten ilman kynnystä jokainen räjähdys saisi
+    alueen ja kattavuus olisi 100 % -- eikä se olisi kattavuutta vaan
+    mittarin puuttuminen. Nämä rivit ovat todiste siitä, että osa
+    räjähdyksistä tapahtuu kaukana kaikesta, missä yksikään pelaaja on
+    seissyt.
+    """
+    limit = _parse_settings().area_snap_units
+    detonations = ancient_events.filter(
+        pl.col("event_kind") == "grenade_detonate"
+    )
+    far = detonations.filter(pl.col("area").is_null())
+    assert not far.is_empty()
+    assert far["snap_distance"].null_count() == 0
+    assert far["snap_distance"].min() > limit
+    # Ja koordinaatit jäävät: riviä ei pudoteta.
+    for column in ("x", "y", "z"):
+        assert far[column].null_count() == 0
+
+
+@pytest.mark.demo
+def test_ancient_point_cloud_is_written_and_covers_the_map(
+    ancient_tables,
+) -> None:
+    """Pistepilvi on räjähdysalueiden lähde, joten se on oltava tallessa.
+
+    Alueiden määrä on tärkeämpi kuin ruutujen: ruutujen määrä kertoo vain
+    ruudun koon, mutta alueiden määrä kertoo, tunnistiko pilvi kartan.
+    Ancientilla ``env_cs_place``-alueita on 18, ja pilven on löydettävä ne
+    kaikki -- yksinumeroinen luku tarkoittaisi, että ``last_place_name`` tulee
+    enimmäkseen tyhjänä ja jokainen räjähdysalue olisi arvausta.
+    """
+    cloud = ancient_tables[0].callouts
+    assert list(cloud.columns) == list(CALLOUTS_ADAPTER_COLUMNS)
+    assert cloud.height > 5000
+    assert set(cloud["area"].unique().to_list()) == ANCIENT_PLACES
+    assert cloud["area"].null_count() == 0
+    # Ruutu esiintyy täsmälleen kerran: kaksi riviä tarkoittaisi, ettei
+    # moodivalinta tehnyt työtään.
+    key = cloud.select("cell_x", "cell_y", "cell_z")
+    assert key.height == key.unique().height
+
+
+@pytest.mark.demo
+def test_ancient_detonation_area_coverage_beats_the_old_method(
+    ancient_events: pl.DataFrame,
+) -> None:
+    """Hyväksymiskriteeri: alueettomien osuus laskee mitattavasti.
+
+    Lähimmän elossa olevan pelaajan menetelmä antoi tälle demolle 170/373
+    aluetta (46 %). Pistepilvi antaa :data:`ANCIENT_DETONATIONS_WITH_AREA`.
+    Vertailuluku on kirjattu tähän, koska ilman sitä "kattavuus 90 %" ei
+    kerro paranivatko vai huononivatko asiat.
+    """
+    detonations = ancient_events.filter(
+        pl.col("event_kind") == "grenade_detonate"
+    )
+    named = detonations.height - detonations["area"].null_count()
+    assert (named, detonations.height) == DEMO_AREA_COVERAGE[ANCIENT_DEM]
+    assert named == ANCIENT_DETONATIONS_WITH_AREA
+    assert named > ANCIENT_DETONATIONS_WITH_THE_OLD_METHOD
+    # Tarkka osuus eikä "yli 0,85": löysä raja päästäisi läpi menetelmän,
+    # joka menettää kymmenen prosenttia kattavuudesta huomaamatta.
+    assert named / detonations.height == pytest.approx(0.898, abs=0.001)
+
+
+def test_the_coverage_table_covers_every_demo() -> None:
+    """Taulukon on katettava koko aineisto, ei osaa siitä.
+
+    Ilman tätä uusi demo lisättäisiin :data:`ALL_DEMOS`iin mutta ei tänne, ja
+    sen kattavuus jäisi vartioimatta -- juuri se ero, jonka takia Anubis ja
+    Inferno olivat aiemmin kirjattuja mutta testaamattomia. Ei
+    ``demo``-merkintää: tämä on luettelon vertailu eikä vaadi demoja.
+    """
+    assert set(DEMO_AREA_COVERAGE) == set(ALL_DEMOS)
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(DEMO_AREA_COVERAGE))
+def test_every_demo_keeps_its_measured_area_coverage(demo_name: str) -> None:
+    """Kalibrointitaulukon jokainen rivi on regressiovartija.
+
+    ``settings.toml``in kynnys 256 on perusteltu **kuuden demon** mittauksella,
+    mutta ilman tätä testiä vain kaksi niistä olisi vartioitu. Muutos, joka
+    siirtää aluetta Anubiksella tai Infernolla, menisi silloin läpi -- ja
+    asetustiedoston taulukko jäisi valehtelemaan.
+
+    Luvut ovat tarkkoja eivätkä alarajoja: kattavuuden **nousukin** on
+    muutos, joka on nähtävä ja kirjattava.
+    """
+    events = parsed_demo(demo_name)[0].events
+    detonations = events.filter(pl.col("event_kind") == "grenade_detonate")
+    named = detonations.height - detonations["area"].null_count()
+    assert (named, detonations.height) == DEMO_AREA_COVERAGE[demo_name]
+
+
+@pytest.mark.demo
+def test_the_calibration_total_matches_the_recorded_table() -> None:
+    """Kuuden demon summa on se luku, jolla kynnys 256 on perusteltu.
+
+    ``settings.toml`` sanoo 2 428/2 544 eli 95,4 %. Jos yksikään demo siirtyy,
+    summa siirtyy -- ja asetuksen perustelu on korjattava samalla.
+    """
+    named = total = 0
+    for demo_name in DEMO_AREA_COVERAGE:
+        events = parsed_demo(demo_name)[0].events
+        detonations = events.filter(pl.col("event_kind") == "grenade_detonate")
+        named += detonations.height - detonations["area"].null_count()
+        total += detonations.height
+    assert (named, total) == CALIBRATION_TOTAL == (2428, 2544)
+    assert named / total == pytest.approx(0.954, abs=0.001)
 
 
 @pytest.mark.demo
@@ -1169,7 +1339,7 @@ def test_ancient_detonation_areas_are_real_callouts(
         ANCIENT_DETONATIONS_WITH_AREA
     )
     received = detonations.filter(pl.col("area").is_not_null())
-    assert received["area_source"].unique().to_list() == ["snapped"]
+    assert received["area_source"].unique().to_list() == ["point_cloud"]
 
 
 @pytest.mark.demo
@@ -1284,12 +1454,17 @@ def test_ancient_utility_diagnostics_are_clean(ancient_tables) -> None:
     # Tämä on ainoa luku, joka on suoraan vika: päätepistetick ilman pelaajia
     # tarkoittaisi, ettei aluetta voitu edes yrittää.
     assert diagnostics.grenade_ticks_without_players == 0
-    # Savu haihtuu usein vasta seuraavan ostoajan puolella; niille ei
-    # napsauteta aluetta, koska pelaajat ovat jo spawnissa.
+    # Savu haihtuu usein vasta seuraavan ostoajan puolella. Luku on havainto
+    # eikä pudotus: pistepilvi ei riipu hetkestä, joten myöhäinen räjähdys
+    # saa alueensa kuten muutkin.
     assert (
         diagnostics.grenades_detonating_after_round
         == ANCIENT_DETONATIONS_AFTER_ROUND
     )
+    # Pistepilvi syntyi: alueiden määrä on se luku, joka kertoo tunnistiko se
+    # kartan. Ruutujen määrä kertoisi vain ruudun koon.
+    assert diagnostics.callout_cloud_rows_read > 1_000_000
+    assert diagnostics.callout_cloud_empty_reason is None
 
 
 #: Liigademo, jossa kierrätys näkyy. Nimi luetaan :data:`LEAGUE_DEMOS`ista
@@ -1448,6 +1623,11 @@ def test_parsing_the_same_demo_twice_gives_identical_tables() -> None:
 
     assert not first.events.is_empty()
     assert first.events.equals(second.events)
+    # Pistepilvi on samassa väitteessä, koska räjähdysalueet johdetaan siitä:
+    # jos ruudun alue voisi vaihtua ajojen välillä (moodin tasatilanne,
+    # ryhmittelyn järjestys), events olisi vakaa vain sattumalta.
+    assert not first.callouts.is_empty()
+    assert first.callouts.equals(second.callouts)
 
 
 @pytest.mark.demo
@@ -1464,6 +1644,95 @@ def test_nuke_utility_is_read_too() -> None:
     # useammin -- mutta ei koskaan kaikille.
     received = detonations.height - detonations["area"].null_count()
     assert 0 < received < detonations.height
+
+
+#: Nuken kerrosraja pelin yksiköissä, **luettu pistepilvestä** 2026-08-30
+#: (``1-79f71e00...``): :data:`NUKE_LOWER_PLACES`in ruudut ovat välillä
+#: -784 .. -560 ja päätason ruudut alkavat -464:stä. Raja on niiden välissä,
+#: eikä sitä ole arvattu kartan geometriasta.
+#:
+#: Raja itse kuuluu **alakertaan** (``z <= raja``), jotta jokainen räjähdys
+#: on tasan toisessa joukossa. Kumpikin ehto tiukkana jättäisi tasan rajalla
+#: olevan räjähdyksen kummankin väitteen ulkopuolelle.
+NUKE_LOWER_FLOOR_Z = -560.0
+
+#: Nuken aluenimet, jotka ovat **vain alakerrassa**. Kiinteä lista
+#: tarkoituksella: demosta johdettu joukko hyväksyisi minkä tahansa nimen ja
+#: lakkaisi olemasta tarkistus.
+#:
+#: ``Ramp``, ``Secret`` ja ``Vents`` **eivät** ole listalla, vaikka ne ovat
+#: alakerran nimiä puheessa: mitattuna niiden ruudut jakautuvat kahdelle
+#: tasolle (``Ramp`` -624 .. -208), koska ne ovat kulkuyhteyksiä kerrosten
+#: välillä. Niiden mukanaolo tekisi testistä väitteen kartan puhekielestä
+#: eikä sen geometriasta.
+NUKE_LOWER_PLACES: frozenset[str] = frozenset(
+    {"BombsiteB", "Tunnels", "Decon", "Observation"}
+)
+
+
+@pytest.mark.demo
+def test_nuke_upper_floor_smoke_never_gets_a_lower_floor_area() -> None:
+    """Hyväksymiskriteeri: yläkerran räjähdys ei saa alakerran aluetta.
+
+    **Etäisyysmittaus ei kerro tätä.** Nuke on 99 % kynnyksen sisällä
+    kaikilla painovaihtoehdoilla, joten mediaani ja kattavuus näyttäisivät
+    yhtä hyviltä silläkin painolla, joka panee yläkerran savun alakerran
+    alueelle. Ainoa asia, joka erottaa ne, on tämä väite -- ja siksi se on
+    testi eikä silmämääräinen tarkistus.
+
+    Yläkerran räjähdys tunnistetaan korkeudesta
+    (:data:`NUKE_LOWER_FLOOR_Z`), ei alueesta: alue on juuri se, jota
+    epäillään.
+    """
+    events = parsed_demo(NUKE_ZST)[0].events
+    detonations = events.filter(
+        (pl.col("event_kind") == "grenade_detonate")
+        & pl.col("area").is_not_null()
+    )
+    upper = detonations.filter(pl.col("z") > NUKE_LOWER_FLOOR_Z)
+    lower = detonations.filter(pl.col("z") <= NUKE_LOWER_FLOOR_Z)
+    # Raja kuuluu tasan yhteen puoleen: muuten tasan rajalla oleva räjähdys
+    # ei olisi kummassakaan joukossa eikä kumpikaan väite koskisi sitä.
+    assert upper.height + lower.height == detonations.height
+    assert not upper.is_empty(), "yläkerran räjähdyksiä ei löytynyt lainkaan"
+    wrong = upper.filter(pl.col("area").is_in(sorted(NUKE_LOWER_PLACES)))
+    assert wrong.is_empty(), wrong.select("area", "z", "snap_distance").head(5).to_dicts()
+
+    # Ja toiseen suuntaan: alakerran räjähdykset **saavat** alakerran alueita,
+    # joten testi ei mene läpi vain siksi ettei alakerran nimiä esiinny.
+    assert not lower.filter(
+        pl.col("area").is_in(sorted(NUKE_LOWER_PLACES))
+    ).is_empty()
+
+
+@pytest.mark.demo
+def test_the_z_weight_is_what_keeps_the_floors_apart() -> None:
+    """Ilman painoa yläkerran savu **saa** alakerran alueen -- mitattuna.
+
+    Edellinen testi ei yksin riitä: se menisi läpi myös silloin, kun paino ei
+    tee mitään, jos kartta sattuisi olemaan riittävän harva. Tämä ajaa saman
+    demon painolla 0 ja osoittaa, että virhe on aito ja että asetus estää sen.
+    Mitattu 2026-08-30 molemmilta Nuke-demoilta: painolla 0 väärin nimettyjä
+    on 38 (``Nuke_vs_imuaijat``) ja 25 (``1-79f71e00...``), painoilla 1, 2 ja
+    3 nolla. Tuotannon paino on 1, koska se riittää -- ja koska jokainen sitä
+    suurempi paino maksaa kattavuutta (99,0 % -> 98,8 % -> 97,4 %).
+    """
+    # Portti rakennetaan **default_parserin kautta** eikä käsin: käsin
+    # annettu argumenttilista jäisi jälkeen heti, kun [parse] saa uuden
+    # asetuksen, ja tämä testi ajaisi silloin eri kokoonpanoa kuin tuotanto.
+    flat = parse_stage.default_parser(
+        _parse_settings().model_copy(update={"callout_z_weight": 0.0})
+    )
+    events = flat.parse_demo(require_demo(NUKE_ZST), SNAPSHOT_SECONDS).events
+    wrong = events.filter(
+        (pl.col("event_kind") == "grenade_detonate")
+        & (pl.col("z") > NUKE_LOWER_FLOOR_Z)
+        & pl.col("area").is_in(sorted(NUKE_LOWER_PLACES))
+    )
+    assert not wrong.is_empty(), (
+        "paino 0 ei tuottanut yhtään väärän kerroksen aluetta -- silloin "
+        "edellinen testi ei todista painosta mitään"
+    )
 
 
 # --- Ostoaika oikeissa demoissa (Story 1.9) ------------------------------------

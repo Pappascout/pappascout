@@ -75,9 +75,15 @@ DEFAULT_STATS: dict[str, object] = {
     "utility_detonations": 148,
     "utility_rounds": 21,
     "utility_area_observed": 152,
-    "utility_area_snapped": 52,
-    "utility_area_unnamed": 0,
-    "utility_without_area": 96,
+    # Story 2.9: räjähdyksen alue tulee pistepilvestä. Luvut ovat mitatun
+    # Ancient-ajon muotoisia -- 139/148 nimettyä ja 9 kynnyksen takana --
+    # koska "puhdas ajo" ei tarkoita täydellistä kattavuutta: kaukana
+    # kaikesta räjähtänyt kranaatti on oikea tulos eikä vika.
+    "utility_area_point_cloud": 139,
+    "utility_area_beyond_threshold": 9,
+    "utility_without_area": 9,
+    "utility_detonation_area_coverage": (139, 148),
+    "utility_snap_distance": (15.0, 210.0, 1873.0),
     "utility_unnumbered_rounds": 0,
     "grenades_without_thrower": 0,
     "grenades_outside_rounds": 0,
@@ -87,6 +93,12 @@ DEFAULT_STATS: dict[str, object] = {
     "grenades_detonating_after_round": 0,
     "grenade_ticks_without_players": 0,
     "grenades_sharing_an_entity_id": 0,
+    # Pistepilvi (Story 2.9). Luvut ovat mitatusta Ancient-ajosta.
+    "callout_cells": 7703,
+    "callout_areas": 18,
+    "callout_observations": 1092083,
+    "callout_cloud_rows_read": 1529910,
+    "callout_cloud_empty_reason": None,
     # Kokoonpanotaulu (Story 2.6). Rivi per kokoonpano:
     # (lineup_key, klaani tai None, pelaajia, nimettömiä).
     "lineup_rows": 10,
@@ -762,27 +774,113 @@ def test_reports_utility_throws_detonations_and_areas() -> None:
     assert "21/21 kierroksella" in line
     assert field_value(output_text, "Ilman räjähdystä").startswith("4 kranaattia")
     assert field_value(output_text, "Utilityn alue") == (
-        "152 havaittua, 52 napsautettua, 96 ilman aluetta"
+        "152 havaittua, 139 pistepilvestä, 9 ilman aluetta"
     )
 
 
-def test_observed_and_snapped_areas_are_never_lumped_together() -> None:
+def test_observed_and_derived_areas_are_never_lumped_together() -> None:
     """Heiton alue on havainto, räjähdyksen arvio -- yhteen niputettuna
     raportin lukija luulisi molempia yhtä varmoiksi."""
     line = field_value(_render_parse(parse_result(), regulation_rounds=24), "Utilityn alue")
     assert "havaittua" in line
-    assert "napsautettua" in line
+    assert "pistepilvestä" in line
 
 
-def test_an_unnamed_nearest_area_gets_its_own_line() -> None:
-    """"Kukaan ei ollut lähellä" ja "lähin oli nimettömällä alueella" eroavat."""
-    result = parse_result(stats=stats(utility_area_unnamed=7))
-    line = field_value(_render_parse(result, regulation_rounds=24), "Nimetön alue")
-    assert line.startswith("7 tapahtumaa")
+def test_the_detonation_area_coverage_is_reported_as_a_share() -> None:
+    """Story 2.9:n tärkein luku: kuinka moni räjähdys sai alueen.
+
+    Osuus eikä pelkkä osoittaja -- 139 aluetta on eri uutinen 148:sta kuin
+    1 480:stä, eikä lukija laske sitä itse tulosteesta.
+    """
+    line = field_value(_render_parse(parse_result(), regulation_rounds=24), "Räjähdysalue")
+    assert line == "139/148 nimetty (94%)"
 
 
-def test_a_clean_run_hides_the_unnamed_area_line() -> None:
-    assert "Nimetön alue" not in _render_parse(parse_result(), regulation_rounds=24)
+def test_the_snap_distance_spread_is_reported() -> None:
+    """Asetus kertoo kynnyksen; tämä kertoo mihin mittaus oikeasti osui.
+
+    Suurin luku on se, joka osoittaa miksi kynnys on olemassa: ilman sitä
+    "lähin ruutu löytyy aina" näyttäisi kattavuudelta.
+    """
+    line = field_value(
+        _render_parse(parse_result(), regulation_rounds=24), "Etäisyys ruutuun"
+    )
+    assert line == "mediaani 15, p90 210, suurin 1873 yksikköä"
+
+
+def test_detonations_beyond_the_threshold_get_their_own_line() -> None:
+    """"Lähin ruutu on kaukana" ja "pistepilvi oli tyhjä" ovat eri asioita."""
+    line = field_value(
+        _render_parse(parse_result(), regulation_rounds=24), "Kynnyksen takana"
+    )
+    assert line.startswith("9 räjähdystä")
+
+
+def test_full_coverage_hides_the_threshold_line() -> None:
+    result = parse_result(
+        stats=stats(
+            utility_area_beyond_threshold=0,
+            utility_area_point_cloud=148,
+            utility_without_area=0,
+            utility_detonation_area_coverage=(148, 148),
+        )
+    )
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert "Kynnyksen takana" not in output_text
+    assert field_value(output_text, "Räjähdysalue") == "148/148 nimetty (100%)"
+
+
+# --- Pistepilvi (Story 2.9) ------------------------------------------------------
+
+
+def test_the_point_cloud_block_names_cells_and_areas() -> None:
+    """Alueiden määrä on tärkeämpi kuin ruutujen: se kertoo tunnistiko pilvi
+    kartan. Yksinumeroinen luku tarkoittaisi tyhjää ``last_place_name``ia."""
+    output_text = _render_parse(parse_result(), regulation_rounds=24)
+    assert field_value(output_text, "Pistepilvi") == "7703 ruutua, 18 aluetta"
+    assert field_value(output_text, "Pilven havainnot") == (
+        "1092083/1529910 tickiriviä kelpasi (71% elossa ja alue tiedossa)"
+    )
+
+
+def test_an_empty_point_cloud_says_so_and_says_why() -> None:
+    """I/O-matriisi: tyhjä pistepilvi -- ajo ei kaadu, syy kerrotaan.
+
+    Ilman syytä tyhjä pilvi näyttäisi demolta, jossa ei heitetty utilityä.
+    """
+    result = parse_result(
+        stats=stats(
+            callout_cells=0,
+            callout_areas=0,
+            callout_observations=0,
+            callout_cloud_empty_reason="1529910 tickiriviä luettiin, mutta "
+            "yhdelläkään ei ollut elossa olevaa pelaajaa nimetyllä alueella",
+        )
+    )
+    output_text = _render_parse(result, regulation_rounds=24)
+    assert field_value(output_text, "Pistepilvi") == (
+        "tyhjä -- yhtäkään räjähdysaluetta ei nimetä"
+    )
+    assert field_value(output_text, "Pilvi tyhjä koska").startswith("1529910 tickiriviä")
+
+
+def test_a_healthy_point_cloud_hides_the_reason_line() -> None:
+    assert "Pilvi tyhjä koska" not in _render_parse(
+        parse_result(), regulation_rounds=24
+    )
+
+
+def test_unreadable_callouts_do_not_hide_the_other_counts() -> None:
+    """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
+    numbers = stats()
+    for key in ("callout_cells", "callout_areas", "callout_observations"):
+        numbers.pop(key)
+    numbers["callouts_unreadable"] = "OSError: rikki"
+    output_text = _render_parse(
+        parse_result(skipped=True, stats=numbers), regulation_rounds=24
+    )
+    assert field_value(output_text, "Pistepilvi").startswith("lukuja ei saatu")
+    assert field_value(output_text, "Kierrokset") == "21 (rivejä 42)"
 
 
 def test_more_detonations_than_throws_is_never_a_negative_count() -> None:
@@ -822,7 +920,7 @@ def test_the_remaining_utility_diagnostics_are_reported() -> None:
     assert field_value(output_text, "Tuntematon tyyppi").startswith("2 kranaattia")
     assert field_value(output_text, "Tulityyppi auki").startswith("5 kranaattia")
     assert field_value(output_text, "Räjähdys myöhässä").startswith("3 kierroksen")
-    assert field_value(output_text, "Tickillä ei rivejä").startswith("1 päätepistettä")
+    assert field_value(output_text, "Tickillä ei rivejä").startswith("1 heittoa")
 
     # Jaettu tunniste on **havainto eikä vika**, ja rivin on sanottava se.
     # Koko arvo tarkistetaan, ei vain alkuosaa: pelkkä startswith päästi läpi
@@ -841,9 +939,11 @@ def test_zero_utility_is_said_out_loud() -> None:
             utility_detonations=0,
             utility_rounds=0,
             utility_area_observed=0,
-            utility_area_snapped=0,
-            utility_area_unnamed=0,
+            utility_area_point_cloud=0,
+            utility_area_beyond_threshold=0,
             utility_without_area=0,
+            utility_detonation_area_coverage=None,
+            utility_snap_distance=None,
         )
     )
     output_text = _render_parse(result, regulation_rounds=24)
@@ -887,9 +987,11 @@ def test_unreadable_events_do_not_hide_the_other_counts() -> None:
         "utility_detonations",
         "utility_rounds",
         "utility_area_observed",
-        "utility_area_snapped",
-        "utility_area_unnamed",
+        "utility_area_point_cloud",
+        "utility_area_beyond_threshold",
         "utility_without_area",
+        "utility_detonation_area_coverage",
+        "utility_snap_distance",
     ):
         numbers.pop(key)
     numbers["events_unreadable"] = "OSError: rikki"

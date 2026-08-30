@@ -19,7 +19,14 @@ from typing import Protocol, runtime_checkable
 import polars as pl
 
 from pappascout.domain.rounds import REQUIRED_COLUMNS as _NUMBERING_COLUMNS
-from pappascout.domain.schemas import DEATHS, EVENTS, LINEUPS, ROUNDS, TICKS
+from pappascout.domain.schemas import (
+    CALLOUT_CLOUD,
+    DEATHS,
+    EVENTS,
+    LINEUPS,
+    ROUNDS,
+    TICKS,
+)
 
 __all__ = [
     "DemoParser",
@@ -30,6 +37,7 @@ __all__ = [
     "EVENTS_ADAPTER_COLUMNS",
     "LINEUPS_ADAPTER_COLUMNS",
     "DEATHS_ADAPTER_COLUMNS",
+    "CALLOUTS_ADAPTER_COLUMNS",
 ]
 
 #: Sarakkeet, jotka kierrostaulussa ovat **tarkalleen** -- ei enempää eikä
@@ -100,6 +108,21 @@ DEATHS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
     name for name in DEATHS if name != "map_demo_id"
 )
 
+#: Sarakkeet, jotka pistepilvitaulussa ovat **tarkalleen** -- ei enempää eikä
+#: vähempää.
+#:
+#: Yksi ero ``CALLOUT_CLOUD``-sopimukseen: ``map_demo_id`` puuttuu samasta
+#: syystä kuin muissa tauluissa. ``round_no``:ta ei ole lainkaan, eikä sitä
+#: pidä lisätä: pistepilvi on **kartan** ominaisuus tässä demossa eikä
+#: kierroksen havainto, joten sen rivit eivät putoa puukkokierroksen mukana --
+#: sama sääntö kuin kokoonpanotaululla. Pilvi kootaan tarkoituksella demon
+#: **kaikista** tickeistä, myös lämmittelystä ja puukkokierroksesta: kysymys
+#: on "missä kartalla on mahdollista seistä ja mikä alue se on", eikä siihen
+#: vastaa vain pelattujen kierrosten aineisto.
+CALLOUTS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
+    name for name in CALLOUT_CLOUD if name != "map_demo_id"
+)
+
 
 @dataclass(frozen=True)
 class DemoTables:
@@ -130,6 +153,12 @@ class DemoTables:
             pakollinen samasta syystä kuin kaksi edellistä: tyhjä oletus
             antaisi vanhan portin toteutuksen näyttää demolta, jossa kukaan ei
             kuollut.
+        callouts: Pistepilvi, sarakkeet :data:`CALLOUTS_ADAPTER_COLUMNS`. Rivi
+            per ruutu. Se on ``events``-taulun räjähdysalueiden **lähde**, ja
+            juuri siksi se on samassa paluuarvossa eikä omassa kutsussaan:
+            kaksi kutsua voisi rakentaa pilven kahdesti ja eri tuloksella,
+            jolloin taulun rivi ei enää selittäisi taulukossa olevaa aluetta.
+            Kenttä on pakollinen samasta syystä kuin edelliset.
     """
 
     rounds: pl.DataFrame
@@ -137,6 +166,7 @@ class DemoTables:
     events: pl.DataFrame
     lineups: pl.DataFrame
     deaths: pl.DataFrame
+    callouts: pl.DataFrame
 
 
 @dataclass(frozen=True)
@@ -195,13 +225,34 @@ class ParseDiagnostics:
             ``molotov``, joten ilman lukua erottelun täydellinen rikkoutuminen
             näyttäisi demolta, jossa heitettiin pelkkiä molotoveja.
         grenades_detonating_after_round: Räjähdykset, jotka osuvat kierroksen
-            päättymisen jälkeen. Rivi jää tauluun koordinaatteineen, mutta
-            aluetta ei napsauteta -- pelaajat ovat jo seuraavan kierroksen
-            spawnissa.
-        grenade_ticks_without_players: Päätepisteen tickit, joilta ei saatu
-            yhtään pelaajariviä. **Vika eikä havainto**: aluetta ei voitu edes
-            yrittää, ja ilman omaa lukuaan se sekoittuisi rehellisiin
-            "kukaan ei ollut lähellä" -tapauksiin.
+            päättymisen jälkeen. **Havainto eikä pudotus**: rivi saa alueensa
+            kuten muutkin, koska pistepilvi on kartan ominaisuus eikä riipu
+            siitä, missä pelaajat sillä hetkellä ovat. Story 2.2:ssa nämä
+            jätettiin tarkoituksella aluettomiksi -- silloin alue tuli
+            lähimmältä elossa olevalta pelaajalta, ja kierroksen jälkeen se
+            olisi kertonut seuraavan kierroksen spawnin. Syy katosi menetelmän
+            mukana; luku jää, koska myöhäinen räjähdys on silti oma ilmiönsä.
+        grenade_ticks_without_players: **Heiton** tickit, joilta ei saatu
+            yhtään pelaajariviä. **Vika eikä havainto**: heittäjän omaa aluetta
+            ei voitu edes yrittää lukea. Räjähdyksen tickejä ei enää lueta
+            lainkaan -- sen alue tulee pistepilvestä eikä tickin pelaajista.
+        callout_cloud_rows_read: Rivit, jotka pistepilven rakentaminen luki
+            demosta (koko demon tickisarja, rivi per pelaaja per tick). Luku
+            on tallessa, koska se on ainoa paikka, jossa tämän vaiheen hinta
+            näkyy: se on kertaluokkia suurempi kuin mikään muu tickiluku, ja
+            juuri siksi aineisto pudotetaan ruudukoksi heti.
+
+            **Kelvollisten rivien määrää ei ole tässä**: se on
+            ``callouts``-taulun ``observations``-sarakkeen summa, koska
+            jokainen kelvollinen rivi päätyy täsmälleen yhteen ruutuun. Vaihe
+            laskee sen sieltä, ja näiden kahden **suhde** on se, mikä kertoo
+            onko pilvi terve -- mitatussa aineistossa 71-78 %.
+        callout_cloud_empty_reason: Miksi pistepilvi jäi tyhjäksi, tai
+            ``None`` jos se ei jäänyt. Tyhjä pilvi **ei kaada ajoa**: kaikki
+            räjähdysalueet jäävät nulliksi ja ajo jatkuu. Ilman syytä se
+            näyttäisi kuitenkin demolta, jossa ei heitetty utilityä --
+            täsmälleen se hiljainen vika, jota vastaan jokainen muu
+            pudotuslaskuri on olemassa.
         grenades_sharing_an_entity_id: Lentoradat, jotka jakavat pelin oman
             ``grenade_entity_id``:n toisen radan kanssa samalla
             ``round_raw``:lla. **Havainto eikä vika**: taulun avain on
@@ -362,6 +413,8 @@ class ParseDiagnostics:
     grenades_detonating_after_round: int = 0
     grenade_ticks_without_players: int = 0
     grenades_sharing_an_entity_id: int = 0
+    callout_cloud_rows_read: int = 0
+    callout_cloud_empty_reason: str | None = None
     unknown_inventory_items: tuple[tuple[str, int], ...] = ()
     lineup_name_conflicts: int = 0
     lineup_clan_conflicts: int = 0
@@ -384,7 +437,7 @@ class ParseDiagnostics:
 
 @runtime_checkable
 class DemoParser(Protocol):
-    """Portti, joka lukee demosta kaikki viisi taulua.
+    """Portti, joka lukee demosta kaikki kuusi taulua.
 
     Toteutuksen on palautettava **havaitut** arvot sellaisenaan: ei
     kierrostyyppiluokittelua, ei loss countia, ei aggregointia, ei muuta
@@ -437,18 +490,26 @@ class DemoParser(Protocol):
 
             ``deaths`` on rivi per kuolema, sarakkeet täsmälleen
             :data:`DEATHS_ADAPTER_COLUMNS`. Uhrin ja ampujan alue ovat
-            **havaintoja** samalta tapahtumalta eivätkä napsautuksia, joten
+            **havaintoja** samalta tapahtumalta eivätkä johdoksia, joten
             taulussa ei ole ``area_source``ia. Ampujaton kuolema (putoaminen,
             pommi) on aito tapaus: jokainen ``attacker_*`` on silloin ``null``
             eikä riviä pudoteta. Tyhjä taulu ei ole kelvollinen tulos --
             pelatussa ottelussa kuollaan, joten tyhjä taulu tarkoittaa
             rikkinäistä porttia.
 
+            ``callouts`` on rivi per pistepilven ruutu, sarakkeet
+            täsmälleen :data:`CALLOUTS_ADAPTER_COLUMNS`. Se on
+            ``events``-taulun räjähdysalueiden lähde: jokainen
+            ``area_source = "point_cloud"`` -rivi on jäljitettävissä tämän
+            taulun ruutuun. Tyhjä taulu **on** kelvollinen tulos -- demosta ei
+            saatu yhtään elossa-riviä nimetyllä alueella -- ja silloin
+            jokainen räjähdysalue on ``null``; syy kulkee diagnostiikassa.
+
             ``round_no`` on ``rounds``-, ``ticks``-, ``events``- ja
             ``deaths``-tauluissa kaikilla riveillä ``null`` -- numeroinnin
             päättää ``domain.rounds.mark_played_rounds``, jota vain
-            ``stages.parse`` kutsuu. ``lineups``-taulussa saraketta ei ole
-            lainkaan.
+            ``stages.parse`` kutsuu. ``lineups``- ja ``callouts``-tauluissa
+            saraketta ei ole lainkaan.
 
         Raises:
             ~pappascout.errors.ParseError: Jos tiedosto ei ole CS2-demo tai

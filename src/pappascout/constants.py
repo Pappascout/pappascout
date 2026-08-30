@@ -136,14 +136,25 @@ EventKind = Literal["grenade_thrown", "grenade_detonate"]
 #: ``observed``
 #:     Heittäjän oma ``m_szLastPlaceName`` samalta tickiltä. Heittorivillä alue
 #:     on siis havainto, ei arvio.
-#: ``snapped``
-#:     Lähimmän elossa olevan pelaajan alue etäisyysrajan sisältä. Räjähdyksellä
-#:     ei ole omaa aluenimeä, joten se on aina approksimaatio.
+#: ``point_cloud``
+#:     Demon oman pistepilven lähimmän ruudun alue etäisyysrajan sisältä.
+#:     Räjähdyksellä ei ole omaa aluenimeä, joten se on aina approksimaatio --
+#:     mutta approksimaatio *pelin omasta aluemäärittelystä*, ei naapurista.
 #:
 #: ``null`` tarkoittaa, ettei aluetta saatu lainkaan. Ilman tätä saraketta
 #: raportti ei voisi erottaa varmaa tietoa arviosta.
-AREA_SOURCES: Final[tuple[str, ...]] = ("observed", "snapped")
-AreaSource = Literal["observed", "snapped"]
+#:
+#: **Arvo ``snapped`` poistui Story 2.9:ssä, koska menetelmä poistui.** Se
+#: tarkoitti "lähimmän elossa olevan pelaajan alue", ja se mittasi
+#: rakenteellisesti päinvastaista kuin piti: savu heitetään sinne, missä ketään
+#: ei ole -- juuri siksi, että se estää näkyvyyden. Proxyn korjaaminen olisi
+#: ollut mahdotonta, koska vika ei ollut tarkkuudessa vaan siinä mitä se mittasi.
+#: Arvoa ei jätetty luetteloon varalähteeksi: kaksi rinnakkaista menetelmää
+#: tekisi rivistä tulkitsemattoman, koska lukija ei näkisi kummalla se
+#: nimettiin. Vanha ``events.parquet`` ei siis lataudu tähän enumiin, ja se on
+#: tarkoitus -- ``parse`` ajaa demon uudelleen ilman ``--pakota``-lippua.
+AREA_SOURCES: Final[tuple[str, ...]] = ("observed", "point_cloud")
+AreaSource = Literal["observed", "point_cloud"]
 
 #: Rosterikynnyksen luokka per MapDemo (AD-6).
 ROSTER_CLASSES: Final[tuple[str, ...]] = ("5/5", "4/5")

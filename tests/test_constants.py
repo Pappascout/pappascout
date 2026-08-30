@@ -16,7 +16,9 @@ from pappascout import constants
 from pappascout.constants import (
     SAMPLE_BUCKETS,
     SAMPLE_BUCKET_FI,
+    AREA_SOURCES,
     ARMING_WEAPONS,
+    AreaSource,
     EVENT_KINDS,
     GRENADES,
     KNOWN_INVENTORY_ITEMS,
@@ -41,6 +43,7 @@ PAIRS = [
     ("UNIT_STATUSES", UNIT_STATUSES, UnitStatus),
     ("SAMPLE_KINDS", SAMPLE_KINDS, SampleKind),
     ("EVENT_KINDS", EVENT_KINDS, EventKind),
+    ("AREA_SOURCES", AREA_SOURCES, AreaSource),
     ("ROSTER_CLASSES", ROSTER_CLASSES, RosterClass),
 ]
 
@@ -271,3 +274,19 @@ def test_every_sample_bucket_has_a_finnish_name() -> None:
     assert set(SAMPLE_BUCKET_FI) == set(SAMPLE_BUCKETS)
     assert len(set(SAMPLE_BUCKET_FI.values())) == len(SAMPLE_BUCKETS)
     assert SAMPLE_BUCKETS == ("league", "other", "unknown")
+
+
+def test_the_nearest_player_method_is_gone_from_the_area_sources() -> None:
+    """``snapped`` poistui Story 2.9:ssa, koska menetelma poistui.
+
+    Se tarkoitti "lahimman elossa olevan pelaajan alue", ja se mittasi
+    rakenteellisesti painvastaista kuin piti: savu heitetaan sinne, missa
+    ketaan ei ole. Arvoa ei jatetty luetteloon varalahteeksi -- kaksi
+    rinnakkaista menetelmaa tekisi rivista tulkitsemattoman, koska lukija ei
+    naisi kummalla se nimettiin.
+
+    Vanha ``events.parquet`` ei siis lataudu tahan enumiin, ja se on
+    tarkoitus: ``parse`` ajaa demon uudelleen ilman ``--pakota``-lippua.
+    """
+    assert AREA_SOURCES == ("observed", "point_cloud")
+    assert "snapped" not in AREA_SOURCES

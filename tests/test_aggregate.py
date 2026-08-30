@@ -236,7 +236,7 @@ def event_rows(
             "event_kind": "grenade_detonate",
             "t_s": t_s + 2.0,
             "area": detonate_area,
-            "area_source": None if detonate_area is None else "snapped",
+            "area_source": None if detonate_area is None else "point_cloud",
             "snap_distance": None if detonate_area is None else 120.0,
         },
     ]
@@ -607,7 +607,7 @@ def test_utility_pairs_throw_and_detonation_by_grenade_no() -> None:
         "TSpawn",
         "BombsiteB",
     )
-    assert use.area_source == "snapped"
+    assert use.area_source == "point_cloud"
     assert (use.n, use.throws, use.m) == (1, 1, 1)
 
 
@@ -1102,7 +1102,7 @@ def test_a_grenade_that_detonates_in_the_next_round_keeps_its_area() -> None:
     rows[1]["round_raw"] = 3
     use = utility_uses(rows, [("d", 1)], [5.0, 10.0, 20.0])[0]
     assert use.detonate_area == "Banana"
-    assert use.area_source == "snapped"
+    assert use.area_source == "point_cloud"
 
 
 def test_a_detonation_without_a_throw_is_counted_not_hidden() -> None:

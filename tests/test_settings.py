@@ -489,11 +489,16 @@ def test_parse_values(settings_file: Path) -> None:
     assert s.parse.snapshot_seconds == [6.0, 15.0, 30.0, 45.0]
     assert s.parse.first_contact_fallback_death is True
     assert "hegrenade" in s.parse.first_contact_exclude_weapons
-    # Mitattu Ancient-demon 374 lentoradasta Story 2.2:ssa: rajan 500 sisällä
-    # alue saadaan 178:lle, ja niistä 76 %:ssa kaikki rajan sisällä olevat
-    # pelaajat ovat samalla alueella. Raja koskee vain räjähdystä -- heiton
-    # alue luetaan heittäjältä itseltään. Arvo on asetus eikä koodia.
-    assert s.parse.area_snap_units == 500
+    # Kalibroitu Story 2.9:ssä kaikilla kuudella demolla (2 544 räjähdystä):
+    # rajan 256 sisään osuu 95,4 %. Raja koskee vain räjähdystä -- heiton alue
+    # luetaan heittäjältä itseltään. Arvo on asetus eikä koodia.
+    assert s.parse.area_snap_units == 256
+    # Pistepilven kolme mittaa. Ne ovat asetuksia eivätkä koodia, ja niiden
+    # arvot on mitattu (ks. settings.tomlin taulukot). Paino on 1 eikä 2:
+    # mitattuna 1 erottaa kerrokset täydellisesti ja kattaa enemmän.
+    assert s.parse.callout_grid_units == 32
+    assert s.parse.callout_z_weight == 1.0
+    assert s.parse.callout_z_tolerance_units == 72.0
 
 
 def test_armed_counter_has_no_setting(settings_file: Path) -> None:
@@ -542,7 +547,7 @@ def test_old_settings_file_gets_a_migration_message(tmp_path: Path) -> None:
     """
     target = _write_variant(
         tmp_path,
-        **{"area_snap_units = 500": "area_snap_units = 500\narmed_player_equip_min = 950"},
+        **{"area_snap_units = 256": "area_snap_units = 256\narmed_player_equip_min = 950"},
     )
     with pytest.raises(SettingsError) as exc:
         _load(target)
@@ -818,3 +823,124 @@ def test_a_window_below_the_round_length_but_above_the_bound_is_refused(
     with pytest.raises(SettingsError) as exc:
         _load(path)
     assert "buy_window_seconds" in str(exc.value)
+
+
+# --- Pistepilven mitat (Story 2.9) -----------------------------------------
+
+
+@pytest.mark.parametrize("literal", ["0", "-32"])
+def test_a_non_positive_grid_size_is_refused(tmp_path: Path, literal: str) -> None:
+    """Nollan kokoinen ruutu ei ole ruudukko vaan nollalla jako.
+
+    Ruudun indeksi on ``floor(x / särmä)``, joten nolla kaatuisi kesken
+    400 MB:n demon parsinnan -- ja negatiivinen kääntäisi ruudukon nurin
+    ilman että mikään kaatuisi.
+    """
+    path = _write_variant(
+        tmp_path, **{"callout_grid_units = 32": f"callout_grid_units = {literal}"}
+    )
+    with pytest.raises(SettingsError) as exc:
+        _load(path)
+    assert "callout_grid_units" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "key", ["callout_z_weight", "callout_z_tolerance_units"]
+)
+def test_a_negative_weighting_parameter_is_refused(tmp_path: Path, key: str) -> None:
+    """Negatiivinen paino tai toleranssi kääntäisi etäisyyden nurin.
+
+    Painotus on ``max(0, |dz| - toleranssi) * paino``: negatiivinen paino
+    tekisi pystyerosta palkinnon, ja negatiivinen toleranssi rankaisisi
+    pystyeroa, jota ei ole. Kumpikaan ei kaatuisi -- alue olisi vain hiljaa
+    väärä.
+    """
+    current = {"callout_z_weight": "1.0", "callout_z_tolerance_units": "72"}[key]
+    path = _write_variant(
+        tmp_path, **{f"{key} = {current}": f"{key} = -1.0"}
+    )
+    with pytest.raises(SettingsError) as exc:
+        _load(path)
+    assert key in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "key", ["callout_z_weight", "callout_z_tolerance_units"]
+)
+@pytest.mark.parametrize("literal", ["nan", "inf"])
+def test_a_non_finite_weighting_parameter_is_refused(
+    tmp_path: Path, key: str, literal: str
+) -> None:
+    """``nan`` ja ääretön eivät saa mennä läpi vertailujen välistä.
+
+    Etäisyys kerrotaan painolla ja verrataan kynnykseen. ``nan`` tekisi
+    jokaisesta vertailusta epätoden, joten **yksikään** räjähdys ei saisi
+    aluetta -- ja tulos näyttäisi täsmälleen samalta kuin demo, jossa
+    pistepilvi jäi tyhjäksi. Ääretön tekisi saman toisin päin.
+    """
+    current = {"callout_z_weight": "1.0", "callout_z_tolerance_units": "72"}[key]
+    path = _write_variant(tmp_path, **{f"{key} = {current}": f"{key} = {literal}"})
+    with pytest.raises(SettingsError) as exc:
+        _load(path)
+    assert key in str(exc.value)
+
+
+def test_the_threshold_is_a_required_setting(tmp_path: Path) -> None:
+    """Kynnys ei ole valinnainen: ilman sitä kattavuus olisi aina 100 %.
+
+    Pistepilvestä lähin ruutu löytyy AINA, joten kynnyksetön ajo antaisi
+    jokaiselle räjähdykselle alueen etäisyydestä riippumatta. Speksin
+    Always-sääntö on "etäisyyskynnys säilyy", ja pakollinen kenttä tekee
+    siitä rakenteellisen -- ei asian, jonka poistettu rivi kumoaisi
+    hiljaa.
+    """
+    text = settings_text(tmp_path / "arkisto")
+    without = "\n".join(
+        line for line in text.splitlines()
+        if not line.startswith("area_snap_units")
+    )
+    target = tmp_path / "ilman.toml"
+    target.write_text(without, encoding="utf-8")
+    with pytest.raises(SettingsError) as exc:
+        _load(target)
+    assert "area_snap_units" in str(exc.value)
+
+
+@pytest.mark.parametrize("literal", ["1", "4", "2048"])
+def test_a_grid_size_outside_the_bounds_is_refused(
+    tmp_path: Path, literal: str
+) -> None:
+    """Rajat ovat suorituskykyä, eivät makuasia.
+
+    Lähimmän haku on ristiintulo pisteiden ja ruutujen välillä: särmä 1
+    tuottaisi luokkaa miljoona ruutua yhdestä demosta. Yläraja taas on se
+    piste, jossa ruudukko ei enää erottele kartan alueita.
+    """
+    path = _write_variant(
+        tmp_path, **{"callout_grid_units = 32": f"callout_grid_units = {literal}"}
+    )
+    with pytest.raises(SettingsError) as exc:
+        _load(path)
+    assert "callout_grid_units" in str(exc.value)
+
+
+def test_the_grid_bounds_themselves_are_allowed(tmp_path: Path) -> None:
+    """Rajat ovat mukaan lukevia: 8 ja 1024 kelpaavat, 4 ja 2048 eivät."""
+    for literal in ("8", "1024"):
+        path = _write_variant(
+            tmp_path,
+            **{"callout_grid_units = 32": f"callout_grid_units = {literal}"},
+        )
+        assert _load(path).parse.callout_grid_units == int(literal)
+
+
+def test_a_zero_z_weight_is_allowed(tmp_path: Path) -> None:
+    """Nolla on kelvollinen valinta: se tarkoittaa "älä katso korkeutta".
+
+    Litteällä kartalla se on oikea vastaus, ja se on ainoa tapa toistaa
+    painoton mittaus ilman koodimuutosta.
+    """
+    path = _write_variant(
+        tmp_path, **{"callout_z_weight = 1.0": "callout_z_weight = 0.0"}
+    )
+    assert _load(path).parse.callout_z_weight == 0.0
