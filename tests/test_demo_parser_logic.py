@@ -39,6 +39,7 @@ from pappascout.adapters.protocols import (
 )
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
+    ARMORED_COLUMN,
     EVENTS,
     MONEY_DISTRIBUTION_COLUMN,
     TICKS,
@@ -1732,7 +1733,7 @@ def _armed_row(
 def _armed_with(
     tmp_path: Path,
     inventories: list[tuple[str, ...] | None],
-    armor: list[int] | None = None,
+    armor: list[int | None] | None = None,
 ) -> dict[str, Any]:
     """Yksi kierros annetuilla tavaraluetteloilla; kokoonpano A:n rivi."""
     rounds = normal_match(played=1, knife=False)
@@ -1975,7 +1976,7 @@ def test_zero_armor_is_an_observation_but_missing_armor_is_not(
 
     Ilman tätä paria edellinen testi menisi läpi myös toteutuksella, joka
     tyhjentää rivin aina kun joltakulta puuttuu panssari **arvona nolla**.
-    Nolla on havainto: pelaaja ei ostanut kevlaria.
+    Nolla on havainto: pelaajalla ei ollut panssaria.
     """
     zeros = _armed_with(tmp_path, [FULL_BUY] * 5, armor=[0, 100, 100, 100, 100])
     assert zeros[ARMED_COLUMN] == 4
@@ -2089,6 +2090,254 @@ def test_armed_count_never_exceeds_the_player_count(tmp_path: Path) -> None:
         df[ARMED_COLUMN].null_count()
         == df["players_buy_end"].null_count()
     )
+
+
+# --- Panssarilaskuri (Story 2.8) ----------------------------------------------
+#
+# ``players_armored_buy_end`` on **sama lukema eri ehdolla**: montako samasta
+# pelaajajoukosta kantoi panssaria samalla ostoajan lopun tickillä. Se ei ole
+# yllä olevan laskurin yleistys vaan oma havaintonsa -- tästä luetaan Veetin
+# analyysin "5 kevlaria" ja "ei kevuja", joita aseistettujen laskurista ei saa.
+# Alla on spesifikaation I/O-matriisin jokainen rivi omana testinään.
+
+
+def test_pistol_round_separates_the_two_counters(tmp_path: Path) -> None:
+    """Pistoolikierros: viisi kevlaria, nolla aseistettua.
+
+    **Tämä on koko storyn syy.** Ilmaispistooli ei ole parannettu ase, joten
+    aseistettujen laskuri on 0, vaikka kaikilla viidellä olisi kevlar. Ilman
+    omaa saraketta Veetin rivi *"5 kevlaria"* ja rivi *"ei kevuja"* näyttävät
+    raportissa täsmälleen samalta.
+
+    Pistoolikierros on myös se kierrostyyppi, jolla panssariluku on
+    **ostohavainto** eikä hallussapitoa: puoliaika alkaa puhtaalta pöydältä
+    eikä edelliseltä kierrokselta peritä mitään. Muilla kierrostyypeillä sama
+    luku kertoo mitä pelaajilla oli, ei mitä he ostivat.
+
+    Jos joku joskus yhdistää laskurit tai kopioi ehdon toisesta toiseen, juuri
+    tämä testi kaatuu -- ja vain tämä.
+    """
+    row = _armed_with(tmp_path, [FREE_PISTOL] * 5)
+    assert row[ARMORED_COLUMN] == 5
+    assert row[ARMED_COLUMN] == 0
+    assert row["players_buy_end"] == 5
+
+
+def test_eco_without_armor_is_zero_in_both_counters(tmp_path: Path) -> None:
+    """Eco ilman perittyä panssaria: molemmat nollia -- ja nolla on havainto.
+
+    Ecolla ei osteta juuri mitään, joten nollan vastapari ei ole "ostivat" vaan
+    "edelliseltä kierrokselta ei jäänyt panssaria kenellekään". Asetelma on
+    siksi rakennettu käsin nollapanssarilla eikä oletuksella.
+    """
+    row = _armed_with(tmp_path, [FREE_PISTOL] * 5, armor=[0] * 5)
+    assert row[ARMORED_COLUMN] == 0
+    assert row[ARMED_COLUMN] == 0
+    assert row["players_buy_end"] == 5
+
+
+def test_full_buy_is_five_in_both_counters(tmp_path: Path) -> None:
+    """Täysi osto: kaikilla panssari ja kivääri, molemmat viisi.
+
+    Pari edellisen kanssa: laskurit eivät saa erota **aina**, vain silloin kun
+    ehdot oikeasti eroavat. Toteutus, joka palauttaa panssarille vakion, ei
+    läpäise molempia.
+    """
+    row = _armed_with(tmp_path, [FULL_BUY] * 5)
+    assert row[ARMORED_COLUMN] == 5
+    assert row[ARMED_COLUMN] == 5
+
+
+def test_armor_without_a_weapon_counts_as_armored(tmp_path: Path) -> None:
+    """Kolme kevlaria ilmaispistoolilla: panssaroituja 3, aseistettuja 0.
+
+    Osittainen kevlarien osto on juuri se pistoolikierroksen havainto, jonka
+    vuoksi sarake on olemassa -- ja se erottaa laskurit myös silloin, kun
+    kumpikaan ei ole ääripäässä.
+    """
+    row = _armed_with(
+        tmp_path, [FREE_PISTOL] * 5, armor=[100, 100, 100, 0, 0]
+    )
+    assert row[ARMORED_COLUMN] == 3
+    assert row[ARMED_COLUMN] == 0
+
+
+def test_a_weapon_without_armor_is_neither(tmp_path: Path) -> None:
+    """Kivääri ilman kevlaria: kumpikin laskuri jättää pelaajan pois.
+
+    Sääntö on ``armor_value > 0``, ei "osti jotain". Ilman tätä testiä
+    panssarilaskuri voisi olla toteutettu "onko tavaraluettelossa mitään",
+    ja se menisi läpi jokaisesta muusta rivistä.
+    """
+    row = _armed_with(tmp_path, [FULL_BUY] * 5, armor=[0, 0, 0, 0, 0])
+    assert row[ARMORED_COLUMN] == 0
+    assert row[ARMED_COLUMN] == 0
+
+
+def test_one_unreadable_armor_empties_the_armored_count_too(
+    tmp_path: Path,
+) -> None:
+    """Yhdenkin pelaajan lukukelvoton panssari tyhjentää koko laskurin.
+
+    Osittainen luku näyttäisi säästöltä eikä lukuvirheeltä -- sama sääntö kuin
+    aseistettujen laskurilla. Pelaaja pysyy ``players_buy_end``in jakajassa.
+    """
+    row = _armed_with(tmp_path, [FULL_BUY] * 5, armor=[None, 100, 100, 100, 100])
+    assert row["players_buy_end"] == 5
+    assert row[ARMORED_COLUMN] is None
+
+
+def test_zero_armor_is_an_observation_for_the_armored_count(
+    tmp_path: Path,
+) -> None:
+    """``0`` ja ``None`` ovat eri asioita myös panssarilaskurissa.
+
+    Ilman tätä paria edellinen testi menisi läpi myös toteutuksella, joka
+    tyhjentää rivin aina kun joltakulta puuttuu panssari **arvona nolla**.
+    """
+    zeros = _armed_with(tmp_path, [FULL_BUY] * 5, armor=[0, 100, 100, 100, 100])
+    assert zeros[ARMORED_COLUMN] == 4
+
+    missing = _armed_with(tmp_path, [FULL_BUY] * 5, armor=[None, 100, 100, 100, 100])
+    assert missing[ARMORED_COLUMN] is None
+
+
+def test_an_unreadable_inventory_does_not_empty_the_armored_count(
+    tmp_path: Path,
+) -> None:
+    """Panssarilaskurin luettavuusehto on **kapeampi**: vain panssari.
+
+    Tavaraluettelo ei kuulu siihen, koska laskuri ei lue sitä. Sama rivi on
+    siis aseistettujen osalta ``null`` ja panssarin osalta luku -- ja juuri
+    se on ero, jonka toteutus voisi hukata kopioimalla ehdon sellaisenaan.
+    """
+    row = _armed_with(tmp_path, [None] + [FULL_BUY] * 4)
+    assert row["players_buy_end"] == 5
+    assert row[ARMED_COLUMN] is None
+    assert row[ARMORED_COLUMN] == 5
+
+
+def test_round_without_an_anchor_has_no_armored_count(tmp_path: Path) -> None:
+    """Ankkuriton kierros: molemmat laskurit ovat null."""
+    rounds = normal_match(played=2, knife=False)
+    rounds[1].freeze_tick = None
+
+    df = parse_with(build(rounds), tmp_path)
+    no_anchor = df.filter(pl.col("status") == "no_freeze_end")
+    assert no_anchor.height == 2
+    assert no_anchor[ARMORED_COLUMN].null_count() == 2
+    assert no_anchor[ARMED_COLUMN].null_count() == 2
+
+
+def test_no_readable_player_gives_null_armored_not_zero(tmp_path: Path) -> None:
+    """Yhdenkään pelaajan arvoja ei saatu: ``null``, ei ``0``."""
+    rounds = normal_match(played=1, knife=False)
+    rounds[0].a_unreadable = 5
+
+    row = _armed_row(rounds, tmp_path)
+    assert row["players_buy_end"] is None
+    assert row[ARMORED_COLUMN] is None
+
+
+def test_armored_count_and_player_count_come_from_the_same_players(
+    tmp_path: Path,
+) -> None:
+    """Vajaa joukkue: panssarilaskuri ja jakaja ovat samasta joukosta.
+
+    Kaksi eri jakajaa samalla rivillä olisi vika, joka näkyisi vasta
+    raportissa -- ``2/4`` ja ``2/5`` ovat eri väitteitä.
+    """
+    row = _armed_with(
+        tmp_path,
+        [FREE_PISTOL, FREE_PISTOL, FREE_PISTOL, FREE_PISTOL],
+        armor=[100, 100, 0, 0],
+    )
+    assert row["players_buy_end"] == 4
+    assert row[ARMORED_COLUMN] == 2
+
+
+def test_the_armed_count_is_a_subset_of_the_armored_count(tmp_path: Path) -> None:
+    """Aseistetut ovat aina panssaroitujen osajoukko.
+
+    Laskureiden tärkein rakenteellinen suhde: aseistetun ehto **sisältää**
+    panssarin, joten rivi jolla aseistettuja on enemmän tarkoittaisi että
+    laskurit lukevat eri tickiä tai eri pelaajajoukkoa. Synteettinen testi,
+    koska demokohtainen vastine ohittaa itsensä ilman demoja -- eikä
+    invariantin todentaminen saa riippua siitä, onko koneella 200 MB demoja.
+
+    Asetelma kattaa kaikki neljä yhdistelmää: panssari ja ase, panssari
+    ilman asetta, ase ilman panssaria, ei kumpaakaan.
+    """
+    row = _armed_with(
+        tmp_path,
+        [FULL_BUY, FREE_PISTOL, FULL_BUY, FREE_PISTOL, FULL_BUY],
+        armor=[100, 100, 0, 0, 100],
+    )
+    assert row[ARMED_COLUMN] == 2  # pelaajat 0 ja 4
+    assert row[ARMORED_COLUMN] == 3  # pelaajat 0, 1 ja 4
+    assert row[ARMED_COLUMN] <= row[ARMORED_COLUMN]
+
+
+def test_the_subset_relation_holds_across_a_whole_table(tmp_path: Path) -> None:
+    """Sama invariantti koko taulussa, vaihtelevilla asetelmilla.
+
+    Yksi rivi voisi osua sattumalta; tämä ajaa neljä erilaista kierrosta ja
+    väittää suhteen jokaisesta rivistä, myös vastustajan riveiltä.
+    """
+    rounds = normal_match(played=3)
+    rounds[1].a_inventory = [FULL_BUY, FULL_BUY, FREE_PISTOL, FREE_PISTOL, ()]
+    rounds[1].a_armor = [100, 0, 100, 0, 100]
+    rounds[2].a_inventory = [FREE_PISTOL] * 5
+    rounds[3].a_inventory = [FULL_BUY] * 5
+
+    df = parse_with(build(rounds), tmp_path)
+    both = df.filter(
+        pl.col(ARMED_COLUMN).is_not_null() & pl.col(ARMORED_COLUMN).is_not_null()
+    )
+    assert both.height > 0
+    assert both.select(
+        pl.col(ARMED_COLUMN) <= pl.col(ARMORED_COLUMN)
+    ).to_series().all()
+
+
+def test_unreadable_armor_and_unreadable_inventory_are_counted_apart(
+    tmp_path: Path,
+) -> None:
+    """Kaksi diagnostiikkalukua, koska luettavuusehdot eroavat.
+
+    Ensimmäisellä kierroksella panssari on lukukelvoton: **molemmat** laskurit
+    tyhjenevät. Toisella pettää pelkkä tavaraluettelo: vain aseistettujen
+    laskuri tyhjenee. Yhteinen luku ei erottaisi näitä, ja juuri se erottelu
+    on tämän storyn keskeinen väite.
+    """
+    rounds = normal_match(played=2, knife=False)
+    rounds[0].a_armor = [None] * 5
+    rounds[1].a_inventory = [None] * 5
+
+    adapter = parse_adapter(build(rounds), tmp_path)
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.armed_unreadable_rows == 2
+    assert adapter.diagnostics.armored_unreadable_rows == 1
+
+
+def test_armored_count_never_exceeds_the_player_count(tmp_path: Path) -> None:
+    """Invariantti koko taulussa: ``0 <= panssaroidut <= players_buy_end``."""
+    rounds = normal_match(played=3)
+    rounds[1].a_armor = [100, 100, 0, 0, 0]
+    rounds[2].a_players = A_PLAYERS[:4]
+    rounds[3].a_unreadable = 2
+
+    df = parse_with(build(rounds), tmp_path)
+    observed = df.filter(pl.col(ARMORED_COLUMN).is_not_null())
+    assert observed.height > 0
+    assert observed.select(
+        (pl.col(ARMORED_COLUMN) >= 0)
+        & (pl.col(ARMORED_COLUMN) <= pl.col("players_buy_end"))
+    ).to_series().all()
+    # Sääntö erottaa oikeasti: yksi ainoa arvo koko taulussa tarkoittaisi,
+    # ettei se pure aineistoon lainkaan.
+    assert observed[ARMORED_COLUMN].n_unique() > 1
+
 
 def test_money_spent_is_read_from_the_demo(tmp_path: Path) -> None:
     """Käytettävissä ollut raha = jäljelle jäänyt + käytetty.

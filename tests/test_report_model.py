@@ -17,6 +17,8 @@ from pappascout.domain.report import (
     AreaDistribution,
     ArmedCount,
     ArmedPlayers,
+    ArmoredCount,
+    ArmoredPlayers,
     DeathReport,
     FirstContactArea,
     FirstDeathArea,
@@ -435,6 +437,9 @@ def full_report() -> Report:
         players_armed=ArmedPlayers(
             m=1, rounds_unknown=0, counts=[ArmedCount(armed=0, n=1)]
         ),
+        players_armored=ArmoredPlayers(
+            m=1, rounds_unknown=0, counts=[ArmoredCount(armored=5, n=1)]
+        ),
         first_contact=[],
         deaths=DeathReport(m=0, rounds_missing=1),
     )
@@ -513,6 +518,7 @@ def side_with(rounds: int) -> SideReport:
                 utility=[],
                 utility_counts=[],
                 players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+                players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
                 first_contact=[],
                 deaths=DeathReport(m=0, rounds_missing=rounds),
             )
@@ -535,6 +541,7 @@ def test_a_side_must_be_the_sum_of_its_round_types() -> None:
                     utility=[],
                     utility_counts=[],
                     players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+                    players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
                     first_contact=[],
                     deaths=DeathReport(m=0, rounds_missing=2),
                 )
@@ -585,6 +592,7 @@ def test_a_round_moving_between_buckets_is_caught() -> None:
                     utility=[],
                     utility_counts=[],
                     players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+                    players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
                     first_contact=[],
                     deaths=DeathReport(m=0, rounds_missing=3),
                 )
@@ -761,13 +769,59 @@ def test_the_round_type_report_requires_its_death_block() -> None:
             utility=[],
             utility_counts=[],
             players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+            players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
             first_contact=[],
         )
 
 
+def test_the_round_type_report_requires_its_armored_block() -> None:
+    """Ei oletusta panssarijakaumalle: tyhjä näyttäisi kevlarittomalta.
+
+    Sama peruste kuin kuolemilla, ja sama seuraus: vanha ``report.json`` ei
+    saa validoitua tätä mallia vasten hiljaa, joten skeemaversio nousee.
+    """
+    with pytest.raises(ValidationError, match="players_armored"):
+        RoundTypeReport(
+            round_type="pistol",
+            sample=sample(unknown=1),
+            small_sample=True,
+            positions=[],
+            utility=[],
+            utility_counts=[],
+            players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+            first_contact=[],
+            deaths=DeathReport(m=0, rounds_missing=1),
+        )
+
+
+def test_the_armored_distribution_must_add_up_to_its_sample() -> None:
+    """``Σ n = m`` myös panssarijakaumassa -- muuten otanta valehtelisi."""
+    with pytest.raises(AggregateError, match="panssaroitujen"):
+        ArmoredPlayers(
+            m=3, rounds_unknown=0, counts=[ArmoredCount(armored=5, n=2)]
+        )
+
+
+def test_the_two_player_distributions_use_different_field_names() -> None:
+    """``armed`` ja ``armored`` ovat eri kenttiä, myös JSONissa.
+
+    ``report.json`` luetaan käsin, ja sama kenttänimi kahdessa lähes
+    samannimisessä jakaumassa on juuri se sekaannus, jonka tämä story korjaa.
+    """
+    armed = ArmedPlayers(
+        m=1, rounds_unknown=0, counts=[ArmedCount(armed=0, n=1)]
+    ).model_dump(mode="json")
+    armored = ArmoredPlayers(
+        m=1, rounds_unknown=0, counts=[ArmoredCount(armored=5, n=1)]
+    ).model_dump(mode="json")
+
+    assert armed["counts"][0] == {"armed": 0, "n": 1}
+    assert armored["counts"][0] == {"armored": 5, "n": 1}
+
+
 def test_the_schema_version_says_the_structure_changed() -> None:
     """Uusi pakollinen kenttä = vanha raportti ei validoidu; versio nousee."""
-    assert REPORT_SCHEMA_VERSION == "3.0.0"
+    assert REPORT_SCHEMA_VERSION == "4.0.0"
 
 
 def _round_type_with(entry: DeathReport, rounds: int) -> RoundTypeReport:
@@ -780,6 +834,7 @@ def _round_type_with(entry: DeathReport, rounds: int) -> RoundTypeReport:
         utility=[],
         utility_counts=[],
         players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+        players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
         first_contact=[],
         deaths=entry,
     )

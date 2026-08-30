@@ -153,6 +153,33 @@ panssari tai tavaraluettelo puuttuu, laskuri on ``null`` -- ei se luku, joka
 saataisiin lopuista. Pelaaja pysyy ``players_buy_end``in jakajassa, joten
 hiljainen pudotus näyttäisi säästökierrokselta eikä lukuvirheeltä.
 
+``players_armored_buy_end`` on **sama lukema eri ehdolla**: montako samasta
+joukosta kantoi panssaria (``m_ArmorValue > 0``) samalla tickillä. Se ei ole
+aseistettujen laskurin yleistys vaan oma havaintonsa, koska ne vastaavat eri
+kysymyksiin: aseistettu on puolioston kalibroitu ehto A, panssaroitu vastaa
+kysymykseen "monellako oli panssari".
+
+**Hallussapito, ei ostos** -- sama sääntö kuin aseistettujen laskurilla.
+Panssari säilyy kierroksen yli hengissä selvinneellä, myös vaurioituneena
+(37/100 on yhä panssari), joten laskuri kertoo mitä pelaajilla oli, ei mitä he
+ostivat. **Poikkeus on pistoolikierros** (1 ja 13): puoliaika alkaa puhtaalta
+pöydältä eikä perintää ole, joten siellä -- ja vain siellä -- luku on
+ostohavainto. Juuri siksi Veetin *"5 kevlaria"* on oikea luenta Nuken
+T-pistoolista.
+
+Pistoolikierroksella laskurit myös eroavat eniten: 800 dollarin aloitusrahalla
+kevlar (650) ja parannettu ase eivät mahdu samaan ostokseen, joten aseistettuja
+on käytännössä 0, vaikka kaikilla viidellä olisi kevlar. Sääntö se ei ole:
+poimittu ase riittää aseistamaan, ja mitattu vastaesimerkki on
+``Anubis_vs_ryhmarama`` kierros 13, jolla CT-puolen laskurit ovat 3 ja 1.
+
+Panssarilaskurin luettavuusehto on **kapeampi**: vain ``m_ArmorValue``
+(:data:`_ARMORED_PROPS`). Tavaraluettelo ei kuulu siihen, koska laskuri ei lue
+sitä; lukukelvoton tavaraluettelo tyhjentää siis aseistettujen laskurin muttei
+panssarilaskuria. Kumpikin tyhjentyminen on omassa diagnostiikkaluvussaan,
+jotta ero näkyy ajossa eikä vasta raportissa. Kypärää ei eroteta: analyysi
+puhuu kevlarista, ja kypärä on eri havainto.
+
 Luokittelu on **sallittujen aseiden luettelo** (:mod:`pappascout.constants`),
 ei kiellettyjen: tuntematon nimi ei ole ase. Veitset ovat avoin joukko, jota
 Valve kasvattaa, aseet suljettu. Tuntemattomat nimet kulkevat diagnostiikkaan
@@ -315,6 +342,7 @@ from pappascout.domain.sampling import (
 )
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
+    ARMORED_COLUMN,
     DEATHS,
     EVENTS,
     LINEUPS,
@@ -788,14 +816,21 @@ class _ArmedCounters:
             **Määrä eikä pelkkä joukko**: yksi eksoottinen veitsi ja
             demoparser2:n nimeämismuutos, joka osuu joka riviin, näyttäisivät
             pelkkänä nimenä täsmälleen samalta.
-        unreadable_rows: Joukkuerivit, joilla laskuri jäi tyhjäksi siksi, että
-            jonkun luettavan pelaajan panssari tai tavaraluettelo puuttui.
-            Ankkurittomat kierrokset **eivät** ole tässä: niillä ei ole
-            havaintoa lainkaan, mikä on eri asia kuin epäonnistunut luku.
+        unreadable_rows: Joukkuerivit, joilla **kalustolaskuri** jäi tyhjäksi
+            siksi, että jonkun luettavan pelaajan panssari tai tavaraluettelo
+            puuttui. Ankkurittomat kierrokset **eivät** ole tässä: niillä ei
+            ole havaintoa lainkaan, mikä on eri asia kuin epäonnistunut luku.
+        armored_unreadable_rows: Sama panssarilaskurille. Oma lukunsa, koska
+            ehdot eroavat: tämä kasvaa vain panssarin jäädessä lukematta, kun
+            taas edellinen kasvaa myös pelkän tavaraluettelon pettäessä.
+            Erotus on siis "rivit, joilla vain tavaraluettelo petti" -- juuri
+            se ero, jonka takia laskureiden luettavuusehdot ovat erilaiset.
+            Tämä luku on aina pienempi tai yhtä suuri kuin edellinen.
     """
 
     unknown_items: Counter[str] = field(default_factory=Counter)
     unreadable_rows: int = 0
+    armored_unreadable_rows: int = 0
 
 
 class Demoparser2Adapter:
@@ -981,6 +1016,7 @@ class Demoparser2Adapter:
             deaths_without_victim_side=death_counts.without_victim_side,
             deaths_attacker_without_side=death_counts.attacker_without_side,
             armed_unreadable_rows=armed.unreadable_rows,
+            armored_unreadable_rows=armed.armored_unreadable_rows,
             buy_window_seconds=self.buy_window_seconds,
             buy_window_cuts=tuple(sorted(buy.cuts)),
             buy_window_unchecked_cuts=tuple(sorted(buy.unchecked_cuts)),
@@ -1557,11 +1593,14 @@ class Demoparser2Adapter:
                 own_end = [r for r in end_rows if r["side"] == side]
                 alive = [r for r in own_end if r["alive"]]
                 armed_count = _armed_count(own_buy)
+                armored_count = _armored_count(own_buy)
                 # Tyhjä joukko on ankkuriton kierros, ei lukuvirhe -- vain
                 # jälkimmäinen lasketaan, jotta luku kertoo propivikaa eikä
                 # normaalia puutetta.
                 if armed_count is None and own_buy:
                     armed.unreadable_rows += 1
+                if armored_count is None and own_buy:
+                    armed.armored_unreadable_rows += 1
 
                 # Ankkurilla luettavissa olleet pelaajat, jotka eivät ole enää
                 # mittauspisteessä. Summa ja jakaja kutistuvat yhdessä, joten
@@ -1623,6 +1662,11 @@ class Demoparser2Adapter:
                         # jakajaa samalla rivillä olisi vika, joka näkyisi
                         # vasta raportissa.
                         ARMED_COLUMN: armed_count,
+                        # Sama joukko, sama tick ja sama panssarilukema kuin
+                        # yllä -- eri ehto. Kaksi laskuria eikä yksi, koska
+                        # ne vastaavat eri kysymyksiin: ylempi on puolioston
+                        # kalibroitu ehto A, tämä on "monellako oli panssari".
+                        ARMORED_COLUMN: armored_count,
                         "survivors": len(alive) if own_end else None,
                         "survivors_equip_prev": previous_saved[team_index],
                         "freeze_end_tick": segment.freeze_end_tick,
@@ -3384,11 +3428,42 @@ def _readable(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+#: Panssarilukeman propin nimi. Vakiona, koska sitä lukee kolme paikkaa --
+#: kummankin laskurin luettavuusehto ja jaettu :func:`_has_armor` -- ja
+#: kovakoodattuna nimi erkanisi niistä huomaamatta.
+_ARMOR_PROP = "armor_value"
+
 #: Propit, joiden on oltava luettavissa, jotta kalustolaskurin voi laskea.
 #: Nämä **eivät** ole :data:`_BUY_END_PROPS`issa: pelaaja pysyy summissa ja
 #: niiden jakajassa, vaikka nämä puuttuisivat, koska jakajan on oltava sama
 #: joukko kaikille rivin luvuille.
-_ARMED_PROPS: tuple[str, ...] = ("armor_value", "inventory")
+_ARMED_PROPS: tuple[str, ...] = (_ARMOR_PROP, "inventory")
+
+#: Propit, joiden on oltava luettavissa, jotta panssarilaskurin voi laskea.
+#: **Aito osajoukko** :data:`_ARMED_PROPS`ista, ja se on koko ero kirjoitettuna
+#: koodiin eikä kommenttiin: panssarilaskuri ei lue tavaraluetteloa, joten
+#: lukukelvoton tavaraluettelo tyhjentää vain aseistettujen laskurin.
+_ARMORED_PROPS: tuple[str, ...] = (_ARMOR_PROP,)
+
+
+def _has_armor(row: dict[str, Any]) -> bool:
+    """Onko pelaajalla panssaria ostoajan lopussa.
+
+    **Molempien laskureiden yhteinen ehto**, ja siksi yhdessä paikassa. Sekä
+    :func:`_is_armed` että :func:`_armored_count` lukevat saman
+    ``m_ArmorValue``-lukeman samalta tickiltä; jos ehto olisi kirjoitettu
+    kahdesti, kynnyksen, kypärän erottelun tai vaurioituneen panssarin rajaus
+    muuttaisi vain toista laskuria -- ja juuri sen hiljaisen erkaantumisen
+    estäminen on koko kahden sarakkeen perustelu.
+
+    Kutsuja vastaa siitä, että arvo on luettavissa; tässä ``None``
+    tulkittaisiin "ei panssaria", eli lukuvirhe näyttäisi säästöltä.
+
+    Kypärää ei eroteta: ``m_bHasHelmet`` on oma havaintonsa, eikä analyysi
+    puhu siitä. Vaurioitunutta panssaria ei myöskään eroteta ehjästä: 37/100
+    on yhä panssari, ja pelaaja kantaa sitä.
+    """
+    return (row.get(_ARMOR_PROP) or 0) > 0
 
 
 def _armed_readable(row: dict[str, Any]) -> bool:
@@ -3399,6 +3474,16 @@ def _armed_readable(row: dict[str, Any]) -> bool:
     ``None`` ei.
     """
     return all(row.get(name) is not None for name in _ARMED_PROPS)
+
+
+def _armored_readable(row: dict[str, Any]) -> bool:
+    """Onko pelaajan panssari luettavissa.
+
+    **Kapeampi ehto** kuin :func:`_armed_readable`: tavaraluettelo ei kuulu
+    siihen, koska panssarilaskuri ei lue sitä. ``0`` on havainto (pelaajalla
+    ei ollut panssaria), ``None`` ei.
+    """
+    return all(row.get(name) is not None for name in _ARMORED_PROPS)
 
 
 def _is_armed(row: dict[str, Any]) -> bool:
@@ -3424,7 +3509,7 @@ def _is_armed(row: dict[str, Any]) -> bool:
 
     Tuntematon nimi ei ole ase (ks. :data:`~pappascout.constants.ARMING_WEAPONS`).
     """
-    if not (row.get("armor_value") or 0) > 0:
+    if not _has_armor(row):
         return False
     return any(name in ARMING_WEAPONS for name in row.get("inventory") or ())
 
@@ -3463,6 +3548,52 @@ def _armed_count(own_buy: list[dict[str, Any]]) -> int | None:
     if not all(_armed_readable(row) for row in own_buy):
         return None
     return sum(1 for row in own_buy if _is_armed(row))
+
+
+def _armored_count(own_buy: list[dict[str, Any]]) -> int | None:
+    """Montako pelaajaa kantoi panssaria ostoajan lopussa.
+
+    **Eri luku kuin** :func:`_armed_count`, ei sen yleistys. Ehto on tässä
+    pelkkä :func:`_has_armor`; aseesta ei välitetä. Tästä luetaan
+    tavoiteanalyysin rivit *"5 kevlaria"* ja *"ei kevuja"*, joita
+    aseistettujen laskurista ei saa: pistoolikierroksella se on käytännössä 0,
+    koska 800 dollarilla ei osta sekä kevlaria että parannettua asetta.
+
+    **Hallussapito, ei ostos.** Panssari säilyy kierroksen yli hengissä
+    selvinneellä, joten muilla kierrostyypeillä luku kertoo mitä pelaajilla
+    oli eikä mitä he ostivat. Pistoolikierroksella (1 ja 13) perintää ei ole
+    -- puoliaika alkaa puhtaalta pöydältä -- joten siellä se on ostohavainto.
+
+    Sama joukko, sama tick ja sama lukema kuin :func:`_armed_count`illa, joten
+    aseistetut ovat aina panssaroitujen osajoukko eikä panssaroituja voi olla
+    enempää kuin luettavissa olleita.
+
+    Args:
+        own_buy: :func:`_readable`-suodatettu joukkueen pelaajajoukko.
+
+    Returns:
+        Panssaroitujen määrä, tai ``None`` jos lukua ei voi antaa.
+
+        **Nolla ei ole puuttuva havainto**: kierros, jolla kukaan ei kantanut
+        panssaria, tuottaa nollan, ja juuri se on Ancientin CT-pistoolin
+        *"ei kevuja"*.
+
+        ``None`` on kaksi eri asiaa, ja molemmat ovat "ei tiedetä": joukko on
+        tyhjä (ankkuriton kierros), tai **yhdenkin** pelaajan panssari on
+        lukukelvoton. Jälkimmäinen tyhjentää koko rivin samasta syystä kuin
+        aseistettujen laskurissa: pelaaja pysyy ``players_buy_end``in
+        jakajassa, joten osittainen luku näyttäisi säästöltä eikä
+        lukuvirheeltä.
+
+        Luettavuusehto on **kapeampi** kuin aseistettujen laskurilla:
+        tavaraluettelo ei kuulu siihen, koska tämä laskuri ei lue sitä.
+        Lukukelvoton tavaraluettelo tyhjentää siis vain ylemmän laskurin.
+    """
+    if not own_buy:
+        return None
+    if not all(_armored_readable(row) for row in own_buy):
+        return None
+    return sum(1 for row in own_buy if _has_armor(row))
 
 
 def _sum_or_none(values: list[int | None]) -> int | None:

@@ -15,6 +15,8 @@ from pappascout.domain.aggregate import (
     CLASSIFY_THRESHOLD_KEYS,
     area_distributions,
     armed_players_for,
+    armored_by_round,
+    armored_players_for,
     bucket_labels,
     build_report,
     demo_buckets,
@@ -38,10 +40,14 @@ from pappascout.domain.aggregate import (
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
 from pappascout.domain.report import MissingDemo, RosterEntry, TeamReport
 from pappascout.domain.schemas import (
+    ARMED_COLUMN,
+    ARMORED_COLUMN,
     CLASSIFIED,
     DEATHS,
     EVENTS,
     LINEUPS,
+    MONEY_DISTRIBUTION_COLUMN,
+    ROUNDS,
     TICKS,
     validate,
 )
@@ -290,6 +296,62 @@ def deaths_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
     return validate(df, DEATHS, "deaths")
 
 
+def round_row(
+    demo: str,
+    round_no: int | None,
+    *,
+    side: str = "T",
+    lineup: str = TEAM,
+    armored: int | None = 5,
+    armed: int | None = 0,
+) -> dict[str, object]:
+    """Yksi kierrostaulun rivi. Vain panssarilaskuri luetaan täältä.
+
+    Oletus on pistoolikierroksen asetelma -- viisi kevlaria, nolla aseistettua
+    -- koska juuri se erottaa laskurit toisistaan.
+    """
+    return {
+        "map_demo_id": demo,
+        "round_raw": None if round_no is None else round_no + 1,
+        "round_no": round_no,
+        "lineup_key": lineup,
+        "side": side,
+        "won": True,
+        "win_reason": "elimination",
+        "money_buy_end": 0,
+        "money_spent": 0,
+        "equip_buy_end": 0,
+        "equip_round_start": 0,
+        "players_buy_end": 5,
+        MONEY_DISTRIBUTION_COLUMN: [0, 0, 0, 0, 0],
+        ARMED_COLUMN: armed,
+        ARMORED_COLUMN: armored,
+        "survivors": 5,
+        "survivors_equip_prev": 0,
+        "freeze_end_tick": 100,
+        "buy_end_tick": 200,
+        "tick_rate": 64.0,
+        "status": "ok",
+    }
+
+
+def rounds_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
+    df = pl.DataFrame(rows, schema=dict(ROUNDS))
+    return validate(df, ROUNDS, "rounds")
+
+
+def rounds_for(classified: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Kierrostaulu, joka kattaa täsmälleen annetut luokitellut kierrokset.
+
+    Panssariluku on oletusarvoinen; testi, joka tutkii sitä, rakentaa
+    kierrostaulunsa itse.
+    """
+    return [
+        round_row(str(row["map_demo_id"]), row["round_no"], side=str(row["side"]))
+        for row in classified
+    ]
+
+
 def team_report(lineups: list[str] | None = None) -> TeamReport:
     keys = lineups or [TEAM]
     return TeamReport(
@@ -311,6 +373,7 @@ def report_for(
     events: list[dict[str, object]] | None = None,
     deaths: list[dict[str, object]] | None = None,
     *,
+    rounds: list[dict[str, object]] | None = None,
     limits: ThresholdSettings | None = None,
     windows: AggregateSettings | None = None,
     missing: list[MissingDemo] | None = None,
@@ -321,6 +384,9 @@ def report_for(
         ticks=ticks_frame(ticks or []),
         events=events_frame(events or []),
         deaths=deaths_frame(deaths or []),
+        rounds=rounds_frame(
+            rounds if rounds is not None else rounds_for(classified)
+        ),
         team=team_report(lineups),
         thresholds=limits or thresholds(),
         aggregate=windows or aggregate_settings(),
@@ -594,6 +660,186 @@ def test_armed_players_distribution_keeps_unknown_out_of_the_sample() -> None:
     assert armed.m == 2
     assert armed.rounds_unknown == 1
     assert [(c.armed, c.n) for c in armed.counts] == [(0, 1), (5, 1)]
+
+
+# --- Panssaroidut pelaajat (Story 2.8) ------------------------------------------
+
+
+def test_armored_lookup_reads_the_rounds_table_by_demo_round_and_side() -> None:
+    """Avain on kolmiosainen: kierrostaulussa on kaksi riviä per kierros.
+
+    Ilman puolta vastustajan panssariluku voisi päätyä omalle riville --
+    pelkkä (demo, kierros) osuu molempiin.
+    """
+    lookup = armored_by_round(
+        [
+            round_row("d", 1, side="T", lineup=TEAM, armored=5),
+            round_row("d", 1, side="CT", lineup=OPPONENT, armored=1),
+        ]
+    )
+    assert lookup[("d", 1, "T")] == 5
+    assert lookup[("d", 1, "CT")] == 1
+
+
+def test_armored_lookup_drops_unnumbered_rounds_and_missing_observations() -> None:
+    """Numeroimaton kierros ja lukukelvoton panssari eivät ole nollia.
+
+    Kumpikin jää kartasta pois, ja puuttuva avain tarkoittaa
+    ``rounds_unknown``ia -- nolla väittäisi, ettei kenelläkään ollut
+    panssaria.
+    """
+    lookup = armored_by_round(
+        [
+            round_row("d", None, armored=5),
+            round_row("d", 2, armored=None),
+            round_row("d", 3, armored=0),
+        ]
+    )
+    assert set(lookup) == {("d", 3, "T")}
+    assert lookup[("d", 3, "T")] == 0
+
+
+def test_two_different_armor_readings_for_one_round_are_refused() -> None:
+    """Kaksoisavain on virhe eikä hiljainen ylikirjoitus.
+
+    Luokitelluille riveille ajetaan ``check_rounds_are_unique``; ilman
+    vastaavaa tarkistusta hakukartassa jäisi voimaan se rivi, joka sattuu
+    olemaan viimeisenä, eikä mikään kertoisi kumpi luku raporttiin päätyi.
+    """
+    with pytest.raises(AggregateError, match="kaksi eri panssarilukua"):
+        armored_by_round(
+            [
+                round_row("d", 1, side="T", armored=5),
+                round_row("d", 1, side="T", armored=1),
+            ]
+        )
+
+
+def test_an_identical_duplicate_row_is_not_an_error() -> None:
+    """Sama luku kahdesti ei ole ristiriita, joten se ei kaada ajoa.
+
+    Ilman tätä paria edellinen testi menisi läpi myös toteutuksella, joka
+    hylkää jokaisen toistuvan avaimen -- ja kahdesti luettu identtinen rivi
+    ei jätä epäselväksi mikä luku raporttiin päätyy.
+    """
+    lookup = armored_by_round(
+        [
+            round_row("d", 1, side="T", armored=5),
+            round_row("d", 1, side="T", armored=5),
+        ]
+    )
+    assert lookup == {("d", 1, "T"): 5}
+
+
+def test_a_rounds_row_with_a_missing_key_part_is_dropped() -> None:
+    """Vajaa avain pudotetaan **ennen** ``str()``-muunnosta.
+
+    ``str(None)`` rakentaisi avaimen ``"None"``, joka ei osu koskaan mutta
+    näyttää kartassa täysin tavalliselta -- rivi katoaisi hiljaa ja näkyisi
+    vasta puuttuvana havaintona raportissa.
+    """
+    lookup = armored_by_round(
+        [
+            round_row(None, 1, side="T", armored=5),
+            round_row("d", 1, side=None, armored=4),
+            round_row("d", 2, side="T", armored=3),
+        ]
+    )
+    assert lookup == {("d", 2, "T"): 3}
+    assert not any("None" in str(key) for key in lookup)
+
+
+def test_a_classified_row_with_a_missing_key_part_is_unknown_not_a_crash() -> None:
+    """Vajaa avain on puuttuva havainto, ei kaatuva ajo.
+
+    ``int(None)`` tai ``row["side"]`` nostaisi poikkeuksen, joka veisi koko
+    aggregoinnin -- yhden kierroksen puute ei saa maksaa koko raporttia.
+    """
+    rows = [
+        classified_row("d", 1),
+        {**classified_row("d", 2), "side": None},
+    ]
+    armored = armored_players_for(rows, {("d", 1, "T"): 5})
+
+    assert armored.m == 1
+    assert armored.rounds_unknown == 1
+
+
+def test_armored_players_distribution_keeps_unknown_out_of_the_sample() -> None:
+    """Sama erottelu kuin aseistetuilla: puuttuva havainto ei ole nolla."""
+    rows = [classified_row("d", n) for n in (1, 2, 3)]
+    lookup = armored_by_round(
+        [
+            round_row("d", 1, armored=5),
+            round_row("d", 2, armored=0),
+            round_row("d", 3, armored=None),
+        ]
+    )
+    armored = armored_players_for(rows, lookup)
+    assert armored.m == 2
+    assert armored.rounds_unknown == 1
+    assert [(c.armored, c.n) for c in armored.counts] == [(0, 1), (5, 1)]
+
+
+def test_a_round_missing_from_the_rounds_table_is_unknown_not_zero() -> None:
+    """Vanha tai vajaa kierrostaulu ei saa näyttää kevlarittomalta kierrokselta."""
+    armored = armored_players_for([classified_row("d", 1)], {})
+    assert armored.m == 0
+    assert armored.rounds_unknown == 1
+    assert armored.counts == []
+
+
+def test_the_two_counters_answer_different_questions_on_a_pistol_round() -> None:
+    """Pistoolikierros: panssarijakauma 5/5, aseistettujen jakauma 0.
+
+    Tämä on tavoiteanalyysin rivi *"5 kevlaria"* (Nuke, T) sellaisena kuin
+    aggregointi sen tuottaa. Jos jompikumpi laskuri luettaisiin toisesta
+    lähteestä väärin, luvut olisivat samat -- ja juuri se on vika, jonka
+    tämä testi estää.
+    """
+    rows = [classified_row("Nuke_vs_x", 13, armed=0)]
+    lookup = armored_by_round([round_row("Nuke_vs_x", 13, armored=5)])
+
+    assert [(c.armed, c.n) for c in armed_players_for(rows).counts] == [(0, 1)]
+    assert [
+        (c.armored, c.n) for c in armored_players_for(rows, lookup).counts
+    ] == [(5, 1)]
+
+
+def test_the_report_carries_both_counters_for_the_same_round_type() -> None:
+    """Koko putki: molemmat jakaumat samassa haarassa, eri luvut.
+
+    Ancientin CT-pistooli, Veetin *"ei kevuja"*: yksi kevlar viidestä ja
+    nolla aseistettua.
+    """
+    classified = [classified_row("Ancient_vs_x", 1, side="CT", armed=0)]
+    report = report_for(
+        classified,
+        rounds=[round_row("Ancient_vs_x", 1, side="CT", armored=1, armed=0)],
+    )
+    entry = branch(report, "de_ancient", "CT", "pistol")
+
+    assert [(c.armed, c.n) for c in entry.players_armed.counts] == [(0, 1)]
+    assert [(c.armored, c.n) for c in entry.players_armored.counts] == [(1, 1)]
+
+
+def test_the_key_picks_our_side_from_the_two_rows_of_one_round() -> None:
+    """Kierrostaulussa on kaksi riviä per kierros -- avain valitsee oman.
+
+    Testi todentaa **avaimen kolmatta osaa**, ei kokoonpanosuodatusta: rivit
+    annetaan tässä suodattamattomina, kuten ne kierrostaulussa ovat, ja
+    pelkkä (demo, kierros) osuisi molempiin.
+    """
+    classified = [classified_row("Nuke_vs_x", 13, side="T", armed=0)]
+    report = report_for(
+        classified,
+        rounds=[
+            round_row("Nuke_vs_x", 13, side="T", lineup=TEAM, armored=5),
+            round_row("Nuke_vs_x", 13, side="CT", lineup=OPPONENT, armored=0),
+        ],
+    )
+    entry = branch(report, "de_nuke", "T", "pistol")
+    assert [(c.armored, c.n) for c in entry.players_armored.counts] == [(5, 1)]
 
 
 # --- Koko raportti: I/O-matriisi ------------------------------------------------

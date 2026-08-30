@@ -312,11 +312,19 @@ class ParseDiagnostics:
             Pudottaminen veisi uhrin kuoleman mukanaan, ja ampujan
             tyhjentäminen hukkaisi havainnon, joka on luettavissa.
         armed_unreadable_rows: Joukkuerivit, joilla kalustolaskuri jäi tyhjäksi
-            siksi, että jonkun pelaajan panssari tai tavaraluettelo ei ollut
-            luettavissa. **Vika eikä havainto**: ankkurittomat kierrokset
-            eivät ole tässä luvussa, joten nollasta poikkeava arvo tarkoittaa
-            propivikaa. Ilman omaa lukuaan se sekoittuisi rehellisiin
-            "ei havaintoa" -riveihin.
+            siksi, että jonkun pelaajan panssari **tai** tavaraluettelo ei
+            ollut luettavissa. **Vika eikä havainto**: ankkurittomat
+            kierrokset eivät ole tässä luvussa, joten nollasta poikkeava arvo
+            tarkoittaa propivikaa. Ilman omaa lukuaan se sekoittuisi
+            rehellisiin "ei havaintoa" -riveihin.
+        armored_unreadable_rows: Sama panssarilaskurille, jonka luettavuusehto
+            on kapeampi: **vain panssari**. Kaksi lukua eikä yksi, koska
+            yhteinen luku ei erottaisi riviä, jolla panssari jäi lukematta,
+            rivistä, jolla petti pelkkä tavaraluettelo -- ja juuri se
+            jälkimmäinen tyhjentää vain ylemmän laskurin. Erotus
+            ``armed_unreadable_rows - armored_unreadable_rows`` on siis
+            "rivit, joilla vain tavaraluettelo petti", eikä tämä voi olla
+            edellistä suurempi.
 
     Näytepisteiden, ensikontaktien ja utility-tapahtumien **määrät eivät ole
     täällä**: ne luetaan valmiista taulusta vaiheessa. Adapteri laskisi ne
@@ -363,6 +371,7 @@ class ParseDiagnostics:
     deaths_without_victim_side: int = 0
     deaths_attacker_without_side: int = 0
     armed_unreadable_rows: int = 0
+    armored_unreadable_rows: int = 0
     buy_window_seconds: float | None = None
     buy_window_cuts: tuple[tuple[int, int], ...] = ()
     buy_window_unchecked_cuts: tuple[int, ...] = ()

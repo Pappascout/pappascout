@@ -238,6 +238,63 @@ saataisiin lopuista. Pelaaja pysyy `players_buy_end`in jakajassa, joten
 luettua: vaiettu lukuvirhe näyttäisi säästökierrokselta. Tyhjä tavaraluettelo
 ja `0` panssaria ovat sen sijaan **havaintoja** eivätkä puutteita.
 
+### Panssarilaskuri on eri luku
+
+`players_armored_buy_end` kertoo, moniko samasta pelaajajoukosta **kantoi
+panssaria** (`m_ArmorValue > 0`) samalla ostoajan lopun tickillä. Se ei ole
+edellisen yleistys vaan oma havaintonsa, ja kysymykset ovat eri:
+
+| Sarake | Kysymys | Käyttö |
+| --- | --- | --- |
+| `players_armed_buy_end` | oliko pelaaja taisteluvalmis (kevlar **ja** parannettu ase) | puolioston ehto A, `classify` lukee |
+| `players_armored_buy_end` | monellako oli panssari | raportin havainto, `classify` **ei** lue |
+
+Luvut ovat **sisäkkäisiä eivätkä rinnakkaisia**: aseistetun ehto sisältää
+panssarin, joten `players_armed_buy_end <= players_armored_buy_end` aina.
+Molemmat luetaan samalta tickiltä samasta pelaajajoukosta, joten jakajakin on
+sama. `parse` tarkistaa molemmat invariantit kirjoittaessaan taulun.
+
+**Hallussapito, ei ostos.** Panssari säilyy kierroksen yli hengissä
+selvinneellä, myös vaurioituneena -- 37/100 on yhä panssari, ja laskuri laskee
+sen. Luku kertoo siis mitä pelaajilla *oli* ostoajan lopussa, ei mitä he
+*ostivat*. Sama sääntö kuin aseistettujen laskurilla, ja samasta syystä:
+kierroksen kannalta ratkaisee mitä kädessä on.
+
+> **Pistoolikierros on poikkeus, ja se pelastaa tärkeimmän rivin.**
+> Kierroksilla 1 ja 13 puoliaika alkaa puhtaalta pöydältä eikä perintää ole,
+> joten siellä -- ja vain siellä -- luku on **ostohavainto**. Juuri siksi
+> Veetin *"5 kevlaria"* on oikea luenta Nuken T-pistoolista ja *"ei kevuja"*
+> Ancientin CT-pistoolista. Muilla kierrostyypeillä sama luku on
+> hallussapitoa, ja raportin lukuohje sanoo eron ääneen.
+
+**Pistoolikierroksella laskurit myös eroavat eniten.** 800 dollarin
+aloitusrahalla kevlar (650) ja parannettu ase eivät mahdu samaan ostokseen,
+joten aseistettuja on tyypillisesti 0, vaikka kaikilla viidellä olisi kevlar.
+Se on rahan seuraus eikä sääntö: **poimittu ase riittää aseistamaan**, ja
+mitattu vastaesimerkki löytyy samasta aineistosta (`Anubis_vs_ryhmarama`,
+kierros 13, CT-puolen luvut 3 ja 1). Mitattu neljästä MatureMayhem-demosta
+2026-08-30: sen kaikilla kahdeksalla pistoolikierroksella aseistettuja `0`,
+panssaroituja `1`-`5`. Kumpaakaan Veetin riviä ei siis voinut lukea
+aseistettujen laskurista.
+
+Ecoilla ja forceilla luvut ovat lähellä toisiaan, mutta **ei siksi että siellä
+ostettaisiin**: ecolla ei osteta juuri mitään, vaan edelliseltä kierrokselta
+selvinneiden panssari näkyy laskurissa sellaisenaan. Kypärää ei eroteta --
+analyysi puhuu kevlarista, ja kypärä olisi eri havainto.
+
+Luettavuusehto on **kapeampi** kuin aseistettujen laskurilla: vain
+`m_ArmorValue`. Tavaraluettelo ei kuulu siihen, koska tämä laskuri ei lue sitä,
+joten lukukelvoton tavaraluettelo tyhjentää vain aseistettujen laskurin.
+Kumpikin tyhjentyminen on omassa diagnostiikkaluvussaan
+(`armed_unreadable_rows`, `armored_unreadable_rows`), ja niiden erotus on
+"rivit, joilla vain tavaraluettelo petti".
+
+`parse` tulostaa myös panssarilaskurin jakauman omalla rivillään
+`Panssaroituja`, heti `Aseistettuja`-rivin alla. Kaksi riviä eikä yksi: niiden
+**ero** on havainto, ja identtiset jakaumat olisivat merkki siitä, että
+panssarilaskuri lukee väärää ehtoa. Kumpikin rivi kantaa sääntönsä mukanaan,
+koska kaksi lähes samannimistä riviä peräkkäin luetaan muuten väärin.
+
 **Rahan jakauma on omana havaintonaan.** `money_players_buy_end` säilyttää ne
 samat saldot, jotka `money_buy_end` summaa -- yksi luku per luettavissa ollut
 pelaaja, laskevasti lajiteltuna. Uutta demokenttää ei tarvita: arvot olivat jo
@@ -285,23 +342,40 @@ Rivillä on **kolme tilaa, jotka on syytä osata lukea**:
 
 ### `aggregate` -- luokitelluista kierroksista `report.json`
 
-`aggregate` lukee joukkueen luokitellut kierrokset ja niiden näytepiste- ja
-tapahtumataulut ja kirjoittaa **yhden tiedoston**:
+`aggregate` lukee joukkueen luokitellut kierrokset ja **kaikki viisi parsittua
+taulua** (`rounds`, `ticks`, `events`, `lineups`, `deaths`) ja kirjoittaa
+**yhden tiedoston**:
 `aggregates/<team_key>/report.json` sekä sen manifestin. Demoa ei lueta, joten
 ajo valmistuu sekunneissa. Tiedosto on pydantic-malli
 `domain.report.Report`, ja se on `aggregate`-vaiheen ja tulevan
 `render`-vaiheen **jaettu sopimus**: `render` ei laske mitään, vaan kaikki
 luvut ovat valmiina.
 
+> **`rounds.parquet` on syöte `classify`n ohi.** Kaikki muut raportin luvut
+> tulevat joko luokitellusta taulusta tai näytepiste-, tapahtuma- ja
+> kuolematauluista. Panssarilaskuri on ainoa, joka luetaan **parsitusta
+> kierrostaulusta suoraan**: se on havainto eikä luokittelun päätöksen syöte,
+> joten sitä ei lisätä `economy.CLASSIFY_COLUMNS`iin eikä `classify` kanna
+> sitä eteenpäin. Liitos on kolmiosaisella avaimella
+> `(map_demo_id, round_no, side)`, koska kierrostaulussa on kaksi riviä per
+> kierros -- yksi kummallekin joukkueelle. Kaksi eri lukua samalle avaimelle
+> on virhe eikä hiljainen ylikirjoitus, ja tyhjäksi suodattunut kierrostaulu
+> keskeyttää ajon samoin kuin tyhjä kuolemataulu.
+
+Demo, jonka **jokin** näistä viidestä taulusta puuttuu, menee osioon
+"Puuttuvat demot" syyn kanssa eikä katoa hiljaa; yksittäinen puute ei vie
+muita demoja mukanaan.
+
 Rakenne on `maps[] -> sides[] -> round_types[]`, ja jokaisella tasolla on
-otanta. Kierrostyypin alla on kuusi havaintoa:
+otanta. Kierrostyypin alla on seitsemän havaintoa:
 
 | Kenttä | Mihin se vastaa |
 | --- | --- |
 | `positions[].areas[].players_dist[]` | *"3A ja 2B"*, *"2-ramp"* -- pelaajamäärä alueittain näytepisteessä |
 | `utility[]` | *"T-spawnista CT-savu B sitelle"*, *"insta mid talo savu"* |
 | `utility_counts[]` | *"2 savua 2 valoo"* -- montako heitettiin kierroksella |
-| `players_armed` | monellako oli panssari ja ase ostoajan lopussa |
+| `players_armed` | monellako oli panssari ja ase ostoajan lopussa (puolioston ehto A) |
+| `players_armored` | *"5 kevlaria"*, *"ei kevuja"* -- monellako oli panssari, aseesta riippumatta |
 | `first_contact[]` | *"otti kontaktin partsi käytävällä"* |
 | `deaths` | *"Luola kuolee nii pelaa siteltä"* ja *"Vihu meni secret pihalta"* -- ensimmäisen oman kuoleman ajoitus ja alue, sekä tapot ampujan alueen mukaan |
 
@@ -490,6 +564,29 @@ yksikkönsä itse (`Middle (4/6 taposta)`) eikä vain lukuohjeessa. Alue on
 > ilman `deaths.parquet`ia, joten pelkkä `uv run pappascout parse <id>`
 > riittää, ja jokainen `report.json` aggregoidaan uudelleen. Jo kirjoitetut
 > Markdown-raportit jäävät paikoilleen vanhoina.
+
+> **Panssarilaskuri pakottaa koko arkiston uudelleenajon -- eri syystä kuin
+> kaksi edellistä.** Muutos ei tuo uutta taulua: olemassa oleva
+> `rounds.parquet` saa **pakollisen sarakkeen** (`players_armored_buy_end`),
+> ja `REPORT_SCHEMA_VERSION` nousee `3.0.0` -> `4.0.0`, koska
+> `RoundTypeReport` sai pakollisen `players_armored`-kentän. Lisäksi
+> `aggregate` alkaa vaatia `rounds.parquet`ia, jota se ei aiemmin lukenut.
+>
+> Täyden arkiston omistajalle tämä tarkoittaa kolmea komentoa demoa kohden,
+> tässä järjestyksessä:
+>
+> 1. `uv run pappascout parse <map_demo_id>` -- **`--pakota` ei ole tarpeen**:
+>    `parse` huomaa vanhan taulun puuttuvan sarakkeen skeematarkistuksessa ja
+>    ajaa demon uudelleen itse.
+> 2. `uv run pappascout classify <map_demo_id> --kaikki-joukkueet` -- pakollinen,
+>    koska luokittelun manifesti osoittaa juuri uusittuun parsintaan. Yksikään
+>    kierrostyyppi ei muutu tämän takia; sarake ei ole luokittelun syöte.
+> 3. `uv run pappascout aggregate --team <key>` ja `report --team <key>`.
+>
+> Väliin jäänyt vaihe kertoo itse mitä tehdä: `classify` ja `aggregate`
+> hylkäävät vanhan kierrostaulun suomenkielisellä virheellä, joka nimeää sekä
+> puuttuvan sarakkeen että komennon. Jo kirjoitetut Markdown-raportit jäävät
+> paikoilleen vanhoina.
 
 Manifesti on **raporttikohtainen** (`<raportin nimi>.manifest.json`) ja
 jäljitettävyyttä varten. Yhteinen manifesti kestäisi huonosti juuri sitä

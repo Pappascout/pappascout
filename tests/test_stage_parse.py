@@ -30,6 +30,7 @@ from pappascout.constants import SAMPLE_KINDS, SIDES
 from pappascout.domain.models import load_settings
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
+    ARMORED_COLUMN,
     DEATHS,
     EVENTS,
     LINEUPS,
@@ -107,6 +108,11 @@ def build_rounds(
                     # Adapteri antaa laskurin valmiina; vaihe vain kuljettaa
                     # sen. Puolikohtainen ero tekee kuljetuksesta todettavan.
                     ARMED_COLUMN: None if no_anchor else 5 - index,
+                    # Panssarilaskuri on tarkoituksella **eri jakauma** kuin
+                    # aseistettujen: jos vaihe kuljettaisi saman sarakkeen
+                    # kahdesti, jakaumat olisivat identtiset eikä yksikään
+                    # testi näkisi sitä.
+                    ARMORED_COLUMN: None if no_anchor else 5,
                     "survivors": index,
                     "survivors_equip_prev": 500,
                     "freeze_end_tick": None if no_anchor else 1000 * round_raw,
@@ -1586,6 +1592,163 @@ def test_armed_distribution_counts_rounds_without_an_anchor_as_missing(
     assert result.stats["armed_distribution"] == {4: 2, 5: 2}
 
 
+def test_armored_count_survives_the_write(parse_settings, archive, demo) -> None:
+    """Panssarilaskuri kulkee adapterilta levylle asti muuttumattomana."""
+    run_parse(parse_settings, archive, FakeParser(build_rounds(played=3)), demo)
+
+    df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "rounds"))
+    assert df[ARMORED_COLUMN].dtype == pl.Int32
+    assert df[ARMORED_COLUMN].to_list() == [5] * 6
+    # Eri sarake eikä sama kahdesti: aseistettujen jakauma on toinen.
+    assert df[ARMED_COLUMN].to_list() != df[ARMORED_COLUMN].to_list()
+
+
+def test_run_reports_the_armored_distribution(parse_settings, archive, demo) -> None:
+    """``run()`` palauttaa ne avaimet, joita panssaririvi lukee.
+
+    Sama kytkentätesti kuin aseistettujen jakaumalla ja samasta syystä: ilman
+    sitä tuottaja ja kuluttaja testataan vain erikseen, ja väliltä puuttuva
+    ``stats.update(_armored_stats(df))`` vain pudottaisi rivin tulosteesta
+    ilman että yksikään testi kaatuu.
+    """
+    result = run_parse(
+        parse_settings, archive, FakeParser(build_rounds(played=3)), demo
+    )
+
+    assert result.stats["armored_distribution"] == {5: 6}
+    assert result.stats["armored_missing"] == 0
+    # Kaksi eri jakaumaa samasta ajosta -- juuri se on sarakkeen tarkoitus.
+    assert result.stats["armed_distribution"] == {4: 3, 5: 3}
+
+
+def test_skipped_run_reports_the_armored_distribution_too(
+    parse_settings, archive, demo
+) -> None:
+    """Ohitettu ajo lukee panssarijakauman valmiista taulusta, ei muistista."""
+    parser = FakeParser(build_rounds(played=3))
+    run_parse(parse_settings, archive, parser, demo)
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.skipped
+    assert result.stats["armored_distribution"] == {5: 6}
+
+
+def test_armored_distribution_counts_rounds_without_an_anchor_as_missing(
+    parse_settings, archive, demo
+) -> None:
+    """Ankkuriton kierros ei ole nolla panssaria vaan puuttuva havainto."""
+    parser = FakeParser(build_rounds(played=3, without_anchor=(2,)))
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.stats["armored_missing"] == 2  # yksi rivi per joukkue
+    assert result.stats["armored_distribution"] == {5: 4}
+
+
+def test_an_old_table_without_the_armored_column_is_reparsed(
+    parse_settings, archive, demo
+) -> None:
+    """Arkiston vanha ``rounds.parquet`` ilman panssarisaraketta ei kaada ajoa.
+
+    I/O-matriisin rivi "vanha arkisto". **Manifestia ei kosketa**: se on
+    täsmäävä, ja juuri se on testin ydin. Skeematarkistus yksin riittää
+    pakottamaan uudelleenajon, joten käyttäjän ei tarvitse tietää
+    ``--pakota``-lipusta eikä vanha taulu jää hiljaa voimaan.
+    """
+    parser = FakeParser(build_rounds(played=3))
+    run_parse(parse_settings, archive, parser, demo)
+
+    table = archive.parsed_table(MAP_DEMO_ID, "rounds")
+    pl.read_parquet(table).drop(ARMORED_COLUMN).write_parquet(table)
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert not result.skipped
+    assert parser.calls == 2
+    fresh = pl.read_parquet(table)
+    assert ARMORED_COLUMN in fresh.columns
+    assert fresh.schema == dict(ROUNDS)
+
+
+def test_an_armored_count_above_its_divisor_is_refused(
+    parse_settings, archive, demo
+) -> None:
+    """``0 <= panssaroidut <= players_buy_end`` valvotaan lukuhetkellä.
+
+    Skeeman docstring lupaa rajan, mutta ``validate`` tarkistaa vain tyypit.
+    Ilman arvotarkistusta mahdoton luku kirjoittuisi arkistoon ja näkyisi
+    raportissa muodossa "6 (1/1 kierroksesta)" viiden pelaajan joukkueelle.
+    """
+    rounds = build_rounds(played=3).with_columns(
+        pl.when(pl.col("round_raw") == 2)
+        .then(6)
+        .otherwise(pl.col(ARMORED_COLUMN))
+        .cast(pl.Int32)
+        .alias(ARMORED_COLUMN)
+    )
+
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(rounds), demo)
+    assert ARMORED_COLUMN in str(exc.value)
+    assert "players_buy_end" in str(exc.value)
+
+
+def test_an_armed_count_above_its_divisor_is_refused(
+    parse_settings, archive, demo
+) -> None:
+    """Sama raja koskee kalustolaskuria -- se oli valvomatta jo ennen tätä."""
+    rounds = build_rounds(played=3).with_columns(
+        pl.when(pl.col("round_raw") == 2)
+        .then(6)
+        .otherwise(pl.col(ARMED_COLUMN))
+        .cast(pl.Int32)
+        .alias(ARMED_COLUMN)
+    )
+
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(rounds), demo)
+    assert ARMED_COLUMN in str(exc.value)
+
+
+def test_more_armed_than_armored_players_is_refused(
+    parse_settings, archive, demo
+) -> None:
+    """Aseistettujen on oltava panssaroitujen osajoukko.
+
+    Aseistetun ehto sisältää panssarin, joten ylitys tarkoittaisi että
+    laskurit lukevat eri tickiä tai eri pelaajajoukkoa -- vika, joka näkyisi
+    raportissa vain kahtena uskottavan näköisenä lukuna.
+    """
+    rounds = build_rounds(played=3).with_columns(
+        pl.when(pl.col("round_raw") == 2)
+        .then(1)
+        .otherwise(pl.col(ARMORED_COLUMN))
+        .cast(pl.Int32)
+        .alias(ARMORED_COLUMN)
+    )
+
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(rounds), demo)
+    assert "osajoukko" in str(exc.value)
+
+
+def test_a_null_counter_is_not_an_invariant_break(
+    parse_settings, archive, demo
+) -> None:
+    """Ankkuriton kierros läpäisee tarkistuksen: null on rehellinen puute.
+
+    Ilman tätä paria edelliset kolme testiä menisivät läpi myös
+    toteutuksella, joka hylkää jokaisen tyhjän laskurin.
+    """
+    result = run_parse(
+        parse_settings,
+        archive,
+        FakeParser(build_rounds(played=3, without_anchor=(2,))),
+        demo,
+    )
+    assert result.status == "ok"
+
+
 def test_run_reports_the_unknown_inventory_items(
     parse_settings, archive, demo
 ) -> None:
@@ -1671,6 +1834,38 @@ def test_unreadable_armed_rows_reach_the_stats(
     result = run_parse(parse_settings, archive, parser, demo)
 
     assert result.stats["armed_unreadable_rows"] == 2
+
+
+def test_the_two_unreadable_counters_reach_the_stats_separately(
+    parse_settings, archive, demo
+) -> None:
+    """Kaksi lukua eikä yksi: erotus kertoo mikä propeista petti.
+
+    Laskureiden luettavuusehdot eroavat -- panssarilaskuri ei lue
+    tavaraluetteloa -- joten yhteinen luku ei erottaisi riviä, jolla panssari
+    jäi lukematta, rivistä, jolla petti pelkkä tavaraluettelo. Juuri se on
+    väite, jonka koko kahden sarakkeen ratkaisu tekee, eikä sitä voi lukea
+    valmiista taulusta.
+    """
+    parser = FakeParser(build_rounds(played=3))
+    parser.diagnostics = ParseDiagnostics(
+        tick_rate=64.0,
+        tick_rate_measured=True,
+        rounds_seen=3,
+        armed_unreadable_rows=5,
+        armored_unreadable_rows=2,
+    )
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.stats["armed_unreadable_rows"] == 5
+    assert result.stats["armored_unreadable_rows"] == 2
+    # Erotus on "rivit, joilla vain tavaraluettelo petti".
+    assert (
+        result.stats["armed_unreadable_rows"]
+        - result.stats["armored_unreadable_rows"]
+        == 3
+    )
 
 
 def test_match_restarts_reach_the_stats(

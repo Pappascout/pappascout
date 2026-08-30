@@ -33,6 +33,8 @@ from pappascout.domain.report import (
     AreaDistribution,
     ArmedCount,
     ArmedPlayers,
+    ArmoredCount,
+    ArmoredPlayers,
     DeathReport,
     FirstContactArea,
     FirstDeathArea,
@@ -159,6 +161,14 @@ def armed(m: int, bars: dict[int, int], unknown: int = 0) -> ArmedPlayers:
     )
 
 
+def armored(m: int, bars: dict[int, int], unknown: int = 0) -> ArmoredPlayers:
+    return ArmoredPlayers(
+        m=m,
+        rounds_unknown=unknown,
+        counts=[ArmoredCount(armored=count, n=n) for count, n in bars.items() if n],
+    )
+
+
 def counts(grenade_type: str, m: int, bars: dict[int, int]) -> UtilityCounts:
     return UtilityCounts(
         grenade_type=grenade_type,
@@ -231,6 +241,7 @@ def round_type(
     utility: list[UtilityUse] | None = None,
     utility_counts: list[UtilityCounts] | None = None,
     players_armed: ArmedPlayers | None = None,
+    players_armored: ArmoredPlayers | None = None,
     first_contact: list[FirstContactArea] | None = None,
     death_report: DeathReport | None = None,
     small_sample: bool | None = None,
@@ -243,6 +254,7 @@ def round_type(
         utility=utility or [],
         utility_counts=utility_counts or [],
         players_armed=players_armed or armed(0, {}),
+        players_armored=players_armored or armored(0, {}),
         first_contact=first_contact or [],
         # Ilman kuolemia jokainen kierros on "ei omia kuolemia" -- ja mallin
         # ristiintarkistus vaatii, että kuolemat kattavat koko otannan.
@@ -379,6 +391,9 @@ def pistol_map() -> MapReport:
                             ),
                         ],
                         players_armed=armed(1, {0: 1}),
+                        # Pistoolikierroksen koko juoni yhdellä rivillä:
+                        # aseistettuja 0, kevlareita 5.
+                        players_armored=armored(1, {5: 1}),
                     )
                 ],
             ),
@@ -662,6 +677,11 @@ def test_the_pattern_threshold_also_applies_to_counts_and_armed_players() -> Non
     Kun yksikään pylväs ei toistu, koko rivi jää pois isostakin otannasta --
     ja se on tarkoitus: hajonnut jakauma ei ole kuvio. Pois jääneet lasketaan
     mukaan lukuun, jonka lohko kertoo.
+
+    **Panssarirvi on mukana**, koska kynnys puree oikeasti juuri
+    ``full``-haaroilla ja ne ovat raportin yleisimmät. Ilman sitä
+    panssarirvin suodatus olisi kokonaan testaamatta: jokaisessa muussa
+    testissä kierrostyyppi on ``pistol`` tai ``eco``, joissa ``min_n`` on 1.
     """
     scattered = map_report(
         "de_nuke",
@@ -675,6 +695,7 @@ def test_the_pattern_threshold_also_applies_to_counts_and_armed_players() -> Non
                         # Kahdeksan kierrosta, kahdeksan eri lukemaa: mikään
                         # ei toistu kolmesti.
                         players_armed=armed(8, dict.fromkeys(range(8), 1)),
+                        players_armored=armored(8, dict.fromkeys(range(8), 1)),
                         utility_counts=[
                             counts("smoke", 8, dict.fromkeys(range(8), 1))
                         ],
@@ -685,8 +706,38 @@ def test_the_pattern_threshold_also_applies_to_counts_and_armed_players() -> Non
     )
     text = render(report([scattered]))
     assert "aseistettuja ostoajan lopussa" not in text
+    assert "panssaroituja ostoajan lopussa" not in text
     assert "utility:" not in text
-    assert "15 harvinaisempaa havaintoa jäi pois" in text
+    # 8 aseistettujen pylvästä + 8 panssarin + 7 kranaatin (nolla ei ole
+    # havainto eikä siis pudotettava).
+    assert "23 harvinaisempaa havaintoa jäi pois" in text
+
+
+def test_the_pattern_threshold_keeps_a_repeating_armored_bar() -> None:
+    """Kynnys ei saa syödä kuviota, joka oikeasti toistuu.
+
+    Pari edellisen kanssa: pelkkä "rivi katosi" -väite menisi läpi myös
+    toteutuksella, joka pudottaa panssarirvin aina ``full``-haarasta.
+    """
+    repeating = map_report(
+        "de_nuke",
+        [
+            side(
+                "T",
+                [
+                    round_type(
+                        "full",
+                        8,
+                        players_armored=armored(8, {5: 6, 4: 1, 3: 1}),
+                    )
+                ],
+            )
+        ],
+    )
+    text = render(report([repeating]))
+    assert "panssaroituja ostoajan lopussa: 5 (6/8 kierroksesta)" in text
+    assert "4 (1/8" not in text
+    assert "2 harvinaisempaa havaintoa jäi pois" in text
 
 
 def test_pattern_threshold_comes_from_the_report_not_from_code() -> None:
@@ -1051,7 +1102,7 @@ def test_armed_players_are_shown_with_the_caveat_that_they_are_not_kevlar() -> N
     """Laskuri on "panssari JA parannettu ase" -- se ei ole kevlarien määrä."""
     text = render(report([pistol_map()]))
     assert "aseistettuja ostoajan lopussa: 0 (1/1 kierroksesta)" in text
-    assert "ei ole sama asia kuin kevlarien määrä" in text
+    assert "kevlarien määrän" in text
 
 
 def test_the_kevlar_caveat_is_absent_when_no_armed_line_was_written() -> None:
@@ -1059,10 +1110,195 @@ def test_the_kevlar_caveat_is_absent_when_no_armed_line_was_written() -> None:
     assert "kevlarien määrä" not in render(report([entry]))
 
 
+def test_an_armed_line_alone_still_gets_its_own_definition() -> None:
+    """Vain aseistettujen rivi: selitys on sen oma eikä parin yhteinen.
+
+    Kolmas haara :func:`_player_counter_legend`istä. Ilman tätä testiä
+    yksinäinen aseistettujen rivi voisi jäädä ilman määritelmää tai saada
+    lauseen, joka puhuu panssarirvistä jota raportissa ei ole.
+    """
+    entry = map_report(
+        "de_nuke",
+        [side("T", [round_type("pistol", 1, players_armed=armed(1, {0: 1}))])],
+    )
+    text = render(report([entry]))
+    assert "Aseistettu = panssari JA parannettu ase" in text
+    assert "panssaroitu = panssari, aseesta riippumatta" not in text
+
+
 def test_rounds_without_an_inventory_reading_are_reported() -> None:
     entry = map_report(
         "de_nuke",
         [side("T", [round_type("eco", 4, players_armed=armed(3, {0: 3}, unknown=1))])],
+    )
+    assert "havainto puuttuu 1 kierrokselta" in render(report([entry]))
+
+
+# --- Panssaroidut (Story 2.8) ---------------------------------------------------
+
+
+def test_the_armored_line_reads_veetis_five_kevlars() -> None:
+    """*"5 kevlaria"*: panssaririvi on raportissa omana rivinään otantoineen."""
+    text = render(report([pistol_map()]))
+    assert "panssaroituja ostoajan lopussa: 5 (1/1 kierroksesta)" in text
+
+
+def test_the_two_counters_stand_side_by_side_and_differ() -> None:
+    """Molemmat rivit samassa lohkossa, eri luvut -- se ero on havainto.
+
+    Ilman tätä testiä toteutus, joka renderöi saman jakauman kahdesti, menisi
+    läpi jokaisesta muusta väitteestä.
+    """
+    view = build_view(report([pistol_map()]))
+    lines = {
+        line.label: tuple(claim.text for claim in line.claims)
+        for line in view.maps[0].sides[0].round_types[0].lines
+    }
+    assert lines["aseistettuja ostoajan lopussa"] == ("0",)
+    assert lines["panssaroituja ostoajan lopussa"] == ("5",)
+
+
+def test_the_armored_line_follows_the_armed_line() -> None:
+    """Järjestys on osa havaintoa: rivit luetaan parina."""
+    view = build_view(report([pistol_map()]))
+    labels = [line.label for line in view.maps[0].sides[0].round_types[0].lines]
+    assert (
+        labels.index("panssaroituja ostoajan lopussa")
+        == labels.index("aseistettuja ostoajan lopussa") + 1
+    )
+
+
+def test_the_legend_explains_the_two_counters_as_one_nested_pair() -> None:
+    """Selitys on **yksi kappale**, koska luvut ovat sisäkkäisiä.
+
+    Kaksi erillistä lausetta jättäisi "aseistettuja 0" ja "panssaroituja 5"
+    kahdeksi irralliseksi luvuksi. Lukuohjeen on sanottava osajoukkosuhde,
+    yhteinen tick ja yhteinen jakaja, koska niistä rivien ero syntyy.
+    """
+    text = render(report([pistol_map()]))
+    assert "aseistetut ovat panssaroitujen osajoukko" in text
+    assert "samalta tickiltä samasta pelaajajoukosta" in text
+    assert "jakaja on sama" in text
+
+
+def test_the_legend_says_the_counters_are_holdings_not_purchases() -> None:
+    """Panssari säilyy kierroksen yli, joten luku ei ole ostohavainto.
+
+    Poikkeus on pistoolikierros, ja juuri se pelastaa rivin *"5 kevlaria"*.
+    Molemmat puolet kuuluvat lukuohjeeseen: ilman ensimmäistä lukija lukee
+    jokaisen econ ostoksena, ilman jälkimmäistä hän epäilee myös pistoolia.
+    """
+    text = render(report([pistol_map()]))
+    assert "hallussapitoa eivätkä ostoja" in text
+    assert "Poikkeus on pistoolikierros" in text
+
+
+def test_the_armored_line_alone_still_gets_its_own_definition() -> None:
+    """Vain panssarirvi: selitys ei saa puhua aseistetuista."""
+    entry = map_report(
+        "de_nuke",
+        [side("T", [round_type("pistol", 1, players_armored=armored(1, {5: 1}))])],
+    )
+    text = render(report([entry]))
+    assert "Panssaroitu = panssari ostoajan lopussa, aseesta riippumatta" in text
+    assert "Aseistettu = panssari JA parannettu ase" not in text
+
+
+def test_the_armored_legend_is_absent_when_no_armored_line_was_written() -> None:
+    entry = map_report("de_nuke", [side("T", [round_type("pistol", 1)])])
+    assert "aseesta riippumatta" not in render(report([entry]))
+
+
+def test_the_ancient_ct_row_reads_no_kevlars() -> None:
+    """*"Kitit ja duelit takaboksille piiloon (ei kevuja)"*: 1/5 kevlaria."""
+    entry = map_report(
+        "de_ancient",
+        [side("CT", [round_type("pistol", 1, players_armored=armored(1, {1: 1}))])],
+    )
+    assert "panssaroituja ostoajan lopussa: 1 (1/1 kierroksesta)" in render(
+        report([entry])
+    )
+
+
+def test_a_wholly_unreadable_armor_observation_still_gets_a_line() -> None:
+    """``m=0, rounds_unknown=n``: rivi kirjoitetaan, vaikka väitteitä ei ole.
+
+    Ilman riviä lukija ei erottaisi haaraa "kenelläkään ei ollut panssaria"
+    (joka näkyisi nollana) haarasta "panssaria ei saatu luettua" (joka vain
+    puuttuisi) -- ja juuri sen eron säilyttäminen on tämän sarakkeen
+    olemassaolon syy. Rivi on pelkkä otsikko ja huomautus, sama muoto kuin
+    kuolemattomalla kierrostyypillä.
+    """
+    entry = map_report(
+        "de_nuke",
+        [
+            side(
+                "T",
+                [round_type("eco", 4, players_armored=armored(0, {}, unknown=4))],
+            )
+        ],
+    )
+    view = build_view(report([entry]))
+    lines = [
+        line
+        for line in view.maps[0].sides[0].round_types[0].lines
+        if line.label == "panssaroituja ostoajan lopussa"
+    ]
+
+    assert len(lines) == 1
+    assert lines[0].claims == ()
+    assert lines[0].note == "havainto puuttuu 4 kierrokselta"
+
+
+def test_a_wholly_unreadable_armed_observation_still_gets_a_line() -> None:
+    """Sama haara aseistettujen rivillä -- se oli todentamatta jo ennen tätä."""
+    entry = map_report(
+        "de_nuke",
+        [side("T", [round_type("eco", 4, players_armed=armed(0, {}, unknown=4))])],
+    )
+    view = build_view(report([entry]))
+    lines = [
+        line
+        for line in view.maps[0].sides[0].round_types[0].lines
+        if line.label == "aseistettuja ostoajan lopussa"
+    ]
+
+    assert len(lines) == 1
+    assert lines[0].claims == ()
+    assert lines[0].note == "havainto puuttuu 4 kierrokselta"
+
+
+def test_a_note_only_counter_line_still_gets_its_legend() -> None:
+    """Otsikko ilman määritelmää olisi pahempi kuin puuttuva rivi.
+
+    Lippu nousee rivin kirjoittamisesta eikä väitteiden olemassaolosta: rivi
+    "panssaroituja ostoajan lopussa: havainto puuttuu 4 kierrokselta" on
+    lukijalle yhtä uusi käsite kuin väitteellinen rivi.
+    """
+    entry = map_report(
+        "de_nuke",
+        [
+            side(
+                "T",
+                [round_type("eco", 4, players_armored=armored(0, {}, unknown=4))],
+            )
+        ],
+    )
+    text = render(report([entry]))
+    assert "panssaroituja ostoajan lopussa" in text
+    assert "Panssaroitu = panssari ostoajan lopussa, aseesta riippumatta" in text
+
+
+def test_rounds_without_an_armor_reading_are_reported() -> None:
+    """Puuttuva havainto sanotaan ääneen -- se ei ole nolla kevlaria."""
+    entry = map_report(
+        "de_nuke",
+        [
+            side(
+                "T",
+                [round_type("eco", 4, players_armored=armored(3, {0: 3}, unknown=1))],
+            )
+        ],
     )
     assert "havainto puuttuu 1 kierrokselta" in render(report([entry]))
 
@@ -1449,6 +1685,8 @@ GOLDEN = """\
 - 6 s: Ramp 2 (1/4 kierroksesta)
 - ensikontakti (mediaani 9,1 s): Ramp 1 (2/4 kierroksesta)
 - utility: savu 1 kpl (1/4 kierroksesta)
+- aseistettuja ostoajan lopussa: 0 (4/4 kierroksesta)
+- panssaroituja ostoajan lopussa: 0 (3/4 kierroksesta), 5 (1/4 kierroksesta)
 - ensimmäinen kuolema (mediaani 24,0 s): Cave (2/3 kierroksesta), Long (1/3 kierroksesta) -- ei omia kuolemia 1 kierroksella
 - tapot alueittain: Middle (4/6 taposta), BombsiteB (2/6 taposta)
 
@@ -1462,6 +1700,8 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 
 - Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on kierrokset, joissa havainto tehtiin, m kyseisen kierrostyypin kaikki kierrokset.
 - Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui.
+- Aseistettu = panssari JA parannettu ase ostoajan lopussa; panssaroitu = panssari, aseesta riippumatta. Luvut ovat **sisäkkäisiä**: aseistetut ovat panssaroitujen osajoukko, molemmat on luettu samalta tickiltä samasta pelaajajoukosta, ja jakaja on sama. Rivien ero on siis se havainto -- pistoolikierroksella aseistettuja on tyypillisesti 0 (800 $ ei riitä sekä kevlariin että parannettuun aseeseen), joten panssaririvi on se, joka kertoo kevlarien määrän.
+- Molemmat luvut ovat **hallussapitoa eivätkä ostoja**: panssari ja ase säilyvät kierroksen yli hengissä selvinneellä, eikä vaurioitunutta panssaria eroteta ehjästä. Poikkeus on pistoolikierros -- puoliaika alkaa puhtaalta pöydältä, joten siellä luvut kertovat mitä ostettiin.
 - Tapot alueittain: alue on **ampujan** oma alue tappohetkellä, ja otanta (n/m taposta) laskee tappoja eikä kierroksia -- kierrostyypillä on yleensä enemmän tappoja kuin kierroksia.
 - Raportti kuvaa vain havainnot. Tulkinta ja vastastrategia ovat lukijan.
 """
@@ -1483,6 +1723,12 @@ def golden_report() -> Report:
                             first_contact_position([area("Ramp", 4, {1: 2, 0: 2})], 4),
                         ],
                         utility_counts=[counts("smoke", 4, {1: 1, 0: 3})],
+                        # Molemmat pelaajalaskurit ovat mukana samasta
+                        # syystä kuin kuolemat: vain golden lukitsee sen,
+                        # että ne ovat peräkkäin ja että lukuohjeeseen tulee
+                        # kaksi eri selitystä eikä yksi.
+                        players_armed=armed(4, {0: 4}),
+                        players_armored=armored(4, {5: 1, 0: 3}),
                         # Kuolemat ovat mukana, koska juuri tämä kiinnike
                         # lukitsee dokumentin muodon: ilman niitä rivien
                         # paikka, huomautus ja uusi lukuohjekappale eivät

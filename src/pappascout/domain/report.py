@@ -97,6 +97,8 @@ __all__ = [
     "UtilityCounts",
     "ArmedCount",
     "ArmedPlayers",
+    "ArmoredCount",
+    "ArmoredPlayers",
     "FirstContactArea",
     "FirstDeathArea",
     "KillArea",
@@ -114,7 +116,7 @@ __all__ = [
 #: vanha ``report.json`` enää validoidu -- silloin ``render`` kertoo, että
 #: aggregointi on ajettava uudelleen, sen sijaan että se muotoilisi puolikkaan
 #: raportin hiljaa.
-REPORT_SCHEMA_VERSION = "3.0.0"
+REPORT_SCHEMA_VERSION = "4.0.0"
 
 
 #: Merkit, jotka eivät kelpaa tiedostonimeen. Slug on ASCII-osajoukko, koska
@@ -469,10 +471,16 @@ class ArmedCount(_Node):
 class ArmedPlayers(_Node):
     """Aseistettujen pelaajien määrä ostoajan lopussa, kierroksittain.
 
-    Tästä luetaan tavoiteanalyysin rivit *"5 kevlaria"* ja *"ei kevuja"*.
     Havainto on Story 1.6:n laskuri ``players_armed_buy_end``: pelaajalla oli
     panssari **ja** vähintään yksi ase hallussa. Se on hallussapito eikä
     ostos, joten säästetty kivääri laskeutuu samoin kuin ostettu.
+
+    **Tästä EI lueta** tavoiteanalyysin rivejä *"5 kevlaria"* ja *"ei
+    kevuja"*: ne ovat :class:`ArmoredPlayers`issä. Pistoolikierroksella tämä
+    jakauma on käytännössä ``0``, koska 800 dollarin aloitusrahalla ei osta
+    sekä kevlaria (650) että parannettua asetta -- aiempi versio tästä
+    docstringistä väitti päinvastaista, ja se väärinluenta maksoi Story 2.3:n
+    hyväksymisajossa yhden väärän rivin.
 
     ``m`` on niiden kierrosten määrä, joilta havainto **saatiin**;
     ``rounds_unknown`` on loput. Ne on pidettävä erillään: nolla aseistettua
@@ -490,6 +498,71 @@ class ArmedPlayers(_Node):
         if total != self.m:
             raise AggregateError(
                 "Otanta ei täsmää aseistettujen pelaajien jakaumassa: "
+                f"n-arvojen summa on {total}, mutta havaintoja on {self.m}."
+            )
+        return self
+
+
+class ArmoredCount(_Node):
+    """Yksi pylväs jakaumassa "montako pelaajaa kantoi panssaria".
+
+    Kenttä on ``armored`` eikä ``armed`` tarkoituksella: ``report.json``
+    luetaan myös käsin, ja kaksi lähes samannimistä jakaumaa sekoittuisi
+    keskenään, jos ne käyttäisivät samaa kenttänimeä.
+    """
+
+    armored: int = Field(ge=0)
+    n: int = Field(gt=0)
+
+
+class ArmoredPlayers(_Node):
+    """Panssaria kantaneiden pelaajien määrä ostoajan lopussa, kierroksittain.
+
+    **Tästä** luetaan tavoiteanalyysin rivit *"5 kevlaria"* (Nuke, T-pistooli)
+    ja *"ei kevuja"* (Ancient, CT). Havainto on ``players_armored_buy_end``:
+    pelaajalla oli panssaria (``m_ArmorValue > 0``) ostoajan lopussa. Kypärää
+    ei eroteta, eikä vaurioitunutta panssaria ehjästä.
+
+    **Eri luku kuin** :class:`ArmedPlayers`, ei sen yleistys. Ne vastaavat eri
+    kysymyksiin ja molempia tarvitaan:
+
+    * aseistettu = panssari **ja** parannettu ase -- puolioston kalibroitu
+      ehto A, jonka ``classify`` lukee
+    * panssaroitu = panssari, piste -- "monellako oli panssari"
+
+    Ne ovat **sisäkkäisiä eivätkä rinnakkaisia**: aseistetun ehto sisältää
+    panssarin, joten aseistetut ovat panssaroitujen osajoukko. Molemmat
+    luetaan samalta tickiltä ja samasta pelaajajoukosta, joten myös jakajat
+    ovat samat.
+
+    **Hallussapito, ei ostos.** Panssari säilyy kierroksen yli hengissä
+    selvinneellä, joten muilla kierrostyypeillä luku kertoo mitä pelaajilla
+    oli eikä mitä he ostivat. **Pistoolikierros (1 ja 13) on poikkeus**:
+    puoliaika alkaa puhtaalta pöydältä eikä perintää ole, joten siellä luku on
+    ostohavainto -- ja juuri siksi *"5 kevlaria"* on oikea luenta.
+
+    Pistoolikierroksella laskurit myös eroavat eniten: mitattu neljästä
+    MatureMayhem-demosta 2026-08-30, kaikilla kahdeksalla pistoolikierroksella
+    aseistettuja 0 ja panssaroituja 1--5. Sääntö se ei ole vaan rahan seuraus,
+    ja poimittu ase riittää aseistamaan: samassa aineistossa vastustajan
+    Anubis-kierroksella 13 laskurit ovat 3 ja 1.
+
+    ``m`` on niiden kierrosten määrä, joilta havainto **saatiin**;
+    ``rounds_unknown`` on loput. Sama erottelu kuin
+    :class:`ArmedPlayers`issä: nolla panssaroitua on havainto, lukukelvoton
+    panssari ei ole havainto lainkaan.
+    """
+
+    m: int = Field(ge=0)
+    rounds_unknown: int = Field(ge=0)
+    counts: list[ArmoredCount]
+
+    @model_validator(mode="after")
+    def _check_sample(self) -> ArmoredPlayers:
+        total = sum(c.n for c in self.counts)
+        if total != self.m:
+            raise AggregateError(
+                "Otanta ei täsmää panssaroitujen pelaajien jakaumassa: "
                 f"n-arvojen summa on {total}, mutta havaintoja on {self.m}."
             )
         return self
@@ -706,6 +779,11 @@ class RoundTypeReport(_Node):
     utility: list[UtilityUse]
     utility_counts: list[UtilityCounts]
     players_armed: ArmedPlayers
+    #: Panssaroidut omana havaintonaan aseistettujen rinnalla. **Ei oletusta**
+    #: samasta syystä kuin ``deaths``illä: tyhjä oletus antaisi vanhalla
+    #: versiolla lasketun haaran näyttää kierrostyypiltä, jolla kenelläkään ei
+    #: ollut panssaria -- ja juuri sen eron skeemaversio erottaa.
+    players_armored: ArmoredPlayers
     first_contact: list[FirstContactArea]
     #: Omat kuolemat ja tapot. Ei oletusta: tyhjä oletus antaisi vanhalla
     #: versiolla lasketun haaran näyttää kierrostyypiltä, jolla kukaan ei

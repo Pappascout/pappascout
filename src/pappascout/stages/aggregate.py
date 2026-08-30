@@ -121,6 +121,7 @@ from pappascout.domain.schemas import (
     DEATHS,
     EVENTS,
     LINEUPS,
+    ROUNDS,
     TICKS,
     Schema,
     validate,
@@ -514,7 +515,12 @@ def _demo_unusable(
     kanssa, ja raportti kertoo sen. Yksittäinen puuttuva demo ei saa viedä
     koko otantaa -- se veisi mukanaan kolme muuta, jotka ovat kunnossa.
     """
-    for table in ("ticks", "events", "lineups", "deaths"):
+    # Kierrostaulu on mukana Story 2.8:sta lähtien: panssarilaskuri on siellä
+    # eikä luokitellussa taulussa, koska se on havainto eikä luokittelun
+    # päätöksen syöte. Puuttuva taulu on siis sama puute kuin muutkin --
+    # ilman sitä raportti näyttäisi kierrostyypiltä, jolla kukaan ei ostanut
+    # kevlaria.
+    for table in ("rounds", "ticks", "events", "lineups", "deaths"):
         if not archive.resolve(parsed_table(map_demo_id, table)).is_file():
             return (
                 f"Parsittua taulua {table}.parquet ei ole arkistossa. "
@@ -552,6 +558,7 @@ def _aggregate(
     event_frames: list[pl.DataFrame] = []
     lineup_frames: list[pl.DataFrame] = []
     death_frames: list[pl.DataFrame] = []
+    round_frames: list[pl.DataFrame] = []
 
     for lineup, demo in sources.demos:
         classified_frames.append(_read_classified(archive, lineup, demo))
@@ -559,8 +566,29 @@ def _aggregate(
         event_frames.append(_read_parsed(archive, demo, "events", EVENTS))
         lineup_frames.append(_read_parsed(archive, demo, "lineups", LINEUPS))
         death_frames.append(_read_parsed(archive, demo, "deaths", DEATHS))
+        round_frames.append(_read_parsed(archive, demo, "rounds", ROUNDS))
 
     lineups = set(sources.lineup_keys)
+    # Kierrostaulussa on kaksi riviä per kierros, yksi kummallekin
+    # joukkueelle. Oman rivin valitsee jo kolmiosainen avain (demo, kierros,
+    # puoli), joten suodatus on **puolustus eikä ainoa este**: se pitää
+    # vastustajan rivit pois hakukartasta, jolloin avainten törmäystarkistus
+    # (``armored_by_round``) valvoo vain omia rivejä ja puoliaikojen
+    # puolenvaihto ei voi tuoda kahta ehdokasta samalle avaimelle.
+    rounds = pl.concat(round_frames).filter(pl.col("lineup_key").is_in(lineups))
+    if rounds.is_empty():
+        raise PappascoutError(
+            f"Joukkueen {sources.team_key} demoista ei löytynyt yhtään "
+            "kierrosriviä sen omilla kokoonpanotunnisteilla.\n"
+            "``parse`` kieltäytyy kirjoittamasta tyhjää kierrostaulua, joten "
+            "tyhjä tulos tarkoittaa että kokoonpanosuodatin ei osunut: "
+            "kierrostaulut on kirjoitettu eri kokoonpanotunnisteilla kuin "
+            "mitä tälle joukkueelle on liitetty. Aja parsinta uudelleen: "
+            "uv run pappascout parse <map_demo_id> --pakota\n"
+            "Ilman tätä tarkistusta jokainen kierrostyyppi raportoisi "
+            "panssarijakaumakseen pelkän 'havainto puuttuu' -- eli "
+            "havaintona sen, ettei havaintoa ole."
+        )
     ticks = pl.concat(tick_frames).filter(pl.col("lineup_key").is_in(lineups))
     events = pl.concat(event_frames).filter(pl.col("lineup_key").is_in(lineups))
     # Kuolemataulussa suodatus on **kahdesta sarakkeesta**: rivi kuuluu
@@ -640,6 +668,7 @@ def _aggregate(
         ticks=ticks,
         events=events,
         deaths=deaths,
+        rounds=rounds,
         team=team,
         thresholds=thresholds,
         aggregate=aggregate_settings,

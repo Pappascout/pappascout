@@ -204,6 +204,15 @@ area_snap_units = 500
 # (panssari ja ase hallussa), ja aseluettelo on src/pappascout/constants.py:ssä.
 # Story 1.5:n armed_player_equip_min poistui -- ks. domain/models.py:n
 # REMOVED_SETTINGS, joka kertoo sen vanhaan tiedostoon jättäneelle mitä tehdä.
+#
+# Panssarilaskurilla players_armored_buy_end ei myöskään ole asetusta: se on
+# sama lukema eri ehdolla (m_ArmorValue > 0), eikä kynnys tulisi kysymykseen --
+# "panssaria on" ei ole säädettävissä. Se on eri luku kuin yllä: molemmat ovat
+# ROUNDS-taulussa, aseistetut ovat panssaroitujen osajoukko, ja
+# pistoolikierroksella yllä oleva on käytännössä 0 (800 $ ei riitä sekä
+# kevlariin että parannettuun aseeseen). Molemmat ovat hallussapitoa eivätkä
+# ostoja: panssari säilyy kierroksen yli hengissä selvinneellä. Poikkeus on
+# pistoolikierros, jolla puoliaika alkaa puhtaalta pöydältä.
 
 
 [thresholds]

@@ -57,6 +57,7 @@ from pappascout.errors import SchemaError
 __all__ = [
     "ROUNDS",
     "ARMED_COLUMN",
+    "ARMORED_COLUMN",
     "MONEY_DISTRIBUTION_COLUMN",
     "TICKS",
     "EVENTS",
@@ -85,6 +86,33 @@ _ROSTER_CLASS = pl.Enum(list(ROSTER_CLASSES))
 #: (joka lukee siitä ehdon A) ja testit -- kovakoodattuina merkkijonoina ne
 #: erkanisivat toisistaan huomaamatta.
 ARMED_COLUMN = "players_armed_buy_end"
+
+#: Panssarilaskurin sarakkeen nimi. Sama peruste vakiolle kuin
+#: :data:`ARMED_COLUMN`illa: adapteri laskee, ``stages.parse`` raportoi
+#: jakauman, ``aggregate`` lukee sen raporttiin ja testit vertaavat.
+#:
+#: **EI SAMA LUKU KUIN** :data:`ARMED_COLUMN`. Juuri se sekaannus maksoi Story
+#: 2.3:n hyväksymisajossa yhden väärän rivin, joten ero sanotaan tässä ääneen:
+#:
+#: * ``players_armed_buy_end`` = panssari **JA** parannettu ase. Se on
+#:   puolioston ehto A: kalibroitu, ja ``classify`` nojaa siihen.
+#: * ``players_armored_buy_end`` = panssari, piste. Se vastaa kysymykseen
+#:   "monellako oli panssari", joka on pistoolikierroksen tärkein
+#:   yksittäinen havainto.
+#:
+#: Molemmat ovat **hallussapitoa eivätkä ostoja**: panssari säilyy kierroksen
+#: yli hengissä selvinneellä, myös vaurioituneena. Pistoolikierros (1 ja 13)
+#: on poikkeus -- puoliaika alkaa puhtaalta pöydältä eikä perintää ole, joten
+#: siellä luku on ostohavainto.
+#:
+#: Pistoolikierroksella ne myös eroavat eniten: 800 dollarin aloitusrahalla
+#: kevlar (650) ja parannettu ase eivät mahdu samaan ostokseen, joten
+#: aseistettuja on käytännössä 0, vaikka kaikilla viidellä olisi kevlar.
+#: Mitattu neljästä MatureMayhem-demosta 2026-08-30: kaikilla kahdeksalla
+#: pistoolikierroksella aseistettuja 0, panssaroituja 1--5. Sääntö se ei ole:
+#: poimittu ase riittää aseistamaan, ja samassa aineistossa vastustajan
+#: Anubis-kierroksella 13 luvut ovat 3 ja 1.
+ARMORED_COLUMN = "players_armored_buy_end"
 
 #: Pelaajakohtaisen rahajakauman sarakkeen nimi. Sama syy vakiolle kuin yllä:
 #: adapteri kirjoittaa, ``classify`` lukee, testit vertaavat.
@@ -139,6 +167,34 @@ ROUNDS: Schema = {
     # Null myös silloin, kun yhdenkin pelaajan panssari tai tavaraluettelo on
     # lukukelvoton: osittainen luku näyttäisi säästöltä eikä lukuvirheeltä.
     ARMED_COLUMN: pl.Int32,
+    # Edellisistä ne, joilla oli PANSSARI -- aseesta riippumatta. Sama tick,
+    # sama pelaajajoukko ja sama m_ArmorValue-lukema kuin ylläkin; ero on vain
+    # ehdossa. "Panssaroitu" on m_ArmorValue > 0; kypärää ei eroteta eikä
+    # vaurioitunutta panssaria ehjästä, koska analyysi puhuu kevlarista ja
+    # kypärä on eri havainto.
+    #
+    # HALLUSSAPITO EIKÄ OSTOS, kuten yllä olevallakin: panssari säilyy
+    # kierroksen yli hengissä selvinneellä, joten luku kertoo mitä pelaajilla
+    # oli eikä mitä he ostivat. Pistoolikierroksella (1 ja 13) perintää ei ole,
+    # joten siellä -- ja vain siellä -- se on ostohavainto.
+    #
+    # ASEISTETUT OVAT TÄMÄN OSAJOUKKO: aseistetun ehto sisältää panssarin,
+    # joten players_armed_buy_end <= players_armored_buy_end aina.
+    #
+    # MIKSI OMA SARAKE EIKÄ YLLÄ OLEVAN YLEISTYS: ne vastaavat eri kysymyksiin
+    # ja molempia tarvitaan. Yllä oleva on kalibroitu puolioston ehdoksi A ja
+    # on tarkoituksella tiukka; tämä vastaa kysymykseen "monellako oli
+    # panssari". Pistoolikierroksella yllä oleva on käytännössä 0 (800 $ ei
+    # riitä sekä kevlariin että parannettuun aseeseen), joten sitä lukemalla
+    # "5 kevlaria" ja "ei kevuja" näyttävät täysin samalta.
+    #
+    # Aina 0..players_buy_end. Null aina ja vain silloin, kun players_buy_end
+    # on null tai yhdenkin luettavan pelaajan panssari on lukukelvoton --
+    # osittainen luku näyttäisi säästöltä eikä lukuvirheeltä. HUOM: luettavuus
+    # on tässä KAPEAMPI kuin ylläkin: tavaraluettelo ei kuulu ehtoon, koska
+    # tämä laskuri ei lue sitä. Lukukelvoton tavaraluettelo tyhjentää siis
+    # vain ylemmän sarakkeen, ei tätä.
+    ARMORED_COLUMN: pl.Int32,
     "survivors": pl.Int32,  # elossa kierroksen lopussa
     "survivors_equip_prev": pl.Int32,  # $ edelliseltä kierrokselta säästynyt varustearvo
     "freeze_end_tick": pl.Int32,  # viimeinen round_freeze_end -tick, null jos puuttuu

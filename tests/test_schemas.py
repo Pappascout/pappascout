@@ -17,6 +17,7 @@ from pappascout.domain.schemas import (
     EVENTS,
     LINEUPS,
     ARMED_COLUMN,
+    ARMORED_COLUMN,
     MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
     SCHEMAS,
@@ -128,6 +129,36 @@ def test_rounds_carries_the_armed_player_count() -> None:
     """
     assert ARMED_COLUMN in ROUNDS
     assert ROUNDS[ARMED_COLUMN] == pl.Int32
+
+
+def test_rounds_carries_the_armored_player_count() -> None:
+    """Panssarilaskuri on oma sarakkeensa kalustolaskurin rinnalla."""
+    assert ARMORED_COLUMN in ROUNDS
+    assert ROUNDS[ARMORED_COLUMN] == pl.Int32
+
+
+def test_the_two_player_counters_are_separate_columns() -> None:
+    """Kaksi laskuria, kaksi nimeä, kaksi saraketta -- ei yhtä yleistystä.
+
+    Ne vastaavat eri kysymyksiin: aseistettu on puolioston kalibroitu ehto A,
+    panssaroitu on "monellako oli panssari". Sama nimi tai sama sarake
+    peittäisi eron, joka on pistoolikierroksella suurimmillaan.
+    """
+    assert ARMED_COLUMN != ARMORED_COLUMN
+    assert {ARMED_COLUMN, ARMORED_COLUMN} <= set(ROUNDS)
+
+
+def test_the_armored_count_is_not_a_classify_input() -> None:
+    """Panssarilaskuri on havainto, ei luokittelun syöte.
+
+    Rajaus on koko Story 2.8:n ehto: puolioston ehto A pysyy
+    ``players_armed_buy_end``issä, ja uusi sarake ei saa vaikuttaa yhteenkään
+    kierrostyyppiin. Jos se päätyisi ``CLASSIFY_COLUMNS``iin, mikään ei estäisi
+    sääntöä nojaamasta siihen huomaamatta.
+    """
+    from pappascout.domain.economy import CLASSIFY_COLUMNS
+
+    assert ARMORED_COLUMN not in CLASSIFY_COLUMNS
 
 
 def test_rounds_carries_the_per_player_money_distribution() -> None:

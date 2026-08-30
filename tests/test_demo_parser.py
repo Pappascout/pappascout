@@ -55,6 +55,7 @@ from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
 from pappascout.domain.models import load_settings
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
+    ARMORED_COLUMN,
     DEATHS,
     EVENTS,
     MONEY_DISTRIBUTION_COLUMN,
@@ -2146,3 +2147,164 @@ def test_a_knife_round_really_does_produce_death_rows() -> None:
 
     assert first_round == 1
     assert deaths.filter(pl.col("round_raw") == 1).height > 0
+
+
+# --- Panssarilaskuri oikeista demoista (Story 2.8) ------------------------------
+
+#: Mittatikku 2026-08-30: MatureMayhemin panssari- ja kalustolaskurit niiltä
+#: kierroksilta, joista Veetin käsin tehty analyysi puhuu.
+#:
+#: ``(demo, kierros, puoli) -> (panssaroituja, aseistettuja)``. Luvut mitattiin
+#: **ennen toteutusta** arkiston kierrostaulun ``buy_end_tick``-sarakkeelta eli
+#: samalta hetkeltä, jolta talousluvut jo luetaan -- ei arvatulta tickiltä.
+#:
+#: **Kiinnike kattaa väitteen kokonaan.** Dokumentaatio sanoo kolmessa paikassa
+#: "neljä demoa, kaikki kahdeksan pistoolikierrosta", joten kaikki kahdeksan
+#: ovat tässä -- kaksi per demo (kierrokset 1 ja 13). Ilman niitä väite
+#: nojaisi mittaukseen, jota mikään ei aja uudelleen.
+#:
+#: Kaksi riviä ovat suoria osumia analyysiin: Nuken T-pistoolista Veeti
+#: kirjoitti *"5 kevlaria"* (mitattu 5/5) ja Ancientin CT-osuudesta
+#: *"Kitit ja duelit takaboksille piiloon (ei kevuja)"* (mitattu 1/5).
+#: Kumpaakaan ei voi lukea aseistettujen laskurista, joka on 0 jokaisella
+#: kahdeksalla pistoolikierroksella.
+#:
+#: Kolme viimeistä riviä ovat eco ja force: siellä laskurit ovat lähellä
+#: toisiaan, ja ne ovat mukana siksi, ettei testi läpäisisi toteutusta, joka
+#: tuottaa eron aina.
+ARMOR_TRUTH: dict[tuple[str, int, str], tuple[int, int]] = {
+    ("Nuke_vs_imuaijat.dem", 1, "CT"): (4, 0),
+    ("Nuke_vs_imuaijat.dem", 13, "T"): (5, 0),
+    ("Ancient_vs_kaljukostaja.dem", 1, "CT"): (1, 0),
+    ("Ancient_vs_kaljukostaja.dem", 13, "T"): (3, 0),
+    ("Anubis_vs_ryhmarama.dem", 1, "CT"): (4, 0),
+    ("Anubis_vs_ryhmarama.dem", 13, "T"): (4, 0),
+    ("inferno_vs_ryhmarama.dem", 1, "CT"): (2, 0),
+    ("inferno_vs_ryhmarama.dem", 13, "T"): (3, 0),
+    ("Nuke_vs_imuaijat.dem", 2, "CT"): (0, 0),
+    ("Nuke_vs_imuaijat.dem", 16, "T"): (4, 4),
+    ("Ancient_vs_kaljukostaja.dem", 14, "T"): (5, 5),
+}
+
+#: Pistoolikierrokset MR12:ssa. Luettelona, jotta väite "kaikki kahdeksan" on
+#: laskettavissa kiinnikkeestä eikä kirjoitettu käsin.
+PISTOL_ROUNDS: tuple[int, ...] = (1, 13)
+
+#: Mitattu **vastaesimerkki** väitteelle "pistoolikierroksella aseistettuja on
+#: aina 0". Vastustaja (Ryhmä Rämä) Anubiksen kierroksella 13: panssaroituja 3,
+#: aseistettuja 1. 800 dollarilla ei osteta sekä kevlaria että parannettua
+#: asetta, mutta **poimittu ase** riittää aseistamaan -- luku on siis rahan
+#: seuraus eikä sääntö, ja dokumentaatio sanoo "käytännössä" eikä "aina".
+ARMED_ON_A_PISTOL_ROUND = ("Anubis_vs_ryhmarama.dem", 13, "CT", (3, 1))
+
+#: Joukkue, jonka riveistä mittatikku puhuu. Rivit tunnistetaan klaaninimestä
+#: eikä kokoonpanotunnisteesta: tunniste on hash pelaajajoukosta ja muuttuisi
+#: vaihtopelaajasta, jolloin testi kaatuisi väärästä syystä.
+ARMOR_TRUTH_TEAM = "MatureMayhem"
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize(
+    "demo_name", sorted({demo for demo, _, _ in ARMOR_TRUTH})
+)
+def test_the_armor_counter_matches_the_measured_truth(demo_name: str) -> None:
+    """Mitatut luvut demosta, ei muistista -- ja molemmat laskurit rinnakkain.
+
+    Neljä pistoolikierrosta ovat mukana siksi, että niillä laskurit **eroavat**
+    (panssaria on, aseita ei), ja kolme muuta siksi, että niillä ne ovat lähes
+    samat. Pelkkä ero tai pelkkä yhtäläisyys menisi läpi myös väärällä
+    toteutuksella: ensimmäisen läpäisisi vakio, jälkimmäisen kopioitu sarake.
+    """
+    tables = real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
+    ours = {
+        row["lineup_key"]
+        for row in tables.lineups.iter_rows(named=True)
+        if row["clan_name"] == ARMOR_TRUTH_TEAM
+    }
+    assert ours, f"{ARMOR_TRUTH_TEAM} ei ole demon kokoonpanotaulussa"
+
+    df = mark_played_rounds(tables.rounds).filter(pl.col("round_no").is_not_null())
+    for (demo, round_no, side), expected in ARMOR_TRUTH.items():
+        if demo != demo_name:
+            continue
+        row = df.filter(
+            (pl.col("round_no") == round_no) & (pl.col("side") == side)
+        )
+        assert row.height == 1, (round_no, side)
+        observed = row.to_dicts()[0]
+        assert observed["lineup_key"] in ours, (round_no, side)
+        assert (
+            observed[ARMORED_COLUMN],
+            observed[ARMED_COLUMN],
+        ) == expected, (round_no, side)
+
+
+def test_the_armor_fixture_covers_the_claim_the_docs_make() -> None:
+    """Kiinnike kattaa väitteen "neljä demoa, kaikki kahdeksan pistoolia".
+
+    Ei tarvitse demoja: tämä lukee kiinnikkeen eikä aineistoa. Ilman sitä
+    dokumentaation luku ja regressiotestin kattavuus voisivat erkaantua --
+    ja juuri niin oli, kun kiinnike pinnasi kaksi demoa ja neljä kierrosta.
+    """
+    pistols = [key for key in ARMOR_TRUTH if key[1] in PISTOL_ROUNDS]
+    assert len({demo for demo, _, _ in pistols}) == 4
+    assert len(pistols) == 8
+    # Ja väite "aseistettuja 0 kaikilla kahdeksalla" on kiinnikkeessä.
+    assert all(ARMOR_TRUTH[key][1] == 0 for key in pistols)
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
+def test_the_armored_count_stays_within_its_divisor(demo_name: str) -> None:
+    """``0 <= players_armored_buy_end <= players_buy_end`` joka rivillä.
+
+    Ja lisäksi: aseistettu on **osajoukko** panssaroiduista, koska aseistetun
+    ehto sisältää panssarin. Rivi, jolla aseistettuja on enemmän, tarkoittaisi
+    että laskurit lukevat eri pelaajajoukkoa tai eri tickiä.
+
+    **Sarakkeiden eroa ei vaadita.** Demo, jossa panssarin ostanut osti aina
+    myös aseen, tuottaa laillisesti identtiset sarakkeet -- eroavuusväite
+    kaatuisi siitä oikeasta aineistosta. Se, että laskurit ovat eri
+    havaintoja, todennetaan :data:`ARMOR_TRUTH`in pistoolikierroksilla ja
+    synteettisillä testeillä, joissa asetelma on valittu eikä satunnainen.
+    """
+    df = mark_played_rounds(
+        real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    observed = df.filter(pl.col(ARMORED_COLUMN).is_not_null())
+    assert not observed.is_empty()
+    assert observed.select(
+        (pl.col(ARMORED_COLUMN) >= 0)
+        & (pl.col(ARMORED_COLUMN) <= pl.col("players_buy_end"))
+    ).to_series().all()
+
+    both = observed.filter(pl.col(ARMED_COLUMN).is_not_null())
+    assert both.select(
+        pl.col(ARMED_COLUMN) <= pl.col(ARMORED_COLUMN)
+    ).to_series().all()
+
+    # Sääntö erottaa oikeasti: yksi ainoa arvo koko taulussa tarkoittaisi,
+    # ettei se pure aineistoon lainkaan.
+    assert observed[ARMORED_COLUMN].n_unique() > 1
+
+
+@pytest.mark.demo
+def test_a_pistol_round_can_have_an_armed_player_after_all() -> None:
+    """Mitattu vastaesimerkki: "aina 0" olisi väärä sääntö.
+
+    800 dollarilla ei osteta sekä kevlaria (650) että parannettua asetta,
+    joten aseistettuja on pistoolikierroksella **tyypillisesti** 0 -- mutta
+    poimittu ase riittää aseistamaan. Ilman tätä testiä dokumentaation
+    varovainen muotoilu näyttäisi turhalta ja joku palauttaisi sanan "aina".
+    """
+    demo_name, round_no, side, expected = ARMED_ON_A_PISTOL_ROUND
+    df = mark_played_rounds(
+        real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
+    ).filter(pl.col("round_no").is_not_null())
+
+    row = df.filter((pl.col("round_no") == round_no) & (pl.col("side") == side))
+    assert row.height == 1
+    observed = row.to_dicts()[0]
+    assert (observed[ARMORED_COLUMN], observed[ARMED_COLUMN]) == expected
+    assert observed[ARMED_COLUMN] > 0

@@ -313,6 +313,7 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
 
     lines.extend(_buy_window(stats))
     lines.extend(_armed_players(stats))
+    lines.extend(_armored_players(stats))
     lines.extend(_sample_points(stats, rounds))
     lines.extend(_utility(stats, rounds))
     lines.extend(_deaths(stats, rounds))
@@ -508,6 +509,12 @@ def _players_fi(count: int) -> str:
 #: on olla itsetarkistus ajon yhteydessä.
 _ARMED_RULE = "panssari ja ase hallussa ostoajan lopussa"
 
+#: Sääntö, jolla ``players_armored_buy_end`` lasketaan. Sama peruste kuin
+#: yllä, ja lisäksi yksi: kaksi lähes samannimistä riviä peräkkäin luetaan
+#: väärin ilman sääntöä kummankin perässä. **Hallussa eikä ostettu**, kuten
+#: ylemmälläkin -- panssari säilyy kierroksen yli hengissä selvinneellä.
+_ARMORED_RULE = "panssari hallussa ostoajan lopussa, aseesta riippumatta"
+
 #: Montako tuntematonta nimeä tulostetaan enintään. Jos demoparser2 muuttaa
 #: nimeämistapaansa, **jokainen** nimi on tuntematon: ilman katkaisua rivi
 #: olisi satojen nimien mittainen juuri silloin, kun käyttäjän pitäisi nähdä
@@ -515,39 +522,84 @@ _ARMED_RULE = "panssari ja ase hallussa ostoajan lopussa"
 _MAX_UNKNOWN_ITEMS = 20
 
 
-def _armed_players(stats: dict) -> list[str]:
-    """Kalustolaskurin arvojakauma ``parse``-tulosteeseen.
+def _player_counter_line(
+    label: str, rule: str, distribution: dict | None, missing: int
+) -> list[str]:
+    """Yhden pelaajalaskurin arvojakauma yhtenä tulosteriviä.
 
-    Laskuri on havainto, jonka voi tarkistaa vain katsomalla: väärä sääntö
-    tuottaisi taulun, joka läpäisee jokaisen skeematarkistuksen. Siksi tässä
-    tulostetaan **jakauma eikä ääripäät** -- 41 riviä nollaa ja yksi viitonen
-    antaisi ``0-5``, joka näyttää terveeltä, mutta ``0 -> 41, 5 -> 1`` ei.
+    Jaettu aseistettujen ja panssaroitujen kesken samasta syystä kuin
+    ``stages.parse``in ``_column_distribution``: rivien **ero** on se, mitä
+    lukija tulosteesta lukee, ja kaksi kopiota latoisi ne ennen pitkää eri
+    tavalla -- toinen kertoisi puuttuvista havainnoista ja toinen vaikenisi.
 
-    Tuntemattomat tavaraluettelon nimet saavat oman rivinsä. Ne eivät aseista
-    ketään (luokittelu on sallittujen aseiden luettelo), joten ilman riviä uusi
-    ase ja uusi veitsiskini näyttäisivät täsmälleen samalta: jakauma vain
-    valuisi hiljaa alaspäin.
+    **Jakauma eikä ääripäät**: 41 riviä nollaa ja yksi viitonen antaisi
+    ``0-5``, joka näyttää terveeltä, mutta ``0 -> 41, 5 -> 1`` ei.
+
+    Args:
+        label: Rivin otsikko.
+        rule: Sääntö, jolla luku on laskettu. Aina mukana: kaksi lähes
+            samannimistä riviä peräkkäin luetaan väärin ilman sitä.
+        distribution: Arvo -> rivien määrä, tai ``None`` jos lukua ei ole
+            (ohitettu ajo vanhalla portilla). Rivi jätetään silloin pois.
+        missing: Rivit, joilta havainto puuttuu.
+
+    Returns:
+        Nolla tai yksi riviä.
     """
-    distribution = stats.get("armed_distribution")
     if distribution is None:
-        return _armed_unknown_items(stats)
-
-    prefix = f"{_ARMED_RULE}; "
-    missing = int(stats.get("armed_missing", 0) or 0)
-
+        return []
+    prefix = f"{rule}; "
     if not distribution:
-        lines = [
-            _line("Aseistettuja", f"{prefix}ei yhtään havaintoa ({missing} riviä)")
-        ]
-        return lines + _armed_unknown_items(stats)
-
+        return [_line(label, f"{prefix}ei yhtään havaintoa ({missing} riviä)")]
     spread = ", ".join(
         f"{value} -> {rows} riviä" for value, rows in sorted(distribution.items())
     )
     text = f"{prefix}{spread}"
     if missing:
         text += f"; havainto puuttuu {missing} riviltä"
-    return [_line("Aseistettuja", text)] + _armed_unknown_items(stats)
+    return [_line(label, text)]
+
+
+def _armed_players(stats: dict) -> list[str]:
+    """Kalustolaskurin arvojakauma ``parse``-tulosteeseen.
+
+    Laskuri on havainto, jonka voi tarkistaa vain katsomalla: väärä sääntö
+    tuottaisi taulun, joka läpäisee jokaisen skeematarkistuksen.
+
+    Tuntemattomat tavaraluettelon nimet saavat oman rivinsä. Ne eivät aseista
+    ketään (luokittelu on sallittujen aseiden luettelo), joten ilman riviä uusi
+    ase ja uusi veitsiskini näyttäisivät täsmälleen samalta: jakauma vain
+    valuisi hiljaa alaspäin.
+    """
+    return _player_counter_line(
+        "Aseistettuja",
+        _ARMED_RULE,
+        stats.get("armed_distribution"),
+        int(stats.get("armed_missing", 0) or 0),
+    ) + _armed_unknown_items(stats)
+
+
+def _armored_players(stats: dict) -> list[str]:
+    """Panssarilaskurin arvojakauma ``parse``-tulosteeseen.
+
+    Oma rivinsä aseistettujen rivin alla, ei sen jatke. Ne ovat eri havaintoja
+    ja eroavat eniten pistoolikierroksella, jolla aseistettuja on käytännössä
+    0: juuri siitä erosta tavoiteanalyysin *"5 kevlaria"* luetaan. Yhdistetty
+    rivi peittäisi eron, jonka takia laskureita on kaksi.
+
+    Rivi toimii myös itsetarkistuksena ajon yhteydessä: jos jakauma on
+    identtinen aseistettujen jakauman kanssa, panssarilaskuri lukee väärää
+    ehtoa -- ja se näkyy tässä eikä vasta raportissa.
+
+    Tuntemattomia esineitä ei tulosteta tässä: panssarilaskuri ei lue
+    tavaraluetteloa, joten esinenimet eivät voi vaikuttaa siihen.
+    """
+    return _player_counter_line(
+        "Panssaroituja",
+        _ARMORED_RULE,
+        stats.get("armored_distribution"),
+        int(stats.get("armored_missing", 0) or 0),
+    )
 
 
 def _match_restarts(stats: dict) -> list[str]:

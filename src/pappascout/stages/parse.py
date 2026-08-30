@@ -162,6 +162,7 @@ from pappascout.domain.rounds import check_win_reasons, mark_played_rounds
 from pappascout.domain.sampling import FIRST_CONTACT_SAMPLE
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
+    ARMORED_COLUMN,
     DEATHS,
     EVENTS,
     LINEUPS,
@@ -414,6 +415,59 @@ def _check_two_rows_per_round(df: pl.DataFrame) -> None:
     )
 
 
+def _check_player_counters(df: pl.DataFrame) -> None:
+    """Varmista, että pelaajalaskurit pysyvät jakajassaan ja sisäkkäin.
+
+    ``validate`` tarkistaa sarakkeet ja tyypit muttei arvoja, ja juuri arvot
+    ovat näiden kahden sarakkeen koko lupaus. Kaksi invarianttia, jotka
+    seuraavat siitä että molemmat lasketaan **samasta pelaajajoukosta samalta
+    tickiltä**:
+
+    * ``0 <= laskuri <= players_buy_end`` -- ylitys tarkoittaisi kahta eri
+      jakajaa samalla rivillä, ja raportti näyttäisi "6/5".
+    * ``players_armed_buy_end <= players_armored_buy_end`` -- aseistetun ehto
+      sisältää panssarin, joten aseistetut ovat panssaroitujen **osajoukko**.
+      Ylitys tarkoittaisi, että laskurit lukevat eri tickiä tai eri joukkoa.
+
+    Tarkistus tehdään **lukuhetkellä** eikä vain luvata skeeman docstringissä:
+    ilman sitä mahdoton luku kirjoittuisi arkistoon ja paljastuisi vasta
+    raportissa, jos silloinkaan. Null-arvot ohitetaan -- ne ovat rehellinen
+    "ei havaintoa" eivätkä rikkoutunut invariantti.
+
+    Raises:
+        SchemaError: Nimeää rikkoutuneen invariantin ja enintään viisi riviä.
+    """
+    checks = (
+        (
+            (pl.col(ARMED_COLUMN) < 0)
+            | (pl.col(ARMED_COLUMN) > pl.col("players_buy_end")),
+            f"{ARMED_COLUMN} on rajojen 0..players_buy_end ulkopuolella",
+        ),
+        (
+            (pl.col(ARMORED_COLUMN) < 0)
+            | (pl.col(ARMORED_COLUMN) > pl.col("players_buy_end")),
+            f"{ARMORED_COLUMN} on rajojen 0..players_buy_end ulkopuolella",
+        ),
+        (
+            pl.col(ARMED_COLUMN) > pl.col(ARMORED_COLUMN),
+            f"{ARMED_COLUMN} > {ARMORED_COLUMN}, vaikka aseistetun ehto "
+            "sisältää panssarin -- aseistettujen on oltava panssaroitujen "
+            "osajoukko",
+        ),
+    )
+    for condition, complaint in checks:
+        broken = df.filter(condition.fill_null(False))
+        if broken.is_empty():
+            continue
+        rows = broken.select(
+            "round_no", "side", "players_buy_end", ARMED_COLUMN, ARMORED_COLUMN
+        ).head(5)
+        raise SchemaError(
+            f"Kierrostaulussa {complaint}: {broken.height} riviä.\n"
+            f"Ensimmäiset: {rows.to_dicts()}"
+        )
+
+
 def _check_grenade_key(events: pl.DataFrame) -> None:
     """Varmista, että ``(map_demo_id, grenade_no, event_kind)`` yksilöi rivin.
 
@@ -485,7 +539,25 @@ def _round_stats(df: pl.DataFrame, skipped_rounds: int = 0) -> dict[str, object]
     # puuttuminen tekisi tyhjästä ajosta samannäköisen kuin laskurittomasta
     # versiosta.
     stats.update(_armed_stats(df))
+    stats.update(_armored_stats(df))
     return stats
+
+
+def _column_distribution(df: pl.DataFrame, column: str) -> tuple[dict[int, int], int]:
+    """Yhden laskurisarakkeen arvojakauma ja puuttuvien rivien määrä.
+
+    Jaettu kahden laskurin kesken tarkoituksella: aseistetut ja panssaroidut
+    ovat **eri havaintoja samasta tickistä**, ja kaksi erillistä laskentaa
+    voisi erkaantua toisistaan -- toinen laskisi ankkurittoman kierroksen
+    nollaksi ja toinen puuttuvaksi, eikä lukuja voisi enää verrata.
+    """
+    counts = (
+        df.filter(pl.col(column).is_not_null()).group_by(column).len().sort(column)
+    )
+    return (
+        {int(value): int(rows) for value, rows in zip(counts[column], counts["len"])},
+        int(df[column].null_count()),
+    )
 
 
 def _armed_stats(df: pl.DataFrame) -> dict[str, object]:
@@ -503,20 +575,28 @@ def _armed_stats(df: pl.DataFrame) -> dict[str, object]:
         ``armed_distribution`` (arvo -> rivien määrä, arvon mukaan
         järjestettynä) ja ``armed_missing`` (rivit, joilta havainto puuttuu).
     """
-    column = df[ARMED_COLUMN]
-    counts = (
-        df.filter(pl.col(ARMED_COLUMN).is_not_null())
-        .group_by(ARMED_COLUMN)
-        .len()
-        .sort(ARMED_COLUMN)
-    )
-    return {
-        "armed_distribution": {
-            int(value): int(rows)
-            for value, rows in zip(counts[ARMED_COLUMN], counts["len"])
-        },
-        "armed_missing": int(column.null_count()),
-    }
+    distribution, missing = _column_distribution(df, ARMED_COLUMN)
+    return {"armed_distribution": distribution, "armed_missing": missing}
+
+
+def _armored_stats(df: pl.DataFrame) -> dict[str, object]:
+    """Panssarilaskurin **arvojakauma** kierrostaulusta.
+
+    Oma rivinsä eikä aseistettujen jakauman jatke: ne ovat eri havaintoja ja
+    eroavat eniten pistoolikierroksella, jolla aseistettuja on käytännössä 0.
+    Yksi rivi kahdesta luvusta peittäisi juuri sen eron, jonka vuoksi
+    laskureita on kaksi.
+
+    Jakauma toimii samalla itsetarkistuksena: jos panssarilaskuri ajautuisi
+    lukemaan aseistettujen ehtoa, jakaumat olisivat identtiset -- ja se näkyy
+    ajon tulosteessa heti eikä vasta raportissa.
+
+    Returns:
+        ``armored_distribution`` (arvo -> rivien määrä) ja ``armored_missing``
+        (rivit, joilta havainto puuttuu).
+    """
+    distribution, missing = _column_distribution(df, ARMORED_COLUMN)
+    return {"armored_distribution": distribution, "armored_missing": missing}
 
 
 def _buy_window_stats(
@@ -1112,6 +1192,12 @@ def run(
         stats["armed_unreadable_rows"] = getattr(
             diagnostics, "armed_unreadable_rows", 0
         )
+        # Oma lukunsa, koska laskureiden luettavuusehdot eroavat: erotus
+        # kertoo montako riviä kaatui pelkkään tavaraluetteloon, eikä sitä
+        # voi lukea valmiista taulusta.
+        stats["armored_unreadable_rows"] = getattr(
+            diagnostics, "armored_unreadable_rows", 0
+        )
         # Ostoikkuna: mistä hetkestä luvut on luettu, kuinka usein kuolema
         # katkaisi ikkunan ja **maksoiko katkaisu jotain**. Viimeinen on
         # tämän tarinan tärkein luku: se on ainoa merkki siitä, että
@@ -1235,6 +1321,7 @@ def _parse_tables(
     validate(df, ROUNDS, TABLE)
     check_win_reasons(df)
     _check_two_rows_per_round(df)
+    _check_player_counters(df)
 
     ticks = _number_ticks(tables.ticks, numbered, map_demo_id)
     validate(ticks, TICKS, TICKS_TABLE)

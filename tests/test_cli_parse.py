@@ -58,6 +58,11 @@ DEFAULT_STATS: dict[str, object] = {
     "buy_window_stale_equipment": 0,
     "armed_distribution": {0: 3, 4: 1, 5: 38},
     "armed_missing": 0,
+    # Panssarilaskuri (Story 2.8). Tarkoituksella **eri jakauma** kuin
+    # aseistettujen: pistoolikierroksilla kevlareita on vaikka aseistettuja
+    # ei ole, ja juuri se ero on rivin olemassaolon syy.
+    "armored_distribution": {0: 2, 4: 2, 5: 38},
+    "armored_missing": 0,
     "armed_unknown_items": (),
     "tick_rows": 780,
     "sample_points": 78,
@@ -542,6 +547,63 @@ def test_armed_player_line_is_absent_without_the_numbers() -> None:
     numbers.pop("armed_distribution")
     numbers.pop("armed_unknown_items")
     assert "Aseistettuja" not in _render_parse(
+        parse_result(stats=numbers), regulation_rounds=24
+    )
+
+
+def test_armored_player_line_reports_its_own_distribution() -> None:
+    """Panssaririvi on oma rivinsä eikä aseistettujen rivin kaiku.
+
+    Molemmat ovat tulosteessa, ja niiden **on** voitava näyttää eri luvut:
+    jos rivi lukisi samaa saraketta, jakaumat olisivat identtiset ja koko
+    story olisi turha.
+    """
+    output_text = _render_parse(parse_result(), regulation_rounds=24)
+    armed_line = field_value(output_text, "Aseistettuja")
+    armored_line = field_value(output_text, "Panssaroituja")
+
+    assert "0 -> 2 riviä" in armored_line
+    assert "5 -> 38 riviä" in armored_line
+    assert armored_line != armed_line
+    # Sääntö on rivillä mukana: ilman sitä kaksi lähes samannimistä riviä
+    # peräkkäin luetaan väärin.
+    assert "aseesta riippumatta" in armored_line
+
+
+def test_armored_player_line_separates_a_skewed_distribution_from_a_healthy_one() -> None:
+    """Ääripäät eivät riitä täälläkään: jakauma, ei min ja max."""
+    healthy = parse_result(stats=stats(armored_distribution={0: 3, 5: 39}))
+    skewed = parse_result(stats=stats(armored_distribution={0: 41, 5: 1}))
+
+    healthy_line = field_value(
+        _render_parse(healthy, regulation_rounds=24), "Panssaroituja"
+    )
+    skewed_line = field_value(
+        _render_parse(skewed, regulation_rounds=24), "Panssaroituja"
+    )
+
+    assert healthy_line != skewed_line
+    assert "0 -> 41 riviä" in skewed_line
+
+
+def test_armored_player_line_names_the_rows_without_an_observation() -> None:
+    result = parse_result(stats=stats(armored_missing=2))
+    line = field_value(_render_parse(result, regulation_rounds=24), "Panssaroituja")
+    assert line.endswith("havainto puuttuu 2 riviltä")
+
+
+def test_armored_player_line_says_when_there_is_no_observation_at_all() -> None:
+    """Tyhjä jakauma ei ole nolla kevlaria: se on "ei tiedetä" joka rivillä."""
+    result = parse_result(stats=stats(armored_distribution={}, armored_missing=42))
+    line = field_value(_render_parse(result, regulation_rounds=24), "Panssaroituja")
+    assert "ei yhtään havaintoa (42 riviä)" in line
+
+
+def test_armored_player_line_is_absent_without_the_numbers() -> None:
+    """Lukukelvoton tulos ei saa väittää jakaumaa, jota ei ole."""
+    numbers = stats()
+    numbers.pop("armored_distribution")
+    assert "Panssaroituja" not in _render_parse(
         parse_result(stats=numbers), regulation_rounds=24
     )
 

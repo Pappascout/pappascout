@@ -55,6 +55,7 @@ from pappascout.constants import (
 )
 from pappascout.domain.report import (
     ArmedPlayers,
+    ArmoredPlayers,
     DeathReport,
     Position,
     Report,
@@ -281,6 +282,7 @@ class _Flags:
     unknown_area: bool = False
     estimated_area: bool = False
     armed_shown: bool = False
+    armored_shown: bool = False
     kills_shown: bool = False
     dropped: int = 0
 
@@ -705,23 +707,96 @@ def _first_death_label(deaths: DeathReport) -> str:
     return f"ensimmäinen kuolema (mediaani {median} s)"
 
 
-def _armed_line(armed: ArmedPlayers, min_n: int, flags: _Flags) -> Line | None:
-    """Aseistettujen pelaajien jakauma ostoajan lopussa."""
+def _player_count_line(
+    label: str,
+    bars: Sequence[tuple[int, int]],
+    m: int,
+    rounds_unknown: int,
+    min_n: int,
+    flags: _Flags,
+) -> Line | None:
+    """Yhden pelaajalaskurin jakauma yhtenä rivinä.
+
+    Jaettu aseistettujen ja panssaroitujen kesken samasta syystä kuin
+    ``stages.parse``in ``_column_distribution``: ne ovat eri havaintoja samasta
+    tickistä, ja kaksi kopiota latoisi ne ennen pitkää eri tavalla -- toinen
+    suodattaisi kynnyksellä ja toinen ei, tai toinen kertoisi puuttuvista
+    havainnoista ja toinen vaikenisi. Rivien **ero** on tämän raportin
+    havainto, joten niiden muodon on pysyttävä samana.
+
+    Args:
+        label: Rivin otsikko.
+        bars: ``(pelaajamäärä, kierroksia)`` -parit, järjestämättöminä.
+        m: Kierrokset, joilta havainto saatiin -- väitteiden nimittäjä.
+        rounds_unknown: Kierrokset, joilta havaintoa ei saatu.
+        min_n: Toistumisen kynnys; alle jäävät pylväät pudotetaan ja
+            lasketaan ``flags.dropped``iin, kun kynnys on yli yhden.
+        flags: Raportin laajuinen kerääjä.
+
+    Returns:
+        Rivi, tai ``None`` jos kerrottavaa ei ole. **Pelkkä huomautus
+        riittää** riviksi: "havainto puuttuu 3 kierrokselta" on eri asia kuin
+        "kukaan ei kantanut panssaria", ja ilman riviä lukija ei erottaisi
+        niitä -- jälkimmäinen näkyisi nollana ja edellinen ei mitenkään.
+    """
     claims: list[Claim] = []
-    for bar in sorted(armed.counts, key=lambda c: (-c.n, -c.armed)):
-        if bar.n < min_n:
+    for value, n in sorted(bars, key=lambda bar: (-bar[1], -bar[0])):
+        if n < min_n:
             if min_n > 1:
                 flags.dropped += 1
             continue
-        claims.append(Claim(text=str(bar.armed), n=bar.n, m=armed.m))
+        claims.append(Claim(text=str(value), n=n, m=m))
     note = None
-    if armed.rounds_unknown:
-        note = f"havainto puuttuu {armed.rounds_unknown} kierrokselta"
+    if rounds_unknown:
+        note = f"havainto puuttuu {rounds_unknown} kierrokselta"
     if not claims and note is None:
         return None
-    if claims:
+    return Line(label=label, claims=tuple(claims), note=note)
+
+
+def _armed_line(armed: ArmedPlayers, min_n: int, flags: _Flags) -> Line | None:
+    """Aseistettujen pelaajien jakauma ostoajan lopussa.
+
+    Lippu nostetaan aina kun rivi kirjoitetaan -- myös silloin kun rivillä on
+    pelkkä huomautus. Muuten lukija näkisi otsikon "aseistettuja" ilman sen
+    määritelmää, ja määritelmä on juuri se, mikä erottaa rivin
+    panssarirvistä.
+    """
+    line = _player_count_line(
+        "aseistettuja ostoajan lopussa",
+        [(bar.armed, bar.n) for bar in armed.counts],
+        armed.m,
+        armed.rounds_unknown,
+        min_n,
+        flags,
+    )
+    if line is not None:
         flags.armed_shown = True
-    return Line(label="aseistettuja ostoajan lopussa", claims=tuple(claims), note=note)
+    return line
+
+
+def _armored_line(
+    armored: ArmoredPlayers, min_n: int, flags: _Flags
+) -> Line | None:
+    """Panssaroitujen pelaajien jakauma ostoajan lopussa.
+
+    Oma rivinsä aseistettujen rivin vieressä, ei sen tilalla. Tästä luetaan
+    tavoiteanalyysin *"5 kevlaria"* ja *"ei kevuja"*, joita aseistettujen
+    riviltä ei voi lukea: pistoolikierroksella aseistettuja on käytännössä 0,
+    koska 800 dollarilla ei osta sekä kevlaria että parannettua asetta. Kaksi
+    riviä peräkkäin siis, ja juuri niiden ero on havainto.
+    """
+    line = _player_count_line(
+        "panssaroituja ostoajan lopussa",
+        [(bar.armored, bar.n) for bar in armored.counts],
+        armored.m,
+        armored.rounds_unknown,
+        min_n,
+        flags,
+    )
+    if line is not None:
+        flags.armored_shown = True
+    return line
 
 
 def _round_type_view(
@@ -756,6 +831,12 @@ def _round_type_view(
     armed = _armed_line(report_type.players_armed, min_n, flags)
     if armed is not None:
         lines.append(armed)
+
+    # Panssaririvi heti aseistettujen perässä: niiden ero on itse havainto,
+    # eikä sitä näe, jos rivien välissä on muuta.
+    armored = _armored_line(report_type.players_armored, min_n, flags)
+    if armored is not None:
+        lines.append(armored)
 
     gap = _first_contact_gap_line(report_type, min_n, flags)
     if gap is not None:
@@ -1186,12 +1267,7 @@ def _legend(flags: _Flags) -> list[str]:
             "(arvio) räjähdysalueen perässä: kranaatilla ei ole aluenimeä, joten "
             "alue on napsautettu lähimmästä elossa olevasta pelaajasta."
         )
-    if flags.armed_shown:
-        notes.append(
-            "Aseistettu = panssari JA parannettu ase ostoajan lopussa. Se ei ole "
-            "sama asia kuin kevlarien määrä: pistoolikierroksella luku on "
-            "yleensä 0, vaikka kaikilla olisi panssari."
-        )
+    notes.extend(_player_counter_legend(flags))
     if flags.kills_shown:
         notes.append(
             "Tapot alueittain: alue on **ampujan** oma alue tappohetkellä, ja "
@@ -1202,6 +1278,55 @@ def _legend(flags: _Flags) -> list[str]:
         "Raportti kuvaa vain havainnot. Tulkinta ja vastastrategia ovat lukijan."
     )
     return notes
+
+
+def _player_counter_legend(flags: _Flags) -> list[str]:
+    """Pelaajalaskureiden selitykset, yksi kappale kutakin näytettyä kohden.
+
+    Kolme haaraa eikä kaksi riippumatonta lausetta. Kun molemmat rivit ovat
+    raportissa, ne selitetään **yhtenä kappaleena**, koska luvut ovat
+    sisäkkäisiä eivätkä rinnakkaisia: aseistetut ovat panssaroitujen
+    osajoukko, molemmat luetaan samalta tickiltä ja samasta pelaajajoukosta,
+    ja jakajat ovat samat. Kahtena erillisenä lauseena "aseistettuja 0" ja
+    "panssaroituja 5" jäisivät kahdeksi irralliseksi luvuksi, ja niiden ero on
+    juuri se, mitä rivit yhdessä kertovat.
+    """
+    nesting = (
+        "Aseistettu = panssari JA parannettu ase ostoajan lopussa; "
+        "panssaroitu = panssari, aseesta riippumatta. Luvut ovat "
+        "**sisäkkäisiä**: aseistetut ovat panssaroitujen osajoukko, molemmat "
+        "on luettu samalta tickiltä samasta pelaajajoukosta, ja jakaja on "
+        "sama. Rivien ero on siis se havainto -- pistoolikierroksella "
+        "aseistettuja on tyypillisesti 0 (800 $ ei riitä sekä kevlariin että "
+        "parannettuun aseeseen), joten panssaririvi on se, joka kertoo "
+        "kevlarien määrän."
+    )
+    holding = (
+        "Molemmat luvut ovat **hallussapitoa eivätkä ostoja**: panssari ja ase "
+        "säilyvät kierroksen yli hengissä selvinneellä, eikä vaurioitunutta "
+        "panssaria eroteta ehjästä. Poikkeus on pistoolikierros -- puoliaika "
+        "alkaa puhtaalta pöydältä, joten siellä luvut kertovat mitä ostettiin."
+    )
+    if flags.armed_shown and flags.armored_shown:
+        return [nesting, holding]
+    if flags.armored_shown:
+        return [
+            "Panssaroitu = panssari ostoajan lopussa, aseesta riippumatta; "
+            "kypärää ei eroteta. Luku on **hallussapitoa eikä ostos**: "
+            "panssari säilyy kierroksen yli hengissä selvinneellä. Poikkeus on "
+            "pistoolikierros, jolla puoliaika alkaa puhtaalta pöydältä -- "
+            "siellä luku kertoo montako kevlaria ostettiin."
+        ]
+    if flags.armed_shown:
+        return [
+            "Aseistettu = panssari JA parannettu ase ostoajan lopussa. Se ei "
+            "ole sama asia kuin kevlarien määrä: pistoolikierroksella luku on "
+            "tyypillisesti 0, vaikka kaikilla olisi panssari, koska 800 $ ei "
+            "riitä sekä kevlariin että parannettuun aseeseen. Luku on "
+            "**hallussapitoa eikä ostos**: säästetty tai poimittu ase "
+            "lasketaan samoin kuin ostettu."
+        ]
+    return []
 
 
 #: Kierrosliite: mitä siitä voidaan sanoa, kun sitä ei ole raportissa.

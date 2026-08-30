@@ -22,6 +22,7 @@ from pappascout.archive.paths import ArchivePaths
 from pappascout.cli import _render_aggregate
 from pappascout.domain.models import load_settings
 from pappascout.domain.report import Report
+from pappascout.domain.schemas import ARMORED_COLUMN
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "pappascout"
 
@@ -45,6 +46,8 @@ from test_aggregate import (
     events_frame,
     lineup_row,
     lineups_frame,
+    round_row,
+    rounds_frame,
     tick_row,
     ticks_frame,
     thresholds,
@@ -165,6 +168,20 @@ def build_archive(
                 ),
             ]
         )
+        # Kierrostaulu: kaksi riviä per kierros, yksi kummallekin
+        # joukkueelle -- kuten parse sen kirjoittaa. Vain panssarilaskuri
+        # luetaan täältä, mutta molemmat rivit ovat mukana, jotta
+        # kokoonpanosuodatus on oikeasti testattavana.
+        rounds_table = rounds_frame(
+            [
+                round_row(demo, n, lineup=lineup, side="T", armored=5)
+                for n in range(1, rounds + 1)
+            ]
+            + [
+                round_row(demo, n, lineup=OPPONENT, side="CT", armored=0)
+                for n in range(1, rounds + 1)
+            ]
+        )
         demo_clan = (clan_by_demo or {}).get(demo, clan)
         lineups = lineups_frame(
             [
@@ -207,6 +224,7 @@ def build_archive(
         events.write_parquet(archive.parsed_table(demo, "events"))
         lineups.write_parquet(archive.parsed_table(demo, "lineups"))
         deaths.write_parquet(archive.parsed_table(demo, "deaths"))
+        rounds_table.write_parquet(archive.parsed_table(demo, "rounds"))
     return archive
 
 
@@ -362,8 +380,37 @@ def test_a_demo_without_parsed_tables_is_reported_missing(tmp_path: Path) -> Non
     assert result.status == "ok"
     report = read_report(archive)
     assert [m.match for m in report.missing_demos] == ["Anubis_vs_b"]
-    assert "ticks.parquet" in report.missing_demos[0].reason
+    # ``_demo_unusable`` palauttaa **ensimmäisen** puuttuvan taulun, ja
+    # luettelon järjestys on osa käyttäjälle näkyvää sopimusta. Väite nimeää
+    # taulun eikä tyydy siihen, että jokin puute mainitaan: yleinen väite
+    # menisi läpi vaikka luettelosta katoaisi taulu.
+    assert "rounds.parquet" in report.missing_demos[0].reason
     assert report.sample.demos == 1
+
+
+@pytest.mark.parametrize(
+    "table", ["rounds", "ticks", "events", "lineups", "deaths"]
+)
+def test_each_required_parsed_table_is_guarded_on_its_own(
+    tmp_path: Path, table: str
+) -> None:
+    """Jokainen viidestä taulusta nimetään puuttuessaan.
+
+    Yhteinen testi, joka poistaa vain yhden taulun, jättää loput
+    vartioimatta: ``_demo_unusable`` palauttaa ensimmäisen puutteen, joten
+    luettelon alkupään taulu peittää kaikki sen jälkeiset. Todennettu
+    poistamalla ``"ticks"`` luettelosta -- koko sviitti meni läpi.
+    """
+    archive = build_archive(
+        tmp_path, {"Ancient_vs_a": TEAM, "Nuke_vs_b": TEAM}
+    )
+    archive.parsed_table("Nuke_vs_b", table).unlink()
+
+    run(archive)
+    report = read_report(archive)
+    assert [m.match for m in report.missing_demos] == ["Nuke_vs_b"]
+    assert f"{table}.parquet" in report.missing_demos[0].reason
+    assert [m.map_name for m in report.maps] == ["de_ancient"]
 
 
 def test_no_usable_demo_is_an_error_that_names_the_reason(tmp_path: Path) -> None:
@@ -521,7 +568,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # Literaali eikä vakio: vakioon vertaaminen olisi tautologia --
     # koodi kirjoitti arvon juuri siitä vakiosta. Kun versio nousee,
     # tämän rivin PITÄÄ kaatua, jotta nosto on tietoinen.
-    assert data["schema_version"] == "3.0.0"
+    assert data["schema_version"] == "4.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -581,7 +628,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "3.0.0"
+    assert read_report(archive).schema_version == "4.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -1215,4 +1262,104 @@ def test_a_deaths_table_that_names_no_known_lineup_is_refused(
     with pytest.raises(PappascoutError) as exc:
         run(archive, force=True)
     assert "yhtään kuolemaa" in str(exc.value)
+    assert "--pakota" in str(exc.value)
+
+
+# --- Kierrostaulu ja panssarilaskuri (Story 2.8) --------------------------------
+
+
+def test_an_outdated_rounds_table_tells_the_user_to_reparse(
+    tmp_path: Path,
+) -> None:
+    """Vanha kierrostaulu ilman panssarisaraketta ei mene läpi hiljaa.
+
+    I/O-matriisin rivi "vanha arkisto" aggregoinnin puolelta: skeemavirhe on
+    suomenkielinen ja nimeää sekä puuttuvan sarakkeen että komennon.
+    """
+    archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
+    path = archive.parsed_table("Ancient_vs_a", "rounds")
+    pl.read_parquet(path).drop(ARMORED_COLUMN).write_parquet(path)
+
+    with pytest.raises(SchemaError) as exc:
+        run(archive)
+    assert ARMORED_COLUMN in str(exc.value)
+    assert "uv run pappascout parse Ancient_vs_a --pakota" in str(exc.value)
+
+
+def test_an_extra_column_in_the_rounds_table_is_refused_too(
+    tmp_path: Path,
+) -> None:
+    """Sopimus on tiukka molempiin suuntiin, myös kierrostaululla.
+
+    Ylimääräinen sarake tarkoittaa taulua, jonka joku muu versio kirjoitti;
+    pelkkä puuttuvan tarkistus päästäisi sen läpi.
+    """
+    archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
+    path = archive.parsed_table("Ancient_vs_a", "rounds")
+    df = pl.read_parquet(path)
+    df.with_columns(pl.lit(1).alias("ylimaarainen")).write_parquet(path)
+
+    with pytest.raises(SchemaError) as exc:
+        run(archive)
+    assert "ylimaarainen" in str(exc.value)
+
+
+def test_the_armored_count_reaches_the_report_from_the_rounds_table(
+    tmp_path: Path,
+) -> None:
+    """Kytkentä levyltä raporttiin: laskuri ei ole luokitellussa taulussa.
+
+    ``build_archive`` kirjoittaa omalle joukkueelle viisi kevlaria ja
+    vastustajalle nolla. Ilman tätä testiä ``rounds``-taulun luku voisi
+    puuttua vaiheesta kokonaan ja jakauma olisi hiljaa tyhjä.
+    """
+    archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
+
+    run(archive)
+    entry = read_report(archive).maps[0].sides[0].round_types[0]
+    assert [(c.armored, c.n) for c in entry.players_armored.counts] == [(5, 1)]
+    assert entry.players_armored.rounds_unknown == 0
+
+
+def test_only_our_own_rounds_row_reaches_the_distribution(tmp_path: Path) -> None:
+    """Kierrostaulussa on kaksi riviä per kierros -- vain oma päätyy jakaumaan.
+
+    Vastustajalla on nolla kevlaria samalla kierroksella. Kaksi estettä
+    yhdessä: kokoonpanosuodatus pudottaa hänen rivinsä ennen hakukarttaa, ja
+    avaimen kolmas osa (puoli) valitsisi oman rivin silloinkin, jos suodatus
+    puuttuisi. Testi todentaa lopputuloksen, jonka molemmat takaavat.
+    """
+    archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
+
+    run(archive)
+    for map_report in read_report(archive).maps:
+        for side_report in map_report.sides:
+            for entry in side_report.round_types:
+                assert [c.armored for c in entry.players_armored.counts] == [5]
+
+
+def test_rounds_that_name_no_known_lineup_are_refused(tmp_path: Path) -> None:
+    """Tyhjäksi suodattunut kierrostaulu on virhe, ei hiljainen puute.
+
+    Sama vartija kuin kuolemataululla ja samasta syystä: ilman sitä jokainen
+    kierrostyyppi raportoisi panssarijakaumakseen pelkän "havainto puuttuu"
+    -- eli havaintona sen, ettei havaintoa ole. Juuri sen lopputuloksen
+    välttäminen on tämän sarakkeen olemassaolon syy.
+    """
+    archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
+    strangers = rounds_frame(
+        [
+            round_row("Ancient_vs_a", n, lineup="tuntematonkokoonp", side="T")
+            for n in (1, 2)
+        ]
+        + [
+            round_row("Ancient_vs_a", n, lineup=OPPONENT, side="CT")
+            for n in (1, 2)
+        ]
+    )
+    strangers.write_parquet(archive.parsed_table("Ancient_vs_a", "rounds"))
+
+    with pytest.raises(PappascoutError) as exc:
+        run(archive, force=True)
+    assert "kierrosriviä" in str(exc.value)
     assert "--pakota" in str(exc.value)

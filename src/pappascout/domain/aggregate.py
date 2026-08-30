@@ -21,8 +21,14 @@ kierrostyyppi:
     *"2 savua 2 valoo"*. Se **ei** ole johdettavissa ``utility``-riveistä:
     niiden ``n`` laskee kierroksia eikä kranaatteja.
 ``players_armed``
-    Montako pelaajaa oli aseistettu ostoajan lopussa (Story 1.6:n laskuri).
-    Tästä luetaan *"5 kevlaria"* ja *"ei kevuja"*.
+    Montako pelaajaa oli aseistettu ostoajan lopussa (Story 1.6:n laskuri:
+    panssari **ja** parannettu ase). Se on puolioston kalibroitu ehto A.
+``players_armored``
+    Montako pelaajaa kantoi panssaria ostoajan lopussa (Story 2.8). Tästä --
+    **eikä edellisestä** -- luetaan *"5 kevlaria"* ja *"ei kevuja"*:
+    pistoolikierroksella edellinen on käytännössä 0, koska 800 dollarilla ei
+    osta sekä kevlaria että parannettua asetta. Luku on hallussapitoa eikä
+    ostosta paitsi pistoolikierroksella (1 ja 13), jolla perintää ei ole.
 ``first_contact``
     Millä alueilla joukkueella oli pelaaja ensikontaktin hetkellä. Tästä
     luetaan *"otti kontaktin partsi käytävällä"*.
@@ -83,6 +89,8 @@ from pappascout.domain.report import (
     AreaDistribution,
     ArmedCount,
     ArmedPlayers,
+    ArmoredCount,
+    ArmoredPlayers,
     DeathReport,
     FirstContactArea,
     FirstDeathArea,
@@ -104,6 +112,7 @@ from pappascout.domain.report import (
     slugify,
     team_slug,
 )
+from pappascout.domain.schemas import ARMORED_COLUMN
 from pappascout.errors import AggregateError
 
 __all__ = [
@@ -128,6 +137,9 @@ __all__ = [
     "utility_counts_for",
     "unpaired_detonations",
     "armed_players_for",
+    "SideRoundKey",
+    "armored_by_round",
+    "armored_players_for",
     "first_contact_areas",
     "deaths_for",
     "check_rounds_are_unique",
@@ -147,6 +159,16 @@ LEAGUE_BUCKETS: tuple[str, ...] = SAMPLE_BUCKETS
 #: Kierroksen avain koko arkistossa. Pelkkä ``round_no`` sekoittaisi eri
 #: karttojen kierrokset keskenään.
 RoundKey = tuple[str, int]
+
+#: Kierrosrivin avain **puoli mukaan lukien**. ``ROUNDS``-taulussa on kaksi
+#: riviä per kierros, yksi kummallekin joukkueelle, joten pelkkä
+#: :data:`RoundKey` osuisi molempiin -- ja vastustajan panssarit näyttäisivät
+#: omilta. Luokiteltu rivi kantaa oman puolensa, joten liitos on tarkka.
+SideRoundKey = tuple[str, int, str]
+
+#: Rivinvaihto virheilmoituksissa. Omana vakionaan, koska nämä tiedostot
+#: muokkataan usein skripteillä, joissa kenoviiva ei säily.
+NEWLINE = "\n"
 
 _NON_WORD = re.compile(r"[^a-z0-9]+")
 
@@ -669,6 +691,98 @@ def _armed(row: Mapping[str, Any]) -> int | None:
     return None if value is None else int(value)
 
 
+def armored_by_round(rounds: Sequence[Mapping[str, Any]]) -> dict[SideRoundKey, int]:
+    """Panssarilaskuri kierrostaulusta, avaimella (demo, kierros, puoli).
+
+    **Lähde on ``parsed/rounds`` eikä ``classified``**, toisin kuin
+    aseistettujen laskurilla. Syy on rajaus eikä mukavuus: aseistettujen
+    laskuri on puolioston ehto A, joten ``classify`` lukee sen joka
+    tapauksessa ja tallentaa päätöksen syötteisiin. Panssarilaskuri ei ole
+    päätöksen syöte -- se on havainto -- eikä sitä siksi lisätä
+    ``economy.CLASSIFY_COLUMNS``iin. Luokittelusääntö pysyy ennallaan, ja
+    havainto luetaan sieltä missä se on.
+
+    Avaimessa on **puoli mukana**: kierrostaulussa on kaksi riviä per kierros,
+    ja ilman puolta vastustajan panssarit voisivat päätyä omalle riville.
+
+    Numeroimattomat kierrokset (lämmittely, puukkokierros), rivit joilta
+    havaintoa ei saatu ja rivit joiden avain on vajaa jäävät kartasta pois.
+    Puuttuva avain tarkoittaa ``rounds_unknown``ia
+    :func:`armored_players_for`issä -- nollaa se ei saa tarkoittaa, koska
+    nolla on havainto ja lukuvirhe ei ole.
+
+    Raises:
+        AggregateError: Jos kaksi riviä väittää samaa avainta. Hiljainen
+            ylikirjoitus jättäisi voimaan sen, joka sattuu olemaan viimeisenä,
+            eikä mikään kertoisi kumpi luku raporttiin päätyi. Luokitelluille
+            riveille sama tarkistus on :func:`check_rounds_are_unique`.
+    """
+    lookup: dict[SideRoundKey, int] = {}
+    for row in rounds:
+        round_no = row.get("round_no")
+        value = row.get(ARMORED_COLUMN)
+        demo, side = row.get("map_demo_id"), row.get("side")
+        # Vajaa avain pudotetaan **ennen** str()-muunnosta: ``str(None)``
+        # rakentaisi avaimen "None", joka ei osu koskaan mutta näyttää
+        # kartassa täysin tavalliselta.
+        if round_no is None or value is None or demo is None or side is None:
+            continue
+        key = (str(demo), int(round_no), str(side))
+        if key in lookup and lookup[key] != int(value):
+            raise AggregateError(
+                f"Kierrostaulussa on kaksi eri panssarilukua samalle "
+                f"kierrokselle {key}: {lookup[key]} ja {int(value)}.\n"
+                "Raporttiin päätyisi se, joka sattuu olemaan viimeisenä. "
+                "Aja parsinta uudelleen: uv run pappascout parse "
+                f"{demo} --pakota"
+            )
+        lookup[key] = int(value)
+    return lookup
+
+
+def armored_players_for(
+    rows: Sequence[Mapping[str, Any]],
+    armored: Mapping[SideRoundKey, int],
+) -> ArmoredPlayers:
+    """Panssaroitujen pelaajien jakauma kierroksittain.
+
+    **Eri havainto kuin** :func:`armed_players_for`, ei sen yleistys. Tästä
+    luetaan tavoiteanalyysin *"5 kevlaria"* ja *"ei kevuja"*, joita
+    aseistettujen jakaumasta ei saa: pistoolikierroksella se on käytännössä 0,
+    koska 800 dollarilla ei osta sekä kevlaria että parannettua asetta.
+
+    Args:
+        rows: Kierrostyypin luokitellut rivit. Ne määräävät otannan, joten
+            kierros, jolta panssarilukua ei saatu, on ``rounds_unknown`` eikä
+            katoa jakaumasta.
+        armored: :func:`armored_by_round`in kartta koko otannasta.
+    """
+    values: list[int | None] = []
+    for row in rows:
+        round_no = row.get("round_no")
+        demo, side = row.get("map_demo_id"), row.get("side")
+        # Vajaa avain on **puuttuva havainto eikä kaatuva ajo**: jokainen
+        # annettu rivi tuottaa alkion, jotta otanta ei pienene hiljaa, ja
+        # yksi vajaa rivi jää tuntemattomaksi sen sijaan että veisi koko
+        # aggregoinnin mukanaan. ``classify`` pudottaa numeroimattomat jo
+        # ennen tätä, joten haara on puolustus eikä odotettu tila.
+        values.append(
+            None
+            if round_no is None or demo is None or side is None
+            else armored.get((str(demo), int(round_no), str(side)))
+        )
+    known = [v for v in values if v is not None]
+    tally = Counter(known)
+    return ArmoredPlayers(
+        m=len(known),
+        rounds_unknown=len(values) - len(known),
+        counts=[
+            ArmoredCount(armored=armored_n, n=tally[armored_n])
+            for armored_n in sorted(tally)
+        ],
+    )
+
+
 def first_contact_areas(
     ticks: Sequence[Mapping[str, Any]],
     round_keys: Sequence[RoundKey],
@@ -1129,6 +1243,7 @@ def build_report(
     ticks: pl.DataFrame,
     events: pl.DataFrame,
     deaths: pl.DataFrame,
+    rounds: pl.DataFrame,
     team: TeamReport,
     thresholds: ThresholdSettings,
     aggregate: AggregateSettings,
@@ -1151,6 +1266,12 @@ def build_report(
             kokoonpanossa, joten yhden sarakkeen suodatus pudottaisi joko
             kuolemat tai tapot. Rivien jako niiden kesken tehdään täällä
             (:func:`deaths_for`) joukkueen ``lineup_keys``-listaa vasten.
+        rounds: Kaikkien demojen ``ROUNDS``-rivit, **suodatettuna joukkueen
+            kokoonpanoihin**. Tästä luetaan vain panssarilaskuri
+            (:func:`armored_by_round`): se on havainto eikä luokittelun
+            päätöksen syöte, joten ``classify`` ei kanna sitä eteenpäin.
+            Kierrostyypin ja otannan omistaa yhä ``classified`` -- tämä taulu
+            ei saa lisätä eikä poistaa yhtäkään kierrosta.
         team: Joukkueen tiedot; ``aggregate``-vaihe kokoaa ne arkistosta.
         thresholds: ``[thresholds]``-osio. Siitä luetaan
             ``small_sample_rounds``.
@@ -1172,6 +1293,7 @@ def build_report(
     tick_rows = ticks.to_dicts()
     event_rows = events.to_dicts()
     death_rows = deaths.to_dicts()
+    armored = armored_by_round(rounds.to_dicts())
 
     check_rounds_are_unique(rows)
     buckets = demo_buckets(rows)
@@ -1209,6 +1331,7 @@ def build_report(
                     map_ticks,
                     map_events,
                     map_deaths,
+                    armored,
                     buckets,
                     thresholds,
                     aggregate,
@@ -1252,6 +1375,7 @@ def _sides_for(
     ticks: Sequence[Mapping[str, Any]],
     events: Sequence[Mapping[str, Any]],
     deaths: Sequence[Mapping[str, Any]],
+    armored: Mapping[SideRoundKey, int],
     buckets: Mapping[str, str],
     thresholds: ThresholdSettings,
     aggregate: AggregateSettings,
@@ -1272,6 +1396,7 @@ def _sides_for(
                     ticks,
                     events,
                     deaths,
+                    armored,
                     buckets,
                     thresholds,
                     aggregate,
@@ -1287,6 +1412,7 @@ def _round_types_for(
     ticks: Sequence[Mapping[str, Any]],
     events: Sequence[Mapping[str, Any]],
     deaths: Sequence[Mapping[str, Any]],
+    armored: Mapping[SideRoundKey, int],
     buckets: Mapping[str, str],
     thresholds: ThresholdSettings,
     aggregate: AggregateSettings,
@@ -1332,6 +1458,7 @@ def _round_types_for(
                 ),
                 utility_counts=utility_counts_for(events, keys),
                 players_armed=armed_players_for(type_rows),
+                players_armored=armored_players_for(type_rows, armored),
                 first_contact=first_contact_areas(ticks, keys),
                 deaths=deaths_for(deaths, keys, lineup_keys),
             )
