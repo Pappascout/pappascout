@@ -11,7 +11,7 @@ Puu on lukittu spinen konventiotaulukossa::
     parsed/<map_demo_id>/{ticks,events,rounds}.parquet + manifest
     classified/<team_key>/<map_demo_id>.parquet + .md + manifest
     aggregates/<team_key>/report.json
-    reports/<team_key>/<YYYY-MM-DDTHHMM>-<team_slug>.md
+    reports/<team_key>/<YYYY-MM-DDTHHMM>-<team_slug>.md + sama nimi .manifest.json
     import/                                      saapuvien kansio
     logs/<host>/
     .lock
@@ -57,6 +57,11 @@ __all__ = [
     "report_json",
     "report_manifest",
     "reports_dir",
+    "REPORT_TIMESTAMP_FORMAT",
+    "MAX_REPORTS_PER_MINUTE",
+    "report_name",
+    "report_markdown",
+    "render_manifest",
     "import_dir",
     "logs_dir",
 ]
@@ -219,6 +224,73 @@ def report_manifest(team_key: str) -> PurePosixPath:
 def reports_dir(team_key: str) -> PurePosixPath:
     """Markdown-raporttien hakemisto."""
     return PurePosixPath("reports") / safe_component(team_key, "team_key")
+
+
+#: Raportin tiedostonimen aikaleima **paikallista aikaa**, minuutin
+#: tarkkuudella. Paikallinen siksi, että tiedostonimi on ainoa asia, jonka
+#: käyttäjä tästä näkee, ja hän muistaa milloin ajoi komennon -- ei sitä, mitä
+#: kello oli silloin UTC:ssä. Raportin sisällä oleva ``generated_at`` on UTC,
+#: koska se on datan aikaleima eikä käyttöliittymää.
+REPORT_TIMESTAMP_FORMAT = "%Y-%m-%dT%H%M"
+
+
+#: Suurin järjestysluku saman minuutin raporteille. Kaksinumeroinen, koska
+#: nimen järjestysluku on nollatäytetty (ks. :func:`report_name`): kolminumeroinen
+#: raja rikkoisi täytön ja palauttaisi lajittelujärjestyksen sekaisin.
+MAX_REPORTS_PER_MINUTE = 99
+
+
+def report_name(timestamp: str, team_slug: str, ordinal: int = 1) -> str:
+    """Raportin tiedostonimi: ``<aikaleima>-<slug>.md``.
+
+    Args:
+        timestamp: Aikaleima muodossa :data:`REPORT_TIMESTAMP_FORMAT`.
+        team_slug: Joukkueen tiedostonimeen kelpaava muoto.
+        ordinal: Monesko raportti saman minuutin sisällä. Ensimmäinen on
+            nimetön, seuraavat saavat **nollatäytetyn** päätteen ``-02``,
+            ``-03``. Täyttö on lajittelua varten: ilman sitä hakemistolistaus
+            järjestäisi nimet ``-10, -100, -11, -2``, eli uusin raportti ei
+            olisi listan lopussa. **Yksikään aiempi raportti ei ylikirjoitu**,
+            koska uusi ajo ei koskaan osu vanhaan nimeen.
+
+    Raises:
+        ValueError: Jos ``ordinal`` on rajojen ``1``..
+            :data:`MAX_REPORTS_PER_MINUTE` ulkopuolella.
+    """
+    if not 1 <= ordinal <= MAX_REPORTS_PER_MINUTE:
+        raise ValueError(
+            f"Raportin järjestysluvun on oltava 1..{MAX_REPORTS_PER_MINUTE}, "
+            f"oli {ordinal}."
+        )
+    suffix = "" if ordinal == 1 else f"-{ordinal:02d}"
+    return f"{timestamp}-{team_slug}{suffix}.md"
+
+
+def report_markdown(team_key: str, filename: str) -> PurePosixPath:
+    """Yksi Markdown-raportti. ``render``-vaiheen tulos."""
+    return reports_dir(team_key) / safe_component(filename, "report_filename")
+
+
+def render_manifest(team_key: str, report_filename: str) -> PurePosixPath:
+    """Yhden raportin manifesti: ``<raportin nimi ilman .md>.manifest.json``.
+
+    Manifesti on **jäljitettävyyttä varten, ei ohitusta**: raportti
+    kirjoitetaan joka ajolla uudella nimellä, joten vaihetta ei koskaan
+    ohiteta.
+
+    **Manifesti on raporttikohtainen, ei joukkuekohtainen.** Yhteinen
+    ``render.manifest.json`` kestäisi huonosti juuri sitä rinnakkaisuutta,
+    jota varten tiedostonimi varataan atomisesti: kaksi yhtaikaista ajoa saisi
+    kumpikin oman raporttinsa, mutta viimeisenä kirjoittava manifesti jäisi
+    voimaan ja kuvaisi eri tiedostoa kuin se, jonka käyttäjä juuri sai.
+    Raportin nimi on jo yksikäsitteinen, joten siitä johdettu manifestinimi on
+    sitä myös.
+    """
+    stem = report_filename.removesuffix(".md")
+    return (
+        reports_dir(team_key)
+        / f"{safe_component(stem, 'report_filename')}{_MANIFEST_SUFFIX}"
+    )
 
 
 def import_dir() -> PurePosixPath:
@@ -400,6 +472,12 @@ class ArchivePaths:
 
     def reports_dir(self, team_key: str) -> Path:
         return self.resolve(reports_dir(team_key))
+
+    def report_markdown(self, team_key: str, filename: str) -> Path:
+        return self.resolve(report_markdown(team_key, filename))
+
+    def render_manifest(self, team_key: str, report_filename: str) -> Path:
+        return self.resolve(render_manifest(team_key, report_filename))
 
     def import_dir(self) -> Path:
         return self.resolve(import_dir())

@@ -296,6 +296,20 @@ def test_pipeline_packages_expose_their_contracts() -> None:
         "pappascout.stages.parse": ("run", "resolve_demo", "default_parser"),
         "pappascout.stages.classify": ("run", "resolve_team", "team_keys"),
         "pappascout.stages.aggregate": ("run", "resolve_team", "team_keys"),
+        # Story 2.4: putken viimeinen vaihe ja sen esityskerros.
+        "pappascout.stages.render": (
+            "run",
+            "resolve_team",
+            "team_keys",
+            "read_report",
+            "round_list_paths",
+        ),
+        "pappascout.render": (
+            "render_report",
+            "build_view",
+            "template_digest",
+            "round_list_demo_ids",
+        ),
         # Story 2.3: raporttimalli on aggregointi- ja render-vaiheen jaettu
         # sopimus, joten sen nimi ja skeemaversio ovat osa rakennetta.
         "pappascout.domain.report": ("Report", "REPORT_SCHEMA_VERSION"),
@@ -317,3 +331,15 @@ def test_help_lists_parse() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "parse" in result.output
+
+
+def test_help_lists_every_pipeline_command() -> None:
+    """Putken komennot ovat luettelossa siinä järjestyksessä kuin ne ajetaan.
+
+    Yhden komennon lisääminen ilman tätä väitettä jättäisi sen ohjeesta
+    huomaamatta -- eikä käyttäjä, joka ei koodaa itse, löytäisi sitä mistään.
+    """
+    result = runner.invoke(app, ["--help"])
+    assert result.exit_code == 0
+    for command in ("info", "parse", "classify", "aggregate", "report"):
+        assert command in result.output, command

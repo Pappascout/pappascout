@@ -1,12 +1,15 @@
 """Kerrossäännön testit.
 
-Spinen riippuvuuskaavio on ``cli -> stages -> {domain, adapters, archive}`` ja
-``adapters -> domain``. Kaikki sen säännöt ovat nyt valvottavissa
-koneellisesti:
+Spinen riippuvuuskaavio on ``cli -> stages -> {domain, adapters, archive,
+render}``, ``render -> domain`` ja ``adapters -> domain``. Kaikki sen säännöt
+ovat nyt valvottavissa koneellisesti:
 
 * ``domain`` ei tuo mitään muista pappascout-paketeista,
 * ``archive`` ei riipu ``domain``ista -- se on putki, ei domain-mallien säilö,
 * ``adapters`` ei tunne arkistoa, vaiheita eikä komentoriviä,
+* ``render`` (Story 2.4) näkee vain ``domain``in: se ei saa koskea arkistoon,
+  adaptereihin eikä vaiheisiin, jolloin "render ei laske mitään" on
+  rakenteellinen lupaus eikä pelkkä tapa,
 * ``stages`` ei kutsu komentoriviä takaisin, ja
 * ``cli`` **ei kutsu adaptereita eikä arkistoa suoraan**.
 
@@ -27,10 +30,17 @@ import pytest
 SRC = Path(__file__).resolve().parents[1] / "src" / "pappascout"
 
 #: Paketit, joita paketti EI saa tuoda.
+#:
+#: ``render`` (Story 2.4) on esityskerros: se lukee ``domain``in raporttimallin
+#: ja muotoilee sen Markdowniksi. Se ei saa koskea arkistoon, adaptereihin
+#: eikä vaiheisiin -- muuten "render ei laske mitään" lakkaisi olemasta
+#: rakenteellinen lupaus ja olisi pelkkä tapa. Nuoli on
+#: ``stages -> render -> domain``.
 FORBIDDEN = {
-    "domain": {"archive", "adapters", "stages", "cli"},
-    "archive": {"domain", "adapters", "stages", "cli"},
-    "adapters": {"archive", "stages", "cli"},
+    "domain": {"archive", "adapters", "stages", "cli", "render"},
+    "archive": {"domain", "adapters", "stages", "cli", "render"},
+    "adapters": {"archive", "stages", "cli", "render"},
+    "render": {"archive", "adapters", "stages", "cli"},
     "stages": {"cli"},
     "cli": {"adapters", "archive"},
 }
@@ -40,7 +50,15 @@ EXISTING = sorted(p for p in FORBIDDEN if (SRC / p).is_dir())
 
 #: Kaikki pappascout-alipaketit, myös vielä olemattomat. Suhteellinen tuonti
 #: tunnistetaan vain näiden nimien perusteella.
-PACKAGES = {"cli", "stages", "domain", "adapters", "archive", "templates"}
+PACKAGES = {
+    "cli",
+    "stages",
+    "domain",
+    "adapters",
+    "archive",
+    "render",
+    "templates",
+}
 
 
 def _imported_packages(path: Path) -> set[str]:

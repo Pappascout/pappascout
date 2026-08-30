@@ -1,0 +1,85 @@
+{#-
+  Scouting-raportin muoto. Malli päättää MITEN sanotaan; koodi
+  (pappascout.render.view) on jo päättänyt MITÄ sanotaan.
+
+  Muoto saa muuttua vapaasti tässä tiedostossa: sanajärjestys, otsikot ja
+  välimerkit ovat mallin asia. Uusi LUKU sen sijaan ei synny täällä -- se
+  tarkoittaa aina muutosta Report-malliin (Story 2.3).
+
+  Teksti on suomeksi, calloutit (aluenimet) englanniksi sellaisina kuin peli ne
+  antaa. Rivit ovat ranskalaisia viivoja, eivät kappaleita: raportti luetaan
+  ottelua edeltävässä kiireessä.
+
+  HUOM: mallin sisällön sha256 menee render-vaiheen parametrihashiin, joten
+  tämän tiedoston muokkaaminen näkyy manifestissa.
+-#}
+{%- macro bullet(line) -%}
+- {% if line.label %}{{ line.label }}: {% endif %}
+{%- for claim in line.claims -%}
+{{ claim.text }} ({{ claim.sample_text }}{% if claim.extra %}, {{ claim.extra }}{% endif %})
+{%- if not loop.last %}, {% endif %}
+{%- endfor %}
+{%- if line.note %}{% if line.claims %} -- {% endif %}{{ line.note }}{% endif %}
+{%- endmacro -%}
+# {{ view.title }}
+
+## Yhteenveto
+
+{% for item in view.summary %}
+- **{{ item.label }}:** {{ item.value }}
+{% endfor %}
+
+{% if view.empty_note %}
+{{ view.empty_note }}
+
+{% endif %}
+{% if view.missing_demos %}
+## Puuttuvat demot
+
+{% for item in view.missing_demos %}
+- **{{ item.label }}:** {{ item.value }}
+{% endfor %}
+
+{% endif %}
+{% for map_view in view.maps %}
+## {{ map_view.heading }}
+
+{% if map_view.note %}
+- *{{ map_view.note }}*
+
+{% endif %}
+{% for side in map_view.sides %}
+### {{ side.heading }} -- {{ side.rounds_text }}
+
+{% if side.note %}
+- *{{ side.note }}*
+
+{% endif %}
+{% for round_type in side.round_types %}
+**{{ round_type.heading }}** ({{ round_type.rounds_text }})
+{%- if round_type.small_sample %} -- pieni otanta{% endif %}
+{%- if round_type.pattern_only %} -- vain toistuvat kuviot{% endif %}
+
+{% for line in round_type.lines %}
+{{ bullet(line) }}
+{% endfor %}
+{% for note in round_type.notes %}
+- *{{ note }}*
+{% endfor %}
+
+{% endfor %}
+{% endfor %}
+{% endfor %}
+## Kierrosliite
+
+{{ view.appendix_note }}
+
+{% for path in view.appendix_paths %}
+- `{{ path }}`
+{% endfor %}
+
+## Lukuohje
+
+{% for note in view.legend %}
+- {{ note }}
+{% endfor %}

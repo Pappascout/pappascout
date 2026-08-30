@@ -30,6 +30,8 @@ RELATIVE_FUNCS = [
     (paths.report_json, ("team-abc",)),
     (paths.report_manifest, ("team-abc",)),
     (paths.reports_dir, ("team-abc",)),
+    (paths.report_markdown, ("team-abc", "2026-08-30T0307-abc.md")),
+    (paths.render_manifest, ("team-abc", "2026-08-30T0307-abc.md")),
     (paths.import_dir, ()),
     (paths.logs_dir, ("tyopoyta",)),
 ]
@@ -58,6 +60,14 @@ def test_archive_tree_matches_the_convention() -> None:
     assert str(paths.classified("t", "1234-0")) == "classified/t/1234-0.parquet"
     assert str(paths.report_json("t")) == "aggregates/t/report.json"
     assert str(paths.reports_dir("t")) == "reports/t"
+    assert (
+        str(paths.report_markdown("t", "2026-08-30T0307-t.md"))
+        == "reports/t/2026-08-30T0307-t.md"
+    )
+    assert (
+        str(paths.render_manifest("t", "2026-08-30T0307-t.md"))
+        == "reports/t/2026-08-30T0307-t.manifest.json"
+    )
     assert str(paths.logs_dir("kone")) == "logs/kone"
     assert str(paths.LOCK_FILE) == ".lock"
 
@@ -107,6 +117,33 @@ def test_path_builders_reject_traversal() -> None:
         paths.demo("../../../etc/passwd")
     with pytest.raises(PappascoutError):
         paths.classified("ok-tiimi", "..")
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    ["../pako.md", "a/b.md", "a\\b.md", "", "..", "C:/muualla.md"],
+)
+def test_report_file_names_are_checked_too(unsafe: str) -> None:
+    """Raportin tiedostonimi tulee vaiheelta, ei tunnisteesta.
+
+    Se on ainoa polun osa, jota ei johdeta ``team_key``:stä tai
+    ``map_demo_id``:stä, joten sen tarkistus on erikseen todistettava --
+    muuten aikaleiman muotoilun muuttaminen voisi karata arkiston juuresta
+    ilman että mikään huomauttaisi.
+    """
+    with pytest.raises(PappascoutError):
+        paths.report_markdown("ok-tiimi", unsafe)
+    with pytest.raises(PappascoutError):
+        paths.render_manifest("ok-tiimi", unsafe)
+
+
+def test_the_manifest_name_is_derived_from_the_report_name() -> None:
+    """Raporttikohtainen manifesti: kaksi rinnakkaista ajoa ei kirjoita samaan."""
+    first = paths.render_manifest("t", "2026-08-30T0307-t.md")
+    second = paths.render_manifest("t", "2026-08-30T0307-t-02.md")
+    assert first != second
+    assert str(first).endswith(".manifest.json")
+    assert str(second).endswith("-02.manifest.json")
 
 
 # --- Juuren liittäminen -------------------------------------------------------

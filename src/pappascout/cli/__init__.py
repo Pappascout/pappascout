@@ -4,12 +4,13 @@ CLI on ohut: se lukee asetukset, valitsee vaiheet ja näyttää tuloksen. Se ei
 kutsu adaptereita eikä arkistoa suoraan, eikä siinä ole analyysilogiikkaa --
 sama putki ajetaan myöhemmin web-kuoren takaa muuttamatta domainia.
 
-Komentoja on neljä: ``info`` näyttää asetukset, arkiston tilan ja avainten
+Komentoja on viisi: ``info`` näyttää asetukset, arkiston tilan ja avainten
 tilan paljastamatta avainten arvoja, ``parse`` ajaa putken ensimmäisen vaiheen
 yhdelle demolle, ``classify`` luokittelee sen kierrokset yhden joukkueen
-näkökulmasta ja ``aggregate`` kokoaa joukkueen luokitellut kierrokset yhdeksi
-``report.json``-tiedostoksi. Loput (``scout``, ``next``, ``collect``,
-``import``, ``report``) tulevat myöhemmissä storyissa.
+näkökulmasta, ``aggregate`` kokoaa joukkueen luokitellut kierrokset yhdeksi
+``report.json``-tiedostoksi ja ``report`` kirjoittaa siitä luettavan
+Markdown-raportin. Loput (``scout``, ``next``, ``collect``, ``import``) tulevat
+myöhemmissä storyissa.
 
 Arkistoon ja adaptereihin ei kosketa täältä: polut pyydetään
 ``stages.archive_paths``ilta ja demoportti ``stages.parse.default_parser``ilta.
@@ -39,6 +40,7 @@ from pappascout.stages import StageResult, archive_paths
 from pappascout.stages import aggregate as aggregate_stage
 from pappascout.stages import classify as classify_stage
 from pappascout.stages import parse as parse_stage
+from pappascout.stages import render as render_stage
 
 __all__ = ["app", "main"]
 
@@ -1189,6 +1191,91 @@ def _render_aggregate(result: StageResult) -> str:
     lines.append("")
     for path in result.outputs:
         lines.append(_line("Tulos", str(path)))
+    if result.manifest_path is not None:
+        lines.append(_line("Manifesti", str(result.manifest_path)))
+    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+    return "\n".join(lines)
+
+
+@app.command("report")
+def report(
+    team: str | None = typer.Option(
+        None,
+        "--team",
+        help=(
+            "Joukkueen tunniste (aggregates/-hakemiston nimi) tai sen "
+            "yksikäsitteinen alkuosa. Ilman tätä ajo päättyy virheeseen, "
+            "joka listaa aggregoidut joukkueet."
+        ),
+    ),
+) -> None:
+    """Kirjoita joukkueen report.jsonista luettava Markdown-raportti.
+
+    Vaihe ei laske mitään: jokainen luku tulee aggregoinnista sellaisenaan.
+    Raportti saa aikaleimatun nimen, joten uusi ajo ei koskaan ylikirjoita
+    aiempaa -- eikä komennossa ole siksi --pakota-valintaa.
+    """
+    settings = load_settings()
+    archive = archive_paths(settings.project)
+    result = render_stage.run(archive, team)
+    typer.echo(_render_report(result))
+
+
+def _render_report(result: StageResult) -> str:
+    """Kokoa ``report``-komennon tuloste.
+
+    Tärkein rivi on tuloksen polku: käyttäjä avaa tiedoston seuraavaksi.
+    Luvut kertovat mitä siihen päätyi, jotta puuttuva kartta tai puuttuva demo
+    huomataan ennen kuin raportti liitetään Discordiin.
+    """
+    stats = result.stats
+    # Ensimmäinen rivi on tiedoston polku, koska se on ainoa asia, jota
+    # käyttäjä tarvitsee seuraavaksi. Joukkuetunniste ei kelpaa: se on 16
+    # merkin tiiviste, jonka käyttäjä juuri itse kirjoitti komentoriville.
+    written = str(result.outputs[0]) if result.outputs else "(ei tiedostoa)"
+    lines = [f"Raportti kirjoitettu: {written}"]
+
+    team = str(stats.get("team_key", result.unit))
+    if not stats.get("team_name_known", False):
+        team += " (joukkueen nimi ei tiedossa)"
+    lines.append(_line("Joukkue", team))
+
+    lines.append(
+        _line(
+            "Otanta",
+            f"{int(stats.get('demos', 0) or 0)} demoa, "
+            f"{int(stats.get('rounds', 0) or 0)} kierrosta",
+        )
+    )
+    maps = stats.get("maps") or []
+    lines.append(
+        _line(
+            "Kartat",
+            ", ".join(str(name) for name in maps) if maps else "ei yhtään karttaa",
+        )
+    )
+    missing = int(stats.get("missing_demos", 0) or 0)
+    if missing:
+        lines.append(
+            _line("Puuttuvat demot", f"{missing} kpl -- lueteltu raportissa")
+        )
+    unclassified = int(stats.get("unclassified", 0) or 0)
+    if unclassified:
+        lines.append(
+            _line(
+                "Luokittelemattomat",
+                f"{unclassified} kierrosta -- mainittu raportin yhteenvedossa",
+            )
+        )
+    lines.append(
+        _line(
+            "Laajuus",
+            f"{int(stats.get('lines', 0) or 0)} riviä, "
+            f"{int(stats.get('characters', 0) or 0)} merkkiä",
+        )
+    )
+
+    lines.append("")
     if result.manifest_path is not None:
         lines.append(_line("Manifesti", str(result.manifest_path)))
     lines.append(_line("Ajoaika", _seconds(result.duration_s)))

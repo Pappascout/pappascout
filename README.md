@@ -45,6 +45,7 @@ uv run pappascout parse <tiedosto|map_demo_id>   # demosta kierrokset ja asetelm
 uv run pappascout classify <map_demo_id> --team <tunniste> --show  # kierrostyypit
 uv run pappascout classify <map_demo_id> --kaikki-joukkueet        # molemmat joukkueet
 uv run pappascout aggregate --team <tunniste>                      # report.json
+uv run pappascout report --team <tunniste>                         # Markdown-raportti
 uv run pappascout --version
 uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
@@ -359,6 +360,72 @@ kynnysarvon muuttaminen ei siis mitätöi raporttia -- se ajaa `classify`n
 uudelleen, ja se näkyy jo syötteiden tunnisteissa. `--pakota` ohittaa
 manifestin.
 
+### `report` -- `report.json`:sta luettava Markdown
+
+**Kolme nimeä, yksi asia.** Komento on `report`, vaihe ja paketti `render`, ja
+tulos menee hakemistoon `reports/`. Nimet eivät ole synonyymejä vaan kolme eri
+tasoa: `report` on se, mitä käyttäjä pyytää; `render` on se, mitä koodi tekee
+(latoo valmiit luvut tekstiksi, ei laske niitä); `reports/` on se, minne
+tulokset kertyvät. Sama jako kuin muualla putkessa: `aggregate` kirjoittaa
+`aggregates/`-hakemistoon.
+
+
+`report` lukee `aggregates/<team_key>/report.json` ja kirjoittaa
+`reports/<team_key>/<YYYY-MM-DDTHHMM>-<team_slug>.md`. **Se ei laske mitään**:
+jokainen raportissa esiintyvä luku on aggregoinnissa valmiina, ja uusi luku
+raporttiin tarkoittaa muutosta `domain.report.Report`iin. Muodon päättää
+Jinja2-malli `src/pappascout/render/report.md.j2`, valinnan
+`src/pappascout/render/view.py` -- koodi valitsee **mitä** sanotaan, malli
+**miten**.
+
+```powershell
+uv run pappascout report --team 9ac    # alkuosa riittää
+```
+
+Raportin rakenne on yhteenveto (rosteri, otanta kolmessa lokerossa, puuttuvat
+demot, luokittelemattomat kierrokset, käytetyt kynnykset) -> kartta -> puoli ->
+kierrostyyppi -> kierrosliite -> lukuohje. Jokainen havaintorivi kantaa
+otantansa muodossa `(4/7 kierroksesta)`; ilman sitä yksi kierros näyttäisi
+kuviolta.
+
+Säästökierrokset (`pistol`, `eco`, `force`, `half`) kuvataan kierroksen
+tarkkuudella: jokainen havainto kirjoitetaan. Täydet ostot (`full`) ja
+jatkoaika (`ot`) kuvataan **vain toistuvina kuvioina**, ja toistumisen raja
+luetaan raportista (`thresholds_used.thresholds.small_sample_rounds`) -- sitä
+ei keksitä renderöinnissä. Pois jätettyjen havaintojen määrä kirjoitetaan
+näkyviin, joten suodatus ei ole hiljainen.
+
+**Vanha raportti ei koskaan ylikirjoitu.** Nimessä on aikaleima minuutin
+tarkkuudella, ja saman minuutin sisällä ajetut saavat nollatäytetyn päätteen
+`-02`, `-03` (täyttö on lajittelua varten: ilman sitä listaus järjestäisi
+`-10, -100, -11, -2`). Nimi varataan atomisesti (`O_CREAT | O_EXCL`) ennen
+kirjoitusta, joten kaksi rinnakkaista ajoa ei voi valita samaa nimeä; jos
+kirjoitus epäonnistuu, varaus perutaan eikä hakemistoon jää tyhjää `.md`:tä.
+Siksi komennossa ei ole `--pakota`-valintaa eikä vaihetta koskaan ohiteta
+manifestin perusteella: käyttäjä ajaa komennon silloin kun hän haluaa
+raportin.
+
+**Joukkueen ja pelaajien nimiä ei ole.** `display_name` on toistaiseksi sama
+kuin joukkuetunniste ja rosteri on SteamID64-numeroita, koska nimet ovat
+demossa (`team_clan_name`, pelaajan `name`) muttei missään parsitussa
+taulussa. Raportti **sanoo sen ääneen** eikä toista tiivistettä nimen paikalla:
+otsikko on "Scouting-raportti -- joukkueen nimi ei tiedossa". Korjaus on
+parsinnan muutos ja oma tarinansa; se on kirjattu `deferred-work.md`:hen.
+
+Manifesti on **raporttikohtainen** (`<raportin nimi>.manifest.json`) ja
+jäljitettävyyttä varten. Yhteinen manifesti kestäisi huonosti juuri sitä
+rinnakkaisuutta, jonka varalta nimi varataan: kaksi yhtaikaista ajoa saisi
+kumpikin oman raporttinsa, mutta viimeisenä kirjoittava manifesti jäisi voimaan
+ja kuvaisi eri tiedostoa kuin se, jonka käyttäjä juuri sai.
+
+Manifestin parametrihash lasketaan **raporttimallin sisällöstä** (`sha256`),
+koska `render` ei lue yhtään asetusosiota mutta mallin muokkaaminen muuttaa
+raporttia -- sama kuvio kuin `parse`in aseluokittelun tiivisteellä.
+
+Väärä `schema_version` keskeyttää ajon eikä tuota puolikasta raporttia: versio
+luetaan raa'asta JSONista ennen mallin validointia, jotta virheilmoitus kertoo
+ajamaan `aggregate`n eikä nimeä yksittäistä kenttää.
+
 ### Miten kierrostyyppi ratkeaa
 
 Kynnykset on kalibroitu 2026-08-29 ihmisen antamaa totuustaulua vasten
@@ -483,10 +550,16 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |
 | `src/pappascout/domain/aggregate.py` | Jakaumat ja otannat puhtaina funktioina; `build_report()` |
 | `src/pappascout/stages/aggregate.py` | `aggregate`-vaihe: luokitelluista kierroksista `aggregates/<team_key>/report.json` + manifesti |
+| `src/pappascout/render/__init__.py` | `render_report()`, raporttimallin polku ja sen sisällön tiiviste |
+| `src/pappascout/render/view.py` | Raportin näkymämalli: **mitä** raportissa sanotaan (valinta, ei laskenta) |
+| `src/pappascout/render/report.md.j2` | Jinja2-malli: **miten** se sanotaan; muoto muuttuu koskematta koodiin |
+| `src/pappascout/stages/render.py` | `render`-vaihe: `report.json`:sta aikaleimattu Markdown + manifesti |
 | `src/pappascout/cli/` | Typer-komennot |
 
-Riippuvuusnuoli on `cli -> stages -> {domain, adapters, archive}` ja
-`adapters -> domain`; sääntöä valvoo `tests/test_layering.py`.
+Riippuvuusnuoli on `cli -> stages -> {domain, adapters, archive, render}`,
+`render -> domain` ja `adapters -> domain`; sääntöä valvoo
+`tests/test_layering.py`. `render` ei näe arkistoa eikä adaptereita, joten
+"render ei laske mitään" on rakenteellinen lupaus eikä tapa.
 
 Koodirepo on tarkoituksella OneDriven ulkopuolella (`C:\Users\vpu\dev\pappascout`)
 ja synkronoituu koneiden välillä GitHubin kautta -- git ja OneDrive eivät toimi

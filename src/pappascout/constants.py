@@ -30,6 +30,8 @@ __all__ = [
     "SAMPLE_BUCKETS",
     "SampleBucketName",
     "SAMPLE_BUCKET_FI",
+    "UTILITY_BUCKET_ALL",
+    "UTILITY_BUCKET_UNKNOWN",
     "UNCLASSIFIED",
     "KNIVES",
     "DEFAULT_PISTOLS",
@@ -91,6 +93,22 @@ SAMPLE_BUCKET_FI: Final[dict[str, str]] = {
     "other": "muut",
     "unknown": "tuntematon",
 }
+
+#: Utilityn aikaikkunan kaksi **erikoisnimeä**, jotka eivät ole aikavälejä.
+#:
+#: ``UTILITY_BUCKET_ALL``
+#:     Aikaikkunat on otettu pois käytöstä (``utility_seconds_buckets`` on
+#:     tyhjä), joten lokeroita on yksi.
+#: ``UTILITY_BUCKET_UNKNOWN``
+#:     Heiton hetkeä ei saatu: ankkuri puuttui, aika oli negatiivinen tai se
+#:     ei ollut äärellinen luku. Puuttuva aika ei putoa pois -- se saa oman
+#:     lokeronsa, jottei se sulaudu lokeroon ``0-5`` ja näytä "instalta".
+#:
+#: Nimet ovat täällä, koska ne kirjoitetaan ``aggregate``ssa ja luetaan
+#: ``render``issä. Kaksi kopiota erkanisi: nimen muuttaminen tuottaisi
+#: raporttiin hiljaa rivin ``" kaikki s"`` sen sijaan että mikään kaatuisi.
+UTILITY_BUCKET_ALL: Final[str] = "kaikki"
+UTILITY_BUCKET_UNKNOWN: Final[str] = "tuntematon"
 
 #: Yksikön (Match / MapDemo) käsittelytila (AD-9).
 UNIT_STATUSES: Final[tuple[str, ...]] = (

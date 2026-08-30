@@ -60,7 +60,13 @@ from typing import Any
 
 import polars as pl
 
-from pappascout.constants import ROUND_TYPES, SAMPLE_BUCKETS, SIDES
+from pappascout.constants import (
+    ROUND_TYPES,
+    SAMPLE_BUCKETS,
+    SIDES,
+    UTILITY_BUCKET_ALL,
+    UTILITY_BUCKET_UNKNOWN,
+)
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
 from pappascout.domain.report import (
     AreaDistribution,
@@ -149,7 +155,7 @@ def bucket_labels(edges: Sequence[float]) -> list[str]:
     kelvollinen valinta eikä sen tarvitse olla koodimuutos.
     """
     if not edges:
-        return ["kaikki"]
+        return [UTILITY_BUCKET_ALL]
     # Tarkistus tehdään RAJOJEN nimistä eikä valmiista lokeroista: kaksi
     # lähekkäistä rajaa tuottaa lokeron "5-5", joka on eri merkkijono kuin
     # naapurinsa muttei tarkoita mitään. Vasta kolmas raja tuottaisi kaksi
@@ -199,9 +205,9 @@ def seconds_bucket(t_s: float | None, edges: Sequence[float]) -> str:
     hetki sulautuisi tunnettuihin heti kun aikaikkunat poistetaan käytöstä.
     """
     if t_s is None or not isfinite(t_s) or t_s < 0:
-        return "tuntematon"
+        return UTILITY_BUCKET_UNKNOWN
     if not edges:
-        return "kaikki"
+        return UTILITY_BUCKET_ALL
     labels = bucket_labels(edges)
     for index, edge in enumerate(edges):
         if t_s < edge:
