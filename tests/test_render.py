@@ -70,10 +70,17 @@ from pappascout.render.view import (
     MAX_DEATH_LINES,
     PATTERN_ROUND_TYPES,
     ROUND_TYPE_ORDER,
+    TRACEABILITY_HEADING,
     UNKNOWN_AREA,
+    UNNAMED_PLAYER,
     Claim,
     pattern_min_rounds,
 )
+
+# Yksityinen, mutta tuotu sisään tarkoituksella: jäljitettävyysluvun selitys
+# on vakio, ja katkelman kopioiminen testiin tekisi siitä kaksi totuutta --
+# sama peruste kuin TEAM_SLUGilla ja TRACEABILITY_HEADINGilla.
+from pappascout.render.view import _TRACEABILITY_NOTE
 
 TEAM_KEY = "aaaaaaaaaaaaaaaa"
 TEAM_NAME = "MatureMayhem"
@@ -83,18 +90,74 @@ TEAM_NAME = "MatureMayhem"
 #: sen täältä, jottei sääntö ole kahdessa paikassa eri muodossa.
 TEAM_SLUG = "maturemayhem"
 
-#: Rosteri, jossa jokaisella on nimi ja SteamID64 rinnakkain. Molemmat, aina:
-#: nimi on luettavuutta varten, tunniste on ainoa jäljitettävä arvo.
+#: Rosteri, jossa jokaisella on nimi ja SteamID64. Runko puhuu nimillä ja
+#: jäljitettävyysluku kantaa tunnisteet (Story 2.12), joten kiinnikkeessä on
+#: oltava molemmat -- pelkillä nimillä liitteen väitteitä ei voisi kirjoittaa.
 DEFAULT_ROSTER = [
     RosterEntry(player_id=str(n), display_name=f"pelaaja{n}")
     for n in range(1, 6)
 ]
+
+#: Rosteri, jonka tunnisteet ovat SteamID64:n **muotoisia mutta keksittyjä**.
+#:
+#: Oletusrosterin ``1``..``5`` eivät kelpaa siihen väitteeseen, että rungossa
+#: ei esiinny yhtään tunnistetta: ne eivät täsmää :data:`IDENTIFIER_SHAPE`en,
+#: joten väite menisi läpi myös silloin kun numerot ovat yhä rungossa. Muoto
+#: on siis se, mitä tämä kiinnike tuo -- ei kenenkään oikea tunniste.
+#:
+#: **Oikeat tunnisteet eivät kuulu tähän tiedostoon.** Arkisto ei ole gitissä
+#: mutta testit ovat, ja aidon pelaajanimen ja SteamID64:n pari on
+#: henkilötieto, jonka committoiminen ei tuo yhtään väitettä lisää: mittaus
+#: koskee muotoa (``7656119`` + 10 numeroa), eikä muoto tarvitse ketään
+#: oikeaa.
+STEAM_ROSTER = [
+    RosterEntry(
+        player_id=f"765611900000000{number:02d}", display_name=f"pelaaja{number}"
+    )
+    for number in range(1, 8)
+]
+
+#: Tunnisteen **hahmo**: 16 merkin tiiviste tai 17 numeron SteamID64.
+#:
+#: Hahmo eikä luettelo, jotta väite "rungossa ei ole tunnisteita" ei nojaa
+#: siihen, mitkä merkkijonot testi sattuu tuntemaan. Kolme laajennusta
+#: spec-2-12:n käsintarkistuksen ``grep``iin nähden, jokainen omasta syystään:
+#: isot kirjaimet mukaan (tiiviste voi tulla eteen kumpaa tahansa kirjainkokoa
+#: käyttävästä lähteestä), ``7656119``-etuliite pois (SteamID64:n muoto on 17
+#: numeroa, eikä pelaaja ole vähemmän pelaaja koska hänen tilinsä on uudempi)
+#: ja rajaus pois hahmon reunoilta (pidempi heksajono on yhä tunniste).
+#:
+#: **Demotunnisteita hahmo ei tunnista eikä voi tunnistaa.**
+#: ``ANCIENT_vs_RCAVE_VETERANS`` ei muistuta tiivistettä, ja FACEIT-tunnisteen
+#: pisimmät heksajonot ovat 12 merkkiä. Ne todennetaan **kirjaimellisesti**:
+#: testi tietää fikstuurinsa demotunnisteet ja väittää niistä nimeltä.
+IDENTIFIER_SHAPE = re.compile(r"[0-9a-fA-F]{16}|[0-9]{17}")
+
+#: Markdownin koodijakso. Tarvitaan, koska kierrosliitteen poikkeus on
+#: **kapeampi kuin luku**: tunniste saa olla polussa, ja polku on koodijakso.
+CODE_SPAN = re.compile(r"`[^`]*`")
+
+#: FACEIT-tunniste, jossa ei ole kartan nimeä (Story 2.11). Kun kartan nimeä ei
+#: tunnisteta, ``map_name`` **on** tämä merkkijono -- eli karttaluvun otsikko
+#: on tunniste, ja se on rungon kolmas poikkeus.
+FACEIT_DEMO_ID = "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1"
+
+#: Demo, joka ei päässyt otantaan. Tunniste on rungossa tarkoituksella: syy
+#: sisältää komennon, jonka lukija kopioi.
+MISSING_DEMO_ID = "ANCIENT_vs_RCAVE_VETERANS"
+
 DEMO_ID = "Ancient_vs_kaljukostaja"
 
 #: Kynnys, jonka raportti kantaa mukanaan. Sama luku kuin
 #: ``settings.toml``issa; testit lukevat sen raportista, eivät asetuksista --
 #: juuri kuten ``render`` itse.
 SMALL_SAMPLE = 3
+
+#: Kokoonpanojen liittämisen kynnys (``[thresholds].team_identity_min_common``,
+#: AD-6). Samassa oletuskiinnikkeessä kuin :data:`SMALL_SAMPLE`, koska
+#: kokoonpanorivi kirjoittaa sen näkyviin samalla tavalla kuin pienen otannan
+#: rivi omansa -- ja ilman sitä kiinnike ei näyttäisi oikealta raportilta.
+MIN_COMMON = 3
 
 #: Kierroslistojen polut, jotka vaihe antaisi. Absoluuttisia, koska raportti
 #: liitetään Discordiin eikä lukija tiedä missä arkiston juuri on.
@@ -303,6 +366,7 @@ def report(
     display_name_source: str | None = None,
     name_alternatives: list[str] | None = None,
     roster: list[RosterEntry] | None = None,
+    lineup_keys: list[str] | None = None,
     generated_at: datetime | None = None,
 ) -> Report:
     entries = maps or []
@@ -326,13 +390,18 @@ def report(
             display_name=display_name,
             display_name_source=source,
             display_name_alternatives=list(name_alternatives or []),
-            lineup_keys=[TEAM_KEY],
+            lineup_keys=list(lineup_keys or [TEAM_KEY]),
             roster=list(roster if roster is not None else DEFAULT_ROSTER),
             roster_source="lineups",
         ),
         sample=sample(rounds, demos=demos),
         thresholds_used=(
-            {"thresholds": {"small_sample_rounds": SMALL_SAMPLE}}
+            {
+                "thresholds": {
+                    "small_sample_rounds": SMALL_SAMPLE,
+                    "team_identity_min_common": MIN_COMMON,
+                }
+            }
             if thresholds_used is None
             else thresholds_used
         ),
@@ -438,16 +507,101 @@ def default_map(rounds: int = 8) -> MapReport:
     )
 
 
+def demo_map(
+    demo_ids: list[str],
+    *,
+    name: str = "de_nuke",
+    source: str = "map_demo_id",
+) -> MapReport:
+    """Kartta, jonka **demotunnisteet** ovat testin kohde.
+
+    Sisältö on tarkoituksella pienin mahdollinen: näitä testejä kiinnostaa
+    kartan otsikko ja jäljitettävyysluvun karttarivi, eivät havaintorivit.
+    """
+    return map_report(
+        name,
+        [side("T", [round_type("eco", 2)])],
+        demo_ids=demo_ids,
+        source=source,
+    )
+
+
+def unknown_map(demo_id: str = FACEIT_DEMO_ID) -> MapReport:
+    """Kartta, jonka nimeä ei tunnistettu: **nimi on demotunniste**.
+
+    Näin ``aggregate`` sen rakentaa (ks.
+    :class:`~pappascout.domain.report.MapReport`): ilman havaintoa ja ilman
+    poolista päättelyä nimi on ``map_demo_id`` itse ja lähde ``unknown``.
+    Kiinnike ei siis kuvittele tilannetta vaan toistaa sen.
+    """
+    return demo_map([demo_id], name=demo_id, source="unknown")
+
+
+def missing_demo(demo_id: str = MISSING_DEMO_ID) -> MissingDemo:
+    """Puuttuva demo syynä, joka sisältää ajettavan komennon.
+
+    Sanamuoto on ``aggregate``n oma (``stages/aggregate.py``): juuri se
+    komento on syy, jonka takia tunniste jää rungon riville.
+    """
+    return MissingDemo(
+        match=demo_id,
+        reason=(
+            "Kokoonpanotaulua (lineups.parquet) ei saatu luettua, joten ei "
+            "tiedetä kuuluuko demo tälle joukkueelle. Aja parsinta uudelleen: "
+            f"uv run pappascout parse {demo_id}"
+        ),
+    )
+
+
 def render(entry: Report) -> str:
     """Raportti kierroslistojen polkuineen -- kuten vaihe sen kirjoittaa."""
     return render_report(entry, round_list_paths=ROUND_LISTS)
+
+
+def report_sections(text: str) -> list[tuple[str, str]]:
+    """Raportti luvuittain: ``(otsikko, sisältö ilman otsikkoriviä)``.
+
+    Otsikko ja sisältö erikseen, koska tunnisteen poikkeukset osuvat eri
+    kohtiin: karttaluvun **otsikko** voi olla demotunniste (kun kartan nimeä
+    ei tunnistettu), mutta sen sisällön on silti oltava puhdas. Yhtenä
+    merkkijonona kumpikaan väite ei olisi tehtävissä.
+
+    Ensimmäinen alkio on dokumentin alku ennen yhtäkään ``## ``-otsikkoa, ja
+    sen otsikko on tyhjä merkkijono: siinä on raportin ``# ``-otsikko, joka on
+    yhtä lailla runkoa.
+    """
+    sections: list[tuple[str, list[str]]] = [("", [])]
+    for line in text.splitlines():
+        if line.startswith("## "):
+            sections.append((line[3:], []))
+        else:
+            sections[-1][1].append(line)
+    return [(heading, "\n".join(lines)) for heading, lines in sections]
+
+
+def section_text(text: str, heading: str) -> str:
+    """Yhden luvun sisältö. Puuttuva luku on virhe eikä tyhjä merkkijono."""
+    for name, content in report_sections(text):
+        if name == heading:
+            return content
+    raise AssertionError(f"raportissa ei ole lukua {heading!r}")
+
+
+def summary_text(text: str) -> str:
+    """Yhteenvedon sisältö -- se osa, jonka lukija lukee ensimmäisenä."""
+    return section_text(text, "Yhteenveto")
+
+
+def traceability_text(text: str) -> str:
+    """Jäljitettävyysluvun sisältö."""
+    return section_text(text, TRACEABILITY_HEADING)
 
 
 # --- Perusmuoto -----------------------------------------------------------------
 
 
 def test_report_has_the_structure_the_spec_asks_for() -> None:
-    """Otsikko, yhteenveto, kartta, puoli, kierrostyyppi, liite, lukuohje."""
+    """Otsikko, yhteenveto, kartta, puoli, kierrostyyppi, kolme viimeistä lukua."""
     text = render(report([pistol_map()]))
     for expected in (
         f"# {TEAM_NAME} -- scouting-raportti",
@@ -458,6 +612,7 @@ def test_report_has_the_structure_the_spec_asks_for() -> None:
         "**Pistooli** (1 kierros)",
         "## Kierrosliite",
         "## Lukuohje",
+        f"## {TRACEABILITY_HEADING}",
     ):
         assert expected in text, expected
 
@@ -1383,14 +1538,24 @@ def test_a_team_without_a_name_says_so_instead_of_repeating_the_hash() -> None:
     """Lähde ``team_key`` tarkoittaa, ettei nimeä havaittu.
 
     Otsikkoon ei kirjoiteta tiivistettä nimen paikalle: se lukisi kuin joukkue
-    olisi nimeltään niin. Tunniste on yhteenvedossa, jossa se on tunniste.
+    olisi nimeltään niin. Story 2.12: tiivistettä ei kirjoiteta myöskään
+    yhteenvedon riville -- runko kertoo puuttumisen **syyn kanssa** ja sanoo
+    mistä tunniste löytyy, ja tunniste itse on jäljitettävyysluvussa.
     """
     entry = report(
         [pistol_map()], display_name=TEAM_KEY, display_name_source="team_key"
     )
     text = render(entry)
+    summary = summary_text(text)
+
     assert text.startswith("# Scouting-raportti -- joukkueen nimi ei tiedossa")
-    assert "nimi ei ole tiedossa; tunniste " + TEAM_KEY in text
+    assert "nimi ei ole tiedossa." in summary
+    assert "team_clan_name" in summary
+    assert TEAM_KEY not in summary
+    # Rivi kertoo myös mistä tunniste löytyy: nimettömältä joukkueelta se on
+    # ainoa, mitä lukijalla on.
+    assert TRACEABILITY_HEADING in summary
+    assert f"**Joukkueen tunniste:** `{TEAM_KEY}`" in traceability_text(text)
 
 
 def test_an_observed_name_that_looks_like_the_key_is_still_a_name() -> None:
@@ -1407,7 +1572,7 @@ def test_an_observed_name_that_looks_like_the_key_is_still_a_name() -> None:
     text = render(entry)
     assert text.startswith(f"# {TEAM_KEY} -- scouting-raportti")
     assert "nimi ei ole tiedossa" not in text
-    assert f"{TEAM_KEY} (tunniste {TEAM_KEY})" in text
+    assert f"- **Joukkue:** {TEAM_KEY}" in text
 
 
 def test_a_name_with_markdown_characters_cannot_break_the_report() -> None:
@@ -1428,43 +1593,71 @@ def test_a_name_with_markdown_characters_cannot_break_the_report() -> None:
 
     assert text.startswith("# " + chr(92) + "*" + chr(92) + "|LOL" + chr(92) + "|" + chr(92) + "*")
     assert chr(92) + "<b" + chr(92) + ">hax" in text
-    # Rivinvaihto ja peräkkäiset välilyönnit siivotaan näkyvästi.
-    assert "a" + chr(92) + "_b c d (1)" in text
+    # Rivinvaihto ja peräkkäiset välilyönnit siivotaan näkyvästi. Nimi on
+    # yhteenvedossa yksinään ja jäljitettävyysluvussa tunnisteensa nimiönä
+    # järjestysluvun jälkeen, joten sama escapetus on todennettava molemmista.
+    assert "a" + chr(92) + "_b c d" in summary_text(text)
+    assert "**1. a" + chr(92) + "_b c d:** `1`" in traceability_text(text)
     # Malli itse säilyttää havainnon sellaisenaan.
     assert entry.team.display_name == "*|LOL|*"
 
 
 def test_a_known_team_name_is_used_in_the_title() -> None:
+    """Nimi otsikkoon ja yhteenvetoon **ilman tunnistetta** (Story 2.12)."""
     text = render(report([pistol_map()]))
+
     assert text.startswith(f"# {TEAM_NAME} -- scouting-raportti")
-    assert f"{TEAM_NAME} (tunniste {TEAM_KEY})" in text
+    assert f"- **Joukkue:** {TEAM_NAME}" in summary_text(text)
+    assert TEAM_KEY not in summary_text(text)
+    assert f"**Joukkueen tunniste:** `{TEAM_KEY}`" in traceability_text(text)
 
 
-def test_the_roster_shows_the_name_and_the_steamid_side_by_side() -> None:
-    """Nimi ja tunniste rinnakkain, kumpikaan ei korvaa toista (Story 2.6).
+def test_the_roster_speaks_names_and_the_chapter_carries_the_ids() -> None:
+    """Yhteenveto nimillä, jäljitettävyysluku pareilla nimi -> SteamID64.
 
-    Nimi on luettavuutta varten, SteamID64 on ainoa jäljitettävä arvo.
-    Pelkkä nimi tekisi rosterista tarkistuskelvottoman, pelkkä tunniste
-    lukukelvottoman.
+    Story 2.6 kirjoitti molemmat samalle riville. Peruste ei muuttunut
+    vääräksi -- tunniste on yhä ainoa jäljitettävä arvo -- mutta paikka
+    muuttui: seitsemän 17-numeroista lukua nimien rinnalla tekee rungon
+    rivistä luettelon, jota ottelua edeltävässä kiireessä ei lueta.
     """
-    text = render(report([pistol_map()]))
-    assert "nimi ja SteamID64 rinnakkain" in text
-    for number in range(1, 6):
-        assert f"pelaaja{number} ({number})" in text
+    text = render(report([pistol_map()], roster=STEAM_ROSTER))
+    summary = summary_text(text)
+    traceability = traceability_text(text)
+
+    expected = f"- **Rosteri:** {len(STEAM_ROSTER)} pelaajaa "
+    assert expected + "(havaittu demoista): " in summary
+    for index, player in enumerate(STEAM_ROSTER, start=1):
+        assert player.display_name in summary
+        assert player.player_id not in summary
+        assert (
+            f"**{index}. {player.display_name}:** `{player.player_id}`"
+            in traceability
+        )
 
 
 def test_a_player_without_a_name_keeps_the_row_and_says_the_name_is_missing() -> None:
-    """Rivi kirjoitetaan silti: hiljaa pudotettu pelaaja kutistaisi rosterin."""
+    """Nimetön pelaaja ei katoa: lukumäärä täsmää ja tunniste on omassa luvussaan.
+
+    Kolme väitettä yhdessä, koska ne ovat sama sääntö: hiljaa pudotettu
+    pelaaja kutistaisi rosterin, nimetön paikka rivillä tekisi hänestä
+    nimettömän vahingossa, ja ilman jäljitettävyysluvun riviä hänen
+    tunnisteensa katoaisi raportista kokonaan.
+    """
+    named, nameless = STEAM_ROSTER[0], STEAM_ROSTER[1]
     entry = report(
         [pistol_map()],
-        roster=[
-            RosterEntry(player_id="1", display_name="pelaaja1"),
-            RosterEntry(player_id="2"),
-        ],
+        roster=[named, RosterEntry(player_id=nameless.player_id)],
     )
     text = render(entry)
-    assert "pelaaja1 (1)" in text
-    assert "2 (nimi ei luettavissa)" in text
+    summary = summary_text(text)
+
+    assert "- **Rosteri:** 2 pelaajaa (havaittu demoista): " in summary
+    assert f"{named.display_name}, {UNNAMED_PLAYER}" in summary
+    assert nameless.player_id not in summary
+    assert (
+        f"**2. {UNNAMED_PLAYER}:** `{nameless.player_id}`"
+        in traceability_text(text)
+    )
 
 
 def test_conflicting_team_names_are_listed_instead_of_disappearing() -> None:
@@ -1570,6 +1763,455 @@ def test_the_view_names_the_demos_but_not_the_paths() -> None:
         DEMO_ID,
         "inferno_vs_ryhmarama",
     ]
+
+
+# --- Tekninen jäljitettävyys (Story 2.12) ---------------------------------------
+
+#: Neljä kokoonpanotunnistetta, jotka liitettiin samaksi joukkueeksi.
+#:
+#: Muoto on mitattu RCAVE-raportista 31.8. (16 merkin tiiviste, neljä
+#: kokoonpanoa yhdellä joukkueella); arvot ovat keksittyjä samasta syystä kuin
+#: :data:`STEAM_ROSTER`in. **Viimeinen on tarkoituksella** :data:`TEAM_KEY`:
+#: ``lineups_of_same_team`` palauttaa kohteen aina mukana, joten oikeassa
+#: raportissa joukkueen oma kokoonpano on listalla -- ja juuri se tekee
+#: rungon lukumäärästä helposti yhden liian suuren.
+LINEUP_KEYS = ["0f1e2d3c4b5a6978", "1a2b3c4d5e6f7081", "2b3c4d5e6f708192", TEAM_KEY]
+
+
+def crowded_report() -> Report:
+    """Raportti, jossa on **jokainen** tunnisteen lähde ja jokainen poikkeus.
+
+    Neljä liitettyä kokoonpanoa, seitsemän pelaajaa SteamID64-muotoisilla
+    tunnisteilla, kaksi nimettyä karttaa, yksi kartta jonka nimeä ei
+    tunnistettu, ja yksi puuttuva demo. Ilman jokaista näistä puhtausväite
+    olisi tosi vain siitä, mitä fikstuuri sattuu sisältämään.
+    """
+    return report(
+        [pistol_map(), default_map(), unknown_map()],
+        roster=STEAM_ROSTER,
+        lineup_keys=LINEUP_KEYS,
+        missing_demos=[missing_demo()],
+    )
+
+
+def literal_identifiers(entry: Report) -> list[str]:
+    """Fikstuurin tunnisteet **nimeltä**, niin kuin ne raportissa esiintyisivät.
+
+    Hahmo (:data:`IDENTIFIER_SHAPE`) ei tunnista demotunnisteita eikä voi:
+    ``ANCIENT_vs_RCAVE_VETERANS`` ei muistuta tiivistettä. Ne on siis
+    lueteltava, ja luettelo johdetaan raportista eikä kirjoiteta käsin --
+    käsin kirjoitettu jäisi jälkeen heti kun fikstuuri saa uuden demon.
+    """
+    names = [entry.team.key, *entry.team.lineup_keys]
+    names += [row.player_id for row in entry.team.roster]
+    for map_report in entry.maps:
+        names += map_report.map_demo_ids
+    names += [missing.match for missing in entry.missing_demos]
+    return sorted(set(names))
+
+
+def test_no_identifier_appears_in_the_body_outside_the_three_exceptions() -> None:
+    """Hyväksymiskriteeri kokonaisena, poikkeukset mukaan luettuina.
+
+    Väite tehdään **luvuittain** eikä yhtenä merkkijonona, ja jokainen luku
+    joko tarkistetaan tai vapautetaan nimetyllä säännöllä. Aiempi versio tästä
+    testistä leikkasi kierrosliitteen pois ennen tarkistusta, eli se ei voinut
+    nähdä vuotoa juuri siitä paikasta, jossa tunnisteita yhä on -- ja sen
+    sääntö oli siksi näkymätön.
+
+    Kolme poikkeusta, ja kumpi sääntö vapauttaa minkä:
+
+    1. ``Kierrosliite`` -- tunniste on **polussa**, ja polku on koodijakso.
+       Poikkeus on siis kapeampi kuin luku: koodijaksojen ulkopuolella
+       kierrosliite tarkistetaan kuten mikä tahansa runko.
+    2. ``Puuttuvat demot`` -- tunniste on osa komentoa, jonka lukija kopioi,
+       eikä komento toimi ilman sitä. Koko luku vapautuu.
+    3. Tunnistamattoman kartan **otsikko** -- silloin ``map_name`` *on*
+       ``map_demo_id``, eli tunniste on kartan ainoa nimi. Vain otsikko
+       vapautuu; luvun sisällön on oltava puhdas.
+    """
+    entry = crowded_report()
+    text = render(entry)
+    view = build_view(entry, round_list_paths=ROUND_LISTS)
+    unnamed_headings = {m.heading for m in view.maps if m.name_unknown}
+    literals = literal_identifiers(entry)
+
+    def assert_clean(what: str, where: str) -> None:
+        assert IDENTIFIER_SHAPE.search(what) is None, (
+            where,
+            IDENTIFIER_SHAPE.findall(what),
+        )
+        for literal in literals:
+            assert literal not in what, (where, literal)
+
+    checked_headings = 0
+    for heading, content in report_sections(text):
+        if heading not in unnamed_headings:  # poikkeus 3 koskee vain otsikkoa
+            assert_clean(heading, f"otsikko {heading!r}")
+            checked_headings += 1
+        if heading in ("Puuttuvat demot", TRACEABILITY_HEADING):
+            continue  # poikkeus 2, ja luku joka on tunnisteita varten
+        if heading == "Kierrosliite":
+            content = CODE_SPAN.sub("", content)  # poikkeus 1 on kapea
+        assert_clean(content, f"luku {heading!r}")
+
+    # Fikstuuri kattaa poikkeuksen 3 -- ilman tätä silmukka olisi voinut
+    # ohittaa sen kertaakaan kohtaamatta.
+    assert len(unnamed_headings) == 1
+    # Tarkka luku eikä alaraja: silmukka, joka ei tarkista mitään, menisi
+    # alarajalla läpi. Yhdeksän lukua, joista tunnistamattoman kartan otsikko
+    # on vapautettu.
+    assert checked_headings == 8
+
+
+def test_every_identifier_the_body_dropped_is_in_the_chapter() -> None:
+    """Poistaminen on **siirto**: mikään ei putoa matkalla.
+
+    Puuttuvan demon tunniste ei ole luvussa eikä kuulukaan: se ei ole
+    yhdenkään karttahaaran demo vaan demo, joka jäi otannan ulkopuolelle, ja
+    se on rungossa komentonsa kanssa. Väite luettelee siis tarkalleen ne
+    lähteet, jotka rungosta poistuivat.
+    """
+    entry = crowded_report()
+    traceability = traceability_text(render(entry))
+
+    moved = [entry.team.key, *entry.team.lineup_keys]
+    moved += [row.player_id for row in entry.team.roster]
+    for map_report in entry.maps:
+        moved += map_report.map_demo_ids
+    for identifier in moved:
+        assert identifier in traceability, identifier
+    assert missing_demo().match not in traceability
+
+
+def test_the_exceptions_are_not_vacuous() -> None:
+    """Kolme poikkeusta ovat todellisia, eivät varmuuden vuoksi kirjoitettuja.
+
+    Ilman tätä puhtaustesti voisi mennä läpi siksi, ettei vapautetuissa
+    luvuissa ole yhtään tunnistetta -- ja lukuohjeen lause poikkeuksista olisi
+    väärä toiseen suuntaan.
+    """
+    entry = crowded_report()
+    text = render(entry)
+
+    paths = section_text(text, "Kierrosliite")
+    assert TEAM_KEY in paths
+    assert IDENTIFIER_SHAPE.search(CODE_SPAN.sub("", paths)) is None
+
+    missing = section_text(text, "Puuttuvat demot")
+    assert missing_demo().match in missing
+    assert f"uv run pappascout parse {missing_demo().match}" in missing
+
+    headings = [heading for heading, _ in report_sections(text)]
+    assert FACEIT_DEMO_ID in " ".join(headings)
+
+
+def test_the_legend_names_all_three_exceptions() -> None:
+    """Raportti ei saa väittää itsestään enemmän kuin on totta.
+
+    Lukuohje on se paikka, jossa raportti kertoo omat sääntönsä. Jos se sanoo
+    "runko puhuu vain nimillä", kolme lukua sen yläpuolella tekevät lauseesta
+    valheen.
+    """
+    legend = section_text(render(crowded_report()), "Lukuohje")
+
+    assert TRACEABILITY_HEADING in legend
+    assert "kierrosliitteen polut" in legend
+    assert "puuttuvan demon rivi" in legend
+    assert "nimeä ei tunnistettu" in legend
+    assert "vain nimillä" not in legend
+
+
+def test_the_chapter_note_separates_identifiers_from_thresholds() -> None:
+    """Kynnys ei ole tunniste, ja luvun selitys kertoo miksi.
+
+    Kynnykset täyttävät kirjaimellisesti saman kriteerin kuin tunnisteet
+    (kone tarvitsee, ihminen ei), mutta ero on aito: kynnys kertoo **miten
+    luku laskettiin**, joten väitettä ei voi arvioida ilman sitä. Ilman tätä
+    lausetta seuraava lukija siirtäisi nekin.
+    """
+    traceability = traceability_text(render(report([pistol_map()])))
+
+    assert _TRACEABILITY_NOTE in traceability
+    assert "Kynnykset" in _TRACEABILITY_NOTE
+    assert "miten luku laskettiin" in _TRACEABILITY_NOTE
+
+
+def test_the_traceability_chapter_is_the_last_one() -> None:
+    """Tunnisteet lakkaavat olemasta ensimmäinen asia, jonka lukija näkee.
+
+    Luku on viimeisenä eikä missä tahansa: lukuohje kertoo mistä tunnisteet
+    löytyvät, ja lukua ennen sitä ei voi olla -- silloin tunnisteet olisivat
+    taas rungon välissä.
+    """
+    headings = [heading for heading, _ in report_sections(render(crowded_report()))]
+
+    assert headings[-3:] == ["Kierrosliite", "Lukuohje", TRACEABILITY_HEADING]
+
+
+def test_the_chapter_name_is_the_same_in_the_template_and_in_the_code() -> None:
+    """Otsikon omistaa malli, mutta raportin oma teksti viittaa siihen.
+
+    Ilman tätä väitettä luvun uudelleennimeäminen jättäisi yhteenvetoon ja
+    lukuohjeeseen kaksi viittausta lukuun, jota ei ole -- eikä mikään testi
+    huomaisi, koska molemmat viittaukset lukevat saman vakion.
+    """
+    assert "## " + TRACEABILITY_HEADING in template_text()
+
+
+def test_the_roster_rows_are_in_the_same_order_as_the_names_in_the_body() -> None:
+    """Järjestyslupaus, jonka kaksi docstringia antavat, on tarkistettavissa.
+
+    Rivin nimiö on ``<järjestysluku>. <sama merkkijono kuin rungossa>``, joten
+    lukija löytää pelaajansa laskemalla. Ilman tätä testiä lupaus olisi
+    pelkkä lause: silmukoiden järjestyksen vaihtaminen ei kaataisi mitään.
+    """
+    roster = [
+        RosterEntry(player_id="76561190000000101", display_name="cee"),
+        RosterEntry(player_id="76561190000000102"),
+        RosterEntry(player_id="76561190000000103", display_name="aaa"),
+    ]
+    text = render(report([pistol_map()], roster=roster))
+
+    roster_row = next(
+        line
+        for line in summary_text(text).splitlines()
+        if line.startswith("- **Rosteri:**")
+    )
+    listed = roster_row.split("(havaittu demoista): ")[1].split(", ")
+    labels = [
+        line.split("**")[1].rstrip(":")
+        for line in traceability_text(text).splitlines()
+        if line.startswith("- **") and line[4].isdigit()
+    ]
+
+    assert listed == ["cee", UNNAMED_PLAYER, "aaa"]
+    assert labels == [f"{n}. {name}" for n, name in enumerate(listed, start=1)]
+
+
+def test_two_players_without_a_name_get_two_distinguishable_rows() -> None:
+    """Nimi ei ole yksikäsitteinen avain, joten nimiö ei voi olla pelkkä nimi.
+
+    Kaksi nimetöntä pelaajaa tuottaisivat ilman järjestyslukua kaksi
+    identtistä riviä, ja lukija ei voisi sanoa kumpi SteamID64 on kumman.
+    Sama koskee kahta samannimistä, mikä on CS2:ssa tavallista.
+    """
+    roster = [
+        RosterEntry(player_id="76561190000000201"),
+        RosterEntry(player_id="76561190000000202"),
+        RosterEntry(player_id="76561190000000203", display_name="kaksoset"),
+        RosterEntry(player_id="76561190000000204", display_name="kaksoset"),
+    ]
+    traceability = traceability_text(render(report([pistol_map()], roster=roster)))
+
+    for index, player in enumerate(roster, start=1):
+        name = player.display_name or UNNAMED_PLAYER
+        assert f"- **{index}. {name}:** `{player.player_id}`" in traceability
+    rows = [line for line in traceability.splitlines() if line.startswith("- **")]
+    assert len(rows) == len(set(rows))
+
+
+def test_several_lineups_are_a_checkable_count_with_its_threshold() -> None:
+    """I/O-matriisi: neljä ``lineup_keys``.
+
+    Rivin luku on **tarkistettavissa**: ``lineup_keys`` sisältää kohteen oman
+    kokoonpanon, joten pelkkä lukumäärä lukisi kuin liitettyjä olisi yksi
+    enemmän kuin oli. Rivi kertoo liitettyjen määrän ja kokonaismäärän, ja
+    kynnyksen jolla päätös tehtiin -- kuten naapuririvi kertoo omansa.
+    """
+    entry = report([pistol_map()], lineup_keys=LINEUP_KEYS)
+    text = render(entry)
+    summary = summary_text(text)
+    traceability = traceability_text(text)
+
+    assert (
+        "- **Kokoonpanot:** 3 muuta kokoonpanoa liitetty samaksi joukkueeksi "
+        f"vähintään {MIN_COMMON} yhteisen pelaajan perusteella; yhteensä 4 "
+        f"kokoonpanoa, tunnisteet luvussa {TRACEABILITY_HEADING}" in summary
+    )
+    for key in LINEUP_KEYS:
+        assert key not in summary
+        assert "`" + key + "`" in traceability
+    assert "**Kokoonpanotunnisteet:**" in traceability
+
+
+def test_the_lineup_row_says_the_rule_in_words_when_the_threshold_is_absent(
+) -> None:
+    """Puuttuva kynnys ei saa saada renderöintiä keksimään lukua.
+
+    Sama sääntö kuin kuvion rajalla: arvo luetaan raportista, ja jos sitä ei
+    ole, rivi kertoo perusteen sanoina. Kovakoodattu kynnys olisi laskentaa
+    väärässä kerroksessa.
+    """
+    entry = report(
+        [pistol_map()], lineup_keys=LINEUP_KEYS, thresholds_used={"thresholds": {}}
+    )
+    summary = summary_text(render(entry))
+
+    assert (
+        "- **Kokoonpanot:** 3 muuta kokoonpanoa liitetty samaksi joukkueeksi "
+        "yhteisten pelaajien perusteella; yhteensä 4 kokoonpanoa, tunnisteet "
+        f"luvussa {TRACEABILITY_HEADING}" in summary
+    )
+
+
+def test_a_single_lineup_is_the_team_key_and_is_not_printed_twice() -> None:
+    """I/O-matriisi: yksi ``lineup_key``.
+
+    Rungossa ei ole riviä lainkaan -- yhden kokoonpanon "liittäminen samaksi
+    joukkueeksi" ei ole havainto. Jäljitettävyysluvussa ei ole omaa riviä
+    myöskään, mutta eri syystä kuin aiemmin luultiin: ``team.key`` **on** se
+    kokoonpanotunniste, joten oma rivi toistaisi joukkuerivin sanasta sanaan.
+    Tunniste ei siis katoa, ja joukkuerivi sanoo olevansa molempia.
+    """
+    text = render(report([pistol_map()]))
+    summary = summary_text(text)
+    traceability = traceability_text(text)
+
+    assert "- **Kokoonpanot:**" not in summary
+    # Rivin ETULIITE eikä pelkkä sana: joukkuerivin oma teksti mainitsee
+    # kokoonpanotunnisteen pienellä, ja pelkkä sanahaku menisi läpi
+    # vahingossa -- tai kaatuisi jos lause kirjoitettaisiin isolla.
+    assert "- **Kokoonpanotunniste" not in traceability
+    assert (
+        f"- **Joukkueen tunniste:** `{TEAM_KEY}` -- sama arvo kuin joukkueen "
+        "ainoa kokoonpanotunniste" in traceability
+    )
+    assert traceability.count(TEAM_KEY) == 1
+
+
+def test_an_empty_roster_says_the_source_was_empty_and_lists_nobody() -> None:
+    """I/O-matriisi: tyhjä ``roster``.
+
+    Runko kertoo lähteen olevan tyhjä kuten ennenkin, ja jäljitettävyysluvussa
+    ei ole yhtään rosteririviä -- tyhjä pari nimi -> tunniste olisi keksitty
+    rivi.
+    """
+    entry = report([pistol_map()], roster=[])
+    text = render(entry)
+
+    assert (
+        "- **Rosteri:** ei pelaajia (havaittu demoista -- lähde tyhjä)"
+        in summary_text(text)
+    )
+    traceability = traceability_text(text)
+    assert f"`{TEAM_KEY}`" in traceability
+    assert UNNAMED_PLAYER not in traceability
+
+
+def test_a_map_shows_only_the_demo_count_and_the_chapter_names_the_demos() -> None:
+    """I/O-matriisi: ``map_demo_ids`` per kartta.
+
+    Kartan otsikko kertoo demojen **määrän**; se, mitkä demot summautuivat
+    yhdeksi haaraksi, on jäljitettävyyskysymys ja siksi omassa luvussaan.
+    """
+    demos = [MISSING_DEMO_ID, FACEIT_DEMO_ID]
+    text = render(report([demo_map(demos, name="de_ancient")]))
+    traceability = traceability_text(text)
+
+    assert "de_ancient -- 2 kierrosta, 2 demoa" in text
+    for demo_id in demos:
+        assert demo_id not in summary_text(text)
+        assert "`" + demo_id + "`" in traceability
+    assert "- **`de_ancient`:** " in traceability
+
+
+def test_a_map_whose_name_was_not_recognised_gets_a_label_that_says_so() -> None:
+    """I/O-matriisi: ``map_name_source`` on ``unknown``.
+
+    Silloin ``map_name`` on ``map_demo_id`` itse, joten nimi ei kelpaa
+    nimiöksi: rivi olisi ``- **<tunniste>:** `<sama tunniste>``` eli se ei
+    kertoisi mitään. Nimiö sanoo sen sijaan mistä on kyse, ja järjestysluku
+    kertoo minkä karttaluvun rivi koskee.
+    """
+    entry = report([pistol_map(), unknown_map()])
+    traceability = traceability_text(render(entry))
+
+    assert f"- **kartta 2, nimeä ei tunnistettu:** `{FACEIT_DEMO_ID}`" in traceability
+    assert f"**`{FACEIT_DEMO_ID}`:**" not in traceability
+
+
+def test_two_unrecognised_maps_do_not_get_the_same_label() -> None:
+    """Nimiö on nimiö vain jos se yksilöi rivinsä.
+
+    Ilman järjestyslukua kaksi tunnistamatonta karttaa tuottaisivat kaksi
+    riviä samalla nimiöllä, eli sama vika kuin kahdella nimettömällä
+    pelaajalla.
+    """
+    other = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1"
+    entry = report([unknown_map(), unknown_map(other)])
+    traceability = traceability_text(render(entry))
+
+    assert f"- **kartta 1, nimeä ei tunnistettu:** `{FACEIT_DEMO_ID}`" in traceability
+    assert f"- **kartta 2, nimeä ei tunnistettu:** `{other}`" in traceability
+
+
+def test_a_map_name_with_markdown_characters_keeps_the_row_a_single_pair() -> None:
+    """Aito vikatapaus: workshop-kartta rikkoi rivin.
+
+    Story 2.11 päätti, ettei otsikosta luettua nimeä validoida karttapoolia
+    vasten, joten ``*|Aim|* Botz [beta]`` on laillinen havainto. Paljaana
+    nimiön lihavointi jäi sulkeutumatta ja rivi lakkasi lukeutumasta parina
+    label/value -- ja juuri se rivi kantaa demotunnisteet. Koodijakso pitää
+    rivin yhtenä parina **millä tahansa** merkkijonolla, ilman että kartta saa
+    toisen kirjoitusasun kuin karttaluvun otsikossa.
+    """
+    name = "*|Aim|* Botz [beta]"
+    entry = report([demo_map([MISSING_DEMO_ID], name=name)])
+    traceability = traceability_text(render(entry))
+
+    assert f"- **`{name}`:** `{MISSING_DEMO_ID}`" in traceability
+    # Sama kirjoitusasu kuin karttaluvun otsikossa: escapetus tuottaisi
+    # toisen, ja raportti luetaan myös raakana.
+    assert f"## {name} -- " in render(entry)
+    row = next(
+        line for line in traceability.splitlines() if line.startswith("- **")
+    )
+    assert row.count("**") == 2
+
+
+def test_a_demo_id_is_a_code_span_so_it_stays_usable() -> None:
+    """Tunnisteen arvo on se, että sen voi kopioida raportista sellaisenaan.
+
+    :func:`markdown_text` suojaisi alaviivat mutta tekisi arvosta eri
+    merkkijonon, joka ei enää täsmää yhteenkään arkiston hakemistoon.
+    """
+    traceability = traceability_text(render(report([demo_map([MISSING_DEMO_ID])])))
+
+    assert "`" + MISSING_DEMO_ID + "`" in traceability
+    assert chr(92) + "_" not in traceability
+
+
+def test_a_backtick_in_an_identifier_falls_back_to_escaping() -> None:
+    """Gravis on ainoa merkki, jota koodijakso ei voi sisältää.
+
+    Rikkinäinen koodijakso latoisi loppuraportin väärin, mikä on pahempi kuin
+    kopioitavuuden menetys yhdellä rivillä. Windowsissa gravis on laillinen
+    tiedostonimessä eli mahdollinen demotunnisteessa.
+    """
+    demo_id = "demo" + chr(96) + "vs" + chr(96) + "toinen"
+    traceability = traceability_text(render(report([demo_map([demo_id])])))
+
+    assert (
+        "demo" + chr(92) + chr(96) + "vs" + chr(92) + chr(96) + "toinen"
+        in traceability
+    )
+    assert chr(96) + "demo" not in traceability
+
+
+def test_an_empty_report_still_gets_the_traceability_chapter() -> None:
+    """Joukkueella on tunniste myös silloin, kun karttoja ei ole.
+
+    Tyhjä raportti on juuri se tapaus, jossa lukija kysyy "mistä joukkueesta
+    tässä oli kyse" -- ja tunniste on ainoa vastaus, joka siihen on. Malli
+    latoo luvun ehdoitta, joten tyhjä jono tuottaisi paljaan otsikon; sitä ei
+    vartioida, koska :func:`build_view` ei voi tuottaa sitä.
+    """
+    view = build_view(report([]))
+
+    assert view.traceability
+    assert view.traceability[0].label == "Joukkueen tunniste"
+    assert f"`{TEAM_KEY}`" in traceability_text(render(report([])))
 
 
 # --- Rakenteen kattavuus --------------------------------------------------------
@@ -1686,13 +2328,13 @@ GOLDEN = """\
 
 ## Yhteenveto
 
-- **Joukkue:** MatureMayhem (tunniste aaaaaaaaaaaaaaaa)
-- **Rosteri:** 5 pelaajaa (havaittu demoista); nimi ja SteamID64 rinnakkain: pelaaja1 (1), pelaaja2 (2), pelaaja3 (3), pelaaja4 (4), pelaaja5 (5)
+- **Joukkue:** MatureMayhem
+- **Rosteri:** 5 pelaajaa (havaittu demoista): pelaaja1, pelaaja2, pelaaja3, pelaaja4, pelaaja5
 - **Otanta:** 1 demo, 4 kierrosta (demoa/kierrosta: liiga 0 / 0, muut 0 / 0, tuntematon 1 / 4)
 - **Liigatieto:** yhdenkään demon lajia ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otannassa ole yhtään varmistettua liigaottelua
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta
 - **Luokittelun kynnykset:** full_equip_min 4000
-- **Aggregoinnin kynnykset:** small_sample_rounds 3
+- **Aggregoinnin kynnykset:** small_sample_rounds 3, team_identity_min_common 3
 - **Aineisto koottu:** 2026-08-30 12:00 UTC (pappascout 0.1.0)
 
 ## de_nuke -- 4 kierrosta, 1 demo
@@ -1721,7 +2363,20 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 - Aseistettu = panssari JA parannettu ase ostoajan lopussa; panssaroitu = panssari, aseesta riippumatta. Luvut ovat **sisäkkäisiä**: aseistetut ovat panssaroitujen osajoukko, molemmat on luettu samalta tickiltä samasta pelaajajoukosta, ja jakaja on sama. Rivien ero on siis se havainto -- pistoolikierroksella aseistettuja on tyypillisesti 0 (800 $ ei riitä sekä kevlariin että parannettuun aseeseen), joten panssaririvi on se, joka kertoo kevlarien määrän.
 - Molemmat luvut ovat **hallussapitoa eivätkä ostoja**: panssari ja ase säilyvät kierroksen yli hengissä selvinneellä, eikä vaurioitunutta panssaria eroteta ehjästä. Poikkeus on pistoolikierros -- puoliaika alkaa puhtaalta pöydältä, joten siellä luvut kertovat mitä ostettiin.
 - Tapot alueittain: alue on **ampujan** oma alue tappohetkellä, ja otanta (n/m taposta) laskee tappoja eikä kierroksia -- kierrostyypillä on yleensä enemmän tappoja kuin kierroksia.
+- Runko puhuu nimillä: joukkueen ja kokoonpanojen tiivisteet, pelaajien SteamID64 ja karttojen demotunnisteet ovat raportin viimeisessä luvussa Tekninen jäljitettävyys. Kolme poikkeusta, joissa tunniste on rungossa siksi että se on siellä ainoa käyttökelpoinen muoto: kierrosliitteen polut, puuttuvan demon rivi (tunniste on osa komentoa, jonka voi kopioida) ja kartta, jonka nimeä ei tunnistettu (tunniste on kartan ainoa nimi).
 - Raportti kuvaa vain havainnot. Tulkinta ja vastastrategia ovat lukijan.
+
+## Tekninen jäljitettävyys
+
+Tunnisteet, jotka eivät ole rungossa: joukkueen ja kokoonpanojen tiivisteet, pelaajien SteamID64 ja karttojen demotunnisteet. Mitään ei ole poistettu -- ne ovat täällä, koska ne palvelevat vain jäljittämistä. Kynnykset, työkaluversiot ja aikaleima jäivät yhteenvetoon, koska ne kertovat miten luku laskettiin, eikä väitettä voi arvioida ilman niitä; tunniste ei muuta yhtäkään raportin lukua. Rungossa tunniste on vain siellä, missä se on ainoa käyttökelpoinen muoto: kierrosliitteen polussa, puuttuvan demon komennossa ja kartassa, jonka nimeä ei tunnistettu.
+
+- **Joukkueen tunniste:** `aaaaaaaaaaaaaaaa` -- sama arvo kuin joukkueen ainoa kokoonpanotunniste
+- **1. pelaaja1:** `1`
+- **2. pelaaja2:** `2`
+- **3. pelaaja3:** `3`
+- **4. pelaaja4:** `4`
+- **5. pelaaja5:** `5`
+- **`de_nuke`:** `Ancient_vs_kaljukostaja`
 """
 
 

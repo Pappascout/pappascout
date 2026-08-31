@@ -22,6 +22,18 @@ raportin sisältöä ilman että manifestissa näkyisi mitään -- sama
 epäonnistumistapa, jonka
 :func:`~pappascout.constants.weapon_classification_digest` estää parsinnassa.
 
+**Parametrihash kattaa mallin mutta ei :mod:`pappascout.render.view`iä.**
+Näkymämoduulin muokkaaminen muuttaa raporttia yhtä varmasti kuin mallin, eikä
+se näy manifestissa lainkaan: Story 2.12 kirjoitti uudelleen lähes joka
+tekstirivin ``view.py``:ssä, ja ilman mallin omaa uutta lukua manifestit
+olisivat olleet tavu tavulta samat. Puute ei päästä vanhentunutta raporttia
+ulos -- ``render`` ei koskaan ohita ajoa manifestin perusteella, joten
+jokainen ajo latoo raportin uudelleen -- mutta se tarkoittaa, ettei kahden
+raportin manifesteista voi päätellä, syntyivätkö ne samasta koodista. Puute on
+kirjattu ``deferred-work.md``:hyn; sen sulkeminen on oma tarinansa, koska
+``view.py``:n tiiviste muuttuisi myös pelkästä docstringin korjauksesta ja
+pakottaisi uudelleenrenderöinnin ilman että raportti muuttuu.
+
 **Tiiviste ja renderöinti lukevat saman tekstin.** Kumpaakaan ei
 välimuistiteta: aiemmin tiiviste oli ``lru_cache``ssa ja Jinjan
 ``FileSystemLoader`` latasi mallin uudelleen automaattisesti, jolloin ajon

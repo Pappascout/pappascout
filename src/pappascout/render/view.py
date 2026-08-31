@@ -6,8 +6,8 @@ sellaisenaan, eikä täällä ole yhtään yhteenlaskua, keskiarvoa eikä osamä
 Ainoa "logiikka" on valinta -- mitkä havainnot ansaitsevat rivin -- ja
 muotoilu.
 
-Kolme sääntöä, jotka näkyvät jokaisessa funktiossa
--------------------------------------------------
+Säännöt, jotka näkyvät jokaisessa funktiossa
+--------------------------------------------
 **Jokainen väite kantaa otantansa.** :class:`Claim` on nimenomaan pari
 "väite + otanta", eikä väitettä voi rakentaa ilman ``n``:ää ja ``m``:ää. Ilman
 otantaa yksi kierros näyttäisi kuviolta.
@@ -27,6 +27,27 @@ Sanoja "fake", "rush" tai "hyvä" ei ole missään -- johtopäätös on lukijan.
 Veetin oma analyysi on 30. Kuolemat lisättiin siksi, että ne selittävät muut
 rivit -- ei siksi, että ne olisivat oma lukunsa. Raja on
 :data:`MAX_DEATH_LINES`, ja sen ylitys on virhe eikä hiljainen kasvu.
+
+**Runko puhuu nimillä, ja tunnisteilla on oma lukunsa.** Joukkueen ja
+kokoonpanojen tiivisteet, pelaajien SteamID64 ja karttojen demotunnisteet
+eivät ole rungossa vaan luvussa :data:`TRACEABILITY_HEADING`. Sääntö on
+täällä eikä vain funktioiden sisällä, koska se koskee viittä niistä
+(:func:`_title`, :func:`_team_text`, :func:`_roster_text`, :func:`_summary`,
+:func:`_traceability`) -- yhden sisällä kirjoitettuna se ei kertoisi, että
+poikkeuksia on tarkalleen kolme:
+
+1. **Kierrosliitteen polku.** Polku on käyttökelpoinen vain sellaisenaan, ja
+   se on lukemisen apu eikä jäljitettävyysmerkintä.
+2. **Puuttuvan demon rivi.** Tunniste on osa komentoa, jonka lukija kopioi
+   (``uv run pappascout parse <demo>``); ilman sitä rivi ei kertoisi mitä
+   tehdä.
+3. **Kartta, jonka nimeä ei tunnistettu.** Silloin ``map_name`` *on*
+   ``map_demo_id`` (ks. :class:`~pappascout.domain.report.MapReport`), eli
+   tunniste on kartan ainoa nimi -- vaihtoehto olisi nimetön karttaluku.
+
+Poikkeukset sanotaan lukuohjeessa ääneen. Ilman sitä raportti väittäisi
+itsestään enemmän kuin on totta, ja juuri se on tässä tiedostossa se virhe,
+joka toistuu: teksti lupaa ehdottomuuden, jota koodi ei pidä.
 
 Miksi ensikontaktista näytetään jakauma eikä läsnäololista
 ----------------------------------------------------------
@@ -73,6 +94,8 @@ __all__ = [
     "MAX_DEATH_LINES",
     "KILL_SAMPLE_UNIT",
     "UNKNOWN_AREA",
+    "TRACEABILITY_HEADING",
+    "UNNAMED_PLAYER",
     "Claim",
     "Line",
     "SummaryItem",
@@ -161,6 +184,22 @@ UNKNOWN_AREA = "tuntematon alue"
 #: räjähdyspaikan oma nimi, koska sellaista ei ole olemassa. Tarkempi arvio on
 #: yhä arvio.
 ESTIMATE_MARK = " (arvio)"
+
+#: Jäljitettävyysluvun otsikko **sellaisena kuin malli sen latoo**.
+#:
+#: Nimi on täällä, koska raportin oma teksti viittaa siihen kahdesta paikasta:
+#: yhteenvedon nimetön joukkue kertoo mistä tunniste löytyy, ja lukuohje
+#: kertoo saman kaikista tunnisteista. Otsikkorivin ``## `` omistaa malli --
+#: rakenne on mallin asia -- joten nimi esiintyy kahdessa tiedostossa, ja
+#: testi vartioi että ne ovat samat. Ilman vartijaa luvun uudelleennimeäminen
+#: jättäisi raporttiin kaksi viittausta lukuun, jota ei ole.
+#:
+#: **Lukua ei kutsuta liitteeksi.** Raportissa on jo ``Kierrosliite``, joka on
+#: eri asia: se osoittaa ``classify``-vaiheen kierroslistoihin arkistossa,
+#: kun tämä luku on raportin sisällä. Kaksi eri asiaa samalla sanalla tekee
+#: kumman tahansa mainitsemisen epäselväksi, joten luvusta puhutaan sen omalla
+#: nimellä sekä koodissa, testeissä että READMEssa.
+TRACEABILITY_HEADING = "Tekninen jäljitettävyys"
 
 
 # -- Näkymämallin osat -----------------------------------------------------------
@@ -268,6 +307,17 @@ class ReportView:
     #: Kierrosliitteen selitys ja polut, joista liite oikeasti löytyy.
     appendix_note: str = ""
     appendix_paths: tuple[str, ...] = ()
+    #: Jäljitettävyysluvun rivit: tunnisteet, jotka eivät ole rungossa.
+    #:
+    #: Oletus on tyhjä vain siksi, että kenttä on lisätty olemassa olevaan
+    #: luokkaan; :func:`build_view` täyttää sen **aina**, koska joukkueella on
+    #: tunniste myös tyhjässä raportissa. Malli latoo luvun ehdoitta kuten
+    #: ``Kierrosliite``n ja ``Lukuohje``n, joten tyhjä jono tuottaisi paljaan
+    #: otsikon -- tilanne, jota ei ole olemassa eikä siksi vartioida.
+    traceability: tuple[SummaryItem, ...] = ()
+    #: Jäljitettävyysluvun selitys: miksi tunnisteet ovat siellä eivätkä
+    #: rungossa.
+    traceability_note: str = ""
     empty_note: str | None = None
 
 
@@ -413,10 +463,24 @@ def pattern_min_rounds(report: Report) -> int | None:
     Returns:
         Positiivinen kierrosmäärä tai ``None``, jos arvoa ei ollut.
     """
+    return _threshold_int(report, "small_sample_rounds")
+
+
+def _threshold_int(report: Report, name: str) -> int | None:
+    """Yksi positiivinen kokonaislukukynnys ``report.json``ista.
+
+    Erotettu :func:`pattern_min_rounds`ista, koska kaksi eri riviä tarvitsee
+    saman säännön: arvo luetaan **raportista eikä asetuksista**, ja jos sitä
+    ei ole, rivi kirjoitetaan ilman kynnystä sen sijaan että renderöinti
+    keksisi oman luvun. Kahtena kopiona toinen erkaantuisi.
+
+    ``bool`` hylätään erikseen, koska Pythonissa se on ``int``: ``True``
+    latoisi kynnykseksi luvun 1.
+    """
     section = report.thresholds_used.get("thresholds")
     if not isinstance(section, Mapping):
         return None
-    value = section.get("small_sample_rounds")
+    value = section.get(name)
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         return None
     return value
@@ -964,17 +1028,24 @@ def _value(value: Any) -> str:
 
 
 def _summary(report: Report, threshold: int | None) -> list[SummaryItem]:
-    """Yhteenvedon rivit. Jokainen kohta, joka voisi kadota, on täällä."""
+    """Yhteenvedon rivit. Jokainen kohta, joka voisi kadota, on täällä.
+
+    **Runko puhuu nimillä** (Story 2.12). Yhteenveto on se osa raporttia, jonka
+    lukija näkee ensimmäisenä ottelua edeltävässä kiireessä, eikä se voi puhua
+    tiivisteistä: joukkueen tunniste, kokoonpanotunnisteet ja pelaajien
+    SteamID64:t ovat luvussa :data:`TRACEABILITY_HEADING`. Siirto eikä pudotus
+    -- jokainen tunniste on yhä raportissa, vain eri paikassa.
+
+    **Kynnykset eivät ole tunnisteita eivätkä siirry.** Kynnys kertoo *miten*
+    luku laskettiin, joten lukija tarvitsee sitä väitteen arvioimiseen; sama
+    koskee työkaluversioita ja aikaleimaa. Tunniste ei muuta yhtäkään raportin
+    lukua -- se palvelee vain jäljittämistä. Juuri se ero ratkaisee, mikä rivi
+    kuuluu yhteenvetoon.
+    """
     team = report.team
     items = [SummaryItem("Joukkue", _team_text(team))]
     if len(team.lineup_keys) > 1:
-        items.append(
-            SummaryItem(
-                "Kokoonpanot",
-                f"{', '.join(team.lineup_keys)} -- liitetty samaksi joukkueeksi "
-                "yhteisten pelaajien perusteella",
-            )
-        )
+        items.append(SummaryItem("Kokoonpanot", _lineups_text(team, report)))
     if team.display_name_alternatives:
         items.append(
             SummaryItem(
@@ -994,8 +1065,7 @@ def _summary(report: Report, threshold: int | None) -> list[SummaryItem]:
         items.append(
             SummaryItem(
                 "Rosteri",
-                f"{len(team.roster)} pelaajaa ({roster_source}); nimi ja "
-                "SteamID64 rinnakkain: "
+                f"{len(team.roster)} pelaajaa ({roster_source}): "
                 + ", ".join(_roster_text(entry) for entry in team.roster),
             )
         )
@@ -1067,6 +1137,37 @@ def _summary(report: Report, threshold: int | None) -> list[SummaryItem]:
     return items
 
 
+def _lineups_text(team: Any, report: Report) -> str:
+    """Rungon kokoonpanorivi: montako kokoonpanoa liitettiin ja millä ehdolla.
+
+    Kolme lukua eikä yksi, koska yksi ei ole tarkistettavissa. ``lineup_keys``
+    sisältää **kohteen oman kokoonpanon** (ks.
+    :func:`~pappascout.domain.aggregate.lineups_of_same_team`, "``target``
+    aina mukana"), joten pelkkä ``len`` lukisi kuin liitettyjä olisi yksi
+    enemmän kuin oli. Rivi kertoo siis liitettyjen määrän *ja* kokonaismäärän,
+    ja niiden summa on tarkistettavissa jäljitettävyysluvun tunnisteita
+    laskemalla.
+
+    Kynnys (``[thresholds].team_identity_min_common``, AD-6) luetaan
+    raportista samalla säännöllä kuin pienen otannan raja, ja se kirjoitetaan
+    riville kuten naapuririvillä ("alle 3 kierrosta merkitään"). Ilman sitä
+    rivi väittäisi päätöksen ilman perustetta. Jos arvoa ei ole, rivi kertoo
+    perusteen sanoina eikä keksi lukua.
+    """
+    total = len(team.lineup_keys)
+    joined = total - 1
+    count = "1 muu kokoonpano" if joined == 1 else f"{joined} muuta kokoonpanoa"
+    min_common = _threshold_int(report, "team_identity_min_common")
+    if min_common is None:
+        rule = "yhteisten pelaajien perusteella"
+    else:
+        rule = f"vähintään {min_common} yhteisen pelaajan perusteella"
+    return (
+        f"{count} liitetty samaksi joukkueeksi {rule}; yhteensä {total} "
+        f"kokoonpanoa, tunnisteet luvussa {TRACEABILITY_HEADING}"
+    )
+
+
 def _team_text(team: Any) -> str:
     """Joukkueen nimi -- tai rehellinen toteamus siitä, ettei sitä ole.
 
@@ -1074,13 +1175,21 @@ def _team_text(team: Any) -> str:
     kokoonpanotaulu sen kirjasi. Ilman havaintoa tiivisteen toistaminen nimen
     paikalla väittäisi, että ``9ac92660986558d3`` on joukkueen nimi -- ja juuri
     sen takia raportti sanoo puuttumisen ääneen eikä keksi korviketta.
+
+    **Sama peruste kantaa tunnisteen omaan lukuunsa** (Story 2.12). Jos
+    tiiviste ei kelpaa nimen paikalle, se ei kelpaa myöskään nimen perään
+    sulkeisiin rivillä, jonka lukija lukee ensimmäisenä: rivi kertoisi silloin
+    kaksi asiaa, joista toinen ei ole hänelle mitään. Tunniste on luvussa
+    :data:`TRACEABILITY_HEADING`, jossa se on tunniste eikä nimi -- ja
+    nimettömän joukkueen rivi sanoo sen ääneen, koska siltä lukijalta
+    tunniste on ainoa, mitä joukkueesta on.
     """
     if _has_name(team):
-        return f"{markdown_text(team.display_name)} (tunniste {team.key})"
+        return markdown_text(team.display_name)
     return (
-        f"nimi ei ole tiedossa; tunniste {team.key}. Demoista ei löytynyt "
-        "joukkueelle klaaninimeä (team_clan_name), eikä raportti keksi nimeä "
-        "muusta lähteestä."
+        "nimi ei ole tiedossa. Demoista ei löytynyt joukkueelle klaaninimeä "
+        "(team_clan_name), eikä raportti keksi nimeä muusta lähteestä; "
+        f"tunniste on luvussa {TRACEABILITY_HEADING}."
     )
 
 
@@ -1094,20 +1203,45 @@ def _has_name(team: Any) -> bool:
     return team.display_name_source == "clan_name"
 
 
-def _roster_text(entry: Any) -> str:
-    """Yksi rosterirvi: nimi ja SteamID64 rinnakkain.
+#: Rosterin pelaaja, jonka nimeä ei saatu luettua.
+#:
+#: Paikanpitäjä eikä pois jättö: sen ansiosta rungon nimilista on täsmälleen
+#: yhtä pitkä kuin ``roster``, joten rivin oma lukumäärä ja lista eivät voi
+#: olla eri mieltä.
+#:
+#: Sama teksti on jäljitettävyysluvun rivin nimiönä, mutta **järjestysluvun
+#: kanssa** (``2. nimi ei luettavissa``). Ilman lukua kaksi nimetöntä pelaajaa
+#: -- tai kaksi samannimistä, mikä on CS2:ssa tavallista -- tuottaisi kaksi
+#: identtistä nimiötä, eikä lukija voisi sanoa kumpi SteamID64 on kumman.
+#: Luku on paikka rungon nimilistassa, joten pari löytyy laskemalla eikä
+#: arvaamalla.
+UNNAMED_PLAYER = "nimi ei luettavissa"
 
-    **Molemmat, aina.** Nimi on luettavuutta varten, tunniste on ainoa
-    jäljitettävä arvo -- kumpikaan ei korvaa toista. Jos nimeä ei saatu
-    luettua, se sanotaan ääneen sen sijaan että rivi näyttäisi nimettömältä
-    vahingossa.
+
+def _roster_text(entry: Any) -> str:
+    """Yksi rosterirvi rungossa: **pelkkä nimi**.
+
+    Story 2.6 päätti "molemmat, aina": nimi luettavuutta varten ja SteamID64
+    sen rinnalla, koska tunniste on ainoa jäljitettävä arvo. Peruste ei ole
+    muuttunut vääräksi -- tunniste on yhä ainoa arvo, joka ei vaihdu ottelusta
+    toiseen -- mutta **paikka on** (Story 2.12). Seitsemän 17-numeroista lukua
+    nimien rinnalla tekee rungon rivistä luettelon, jota ihminen ei lue
+    ottelua edeltävässä kiireessä, eikä hän tarvitse sitä siellä. Pari
+    nimi -> SteamID64 on kokonaisena luvussa :data:`TRACEABILITY_HEADING`.
+
+    Paluuarvo on **sama merkkijono** kuin jäljitettävyysluvun nimiössä
+    järjestysluvun jälkeen. Yhteinen lähde tekee järjestyslupauksesta
+    tarkistettavan: jos nimi kirjoitettaisiin kahdesti, kaksi kirjoitusasua
+    voisivat erkaantua eikä lukija enää löytäisi pariaan.
 
     Nimi on demon antama merkkijono, joten se kulkee :func:`markdown_text`in
-    läpi; tunniste on SteamID64 eli pelkkiä numeroita eikä tarvitse sitä.
+    läpi. Nimen puuttuminen sanotaan ääneen eikä pelaajaa pudoteta: hän on
+    mukana rosterin lukumäärässä, ja hänen SteamID64:nsä on luvussa
+    :data:`TRACEABILITY_HEADING`.
     """
     if entry.display_name:
-        return f"{markdown_text(entry.display_name)} ({entry.player_id})"
-    return f"{entry.player_id} (nimi ei luettavissa)"
+        return markdown_text(entry.display_name)
+    return UNNAMED_PLAYER
 
 
 def _generated_text(moment: datetime) -> str:
@@ -1121,6 +1255,144 @@ def _generated_text(moment: datetime) -> str:
     if moment.tzinfo is None:
         return moment.strftime("%Y-%m-%d %H:%M") + " (aikavyöhyke tuntematon)"
     return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+
+# -- Tekninen jäljitettävyys -----------------------------------------------------
+
+
+def _identifier(value: str) -> str:
+    """Tunniste **kirjaimellisena**: koodijaksona eikä paettuna tekstinä.
+
+    Jäljitettävyysluvun koko arvo on se, että tunnisteen voi kopioida
+    raportista komennolle tai hakukoneelle. :func:`markdown_text` suojaisi
+    Markdownin rakennemerkit mutta tekisi samalla arvosta eri merkkijonon:
+    demotunniste ``ANCIENT_vs_RCAVE_VETERANS`` saisi kenoviivan jokaisen
+    alaviivansa eteen eikä täsmäisi enää yhteenkään arkiston hakemistoon.
+    Koodijakso säilyttää arvon tavu tavulta ja estää Markdownin tulkinnan
+    samalla kerralla -- sama valinta kuin kierrosliitteen poluilla.
+
+    Gravis on ainoa merkki, jota koodijakso ei voi sisältää, ja se on
+    Windowsissa laillinen tiedostonimessä eli mahdollinen demotunnisteessa.
+    Silloin arvo paetaan tekstinä: rikkinäinen koodijakso latoisi loppuraportin
+    väärin, mikä on pahempi kuin kopioitavuuden menetys yhdellä rivillä.
+    """
+    if "`" in value:
+        return markdown_text(value)
+    return f"`{value}`"
+
+
+def _traceability(report: Report) -> list[SummaryItem]:
+    """Jäljitettävyysluvun rivit: jokainen tunniste, jolla runko ei puhu.
+
+    Luku on **siirron toinen pää**. Runko puhuu nimillä (Story 2.12), ja jotta
+    poistaminen olisi siirto eikä pudotus, jokaisen rungosta poistuneen
+    tunnisteen on oltava täällä: joukkueen tiiviste, kokoonpanotiivisteet,
+    pelaajien SteamID64 ja karttojen demotunnisteet.
+
+    Rosterin rivit ovat pari **järjestysluku + nimi -> SteamID64** eivätkä yksi
+    luettelo, koska juuri se pari on kysymys, johon luku vastaa: "kuka
+    ``76561190000000001`` oikeasti on" on vastattavissa raportista itsestään
+    ilman ``report.json``ia (tunniste on esimerkissä keksitty; oikeaa ei
+    kirjoiteta lähdekoodiin). Järjestysluku on paikka ``roster``issa eli sama
+    kuin rungon nimilistassa, ja se on rivillä siksi, että nimi **ei ole
+    yksikäsitteinen avain**: kaksi nimetöntä tai kaksi samannimistä pelaajaa
+    tuottaisivat ilman lukua kaksi identtistä nimiötä.
+
+    Luku ei laske mitään eikä tuo yhtään uutta arvoa: kaikki neljä lähdettä
+    ovat ``Report``issa valmiina (``team.key``, ``team.lineup_keys``,
+    ``roster[].player_id``, ``maps[].map_demo_ids``). Juuri siksi uusi LUKU ei
+    tällä kerralla tarkoita muutosta ``Report``iin.
+    """
+    team = report.team
+    items = [SummaryItem("Joukkueen tunniste", _team_key_text(team))]
+    # Sama ehto kuin rungon kokoonpanorivillä. Yhdellä kokoonpanolla oma rivi
+    # toistaisi joukkueen tunnisteen sanasta sanaan: ``team.key`` **on**
+    # kokoonpanotunniste (``lineups_of_same_team`` palauttaa kohteen aina
+    # mukana), joten toisto ei olisi jäljitettävyyttä vaan kohinaa. Se ei
+    # myöskään katoaisi -- joukkuerivi kantaa sen, ja sanoo sen ääneen.
+    if len(team.lineup_keys) > 1:
+        items.append(
+            SummaryItem(
+                "Kokoonpanotunnisteet",
+                ", ".join(_identifier(key) for key in team.lineup_keys),
+            )
+        )
+    for index, entry in enumerate(team.roster, start=1):
+        items.append(
+            SummaryItem(
+                f"{index}. {_roster_text(entry)}", _identifier(entry.player_id)
+            )
+        )
+    for index, map_report in enumerate(report.maps, start=1):
+        items.append(
+            SummaryItem(
+                _map_label(index, map_report),
+                ", ".join(
+                    _identifier(demo_id) for demo_id in map_report.map_demo_ids
+                ),
+            )
+        )
+    return items
+
+
+def _team_key_text(team: Any) -> str:
+    """Joukkueen tunniste, ja yhden kokoonpanon tapauksessa mitä se myös on.
+
+    ``team.key`` on ennen Epic 3:a kokoonpanotunniste, joten yhden
+    kokoonpanon joukkueella se **on** se ainoa kokoonpanotunniste. Kaksi
+    riviä samalla arvolla eri nimiöillä lukisi kuin arvoja olisi kaksi; yksi
+    rivi, joka sanoo olevansa molempia, kertoo saman ilman toistoa.
+    """
+    if len(team.lineup_keys) == 1:
+        return (
+            f"{_identifier(team.key)} -- sama arvo kuin joukkueen ainoa "
+            "kokoonpanotunniste"
+        )
+    return _identifier(team.key)
+
+
+def _map_label(index: int, map_report: Any) -> str:
+    """Karttarivin nimiö jäljitettävyysluvussa.
+
+    **Nimi koodijaksona eikä paettuna tekstinä.** Kartan nimi on Story 2.11:n
+    jälkeen havainto demon otsikosta, eikä sitä validoida karttapoolia vasten
+    -- workshop-kartta nimeltä ``*|Aim|* Botz [beta]`` on laillinen havainto.
+    Paljaana se katkaisisi rivin: nimiön lihavointi jäisi sulkeutumatta, ja
+    juuri tämä rivi kantaa demotunnisteet eli koko luvun tarkoituksen.
+    Escapetus taas tuottaisi kartalle toisen kirjoitusasun kuin karttaluvun
+    otsikossa, ja raportti luetaan myös raakana. Koodijakso ei tee
+    kumpaakaan: se säilyttää **täsmälleen samat merkit** ja estää silti
+    Markdownin tulkinnan.
+
+    Kun nimeä ei tunnistettu, ``map_name`` on ``map_demo_id`` itse (ks.
+    :class:`~pappascout.domain.report.MapReport`). Silloin nimiö ja arvo
+    olisivat sama merkkijono, eli rivi ei kertoisi mitään: nimiö sanoo sen
+    sijaan mistä on kyse, ja järjestysluku kertoo minkä karttaluvun rivi
+    koskee -- kaksi tunnistamatonta karttaa eivät saa saada samaa nimiötä.
+    """
+    if map_report.map_name_source == "unknown":
+        return f"kartta {index}, nimeä ei tunnistettu"
+    return _identifier(map_report.map_name)
+
+
+#: Jäljitettävyysluvun selitys.
+#:
+#: Veeti 31.8.: *"ihmiselle hasheillä ja tunnisteilla ei ole mitään
+#: merkitystä, mutta projektille ja sen toiminnalle ne ovat arvokkaita"*.
+#: Molemmat asiat ovat totta samassa lauseessa, joten pudotus palvelisi vain
+#: ensimmäistä. Luvun selitys sanoo tämän ääneen, jottei seuraava lukija
+#: pidä lukua jäänteenä.
+_TRACEABILITY_NOTE = (
+    "Tunnisteet, jotka eivät ole rungossa: joukkueen ja kokoonpanojen "
+    "tiivisteet, pelaajien SteamID64 ja karttojen demotunnisteet. Mitään ei "
+    "ole poistettu -- ne ovat täällä, koska ne palvelevat vain jäljittämistä. "
+    "Kynnykset, työkaluversiot ja aikaleima jäivät yhteenvetoon, koska ne "
+    "kertovat miten luku laskettiin, eikä väitettä voi arvioida ilman niitä; "
+    "tunniste ei muuta yhtäkään raportin lukua. Rungossa tunniste on vain "
+    "siellä, missä se on ainoa käyttökelpoinen muoto: kierrosliitteen "
+    "polussa, puuttuvan demon komennossa ja kartassa, jonka nimeä ei "
+    "tunnistettu."
+)
 
 
 # -- Julkinen rakennusfunktio ----------------------------------------------------
@@ -1191,8 +1463,14 @@ def build_view(
     return ReportView(
         title=_title(report),
         summary=tuple(_summary(report, threshold)),
+        # Nimiö on demotunniste ja se **jää rungon riville**: syy sisältää
+        # komennon, jonka lukija kopioi (``uv run pappascout parse <demo>``),
+        # eikä komento toimi ilman tunnistetta. Koodijakso siksi, että
+        # tunnisteen on kestettävä kopiointi -- sama peruste kuin
+        # jäljitettävyysluvun arvoilla ja kierrosliitteen poluilla.
         missing_demos=tuple(
-            SummaryItem(entry.match, entry.reason) for entry in report.missing_demos
+            SummaryItem(_identifier(entry.match), entry.reason)
+            for entry in report.missing_demos
         ),
         maps=tuple(maps),
         legend=tuple(_legend(flags)),
@@ -1200,6 +1478,8 @@ def build_view(
             _APPENDIX_NOTE if round_list_paths else _APPENDIX_NOTE_WITHOUT_PATHS
         ),
         appendix_paths=tuple(round_list_paths),
+        traceability=tuple(_traceability(report)),
+        traceability_note=_TRACEABILITY_NOTE,
         empty_note=None if report.maps else _EMPTY_NOTE,
     )
 
@@ -1284,6 +1564,15 @@ def _legend(flags: _Flags) -> list[str]:
             f"otanta (n/m {KILL_SAMPLE_UNIT}) laskee tappoja eikä kierroksia "
             "-- kierrostyypillä on yleensä enemmän tappoja kuin kierroksia."
         )
+    notes.append(
+        "Runko puhuu nimillä: joukkueen ja kokoonpanojen tiivisteet, "
+        "pelaajien SteamID64 ja karttojen demotunnisteet ovat raportin "
+        f"viimeisessä luvussa {TRACEABILITY_HEADING}. Kolme poikkeusta, "
+        "joissa tunniste on rungossa siksi että se on siellä ainoa "
+        "käyttökelpoinen muoto: kierrosliitteen polut, puuttuvan demon rivi "
+        "(tunniste on osa komentoa, jonka voi kopioida) ja kartta, jonka "
+        "nimeä ei tunnistettu (tunniste on kartan ainoa nimi)."
+    )
     notes.append(
         "Raportti kuvaa vain havainnot. Tulkinta ja vastastrategia ovat lukijan."
     )

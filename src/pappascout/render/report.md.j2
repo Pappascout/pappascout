@@ -3,8 +3,14 @@
   (pappascout.render.view) on jo päättänyt MITÄ sanotaan.
 
   Muoto saa muuttua vapaasti tässä tiedostossa: sanajärjestys, otsikot ja
-  välimerkit ovat mallin asia. Uusi LUKU sen sijaan ei synny täällä -- se
-  tarkoittaa aina muutosta Report-malliin (Story 2.3).
+  välimerkit ovat mallin asia. Uusi LUKU sen sijaan ei yleensä synny täällä --
+  se tarkoittaa lähes aina muutosta Report-malliin (Story 2.3).
+
+  Poikkeus on "Tekninen jäljitettävyys": se ei tuo yhtään uutta arvoa vaan
+  kerää rungosta pois jätetyt tunnisteet yhteen, joten Report ja sen
+  skeemaversio eivät osallistu siihen lainkaan. Luvun otsikko on täällä, koska
+  rakenne on mallin asia; sama nimi on view.TRACEABILITY_HEADINGissa, koska
+  raportin oma teksti viittaa lukuun, ja testi vartioi että ne ovat samat.
 
   Teksti on suomeksi, calloutit (aluenimet) englanniksi sellaisina kuin peli ne
   antaa. Rivit ovat ranskalaisia viivoja, eivät kappaleita: raportti luetaan
@@ -82,4 +88,12 @@
 
 {% for note in view.legend %}
 - {{ note }}
+{% endfor %}
+
+## Tekninen jäljitettävyys
+
+{{ view.traceability_note }}
+
+{% for item in view.traceability %}
+- **{{ item.label }}:** {{ item.value }}
 {% endfor %}

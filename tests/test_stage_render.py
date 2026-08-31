@@ -21,7 +21,7 @@ import pytest
 from conftest import has_temp_leftovers
 from pappascout.archive.manifest import Manifest, ManifestInput
 from pappascout.archive.paths import MAX_REPORTS_PER_MINUTE, ArchivePaths, report_name
-from pappascout.domain.report import Report
+from pappascout.domain.report import REPORT_SCHEMA_VERSION, Report
 from pappascout.errors import PappascoutError
 from pappascout.stages import render as render_stage
 from test_render import DEMO_ID, TEAM_KEY, TEAM_SLUG, pistol_map, report
@@ -133,6 +133,39 @@ def test_running_twice_never_overwrites_the_earlier_report(tmp_path: Path) -> No
     third = run(archive, now=STAMP)
     assert archive.resolve(third.outputs[0]).name.endswith("-03.md")
     assert len(reports(archive)) == 3
+
+
+def test_rendering_twice_leaves_the_report_json_untouched(tmp_path: Path) -> None:
+    """``render`` on lukija: syöte on tavu tavulta sama ajon jälkeen.
+
+    **Tämä testi vartioi vaiheen lukuoikeussopimusta, ei yhtään tarinaa.**
+    ``render`` ei ole koskaan kirjoittanut ``report.json``ia, joten testi
+    menisi läpi myös ennen Story 2.12:ta -- se ei siis todista, että
+    tunnisteiden siirto oli pelkkä esitysvalinta. Sen todistaa se, ettei
+    ``domain/report.py``ssa ole muutosta lainkaan.
+
+    Sopimus kannattaa silti vartioida: ``render`` on putken ainoa vaihe, joka
+    lukee toisen vaiheen tulosalueelta, ja kirjoitus sinne olisi juuri se
+    kerrosrikko, jonka vaiheen sopimus (``run(...) -> StageResult``) kieltää.
+    Väite tehdään **tavuista**: levyltä luettu ja takaisin kirjoitettu
+    tiedosto voisi olla kelvollinen ``Report`` ja silti eri tiedosto.
+
+    Kaksi ajoa eikä yksi, koska ohituksen puuttuminen on tämän vaiheen
+    sopimus: vaihe ajetaan aina, ja silti syöte pysyy koskemattomana.
+    """
+    archive = build_archive(tmp_path)
+    source = archive.report_json(TEAM_KEY)
+    before = source.read_bytes()
+
+    run(archive, now=STAMP)
+    run(archive, now=STAMP)
+
+    assert source.read_bytes() == before
+    # Vakio eikä neljäs kopio literaalista: version pinnaus kuuluu
+    # ``test_report_model``iin, ja täällä väite on "sama versio kuin ennen
+    # ajoa" -- ei "versio on tämä luku".
+    assert json.loads(before)["schema_version"] == REPORT_SCHEMA_VERSION
+    assert len(reports(archive)) == 2
 
 
 def test_the_ordinal_is_zero_padded_so_the_listing_sorts(tmp_path: Path) -> None:

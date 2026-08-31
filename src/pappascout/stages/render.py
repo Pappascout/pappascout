@@ -430,9 +430,16 @@ def _params_hash() -> str:
     """Parametrihash raporttimallin sisällöstä.
 
     ``render`` ei lue yhtään asetusosiota: kynnykset, aikaikkunat ja otannat
-    tulevat kaikki ``report.json``ista. Ainoa asia, joka muuttaa tulosta
-    ohjelman puolelta, on raporttimalli itse -- joten se on hashissa. Sama
-    kuvio kuin ``parse``in aseluokittelun tiivisteellä.
+    tulevat kaikki ``report.json``ista, joten hashissa on sen sijaan
+    raporttimallin sisältö. Sama kuvio kuin ``parse``in aseluokittelun
+    tiivisteellä.
+
+    **Hash ei kata koko ohjelman puolta.** :mod:`pappascout.render.view`
+    valitsee jokaisen rivin ja sanamuodon, eikä sen muuttaminen näy tässä
+    hashissa mitenkään -- kahden raportin identtiset manifestit eivät siis
+    todista niiden syntyneen samasta koodista. Vanhentunut raportti ei silti
+    pääse ulos, koska tätä vaihetta ei koskaan ohiteta manifestin perusteella
+    (ks. :func:`run`); puute on kirjattu ``deferred-work.md``:hyn.
     """
     return compute_params_hash({"render": {"template_sha256": template_digest()}})
 

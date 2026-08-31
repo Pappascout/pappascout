@@ -545,9 +545,63 @@ uv run pappascout report --team 9ac    # alkuosa riittää
 
 Raportin rakenne on yhteenveto (rosteri, otanta kolmessa lokerossa, puuttuvat
 demot, luokittelemattomat kierrokset, käytetyt kynnykset) -> kartta -> puoli ->
-kierrostyyppi -> kierrosliite -> lukuohje. Jokainen havaintorivi kantaa
-otantansa muodossa `(4/7 kierroksesta)`; ilman sitä yksi kierros näyttäisi
-kuviolta.
+kierrostyyppi -> kierrosliite -> lukuohje -> tekninen jäljitettävyys. Jokainen
+havaintorivi kantaa otantansa muodossa `(4/7 kierroksesta)`; ilman sitä yksi
+kierros näyttäisi kuviolta.
+
+**Runko puhuu nimillä; tunnisteet ovat luvussa "Tekninen jäljitettävyys".**
+Ottelua edeltävässä kiireessä luettava dokumentti ei voi puhua tiivisteistä:
+ihmiselle tiiviste ja SteamID64 eivät kerro mitään, mutta putken
+jäljittämiselle ne ovat ainoa arvo, joka ei vaihdu ottelusta toiseen. Molemmat
+ovat totta, joten tunnisteita ei pudoteta vaan kerätään raportin viimeiseen
+lukuun: joukkueen tiiviste, kokoonpanotiivisteet, pari `nimi -> SteamID64`
+jokaisesta rosterin pelaajasta ja pari `kartta -> demotunnisteet`. Yhteenveto
+kertoo nimen ilman tunnistetta, kokoonpanoista lukumäärän ja kynnyksen, ja
+rosterista nimet. Kynnykset, työkaluversiot ja aikaleima **eivät** ole
+tunnisteita eivätkä siirry: ne kertovat miten luku laskettiin, eikä väitettä voi
+arvioida ilman niitä.
+
+Luku ei ole raportin "liite": raportissa on jo `Kierrosliite`, joka osoittaa
+`classify`-vaiheen kierroslistoihin arkistossa. Kaksi eri asiaa samalla
+sanalla tekisi kumman tahansa mainitsemisen epäselväksi, joten luvusta
+puhutaan sen omalla nimellä myös koodissa ja testeissä.
+
+Säännöllä on **kolme poikkeusta**, ja lukuohje nimeää ne. Kussakin tunniste on
+rungossa siksi, että se on siinä paikassa ainoa käyttökelpoinen muoto:
+
+| Missä | Miksi tunniste jää |
+| --- | --- |
+| `Kierrosliite`n polut | Polku on käyttökelpoinen vain sellaisenaan. |
+| Puuttuvan demon rivi | Tunniste on osa komentoa, jonka lukija kopioi (`uv run pappascout parse <demo>`). |
+| Kartta, jonka nimeä ei tunnistettu | `map_name` **on** silloin `map_demo_id`, eli tunniste on kartan ainoa nimi. |
+
+Luku ei laske eikä lisää mitään: jokainen arvo on `Report`issa valmiina
+(`team.key`, `team.lineup_keys`, `roster[].player_id`, `maps[].map_demo_ids`),
+joten se ei kosketa `report.json`ia eikä `REPORT_SCHEMA_VERSION`ia. Sen rivit
+ovat siis raportin muoto eikä uusi havainto -- toisin kuin muut luvut, joiden
+lisääminen tarkoittaa muutosta `Report`iin.
+
+Rivit ovat pareja `nimiö -> arvo`, ja **arvo on koodijakso**
+(`` `ANCIENT_vs_RCAVE_VETERANS` ``) eikä paettu teksti: luvun koko arvo on se,
+että tunnisteen voi kopioida raportista komennolle, ja escapetus tekisi
+alaviivallisesta demotunnisteesta merkkijonon, joka ei enää täsmää yhteenkään
+arkiston hakemistoon. Ainoa poikkeus on tunniste, joka itse sisältää graviksen
+(Windowsissa laillinen tiedostonimessä): koodijakso ei voi sisältää sitä, joten
+arvo paetaan tekstinä -- rikkinäinen koodijakso latoisi loppuraportin väärin.
+
+Karttarivin **nimiö** on samoin koodijakso, koska kartan nimi on demon
+otsikosta luettu havainto eikä sitä validoida karttapoolia vasten (ks. yllä):
+ilman koodijaksoa workshop-nimi kuten `*|Aim|* Botz [beta]` katkaisisi rivin
+kesken, ja juuri se rivi kantaa demotunnisteet. Koodijakso säilyttää täsmälleen
+samat merkit, joten kartta ei saa toista kirjoitusasua kuin karttaluvun
+otsikossa.
+
+Rosterin nimiöt on **numeroitu** (`3. pelaaja`), koska nimi ei ole
+yksikäsitteinen avain: kaksi nimetöntä tai kaksi samannimistä pelaajaa
+tuottaisivat ilman lukua kaksi identtistä riviä. Numero on paikka yhteenvedon
+nimilistassa, joten pari löytyy laskemalla. Samasta syystä tunnistamattoman
+kartan nimiö on `kartta N, nimeä ei tunnistettu` eikä sen demotunniste: nimiö
+ja arvo olisivat muuten sama merkkijono.
 
 Säästökierrokset (`pistol`, `eco`, `force`, `half`) kuvataan kierroksen
 tarkkuudella: jokainen havainto kirjoitetaan. Täydet ostot (`full`) ja
@@ -567,13 +621,18 @@ manifestin perusteella: käyttäjä ajaa komennon silloin kun hän haluaa
 raportin.
 
 **Joukkueen ja pelaajien nimet ovat havaintoja.** `display_name` on demosta
-luettu klaaninimi (`lineups.parquet`:n `clan_name`) ja rosterilla on jokaisella
-rivillä sekä nimi että SteamID64 -- nimi luettavuutta varten, tunniste
-jäljitettävyyttä varten. `display_name_source` kertoo kummasta on kyse:
-`clan_name` = havaittu, `team_key` = havaintoa ei ole. Ilman havaintoa raportti
-**sanoo sen ääneen** eikä toista tiivistettä nimen paikalla: otsikko on
-"Scouting-raportti -- joukkueen nimi ei tiedossa". Jos liitetyt demot antavat
-joukkueelle eri nimen, näytetään useimmin havaittu ja loput luetellaan
+luettu klaaninimi (`lineups.parquet`:n `clan_name`), ja jokaisella rosterin
+rivillä on sekä nimi että SteamID64 -- nimi luettavuutta varten, tunniste
+jäljitettävyyttä varten. Kumpikaan ei korvaa toista eikä kumpikaan katoa; ne
+vain asuvat eri luvuissa. Pelaaja, jonka nimeä ei saatu luettua, pysyy
+rosterin lukumäärässä: yhteenvedossa hänen paikallaan on "nimi ei luettavissa"
+ja jäljitettävyysluvussa sama teksti järjestyslukunsa kanssa hänen
+SteamID64:nsä edessä. `display_name_source` kertoo joukkueen nimestä kummasta
+on kyse: `clan_name` = havaittu, `team_key` = havaintoa ei ole. Ilman havaintoa
+raportti **sanoo sen ääneen** eikä toista tiivistettä nimen paikalla: otsikko
+on "Scouting-raportti -- joukkueen nimi ei tiedossa" ja yhteenvedon rivi kertoo
+puuttumisen syyn sekä sen, missä luvussa tunniste on. Jos liitetyt demot
+antavat joukkueelle eri nimen, näytetään useimmin havaittu ja loput luetellaan
 (`display_name_alternatives`) -- ristiriita ei katoa. Äänestys on
 kaksivaiheinen enemmistö: ensin ratkeaa demon sisällä yleisin klaani, sitten
 se saa demonsa yhden äänen. Viiden pelaajan demo ei siis paina viittä kertaa
@@ -707,6 +766,13 @@ ja kuvaisi eri tiedostoa kuin se, jonka käyttäjä juuri sai.
 Manifestin parametrihash lasketaan **raporttimallin sisällöstä** (`sha256`),
 koska `render` ei lue yhtään asetusosiota mutta mallin muokkaaminen muuttaa
 raporttia -- sama kuvio kuin `parse`in aseluokittelun tiivisteellä.
+
+Hash **ei kata** `render/view.py`:tä, joka valitsee jokaisen rivin ja
+sanamuodon: sen muokkaaminen muuttaa raporttia näkymättä manifestissa
+mitenkään, eli kahden raportin identtiset manifestit eivät todista niiden
+syntyneen samasta koodista. Vanhentunut raportti ei silti pääse ulos, koska
+vaihetta ei koskaan ohiteta manifestin perusteella -- jokainen ajo latoo
+raportin uudelleen. Puute on kirjattu `deferred-work.md`:hyn.
 
 Väärä `schema_version` keskeyttää ajon eikä tuota puolikasta raporttia: versio
 luetaan raa'asta JSONista ennen mallin validointia, jotta virheilmoitus kertoo
