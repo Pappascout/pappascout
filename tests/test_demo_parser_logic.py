@@ -34,6 +34,7 @@ from pappascout.adapters.protocols import (
     CALLOUTS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
+    MATCH_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
@@ -104,6 +105,24 @@ DEFAULT_INVENTORY: tuple[str, ...] = (
 DEFAULT_ARMOR = 100
 
 
+#: Erotin kolmen tapauksen välillä, joita ``None`` yksin ei riitä erottamaan:
+#: otsikkoa **ei annettu** (feikki käyttää :data:`DEFAULT_HEADER`ia), otsikko
+#: annettiin **arvona ``None``** (kirjasto palautti tyhjän -- aito tapaus, jota
+#: ei saa korvata oletuksella), ja otsikko annettiin **sanakirjana**. Kolmas
+#: muoto on tarkoituksella ``Any``, jotta testi voi antaa myös ei-sanakirjan.
+_MISSING_HEADER: Any = object()
+
+#: Otsikon oletus. Oikeassa otsikossa on 12 kenttää (mitattu 2026-08-31);
+#: tässä on kolme niistä, koska loput eivät vaikuta mihinkään. Vain
+#: ``map_name`` kuuluu ottelutauluun -- ``server_name`` on mukana juuri siksi,
+#: että testi näkee sen jäävän pois.
+DEFAULT_HEADER: dict[str, Any] = {
+    "map_name": "de_ancient",
+    "server_name": "FACEIT.com register to play here",
+    "demo_version_name": "valve_demo_2",
+}
+
+
 class FakeDemoparser2:
     """Palauttaa samat kehysmuodot kuin demoparser2 0.42.0.
 
@@ -138,7 +157,18 @@ class FakeDemoparser2:
         drop_grenade_columns: tuple[str, ...] = (),
         drop_death_columns: tuple[str, ...] = (),
         drop_cloud_props: tuple[str, ...] = (),
+        header: dict[str, Any] | None | Any = _MISSING_HEADER,
+        header_error: Exception | None = None,
     ) -> None:
+        #: Demon otsikko, kuten ``parse_header()`` sen palauttaa; ks.
+        #: :data:`DEFAULT_HEADER`. ``None`` = kirjasto palautti tyhjän
+        #: otsikon, mikä on aito tapaus eikä poikkeus.
+        self.header = DEFAULT_HEADER if header is _MISSING_HEADER else header
+        #: Poikkeus, jonka ``parse_header`` nostaa -- kirjaston oma vika.
+        self.header_error = header_error
+        #: Otsikon lukukutsujen määrä. Testi lukee tästä, että 233 MB:n demoa
+        #: ei luettu kahdesti kartan nimen takia.
+        self.header_calls = 0
         self.freeze_ticks = freeze_ticks
         self.round_ends = round_ends
         self.tick_rows = tick_rows
@@ -163,6 +193,12 @@ class FakeDemoparser2:
         #: Propilistat kutsujärjestyksessä -- testi voi todeta, ettei koko
         #: tickisarjaa luettu.
         self.tick_calls: list[tuple[tuple[str, ...], tuple[int, ...]]] = []
+
+    def parse_header(self) -> dict[str, Any] | None:
+        self.header_calls += 1
+        if self.header_error is not None:
+            raise self.header_error
+        return self.header
 
     def parse_event(
         self, name: str, *, player: list[str] | None = None
@@ -5499,3 +5535,211 @@ def test_the_z_weight_and_tolerance_are_settings_not_code(tmp_path: Path) -> Non
     assert heavy > no_weight
     # Toleranssi nielee saman pystyeron kokonaan, joten paino ei enää maksa.
     assert forgiving == pytest.approx(no_weight)
+
+
+# --- Ottelutaulu: kartan nimi otsikosta (Story 2.11) --------------------------
+
+
+def parse_match_table(
+    fake: FakeDemoparser2, tmp_path: Path, **kwargs
+) -> pl.DataFrame:
+    """Pelkkä ottelutaulu (Story 2.11)."""
+    return parse_tables(fake, tmp_path, **kwargs).match
+
+
+def test_the_map_name_is_read_from_the_demo_header(tmp_path: Path) -> None:
+    """Kartan nimi on havainto otsikosta, ja taulussa on yksi rivi."""
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": "de_nuke", "server_name": "FACEIT.com"}
+
+    match = parse_match_table(fake, tmp_path)
+
+    assert match.columns == list(MATCH_ADAPTER_COLUMNS)
+    assert match.height == 1
+    assert match["map_name"].to_list() == ["de_nuke"]
+
+
+def test_the_header_is_read_once_from_the_same_parser_object(
+    tmp_path: Path,
+) -> None:
+    """Otsikko luetaan **kertaalleen** samasta parser-oliosta.
+
+    Väite on ``parse_header``-kutsujen määrästä eikä ``_open``-kutsujen. Ero
+    ratkaisee: suora ``DemoParser(...)``-rakennus ``_header_map_name``in
+    sisällä ohittaisi ``_open``in kokonaan, ja ``_open``-laskuri näyttäisi
+    silti yhtä. Kutsulaskuri on portin toisella puolella, joten se näkee
+    kumman tahansa reitin.
+
+    Kaksi kutsua tarkoittaisi, että 233 MB:n demo luetaan uudelleen pelkän
+    kartan nimen takia -- ja se on tämän tarinan nimenomainen kielto.
+
+    Ajetaan jaetulla :func:`parse_tables`-harnessilla, jotta kokoonpano on sama
+    kuin muissa logiikkatesteissä.
+    """
+    fake = build(long_match(played=1))
+
+    parse_tables(fake, tmp_path)
+
+    assert fake.header_calls == 1
+
+
+def test_a_map_outside_the_pool_is_kept_as_observed(tmp_path: Path) -> None:
+    """Poolin ulkopuolinen kartta on aito havainto eikä tuntematon kartta.
+
+    Adapteri ei tunne karttapoolia lainkaan, ja juuri se on sopimus: nimen
+    hiljainen korjaus poolin nimeksi tekisi havainnosta johdoksen.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": "de_train"}
+
+    assert parse_match_table(fake, tmp_path)["map_name"].to_list() == ["de_train"]
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_a_missing_map_name_is_null_and_not_a_substitute(
+    tmp_path: Path, value: str | None
+) -> None:
+    """Tyhjä merkkijono ei ole nimi, ja rivi kirjoitetaan silti.
+
+    Rivi on olemassa, koska ottelu on olemassa: tyhjä taulu väittäisi demoa
+    ilman ottelua, mikä on eri asia kuin ottelu ilman kartan nimeä.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": value}
+
+    match = parse_match_table(fake, tmp_path)
+
+    assert match.height == 1
+    assert match["map_name"].to_list() == [None]
+
+
+def test_a_header_without_the_field_at_all_is_null(tmp_path: Path) -> None:
+    """Kirjasto voi nimetä kentän uudelleen; silloin nimeä ei ole."""
+    fake = build(long_match(played=1))
+    fake.header = {"server_name": "FACEIT.com"}
+
+    assert parse_match_table(fake, tmp_path)["map_name"].to_list() == [None]
+
+
+def test_an_empty_header_is_null_and_does_not_crash(tmp_path: Path) -> None:
+    """``parse_header`` voi palauttaa tyhjän; se ei ole poikkeus."""
+    fake = build(long_match(played=1))
+    fake.header = None
+
+    assert parse_match_table(fake, tmp_path)["map_name"].to_list() == [None]
+
+
+@pytest.mark.parametrize(
+    "header,expected",
+    [
+        ({"server_name": "FACEIT.com"}, "map_name-kenttää"),
+        ({"map_name": ""}, "tyhjä"),
+        ({"map_name": "   "}, "tyhjä"),
+        ({"map_name": b"de_ancient"}, "ei ole merkkijono"),
+        (None, "ei palauttanut sanakirjaa"),
+    ],
+)
+def test_a_missing_map_name_records_its_reason(
+    tmp_path: Path, header, expected: str
+) -> None:
+    """Nimen puuttumisella on kolme eri syytä, eikä yksikään saa vaieta.
+
+    Puuttuva nimi on laillinen havainto, mutta "otsikossa ei ollut karttaa" ja
+    "demoparser2 nimesi kentän uudelleen" ovat eri asioita. Ensimmäinen on
+    demon ominaisuus, toinen ohjelman vika -- ja jälkimmäisenä koko arkisto
+    palaisi demokohtaisiin karttahaaroihin ilman yhtään merkkiä. Sama sääntö
+    kuin pistepilven tyhjyyden syyllä: se näkyy vain lukuhetkellä, joten se
+    kulkee diagnostiikassa.
+    """
+    fake = build(long_match(played=1))
+    fake.header = header
+
+    adapter = parse_adapter(fake, tmp_path)
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.header_map_name_missing_reason is not None
+    assert expected in adapter.diagnostics.header_map_name_missing_reason
+
+
+def test_a_found_map_name_records_no_reason(tmp_path: Path) -> None:
+    """Toinen haara: onnistunut luku ei jätä syytä roikkumaan.
+
+    Ilman tätä väitettä laskuri voisi jäädä edellisen demon arvoon, ja
+    tuloste kertoisi puuttuvasta nimestä demolle, jolta se löytyi.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": "de_nuke"}
+
+    adapter = parse_adapter(fake, tmp_path)
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.header_map_name_missing_reason is None
+
+
+def test_a_byte_map_name_is_not_a_name(tmp_path: Path) -> None:
+    """Tavujono ei kelpaa nimeksi, eikä siitä tehdä korviketta.
+
+    ``str(b"de_ancient")`` on ``"b'de_ancient'"``, joka näyttäisi taulussa
+    havainnolta ja pirstoisi kartan omaksi haarakseen. Havainto on nimi tai sen
+    puuttuminen -- kirjaston tyyppimuutos ei saa mennä läpi hiljaa.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": b"de_ancient"}
+
+    assert parse_match_table(fake, tmp_path)["map_name"].to_list() == [None]
+
+
+def test_the_map_name_is_trimmed(tmp_path: Path) -> None:
+    """Reunojen välilyönnit eivät kuulu nimeen.
+
+    ``" de_ancient "`` olisi eri haara kuin ``"de_ancient"``, eli havainto
+    pirstoisi kartan sen sijaan että kokoaisi sen. Leikkaus ei ole validointia:
+    kirjoitusasua ei muuteta eikä nimeä verrata karttapooliin.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": "  de_ancient  "}
+
+    assert parse_match_table(fake, tmp_path)["map_name"].to_list() == ["de_ancient"]
+
+
+def test_an_unreadable_header_is_a_finnish_error_naming_both_causes(
+    tmp_path: Path,
+) -> None:
+    """Kirjaston oma poikkeus kääritään, eikä viesti väitä yhtä syytä kahdesta.
+
+    Kääriminen on sama sääntö kuin ``_open``issa ja ``_event``issä:
+    ``ParseError``in viesti on suomeksi ja kertoo mitä tehdä, ja vain sen
+    lajin ``stages.parse`` tunnistaa kirjatakseen demolle tilan
+    ``parse_failed``.
+
+    Kirjaston uudelleennimeämä metodi nostaa ``AttributeError``in täysin
+    ehjästä demosta. Pelkkä "lataa uudelleen" lähettäisi käyttäjän hakemaan
+    230 MB:n tiedoston, joka on jo kunnossa, eikä kertoisi mitään siitä missä
+    vika oikeasti on.
+    """
+    fake = build(long_match(played=1))
+    fake.header_error = AttributeError("parse_header")
+
+    with pytest.raises(ParseError) as err:
+        parse_match_table(fake, tmp_path)
+
+    message = str(err.value)
+    assert "vioittunut" in message
+    assert "demoparser2:n rajapinta on muuttunut" in message
+    # Poikkeuksen laji on mukana, jotta lukija näkee kumpi syy on
+    # todennäköisempi ilman että hänen tarvitsee toistaa ajo.
+    assert "AttributeError" in message
+
+
+def test_the_match_table_carries_only_the_map_name(tmp_path: Path) -> None:
+    """Otsikon 12 kentästä tauluun kuuluu yksi.
+
+    ``server_name`` on FACEIT-demoilla ``FACEIT.com register to play here``,
+    eli se kertoisi ottelun lähteestä -- mutta se ei ole tämän tarinan asia,
+    ja jokainen ylimääräinen sarake olisi sopimusmuutos.
+    """
+    fake = build(long_match(played=1))
+
+    match = parse_match_table(fake, tmp_path)
+
+    assert set(match.columns) == {"map_name"}

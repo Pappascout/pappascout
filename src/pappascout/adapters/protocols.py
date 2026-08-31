@@ -24,6 +24,7 @@ from pappascout.domain.schemas import (
     DEATHS,
     EVENTS,
     LINEUPS,
+    MATCH,
     ROUNDS,
     TICKS,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "LINEUPS_ADAPTER_COLUMNS",
     "DEATHS_ADAPTER_COLUMNS",
     "CALLOUTS_ADAPTER_COLUMNS",
+    "MATCH_ADAPTER_COLUMNS",
 ]
 
 #: Sarakkeet, jotka kierrostaulussa ovat **tarkalleen** -- ei enempää eikä
@@ -124,6 +126,17 @@ CALLOUTS_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
 )
 
 
+#: Sarakkeet, jotka ottelutaulussa ovat **tarkalleen** -- ei enempää eikä
+#: vähempää.
+#:
+#: Yksi ero ``MATCH``-sopimukseen: ``map_demo_id`` puuttuu samasta syystä kuin
+#: muissa tauluissa. ``round_no``:ta ei ole lainkaan eikä pidä lisätä: ottelu
+#: ei ole kierros, ja koko taulun peruste on juuri se ero.
+MATCH_ADAPTER_COLUMNS: tuple[str, ...] = tuple(
+    name for name in MATCH if name != "map_demo_id"
+)
+
+
 @dataclass(frozen=True)
 class DemoTables:
     """Yhden demon kaikki parsitut taulut samasta lukukerrasta.
@@ -159,6 +172,12 @@ class DemoTables:
             kaksi kutsua voisi rakentaa pilven kahdesti ja eri tuloksella,
             jolloin taulun rivi ei enää selittäisi taulukossa olevaa aluetta.
             Kenttä on pakollinen samasta syystä kuin edelliset.
+        match: Ottelutaulu; sisältö on kuvattu
+            :meth:`DemoParser.parse_demo`ssa. Kenttä on pakollinen samasta
+            syystä kuin edelliset: tyhjä oletus antaisi vanhan portin
+            toteutuksen näyttää demolta, jonka otsikossa ei ole karttaa -- ja
+            se ero ratkaisee, luetaanko nimi havaintona vai päätelläänkö se
+            tunnisteesta.
     """
 
     rounds: pl.DataFrame
@@ -167,6 +186,7 @@ class DemoTables:
     lineups: pl.DataFrame
     deaths: pl.DataFrame
     callouts: pl.DataFrame
+    match: pl.DataFrame
 
 
 @dataclass(frozen=True)
@@ -473,6 +493,17 @@ class ParseDiagnostics:
     grenades_sharing_an_entity_id: int = 0
     callout_cloud_rows_read: int = 0
     callout_cloud_empty_reason: str | None = None
+    #: Miksi kartan nimeä ei saatu demon otsikosta, tai ``None`` jos saatiin.
+    #:
+    #: Nimen puuttuminen on laillinen havainto, mutta sillä on **kolme eri
+    #: syytä**: otsikossa ei ole ``map_name``-kenttää lainkaan, kenttä on tyhjä,
+    #: tai koko otsikko ei ole luettavissa sanakirjana. Ensimmäinen tarkoittaa
+    #: käytännössä demoparser2:n uudelleennimeämää kenttää, ja ilman tätä
+    #: erittelyä koko arkisto palaisi demokohtaisiin karttahaaroihin ilman
+    #: yhtään merkkiä siitä -- sama vikaluokka kuin Story 2.10:n pawnittomalla
+    #: pelaajalla. Sama sääntö kuin ``callout_cloud_empty_reason``illa: tyhjän
+    #: tuloksen syy näkyy vain lukuhetkellä, joten se kulkee diagnostiikassa.
+    header_map_name_missing_reason: str | None = None
     unknown_inventory_items: tuple[tuple[str, int], ...] = ()
     lineup_name_conflicts: int = 0
     lineup_clan_conflicts: int = 0
@@ -495,7 +526,7 @@ class ParseDiagnostics:
 
 @runtime_checkable
 class DemoParser(Protocol):
-    """Portti, joka lukee demosta kaikki kuusi taulua.
+    """Portti, joka lukee demosta kaikki seitsemän taulua.
 
     Toteutuksen on palautettava **havaitut** arvot sellaisenaan: ei
     kierrostyyppiluokittelua, ei loss countia, ei aggregointia, ei muuta
@@ -563,11 +594,19 @@ class DemoParser(Protocol):
             saatu yhtään elossa-riviä nimetyllä alueella -- ja silloin
             jokainen räjähdysalue on ``null``; syy kulkee diagnostiikassa.
 
+            ``match`` on **täsmälleen yksi rivi**, sarakkeet täsmälleen
+            :data:`MATCH_ADAPTER_COLUMNS`. ``map_name`` on demon otsikon
+            (``parse_header``) kartta **havaintona**: se palautetaan
+            sellaisenaan eikä sitä verrata karttapooliin, koska poolin
+            ulkopuolinen kartta on aito havainto. Puuttuva tai tyhjä nimi on
+            ``null`` eikä korvike. Tyhjä taulu ei ole kelvollinen tulos:
+            demossa on aina ottelu, vaikka sen kartta olisi tuntematon.
+
             ``round_no`` on ``rounds``-, ``ticks``-, ``events``- ja
             ``deaths``-tauluissa kaikilla riveillä ``null`` -- numeroinnin
             päättää ``domain.rounds.mark_played_rounds``, jota vain
-            ``stages.parse`` kutsuu. ``lineups``- ja ``callouts``-tauluissa
-            saraketta ei ole lainkaan.
+            ``stages.parse`` kutsuu. ``lineups``-, ``callouts``- ja
+            ``match``-tauluissa saraketta ei ole lainkaan.
 
         Raises:
             ~pappascout.errors.ParseError: Jos tiedosto ei ole CS2-demo tai

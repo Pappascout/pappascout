@@ -3,7 +3,7 @@
 Vaihe näkee demon vain portin takaa (AD-8), joten sen koko logiikka -- taulujen
 validointi, kierrosnumeron liittäminen näytepisteisiin ja tapahtumiin, atominen
 kirjoitus, manifesti ja ohitus -- testataan feikillä, joka rakentaa kaikki
-kolme taulua käsin. Yksikään näistä testeistä ei tarvitse demotiedostoa.
+taulut käsin. Yksikään näistä testeistä ei tarvitse demotiedostoa.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from pappascout.adapters.protocols import (
     DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
+    MATCH_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
@@ -38,6 +39,7 @@ from pappascout.domain.schemas import (
     DEATHS,
     EVENTS,
     LINEUPS,
+    MATCH,
     ROUNDS,
     TICKS,
     validate,
@@ -68,6 +70,11 @@ CALLOUTS_ADAPTER_SCHEMA: dict[str, object] = {
     name: CALLOUT_CLOUD[name] for name in CALLOUTS_ADAPTER_COLUMNS
 }
 
+#: Ottelutaulun tyypit portin takana: ``MATCH`` ilman ``map_demo_id``:tä.
+MATCH_ADAPTER_SCHEMA: dict[str, object] = {
+    name: MATCH[name] for name in MATCH_ADAPTER_COLUMNS
+}
+
 #: Ruudun särmä, jolla feikin pistepilvi on rakennettu. Sama kuin
 #: ``settings.toml``in ``callout_grid_units``.
 CALLOUT_GRID = 32
@@ -94,6 +101,21 @@ def build_callouts(cells: int = 4) -> pl.DataFrame:
         for index in range(cells)
     ]
     return pl.DataFrame(rows, schema=dict(CALLOUTS_ADAPTER_SCHEMA), orient="row")
+
+
+def build_match(
+    map_name: str | None = "de_ancient", *, rows: int | None = None
+) -> pl.DataFrame:
+    """Ottelutaulu, kuten adapteri sen antaisi: yksi rivi, ei kierrosnumeroa.
+
+    ``rows`` on vain rivimäärän vartijan testaamista varten: sillä feikki voi
+    palauttaa nollan tai kahden rivin taulun, jonka skeema on silti oikein.
+    """
+    row = {"map_name": map_name}
+    payload = [row] if rows is None else [row] * rows
+    if not payload:
+        return pl.DataFrame(schema=dict(MATCH_ADAPTER_SCHEMA))
+    return pl.DataFrame(payload, schema=dict(MATCH_ADAPTER_SCHEMA))
 
 
 # --- Feikki portin taakse ------------------------------------------------------
@@ -447,6 +469,7 @@ class FakeParser:
         lineups: pl.DataFrame | None = None,
         deaths: pl.DataFrame | None = None,
         callouts: pl.DataFrame | None = None,
+        match: pl.DataFrame | None = None,
     ):
         self.frame = frame if frame is not None else build_rounds()
         self.ticks = ticks if ticks is not None else build_ticks(self.frame)
@@ -456,6 +479,7 @@ class FakeParser:
         )
         self.deaths = deaths if deaths is not None else build_deaths(self.frame)
         self.callouts = callouts if callouts is not None else build_callouts()
+        self.match = match if match is not None else build_match()
         self.error = error
         self.calls = 0
         self.seen_seconds: list[tuple[float, ...]] = []
@@ -472,6 +496,7 @@ class FakeParser:
             lineups=self.lineups,
             deaths=self.deaths,
             callouts=self.callouts,
+            match=self.match,
         )
 
 
@@ -579,6 +604,7 @@ def test_writes_a_manifest_with_only_the_parse_section(
         f"parsed/{MAP_DEMO_ID}/lineups.parquet",
         f"parsed/{MAP_DEMO_ID}/deaths.parquet",
         f"parsed/{MAP_DEMO_ID}/callouts.parquet",
+        f"parsed/{MAP_DEMO_ID}/match.parquet",
     ]
     assert manifest.inputs[0].result_id == f"demo/{MAP_DEMO_ID}"
 
@@ -630,7 +656,7 @@ def test_writes_a_valid_ticks_table(parse_settings, archive, demo) -> None:
     assert result.stats["sample_rounds"] == 3
 
 
-def test_all_six_tables_are_listed_among_the_outputs(
+def test_all_seven_tables_are_listed_among_the_outputs(
     parse_settings, archive, demo
 ) -> None:
     result = run_parse(parse_settings, archive, FakeParser(), demo)
@@ -641,6 +667,7 @@ def test_all_six_tables_are_listed_among_the_outputs(
         "lineups.parquet",
         "deaths.parquet",
         "callouts.parquet",
+        "match.parquet",
     ]
 
 
@@ -3176,6 +3203,7 @@ def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
         archive.parsed_table(MAP_DEMO_ID, "lineups"),
         archive.parsed_table(MAP_DEMO_ID, "deaths"),
         archive.parsed_table(MAP_DEMO_ID, "callouts"),
+        archive.parsed_table(MAP_DEMO_ID, "match"),
     )
     assert "unreadable" in stats
 
@@ -3188,6 +3216,7 @@ def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
         archive.parsed_table(MAP_DEMO_ID, "lineups"),
         archive.parsed_table(MAP_DEMO_ID, "deaths"),
         archive.parsed_table(MAP_DEMO_ID, "callouts"),
+        archive.parsed_table(MAP_DEMO_ID, "match"),
     )
     assert "deaths_unreadable" in stats
     # Yksi rikki mennyt taulu ei vie toisen lukuja: pistepilvi on ehjä.
@@ -3772,3 +3801,243 @@ def test_the_distance_spread_reports_three_different_numbers(
     assert (median, p90, largest) == pytest.approx((105.0, 180.0, 200.0))
     # Kolme eri lukua: jos kaksi olisi sama, väite ei erottaisi kvantiileja.
     assert len({median, p90, largest}) == 3
+
+
+# --- Ottelutaulu (Story 2.11) --------------------------------------------------
+
+
+def test_writes_a_match_table_with_one_row_and_the_map_demo_id(
+    parse_settings, archive, demo
+) -> None:
+    """Yksi rivi per demo, ja ``map_demo_id`` liitosavaimena kuten muissakin."""
+    run_parse(parse_settings, archive, FakeParser(match=build_match("de_nuke")), demo)
+
+    table = archive.parsed_table(MAP_DEMO_ID, "match")
+    df = pl.read_parquet(table)
+
+    validate(df, MATCH, "match")
+    assert df.height == 1
+    assert df["map_demo_id"].to_list() == [MAP_DEMO_ID]
+    assert df["map_name"].to_list() == ["de_nuke"]
+
+
+def test_a_match_table_without_a_name_is_still_written(
+    parse_settings, archive, demo
+) -> None:
+    """Puuttuva nimi on ``null`` eikä puuttuva rivi.
+
+    Aggregointi lukee nimikarttaansa vain ne demot, joilta rivi löytyy. Ilman
+    riviä "otsikossa ei ollut karttaa" näyttäisi täsmälleen samalta kuin
+    "taulua ei ole" -- ja jälkimmäinen pudottaa demon otannasta kokonaan.
+    """
+    run_parse(parse_settings, archive, FakeParser(match=build_match(None)), demo)
+
+    df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "match"))
+    assert df.height == 1
+    assert df["map_name"].to_list() == [None]
+
+
+@pytest.mark.parametrize("rows", [0, 2])
+def test_a_match_table_without_exactly_one_row_is_refused(
+    parse_settings, archive, demo, rows: int
+) -> None:
+    """Rivimäärä on sopimus, jota skeemavalidointi ei näe.
+
+    Nolla riviä on demo ilman ottelua ja kaksi riviä kaksi ottelua samassa
+    tiedostossa; kumpikaan ei ole tosi, ja molemmat menisivät ``validate``sta
+    läpi, koska sarakkeet ja tyypit ovat kohdallaan.
+    """
+    broken = build_match("de_nuke", rows=rows)
+    with pytest.raises(ParseError) as exc:
+        run_parse(parse_settings, archive, FakeParser(match=broken), demo)
+
+    assert "ottelutaulussa" in str(exc.value)
+    assert not archive.parsed_table(MAP_DEMO_ID, "match").exists()
+    assert Manifest.read(archive.parsed_manifest(MAP_DEMO_ID)).status == "parse_failed"
+
+
+def test_a_match_table_breaking_the_port_contract_is_rejected(
+    parse_settings, archive, demo
+) -> None:
+    """Portin sarakeluettelo tarkistetaan ennen kuin taulua rakennetaan."""
+    broken = build_match("de_nuke").drop("map_name")
+    with pytest.raises(SchemaError) as exc:
+        run_parse(parse_settings, archive, FakeParser(match=broken), demo)
+    assert "MATCH_ADAPTER_COLUMNS" in str(exc.value)
+
+
+def test_an_unreadable_header_marks_the_demo_parse_failed(
+    parse_settings, archive, demo
+) -> None:
+    """Adapterin ``ParseError`` kirjautuu manifestiin ja estää ohituksen.
+
+    Manifesti on se, joka pitää huolen ettei seuraava ajo ohita puolikasta
+    tulosta: ilman merkintää demo näyttäisi ajantasaiselta.
+    """
+    parser = FakeParser(error=ParseError("Demon otsikkoa ei voitu lukea: rikki"))
+    with pytest.raises(ParseError):
+        run_parse(parse_settings, archive, parser, demo)
+
+    manifest = Manifest.read(archive.parsed_manifest(MAP_DEMO_ID))
+    assert manifest.status == "parse_failed"
+    assert "otsikkoa ei voitu lukea" in (manifest.reason or "")
+    assert not archive.parsed_table(MAP_DEMO_ID, "match").exists()
+
+    # Ja seuraava ajo ei ohita: virheellinen tulos ei ole ajantasainen tulos.
+    result = run_parse(parse_settings, archive, FakeParser(), demo)
+    assert not result.skipped
+
+
+def test_a_missing_match_table_forces_a_reparse(
+    parse_settings, archive, demo
+) -> None:
+    """Vanha arkisto: manifesti täsmää, mutta uusi taulu puuttuu.
+
+    Story 1.8: ``params_hash`` lasketaan vain ``[parse]``-osiosta ja
+    demoparser2:n versiosta, joten pelkkä skeemamuutos **ei** mitätöi
+    arkistoa. ``expected_outputs`` on ainoa este sille, että kahdeksan jo
+    parsittua demoa jäisi ilman kartan nimeä -- ja ilman ``--pakota``-lippua.
+    """
+    parser = FakeParser()
+    run_parse(parse_settings, archive, parser, demo)
+    archive.parsed_table(MAP_DEMO_ID, "match").unlink()
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert not result.skipped
+    assert parser.calls == 2
+    assert archive.parsed_table(MAP_DEMO_ID, "match").is_file()
+
+
+def test_a_match_table_that_no_longer_matches_the_contract_is_reparsed(
+    parse_settings, archive, demo
+) -> None:
+    """Skeemamuutos ei liikuta parametrihashia, joten se on tarkistettava."""
+    parser = FakeParser()
+    run_parse(parse_settings, archive, parser, demo)
+    table = archive.parsed_table(MAP_DEMO_ID, "match")
+    pl.read_parquet(table).drop("map_name").write_parquet(table)
+
+    result = run_parse(parse_settings, archive, parser, demo)
+    assert not result.skipped
+    assert parser.calls == 2
+
+
+def test_the_match_table_is_listed_in_the_manifest_and_the_result(
+    parse_settings, archive, demo
+) -> None:
+    """Manifesti **ja ajon tulos** nimeävät kaikki kirjoitetut taulut.
+
+    Kaksi eri luetteloa, ja molemmat on pidettävä ajan tasalla: manifesti
+    ohjaa ohitusta, ``StageResult.outputs`` on se, minkä käyttäjä näkee ajon
+    yhteenvedon ``Tulos``-riveillä. Puuttuva rivi tulosteessa antaisi
+    vaikutelman, ettei taulua kirjoitettu.
+    """
+    result = run_parse(parse_settings, archive, FakeParser(), demo)
+
+    outputs = Manifest.read(archive.parsed_manifest(MAP_DEMO_ID)).outputs
+    assert any(str(o).endswith("match.parquet") for o in outputs)
+    assert any(str(o).endswith("match.parquet") for o in result.outputs)
+
+
+def test_the_map_name_reaches_the_stats_and_the_summary(
+    parse_settings, archive, demo
+) -> None:
+    """Kartan nimi näkyy ajon yhteenvedossa -- se on ainoa merkki siitä.
+
+    Nimi on ``aggregate``n ainoa keino yhdistää kaksi demoa samaksi kartaksi,
+    eikä FACEIT-tunnisteesta sitä voi päätellä. Ilman riviä tulosteessa
+    kadonnut otsikkokenttä palauttaisi koko arkiston demokohtaisiin
+    karttahaaroihin ilman yhtään merkkiä.
+    """
+    from pappascout.cli import _render_parse
+
+    result = run_parse(
+        parse_settings, archive, FakeParser(match=build_match("de_nuke")), demo
+    )
+
+    assert result.stats["map_name"] == "de_nuke"
+    assert "de_nuke (havaittu demon otsikosta)" in _render_parse(result, 24)
+
+
+def test_a_missing_map_name_says_so_out_loud(parse_settings, archive, demo) -> None:
+    """Puuttuva nimi on oma rivinsä, ei tyhjä kohta tulosteessa.
+
+    Puuttuva avain ja ``None`` tarkoittaisivat tulosteessa samaa, ja tuloste on
+    ainoa paikka, jossa kadonnut otsikkokenttä näkyy.
+    """
+    from pappascout.cli import _render_parse
+
+    result = run_parse(
+        parse_settings, archive, FakeParser(match=build_match(None)), demo
+    )
+
+    assert result.stats["map_name"] is None
+    text = _render_parse(result, 24)
+    assert "otsikossa ei ollut kartan nimeä" in text
+
+
+def test_the_reason_for_a_missing_map_name_reaches_the_summary(
+    parse_settings, archive, demo
+) -> None:
+    """Syy tulee diagnostiikasta ja näkyy vain tuoreesta ajosta.
+
+    Valmis taulu kertoo että nimi puuttuu, muttei sitä puuttuiko kenttä
+    otsikosta kokonaan -- ja juuri se ero erottaa kirjaston uudelleennimeämän
+    kentän demosta, jonka otsikkoon karttaa ei kirjattu.
+    """
+    from pappascout.cli import _render_parse
+
+    parser = FakeParser(match=build_match(None))
+    parser.diagnostics = ParseDiagnostics(
+        tick_rate=64.0,
+        tick_rate_measured=True,
+        rounds_seen=3,
+        header_map_name_missing_reason="otsikossa ei ole map_name-kenttää lainkaan",
+    )
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert (
+        result.stats["header_map_name_missing_reason"]
+        == "otsikossa ei ole map_name-kenttää lainkaan"
+    )
+    assert "Kartta puuttuu koska" in _render_parse(result, 24)
+
+
+def test_the_map_name_comes_back_from_a_skipped_run(
+    parse_settings, archive, demo
+) -> None:
+    """Ohitettu ajo kertoo kartan, koska nimi on luettavissa taulusta.
+
+    Juuri se on rivin arvo: ohitettu ajo on se tila, jossa käyttäjä muuten ei
+    näe kartasta mitään. Syy puuttumiselle sen sijaan tulee diagnostiikasta,
+    joten sitä ei ole ohitetussa ajossa -- ja se on oikein.
+    """
+    parser = FakeParser(match=build_match("de_anubis"))
+    run_parse(parse_settings, archive, parser, demo)
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.skipped
+    assert result.stats["map_name"] == "de_anubis"
+    assert "header_map_name_missing_reason" not in result.stats
+
+
+def test_an_empty_match_table_gets_a_finnish_error_not_a_polars_one(
+    parse_settings, archive, demo
+) -> None:
+    """Rivimäärä tarkistetaan **ennen** kehyksen rakentamista.
+
+    Jälkikäteen tarkistettuna suomenkielinen virhe säilyisi vain siksi, että
+    ``pl.lit`` sattuu broadcastaamaan myös korkeuteen 0. Sama sääntö kuin
+    ``stages.aggregate._in_schema_order``in ``ShapeError``illa: epäonnistumistapa
+    poistetaan, ei käännetä.
+    """
+    broken = build_match("de_nuke", rows=0)
+    with pytest.raises(ParseError) as exc:
+        run_parse(parse_settings, archive, FakeParser(match=broken), demo)
+
+    message = str(exc.value)
+    assert "ottelutaulussa on 0 riviä" in message
+    assert "ShapeError" not in message

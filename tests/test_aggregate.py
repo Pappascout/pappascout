@@ -25,6 +25,8 @@ from pappascout.domain.aggregate import (
     roster_entries,
     team_identity,
     map_name_for,
+    observed_map_name,
+    weakest_map_source,
     players_distribution,
     positions_for,
     sample_for,
@@ -46,6 +48,7 @@ from pappascout.domain.schemas import (
     DEATHS,
     EVENTS,
     LINEUPS,
+    MATCH,
     MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
     TICKS,
@@ -193,6 +196,17 @@ def lineup_row(
 def lineups_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
     df = pl.DataFrame(rows, schema=dict(LINEUPS))
     return validate(df, LINEUPS, "lineups")
+
+
+def match_frame(demo: str, map_name: str | None) -> pl.DataFrame:
+    """Ottelutaulu: yksi rivi, kartan nimi otsikosta tai ``None``.
+
+    Ei ``orient``ia: sanakirjarivi kertoo sarakkeensa nimellä.
+    """
+    df = pl.DataFrame(
+        [{"map_demo_id": demo, "map_name": map_name}], schema=dict(MATCH)
+    )
+    return validate(df, MATCH, "match")
 
 
 def event_rows(
@@ -378,7 +392,22 @@ def report_for(
     windows: AggregateSettings | None = None,
     missing: list[MissingDemo] | None = None,
     lineups: list[str] | None = None,
+    map_names: dict[str, str | None] | None = None,
 ):
+    """Raportti käsin rakennetuista riveistä.
+
+    ``map_names`` **annettuna käytetään sellaisenaan**, myös tyhjänä. Ilman
+    sitä oletus on, ettei yhdenkään demon otsikossa ollut kartan nimeä
+    (``None`` jokaiselle), jolloin nimi päätellään tunnisteesta kuten ennen
+    Story 2.11:tä -- niin vanhat testit mittaavat yhä päättelyä ja uudet
+    havaintoa.
+
+    Oletusta ei täytetä annetun kartan päälle: puuttuva avain on
+    ``build_report``in mielestä virhe, ja juuri sitä vartijaa on voitava
+    testata tämän apurin läpi.
+    """
+    if map_names is None:
+        map_names = {str(row["map_demo_id"]): None for row in classified}
     return build_report(
         classified=classified_frame(classified),
         ticks=ticks_frame(ticks or []),
@@ -391,6 +420,7 @@ def report_for(
         thresholds=limits or thresholds(),
         aggregate=windows or aggregate_settings(),
         map_pool=MAP_POOL,
+        map_names=map_names,
         generated_at=datetime(2026, 8, 30, tzinfo=UTC),
         missing_demos=missing or [],
     )
@@ -452,6 +482,271 @@ def test_map_name_is_not_matched_as_a_substring() -> None:
     name, source = map_name_for("Infernal_vs_x", MAP_POOL)
     assert source == "unknown"
     assert name == "Infernal_vs_x"
+
+
+# --- Kartan nimi otsikosta (Story 2.11) ---------------------------------------
+
+
+def test_the_observed_map_name_wins_over_the_identifier() -> None:
+    """FACEIT-tunnisteessa ei ole karttaa, mutta otsikossa on.
+
+    Juuri tämä rivi I/O-matriisista on koko tarinan syy: ilman otsikkoa
+    ``1-79f71e00-...`` jää omaksi haaraksi tunnisteensa nimellä.
+    """
+    assert map_name_for("1-79f71e00-1-1", MAP_POOL, "de_nuke") == (
+        "de_nuke",
+        "demo_header",
+    )
+
+
+def test_a_hand_imported_demo_keeps_its_name_but_changes_source() -> None:
+    """Sama nimi kuin ennen, lähde vaihtuu havainnoksi."""
+    assert map_name_for("Ancient_vs_kaljukostaja", MAP_POOL, "de_ancient") == (
+        "de_ancient",
+        "demo_header",
+    )
+
+
+def test_an_observed_name_outside_the_pool_is_used_as_is() -> None:
+    """Poolin ulkopuolinen kartta on aito havainto eikä tuntematon kartta.
+
+    ``de_train`` ei ole kauden poolissa, mutta demo on siltä kartalta. Nimen
+    hiljainen korjaus poolin nimeksi olisi valhe, ja lähteen pudottaminen
+    arvoon ``unknown`` väittäisi, ettei nimeä havaittu.
+    """
+    assert map_name_for("1-79f71e00-1-1", MAP_POOL, "de_train") == (
+        "de_train",
+        "demo_header",
+    )
+
+
+def test_the_observation_beats_a_conflicting_identifier() -> None:
+    """Tunniste on tiedostonimi, otsikko on demon oma tieto.
+
+    Ristiriidassa havainto voittaa: tiedostonimen voi kirjoittaa kuka vain,
+    otsikon kirjoitti peli.
+    """
+    assert map_name_for("Ancient_vs_x", MAP_POOL, "de_nuke") == (
+        "de_nuke",
+        "demo_header",
+    )
+
+
+@pytest.mark.parametrize("observed", [None, "", "   "])
+def test_without_an_observation_the_inference_still_applies(
+    observed: str | None,
+) -> None:
+    """Tyhjä merkkijono ei ole nimi, joten päättely jää voimaan."""
+    assert map_name_for("Ancient_vs_kaljukostaja", MAP_POOL, observed) == (
+        "de_ancient",
+        "map_demo_id",
+    )
+    assert map_name_for("1-a52ebff2-1-1", MAP_POOL, observed) == (
+        "1-a52ebff2-1-1",
+        "unknown",
+    )
+
+
+def test_two_faceit_demos_of_the_same_map_form_one_branch() -> None:
+    """Epicin oma mittari: monidemo-otanta kuvion ja yksittäistapauksen erolle.
+
+    Kaksi eri ``map_demo_id``:tä samalla havaitulla nimellä on **yksi** haara:
+    kierrokset summautuvat ja ``map_demo_ids`` luettelee molemmat. Ilman
+    otsikkoa nämä kaksi olisivat kaksi haaraa, joista jokainen rivi kantaisi
+    merkintää "(1/1 kierroksesta)".
+    """
+    report = report_for(
+        [
+            classified_row("1-a52ebff2-1-1", 1),
+            classified_row("ANCIENT_vs_RCAVE_VETERANS", 1),
+            classified_row("ANCIENT_vs_RCAVE_VETERANS", 2),
+        ],
+        map_names={
+            "1-a52ebff2-1-1": "de_ancient",
+            "ANCIENT_vs_RCAVE_VETERANS": "de_ancient",
+        },
+    )
+
+    assert len(report.maps) == 1
+    entry = report.maps[0]
+    assert entry.map_name == "de_ancient"
+    assert entry.map_name_source == "demo_header"
+    assert sorted(entry.map_demo_ids) == [
+        "1-a52ebff2-1-1",
+        "ANCIENT_vs_RCAVE_VETERANS",
+    ]
+    assert (entry.sample.demos, entry.sample.rounds) == (2, 3)
+
+
+def test_a_demo_without_a_name_does_not_merge_into_another_branch() -> None:
+    """Tuntematon kartta pysyy tunnisteenaan; arvausta ei tehdä.
+
+    Havainto yhdeltä demolta ei kelpaa toisen nimeksi, vaikka ne olisivat
+    samassa ajossa.
+    """
+    report = report_for(
+        [
+            classified_row("1-a52ebff2-1-1", 1),
+            classified_row("1-79f71e00-1-1", 1),
+        ],
+        map_names={"1-a52ebff2-1-1": "de_ancient", "1-79f71e00-1-1": None},
+    )
+
+    branches = {m.map_name: m.map_name_source for m in report.maps}
+    assert branches == {
+        "de_ancient": "demo_header",
+        "1-79f71e00-1-1": "unknown",
+    }
+
+
+# --- Haaran avain on nimi, lähde on heikoin (Story 2.11, katselmus 1) --------
+
+
+def test_the_observed_and_the_inferred_name_form_one_branch() -> None:
+    """Sama kartta kahdesta eri lähteestä on **yksi** haara.
+
+    Tämä on se vika, jonka pari ``(nimi, lähde)`` avaimena tekisi: molemmat
+    demot ovat ``de_ancient``, mutta toisen nimi tulee otsikosta ja toisen
+    tiedostonimestä. Kahtena avaimena raportissa olisi kaksi
+    ``de_ancient``-osiota, molemmat merkinnällä "(1/1 kierroksesta)" -- eli
+    täsmälleen se pirstoutuminen, jonka tämä tarina poistaa, uudessa muodossa.
+
+    Ennen Story 2.11:tä vikaa ei voinut olla: ``unknown``-haaran nimi on
+    tunniste itse, joten se ei törmää oikeaan nimeen.
+    """
+    report = report_for(
+        [
+            classified_row("ANCIENT_vs_RCAVE_VETERANS", 1),
+            classified_row("Ancient_vs_kaljukostaja", 1),
+            classified_row("Ancient_vs_kaljukostaja", 2),
+        ],
+        map_names={
+            "ANCIENT_vs_RCAVE_VETERANS": "de_ancient",
+            "Ancient_vs_kaljukostaja": None,
+        },
+    )
+
+    assert len(report.maps) == 1
+    entry = report.maps[0]
+    assert entry.map_name == "de_ancient"
+    assert (entry.sample.demos, entry.sample.rounds) == (2, 3)
+    assert sorted(entry.map_demo_ids) == [
+        "ANCIENT_vs_RCAVE_VETERANS",
+        "Ancient_vs_kaljukostaja",
+    ]
+    # Haaran lähde on sen demojen HEIKOIN: yksi päätelty jäsen riittää.
+    assert entry.map_name_source == "map_demo_id"
+
+
+def test_a_branch_is_demo_header_only_when_every_demo_was_observed() -> None:
+    """Toinen haara: kaikki havaittu = ``demo_header``.
+
+    Ilman tätä väitettä edellinen testi menisi läpi myös toteutuksella, joka
+    kirjoittaa aina ``map_demo_id``in.
+    """
+    report = report_for(
+        [
+            classified_row("1-a52ebff2-1-1", 1),
+            classified_row("ANCIENT_vs_RCAVE_VETERANS", 1),
+        ],
+        map_names={
+            "1-a52ebff2-1-1": "de_ancient",
+            "ANCIENT_vs_RCAVE_VETERANS": "de_ancient",
+        },
+    )
+
+    assert [m.map_name_source for m in report.maps] == ["demo_header"]
+
+
+@pytest.mark.parametrize(
+    "sources,expected",
+    [
+        (["demo_header"], "demo_header"),
+        (["map_demo_id"], "map_demo_id"),
+        (["unknown"], "unknown"),
+        (["demo_header", "map_demo_id"], "map_demo_id"),
+        (["map_demo_id", "demo_header"], "map_demo_id"),
+        (["demo_header", "unknown"], "unknown"),
+        (["demo_header", "demo_header"], "demo_header"),
+    ],
+)
+def test_the_branch_source_is_the_weakest_of_its_demos(
+    sources: list[str], expected: str
+) -> None:
+    """Lähde vastaa kysymykseen "voinko luottaa tähän nimeen".
+
+    Yksi päätelty jäsen riittää vastaamaan "ei täysin", ja vahvimman
+    valitseminen olisi ylisanomista: haara näyttäisi kokonaan havaittuna,
+    vaikka osa sen kierroksista on liitetty siihen tiedostonimen perusteella.
+    Järjestys ei vaikuta tulokseen.
+    """
+    assert weakest_map_source(sources) == expected
+
+
+def test_an_empty_source_list_is_an_error_not_a_default() -> None:
+    """Tyhjä luettelo on rikkinäinen ryhmittely, ei oletusarvoinen lähde."""
+    with pytest.raises(AggregateError, match="lähdeluettelo on tyhjä"):
+        weakest_map_source([])
+
+
+def test_an_unknown_source_is_refused() -> None:
+    """Uusi lähde on lisättävä vahvuusjärjestykseen, ei vain malliin.
+
+    Hiljaa palautettu oletus valehtelisi lukijalle nimen luotettavuudesta.
+    """
+    with pytest.raises(AggregateError, match="Tuntematon kartan nimen lähde"):
+        weakest_map_source(["demo_header", "tiedostonimi"])
+
+
+def test_a_missing_map_name_key_is_an_error_but_a_null_value_is_not() -> None:
+    """``None`` on laillinen havainto; **puuttuva avain** on ohjelmointivirhe.
+
+    Juuri sen estämiseksi ``build_report``in ``map_names`` tehtiin pakolliseksi.
+    ``Mapping.get`` sotkisi nämä yhteen ja palauttaisi kartan hiljaa
+    päättelyyn: FACEIT-demo saisi haaransa tunnisteestaan, eikä mikään
+    kertoisi että havainto oli olemassa mutta ei löytänyt perille.
+    """
+    assert observed_map_name({"Nuke_vs_a": None}, "Nuke_vs_a") is None
+    assert observed_map_name({"Nuke_vs_a": "de_nuke"}, "Nuke_vs_a") == "de_nuke"
+
+    with pytest.raises(AggregateError, match="ei ole kartan nimien joukossa"):
+        observed_map_name({"Nuke_vs_a": None}, "Anubis_vs_b")
+
+
+def test_build_report_refuses_a_demo_that_is_not_in_the_name_map() -> None:
+    """Sama vartija koko raportin läpi ajettuna."""
+    with pytest.raises(AggregateError, match="ei ole kartan nimien joukossa"):
+        report_for([classified_row("Nuke_vs_a", 1)], map_names={})
+
+
+@pytest.mark.parametrize("padded", ["  de_ancient", "de_ancient  ", " de_ancient "])
+def test_a_padded_observed_name_is_trimmed(padded: str) -> None:
+    """Reunojen välilyönnit eivät saa jakaa karttaa kahdeksi haaraksi.
+
+    Adapteri leikkaa nimen jo lukiessaan, mutta ``map_name_for`` on julkinen
+    domain-funktio omalla sopimuksellaan eikä nojaa kutsujan siisteyteen.
+    """
+    assert map_name_for("1-a52ebff2-1-1", MAP_POOL, padded) == (
+        "de_ancient",
+        "demo_header",
+    )
+
+
+def test_a_padded_and_a_clean_name_are_the_same_branch() -> None:
+    """Leikkauksen seuraus koko raportissa: yksi haara eikä kaksi."""
+    report = report_for(
+        [
+            classified_row("1-a52ebff2-1-1", 1),
+            classified_row("1-79f71e00-1-1", 1),
+        ],
+        map_names={
+            "1-a52ebff2-1-1": "de_ancient",
+            "1-79f71e00-1-1": " de_ancient ",
+        },
+    )
+
+    assert [m.map_name for m in report.maps] == ["de_ancient"]
+    assert report.maps[0].sample.demos == 2
 
 
 def test_lineups_with_enough_shared_players_are_one_team() -> None:

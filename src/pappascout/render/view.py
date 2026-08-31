@@ -1168,6 +1168,9 @@ def build_view(
         # rivinsisäisen ehdon, ja Jinjan ``trim_blocks`` syö rivinvaihdon
         # jokaisen rivin päättävän lohkotagin jäljestä -- otsikon ja seuraavan
         # otsikon väliin ei silloin jää tyhjää riviä.
+        # Merkintä kuuluu **vain** lähteelle ``unknown``. ``demo_header`` ja
+        # ``map_demo_id`` ovat molemmat tunnistettuja nimiä: edellinen on
+        # havainto demon otsikosta, jälkimmäinen päättely tunnisteesta.
         name_unknown = map_report.map_name_source == "unknown"
         heading = (
             f"{map_report.map_name} -- {rounds_text(map_report.sample.rounds)}, "

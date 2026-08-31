@@ -317,6 +317,7 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
     lines.extend(_sample_points(stats, rounds))
     lines.extend(_utility(stats, rounds))
     lines.extend(_callouts(stats))
+    lines.extend(_map_name(stats))
     lines.extend(_deaths(stats, rounds))
     lines.extend(_lineups(stats))
 
@@ -1249,6 +1250,42 @@ def _callouts(stats: dict) -> list[str]:
     return lines
 
 
+def _map_name(stats: dict) -> list[str]:
+    """Kartan nimi ``parse``-tulosteeseen -- myös kun sitä ei saatu.
+
+    Rivi on aina, ja se on koko pointti. Nimi on ``aggregate``n ainoa keino
+    yhdistää kaksi demoa samaksi kartaksi, eikä FACEIT-tunnisteesta sitä voi
+    päätellä. Jos demoparser2 nimeäisi ``map_name``-kentän uudelleen, jokainen
+    demo palaisi omaksi karttahaaraksi -- ja ilman tätä riviä se tapahtuisi
+    ilman yhtään merkkiä. Sama vikaluokka kuin Story 2.10:n pawnittomalla
+    pelaajalla: hiljainen paluu huonompaan tulokseen.
+
+    Nimi tulee **valmiista taulusta**, joten se näkyy myös ohitetusta ajosta.
+    Syy puuttumiselle tulee diagnostiikasta ja näkyy vain tuoreesta ajosta,
+    koska valmis taulu ei tiedä sitä.
+    """
+    if "match_unreadable" in stats:
+        return [_line("Kartta", f"lukuja ei saatu ({stats['match_unreadable']})")]
+    if "map_name" not in stats:
+        return []
+
+    name = stats.get("map_name")
+    if name:
+        return [_line("Kartta", f"{name} (havaittu demon otsikosta)")]
+
+    lines = [
+        _line(
+            "Kartta",
+            "otsikossa ei ollut kartan nimeä -- aggregate päättelee sen "
+            "tunnisteesta",
+        )
+    ]
+    reason = stats.get("header_map_name_missing_reason")
+    if reason:
+        lines.append(_line("Kartta puuttuu koska", str(reason)))
+    return lines
+
+
 @app.command("classify")
 def classify(
     target: str = typer.Argument(
@@ -1593,8 +1630,12 @@ def _render_aggregate(result: StageResult) -> str:
 
     for entry in stats.get("maps") or []:
         lines.append("")
+        # Ehto on **tuntemattomasta**, ei tunnetuista: lähteitä on kolme
+        # (``demo_header``, ``map_demo_id``, ``unknown``), ja tunnettujen
+        # luetteleminen tekisi jokaisesta uudesta lähteestä hiljaa
+        # "tuntemattoman".
         source = (
-            "" if entry["map_name_source"] == "map_demo_id" else " (nimi tuntematon)"
+            " (nimi tuntematon)" if entry["map_name_source"] == "unknown" else ""
         )
         lines.append(
             f"{entry['map_name']}{source}: {entry['demos']} demoa, "

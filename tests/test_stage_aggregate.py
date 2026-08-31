@@ -46,6 +46,7 @@ from test_aggregate import (
     events_frame,
     lineup_row,
     lineups_frame,
+    match_frame,
     round_row,
     rounds_frame,
     tick_row,
@@ -70,6 +71,7 @@ def build_archive(
     clan_by_demo: dict[str, str | None] | None = None,
     player_names: bool = True,
     bench_player: str | None = None,
+    map_names: dict[str, str | None] | None = None,
 ) -> ArchivePaths:
     """Rakenna arkisto, jossa on annetut demot annettujen kokoonpanojen alla.
 
@@ -92,6 +94,10 @@ def build_archive(
             yhdelläkään näytepisteellä. Juuri tällainen pelaaja katoaisi, jos
             kokoonpanot luettaisiin ``ticks``-taulusta -- ja se on koko syy
             sille, että ne luetaan ``lineups``-taulusta.
+        map_names: ``map_demo_id -> kartan nimi otsikossa``. Oletus on, ettei
+            otsikossa ole nimeä (``None``), jolloin nimi päätellään
+            tunnisteesta kuten ennen Story 2.11:tä -- niin vanhat testit
+            mittaavat yhä päättelyä ja uudet havaintoa.
     """
     archive = ArchivePaths(root=tmp_path / "arkisto")
     for demo, lineup in demos.items():
@@ -225,6 +231,9 @@ def build_archive(
         lineups.write_parquet(archive.parsed_table(demo, "lineups"))
         deaths.write_parquet(archive.parsed_table(demo, "deaths"))
         rounds_table.write_parquet(archive.parsed_table(demo, "rounds"))
+        match_frame(demo, (map_names or {}).get(demo)).write_parquet(
+            archive.parsed_table(demo, "match")
+        )
     return archive
 
 
@@ -389,12 +398,12 @@ def test_a_demo_without_parsed_tables_is_reported_missing(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize(
-    "table", ["rounds", "ticks", "events", "lineups", "deaths"]
+    "table", ["rounds", "ticks", "events", "lineups", "deaths", "match"]
 )
 def test_each_required_parsed_table_is_guarded_on_its_own(
     tmp_path: Path, table: str
 ) -> None:
-    """Jokainen viidestä taulusta nimetään puuttuessaan.
+    """Jokainen kuudesta taulusta nimetään puuttuessaan.
 
     Yhteinen testi, joka poistaa vain yhden taulun, jättää loput
     vartioimatta: ``_demo_unusable`` palauttaa ensimmäisen puutteen, joten
@@ -568,7 +577,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # Literaali eikä vakio: vakioon vertaaminen olisi tautologia --
     # koodi kirjoitti arvon juuri siitä vakiosta. Kun versio nousee,
     # tämän rivin PITÄÄ kaatua, jotta nosto on tietoinen.
-    assert data["schema_version"] == "5.0.0"
+    assert data["schema_version"] == "6.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -628,7 +637,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "5.0.0"
+    assert read_report(archive).schema_version == "6.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -1363,3 +1372,170 @@ def test_rounds_that_name_no_known_lineup_are_refused(tmp_path: Path) -> None:
         run(archive, force=True)
     assert "kierrosriviä" in str(exc.value)
     assert "--pakota" in str(exc.value)
+
+
+# --- Kartan nimi otsikosta (Story 2.11) ---------------------------------------
+
+
+def test_the_map_name_comes_from_the_match_table(tmp_path: Path) -> None:
+    """Havainto voittaa päättelyn myös vaiheen läpi ajettuna.
+
+    Tunniste sanoo ``Nuke``, otsikko sanoo ``de_ancient``. Raportissa on
+    otsikon nimi ja lähde ``demo_header``: ilman kytkentää taulusta
+    raporttiin tämä testi näyttäisi täsmälleen samalta kuin ennen muutosta.
+    """
+    archive = build_archive(
+        tmp_path,
+        {"Nuke_vs_a": TEAM},
+        map_names={"Nuke_vs_a": "de_ancient"},
+    )
+
+    run(archive)
+    report = read_report(archive)
+
+    assert [(m.map_name, m.map_name_source) for m in report.maps] == [
+        ("de_ancient", "demo_header")
+    ]
+
+
+def test_two_faceit_demos_of_the_same_map_are_one_branch(tmp_path: Path) -> None:
+    """RCAVE-tapaus: kaksi tunnistetta, yksi kartta, yksi haara.
+
+    Kumpikaan tunniste ei sisällä kartan nimeä, joten ilman otsikkoa nämä
+    olisivat kaksi haaraa -- ja jokainen rivi kantaisi merkintää
+    "(1/1 kierroksesta)".
+    """
+    archive = build_archive(
+        tmp_path,
+        {"1-a52ebff2-1-1": TEAM, "1-79f71e00-1-1": TEAM},
+        map_names={
+            "1-a52ebff2-1-1": "de_ancient",
+            "1-79f71e00-1-1": "de_ancient",
+        },
+    )
+
+    run(archive)
+    report = read_report(archive)
+
+    assert len(report.maps) == 1
+    entry = report.maps[0]
+    assert entry.map_name == "de_ancient"
+    assert sorted(entry.map_demo_ids) == ["1-79f71e00-1-1", "1-a52ebff2-1-1"]
+    assert entry.sample.demos == 2
+
+
+def test_a_demo_without_a_header_name_falls_back_to_the_identifier(
+    tmp_path: Path,
+) -> None:
+    """Nimetön otsikko ei kaada ajoa: päättely poolista jää voimaan."""
+    archive = build_archive(
+        tmp_path,
+        {"Nuke_vs_a": TEAM, "1-a52ebff2-1-1": TEAM},
+        map_names={"Nuke_vs_a": None, "1-a52ebff2-1-1": None},
+    )
+
+    result = run(archive)
+    assert result.status == "ok"
+
+    report = read_report(archive)
+    branches = {m.map_name: m.map_name_source for m in report.maps}
+    assert branches == {"de_nuke": "map_demo_id", "1-a52ebff2-1-1": "unknown"}
+
+
+def test_a_match_table_written_with_a_different_column_order_still_reads(
+    tmp_path: Path,
+) -> None:
+    """Sarakejärjestys ei ole osa sopimusta, mutta ``pl.concat`` välittää."""
+    archive = build_archive(
+        tmp_path,
+        {"Nuke_vs_a": TEAM, "Anubis_vs_b": TEAM},
+        map_names={"Nuke_vs_a": "de_nuke", "Anubis_vs_b": "de_anubis"},
+    )
+    path = archive.parsed_table("Anubis_vs_b", "match")
+    df = pl.read_parquet(path)
+    df.select(reversed(df.columns)).write_parquet(path)
+
+    run(archive)
+    report = read_report(archive)
+    assert sorted(m.map_name for m in report.maps) == ["de_anubis", "de_nuke"]
+
+
+def test_an_observed_and_an_inferred_demo_of_one_map_are_one_branch(
+    tmp_path: Path,
+) -> None:
+    """Sama kartta kahdesta eri lähteestä on yksi haara, myös vaiheen läpi.
+
+    ``Ancient_vs_a``:n otsikossa on kartta, ``Ancient_vs_b``:n ei. Molempien
+    nimi on ``de_ancient``, joten ne ovat yksi haara -- ja sen lähde on
+    heikompi eli ``map_demo_id``, koska toinen jäsen on päätelty.
+    """
+    archive = build_archive(
+        tmp_path,
+        {"Ancient_vs_a": TEAM, "Ancient_vs_b": TEAM},
+        map_names={"Ancient_vs_a": "de_ancient", "Ancient_vs_b": None},
+    )
+
+    run(archive)
+    report = read_report(archive)
+
+    assert len(report.maps) == 1
+    entry = report.maps[0]
+    assert entry.map_name == "de_ancient"
+    assert entry.map_name_source == "map_demo_id"
+    assert entry.sample.demos == 2
+    assert sorted(entry.map_demo_ids) == ["Ancient_vs_a", "Ancient_vs_b"]
+
+
+def test_the_map_name_follows_the_demo_the_table_was_read_for(
+    tmp_path: Path,
+) -> None:
+    """Nimi liitetään **luettuun demoon**, ei taulun omaan sarakkeeseen.
+
+    Vanhentunut tai väärään hakemistoon joutunut ``match.parquet`` kantaa
+    väärää ``map_demo_id``-arvoa; skeemavalidointi ei näe sitä, koska sarake on
+    tyypiltään oikea. Jos sanakirja rakennettaisiin sarakkeesta, nimi
+    kirjautuisi väärälle demolle ja oikea demo palaisi hiljaa päättelyyn --
+    ja kaksi samaa tunnistetta pudottaisi toisen kokonaan.
+
+    Tässä molempien demojen taulu väittää olevansa saman kolmannen demon.
+    Silmukan avaimella nimet päätyvät silti oikeille demoille.
+    """
+    archive = build_archive(
+        tmp_path,
+        {"Nuke_vs_a": TEAM, "Anubis_vs_b": TEAM},
+        map_names={"Nuke_vs_a": "de_nuke", "Anubis_vs_b": "de_anubis"},
+    )
+    for demo in ("Nuke_vs_a", "Anubis_vs_b"):
+        path = archive.parsed_table(demo, "match")
+        pl.read_parquet(path).with_columns(
+            pl.lit("Vieras_vs_x").alias("map_demo_id")
+        ).write_parquet(path)
+
+    run(archive)
+    report = read_report(archive)
+
+    assert sorted(m.map_name for m in report.maps) == ["de_anubis", "de_nuke"]
+    assert all(m.map_name_source == "demo_header" for m in report.maps)
+
+
+@pytest.mark.parametrize("rows", [0, 2])
+def test_a_match_table_without_exactly_one_row_is_refused(
+    tmp_path: Path, rows: int
+) -> None:
+    """Rivimäärä tarkistetaan myös luettaessa, ei vain kirjoitettaessa.
+
+    Sopimusta valvoo se vaihe, joka kirjoittaa -- mutta luettu tiedosto voi
+    olla ohjelman vanhemman version kirjoittama, eikä lukija saa nojata
+    siihen että kirjoittaja oli tämä versio. Nolla riviä näyttäisi samalta
+    kuin havainto ``null``, ja kahdesta rivistä nimi valikoituisi
+    rivijärjestyksen mukaan.
+    """
+    archive = build_archive(
+        tmp_path, {"Nuke_vs_a": TEAM}, map_names={"Nuke_vs_a": "de_nuke"}
+    )
+    path = archive.parsed_table("Nuke_vs_a", "match")
+    df = pl.read_parquet(path)
+    pl.concat([df] * rows if rows else [df.head(0)]).write_parquet(path)
+
+    with pytest.raises(PappascoutError, match="ottelutaulussa on"):
+        run(archive)

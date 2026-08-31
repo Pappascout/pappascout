@@ -123,7 +123,15 @@ __all__ = [
 #: kenttä ei kadonnut, mutta ``UtilityUse.area_source`` hylkää vanhan arvon.
 #: Versio nousee siksi täsmälleen samasta syystä kuin puuttuvasta kentästä:
 #: ehto on "validoituuko vanha tiedosto", ei "tuliko uusi kenttä".
-REPORT_SCHEMA_VERSION = "5.0.0"
+#:
+#: **6.0.0 (Story 2.11): sama sääntö, sama syy.** ``MapReport.map_name_source``
+#: sai uuden arvon ``demo_header``, joten **uusi** ``report.json`` ei validoidu
+#: vanhaa mallia vasten -- ja vanhan tiedoston kartat on joka tapauksessa
+#: ryhmitelty eri säännöllä kuin tämän version, koska nimi luetaan nyt demon
+#: otsikosta. Kaksi FACEIT-demoa samalta kartalta on vanhassa tiedostossa kaksi
+#: haaraa ja uudessa yksi; sama rakenne, eri luvut. Sitä ei saa muotoilla
+#: hiljaa tämän ajon tulokseksi.
+REPORT_SCHEMA_VERSION = "6.0.0"
 
 
 #: Merkit, jotka eivät kelpaa tiedostonimeen. Slug on ASCII-osajoukko, koska
@@ -845,15 +853,20 @@ class SideReport(_Node):
 class MapReport(_Node):
     """Yhden kartan molemmat puolet.
 
-    ``map_name`` on **johdettu**, ei havaittu: kierros-, näytepiste- eikä
-    tapahtumataulussa ole kartan nimeä, joten se päätellään ``map_demo_id``:stä
-    karttapoolia vasten. ``map_name_source`` kertoo kummasta on kyse, eikä
-    tuntematon kartta katoa: silloin nimi on ``map_demo_id`` itse ja lähde
+    ``map_name`` on ensisijaisesti **havainto**: ``parse`` lukee kartan nimen
+    demon otsikosta ``MATCH``-tauluun (Story 2.11), eikä sitä validoida
+    karttapoolia vasten -- poolin ulkopuolinen kartta on aito havainto.
+    Havainnon puuttuessa nimi päätellään ``map_demo_id``:stä karttapoolia
+    vasten, ja tuntematonkaan kartta ei katoa: silloin nimi on ``map_demo_id``
+    itse ja lähde ``unknown``.
+
+    ``map_name_source`` kertoo mistä nimi tuli, ja sen arvot ovat
+    ensisijaisuusjärjestyksessä: ``demo_header`` -> ``map_demo_id`` ->
     ``unknown``.
     """
 
     map_name: str
-    map_name_source: Literal["map_demo_id", "unknown"]
+    map_name_source: Literal["demo_header", "map_demo_id", "unknown"]
     #: Kartan demot. Kaksi demoa samalta kartalta summautuu yhdeksi haaraksi,
     #: ja tämä lista kertoo mistä.
     map_demo_ids: list[str]

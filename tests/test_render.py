@@ -924,6 +924,24 @@ def test_unknown_map_name_is_flagged_in_the_heading() -> None:
     assert "kartan nimeä ei tunnistettu" in render(report([entry]))
 
 
+@pytest.mark.parametrize("source", ["demo_header", "map_demo_id"])
+def test_a_known_map_name_is_not_flagged(source: str) -> None:
+    """Merkintä kuuluu vain lähteelle ``unknown`` (Story 2.11).
+
+    ``demo_header`` on havainto demon otsikosta ja ``map_demo_id`` päättely
+    tunnisteesta; kumpikin on tunnistettu nimi. Ehto, joka luettelee tunnetut
+    lähteet, tekisi jokaisesta uudesta lähteestä hiljaa "tuntemattoman".
+    """
+    entry = map_report(
+        "de_ancient",
+        [side("T", [round_type("pistol", 1)])],
+        source=source,
+    )
+    text = render(report([entry]))
+    assert "kartan nimeä ei tunnistettu" not in text
+    assert "de_ancient" in text
+
+
 def test_missing_sample_point_is_reported_not_dropped() -> None:
     """45 s puuttuu kierrokselta, joka ratkesi aiemmin -- ero kirjoitetaan."""
     entry = map_report(

@@ -51,8 +51,8 @@ uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
 ```
 
-`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon kuusi
-taulua yhdellä lukukerralla:
+`parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon
+seitsemän taulua yhdellä lukukerralla:
 
 * `parsed/<map_demo_id>/rounds.parquet` -- kaksi riviä jokaista pelattua
   kierrosta kohden, yksi kummallekin joukkueelle.
@@ -126,6 +126,25 @@ taulua yhdellä lukukerralla:
   aluetta räjähdykselle, joka tapahtui kaukana kaikesta missä yksikään pelaaja
   on seissyt. Tyhjä pilvi on kelvollinen tulos -- silloin jokainen
   räjähdysalue on `null`, ajo ei kaadu ja syy kerrotaan ajon yhteenvedossa.
+* `parsed/<map_demo_id>/match.parquet` -- **yksi rivi per demo**: ottelun omat
+  havainnot, tällä hetkellä kartan nimi demon otsikosta (`parse_header()`).
+  Kartta on ottelun ominaisuus eikä kierroksen, joten se ei ole kierros-,
+  näytepiste-, tapahtuma- eikä kuolemataulun sarake -- sarakkeena sama arvo
+  toistuisi kymmeniä tuhansia kertoja ja joutuisi lisäksi kulkemaan
+  `classify`n läpi päätyäkseen `aggregate`en. Sama peruste kuin
+  `lineups.parquet`illa.
+
+  Nimi on **havainto ja käytetään sellaisenaan**: sitä ei validoida
+  karttapoolia vasten, koska poolin ulkopuolinen kartta (workshop-versio,
+  `de_train`) on aito havainto eikä tuntematon kartta. Puuttuva nimi on `null`
+  eikä korvike, eikä tyhjä merkkijono ole nimi -- vasta silloin `aggregate`
+  päättelee nimen `map_demo_id`:stä karttapoolia vasten. Mitattu 2026-08-31
+  kaikilla kahdeksalla arkiston demolla: otsikon nimi on **täsmälleen**
+  karttapoolin kirjoitusasu (`de_ancient`), joten haaroja ei tarvitse
+  normalisoida. Väite on regressiotesti eikä muistiinpano: taulukko
+  `DEMO_HEADER_MAP_NAMES` (`tests/test_demo_parser.py`) naulaa sen jokaiselle
+  demolle, jonka repo tuntee, ja oma vartija estää uuden demon jäämisen sen
+  ulkopuolelle.
 
 Ilman polkua annettu tunniste etsitään arkiston `demos/`- ja
 `import/`-hakemistoista. Toisella ajolla vaihe ohitetaan, jos manifesti täsmää.
@@ -467,10 +486,18 @@ yhteistä pelaajaa, ja kirjaa liitetyt tunnisteet kenttään
 `team.lineup_keys`. Ilman liittämistä raportti näkisi kolme demoa neljästä
 eikä kertoisi menettäneensä yhtä.
 
-**Kartan nimi on johdettu.** Sitä ei ole yhdessäkään taulussa, joten se
-päätellään `map_demo_id`:stä karttapoolia vasten (`Ancient_vs_kaljukostaja` ->
-`de_ancient`). `map_name_source` kertoo onnistuiko päättely; tuntematon kartta
-jää omaksi haarakseen tunnisteensa nimellä eikä sulaudu toiseen.
+**Kartan nimi on havainto, päättely on varalähde.** Nimi luetaan
+`parsed/<map_demo_id>/match.parquet`-taulusta, johon `parse` kirjoittaa sen
+demon otsikosta. Sitä ei validoida karttapoolia vasten: poolin ulkopuolinen
+kartta on aito havainto. Vasta kun otsikossa ei ollut nimeä, se päätellään
+`map_demo_id`:stä karttapoolia vasten (`Ancient_vs_kaljukostaja` ->
+`de_ancient`). `map_name_source` kertoo mistä nimi tuli: `demo_header` ->
+`map_demo_id` -> `unknown`. Tuntematon kartta jää omaksi haarakseen
+tunnisteensa nimellä eikä sulaudu toiseen -- arvausta ei tehdä.
+
+Kaksi demoa samalta kartalta on **yksi haara**: kierrokset summautuvat ja
+`map_demo_ids` luettelee demot. Juuri se ei toteutunut ilman otsikkoa, koska
+FACEIT-tunnisteessa ei ole kartan nimeä.
 
 **Puuttuva demo ei katoa.** Demo, jonka luokittelu on arkistossa mutta
 parsinta puuttuu, päätyy `missing_demos[]`-listaan syyn kanssa eikä kaada ajoa.
@@ -641,6 +668,36 @@ yksikkönsä itse (`Middle (4/6 taposta)`) eikä vain lukuohjeessa. Alue on
 > alueelleen", eikä sitä voi enää syntyä -- pistepilveen ei pääse nimetöntä
 > ruutua. Sen tilalla on `Kynnyksen takana`.
 
+> **Kartan nimi demon otsikosta pakottaa koko arkiston uudelleenajon --
+> neljättä kautta.** Muutos tuo uuden taulun (`match.parquet`) ja nostaa
+> `REPORT_SCHEMA_VERSION`in `5.0.0` -> `6.0.0`. Komennot ovat samat kolme kuin
+> edellä, samassa järjestyksessä, eikä `--pakota` ole tarpeen: `parse` huomaa
+> puuttuvan taulun itse (`expected_outputs`).
+>
+> Jos ajat `aggregate`n ennen parsintaa, sen virheilmoitus neuvoo `--pakota`a.
+> Ohje on tarkoituksella varovainen: sama viesti palvelee myös tapausta, jossa
+> taulu on olemassa mutta väärillä sarakkeilla, eikä `aggregate` näe kumpi
+> tilanne on käsillä. Tässä muutoksessa pelkkä `uv run pappascout parse <id>`
+> riittää; lipun antaminen ei ole väärin, se vain parsii turhaan ne demot,
+> jotka olisivat menneet uudelleen joka tapauksessa.
+>
+> Syy on rakenteellinen eikä kosmeettinen. Kartan nimi ei ollut yhdessäkään
+> taulussa, joten `aggregate` päätteli sen `map_demo_id`:stä karttapoolia
+> vasten -- ja FACEIT-tunnisteessa (`1-79f71e00-...-1-1`) ei ole kartan nimeä.
+> Jokainen FACEIT-demo jäi siis **omaksi karttahaarakseen** tunnisteensa
+> nimellä. Mitattu RCAVE-raportista 31.8.: ennen **neljä** karttahaaraa
+> kolmesta kartasta (kaksi Ancient-demoa eivät yhdistyneet), jälkeen **kolme**
+> ja `de_ancient` 42 kierrosta kahdesta demosta 21:n sijaan. Merkintä
+> "kartan nimeä ei tunnistettu tunnisteesta" 2 -> 0 ja "(1/1 kierroksesta)"
+> 152 -> 102; jäljelle jäävät ovat aitoja yhden kierroksen näytteitä eivätkä
+> haaratason pirstoutumista.
+>
+> Päättely poolista jää **varalähteeksi**, ja `map_name_source` kertoo
+> mistä nimi tuli: `demo_header` -> `map_demo_id` -> `unknown`. Käsin
+> tuoduilla demoilla nimi ei muutu, vain lähde vaihtuu: neljän
+> MatureMayhem-demon raportti on muutoksen jälkeen tavu tavulta sama kuin
+> ennen, ainoa ero on aikaleimarivi.
+
 Manifesti on **raporttikohtainen** (`<raportin nimi>.manifest.json`) ja
 jäljitettävyyttä varten. Yhteinen manifesti kestäisi huonosti juuri sitä
 rinnakkaisuutta, jonka varalta nimi varataan: kaksi yhtaikaista ajoa saisi
@@ -774,7 +831,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/adapters/protocols.py` | Portit, jotka vaiheet ottavat parametrina |
 | `src/pappascout/adapters/decompress.py` | `.dem.zst`-purku ja `PBDEMS2`-otsikkotarkistus |
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
-| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + `deaths.parquet` + `callouts.parquet` + manifesti |
+| `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + `deaths.parquet` + `callouts.parquet` + `match.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |
 | `src/pappascout/domain/aggregate.py` | Jakaumat ja otannat puhtaina funktioina; `build_report()` |

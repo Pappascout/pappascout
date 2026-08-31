@@ -29,6 +29,7 @@ from pappascout.adapters.protocols import (
     DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
+    MATCH_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
 )
@@ -44,6 +45,7 @@ from pappascout.domain.schemas import (
     DEATHS,
     EVENTS,
     LINEUPS,
+    MATCH,
     MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
     TICKS,
@@ -309,6 +311,13 @@ def write_parse(
         schema={name: CALLOUT_CLOUD[name] for name in CALLOUTS_ADAPTER_COLUMNS}
     )
 
+    # Kartan nimi ei vaikuta luokitteluun lainkaan, mutta ottelutaulun on
+    # oltava paikallaan: parse vaatii siitä täsmälleen yhden rivin.
+    match_frame = pl.DataFrame(
+        [{"map_name": "de_ancient"}],
+        schema={name: MATCH[name] for name in MATCH_ADAPTER_COLUMNS},
+    )
+
     class Fake:
         def parse_demo(self, path: Path, sample_seconds) -> DemoTables:
             return DemoTables(
@@ -318,6 +327,7 @@ def write_parse(
                 lineups=lineups_frame,
                 deaths=deaths_frame,
                 callouts=callouts_frame,
+                match=match_frame,
             )
 
     parse_stage.run(

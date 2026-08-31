@@ -51,6 +51,7 @@ from pappascout.adapters.protocols import (
     DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
+    MATCH_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoParser,
@@ -64,6 +65,7 @@ from pappascout.domain.schemas import (
     ARMORED_COLUMN,
     DEATHS,
     EVENTS,
+    MATCH,
     MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
     TICKS,
@@ -2666,3 +2668,84 @@ def test_a_pistol_round_can_have_an_armed_player_after_all() -> None:
     observed = row.to_dicts()[0]
     assert (observed[ARMORED_COLUMN], observed[ARMED_COLUMN]) == expected
     assert observed[ARMED_COLUMN] > 0
+
+
+# --- Ottelutaulu: kartan nimi oikeasta demosta (Story 2.11) -------------------
+
+
+#: Kartan nimi demon otsikossa, mitattu 2026-08-31
+#: (``demoparser2.DemoParser.parse_header()``, pakatut ``readable_demo``in
+#: kautta). Taulukko on **regressiotesti eikä muistiinpano**: sama kuvio kuin
+#: :data:`ARMED_TRUTH`illa ja :data:`DEMO_AREA_COVERAGE`illa.
+#:
+#: Kaksi väitettä kerrallaan. Ensimmäinen: nimi löytyy jokaiselta demolta,
+#: eli otsikko ei ole valinnainen kenttä tässä aineistossa. Toinen: nimi on
+#: **täsmälleen** karttapoolin kirjoitusasu (``de_ancient``, ei ``Ancient``
+#: eikä ``de_ancient_v2``), joten ``aggregate``n ei tarvitse normalisoida
+#: haaran nimeä -- ja juuri se väite on koko tarinan perusta. Jos jokin demo
+#: antaisi poolin ulkopuolisen kirjoitusasun, kartta jakautuisi kahdeksi
+#: haaraksi ilman että mikään olisi rikki.
+#:
+#: ``PAWNLESS_DEMO`` on mukana, vaikka se ei ole :data:`ALL_DEMOS`issa: se on
+#: arkiston demo, sen otsikko mitattiin muiden mukana, eikä sen poissaolo
+#: tästä taulukosta tarkoittaisi mitään muuta kuin että väite kattaa
+#: vähemmän.
+DEMO_HEADER_MAP_NAMES: dict[str, str] = {
+    ANCIENT_DEM: "de_ancient",
+    NUKE_ZST: "de_nuke",
+    "Ancient_vs_kaljukostaja.dem": "de_ancient",
+    "Anubis_vs_ryhmarama.dem": "de_anubis",
+    "Nuke_vs_imuaijat.dem": "de_nuke",
+    "inferno_vs_ryhmarama.dem": "de_inferno",
+    PAWNLESS_DEMO: "de_anubis",
+}
+
+
+def test_the_map_name_table_covers_every_demo() -> None:
+    """Taulukon on katettava koko aineisto, ei osaa siitä.
+
+    Sama vartija kuin :func:`test_the_coverage_table_covers_every_demo`illa:
+    ilman sitä uusi demo lisättäisiin :data:`ALL_DEMOS`iin mutta ei tänne, ja
+    sen otsikko jäisi mittaamatta. Ei ``demo``-merkintää: tämä on luettelon
+    vertailu eikä vaadi demoja.
+    """
+    assert set(DEMO_HEADER_MAP_NAMES) == set(ALL_DEMOS) | {PAWNLESS_DEMO}
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(DEMO_HEADER_MAP_NAMES))
+def test_every_demo_header_names_its_map_in_pool_spelling(demo_name: str) -> None:
+    """Jokaisen demon otsikko nimeää karttansa poolin kirjoitusasussa.
+
+    Väite on aineistosta eikä pelistä: se ei vaadi, että jokaisessa CS2-demossa
+    on ``map_name``, vaan että sitä on jokaisessa siinä aineistossa, jota
+    vasten tuote arvioidaan. Juuri se ero on syy sille, että kartan nimi
+    luetaan havaintona eikä päätellä tiedostonimestä.
+    """
+    tables, _ = parsed_demo(demo_name)
+    match = tables.match
+
+    assert tuple(match.columns) == MATCH_ADAPTER_COLUMNS
+    assert match.schema["map_name"] == MATCH["map_name"]
+    assert match.height == 1, "ottelutaulussa on yksi rivi per demo"
+    assert match["map_name"].to_list() == [DEMO_HEADER_MAP_NAMES[demo_name]]
+
+
+@pytest.mark.demo
+def test_the_faceit_identifier_carries_no_map_name(ancient_tables) -> None:
+    """Sama demo, kaksi lähdettä: tunniste ei tiedä karttaa, otsikko tietää.
+
+    Tämä on koko tarinan syy yhtenä väitteenä. Demon tunniste on
+    ``1-a52ebff2-...-1-1``, josta karttapooli ei tunnista mitään -- ja
+    otsikko sanoo ``de_ancient``. Ilman otsikkoa tämä demo jää omaksi
+    karttahaarakseen tunnisteensa nimellä eikä yhdisty toiseen saman kartan
+    demoon.
+    """
+    from pappascout.domain.aggregate import map_name_for
+    from test_aggregate import MAP_POOL
+
+    observed = ancient_tables[0].match["map_name"][0]
+    demo_id = ANCIENT_DEM.removesuffix(".dem")
+
+    assert map_name_for(demo_id, MAP_POOL) == (demo_id, "unknown")
+    assert map_name_for(demo_id, MAP_POOL, observed) == ("de_ancient", "demo_header")

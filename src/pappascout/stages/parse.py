@@ -1,9 +1,10 @@
-"""``parse`` -- putken ensimmäinen vaihe: demosta kuusi taulua.
+"""``parse`` -- putken ensimmäinen vaihe: demosta seitsemän taulua.
 
 Vaihe lukee yhden demon portin takaa ja kirjoittaa arkistoon
 ``parsed/<map_demo_id>/rounds.parquet``, ``.../ticks.parquet``,
 ``.../events.parquet``, ``.../lineups.parquet``, ``.../deaths.parquet``,
-``.../callouts.parquet`` sekä niiden yhteisen manifestin.
+``.../callouts.parquet``, ``.../match.parquet`` sekä niiden yhteisen
+manifestin.
 
 ``rounds`` on kaksi riviä jokaista **pelattua** kierrosta kohden, yksi
 kummallekin joukkueelle, ja kaikki arvot ovat demosta *havaittuja*: raha ja
@@ -45,6 +46,14 @@ jos se mistä se johdettiin on tallessa. Sama periaate kuin
 ``ROUNDS.buy_end_tick``-sarakkeella -- mittausta ei esitetä ilman sitä, mistä
 se luettiin. Tyhjä pistepilvi on kelvollinen tulos: silloin jokainen
 räjähdysalue on ``null``, ajo ei kaadu ja syy kerrotaan ajon yhteenvedossa.
+
+``match`` on **yksi rivi**: ottelun omat havainnot, tällä hetkellä kartan
+nimi demon otsikosta (``parse_header``). Kartta on ottelun ominaisuus eikä
+kierroksen, joten se ei ole kierrostaulun sarake, jossa sama arvo toistuisi
+joka rivillä -- sama peruste kuin kokoonpanotaululla. Nimi on **havainto**:
+se käytetään sellaisenaan eikä sitä verrata karttapooliin, ja puuttuva nimi
+on ``null`` eikä korvike. Vasta silloin ``aggregate`` päättelee nimen
+``map_demo_id``:stä.
 
 **Tyhjä kuolemataulu on virhe, tyhjä tapahtumataulu ei.** Epäsymmetria on
 tarkoituksellinen, ja se seuraa siitä mitä tyhjyys kummassakin tarkoittaa.
@@ -152,6 +161,7 @@ from pappascout.adapters.protocols import (
     DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
+    MATCH_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoParser,
@@ -182,6 +192,7 @@ from pappascout.domain.schemas import (
     DEATHS,
     EVENTS,
     LINEUPS,
+    MATCH,
     ROUNDS,
     TICKS,
     validate,
@@ -228,6 +239,7 @@ class _ParsedTables:
     lineups: pl.DataFrame
     deaths: pl.DataFrame
     callouts: pl.DataFrame
+    match: pl.DataFrame
     skipped_rounds: int
     unnumbered_utility: int
     unnumbered_deaths: int
@@ -240,6 +252,7 @@ EVENTS_TABLE = "events"
 LINEUPS_TABLE = "lineups"
 DEATHS_TABLE = "deaths"
 CALLOUTS_TABLE = "callouts"
+MATCH_TABLE = "match"
 
 #: Työkalut, joiden versio muuttaa tämän vaiheen tuloksen (manifest-moduulin
 #: sääntö). Pappascoutin omaa versiota ei merkitä: korjauspäivitys ei saa
@@ -714,6 +727,7 @@ def _stats(
     lineups: pl.DataFrame,
     deaths: pl.DataFrame,
     callouts: pl.DataFrame,
+    match: pl.DataFrame,
     skipped_rounds: int = 0,
 ) -> dict[str, object]:
     """Käyttäjälle näytettävät luvut valmiista tauluista."""
@@ -723,7 +737,26 @@ def _stats(
     stats.update(_lineup_stats(lineups))
     stats.update(_death_stats(deaths))
     stats.update(_callout_stats(callouts))
+    stats.update(_match_stats(match))
     return stats
+
+
+def _match_stats(match: pl.DataFrame) -> dict[str, object]:
+    """Ottelutaulun luvut: kartan nimi tai sen puuttuminen.
+
+    Luettavissa **valmiista taulusta**, joten se lasketaan täällä eikä
+    adapterissa -- sama sääntö kuin näytepisteillä ja pistepilvellä, ja seuraus
+    on että myös ohitettu ajo kertoo kartan. Juuri se on rivin arvo: ohitettu
+    ajo on se tila, jossa käyttäjä muuten ei näe kartasta mitään.
+
+    Avain asetetaan **aina**, myös kun nimi puuttuu. Puuttuva avain ja ``None``
+    tarkoittaisivat tulosteessa samaa, ja tuloste on ainoa paikka, jossa
+    kadonnut otsikkokenttä näkyy.
+    """
+    if match.is_empty():
+        return {"map_name": None}
+    name = match["map_name"][0]
+    return {"map_name": None if name is None else str(name)}
 
 
 def _tick_stats(ticks: pl.DataFrame) -> dict[str, object]:
@@ -991,6 +1024,7 @@ def _schema_is_current(
     lineups_abs: Path,
     deaths_abs: Path,
     callouts_abs: Path,
+    match_abs: Path,
 ) -> bool:
     """Vastaavatko arkiston valmiit taulut yhä voimassa olevaa sopimusta.
 
@@ -1023,6 +1057,7 @@ def _schema_is_current(
         (lineups_abs, LINEUPS, LINEUPS_TABLE),
         (deaths_abs, DEATHS, DEATHS_TABLE),
         (callouts_abs, CALLOUT_CLOUD, CALLOUTS_TABLE),
+        (match_abs, MATCH, MATCH_TABLE),
     ):
         df = _read_table(path)
         if isinstance(df, str):
@@ -1041,6 +1076,7 @@ def _existing_stats(
     lineups_abs: Path,
     deaths_abs: Path,
     callouts_abs: Path,
+    match_abs: Path,
 ) -> dict[str, object]:
     """Luvut ohitettuun ajoon: luetaan valmiit taulut, ei parsita demoa.
 
@@ -1057,6 +1093,7 @@ def _existing_stats(
     lineups = _read_table(lineups_abs)
     deaths = _read_table(deaths_abs)
     callouts = _read_table(callouts_abs)
+    match = _read_table(match_abs)
 
     # Kierros- ja näytepistetaulu ovat vaiheen ydintulos. Jos **kumpikaan** ei
     # aukea, koko tulos on lukukelvoton eikä siitä koota osittaista
@@ -1090,6 +1127,10 @@ def _existing_stats(
         stats["callouts_unreadable"] = callouts
     else:
         stats.update(_callout_stats(callouts))
+    if isinstance(match, str):
+        stats["match_unreadable"] = match
+    else:
+        stats.update(_match_stats(match))
     return stats
 
 
@@ -1138,6 +1179,7 @@ def run(
     lineups_rel = parsed_table(map_demo_id, LINEUPS_TABLE)
     deaths_rel = parsed_table(map_demo_id, DEATHS_TABLE)
     callouts_rel = parsed_table(map_demo_id, CALLOUTS_TABLE)
+    match_rel = parsed_table(map_demo_id, MATCH_TABLE)
     manifest_rel = parsed_manifest(map_demo_id)
     table_abs = archive.resolve(table_rel)
     ticks_abs = archive.resolve(ticks_rel)
@@ -1145,6 +1187,7 @@ def run(
     lineups_abs = archive.resolve(lineups_rel)
     deaths_abs = archive.resolve(deaths_rel)
     callouts_abs = archive.resolve(callouts_rel)
+    match_abs = archive.resolve(match_rel)
     manifest_abs = archive.resolve(manifest_rel)
 
     result_id = str(PurePosixPath("parsed") / map_demo_id)
@@ -1168,6 +1211,7 @@ def run(
         (lineups_rel, lineups_abs),
         (deaths_rel, deaths_abs),
         (callouts_rel, callouts_abs),
+        (match_rel, match_abs),
     )
 
     existing = Manifest.read_if_exists(manifest_abs)
@@ -1184,7 +1228,13 @@ def run(
         # Sopimus viimeisenä: se lukee taulut, ja halvemmat ehdot karsivat
         # suurimman osan ajoista jo ennen sitä.
         and _schema_is_current(
-            table_abs, ticks_abs, events_abs, lineups_abs, deaths_abs, callouts_abs
+            table_abs,
+            ticks_abs,
+            events_abs,
+            lineups_abs,
+            deaths_abs,
+            callouts_abs,
+            match_abs,
         )
     ):
         return StageResult(
@@ -1200,7 +1250,13 @@ def run(
             ),
             duration_s=time.perf_counter() - started,
             stats=_existing_stats(
-                table_abs, ticks_abs, events_abs, lineups_abs, deaths_abs, callouts_abs
+                table_abs,
+                ticks_abs,
+                events_abs,
+                lineups_abs,
+                deaths_abs,
+                callouts_abs,
+                match_abs,
             ),
         )
 
@@ -1219,6 +1275,7 @@ def run(
                 (lineups_abs, parsed.lineups),
                 (deaths_abs, parsed.deaths),
                 (callouts_abs, parsed.callouts),
+                (match_abs, parsed.match),
             )
         )
     except _RECORDED_ERRORS as exc:
@@ -1232,6 +1289,7 @@ def run(
                 lineups_abs,
                 deaths_abs,
                 callouts_abs,
+                match_abs,
             ),
             existing=existing,
             result_id=result_id,
@@ -1260,6 +1318,7 @@ def run(
             str(lineups_rel),
             str(deaths_rel),
             str(callouts_rel),
+            str(match_rel),
         ),
     ).write(manifest_abs)
 
@@ -1270,6 +1329,7 @@ def run(
         parsed.lineups,
         parsed.deaths,
         parsed.callouts,
+        parsed.match,
         parsed.skipped_rounds,
     )
     # Ostoikkunan luvut lasketaan **valmiista taulusta**, jotta puukkokierros
@@ -1374,6 +1434,14 @@ def run(
         stats["callout_cloud_empty_reason"] = getattr(
             diagnostics, "callout_cloud_empty_reason", None
         )
+        # Miksi kartan nimeä ei saatu: **vain tuoreesta ajosta**, kuten
+        # pistepilven tyhjyyden syy. Valmis taulu kertoo että nimi puuttuu,
+        # muttei sitä puuttuiko kenttä otsikosta kokonaan -- ja juuri se ero
+        # erottaa kirjaston uudelleennimeämän kentän demosta, jonka otsikkoon
+        # karttaa ei kirjattu.
+        stats["header_map_name_missing_reason"] = getattr(
+            diagnostics, "header_map_name_missing_reason", None
+        )
 
     return StageResult(
         stage=STAGE,
@@ -1387,6 +1455,7 @@ def run(
             lineups_rel,
             deaths_rel,
             callouts_rel,
+            match_rel,
         ),
         manifest_path=manifest_rel,
         duration_s=time.perf_counter() - started,
@@ -1457,6 +1526,12 @@ def _parse_tables(
         CALLOUTS_ADAPTER_COLUMNS,
         "pistepilven",
         "CALLOUTS_ADAPTER_COLUMNS",
+    )
+    _check_port_columns(
+        tables.match,
+        MATCH_ADAPTER_COLUMNS,
+        "ottelutaulun",
+        "MATCH_ADAPTER_COLUMNS",
     )
 
     numbered = mark_played_rounds(tables.rounds)
@@ -1534,6 +1609,14 @@ def _parse_tables(
     validate(callouts, CALLOUT_CLOUD, CALLOUTS_TABLE)
     _check_callout_cells(callouts)
 
+    # Rivimäärä **ennen** rakentamista: ks. _check_single_match_row.
+    #
+    # Ottelutaulua **ei numeroida** samasta syystä kuin kokoonpanotaulua ja
+    # pistepilveä: kartta on ottelun ominaisuus eikä kierroksen havainto.
+    _check_single_match_row(tables.match, demo_path)
+    match = _build_match(tables.match, map_demo_id)
+    validate(match, MATCH, MATCH_TABLE)
+
     if deaths.is_empty():
         raise ParseError(
             f"Demosta {demo_path.name} syntyi {df['round_no'].n_unique()} "
@@ -1551,6 +1634,7 @@ def _parse_tables(
         lineups=lineups,
         deaths=deaths,
         callouts=callouts,
+        match=match,
         skipped_rounds=skipped_rounds,
         unnumbered_utility=unnumbered,
         unnumbered_deaths=unnumbered_deaths,
@@ -1774,6 +1858,57 @@ def _build_callouts(callouts: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
         pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
         *[pl.col(name) for name in CALLOUT_CLOUD if name != "map_demo_id"],
     ).sort("cell_x", "cell_y", "cell_z")
+
+
+def _build_match(match: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
+    """Liitä ottelutauluun ``map_demo_id``.
+
+    Kierrosnumerointia **ei tehdä** eikä lajittelua tarvita: taulussa on yksi
+    rivi. Sama sääntö kuin :func:`_build_lineups`illa ja
+    :func:`_build_callouts`illa -- ottelu ei ole kierros, joten puukkokierroksen
+    pudottaminen ei koske tätä taulua.
+    """
+    return match.select(
+        pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
+        *[pl.col(name) for name in MATCH if name != "map_demo_id"],
+    )
+
+
+def _check_single_match_row(match: pl.DataFrame, demo_path: Path) -> None:
+    """Varmista, että ottelutaulussa on täsmälleen yksi rivi.
+
+    Tarkistus ajetaan **ennen** :func:`_build_match`ia eikä sen jälkeen.
+    Jälkikäteen se toimisi vain siksi, että ``pl.lit`` sattuu broadcastaamaan
+    myös korkeuteen 0; jos se lakkaisi tekemästä niin, käyttäjä saisi
+    englanninkielisen Polars-poikkeuksen suomenkielisen ohjeen tilalle. Sama
+    sääntö kuin ``stages.aggregate._in_schema_order``in ``ShapeError``illa:
+    epäonnistumistapa poistetaan, ei käännetä.
+
+    Rivimäärä on osa sopimusta, mutta skeemavalidointi ei näe sitä: se katsoo
+    sarakkeita ja tyyppejä. Kaksi vikaa mahtuisi läpi.
+
+    * **Nolla riviä.** ``aggregate`` lukee nimikarttaan vain ne demot, joilta
+      rivi löytyy, joten tyhjä taulu näyttäisi täsmälleen samalta kuin demo,
+      jonka otsikossa ei ollut karttaa -- eli havaintona sen, ettei havaintoa
+      ole. Ero on olennainen: jälkimmäinen on aito havainto, edellinen
+      rikkinäinen portti.
+    * **Kaksi riviä.** Kaksi ottelua samassa tiedostossa ei ole tosi, ja
+      nimikartta saisi arvonsa sen mukaan kumpi rivi sattui olemaan
+      ensimmäisenä -- eli sama demo voisi antaa eri kartan eri ajolla.
+
+    ``map_name`` saa olla ``null``: se on havainnon puuttuminen eikä puuttuva
+    rivi.
+    """
+    if match.height == 1:
+        return
+    raise ParseError(
+        f"Demon {demo_path.name} ottelutaulussa on {match.height} riviä, "
+        "vaikka niitä on oltava täsmälleen yksi.\n"
+        "Taulu kuvaa yhtä ottelua, joten nolla riviä tarkoittaa demoa ilman "
+        "ottelua ja kaksi riviä kahta ottelua samassa tiedostossa. Kumpikaan "
+        "ei ole tosi, ja kumpikin antaisi kartan nimelle arvon, jota ei "
+        "havaittu. Kyseessä on portin vika: korjaa demoparser2-adapteri."
+    )
 
 
 def _check_callout_cells(callouts: pl.DataFrame) -> None:

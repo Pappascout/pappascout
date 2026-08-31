@@ -1,6 +1,6 @@
 """Jaetut Polars-taulusopimukset (AD-2, AD-4, AD-5).
 
-Seitsemän taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
+Kahdeksan taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
 
 ``ROUNDS``
     ``parsed/<map_demo_id>/rounds.parquet`` -- pitkä taulu, **kaksi riviä per
@@ -26,6 +26,11 @@ Seitsemän taulua, jotka kaikki putken vaiheet lukevat ja kirjoittavat:
     seisoneet ja mikä alue kussakin kohdassa on. Räjähdyksen alue luetaan
     tästä, ja taulu on tallessa, jotta johdettu alue on tarkistettavissa demoa
     vasten.
+``MATCH``
+    ``parsed/<map_demo_id>/match.parquet`` -- **yksi rivi per demo**. Ottelun
+    omat havainnot, tällä hetkellä kartan nimi demon otsikosta. Kartta on
+    ottelun ominaisuus eikä kierroksen, joten se ei kuulu ``ROUNDS``-,
+    ``TICKS``-, ``EVENTS``- eikä ``DEATHS``-tauluun.
 ``CLASSIFIED``
     ``classified/<team_key>/<map_demo_id>.parquet`` -- **yksi rivi per kierros**
     subjektijoukkueen näkökulmasta. Sisältää ``classify``-vaiheen johdokset.
@@ -70,6 +75,7 @@ __all__ = [
     "LINEUPS",
     "DEATHS",
     "CALLOUT_CLOUD",
+    "MATCH",
     "CLASSIFIED",
     "CLASSIFIED_INPUTS",
     "SCHEMAS",
@@ -479,6 +485,37 @@ CALLOUT_CLOUD: Schema = {
 }
 
 
+# Ottelutaulu: yksi rivi per demo (Story 2.11).
+#
+# MIKSI OMA TAULU EIKÄ SARAKE. ``ROUNDS``, ``TICKS``, ``EVENTS`` ja ``DEATHS``
+# kuvaavat kierroksia; kartta on **ottelun** ominaisuus. Sarakkeena se
+# toistuisi samana joka rivillä -- kymmeniä tuhansia kertoja -- ja joutuisi
+# lisäksi kulkemaan ``classify``n läpi päätyäkseen ``aggregate``en.
+# ``LINEUPS`` on tästä ennakkotapaus: joukkueen identiteetti erotettiin omaan
+# tauluunsa täsmälleen samasta syystä.
+#
+# YKSI RIVI PER DEMO. Taulu ei ole lista havainnoista vaan yksi ottelu, joten
+# rivimäärä on osa sopimusta ja ``stages.parse`` valvoo sitä. Nolla riviä
+# tarkoittaisi demoa ilman ottelua ja kaksi riviä kahta ottelua samassa
+# tiedostossa; kumpikaan ei ole tosi.
+#
+# NIMI ON HAVAINTO EIKÄ JOHDOS. ``map_name`` luetaan demon otsikosta
+# (``parse_header()``) ja käytetään **sellaisenaan**: sitä ei validoida
+# karttapoolia vasten, koska poolin ulkopuolinen kartta (workshop-versio,
+# ``de_train``) on aito havainto eikä tuntematon kartta. Puuttuva nimi on
+# ``null`` eikä korvike, eikä tyhjä merkkijono ole nimi -- ja vain silloin
+# ``aggregate`` palaa päättelemään nimen ``map_demo_id``:stä.
+#
+# TAULU ON LAAJENNETTAVISSA. Ottelutason havainnot (Epic 3) mahtuvat tähän
+# uusina sarakkeina ilman uutta taulukierrosta.
+MATCH: Schema = {
+    "map_demo_id": pl.Utf8,  # {match_id}-{map_index}, liitosavain
+    # Kartan nimi demon otsikosta, esimerkiksi ``de_ancient``; null jos
+    # otsikossa ei ollut nimeä.
+    "map_name": pl.Utf8,
+}
+
+
 # classify-vaiheen tallentamat päätöksen syötteet (AD-4): kaikki vertailuun
 # käytetyt arvot, jotta raportin kierrosliite on tarkistettavissa demoa vasten.
 # Kynnysarvot ovat dollareita per pelaaja, samat kuin [thresholds]-osiossa.
@@ -552,6 +589,7 @@ SCHEMAS: dict[str, Schema] = {
     "lineups": LINEUPS,
     "deaths": DEATHS,
     "callouts": CALLOUT_CLOUD,
+    "match": MATCH,
     "classified": CLASSIFIED,
 }
 

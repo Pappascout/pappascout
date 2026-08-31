@@ -121,6 +121,9 @@ __all__ = [
     "bucket_labels",
     "seconds_bucket",
     "map_name_for",
+    "observed_map_name",
+    "weakest_map_source",
+    "MAP_NAME_SOURCE_RANK",
     "team_slug",
     "slugify",
     "SLUG_FALLBACK",
@@ -260,26 +263,138 @@ def seconds_bucket(t_s: float | None, edges: Sequence[float]) -> str:
     return labels[-1]
 
 
-def map_name_for(
-    map_demo_id: str, map_pool: Iterable[str]
-) -> tuple[str, str]:
-    """Päättele kartan nimi demon tunnisteesta.
+#: Kartan nimen lähteet **heikkenevässä** järjestyksessä. Pieni luku =
+#: vahvempi. Järjestys on sama kuin ``MapReport.map_name_source``in
+#: ensisijaisuusjärjestys, ja se on tässä nimenomaan vertailtavana lukuna,
+#: koska haaran lähde on sen demojen heikoin (ks. :func:`weakest_map_source`).
+MAP_NAME_SOURCE_RANK: dict[str, int] = {
+    "demo_header": 0,
+    "map_demo_id": 1,
+    "unknown": 2,
+}
 
-    Kartan nimi **ei ole missään taulussa**: ``parse`` ei kirjoita sitä, koska
-    kierros-, näytepiste- ja tapahtumataulut kuvaavat kierroksia eivätkä
-    ottelua. Käsin tuodulla demolla nimi on kuitenkin tiedostonimessä
-    (``Ancient_vs_kaljukostaja``), joten se luetaan sieltä karttapoolia vasten.
 
-    Tunniste pilkotaan sanoiksi eikä haeta osamerkkijonona: osumahaku pitäisi
-    joukkuetta nimeltä *Inferno* Infernona.
+def weakest_map_source(sources: Iterable[str]) -> str:
+    """Haaran lähde on sen demojen **heikoin**, ei vahvin.
+
+    Kaksi demoa samalta kartalta on yksi haara (``map_demo_ids`` luettelee ne),
+    ja niiden nimen lähde voi erota: toisen otsikossa oli kartta, toisen ei.
+
+    Lähde vastaa lukijan kysymykseen "voinko luottaa tähän nimeen", ja siihen
+    yksi päätelty jäsen riittää vastaamaan "ei täysin". Vahvimman valitseminen
+    olisi ylisanomista: haara näyttäisi kokonaan havaittuna, vaikka osa sen
+    kierroksista on liitetty siihen tiedostonimen perusteella. Väärä nimi
+    yhdellä demolla tuo väärät kierrokset koko haaraan, joten heikoin lenkki on
+    se, joka on kerrottava.
+
+    ``unknown`` ei voi päätyä tähän toisen nimen kanssa: sen nimi on
+    ``map_demo_id`` itse, joten se ei törmää yhdenkään oikean kartan nimeen.
+
+    Args:
+        sources: Haaran demojen lähteet. Epätyhjä.
 
     Returns:
-        ``(nimi, lähde)``. Lähde on ``"map_demo_id"``, jos pooli tunnisti
-        yksikäsitteisesti yhden kartan, muuten ``"unknown"`` ja nimeksi jää
-        ``map_demo_id`` sellaisenaan. Arvausta ei tehdä: FACEIT-tunnisteessa
-        (``1-a52ebff2-...``) ei ole kartan nimeä, eikä kartaton demo saa
-        sulautua toisen kartan haaraan.
+        Heikoin lähde :data:`MAP_NAME_SOURCE_RANK`-järjestyksessä.
+
+    Raises:
+        AggregateError: Jos luettelo on tyhjä tai sisältää tuntemattoman
+            lähteen. Kumpikaan ei voi syntyä tämän moduulin omasta
+            ryhmittelystä, joten kyseessä olisi kutsuvirhe -- ja hiljaa
+            palautettu oletus valehtelisi lukijalle nimen luotettavuudesta.
     """
+    known = list(sources)
+    if not known:
+        raise AggregateError(
+            "Karttahaaran lähdeluettelo on tyhjä.\n"
+            "Haara syntyy vain demoista, joten jokaisella on ainakin yksi "
+            "lähde. Tyhjä luettelo tarkoittaa, että ryhmittely on rikki."
+        )
+    unknown = sorted(set(known) - set(MAP_NAME_SOURCE_RANK))
+    if unknown:
+        raise AggregateError(
+            f"Tuntematon kartan nimen lähde: {', '.join(unknown)}.\n"
+            f"Sallitut ovat {', '.join(MAP_NAME_SOURCE_RANK)}. Uusi lähde on "
+            "lisättävä sekä tähän luetteloon että ``MapReport``in sopimukseen, "
+            "jotta sen vahvuus on määritelty."
+        )
+    return max(known, key=lambda source: MAP_NAME_SOURCE_RANK[source])
+
+
+def observed_map_name(
+    map_names: Mapping[str, str | None], demo: str
+) -> str | None:
+    """Demon otsikosta havaittu nimi; puuttuva **avain** on virhe.
+
+    Kahta asiaa ei saa niputtaa: arvo ``None`` on laillinen havainto ("otsikossa
+    ei ollut karttaa", jolloin päättely jää voimaan), mutta **puuttuva avain**
+    tarkoittaa että demo ei ollut ``aggregate``n lukemassa nimikartassa
+    lainkaan. Se on ohjelmointivirhe -- ja juuri sen estämiseksi
+    :func:`build_report`in ``map_names`` tehtiin pakolliseksi ilman oletusta.
+
+    ``Mapping.get`` sotkisi ne yhteen ja palauttaisi kartan hiljaa päättelyyn:
+    FACEIT-demo saisi haaransa tunnisteestaan, eikä mikään kertoisi että
+    havainto oli olemassa mutta ei löytänyt perille.
+
+    Raises:
+        AggregateError: Jos ``demo`` ei ole ``map_names``-kartassa.
+    """
+    if demo not in map_names:
+        raise AggregateError(
+            f"Demo {demo} ei ole kartan nimien joukossa.\n"
+            "``aggregate`` lukee nimen jokaisen mukaan otetun demon "
+            "``match.parquet``-taulusta, joten puuttuva avain tarkoittaa, "
+            "ettei taulua luettu tälle demolle. Puuttuva **nimi** on eri "
+            "asia: se on ``None`` ja täysin laillinen, ja silloin nimi "
+            "päätellään tunnisteesta.\n"
+            f"Aja: uv run pappascout parse {demo}"
+        )
+    return map_names[demo]
+
+
+def map_name_for(
+    map_demo_id: str, map_pool: Iterable[str], observed: str | None = None
+) -> tuple[str, str]:
+    """Kartan nimi: havainto ensin, päättely vasta sen puuttuessa.
+
+    ``observed`` on demon otsikosta luettu nimi (``MATCH.map_name``, Story
+    2.11). Se **voittaa aina** ja käytetään sellaisenaan: sitä ei verrata
+    karttapooliin, koska poolin ulkopuolinen kartta -- workshop-versio tai
+    ``de_train`` -- on aito havainto eikä tuntematon kartta. Hiljainen korjaus
+    poolin nimeksi tekisi havainnosta johdoksen.
+
+    Ilman havaintoa nimi päätellään tunnisteesta. Käsin tuodulla demolla se on
+    tiedostonimessä (``Ancient_vs_kaljukostaja``), joten se luetaan sieltä
+    karttapoolia vasten. Tunniste pilkotaan sanoiksi eikä haeta
+    osamerkkijonona: osumahaku pitäisi joukkuetta nimeltä *Inferno* Infernona.
+
+    Args:
+        map_demo_id: Demon tunniste.
+        map_pool: ``[league].map_pool``, jota vasten päättely tehdään.
+        observed: Otsikosta havaittu nimi tai ``None``. Tyhjä ja pelkistä
+            välilyönneistä koostuva merkkijono ovat sama asia kuin ``None``:
+            kumpikaan ei ole nimi, joten päättely jää voimaan. Reunojen
+            välilyönnit leikataan, jotta sama kartta ei jakaudu kahdeksi
+            haaraksi.
+
+    Returns:
+        ``(nimi, lähde)``. Lähde on ensisijaisuusjärjestyksessä
+        ``"demo_header"`` (havainto otsikosta), ``"map_demo_id"`` (pooli
+        tunnisti yksikäsitteisesti yhden kartan tunnisteesta) tai
+        ``"unknown"``, jolloin nimeksi jää ``map_demo_id`` sellaisenaan.
+        Arvausta ei tehdä: FACEIT-tunnisteessa (``1-a52ebff2-...``) ei ole
+        kartan nimeä, eikä kartaton demo saa sulautua toisen kartan haaraan.
+    """
+    if observed is not None and observed.strip():
+        # Leikattu, ei raaka. Docstring lupaa jo, että pelkät välilyönnit ovat
+        # sama asia kuin ``None``; jos reunan välilyönnit jäisivät nimeen,
+        # ``" de_ancient"`` olisi eri haara kuin ``"de_ancient"`` -- eli
+        # havainto pirstoisi kartan sen sijaan että kokoaisi sen.
+        #
+        # Leikkaus **ei ole validointia**: se ei vertaa nimeä karttapooliin
+        # eikä muuta kirjoitusasua. Adapteri leikkaa nimen jo lukiessaan, joten
+        # tämä on toinen puolustuslinja -- mutta funktio on julkinen ja sillä
+        # on oma sopimuksensa, joten se ei nojaa kutsujan siisteyteen.
+        return observed.strip(), "demo_header"
     tokens = {t for t in _NON_WORD.split(map_demo_id.lower()) if t}
     hits = {
         name
@@ -1248,6 +1363,7 @@ def build_report(
     thresholds: ThresholdSettings,
     aggregate: AggregateSettings,
     map_pool: Sequence[str],
+    map_names: Mapping[str, str | None],
     generated_at: datetime,
     tool_versions: Mapping[str, str] | None = None,
     missing_demos: Sequence[MissingDemo] = (),
@@ -1280,7 +1396,19 @@ def build_report(
             ``thresholds_used``-kenttään jäljitettävyyden vuoksi -- ne ovat
             **tämän ajon** asetukset, eivät ne joilla kierrokset luokiteltiin
             (ks. :func:`classify_thresholds`).
-        map_pool: ``[league].map_pool``, jota vasten kartan nimi tunnistetaan.
+        map_pool: ``[league].map_pool``, jota vasten kartan nimi päätellään,
+            kun otsikossa ei ollut nimeä.
+        map_names: ``map_demo_id`` -> otsikosta havaittu kartan nimi tai
+            ``None``. Lähde on ``MATCH.map_name`` (Story 2.11). Argumentti
+            on **pakollinen eikä sillä ole oletusta**: tyhjä oletus
+            palauttaisi koko raportin hiljaa päättelyyn, jolloin
+            FACEIT-demot hajoaisivat taas omiksi haaroikseen ilman että
+            mikään kertoisi siitä. Jokaisen mukaan otetun demon on oltava
+            kartassa; puuttuva avain nostaa virheen
+            (:func:`observed_map_name`), koska se on eri asia kuin arvo
+            ``None``. Kartat ryhmitellään **nimestä**, ja haaran
+            ``map_name_source`` on sen demojen heikoin
+            (:func:`weakest_map_source`).
         generated_at: Ajon hetki.
         tool_versions: Työkaluversiot raportin omaan kenttään.
         missing_demos: Ottelut, joiden dataa ei ollut.
@@ -1306,16 +1434,34 @@ def build_report(
 
     # Kaksi demoa samalta kartalta on yksi haara: kierrokset summautuvat, ja
     # map_demo_ids kertoo mistä.
-    by_map: defaultdict[tuple[str, str], list[str]] = defaultdict(list)
+    #
+    # RYHMITTELY ON **NIMESTÄ**, EI PARISTA (nimi, lähde). Pari näyttäisi
+    # oikealta mutta pirstoisi kartan täsmälleen niin kuin puuttuva otsikko
+    # ennen tätä tarinaa: ``ANCIENT_vs_RCAVE_VETERANS`` (havainto otsikosta) ja
+    # ``Ancient_vs_kaljukostaja`` (päättely tiedostonimestä) ovat kumpikin
+    # ``de_ancient``, mutta eri lähteellä -- ja kahtena avaimena ne olisivat
+    # kaksi ``de_ancient``-osiota, molemmat merkinnällä "(1/1 kierroksesta)".
+    # Ennen Story 2.11:tä vikaa ei voinut olla: ``unknown``-haaran nimi on
+    # tunniste itse, joten se ei törmää oikeaan nimeen. Havainnon myötä kaksi
+    # eri lähdettä voi tuottaa saman nimen, ja siksi avain on nimi.
+    #
+    # Haaran lähde on sen demojen **heikoin** (:func:`weakest_map_source`).
+    by_map: defaultdict[str, list[str]] = defaultdict(list)
+    branch_sources: defaultdict[str, list[str]] = defaultdict(list)
     for demo in sorted(by_demo):
-        by_map[map_name_for(demo, map_pool)].append(demo)
+        name, source = map_name_for(
+            demo, map_pool, observed_map_name(map_names, demo)
+        )
+        by_map[name].append(demo)
+        branch_sources[name].append(source)
 
     ticks_by_demo = _group_by_demo(tick_rows)
     events_by_demo = _group_by_demo(event_rows)
     deaths_by_demo = _group_by_demo(death_rows)
 
     maps: list[MapReport] = []
-    for (map_name, source), demos in by_map.items():
+    for map_name, demos in by_map.items():
+        source = weakest_map_source(branch_sources[map_name])
         map_rows = [r for demo in demos for r in by_demo[demo]]
         map_ticks = [r for demo in demos for r in ticks_by_demo.get(demo, [])]
         map_events = [r for demo in demos for r in events_by_demo.get(demo, [])]

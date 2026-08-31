@@ -196,19 +196,41 @@ def test_summary_says_when_the_stage_was_skipped() -> None:
     assert field_value(output_text, "Syy") == "Tulos on ajan tasalla."
 
 
-def test_summary_marks_a_map_whose_name_could_not_be_read() -> None:
+@pytest.mark.parametrize(
+    "source,note",
+    [
+        ("demo_header", ""),
+        ("map_demo_id", ""),
+        ("unknown", " (nimi tuntematon)"),
+    ],
+)
+def test_summary_marks_only_the_map_whose_name_is_unknown(
+    source: str, note: str
+) -> None:
+    """Merkintä kuuluu **vain** lähteelle ``unknown`` (Story 2.11).
+
+    Kolme paria eikä yksi, ja se on mitattu tarve. Ehto oli alun perin
+    kirjoitettu tunnettujen lähteiden luettelona
+    (``"" if source == "map_demo_id" else " (nimi tuntematon)"``), ja kolmannen
+    lähteen tullessa se olisi merkinnyt jokaisen otsikosta luetun kartan
+    tuntemattomaksi. Yhden lähteen testi ei huomaa sitä: mutaatio, joka
+    palauttaa vanhan ehdon, läpäisee ``unknown``-tapauksen sellaisenaan ja koko
+    muun sarjan sen mukana. Vain ``demo_header``-pari punastuu.
+    """
     stats = dict(aggregate_result().stats)
     stats["maps"] = [
         {
-            "map_name": "1-a52ebff2-1-1",
-            "map_name_source": "unknown",
-            "demos": 1,
-            "rounds": 20,
+            "map_name": "de_ancient",
+            "map_name_source": source,
+            "demos": 2,
+            "rounds": 42,
             "sides": [],
         }
     ]
     output_text = _render_aggregate(aggregate_result(stats=stats))
-    assert "nimi tuntematon" in output_text
+    assert f"de_ancient{note}: 2 demoa, 42 kierrosta" in output_text
+    if not note:
+        assert "nimi tuntematon" not in output_text
 
 
 def test_summary_names_the_output_and_the_manifest() -> None:

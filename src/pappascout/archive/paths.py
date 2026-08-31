@@ -80,6 +80,7 @@ PARSED_TABLES: tuple[str, ...] = (
     "lineups",
     "deaths",
     "callouts",
+    "match",
 )
 
 LOCK_FILE = PurePosixPath(".lock")

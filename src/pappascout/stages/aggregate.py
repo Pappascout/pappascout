@@ -51,12 +51,20 @@ tasatilanne ratkeaa aakkosjärjestyksessä, jotta ajo on toistettava
 ``select``-vaiheen työtä. Tämä vaihe vaihtaa vain sen, mitä näytetään -- ja
 tiedostonimen slugin, joka seuraa näytettävää nimeä.
 
-Kartan nimi on johdettu
------------------------
-Kartan nimeä ei ole yhdessäkään taulussa -- ``parse`` ei kirjoita sitä. Se
-päätellään ``map_demo_id``:stä karttapoolia vasten, ja ``map_name_source``
-kertoo onnistuiko päättely. Tuntematon kartta ei sulaudu toisen kartan haaraan
-vaan jää omakseen tunnisteensa nimellä.
+Kartan nimi on havainto, päättely on varalähde
+----------------------------------------------
+Kartan nimi luetaan ``parsed/<map_demo_id>/match.parquet``-taulusta, johon
+``parse`` kirjoittaa sen demon otsikosta (Story 2.11). Nimeä ei validoida
+karttapoolia vasten: poolin ulkopuolinen kartta on aito havainto.
+
+Vasta jos havaintoa ei ole -- ``map_name`` on ``null`` -- nimi päätellään
+``map_demo_id``:stä karttapoolia vasten. ``map_name_source`` kertoo mistä nimi
+tuli (``demo_header`` -> ``map_demo_id`` -> ``unknown``), eikä tuntematon kartta
+sulaudu toisen kartan haaraan vaan jää omakseen tunnisteensa nimellä.
+
+Kaksi demoa samalta kartalta on **yksi haara**: nimi on sama, kierrokset
+summautuvat ja ``map_demo_ids`` luettelee demot. Juuri tämä ei toteudu ilman
+otsikkoa, koska FACEIT-tunnisteessa (``1-79f71e00-...``) ei ole kartan nimeä.
 
 Manifesti ja uudelleenajo
 -------------------------
@@ -121,6 +129,7 @@ from pappascout.domain.schemas import (
     DEATHS,
     EVENTS,
     LINEUPS,
+    MATCH,
     ROUNDS,
     TICKS,
     Schema,
@@ -520,7 +529,11 @@ def _demo_unusable(
     # päätöksen syöte. Puuttuva taulu on siis sama puute kuin muutkin --
     # ilman sitä raportti näyttäisi kierrostyypiltä, jolla kukaan ei ostanut
     # kevlaria.
-    for table in ("rounds", "ticks", "events", "lineups", "deaths"):
+    # Ottelutaulu on mukana Story 2.11:sta lähtien: kartan nimi on siellä.
+    # Ilman sitä demo saisi haaransa päättelystä, eli FACEIT-demo jäisi
+    # omaksi haarakseen tunnisteensa nimellä -- ja monidemo-otanta hajoaisi
+    # hiljaa juuri sillä demolla, jonka taulu puuttuu.
+    for table in ("rounds", "ticks", "events", "lineups", "deaths", "match"):
         if not archive.resolve(parsed_table(map_demo_id, table)).is_file():
             return (
                 f"Parsittua taulua {table}.parquet ei ole arkistossa. "
@@ -559,6 +572,24 @@ def _aggregate(
     lineup_frames: list[pl.DataFrame] = []
     death_frames: list[pl.DataFrame] = []
     round_frames: list[pl.DataFrame] = []
+    # Kartan nimi demoittain: havainto tai ``None``.
+    #
+    # AVAIN ON **LUETTU DEMO**, EI TAULUN OMA SARAKE. ``_read_parsed``
+    # validoi skeeman muttei sitä, että ``map_demo_id``-sarakkeen arvo vastaa
+    # sitä demoa, jonka hakemistosta taulu luettiin. Vanhentunut tai väärään
+    # hakemistoon joutunut ``match.parquet`` kirjaisi nimensä väärälle demolle
+    # ja oikea demo palaisi hiljaa päättelyyn; kaksi samaa tunnistetta
+    # pudottaisi toisen kokonaan. Silmukan ``demo`` on se, jonka polusta taulu
+    # luettiin, joten avaimena se poistaa koko epäonnistumisluokan -- myös
+    # tyhjän ja ``null``-tunnisteen tapauksen -- ilman uusia tarkistuksia.
+    #
+    # Taulua **ei suodateta kokoonpanoilla** kuten muita: siinä ei ole
+    # ``lineup_key``-saraketta, koska kartta on ottelun ominaisuus eikä
+    # kummankaan joukkueen.
+    #
+    # Rivi per demo on ``parse``-vaiheen valvoma sopimus, joten kartta ei voi
+    # saada kahta arvoa samalle demolle.
+    map_names: dict[str, str | None] = {}
 
     for lineup, demo in sources.demos:
         classified_frames.append(_read_classified(archive, lineup, demo))
@@ -567,6 +598,7 @@ def _aggregate(
         lineup_frames.append(_read_parsed(archive, demo, "lineups", LINEUPS))
         death_frames.append(_read_parsed(archive, demo, "deaths", DEATHS))
         round_frames.append(_read_parsed(archive, demo, "rounds", ROUNDS))
+        map_names[demo] = _read_map_name(archive, demo)
 
     lineups = set(sources.lineup_keys)
     # Kierrostaulussa on kaksi riviä per kierros, yksi kummallekin
@@ -673,6 +705,7 @@ def _aggregate(
         thresholds=thresholds,
         aggregate=aggregate_settings,
         map_pool=league.map_pool,
+        map_names=map_names,
         generated_at=datetime.now(UTC),
         tool_versions={"pappascout": __version__},
         missing_demos=sources.missing,
@@ -695,6 +728,33 @@ def _read_classified(
         ),
     )
     return _in_schema_order(df, CLASSIFIED)
+
+
+def _read_map_name(archive: ArchivePaths, map_demo_id: str) -> str | None:
+    """Kartan nimi demon ``match.parquet``-taulusta, tai ``None``.
+
+    Taulussa on ``parse``-vaiheen valvoman sopimuksen mukaan täsmälleen yksi
+    rivi. Tarkistus toistetaan tässä siksi, että luettu tiedosto voi olla
+    ohjelman vanhemman version kirjoittama: sopimusta valvoo se vaihe, joka
+    kirjoittaa, eikä lukija saa nojata siihen että kirjoittaja oli tämä versio.
+
+    Palautettava arvo on **nimi tai sen puuttuminen**, ei taulu: kutsuja ei
+    tarvitse kehystä mihinkään, ja rivin nostaminen tässä pitää sopimuksen
+    tarkistuksen yhdessä paikassa.
+    """
+    df = _read_parsed(archive, map_demo_id, "match", MATCH)
+    if df.height != 1:
+        raise PappascoutError(
+            f"Demon {map_demo_id} ottelutaulussa on {df.height} riviä, "
+            "vaikka niitä on oltava täsmälleen yksi.\n"
+            "Taulu kuvaa yhtä ottelua. Nolla riviä tarkoittaisi, ettei kartan "
+            "nimeä havaittu -- mutta se on eri asia kuin havainto ``null``, "
+            "ja kahdesta rivistä nimi valikoituisi rivijärjestyksen mukaan.\n"
+            f"Aja parsinta uudelleen: uv run pappascout parse {map_demo_id} "
+            "--pakota"
+        )
+    name = df["map_name"][0]
+    return None if name is None else str(name)
 
 
 def _read_parsed(

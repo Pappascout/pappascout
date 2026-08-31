@@ -78,9 +78,10 @@ def test_map_demo_id_is_match_id_and_zero_based_map_index() -> None:
 
 
 @pytest.mark.parametrize(
-    "table", ["rounds", "ticks", "events", "lineups", "deaths", "callouts"]
+    "table",
+    ["rounds", "ticks", "events", "lineups", "deaths", "callouts", "match"],
 )
-def test_parse_writes_exactly_six_tables(table: str) -> None:
+def test_parse_writes_exactly_seven_tables(table: str) -> None:
     assert table in paths.PARSED_TABLES
     assert str(paths.parsed_table("d", table)).endswith(f"{table}.parquet")
 
@@ -92,7 +93,7 @@ def test_the_parametrised_list_is_the_whole_contract() -> None:
     lisättäisiin ``PARSED_TABLES``iin mutta ei tänne -- eikä sen polkua
     testattaisi koskaan. Juuri niin kävi ``deaths``ille.
     """
-    assert len(paths.PARSED_TABLES) == 6
+    assert len(paths.PARSED_TABLES) == 7
 
 
 def test_unknown_parsed_table_is_rejected() -> None:

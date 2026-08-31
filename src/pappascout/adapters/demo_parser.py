@@ -411,6 +411,7 @@ from pappascout.adapters.protocols import (
     DEATHS_ADAPTER_COLUMNS,
     EVENTS_ADAPTER_COLUMNS,
     LINEUPS_ADAPTER_COLUMNS,
+    MATCH_ADAPTER_COLUMNS,
     ROUNDS_ADAPTER_COLUMNS,
     TICKS_ADAPTER_COLUMNS,
     DemoTables,
@@ -433,6 +434,7 @@ from pappascout.domain.schemas import (
     DEATHS,
     EVENTS,
     LINEUPS,
+    MATCH,
     MONEY_DISTRIBUTION_COLUMN,
     ROUNDS,
     TICKS,
@@ -1090,6 +1092,10 @@ class Demoparser2Adapter:
         self.callout_z_weight = float(callout_z_weight)
         self.callout_z_tolerance_units = float(callout_z_tolerance_units)
         self.diagnostics: ParseDiagnostics | None = None
+        #: Miksi otsikosta ei saatu kartan nimeä; asetetaan lukuhetkellä ja
+        #: siirretään diagnostiikkaan. Nollataan joka luvun alussa, jottei
+        #: edellisen demon syy kanna seuraavaan.
+        self._header_missing_reason: str | None = None
 
     def parse_demo(
         self, path: Path, sample_seconds: Sequence[float]
@@ -1108,6 +1114,10 @@ class Demoparser2Adapter:
         sample_seconds: tuple[float, ...],
     ) -> DemoTables:
         parser = self._open(demo_path, original_path)
+        # Otsikko luetaan **samasta parser-oliosta** kuin kaikki muukin: demoa
+        # ei avata toista kertaa kartan nimen takia.
+        self._header_missing_reason = None
+        map_name = self._header_map_name(parser, original_path)
         freeze_ticks = self._freeze_end_ticks(parser, original_path)
         round_ends = self._round_ends(parser, original_path)
         segments = self._segments(freeze_ticks, round_ends)
@@ -1230,6 +1240,7 @@ class Demoparser2Adapter:
             grenades_sharing_an_entity_id=utility.sharing_an_entity_id,
             callout_cloud_rows_read=cloud_counts.rows_read,
             callout_cloud_empty_reason=cloud_counts.empty_reason,
+            header_map_name_missing_reason=self._header_missing_reason,
             unknown_inventory_items=tuple(sorted(armed.unknown_items.items())),
             lineup_name_conflicts=sum(
                 1
@@ -1266,7 +1277,86 @@ class Demoparser2Adapter:
             lineups=lineups_frame,
             deaths=death_frame,
             callouts=callouts,
+            match=self._build_match_frame(map_name),
         )
+
+    def _header_map_name(self, parser: Any, original_path: Path) -> str | None:
+        """Kartan nimi demon otsikosta, tai ``None`` jos sitä ei ole.
+
+        Otsikko on **havainto**: nimi palautetaan sellaisenaan eikä sitä
+        verrata karttapooliin. Poolin ulkopuolinen kartta -- workshop-versio
+        tai ``de_train`` -- on aito havainto eikä tuntematon kartta, ja
+        hiljainen korjaus poolin nimeksi tekisi siitä valheen.
+
+        Tyhjä tai pelkkiä välilyöntejä sisältävä nimi on ``None`` eikä
+        korvike: vasta silloin ``aggregate`` palaa päättelemään nimen
+        ``map_demo_id``:stä. Otsikon muut kentät (esimerkiksi
+        ``server_name``) eivät kuulu tähän tauluun.
+
+        Poikkeus kääritään :class:`~pappascout.errors.ParseError`iksi samalla
+        säännöllä kuin :meth:`_open`issa ja :meth:`_event`issä: kirjaston oma
+        virhetyyppi ei ole tämän kerroksen sopimusta.
+
+        Viesti nimeää **kaksi** mahdollista syytä eikä vain vioittunutta
+        tiedostoa. Kirjaston uudelleennimeämä metodi nostaa ``AttributeError``in
+        täysin ehjästä demosta, ja pelkkä "lataa uudelleen" lähettäisi
+        käyttäjän hakemaan 230 MB:n tiedoston, joka on jo kunnossa.
+        """
+        try:
+            header = parser.parse_header()
+        except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
+            raise ParseError(
+                f"Demon {original_path.name} otsikkoa ei voitu lukea: "
+                f"{type(exc).__name__}: {exc}\n"
+                "Syy on jokin näistä kahdesta: tiedosto on vioittunut, tai "
+                "demoparser2:n rajapinta on muuttunut eikä otsikkoa enää lueta "
+                "näin. Tarkista ensin, aukeaako sama demo toisella "
+                "demoparser2-versiolla; jos aukeaa, korjaus kuuluu adapteriin. "
+                "Muuten lataa demo uudelleen."
+            ) from exc
+        get = getattr(header, "get", None)
+        if not callable(get):
+            self._header_missing_reason = (
+                "parse_header() ei palauttanut sanakirjaa "
+                f"(tyyppi {type(header).__name__})"
+            )
+            return None
+        value = get("map_name")
+        if value is None:
+            self._header_missing_reason = (
+                "otsikossa ei ole map_name-kenttää lainkaan -- demoparser2 on "
+                "todennäköisesti nimennyt sen uudelleen"
+            )
+            return None
+        # ``isinstance``, ei ``str()``: tavujono kääntyisi nimeksi
+        # ``b'de_ancient'``, joka näyttäisi taulussa havainnolta ja pirstoisi
+        # kartan omaksi haarakseen. Havainto on nimi tai sen puuttuminen, ei
+        # korvike -- eikä kirjaston tyyppimuutos saa mennä läpi hiljaa.
+        if not isinstance(value, str):
+            self._header_missing_reason = (
+                f"map_name ei ole merkkijono vaan {type(value).__name__}"
+            )
+            return None
+        text = value.strip()
+        if not text:
+            self._header_missing_reason = "map_name on tyhjä otsikossa"
+            return None
+        return text
+
+    @staticmethod
+    def _build_match_frame(map_name: str | None) -> pl.DataFrame:
+        """Rakenna ottelutaulu: **yksi rivi**, tunnettu tai tuntematon nimi.
+
+        Rivi kirjoitetaan myös silloin, kun nimeä ei ollut. Tyhjä taulu
+        tarkoittaisi demoa ilman ottelua, ja se olisi eri väite kuin
+        "ottelu on, mutta kartan nimeä ei saatu" -- vain jälkimmäinen on tosi.
+        """
+        schema: dict[str, Any] = {
+            name: MATCH[name] for name in MATCH_ADAPTER_COLUMNS
+        }
+        # Ei ``orient``ia: sanakirjarivi kertoo sarakkeensa nimellä, joten
+        # rivi- ja sarakesuunnan erottelu ei koske tätä kutsua.
+        return pl.DataFrame([{"map_name": map_name}], schema=schema)
 
     def _open(self, demo_path: Path, original_path: Path) -> Any:
         from demoparser2 import DemoParser as _Demoparser2

@@ -827,8 +827,46 @@ def test_the_schema_version_says_the_structure_changed() -> None:
     arvon ``snapped``, ja se riittää -- vanha ``report.json`` kaatuisi
     muuten pydanticin virheeseen sen sijaan että ``render`` kertoisi
     aggregoinnin olevan ajettava uudelleen.
+
+    Story 2.11 on sama kuvio toisin päin: ``map_name_source`` sai arvon
+    ``demo_header``, joten **uusi** tiedosto ei kelpaa vanhalle mallille --
+    ja vanhan tiedoston kartat on ryhmitelty eri säännöllä kuin tämän
+    version, koska nimi luetaan nyt demon otsikosta.
     """
-    assert REPORT_SCHEMA_VERSION == "5.0.0"
+    assert REPORT_SCHEMA_VERSION == "6.0.0"
+
+
+def test_the_map_name_source_covers_all_three_sources() -> None:
+    """Lähteitä on kolme, ja jokainen on kelvollinen arvo (Story 2.11).
+
+    Ensisijaisuusjärjestys on ``demo_header`` -> ``map_demo_id`` ->
+    ``unknown``, ja molemmat vanhat arvot säilyvät toimivina: arkistossa on
+    demoja, joiden otsikossa ei ole karttaa.
+    """
+    def _map(source: str) -> MapReport:
+        return MapReport(
+            map_name="de_ancient",
+            map_name_source=source,
+            map_demo_ids=["Ancient_vs_a"],
+            sample=sample(unknown=1),
+            sides=[
+                SideReport(
+                    side="T",
+                    sample=sample(unknown=1),
+                    round_types=[
+                        _round_type_with(
+                            DeathReport(m=0, rounds_missing=1), rounds=1
+                        )
+                    ],
+                )
+            ],
+        )
+
+    for source in ("demo_header", "map_demo_id", "unknown"):
+        assert _map(source).map_name_source == source
+
+    with pytest.raises(ValidationError):
+        _map("tiedostonimi")
 
 
 def _round_type_with(entry: DeathReport, rounds: int) -> RoundTypeReport:
