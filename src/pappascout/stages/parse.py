@@ -1294,6 +1294,23 @@ def run(
     stats["match_restarts"] = (
         None if diagnostics is None else getattr(diagnostics, "match_restarts", None)
     )
+    # Pawniton pelaaja: kontrolleri tallella, hahmoa ei kartalla. Riviä ei ole
+    # taulussa eikä pistettä taulun näytepisteissä, joten kumpaakaan lukua
+    # **ei voi laskea valmiista tuloksesta**.
+    #
+    # Kolme tilaa erillään kuten uudelleenaloituksilla, ja tässä se on
+    # erityisen tarpeen: avaimen puuttuminen tarkoittaisi tulosteessa samaa
+    # kuin nolla, ja ohitettu ajo väittäisi hiljaa puhdasta asetelmaa. Juuri
+    # se on se valhe, jonka koko laskuri on olemassa poistamaan -- puuttuva
+    # pelaaja näyttäisi kierrokselta, jolla joukkue vain pelasi vajaalla.
+    for _name in (
+        "sample_rows_without_pawn",
+        "sample_points_without_pawn",
+        "grenade_throwers_without_row",
+    ):
+        stats[_name] = (
+            None if diagnostics is None else getattr(diagnostics, _name, None)
+        )
     # Vain tuoreesta ajosta: numeroimattomien kierrosten rivit eivät ole
     # taulussa, joten ohitetusta ajosta lukua ei voi lukea takaisin.
     stats["utility_unnumbered_rounds"] = parsed.unnumbered_utility
@@ -1477,9 +1494,8 @@ def _parse_tables(
             "pelattua kierrosta mutta ei yhtään näytepistettä.\n"
             "Tyhjää asetelmataulua ei kirjoiteta ok-tuloksena: se jäisi "
             "manifestin perusteella pysyvästi ohitetuksi ja aggregointi "
-            "raportoisi kartan ilman yhtään asetelmaa. Tarkista "
-            "[parse].snapshot_seconds ja se, löytyykö kierroksilta "
-            "freezetime-ankkuri."
+            "raportoisi kartan ilman yhtään asetelmaa.\n"
+            + _tick_drop_reason(parser)
         )
 
     # Tyhjää tapahtumataulua **ei** kohdella virheenä, toisin kuin kahta muuta:
@@ -1538,6 +1554,33 @@ def _parse_tables(
         skipped_rounds=skipped_rounds,
         unnumbered_utility=unnumbered,
         unnumbered_deaths=unnumbered_deaths,
+    )
+
+
+def _tick_drop_reason(parser: DemoParser) -> str:
+    """Miksi asetelmataulu jäi tyhjäksi -- luku, joka on jo laskettu.
+
+    Ilman tätä virheilmoitus nimeäisi kaksi arvausta ("tarkista
+    ``snapshot_seconds`` ja freezetime-ankkurit") myös silloin, kun adapteri
+    on jo laskenut oikean syyn. Pawniton näytepiste on sellainen syy: jos
+    jokainen piste jäi väliin siksi, ettei kenelläkään ollut hahmoa kartalla,
+    asetuksissa ja ankkureissa ei ole mitään vikaa eikä niitä pidä käskeä
+    tarkistamaan.
+    """
+    diagnostics = getattr(parser, "diagnostics", None)
+    dropped = getattr(diagnostics, "sample_points_without_pawn", 0) or 0
+    rows = getattr(diagnostics, "sample_rows_without_pawn", 0) or 0
+    if dropped:
+        return (
+            f"Syy on luettu demosta: {dropped} näytepistettä jäi kokonaan "
+            f"väliin, koska jokainen pelaajarivi oli pawniton ({rows} riviä). "
+            "Kyse ei siis ole [parse].snapshot_secondsista eikä "
+            "freezetime-ankkureista vaan siitä, ettei demossa ole "
+            "pelaajahahmoja näytepisteiden tickeillä. Tarkista demo."
+        )
+    return (
+        "Tarkista [parse].snapshot_seconds ja se, löytyykö kierroksilta "
+        "freezetime-ankkuri."
     )
 
 

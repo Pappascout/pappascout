@@ -424,6 +424,11 @@ class Round:
     #: Pelaajat, jotka **puuttuvat** näytepisteiden riveistä kokonaan.
     #: Jäljittelee tickiä, jolta pelaajaa ei saada luettua lainkaan.
     sample_skip: tuple[str, ...] = ()
+    #: Pelaajat, joiden rivi **on** näytepisteen tickillä mutta joilla ei ole
+    #: pawnia: kontrollerin joukkue on tallella, jokainen pawn-kenttä tyhjä.
+    #: Eri asia kuin :attr:`sample_skip`, jossa riviä ei ole lainkaan -- ja
+    #: juuri se ero on ``anubis_vs_RCAVE_VETERANS``-demon vika.
+    sample_pawnless: tuple[str, ...] = ()
     #: Vahinkotapahtumat ``(tick-siirtymä ankkurista, tekijä, uhri, ase)``.
     hurt: list[tuple[int, str | None, str | None, str | None]] = field(
         default_factory=list
@@ -673,6 +678,23 @@ def _sample_rows(round_spec: Round, tick: int) -> list[dict[str, Any]]:
     ):
         for index, steamid in enumerate(players):
             if steamid in round_spec.sample_skip:
+                continue
+            if steamid in round_spec.sample_pawnless:
+                # Kontrolleri on tallella (joukkue luettavissa), pawn ei:
+                # jokainen pawn-kenttä tyhjä samalla rivillä.
+                rows.append(
+                    {
+                        "tick": tick,
+                        "steamid": steamid,
+                        "name": steamid,
+                        dp._TEAM_NUM: _SIDE_TEAM[side],
+                        dp._LIFE_STATE: None,
+                        dp._PLACE_NAME: None,
+                        dp._X: None,
+                        dp._Y: None,
+                        dp._Z: None,
+                    }
+                )
                 continue
             own_area = round_spec.player_areas.get(steamid, area)
             rows.append(
@@ -2834,6 +2856,272 @@ def test_a_missing_life_state_is_an_error_not_a_dead_player(tmp_path: Path) -> N
     with pytest.raises(ParseError) as exc:
         parse_ticks_table(fake, tmp_path, sample_seconds=(6.0,))
     assert dp._LIFE_STATE in str(exc.value)
+
+
+# --- Pawniton pelaaja (Story 2.10) ---------------------------------------------
+
+
+def pawnless_at(fake, *, pawnless: tuple[str, ...], spectators: tuple[str, ...] = ()):
+    """Korvaa näytepisterivit: osa pawnittomiksi, osa katsojiksi.
+
+    ``Round.sample_pawnless`` riittää yksinään, mutta se ei voi tehdä
+    tickistä, jolla rivejä katosi **kahdesta eri syystä**. Juuri sellainen
+    tick erottaa hyvän ohituksen ahneesta.
+    """
+    rows_at = fake._rows_at
+
+    def replaced(tick: int):
+        rows = [dict(r) for r in rows_at(tick)]
+        if not rows or dp._PLACE_NAME not in rows[0]:
+            return rows
+        for row in rows:
+            if row["steamid"] in spectators:
+                row[dp._TEAM_NUM] = None
+            elif row["steamid"] in pawnless:
+                for name in dp.SAMPLE_PAWN_PROPS:
+                    row[name] = None
+        return rows
+
+    fake._rows_at = replaced  # type: ignore[method-assign]
+    return fake
+
+
+def test_a_pawnless_player_is_skipped_but_a_missing_life_state_still_stops_the_run(
+    tmp_path: Path,
+) -> None:
+    """Pawniton rivi ohitetaan; pelkkä puuttuva elossaolo kaataa ajon yhä.
+
+    Vartijan ohitus katsoi ``m_iTeamNum``ia, joka on **kontrollerin** kenttä
+    ja tallella myös pawnittomalla pelaajalla, ja tarkistus katsoi
+    ``m_lifeState``ia, joka on **pawnin** kenttä. Pelaaja, jolla oli toinen
+    muttei toista, putosi näiden väliin -- ja koko demo kaatui.
+
+    Molemmat puolet ovat tässä, koska erottelu on väite kahden tapauksen
+    **välillä**: ohitus, joka laukeaisi pelkästä puuttuvasta elossaolosta,
+    läpäisisi ensimmäisen väitteen ja söisi juuri sen vian, jota vastaan
+    vartija kirjoitettiin.
+    """
+    rounds = long_match(played=1)
+    ghost = rounds[0].a_players[0]
+    rounds[0].sample_pawnless = (ghost,)
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
+    assert ghost not in ticks["player_id"].to_list()
+    assert ticks.height == 9
+
+    fake = build(long_match(played=1))
+    rows_at = fake._rows_at
+
+    def only_life_state_missing(tick: int):
+        rows = [dict(r) for r in rows_at(tick)]
+        if rows and dp._PLACE_NAME in rows[0]:
+            rows[0][dp._LIFE_STATE] = None
+        return rows
+
+    fake._rows_at = only_life_state_missing  # type: ignore[method-assign]
+    with pytest.raises(ParseError) as exc:
+        parse_ticks_table(fake, tmp_path, sample_seconds=(6.0,))
+    assert dp._LIFE_STATE in str(exc.value)
+    assert "Elossaolo on pakollinen havainto" in str(exc.value)
+
+
+def test_a_pawnless_row_is_counted_from_both_read_paths(tmp_path: Path) -> None:
+    """Laskuri näkee sekä näytepisteiden että heittojen tickit.
+
+    Näytepistepropit luetaan **kahdella eri kutsulla**: asetelman tickeiltä
+    ja utilityn heittotickeiltä. Ilman jälkimmäistä kaksi kolmasosaa
+    laskurista voisi lakata toimimasta hiljaa -- ja se on juuri se laskuri,
+    joka on olemassa tekemässä hiljaisesta pudotuksesta näkyvän. Mitatussa
+    ``anubis_vs_RCAVE_VETERANS``-demossa 15:stä rivistä kymmenen tulee
+    heittotickeiltä.
+
+    Kierros heittää kaksi kranaattia (siirtymät 100 ja 200) ja sen ainoa
+    näytepiste on 6,0 s eli tick 384, joten luettavia tickejä on kolme.
+    Pawniton pelaaja **ei ole heittäjä**, jolloin hänen rivinsä ohitetaan
+    jokaiselta kolmelta.
+    """
+    rounds = utility_match(played=1)
+    ghost = rounds[0].a_players[1]
+    assert ghost not in {throw[1] for throw in rounds[0].grenades}
+    rounds[0].sample_pawnless = (ghost,)
+
+    adapter = parse_adapter(build(rounds), tmp_path, sample_seconds=(6.0,))
+
+    assert adapter.diagnostics is not None
+    # Yksi näytepistetick + kaksi heittotickiä, yksi pawniton pelaaja.
+    assert adapter.diagnostics.sample_rows_without_pawn == 3
+    # Heittäjillä on pawn, joten heiton alue luettiin molemmilta.
+    assert adapter.diagnostics.grenade_throwers_without_row == 0
+
+
+def test_a_tick_read_by_both_paths_is_counted_once(tmp_path: Path) -> None:
+    """Sama fyysinen rivi ei saa tulla lasketuksi kahdesti.
+
+    Kierroksen alussa heitetty savu voi lähteä **samalta tickiltä** kuin
+    näytepiste. Molemmat lukupolut lukevat tickin itsenäisesti, joten suora
+    summa tekisi luvusta "rivilukemia" eikä "rivejä".
+    """
+    rounds = long_match(played=1)
+    ghost = rounds[0].a_players[1]
+    rounds[0].sample_pawnless = (ghost,)
+    # 6,0 s x 64 tickiä = 384: heitto lähtee tasan näytepisteen tickiltä.
+    rounds[0].grenades = [
+        (1, rounds[0].a_players[0], "CSmokeGrenadeProjectile", 384, 60)
+    ]
+
+    adapter = parse_adapter(build(rounds), tmp_path, sample_seconds=(6.0,))
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.sample_rows_without_pawn == 1
+
+
+def test_a_pawnless_thrower_leaves_its_throw_without_an_area_and_says_so(
+    tmp_path: Path,
+) -> None:
+    """Ohitus loi uuden pudotuksen, ja sillä on oltava syy.
+
+    Heiton alue on heittäjän oma ``m_szLastPlaceName`` samalta tickiltä.
+    Kun heittäjän rivi ohitetaan pawnittomana, aluetta ei ole eikä sitä voi
+    korvata -- pistepilvi nimeää räjähdyksiä, ei heittoja. Ennen Story
+    2.10:tä tämä kaatoi ajon; ilman omaa laskuriaan se valuisi nyt hiljaa
+    ``utility_without_area``-lukuun.
+    """
+    rounds = utility_match(played=1)
+    thrower = rounds[0].grenades[0][1]
+    rounds[0].sample_pawnless = (thrower,)
+
+    adapter = parse_adapter(build(rounds), tmp_path, sample_seconds=(6.0,))
+    events = parse_events_table(build(rounds), tmp_path, sample_seconds=(6.0,))
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenade_throwers_without_row == 1
+    throw = events.filter(
+        (pl.col("event_kind") == "grenade_thrown")
+        & (pl.col("thrower_id") == thrower)
+    )
+    assert throw.height == 1
+    assert throw["area"].to_list() == [None]
+    assert throw["area_source"].to_list() == [None]
+
+
+def test_a_wholly_pawnless_throw_tick_is_not_counted_as_a_fault(
+    tmp_path: Path,
+) -> None:
+    """Sama ilmiö ei saa olla toisella polulla havainto ja toisella vika.
+
+    ``grenade_ticks_without_players`` on dokumentoitu vikalaskuriksi:
+    heittäjän omaa aluetta ei voitu edes yrittää lukea. Kokonaan pawniton
+    tick ei ole sitä -- demo palautti rivit, eikä kukaan vain ollut kartalla
+    -- ja se on jo laskettu pawnittomiin riveihin.
+    """
+    rounds = utility_match(played=2)
+    rounds[0].sample_pawnless = tuple(rounds[0].a_players + rounds[0].b_players)
+
+    adapter = parse_adapter(build(rounds), tmp_path, sample_seconds=(6.0,))
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.grenade_ticks_without_players == 0
+    # Heittäjätkin olivat pawnittomia, joten kummankin heiton alue jäi
+    # lukematta -- se on eri asia ja sillä on oma lukunsa.
+    assert adapter.diagnostics.grenade_throwers_without_row == 2
+
+
+def test_a_pawnless_player_does_not_drop_the_round_from_the_sample(
+    tmp_path: Path,
+) -> None:
+    """Kierros pysyy otannassa; vain sen pelaajamäärä pienenee.
+
+    Vajaa näytepiste on **seuraus** pawnittomasta rivistä, ja molemmat luvut
+    kerrotaan: ilman kytkentää lukija ei näkisi, mikä pisteen vajaaksi teki.
+    """
+    rounds = long_match(played=2)
+    rounds[0].sample_pawnless = (rounds[0].a_players[0],)
+
+    adapter = parse_adapter(build(rounds), tmp_path, sample_seconds=(6.0,))
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
+
+    assert ticks.filter(pl.col("round_raw") == 1).height == 9
+    assert ticks.filter(pl.col("round_raw") == 2).height == 10
+    assert adapter.diagnostics is not None
+    # Vajaita pisteitä on tasan yksi: kierroksen 1 ainoa näytepiste.
+    assert adapter.diagnostics.partial_samples == 1
+    assert adapter.diagnostics.sample_rows_without_pawn == 1
+    # Piste ei jäänyt väliin, se vain kutistui.
+    assert adapter.diagnostics.sample_points_without_pawn == 0
+
+
+def test_a_spectator_is_not_counted_as_a_pawnless_row(tmp_path: Path) -> None:
+    """Katsoja ohitetaan kuten ennen, mutta **eri syynä**.
+
+    Katsojaltakin puuttuu pawn, mutta häneltä puuttuu myös kontrollerin
+    joukkue. Yhteen laskettuina luvut eivät erottaisi kesken ottelua
+    irronnutta pelaajaa katsojasta, joka ei koskaan ollut pelissä.
+    """
+    fake = build(long_match(played=1))
+    rows_at = fake._rows_at
+
+    def with_a_spectator(tick: int):
+        rows = [dict(r) for r in rows_at(tick)]
+        if rows and dp._PLACE_NAME in rows[0]:
+            row = {"tick": tick, "steamid": "katsoja", "name": "katsoja"}
+            row[dp._TEAM_NUM] = None
+            for name in dp.SAMPLE_PAWN_PROPS:
+                row[name] = None
+            rows.append(row)
+        return rows
+
+    fake._rows_at = with_a_spectator  # type: ignore[method-assign]
+    adapter = parse_adapter(fake, tmp_path, sample_seconds=(6.0,))
+
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.sample_rows_without_pawn == 0
+
+
+def test_a_fully_pawnless_sample_point_does_not_stop_the_run(
+    tmp_path: Path,
+) -> None:
+    """I/O-matriisi: koko kierros pawniton -> merkitään, ei kaadeta ajoa.
+
+    Tyhjä näytepiste on muuten **vika**: se laskettaisiin mukaan lukuihin
+    mutta puuttuisi taulusta. Pawnittomuus on eri asia -- demo palautti
+    rivit, eikä kukaan vain ollut kartalla -- ja pudonneella pisteellä on
+    oma lukunsa.
+
+    Piste ei ole **vajaa** vaan poissa: vajaiden joukkoon niputettuna
+    kokonaan puuttuva piste näyttäisi lievemmältä kuin on.
+    """
+    rounds = long_match(played=2)
+    rounds[0].sample_pawnless = tuple(rounds[0].a_players + rounds[0].b_players)
+
+    ticks = parse_ticks_table(build(rounds), tmp_path, sample_seconds=(6.0,))
+    assert ticks.filter(pl.col("round_raw") == 1).is_empty()
+    assert ticks.filter(pl.col("round_raw") == 2).height == 10
+
+    adapter = parse_adapter(build(rounds), tmp_path, sample_seconds=(6.0,))
+    assert adapter.diagnostics is not None
+    assert adapter.diagnostics.sample_rows_without_pawn == 10
+    assert adapter.diagnostics.sample_points_without_pawn == 1
+    assert adapter.diagnostics.partial_samples == 0
+
+
+def test_a_tick_that_lost_rows_for_another_reason_is_still_a_hard_error(
+    tmp_path: Path,
+) -> None:
+    """Yksikin pawniton rivi ei saa vaimentaa kovaa virhettä.
+
+    Ohitus laukeaa vain kun pawnittomuus selittää tyhjän tickin
+    **kokonaan**. Tick, jolta yhdeksän riviä katosi katsojina ja yksi
+    pawnittomana, on yhä vika -- ja ilman ehtoa se ohitettaisiin sattuman
+    perusteella sen mukaan, sattuiko joukossa olemaan pawniton rivi.
+    """
+    rounds = long_match(played=1)
+    players = rounds[0].a_players + rounds[0].b_players
+    fake = pawnless_at(
+        build(rounds), pawnless=(players[0],), spectators=tuple(players[1:])
+    )
+
+    with pytest.raises(ParseError) as exc:
+        parse_ticks_table(fake, tmp_path, sample_seconds=(6.0,))
+    assert "ei saatu" in str(exc.value)
 
 
 @pytest.mark.parametrize(

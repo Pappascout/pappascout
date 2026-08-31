@@ -2396,6 +2396,99 @@ def test_the_knife_round_is_not_counted_in_the_buy_window_numbers(
     assert stats["buy_window_cuts_unchecked"] == 1
 
 
+def test_run_reports_the_pawnless_rows(parse_settings, archive, demo) -> None:
+    """Story 2.10: pawnittomat luvut kulkevat diagnostiikasta lukuihin.
+
+    Riviä ei ole taulussa eikä pudonnutta pistettä sen näytepisteissä, joten
+    kumpaakaan **ei voi laskea valmiista tuloksesta**. Ilman tätä yhtä
+    siirtoa tuottaja ja kuluttaja testattaisiin vain erikseen: adapteri
+    laskee ohitukset ja tuloste osaa muotoilla ne, mutta väliltä puuttuisi se
+    rivi, joka vie luvun perille -- ja puuttuva pelaaja näyttäisi
+    kierrokselta, jolla joukkue vain pelasi vajaalla.
+    """
+    parser = FakeParser(build_rounds(played=3))
+    parser.diagnostics = ParseDiagnostics(
+        tick_rate=64.0,
+        tick_rate_measured=True,
+        rounds_seen=3,
+        sample_rows_without_pawn=2,
+        sample_points_without_pawn=1,
+        grenade_throwers_without_row=3,
+    )
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.stats["sample_rows_without_pawn"] == 2
+    assert result.stats["sample_points_without_pawn"] == 1
+    assert result.stats["grenade_throwers_without_row"] == 3
+
+
+def test_a_port_that_never_saw_a_pawnless_row_reports_zero(
+    parse_settings, archive, demo
+) -> None:
+    """Nolla on tuoreen ajon rehellinen tulos, ja se sanotaan ääneen.
+
+    Tuloste jättää rivin pois nollalla, joten avaimen olemassaolo on ainoa
+    ero "ei yhtään ohitusta" ja "ohituksia ei laskettu" välillä.
+    """
+    parser = FakeParser(build_rounds(played=3))
+    parser.diagnostics = ParseDiagnostics(
+        tick_rate=64.0, tick_rate_measured=True, rounds_seen=3
+    )
+
+    result = run_parse(parse_settings, archive, parser, demo)
+
+    assert result.stats["sample_rows_without_pawn"] == 0
+    assert result.stats["sample_points_without_pawn"] == 0
+    assert result.stats["grenade_throwers_without_row"] == 0
+
+
+def test_a_port_without_pawnless_diagnostics_claims_nothing(
+    parse_settings, archive, demo
+) -> None:
+    """Portti, joka ei kerro pawnittomista, ei saa tuottaa nollaa.
+
+    Nolla olisi väite puhtaasta asetelmasta -- täsmälleen se valhe, jonka
+    koko laskuri on olemassa poistamaan.
+    """
+
+    class _Silent(FakeParser):
+        diagnostics = None
+
+    result = run_parse(parse_settings, archive, _Silent(), demo)
+
+    assert result.stats["sample_rows_without_pawn"] is None
+    assert result.stats["sample_points_without_pawn"] is None
+    assert result.stats["grenade_throwers_without_row"] is None
+
+
+def test_an_empty_tick_table_names_the_pawnless_reason(
+    parse_settings, archive, demo
+) -> None:
+    """Tyhjä asetelmataulu ei saa syyttää asetuksia, kun syy on luettu demosta.
+
+    Jos jokainen näytepiste jäi väliin pawnittomuuden takia,
+    ``[parse].snapshot_seconds``issa ja freezetime-ankkureissa ei ole mitään
+    vikaa -- eikä niitä pidä käskeä tarkistamaan.
+    """
+    empty = pl.DataFrame(schema=dict(TICKS_ADAPTER_SCHEMA))
+    parser = FakeParser(build_rounds(played=3, warmup=0), ticks=empty)
+    parser.diagnostics = ParseDiagnostics(
+        tick_rate=64.0,
+        tick_rate_measured=True,
+        rounds_seen=3,
+        sample_rows_without_pawn=30,
+        sample_points_without_pawn=12,
+    )
+
+    with pytest.raises(ParseError) as exc:
+        run_parse(parse_settings, archive, parser, demo)
+
+    message = str(exc.value)
+    assert "12 näytepistettä jäi kokonaan väliin" in message
+    assert "snapshot_seconds" not in message.split("Syy on luettu demosta:")[0]
+
+
 def test_the_measurement_offsets_come_from_the_written_table(
     parse_settings, archive, demo
 ) -> None:

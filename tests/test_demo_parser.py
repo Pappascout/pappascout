@@ -29,6 +29,11 @@ from conftest import (
     LEAGUE_DEMOS,
     NUKE_ROUNDS,
     NUKE_ZST,
+    PAWNLESS_DEMO,
+    PAWNLESS_DEMO_FILE,
+    PAWNLESS_DEMO_POINTS,
+    PAWNLESS_DEMO_ROUNDS,
+    PAWNLESS_DEMO_ROWS,
     REAL_SETTINGS,
     require_demo,
 )
@@ -1520,6 +1525,90 @@ def parsed_demo(demo_name: str):
     adapter = real_parser()
     tables = adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
     return tables, adapter.diagnostics
+
+
+# --- Pawniton pelaaja oikeasta demosta (Story 2.10) ----------------------------
+
+
+@pytest.mark.demo
+def test_the_pawnless_demo_is_the_file_the_numbers_were_measured_from() -> None:
+    """Koko ja tiiviste erottavat väärän kopion puuttuvasta.
+
+    Alla olevat luvut (15 riviä, 22 kierrosta) koskevat **tätä tiedostoa**.
+    Toisesta kopiosta mitattuna ne eivät todistaisi mitään.
+    """
+    path = require_demo(PAWNLESS_DEMO)
+    size, digest = PAWNLESS_DEMO_FILE
+    assert path.stat().st_size == size, "vikademon koko ei täsmää"
+
+    reader = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            reader.update(chunk)
+    assert reader.hexdigest() == digest, "vikademon tiiviste ei täsmää"
+
+
+@pytest.mark.demo
+def test_the_demo_that_broke_the_guard_parses_and_counts_its_skipped_rows() -> None:
+    """Regressiosuoja vialle, jonka takia koko Story 2.10 kirjoitettiin.
+
+    Ennen korjausta tämä demo nosti ``ParseError``in tickistä 119132 eikä
+    tuottanut yhtään taulua. Nyt se parsiutuu, ja **ohitetut rivit ovat
+    luettavissa lukuna** eivätkä vain poissa taulusta.
+
+    Kolme väitettä eikä yksi: parsiutuminen todistaa korjauksen, kierrosmäärä
+    todistaa ettei mitään kadonnut sen mukana, ja rivimäärä todistaa ettei
+    ohitus ole löysentynyt eikä laskuri lakannut näkemästä kumpaakaan
+    lukupolkuaan.
+    """
+    tables, diagnostics = parsed_demo(PAWNLESS_DEMO)
+
+    played = mark_played_rounds(tables.rounds).filter(pl.col("round_no").is_not_null())
+    assert played["round_no"].n_unique() == PAWNLESS_DEMO_ROUNDS
+    assert not tables.ticks.is_empty()
+
+    assert diagnostics is not None
+    assert diagnostics.sample_rows_without_pawn == PAWNLESS_DEMO_ROWS
+    assert diagnostics.sample_points_without_pawn == PAWNLESS_DEMO_POINTS
+    # Pawniton pelaaja ei heittänyt mitään, joten heiton alue ei jäänyt
+    # kertaakaan lukematta. Nollasta poikkeava luku tarkoittaisi, että
+    # ohitus on alkanut niellä heittäjien omia rivejä.
+    assert diagnostics.grenade_throwers_without_row == 0
+
+
+@pytest.mark.demo
+def test_the_pawnless_round_keeps_its_place_in_the_sample() -> None:
+    """Pawniton pelaaja pienentää kierroksen asetelmaa muttei pudota sitä.
+
+    Kierros 19 on koko demon pienin: CT-puolella neljä pelaajaa viidestä
+    jokaisella näytepisteellä. Se on yhä otannassa, ja neljä on selvästi yli
+    sen rajan, jolla kyse olisi rikkinäisestä demosta eikä yhdestä
+    irronneesta pelaajasta.
+    """
+    tables, _ = parsed_demo(PAWNLESS_DEMO)
+    ticks = tables.ticks
+
+    per_side = ticks.group_by("round_raw", "sample_kind", "sample_t_s", "side").len()
+    assert per_side["len"].min() == 4
+    # Jokainen kierros, jolla on rivejä, on mukana kaikilla näytepisteillään.
+    assert ticks.filter(pl.col("round_raw") == 19).height > 0
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", ALL_DEMOS)
+def test_a_healthy_demo_has_no_pawnless_rows(demo_name: str) -> None:
+    """Nolla on normaali tulos, ja se on mitattava eikä oletettava.
+
+    Ilman tätä väitettä ohituksen löysentyminen -- esimerkiksi laukeaminen
+    pelkästä puuttuvasta elossaolosta -- näyttäisi terveessä demossa
+    täsmälleen samalta kuin ehjä sääntö. Vikademon oma luku ei sitä paljasta:
+    siellä ohituksen *kuuluu* laueta.
+    """
+    _, diagnostics = parsed_demo(demo_name)
+    assert diagnostics is not None
+    assert diagnostics.sample_rows_without_pawn == 0
+    assert diagnostics.sample_points_without_pawn == 0
+    assert diagnostics.grenade_throwers_without_row == 0
 
 
 @pytest.mark.demo

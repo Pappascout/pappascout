@@ -343,6 +343,26 @@ kalibroituna pistepilveä varten uudelleen.
 Räjähdyksen tickeiltä **ei enää lueta pelaajia**: alue tulee pilvestä, ei
 hetkestä. Heiton tickit luetaan yhä, koska heittäjän oma alue on havainto.
 
+Kontrolleri ja pawn ovat eri entiteettejä
+-----------------------------------------
+CS2:ssa pelaajalla on kaksi entiteettiä. **Kontrolleri**
+(``CCSPlayerController``) edustaa pelaajaa -- nimi, joukkue, raha, pisteet --
+ja säilyy koko ottelun. **Pawn** (``CCSPlayerPawn``) on hänen fyysinen
+hahmonsa kartalla -- elossaolo, alue, koordinaatit, varustearvo, panssari --
+ja se katoaa, kun pelaaja ei ole pelissä. Propin etuliite kertoo kummasta on
+kyse, ja se on luettava jokaisesta tarkistuksesta: kontrollerin kentän
+löytyminen **ei** todista, että pelaaja on kartalla.
+
+**Mitattu 2026-08-31, ``anubis_vs_RCAVE_VETERANS``** (kierros 19, pelaaja
+``egerrrrr`` / 76561199635619622): kontrollerin ``m_iTeamNum`` on 3, mutta
+jokainen pawn-kenttä on tyhjä samoilla tickeillä -- ``m_lifeState``,
+``m_szLastPlaceName`` ja ``X``/``Y``/``Z``. Pawnittomia rivejä on **15**
+(viisi näytepisteiden tickeiltä, kymmenen heittojen tickeiltä); arkiston
+seitsemässä muussa demossa niitä on nolla. Näiden rivien ohittaminen on
+:meth:`Demoparser2Adapter._read_sample_ticks`in työtä, ja ohitus vaatii
+**kaikkien** pawn-kenttien puuttumisen -- yksi puuttuva kenttä on kirjaston
+muutos eikä pelaajan tila.
+
 Muistinkäyttö
 -------------
 Demoa ei ladata muistiin kokonaan. ``parse_ticks`` kutsutaan **vain
@@ -434,6 +454,7 @@ __all__ = [
     "TEAM_SIDES",
     "TICK_PROPS",
     "SAMPLE_TICK_PROPS",
+    "SAMPLE_PAWN_PROPS",
     "CLOUD_TICK_PROPS",
     "DAMAGE_COLUMNS",
     "DEATH_PLAYER_PROPS",
@@ -519,8 +540,29 @@ TICK_PROPS: tuple[str, ...] = (
 #: Propit, jotka luetaan näytepisteiden tickeistä. Lyhyempi lista kuin
 #: kierrosrajoilla: asetelmasta tarvitaan vain paikka, puoli ja elossaolo --
 #: talousarvot ovat kierroksen ominaisuus, eivät hetken.
+#:
+#: **Yksi näistä on kontrollerin kenttä ja neljä pawnin.** ``m_iTeamNum``
+#: tulee ``CCSPlayerController``ilta ja on tallella myös pelaajalla, jolla ei
+#: ole hahmoa kartalla; loput neljä ovat ``CCSPlayerPawn``in kenttiä ja
+#: katoavat hänen mukanaan. Ero on tämän moduulin dokumentaatiossa mitattuna,
+#: ja se on syy siihen, miksi
+#: :meth:`Demoparser2Adapter._read_sample_ticks` katsoo neljää kenttää eikä
+#: yhtä.
 SAMPLE_TICK_PROPS: tuple[str, ...] = (
     _TEAM_NUM,
+    _LIFE_STATE,
+    _PLACE_NAME,
+    _X,
+    _Y,
+    _Z,
+)
+
+#: :data:`SAMPLE_TICK_PROPS`in **pawn-kentät**, eli ne, jotka katoavat kun
+#: pelaajalla ei ole hahmoa kartalla. Luettelo on oma vakionsa, koska
+#: pawnittoman rivin ohitus vaatii, että jokainen näistä on tyhjä -- uusi
+#: pawn-prop on lisättävä tähän, tai ohitus löysenisi hiljaa yhden kentän
+#: verran.
+SAMPLE_PAWN_PROPS: tuple[str, ...] = (
     _LIFE_STATE,
     _PLACE_NAME,
     _X,
@@ -753,6 +795,28 @@ class _Segment:
 
 
 @dataclass(frozen=True)
+class _SampleTickCounts:
+    """Yhden näytepistetickin rivilaskurit.
+
+    Kaksi lukua eikä yksi, koska ohitus ei saa perustua pelkkään
+    pawnittomien määrään. Tick, jolta ei saatu yhtään käyttökelpoista riviä,
+    on **havainto** vain silloin kun pawnittomuus selittää sen kokonaan --
+    jos rivejä katosi myös muusta syystä (katsoja, tuntematon puoli),
+    kyseessä on vika, ja se on nostettava. Ilman ``seen``iä yksikin pawniton
+    rivi vaimentaisi kovan virheen sattuman perusteella.
+
+    Attributes:
+        seen: Rivit, jotka demoparser2 palautti tältä tickiltä. Kaikki
+            rivit, myös ohitetut.
+        without_pawn: Näistä ne, joilla kontrolleri oli tallella mutta
+            jokainen pawn-kenttä tyhjä.
+    """
+
+    seen: int = 0
+    without_pawn: int = 0
+
+
+@dataclass(frozen=True)
 class _UtilityCounts:
     """Kranaatit, jotka eivät päätyneet tauluun sellaisenaan -- ja syy.
 
@@ -790,6 +854,17 @@ class _UtilityCounts:
             sisältää myös lämmittelyn ja puukkokierroksen. Luku on
             lentoratoja eikä pareja: kolme rataa yhdellä tunnisteella on 3.
             Havainto eikä vika, koska taulun avain on ``grenade_no``.
+        throwers_without_row: Heitot, joiden **heittäjää ei ollut heiton
+            tickin riveissä**. Alue jää silloin tyhjäksi, koska havaintoa ei
+            korvata arviolla -- eikä pistepilvi auta: heiton alue on
+            heittäjän oma ``m_szLastPlaceName``.
+
+            **Vika eikä havainto**, ja uusi Story 2.10:n jäljiltä: ennen
+            pawnittoman rivin ohitusta tämä tapaus kaatoi ajon
+            elossaolovartijaan. Nyt rivi ohitetaan hiljaa, joten heitto voi
+            valua ``utility_without_area``-lukuun ilman syytä. Tämä luku on
+            se syy. Odotusarvo on nolla: heittäjällä on määritelmän mukaan
+            pawn sillä hetkellä kun hän heittää.
     """
 
     without_thrower: int = 0
@@ -800,6 +875,7 @@ class _UtilityCounts:
     detonating_after_round: int = 0
     ticks_without_players: int = 0
     sharing_an_entity_id: int = 0
+    throwers_without_row: int = 0
 
 
 @dataclass(frozen=True)
@@ -1098,13 +1174,15 @@ class Demoparser2Adapter:
             sample_seconds,
             deaths,
         )
-        ticks, partial = self._build_ticks_frame(
-            points, parser, original_path, segments, sides, lineup_keys
+        ticks, partial, sample_tick_counts, points_without_pawn = (
+            self._build_ticks_frame(
+                points, parser, original_path, segments, sides, lineup_keys
+            )
         )
         # Pistepilvi ennen tapahtumataulua: se on räjähdysalueiden lähde,
         # joten se on oltava kädessä ennen kuin yhtäkään aluetta nimetään.
         callouts, cloud_counts = self._build_callout_cloud(parser, original_path)
-        events, utility = self._build_events_frame(
+        events, utility, throw_tick_counts = self._build_events_frame(
             parser,
             original_path,
             segments,
@@ -1136,6 +1214,11 @@ class Demoparser2Adapter:
             rounds_seen=len(segments),
             match_restarts=sum(1 for s in segments if s.round_raw is None),
             partial_samples=partial,
+            sample_rows_without_pawn=_pawnless_rows(
+                sample_tick_counts, throw_tick_counts
+            ),
+            sample_points_without_pawn=points_without_pawn,
+            grenade_throwers_without_row=utility.throwers_without_row,
             unknown_side_events=unknown_sides,
             grenades_without_thrower=utility.without_thrower,
             grenades_outside_rounds=utility.outside_rounds,
@@ -1509,6 +1592,29 @@ class Demoparser2Adapter:
                     "equip_current": _as_int(row.get(_EQUIP_CURRENT)),
                     "armor_value": _as_int(row.get(_ARMOR_VALUE)),
                     "inventory": _as_inventory(row.get(_INVENTORY)),
+                    # Puuttuva elossaolo muuttuu tässä arvoksi False, ja se
+                    # on **tarkoituksellista** -- toisin kuin näytepisteillä,
+                    # joilla sama muunnos on kielletty. Kaksi syytä, ja
+                    # molemmat on mitattu:
+                    #
+                    # 1. Pawniton pelaaja EI OLE elossa. Hän ei ole kartalla,
+                    #    joten False on oikea vastaus molempiin lukuihin,
+                    #    jotka tätä käyttävät (``survivors`` ja
+                    #    ``survivors_equip_prev``). Näytepisteillä sama arvo
+                    #    olisi väärä, koska siellä rivin olemassaolo on itse
+                    #    väite pelaajan olemisesta asetelmassa.
+                    # 2. Rivi ei silti valu talouslukuihin: _BUY_END_PROPS
+                    #    sisältää kaksi PAWNIN kenttää
+                    #    (``m_unCurrentEquipmentValue``,
+                    #    ``m_unRoundStartEquipmentValue``), joten _readable
+                    #    pudottaa pawnittoman rivin sekä summista että niiden
+                    #    jakajasta ennen kuin elossaololla on väliä. Mitattu
+                    #    2026-08-31 anubis_vs_RCAVE_VETERANS kierros 19:
+                    #    players_buy_end on 4 kun naapurikierroksilla 5.
+                    #
+                    # Kirjaston nimenmuutos ei pääse tästä läpi hiljaa:
+                    # _read_sample_ticks lukee saman propin ja kaataa koko
+                    # ajon ennen kuin yhtäkään taulua kirjoitetaan.
                     "alive": _as_int(row.get(_LIFE_STATE)) == _ALIVE,
                     "team_score": _as_int(row.get(_TEAM_SCORE)),
                     "round_start_time": _as_float(row.get(_ROUND_START_TIME)),
@@ -2332,7 +2438,7 @@ class Demoparser2Adapter:
         segments: list[_Segment],
         sides: list[tuple[str, str]],
         lineup_keys: list[str],
-    ) -> tuple[pl.DataFrame, int]:
+    ) -> tuple[pl.DataFrame, int, dict[int, _SampleTickCounts], int]:
         """Lue pelaajien sijainnit näytepisteiden tickeiltä ja rakenna taulu.
 
         Rivi syntyy **jokaisesta** pelaajasta, myös kuolleesta: kuolleiden
@@ -2341,16 +2447,28 @@ class Demoparser2Adapter:
         pudoteta hiljaa.
 
         Returns:
-            ``(taulu, vajaiden näytepisteiden määrä)``. Vajaa näytepiste on
-            sellainen, jolta saatiin vähemmän pelaajia kuin demon parhaalta
-            pisteeltä. Luku raportoidaan, koska systemaattinen propivika
-            näkyisi muuten vasta vinoutuneina aggregaatteina.
+            ``(taulu, vajaiden näytepisteiden määrä, tickikohtaiset
+            rivilaskurit, kokonaan väliin jääneiden näytepisteiden määrä)``.
+
+            **Vajaa näytepiste** on sellainen, jolta saatiin vähemmän pelaajia
+            kuin demon parhaalta pisteeltä. Luku raportoidaan, koska
+            systemaattinen propivika näkyisi muuten vasta vinoutuneina
+            aggregaatteina. Pawniton rivi on **yksi syy siihen**, että
+            näytepiste jää vajaaksi, ja juuri siksi molemmat luvut kerrotaan.
+
+            **Kokonaan väliin jäänyt** näytepiste on eri asia eikä sisälly
+            vajaisiin: siltä ei tullut riviäkään, koska jokainen rivi oli
+            pawniton. Se on vakavampi kuin vajaa piste, joten se ei saa
+            kadota vajaiden joukkoon -- eikä myöskään jäädä laskematta.
         """
         if not points:
-            return self._typed_ticks_frame([]), 0
+            return self._typed_ticks_frame([]), 0, {}, 0
 
         wanted = sorted({p.tick for p in points})
-        by_tick = self._read_sample_ticks(parser, wanted, original_path)
+        by_tick, tick_counts = self._read_sample_ticks(
+            parser, wanted, original_path
+        )
+        points_without_pawn = 0
         # sides on segmenttien järjestyksessä, mutta näytepiste tuntee vain
         # round_raw-arvon, joten kuvaus tarvitaan takaisin segmentti-indeksiin.
         index_by_raw = {
@@ -2378,6 +2496,24 @@ class Demoparser2Adapter:
                 )
                 keys_per_round[segment_index] = side_keys
             tick_rows = by_tick.get(point.tick, ())
+            counts = tick_counts.get(point.tick, _SampleTickCounts())
+            if (
+                not tick_rows
+                and counts.without_pawn
+                and counts.without_pawn == counts.seen
+            ):
+                # Koko näytepiste pawniton: jokainen rivi oli olemassa mutta
+                # kenelläkään ei ollut hahmoa kartalla. Se ei ole vika vaan
+                # havainto -- demo ei palauttanut tyhjää, vaan pelaajia ei
+                # ollut. Ajoa ei kaadeta; piste jää väliin ja sekä rivit että
+                # piste itse näkyvät omissa laskureissaan.
+                #
+                # Ehto vaatii että pawnittomuus selittää tickin **kokonaan**.
+                # Pelkkä "yksikin pawniton rivi" vaimentaisi kovan virheen
+                # sattuman perusteella: tick, jolta yhdeksän riviä katosi
+                # katsojina ja yksi pawnittomana, on yhä vika.
+                points_without_pawn += 1
+                continue
             if not tick_rows:
                 raise ParseError(
                     f"Demon {original_path.name} naytepisteeltä "
@@ -2414,14 +2550,61 @@ class Demoparser2Adapter:
         # tähän vaiheeseen (AD-3), joten roster_size'a ei voi käyttää.
         full_count = max(players_per_point, default=0)
         partial = sum(1 for count in players_per_point if count < full_count)
-        return self._typed_ticks_frame(rows), partial
+        return (
+            self._typed_ticks_frame(rows),
+            partial,
+            tick_counts,
+            points_without_pawn,
+        )
 
     def _read_sample_ticks(
         self, parser: Any, ticks: list[int], original_path: Path
-    ) -> dict[int, list[dict[str, Any]]]:
-        """Lue sijaintipropit annetuilta tickeiltä ja ryhmittele tickin mukaan."""
+    ) -> tuple[dict[int, list[dict[str, Any]]], dict[int, _SampleTickCounts]]:
+        """Lue sijaintipropit annetuilta tickeiltä ja ryhmittele tickin mukaan.
+
+        **Pawniton pelaaja ei ole kierroksen osapuoli.** Kontrollerin ja
+        pawnin ero on moduulin dokumentaatiossa mitattuna. Rivi, jolla
+        kontrolleri on tallella mutta **jokainen** :data:`SAMPLE_PAWN_PROPS`in
+        kenttä on tyhjä, kertoo pelaajasta jota ei ole kartalla -- hänen
+        rivinsä ohitetaan kuten katsojan, omaan laskuriinsa merkittynä.
+
+        Ohitus vaatii **kaikkien** pawn-kenttien puuttumisen eikä pelkän
+        elossaolon: jos se laukeaisi pelkästä tyhjästä ``m_lifeState``ista,
+        se söisi juuri sen vian, jota vastaan alla oleva vartija on olemassa.
+        demoparser2:n päivitys, joka nimeäisi kentän uudelleen, tuottaisi
+        tyhjän arvon jokaiselle riville, jokainen rivi ohitettaisiin, ja
+        asetelma tyhjenisi äänettömästi. Kaikkien kenttien vaatiminen erottaa
+        "pelaajaa ei ole" tilanteesta "kentän nimi vaihtui".
+
+        **Vartija itse pysyy paikallaan pawnilliselle riville**, ja
+        alkuperäisin sanoin: ``is_alive`` ei ole nullable, joten puuttuva
+        arvo muuttuisi hiljaa arvoksi ``False`` ja elossa oleva pelaaja
+        katoaisi aggregoinnista. Tuntematon alue saa jäädä nulliksi, mutta
+        tämä ei voi.
+
+        **Ohitus lepää oletuksella, että puuttuva pawn-kenttä tulee
+        tyhjänä.** demoparser2 antaa puuttuvan arvon ``None``:na tai
+        ``NaN``:ina, ja molemmat päätyvät ``None``:ksi ``_as_*``-muuntimissa;
+        tyhjä ``m_szLastPlaceName`` on jo valmiiksi ``None``. Jos kirjasto
+        joskus palauttaa pawnittomalle pelaajalle nollakoordinaatit tai
+        nollan elossaolona, ohitus **ei laukea** ja alla oleva vartija kaataa
+        ajon kuten ennen Story 2.10:tä. Se on tarkoituksellinen suunta: luku
+        nolla on havainto siinä missä mikä tahansa muukin, eikä sitä saa
+        tulkita puuttumiseksi.
+
+        Returns:
+            ``(tickeittäin ryhmitellyt rivit, :class:`_SampleTickCounts`
+            tickeittäin)``.
+
+            Jälkimmäinen on **tickeittäin eikä yhtenä summana**, koska kutsuja
+            tarvitsee sen kolmeen eri asiaan: kokonaisluku menee
+            diagnostiikkaan, tickikohtainen erottaa tyhjän tickin kahdesta eri
+            syystä ("demo ei palauttanut mitään" vs. "jokainen rivi oli
+            pawniton"), ja sama tick voi tulla luetuksi kahdesti eri
+            kutsupolulta -- summattuna sama rivi laskettaisiin kahdesti.
+        """
         if not ticks:
-            return {}
+            return {}, {}
         try:
             frame = parser.parse_ticks(list(SAMPLE_TICK_PROPS), ticks=ticks)
         except Exception as exc:  # noqa: BLE001 - kirjaston oma virhetyyppi
@@ -2448,14 +2631,47 @@ class Demoparser2Adapter:
             )
 
         by_tick: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        seen: Counter[int] = Counter()
+        without_pawn: Counter[int] = Counter()
         for row in frame.to_dict("records"):
             steamid = _as_str(row.get("steamid"))
             side = TEAM_SIDES.get(_as_int(row.get(_TEAM_NUM)) or -1)
             tick = _as_int(row.get("tick"))
+            if tick is not None:
+                # Nähdyt rivit lasketaan **ennen** yhtäkään ohitusta: vain
+                # niitä vasten voi sanoa, selittikö pawnittomuus tyhjän
+                # tickin kokonaan.
+                seen[tick] += 1
             if steamid is None or side is None or tick is None:
                 # Katsojat ja liittymättömät eivät ole kierroksen osapuolia.
                 continue
             life_state = _as_int(row.get(_LIFE_STATE))
+            # Tyhjä aluenimi on pelin tapa sanoa "ei nimettyä aluetta".
+            # Se säilyy null:na; koordinaatit kertovat silti paikan.
+            area = _as_str(row.get(_PLACE_NAME))
+            x = _as_float(row.get(_X))
+            y = _as_float(row.get(_Y))
+            z = _as_float(row.get(_Z))
+            # "Kaikki pawn-kentät tyhjiä" luettuna :data:`SAMPLE_PAWN_PROPS`in
+            # kautta eikä käsin kirjoitettuna ketjuna. Uusi pawn-prop ilman
+            # arvoa tässä sanakirjassa on ``KeyError`` eikä hiljaa löysempi
+            # ohitus -- ja ``KeyError`` on oikea reaktio, koska ohituksen
+            # kattavuus on koko korjauksen ehto.
+            pawn_fields = {
+                _LIFE_STATE: life_state,
+                _PLACE_NAME: area,
+                _X: x,
+                _Y: y,
+                _Z: z,
+            }
+            if all(pawn_fields[name] is None for name in SAMPLE_PAWN_PROPS):
+                # Pawniton pelaaja: kontrolleri on tallella, mutta hahmoa ei
+                # ole kartalla. Hän ei ole tämän tickin osapuoli, joten rivi
+                # ohitetaan kuten katsojan -- ei arvata elossaoloa eikä
+                # sijaintia. Laskuri pitää pudotuksen näkyvissä: puuttuva
+                # pelaaja pienentää asetelmaa, ja lukijan on nähtävä se.
+                without_pawn[tick] += 1
+                continue
             if life_state is None:
                 # is_alive ei ole nullable, joten puuttuva arvo muuttuisi
                 # hiljaa arvoksi False ja elossa oleva pelaaja katoaisi
@@ -2472,16 +2688,17 @@ class Demoparser2Adapter:
                 {
                     "steamid": steamid,
                     "side": side,
-                    # Tyhjä aluenimi on pelin tapa sanoa "ei nimettyä aluetta".
-                    # Se säilyy null:na; koordinaatit kertovat silti paikan.
-                    "area": _as_str(row.get(_PLACE_NAME)),
-                    "x": _as_float(row.get(_X)),
-                    "y": _as_float(row.get(_Y)),
-                    "z": _as_float(row.get(_Z)),
+                    "area": area,
+                    "x": x,
+                    "y": y,
+                    "z": z,
                     "alive": life_state == _ALIVE,
                 }
             )
-        return dict(by_tick)
+        return dict(by_tick), {
+            tick: _SampleTickCounts(seen=count, without_pawn=without_pawn[tick])
+            for tick, count in seen.items()
+        }
 
     @staticmethod
     def _typed_ticks_frame(rows: list[dict[str, Any]]) -> pl.DataFrame:
@@ -2508,7 +2725,7 @@ class Demoparser2Adapter:
         by_tick: dict[int, list[dict[str, Any]]],
         tick_rate: float,
         cloud: pl.DataFrame,
-    ) -> tuple[pl.DataFrame, _UtilityCounts]:
+    ) -> tuple[pl.DataFrame, _UtilityCounts, dict[int, _SampleTickCounts]]:
         """Lue lentoradat ja rakenna niistä ``EVENTS``-muotoinen taulu.
 
         Järjestys on tarkoituksellinen: rata pelkistetään päätepisteiksi
@@ -2542,7 +2759,7 @@ class Demoparser2Adapter:
         """
         raw = self._read_grenades(parser, original_path)
         if raw.is_empty():
-            return self._typed_events_frame([]), _UtilityCounts()
+            return self._typed_events_frame([]), _UtilityCounts(), {}
 
         endpoints, without_thrower = self._endpoints(raw, tick_rate, original_path)
         if endpoints.is_empty():
@@ -2607,16 +2824,29 @@ class Demoparser2Adapter:
         # tarkoituksella ja kerran; tämä kutsu ei saa tehdä sitä vahingossa
         # toista kertaa. Tilanne syntyy, jos jokainen kranaatti putoaa
         # kierrosten ulkopuolisena tai tuntemattoman puolen takia.
-        positions = (
-            self._read_sample_ticks(parser, wanted, original_path) if wanted else {}
+        positions, throw_tick_counts = (
+            self._read_sample_ticks(parser, wanted, original_path)
+            if wanted
+            else ({}, {})
         )
-        empty_ticks = sum(1 for tick in wanted if not positions.get(tick))
+        # Tyhjä tick on **vika** vain silloin, kun pawnittomuus ei selitä
+        # sitä: silloin heittäjän omaa aluetta ei voitu edes yrittää lukea.
+        # Kokonaan pawniton tick on havainto samalla säännöllä kuin
+        # näytepisteillä, ja se on jo laskettu pawnittomien riveihin -- sama
+        # ilmiö ei saa olla toisella polulla vika ja toisella havainto.
+        empty_ticks = sum(
+            1
+            for tick in wanted
+            if not positions.get(tick)
+            and not _is_wholly_pawnless(throw_tick_counts.get(tick))
+        )
         # Räjähdysalueet kerralla: pilvi ei muutu rivien välillä, joten
         # jokaisen rivin oma haku tekisi saman työn uudelleen.
         detonation_areas = self._detonation_areas(selected, cloud)
 
         rows: list[dict[str, Any]] = []
         late_detonations = 0
+        throwers_without_row = 0
         for r in selected:
             segment = segments[r["_segment"]]
             freeze_end = segment.freeze_end_tick
@@ -2636,9 +2866,15 @@ class Demoparser2Adapter:
             if r["event_kind"] == DETONATE and r["tick"] > end_tick:
                 late_detonations += 1
             if r["event_kind"] == THROWN:
-                area, source, distance = self._throw_area(
+                area, source, distance, thrower_found = self._throw_area(
                     r, positions.get(r["tick"], ())
                 )
+                if not thrower_found:
+                    # Heittäjää ei ollut riveissä: alue jää tyhjäksi eikä
+                    # kukaan muu voi antaa sitä. Story 2.10:n jälkeen yksi
+                    # syy tähän on pawniton heittäjä, jonka rivi ohitetaan
+                    # -- ennen sitä tapaus kaatoi ajon.
+                    throwers_without_row += 1
             else:
                 area, distance = detonation_areas.get(r["grenade_no"], (None, None))
                 source = "point_cloud" if area is not None else None
@@ -2673,14 +2909,15 @@ class Demoparser2Adapter:
             detonating_after_round=late_detonations,
             ticks_without_players=empty_ticks,
             sharing_an_entity_id=_shared_entity_id_count(frame),
+            throwers_without_row=throwers_without_row,
         )
-        return frame, counts
+        return frame, counts, throw_tick_counts
 
     @staticmethod
     def _throw_area(
         row: dict[str, Any],
         tick_players: Sequence[dict[str, Any]],
-    ) -> tuple[str | None, str | None, float | None]:
+    ) -> tuple[str | None, str | None, float | None, bool]:
         """Heiton alue: heittäjän oma ``m_szLastPlaceName`` samalta tickiltä.
 
         Se on **havainto** eikä johdos, ja siksi tämä polku ei koske
@@ -2692,14 +2929,21 @@ class Demoparser2Adapter:
         ``snap_distance`` on aina ``None``: havainnolla ei ole etäisyyttä.
 
         Returns:
-            ``(alue, lähde, etäisyys)``. Kaikki tyhjiä, jos heittäjää ei ole
-            tickin riveissä -- havaintoa ei korvata arviolla.
+            ``(alue, lähde, etäisyys, löytyikö heittäjä)``. Kolme ensimmäistä
+            ovat tyhjiä, jos heittäjää ei ole tickin riveissä -- havaintoa ei
+            korvata arviolla.
+
+            **Neljäs erottaa kaksi tyhjää.** "Heittäjä löytyi, mutta pelillä
+            ei ole nimeä hänen alueelleen" on havainto; "heittäjää ei ollut
+            riveissä" on vika, ja sillä on oma laskurinsa
+            (:attr:`_UtilityCounts.throwers_without_row`). Ilman tätä lippua
+            ne näyttäisivät kutsujalle täsmälleen samalta.
         """
         for player in tick_players:
             if player["steamid"] == row["thrower_id"]:
                 area = player["area"]
-                return area, ("observed" if area is not None else None), None
-        return None, None, None
+                return area, ("observed" if area is not None else None), None, True
+        return None, None, None, False
 
     def _detonation_areas(
         self, selected: Sequence[dict[str, Any]], cloud: pl.DataFrame
@@ -3404,6 +3648,33 @@ def _require_previous(
 
 
 # -- Pieniä muuntimia ---------------------------------------------------------
+
+
+def _is_wholly_pawnless(counts: "_SampleTickCounts | None") -> bool:
+    """Selittikö pawnittomuus sen, ettei tickiltä jäänyt yhtään riviä.
+
+    ``True`` vain kun rivejä oli ja **jokainen** niistä oli pawniton. Tyhjä
+    tulos ei kelpaa: silloin demo ei palauttanut mitään, ja se on vika.
+    """
+    return bool(counts and counts.without_pawn and counts.without_pawn == counts.seen)
+
+
+def _pawnless_rows(*by_call: dict[int, _SampleTickCounts]) -> int:
+    """Pawnittomat rivit yhteensä, sama tick laskettuna kerran.
+
+    Näytepisteiden ja heittojen tickit luetaan omilla kutsuillaan, ja ne
+    voivat osua **samaan tickiin**: kierroksen alussa heitetty savu lähtee
+    samalta tickiltä kuin 6 sekunnin näytepiste. Suora summa laskisi silloin
+    yhden fyysisen rivin kahdesti, eikä luku olisi enää "rivejä" vaan
+    "rivilukemia". Tickikohtaiset laskurit yhdistetään siksi unionina; sama
+    tick antaa molemmilla kutsuilla saman luvun, joten maksimi on oikea
+    valinta eikä varmuuden vuoksi otettu.
+    """
+    merged: dict[int, int] = {}
+    for counts in by_call:
+        for tick, count in counts.items():
+            merged[tick] = max(merged.get(tick, 0), count.without_pawn)
+    return sum(merged.values())
 
 
 def _as_int(value: Any) -> int | None:

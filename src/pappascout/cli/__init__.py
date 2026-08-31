@@ -741,17 +741,19 @@ def _sample_points(stats: dict, rounds: int) -> list[str]:
             )
         )
 
-    # Kierros ilman yhtään näytepistettä voi johtua kolmesta syystä: ankkuri
-    # puuttuu, kierros ratkesi ennen ensimmäistä näytepistettä, tai
-    # näytepisteajat ovat väärin. Erotus kerrotaan, syytä ei arvata.
+    # Kierros ilman yhtään näytepistettä voi johtua neljästä syystä: ankkuri
+    # puuttuu, kierros ratkesi ennen ensimmäistä näytepistettä, näytepisteajat
+    # ovat väärin, tai jokainen pelaajarivi oli pawniton (Story 2.10) --
+    # viimeinen näkyy omalla rivillään alempana. Erotus kerrotaan, syytä ei
+    # arvata; neljäs mainitaan vain kun se on mitattu, jotta selitys ei
+    # luettele syytä jota tässä ajossa ei ollut.
     without_samples = rounds - sampled_rounds
     if without_samples > 0:
+        reason = "ankkuri puuttuu tai kierros ratkesi ennen ensimmäistä näytepistettä"
+        if int(stats.get("sample_points_without_pawn") or 0):
+            reason += "; ks. myös Pawniton pelaaja"
         lines.append(
-            _line(
-                "Ilman näytepistettä",
-                f"{without_samples} kierrosta (ankkuri puuttuu tai kierros ratkesi "
-                "ennen ensimmäistä näytepistettä)",
-            )
+            _line("Ilman näytepistettä", f"{without_samples} kierrosta ({reason})")
         )
 
     contacts = int(stats.get("first_contact_rounds", 0) or 0)
@@ -766,14 +768,24 @@ def _sample_points(stats: dict, rounds: int) -> list[str]:
         )
 
     # Adapterin omat havainnot: näitä ei voi laskea valmiista taulusta.
+    #
+    # Kaksi riviä, jotka kertovat osin samasta tapahtumasta: pawniton pelaaja
+    # on **yksi syy** vajaaseen näytepisteeseen. Ne eivät silti yhdisty
+    # yhdeksi luvuksi -- vajaita pisteitä on muistakin syistä, ja pawnittomia
+    # rivejä on myös heittotickeiltä, jotka eivät ole näytepisteitä lainkaan.
+    # Kytkentä sanotaan siis ääneen sen sijaan että lukija laskisi saman
+    # tapahtuman kahdesti.
+    without_pawn = int(stats.get("sample_rows_without_pawn") or 0)
     partial = int(stats.get("partial_samples", 0) or 0)
     if partial:
+        cause = " -- pawnittomat rivit alla ovat yksi syy" if without_pawn else ""
         lines.append(
             _line(
                 "Vajaat näytepisteet",
-                f"{partial} (pelaajia vähemmän kuin täydellä pisteellä)",
+                f"{partial} (pelaajia vähemmän kuin täydellä pisteellä{cause})",
             )
         )
+    lines.extend(_pawnless(stats))
     unknown = int(stats.get("unknown_side_events", 0) or 0)
     if unknown:
         lines.append(
@@ -784,6 +796,54 @@ def _sample_points(stats: dict, rounds: int) -> list[str]:
             )
         )
     return lines
+
+
+def _pawnless(stats: dict) -> list[str]:
+    """Pawnittomat rivit ``parse``-tulosteeseen (Story 2.10).
+
+    Pawniton pelaaja on **havainto eikä vika**: hänen kontrollerinsa on
+    tallella mutta hahmoaan ei ole kartalla, joten rivi ohitetaan kuten
+    katsojan. Se pienentää silti sen kierroksen asetelmaa, ja ilman omaa
+    riviään kierros näyttäisi siltä, että joukkue vain pelasi vajaalla.
+
+    Kolme tilaa pidetään erillään samoin kuin
+    :func:`_match_restarts`issa, ja tässä ero on koko rivin olemassaolon syy:
+
+    avain puuttuu
+        Ohitettu ajo. Riviä ei ole taulussa eikä pistettä sen
+        näytepisteissä, joten lukua ei voi lukea valmiista tuloksesta. Rivi
+        jätetään pois kokonaan.
+    arvo on ``None``
+        Tuore ajo portilla, joka ei raportoi pawnittomia rivejä. Rivi sanoo
+        sen ääneen -- "ei yhtään" olisi väite, jota mikään ei tue.
+    arvo on nolla
+        Tuore ajo, jossa jokaisella pelaajalla oli hahmo. Terve tulos, ja
+        rivi jätetään pois kuten muillakin poikkeamalaskureilla.
+
+    **Kokonaan väliin jäänyt näytepiste** saa saman rivin jatkoksi eikä omaa
+    riviään: se on saman ilmiön vakavampi muoto, ja erilliset rivit
+    houkuttelisivat lukemaan ne kahdeksi eri tapahtumaksi.
+    """
+    if "sample_rows_without_pawn" not in stats:
+        return []
+    rows = stats.get("sample_rows_without_pawn")
+    if rows is None:
+        return [
+            _line(
+                "Pawniton pelaaja",
+                "ei tiedossa (demoportti ei raportoi pawnittomia rivejä)",
+            )
+        ]
+    count = int(rows)
+    if not count:
+        return []
+    value = (
+        f"{count} riviä ohitettiin (kontrolleri tallella, hahmoa ei kartalla)"
+    )
+    dropped = int(stats.get("sample_points_without_pawn") or 0)
+    if dropped:
+        value += f"; {dropped} näytepistettä jäi kokonaan väliin"
+    return [_line("Pawniton pelaaja", value)]
 
 
 def _deaths(stats: dict, rounds: int) -> list[str]:
@@ -1072,6 +1132,14 @@ def _utility_areas(stats: dict) -> list[str]:
         molemmissa alue puuttuu, mutta vain tässä etäisyys on tiedossa. Rivi
         näkyy vain kun luku on nollasta poikkeava.
 
+    **Rivi ``Heittäjä ilman riviä`` on Story 2.10:n jäljiltä.** Heiton alue
+    on heittäjän oma ``m_szLastPlaceName`` samalta tickiltä, joten ilman
+    hänen riviään alue jää tyhjäksi eikä sitä voi korvata: pistepilvi nimeää
+    räjähdyksiä, ei heittoja. Ennen pawnittoman rivin ohitusta tämä tapaus
+    kaatoi ajon; nyt heitto valuisi ilman omaa riviään hiljaa ylläolevaan
+    ``ilman aluetta`` -lukuun. Rivi näkyy vain kun luku on nollasta
+    poikkeava, ja odotusarvo on nolla.
+
     **Rivi ``Nimetön alue`` poistui Story 2.9:ssä.** Se kertoi tapauksesta
     "lähin pelaaja löytyi, mutta pelillä ei ole nimeä hänen alueelleen", eikä
     sitä voi enää syntyä: pistepilveen ei pääse nimetöntä ruutua, joten
@@ -1109,6 +1177,15 @@ def _utility_areas(stats: dict) -> list[str]:
                 "Etäisyys ruutuun",
                 f"mediaani {median:.0f}, p90 {p90:.0f}, suurin {largest:.0f} "
                 "yksikköä",
+            )
+        )
+    orphans = int(stats.get("grenade_throwers_without_row") or 0)
+    if orphans:
+        lines.append(
+            _line(
+                "Heittäjä ilman riviä",
+                f"{orphans} heittoa jäi ilman aluetta (heittäjää ei ollut "
+                "heiton tickin riveissä)",
             )
         )
     if beyond:

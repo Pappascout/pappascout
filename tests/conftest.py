@@ -120,6 +120,48 @@ LEAGUE_DEMO_FILES: dict[str, tuple[int, str]] = {
 }
 
 
+#: Story 2.10:n vikademo: pelaaja, jonka kontrolleri on tallella mutta pawn ei.
+#:
+#: ``anubis_vs_RCAVE_VETERANS`` **ei parsiutunut lainkaan** ennen Story 2.10:tä:
+#: yhdellä pelaajalla yhdellä kierroksella ei ollut hahmoa kartalla, ja
+#: näytepistelukijan elossaolovartija kaatoi koko demon. Se maksoi kolmanneksen
+#: uuden vastustajan aineistosta.
+#:
+#: Demo on tässä siksi, että korjauksen mittaus olisi **toistettavissa
+#: reposta** eikä vain kirjattuna docstringiin. Se on arkiston ``import/``in
+#: ainoa demo, jossa pawnittomia rivejä on, ja siksi ainoa, joka voi kertoa
+#: ohituksen lakanneen toimimasta.
+#:
+#: Se ei ole :data:`LEAGUE_DEMOS`issa eikä ``ALL_DEMOS``issa: se on
+#: Europe 5v5 Queue -ottelu eikä liigaottelu, eivätkä sen luvut kuulu
+#: uudelleenaloituksen tai kalibroinnin regressiosarjoihin.
+PAWNLESS_DEMO = "anubis_vs_RCAVE_VETERANS.dem.zst"
+
+#: Vikademon koko ja SHA-256, mitattu 2026-08-31. Sama sääntö kuin
+#: :data:`LEAGUE_DEMO_FILES`illa: puuttuva demo ohitetaan, väärä ei saa mennä
+#: läpi hiljaa.
+PAWNLESS_DEMO_FILE: tuple[int, str] = (
+    204_420_133,
+    "e9dcf35da6836f6d81d30d14029c62b8fc7661861ba685c0b89a18511035b7b5",
+)
+
+#: Vikademon mitatut luvut (2026-08-31, tuotannon ``[parse]``-asetuksilla).
+#:
+#: ``PAWNLESS_DEMO_ROUNDS``
+#:     Pelatut kierrokset. Tulos 13-9, eli MR12:n mukainen ottelu.
+#: ``PAWNLESS_DEMO_ROWS``
+#:     Ohitetut pawnittomat pelaajarivit: **yksi pelaaja** (``egerrrrr``,
+#:     76561199635619622) **yhdellä kierroksella** (round_no 19). Viisi
+#:     näytepisteiden tickeiltä ja kymmenen utilityn heittotickeiltä; sama
+#:     tick lasketaan kerran.
+#: ``PAWNLESS_DEMO_POINTS``
+#:     Kokonaan väliin jääneet näytepisteet. Nolla: yksi puuttuva pelaaja
+#:     kymmenestä jättää pisteen vajaaksi muttei tyhjäksi.
+PAWNLESS_DEMO_ROUNDS = 22
+PAWNLESS_DEMO_ROWS = 15
+PAWNLESS_DEMO_POINTS = 0
+
+
 def require_demo(name: str) -> Path:
     """Palauta oikean demon polku tai ohita testi selkeällä syyllä.
 

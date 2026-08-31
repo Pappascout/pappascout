@@ -69,6 +69,13 @@ DEFAULT_STATS: dict[str, object] = {
     "sample_rounds": 21,
     "first_contact_rounds": 20,
     "partial_samples": 0,
+    # Story 2.10. Nolla on puhtaan ajon arvo, eikä rivi silloin tulostu.
+    # Avaimet ovat silti tässä, koska ne kuuluvat tuoreen ajon lukuihin:
+    # ilman niitä oletusluvut kuvaisivat ohitettua ajoa, jossa avaimet
+    # puuttuvat -- ja se on tulosteessa eri tila.
+    "sample_rows_without_pawn": 0,
+    "sample_points_without_pawn": 0,
+    "grenade_throwers_without_row": 0,
     "unknown_side_events": 0,
     "event_rows": 300,
     "utility_throws": 152,
@@ -625,6 +632,139 @@ def test_partial_sample_points_are_reported() -> None:
     result = parse_result(stats=stats(partial_samples=4))
     line = field_value(_render_parse(result, regulation_rounds=24), "Vajaat näytepisteet")
     assert line.startswith("4 (")
+
+
+def test_a_pawnless_player_gets_its_own_line() -> None:
+    """Story 2.10: ohitettu rivi pienentää asetelmaa, ja lukijan on nähtävä se.
+
+    Ilman omaa riviään kierros näyttäisi siltä, että joukkue vain pelasi
+    vajaalla -- eikä siltä, että yksi pelaaja putosi kartalta.
+    """
+    result = parse_result(stats=stats(sample_rows_without_pawn=3))
+    line = field_value(_render_parse(result, regulation_rounds=24), "Pawniton pelaaja")
+    assert line.startswith("3 riviä ohitettiin")
+    assert "kontrolleri tallella" in line
+    # Nolla pudonnutta pistettä ei saa tuottaa lisälausetta.
+    assert "kokonaan väliin" not in line
+
+
+def test_a_dropped_sample_point_joins_the_pawnless_line() -> None:
+    """Kokonaan väliin jäänyt piste on vakavampi kuin vajaa, ja se sanotaan.
+
+    Se ei ole ``partial_samples``issa eikä saa jäädä pelkän rivimäärän
+    varaan: kymmenen ohitettua riviä tarkoittaa eri asiaa sen mukaan,
+    jakautuivatko ne kymmenelle pisteelle vai tyhjensivätkö ne yhden.
+    """
+    result = parse_result(
+        stats=stats(sample_rows_without_pawn=10, sample_points_without_pawn=1)
+    )
+    line = field_value(_render_parse(result, regulation_rounds=24), "Pawniton pelaaja")
+    assert "10 riviä ohitettiin" in line
+    assert "1 näytepistettä jäi kokonaan väliin" in line
+
+
+def test_the_partial_line_names_pawnless_rows_as_a_cause() -> None:
+    """Sama tapahtuma ei saa näyttää kahdelta eri tapahtumalta.
+
+    Yksi pawniton pelaaja tuottaa sekä vajaan näytepisteen että ohitetun
+    rivin. Docstring tuntee syy-yhteyden; ilman tätä tuloste ei.
+    """
+    both = _render_parse(
+        parse_result(stats=stats(partial_samples=1, sample_rows_without_pawn=1)),
+        regulation_rounds=24,
+    )
+    assert "pawnittomat rivit alla ovat yksi syy" in field_value(
+        both, "Vajaat näytepisteet"
+    )
+
+    # Ilman pawnittomia rivejä syytä ei väitetä.
+    alone = _render_parse(
+        parse_result(stats=stats(partial_samples=1, sample_rows_without_pawn=0)),
+        regulation_rounds=24,
+    )
+    assert "pawnittomat" not in field_value(alone, "Vajaat näytepisteet")
+
+
+def test_a_dropped_point_is_named_among_the_reasons_for_a_missing_sample() -> None:
+    """Neljäs syy kierrokselle ilman näytepistettä on Story 2.10:n oma.
+
+    Selitys luetteli kolme syytä -- puuttuva ankkuri, aikainen ratkeaminen ja
+    väärät näytepisteajat -- ja niistä yksikään ei ole tämä. Syy mainitaan
+    vain kun se on mitattu, jottei selitys luettele syytä jota ei ollut.
+    """
+    numbers = stats(
+        sample_rounds=20,
+        sample_rows_without_pawn=10,
+        sample_points_without_pawn=4,
+    )
+    line = field_value(
+        _render_parse(parse_result(stats=numbers), regulation_rounds=24),
+        "Ilman näytepistettä",
+    )
+    assert "Pawniton pelaaja" in line
+
+    clean = stats(sample_rounds=20, sample_points_without_pawn=0)
+    assert "Pawniton" not in field_value(
+        _render_parse(parse_result(stats=clean), regulation_rounds=24),
+        "Ilman näytepistettä",
+    )
+
+
+def test_a_clean_run_hides_the_pawnless_line() -> None:
+    """Nolla ei tulostu, kuten muillakaan poikkeamalaskureilla."""
+    assert "Pawniton pelaaja" not in _render_parse(
+        parse_result(stats=stats(sample_rows_without_pawn=0)), regulation_rounds=24
+    )
+
+
+def test_a_skipped_run_does_not_claim_a_clean_lineup() -> None:
+    """Ohitetusta ajosta pawnittomia ei voi lukea, eikä niitä keksitä.
+
+    Rivi jää pois kokonaan -- ei nollana, joka näyttäisi mittaukselta.
+    """
+    numbers = {
+        key: value
+        for key, value in DEFAULT_STATS.items()
+        if not key.startswith(("sample_rows_", "sample_points_", "grenade_throwers_"))
+    }
+    text = _render_parse(
+        parse_result(skipped=True, stats=numbers), regulation_rounds=24
+    )
+    assert "Pawniton pelaaja" not in text
+
+
+def test_a_port_that_cannot_count_pawnless_rows_says_so() -> None:
+    """``None`` on eri asia kuin nolla: tuntemattomuus ei ole puhdas tulos."""
+    line = field_value(
+        _render_parse(
+            parse_result(stats=stats(sample_rows_without_pawn=None)),
+            regulation_rounds=24,
+        ),
+        "Pawniton pelaaja",
+    )
+    assert "ei tiedossa" in line
+
+
+def test_a_thrower_without_a_row_gets_its_own_line() -> None:
+    """Story 2.10 loi uuden pudotuksen, ja sillä on oltava syy tulosteessa.
+
+    Pawnittoman heittäjän heitto jää ilman aluetta. Ilman omaa riviään se
+    valuisi ``Utilityn alue`` -rivin "ilman aluetta" -lukuun, jossa se
+    näyttäisi kynnyksen hinnalta.
+    """
+    line = field_value(
+        _render_parse(
+            parse_result(stats=stats(grenade_throwers_without_row=2)),
+            regulation_rounds=24,
+        ),
+        "Heittäjä ilman riviä",
+    )
+    assert line.startswith("2 heittoa jäi ilman aluetta")
+
+    assert "Heittäjä ilman riviä" not in _render_parse(
+        parse_result(stats=stats(grenade_throwers_without_row=0)),
+        regulation_rounds=24,
+    )
 
 
 def test_events_with_an_unknown_side_are_reported() -> None:
@@ -1316,6 +1456,11 @@ def test_every_parse_label_fits_the_column() -> None:
         deaths_without_victim=1,
         deaths_without_victim_side=1,
         deaths_attacker_without_side=1,
+        # Story 2.10: uudet otsikot ovat vartijan nähtävissä vain nollasta
+        # poikkeavilla luvuilla.
+        sample_rows_without_pawn=1,
+        sample_points_without_pawn=1,
+        grenade_throwers_without_row=1,
     )
     text = _render_parse(parse_result(stats=every), regulation_rounds=24)
 

@@ -203,6 +203,55 @@ class ParseDiagnostics:
             demon parhaalta pisteeltä. Nolla on normaali tulos; systemaattinen
             propivika näkyisi tässä luvussa jo parsintavaiheessa eikä vasta
             vinoutuneina aggregaatteina.
+        sample_rows_without_pawn: Pelaajarivit, jotka ohitettiin siksi, että
+            pelaajan **kontrolleri oli tallella mutta pawn ei**: jokainen
+            pawn-kenttä (elossaolo, alue, x/y/z) oli tyhjä samalla rivillä.
+            Pelaaja ei silloin ole kartalla lainkaan, joten hänen riviään ei
+            ole olemassa -- elossaoloa ei arvata kumpaankaan suuntaan.
+
+            **Nimen etuliite rajaa luvun siihen mitä se mittaa.** Se kattaa
+            näytepistepropeilla luetut tickit -- asetelman näytepisteet ja
+            utilityn heittotickit -- eikä koko demoa: pistepilven koko
+            tickisarja ja kierrosrajojen luku eivät kerrytä sitä. Sama tick
+            voi tulla luetuksi molemmilla kutsuilla, ja se lasketaan silloin
+            kerran: luku on rivejä eikä rivilukemia.
+
+            **Havainto eikä vika**, mutta se ei saa olla hiljainen: puuttuva
+            pelaaja pienentää sen kierroksen asetelmaa, ja lukijan on
+            nähtävä se. Kierros pysyy otannassa. Nolla on normaali tulos;
+            mitattu ``anubis_vs_RCAVE_VETERANS``-demossa 15 riviä --
+            **yksi pelaaja yhdellä kierroksella**, viisi näytepisteen
+            tickiltä ja kymmenen heittojen tickeiltä. Arkiston seitsemässä
+            muussa demossa nolla.
+
+            **Eri asia kuin katsoja**, jolta puuttuu kontrollerin joukkue --
+            katsojarivit eivät ole tässä luvussa. **Eri asia myös kuin
+            puuttuva elossaolo yksin**: jos sijainti tai alue on tallella
+            mutta ``m_lifeState`` puuttuu, ajo kaatuu edelleen, koska silloin
+            kyse on kirjaston kenttänimen muutoksesta eikä pelaajan tilasta.
+        sample_points_without_pawn: Näytepisteet, joilta **ei tullut yhtään
+            riviä**, koska jokainen rivi oli pawniton. Piste jää kokonaan
+            väliin: kierros menettää sen näytepisteen, mutta ajo jatkuu.
+
+            **Oma lukunsa eikä osa ``partial_samples``ia.** Kokonaan
+            puuttuva piste on vakavampi kuin vaillinainen, ja vajaiden
+            joukkoon niputettuna se näyttäisi lievemmältä kuin on. Nolla on
+            normaali tulos, myös silloin kun ``sample_rows_without_pawn`` on
+            nollasta poikkeava: yksi pawniton pelaaja kymmenestä jättää
+            pisteen vajaaksi muttei tyhjäksi.
+        grenade_throwers_without_row: Heitot, joiden **heittäjää ei ollut
+            heiton tickin riveissä**. Heiton alue on heittäjän oma
+            ``m_szLastPlaceName``, joten ilman hänen riviään alue jää tyhjäksi
+            eikä sitä voi korvata: pistepilvi nimeää räjähdyksiä, ei heittoja.
+
+            **Vika eikä havainto.** Luku on olemassa Story 2.10:stä lähtien:
+            ennen pawnittoman rivin ohitusta tällainen heitto kaatoi ajon
+            elossaolovartijaan, ja ilman omaa laskuriaan se valuisi nyt
+            hiljaa ``utility_without_area``-lukuun ilman syytä. Nolla on
+            odotusarvo -- heittäjällä on pawn sillä hetkellä kun hän heittää
+            -- ja se on nolla myös mitatussa
+            ``anubis_vs_RCAVE_VETERANS``-demossa, jossa pawniton pelaaja ei
+            heittänyt mitään.
         unknown_side_events: Vahinkotapahtumat, joissa tekijän tai uhrin puolta
             ei saatu selville. Ne eivät kelpaa ensikontaktiksi, joten kierros
             voi menettää kontaktinsa -- luku kertoo, milloin niin kävi.
@@ -236,6 +285,12 @@ class ParseDiagnostics:
             yhtään pelaajariviä. **Vika eikä havainto**: heittäjän omaa aluetta
             ei voitu edes yrittää lukea. Räjähdyksen tickejä ei enää lueta
             lainkaan -- sen alue tulee pistepilvestä eikä tickin pelaajista.
+
+            **Kokonaan pawniton tick ei ole tässä luvussa.** Se on havainto
+            samalla säännöllä kuin näytepisteillä -- demo palautti rivit,
+            eikä kukaan vain ollut kartalla -- ja se on jo laskettu
+            ``sample_rows_without_pawn``iin. Sama ilmiö ei saa olla toisella
+            polulla vika ja toisella havainto.
         callout_cloud_rows_read: Rivit, jotka pistepilven rakentaminen luki
             demosta (koko demon tickisarja, rivi per pelaaja per tick). Luku
             on tallessa, koska se on ainoa paikka, jossa tämän vaiheen hinta
@@ -404,6 +459,9 @@ class ParseDiagnostics:
     rounds_seen: int
     match_restarts: int = 0
     partial_samples: int = 0
+    sample_rows_without_pawn: int = 0
+    sample_points_without_pawn: int = 0
+    grenade_throwers_without_row: int = 0
     unknown_side_events: int = 0
     grenades_without_thrower: int = 0
     grenades_outside_rounds: int = 0
