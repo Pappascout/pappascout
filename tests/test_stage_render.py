@@ -19,12 +19,24 @@ from pathlib import Path
 import pytest
 
 from conftest import has_temp_leftovers
-from pappascout.archive.manifest import Manifest, ManifestInput
+from pappascout.archive.manifest import (
+    Manifest,
+    ManifestInput,
+    compute_params_hash,
+)
 from pappascout.archive.paths import MAX_REPORTS_PER_MINUTE, ArchivePaths, report_name
+from pappascout.domain.models import ReportSettings
 from pappascout.domain.report import REPORT_SCHEMA_VERSION, Report
 from pappascout.errors import PappascoutError
 from pappascout.stages import render as render_stage
-from test_render import DEMO_ID, TEAM_KEY, TEAM_SLUG, pistol_map, report
+from test_render import (
+    DEFAULT_PRUNING,
+    DEMO_ID,
+    TEAM_KEY,
+    TEAM_SLUG,
+    pistol_map,
+    report,
+)
 
 OTHER_TEAM = "bbbbbbbbbbbbbbbb"
 STAMP = datetime(2026, 8, 30, 3, 7)
@@ -57,8 +69,19 @@ def build_archive(
     return archive
 
 
-def run(archive: ArchivePaths, team: str | None = TEAM_KEY, **kwargs):
-    return render_stage.run(archive, team, **kwargs)
+def run(
+    archive: ArchivePaths,
+    team: str | None = TEAM_KEY,
+    settings: ReportSettings = DEFAULT_PRUNING,
+    **kwargs,
+):
+    """Vaiheen ajo tuotannon karsinta-asetuksilla (Story 2.13).
+
+    Oletus on ``settings.toml``in oletus samasta syystä kuin
+    ``test_render``issä: kiinnike, joka ajaisi karsinnan pois päältä,
+    testaisi vaihetta tilassa, jota kukaan ei aja.
+    """
+    return render_stage.run(settings, archive, team, **kwargs)
 
 
 def reports(archive: ArchivePaths, team_key: str = TEAM_KEY) -> list[Path]:
@@ -97,7 +120,9 @@ def test_the_file_on_disk_is_exactly_what_render_produced(tmp_path: Path) -> Non
     result = run(archive)
     entry = render_stage.read_report(archive.report_json(TEAM_KEY), TEAM_KEY)
     expected = render_report(
-        entry, round_list_paths=render_stage.round_list_paths(archive, entry)
+        entry,
+        settings=DEFAULT_PRUNING,
+        round_list_paths=render_stage.round_list_paths(archive, entry),
     )
 
     written = archive.resolve(result.outputs[0])
@@ -485,6 +510,76 @@ def test_the_template_is_part_of_the_parameter_hash(
     monkeypatch.setattr(render_stage, "template_digest", lambda: "f" * 64)
     after = manifest_of(archive, run(archive)).params_hash
     assert before != after
+
+
+def test_a_pruning_setting_is_part_of_the_parameter_hash(tmp_path: Path) -> None:
+    """Story 2.13: luettu asetus, joka ei näy hashissa, on Story 1.8:n vika.
+
+    Vaihe sai tarinassa ensimmäiset omat asetuksensa. Ilman niitä hashissa
+    manifesti väittäisi kahta eri raporttia samaksi tulokseksi -- ja juuri
+    tämä vika on tässä projektissa löytynyt kolmesti.
+    """
+    archive = build_archive(tmp_path)
+    default = manifest_of(archive, run(archive)).params_hash
+
+    for changed in (
+        ReportSettings(drop_saturated_equipment_lines=False),
+        ReportSettings(merge_equal_equipment_lines=False),
+        ReportSettings(skip_sample_seconds=[45.0]),
+        ReportSettings(max_utility_targets=0),
+        ReportSettings(max_kill_areas=5),
+    ):
+        other = manifest_of(archive, run(archive, settings=changed)).params_hash
+        assert other != default, changed
+
+    # Ja sama asetus tuottaa saman hashin: hash ei saa muuttua ajon ajasta
+    # eikä tiedostonimestä, tai manifesti ei kertoisi mistään.
+    assert manifest_of(archive, run(archive)).params_hash == default
+
+
+def test_the_hash_covers_the_template_and_the_whole_section(
+    tmp_path: Path,
+) -> None:
+    """Hashin syöte on lukittu: malli ja ``[report]`` **kokonaisena**.
+
+    Osio menee hashiin ``model_dump``ina eikä nimettyinä kenttinä, joten
+    kuudes karsintasääntö on siellä heti kun se on osiossa. Luettelo
+    vanhenisi hiljaa juuri silloin, kun sääntö lisätään -- ja se on sama
+    epäonnistumistapa kuin puuttuva asetus itse.
+    """
+    archive = build_archive(tmp_path)
+    settings = ReportSettings(max_kill_areas=4)
+    manifest = manifest_of(archive, run(archive, settings=settings))
+    assert manifest.params_hash == compute_params_hash(
+        {
+            "render": {"template_sha256": render_stage.template_digest()},
+            "report": settings.model_dump(mode="json"),
+        }
+    )
+
+
+def test_the_same_rules_in_a_different_order_hash_the_same(
+    tmp_path: Path,
+) -> None:
+    """Kohta G1: identtinen raportti, identtinen parametrihash.
+
+    Näytepistelista järjestetään latauksessa, joten ``[45, 15]`` ja
+    ``[15, 45]`` ovat sama asetus. Ilman järjestämistä manifesti väittäisi
+    kahden merkki merkiltä saman raportin syntyneen eri parametreilla -- ja
+    manifestin koko arvo on se, että ero siinä tarkoittaa eroa tuloksessa.
+    """
+    archive = build_archive(tmp_path)
+    one = ReportSettings(skip_sample_seconds=[45.0, 15.0])
+    other = ReportSettings(skip_sample_seconds=[15.0, 45.0])
+    assert one == other
+    first = manifest_of(archive, run(archive, settings=one))
+    second = manifest_of(archive, run(archive, settings=other))
+    assert first.params_hash == second.params_hash
+    # Ja eri joukko on eri hash: järjestäminen ei saa niputtaa eri arvoja.
+    third = manifest_of(
+        archive, run(archive, settings=ReportSettings(skip_sample_seconds=[30.0]))
+    )
+    assert third.params_hash != first.params_hash
 
 
 def test_the_stage_is_never_skipped(tmp_path: Path) -> None:

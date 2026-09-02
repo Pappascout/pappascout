@@ -23,13 +23,16 @@ import re
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
+from pydantic import ValidationError
 
 from pappascout.constants import (
     ANOMALY_RULE_FI,
     ANOMALY_RULES,
+    ROUND_TYPE_FI,
     ROUND_TYPES,
     UTILITY_BUCKET_ALL,
     UTILITY_BUCKET_UNKNOWN,
+    seconds_label,
 )
 from pappascout.domain.report import (
     Anomaly,
@@ -61,6 +64,7 @@ from pappascout.domain.report import (
     UtilityUse,
     slugify,
 )
+from pappascout.domain.models import PLAYERS_ON_SERVER, ReportSettings
 from pappascout.errors import PappascoutError
 from pappascout.render import view as view_module
 from pappascout.render import (
@@ -76,7 +80,9 @@ from pappascout.render.view import (
     GRENADE_TYPE_FI,
     MAX_ANOMALY_LINES,
     MAX_DEATH_LINES,
+    MERGED_EQUIPMENT_LABEL,
     PATTERN_ROUND_TYPES,
+    PROTECTED_ROUND_TYPES,
     ROUND_TYPE_ORDER,
     TRACEABILITY_HEADING,
     UNKNOWN_AREA,
@@ -88,7 +94,7 @@ from pappascout.render.view import (
 # Yksityinen, mutta tuotu sisään tarkoituksella: jäljitettävyysluvun selitys
 # on vakio, ja katkelman kopioiminen testiin tekisi siitä kaksi totuutta --
 # sama peruste kuin TEAM_SLUGilla ja TRACEABILITY_HEADINGilla.
-from pappascout.render.view import _TRACEABILITY_NOTE
+from pappascout.render.view import _PRUNING_KEPT_THE_BLOCK, _TRACEABILITY_NOTE
 
 TEAM_KEY = "aaaaaaaaaaaaaaaa"
 TEAM_NAME = "MatureMayhem"
@@ -595,9 +601,48 @@ def missing_demo(demo_id: str = MISSING_DEMO_ID) -> MissingDemo:
     )
 
 
-def render(entry: Report) -> str:
+#: Karsintasäännöt **sellaisina kuin ne ovat ``settings.toml``issa** (Story
+#: 2.13). Testien oletus on tuotannon oletus: jos kiinnike ajaisi karsinnan
+#: pois päältä, koko testijoukko kuvaisi raporttia, jota kukaan ei saa -- ja
+#: jokainen karsinnan virhe menisi läpi huomaamatta.
+#:
+#: ``ReportSettings()`` eikä käsin kirjoitetut arvot: oletusten yhtäpitävyys
+#: asetustiedoston kanssa on ``test_settings``in väite, eikä sitä kirjoiteta
+#: tänne toiseen kertaan.
+DEFAULT_PRUNING = ReportSettings()
+
+#: Karsinta kokonaan pois. Tämän tarinan tärkein testi ajaa raportin tällä ja
+#: vaatii, että tulos on merkki merkiltä sama kuin ennen Story 2.13:a.
+NO_PRUNING = ReportSettings(
+    drop_saturated_equipment_lines=False,
+    merge_equal_equipment_lines=False,
+    skip_sample_seconds=[],
+    max_utility_targets=0,
+    max_kill_areas=0,
+)
+
+
+def render(entry: Report, settings: ReportSettings = DEFAULT_PRUNING) -> str:
     """Raportti kierroslistojen polkuineen -- kuten vaihe sen kirjoittaa."""
-    return render_report(entry, round_list_paths=ROUND_LISTS)
+    return render_report(entry, settings=settings, round_list_paths=ROUND_LISTS)
+
+
+def view_of(
+    entry: Report,
+    settings: ReportSettings = DEFAULT_PRUNING,
+    *,
+    round_list_paths: tuple[str, ...] = (),
+):
+    """Näkymä samalla karsinnan oletuksella kuin :func:`render`.
+
+    Kiinnike eikä suora ``build_view``-kutsu, jotta oletus on testeissä
+    **yhdessä paikassa**: kahtena kirjoitettuna toinen puolisko testijoukosta
+    voisi ajaa karsinnan päällä ja toinen pois, eikä mikään kertoisi kummasta
+    on kyse.
+    """
+    return build_view(
+        entry, settings=settings, round_list_paths=round_list_paths
+    )
 
 
 def report_sections(text: str) -> list[tuple[str, str]]:
@@ -725,7 +770,7 @@ def test_first_contact_without_a_median_is_still_labelled_first_contact() -> Non
 
 def test_time_and_first_contact_positions_are_told_apart() -> None:
     """Kaksi näytepistelajia samassa lohkossa saavat eri otsikon."""
-    view = build_view(report([pistol_map()]), round_list_paths=ROUND_LISTS)
+    view = view_of(report([pistol_map()]), round_list_paths=ROUND_LISTS)
     labels = [
         line.label
         for line in view.maps[0].sides[0].round_types[0].lines
@@ -802,7 +847,7 @@ def test_the_number_of_samples_matches_the_number_of_claims() -> None:
     """
     entry = report([pistol_map(), default_map()])
     text = render(entry)
-    view = build_view(entry, round_list_paths=ROUND_LISTS)
+    view = view_of(entry, round_list_paths=ROUND_LISTS)
     claims = sum(
         len(line.claims)
         for map_view in view.maps
@@ -901,13 +946,21 @@ def test_the_pattern_threshold_also_applies_to_counts_and_armed_players() -> Non
             )
         ],
     )
-    text = render(report([scattered]))
+    text = render(report([scattered]), NO_PRUNING)
     assert "aseistettuja ostoajan lopussa" not in text
     assert "panssaroituja ostoajan lopussa" not in text
     assert "utility:" not in text
     # 8 aseistettujen pylvästä + 8 panssarin + 7 kranaatin (nolla ei ole
     # havainto eikä siis pudotettava).
     assert "23 harvinaisempaa havaintoa jäi pois" in text
+
+    # **Sama luku karsinnan kanssa** (Story 2.13, katselmuskierros 1 kohta A):
+    # kynnyksen kirjanpito on väite datasta eikä esitysvalinta, joten karsinta
+    # ei kosketa sitä. Laskurit ovat tässä identtiset, eli sääntö 2 yhdistäisi
+    # rivit -- ja jos yhdistäminen tapahtuisi ennen rivinrakentajaa, luku
+    # olisi 15 ja lohko väittäisi datasta jotakin muuta kuin karsimaton
+    # raportti.
+    assert "23 harvinaisempaa havaintoa jäi pois" in render(report([scattered]))
 
 
 def test_the_pattern_threshold_keeps_a_repeating_armored_bar() -> None:
@@ -1364,7 +1417,7 @@ def test_the_two_counters_stand_side_by_side_and_differ() -> None:
     Ilman tätä testiä toteutus, joka renderöi saman jakauman kahdesti, menisi
     läpi jokaisesta muusta väitteestä.
     """
-    view = build_view(report([pistol_map()]))
+    view = view_of(report([pistol_map()]))
     lines = {
         line.label: tuple(claim.text for claim in line.claims)
         for line in view.maps[0].sides[0].round_types[0].lines
@@ -1375,7 +1428,7 @@ def test_the_two_counters_stand_side_by_side_and_differ() -> None:
 
 def test_the_armored_line_follows_the_armed_line() -> None:
     """Järjestys on osa havaintoa: rivit luetaan parina."""
-    view = build_view(report([pistol_map()]))
+    view = view_of(report([pistol_map()]))
     labels = [line.label for line in view.maps[0].sides[0].round_types[0].lines]
     assert (
         labels.index("panssaroituja ostoajan lopussa")
@@ -1453,7 +1506,7 @@ def test_a_wholly_unreadable_armor_observation_still_gets_a_line() -> None:
             )
         ],
     )
-    view = build_view(report([entry]))
+    view = view_of(report([entry]))
     lines = [
         line
         for line in view.maps[0].sides[0].round_types[0].lines
@@ -1471,7 +1524,7 @@ def test_a_wholly_unreadable_armed_observation_still_gets_a_line() -> None:
         "de_nuke",
         [side("T", [round_type("eco", 4, players_armed=armed(0, {}, unknown=4))])],
     )
-    view = build_view(report([entry]))
+    view = view_of(report([entry]))
     lines = [
         line
         for line in view.maps[0].sides[0].round_types[0].lines
@@ -1793,7 +1846,7 @@ def test_round_appendix_lists_the_paths_the_stage_resolved() -> None:
 
 def test_round_appendix_without_paths_does_not_dangle_a_colon() -> None:
     """Tyhjä luettelo kaksoispisteen jälkeen lukisi kuin lista olisi kadonnut."""
-    text = render_report(report([pistol_map()]))
+    text = render_report(report([pistol_map()]), settings=DEFAULT_PRUNING)
     appendix = text.split("## Kierrosliite")[1].split("## Lukuohje")[0].strip()
     assert not appendix.endswith(":")
     assert "polkuja ei annettu" in appendix
@@ -1874,7 +1927,7 @@ def test_no_identifier_appears_in_the_body_outside_the_three_exceptions() -> Non
     """
     entry = crowded_report()
     text = render(entry)
-    view = build_view(entry, round_list_paths=ROUND_LISTS)
+    view = view_of(entry, round_list_paths=ROUND_LISTS)
     unnamed_headings = {m.heading for m in view.maps if m.name_unknown}
     literals = literal_identifiers(entry)
 
@@ -2249,7 +2302,7 @@ def test_an_empty_report_still_gets_the_traceability_chapter() -> None:
     latoo luvun ehdoitta, joten tyhjä jono tuottaisi paljaan otsikon; sitä ei
     vartioida, koska :func:`build_view` ei voi tuottaa sitä.
     """
-    view = build_view(report([]))
+    view = view_of(report([]))
 
     assert view.traceability
     assert view.traceability[0].label == "Joukkueen tunniste"
@@ -2301,7 +2354,7 @@ def test_view_is_built_without_touching_the_report() -> None:
     """``Report`` on jäädytetty sopimus; näkymä ei saa korjailla sitä."""
     entry = report([pistol_map()])
     before = entry.model_dump_json()
-    build_view(entry, round_list_paths=ROUND_LISTS)
+    view_of(entry, round_list_paths=ROUND_LISTS)
     assert entry.model_dump_json() == before
 
 
@@ -2377,6 +2430,7 @@ GOLDEN = """\
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta
 - **Luokittelun kynnykset:** full_equip_min 4000
 - **Aggregoinnin kynnykset:** advance_area_min_observations 20, advance_max_sample_s 30, advance_min_players 1, advance_t_share 0,8, crunch_min_players 2, crunch_min_sources 2, small_sample_rounds 3, team_identity_min_common 3
+- **Karsinnan säännöt:** drop_saturated_equipment_lines kyllä, max_kill_areas 3, max_utility_targets 2, merge_equal_equipment_lines kyllä, skip_sample_seconds ei yhtään
 - **Aineisto koottu:** 2026-08-30 12:00 UTC (pappascout 0.1.0)
 
 ## Poikkeamat
@@ -2519,7 +2573,7 @@ def test_a_round_type_gets_at_most_two_death_lines() -> None:
     rivejä eivätkä olemaan oma lukunsa. Rivit lasketaan **luetteloriveistä**,
     ei merkkijonohaulla: näkymä on se, jota malli latoo.
     """
-    view = build_view(
+    view = view_of(
         death_report(
             first={"Cave": 3, "Long": 1},
             median=24.0,
@@ -2558,7 +2612,7 @@ def test_the_kill_sample_is_kills_not_rounds() -> None:
     Rivi luetaan yksinään, kaukana lukuohjeesta. "4/6 kierroksesta" olisi
     neljän kierroksen lohkossa suoraan mahdoton lause.
     """
-    view = build_view(death_report(kills={"Middle": 4, "BombsiteB": 2}))
+    view = view_of(death_report(kills={"Middle": 4, "BombsiteB": 2}))
     line = next(
         line
         for line in view.maps[0].sides[0].round_types[0].lines
@@ -2584,7 +2638,7 @@ def test_rounds_without_an_own_death_are_said_out_loud() -> None:
 
 def test_a_first_death_line_without_a_median_is_still_labelled() -> None:
     """Ajoituksen puuttuminen ei saa viedä aluetta."""
-    view = build_view(death_report(first={"Cave": 1}))
+    view = view_of(death_report(first={"Cave": 1}))
     assert (
         view.maps[0].sides[0].round_types[0].lines[0].label
         == "ensimmäinen kuolema"
@@ -2599,7 +2653,7 @@ def test_a_round_type_where_nobody_died_still_says_so() -> None:
     ilman yhtään väitettä, ja juuri se on sääntö: rivi kirjoitetaan kun
     sillä on väite **tai** havainto.
     """
-    view = build_view(death_report())
+    view = view_of(death_report())
     lines = view.maps[0].sides[0].round_types[0].lines
 
     assert [line.label for line in lines] == ["ensimmäinen kuolema"]
@@ -2613,7 +2667,7 @@ def test_a_round_type_without_rounds_gets_no_death_line_at_all() -> None:
     Ilman tätä edellinen testi lukisi kuin rivi kirjoitettaisiin aina.
     """
     entry = round_type("pistol", 0, death_report=deaths())
-    view = build_view(report([map_report("de_ancient", [side("CT", [entry])])]))
+    view = view_of(report([map_report("de_ancient", [side("CT", [entry])])]))
 
     assert view.maps[0].sides[0].round_types[0].lines == ()
 
@@ -2625,7 +2679,7 @@ def test_the_kill_line_stands_on_its_own_without_any_deaths() -> None:
     tavallinen -- eikä tapporivi saa kadota siksi, että ensimmäisen kuoleman
     rivillä ei ole väitteitä.
     """
-    view = build_view(death_report(kills={"Middle": 2}))
+    view = view_of(death_report(kills={"Middle": 2}))
     labels = [line.label for line in view.maps[0].sides[0].round_types[0].lines]
 
     assert labels == ["ensimmäinen kuolema", "tapot alueittain"]
@@ -2711,7 +2765,7 @@ def test_exceeding_the_death_line_limit_is_an_error_not_a_quiet_growth(
     """
     monkeypatch.setattr(view_module, "MAX_DEATH_LINES", 1)
     with pytest.raises(PappascoutError, match="Kuolemarivejä syntyi 2"):
-        build_view(death_report(first={"Cave": 1}, median=9.0, kills={"Middle": 1}))
+        view_of(death_report(first={"Cave": 1}, median=9.0, kills={"Middle": 1}))
 
 
 # --- Poikkeamaluku (Story 2.5) --------------------------------------------------
@@ -3277,3 +3331,1388 @@ def test_every_anomaly_rule_has_a_finnish_name_in_the_view() -> None:
     """Näkymä indeksoi karttaa suoraan, joten puuttuva nimi kaataa sen."""
     for rule in ANOMALY_RULES:
         assert ANOMALY_RULE_FI[rule]
+
+
+# --- Karsinta (Story 2.13) ------------------------------------------------------
+
+#: Utilityn kohteet :func:`pruning_map`in eco-lohkossa: yhdeksän kohdetta
+#: yhdellä rivillä. Mitattuna kymmenellä rivillä oli kohteita viidestä
+#: yhdeksään, ja juuri sellainen rivi on luettelo eikä kuvio.
+PRUNE_UTILITY = {
+    "BombsiteA": 4,
+    "Palace": 3,
+    "Connector": 2,
+    "Ramp": 2,
+    "Apartments": 1,
+    "Catwalk": 1,
+    "Jungle": 1,
+    "Underpass": 1,
+    "Window": 1,
+}
+
+#: Tappoalueet samassa lohkossa: yhdeksän aluetta yhdellä rivillä.
+PRUNE_KILLS = {
+    "BombsiteA": 5,
+    "Palace": 4,
+    "Connector": 3,
+    "Ramp": 2,
+    "Apartments": 2,
+    "Catwalk": 1,
+    "Jungle": 1,
+    "Underpass": 1,
+    "Window": 1,
+}
+
+#: Vain nimetty näytepiste pois (sääntö 3). Oletus on säilyttää, joten tämä on
+#: ainoa sääntö, jonka **päälle** kääntäminen on erillinen valinta.
+SKIP_45 = ReportSettings(skip_sample_seconds=[45.0])
+
+
+def pruning_map() -> MapReport:
+    """Kartta, jonka jokainen lohko koskettaa eri karsintasääntöä.
+
+    Yksi kiinnike eikä viisi, koska säännöt vaikuttavat toisiinsa: sääntö 1
+    pudottaa rivin, jonka sääntö 2 muuten yhdistäisi, kuviosuodatus voi
+    pudottaa rivin ennen kuin karsinta ehtii, ja karsimaton lohko on
+    vertailukohta kaikille. Viisi erillistä kiinnikettä eivät koskaan
+    näyttäisi järjestystä.
+
+    * **eco** -- kylläinen panssaririvi (sääntö 1), aseistettujen rivi joka
+      **ei** ole kylläinen, neljä aikanäytepistettä (sääntö 3), yhdeksän
+      utilityn kohdetta (sääntö 4) ja yhdeksän tappoaluetta (sääntö 5).
+    * **force** -- identtiset kalustorivit (sääntö 2).
+    * **puoliosto** -- eroavat kalustorivit (aseistettuja 1, panssaroituja 3):
+      I/O-matriisin rivi, jolla kumpikin rivi säilyy.
+    * **default** -- ``PATTERN_ROUND_TYPES``in lohko, jossa **kuviosuodatus
+      puree**: kylläinen kalustorivi ja 45 s -näytepiste jäävät kynnyksen
+      alle. Ilman tätä lohkoa karsinnan ja kynnyksen vuorovaikutusta ei
+      saavutettaisi kertaakaan, koska muissa lohkoissa ``min_n`` on 1 --
+      ja juuri se vuorovaikutus rikkoi tarinan ydinlupauksen
+      katselmuskierroksella 1.
+    * **pistooli** -- kylläiset ja identtiset kalustorivit, neljä kohdetta,
+      viisi tappoaluetta ja 45 s -näytepiste. Mitään näistä ei karsita.
+    """
+    return map_report(
+        "de_mirage",
+        [
+            side(
+                "T",
+                [
+                    round_type(
+                        "eco",
+                        4,
+                        positions=[
+                            position(6.0, [area("Middle", 4, {2: 2, 0: 2})], 4),
+                            position(15.0, [area("Middle", 4, {2: 2, 0: 2})], 4),
+                            position(30.0, [area("Middle", 4, {1: 2, 0: 2})], 4),
+                            position(45.0, [area("Middle", 4, {1: 1, 0: 3})], 4),
+                        ],
+                        utility=[
+                            use("smoke", "TSpawn", target, n=n, m=4)
+                            for target, n in PRUNE_UTILITY.items()
+                        ],
+                        players_armed=armed(4, {0: 4}),
+                        players_armored=armored(4, {5: 4}),
+                        death_report=deaths(
+                            first={"Palace": 2, "Ramp": 1},
+                            rounds_missing=1,
+                            kills=PRUNE_KILLS,
+                        ),
+                    ),
+                    round_type(
+                        "force",
+                        3,
+                        players_armed=armed(3, {3: 2, 1: 1}),
+                        players_armored=armored(3, {3: 2, 1: 1}),
+                    ),
+                    round_type(
+                        "half",
+                        2,
+                        players_armed=armed(2, {1: 2}),
+                        players_armored=armored(2, {3: 2}),
+                    ),
+                    round_type(
+                        "full",
+                        SMALL_SAMPLE - 1,
+                        positions=[
+                            position(
+                                6.0,
+                                [area("Middle", SMALL_SAMPLE - 1, {2: 2})],
+                                SMALL_SAMPLE - 1,
+                            ),
+                            position(
+                                45.0,
+                                [area("Middle", SMALL_SAMPLE - 1, {1: 1, 0: 1})],
+                                SMALL_SAMPLE - 1,
+                            ),
+                        ],
+                        players_armored=armored(SMALL_SAMPLE - 1, {5: 2}),
+                        death_report=deaths(
+                            first={"Palace": 1, "Ramp": 1}, median=20.0
+                        ),
+                    ),
+                ],
+            ),
+            side(
+                "CT",
+                [
+                    round_type(
+                        "pistol",
+                        2,
+                        positions=[
+                            position(30.0, [area("Middle", 2, {2: 2})], 2),
+                            position(45.0, [area("Middle", 2, {1: 2})], 2),
+                        ],
+                        utility=[
+                            use("flashbang", "CTSpawn", target, n=n, m=2)
+                            for target, n in {
+                                "BombsiteA": 2,
+                                "Connector": 1,
+                                "Jungle": 1,
+                                "Palace": 1,
+                            }.items()
+                        ],
+                        players_armed=armed(2, {5: 2}),
+                        players_armored=armored(2, {5: 2}),
+                        death_report=deaths(
+                            first={"Connector": 2},
+                            kills={
+                                "BombsiteA": 3,
+                                "Palace": 2,
+                                "Connector": 1,
+                                "Jungle": 1,
+                                "Window": 1,
+                            },
+                        ),
+                    )
+                ],
+            ),
+        ],
+        demo_ids=["Mirage_vs_karsinta"],
+    )
+
+
+def pruning_report() -> Report:
+    """Raportti, jossa on :func:`pruning_map` ja ei muuta."""
+    return report([pruning_map()])
+
+
+def content_rows(text: str) -> list[str]:
+    """Karttalukujen rivit -- se luku, jota epicin mittari koskee.
+
+    Sama rajaus kuin :func:`observation_rows`illa, mutta mukana ovat myös
+    kursivoidut huomiot: karsinnan hinta on rivi siinäkin tapauksessa, että
+    se on huomautus, ja ilman niitä mittaus näyttäisi karsinnan
+    tehokkaammalta kuin se on.
+    """
+    body = text.split("## de_")[1].split("## Kierrosliite")[0]
+    return [row for row in body.splitlines() if row.startswith("- ")]
+
+
+def map_chapter(text: str) -> str:
+    """Karttaluku kokonaisena -- se osa, jota karsinta voi koskettaa.
+
+    Golden lukitsee tämän eikä koko dokumenttia: yhteenveto, poikkeamaluku,
+    kierrosliite, lukuohjeen vakiokappaleet ja jäljitettävyysluku ovat jo
+    lukittuina :data:`GOLDEN`issa, ja kahtena kopiona mikä tahansa muu
+    raporttimuutos kaataisi kaksi goldenia yhden asian takia.
+    """
+    return "## de_" + text.split("## de_")[1].split("## Kierrosliite")[0].rstrip(
+        "\n"
+    )
+
+
+def block(text: str, heading: str) -> str:
+    """Yhden kierrostyyppilohkon rivit.
+
+    Lohko eikä koko raportti, koska jokainen karsintasääntö on
+    kierrostyyppikohtainen: väite "rivi katosi" on tehtävä siitä lohkosta,
+    josta sen pitikin kadota, tai sama väite menisi läpi myös silloin kun
+    rivi katosi väärästä lohkosta.
+    """
+    part = text.split(f"**{heading}**", 1)[1]
+    rows: list[str] = []
+    for row in part.splitlines()[1:]:
+        if not row.strip():
+            if rows:
+                break
+            continue
+        rows.append(row)
+    return "\n".join(rows)
+
+
+def threshold_note(text: str, heading: str = "Default") -> str:
+    """Lohkon kuviosuodatuksen huomautus -- **väite datasta**, ei esitystä.
+
+    Oma apufunktio, koska juuri tämä rivi on kohta A: karsinta ei saa muuttaa
+    sitä, ja väitteen tekeminen koko lohkosta menisi läpi myös silloin, kun
+    huomautus muuttui ja jokin muu rivi katosi samalla.
+    """
+    rows = [
+        row
+        for row in block(text, heading).splitlines()
+        if "kuviot, jotka toistuvat" in row or "kynnystä ei ollut" in row
+    ]
+    return rows[0] if rows else ""
+
+
+# --- Kaikki säännöt pois: raportti on merkki merkiltä sama --------------------
+
+#: Golden :func:`pruning_map`in karttaluvusta **karsinta kokonaan pois**.
+#:
+#: Väite on regressiovartija: karsinta ei muuta karttalukua mitenkään, kun
+#: jokainen sääntö on pois päältä. Kiinnike laukaisee kaikki viisi sääntöä,
+#: joten testi kaatuu myös silloin, jos jokin sääntö karsii asetuksen ollessa
+#: pois -- ja se on se virhe, jota se ensisijaisesti etsii.
+#:
+#: **Alkuperä on toistettavissa, ei uskon asia.** Teksti on tarkistettu
+#: Story 2.13:a edeltävää koodia (baseline ``e9a8c88``) vasten, ja tarkistus
+#: toistetaan näin::
+#:
+#:     git worktree add ../pappascout-baseline e9a8c88
+#:     # kopioi tämän tiedoston pruning_map() ja renderöi se siellä
+#:     # ilman settings-parametria; vertaa karttalukua tähän vakioon
+#:
+#: Repossa oleva väite on se, minkä repo voi itse tarkistaa joka ajolla:
+#: **tämä teksti ei muutu**, kun karsinta on pois päältä. Vahvin todiste
+#: alkuperästä on kuitenkin arkiston oikeista raporteista tehty ``diff``,
+#: joka on tyhjä: se vertaa tuotettua raporttia tiedostoon, joka
+#: kirjoitettiin ennen tätä tarinaa. Molemmat kirjataan speksin Manual
+#: checks -osioon.
+GOLDEN_PRUNING_OFF_CHAPTER = """\
+## de_mirage -- 13 kierrosta, 1 demo
+
+### T-puoli -- 11 kierrosta
+
+**Eco** (4 kierrosta)
+- 6 s: Middle 2 (2/4 kierroksesta)
+- 15 s: Middle 2 (2/4 kierroksesta)
+- 30 s: Middle 1 (2/4 kierroksesta)
+- 45 s: Middle 1 (1/4 kierroksesta)
+- savu: TSpawn -> BombsiteA (arvio) 0-5 s (4/4 kierroksesta), TSpawn -> Palace (arvio) 0-5 s (3/4 kierroksesta), TSpawn -> Connector (arvio) 0-5 s (2/4 kierroksesta), TSpawn -> Ramp (arvio) 0-5 s (2/4 kierroksesta), TSpawn -> Apartments (arvio) 0-5 s (1/4 kierroksesta), TSpawn -> Catwalk (arvio) 0-5 s (1/4 kierroksesta), TSpawn -> Jungle (arvio) 0-5 s (1/4 kierroksesta), TSpawn -> Underpass (arvio) 0-5 s (1/4 kierroksesta), TSpawn -> Window (arvio) 0-5 s (1/4 kierroksesta)
+- aseistettuja ostoajan lopussa: 0 (4/4 kierroksesta)
+- panssaroituja ostoajan lopussa: 5 (4/4 kierroksesta)
+- ensimmäinen kuolema: Palace (2/3 kierroksesta), Ramp (1/3 kierroksesta) -- ei omia kuolemia 1 kierroksella
+- tapot alueittain: BombsiteA (5/20 taposta), Palace (4/20 taposta), Connector (3/20 taposta), Apartments (2/20 taposta), Ramp (2/20 taposta), Catwalk (1/20 taposta), Jungle (1/20 taposta), Underpass (1/20 taposta), Window (1/20 taposta)
+
+**Force** (3 kierrosta)
+- aseistettuja ostoajan lopussa: 3 (2/3 kierroksesta), 1 (1/3 kierroksesta)
+- panssaroituja ostoajan lopussa: 3 (2/3 kierroksesta), 1 (1/3 kierroksesta)
+- ensimmäinen kuolema: ei omia kuolemia 3 kierroksella
+
+**Puoliosto** (2 kierrosta) -- pieni otanta
+- aseistettuja ostoajan lopussa: 1 (2/2 kierroksesta)
+- panssaroituja ostoajan lopussa: 3 (2/2 kierroksesta)
+- ensimmäinen kuolema: ei omia kuolemia 2 kierroksella
+
+**Default** (2 kierrosta) -- pieni otanta -- vain toistuvat kuviot
+- *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; 5 harvinaisempaa havaintoa jäi pois.*
+- *Ei kuvioita, jotka ylittäisivät kynnyksen.*
+
+### CT-puoli -- 2 kierrosta
+
+**Pistooli** (2 kierrosta) -- pieni otanta
+- 30 s: Middle 2 (2/2 kierroksesta)
+- 45 s: Middle 1 (2/2 kierroksesta)
+- valo: CTSpawn -> BombsiteA (arvio) 0-5 s (2/2 kierroksesta), CTSpawn -> Connector (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Jungle (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Palace (arvio) 0-5 s (1/2 kierroksesta)
+- aseistettuja ostoajan lopussa: 5 (2/2 kierroksesta)
+- panssaroituja ostoajan lopussa: 5 (2/2 kierroksesta)
+- ensimmäinen kuolema: Connector (2/2 kierroksesta)
+- tapot alueittain: BombsiteA (3/8 taposta), Palace (2/8 taposta), Connector (1/8 taposta), Jungle (1/8 taposta), Window (1/8 taposta)"""
+
+
+def test_with_every_rule_off_the_map_chapter_is_what_it_was() -> None:
+    """Tarinan tärkein testi: karsinta ei muuta mitään muuta.
+
+    Osamerkkijonoväitteet eivät riitä tähän: ne eivät näe rivien
+    järjestystä, väitteiden järjestystä rivin sisällä eivätkä lohkojen
+    huomautuksia, ja juuri ne ovat se, mitä "merkki merkiltä sama"
+    tarkoittaa.
+    """
+    text = render(pruning_report(), NO_PRUNING)
+    assert map_chapter(text) == GOLDEN_PRUNING_OFF_CHAPTER
+    # Eikä muu dokumentti kanna karsinnasta jälkeäkään: lukuohjeessa ei ole
+    # kappaletta säännöstä, joka on pois päältä, eikä yhteenvedossa riviä
+    # säännöistä, joita ei ole. Karttaluku on lukittu goldeniin, ja nämä
+    # kaksi kattavat sen, mitä karsinta voisi muualta muuttaa -- muut luvut
+    # ovat lukittuina :data:`GOLDEN`issa.
+    assert "[report]." not in section_text(text, "Lukuohje")
+    assert "Karsinnan säännöt" not in summary_text(text)
+
+
+def test_the_summary_row_appears_only_when_a_rule_is_on() -> None:
+    """Kaikki säännöt pois -> ei riviä: raportti on entisellään.
+
+    Rivi kertoo, millä säännöillä raportti kirjoitettiin. Kun yksikään ei ole
+    päällä, ilmoitettavaa ei ole -- ja rivin kirjoittaminen rikkoisi tarinan
+    tärkeimmän lupauksen, joka on merkki merkiltä sama raportti kuin ennen
+    Story 2.13:a. Yksi sääntö riittää tuomaan rivin, ja rivi luettelee
+    silloin **kaikki** arvot, myös pois käännetyt.
+    """
+    assert "Karsinnan säännöt" not in summary_text(
+        render(pruning_report(), NO_PRUNING)
+    )
+    one_rule = ReportSettings(
+        drop_saturated_equipment_lines=False,
+        merge_equal_equipment_lines=False,
+        max_utility_targets=0,
+        max_kill_areas=1,
+    )
+    summary = summary_text(render(pruning_report(), one_rule))
+    assert "Karsinnan säännöt" in summary
+    assert "max_kill_areas 1" in summary
+    assert "drop_saturated_equipment_lines ei" in summary
+
+
+def test_pruning_never_touches_the_report_model() -> None:
+    """``report.json`` on jäljitettävyyden lähde: karsinta ei kirjoita siihen.
+
+    Malli serialisoidaan ennen ja jälkeen renderöinnin ja verrataan tavuina.
+    Karsittu arvo on siis yhä koneella, ja asetuksen kääntäminen takaisin
+    vaatii vain uuden renderöinnin -- ei uudelleenaggregointia.
+    """
+    entry = pruning_report()
+    before = entry.model_dump_json()
+    render(entry)
+    render(entry, NO_PRUNING)
+    assert entry.model_dump_json() == before
+
+
+def test_every_rule_is_its_own_setting() -> None:
+    """Veeti voi kääntää minkä tahansa säännön pois ilman koodimuutosta.
+
+    Yksi kerrallaan: jokaisen säännön poiskääntäminen palauttaa oman rivinsä,
+    eikä yksi asetus ohjaa kahta sääntöä.
+    """
+    entry = pruning_report()
+    with_defaults = render(entry)
+
+    without_saturated = render(
+        entry, ReportSettings(drop_saturated_equipment_lines=False)
+    )
+    assert "panssaroituja ostoajan lopussa: 5 (4/4" in block(
+        without_saturated, "Eco"
+    )
+    assert "- panssaroituja ostoajan lopussa" not in block(with_defaults, "Eco")
+
+    without_merge = render(entry, ReportSettings(merge_equal_equipment_lines=False))
+    assert MERGED_EQUIPMENT_LABEL not in without_merge
+    assert MERGED_EQUIPMENT_LABEL in with_defaults
+
+    assert "45 s:" in block(with_defaults, "Eco")
+    assert "45 s:" not in block(render(entry, SKIP_45), "Eco")
+
+    without_target_limit = render(entry, ReportSettings(max_utility_targets=0))
+    assert "Window" in block(without_target_limit, "Eco")
+    assert "Window" not in block(with_defaults, "Eco")
+
+    without_kill_limit = render(entry, ReportSettings(max_kill_areas=0))
+    assert "Underpass (1/20 taposta)" in block(without_kill_limit, "Eco")
+    assert "Underpass (1/20 taposta)" not in block(with_defaults, "Eco")
+
+
+# --- Kohta A: karsinta ei muuta väitettä datasta -----------------------------
+
+
+PRUNING_VARIANTS = {
+    "kaikki oletukset": DEFAULT_PRUNING,
+    "sääntö 3 päällä": SKIP_45,
+    "vain kylläinen": ReportSettings(
+        merge_equal_equipment_lines=False,
+        max_utility_targets=0,
+        max_kill_areas=0,
+    ),
+    "vain näytepiste": ReportSettings(
+        drop_saturated_equipment_lines=False,
+        merge_equal_equipment_lines=False,
+        skip_sample_seconds=[45.0],
+        max_utility_targets=0,
+        max_kill_areas=0,
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(PRUNING_VARIANTS))
+def test_the_pattern_threshold_note_is_the_same_with_and_without_pruning(
+    name: str,
+) -> None:
+    """Kohta A, katselmuskierros 1: lohkon kynnysmerkintä on **väite datasta**.
+
+    Kynnyksen pudottamien havaintojen määrä ei ole esitysvalinta vaan
+    havainto siitä, mikä ei toistunut riittävästi. Jos karsinta oikosulkisi
+    rivinrakentajan, laskuri pienenisi karsinnan mukana ja lohko sanoisi
+    *"jokainen havainto ylitti kynnyksen"* raportissa, jossa yksi ei
+    ylittänyt.
+
+    Kiinnikkeen ``default``-lohkossa sekä kylläinen kalustorivi että 45 s
+    -näytepiste jäävät kynnyksen alle, joten molemmat karsintasäännöt osuvat
+    riviin, jota ei kirjoitettaisi muutenkaan.
+    """
+    entry = pruning_report()
+    plain = threshold_note(render(entry, NO_PRUNING))
+    assert "harvinaisempaa havaintoa jäi pois" in plain
+    assert threshold_note(render(entry, PRUNING_VARIANTS[name])) == plain
+
+
+def test_a_row_the_threshold_already_dropped_is_not_claimed_as_pruned() -> None:
+    """Kohta A2: lukuohje ei väitä karsineensa riviä, jota ei kirjoitettu.
+
+    Lohkossa on kylläinen panssaririvi, jonka kuviosuodatus pudottaa
+    (kaksi kierrosta, kynnys kolme). Sääntö 1 ei siis poistanut mitään,
+    eikä se saa sanoa poistaneensa: puuttuvan rivin syy on kynnys, ja
+    lohkon oma huomautus kertoo sen.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_nuke",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "full",
+                                SMALL_SAMPLE - 1,
+                                players_armored=armored(SMALL_SAMPLE - 1, {5: 2}),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    text = render(entry)
+    assert "- panssaroituja ostoajan lopussa" not in text
+    legend = section_text(text, "Lukuohje")
+    assert "Kylläinen kalustorivi on jätetty pois" not in legend
+    assert "[report]." not in legend
+
+
+def test_a_pruned_row_does_not_leave_its_explanation_behind() -> None:
+    """Pudotetun rivin selitys ei jää lukuohjeeseen.
+
+    Ainoa tuntematon alue on 45 s -näytepisteellä, joka jätetään
+    kirjoittamatta. Lukuohje selittäisi muuten merkinnän, jota raportissa ei
+    ole -- sama virhe kuin karsintakappale säännöstä, joka ei osunut.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_nuke",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                2,
+                                positions=[
+                                    position(6.0, [area("Ramp", 2, {2: 2})], 2),
+                                    position(45.0, [area(None, 2, {1: 2})], 2),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    assert UNKNOWN_AREA in render(entry, NO_PRUNING)
+    assert UNKNOWN_AREA not in render(entry, SKIP_45)
+
+
+# --- Sääntö 1: kylläinen kalustorivi ------------------------------------------
+
+
+def test_a_saturated_equipment_line_is_left_out() -> None:
+    """I/O-matriisi: default-lohko, panssaroituja 5 kaikilla kierroksilla."""
+    eco = block(render(pruning_report()), "Eco")
+    assert "- panssaroituja ostoajan lopussa" not in eco
+    # Aseistettujen rivi ei ole kylläinen (0), joten se säilyy: sääntö koskee
+    # kylläistä lukemaa eikä kalustorivejä yleensä.
+    assert "aseistettuja ostoajan lopussa: 0 (4/4 kierroksesta)" in eco
+
+
+def test_the_legend_says_what_a_missing_equipment_line_means() -> None:
+    """Mikään ei katoa hiljaa: lukuohje kertoo mitä puuttuminen tarkoittaa."""
+    legend = section_text(render(pruning_report()), "Lukuohje")
+    assert "Kylläinen kalustorivi on jätetty pois" in legend
+    assert f"vain arvo {PLAYERS_ON_SERVER}" in legend
+    # Kylläisyys ei ole ainoa syy: kynnys voi pudottaa saman rivin, ja
+    # lukuohje ei saa väittää muuta (katselmuskierros 1, kohta D4).
+    assert "Kylläisyys ei ole ainoa syy" in legend
+    assert "[report].drop_saturated_equipment_lines" in legend
+
+
+def test_a_zero_line_is_not_saturated_even_though_it_never_varies() -> None:
+    """*"Ei kevuja"* on havainto, ei odotus.
+
+    Yksi pylväs arvolla 0 on yhtä yksitoikkoinen rivi kuin arvolla 5, mutta
+    se kertoo päinvastaisen asian -- ja juuri se rivi on tavoiteanalyysissä
+    (Ancient, CT). Sääntö on kirjoitettu arvolle, ei vaihtelun puutteelle.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco", 3, players_armored=armored(3, {0: 3})
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    assert "panssaroituja ostoajan lopussa: 0 (3/3 kierroksesta)" in render(entry)
+
+
+def test_a_saturated_line_with_unreadable_rounds_stays() -> None:
+    """Huomautus lukukelvottomista kierroksista on havainto, joka ei katoa."""
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                4,
+                                players_armored=armored(3, {5: 3}, unknown=1),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    text = render(entry)
+    assert "panssaroituja ostoajan lopussa: 5 (3/3 kierroksesta)" in text
+    assert "havainto puuttuu 1 kierrokselta" in text
+
+
+def test_a_varying_equipment_line_is_not_saturated() -> None:
+    """Kaksi pylvästä tarkoittaa, että lukema vaihteli -- vaihtelu on havainto."""
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco", 4, players_armored=armored(4, {5: 3, 4: 1})
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    assert "panssaroituja ostoajan lopussa: 5 (3/4" in render(entry)
+
+
+def test_both_counters_saturated_and_identical_drop_before_they_merge() -> None:
+    """Sääntöjen järjestys on kantava: kylläinen pudotetaan **ennen** yhdistämistä.
+
+    Jos yhdistäminen tapahtuisi ensin, lohkoon kirjoitettaisiin yksi rivi,
+    joka on juuri se odotus ("kaikilla viidellä sekä ase että panssari joka
+    kierroksella"), jonka sääntö 1 jättää sanomatta. Ilman tätä testiä
+    järjestys olisi dokumentoitu muttei valvottu.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                3,
+                                players_armed=armed(3, {5: 3}),
+                                players_armored=armored(3, {5: 3}),
+                                death_report=deaths(
+                                    first={"Middle": 3}, median=20.0
+                                ),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    text = render(entry)
+    assert MERGED_EQUIPMENT_LABEL not in text
+    assert "ostoajan lopussa" not in text
+    legend = section_text(text, "Lukuohje")
+    assert "Kylläinen kalustorivi on jätetty pois" in legend
+    assert "kirjoitettu yhtenä" not in legend
+
+
+# --- Sääntö 2: identtiset kalustorivit yhdeksi --------------------------------
+
+
+def test_identical_equipment_lines_become_one_line_that_says_both() -> None:
+    """I/O-matriisi: aseistettuja ja panssaroituja samalla jakaumalla.
+
+    Kiinnikkeessä luvut ovat 3 ja 1 -- sama sääntö, mutta ilman kylläisyyttä,
+    jotta testi mittaa yhdistämistä eikä sääntöä 1.
+    """
+    force = block(render(pruning_report()), "Force")
+    assert MERGED_EQUIPMENT_LABEL in force
+    assert "3 (2/3 kierroksesta), 1 (1/3 kierroksesta)" in force
+    assert "- aseistettuja ostoajan lopussa" not in force
+    assert "- panssaroituja ostoajan lopussa" not in force
+
+
+def test_the_merged_line_keeps_both_definitions_in_the_legend() -> None:
+    """Yhdistetty rivi kantaa molempien luvun, joten molemmat määritellään.
+
+    Ilman kumpaakin lippua lukija näkisi nimiön "aseistettuja ja
+    panssaroituja" ilman kummankaan sanan määritelmää -- ja määritelmien ero
+    on juuri se, mikä tekee identtisistä luvuista havainnon.
+    """
+    legend = section_text(render(pruning_report()), "Lukuohje")
+    assert "Aseistettu = panssari JA parannettu ase" in legend
+    assert "panssaroitu = panssari, aseesta riippumatta" in legend
+    assert "Aseistettujen ja panssaroitujen rivi on kirjoitettu yhtenä" in legend
+    assert "[report].merge_equal_equipment_lines" in legend
+
+
+def test_differing_equipment_lines_stay_two_lines() -> None:
+    """I/O-matriisi: aseistettuja 1, panssaroituja 3 -> kaksi riviä kuten ennen."""
+    half = block(render(pruning_report()), "Puoliosto")
+    assert "aseistettuja ostoajan lopussa: 1 (2/2 kierroksesta)" in half
+    assert "panssaroituja ostoajan lopussa: 3 (2/2 kierroksesta)" in half
+    assert MERGED_EQUIPMENT_LABEL not in half
+
+
+def test_the_same_bars_with_a_different_note_are_not_the_same_line() -> None:
+    """Pylväät identtiset, ``rounds_unknown`` eri: rivien huomautukset eroavat.
+
+    Huomautus on havainto ("havainto puuttuu 1 kierrokselta"), joten
+    yhdistetty rivi kertoisi sen vain toisesta laskurista.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                4,
+                                players_armed=armed(3, {3: 3}, unknown=1),
+                                players_armored=armored(3, {3: 3}),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    text = render(entry)
+    assert MERGED_EQUIPMENT_LABEL not in text
+    assert "aseistettuja ostoajan lopussa: 3 (3/3 kierroksesta)" in text
+    assert "panssaroituja ostoajan lopussa: 3 (3/3 kierroksesta)" in text
+
+
+# --- Sääntö 3: näytepiste pois ------------------------------------------------
+
+
+def test_the_late_sample_point_stays_by_default() -> None:
+    """Oletus on säilyttää: 45 s ei ole toistoa vaan ohut havainto."""
+    assert ReportSettings().skip_sample_seconds == []
+    assert "45 s:" in block(render(pruning_report()), "Eco")
+
+
+def test_a_named_sample_point_can_be_left_out() -> None:
+    """Asetus päällä -> rivi jätetään pois, ja muut näytepisteet säilyvät."""
+    eco = block(render(pruning_report(), SKIP_45), "Eco")
+    assert "45 s:" not in eco
+    assert "6 s:" in eco
+    assert "15 s:" in eco
+    assert "30 s:" in eco
+
+
+def test_the_legend_says_which_sample_point_is_missing_and_why() -> None:
+    legend = section_text(render(pruning_report(), SKIP_45), "Lukuohje")
+    assert "Näytepistettä 45 s ei kirjoiteta tähän raporttiin" in legend
+    assert "[parse].snapshot_seconds ole muuttunut" in legend
+    assert "[report].skip_sample_seconds" in legend
+
+
+def test_the_legend_does_not_quote_one_sample_points_numbers_for_another() -> None:
+    """Kappale ei väitä mitattuja lukuja näytepisteestä, jota ei mitattu.
+
+    45 s:n kattavuusluvut (53 %, 81 %) ovat ``settings.toml``issa ja
+    READMEssä, joissa ne perustelevat oletuksen. Lukuohjeessa ne olisivat
+    väärät heti, kun asetus nimeää jonkin muun näytepisteen -- ja se on
+    kelvollinen valinta.
+    """
+    legend = section_text(
+        render(pruning_report(), ReportSettings(skip_sample_seconds=[30.0])),
+        "Lukuohje",
+    )
+    assert "Näytepistettä 30 s ei kirjoiteta" in legend
+    assert "53 %" not in legend
+    assert "81 %" not in legend
+
+
+def test_the_sample_point_setting_matches_the_label_not_the_float() -> None:
+    """``45`` ja ``45.0`` tarkoittavat samaa riviä.
+
+    Asetuksen arvo on ihmisen kirjoittama TOML-luku ja näytepiste raportin
+    liukuluku; jos täsmäys olisi liukulukuvertailu, kirjoitusasu ratkaisisi
+    sen, poistuuko rivi.
+    """
+    text = render(pruning_report(), ReportSettings(skip_sample_seconds=[45]))
+    assert "45 s:" not in block(text, "Eco")
+
+
+def test_the_setting_and_the_row_label_share_one_formatter() -> None:
+    """Kaksi kerrosta, yksi muotoilu (:func:`seconds_label`).
+
+    Latausvaiheen tarkistus "kaksi arvoa näyttäisi rivillä samalta" ja rivin
+    nimiö ovat sama funktio. Ilman yhteistä lähdettä ne sopisivat vain
+    tänään: yhden desimaalin lisääminen riville tekisi kahdesta
+    asetusarvosta saman rivin ilman että validointi huomaisi.
+    """
+    assert seconds_label(45.0) == "45"
+    assert seconds_label(9.5) == "9,5"
+    assert view_module._seconds(9.5) == seconds_label(9.5)
+    with pytest.raises(ValidationError, match="kahdesti"):
+        ReportSettings(skip_sample_seconds=[45.0, 45.0000001])
+
+
+def test_first_contact_is_not_a_sample_point_that_can_be_named() -> None:
+    """Ensikontakti on kierroksen oma hetki, ei valittu näytepiste.
+
+    Sillä ei ole nimellistä sekuntilukua, joten mikään asetuksen arvo ei voi
+    osua siihen -- ei myöskään mediaanin sekuntiluku.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                2,
+                                positions=[
+                                    first_contact_position(
+                                        [area("Middle", 2, {2: 2})], 2, median=9.0
+                                    )
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    text = render(entry, ReportSettings(skip_sample_seconds=[9.0]))
+    assert "ensikontakti (mediaani 9,0 s): Middle 2 (2/2 kierroksesta)" in text
+
+
+# --- Säännöt 4 ja 5: yleisimmät, ja pudotettujen määrä rivillä ----------------
+
+
+def test_a_utility_line_keeps_the_two_most_common_targets() -> None:
+    """I/O-matriisi: rivillä 9 kohdetta -> kaksi yleisintä + maininta."""
+    eco = block(render(pruning_report()), "Eco")
+    smoke = [row for row in eco.splitlines() if row.startswith("- savu:")][0]
+    assert "TSpawn -> BombsiteA (arvio) 0-5 s (4/4 kierroksesta)" in smoke
+    assert "TSpawn -> Palace (arvio) 0-5 s (3/4 kierroksesta)" in smoke
+    assert "Connector" not in smoke
+    assert "7 harvinaisempaa kohdetta jäi pois" in smoke
+
+
+def test_the_target_limit_counts_targets_not_claims() -> None:
+    """Kohta C: sama kohde kahdessa aikaikkunassa on **yksi** kohde.
+
+    Aikaikkunat (``[aggregate].utility_seconds_buckets``) tuottavat samasta
+    kohteesta kaksi väitettä. Väitteitä rajaamalla kaksi säilytettyä paikkaa
+    voisi olla sama kohde kahdesti, ja rivi menettäisi jokaisen eri kohteen
+    samalla kun huomautus kutsuu niitä kohteiksi.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                6,
+                                utility=[
+                                    use(
+                                        "smoke", "TSpawn", "BombsiteA",
+                                        n=4, m=6, bucket="0-5",
+                                    ),
+                                    use(
+                                        "smoke", "TSpawn", "BombsiteA",
+                                        n=3, m=6, bucket="5-10",
+                                    ),
+                                    use(
+                                        "smoke", "TSpawn", "Ramp",
+                                        n=2, m=6, bucket="0-5",
+                                    ),
+                                    use(
+                                        "smoke", "TSpawn", "Palace",
+                                        n=1, m=6, bucket="0-5",
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    smoke = [
+        row
+        for row in block(render(entry), "Eco").splitlines()
+        if row.startswith("- savu:")
+    ][0]
+    # Kaksi kohdetta: BombsiteA (molemmat ikkunat) ja Ramp.
+    assert "BombsiteA (arvio) 0-5 s" in smoke
+    assert "BombsiteA (arvio) 5-10 s" in smoke
+    assert "Ramp" in smoke
+    assert "Palace" not in smoke
+    assert "1 harvinaisempaa kohdetta jäi pois" in smoke
+
+
+def test_a_kept_claim_does_not_borrow_the_other_explanation() -> None:
+    """Arvio ja tuntematon alue eivät sytytä toisiaan.
+
+    Rivillä on kaksi kohdetta: toisella on **havaittu** räjähdysalue mutta
+    tuntematon heittoalue, ja toinen (johdettu, "(arvio)") pudotetaan rajan
+    yli. Lukuohjeeseen kuuluu silloin tuntemattoman alueen selitys mutta
+    **ei** arvion selitystä -- ja päinvastoin, jos rajan yli menee
+    tuntematon.
+
+    Löytyi omasta koodista katselmuskierroksella 1: kaksi lippua oli
+    niputettu yhdeksi totuusarvoksi, joten toinen selitys ilmestyi toisen
+    takia. Vika oli latentti, koska yhdessäkään kiinnikkeessä ei ollut
+    tuntematonta heittoaluetta havaitulla räjähdysalueella.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                4,
+                                utility=[
+                                    use(
+                                        "smoke", None, "Middle",
+                                        n=3, m=4, source="observed",
+                                    ),
+                                    use(
+                                        "smoke", "TSpawn", "Ramp",
+                                        n=2, m=4, source="point_cloud",
+                                    ),
+                                    use(
+                                        "smoke", "TSpawn", "Palace",
+                                        n=1, m=4, source="observed",
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    legend = section_text(
+        render(entry, ReportSettings(max_utility_targets=1)), "Lukuohje"
+    )
+    assert UNKNOWN_AREA in legend
+    assert "(arvio) räjähdysalueen perässä" not in legend
+
+    # Ja rajan toiselle puolelle: kun arvio jää riville, sen selitys tulee --
+    # ja tuntemattoman alueen selitys ei tule sen mukana.
+    entry_two = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                4,
+                                utility=[
+                                    use(
+                                        "smoke", "TSpawn", "Middle",
+                                        n=3, m=4, source="point_cloud",
+                                    ),
+                                    use(
+                                        "smoke", None, "Ramp",
+                                        n=2, m=4, source="observed",
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    legend_two = section_text(
+        render(entry_two, ReportSettings(max_utility_targets=1)), "Lukuohje"
+    )
+    assert "(arvio) räjähdysalueen perässä" in legend_two
+    assert UNKNOWN_AREA not in legend_two
+
+
+def test_a_kill_line_keeps_the_three_most_common_areas() -> None:
+    """I/O-matriisi: rivillä 9 aluetta -> kolme yleisintä + maininta."""
+    eco = block(render(pruning_report()), "Eco")
+    kills = [row for row in eco.splitlines() if "tapot alueittain" in row][0]
+    assert "BombsiteA (5/20 taposta)" in kills
+    assert "Palace (4/20 taposta)" in kills
+    assert "Connector (3/20 taposta)" in kills
+    assert "Ramp" not in kills
+    assert "6 harvinaisempaa aluetta jäi pois" in kills
+
+
+def test_the_limit_continues_through_a_tie() -> None:
+    """Kohta E1: yhtä yleinen havainto ei ole *harvinaisempi*.
+
+    Neljä yhtä yleistä aluetta kolmen rajalla: rajan katkaiseminen keskeltä
+    pudottaisi toisen kahdesta identtisen otannan havainnosta ja huomautus
+    kutsuisi sitä harvinaisemmaksi. Raja on "yleisimmät", ei "enintään
+    kolme".
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                4,
+                                death_report=deaths(
+                                    first={"Middle": 4},
+                                    median=20.0,
+                                    kills={
+                                        "BombsiteA": 2,
+                                        "Palace": 2,
+                                        "Ramp": 2,
+                                        "Jungle": 2,
+                                    },
+                                ),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    kills = [
+        row
+        for row in block(render(entry), "Eco").splitlines()
+        if "tapot alueittain" in row
+    ][0]
+    for name in ("BombsiteA", "Palace", "Ramp", "Jungle"):
+        assert name in kills
+    assert "jäi pois" not in kills
+
+
+def test_the_dropped_count_follows_the_pattern_filter_wording() -> None:
+    """Sama lause kuin kuviosuodatuksella: "N harvinaisempaa X jäi pois".
+
+    Sanamuoto on ennakkotapaus eikä makuasia: lukija näkee saman lauseen
+    kahdesta eri syystä pois jääneistä havainnoista, ja kyse on samasta
+    asiasta -- rivi kertoo, mitä siltä puuttuu.
+    """
+    text = render(pruning_report())
+    assert "harvinaisempaa kohdetta jäi pois" in text
+    assert "harvinaisempaa aluetta jäi pois" in text
+    assert "harvinaisempaa havaintoa jäi pois" in render(report([default_map()]))
+
+
+def test_a_line_at_the_limit_gets_no_note() -> None:
+    """Tyhjä huomautus latoisi riville väliviivan ilman mitään perässä."""
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                2,
+                                utility=[
+                                    use("smoke", "TSpawn", "Middle", n=2, m=2),
+                                    use("smoke", "TSpawn", "Ramp", n=1, m=2),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    text = render(entry)
+    assert "Ramp" in text
+    assert "jäi pois" not in text
+
+
+def test_the_legend_names_the_limits_and_their_settings() -> None:
+    legend = section_text(render(pruning_report()), "Lukuohje")
+    assert "kirjoitetaan 2 yleisintä **kohdetta**" in legend
+    assert "[report].max_utility_targets" in legend
+    assert "kirjoitetaan 3 yleisintä aluetta" in legend
+    assert "[report].max_kill_areas" in legend
+
+
+# --- Suojatut kierrostyypit ---------------------------------------------------
+
+
+def test_the_pistol_block_is_not_pruned_by_any_rule() -> None:
+    """Speksin Always-sääntö: pistoolikierroksella luku on ostohavainto.
+
+    Yksi testi kaikista viidestä säännöstä, koska väite on yksi: sama lohko,
+    jossa jokainen sääntö osuisi, on identtinen sekä oletusasetuksilla (ja
+    sääntö 3 päällä) että karsinta kokonaan pois päältä.
+    """
+    pruned = block(render(pruning_report(), SKIP_45), "Pistooli")
+    plain = block(render(pruning_report(), NO_PRUNING), "Pistooli")
+    assert pruned == plain
+    # Ja nimeltä, jotta rivit eivät voi kadota molemmista yhtä aikaa.
+    assert "aseistettuja ostoajan lopussa: 5 (2/2 kierroksesta)" in pruned
+    assert "panssaroituja ostoajan lopussa: 5 (2/2 kierroksesta)" in pruned
+    assert "45 s:" in pruned
+    assert "CTSpawn -> Palace" in pruned
+    assert "Window (1/8 taposta)" in pruned
+
+
+def test_an_anomaly_block_is_protected_because_the_line_is_the_anomaly() -> None:
+    """``anomaly`` on talous, joka näytti mahdottomalta.
+
+    Kierrostyypin **koko peruste** on kalustorivi: ``classify`` merkitsi
+    kierroksen poikkeamaksi siksi, että osto ei vastannut edellisen
+    kierroksen lopputulosta. Kylläisen rivin pudottaminen poistaisi lohkon
+    ainoan syyn olla olemassa.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "anomaly",
+                                2,
+                                players_armed=armed(2, {5: 2}),
+                                players_armored=armored(2, {5: 2}),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    text = render(entry)
+    assert "aseistettuja ostoajan lopussa: 5 (2/2 kierroksesta)" in text
+    assert "panssaroituja ostoajan lopussa: 5 (2/2 kierroksesta)" in text
+    assert MERGED_EQUIPMENT_LABEL not in text
+
+
+def test_overtime_is_not_protected_and_the_reason_is_measured() -> None:
+    """``ot``:tä **ei** suojata: jatkoajan aloitusraha on täysi osto.
+
+    Jatkoajan ensimmäinen kierros näyttää pistoolikierrokselta, mutta
+    ``[league].ot_start_money`` on tässä liigassa 12 500 $, joten kaikki
+    ostavat täyden kaluston ja ``5/5`` on odotus kuten täydellä ostolla.
+    Riippuvuus on kirjoitettu ``PROTECTED_ROUND_TYPES``in docstringiin: jos
+    aloitusraha laskee pistoolitasolle, ``ot`` on suojattava.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "ot",
+                                3,
+                                players_armed=armed(3, {5: 3}),
+                                players_armored=armored(3, {5: 3}),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    assert "ostoajan lopussa" not in render(entry)
+    assert "ot" not in PROTECTED_ROUND_TYPES
+
+
+def test_the_protected_round_types_are_named_and_bounded() -> None:
+    """Rajaus on nimetty, jotta sen laajentaminen on sopimusmuutos."""
+    assert PROTECTED_ROUND_TYPES == frozenset({"pistol", "anomaly"})
+    assert PROTECTED_ROUND_TYPES <= set(ROUND_TYPES)
+    # Kuviorajaus ja karsinnan rajaus ovat eri joukkoja eri syistä; jos ne
+    # leikkaisivat, sama lohko olisi sekä "vain kuviot" että karsimaton.
+    assert not PROTECTED_ROUND_TYPES & PATTERN_ROUND_TYPES
+
+
+def test_every_pruning_paragraph_says_the_exception_out_loud() -> None:
+    """Kohta D1: ehdoton lause ja karsimaton lohko samassa raportissa.
+
+    Kappale, joka sanoo "kirjoitetaan kaksi yleisintä kohdetta", on väärä
+    lause raportissa, jonka pistoolilohko tulostaa neljä -- ellei se sano
+    poikkeusta ääneen. Väite ajetaan ``PROTECTED_ROUND_TYPES``ista, joten
+    kuudes suojattu tyyppi tai kuudes sääntö perii tarkistuksen.
+    """
+    legend = section_text(render(pruning_report(), SKIP_45), "Lukuohje")
+    paragraphs = [row for row in legend.splitlines() if "[report]." in row]
+    assert len(paragraphs) == 5
+    for paragraph in paragraphs:
+        assert "Karsinta ei koske näitä kierrostyyppejä" in paragraph
+        for round_type_name in PROTECTED_ROUND_TYPES:
+            assert ROUND_TYPE_FI[round_type_name] in paragraph
+
+
+# --- Lohko, joka tyhjenisi ----------------------------------------------------
+
+
+def emptied_block_report() -> Report:
+    """Lohko, jonka **ainoa** rivi on kylläinen kalustorivi.
+
+    Tila on tarkempi kuin miltä näyttää, ja siksi se on omassa
+    funktiossaan. Kierrostyypillä, jolla on kierroksia, on lähes aina
+    kuolemarivi: jos joukkue menetti pelaajan, rivillä on alue, ja jos ei,
+    rivillä on huomautus ("ei omia kuolemia 3 kierroksella"). Kumpaakaan ei
+    karsita, joten lohko ei tyhjene.
+
+    Ainoa reitti tyhjään lohkoon kulkee **kuvion kynnyksen** kautta: täydellä
+    ostolla jokainen hajonnut ensimmäisen kuoleman alue jää kynnyksen alle,
+    ja jos joukkue menetti pelaajan joka kierroksella, huomautustakaan ei
+    ole. Silloin jäljelle jää yksi rivi, ja sen kylläisyys laukaisisi säännön
+    1.
+    """
+    return report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "full",
+                                8,
+                                players_armored=armored(8, {5: 8}),
+                                death_report=deaths(
+                                    first={f"Alue{n}": 1 for n in range(8)}
+                                ),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+
+
+def test_a_rule_that_would_empty_a_block_keeps_the_lines_and_says_so() -> None:
+    """I/O-matriisi: sääntö poistaisi lohkon jokaisen rivin -> rivit säilyvät.
+
+    Tyhjä lohko lakkaisi kertomasta mitään, ja se on **vaimennuspäätös eikä
+    karsinta** -- vaimennus on rajattu tästä tarinasta ulos.
+    """
+    text = render(emptied_block_report())
+    assert "panssaroituja ostoajan lopussa: 5 (8/8 kierroksesta)" in text
+    assert "Karsinta olisi poistanut tästä lohkosta jokaisen rivin" in text
+    # Lukuohje ei väitä karsineensa mitään, koska mitään ei karsittu.
+    assert "Kylläinen kalustorivi on jätetty pois" not in text
+
+
+def test_the_kept_block_is_the_same_block_as_without_pruning() -> None:
+    """Paluu karsimattomaan on täydellinen eikä osittainen.
+
+    Lohko on rivi riviltä sama kuin ilman karsintaa -- ainoa ero on
+    huomautus, joka kertoo miksi. Ilman tätä väitettä toteutus voisi
+    palauttaa yhden rivin ja karsia loput.
+    """
+    entry = emptied_block_report()
+    kept = block(render(entry), "Default")
+    plain = block(render(entry, NO_PRUNING), "Default")
+    assert kept == plain + f"\n- *{_PRUNING_KEPT_THE_BLOCK}*"
+
+
+def test_the_kept_block_does_not_undo_a_shortened_row() -> None:
+    """Rivin katkaisu (säännöt 4 ja 5) ei kuulu paluuseen.
+
+    Katkaisu ei voi tyhjentää lohkoa, joten sen peruminen palauttaisi vain
+    sen 5-9 alkion luettelon, jota vastaan koko tarina on kirjoitettu.
+    Lohkossa on kylläinen kalustorivi (sääntö 1 pudottaisi sen) **ja**
+    yhdeksän tappoaluetta, joiden takia lohko ei tyhjene -- joten katkaisu
+    jää voimaan ja sääntö 1 peruutetaan.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "eco",
+                                4,
+                                players_armored=armored(4, {5: 4}),
+                                death_report=deaths(
+                                    first={"Middle": 4},
+                                    median=20.0,
+                                    kills=PRUNE_KILLS,
+                                ),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    eco = block(render(entry), "Eco")
+    assert "- panssaroituja ostoajan lopussa" not in eco
+    assert "harvinaisempaa aluetta jäi pois" in eco
+    assert "Karsinta olisi poistanut" not in eco
+
+
+def test_a_block_that_was_empty_anyway_is_not_blamed_on_pruning() -> None:
+    """Kynnys söi kaiken, eikä karsinta ollut siinä osallisena.
+
+    Sama kiinnike kuin edellä mutta ilman kylläistä riviä: lohko tyhjenee
+    kynnyksestä, ja se sanotaan sillä lauseella, jolla se on aina sanottu.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "T",
+                        [
+                            round_type(
+                                "full",
+                                8,
+                                death_report=deaths(
+                                    first={f"Alue{n}": 1 for n in range(8)}
+                                ),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    text = render(entry)
+    assert "Ei kuvioita, jotka ylittäisivät kynnyksen." in text
+    assert "Karsinta olisi poistanut" not in text
+
+
+# --- Lukuohje ja yhteenveto kertovat säännöistä ------------------------------
+
+
+def test_the_legend_explains_only_the_rules_that_pruned_something() -> None:
+    """Selitys säännöstä, joka ei osunut, olisi väite raportista joka ei pidä.
+
+    Pistoolikartalla jokainen sääntö on päällä mutta yksikään ei karsi, joten
+    yhtäkään karsintakappaletta ei kirjoiteta -- ei myöskään asetusten nimiä.
+    """
+    legend = section_text(render(report([pistol_map()])), "Lukuohje")
+    assert "Kylläinen kalustorivi on jätetty pois" not in legend
+    assert "yleisintä **kohdetta**" not in legend
+    assert "[report]." not in legend
+
+
+def test_the_summary_names_the_rules_even_when_nothing_was_pruned() -> None:
+    """Kohta D5: puhtaan raportin lukija näkee säädetyn arvon.
+
+    Karsintakappaleet kirjoitetaan vain osuneista säännöistä, joten niiden
+    puuttuminen ei kerro, oliko sääntö päällä. Yhteenveto luettelee
+    ``[report]``-osion samalla perusteella kuin kynnykset: lukija arvioi
+    väitettä sillä, miten se laskettiin -- ja karsinta päättää, mitkä
+    väitteet hän näkee.
+    """
+    summary = summary_text(render(report([pistol_map()]), SKIP_45))
+    assert "Karsinnan säännöt" in summary
+    for key in ReportSettings.model_fields:
+        assert key in summary
+    assert "skip_sample_seconds 45" in summary
+    assert "max_kill_areas 3" in summary
+
+
+def test_the_summary_row_is_mechanical_so_a_sixth_rule_joins_it() -> None:
+    """Rivi syntyy osion kentistä, ei käsin kirjoitetusta lauseesta.
+
+    Käsin kirjoitettu lause jäisi jälkeen juuri silloin, kun sääntö
+    lisätään -- ja se on tämän tarinan oma epäonnistumistapa (asetus, joka ei
+    näy missään).
+    """
+    summary = summary_text(render(report([pistol_map()])))
+    row = [line for line in summary.splitlines() if "Karsinnan säännöt" in line][0]
+    assert row.count(",") == len(ReportSettings.model_fields) - 1
+    assert "ei yhtään" in row
+
+
+# --- Mittari: paljonko lyhenee ------------------------------------------------
+
+
+def test_the_delivered_defaults_shorten_the_report() -> None:
+    """**Toimitettu kokoonpano** lyhentää raporttia, ei jokin muu.
+
+    Aiempi versio tästä testistä mittasi säännön 3 kanssa, joka on
+    oletuksena pois -- eli sitä kokoonpanoa, jota kukaan ei aja. Luku on
+    kiinnikkeen eikä RCAVE-raportin, joten se ei ole mitattu prosentti;
+    väite on suunta ja se, että jokainen pois jäänyt rivi on selitetty.
+    """
+    plain = content_rows(render(pruning_report(), NO_PRUNING))
+    delivered = content_rows(render(pruning_report(), DEFAULT_PRUNING))
+    assert len(delivered) < len(plain)
+    # Kaksi riviä: eco-lohkon kylläinen panssaririvi ja yhdistetyn parin
+    # toinen puolisko. Default-lohkon kylläinen rivi ei ole mukana, koska
+    # kynnys pudotti sen jo -- ja 45 s -rivi säilyy, koska sääntö 3 on
+    # oletuksena pois.
+    assert len(plain) - len(delivered) == 2
+    # Sääntö 3 päällä myös näytepiste lähtee: yksi rivi eco-lohkosta,
+    # pistoolilohko on suojattu ja default-lohkon rivi oli jo kynnyksen alla.
+    with_rule_three = content_rows(render(pruning_report(), SKIP_45))
+    assert len(delivered) - len(with_rule_three) == 1

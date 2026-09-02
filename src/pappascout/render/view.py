@@ -23,6 +23,35 @@ suodatus ei ole hiljainen.
 **Ei tulkintoja.** Rivit kertovat pelaajamääriä, kranaatteja ja alueita.
 Sanoja "fake", "rush" tai "hyvä" ei ole missään -- johtopäätös on lukijan.
 
+**Karsinta koskee esitystä eikä sisältöä** (Story 2.13). Viisi
+``[report]``-osion asetusta jättävät toistoa kirjoittamatta: kylläisen
+kalustorivin, identtisen kalustoriviparin toisen puolen, nimetyn
+näytepisteen sekä utilityn kohteet ja tappoalueet yleisimpiä lukuun
+ottamatta. Kolme sääntöä pätee jokaiseen:
+
+**Rivit rakennetaan ensin, karsitaan vasta sitten.** Kynnyksen pudottamat
+havainnot lasketaan rivinrakentajassa, joten oikosulku ennen sitä
+pienentäisi lohkon huomautusta -- eli karsinta muuttaisi **väitettä
+datasta**. Sama järjestys ratkaisee myös sen, milloin sääntö *ei* poistanut
+mitään: rivi, jota kuviosuodatus ei päästänyt syntymään, ei ole karsittu.
+
+**Mikään ei katoa hiljaa.** Jos rivi jätetään kirjoittamatta, lukuohje
+kertoo kertaalleen mitä sen puuttuminen tarkoittaa
+(:func:`_pruning_legend`); jos riviltä jää pois väitteitä, rivi kertoo
+pudotettujen määrän (:func:`_dropped_note`) -- sama sääntö kuin
+kuviosuodatuksella. Selitys kirjoitetaan vain säännöstä, joka oikeasti
+karsi jotakin, ja se nimeää asetuksensa.
+
+**Osa kierrostyypeistä on suojattu** (:data:`PROTECTED_ROUND_TYPES`), ja
+jokainen lukuohjeen karsintakappale sanoo sen ääneen: sama raportti
+sisältää karsimattomia lohkoja, joten ehdoton lause olisi väärä.
+
+``Report``, ``report.json`` ja ``REPORT_SCHEMA_VERSION`` eivät muutu, ja
+jokainen karsittu arvo on niissä yhä -- se vain jää kertomatta *tässä*
+raportissa. Mitatut perusteet ja luvut ovat ``settings.toml``issa ja
+READMEssä; mittausdokumentit itse asuvat BMAD-tuotoksissa eivätkä tässä
+repossa.
+
 **Kuolemat mahtuvat kahteen riviin.** Raportti on jo satoja rivejä, kun
 Veetin oma analyysi on 30. Kuolemat lisättiin siksi, että ne selittävät muut
 rivit -- ei siksi, että ne olisivat oma lukunsa. Raja on
@@ -62,8 +91,8 @@ kahdessa muodossa, ja raportin on oltava lyhyt.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from math import isfinite
 from typing import Any
@@ -76,7 +105,9 @@ from pappascout.constants import (
     SAMPLE_BUCKETS,
     UTILITY_BUCKET_ALL,
     UTILITY_BUCKET_UNKNOWN,
+    seconds_label,
 )
+from pappascout.domain.models import PLAYERS_ON_SERVER, ReportSettings
 from pappascout.domain.report import (
     Anomaly,
     AnomalyRound,
@@ -96,6 +127,8 @@ __all__ = [
     "GRENADE_ORDER",
     "ROUND_TYPE_ORDER",
     "PATTERN_ROUND_TYPES",
+    "PROTECTED_ROUND_TYPES",
+    "MERGED_EQUIPMENT_LABEL",
     "MAX_DEATH_LINES",
     "KILL_SAMPLE_UNIT",
     "UNKNOWN_AREA",
@@ -165,6 +198,52 @@ ROUND_TYPE_ORDER: tuple[str, ...] = (
 #: suuria viivoja". Täysi osto on kierroksen suunnitelmana epäselvin ja
 #: yleisin, joten kierroskohtainen kerronta olisi enimmäkseen toistoa.
 PATTERN_ROUND_TYPES: frozenset[str] = frozenset({"full", "ot"})
+
+#: Kierrostyypit, joita **ei karsita yhdelläkään säännöllä** (Story 2.13).
+#:
+#: Kaksi tyyppiä, kaksi eri perustetta -- ja molemmissa **kalustorivi on se
+#: havainto**, jonka karsinta poistaisi:
+#:
+#: ``pistol``
+#:     Story 2.8 mittasi, että panssariluku on ostohavainto vain
+#:     pistoolikierroksella: muualla se on hallussapitoa, joka periytyy
+#:     edelliseltä kierrokselta hengissä selvinneellä. Veetin analyysi
+#:     käsittelee pistoolikierroksia **kierroksen tarkkuudella** ja muita
+#:     kierrostyyppejä kuvioina, ja karsinta seuraa samaa jakoa -- sama jako,
+#:     jonka :data:`PATTERN_ROUND_TYPES` tekee toisesta päästä.
+#: ``anomaly``
+#:     ``classify`` varaa tyypin kahdelle tilanteelle: **havainto on
+#:     ristiriitainen** (varustearvo laski ostoaikana) tai **voiton jälkeen
+#:     ei ostettu käytännössä mitään**. Kummassakin juuri kalusto on se
+#:     havainto, joka teki kierroksesta poikkeaman, joten kylläisen rivin
+#:     pudottaminen poistaisi lohkon ainoan syyn olla olemassa. Toisin kuin
+#:     pistoolilla, peruste ei ole ostohavainto vs. hallussapito vaan se,
+#:     että lohko on **koottu tämän rivin perusteella**.
+#:
+#: **``ot`` ei ole suojattu, ja se on mittaustulos eikä oletus.** Jatkoajan
+#: ensimmäinen kierros näyttää pistoolikierrokselta, mutta
+#: ``[league].ot_start_money`` on tässä liigassa 12 500 $, joten jatkoajalla
+#: ostetaan täysi kalusto ja ``5/5`` on odotus kuten täydellä ostolla --
+#: mitattu arkiston raportista, jossa jatkoaikalohkon ``aseistettuja 5 (3/3)``
+#: ja ``panssaroituja 5 (3/3)`` karsiutuivat oikein. **Riippuvuus on
+#: kirjoitettava näkyviin, koska se ei ole ilmeinen:** jos ``ot_start_money``
+#: joskus laskee pistoolitasolle, ``ot`` on lisättävä tähän luetteloon.
+#:
+#: Luettelo on tässä eikä asetuksissa, koska se ei ole säädin vaan sen
+#: säännön rajaus, jota asetukset säätävät. Sen muuttaminen on
+#: sopimusmuutos, ja lukuohje nimeää tyypit ääneen
+#: (:func:`_protected_round_types_text`), joten kuudes sääntö perii
+#: poikkeuksen selittämisen automaattisesti.
+PROTECTED_ROUND_TYPES: frozenset[str] = frozenset({"pistol", "anomaly"})
+
+#: Yhdistetyn kalustorivin otsikko (Story 2.13, sääntö 2).
+#:
+#: Nimiö kertoo **molemmat** laskurit, koska rivi kantaa molempien luvun:
+#: identtinen jakauma tarkoittaa, että sama pylväs on sekä aseistettujen että
+#: panssaroitujen havainto. Yhden nimiön käyttäminen ("kalustoa") hukkaisi
+#: sen, kumpaa lukua rivi koskee, ja lukuohjeen määritelmät ovat nimenomaan
+#: näiden kahden sanan määritelmiä.
+MERGED_EQUIPMENT_LABEL = "aseistettuja ja panssaroituja ostoajan lopussa"
 
 #: Enintään näin monta riviä kuolemista kierrostyyppiä kohden.
 #:
@@ -409,6 +488,14 @@ class _Flags:
     ``dropped`` on juokseva laskuri: yksi kierrostyyppi lukee erotuksen omasta
     alku- ja loppulukemastaan, joten sama kenttä kelpaa sekä koko raportin
     että yhden lohkon kirjanpitoon.
+
+    **Kaksi eri lajia lippuja, ja niiden ero on karsinnan takia olennainen**
+    (Story 2.13). ``dropped`` on **kuviosuodatuksen kirjanpitoa**: se kertoo,
+    montako havaintoa kynnys pudotti, eikä karsinta saa muuttaa sitä --
+    lohkon huomautus on väite datasta. Kaikki muut ovat **esitystä**: ne
+    selittävät rivejä, jotka raportissa ovat. Siksi rivinrakentajille
+    annetaan oma :class:`_Flags` ja se yhdistetään :meth:`absorb`illa, joka
+    siirtää kirjanpidon aina ja esityksen vain jos rivi jäi raporttiin.
     """
 
     unknown_area: bool = False
@@ -417,6 +504,176 @@ class _Flags:
     armored_shown: bool = False
     kills_shown: bool = False
     dropped: int = 0
+
+    # -- Karsinta (Story 2.13). Yksi lippu per sääntö, koska lukuohje selittää
+    # **vain ne säännöt, jotka oikeasti karsivat jotakin**: sääntö, joka ei
+    # osunut kertaakaan, selittäisi puuttuvaa riviä jota ei ole, ja se olisi
+    # väite raportista joka ei pidä. Liput nostetaan siksi vasta kun rivi on
+    # rakennettu ja tiedetään, että se olisi kirjoitettu.
+    #: Sääntö 1 pudotti vähintään yhden kylläisen kalustorivin.
+    saturated_dropped: bool = False
+    #: Sääntö 2 kirjoitti vähintään yhden kalustorivin yhdistettynä.
+    equipment_merged: bool = False
+    #: Sääntö 3 jätti nämä näytepisteet kirjoittamatta -- nimiöt sellaisina
+    #: kuin ne rivillä olisivat lukeneet (``"45"``), jotta lukuohje voi nimetä
+    #: puuttuvan rivin samalla luvulla kuin muut rivit näyttävät omansa.
+    skipped_samples: list[str] = field(default_factory=list)
+    #: Sääntö 4 lyhensi vähintään yhtä utilityn kohderiviä.
+    #:
+    #: Totuusarvo eikä laskuri: pudotettujen määrä on **rivin perässä**, jossa
+    #: se koskee sitä riviä, ja koko raportin summa ei kertoisi lukijalle
+    #: mitään lisää. Lippu vastaa vain kysymykseen "selitetäänkö sääntö".
+    utility_targets_capped: bool = False
+    #: Sääntö 5 lyhensi vähintään yhtä tapporiviä. Sama peruste.
+    kill_areas_capped: bool = False
+
+    def absorb(self, other: "_Flags", *, keep: bool) -> None:
+        """Yhdistä yhden rivin liput koko raportin kirjanpitoon.
+
+        ``dropped`` siirtyy **aina**: se on kuviosuodatuksen kirjanpitoa, ja
+        sen on oltava sama luku riippumatta siitä, karsittiinko rivi. Ilman
+        tätä lohkon huomautus ("N harvinaisempaa havaintoa jäi pois")
+        pienenisi karsinnan mukana, eli karsinta muuttaisi **väitettä
+        datasta** -- juuri sen, mitä "karsinta koskee esitystä eikä sisältöä"
+        kieltää.
+
+        Esitystä koskevat liput siirtyvät vain kun ``keep`` on tosi eli kun
+        rivi jäi raporttiin. Muuten lukuohje selittäisi tuntemattoman alueen
+        tai arvion riviltä, jota lukija ei näe.
+        """
+        self.dropped += other.dropped
+        if not keep:
+            return
+        self.unknown_area |= other.unknown_area
+        self.estimated_area |= other.estimated_area
+        self.armed_shown |= other.armed_shown
+        self.armored_shown |= other.armored_shown
+        self.kills_shown |= other.kills_shown
+        self.saturated_dropped |= other.saturated_dropped
+        self.equipment_merged |= other.equipment_merged
+        self.utility_targets_capped |= other.utility_targets_capped
+        self.kill_areas_capped |= other.kill_areas_capped
+        for label in other.skipped_samples:
+            if label not in self.skipped_samples:
+                self.skipped_samples.append(label)
+
+
+@dataclass(frozen=True)
+class _UseEntry:
+    """Yksi utilityn kohderivin väite ja se, mitä siitä pitää selittää.
+
+    Nimetyt kentät eivätkä tuple, koska ``estimated`` ja ``unknown`` ovat
+    **eri asioita**: edellinen on johdettu räjähdysalue ("(arvio)") ja
+    jälkimmäinen alue, jonka nimeä ei saatu. Yhteen lippuun niputettuina
+    toinen selitys ilmestyisi lukuohjeeseen toisen takia -- ja lukuohje
+    selittää vain sen, mikä rivillä näkyy.
+
+    ``target`` on räjähdysalue **raakana** (``None`` = ei nimeä), koska
+    sääntö 4 rajaa kohteita: sama alue eri heittoalueelta tai eri
+    aikaikkunasta on sama kohde, ja nimiön muotoilu (arviomerkintä, ikkuna)
+    ei kuulu vertailuun.
+    """
+
+    #: Järjestysavain: yleisin ensin, tasatilanteessa teksti.
+    rank: tuple[int, str]
+    claim: Claim
+    target: str | None
+    estimated: bool
+    unknown: bool
+
+
+@dataclass(frozen=True)
+class _Row:
+    """Yksi rakennettu rivi ja se, mitä karsinta siitä päätti.
+
+    Rivit rakennetaan **kertaalleen ja karsitaan vasta sitten**, ja tämä olio
+    on se, mikä tekee järjestyksestä mahdollisen. Kaksi syytä:
+
+    1. **Kynnyksen kirjanpito.** Rivinrakentaja on ainoa paikka, joka laskee
+       kynnyksen pudottamat havainnot. Jos karsinta ohittaisi rakentajan,
+       lohkon huomautus pienenisi karsinnan mukana ja väittäisi datasta
+       jotakin muuta kuin karsimaton raportti.
+    2. **Lohko, joka tyhjenisi.** Paluu karsimattomaan ei vaadi toista
+       rakennuskierrosta, koska karsimaton rivi on tallessa
+       (:attr:`plain`) -- eikä siis myöskään sitä, että rivinrakentajat
+       ajettaisiin kahdesti samoilla luvuilla.
+    """
+
+    #: Rivi ilman karsintaa.
+    plain: Line
+    #: Rivi karsinnan jälkeen. ``None`` = karsinta pudotti sen kokonaan.
+    kept: Line | None
+    #: Rivinrakentajan liput. ``None`` = liput on jo yhdistetty suoraan
+    #: kirjanpitoon, koska karsinta ei voi pudottaa tätä riviä.
+    flags: _Flags | None = None
+    #: Yhdistetäänkö esitysliput, vaikka rivi itse ei jäisi. Yhdistetty
+    #: kalustorivi (sääntö 2) kantaa **molempien** laskurien luvun, joten
+    #: molempien määritelmät tarvitaan lukuohjeeseen, vaikka toinen rivi ei
+    #: ole raportissa omanaan.
+    keep_flags: bool = False
+
+
+@dataclass(frozen=True)
+class _Pruning:
+    """Yhden kierrostyypin karsintasäännöt valmiiksi ratkaistuina.
+
+    Olio eikä asetusosio suoraan, koska **suojatulla kierrostyypillä jokainen
+    sääntö on pois** (:data:`PROTECTED_ROUND_TYPES`): ilman yhtä paikkaa,
+    jossa poikkeus ratkaistaan, sama ``if`` toistuisi viidessä funktiossa ja
+    kuudes lisäys unohtaisi sen. Rakentaja on siis ainoa paikka, joka tietää
+    kierrostyypin, ja loput koodi lukee valmiita arvoja.
+
+    :meth:`off` on suojatun kierrostyypin sääntö. Lohkon tyhjenemiseen sitä
+    **ei tarvita**: karsimattomat rivit ovat tallessa :class:`_Row`issa, joten
+    paluu ei vaadi toista rakennuskierrosta -- eikä siten myöskään sitä, että
+    rivin katkaisu (säännöt 4 ja 5) peruttaisiin. Katkaisu ei voi tyhjentää
+    lohkoa, joten sen peruminen palauttaisi vain sen 5-9 alkion luettelon,
+    jota vastaan koko tarina on kirjoitettu.
+    """
+
+    #: Sääntö 1.
+    drop_saturated: bool
+    #: Sääntö 2.
+    merge_equal: bool
+    #: Sääntö 3: näytepisteiden nimiöt (``{"45"}``) eikä liukuluvut. Täsmäys
+    #: tehdään siinä muodossa, jossa luku on rivillä, joten ``45`` ja ``45.0``
+    #: tarkoittavat samaa riviä eikä liukulukuvertailu voi mennä ohi.
+    skipped_seconds: frozenset[str]
+    #: Sääntö 4; ``0`` = ei rajaa.
+    max_utility_targets: int
+    #: Sääntö 5; ``0`` = ei rajaa.
+    max_kill_areas: int
+
+    @classmethod
+    def for_round_type(
+        cls, settings: ReportSettings, round_type: str
+    ) -> "_Pruning":
+        if round_type in PROTECTED_ROUND_TYPES:
+            return cls.off()
+        return cls(
+            drop_saturated=settings.drop_saturated_equipment_lines,
+            merge_equal=settings.merge_equal_equipment_lines,
+            skipped_seconds=frozenset(
+                seconds_label(value) for value in settings.skip_sample_seconds
+            ),
+            max_utility_targets=settings.max_utility_targets,
+            max_kill_areas=settings.max_kill_areas,
+        )
+
+    @classmethod
+    def off(cls) -> "_Pruning":
+        """Karsinta pois: raportti on se, joka oli ennen Story 2.13:a."""
+        return cls(
+            drop_saturated=False,
+            merge_equal=False,
+            skipped_seconds=frozenset(),
+            max_utility_targets=0,
+            max_kill_areas=0,
+        )
+
+    def skips(self, position: Position) -> bool:
+        """Jätetäänkö tämä näytepiste kirjoittamatta (sääntö 3)."""
+        return _sample_key(position) in self.skipped_seconds
 
 
 # -- Muotoilu --------------------------------------------------------------------
@@ -491,8 +748,19 @@ def players_text(count: int) -> str:
 
 
 def _seconds(value: float) -> str:
-    """Sekuntiluku suomalaisella desimaalipilkulla: ``9.0 -> '9'``."""
-    return f"{value:g}".replace(".", ",")
+    """Sekuntiluku suomalaisella desimaalipilkulla: ``9.0 -> '9'``.
+
+    Muotoilu itse on :func:`~pappascout.constants.seconds_label`issa, koska
+    **asetus ja rivi joutuvat olemaan siitä samaa mieltä** (Story 2.13):
+    ``[report].skip_sample_seconds`` nimeää näytepisteen sillä luvulla, jonka
+    lukija näkee rivillä, ja latausvaiheen tarkistus "kaksi arvoa näyttäisi
+    rivillä samalta" käyttää samaa funktiota. Kahtena kopiona ne sopisivat
+    vain tänään.
+
+    Nimi jää tähän, koska tämä moduuli käyttää sitä kahdessakymmenessä
+    paikassa eikä yksikään niistä ole asetusten täsmäystä.
+    """
+    return seconds_label(value)
 
 
 def _median_seconds(value: float) -> str:
@@ -616,6 +884,58 @@ def _position_line(position: Position, min_n: int, flags: _Flags) -> Line | None
     )
 
 
+def _sample_key(position: Position) -> str | None:
+    """Näytepisteen tunnus karsinnalle: sekuntiluku **rivin nimiön muodossa**.
+
+    Täsmäys tehdään merkkijonona eikä liukulukuvertailuna, jotta asetus
+    ``45`` ja näytepiste ``45.0`` tarkoittavat samaa riviä: asetuksen arvo on
+    ihmisen kirjoittama TOML-luku ja näytepiste raportin liukuluku, eikä
+    niiden tarvitse olla tavu tavulta sama arvo täsmätäkseen siihen, mitä
+    lukija rivillä näkee.
+
+    ``None`` ensikontaktille: se ei ole valittu näytepiste vaan kierroksen
+    oma hetki, eikä sillä ole nimellistä sekuntilukua, jolla sen voisi
+    asetuksessa nimetä.
+    """
+    if position.sample_kind != "time" or position.seconds is None:
+        return None
+    return _seconds(position.seconds)
+
+
+def _keep_most_common(
+    entries: Sequence[Any], limit: int, n_of: Callable[[Any], int]
+) -> tuple[list[Any], int]:
+    """Yleisimmät ``limit`` kappaletta, **tasatilanne mukaan luettuna**.
+
+    ``limit <= 0`` tarkoittaa "ei rajaa": rivin tyhjentäminen ei ole
+    karsintaa vaan vaimennus, joka on rajattu Story 2.13:sta ulos, joten
+    nollaa ei tulkita rajaksi.
+
+    **Tasatilanne jatkaa rajaa.** Jos katkaisukohdan jälkeen on yhtä yleinen
+    havainto kuin viimeinen säilytetty, se säilytetään myös: muuten rivi
+    pudottaisi kahdesta identtisen otannan havainnosta toisen ja huomautus
+    kutsuisi sitä *harvinaisemmaksi*, mikä on väärä väite. Kolmen rajalla
+    neljä yhtä yleistä aluetta tuottaa siis neljä aluetta -- raja on
+    "yleisimmät", ei "enintään kolme".
+
+    ``entries`` on **oletettava valmiiksi järjestetyksi** yleisimmästä
+    harvinaisimpaan; kutsuja tekee sen jo, koska rivin järjestys on sen oma
+    päätös.
+
+    Returns:
+        ``(säilytetyt, pudotettujen määrä)``.
+    """
+    if limit <= 0 or len(entries) <= limit:
+        return list(entries), 0
+    cutoff = n_of(entries[limit - 1])
+    kept = [
+        entry
+        for index, entry in enumerate(entries)
+        if index < limit or n_of(entry) == cutoff
+    ]
+    return kept, len(entries) - len(kept)
+
+
 def _position_label(position: Position) -> str:
     """Näytepisteen otsikko: ``15 s`` tai ``ensikontakti (mediaani 9 s)``."""
     if position.sample_kind == "time":
@@ -658,7 +978,7 @@ def _utility_count_line(
 
 
 def _utility_use_lines(
-    uses: Sequence[UtilityUse], min_n: int, flags: _Flags
+    uses: Sequence[UtilityUse], min_n: int, flags: _Flags, pruning: _Pruning
 ) -> list[Line]:
     """Rivit "mistä minne" -- tavoiteanalyysin "T-spawnista CT-savu B sitelle".
 
@@ -666,35 +986,114 @@ def _utility_use_lines(
     heitot ovat samalla rivillä, koska raportti luetaan ottelua edeltävässä
     kiireessä: viisi savuriviä peräkkäin vie viisi riviä kertoakseen yhden
     asian ("savut menevät B:lle").
+
+    **Sääntö 4 (Story 2.13) rajaa kohteita eikä väitteitä.** Mitattuna
+    kymmenellä rivillä oli kohteita viidestä yhdeksään, ja sellainen rivi on
+    luettelo eikä kuvio. Kohde on **räjähdysalue**, ja sama kohde voi olla
+    rivillä useammin kuin kerran: eri heittoalueelta tai eri aikaikkunassa
+    (``[aggregate].utility_seconds_buckets``). Väitteitä rajaamalla kaksi
+    säilytettyä paikkaa voisi olla sama kohde kahdessa ikkunassa, jolloin
+    rivi menettäisi jokaisen eri kohteen samalla kun huomautus kutsuu niitä
+    kohteiksi -- ja juuri se on se virhe, jota mitattu peruste ei tarkoita.
+
+    Säilytetyn kohteen **jokainen** väite jää riville: rivi kertoo mihin
+    utility menee, ja sama kohde kahdessa ikkunassa on kaksi eri havaintoa
+    samasta kohteesta.
+
+    Järjestys on väitteiden oma (yleisin ensin), ei kohteittain ryhmitelty:
+    ilman rajaa rivi on **merkki merkiltä** se, joka oli ennen Story 2.13:a.
     """
-    rows: dict[str, list[tuple[Any, Claim]]] = {}
+    rows: dict[str, list[_UseEntry]] = {}
     for use in uses:
         if use.n < min_n:
             if min_n > 1:
                 flags.dropped += 1
             continue
-        if use.throw_area is None or use.detonate_area is None:
-            flags.unknown_area = True
         target = _area(use.detonate_area)
-        if use.area_source == "point_cloud":
-            flags.estimated_area = True
-            target += ESTIMATE_MARK
-        text = f"{_area(use.throw_area)} -> {target}{_bucket_text(use.seconds_bucket)}"
+        estimated = use.area_source == "point_cloud"
+        text = (
+            f"{_area(use.throw_area)} -> {target}"
+            f"{ESTIMATE_MARK if estimated else ''}"
+            f"{_bucket_text(use.seconds_bucket)}"
+        )
         extra = f"{use.throws} heittoa" if use.throws != use.n else None
+        unknown = use.throw_area is None or use.detonate_area is None
         rows.setdefault(use.grenade_type, []).append(
-            ((-use.n, text), Claim(text=text, n=use.n, m=use.m, extra=extra))
+            _UseEntry(
+                rank=(-use.n, text),
+                claim=Claim(text=text, n=use.n, m=use.m, extra=extra),
+                target=use.detonate_area,
+                estimated=estimated,
+                unknown=unknown,
+            )
         )
 
     lines: list[Line] = []
     for grenade_type in sorted(rows, key=_grenade_rank):
-        claims = sorted(rows[grenade_type], key=lambda item: item[0])
+        entries = sorted(rows[grenade_type], key=lambda entry: entry.rank)
+        kept, dropped = _kept_targets(entries, pruning.max_utility_targets)
+        if dropped:
+            flags.utility_targets_capped = True
+        # Liput vasta säilytetyistä väitteistä ja **erikseen**: pudotetun
+        # väitteen arvio tai tuntematon alue selittäisi lukuohjeessa rivin,
+        # jota ei ole -- ja arvio (johdettu räjähdysalue) on eri asia kuin
+        # tuntematon alue (nimeä ei saatu), joten yhteen lippuun niputettuna
+        # toinen selitys ilmestyisi toisen takia.
+        for entry in kept:
+            flags.unknown_area |= entry.unknown
+            flags.estimated_area |= entry.estimated
         lines.append(
             Line(
                 label=_grenade(grenade_type),
-                claims=tuple(claim for _, claim in claims),
+                claims=tuple(entry.claim for entry in kept),
+                note=_dropped_note(dropped, "kohdetta"),
             )
         )
     return lines
+
+
+def _kept_targets(
+    entries: Sequence[_UseEntry], limit: int
+) -> tuple[list[_UseEntry], int]:
+    """Säilytettävät väitteet, kun raja koskee **kohteita** (sääntö 4).
+
+    Kohteet asetetaan järjestykseen sillä väitteellä, joka niistä on yleisin:
+    väitteet ovat jo järjestyksessä, joten kohteen ensiesiintymä kertoo sen
+    sijan. Rajaus tehdään kohdejoukolle (tasatilanne mukaan luettuna), ja
+    väitteet suodatetaan sen mukaan **alkuperäisessä järjestyksessä**.
+
+    Returns:
+        ``(säilytetyt väitteet, pudotettujen kohteiden määrä)``.
+    """
+    order: list[str | None] = []
+    best: dict[str | None, int] = {}
+    for entry in entries:
+        if entry.target not in best:
+            best[entry.target] = entry.claim.n
+            order.append(entry.target)
+    kept_targets, dropped = _keep_most_common(order, limit, lambda a: best[a])
+    if not dropped:
+        return list(entries), 0
+    allowed = set(kept_targets)
+    return [entry for entry in entries if entry.target in allowed], dropped
+
+
+def _dropped_note(dropped: int, unit: str) -> str | None:
+    """Rivin oma huomautus siitä, montako havaintoa siltä jäi pois.
+
+    Sanamuoto on **kuviosuodatuksen sanamuoto** ("119 harvinaisempaa
+    havaintoa jäi pois", :func:`_round_type_view`): lukija näkee saman
+    lauseen kahdesta eri syystä pois jääneistä havainnoista, ja se on
+    tarkoitus -- kyse on samasta asiasta, rivi kertoo mitä siltä puuttuu.
+    Yksikkö vaihtuu, koska kohde ja alue ovat eri asioita eikä "havaintoa"
+    kertoisi kummasta on kyse.
+
+    ``None`` kun mitään ei pudotettu: tyhjä huomautus latoisi riville
+    väliviivan ilman mitään sen perässä.
+    """
+    if not dropped:
+        return None
+    return f"{dropped} harvinaisempaa {unit} jäi pois"
 
 
 def _bucket_text(bucket: str) -> str:
@@ -760,7 +1159,9 @@ def _first_contact_gap_line(
     )
 
 
-def _death_lines(deaths: DeathReport, min_n: int, flags: _Flags) -> list[Line]:
+def _death_lines(
+    deaths: DeathReport, min_n: int, flags: _Flags, pruning: _Pruning
+) -> list[Line]:
     """Enintään :data:`MAX_DEATH_LINES` riviä: ensimmäinen kuolema ja tapot.
 
     Kaksi riviä, koska kuolemat selittävät muut rivit eivätkä ole oma
@@ -780,6 +1181,18 @@ def _death_lines(deaths: DeathReport, min_n: int, flags: _Flags) -> list[Line]:
     ketään. Tapporivillä vastaavaa ei ole, koska "nolla tappoa" ei ole
     laskettu mihinkään lukuun. Kierrostyyppi, jolla ei ole kuolemia eikä
     kierroksia, ei tuota kumpaakaan riviä.
+
+    **Sääntö 5 (Story 2.13) koskee vain tapporiviä.** Tapporivi on koko
+    kierrostyypin tapot yhdellä rivillä, ja mitattuna siltä karsiutuu 29
+    väitettä kolmeen yleisimpään alueeseen rajattuna. Ensimmäisen kuoleman
+    riviä **ei rajata**, ja peruste on mitattu eikä pääteltu: sen jakauma on
+    kierroksia ja ``Σ n = m``, joten alueita voi olla enintään yhtä monta kuin
+    kierroksia -- ja arkiston molemmissa raporteissa (8 demoa, 7 karttahaaraa,
+    52 kierrostyyppilohkoa) rivin leveys on **enintään 3 aluetta**, mediaani
+    1. Tapporivin nimittäjä
+    on tappoja, joten sama alue voi toistua kymmenissä tapoissa ja rivi
+    kasvaa riippumatta kierrosten määrästä; juuri se ero tekee toisesta
+    luettelon ja toisesta jakauman.
     """
     lines: list[Line] = []
 
@@ -806,29 +1219,38 @@ def _death_lines(deaths: DeathReport, min_n: int, flags: _Flags) -> list[Line]:
             )
         )
 
-    kill_claims: list[tuple[int, str, Claim]] = []
+    kill_claims: list[tuple[int, str, Claim, bool]] = []
     for entry in deaths.kills:
         if entry.n < min_n:
             if min_n > 1:
                 flags.dropped += 1
             continue
         name = _area(entry.area)
-        if entry.area is None:
-            flags.unknown_area = True
         kill_claims.append(
             (
                 -entry.n,
                 name,
                 Claim(text=name, n=entry.n, m=entry.m, unit=KILL_SAMPLE_UNIT),
+                entry.area is None,
             )
         )
     if kill_claims:
         flags.kills_shown = True
         kill_claims.sort(key=lambda item: item[:2])
+        kept, dropped = _keep_most_common(
+            kill_claims, pruning.max_kill_areas, lambda item: item[2].n
+        )
+        if dropped:
+            flags.kill_areas_capped = True
+        # Lippu vasta säilytetyistä alueista: pudotettu tuntematon alue
+        # selittäisi lukuohjeessa rivin, jota ei ole.
+        if any(unknown for _, _, _, unknown in kept):
+            flags.unknown_area = True
         lines.append(
             Line(
                 label="tapot alueittain",
-                claims=tuple(claim for _, _, claim in kill_claims),
+                claims=tuple(claim for _, _, claim, _ in kept),
+                note=_dropped_note(dropped, "aluetta"),
             )
         )
 
@@ -955,8 +1377,292 @@ def _armored_line(
     return line
 
 
+def _equipment_rows(
+    report_type: RoundTypeReport,
+    min_n: int,
+    flags: _Flags,
+    pruning: _Pruning,
+) -> tuple[list[_Row], bool, bool]:
+    """Kalustorivit: aseistetut ja panssaroidut, karsintasäännöt 1 ja 2.
+
+    Rivit ovat yhdessä funktiossa siksi, että molemmat säännöt koskevat
+    **paria** eivätkä yksittäistä riviä: sääntö 1 vertaa jakaumaa täyteen
+    joukkueeseen ja sääntö 2 vertaa jakaumia toisiinsa. Erikseen
+    kirjoitettuina kumpikaan ei näkisi toista, ja yhdistäminen edellyttää
+    tietoa siitä, ettei toista riviä jo pudotettu.
+
+    **Rivit rakennetaan ensin, karsitaan vasta sitten.** Järjestys ei ole
+    makuasia vaan koko säännön ehto:
+
+    * Rivinrakentaja on ainoa paikka, joka laskee kuviosuodatuksen
+      pudottamat pylväät. Oikosulku ennen sitä pienentäisi lohkon
+      huomautusta, eli karsinta muuttaisi **väitettä datasta**.
+    * Kylläinen rivi voi jäädä kirjoittamatta myös **kynnyksen takia**
+      (täydellä ostolla kaksi kierrosta ei riitä kuvioksi). Silloin sääntö 1
+      ei poistanut mitään, eikä se saa sanoa lukuohjeessa poistaneensa.
+
+    Järjestys sääntöjen kesken on säännön numero: kylläinen rivi pudotetaan
+    **ensin**, koska jos molemmat ovat kylläisiä, yhdistäminen kirjoittaisi
+    rivin, joka on juuri se odotus, jonka sääntö 1 jättää sanomatta.
+
+    Args:
+        report_type: Kierrostyypin havainnot raportista.
+        min_n: Toistumisen kynnys, sama kuin muilla riveillä.
+        flags: Raportin laajuinen kerääjä. Tarvitaan tässä siksi, että rivi,
+            jota **ei syntynyt lainkaan**, ei mahdu :class:`_Row`iin -- ja
+            juuri sen kynnyskirjanpito on se, jonka katoaminen tekisi lohkon
+            huomautuksesta väärän.
+        pruning: Tämän kierrostyypin karsintasäännöt.
+
+    Returns:
+        ``(rivit, pudottiko sääntö 1, yhdistettiinkö sääntö 2:lla)``. Rivit
+        ovat :class:`_Row`-olioita, joten kutsuja näkee sekä karsitun että
+        karsimattoman muodon eikä joudu rakentamaan mitään toista kertaa.
+    """
+    armed = report_type.players_armed
+    armored = report_type.players_armored
+    armed_flags, armored_flags = _Flags(), _Flags()
+    armed_line = _armed_line(armed, min_n, armed_flags)
+    armored_line = _armored_line(armored, min_n, armored_flags)
+    # Rivi, jota kuviosuodatus ei päästänyt syntymään, ei mahdu ``_Row``iin,
+    # mutta sen kirjanpito kuuluu lohkolle: ilman tätä lohkon huomautus
+    # pienenisi eikä kertoisi, montako havaintoa jäi kynnyksen alle.
+    if armed_line is None:
+        flags.absorb(armed_flags, keep=False)
+    if armored_line is None:
+        flags.absorb(armored_flags, keep=False)
+
+    armed_bars = [(bar.armed, bar.n) for bar in armed.counts]
+    armored_bars = [(bar.armored, bar.n) for bar in armored.counts]
+    drop_armed = (
+        pruning.drop_saturated
+        and armed_line is not None
+        and _is_saturated(armed_bars, armed.rounds_unknown)
+    )
+    drop_armored = (
+        pruning.drop_saturated
+        and armored_line is not None
+        and _is_saturated(armored_bars, armored.rounds_unknown)
+    )
+    saturated_dropped = drop_armed or drop_armored
+
+    merge = (
+        pruning.merge_equal
+        and armed_line is not None
+        and armored_line is not None
+        and not drop_armed
+        and not drop_armored
+        and _same_distribution(armed_bars, armored_bars, armed, armored)
+    )
+    if merge:
+        # Uusi nimiö samoille väitteille: rivi kantaa molempien laskurien
+        # luvun, joten se on uudelleennimeäminen eikä uusi laskenta.
+        merged = Line(
+            label=MERGED_EQUIPMENT_LABEL,
+            claims=armed_line.claims,
+            note=armed_line.note,
+        )
+        return (
+            [
+                _Row(plain=armed_line, kept=merged, flags=armed_flags),
+                # Panssaririvi ei jää omanaan, mutta sen liput jäävät:
+                # lukuohjeen on määriteltävä molemmat sanat, tai yhdistetty
+                # rivi kertoisi luvun ilman määritelmää.
+                _Row(
+                    plain=armored_line,
+                    kept=None,
+                    flags=armored_flags,
+                    keep_flags=True,
+                ),
+            ],
+            saturated_dropped,
+            True,
+        )
+
+    rows: list[_Row] = []
+    if armed_line is not None:
+        rows.append(
+            _Row(
+                plain=armed_line,
+                kept=None if drop_armed else armed_line,
+                flags=armed_flags,
+            )
+        )
+    # Panssaririvi heti aseistettujen perässä: niiden ero on itse havainto,
+    # eikä sitä näe, jos rivien välissä on muuta.
+    if armored_line is not None:
+        rows.append(
+            _Row(
+                plain=armored_line,
+                kept=None if drop_armored else armored_line,
+                flags=armored_flags,
+            )
+        )
+    return rows, saturated_dropped, False
+
+
+def _is_saturated(bars: Sequence[tuple[int, int]], rounds_unknown: int) -> bool:
+    """Onko kalustorivi **kylläinen** eli odotus eikä havainto (sääntö 1).
+
+    Kolme ehtoa, ja jokainen niistä on tarpeen:
+
+    * **Yksi pylväs.** Kaksi pylvästä tarkoittaa, että lukema vaihteli
+      kierrosten välillä, ja vaihtelu on havainto.
+    * **Arvo on** :data:`~pappascout.domain.models.PLAYERS_ON_SERVER`. Yksi
+      pylväs arvolla 0 on yhtä lailla yksitoikkoinen rivi, mutta se on
+      havainto: "kenelläkään ei ollut panssaria" on tavoiteanalyysin *"ei
+      kevuja"* eikä odotus.
+    * **Havainto saatiin joka kierrokselta.** ``rounds_unknown`` yli nollan
+      tarkoittaa, että rivillä on huomautus lukukelvottomista kierroksista --
+      ja se huomautus on havainto, joka katoaisi rivin mukana.
+
+    ``Σ n = m`` on mallin takaama, joten yhden pylvään tapauksessa ``n = m``
+    seuraa siitä eikä sitä tarvitse tarkistaa erikseen.
+
+    **Kylläisyys ei ole ainoa syy**, jonka takia rivi voi jäädä
+    kirjoittamatta: kuviosuodatus pudottaa sen täydellä ostolla, jos otanta
+    ei riitä kuvioksi. Siksi tätä kysytään vain riviltä, joka oikeasti
+    rakennettiin (:func:`_equipment_rows`).
+    """
+    return (
+        len(bars) == 1
+        and bars[0][0] == PLAYERS_ON_SERVER
+        and rounds_unknown == 0
+    )
+
+
+def _same_distribution(
+    armed_bars: Sequence[tuple[int, int]],
+    armored_bars: Sequence[tuple[int, int]],
+    armed: ArmedPlayers,
+    armored: ArmoredPlayers,
+) -> bool:
+    """Kertovatko kalustorivit **täsmälleen saman** jakauman (sääntö 2).
+
+    Kolme asiaa on verrattava, ei yksi. Pylväät kertovat lukemat, ``m`` on
+    väitteiden nimittäjä ja ``rounds_unknown`` rivin huomautus: jos jokin
+    näistä eroaa, rivit eroavat, ja ero on juuri se havainto, jota varten
+    rivejä on kaksi (Story 2.8).
+
+    Pylväät verrataan järjestettyinä, koska ``report.json``in listajärjestys
+    ei ole sopimus.
+    """
+    return (
+        armed.m == armored.m
+        and armed.rounds_unknown == armored.rounds_unknown
+        and sorted(armed_bars) == sorted(armored_bars)
+    )
+
+
+#: Huomautus lohkosta, jonka karsinta olisi tyhjentänyt.
+#:
+#: Speksin "Ask First" -portti: sääntö, joka poistaisi lohkosta jokaisen
+#: rivin, lakkauttaisi lohkon kertomasta mitään, ja se on **vaimennuspäätös
+#: eikä karsinta**. Vaimennus on rajattu Story 2.13:sta ulos, joten koodi
+#: tekee sen, mitä matriisi sanoo: rivit säilyvät. Huomautus on siksi, että
+#: hiljainen paluu karsimattomaan lukisi kuin sääntöä ei olisi ollut
+#: käytössä -- ja seuraava lukija ihmettelisi, miksi juuri tässä lohkossa on
+#: rivi, jonka sääntö muualla poistaa.
+#:
+#: **Paluu koskee vain kokonaan pudotettuja rivejä.** Rivin katkaisu
+#: (säännöt 4 ja 5) ei voi tyhjentää lohkoa, joten sitä ei peruta: peruminen
+#: palauttaisi vain sen 5-9 alkion luettelon, jota vastaan koko tarina on
+#: kirjoitettu.
+_PRUNING_KEPT_THE_BLOCK = (
+    "Karsinta olisi poistanut tästä lohkosta jokaisen rivin, joten sitä ei "
+    "karsittu: tyhjä lohko olisi vaimennus eikä karsinta."
+)
+
+
+def _round_type_lines(
+    report_type: RoundTypeReport,
+    min_n: int,
+    flags: _Flags,
+    pruning: _Pruning,
+) -> tuple[list[Line], bool]:
+    """Yhden kierrostyypin rivit järjestyksessä, karsinta mukaan luettuna.
+
+    **Rivit rakennetaan kertaalleen.** Jokainen rivi syntyy täsmälleen samoin
+    kuin ilman karsintaa, ja karsinta tehdään sen jälkeen valmiille riveille:
+    kokonaan pudotettu rivi jää :class:`_Row`in ``plain``iin, joten
+    lohkon tyhjenemisen tarkistus ei vaadi toista rakennuskierrosta. Tämä on
+    myös ainoa tapa, jolla lohkon kuviosuodatuksen huomautus voi olla sama
+    karsinnan kanssa ja ilman -- laskuri kasvaa rakentajassa.
+
+    Rivit, joita karsinta ei voi pudottaa (kranaattimäärät, kohderivit,
+    ensikontaktin läsnäolo, kuolemat), kirjoittavat lippunsa suoraan
+    ``flags``iin: niiden kohtalo ei riipu mistään päätöksestä, joten
+    ehdollinen kirjanpito olisi turhaa koneistoa.
+
+    Returns:
+        ``(rivit, palautettiinko karsimaton lohko)``.
+    """
+    rows: list[_Row] = []
+    skipped_samples: list[str] = []
+
+    for position in report_type.positions:
+        scratch = _Flags()
+        line = _position_line(position, min_n, scratch)
+        if line is None:
+            # Rivi ei syntynyt lainkaan, joten karsinnalla ei ole mitään
+            # sanottavaa siitä. Kynnyksen kirjanpito siirtyy silti.
+            flags.absorb(scratch, keep=False)
+            continue
+        if pruning.skips(position):
+            label = _sample_key(position)
+            if label is not None and label not in skipped_samples:
+                skipped_samples.append(label)
+            rows.append(_Row(plain=line, kept=None, flags=scratch))
+        else:
+            rows.append(_Row(plain=line, kept=line, flags=scratch))
+
+    def keep_all(lines: Sequence[Line]) -> None:
+        rows.extend(_Row(plain=line, kept=line) for line in lines)
+
+    utility = _utility_count_line(report_type.utility_counts, min_n, flags)
+    if utility is not None:
+        keep_all([utility])
+    keep_all(_utility_use_lines(report_type.utility, min_n, flags, pruning))
+
+    equipment, saturated_dropped, merged = _equipment_rows(
+        report_type, min_n, flags, pruning
+    )
+    rows.extend(equipment)
+
+    gap = _first_contact_gap_line(report_type, min_n, flags)
+    if gap is not None:
+        keep_all([gap])
+
+    keep_all(_death_lines(report_type.deaths, min_n, flags, pruning))
+
+    kept = [row.kept for row in rows if row.kept is not None]
+    if rows and not kept and (saturated_dropped or skipped_samples):
+        # Karsinta olisi jättänyt lohkon tyhjäksi: rivit säilyvät
+        # karsimattomina, eikä yhtäkään sääntöä merkitä käytetyksi -- lukuohje
+        # selittäisi muuten poistoa, jota ei tehty.
+        for row in rows:
+            if row.flags is not None:
+                flags.absorb(row.flags, keep=True)
+        return [row.plain for row in rows], True
+
+    for row in rows:
+        if row.flags is not None:
+            flags.absorb(row.flags, keep=row.keep_flags or row.kept is not None)
+    if saturated_dropped:
+        flags.saturated_dropped = True
+    if merged:
+        flags.equipment_merged = True
+    for label in skipped_samples:
+        if label not in flags.skipped_samples:
+            flags.skipped_samples.append(label)
+    return kept, False
+
+
 def _round_type_view(
-    report_type: RoundTypeReport, threshold: int | None, flags: _Flags
+    report_type: RoundTypeReport,
+    threshold: int | None,
+    flags: _Flags,
+    settings: ReportSettings,
 ) -> RoundTypeView:
     """Kokoa yhden kierrostyypin rivit.
 
@@ -966,6 +1672,9 @@ def _round_type_view(
         flags: Raportin laajuinen kerääjä. Selitykset (tuntematon alue, arvio,
             aseistettu) kirjoitetaan **kerran** raportin loppuun, joten ne on
             koottava kaikkien kierrostyyppien yli eikä yhden sisällä.
+        settings: Karsintasäännöt (Story 2.13). Osio annetaan kokonaisena,
+            koska suojattu kierrostyyppi ratkaistaan täällä -- ks.
+            :meth:`_Pruning.for_round_type`.
     """
     pattern_only = report_type.round_type in PATTERN_ROUND_TYPES
     dropped_before = flags.dropped
@@ -973,37 +1682,20 @@ def _round_type_view(
     # ostoilla vain toistuvat. Kynnys tulee raportista, ei täältä.
     min_n = threshold if (pattern_only and threshold is not None) else 1
 
-    lines: list[Line] = []
-    for position in report_type.positions:
-        line = _position_line(position, min_n, flags)
-        if line is not None:
-            lines.append(line)
-
-    utility = _utility_count_line(report_type.utility_counts, min_n, flags)
-    if utility is not None:
-        lines.append(utility)
-    lines.extend(_utility_use_lines(report_type.utility, min_n, flags))
-
-    armed = _armed_line(report_type.players_armed, min_n, flags)
-    if armed is not None:
-        lines.append(armed)
-
-    # Panssaririvi heti aseistettujen perässä: niiden ero on itse havainto,
-    # eikä sitä näe, jos rivien välissä on muuta.
-    armored = _armored_line(report_type.players_armored, min_n, flags)
-    if armored is not None:
-        lines.append(armored)
-
-    gap = _first_contact_gap_line(report_type, min_n, flags)
-    if gap is not None:
-        lines.append(gap)
-
-    lines.extend(_death_lines(report_type.deaths, min_n, flags))
+    pruning = _Pruning.for_round_type(settings, report_type.round_type)
+    lines, kept_the_block = _round_type_lines(
+        report_type, min_n, flags, pruning
+    )
 
     # Kaksi suodatusta koskevaa asiaa -- sääntö ja sen hinta -- ovat samalla
     # rivillä: raportti on lyhyt, ja kaksi kursivoitua alaviitettä jokaisen
     # default-lohkon perässä maksaisi kahdeksan riviä kartalta kertoakseen
     # yhden asian.
+    #
+    # **Luku on sama karsinnan kanssa ja ilman.** Se on väite datasta ("näin
+    # monta havaintoa ei toistunut riittävästi"), ei esitysvalinta, ja
+    # karsinta ei kosketa sitä: rivit rakennetaan ennen karsintaa ja
+    # kirjanpito siirtyy myös pudotetuista riveistä (:meth:`_Flags.absorb`).
     dropped = flags.dropped - dropped_before
     notes: list[str] = []
     if pattern_only and threshold is None:
@@ -1033,6 +1725,11 @@ def _round_type_view(
             if pattern_only and threshold is not None
             else "Ei havaintoja tältä kierrostyypiltä."
         )
+    # Viimeisenä, koska tämä on **poikkeus** eikä lohkon sääntö: kynnyksen
+    # huomautus kertoo, miten lohko koottiin, ja tämä kertoo mitä sen jälkeen
+    # jäi tekemättä.
+    if kept_the_block:
+        notes.append(_PRUNING_KEPT_THE_BLOCK)
 
     heading = _capitalise(
         ROUND_TYPE_FI.get(report_type.round_type, report_type.round_type)
@@ -1356,7 +2053,58 @@ def _value(value: Any) -> str:
     return str(value)
 
 
-def _summary(report: Report, threshold: int | None) -> list[SummaryItem]:
+def _pruning_value(value: Any) -> str:
+    """Yhden karsinta-asetuksen arvo yhteenvedon riville.
+
+    Tyhjä lista on ``ei yhtään`` eikä tyhjä merkkijono: rivi ``skip_sample_
+    seconds`` ilman arvoa lukisi kuin arvo olisi kadonnut matkalla. Sekunnit
+    muotoillaan :func:`~pappascout.constants.seconds_label`illa, eli samalla
+    tavalla kuin näytepisterivien nimiöt -- muuten yhteenveto ja runko
+    puhuisivat samasta luvusta kahdella tavalla.
+    """
+    if isinstance(value, list):
+        return "/".join(seconds_label(item) for item in value) or "ei yhtään"
+    return _value(value)
+
+
+def _pruning_summary_text(settings: ReportSettings) -> str | None:
+    """Karsintasäännöt yhteenvedon riville, avain kerrallaan.
+
+    **Mekaaninen luettelo eikä käsin kirjoitettu lause**: se syntyy osion
+    kentistä, joten kuudes sääntö on rivillä heti kun se on osiossa. Käsin
+    kirjoitettu lause jäisi jälkeen juuri silloin, kun sääntö lisätään.
+
+    Muoto on sama kuin naapuririveillä (``Luokittelun kynnykset``,
+    ``Aggregoinnin kynnykset``), ja peruste on niiden peruste: lukija arvioi
+    väitettä sillä, miten se laskettiin -- ja karsinta päättää, mitkä
+    väitteet hän näkee. Ilman riviä puhtaan raportin lukija ei voisi tietää,
+    oliko jokin sääntö päällä, koska karsintakappaleet kirjoitetaan vain
+    osuneista säännöistä.
+
+    **``None`` kun jokainen sääntö on pois.** Silloin rivillä ei ole mitään
+    ilmoitettavaa, ja sen kirjoittaminen rikkoisi tarinan tärkeimmän
+    lupauksen: kaikki säännöt pois päältä tarkoittaa, että raportti on
+    **merkki merkiltä** se, joka oli ennen Story 2.13:a -- eikä se, jossa on
+    yksi rivi enemmän. Rivi ilmestyy siis täsmälleen silloin, kun karsinta on
+    mukana päättämässä, mitä lukija näkee.
+
+    Tunnistus on mekaaninen samasta syystä kuin luettelo: **jokaisen kentän
+    epätosi arvo tarkoittaa "sääntö pois"** (``False``, tyhjä lista, ``0``),
+    joten kuudes sääntö kelpaa tähän ilman muutosta. Ehto on kirjattu
+    :class:`~pappascout.domain.models.ReportSettings`in docstringiin, koska se
+    on vaatimus tulevalle kentälle.
+    """
+    values = settings.model_dump(mode="json")
+    if not any(values.values()):
+        return None
+    return ", ".join(
+        f"{key} {_pruning_value(values[key])}" for key in sorted(values)
+    )
+
+
+def _summary(
+    report: Report, threshold: int | None, settings: ReportSettings
+) -> list[SummaryItem]:
     """Yhteenvedon rivit. Jokainen kohta, joka voisi kadota, on täällä.
 
     **Runko puhuu nimillä** (Story 2.12). Yhteenveto on se osa raporttia, jonka
@@ -1456,6 +2204,9 @@ def _summary(report: Report, threshold: int | None) -> list[SummaryItem]:
         items.append(
             SummaryItem("Aggregoinnin kynnykset", _threshold_text(aggregate_used))
         )
+    pruning_text = _pruning_summary_text(settings)
+    if pruning_text is not None:
+        items.append(SummaryItem("Karsinnan säännöt", pruning_text))
     tools = ", ".join(f"{k} {v}" for k, v in sorted(report.tool_versions.items()))
     items.append(
         SummaryItem(
@@ -1728,12 +2479,21 @@ _TRACEABILITY_NOTE = (
 
 
 def build_view(
-    report: Report, *, round_list_paths: Sequence[str] = ()
+    report: Report,
+    *,
+    settings: ReportSettings,
+    round_list_paths: Sequence[str] = (),
 ) -> ReportView:
     """Rakenna raportista näkymämalli.
 
     Args:
         report: ``aggregate``-vaiheen tulos sellaisenaan.
+        settings: ``[report]``-osio eli karsintasäännöt (Story 2.13).
+            **Pakollinen eikä oletusarvoinen**: oletus, joka eroaisi
+            ``settings.toml``ista, karsisi hiljaa eri tavalla kuin käyttäjän
+            tiedosto sanoo -- ja oletus, joka on sama, olisi kopio
+            asetustiedostosta koodissa. Karsinta koskee **esitystä eikä
+            sisältöä**: jokainen karsittu arvo on yhä ``report.json``issa.
         round_list_paths: Kierroslistojen polut, jotka ``render``-vaihe on
             ratkaissut ``archive.paths``ista. Näkymä **ei rakenna polkuja
             itse**: se ei näe arkistoa (kerrossääntö), eikä arkiston
@@ -1755,7 +2515,9 @@ def build_view(
             for entry in sorted(
                 side.round_types, key=lambda rt: _round_type_rank(rt.round_type)
             ):
-                views.append(_round_type_view(entry, threshold, flags))
+                views.append(
+                    _round_type_view(entry, threshold, flags, settings)
+                )
             sides.append(
                 SideView(
                     side=side.side,
@@ -1792,7 +2554,7 @@ def build_view(
     anomaly_views, dropped_note = _anomaly_views(report)
     return ReportView(
         title=_title(report),
-        summary=tuple(_summary(report, threshold)),
+        summary=tuple(_summary(report, threshold, settings)),
         anomalies=anomaly_views,
         anomalies_note=None if anomaly_views else _no_anomalies_text(report),
         anomalies_dropped_note=dropped_note,
@@ -1806,7 +2568,7 @@ def build_view(
             for entry in report.missing_demos
         ),
         maps=tuple(maps),
-        legend=tuple(_legend(flags, report)),
+        legend=tuple(_legend(flags, report, settings)),
         appendix_note=(
             _APPENDIX_NOTE if round_list_paths else _APPENDIX_NOTE_WITHOUT_PATHS
         ),
@@ -1867,7 +2629,9 @@ _EMPTY_NOTE = (
 )
 
 
-def _legend(flags: _Flags, report: Report) -> list[str]:
+def _legend(
+    flags: _Flags, report: Report, settings: ReportSettings
+) -> list[str]:
     """Selitykset, jotka kirjoitetaan kerran raportin loppuun.
 
     ``report`` on argumenttina siksi, että poikkeamasääntöjen selitys nimeää
@@ -1875,6 +2639,13 @@ def _legend(flags: _Flags, report: Report) -> list[str]:
     täällä -- sama sääntö kuin kuvion kynnyksellä
     (:func:`pattern_min_rounds`): säädetty ``settings.toml`` näkyy raportin
     tekstissä vain, jos teksti tulee raportista.
+
+    ``settings`` on argumenttina karsintasääntöjen takia (Story 2.13), ja se
+    on eri lähde eri syystä: karsintaraja ei ole ``report.json``issa eikä
+    kuulukaan sinne -- se on esitysvalinta, joka tehdään renderöinnissä, kun
+    kynnys on aggregoinnin lukuun vaikuttava arvo. Rajan luku on silti
+    kirjoitettava lukuohjeeseen, koska rivin perässä oleva "3 harvinaisempaa
+    aluetta jäi pois" ei kerro, montako jäi.
     """
     notes: list[str] = []
     notes.append(
@@ -1905,6 +2676,7 @@ def _legend(flags: _Flags, report: Report) -> list[str]:
             f"otanta (n/m {KILL_SAMPLE_UNIT}) laskee tappoja eikä kierroksia "
             "-- kierrostyypillä on yleensä enemmän tappoja kuin kierroksia."
         )
+    notes.extend(_pruning_legend(flags, settings))
     notes.append(
         "Runko puhuu nimillä: joukkueen ja kokoonpanojen tiivisteet, "
         "pelaajien SteamID64 ja karttojen demotunnisteet ovat raportin "
@@ -1917,6 +2689,110 @@ def _legend(flags: _Flags, report: Report) -> list[str]:
     notes.append(
         "Raportti kuvaa vain havainnot. Tulkinta ja vastastrategia ovat lukijan."
     )
+    return notes
+
+
+def _protected_round_types_text() -> str:
+    """Suojatut kierrostyypit lukuohjeen lauseeksi.
+
+    Lause on **johdettu** :data:`PROTECTED_ROUND_TYPES`ista eikä kirjoitettu
+    käsin, ja se liitetään jokaiseen karsintakappaleeseen. Kaksi syytä:
+
+    1. Kappale, joka sanoo "kirjoitetaan kaksi yleisintä kohdetta", on
+       ehdoton lause, ja **samassa raportissa** suojatun kierrostyypin lohko
+       tulostaa niitä neljä. Ilman poikkeuslausetta lukuohje väittää
+       raportista enemmän kuin raportti tekee.
+    2. Kun luetteloon tulee kuudes tyyppi, jokainen kappale kertoo sen
+       itsestään -- käsin kirjoitettuina yksi niistä jäisi jälkeen.
+
+    Järjestys tulee :data:`ROUND_TYPE_ORDER`ista, jotta lause on sama ajosta
+    toiseen (``frozenset`` ei ole järjestetty).
+    """
+    names = _join_fi(
+        [
+            ROUND_TYPE_FI.get(name, name)
+            for name in ROUND_TYPE_ORDER
+            if name in PROTECTED_ROUND_TYPES
+        ]
+    )
+    return f"Karsinta ei koske näitä kierrostyyppejä: {names}."
+
+
+def _pruning_legend(flags: _Flags, settings: ReportSettings) -> list[str]:
+    """Karsintasääntöjen selitykset: **mitä puuttuva rivi tarkoittaa**.
+
+    Kappale kirjoitetaan vain siitä säännöstä, joka **oikeasti karsi
+    jotakin** tässä raportissa -- ei jokaisesta päällä olevasta säännöstä.
+    Ero on olennainen ja se on sama sääntö kuin muualla tässä funktiossa
+    (:func:`_player_counter_legend`, ``flags.kills_shown``): lukuohje selittää
+    sen, mitä raportissa on tai mitä siitä puuttuu, eikä sitä mitä koodi osaa
+    tehdä. Selitys säännöstä, joka ei osunut kertaakaan, kertoisi lukijalle
+    puuttuvasta rivistä, jota ei ole -- eli olisi väite raportista, joka ei
+    pidä.
+
+    Sama vaatimus koskee **rajauksia**: jokainen kappale kertoo, ettei
+    karsinta koske suojattuja kierrostyyppejä
+    (:func:`_protected_round_types_text`), koska niiden lohkot ovat samassa
+    raportissa karsimattomina.
+
+    Jokainen kappale nimeää myös **asetuksen**, jolla sääntö käännetään pois.
+    Karsinta on Veetin säädettävissä ilman koodimuutosta, eikä se ole
+    säädettävissä, jos raportti ei kerro minkä nimistä arvoa säädetään.
+    """
+    notes: list[str] = []
+    exception = _protected_round_types_text()
+    if flags.saturated_dropped:
+        notes.append(
+            "**Kylläinen kalustorivi on jätetty pois.** Kun jakaumassa on "
+            f"vain arvo {PLAYERS_ON_SERVER} ja havainto saatiin joka "
+            "kierrokselta, rivi sanoo että kaikilla viidellä oli panssari "
+            "(tai ase) joka kierroksella -- se on odotus eikä havainto. Luku "
+            "on yhä report.jsonissa. **Kylläisyys ei ole ainoa syy, jonka "
+            "takia kalustorivi voi puuttua**: täydellä ostolla myös "
+            "toistumisen kynnys voi pudottaa sen, ja silloin lohkon oma "
+            f"huomautus kertoo siitä. {exception} Asetus: "
+            "[report].drop_saturated_equipment_lines."
+        )
+    if flags.equipment_merged:
+        notes.append(
+            "**Aseistettujen ja panssaroitujen rivi on kirjoitettu yhtenä** "
+            "silloin, kun jakaumat ovat identtiset: luvut on luettu samalta "
+            "tickiltä samasta pelaajajoukosta ja samalla jakajalla, joten "
+            "toinen rivi ei kertoisi mitään uutta. Kaksi erillistä riviä "
+            f"tarkoittaa siis, että luvut eroavat -- ja se ero on havainto. "
+            f"{exception} Asetus: [report].merge_equal_equipment_lines."
+        )
+    if flags.skipped_samples:
+        samples = _join_fi([f"{value} s" for value in flags.skipped_samples])
+        notes.append(
+            f"**Näytepistettä {samples} ei kirjoiteta tähän raporttiin.** "
+            "Puuttuva näytepiste ei tarkoita puuttuvaa havaintoa: se on "
+            "report.jsonissa ja parsituissa tauluissa sellaisenaan, eikä "
+            "[parse].snapshot_seconds ole muuttunut -- kyse on vain siitä, "
+            "tulostetaanko rivi. Myöhäinen näytepiste kertoo eloonjääneistä "
+            f"eikä asetelmasta. {exception} Asetus: "
+            "[report].skip_sample_seconds."
+        )
+    if flags.utility_targets_capped:
+        notes.append(
+            "Utilityn kohderiviltä kirjoitetaan "
+            f"{settings.max_utility_targets} yleisintä **kohdetta** (sama "
+            "kohde voi olla rivillä useammin kuin kerran: eri heittoalueelta "
+            "tai eri aikaikkunassa), ja rivin perässä on niiden kohteiden "
+            "määrä, jotka jäivät pois; rivi, jolla on kohteita viidestä "
+            "yhdeksään, on luettelo eikä kuvio. Jokainen kohde on yhä "
+            f"report.jsonissa kentässä utility. {exception} Asetus: "
+            "[report].max_utility_targets."
+        )
+    if flags.kill_areas_capped:
+        notes.append(
+            f"Tapporiviltä kirjoitetaan {settings.max_kill_areas} yleisintä "
+            "aluetta samalla säännöllä, ja pois jääneiden määrä on rivin "
+            "perässä. Yhtä yleiset alueet säilyvät molemmat, joten rivillä "
+            "voi olla rajaa enemmän alueita. Jokainen alue on yhä "
+            f"report.jsonissa kentässä deaths.kills. {exception} Asetus: "
+            "[report].max_kill_areas."
+        )
     return notes
 
 

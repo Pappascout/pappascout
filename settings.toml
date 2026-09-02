@@ -484,7 +484,8 @@ small_sample_rounds = 3
 # tuotti 0 osumaa 93 kierroksesta, koska peli jakaa sitet useaan alueeseen
 # (Ancientin B on Alley + BombsiteB + SideEntrance). Arvo jää tähän, koska
 # sääntö on kirjattu omaksi tarinakseen aluejaon lisäyksen kanssa
-# (deferred-work.md); poistaminen vaatisi migraatioviestin.
+# (BMAD-tuotosten deferred-work.md, ei tässä repossa); poistaminen vaatisi
+# migraatioviestin.
 stack_min_players = 4
 
 # --- Poikkeamasäännöt (Story 2.5) ---
@@ -601,6 +602,138 @@ crunch_min_sources = 2
 # "insta"; loput ovat karkea porrastus, jota aineisto ei ole vielä koetellut.
 # [lausuttu 2026-08-30, odottaa havaintoa]
 utility_seconds_buckets = [5.0, 10.0, 20.0]
+
+
+[report]
+# Karsintasäännöt: mitä raportti jättää kirjoittamatta (Story 2.13).
+#
+# MIKSI OMA OSIO. Osiointi seuraa vaihetta, joka arvot lukee (AD-3), ja nämä
+# lukee render. [aggregate] on kokonaisena aggregate-vaiheen
+# parametrihashissa, joten sinne kirjoitettu esitysvalinta mitätöisi jokaisen
+# aggregoinnin: yhden rivin karsiminen raportista pakottaisi laskemaan
+# report.jsonin uudelleen, vaikka sen sisältö ei muutu. Oma osio tekee
+# lupauksesta "karsinta koskee esitystä eikä sisältöä" rakenteellisen --
+# asetuksen säätäminen ajaa vain renderöinnin.
+#
+# KARSINTA EI POISTA MITÄÄN report.jsonista, eikä se muuta yhtäkään lukua.
+# Jokainen karsittu arvo on siellä yhä; jos rivi jätetään kirjoittamatta,
+# lukuohje kertoo kertaalleen mitä sen puuttuminen tarkoittaa, ja jos riviltä
+# jää pois väitteitä, rivi kertoo pudotettujen määrän. Myös lohkon
+# kuviosuodatuksen huomautus ("N harvinaisempaa havaintoa jäi pois") on sama
+# karsinnan kanssa ja ilman: se on väite datasta eikä esitysvalinta.
+#
+# KAIKKI VIISI POIS = raportti on merkki merkiltä sama kuin ennen Story
+# 2.13:a. Todennettu arkiston molemmilla joukkueilla: diff ennen tarinaa
+# kirjoitettuun raporttiin on tyhjä. Silloin myös yhteenvedon karsintarivi
+# jää pois, koska ilmoitettavaa ei ole.
+#
+# SUOJATUT KIERROSTYYPIT: pistol ja anomaly. Niitä ei karsita yhdelläkään
+# säännöllä, ja molemmissa syy on sama: kalustorivi ON se havainto.
+# Pistoolikierroksella panssariluku on ostohavainto (Story 2.8) -- muualla se
+# on hallussapitoa, joka periytyy edelliseltä kierrokselta -- ja anomaly on
+# classifyn varaus ristiriitaiselle havainnolle (varustearvo laski
+# ostoaikana) tai voiton jälkeiselle ostolle, jota ei käytännössä tehty, eli
+# lohko on koottu juuri kalustohavainnon perusteella. Jatkoaikaa (ot) EI suojata: [league].ot_start_money on
+# 12 500 $, joten jatkoajalla ostetaan täysi kalusto ja 5/5 on odotus kuten
+# täydellä ostolla. Jos aloitusraha joskus laskee pistoolitasolle, ot on
+# suojattava (luettelo on koodissa: render/view.py PROTECTED_ROUND_TYPES).
+#
+# MITATTU 2026-09-02 arkiston molemmista raporteista (kahdeksan demoa,
+# seitsemän karttahaaraa, 52 kierrostyyppilohkoa). Sisältörivit ovat rivejä
+# karttalukujen sisällä; "per kartta" on sama luku jaettuna karttojen
+# määrällä. Väitteet ovat otantansa kantavia väitteitä (n/m), joita on
+# useita rivillä.
+#
+#   raportti          | sisältörivit | per kartta | väitteet
+#   RCAVE, kaikki pois|          288 |         96 |      770
+#   RCAVE, oletukset  |          258 |         86 |      716
+#   RCAVE, + sääntö 3 |          244 |         81 |      684
+#   MM,    kaikki pois|          347 |         87 |      867
+#   MM,    oletukset  |          318 |         80 |      828
+#   MM,    + sääntö 3 |          302 |         76 |      777
+#
+# Oletuksilla siis noin 30 riviä pois koko raportista eli 10 riviä kartalta.
+# SE EI OLE VIELÄ SIVU (noin 40 riviä kartalta): sivu vaatii kokonaisten
+# kierrostyyppilohkojen vaimennuksen, joka on rajattu Story 2.13:sta ulos
+# (Veeti 31.8.: "lisäys ensin, vaimennus myöhemmin"). Mittausdokumentit
+# asuvat BMAD-tuotoksissa (_bmad-output/implementation-artifacts/,
+# karsinta-mittaus.md) eivätkä tässä repossa.
+
+# SÄÄNTÖ 1. Kylläinen kalustorivi pois. Kylläinen = jakaumassa yksi pylväs,
+# sen arvo 5 ja havainto joka kierrokselta -- rivi sanoo "kaikilla viidellä
+# oli panssari joka kierroksella", mikä on odotus eikä havainto. Veetin oma
+# ohje: "CT:t voittivat edellisen kierroksen ja heillä on normaali osto (tätä
+# ei muuten tarvitse analyyseissä toistaa)".
+#
+# POISTUU: 24 riviä (RCAVE) ja 20 riviä (MM) suojaamattomista lohkoista.
+# Kylläisyys ei ole ainoa syy, jonka takia rivi voi puuttua: täydellä ostolla
+# kuviosuodatus pudottaa sen ennen karsintaa, ja silloin tämä sääntö ei
+# poistanut mitään. [mitattu 2026-09-02]
+drop_saturated_equipment_lines = true
+
+# SÄÄNTÖ 2. Aseistettujen ja panssaroitujen rivi yhtenä, kun jakaumat ovat
+# identtiset (pylväät, jakaja ja huomautus). Luvut on luettu samalta tickiltä
+# samasta pelaajajoukosta, joten identtisinä toinen rivi ei kerro mitään
+# uutta. Nollahäviö: yhdistetty rivi kertoo molemmat luvut.
+#
+# OSUU: 18 lohkossa 25:stä (RCAVE) ja 19 lohkossa 27:stä (MM). Suojatuissa
+# lohkoissa yhtään identtistä paria ei ollut, joten suojaus ei maksanut
+# riviä. Osumista noin kaksi kolmasosaa on myös kylläisiä, eli sääntö 1
+# pudottaa ne ensin -- järjestys on tarkoituksellinen, koska yhdistetty
+# kylläinen rivi olisi juuri se odotus, jonka sääntö 1 jättää sanomatta.
+# [mitattu 2026-09-02]
+merge_equal_equipment_lines = true
+
+# SÄÄNTÖ 3, OLETUKSENA POIS. Aikanäytepisteet, joita ei kirjoiteta.
+#
+# Miksi oletus on säilyttää. Mitattu kaikista kahdeksasta demosta:
+#
+#   näytepiste | pelaajia elossa | näytepiste olemassa
+#   6 s        | 100 %           | 354/354 kierrospuolta
+#   15 s       | 94 %            | 354/354
+#   30 s       | 72 %            | 329/354 (93 %)
+#   45 s       | 53 %            | 285/354 (81 %)
+#
+# 45 s -rivi kuvaa noin puolta joukkuetta neljällä kierroksella viidestä. Se
+# on siis ohut ja vinoutunut -- se kertoo eloonjääneistä eikä asetelmasta --
+# mutta se EI OLE TOISTOA kuten säännöt 1, 2, 4 ja 5. Veetin analyyseissä on
+# myöhäisen kierroksen havaintoja ("mid lähti pian rotateen", "A pelaaja
+# odotti aika pitkään ja varoo flankkiä"), joten poistaminen voi maksaa
+# sisältöä. POISTAA arvolla [45.0]: 14 riviä (RCAVE) ja 16 riviä (MM).
+# [mitattu 2026-09-02]
+#
+# EI SAMA ASIA KUIN [parse].snapshot_seconds: näytepiste pysyy taulussa ja
+# report.jsonissa, kyse on vain siitä tulostetaanko se. Sekunnit täsmätään
+# siinä muodossa, jossa ne ovat rivin nimiössä, joten 45 ja 45.0 tarkoittavat
+# samaa riviä. Lista järjestetään latauksessa, koska se menee renderöinnin
+# parametrihashiin: järjestys ei muuta raporttia, joten se ei saa muuttaa
+# hashia.
+skip_sample_seconds = []
+
+# SÄÄNTÖ 4. Utilityn kohderiviltä N yleisintä KOHDETTA. Kohde on
+# räjähdysalue, ei väite: sama kohde voi olla rivillä useammin kuin kerran
+# (eri heittoalueelta tai eri aikaikkunassa, ks. [aggregate].
+# utility_seconds_buckets). Väitteitä rajaamalla kaksi säilytettyä paikkaa
+# voisi olla sama kohde kahdessa ikkunassa, ja rivi menettäisi jokaisen eri
+# kohteen samalla kun huomautus kutsuu niitä kohteiksi. Rivi, jolla on
+# kohteita viidestä yhdeksään, on luettelo eikä kuvio.
+#
+# OSUU: 6 riviin (RCAVE) ja 2 riviin (MM); pudotettujen kohteiden määrä on
+# rivin perässä. 0 = ei rajaa (sääntö pois). [mitattu 2026-09-02]
+max_utility_targets = 2
+
+# SÄÄNTÖ 5. Tapporiviltä N yleisintä aluetta samalla säännöllä. Kolme eikä
+# kaksi, koska tapporivi on koko kierrostyypin tapot yhdellä rivillä ja sen
+# nimittäjä on tappoja: sama alue voi toistua kymmenissä tapoissa.
+# Ensimmäisen kuoleman riviä ei rajata -- sen nimittäjä on kierroksia, ja
+# mitattuna se on enintään 3 aluetta leveä (mediaani 1).
+#
+# Yhtä yleiset alueet säilyvät molemmat: rajan katkaiseminen tasatilanteen
+# keskeltä pudottaisi kahdesta identtisen otannan havainnosta toisen, ja
+# huomautus kutsuisi sitä harvinaisemmaksi.
+#
+# OSUU: 4 riviin (RCAVE) ja 2 riviin (MM). 0 = ei rajaa. [mitattu 2026-09-02]
+max_kill_areas = 3
 
 
 [economy]

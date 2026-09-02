@@ -21,9 +21,9 @@ from typer.testing import CliRunner
 
 from conftest import settings_text
 from pappascout.cli import _render_report, app
-from pappascout.domain.models import SETTINGS_ENV_VAR
+from pappascout.domain.models import SETTINGS_ENV_VAR, ReportSettings
 from pappascout.stages import StageResult
-from test_render import TEAM_KEY, pistol_map, report
+from test_render import TEAM_KEY, pistol_map, pruning_report, report
 from test_stage_render import build_archive
 
 runner = CliRunner()
@@ -170,13 +170,21 @@ def test_report_command_has_no_force_option() -> None:
     assert "--team" in options
 
 
-def test_the_command_reaches_the_stage_with_the_archive_only(
+def test_the_command_reaches_the_stage_with_its_own_section_only(
     tmp_path: Path, settings_file: Path, monkeypatch
 ) -> None:
-    """AD-3: ``render`` ei saa yhtäkään asetusosiota -- kaikki tulee report.jsonista."""
+    """AD-3: ``render`` saa ``[report]``-osion eikä muuta.
+
+    Ennen Story 2.13:a vaihe ei saanut yhtäkään osiota, koska kynnykset
+    tulevat ``report.json``ista. Karsintasäännöt ovat eri asia: ne ovat
+    esitysvalintoja, joita raportissa ei ole eikä voi olla, joten vaihe lukee
+    ne asetuksista. Muita osioita se ei silti näe, ja osion tyyppi on se,
+    mikä sen estää.
+    """
     seen: dict[str, object] = {}
 
-    def fake_run(archive, team, **kwargs):
+    def fake_run(settings, archive, team, **kwargs):
+        seen["settings"] = settings
         seen["archive"] = archive
         seen["team"] = team
         seen["kwargs"] = kwargs
@@ -190,6 +198,11 @@ def test_the_command_reaches_the_stage_with_the_archive_only(
     assert seen["team"] == TEAM_KEY
     assert seen["kwargs"] == {}
     assert hasattr(seen["archive"], "reports_dir")
+    assert isinstance(seen["settings"], ReportSettings)
+    # Osa-asetus ei näe muita osioita: karsinta ei voi vahingossa riippua
+    # kynnyksestä eikä näytepistelistasta.
+    assert not hasattr(seen["settings"], "thresholds")
+    assert not hasattr(seen["settings"], "parse")
 
 
 def test_the_report_uses_the_fixture_report(tmp_path: Path) -> None:
@@ -197,3 +210,131 @@ def test_the_report_uses_the_fixture_report(tmp_path: Path) -> None:
     archive = build_archive(tmp_path)
     assert archive.report_json(TEAM_KEY).is_file()
     assert report([pistol_map()]).team.key == TEAM_KEY
+
+
+# --- Käyttäjän oma [report]-osio päätyy raporttiin ------------------------------
+
+
+def written_report(archive_root: Path) -> str:
+    """Komennon kirjoittama raportti tekstinä."""
+    written = list((archive_root / "reports" / TEAM_KEY).glob("*.md"))
+    assert len(written) == 1, written
+    return written[0].read_text(encoding="utf-8")
+
+
+def prepare_pruning(
+    tmp_path: Path, settings_file: Path, monkeypatch, **replacements: str
+) -> Path:
+    """Arkisto ja asetustiedosto, jossa karsintasääntö on muutettu.
+
+    ``settings_text`` korvaa rivin oikeasta ``settings.toml``ista, joten
+    testi ajaa **käyttäjän tiedostoa** eikä koodin oletuksia -- ja juuri se
+    ero on tämän testin koko sisältö.
+    """
+    archive_root = tmp_path / "arkisto"
+    settings_file.write_text(
+        settings_text(archive_root, **replacements), encoding="utf-8"
+    )
+    monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
+    build_archive(tmp_path, teams={TEAM_KEY: pruning_report()})
+    return archive_root
+
+
+def test_the_users_own_pruning_setting_reaches_the_written_report(
+    tmp_path: Path, settings_file: Path, monkeypatch
+) -> None:
+    """Ainoa testi, joka näkee ladatun ``[report]``-osion päätyvän perille.
+
+    Katselmuskierros 1, kohta B: mutaatio, jossa komento antaa vaiheelle
+    ``ReportSettings()`` käyttäjän osion sijasta, läpäisi **koko sarjan**
+    (2216 passed). Ketjun jokainen lenkki oli erikseen oikein --
+    komentotesti väitti vain tyypin, kiinnikkeen asetustiedosto oli
+    oletuksilla, ja oma testi väitti oletusten olevan samat kuin
+    tiedostossa -- joten mikään ei erottanut ladattua osiota koodin
+    oletuksesta.
+
+    Ero tehdään **ei-oletusarvoisella** asetuksella: ``max_kill_areas = 1``
+    jättää yhden alueen ja laskee loput kahdeksan rivin perään. Oletus 3
+    tuottaisi kuusi, joten luku erottaa nämä kaksi toisistaan.
+    """
+    archive_root = prepare_pruning(
+        tmp_path,
+        settings_file,
+        monkeypatch,
+        **{"max_kill_areas = 3": "max_kill_areas = 1"},
+    )
+    result = runner.invoke(app, ["report", "--team", TEAM_KEY])
+    assert result.exit_code == 0, result.output
+
+    text = written_report(archive_root)
+    kills = [row for row in text.splitlines() if "tapot alueittain" in row]
+    assert kills, text
+    assert "8 harvinaisempaa aluetta jäi pois" in kills[0]
+    assert "Palace" not in kills[0]
+    # Ja lukuohje kertoo saman luvun, jonka käyttäjä kirjoitti.
+    assert "kirjoitetaan 1 yleisintä aluetta" in text
+
+
+def test_a_rule_turned_off_in_the_settings_file_stops_pruning(
+    tmp_path: Path, settings_file: Path, monkeypatch
+) -> None:
+    """Sama ketju toiseen suuntaan: pois käännetty sääntö ei karsi.
+
+    Toinen suunta on tarpeen, koska pelkkä "arvo vaikuttaa" menisi läpi myös
+    toteutuksella, joka lukee osion mutta pakottaa säännön päälle.
+    """
+    archive_root = prepare_pruning(
+        tmp_path,
+        settings_file,
+        monkeypatch,
+        **{
+            "drop_saturated_equipment_lines = true": (
+                "drop_saturated_equipment_lines = false"
+            )
+        },
+    )
+    result = runner.invoke(app, ["report", "--team", TEAM_KEY])
+    assert result.exit_code == 0, result.output
+
+    text = written_report(archive_root)
+    assert "panssaroituja ostoajan lopussa: 5 (4/4 kierroksesta)" in text
+    assert "Kylläinen kalustorivi on jätetty pois" not in text
+
+
+def test_the_written_report_names_the_rules_the_user_has_on(
+    tmp_path: Path, settings_file: Path, monkeypatch
+) -> None:
+    """Yhteenveto kertoo säädetyn arvon, myös kun sääntö ei osu mihinkään.
+
+    Puhtaan raportin lukija ei näe karsinnasta muuta merkkiä: kappaleet
+    kirjoitetaan vain osuneista säännöistä.
+    """
+    archive_root = prepare_pruning(
+        tmp_path,
+        settings_file,
+        monkeypatch,
+        **{"skip_sample_seconds = []": "skip_sample_seconds = [45.0]"},
+    )
+    result = runner.invoke(app, ["report", "--team", TEAM_KEY])
+    assert result.exit_code == 0, result.output
+
+    text = written_report(archive_root)
+    summary = text.split("## Yhteenveto")[1].split("## ")[0]
+    assert "skip_sample_seconds 45" in summary
+    assert "45 s:" not in text.split("## de_")[1].split("**Pistooli**")[0]
+
+
+def test_the_info_command_lists_the_pruning_rules(
+    tmp_path: Path, settings_file: Path, monkeypatch
+) -> None:
+    """``info`` näyttää saman osion: säätäjä näkee arvot ilman raporttia."""
+    prepare_pruning(
+        tmp_path,
+        settings_file,
+        monkeypatch,
+        **{"max_utility_targets = 2": "max_utility_targets = 4"},
+    )
+    result = runner.invoke(app, ["info"])
+    assert result.exit_code == 0, result.output
+    assert "Karsinta" in result.output
+    assert "max_utility_targets 4" in result.output

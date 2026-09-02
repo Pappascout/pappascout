@@ -45,10 +45,18 @@ ajamaan ``aggregate`` uudelleen.
 Manifesti ja parametrihash
 --------------------------
 Syöte on joukkueen ``aggregate``-manifesti tunnisteineen. Parametrihash
-lasketaan **raporttimallin sisällöstä**: ``render`` ei lue yhtään
-asetusosiota (kaikki kynnykset tulevat ``report.json``ista), mutta mallin
-muokkaaminen muuttaa raportin sisältöä. Ilman mallin tiivistettä manifesti
-väittäisi kahta eri raporttia samaksi tulokseksi.
+lasketaan **raporttimallin sisällöstä ja vaiheen omasta asetusosiosta**:
+mallin muokkaaminen muuttaa raportin sisältöä, ja niin muuttaa
+karsintasäännön säätäminenkin. Ilman kumpaakaan manifesti väittäisi kahta
+eri raporttia samaksi tulokseksi.
+
+Asetusosio tuli hashiin Story 2.13:ssa, jossa vaihe sai ensimmäiset omat
+asetuksensa (``[report]``, karsintasäännöt). Sitä ennen hash oli pelkkä
+mallin tiiviste, koska vaihe ei lukenut yhtäkään asetusta -- kynnykset
+tulevat ``report.json``ista. **Asetusta ei voi lisätä vaiheeseen, joka ei
+huomaa sen muuttumista**: se on Story 1.8:n vika, joka on tässä projektissa
+löytynyt kolmesti, ja siksi hash korjattiin samassa tarinassa kuin asetukset
+lisättiin.
 """
 
 from __future__ import annotations
@@ -82,6 +90,7 @@ from pappascout.archive.paths import (
     safe_component,
 )
 from pappascout.domain.aggregate import team_slug
+from pappascout.domain.models import ReportSettings
 from pappascout.domain.report import REPORT_SCHEMA_VERSION, Report
 from pappascout.errors import PappascoutError
 from pappascout.render import render_report, round_list_demo_ids, template_digest
@@ -112,6 +121,7 @@ def _tools() -> dict[str, str]:
 
 
 def run(
+    settings: ReportSettings,
     archive: ArchivePaths,
     team: str | None,
     *,
@@ -120,6 +130,10 @@ def run(
     """Kirjoita joukkueen ``report.json``ista yksi Markdown-raportti.
 
     Args:
+        settings: ``[report]``-osio eli karsintasäännöt (Story 2.13). Vaihe
+            saa **vain oman osansa** (AD-3), ja sama osio menee sekä
+            renderöintiin että parametrihashiin -- luettu asetus, joka ei ole
+            hashissa, väittäisi manifestissa kahta eri raporttia samaksi.
         archive: Arkiston polut.
         team: Joukkueen tunniste tai sen yksikäsitteinen alkuosa. ``None``
             tuottaa suomenkielisen virheen, joka listaa aggregoidut joukkueet.
@@ -141,7 +155,9 @@ def run(
     json_rel = report_json(team_key)
     report = read_report(archive.resolve(json_rel), team_key)
     markdown = render_report(
-        report, round_list_paths=round_list_paths(archive, report)
+        report,
+        settings=settings,
+        round_list_paths=round_list_paths(archive, report),
     )
 
     stamp = (now or datetime.now()).strftime(REPORT_TIMESTAMP_FORMAT)
@@ -169,7 +185,7 @@ def run(
     Manifest.new(
         result_id=str(markdown_rel),
         stage=STAGE,
-        params_hash=_params_hash(),
+        params_hash=_params_hash(settings),
         inputs=_inputs(archive, team_key),
         tool_versions=_tools(),
         status="ok",
@@ -426,22 +442,38 @@ def _inputs(archive: ArchivePaths, team_key: str) -> list[ManifestInput]:
     return [ManifestInput(result_id=manifest.result_id, sha256=manifest.fingerprint())]
 
 
-def _params_hash() -> str:
-    """Parametrihash raporttimallin sisällöstä.
+def _params_hash(settings: ReportSettings) -> str:
+    """Parametrihash raporttimallista ja vaiheen omasta asetusosiosta.
 
-    ``render`` ei lue yhtään asetusosiota: kynnykset, aikaikkunat ja otannat
-    tulevat kaikki ``report.json``ista, joten hashissa on sen sijaan
-    raporttimallin sisältö. Sama kuvio kuin ``parse``in aseluokittelun
-    tiivisteellä.
+    Kynnykset, aikaikkunat ja otannat tulevat ``report.json``ista, joten
+    niitä ei ole täällä. Vaiheen omat asetukset ovat: ``[report]``-osio
+    (karsintasäännöt, Story 2.13) päättää, mitkä rivit raporttiin
+    kirjoitetaan, joten sen säätäminen tuottaa eri raportin samasta
+    ``report.json``ista.
+
+    Osio menee hashiin **kokonaisena** (``model_dump``), ei kenttä
+    kerrallaan: luettelo luetuista kentistä vaatisi ylläpitoa ja vanhenisi
+    hiljaa juuri silloin, kun osioon lisätään kuudes sääntö. Sama valinta
+    kuin ``aggregate``ssa ``[aggregate]``-osion kanssa.
 
     **Hash ei kata koko ohjelman puolta.** :mod:`pappascout.render.view`
     valitsee jokaisen rivin ja sanamuodon, eikä sen muuttaminen näy tässä
     hashissa mitenkään -- kahden raportin identtiset manifestit eivät siis
     todista niiden syntyneen samasta koodista. Vanhentunut raportti ei silti
     pääse ulos, koska tätä vaihetta ei koskaan ohiteta manifestin perusteella
-    (ks. :func:`run`); puute on kirjattu ``deferred-work.md``:hyn.
+    (ks. :func:`run`); puute on kirjattu suunnittelun ``deferred-work.md``:hyn,
+    joka asuu BMAD-tuotoksissa (``_bmad-output/implementation-artifacts/``)
+    eikä tässä repossa. Asetukset
+    ovat eri asia kuin se puute, ja siksi ne korjattiin heti: koodimuutos
+    näkyy versionhallinnassa, mutta säädetty asetustiedosto ei näy missään,
+    jos se ei näy manifestissa.
     """
-    return compute_params_hash({"render": {"template_sha256": template_digest()}})
+    return compute_params_hash(
+        {
+            "render": {"template_sha256": template_digest()},
+            "report": settings.model_dump(mode="json"),
+        }
+    )
 
 
 # -- Tulosteen luvut -------------------------------------------------------------

@@ -120,6 +120,21 @@ def info(
     typer.echo(_render_info(settings, show_size=size))
 
 
+def _pruning_value(value: object) -> str:
+    """Karsinta-asetuksen arvo ``info``-tulosteeseen.
+
+    Sama muoto kuin raportin yhteenvedossa
+    (:func:`pappascout.render.view._pruning_summary_text`): tyhjä lista on
+    "ei yhtään" eikä tyhjä merkkijono, ja totuusarvo on suomeksi. Kaksi
+    tulostetta samasta osiosta eri sanoilla lukisi kuin arvot olisivat eri.
+    """
+    if isinstance(value, bool):
+        return "kyllä" if value else "ei"
+    if isinstance(value, list):
+        return "/".join(f"{item:g}".replace(".", ",") for item in value) or "ei yhtään"
+    return str(value)
+
+
 def _render_info(settings: Settings, show_size: bool = False) -> str:
     """Kokoa ``info``-komennon tuloste.
 
@@ -164,6 +179,18 @@ def _render_info(settings: Settings, show_size: bool = False) -> str:
         "  Pistoolikierrokset "
         + ", ".join(str(r) for r in settings.thresholds.pistol_rounds)
         + f"; säännönmukaisia kierroksia {settings.thresholds.regulation_rounds}"
+    )
+    # Karsintasäännöt (Story 2.13). Rivi on mekaaninen luettelo osion
+    # kentistä, joten kuudes sääntö näkyy heti kun se on osiossa -- ja se on
+    # tässä samasta syystä kuin raportin yhteenvedossa: sääntö, joka ei osu
+    # kertaakaan, ei näy raportissa mitenkään, joten ilman tätä riviä
+    # käyttäjä ei näe mistään, mitkä säännöt ovat päällä.
+    lines.append(
+        "  Karsinta           "
+        + ", ".join(
+            f"{key} {_pruning_value(value)}"
+            for key, value in sorted(settings.report.model_dump(mode="json").items())
+        )
     )
     lines.append("")
 
@@ -1715,10 +1742,15 @@ def report(
     Vaihe ei laske mitään: jokainen luku tulee aggregoinnista sellaisenaan.
     Raportti saa aikaleimatun nimen, joten uusi ajo ei koskaan ylikirjoita
     aiempaa -- eikä komennossa ole siksi --pakota-valintaa.
+
+    Karsintasäännöt (``[report]``, Story 2.13) päättävät, mitkä rivit
+    raporttiin kirjoitetaan. Ne eivät muuta report.jsonia: säännön
+    kääntäminen pois ja komennon ajaminen uudelleen tuo rivin takaisin ilman
+    aggregointia.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
-    result = render_stage.run(archive, team)
+    result = render_stage.run(settings.report, archive, team)
     typer.echo(_render_report(result))
 
 

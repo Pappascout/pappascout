@@ -13,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from conftest import REAL_SETTINGS, settings_text
+from pappascout.constants import seconds_label
 from pappascout.domain.models import (
     AggregateSettings,
     MAX_BUY_WINDOW_SECONDS,
@@ -24,6 +25,7 @@ from pappascout.domain.models import (
     LeagueSettings,
     ParseSettings,
     ProjectSettings,
+    ReportSettings,
     Settings,
     ThresholdSettings,
     load_settings,
@@ -825,6 +827,175 @@ def test_aggregate_default_matches_the_settings_file() -> None:
     tiedostosta -- eikä mikään kertoisi että aikaikkunat katosivat.
     """
     assert AggregateSettings().utility_seconds_buckets == [5.0, 10.0, 20.0]
+
+
+# --- Karsintasäännöt (Story 2.13) ---------------------------------------------
+
+
+def test_report_section_is_read_from_the_settings_file(
+    settings_file: Path,
+) -> None:
+    """``[report]`` on oma osionsa, jotta aggregate ei hashaa sitä.
+
+    Osiointi seuraa vaihetta, joka arvot lukee (AD-3), ja nämä lukee
+    ``render``. ``[aggregate]``iin kirjoitettuna karsintasäännön säätäminen
+    mitätöisi jokaisen aggregoinnin -- eli esitysvalinta pakottaisi laskemaan
+    report.jsonin uudelleen, vaikka sen sisältö ei muutu.
+    """
+    s = _load(settings_file)
+    assert s.report.drop_saturated_equipment_lines is True
+    assert s.report.merge_equal_equipment_lines is True
+    assert s.report.skip_sample_seconds == []
+    assert s.report.max_utility_targets == 2
+    assert s.report.max_kill_areas == 3
+    assert not hasattr(s.aggregate, "max_kill_areas")
+    assert not hasattr(s.thresholds, "max_kill_areas")
+    assert "report" in SETTINGS_SECTIONS
+
+
+def test_report_defaults_match_the_settings_file(settings_file: Path) -> None:
+    """Koodioletus ei saa erota asetustiedostosta.
+
+    Karsinta on oletuksena päällä neljällä säännöllä ja pois yhdellä. Jos
+    koodioletus eroaisi tiedostosta, unohtunut avain karsisi eri tavalla kuin
+    tiedosto sanoo -- eikä mikään kertoisi, kummasta raportti syntyi.
+    """
+    assert ReportSettings() == _load(settings_file).report
+
+
+def test_the_late_sample_point_is_off_by_default() -> None:
+    """Sääntö 3 on mittaustulos: 45 s ei ole toistoa vaan ohut havainto.
+
+    Mitattu kaikista kahdeksasta demosta: 45 s -piste kuvaa 53 % joukkueesta
+    ja on olemassa 285/354 kierrospuolella. Se on vinoutunut, mutta Veetin
+    analyyseissä on myöhäisen kierroksen havaintoja, joten poistaminen voi
+    maksaa sisältöä -- asetus on olemassa, oletus on säilyttää.
+    """
+    assert ReportSettings().skip_sample_seconds == []
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ([float("nan")], "äärellinen"),
+        ([float("inf")], "äärellinen"),
+        ([0.0], "positiivinen"),
+        ([-45.0], "positiivinen"),
+        ([45.0, 45.0], "kahdesti"),
+        ([45.000000001, 45.000000002], "kahdesti"),
+    ],
+)
+def test_skip_sample_seconds_are_checked_at_load(
+    value: list[float], message: str
+) -> None:
+    """Arvo, joka ei voi täsmätä näytepisteeseen, on kirjoitusvirhe.
+
+    Ilman tarkistusta asetus näyttäisi poistavan rivin muttei poistaisi
+    mitään, ja sen huomaaminen raportista on vaikeaa: rivi on siellä missä se
+    olikin.
+    """
+    with pytest.raises(ValidationError, match=message):
+        ReportSettings(skip_sample_seconds=value)
+
+
+def test_a_sample_point_outside_the_parse_setting_is_allowed() -> None:
+    """Osiot eivät näe toisiaan (AD-3), eikä tämä ole ristiriita.
+
+    Raportti latotaan myös vanhoista report.jsoneista, joiden näytepisteet
+    ovat ne, jotka parsinnan aikaan olivat käytössä. Torjunta vaatisi, että
+    ``[report]`` tuntee ``[parse]``in -- ja tekisi vanhan aggregoinnin
+    renderöimisestä virheen.
+    """
+    assert ReportSettings(skip_sample_seconds=[7.5]).skip_sample_seconds == [7.5]
+
+
+@pytest.mark.parametrize("key", ["max_utility_targets", "max_kill_areas"])
+def test_a_negative_pruning_limit_is_refused(key: str) -> None:
+    """``0`` on "ei rajaa"; negatiivinen ei tarkoita mitään."""
+    with pytest.raises(ValidationError):
+        ReportSettings(**{key: -1})
+
+
+@pytest.mark.parametrize("key", ["max_utility_targets", "max_kill_areas"])
+def test_a_zero_pruning_limit_means_no_limit(key: str) -> None:
+    """Säännön poiskääntäminen on kelvollinen valinta, ei koodimuutos."""
+    assert getattr(ReportSettings(**{key: 0}), key) == 0
+
+
+def test_the_sample_point_list_is_ordered_at_load(tmp_path: Path) -> None:
+    """Kohta G1: järjestys ei saa muuttaa parametrihashia.
+
+    ``render`` hashaa osionsa kokonaisena, ja ``[45, 15]`` tuottaa merkki
+    merkiltä saman raportin kuin ``[15, 45]``. Järjestämättömänä manifesti
+    väittäisi kahden identtisen raportin syntyneen eri parametreilla -- eli
+    kertoisi erosta, jota ei ole.
+    """
+    assert ReportSettings(skip_sample_seconds=[45.0, 15.0]).skip_sample_seconds == [
+        15.0,
+        45.0,
+    ]
+    target = _write_variant(
+        tmp_path, **{"skip_sample_seconds = []": "skip_sample_seconds = [45.0, 15.0]"}
+    )
+    assert _load(target).report.skip_sample_seconds == [15.0, 45.0]
+
+
+def test_the_validator_and_the_report_share_one_seconds_format() -> None:
+    """Kohta H9: kaksi kerrosta, yksi muotoilu.
+
+    Latausvaiheen tarkistus "kaksi arvoa näyttäisi rivillä samalta" ja rivin
+    nimiö ovat sama funktio (``constants.seconds_label``). Kahtena kopiona ne
+    sopisivat vain tänään: yhden desimaalin lisääminen riville tekisi
+    kahdesta asetusarvosta saman rivin ilman että validointi huomaisi.
+
+    Virheteksti tulostaa saman muodon kuin raportti, eli desimaalipilkun.
+    """
+    assert seconds_label(45.5) == "45,5"
+    with pytest.raises(ValidationError, match="45,5"):
+        ReportSettings(skip_sample_seconds=[-45.5])
+    with pytest.raises(ValidationError, match="kahdesti"):
+        ReportSettings(skip_sample_seconds=[45.0, 45.0000001])
+
+
+def test_a_missing_section_is_a_finnish_error_that_says_what_to_do(
+    tmp_path: Path,
+) -> None:
+    """Kohta G2: ``report: Field required`` ei ohjaa mihinkään.
+
+    Osion pakollisuus on projektin linjaus eikä puute -- jokainen asetus
+    kirjoitetaan näkyviin -- joten korjattava on **viesti**. Kahden koneen
+    arkisto tekee tästä tavallisen tilanteen: repon ``settings.toml``
+    päivittyy gitistä, ja väliin jäänyt pull näkyy juuri näin.
+    """
+    text = settings_text(tmp_path / "arkisto")
+    lines = text.splitlines(keepends=True)
+    kept, skip = [], False
+    for line in lines:
+        if line.startswith("[report]"):
+            skip = True
+        elif line.startswith("[economy]"):
+            skip = False
+        if not skip:
+            kept.append(line)
+    target = tmp_path / "ilman-reporttia.toml"
+    target.write_text("".join(kept), encoding="utf-8")
+
+    with pytest.raises(SettingsError) as exc:
+        _load(target)
+    message = str(exc.value)
+    assert "[report]" in message
+    assert "puuttuu osio" in message
+    assert "git show HEAD:settings.toml" in message
+    assert "Field required" not in message
+
+
+def test_a_misspelled_pruning_rule_is_not_silently_ignored(
+    tmp_path: Path,
+) -> None:
+    """Kirjoitusvirhe asetuksen nimessä ei saa jättää sääntöä päälle hiljaa."""
+    target = _write_variant(tmp_path, **{"max_kill_areas = 3": "max_kill_area = 3"})
+    with pytest.raises(SettingsError, match="max_kill_area"):
+        _load(target)
 
 
 def test_economy_values(settings_file: Path) -> None:

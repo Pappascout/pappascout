@@ -49,6 +49,7 @@ __all__ = [
     "OTHER_ITEMS",
     "KNOWN_INVENTORY_ITEMS",
     "weapon_classification_digest",
+    "seconds_label",
 ]
 
 #: Rivin joukkueen puoli.
@@ -419,3 +420,23 @@ def weapon_classification_digest() -> str:
         for label, arms, names in sorted(_CLASSIFICATION)
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def seconds_label(value: float) -> str:
+    """Sekuntiluku **sellaisena kuin raportti sen näyttää**: ``45``, ``9,5``.
+
+    Muotoilu on ``constants``issa eikä renderöinnin sisällä, koska **kaksi
+    kerrosta joutuu olemaan siitä samaa mieltä** (Story 2.13). Asetus
+    ``[report].skip_sample_seconds`` nimeää näytepisteen sillä luvulla, jonka
+    lukija näkee rivillä, ja täsmäys tehdään tästä muodosta -- liukuluku-
+    vertailu ratkaisisi kirjoitusasun perusteella, poistuuko rivi (``45`` vs
+    ``45.0``). Sama funktio tarkistaa latausvaiheessa, ettei asetuksessa ole
+    kahta arvoa, jotka näyttäisivät rivillä samalta.
+
+    Kahtena kopiona ne sopisivat vain **tänään**: jos raportti alkaisi näyttää
+    yhden desimaalin, kaksi asetusarvoa voisi tarkoittaa samaa riviä eikä
+    validointi huomaisi sitä.
+
+    Desimaalierotin on pilkku, koska raportti on suomeksi.
+    """
+    return f"{value:g}".replace(".", ",")

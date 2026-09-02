@@ -30,9 +30,20 @@ olisivat olleet tavu tavulta samat. Puute ei päästä vanhentunutta raporttia
 ulos -- ``render`` ei koskaan ohita ajoa manifestin perusteella, joten
 jokainen ajo latoo raportin uudelleen -- mutta se tarkoittaa, ettei kahden
 raportin manifesteista voi päätellä, syntyivätkö ne samasta koodista. Puute on
-kirjattu ``deferred-work.md``:hyn; sen sulkeminen on oma tarinansa, koska
-``view.py``:n tiiviste muuttuisi myös pelkästä docstringin korjauksesta ja
-pakottaisi uudelleenrenderöinnin ilman että raportti muuttuu.
+kirjattu suunnittelun ``deferred-work.md``:hyn -- se asuu BMAD-tuotoksissa
+(``_bmad-output/implementation-artifacts/``) eikä tässä repossa, joten
+tiedostoa ei kannata etsiä työpuusta. Sen sulkeminen on oma tarinansa,
+koska ``view.py``:n tiiviste muuttuisi myös pelkästä docstringin
+korjauksesta ja pakottaisi uudelleenrenderöinnin ilman että raportti
+muuttuu.
+
+**Hash kattaa Story 2.13:n jälkeen myös vaiheen lukemat asetukset.**
+``render`` lukee nyt ``[report]``-osion (karsintasäännöt), ja asetus, joka
+ei näy hashissa, on juuri se Story 1.8:n vika, joka on tässä projektissa
+löytynyt kolmesti: säädetty arvo tuottaisi manifestin, joka väittää
+tulosta samaksi. Osio on hashissa **kokonaisena** samasta syystä kuin
+``[aggregate]`` on ``aggregate``ssa -- luettelo luetuista kentistä
+vanhenisi hiljaa.
 
 **Tiiviste ja renderöinti lukevat saman tekstin.** Kumpaakaan ei
 välimuistiteta: aiemmin tiiviste oli ``lru_cache``ssa ja Jinjan
@@ -52,6 +63,7 @@ from pathlib import Path
 
 from jinja2 import Environment, StrictUndefined, TemplateError
 
+from pappascout.domain.models import ReportSettings
 from pappascout.domain.report import Report
 from pappascout.errors import PappascoutError
 from pappascout.render.view import ReportView, build_view, round_list_demo_ids
@@ -127,11 +139,18 @@ def _environment() -> Environment:
     )
 
 
-def render_report(report: Report, *, round_list_paths: Sequence[str] = ()) -> str:
+def render_report(
+    report: Report,
+    *,
+    settings: ReportSettings,
+    round_list_paths: Sequence[str] = (),
+) -> str:
     """Muotoile raportti Markdowniksi.
 
     Args:
         report: ``aggregate``-vaiheen tulos sellaisenaan.
+        settings: ``[report]``-osio eli karsintasäännöt (Story 2.13).
+            **Pakollinen eikä oletusarvoinen** -- ks. :func:`build_view`.
         round_list_paths: Kierroslistojen polut kierrosliitettä varten. Vaihe
             ratkaisee ne ``archive.paths``ista; tämä kerros ei näe arkistoa.
 
@@ -145,7 +164,9 @@ def render_report(report: Report, *, round_list_paths: Sequence[str] = ()) -> st
             käärettä vaiheen dokumentoitu virhesopimus ei pitäisi ja käyttäjä
             näkisi englanninkielisen pinojäljen.
     """
-    view = build_view(report, round_list_paths=round_list_paths)
+    view = build_view(
+        report, settings=settings, round_list_paths=round_list_paths
+    )
     try:
         template = _environment().from_string(template_text())
         text = template.render(view=view)

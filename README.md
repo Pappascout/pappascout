@@ -827,22 +827,162 @@ yksikkönsä itse (`Middle (4/6 taposta)`) eikä vain lukuohjeessa. Alue on
 > `[thresholds].stack_min_players` jää siksi käyttämättä, ja raportin
 > poikkeamaluku sanoo kattavuutensa ääneen.
 
+#### Karsinta: toisto pois, havainnot jäävät
+
+Raportti oli **96 sisältöriviä karttaa kohden** (RCAVE, 3 karttaa), Veetin oma
+analyysi noin 30, ja epicin mittari on "noin sivu per kartta". Osa pituudesta
+oli puhdasta toistoa, ja Story 2.13 jättää sen kirjoittamatta viidellä
+säännöllä. Kukin sääntö on **oma asetuksensa** `[report]`-osiossa, joten mikä
+tahansa niistä kääntyy pois ilman koodimuutosta -- ja kaikki viisi pois
+päältä tarkoittaa, että raportti on **merkki merkiltä sama** kuin ennen
+karsintaa.
+
+Taulukon "osuu" on mitattu arkiston molemmista raporteista (RCAVE 3 karttaa /
+MatureMayhem 4 karttaa, kahdeksan demoa, 52 kierrostyyppilohkoa). **Yksikkö
+on eri riveillä eri**, ja se on merkitty näkyviin: sääntö 1 ja 3 poistavat
+rivejä, sääntö 2 yhdistää kaksi riviä yhdeksi, ja säännöt 4 ja 5 lyhentävät
+riviä pudottamatta sitä.
+
+| # | Sääntö | Asetus | Oletus | Osuu (RCAVE / MM) |
+| --- | --- | --- | --- | --- |
+| 1 | Kylläinen kalustorivi pois | `drop_saturated_equipment_lines` | päällä | 24 / 20 **riviä** |
+| 2 | Kalustorivit yhdeksi kun luvut ovat samat | `merge_equal_equipment_lines` | päällä | 18/25 / 19/27 **lohkoa** (yksi rivi vähemmän kussakin) |
+| 3 | Nimetty näytepiste pois | `skip_sample_seconds` | **pois** | 14 / 16 **riviä** arvolla `[45.0]` |
+| 4 | Utilityn kohteista N yleisintä | `max_utility_targets` | 2 | 6 / 2 **riviä lyhenee** |
+| 5 | Tapoista N yleisintä aluetta | `max_kill_areas` | 3 | 4 / 2 **riviä lyhenee** |
+
+Kokonaisvaikutus, sisältörivit karttalukujen sisällä:
+
+| Raportti | Kaikki pois | Oletukset | Oletukset + sääntö 3 |
+| --- | --- | --- | --- |
+| RCAVE (3 karttaa) | 288 (96/kartta) | 258 (86/kartta) | 244 (81/kartta) |
+| MatureMayhem (4 karttaa) | 347 (87/kartta) | 318 (80/kartta) | 302 (76/kartta) |
+
+Oletuksilla siis **noin 10 riviä vähemmän karttaa kohden**. Se ei ole vielä
+sivu: sivu vaatisi kokonaisten kierrostyyppilohkojen vaimentamisen, ja se on
+rajattu ulos -- Veetin oma päätös 31.8. oli "lisäys ensin, vaimennus
+myöhemmin", ja vaimennus vaatii poikkeamalogiikkaan luottamista. Mittaukset
+kokonaisuudessaan ovat BMAD-tuotoksissa
+(`_bmad-output/implementation-artifacts/karsinta-mittaus.md`) eivätkä tässä
+repossa.
+
+Neljä sääntöä, jotka pätevät kaikkiin viiteen:
+
+**Karsinta koskee esitystä eikä sisältöä.** `report.json` ei muutu eikä
+`REPORT_SCHEMA_VERSION` nouse: jokainen karsittu arvo on siellä yhä, se vain
+jää kertomatta *tässä* raportissa. Säännön kääntäminen pois ja `report`in
+ajaminen uudelleen tuo rivin takaisin **ilman uudelleenaggregointia**. Juuri
+siksi asetukset ovat `[report]`-osiossa eivätkä `[aggregate]`ssa: aggregoinnin
+hash kattaa koko oman osionsa, joten sinne kirjoitettu esitysvalinta
+mitätöisi jokaisen `report.json`in.
+
+**Karsinta ei muuta yhtäkään lukua.** Rivit rakennetaan ensin ja karsitaan
+vasta sitten, joten lohkon kuviosuodatuksen huomautus ("N harvinaisempaa
+havaintoa jäi pois") on **sama karsinnan kanssa ja ilman**. Se on väite
+datasta eikä esitysvalinta. Sama järjestys ratkaisee myös sen, milloin sääntö
+*ei* poistanut mitään: rivi, jota kuviosuodatus ei päästänyt syntymään, ei ole
+karsittu -- eikä lukuohje väitä niin.
+
+**Mikään ei katoa hiljaa.** Jos rivi jätetään kirjoittamatta, lukuohje kertoo
+kertaalleen mitä sen puuttuminen tarkoittaa ja nimeää asetuksen, jolla sääntö
+kääntyy pois; jos riviltä jää pois väitteitä, rivi kertoo pudotettujen määrän
+samalla lauseella kuin kuviosuodatus ("7 harvinaisempaa kohdetta jäi pois").
+Lukuohje selittää **vain ne säännöt, jotka oikeasti karsivat jotakin** tässä
+raportissa -- selitys säännöstä, joka ei osunut kertaakaan, olisi väite
+raportista, joka ei pidä. Yhteenvedon rivi `Karsinnan säännöt` (ja `info`-
+komennon rivi `Karsinta`) luettelee **kaikki** arvot, koska muuten puhtaan
+raportin lukija ei näkisi, mitkä säännöt olivat päällä; kun jokainen sääntö on
+pois, rivi jää pois eikä raportti eroa esikarsinta-ajan raportista.
+
+**Suojattuja kierrostyyppejä ei karsita yhdelläkään säännöllä**
+(`render.view.PROTECTED_ROUND_TYPES`), ja jokainen lukuohjeen
+karsintakappale sanoo sen ääneen -- sama raportti sisältää karsimattomia
+lohkoja, joten ehdoton lause olisi väärä. Suojatut ovat:
+
+| Kierrostyyppi | Miksi kalustorivi on siellä havainto |
+| --- | --- |
+| `pistol` | Panssariluku on **ostohavainto** vain pistoolikierroksella (Story 2.8); muualla se on hallussapitoa, joka periytyy edelliseltä kierrokselta. |
+| `anomaly` | `classify` varaa tyypin ristiriitaiselle havainnolle (varustearvo laski ostoaikana) ja voiton jälkeiselle ostolle, jota ei käytännössä tehty -- kummassakin **kalusto on se havainto**, jonka takia lohko on olemassa. |
+
+Jatkoaikaa (`ot`) **ei** suojata, ja se on mittaustulos: `[league]
+.ot_start_money` on 12 500 $, joten jatkoajalla ostetaan täysi kalusto ja 5/5
+on odotus kuten täydellä ostolla. Jos aloitusraha joskus laskee
+pistoolitasolle, `ot` on suojattava -- riippuvuus on kirjoitettu koodin
+docstringiin.
+
+Jos sääntö poistaisi lohkosta **jokaisen** rivin, rivit säilyvät ja lohko
+sanoo sen ääneen. Tyhjä lohko lakkaisi kertomasta mitään, ja se on
+vaimennuspäätös eikä karsinta. Paluu koskee vain kokonaan pudotettuja rivejä:
+rivin lyhentäminen (säännöt 4 ja 5) ei voi tyhjentää lohkoa, joten sitä ei
+peruta.
+
+**Sääntö 4 rajaa kohteita eikä väitteitä.** Kohde on räjähdysalue, ja sama
+kohde voi olla rivillä useammin kuin kerran -- eri heittoalueelta tai eri
+aikaikkunassa (`[aggregate].utility_seconds_buckets`). Väitteitä rajaamalla
+kaksi säilytettyä paikkaa voisi olla sama kohde kahdessa ikkunassa, jolloin
+rivi menettäisi jokaisen eri kohteen samalla kun huomautus kutsuu niitä
+kohteiksi. Säännöissä 4 ja 5 **yhtä yleiset havainnot säilyvät molemmat**:
+rajan katkaiseminen tasatilanteen keskeltä pudottaisi kahdesta identtisen
+otannan havainnosta toisen ja kutsuisi sitä harvinaisemmaksi.
+
+**Miksi sääntö 3 on oletuksena pois.** Mitattu kaikista kahdeksasta demosta:
+
+| Näytepiste | Pelaajia elossa | Näytepiste olemassa |
+| --- | --- | --- |
+| 6 s | 100 % | 354/354 kierrospuolta |
+| 15 s | 94 % | 354/354 |
+| 30 s | 72 % | 329/354 (93 %) |
+| **45 s** | **53 %** | **285/354 (81 %)** |
+
+45 s -rivi kuvaa noin puolta joukkuetta neljällä kierroksella viidestä. Se on
+siis ohut ja vinoutunut -- se kertoo eloonjääneistä eikä asetelmasta -- mutta
+se **ei ole toistoa** kuten säännöt 1, 2, 4 ja 5, ja Veetin analyyseissä on
+myöhäisen kierroksen havaintoja ("mid lähti pian rotateen"). Asetus on
+olemassa, oletus on säilyttää; rivin saa pois arvolla
+`skip_sample_seconds = [45.0]`. Asetus **ei ole** sama asia kuin
+`[parse].snapshot_seconds`: näytepiste pysyy taulussa ja `report.json`issa,
+kyse on vain siitä tulostetaanko se. Sekunnit täsmätään siinä muodossa, jossa
+ne ovat rivin nimiössä, joten `45` ja `45.0` tarkoittavat samaa riviä; lista
+järjestetään latauksessa, koska järjestys ei muuta raporttia eikä siis saa
+muuttaa parametrihashia.
+
+> **Karsinta ei pakota mitään uudelleen paitsi renderöinnin.** Ei uutta
+> taulua, ei skeemaversion nostoa, ei uudelleenparsintaa eikä
+> -aggregointia -- yksi komento riittää:
+>
+> ```powershell
+> uv run pappascout report --team <tunniste>
+> ```
+>
+> `report` ei ohita itseään manifestin perusteella, joten säädetty asetus
+> näkyy heti seuraavassa raportissa. Vaiheen parametrihash kattaa silti
+> `[report]`-osion (ks. alla): manifesti kertoo, millä säännöillä kukin
+> raportti kirjoitettiin.
+
 Manifesti on **raporttikohtainen** (`<raportin nimi>.manifest.json`) ja
 jäljitettävyyttä varten. Yhteinen manifesti kestäisi huonosti juuri sitä
 rinnakkaisuutta, jonka varalta nimi varataan: kaksi yhtaikaista ajoa saisi
 kumpikin oman raporttinsa, mutta viimeisenä kirjoittava manifesti jäisi voimaan
 ja kuvaisi eri tiedostoa kuin se, jonka käyttäjä juuri sai.
 
-Manifestin parametrihash lasketaan **raporttimallin sisällöstä** (`sha256`),
-koska `render` ei lue yhtään asetusosiota mutta mallin muokkaaminen muuttaa
-raporttia -- sama kuvio kuin `parse`in aseluokittelun tiivisteellä.
+Manifestin parametrihash lasketaan **raporttimallin sisällöstä** (`sha256`) ja
+**`[report]`-osiosta kokonaisena**: mallin muokkaaminen muuttaa raporttia, ja
+niin muuttaa karsintasäännön säätäminenkin -- sama kuvio kuin `parse`in
+aseluokittelun tiivisteellä. Osio on hashissa kokonaisena eikä kenttä
+kerrallaan samasta syystä kuin `[aggregate]` on `aggregate`ssa: luettelo
+luetuista kentistä vanhenisi hiljaa. Ennen Story 2.13:a hash oli pelkkä mallin
+tiiviste, koska vaihe ei lukenut yhtäkään asetusta; **asetusta ei voi lisätä
+vaiheeseen, joka ei huomaa sen muuttumista**, ja se on Story 1.8:n vika, joka
+on tässä projektissa löytynyt kolmesti.
 
 Hash **ei kata** `render/view.py`:tä, joka valitsee jokaisen rivin ja
 sanamuodon: sen muokkaaminen muuttaa raporttia näkymättä manifestissa
 mitenkään, eli kahden raportin identtiset manifestit eivät todista niiden
 syntyneen samasta koodista. Vanhentunut raportti ei silti pääse ulos, koska
 vaihetta ei koskaan ohiteta manifestin perusteella -- jokainen ajo latoo
-raportin uudelleen. Puute on kirjattu `deferred-work.md`:hyn.
+raportin uudelleen. Puute on kirjattu suunnittelun `deferred-work.md`:hyn,
+joka asuu BMAD-tuotoksissa (`_bmad-output/implementation-artifacts/`) eikä
+tässä repossa.
 
 Väärä `schema_version` keskeyttää ajon eikä tuota puolikasta raporttia: versio
 luetaan raa'asta JSONista ennen mallin validointia, jotta virheilmoitus kertoo
@@ -952,7 +1092,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 
 | Polku | Sisältö |
 | --- | --- |
-| `settings.toml` | Kaikki numerot: `[project] [league] [parse] [thresholds] [aggregate] [economy]` |
+| `settings.toml` | Kaikki numerot: `[project] [league] [parse] [thresholds] [aggregate] [report] [economy]` |
 | `src/pappascout/constants.py` | Jaetut enum-luettelot (kierrostyyppi, puoli, tila) |
 | `src/pappascout/errors.py` | `PappascoutError` ja alaluokat |
 | `src/pappascout/domain/schemas.py` | Polars-skeemat `ROUNDS`, `TICKS`, `EVENTS`, `LINEUPS`, `DEATHS`, `CALLOUT_CLOUD`, `CLASSIFIED` ja `validate()` |

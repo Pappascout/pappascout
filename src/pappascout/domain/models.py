@@ -1,6 +1,6 @@
 """Typatut asetusmallit (AD-3) ja niiden lataus.
 
-Asetukset on jaettu viiteen osioon, joista jokainen on oma mallinsa. Osiointi on
+Asetukset on jaettu seitsemään osioon, joista jokainen on oma mallinsa. Osiointi on
 **rakenteellinen**: vaihe ottaa parametrikseen vain oman osansa
 (``parse(ParseSettings, ...)``, ``classify(ThresholdSettings, LeagueSettings, ...)``),
 joten se ei pysty lukemaan muita osioita. Tämä on se mekanismi, joka tekee
@@ -26,10 +26,18 @@ from math import isfinite
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic import ValidationError as _ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from pappascout.constants import seconds_label
 from pappascout.errors import SettingsError
 
 __all__ = [
@@ -38,6 +46,7 @@ __all__ = [
     "ParseSettings",
     "ThresholdSettings",
     "AggregateSettings",
+    "ReportSettings",
     "EconomySettings",
     "Settings",
     "load_settings",
@@ -60,7 +69,7 @@ SETTINGS_ENV_VAR = "PAPPASCOUT_SETTINGS"
 
 #: Ainoat sallitut ylätason avaimet ``settings.toml``-tiedostossa (AD-3).
 SETTINGS_SECTIONS: frozenset[str] = frozenset(
-    {"project", "league", "parse", "thresholds", "aggregate", "economy"}
+    {"project", "league", "parse", "thresholds", "aggregate", "report", "economy"}
 )
 
 #: Asetukset, jotka on **poistettu**, ja se mihin ne menivät.
@@ -180,7 +189,11 @@ class ProjectSettings(_Section):
 class LeagueSettings(_Section):
     """``[league]`` -- Pappaliigan kausi, karttapooli ja sääntökirjan arvot.
 
-    Luetaan ``select``-, ``classify``-, ``aggregate``- ja ``render``-vaiheissa.
+    Luetaan ``select``-, ``classify``- ja ``aggregate``-vaiheissa. **Ei
+    ``render``issä**: raportti saa liigatiedon ``report.json``ista, ja
+    vaiheen ainoa oma osio on ``[report]`` (Story 2.13). Väite oli täällä
+    ennen sitä, ja se oli väärä jo silloin -- vaihe ei ottanut yhtäkään
+    asetusosiota parametrikseen.
     """
 
     season: PositiveInt
@@ -636,6 +649,150 @@ class AggregateSettings(_Section):
         return self
 
 
+class ReportSettings(_Section):
+    """``[report]`` -- karsintasäännöt: mitä raportti jättää kirjoittamatta.
+
+    Story 2.13. Raportti oli **noin 96 sisältöriviä karttaa kohden**, Veetin
+    oma analyysi noin 30, ja osa pituudesta oli puhdasta toistoa. Viisi
+    sääntöä jättää sen kirjoittamatta.
+
+    **Mitatut perusteet ja luvut ovat ``settings.toml``issa**, eivät täällä.
+    Ne ovat mittaustuloksia, joita säätävä ihminen lukee säätäessään arvoa, ja
+    kolmeen paikkaan kirjoitettuina kaksi kopiota vanhenee hiljaa. Täällä on
+    vain se, mikä on koodin sopimusta.
+
+    **Miksi oma osio eikä ``[aggregate]``.** Osiointi seuraa vaihetta, joka
+    arvot **lukee** (AD-3), ja nämä lukee ``render``. ``[aggregate]`` on
+    kokonaisena ``aggregate``-vaiheen parametrihashissa, joten sinne
+    kirjoitettu esitysvalinta mitätöisi jokaisen aggregoinnin -- eli
+    esitysasetuksen kääntäminen pakottaisi laskemaan ``report.json``in
+    uudelleen, vaikka sen sisältö ei muutu. Oma osio tekee lupauksesta
+    "karsinta koskee esitystä eikä sisältöä" rakenteellisen.
+
+    **Jokainen sääntö on oma asetus**, jotta mikä tahansa niistä voidaan
+    kääntää pois ilman koodimuutosta -- ja jotta ne kaikki pois käännettyinä
+    raportti on merkki merkiltä sama kuin ennen tätä tarinaa. Oletukset ovat
+    ``settings.toml``in oletukset: koodioletus, joka eroaisi tiedostosta,
+    karsisi hiljaa eri tavalla silloin kun avain on unohtunut tiedostosta.
+
+    **Karsinta ei muuta yhtäkään lukua** -- ei ``report.json``issa eikä
+    raportissa. Erityisesti se ei muuta lohkon kuviosuodatuksen kirjanpitoa:
+    rivi rakennetaan aina ensin ja karsitaan vasta sitten
+    (:mod:`pappascout.render.view`).
+
+    **Osa kierrostyypeistä on suojattu kaikilta säännöiltä**, ja luettelon
+    omistaa :data:`pappascout.render.view.PROTECTED_ROUND_TYPES`, koska se on
+    esitysvalinta eikä säädettävä arvo.
+
+    **Vaatimus uudelle kentälle: epätosi arvo tarkoittaa "sääntö pois."**
+    ``False``, tyhjä lista ja ``0`` ovat kaikki "ei karsi", ja renderöinti
+    tunnistaa siitä mekaanisesti, onko karsinta lainkaan mukana -- se päättää
+    yhteenvedon karsintarivin olemassaolon, eli sen, onko raportti merkki
+    merkiltä sama kuin ennen tätä tarinaa. Kenttä, jonka nollan pitäisi
+    tarkoittaa jotain muuta, rikkoisi sen ilman että mikään kaatuu.
+    """
+
+    #: Sääntö 1: jätä kylläinen kalustorivi kirjoittamatta.
+    #:
+    #: Kylläinen = jakaumassa on **yksi pylväs**, sen arvo on
+    #: :data:`PLAYERS_ON_SERVER` ja havainto saatiin joka kierrokselta.
+    drop_saturated_equipment_lines: bool = True
+
+    #: Sääntö 2: kirjoita aseistettujen ja panssaroitujen rivi yhtenä, kun
+    #: jakaumat ovat identtiset (pylväät, jakaja ja huomautus).
+    merge_equal_equipment_lines: bool = True
+
+    #: Sääntö 3: aikanäytepisteet, joita **ei kirjoiteta** raporttiin.
+    #:
+    #: Oletus on tyhjä eli sääntö on pois päältä, ja se on mittaustulos:
+    #: myöhäinen näytepiste on ohut ja vinoutunut mutta **ei toistoa** kuten
+    #: säännöt 1, 2, 4 ja 5, joten pois jättäminen voi maksaa sisältöä. Luvut
+    #: ovat ``settings.toml``issa.
+    #:
+    #: **Ei sama asia kuin** ``[parse].snapshot_seconds``: näytepiste pysyy
+    #: taulussa ja ``report.json``issa, kyse on vain siitä tulostetaanko se.
+    #: Sekunnit täsmätään :func:`~pappascout.constants.seconds_label`in
+    #: muodossa eli sellaisina kuin ne ovat rivin nimiössä, joten ``45`` ja
+    #: ``45.0`` tarkoittavat samaa riviä.
+    #:
+    #: **Lista järjestetään latauksessa**, koska se menee ``render``-vaiheen
+    #: parametrihashiin: järjestyksen vaihtaminen tuottaa merkki merkiltä
+    #: saman raportin, joten järjestämätön lista antaisi kahdelle
+    #: identtiselle raportille eri parametrihashin.
+    skip_sample_seconds: list[float] = Field(default_factory=list)
+
+    #: Sääntö 4: enintään näin monta **kohdetta** utilityn kohderivillä.
+    #:
+    #: Kohde on räjähdysalue eikä väite: sama kohde voi esiintyä rivillä
+    #: useammin kuin kerran (eri heittoalue tai eri aikaikkuna), ja rajaus
+    #: koskee kohteita -- muuten kaksi säilytettyä väitettä voisi olla sama
+    #: kohde kahdessa ikkunassa, ja rivi menettäisi jokaisen muun kohteen
+    #: samalla kun huomautus kutsuu niitä kohteiksi.
+    #:
+    #: ``0`` tarkoittaa "ei rajaa" eli sääntö pois: rivin tyhjentäminen ei ole
+    #: karsintaa vaan vaimennus, joka on rajattu tästä tarinasta ulos.
+    max_utility_targets: NonNegativeInt = 2
+
+    #: Sääntö 5: enintään näin monta aluetta tapporivillä. ``0`` = ei rajaa.
+    #:
+    #: Kolme eikä kaksi, koska tapporivi on koko kierrostyypin tapot yhdellä
+    #: rivillä ja sen jakauma on leveämpi.
+    max_kill_areas: NonNegativeInt = 3
+
+    @field_validator("skip_sample_seconds")
+    @classmethod
+    def _check_skip_sample_seconds(cls, value: list[float]) -> list[float]:
+        """Tarkista näytepistelista ja **järjestä se** latauksessa.
+
+        Kolme tapaa mennä rikki hiljaa, ja kaikki kolme päättyisivät samaan:
+        asetus näyttäisi poistavan rivin muttei poistaisi mitään.
+
+        * **NaN tai ääretön** ei täsmää yhteenkään näytepisteeseen.
+        * **Negatiivinen tai nolla** ei ole näytepiste: ``t_s`` mitataan
+          freezetimen lopusta eteenpäin, ja ``[parse].snapshot_seconds``
+          vaatii positiivisen arvon.
+        * **Kaksi arvoa, jotka näyttävät samalta rivin nimiössä**
+          (``45.0000001``) tarkoittaisivat samaa riviä kahdesti. Tarkistus
+          tehdään :func:`~pappascout.constants.seconds_label`illa eli samalla
+          funktiolla kuin täsmäys; kahdella muotoilulla ne sopisivat vain
+          tänään.
+
+        Järjestäminen on **parametrihashin takia** eikä siisteyttä: ``render``
+        hashaa osionsa kokonaisena, ja ``[45, 15]`` tuottaa merkki merkiltä
+        saman raportin kuin ``[15, 45]``. Järjestämättömänä manifesti
+        väittäisi kahden identtisen raportin syntyneen eri parametreilla.
+
+        Näytepistettä, jota ``[parse].snapshot_seconds``issa ei ole, **ei
+        torjuta**: osiot eivät näe toisiaan (AD-3), ja raportti latotaan myös
+        vanhoista ``report.json``eista, joissa näytepisteet ovat ne, jotka
+        parsinnan aikaan olivat käytössä.
+        """
+        labels: list[str] = []
+        for seconds in value:
+            if not isfinite(seconds):
+                raise ValueError(
+                    f"skip_sample_seconds sisältää arvon {seconds!r}, joka ei "
+                    "ole äärellinen luku, eikä se voi täsmätä yhteenkään "
+                    "näytepisteeseen."
+                )
+            if seconds <= 0:
+                raise ValueError(
+                    f"skip_sample_seconds sisältää arvon "
+                    f"{seconds_label(seconds)}, joka ei ole positiivinen. "
+                    "Näytepisteet mitataan freezetimen lopusta eteenpäin, "
+                    "joten nolla tai negatiivinen ei ole näytepiste."
+                )
+            labels.append(seconds_label(seconds))
+        if len(labels) != len(set(labels)):
+            raise ValueError(
+                "skip_sample_seconds sisältää saman näytepisteen kahdesti "
+                f"({', '.join(labels)}). Sekunnit täsmätään siinä muodossa, "
+                "jossa ne ovat rivin nimiössä, joten kaksi lähekkäistä arvoa "
+                "tarkoittaisi samaa riviä."
+            )
+        return sorted(value)
+
+
 class EconomySettings(_Section):
     """``[economy]`` -- CS2:n talousmalli.
 
@@ -680,7 +837,7 @@ class EconomySettings(_Section):
 
 
 class Settings(BaseSettings):
-    """Koko asetuskokonaisuus: viisi osiota ja koneen omat avaimet.
+    """Koko asetuskokonaisuus: seitsemän osiota ja koneen omat avaimet.
 
     Vaiheelle ei anneta tätä oliota vaan yksi osio kerrallaan (AD-3).
     """
@@ -700,6 +857,7 @@ class Settings(BaseSettings):
     parse: ParseSettings
     thresholds: ThresholdSettings
     aggregate: AggregateSettings
+    report: ReportSettings
     economy: EconomySettings
 
     faceit_api_key: SecretStr | None = None
@@ -937,6 +1095,28 @@ def load_settings(
                 "enää ole.\n"
                 f"{advice}"
             )
+
+    # Puuttuva osio ennen pydanticia. ``report: Field required`` on totta
+    # muttei ohjaa mihinkään: se ei kerro, että osio on kokonaan pois, eikä
+    # sitä mistä sen saa. Osion pakollisuus on linjaus eikä puute -- jokainen
+    # asetus kirjoitetaan näkyviin, koska oletus, joka on vain koodissa, ei
+    # näy tiedostossa jota säädetään -- joten korjattava on viesti.
+    #
+    # Sama sukulaisuus kuin :data:`REMOVED_SETTINGS`illa, joka kattaa
+    # käänteisen tapauksen (asetus, jota ei enää ole). Kahden koneen arkisto
+    # tekee kummastakin tavallisen tilanteen: repon ``settings.toml`` päivittyy
+    # gitistä, ja väliin jäänyt pull näkyy juuri näin.
+    missing = sorted(name for name in SETTINGS_SECTIONS if name not in data)
+    if missing:
+        raise SettingsError(
+            f"Asetustiedostosta {path} puuttuu osio: "
+            + ", ".join(f"[{name}]" for name in missing)
+            + ".\n"
+            "Jokainen osio on pakollinen, koska jokainen asetus kirjoitetaan "
+            "näkyviin: koodin oletus ei näy tiedostossa, jota säädetään.\n"
+            "Kopioi puuttuva osio repon omasta settings.tomlista -- sen saa "
+            "näkyviin komennolla: git show HEAD:settings.toml"
+        )
 
     unknown = sorted(set(data) - SETTINGS_SECTIONS)
     if unknown:
