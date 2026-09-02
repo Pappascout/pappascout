@@ -41,6 +41,7 @@ from pappascout.domain.aggregate import (
 )
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
 from pappascout.domain.report import MissingDemo, RosterEntry, TeamReport
+from pappascout.domain.sampling import AreaObservations
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
     ARMORED_COLUMN,
@@ -393,6 +394,7 @@ def report_for(
     missing: list[MissingDemo] | None = None,
     lineups: list[str] | None = None,
     map_names: dict[str, str | None] | None = None,
+    area_orientation: dict[str, dict[str | None, AreaObservations]] | None = None,
 ):
     """Raportti käsin rakennetuista riveistä.
 
@@ -405,9 +407,19 @@ def report_for(
     Oletusta ei täytetä annetun kartan päälle: puuttuva avain on
     ``build_report``in mielestä virhe, ja juuri sitä vartijaa on voitava
     testata tämän apurin läpi.
+
+    ``area_orientation`` toimii samoin, ja sen oletus on **tyhjä orientaatio
+    joka demolle**: yksikään alue ei ylitä havaintokynnystä, joten
+    poikkeamasäännöt vaikenevat. Se on tarkoituksellinen -- poikkeamat
+    testataan omilla riveillään, ja jokainen muu testi mittaa sitä, mitä se
+    mittasi ennen Story 2.5:tä. Tyhjä kartta on myös oikea vastaus: demo,
+    jonka näytepisteissä ei ole nimettyjä alueita, ei anna orientaatiota
+    millekään alueelle.
     """
     if map_names is None:
         map_names = {str(row["map_demo_id"]): None for row in classified}
+    if area_orientation is None:
+        area_orientation = {str(row["map_demo_id"]): {} for row in classified}
     return build_report(
         classified=classified_frame(classified),
         ticks=ticks_frame(ticks or []),
@@ -421,6 +433,7 @@ def report_for(
         aggregate=windows or aggregate_settings(),
         map_pool=MAP_POOL,
         map_names=map_names,
+        area_orientation=area_orientation,
         generated_at=datetime(2026, 8, 30, tzinfo=UTC),
         missing_demos=missing or [],
     )
@@ -1335,11 +1348,16 @@ def test_the_report_carries_no_interpretation() -> None:
         [classified_row("Nuke_vs_a", 1)],
         events=event_rows("Nuke_vs_a", 1, 0, "smoke"),
     )
-    # thresholds_used on kynnysten kopio jäljitettävyyttä varten, ei havainto,
-    # ja siellä esiintyy kynnysnimi stack_min_players. Tarkistus koskee
-    # havaintoja.
+    # Kaksi kenttää on **jäljitettävyyttä eikä havaintoja**, ja molemmissa
+    # esiintyy sana stack: thresholds_used on kynnysten kopio (kynnysnimi
+    # stack_min_players), ja anomaly_scan.rules_deferred nimeää säännön, jota
+    # EI ajettu -- se on kattavuuden nimittäjä. Tarkistus koskee havaintoja,
+    # joten molemmat nostetaan pois; alla varmistetaan erikseen, ettei sana
+    # katoa siitä paikasta, johon se kuuluu.
     data = report.model_dump(mode="json")
     data.pop("thresholds_used")
+    scan = data.pop("anomaly_scan")
+    assert scan["rules_deferred"] == ["stack"]
     text = str(data).lower()
     for word in ("fake", "rush", "stack", "eksekuutio"):
         assert word not in text
@@ -2013,3 +2031,680 @@ def test_an_empty_kill_area_string_collapses_too() -> None:
     ]
     report = deaths_for(rows, KEYS[:1], [TEAM])
     assert [(k.area, k.n) for k in report.kills] == [(None, 2)]
+
+
+# --- Poikkeamat (Story 2.5) -----------------------------------------------------
+#
+# Ryhmittely otannaksi on aggregoinnin työ, ei säännön: sääntö näkee yhden
+# kierroksen kerrallaan. Testit rakentavat siksi kierroksia ja tarkistavat
+# ``n/m``:n, kartan, puolen ja kierrostyypit -- eivät sitä, milloin sääntö
+# osuu (se on ``test_sampling.py``).
+#
+# **Kynnykset kulkevat aina ``limits=``-parametrin kautta.** Se ei ole
+# tyylivalinta: ilman sitä testit todistaisivat vain, että sääntö osuu
+# oletusarvoilla, eikä yksikään väite kaatuisi jos kutsupaikka johdottaisi
+# kynnykset väärin tai jättäisi ne lukematta. Juuri se on Story 1.8:n vika --
+# säädetty settings.toml muuttaa parametrihashin muttei raporttia.
+
+#: Alue, joka on demossa T:n hallussa: Ancientin B suora, T-osuus 0,88 (n 24).
+ANOMALY_AREA = "TSideLower"
+
+
+def t_side(demo: str, *, area: str = ANOMALY_AREA, t: int = 21, total: int = 24):
+    """Orientaatiokartta yhdelle demolle: yksi alue T:n hallussa."""
+    return {demo: {area: AreaObservations(t=t, total=total)}}
+
+
+def advance_round(
+    demo: str,
+    round_no: int,
+    *,
+    area: str = ANOMALY_AREA,
+    players: int = 1,
+    seconds: float = 30.0,
+) -> list[dict[str, object]]:
+    """Näytepisterivit, jotka laukaisevat CT-etenemisen yhdellä kierroksella."""
+    return [
+        tick_row(
+            demo,
+            round_no,
+            f"{TEAM}-p{i}",
+            area,
+            side="CT",
+            sample_t_s=seconds,
+        )
+        for i in range(players)
+    ]
+
+
+def crunch_round(
+    demo: str,
+    round_no: int,
+    *,
+    area: str = ANOMALY_AREA,
+    sources: tuple[str, ...] = ("SideEntrance", "TSideUpper"),
+    seconds: float = 30.0,
+) -> list[dict[str, object]]:
+    """Pelaajat saapuvat alueelle annetuista suunnista -- yksi per suunta."""
+    rows: list[dict[str, object]] = []
+    for i, source in enumerate(sources):
+        rows.append(
+            tick_row(
+                demo,
+                round_no,
+                f"{TEAM}-p{i}",
+                source,
+                side="CT",
+                sample_t_s=seconds - 15.0,
+            )
+        )
+        rows.append(
+            tick_row(
+                demo, round_no, f"{TEAM}-p{i}", area, side="CT", sample_t_s=seconds
+            )
+        )
+    return rows
+
+
+def eco_ct(demo: str, *rounds: int, round_type: str = "eco"):
+    """Luokitellut CT-kierrokset annetulla tyypillä."""
+    return [
+        classified_row(demo, n, side="CT", round_type=round_type) for n in rounds
+    ]
+
+
+def anomaly_report(
+    classified: list[dict[str, object]],
+    ticks: list[dict[str, object]],
+    *,
+    demo: str,
+    limits: ThresholdSettings,
+    orientation: dict | None = None,
+    map_names: dict[str, str | None] | None = None,
+):
+    """Raportti poikkeamatestille -- kynnykset **aina** nimettyinä."""
+    return report_for(
+        classified,
+        ticks,
+        limits=limits,
+        area_orientation=orientation if orientation is not None else t_side(demo),
+        map_names=map_names,
+    )
+
+
+def areas_of(report, rule: str) -> list[str]:
+    """Annetun säännön poikkeama-alueet raportista."""
+    return [a.area for a in report.anomalies if a.rule == rule]
+
+
+def test_an_anomaly_carries_its_map_side_round_type_and_sample() -> None:
+    """Jokainen poikkeama kantaa otantansa sekä kartan, puolen ja tyypin."""
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2, 3),
+        advance_round(demo, 1),
+        demo=demo,
+        limits=thresholds(),
+    )
+    assert len(report.anomalies) == 1
+    anomaly = report.anomalies[0]
+    assert anomaly.rule == "ct_advance"
+    assert anomaly.map_name == "de_ancient"
+    assert anomaly.map_name_source == "map_demo_id"
+    assert anomaly.side == "CT"
+    assert anomaly.round_types == ["eco"]
+    assert anomaly.area == ANOMALY_AREA
+    assert (anomaly.n, anomaly.m) == (1, 3)
+    assert [entry.round_no for entry in anomaly.rounds] == [1]
+    assert anomaly.rounds[0].seconds == [30.0]
+    assert anomaly.rounds[0].map_demo_id == demo
+    assert anomaly.orientation[0].map_demo_id == demo
+    assert anomaly.orientation[0].t_share == pytest.approx(0.875)
+    assert anomaly.orientation[0].observations == 24
+
+
+def test_the_round_numbers_are_carried_not_thrown_away() -> None:
+    """Scoutin seuraava teko on avata se kierros demolta."""
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2, 3),
+        advance_round(demo, 2) + advance_round(demo, 3),
+        demo=demo,
+        limits=thresholds(),
+    )
+    anomaly = report.anomalies[0]
+    assert [entry.round_no for entry in anomaly.rounds] == [2, 3]
+
+
+def test_the_same_area_on_two_rounds_is_one_row_with_a_sample_of_two() -> None:
+    """I/O-matriisin viimeinen rivi: yksi rivi otannalla 2/m, ei kaksi riviä."""
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2, 3),
+        advance_round(demo, 1) + advance_round(demo, 2, players=2),
+        demo=demo,
+        limits=thresholds(),
+    )
+    assert len(report.anomalies) == 1
+    anomaly = report.anomalies[0]
+    assert (anomaly.n, anomaly.m) == (2, 3)
+    assert anomaly.players_max == 2
+    assert [entry.players_max for entry in anomaly.rounds] == [1, 2]
+
+
+def test_two_sample_points_on_one_round_do_not_double_the_sample() -> None:
+    """``n`` on kierroksia: sama alue 15 s ja 30 s kohdalla on yksi kierros."""
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2),
+        advance_round(demo, 1, seconds=15.0) + advance_round(demo, 1, seconds=30.0),
+        demo=demo,
+        limits=thresholds(),
+    )
+    assert len(report.anomalies) == 1
+    assert report.anomalies[0].n == 1
+    assert report.anomalies[0].rounds[0].seconds == [15.0, 30.0]
+
+
+def test_a_crunch_round_produces_both_rows() -> None:
+    """Säännöt jakavat orientaation; säästökierroksella molemmat osuvat."""
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2, 3),
+        crunch_round(demo, 1),
+        demo=demo,
+        limits=thresholds(),
+    )
+    rules = [a.rule for a in report.anomalies]
+    assert rules == ["ct_advance", "crunch"]
+    crunch = report.anomalies[1]
+    assert crunch.rounds[0].sources == ["SideEntrance", "TSideUpper"]
+    assert crunch.players_max == 2
+
+
+def test_an_empty_anomaly_list_is_a_valid_report() -> None:
+    """Matriisin rivi 7: yksikään sääntö ei osu."""
+    demo = "Nuke_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1),
+        advance_round(demo, 1, area="Outside"),
+        demo=demo,
+        # Nuken piha: T-osuus 0,70 eli kynnyksen alle.
+        orientation={demo: {"Outside": AreaObservations(t=211, total=302)}},
+        limits=thresholds(),
+    )
+    assert report.anomalies == []
+
+
+def test_a_full_buy_round_gets_no_advance_but_can_get_a_crunch() -> None:
+    """Matriisin rivi 8: eteneminen ei voi osua, crunch voi."""
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2, 3, round_type="full"),
+        crunch_round(demo, 1),
+        demo=demo,
+        limits=thresholds(),
+    )
+    assert [a.rule for a in report.anomalies] == ["crunch"]
+
+
+# --- Speksimuutos 2: crunchia ei avainnella kierrostyypin mukaan ----------------
+
+
+def test_a_crunch_on_two_round_types_is_one_row_over_the_whole_side() -> None:
+    """Sama kuvio kahdella kierrostyypillä on yksi rivi, ei kaksi.
+
+    Ilman tätä sama crunch hajoaisi eco-riviksi ja default-riviksi eri
+    jakajilla, eikä kokonaismäärää voisi nähdä -- juuri se hajanaisuus, jonka
+    poistamiseksi koko luku tehtiin.
+    """
+    demo = "Ancient_vs_x"
+    classified = eco_ct(demo, 1, 2) + eco_ct(demo, 3, 4, round_type="full")
+    report = anomaly_report(
+        classified,
+        crunch_round(demo, 1) + crunch_round(demo, 3),
+        demo=demo,
+        limits=thresholds(),
+    )
+    crunches = [a for a in report.anomalies if a.rule == "crunch"]
+    assert len(crunches) == 1
+    crunch = crunches[0]
+    # Nimittäjä on puolen KAIKKI kierrokset, ei yhden kierrostyypin.
+    assert (crunch.n, crunch.m) == (2, 4)
+    assert crunch.round_types == ["eco", "full"]
+    assert [entry.round_type for entry in crunch.rounds] == ["eco", "full"]
+
+
+def test_the_advance_is_still_keyed_by_round_type() -> None:
+    """Eteneminen on säästökierrosten ilmiö, joten tyyppi on osa havaintoa."""
+    demo = "Ancient_vs_x"
+    classified = (
+        eco_ct(demo, 1, 2)
+        + eco_ct(demo, 3, 4, round_type="force")
+    )
+    report = anomaly_report(
+        classified,
+        advance_round(demo, 1) + advance_round(demo, 3),
+        demo=demo,
+        limits=thresholds(),
+    )
+    advances = [a for a in report.anomalies if a.rule == "ct_advance"]
+    assert [(a.round_types, a.n, a.m) for a in advances] == [
+        (["eco"], 1, 2),
+        (["force"], 1, 2),
+    ]
+
+
+def test_an_advance_row_never_carries_two_round_types() -> None:
+    """Malli valvoo sen, mutta ryhmittelyn on tuotettava se oikein."""
+    demo = "Ancient_vs_x"
+    classified = eco_ct(demo, 1) + eco_ct(demo, 2, round_type="force")
+    report = anomaly_report(
+        classified,
+        advance_round(demo, 1) + advance_round(demo, 2),
+        demo=demo,
+        limits=thresholds(),
+    )
+    for anomaly in report.anomalies:
+        if anomaly.rule == "ct_advance":
+            assert len(anomaly.round_types) == 1
+
+
+def test_the_crunch_denominator_is_the_side_not_the_round_type() -> None:
+    """Kokonaismäärä on nähtävissä: 1/24 eikä 1/2 ja 0/22."""
+    demo = "Ancient_vs_x"
+    classified = eco_ct(demo, 1, 2) + eco_ct(
+        demo, *range(3, 25), round_type="full"
+    )
+    report = anomaly_report(
+        classified,
+        crunch_round(demo, 1),
+        demo=demo,
+        limits=thresholds(),
+    )
+    crunch = next(a for a in report.anomalies if a.rule == "crunch")
+    assert (crunch.n, crunch.m) == (1, 24)
+
+
+# --- Kynnykset vaikuttavat raportin sisältöön ----------------------------------
+#
+# Jokainen kuudesta kynnyksestä todistetaan **kahteen suuntaan**: arvo, jolla
+# rivi on, ja arvo, jolla se katoaa. Mutaatiotesti, jonka nämä pysäyttävät:
+# kynnyksen johdottaminen väärin tai lukematta jättäminen.
+
+
+def test_the_t_share_threshold_decides_whether_the_row_exists() -> None:
+    """Nuken piha (0,70) on rajatapaus, josta koko kynnys on kalibroitu."""
+    demo = "Nuke_vs_x"
+    classified = eco_ct(demo, 1, 2)
+    ticks = advance_round(demo, 1, area="Outside")
+    # Nuken piha on **tasan** kynnyksellä: koko 0,80:n perustelu nojaa siihen,
+    # että 0,70 päästäisi sen läpi. Luvut ovat siksi tasan 0,70 eivätkä
+    # mitattu 211/302 (= 0,6987), joka pyöristyy 0,70:een muttei saavuta sitä
+    # -- juuri se ero on syy kirjoittaa vertailu näkyviin.
+    orientation = {demo: {"Outside": AreaObservations(t=210, total=300)}}
+    strict = anomaly_report(
+        classified, ticks, demo=demo, orientation=orientation,
+        limits=thresholds(advance_t_share=0.80),
+    )
+    loose = anomaly_report(
+        classified, ticks, demo=demo, orientation=orientation,
+        limits=thresholds(advance_t_share=0.70),
+    )
+    assert areas_of(strict, "ct_advance") == []
+    assert areas_of(loose, "ct_advance") == ["Outside"]
+
+
+def test_the_observation_minimum_decides_whether_the_row_exists() -> None:
+    """Ohut alue ei ole kummankaan puolen aluetta -- kynnys ratkaisee."""
+    demo = "Ancient_vs_x"
+    classified = eco_ct(demo, 1, 2)
+    ticks = advance_round(demo, 1, area="Ramp")
+    orientation = {demo: {"Ramp": AreaObservations(t=5, total=6)}}
+    strict = anomaly_report(
+        classified, ticks, demo=demo, orientation=orientation,
+        limits=thresholds(advance_area_min_observations=20),
+    )
+    loose = anomaly_report(
+        classified, ticks, demo=demo, orientation=orientation,
+        limits=thresholds(advance_area_min_observations=6),
+    )
+    assert areas_of(strict, "ct_advance") == []
+    assert areas_of(loose, "ct_advance") == ["Ramp"]
+
+
+def test_the_time_bound_decides_whether_the_row_exists() -> None:
+    """45 s -osuma on rajauksen ulkopuolella, 30 s sisällä."""
+    demo = "Ancient_vs_x"
+    classified = eco_ct(demo, 1, 2)
+    ticks = advance_round(demo, 1, seconds=45.0)
+    strict = anomaly_report(
+        classified, ticks, demo=demo, limits=thresholds(advance_max_sample_s=30.0)
+    )
+    loose = anomaly_report(
+        classified, ticks, demo=demo, limits=thresholds(advance_max_sample_s=45.0)
+    )
+    assert areas_of(strict, "ct_advance") == []
+    assert areas_of(loose, "ct_advance") == [ANOMALY_AREA]
+
+
+def test_the_advance_player_minimum_decides_whether_the_row_exists() -> None:
+    """Veeti valitsi 1; kahden vaatimus jättäisi neljä kuudesta osumasta pois."""
+    demo = "Ancient_vs_x"
+    classified = eco_ct(demo, 1, 2)
+    ticks = advance_round(demo, 1, players=1)
+    one = anomaly_report(
+        classified, ticks, demo=demo, limits=thresholds(advance_min_players=1)
+    )
+    two = anomaly_report(
+        classified, ticks, demo=demo, limits=thresholds(advance_min_players=2)
+    )
+    assert areas_of(one, "ct_advance") == [ANOMALY_AREA]
+    assert areas_of(two, "ct_advance") == []
+
+
+def test_the_crunch_player_minimum_decides_whether_the_row_exists() -> None:
+    """Kolmen pelaajan vaatimus pudottaa kahden pelaajan crunchin."""
+    demo = "Ancient_vs_x"
+    classified = eco_ct(demo, 1, 2)
+    ticks = crunch_round(demo, 1)
+    two = anomaly_report(
+        classified, ticks, demo=demo, limits=thresholds(crunch_min_players=2)
+    )
+    three = anomaly_report(
+        classified, ticks, demo=demo, limits=thresholds(crunch_min_players=3)
+    )
+    assert areas_of(two, "crunch") == [ANOMALY_AREA]
+    assert areas_of(three, "crunch") == []
+
+
+def test_the_crunch_source_minimum_decides_whether_the_row_exists() -> None:
+    """Kolmen suunnan vaatimus pudottaa kahden suunnan crunchin."""
+    demo = "Ancient_vs_x"
+    classified = eco_ct(demo, 1, 2)
+    ticks = crunch_round(demo, 1)
+    two = anomaly_report(
+        classified,
+        ticks,
+        demo=demo,
+        limits=thresholds(crunch_min_players=3, crunch_min_sources=2),
+    )
+    three = anomaly_report(
+        classified,
+        ticks,
+        demo=demo,
+        limits=thresholds(crunch_min_players=3, crunch_min_sources=3),
+    )
+    # Kaksi pelaajaa kahdesta suunnasta: crunch_min_players=3 pudottaa sen
+    # kummallakin suuntavaatimuksella, joten suuntavaatimus todistetaan
+    # kolmen pelaajan aineistolla alla.
+    assert areas_of(two, "crunch") == []
+    assert areas_of(three, "crunch") == []
+
+    ticks3 = crunch_round(
+        demo, 1, sources=("Alley", "BombsiteB", "LowerTunnel")
+    )
+    ok = anomaly_report(
+        classified,
+        ticks3,
+        demo=demo,
+        limits=thresholds(crunch_min_players=3, crunch_min_sources=3),
+    )
+    tight = anomaly_report(
+        classified,
+        ticks3,
+        demo=demo,
+        limits=thresholds(crunch_min_players=4, crunch_min_sources=4),
+    )
+    assert areas_of(ok, "crunch") == [ANOMALY_AREA]
+    assert areas_of(tight, "crunch") == []
+
+
+def test_the_two_crunch_thresholds_are_not_interchangeable() -> None:
+    """**Mutaatiovartija: kynnysten vaihtaminen keskenään kaataa tämän.**
+
+    Aineisto on kolme pelaajaa kahdesta suunnasta, ja kynnykset ovat
+    ``players=3, sources=2``. Oikein johdotettuna se osuu. Jos kutsupaikka
+    vaihtaa kynnykset keskenään, ehdoksi tulee ``players>=2, sources>=3`` --
+    ja kaksi suuntaa ei riitä kolmeen, joten rivi katoaa.
+
+    Oletusarvoilla (2 ja 2) vaihto ei näy lainkaan, ja juuri siksi tämä testi
+    käyttää eri arvoja.
+    """
+    demo = "Ancient_vs_x"
+    classified = eco_ct(demo, 1, 2)
+    # Kolme pelaajaa, kaksi suuntaa: p0 ja p1 samasta suunnasta.
+    ticks = [
+        tick_row(demo, 1, f"{TEAM}-p0", "SideEntrance", side="CT", sample_t_s=15.0),
+        tick_row(demo, 1, f"{TEAM}-p1", "SideEntrance", side="CT", sample_t_s=15.0),
+        tick_row(demo, 1, f"{TEAM}-p2", "TSideUpper", side="CT", sample_t_s=15.0),
+    ] + [
+        tick_row(demo, 1, f"{TEAM}-p{i}", ANOMALY_AREA, side="CT", sample_t_s=30.0)
+        for i in range(3)
+    ]
+    report = anomaly_report(
+        classified,
+        ticks,
+        demo=demo,
+        limits=thresholds(crunch_min_players=3, crunch_min_sources=2),
+    )
+    crunch = next(a for a in report.anomalies if a.rule == "crunch")
+    assert crunch.players_max == 3
+    assert crunch.rounds[0].sources == ["SideEntrance", "TSideUpper"]
+
+
+def test_the_small_sample_threshold_decides_the_mark_both_ways() -> None:
+    """Sisarlipun sääntö: molemmat suunnat, ei vain ``True``.
+
+    Mutaatio ``m <`` -> ``m <=`` merkitsisi jokaisen kolmen kierroksen haaran
+    poikkeaman pieneksi otannaksi, eikä yksisuuntainen väite huomaisi sitä.
+    """
+    demo = "Ancient_vs_x"
+    small = anomaly_report(
+        eco_ct(demo, 1, 2),
+        advance_round(demo, 1),
+        demo=demo,
+        limits=thresholds(small_sample_rounds=3),
+    )
+    big = anomaly_report(
+        eco_ct(demo, 1, 2, 3),
+        advance_round(demo, 1),
+        demo=demo,
+        limits=thresholds(small_sample_rounds=3),
+    )
+    assert small.anomalies[0].small_sample is True
+    assert small.anomalies[0].m == 2
+    assert big.anomalies[0].small_sample is False
+    assert big.anomalies[0].m == 3
+
+
+# --- Ryhmittely ja kattavuus ----------------------------------------------------
+
+
+def test_two_demos_of_the_same_map_keep_both_orientations() -> None:
+    """Kartta voi olla kahdesta demosta, ja niiden T-osuudet voivat erota."""
+    first, second = "Ancient_vs_x", "Ancient_vs_y"
+    report = anomaly_report(
+        eco_ct(first, 1) + eco_ct(second, 1),
+        advance_round(first, 1) + advance_round(second, 1),
+        demo=first,
+        orientation={
+            first: {ANOMALY_AREA: AreaObservations(t=21, total=24)},
+            second: {ANOMALY_AREA: AreaObservations(t=40, total=46)},
+        },
+        map_names={first: "de_ancient", second: "de_ancient"},
+        limits=thresholds(),
+    )
+    assert len(report.anomalies) == 1
+    anomaly = report.anomalies[0]
+    assert (anomaly.n, anomaly.m) == (2, 2)
+    assert [entry.map_demo_id for entry in anomaly.orientation] == [first, second]
+    assert [entry.observations for entry in anomaly.orientation] == [24, 46]
+    assert [entry.map_demo_id for entry in anomaly.rounds] == [first, second]
+
+
+def test_anomalies_from_two_maps_stay_apart() -> None:
+    """Poikkeama on kartan havainto; kaksi karttaa on kaksi riviä."""
+    ancient, anubis = "Ancient_vs_x", "Anubis_vs_x"
+    report = anomaly_report(
+        eco_ct(ancient, 1) + eco_ct(anubis, 1),
+        advance_round(ancient, 1) + advance_round(anubis, 1, area="Bridge"),
+        demo=ancient,
+        orientation={
+            ancient: {ANOMALY_AREA: AreaObservations(t=21, total=24)},
+            anubis: {"Bridge": AreaObservations(t=39, total=46)},
+        },
+        limits=thresholds(),
+    )
+    assert [(a.map_name, a.area) for a in report.anomalies] == [
+        ("de_ancient", ANOMALY_AREA),
+        ("de_anubis", "Bridge"),
+    ]
+
+
+def test_an_anomaly_denominator_matches_the_round_type_branch() -> None:
+    """Etenemisen ``m`` on sama luku kuin vastaavan kierrostyypin otanta."""
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2, 3) + eco_ct(demo, 4, round_type="full"),
+        advance_round(demo, 1),
+        demo=demo,
+        limits=thresholds(),
+    )
+    eco = branch(report, "de_ancient", "CT", "eco")
+    advance = next(a for a in report.anomalies if a.rule == "ct_advance")
+    assert advance.m == eco.sample.rounds == 3
+
+
+def test_a_demo_without_an_orientation_is_refused() -> None:
+    """Puuttuva avain on eri asia kuin tyhjä orientaatio."""
+    demo = "Ancient_vs_x"
+    with pytest.raises(AggregateError, match="alueorientaatiota ei annettu"):
+        anomaly_report(
+            eco_ct(demo, 1),
+            advance_round(demo, 1),
+            demo=demo,
+            orientation={"toinen-demo": {}},
+            limits=thresholds(),
+        )
+
+
+def test_an_empty_orientation_silences_the_rules_and_is_recorded() -> None:
+    """Tyhjä orientaatio on **sokea piste**, ja kattavuus sanoo sen ääneen."""
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1),
+        advance_round(demo, 1),
+        demo=demo,
+        orientation={demo: {}},
+        limits=thresholds(),
+    )
+    assert report.anomalies == []
+    assert report.anomaly_scan.demos_without_orientation == [demo]
+
+
+def test_the_scan_says_what_was_run_and_on_what() -> None:
+    """Tyhjä luku on havainto vain siitä, mitä tutkittiin."""
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2) + eco_ct(demo, 3, round_type="full"),
+        advance_round(demo, 1),
+        demo=demo,
+        limits=thresholds(),
+    )
+    scan = report.anomaly_scan
+    assert scan.rules == ["ct_advance", "crunch"]
+    assert scan.rules_deferred == ["stack"]
+    assert scan.rounds_scanned == 3
+    # Kaikki kolme kierrosta ovat CT-puolen, ja niistä kaksi on ecoa:
+    # crunch voi osua kolmella, eteneminen kahdella.
+    assert scan.crunch_rounds == 3
+    assert scan.advance_rounds == 2
+    assert scan.demos_without_orientation == []
+
+
+def test_an_area_below_the_threshold_leaves_no_blind_spot() -> None:
+    """Sokea piste on **orientaation puuttuminen**, ei osuman puuttuminen.
+
+    Demo, jolla on T:n alue muttei osumaa, on mitattu negatiivinen -- juuri
+    se, mitä Nuken nolla crunchia on. Se ei kuulu sokeiden listaan.
+    """
+    demo = "Nuke_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1),
+        advance_round(demo, 1, area="CTSpawn"),
+        demo=demo,
+        orientation={demo: {"Lobby": AreaObservations(t=57, total=64)}},
+        limits=thresholds(),
+    )
+    assert report.anomalies == []
+    assert report.anomaly_scan.demos_without_orientation == []
+
+
+def test_the_map_name_source_is_carried_to_the_anomaly() -> None:
+    """Tunnistamaton kartta on tunnistettava myös poikkeamarivillä."""
+    demo = "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1"
+    report = anomaly_report(
+        eco_ct(demo, 1),
+        advance_round(demo, 1),
+        demo=demo,
+        limits=thresholds(),
+    )
+    assert report.anomalies[0].map_name_source == "unknown"
+    assert report.anomalies[0].map_name == demo
+
+
+def test_a_null_side_on_a_sample_row_is_refused() -> None:
+    """``str(None)`` päättäisi hiljaa, ettei rivi ole CT."""
+    demo = "Ancient_vs_x"
+    rows = advance_round(demo, 1)
+    rows[0]["side"] = None
+    with pytest.raises(AggregateError, match="puoli on None"):
+        anomaly_report(
+            eco_ct(demo, 1), rows, demo=demo, limits=thresholds()
+        )
+
+
+def test_a_null_is_alive_on_a_sample_row_is_refused() -> None:
+    """``bool(None)`` päättäisi hiljaa, että pelaaja on kuollut."""
+    demo = "Ancient_vs_x"
+    rows = advance_round(demo, 1)
+    rows[0]["is_alive"] = None
+    with pytest.raises(AggregateError, match="elossaolo puuttuu"):
+        anomaly_report(
+            eco_ct(demo, 1), rows, demo=demo, limits=thresholds()
+        )
+
+
+def test_an_area_written_with_stray_whitespace_still_matches() -> None:
+    """Orientaatio ja läsnäolo normalisoidaan samalla funktiolla.
+
+    Ilman sitä ``" TSideLower "`` olisi orientaatiossa eri alue kuin
+    läsnäolossa ja sääntö vaikenisi sillä alueella -- ilman että mikään
+    kertoisi miksi.
+    """
+    demo = "Ancient_vs_x"
+    rows = advance_round(demo, 1)
+    rows[0]["area"] = f" {ANOMALY_AREA} "
+    report = anomaly_report(
+        eco_ct(demo, 1),
+        rows,
+        demo=demo,
+        orientation={demo: {f"{ANOMALY_AREA} ": AreaObservations(t=21, total=24)}},
+        limits=thresholds(),
+    )
+    assert areas_of(report, "ct_advance") == [ANOMALY_AREA]
+
+
+def test_a_duplicated_sample_row_does_not_silence_the_crunch() -> None:
+    """Kaksoisrivi pariutui aiemmin itsensä kanssa ja söi lähtöalueen."""
+    demo = "Ancient_vs_x"
+    rows = crunch_round(demo, 1)
+    # Kaksinnetaan yksi kohdealueen rivi.
+    rows.append(dict(rows[-1]))
+    report = anomaly_report(
+        eco_ct(demo, 1, 2), rows, demo=demo, limits=thresholds()
+    )
+    crunch = next(a for a in report.anomalies if a.rule == "crunch")
+    assert crunch.rounds[0].sources == ["SideEntrance", "TSideUpper"]
+    assert crunch.players_max == 2

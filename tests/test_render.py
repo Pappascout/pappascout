@@ -25,12 +25,18 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 
 from pappascout.constants import (
+    ANOMALY_RULE_FI,
+    ANOMALY_RULES,
     ROUND_TYPES,
     UTILITY_BUCKET_ALL,
     UTILITY_BUCKET_UNKNOWN,
 )
 from pappascout.domain.report import (
+    Anomaly,
+    AnomalyRound,
+    AnomalyScan,
     AreaDistribution,
+    AreaOrientation,
     ArmedCount,
     ArmedPlayers,
     ArmoredCount,
@@ -65,8 +71,10 @@ from pappascout.render import (
     template_text,
 )
 from pappascout.render.view import (
+    ANOMALY_HEADING,
     GRENADE_ORDER,
     GRENADE_TYPE_FI,
+    MAX_ANOMALY_LINES,
     MAX_DEATH_LINES,
     PATTERN_ROUND_TYPES,
     ROUND_TYPE_ORDER,
@@ -354,9 +362,30 @@ def map_report(
     )
 
 
+def scan(**overrides) -> AnomalyScan:
+    """Poikkeamasääntöjen kattavuus kiinnikkeeseen.
+
+    Oletus on **täysi kattavuus ilman sokeita pisteitä**, koska se on se
+    tila, jossa tyhjä poikkeamaluku on mitattu negatiivinen. Sokeat pisteet
+    rakennetaan erikseen niitä koskevissa testeissä -- muuten jokainen muu
+    testi mittaisi vahingossa varoituksen tekstiä.
+    """
+    values: dict[str, object] = {
+        "rules": ["ct_advance", "crunch"],
+        "rules_deferred": ["stack"],
+        "rounds_scanned": 2,
+        "crunch_rounds": 1,
+        "advance_rounds": 0,
+    }
+    values.update(overrides)
+    return AnomalyScan(**values)
+
+
 def report(
     maps: list[MapReport] | None = None,
     *,
+    anomalies: list[Anomaly] | None = None,
+    scan_: AnomalyScan | None = None,
     missing_demos: list[MissingDemo] | None = None,
     unclassified: int = 0,
     unpaired: int = 0,
@@ -400,6 +429,15 @@ def report(
                 "thresholds": {
                     "small_sample_rounds": SMALL_SAMPLE,
                     "team_identity_min_common": MIN_COMMON,
+                    # Poikkeamakynnykset kiinnikkeeseen, koska lukuohje lukee
+                    # ne raportista eikä keksi niitä. Samat luvut kuin
+                    # settings.tomlissa.
+                    "advance_t_share": 0.80,
+                    "advance_area_min_observations": 20,
+                    "advance_max_sample_s": 30.0,
+                    "advance_min_players": 1,
+                    "crunch_min_players": 2,
+                    "crunch_min_sources": 2,
                 }
             }
             if thresholds_used is None
@@ -413,6 +451,10 @@ def report(
         unpaired_detonations=unpaired,
         missing_demos=missing_demos or [],
         unclassified_rounds=unclassified,
+        # Oletus on tyhjä: poikkeamaluku on olemassa myös silloin, kun
+        # poikkeamia ei ole, ja juuri se on jokaisen muun testin taustatila.
+        anomalies=anomalies or [],
+        anomaly_scan=scan_ if scan_ is not None else scan(),
         maps=entries,
     )
 
@@ -1859,9 +1901,9 @@ def test_no_identifier_appears_in_the_body_outside_the_three_exceptions() -> Non
     # ohittaa sen kertaakaan kohtaamatta.
     assert len(unnamed_headings) == 1
     # Tarkka luku eikä alaraja: silmukka, joka ei tarkista mitään, menisi
-    # alarajalla läpi. Yhdeksän lukua, joista tunnistamattoman kartan otsikko
+    # alarajalla läpi. Kymmenen lukua, joista tunnistamattoman kartan otsikko
     # on vapautettu.
-    assert checked_headings == 8
+    assert checked_headings == 9
 
 
 def test_every_identifier_the_body_dropped_is_in_the_chapter() -> None:
@@ -2334,8 +2376,13 @@ GOLDEN = """\
 - **Liigatieto:** yhdenkään demon lajia ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otannassa ole yhtään varmistettua liigaottelua
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta
 - **Luokittelun kynnykset:** full_equip_min 4000
-- **Aggregoinnin kynnykset:** small_sample_rounds 3, team_identity_min_common 3
+- **Aggregoinnin kynnykset:** advance_area_min_observations 20, advance_max_sample_s 30, advance_min_players 1, advance_t_share 0,8, crunch_min_players 2, crunch_min_sources 2, small_sample_rounds 3, team_identity_min_common 3
 - **Aineisto koottu:** 2026-08-30 12:00 UTC (pappascout 0.1.0)
+
+## Poikkeamat
+
+- CT-eteneminen (de_nuke, CT-puoli, eco): Lobby (1/4 kierroksesta, T-osuus 0,89 alueen 64 havainnosta)
+  - kierros 23: 2 pelaajaa 30 s kohdalla
 
 ## de_nuke -- 4 kierrosta, 1 demo
 
@@ -2360,6 +2407,9 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 
 - Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on kierrokset, joissa havainto tehtiin, m kyseisen kierrostyypin kaikki kierrokset.
 - Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui.
+- Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 20 havaintoa; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
+- **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta.
+- **Crunch**: sama T:n alue, mutta pelaajien on **saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on pelaajan oma alue edellisellä näytepisteellä. Vähintään 2 pelaajaa ja 2 eri suuntaa. **Crunchia ei ole rajattu kierrostyyppiin**, toisin kuin etenemistä, joten sen otanta on puolen kaikki kierrokset ja nimiö kertoo millä kierrostyypeillä se havaittiin. Sama kierros voi siis tuottaa molemmat rivit, ja täysi osto vain crunchin.
 - Aseistettu = panssari JA parannettu ase ostoajan lopussa; panssaroitu = panssari, aseesta riippumatta. Luvut ovat **sisäkkäisiä**: aseistetut ovat panssaroitujen osajoukko, molemmat on luettu samalta tickiltä samasta pelaajajoukosta, ja jakaja on sama. Rivien ero on siis se havainto -- pistoolikierroksella aseistettuja on tyypillisesti 0 (800 $ ei riitä sekä kevlariin että parannettuun aseeseen), joten panssaririvi on se, joka kertoo kevlarien määrän.
 - Molemmat luvut ovat **hallussapitoa eivätkä ostoja**: panssari ja ase säilyvät kierroksen yli hengissä selvinneellä, eikä vaurioitunutta panssaria eroteta ehjästä. Poikkeus on pistoolikierros -- puoliaika alkaa puhtaalta pöydältä, joten siellä luvut kertovat mitä ostettiin.
 - Tapot alueittain: alue on **ampujan** oma alue tappohetkellä, ja otanta (n/m taposta) laskee tappoja eikä kierroksia -- kierrostyypillä on yleensä enemmän tappoja kuin kierroksia.
@@ -2417,7 +2467,22 @@ def golden_report() -> Report:
             )
         ],
     )
-    return report([entry])
+    # Yksi poikkeama, jotta golden lukitsee myös poikkeamaluvun muodon ja
+    # paikan. Tyhjä luku on lukittu omassa testissään -- kumpaakin varianttia
+    # ei voi olla samassa tulosteessa, ja tämä on se, jossa rivin muoto on
+    # nähtävissä.
+    return report(
+        [entry],
+        anomalies=[
+            anomaly(
+                map_name="de_nuke",
+                area="Lobby",
+                rounds=[anomaly_round(round_no=23, seconds=[30.0])],
+                orientation=[(DEMO_ID, 0.89, 64)],
+                m=4,
+            )
+        ],
+    )
 
 
 def test_the_whole_document_matches_the_golden_output() -> None:
@@ -2647,3 +2712,568 @@ def test_exceeding_the_death_line_limit_is_an_error_not_a_quiet_growth(
     monkeypatch.setattr(view_module, "MAX_DEATH_LINES", 1)
     with pytest.raises(PappascoutError, match="Kuolemarivejä syntyi 2"):
         build_view(death_report(first={"Cave": 1}, median=9.0, kills={"Middle": 1}))
+
+
+# --- Poikkeamaluku (Story 2.5) --------------------------------------------------
+
+
+def anomaly_text(text: str) -> str:
+    """Poikkeamaluvun sisältö. Puuttuva luku on virhe eikä tyhjä merkkijono."""
+    return section_text(text, ANOMALY_HEADING)
+
+
+def anomaly_round(
+    *,
+    round_no: int = 18,
+    demo: str = DEMO_ID,
+    round_type: str = "eco",
+    seconds: list[float] | None = None,
+    players: int = 2,
+    sources: list[str] | None = None,
+) -> AnomalyRound:
+    """Yksi kierrosrivi poikkeaman alle."""
+    return AnomalyRound(
+        map_demo_id=demo,
+        round_no=round_no,
+        round_type=round_type,
+        seconds=seconds if seconds is not None else [30.0],
+        players_max=players,
+        sources=sources or [],
+    )
+
+
+def anomaly(
+    *,
+    rule: str = "ct_advance",
+    map_name: str = "de_ancient",
+    map_name_source: str = "map_demo_id",
+    side: str = "CT",
+    area: str = "TSideLower",
+    rounds: list[AnomalyRound] | None = None,
+    orientation: list[tuple[str, float, int]] | None = None,
+    m: int = 3,
+    small_sample: bool = False,
+) -> Anomaly:
+    """Yksi poikkeamarivi. Oletukset ovat kalibroinnin Ancient k18.
+
+    ``round_types``, ``n`` ja ``players_max`` johdetaan kierroksista, koska
+    malli valvoo että ne vastaavat niitä -- kiinnike ei saa pystyä
+    rakentamaan riviä, joka on itsensä kanssa eri mieltä.
+    """
+    entries = rounds if rounds is not None else [anomaly_round()]
+    types = {entry.round_type for entry in entries}
+    return Anomaly(
+        rule=rule,
+        map_name=map_name,
+        map_name_source=map_name_source,
+        side=side,
+        area=area,
+        round_types=[name for name in ROUND_TYPES if name in types],
+        rounds=entries,
+        orientation=[
+            AreaOrientation(map_demo_id=demo, t_share=share, observations=count)
+            for demo, share, count in (
+                orientation
+                if orientation is not None
+                else [(entry.map_demo_id, 0.88, 24) for entry in entries[:1]]
+            )
+        ],
+        players_max=max(entry.players_max for entry in entries),
+        n=len(entries),
+        m=m,
+        small_sample=small_sample,
+    )
+
+
+def crunch_anomaly(**overrides) -> Anomaly:
+    """Crunch-rivi: lähtöalueet ovat pakollisia jokaisella kierroksella."""
+    overrides.setdefault("rule", "crunch")
+    overrides.setdefault(
+        "rounds", [anomaly_round(sources=["Arch", "TopofMid"])]
+    )
+    return anomaly(**overrides)
+
+
+def test_the_anomaly_chapter_exists_even_without_anomalies() -> None:
+    """Tyhjä poikkeamaluku on havainto: säännöt ajettiin, ne vaikenivat."""
+    text = render(report([pistol_map()]))
+    assert f"## {ANOMALY_HEADING}" in text
+    assert "Ei poikkeamia" in anomaly_text(text)
+
+
+def test_the_empty_chapter_says_what_was_run_and_on_what() -> None:
+    """**"Ei poikkeamia" on havainto vain siitä, mitä tutkittiin.**
+
+    Kolme asiaa, joita ilman tyhjä luku väittäisi mitattua negatiivista myös
+    sokeasta pisteestä: montako kierrosta säännöt näkivät, montako
+    arkkitehtuurin sääntöä jäi ajamatta, ja jäikö jonkin demon orientaatio
+    tyhjäksi.
+    """
+    text = anomaly_text(render(report([pistol_map()])))
+    assert "CT-eteneminen ja Crunch" in text
+    assert "2 kierrokselle" in text
+    assert "stack" in text
+    assert "sokeita pisteitä ei ole" in text
+
+
+def test_the_empty_chapter_names_the_blind_spots() -> None:
+    """Tyhjä orientaatio on sokea piste eikä mitattu negatiivinen."""
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                scan_=scan(demos_without_orientation=[DEMO_ID]),
+            )
+        )
+    )
+    assert "1 demo ei antanut" in text
+    assert "sokea piste eikä havainto" in text
+
+
+def test_the_empty_chapter_mentions_unclassified_rounds() -> None:
+    """Luokittelemattomat kierrokset ovat sääntöjen ulkopuolella."""
+    text = anomaly_text(render(report([pistol_map()], unclassified=4)))
+    assert "4 kierrosta jäi kokonaan tutkimatta" in text
+
+
+def test_the_empty_chapter_exists_in_an_empty_report() -> None:
+    """Myös raportti ilman karttoja saa poikkeamaluvun."""
+    assert "Ei poikkeamia" in anomaly_text(render(report()))
+
+
+def test_an_advance_line_carries_area_sample_and_orientation() -> None:
+    """Koontirivi: mitä, missä, kuinka usein ja millä perusteella."""
+    text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
+    assert "CT-eteneminen (de_ancient, CT-puoli, eco): TSideLower" in text
+    assert "1/3 kierroksesta" in text
+    assert "T-osuus 0,88 alueen 24 havainnosta" in text
+
+
+def test_the_round_line_carries_the_round_number() -> None:
+    """Scoutin seuraava teko on avata se kierros demolta."""
+    text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
+    assert "  - kierros 18: 2 pelaajaa 30 s kohdalla" in text
+
+
+def test_a_crunch_line_names_its_source_areas_per_round() -> None:
+    """Matriisin rivi 2: crunchissa myös lähtöalueet -- kierroksen sisällä."""
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    crunch_anomaly(
+                        area="Middle",
+                        rounds=[
+                            anomaly_round(
+                                round_no=2,
+                                seconds=[15.0],
+                                players=5,
+                                sources=["Arch", "TopofMid"],
+                            )
+                        ],
+                        orientation=[(DEMO_ID, 0.83, 60)],
+                    )
+                ],
+            )
+        )
+    )
+    assert "Crunch (de_ancient, CT-puoli, havaittu: eco): Middle" in text
+    assert (
+        "  - kierros 2 (eco): 5 pelaajaa 15 s kohdalla, yhtä aikaa "
+        "suunnista Arch ja TopofMid"
+    ) in text
+
+
+def test_two_crunch_rounds_never_merge_their_directions() -> None:
+    """**Yhtäaikaisuus ei ylitä kierrosrajaa.**
+
+    Yhdiste ("suunnista A, B, C ja D") lukisi neljäksi yhtäaikaiseksi
+    suunnaksi, mikä on päinvastoin kuin määritelmä. Kierrosrivit ovat
+    olemassa juuri tämän estämiseksi.
+    """
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    crunch_anomaly(
+                        m=4,
+                        rounds=[
+                            anomaly_round(
+                                round_no=3, seconds=[15.0], players=2,
+                                sources=["Alley", "BombsiteB"],
+                            ),
+                            anomaly_round(
+                                round_no=10, round_type="full", seconds=[15.0],
+                                players=3,
+                                sources=["Arch", "LowerTunnel", "TopofMid"],
+                            ),
+                        ],
+                        orientation=[(DEMO_ID, 0.81, 54)],
+                    )
+                ],
+            )
+        )
+    )
+    assert "2/4 kierroksesta" in text
+    assert "kierros 3 (eco): 2 pelaajaa 15 s kohdalla, yhtä aikaa suunnista Alley ja BombsiteB" in text
+    assert "kierros 10 (default): 3 pelaajaa 15 s kohdalla, yhtä aikaa suunnista Arch, LowerTunnel ja TopofMid" in text
+    # Neljän suunnan yhdistettä ei ole missään.
+    assert "Alley, BombsiteB, Arch" not in text
+    assert "Alley, Arch" not in text
+
+
+def test_a_crunch_label_says_the_types_are_observations_not_a_limit() -> None:
+    """Crunchia ei ole rajattu kierrostyyppiin, ja nimiö sanoo sen."""
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    crunch_anomaly(
+                        m=4,
+                        rounds=[
+                            anomaly_round(round_no=1, sources=["A", "B"]),
+                            anomaly_round(
+                                round_no=2, round_type="full", sources=["A", "B"]
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )
+    )
+    assert "havaittu: eco, default" in text
+
+
+def test_an_advance_line_never_claims_source_areas() -> None:
+    """Etenemisellä tyhjä lista tarkoittaa 'ei kysytty' eikä 'ei suuntia'."""
+    text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
+    assert "suunnista" not in text
+
+
+def test_the_advance_round_line_omits_the_round_type() -> None:
+    """Se on jo nimiössä; samaa sanaa ei kirjoiteta kahdesti riville."""
+    text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
+    assert "kierros 18: " in text
+    assert "kierros 18 (eco)" not in text
+
+
+def test_several_sample_points_are_listed_as_a_finnish_list() -> None:
+    """Rivi luetaan lauseena, joten viimeinen erotin on 'ja'."""
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[anomaly(rounds=[anomaly_round(seconds=[15.0, 30.0])])],
+            )
+        )
+    )
+    assert "15 ja 30 s kohdalla" in text
+
+
+def test_two_demos_give_the_same_area_two_shares() -> None:
+    """Keskiarvo olisi luku, jota ei ole havaittu."""
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    anomaly(
+                        rounds=[
+                            anomaly_round(round_no=1, demo="demo-a"),
+                            anomaly_round(round_no=2, demo="demo-b"),
+                        ],
+                        orientation=[("demo-a", 0.88, 24), ("demo-b", 0.84, 37)],
+                    )
+                ],
+            )
+        )
+    )
+    assert (
+        "T-osuus 0,88 alueen 24 havainnosta; "
+        "T-osuus 0,84 alueen 37 havainnosta"
+    ) in text
+
+
+def test_two_demos_make_the_round_line_name_its_demo() -> None:
+    """Kierrosnumero ei yksilöi, kun kartalla on kaksi demoa."""
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    anomaly(
+                        rounds=[
+                            anomaly_round(round_no=1, demo="demo-a"),
+                            anomaly_round(round_no=2, demo="demo-b"),
+                        ],
+                        orientation=[("demo-a", 0.88, 24), ("demo-b", 0.84, 37)],
+                    )
+                ],
+            )
+        )
+    )
+    assert "kierros 1: 2 pelaajaa 30 s kohdalla -- `demo-a`" in text
+
+
+def test_one_demo_leaves_the_identifier_out_of_the_round_line() -> None:
+    """Vartijan toinen haara: yhdellä demolla tunniste ei kuulu runkoon."""
+    text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
+    assert DEMO_ID not in text
+
+
+def test_a_small_sample_anomaly_is_marked_not_hidden() -> None:
+    """Yksi kierros on kelvollinen otanta ja merkitään pieneksi."""
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[anomaly(m=1, small_sample=True)],
+            )
+        )
+    )
+    assert "1/1 kierroksesta" in text
+    assert "pieni otanta" in text
+
+
+def test_the_small_sample_mark_is_not_confused_with_the_label() -> None:
+    """``--`` tarkoittaa rivillä vain yhtä asiaa: huomautusta.
+
+    Nimiössä oli aiemmin sama erotin, joten sama merkki tarkoitti kahta eri
+    asiaa samalla rivillä. Nimiön osat ovat nyt suluissa.
+    """
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[anomaly(m=1, small_sample=True)],
+            )
+        )
+    )
+    row = next(r for r in text.splitlines() if r.startswith("- "))
+    assert row.count(" -- ") == 1
+    assert row.endswith("pieni otanta")
+
+
+def test_an_unrecognised_map_never_puts_its_identifier_in_the_body() -> None:
+    """Runko puhuu nimillä; tunnistamaton kartta nimetään paikallaan.
+
+    Nimiö on **sama merkkijono** kuin jäljitettävyysluvun karttarivillä,
+    joten lukija voi yhdistää rivin oikeaan karttalukuun.
+    """
+    entry = map_report(FACEIT_DEMO_ID, [side("CT", [round_type("eco", 1)])],
+                       demo_ids=[FACEIT_DEMO_ID], source="unknown")
+    text = render(
+        report(
+            [entry],
+            anomalies=[
+                anomaly(
+                    map_name=FACEIT_DEMO_ID,
+                    map_name_source="unknown",
+                    rounds=[anomaly_round(demo=FACEIT_DEMO_ID)],
+                    m=1,
+                )
+            ],
+        )
+    )
+    chapter = anomaly_text(text)
+    assert FACEIT_DEMO_ID not in chapter
+    assert "kartta 1, nimeä ei tunnistettu" in chapter
+    assert "kartta 1, nimeä ei tunnistettu" in traceability_text(text)
+
+
+def test_the_anomaly_chapter_comes_before_the_map_chapters() -> None:
+    """Poikkeamat ovat epicin arvokkain tuotos eivätkä kuulu loppuun."""
+    text = render(report([pistol_map()], anomalies=[anomaly()]))
+    headings = [heading for heading, _ in report_sections(text) if heading]
+    assert headings.index(ANOMALY_HEADING) < headings.index(
+        "de_ancient -- 2 kierrosta, 1 demo"
+    )
+    assert headings.index("Yhteenveto") < headings.index(ANOMALY_HEADING)
+
+
+def test_the_anomaly_chapter_follows_the_missing_demos_chapter() -> None:
+    """Järjestys on yhteenveto, puuttuvat demot, poikkeamat, kartat."""
+    text = render(
+        report(
+            [pistol_map()],
+            anomalies=[anomaly()],
+            missing_demos=[MissingDemo(match=MISSING_DEMO_ID, reason="ei demoa")],
+        )
+    )
+    headings = [heading for heading, _ in report_sections(text) if heading]
+    assert headings.index("Puuttuvat demot") < headings.index(ANOMALY_HEADING)
+
+
+def test_the_anomaly_lines_are_bullets_not_paragraphs() -> None:
+    text = anomaly_text(
+        render(report([pistol_map()], anomalies=[anomaly(), crunch_anomaly()]))
+    )
+    rows = [row for row in text.splitlines() if row.strip()]
+    assert len(rows) == 4  # kaksi koontiriviä ja kaksi kierrosriviä
+    assert all(row.lstrip().startswith("- ") for row in rows), rows
+
+
+def test_the_most_repeated_anomaly_comes_first() -> None:
+    """Luku nostaa esiin sen, mikä toistuu."""
+    once = anomaly(area="Ramp", m=4)
+    twice = anomaly(
+        area="TSideLower",
+        m=4,
+        rounds=[anomaly_round(round_no=1), anomaly_round(round_no=2)],
+    )
+    text = anomaly_text(render(report([pistol_map()], anomalies=[once, twice])))
+    assert text.index("TSideLower") < text.index("Ramp")
+
+
+def test_the_chapter_has_a_line_cap_and_says_what_it_dropped() -> None:
+    """Luku on raportin ensimmäinen sisältöluku eikä saa kasvaa rajatta.
+
+    Kuolemarivien katto on rakenteellinen, joten sen ylitys on virhe.
+    Poikkeamien määrä on aineiston ominaisuus, joten virhe kaataisi ajon
+    aineistosta jota ei voi valita -- rajaus tehdään ja pois jätettyjen määrä
+    kirjoitetaan näkyviin, kuten kuvion kynnyksellä.
+    """
+    many = [
+        anomaly(area=f"Alue{i:02d}", m=MAX_ANOMALY_LINES + 5)
+        for i in range(MAX_ANOMALY_LINES + 3)
+    ]
+    text = anomaly_text(render(report([pistol_map()], anomalies=many)))
+    rows = [r for r in text.splitlines() if r.startswith("- ")]
+    # 20 koontiriviä + yksi huomautusrivi.
+    assert len(rows) == MAX_ANOMALY_LINES + 1
+    assert "3 poikkeamaa jäi pois" in text
+    assert "report.jsonissa" in text
+
+
+def test_the_cap_note_is_absent_when_nothing_was_dropped() -> None:
+    """Vartijan toinen haara: hiljainen rajaus ei ole ainoa vaara."""
+    text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
+    assert "jäi pois" not in text
+
+
+def test_the_chapter_heading_is_the_same_in_the_code_and_the_template() -> None:
+    """Sama vartija kuin jäljitettävyysluvulla: kaksi kopiota erkanisi."""
+    assert f"## {ANOMALY_HEADING}" in template_text()
+
+
+def test_the_legend_explains_what_the_t_share_means() -> None:
+    """Lukuohje kertoo, että orientaatio on demon oma havainto."""
+    legend = section_text(render(report([pistol_map()])), "Lukuohje")
+    assert "demon oma havainto" in legend
+    assert "molempien joukkueiden" in legend
+
+
+def test_the_legend_names_the_thresholds_from_the_report() -> None:
+    """Kynnykset luetaan raportista eikä keksitä renderöinnissä.
+
+    Säädetty ``settings.toml`` näkyy raportin tekstissä vain, jos teksti
+    tulee raportista -- sama sääntö kuin kuvion kynnyksellä.
+    """
+    legend = section_text(render(report([pistol_map()])), "Lukuohje")
+    assert "vähintään 0,80" in legend
+    assert "vähintään 20 havaintoa" in legend
+    assert "enintään 30 sekunnin kohdalla" in legend
+
+
+def test_the_legend_follows_a_changed_threshold() -> None:
+    """Vartija sille, ettei luku ole kovakoodattu."""
+    legend = section_text(
+        render(
+            report(
+                [pistol_map()],
+                thresholds_used={
+                    "thresholds": {
+                        "small_sample_rounds": SMALL_SAMPLE,
+                        "team_identity_min_common": MIN_COMMON,
+                        "advance_t_share": 0.9,
+                        "advance_area_min_observations": 40,
+                        "advance_max_sample_s": 15.0,
+                        "advance_min_players": 2,
+                        "crunch_min_players": 3,
+                        "crunch_min_sources": 3,
+                    }
+                },
+            )
+        ),
+        "Lukuohje",
+    )
+    assert "vähintään 0,90" in legend
+    assert "vähintään 40 havaintoa" in legend
+    assert "enintään 15 sekunnin kohdalla" in legend
+    assert "Vähintään 2 pelaajaa alueella" in legend
+    assert "Vähintään 3 pelaajaa ja 3 eri suuntaa" in legend
+
+
+def test_the_legend_defines_both_rules() -> None:
+    """Ilman määritelmiä sääntöjen epäsymmetria on näkymätön.
+
+    Lukija ei muuten voi tietää, miksi alue esiintyy ``eco``-rivillä muttei
+    ``default``-rivillä.
+    """
+    legend = section_text(render(report([pistol_map()])), "Lukuohje")
+    assert "**CT-eteneminen**" in legend
+    assert "**Crunch**" in legend
+    assert "säästökierroksella" in legend
+    assert "ei ole rajattu kierrostyyppiin" in legend
+
+
+def test_the_legend_is_written_even_for_an_empty_chapter() -> None:
+    """Puhtaan raportin lukija tarvitsee menetelmän enemmän kuin kukaan muu.
+
+    Peruste on eri kuin muilla lukuohjeen kappaleilla: nämä eivät selitä
+    riviä, joka raportissa on, vaan mitä mitattiin.
+    """
+    legend = section_text(render(report()), "Lukuohje")
+    assert "demon oma havainto" in legend
+    assert "**Crunch**" in legend
+
+
+def test_the_areas_stay_in_english_in_the_anomaly_chapter() -> None:
+    """Calloutit englanniksi, teksti suomeksi -- sama sääntö kuin muualla."""
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    crunch_anomaly(
+                        rounds=[
+                            anomaly_round(
+                                sources=["SideEntrance", "TSideUpper"]
+                            )
+                        ]
+                    )
+                ],
+            )
+        )
+    )
+    assert "SideEntrance" in text
+    assert "TSideUpper" in text
+
+
+def test_the_anomaly_chapter_carries_no_interpretation() -> None:
+    """Ei tulkintaa eikä vastastrategiaa -- vain havainto."""
+    text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
+    for word in ("fake", "rush", "kannattaa", "suositus", "vastaus"):
+        assert word not in text.lower()
+
+
+def test_a_single_player_is_not_written_in_the_plural() -> None:
+    """Neljä kuudesta kalibroidusta osumasta on yhden pelaajan havainto."""
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[anomaly(rounds=[anomaly_round(players=1)])],
+            )
+        )
+    )
+    assert "kierros 18: 1 pelaaja 30 s kohdalla" in text
+
+
+def test_every_anomaly_rule_has_a_finnish_name_in_the_view() -> None:
+    """Näkymä indeksoi karttaa suoraan, joten puuttuva nimi kaataa sen."""
+    for rule in ANOMALY_RULES:
+        assert ANOMALY_RULE_FI[rule]

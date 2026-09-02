@@ -9,12 +9,19 @@ eivätkä demoja.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
 
 from pappascout.domain.report import (
+    MAP_NAME_SOURCES,
+    Anomaly,
+    MapNameSource,
+    AnomalyRound,
+    AnomalyScan,
     AreaDistribution,
+    AreaOrientation,
     ArmedCount,
     ArmedPlayers,
     ArmoredCount,
@@ -451,6 +458,7 @@ def full_report() -> Report:
         thresholds_used={"small_sample_rounds": 3},
         missing_demos=[MissingDemo(match="Nuke_vs_x", reason="ei parsittu")],
         unclassified_rounds=2,
+        anomaly_scan=scan(),
         maps=[
             MapReport(
                 map_name="de_anubis",
@@ -469,6 +477,72 @@ def full_report() -> Report:
     )
 
 
+def scan(**overrides) -> AnomalyScan:
+    """Poikkeamasääntöjen kattavuus kiinnikkeeseen.
+
+    Oletus on täysi kattavuus ilman sokeita pisteitä, koska se on se tila,
+    jossa tyhjä poikkeamaluku on **mitattu negatiivinen** -- ja siitä
+    poikkeavat tilat rakennetaan erikseen niitä koskevissa testeissä.
+    """
+    values: dict[str, object] = {
+        "rules": ["ct_advance", "crunch"],
+        "rules_deferred": ["stack"],
+        "rounds_scanned": 1,
+        "crunch_rounds": 1,
+        "advance_rounds": 0,
+    }
+    values.update(overrides)
+    return AnomalyScan(**values)
+
+
+def _report_with_anomalies(anomalies: list[Anomaly]) -> Report:
+    """Raportti, jonka ainoa kartta on ``de_ancient`` -- poikkeamien koti.
+
+    Kartta on rakenteessa siksi, että :class:`Report` valvoo poikkeaman
+    kartan olevan raportissa. Ilman karttaa jokainen poikkeamatesti kaatuisi
+    siihen vartijaan eikä siihen, mitä se mittaa.
+    """
+    return Report(
+        generated_at=datetime(2026, 9, 2, 12, 0, tzinfo=UTC),
+        team=team(),
+        sample=sample(unknown=1),
+        anomaly_scan=scan(),
+        anomalies=anomalies,
+        maps=[
+            MapReport(
+                map_name="de_ancient",
+                map_name_source="demo_header",
+                map_demo_ids=["demo"],
+                sample=sample(unknown=1),
+                sides=[
+                    SideReport(
+                        side="CT",
+                        sample=sample(unknown=1),
+                        round_types=[
+                            RoundTypeReport(
+                                round_type="eco",
+                                sample=sample(unknown=1),
+                                small_sample=True,
+                                positions=[],
+                                utility=[],
+                                utility_counts=[],
+                                first_contact=[],
+                                players_armed=ArmedPlayers(
+                                    m=0, rounds_unknown=0, counts=[]
+                                ),
+                                players_armored=ArmoredPlayers(
+                                    m=0, rounds_unknown=0, counts=[]
+                                ),
+                                deaths=DeathReport(m=0, rounds_missing=1),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+
+
 def test_report_round_trips_through_json() -> None:
     """``render`` lukee juuri sen, minkä ``aggregate`` kirjoitti."""
     report = full_report()
@@ -478,9 +552,15 @@ def test_report_round_trips_through_json() -> None:
 
 
 def test_report_rejects_an_unknown_field() -> None:
-    """Tuntematon kenttä on virhe: hiljainen ohitus veisi luvun mukanaan."""
+    """Tuntematon kenttä on virhe: hiljainen ohitus veisi luvun mukanaan.
+
+    Nimi vaihtui Story 2.5:ssä: ``anomalies`` on nyt mallin oma kenttä, joten
+    se ei enää ole tuntematon. Vartija tarvitsee nimen, jota mallissa **ei
+    ole** -- muuten se lakkaisi mittaamasta mitään sinä hetkenä, kun
+    seuraava luku lisätään.
+    """
     data = full_report().model_dump(mode="json")
-    data["anomalies"] = []
+    data["kentta_jota_ei_ole"] = []
     with pytest.raises(ValidationError):
         Report.model_validate(data)
 
@@ -606,6 +686,7 @@ def test_a_report_must_be_the_sum_of_its_maps() -> None:
             generated_at=datetime(2026, 8, 30, tzinfo=UTC),
             team=team(),
             sample=sample(unknown=7),
+            anomaly_scan=scan(),
             maps=[
                 MapReport(
                     map_name="de_nuke",
@@ -625,6 +706,7 @@ def test_unclassified_rounds_stay_outside_the_sample() -> None:
         team=team(),
         sample=sample(unknown=3),
         unclassified_rounds=4,
+        anomaly_scan=scan(rounds_scanned=3),
         maps=[
             MapReport(
                 map_name="de_nuke",
@@ -832,8 +914,15 @@ def test_the_schema_version_says_the_structure_changed() -> None:
     ``demo_header``, joten **uusi** tiedosto ei kelpaa vanhalle mallille --
     ja vanhan tiedoston kartat on ryhmitelty eri säännöllä kuin tämän
     version, koska nimi luetaan nyt demon otsikosta.
+
+    Story 2.5 laajentaa ehtoa kolmannella tapauksella: ``anomalies`` on
+    oletukseltaan tyhjä lista, joten vanha tiedosto **validoituisi** -- ja
+    juuri siksi versio nousee. Tyhjä poikkeamaluku on tässä mallissa
+    havainto ("ei poikkeamia"), joten vanhasta tiedostosta renderöity
+    raportti väittäisi mitatuksi tulokseksi sen, ettei sääntöjä ollut
+    olemassa.
     """
-    assert REPORT_SCHEMA_VERSION == "6.0.0"
+    assert REPORT_SCHEMA_VERSION == "7.0.0"
 
 
 def test_the_map_name_source_covers_all_three_sources() -> None:
@@ -925,3 +1014,376 @@ def test_too_many_covered_rounds_is_refused_too() -> None:
     """Ero kumpaankin suuntaan on sama vika, ja molemmat on estettävä."""
     with pytest.raises(AggregateError, match="kuolemat kattavat 5 kierrosta"):
         _round_type_with(DeathReport(m=0, rounds_missing=5), rounds=4)
+
+
+# --- Poikkeamat (Story 2.5) -----------------------------------------------------
+
+
+def _round(**overrides) -> AnomalyRound:
+    """Kierrosrivi, jonka oletukset ovat kalibroinnin Ancient k18."""
+    values: dict[str, object] = {
+        "map_demo_id": "demo",
+        "round_no": 18,
+        "round_type": "eco",
+        "seconds": [30.0],
+        "players_max": 2,
+    }
+    values.update(overrides)
+    return AnomalyRound(**values)
+
+
+def _anomaly(**overrides) -> Anomaly:
+    """Poikkeama, jonka oletukset ovat kalibroinnin Ancient k18."""
+    values: dict[str, object] = {
+        "rule": "ct_advance",
+        "map_name": "de_ancient",
+        "map_name_source": "demo_header",
+        "side": "CT",
+        "area": "TSideLower",
+        "round_types": ["eco"],
+        "rounds": [_round()],
+        "orientation": [
+            AreaOrientation(map_demo_id="demo", t_share=0.88, observations=24)
+        ],
+        "players_max": 2,
+        "n": 1,
+        "m": 3,
+    }
+    values.update(overrides)
+    return Anomaly(**values)
+
+
+def _crunch(**overrides) -> Anomaly:
+    """Crunch-rivi: lähtöalueet ovat pakollisia."""
+    values: dict[str, object] = {
+        "rule": "crunch",
+        "round_types": ["eco"],
+        "rounds": [_round(sources=["Ramp", "Squeaky"])],
+    }
+    values.update(overrides)
+    return _anomaly(**values)
+
+
+def test_an_anomaly_carries_everything_the_report_line_needs() -> None:
+    """Mitä, missä, milloin, kuinka usein -- ja millä perusteella."""
+    anomaly = _anomaly()
+    assert anomaly.area == "TSideLower"
+    assert anomaly.rounds[0].seconds == [30.0]
+    assert anomaly.rounds[0].round_no == 18
+    assert anomaly.orientation[0].t_share == 0.88
+    assert (anomaly.n, anomaly.m) == (1, 3)
+    assert anomaly.rounds[0].sources == []
+    assert anomaly.small_sample is False
+
+
+def test_an_anomaly_cannot_appear_in_more_rounds_than_exist() -> None:
+    with pytest.raises(AggregateError, match="esiintyy 4 kierroksella"):
+        _anomaly(
+            n=4,
+            m=3,
+            rounds=[_round(round_no=n) for n in (1, 2, 3, 4)],
+        )
+
+
+def test_the_sample_must_be_the_length_of_the_round_list() -> None:
+    """Luku ja sen todisteet eivät voi olla eri kokoisia."""
+    with pytest.raises(AggregateError, match="kantaa 1 kierrosriviä"):
+        _anomaly(n=2, m=3)
+
+
+def test_the_same_round_cannot_appear_twice() -> None:
+    with pytest.raises(ValidationError, match="sama kierros kahdesti"):
+        _anomaly(n=2, m=3, rounds=[_round(), _round()])
+
+
+def test_a_round_needs_at_least_one_sample_point() -> None:
+    """Ilman näytepistettä havainnolla ei ole 'milloin'."""
+    with pytest.raises(ValidationError):
+        _round(seconds=[])
+
+
+def test_a_repeated_sample_point_is_refused() -> None:
+    with pytest.raises(ValidationError, match="näytepisteet toistuvat"):
+        _round(seconds=[30.0, 30.0])
+
+
+@pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf")])
+def test_an_impossible_sample_point_is_refused(value: float) -> None:
+    """NaN läpäisisi jokaisen vertailun ja päätyisi raporttiin muodossa 'nan'."""
+    with pytest.raises(ValidationError):
+        _round(seconds=[value])
+
+
+def test_unsorted_sample_points_are_refused() -> None:
+    """Rivi luetaan aikajärjestyksessä, joten järjestys on osa sopimusta."""
+    with pytest.raises(ValidationError, match="nousevassa järjestyksessä"):
+        _round(seconds=[30.0, 15.0])
+
+
+def test_a_repeated_source_area_is_refused() -> None:
+    with pytest.raises(ValidationError, match="lähtöalueet toistuvat"):
+        _round(sources=["Ramp", "Ramp"])
+
+
+def test_a_nameless_source_area_is_refused() -> None:
+    """Nimetön alue ei ole suunta."""
+    with pytest.raises(ValidationError, match="nimetön alue"):
+        _round(sources=["Ramp", "  "])
+
+
+def test_more_sources_than_players_is_refused() -> None:
+    """Jokainen suunta tarvitsee oman pelaajansa -- mahdoton havainto."""
+    with pytest.raises(ValidationError, match="Jokainen suunta"):
+        _round(players_max=2, sources=["A", "B", "C"])
+
+
+def test_a_crunch_without_source_areas_is_refused() -> None:
+    """Crunch on määritelmällisesti saapumista useasta suunnasta."""
+    with pytest.raises(ValidationError, match="ilman lähtöalueita"):
+        _anomaly(rule="crunch")
+
+
+def test_an_advance_with_source_areas_is_refused() -> None:
+    """Etenemissääntö ei laske suuntia, joten se ei voi kantaa niitä."""
+    with pytest.raises(ValidationError, match="kantaa lähtöalueita"):
+        _anomaly(rounds=[_round(sources=["Ramp", "Squeaky"])])
+
+
+def test_an_anomaly_without_an_area_is_refused() -> None:
+    """Alue ilman nimeä ei voi olla T:n aluetta."""
+    with pytest.raises(ValidationError):
+        _anomaly(area="")
+
+
+def test_an_anomaly_needs_an_orientation() -> None:
+    """Poikkeaman perusteena on aina alueen mitattu T-osuus."""
+    with pytest.raises(ValidationError):
+        _anomaly(orientation=[])
+
+
+def test_the_same_demo_cannot_give_an_area_two_shares() -> None:
+    with pytest.raises(ValidationError, match="sama demo"):
+        _anomaly(
+            orientation=[
+                AreaOrientation(map_demo_id="demo", t_share=0.88, observations=24),
+                AreaOrientation(map_demo_id="demo", t_share=0.84, observations=37),
+            ]
+        )
+
+
+def test_the_orientation_must_cover_exactly_the_observed_demos() -> None:
+    """Todistuskappale ei saa kattaa enempää eikä vähempää kuin havainnot."""
+    with pytest.raises(ValidationError, match="orientaatio kattaa demot"):
+        _anomaly(
+            orientation=[
+                AreaOrientation(map_demo_id="toinen", t_share=0.88, observations=24)
+            ]
+        )
+
+
+def test_two_demos_may_give_an_area_two_shares() -> None:
+    """Vartijan toinen haara: eri demot ovat eri havaintoja."""
+    anomaly = _anomaly(
+        n=2,
+        m=3,
+        rounds=[_round(map_demo_id="a"), _round(map_demo_id="b")],
+        orientation=[
+            AreaOrientation(map_demo_id="a", t_share=0.88, observations=24),
+            AreaOrientation(map_demo_id="b", t_share=0.84, observations=37),
+        ],
+    )
+    assert len(anomaly.orientation) == 2
+
+
+def test_the_round_types_must_match_the_rounds() -> None:
+    """Yhteenveto ei voi nimetä tyyppiä, jota yksikään kierros ei ole."""
+    with pytest.raises(ValidationError, match="round_types on"):
+        _crunch(round_types=["eco", "full"])
+
+
+def test_the_round_types_cannot_leave_out_a_type_that_is_there() -> None:
+    """Vartijan toinen suunta."""
+    with pytest.raises(ValidationError, match="round_types on"):
+        _crunch(
+            n=2,
+            m=4,
+            round_types=["eco"],
+            rounds=[
+                _round(round_no=1, sources=["A", "B"]),
+                _round(round_no=2, round_type="full", sources=["A", "B"]),
+            ],
+        )
+
+
+def test_a_crunch_may_span_two_round_types() -> None:
+    """Speksimuutos 2: crunchia ei avainnella kierrostyypin mukaan."""
+    anomaly = _crunch(
+        n=2,
+        m=4,
+        round_types=["eco", "full"],
+        rounds=[
+            _round(round_no=1, sources=["A", "B"]),
+            _round(round_no=2, round_type="full", sources=["A", "B"]),
+        ],
+    )
+    assert anomaly.round_types == ["eco", "full"]
+
+
+def test_an_advance_cannot_span_two_round_types() -> None:
+    """Eteneminen ryhmitellään kierrostyypin mukaan, joten tyyppi on yksi."""
+    with pytest.raises(ValidationError, match="kierrostyyppiä"):
+        _anomaly(
+            n=2,
+            m=4,
+            round_types=["eco", "full"],
+            rounds=[
+                _round(round_no=1),
+                _round(round_no=2, round_type="full"),
+            ],
+        )
+
+
+def test_the_player_maximum_must_match_the_rounds() -> None:
+    """Yhteenveto ei voi olla eri mieltä kuin rivit joista se on koottu."""
+    with pytest.raises(ValidationError, match="players_max on 5"):
+        _anomaly(players_max=5)
+
+
+@pytest.mark.parametrize("share", [-0.01, 1.01])
+def test_an_impossible_t_share_is_refused(share: float) -> None:
+    with pytest.raises(ValidationError):
+        AreaOrientation(map_demo_id="demo", t_share=share, observations=24)
+
+
+def test_an_orientation_without_observations_is_refused() -> None:
+    """Nolla havaintoa ei ole alue vaan alueen puuttuminen."""
+    with pytest.raises(ValidationError):
+        AreaOrientation(map_demo_id="demo", t_share=0.88, observations=0)
+
+
+def test_an_unknown_rule_name_is_refused() -> None:
+    """Sääntöjen luettelo on sopimusta, ei vapaa merkkijono."""
+    with pytest.raises(ValidationError):
+        _anomaly(rule="stack")
+
+
+def test_an_unknown_map_name_source_is_refused() -> None:
+    """Lähteiden luettelo on jaettu kahden solmun kesken."""
+    with pytest.raises(ValidationError):
+        _anomaly(map_name_source="arvattu")
+
+
+def test_the_map_name_sources_are_the_same_list_for_both_nodes() -> None:
+    """Kahtena kirjoitettuna uusi lähde kelpaisi toisessa ja kaatuisi toisessa."""
+    assert set(get_args(MapNameSource)) == set(MAP_NAME_SOURCES)
+
+
+# --- Kattavuus (AnomalyScan) ----------------------------------------------------
+
+
+def _scan(**overrides) -> AnomalyScan:
+    values: dict[str, object] = {
+        "rules": ["ct_advance", "crunch"],
+        "rules_deferred": ["stack"],
+        "rounds_scanned": 18,
+        "crunch_rounds": 9,
+        "advance_rounds": 4,
+    }
+    values.update(overrides)
+    return AnomalyScan(**values)
+
+
+def test_the_scan_records_what_was_run() -> None:
+    scan = _scan()
+    assert scan.rules == ["ct_advance", "crunch"]
+    assert scan.demos_without_orientation == []
+
+
+def test_the_coverage_numbers_must_be_nested() -> None:
+    """CT-säästökierrokset ⊆ CT-kierrokset ⊆ kaikki kierrokset.
+
+    Väärä järjestys tarkoittaisi, että kattavuus lupaa säännölle enemmän
+    kierroksia kuin sääntö voi tutkia.
+    """
+    with pytest.raises(AggregateError, match="eivät ole sisäkkäisiä"):
+        _scan(rounds_scanned=4, crunch_rounds=5, advance_rounds=1)
+    with pytest.raises(AggregateError, match="eivät ole sisäkkäisiä"):
+        _scan(rounds_scanned=9, crunch_rounds=4, advance_rounds=5)
+
+
+def test_the_scan_refuses_an_unknown_rule() -> None:
+    with pytest.raises(ValidationError):
+        _scan(rules=["stack"])
+
+
+def test_the_scan_refuses_the_same_rule_twice() -> None:
+    with pytest.raises(ValidationError, match="Sama sääntö kahdesti"):
+        _scan(rules=["crunch", "crunch"])
+
+
+def test_the_scan_refuses_the_same_blind_demo_twice() -> None:
+    with pytest.raises(ValidationError, match="Sama demo kahdesti"):
+        _scan(demos_without_orientation=["a", "a"])
+
+
+def test_the_scan_needs_at_least_one_rule() -> None:
+    """Nolla sääntöä ei ole kattavuus vaan ajon puuttuminen."""
+    with pytest.raises(ValidationError):
+        _scan(rules=[])
+
+
+# --- Poikkeamat raportin tasolla ------------------------------------------------
+
+
+def test_an_anomaly_cannot_name_a_map_that_is_not_in_the_report() -> None:
+    """Lukija etsisi karttalukua, jota ei kirjoitettu."""
+    with pytest.raises(AggregateError, match="nimeää kartan, jota raportissa"):
+        _report_with_anomalies([_anomaly(map_name="de_train")])
+
+
+def test_two_anomalies_cannot_share_the_grouping_key() -> None:
+    """Sama havainto kahdesti eri otannoilla on juuri se, minkä ryhmittely estää."""
+    with pytest.raises(AggregateError, match="kahdesti"):
+        _report_with_anomalies([_anomaly(), _anomaly(m=4)])
+
+
+def test_the_same_area_on_two_rules_is_not_a_duplicate() -> None:
+    """Sääntö on osa avainta: eteneminen ja crunch ovat eri rivejä."""
+    report = _report_with_anomalies([_anomaly(), _crunch()])
+    assert len(report.anomalies) == 2
+
+
+def test_the_same_area_on_two_round_types_is_not_a_duplicate() -> None:
+    """Kierrostyyppi on osa etenemisen avainta."""
+    report = _report_with_anomalies(
+        [
+            _anomaly(),
+            _anomaly(
+                round_types=["force"],
+                rounds=[_round(round_type="force")],
+            ),
+        ]
+    )
+    assert len(report.anomalies) == 2
+
+
+def test_a_stale_report_json_is_validated_the_same_way() -> None:
+    """``model_validate`` on vanhentuneen tiedoston reitti, ei konstruktori.
+
+    Validaattorin testaaminen vain konstruktorin kautta jättäisi juuri sen
+    reitin auki, jolla rikkinäinen ``report.json`` päätyy ``render``iin.
+    """
+    report = _report_with_anomalies([_anomaly()])
+    data = report.model_dump(mode="json")
+    data["anomalies"][0]["n"] = 9
+    with pytest.raises(AggregateError, match="kantaa 1 kierrosriviä"):
+        Report.model_validate(data)
+
+
+def test_a_report_without_the_scan_is_refused() -> None:
+    """Kattavuus on pakollinen: ilman sitä tyhjä luku ei erotu ajamattomasta."""
+    report = _report_with_anomalies([])
+    data = report.model_dump(mode="json")
+    data.pop("anomaly_scan")
+    with pytest.raises(ValidationError):
+        Report.model_validate(data)

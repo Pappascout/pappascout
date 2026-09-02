@@ -14,10 +14,14 @@ import pytest
 
 from pappascout import constants
 from pappascout.constants import (
+    ANOMALY_RULE_FI,
+    ANOMALY_RULES,
     SAMPLE_BUCKETS,
     SAMPLE_BUCKET_FI,
+    SAVING_ROUND_TYPES,
     AREA_SOURCES,
     ARMING_WEAPONS,
+    AnomalyRule,
     AreaSource,
     EVENT_KINDS,
     GRENADES,
@@ -40,6 +44,7 @@ from pappascout.constants import (
 PAIRS = [
     ("SIDES", SIDES, Side),
     ("ROUND_TYPES", ROUND_TYPES, RoundType),
+    ("ANOMALY_RULES", ANOMALY_RULES, AnomalyRule),
     ("UNIT_STATUSES", UNIT_STATUSES, UnitStatus),
     ("SAMPLE_KINDS", SAMPLE_KINDS, SampleKind),
     ("EVENT_KINDS", EVENT_KINDS, EventKind),
@@ -67,6 +72,45 @@ def test_finnish_labels_cover_every_round_type() -> None:
 def test_full_is_shown_as_default_in_reports() -> None:
     """Spinen konventio: full esitetaan raportissa nimella 'default'."""
     assert ROUND_TYPE_FI["full"] == "default"
+
+
+def test_finnish_labels_cover_every_anomaly_rule() -> None:
+    """Uusi sääntö ei voi näkyä raportissa nimettömänä.
+
+    Väite on **vain täällä**: ``render.view`` indeksoi karttaa suoraan
+    (``ANOMALY_RULE_FI[rule]``), joten puuttuva nimi kaataa renderöinnin sen
+    sijaan että rappeutuisi hiljaa sääntönimeen. Tämä testi on se, joka pitää
+    kartan täytenä.
+    """
+    assert set(ANOMALY_RULE_FI) == set(ANOMALY_RULES)
+
+
+def test_the_deferred_rules_are_not_among_the_implemented_ones() -> None:
+    """Kattavuuden nimittäjä: sama sääntö ei voi olla molemmissa.
+
+    Kun stack toteutetaan, nimi **siirtyy** luettelosta toiseen. Jos se olisi
+    hetken molemmissa, raportti väittäisi ajaneensa säännön, jota se nimeää
+    ajamattomaksi.
+    """
+    assert not set(ANOMALY_RULES) & set(constants.ANOMALY_RULES_DEFERRED)
+    assert constants.ANOMALY_RULES_DEFERRED == ("stack",)
+
+
+def test_saving_round_types_are_a_proper_subset_of_the_round_types() -> None:
+    """Säästökierros on kierrostyypin osajoukko eikä oma luettelonsa.
+
+    Ilman tätä vartijaa kirjoitusvirhe (``"ecos"``) hiljentäisi
+    CT-etenemissäännön kokonaan: kierrostyyppi ei osuisi koskaan, eikä mikään
+    kertoisi siitä.
+
+    Pistooli on **ulkopuolella**: molemmilla puolilla on silloin sama vähäinen
+    raha, joten etenemisestä ei voi päätellä suunnitelmaa. READMEn sana
+    "säästökierros" tarkoittaa eri asiaa (renderöinnin sääntö, pistooli
+    mukana), ja molemmat paikat nimeävät oman merkityksensä.
+    """
+    assert set(SAVING_ROUND_TYPES) < set(ROUND_TYPES)
+    assert set(SAVING_ROUND_TYPES) == {"eco", "half", "force"}
+    assert "pistol" not in SAVING_ROUND_TYPES
 
 
 def test_unit_statuses_match_the_error_policy() -> None:

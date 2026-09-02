@@ -515,9 +515,16 @@ aikaikkunoiden säätäminen sieltä käsin mitätöisi jokaisen luokitellun dem
 turhaan.
 
 Aggregoinnin parametrihash lasketaan koko `[aggregate]`-osiosta sekä niistä
-`[thresholds]`- ja `[league]`-avaimista, jotka vaihe todella lukee
-(`small_sample_rounds`, `team_identity_min_common`, `map_pool`). Muun
-kynnysarvon muuttaminen ei siis mitätöi raporttia -- se ajaa `classify`n
+`[thresholds]`- ja `[league]`-avaimista, jotka vaihe todella lukee:
+`small_sample_rounds`, `team_identity_min_common`, `map_pool` sekä Story
+2.5:n kuusi poikkeamakynnystä (`advance_t_share`,
+`advance_area_min_observations`, `advance_max_sample_s`,
+`advance_min_players`, `crunch_min_players`, `crunch_min_sources`).
+Luettelo on `stages.aggregate.HASHED_THRESHOLD_KEYS`issa, ja kaksi testiä
+vartioi sitä: toinen lukee luetut kentät lähdekoodista, toinen ajaa jokaisen
+kynnyksen läpi ja tarkistaa että hash muuttuu.
+
+Muun kynnysarvon muuttaminen ei mitätöi raporttia -- se ajaa `classify`n
 uudelleen, ja se näkyy jo syötteiden tunnisteissa. `--pakota` ohittaa
 manifestin.
 
@@ -544,10 +551,25 @@ uv run pappascout report --team 9ac    # alkuosa riittää
 ```
 
 Raportin rakenne on yhteenveto (rosteri, otanta kolmessa lokerossa, puuttuvat
-demot, luokittelemattomat kierrokset, käytetyt kynnykset) -> kartta -> puoli ->
-kierrostyyppi -> kierrosliite -> lukuohje -> tekninen jäljitettävyys. Jokainen
-havaintorivi kantaa otantansa muodossa `(4/7 kierroksesta)`; ilman sitä yksi
-kierros näyttäisi kuviolta.
+demot, luokittelemattomat kierrokset, käytetyt kynnykset) -> **poikkeamat** ->
+kartta -> puoli -> kierrostyyppi -> kierrosliite -> lukuohje -> tekninen
+jäljitettävyys. Jokainen havaintorivi kantaa otantansa muodossa
+`(4/7 kierroksesta)`; ilman sitä yksi kierros näyttäisi kuviolta.
+
+**Poikkeamaluku on heti yhteenvedon jälkeen, ei lopussa.** Se on epicin
+arvokkain tuotos (Story 2.5), ja dokumentin lopussa se olisi juuri se, mitä
+ottelua edeltävässä kiireessä ei ehditä lukea. Luku latotaan **ehdoitta**:
+tyhjä luku sanoo "ei poikkeamia" ja kertoo samalla mitä tutkittiin -- montako
+kierrosta säännöt näkivät, montako arkkitehtuurin sääntöä jäi ajamatta ja
+jäikö jonkin demon alueorientaatio tyhjäksi. Ilman sitä nolla poikkeamaa
+lukisi mitattuna negatiivisena myös sokeasta pisteestä.
+
+Rivi on kaksitasoinen: koontirivi kantaa alueen, otannan ja alueen T-osuuden,
+ja sen alla on rivi per kierros. Jako ei ole muotoilua vaan merkitys --
+crunchin lähtösuunnat ovat yhtäaikaisia **vain saman kierroksen sisällä**,
+joten kahden kierroksen suuntien yhdiste väittäisi useampaa samanaikaista
+suuntaa kuin havaittiin. Kierrosnumero on samalla rivillä, koska scoutin
+seuraava teko on avata se kierros demolta.
 
 **Runko puhuu nimillä; tunnisteet ovat luvussa "Tekninen jäljitettävyys".**
 Ottelua edeltävässä kiireessä luettava dokumentti ei voi puhua tiivisteistä:
@@ -603,12 +625,20 @@ nimilistassa, joten pari löytyy laskemalla. Samasta syystä tunnistamattoman
 kartan nimiö on `kartta N, nimeä ei tunnistettu` eikä sen demotunniste: nimiö
 ja arvo olisivat muuten sama merkkijono.
 
-Säästökierrokset (`pistol`, `eco`, `force`, `half`) kuvataan kierroksen
-tarkkuudella: jokainen havainto kirjoitetaan. Täydet ostot (`full`) ja
-jatkoaika (`ot`) kuvataan **vain toistuvina kuvioina**, ja toistumisen raja
-luetaan raportista (`thresholds_used.thresholds.small_sample_rounds`) -- sitä
-ei keksitä renderöinnissä. Pois jätettyjen havaintojen määrä kirjoitetaan
+Kierroksen tarkkuudella kuvattavat tyypit (`pistol`, `eco`, `force`, `half`)
+saavat jokaisen havaintonsa kirjoitettuna. Täydet ostot (`full`) ja jatkoaika
+(`ot`) kuvataan **vain toistuvina kuvioina**, ja toistumisen raja luetaan
+raportista (`thresholds_used.thresholds.small_sample_rounds`) -- sitä ei
+keksitä renderöinnissä. Pois jätettyjen havaintojen määrä kirjoitetaan
 näkyviin, joten suodatus ei ole hiljainen.
+
+> **Sana "säästökierros" tarkoittaa koodissa eri asiaa kuin tässä luvussa.**
+> Yllä oleva nelikko on **renderöinnin** sääntö: mitkä tyypit kerrotaan
+> kierroksen tarkkuudella. `constants.SAVING_ROUND_TYPES` on **taloudellinen**
+> luettelo -- tyypit, joilla joukkueella ei ole varaa normaaliin ostoon -- ja
+> siitä puuttuu `pistol`, koska silloin kummallakaan puolella ei ole
+> ostokykyä eikä etenemisestä voi päätellä suunnitelmaa. Vain jälkimmäinen
+> rajaa Story 2.5:n CT-etenemissääntöä.
 
 **Vanha raportti ei koskaan ylikirjoitu.** Nimessä on aikaleima minuutin
 tarkkuudella, ja saman minuutin sisällä ajetut saavat nollatäytetyn päätteen
@@ -756,6 +786,46 @@ yksikkönsä itse (`Middle (4/6 taposta)`) eikä vain lukuohjeessa. Alue on
 > tuoduilla demoilla nimi ei muutu, vain lähde vaihtuu: neljän
 > MatureMayhem-demon raportti on muutoksen jälkeen tavu tavulta sama kuin
 > ennen, ainoa ero on aikaleimarivi.
+
+> **Poikkeavat asetelmat pakottavat luokittelun ja aggregoinnin uudelleen,
+> mutta eivät parsintaa.** Story 2.5 lisää kuusi kynnystä
+> `[thresholds]`-osioon ja nostaa `REPORT_SCHEMA_VERSION`in `6.0.0` ->
+> `7.0.0`. Uudelleenparsintaa **ei tarvita**: mikään parsittu taulu ei muutu.
+>
+> Komennot ovat kaksi eikä kolme, eikä `--pakota` ole tarpeen:
+>
+> ```powershell
+> uv run pappascout classify <map_demo_id> --kaikki-joukkueet   # jokaiselle demolle
+> uv run pappascout aggregate --team <tunniste>
+> uv run pappascout report --team <tunniste>
+> ```
+>
+> `classify` ajautuu uudelleen itsestään, koska sen parametrihash kattaa
+> **koko** `[thresholds]`-osion (`stages/classify.py:_params_hash`). Se on
+> oikea käyttäytyminen eikä vika: osittainen hash vaatisi luettelon siitä,
+> mitä kenttiä säännöt sattuvat lukemaan, ja se luettelo vanhenisi hiljaa.
+> Hinta on tarpeeton uudelleenajo, joka maksaa sekunteja -- demoa ei lueta.
+>
+> Version nosto on **oletusarvon takia eikä sen puutteesta**. `anomalies` on
+> `default_factory=list`, joten vanha `report.json` validoituisi tyhjällä
+> listalla -- ja juuri se on syy nostaa: tyhjä poikkeamaluku on tässä mallissa
+> **havainto** ("ei poikkeamia"), joten vanhasta tiedostosta renderöity
+> raportti väittäisi mitatuksi tulokseksi sen, ettei sääntöjä ollut
+> olemassa. Ehto "validoituuko vanha tiedosto" ei siis riitä yksin.
+>
+> Mitattu koko arkistosta 2026-09-02 (kahdeksan demoa, 93 CT-kierrosta):
+> CT-eteneminen osuu **6 kierroksella** ja crunch **4 kierroksella**, eli 6,5 %
+> ja 4,3 % -- poikkeaman kokoluokka. Nukella ei ole yhtään poikkeamaa
+> kummassakaan raportissa, ja se on **tosi negatiivinen**: `Lobby`
+> tunnistetaan oikein T:n alueeksi (T-osuus 0,89 ja 0,98), mutta lobby
+> crunchia ei yhdelläkään kierroksella tehty.
+>
+> Arkkitehtuurin (AD-10) kolmesta poikkeamasäännöstä ajetaan **kaksi**.
+> Kolmas, 4-5 pelaajan stack yhdellä sitellä, on mitattu mahdottomaksi pelin
+> nykyisellä aluejaolla (0 osumaa 93 kierroksesta, koska peli jakaa siten
+> useaan `env_cs_place`-alueeseen) ja siirretty omaksi tarinakseen.
+> `[thresholds].stack_min_players` jää siksi käyttämättä, ja raportin
+> poikkeamaluku sanoo kattavuutensa ääneen.
 
 Manifesti on **raporttikohtainen** (`<raportin nimi>.manifest.json`) ja
 jäljitettävyyttä varten. Yhteinen manifesti kestäisi huonosti juuri sitä

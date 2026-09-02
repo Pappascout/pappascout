@@ -65,9 +65,12 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from math import isfinite
 from typing import Any
 
 from pappascout.constants import (
+    ANOMALY_RULE_FI,
+    ANOMALY_RULES,
     ROUND_TYPE_FI,
     SAMPLE_BUCKET_FI,
     SAMPLE_BUCKETS,
@@ -75,6 +78,8 @@ from pappascout.constants import (
     UTILITY_BUCKET_UNKNOWN,
 )
 from pappascout.domain.report import (
+    Anomaly,
+    AnomalyRound,
     ArmedPlayers,
     ArmoredPlayers,
     DeathReport,
@@ -95,10 +100,14 @@ __all__ = [
     "KILL_SAMPLE_UNIT",
     "UNKNOWN_AREA",
     "TRACEABILITY_HEADING",
+    "ANOMALY_HEADING",
+    "MAX_ANOMALY_LINES",
+    "UNKNOWN_MAP_LABEL",
     "UNNAMED_PLAYER",
     "Claim",
     "Line",
     "SummaryItem",
+    "AnomalyView",
     "RoundTypeView",
     "SideView",
     "MapView",
@@ -108,6 +117,7 @@ __all__ = [
     "pattern_min_rounds",
     "rounds_text",
     "demos_text",
+    "players_text",
 ]
 
 #: Kranaattityyppien suomennokset. Nämä ovat **esitystä**, joten ne asuvat
@@ -201,6 +211,37 @@ ESTIMATE_MARK = " (arvio)"
 #: nimellä sekä koodissa, testeissä että READMEssa.
 TRACEABILITY_HEADING = "Tekninen jäljitettävyys"
 
+#: Poikkeamaluvun otsikko **sellaisena kuin malli sen latoo**.
+#:
+#: Sama peruste kuin :data:`TRACEABILITY_HEADING`illa: otsikkorivin ``## ``
+#: omistaa malli, mutta nimi esiintyy myös koodissa ja testeissä, ja testi
+#: vartioi että ne ovat samat.
+ANOMALY_HEADING = "Poikkeamat"
+
+#: Enintään näin monta poikkeamariviä luvussa.
+#:
+#: Sama peruste kuin :data:`MAX_DEATH_LINES`illa mutta eri mekanismi: kuolemien
+#: rivimäärä on rakenteellinen (kaksi reunajakaumaa), joten sen ylitys on
+#: virhe. Poikkeamien määrä on **aineiston** ominaisuus, joten virhe kaataisi
+#: ajon aineistosta jota ei voi valita -- ja luku on raportin ensimmäinen
+#: sisältöluku, joten se ei myöskään saa kasvaa rajatta.
+#:
+#: Ratkaisu on kuvion kynnyksen kanssa sama: rajaus tehdään ja **pois
+#: jätettyjen määrä kirjoitetaan näkyviin**. 20 riviä on jo koko luku; sen yli
+#: menevä määrä tarkoittaa, että sääntö laukeaa liian usein, ja siihen vastaa
+#: speksin Ask First -portti (yli 20 % osumatiheys) eikä raportin muotoilu.
+MAX_ANOMALY_LINES = 20
+
+#: Tunnistamattoman kartan nimiö. Muotoiltava, koska järjestysluku erottaa
+#: kaksi tunnistamatonta karttaa toisistaan.
+#:
+#: **Yksi kirjoitusasu kahdelle luvulle.** Sekä jäljitettävyysluvun
+#: karttarivi (:func:`_map_label`) että poikkeamarivi
+#: (:func:`_anomaly_map_label`) käyttävät tätä, ja lukija yhdistää rivit
+#: nimenomaan merkkijonon perusteella. Kahtena kirjoitettuna toisen
+#: muuttaminen katkaisisi yhteyden hiljaa.
+UNKNOWN_MAP_LABEL = "kartta {index}, nimeä ei tunnistettu"
+
 
 # -- Näkymämallin osat -----------------------------------------------------------
 
@@ -246,6 +287,28 @@ class SummaryItem:
 
     label: str
     value: str
+
+
+@dataclass(frozen=True)
+class AnomalyView:
+    """Yksi poikkeama: koontirivi ja sen kierrosrivit.
+
+    Kaksitasoinen tarkoituksella. Koontirivi kantaa otannan ja orientaation,
+    kierrosrivit sen mitä kullakin kierroksella havaittiin -- ja juuri
+    kierrosrivi on se, joka estää rivin lukemisen väärin: crunchin
+    lähtösuunnat ovat yhtäaikaisia vain saman kierroksen sisällä, joten
+    kahden kierroksen yhdiste väittäisi useampaa samanaikaista suuntaa kuin
+    havaittiin.
+
+    ``rounds`` on valmiiksi muotoiltuja merkkijonoja eikä
+    :class:`Line`-olioita: niillä ei ole omaa otantaa, joten :class:`Claim`in
+    sopimus ("väitettä ei voi rakentaa ilman otantaa") ei päde niihin. Rivien
+    otanta on koontirivillä, jonka alle ne kuuluvat.
+    """
+
+    rule: str
+    line: Line
+    rounds: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -319,6 +382,19 @@ class ReportView:
     #: rungossa.
     traceability_note: str = ""
     empty_note: str | None = None
+    #: Poikkeamaluvun rivit -- kaikki kartat ja puolet samassa jonossa,
+    #: kuten ``Report.anomalies``issa. Tyhjä jono on kelvollinen tila.
+    anomalies: tuple[AnomalyView, ...] = ()
+    #: Teksti, joka luetaan poikkeamarivien **sijasta**, kun niitä ei ole.
+    #: :func:`build_view` täyttää aina täsmälleen toisen näistä kahdesta:
+    #: poikkeamaluku on olemassa myös silloin, kun poikkeamia ei ole, ja
+    #: silloin se sanoo ääneen mitä tutkittiin ja mikä jäi sokeaan pisteeseen
+    #: (:func:`_no_anomalies_text`).
+    anomalies_note: str | None = None
+    #: Huomautus rivikaton pudottamista poikkeamista. Erillinen
+    #: :attr:`anomalies_note`sta, koska nämä kaksi ovat eri tiloja: toinen on
+    #: "ei löytynyt", toinen "löytyi enemmän kuin luku näyttää".
+    anomalies_dropped_note: str | None = None
 
 
 @dataclass
@@ -402,6 +478,16 @@ def rounds_text(count: int) -> str:
 def demos_text(count: int) -> str:
     """``1 demo`` / ``4 demoa``."""
     return "1 demo" if count == 1 else f"{count} demoa"
+
+
+def players_text(count: int) -> str:
+    """``1 pelaaja`` / ``5 pelaajaa``.
+
+    Yksikkö on tässä havainto eikä kielioppikoriste: kalibroinnin kuudesta
+    merkitystä kierroksesta neljä osuu **yhden** pelaajan havainnolla, joten
+    juuri se muoto toistuu raportissa useimmin.
+    """
+    return "1 pelaaja" if count == 1 else f"{count} pelaajaa"
 
 
 def _seconds(value: float) -> str:
@@ -963,6 +1049,249 @@ def _round_type_view(
     )
 
 
+def _anomaly_views(
+    report: Report,
+) -> tuple[tuple[AnomalyView, ...], str | None]:
+    """Poikkeamarivit ja rivikaton huomautus.
+
+    Kaksi paluuarvoa, koska kattoa ei voi soveltaa hiljaa: pois jätettyjen
+    määrä kirjoitetaan näkyviin samalla säännöllä kuin kuvion kynnyksen
+    pudottamat havainnot.
+
+    **Järjestys on toistumisen mukaan, ei kartan.** Luku on raportin
+    ensimmäinen sisältöluku ja sen tehtävä on nostaa esiin se, mikä toistuu;
+    tasatilanteessa avain on (kartta, puoli, sääntö, alue), joten yhtä usein
+    havaitut pysyvät karttajärjestyksessä ja tulos on sama ajosta toiseen.
+    """
+    ordered = sorted(report.anomalies, key=_anomaly_rank)
+    kept = ordered[:MAX_ANOMALY_LINES]
+    dropped = len(ordered) - len(kept)
+    note = None
+    if dropped:
+        note = (
+            f"{dropped} poikkeamaa jäi pois: luvussa näytetään enintään "
+            f"{MAX_ANOMALY_LINES} useimmin toistuvaa. Kaikki ovat "
+            "report.jsonissa kentässä anomalies."
+        )
+    # Karttojen järjestysluvut samasta lähteestä kuin
+    # jäljitettävyysluvussa, jotta tunnistamattoman kartan nimiö on sama
+    # merkkijono molemmissa ja lukija voi yhdistää rivit.
+    index_of = {
+        entry.map_name: index
+        for index, entry in enumerate(report.maps, start=1)
+    }
+    return tuple(_anomaly_view(entry, index_of) for entry in kept), note
+
+
+def _anomaly_rank(anomaly: Anomaly) -> tuple[int, str, str, int, str]:
+    """Useimmin toistuva ensin, sitten kartta, puoli, sääntö ja alue."""
+    return (
+        -anomaly.n,
+        anomaly.map_name,
+        anomaly.side,
+        ANOMALY_RULES.index(anomaly.rule),
+        anomaly.area,
+    )
+
+
+def _anomaly_view(
+    anomaly: Anomaly, index_of: Mapping[str, int]
+) -> AnomalyView:
+    """Yksi poikkeama: koontirivi ja kierrosrivit.
+
+    **Yhtäaikaisuus ei ylitä kierrosrajaa.** Koontirivi kertoo alueen,
+    otannan ja orientaation; näytepisteet, suunnat ja pelaajamäärä ovat
+    kierrosriveillä, koska vain siellä ne ovat samanaikaisia. Kahden
+    kierroksen suuntien yhdiste lukisi useammaksi samanaikaiseksi suunnaksi
+    kuin havaittiin -- päinvastoin kuin määritelmä.
+
+    Nimiön kartta kulkee :func:`_anomaly_map_label`in läpi, joten
+    tunnistamaton kartta ei tuo demotunnistetta runkoon (Story 2.12).
+    """
+    label = (
+        f"{ANOMALY_RULE_FI[anomaly.rule]} "
+        f"({_anomaly_map_label(anomaly, index_of)}, {anomaly.side}-puoli"
+        f"{_round_type_suffix(anomaly)})"
+    )
+    return AnomalyView(
+        rule=anomaly.rule,
+        line=Line(
+            label=label,
+            claims=(
+                Claim(
+                    text=_area(anomaly.area),
+                    n=anomaly.n,
+                    m=anomaly.m,
+                    extra=_orientation_text(anomaly),
+                ),
+            ),
+            note="pieni otanta" if anomaly.small_sample else None,
+        ),
+        rounds=tuple(_anomaly_round_text(anomaly, entry) for entry in anomaly.rounds),
+    )
+
+
+def _anomaly_map_label(anomaly: Anomaly, index_of: Mapping[str, int]) -> str:
+    """Kartan nimi poikkeamarivillä, tunnistamaton sanottuna ääneen.
+
+    **Runko puhuu nimillä** (Story 2.12), ja sen kolme poikkeusta eivät kata
+    tätä lukua. Kun kartan nimen lähde on ``unknown``, ``map_name`` **on**
+    demotunniste (ks. :class:`~pappascout.domain.report.MapReport`), joten
+    paljaana se tuo tunnisteen runkoon. Karttaluvun otsikko on poikkeus
+    siksi, että siellä tunniste on kartan ainoa nimi; täällä se ei ole,
+    koska rivi kertoo kartan lisäksi puolen, alueen ja otannan.
+
+    Nimiö on **sama merkkijono** kuin jäljitettävyysluvun karttarivillä
+    (:data:`UNKNOWN_MAP_LABEL`, :func:`_map_label`), joten lukija voi
+    yhdistää rivin oikeaan karttalukuun. Järjestysluku on välttämätön: kaksi
+    tunnistamatonta karttaa eivät saa saada samaa nimiötä.
+    """
+    if anomaly.map_name_source == "unknown":
+        return UNKNOWN_MAP_LABEL.format(index=index_of.get(anomaly.map_name, 0))
+    return anomaly.map_name
+
+
+def _round_type_suffix(anomaly: Anomaly) -> str:
+    """Kierrostyypit nimiöön -- tai maininta siitä, ettei niitä rajattu.
+
+    Eteneminen ryhmitellään kierrostyypin mukaan, joten sillä on täsmälleen
+    yksi ja se kuuluu nimiöön havaintona. Crunch ei tunne kierrostyyppiä:
+    sen nimittäjä on puolen kaikki kierrokset, joten nimiö kertoo **millä
+    tyypeillä se havaittiin** eikä mihin se on rajattu. Ilman eroa lukija
+    lukisi crunchin ``eco``-merkinnän rajaukseksi ja ihmettelisi, miksi
+    ``default``-riviä ei ole.
+    """
+    names = ", ".join(
+        ROUND_TYPE_FI.get(name, name) for name in anomaly.round_types
+    )
+    if anomaly.rule == "ct_advance":
+        return f", {names}"
+    return f", havaittu: {names}"
+
+
+def _anomaly_round_text(anomaly: Anomaly, entry: AnomalyRound) -> str:
+    """Yhden kierroksen havainto: milloin, kuinka monta ja mistä.
+
+    Kierrosnumero ensin, koska scoutin seuraava teko on avata se kierros
+    demolta. Kierrostyyppi on mukana vain crunchilla: etenemisellä se on jo
+    nimiössä, eikä samaa sanaa kirjoiteta kahdesti samalle riville.
+    """
+    text = f"kierros {entry.round_no}"
+    if anomaly.rule != "ct_advance":
+        text += f" ({ROUND_TYPE_FI.get(entry.round_type, entry.round_type)})"
+    text += (
+        f": {players_text(entry.players_max)} "
+        f"{_seconds_list(entry.seconds)} s kohdalla"
+    )
+    if entry.sources:
+        # Suunnat vain crunchissa, ja **yhtäaikaisia** koska ne ovat saman
+        # kierroksen havainto. Etenemisrivillä tyhjä lista tarkoittaa "ei
+        # kysytty" eikä "ei suuntia", joten sitä ei sanota ääneen.
+        text += f", yhtä aikaa suunnista {_areas_text(entry.sources)}"
+    if len(anomaly.orientation) > 1:
+        # Kaksi demoa samalla kartalla: kierrosnumero ei yksilöi ilman
+        # demotunnistetta. Tunniste on koodijaksona, koska se on tässä
+        # ainoa käyttökelpoinen muoto -- sama peruste kuin kierrosliitteellä.
+        text += f" -- `{entry.map_demo_id}`"
+    return text
+
+
+def _orientation_text(anomaly: Anomaly) -> str:
+    """Alueen T-osuus ja sen oma otanta, demo kerrallaan.
+
+    Osuus **ilman havaintomäärää** olisi vaarallisin luku koko rivillä: 1,00
+    näyttäisi samalta yhdestä ja sadasta havainnosta. Kaksi demoa samalta
+    kartalta voi antaa alueelle eri osuuden, ja silloin molemmat kirjoitetaan
+    -- keskiarvo olisi luku, jota ei ole havaittu.
+
+    Havaintomäärä on **ilman sulkeita**, koska koko lisätieto on jo väitteen
+    suluissa: sisäkkäiset sulkeet pakottaisivat lukemaan rivin kahdesti.
+    """
+    parts = [
+        f"T-osuus {_share(entry.t_share)} alueen "
+        f"{entry.observations} havainnosta"
+        for entry in anomaly.orientation
+    ]
+    return "; ".join(parts)
+
+
+def _share(value: float) -> str:
+    """Osuus kahdella desimaalilla ja suomalaisella pilkulla."""
+    return f"{value:.2f}".replace(".", ",")
+
+
+def _seconds_list(values: Sequence[float]) -> str:
+    """``[15.0, 30.0] -> '15 ja 30'``."""
+    return _join_fi([_seconds(value) for value in values])
+
+
+def _areas_text(areas: Sequence[str]) -> str:
+    """Aluenimet luettelona; calloutit pysyvät englanniksi."""
+    return _join_fi([_area(name) for name in areas])
+
+
+def _join_fi(parts: Sequence[str]) -> str:
+    """``a, b ja c`` -- suomen kielen luettelo, ei pilkkujono.
+
+    Viimeinen erotin on **ja** eikä pilkku, koska rivi luetaan lauseena:
+    "suunnista Arch, TopofMid" näyttäisi katkaistulta luettelolta.
+    """
+    if len(parts) <= 1:
+        return "".join(parts)
+    return f"{', '.join(parts[:-1])} ja {parts[-1]}"
+
+
+def _no_anomalies_text(report: Report) -> str:
+    """Teksti tyhjälle poikkeamaluvulle -- kattavuus mukaan luettuna.
+
+    **"Ei poikkeamia" on havainto vain siitä, mitä tutkittiin.** Pelkkä
+    lause ilman kattavuutta väittäisi mitattua negatiivista myös sokeasta
+    pisteestä: luokittelemattomat kierrokset ovat rajattu ulos, orientaatio
+    voi olla tyhjä, ja arkkitehtuurin kolmesta säännöstä ajettiin kaksi.
+    Kaikki kolme sanotaan tässä ääneen, koska juuri se ero ("havainto eikä
+    puute") on koko luvun arvo.
+
+    Menetelmä ja kynnykset ovat mukana samasta syystä: puhtaan raportin
+    lukijalle on kerrottava mitä mitattiin ja millä rajoilla, eikä hän näe
+    yhtäkään riviä, josta ne voisi päätellä.
+    """
+    scan = report.anomaly_scan
+    rules = _join_fi(
+        [ANOMALY_RULE_FI.get(name, name) for name in scan.rules]
+    )
+    parts = [
+        f"Ei poikkeamia. Säännöt ({rules}) ajettiin "
+        f"{scan.rounds_scanned} kierrokselle, mutta molemmat tutkivat vain "
+        f"CT-puolen rivejä: crunch voi osua {scan.crunch_rounds} "
+        f"kierroksella ja CT-eteneminen {scan.advance_rounds} "
+        "kierroksella, koska se on rajattu säästökierroksiin."
+    ]
+    if scan.rules_deferred:
+        parts.append(
+            f"Arkkitehtuuri nimeää {len(scan.rules) + len(scan.rules_deferred)} "
+            f"poikkeamasääntöä; näistä {len(scan.rules_deferred)} on "
+            f"toteuttamatta ({', '.join(scan.rules_deferred)}), joten tämä "
+            "luku ei kattavuudeltaan vastaa niitä."
+        )
+    if report.unclassified_rounds:
+        parts.append(
+            f"{report.unclassified_rounds} kierrosta jäi kokonaan tutkimatta, "
+            "koska niiden kierrostyyppi puuttuu."
+        )
+    if scan.demos_without_orientation:
+        parts.append(
+            f"{demos_text(len(scan.demos_without_orientation))} ei antanut "
+            "yhdellekään alueelle puoliorientaatiota, joten sääntöjen "
+            "vaikeneminen niissä on sokea piste eikä havainto."
+        )
+    else:
+        parts.append(
+            "Jokainen demo antoi vähintään yhdelle alueelle "
+            "puoliorientaation, joten sokeita pisteitä ei ole."
+        )
+    return " ".join(parts)
+
+
 def _round_type_rank(round_type: str) -> int:
     return (
         ROUND_TYPE_ORDER.index(round_type)
@@ -1371,7 +1700,7 @@ def _map_label(index: int, map_report: Any) -> str:
     koskee -- kaksi tunnistamatonta karttaa eivät saa saada samaa nimiötä.
     """
     if map_report.map_name_source == "unknown":
-        return f"kartta {index}, nimeä ei tunnistettu"
+        return UNKNOWN_MAP_LABEL.format(index=index)
     return _identifier(map_report.map_name)
 
 
@@ -1460,9 +1789,13 @@ def build_view(
             )
         )
 
+    anomaly_views, dropped_note = _anomaly_views(report)
     return ReportView(
         title=_title(report),
         summary=tuple(_summary(report, threshold)),
+        anomalies=anomaly_views,
+        anomalies_note=None if anomaly_views else _no_anomalies_text(report),
+        anomalies_dropped_note=dropped_note,
         # Nimiö on demotunniste ja se **jää rungon riville**: syy sisältää
         # komennon, jonka lukija kopioi (``uv run pappascout parse <demo>``),
         # eikä komento toimi ilman tunnistetta. Koodijakso siksi, että
@@ -1473,7 +1806,7 @@ def build_view(
             for entry in report.missing_demos
         ),
         maps=tuple(maps),
-        legend=tuple(_legend(flags)),
+        legend=tuple(_legend(flags, report)),
         appendix_note=(
             _APPENDIX_NOTE if round_list_paths else _APPENDIX_NOTE_WITHOUT_PATHS
         ),
@@ -1534,8 +1867,15 @@ _EMPTY_NOTE = (
 )
 
 
-def _legend(flags: _Flags) -> list[str]:
-    """Selitykset, jotka kirjoitetaan kerran raportin loppuun."""
+def _legend(flags: _Flags, report: Report) -> list[str]:
+    """Selitykset, jotka kirjoitetaan kerran raportin loppuun.
+
+    ``report`` on argumenttina siksi, että poikkeamasääntöjen selitys nimeää
+    **kynnykset, joilla ne ajettiin**. Ne luetaan raportista eikä keksitä
+    täällä -- sama sääntö kuin kuvion kynnyksellä
+    (:func:`pattern_min_rounds`): säädetty ``settings.toml`` näkyy raportin
+    tekstissä vain, jos teksti tulee raportista.
+    """
     notes: list[str] = []
     notes.append(
         "Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on "
@@ -1546,6 +1886,7 @@ def _legend(flags: _Flags) -> list[str]:
         "Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä "
         "hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui."
     )
+    notes.extend(_anomaly_legend(report))
     if flags.unknown_area:
         notes.append(
             f"{UNKNOWN_AREA}: pelin aluenimeä ei saatu. Koordinaatteja ei ole "
@@ -1577,6 +1918,92 @@ def _legend(flags: _Flags) -> list[str]:
         "Raportti kuvaa vain havainnot. Tulkinta ja vastastrategia ovat lukijan."
     )
     return notes
+
+
+def _anomaly_legend(report: Report) -> list[str]:
+    """Poikkeamaluvun selitykset: menetelmä ja **molempien sääntöjen ehdot**.
+
+    Kolme kappaletta, ja ne kirjoitetaan **aina** -- myös tyhjään lukuun.
+    Peruste on eri kuin muilla lukuohjeen kappaleilla: nämä eivät selitä
+    riviä, joka raportissa on, vaan **mitä mitattiin**. Puhtaan raportin
+    lukija tarvitsee ne enemmän kuin kukaan muu: hän näkee vain väitteen
+    "ei poikkeamia" eikä yhtäkään riviä, josta menetelmän voisi päätellä.
+
+    Sääntöjen epäsymmetria sanotaan ääneen, koska se on näkymätön muuten:
+    eteneminen on rajattu säästökierroksiin ja crunch ei ole, joten sama alue
+    voi esiintyä ``eco``-rivillä muttei ``default``-rivillä -- ja ilman
+    selitystä se näyttää puuttuvalta havainnolta.
+    """
+    share = _threshold_float(report, "advance_t_share")
+    observations = _threshold_int(report, "advance_area_min_observations")
+    bound = _threshold_float(report, "advance_max_sample_s")
+    advance_players = _threshold_int(report, "advance_min_players")
+    crunch_players = _threshold_int(report, "crunch_min_players")
+    crunch_sources = _threshold_int(report, "crunch_min_sources")
+
+    orientation = (
+        f"Luvun {ANOMALY_HEADING} T-osuus on **demon oma havainto** siitä, "
+        "kumman puolen aluetta alue on: se on alueen elossa-havainnoista "
+        "aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** "
+        "riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja "
+        "eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä "
+        "on osuuden vieressä."
+    )
+    if share is not None and observations is not None:
+        orientation += (
+            f" Alue on T:n aluetta, kun osuus on vähintään {_share(share)} ja "
+            f"alueella on vähintään {observations} havaintoa; sitä vähemmällä "
+            "alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa."
+        )
+    notes = [orientation]
+
+    advance = (
+        f"**{ANOMALY_RULE_FI['ct_advance']}**: subjektin CT-pelaaja alueella, "
+        "joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, "
+        "force tai puoliosto)."
+    )
+    if advance_players is not None and bound is not None:
+        advance += (
+            f" Vähintään {players_text(advance_players)} alueella ja havainto "
+            f"enintään {_seconds(bound)} sekunnin kohdalla kierroksen alusta."
+        )
+    notes.append(advance)
+
+    crunch = (
+        f"**{ANOMALY_RULE_FI['crunch']}**: sama T:n alue, mutta pelaajien on "
+        "**saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on "
+        "pelaajan oma alue edellisellä näytepisteellä."
+    )
+    if crunch_players is not None and crunch_sources is not None:
+        crunch += (
+            f" Vähintään {players_text(crunch_players)} ja "
+            f"{crunch_sources} eri suuntaa."
+        )
+    crunch += (
+        " **Crunchia ei ole rajattu kierrostyyppiin**, toisin kuin etenemistä, "
+        "joten sen otanta on puolen kaikki kierrokset ja nimiö kertoo millä "
+        "kierrostyypeillä se havaittiin. Sama kierros voi siis tuottaa "
+        "molemmat rivit, ja täysi osto vain crunchin."
+    )
+    notes.append(crunch)
+    return notes
+
+
+def _threshold_float(report: Report, name: str) -> float | None:
+    """Liukulukukynnys raportista, tai ``None`` jos se ei ole luettavissa.
+
+    Sama sääntö kuin :func:`_threshold_int`illä: ``render`` ei keksi
+    kynnystä, ja lukukelvoton arvo on sama asia kuin puuttuva -- rivi
+    kirjoitetaan silloin ilman lukua eikä arvatulla luvulla.
+    """
+    values = report.thresholds_used.get("thresholds")
+    if not isinstance(values, Mapping):
+        return None
+    value = values.get(name)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if isfinite(number) else None
 
 
 def _player_counter_legend(flags: _Flags) -> list[str]:

@@ -50,6 +50,8 @@ __all__ = [
     "SETTINGS_SECTIONS",
     "MAX_SNAPSHOT_SECONDS",
     "MAX_BUY_WINDOW_SECONDS",
+    "MAX_ADVANCE_SAMPLE_SECONDS",
+    "PLAYERS_ON_SERVER",
     "REMOVED_SETTINGS",
 ]
 
@@ -93,6 +95,15 @@ REMOVED_SETTINGS: Final[dict[tuple[str, str], str]] = {
 #: sitä suurempi arvo ei voi osua yhdelläkään kierrokselle.
 MAX_SNAPSHOT_SECONDS = 115.0
 
+#: Pelaajia kentällä per joukkue. Pelin sääntö, ei asetus.
+#:
+#: Eri asia kuin ``[thresholds].roster_size``: rosterissa voi olla
+#: vaihtopelaajia (mitattu: seitsemän pelaajaa yhdellä joukkueella), mutta
+#: yhdelläkään kierroksella ei ole kuutta pelaajaa kentällä. Pelaajamäärää
+#: koskevat kynnykset verrataan tähän, koska rosterin koko päästäisi läpi
+#: ehdon, joka ei voi täyttyä.
+PLAYERS_ON_SERVER = 5
+
 #: Ostoikkunan yläraja sekunteina. **Oma raja, ei lainattu**
 #: :data:`MAX_SNAPSHOT_SECONDS`ista: ne ovat kaksi riippumatonta asetusta, ja
 #: yhteinen vakio kytkisi ne toisiinsa niin, että toisen säätäminen siirtäisi
@@ -117,6 +128,31 @@ NonNegativeInt = Annotated[int, Field(ge=0)]
 #: ``ge=0``-rajan (``nan >= 0`` on epätosi, mutta virheilmoitus puhuisi
 #: väärästä asiasta, ja ``inf >= 0`` on tosi).
 NonNegativeFloat = Annotated[float, Field(ge=0.0, allow_inf_nan=False)]
+
+#: **Enemmistöosuus**: yli puolet, enintään kaikki. Ääretön ja NaN eivät kelpaa.
+#:
+#: Alaraja on ``> 0.5`` eikä ``>= 0``, ja se on määritelmä eikä makuasia.
+#: Kynnys kertoo, kummalle puolelle alue **kuuluu**; arvolla 0,5 tai alle alue
+#: voisi olla molempien, ja arvolla 0,0 jokainen kartan alue olisi T:n aluetta
+#: -- eli sääntö laukeaisi joka kierroksella eikä poikkeamaluku enää mittaisi
+#: poikkeamaa. Yläraja 1,0 on osuuden määritelmä: T-osuus 1,2 ei ole tiukempi
+#: kynnys vaan mahdoton ehto, joka hiljentäisi säännön kokonaan.
+#:
+#: ``allow_inf_nan=False`` samasta syystä kuin :data:`NonNegativeFloat`illa:
+#: NaN tekisi jokaisesta vertailusta epätoden, jolloin yksikään alue ei olisi
+#: kummankaan puolen aluetta eikä mikään kertoisi miksi.
+MajorityShare = Annotated[float, Field(gt=0.5, le=1.0, allow_inf_nan=False)]
+
+#: Poikkeaman aikarajan yläraja sekunteina.
+#:
+#: Sama peruste kuin :data:`MAX_SNAPSHOT_SECONDS`illa mutta tiukempi luku:
+#: raja **valikoi näytepisteistä**, joten sitä suurempi arvo ei rajaa mitään.
+#: 45 s on suurin ``[parse].snapshot_seconds``-piste, ja mittaus osoitti sen
+#: olevan juuri se piste, joka tuo epävarmuutta (kaksi CT:tä T:n spawnin
+#: puolella voitetun kierroksen jälkeen). Yläraja 115,0 päästäisi läpi arvon,
+#: joka näyttää rajalta muttei rajaa mitään; 60,0 päästää läpi jokaisen
+#: mielekkään näytepistevalinnan ja torjuu kirjoitusvirheen ``300``.
+MAX_ADVANCE_SAMPLE_SECONDS = 60.0
 
 #: Pistepilven ruudun särmä. Rajat ovat suorituskykyä ja mielekkyyttä, eivät
 #: makuasia. **Alaraja 8**: lähimmän haku on ristiintulo pisteiden ja ruutujen
@@ -374,6 +410,13 @@ class ThresholdSettings(_Section):
     Otannan rajat (``small_sample_rounds``, ``stack_min_players``,
     ``roster_*``) odottavat yhä omaa aineistoaan.
 
+    Story 2.5:n poikkeamakynnykset (``advance_*``, ``crunch_*``) ovat
+    ``[kalibroitu]``: jokainen on mitattu kahdeksalla demolla ja kahdella eri
+    joukkueella (``kalibrointi-ct-eteneminen.md``), ja niiden osumatiheys on
+    poikkeaman kokoluokkaa eikä normaalia pelaamista. ``stack_min_players``
+    jää käyttämättä -- stack-sääntö on mitattu mahdottomaksi nykyisellä
+    aluejaolla ja siirretty omaksi tarinakseen.
+
     Rahamäärät ovat dollareita **per pelaaja**, paitsi
     ``normal_buy_money_min``, joka on **yhden pelaajan** oma saldo eikä
     joukkueen keskiarvo.
@@ -419,6 +462,28 @@ class ThresholdSettings(_Section):
     small_sample_rounds: PositiveInt = 3
     stack_min_players: PositiveInt = 4
 
+    # Poikkeamasäännöt (Story 2.5). Kaikki kuusi ovat MITATTUJA, eivät
+    # valittuja: perustelu arvo arvolta on settings.tomlin kommenteissa ja
+    # kokonaisuudessaan kalibrointi-ct-eteneminen.md:ssä.
+    #
+    # advance_t_share on YHTEINEN molemmille säännöille: molemmat kysyvät
+    # saman "alue on T:n hallussa" -ehdon, ja kahdella laskennalla ne voisivat
+    # olla eri mieltä siitä, kumman aluetta alue on. Crunch lisää ehtoon
+    # suuntavaatimuksen mutta pudottaa kierrostyyppirajauksen, joten se ei ole
+    # etenemisen tiukempi muoto vaan eri rajaus samasta havainnosta.
+    advance_t_share: MajorityShare = 0.80
+    advance_area_min_observations: PositiveInt = 20
+    advance_max_sample_s: Annotated[
+        float, Field(gt=0.0, le=MAX_ADVANCE_SAMPLE_SECONDS, allow_inf_nan=False)
+    ] = 30.0
+    advance_min_players: PositiveInt = 1
+    # Alaraja 2 on sääntö eikä säädin: crunch on määritelmällisesti
+    # saapumista **useasta** suunnasta ("kahdesta tai useammasta suunnasta
+    # samaan aikaan"), ja arvolla 1 sekä sääntö että raportin lukuohje
+    # väittäisivät jotain, mitä koodi ei enää vaadi.
+    crunch_min_players: PositiveInt = 2
+    crunch_min_sources: Annotated[int, Field(ge=2)] = 2
+
     @model_validator(mode="after")
     def _check_ranges_are_consistent(self) -> "ThresholdSettings":
         if self.anomaly_equip_max_after_win >= self.full_equip_min:
@@ -429,14 +494,25 @@ class ThresholdSettings(_Section):
                 "jokainen voitettu kierros olisi joko poikkeama tai täysi osto "
                 "sen mukaan, kumpi raja sattuu olemaan ylempänä."
             )
-        for name in ("armed_players_min", "normal_buy_players_min"):
+        # Pelaajamääräkynnykset verrataan **kentällä olevien** määrään eikä
+        # rosterin kokoon. Ne eroavat: rosterissa voi olla vaihtopelaajia
+        # (mitattu: seitsemän pelaajaa yhdellä joukkueella), mutta kentällä on
+        # aina viisi, joten kuusi aseistettua tai kuusi pelaajaa alueella on
+        # mahdoton ehto vaikka roster_size sen päästäisi läpi.
+        on_server = min(self.roster_size, PLAYERS_ON_SERVER)
+        for name in (
+            "armed_players_min",
+            "normal_buy_players_min",
+            "advance_min_players",
+            "crunch_min_players",
+        ):
             value = getattr(self, name)
-            if value > self.roster_size:
+            if value > on_server:
                 raise ValueError(
-                    f"{name} ({value}) on suurempi kuin roster_size "
-                    f"({self.roster_size}), joten ehto ei voi täyttyä "
-                    "yhdelläkään kierroksella eikä puoliostoa voisi koskaan "
-                    "saavuttaa."
+                    f"{name} ({value}) on suurempi kuin kentällä olevien "
+                    f"pelaajien määrä ({on_server}), joten ehto ei voi "
+                    "täyttyä yhdelläkään kierroksella eikä sääntö voisi "
+                    "koskaan laueta."
                 )
         if self.force_buy_min >= self.full_equip_min:
             raise ValueError(
@@ -464,6 +540,20 @@ class ThresholdSettings(_Section):
             raise ValueError(
                 f"roster_min_regulars ({self.roster_min_regulars}) ei voi olla "
                 f"suurempi kuin roster_size ({self.roster_size})."
+            )
+        # HUOM: crunch_min_players ja advance_min_players EIVÄT ole
+        # järjestyksessä toisiinsa nähden, eikä sellaista vartijaa saa lisätä.
+        # Crunch ei ole etenemisen tiukempi muoto: se on tiukempi suunnista ja
+        # löysempi kierrostyypistä, joten kumpikaan osumajoukko ei sisällä
+        # toista (mitattu: MatureMayhem Anubis k10 on täysi osto, jolla
+        # etenemistä ei ole olemassa). Vertailu näiden kahden välillä olisi
+        # siis sääntö ilman perustetta.
+        if self.crunch_min_sources > self.crunch_min_players:
+            raise ValueError(
+                f"crunch_min_sources ({self.crunch_min_sources}) on suurempi "
+                f"kuin crunch_min_players ({self.crunch_min_players}). "
+                "Jokainen lähtösuunta tarvitsee oman pelaajansa, joten ehto "
+                "ei voisi täyttyä yhdelläkään näytepisteellä."
             )
         return self
 
@@ -656,6 +746,24 @@ class Settings(BaseSettings):
         # rajat ovat [economy]-osiossa, joten saavutettavuutta ei voi
         # tarkistaa kummankaan osion sisällä yksin -- ja ilman tarkistusta
         # kumpi tahansa luokka katoaisi äänettömästi.
+        # Poikkeaman aikaraja valikoi NÄYTEPISTEISTÄ, jotka [parse] päättää.
+        # Raja, joka on pienempi kuin varhaisin näytepiste, vaientaa molemmat
+        # poikkeamasäännöt pysyvästi -- ja raportti väittäisi silloin "ei
+        # poikkeamia" havaintona, vaikka yhtäkään näytepistettä ei koskaan
+        # tutkittu. Kumpikaan osio ei voi tarkistaa tätä yksin, joten
+        # tarkistus on täällä.
+        earliest_sample = min(self.parse.snapshot_seconds)
+        if self.thresholds.advance_max_sample_s < earliest_sample:
+            raise ValueError(
+                f"thresholds.advance_max_sample_s "
+                f"({self.thresholds.advance_max_sample_s:g} s) on pienempi "
+                f"kuin varhaisin parse.snapshot_seconds "
+                f"({earliest_sample:g} s), joten yksikään näytepiste ei "
+                "mahdu poikkeamasääntöjen aikarajaan.\n"
+                "Molemmat säännöt vaikenisivat pysyvästi, ja raportin "
+                "poikkeamaluku väittäisi 'ei poikkeamia' havaintona -- "
+                "vaikka mitään ei tutkittu."
+            )
         smallest_bonus = min(self.economy.loss_bonus_steps)
         if self.thresholds.normal_buy_money_min <= smallest_bonus:
             raise ValueError(

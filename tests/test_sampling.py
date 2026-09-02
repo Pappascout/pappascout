@@ -13,16 +13,23 @@ from __future__ import annotations
 
 import pytest
 
-from pappascout.constants import SAMPLE_KINDS
+from pappascout.constants import SAMPLE_KINDS, SAVING_ROUND_TYPES
 from pappascout.domain.sampling import (
+    CRUNCH,
+    CT_ADVANCE,
     FIRST_CONTACT_SAMPLE,
     TIME_SAMPLE,
+    AreaObservations,
+    AreaPresence,
     DamageEvent,
     RoundBounds,
+    crunch_hits,
+    ct_advance_hits,
     first_contact_tick,
     normalize_weapon,
     sample_ticks,
     seconds_since_freeze_end,
+    t_side_shares,
 )
 
 RATE = 64.0
@@ -371,3 +378,495 @@ def test_the_exclude_list_is_normalised_too() -> None:
         exclude_weapons=("weapon_Molotov",),
     )
     assert tick is None
+
+
+# --- Poikkeamasäännöt (Story 2.5) -----------------------------------------------
+#
+# Jokainen spec-2-5:n I/O-matriisin rivi on täällä, ja kaikki taulut ovat
+# käsin rakennettuja: yksikään näistä testeistä ei lue demoa. Luvut ovat
+# kalibroinnista (``kalibrointi-ct-eteneminen.md``), jotta rivi kertoo mitä se
+# mittaa: 0,88 on Ancientin ``TSideLower``, 0,70 Nuken piha.
+
+#: Kynnykset kuten ``settings.toml``issa. Testit lukevat ne täältä eivätkä
+#: asetustiedostosta -- sääntö on funktio, ja sen parametrit ovat argumentteja.
+T_SHARE = 0.80
+MIN_OBSERVATIONS = 20
+MAX_SAMPLE_S = 30.0
+
+#: Alue, joka on demossa T:n hallussa: Ancientin B suora, T-osuus 0,88 (n 24).
+T_AREA = "TSideLower"
+
+#: Alue, joka jää kynnyksen alle: Nuken piha, T-osuus tasan 0,70 (n 302).
+SHARED_AREA = "Outside"
+
+
+def observed(t_share: float, observations: int) -> AreaObservations:
+    """Alueen havainnot annetulla T-osuudella."""
+    return AreaObservations(t=round(t_share * observations), total=observations)
+
+
+def orientation(
+    **areas: AreaObservations,
+) -> dict[str | None, AreaObservations]:
+    """Alue -> havainnot; oletuskartassa vain T:n alue."""
+    return dict(areas) or {T_AREA: observed(0.88, 24)}
+
+
+def at(
+    seconds: float,
+    area: str | None,
+    *players: str,
+    side: str = "CT",
+    kind: str = TIME_SAMPLE,
+    alive: bool = True,
+) -> list[AreaPresence]:
+    """Näytepisterivit: annetut pelaajat annetulla alueella annetulla hetkellä."""
+    return [
+        AreaPresence(
+            player_id=player,
+            side=side,
+            sample_kind=kind,
+            sample_t_s=seconds,
+            area=area,
+            is_alive=alive,
+        )
+        for player in players
+    ]
+
+
+def advance(
+    rows: list[AreaPresence],
+    *,
+    round_type: str | None = "eco",
+    areas: dict[str | None, AreaObservations] | None = None,
+    min_players: int = 1,
+):
+    return ct_advance_hits(
+        rows,
+        round_type=round_type,
+        orientation=areas if areas is not None else orientation(),
+        t_share_min=T_SHARE,
+        area_min_observations=MIN_OBSERVATIONS,
+        max_sample_s=MAX_SAMPLE_S,
+        min_players=min_players,
+    )
+
+
+def crunch(
+    rows: list[AreaPresence],
+    *,
+    areas: dict[str | None, AreaObservations] | None = None,
+    min_players: int = 2,
+    min_sources: int = 2,
+):
+    return crunch_hits(
+        rows,
+        orientation=areas if areas is not None else orientation(),
+        t_share_min=T_SHARE,
+        area_min_observations=MIN_OBSERVATIONS,
+        max_sample_s=MAX_SAMPLE_S,
+        min_players=min_players,
+        min_sources=min_sources,
+    )
+
+
+
+def test_an_area_is_t_side_when_it_passes_both_thresholds() -> None:
+    """Osuus JA havaintomäärä -- kumpikin yksin ei riitä."""
+    areas = {
+        T_AREA: observed(0.88, 24),
+        SHARED_AREA: observed(0.70, 302),
+        "Thin": observed(1.00, 8),
+    }
+    passed = t_side_shares(
+        areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+    )
+    assert set(passed) == {T_AREA}
+
+
+def test_an_unnamed_area_is_neither_sides_area() -> None:
+    """``None``-alueella ei ole orientaatiota, vaikka osuus riittäisi."""
+    areas = {None: observed(1.00, 100)}
+    assert (
+        t_side_shares(
+            areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+        )
+        == {}
+    )
+
+
+@pytest.mark.parametrize("share", [-0.1, 1.1])
+def test_an_impossible_t_share_threshold_is_refused(share: float) -> None:
+    with pytest.raises(ValueError, match="ei ole välillä 0..1"):
+        t_side_shares(orientation(), t_share_min=share, min_observations=20)
+
+
+def test_a_non_positive_observation_threshold_is_refused() -> None:
+    with pytest.raises(ValueError, match="ei ole positiivinen"):
+        t_side_shares(orientation(), t_share_min=T_SHARE, min_observations=0)
+
+
+@pytest.mark.parametrize(
+    "t,total",
+    [(0, 0), (5, 4), (-1, 10)],
+)
+def test_impossible_observation_counts_are_refused(t: int, total: int) -> None:
+    """Nolla havaintoa ei ole alue, eikä osajoukko voi olla joukkoa suurempi."""
+    with pytest.raises(ValueError):
+        AreaObservations(t=t, total=total)
+
+
+# --- I/O-matriisi: CT-eteneminen ------------------------------------------------
+
+
+def test_a_ct_player_on_a_t_side_area_on_an_eco_round_is_an_advance() -> None:
+    """Matriisin rivi 1: T-osuus 0,88, eco, 30 s."""
+    hits = advance(at(30.0, T_AREA, "ct1"))
+    assert len(hits) == 1
+    hit = hits[0]
+    assert hit.rule == CT_ADVANCE
+    assert hit.area == T_AREA
+    assert hit.sample_t_s == 30.0
+    assert hit.players == 1
+    assert hit.t_share == pytest.approx(0.88, abs=0.01)
+    assert hit.observations == 24
+    assert hit.sources == ()
+
+
+def test_an_area_below_the_share_threshold_is_no_anomaly() -> None:
+    """Matriisin rivi 4: Nuken piha (0,70) on aidosti molempien aluetta."""
+    areas = {SHARED_AREA: observed(0.70, 302)}
+    assert advance(at(30.0, SHARED_AREA, "ct1"), areas=areas) == []
+
+
+def test_an_area_with_too_few_observations_is_no_anomaly() -> None:
+    """Matriisin rivi 5: 8 havaintoa -- alue ei ole kummankaan."""
+    areas = {"Thin": observed(1.00, 8)}
+    assert advance(at(30.0, "Thin", "ct1"), areas=areas) == []
+
+
+def test_a_late_sample_point_is_outside_the_rule() -> None:
+    """Matriisin rivi 6: osuma vain 45 s kohdalla ei ole poikkeama."""
+    assert advance(at(45.0, T_AREA, "ct1")) == []
+
+
+def test_an_early_sample_point_is_inside_the_rule() -> None:
+    """Raja on ``<= 30 s``, ja 15 s on kalibroinnin osumien enemmistö."""
+    assert len(advance(at(15.0, T_AREA, "ct1"))) == 1
+
+
+def test_the_sample_point_exactly_at_the_bound_is_kept() -> None:
+    """30 s on rajalla, ja kalibroinnin vahvin osuma on siellä."""
+    assert len(advance(at(30.0, T_AREA, "ct1"))) == 1
+
+
+@pytest.mark.parametrize("round_type", ["pistol", "full", "ot", "anomaly", None])
+def test_advance_cannot_hit_outside_a_saving_round(round_type) -> None:
+    """Matriisin rivi 8: rajaus on taloudellinen havainto eikä otanta."""
+    assert advance(at(30.0, T_AREA, "ct1"), round_type=round_type) == []
+
+
+@pytest.mark.parametrize("round_type", SAVING_ROUND_TYPES)
+def test_advance_hits_on_every_saving_round_type(round_type: str) -> None:
+    """Eco, force ja puoliosto ovat sama havainto: ostokyky ei riitä."""
+    assert len(advance(at(30.0, T_AREA, "ct1"), round_type=round_type)) == 1
+
+
+def test_only_ct_rows_are_examined() -> None:
+    """Matriisin rivi 9: sama pelaaja T:nä ja CT:nä -- vain CT-rivit."""
+    rows = at(30.0, T_AREA, "p1", side="T") + at(30.0, T_AREA, "p2", side="CT")
+    hits = advance(rows)
+    assert len(hits) == 1
+    assert hits[0].players == 1
+
+
+def test_a_dead_player_is_not_on_the_area() -> None:
+    """Sama sääntö kuin pelaajamäärissä: kuollut ei tuota riviä alueelle."""
+    assert advance(at(30.0, T_AREA, "ct1", alive=False)) == []
+
+
+def test_a_first_contact_row_never_triggers_the_rule() -> None:
+    """Ensikontaktin ``sample_t_s`` on mitattu hetki eikä näytepiste."""
+    rows = at(12.0, T_AREA, "ct1", kind="first_contact")
+    assert advance(rows) == []
+
+
+def test_the_same_player_twice_is_one_player() -> None:
+    """Pelaajamäärä on eri pelaajia eikä rivejä."""
+    hits = advance(at(30.0, T_AREA, "ct1") + at(30.0, T_AREA, "ct1"))
+    assert hits[0].players == 1
+
+
+def test_the_player_minimum_is_a_threshold_not_a_constant() -> None:
+    """Veeti valitsi 1, mutta 2 on säädettävissä ilman koodimuutosta."""
+    rows = at(30.0, T_AREA, "ct1")
+    assert advance(rows, min_players=1)
+    assert advance(rows, min_players=2) == []
+
+
+def test_two_sample_points_on_the_same_area_are_two_hits() -> None:
+    """Osuma on näytepisteen havainto; kierrokseksi ne niputtaa aggregointi."""
+    hits = advance(at(15.0, T_AREA, "ct1") + at(30.0, T_AREA, "ct1"))
+    assert [hit.sample_t_s for hit in hits] == [15.0, 30.0]
+
+
+def test_an_area_that_is_not_t_side_is_silent_even_with_five_players() -> None:
+    """Pelaajamäärä ei korvaa orientaatiota."""
+    areas = {T_AREA: observed(0.88, 24)}
+    rows = at(30.0, "CTSpawn", "ct1", "ct2", "ct3", "ct4", "ct5")
+    assert advance(rows, areas=areas) == []
+
+
+def test_no_anomalies_is_a_valid_result() -> None:
+    """Matriisin rivi 7: tyhjä lista on havainto eikä virhe."""
+    assert advance([]) == []
+    assert crunch([]) == []
+
+
+# --- I/O-matriisi: crunch -------------------------------------------------------
+
+
+def test_two_players_arriving_from_two_areas_is_a_crunch() -> None:
+    """Matriisin rivi 2: 2 CT-pelaajaa, 2 eri lähtöaluetta."""
+    rows = (
+        at(15.0, "SideEntrance", "ct1")
+        + at(15.0, "TSideUpper", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+    )
+    hits = crunch(rows)
+    assert len(hits) == 1
+    hit = hits[0]
+    assert hit.rule == CRUNCH
+    assert hit.area == T_AREA
+    assert hit.sample_t_s == 30.0
+    assert hit.players == 2
+    assert hit.sources == ("SideEntrance", "TSideUpper")
+
+
+def test_two_players_from_the_same_area_is_not_a_crunch() -> None:
+    """Yksi suunta ei ole kaksi suuntaa, vaikka pelaajia olisi kaksi."""
+    rows = at(15.0, "SideEntrance", "ct1", "ct2") + at(30.0, T_AREA, "ct1", "ct2")
+    assert crunch(rows) == []
+
+
+def test_a_player_already_on_the_area_did_not_arrive() -> None:
+    """Lähtöalue on eri kuin kohde -- muuten pelaaja vain seisoi paikallaan."""
+    rows = (
+        at(15.0, T_AREA, "ct1")
+        + at(15.0, "TSideUpper", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+    )
+    assert crunch(rows) == []
+
+
+def test_the_first_sample_point_of_a_round_has_no_source() -> None:
+    """Ilman edellistä näytepistettä suuntaa ei arvata."""
+    rows = at(6.0, T_AREA, "ct1", "ct2")
+    assert crunch(rows) == []
+
+
+def test_an_unknown_previous_area_is_not_a_direction() -> None:
+    """``None`` ei ole suunta, joten se ei kelpaa lähtöalueeksi."""
+    rows = (
+        at(15.0, None, "ct1")
+        + at(15.0, "TSideUpper", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+    )
+    assert crunch(rows) == []
+
+
+def test_crunch_counts_arrivals_not_everyone_on_the_area() -> None:
+    """Kolme alueella, kaksi saapunutta: crunchin luku on kaksi."""
+    rows = (
+        at(15.0, T_AREA, "ct3")
+        + at(15.0, "SideEntrance", "ct1")
+        + at(15.0, "TSideUpper", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2", "ct3")
+    )
+    hits = crunch(rows)
+    assert len(hits) == 1
+    assert hits[0].players == 2
+    assert len(advance(rows)) == 2  # 15 s ja 30 s: eteneminen laskee kaikki
+    assert max(hit.players for hit in advance(rows)) == 3
+
+
+def test_crunch_is_not_limited_to_saving_rounds() -> None:
+    """Mitattu: yksi viidestä crunchista on täysi osto, joten rajausta ei ole.
+
+    Sääntö ei ota kierrostyyppiä argumenttinaan lainkaan -- rajaus, jota ei
+    ole, ei voi vahingossa palata. Tämä on myös se, miksi crunchia ei saa
+    kuvata etenemisen "tiukempana muotona": täydellä ostolla etenemisriviä
+    ei ole olemassa, joten osumajoukot leikkaavat toisiaan eikä kumpikaan
+    sisällä toista.
+    """
+    rows = (
+        at(15.0, "Arch", "ct1")
+        + at(15.0, "TopofMid", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+    )
+    assert len(crunch(rows)) == 1
+    assert "round_type" not in crunch_hits.__annotations__
+
+
+def test_a_crunch_round_also_hits_the_advance_rule() -> None:
+    """Matriisin rivi 3: molemmat kerrotaan, crunch ei korvaa etenemistä."""
+    rows = (
+        at(15.0, "SideEntrance", "ct1")
+        + at(15.0, "TSideUpper", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+    )
+    assert len(crunch(rows)) == 1
+    advances = [hit for hit in advance(rows) if hit.sample_t_s == 30.0]
+    assert len(advances) == 1
+    assert advances[0].players == 2
+
+
+def test_crunch_needs_the_area_to_be_t_side_too() -> None:
+    """Sama orientaatioehto kuin etenemisessä; suunta ei korvaa sitä."""
+    areas = {T_AREA: observed(0.88, 24)}
+    rows = (
+        at(15.0, "SideEntrance", "ct1")
+        + at(15.0, "TSideUpper", "ct2")
+        + at(30.0, "CTSpawn", "ct1", "ct2")
+    )
+    assert crunch(rows, areas=areas) == []
+
+
+def test_a_late_crunch_is_outside_the_rule() -> None:
+    """Aikaraja on jaettu: MatureMayhemin 45 s crunch putoaa samasta syystä."""
+    rows = (
+        at(30.0, "BombsiteA", "ct1")
+        + at(30.0, "MainHall", "ct2")
+        + at(45.0, T_AREA, "ct1", "ct2")
+    )
+    assert crunch(rows) == []
+
+
+def test_a_source_after_the_time_bound_still_counts_as_a_source() -> None:
+    """Lähtöalue luetaan edelliseltä näytepisteeltä, ei aikarajan sisältä.
+
+    Ilman tätä 30 s crunch menettäisi lähtöalueensa, jos edellinen näytepiste
+    olisi aikarajan ulkopuolella -- ja saapuminen jäisi näkymättä.
+    """
+    rows = (
+        at(6.0, "SideEntrance", "ct1")
+        + at(6.0, "TSideUpper", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+        + at(45.0, T_AREA, "ct1", "ct2")
+    )
+    hits = crunch(rows)
+    assert [hit.sample_t_s for hit in hits] == [30.0]
+
+
+def test_the_source_minimum_is_a_threshold() -> None:
+    """Kolme suuntaa on säädettävissä ilman koodimuutosta."""
+    rows = (
+        at(15.0, "SideEntrance", "ct1")
+        + at(15.0, "TSideUpper", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+    )
+    assert crunch(rows, min_sources=2)
+    assert crunch(rows, min_sources=3) == []
+
+
+def test_a_duplicated_row_at_the_target_area_does_not_eat_the_source() -> None:
+    """Kaksoisrivi pariutui aiemmin itsensä kanssa ja vaiensi crunchin.
+
+    Toistettu löydös: yksi ylimääräinen ``p1``-rivi 30 s kohdalla teki
+    lähtöalueesta kohdealueen, jonka jälkeen ``source == area`` ohitti
+    saapumisen. Kaksoisrivi ei ole teoreettinen -- ``_players_by_point``
+    vartioi sitä jo joukolla, ja sama vartija tarvitaan lähtöalueille.
+    """
+    rows = (
+        at(15.0, "SideEntrance", "ct1")
+        + at(15.0, "TSideUpper", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+        + at(30.0, T_AREA, "ct1")  # kaksoisrivi
+    )
+    hits = crunch(rows)
+    assert len(hits) == 1
+    assert hits[0].players == 2
+    assert hits[0].sources == ("SideEntrance", "TSideUpper")
+
+
+def test_a_duplicated_row_does_not_inflate_the_player_count() -> None:
+    """Sama vartija toiseen suuntaan: pelaajamäärä on eri pelaajia."""
+    rows = (
+        at(15.0, "SideEntrance", "ct1")
+        + at(15.0, "TSideUpper", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+    )
+    assert crunch(rows)[0].players == 2
+
+
+@pytest.mark.parametrize("written", [f" {T_AREA} ", f"{T_AREA}\t", f"\n{T_AREA}"])
+def test_stray_whitespace_in_an_area_name_still_matches(written: str) -> None:
+    """Orientaatio ja läsnäolo normalisoidaan samalla funktiolla."""
+    hits = advance(at(30.0, written, "ct1"))
+    assert [hit.area for hit in hits] == [T_AREA]
+
+
+def test_an_empty_area_name_is_not_an_area() -> None:
+    """``""`` ei ole alue: se selviäisi muuten T-alueiden joukkoon."""
+    areas = {"": observed(1.00, 100), T_AREA: observed(0.88, 24)}
+    assert set(t_side_shares(
+        areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+    )) == {T_AREA}
+    assert advance(at(30.0, "", "ct1"), areas=areas) == []
+
+
+def test_the_same_area_in_two_spellings_is_refused() -> None:
+    """Kahdesta kirjoitusasusta ei voi valita -- kutsuja normalisoi."""
+    areas = {T_AREA: observed(0.88, 24), f" {T_AREA}": observed(0.20, 30)}
+    with pytest.raises(ValueError, match="kahdesti eri"):
+        t_side_shares(
+            areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+        )
+
+
+def test_an_area_exactly_at_the_observation_bound_is_included() -> None:
+    """``>=`` eikä ``>``: tasan 20 havainnon alue on mukana.
+
+    Tarkkuus on kantavaa, koska kalibrointi nojaa tasarajoihin. Sanamuoto
+    "ei ylitä rajaa" tarkoittaisi päinvastaista, ja juuri se ristiriita
+    korjattiin katselmuksessa.
+    """
+    areas = {T_AREA: observed(0.90, 20)}
+    assert set(
+        t_side_shares(
+            areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+        )
+    ) == {T_AREA}
+    assert len(advance(at(30.0, T_AREA, "ct1"), areas=areas)) == 1
+
+
+def test_an_area_one_observation_below_the_bound_is_excluded() -> None:
+    """Vartijan toinen suunta: 19 havaintoa alittaa rajan."""
+    areas = {T_AREA: observed(0.90, 19)}
+    assert (
+        t_side_shares(
+            areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+        )
+        == {}
+    )
+
+
+def test_an_area_exactly_at_the_share_bound_is_included() -> None:
+    """Sama sääntö osuudelle: tasan 0,80 kelpaa."""
+    areas = {T_AREA: observed(0.80, 100)}
+    assert len(advance(at(30.0, T_AREA, "ct1"), areas=areas)) == 1
+
+
+def test_the_infernos_five_player_crunch_is_measured_as_five() -> None:
+    """Kalibroinnin vahvin osuma: 5 CT-pelaajaa midissä kahdesta suunnasta."""
+    areas = {"Middle": observed(0.83, 60)}
+    rows = (
+        at(6.0, "Arch", "ct1", "ct2", "ct3")
+        + at(6.0, "TopofMid", "ct4", "ct5")
+        + at(15.0, "Middle", "ct1", "ct2", "ct3", "ct4", "ct5")
+    )
+    hits = crunch(rows, areas=areas)
+    assert len(hits) == 1
+    assert hits[0].players == 5
+    assert hits[0].sources == ("Arch", "TopofMid")

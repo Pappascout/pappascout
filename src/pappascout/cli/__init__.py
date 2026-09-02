@@ -36,6 +36,7 @@ from pappascout.constants import (
 )
 from pappascout.domain.models import Settings, load_settings, secrets_env_path
 from pappascout.errors import PappascoutError
+from pappascout.render.view import players_text
 from pappascout.stages import StageResult, archive_paths
 from pappascout.stages import aggregate as aggregate_stage
 from pappascout.stages import classify as classify_stage
@@ -1627,6 +1628,41 @@ def _render_aggregate(result: StageResult) -> str:
                 "luvuissa)",
             )
         )
+
+    # Poikkeamat omalle riville heti otannan jälkeen: ne ovat epicin
+    # arvokkain tuotos, ja käyttäjä tarkistaa juuri niistä, näkyikö
+    # kynnyksen säätö. Nolla poikkeamaa kirjoitetaan **kattavuuden kanssa**,
+    # koska nolla on havainto vain siitä, mitä tutkittiin.
+    scan = stats.get("anomaly_scan") or {}
+    anomalies = stats.get("anomalies") or []
+    if scan:
+        rules = ", ".join(str(name) for name in scan.get("rules") or [])
+        scanned = int(scan.get("rounds_scanned", 0) or 0)
+        crunch_rounds = int(scan.get("crunch_rounds", 0) or 0)
+        advance_rounds = int(scan.get("advance_rounds", 0) or 0)
+        blind = scan.get("demos_without_orientation") or []
+        deferred = scan.get("rules_deferred") or []
+        detail = (
+            f"{len(anomalies)} riviä; säännöt {rules} ajettiin "
+            f"{scanned} kierrokselle -- crunch voi osua {crunch_rounds} "
+            f"ja eteneminen {advance_rounds}"
+        )
+        if deferred:
+            detail += f"; ajamatta {', '.join(str(n) for n in deferred)}"
+        if blind:
+            detail += (
+                f"; ilman alueorientaatiota {len(blind)} demoa: "
+                f"{', '.join(str(d) for d in blind)}"
+            )
+        lines.append(_line("Poikkeamat", detail))
+        for entry in anomalies:
+            types = ", ".join(str(t) for t in entry.get("round_types") or [])
+            lines.append(
+                f"  {entry['rule']} {entry['map_name']} {entry['side']} "
+                f"{types}: {entry['area']} "
+                f"{players_text(int(entry['players_max']))} "
+                f"({entry['n']}/{entry['m']})"
+            )
 
     for entry in stats.get("maps") or []:
         lines.append("")

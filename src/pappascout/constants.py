@@ -16,6 +16,11 @@ __all__ = [
     "Side",
     "ROUND_TYPES",
     "RoundType",
+    "SAVING_ROUND_TYPES",
+    "ANOMALY_RULES",
+    "ANOMALY_RULES_DEFERRED",
+    "AnomalyRule",
+    "ANOMALY_RULE_FI",
     "UNIT_STATUSES",
     "UnitStatus",
     "SAMPLE_KINDS",
@@ -61,6 +66,69 @@ ROUND_TYPES: Final[tuple[str, ...]] = (
     "anomaly",
 )
 RoundType = Literal["pistol", "eco", "half", "force", "full", "ot", "anomaly"]
+
+#: Säästökierrokset: kierrostyypit, joilla joukkueella **ei ole rahaa
+#: normaaliin ostoon**. Luettelo on :data:`ROUND_TYPES`-arvojen osajoukko.
+#:
+#: Miksi tämä on oma luettelonsa eikä kynnys: Story 2.5:n CT-etenemissääntö
+#: rajautuu näihin, koska havainto on **taloudellinen** -- köyhä CT ei
+#: normaalisti etene T:n alueelle. Epicin sanamuoto on "eco- tai
+#: force-kierroksella", ja puoliosto (``half``) on mukana siksi, että
+#: kalibroinnin kuudesta osumasta yksi (MatureMayhem Anubis k6) on puoliosto:
+#: kierrostyyppien raja kulkee ostokyvyn mukaan eikä nimen.
+#:
+#: Pistooli **ei ole** säästökierros vaikka rahaa on vähän: silloin kummallakaan
+#: puolella ei ole ostokykyä, joten etenemisestä ei voi päätellä suunnitelmaa.
+#:
+#: **HUOM: sana "säästökierros" tarkoittaa READMEssa eri asiaa.** Siellä se on
+#: renderöinnin sääntö -- ne kierrostyypit, joista raportti kertoo kierroksen
+#: tarkkuudella (``pistol``, ``eco``, ``force``, ``half``) vastakohtana
+#: ``render.view.PATTERN_ROUND_TYPES``ille (``full``, ``ot``). Tämä luettelo on
+#: **taloudellinen**: kierrostyypit, joilla joukkueella ei ole varaa normaaliin
+#: ostoon. Pistooli kuuluu edelliseen muttei tähän, ja se on koko ero. Kaksi
+#: käsitettä samalla sanalla, joten kumpikin paikka nimeää oman merkityksensä.
+SAVING_ROUND_TYPES: Final[tuple[str, ...]] = ("eco", "half", "force")
+
+#: Poikkeamasäännöt (AD-10, Story 2.5). Sama arvo koodissa, ``report.json``issa
+#: ja raportissa; suomennos vain esityksessä (:data:`ANOMALY_RULE_FI`).
+#:
+#: **Säännöt jakavat orientaatioehdon; kumpikaan ei sisällä toista.** Molemmat
+#: kysyvät saman: onko subjektin CT-pelaaja alueella, joka on siinä demossa
+#: T:n hallussa. ``crunch`` lisää siihen suuntavaatimuksen **mutta pudottaa
+#: kierrostyyppirajauksen**, joten osumajoukot leikkaavat toisiaan:
+#: säästökierroksella crunch tuottaa myös etenemisosuman, täydellä ostolla
+#: vain crunchin. Kumpaakaan ei siis saa kuvata toisen "tiukempana muotona" --
+#: se lupaisi lukijalle löysemmän rivin, jota täydellä ostolla ei ole
+#: (mitattu: MatureMayhem Anubis k10 on täysi osto).
+ANOMALY_RULES: Final[tuple[str, ...]] = ("ct_advance", "crunch")
+AnomalyRule = Literal["ct_advance", "crunch"]
+
+#: Poikkeamasäännöt, jotka arkkitehtuuri (AD-10) nimeää mutta joita ei ole
+#: toteutettu. Luettelo on **kattavuuden nimittäjä**: tyhjä poikkeamaluku voi
+#: väittää mitattua negatiivista vain niistä säännöistä, jotka ajettiin, ja
+#: lukija tarvitsee tiedon siitä, montako selkärangan sääntöä jäi ajamatta.
+#:
+#: ``stack`` (4-5 pelaajan asetelma yhdellä sitellä) on mitattu mahdottomaksi
+#: pelin nykyisellä aluejaolla: neljä puolustajaa samalla
+#: ``env_cs_place``-alueella antoi **0 osumaa 93 kierroksesta**, koska peli
+#: jakaa siten useaan alueeseen (Ancientin B on ``Alley`` + ``BombsiteB`` +
+#: ``SideEntrance``). Sääntö vaatii kuvauksen alue -> alueryhmä, jota ei ole,
+#: ja se on siirretty omaksi tarinakseen. Kun se toteutetaan, nimi siirtyy
+#: tähän luettelosta :data:`ANOMALY_RULES`iin ja kattavuusteksti korjaantuu
+#: itsestään.
+ANOMALY_RULES_DEFERRED: Final[tuple[str, ...]] = ("stack",)
+
+#: Poikkeamasääntöjen suomennokset. Vain otsikoissa, kuten
+#: :data:`ROUND_TYPE_FI`ssä -- dataan ei kirjoiteta suomea.
+#:
+#: ``crunch`` on **Veetin oma termi** eikä käännettävä sana ("lobby crunch on
+#: nukessa taktiikka, jossa..."), joten se jää sellaisenaan -- kuten calloutit.
+#: Iso alkukirjain silti, jotta se ei näytä puolivalmiilta ``CT-eteneminen``in
+#: vieressä; raportin lukuohje kertoo mitä se tarkoittaa.
+ANOMALY_RULE_FI: Final[dict[str, str]] = {
+    "ct_advance": "CT-eteneminen",
+    "crunch": "Crunch",
+}
 
 #: Kierros, jota ei voitu luokitella lainkaan (havainto puuttuu). Ei ole
 #: kierrostyyppi vaan sen puuttuminen: taulussa ``round_type`` on ``null``,

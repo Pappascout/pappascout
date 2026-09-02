@@ -104,6 +104,7 @@ from pappascout.archive.paths import (
     report_manifest,
     safe_component,
 )
+from pappascout.constants import SIDES
 from pappascout.domain.aggregate import (
     LEAGUE_BUCKETS,
     SLUG_FALLBACK,
@@ -123,6 +124,11 @@ from pappascout.domain.report import (
     MissingDemo,
     Report,
     TeamReport,
+)
+from pappascout.domain.sampling import (
+    TIME_SAMPLE,
+    AreaObservations,
+    normalize_area,
 )
 from pappascout.domain.schemas import (
     CLASSIFIED,
@@ -590,10 +596,31 @@ def _aggregate(
     # Rivi per demo on ``parse``-vaiheen valvoma sopimus, joten kartta ei voi
     # saada kahta arvoa samalle demolle.
     map_names: dict[str, str | None] = {}
+    # Alueiden puoliorientaatio demoittain (Story 2.5): alue -> montako sen
+    # elossa-havainnoista on T-puolelta ja montako niitä on kaikkiaan.
+    #
+    # LASKETAAN TÄSSÄ SILMUKASSA, ENNEN KOKOONPANOSUODATUSTA. Suodatus
+    # tapahtuu vasta silmukan jälkeen (``ticks.filter(...)``), ja se on koko
+    # syy sille, että orientaatio lasketaan täällä eikä domainissa: sääntö
+    # tarvitsee **molempien joukkueiden** rivit. Subjektin omilla riveillä
+    # laskettuna jokainen tosi positiivinen katoaa -- kun subjekti etenee
+    # alueelle CT:nä, hänen omat CT-havaintonsa laskevat sen alueen
+    # T-osuutta, eli poikkeama syö oman havaitsemisensa. Mitattuna kolme
+    # aluetta putoaa kynnyksen alle (0,88 -> 0,79, 0,85 -> 0,75,
+    # 0,84 -> 0,75), ja ne ovat täsmälleen ne kolme, jotka tuottivat kaikki
+    # oikeat osumat.
+    #
+    # Avain on **luettu demo** samasta syystä kuin ``map_names``issa, ja
+    # orientaatio on demokohtainen eikä karttakohtainen: karttuva lähde
+    # antaisi samalle demolle eri tuloksen sen mukaan, mitä muita demoja
+    # arkistossa sattuu olemaan (Story 2.9:n peruste).
+    area_orientation: dict[str, dict[str | None, AreaObservations]] = {}
 
     for lineup, demo in sources.demos:
         classified_frames.append(_read_classified(archive, lineup, demo))
-        tick_frames.append(_read_parsed(archive, demo, "ticks", TICKS))
+        demo_ticks = _read_parsed(archive, demo, "ticks", TICKS)
+        tick_frames.append(demo_ticks)
+        area_orientation[demo] = _area_orientation(demo_ticks)
         event_frames.append(_read_parsed(archive, demo, "events", EVENTS))
         lineup_frames.append(_read_parsed(archive, demo, "lineups", LINEUPS))
         death_frames.append(_read_parsed(archive, demo, "deaths", DEATHS))
@@ -706,6 +733,7 @@ def _aggregate(
         aggregate=aggregate_settings,
         map_pool=league.map_pool,
         map_names=map_names,
+        area_orientation=area_orientation,
         generated_at=datetime.now(UTC),
         tool_versions={"pappascout": __version__},
         missing_demos=sources.missing,
@@ -728,6 +756,90 @@ def _read_classified(
         ),
     )
     return _in_schema_order(df, CLASSIFIED)
+
+
+def _area_orientation(
+    ticks: pl.DataFrame,
+) -> dict[str | None, AreaObservations]:
+    """Alue -> puoliorientaation havainnot yhdestä demosta.
+
+    Lähde on **suodattamaton** näytepistetaulu eli molempien joukkueiden
+    rivit; ks. kutsupaikan kommentti siitä, miksi se on mitattu ehto eikä
+    mieltymys.
+
+    Neljä rajausta, ja jokainen niistä on määritelmä eikä siivous:
+
+    * ``sample_kind == "time"`` -- ensikontaktin hetki on eri joka
+      kierroksella, joten sen rivit painottaisivat orientaatiota niiden
+      kierrosten mukaan, joilla satuttiin ampumaan aikaisin.
+    * ``is_alive`` -- kuollut pelaaja ei ole alueella. Sama sääntö kuin
+      pelaajamäärissä (``positions_for``), joten orientaatio ja asetelma
+      lasketaan samasta joukosta.
+    * ``side`` on ``T`` tai ``CT`` -- **tämä on jakajan rajaus, ei
+      osoittajan.** Ilman sitä ``pl.len()`` laskisi mukaan rivin, jonka
+      puolta ei tiedetä, mutta ``side == "T"`` ei voisi laskea sitä T:ksi:
+      tuntematon puoli painaisi T-osuutta alaspäin ja voisi pudottaa T:n
+      alueen kynnyksen alle. Juuri se osuus on molempien sääntöjen perusta.
+    * ``area`` ei tyhjä -- nimetön alue ei voi olla kumman tahansa puolen
+      aluetta, eikä poikkeamaa "tuntemattomalla alueella" voisi kertoa.
+
+    ``fill_null(False)`` elossaolossa on **välttämätön eikä koriste**:
+    Polarsissa ``null`` totuusarvona ei ole epätosi vaan null, ja se veisi
+    rivin mukanaan suodattimen läpi tai pois sen mukaan, miten ehdot
+    yhdistetään. Havainnon puuttuminen ei ole havainto siitä, että pelaaja
+    olisi elossa.
+
+    Aluenimi normalisoidaan **samalla funktiolla** kuin läsnäolorivi
+    (:func:`~pappascout.domain.sampling.normalize_area`). Ilman sitä
+    ``" Lobby "`` olisi orientaatiossa eri alue kuin läsnäolossa ja säännöt
+    vaikenisivat sillä alueella; ``""`` puolestaan selviäisi T-alueiden
+    joukkoon ja tuottaisi poikkeaman nimettömälle alueelle.
+
+    Returns:
+        Alue -> :class:`~pappascout.domain.sampling.AreaObservations`. Tyhjä
+        kartta on kelvollinen tulos: demo, jonka näytepisteissä ei ole
+        yhtäkään nimettyä aluetta, ei anna orientaatiota millekään alueelle
+        -- eikä sitä silloin arvata. Tulos päätyy raportin kattavuuslukuun
+        (``anomaly_scan.demos_without_orientation``), joten tyhjä ei katoa
+        hiljaa.
+    """
+    grouped = (
+        ticks.filter(
+            (pl.col("sample_kind") == TIME_SAMPLE)
+            & pl.col("is_alive").fill_null(False)
+            & pl.col("side").is_in(list(SIDES))
+            & pl.col("area").is_not_null()
+        )
+        .group_by("area")
+        .agg(
+            pl.len().alias("observations"),
+            # Puoli on rivin oma havainto; "T" on TICKS-taulun arvojoukon
+            # jäsen (``constants.SIDES``) eikä johdos.
+            (pl.col("side") == "T").sum().alias("t"),
+        )
+    )
+    found: dict[str | None, AreaObservations] = {}
+    for row in grouped.iter_rows(named=True):
+        area = normalize_area(row["area"])
+        if area is None:
+            continue
+        observed = AreaObservations(
+            t=int(row["t"]), total=int(row["observations"])
+        )
+        previous = found.get(area)
+        # Kaksi kirjoitusasua samasta alueesta (``"Lobby"`` ja ``" Lobby "``)
+        # ovat yksi alue, joten niiden havainnot LASKETAAN YHTEEN. Vaihtoehto
+        # olisi pudottaa toinen, mikä laskisi orientaation osuuden osajoukosta
+        # ja voisi kääntää kynnyksen.
+        found[area] = (
+            observed
+            if previous is None
+            else AreaObservations(
+                t=previous.t + observed.t,
+                total=previous.total + observed.total,
+            )
+        )
+    return found
 
 
 def _read_map_name(archive: ArchivePaths, map_demo_id: str) -> str | None:
@@ -879,6 +991,17 @@ def _inputs(
 HASHED_THRESHOLD_KEYS: tuple[str, ...] = (
     "small_sample_rounds",
     "team_identity_min_common",
+    # Poikkeamakynnykset (Story 2.5). Ilman näitä kynnyksen säätö ei ajaisi
+    # aggregointia uudelleen, ja raportti pitäisi vanhat poikkeamat --
+    # sama vika kuin Story 1.8:ssa. Vaiheella on tästä oma vartija
+    # (``test_every_setting_the_stage_reads_is_in_the_params_hash``), joka
+    # lukee luetut kentät lähdekoodista.
+    "advance_t_share",
+    "advance_area_min_observations",
+    "advance_max_sample_s",
+    "advance_min_players",
+    "crunch_min_players",
+    "crunch_min_sources",
 )
 HASHED_LEAGUE_KEYS: tuple[str, ...] = ("map_pool",)
 
@@ -942,6 +1065,34 @@ def _stats(report: Report, sources: TeamSources) -> dict[str, Any]:
         },
         "unclassified": report.unclassified_rounds,
         "unpaired_detonations": report.unpaired_detonations,
+        # Poikkeamat tulosteeseen, koska ne ovat epicin arvokkain tuotos: ilman
+        # tätä riviä käyttäjä näkee kynnyksen säädön vaikutuksen vasta
+        # avaamalla raportin. Kattavuus on rivillä mukana samasta syystä kuin
+        # raportissa -- nolla poikkeamaa on havainto vain siitä, mitä
+        # tutkittiin.
+        "anomalies": [
+            {
+                "rule": entry.rule,
+                "map_name": entry.map_name,
+                "side": entry.side,
+                "round_types": list(entry.round_types),
+                "area": entry.area,
+                "players_max": entry.players_max,
+                "n": entry.n,
+                "m": entry.m,
+            }
+            for entry in report.anomalies
+        ],
+        "anomaly_scan": {
+            "rules": list(report.anomaly_scan.rules),
+            "rules_deferred": list(report.anomaly_scan.rules_deferred),
+            "rounds_scanned": report.anomaly_scan.rounds_scanned,
+            "crunch_rounds": report.anomaly_scan.crunch_rounds,
+            "advance_rounds": report.anomaly_scan.advance_rounds,
+            "demos_without_orientation": list(
+                report.anomaly_scan.demos_without_orientation
+            ),
+        },
         "classify_thresholds": dict(report.classify_thresholds),
         "maps": [
             {

@@ -77,16 +77,25 @@ from typing import Any
 import polars as pl
 
 from pappascout.constants import (
+    ANOMALY_RULES,
+    ANOMALY_RULES_DEFERRED,
     ROUND_TYPES,
     SAMPLE_BUCKETS,
+    SAVING_ROUND_TYPES,
     SIDES,
     UTILITY_BUCKET_ALL,
     UTILITY_BUCKET_UNKNOWN,
 )
+from pappascout.domain import sampling
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
 from pappascout.domain.report import (
+    MAP_NAME_SOURCES,
     SLUG_FALLBACK,
+    Anomaly,
+    AnomalyRound,
+    AnomalyScan,
     AreaDistribution,
+    AreaOrientation,
     ArmedCount,
     ArmedPlayers,
     ArmoredCount,
@@ -145,6 +154,7 @@ __all__ = [
     "armored_players_for",
     "first_contact_areas",
     "deaths_for",
+    "anomalies_for",
     "check_rounds_are_unique",
     "classify_thresholds",
     "CLASSIFY_THRESHOLD_KEYS",
@@ -264,13 +274,15 @@ def seconds_bucket(t_s: float | None, edges: Sequence[float]) -> str:
 
 
 #: Kartan nimen lähteet **heikkenevässä** järjestyksessä. Pieni luku =
-#: vahvempi. Järjestys on sama kuin ``MapReport.map_name_source``in
-#: ensisijaisuusjärjestys, ja se on tässä nimenomaan vertailtavana lukuna,
-#: koska haaran lähde on sen demojen heikoin (ks. :func:`weakest_map_source`).
+#: vahvempi. Vertailtavana lukuna siksi, että haaran lähde on sen demojen
+#: heikoin (ks. :func:`weakest_map_source`).
+#:
+#: **Johdettu eikä kirjoitettu.** :data:`~pappascout.domain.report.MAP_NAME_SOURCES`
+#: on jo ensisijaisuusjärjestyksessä, ja kahtena luettelona ne erkanisivat:
+#: uusi lähde kelpaisi mallille ja kaatuisi tähän -- tai päinvastoin,
+#: saisi hiljaa sijaluvun, joka ei vastaa sen vahvuutta.
 MAP_NAME_SOURCE_RANK: dict[str, int] = {
-    "demo_header": 0,
-    "map_demo_id": 1,
-    "unknown": 2,
+    source: rank for rank, source in enumerate(MAP_NAME_SOURCES)
 }
 
 
@@ -690,6 +702,32 @@ def _area_sort_key(area: str | None) -> tuple[int, str]:
     return (1, "") if area is None else (0, area)
 
 
+def _sample_seconds(row: Mapping[str, Any]) -> float:
+    """Näytepisteen nimellisaika, tai virhe jos sitä ei ole.
+
+    **Yksi tarkistus kahdelle lukijalle.** Sekä :func:`positions_for` että
+    poikkeamasäännöt tarvitsevat tämän luvun, ja kumpikaan ei voi jatkaa
+    ilman: aikanäytepiste ilman nimellistä sekuntia ei ole ryhmiteltävissä
+    (tyhjä arvo sulauttaisi kaksi eri näytepistettä yhteen), ja poikkeamalla
+    sitä verrataan aikarajaan. Kahtena kirjoitettuna toinen ehtisi ensin ja
+    toinen olisi kuollutta koodia, jonka voi poistaa vahingossa -- ja
+    järjestys, johon se nojaisi, ei ole minkään pakottama.
+
+    Raises:
+        AggregateError: Jos ``sample_t_s`` puuttuu. Ohje on parsinnan
+            uudelleenajo, koska arvo syntyy siellä.
+    """
+    value = row["sample_t_s"]
+    if value is None:
+        raise AggregateError(
+            f"Näytepisteeltä puuttuu sample_t_s (demo "
+            f"{row['map_demo_id']!r}, kierros {row['round_no']!r}, "
+            f"sample_kind={row['sample_kind']!r}). Aja parsinta uudelleen: "
+            f"uv run pappascout parse {row['map_demo_id']} --pakota"
+        )
+    return float(value)
+
+
 def _round_key(row: Mapping[str, Any]) -> RoundKey | None:
     """Rivin kierrosavain, tai ``None`` jos kierrosta ei ole numeroitu.
 
@@ -725,17 +763,8 @@ def positions_for(
         if key is None or key not in keys:
             continue
         kind = str(row["sample_kind"])
-        if row["sample_t_s"] is None:
-            # Aikanäytepiste ilman nimellistä sekuntia ei ole
-            # ryhmiteltävissä, ja ensikontaktilla arvo on mitattu hetki --
-            # kumpikaan ei saa puuttua. Tyhjä arvo sulauttaisi kaksi eri
-            # näytepistettä yhteen.
-            raise AggregateError(
-                f"Näytepisteeltä puuttuu sample_t_s (kierros {key}, "
-                f"sample_kind={kind}). Aja parsinta uudelleen: "
-                f"uv run pappascout parse {key[0]} --pakota"
-            )
-        group = groups[(kind, float(row["sample_t_s"]) if kind == "time" else None)]
+        seconds = _sample_seconds(row)
+        group = groups[(kind, seconds if kind == "time" else None)]
         # Kierros on näytepisteessä mukana heti kun sillä on yksikin rivi --
         # myös silloin, kun jokainen pelaaja on kuollut. Muuten kierros, jolla
         # koko joukkue oli kaatunut, katoaisi otannasta ja Σ n = m pettäisi.
@@ -1254,6 +1283,430 @@ def utility_counts_for(
     return result
 
 
+# -- Poikkeamat ------------------------------------------------------------------
+
+
+def anomalies_for(
+    rows: Sequence[Mapping[str, Any]],
+    ticks: Sequence[Mapping[str, Any]],
+    by_map: Mapping[str, Sequence[str]],
+    map_sources: Mapping[str, str],
+    area_orientation: Mapping[str, Mapping[str | None, sampling.AreaObservations]],
+    thresholds: ThresholdSettings,
+) -> tuple[list[Anomaly], AnomalyScan]:
+    """Poikkeavat asetelmat kaikilta kartoilta ja puolilta yhtenä listana.
+
+    Säännöt itse ovat :mod:`pappascout.domain.sampling`issa ja ne katsovat
+    **yhtä kierrosta kerrallaan**; tämä funktio tekee kolme asiaa, joita
+    sääntö ei voi tehdä: kutsuu ne oikean demon orientaatiolla, **ryhmittelee
+    osumat otannaksi** ja kirjaa mitä ylipäätään tutkittiin.
+
+    **Ryhmittelyavain on sääntökohtainen.** ``ct_advance`` ryhmitellään
+    ``(kartta, puoli, kierrostyyppi, alue)``, koska se on säästökierrosten
+    ilmiö ja kierrostyyppi on osa havaintoa. ``crunch`` ryhmitellään
+    ``(kartta, puoli, alue)`` **ilman kierrostyyppiä**: sääntö ei tunne sitä,
+    ja jakaminen eco-riviksi ja default-riviksi antaisi samalle kuviolle kaksi
+    eri jakajaa eikä lukija näkisi kokonaismäärää -- eli luku toistaisi
+    sisällään juuri sen hajanaisuuden, jonka poistamiseksi se tehtiin.
+
+    ``n`` on niiden **kierrosten** määrä, joilla osuma havaittiin: sama alue
+    kahdella eco-kierroksella on yksi rivi otannalla ``2/m``, ei kaksi riviä,
+    eikä sama kierros kahdella näytepisteellä nosta ``n``:ää kahteen. ``m`` on
+    ryhmittelytason kaikki kierrokset -- etenemisellä kierrostyypin, crunchilla
+    puolen.
+
+    Args:
+        rows: Luokitellut kierrokset, joilla **on** kierrostyyppi. Tämä on
+            ainoa lähde sille, mikä kierros on olemassa ja mitä puolta ja
+            tyyppiä se on -- sama sääntö kuin muualla raportissa.
+        ticks: Näytepisterivit, **suodatettuna joukkueen kokoonpanoihin**.
+            Poikkeama on subjektin oma liike, joten osumat luetaan hänen
+            riveistään; alueen orientaatio sen sijaan **ei voi** tulla niistä
+            (ks. ``area_orientation``).
+        by_map: Kartan nimi -> sen demot. Sama ryhmittely kuin
+            :func:`build_report`issa, jotta poikkeama on samalla kartalla kuin
+            karttaluku.
+        map_sources: Kartan nimi -> haaran ``map_name_source``. Kannetaan
+            poikkeamaan asti, koska raportin runko puhuu nimillä (Story 2.12):
+            lähteellä ``unknown`` nimi **on** demotunniste, eikä sitä saa
+            latoa runkoon paljaana.
+        area_orientation: ``map_demo_id`` -> (alue -> havainnot) demon
+            **suodattamattomasta** näytepistetaulusta. Argumentti eikä
+            johdos: subjektin riveillä laskettuna jokainen tosi positiivinen
+            katoaa, koska poikkeama syö oman havaitsemisensa.
+        thresholds: ``[thresholds]``-osio. Siitä luetaan kuusi
+            poikkeamakynnystä ja ``small_sample_rounds``.
+
+    Returns:
+        Pari ``(poikkeamat, kattavuus)``. Poikkeamat ovat järjestyksessä
+        kartta, puoli, sääntö, kierrostyypit, alue. **Tyhjä lista on
+        kelvollinen tulos**, ja juuri siksi kattavuus palautetaan sen
+        rinnalla: "ei poikkeamia" on havainto vain siitä, mitä tutkittiin.
+
+    Raises:
+        AggregateError: Jos jonkin mukaan otetun kierroksen demo puuttuu
+            ``area_orientation``ista **kokonaan**. Puuttuva avain on eri asia
+            kuin tyhjä orientaatio: edellinen tarkoittaa, että kutsuja jätti
+            demon pois, ja hiljainen oletus vaientaisi säännöt juuri sillä
+            demolla ilman että mikään kertoisi siitä. Tyhjä orientaatio sen
+            sijaan on kelvollinen havainto, ja se kirjataan kattavuuteen
+            (``demos_without_orientation``).
+    """
+    # Rivit ja näytepisteet jaetaan **kertaalleen**. Aiempi versio suodatti
+    # koko rivilistan uudelleen joka (kartta, puoli, kierrostyyppi)
+    # -kolmikolle, eli 24-kertaisesti yhdellä kartalla.
+    ticks_by_round: defaultdict[RoundKey, list[Mapping[str, Any]]] = defaultdict(
+        list
+    )
+    for tick in ticks:
+        key = _round_key(tick)
+        if key is not None:
+            ticks_by_round[key].append(tick)
+
+    map_of_demo: dict[str, str] = {}
+    for map_name, demos in by_map.items():
+        for demo in demos:
+            map_of_demo[demo] = map_name
+
+    # (kartta, puoli) -> kierrostyyppi -> kierrosrivit. Yksi jako, josta sekä
+    # etenemisen (kierrostyyppi mukana) että crunchin (kierrostyyppi pois)
+    # nimittäjä on luettavissa.
+    branches: defaultdict[
+        tuple[str, str], defaultdict[str, list[Mapping[str, Any]]]
+    ] = defaultdict(lambda: defaultdict(list))
+    for row in rows:
+        demo = str(row["map_demo_id"])
+        map_name = map_of_demo.get(demo)
+        if map_name is None:
+            # Kierros demosta, joka ei ole yhdelläkään kartalla. build_report
+            # ei voi tuottaa tätä, mutta funktio on julkinen.
+            raise AggregateError(
+                f"Kierros demosta {demo!r} ei kuulu yhdellekään kartalle, "
+                "joten poikkeamaa ei voi nimetä. Karttajako on "
+                "``build_report``in oma, joten ero tarkoittaa että "
+                "``by_map`` ja ``rows`` eivät ole samasta ajosta."
+            )
+        branches[(map_name, str(row["side"]))][str(row["round_type"])].append(row)
+
+    hits_by_round = _rule_hits(
+        rows, ticks_by_round, area_orientation, thresholds
+    )
+
+    anomalies: list[Anomaly] = []
+    for map_name, side in sorted(branches):
+        by_type = branches[(map_name, side)]
+        side_rows = [row for type_rows in by_type.values() for row in type_rows]
+        source = map_sources.get(map_name, "unknown")
+        # Eteneminen ensin: sen nimittäjä on kapeampi, joten lukija näkee
+        # ensin kierrostyyppikohtaisen havainnon ja sitten koko puolen
+        # crunchin. Järjestys on sama ajosta toiseen.
+        for round_type in ROUND_TYPES:
+            type_rows = by_type.get(round_type)
+            if not type_rows:
+                continue
+            anomalies.extend(
+                _grouped_anomalies(
+                    type_rows,
+                    hits_by_round,
+                    rule=sampling.CT_ADVANCE,
+                    map_name=map_name,
+                    map_name_source=source,
+                    side=side,
+                    thresholds=thresholds,
+                )
+            )
+        anomalies.extend(
+            _grouped_anomalies(
+                side_rows,
+                hits_by_round,
+                rule=sampling.CRUNCH,
+                map_name=map_name,
+                map_name_source=source,
+                side=side,
+                thresholds=thresholds,
+            )
+        )
+
+    # Kattavuus lasketaan siitä, mitä sääntö VOI tutkia, ei siitä montako
+    # kierrosta silmukka kävi läpi. Molemmat säännöt lukevat vain
+    # ``sampling.RULE_SIDE``-rivejä, joten T-puolen kierros ei voi tuottaa
+    # osumaa kummallakaan -- ja pelkkä kierrosten kokonaismäärä lupaisi
+    # kattavuutta, jota ei ole (mitattu: RCAVEn 92 kierroksesta 45 on CT ja
+    # niistä 8 säästökierrosta, joten eteneminen näki 8 eikä 92).
+    crunch_rounds = sum(
+        1 for row in rows if str(row["side"]) == sampling.RULE_SIDE
+    )
+    advance_rounds = sum(
+        1
+        for row in rows
+        if str(row["side"]) == sampling.RULE_SIDE
+        and str(row["round_type"]) in SAVING_ROUND_TYPES
+    )
+    blind = sorted(
+        demo
+        for demo in {str(row["map_demo_id"]) for row in rows}
+        if not sampling.t_side_shares(
+            area_orientation[demo],
+            t_share_min=thresholds.advance_t_share,
+            min_observations=thresholds.advance_area_min_observations,
+        )
+    )
+    scan = AnomalyScan(
+        rules=list(ANOMALY_RULES),
+        rules_deferred=list(ANOMALY_RULES_DEFERRED),
+        rounds_scanned=len(rows),
+        crunch_rounds=crunch_rounds,
+        advance_rounds=advance_rounds,
+        demos_without_orientation=blind,
+    )
+    return anomalies, scan
+
+
+def _rule_hits(
+    rows: Sequence[Mapping[str, Any]],
+    ticks_by_round: Mapping[RoundKey, Sequence[Mapping[str, Any]]],
+    area_orientation: Mapping[str, Mapping[str | None, sampling.AreaObservations]],
+    thresholds: ThresholdSettings,
+) -> dict[RoundKey, list[sampling.AnomalyHit]]:
+    """Molempien sääntöjen osumat kierros kerrallaan, kertaalleen laskettuna.
+
+    Säännöt ajetaan **kierrosta kohden kerran**, ei kerran ryhmittelytasoa
+    kohden: crunchin nimittäjä on puoli ja etenemisen kierrostyyppi, joten
+    sama kierros kuuluu kahteen tasoon. Ilman tätä välivaihetta jokainen
+    kierros ajettaisiin kahdesti ja säännöt voisivat -- kahden eri
+    kutsupaikan kautta -- saada eri kynnykset.
+
+    **Orientaation kynnyssuodatus toistuu yhä kierrosta ja sääntöä kohden**,
+    vaikka tulos on demokohtainen vakio: sääntö saa speksin mukaan
+    orientaation argumenttina ja **soveltaa kynnykset itse**, joten
+    esisuodatettu kartta siirtäisi määritelmän pois säännöstä. Mitattu hinta
+    on olematon -- kahdeksan demoa, 93 kierrosta ja noin 18 aluetta tekee
+    luokkaa 3 000 sanakirjahakua -- joten itsenäisyys on tässä kaupan arvoinen.
+    Jos otanta kasvaa Epic 3:ssa kymmeniin demoihin, oikea korjaus on
+    välimuisti demon avaimella, ei säännön sopimuksen muuttaminen.
+    """
+    found: dict[RoundKey, list[sampling.AnomalyHit]] = {}
+    for row in rows:
+        key = _round_key(row)
+        if key is None:
+            # classify pudottaa numeroimattomat kierrokset, joten tämä
+            # tarkoittaa että luokiteltu taulu on rikki. build_report nostaa
+            # siitä oman virheensä ohjeineen.
+            continue
+        demo = key[0]
+        if demo not in area_orientation:
+            raise AggregateError(
+                f"Demon {demo} alueorientaatiota ei annettu, joten "
+                "poikkeamasääntöjä ei voi ajaa sille.\n"
+                "Orientaatio on demon oma havainto ja se lasketaan "
+                "SUODATTAMATTOMASTA näytepistetaulusta. Puuttuva avain "
+                "tarkoittaa, että aggregointi jätti demon pois -- ei sitä, "
+                "että demolla ei olisi orientaatiota. Hiljainen oletus "
+                "vaientaisi säännöt juuri sillä demolla."
+            )
+        orientation = area_orientation[demo]
+        presences = [_presence(tick) for tick in ticks_by_round.get(key, ())]
+        found[key] = sampling.ct_advance_hits(
+            presences,
+            round_type=str(row["round_type"]),
+            orientation=orientation,
+            t_share_min=thresholds.advance_t_share,
+            area_min_observations=thresholds.advance_area_min_observations,
+            max_sample_s=thresholds.advance_max_sample_s,
+            min_players=thresholds.advance_min_players,
+        ) + sampling.crunch_hits(
+            presences,
+            orientation=orientation,
+            t_share_min=thresholds.advance_t_share,
+            area_min_observations=thresholds.advance_area_min_observations,
+            max_sample_s=thresholds.advance_max_sample_s,
+            min_players=thresholds.crunch_min_players,
+            min_sources=thresholds.crunch_min_sources,
+        )
+    return found
+
+
+def _grouped_anomalies(
+    branch_rows: Sequence[Mapping[str, Any]],
+    hits_by_round: Mapping[RoundKey, Sequence[sampling.AnomalyHit]],
+    *,
+    rule: str,
+    map_name: str,
+    map_name_source: str,
+    side: str,
+    thresholds: ThresholdSettings,
+) -> list[Anomaly]:
+    """Yhden säännön poikkeamat yhdellä ryhmittelytasolla.
+
+    ``branch_rows`` on se joukko, joka määrää nimittäjän: etenemisellä yhden
+    kierrostyypin kierrokset, crunchilla puolen kaikki kierrokset. Sama
+    funktio kelpaa molemmille, koska ero on **vain** siinä, mitkä rivit
+    annetaan.
+    """
+    m = len(branch_rows)
+    tally: defaultdict[str, _AnomalyTally] = defaultdict(_AnomalyTally)
+    for row in branch_rows:
+        key = _round_key(row)
+        if key is None:
+            continue
+        for hit in hits_by_round.get(key, ()):
+            if hit.rule != rule:
+                continue
+            tally[hit.area].add(key, str(row["round_type"]), hit)
+
+    return [
+        tally[area].to_anomaly(
+            rule=rule,
+            area=area,
+            map_name=map_name,
+            map_name_source=map_name_source,
+            side=side,
+            m=m,
+            small_sample=m < thresholds.small_sample_rounds,
+        )
+        for area in sorted(tally)
+    ]
+
+
+@dataclass
+class _RoundTally:
+    """Yhden kierroksen kertymä: näytepisteet, suunnat ja pelaajamäärä.
+
+    Suunnat kerätään **kierroksen sisällä**, koska vain siellä ne ovat
+    yhtäaikaisia. Kahden kierroksen yhdiste lukisi useammaksi samanaikaiseksi
+    suunnaksi kuin havaittiin.
+    """
+
+    round_type: str
+    seconds: set[float] = field(default_factory=set)
+    sources: set[str] = field(default_factory=set)
+    players_max: int = 0
+
+    def add(self, hit: sampling.AnomalyHit) -> None:
+        self.seconds.add(hit.sample_t_s)
+        self.sources.update(hit.sources)
+        self.players_max = max(self.players_max, hit.players)
+
+
+@dataclass
+class _AnomalyTally:
+    """Yhden alueen kertymä yhdellä ryhmittelytasolla.
+
+    Kierroskohtainen kirjanpito eikä yksi joukko: raportin rivi kertoo neljä
+    asiaa (kuinka usein, milloin, mistä, kuinka monta), ja kolme niistä on
+    tosia vain kierroksen sisällä.
+    """
+
+    rounds: dict[RoundKey, _RoundTally] = field(default_factory=dict)
+    #: Demo -> alueen orientaatio siinä demossa. Kartta voi olla kahdesta
+    #: demosta (Story 2.11), ja niiden T-osuudet voivat erota -- yksi luku
+    #: pakottaisi valitsemaan keskiarvon, jota ei ole havaittu.
+    orientation: dict[str, tuple[float, int]] = field(default_factory=dict)
+
+    def add(
+        self, key: RoundKey, round_type: str, hit: sampling.AnomalyHit
+    ) -> None:
+        entry = self.rounds.get(key)
+        if entry is None:
+            entry = _RoundTally(round_type=round_type)
+            self.rounds[key] = entry
+        entry.add(hit)
+        self.orientation[key[0]] = (hit.t_share, hit.observations)
+
+    def to_anomaly(
+        self,
+        *,
+        rule: str,
+        area: str,
+        map_name: str,
+        map_name_source: str,
+        side: str,
+        m: int,
+        small_sample: bool,
+    ) -> Anomaly:
+        rounds = [
+            AnomalyRound(
+                map_demo_id=demo,
+                round_no=round_no,
+                round_type=entry.round_type,
+                seconds=sorted(entry.seconds),
+                players_max=entry.players_max,
+                sources=sorted(entry.sources),
+            )
+            for (demo, round_no), entry in sorted(self.rounds.items())
+        ]
+        types = {entry.round_type for entry in rounds}
+        return Anomaly(
+            rule=rule,
+            map_name=map_name,
+            map_name_source=map_name_source,
+            side=side,
+            area=area,
+            round_types=[name for name in ROUND_TYPES if name in types],
+            rounds=rounds,
+            orientation=[
+                AreaOrientation(
+                    map_demo_id=demo,
+                    t_share=round(t_share, 4),
+                    observations=observations,
+                )
+                for demo, (t_share, observations) in sorted(
+                    self.orientation.items()
+                )
+            ],
+            players_max=max(entry.players_max for entry in rounds),
+            n=len(rounds),
+            m=m,
+            small_sample=small_sample,
+        )
+
+
+def _presence(tick: Mapping[str, Any]) -> sampling.AreaPresence:
+    """Näytepisterivi säännön tietueeksi.
+
+    Koordinaatit jäävät pois tarkoituksella: säännöt lukevat vain alueen, ja
+    koordinaatti houkuttelisi geometriaan, jota ei ole.
+
+    **Puoli ja elossaolo vaaditaan havaintoina.** ``str(None)`` ja
+    ``bool(None)`` päättäisivät hiljaa, ettei rivi ole CT tai että pelaaja on
+    kuollut -- ja poikkeamalla se ero on koko tulos, ei yksi pylväs
+    jakaumassa. Näytepisteiden jakaumissa (:func:`positions_for`) puuttuva
+    ``is_alive`` maksaa yhden pelaajan; täällä se ratkaisee, onko poikkeama
+    olemassa, joten sitä ei saa lukea oletukseksi.
+
+    Raises:
+        AggregateError: Jos ``sample_t_s``, ``side`` tai ``is_alive`` puuttuu
+            tai on tuntematon.
+    """
+    seconds = _sample_seconds(tick)
+    side = tick["side"]
+    if side not in SIDES:
+        raise AggregateError(
+            _broken_tick(tick, f"puoli on {side!r} eikä {' tai '.join(SIDES)}")
+        )
+    if tick["is_alive"] is None:
+        raise AggregateError(_broken_tick(tick, "elossaolo puuttuu"))
+    return sampling.AreaPresence(
+        player_id=str(tick["player_id"]),
+        side=str(side),
+        sample_kind=str(tick["sample_kind"]),
+        sample_t_s=seconds,
+        area=sampling.normalize_area(tick["area"]),
+        is_alive=bool(tick["is_alive"]),
+    )
+
+
+def _broken_tick(tick: Mapping[str, Any], what: str) -> str:
+    """Virheilmoitus rikkinäisestä näytepisterivistä, ohje mukana."""
+    demo = tick["map_demo_id"]
+    return (
+        f"Näytepisterivillä {what} (demo {demo!r}, kierros "
+        f"{tick['round_no']!r}), joten poikkeamasääntöä ei voi ajaa sille."
+        f"{NEWLINE}Aja parsinta uudelleen: uv run pappascout parse {demo} "
+        "--pakota"
+    )
+
+
 # -- Koko raportti ---------------------------------------------------------------
 
 
@@ -1364,6 +1817,7 @@ def build_report(
     aggregate: AggregateSettings,
     map_pool: Sequence[str],
     map_names: Mapping[str, str | None],
+    area_orientation: Mapping[str, Mapping[str | None, sampling.AreaObservations]],
     generated_at: datetime,
     tool_versions: Mapping[str, str] | None = None,
     missing_demos: Sequence[MissingDemo] = (),
@@ -1409,6 +1863,24 @@ def build_report(
             ``None``. Kartat ryhmitellään **nimestä**, ja haaran
             ``map_name_source`` on sen demojen heikoin
             (:func:`weakest_map_source`).
+        area_orientation: ``map_demo_id`` -> (alue -> havainnot) demon
+            **suodattamattomasta** näytepistetaulusta, eli molempien
+            joukkueiden riveistä. Poikkeamasäännöt lukevat siitä, kumman
+            puolen aluetta alue on siinä demossa. Jokaisen mukaan otetun
+            demon on oltava kartassa; puuttuva avain nostaa virheen, koska se
+            on eri asia kuin **tyhjä** orientaatio (joka on kelvollinen
+            havainto ja kirjataan ``anomaly_scan``iin).
+
+            Argumentti on **pakollinen eikä sillä ole oletusta**, ja se
+            tulee vaiheelta eikä tästä funktiosta kahdesta syystä yhtä aikaa.
+            Ensimmäinen on mitattu: ``ticks`` on suodatettu joukkueen
+            kokoonpanoihin, ja subjektin omilla riveillä laskettuna jokainen
+            tosi positiivinen katoaa -- kun subjekti etenee alueelle CT:nä,
+            hänen omat CT-havaintonsa laskevat sen alueen T-osuutta, eli
+            poikkeama syö oman havaitsemisensa. Toinen on rakenteellinen:
+            ``build_report`` näkee vain subjektin rivit, ja koko taulun
+            antaminen tänne avaisi oven vastustajan lukujen vuotamiseen
+            raporttiin.
         generated_at: Ajon hetki.
         tool_versions: Työkaluversiot raportin omaan kenttään.
         missing_demos: Ottelut, joiden dataa ei ollut.
@@ -1454,6 +1926,13 @@ def build_report(
         )
         by_map[name].append(demo)
         branch_sources[name].append(source)
+    # Haaran lähde kertaalleen: sekä karttaluku että poikkeamarivi tarvitsevat
+    # sen, ja kahdesti laskettuna ne voisivat olla eri mieltä siitä, onko
+    # kartan nimi tunnistettu.
+    map_sources = {
+        name: weakest_map_source(sources)
+        for name, sources in branch_sources.items()
+    }
 
     ticks_by_demo = _group_by_demo(tick_rows)
     events_by_demo = _group_by_demo(event_rows)
@@ -1461,7 +1940,7 @@ def build_report(
 
     maps: list[MapReport] = []
     for map_name, demos in by_map.items():
-        source = weakest_map_source(branch_sources[map_name])
+        source = map_sources[map_name]
         map_rows = [r for demo in demos for r in by_demo[demo]]
         map_ticks = [r for demo in demos for r in ticks_by_demo.get(demo, [])]
         map_events = [r for demo in demos for r in events_by_demo.get(demo, [])]
@@ -1489,6 +1968,17 @@ def build_report(
     # ajosta toiseen.
     maps.sort(key=lambda m: (-m.sample.rounds, m.map_name))
 
+    # Poikkeamat lasketaan **karttojen jälkeen** eikä ennen, ja kutsu on
+    # täällä eikä Report-kutsun argumenttilistassa: molemmat lukevat samat
+    # näytepisterivit, ja rikkinäisen taulun virheen on tultava siitä
+    # lukijasta, joka sen tavallisesti kohtaa. Näytepisteen puuttuva
+    # sample_t_s on nyt yhdessä paikassa (:func:`_sample_seconds`), joten
+    # järjestys ei enää ratkaise virheilmoituksen sanamuotoa -- se ratkaisee
+    # vain, kummasta rivistä se kertoo.
+    anomalies, scan = anomalies_for(
+        played, tick_rows, by_map, map_sources, area_orientation, thresholds
+    )
+
     thresholds_used = {
         "thresholds": thresholds.model_dump(mode="json"),
         "aggregate": aggregate.model_dump(mode="json"),
@@ -1503,6 +1993,8 @@ def build_report(
         unpaired_detonations=unpaired_detonations(event_rows),
         missing_demos=list(missing_demos),
         unclassified_rounds=unclassified,
+        anomalies=anomalies,
+        anomaly_scan=scan,
         maps=maps,
     )
 

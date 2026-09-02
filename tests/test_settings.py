@@ -176,7 +176,9 @@ def test_a_player_counter_above_the_roster_is_refused(tmp_path: Path) -> None:
         with pytest.raises(SettingsError) as exc:
             load_settings(target)
         assert name in str(exc.value)
-        assert "roster_size" in str(exc.value)
+        # Vertailu on kentällä oleviin eikä rosterin kokoon (Story 2.5:n
+        # katselmus): rosterissa voi olla vaihtopelaajia, kentällä ei.
+        assert "kentällä olevien" in str(exc.value)
 
 
 def test_a_threshold_below_the_smallest_loss_bonus_makes_force_unreachable(
@@ -632,6 +634,152 @@ def test_threshold_values(settings_file: Path) -> None:
     assert t.loss_count_max == 4
     assert t.team_identity_min_common == 3
     assert t.small_sample_rounds == 3
+    # Poikkeamakynnykset (Story 2.5). Nämä kuusi ovat lukittuja samalla
+    # perusteella kuin kierrostyyppien kynnykset: jokainen on mitattu
+    # kahdeksalla demolla ja kahdella joukkueella
+    # (``kalibrointi-ct-eteneminen.md``), ja arvon muuttaminen ilman tämän
+    # testin muuttamista tarkoittaisi, että perustelu jäi lukematta.
+    assert t.advance_t_share == 0.80
+    assert t.advance_area_min_observations == 20
+    assert t.advance_max_sample_s == 30.0
+    assert t.advance_min_players == 1
+    assert t.crunch_min_players == 2
+    assert t.crunch_min_sources == 2
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Alaraja on **enemmistö**: 0,5 ja alle tekisi alueesta molempien.
+        -0.01,
+        0.0,
+        0.5,
+        # Yläraja on osuuden määritelmä.
+        1.01,
+        # NaN tekisi jokaisesta vertailusta epätoden, ääretön päinvastoin.
+        float("nan"),
+        float("inf"),
+    ],
+)
+def test_an_impossible_t_share_is_refused(value: float) -> None:
+    """Kynnys kertoo kummalle puolelle alue **kuuluu**, ei kummalla se käy."""
+    with pytest.raises(ValidationError):
+        ThresholdSettings(pistol_rounds=[1, 13], advance_t_share=value)
+
+
+def test_the_t_share_bound_itself_is_allowed() -> None:
+    """Vartijan toinen haara: juuri yli puolet kelpaa."""
+    assert (
+        ThresholdSettings(pistol_rounds=[1, 13], advance_t_share=0.51).advance_t_share
+        == 0.51
+    )
+
+
+def test_a_crunch_looser_than_an_advance_is_allowed() -> None:
+    """**Crunch ei ole etenemisen tiukempi muoto**, joten järjestystä ei ole.
+
+    Katselmuskierros 1 poisti vartijan, joka vaati
+    ``crunch_min_players >= advance_min_players``. Perustelu oli epätosi:
+    crunch on tiukempi suunnista ja löysempi kierrostyypistä, joten kumpikaan
+    osumajoukko ei sisällä toista (mitattu: MatureMayhem Anubis k10 on täysi
+    osto, jolla etenemistä ei ole olemassa). Testi on tässä siksi, ettei
+    vartija palaisi vahingossa.
+    """
+    limits = ThresholdSettings(
+        pistol_rounds=[1, 13],
+        advance_min_players=3,
+        crunch_min_players=2,
+    )
+    assert (limits.advance_min_players, limits.crunch_min_players) == (3, 2)
+
+
+def test_more_sources_than_players_is_refused() -> None:
+    """Jokainen lähtösuunta tarvitsee oman pelaajansa."""
+    with pytest.raises(ValidationError, match="Jokainen lähtösuunta"):
+        ThresholdSettings(
+            pistol_rounds=[1, 13],
+            crunch_min_players=2,
+            crunch_min_sources=3,
+        )
+
+
+def test_a_single_crunch_source_is_refused() -> None:
+    """Crunch on määritelmällisesti saapumista **useasta** suunnasta.
+
+    Arvolla 1 sekä sääntö että raportin lukuohje väittäisivät jotain, mitä
+    koodi ei enää vaadi.
+    """
+    with pytest.raises(ValidationError):
+        ThresholdSettings(pistol_rounds=[1, 13], crunch_min_sources=1)
+
+
+@pytest.mark.parametrize(
+    "key", ["advance_min_players", "crunch_min_players"]
+)
+def test_an_anomaly_player_minimum_above_the_server_is_refused(key: str) -> None:
+    """Kuusi pelaajaa alueella ei ole tiukempi kynnys vaan mahdoton ehto.
+
+    Vertailu on **kentällä oleviin** eikä rosterin kokoon: rosterissa voi olla
+    vaihtopelaajia (mitattu: seitsemän yhdellä joukkueella), mutta kentällä on
+    aina viisi.
+    """
+    with pytest.raises(ValidationError, match="kentällä olevien"):
+        ThresholdSettings(pistol_rounds=[1, 13], **{key: 6})
+
+
+def test_a_player_minimum_is_measured_against_the_server_not_the_roster() -> None:
+    """Seitsemän pelaajan rosteri ei tee kuudesta aseistetusta mahdollista."""
+    with pytest.raises(ValidationError, match="kentällä olevien"):
+        ThresholdSettings(
+            pistol_rounds=[1, 13], roster_size=7, armed_players_min=6
+        )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Nolla vaientaisi molemmat säännöt pysyvästi.
+        0.0,
+        -1.0,
+        # Yläraja: aikaraja valikoi näytepisteistä, joten sitä suurempi arvo
+        # ei rajaa mitään -- ja 300 on kirjoitusvirhe.
+        61.0,
+        300.0,
+        float("nan"),
+        float("inf"),
+    ],
+)
+def test_an_impossible_anomaly_time_bound_is_refused(value: float) -> None:
+    with pytest.raises(ValidationError):
+        ThresholdSettings(pistol_rounds=[1, 13], advance_max_sample_s=value)
+
+
+def test_a_time_bound_below_the_first_sample_point_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Ristiintarkistus osioiden välillä: raja vaientaisi molemmat säännöt.
+
+    Raportti väittäisi silloin "ei poikkeamia" havaintona, vaikka yhtäkään
+    näytepistettä ei koskaan tutkittu. Kumpikaan osio ei voi tarkistaa tätä
+    yksin, joten tarkistus on ``Settings._check_sections_agree``issa.
+    """
+    target = _write_variant(
+        tmp_path,
+        **{"advance_max_sample_s = 30.0": "advance_max_sample_s = 3.0"},
+    )
+    with pytest.raises(SettingsError, match="varhaisin parse.snapshot_seconds"):
+        load_settings(target)
+
+
+def test_a_time_bound_at_the_first_sample_point_is_allowed(
+    tmp_path: Path,
+) -> None:
+    """Vartijan toinen haara: tasan varhaisin näytepiste kelpaa."""
+    target = _write_variant(
+        tmp_path,
+        **{"advance_max_sample_s = 30.0": "advance_max_sample_s = 6.0"},
+    )
+    assert load_settings(target).thresholds.advance_max_sample_s == 6.0
 
 
 @pytest.mark.parametrize(

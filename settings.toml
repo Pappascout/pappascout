@@ -478,7 +478,100 @@ small_sample_rounds = 3
 
 # Stack = vähintään 4 pelaajaa samalla alueella samassa näytepisteessä.
 # [spine] AD-10
+#
+# KÄYTTÄMÄTÖN Story 2.5:stä lähtien. Sääntö on mitattu mahdottomaksi pelin
+# nykyisellä aluejaolla: neljä puolustajaa samalla env_cs_place-alueella
+# tuotti 0 osumaa 93 kierroksesta, koska peli jakaa sitet useaan alueeseen
+# (Ancientin B on Alley + BombsiteB + SideEntrance). Arvo jää tähän, koska
+# sääntö on kirjattu omaksi tarinakseen aluejaon lisäyksen kanssa
+# (deferred-work.md); poistaminen vaatisi migraatioviestin.
 stack_min_players = 4
+
+# --- Poikkeamasäännöt (Story 2.5) ---
+# Kaksi sääntöä, joilla on YHTEINEN orientaatioehto. Kumpikaan ei ole toisen
+# "tiukempi muoto": crunch on tiukempi suunnista mutta löysempi
+# kierrostyypistä, joten osumajoukot leikkaavat toisiaan eikä kumpikaan
+# sisällä toista (mitattu: MatureMayhem Anubis k10 on täysi osto, jolla
+# etenemistä ei ole olemassa).
+#
+# Jokainen arvo alla on MITATTU eikä valittu. Mittaus on kahdeksasta demosta
+# ja kahdesta eri joukkueesta; mitatut luvut ovat tässä kommentissa, jotta ne
+# ovat tarkistettavissa ilman lähdedokumenttia. Koko perustelu on
+# kalibrointi-ct-eteneminen.md:ssä, joka EI ole tässä repossa vaan
+# projektikansiossa _bmad-output/implementation-artifacts/ (OneDrive).
+# [kalibroitu] [spine] AD-10
+#
+# Alue on "T:n aluetta siinä demossa", jos sen elossa-havainnoista
+# aikanäytepisteillä vähintään tämä osuus tulee T-puolelta. Osuus lasketaan
+# demon SUODATTAMATTOMASTA näytepistetaulusta (molempien joukkueiden rivit) --
+# subjektin omilla riveillä laskettuna jokainen tosi positiivinen katoaa,
+# koska poikkeama syö oman havaitsemisensa (mitattu: 0,88 -> 0,79,
+# 0,85 -> 0,75, 0,84 -> 0,75, ja juuri ne kolme aluetta tuottivat kaikki
+# oikeat osumat).
+#
+# 0,80 EIKÄ 0,70: Nuken piha (Outside) saa T-osuuden 0,70 (211/302), ja se on
+# aidosti molempien aluetta -- kynnys 0,70 tekisi jokaisesta pihalla olevasta
+# CT:stä "etenemisen". Ainoa lisäosuma 0,70:llä on yksi pelaaja ilman
+# vastinetta Veetin omassa analyysissä.
+#
+# Alaraja on yli 0,5 (ThresholdSettings.MajorityShare): kynnys kertoo
+# kummalle puolelle alue KUULUU, ja arvolla 0,5 tai alle alue voisi olla
+# molempien -- arvolla 0,0 jokainen kartan alue olisi T:n aluetta.
+advance_t_share = 0.80
+
+# Alueelta vaaditaan vähintään näin monta elossa-havaintoa, ennen kuin sillä
+# on orientaatio lainkaan. Vertailu on >=, eli TASAN 20 havainnon alue on
+# mukana; alue, joka ALITTAA rajan, ei ole T:n eikä CT:n aluetta --
+# orientaatiota ei arvata ohuesta havainnosta.
+#
+# Mitattu: 20 erottaa kartan pelatut alueet (10-12 demoa kohden) satunnaisista
+# läpikuluista. Kynnykset 10 ja 20 antavat aineistossa identtisen tuloksen; 5
+# toisi mukaan alueen, jonka T-osuus 0,83 nojaa viiteen havaintoon kuudesta
+# (Ancientin Ramp).
+advance_area_min_observations = 20
+
+# Poikkeama luetaan vain näytepisteiltä, jotka ovat enintään näin kauan
+# kierroksen ankkurista. Raja on MITATTU eikä valittu: se pudottaa kaksi
+# epävarmaa kierrosta (MatureMayhem Ancient k2 ja k7, kaksi CT:tä T:n spawnin
+# puolella 45 s kohdalla -- yhtä hyvin selitettävissä voitetulla kierroksella
+# kuin suunnitelmalla) eikä yhtäkään varmaa: jokainen 6-30 s välillä merkitty
+# kierros osuu jo aiemmalla näytepisteellä.
+#
+# Rajat: yli 0,0 ja enintään 60,0 (MAX_ADVANCE_SAMPLE_SECONDS). Lisäksi arvon
+# on oltava vähintään pienin [parse].snapshot_seconds -piste, ja sen tarkistaa
+# Settings._check_sections_agree: pienempi arvo vaientaisi MOLEMMAT säännöt
+# pysyvästi, ja raportti väittäisi silloin "ei poikkeamia" havaintona vaikka
+# yhtäkään näytepistettä ei tutkittu.
+advance_max_sample_s = 30.0
+
+# Montako CT-pelaajaa T:n alueella riittää etenemiseksi. Veeti 2026-08-31:
+# "yksi riittää" -- raportti näyttää pelaajamäärän ja otannan, joten lukija
+# arvioi itse onko kyse lurkkerista vai sattumasta. Kuudesta merkitystä
+# kierroksesta neljä osuu yhden pelaajan havainnolla. [lausuttu]
+#
+# Yläraja on kentällä olevien määrä (5), ei rosterin koko: rosterissa voi olla
+# vaihtopelaajia, mutta kuusi pelaajaa alueella on mahdoton ehto.
+advance_min_players = 1
+
+# Crunchin kaksi lisäehtoa. Veetin määritelmä 31.8.: "pusketaan CT puolella T
+# puolen alueelle, joka on tyypillisesti aina T puolen hallussa eli lobbyyn
+# kahdesta tai useammasta suunnasta samaan aikaan." Kaksi pelaajaa kahdesta
+# suunnasta on siis jo crunch. Lähtösuunta on pelaajan oma edellinen alue eli
+# havainto -- ei karttageometriaa eikä aluenaapuruustaulua.
+#
+# Kynnyksiä ei tarvinnut tiukentaa: oikealla määritelmällä osumia on 5
+# kierroksella 93:sta (5 %), eli poikkeaman kokoluokka. Aiemmin harkitut
+# tiukennukset (>= 3 pelaajaa, kohde on site) olivat vastaus VÄÄRÄN
+# määritelmän ylilaukeamiseen, kun sääntö mittasi T:n executea.
+#
+# crunch_min_sources alaraja on 2 eikä 1: crunch on määritelmällisesti
+# saapumista USEASTA suunnasta, ja arvolla 1 sekä sääntö että raportin
+# lukuohje väittäisivät jotain, mitä koodi ei enää vaadi. Suuntia ei myöskään
+# voi vaatia enemmän kuin pelaajia -- jokainen suunta tarvitsee oman
+# pelaajansa. Näiden kahden ja advance_min_players:in välillä EI ole
+# järjestystä, koska crunch ei ole etenemisen tiukempi muoto.
+crunch_min_players = 2
+crunch_min_sources = 2
 
 
 [aggregate]

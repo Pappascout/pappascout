@@ -47,6 +47,7 @@ from test_aggregate import (
     lineup_row,
     lineups_frame,
     match_frame,
+    report_for,
     round_row,
     rounds_frame,
     tick_row,
@@ -577,7 +578,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # Literaali eikä vakio: vakioon vertaaminen olisi tautologia --
     # koodi kirjoitti arvon juuri siitä vakiosta. Kun versio nousee,
     # tämän rivin PITÄÄ kaatua, jotta nosto on tietoinen.
-    assert data["schema_version"] == "6.0.0"
+    assert data["schema_version"] == "7.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -637,7 +638,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "6.0.0"
+    assert read_report(archive).schema_version == "7.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -1539,3 +1540,346 @@ def test_a_match_table_without_exactly_one_row_is_refused(
 
     with pytest.raises(PappascoutError, match="ottelutaulussa on"):
         run(archive)
+
+
+# --- Poikkeamien orientaatio (Story 2.5) ----------------------------------------
+#
+# Vaiheen oma osa poikkeamasäännöistä on **alueiden puoliorientaatio**, ja se
+# lasketaan ennen kokoonpanosuodatusta. Testit todistavat sen kahdesta
+# suunnasta: mitä orientaatio laskee, ja mitä katoaa jos suodatus siirretään
+# sen eteen.
+
+#: Alue, jota vastustaja pitää hallussaan koko demossa -- Nuken lobby.
+LOBBY = "Lobby"
+
+
+def lobby_ticks(demo: str) -> list[dict[str, object]]:
+    """Näytepisteet, joissa subjekti puskee vastustajan alueelle.
+
+    Vastustaja (T) on ``Lobby``ssa jokaisella näytepisteellä jokaisella
+    kierroksella: 45 havaintoa. Subjektin CT-pelaajat ovat omalla puolellaan,
+    ja **vain kierroksella 1** kaksi heistä siirtyy sinne kahdesta eri
+    suunnasta -- 2 havaintoa.
+
+    Luvut ovat valittu niin, että sama alue on kynnyksen **eri puolilla**
+    riippuen siitä, mistä taulusta orientaatio lasketaan: koko taulusta
+    T-osuus on 45/47 = 0,96, mutta subjektin riveistä 0/2. Juuri sitä eroa
+    kalibrointi mittasi oikeilla demoilla.
+    """
+    rows: list[dict[str, object]] = []
+    for round_no in (1, 2, 3):
+        for seconds in (6.0, 15.0, 30.0):
+            rows += [
+                tick_row(
+                    demo,
+                    round_no,
+                    f"{OPPONENT}-p{i}",
+                    LOBBY,
+                    lineup=OPPONENT,
+                    side="T",
+                    sample_t_s=seconds,
+                )
+                for i in range(5)
+            ]
+        rows += [
+            tick_row(
+                demo, round_no, f"{TEAM}-p{i}", "Outside", side="CT", sample_t_s=6.0
+            )
+            for i in range(5)
+        ]
+        # Kaksi eri lähtöaluetta kierroksella 1, jotta crunch on mahdollinen.
+        rows += [
+            tick_row(
+                demo, round_no, f"{TEAM}-p0", "Ramp", side="CT", sample_t_s=15.0
+            ),
+            tick_row(
+                demo, round_no, f"{TEAM}-p1", "Squeaky", side="CT", sample_t_s=15.0
+            ),
+        ]
+        rows += [
+            tick_row(
+                demo, round_no, f"{TEAM}-p{i}", "Outside", side="CT", sample_t_s=15.0
+            )
+            for i in range(2, 5)
+        ]
+        rows += [
+            tick_row(
+                demo,
+                round_no,
+                f"{TEAM}-p{i}",
+                LOBBY if round_no == 1 and i < 2 else "Outside",
+                side="CT",
+                sample_t_s=30.0,
+            )
+            for i in range(5)
+        ]
+    return rows
+
+
+def eco_ct_rounds(demo: str, count: int = 3) -> list[dict[str, object]]:
+    """Luokitellut kierrokset: subjekti CT:nä säästökierroksilla."""
+    return [
+        classified_row(demo, n, side="CT", round_type="eco")
+        for n in range(1, count + 1)
+    ]
+
+
+def test_the_orientation_counts_t_rows_against_all_rows() -> None:
+    """Osuus on demon oma havainto: T-havainnot per kaikki havainnot."""
+    demo = "Nuke_vs_a"
+    found = aggregate_stage._area_orientation(ticks_frame(lobby_ticks(demo)))
+    assert found[LOBBY].t == 45
+    assert found[LOBBY].total == 47
+    assert found[LOBBY].t_share == pytest.approx(45 / 47)
+
+
+def test_the_orientation_ignores_first_contact_dead_and_unnamed_rows() -> None:
+    """Neljä rajausta, jokainen määritelmä eikä siivous."""
+    demo = "Nuke_vs_a"
+    rows = [
+        tick_row(demo, 1, "p1", "Ramp", side="T"),
+        tick_row(demo, 1, "p2", "Ramp", side="T", sample_kind="first_contact"),
+        tick_row(demo, 1, "p3", "Ramp", side="T", is_alive=False),
+        tick_row(demo, 1, "p4", None, side="T"),
+        tick_row(demo, 1, "p5", "Ramp", side="T"),
+    ]
+    rows[-1]["side"] = None
+    found = aggregate_stage._area_orientation(ticks_frame(rows))
+    assert set(found) == {"Ramp"}
+    assert found["Ramp"].total == 1
+
+
+def test_an_unknown_side_is_left_out_of_the_denominator_too() -> None:
+    """**Jakajan rajaus, ei osoittajan.**
+
+    Ilman ``side``-suodatusta ``pl.len()`` laskisi tuntemattoman puolen rivin
+    mukaan mutta ``side == "T"`` ei voisi laskea sitä T:ksi -- osuus painuisi
+    alaspäin ja voisi pudottaa T:n alueen kynnyksen alle. Juuri se osuus on
+    molempien sääntöjen perusta, joten vartija on tässä eikä säännössä.
+    """
+    demo = "Nuke_vs_a"
+    rows = [tick_row(demo, 1, f"t{i}", "Lobby", side="T") for i in range(9)]
+    rows.append(tick_row(demo, 1, "x", "Lobby", side="CT"))
+    clean = aggregate_stage._area_orientation(ticks_frame(rows))
+    assert clean["Lobby"].t_share == pytest.approx(0.9)
+
+    with_null = [dict(row) for row in rows]
+    for _ in range(4):
+        extra = dict(rows[0])
+        extra["player_id"] = f"tuntematon{_}"
+        extra["side"] = None
+        with_null.append(extra)
+    dirty = aggregate_stage._area_orientation(ticks_frame(with_null))
+    # Tuntemattoman puolen rivit eivät ole kummassakaan luvussa, joten osuus
+    # on sama kuin ilman niitä.
+    assert dirty["Lobby"].t_share == pytest.approx(0.9)
+    assert dirty["Lobby"].total == clean["Lobby"].total
+
+
+def test_the_orientation_normalises_the_area_name() -> None:
+    """Sama normalisointi kuin läsnäolorivillä; muuten säännöt vaikenevat.
+
+    ``" Lobby "`` ja ``"Lobby"`` ovat yksi alue, ja niiden havainnot
+    **lasketaan yhteen**: toisen pudottaminen laskisi osuuden osajoukosta ja
+    voisi kääntää kynnyksen.
+    """
+    demo = "Nuke_vs_a"
+    rows = [
+        tick_row(demo, 1, "t1", "Lobby", side="T"),
+        tick_row(demo, 1, "t2", " Lobby ", side="T"),
+        tick_row(demo, 1, "c1", "Lobby\t", side="CT"),
+        tick_row(demo, 1, "c2", "   ", side="CT"),
+    ]
+    found = aggregate_stage._area_orientation(ticks_frame(rows))
+    assert set(found) == {"Lobby"}
+    assert found["Lobby"].t == 2
+    assert found["Lobby"].total == 3
+
+
+def test_a_demo_without_named_areas_gets_an_empty_orientation() -> None:
+    """Tyhjä kartta on oikea vastaus eikä virhe: suuntaa ei arvata."""
+    demo = "Nuke_vs_a"
+    rows = [tick_row(demo, 1, "p1", None, side="T")]
+    assert aggregate_stage._area_orientation(ticks_frame(rows)) == {}
+
+
+def test_the_orientation_must_come_from_the_unfiltered_table() -> None:
+    """**Suodatus siirrettynä orientaation eteen syö osuman kokonaan.**
+
+    Tämä on Story 2.5:n mitattu ehto koneellisena vartijana. Sama taulu,
+    sama sääntö, sama kynnys -- ainoa ero on se, lasketaanko orientaatio
+    koko taulusta vai subjektin riveistä. Ilman tätä testiä ``_aggregate``in
+    silmukan voisi siirtää suodatuksen jälkeen, ja jokainen tosi positiivinen
+    katoaisi ilman että yksikään testi kaatuisi.
+    """
+    demo = "Nuke_vs_a"
+    ticks = ticks_frame(lobby_ticks(demo))
+    classified = eco_ct_rounds(demo)
+    subject = ticks.filter(pl.col("lineup_key") == TEAM)
+
+    from_all = aggregate_stage._area_orientation(ticks)
+    from_subject = aggregate_stage._area_orientation(subject)
+    assert from_all[LOBBY].t_share > 0.80
+    assert from_subject[LOBBY].t_share == 0.0
+
+    # ``build_report`` näkee molemmissa tapauksissa vain subjektin rivit;
+    # vain orientaation lähde vaihtuu.
+    subject_rows = subject.to_dicts()
+    found = report_for(
+        classified, subject_rows, area_orientation={demo: from_all}
+    )
+    lost = report_for(
+        classified, subject_rows, area_orientation={demo: from_subject}
+    )
+    assert [a.rule for a in found.anomalies] == ["ct_advance", "crunch"]
+    assert lost.anomalies == []
+
+
+def test_the_stage_reads_the_orientation_before_it_filters(
+    tmp_path: Path,
+) -> None:
+    """Koko vaihe päästä päähän: poikkeama on ``report.json``issa."""
+    demo = "Nuke_vs_a"
+    archive = build_archive(tmp_path, {demo: TEAM}, rounds=3)
+    classified_frame(eco_ct_rounds(demo)).write_parquet(
+        archive.classified(TEAM, demo)
+    )
+    ticks_frame(lobby_ticks(demo)).write_parquet(
+        archive.parsed_table(demo, "ticks")
+    )
+    run(archive)
+    report = read_report(archive)
+    assert [a.rule for a in report.anomalies] == ["ct_advance", "crunch"]
+    advance = report.anomalies[0]
+    assert advance.map_name == "de_nuke"
+    assert advance.map_name_source == "map_demo_id"
+    assert advance.side == "CT"
+    assert advance.round_types == ["eco"]
+    assert advance.area == LOBBY
+    assert (advance.n, advance.m) == (1, 3)
+    assert advance.players_max == 2
+    assert advance.rounds[0].round_no == 1
+    assert advance.orientation[0].observations == 47
+    crunch = report.anomalies[1]
+    assert crunch.rounds[0].sources == ["Ramp", "Squeaky"]
+    assert report.anomaly_scan.rounds_scanned == 3
+    assert report.anomaly_scan.crunch_rounds == 3
+    assert report.anomaly_scan.advance_rounds == 3
+    assert report.anomaly_scan.demos_without_orientation == []
+
+
+def test_the_run_output_names_the_anomalies_and_the_coverage(
+    tmp_path: Path,
+) -> None:
+    """Ajon tuloste kertoo poikkeamista: muuten säätö näkyy vasta raportissa."""
+    demo = "Nuke_vs_a"
+    archive = build_archive(tmp_path, {demo: TEAM}, rounds=3)
+    classified_frame(eco_ct_rounds(demo)).write_parquet(
+        archive.classified(TEAM, demo)
+    )
+    ticks_frame(lobby_ticks(demo)).write_parquet(
+        archive.parsed_table(demo, "ticks")
+    )
+    text = _render_aggregate(run(archive))
+    assert "Poikkeamat" in text
+    assert "ct_advance de_nuke CT eco: Lobby 2 pelaajaa (1/3)" in text
+    assert (
+        "säännöt ct_advance, crunch ajettiin 3 kierrokselle -- crunch voi "
+        "osua 3 ja eteneminen 3"
+    ) in text
+    assert "ajamatta stack" in text
+
+
+def test_the_run_output_says_when_a_demo_has_no_orientation(
+    tmp_path: Path,
+) -> None:
+    """Sokea piste näkyy myös ajon tulosteessa, ei vain raportissa."""
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    text = _render_aggregate(run(archive))
+    assert "ilman alueorientaatiota 1 demoa" in text
+
+
+def test_a_demo_without_anomalies_writes_an_empty_list(tmp_path: Path) -> None:
+    """Tyhjä poikkeamalista on kelvollinen tulos eikä puuttuva kenttä.
+
+    Kattavuus kirjoitetaan silti: oletusarkiston näytepisteissä on vain kaksi
+    aluetta ja kolme havaintoa, joten yksikään ei ylitä havaintokynnystä --
+    eli tyhjä luku on **sokea piste** eikä mitattu negatiivinen, ja juuri se
+    ero on kattavuuden tehtävä sanoa.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    run(archive)
+    report = read_report(archive)
+    assert report.anomalies == []
+    assert report.anomaly_scan.rules == ["ct_advance", "crunch"]
+    assert report.anomaly_scan.rules_deferred == ["stack"]
+    assert report.anomaly_scan.demos_without_orientation == ["Nuke_vs_a"]
+
+
+#: Jokaiselle poikkeamakynnykselle **kelvollinen** muutos oletuksesta.
+#:
+#: Sanakirja eikä yksittäinen avain, koska ``crunch_min_sources`` ei voi
+#: liikkua yksin: alaraja on 2 (crunch on määritelmällisesti useaa suuntaa) ja
+#: validaattori kieltää suuntia enemmän kuin pelaajia, joten sen ainoa suunta
+#: ylöspäin nostaa myös ``crunch_min_players``ia. Se sanotaan tässä ääneen,
+#: jotta puuttuva avain ei näytä unohdukselta.
+ANOMALY_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
+    ("advance_t_share", {"advance_t_share": 0.9}),
+    ("advance_area_min_observations", {"advance_area_min_observations": 40}),
+    ("advance_max_sample_s", {"advance_max_sample_s": 15.0}),
+    ("advance_min_players", {"advance_min_players": 2}),
+    ("crunch_min_players", {"crunch_min_players": 3}),
+    (
+        "crunch_min_sources",
+        {"crunch_min_players": 3, "crunch_min_sources": 3},
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "key,overrides",
+    ANOMALY_THRESHOLD_CHANGES,
+    ids=[name for name, _ in ANOMALY_THRESHOLD_CHANGES],
+)
+def test_every_anomaly_threshold_changes_the_params_hash(
+    tmp_path: Path, key: str, overrides: dict[str, object]
+) -> None:
+    """Ilman tätä kynnyksen säätö ei ajaisi aggregointia uudelleen.
+
+    Sama vika kuin Story 1.8:ssa: raportti pitäisi vanhat poikkeamat, ja
+    käyttäjä näkisi säädön vaikutuksen vasta ``--pakota``lla.
+
+    **Tämä on ajonaikainen vartija**, toisin kuin
+    :func:`test_every_setting_the_stage_reads_is_in_the_params_hash`, joka
+    lukee luetut kentät lähdetekstistä regexillä eikä aja hashia lainkaan.
+    Kynnyksen vaikutus **raportin sisältöön** todistetaan erikseen
+    ``test_aggregate.py``:n poikkeamalohkossa.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    run(archive)
+    before = Manifest.read(archive.report_manifest(TEAM)).params_hash
+    aggregate_stage.run(
+        thresholds(**overrides),
+        _league(),
+        archive,
+        TEAM,
+        aggregate_settings=aggregate_settings(),
+    )
+    assert Manifest.read(archive.report_manifest(TEAM)).params_hash != before
+
+
+def test_every_hashed_anomaly_threshold_has_a_runtime_case() -> None:
+    """Luettelo ei saa vanheta hiljaa.
+
+    Hashattujen avainten ja tämän tiedoston ajonaikaisten tapausten on
+    katettava samat poikkeamakynnykset. Ilman tätä uusi kynnys voisi päätyä
+    hashiin ilman yhtäkään ajoa, joka todistaa sen vaikuttavan -- eli
+    täsmälleen se tila, jonka katselmus löysi ``crunch_min_sources``ista.
+    """
+    hashed = {
+        key
+        for key in aggregate_stage.HASHED_THRESHOLD_KEYS
+        if key.startswith(("advance_", "crunch_"))
+    }
+    covered = {name for name, _ in ANOMALY_THRESHOLD_CHANGES}
+    assert hashed == covered

@@ -11,6 +11,13 @@
   skeemaversio eivät osallistu siihen lainkaan. Luvun otsikko on täällä, koska
   rakenne on mallin asia; sama nimi on view.TRACEABILITY_HEADINGissa, koska
   raportin oma teksti viittaa lukuun, ja testi vartioi että ne ovat samat.
+  Sama pari on luvulla "Poikkeamat" ja view.ANOMALY_HEADINGilla.
+
+  LUKUJEN JÄRJESTYS ON SISÄLTÖPÄÄTÖS. Poikkeamat ovat heti yhteenvedon ja
+  puuttuvien demojen jälkeen, ENNEN karttalukuja: ne ovat epicin arvokkain
+  tuotos, ja dokumentin lopussa ne olisivat juuri se, mitä kiireessä ei
+  ehditä lukea. Luku latotaan EHDOITTA -- tyhjä poikkeamaluku sanoo "ei
+  poikkeamia", koska se on havainto eikä puute.
 
   Teksti on suomeksi, calloutit (aluenimet) englanniksi sellaisina kuin peli ne
   antaa. Rivit ovat ranskalaisia viivoja, eivät kappaleita: raportti luetaan
@@ -45,6 +52,23 @@
 {% for item in view.missing_demos %}
 - **{{ item.label }}:** {{ item.value }}
 {% endfor %}
+
+{% endif %}
+## Poikkeamat
+
+{% if view.anomalies_note %}
+{{ view.anomalies_note }}
+
+{% else %}
+{% for entry in view.anomalies %}
+{{ bullet(entry.line) }}
+{% for round_line in entry.rounds %}
+  - {{ round_line }}
+{% endfor %}
+{% endfor %}
+{% if view.anomalies_dropped_note %}
+- *{{ view.anomalies_dropped_note }}*
+{% endif %}
 
 {% endif %}
 {% for map_view in view.maps %}

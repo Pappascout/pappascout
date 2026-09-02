@@ -54,6 +54,39 @@ Säästökierrosten ja defaultin eri käsittely on esitysvalinta, ja se kuuluu
 vaatisi uudelleenlaskennan ja ``report.json`` lakkaisi olemasta täysi kuva
 siitä, mitä demoista tiedetään.
 
+Poikkeamat ovat raportin juuressa eivätkä kierrostyypin alla
+------------------------------------------------------------
+``anomalies`` on :class:`Report`in kenttä, ei :class:`RoundTypeReport`in.
+Poikkeama on epicin arvokkain tuotos, ja kierrostyypin alla se olisi
+hajallaan 24 lohkossa -- juuri se ongelma, jonka Story 2.5 ratkaisee. Siksi
+jokainen :class:`Anomaly` kantaa itse kartan, puolen ja kierrostyypit: se on
+luettavissa yhtenä lukuna ilman että lukija etsii sen paikkaa puusta.
+
+**Nimittäjä on sääntökohtainen, ja se on tarkoitus.** ``ct_advance`` on
+säästökierrosten ilmiö, joten kierrostyyppi on osa havaintoa ja ``m`` on sen
+kierrostyypin kierrokset kartalla ja puolella. ``crunch`` ei tunne
+kierrostyyppiä lainkaan, joten sen ryhmittely kierrostyypin mukaan hajottaisi
+saman kuvion eco-riviksi ja default-riviksi eri jakajilla -- eli toistaisi
+luvun sisällä juuri sen hajanaisuuden, jonka poistamiseksi luku tehtiin.
+Crunchin ``m`` on siksi puolen **kaikki** kierrokset kartalla, ja
+``round_types`` kertoo millä tyypeillä se havaittiin.
+
+Rakenne ei valvo nimittäjää ristiin puuta vasten (poikkeamat eivät ole puun
+lehtiä), joten yhteys on aggregoinnin vastuulla. :class:`Anomaly` valvoo sen
+sijaan **sisäisen** ristiriidattomuutensa: ``n`` on kierroslistan pituus,
+``players_max`` sen suurin havainto ja ``round_types`` sen tyyppijoukko, joten
+yhteenveto ei voi olla eri mieltä kuin rivit joista se on koottu.
+
+Rivi ei väitä yhtäaikaisuutta yli kierrosrajan
+----------------------------------------------
+:class:`AnomalyRound` on omana solmunaan siksi, että crunchin **lähtösuunnat
+ovat yhtäaikaisia vain saman kierroksen sisällä**. Kahden kierroksen
+suuntien yhdiste ("suunnista A, B, C ja D") lukisi neljäksi yhtäaikaiseksi
+suunnaksi, mikä on päinvastoin kuin määritelmä. Sama koskee näytepisteitä ja
+pelaajamäärää. Kierrosnumero on samassa solmussa, koska scoutin seuraava teko
+on katsoa se kierros demolta -- ja luku on turha, jos se kertoo että jotain
+tapahtui muttei missä sen näkee.
+
 Mitä täällä **ei** ole: tulkintoja. Sanoja "fake" tai "rush" ei esiinny
 missään kentässä -- vain havaintoja ja lukumääriä. Poikkeavat asetelmat
 (``anomalies``) ovat Story 2.5:n lisäys tähän samaan malliin.
@@ -63,6 +96,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from math import isfinite
 from typing import Any, Literal
 
 from pydantic import (
@@ -74,7 +108,10 @@ from pydantic import (
 )
 
 from pappascout.constants import (
+    ANOMALY_RULES,
+    ROUND_TYPES,
     SAMPLE_BUCKETS,
+    AnomalyRule,
     AreaSource,
     RoundType,
     SampleKind,
@@ -109,6 +146,12 @@ __all__ = [
     "RosterEntry",
     "TeamReport",
     "MissingDemo",
+    "AreaOrientation",
+    "AnomalyRound",
+    "Anomaly",
+    "AnomalyScan",
+    "MAP_NAME_SOURCES",
+    "MapNameSource",
     "Report",
 ]
 
@@ -131,7 +174,16 @@ __all__ = [
 #: otsikosta. Kaksi FACEIT-demoa samalta kartalta on vanhassa tiedostossa kaksi
 #: haaraa ja uudessa yksi; sama rakenne, eri luvut. Sitä ei saa muotoilla
 #: hiljaa tämän ajon tulokseksi.
-REPORT_SCHEMA_VERSION = "6.0.0"
+#:
+#: **7.0.0 (Story 2.5): uusi kenttä, jolla on oletus -- ja versio nousee
+#: silti.** ``Report.anomalies`` on ``default_factory=list``, joten vanha
+#: ``report.json`` validoituisi tyhjällä listalla. Juuri se on syy nostaa:
+#: tyhjä poikkeamaluku on tässä mallissa **havainto** ("ei poikkeamia"), joten
+#: vanhasta tiedostosta renderöity raportti väittäisi mitatuksi tulokseksi
+#: sen, ettei sääntöjä ollut olemassa. Ehto "validoituuko vanha tiedosto" ei
+#: siis riitä yksin: myös oletusarvo, joka on erotettavissa havainnosta,
+#: nostaa version.
+REPORT_SCHEMA_VERSION = "7.0.0"
 
 
 #: Merkit, jotka eivät kelpaa tiedostonimeen. Slug on ASCII-osajoukko, koska
@@ -866,7 +918,7 @@ class MapReport(_Node):
     """
 
     map_name: str
-    map_name_source: Literal["demo_header", "map_demo_id", "unknown"]
+    map_name_source: MapNameSource
     #: Kartan demot. Kaksi demoa samalta kartalta summautuu yhdeksi haaraksi,
     #: ja tämä lista kertoo mistä.
     map_demo_ids: list[str]
@@ -1055,6 +1107,367 @@ class MissingDemo(_Node):
     reason: str
 
 
+#: Mistä kartan nimi on peräisin, ensisijaisuusjärjestyksessä.
+#:
+#: Luettelo on täällä, koska sitä lukee nyt kaksi solmua
+#: (:class:`MapReport` ja :class:`Anomaly`) eikä yksi. Kahtena kirjoitettuna
+#: uusi lähde kelpaisi toisessa ja kaatuisi toisessa.
+MAP_NAME_SOURCES: tuple[str, ...] = ("demo_header", "map_demo_id", "unknown")
+MapNameSource = Literal["demo_header", "map_demo_id", "unknown"]
+
+
+class AreaOrientation(_Node):
+    """Alueen puoliorientaatio **yhdessä demossa**.
+
+    Poikkeaman todistuskappale: alue on T:n aluetta siinä demossa, jos sen
+    elossa-havainnoista aikanäytepisteillä vähintään ``advance_t_share``
+    tulee T-puolelta. Luku on demon oma havainto -- ei karttatietokantaa, ei
+    ihmisen antamaa aluejakoa, ei arkiston yli kertyvää taulua. Karttuva lähde
+    antaisi samalle demolle eri tuloksen sen mukaan, mitä muita demoja
+    arkistossa sattuu olemaan.
+
+    **Rivi per demo eikä yksi luku.** Kaksi demoa samalta kartalta on yksi
+    haara (Story 2.11), ja niiden T-osuudet voivat erota. Yksi luku
+    pakottaisi valitsemaan keskiarvon (jota ei ole havaittu) tai ääriarvon
+    (joka kertoisi vain toisesta demosta), joten poikkeama kantaa jokaisen
+    demonsa orientaation erikseen.
+
+    Attributes:
+        map_demo_id: Demo, jonka havainto tämä on.
+        t_share: T-havaintojen osuus alueen kaikista havainnoista.
+        observations: Alueen kaikki elossa-havainnot, eli orientaation oma
+            otanta. Ilman sitä osuus 1,00 näyttäisi samalta yhdestä ja
+            sadasta havainnosta.
+    """
+
+    map_demo_id: str
+    t_share: float = Field(ge=0.0, le=1.0)
+    observations: int = Field(gt=0)
+
+
+def _check_seconds(seconds: list[float], where: str) -> None:
+    """Näytepisteet: äärellisiä, ei-negatiivisia ja toisistaan eroavia.
+
+    Kolme ehtoa yhdessä paikassa, jotta jokainen näytepistelista on
+    tarkistettu samoilla ehdoilla. NaN on tässä pahempi kuin väärä luku: se
+    läpäisisi jokaisen vertailun epätotena, ja raportti muotoilisi sen
+    muodossa ``nan s kohdalla`` -- eli lukuna, jota lukija ei voi tulkita.
+    """
+    for value in seconds:
+        if not isfinite(value):
+            raise ValueError(
+                f"{where}: näytepiste {value!r} ei ole äärellinen luku. "
+                "Näytepiste on sekuntimäärä kierroksen ankkurista."
+            )
+        if value < 0:
+            raise ValueError(
+                f"{where}: näytepiste {value:g} s on negatiivinen. "
+                "Näytepisteet mitataan freezetimen lopusta eteenpäin, joten "
+                "negatiivinen arvo osoittaisi ostoaikaan."
+            )
+    if len(set(seconds)) != len(seconds):
+        raise ValueError(
+            f"{where}: näytepisteet toistuvat ({seconds}); sama hetki on "
+            "yksi havainto."
+        )
+
+
+class AnomalyRound(_Node):
+    """Yksi kierros, jolla poikkeama havaittiin.
+
+    **Tämä solmu on se, joka tekee rivistä luettavan oikein.** Crunchin
+    lähtösuunnat ovat yhtäaikaisia vain saman kierroksen sisällä: kahden
+    kierroksen suuntien yhdiste ("suunnista A, B, C ja D") lukisi neljäksi
+    yhtäaikaiseksi suunnaksi, mikä on päinvastoin kuin määritelmä. Sama
+    koskee näytepisteitä ja pelaajamäärää.
+
+    Attributes:
+        map_demo_id: Demo, jolta kierros on. Yhdellä kartalla voi olla kaksi
+            demoa (Story 2.11), joten pelkkä kierrosnumero ei yksilöi.
+        round_no: Kierrosnumero, jonka scoutti hakee demolta. Ilman sitä luku
+            kertoisi että jotain tapahtui muttei missä sen näkee.
+        round_type: Kierrostyyppi. Crunchilla se vaihtelee rivin sisällä,
+            koska sääntö ei tunne kierrostyyppiä.
+        seconds: Näytepisteet tällä kierroksella, nousevassa järjestyksessä.
+        players_max: Suurin pelaajamäärä tämän kierroksen näytepisteillä.
+        sources: Lähtöalueet tällä kierroksella -- **yhtäaikaiset**.
+            Etenemisellä tyhjä.
+    """
+
+    map_demo_id: str = Field(min_length=1)
+    round_no: int = Field(gt=0)
+    round_type: RoundType
+    seconds: list[float] = Field(min_length=1)
+    players_max: int = Field(gt=0)
+    sources: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_round(self) -> AnomalyRound:
+        """Kierroksen sisäinen ristiriidattomuus.
+
+        Raises:
+            ValueError: Jos näytepisteet ovat mahdottomia, lähtöalueet
+                toistuvat tai suuntia on enemmän kuin pelaajia. Viimeinen on
+                mahdoton havainto: jokainen suunta tarvitsee oman pelaajansa,
+                joten kolme suuntaa kahdella pelaajalla ei ole tiukempi
+                havainto vaan rikkinäinen.
+        """
+        where = f"kierros {self.round_no} ({self.map_demo_id})"
+        _check_seconds(self.seconds, where)
+        if sorted(self.seconds) != self.seconds:
+            raise ValueError(
+                f"{where}: näytepisteet eivät ole nousevassa järjestyksessä "
+                f"({self.seconds})."
+            )
+        if len(set(self.sources)) != len(self.sources):
+            raise ValueError(
+                f"{where}: lähtöalueet toistuvat ({self.sources}); sama "
+                "suunta on yksi suunta."
+            )
+        # Nimettömyys ennen järjestystä: nimetön alue ei ole suunta lainkaan,
+        # eikä sen paikasta luettelossa kannata kertoa mitään.
+        if any(not name.strip() for name in self.sources):
+            raise ValueError(
+                f"{where}: lähtöalueiden joukossa on nimetön alue "
+                f"({self.sources}). Nimetön alue ei ole suunta."
+            )
+        if sorted(self.sources) != self.sources:
+            raise ValueError(
+                f"{where}: lähtöalueet eivät ole aakkosjärjestyksessä "
+                f"({self.sources}). Suunnat ovat yhtäaikaisia, joten niillä "
+                "ei ole omaa järjestystä -- vakiojärjestys tekee raportin "
+                "rivistä saman ajosta toiseen."
+            )
+        if len(self.sources) > self.players_max:
+            raise ValueError(
+                f"{where}: lähtöalueita on {len(self.sources)} mutta "
+                f"pelaajia {self.players_max}. Jokainen suunta tarvitsee "
+                "oman pelaajansa, joten havainto on rikkinäinen."
+            )
+        return self
+
+
+class Anomaly(_Node):
+    """Yksi poikkeava asetelma otantansa kanssa.
+
+    Rivi on **yksi (sääntö, kartta, puoli, alue)** -yhdistelmä ja
+    etenemisellä lisäksi kierrostyyppi, ei yksi kierros: sama alue kahdella
+    eco-kierroksella on yksi rivi otannalla ``2/m``, ei kaksi riviä. Ilman
+    ryhmittelyä toistuva poikkeama näyttäisi kahdelta eri havainnolta, ja
+    juuri toistuminen on se, mikä erottaa suunnitelman sattumasta.
+
+    **Nimittäjä on sääntökohtainen.** ``ct_advance`` on säästökierrosten
+    ilmiö, joten ``m`` on sen kierrostyypin kierrokset kartalla ja puolella ja
+    ``round_types`` on yksialkioinen. ``crunch`` ei tunne kierrostyyppiä, joten
+    ``m`` on puolen **kaikki** kierrokset kartalla ja ``round_types`` kertoo
+    millä tyypeillä se havaittiin. Yksi kierros on kelvollinen otanta; se
+    merkitään pieneksi samalla säännöllä kuin muut (``small_sample``).
+
+    Attributes:
+        rule: ``ct_advance`` tai ``crunch``. Säännöt **jakavat**
+            orientaatioehdon, mutta kumpikaan osumajoukko ei sisällä toista:
+            crunch lisää suuntavaatimuksen ja pudottaa kierrostyyppirajauksen,
+            joten säästökierroksella sama kierros tuottaa molemmat rivit ja
+            täydellä ostolla vain crunchin.
+        map_name: Kartta, jolla poikkeama havaittiin.
+        map_name_source: Mistä kartan nimi tuli. Kannetaan siksi, että
+            raportin runko puhuu nimillä (Story 2.12): kun lähde on
+            ``unknown``, ``map_name`` **on** demotunniste, eikä sitä saa latoa
+            runkoon paljaana.
+        side: Subjektin puoli. Käytännössä aina ``CT``, koska molemmat säännöt
+            tutkivat CT-rivejä; kenttä on rakenteessa, koska raportin rivi
+            kertoo puolen eikä lukija saa päätellä sitä säännön nimestä.
+        area: Pelin oma ``env_cs_place``-alue. **Ei koskaan tyhjä**: alue
+            ilman nimeä ei voi olla T:n aluetta.
+        round_types: Kierrostyypit, joilla poikkeama havaittiin,
+            ``ROUND_TYPES``-järjestyksessä. Etenemisellä täsmälleen yksi.
+        rounds: Kierrokset havaintoineen. Tästä luetaan "milloin", "mistä" ja
+            "kuinka monta" niin, ettei rivi väitä yhtäaikaisuutta yli
+            kierrosrajan.
+        orientation: Alueen orientaatio niistä demoista, joissa poikkeama
+            havaittiin -- poikkeaman todistuskappale.
+        players_max: Suurin havaittu pelaajamäärä koko rivillä. Yhteenveto
+            ``rounds``ista, ja malli valvoo että se vastaa niitä.
+        n: Kierrokset, joilla poikkeama havaittiin (``len(rounds)``).
+        m: Nimittäjä, ks. yllä.
+        small_sample: Onko ``m`` alle ``small_sample_rounds``. Sama merkintä
+            samalla säännöllä kuin muualla; ``render`` ei laske sitä.
+    """
+
+    rule: AnomalyRule
+    map_name: str = Field(min_length=1)
+    map_name_source: MapNameSource
+    side: Side
+    area: str = Field(min_length=1)
+    round_types: list[RoundType] = Field(min_length=1)
+    rounds: list[AnomalyRound] = Field(min_length=1)
+    orientation: list[AreaOrientation] = Field(min_length=1)
+    players_max: int = Field(gt=0)
+    n: int = Field(gt=0)
+    m: int = Field(gt=0)
+    small_sample: bool = False
+
+    @model_validator(mode="after")
+    def _check_observation(self) -> Anomaly:
+        """Yhteenveto ei voi olla eri mieltä kuin rivit joista se on koottu.
+
+        Raises:
+            AggregateError: Jos otanta on mahdoton (``n > m``) tai ``n`` ei
+                ole kierroslistan pituus. Kumpikin tarkoittaa, että rivi ja
+                sen todisteet ovat eri kokoisia.
+            ValueError: Jos kierros esiintyy kahdesti, orientaatio ei kata
+                juuri niitä demoja joilla poikkeama havaittiin, sääntö ja
+                lähtöalueiden olemassaolo ovat ristiriidassa, tai
+                ``round_types`` ei vastaa kierroksia.
+        """
+        if self.n != len(self.rounds):
+            raise AggregateError(
+                f"Poikkeama {self.rule} alueella {self.area!r} väittää "
+                f"otannakseen {self.n} kierrosta, mutta kantaa "
+                f"{len(self.rounds)} kierrosriviä. Luku ja sen todisteet "
+                "ovat eri kokoisia."
+            )
+        if self.n > self.m:
+            raise AggregateError(
+                f"Poikkeama {self.rule} alueella {self.area!r} esiintyy "
+                f"{self.n} kierroksella, vaikka kierroksia on {self.m}."
+            )
+        keys = [(entry.map_demo_id, entry.round_no) for entry in self.rounds]
+        if len(set(keys)) != len(keys):
+            raise ValueError(
+                f"Poikkeaman {self.area!r} kierroslistassa on sama kierros "
+                f"kahdesti ({sorted(keys)}); kierros on yksi havainto."
+            )
+        expected_types = [
+            name for name in ROUND_TYPES
+            if name in {entry.round_type for entry in self.rounds}
+        ]
+        if list(self.round_types) != expected_types:
+            raise ValueError(
+                f"Poikkeaman {self.area!r} round_types on {self.round_types}, "
+                f"mutta kierrokset ovat tyypeiltään {expected_types}. "
+                "Yhteenveto ei voi nimetä tyyppiä, jota yksikään kierros ei "
+                "ole -- eikä jättää pois tyyppiä, joka on."
+            )
+        if self.rule == "ct_advance" and len(self.round_types) != 1:
+            raise ValueError(
+                f"CT-eteneminen alueella {self.area!r} kantaa "
+                f"{len(self.round_types)} kierrostyyppiä ({self.round_types}). "
+                "Eteneminen ryhmitellään kierrostyypin mukaan, koska se on "
+                "säästökierrosten ilmiö ja kierrostyyppi on osa havaintoa, "
+                "joten yhdellä rivillä on täsmälleen yksi tyyppi."
+            )
+        biggest = max(entry.players_max for entry in self.rounds)
+        if self.players_max != biggest:
+            raise ValueError(
+                f"Poikkeaman {self.area!r} players_max on {self.players_max}, "
+                f"mutta kierrosten suurin on {biggest}."
+            )
+        with_sources = [entry for entry in self.rounds if entry.sources]
+        if self.rule == "crunch" and len(with_sources) != len(self.rounds):
+            raise ValueError(
+                f"Crunch alueella {self.area!r} kantaa kierroksia ilman "
+                "lähtöalueita. Crunch on saapumista alueelle useasta "
+                "suunnasta samaan aikaan, joten suunnaton kierros olisi eri "
+                "sääntö samalla nimellä."
+            )
+        if self.rule == "ct_advance" and with_sources:
+            raise ValueError(
+                f"CT-eteneminen alueella {self.area!r} kantaa lähtöalueita, "
+                "vaikka sääntö ei laske suuntia. Suunnat ovat crunchin "
+                "havainto, ja etenemisrivillä ne väittäisivät mitatuksi "
+                "jotain, jota ei mitattu."
+            )
+        demos = [entry.map_demo_id for entry in self.orientation]
+        if len(set(demos)) != len(demos):
+            raise ValueError(
+                f"Poikkeaman {self.area!r} orientaatiossa on sama demo "
+                f"kahdesti ({sorted(demos)}); alueella on demoa kohden yksi "
+                "T-osuus."
+            )
+        seen = {entry.map_demo_id for entry in self.rounds}
+        if set(demos) != seen:
+            raise ValueError(
+                f"Poikkeaman {self.area!r} orientaatio kattaa demot "
+                f"{sorted(demos)}, mutta havainnot ovat demoista "
+                f"{sorted(seen)}. Orientaatio on poikkeaman todistuskappale, "
+                "joten sen on katettava täsmälleen ne demot joilla poikkeama "
+                "havaittiin -- ei enempää eikä vähempää."
+            )
+        return self
+
+
+class AnomalyScan(_Node):
+    """Mitä poikkeamasäännöt saivat luettavakseen.
+
+    **Tyhjä poikkeamaluku on havainto vain siitä, mitä tutkittiin.** Ilman
+    tätä solmua "ei poikkeamia" lukisi mitattuna negatiivisena myös silloin,
+    kun sääntöjä ei ajettu millekään kierrokselle tai kun jonkin demon
+    orientaatio jäi tyhjäksi -- ja juuri se ero ("havainto eikä puute") on
+    koko luvun arvo.
+
+    Attributes:
+        rules: Säännöt, jotka ajettiin.
+        rules_deferred: Arkkitehtuurin (AD-10) nimeämät säännöt, joita ei ole
+            toteutettu. Kattavuuden nimittäjä: lukija näkee montako
+            selkärangan sääntöä jäi ajamatta.
+        rounds_scanned: Kierrokset, jotka säännöt näkivät -- eli ne, joilla on
+            kierrostyyppi. Luokittelemattomat eivät mahdu rakenteeseen
+            lainkaan, ja niiden määrä on ``Report.unclassified_rounds``.
+        crunch_rounds: Niistä ne, joilla **crunch voi osua**: subjektin
+            CT-puolen kierrokset. Molemmat säännöt tutkivat vain CT-rivejä,
+            joten T-puolen kierros ei voi tuottaa osumaa kummallakaan --
+            ja ``rounds_scanned`` yksin lupaisi kattavuutta, jota ei ole.
+        advance_rounds: Niistä ne, joilla **CT-eteneminen voi osua**:
+            CT-puolen säästökierrokset. Kapein luku kolmesta, ja juuri se on
+            etenemisen todellinen nimittäjä kattavuutena.
+        demos_without_orientation: Demot, joiden näytepisteistä ei saatu
+            yhtään aluetta havaintokynnyksen yli. Niillä molemmat säännöt
+            vaikenevat, eikä se ole mitattu negatiivinen vaan sokea piste.
+    """
+
+    rules: list[AnomalyRule] = Field(min_length=1)
+    rules_deferred: list[str] = Field(default_factory=list)
+    rounds_scanned: int = Field(ge=0)
+    crunch_rounds: int = Field(ge=0)
+    advance_rounds: int = Field(ge=0)
+    demos_without_orientation: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_scan(self) -> AnomalyScan:
+        """Kolme lukua ovat sisäkkäisiä, ja järjestys on määritelmä.
+
+        ``advance_rounds`` (CT + säästö) on osajoukko ``crunch_rounds``ista
+        (CT), joka on osajoukko ``rounds_scanned``ista (kaikki). Väärä
+        järjestys tarkoittaisi, että kattavuus lupaa säännölle enemmän
+        kierroksia kuin sääntö voi tutkia.
+        """
+        if not self.advance_rounds <= self.crunch_rounds <= self.rounds_scanned:
+            raise AggregateError(
+                f"Kattavuusluvut eivät ole sisäkkäisiä: eteneminen "
+                f"{self.advance_rounds}, crunch {self.crunch_rounds}, "
+                f"kaikki {self.rounds_scanned}.\n"
+                "CT-puolen säästökierrokset ovat osajoukko CT-kierroksista, "
+                "jotka ovat osajoukko kaikista kierroksista."
+            )
+        unknown = sorted(set(self.rules) - set(ANOMALY_RULES))
+        if unknown:
+            raise ValueError(
+                f"Tuntemattomia poikkeamasääntöjä: {unknown}. Sallitut ovat "
+                f"{list(ANOMALY_RULES)}."
+            )
+        if len(set(self.rules)) != len(self.rules):
+            raise ValueError(f"Sama sääntö kahdesti: {self.rules}.")
+        if len(set(self.demos_without_orientation)) != len(
+            self.demos_without_orientation
+        ):
+            raise ValueError(
+                "Sama demo kahdesti orientaatiottomien listassa: "
+                f"{self.demos_without_orientation}."
+            )
+        return self
+
+
 class Report(_Node):
     """``aggregates/<team_key>/report.json``.
 
@@ -1094,6 +1507,21 @@ class Report(_Node):
     #: kierrostyyppitasoa ei voi rakentaa ilman tyyppiä -- mutta lukumäärä
     #: raportoidaan, jottei kierros katoa hiljaa.
     unclassified_rounds: int = Field(default=0, ge=0)
+    #: Poikkeavat asetelmat, kaikki kartat ja puolet samassa listassa. Tyhjä
+    #: lista on **havainto** eikä puute: "ei poikkeamia" on tulos, ja
+    #: raportti sanoo sen ääneen omassa luvussaan -- mutta vain siitä, mitä
+    #: :attr:`anomaly_scan` kertoo tutkitun.
+    #:
+    #: Lista on raportin juuressa eikä kierrostyypin alla, koska poikkeama on
+    #: epicin arvokkain tuotos: 24 lohkoon hajotettuna se olisi juuri se
+    #: ongelma, jonka Story 2.5 ratkaisee. Jokainen rivi kantaa siksi itse
+    #: kartan, puolen ja kierrostyypit.
+    anomalies: list[Anomaly] = Field(default_factory=list)
+    #: Poikkeamasääntöjen kattavuus: mitä ajettiin, mille ja mikä jäi sokeaan
+    #: pisteeseen. **Pakollinen eikä oletuksellinen**, koska juuri tyhjä
+    #: poikkeamalista tarvitsee sitä: ilman kattavuutta "ei poikkeamia" ei
+    #: erotu siitä, ettei sääntöjä ajettu.
+    anomaly_scan: AnomalyScan
     maps: list[MapReport] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -1116,4 +1544,42 @@ class Report(_Node):
                 f"karttojen summa on {demos}. Jokainen demo on täsmälleen "
                 "yhdellä kartalla, joten summan on täsmättävä."
             )
+        self._check_anomalies()
         return self
+
+    def _check_anomalies(self) -> None:
+        """Poikkeamat ovat puun ulkopuolella, joten side kiinnitetään täällä.
+
+        Kaksi ehtoa, joita yksikään :class:`Anomaly` ei voi tarkistaa itse:
+        rivi ei saa nimetä karttaa, jota raportissa ei ole (lukija etsisi
+        karttalukua, jota ei kirjoitettu), eikä kaksi riviä saa jakaa samaa
+        ryhmittelyavainta (silloin sama havainto olisi luvussa kahdesti eri
+        luvuilla -- juuri se, minkä ryhmittely on olemassa estämään).
+
+        Raises:
+            AggregateError: Jos kartta puuttuu raportista tai avain toistuu.
+        """
+        known = {entry.map_name for entry in self.maps}
+        missing = sorted(
+            {a.map_name for a in self.anomalies if a.map_name not in known}
+        )
+        if missing:
+            raise AggregateError(
+                f"Poikkeama nimeää kartan, jota raportissa ei ole: {missing}. "
+                f"Raportin kartat ovat {sorted(known)}.\n"
+                "Lukija etsisi karttalukua, jota ei kirjoitettu."
+            )
+        keys = [
+            (a.rule, a.map_name, a.side, a.area)
+            + (tuple(a.round_types) if a.rule == "ct_advance" else ())
+            for a in self.anomalies
+        ]
+        twice = sorted({key for key in keys if keys.count(key) > 1})
+        if twice:
+            raise AggregateError(
+                f"Sama poikkeama on luvussa kahdesti: {twice}.\n"
+                "Ryhmittelyavain on (sääntö, kartta, puoli, alue) ja "
+                "etenemisellä lisäksi kierrostyyppi. Kaksi riviä samalla "
+                "avaimella tarkoittaa, että ryhmittely ei tehnyt työtään: "
+                "sama havainto näkyisi kahdesti eri otannoilla."
+            )
