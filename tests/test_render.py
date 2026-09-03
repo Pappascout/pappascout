@@ -36,6 +36,7 @@ from pappascout.constants import (
 )
 from pappascout.domain.report import (
     Anomaly,
+    AnomalyPoint,
     AnomalyRound,
     AnomalyScan,
     AreaDistribution,
@@ -377,11 +378,12 @@ def scan(**overrides) -> AnomalyScan:
     testi mittaisi vahingossa varoituksen tekstiä.
     """
     values: dict[str, object] = {
-        "rules": ["ct_advance", "crunch"],
-        "rules_deferred": ["stack"],
+        "rules": ["ct_advance", "crunch", "stack"],
+        "rules_deferred": [],
         "rounds_scanned": 2,
         "crunch_rounds": 1,
         "advance_rounds": 0,
+        "stack_rounds": 1,
     }
     values.update(overrides)
     return AnomalyScan(**values)
@@ -444,6 +446,9 @@ def report(
                     "advance_min_players": 1,
                     "crunch_min_players": 2,
                     "crunch_min_sources": 2,
+                    "stack_min_players": 4,
+                    "stack_group_margin": 1.25,
+                    "stack_site_separation_min": 2.0,
                 }
             }
             if thresholds_used is None
@@ -1264,7 +1269,11 @@ def test_the_estimate_note_appears_only_when_something_was_estimated() -> None:
     )
     text = render(report([observed_only]))
     assert "(arvio)" not in text
-    assert "pistepilvestä" not in text
+    # Pelkkää sanaa "pistepilvestä" ei voi enää etsiä: Story 2.14 lukee
+    # siitä myös stackin siteryhmät, ja se selitys kirjoitetaan aina. Väite
+    # koskee nimenomaan räjähdysalueen arviota, joten se etsitään sen omasta
+    # lauseesta.
+    assert "alue on luettu demon pistepilvestä" not in text
 
 
 def test_estimated_detonation_area_is_marked_and_explained() -> None:
@@ -2429,7 +2438,7 @@ GOLDEN = """\
 - **Liigatieto:** yhdenkään demon lajia ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otannassa ole yhtään varmistettua liigaottelua
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta
 - **Luokittelun kynnykset:** full_equip_min 4000
-- **Aggregoinnin kynnykset:** advance_area_min_observations 20, advance_max_sample_s 30, advance_min_players 1, advance_t_share 0,8, crunch_min_players 2, crunch_min_sources 2, small_sample_rounds 3, team_identity_min_common 3
+- **Aggregoinnin kynnykset:** advance_area_min_observations 20, advance_max_sample_s 30, advance_min_players 1, advance_t_share 0,8, crunch_min_players 2, crunch_min_sources 2, small_sample_rounds 3, stack_group_margin 1,25, stack_min_players 4, stack_site_separation_min 2, team_identity_min_common 3
 - **Karsinnan säännöt:** drop_saturated_equipment_lines kyllä, max_kill_areas 3, max_utility_targets 2, merge_equal_equipment_lines kyllä, skip_sample_seconds ei yhtään
 - **Aineisto koottu:** 2026-08-30 12:00 UTC (pappascout 0.1.0)
 
@@ -2464,6 +2473,8 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 - Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 20 havaintoa; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
 - **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta.
 - **Crunch**: sama T:n alue, mutta pelaajien on **saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on pelaajan oma alue edellisellä näytepisteellä. Vähintään 2 pelaajaa ja 2 eri suuntaa. **Crunchia ei ole rajattu kierrostyyppiin**, toisin kuin etenemistä, joten sen otanta on puolen kaikki kierrokset ja nimiö kertoo millä kierrostyypeillä se havaittiin. Sama kierros voi siis tuottaa molemmat rivit, ja täysi osto vain crunchin.
+- **Stack**: subjektin puolustus kasautuneena yhden siten ympärille. Alueryhmä on **johdettu tästä demosta**: jokaisen alueen keskipiste lasketaan demon omasta pistepilvestä, ja alue kuuluu lähemmän siten ryhmään, jos toinen site on vähintään 1,25 kertaa kauempana. Ei karttatietokantaa eikä käsin annettua aluejakoa. Osuma vaatii vähintään 4 pelaajaa saman siten ryhmässä ja vähintään yhden heistä sitellä itsellään; spawnissa seisova ei laske. Rivin luku on muotoa 4/5 -- ryhmässä olleet kaikista elossa olleista. **Stackia ei ole rajattu kierrostyyppiin** eikä se lue alueen T-osuutta, joten se ei ole kummankaan toisen säännön tiukempi eikä löysempi muoto.
+- Stackin kattavuus on 1/1 CT-kierroksesta. Jokaiselta demolta saatiin siteryhmät.
 - Aseistettu = panssari JA parannettu ase ostoajan lopussa; panssaroitu = panssari, aseesta riippumatta. Luvut ovat **sisäkkäisiä**: aseistetut ovat panssaroitujen osajoukko, molemmat on luettu samalta tickiltä samasta pelaajajoukosta, ja jakaja on sama. Rivien ero on siis se havainto -- pistoolikierroksella aseistettuja on tyypillisesti 0 (800 $ ei riitä sekä kevlariin että parannettuun aseeseen), joten panssaririvi on se, joka kertoo kevlarien määrän.
 - Molemmat luvut ovat **hallussapitoa eivätkä ostoja**: panssari ja ase säilyvät kierroksen yli hengissä selvinneellä, eikä vaurioitunutta panssaria eroteta ehjästä. Poikkeus on pistoolikierros -- puoliaika alkaa puhtaalta pöydältä, joten siellä luvut kertovat mitä ostettiin.
 - Tapot alueittain: alue on **ampujan** oma alue tappohetkellä, ja otanta (n/m taposta) laskee tappoja eikä kierroksia -- kierrostyypillä on yleensä enemmän tappoja kuin kierroksia.
@@ -2784,14 +2795,30 @@ def anomaly_round(
     seconds: list[float] | None = None,
     players: int = 2,
     sources: list[str] | None = None,
+    alive: int | None = None,
+    points: list[AnomalyPoint] | None = None,
 ) -> AnomalyRound:
-    """Yksi kierrosrivi poikkeaman alle."""
+    """Yksi kierrosrivi poikkeaman alle.
+
+    ``seconds``, ``players`` ja ``alive`` ovat oikotie yhteen lukupariin
+    kaikilla näytepisteillä; ``points`` annetaan silloin, kun pisteillä on
+    **eri** luvut -- ja juuri se tapaus on syy siihen, ettei kierros kanna
+    yhtä maksimia.
+
+    ``alive`` on **vain stackilla**, ja ``None`` on sen oikea arvo muualla:
+    kaksi muuta sääntöä eivät laske elossa olevia, eikä keksitty nimittäjä
+    erotu rivillä mitatusta.
+    """
     return AnomalyRound(
         map_demo_id=demo,
         round_no=round_no,
         round_type=round_type,
-        seconds=seconds if seconds is not None else [30.0],
-        players_max=players,
+        points=points
+        if points is not None
+        else [
+            AnomalyPoint(sample_t_s=value, players=players, alive=alive)
+            for value in (seconds if seconds is not None else [30.0])
+        ],
         sources=sources or [],
     )
 
@@ -2805,6 +2832,7 @@ def anomaly(
     area: str = "TSideLower",
     rounds: list[AnomalyRound] | None = None,
     orientation: list[tuple[str, float, int]] | None = None,
+    site: str | None = None,
     m: int = 3,
     small_sample: bool = False,
 ) -> Anomaly:
@@ -2822,6 +2850,7 @@ def anomaly(
         map_name_source=map_name_source,
         side=side,
         area=area,
+        site=site,
         round_types=[name for name in ROUND_TYPES if name in types],
         rounds=entries,
         orientation=[
@@ -2848,6 +2877,23 @@ def crunch_anomaly(**overrides) -> Anomaly:
     return anomaly(**overrides)
 
 
+def stack_anomaly(**overrides) -> Anomaly:
+    """Stack-rivi: siteryhmä ja elossa olevat ovat pakollisia, orientaatio kielletty.
+
+    Kolme oletusta yhdessä paikassa, koska malli valvoo ne yhdessä: alue on
+    siten oma alue, ``site`` kertoo saman ryhmänä, ja jokainen kierros kertoo
+    montako pelaajaa oli elossa. Orientaatio on tyhjä -- sääntö ei lue sitä.
+    """
+    overrides.setdefault("rule", "stack")
+    overrides.setdefault("area", "BombsiteB")
+    overrides.setdefault("site", "B")
+    overrides.setdefault("orientation", [])
+    overrides.setdefault(
+        "rounds", [anomaly_round(round_no=13, seconds=[15.0], players=4, alive=5)]
+    )
+    return anomaly(**overrides)
+
+
 def test_the_anomaly_chapter_exists_even_without_anomalies() -> None:
     """Tyhjä poikkeamaluku on havainto: säännöt ajettiin, ne vaikenivat."""
     text = render(report([pistol_map()]))
@@ -2858,16 +2904,38 @@ def test_the_anomaly_chapter_exists_even_without_anomalies() -> None:
 def test_the_empty_chapter_says_what_was_run_and_on_what() -> None:
     """**"Ei poikkeamia" on havainto vain siitä, mitä tutkittiin.**
 
-    Kolme asiaa, joita ilman tyhjä luku väittäisi mitattua negatiivista myös
+    Neljä asiaa, joita ilman tyhjä luku väittäisi mitattua negatiivista myös
     sokeasta pisteestä: montako kierrosta säännöt näkivät, montako
-    arkkitehtuurin sääntöä jäi ajamatta, ja jäikö jonkin demon orientaatio
-    tyhjäksi.
+    kierrosta **kukin** niistä voi osua, jäikö jonkin demon orientaatio
+    tyhjäksi ja jäikö joltakin demolta siteryhmät saamatta.
     """
     text = anomaly_text(render(report([pistol_map()])))
-    assert "CT-eteneminen ja Crunch" in text
+    assert "CT-eteneminen, Crunch ja Stack" in text
     assert "2 kierrokselle" in text
-    assert "stack" in text
+    # Stackin oma kattavuusluku: se ei ole crunchin luku, koska vaiennettu
+    # demo on crunchin nimittäjässä muttei stackin.
+    assert "stack 1 kierroksella" in text
     assert "sokeita pisteitä ei ole" in text
+    # Stackin sokea piste on **lukuohjeessa** eikä täällä: se kirjoitetaan
+    # myös silloin kun poikkeamia on, ja kahdesta paikasta tyhjä luku latoisi
+    # saman lauseen kahdesti.
+    assert "siteryhmiä" not in text
+
+
+def test_a_deferred_rule_is_still_named_when_there_is_one() -> None:
+    """Latonta ei saa jäädä testaamatta siksi, että luettelo on tyhjä.
+
+    ``ANOMALY_RULES_DEFERRED`` tyhjeni Story 2.14:ssä, ja sen myötä koko
+    kattavuuslause olisi ilman tätä testiä ajamatonta koodia -- se heräisi
+    henkiin vasta seuraavan lykätyn säännön kanssa, jolloin kukaan ei enää
+    muista sitä olevan olemassa. Luku on kattavuuden nimittäjä, joten se on
+    pidettävä ajossa.
+    """
+    text = anomaly_text(
+        render(report([pistol_map()], scan_=scan(rules_deferred=["rotate"])))
+    )
+    assert "Arkkitehtuuri nimeää 4 poikkeamasääntöä" in text
+    assert "1 on toteuttamatta (rotate)" in text
 
 
 def test_the_empty_chapter_names_the_blind_spots() -> None:
@@ -2975,6 +3043,107 @@ def test_two_crunch_rounds_never_merge_their_directions() -> None:
     assert "kierros 10 (default): 3 pelaajaa 15 s kohdalla, yhtä aikaa suunnista Arch, LowerTunnel ja TopofMid" in text
     # Neljän suunnan yhdistettä ei ole missään.
     assert "Alley, BombsiteB, Arch" not in text
+
+
+def test_a_stack_line_names_the_site_its_group_and_the_survivors() -> None:
+    """Stack-rivi kertoo mitä sääntö mittasi -- eikä mitään muuta.
+
+    Koontirivillä alue on **siten oma alue** ja lisätieto on ryhmä, ei
+    T-osuus: sääntö ei lue orientaatiota, joten osuus koskisi toista
+    kysymystä. Kierrosrivillä pelaajamäärä on murtoluku, koska neljä
+    viidestä ja neljä neljästä ovat eri havainto.
+    """
+    text = anomaly_text(
+        render(report([pistol_map()], anomalies=[stack_anomaly(m=9)]))
+    )
+    assert "Stack (de_ancient, CT-puoli, havaittu: eco): BombsiteB" in text
+    assert "1/9 kierroksesta" in text
+    assert "B-siten ryhmässä" in text
+    assert "  - kierros 13 (eco): 4/5 pelaajaa 15 s kohdalla" in text
+    # T-osuutta ei ole, koska sitä ei mitattu.
+    assert "T-osuus" not in text
+
+
+def test_a_stack_line_never_claims_directions() -> None:
+    """Suunnat ovat crunchin havainto; stack ei laske niitä."""
+    text = anomaly_text(
+        render(report([pistol_map()], anomalies=[stack_anomaly()]))
+    )
+    assert "suunnista" not in text
+
+
+def test_all_five_alive_reads_as_five_of_five() -> None:
+    """Kalibroinnin kaksi ääriosumaa: 5/5 on eri havainto kuin 4/5."""
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    stack_anomaly(
+                        area="BombsiteA",
+                        site="A",
+                        m=12,
+                        rounds=[
+                            anomaly_round(
+                                round_no=2, seconds=[30.0], players=5, alive=5
+                            ),
+                            anomaly_round(
+                                round_no=7, seconds=[6.0], players=4, alive=5
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )
+    )
+    assert "  - kierros 2 (eco): 5/5 pelaajaa 30 s kohdalla" in text
+    assert "  - kierros 7 (eco): 4/5 pelaajaa 6 s kohdalla" in text
+
+
+def test_the_stack_rows_sit_in_the_same_chapter_as_the_other_rules() -> None:
+    """Kolme sääntöä, yksi luku -- ja järjestys tulee ``ANOMALY_RULES``ista.
+
+    Poikkeamaluku on epicin arvokkain tuotos, eikä stack saa jäädä omaksi
+    lohkokseen: lukija vertaa rivejä keskenään.
+    """
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[stack_anomaly(), crunch_anomaly(), anomaly()],
+            )
+        )
+    )
+    order = [
+        text.index("CT-eteneminen ("),
+        text.index("Crunch ("),
+        text.index("Stack ("),
+    ]
+    assert order == sorted(order)
+
+
+def test_the_stack_legend_names_the_silenced_demos() -> None:
+    """Vaikeneminen on kirjattava myös silloin, kun poikkeamia ON.
+
+    Tyhjän luvun teksti ei silloin ladota lainkaan, joten kattavuus jäisi
+    kertomatta juuri siinä raportissa, jossa lukija näkee rivit muilta
+    kartoilta muttei Nukelta.
+    """
+    text = render(
+        report(
+            [pistol_map()],
+            anomalies=[stack_anomaly()],
+            scan_=scan(
+                rounds_scanned=9,
+                crunch_rounds=9,
+                stack_rounds=4,
+                demos_without_site_groups=["Nuke_vs_imuaijat"],
+            ),
+        )
+    )
+    assert "Stackin kattavuus on 4/9 CT-kierroksesta" in text
+    assert "1 demo ilman siteryhmiä" in text
+    assert "muttei havainto siitä, ettei stackeja ollut" in text
     assert "Alley, Arch" not in text
 
 
@@ -3076,6 +3245,142 @@ def test_one_demo_leaves_the_identifier_out_of_the_round_line() -> None:
     """Vartijan toinen haara: yhdellä demolla tunniste ei kuulu runkoon."""
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
     assert DEMO_ID not in text
+
+
+def test_each_sample_point_carries_its_own_player_count() -> None:
+    """**Maksimi ei saa palata riville.**
+
+    Mitattu MatureMayhem Anubis k4: 15 s kohdalla viisi pelaajaa viidestä,
+    30 s kohdalla neljä. Yhtenä maksimina rivi luki "5/5 pelaajaa 15 ja 30 s
+    kohdalla" -- väite datasta, jota ei ole.
+    """
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    stack_anomaly(
+                        m=12,
+                        rounds=[
+                            anomaly_round(
+                                round_no=4,
+                                points=[
+                                    AnomalyPoint(
+                                        sample_t_s=15.0, players=5, alive=5
+                                    ),
+                                    AnomalyPoint(
+                                        sample_t_s=30.0, players=4, alive=5
+                                    ),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+    )
+    assert (
+        "  - kierros 4 (eco): 5/5 pelaajaa 15 s ja 4/5 pelaajaa 30 s kohdalla"
+    ) in text
+    assert "5/5 pelaajaa 15 ja 30 s kohdalla" not in text
+
+
+def test_an_advance_over_two_sample_points_keeps_both_counts() -> None:
+    """Sama vika koski kaikkia kolmea sääntöä, ei vain stackia.
+
+    Mitattu MatureMayhem Inferno k2: 15 s kohdalla viisi pelaajaa Middlessä,
+    30 s kohdalla **yksi**. Rivi luki "5 pelaajaa 15 ja 30 s kohdalla".
+    """
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    anomaly(
+                        area="Middle",
+                        rounds=[
+                            anomaly_round(
+                                round_no=2,
+                                points=[
+                                    AnomalyPoint(sample_t_s=15.0, players=5),
+                                    AnomalyPoint(sample_t_s=30.0, players=1),
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+    )
+    assert "  - kierros 2: 5 pelaajaa 15 s ja 1 pelaaja 30 s kohdalla" in text
+
+
+def test_equal_counts_still_collapse_into_one_phrase() -> None:
+    """Tiivistäminen jää, kun luvut ovat aidosti samat.
+
+    Ehto vertaa **kaikkia** lukuja, joten tiivistys ei voi enää peittää eroa;
+    ilman sitä jokainen rivi luettelisi saman luvun kahdesti.
+    """
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    stack_anomaly(
+                        m=12,
+                        rounds=[
+                            anomaly_round(
+                                round_no=4,
+                                seconds=[15.0, 30.0],
+                                players=4,
+                                alive=5,
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+    )
+    assert "  - kierros 4 (eco): 4/5 pelaajaa 15 ja 30 s kohdalla" in text
+
+
+def test_a_stack_over_two_demos_also_names_them() -> None:
+    """Sama vartija stackilla, vaikka sillä ei ole orientaatiota.
+
+    Luku luetaan **kierroksista** eikä orientaatiosta juuri tämän takia:
+    orientaatiosta luettuna stackin tunniste jäisi aina pois, ja Ancientin
+    kaksi demoa ovat samassa karttaluvussa (Story 2.11).
+    """
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    stack_anomaly(
+                        m=18,
+                        rounds=[
+                            anomaly_round(
+                                round_no=13,
+                                demo="demo-a",
+                                seconds=[15.0],
+                                players=4,
+                                alive=5,
+                            ),
+                            anomaly_round(
+                                round_no=16,
+                                demo="demo-b",
+                                seconds=[30.0],
+                                players=4,
+                                alive=5,
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )
+    )
+    assert "kierros 13 (eco): 4/5 pelaajaa 15 s kohdalla -- `demo-a`" in text
+    assert "kierros 16 (eco): 4/5 pelaajaa 30 s kohdalla -- `demo-b`" in text
 
 
 def test_a_small_sample_anomaly_is_marked_not_hidden() -> None:

@@ -18,6 +18,7 @@ from pappascout.domain.report import (
     MAP_NAME_SOURCES,
     Anomaly,
     MapNameSource,
+    AnomalyPoint,
     AnomalyRound,
     AnomalyScan,
     AreaDistribution,
@@ -485,11 +486,12 @@ def scan(**overrides) -> AnomalyScan:
     poikkeavat tilat rakennetaan erikseen niitä koskevissa testeissä.
     """
     values: dict[str, object] = {
-        "rules": ["ct_advance", "crunch"],
-        "rules_deferred": ["stack"],
+        "rules": ["ct_advance", "crunch", "stack"],
+        "rules_deferred": [],
         "rounds_scanned": 1,
         "crunch_rounds": 1,
         "advance_rounds": 0,
+        "stack_rounds": 1,
     }
     values.update(overrides)
     return AnomalyScan(**values)
@@ -921,8 +923,14 @@ def test_the_schema_version_says_the_structure_changed() -> None:
     havainto ("ei poikkeamia"), joten vanhasta tiedostosta renderöity
     raportti väittäisi mitatuksi tulokseksi sen, ettei sääntöjä ollut
     olemassa.
+
+    Story 2.14 osuu molempiin haaroihin yhtä aikaa: ``Anomaly.rule`` sai
+    arvon ``stack``, joten **uusi** tiedosto ei kelpaa vanhalle mallille --
+    ja vanha tiedosto kelpaisi, mutta sen kattavuus nimeäisi stackin
+    toteuttamattomaksi ja vaikenisi siitä, monellako kierroksella se voi
+    osua.
     """
-    assert REPORT_SCHEMA_VERSION == "7.0.0"
+    assert REPORT_SCHEMA_VERSION == "8.0.0"
 
 
 def test_the_map_name_source_covers_all_three_sources() -> None:
@@ -1019,14 +1027,25 @@ def test_too_many_covered_rounds_is_refused_too() -> None:
 # --- Poikkeamat (Story 2.5) -----------------------------------------------------
 
 
+def _point(seconds: float = 30.0, players: int = 2, alive=None) -> AnomalyPoint:
+    """Yksi näytepiste havaintoineen."""
+    return AnomalyPoint(sample_t_s=seconds, players=players, alive=alive)
+
+
 def _round(**overrides) -> AnomalyRound:
-    """Kierrosrivi, jonka oletukset ovat kalibroinnin Ancient k18."""
+    """Kierrosrivi, jonka oletukset ovat kalibroinnin Ancient k18.
+
+    ``seconds`` ja ``players`` ovat apurin omia oikoteitä yhden näytepisteen
+    tapaukseen; useamman pisteen testi antaa ``points``in itse.
+    """
+    seconds = overrides.pop("seconds", [30.0])
+    players = overrides.pop("players", 2)
+    alive = overrides.pop("alive", None)
     values: dict[str, object] = {
         "map_demo_id": "demo",
         "round_no": 18,
         "round_type": "eco",
-        "seconds": [30.0],
-        "players_max": 2,
+        "points": [_point(value, players, alive) for value in seconds],
     }
     values.update(overrides)
     return AnomalyRound(**values)
@@ -1134,7 +1153,105 @@ def test_a_nameless_source_area_is_refused() -> None:
 def test_more_sources_than_players_is_refused() -> None:
     """Jokainen suunta tarvitsee oman pelaajansa -- mahdoton havainto."""
     with pytest.raises(ValidationError, match="Jokainen suunta"):
-        _round(players_max=2, sources=["A", "B", "C"])
+        _round(players=2, sources=["A", "B", "C"])
+
+
+def test_two_sample_points_keep_their_own_player_counts() -> None:
+    """**Maksimi ei saa palata.**
+
+    Kierros, jolla 15 s kohdalla on viisi pelaajaa ja 30 s kohdalla yksi, on
+    kaksi havaintoa eikä yksi. Aiemmin rakenne kantoi yhden maksimin ja
+    luettelon näytepisteitä, ja raportin rivi latoi maksimin molemmille --
+    mitattuna juuri tämä kierros on MatureMayhem Inferno k2.
+    """
+    entry = _round(points=[_point(15.0, 5), _point(30.0, 1)])
+    assert [(p.sample_t_s, p.players) for p in entry.points] == [
+        (15.0, 5),
+        (30.0, 1),
+    ]
+    assert entry.players_max == 5
+    assert entry.seconds == [15.0, 30.0]
+
+
+def test_a_point_cannot_have_more_players_than_are_alive() -> None:
+    """Ryhmässä olevat ovat osajoukko elossa olevista."""
+    with pytest.raises(ValidationError, match="osajoukko elossa olevista"):
+        _point(15.0, players=5, alive=4)
+
+
+def test_the_alive_count_is_on_every_point_or_none() -> None:
+    """Puolikas rivi latoisi kaksi eri yksikköä samalle riville."""
+    with pytest.raises(ValidationError, match="joko kaikilla tai ei"):
+        AnomalyRound(
+            map_demo_id="demo",
+            round_no=4,
+            round_type="eco",
+            points=[_point(15.0, 4, 5), _point(30.0, 4)],
+        )
+
+
+def _stack(**overrides) -> Anomaly:
+    """Stack-rivi: siteryhmä ja elossa olevat pakollisia, orientaatio kielletty."""
+    values: dict[str, object] = {
+        "rule": "stack",
+        "area": "BombsiteB",
+        "site": "B",
+        "orientation": [],
+        "rounds": [_round(round_no=13, seconds=[15.0], players=4, alive=5)],
+        "players_max": 4,
+    }
+    values.update(overrides)
+    return _anomaly(**values)
+
+
+def test_a_stack_carries_its_site_group_and_survivors() -> None:
+    """Kolme kenttää, jotka erottavat stackin kahdesta muusta säännöstä."""
+    stack = _stack()
+    assert (stack.site, stack.area) == ("B", "BombsiteB")
+    assert stack.rounds[0].points[0].alive == 5
+    assert stack.orientation == []
+
+
+def test_a_stack_whose_site_and_area_disagree_is_refused() -> None:
+    """Kenttä on rakenteessa vain siksi, ettei lukijan tarvitse päätellä."""
+    with pytest.raises(ValidationError, match="eri mieltä"):
+        _stack(site="A")
+
+
+def test_a_stack_without_a_site_group_is_refused() -> None:
+    """Ryhmä on rivin ankkuri, eikä sitä voi jättää nimeämättä."""
+    with pytest.raises(ValidationError, match="siteryhmäksi"):
+        _stack(site=None)
+
+
+def test_a_stack_without_the_alive_count_is_refused() -> None:
+    """Neljä viidestä ja neljä neljästä ovat eri havainto."""
+    with pytest.raises(ValidationError, match="montako pelaajaa oli elossa"):
+        _stack(rounds=[_round(round_no=13, seconds=[15.0], players=4)])
+
+
+def test_a_stack_that_carries_orientation_is_refused() -> None:
+    """Sääntö ei lue T-osuutta, joten sen kantaminen olisi keksitty luku."""
+    with pytest.raises(ValidationError, match="kantaa alueen orientaatiota"):
+        _stack(
+            orientation=[
+                AreaOrientation(
+                    map_demo_id="demo", t_share=0.88, observations=24
+                )
+            ]
+        )
+
+
+def test_an_orientation_rule_cannot_carry_a_site_group() -> None:
+    """Vain stack lukee siteryhmiä."""
+    with pytest.raises(ValidationError, match="vain stack lukee"):
+        _anomaly(site="A")
+
+
+def test_an_orientation_rule_cannot_carry_the_alive_count() -> None:
+    """Kumpikaan orientaatiosääntö ei laske elossa olevia."""
+    with pytest.raises(ValidationError, match="elossa olevien määrän"):
+        _anomaly(rounds=[_round(alive=5)])
 
 
 def test_a_crunch_without_source_areas_is_refused() -> None:
@@ -1262,9 +1379,15 @@ def test_an_orientation_without_observations_is_refused() -> None:
 
 
 def test_an_unknown_rule_name_is_refused() -> None:
-    """Sääntöjen luettelo on sopimusta, ei vapaa merkkijono."""
+    """Sääntöjen luettelo on sopimusta, ei vapaa merkkijono.
+
+    Nimi oli ``stack`` Story 2.14:ään asti. Sen jälkeen se on kelvollinen, ja
+    testi meni läpi väärästä syystä -- virhe tuli stackin omista vartijoista
+    eikä sääntönimen tarkistuksesta. Nimen on siksi oltava sellainen, jota
+    ``ANOMALY_RULES`` ei tunne eikä ole tulossa tuntemaan.
+    """
     with pytest.raises(ValidationError):
-        _anomaly(rule="stack")
+        _anomaly(rule="rotate")
 
 
 def test_an_unknown_map_name_source_is_refused() -> None:
@@ -1283,11 +1406,12 @@ def test_the_map_name_sources_are_the_same_list_for_both_nodes() -> None:
 
 def _scan(**overrides) -> AnomalyScan:
     values: dict[str, object] = {
-        "rules": ["ct_advance", "crunch"],
-        "rules_deferred": ["stack"],
+        "rules": ["ct_advance", "crunch", "stack"],
+        "rules_deferred": [],
         "rounds_scanned": 18,
         "crunch_rounds": 9,
         "advance_rounds": 4,
+        "stack_rounds": 9,
     }
     values.update(overrides)
     return AnomalyScan(**values)
@@ -1295,8 +1419,62 @@ def _scan(**overrides) -> AnomalyScan:
 
 def test_the_scan_records_what_was_run() -> None:
     scan = _scan()
-    assert scan.rules == ["ct_advance", "crunch"]
+    assert scan.rules == ["ct_advance", "crunch", "stack"]
+    assert scan.rules_deferred == []
     assert scan.demos_without_orientation == []
+    assert scan.demos_without_site_groups == []
+
+
+def test_the_coverage_is_not_optional() -> None:
+    """Kolme lukua, joista yksikään ei saa puuttua.
+
+    Puuttuva avain luettaisiin pydanticin oletuksella nollaksi, eli sokea
+    piste luettaisiin mitattuna negatiivisena -- juuri se, mitä tämä solmu on
+    olemassa estämään. ``stack_rounds`` oli hetken oletuksellinen, ja tämä
+    testi on se, joka pitää sen pakollisena.
+    """
+    for missing in ("rounds_scanned", "crunch_rounds", "advance_rounds", "stack_rounds"):
+        values = {
+            "rules": ["ct_advance", "crunch", "stack"],
+            "rounds_scanned": 4,
+            "crunch_rounds": 4,
+            "advance_rounds": 4,
+            "stack_rounds": 4,
+        }
+        del values[missing]
+        with pytest.raises(ValidationError):
+            AnomalyScan(**values)
+
+
+def test_the_stack_coverage_cannot_exceed_the_ct_rounds() -> None:
+    """Stack tutkii CT-kierroksia, joten se ei voi nähdä niitä useampaa."""
+    with pytest.raises(AggregateError, match="suurempi kuin"):
+        _scan(crunch_rounds=9, stack_rounds=10)
+
+
+def test_a_gap_in_the_stack_coverage_must_have_a_named_cause() -> None:
+    """Erotus syntyy vain vaiennetusta demosta, joten se on nimettävä.
+
+    Nimeämätön erotus lukisi mitattuna negatiivisena: lukija näkisi pienemmän
+    nimittäjän eikä mikään kertoisi, mikä siitä putosi.
+    """
+    with pytest.raises(AggregateError, match="siteryhmättömäksi"):
+        _scan(crunch_rounds=9, stack_rounds=4)
+    # Sama erotus nimetyllä syyllä kelpaa.
+    assert (
+        _scan(
+            crunch_rounds=9,
+            stack_rounds=4,
+            demos_without_site_groups=["Nuke_vs_a"],
+        ).stack_rounds
+        == 4
+    )
+
+
+def test_the_scan_refuses_the_same_silenced_demo_twice() -> None:
+    """Sama demo kahdesti lupaisi kaksi sokeaa pistettä yhdestä."""
+    with pytest.raises(ValidationError, match="siteryhmättömien listassa"):
+        _scan(demos_without_site_groups=["Nuke_vs_a", "Nuke_vs_a"])
 
 
 def test_the_coverage_numbers_must_be_nested() -> None:
@@ -1312,8 +1490,15 @@ def test_the_coverage_numbers_must_be_nested() -> None:
 
 
 def test_the_scan_refuses_an_unknown_rule() -> None:
+    """Nimi, jota ``ANOMALY_RULES`` ei tunne, ei kelpaa ajetuksi säännöksi.
+
+    Nimi oli ennen Story 2.14:ää ``stack``, joka on nyt toteutettu. Se on
+    juuri se syy, miksi testi ei saa nimetä sääntöä, joka **voi** joskus
+    olla olemassa: kelvoton arvo on tässä nimenomaan sellainen, jota
+    luettelossa ei ole eikä ole tulossa.
+    """
     with pytest.raises(ValidationError):
-        _scan(rules=["stack"])
+        _scan(rules=["rotate"])
 
 
 def test_the_scan_refuses_the_same_rule_twice() -> None:

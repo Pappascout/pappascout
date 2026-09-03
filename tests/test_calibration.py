@@ -1,17 +1,27 @@
-"""Kalibrointidokumentin totuustaulu regressiotestinä (Story 1.4).
+"""Kalibrointidokumenttien totuustaulut regressiotesteinä.
 
-Lähde on ``_bmad-output/implementation-artifacts/kalibrointi-kierrostyypit.md``:
-Veeti katsoi Ancient-demon 2D-replaynä ja kertoi jokaisesta kierroksesta, mitä
-siinä tapahtui. **Se dokumentti on totuus.** Jos jokin rivi tästä taulusta ei
-mene läpi, luokittelija on väärässä -- taulua ei muuteta koodin mukaiseksi eikä
-kynnysarvoa viilata niin, että yksittäinen rivi menisi läpi.
+Kaksi lähdettä, kaksi lohkoa ja **kaksi eri vaatimusta ympäristölle**.
 
-Luvut ovat dollaria **per pelaaja**, luettu ``classified``-taulun
-``inputs``-rakenteesta, ja ne muunnetaan joukkuesummiksi kertomalla viidellä.
-Kynnykset luetaan oikeasta ``settings.toml``ista: testi, joka keksisi omat
-rajansa, ei todistaisi mitään siitä asetustiedostosta, jolla työkalu ajetaan.
+``kalibrointi-kierrostyypit.md`` (Story 1.4)
+    Veeti katsoi Ancient-demon 2D-replaynä ja kertoi jokaisesta kierroksesta,
+    mitä siinä tapahtui. Luvut ovat dollaria **per pelaaja**, luettu
+    ``classified``-taulun ``inputs``-rakenteesta, ja ne muunnetaan
+    joukkuesummiksi kertomalla viidellä. Nämä testit eivät tarvitse mitään
+    koneelta: ne rakentavat rivit käsin.
 
-Testi ei tarvitse demotiedostoa, joten ``pytest -m "not demo"`` kattaa sen.
+``kalibrointi-stack.md`` (Story 2.14)
+    Stack-säännön aluejako, kattavuus ja osumataulukko kahdeksasta demosta.
+    Nämä testit **lukevat oikeaa arkistoa** (``parsed/`` ja ``classified/``,
+    eivät demotiedostoja) eivätkä kirjoita sinne mitään. Ne on merkitty
+    ``@pytest.mark.archive``, jotta ne voi valita ja sulkea pois
+    (``pytest -m "not archive"``), ja ne ohittavat itsensä siististi
+    koneella, jolla arkistoa ei ole.
+
+**Dokumentti on molemmissa totuus.** Jos jokin rivi taulusta ei mene läpi,
+koodi on väärässä -- taulua ei muuteta koodin mukaiseksi eikä kynnysarvoa
+viilata niin, että yksittäinen rivi menisi läpi. Kynnykset luetaan oikeasta
+``settings.toml``ista: testi, joka keksisi omat rajansa, ei todistaisi mitään
+siitä asetustiedostosta, jolla työkalu ajetaan.
 """
 
 from __future__ import annotations
@@ -19,10 +29,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import NamedTuple
 
+import polars as pl
 import pytest
 
+from conftest import REAL_SETTINGS, require_parsed
 from pappascout.adapters.demo_parser import _armed_count
-from pappascout.constants import KNOWN_INVENTORY_ITEMS
+from pappascout.archive.paths import ArchivePaths
+from pappascout.constants import KNOWN_INVENTORY_ITEMS, SITE_AREAS
 from pappascout.domain.economy import (
     classify_round,
     loss_bonus_if_lost,
@@ -33,8 +46,11 @@ from pappascout.domain.models import (
     ThresholdSettings,
     load_settings,
 )
+from pappascout.domain.sampling import CloudCell, site_groups
 from pappascout.domain.schemas import ARMED_COLUMN, MONEY_DISTRIBUTION_COLUMN
 from pappascout.errors import SchemaError
+from pappascout.stages import aggregate as aggregate_stage
+from pappascout.stages.aggregate import collect_team
 
 #: Kokoonpanon koko, jolla dokumentin per pelaaja -luvut on laskettu.
 PLAYERS = 5
@@ -932,3 +948,369 @@ def test_armor_and_weapon_are_both_required() -> None:
     assert _armed_count(weapon_no_armor) == 0
     assert _armed_count(armor_no_weapon) == 0
     assert _armed_count(both) == 1
+
+
+# --- Stack-säännön kalibrointi (Story 2.14) -------------------------------------
+#
+# Lähde on ``_bmad-output/implementation-artifacts/kalibrointi-stack.md``.
+# Nämä testit lukevat arkiston ``parsed/``- ja ``classified/``-taulut
+# mutteivät demotiedostoja, eivätkä kirjoita arkistoon mitään. Toisella
+# koneella ne ohittavat itsensä (:func:`conftest.require_parsed`).
+
+#: Ancientin kolme demoa. Aluejaon on oltava **sanatarkasti sama** jokaisesta:
+#: se on koko solumediaanin peruste, ja liikeratapohjainen johtaminen hylättiin
+#: juuri siksi, ettei se ollut.
+ANCIENT_DEMOS = (
+    "Ancient_vs_kaljukostaja",
+    "ANCIENT_vs_RCAVE_VETERANS",
+    "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1",
+)
+
+#: Ancientin johdettu aluejako, dokumentin taulukosta rivi riviltä.
+ANCIENT_GROUPS = {
+    "BombsiteA": "A",
+    "CTSpawn": "A",
+    "House": "A",
+    "MainHall": "A",
+    "Outside": "A",
+    "SideHall": "A",
+    "Alley": "B",
+    "BombsiteB": "B",
+    "Ramp": "B",
+    "Ruins": "B",
+    "SideEntrance": "B",
+    "TSideLower": "B",
+    "TSideUpper": "B",
+    "Tunnel": "B",
+    "Water": "B",
+}
+
+#: Ancientin alueet, jotka jäävät **kummankin ryhmän ulkopuolelle**: kartan
+#: jaettu keski. Ne eivät ole puuttuva havainto vaan havainto siitä, ettei
+#: kumpikaan site ole aidosti lähempänä.
+ANCIENT_SHARED = ("Middle", "TSpawn", "TopofMid")
+
+#: Nuken kaksi demoa. Siteet ovat päällekkäin eri kerroksissa, joten sääntö
+#: vaikenee -- ja juuri se on kirjattava kattavuuteen eikä nollaosumaksi.
+NUKE_DEMOS = (
+    "Nuke_vs_imuaijat",
+    "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1",
+)
+
+#: Arkiston kaksi subjektijoukkuetta. **Tunniste eikä hakemistolistaus**:
+#: ``classified/`` sisältää rivin jokaiselle kokoonpanolle, ja sama joukkue on
+#: siellä useamman tunnisteen alla (puolenvaihto ja vaihtopelaajat). Kaikkien
+#: yli iterointi laskisi samat kierrokset kahdesti.
+CALIBRATION_TEAMS = ("9ac92660986558d3", "ff03fb54599d3311")
+
+#: Kaikki kahdeksan arkiston demoa.
+CALIBRATION_DEMOS = (
+    *ANCIENT_DEMOS,
+    *NUKE_DEMOS,
+    "Anubis_vs_ryhmarama",
+    "anubis_vs_RCAVE_VETERANS",
+    "inferno_vs_ryhmarama",
+)
+
+#: Kalibroinnin luvut, dokumentin osiosta "Osumat: 9 kierrosta 66:sta".
+STACK_HITS = 10
+STACK_ROUNDS = 9
+STACK_SCANNED = 66
+STACK_CT_ROUNDS = 93
+STACK_SILENCED_ROUNDS = 27
+
+#: Osumataulukko **näytepisteittäin**: (kartta, demo, kierros, tyyppi, hetki,
+#: ryhmä, pelaajat, elossa). Rivi per osuma, kuten dokumentissa -- Anubiksen
+#: k4 on siksi kahdesti, 15 s kohdalla 5/5 ja 30 s kohdalla 4/5. Juuri se pari
+#: on syy siihen, ettei kierros voi kantaa yhtä maksimia: yhtenä rivinä se
+#: väittäisi viittä pelaajaa myös 30 s kohdalla.
+#:
+#: Lajiteltuna, jotta vertailu on riippumaton karttojen ja joukkueiden
+#: käsittelyjärjestyksestä.
+STACK_TABLE = sorted(
+    [
+        ("de_ancient", "ANCIENT_vs_RCAVE_VETERANS", 13, "pistol", 15.0, "B", 4, 5),
+        ("de_ancient", "ANCIENT_vs_RCAVE_VETERANS", 15, "full", 15.0, "B", 4, 5),
+        ("de_ancient", "ANCIENT_vs_RCAVE_VETERANS", 18, "eco", 15.0, "B", 4, 5),
+        (
+            "de_ancient",
+            "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1",
+            16,
+            "full",
+            30.0,
+            "A",
+            4,
+            5,
+        ),
+        ("de_ancient", "Ancient_vs_kaljukostaja", 2, "eco", 30.0, "A", 5, 5),
+        ("de_ancient", "Ancient_vs_kaljukostaja", 7, "eco", 6.0, "A", 4, 5),
+        ("de_ancient", "Ancient_vs_kaljukostaja", 12, "full", 30.0, "A", 4, 5),
+        ("de_anubis", "Anubis_vs_ryhmarama", 4, "eco", 15.0, "B", 5, 5),
+        ("de_anubis", "Anubis_vs_ryhmarama", 4, "eco", 30.0, "B", 4, 5),
+        ("de_anubis", "Anubis_vs_ryhmarama", 11, "full", 15.0, "B", 4, 5),
+    ]
+)
+
+#: Montako osumaa syntyy, jos siten OMALLA alueella vaaditaan olevan useampi
+#: kuin yksi pelaaja: (vaatimus, kierroksia, osumia). Mitattu 3.9.
+#:
+#: Taulukko on tässä siksi, että valinta "yksi riittää" olisi **tietoinen
+#: eikä oletusarvo**: sen vaihtoehdot on mitattu, ja niiden hinta on
+#: nähtävissä. Osumista viidellä on tasan yksi pelaaja sitellä, kolmella kaksi
+#: ja kahdella kolme, joten tiukennus ei poistaisi kohinaa vaan puolet
+#: havainnoista.
+SITE_PRESENCE_TABLE = ((1, 9, 10), (2, 5, 5), (3, 2, 2))
+
+
+def _real_settings():
+    """Oikea ``settings.toml``: kynnykset luetaan siitä, mitä työkalu käyttää.
+
+    Ei ``settings_file``-fixtuuria, toisin kuin muualla tässä tiedostossa: se
+    ohjaa arkiston juuren ``tmp_path``iin, ja nämä testit lukevat **oikeaa**
+    arkistoa. Juuri tulee :func:`conftest.require_parsed`ilta, joten kopio
+    ei olisi vain turha vaan harhaanjohtava.
+    """
+    return load_settings(REAL_SETTINGS, env_files=())
+
+
+def _site_groups(root: Path, map_demo_id: str, limits: ThresholdSettings):
+    """Yhden demon siteryhmät sen omasta pistepilvestä."""
+    df = pl.read_parquet(root / "parsed" / map_demo_id / "callouts.parquet")
+    cells = [
+        CloudCell(area, x, y, z)
+        for area, x, y, z in zip(
+            df["area"], df["cell_x"], df["cell_y"], df["cell_z"], strict=True
+        )
+    ]
+    return site_groups(
+        cells,
+        margin=limits.stack_group_margin,
+        separation_min=limits.stack_site_separation_min,
+    )
+
+
+def _stack_reports(root: Path, limits: ThresholdSettings | None = None):
+    """Molempien joukkueiden raportit **muistiin**, arkistoa muuttamatta.
+
+    Vaiheen oma ``run`` kirjoittaisi ``report.json``in kehittäjän arkistoon;
+    testi ei saa muuttaa sitä aineistoa, jota vasten se mittaa. ``_aggregate``
+    on saman moduulin funktio ja tekee täsmälleen sen, mitä ``run`` tekee
+    ennen kirjoitusta -- alaviiva on merkki siitä, ettei sitä pidä kutsua
+    tuotantokoodista, ei siitä ettei sitä saa lukea.
+    """
+    settings = _real_settings()
+    thresholds = limits or settings.thresholds
+    archive = ArchivePaths(root=root)
+    return [
+        aggregate_stage._aggregate(
+            archive,
+            collect_team(archive, team, thresholds),
+            thresholds,
+            settings.league,
+            settings.aggregate,
+        )
+        for team in CALIBRATION_TEAMS
+    ]
+
+
+def _stack_points(reports) -> list[tuple]:
+    """Kaikkien raporttien stack-osumat näytepisteittäin, lajiteltuna."""
+    found = []
+    for report in reports:
+        for anomaly in report.anomalies:
+            if anomaly.rule != "stack":
+                continue
+            for entry in anomaly.rounds:
+                for point in entry.points:
+                    found.append(
+                        (
+                            anomaly.map_name,
+                            entry.map_demo_id,
+                            entry.round_no,
+                            entry.round_type,
+                            point.sample_t_s,
+                            anomaly.site,
+                            point.players,
+                            point.alive,
+                        )
+                    )
+    return sorted(found)
+
+
+@pytest.mark.archive
+def test_the_ancient_site_groups_are_identical_in_all_three_demos() -> None:
+    """Sama kartta, kolme demoa, **sanatarkasti sama** aluejako.
+
+    Tämä on solumediaanin koko peruste. Liikeratapohjainen johtaminen antoi
+    saman kartan kahdesta demosta 32 % ja 94 % kattavuuden ja neljä
+    ristiriitaista aluetta; havaintopainotettu keskiarvo viisi. Solumediaani
+    antaa nolla, ja se on tämän testin väite.
+    """
+    root = require_parsed(*ANCIENT_DEMOS)
+    limits = _real_settings().thresholds
+    found = [_site_groups(root, demo, limits) for demo in ANCIENT_DEMOS]
+    assert all(groups is not None for groups in found)
+    for groups, demo in zip(found, ANCIENT_DEMOS, strict=True):
+        assert groups == ANCIENT_GROUPS, demo
+        for area in ANCIENT_SHARED:
+            assert area not in groups, f"{demo}: {area}"
+
+
+@pytest.mark.archive
+def test_nuke_stays_silent_because_its_sites_do_not_separate() -> None:
+    """Vartija vaientaa Nuken **ilman että karttaa nimetään koodissa**.
+
+    Suhde ``erotus / (säde_A + säde_B)`` on Nukella 0,47-0,54 ja kolmella
+    muulla kartalla 3,70-5,04; kynnys 2,0 erottaa ne puhtaasti.
+    """
+    root = require_parsed(*NUKE_DEMOS)
+    limits = _real_settings().thresholds
+    for demo in NUKE_DEMOS:
+        assert _site_groups(root, demo, limits) is None, demo
+
+
+@pytest.mark.archive
+def test_every_other_map_does_give_site_groups() -> None:
+    """Vartijan toinen suunta: se vaientaa vain sen, mitä sen pitääkin.
+
+    Ilman tätä väitettä kynnyksen nostaminen vaientaisi koko säännön eikä
+    yksikään testi kertoisi siitä -- nolla osumaa näyttäisi mitatulta
+    negatiiviselta.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    limits = _real_settings().thresholds
+    speaking = {
+        demo
+        for demo in CALIBRATION_DEMOS
+        if _site_groups(root, demo, limits) is not None
+    }
+    assert speaking == set(CALIBRATION_DEMOS) - set(NUKE_DEMOS)
+
+
+@pytest.mark.archive
+def test_the_stack_rule_finds_exactly_the_calibrated_sample_points() -> None:
+    """Kalibroinnin osumataulukko rivi riviltä, molemmilta joukkueilta.
+
+    Taulukko on **näytepisteittäin** eikä kierroksittain, ja Anubiksen k4 on
+    siksi kahdesti: 15 s kohdalla 5/5 ja 30 s kohdalla 4/5. Juuri se pari
+    kaataisi rakenteen, joka kantaa kierrosta kohden yhden maksimin.
+
+    **Subjektin rivit tunnistetaan kokoonpanotunnisteista**, eivät
+    ``classified/``-hakemiston nimestä: sama demo on arkistossa kahdesti,
+    kerran kummallakin joukkueella, ja väärä lähde antoi kalibroinnin
+    ensimmäisessä versiossa 7 osumaa 59 kierroksesta -- vastustajan
+    kierroksilta.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    found = _stack_points(_stack_reports(root))
+    assert found == STACK_TABLE
+    assert len(found) == STACK_HITS
+    assert len({(row[1], row[2]) for row in found}) == STACK_ROUNDS
+
+
+@pytest.mark.archive
+def test_the_stack_coverage_says_what_it_could_not_see() -> None:
+    """66 tutkittua 93:sta; 27 vaiennettua Nukella.
+
+    Kattavuus on kolme lukua eikä yksi: CT-kierroksia on 93, niistä stack
+    näki 66, ja erotus 27 on Nuken kaksi demoa. Ilman erottelua Nuken nolla
+    osumaa lukisi mitattuna negatiivisena.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    reports = _stack_reports(root)
+    ct_rounds = sum(r.anomaly_scan.crunch_rounds for r in reports)
+    scanned = sum(r.anomaly_scan.stack_rounds for r in reports)
+    silenced = {
+        demo
+        for r in reports
+        for demo in r.anomaly_scan.demos_without_site_groups
+    }
+    assert ct_rounds == STACK_CT_ROUNDS
+    assert scanned == STACK_SCANNED
+    assert ct_rounds - scanned == STACK_SILENCED_ROUNDS
+    assert silenced == set(NUKE_DEMOS)
+
+
+@pytest.mark.archive
+def test_five_defenders_are_the_rules_real_extreme_not_an_empty_set() -> None:
+    """``stack_min_players = 5`` antaa 2 kierrosta, ei 0.
+
+    Kynnys on siis **aidosti luettu asetuksista** eikä kovakoodattu, ja
+    viisi on säännön aito ääripää: Ancientin kaljukostaja k2 ja Anubiksen
+    ryhmarama k4.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    limits = _real_settings().thresholds.model_copy(
+        update={"stack_min_players": 5}
+    )
+    rounds = {(row[1], row[2]) for row in _stack_points(_stack_reports(root, limits))}
+    assert sorted(rounds) == [
+        ("Ancient_vs_kaljukostaja", 2),
+        ("Anubis_vs_ryhmarama", 4),
+    ]
+
+
+@pytest.mark.archive
+@pytest.mark.parametrize(
+    "required,rounds,hits", SITE_PRESENCE_TABLE, ids=lambda v: str(v)
+)
+def test_requiring_more_players_on_the_site_itself_halves_the_hits(
+    required: int, rounds: int, hits: int
+) -> None:
+    """Miksi **yksi** pelaaja siten omalla alueella riittää.
+
+    Sääntö vaatii vähintään yhden. Vaihtoehdot on mitattu, ja ne ovat tässä
+    taulukkona, jotta valinta on tietoinen eikä oletusarvo: kahdella
+    pelaajalla osumia on 5 ja kolmella 2. Tiukennus ei siis poistaisi kohinaa
+    vaan puolet havainnoista -- ja pelaajamäärä on rivillä joka tapauksessa,
+    joten lukija arvioi itse.
+
+    Luku lasketaan **samoista osumista samasta arkistosta**, joten testi
+    kaatuu jos vaihtoehdon hinta muuttuu ilman että taulukko muuttuu.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    on_site = _players_on_the_site(root, _stack_reports(root))
+    kept = [entry for entry in on_site if entry[2] >= required]
+    assert len(kept) == hits
+    assert len({(demo, round_no) for demo, round_no, _ in kept}) == rounds
+
+
+def _players_on_the_site(root: Path, reports) -> list[tuple[str, int, int]]:
+    """``(demo, kierros, montako sitellä)`` jokaiselle stack-osumalle.
+
+    Sääntö vaatii vähintään yhden pelaajan siten **omalla** alueella; tämä
+    laskee, montako heitä oikeasti oli. Subjektin rivit tunnistetaan
+    kokoonpanotunnisteista, kuten aggregointi ne tunnistaa -- sama demo on
+    arkistossa kahdesti, ja hakemistonimestä luettuna puolet riveistä olisi
+    vastustajan.
+    """
+    cache: dict[str, pl.DataFrame] = {}
+    found: list[tuple[str, int, int]] = []
+    for report in reports:
+        lineups = list(report.team.lineup_keys)
+        for anomaly in report.anomalies:
+            if anomaly.rule != "stack":
+                continue
+            site = SITE_AREAS[anomaly.site]
+            for entry in anomaly.rounds:
+                demo = entry.map_demo_id
+                if demo not in cache:
+                    cache[demo] = pl.read_parquet(
+                        root / "parsed" / demo / "ticks.parquet"
+                    )
+                rows = cache[demo].filter(
+                    pl.col("lineup_key").is_in(lineups)
+                    & (pl.col("round_no") == entry.round_no)
+                    & (pl.col("side") == "CT")
+                    & (pl.col("sample_kind") == "time")
+                    & pl.col("is_alive").fill_null(False)
+                    & (pl.col("area") == site)
+                )
+                for point in entry.points:
+                    at_point = rows.filter(
+                        pl.col("sample_t_s") == point.sample_t_s
+                    )
+                    found.append(
+                        (demo, entry.round_no, at_point["player_id"].n_unique())
+                    )
+    return found

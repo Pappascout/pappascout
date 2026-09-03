@@ -10,13 +10,19 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from time import sleep
 
 import polars as pl
 import pytest
 
-from conftest import LEAGUE_DEMOS, has_temp_leftovers, require_demo
+from conftest import (
+    LEAGUE_DEMOS,
+    SITE_CLOUD,
+    has_temp_leftovers,
+    require_demo,
+)
 from pappascout.archive.manifest import Manifest, ManifestInput
 from pappascout.archive.paths import ArchivePaths
 from pappascout.cli import _render_aggregate
@@ -38,6 +44,7 @@ from test_aggregate import (
     TEAM,
     TEAM_CLAN,
     aggregate_settings,
+    callouts_frame,
     classified_frame,
     classified_row,
     death_row,
@@ -73,6 +80,7 @@ def build_archive(
     player_names: bool = True,
     bench_player: str | None = None,
     map_names: dict[str, str | None] | None = None,
+    callouts: dict[str, Sequence[tuple[str, int, int, int]]] | None = None,
 ) -> ArchivePaths:
     """Rakenna arkisto, jossa on annetut demot annettujen kokoonpanojen alla.
 
@@ -99,6 +107,10 @@ def build_archive(
             otsikossa ole nimeä (``None``), jolloin nimi päätellään
             tunnisteesta kuten ennen Story 2.11:tä -- niin vanhat testit
             mittaavat yhä päättelyä ja uudet havaintoa.
+        callouts: ``map_demo_id -> pistepilven ruudut``. Oletus on **tyhjä
+            pilvi**, jolloin siteryhmiä ei saada ja stack vaikenee -- niin
+            vanhat testit mittaavat yhä sitä, mitä ne mittasivat ennen Story
+            2.14:ää. Ruutu on ``(alue, cell_x, cell_y, cell_z)``.
     """
     archive = ArchivePaths(root=tmp_path / "arkisto")
     for demo, lineup in demos.items():
@@ -234,6 +246,9 @@ def build_archive(
         rounds_table.write_parquet(archive.parsed_table(demo, "rounds"))
         match_frame(demo, (map_names or {}).get(demo)).write_parquet(
             archive.parsed_table(demo, "match")
+        )
+        callouts_frame(demo, (callouts or {}).get(demo, ())).write_parquet(
+            archive.parsed_table(demo, "callouts")
         )
     return archive
 
@@ -578,7 +593,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # Literaali eikä vakio: vakioon vertaaminen olisi tautologia --
     # koodi kirjoitti arvon juuri siitä vakiosta. Kun versio nousee,
     # tämän rivin PITÄÄ kaatua, jotta nosto on tietoinen.
-    assert data["schema_version"] == "7.0.0"
+    assert data["schema_version"] == "8.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -638,7 +653,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "7.0.0"
+    assert read_report(archive).schema_version == "8.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -1784,10 +1799,14 @@ def test_the_run_output_names_the_anomalies_and_the_coverage(
     assert "Poikkeamat" in text
     assert "ct_advance de_nuke CT eco: Lobby 2 pelaajaa (1/3)" in text
     assert (
-        "säännöt ct_advance, crunch ajettiin 3 kierrokselle -- crunch voi "
-        "osua 3 ja eteneminen 3"
+        "säännöt ct_advance, crunch, stack ajettiin 3 kierrokselle -- crunch "
+        "voi osua 3, eteneminen 3 ja stack 0"
     ) in text
-    assert "ajamatta stack" in text
+    # Lykättyjä sääntöjä ei enää ole, joten lause ei kuulu tulosteeseen.
+    # Stackin nolla ei ole "ajamatta" vaan vaiennettu demo, ja se sanotaan
+    # omana lukunaan -- muuten käyttäjä etsisi puuttuvaa toteutusta.
+    assert "ajamatta" not in text
+    assert "ilman siteryhmiä 1 demoa: Nuke_vs_a" in text
 
 
 def test_the_run_output_says_when_a_demo_has_no_orientation(
@@ -1811,9 +1830,77 @@ def test_a_demo_without_anomalies_writes_an_empty_list(tmp_path: Path) -> None:
     run(archive)
     report = read_report(archive)
     assert report.anomalies == []
-    assert report.anomaly_scan.rules == ["ct_advance", "crunch"]
-    assert report.anomaly_scan.rules_deferred == ["stack"]
+    assert report.anomaly_scan.rules == ["ct_advance", "crunch", "stack"]
+    assert report.anomaly_scan.rules_deferred == []
     assert report.anomaly_scan.demos_without_orientation == ["Nuke_vs_a"]
+    # Kaksi sokeaa pistettä, kaksi eri syytä: orientaatiota ei saatu (kaksi
+    # aluetta, kolme havaintoa) eikä siteryhmiä (oletuspilvi on tyhjä).
+    # Kumpikaan ei ole mitattu negatiivinen.
+    assert report.anomaly_scan.demos_without_site_groups == ["Nuke_vs_a"]
+    assert report.anomaly_scan.stack_rounds == 0
+
+
+def stack_ticks(demo: str, round_no: int) -> list[dict[str, object]]:
+    """Neljä CT-pelaajaa B:n ryhmässä, viides A:lla -- yksi näytepiste."""
+    areas = ("BombsiteB", "BombsiteB", "SideEntrance", "Ramp", "BombsiteA")
+    return [
+        tick_row(demo, round_no, f"{TEAM}-p{i}", area, side="CT", sample_t_s=15.0)
+        for i, area in enumerate(areas)
+    ]
+
+
+def test_the_stage_reads_the_point_cloud_and_finds_the_stack(
+    tmp_path: Path,
+) -> None:
+    """Koko ketju vaiheesta raporttiin: callouts.parquet -> siteryhmät -> rivi.
+
+    Tämä on ainoa hermeettinen testi, joka todistaa **taulun lukemisen**:
+    domainin testit antavat pilven suoraan, ja kalibrointitestit ohittavat
+    itsensä koneella, jolla arkistoa ei ole.
+    """
+    demo = "Ancient_vs_a"
+    archive = build_archive(
+        tmp_path, {demo: TEAM}, rounds=2, callouts={demo: SITE_CLOUD}
+    )
+    classified_frame(eco_ct_rounds(demo)).write_parquet(
+        archive.classified(TEAM, demo)
+    )
+    ticks_frame(stack_ticks(demo, 1)).write_parquet(
+        archive.parsed_table(demo, "ticks")
+    )
+    result = run(archive)
+    report = read_report(archive)
+    stacks = [a for a in report.anomalies if a.rule == "stack"]
+    assert len(stacks) == 1
+    assert (stacks[0].area, stacks[0].site) == ("BombsiteB", "B")
+    assert stacks[0].rounds[0].players_max == 4
+    assert stacks[0].rounds[0].points[0].alive == 5
+    assert report.anomaly_scan.demos_without_site_groups == []
+    assert report.anomaly_scan.stack_rounds == report.anomaly_scan.crunch_rounds
+    # Ajon tuloste kertoo saman murtolukuna: "4 pelaajaa" yksin olisi juuri
+    # se luku, jonka merkityksettömyys on koko säännön väite.
+    assert (
+        "stack de_ancient CT eco: BombsiteB 4/5 pelaajaa (1/3)"
+        in _render_aggregate(result)
+    )
+
+
+def test_a_demo_without_the_callouts_table_is_reported_missing(
+    tmp_path: Path,
+) -> None:
+    """Puuttuva taulu on puute, ei vaiennettu kartta.
+
+    Ero on koko kattavuuden arvo: vaiennettu demo on havainto kartasta,
+    puuttuva taulu on vanhalla versiolla parsittu demo. Hiljaisena
+    jälkimmäinen lukisi kattavuudessa edellisenä.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM, "Anubis_vs_b": TEAM})
+    archive.parsed_table("Anubis_vs_b", "callouts").unlink()
+    result = run(archive)
+    report = read_report(archive)
+    assert [m.match for m in report.missing_demos] == ["Anubis_vs_b"]
+    assert "callouts.parquet" in report.missing_demos[0].reason
+    assert result.status == "ok"
 
 
 #: Jokaiselle poikkeamakynnykselle **kelvollinen** muutos oletuksesta.
@@ -1833,6 +1920,12 @@ ANOMALY_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
         "crunch_min_sources",
         {"crunch_min_players": 3, "crunch_min_sources": 3},
     ),
+    # Stackin kolme (Story 2.14). Kaksi jälkimmäistä eivät muuta sääntöä vaan
+    # sen SYÖTETTÄ -- siteryhmät demon pistepilvestä -- ja juuri siksi ne
+    # unohtuisivat hashista helpoimmin.
+    ("stack_min_players", {"stack_min_players": 5}),
+    ("stack_group_margin", {"stack_group_margin": 1.5}),
+    ("stack_site_separation_min", {"stack_site_separation_min": 3.0}),
 )
 
 
@@ -1879,7 +1972,7 @@ def test_every_hashed_anomaly_threshold_has_a_runtime_case() -> None:
     hashed = {
         key
         for key in aggregate_stage.HASHED_THRESHOLD_KEYS
-        if key.startswith(("advance_", "crunch_"))
+        if key.startswith(("advance_", "crunch_", "stack_"))
     }
     covered = {name for name, _ in ANOMALY_THRESHOLD_CHANGES}
     assert hashed == covered

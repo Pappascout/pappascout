@@ -647,6 +647,13 @@ def test_threshold_values(settings_file: Path) -> None:
     assert t.advance_min_players == 1
     assert t.crunch_min_players == 2
     assert t.crunch_min_sources == 2
+    # Stackin kolme kynnystä (Story 2.14), sama peruste: jokainen on mitattu
+    # kahdeksalla demolla (``kalibrointi-stack.md``). Neljä on kalibroitu ja
+    # kolme ei; 1,25 tuottaa Ancientilla saman aluejaon kaikista kolmesta
+    # demosta; 2,0 erottaa Nuken (0,47-0,54) muista kartoista (3,70-5,04).
+    assert t.stack_min_players == 4
+    assert t.stack_group_margin == 1.25
+    assert t.stack_site_separation_min == 2.0
 
 
 @pytest.mark.parametrize(
@@ -716,7 +723,8 @@ def test_a_single_crunch_source_is_refused() -> None:
 
 
 @pytest.mark.parametrize(
-    "key", ["advance_min_players", "crunch_min_players"]
+    "key",
+    ["advance_min_players", "crunch_min_players", "stack_min_players"],
 )
 def test_an_anomaly_player_minimum_above_the_server_is_refused(key: str) -> None:
     """Kuusi pelaajaa alueella ei ole tiukempi kynnys vaan mahdoton ehto.
@@ -727,6 +735,79 @@ def test_an_anomaly_player_minimum_above_the_server_is_refused(key: str) -> None
     """
     with pytest.raises(ValidationError, match="kentällä olevien"):
         ThresholdSettings(pistol_rounds=[1, 13], **{key: 6})
+
+
+def test_five_defenders_is_a_valid_stack_threshold() -> None:
+    """Viisi on säännön aito ääripää eikä mahdoton ehto.
+
+    Mitattuna ``stack_min_players = 5`` antaa 2 kierrosta 66:sta, joten
+    vartija ei saa hylätä sitä -- kuusi puolustajaa on eri asia.
+    """
+    limits = ThresholdSettings(pistol_rounds=[1, 13], stack_min_players=5)
+    assert limits.stack_min_players == 5
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Alaraja on 1,0: sitä pienemmällä "lähempi" site voisi olla kauempana.
+        0.99,
+        0.0,
+        -1.0,
+        # Yläraja torjuu arvon, jolla jokainen muu alue putoaisi ryhmättömäksi.
+        10.01,
+        float("inf"),
+        float("nan"),
+    ],
+)
+def test_an_impossible_group_margin_is_refused(value: float) -> None:
+    """Marginaalin rajat ovat **mallissa** eivätkä vain säännössä.
+
+    Sama ehto on kirjoitettu kahdesti (pydantic ja ``site_groups``in
+    ValueError), koska sääntö on julkinen funktio eikä näe asetuksia. Ilman
+    tätä testiä vain domain-kopio olisi todistettu -- ja asetustiedostosta
+    tuleva arvo menisi läpi.
+    """
+    with pytest.raises(ValidationError):
+        ThresholdSettings(pistol_rounds=[1, 13], stack_group_margin=value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Alaraja on yli 0: nollalla vartija ei vaientaisi yhtäkään karttaa.
+        0.0,
+        -1.0,
+        # Yläraja: mitattu maksimi on 5,04, joten yli 20 vaientaisi kaikki.
+        20.01,
+        float("inf"),
+        float("nan"),
+    ],
+)
+def test_an_impossible_site_separation_is_refused(value: float) -> None:
+    """Erottuvuuskynnyksellä on katto samasta syystä kuin marginaalilla.
+
+    Kynnyksen nostaminen ei tiukenna sääntöä vaan hiljentää sen: liian
+    suurella arvolla jokainen kartta vaikenee, ja raportti väittäisi "ei
+    stackeja" havaintona vaikka yhtäkään demoa ei tutkittu.
+    """
+    with pytest.raises(ValidationError):
+        ThresholdSettings(
+            pistol_rounds=[1, 13], stack_site_separation_min=value
+        )
+
+
+def test_the_measured_stack_thresholds_are_inside_their_bounds() -> None:
+    """Vartijan toinen suunta: mitatut arvot kelpaavat."""
+    limits = ThresholdSettings(
+        pistol_rounds=[1, 13],
+        stack_group_margin=1.0,
+        stack_site_separation_min=20.0,
+    )
+    assert (limits.stack_group_margin, limits.stack_site_separation_min) == (
+        1.0,
+        20.0,
+    )
 
 
 def test_a_player_minimum_is_measured_against_the_server_not_the_roster() -> None:

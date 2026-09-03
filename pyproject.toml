@@ -33,5 +33,6 @@ build-backend = "uv_build"
 testpaths = ["tests"]
 markers = [
     "demo: vaatii oikean demotiedoston; ohittaa itsensa siististi jos tiedostoa ei ole",
+    "archive: vaatii parsitun arkiston (parsed/, classified/) muttei demotiedostoa; lukee vain, ei kirjoita; ohittaa itsensa siististi",
 ]
 addopts = ["--strict-markers"]

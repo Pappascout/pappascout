@@ -92,6 +92,7 @@ from pappascout.domain.report import (
     MAP_NAME_SOURCES,
     SLUG_FALLBACK,
     Anomaly,
+    AnomalyPoint,
     AnomalyRound,
     AnomalyScan,
     AreaDistribution,
@@ -1292,6 +1293,7 @@ def anomalies_for(
     by_map: Mapping[str, Sequence[str]],
     map_sources: Mapping[str, str],
     area_orientation: Mapping[str, Mapping[str | None, sampling.AreaObservations]],
+    point_clouds: Mapping[str, Sequence[sampling.CloudCell]],
     thresholds: ThresholdSettings,
 ) -> tuple[list[Anomaly], AnomalyScan]:
     """Poikkeavat asetelmat kaikilta kartoilta ja puolilta yhtenä listana.
@@ -1303,17 +1305,25 @@ def anomalies_for(
 
     **Ryhmittelyavain on sääntökohtainen.** ``ct_advance`` ryhmitellään
     ``(kartta, puoli, kierrostyyppi, alue)``, koska se on säästökierrosten
-    ilmiö ja kierrostyyppi on osa havaintoa. ``crunch`` ryhmitellään
-    ``(kartta, puoli, alue)`` **ilman kierrostyyppiä**: sääntö ei tunne sitä,
-    ja jakaminen eco-riviksi ja default-riviksi antaisi samalle kuviolle kaksi
-    eri jakajaa eikä lukija näkisi kokonaismäärää -- eli luku toistaisi
-    sisällään juuri sen hajanaisuuden, jonka poistamiseksi se tehtiin.
+    ilmiö ja kierrostyyppi on osa havaintoa. ``crunch`` ja ``stack``
+    ryhmitellään ``(kartta, puoli, alue)`` **ilman kierrostyyppiä**: kumpikaan
+    ei tunne sitä, ja jakaminen eco-riviksi ja default-riviksi antaisi samalle
+    kuviolle kaksi eri jakajaa eikä lukija näkisi kokonaismäärää -- eli luku
+    toistaisi sisällään juuri sen hajanaisuuden, jonka poistamiseksi se
+    tehtiin.
 
     ``n`` on niiden **kierrosten** määrä, joilla osuma havaittiin: sama alue
     kahdella eco-kierroksella on yksi rivi otannalla ``2/m``, ei kaksi riviä,
     eikä sama kierros kahdella näytepisteellä nosta ``n``:ää kahteen. ``m`` on
     ryhmittelytason kaikki kierrokset -- etenemisellä kierrostyypin, crunchilla
-    puolen.
+    ja stackilla puolen.
+
+    **Siteryhmät johdetaan kerran demoa kohden**, ei kerran kierrosta kohden
+    kuten orientaation kynnyssuodatus. Ero on mitattu: pistepilvessä on
+    tuhansia ruutuja ja johtaminen lajittelee ne, kun taas orientaation
+    suodatus on kymmeniä sanakirjahakuja. Demon oma pilvi on demokohtainen
+    vakio, joten kerran laskettu tulos on täsmälleen sama -- ja se on
+    laskettava joka tapauksessa myös kattavuutta varten.
 
     Args:
         rows: Luokitellut kierrokset, joilla **on** kierrostyyppi. Tämä on
@@ -1334,7 +1344,15 @@ def anomalies_for(
             **suodattamattomasta** näytepistetaulusta. Argumentti eikä
             johdos: subjektin riveillä laskettuna jokainen tosi positiivinen
             katoaa, koska poikkeama syö oman havaitsemisensa.
-        thresholds: ``[thresholds]``-osio. Siitä luetaan kuusi
+        point_clouds: ``map_demo_id`` -> demon ``CALLOUT_CLOUD``-ruudut.
+            Stackin siteryhmät johdetaan tästä
+            (:func:`~pappascout.domain.sampling.site_groups`). Sama lukittu
+            ehto kuin orientaatiolla: **demon oma havainto**, ei
+            karttatietokantaa eikä arkiston yli kertyvää taulua. Pilvi ei ole
+            suodatettu joukkueen kokoonpanoihin eikä sitä saa suodattaa:
+            kartta on siellä missä on, riippumatta siitä kumpi joukkue on
+            subjekti.
+        thresholds: ``[thresholds]``-osio. Siitä luetaan yhdeksän
             poikkeamakynnystä ja ``small_sample_rounds``.
 
     Returns:
@@ -1345,12 +1363,13 @@ def anomalies_for(
 
     Raises:
         AggregateError: Jos jonkin mukaan otetun kierroksen demo puuttuu
-            ``area_orientation``ista **kokonaan**. Puuttuva avain on eri asia
-            kuin tyhjä orientaatio: edellinen tarkoittaa, että kutsuja jätti
-            demon pois, ja hiljainen oletus vaientaisi säännöt juuri sillä
-            demolla ilman että mikään kertoisi siitä. Tyhjä orientaatio sen
-            sijaan on kelvollinen havainto, ja se kirjataan kattavuuteen
-            (``demos_without_orientation``).
+            ``area_orientation``ista tai ``point_clouds``ista **kokonaan**.
+            Puuttuva avain on eri asia kuin tyhjä orientaatio tai vaiennettu
+            pilvi: edellinen tarkoittaa, että kutsuja jätti demon pois, ja
+            hiljainen oletus vaientaisi säännöt juuri sillä demolla ilman että
+            mikään kertoisi siitä. Tyhjä orientaatio ja ryhmätön pilvi sen
+            sijaan ovat kelvollisia havaintoja, ja ne kirjataan kattavuuteen
+            (``demos_without_orientation``, ``demos_without_site_groups``).
     """
     # Rivit ja näytepisteet jaetaan **kertaalleen**. Aiempi versio suodatti
     # koko rivilistan uudelleen joka (kartta, puoli, kierrostyyppi)
@@ -1368,9 +1387,35 @@ def anomalies_for(
         for demo in demos:
             map_of_demo[demo] = map_name
 
+    # Siteryhmät demoa kohden **kerran**: demo -> (alue -> "A"|"B") tai None,
+    # kun kartalla ei ole tasoerottuvaa A/B-jakoa. ``None`` ja tyhjä kuvaus
+    # ovat eri vastauksia, joten arvo säilytetään sellaisenaan eikä
+    # normalisoida kumpaakaan toiseksi.
+    #
+    # Silmukka käy ``rows``in demot eikä ``point_clouds``in avaimet: kattavuus
+    # lasketaan siitä, mitkä demot otettiin mukaan, eikä siitä mitä pilviä
+    # kutsuja sattui antamaan.
+    groups_by_demo: dict[str, dict[str, str] | None] = {}
+    for demo in {str(row["map_demo_id"]) for row in rows}:
+        if demo not in point_clouds:
+            raise AggregateError(
+                f"Demon {demo} pistepilveä ei annettu, joten stack-sääntöä ei "
+                "voi ajaa sille.\n"
+                "Pilvi on demon oma havainto (parsed/<demo>/callouts.parquet) "
+                "ja siitä johdetaan siteryhmät. Puuttuva avain tarkoittaa, "
+                "että aggregointi jätti demon pois -- ei sitä, että demolla "
+                "ei olisi pilveä. Hiljainen oletus vaientaisi säännön juuri "
+                "sillä demolla."
+            )
+        groups_by_demo[demo] = sampling.site_groups(
+            point_clouds[demo],
+            margin=thresholds.stack_group_margin,
+            separation_min=thresholds.stack_site_separation_min,
+        )
+
     # (kartta, puoli) -> kierrostyyppi -> kierrosrivit. Yksi jako, josta sekä
-    # etenemisen (kierrostyyppi mukana) että crunchin (kierrostyyppi pois)
-    # nimittäjä on luettavissa.
+    # etenemisen (kierrostyyppi mukana) että crunchin ja stackin
+    # (kierrostyyppi pois) nimittäjä on luettavissa.
     branches: defaultdict[
         tuple[str, str], defaultdict[str, list[Mapping[str, Any]]]
     ] = defaultdict(lambda: defaultdict(list))
@@ -1389,7 +1434,7 @@ def anomalies_for(
         branches[(map_name, str(row["side"]))][str(row["round_type"])].append(row)
 
     hits_by_round = _rule_hits(
-        rows, ticks_by_round, area_orientation, thresholds
+        rows, ticks_by_round, area_orientation, groups_by_demo, thresholds
     )
 
     anomalies: list[Anomaly] = []
@@ -1399,7 +1444,7 @@ def anomalies_for(
         source = map_sources.get(map_name, "unknown")
         # Eteneminen ensin: sen nimittäjä on kapeampi, joten lukija näkee
         # ensin kierrostyyppikohtaisen havainnon ja sitten koko puolen
-        # crunchin. Järjestys on sama ajosta toiseen.
+        # crunchin ja stackin. Järjestys on sama ajosta toiseen.
         for round_type in ROUND_TYPES:
             type_rows = by_type.get(round_type)
             if not type_rows:
@@ -1415,22 +1460,43 @@ def anomalies_for(
                     thresholds=thresholds,
                 )
             )
-        anomalies.extend(
-            _grouped_anomalies(
-                side_rows,
-                hits_by_round,
-                rule=sampling.CRUNCH,
-                map_name=map_name,
-                map_name_source=source,
-                side=side,
-                thresholds=thresholds,
+        # Crunch ja stack jakavat nimittäjän MUODON (puolen kaikki
+        # kierrokset) muttei sen sisältöä: crunch lukee alueen orientaation ja
+        # saapumisen suunnat, stack ei kumpaakaan.
+        #
+        # **Stackin nimittäjästä putoavat vaiennetun demon kierrokset.**
+        # Kartalla voi olla kaksi demoa (Story 2.11), joista toiselta ei saatu
+        # siteryhmiä; ne kierrokset ovat crunchin nimittäjässä mutta eivät
+        # stackin, koska sääntö ei nähnyt niitä. Sama rajaus kuin
+        # kattavuusluvussa ``stack_rounds`` -- ja ilman sitä rivin ``n/m``
+        # kertoisi eri kattavuudesta kuin luvun oma kattavuusteksti.
+        stack_rows = [
+            row
+            for row in side_rows
+            if groups_by_demo.get(str(row["map_demo_id"])) is not None
+        ]
+        for rule, branch_rows in (
+            (sampling.CRUNCH, side_rows),
+            (sampling.STACK, stack_rows),
+        ):
+            if not branch_rows:
+                continue
+            anomalies.extend(
+                _grouped_anomalies(
+                    branch_rows,
+                    hits_by_round,
+                    rule=rule,
+                    map_name=map_name,
+                    map_name_source=source,
+                    side=side,
+                    thresholds=thresholds,
+                )
             )
-        )
 
     # Kattavuus lasketaan siitä, mitä sääntö VOI tutkia, ei siitä montako
-    # kierrosta silmukka kävi läpi. Molemmat säännöt lukevat vain
+    # kierrosta silmukka kävi läpi. Kaikki kolme sääntöä lukevat vain
     # ``sampling.RULE_SIDE``-rivejä, joten T-puolen kierros ei voi tuottaa
-    # osumaa kummallakaan -- ja pelkkä kierrosten kokonaismäärä lupaisi
+    # osumaa yhdelläkään -- ja pelkkä kierrosten kokonaismäärä lupaisi
     # kattavuutta, jota ei ole (mitattu: RCAVEn 92 kierroksesta 45 on CT ja
     # niistä 8 säästökierrosta, joten eteneminen näki 8 eikä 92).
     crunch_rounds = sum(
@@ -1442,6 +1508,16 @@ def anomalies_for(
         if str(row["side"]) == sampling.RULE_SIDE
         and str(row["round_type"]) in SAVING_ROUND_TYPES
     )
+    # Stackin nimittäjä EI OLE crunchin nimittäjä, vaikka kumpikaan ei rajaa
+    # kierrostyyppiä: vaiennetun demon (siteet eivät erotu) CT-kierrokset ovat
+    # crunchin nimittäjässä mutta eivät stackin. Ilman omaa lukua Nuken 27
+    # kierrosta näyttäisivät tutkituilta nollatuloksella.
+    stack_rounds = sum(
+        1
+        for row in rows
+        if str(row["side"]) == sampling.RULE_SIDE
+        and groups_by_demo.get(str(row["map_demo_id"])) is not None
+    )
     blind = sorted(
         demo
         for demo in {str(row["map_demo_id"]) for row in rows}
@@ -1451,13 +1527,21 @@ def anomalies_for(
             min_observations=thresholds.advance_area_min_observations,
         )
     )
+    # Vaiennetut demot: ``None`` eikä tyhjä kuvaus. Tyhjä kuvaus tarkoittaa
+    # "kartalla on A/B-jako, mutta yksikään alue ei ole kummankaan puolella"
+    # -- se on havainto, ei sokea piste, ja sillä demolla sääntö AJETTIIN.
+    without_groups = sorted(
+        demo for demo, groups in groups_by_demo.items() if groups is None
+    )
     scan = AnomalyScan(
         rules=list(ANOMALY_RULES),
         rules_deferred=list(ANOMALY_RULES_DEFERRED),
         rounds_scanned=len(rows),
         crunch_rounds=crunch_rounds,
         advance_rounds=advance_rounds,
+        stack_rounds=stack_rounds,
         demos_without_orientation=blind,
+        demos_without_site_groups=without_groups,
     )
     return anomalies, scan
 
@@ -1466,15 +1550,16 @@ def _rule_hits(
     rows: Sequence[Mapping[str, Any]],
     ticks_by_round: Mapping[RoundKey, Sequence[Mapping[str, Any]]],
     area_orientation: Mapping[str, Mapping[str | None, sampling.AreaObservations]],
+    groups_by_demo: Mapping[str, Mapping[str, str] | None],
     thresholds: ThresholdSettings,
 ) -> dict[RoundKey, list[sampling.AnomalyHit]]:
-    """Molempien sääntöjen osumat kierros kerrallaan, kertaalleen laskettuna.
+    """Kaikkien kolmen säännön osumat kierros kerrallaan, kertaalleen laskettuna.
 
     Säännöt ajetaan **kierrosta kohden kerran**, ei kerran ryhmittelytasoa
-    kohden: crunchin nimittäjä on puoli ja etenemisen kierrostyyppi, joten
-    sama kierros kuuluu kahteen tasoon. Ilman tätä välivaihetta jokainen
-    kierros ajettaisiin kahdesti ja säännöt voisivat -- kahden eri
-    kutsupaikan kautta -- saada eri kynnykset.
+    kohden: crunchin ja stackin nimittäjä on puoli ja etenemisen
+    kierrostyyppi, joten sama kierros kuuluu kahteen tasoon. Ilman tätä
+    välivaihetta jokainen kierros ajettaisiin kahdesti ja säännöt voisivat --
+    kahden eri kutsupaikan kautta -- saada eri kynnykset.
 
     **Orientaation kynnyssuodatus toistuu yhä kierrosta ja sääntöä kohden**,
     vaikka tulos on demokohtainen vakio: sääntö saa speksin mukaan
@@ -1522,6 +1607,16 @@ def _rule_hits(
             max_sample_s=thresholds.advance_max_sample_s,
             min_players=thresholds.crunch_min_players,
             min_sources=thresholds.crunch_min_sources,
+        ) + sampling.stack_hits(
+            presences,
+            # ``None`` (siteet eivät erotu) vaientaa säännön, ja se on eri
+            # asia kuin puuttuva avain: puuttuva avain nostaa virheen jo
+            # ``anomalies_for``issa, koska se tarkoittaisi että demo jäi
+            # kutsujalta pois.
+            groups=groups_by_demo[demo],
+            # Aikaraja on kaikkien kolmen säännön YHTEINEN eikä stackin oma.
+            max_sample_s=thresholds.advance_max_sample_s,
+            min_players=thresholds.stack_min_players,
         )
     return found
 
@@ -1570,22 +1665,34 @@ def _grouped_anomalies(
 
 @dataclass
 class _RoundTally:
-    """Yhden kierroksen kertymä: näytepisteet, suunnat ja pelaajamäärä.
+    """Yhden kierroksen kertymä: näytepisteet havaintoineen ja suunnat.
 
     Suunnat kerätään **kierroksen sisällä**, koska vain siellä ne ovat
     yhtäaikaisia. Kahden kierroksen yhdiste lukisi useammaksi samanaikaiseksi
     suunnaksi kuin havaittiin.
+
+    **Pelaajamäärä ei ole yhtäaikainen edes kierroksen sisällä.** Yksi maksimi
+    ja luettelo näytepisteitä latoi raporttiin maksimin jokaiselle pisteelle
+    -- mitattuna MatureMayhem Inferno k2 on 15 s kohdalla viisi pelaajaa ja
+    30 s kohdalla yksi, mutta rivi luki "5 pelaajaa 15 ja 30 s kohdalla".
+    Siksi luku on näytepisteen omalla rivillä eikä kierroksen yhteenvedossa.
     """
 
     round_type: str
-    seconds: set[float] = field(default_factory=set)
+    #: Näytepiste -> (pelaajat, elossa). Sanakirja eikä lista: sama sääntö
+    #: tuottaa yhdelle alueelle enintään yhden osuman per näytepiste, joten
+    #: avain on yksikäsitteinen ja järjestys tulee lajittelusta.
+    points: dict[float, tuple[int, int | None]] = field(default_factory=dict)
     sources: set[str] = field(default_factory=set)
-    players_max: int = 0
 
     def add(self, hit: sampling.AnomalyHit) -> None:
-        self.seconds.add(hit.sample_t_s)
+        self.points[hit.sample_t_s] = (hit.players, hit.alive)
         self.sources.update(hit.sources)
-        self.players_max = max(self.players_max, hit.players)
+
+    @property
+    def players_max(self) -> int:
+        """Suurin pelaajamäärä kierroksella; rivin ``players_max``in lähde."""
+        return max(players for players, _ in self.points.values())
 
 
 @dataclass
@@ -1600,8 +1707,13 @@ class _AnomalyTally:
     rounds: dict[RoundKey, _RoundTally] = field(default_factory=dict)
     #: Demo -> alueen orientaatio siinä demossa. Kartta voi olla kahdesta
     #: demosta (Story 2.11), ja niiden T-osuudet voivat erota -- yksi luku
-    #: pakottaisi valitsemaan keskiarvon, jota ei ole havaittu.
+    #: pakottaisi valitsemaan keskiarvon, jota ei ole havaittu. **Tyhjä
+    #: stackilla**: sääntö ei lue orientaatiota, joten sillä ei ole sitä
+    #: kirjattavaksi.
     orientation: dict[str, tuple[float, int]] = field(default_factory=dict)
+    #: Siten ryhmä. Vain stackilla; kaikki saman alueen osumat ovat samasta
+    #: ryhmästä, koska alue **on** ryhmän oma site.
+    site: str | None = None
 
     def add(
         self, key: RoundKey, round_type: str, hit: sampling.AnomalyHit
@@ -1611,7 +1723,10 @@ class _AnomalyTally:
             entry = _RoundTally(round_type=round_type)
             self.rounds[key] = entry
         entry.add(hit)
-        self.orientation[key[0]] = (hit.t_share, hit.observations)
+        if hit.t_share is not None and hit.observations is not None:
+            self.orientation[key[0]] = (hit.t_share, hit.observations)
+        if hit.site is not None:
+            self.site = hit.site
 
     def to_anomaly(
         self,
@@ -1629,8 +1744,14 @@ class _AnomalyTally:
                 map_demo_id=demo,
                 round_no=round_no,
                 round_type=entry.round_type,
-                seconds=sorted(entry.seconds),
-                players_max=entry.players_max,
+                points=[
+                    AnomalyPoint(
+                        sample_t_s=seconds, players=players, alive=alive
+                    )
+                    for seconds, (players, alive) in sorted(
+                        entry.points.items()
+                    )
+                ],
                 sources=sorted(entry.sources),
             )
             for (demo, round_no), entry in sorted(self.rounds.items())
@@ -1642,6 +1763,7 @@ class _AnomalyTally:
             map_name_source=map_name_source,
             side=side,
             area=area,
+            site=self.site,
             round_types=[name for name in ROUND_TYPES if name in types],
             rounds=rounds,
             orientation=[
@@ -1818,6 +1940,7 @@ def build_report(
     map_pool: Sequence[str],
     map_names: Mapping[str, str | None],
     area_orientation: Mapping[str, Mapping[str | None, sampling.AreaObservations]],
+    point_clouds: Mapping[str, Sequence[sampling.CloudCell]],
     generated_at: datetime,
     tool_versions: Mapping[str, str] | None = None,
     missing_demos: Sequence[MissingDemo] = (),
@@ -1881,6 +2004,14 @@ def build_report(
             ``build_report`` näkee vain subjektin rivit, ja koko taulun
             antaminen tänne avaisi oven vastustajan lukujen vuotamiseen
             raporttiin.
+        point_clouds: ``map_demo_id`` -> demon ``CALLOUT_CLOUD``-ruudut, joista
+            stackin siteryhmät johdetaan. **Pakollinen eikä oletuksellinen**
+            samasta syystä kuin ``area_orientation``: tyhjä oletus vaientaisi
+            säännön jokaisella demolla ja kirjaisi sen kattavuuteen sokeana
+            pisteenä, joka on kutsujan unohdus eikä demon ominaisuus.
+            Jokaisen mukaan otetun demon on oltava kartassa; puuttuva avain
+            nostaa virheen, koska se on eri asia kuin pilvi, josta ryhmiä ei
+            saatu.
         generated_at: Ajon hetki.
         tool_versions: Työkaluversiot raportin omaan kenttään.
         missing_demos: Ottelut, joiden dataa ei ollut.
@@ -1976,7 +2107,13 @@ def build_report(
     # järjestys ei enää ratkaise virheilmoituksen sanamuotoa -- se ratkaisee
     # vain, kummasta rivistä se kertoo.
     anomalies, scan = anomalies_for(
-        played, tick_rows, by_map, map_sources, area_orientation, thresholds
+        played,
+        tick_rows,
+        by_map,
+        map_sources,
+        area_orientation,
+        point_clouds,
+        thresholds,
     )
 
     thresholds_used = {

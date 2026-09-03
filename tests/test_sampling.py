@@ -13,14 +13,18 @@ from __future__ import annotations
 
 import pytest
 
+from conftest import OVERLAPPING_SITE_CLOUD, SITE_CLOUD
 from pappascout.constants import SAMPLE_KINDS, SAVING_ROUND_TYPES
 from pappascout.domain.sampling import (
     CRUNCH,
     CT_ADVANCE,
     FIRST_CONTACT_SAMPLE,
+    STACK,
     TIME_SAMPLE,
+    AnomalyHit,
     AreaObservations,
     AreaPresence,
+    CloudCell,
     DamageEvent,
     RoundBounds,
     crunch_hits,
@@ -29,6 +33,8 @@ from pappascout.domain.sampling import (
     normalize_weapon,
     sample_ticks,
     seconds_since_freeze_end,
+    site_groups,
+    stack_hits,
     t_side_shares,
 )
 
@@ -870,3 +876,366 @@ def test_the_infernos_five_player_crunch_is_measured_as_five() -> None:
     assert len(hits) == 1
     assert hits[0].players == 5
     assert hits[0].sources == ("Arch", "TopofMid")
+
+
+# --- Stack (Story 2.14) ---------------------------------------------------------
+#
+# Sääntö ja sen johdettu syöte ovat samassa moduulissa, joten I/O-matriisin
+# jokainen rivi on täällä yhden funktiokutsun päässä -- ilman demoa, ilman
+# arkistoa. Kalibroinnin oikeat luvut ovat test_calibration.py:ssä.
+
+#: Pilvet ovat ``conftest``issa, koska sama geometria on kolmen tiedoston
+#: yhteinen: sääntö täällä, aggregointi ``test_aggregate``ssa ja vaihe
+#: ``test_stage_aggregate``ssa. Kolmesta kopiosta ne voisivat ajautua
+#: erilleen, eikä yksikään testi kertoisi siitä.
+CLOUD = SITE_CLOUD
+CLOUD_OVERLAPPING = OVERLAPPING_SITE_CLOUD
+
+MARGIN = 1.25
+SEPARATION_MIN = 2.0
+STACK_MIN_PLAYERS = 4
+
+
+def cloud(cells=CLOUD) -> list[CloudCell]:
+    return [CloudCell(area, x, y, z) for area, x, y, z in cells]
+
+
+def groups(cells=CLOUD) -> dict[str, str] | None:
+    return site_groups(
+        cloud(cells), margin=MARGIN, separation_min=SEPARATION_MIN
+    )
+
+
+def stack(
+    rows: list[AreaPresence],
+    *,
+    cells=CLOUD,
+    min_players: int = STACK_MIN_PLAYERS,
+):
+    return stack_hits(
+        rows,
+        groups=groups(cells),
+        max_sample_s=MAX_SAMPLE_S,
+        min_players=min_players,
+    )
+
+
+def test_the_site_groups_are_read_off_the_demos_own_point_cloud() -> None:
+    """Jokainen alue saa ryhmän lähemmästä sitestä -- tai ei kumpaakaan.
+
+    ``Middle`` on yhtä kaukana molemmista, joten se **puuttuu kuvauksesta**:
+    ryhmätön alue ei ole ``None``-arvo vaan puuttuva avain, jotta
+    ``groups.get(area)`` on yksiselitteinen.
+    """
+    found = groups()
+    assert found == {
+        "BombsiteA": "A",
+        "BombsiteB": "B",
+        "House": "A",
+        "CTSpawn": "A",
+        "SideEntrance": "B",
+        "Ramp": "B",
+        "TSpawn": "B",
+    }
+    assert "Middle" not in found
+
+
+def test_four_defenders_in_one_sites_group_are_a_stack() -> None:
+    """I/O-matriisin ensimmäinen rivi: 4 CT B-ryhmässä, yksi sitellä.
+
+    Osuma kertoo neljä asiaa: alueen (siten oman), pelaajamäärän, elossa
+    olevat ja näytepisteen. Alue on ``BombsiteB`` eikä ``SideEntrance``,
+    vaikka jälkimmäisellä on enemmän pelaajia: rivi nimeää **ryhmän
+    ankkurin**, ei sitä aluetta, jolla sattui olemaan tungosta.
+    """
+    rows = (
+        at(15.0, "BombsiteB", "ct1")
+        + at(15.0, "SideEntrance", "ct2", "ct3")
+        + at(15.0, "Ramp", "ct4")
+        + at(15.0, "House", "ct5")
+    )
+    hits = stack(rows)
+    assert len(hits) == 1
+    hit = hits[0]
+    assert hit.rule == STACK
+    assert hit.area == "BombsiteB"
+    assert hit.site == "B"
+    assert hit.players == 4
+    assert hit.alive == 5
+    assert hit.sample_t_s == 15.0
+    # Orientaatio ei koske stackia, ja tyhjä kenttä on se, joka pitää sen
+    # erossa kahdesta muusta säännöstä.
+    assert hit.t_share is None
+    assert hit.observations is None
+    assert hit.sources == ()
+
+
+def test_half_the_map_is_not_a_site() -> None:
+    """I/O-matriisin toinen rivi: ryhmässä neljä, mutta kukaan ei sitellä.
+
+    "Stack sitellä" tarkoittaa että ollaan sitellä, ei että ollaan kartan
+    siinä puoliskossa. Mitattu: ehto pudottaa 17 kierrosta -> 9.
+    """
+    rows = at(15.0, "SideEntrance", "ct1", "ct2") + at(
+        15.0, "Ramp", "ct3", "ct4"
+    )
+    assert stack(rows) == []
+
+
+def test_a_player_in_spawn_does_not_defend_a_site() -> None:
+    """I/O-matriisin kolmas rivi: kaksi spawnissa, kaksi jäljellä.
+
+    ``CTSpawn`` on tässä pilvessä A-ryhmässä, kuten Ancientilla. Ilman
+    spawnrajausta pelkkä aloitusasetelma laukaisisi säännön.
+    """
+    rows = at(15.0, "BombsiteA", "ct1", "ct2") + at(
+        15.0, "CTSpawn", "ct3", "ct4"
+    )
+    assert stack(rows) == []
+    # ``TSpawn`` on B-ryhmässä, ja sama rajaus koskee sitä: CT-pelaaja T:n
+    # spawnissa on jo eri havainto (ct_advance), ei stack.
+    b_side = at(15.0, "BombsiteB", "ct1", "ct2") + at(
+        15.0, "TSpawn", "ct3", "ct4"
+    )
+    assert stack(b_side) == []
+    # Vartijan toinen suunta: samat neljä pelaajaa ryhmän alueilla osuvat.
+    ok = at(15.0, "BombsiteA", "ct1", "ct2") + at(15.0, "House", "ct3", "ct4")
+    assert len(stack(ok)) == 1
+
+
+def test_a_map_whose_sites_do_not_separate_stays_silent() -> None:
+    """I/O-matriisin neljäs rivi: Nuken siteet ovat päällekkäin.
+
+    Vartija on **suhdeluku eikä karttalista**: mitään karttaa ei nimetä
+    koodissa, vaan siteiden etäisyys jaetaan siteiden omalla koolla.
+    Vaikeneminen on oikea vastaus -- ja se on kutsujan kirjattava
+    kattavuuteen.
+    """
+    assert groups(CLOUD_OVERLAPPING) is None
+    rows = at(15.0, "BombsiteA", "ct1", "ct2", "ct3", "ct4")
+    assert stack(rows, cells=CLOUD_OVERLAPPING) == []
+
+
+def test_the_dead_are_not_the_denominator() -> None:
+    """I/O-matriisin viides rivi: 4 elossa, kaikki ryhmässä -> 4/4.
+
+    Neljä viidestä on puolustuksen valinta, neljä neljästä on se mitä
+    jäljellä oli. Pelkkä pelaajamäärä ei erota niitä.
+    """
+    rows = (
+        at(15.0, "BombsiteB", "ct1", "ct2")
+        + at(15.0, "SideEntrance", "ct3", "ct4")
+        + at(15.0, "House", "ct5", alive=False)
+    )
+    hits = stack(rows)
+    assert len(hits) == 1
+    assert (hits[0].players, hits[0].alive) == (4, 4)
+
+
+def test_a_cloud_without_a_site_gives_no_groups() -> None:
+    """I/O-matriisin kuudes rivi: tyhjä pilvi tai puuttuva site.
+
+    Havainnon puuttuminen ei ole havainto jaon puuttumisesta, joten kumpikin
+    on ``None``.
+    """
+    assert groups(()) is None
+    assert groups((("BombsiteB", 100, 0, 0), ("House", 10, 0, 0))) is None
+
+
+def test_sites_without_a_size_of_their_own_are_silenced() -> None:
+    """Vartijan aukko: yhden ruudun siteillä suhde jakaisi nollalla.
+
+    Kahden ruudun pilvi ei kerro kartan siterakenteesta mitään, joten *mikä
+    tahansa* erotus läpäisisi kynnyksen -- eli vartija ei mittaisi enää
+    yhtään mitään. Demo, jonka pilvi on noin ohut, on rikki eikä
+    tasoerottuva.
+    """
+    assert groups(
+        (("BombsiteA", 0, 0, 0), ("BombsiteB", 100, 0, 0))
+    ) is None
+
+
+def test_two_sites_at_the_same_point_are_silenced() -> None:
+    """Kumpikaan ei olisi aidosti lähempänä yhtäkään aluetta."""
+    same = (
+        ("BombsiteA", 0, 0, 0),
+        ("BombsiteA", 2, 0, 0),
+        ("BombsiteA", -2, 0, 0),
+        ("BombsiteB", 0, 0, 0),
+        ("BombsiteB", 2, 0, 0),
+        ("BombsiteB", -2, 0, 0),
+    )
+    assert groups(same) is None
+
+
+def test_a_late_sample_point_is_outside_the_shared_time_bound() -> None:
+    """I/O-matriisin seitsemäs rivi: osuma vain 45 s kohdalla ei ole osuma.
+
+    Aikaraja on **yhteinen** kahden muun säännön kanssa
+    (``advance_max_sample_s``), ei stackin oma kynnys.
+    """
+    rows = at(45.0, "BombsiteB", "ct1", "ct2", "ct3", "ct4")
+    assert stack(rows) == []
+
+
+def test_the_player_threshold_comes_from_the_settings() -> None:
+    """Kynnys on luettu asetuksista eikä kovakoodattu.
+
+    Sama väite kuin hyväksymiskriteerissä ``stack_min_players = 5``, mutta
+    ilman demoja: neljän pelaajan asetelma katoaa, viiden ei.
+    """
+    four = at(15.0, "BombsiteB", "ct1", "ct2") + at(
+        15.0, "SideEntrance", "ct3", "ct4"
+    )
+    assert len(stack(four)) == 1
+    assert stack(four, min_players=5) == []
+    five = four + at(15.0, "Ramp", "ct5")
+    assert len(stack(five, min_players=5)) == 1
+
+
+def test_the_same_player_twice_does_not_raise_the_stack_count() -> None:
+    """Pelaajat ovat joukko: kaksoisrivi ei tee kolmesta neljää.
+
+    Sama vartija kuin etenemisellä ja crunchilla, ja samasta syystä:
+    pelaajamäärä on raportin luku.
+    """
+    rows = (
+        at(15.0, "BombsiteB", "ct1", "ct2", "ct3")
+        + at(15.0, "SideEntrance", "ct1")
+        + at(15.0, "Ramp", "ct2")
+    )
+    assert stack(rows) == []
+
+
+def test_stack_reads_only_alive_ct_time_rows() -> None:
+    """Kolme rajausta, jotka stack jakaa kahden muun säännön kanssa."""
+    site = "BombsiteB"
+    assert stack(at(15.0, site, "t1", "t2", "t3", "t4", side="T")) == []
+    assert stack(at(15.0, site, "c1", "c2", "c3", "c4", alive=False)) == []
+    assert (
+        stack(at(15.0, site, "c1", "c2", "c3", "c4", kind=FIRST_CONTACT_SAMPLE))
+        == []
+    )
+
+
+def test_two_sample_points_are_two_stack_hits_on_one_round() -> None:
+    """Osuma on **yhden näytepisteen** havainto, kuten kahdella muulla.
+
+    Ryhmittely otannaksi tehdään aggregoinnissa, ei täällä. Kalibroinnissa
+    Anubiksen k4 on juuri tämä tapaus: 15 s ja 30 s, 5/5 ja 4/5.
+    """
+    rows = (
+        at(15.0, "BombsiteB", "ct1", "ct2")
+        + at(15.0, "SideEntrance", "ct3", "ct4", "ct5")
+        + at(30.0, "BombsiteB", "ct1", "ct2", "ct3", "ct4")
+        + at(30.0, "House", "ct5")
+    )
+    hits = stack(rows)
+    assert [(h.sample_t_s, h.players, h.alive) for h in hits] == [
+        (15.0, 5, 5),
+        (30.0, 4, 5),
+    ]
+
+
+def test_the_group_margin_leaves_the_shared_middle_out() -> None:
+    """Marginaali on se, mikä tekee jaetusta keskestä jaetun.
+
+    ``Corner`` on 40 ruudun päässä A:sta ja 60:n päässä B:stä, eli suhde 1,5:
+    marginaalilla 1,0 se on A:n ryhmässä, marginaalilla 1,6 ei kummankaan.
+    ``Middle`` on tasan keskellä eikä kuulu kumpaankaan edes marginaalilla
+    1,0, koska kumpikaan site ei ole aidosti lähempi.
+    """
+    near_a = [CloudCell("Corner", 40, 0, 0), *cloud()]
+    loose = site_groups(near_a, margin=1.0, separation_min=SEPARATION_MIN)
+    tight = site_groups(near_a, margin=1.6, separation_min=SEPARATION_MIN)
+    assert loose is not None and tight is not None
+    assert loose["Corner"] == "A"
+    assert "Corner" not in tight
+    assert "Middle" not in loose
+
+
+def test_the_stack_thresholds_are_refused_when_they_would_break_the_rule() -> None:
+    """Kolme arvoa, jotka tekisivät säännöstä hiljaa jotain muuta."""
+    with pytest.raises(ValueError, match="alle 1,0"):
+        site_groups(cloud(), margin=0.9, separation_min=SEPARATION_MIN)
+    with pytest.raises(ValueError, match="ei ole positiivinen"):
+        site_groups(cloud(), margin=MARGIN, separation_min=0.0)
+    with pytest.raises(ValueError, match="ei ole positiivinen"):
+        stack_hits([], groups={}, max_sample_s=MAX_SAMPLE_S, min_players=0)
+
+
+def test_a_group_that_is_not_a_site_is_refused() -> None:
+    """Ryhmät tulevat ``site_groups``ista, eivät mistä tahansa kartasta."""
+    with pytest.raises(ValueError, match="tuntematon ryhmä"):
+        stack_hits(
+            at(15.0, "BombsiteB", "ct1"),
+            groups={"BombsiteB": "C"},
+            max_sample_s=MAX_SAMPLE_S,
+            min_players=1,
+        )
+
+
+def test_a_silenced_demo_looks_the_same_as_a_measured_negative_from_here() -> None:
+    """Vaiennettu demo ja mitattu negatiivinen ovat sama tyhjä lista.
+
+    Ero **ei ole** säännön palautusarvossa vaan kattavuudessa, ja juuri siksi
+    kutsujan on kirjattava vaikeneminen erikseen: täältä katsottuna Nuken
+    kierros ja "ei stackeja" näyttävät samalta.
+
+    Tyhjä ryhmäkuvaus on tässä **kutsujan oma arvo**, ei ``site_groups``in
+    tulos: siten etäisyys omaan keskipisteeseensä on 0, joten kumpikin site
+    kuuluu aina omaan ryhmäänsä eikä funktio voi palauttaa tyhjää
+    sanakirjaa. Sääntö silti kestää sen, koska se on julkinen.
+    """
+    rows = at(15.0, "BombsiteB", "ct1", "ct2", "ct3", "ct4")
+    assert (
+        stack_hits(rows, groups=None, max_sample_s=MAX_SAMPLE_S, min_players=4)
+        == []
+    )
+    assert (
+        stack_hits(rows, groups={}, max_sample_s=MAX_SAMPLE_S, min_players=4)
+        == []
+    )
+    # Ja väite siitä, ettei tyhjää kuvausta voi syntyä johtamalla.
+    assert groups() != {}
+
+
+def test_a_hit_cannot_carry_a_field_its_rule_did_not_measure() -> None:
+    """``AnomalyHit``in vartija molempiin suuntiin.
+
+    Sama peruste kuin ``sources``illa jo oli: kenttä kuuluu sille säännölle,
+    joka sen mittasi, koska raportin lukija näkee vain arvon eikä sen
+    lähdettä.
+    """
+    with pytest.raises(ValueError, match="ei kanna alueen orientaatiota"):
+        AnomalyHit(rule=CT_ADVANCE, area=T_AREA, sample_t_s=6.0, players=1)
+    with pytest.raises(ValueError, match="kantaa alueen orientaatiota"):
+        AnomalyHit(
+            rule=STACK,
+            area="BombsiteA",
+            sample_t_s=6.0,
+            players=4,
+            alive=5,
+            site="A",
+            t_share=0.9,
+            observations=30,
+        )
+    with pytest.raises(ValueError, match="kantaa stackin kenttiä"):
+        AnomalyHit(
+            rule=CRUNCH,
+            area=T_AREA,
+            sample_t_s=6.0,
+            players=2,
+            t_share=0.9,
+            observations=30,
+            alive=5,
+        )
+    with pytest.raises(ValueError, match="osajoukko elossa olevista"):
+        AnomalyHit(
+            rule=STACK,
+            area="BombsiteA",
+            sample_t_s=6.0,
+            players=5,
+            alive=4,
+            site="A",
+        )

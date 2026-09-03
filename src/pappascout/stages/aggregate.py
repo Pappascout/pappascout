@@ -121,6 +121,7 @@ from pappascout.domain.models import (
 )
 from pappascout.domain.report import (
     REPORT_SCHEMA_VERSION,
+    Anomaly,
     MissingDemo,
     Report,
     TeamReport,
@@ -128,9 +129,11 @@ from pappascout.domain.report import (
 from pappascout.domain.sampling import (
     TIME_SAMPLE,
     AreaObservations,
+    CloudCell,
     normalize_area,
 )
 from pappascout.domain.schemas import (
+    CALLOUT_CLOUD,
     CLASSIFIED,
     DEATHS,
     EVENTS,
@@ -539,7 +542,21 @@ def _demo_unusable(
     # Ilman sitä demo saisi haaransa päättelystä, eli FACEIT-demo jäisi
     # omaksi haarakseen tunnisteensa nimellä -- ja monidemo-otanta hajoaisi
     # hiljaa juuri sillä demolla, jonka taulu puuttuu.
-    for table in ("rounds", "ticks", "events", "lineups", "deaths", "match"):
+    # Pistepilvi on mukana Story 2.14:sta lähtien: stackin siteryhmät
+    # johdetaan siitä. PUUTTUVA TAULU EI OLE SAMA ASIA KUIN VAIENNETTU DEMO.
+    # Jälkimmäinen on havainto kartasta (siteet eivät erotu tasoina) ja se
+    # kirjataan kattavuuteen; edellinen tarkoittaa, että demo on parsittu
+    # ohjelman vanhemmalla versiolla -- ja hiljaisena se lukisi kattavuudessa
+    # kartan ominaisuutena.
+    for table in (
+        "rounds",
+        "ticks",
+        "events",
+        "lineups",
+        "deaths",
+        "match",
+        "callouts",
+    ):
         if not archive.resolve(parsed_table(map_demo_id, table)).is_file():
             return (
                 f"Parsittua taulua {table}.parquet ei ole arkistossa. "
@@ -615,6 +632,21 @@ def _aggregate(
     # antaisi samalle demolle eri tuloksen sen mukaan, mitä muita demoja
     # arkistossa sattuu olemaan (Story 2.9:n peruste).
     area_orientation: dict[str, dict[str | None, AreaObservations]] = {}
+    # Demon pistepilvi (Story 2.14): stackin siteryhmät johdetaan siitä.
+    #
+    # **Pilveä EI suodateta kokoonpanoilla**, toisin kuin näytepisteitä.
+    # Kartta on siellä missä on, riippumatta siitä kumpi joukkue on subjekti,
+    # ja pilvi on koottu demon kaikkien pelaajien tickeistä jo parsinnassa.
+    # Suodatus tekisi jaosta joukkuekohtaisen, eli sama demo antaisi kahdelle
+    # joukkueelle eri aluejaon -- juuri se ristiriita, jonka demokohtaisuus
+    # (Story 2.9) on olemassa estämään.
+    #
+    # Avain on **luettu demo** samasta syystä kuin ``map_names``issa:
+    # taulun oma ``map_demo_id``-sarake voi olla väärä, silmukan tunniste ei.
+    #
+    # Ryhmät johdetaan vasta domainissa, ei täällä: kynnykset ovat säännön
+    # omia ja niiden soveltaminen kuuluu sinne, missä sääntökin on.
+    point_clouds: dict[str, list[CloudCell]] = {}
 
     for lineup, demo in sources.demos:
         classified_frames.append(_read_classified(archive, lineup, demo))
@@ -626,6 +658,7 @@ def _aggregate(
         death_frames.append(_read_parsed(archive, demo, "deaths", DEATHS))
         round_frames.append(_read_parsed(archive, demo, "rounds", ROUNDS))
         map_names[demo] = _read_map_name(archive, demo)
+        point_clouds[demo] = _read_point_cloud(archive, demo)
 
     lineups = set(sources.lineup_keys)
     # Kierrostaulussa on kaksi riviä per kierros, yksi kummallekin
@@ -734,6 +767,7 @@ def _aggregate(
         map_pool=league.map_pool,
         map_names=map_names,
         area_orientation=area_orientation,
+        point_clouds=point_clouds,
         generated_at=datetime.now(UTC),
         tool_versions={"pappascout": __version__},
         missing_demos=sources.missing,
@@ -840,6 +874,44 @@ def _area_orientation(
             )
         )
     return found
+
+
+def _read_point_cloud(
+    archive: ArchivePaths, map_demo_id: str
+) -> list[CloudCell]:
+    """Demon pistepilven ruudut säännön tietueina.
+
+    Kaksi saraketta jätetään pois, ja kumpikin on päätös eikä puute:
+
+    * ``map_demo_id`` on kutsujan kirjanpitoa; kutsuja käyttää avaimenaan
+      **luettua** demoa, ei taulun omaa saraketta (sama peruste kuin
+      :func:`_read_map_name`illa).
+    * ``observations`` **ei paina** aluekeskipisteessä. Solumediaani on
+      mitattu ehto: pelin ``m_szLastPlaceName`` on *viimeksi nimetty* alue,
+      joten havaintopainotettu keskiarvo vetää keskipisteen sinne, missä
+      seisottiin pisimpään -- ``Ancient_vs_kaljukostaja``n CT-spawnissa
+      ``BombsiteB``-nimisiin ruutuihin. Sarakkeen kantaminen tänne asti
+      houkuttelisi painottamaan sillä.
+
+    Tyhjä pilvi on **kelvollinen tulos** eikä puute: siitä ei saada
+    siteryhmiä, ja se kirjataan kattavuuteen
+    (``AnomalyScan.demos_without_site_groups``). Puuttuva **tiedosto** on eri
+    asia, ja sen on jo pysäyttänyt :func:`_demo_unusable`.
+    """
+    df = _read_parsed(archive, map_demo_id, "callouts", CALLOUT_CLOUD)
+    return [
+        CloudCell(
+            area=str(row["area"]),
+            cell_x=int(row["cell_x"]),
+            cell_y=int(row["cell_y"]),
+            cell_z=int(row["cell_z"]),
+        )
+        for row in df.iter_rows(named=True)
+        # Sopimus sanoo, ettei nimetön alue pääse pilveen lainkaan, mutta
+        # vanhemmalla versiolla kirjoitettu taulu ei ole käynyt sitä sääntöä
+        # läpi. ``str(None)`` tekisi siitä alueen nimeltä "None".
+        if normalize_area(row["area"]) is not None
+    ]
 
 
 def _read_map_name(archive: ArchivePaths, map_demo_id: str) -> str | None:
@@ -971,7 +1043,7 @@ def _inputs(
 #:
 #: Miksi nimetty luettelo eikä koko osio (toisin kuin ``classify``issa):
 #: ``[thresholds]`` on luokittelun osio ja siinä on kolmisenkymmentä
-#: kynnysarvoa, joista aggregointi lukee kaksi. Koko osion hashaaminen
+#: kynnysarvoa, joista aggregointi lukee vain osan. Koko osion hashaaminen
 #: mitätöisi jokaisen raportin aina kun mikä tahansa luokittelukynnys
 #: muuttuu -- ja juuri silloin luokittelu ajetaan uudelleen, mikä näkyy jo
 #: syötteiden tunnisteissa. Sama työ tehtäisiin siis kahdesti.
@@ -1002,6 +1074,14 @@ HASHED_THRESHOLD_KEYS: tuple[str, ...] = (
     "advance_min_players",
     "crunch_min_players",
     "crunch_min_sources",
+    # Stackin kolme kynnystä (Story 2.14). Kaksi jälkimmäistä ovat tarinan
+    # hiljaisin ansa: ne eivät muuta yhtäkään sääntöä vaan sen SYÖTETTÄ
+    # (siteryhmät demon pistepilvestä), joten niiden unohtaminen jättäisi
+    # raporttiin poikkeamat, jotka on laskettu vanhalla aluejaolla -- ja
+    # kynnyksen säätäjä näkisi vaikutuksen vasta ``--pakota``lla.
+    "stack_min_players",
+    "stack_group_margin",
+    "stack_site_separation_min",
 )
 HASHED_LEAGUE_KEYS: tuple[str, ...] = ("map_pool",)
 
@@ -1036,6 +1116,24 @@ def _params_hash(
 
 
 # -- Tulosteen luvut -------------------------------------------------------------
+
+
+def _alive_at_max(anomaly: Anomaly) -> int | None:
+    """Elossa olevat sillä näytepisteellä, jolta rivin ``players_max`` on.
+
+    ``None`` kahdella orientaatiosäännöllä: kumpikaan ei laske elossa olevia,
+    eikä keksitty nimittäjä erotu tulosteessa mitatusta.
+
+    Piste haetaan **maksimin kohdalta** eikä erikseen: rivi lukee "5/5", ja
+    sen kahden luvun on oltava samalta hetkeltä. Tasatilanteessa (kaksi
+    pistettä samalla pelaajamäärällä) valitaan aikajärjestyksessä ensimmäinen,
+    jotta tuloste on sama ajosta toiseen.
+    """
+    for entry in anomaly.rounds:
+        for point in entry.points:
+            if point.players == anomaly.players_max and point.alive is not None:
+                return point.alive
+    return None
 
 
 def _stats(report: Report, sources: TeamSources) -> dict[str, Any]:
@@ -1078,6 +1176,11 @@ def _stats(report: Report, sources: TeamSources) -> dict[str, Any]:
                 "round_types": list(entry.round_types),
                 "area": entry.area,
                 "players_max": entry.players_max,
+                # Elossa olevat sillä näytepisteellä, jolta ``players_max``
+                # on -- vain stackilla, muilla ``None``. Ilman sitä tulosteen
+                # rivi latoisi "4 pelaajaa", ja koko säännön väite on että
+                # se luku on merkityksetön yksin.
+                "alive_at_max": _alive_at_max(entry),
                 "n": entry.n,
                 "m": entry.m,
             }
@@ -1089,8 +1192,12 @@ def _stats(report: Report, sources: TeamSources) -> dict[str, Any]:
             "rounds_scanned": report.anomaly_scan.rounds_scanned,
             "crunch_rounds": report.anomaly_scan.crunch_rounds,
             "advance_rounds": report.anomaly_scan.advance_rounds,
+            "stack_rounds": report.anomaly_scan.stack_rounds,
             "demos_without_orientation": list(
                 report.anomaly_scan.demos_without_orientation
+            ),
+            "demos_without_site_groups": list(
+                report.anomaly_scan.demos_without_site_groups
             ),
         },
         "classify_thresholds": dict(report.classify_thresholds),

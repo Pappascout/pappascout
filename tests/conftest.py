@@ -23,26 +23,35 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_SETTINGS = REPO_ROOT / "settings.toml"
 
 
-def _real_import_dir() -> Path | None:
-    """Oikeiden demojen hakemisto -- ratkaistaan **tuontihetkellä**.
+def _real_archive_root() -> Path | None:
+    """Oikean arkiston juuri -- ratkaistaan **tuontihetkellä**.
 
     Polku on laskettava ennen kuin ``_isolate_from_machine`` ohjaa
-    ``USERPROFILE``:n väliaikaishakemistoon; muuten demo-testit eivät löytäisi
-    mitään edes koneella, jolla demot ovat.
+    ``USERPROFILE``:n väliaikaishakemistoon; muuten koneella olevaa arkistoa
+    tarvitsevat testit eivät löytäisi mitään edes koneella, jolla se on.
 
     Returns:
         Hakemisto tai ``None``, jos asetustiedostoa ei voitu lukea. ``None`` on
         tarkoituksella eri asia kuin olemassa oleva polku: keksitty
-        paikkamerkkipolku kertoisi demo-testin ohitusviestissä hakemistosta,
-        jota ei ole koskaan ollut olemassakaan.
+        paikkamerkkipolku kertoisi ohitusviestissä hakemistosta, jota ei ole
+        koskaan ollut olemassakaan.
     """
     try:
         data = tomllib.loads(REAL_SETTINGS.read_text(encoding="utf-8"))
         raw = str(data["project"]["archive_root"])
     except (OSError, KeyError, tomllib.TOMLDecodeError):  # pragma: no cover
         return None
-    return Path(os.path.expandvars(raw)).expanduser() / "import"
+    return Path(os.path.expandvars(raw)).expanduser()
 
+
+def _real_import_dir() -> Path | None:
+    """Oikeiden demojen hakemisto arkiston juuren alla."""
+    root = _real_archive_root()
+    return None if root is None else root / "import"
+
+
+#: Oikean arkiston juuri, tai ``None`` jos sitä ei voitu päätellä.
+ARCHIVE_ROOT: Path | None = _real_archive_root()
 
 #: Oikeiden demojen hakemisto, tai ``None`` jos sitä ei voitu päätellä.
 #: ``PAPPASCOUT_TEST_DEMOS`` ylikirjoittaa sen.
@@ -178,6 +187,108 @@ def require_demo(name: str) -> Path:
     if not path.is_file():
         pytest.skip(f"Oikeaa demoa ei ole tällä koneella: {path}")
     return path
+
+
+#: Taulut, jotka arkistoriippuvainen testi tarvitsee jokaiselta demolta.
+#:
+#: **Koko luettelo eikä vain se, jota testi lukee suoraan.** Kalibroinnin
+#: testit rakentavat raportin ``stages.aggregate``in läpi, ja vaihe lukee
+#: nämä kaikki; osittain parsittu arkisto kaataisi testin sen sijaan että
+#: ohittaisi sen, eikä virhe kertoisi että vika on koneen aineistossa.
+REQUIRED_PARSED_TABLES = (
+    "rounds",
+    "ticks",
+    "events",
+    "lineups",
+    "deaths",
+    "match",
+    "callouts",
+)
+
+
+def require_parsed(*map_demo_ids: str) -> Path:
+    """Palauta arkiston juuri tai ohita testi, jos demoja ei ole parsittu.
+
+    **Eri vaatimus kuin :func:`require_demo`illa.** Kalibroinnin luvut
+    lasketaan ``parsed/``- ja ``classified/``-tauluista, ei demotiedostoista:
+    ne ovat megatavuja siinä missä demot ovat satoja megatavuja, ja ne ovat
+    juuri se aineisto, jota vasten kynnykset mitattiin. Testi **ei kirjoita
+    arkistoon mitään** -- se lukee taulut ja rakentaa raportin muistiin.
+
+    Ohitusviesti nimeää puuttuvan taulun ja komennon, jolla se saadaan, jotta
+    puuttuva parsinta erottuu puuttuvasta arkistosta ja luokittelusta.
+    """
+    if ARCHIVE_ROOT is None:  # pragma: no cover - riippuu koneesta
+        pytest.skip("Arkiston juurta ei voitu päätellä settings.tomlista.")
+    if not ARCHIVE_ROOT.is_dir():  # pragma: no cover - riippuu koneesta
+        pytest.skip(f"Arkistoa ei ole tällä koneella: {ARCHIVE_ROOT}")
+    for map_demo_id in map_demo_ids:
+        for name in REQUIRED_PARSED_TABLES:
+            table = ARCHIVE_ROOT / "parsed" / map_demo_id / f"{name}.parquet"
+            if not table.is_file():  # pragma: no cover - riippuu koneesta
+                pytest.skip(
+                    f"Demon {map_demo_id} taulua {name}.parquet ei ole tässä "
+                    f"arkistossa ({table}). Aja: uv run pappascout parse "
+                    f"{map_demo_id}"
+                )
+        # Luokittelu on oma vaiheensa: parsittu demo ilman luokittelua ei
+        # kelpaa aggregoinnille, ja ohitusviesti nimeää eri komennon.
+        classified = list(
+            (ARCHIVE_ROOT / "classified").glob(f"*/{map_demo_id}.parquet")
+        )
+        if not classified:  # pragma: no cover - riippuu koneesta
+            pytest.skip(
+                f"Demoa {map_demo_id} ei ole luokiteltu tähän arkistoon. "
+                f"Aja: uv run pappascout classify {map_demo_id} "
+                "--kaikki-joukkueet"
+            )
+    return ARCHIVE_ROOT
+
+#: Pistepilvi, jonka siteet erottuvat toisistaan: A on ruudun 0 ympärillä ja
+#: B ruudun 100. Ruutu on ``(alue, cell_x, cell_y, cell_z)``.
+#:
+#: **Kolme ruutua per site**, koska yhden ruudun alueen säde on 0 -- ja
+#: erottuvuusvartija jakaa siteiden etäisyyden juuri siteiden koolla, joten
+#: yhden ruudun siteillä se vaientaa demon (ja on oikeassa: kahden ruudun
+#: pilvi ei kerro kartan siterakenteesta mitään).
+#:
+#: Muut alueet ovat samalla akselilla, jotta jokainen ryhmä on luettavissa
+#: silmällä: ``House`` 10 (A), ``SideEntrance`` 90 ja ``Ramp`` 85 (B),
+#: ``Middle`` 50 (yhtä kaukana, siis jaettu keski). Spawnit ovat mukana
+#: **tarkoituksella ryhmässä** -- ``CTSpawn`` A:n ja ``TSpawn`` B:n puolella,
+#: kuten oikeilla kartoilla -- koska juuri se tekee spawnrajauksesta
+#: määritelmän eikä siivousta.
+#:
+#: Yksi kopio kolmen sijaan: sääntö (``test_sampling``), aggregointi
+#: (``test_aggregate``) ja vaihe (``test_stage_aggregate``) mittaavat samaa
+#: geometriaa, ja kolmesta kopiosta ne voisivat ajautua erilleen.
+SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
+    ("BombsiteA", 0, 0, 0),
+    ("BombsiteA", 2, 0, 0),
+    ("BombsiteA", -2, 0, 0),
+    ("BombsiteB", 100, 0, 0),
+    ("BombsiteB", 102, 0, 0),
+    ("BombsiteB", 98, 0, 0),
+    ("House", 10, 0, 0),
+    ("SideEntrance", 90, 0, 0),
+    ("Ramp", 85, 0, 0),
+    ("Middle", 50, 0, 0),
+    ("CTSpawn", 5, 0, 0),
+    ("TSpawn", 95, 0, 0),
+)
+
+#: Sama pilvi, mutta siteet ovat päällekkäin: keskipisteiden ero on 2 ruutua
+#: ja siteiden oma koko 20 + 20, eli suhde 0,05. Nukella mitattu suhde on
+#: 0,47-0,54 ja kynnys 2,0, joten tämä on sama tila kärjistettynä.
+OVERLAPPING_SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
+    ("BombsiteA", 0, 0, 0),
+    ("BombsiteA", 20, 0, 0),
+    ("BombsiteA", -20, 0, 0),
+    ("BombsiteB", 2, 0, 0),
+    ("BombsiteB", 22, 0, 0),
+    ("BombsiteB", -18, 0, 0),
+    ("House", 10, 0, 0),
+)
 
 #: Ympäristömuuttujat, jotka eivät saa vuotaa koneelta testeihin.
 LEAKY_ENV_VARS = (

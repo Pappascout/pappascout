@@ -60,6 +60,8 @@ __all__ = [
     "MAX_SNAPSHOT_SECONDS",
     "MAX_BUY_WINDOW_SECONDS",
     "MAX_ADVANCE_SAMPLE_SECONDS",
+    "MAX_STACK_GROUP_MARGIN",
+    "MAX_STACK_SITE_SEPARATION",
     "PLAYERS_ON_SERVER",
     "REMOVED_SETTINGS",
 ]
@@ -162,6 +164,36 @@ MajorityShare = Annotated[float, Field(gt=0.5, le=1.0, allow_inf_nan=False)]
 #: joka näyttää rajalta muttei rajaa mitään; 60,0 päästää läpi jokaisen
 #: mielekkään näytepistevalinnan ja torjuu kirjoitusvirheen ``300``.
 MAX_ADVANCE_SAMPLE_SECONDS = 60.0
+
+#: Stack-säännön ryhmämarginaalin yläraja.
+#:
+#: Marginaali on **suhdeluku**: alue kuuluu lähempään siteen vasta, kun toinen
+#: site on vähintään tämän verran kauempana.
+#:
+#: **Siteet itse eivät katoa millään marginaalilla**, ja se on syytä sanoa
+#: ääneen, koska päinvastainen on luonteva arvaus. Siten etäisyys omaan
+#: keskipisteeseensä on aina 0, joten ehto "toinen on vähintään margin kertaa
+#: kauempana" on sillä aina tosi -- ``BombsiteA`` on aina A:ssa ja
+#: ``BombsiteB`` aina B:ssä. Yläraja torjuu siis sen, että **kaikki muut**
+#: alueet putoavat ryhmättömiksi: sääntö vaatii vähintään neljä pelaajaa saman
+#: siten ryhmässä, ja kahden alueen ryhmillä se voi täyttyä vain jos koko
+#: puolustus seisoo sitellä itsellään. Sääntö näyttäisi silloin ajetulta
+#: muttei mittaisi enää asetelmaa.
+#:
+#: Toinen puoli on tavallisempi: kirjoitusvirhe. Mitatut kartat erottuvat
+#: marginaalilla 1,25, joten 10,0 päästää läpi jokaisen mielekkään valinnan ja
+#: pysäyttää arvon, joka on selvästi väärää kokoluokkaa.
+MAX_STACK_GROUP_MARGIN = 10.0
+
+#: Stack-säännön erottuvuusvartijan yläraja.
+#:
+#: Sama peruste kuin marginaalilla ja poikkeaman aikarajalla: kynnyksellä on
+#: oltava katto, koska sen ylittäminen ei tiukenna sääntöä vaan **hiljentää
+#: sen kokonaan**. Suhde on mitattuna 0,47-5,04 (Nuke - Anubis), joten arvo
+#: yli 20 vaientaisi jokaisen tunnetun kartan, ja raportti väittäisi "ei
+#: stackeja" havaintona vaikka yhtäkään demoa ei tutkittu. 20,0 jättää
+#: nelinkertaisen varan mitattuun maksimiin ja torjuu kirjoitusvirheen.
+MAX_STACK_SITE_SEPARATION = 20.0
 
 #: Pistepilven ruudun särmä. Rajat ovat suorituskykyä ja mielekkyyttä, eivät
 #: makuasia. **Alaraja 8**: lähimmän haku on ristiintulo pisteiden ja ruutujen
@@ -473,7 +505,39 @@ class ThresholdSettings(_Section):
 
     # Otanta ja poikkeamat (AD-10)
     small_sample_rounds: PositiveInt = 3
+
+    # Stack-sääntö (Story 2.14). stack_min_players oli tässä KÄYTTÄMÄTTÖMÄNÄ
+    # Story 2.5:stä lähtien; se otettiin käyttöön vasta kun puuttuva pala --
+    # kuvaus alue -> alueryhmä -- saatiin johdettua demon omasta
+    # pistepilvestä (domain.sampling.site_groups).
+    #
+    # Kaikki kolme ovat MITATTUJA eivätkä valittuja: perustelu arvo arvolta on
+    # settings.tomlin kommenteissa ja kokonaisuudessaan
+    # kalibrointi-stack.md:ssä.
+    #
+    # Molemmat uudet ovat SUHDELUKUJA eivätkä pelin yksiköitä: kumpikin
+    # verrataan kahden etäisyyden osamäärään, joten pistepilven ruudukon koko
+    # ([parse].callout_grid_units) supistuu niistä pois. Juuri siksi
+    # aggregointi ei lue [parse]-osiota tämän säännön takia. Jos joskus
+    # tarvitaan absoluuttinen etäisyysraja, se EI voi olla tällainen luku:
+    # ruutuindeksi ei ole koordinaatti, vaan se on ensin kerrottava ruudun
+    # koolla.
     stack_min_players: PositiveInt = 4
+    # Alaraja 1,0 on määritelmä eikä säädin: marginaali kertoo, kuinka paljon
+    # kauempana toisen siten on oltava ennen kuin alue luetaan lähemmän
+    # ryhmään, ja arvolla alle 1 "lähempi" site voisi olla kauempana. Tasan
+    # 1,0 on kelvollinen: silloin jokainen alue kuuluu lähempään siteen eikä
+    # yksikään jää jaetuksi.
+    stack_group_margin: Annotated[
+        float, Field(ge=1.0, le=MAX_STACK_GROUP_MARGIN, allow_inf_nan=False)
+    ] = 1.25
+    # Alaraja on yli 0: arvolla 0 vartija ei vaientaisi yhtäkään karttaa, eli
+    # Nuken päällekkäisistä siteistä johdettaisiin aluejako, jota ei ole
+    # olemassa -- ja sääntö raportoisi Nuken kierrokset tutkituiksi.
+    stack_site_separation_min: Annotated[
+        float,
+        Field(gt=0.0, le=MAX_STACK_SITE_SEPARATION, allow_inf_nan=False),
+    ] = 2.0
 
     # Poikkeamasäännöt (Story 2.5). Kaikki kuusi ovat MITATTUJA, eivät
     # valittuja: perustelu arvo arvolta on settings.tomlin kommenteissa ja
@@ -518,6 +582,11 @@ class ThresholdSettings(_Section):
             "normal_buy_players_min",
             "advance_min_players",
             "crunch_min_players",
+            # Stack on ainoa kynnys, joka on mitattu KIINNI ylärajaan: neljä
+            # on kalibroitu ja viisi on aito ääripää (2 kierrosta 66:sta),
+            # joten viisi on kelvollinen arvo eikä vartija saa hylätä sitä.
+            # Kuusi puolustajaa sen sijaan on mahdoton havainto.
+            "stack_min_players",
         ):
             value = getattr(self, name)
             if value > on_server:
@@ -918,7 +987,7 @@ class Settings(BaseSettings):
                 f"kuin varhaisin parse.snapshot_seconds "
                 f"({earliest_sample:g} s), joten yksikään näytepiste ei "
                 "mahdu poikkeamasääntöjen aikarajaan.\n"
-                "Molemmat säännöt vaikenisivat pysyvästi, ja raportin "
+                "Kaikki kolme sääntöä vaikenisivat pysyvästi, ja raportin "
                 "poikkeamaluku väittäisi 'ei poikkeamia' havaintona -- "
                 "vaikka mitään ei tutkittu."
             )

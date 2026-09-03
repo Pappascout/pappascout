@@ -1667,12 +1667,14 @@ def _render_aggregate(result: StageResult) -> str:
         scanned = int(scan.get("rounds_scanned", 0) or 0)
         crunch_rounds = int(scan.get("crunch_rounds", 0) or 0)
         advance_rounds = int(scan.get("advance_rounds", 0) or 0)
+        stack_rounds = int(scan.get("stack_rounds", 0) or 0)
         blind = scan.get("demos_without_orientation") or []
+        no_groups = scan.get("demos_without_site_groups") or []
         deferred = scan.get("rules_deferred") or []
         detail = (
             f"{len(anomalies)} riviä; säännöt {rules} ajettiin "
-            f"{scanned} kierrokselle -- crunch voi osua {crunch_rounds} "
-            f"ja eteneminen {advance_rounds}"
+            f"{scanned} kierrokselle -- crunch voi osua {crunch_rounds}, "
+            f"eteneminen {advance_rounds} ja stack {stack_rounds}"
         )
         if deferred:
             detail += f"; ajamatta {', '.join(str(n) for n in deferred)}"
@@ -1681,13 +1683,31 @@ def _render_aggregate(result: StageResult) -> str:
                 f"; ilman alueorientaatiota {len(blind)} demoa: "
                 f"{', '.join(str(d) for d in blind)}"
             )
+        # Vaiennetut demot omana lukunaan eikä orientaatiottomien perässä: ne
+        # ovat eri sokea piste (siteet eivät erotu tasoina) ja koskevat eri
+        # sääntöä. Yhteen luetteloon niputettuina käyttäjä lukisi ne samaksi
+        # puutteeksi ja etsisi korjausta väärästä paikasta.
+        if no_groups:
+            detail += (
+                f"; ilman siteryhmiä {len(no_groups)} demoa: "
+                f"{', '.join(str(d) for d in no_groups)}"
+            )
         lines.append(_line("Poikkeamat", detail))
         for entry in anomalies:
             types = ", ".join(str(t) for t in entry.get("round_types") or [])
+            # Stackin pelaajamäärä on murtoluku myös tulosteessa: neljä
+            # viidestä on puolustuksen valinta, neljä neljästä on se mitä
+            # jäljellä oli, eikä pelkkä luku erota niitä. Muilla säännöillä
+            # nimittäjää ei ole, koska niitä ei mitattu.
+            alive = entry.get("alive_at_max")
+            players = (
+                players_text(int(entry["players_max"]))
+                if alive is None
+                else f"{int(entry['players_max'])}/{int(alive)} pelaajaa"
+            )
             lines.append(
                 f"  {entry['rule']} {entry['map_name']} {entry['side']} "
-                f"{types}: {entry['area']} "
-                f"{players_text(int(entry['players_max']))} "
+                f"{types}: {entry['area']} {players} "
                 f"({entry['n']}/{entry['m']})"
             )
 

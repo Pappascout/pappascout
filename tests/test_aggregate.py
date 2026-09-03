@@ -6,11 +6,13 @@ arkistoa: I/O-matriisin jokainen rivi on tässä tiedostossa omana testinään.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import polars as pl
 import pytest
 
+from conftest import OVERLAPPING_SITE_CLOUD, SITE_CLOUD
 from pappascout.domain.aggregate import (
     CLASSIFY_THRESHOLD_KEYS,
     area_distributions,
@@ -41,10 +43,11 @@ from pappascout.domain.aggregate import (
 )
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
 from pappascout.domain.report import MissingDemo, RosterEntry, TeamReport
-from pappascout.domain.sampling import AreaObservations
+from pappascout.domain.sampling import AreaObservations, CloudCell
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
     ARMORED_COLUMN,
+    CALLOUT_CLOUD,
     CLASSIFIED,
     DEATHS,
     EVENTS,
@@ -208,6 +211,33 @@ def match_frame(demo: str, map_name: str | None) -> pl.DataFrame:
         [{"map_demo_id": demo, "map_name": map_name}], schema=dict(MATCH)
     )
     return validate(df, MATCH, "match")
+
+
+def callouts_frame(
+    demo: str, cells: Sequence[tuple[str, int, int, int]] = ()
+) -> pl.DataFrame:
+    """Pistepilvi: rivi per ruutu ``(alue, cell_x, cell_y, cell_z)``.
+
+    Oletus on **tyhjä pilvi**, ja se on tarkoituksellinen: siitä ei saada
+    siteryhmiä, joten stack vaikenee ja jokainen vanha testi mittaa sitä,
+    mitä se mittasi ennen Story 2.14:ää. Ryhmiä tarvitseva testi antaa ruudut
+    itse.
+    """
+    df = pl.DataFrame(
+        [
+            {
+                "map_demo_id": demo,
+                "cell_x": x,
+                "cell_y": y,
+                "cell_z": z,
+                "area": area,
+                "observations": 1,
+            }
+            for area, x, y, z in cells
+        ],
+        schema=dict(CALLOUT_CLOUD),
+    )
+    return validate(df, CALLOUT_CLOUD, "callouts")
 
 
 def event_rows(
@@ -395,6 +425,7 @@ def report_for(
     lineups: list[str] | None = None,
     map_names: dict[str, str | None] | None = None,
     area_orientation: dict[str, dict[str | None, AreaObservations]] | None = None,
+    point_clouds: dict[str, list[CloudCell]] | None = None,
 ):
     """Raportti käsin rakennetuista riveistä.
 
@@ -415,11 +446,18 @@ def report_for(
     mittasi ennen Story 2.5:tä. Tyhjä kartta on myös oikea vastaus: demo,
     jonka näytepisteissä ei ole nimettyjä alueita, ei anna orientaatiota
     millekään alueelle.
+
+    ``point_clouds`` toimii samoin, ja sen oletus on **tyhjä pilvi joka
+    demolle**: siitä ei saada siteryhmiä, joten stack vaikenee. Sama peruste
+    kuin orientaatiolla -- stack testataan omilla riveillään, ja jokainen muu
+    testi mittaa sitä, mitä se mittasi ennen Story 2.14:ää.
     """
     if map_names is None:
         map_names = {str(row["map_demo_id"]): None for row in classified}
     if area_orientation is None:
         area_orientation = {str(row["map_demo_id"]): {} for row in classified}
+    if point_clouds is None:
+        point_clouds = {str(row["map_demo_id"]): [] for row in classified}
     return build_report(
         classified=classified_frame(classified),
         ticks=ticks_frame(ticks or []),
@@ -434,6 +472,7 @@ def report_for(
         map_pool=MAP_POOL,
         map_names=map_names,
         area_orientation=area_orientation,
+        point_clouds=point_clouds,
         generated_at=datetime(2026, 8, 30, tzinfo=UTC),
         missing_demos=missing or [],
     )
@@ -1349,15 +1388,16 @@ def test_the_report_carries_no_interpretation() -> None:
         events=event_rows("Nuke_vs_a", 1, 0, "smoke"),
     )
     # Kaksi kenttää on **jäljitettävyyttä eikä havaintoja**, ja molemmissa
-    # esiintyy sana stack: thresholds_used on kynnysten kopio (kynnysnimi
-    # stack_min_players), ja anomaly_scan.rules_deferred nimeää säännön, jota
-    # EI ajettu -- se on kattavuuden nimittäjä. Tarkistus koskee havaintoja,
-    # joten molemmat nostetaan pois; alla varmistetaan erikseen, ettei sana
-    # katoa siitä paikasta, johon se kuuluu.
+    # esiintyy sana stack: thresholds_used on kynnysten kopio (kynnysnimet
+    # stack_min_players, stack_group_margin, stack_site_separation_min) ja
+    # anomaly_scan nimeää ajetut säännöt -- se on kattavuuden nimittäjä.
+    # Tarkistus koskee havaintoja, joten molemmat nostetaan pois; alla
+    # varmistetaan erikseen, ettei sana katoa siitä paikasta, johon se kuuluu.
     data = report.model_dump(mode="json")
-    data.pop("thresholds_used")
+    thresholds_used = data.pop("thresholds_used")
     scan = data.pop("anomaly_scan")
-    assert scan["rules_deferred"] == ["stack"]
+    assert "stack" in scan["rules"]
+    assert "stack_min_players" in thresholds_used["thresholds"]
     text = str(data).lower()
     for word in ("fake", "rush", "stack", "eksekuutio"):
         assert word not in text
@@ -2113,6 +2153,40 @@ def eco_ct(demo: str, *rounds: int, round_type: str = "eco"):
     ]
 
 
+def stack_cloud(demo: str) -> dict[str, list[CloudCell]]:
+    """Demokohtainen pistepilvi, josta siteryhmät saadaan."""
+    return {demo: [CloudCell(a, x, y, z) for a, x, y, z in SITE_CLOUD]}
+
+
+def stack_round(
+    demo: str,
+    round_no: int,
+    *,
+    site: str = "BombsiteB",
+    others: tuple[str, ...] = ("SideEntrance", "Ramp"),
+    elsewhere: tuple[str, ...] = ("BombsiteA",),
+    seconds: float = 15.0,
+) -> list[dict[str, object]]:
+    """Neljä CT-pelaajaa saman siten ryhmässä, yksi sitellä itsellään.
+
+    ``elsewhere`` on ryhmän ulkopuolella: se nostaa elossa olevien määrän
+    viiteen ilman että se kasvattaisi ryhmän kokoa -- eli juuri se ero, jota
+    ``4/5`` mittaa.
+    """
+    areas = (site, site, *others, *elsewhere)
+    return [
+        tick_row(
+            demo,
+            round_no,
+            f"{TEAM}-p{i}",
+            area,
+            side="CT",
+            sample_t_s=seconds,
+        )
+        for i, area in enumerate(areas)
+    ]
+
+
 def anomaly_report(
     classified: list[dict[str, object]],
     ticks: list[dict[str, object]],
@@ -2121,14 +2195,21 @@ def anomaly_report(
     limits: ThresholdSettings,
     orientation: dict | None = None,
     map_names: dict[str, str | None] | None = None,
+    point_clouds: dict[str, list[CloudCell]] | None = None,
 ):
-    """Raportti poikkeamatestille -- kynnykset **aina** nimettyinä."""
+    """Raportti poikkeamatestille -- kynnykset **aina** nimettyinä.
+
+    ``point_clouds`` oletuksena tyhjä pilvi: siteryhmiä ei saada, joten
+    stack vaikenee eivätkä etenemistä ja crunchia koskevat testit mittaa
+    vahingossa kolmatta sääntöä.
+    """
     return report_for(
         classified,
         ticks,
         limits=limits,
         area_orientation=orientation if orientation is not None else t_side(demo),
         map_names=map_names,
+        point_clouds=point_clouds,
     )
 
 
@@ -2613,13 +2694,18 @@ def test_the_scan_says_what_was_run_and_on_what() -> None:
         limits=thresholds(),
     )
     scan = report.anomaly_scan
-    assert scan.rules == ["ct_advance", "crunch"]
-    assert scan.rules_deferred == ["stack"]
+    assert scan.rules == ["ct_advance", "crunch", "stack"]
+    assert scan.rules_deferred == []
     assert scan.rounds_scanned == 3
     # Kaikki kolme kierrosta ovat CT-puolen, ja niistä kaksi on ecoa:
     # crunch voi osua kolmella, eteneminen kahdella.
     assert scan.crunch_rounds == 3
     assert scan.advance_rounds == 2
+    # Stack ei nähnyt yhtäkään: apurin oletuspilvi on tyhjä, joten
+    # siteryhmiä ei saatu. **Juuri se ero on kattavuuden syy**: sama demo on
+    # crunchin nimittäjässä kolmella kierroksella ja stackin nollalla.
+    assert scan.stack_rounds == 0
+    assert scan.demos_without_site_groups == [demo]
     assert scan.demos_without_orientation == []
 
 
@@ -2708,3 +2794,189 @@ def test_a_duplicated_sample_row_does_not_silence_the_crunch() -> None:
     crunch = next(a for a in report.anomalies if a.rule == "crunch")
     assert crunch.rounds[0].sources == ["SideEntrance", "TSideUpper"]
     assert crunch.players_max == 2
+
+
+# --- Stack (Story 2.14) ---------------------------------------------------------
+
+
+def test_a_stack_anomaly_carries_the_site_its_group_and_the_survivors() -> None:
+    """Rivi nimeää siten oman alueen, ryhmän ja elossa olleet.
+
+    Nimittäjä on **puolen kaikki kierrokset**, kuten crunchilla: sääntö ei
+    tunne kierrostyyppiä, ja jakaminen eco-riviksi ja default-riviksi antaisi
+    samalle kuviolle kaksi eri jakajaa.
+    """
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2) + eco_ct(demo, 3, round_type="full"),
+        stack_round(demo, 1),
+        demo=demo,
+        limits=thresholds(),
+        point_clouds=stack_cloud(demo),
+    )
+    stacks = [a for a in report.anomalies if a.rule == "stack"]
+    assert len(stacks) == 1
+    stack = stacks[0]
+    assert stack.area == "BombsiteB"
+    assert stack.site == "B"
+    assert stack.side == "CT"
+    assert (stack.n, stack.m) == (1, 3)
+    assert stack.rounds[0].players_max == 4
+    assert [(p.sample_t_s, p.players, p.alive) for p in stack.rounds[0].points] == [
+        (15.0, 4, 5)
+    ]
+    # Orientaatio on tyhjä: sääntö ei lue sitä, joten luku olisi keksitty.
+    assert stack.orientation == []
+
+
+def test_a_stack_spanning_round_types_is_one_row() -> None:
+    """Kierrostyyppi on havainto rivillä, ei nimittäjä.
+
+    Sama kuvio ecolla ja täydellä ostolla on **yksi rivi otannalla 2/3**,
+    ja ``round_types`` kertoo millä tyypeillä se havaittiin.
+    """
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1) + eco_ct(demo, 2, 3, round_type="full"),
+        stack_round(demo, 1) + stack_round(demo, 2, seconds=30.0),
+        demo=demo,
+        limits=thresholds(),
+        point_clouds=stack_cloud(demo),
+    )
+    stack = next(a for a in report.anomalies if a.rule == "stack")
+    assert stack.round_types == ["eco", "full"]
+    assert (stack.n, stack.m) == (2, 3)
+    assert [entry.round_no for entry in stack.rounds] == [1, 2]
+
+
+def test_a_silenced_demo_is_in_the_coverage_and_not_in_the_denominator() -> None:
+    """Vaiennettu demo on crunchin nimittäjässä muttei stackin.
+
+    Juuri tämä ero on koko ``stack_rounds``-kentän syy: ilman sitä Nuken
+    kierrokset näyttäisivät tutkituilta nollatuloksella.
+    """
+    speaks = "Ancient_vs_x"
+    silent = "Nuke_vs_y"
+    clouds = stack_cloud(speaks)
+    # Siteet päällekkäin: erotus 2 ruutua, siteiden oma koko 20 + 20.
+    clouds[silent] = [
+        CloudCell(a, x, y, z) for a, x, y, z in OVERLAPPING_SITE_CLOUD
+    ]
+    report = anomaly_report(
+        eco_ct(speaks, 1, 2) + eco_ct(silent, 1, 2, 3),
+        stack_round(speaks, 1),
+        demo=speaks,
+        limits=thresholds(),
+        orientation={speaks: {}, silent: {}},
+        map_names={speaks: "de_ancient", silent: "de_nuke"},
+        point_clouds=clouds,
+    )
+    scan = report.anomaly_scan
+    assert scan.crunch_rounds == 5
+    assert scan.stack_rounds == 2
+    assert scan.demos_without_site_groups == [silent]
+    assert [a.map_name for a in report.anomalies if a.rule == "stack"] == [
+        "de_ancient"
+    ]
+
+
+def test_a_silenced_demo_is_not_in_the_stack_denominator() -> None:
+    """Kartta kahdesta demosta, joista toinen vaikenee.
+
+    Vaiennetun demon kierrokset ovat **crunchin** nimittäjässä mutta eivät
+    stackin: sääntö ei nähnyt niitä. Ilman rajausta rivin ``n/m`` kertoisi
+    eri kattavuudesta kuin luvun oma kattavuusteksti (``stack_rounds``), joka
+    osaa jättää ne pois -- eli sama luku kahdella arvolla samassa raportissa.
+    """
+    speaks = "ANCIENT_vs_a"
+    silent = "Ancient_vs_b"
+    clouds = stack_cloud(speaks)
+    clouds[silent] = [
+        CloudCell(a, x, y, z) for a, x, y, z in OVERLAPPING_SITE_CLOUD
+    ]
+    report = anomaly_report(
+        eco_ct(speaks, 1, 2) + eco_ct(silent, 1, 2, 3),
+        stack_round(speaks, 1),
+        demo=speaks,
+        limits=thresholds(),
+        orientation={speaks: {}, silent: {}},
+        map_names={speaks: "de_ancient", silent: "de_ancient"},
+        point_clouds=clouds,
+    )
+    # Yksi kartta, viisi CT-kierrosta -- mutta stack näki niistä kaksi.
+    assert [m.map_name for m in report.maps] == ["de_ancient"]
+    stack = next(a for a in report.anomalies if a.rule == "stack")
+    assert (stack.n, stack.m) == (1, 2)
+    assert report.anomaly_scan.crunch_rounds == 5
+    assert report.anomaly_scan.stack_rounds == 2
+    # Rivin nimittäjä ja kattavuusluku kertovat saman: molemmat 2, ei 5.
+    assert stack.m == report.anomaly_scan.stack_rounds
+
+
+def test_a_missing_point_cloud_is_refused_rather_than_assumed() -> None:
+    """Puuttuva avain ei ole sama asia kuin pilvi, josta ryhmiä ei saatu.
+
+    Hiljainen oletus vaientaisi säännön juuri sillä demolla, ja kattavuus
+    kirjaisi sen kartan ominaisuutena -- vaikka kyse olisi kutsujan
+    unohduksesta.
+    """
+    demo = "Ancient_vs_x"
+    with pytest.raises(AggregateError, match="pistepilveä ei annettu"):
+        anomaly_report(
+            eco_ct(demo, 1),
+            stack_round(demo, 1),
+            demo=demo,
+            limits=thresholds(),
+            point_clouds={},
+        )
+
+
+def test_the_stack_threshold_is_read_from_the_settings() -> None:
+    """Neljän pelaajan asetelma katoaa, kun kynnys nostetaan viiteen."""
+    demo = "Ancient_vs_x"
+
+    def stacks(min_players: int) -> list[str]:
+        report = anomaly_report(
+            eco_ct(demo, 1, 2),
+            stack_round(demo, 1),
+            demo=demo,
+            limits=thresholds(stack_min_players=min_players),
+            point_clouds=stack_cloud(demo),
+        )
+        return areas_of(report, "stack")
+
+    assert stacks(4) == ["BombsiteB"]
+    assert stacks(5) == []
+
+
+def test_the_separation_threshold_is_a_setting_not_code() -> None:
+    """Sama demo vaikenee tai puhuu sen mukaan, mikä kynnys on asetettu.
+
+    Pilvenä on **päällekkäisten siteiden** pilvi, jonka suhde on 0,05 --
+    Nuken kärjistys. Tuotannon kynnyksellä 2,0 se vaikenee; riittävän
+    matalalla se puhuu, ja silloin sama asetelma tuottaa osuman. Suunta on
+    tämä päin siksi, että erottuvan pilven suhde on 25 eikä yksikään mallin
+    sallima kynnys (yläraja 20) vaientaisi sitä -- ja juuri se on yläraja
+    hyvä uutinen: mitattujen karttojen vaientaminen vahingossa ei onnistu.
+    """
+    demo = "Nuke_vs_x"
+    clouds = {
+        demo: [CloudCell(a, x, y, z) for a, x, y, z in OVERLAPPING_SITE_CLOUD]
+    }
+    # ``House`` on tässä pilvessä B:n ryhmässä (10 vs 8 ruutua).
+    rows = stack_round(
+        demo, 1, others=("House", "House"), elsewhere=("BombsiteA",)
+    )
+
+    def stacks(separation_min: float) -> list[str]:
+        report = anomaly_report(
+            eco_ct(demo, 1, 2),
+            rows,
+            demo=demo,
+            limits=thresholds(stack_site_separation_min=separation_min),
+            point_clouds=clouds,
+        )
+        return areas_of(report, "stack")
+
+    assert stacks(2.0) == []
+    assert stacks(0.01) == ["BombsiteB"]

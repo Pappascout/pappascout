@@ -111,6 +111,7 @@ from pappascout.domain.models import PLAYERS_ON_SERVER, ReportSettings
 from pappascout.domain.report import (
     Anomaly,
     AnomalyRound,
+    AnomalyScan,
     ArmedPlayers,
     ArmoredPlayers,
     DeathReport,
@@ -1819,13 +1820,31 @@ def _anomaly_view(
                     text=_area(anomaly.area),
                     n=anomaly.n,
                     m=anomaly.m,
-                    extra=_orientation_text(anomaly),
+                    extra=_anomaly_extra(anomaly),
                 ),
             ),
             note="pieni otanta" if anomaly.small_sample else None,
         ),
         rounds=tuple(_anomaly_round_text(anomaly, entry) for entry in anomaly.rounds),
     )
+
+
+def _anomaly_extra(anomaly: Anomaly) -> str:
+    """Rivin lisätieto: se todistuskappale, jonka **tämä sääntö** mittasi.
+
+    Orientaatiosäännöillä se on alueen T-osuus ja sen oma otanta. Stackilla
+    sitä ei ole -- sääntö ei lue orientaatiota lainkaan -- ja tilalle tulee
+    se, mikä stackissa on johdettua: **ryhmä**. Ilman sitä rivi näyttäisi
+    väittävän, että neljä pelaajaa oli yhdellä ``env_cs_place``-alueella;
+    juuri sitä sääntö ei väitä eikä voisi väittää, ja siksi ryhmä on
+    olemassa.
+    """
+    if anomaly.rule != "stack":
+        return _orientation_text(anomaly)
+    # Ryhmän nimi yhdyssanana ("B-siten ryhmässä") eikä sanaparina ("siten B
+    # ryhmässä": suomen "siten" luetaan silloin adverbina). Johtamistapa jää
+    # lukuohjeeseen -- rivi kertoo havainnon, ei menetelmää.
+    return f"{anomaly.site}-siten ryhmässä"
 
 
 def _anomaly_map_label(anomaly: Anomaly, index_of: Mapping[str, int]) -> str:
@@ -1870,27 +1889,72 @@ def _anomaly_round_text(anomaly: Anomaly, entry: AnomalyRound) -> str:
     """Yhden kierroksen havainto: milloin, kuinka monta ja mistä.
 
     Kierrosnumero ensin, koska scoutin seuraava teko on avata se kierros
-    demolta. Kierrostyyppi on mukana vain crunchilla: etenemisellä se on jo
-    nimiössä, eikä samaa sanaa kirjoiteta kahdesti samalle riville.
+    demolta. Kierrostyyppi on mukana vain crunchilla ja stackilla:
+    etenemisellä se on jo nimiössä, eikä samaa sanaa kirjoiteta kahdesti
+    samalle riville.
+
+    **Stackin pelaajamäärä on murtoluku eikä luku.** "4 pelaajaa" ei kerro
+    poikkeamasta mitään ilman elossa olevien määrää: neljä viidestä on
+    puolustuksen valinta, neljä neljästä on se mitä jäljellä oli. Sääntö
+    laskee molemmat, joten rivikin sanoo molemmat.
     """
     text = f"kierros {entry.round_no}"
     if anomaly.rule != "ct_advance":
         text += f" ({ROUND_TYPE_FI.get(entry.round_type, entry.round_type)})"
-    text += (
-        f": {players_text(entry.players_max)} "
-        f"{_seconds_list(entry.seconds)} s kohdalla"
-    )
+    text += f": {_anomaly_points_text(entry)}"
     if entry.sources:
         # Suunnat vain crunchissa, ja **yhtäaikaisia** koska ne ovat saman
-        # kierroksen havainto. Etenemisrivillä tyhjä lista tarkoittaa "ei
-        # kysytty" eikä "ei suuntia", joten sitä ei sanota ääneen.
+        # kierroksen havainto. Muilla tyhjä lista tarkoittaa "ei kysytty"
+        # eikä "ei suuntia", joten sitä ei sanota ääneen.
         text += f", yhtä aikaa suunnista {_areas_text(entry.sources)}"
-    if len(anomaly.orientation) > 1:
-        # Kaksi demoa samalla kartalla: kierrosnumero ei yksilöi ilman
-        # demotunnistetta. Tunniste on koodijaksona, koska se on tässä
-        # ainoa käyttökelpoinen muoto -- sama peruste kuin kierrosliitteellä.
+    # Kaksi demoa samalla kartalla: kierrosnumero ei yksilöi ilman
+    # demotunnistetta. Tunniste on koodijaksona, koska se on tässä ainoa
+    # käyttökelpoinen muoto -- sama peruste kuin kierrosliitteellä.
+    #
+    # Luku tulee KIERROKSISTA eikä orientaatiosta. Orientaatiosäännöillä ne
+    # ovat sama luku (malli valvoo, että orientaatio kattaa täsmälleen ne
+    # demot joilla poikkeama havaittiin), mutta stackilla orientaatiota ei
+    # ole -- ja siitä luettuna tunniste jäisi pois juuri silloin, kun kartta
+    # on kahdesta demosta ja lukija tarvitsee sen eniten.
+    if len({round_entry.map_demo_id for round_entry in anomaly.rounds}) > 1:
         text += f" -- `{entry.map_demo_id}`"
     return text
+
+
+def _anomaly_points_text(entry: AnomalyRound) -> str:
+    """Kierroksen näytepisteet lukuineen.
+
+    **Luku kuuluu hetkeensä.** Kun näytepisteillä on eri luvut, jokainen saa
+    omansa (``5/5 pelaajaa 15 s ja 4/5 pelaajaa 30 s kohdalla``); kun luvut
+    ovat samat, ne tiivistetään yhteen (``4/5 pelaajaa 15 ja 30 s kohdalla``).
+    Tiivistäminen on turvallista vain siksi, että ehto vertaa **kaikkia**
+    lukuja: aiemmin rivi latoi kierroksen maksimin jokaiselle näytepisteelle,
+    ja mitattuna se väitti Infernon k2:sta viittä pelaajaa myös 30 s kohdalla,
+    jossa heitä oli yksi.
+    """
+    counts = {(point.players, point.alive) for point in entry.points}
+    if len(counts) == 1:
+        players, alive = counts.pop()
+        seconds = _seconds_list([point.sample_t_s for point in entry.points])
+        return f"{_players_of(players, alive)} {seconds} s kohdalla"
+    parts = [
+        f"{_players_of(point.players, point.alive)} "
+        f"{_seconds(point.sample_t_s)} s"
+        for point in entry.points
+    ]
+    return f"{_join_fi(parts)} kohdalla"
+
+
+def _players_of(players: int, alive: int | None) -> str:
+    """``4 pelaajaa`` tai stackilla ``4/5 pelaajaa``.
+
+    Elossa olevien määrä on **vain stackilla**, koska vain se laskee sen.
+    Kahdella muulla säännöllä ``alive`` on ``None``, ja keksitty nimittäjä
+    näyttäisi rivillä täsmälleen samalta kuin mitattu.
+    """
+    if alive is None:
+        return players_text(players)
+    return f"{players}/{alive} pelaajaa"
 
 
 def _orientation_text(anomaly: Anomaly) -> str:
@@ -1958,10 +2022,12 @@ def _no_anomalies_text(report: Report) -> str:
     )
     parts = [
         f"Ei poikkeamia. Säännöt ({rules}) ajettiin "
-        f"{scan.rounds_scanned} kierrokselle, mutta molemmat tutkivat vain "
+        f"{scan.rounds_scanned} kierrokselle, mutta kaikki tutkivat vain "
         f"CT-puolen rivejä: crunch voi osua {scan.crunch_rounds} "
-        f"kierroksella ja CT-eteneminen {scan.advance_rounds} "
-        "kierroksella, koska se on rajattu säästökierroksiin."
+        f"kierroksella, CT-eteneminen {scan.advance_rounds} "
+        "kierroksella, koska se on rajattu säästökierroksiin, ja stack "
+        f"{scan.stack_rounds} kierroksella -- se lukee vain demot, joista "
+        "siteryhmät saatiin johdettua."
     ]
     if scan.rules_deferred:
         parts.append(
@@ -1978,14 +2044,19 @@ def _no_anomalies_text(report: Report) -> str:
     if scan.demos_without_orientation:
         parts.append(
             f"{demos_text(len(scan.demos_without_orientation))} ei antanut "
-            "yhdellekään alueelle puoliorientaatiota, joten sääntöjen "
-            "vaikeneminen niissä on sokea piste eikä havainto."
+            "yhdellekään alueelle puoliorientaatiota, joten CT-etenemisen ja "
+            "crunchin vaikeneminen niissä on sokea piste eikä havainto."
         )
     else:
         parts.append(
             "Jokainen demo antoi vähintään yhdelle alueelle "
             "puoliorientaation, joten sokeita pisteitä ei ole."
         )
+    # Stackin sokea piste **ei ole täällä** vaan lukuohjeessa
+    # (:func:`_stack_legend`). Kahdesta paikasta se latoutuisi tyhjään lukuun
+    # kahdesti, ja lukuohje on se paikka, joka kirjoitetaan myös silloin kun
+    # poikkeamia on -- eli juuri silloin, kun vaiennettu kartta on
+    # näkymättömin.
     return " ".join(parts)
 
 
@@ -2797,7 +2868,7 @@ def _pruning_legend(flags: _Flags, settings: ReportSettings) -> list[str]:
 
 
 def _anomaly_legend(report: Report) -> list[str]:
-    """Poikkeamaluvun selitykset: menetelmä ja **molempien sääntöjen ehdot**.
+    """Poikkeamaluvun selitykset: menetelmä ja **jokaisen säännön ehdot**.
 
     Kolme kappaletta, ja ne kirjoitetaan **aina** -- myös tyhjään lukuun.
     Peruste on eri kuin muilla lukuohjeen kappaleilla: nämä eivät selitä
@@ -2862,7 +2933,83 @@ def _anomaly_legend(report: Report) -> list[str]:
         "molemmat rivit, ja täysi osto vain crunchin."
     )
     notes.append(crunch)
+    notes.extend(_stack_legend(report))
     return notes
+
+
+def _stack_legend(report: Report) -> list[str]:
+    """Stackin kaksi kappaletta: mitä sääntö on ja mitä se ei nähnyt.
+
+    **Kattavuus on täällä eikä vain tyhjän luvun tekstissä.** Nuken kaltainen
+    kartta vaikenee myös silloin, kun muilla kartoilla on osumia -- ja juuri
+    silloin lukija näkee luvun, jossa Nukea ei ole, ilman mitään mikä
+    kertoisi miksi. Tyhjän luvun teksti (:func:`_no_anomalies_text`) ei
+    silloin ladota lainkaan.
+
+    Ryhmä sanotaan **johdetuksi** eikä annetuksi, koska se on koko säännön
+    peruste: aluejakoa ei ole missään tietokannassa, vaan se lasketaan sen
+    demon omasta pistepilvestä joka kerta.
+    """
+    scan = report.anomaly_scan
+    if "stack" not in scan.rules:
+        # Sääntöä ei ajettu, joten sen selittäminen kuvaisi rivejä, joita ei
+        # voi olla. Kattavuuden kertoo silloin rules_deferred.
+        return []
+    players = _threshold_int(report, "stack_min_players")
+    margin = _threshold_float(report, "stack_group_margin")
+
+    rule = (
+        f"**{ANOMALY_RULE_FI['stack']}**: subjektin puolustus kasautuneena "
+        "yhden siten ympärille. Alueryhmä on **johdettu tästä demosta**: "
+        "jokaisen alueen keskipiste lasketaan demon omasta pistepilvestä, ja "
+        "alue kuuluu lähemmän siten ryhmään"
+    )
+    if margin is not None:
+        rule += f", jos toinen site on vähintään {_ratio(margin)} kertaa kauempana"
+    rule += (
+        ". Ei karttatietokantaa eikä käsin annettua aluejakoa. Osuma vaatii "
+    )
+    if players is not None:
+        rule += f"vähintään {players_text(players)} saman siten ryhmässä ja "
+    rule += (
+        "vähintään yhden heistä sitellä itsellään; spawnissa seisova ei "
+        "laske. Rivin luku on muotoa 4/5 -- ryhmässä olleet kaikista elossa "
+        "olleista. **Stackia ei ole rajattu kierrostyyppiin** eikä se lue "
+        "alueen T-osuutta, joten se ei ole kummankaan toisen säännön tiukempi "
+        "eikä löysempi muoto."
+    )
+    notes = [rule]
+
+    # Otanta samassa muodossa kuin raportin väitteillä (n/m), koska luku on
+    # sama asia: montako kierrosta sääntö näki niistä, joilla se voisi osua.
+    # Sanamuoto "N kierrosta M:sta" taipuisi väärin luvulla 1.
+    coverage = (
+        f"Stackin kattavuus on {scan.stack_rounds}/{scan.crunch_rounds} "
+        "CT-kierroksesta."
+    )
+    if scan.demos_without_site_groups:
+        coverage += (
+            f" Erotus on {demos_text(len(scan.demos_without_site_groups))} "
+            "ilman siteryhmiä: kartalla, jolla A ja B ovat päällekkäin eri "
+            "kerroksissa (Nuke), etäisyys siteeseen ei kerro kummasta "
+            "puolesta on kyse, eikä jakoa saa keksiä. **Sääntö vaikenee "
+            "siellä**, ja vaikeneminen on oikea vastaus -- muttei havainto "
+            "siitä, ettei stackeja ollut."
+        )
+    else:
+        coverage += " Jokaiselta demolta saatiin siteryhmät."
+    notes.append(coverage)
+    return notes
+
+
+def _ratio(value: float) -> str:
+    """Suhdeluku suomalaisella desimaalipilkulla ilman turhia nollia.
+
+    ``1.25 -> '1,25'``, ``2.0 -> '2'``. Eri kuin :func:`_share`, joka pakottaa
+    kaksi desimaalia: osuus 1,0 on eri väite kuin 1, mutta marginaali 2,00 ei
+    ole tarkempi kuin 2.
+    """
+    return f"{value:g}".replace(".", ",")
 
 
 def _threshold_float(report: Report, name: str) -> float | None:

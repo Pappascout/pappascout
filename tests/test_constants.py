@@ -33,6 +33,8 @@ from pappascout.constants import (
     SIDES,
     EventKind,
     RosterClass,
+    SITE_GROUPS,
+    SiteGroup,
     RoundType,
     SampleKind,
     Side,
@@ -50,6 +52,7 @@ PAIRS = [
     ("EVENT_KINDS", EVENT_KINDS, EventKind),
     ("AREA_SOURCES", AREA_SOURCES, AreaSource),
     ("ROSTER_CLASSES", ROSTER_CLASSES, RosterClass),
+    ("SITE_GROUPS", SITE_GROUPS, SiteGroup),
 ]
 
 
@@ -85,15 +88,31 @@ def test_finnish_labels_cover_every_anomaly_rule() -> None:
     assert set(ANOMALY_RULE_FI) == set(ANOMALY_RULES)
 
 
+def test_the_site_groups_are_derived_from_the_site_areas() -> None:
+    """Ryhmätunnukset ovat johdos eivätkä toisinto.
+
+    Kaksi käsin kirjoitettua luetteloa voisi erota toisistaan, ja ero
+    näkyisi vasta siinä, että sääntö hylkää oman tuloksensa tuntemattomana
+    ryhmänä.
+    """
+    from pappascout.constants import SITE_AREAS
+
+    assert SITE_GROUPS == tuple(SITE_AREAS)
+    assert set(SITE_AREAS.values()) == {"BombsiteA", "BombsiteB"}
+
+
 def test_the_deferred_rules_are_not_among_the_implemented_ones() -> None:
     """Kattavuuden nimittäjä: sama sääntö ei voi olla molemmissa.
 
-    Kun stack toteutetaan, nimi **siirtyy** luettelosta toiseen. Jos se olisi
-    hetken molemmissa, raportti väittäisi ajaneensa säännön, jota se nimeää
-    ajamattomaksi.
+    Story 2.14 siirsi ``stack``in luettelosta toiseen, ja lykättyjen luettelo
+    on nyt tyhjä. **Väite on yhä tarpeellinen molempiin suuntiin**: jos sääntö
+    olisi hetken molemmissa, raportti väittäisi ajaneensa säännön, jota se
+    nimeää ajamattomaksi. Tyhjä luettelo jää olemaan seuraavaa lykättyä
+    sääntöä varten -- se on kattavuuden nimittäjä eikä siirtymän jäänne.
     """
     assert not set(ANOMALY_RULES) & set(constants.ANOMALY_RULES_DEFERRED)
-    assert constants.ANOMALY_RULES_DEFERRED == ("stack",)
+    assert constants.ANOMALY_RULES_DEFERRED == ()
+    assert "stack" in ANOMALY_RULES
 
 
 def test_saving_round_types_are_a_proper_subset_of_the_round_types() -> None:

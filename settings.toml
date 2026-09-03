@@ -476,20 +476,99 @@ roster_min_regulars = 4
 # Alle tämän kierrosmäärän otanta merkitään raportissa pieneksi. [spine] AD-3
 small_sample_rounds = 3
 
-# Stack = vähintään 4 pelaajaa samalla alueella samassa näytepisteessä.
-# [spine] AD-10
+# --- Stack-sääntö (Story 2.14) ---
+# Stack = vähintään näin monta subjektin elossa olevaa CT-pelaajaa saman siten
+# ryhmässä samassa näytepisteessä, ja vähintään yksi heistä siten OMALLA
+# alueella (BombsiteA / BombsiteB). Spawnit eivät laske. [spine] AD-10
+# [kalibroitu]
 #
-# KÄYTTÄMÄTÖN Story 2.5:stä lähtien. Sääntö on mitattu mahdottomaksi pelin
-# nykyisellä aluejaolla: neljä puolustajaa samalla env_cs_place-alueella
-# tuotti 0 osumaa 93 kierroksesta, koska peli jakaa sitet useaan alueeseen
-# (Ancientin B on Alley + BombsiteB + SideEntrance). Arvo jää tähän, koska
-# sääntö on kirjattu omaksi tarinakseen aluejaon lisäyksen kanssa
-# (BMAD-tuotosten deferred-work.md, ei tässä repossa); poistaminen vaatisi
-# migraatioviestin.
+# Sääntö oli KÄYTTÄMÄTÖN Story 2.5:stä 2.14:ään: neljä puolustajaa samalla
+# env_cs_place-alueella tuotti 0 osumaa 93 kierroksesta, koska peli jakaa
+# sitet useaan alueeseen (Ancientin B on Alley + BombsiteB + SideEntrance).
+# Puuttuva pala oli kuvaus alue -> alueryhmä, ja se JOHDETAAN NYT DEMOSTA:
+# aluekeskipiste demon omasta pistepilvestä (callouts.parquet, Story 2.9) ja
+# ryhmä = lähempi site marginaalilla stack_group_margin. Ei karttatietokantaa,
+# ei ihmisen antamaa aluejakoa, ei arkiston yli kertyvää taulua -- sama
+# lukittu ehto kuin alueorientaatiolla.
+#
+# Koko perustelu on kalibrointi-stack.md:ssä, joka EI ole tässä repossa vaan
+# projektikansiossa _bmad-output/implementation-artifacts/ (OneDrive).
+#
+# 4 EIKÄ 3: neljä on kalibroitu, kolme ei. Viisi ei ole tyhjä joukko vaan
+# säännön aito ääripää (2 kierrosta 66:sta), joten yläraja on kentällä
+# olevien määrä (5) eikä 4.
+#
+# Mitattu kahdeksasta demosta: 10 osumaa 9 kierroksella, 66 tutkittua
+# CT-kierrosta 93:sta. Aikaraja on YHTEINEN advance_max_sample_s:n kanssa
+# eikä oma kynnys -- <= 45 s toisi kaksi osumaa lisää, <= 15 s pudottaisi
+# neljä.
+#
+# SITEN OMALLA ALUEELLA RIITTÄÄ YKSI PELAAJA, ja se on mitattu valinta eikä
+# oletusarvo. Vaihtoehdot samasta aineistosta:
+#
+#   vaatimus   kierroksia   osumia
+#   >= 1        9 / 66       10     <- nykyinen
+#   >= 2        5 / 66        5
+#   >= 3        2 / 66        2
+#
+# Osumista viidellä on tasan yksi pelaaja sitellä, kolmella kaksi ja kahdella
+# kolme. Tiukennus ei siis poistaisi kohinaa vaan puolet havainnoista -- ja
+# pelaajamäärä on raportin rivillä joka tapauksessa muodossa 4/5, joten
+# lukija arvioi itse onko kyse asetelmasta vai sattumasta. Vaatimus ei ole
+# asetus, koska sen muuttaminen muuttaisi säännön määritelmää eikä sen
+# rajaa; jos se joskus halutaan asetukseksi, luvut mitataan uudelleen.
 stack_min_players = 4
 
-# --- Poikkeamasäännöt (Story 2.5) ---
-# Kaksi sääntöä, joilla on YHTEINEN orientaatioehto. Kumpikaan ei ole toisen
+# Kuinka paljon kauempana toisen siten on oltava, ennen kuin alue luetaan
+# lähemmän siten ryhmään. Alle marginaalin jäävä alue ei ole kummankaan
+# ryhmässä (JAKO) -- suuntaa ei arvata.
+#
+# SUHDELUKU, ei pelin yksiköitä: verrataan osamäärää etäisyys_kauempi /
+# etäisyys_lähempi, joten pistepilven ruudukon koko supistuu pois.
+#
+# Mitattu: 1,25 tuottaa Ancientilla aluejaon, joka on SANATARKASTI SAMA
+# kaikista kolmesta demosta (0/18 ristiriitaista aluetta) ja jonka B-ryhmä
+# vastaa sanatarkasti Veetin omaa reittimallia. Anubiksella yksi alue
+# (Middle) eroaa kahden demon välillä, ja se on kartan aidosti jaettu keski.
+#
+# Alaraja on 1,0 (ModelSettings): sitä pienemmällä "lähempi" site voisi olla
+# kauempana. Yläraja 10,0: siteet ITSE eivät katoa millään marginaalilla
+# (siten etäisyys omaan keskipisteeseensä on 0, joten ehto on niillä aina
+# tosi), joten yläraja torjuu sen, että KAIKKI MUUT alueet putoavat
+# ryhmättömiksi -- silloin neljän pelaajan vaatimus voisi täyttyä vain jos
+# koko puolustus seisoo sitellä itsellään, ja sääntö näyttäisi ajetulta
+# muttei mittaisi enää asetelmaa.
+stack_group_margin = 1.25
+
+# Erottuvuusvartija: kartta, jolla siteet eivät erotu, VAIKENEE. Suhde on
+# siteiden keskipisteiden etäisyys jaettuna siteiden omalla koolla
+# (säde_A + säde_B, säde = ruutujen mediaanietäisyys alueen keskipisteestä).
+# Kun suhde alittaa tämän, kartalla ei ole tasoerottuvaa A/B-jakoa eikä
+# sääntöä aja sillä demolla lainkaan.
+#
+# Vaikeneminen KIRJATAAN KATTAVUUTEEN (anomaly_scan.demos_without_site_groups)
+# eikä jätetä hiljaiseksi: nolla osumaa vaiennetulla demolla ei ole mitattu
+# negatiivinen vaan sokea piste.
+#
+# 2,0 on MITATTU eikä valittu. Nukella BombsiteA (z -15..-8) ja BombsiteB
+# (z -25..-17) ovat päällekkäin eri kerroksissa, joten mikä tahansa
+# A/B-etäisyysmittari on siellä mieletön:
+#
+#   de_anubis  4,95 - 5,04
+#   de_inferno 4,54
+#   de_ancient 3,70 - 3,95
+#   de_nuke    0,47 - 0,54   <- vaikenee
+#
+# Kynnys erottaa nämä puhtaasti ILMAN ETTÄ KARTTAA NIMETÄÄN KOODISSA. Nuken
+# ottaminen mukaan vaatii oman johtamistapansa pystysuunnassa erottuville
+# siteille -- ei tämän säännön löysentämistä.
+stack_site_separation_min = 2.0
+
+# --- Orientaatiosäännöt (Story 2.5) ---
+# Kaksi sääntöä, joilla on YHTEINEN orientaatioehto. Stack (yllä) ei lue
+# orientaatiota lainkaan, joten se ei kuulu tähän lohkoon eikä jaa näitä
+# arvoja -- paitsi advance_max_sample_s:n, joka on kaikkien kolmen yhteinen
+# aikaraja. Kumpikaan näistä kahdesta ei ole toisen
 # "tiukempi muoto": crunch on tiukempi suunnista mutta löysempi
 # kierrostyypistä, joten osumajoukot leikkaavat toisiaan eikä kumpikaan
 # sisällä toista (mitattu: MatureMayhem Anubis k10 on täysi osto, jolla
@@ -538,11 +617,17 @@ advance_area_min_observations = 20
 # kuin suunnitelmalla) eikä yhtäkään varmaa: jokainen 6-30 s välillä merkitty
 # kierros osuu jo aiemmalla näytepisteellä.
 #
+# KAIKKIEN KOLMEN SÄÄNNÖN YHTEINEN, myös stackin (Story 2.14) -- ei uutta
+# kynnystä. Perustelu on sama kuin advance_t_share:n jakamisella: kolme
+# sääntöä kysyvät samasta havainnosta, ja kahdella aikarajalla ne voisivat
+# olla eri mieltä siitä, milloin kierroksen alku loppuu. Stackilla mitattu
+# vaikutus: ≤ 45 s toisi 2 osumaa lisää, ≤ 15 s pudottaisi 4.
+#
 # Rajat: yli 0,0 ja enintään 60,0 (MAX_ADVANCE_SAMPLE_SECONDS). Lisäksi arvon
 # on oltava vähintään pienin [parse].snapshot_seconds -piste, ja sen tarkistaa
-# Settings._check_sections_agree: pienempi arvo vaientaisi MOLEMMAT säännöt
-# pysyvästi, ja raportti väittäisi silloin "ei poikkeamia" havaintona vaikka
-# yhtäkään näytepistettä ei tutkittu.
+# Settings._check_sections_agree: pienempi arvo vaientaisi KAIKKI KOLME
+# sääntöä pysyvästi, ja raportti väittäisi silloin "ei poikkeamia" havaintona
+# vaikka yhtäkään näytepistettä ei tutkittu.
 advance_max_sample_s = 30.0
 
 # Montako CT-pelaajaa T:n alueella riittää etenemiseksi. Veeti 2026-08-31:

@@ -516,10 +516,12 @@ turhaan.
 
 Aggregoinnin parametrihash lasketaan koko `[aggregate]`-osiosta sekä niistä
 `[thresholds]`- ja `[league]`-avaimista, jotka vaihe todella lukee:
-`small_sample_rounds`, `team_identity_min_common`, `map_pool` sekä Story
+`small_sample_rounds`, `team_identity_min_common`, `map_pool`, Story
 2.5:n kuusi poikkeamakynnystä (`advance_t_share`,
 `advance_area_min_observations`, `advance_max_sample_s`,
-`advance_min_players`, `crunch_min_players`, `crunch_min_sources`).
+`advance_min_players`, `crunch_min_players`, `crunch_min_sources`) sekä Story
+2.14:n kolme (`stack_min_players`, `stack_group_margin`,
+`stack_site_separation_min`).
 Luettelo on `stages.aggregate.HASHED_THRESHOLD_KEYS`issa, ja kaksi testiä
 vartioi sitä: toinen lukee luetut kentät lähdekoodista, toinen ajaa jokaisen
 kynnyksen läpi ja tarkistaa että hash muuttuu.
@@ -560,9 +562,12 @@ jäljitettävyys. Jokainen havaintorivi kantaa otantansa muodossa
 arvokkain tuotos (Story 2.5), ja dokumentin lopussa se olisi juuri se, mitä
 ottelua edeltävässä kiireessä ei ehditä lukea. Luku latotaan **ehdoitta**:
 tyhjä luku sanoo "ei poikkeamia" ja kertoo samalla mitä tutkittiin -- montako
-kierrosta säännöt näkivät, montako arkkitehtuurin sääntöä jäi ajamatta ja
-jäikö jonkin demon alueorientaatio tyhjäksi. Ilman sitä nolla poikkeamaa
-lukisi mitattuna negatiivisena myös sokeasta pisteestä.
+kierrosta **kukin** sääntö näki, montako arkkitehtuurin sääntöä jäi ajamatta,
+jäikö jonkin demon alueorientaatio tyhjäksi ja jäikö joltakin demolta
+siteryhmät saamatta. Ilman sitä nolla poikkeamaa lukisi mitattuna
+negatiivisena myös sokeasta pisteestä. Sokeita pisteitä on kaksi eri lajia ja
+ne koskevat eri sääntöjä: tyhjä orientaatio vaientaa CT-etenemisen ja
+crunchin, erottumattomat siteet vaientavat stackin.
 
 Rivi on kaksitasoinen: koontirivi kantaa alueen, otannan ja alueen T-osuuden,
 ja sen alla on rivi per kierros. Jako ei ole muotoilua vaan merkitys --
@@ -820,12 +825,75 @@ yksikkönsä itse (`Middle (4/6 taposta)`) eikä vain lukuohjeessa. Alue on
 > tunnistetaan oikein T:n alueeksi (T-osuus 0,89 ja 0,98), mutta lobby
 > crunchia ei yhdelläkään kierroksella tehty.
 >
-> Arkkitehtuurin (AD-10) kolmesta poikkeamasäännöstä ajetaan **kaksi**.
-> Kolmas, 4-5 pelaajan stack yhdellä sitellä, on mitattu mahdottomaksi pelin
-> nykyisellä aluejaolla (0 osumaa 93 kierroksesta, koska peli jakaa siten
-> useaan `env_cs_place`-alueeseen) ja siirretty omaksi tarinakseen.
-> `[thresholds].stack_min_players` jää siksi käyttämättä, ja raportin
-> poikkeamaluku sanoo kattavuutensa ääneen.
+> Arkkitehtuurin (AD-10) kolmesta poikkeamasäännöstä ajettiin tässä
+> tarinassa **kaksi**. Kolmas, 4-5 pelaajan stack yhdellä sitellä, oli
+> mitattu mahdottomaksi pelin nykyisellä aluejaolla (0 osumaa 93
+> kierroksesta, koska peli jakaa siten useaan `env_cs_place`-alueeseen) ja
+> siirrettiin omaksi tarinakseen. Story 2.14 toteutti sen; ks. alla.
+>
+> **Stack-sääntö: alueryhmä johdetaan demon omasta pistepilvestä.** Story
+> 2.14 ottaa käyttöön AD-10:n kolmannen säännön ja lisää kolme kynnystä
+> `[thresholds]`-osioon (`stack_min_players`, `stack_group_margin`,
+> `stack_site_separation_min`). `REPORT_SCHEMA_VERSION` nousee `7.0.0` ->
+> `8.0.0`. Uudelleenparsintaa **ei tarvita**: sääntö lukee `parse`-vaiheen jo
+> kirjoittamaa `callouts.parquet`-pistepilveä (Story 2.9), eikä yksikään
+> parsittu taulu muutu. Komennot ovat samat kaksi kuin Story 2.5:ssä.
+>
+> Puuttuva pala oli kuvaus `alue -> alueryhmä`, ja se **johdetaan** eikä
+> anneta: jokaisen alueen keskipiste on sen pistepilviruutujen **solumediaani**
+> (jokainen ruutu painaa yhden, havaintomäärä ei paina), ja alue kuuluu
+> lähemmän siten ryhmään, jos toinen site on vähintään `stack_group_margin`
+> kertaa kauempana. Sama lukittu ehto kuin alueorientaatiolla: ei
+> karttatietokantaa, ei ihmisen antamaa aluejakoa, ei arkiston yli kertyvää
+> taulua.
+>
+> Solumediaani on **mitattu ehto eikä yksinkertaistus**. Pelin
+> `m_szLastPlaceName` on *viimeksi nimetty* alue, joten nimeämättömässä
+> kohdassa seisova pelaaja kantaa edellisen kierroksen aluetta;
+> `Ancient_vs_kaljukostaja`n CT-spawnin ruuduissa on `BombsiteB` 75 524
+> havaintoa ja `CTSpawn` vain 135. Havaintopainotettu keskiarvo vetää siten
+> keskipisteen spawniin, solumediaani ei. Mitattu: Ancientin ristiriitaiset
+> alueet 5/18 -> **0/18**, eli aluejako on sanatarkasti sama kaikista
+> kolmesta Ancient-demosta.
+>
+> **Kartta, jolla siteet eivät erotu, vaikenee.** Nukella `BombsiteA` ja
+> `BombsiteB` ovat päällekkäin eri kerroksissa, joten mikä tahansa
+> A/B-etäisyysmittari on siellä mieletön. Vartija on suhdeluku eikä
+> karttalista: siteiden keskipisteiden etäisyys jaettuna siteiden omalla
+> koolla on 0,47-0,54 Nukella ja 3,70-5,04 kolmella muulla kartalla, joten
+> kynnys 2,0 erottaa ne **ilman että karttaa nimetään koodissa**.
+> Vaikeneminen kirjataan kattavuuteen
+> (`anomaly_scan.demos_without_site_groups`), koska nolla vaiennetulla
+> demolla ei ole mitattu negatiivinen.
+>
+> Mitattu koko arkistosta (kahdeksan demoa, 93 CT-kierrosta): stack osuu
+> **9 kierroksella ja 10 näytepisteellä**, ja se näki **66 kierrosta** --
+> Nuken 27 kierrosta vaiennettiin. Osumat jakautuvat kolmelle näytepisteelle
+> (6 s: 1, 15 s: 5, 30 s: 4), ja `stack_min_players = 5` antaa 2 kierrosta,
+> eli viisi on säännön aito ääripää eikä tyhjä joukko.
+>
+> Siten omalla alueella **riittää yksi pelaaja**, ja sekin on mitattu valinta:
+> vaatimus `>= 2` antaa 5 osumaa 5 kierroksella ja `>= 3` kaksi kumpaakin.
+> Tiukennus ei poistaisi kohinaa vaan puolet havainnoista, ja pelaajamäärä on
+> rivillä joka tapauksessa muodossa 4/5.
+>
+> Kaksi lisäehtoa ovat määritelmää eivätkä hienosäätöä. **Siten oma alue**
+> vaaditaan (`BombsiteA`/`BombsiteB`): "stack sitellä" tarkoittaa että ollaan
+> sitellä, ei että ollaan kartan siinä puoliskossa -- ilman ehtoa Ancientin
+> `Alley` yksin tuottaa osumia, ja mitattuna ehto pudottaa 17 kierrosta -> 9.
+> **Spawnit eivät laske**: `CTSpawn` on Ancientilla A-ryhmässä ja Infernolla
+> B-ryhmässä, joten ilman rajausta pelkkä aloitusasetelma laukaisisi säännön.
+>
+> **`callouts.parquet` on tästä lähtien pakollinen jokaiselta demolta.**
+> `aggregate` lukee sen samalla listalla kuin kuusi muuta parsittua taulua,
+> joten ennen Story 2.9:ää parsittu demo putoaa **koko raportista** -- ei vain
+> stackista -- ja päätyy osioon "Puuttuvat demot" komennon kanssa. Se on
+> tarkoituksellinen, ja ero on kattavuuden arvo: vaiennettu demo on havainto
+> kartasta (siteet eivät erotu tasoina) ja se kirjataan
+> `anomaly_scan.demos_without_site_groups`iin, kun taas puuttuva taulu on
+> vanhalla versiolla parsittu demo. Hiljaisena jälkimmäinen lukisi
+> kattavuudessa edellisenä. Korjaus on `uv run pappascout parse <id>`;
+> `--pakota` ei ole tarpeen, koska `parse` huomaa puuttuvan taulun itse.
 
 #### Karsinta: toisto pois, havainnot jäävät
 

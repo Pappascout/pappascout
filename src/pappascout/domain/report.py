@@ -111,11 +111,13 @@ from pappascout.constants import (
     ANOMALY_RULES,
     ROUND_TYPES,
     SAMPLE_BUCKETS,
+    SITE_AREAS,
     AnomalyRule,
     AreaSource,
     RoundType,
     SampleKind,
     Side,
+    SiteGroup,
 )
 from pappascout.errors import AggregateError
 
@@ -147,6 +149,7 @@ __all__ = [
     "TeamReport",
     "MissingDemo",
     "AreaOrientation",
+    "AnomalyPoint",
     "AnomalyRound",
     "Anomaly",
     "AnomalyScan",
@@ -183,7 +186,15 @@ __all__ = [
 #: sen, ettei sääntöjä ollut olemassa. Ehto "validoituuko vanha tiedosto" ei
 #: siis riitä yksin: myös oletusarvo, joka on erotettavissa havainnosta,
 #: nostaa version.
-REPORT_SCHEMA_VERSION = "7.0.0"
+#:
+#: **8.0.0 (Story 2.14): kolmas poikkeamasääntö, ja kattavuus muuttuu
+#: merkitykseltään.** ``Anomaly.rule`` sai arvon ``stack``, joten uusi
+#: tiedosto ei validoidu vanhaa mallia vasten. Tärkeämpi puoli on
+#: vastakkainen: vanha tiedosto validoituisi, mutta sen ``anomaly_scan``
+#: nimeäisi stackin **toteuttamattomaksi** ja vaikenisi siitä, monellako
+#: kierroksella se voi osua. Renderöitynä se väittäisi mitatuksi
+#: kattavuudeksi luvun, joka koski kahta sääntöä kolmesta.
+REPORT_SCHEMA_VERSION = "8.0.0"
 
 
 #: Merkit, jotka eivät kelpaa tiedostonimeen. Slug on ASCII-osajoukko, koska
@@ -1172,34 +1183,99 @@ def _check_seconds(seconds: list[float], where: str) -> None:
         )
 
 
+class AnomalyPoint(_Node):
+    """Yhden näytepisteen havainto yhdellä kierroksella.
+
+    **Luku kuuluu siihen hetkeen, jolta se mitattiin.** Story 2.5:stä 2.14:ään
+    kierros kantoi yhden maksimin ja luettelon näytepisteitä, ja raportin rivi
+    latoi maksimin jokaiselle niistä. Se on väite datasta, jota ei ole:
+    mitattuna MatureMayhem Inferno k2 on 15 s kohdalla viisi pelaajaa ja 30 s
+    kohdalla **yksi**, mutta rivi luki "5 pelaajaa 15 ja 30 s kohdalla"; Anubis
+    k4 on 15 s kohdalla 5/5 ja 30 s kohdalla **4/5**. Yhteenveto ei voi olla
+    näytepistekohtainen, joten rakenne on.
+
+    Attributes:
+        sample_t_s: Näytepisteen nimellisaika sekunteina.
+        players: Pelaajamäärä **tällä** näytepisteellä -- ei kierroksen
+            suurin.
+        alive: Subjektin elossa olevat CT-pelaajat tällä näytepisteellä.
+            **Vain stackilla**, ja siellä jokaisella pisteellä: neljä
+            viidestä ja neljä neljästä ovat eri havainto, eikä pelkkä
+            pelaajamäärä erota niitä. Kahdella muulla säännöllä luku olisi
+            keksitty -- kumpikaan ei laske elossa olevia.
+    """
+
+    sample_t_s: float
+    players: int = Field(gt=0)
+    alive: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _check_point(self) -> AnomalyPoint:
+        """Ryhmässä olevat ovat osajoukko elossa olevista.
+
+        Raises:
+            ValueError: Jos pelaajia on enemmän kuin elossa olevia. Se ei ole
+                tiukempi havainto vaan rikkinäinen.
+        """
+        if self.alive is not None and self.alive < self.players:
+            raise ValueError(
+                f"Näytepisteellä {self.sample_t_s:g} s on {self.players} "
+                f"pelaajaa mutta elossa {self.alive}. Ryhmässä olevat ovat "
+                "osajoukko elossa olevista."
+            )
+        return self
+
+
 class AnomalyRound(_Node):
     """Yksi kierros, jolla poikkeama havaittiin.
 
     **Tämä solmu on se, joka tekee rivistä luettavan oikein.** Crunchin
     lähtösuunnat ovat yhtäaikaisia vain saman kierroksen sisällä: kahden
     kierroksen suuntien yhdiste ("suunnista A, B, C ja D") lukisi neljäksi
-    yhtäaikaiseksi suunnaksi, mikä on päinvastoin kuin määritelmä. Sama
-    koskee näytepisteitä ja pelaajamäärää.
+    yhtäaikaiseksi suunnaksi, mikä on päinvastoin kuin määritelmä.
+
+    Pelaajamäärä menee askeleen pidemmälle: se ei ole yhtäaikainen edes saman
+    kierroksen sisällä, koska jokainen näytepiste on oma havaintonsa. Siksi
+    luvut ovat :class:`AnomalyPoint`-riveinä eivätkä yhtenä maksimina ja
+    sekuntilistana.
 
     Attributes:
         map_demo_id: Demo, jolta kierros on. Yhdellä kartalla voi olla kaksi
             demoa (Story 2.11), joten pelkkä kierrosnumero ei yksilöi.
         round_no: Kierrosnumero, jonka scoutti hakee demolta. Ilman sitä luku
             kertoisi että jotain tapahtui muttei missä sen näkee.
-        round_type: Kierrostyyppi. Crunchilla se vaihtelee rivin sisällä,
-            koska sääntö ei tunne kierrostyyppiä.
-        seconds: Näytepisteet tällä kierroksella, nousevassa järjestyksessä.
-        players_max: Suurin pelaajamäärä tämän kierroksen näytepisteillä.
-        sources: Lähtöalueet tällä kierroksella -- **yhtäaikaiset**.
-            Etenemisellä tyhjä.
+        round_type: Kierrostyyppi. Crunchilla ja stackilla se vaihtelee rivin
+            sisällä, koska kumpikaan ei tunne sitä.
+        points: Näytepisteet havaintoineen, **nousevassa järjestyksessä**.
+        sources: Lähtöalueet tällä kierroksella -- **yhtäaikaiset**. Vain
+            crunchilla.
     """
 
     map_demo_id: str = Field(min_length=1)
     round_no: int = Field(gt=0)
     round_type: RoundType
-    seconds: list[float] = Field(min_length=1)
-    players_max: int = Field(gt=0)
+    points: list[AnomalyPoint] = Field(min_length=1)
     sources: list[str] = Field(default_factory=list)
+
+    @property
+    def seconds(self) -> list[float]:
+        """Näytepisteiden hetket. Johdos eikä kenttä, jottei se voi erota."""
+        return [point.sample_t_s for point in self.points]
+
+    @property
+    def players_max(self) -> int:
+        """Suurin pelaajamäärä tällä kierroksella.
+
+        **Yhteenveto eikä rivin luku.** Sitä käytetään vain siellä, missä
+        koko kierrosta verrataan johonkin (lähtösuuntien määrä, rivin
+        ``players_max``); raportin rivi latoo näytepistekohtaiset luvut.
+        """
+        return max(point.players for point in self.points)
+
+    @property
+    def points_without_alive(self) -> list[AnomalyPoint]:
+        """Näytepisteet, jotka eivät kerro elossa olevien määrää."""
+        return [point for point in self.points if point.alive is None]
 
     @model_validator(mode="after")
     def _check_round(self) -> AnomalyRound:
@@ -1213,11 +1289,12 @@ class AnomalyRound(_Node):
                 havainto vaan rikkinäinen.
         """
         where = f"kierros {self.round_no} ({self.map_demo_id})"
-        _check_seconds(self.seconds, where)
-        if sorted(self.seconds) != self.seconds:
+        seconds = self.seconds
+        _check_seconds(seconds, where)
+        if sorted(seconds) != seconds:
             raise ValueError(
                 f"{where}: näytepisteet eivät ole nousevassa järjestyksessä "
-                f"({self.seconds})."
+                f"({seconds})."
             )
         if len(set(self.sources)) != len(self.sources):
             raise ValueError(
@@ -1244,6 +1321,18 @@ class AnomalyRound(_Node):
                 f"pelaajia {self.players_max}. Jokainen suunta tarvitsee "
                 "oman pelaajansa, joten havainto on rikkinäinen."
             )
+        # Elossa-luku on kaikilla pisteillä tai ei yhdelläkään. Puolikas
+        # rivi latoisi "4/5 ja 4 pelaajaa", eli kaksi eri yksikköä samalla
+        # rivillä. Kumpi niistä on oikein, päätetään säännön mukaan
+        # (Anomaly._check_stack_fields); täällä valvotaan vain, ettei rivi
+        # ole itsensä kanssa eri mieltä.
+        missing = len(self.points_without_alive)
+        if missing not in (0, len(self.points)):
+            raise ValueError(
+                f"{where}: {missing} näytepistettä {len(self.points)}:sta ei "
+                "kerro elossa olevien määrää. Luku on joko kaikilla tai ei "
+                "yhdelläkään -- muuten sama rivi latoisi kaksi eri yksikköä."
+            )
         return self
 
 
@@ -1263,29 +1352,45 @@ class Anomaly(_Node):
     millä tyypeillä se havaittiin. Yksi kierros on kelvollinen otanta; se
     merkitään pieneksi samalla säännöllä kuin muut (``small_sample``).
 
+    **Stackin nimittäjä on sama kuin crunchin**: se ei tunne kierrostyyppiä,
+    joten ``m`` on puolen kaikki kierrokset kartalla ja ``round_types`` kertoo
+    millä tyypeillä se havaittiin.
+
     Attributes:
-        rule: ``ct_advance`` tai ``crunch``. Säännöt **jakavat**
-            orientaatioehdon, mutta kumpikaan osumajoukko ei sisällä toista:
-            crunch lisää suuntavaatimuksen ja pudottaa kierrostyyppirajauksen,
-            joten säästökierroksella sama kierros tuottaa molemmat rivit ja
-            täydellä ostolla vain crunchin.
+        rule: ``ct_advance``, ``crunch`` tai ``stack``. Kaksi ensimmäistä
+            **jakavat** orientaatioehdon, mutta kumpikaan osumajoukko ei
+            sisällä toista: crunch lisää suuntavaatimuksen ja pudottaa
+            kierrostyyppirajauksen, joten säästökierroksella sama kierros
+            tuottaa molemmat rivit ja täydellä ostolla vain crunchin.
+            ``stack`` ei lue orientaatiota lainkaan eikä ole kummankaan
+            muunnelma.
         map_name: Kartta, jolla poikkeama havaittiin.
         map_name_source: Mistä kartan nimi tuli. Kannetaan siksi, että
             raportin runko puhuu nimillä (Story 2.12): kun lähde on
             ``unknown``, ``map_name`` **on** demotunniste, eikä sitä saa latoa
             runkoon paljaana.
-        side: Subjektin puoli. Käytännössä aina ``CT``, koska molemmat säännöt
-            tutkivat CT-rivejä; kenttä on rakenteessa, koska raportin rivi
+        side: Subjektin puoli. Käytännössä aina ``CT``, koska kaikki kolme
+            sääntöä tutkivat CT-rivejä; kenttä on rakenteessa, koska rivi
             kertoo puolen eikä lukija saa päätellä sitä säännön nimestä.
         area: Pelin oma ``env_cs_place``-alue. **Ei koskaan tyhjä**: alue
-            ilman nimeä ei voi olla T:n aluetta.
+            ilman nimeä ei voi olla T:n aluetta. Stackilla se on **siten oma
+            alue** (``BombsiteA`` / ``BombsiteB``), joka on ryhmän ankkuri ja
+            säännön lisäehto -- ei se alue, jolla pelaajia oli eniten.
+        site: Siten ryhmä, ``"A"`` tai ``"B"``. **Vain stackilla.** Kenttä on
+            rakenteessa, vaikka ``area`` määrää sen: ``report.json``in lukijan
+            ei pidä joutua päättelemään merkkijonosta ``"BombsiteB"``, että
+            kyse on B-ryhmästä, ja malli valvoo etteivät ne voi olla eri
+            mieltä.
         round_types: Kierrostyypit, joilla poikkeama havaittiin,
             ``ROUND_TYPES``-järjestyksessä. Etenemisellä täsmälleen yksi.
         rounds: Kierrokset havaintoineen. Tästä luetaan "milloin", "mistä" ja
             "kuinka monta" niin, ettei rivi väitä yhtäaikaisuutta yli
             kierrosrajan.
         orientation: Alueen orientaatio niistä demoista, joissa poikkeama
-            havaittiin -- poikkeaman todistuskappale.
+            havaittiin -- poikkeaman todistuskappale. **Tyhjä stackilla ja
+            vain sillä**: sääntö ei lue orientaatiota, joten luku olisi siinä
+            keksitty. Sama sääntö kuin ``AnomalyRound.sources``illa -- tyhjä
+            tarkoittaa "ei kysytty", ei "ei havaittu".
         players_max: Suurin havaittu pelaajamäärä koko rivillä. Yhteenveto
             ``rounds``ista, ja malli valvoo että se vastaa niitä.
         n: Kierrokset, joilla poikkeama havaittiin (``len(rounds)``).
@@ -1299,9 +1404,10 @@ class Anomaly(_Node):
     map_name_source: MapNameSource
     side: Side
     area: str = Field(min_length=1)
+    site: SiteGroup | None = None
     round_types: list[RoundType] = Field(min_length=1)
     rounds: list[AnomalyRound] = Field(min_length=1)
-    orientation: list[AreaOrientation] = Field(min_length=1)
+    orientation: list[AreaOrientation] = Field(default_factory=list)
     players_max: int = Field(gt=0)
     n: int = Field(gt=0)
     m: int = Field(gt=0)
@@ -1371,13 +1477,13 @@ class Anomaly(_Node):
                 "suunnasta samaan aikaan, joten suunnaton kierros olisi eri "
                 "sääntö samalla nimellä."
             )
-        if self.rule == "ct_advance" and with_sources:
+        if self.rule != "crunch" and with_sources:
             raise ValueError(
-                f"CT-eteneminen alueella {self.area!r} kantaa lähtöalueita, "
-                "vaikka sääntö ei laske suuntia. Suunnat ovat crunchin "
-                "havainto, ja etenemisrivillä ne väittäisivät mitatuksi "
-                "jotain, jota ei mitattu."
+                f"Sääntö {self.rule} alueella {self.area!r} kantaa "
+                "lähtöalueita, vaikka vain crunch laskee suuntia. Suunnat "
+                "väittäisivät mitatuksi jotain, jota ei mitattu."
             )
+        self._check_stack_fields()
         demos = [entry.map_demo_id for entry in self.orientation]
         if len(set(demos)) != len(demos):
             raise ValueError(
@@ -1385,6 +1491,11 @@ class Anomaly(_Node):
                 f"kahdesti ({sorted(demos)}); alueella on demoa kohden yksi "
                 "T-osuus."
             )
+        if self.rule == "stack":
+            # Orientaatiota ei ole, joten kattavuusvertailua ei voi tehdä --
+            # eikä sen puuttuminen ole puute. _check_stack_fields on jo
+            # vaatinut listan tyhjäksi.
+            return self
         seen = {entry.map_demo_id for entry in self.rounds}
         if set(demos) != seen:
             raise ValueError(
@@ -1395,6 +1506,65 @@ class Anomaly(_Node):
                 "havaittiin -- ei enempää eikä vähempää."
             )
         return self
+
+    def _check_stack_fields(self) -> None:
+        """Stackin kentät kuuluvat stackille, eivätkä muut kanna niitä.
+
+        Kolme kenttää erottaa stackin kahdesta muusta säännöstä, ja jokainen
+        on tässä molempiin suuntiin: ``site`` ja ``AnomalyPoint.alive`` ovat
+        stackin havaintoja, ``orientation`` ei ole. Ilman vartijaa rivi voisi
+        kantaa lukua, jota sen sääntö ei mitannut -- ja raportin lukija ei näe
+        kentän lähdettä, vain sen arvon.
+
+        Raises:
+            ValueError: Jos kenttä on väärällä säännöllä, puuttuu omaltaan,
+                tai jos ``site`` ja ``area`` ovat eri mieltä siitä, kumpi site
+                on kyseessä.
+        """
+        without_alive = [
+            entry for entry in self.rounds if entry.points_without_alive
+        ]
+        if self.rule != "stack":
+            if self.site is not None:
+                raise ValueError(
+                    f"Sääntö {self.rule} alueella {self.area!r} nimeää "
+                    f"siteryhmän {self.site!r}, vaikka vain stack lukee "
+                    "siteryhmiä."
+                )
+            if len(without_alive) != len(self.rounds):
+                raise ValueError(
+                    f"Sääntö {self.rule} alueella {self.area!r} kertoo "
+                    "elossa olevien määrän, vaikka se ei laske sitä. "
+                    "Luku näyttäisi mitatulta muttei koskisi tätä riviä."
+                )
+            return
+        if self.site not in SITE_AREAS:
+            raise ValueError(
+                f"Stack alueella {self.area!r} nimeää siteryhmäksi "
+                f"{self.site!r}; sallitut ovat {sorted(SITE_AREAS)}. Ryhmä on "
+                "rivin ankkuri, eikä sitä voi jättää nimeämättä."
+            )
+        if SITE_AREAS[self.site] != self.area:
+            raise ValueError(
+                f"Stackin siteryhmä {self.site!r} ja alue {self.area!r} ovat "
+                f"eri mieltä: ryhmän oma alue on "
+                f"{SITE_AREAS[self.site]!r}. Kenttä on rakenteessa vain siksi, "
+                "ettei lukijan tarvitse päätellä ryhmää aluenimestä, joten "
+                "niiden on kerrottava sama asia."
+            )
+        if without_alive:
+            raise ValueError(
+                f"Stack alueella {self.area!r} kantaa kierroksia, jotka eivät "
+                "kerro montako pelaajaa oli elossa "
+                f"({sorted(entry.round_no for entry in without_alive)}). "
+                "Neljä viidestä ja neljä neljästä ovat eri havainto."
+            )
+        if self.orientation:
+            raise ValueError(
+                f"Stack alueella {self.area!r} kantaa alueen orientaatiota, "
+                "vaikka sääntö ei lue sitä lainkaan. Sen T-osuus koskisi "
+                "toista kysymystä kuin tämä rivi."
+            )
 
 
 class AnomalyScan(_Node):
@@ -1415,15 +1585,34 @@ class AnomalyScan(_Node):
             kierrostyyppi. Luokittelemattomat eivät mahdu rakenteeseen
             lainkaan, ja niiden määrä on ``Report.unclassified_rounds``.
         crunch_rounds: Niistä ne, joilla **crunch voi osua**: subjektin
-            CT-puolen kierrokset. Molemmat säännöt tutkivat vain CT-rivejä,
-            joten T-puolen kierros ei voi tuottaa osumaa kummallakaan --
-            ja ``rounds_scanned`` yksin lupaisi kattavuutta, jota ei ole.
+            CT-puolen kierrokset. Kaikki kolme sääntöä tutkivat vain
+            CT-rivejä, joten T-puolen kierros ei voi tuottaa osumaa
+            yhdelläkään -- ja ``rounds_scanned`` yksin lupaisi kattavuutta,
+            jota ei ole.
         advance_rounds: Niistä ne, joilla **CT-eteneminen voi osua**:
-            CT-puolen säästökierrokset. Kapein luku kolmesta, ja juuri se on
+            CT-puolen säästökierrokset. Kapein luku, ja juuri se on
             etenemisen todellinen nimittäjä kattavuutena.
+        stack_rounds: Niistä ne, joilla **stack voi osua**: CT-kierrokset
+            **niistä demoista, joilla siteryhmät saatiin johdettua**.
+            Pakollinen eikä oletuksellinen, kuten kaksi muuta kattavuuslukua:
+            puuttuva avain luettaisiin hiljaa nollaksi, eli sokea piste
+            luettaisiin mitattuna negatiivisena -- juuri se, mitä tämä solmu
+            on olemassa estämään.
+            *Ei sama luku kuin* ``crunch_rounds``, vaikka kierrostyyppiä ei
+            kummassakaan rajata: kartta, jolla siteet eivät erotu (Nuke),
+            vaientaa stackin kokonaan, ja sen kierrokset ovat crunchin
+            nimittäjässä mutta eivät stackin. Ilman omaa lukua Nuken
+            kierrokset näyttäisivät tutkituilta nollatuloksella.
         demos_without_orientation: Demot, joiden näytepisteistä ei saatu
-            yhtään aluetta havaintokynnyksen yli. Niillä molemmat säännöt
-            vaikenevat, eikä se ole mitattu negatiivinen vaan sokea piste.
+            yhtään aluetta havaintokynnyksen yli. Niillä **eteneminen ja
+            crunch** vaikenevat, eikä se ole mitattu negatiivinen vaan sokea
+            piste.
+        demos_without_site_groups: Demot, joilta ei saatu siteryhmiä:
+            pistepilvestä puuttuu site, tai siteiden keskipisteiden etäisyys
+            suhteessa siteiden omaan kokoon alittaa kynnyksen (Nukella siteet
+            ovat päällekkäin eri kerroksissa). Niillä **stack** vaikenee.
+            Sama peruste kuin edellisellä: vaikeneminen on oikea vastaus,
+            mutta se on kirjattava -- hiljaisena se lukisi nollaosumana.
     """
 
     rules: list[AnomalyRule] = Field(min_length=1)
@@ -1431,16 +1620,25 @@ class AnomalyScan(_Node):
     rounds_scanned: int = Field(ge=0)
     crunch_rounds: int = Field(ge=0)
     advance_rounds: int = Field(ge=0)
+    stack_rounds: int = Field(ge=0)
     demos_without_orientation: list[str] = Field(default_factory=list)
+    demos_without_site_groups: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_scan(self) -> AnomalyScan:
-        """Kolme lukua ovat sisäkkäisiä, ja järjestys on määritelmä.
+        """Kattavuusluvut ovat sisäkkäisiä, ja järjestys on määritelmä.
 
         ``advance_rounds`` (CT + säästö) on osajoukko ``crunch_rounds``ista
         (CT), joka on osajoukko ``rounds_scanned``ista (kaikki). Väärä
         järjestys tarkoittaisi, että kattavuus lupaa säännölle enemmän
         kierroksia kuin sääntö voi tutkia.
+
+        ``stack_rounds`` on osajoukko ``crunch_rounds``ista muttei
+        ``advance_rounds``in yli- eikä alipuoli: se on CT-kierrokset ilman
+        kierrostyyppirajausta mutta **vain vaientamattomista demoista**, ja
+        säästökierroksia voi olla enemmän tai vähemmän kuin niitä. Vertailu
+        näiden kahden välillä olisi siis sääntö ilman perustetta -- sama tila
+        kuin ``crunch_min_players``in ja ``advance_min_players``in välillä.
         """
         if not self.advance_rounds <= self.crunch_rounds <= self.rounds_scanned:
             raise AggregateError(
@@ -1449,6 +1647,37 @@ class AnomalyScan(_Node):
                 f"kaikki {self.rounds_scanned}.\n"
                 "CT-puolen säästökierrokset ovat osajoukko CT-kierroksista, "
                 "jotka ovat osajoukko kaikista kierroksista."
+            )
+        if self.stack_rounds > self.crunch_rounds:
+            raise AggregateError(
+                f"Stackin kattavuus {self.stack_rounds} on suurempi kuin "
+                f"CT-kierrosten määrä {self.crunch_rounds}.\n"
+                "Stack tutkii CT-kierroksia niistä demoista, joilla "
+                "siteryhmät saatiin, joten sen nimittäjä ei voi ylittää "
+                "CT-kierrosten kokonaismäärää."
+            )
+        if self.stack_rounds < self.crunch_rounds and not (
+            self.demos_without_site_groups
+        ):
+            raise AggregateError(
+                f"Stack näki {self.stack_rounds} kierrosta "
+                f"{self.crunch_rounds}:sta, mutta yhtäkään demoa ei ole "
+                "kirjattu siteryhmättömäksi.\n"
+                "Erotuksella on aina nimettävä syy: kierros putoaa stackin "
+                "nimittäjästä vain, jos sen demolta ei saatu siteryhmiä -- "
+                "nimeämätön erotus lukisi mitattuna negatiivisena."
+            )
+        # VASTAKKAINEN SUUNTA EI OLE INVARIANTTI, eikä sitä saa lisätä.
+        # Vaiennetulla demolla voi olla nolla subjektin CT-kierrosta, jolloin
+        # se on tässä listassa vaikka luvut ovat yhtä suuret. Ehto
+        # "lista epätyhjä => luvut eroavat" hylkäisi silloin kelvollisen
+        # havainnon.
+        if len(set(self.demos_without_site_groups)) != len(
+            self.demos_without_site_groups
+        ):
+            raise ValueError(
+                "Sama demo kahdesti siteryhmättömien listassa: "
+                f"{self.demos_without_site_groups}."
             )
         unknown = sorted(set(self.rules) - set(ANOMALY_RULES))
         if unknown:

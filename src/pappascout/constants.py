@@ -21,6 +21,9 @@ __all__ = [
     "ANOMALY_RULES_DEFERRED",
     "AnomalyRule",
     "ANOMALY_RULE_FI",
+    "SITE_AREAS",
+    "SITE_GROUPS",
+    "SiteGroup",
     "UNIT_STATUSES",
     "UnitStatus",
     "SAMPLE_KINDS",
@@ -90,34 +93,45 @@ RoundType = Literal["pistol", "eco", "half", "force", "full", "ot", "anomaly"]
 #: käsitettä samalla sanalla, joten kumpikin paikka nimeää oman merkityksensä.
 SAVING_ROUND_TYPES: Final[tuple[str, ...]] = ("eco", "half", "force")
 
-#: Poikkeamasäännöt (AD-10, Story 2.5). Sama arvo koodissa, ``report.json``issa
-#: ja raportissa; suomennos vain esityksessä (:data:`ANOMALY_RULE_FI`).
+#: Poikkeamasäännöt (AD-10, Story 2.5 ja 2.14). Sama arvo koodissa,
+#: ``report.json``issa ja raportissa; suomennos vain esityksessä
+#: (:data:`ANOMALY_RULE_FI`).
 #:
-#: **Säännöt jakavat orientaatioehdon; kumpikaan ei sisällä toista.** Molemmat
-#: kysyvät saman: onko subjektin CT-pelaaja alueella, joka on siinä demossa
-#: T:n hallussa. ``crunch`` lisää siihen suuntavaatimuksen **mutta pudottaa
-#: kierrostyyppirajauksen**, joten osumajoukot leikkaavat toisiaan:
+#: **Kolme sääntöä ovat kolme eri kysymystä samasta havainnosta, eikä yksikään
+#: sisällä toista.** ``ct_advance`` ja ``crunch`` jakavat orientaatioehdon
+#: ("onko subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa"):
+#: crunch lisää siihen suuntavaatimuksen **mutta pudottaa
+#: kierrostyyppirajauksen**, joten osumajoukot leikkaavat toisiaan --
 #: säästökierroksella crunch tuottaa myös etenemisosuman, täydellä ostolla
-#: vain crunchin. Kumpaakaan ei siis saa kuvata toisen "tiukempana muotona" --
-#: se lupaisi lukijalle löysemmän rivin, jota täydellä ostolla ei ole
-#: (mitattu: MatureMayhem Anubis k10 on täysi osto).
-ANOMALY_RULES: Final[tuple[str, ...]] = ("ct_advance", "crunch")
-AnomalyRule = Literal["ct_advance", "crunch"]
+#: vain crunchin (mitattu: MatureMayhem Anubis k10 on täysi osto).
+#:
+#: ``stack`` ei lue orientaatiota lainkaan. Se kysyy, onko subjektin oma
+#: puolustus kasautunut **yhden siten ryhmään**; siinä ei ole T:n aluetta,
+#: suuntia eikä kierrostyyppirajausta. Sitä ei siis saa kuvata kahden muun
+#: tiukempana eikä löysempänä muotona.
+#:
+#: Järjestys on raportin järjestys: ``render.view._anomaly_rank`` lajittelee
+#: ``ANOMALY_RULES.index``illä, joten uuden säännön paikka luvussa päätetään
+#: **tässä** eikä renderöinnissä.
+ANOMALY_RULES: Final[tuple[str, ...]] = ("ct_advance", "crunch", "stack")
+AnomalyRule = Literal["ct_advance", "crunch", "stack"]
 
 #: Poikkeamasäännöt, jotka arkkitehtuuri (AD-10) nimeää mutta joita ei ole
 #: toteutettu. Luettelo on **kattavuuden nimittäjä**: tyhjä poikkeamaluku voi
 #: väittää mitattua negatiivista vain niistä säännöistä, jotka ajettiin, ja
 #: lukija tarvitsee tiedon siitä, montako selkärangan sääntöä jäi ajamatta.
 #:
-#: ``stack`` (4-5 pelaajan asetelma yhdellä sitellä) on mitattu mahdottomaksi
-#: pelin nykyisellä aluejaolla: neljä puolustajaa samalla
-#: ``env_cs_place``-alueella antoi **0 osumaa 93 kierroksesta**, koska peli
-#: jakaa siten useaan alueeseen (Ancientin B on ``Alley`` + ``BombsiteB`` +
-#: ``SideEntrance``). Sääntö vaatii kuvauksen alue -> alueryhmä, jota ei ole,
-#: ja se on siirretty omaksi tarinakseen. Kun se toteutetaan, nimi siirtyy
-#: tähän luettelosta :data:`ANOMALY_RULES`iin ja kattavuusteksti korjaantuu
-#: itsestään.
-ANOMALY_RULES_DEFERRED: Final[tuple[str, ...]] = ("stack",)
+#: **Tyhjä Story 2.14:stä lähtien.** ``stack`` oli täällä siksi, että sääntö
+#: vaati kuvauksen alue -> alueryhmä, jota ei ollut: neljä puolustajaa samalla
+#: ``env_cs_place``-alueella antoi 0 osumaa 93 kierroksesta, koska peli jakaa
+#: siten useaan alueeseen (Ancientin B on ``Alley`` + ``BombsiteB`` +
+#: ``SideEntrance``). Ryhmä johdetaan nyt demon omasta pistepilvestä
+#: (``domain.sampling.site_groups``), joten nimi siirtyi
+#: :data:`ANOMALY_RULES`iin ja kattavuusteksti korjaantui itsestään.
+#:
+#: Luettelo **jää olemaan tyhjänäkin**: se on kattavuuden nimittäjä, ja
+#: seuraava arkkitehtuurin nimeämä mutta toteuttamaton sääntö kuuluu tänne.
+ANOMALY_RULES_DEFERRED: Final[tuple[str, ...]] = ()
 
 #: Poikkeamasääntöjen suomennokset. Vain otsikoissa, kuten
 #: :data:`ROUND_TYPE_FI`ssä -- dataan ei kirjoiteta suomea.
@@ -126,10 +140,35 @@ ANOMALY_RULES_DEFERRED: Final[tuple[str, ...]] = ("stack",)
 #: nukessa taktiikka, jossa..."), joten se jää sellaisenaan -- kuten calloutit.
 #: Iso alkukirjain silti, jotta se ei näytä puolivalmiilta ``CT-eteneminen``in
 #: vieressä; raportin lukuohje kertoo mitä se tarkoittaa.
+#: ``stack`` on samoin pelaajan oma sana ("4-5 pelaajan stack yhdellä
+#: sitellä"), eikä sille ole suomenkielistä vastinetta, joka tarkoittaisi
+#: samaa -- "kasauma" olisi käännös, jota kukaan ei sano ääneen.
 ANOMALY_RULE_FI: Final[dict[str, str]] = {
     "ct_advance": "CT-eteneminen",
     "crunch": "Crunch",
+    "stack": "Stack",
 }
+
+#: Siten ryhmä -> siten oma alue pelin omalla nimellä.
+#:
+#: **Nämä kaksi nimeä ovat pelin vakioita eivätkä aluejako.** Jokaisella
+#: ``de_``-kartalla on ``env_cs_place``-alueet ``BombsiteA`` ja ``BombsiteB``,
+#: aivan kuten jokaisella kierroksella on puolet ``T`` ja ``CT``. Stack-säännön
+#: lukittu ehto kieltää ihmisen antaman **aluejaon** -- sen, mitkä alueet
+#: kuuluvat kummankin siten ympärille -- ja juuri se johdetaan demosta
+#: (``domain.sampling.site_groups``). Site itse ei ole jako vaan ankkuri,
+#: josta jako mitataan.
+#:
+#: Sanasto on täällä eikä säännön vieressä, koska sitä lukee kaksi
+#: domain-moduulia: sääntö (``domain.sampling``) ja raporttimalli
+#: (``domain.report``, joka valvoo ettei ``Anomaly.site`` ja ``Anomaly.area``
+#: voi olla eri mieltä). Kahdesta kopiosta juuri se pari erkanisi.
+SITE_AREAS: Final[dict[str, str]] = {"A": "BombsiteA", "B": "BombsiteB"}
+
+#: Siteryhmien tunnukset vakiojärjestyksessä. **Johdos eikä toisinto**:
+#: kaksi käsin kirjoitettua luetteloa voisi erota toisistaan.
+SITE_GROUPS: Final[tuple[str, ...]] = tuple(SITE_AREAS)
+SiteGroup = Literal["A", "B"]
 
 #: Kierros, jota ei voitu luokitella lainkaan (havainto puuttuu). Ei ole
 #: kierrostyyppi vaan sen puuttuminen: taulussa ``round_type`` on ``null``,
