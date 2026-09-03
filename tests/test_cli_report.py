@@ -321,7 +321,8 @@ def test_the_written_report_names_the_rules_the_user_has_on(
     text = written_report(archive_root)
     summary = text.split("## Yhteenveto")[1].split("## ")[0]
     assert "skip_sample_seconds 45" in summary
-    assert "45 s:" not in text.split("## de_")[1].split("**Pistooli**")[0]
+    # Karttaluvun otsikossa nimi on koodijaksona (Story 2.15, B1).
+    assert "45 s:" not in text.split("## `de_")[1].split("**Pistooli**")[0]
 
 
 def test_the_info_command_lists_the_pruning_rules(

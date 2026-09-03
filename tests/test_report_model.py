@@ -290,6 +290,54 @@ def test_armed_players_require_the_sample_to_add_up() -> None:
         ArmedPlayers(m=3, rounds_unknown=0, counts=[ArmedCount(armed=5, n=1)])
 
 
+def test_armed_players_refuse_the_same_bar_twice() -> None:
+    """B2: duplikaattivartija oli kolmella jakaumalla, kahdelta se puuttui.
+
+    Sama sääntö kuin :class:`AreaDistribution`illa, :class:`UtilityCounts`illa
+    ja :class:`DeathReport`illa: pylväs per pelaajamäärä. Ilman sitä ``Σ n =
+    m`` menee läpi (3 + 1 = 4), mutta raportti latoisi saman pylvään kahdesti
+    eri luvuilla -- yksi havainto luettuna kahtena.
+    """
+    with pytest.raises(ValidationError, match="sama pelaajamäärä"):
+        ArmedPlayers(
+            m=4,
+            rounds_unknown=0,
+            counts=[ArmedCount(armed=5, n=3), ArmedCount(armed=5, n=1)],
+        )
+
+
+def test_armored_players_refuse_the_same_bar_twice() -> None:
+    """B2: sama aukko, ja se **monistui** kopioinnin mukana.
+
+    :class:`ArmoredPlayers` kopioitiin :class:`ArmedPlayers`istä Story
+    2.8:ssa, joten puuttuva vartija tuli mukana sen sijaan että se olisi
+    huomattu. Kaksi testiä eikä yksi juuri siksi: yhteinen testi olisi
+    mennyt läpi, jos vain toinen luokka korjattaisiin.
+    """
+    with pytest.raises(ValidationError, match="sama pelaajamäärä"):
+        ArmoredPlayers(
+            m=4,
+            rounds_unknown=0,
+            counts=[ArmoredCount(armored=0, n=3), ArmoredCount(armored=0, n=1)],
+        )
+
+
+def test_the_player_counter_distributions_still_accept_distinct_bars() -> None:
+    """Vartijan toinen suunta: eri pylväät ovat eri havaintoja."""
+    armed = ArmedPlayers(
+        m=4,
+        rounds_unknown=0,
+        counts=[ArmedCount(armed=0, n=3), ArmedCount(armed=5, n=1)],
+    )
+    armored = ArmoredPlayers(
+        m=4,
+        rounds_unknown=0,
+        counts=[ArmoredCount(armored=1, n=3), ArmoredCount(armored=5, n=1)],
+    )
+    assert [c.armed for c in armed.counts] == [0, 5]
+    assert [c.armored for c in armored.counts] == [1, 5]
+
+
 def test_armed_players_keep_unknown_apart_from_zero() -> None:
     """Lukukelvoton tavaraluettelo ei ole nolla aseistettua."""
     armed = ArmedPlayers(
@@ -300,6 +348,55 @@ def test_armed_players_keep_unknown_apart_from_zero() -> None:
 
 
 # --- Näytepisteen laji ----------------------------------------------------------
+
+
+def test_a_position_refuses_the_same_area_twice() -> None:
+    """Duplikaattivartija oli kuudessa jakaumassa kahdeksasta.
+
+    Askel ylempänä kuin :class:`AreaDistribution`in oma vartija: siellä
+    kielletään sama **pelaajamäärä** kahdesti yhdellä alueella, täällä sama
+    **alue** kahdesti yhdellä näytepisteellä. Ilman tätä rivi latoisi
+    ``Middle 3 (2/2 kierroksesta), Middle 1 (2/2 kierroksesta)`` -- yksi
+    havainto kahtena, ja niiden summa ylittää otannan.
+    """
+    with pytest.raises(ValidationError, match="sama alue kahdesti"):
+        Position(
+            sample_kind="time",
+            seconds=15.0,
+            m=2,
+            rounds_missing=0,
+            areas=[
+                AreaDistribution(
+                    area="Middle",
+                    m=2,
+                    players_dist=[PlayersCount(players=3, n=2)],
+                ),
+                AreaDistribution(
+                    area="Middle",
+                    m=2,
+                    players_dist=[PlayersCount(players=1, n=2)],
+                ),
+            ],
+        )
+
+
+def test_a_position_still_accepts_two_different_areas() -> None:
+    """Vartijan toinen suunta: kaksi aluetta samalta hetkeltä on normaali."""
+    entry = Position(
+        sample_kind="time",
+        seconds=15.0,
+        m=2,
+        rounds_missing=0,
+        areas=[
+            AreaDistribution(
+                area="Middle", m=2, players_dist=[PlayersCount(players=3, n=2)]
+            ),
+            AreaDistribution(
+                area="Ramp", m=2, players_dist=[PlayersCount(players=1, n=2)]
+            ),
+        ],
+    )
+    assert [a.area for a in entry.areas] == ["Middle", "Ramp"]
 
 
 def test_time_sample_must_carry_its_nominal_second() -> None:
@@ -410,6 +507,55 @@ def test_area_source_cannot_appear_without_its_area() -> None:
 def test_first_contact_area_cannot_exceed_its_sample() -> None:
     with pytest.raises(AggregateError, match="Ensikontaktin alue"):
         FirstContactArea(area="Banana", n=3, m=2)
+
+
+def _round_type_with_first_contact(areas: list[FirstContactArea]):
+    """Kierrostyyppi, jonka ainoa sisältö on ensikontaktin läsnäololuettelo."""
+    return RoundTypeReport(
+        round_type="pistol",
+        sample=sample(unknown=2),
+        small_sample=True,
+        positions=[],
+        utility=[],
+        utility_counts=[],
+        players_armed=ArmedPlayers(
+            m=2, rounds_unknown=0, counts=[ArmedCount(armed=0, n=2)]
+        ),
+        players_armored=ArmoredPlayers(
+            m=2, rounds_unknown=0, counts=[ArmoredCount(armored=0, n=2)]
+        ),
+        first_contact=areas,
+        deaths=DeathReport(m=0, rounds_missing=2),
+    )
+
+
+def test_first_contact_refuses_the_same_area_twice() -> None:
+    """Viimeinen jakauma ilman duplikaattivartijaa.
+
+    ``Σ n = m`` **ei päde** ensikontaktin läsnäololuettelossa eikä ole
+    tarkoituskaan: sama kierros tuottaa havainnon jokaiselle alueelle, jolla
+    joukkueella oli pelaaja. Duplikaatti ei siis paljastu summasta niin kuin
+    muissa jakaumissa -- se olisi vain kaksi riviä samasta alueesta eri
+    luvuilla: ``Middle (2/2 kierroksesta), Middle (1/2 kierroksesta)``.
+    """
+    with pytest.raises(ValidationError, match="sama alue kahdesti"):
+        _round_type_with_first_contact(
+            [
+                FirstContactArea(area="Middle", n=2, m=2),
+                FirstContactArea(area="Middle", n=1, m=2),
+            ]
+        )
+
+
+def test_first_contact_still_accepts_two_different_areas() -> None:
+    """Vartijan toinen suunta: kaksi aluetta samalta hetkeltä on normaali."""
+    entry = _round_type_with_first_contact(
+        [
+            FirstContactArea(area="Middle", n=2, m=2),
+            FirstContactArea(area="Ramp", n=1, m=2),
+        ]
+    )
+    assert [a.area for a in entry.first_contact] == ["Middle", "Ramp"]
 
 
 # --- Koko raportti --------------------------------------------------------------

@@ -514,6 +514,29 @@ ylempään lokeroon). **`[aggregate]` on oma osionsa juuri tätä varten:**
 aikaikkunoiden säätäminen sieltä käsin mitätöisi jokaisen luokitellun demon
 turhaan.
 
+> **Story 2.15: mediaani on väite, ja väite kantaa otantansa.** Karsinta voi
+> viedä rivin kaikki aluerivit ja jättää jäljelle pelkän ajoituksen:
+> `- ensimmäinen kuolema (mediaani 14,2 s): ei omia kuolemia 2 kierroksella`.
+> Rivi luki mitatun luvun ilman yhtäkään otantaa -- epicin toinen kriteeri on
+> *"eikä yhtäkään väitettä esitetä ilman otantaa"*. Sekä ensimmäisen kuoleman
+> että **ensikontaktin** mediaani kantaa nyt oman otantansa, mutta **vain kun
+> rivillä ei ole muuta otantaa**: aluerivit kantavat sen jo itse, ja
+> otsikkoon lisätty luku olisi sama otanta kahdesti.
+>
+> Mediaanin nimittäjä on kierrostyypin **kaikki** kierrokset (`7/9`), kun
+> aluerivien nimittäjä on niiden kierrosten määrä, joilla havainto oli
+> olemassa (`4/7`). Ero on tarkoituksellinen: mediaani on koko lohkon
+> ajoitusväite eikä yhden alueen osuus. Luvut eivät koskaan ole samalla
+> rivillä, ja lukuohje sanoo eron ääneen.
+>
+> **Kynnysten lukijoita on yksi haku, ei kaksi.** `_threshold_int` ja
+> `_threshold_float` olivat kaksi kopiota samasta hausta -- kirjoitettuina
+> sen kanssa perusteltuna, ettei sitä saa kirjoittaa kahdesti -- ja ne olivat
+> jo erkaantuneet: toinen vaati positiivista arvoa, toinen hyväksyi nollan ja
+> negatiiviset. Jaettu haku kantaa nyt yhteiset ehdot, ja kutsujille jää
+> tyypin sanelema pari: sallittu tyyppi ja alaraja sen yksikössä (`>= 1`
+> lukumäärälle, `> 0` osuudelle).
+
 Aggregoinnin parametrihash lasketaan koko `[aggregate]`-osiosta sekä niistä
 `[thresholds]`- ja `[league]`-avaimista, jotka vaihe todella lukee:
 `small_sample_rounds`, `team_identity_min_common`, `map_pool`, Story
@@ -622,6 +645,22 @@ ilman koodijaksoa workshop-nimi kuten `*|Aim|* Botz [beta]` katkaisisi rivin
 kesken, ja juuri se rivi kantaa demotunnisteet. Koodijakso säilyttää täsmälleen
 samat merkit, joten kartta ei saa toista kirjoitusasua kuin karttaluvun
 otsikossa.
+
+> **Story 2.15: koodi rikkoi tätä omaa sääntöään kahdessa paikassa kolmesta.**
+> Lause "kartta ei saa toista kirjoitusasua kuin karttaluvun otsikossa" oli
+> kirjoitettu tähän jo aiemmin, mutta karttaluvun otsikko ja poikkeamarivi
+> latoivat nimen **paljaana** -- eli sääntö toteutui vain siinä yhdessä
+> paikassa, jossa se oli kirjoitettu. Molemmat käyttävät nyt samaa
+> koodijaksoa. Oikeilla karttanimillä (`de_ancient`) ero näkyy raportissa
+> gravisparina; workshop-nimellä se on ero ehjän ja katkenneen rivin välillä.
+>
+> Sama tarina suojasi myös **aluenimen** (`m_szLastPlaceName`), joka on demon
+> antamaa tekstiä siinä missä joukkueen ja kartan nimi. Alue paetaan
+> (`markdown_text`) eikä kääritä koodijaksoon, ja jako on projektin oma:
+> **nimi paetaan, tunniste kääritään.** Aluenimeä ei kopioida raportista
+> mihinkään -- se luetaan lauseen osana keskellä väiteriviä, ja koodijakso
+> katkoisi jokaisen havaintorivin kolmeen palaan. Kaikilla oikeilla
+> CS2-alueilla escapetus on näkymätön, joten raportti ei muuttunut.
 
 Rosterin nimiöt on **numeroitu** (`3. pelaaja`), koska nimi ei ole
 yksikäsitteinen avain: kaksi nimetöntä tai kaksi samannimistä pelaajaa

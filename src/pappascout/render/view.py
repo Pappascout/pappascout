@@ -60,10 +60,10 @@ rivit -- ei siksi, että ne olisivat oma lukunsa. Raja on
 **Runko puhuu nimillä, ja tunnisteilla on oma lukunsa.** Joukkueen ja
 kokoonpanojen tiivisteet, pelaajien SteamID64 ja karttojen demotunnisteet
 eivät ole rungossa vaan luvussa :data:`TRACEABILITY_HEADING`. Sääntö on
-täällä eikä vain funktioiden sisällä, koska se koskee viittä niistä
+täällä eikä vain funktioiden sisällä, koska se koskee kuutta niistä
 (:func:`_title`, :func:`_team_text`, :func:`_roster_text`, :func:`_summary`,
-:func:`_traceability`) -- yhden sisällä kirjoitettuna se ei kertoisi, että
-poikkeuksia on tarkalleen kolme:
+:func:`_traceability`, :func:`_anomaly_map_label`) -- yhden sisällä
+kirjoitettuna se ei kertoisi, että poikkeuksia on tarkalleen kolme:
 
 1. **Kierrosliitteen polku.** Polku on käyttökelpoinen vain sellaisenaan, ja
    se on lukemisen apu eikä jäljitettävyysmerkintä.
@@ -776,7 +776,26 @@ def _median_seconds(value: float) -> str:
 
 
 def _area(name: str | None) -> str:
-    return name if name else UNKNOWN_AREA
+    """Aluenimi turvallisena Markdownina, tai merkintä puuttuvasta.
+
+    **Alue on demon antamaa tekstiä** (``m_szLastPlaceName``) siinä missä
+    joukkueen nimi ja kartan nimi: peli antaa arvon, eikä sitä validoida
+    mitään luetteloa vasten. Kaikilla oikeilla CS2-alueilla escapetus on
+    näkymätön (``BombsiteA``, ``TSideUpper``), mutta workshop-kartan alue
+    ``*|Aim|* Botz [beta]`` katkaisisi rivin -- ja se rivi kantaa väitteen
+    otannan.
+
+    **Escapetus eikä koodijakso**, ja jako on projektin oma: nimi paetaan
+    (joukkue, rosteri), tunniste käärivät koodijaksoon (demotunniste, kartan
+    nimi jäljitettävyysluvussa ja karttaluvun otsikossa, kierrosliitteen
+    polku), koska tunniste on voitava kopioida raportista sellaisenaan.
+    Aluenimeä ei kopioida mihinkään: se luetaan lauseen osana keskellä
+    riviä, ja koodijakso katkoisi jokaisen havaintorivin kolmeen palaan.
+
+    ``None`` on **havainnon puuttuminen eikä nimi**, joten se saa oman
+    merkintänsä eikä kulje escapetuksen läpi.
+    """
+    return markdown_text(name) if name else UNKNOWN_AREA
 
 
 def _grenade(name: str) -> str:
@@ -821,13 +840,24 @@ def pattern_min_rounds(report: Report) -> int | None:
     return _threshold_int(report, "small_sample_rounds")
 
 
-def _threshold_int(report: Report, name: str) -> int | None:
-    """Yksi positiivinen kokonaislukukynnys ``report.json``ista.
+def _threshold_value(report: Report, name: str) -> int | float | None:
+    """Yksi kynnysarvo ``report.json``ista, tyypittämättä.
 
-    Erotettu :func:`pattern_min_rounds`ista, koska kaksi eri riviä tarvitsee
-    saman säännön: arvo luetaan **raportista eikä asetuksista**, ja jos sitä
-    ei ole, rivi kirjoitetaan ilman kynnystä sen sijaan että renderöinti
-    keksisi oman luvun. Kahtena kopiona toinen erkaantuisi.
+    **Yksi haku kahdelle lukijalle.** Arvo luetaan **raportista eikä
+    asetuksista**, ja jos sitä ei ole, rivi kirjoitetaan ilman kynnystä sen
+    sijaan että renderöinti keksisi oman luvun. Sääntö oli kirjoitettu kahteen
+    kertaan (:func:`_threshold_int` ja :func:`_threshold_float`) juuri sen
+    kanssa perusteltuna, ettei sitä saa kirjoittaa kahdesti -- ja kopiot
+    olivat jo erkaantuneet: toinen vaati positiivista arvoa, toinen hyväksyi
+    nollan ja negatiiviset.
+
+    Tämä funktio kantaa **jaetut** ehdot: osio on olemassa, avain on
+    olemassa, arvo on luku. Kutsujille jää **kaksi** ehtoa, ja molemmat ovat
+    tyypin sanelemia: sallittu tyyppi (``int`` vs. mikä tahansa luku) ja
+    alaraja siinä muodossa, jonka tyyppi vaatii (``>= 1`` lukumäärälle,
+    ``> 0`` osuudelle). Alarajat eivät ole sama ehto kahdesti vaan sama
+    sääntö -- kynnys on positiivinen -- kahdessa yksikössä; ilman eroa
+    ``advance_t_share = 0,80`` putoaisi pois.
 
     ``bool`` hylätään erikseen, koska Pythonissa se on ``int``: ``True``
     latoisi kynnykseksi luvun 1.
@@ -836,9 +866,46 @@ def _threshold_int(report: Report, name: str) -> int | None:
     if not isinstance(section, Mapping):
         return None
     value = section.get(name)
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return value
+
+
+def _threshold_int(report: Report, name: str) -> int | None:
+    """Kokonaislukukynnys: **kokonaisluku ja vähintään yksi**.
+
+    Alaraja on lukumäärän määritelmä eikä lisäehto: nämä kynnykset ovat
+    kierroksia, pelaajia, havaintoja ja alueita, ja "vähintään nolla
+    kierrosta" ei ole kynnys vaan sen puuttuminen.
+    """
+    value = _threshold_value(report, name)
+    if not isinstance(value, int) or value < 1:
+        return None
+    return value
+
+
+def _threshold_float(report: Report, name: str) -> float | None:
+    """Liukulukukynnys: **äärellinen ja positiivinen**.
+
+    Alaraja on eri muodossa kuin :func:`_threshold_int`illä ja samasta
+    syystä: liukulukukynnykset ovat osuuksia ja sekunteja, joista pienin
+    käytössä oleva on ``advance_t_share = 0,80``. Kokonaisluvun alaraja
+    hylkäisi sen. Molemmat hylkäävät silti nollan ja negatiivisen, koska
+    ``ThresholdSettings`` vaatii jokaiselta näistä positiivista arvoa --
+    nollan päästäminen läpi latoisi raporttiin kynnyksen, jota asetukset
+    eivät salli.
+
+    Äärettömyys ja NaN hylätään, koska ne latoutuisivat riville muodossa
+    ``inf`` ja ``nan``: luku, jota lukija ei voi tulkita, on huonompi kuin
+    puuttuva luku.
+    """
+    value = _threshold_value(report, name)
+    if value is None:
+        return None
+    number = float(value)
+    if not isfinite(number) or number <= 0.0:
+        return None
+    return number
 
 
 # -- Rivien rakentaminen ---------------------------------------------------------
@@ -879,7 +946,12 @@ def _position_line(position: Position, min_n: int, flags: _Flags) -> Line | None
 
     claims.sort(key=lambda item: item[:3])
     return Line(
-        label=_position_label(position),
+        # Sama sääntö kuin ensimmäisen kuoleman rivillä
+        # (:func:`_first_death_label`): mediaani on väite, ja karsinta voi
+        # viedä kaikki aluevaateet ja jättää sen yksin. Otanta kirjoitetaan
+        # vain silloin, kun rivillä ei ole muuta otantaa -- muuten sama luku
+        # olisi rivillä kahdesti ja jokainen toimiva rivi muuttuisi.
+        label=_position_label(position, with_sample=not claims),
         claims=tuple(item[3] for item in claims),
         note=note,
     )
@@ -937,14 +1009,35 @@ def _keep_most_common(
     return kept, len(entries) - len(kept)
 
 
-def _position_label(position: Position) -> str:
-    """Näytepisteen otsikko: ``15 s`` tai ``ensikontakti (mediaani 9 s)``."""
+def _position_label(position: Position, *, with_sample: bool = False) -> str:
+    """Näytepisteen otsikko: ``15 s`` tai ``ensikontakti (mediaani 9 s)``.
+
+    ``with_sample`` lisää **mediaanin oman otannan**, ja se on kutsujan päätös
+    eikä tämän funktion: otanta kirjoitetaan vain, kun rivillä ei ole yhtään
+    aluevaadetta. Ensikontaktin mediaani on ajoitusväite siinä missä
+    ensimmäisen kuoleman mediaani, ja karsinta voi viedä sen alta kaikki
+    aluerivit -- silloin rivistä jäisi
+    ``ensikontakti (mediaani 14,2 s): näyte puuttuu 2 kierrokselta``, eli
+    väite ilman otantaa.
+
+    **Aikanäytepiste ei saa otantaa**, vaikka sekin voi jäädä pelkäksi
+    huomautukseksi. Sen nimiö (``15 s``) ei ole väite vaan hetken nimi:
+    ilman aluevaateita rivillä ei ole mitään, mistä otanta kertoisi.
+
+    Otanta on ``m / (m + rounds_missing)``: kierrokset, joilla **tämä
+    näytepiste on olemassa**, kaikista kierrostyypin kierroksista. Juuri
+    niiltä mediaani on laskettu.
+    """
     if position.sample_kind == "time":
         # Malli takaa, ettei aikanäytepisteellä voi olla tyhjää sekuntilukua.
         return f"{_seconds(position.seconds or 0.0)} s"
     if position.seconds_median is None:
         return "ensikontakti"
-    return f"ensikontakti (mediaani {_median_seconds(position.seconds_median)} s)"
+    median = _median_seconds(position.seconds_median)
+    if not with_sample:
+        return f"ensikontakti (mediaani {median} s)"
+    rounds = position.m + position.rounds_missing
+    return f"ensikontakti (mediaani {median} s, {position.m}/{rounds} kierroksesta)"
 
 
 def _utility_count_line(
@@ -1183,6 +1276,16 @@ def _death_lines(
     laskettu mihinkään lukuun. Kierrostyyppi, jolla ei ole kuolemia eikä
     kierroksia, ei tuota kumpaakaan riviä.
 
+    **Yksi seuraus on syytä sanoa ääneen: mediaani voi kadota kokonaan.** Kun
+    jokaisella kierroksella on oma kuolema (``rounds_missing == 0``) mutta
+    karsinta vie kaikki aluerivit, ehto ei täyty -- ei väitettä, ei
+    huomautusta -- eikä riviä kirjoiteta, vaikka ajoitus olisi mitattu. Se ei
+    ole väärä väite vaan puuttuva rivi, joten käytös jää ennalleen: raportti
+    ei sano mitään, jota se ei voi perustella. Väärä väite olisi mediaani
+    ilman otantaa, ja se korjattiin (:func:`_first_death_label`). Jos rivi
+    joskus halutaan takaisin, se on **lisätty rivi** eikä muutettu -- ja
+    silloin se on epicin sivumitan asia, ei tämän funktion.
+
     **Sääntö 5 (Story 2.13) koskee vain tapporiviä.** Tapporivi on koko
     kierrostyypin tapot yhdellä rivillä, ja mitattuna siltä karsiutuu 29
     väitettä kolmeen yleisimpään alueeseen rajattuna. Ensimmäisen kuoleman
@@ -1214,7 +1317,14 @@ def _death_lines(
         claims.sort(key=lambda item: item[:2])
         lines.append(
             Line(
-                label=_first_death_label(deaths),
+                # Otanta otsikkoon **vain kun rivillä ei ole yhtään väitettä**
+                # (A2). Karsinta voi viedä kaikki aluerivit ja jättää
+                # mediaanin jäljelle, ja silloin rivi väittäisi ajoituksen
+                # ilman otantaa -- eli rikkoisi epicin toista kriteeriä.
+                # Kun aluerivejä on, ne kantavat otannan jo itse, eikä
+                # otsikkoon lisätä mitään: rivi on silloin merkki merkiltä
+                # sama kuin ennen tätä tarinaa.
+                label=_first_death_label(deaths, with_sample=not claims),
                 claims=tuple(claim for _, _, claim in claims),
                 note=note,
             )
@@ -1273,17 +1383,57 @@ def _death_lines(
     return lines
 
 
-def _first_death_label(deaths: DeathReport) -> str:
+def _first_death_label(deaths: DeathReport, *, with_sample: bool = False) -> str:
     """Otsikko: ``ensimmäinen kuolema (mediaani 24 s)``.
 
     Mediaani on otsikossa eikä omana väitteenään samasta syystä kuin
     ensikontaktin näytepisteessä: se on koko rivin ajoitus eikä yhden alueen
-    havainto, eikä sillä ole omaa ``n/m``-otantaa.
+    havainto.
+
+    **Mutta se on väite, ja väite kantaa otantansa.** Aiempi sanamuoto sanoi,
+    ettei mediaanilla ole omaa ``n/m``-otantaa; retro mittasi vastaesimerkin
+    (RCAVE ``de_anubis`` default): kun jokainen seitsemästä kuolemasta oli eri
+    alueella, karsinta pudotti kaikki aluerivit ja rivistä jäi
+    ``ensimmäinen kuolema (mediaani 14,2 s): ei omia kuolemia 2 kierroksella``
+    -- ajoitus ilman yhtäkään lukua, joka kertoisi mistä se on laskettu.
+
+    ``with_sample`` on siksi **kutsujan päätös eikä tämän funktion**: otanta
+    kirjoitetaan vain silloin, kun rivillä ei ole muuta otantaa. Muuten sama
+    luku olisi rivillä kahdesti, ja jokainen toimiva rivi muuttuisi.
+
+    Otanta on ``m / (m + rounds_missing)``: **kierrokset, joilla joukkue
+    menetti pelaajan, kaikista kierrostyypin kierroksista**. Juuri ne
+    kierrokset mediaani kattaa.
+
+    **Nimittäjä ei ole sama kuin aluerivien, ja se on tarkoituksellista.**
+    Aluerivi lukee ``4/7``: sen nimittäjä on ``deaths.m`` eli kierrokset,
+    joilla kuolema tapahtui -- jakauman ``Σ n = m`` pätee vain siinä
+    populaatiossa. Mediaani lukee ``7/9``: sen nimittäjä on kierrostyypin
+    kaikki kierrokset, koska mediaani on koko lohkon ajoitusväite eikä yhden
+    alueen osuus. Lukuohjeen yleissääntö (``m`` = kierrostyypin kaikki
+    kierrokset) kuvaa siis mediaania; aluerivit ovat siitä nimetty poikkeus,
+    ja lukuohje sanoo sen ääneen. **Luvut eivät koskaan ole samalla rivillä**
+    -- mediaani saa otannan vain silloin, kun aluerivejä ei ole -- mutta ne
+    ovat samassa luvussa peräkkäin, joten ero on kirjoitettava näkyviin.
+
+    Mediaani lasketaan niiden kierrosten ajoituksista; ajoitukseton kuolema
+    kaventaisi sitä, mutta arkistossa niitä ei ole (mitattu 3.9.: 1 219
+    kuolemaa, 0 ilman ``t_s``:ää), eikä mallissa ole kenttää sen
+    erottamiseen -- sellaisen lisääminen olisi skeemamuutos.
     """
     if deaths.first_death_seconds_median is None:
+        # Ilman mediaania rivillä ei ole väitettä, vain kattavuushuomio
+        # ("ei omia kuolemia N kierroksella"). Otanta kertoisi silloin
+        # otannan väitteelle, jota ei ole.
         return "ensimmäinen kuolema"
     median = _median_seconds(deaths.first_death_seconds_median)
-    return f"ensimmäinen kuolema (mediaani {median} s)"
+    if not with_sample:
+        return f"ensimmäinen kuolema (mediaani {median} s)"
+    rounds = deaths.m + deaths.rounds_missing
+    return (
+        f"ensimmäinen kuolema (mediaani {median} s, "
+        f"{deaths.m}/{rounds} kierroksesta)"
+    )
 
 
 def _player_count_line(
@@ -1861,10 +2011,31 @@ def _anomaly_map_label(anomaly: Anomaly, index_of: Mapping[str, int]) -> str:
     (:data:`UNKNOWN_MAP_LABEL`, :func:`_map_label`), joten lukija voi
     yhdistää rivin oikeaan karttalukuun. Järjestysluku on välttämätön: kaksi
     tunnistamatonta karttaa eivät saa saada samaa nimiötä.
+
+    **Nimi suojataan koodijaksona** (:func:`_identifier`), koska se on Story
+    2.11:n jälkeen demon antamaa vapaata tekstiä eikä karttapoolia vasten
+    validoitu arvo: workshop-kartta nimeltä ``*|Aim|* Botz [beta]`` on
+    laillinen havainto, ja paljaana se katkaisisi rivin kesken -- juuri sen
+    rivin, joka kantaa poikkeaman otannan. Suojaus puuttui täältä ja
+    karttaluvun otsikosta.
+
+    **Saman rivin toinen puolisko on alueen nimi**, ja sekin on demon
+    antamaa tekstiä; se suojataan :func:`_area`ssa escapetuksella. Kumpikin
+    puolisko yksin jättäisi rivin katkeavaksi, ja juuri se pari jäi
+    huomaamatta, kun sääntö oli kirjoitettu vain toisen funktion nimellä.
+
+    Mekanismi on **sama kuin kahdessa muussa paikassa, joissa sama nimi
+    latotaan** (:func:`_map_label`, karttaluvun otsikko), eikä valittu
+    uudestaan: koodijakso säilyttää täsmälleen samat merkit, kun taas
+    escapetus antaisi tälle riville toisen kirjoitusasun kuin karttaluvulle
+    -- ja tämän rivin koko tehtävä on ohjata lukija oikeaan karttalukuun.
+
+    Tunnistamattoman kartan nimiö on **meidän omaa tekstiämme**, joten sitä
+    ei suojata: siinä ei ole demon antamaa merkkiäkään.
     """
     if anomaly.map_name_source == "unknown":
         return UNKNOWN_MAP_LABEL.format(index=index_of.get(anomaly.map_name, 0))
-    return anomaly.map_name
+    return _identifier(anomaly.map_name)
 
 
 def _round_type_suffix(anomaly: Anomaly) -> str:
@@ -2008,9 +2179,13 @@ def _no_anomalies_text(report: Report) -> str:
     **"Ei poikkeamia" on havainto vain siitä, mitä tutkittiin.** Pelkkä
     lause ilman kattavuutta väittäisi mitattua negatiivista myös sokeasta
     pisteestä: luokittelemattomat kierrokset ovat rajattu ulos, orientaatio
-    voi olla tyhjä, ja arkkitehtuurin kolmesta säännöstä ajettiin kaksi.
-    Kaikki kolme sanotaan tässä ääneen, koska juuri se ero ("havainto eikä
-    puute") on koko luvun arvo.
+    voi olla tyhjä, ja siteryhmät voivat jäädä saamatta. Jokainen sanotaan
+    tässä ääneen, koska juuri se ero ("havainto eikä puute") on koko luvun
+    arvo.
+
+    Arkkitehtuurin (AD-10) **kaikki kolme sääntöä ajetaan** Story 2.14:stä
+    lähtien, joten lause lykätyistä säännöistä latoutuu vain jos
+    :data:`~pappascout.constants.ANOMALY_RULES_DEFERRED` täyttyy uudelleen.
 
     Menetelmä ja kynnykset ovat mukana samasta syystä: puhtaan raportin
     lukijalle on kerrottava mitä mitattiin ja millä rajoilla, eikä hän näe
@@ -2606,8 +2781,23 @@ def build_view(
         # ``map_demo_id`` ovat molemmat tunnistettuja nimiä: edellinen on
         # havainto demon otsikosta, jälkimmäinen päättely tunnisteesta.
         name_unknown = map_report.map_name_source == "unknown"
+        # Nimi suojataan koodijaksona (``_identifier``), koska se on Story
+        # 2.11:n jälkeen demon antamaa vapaata tekstiä: workshop-kartta
+        # nimeltä ``*|Aim|* Botz [beta]`` on laillinen havainto, ja paljaana
+        # se katkaisi otsikon kesken. Demon antamia merkkijonoja rungossa on
+        # neljä -- joukkueen nimi, pelaajan nimi, kartan nimi ja **alueen
+        # nimi** (:func:`_area`) -- ja kartan nimi oli kahdessa paikassa
+        # kolmesta ilman suojausta.
+        #
+        # KOODIJAKSO EIKÄ ESCAPETUS, ja mekanismi on lainattu
+        # ``_map_label``ista eikä valittu uudestaan: se perustelee saman
+        # valinnan sanatarkasti juuri kartan nimelle, ja escapetus tuottaisi
+        # kartalle **toisen kirjoitusasun** kuin jäljitettävyysluvun rivillä.
+        # Raportti luetaan myös raakana, ja sama kartta kahdella
+        # kirjoitusasulla lukisi kahtena karttana.
         heading = (
-            f"{map_report.map_name} -- {rounds_text(map_report.sample.rounds)}, "
+            f"{_identifier(map_report.map_name)} -- "
+            f"{rounds_text(map_report.sample.rounds)}, "
             f"{demos_text(map_report.sample.demos)}"
         )
         if name_unknown:
@@ -2722,7 +2912,11 @@ def _legend(
     notes.append(
         "Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on "
         "kierrokset, joissa havainto tehtiin, m kyseisen kierrostyypin kaikki "
-        "kierrokset."
+        "kierrokset. Mediaanin otanta rivin otsikossa (esimerkiksi "
+        "\"mediaani 14,2 s, 7/9 kierroksesta\") noudattaa tätä sääntöä: se "
+        "kertoo, monellako kierroksella ajoitus mitattiin. Saman rivin "
+        "aluevaateet laskevat sen sijaan vain niitä kierroksia, joilla "
+        "havainto oli olemassa, joten niiden nimittäjä on pienempi."
     )
     notes.append(
         "Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä "
@@ -2870,16 +3064,22 @@ def _pruning_legend(flags: _Flags, settings: ReportSettings) -> list[str]:
 def _anomaly_legend(report: Report) -> list[str]:
     """Poikkeamaluvun selitykset: menetelmä ja **jokaisen säännön ehdot**.
 
-    Kolme kappaletta, ja ne kirjoitetaan **aina** -- myös tyhjään lukuun.
+    Kolme kappaletta niistä säännöistä, jotka on toteutettu, ja ne
+    kirjoitetaan **myös tyhjään lukuun**: orientaation menetelmä sekä
+    etenemisen ja crunchin ehdot. :func:`_stack_legend` lisää kaksi
+    (stackin ehdot ja sen kattavuus), joten nykyisellä sääntöjoukolla
+    kappaleita on viisi -- mutta luku seuraa :data:`ANOMALY_RULES`ia eikä ole
+    vakio: jos stack joskus palaa lykättyjen luetteloon, sen kaksi kappaletta
+    jäävät pois eikä lukuohje selitä riviä, jota ei voi olla.
     Peruste on eri kuin muilla lukuohjeen kappaleilla: nämä eivät selitä
     riviä, joka raportissa on, vaan **mitä mitattiin**. Puhtaan raportin
     lukija tarvitsee ne enemmän kuin kukaan muu: hän näkee vain väitteen
     "ei poikkeamia" eikä yhtäkään riviä, josta menetelmän voisi päätellä.
 
     Sääntöjen epäsymmetria sanotaan ääneen, koska se on näkymätön muuten:
-    eteneminen on rajattu säästökierroksiin ja crunch ei ole, joten sama alue
-    voi esiintyä ``eco``-rivillä muttei ``default``-rivillä -- ja ilman
-    selitystä se näyttää puuttuvalta havainnolta.
+    eteneminen on rajattu säästökierroksiin, crunch ja stack eivät ole, joten
+    sama alue voi esiintyä ``eco``-rivillä muttei ``default``-rivillä -- ja
+    ilman selitystä se näyttää puuttuvalta havainnolta.
     """
     share = _threshold_float(report, "advance_t_share")
     observations = _threshold_int(report, "advance_area_min_observations")
@@ -3010,23 +3210,6 @@ def _ratio(value: float) -> str:
     ole tarkempi kuin 2.
     """
     return f"{value:g}".replace(".", ",")
-
-
-def _threshold_float(report: Report, name: str) -> float | None:
-    """Liukulukukynnys raportista, tai ``None`` jos se ei ole luettavissa.
-
-    Sama sääntö kuin :func:`_threshold_int`illä: ``render`` ei keksi
-    kynnystä, ja lukukelvoton arvo on sama asia kuin puuttuva -- rivi
-    kirjoitetaan silloin ilman lukua eikä arvatulla luvulla.
-    """
-    values = report.thresholds_used.get("thresholds")
-    if not isinstance(values, Mapping):
-        return None
-    value = values.get(name)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    number = float(value)
-    return number if isfinite(number) else None
 
 
 def _player_counter_legend(flags: _Flags) -> list[str]:

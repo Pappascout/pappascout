@@ -194,6 +194,25 @@ __all__ = [
 #: nimeäisi stackin **toteuttamattomaksi** ja vaikenisi siitä, monellako
 #: kierroksella se voi osua. Renderöitynä se väittäisi mitatuksi
 #: kattavuudeksi luvun, joka koski kahta sääntöä kolmesta.
+#:
+#: **8.0.0 pysyy Story 2.15:ssä, vaikka malli tiukkeni, ja peruste on
+#: mitattava eikä oletettava.** Tarina lisäsi duplikaattivartijan neljään
+#: jakaumaan (:class:`ArmedPlayers`, :class:`ArmoredPlayers`,
+#: :class:`Position`, :class:`RoundTypeReport.first_contact`). Ehto version
+#: nostolle on "validoituuko vanha tiedosto", ja vastaus on kyllä:
+#:
+#: * ``aggregate`` rakentaa jokaisen näistä jakaumista
+#:   ``collections.Counter``ista tai vastaavasta sanakirjasta, jonka avain on
+#:   juuri se arvo, jonka toistumisen vartija kieltää -- duplikaattia ei voi
+#:   syntyä, joten yksikään aiemmin kirjoitettu ``report.json`` ei voi
+#:   sisältää sellaista;
+#:   ``Σ n = m`` -tarkistus olisi lisäksi hylännyt useimmat niistä jo ennen.
+#: * Tarkistettu ajamalla: arkiston molemmat ``report.json``it validoituvat
+#:   tätä mallia vasten muuttumatta (``render`` luki ne 3.9. ajossa).
+#:
+#: Kiristys, joka **hylkäisi** vanhan tiedoston, olisi eri asia: se nostaisi
+#: version, koska ``render`` kaatuisi pydanticin virheeseen sen sijaan että
+#: kertoisi aggregoinnin olevan ajettava uudelleen.
 REPORT_SCHEMA_VERSION = "8.0.0"
 
 
@@ -414,6 +433,15 @@ class Position(_Node):
 
     @model_validator(mode="after")
     def _check_areas_share_the_sample(self) -> Position:
+        """Kaikilla alueilla sama otanta, ja jokainen alue kerran.
+
+        Jälkimmäinen on sama vartija kuin :class:`AreaDistribution`illa
+        (pylväs per pelaajamäärä) mutta askelta ylempänä: siellä se estää
+        saman **pelaajamäärän** kahdesti yhdellä alueella, täällä saman
+        **alueen** kahdesti yhdellä näytepisteellä. Ilman sitä rivi latoisi
+        ``Middle 3 (2/2 kierroksesta), Middle 1 (2/2 kierroksesta)``, eli
+        saman alueen kahtena havaintona, joiden summa ylittää otannan.
+        """
         for area in self.areas:
             if area.m != self.m:
                 raise AggregateError(
@@ -423,6 +451,12 @@ class Position(_Node):
                     "jaettava sama otanta -- muuten kaksi lukua samasta "
                     "hetkestä eivät ole vertailukelpoisia."
                 )
+        seen = [area.area for area in self.areas]
+        if len(seen) != len(set(seen)):
+            raise ValueError(
+                f"Näytepisteen {self.seconds!r} jakaumassa on sama alue "
+                "kahdesti; näytepisteellä on aluetta kohden yksi jakauma."
+            )
         return self
 
     @model_validator(mode="after")
@@ -573,11 +607,26 @@ class ArmedPlayers(_Node):
 
     @model_validator(mode="after")
     def _check_sample(self) -> ArmedPlayers:
+        """``Σ n = m``, ja jokainen pylväs esiintyy kerran.
+
+        Jälkimmäinen on sama vartija kuin
+        :meth:`AreaDistribution._check_sample`illa, :class:`UtilityCounts`illa
+        ja :class:`DeathReport`illa. Se puuttui täältä **Story 2.8:sta Story
+        2.15:een**, vaikka rivin luenta on sama: raportti latoisi saman
+        pylvään kahdesti eri luvuilla, ja lukija näkisi yhden havainnon
+        kahtena.
+        """
         total = sum(c.n for c in self.counts)
         if total != self.m:
             raise AggregateError(
                 "Otanta ei täsmää aseistettujen pelaajien jakaumassa: "
                 f"n-arvojen summa on {total}, mutta havaintoja on {self.m}."
+            )
+        seen = [c.armed for c in self.counts]
+        if len(seen) != len(set(seen)):
+            raise ValueError(
+                "Aseistettujen pelaajien jakaumassa on sama pelaajamäärä "
+                "kahdesti; jakauman on oltava pylväs per pelaajamäärä."
             )
         return self
 
@@ -638,11 +687,23 @@ class ArmoredPlayers(_Node):
 
     @model_validator(mode="after")
     def _check_sample(self) -> ArmoredPlayers:
+        """``Σ n = m``, ja jokainen pylväs esiintyy kerran.
+
+        Sama vartija kuin :class:`ArmedPlayers`illä -- ja se puuttui täältä
+        samasta syystä: tämä luokka kopioitiin siitä Story 2.8:ssa, joten
+        aukko monistui sen sijaan että se olisi huomattu.
+        """
         total = sum(c.n for c in self.counts)
         if total != self.m:
             raise AggregateError(
                 "Otanta ei täsmää panssaroitujen pelaajien jakaumassa: "
                 f"n-arvojen summa on {total}, mutta havaintoja on {self.m}."
+            )
+        seen = [c.armored for c in self.counts]
+        if len(seen) != len(set(seen)):
+            raise ValueError(
+                "Panssaroitujen pelaajien jakaumassa on sama pelaajamäärä "
+                "kahdesti; jakauman on oltava pylväs per pelaajamäärä."
             )
         return self
 
@@ -894,6 +955,30 @@ class RoundTypeReport(_Node):
                 "Ero tarkoittaa, että kuolemat on laskettu eri "
                 "kierrosjoukosta kuin muut havainnot -- jakauma näyttäisi "
                 "silti sisäisesti oikealta."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_first_contact_areas_are_unique(self) -> RoundTypeReport:
+        """Sama alue kerran ensikontaktin läsnäololuettelossa.
+
+        ``Σ n = m`` **ei päde tässä** eikä ole tarkoituskaan (sama kierros
+        tuottaa havainnon jokaiselle alueelle, jolla joukkueella oli
+        pelaaja), joten duplikaatti ei paljastu summasta niin kuin muissa
+        jakaumissa -- se on vain kaksi riviä samasta alueesta eri luvuilla.
+        Vartija on siksi täällä eikä :class:`FirstContactArea`ssa: alue on
+        yksikäsitteinen vasta luettelossaan.
+
+        Raises:
+            ValueError: Jos sama alue esiintyy kahdesti. Raportti latoisi
+                ``Middle (2/2 kierroksesta), Middle (1/2 kierroksesta)``, ja
+                lukija näkisi yhden havainnon kahtena.
+        """
+        seen = [entry.area for entry in self.first_contact]
+        if len(seen) != len(set(seen)):
+            raise ValueError(
+                f"Kierrostyypin {self.round_type} ensikontaktin "
+                "läsnäololuettelossa on sama alue kahdesti."
             )
         return self
 
