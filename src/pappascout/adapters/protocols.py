@@ -632,15 +632,29 @@ class DemoParser(Protocol):
 class RosterPlayer:
     """Pelaaja ottelun kokoonpanossa.
 
+    **Kaksi tunnistetta, ja vain toinen niistä esiintyy demoissa.** Story 3.1:n
+    mittaus (``mittaus-faceit-aineisto.md`` luku 2) vertasi FACEITin rosteria
+    arkiston ``lineups.parquet``iin: yhteiset tunnisteet olivat
+    ``game_player_id``-arvoja (SteamID64) ja täsmäsivät **merkkijonoina ilman
+    muunnosta**. ``player_id`` on FACEITin oma UUID, jota ei esiinny demoissa
+    lainkaan. Molemmat ovat tallessa, mutta se, jolla FACEIT-rosteri liitetään
+    demoihin, on ``game_player_id``.
+
     Attributes:
-        player_id: FACEIT player id. **Koneen avain** ja ainoa, jolla pelaaja
-            liitetään demon riveihin.
+        player_id: FACEIT player id (UUID). Lähteen oma avain, jolla pelaajan
+            tiedot haetaan rajapinnasta.
         nickname: Nimimerkki **havaintona**. Puuttuva tai tyhjä on ``None``
             eikä korvike; nimimerkki voi vaihtua, tunniste ei.
+        game_player_id: Pelin oma pelaajatunniste, CS2:ssa **SteamID64**. Sama
+            arvo kuin ``lineups.parquet``in ``player_id``-sarakkeessa, joten
+            tämä on ainoa tunniste, joka liittää rosterin demoihin. ``None``,
+            jos lähde ei sitä antanut -- puuttuvaa ei korvata, koska keksitty
+            tunniste liittyisi väärään pelaajaan.
     """
 
     player_id: str
     nickname: str | None = None
+    game_player_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -656,11 +670,21 @@ class MatchTeam:
         roster: Pelaajat siinä järjestyksessä kuin lähde ne antoi.
             Tyhjä monikko on kelvollinen tulos -- tulevalla ottelulla ei
             välttämättä ole vielä kokoonpanoa.
+        substitutes: Vaihtopelaajat siinä järjestyksessä kuin lähde ne antoi.
+            **Oma kenttänsä eikä ``roster``iin sulautettuna**, koska lähde
+            erottelee ne ja ero on havainto: kuka aloitti ja kuka oli varalla.
+            Vakirosterin (Story 3.2) laskee ``domain.teams`` yhdisteenä, ja
+            sen on saatava tehdä se itse -- yhdistäminen tässä veisi
+            säännön porttiin, jossa sitä ei voi testata ilman verkkoa.
+            Mitattu 2026-09-04: ilman tätä listaa vakirosteri aliarvioi
+            järjestelmällisesti (``Lindberq_`` on demossa muttei
+            ``roster``issa).
     """
 
     team_id: str | None = None
     name: str | None = None
     roster: tuple[RosterPlayer, ...] = ()
+    substitutes: tuple[RosterPlayer, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -681,9 +705,15 @@ class Match:
         status: Ottelun tila lähteen sanana (esim. ``FINISHED``), tai
             ``None``. Sitä ei tulkita täällä: tilojen luettelo on lähteen
             oma eikä pappascoutin, ja arvaus vanhenisi hiljaa.
-        started_at: Alkuhetki UTC-tietoisena, tai ``None`` jos ottelu ei ole
-            alkanut. **Tämä on ``team_key``:n tasatilanteen ratkaisija**
-            (AD-6): kanoninen tunniste on aikaisimman ottelun kokoonpanosta.
+        scheduled_at: Ottelun sovittu alkuhetki UTC-tietoisena, tai ``None``.
+            **Ottelulistassa on tämä eikä ``started_at``** (mitattu
+            2026-09-04): pelaamattomalla ottelulla ei ole alkuhetkeä, mutta
+            aikataulu sillä on. Kaksi eri kenttää eikä yksi, koska aikataulu
+            on suunnitelma ja alkuhetki havainto -- ja niiden sekoittaminen
+            väittäisi pelatuksi ottelun, jota ei ole pelattu.
+        started_at: Todellinen alkuhetki UTC-tietoisena, tai ``None`` jos
+            ottelu ei ole alkanut. Ottelulistassa tätä ei ole; se tulee vain
+            yhden ottelun haussa.
         finished_at: Päättymishetki UTC-tietoisena, tai ``None``.
         teams: Osapuolet. Tavallisesti kaksi, mutta lukumäärää ei väitetä
             täällä -- vaihe tarkistaa sen, jos se siitä riippuu.
@@ -698,6 +728,7 @@ class Match:
     match_id: str
     competition_id: str | None = None
     status: str | None = None
+    scheduled_at: datetime | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     teams: tuple[MatchTeam, ...] = ()
@@ -718,7 +749,10 @@ class MatchSource(Protocol):
     olisi toinen tapa hakea sama asia ja toinen välimuistiavain samalle
     vastaukselle. ``get_schedule`` (Epic 4: seuraava vastustaja) on
     :meth:`get_matches` aikasuodattimella, jonka vaihe tekee itse
-    ``started_at``ista. Porttia ei siis tarvitse purkaa Epic 4:ssä.
+    ``scheduled_at``ista -- **ei** ``started_at``ista: mitattu 2026-09-04, ettei
+    ottelulistalla ole alkuhetkeä lainkaan, ja seuraava vastustaja on
+    määritelmällisesti ottelu, joka ei ole vielä alkanut. Porttia ei siis
+    tarvitse purkaa Epic 4:ssä.
     """
 
     def get_matches(self, competition_id: str) -> tuple[Match, ...]:

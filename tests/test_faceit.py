@@ -208,6 +208,7 @@ def match_payload(match_id: str = "1-aaaa", **overrides: Any) -> dict[str, Any]:
         "competition_id": CHAMPIONSHIP,
         "competition_name": "6 Divisioona",
         "status": "FINISHED",
+        "scheduled_at": 1_755_996_400,
         "started_at": 1_756_000_000,
         "finished_at": 1_756_003_600,
         "teams": {
@@ -215,16 +216,40 @@ def match_payload(match_id: str = "1-aaaa", **overrides: Any) -> dict[str, Any]:
                 "faction_id": "team-imuaijat",
                 "name": "Imuaijat",
                 "roster": [
-                    {"player_id": "p-imu-1", "nickname": "imu1"},
-                    {"player_id": "p-imu-2", "nickname": "imu2"},
+                    {
+                        "player_id": "p-imu-1",
+                        "nickname": "imu1",
+                        "game_player_id": "76561197960265729",
+                    },
+                    {
+                        "player_id": "p-imu-2",
+                        "nickname": "imu2",
+                        "game_player_id": "76561197960265730",
+                    },
                 ],
+                "substitutes": [],
             },
             "faction1": {
                 "faction_id": "team-potku",
                 "name": "PotkukelkkaPeek",
                 "roster": [
-                    {"player_id": "p-potku-1", "nickname": "veeti"},
-                    {"player_id": "p-potku-2", "nickname": "kaveri"},
+                    {
+                        "player_id": "p-potku-1",
+                        "nickname": "veeti",
+                        "game_player_id": "76561197977479426",
+                    },
+                    {
+                        "player_id": "p-potku-2",
+                        "nickname": "kaveri",
+                        "game_player_id": "76561197985923425",
+                    },
+                ],
+                "substitutes": [
+                    {
+                        "player_id": "p-potku-3",
+                        "nickname": "Lindberq_",
+                        "game_player_id": "76561198062941501",
+                    }
                 ],
             },
         },
@@ -1534,6 +1559,77 @@ def test_an_empty_nickname_is_not_a_name(tmp_path: Path) -> None:
     # ei ole. Ilman sitä pelaajaa ei voi liittää mihinkään.
     assert [p.player_id for p in team.roster] == ["p-1", "p-2"]
     assert [p.nickname for p in team.roster] == [None, None]
+
+
+def test_the_port_carries_substitutes_and_steam_ids(tmp_path: Path) -> None:
+    """Story 3.2: ilman näitä kahta kenttää vakirosteri olisi väärä.
+
+    ``substitutes`` on oma listansa, ja mitattu 2026-09-04: ilman sitä rosteri
+    aliarvioi järjestelmällisesti (``Lindberq_`` on demossa muttei
+    ``roster``issa). ``game_player_id`` on SteamID64 ja **ainoa** tunniste,
+    joka esiintyy demoissa -- ``player_id`` on FACEITin oma UUID.
+    """
+    client, _session, _waits = make_client(
+        tmp_path, FakeResponse(200, match_payload("1-rosteri"))
+    )
+
+    team = client.get_match("1-rosteri").teams[0]
+
+    assert [p.nickname for p in team.substitutes] == ["Lindberq_"]
+    assert [p.game_player_id for p in team.roster] == [
+        "76561197977479426",
+        "76561197985923425",
+    ]
+    assert team.substitutes[0].game_player_id == "76561198062941501"
+    # Kaksi tunnistetta rinnakkain: kumpaakaan ei korvata toisella.
+    assert team.roster[0].player_id == "p-potku-1"
+
+
+def test_a_missing_substitutes_list_is_an_empty_tuple_not_an_error(
+    tmp_path: Path,
+) -> None:
+    """Joukkueella ei ole pakko olla varapelaajia."""
+    payload = match_payload("1-ei-vaihtoja")
+    del payload["teams"]["faction1"]["substitutes"]
+    client, _session, _waits = make_client(tmp_path, FakeResponse(200, payload))
+
+    assert client.get_match("1-ei-vaihtoja").teams[0].substitutes == ()
+
+
+def test_a_player_without_a_game_player_id_keeps_the_row_but_not_the_id(
+    tmp_path: Path,
+) -> None:
+    """SteamID64 saa puuttua; se on havainto, jonka vaihe kertoo ääneen.
+
+    ``player_id`` sen sijaan on koneen avain: ilman sitä riviä ei ole.
+    """
+    payload = match_payload("1-vajaa")
+    payload["teams"]["faction1"]["roster"] = [
+        {"player_id": "p-1", "nickname": "a"},
+        {"player_id": "p-2", "nickname": "b", "game_player_id": "   "},
+    ]
+    client, _session, _waits = make_client(tmp_path, FakeResponse(200, payload))
+
+    team = client.get_match("1-vajaa").teams[0]
+
+    assert [p.player_id for p in team.roster] == ["p-1", "p-2"]
+    assert [p.game_player_id for p in team.roster] == [None, None]
+
+
+def test_the_schedule_is_a_separate_field_from_the_start_time(tmp_path: Path) -> None:
+    """Ottelulistassa on ``scheduled_at`` eikä ``started_at`` (mitattu 2026-09-04).
+
+    Aikataulu on suunnitelma ja alkuhetki havainto; jos ne luettaisiin samaan
+    kenttään, pelaamaton ottelu näyttäisi alkaneelta.
+    """
+    payload = match_payload("1-tuleva", status="SCHEDULED", started_at=0, finished_at=0)
+    client, _session, _waits = make_client(tmp_path, FakeResponse(200, payload))
+
+    match = client.get_match("1-tuleva")
+
+    assert match.started_at is None
+    assert match.scheduled_at is not None
+    assert match.scheduled_at.timestamp() == 1_755_996_400
 
 
 def test_a_match_without_an_id_stops_the_run(tmp_path: Path) -> None:

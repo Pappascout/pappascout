@@ -41,6 +41,8 @@ FACEIT_DOWNLOADS_TOKEN=<Downloads API -token>
 ```powershell
 uv run pappascout info          # asetukset, arkiston tila ja avainten tila
 uv run pappascout info --koko   # sama, mutta laskee myös arkiston yhteiskoon
+uv run pappascout discover                       # divisioonan ottelu- ja joukkueindeksi
+uv run pappascout discover --team "Rcave"        # sama + joukkueen vakirosteri
 uv run pappascout parse <tiedosto|map_demo_id>   # demosta kierrokset ja asetelmat
 uv run pappascout classify <map_demo_id> --team <tunniste> --show  # kierrostyypit
 uv run pappascout classify <map_demo_id> --kaikki-joukkueet        # molemmat joukkueet
@@ -50,6 +52,26 @@ uv run pappascout --version
 uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
 ```
+
+`discover` hakee divisioonan ottelut FACEITista **yhdellä kutsulla** ja
+kirjoittaa niistä kaksi indeksiä:
+
+* `index/matches.json` -- kilpailun ottelut: tila, aikataulu, osapuolet ja
+  karttavalinnat.
+* `index/teams.json` -- joukkueet vakirostereineen. Vakirosteri on aloittajien
+  ja vaihtopelaajien **yhdiste** joukkueen kaikista otteluista, myös
+  pelaamattomista, ja sen tunnisteet ovat SteamID64-muotoisia -- juuri niillä
+  rosteri liittyy demoihin.
+
+Joukkuehaku on kirjainkoosta riippumaton ja hyväksyy nimen osan. **Monitulkintaista
+nimeä ei ratkaista hiljaa**: `--team "T"` listaa kaikki kolme T-alkuista
+joukkuetta ja pyytää tarkentamaan. Ottelulistaa ei välimuistiteta eikä ajoa
+ohiteta, joten uudet ottelut näkyvät joka ajolla -- siksi komennossa ei ole
+`--pakota`-valintaa.
+
+`discover` **ei nimeä arkiston hakemistoja uudelleen**. Yhteys
+`aggregates/<team_key>`-hakemistoihin näkyy `index/teams.json`:in
+`lineup_keys`-kentässä.
 
 `parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon
 seitsemän taulua yhdellä lukukerralla:
@@ -1207,6 +1229,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/domain/rounds.py` | `mark_played_rounds()` -- ainoa paikka, joka päättää `round_no`:n -- ja `check_win_reasons()` |
 | `src/pappascout/domain/economy.py` | `loss_counts()` ja `classify_round()` -- kierrostyypin talouspäättely |
 | `src/pappascout/domain/sampling.py` | `sample_ticks()` ja `first_contact_tick()` -- näytepisteiden valinta ja ensikontaktin sääntö |
+| `src/pappascout/domain/teams.py` | Joukkueen identiteetti puhtaana logiikkana: `build_teams()` (vakirosteri yhdisteenä, lähdetunnisteiden liittäminen rosterin perusteella, siirtyneet pelaajat), `find_teams()` (kirjainkoosta riippumaton nimihaku, monitulkintaisuus tuloksena) ja `is_steam_id64()` |
 | `src/pappascout/domain/utility.py` | `grenade_endpoints()`, `build_point_cloud()` ja `nearest_cells()` -- lentoradan pelkistys kahteen pisteeseen ja räjähdysalueen johtaminen pistepilvestä |
 | `src/pappascout/archive/paths.py` | Arkiston hakemistorakenne suhteellisina polkuina |
 | `src/pappascout/archive/atomic_write.py` | Atominen kirjoitus (`*.tmp-<host>` -> `rename`) |
@@ -1215,6 +1238,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/adapters/decompress.py` | `.dem.zst`-purku ja `PBDEMS2`-otsikkotarkistus |
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
 | `src/pappascout/adapters/faceit.py` | FACEIT Data API -asiakas -- ainoa paikka, joka tekee HTTP-kutsuja: avain otsakkeesta, uudelleenyritys vain 429/5xx:lle (`Retry-After` huomioiden), aikabudjetti per kutsu, sivutus; vastausvälimuisti `raw/faceit/` **vain valmiille otteluille**, ei ottelulistalle |
+| `src/pappascout/stages/discover.py` | `discover`-vaihe: divisioonan otteluista `index/matches.json` + `index/teams.json`; ei manifestia, koska vaihetta ei koskaan ohiteta. Sisältää myös indeksien lukijan (`read_indexes()`) |
 | `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + `deaths.parquet` + `callouts.parquet` + `match.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |
@@ -1230,6 +1254,42 @@ Riippuvuusnuoli on `cli -> stages -> {domain, adapters, archive, render}`,
 `render -> domain` ja `adapters -> domain`; sääntöä valvoo
 `tests/test_layering.py`. `render` ei näe arkistoa eikä adaptereita, joten
 "render ei laske mitään" on rakenteellinen lupaus eikä tapa.
+
+### Indeksitiedostojen kentät
+
+`discover` kirjoittaa kaksi tiedostoa, ja **molemmilla on sama kirjoittaja**.
+Muut vaiheet lukevat ne `stages.discover.read_indexes()`illa, joka tarkistaa
+`schema_version`in ja sen, että tiedostot ovat samasta ajosta.
+
+`index/matches.json`
+
+| Kenttä | Sisältö |
+| --- | --- |
+| `schema_version` | Muodon versio; lukija kaatuu tuntemattomaan |
+| `generated_at` | Ajon hetki UTC:nä; **sama molemmissa tiedostoissa** |
+| `competition_ids` | Mistä kilpailuista ottelut haettiin |
+| `matches[]` | `match_id`, `competition_id`, `status`, `played`, `scheduled_at`, `started_at`, `finished_at`, `map_picks` |
+| `matches[].teams[]` | `faction_id` (lähteen tunniste, **ei** kanoninen `team_key`), `name`, `roster` ja `substitutes` SteamID64-listoina |
+
+`index/teams.json`
+
+| Kenttä | Sisältö |
+| --- | --- |
+| `contested_lineup_keys` | Kokoonpanotiivisteet, jotka useampi joukkue omistaa -- jottei jatkovaihe laskisi niitä kahdesti |
+| `teams[].team_key` | **Kanoninen tunniste**: varhaisimman havainnon `faction_id`. Ei muutu, kun uusi kausi tuo uuden tunnisteen |
+| `teams[].faction_ids` | Kaikki lähteen tunnisteet, jotka tunnistettiin tähän joukkueeseen |
+| `teams[].name`, `alternative_names` | Useimmin havaittu nimi ja muut havainnot |
+| `teams[].lineup_keys` | Silta arkistoon: `aggregates/<lineup_key>`-hakemistot. **Ei identiteetti** |
+| `teams[].match_ids`, `played_match_ids` | Tunnistelistat aikajärjestyksessä, samassa järjestyksessä kuin `matches.json` |
+| `teams[].roster[]` | `game_player_id` (SteamID64, ainoa avain), `nickname`, `player_id` (FACEITin UUID), `alternative_nicknames` |
+| `teams[].released[]` | Pelaajat, jotka havaittiin tässä joukkueessa mutta myöhemmin toisessa -- eivät rosterissa, eivät myöskään kadonneet |
+| `teams[].shared_players` | Pelaajat, jotka toinen joukkue havaitsi yhtä myöhään; yhä rosterissa, koska kiistaa ei ratkaista arpomalla |
+
+**Identiteetti on rosteri, tunniste on vain avain.** Kaksi `faction_id`:tä
+yhdistetään samaksi joukkueeksi, kun niiden rosterit jakavat vähintään
+`[thresholds].team_identity_min_common` pelaajaa -- sama kynnys ja sama sääntö
+kuin kokoonpanotiivisteiden liittämisessä. Ilman sitä uusi kausi antaisi samalle
+porukalle uuden tunnisteen eikä mikään yhdistäisi niitä.
 
 ### FACEIT-välimuisti on eriytetty kutsun lajin mukaan
 

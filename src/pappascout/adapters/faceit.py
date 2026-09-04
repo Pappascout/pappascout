@@ -1210,6 +1210,7 @@ def _to_match(payload: Mapping[str, Any]) -> Match:
         match_id=match_id,
         competition_id=_text(payload.get("competition_id")),
         status=_text(payload.get("status")),
+        scheduled_at=_moment(payload.get("scheduled_at")),
         started_at=_moment(payload.get("started_at")),
         finished_at=_moment(payload.get("finished_at")),
         teams=teams,
@@ -1218,22 +1219,40 @@ def _to_match(payload: Mapping[str, Any]) -> Match:
 
 
 def _to_team(raw: Mapping[str, Any]) -> MatchTeam:
-    roster_raw = raw.get("roster")
-    roster: tuple[RosterPlayer, ...] = ()
-    if isinstance(roster_raw, list):
-        roster = tuple(
-            RosterPlayer(
-                player_id=player_id,
-                nickname=_text(entry.get("nickname")),
-            )
-            for entry in roster_raw
-            if isinstance(entry, Mapping)
-            and (player_id := _text(entry.get("player_id"))) is not None
-        )
+    """Muunna ottelurivin osapuoli :class:`MatchTeam`iksi.
+
+    ``roster`` ja ``substitutes`` luetaan **erikseen ja molemmat**: FACEIT
+    erottelee ne, ja vakirosterin yhdiste on domainin sääntö eikä adapterin
+    (ks. :class:`MatchTeam`). Mitattu 2026-09-04: jokaisella ottelurivillä oli
+    molemmat listat (132/132 joukkueriviä).
+    """
     return MatchTeam(
         team_id=_text(raw.get("faction_id")) or _text(raw.get("team_id")),
         name=_text(raw.get("name")),
-        roster=roster,
+        roster=_to_players(raw.get("roster")),
+        substitutes=_to_players(raw.get("substitutes")),
+    )
+
+
+def _to_players(raw: Any) -> tuple[RosterPlayer, ...]:
+    """Pelaajalista lähteen järjestyksessä; puuttuva lista on tyhjä monikko.
+
+    Pelaaja ilman ``player_id``:tä pudotetaan -- tunniste on koneen avain, eikä
+    tunnisteeton rivi ole liitettävissä mihinkään. ``game_player_id`` sen
+    sijaan saa puuttua: se on **eri tunniste** (SteamID64), ja sen puuttuminen
+    on havainto, jonka vaihe näkee ja kertoo ääneen.
+    """
+    if not isinstance(raw, list):
+        return ()
+    return tuple(
+        RosterPlayer(
+            player_id=player_id,
+            nickname=_text(entry.get("nickname")),
+            game_player_id=_text(entry.get("game_player_id")),
+        )
+        for entry in raw
+        if isinstance(entry, Mapping)
+        and (player_id := _text(entry.get("player_id"))) is not None
     )
 
 

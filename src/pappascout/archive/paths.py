@@ -3,7 +3,7 @@
 Puu on lukittu spinen konventiotaulukossa::
 
     raw/faceit/                                  HTTP-välimuisti, saa tyhjentää
-    index/teams.json                             kirjoittaa vain select
+    index/teams.json                             kirjoittaa vain discover
     index/matches.json                           kirjoittaa vain discover
     index/selections/<team_key>.json             kirjoittaa vain select
     index/next_opponent/<team_key>.json          kirjoittaa vain discover
@@ -48,6 +48,7 @@ __all__ = [
     "next_opponent",
     "demo",
     "demo_meta",
+    "parsed_root",
     "parsed_dir",
     "parsed_table",
     "parsed_manifest",
@@ -131,16 +132,33 @@ def raw_faceit_dir() -> PurePosixPath:
 
 
 def index_dir() -> PurePosixPath:
+    """Indeksipuun juuri. Kaikki sen tiedostot ovat johdettavissa uudelleen.
+
+    Hakemisto syntyy vasta kun ensimmäinen indeksi kirjoitetaan; sen
+    puuttuminen ei ole virhe vaan tieto siitä, ettei ``discover``ia ole vielä
+    ajettu.
+    """
     return PurePosixPath("index")
 
 
 def teams_index() -> PurePosixPath:
-    """Joukkueindeksi. Kirjoittaa vain ``select``."""
+    """Joukkueindeksi: joukkueet vakirostereineen. Kirjoittaa vain ``discover``.
+
+    **Kirjoittaja vaihtui Story 3.2:ssa**, ja se oli mittauksen seuraus eikä
+    makuasia. Spine antoi tiedoston ``select``ille, koska vakirosterin
+    oletettiin vaativan oman rosterihakunsa. Mitattu 2026-09-04: rosteri on jo
+    ottelulistan rivillä (``roster`` ja ``substitutes``, 132/132 joukkueriviä),
+    joten ``discover`` saa sen samasta vastauksesta, jonka se joka tapauksessa
+    hakee. Jos tiedosto jäisi ``select``ille, sama vastaus haettaisiin kahdesti
+    -- tai vakirosteri kulkisi vaiheelta toiselle tiedostona, jota kumpikaan ei
+    omista. ``select`` lukee tämän ja kirjoittaa oman tuloksensa
+    :func:`selection`iin.
+    """
     return index_dir() / "teams.json"
 
 
 def matches_index() -> PurePosixPath:
-    """Otteluindeksi. Kirjoittaa vain ``discover``."""
+    """Otteluindeksi: kilpailun ottelut sellaisinaan. Kirjoittaa vain ``discover``."""
     return index_dir() / "matches.json"
 
 
@@ -168,8 +186,18 @@ def demo_meta(map_demo_id: str) -> PurePosixPath:
     return PurePosixPath("demos") / f"{safe_component(map_demo_id, 'map_demo_id')}.meta.json"
 
 
+def parsed_root() -> PurePosixPath:
+    """Parsittujen demojen juuri.
+
+    Oma funktionsa, koska vaiheet käyvät hakemiston läpi (``discover`` etsii
+    sieltä kokoonpanotaulut). Ilman tätä nimi ``"parsed"`` olisi kovakoodattuna
+    vaiheessa, ja arkiston puun ainoa lähde olisi kaksi paikkaa.
+    """
+    return PurePosixPath("parsed")
+
+
 def parsed_dir(map_demo_id: str) -> PurePosixPath:
-    return PurePosixPath("parsed") / safe_component(map_demo_id, "map_demo_id")
+    return parsed_root() / safe_component(map_demo_id, "map_demo_id")
 
 
 def parsed_table(map_demo_id: str, table: str) -> PurePosixPath:
@@ -457,6 +485,9 @@ class ArchivePaths:
 
     def demo_meta(self, map_demo_id: str) -> Path:
         return self.resolve(demo_meta(map_demo_id))
+
+    def parsed_root(self) -> Path:
+        return self.resolve(parsed_root())
 
     def parsed_table(self, map_demo_id: str, table: str) -> Path:
         return self.resolve(parsed_table(map_demo_id, table))

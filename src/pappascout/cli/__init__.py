@@ -4,17 +4,19 @@ CLI on ohut: se lukee asetukset, valitsee vaiheet ja näyttää tuloksen. Se ei
 kutsu adaptereita eikä arkistoa suoraan, eikä siinä ole analyysilogiikkaa --
 sama putki ajetaan myöhemmin web-kuoren takaa muuttamatta domainia.
 
-Komentoja on viisi: ``info`` näyttää asetukset, arkiston tilan ja avainten
-tilan paljastamatta avainten arvoja, ``parse`` ajaa putken ensimmäisen vaiheen
-yhdelle demolle, ``classify`` luokittelee sen kierrokset yhden joukkueen
-näkökulmasta, ``aggregate`` kokoaa joukkueen luokitellut kierrokset yhdeksi
-``report.json``-tiedostoksi ja ``report`` kirjoittaa siitä luettavan
-Markdown-raportin. Loput (``scout``, ``next``, ``collect``, ``import``) tulevat
-myöhemmissä storyissa.
+Komentoja on kuusi: ``info`` näyttää asetukset, arkiston tilan ja avainten
+tilan paljastamatta avainten arvoja, ``discover`` hakee divisioonan ottelut ja
+kirjoittaa niistä ottelu- ja joukkueindeksin, ``parse`` ajaa putken
+demovaiheen yhdelle demolle, ``classify`` luokittelee sen kierrokset yhden
+joukkueen näkökulmasta, ``aggregate`` kokoaa joukkueen luokitellut kierrokset
+yhdeksi ``report.json``-tiedostoksi ja ``report`` kirjoittaa siitä luettavan
+Markdown-raportin. Loput (``select``, ``fetch``, ``scout``, ``next``,
+``collect``, ``import``) tulevat myöhemmissä storyissa.
 
 Arkistoon ja adaptereihin ei kosketa täältä: polut pyydetään
-``stages.archive_paths``ilta ja demoportti ``stages.parse.default_parser``ilta.
-Riippuvuusnuoli on ``cli -> stages -> {domain, adapters, archive}``.
+``stages.archive_paths``ilta, demoportti ``stages.parse.default_parser``ilta ja
+otteluportti ``stages.discover.default_source``ilta. Riippuvuusnuoli on
+``cli -> stages -> {domain, adapters, archive}``.
 
 Käyttäjä ei koodaa itse, joten mikään virhe ei saa päätyä ruudulle raakana
 pinojälkenä: :func:`main` muuntaa ne suomenkielisiksi viesteiksi ja
@@ -40,6 +42,7 @@ from pappascout.render.view import players_text
 from pappascout.stages import StageResult, archive_paths
 from pappascout.stages import aggregate as aggregate_stage
 from pappascout.stages import classify as classify_stage
+from pappascout.stages import discover as discover_stage
 from pappascout.stages import parse as parse_stage
 from pappascout.stages import render as render_stage
 
@@ -59,6 +62,10 @@ EXIT_KNOWN_ERROR = 1
 EXIT_UNEXPECTED_ERROR = 2
 
 _SIZE_UNITS = ("kt", "Mt", "Gt", "Tt", "Pt")
+
+#: Montako pelaajaa luetellaan nimeltä yhdessä yhteenvedon rivissä.
+#: Loput lasketaan; koko luettelo on aina indeksitiedostossa.
+MAX_LISTED_PLAYERS = 5
 
 
 def _human_size(num_bytes: int) -> str:
@@ -214,6 +221,231 @@ def _render_info(settings: Settings, show_size: bool = False) -> str:
         lines.append(f"  {name:<{width}} {settings.secret_status(name)}")
 
     return "\n".join(lines)
+
+
+@app.command("discover")
+def discover(
+    team: str | None = typer.Option(
+        None,
+        "--team",
+        help=(
+            "Joukkueen nimi, sen yksikäsitteinen osa tai joukkuetunniste. "
+            "Kirjainkoolla ei ole väliä. Monitulkintainen nimi listaa "
+            "vaihtoehdot eikä valitse mitään. Ilman tätä indeksit "
+            "kirjoitetaan eikä joukkuetta haeta."
+        ),
+    ),
+) -> None:
+    """Hae divisioonan ottelut ja kirjoita ottelu- ja joukkueindeksi.
+
+    Yksi verkkokutsu per kilpailu riittää: ottelurivillä ovat molempien
+    joukkueiden aloittajat ja vaihtopelaajat. Vakirosteri on niiden yhdiste
+    joukkueen kaikista otteluista -- myös pelaamattomista, joten yksi pelattu
+    ottelu yhdestätoista ei tee rosterista vajaata.
+
+    Komento hakee ottelulistan **joka kerta uudelleen**: sitä ei välimuistiteta
+    eikä ajoa ohiteta, koska uusien otteluiden näkeminen on koko komennon
+    tarkoitus. Siksi tässä ei ole --pakota-valintaa.
+
+    Arkiston hakemistoja ei nimetä uudelleen. Yhteys arkistoon näkyy
+    index/teams.json:in lineup_keys-kentässä.
+    """
+    settings = load_settings()
+    archive = archive_paths(settings.project)
+    typer.echo("Haetaan divisioonan otteluita...", err=True)
+    result = discover_stage.run(
+        settings.league,
+        archive,
+        team,
+        source=discover_stage.default_source(settings, archive),
+        thresholds=settings.thresholds,
+    )
+    typer.echo(_render_discover(result))
+
+
+def _render_discover(result: StageResult) -> str:
+    """Kokoa ``discover``-komennon yhteenveto.
+
+    Tärkein rivi on joukkueiden ja rosterien laajuus: käyttäjä tarkistaa siitä,
+    näkyykö koko divisioona. Rosterien vaihteluväli on mukana, koska liian pieni
+    rosteri on ainoa tapa huomata puuttuva ``substitutes``-lista avaamatta
+    tiedostoa.
+
+    Ilman ``--team``-valintaa tuloste **luettelee divisioonan joukkueet**.
+    Ilman sitä nimet näkisi vain syöttämällä tahallaan tuntemattoman nimen ja
+    lukemalla ne virheilmoituksesta -- eli juuri sitä, mitä käyttäjä tarvitsee
+    monitulkintaisen haun jälkeen, ei saisi ilman virhettä.
+    """
+    stats = result.stats
+    matches_found = int(stats.get("matches", 0) or 0)
+    teams_found = int(stats.get("teams", 0) or 0)
+    roster_min = int(stats.get("roster_min", 0) or 0)
+    roster_max = int(stats.get("roster_max", 0) or 0)
+    span = (
+        f"{roster_min} pelaajaa"
+        if roster_min == roster_max
+        else f"{roster_min}-{roster_max} pelaajaa"
+    )
+
+    lines: list[str] = []
+    lines.append(
+        f"Divisioona haettu: {teams_found} joukkuetta, {matches_found} ottelua"
+    )
+    if result.reason:
+        lines.append(_line("Huomio", result.reason))
+    lines.append(
+        _line(
+            "Pelatut ottelut",
+            f"{int(stats.get('matches_played', 0) or 0)} / {matches_found}",
+        )
+    )
+    lines.append(_line("Rosterit", span))
+    lines.extend(_discover_gaps(stats))
+
+    team = stats.get("team")
+    if isinstance(team, dict):
+        lines.extend(_discover_team(team))
+    else:
+        lines.extend(_discover_division(stats))
+
+    lines.append("")
+    for path in result.outputs:
+        lines.append(_line("Tulos", str(path)))
+    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+    return "\n".join(lines)
+
+
+def _discover_gaps(stats: dict) -> list[str]:
+    """Rivit siitä, mikä jäi pois -- pudotukset, kiistat ja siirtymät.
+
+    Jokainen näistä on hiljainen pudotus, jos sitä ei sanota ääneen: rosteri
+    olisi vain lyhyempi tai pidempi kuin pitäisi, eikä mikään kertoisi miksi.
+    """
+    lines: list[str] = []
+    without_id = int(stats.get("players_without_steam_id", 0) or 0)
+    if without_id:
+        dropped = stats.get("dropped_players") or []
+        named = ", ".join(
+            str(row.get("nickname") or row.get("player_id") or "?")
+            for row in dropped[:MAX_LISTED_PLAYERS]
+        )
+        if len(dropped) > MAX_LISTED_PLAYERS:
+            named += f" (+{len(dropped) - MAX_LISTED_PLAYERS} muuta)"
+        lines.append(
+            _line(
+                "Ilman SteamID64:aa",
+                f"{without_id} pelaajaa jäi pois rostereista: {named}",
+            )
+        )
+    rows_without_id = int(stats.get("team_rows_without_id", 0) or 0)
+    if rows_without_id:
+        lines.append(
+            _line(
+                "Tunnisteettomat joukkuerivit",
+                f"{rows_without_id} kpl ohitettiin -- niitä ei voi liittää "
+                "yhteenkään joukkueeseen",
+            )
+        )
+    transfers = stats.get("transfers") or []
+    moved = [t for t in transfers if t.get("kind") == "released"]
+    shared = [t for t in transfers if t.get("kind") == "shared"]
+    if moved:
+        lines.append(
+            _line(
+                "Siirtyneet pelaajat",
+                ", ".join(
+                    f"{t.get('nickname') or t.get('game_player_id')} "
+                    f"({t.get('from_team')})"
+                    for t in moved[:MAX_LISTED_PLAYERS]
+                ),
+            )
+        )
+    if shared:
+        lines.append(
+            _line(
+                "Kahdessa joukkueessa",
+                ", ".join(
+                    f"{t.get('nickname') or t.get('game_player_id')} "
+                    f"({t.get('from_team')})"
+                    for t in shared[:MAX_LISTED_PLAYERS]
+                ),
+            )
+        )
+    contested = stats.get("contested_lineup_keys") or []
+    if contested:
+        lines.append(
+            _line(
+                "Kiistanalaiset kokoonpanot",
+                ", ".join(str(key) for key in contested)
+                + " -- useampi joukkue ylittää kynnyksen",
+            )
+        )
+    return lines
+
+
+def _discover_division(stats: dict) -> list[str]:
+    """Divisioonan joukkueet luettelona, tunnisteineen."""
+    division = stats.get("division") or []
+    if not division:
+        return []
+    lines = ["", "Divisioonan joukkueet:"]
+    for team in division:
+        name = str(team.get("name") or team.get("team_key") or "")
+        lines.append(
+            f"  {name} -- {int(team.get('roster_size', 0) or 0)} pelaajaa, "
+            f"tunniste {team.get('team_key')}"
+        )
+    return lines
+
+
+def _discover_team(team: dict) -> list[str]:
+    """Haetun joukkueen rivit."""
+    lines = ["", f"Joukkue: {team.get('name') or team.get('team_key') or ''}"]
+    lines.append(_line("Tunniste", str(team.get("team_key", ""))))
+    faction_ids = [str(key) for key in team.get("faction_ids") or []]
+    if len(faction_ids) > 1:
+        lines.append(
+            _line(
+                "Lähteen tunnisteet",
+                ", ".join(faction_ids) + " -- sama joukkue, eri kaudet",
+            )
+        )
+    roster = [str(player) for player in team.get("roster") or []]
+    lines.append(
+        _line(
+            "Vakirosteri",
+            f"{len(roster)} pelaajaa: {', '.join(roster)}"
+            if roster
+            else "ei yhtään pelaajaa",
+        )
+    )
+    released = [str(player) for player in team.get("released") or []]
+    if released:
+        lines.append(
+            _line("Siirtyneet pois", ", ".join(released))
+        )
+    shared = [str(player) for player in team.get("shared_players") or []]
+    if shared:
+        lines.append(
+            _line(
+                "Myös toisessa joukkueessa",
+                f"{len(shared)} pelaajaa -- kiistaa ei ratkaistu",
+            )
+        )
+    lines.append(
+        _line(
+            "Ottelut",
+            f"{int(team.get('matches', 0) or 0)} kpl, joista pelattu "
+            f"{int(team.get('matches_played', 0) or 0)}",
+        )
+    )
+    lineups = [str(key) for key in team.get("lineup_keys") or []]
+    if lineups:
+        lines.append(_line("Arkiston kokoonpanot", ", ".join(lineups)))
+    alternatives = [str(other) for other in team.get("alternative_names") or []]
+    if alternatives:
+        lines.append(_line("Muut havaitut nimet", ", ".join(alternatives)))
+    return lines
 
 
 @app.command("parse")
