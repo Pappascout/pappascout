@@ -33,20 +33,40 @@ sallisi satoja pyyntöjä ja tunnin hiljaisuuden yhdestä ``get_matches``ista --
 juuri sen, minkä ``MAX_FACEIT_RETRY_ATTEMPTS``in perustelu sanoo estävänsä.
 Budjetti on sekunteja, koska sekunteja käyttäjä odottaa.
 
-**Välimuisti on pelkkä HTTP-välimuisti.** Yksi tiedosto per kutsu, ei
-manifestia, ei ajantasaisuuspäättelyä, ei vaikutusta muihin vaiheisiin.
-Hakemiston saa poistaa milloin tahansa, ja ainoa seuraus on uusi kutsu. Sama
-koskee yksittäistä rikkoutunutta tiedostoa: se ohitetaan kuin sitä ei olisi.
-**Levylle ei kirjoiteta vastausta, jota ei ole ensin tarkistettu** -- muuten
-rikkinäinen 200 jäisi välimuistiin ja jokainen seuraava ajo kaatuisi samaan
-virheeseen käymättä lainkaan verkossa.
+**Välimuisti on eriytetty kutsun lajin mukaan, ja se on mitattu päätös.**
 
-Välimuisti **ei vanhene** -- TTL olisi oma päätöksensä, ja tässä tarinassa sitä
-ei ole tehty. Seuraus on sanottava ääneen: kerran haettu ottelulista pysyy
-sellaisenaan, joten **kauden edetessä uudet ottelut eivät ilmesty näkyviin
-ennen kuin ``raw/faceit/`` tyhjennetään**. Se on tämän tarinan tietoinen raja,
-ei unohdus, ja se on ratkaistava ennen kuin Story 3.5:n keräyskomennosta tulee
-"turvallinen ajaa milloin tahansa".
+``/championships/{id}/matches`` (ottelulista)
+    **Ei välimuistiteta lainkaan** -- ei lueta eikä kirjoiteta.
+``/matches/{id}`` (yhden ottelun tiedot)
+    **Välimuistitetaan pysyvästi, mutta vain valmiista ottelusta**
+    (:data:`CACHEABLE_MATCH_STATUSES`). Kesken pelattavana haettua ottelua ei
+    kirjoiteta levylle.
+
+Tämä **kumoaa speksin rajoitteen** "välimuisti on pelkkä HTTP-välimuisti, ei
+ajantasaisuuspäättelyä". Rajoite oli tietoinen, mutta se kirjoitettiin **ennen
+mittausta** ja nojasi oletukseen, että vastaukset ovat pysyviä. Mittaus
+4.9.2026 osoitti oletuksen tosi toiselle päätepisteelle ja epätosi toiselle:
+
+* **Ottelulista on yksi kutsu per ajo** -- divisioonan 66 ottelua mahtuu
+  yhdelle sivulle ``page_size = 100``:lla -- ja se **muuttuu jatkuvasti**: 60
+  ottelua 66:sta oli tilassa ``SCHEDULED``. Välimuisti säästäisi siellä yhden
+  kutsun ja maksaisi oikeellisuuden. Se ei ole vaihtokauppa vaan pelkkä haitta.
+* **Ottelun tiedot on jopa 66 kutsua** (``collect`` koko divisioonalle) ja
+  **muuttumattomia** heti kun ottelu on pelattu. Siellä välimuisti on selvä
+  hyöty. FACEITin raja on epävirallisesti noin 10 000 kutsua tunnissa.
+
+Vaatimus, joka tämän ratkaisee, on Veetin oma ja parempi kuin mikään
+vanhenemisaika: *"Kunhan emme hae duplikaatteja tai missaa selviä otteluita."*
+**Vanhenemisaikaa ei siksi ole** -- ei kelloa, ei TTL:ää, ei asetusta.
+Vähemmän liikkuvia osia kuin ajassa mitatussa säännössä, ja se sanoo suoraan
+sen mitä tarkoittaa: muuttumaton vastaus säilytetään, muuttuvaa ei.
+
+Muuten välimuisti on entisellään: yksi tiedosto per kutsu, ei manifestia, ei
+vaikutusta muihin vaiheisiin. Hakemiston saa poistaa milloin tahansa, ja ainoa
+seuraus on uusi kutsu. Sama koskee yksittäistä rikkoutunutta tiedostoa: se
+ohitetaan kuin sitä ei olisi. **Levylle ei kirjoiteta vastausta, jota ei ole
+ensin tarkistettu** -- muuten rikkinäinen 200 jäisi välimuistiin ja jokainen
+seuraava ajo kaatuisi samaan virheeseen käymättä lainkaan verkossa.
 
 Miksi hakemisto annetaan parametrina
 ------------------------------------
@@ -101,6 +121,7 @@ __all__ = [
     "FACEIT_DATA_API_BASE",
     "MAX_PAGES",
     "DEFAULT_CALL_BUDGET_SECONDS",
+    "CACHEABLE_MATCH_STATUSES",
 ]
 
 #: FACEIT Data API:n juuri. **Vakio eikä asetus**: se ei ole säädettävä arvo
@@ -134,6 +155,28 @@ _RATE_LIMIT_STATUS = 429
 
 #: 2xx-koodit, joilla **ei ole runkoa** (RFC 9110). Onnistuneita mutta tyhjiä.
 _NO_CONTENT_STATUSES = frozenset({204, 205})
+
+#: Ottelun tilat, joissa sen tiedot **saa** välimuistittaa pysyvästi.
+#:
+#: Mitattu aineisto (4.9.2026) sisältää ``SCHEDULED`` ja ``FINISHED``;
+#: FACEITilla on lisäksi ``ONGOING`` ja ``CANCELLED``.
+#:
+#: **``FINISHED`` ja vain se, eikä myös ``CANCELLED``** -- vaikka peruuttu
+#: ottelu näyttää yhtä lopulliselta. Valinta on epäsymmetrisen hinnan takia,
+#: ei siisteyden:
+#:
+#: * ``FINISHED`` on **tosiasia menneisyydestä**. Ottelu on pelattu, demo on
+#:   olemassa, eivätkä rosteri tai karttavalinnat voi enää muuttua.
+#: * ``CANCELLED`` on **järjestäjän päätös**, ja järjestäjä voi perua sen.
+#:   Siirretty ottelu pelataan uudella ajankohdalla samalla ``match_id``:llä,
+#:   ja pysyvästi välimuistitettu ``CANCELLED`` piilottaisi sen ikuisesti.
+#:
+#: Väärin päin tehdyn valinnan hinta ratkaisee: ``CANCELLED``in
+#: välimuistittaminen säästäisi **yhden kutsun**, ja epäonnistuessaan se
+#: hukkaisi **pelatun ottelun demon pysyvästi** (FACEIT säilyttää demot noin
+#: 30 päivää). Se on täsmälleen se, mitä Veetin vaatimus "älä missaa selviä
+#: otteluita" kieltää.
+CACHEABLE_MATCH_STATUSES = frozenset({"FINISHED"})
 
 #: Ohje, joka kuuluu jokaiseen virheeseen, jonka syy voi olla levyllä.
 #:
@@ -496,6 +539,11 @@ class FaceitClient:
                     f"(sivu {page_no}, offset {offset})"
                 ),
                 validate=_check_match_list,
+                # **Ottelulistaa ei välimuistiteta.** Se on yksi kutsu per ajo
+                # ja se muuttuu jatkuvasti (mitattu 4.9.2026: 60 ottelua 66:sta
+                # tilassa SCHEDULED). Välimuisti säästäisi yhden kutsun ja
+                # maksaisi oikeellisuuden -- ks. moduulidocstring.
+                cache_when=None,
                 budget=budget,
             )
             page = last.payload["items"]
@@ -519,8 +567,7 @@ class FaceitClient:
                 f"FACEIT palautti championshipille {competition_id} yli "
                 f"{MAX_PAGES} sivua otteluita eikä sivutus loppunut.\n"
                 "Haku keskeytettiin, jotta se ei kuluttaisi kutsukiintiötä "
-                "loputtomiin. Kyseessä on rajapinnan vika.\n"
-                f"{_CACHE_ADVICE}",
+                "loputtomiin. Kyseessä on rajapinnan vika.",
                 url=self._url(path),
                 attempts=last.attempts if last else 1,
                 status_code=last.status_code if last else None,
@@ -535,6 +582,10 @@ class FaceitClient:
             None,
             what=f"ottelun {match_id} tietoja",
             validate=_check_match,
+            # Pelatun ottelun tiedot eivät enää muutu, ja niitä haetaan jopa
+            # 66 kertaa per ajo -- siellä välimuisti on selvä hyöty.
+            # Keskeneräistä ottelua ei kirjoiteta levylle.
+            cache_when=_is_cacheable_match,
         )
         return _to_match(fetched.payload)
 
@@ -565,6 +616,7 @@ class FaceitClient:
         *,
         what: str,
         validate: Callable[[Mapping[str, Any]], None],
+        cache_when: Callable[[Mapping[str, Any]], bool] | None = None,
         budget: _Budget | None = None,
     ) -> _Fetched:
         """Hae yksi vastaus: välimuistista tai verkosta, ja välimuistiin.
@@ -575,51 +627,82 @@ class FaceitClient:
             what: Mitä haettiin, suomeksi. Päätyy virheilmoitukseen --
                 pelkkä tilakoodi ei ohjaa mihinkään.
             validate: Rakennetarkistus, joka nostaa :class:`_Invalid`in.
-                **Ajetaan ennen välimuistiin kirjoitusta** ja myös
-                välimuistiosumalle: kelvoton tiedosto poistetaan ja haetaan
-                uudelleen, jottei vanhemman version kirjoittama rikkinäinen
-                vastaus jäisi kaatamaan jokaista ajoa ilman verkkokutsua.
+                Ajetaan sekä ennen välimuistiin kirjoitusta että
+                välimuistista luettaessa.
+            cache_when: Ehto, jonka täyttävä vastaus **kirjoitetaan** levylle
+                ja jonka täyttävä tiedosto **luetaan** levyltä.
+                **``None`` = tätä kutsua ei välimuistiteta lainkaan**: ei
+                lueta eikä kirjoiteta. Ottelulista on juuri sellainen, ja
+                silloin koko välimuistihaara ohitetaan -- ei kuollutta koodia,
+                joka näyttäisi kuin välimuisti olisi käytössä.
+
+                **Ehtoa sovelletaan molempiin suuntiin, ja se on korjaus
+                todistettuun virheeseen.** Ensin lukupolku jätettiin
+                ehdottomaksi perustelulla "jos tiedosto on olemassa, se on
+                aikanaan kirjoitettu vastauksesta, joka läpäisi tämän ehdon".
+                Live-tarkistus 4.9.2026 osoitti premissin vääräksi samana
+                päivänä: jaetussa arkistossa oli edellisen version kirjoittama
+                tiedosto, joka tarjoili ``SCHEDULED``-ottelua levyltä
+                **ikuisesti ja täysin hiljaa** -- eli täsmälleen se vikaluokka,
+                jonka tämä tarina muuten korjaa.
+
+                Symmetrinen ehto tekee välimuistista **itsekorjaavan**:
+                invariantti ei enää riipu siitä, että jokainen aiempi ja tuleva
+                kirjoituspolku oli oikein, vaan siitä mitä tiedostossa
+                lukee. Yksi bugi tai yksi vanha versio ei myrkytä välimuistia
+                pysyvästi, eikä kenenkään tarvitse muistaa siivota hakemistoa
+                käsin. Hinta on nolla: ehto on jo olemassa eikä tämä lisää
+                uutta sisältöriippuvuutta -- se soveltaa olemassa olevaa.
             budget: Aikabudjetti; ``None`` = oma budjetti tälle kutsulle.
         """
         url = self._url(path)
-        cache_path = self._cache_path(path, params)
-        cached = _read_cache(cache_path)
-        if cached is not None:
-            try:
-                validate(cached)
-            except _Invalid:
-                # Kelvoton välimuistitiedosto käyttäytyy kuin rikkinäinen: se
-                # poistetaan ja haetaan uudelleen. Ilman tätä vanhemman version
-                # kirjoittama vastaus kaataisi jokaisen ajon ilman verkkokutsua.
+        cache_path = (
+            self._cache_path(path, params) if cache_when is not None else None
+        )
+
+        if cache_path is not None:
+            cached = _read_cache(cache_path)
+            if cached is not None:
+                if _cache_entry_is_usable(cached, validate, cache_when):
+                    self.cache_hits += 1
+                    return _Fetched(cached, 0, None, url, from_cache=True)
+                # Kelpaamaton tiedosto käyttäytyy kuin sitä ei olisi: se
+                # poistetaan ja vastaus haetaan verkosta. **Yksi polku
+                # kahdelle syylle** (rikkinäinen rakenne, kelpaamaton
+                # sisältö), koska seuraus on molemmissa sama eikä kutsujan
+                # tarvitse tietää kumpi se oli.
                 try:
                     cache_path.unlink(missing_ok=True)
                 except OSError:  # pragma: no cover - riippuu levystä
                     pass
-            else:
-                self.cache_hits += 1
-                return _Fetched(cached, 0, None, url, from_cache=True)
 
         payload, attempts, status = self._fetch(
             url,
             params,
             what=what,
             budget=budget or _Budget(self.call_budget_seconds, self._clock),
+            cache_advice=cache_path is not None,
         )
         try:
             validate(payload)
         except _Invalid as exc:
+            # Välimuistiohje vain silloin kun tämä kutsu välimuistitetaan.
+            # Ottelulistalle se olisi väärä neuvo: siellä ei ole mitään
+            # tyhjennettävää, eikä virheilmoitus saa ohjata väärään paikkaan.
+            advice = f"\n{_CACHE_ADVICE}" if cache_path is not None else ""
             raise ApiError(
                 f"FACEIT palautti vastauksen, jota ei tunnisteta, kun haettiin "
                 f"{what}: {exc.reason}\n"
                 "Vastausta EI kirjoitettu välimuistiin, joten seuraava ajo "
                 "yrittää uudelleen.\n"
                 "Tarkista, että tunniste on oikea (settings.toml, "
-                f"[league].championship_ids).\n{_CACHE_ADVICE}",
+                f"[league].championship_ids).{advice}",
                 url=url,
                 attempts=attempts,
                 status_code=status,
             ) from exc
-        _write_cache(cache_path, payload)
+        if cache_path is not None and cache_when(payload):
+            _write_cache(cache_path, payload)
         return _Fetched(payload, attempts, status, url, from_cache=False)
 
     def _fetch(
@@ -629,8 +712,15 @@ class FaceitClient:
         *,
         what: str,
         budget: _Budget,
+        cache_advice: bool = False,
     ) -> tuple[Mapping[str, Any], int, int | None]:
-        """Tee kutsu verkkoon ja yritä uudelleen, jos vika voi korjaantua."""
+        """Tee kutsu verkkoon ja yritä uudelleen, jos vika voi korjaantua.
+
+        ``cache_advice`` kertoo, välimuistitetaanko tämä kutsu: pysyvän vian
+        viestiin kuuluu ohje välimuistin tyhjentämisestä vain silloin, kun
+        välimuistissa voi olla jotain. Ottelulistalle sama ohje osoittaisi
+        paikkaan, jossa ei ole mitään.
+        """
         attempts = 0
         #: Viimeisin nähty tilakoodi listassa, jotta sulkeumat voivat kirjoittaa
         #: siihen. Se päätyy ``ApiError.status_code``iin myös silloin, kun
@@ -723,10 +813,11 @@ class FaceitClient:
                 url=url,
             ) from exc
         except _Permanent as exc:
+            advice = f"\n{_CACHE_ADVICE}" if cache_advice else ""
             raise ApiError(
                 f"FACEIT hylkäsi kutsun kun haettiin {what}: {exc.reason}\n"
                 "Uudelleenyritystä ei tehty, koska vika ei korjaannu "
-                f"odottamalla.\n{_CACHE_ADVICE}",
+                f"odottamalla.{advice}",
                 status_code=exc.status_code,
                 attempts=attempts,
                 url=url,
@@ -916,6 +1007,27 @@ def _check_base_url(base_url: str) -> str:
 # lainkaan verkossa -- eli välimuisti muuttuisi tilaksi, jota pitää siivota.
 
 
+def _is_cacheable_match(payload: Mapping[str, Any]) -> bool:
+    """Saako tämän ottelun tiedot kirjoittaa välimuistiin pysyvästi?
+
+    Luettu kenttä on ``status``, ja se on **FACEITin vakain mahdollinen**:
+    ottelun elinkaari on rajapinnan perustavin käsite, joten jos tämä kenttä
+    muuttuu, koko rajapinta on muuttunut -- eikä silloin ole olemassa
+    vaihtoehtoa, joka olisi jatkanut toimintaansa. Sen lukeminen ei siis ole
+    samaa lajia kuin vastauksen muodon arvaaminen.
+
+    Tuntematon tai puuttuva tila **ei kelpaa**: se on "en tiedä", eikä "en
+    tiedä" ole peruste säilyttää vastausta ikuisesti. Uuden tilan lisääminen
+    FACEITiin johtaa siis yhteen ylimääräiseen kutsuun eikä väärään
+    vastaukseen -- oikea suunta kahdesta.
+
+    Vertailu on kirjainkoosta riippumaton, koska ``status`` on havainto eikä
+    tämän moduulin kirjoittama arvo.
+    """
+    status = _text(payload.get("status"))
+    return status is not None and status.upper() in CACHEABLE_MATCH_STATUSES
+
+
 def _check_match(payload: Mapping[str, Any]) -> None:
     if _text(payload.get("match_id")) is None:
         raise _Invalid("ottelulla ei ole match_id:tä")
@@ -971,6 +1083,33 @@ def _retry_after_seconds(headers: Any) -> float | None:
         moment = moment.replace(tzinfo=UTC)
     seconds = (moment - datetime.now(UTC)).total_seconds()
     return seconds if seconds > 0 else None
+
+
+def _cache_entry_is_usable(
+    payload: Mapping[str, Any],
+    validate: Callable[[Mapping[str, Any]], None],
+    cache_when: Callable[[Mapping[str, Any]], bool],
+) -> bool:
+    """Saako tämän välimuistitiedoston sisällön käyttää vastauksena?
+
+    **Kaksi ehtoa, sama seuraus.** Tiedosto kelpaa vain jos se on rakenteeltaan
+    se mitä portti lupaa (``validate``) **ja** sisällöltään sellainen, joka
+    ylipäätään olisi saanut päätyä levylle (``cache_when``). Kumpi tahansa
+    hylkäys johtaa samaan: tiedosto poistetaan ja vastaus haetaan verkosta.
+
+    Toinen ehto on symmetria, joka olisi kuulunut tähän heti. Ilman sitä
+    invariantti "levyllä on vain muuttumattomia vastauksia" nojaisi ikuisesti
+    siihen, että jokainen kirjoituspolku -- myös menneiden versioiden -- oli
+    oikein. Mitattu vastaesimerkki löytyi jaetusta arkistosta 4.9.2026.
+
+    Paluuarvo on totuusarvo eikä syy, koska syytä ei näytetä kenellekään:
+    kelpaamaton tiedosto ei ole virhe vaan puuttuva tiedosto.
+    """
+    try:
+        validate(payload)
+    except _Invalid:
+        return False
+    return cache_when(payload)
 
 
 def _read_cache(path: Path) -> Mapping[str, Any] | None:

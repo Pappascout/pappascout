@@ -835,14 +835,35 @@ max_kill_areas = 3
 # vastaan asiakas on kirjoitettu; se on koodin vakio. Avaimet luetaan koneen
 # omasta tiedostosta %USERPROFILE%\.pappascout\.env.
 #
-# VÄLIMUISTI EI VANHENE, EIKÄ TTL:LLE OLE TÄÄLLÄ ASETUSTA. Vastaukset jäävät
-# arkiston hakemistoon raw/faceit/ pysyvästi, joten KERRAN HAETTU OTTELULISTA
-# EI PÄIVITY ITSESTÄÄN: kauden aikana lisätyt tai siirretyt ottelut näkyvät
-# vasta, kun hakemisto tyhjennetään käsin. Sen saa poistaa milloin tahansa, ja
-# ainoa seuraus on uusi kutsu -- manifestia ei ole eikä poisto vaikuta muihin
-# vaiheisiin. Mitattu 4.9.2026: 66 ottelusta 60 oli tilassa SCHEDULED, eli
-# lista muuttuu joka viikko. Vanhenemissääntö on tietoisesti päättämättä
-# (Story 3.1, Ask First) ja ratkaistava ennen Story 3.5:tä.
+# VÄLIMUISTI ON ERIYTETTY KUTSUN LAJIN MUKAAN, EIKÄ TTL:LLE OLE ASETUSTA.
+# Päätös 4.9.2026, ja se perustuu mittaukseen eikä oletukseen:
+#
+#   Ottelulistaa EI VÄLIMUISTITETA LAINKAAN. Se on yksi kutsu per ajo (66
+#   ottelua mahtuu yhdelle sivulle page_size = 100:lla) ja se muuttuu
+#   jatkuvasti: mitattuna 60 ottelua 66:sta oli tilassa SCHEDULED. Välimuisti
+#   säästäisi siellä yhden kutsun ja maksaisi oikeellisuuden.
+#
+#   Yhden ottelun tiedot välimuistitetaan PYSYVÄSTI, mutta VAIN kun ottelu on
+#   FINISHED. Niitä haetaan jopa 66 kertaa per ajo, ja pelatun ottelun tiedot
+#   eivät enää muutu. Keskeneräistä (SCHEDULED, ONGOING) tai peruttua
+#   (CANCELLED) ottelua ei kirjoiteta levylle -- peruminen on järjestäjän
+#   päätös, jonka järjestäjä voi perua.
+#
+# SAMA EHTO KOSKEE LUKEMISTA, eli VÄLIMUISTI ON ITSEKORJAAVA: jos levyltä
+# luettu ottelu ei ole FINISHED, tiedosto poistetaan ja vastaus haetaan
+# verkosta. Vanhan version tai bugin kirjoittama tiedosto ei siis voi jäädä
+# tarjoilemaan vanhentunutta vastausta -- eikä kenenkään tarvitse muistaa
+# siivota hakemistoa käsin.
+#
+# KÄYTÄNNÖN SEURAUS: uudet ja siirretyt ottelut näkyvät heti seuraavassa
+# ajossa. Arkiston hakemiston raw/faceit/ saa poistaa milloin tahansa, mutta
+# sitä ei tarvitse: manifestia ei ole eikä poisto vaikuta muihin vaiheisiin,
+# joten ainoa seuraus on uusi kutsu.
+#
+# Vaatimus, jonka tämä täyttää: "Kunhan emme hae duplikaatteja tai missaa
+# selviä otteluita." Se on parempi kuin vanhenemisaika, koska se sanoo suoraan
+# mitä tarkoittaa -- eikä siinä ole kelloa, jota pitäisi säätää.
+# FACEITin raja on ~10 000 kutsua tunnissa. [spine] AD-8.
 
 # Yritysten KOKONAISMÄÄRÄ, ei uudelleenyritysten määrä: 1 = "yritä kerran
 # äläkä uudelleen". Koskee vain 429- ja 5xx-vastauksia sekä yhteysvirheitä.

@@ -27,6 +27,7 @@ from conftest import REAL_SETTINGS, has_temp_leftovers
 
 from pappascout.adapters import faceit as faceit_module
 from pappascout.adapters.faceit import (
+    CACHEABLE_MATCH_STATUSES,
     DEFAULT_CALL_BUDGET_SECONDS,
     FACEIT_DATA_API_BASE,
     MAX_PAGES,
@@ -231,6 +232,16 @@ def match_payload(match_id: str = "1-aaaa", **overrides: Any) -> dict[str, Any]:
     }
     payload.update(overrides)
     return payload
+
+
+def cache_files(client: FaceitClient) -> list[Path]:
+    """Välimuistitiedostot listana -- myös kun hakemistoa ei ole luotu.
+
+    Ottelulistaa ei enää välimuistiteta, joten hakemistoa ei välttämättä ole
+    olemassa lainkaan. ``glob`` puuttuvassa hakemistossa palauttaa tyhjän,
+    mutta tämä sanoo aikomuksen ääneen: "levylle ei jäänyt mitään".
+    """
+    return sorted(client.cache_dir.glob("*.json"))
 
 
 def page(*matches: dict[str, Any]) -> FakeResponse:
@@ -792,22 +803,139 @@ def test_the_default_budget_is_a_guard_not_a_neutral_zero() -> None:
 # -- Välimuisti --------------------------------------------------------------
 
 
-def test_a_repeated_call_does_not_go_to_the_network(tmp_path: Path) -> None:
-    """I/O-matriisi: osuma välimuistiin -- ei verkkokutsua.
+def test_the_match_list_is_never_cached(tmp_path: Path) -> None:
+    """Veetin päätös 4.9.2026: ottelulistaa ei välimuistiteta lainkaan.
 
-    Kuljetuksen jonossa on **vain yksi** vastaus, joten toinen verkkokutsu
-    kaataisi testin. Osuma ei siis ole pääteltävissä laskurista vaan
-    rakenteesta.
+    Se on **yksi kutsu per ajo** -- divisioonan 66 ottelua mahtuu yhdelle
+    sivulle -- ja se **muuttuu jatkuvasti**: 60 ottelua 66:sta oli tilassa
+    ``SCHEDULED``. Välimuisti säästäisi siellä yhden kutsun ja maksaisi
+    oikeellisuuden. Vaatimus on "älä missaa selviä otteluita", ja tämä on
+    ainoa tapa pitää se ilman kelloa.
     """
-    client, session, _waits = make_client(tmp_path, page(match_payload()))
+    client, session, _waits = make_client(
+        tmp_path, page(match_payload()), page(match_payload())
+    )
 
     first = client.get_matches(CHAMPIONSHIP)
     second = client.get_matches(CHAMPIONSHIP)
 
     assert first == second
+    assert client.requests_made == 2
+    assert client.cache_hits == 0
+    assert len(session.calls) == 2
+    # Eikä levylle jäänyt mitään -- ei myöskään tiedostoa, joka harhauttaisi
+    # seuraavaa lukijaa.
+    assert cache_files(client) == []
+
+
+def test_a_new_match_appears_on_the_second_run(tmp_path: Path) -> None:
+    """Kauden aikana lisätty ottelu näkyy heti, ei vasta tyhjennyksen jälkeen.
+
+    Tämä on koko päätöksen tarkoitus. Välimuistitettuna toinen ajo palauttaisi
+    ensimmäisen listan, ja uusi ottelu jäisi pois ilman että mikään kertoisi.
+    """
+    client, _session, _waits = make_client(
+        tmp_path,
+        page(match_payload("1-vanha")),
+        page(match_payload("1-vanha"), match_payload("1-uusi")),
+    )
+
+    assert [m.match_id for m in client.get_matches(CHAMPIONSHIP)] == ["1-vanha"]
+    assert [m.match_id for m in client.get_matches(CHAMPIONSHIP)] == [
+        "1-vanha",
+        "1-uusi",
+    ]
+
+
+def test_a_finished_match_is_cached_permanently(tmp_path: Path) -> None:
+    """Pelatun ottelun tiedot eivät enää muutu, ja niitä haetaan jopa 66 kertaa.
+
+    Kuljetuksen jonossa on **vain yksi** vastaus, joten toinen verkkokutsu
+    kaataisi testin: osuma ei ole pääteltävissä laskurista vaan rakenteesta.
+    """
+    client, session, _waits = make_client(
+        tmp_path, FakeResponse(200, match_payload("1-valmis", status="FINISHED"))
+    )
+
+    first = client.get_match("1-valmis")
+    second = client.get_match("1-valmis")
+
+    assert first == second
     assert client.requests_made == 1
     assert client.cache_hits == 1
     assert len(session.calls) == 1
+    assert len(cache_files(client)) == 1
+
+
+@pytest.mark.parametrize("status", ["SCHEDULED", "ONGOING", "CANCELLED", None])
+def test_a_match_that_is_not_finished_is_not_cached(
+    tmp_path: Path, status: str | None
+) -> None:
+    """Keskeneräistä ottelua ei kirjoiteta levylle -- ja tulos päivittyy.
+
+    Kolmas parametri on ``CANCELLED``, joka näyttää yhtä lopulliselta kuin
+    ``FINISHED``. Se on silti ulkona, ja syy on epäsymmetrinen hinta:
+    peruminen on järjestäjän päätös, jonka järjestäjä voi perua, ja siirretty
+    ottelu pelataan samalla ``match_id``:llä. Välimuistitettu ``CANCELLED``
+    piilottaisi sen ikuisesti -- yhden säästetyn kutsun hinnalla menetettäisiin
+    pelatun ottelun demo pysyvästi (FACEIT säilyttää demot ~30 pv).
+
+    Neljäs on puuttuva tila: "en tiedä" ei ole peruste säilyttää vastausta
+    ikuisesti, ja uusi tila FACEITissa johtaa siis yhteen ylimääräiseen
+    kutsuun eikä väärään vastaukseen.
+    """
+    playing = match_payload("1-kesken", status=status)
+    if status is None:
+        del playing["status"]
+    finished = match_payload("1-kesken", status="FINISHED")
+    client, session, _waits = make_client(
+        tmp_path, FakeResponse(200, playing), FakeResponse(200, finished)
+    )
+
+    first = client.get_match("1-kesken")
+    assert cache_files(client) == []
+
+    second = client.get_match("1-kesken")
+
+    assert client.requests_made == 2
+    assert client.cache_hits == 0
+    assert len(session.calls) == 2
+    # Toinen kutsu näkee ottelun valmistuneena: tulos on päivittynyt.
+    assert first.status != "FINISHED"
+    assert second.status == "FINISHED"
+    # Ja nyt se on välimuistissa.
+    assert len(cache_files(client)) == 1
+
+
+def test_the_cacheable_statuses_are_a_named_constant() -> None:
+    """Sääntö on nimetty vakio, ei taikamerkkijono kutsupaikassa.
+
+    Nimettynä se on luettavissa, testattavissa ja muutettavissa yhdessä
+    paikassa; kutsupaikkaan kirjoitettuna se olisi päätös, joka näkyy vain
+    sille, joka lukee juuri sen rivin.
+    """
+    assert CACHEABLE_MATCH_STATUSES == frozenset({"FINISHED"})
+
+
+def test_the_cache_keeps_only_what_cannot_change(tmp_path: Path) -> None:
+    """Sama ottelu ensin kesken, sitten valmiina: vain jälkimmäinen jää.
+
+    Tämä on päätös yhtenä lauseena: muuttumaton vastaus säilytetään, muuttuvaa
+    ei -- eikä sääntö nojaa kelloon lainkaan.
+    """
+    client, _session, _waits = make_client(
+        tmp_path,
+        FakeResponse(200, match_payload("1-x", status="ONGOING")),
+        FakeResponse(200, match_payload("1-x", status="FINISHED")),
+    )
+
+    client.get_match("1-x")
+    client.get_match("1-x")
+    third = client.get_match("1-x")  # kolmas ei mene verkkoon
+
+    assert third.status == "FINISHED"
+    assert client.requests_made == 2
+    assert client.cache_hits == 1
 
 
 def test_a_cleared_cache_fetches_again_and_gives_the_same_result(
@@ -815,21 +943,21 @@ def test_a_cleared_cache_fetches_again_and_gives_the_same_result(
 ) -> None:
     """I/O-matriisi: ``raw/faceit/`` poistettu -- uusi kutsu, sama tulos.
 
-    Tämä on koko välimuistin lupaus: sen saa poistaa milloin tahansa, eikä
+    Tämä on välimuistin lupaus: sen saa poistaa milloin tahansa, eikä
     poistolla ole muuta seurausta kuin uusi kutsu. Ei manifestia, ei tilaa,
     jota pitäisi korjata.
     """
+    payload = match_payload("1-valmis")
     client, _session, _waits = make_client(
-        tmp_path, page(match_payload()), page(match_payload())
+        tmp_path, FakeResponse(200, payload), FakeResponse(200, payload)
     )
 
-    first = client.get_matches(CHAMPIONSHIP)
-    cache_dir = client.cache_dir
-    assert list(cache_dir.glob("*.json"))
-    for path in cache_dir.glob("*.json"):
+    first = client.get_match("1-valmis")
+    assert cache_files(client)
+    for path in cache_files(client):
         path.unlink()
 
-    second = client.get_matches(CHAMPIONSHIP)
+    second = client.get_match("1-valmis")
 
     assert first == second
     assert client.requests_made == 2
@@ -838,15 +966,16 @@ def test_a_cleared_cache_fetches_again_and_gives_the_same_result(
 
 def test_a_corrupt_cache_file_is_ignored_like_a_missing_one(tmp_path: Path) -> None:
     """Kesken jäänyt kirjoitus ei saa kaataa ajoa eikä jäädä siivottavaksi."""
+    payload = match_payload("1-valmis")
     client, _session, _waits = make_client(
-        tmp_path, page(match_payload()), page(match_payload())
+        tmp_path, FakeResponse(200, payload), FakeResponse(200, payload)
     )
 
-    client.get_matches(CHAMPIONSHIP)
-    cached = next(client.cache_dir.glob("*.json"))
-    cached.write_text('{"items": [', encoding="utf-8")
+    client.get_match("1-valmis")
+    cached = cache_files(client)[0]
+    cached.write_text('{"match_id": ', encoding="utf-8")
 
-    assert len(client.get_matches(CHAMPIONSHIP)) == 1
+    assert client.get_match("1-valmis").match_id == "1-valmis"
     assert client.requests_made == 2
 
 
@@ -860,18 +989,18 @@ def test_a_broken_response_is_not_written_to_the_cache(tmp_path: Path) -> None:
     """
     client, _session, _waits = make_client(
         tmp_path,
-        FakeResponse(200, {"start": 0}),
-        page(match_payload()),
+        FakeResponse(200, {"status": "FINISHED"}),
+        FakeResponse(200, match_payload("1-valmis")),
     )
 
     with pytest.raises(ApiError) as exc:
-        client.get_matches(CHAMPIONSHIP)
+        client.get_match("1-valmis")
 
-    assert not list(client.cache_dir.glob("*.json"))
-    assert "items" in str(exc.value)
+    assert cache_files(client) == []
+    assert "match_id" in str(exc.value)
     assert "raw/faceit/" in str(exc.value)
     # Ja seuraava ajo pääsee verkkoon asti.
-    assert len(client.get_matches(CHAMPIONSHIP)) == 1
+    assert client.get_match("1-valmis").match_id == "1-valmis"
     assert client.requests_made == 2
 
 
@@ -882,24 +1011,96 @@ def test_a_poisoned_cache_file_is_dropped_and_refetched(tmp_path: Path) -> None:
     ovat jo levyllä. Ilman sitä käyttäjän ainoa keino olisi tietää itse
     tyhjentää hakemisto.
     """
+    payload = match_payload("1-valmis")
     client, _session, _waits = make_client(
-        tmp_path, page(match_payload()), page(match_payload())
+        tmp_path, FakeResponse(200, payload), FakeResponse(200, payload)
     )
-    client.get_matches(CHAMPIONSHIP)
-    cached = next(client.cache_dir.glob("*.json"))
-    cached.write_text('{"start": 0}', encoding="utf-8")
+    client.get_match("1-valmis")
+    cached = cache_files(client)[0]
+    cached.write_text('{"status": "FINISHED"}', encoding="utf-8")
 
-    assert len(client.get_matches(CHAMPIONSHIP)) == 1
+    assert client.get_match("1-valmis").match_id == "1-valmis"
     assert client.requests_made == 2
-    assert "items" in json.loads(cached.read_text(encoding="utf-8"))
+    assert "match_id" in json.loads(cached.read_text(encoding="utf-8"))
+
+
+def test_a_cached_unfinished_match_is_dropped_and_refetched(tmp_path: Path) -> None:
+    """Lukupolku soveltaa samaa ehtoa kuin kirjoituspolku -- itsekorjaavasti.
+
+    Kiinnike on **mitattu tilanne eikä keksitty**: jaetussa arkistossa oli
+    4.9.2026 edellisen version kirjoittama tiedosto, joka tarjoili
+    ``SCHEDULED``-ottelua levyltä ikuisesti ja täysin hiljaa. Ensin lukupolku
+    jätettiin ehdottomaksi perustelulla "jos tiedosto on olemassa, se on
+    kirjoitettu valmiista ottelusta", ja live-tarkistus osoitti sen premissin
+    vääräksi samana päivänä.
+
+    Symmetrinen ehto tekee invariantista sellaisen, joka ei riipu siitä, että
+    jokainen aiempi ja tuleva kirjoituspolku oli oikein -- vaan siitä, mitä
+    tiedostossa lukee.
+    """
+    playing = match_payload("1-x", status="SCHEDULED")
+    client, session, _waits = make_client(
+        tmp_path,
+        FakeResponse(200, match_payload("1-x", status="FINISHED")),
+        FakeResponse(200, playing),
+    )
+
+    # Lämmitä välimuisti laillisesti, ja korvaa sitten tiedoston sisältö
+    # sellaisella, jota nykyinen kirjoituspolku ei olisi koskaan kirjoittanut.
+    client.get_match("1-x")
+    cached = cache_files(client)[0]
+    cached.write_text(json.dumps(playing), encoding="utf-8")
+    before = client.requests_made
+
+    result = client.get_match("1-x")
+
+    # Verkkoon mentiin, eikä levylle jäänyt kelpaamatonta tiedostoa.
+    assert client.requests_made == before + 1
+    assert client.cache_hits == 0
+    assert len(session.calls) == 2
+    assert result.status == "SCHEDULED"
+    assert cache_files(client) == []
+    assert not cached.exists()
+
+
+def test_a_cached_finished_match_is_still_read_from_disk(tmp_path: Path) -> None:
+    """Ehto ei saa hylätä sitä, minkä se on tarkoitus säilyttää.
+
+    Tiedoston sisältö korvataan **toisella valmiilla ottelulla**, jota
+    kuljetus ei koskaan palauta: jos tulos on se, vastaus tuli levyltä eikä
+    muistista tai verkosta. Ilman tätä paria edellinen testi voisi mennä läpi
+    myös silloin, kun lukupolku hylkää kaiken.
+    """
+    client, session, _waits = make_client(
+        tmp_path, FakeResponse(200, match_payload("1-x", status="FINISHED"))
+    )
+
+    client.get_match("1-x")
+    cached = cache_files(client)[0]
+    cached.write_text(
+        json.dumps(match_payload("1-x", status="FINISHED", competition_id="levylta")),
+        encoding="utf-8",
+    )
+    before = client.requests_made
+
+    result = client.get_match("1-x")
+
+    assert result.competition_id == "levylta"
+    assert client.requests_made == before
+    assert client.cache_hits == 1
+    assert len(session.calls) == 1
+    assert cached.exists()
 
 
 def test_the_cache_leaves_no_temporary_files(tmp_path: Path) -> None:
     """Kirjoitus on atominen: väliaikaistiedostoa ei jää hakemistoon."""
-    client, _session, _waits = make_client(tmp_path, page(match_payload()))
+    client, _session, _waits = make_client(
+        tmp_path, FakeResponse(200, match_payload("1-valmis"))
+    )
 
-    client.get_matches(CHAMPIONSHIP)
+    client.get_match("1-valmis")
 
+    assert cache_files(client)
     assert not has_temp_leftovers(client.cache_dir)
 
 
@@ -920,9 +1121,11 @@ def test_a_cache_write_failure_does_not_lose_the_answer(
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "write_text", _refuse)
-    client, _session, _waits = make_client(tmp_path, page(match_payload()))
+    client, _session, _waits = make_client(
+        tmp_path, FakeResponse(200, match_payload("1-valmis"))
+    )
 
-    assert len(client.get_matches(CHAMPIONSHIP)) == 1
+    assert client.get_match("1-valmis").match_id == "1-valmis"
     assert not has_temp_leftovers(client.cache_dir)
 
 
@@ -989,11 +1192,15 @@ def test_the_key_is_in_no_cache_file(tmp_path: Path) -> None:
     johdettu osoitteesta ja parametreista -- ja jos avain joskus päätyisi
     kumpaankin, se päätyisi myös nimeen.
     """
-    client, _session, _waits = make_client(tmp_path, page(match_payload()))
+    client, _session, _waits = make_client(
+        tmp_path, FakeResponse(200, match_payload("1-valmis"))
+    )
 
-    client.get_matches(CHAMPIONSHIP)
+    # Ottelun tiedot, koska vain ne kirjoitetaan levylle: ottelulistasta ei
+    # synny tiedostoa lainkaan, joten sillä tämä vartija olisi tyhjä.
+    client.get_match("1-valmis")
 
-    files = list(client.cache_dir.rglob("*"))
+    files = [p for p in client.cache_dir.rglob("*") if p.is_file()]
     assert files
     for path in files:
         assert KEY not in path.name
@@ -1128,15 +1335,22 @@ def test_a_structure_error_reports_the_real_attempt_count(tmp_path: Path) -> Non
 
 
 def test_a_cache_hit_reports_no_attempts(tmp_path: Path) -> None:
-    """Välimuistiosuma: ``attempts = 0`` on eri asia kuin epäonnistunut yritys."""
-    client, _session, _waits = make_client(tmp_path, page(match_payload()))
-    client.get_matches(CHAMPIONSHIP)
+    """Välimuistiosuma: ``attempts = 0`` on eri asia kuin epäonnistunut yritys.
+
+    Kuljetuksen jono on tyhjä toisen kutsun kohdalla, joten verkkoon menevä
+    haku kaatuisi -- osuma on siis rakenteessa eikä pelkässä laskurissa.
+    """
+    client, _session, _waits = make_client(
+        tmp_path, FakeResponse(200, match_payload("1-valmis"))
+    )
+    client.get_match("1-valmis")
 
     fetched = client._get(
-        f"/championships/{CHAMPIONSHIP}/matches",
-        {"type": "all", "offset": 0, "limit": client.page_size},
+        "/matches/1-valmis",
+        None,
         what="koe",
         validate=lambda payload: None,
+        cache_when=lambda payload: True,
     )
 
     assert fetched.from_cache is True
@@ -1463,17 +1677,47 @@ def test_every_faceit_value_is_written_out_in_the_settings_file() -> None:
     assert set(data["faceit"]) == set(FaceitSettings.model_fields)
 
 
-def test_the_settings_file_says_the_cache_never_expires() -> None:
-    """Vanhenemattomuus on kirjoitettava sinne, mistä käyttäjä sen löytää.
+def test_the_settings_file_describes_the_split_cache() -> None:
+    """Sääntö on kirjoitettava sinne, mistä käyttäjä sen löytää.
 
-    Se oli aluksi vain moduulin docstringissä. Niin kauan kuin TTL on
-    päättämättä, tämä on käyttäjän ainoa varoitus siitä, ettei kerran haettu
-    ottelulista päivity itsestään.
+    Kumpikin puoli erikseen: pelkkä "välimuisti on eriytetty" ei kerro
+    kummalle puolelle kumpi sääntö kuuluu, ja juuri se on koko päätös.
+    Aiempi versio kuvasi vanhaa käyttäytymistä ("VÄLIMUISTI EI VANHENE",
+    "kerran haettu ottelulista ei päivity"), joka on nyt väärä.
     """
     text = REAL_SETTINGS.read_text(encoding="utf-8")
-    faceit_section = text.split("[faceit]", 1)[1].split("\n[", 1)[0]
-    assert "VÄLIMUISTI EI VANHENE" in faceit_section
-    assert "raw/faceit/" in faceit_section
+    section = text.split("[faceit]", 1)[1].split("\n[", 1)[0]
+
+    assert "EI VÄLIMUISTITETA LAINKAAN" in section
+    assert "FINISHED" in section
+    assert "raw/faceit/" in section
+    # Sääntö on symmetrinen, ja se on kirjoitettava näkyviin: pelkkä
+    # kirjoitusehto jättäisi lukijan uskomaan, että vanha tiedosto voi jäädä
+    # tarjoilemaan vanhentunutta vastausta.
+    assert "ITSEKORJAAVA" in section
+    assert "SAMA EHTO KOSKEE LUKEMISTA" in section
+    # Vanhat, nyt väärät väitteet eivät saa jäädä tiedostoon.
+    assert "VÄLIMUISTI EI VANHENE" not in section
+    assert "tyhjennetään käsin" not in section
+    assert "tarvitse tyhjentää käsin" not in section
+
+
+def test_the_readme_describes_the_split_cache() -> None:
+    """Sama sääntö READMEssa: se on ainoa paikka, jota luetaan ilman koodia."""
+    readme = REAL_SETTINGS.parent / "README.md"
+    text = readme.read_text(encoding="utf-8")
+
+    assert "FACEIT-välimuisti on eriytetty kutsun lajin mukaan" in text
+    assert "/championships/{id}/matches" in text
+    assert "/matches/{id}" in text
+    assert "FINISHED" in text
+    assert "CANCELLED" in text
+    assert "itsekorjaava" in text
+    assert "Sama ehto koskee **lukemista**" in text
+    # Vanhat, nyt väärät otsikot ja lupaukset eivät saa jäädä.
+    assert "FACEIT-välimuisti ei vanhene" not in text
+    assert "ei päivity itsestään" not in text
+    assert "on poistettava kerran" not in text
 
 
 @pytest.mark.parametrize(

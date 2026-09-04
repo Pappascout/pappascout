@@ -1214,7 +1214,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/adapters/protocols.py` | Portit, jotka vaiheet ottavat parametrina |
 | `src/pappascout/adapters/decompress.py` | `.dem.zst`-purku ja `PBDEMS2`-otsikkotarkistus |
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
-| `src/pappascout/adapters/faceit.py` | FACEIT Data API -asiakas -- ainoa paikka, joka tekee HTTP-kutsuja: avain otsakkeesta, uudelleenyritys vain 429/5xx:lle (`Retry-After` huomioiden), aikabudjetti per kutsu, vastausvälimuisti `raw/faceit/`, sivutus |
+| `src/pappascout/adapters/faceit.py` | FACEIT Data API -asiakas -- ainoa paikka, joka tekee HTTP-kutsuja: avain otsakkeesta, uudelleenyritys vain 429/5xx:lle (`Retry-After` huomioiden), aikabudjetti per kutsu, sivutus; vastausvälimuisti `raw/faceit/` **vain valmiille otteluille**, ei ottelulistalle |
 | `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + `deaths.parquet` + `callouts.parquet` + `match.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |
@@ -1231,22 +1231,36 @@ Riippuvuusnuoli on `cli -> stages -> {domain, adapters, archive, render}`,
 `tests/test_layering.py`. `render` ei näe arkistoa eikä adaptereita, joten
 "render ei laske mitään" on rakenteellinen lupaus eikä tapa.
 
-### FACEIT-välimuisti ei vanhene
+### FACEIT-välimuisti on eriytetty kutsun lajin mukaan
 
-Kaikki FACEIT-vastaukset tallentuvat arkiston hakemistoon `raw/faceit/`, ja
-**ne jäävät sinne pysyvästi**: TTL:ää ei ole, eikä `[faceit]`-osiossa ole sille
-asetusta. Käytännön seuraus on yksi, ja se kannattaa tietää etukäteen:
+Vastaukset tallentuvat arkiston hakemistoon `raw/faceit/`, mutta **eivät
+kaikki**. Sääntö on kaksiosainen, ja se perustuu mittaukseen:
 
-> **Kerran haettu ottelulista ei päivity itsestään.** Kauden aikana lisätyt tai
-> siirretyt ottelut näkyvät vasta, kun hakemisto tyhjennetään käsin.
+| Kutsu | Välimuisti | Miksi |
+| --- | --- | --- |
+| Ottelulista (`/championships/{id}/matches`) | **Ei lainkaan** | Yksi kutsu per ajo, mutta muuttuu jatkuvasti: mitattuna 60 ottelua 66:sta oli `SCHEDULED`. Välimuisti säästäisi yhden kutsun ja maksaisi oikeellisuuden. |
+| Ottelun tiedot (`/matches/{id}`) | **Pysyvästi, vain kun `FINISHED`** | Jopa 66 kutsua per ajo, ja pelatun ottelun tiedot eivät enää muutu. |
 
-Tyhjennys on turvallinen milloin tahansa: välimuistilla ei ole manifestia eikä
-se vaikuta muihin vaiheisiin, joten ainoa seuraus on uusi kutsu. Poista
-arkiston `raw/faceit/`-hakemisto, ja seuraava ajo hakee tuoreet tiedot.
+Sama ehto koskee **lukemista**, eli välimuisti on **itsekorjaava**: jos levyltä
+luettu ottelu ei ole `FINISHED`, tiedosto poistetaan ja vastaus haetaan
+verkosta. Vanhan version tai bugin kirjoittama tiedosto ei siis voi jäädä
+tarjoilemaan vanhentunutta vastausta hiljaa, eikä hakemistoa tarvitse siivota
+käsin missään tilanteessa.
 
-Mitattu 4.9.2026: divisioonan 66 ottelusta 60 oli tilassa `SCHEDULED`, eli
-lista muuttuu joka viikko. Vanhenemissääntö on tietoisesti päättämättä
-(Story 3.1) ja ratkaistaan ennen keräyskomentoa (Story 3.5).
+Käytännön seuraus on se, joka kannattaa tietää:
+
+> **Uudet ja siirretyt ottelut näkyvät heti seuraavassa ajossa.** Hakemistoa ei
+> tarvitse tyhjentää käsin koskaan, eikä vanhenemisaikaa ole olemassa.
+
+Keskeneräistä (`SCHEDULED`, `ONGOING`) tai peruttua (`CANCELLED`) ottelua ei
+kirjoiteta levylle. `CANCELLED` on tarkoituksella ulkona vaikka se näyttää
+lopulliselta: peruminen on järjestäjän päätös, jonka järjestäjä voi perua, ja
+siirretty ottelu pelataan samalla `match_id`:llä. Yhden säästetyn kutsun
+hinnalla menetettäisiin pelatun ottelun demo pysyvästi -- FACEIT säilyttää
+demot noin 30 päivää.
+
+Hakemiston saa poistaa milloin tahansa, mutta sitä ei tarvitse: manifestia ei
+ole eikä poisto vaikuta muihin vaiheisiin, joten ainoa seuraus on uusi kutsu.
 
 Koodirepo on tarkoituksella OneDriven ulkopuolella (`C:\Users\vpu\dev\pappascout`)
 ja synkronoituu koneiden välillä GitHubin kautta -- git ja OneDrive eivät toimi
