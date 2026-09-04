@@ -1,6 +1,6 @@
 """Typatut asetusmallit (AD-3) ja niiden lataus.
 
-Asetukset on jaettu seitsemään osioon, joista jokainen on oma mallinsa. Osiointi on
+Asetukset on jaettu kahdeksaan osioon, joista jokainen on oma mallinsa. Osiointi on
 **rakenteellinen**: vaihe ottaa parametrikseen vain oman osansa
 (``parse(ParseSettings, ...)``, ``classify(ThresholdSettings, LeagueSettings, ...)``),
 joten se ei pysty lukemaan muita osioita. Tämä on se mekanismi, joka tekee
@@ -48,6 +48,7 @@ __all__ = [
     "AggregateSettings",
     "ReportSettings",
     "EconomySettings",
+    "FaceitSettings",
     "Settings",
     "load_settings",
     "secrets_env_path",
@@ -62,6 +63,8 @@ __all__ = [
     "MAX_ADVANCE_SAMPLE_SECONDS",
     "MAX_STACK_GROUP_MARGIN",
     "MAX_STACK_SITE_SEPARATION",
+    "MAX_FACEIT_PAGE_SIZE",
+    "MAX_FACEIT_RETRY_ATTEMPTS",
     "PLAYERS_ON_SERVER",
     "REMOVED_SETTINGS",
 ]
@@ -71,7 +74,16 @@ SETTINGS_ENV_VAR = "PAPPASCOUT_SETTINGS"
 
 #: Ainoat sallitut ylätason avaimet ``settings.toml``-tiedostossa (AD-3).
 SETTINGS_SECTIONS: frozenset[str] = frozenset(
-    {"project", "league", "parse", "thresholds", "aggregate", "report", "economy"}
+    {
+        "project",
+        "league",
+        "parse",
+        "thresholds",
+        "aggregate",
+        "report",
+        "economy",
+        "faceit",
+    }
 )
 
 #: Asetukset, jotka on **poistettu**, ja se mihin ne menivät.
@@ -201,6 +213,28 @@ MAX_STACK_SITE_SEPARATION = 20.0
 #: sadan tuhannen ruudun sijaan. **Yläraja 1024**: 32 pelaajan leveyttä, eli
 #: sitä karkeampi ruudukko ei enää erottele kartan alueita toisistaan.
 CalloutGridUnits = Annotated[int, Field(ge=8, le=1024)]
+
+#: FACEIT Data API:n sivun yläraja. **Rajapinnan oma raja, ei makuasia**:
+#: ``limit`` yli 100 ei tuo enempää rivejä vaan 400 Bad Requestin, ja
+#: asetustiedostosta luettuna se kaataisi jokaisen haun tavalla, joka näyttäisi
+#: verkkovialta.
+#:
+#: **Raja on täällä, mutta adapteri valvoo samaa vakiota.** Aiempi perustelu
+#: väitti, ettei adapteri voi tarkistaa arvoa "koska se ei lue asetuksia" --
+#: se ei ollut totta: :mod:`pappascout.adapters.faceit` tuo tämän vakion ja
+#: hylkää rajan ulkopuolisen arvon itsekin. Adapteri ei *lue* asetustiedostoa,
+#: mutta se ei myöskään hyväksy hiljaa sitä, minkä asetusmalli hylkää -- ja
+#: hiljainen clamppaus tuottaisi juuri sen 400-virheen, joka näyttäisi
+#: verkkovialta. Luku on silti vain täällä, jottei sitä ole kahdessa paikassa.
+MAX_FACEIT_PAGE_SIZE = 100
+
+#: Uudelleenyritysten yläraja. Kynnyksellä on oltava katto samasta syystä kuin
+#: :data:`MAX_STACK_SITE_SEPARATION`illa, mutta toisin päin: liian **suuri**
+#: arvo ei tiukenna mitään vaan muuttaa käyttäjälle näkyvän virheen tunnin
+#: mittaiseksi hiljaisuudeksi. Kasvava viive tarkoittaa, että kymmenes yritys
+#: on jo minuuttien päässä; kirjoitusvirhe ``100`` jumittaisi ajon ilman että
+#: mikään kertoisi miksi.
+MAX_FACEIT_RETRY_ATTEMPTS = 10
 
 
 class _Section(BaseModel):
@@ -905,8 +939,102 @@ class EconomySettings(_Section):
         return self
 
 
+class FaceitSettings(_Section):
+    """``[faceit]`` -- kuljetuksen säädöt: uudelleenyritys, aikakatkaisu, sivu.
+
+    Story 3.1. Osio on olemassa siksi, että **kynnykset ovat asetuksia eivätkä
+    koodia** (AD-3). Jokainen arvo tässä on luku, jonka oikea suuruus riippuu
+    verkosta ja rajapinnan kuormasta -- ei pappascoutin logiikasta -- ja jonka
+    säätäminen ei saa vaatia koodimuutosta.
+
+    **Osiossa ei ole osoitetta eikä avainta.** Rajapinnan osoite ei ole
+    säädettävä arvo vaan se, mitä vastaan asiakas on kirjoitettu; se on
+    :mod:`pappascout.adapters.faceit`in vakio, jonka testi saa vaihtaa
+    parametrilla. Avaimet eivät ole ``settings.toml``issa lainkaan -- ne
+    luetaan koneen omasta ``.env``-tiedostosta, ja se on koko
+    :meth:`Settings.require_faceit_api_key`in olemassaolon syy.
+
+    **Osio ei ole minkään vaiheen parametrihashissa**, ja se on linjaus.
+    Uudelleenyrityksen tai aikakatkaisun säätäminen ei muuta yhtäkään
+    vastausta, jonka rajapinta antaa, joten sen ei pidä mitätöidä mitään
+    arkistossa. Sama sukulaisuus kuin ``[report]``illa: osiointi seuraa sitä,
+    mitä arvo tekee.
+
+    Attributes:
+        retry_attempts: Yritysten **kokonaismäärä**, ei uudelleenyritysten
+            määrä: ``1`` tarkoittaa "yritä kerran äläkä uudelleen". Koskee
+            vain 429- ja 5xx-vastauksia sekä yhteysvirheitä; muu 4xx ei
+            korjaannu odottamalla eikä sitä yritetä uudelleen kertaakaan.
+        retry_initial_delay_seconds: Ensimmäinen odotus ennen toista yritystä.
+            Viive kaksinkertaistuu joka kierroksella.
+        retry_max_delay_seconds: Yhden odotuksen katto. Ilman kattoa
+            kahdeksas yritys olisi yli kahden minuutin päässä, ja
+            aloitusviiveen säätäminen siirtäisi sitä eksponentiaalisesti.
+        timeout_seconds: Yhden HTTP-kutsun aikakatkaisu. Aikakatkaisu on
+            yhteysvirhe, eli se **yritetään uudelleen** -- se on tavallisin
+            ohimenevä vika.
+        page_size: Montako riviä yhdessä sivussa pyydetään. Ylläpitäjän
+            säädettävissä, koska sopiva arvo riippuu vastauksen koosta, mutta
+            enintään :data:`MAX_FACEIT_PAGE_SIZE`.
+        retry_jitter_share: Satunnaisheiton osuus odotuksesta (0.0-1.0).
+            Odotus on ``viive * (1 + tämä * satunnaisluku)``. Ilman heittoa
+            kaksi rinnakkaista ajoa törmäisi rajoitukseen samalla sekunnilla
+            uudelleen ja uudelleen -- eksponentiaalinen viive on molemmilla
+            sama funktio samasta hetkestä. ``0.0`` = ei heittoa.
+        call_budget_seconds: **Yhden porttikutsun aikabudjetti sekunteina**:
+            koko sivutus ja kaikki uudelleenyritykset yhteensä.
+            ``retry_attempts`` ei ole katto ajalle, koska sivutus kertoo
+            yritykset sivujen määrällä -- pelkkä yrityskatto sallisi satoja
+            pyyntöjä ja tunnin hiljaisuuden yhdestä ``get_matches``ista, eli
+            juuri sen, minkä :data:`MAX_FACEIT_RETRY_ATTEMPTS` sanoo
+            estävänsä. Katto on siis oltava sekunneissa, koska sekunteja
+            käyttäjä odottaa.
+    """
+
+    retry_attempts: Annotated[int, Field(ge=1, le=MAX_FACEIT_RETRY_ATTEMPTS)] = 4
+    retry_initial_delay_seconds: Annotated[
+        float, Field(gt=0.0, allow_inf_nan=False)
+    ] = 1.0
+    retry_max_delay_seconds: Annotated[float, Field(gt=0.0, allow_inf_nan=False)] = 30.0
+    timeout_seconds: Annotated[float, Field(gt=0.0, allow_inf_nan=False)] = 30.0
+    page_size: Annotated[int, Field(ge=1, le=MAX_FACEIT_PAGE_SIZE)] = 100
+    retry_jitter_share: Annotated[
+        float, Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    ] = 0.25
+    call_budget_seconds: Annotated[float, Field(gt=0.0, allow_inf_nan=False)] = 300.0
+
+    @model_validator(mode="after")
+    def _check_delays_agree(self) -> "FaceitSettings":
+        if self.retry_max_delay_seconds < self.retry_initial_delay_seconds:
+            raise ValueError(
+                f"retry_max_delay_seconds ({self.retry_max_delay_seconds:g} s) on "
+                f"pienempi kuin retry_initial_delay_seconds "
+                f"({self.retry_initial_delay_seconds:g} s), joten katto leikkaisi "
+                "jo ensimmäisen odotuksen eikä aloitusviive tarkoittaisi mitään."
+            )
+        # Budjetti on koko kutsun katto, joten yhtä odotusta tai yhtä
+        # aikakatkaisua pienempi budjetti pysäyttäisi haun ennen kuin mitään
+        # ehtii tapahtua -- uudelleenyritys näyttäisi asetetulta muttei
+        # tapahtuisi koskaan.
+        if self.call_budget_seconds < self.retry_max_delay_seconds:
+            raise ValueError(
+                f"call_budget_seconds ({self.call_budget_seconds:g} s) on pienempi "
+                f"kuin retry_max_delay_seconds "
+                f"({self.retry_max_delay_seconds:g} s), joten budjetti loppuisi "
+                "kesken yhden odotuksen eikä yhtäkään uudelleenyritystä voisi "
+                "tapahtua."
+            )
+        if self.call_budget_seconds < self.timeout_seconds:
+            raise ValueError(
+                f"call_budget_seconds ({self.call_budget_seconds:g} s) on pienempi "
+                f"kuin timeout_seconds ({self.timeout_seconds:g} s), joten budjetti "
+                "loppuisi ennen kuin yksikään kutsu ehtii aikakatkaista."
+            )
+        return self
+
+
 class Settings(BaseSettings):
-    """Koko asetuskokonaisuus: seitsemän osiota ja koneen omat avaimet.
+    """Koko asetuskokonaisuus: kahdeksan osiota ja koneen omat avaimet.
 
     Vaiheelle ei anneta tätä oliota vaan yksi osio kerrallaan (AD-3).
     """
@@ -928,6 +1056,7 @@ class Settings(BaseSettings):
     aggregate: AggregateSettings
     report: ReportSettings
     economy: EconomySettings
+    faceit: FaceitSettings
 
     faceit_api_key: SecretStr | None = None
     faceit_downloads_token: SecretStr | None = None

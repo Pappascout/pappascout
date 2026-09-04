@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -33,6 +34,10 @@ __all__ = [
     "DemoParser",
     "DemoTables",
     "ParseDiagnostics",
+    "MatchSource",
+    "Match",
+    "MatchTeam",
+    "RosterPlayer",
     "ROUNDS_ADAPTER_COLUMNS",
     "TICKS_ADAPTER_COLUMNS",
     "EVENTS_ADAPTER_COLUMNS",
@@ -611,5 +616,141 @@ class DemoParser(Protocol):
         Raises:
             ~pappascout.errors.ParseError: Jos tiedosto ei ole CS2-demo tai
                 sitä ei voi lukea. Viesti on suomeksi ja kertoo, mitä tehdä.
+        """
+        ...
+
+
+# -- Otteluiden portti (Story 3.1) ------------------------------------------
+#
+# Sama jako kuin :class:`DemoParser`illa: portti on täällä, ainoa toteutus on
+# omassa moduulissaan (:mod:`pappascout.adapters.faceit`). Vaihe ei tuo
+# ``requests``ia eikä tunne HTTP:tä -- se näkee nämä kolme dataluokkaa ja
+# kaksi metodia.
+
+
+@dataclass(frozen=True)
+class RosterPlayer:
+    """Pelaaja ottelun kokoonpanossa.
+
+    Attributes:
+        player_id: FACEIT player id. **Koneen avain** ja ainoa, jolla pelaaja
+            liitetään demon riveihin.
+        nickname: Nimimerkki **havaintona**. Puuttuva tai tyhjä on ``None``
+            eikä korvike; nimimerkki voi vaihtua, tunniste ei.
+    """
+
+    player_id: str
+    nickname: str | None = None
+
+
+@dataclass(frozen=True)
+class MatchTeam:
+    """Ottelun toinen osapuoli ja sen kokoonpano.
+
+    Attributes:
+        team_id: Lähteen oma joukkuetunniste. **Ei sama asia kuin
+            arkiston ``team_key``** (AD-6): kanonisen tunnisteen päättää
+            Story 3.2 kokoonpanoista, ja tämä on vain havainto siitä, minkä
+            tunnisteen lähde antoi.
+        name: Joukkueen nimi havaintona, tai ``None``.
+        roster: Pelaajat siinä järjestyksessä kuin lähde ne antoi.
+            Tyhjä monikko on kelvollinen tulos -- tulevalla ottelulla ei
+            välttämättä ole vielä kokoonpanoa.
+    """
+
+    team_id: str | None = None
+    name: str | None = None
+    roster: tuple[RosterPlayer, ...] = ()
+
+
+@dataclass(frozen=True)
+class Match:
+    """Yksi ottelu ytimen sanastolla.
+
+    **Portti ei puhu FACEITin sanastoa** (AD-8): ``faction1``, ``voting`` ja
+    epoch-sekunnit jäävät adapterin sisään, ja tänne tulee se, mitä vaihe
+    tarvitsee.
+
+    Attributes:
+        match_id: Ottelun tunniste. Sama, joka on ``map_demo_id``in
+            alkuosana (``{match_id}-{map_index}``).
+        competition_id: Kilpailun tunniste, tai ``None``. **Tästä ratkeaa
+            ``is_league``**: ottelu on liigaottelu, jos tämä on
+            ``[league].championship_ids``-listassa -- ei nimestä, koska
+            nimi on ihmisen kirjoittama merkkijono.
+        status: Ottelun tila lähteen sanana (esim. ``FINISHED``), tai
+            ``None``. Sitä ei tulkita täällä: tilojen luettelo on lähteen
+            oma eikä pappascoutin, ja arvaus vanhenisi hiljaa.
+        started_at: Alkuhetki UTC-tietoisena, tai ``None`` jos ottelu ei ole
+            alkanut. **Tämä on ``team_key``:n tasatilanteen ratkaisija**
+            (AD-6): kanoninen tunniste on aikaisimman ottelun kokoonpanosta.
+        finished_at: Päättymishetki UTC-tietoisena, tai ``None``.
+        teams: Osapuolet. Tavallisesti kaksi, mutta lukumäärää ei väitetä
+            täällä -- vaihe tarkistaa sen, jos se siitä riippuu.
+        map_picks: Pelatut kartat siinä järjestyksessä, jossa ne valittiin.
+            **Järjestys on ``map_index``in määritelmä**: ``map_index`` on
+            0-pohjainen indeksi tähän monikkoon, ja ``map_demo_id`` rakentuu
+            siitä. Tyhjä monikko tarkoittaa "ei vetotietoa", ei "ei karttoja".
+            Koko vedon (banit, vuorojärjestys) mallintaminen on Epic 4:ää;
+            tässä on vain se lista, jonka ``map_index`` tarvitsee.
+    """
+
+    match_id: str
+    competition_id: str | None = None
+    status: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    teams: tuple[MatchTeam, ...] = ()
+    map_picks: tuple[str, ...] = ()
+
+
+@runtime_checkable
+class MatchSource(Protocol):
+    """Portti, jonka takaa vaihe näkee ottelut.
+
+    Toteutus saa käyttää verkkoa, välimuistia ja uudelleenyrityksiä; portti ei
+    lupaa niistä mitään. Ainoa lupaus on, että virhe on
+    :class:`~pappascout.errors.ApiError` ja sen viesti on suomeksi.
+
+    **Kaksi metodia eikä neljä.** ARCHITECTURE-SPINE (AD-8) luetteli portille
+    myös ``get_roster``in ja ``get_veto``n, mutta molempien tiedot ovat
+    :class:`Match`in kentissä ``teams`` ja ``map_picks`` -- erillinen metodi
+    olisi toinen tapa hakea sama asia ja toinen välimuistiavain samalle
+    vastaukselle. ``get_schedule`` (Epic 4: seuraava vastustaja) on
+    :meth:`get_matches` aikasuodattimella, jonka vaihe tekee itse
+    ``started_at``ista. Porttia ei siis tarvitse purkaa Epic 4:ssä.
+    """
+
+    def get_matches(self, competition_id: str) -> tuple[Match, ...]:
+        """Palauta kilpailun **kaikki** ottelut.
+
+        Args:
+            competition_id: Kilpailun tunniste
+                (``[league].championship_ids``in alkio).
+
+        Returns:
+            Ottelut yhtenä monikkona. Toteutus hakee kaikki sivut, joten
+            kutsuja ei sivuta: sivutus on kuljetuksen yksityiskohta.
+            Tyhjä monikko on kelvollinen tulos -- kilpailu, jossa ei ole vielä
+            otteluita.
+
+        Raises:
+            ~pappascout.errors.ApiError: Jos otteluita ei saatu haettua.
+        """
+        ...
+
+    def get_match(self, match_id: str) -> Match:
+        """Palauta yhden ottelun tiedot.
+
+        Args:
+            match_id: Ottelun tunniste.
+
+        Returns:
+            :class:`Match`. Kokoonpanot ja karttavalinnat ovat tässä
+            täydellisemmät kuin ottelulistassa, jos lähde ne erottelee.
+
+        Raises:
+            ~pappascout.errors.ApiError: Jos ottelua ei löydy tai sitä ei
+                saatu haettua.
         """
         ...

@@ -821,6 +821,79 @@ max_utility_targets = 2
 max_kill_areas = 3
 
 
+[faceit]
+# FACEIT Data API:n kuljetus: uudelleenyritys, aikakatkaisu ja sivun koko.
+# [spine] AD-8. Story 3.1.
+#
+# TÄMÄ OSIO EI OLE MINKÄÄN VAIHEEN PARAMETRIHASHISSA. Näiden säätäminen ei
+# muuta yhtäkään vastausta, jonka rajapinta antaa, joten se ei saa mitätöidä
+# mitään arkistossa. Sama peruste kuin [report]-osiolla: osiointi seuraa sitä,
+# mitä arvo tekee.
+#
+# OSOITETTA EIKÄ AVAINTA EI OLE TÄÄLLÄ. Rajapinnan osoite
+# (https://open.faceit.com/data/v4) ei ole säädettävä arvo vaan se, mitä
+# vastaan asiakas on kirjoitettu; se on koodin vakio. Avaimet luetaan koneen
+# omasta tiedostosta %USERPROFILE%\.pappascout\.env.
+#
+# VÄLIMUISTI EI VANHENE, EIKÄ TTL:LLE OLE TÄÄLLÄ ASETUSTA. Vastaukset jäävät
+# arkiston hakemistoon raw/faceit/ pysyvästi, joten KERRAN HAETTU OTTELULISTA
+# EI PÄIVITY ITSESTÄÄN: kauden aikana lisätyt tai siirretyt ottelut näkyvät
+# vasta, kun hakemisto tyhjennetään käsin. Sen saa poistaa milloin tahansa, ja
+# ainoa seuraus on uusi kutsu -- manifestia ei ole eikä poisto vaikuta muihin
+# vaiheisiin. Mitattu 4.9.2026: 66 ottelusta 60 oli tilassa SCHEDULED, eli
+# lista muuttuu joka viikko. Vanhenemissääntö on tietoisesti päättämättä
+# (Story 3.1, Ask First) ja ratkaistava ennen Story 3.5:tä.
+
+# Yritysten KOKONAISMÄÄRÄ, ei uudelleenyritysten määrä: 1 = "yritä kerran
+# äläkä uudelleen". Koskee vain 429- ja 5xx-vastauksia sekä yhteysvirheitä.
+# Muu 4xx (esim. 404 väärä id, 401 väärä avain) ei korjaannu odottamalla, eikä
+# sitä yritetä uudelleen kertaakaan -- odottaminen vain viivyttäisi virhettä,
+# joka on jo varma.
+#
+# 4 yritystä = odotukset 1 s + 2 s + 4 s, eli enintään ~7 s ohimenevää
+# ruuhkaa. FACEITin rate limit on julkaisematon (~10 000/h epävirallisesti),
+# joten tämä on linjaus eikä kalibroitu arvo: kalibrointi vaatisi mittauksen
+# siitä, kuinka pitkiä 429-jaksot oikeasti ovat. [kalibroi]
+retry_attempts = 4
+
+# Ensimmäinen odotus ennen toista yritystä sekunteina. Viive kaksinkertaistuu
+# joka kierroksella (1 -> 2 -> 4 -> ...).
+retry_initial_delay_seconds = 1.0
+
+# Yhden odotuksen katto sekunteina. Ilman kattoa aloitusviiveen säätäminen
+# siirtäisi viimeistä yritystä eksponentiaalisesti.
+retry_max_delay_seconds = 30.0
+
+# Yhden HTTP-kutsun aikakatkaisu sekunteina. Aikakatkaisu on yhteysvirhe eli
+# se YRITETÄÄN UUDELLEEN -- se on tavallisin ohimenevä vika.
+timeout_seconds = 30.0
+
+# Satunnaisheiton osuus odotuksesta (0.0-1.0). Odotus on
+# viive * (1 + tämä * satunnaisluku).
+#
+# MIKSI HEITTO ON OLEMASSA: eksponentiaalinen viive on kaikilla ajoilla sama
+# funktio samasta hetkestä, joten kaksi rinnakkaista ajoa (kaksi konetta, tai
+# ajo ja käsin tehty haku) törmäisi rajoitukseen samalla sekunnilla uudelleen
+# ja uudelleen. 0.0 = ei heittoa. [spine] AD-8.
+retry_jitter_share = 0.25
+
+# YHDEN KUTSUN AIKABUDJETTI SEKUNTEINA: koko sivutus ja kaikki
+# uudelleenyritykset yhteensä.
+#
+# retry_attempts EI ole katto ajalle. Sivutus kertoo yritykset sivujen
+# määrällä, joten pelkkä yrityskatto sallisi satoja pyyntöjä ja tunnin
+# hiljaisuuden yhdestä hausta. Katto on siksi sekunneissa: sekunteja käyttäjä
+# odottaa. 300 s = 5 min on mitattuun nähden reilusti väljä (koko divisioonan
+# ottelulista tuli yhdellä kutsulla alle sekunnissa 4.9.2026), ja se on
+# tarkoitus: budjetti on vartija, ei säätö.
+call_budget_seconds = 300.0
+
+# Montako ottelua yhdessä sivussa pyydetään. Rajapinnan oma yläraja on 100, ja
+# sekä lataus että asiakas tarkistavat sen: suurempi arvo ei toisi enempää
+# rivejä vaan 400 Bad Requestin, joka näyttäisi verkkovialta.
+page_size = 100
+
+
 [economy]
 # CS2:n talousmalli. Kaikki luvut [addendum] luku 6, lähde Counter-Strike Wiki
 # (CS2-sarake), haettu 2026-08-27/28.

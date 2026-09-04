@@ -32,7 +32,46 @@ class PappascoutError(Exception):
 
 
 class ApiError(PappascoutError):
-    """FACEIT-rajapinta palautti virheen tai ei vastannut."""
+    """FACEIT-rajapinta palautti virheen tai ei vastannut (Story 3.1).
+
+    **Tämä on verkkovirheiden oma tyyppi**, sama suku kuin :class:`ParseError`
+    ja :class:`AggregateError`: kutsuja erottaa "rajapinta ei vastannut"
+    -tilanteen "demo ei parsiutunut" -tilanteesta tyypistä eikä viestistä.
+    Luokka oli olemassa jo Story 1.1:stä asti tyhjänä paikanvarauksena
+    (ARCHITECTURE-SPINE, Consistency Conventions -> Virheet); Story 3.1 antaa
+    sille sisällön eikä lisää rinnalle toista nimeä samalle asialle.
+
+    Kolme kenttää, koska kutsujan on erotettava kolme eri jatkoa toisistaan
+    **ilman viestin lukemista**:
+
+    ``status_code``
+        HTTP-tilakoodi, tai ``None`` jos vastausta ei saatu lainkaan
+        (yhteysvirhe, aikakatkaisu, vastaus joka ei ollut JSONia).
+        Story 3.4 päättää tästä, onko ottelun tila ``no_demo`` (404) vai
+        ``download_failed`` (kaikki muu) -- viestin sisällöstä ei voi päättää
+        mitään, koska viesti on ihmiselle.
+    ``attempts``
+        Montako kertaa kutsu tehtiin. ``1`` tarkoittaa, ettei uudelleenyritystä
+        edes yritetty: 4xx (paitsi 429) ei korjaannu odottamalla.
+    ``url``
+        Osoite ilman avainta. Avain kulkee ``Authorization``-otsakkeessa eikä
+        koskaan osoitteessa, joten tämän saa näyttää ja tallentaa.
+
+    Viesti kertoo aina, mitä haettiin -- pelkkä tilakoodi ei ohjaa mihinkään.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        attempts: int = 1,
+        url: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.attempts = attempts
+        self.url = url
 
 
 class DemoUnavailable(PappascoutError):

@@ -1199,7 +1199,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 
 | Polku | Sisältö |
 | --- | --- |
-| `settings.toml` | Kaikki numerot: `[project] [league] [parse] [thresholds] [aggregate] [report] [economy]` |
+| `settings.toml` | Kaikki numerot: `[project] [league] [parse] [thresholds] [aggregate] [report] [economy] [faceit]` |
 | `src/pappascout/constants.py` | Jaetut enum-luettelot (kierrostyyppi, puoli, tila) |
 | `src/pappascout/errors.py` | `PappascoutError` ja alaluokat |
 | `src/pappascout/domain/schemas.py` | Polars-skeemat `ROUNDS`, `TICKS`, `EVENTS`, `LINEUPS`, `DEATHS`, `CALLOUT_CLOUD`, `CLASSIFIED` ja `validate()` |
@@ -1214,6 +1214,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/adapters/protocols.py` | Portit, jotka vaiheet ottavat parametrina |
 | `src/pappascout/adapters/decompress.py` | `.dem.zst`-purku ja `PBDEMS2`-otsikkotarkistus |
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
+| `src/pappascout/adapters/faceit.py` | FACEIT Data API -asiakas -- ainoa paikka, joka tekee HTTP-kutsuja: avain otsakkeesta, uudelleenyritys vain 429/5xx:lle (`Retry-After` huomioiden), aikabudjetti per kutsu, vastausvälimuisti `raw/faceit/`, sivutus |
 | `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + `deaths.parquet` + `callouts.parquet` + `match.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |
@@ -1229,6 +1230,23 @@ Riippuvuusnuoli on `cli -> stages -> {domain, adapters, archive, render}`,
 `render -> domain` ja `adapters -> domain`; sääntöä valvoo
 `tests/test_layering.py`. `render` ei näe arkistoa eikä adaptereita, joten
 "render ei laske mitään" on rakenteellinen lupaus eikä tapa.
+
+### FACEIT-välimuisti ei vanhene
+
+Kaikki FACEIT-vastaukset tallentuvat arkiston hakemistoon `raw/faceit/`, ja
+**ne jäävät sinne pysyvästi**: TTL:ää ei ole, eikä `[faceit]`-osiossa ole sille
+asetusta. Käytännön seuraus on yksi, ja se kannattaa tietää etukäteen:
+
+> **Kerran haettu ottelulista ei päivity itsestään.** Kauden aikana lisätyt tai
+> siirretyt ottelut näkyvät vasta, kun hakemisto tyhjennetään käsin.
+
+Tyhjennys on turvallinen milloin tahansa: välimuistilla ei ole manifestia eikä
+se vaikuta muihin vaiheisiin, joten ainoa seuraus on uusi kutsu. Poista
+arkiston `raw/faceit/`-hakemisto, ja seuraava ajo hakee tuoreet tiedot.
+
+Mitattu 4.9.2026: divisioonan 66 ottelusta 60 oli tilassa `SCHEDULED`, eli
+lista muuttuu joka viikko. Vanhenemissääntö on tietoisesti päättämättä
+(Story 3.1) ja ratkaistaan ennen keräyskomentoa (Story 3.5).
 
 Koodirepo on tarkoituksella OneDriven ulkopuolella (`C:\Users\vpu\dev\pappascout`)
 ja synkronoituu koneiden välillä GitHubin kautta -- git ja OneDrive eivät toimi
