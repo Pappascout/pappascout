@@ -44,6 +44,8 @@ uv run pappascout info --koko   # sama, mutta laskee myös arkiston yhteiskoon
 uv run pappascout discover                       # divisioonan ottelu- ja joukkueindeksi
 uv run pappascout discover --team "Rcave"        # sama + joukkueen vakirosteri
 uv run pappascout select --team "Rcave"          # kartat rosterikynnyksella
+uv run pappascout fetch --team "Rcave"           # lataa otannan demot FACEITista
+uv run pappascout import --match <match_id> --map 1   # kasin ladattu demo arkistoon
 uv run pappascout parse <tiedosto|map_demo_id>   # demosta kierrokset ja asetelmat
 uv run pappascout classify <map_demo_id> --team <tunniste> --show  # kierrostyypit
 uv run pappascout classify <map_demo_id> --kaikki-joukkueet        # molemmat joukkueet
@@ -53,6 +55,39 @@ uv run pappascout --version
 uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
 ```
+
+### Demot arkistoon: `fetch` ja `import`
+
+Molemmat kirjoittavat saman lopputuloksen -- `demos/<map_demo_id>.dem.zst` ja
+sen viereen `.meta.json` -- ja **tuotu demo on putkessa erottamaton
+ladatusta**: mikään myöhempi vaihe ei haaraudu sen mukaan, kummasta lähteestä
+tiedosto tuli. Aja kummalle tahansa suoraan `parse`.
+
+`fetch` hakee otannan demot FACEITin Downloads API:sta. Se vaatii erillisen
+Downloads-käyttöoikeuden, jota **tällä avaimella ei tällä hetkellä ole**
+(hakemus jonossa, mitattu 2026-09-05) -- signauskutsu vastaa 403.
+
+`import` ottaa vastaan selaimella kirjautuneena ladatun demon, ja se on siihen
+asti **ainoa toimiva polku demon saamiseksi arkistoon**:
+
+```powershell
+# Kopioi demo alkuperäisellä nimellään arkiston import-kansioon, sitten:
+uv run pappascout import --match 1-79f71e00-1396-4f53-a0b4-782ee9742023 --map 1
+```
+
+* `--map` on **1-pohjainen** (ottelun ensimmäinen kartta on 1); arkiston
+  tunnisteessa sama kartta on 0.
+* Tiedoston pääte päätetään **sisällöstä** eikä annetusta nimestä, joten
+  pakkaamaton `.dem` ei päädy arkistoon nimellä `.dem.zst`.
+* Kartan nimi luetaan demon omasta otsikosta ja verrataan FACEIT-ottelun
+  vetotietoon. **Poikkeama -- ja myös se, ettei vertailua voitu tehdä -- on
+  vahvistuskysymys, jota `--kylla` EI ohita.** Se on työkalun ainoa kysymys,
+  jota lippu ei hiljennä: väärin nimetty demo ei kaada mitään, se pilaisi
+  raportin hiljaa.
+* Vajaa pakattu tiedosto torjutaan ennen siirtoa, eikä lähdetiedostoon
+  kosketa: kesken kopioituva `.dem.zst` purkautuisi muuten hiljaa vajaana.
+* `--file <polku>` nimeää tiedoston suoraan. Import-kansion **ulkopuolinen**
+  tiedosto kopioidaan eikä siirretä.
 
 `discover` hakee divisioonan ottelut FACEITista **yhdellä kutsulla** ja
 kirjoittaa niistä kaksi indeksiä:

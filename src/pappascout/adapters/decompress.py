@@ -33,6 +33,7 @@ __all__ = [
     "GZIP_MAGIC",
     "COMPRESSED_SUFFIXES",
     "is_compressed",
+    "declared_size",
     "check_demo_magic",
     "decompress_to",
     "readable_demo",
@@ -102,6 +103,38 @@ def is_compressed(path: Path) -> bool:
     return head.startswith(ZSTD_MAGIC) or head.startswith(GZIP_MAGIC)
 
 
+def declared_size(path: Path) -> int | None:
+    """Purettu koko, jonka **tiedosto itse ilmoittaa**, tai ``None``.
+
+    zstd-kehyksen otsikossa on valinnainen ``Frame_Content_Size``. Mitattu
+    2026-09-05: arkiston **jokainen** viisi ``.dem.zst``-tiedostoa ilmoittaa
+    sen (208-316 MB) ja jokaisessa on lisäksi XXH64-tarkistussumma. Kenttä on
+    siis tässä aineistossa käytettävissä eikä teoreettinen.
+
+    **Tämä on ainoa riippumaton pituuslähde, joka tuonnilla on.** ``fetch``
+    saa ``Content-Length``in lähteeltä; käsin kopioidulla tiedostolla ei ole
+    ketään kertomassa, minkä pituinen sen pitäisi olla -- paitsi tiedosto
+    itse. Pakkaamattomalla ``.dem``:llä ei ole tätäkään, ja silloin oikea
+    vastaus on ``None`` eikä arvaus.
+
+    Returns:
+        Purettu koko tavuina, tai ``None`` jos tiedosto ei ole zstd tai jos
+        kehys ei ilmoita kokoa.
+    """
+    head = _head(path, 64)
+    if not head.startswith(ZSTD_MAGIC):
+        return None
+    try:
+        zstandard = _zstd_module()
+        size = zstandard.get_frame_parameters(head).content_size
+    except Exception:  # noqa: BLE001 - kirjaston oma virhetyyppi vaihtelee
+        return None
+    # Kirjasto merkitsee "ei ilmoitettu" erittäin suurella sentinel-arvolla.
+    if not isinstance(size, int) or size <= 0 or size >= 2**64 - 1:
+        return None
+    return size
+
+
 def check_demo_magic(path: Path) -> None:
     """Varmista, että puretun tiedoston alussa on ``PBDEMS2``.
 
@@ -169,15 +202,43 @@ def decompress_to(source: Path, target: Path) -> Path:
         else:
             shutil.copyfile(source, tmp)
 
-        # zstd ei nosta poikkeusta katkenneesta kehyksestä vaan lopettaa
-        # hiljaa. Tyhjä tulos on siksi ainoa merkki siitä, että lataus jäi
-        # kesken.
-        if source_size > 0 and _size(tmp) == 0:
+        # **zstd ei nosta poikkeusta katkenneesta kehyksestä vaan lopettaa
+        # hiljaa.** Mitattu 2026-09-05 oikealla demolla: puoliväliin katkaistu
+        # ``ANCIENT_vs_RCAVE_VETERANS.dem.zst`` purkautui 104 464 384 tavuksi
+        # ilman virhettä, vaikka kehys ilmoittaa 208 561 416. Purettu alku on
+        # kelvollinen CS2-demo -- ``PBDEMS2`` on siinä, ja otsikon kartan nimi
+        # luetaan siitä oikein. Vaje paljastuu vasta parsinnassa.
+        #
+        # Kaksi tarkistusta, ja ne vastaavat eri kysymykseen.
+        actual = _size(tmp)
+        expected = declared_size(source)
+        if expected is not None and actual != expected:
+            # **Kehys itse kertoo, minkä pituinen sen pitäisi olla.** Tämä on
+            # ainoa riippumaton pituuslähde, joka käsin kopioidulla
+            # tiedostolla on, ja se on mitattu olemassa olevaksi arkiston
+            # jokaisessa ``.dem.zst``-tiedostossa.
+            raise ParseError(
+                f"Demon {source.name} purku jäi vajaaksi: tiedosto ilmoittaa "
+                f"purettuna {expected} tavua, mutta purkautui {actual} "
+                "tavuksi.\n"
+                "Pakattu tiedosto on katkennut -- joko lataus jäi kesken tai "
+                "kopiointi on yhä käynnissä.\n"
+                "Purettu alku on kelvollinen demo, joten vajautta ei näe "
+                "tiedostosta itsestään.",
+                advice=(
+                    "Odota kunnes kopiointi tai OneDriven synkronointi on "
+                    "valmis ja aja komento uudelleen. Jos tiedosto ei enää "
+                    "kasva, lataa se uudelleen -- se on vaurioitunut."
+                ),
+            )
+        if source_size > 0 and actual == 0:
+            # Kehys ilman ilmoitettua kokoa: tyhjä tulos on silloin ainoa
+            # merkki, joka jää. Kapeampi vartija kuin yllä, ja siksi toinen.
             raise ParseError(
                 f"Demon {source.name} purku epäonnistui: tuloksena oli tyhjä "
                 "tiedosto.\n"
-                "Pakattu tiedosto on katkennut kesken latauksen. Lataa demo "
-                "uudelleen."
+                "Pakattu tiedosto on katkennut kesken latauksen.",
+                advice="Lataa demo uudelleen.",
             )
         os.replace(tmp, target)
     except ParseError:

@@ -11,8 +11,11 @@ kartat rosterikynnyksellä, ``parse`` ajaa putken demovaiheen yhdelle demolle,
 ``classify`` luokittelee sen kierrokset yhden joukkueen näkökulmasta,
 ``aggregate`` kokoaa joukkueen luokitellut kierrokset yhdeksi
 ``report.json``-tiedostoksi ja ``report`` kirjoittaa siitä luettavan
-Markdown-raportin. Loput (``fetch``, ``scout``, ``next``, ``collect``,
-``import``) tulevat myöhemmissä storyissa.
+Markdown-raportin. ``fetch`` lataa otannan demot FACEITista ja ``import``
+ottaa vastaan selaimella ladatun demon -- ne ovat sama lopputulos kahdesta
+lähteestä, ja **``import`` on ainoa polku silloin kun Downloads-oikeutta ei
+ole**. Loput (``scout``, ``next``, ``collect``) tulevat myöhemmissä
+storyissa.
 
 Jokainen putken komento on ``test_help_lists_every_pipeline_command``in
 luettelossa. Se ei ole muodollisuus: Story 3.2:ssa ``discover`` lisättiin ilman
@@ -51,6 +54,7 @@ from pappascout.stages import aggregate as aggregate_stage
 from pappascout.stages import classify as classify_stage
 from pappascout.stages import discover as discover_stage
 from pappascout.stages import fetch as fetch_stage
+from pappascout.stages import import_demo as import_stage
 from pappascout.stages import parse as parse_stage
 from pappascout.stages import render as render_stage
 from pappascout.stages import select as select_stage
@@ -636,8 +640,13 @@ _PERUTTU = "Peruttu. Yhtään demoa ei ladattu."
 _MYONTYMISET = frozenset({"k", "kylla", "kyllä", "y", "yes", "j", "joo"})
 
 
-def _vahvista(kysymys: str) -> None:
+def _vahvista(kysymys: str, peruttu: str = _PERUTTU) -> None:
     """Kysy vahvistus **suomeksi** ja keskeytä siististi, jos vastaus on ei.
+
+    ``peruttu`` on se lause, joka tulostetaan kieltävästä vastauksesta.
+    Parametri eikä vakio, koska lause kertoo **mitä jäi tekemättä**: latauksessa
+    "yhtään demoa ei ladattu", tuonnissa "demoa ei tuotu". Yhteinen sanamuoto
+    olisi väärä toiselle niistä.
 
     ``typer.confirm`` ei kelpaa: sen vaihtoehdot ovat ``[y/N]`` ja sen
     keskeytysviesti ``Aborted.``, eli käyttäjän pitäisi painaa ``y`` ja lukea
@@ -657,10 +666,10 @@ def _vahvista(kysymys: str) -> None:
         # sana, jonka tämän funktion oli tarkoitus poistaa -- se vain tulee eri
         # reittiä. Vastaamatta jättäminen on sekin vastaus, ja se on "ei".
         typer.echo("")
-        typer.echo(_PERUTTU)
+        typer.echo(peruttu)
         raise typer.Exit() from None
     if str(vastaus).strip().lower() not in _MYONTYMISET:
-        typer.echo(_PERUTTU)
+        typer.echo(peruttu)
         raise typer.Exit()
 
 
@@ -822,6 +831,179 @@ def _render_fetch(results, todo) -> str:
     lines.extend(_fetch_failures("Epäonnistui", failed))
     lines.append("")
     lines.append(_line("Ajoaika", _seconds(sum(r.duration_s for r in results))))
+    return "\n".join(lines)
+
+
+#: Viesti, kun tuontia ei tehdä käyttäjän vastauksen takia.
+#:
+#: Oma lauseensa eikä :data:`_PERUTTU`, koska peruminen kertoo mitä jäi
+#: tekemättä -- ja tässä komennossa ei ladata mitään, joten "yhtään demoa ei
+#: ladattu" olisi vastaus kysymykseen jota ei esitetty. Loppuosa on sama lupaus
+#: kuin torjunnoilla: lähdetiedostoon ei kosketa.
+_PERUTTU_TUONTI = "Peruttu. Demoa ei tuotu, eikä lähdetiedostoon koskettu."
+
+
+@app.command("import")
+def import_demo(
+    match: str = typer.Option(
+        ...,
+        "--match",
+        help=(
+            "Ottelun FACEIT-tunniste, esimerkiksi 1-<uuid>. Tunnisteet ovat "
+            "arkiston tiedostossa index/matches.json."
+        ),
+    ),
+    map_no: str = typer.Option(
+        ...,
+        "--map",
+        help=(
+            "Kartan numero ottelussa, 1-pohjaisena: ensimmäinen kartta on 1. "
+            "Arkiston tunnisteessa sama kartta on 0."
+        ),
+    ),
+    file: str | None = typer.Option(
+        None,
+        "--file",
+        help=(
+            "Tuotava tiedosto nimenomaisesti. Ilman tätä tiedosto etsitään "
+            "arkiston import-kansiosta FACEITin omalla nimellä. "
+            "Import-kansion ulkopuolinen tiedosto kopioidaan, ei siirretä."
+        ),
+    ),
+    kylla: bool = typer.Option(
+        False,
+        "--kylla",
+        help=(
+            "Älä kysy vahvistusta. EI ohita karttatarkistuksen kysymystä: "
+            "väärällä nimellä tallennettu demo pilaisi raportin hiljaa."
+        ),
+    ),
+) -> None:
+    """Tuo selaimella ladattu demo arkistoon.
+
+    Komento siirtää tiedoston nimelle demos/<map_demo_id>.dem.zst ja kirjoittaa
+    sen viereen .meta.json-tiedoston merkinnällä source = import. Tuotu demo on
+    putkessa erottamaton ladatusta: aja sille suoraan parse.
+
+    Tiedoston pääte päätetään sisällöstä eikä annetusta nimestä, joten
+    pakkaamaton .dem ei päädy arkistoon nimellä .dem.zst.
+
+    Kartan nimi luetaan demon omasta otsikosta ja verrataan FACEIT-ottelun
+    vetotietoon. Poikkeama -- ja myös se, ettei vertailua voitu tehdä -- on
+    vahvistuskysymys, jota --kylla EI ohita. Se on tämän työkalun ainoa
+    kysymys, jota lippu ei hiljennä.
+
+    Komento ei lataa mitään verkosta. Ottelun vetotieto luetaan FACEITin
+    vastausvälimuistista.
+    """
+    # **--map on merkkijono, ei kokonaisluku, ja se on tarkoituksellista.**
+    # Typerin oma int-muunnos kaatuisi englanninkieliseen viestiin ennen kuin
+    # vaihe näkee arvoa lainkaan, ja vaiheen oma suomenkielinen tarkistus
+    # olisi komentoriviltä saavuttamatonta koodia. Muunnos ja sen virhe
+    # kuuluvat samaan paikkaan kuin muutkin numeron säännöt.
+    settings = load_settings()
+    archive = archive_paths(settings.project)
+
+    # Pakattu demo puretaan kokonaan otsikon lukua varten, ja se vie
+    # sekunteja. Ilman tätä riviä käyttäjä katsoo tyhjää ruutua eikä tiedä,
+    # käynnistyikö mikään.
+    typer.echo("Luetaan demon otsikkoa kartan nimen selvittämiseksi...", err=True)
+
+    todo = import_stage.plan(
+        archive,
+        match,
+        map_no,
+        source=import_stage.default_source(settings, archive),
+        parser=import_stage.default_parser(),
+        file=file,
+    )
+    typer.echo(_render_import_plan(todo))
+
+    for kysymys in import_stage.unanswered(todo.confirmations, kylla=kylla):
+        typer.echo("")
+        typer.echo(kysymys.detail)
+        _vahvista(kysymys.question, _PERUTTU_TUONTI)
+
+    result = import_stage.run(archive, todo)
+    typer.echo(_render_import(result))
+
+
+def _render_import_plan(todo) -> str:
+    """Mitä tuonti aikoo tehdä -- **ennen kuin se tekee sitä**.
+
+    Molemmat karttahavainnot ovat omilla riveillään myös silloin, kun ne
+    täsmäävät. Vain poikkeaman näyttäminen tarkoittaisi, ettei käyttäjä näe
+    onnistunutta tarkistusta kertaakaan -- eikä siis tiedä sen tapahtuvan.
+    """
+    lines = [
+        _line("Tuodaan", todo.map_demo_id),
+        _line("Lähde", str(todo.source_path)),
+        _line("Kohde", str(todo.target_path)),
+        _line("Koko", _human_size(todo.size_bytes)),
+        _line("Tapa", "siirto" if todo.move else "kopio (lähde jää paikalleen)"),
+        _line("Kartta otsikosta", todo.header_map_name or "(ei nimeä)"),
+        _line("Kartta vetotiedosta", todo.expected_map_name or "(ei vetotietoa)"),
+        _line(
+            "Karttatarkistus",
+            "täsmää" if todo.map_matches else "EI TÄSMÄÄ -- kysytään alla",
+        ),
+        # **Ehjyys omalle rivilleen, molemmissa suunnissa.** Rivi, joka
+        # ilmestyy vain epäonnistuessa, ei kerro onnistuneesta tarkistuksesta
+        # mitään -- eikä käyttäjä silloin tiedä sen tapahtuvan.
+        _line("Ehjyys", _integrity_text(todo)),
+    ]
+    return "\n".join(lines)
+
+
+def _integrity_text(todo) -> str:
+    """Voitiinko lähteen kokonaisuus todeta, ja mitä vasten.
+
+    **Epävarmuus sanotaan ääneen samalla rivillä kuin varmuus.** Mitattu
+    2026-09-05: puoliväliin katkaistu ``.dem.zst`` purkautuu hiljaa ja sen
+    otsikosta luetaan oikea kartan nimi, joten vajautta ei näe mistään.
+    Pakattu tiedosto tarkistetaan kehyksen ilmoittamaa kokoa vasten;
+    pakkaamattomalla ``.dem``:llä ei ole mitään tarkistettavaa, ja se on
+    käyttäjän tietoa eikä toteutuksen yksityiskohta.
+    """
+    if todo.declared_bytes is not None:
+        return (
+            f"tarkistettu -- purettuna {_human_size(todo.declared_bytes)} "
+            "kehyksen ilmoittamana"
+        )
+    if todo.length_verified:
+        return "tarkistettu -- gzip-virran lopetusmerkki"
+    return (
+        "EI VOITU TARKISTAA -- pakkaamattomassa demossa ei ole pituustietoa, "
+        "joten vajaa tiedosto paljastuisi vasta parsinnassa"
+    )
+
+
+def _render_import(result: StageResult) -> str:
+    """Mitä tuonti teki: tiedostot, tiiviste ja jokainen huomio omalla rivillään.
+
+    Tiiviste tulostetaan, koska se on se luku, jolla tuotu demo tunnistetaan
+    myöhemmin -- ``parse`` lukee sen metatiedostosta eikä laske uudelleen, joten
+    tämä on ainoa kerta, jolloin se näkyy.
+    """
+    stats = result.stats
+    lines = [
+        f"Tuonti valmis: {result.unit}",
+        _line("Demo", str(stats.get("demo_path", ""))),
+        _line("Metatiedot", str(stats.get("meta_path", ""))),
+        _line("Koko", _human_size(int(stats.get("size", 0)))),
+        _line("sha256", str(stats.get("sha256", ""))),
+        # **"Lähdemerkintä" eikä "Lähde".** Suunnitelmassa "Lähde" on se
+        # tiedosto, josta tuotiin; tässä kyse on metatiedoston
+        # ``source``-kentän arvosta. Sama sana kahdesta eri asiasta samassa
+        # tulosteessa on väärinluettava -- ja se peitti myös testin, joka
+        # yritti tarkistaa kummankin rivin erikseen.
+        _line("Lähdemerkintä", str(stats.get("demo_source", ""))),
+    ]
+    for note in stats.get("notes", ()):
+        for row in str(note).splitlines():
+            lines.append(f"  {row}")
+    lines.append("")
+    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
     return "\n".join(lines)
 
 

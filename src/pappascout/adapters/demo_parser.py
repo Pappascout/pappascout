@@ -1097,6 +1097,27 @@ class Demoparser2Adapter:
         #: edellisen demon syy kanna seuraavaan.
         self._header_missing_reason: str | None = None
 
+    def read_map_name(self, path: Path) -> str | None:
+        """Ks. portin dokumentaatio.
+
+        **Sama lukija kuin täydellä parsinnalla** (:meth:`_header_map_name`) ja
+        sama purku (``readable_demo``), joten tuonti ja parsinta eivät voi
+        nähdä demon kartasta eri nimeä. Kaksi rinnakkaista lukijaa erkanisi
+        ennen pitkää, ja erkaantuminen näkyisi vasta siinä, että tuonti
+        hyväksyy demon jonka parsinta nimeää toisin.
+
+        Kartan nimen puuttumisen **syy** jää tähän olioon
+        (``_header_missing_reason``) samalla tavalla kuin parsinnassa, mutta
+        sitä ei palauteta: portin sopimus on havainto tai sen puuttuminen, ja
+        kutsujan päätös on molemmissa tapauksissa sama -- ristiintarkistusta ei
+        voi tehdä, joten kysytään.
+        """
+        path = Path(path)
+        with readable_demo(path) as demo_path:
+            parser = self._open(demo_path, path)
+            self._header_missing_reason = None
+            return self._header_map_name(parser, path)
+
     def parse_demo(
         self, path: Path, sample_seconds: Sequence[float]
     ) -> DemoTables:

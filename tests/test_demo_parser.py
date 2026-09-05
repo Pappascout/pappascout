@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import math
 from functools import lru_cache
 from pathlib import Path
@@ -38,6 +39,7 @@ from conftest import (
     require_demo,
 )
 from pappascout.adapters.decompress import (
+    declared_size,
     DEMO_MAGIC,
     decompressed_name,
     check_demo_magic,
@@ -223,6 +225,190 @@ def test_decompression_never_writes_into_the_archive(tmp_path: Path) -> None:
     assert list(archive_dir.rglob("*.dem")) == []
 
 
+# --- Katkennut pakattu tiedosto (Story 3.6, A1) --------------------------------
+#
+# **Testisyötteen koko on itse väite, ei mukavuus.**
+#
+# Mitattu 2026-09-05: alle megatavun hyötykuorma mahtuu yhteen zstd-lohkoon,
+# joten puoliväliin katkaistuna se purkautuu **nollaksi tavuksi** -- eli osuu
+# vanhaan "tuloksena oli tyhjä tiedosto" -vartijaan, joka oli olemassa jo
+# ennen tätä tarinaa::
+#
+#     raaka  1 160 -> pakattu    44 -> katkaistu   22 -> purkautui          0
+#     raaka  4 104 -> pakattu    26 -> katkaistu   13 -> purkautui          0
+#     raaka 40 000 007 -> pakattu 1 249 -> katkaistu 624 -> purkautui 19 529 728
+#
+# Uuden kehyskokovartijan olemassaolon syy on **päinvastainen tapaus**: purku
+# onnistuu vajaana muttei tyhjänä, jolloin mikään aiempi tarkistus ei näe
+# mitään vikaa. Juuri niin oikea demo käyttäytyi (148 871 905 tavua puoleen
+# katkaistuna -> 104 464 384 tavua, kehys ilmoittaa 208 561 416).
+#
+# Pienellä syötteellä testi kaatuisi mutaatioon vain **virheviestin sanamuodon
+# takia**, ja korjaaja voisi korjata sen muuttamalla assertiota -- jolloin
+# oikea vika jäisi. Siksi katkaisutestit käyttävät :data:`BIG_DEMO`ia, ja
+# :func:`test_the_truncation_fixture_decompresses_partially_not_to_nothing`
+# vartioi sitä ominaisuutta erikseen.
+#
+# Hinta on olematon: 40 MB pelkkää ``x``:ää pakkautuu 1 249 tavuun ja purkuun
+# menee 0,04 s.
+
+#: Iso, erittäin tiiviisti pakkautuva demo katkaisutestejä varten.
+BIG_DEMO = DEMO_MAGIC + b"x" * 40_000_000
+BIG_ZSTD = zstandard.ZstdCompressor().compress(BIG_DEMO)
+BIG_TRUNCATED = BIG_ZSTD[: len(BIG_ZSTD) // 2]
+
+
+def partial_size(blob: bytes) -> int:
+    """Montako tavua katkennut kehys purkaa **kirjaston omin voimin**.
+
+    Mittaus tehdään ``zstandard``illa suoraan eikä pappascoutin purun kautta:
+    testisyötteen ominaisuutta ei voi todistaa sillä koodilla, jota syöte on
+    olemassa testaamaan.
+    """
+    return len(zstandard.ZstdDecompressor().stream_reader(io.BytesIO(blob)).read())
+
+
+def test_the_truncation_fixture_decompresses_partially_not_to_nothing() -> None:
+    """**Syöte purkautuu vajaana muttei tyhjänä -- muuten se testaa väärää.**
+
+    Tämä testi ei mittaa tuotantokoodia lainkaan. Se mittaa testiaineistoa, ja
+    se on tarkoitus: jos syöte purkautuisi nollaksi, kaikki alla olevat
+    katkaisutestit menisivät läpi vanhan tyhjätarkistuksen nojalla ja
+    kehyskokovartijan poisto näkyisi vain virheviestin sanamuodossa.
+    """
+    osittainen = partial_size(BIG_TRUNCATED)
+
+    assert osittainen > 0, "syöte purkautuu tyhjäksi -- osuu vanhaan vartijaan"
+    assert osittainen < len(BIG_DEMO), "syöte ei ole vajaa lainkaan"
+#
+# Mitattu 2026-09-05 oikealla demolla: puoliväliin katkaistu
+# ``ANCIENT_vs_RCAVE_VETERANS.dem.zst`` (148 871 905 tavua) purkautui
+# 104 464 384 tavuksi **ilman virhettä**, vaikka kehys ilmoittaa 208 561 416.
+# Purettu alku on kelvollinen CS2-demo: ``PBDEMS2`` on paikallaan ja otsikon
+# kartan nimeksi luettiin ``de_ancient``. Vajautta ei siis näe mistään, mitä
+# tiedostosta katsomalla voisi todeta -- se paljastuu vasta parsinnassa,
+# jolloin tuonti on jo poistanut lähdetiedoston.
+#
+# Nämä testit ajetaan **ilman oikeita demoja**: sama vika toistuu kahdella
+# kilotavulla, koska kyse on kehyksen rakenteesta eikä koosta.
+
+
+def test_zstd_declares_its_decompressed_size(tmp_path: Path) -> None:
+    """Kehys kertoo puretun koon, ja se on ainoa riippumaton pituuslähde.
+
+    ``fetch`` saa ``Content-Length``in lähteeltä; käsin kopioidulla
+    tiedostolla ei ole ketään kertomassa oikeaa pituutta -- paitsi tiedosto
+    itse. Väite on kirjastosta eikä oletuksesta: jos ``ZstdCompressor``
+    lakkaisi kirjoittamasta kokoa, koko vartija olisi hiljaa hampaaton.
+    """
+    source = tmp_path / "a.dem.zst"
+    source.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
+
+    assert declared_size(source) == len(FAKE_DEMO)
+
+
+def test_an_uncompressed_demo_declares_nothing(tmp_path: Path) -> None:
+    """Pakkaamattomassa demossa ei ole pituutta -- eikä sitä saa keksiä."""
+    source = tmp_path / "a.dem"
+    source.write_bytes(FAKE_DEMO)
+
+    assert declared_size(source) is None
+
+
+def test_a_truncated_zstd_is_refused_instead_of_decompressing_silently(
+    tmp_path: Path,
+) -> None:
+    """**Vajaa pakattu tiedosto ei saa purkautua hiljaa.**
+
+    Ilman tätä vartijaa katkennut demo tuodaan arkistoon oikean näköisenä,
+    ``length_verified`` on ``true`` ja lähdetiedosto poistetaan -- ja
+    ``import/``issa on kuusi kauden 12 liigademoa, joita FACEIT ei enää
+    tarjoa.
+
+    Syöte purkautuu **vajaana muttei tyhjänä**, joten mikään aiempi tarkistus
+    ei näe siinä vikaa: kehyksen ilmoittama koko on ainoa, joka sen paljastaa.
+
+    Viesti nimeää **molemmat luvut**, koska ero on koko havainto: pelkkä
+    "tiedosto on vioittunut" ei kerro onko kyse tavusta vai sadasta
+    megatavusta, eikä siitä että kopiointi voi yhä olla kesken.
+    """
+    source = tmp_path / "katkennut.dem.zst"
+    source.write_bytes(BIG_TRUNCATED)
+
+    with pytest.raises(ParseError) as err:
+        decompress_to(source, tmp_path / "ulos.dem")
+
+    message = str(err.value)
+    assert str(len(BIG_DEMO)) in message
+    assert str(partial_size(BIG_TRUNCATED)) in message
+    assert "vajaaksi" in message
+    assert err.value.advice
+    # Neuvo on odottaminen eikä uudelleenlataus: tavallisin syy on kesken
+    # oleva kopiointi tai OneDriven synkronointi.
+    assert "Odota" in err.value.advice
+
+
+def test_a_truncated_zstd_leaves_no_half_file_behind(tmp_path: Path) -> None:
+    """Torjuttu purku ei jätä puolikasta tiedostoa, joka näyttäisi demolta.
+
+    Puolikas on tässä 19,5 MB kelvollista dataa ``PBDEMS2``-otsikoineen --
+    juuri sellainen tiedosto, joka läpäisisi jokaisen muun tarkistuksen.
+    """
+    source = tmp_path / "katkennut.dem.zst"
+    source.write_bytes(BIG_TRUNCATED)
+    target = tmp_path / "ulos.dem"
+
+    with pytest.raises(ParseError):
+        decompress_to(source, target)
+
+    assert not target.exists()
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_readable_demo_refuses_a_truncated_archive(tmp_path: Path) -> None:
+    """Sama vartija myös sitä reittiä, jota tuonti ja parsinta käyttävät."""
+    source = tmp_path / "katkennut.dem.zst"
+    source.write_bytes(BIG_TRUNCATED)
+
+    with pytest.raises(ParseError, match="vajaaksi"):
+        with readable_demo(source):
+            pass
+
+
+def test_a_truncated_gzip_is_refused_too(tmp_path: Path) -> None:
+    """Gzipillä sama tehtävä on virran lopetusmerkillä.
+
+    Eri mekanismi, sama lupaus: katkennut tiedosto ei purkaudu hiljaa. Väite
+    on tässä siksi, että :func:`~pappascout.stages.import_demo.length_source`
+    nojaa juuri siihen kun se sanoo gzipin olevan tarkistettu muoto.
+
+    Sama iso hyötykuorma kuin zstd-testeillä: pieni gzip purkautuisi
+    nollaksi, ja silloin testi mittaisi tyhjätarkistusta eikä
+    lopetusmerkkiä.
+    """
+    whole = gzip.compress(BIG_DEMO)
+    source = tmp_path / "katkennut.dem.gz"
+    source.write_bytes(whole[: len(whole) // 2])
+
+    with pytest.raises(ParseError):
+        decompress_to(source, tmp_path / "ulos.dem")
+
+
+def test_a_complete_archive_still_decompresses(tmp_path: Path) -> None:
+    """Vartija ei saa hylätä ehjää tiedostoa.
+
+    Sen sanominen erikseen ei ole muodollisuus: kokoa vertaava tarkistus, joka
+    laskee väärin, kaataisi jokaisen tuonnin -- ja se olisi yhtä paha vika
+    toiseen suuntaan.
+    """
+    source = tmp_path / "ehja.dem.zst"
+    source.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
+
+    target = decompress_to(source, tmp_path / "ulos.dem")
+
+    assert target.read_bytes() == FAKE_DEMO
+
+
 # --- Virheet -------------------------------------------------------------------
 
 
@@ -252,12 +438,25 @@ def test_missing_file_is_a_finnish_error(tmp_path: Path) -> None:
 
 
 def test_broken_zstd_is_a_finnish_error(tmp_path: Path) -> None:
-    intact = zstandard.ZstdCompressor().compress(FAKE_DEMO)
+    """Katkennut pakattu tiedosto kaatuu suomeksi -- ja **kertoo luvut**.
+
+    Väite muuttui Story 3.6:ssa, ja muutos on tarkoituksellinen. Aiemmin tämä
+    tapaus osui vartijaan "tuloksena oli tyhjä tiedosto", joka pitää vain
+    silloin kun katkaisu osuu ensimmäiseen lohkoon. Isolla demolla se ei osu:
+    mitattu 2026-09-05, että puoliväliin katkaistu oikea demo purkautui
+    104 464 384 tavuksi eikä nollaksi -- eli **läpäisi vanhan vartijan**.
+    Nyt kehyksen ilmoittama koko on se, jota vasten tulos tarkistetaan, ja
+    viesti nimeää molemmat luvut.
+
+    Syöte on siksi :data:`BIG_DEMO`: pienellä tiedostolla tämä testi mittaisi
+    yhä vanhaa tyhjätarkistusta eikä sitä vartijaa, jonka nimeä se kantaa.
+    """
     truncated = tmp_path / "katkennut.dem.zst"
-    truncated.write_bytes(intact[: len(intact) // 2])
+    truncated.write_bytes(BIG_TRUNCATED)
     with pytest.raises(ParseError) as exc:
         Demoparser2Adapter().parse_demo(truncated, SNAPSHOT_SECONDS).rounds
-    assert "purku epäonnistui" in str(exc.value)
+    assert "vajaaksi" in str(exc.value)
+    assert str(len(BIG_DEMO)) in str(exc.value)
 
 
 def test_truncated_demo_is_a_finnish_error(tmp_path: Path) -> None:
@@ -2729,6 +2928,27 @@ def test_every_demo_header_names_its_map_in_pool_spelling(demo_name: str) -> Non
     assert match.schema["map_name"] == MATCH["map_name"]
     assert match.height == 1, "ottelutaulussa on yksi rivi per demo"
     assert match["map_name"].to_list() == [DEMO_HEADER_MAP_NAMES[demo_name]]
+
+
+@pytest.mark.demo
+@pytest.mark.parametrize("demo_name", sorted(DEMO_HEADER_MAP_NAMES))
+def test_read_map_name_agrees_with_the_full_parse_on_real_demos(
+    demo_name: str,
+) -> None:
+    """Portin uusi operaatio (Story 3.6) nakee saman kartan kuin parsinta.
+
+    Sama vaatimus oikealla aineistolla kuin logiikkatesteissa feikilla: jos
+    tuonti ja parsinta voisivat nahda demon kartasta eri nimen, tuonnin
+    ristiintarkistus koskisi eri havaintoa kuin se, joka lopulta paatyy
+    ottelutauluun. Taulukko :data:`DEMO_HEADER_MAP_NAMES` on molempien
+    yhteinen oraakkeli, joten kumpikaan ei voi ajautua yksin.
+
+    Testi on **lukeva**: se ei kirjoita arkistoon mitaan eika tuo yhtaan
+    demoa. Pakattu demo puretaan koneen temp-hakemistoon ja poistetaan.
+    """
+    observed = real_parser().read_map_name(require_demo(demo_name))
+
+    assert observed == DEMO_HEADER_MAP_NAMES[demo_name]
 
 
 @pytest.mark.demo

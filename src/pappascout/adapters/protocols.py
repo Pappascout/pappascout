@@ -539,7 +539,50 @@ class DemoParser(Protocol):
     kierrostyyppiluokittelua, ei loss countia, ei aggregointia, ei muuta
     johdettua. Ainoa päättely, joka tähän kuuluu, on kierrosrajojen
     tunnistaminen ja näytepisteiden valinta niiden sisältä.
+
+    **Kaksi operaatiota eikä yksi (Story 3.6).** Otsikon luku oli tähän asti
+    adapterin yksityinen askel täyden parsinnan sisällä, koska kukaan ei
+    tarvinnut sitä yksin. Tuonti tarvitsee: se kysyy kartan nimen ennen kuin
+    tiedosto siirretään paikalleen, eikä 230 MB:n purkaminen kuudeksi tauluksi
+    ole vastaus siihen kysymykseen. Vaihtoehtoja oli kolme, ja kaksi
+    hylättiin: yksityisen ``_header_map_name``in kutsuminen (rikkoisi
+    kerrosrajan, jota ``tests/test_layering.py`` valvoo, ja sitoisi tuonnin
+    yhden adapterin sisuksiin) ja nimen poimiminen :meth:`parse_demo`n
+    ``match``-taulusta (tekisi juuri sen työn, joka on tarkoitus säästää).
+    Jäljelle jää portin laajennus: sama havainto, oma operaationsa.
     """
+
+    def read_map_name(self, path: Path) -> str | None:
+        """Lue kartan nimi demon otsikosta **parsimatta demoa**.
+
+        Args:
+            path: Demotiedosto, joko ``.dem`` tai pakattu ``.dem.zst`` /
+                ``.dem.gz``. Pakattu tiedosto puretaan, koska otsikko on
+                pakkauksen sisällä -- mutta vain otsikko luetaan, ei tauluja.
+
+        Returns:
+            Kartan nimi **havaintona**, tai ``None`` jos otsikossa ei ole
+            luettavaa nimeä.
+
+            **Nimeä ei verrata karttapooliin**, ja se on sama sääntö kuin
+            :meth:`parse_demo`n ``match``-taulussa: workshop-versio tai
+            ``de_train`` on aito havainto eikä tuntematon kartta, ja hiljainen
+            korjaus poolin nimeksi tekisi siitä valheen. Tässä operaatiossa
+            sääntö kantaa vielä pidemmälle: tuonti vertaa nimeä FACEITin
+            vetotietoon, ja jos portti olisi jo korjannut nimen "oikeaksi",
+            vertailu ei voisi koskaan huomata poikkeamaa -- eli juuri se
+            tarkistus, jota varten tämä metodi on olemassa, olisi kuollut.
+
+            Tyhjä tai pelkkiä välilyöntejä sisältävä nimi on ``None`` eikä
+            korvike: "ei havaintoa" ja "havainto on tyhjä" ovat eri asia, ja
+            vain edellinen on tosi.
+
+        Raises:
+            ~pappascout.errors.ParseError: Jos tiedosto ei ole CS2-demo, sitä
+                ei voi purkaa tai otsikkoa ei voi lukea. Viesti on suomeksi ja
+                kertoo, mitä tehdä.
+        """
+        ...
 
     def parse_demo(
         self, path: Path, sample_seconds: Sequence[float]

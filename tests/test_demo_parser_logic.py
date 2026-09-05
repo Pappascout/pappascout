@@ -15,6 +15,7 @@ adapterissa ajetaan oikeasti. Nämä testit ajetaan aina, myös ``-m "not demo"`
 from __future__ import annotations
 
 import hashlib
+import io
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -23,6 +24,7 @@ from typing import Any
 import pandas as pd
 import polars as pl
 import pytest
+import zstandard
 
 from pappascout.adapters import demo_parser as dp
 from pappascout.adapters.decompress import DEMO_MAGIC
@@ -5743,3 +5745,259 @@ def test_the_match_table_carries_only_the_map_name(tmp_path: Path) -> None:
     match = parse_match_table(fake, tmp_path)
 
     assert set(match.columns) == {"map_name"}
+
+
+# --- Otsikon luku omana operaationaan (Story 3.6) -----------------------------
+
+
+def read_map_name_with(
+    fake: FakeDemoparser2, tmp_path: Path, name: str = "feikki.dem"
+) -> str | None:
+    """Aja portin uusi operaatio feikin päällä; vain ``_open`` korvataan.
+
+    Sama harness kuin :func:`parse_tables`illa ja samasta syystä: adapterin
+    oma koodi ajetaan oikeasti, ja vain kirjaston raja on feikattu.
+    """
+    demo = tmp_path / name
+    demo.write_bytes(DEMO_MAGIC + b"\x00" + b"x" * 64)
+    adapter = Demoparser2Adapter()
+    adapter._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
+    return adapter.read_map_name(demo)
+
+
+def test_reading_the_map_name_does_not_parse_the_demo(tmp_path: Path) -> None:
+    """Otsikon luku ei saa lukea yhtäkään tickiä eikä tapahtumaa.
+
+    Tämä on koko operaation olemassaolon syy. Tuonti tarvitsee kartan nimen
+    ennen kuin tiedosto siirretään paikalleen, ja jos nimen saisi vain
+    parsimalla, jokainen tuonti maksaisi 230 MB:n läpikäynnin kuudeksi
+    tauluksi -- eli enemmän kuin itse tuonti.
+
+    Väite on kutsulaskureista eikä ajoajasta: hidas kone tekee ajoajasta
+    kohinaa, mutta ``parse_ticks``-kutsujen määrä on nolla tai ei ole.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": "de_nuke"}
+
+    assert read_map_name_with(fake, tmp_path) == "de_nuke"
+
+    assert fake.tick_calls == []
+    assert fake.event_calls == []
+    assert fake.header_calls == 1
+
+
+def test_a_map_outside_the_pool_is_an_observation_here_too(tmp_path: Path) -> None:
+    """Sama havaintosääntö kuin ottelutaulussa -- ja tässä se on välttämätön.
+
+    Tuonti vertaa tätä nimeä FACEITin vetotietoon. Jos portti korjaisi nimen
+    "oikeaksi" karttapoolin mukaan, vertailu ei voisi koskaan huomata
+    poikkeamaa: juuri se tarkistus, jota varten operaatio on olemassa, olisi
+    kuollut.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": "de_train"}
+
+    assert read_map_name_with(fake, tmp_path) == "de_train"
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_a_missing_map_name_is_none_and_not_a_substitute(
+    tmp_path: Path, value: str | None
+) -> None:
+    """Tyhjä nimi on "ei havaintoa", ei havainto tyhjästä.
+
+    Ero ratkaisee tuonnissa: "ei havaintoa" johtaa kysymykseen, kun taas
+    korvike (esimerkiksi tyhjä merkkijono) täsmäisi tai ei täsmäisi
+    vetotietoon täysin sattumanvaraisesti.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": value}
+
+    assert read_map_name_with(fake, tmp_path) is None
+
+
+def test_a_header_without_the_field_at_all_is_none(tmp_path: Path) -> None:
+    """Kirjaston uudelleennimeämä kenttä on sama lopputulos kuin tyhjä nimi."""
+    fake = build(long_match(played=1))
+    fake.header = {"server_name": "FACEIT.com"}
+
+    assert read_map_name_with(fake, tmp_path) is None
+
+
+def test_an_unreadable_header_is_a_finnish_parse_error(tmp_path: Path) -> None:
+    """Kirjaston oma virhetyyppi ei kelpaa portin sopimukseksi.
+
+    Sama kääre kuin täydellä parsinnalla, koska kutsuja on eri mutta virhe on
+    sama: viesti nimeää molemmat mahdolliset syyt eikä lähetä käyttäjää
+    lataamaan tiedostoa, joka on jo kunnossa.
+    """
+    fake = build(long_match(played=1))
+    fake.header_error = AttributeError("parse_header")
+
+    with pytest.raises(ParseError) as err:
+        read_map_name_with(fake, tmp_path)
+
+    assert "demoparser2:n rajapinta on muuttunut" in str(err.value)
+
+
+def test_a_file_that_is_not_a_demo_never_reaches_the_library(
+    tmp_path: Path,
+) -> None:
+    """Taikatavutarkistus on ennen kirjastoa, myös tässä operaatiossa.
+
+    HTML-virhesivu ``.dem``-päätteellä on täysin kelvollinen tiedosto, ja
+    ilman tarkistusta se päätyisi demoparser2:lle -- joka kertoisi vian
+    englanniksi ja omalla sanastollaan.
+    """
+    demo = tmp_path / "eidemo.dem"
+    demo.write_bytes(b"<!doctype html><html>403</html>")
+    fake = build(long_match(played=1))
+    adapter = Demoparser2Adapter()
+    adapter._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
+
+    with pytest.raises(ParseError) as err:
+        adapter.read_map_name(demo)
+
+    assert "ei ole CS2-demo" in str(err.value)
+    assert fake.header_calls == 0
+
+
+def test_read_map_name_uses_the_same_reader_as_the_full_parse(
+    tmp_path: Path,
+) -> None:
+    """Otsikon lukijoita on **yksi**, ja tämä testi on se joka sen valvoo.
+
+    :func:`test_the_two_operations_read_the_same_name` vertaa lopputuloksia,
+    ja se on hyödyllinen -- mutta se menisi läpi myös silloin, kun
+    ``read_map_name`` on oma kopioitu lukijansa: kaksi identtistä lukijaa
+    näkevät saman feikin samalla tavalla. Katselmus todisti sen: korvattu
+    lukija läpäisi 372 testiä.
+
+    Väite on siksi **kutsusta eikä arvosta**. Adapterin oma
+    ``_header_map_name`` vakoillaan, ja rinnakkainen lukija jättäisi
+    vakoojan kutsumatta. Kaksi lukijaa erkanisi ennen pitkää, ja
+    erkaantuminen näkyisi vasta siinä, että tuonti hyväksyy demon jonka
+    parsinta nimeää toisin.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": "de_nuke"}
+    demo = tmp_path / "feikki.dem"
+    demo.write_bytes(DEMO_MAGIC + b"\x00" + b"x" * 64)
+    adapter = Demoparser2Adapter()
+    adapter._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
+
+    nahdyt: list[Path] = []
+    oikea = adapter._header_map_name
+
+    def vakooja(parser, original_path):
+        nahdyt.append(original_path)
+        return oikea(parser, original_path)
+
+    adapter._header_map_name = vakooja  # type: ignore[method-assign]
+
+    assert adapter.read_map_name(demo) == "de_nuke"
+    assert nahdyt == [demo], (
+        "read_map_name ei kutsunut adapterin omaa _header_map_name-lukijaa: "
+        "rinnakkainen lukija erkanisi täydestä parsinnasta huomaamatta"
+    )
+
+
+def test_read_map_name_reads_a_compressed_demo_in_the_default_run(
+    tmp_path: Path,
+) -> None:
+    """Pakattu tiedosto kulkee purun läpi **ilman oikeita demoja**.
+
+    Tuonnin todellinen syöte on ``.dem.zst``, mutta jokainen muu tämän
+    tiedoston testi antaa pakkaamattoman polun -- eli purkupolku ei kulkenut
+    oletusajossa kertaakaan, ja sen rikkoutuminen olisi näkynyt vasta
+    ``-m demo`` -ajossa koneella, jolla demot ovat.
+
+    Väite on myös siitä, että kirjastolle annetaan **purettu** polku eikä
+    pakattua: ilman purkua demoparser2 saisi zstd-tavuja ja kaatuisi omalla
+    sanastollaan.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": "de_ancient"}
+    raw = DEMO_MAGIC + b"\x00" + b"x" * 4096
+    demo = tmp_path / "feikki.dem.zst"
+    demo.write_bytes(zstandard.ZstdCompressor().compress(raw))
+
+    nahdyt: list[tuple[Path, bytes]] = []
+    adapter = Demoparser2Adapter()
+
+    def avaa(demo_path, original_path):
+        # Sisältö luetaan **tässä**: purkuhakemisto siivotaan heti kun
+        # ``readable_demo`` sulkeutuu, joten jälkikäteen ei ole mitään luettavaa.
+        path = Path(demo_path)
+        nahdyt.append((path, path.read_bytes()))
+        return fake
+
+    adapter._open = avaa  # type: ignore[method-assign]
+
+    assert adapter.read_map_name(demo) == "de_ancient"
+    assert len(nahdyt) == 1
+    annettu, sisalto = nahdyt[0]
+    assert annettu != demo, "kirjastolle annettiin pakattu tiedosto"
+    assert sisalto == raw
+
+
+def test_read_map_name_refuses_a_truncated_compressed_demo(
+    tmp_path: Path,
+) -> None:
+    """**Vajaa demo ei saa antaa kartan nimeä.**
+
+    Tämä on se sauma, jonka kautta tuonti näkee katkenneen tiedoston: purku
+    vertaa tulosta kehyksen ilmoittamaan kokoon, ja ero nousee tänne asti.
+    Ilman sitä otsikko luettaisiin puolikkaasta demosta täysin onnistuneesti
+    -- mitattu 2026-09-05 oikealla demolla, joka antoi ``de_ancient``
+    puoliväliin katkaistuna.
+
+    **Syötteen on purkauduttava vajaana muttei tyhjänä.** Alle megatavun
+    hyötykuorma mahtuu yhteen zstd-lohkoon ja purkautuu katkaistuna nollaksi
+    -- eli osuisi vanhaan "tuloksena oli tyhjä tiedosto" -vartijaan, ja tämä
+    testi kaatuisi kehyskokovartijan poistoon vain **virheviestin sanamuodon
+    takia**. Iso hyötykuorma pakkautuu silti reiluun kilotavuun, joten hinta
+    on olematon (ks. ``tests/test_demo_parser.py``in mittaustaulukko).
+
+    Kirjastoa ei kutsuta lainkaan, ja se on osa väitettä: torjunta tapahtuu
+    ennen kuin mitään on parsittu.
+    """
+    raw = DEMO_MAGIC + b"x" * 40_000_000
+    whole = zstandard.ZstdCompressor().compress(raw)
+    katkaistu = whole[: len(whole) // 2]
+    demo = tmp_path / "katkennut.dem.zst"
+    demo.write_bytes(katkaistu)
+    # Syötteen ominaisuus mitataan kirjastolla suoraan, ei sillä koodilla
+    # jota syöte on olemassa testaamaan.
+    osittainen = len(
+        zstandard.ZstdDecompressor().stream_reader(io.BytesIO(katkaistu)).read()
+    )
+    assert 0 < osittainen < len(raw), "syöte ei purkaudu vajaana muttei tyhjänä"
+
+    fake = build(long_match(played=1))
+    adapter = Demoparser2Adapter()
+    adapter._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
+
+    with pytest.raises(ParseError) as err:
+        adapter.read_map_name(demo)
+
+    assert "vajaaksi" in str(err.value)
+    assert str(osittainen) in str(err.value)
+    assert fake.header_calls == 0
+
+
+def test_the_two_operations_read_the_same_name(tmp_path: Path) -> None:
+    """Tuonti ja parsinta eivät saa nähdä demon kartasta eri nimeä.
+
+    Kaksi rinnakkaista otsikkolukijaa erkanisi ennen pitkää, ja erkaantuminen
+    näkyisi vasta siinä, että tuonti hyväksyy demon jonka parsinta nimeää
+    toisin -- eli juuri siinä tilanteessa, jonka ristiintarkistus on olemassa
+    estämään. Tämä testi on se, joka kaatuu jos lukijat eriytetään.
+    """
+    fake = build(long_match(played=1))
+    fake.header = {"map_name": "de_ancient"}
+
+    from_header = read_map_name_with(fake, tmp_path)
+    from_tables = parse_match_table(fake, tmp_path)["map_name"].to_list()[0]
+
+    assert from_header == from_tables == "de_ancient"
