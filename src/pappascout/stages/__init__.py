@@ -41,8 +41,20 @@ class StageResult:
         outputs: Kirjoitetut tiedostot arkiston sisäisinä suhteellisina
             polkuina. Ohitetussa ajossa nämä ovat aiemman ajon tiedostot.
         manifest_path: Manifestin polku arkiston sisällä.
-        reason: Suomenkielinen selitys muulle kuin ``ok``-tilalle tai
-            ohitukselle.
+        reason: Suomenkielinen selitys muulle kuin ``ok``-tilalle,
+            ohitukselle **tai vajaalle tulokselle**. Kolmas kayttotapa on
+            putken alkupaan vaiheiden (``discover``, ``select``): niilla
+            ``status`` on aina ``ok`` -- haku onnistui -- mutta tulos voi
+            silti olla tyhja tai vajaa, ja "0 rivia" ilman sanaakaan syysta
+            jattaisi kayttajan arvaamaan. Uusi ``UnitStatus``-arvo ei ole
+            vaihtoehto: se laajentaisi ``CLASSIFIED``in polars-enumia eli
+            muuttaisi arkistossa jo olevien parquet-tiedostojen
+            skeemasopimusta.
+
+            **Yksi merkkijono, vaikka huomioita olisi monta.** Vaihe, jolla
+            niita voi olla useita, kantaa ne erillisina myos
+            ``stats["notes"]``issa, jotta komento tulostaa jokaisen omalle
+            rivilleen eika yksikaan katoa toisen peraan.
         duration_s: Ajoaika sekunteina.
         stats: Vaihekohtaiset luvut käyttäjän tulostetta varten, esimerkiksi
             kierrosten määrä. Vapaamuotoinen, koska jokainen vaihe kertoo eri

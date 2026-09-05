@@ -254,6 +254,8 @@ def match_payload(match_id: str = "1-aaaa", **overrides: Any) -> dict[str, Any]:
             },
         },
         "voting": {"map": {"pick": ["de_nuke", "de_ancient"]}},
+        # Mitattu 2026-09-04: ``best_of`` on 2 kaikissa 66 ottelussa.
+        "best_of": 2,
     }
     payload.update(overrides)
     return payload
@@ -1504,6 +1506,8 @@ def test_the_port_speaks_the_core_vocabulary_not_faceits(tmp_path: Path) -> None
     assert match.teams[0].roster[0].nickname == "veeti"
     # map_index on indeksi tähän monikkoon; map_demo_id rakentuu siitä.
     assert match.map_picks == ("de_nuke", "de_ancient")
+    # best_of on eri luku kuin map_picksin pituus, ja se kulkee portin läpi.
+    assert match.best_of == 2
 
 
 def test_missing_fields_are_none_not_placeholders(tmp_path: Path) -> None:
@@ -1523,6 +1527,7 @@ def test_missing_fields_are_none_not_placeholders(tmp_path: Path) -> None:
     assert match.finished_at is None
     assert match.teams == ()
     assert match.map_picks == ()
+    assert match.best_of is None
 
 
 def test_an_unstarted_match_has_no_start_time(tmp_path: Path) -> None:
@@ -1870,3 +1875,52 @@ def test_a_budget_smaller_than_one_wait_is_rejected() -> None:
         FaceitSettings(retry_max_delay_seconds=30.0, call_budget_seconds=10.0)
 
     assert "call_budget_seconds" in str(exc.value)
+
+
+# --- best_of kulkee portin läpi (Story 3.3) --------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (2, 2),
+        (3, 3),
+        ("2", 2),
+        (0, None),
+        (-1, None),
+        (True, None),
+        ("kaksi", None),
+        (None, None),
+        ({}, None),
+    ],
+)
+def test_best_of_is_read_only_when_it_is_a_real_match_length(
+    tmp_path: Path, raw: object, expected: int | None
+) -> None:
+    """Kelvoton arvo on ``None``, ei korvike.
+
+    ``True`` on erikseen mukana: ``bool`` on Pythonissa ``int``, ja ilman
+    torjuntaa se päätyisi arvoksi ``1`` eli "yksi kartta" -- Story 3.4 odottaisi
+    silloin yhtä demoa kahden sijaan eikä mikään kertoisi miksi.
+    """
+    payload = match_payload("1-bo", best_of=raw)
+    client, _session, _waits = make_client(tmp_path, FakeResponse(200, payload))
+
+    match = client.get_match("1-bo")
+
+    assert match.best_of == expected
+
+
+def test_best_of_is_not_the_length_of_the_map_list(tmp_path: Path) -> None:
+    """2-0 päättyneessä BO3:ssa vedossa on kolme karttaa mutta demoja kaksi."""
+    payload = match_payload(
+        "1-bo3",
+        best_of=3,
+        voting={"map": {"pick": ["de_nuke", "de_ancient", "de_dust2"]}},
+    )
+    client, _session, _waits = make_client(tmp_path, FakeResponse(200, payload))
+
+    match = client.get_match("1-bo3")
+
+    assert match.best_of == 3
+    assert len(match.map_picks) == 3

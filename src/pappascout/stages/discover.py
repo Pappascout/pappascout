@@ -54,7 +54,8 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -93,6 +94,11 @@ __all__ = [
     "read_matches_index",
     "read_teams_index",
     "read_indexes",
+    "teams_from_index",
+    "matches_from_index",
+    "IndexedMatch",
+    "IndexedMatchTeam",
+    "resolve_team",
 ]
 
 STAGE = "discover"
@@ -100,6 +106,15 @@ STAGE = "discover"
 #: Indeksitiedostojen muodon versio. Lukija tarkistaa sen
 #: (:func:`read_indexes`) sen sijaan että päättelisi muodon kenttien
 #: olemassaolosta.
+#:
+#: **Story 3.3 lisäsi ottelurivin kentän ``best_of`` eikä nostanut versiota**,
+#: ja se on sääntö eikä unohdus. Versio kertoo, voiko vanhaa tiedostoa lukea
+#: tällä koodilla: yksikään aiempi kenttä ei kadonnut eikä vaihtanut
+#: merkitystä, ja puuttuva ``best_of`` on **kelvollinen havainto** ("lähde ei
+#: kertonut") eikä rikkinäinen tiedosto. Nosto pakottaisi verkkokutsun
+#: ``discover``iin ennen kuin ``select`` -- joka ei kenttää tarvitse -- suostuisi
+#: ajamaan lainkaan. Versio nousee, kun vanha tiedosto lakkaa olemasta
+#: luettava tai sen kentän merkitys muuttuu.
 SCHEMA_VERSION = 1
 
 #: Tilat, joissa ottelu on pelattu. Sama joukko kuin adapterin
@@ -107,6 +122,52 @@ SCHEMA_VERSION = 1
 #: "saako vastauksen tallentaa ikuisesti", täällä "onko tämä ottelu pelattu".
 #: Yhteinen vakio sitoisi kaksi eri kysymystä toisiinsa.
 PLAYED_STATUSES = frozenset({"FINISHED"})
+
+
+@dataclass(frozen=True)
+class IndexedMatchTeam:
+    """Ottelun osapuoli **sellaisena kuin se on indeksissä**.
+
+    Ei sama kuin :class:`~pappascout.adapters.protocols.MatchTeam`: siinä
+    pelaajat ovat olioita nimimerkkeineen, tässä pelkkiä SteamID64-tunnisteita.
+    Ero on tarkoituksellinen ja se on ``_match_team_row``in päätös -- nimet ovat
+    joukkueindeksissä, eikä sama luettelo saa olla kahdessa tiedostossa kahtena
+    eri totuutena.
+
+    Attributes:
+        faction_id: Lähteen joukkuetunniste, tai ``None``.
+        name: Joukkueen nimi havaintona, tai ``None``.
+        roster: Aloittajien SteamID64:t.
+        substitutes: Vaihtopelaajien SteamID64:t.
+    """
+
+    faction_id: str | None = None
+    name: str | None = None
+    roster: tuple[str, ...] = ()
+    substitutes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class IndexedMatch:
+    """Yksi ottelu **sellaisena kuin se on indeksissä**.
+
+    Ajat ovat ISO-merkkijonoja eivätkä ``datetime``-olioita: ne kirjoitettiin
+    tiedostoon merkkijonoina, ja niiden jäsentäminen takaisin olisi muunnos,
+    jota yksikään lukija ei ole vielä pyytänyt. ``played`` on ``discover``in
+    **päätös** ottelun tilasta, ei tila itse -- ja juuri se päätös on se, jonka
+    ``select`` haluaa.
+    """
+
+    match_id: str
+    competition_id: str | None = None
+    status: str | None = None
+    played: bool = False
+    scheduled_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    map_picks: tuple[str, ...] = ()
+    best_of: int | None = None
+    teams: tuple[IndexedMatchTeam, ...] = ()
 
 
 def run(
@@ -175,7 +236,7 @@ def run(
 
     unit = _unit(league)
     if team is not None:
-        found = _resolve(teams, team)
+        found = resolve_team(teams, team)
         stats["team"] = _team_stats(found)
         unit = found.team_key
 
@@ -402,8 +463,14 @@ def _read_lineups(
 # -- Nimihaku ----------------------------------------------------------------
 
 
-def _resolve(teams: Sequence[Team], query: str) -> Team:
+def resolve_team(teams: Sequence[Team], query: str) -> Team:
     """Tulkitse ``--team`` joukkueeksi, tai kerro miksi se ei onnistu.
+
+    **Julkinen, koska ``select`` kysyy saman kysymyksen.** Kaksi kopiota
+    tästä olisi kaksi eri virheilmoitusta samasta tilanteesta, ja käyttäjä
+    näkisi eri luettelon riippuen siitä, minkä komennon hän ajoi. Vaihe ei
+    kutsu tästä toista vaihetta -- tämä on lukija, kuten
+    :func:`read_indexes`.
 
     Raises:
         PappascoutError: Kun osumia on nolla tai monta. Viesti listaa
@@ -660,6 +727,11 @@ def _match_row(match: Match) -> dict[str, Any]:
         "started_at": _moment(match.started_at),
         "finished_at": _moment(match.finished_at),
         "map_picks": list(match.map_picks),
+        # Ottelun pituus karttoina, ``null`` jos lähde ei sitä kertonut.
+        # **Ei sama luku kuin len(map_picks)**: 2-0 päättyneessä BO3:ssa
+        # vedossa on kolme karttaa mutta demoja kaksi, joten Story 3.4 laskee
+        # odotettavat demot tästä eikä karttalistan pituudesta.
+        "best_of": match.best_of,
         "teams": [_match_team_row(side) for side in match.teams],
     }
 
@@ -774,6 +846,272 @@ def read_indexes(archive: ArchivePaths) -> tuple[dict[str, Any], dict[str, Any]]
             "Aja uudelleen: uv run pappascout discover"
         )
     return matches, teams
+
+
+def teams_from_index(document: Mapping[str, Any]) -> tuple[Team, ...]:
+    """Rakenna :class:`Team`-oliot joukkueindeksin sanakirjasta.
+
+    Tämä on :func:`_team_row`in vastapari, ja se on täällä samasta syystä kuin
+    :func:`read_indexes`: ilman sitä jokainen jatkovaihe tulkitsisi indeksin
+    kentät omalla tavallaan, ja nimihaku toimisi eri tavalla riippuen siitä,
+    kuka sen kirjoitti. ``select`` saa näin täsmälleen ne joukkueet, jotka
+    ``discover`` kirjoitti -- ja samat säännöt (:func:`resolve_team`).
+
+    Args:
+        document: :func:`read_teams_index`in palauttama sanakirja.
+
+    Returns:
+        Joukkueet tiedoston järjestyksessä.
+
+    Raises:
+        PappascoutError: Jos tiedoston joukkuerivi on rikki -- tunniste
+            puuttuu tai pelaajan ``game_player_id`` ei ole SteamID64. Molemmat
+            tarkoittavat, että tiedostoa on muokattu käsin tai se on toisen
+            version kirjoittama, ja hiljainen ohitus tuottaisi vajaan rosterin
+            eli väärän rosterikynnyksen.
+    """
+    rows = document.get("teams")
+    if not isinstance(rows, list):
+        raise PappascoutError(
+            "Arkiston joukkueindeksissä ei ole teams-luetteloa.\n"
+            "Aja uudelleen: uv run pappascout discover"
+        )
+    teams: list[Team] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise PappascoutError(
+                "Arkiston joukkueindeksissä on rivi, joka ei ole olio.\n"
+                "Aja uudelleen: uv run pappascout discover"
+            )
+        team_key = row.get("team_key")
+        if not isinstance(team_key, str) or not team_key:
+            raise PappascoutError(
+                "Arkiston joukkueindeksissä on joukkue ilman team_key-kenttää.\n"
+                "Aja uudelleen: uv run pappascout discover"
+            )
+        teams.append(
+            Team(
+                team_key=team_key,
+                faction_ids=_strings(
+                    row.get("faction_ids"), f"{team_key}.faction_ids"
+                ),
+                name=row.get("name") if isinstance(row.get("name"), str) else None,
+                roster=_members_from_index(row.get("roster"), team_key),
+                released=_members_from_index(row.get("released"), team_key),
+                shared_players=_strings(
+                    row.get("shared_players"), f"{team_key}.shared_players"
+                ),
+                match_ids=_strings(row.get("match_ids"), f"{team_key}.match_ids"),
+                played_match_ids=_strings(
+                    row.get("played_match_ids"), f"{team_key}.played_match_ids"
+                ),
+                lineup_keys=_strings(row.get("lineup_keys"), f"{team_key}.lineup_keys"),
+                alternative_names=_strings(
+                    row.get("alternative_names"), f"{team_key}.alternative_names"
+                ),
+            )
+        )
+    return tuple(teams)
+
+
+def _strings(value: Any, what: str) -> tuple[str, ...]:
+    """Merkkijonolista monikkona -- **hiljaista ohennusta ei tehdä**.
+
+    Puuttuva avain on tyhjä monikko: vanhassa tiedostossa kenttää ei
+    välttämättä ole, ja "ei mainittu" on kelvollinen havainto. Mutta väärän
+    tyyppinen arvo tai ei-merkkijono luettelon sisällä on **rikki**, ja sen
+    pudottaminen tekisi juuri sen, minkä :func:`teams_from_index`in docstring
+    lupaa estävänsä: lyhyemmän luettelon ilman että mikään kertoisi miksi.
+    Vajaa ``faction_ids`` jättäisi ottelun tunnistamatta, vajaa ``match_ids``
+    vääristäisi otteluluvun.
+    """
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise PappascoutError(
+            f"Arkiston indeksissä kenttä {what} ei ole luettelo vaan "
+            f"{type(value).__name__}.\n"
+            "Aja uudelleen: uv run pappascout discover"
+        )
+    for item in value:
+        if not isinstance(item, str):
+            raise PappascoutError(
+                f"Arkiston indeksissä kentässä {what} on arvo {item!r}, joka ei "
+                "ole merkkijono. Sen pudottaminen lyhentäisi luetteloa hiljaa.\n"
+                "Aja uudelleen: uv run pappascout discover"
+            )
+    return tuple(value)
+
+
+def _members_from_index(value: Any, team_key: str) -> tuple[RosterMember, ...]:
+    """Rosterin pelaajat indeksin riveistä. Rikkinäinen rivi **kaataa ajon**.
+
+    Vajaa rosteri on väärä rosterikynnys (Story 3.3): pudotettu pelaaja
+    näyttäisi myöhemmin siltä, ettei hän ollut joukkueessa, ja kartta
+    hylättäisiin syyllä, joka on tosi vain siksi että rivi katosi.
+    """
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise PappascoutError(
+            f"Arkiston joukkueindeksissä joukkueen {team_key} rosteri ei ole "
+            f"luettelo vaan {type(value).__name__}.\n"
+            "Aja uudelleen: uv run pappascout discover"
+        )
+    members: list[RosterMember] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise PappascoutError(
+                f"Arkiston joukkueindeksissä joukkueella {team_key} on "
+                f"rosteririvi {entry!r}, joka ei ole olio.\n"
+                "Aja uudelleen: uv run pappascout discover"
+            )
+        try:
+            members.append(
+                RosterMember(
+                    game_player_id=str(entry.get("game_player_id")),
+                    nickname=(
+                        entry.get("nickname")
+                        if isinstance(entry.get("nickname"), str)
+                        else None
+                    ),
+                    player_id=(
+                        entry.get("player_id")
+                        if isinstance(entry.get("player_id"), str)
+                        else None
+                    ),
+                    alternative_nicknames=_strings(
+                        entry.get("alternative_nicknames"),
+                        f"{team_key}.alternative_nicknames",
+                    ),
+                )
+            )
+        except ValueError as exc:
+            raise PappascoutError(
+                f"Arkiston joukkueindeksissä on joukkueella {team_key} pelaaja, "
+                f"jota ei voi liittää demoihin: {exc}\n"
+                "Aja uudelleen: uv run pappascout discover"
+            ) from exc
+    return tuple(members)
+
+
+def matches_from_index(document: Mapping[str, Any]) -> tuple[IndexedMatch, ...]:
+    """Rakenna :class:`IndexedMatch`-oliot otteluindeksin sanakirjasta.
+
+    :func:`teams_from_index`in vastine ottelupuolelle, ja olemassa samasta
+    syystä: ilman sitä jokainen jatkovaihe purkaisi ``matches.json``in käsin ja
+    päättäisi omin päin, mikä rivi on riittävän ehjä käytettäväksi.
+
+    **Rikkinäinen rivi kaataa ajon eikä katoa laskuriin.** Ohitettu ottelu
+    lyhentäisi otantaa hiljaa, ja se on juuri se virhe, jota vastaan valinnan
+    laskurit on kirjoitettu.
+
+    Args:
+        document: :func:`read_matches_index`in palauttama sanakirja.
+
+    Returns:
+        Ottelut tiedoston järjestyksessä.
+
+    Raises:
+        PappascoutError: Jos ``matches``-luetteloa ei ole, jos rivi ei ole olio,
+            jos ``match_id`` puuttuu, jos sama ``match_id`` esiintyy kahdesti
+            (kaksi riviä samasta ottelusta tuottaisi jokaisen sen kartan
+            otantaan kahdesti) tai jos jokin kenttä on väärää tyyppiä.
+    """
+    rows = document.get("matches")
+    if not isinstance(rows, list):
+        raise PappascoutError(
+            "Arkiston otteluindeksissä ei ole matches-luetteloa.\n"
+            "Aja uudelleen: uv run pappascout discover"
+        )
+    matches: list[IndexedMatch] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise PappascoutError(
+                f"Arkiston otteluindeksissä on rivi {row!r}, joka ei ole olio.\n"
+                "Aja uudelleen: uv run pappascout discover"
+            )
+        match_id = row.get("match_id")
+        if not isinstance(match_id, str) or not match_id:
+            raise PappascoutError(
+                "Arkiston otteluindeksissä on ottelu ilman match_id-kenttää.\n"
+                "Aja uudelleen: uv run pappascout discover"
+            )
+        if match_id in seen:
+            raise PappascoutError(
+                f"Arkiston otteluindeksissä on ottelu {match_id} kahdesti. "
+                "Kaksi riviä samasta ottelusta tuottaisi jokaisen sen kartan "
+                "otantaan kahdesti.\n"
+                "Aja uudelleen: uv run pappascout discover"
+            )
+        seen.add(match_id)
+        matches.append(
+            IndexedMatch(
+                match_id=match_id,
+                competition_id=_optional_str(row.get("competition_id")),
+                status=_optional_str(row.get("status")),
+                played=bool(row.get("played")),
+                scheduled_at=_optional_str(row.get("scheduled_at")),
+                started_at=_optional_str(row.get("started_at")),
+                finished_at=_optional_str(row.get("finished_at")),
+                map_picks=_strings(row.get("map_picks"), f"{match_id}.map_picks"),
+                best_of=_optional_int(row.get("best_of"), f"{match_id}.best_of"),
+                teams=_match_teams_from_index(row.get("teams"), match_id),
+            )
+        )
+    return tuple(matches)
+
+
+def _match_teams_from_index(value: Any, match_id: str) -> tuple[IndexedMatchTeam, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise PappascoutError(
+            f"Arkiston otteluindeksissä ottelun {match_id} teams ei ole "
+            f"luettelo vaan {type(value).__name__}.\n"
+            "Aja uudelleen: uv run pappascout discover"
+        )
+    sides: list[IndexedMatchTeam] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise PappascoutError(
+                f"Arkiston otteluindeksissä ottelulla {match_id} on osapuoli "
+                f"{entry!r}, joka ei ole olio.\n"
+                "Aja uudelleen: uv run pappascout discover"
+            )
+        sides.append(
+            IndexedMatchTeam(
+                faction_id=_optional_str(entry.get("faction_id")),
+                name=_optional_str(entry.get("name")),
+                roster=_strings(entry.get("roster"), f"{match_id}.roster"),
+                substitutes=_strings(
+                    entry.get("substitutes"), f"{match_id}.substitutes"
+                ),
+            )
+        )
+    return tuple(sides)
+
+
+def _optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _optional_int(value: Any, what: str) -> int | None:
+    """Kokonaisluku tai ``None``; muu tyyppi on rikki eikä oletus.
+
+    ``None`` on **kelvollinen havainto**: vanhassa indeksissä kenttää ei ole,
+    ja "lähde ei kertonut" on eri asia kuin "arvo on rikki".
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise PappascoutError(
+            f"Arkiston otteluindeksissä kenttä {what} on {value!r}, joka ei ole "
+            "kokonaisluku eikä puuttuva arvo.\n"
+            "Aja uudelleen: uv run pappascout discover"
+        )
+    return value
 
 
 def _read(path: Path, what: str) -> dict[str, Any]:

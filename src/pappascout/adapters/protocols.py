@@ -723,6 +723,19 @@ class Match:
             siitä. Tyhjä monikko tarkoittaa "ei vetotietoa", ei "ei karttoja".
             Koko vedon (banit, vuorojärjestys) mallintaminen on Epic 4:ää;
             tässä on vain se lista, jonka ``map_index`` tarvitsee.
+        best_of: Montako karttaa ottelussa pelataan enintään, tai ``None`` jos
+            lähde ei sitä kertonut. Mitattu 2026-09-04
+            (``mittaus-faceit-aineisto.md`` luku 8): raakavastauksessa arvo on
+            ``2`` kaikissa 66 ottelussa, mutta se **ei kulkenut portin läpi**
+            lainkaan -- ``map_picks``in pituus oli ainoa luku, joka tänne pääsi.
+
+            **Ne eivät ole sama luku.** ``map_picks`` on vetotieto eli mitkä
+            kartat valittiin; ``best_of`` on sääntökirjan lupaus siitä, montako
+            niistä pelataan. Kahdesta nollaan päättyneessä BO3:ssa vedossa on
+            kolme karttaa mutta demoja kaksi, joten Story 3.4 ei voi päätellä
+            odotettavien demojen määrää ``map_picks``ista. Kenttä on siksi
+            portissa jo nyt, vaikka Story 3.3 ei sitä itse käytä: porttia ei
+            pidä purkaa auki myöhemmin sen takia, mikä oli mitattavissa nyt.
     """
 
     match_id: str
@@ -733,6 +746,7 @@ class Match:
     finished_at: datetime | None = None
     teams: tuple[MatchTeam, ...] = ()
     map_picks: tuple[str, ...] = ()
+    best_of: int | None = None
 
 
 @runtime_checkable

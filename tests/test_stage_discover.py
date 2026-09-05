@@ -132,6 +132,10 @@ def division_matches() -> tuple[Match, ...]:
                     ),
                     teams=tuple(sides),
                     map_picks=("de_ancient", "de_nuke") if played else (),
+                    # Mitattu 2026-09-04: best_of on 2 kaikissa 66 ottelussa,
+                    # myös pelaamattomissa -- se on sääntökirjan lupaus eikä
+                    # havainto pelatusta ottelusta.
+                    best_of=2,
                 )
             )
     return tuple(matches)
@@ -349,6 +353,65 @@ def test_the_matches_index_carries_status_schedule_and_maps(
     last = document["matches"][-1]
     assert last["played"] is False
     assert last["map_picks"] == []
+
+
+def test_the_matches_index_carries_best_of(
+    league, archive, thresholds, source
+) -> None:
+    """``best_of`` on indeksissä, koska Story 3.4 tarvitsee sen -- eikä se ole
+    laskettavissa ``map_picks``in pituudesta.
+
+    Mitattu 2026-09-04: arvo on 2 kaikissa 66 ottelussa, mutta ennen tätä se ei
+    kulkenut portin läpi lainkaan. Pelaamaton ottelu kantaa sen myös: se on
+    sääntökirjan lupaus, ei havainto pelatusta ottelusta.
+    """
+    discover(league, archive, thresholds, source)
+
+    document = read_index(archive, "matches.json")
+    assert all(row["best_of"] == 2 for row in document["matches"])
+    assert document["matches"][-1]["played"] is False
+    assert document["matches"][-1]["best_of"] == 2
+
+
+def test_an_older_index_without_the_best_of_key_is_still_readable(
+    league, archive, thresholds, source
+) -> None:
+    """Juuri tama on syy, miksi SCHEMA_VERSION ei noussut kentan myota.
+
+    Vanhassa tiedostossa avainta **ei ole lainkaan** -- ei nullina vaan
+    puuttuvana. Tuore tiedosto, johon kirjoitetaan ``best_of: null``, ei
+    testaisi tata tapausta: se on jo taman version kirjoittama.
+    """
+    discover(league, archive, thresholds, source)
+    path = archive.root / "index" / "matches.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    for row in document["matches"]:
+        del row["best_of"]
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+
+    # Lukija hyvaksyy vanhan tiedoston: puuttuva arvo on kelvollinen havainto.
+    matches = discover_stage.matches_from_index(
+        discover_stage.read_matches_index(archive)
+    )
+
+    assert len(matches) == TOTAL_MATCHES
+    assert all(match.best_of is None for match in matches)
+
+
+def test_a_broken_best_of_is_refused_instead_of_defaulted(
+    league, archive, thresholds, source
+) -> None:
+    """Puuttuva on havainto, rikki on rikki -- ja ne ovat eri asioita."""
+    discover(league, archive, thresholds, source)
+    path = archive.root / "index" / "matches.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["matches"][0]["best_of"] = "kaksi"
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(PappascoutError, match="best_of"):
+        discover_stage.matches_from_index(
+            discover_stage.read_matches_index(archive)
+        )
 
 
 # -- Lukija ------------------------------------------------------------------
@@ -991,3 +1054,126 @@ def test_default_source_without_a_key_says_which_file_to_edit(
 
     with pytest.raises(SettingsError, match="FACEIT_API_KEY"):
         discover_stage.default_source(settings, archive)
+
+
+# -- Lukija palauttaa domainin oliot ----------------------------------------
+
+
+def test_the_teams_index_reads_back_as_domain_teams(
+    league, archive, thresholds, source
+) -> None:
+    """``select`` saa täsmälleen ne joukkueet, jotka ``discover`` kirjoitti.
+
+    Ilman tätä lukijaa jokainen jatkovaihe tulkitsisi indeksin kentät omalla
+    tavallaan, ja nimihaku toimisi eri tavalla riippuen siitä, kuka sen
+    kirjoitti.
+    """
+    discover(league, archive, thresholds, source)
+
+    teams = discover_stage.teams_from_index(
+        discover_stage.read_teams_index(archive)
+    )
+
+    assert {team.name for team in teams} == set(DIVISION)
+    rcave = next(team for team in teams if team.name == "Rcave Veterans")
+    assert len(rcave.roster) == DIVISION["Rcave Veterans"]
+    assert all(is_steam_id64(pid) for pid in rcave.player_ids)
+    assert len(rcave.match_ids) == 11
+
+
+def test_every_written_team_field_survives_the_round_trip(
+    league, archive, thresholds, source
+) -> None:
+    """Kirjoittaja-lukija-pari lukitaan **kentta kentalta**.
+
+    Pelkka rosterin tarkistus ei huomaisi, jos ``shared_players``,
+    ``alternative_names``, ``lineup_keys`` tai ``released`` katoaisi kierrossa
+    -- ja juuri ne ovat ne kentat, joita kukaan ei katso ennen kuin ne
+    puuttuvat. Vertailu tehdaan tiedoston omaa rivia vasten, joten uusi kentta
+    on lisattava molempiin puoliin tai tama kaatuu.
+    """
+    write_lineups(
+        archive,
+        "1-match-00-0",
+        {"ff03fb54599d3311": list(MEASURED_RCAVE_IDS.values())},
+    )
+    discover(league, archive, thresholds, source)
+    document = read_index(archive, "teams.json")
+
+    teams = discover_stage.teams_from_index(document)
+
+    by_key = {team.team_key: team for team in teams}
+    assert len(by_key) == len(document["teams"])
+    for written in document["teams"]:
+        team = by_key[written["team_key"]]
+        assert list(team.faction_ids) == written["faction_ids"]
+        assert team.name == written["name"]
+        assert list(team.alternative_names) == written["alternative_names"]
+        assert list(team.lineup_keys) == written["lineup_keys"]
+        assert list(team.match_ids) == written["match_ids"]
+        assert list(team.played_match_ids) == written["played_match_ids"]
+        assert list(team.shared_players) == written["shared_players"]
+        assert [m.game_player_id for m in team.roster] == [
+            p["game_player_id"] for p in written["roster"]
+        ]
+        assert [m.nickname for m in team.roster] == [
+            p["nickname"] for p in written["roster"]
+        ]
+        assert [m.game_player_id for m in team.released] == [
+            p["game_player_id"] for p in written["released"]
+        ]
+    # Ainakin yhdella joukkueella on tunnettu kokoonpanotiiviste, jotta
+    # lineup_keys-vertailu ei ole tyhja molemmilta puolilta.
+    assert any(team.lineup_keys for team in teams)
+
+
+def test_a_non_string_in_a_list_field_is_refused_not_dropped(
+    league, archive, thresholds, source
+) -> None:
+    """Vajaa ``faction_ids`` jattaisi ottelun tunnistamatta.
+
+    Aiempi lukija pudotti ei-merkkijonot hiljaa -- eli teki juuri sen, minka
+    sen oma docstring lupasi estavansa.
+    """
+    discover(league, archive, thresholds, source)
+    path = archive.root / "index" / "teams.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["teams"][0]["faction_ids"].append(42)
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(PappascoutError, match="ei ole merkkijono"):
+        discover_stage.teams_from_index(
+            discover_stage.read_teams_index(archive)
+        )
+
+
+def test_the_same_lookup_rules_apply_to_the_teams_read_back(
+    league, archive, thresholds, source
+) -> None:
+    """Kaksi kopiota nimihausta olisi kaksi eri virheilmoitusta samasta asiasta."""
+    discover(league, archive, thresholds, source)
+    teams = discover_stage.teams_from_index(
+        discover_stage.read_teams_index(archive)
+    )
+
+    found = discover_stage.resolve_team(teams, "Rcave")
+
+    assert found.name == "Rcave Veterans"
+    with pytest.raises(PappascoutError, match="osuu 3 joukkueeseen"):
+        discover_stage.resolve_team(teams, "T")
+
+
+def test_a_hand_broken_teams_index_is_refused_not_silently_thinned(
+    league, archive, thresholds, source
+) -> None:
+    """Vajaa rosteri olisi väärä rosterikynnys, eikä mikään kertoisi miksi."""
+    discover(league, archive, thresholds, source)
+    path = archive.root / "index" / "teams.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["teams"][0]["roster"][0]["game_player_id"] = "ei-steamid"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(PappascoutError, match="ei voi liittää demoihin"):
+        discover_stage.teams_from_index(
+            discover_stage.read_teams_index(archive)
+        )

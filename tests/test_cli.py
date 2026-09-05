@@ -341,5 +341,13 @@ def test_help_lists_every_pipeline_command() -> None:
     """
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for command in ("info", "discover", "parse", "classify", "aggregate", "report"):
+    for command in (
+        "info",
+        "discover",
+        "select",
+        "parse",
+        "classify",
+        "aggregate",
+        "report",
+    ):
         assert command in result.output, command

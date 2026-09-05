@@ -1215,6 +1215,7 @@ def _to_match(payload: Mapping[str, Any]) -> Match:
         finished_at=_moment(payload.get("finished_at")),
         teams=teams,
         map_picks=_map_picks(payload.get("voting")),
+        best_of=_best_of(payload.get("best_of")),
     )
 
 
@@ -1271,6 +1272,53 @@ def _map_picks(voting: Any) -> tuple[str, ...]:
     if not isinstance(picks, list):
         return ()
     return tuple(name for pick in picks if (name := _text(pick)) is not None)
+
+
+#: Suurin luku, joka luetaan ottelun pituudeksi.
+#:
+#: Yläraja on olemassa, koska ilman sitä ``99`` olisi kelvollinen ja Story 3.4
+#: odottaisi 99 demoa yhdestä ottelusta. Yhdeksän kattaa kaiken, mitä
+#: CS2-turnauksissa pelataan (BO1, BO3, BO5, harvoin BO7), ja jättää varaa
+#: yhdelle tuntemattomalle muodolle. Sitä suurempi arvo on **rikki eikä
+#: harvinainen**: Pappaliigan runkosarja on mitattu ``2``:ksi.
+MAX_BEST_OF = 9
+
+
+def _best_of(value: Any) -> int | None:
+    """Ottelun pituus karttoina; kelvoton arvo on ``None``, ei korvike.
+
+    FACEIT antaa luvun useimmiten kokonaislukuna, mutta merkkijono ``"2"`` on
+    saman rajapinnan tuttu vaihtoehto, joten molemmat luetaan.
+
+    Kolme torjuntaa, ja jokainen on oma virheensä:
+
+    ``bool``
+        ``True`` on Pythonissa ``int``, joten ilman erillistä torjuntaa se
+        päätyisi arvoksi ``1`` eli "yksi kartta".
+    **Ei-ASCII-numeromerkit**
+        ``"\\u00b2".isdigit()`` on tosi mutta ``int("\\u00b2")`` nostaa
+        ``ValueError``in -- eli pelkkä ``isdigit`` kaataisi koko ottelulistan
+        jäsennyksen yhden kentän takia. ``isascii`` sulkee samalla myös
+        muunkieliset numerot, jotka ``isdecimal`` päästäisi läpi.
+    **Rajojen ulkopuoliset luvut**
+        Nolla ja negatiivi eivät ole pituuksia; ylärajasta ks.
+        :data:`MAX_BEST_OF`.
+
+    >>> _best_of(2), _best_of("3"), _best_of(True), _best_of(0), _best_of(None)
+    (2, 3, None, None, None)
+    >>> _best_of("\\u00b2"), _best_of(99), _best_of(-1), _best_of("2.5")
+    (None, None, None, None)
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text.isascii() or not text.isdigit():
+            return None
+        value = int(text)
+    if not isinstance(value, int):
+        return None
+    return value if 1 <= value <= MAX_BEST_OF else None
 
 
 def _text(value: Any) -> str | None:

@@ -4,14 +4,20 @@ CLI on ohut: se lukee asetukset, valitsee vaiheet ja näyttää tuloksen. Se ei
 kutsu adaptereita eikä arkistoa suoraan, eikä siinä ole analyysilogiikkaa --
 sama putki ajetaan myöhemmin web-kuoren takaa muuttamatta domainia.
 
-Komentoja on kuusi: ``info`` näyttää asetukset, arkiston tilan ja avainten
+Komentoja on seitsemän: ``info`` näyttää asetukset, arkiston tilan ja avainten
 tilan paljastamatta avainten arvoja, ``discover`` hakee divisioonan ottelut ja
-kirjoittaa niistä ottelu- ja joukkueindeksin, ``parse`` ajaa putken
-demovaiheen yhdelle demolle, ``classify`` luokittelee sen kierrokset yhden
-joukkueen näkökulmasta, ``aggregate`` kokoaa joukkueen luokitellut kierrokset
-yhdeksi ``report.json``-tiedostoksi ja ``report`` kirjoittaa siitä luettavan
-Markdown-raportin. Loput (``select``, ``fetch``, ``scout``, ``next``,
-``collect``, ``import``) tulevat myöhemmissä storyissa.
+kirjoittaa niistä ottelu- ja joukkueindeksin, ``select`` valitsee joukkueen
+kartat rosterikynnyksellä, ``parse`` ajaa putken demovaiheen yhdelle demolle,
+``classify`` luokittelee sen kierrokset yhden joukkueen näkökulmasta,
+``aggregate`` kokoaa joukkueen luokitellut kierrokset yhdeksi
+``report.json``-tiedostoksi ja ``report`` kirjoittaa siitä luettavan
+Markdown-raportin. Loput (``fetch``, ``scout``, ``next``, ``collect``,
+``import``) tulevat myöhemmissä storyissa.
+
+Jokainen putken komento on ``test_help_lists_every_pipeline_command``in
+luettelossa. Se ei ole muodollisuus: Story 3.2:ssa ``discover`` lisättiin ilman
+sitä, ja komento oli ohjeessa mutta väite sen olemassaolosta puuttui juuri siitä
+testistä, jonka docstring varoittaa tästä.
 
 Arkistoon ja adaptereihin ei kosketa täältä: polut pyydetään
 ``stages.archive_paths``ilta, demoportti ``stages.parse.default_parser``ilta ja
@@ -31,6 +37,7 @@ import typer
 
 from pappascout import __version__
 from pappascout.constants import (
+    ROSTER_CLASSES,
     ROUND_TYPES,
     SAMPLE_BUCKET_FI,
     SAMPLE_BUCKETS,
@@ -45,6 +52,7 @@ from pappascout.stages import classify as classify_stage
 from pappascout.stages import discover as discover_stage
 from pappascout.stages import parse as parse_stage
 from pappascout.stages import render as render_stage
+from pappascout.stages import select as select_stage
 
 __all__ = ["app", "main"]
 
@@ -445,6 +453,164 @@ def _discover_team(team: dict) -> list[str]:
     alternatives = [str(other) for other in team.get("alternative_names") or []]
     if alternatives:
         lines.append(_line("Muut havaitut nimet", ", ".join(alternatives)))
+    return lines
+
+
+@app.command("select")
+def select(
+    team: str = typer.Option(
+        ...,
+        "--team",
+        help=(
+            "Joukkueen nimi, sen yksikäsitteinen osa tai joukkuetunniste. "
+            "Kirjainkoolla ei ole väliä. Monitulkintainen nimi listaa "
+            "vaihtoehdot eikä valitse mitään."
+        ),
+    ),
+) -> None:
+    """Valitse joukkueen kartat rosterikynnyksellä.
+
+    Komento lukee ottelu- ja joukkueindeksin ja kirjoittaa
+    index/selections/<team_key>.json -tiedoston, jossa on rivi jokaisesta
+    MapDemosta: kelpaako se otantaan, miksi, mikä rosteriluokka ja onko kyseessä
+    liigaottelu. Kynnys arvioidaan karttakohtaisesti, koska liiga sallii kaksi
+    vaihtoa karttojen välissä.
+
+    Rivi syntyy vain pelatuista otteluista: pelaamattomalla ottelulla ei ole
+    karttoja, joten MapDemoja ei ole olemassa.
+
+    Kartan kokoonpano on ennuste ottelurosterista siihen asti, kunnes demo on
+    parsittu -- sen jälkeen se on havainto demosta, ja rivi sanoo kummasta on
+    kyse. Aja ensin discover, jos indeksejä ei ole.
+    """
+    settings = load_settings()
+    archive = archive_paths(settings.project)
+    result = select_stage.run(
+        settings.league,
+        archive,
+        team,
+        thresholds=settings.thresholds,
+    )
+    typer.echo(_render_select(result))
+
+
+def _render_select(result: StageResult) -> str:
+    """Kokoa ``select``-komennon yhteenveto.
+
+    Tärkein rivi on hyväksyttyjen ja hylättyjen suhde: käyttäjä tarkistaa siitä,
+    onko otanta sitä mitä hän odotti. Heti sen perässä ovat **hylkäysten syyt
+    kokonaisina**, koska hylkäys ilman lukuja on päätös, jota hän ei voi
+    tarkistaa avaamatta tiedostoa -- eikä hän koodaa itse.
+
+    **Avaimet luetaan suoraan eikä oletusarvon kanssa.** ``stats`` on tämän
+    vaiheen oma sopimus tälle funktiolle, ei käyttäjän dataa: puuttuva avain
+    tarkoittaa, että vaihe ja tuloste ovat erkaantuneet, ja
+    ``stats.get(nimi, 0)`` muuttaisi sen hiljaiseksi nollaksi. Nolla näyttää
+    mitatulta tulokselta. Poikkeus on parempi -- ja
+    ``test_the_summary_renders_from_a_real_stage_result`` on se testi, joka
+    huomaa eron ennen käyttäjää.
+    """
+    stats = result.stats
+    total = int(stats["map_demos"])
+    accepted = int(stats["accepted"])
+
+    lines: list[str] = []
+    lines.append(
+        f"Valinta tehty: {stats['team_display']} -- "
+        f"{accepted} / {total} karttaa otantaan"
+    )
+    # Jokainen huomio omalle rivilleen: yhteen merkkijonoon liitettynä
+    # jälkimmäinen katoaisi ensimmäisen perään.
+    for note in stats["notes"]:
+        lines.append(_line("Huomio", str(note)))
+    lines.append(_line("Tunniste", str(stats["team_key"])))
+    lines.append(
+        _line(
+            "Vakirosteri",
+            f"{int(stats['roster_players'])} pelaajaa, kynnys "
+            f"{stats['roster_threshold']}",
+        )
+    )
+    lines.append(
+        _line(
+            "Ottelut",
+            f"{int(stats['matches_with_maps'])} pelattua kartoin, "
+            f"{int(stats['matches_not_played'])} pelaamatta, "
+            f"{int(stats['matches_without_veto'])} ilman vetotietoa "
+            f"({int(stats['matches_seen'])} kaikkiaan)",
+        )
+    )
+    lines.extend(_select_classes(stats))
+    lines.append(
+        _line("Liigaotteluita", f"{int(stats['league'])} / {total} kartasta")
+    )
+    lines.append(
+        _line(
+            "Kokoonpanon lähde",
+            f"{int(stats['observed'])} havaintoa demosta, "
+            f"{int(stats['predicted'])} ennustetta ottelurosterista",
+        )
+    )
+    uncertain = int(stats["uncertain"])
+    if uncertain:
+        lines.append(
+            _line(
+                "Ehkä pelaamatta",
+                f"{uncertain} karttaa on vetotiedossa, mutta ottelun pituus ei "
+                "takaa että ne pelattiin",
+            )
+        )
+    drifted = int(stats["drifted"])
+    if drifted:
+        lines.append(
+            _line(
+                "Vaihto karttojen välissä",
+                f"{drifted} kartalla kokoonpano erosi ottelurosterista",
+            )
+        )
+    lines.extend(_select_rejections(stats))
+
+    lines.append("")
+    for path in result.outputs:
+        lines.append(_line("Tulos", str(path)))
+    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+    return "\n".join(lines)
+
+
+def _select_classes(stats: dict) -> list[str]:
+    """Luokkajakauma, ja **vain hyväksytyistä riveistä**.
+
+    Hylätyllä rivillä ei ole luokkaa: luokka olisi väite kierroksista, joita ei
+    lasketa. Summa on siksi aina sama kuin hyväksyttyjen määrä.
+    """
+    parts = [f"{label}: {int(stats[f'class_{label}'])}" for label in ROSTER_CLASSES]
+    return [_line("Rosteriluokat", ", ".join(parts))]
+
+
+def _select_rejections(stats: dict) -> list[str]:
+    """Hylätyt kartat syineen -- kokonaisina, ei typistettyinä.
+
+    Syy on se, mitä varten koko rivi on olemassa: katkaistu syy näyttäisi
+    perustelulta olematta sellainen. Luettelo sen sijaan **on** katkaistu
+    (``MAX_LISTED_REJECTIONS``), ja silloin tuloste sanoo montako jäi
+    näyttämättä ja mistä ne löytyvät.
+    """
+    rows = stats["rejections"]
+    total = int(stats["rejections_total"])
+    if not total:
+        return []
+    lines = ["", f"Hylätyt kartat ({total}):"]
+    for row in rows:
+        unit = str(row["map_demo_id"])
+        name = row.get("map_name")
+        # Ilman nimeä tunniste on jo otsikossa, eikä sitä toisteta suluissa.
+        lines.append(f"  {name} ({unit})" if name else f"  {unit}")
+        lines.append(f"    {row['roster_reason']}")
+    hidden = total - len(rows)
+    if hidden > 0:
+        lines.append(
+            f"  (+{hidden} muuta -- koko luettelo syineen on valintatiedostossa)"
+        )
     return lines
 
 

@@ -43,6 +43,7 @@ uv run pappascout info          # asetukset, arkiston tila ja avainten tila
 uv run pappascout info --koko   # sama, mutta laskee myös arkiston yhteiskoon
 uv run pappascout discover                       # divisioonan ottelu- ja joukkueindeksi
 uv run pappascout discover --team "Rcave"        # sama + joukkueen vakirosteri
+uv run pappascout select --team "Rcave"          # kartat rosterikynnyksella
 uv run pappascout parse <tiedosto|map_demo_id>   # demosta kierrokset ja asetelmat
 uv run pappascout classify <map_demo_id> --team <tunniste> --show  # kierrostyypit
 uv run pappascout classify <map_demo_id> --kaikki-joukkueet        # molemmat joukkueet
@@ -72,6 +73,40 @@ ohiteta, joten uudet ottelut näkyvät joka ajolla -- siksi komennossa ei ole
 `discover` **ei nimeä arkiston hakemistoja uudelleen**. Yhteys
 `aggregates/<team_key>`-hakemistoihin näkyy `index/teams.json`:in
 `lineup_keys`-kentässä.
+
+`select` lukee molemmat indeksit ja kirjoittaa
+`index/selections/<team_key>.json`, jossa on **rivi jokaisesta MapDemosta**:
+kelpaako se otantaan, miksi, mikä rosteriluokka ja onko kyseessä liigaottelu.
+Verkkoon se ei koske.
+
+Kynnys arvioidaan **karttakohtaisesti**, koska Pappaliiga sallii kaksi vaihtoa
+karttojen välissä: sama ottelu voi olla kartalla 1 täysi vakikokoonpano ja
+kartalla 2 neljä vakipelaajaa ja yksi ulkopuolinen. Kelpuutus on `5/5`
+vakirosterista tai vähintään `4/5` + ulkopuolinen, ja **ulkopuolisen kierrokset
+lasketaan mukaan** -- ero näkyy luokassa, ei siinä kuka on otannassa.
+
+Neljä sääntöä, jotka näkyvät suoraan tiedostossa:
+
+* **Rivi syntyy vain pelatuista otteluista.** Pelaamattomalla ottelulla ei ole
+  karttoja, joten MapDemoja ei ole olemassa. Pelattu ottelu, jonka vetotieto
+  puuttuu, on **eri asia** ja se kerrotaan omana huomionaan -- kartat
+  pelattiin, mutta emme tiedä mitkä.
+* **Luokka on ennuste ennen parsintaa ja havainto sen jälkeen.** FACEITin
+  rosteri on ottelukohtainen, ei karttakohtainen, joten kartan todellisen
+  kokoonpanon näkee vasta demosta. `roster_source` sanoo kummasta on kyse, ja
+  kun molemmat tiedetään, **havainto voittaa ja ero kerrotaan**.
+* **Vetotiedon kartta ei ole todiste pelatusta kartasta.** BO3 päättyy usein
+  kahteen karttaan, mutta vedossa on kolme nimeä. Kolmas rivi syntyy mutta jää
+  otannan ulkopuolelle, kunnes demo todistaa kartan pelatuksi. BO2:ssa
+  (runkosarja) yksikään rivi ei jää epävarmaksi.
+* **Hylkäyksellä on aina luettava syy.** `roster_reason` kertoo montako
+  vakipelaajaa löytyi, mikä kynnys on, ketkä olivat ulkopuolisia (nimimerkillä)
+  ja mistä tieto on peräisin. Rivi ilman syytä on rakenteellisesti mahdoton.
+
+`is_league` päätellään ottelun `competition_id`:stä `[league].championship_ids`
+-listaa vasten, **ei nimestä**. Tiedosto kantaa myös käytetyt kynnykset ja sen
+vakirosterin, jota vasten päätökset tehtiin -- päätöstä ei voi tarkistaa
+jälkikäteen, jos sen peruste on muualla ja ehtinyt muuttua.
 
 `parse` lukee `.dem`- tai `.dem.zst`-tiedoston ja kirjoittaa arkistoon
 seitsemän taulua yhdellä lukukerralla:
@@ -1229,6 +1264,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/domain/rounds.py` | `mark_played_rounds()` -- ainoa paikka, joka päättää `round_no`:n -- ja `check_win_reasons()` |
 | `src/pappascout/domain/economy.py` | `loss_counts()` ja `classify_round()` -- kierrostyypin talouspäättely |
 | `src/pappascout/domain/sampling.py` | `sample_ticks()` ja `first_contact_tick()` -- näytepisteiden valinta ja ensikontaktin sääntö |
+| `src/pappascout/domain/selection.py` | Rosterikynnys puhtaana logiikkana: `evaluate()` (kartan kokoonpano vs. vakirosteri joukko-operaationa, luokka `5/5`/`4/5`, aina luettava syy), `guaranteed_maps()` (montako karttaa BO_n:ssa pelataan varmasti) ja `class_labels()` (luokan nimi johdetaan kynnyksista) |
 | `src/pappascout/domain/teams.py` | Joukkueen identiteetti puhtaana logiikkana: `build_teams()` (vakirosteri yhdisteenä, lähdetunnisteiden liittäminen rosterin perusteella, siirtyneet pelaajat), `find_teams()` (kirjainkoosta riippumaton nimihaku, monitulkintaisuus tuloksena) ja `is_steam_id64()` |
 | `src/pappascout/domain/utility.py` | `grenade_endpoints()`, `build_point_cloud()` ja `nearest_cells()` -- lentoradan pelkistys kahteen pisteeseen ja räjähdysalueen johtaminen pistepilvestä |
 | `src/pappascout/archive/paths.py` | Arkiston hakemistorakenne suhteellisina polkuina |
@@ -1238,7 +1274,8 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/adapters/decompress.py` | `.dem.zst`-purku ja `PBDEMS2`-otsikkotarkistus |
 | `src/pappascout/adapters/demo_parser.py` | demoparser2-toteutus -- ainoa paikka, joka tuntee pelin propinimet |
 | `src/pappascout/adapters/faceit.py` | FACEIT Data API -asiakas -- ainoa paikka, joka tekee HTTP-kutsuja: avain otsakkeesta, uudelleenyritys vain 429/5xx:lle (`Retry-After` huomioiden), aikabudjetti per kutsu, sivutus; vastausvälimuisti `raw/faceit/` **vain valmiille otteluille**, ei ottelulistalle |
-| `src/pappascout/stages/discover.py` | `discover`-vaihe: divisioonan otteluista `index/matches.json` + `index/teams.json`; ei manifestia, koska vaihetta ei koskaan ohiteta. Sisältää myös indeksien lukijan (`read_indexes()`) |
+| `src/pappascout/stages/discover.py` | `discover`-vaihe: divisioonan otteluista `index/matches.json` + `index/teams.json`; ei manifestia, koska vaihetta ei koskaan ohiteta. Sisältää myös indeksien lukijat: `read_indexes()`, `matches_from_index()`, `teams_from_index()` ja `resolve_team()` -- **rikkinäinen rivi kaataa ajon eikä katoa laskuriin** |
+| `src/pappascout/stages/select.py` | `select`-vaihe: indekseista `index/selections/<team_key>.json`; ei porttia (ei verkkoa) eika manifestia. Sisaltaa valintatiedoston lukijan (`read_selection()`) |
 | `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + `deaths.parquet` + `callouts.parquet` + `match.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |
@@ -1268,7 +1305,8 @@ Muut vaiheet lukevat ne `stages.discover.read_indexes()`illa, joka tarkistaa
 | `schema_version` | Muodon versio; lukija kaatuu tuntemattomaan |
 | `generated_at` | Ajon hetki UTC:nä; **sama molemmissa tiedostoissa** |
 | `competition_ids` | Mistä kilpailuista ottelut haettiin |
-| `matches[]` | `match_id`, `competition_id`, `status`, `played`, `scheduled_at`, `started_at`, `finished_at`, `map_picks` |
+| `matches[]` | `match_id`, `competition_id`, `status`, `played`, `scheduled_at`, `started_at`, `finished_at`, `map_picks`, `best_of` |
+| `matches[].best_of` | Ottelun pituus karttoina, tai `null` jos lähde ei kertonut. **Ei sama luku kuin `map_picks`in pituus**: 2-0 päättyneessä BO3:ssa vedossa on kolme karttaa mutta demoja kaksi. Puuttuva arvo on kelvollinen havainto, joten kentän lisääminen ei nostanut `schema_version`ia |
 | `matches[].teams[]` | `faction_id` (lähteen tunniste, **ei** kanoninen `team_key`), `name`, `roster` ja `substitutes` SteamID64-listoina |
 
 `index/teams.json`
@@ -1284,6 +1322,25 @@ Muut vaiheet lukevat ne `stages.discover.read_indexes()`illa, joka tarkistaa
 | `teams[].roster[]` | `game_player_id` (SteamID64, ainoa avain), `nickname`, `player_id` (FACEITin UUID), `alternative_nicknames` |
 | `teams[].released[]` | Pelaajat, jotka havaittiin tässä joukkueessa mutta myöhemmin toisessa -- eivät rosterissa, eivät myöskään kadonneet |
 | `teams[].shared_players` | Pelaajat, jotka toinen joukkue havaitsi yhtä myöhään; yhä rosterissa, koska kiistaa ei ratkaista arpomalla |
+
+`index/selections/<team_key>.json` -- kirjoittaa vain `select`, lukee
+`stages.select.read_selection()`, joka tarkistaa `schema_version`in.
+
+| Kenttä | Sisältö |
+| --- | --- |
+| `roster_size`, `roster_min_regulars` | Käytetyt kynnykset **arvoina**, jotta päätös on tarkistettavissa vaikka asetus muuttuisi |
+| `roster` | Se vakirosteri, jota vasten jokainen rivi ratkaistiin |
+| `index_generated_at` | Minkä ottelulistan perusteella rivit syntyivät |
+| `counts` | `map_demos`, `accepted`, `rejected`, `league`, `observed`, `predicted`, `drifted`, `uncertain` ja luokat. `accepted + rejected == map_demos`, ja `class_5/5 + class_4/5 == accepted` |
+| `selections[].map_demo_id` | `{match_id}-{map_index}`, 0-pohjainen -- sama tunniste kuin `parse`illa |
+| `selections[].roster_ok` | Kelpaako kartta otantaan |
+| `selections[].roster_reason` | **Aina luettava syy**, myös hyväksytyllä rivillä: luvut, kynnys, ulkopuoliset nimimerkillä ja lähde |
+| `selections[].roster_class` | `5/5` tai `4/5`; `null` vain hylätyllä rivillä. Hyväksytty rivi ilman luokkaa on mahdoton rakentaa |
+| `selections[].roster_source` | `observed` (demosta) tai `predicted` (ottelurosterista) |
+| `selections[].certainly_played` | Tiedetäänkö kartta pelatuksi. Ottelun pituus takaa sen **tai** parsittu demo todistaa |
+| `selections[].is_league` | `competition_id` vs. `[league].championship_ids` -- **ei nimestä** |
+| `selections[].regulars`, `outsiders` | Kartan pelaajat jaettuna vakirosteriin ja sen ulkopuolisiin |
+| `selections[].joined`, `left` | Havainnon ja ottelurosterin ero: vaihto karttojen välissä. Tyhjä, kun vertailtavaa ei ole |
 
 **Identiteetti on rosteri, tunniste on vain avain.** Kaksi `faction_id`:tä
 yhdistetään samaksi joukkueeksi, kun niiden rosterit jakavat vähintään
