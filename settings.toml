@@ -30,6 +30,28 @@ own_team_name = "PotkukelkkaPeek"
 #   $env:PAPPASCOUT_ARCHIVE_ROOT = 'D:\pappascout-testiarkisto'
 archive_root = '%USERPROFILE%\OneDrive - Finnpark Oy\Finnpark\MDM\Claude code\pappascout-archive'
 
+# Ladattujen demojen hakemisto. Kommentoituna demot menevat arkiston
+# demos-hakemistoon, ja se on tarkoituksellinen oletus (paatetty 5.9.2026).
+#
+# Kaksi syyta pitaa demot arkistossa eli OneDrivessa:
+#
+# 1. Arkisto seuraa koneelta toiselle. Paikallisessa kansiossa olevat demot
+#    eivat seuraa, ja toisella koneella ne haettaisiin FACEITista uudelleen --
+#    mika onnistuu vain noin 30 paivan ajan. Arkistossa projektin koko tila
+#    liikkuu yhtena kokonaisuutena.
+# 2. OneDriven Files On-Demand vapauttaa parsitun demon paikallisen tilan
+#    POISTAMATTA tiedostoa: se jaa pilveen ja palautuu tarvittaessa.
+#    Paikallisessa kansiossa tilan vapauttaminen tarkoittaa demon lopullista
+#    poistamista. Tama kone on 96 % taynna, joten ero on kaytannon etu.
+#
+# Ota rivi kayttoon, jos levytila loppuu eika pilvi ole vaihtoehto. Aiemmin
+# ladatut demot loytyvat yha eivatka lataudu uudelleen: seka fetch etta parse
+# etsivat demoja tasta hakemistosta, arkiston demos-hakemistosta ja arkiston
+# import-hakemistosta -- tassa jarjestyksessa.
+#
+# Polussa saa kayttaa ymparistomuuttujia ja tildea kuten archive_rootissa.
+# demos_root = '%USERPROFILE%\pappascout-demot'
+
 # Kaikki käyttäjälle näkyvä teksti on suomeksi.
 language = "fi"
 

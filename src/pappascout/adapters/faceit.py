@@ -87,7 +87,8 @@ import re
 import secrets as _secrets
 import socket
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -107,14 +108,26 @@ from tenacity import (
     wait_exponential,
 )
 
-from pappascout.adapters.protocols import Match, MatchTeam, RosterPlayer
+from pappascout.adapters.protocols import (
+    DemoStream,
+    Match,
+    MatchTeam,
+    RosterPlayer,
+)
 from pappascout.domain.models import (
     MAX_FACEIT_PAGE_SIZE,
     MAX_FACEIT_RETRY_ATTEMPTS,
     FaceitSettings,
     Settings,
+    secrets_env_path,
 )
-from pappascout.errors import ApiError, PappascoutError, SettingsError
+from pappascout.errors import (
+    ApiError,
+    DemoUnavailable,
+    DownloadsAccessDenied,
+    PappascoutError,
+    SettingsError,
+)
 
 __all__ = [
     "FaceitClient",
@@ -122,6 +135,19 @@ __all__ = [
     "MAX_PAGES",
     "DEFAULT_CALL_BUDGET_SECONDS",
     "CACHEABLE_MATCH_STATUSES",
+    "FaceitDemoSource",
+    "FACEIT_DOWNLOADS_API_BASE",
+    "DEMO_READY_STATUSES",
+    "DEMO_CHUNK_BYTES",
+    "MAX_DEMO_CHUNK_BYTES",
+    "split_map_demo_id",
+    "DEMO_GONE_STATUSES",
+    "DEMO_RETENTION_DAYS",
+    "DOWNLOADS_DENIED_STATUSES",
+    "DOWNLOADS_BAD_REQUEST",
+    "MAX_ERROR_DETAIL_CHARS",
+    "DOWNLOADS_STATUS_URL",
+    "DOWNLOADS_APPLICATION_URL",
 ]
 
 #: FACEIT Data API:n juuri. **Vakio eikä asetus**: se ei ole säädettävä arvo
@@ -207,12 +233,25 @@ class _Retryable(Exception):
 
 
 class _Permanent(Exception):
-    """Vika, joka ei korjaannu odottamalla -- uudelleenyritystä ei tehdä."""
+    """Vika, joka ei korjaannu odottamalla -- uudelleenyritystä ei tehdä.
 
-    def __init__(self, reason: str, *, status_code: int | None = None) -> None:
+    ``detail`` on **rajapinnan oma virheteksti**, jos se oli vastauksessa.
+    Se on havainto: meidän arvauksemme siitä, mikä pyynnössä oli vialla, on
+    arvaus, mutta se mitä FACEIT itse sanoo on tosiasia -- ja usein ainoa
+    tapa erottaa kaksi samaan tilakoodiin päätyvää syytä toisistaan.
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        status_code: int | None = None,
+        detail: str | None = None,
+    ) -> None:
         super().__init__(reason)
         self.reason = reason
         self.status_code = status_code
+        self.detail = detail
 
 
 class _Exhausted(Exception):
@@ -577,6 +616,24 @@ class FaceitClient:
     @_only_api_errors
     def get_match(self, match_id: str) -> Match:
         """Ks. portin dokumentaatio."""
+        return _to_match(self.match_payload(match_id))
+
+    @_only_api_errors
+    def match_payload(self, match_id: str) -> Mapping[str, Any]:
+        """Ottelun **raakavastaus** -- samasta välimuistista kuin :meth:`get_match`.
+
+        Portin :class:`~pappascout.adapters.protocols.Match` on tarkoituksella
+        suppeampi kuin vastaus: se ei puhu FACEITin sanastoa. Mutta
+        :class:`FaceitDemoSource` tarvitsee juuri sitä sanastoa --
+        ``instances``-listan, jonka ``round`` kertoo kartan numeron
+        eksplisiittisesti (mitattu 2026-09-05) -- eikä sitä saa nostaa porttiin
+        vain siksi, että tämä moduuli tarvitsee sen sisäisesti.
+
+        Metodi on siksi **adapterien välinen eikä portin osa**: sen näkee vain
+        tämä moduuli. Vaihtoehto olisi ollut toinen hakupolku samalle
+        vastaukselle, ja silloin sama ottelu haettaisiin kahdesti ja kahdella
+        välimuistiavaimella.
+        """
         fetched = self._get(
             f"/matches/{match_id}",
             None,
@@ -587,9 +644,31 @@ class FaceitClient:
             # Keskeneräistä ottelua ei kirjoiteta levylle.
             cache_when=_is_cacheable_match,
         )
-        return _to_match(fetched.payload)
+        return fetched.payload
 
     # -- Kuljetus ------------------------------------------------------------
+
+    @property
+    def session(self) -> Any:
+        """Kuljetus, jolla tämä asiakas puhuu. **Ei suljeta täältä käsin.**
+
+        :class:`FaceitDemoSource` käyttää samaa istuntoa: yksi yhteysvarasto,
+        yksi injektiosauma testeille. Ilman tätä demolähde joutuisi joko
+        avaamaan oman istuntonsa -- jolloin testi voisi mennä verkkoon vaikka
+        asiakas ei mene -- tai lukemaan yksityistä attribuuttia.
+        """
+        return self._session
+
+    def new_budget(self, seconds: float | None = None) -> "_Budget":
+        """Uusi aikabudjetti tämän asiakkaan kellolla.
+
+        Budjetti on **porttikutsukohtainen**, joten sen luo se, joka kutsun
+        aloittaa. Demolähde on niitä kutsujia, eikä sen pidä tuntea kelloa,
+        jonka testi injektoi tälle asiakkaalle.
+        """
+        return _Budget(
+            self.call_budget_seconds if seconds is None else seconds, self._clock
+        )
 
     def _url(self, path: str) -> str:
         return f"{self.base_url}{path}"
@@ -714,12 +793,48 @@ class FaceitClient:
         budget: _Budget,
         cache_advice: bool = False,
     ) -> tuple[Mapping[str, Any], int, int | None]:
-        """Tee kutsu verkkoon ja yritä uudelleen, jos vika voi korjaantua.
+        """Tee JSON-kutsu verkkoon ja yritä uudelleen, jos vika voi korjaantua.
 
         ``cache_advice`` kertoo, välimuistitetaanko tämä kutsu: pysyvän vian
         viestiin kuuluu ohje välimuistin tyhjentämisestä vain silloin, kun
         välimuistissa voi olla jotain. Ottelulistalle sama ohje osoittaisi
         paikkaan, jossa ei ole mitään.
+        """
+        return self._retry(
+            lambda: self._single_request(url, params),
+            what=what,
+            budget=budget,
+            url=url,
+            cache_advice=cache_advice,
+        )
+
+    def _retry(
+        self,
+        call: Callable[[], tuple[Any, int | None]],
+        *,
+        what: str,
+        budget: _Budget,
+        url: str | None,
+        cache_advice: bool = False,
+    ) -> tuple[Any, int, int | None]:
+        """Aja ``call`` uudelleenyrityspolitiikalla ja käännä vika ``ApiError``iksi.
+
+        **Politiikka on täällä ja vain täällä.** Story 3.4:n demolataus tarvitsee
+        täsmälleen saman säännön -- 429 ja 5xx odottamalla, muu 4xx ei koskaan --
+        eikä sitä saa kirjoittaa toiseen kertaan: kaksi kopiota erkanisi, ja
+        kumpikin näyttäisi itsenäisesti oikealta. Ainoa ero on hyötykuorma:
+        JSON-kutsu palauttaa sanakirjan, demolataus avoimen vastauksen.
+
+        Args:
+            call: Yksi yritys. Palauttaa parin ``(arvo, tilakoodi)`` ja nostaa
+                :class:`_Retryable`in tai :class:`_Permanent`in.
+            what: Mitä haettiin, suomeksi. Päätyy virheilmoitukseen.
+            budget: Aikabudjetti koko yritysjoukolle.
+            url: Osoite virheilmoitukseen, tai ``None``. **Demolatauksessa tämä
+                on ``None``**, koska osoite on siellä signattu latauslinkki eli
+                valtuutus -- ja ``ApiError`` on juuri se paikka, jonka kautta se
+                päätyisi lokiin ja ruudulle.
+            cache_advice: Kuuluuko viestiin ohje välimuistin tyhjentämisestä.
         """
         attempts = 0
         #: Viimeisin nähty tilakoodi listassa, jotta sulkeumat voivat kirjoittaa
@@ -727,7 +842,7 @@ class FaceitClient:
         #: lopullinen syy on budjetti eikä vastaus.
         status_seen: list[int | None] = [None]
 
-        def attempt() -> Mapping[str, Any]:
+        def attempt() -> Any:
             nonlocal attempts
             if budget.expired():
                 raise _Exhausted(
@@ -737,7 +852,7 @@ class FaceitClient:
             attempts += 1
             self.requests_made += 1
             try:
-                payload, status = self._single_request(url, params)
+                payload, status = call()
             except (_Retryable, _Permanent) as exc:
                 # Tilakoodi kirjataan myös epäonnistuneesta yrityksestä.
                 # Ilman tätä budjettiin päättynyt haku raportoisi
@@ -814,14 +929,20 @@ class FaceitClient:
             ) from exc
         except _Permanent as exc:
             advice = f"\n{_CACHE_ADVICE}" if cache_advice else ""
-            raise ApiError(
-                f"FACEIT hylkäsi kutsun kun haettiin {what}: {exc.reason}\n"
+            said = f"\nFACEIT sanoi: {exc.detail}" if exc.detail else ""
+            error = ApiError(
+                f"FACEIT hylkäsi kutsun kun haettiin {what}: {exc.reason}"
+                f"{said}\n"
                 "Uudelleenyritystä ei tehty, koska vika ei korjaannu "
                 f"odottamalla.{advice}",
                 status_code=exc.status_code,
                 attempts=attempts,
                 url=url,
-            ) from exc
+            )
+            # Rajapinnan oma teksti kulkee mukana, jotta kutsuja voi rakentaa
+            # tarkemman viestin näkemättä HTTP-kerrosta.
+            error.detail = exc.detail
+            raise error from exc
         except _Exhausted as exc:
             raise ApiError(
                 f"FACEIT-haku ei valmistunut aikabudjetissa kun haettiin "
@@ -1343,3 +1464,733 @@ def _moment(value: Any) -> datetime | None:
         return datetime.fromtimestamp(float(value), UTC)
     except (OverflowError, OSError, ValueError):
         return None
+
+
+# -- Demolähde (Story 3.4) ---------------------------------------------------
+
+
+#: FACEITin Downloads API:n juuri. Vakio samasta syystä kuin
+#: :data:`FACEIT_DATA_API_BASE`: se ei ole säädettävä arvo vaan se, mitä vastaan
+#: tämä moduuli on kirjoitettu. Testi vaihtaa sen parametrilla.
+FACEIT_DOWNLOADS_API_BASE = "https://open.faceit.com/download/v2"
+
+#: Ottelun tilat, joissa demoa **kannattaa yrittää hakea**.
+#:
+#: Kolmas kysymys samasta sanasta, ja siksi kolmas vakio.
+#: :data:`CACHEABLE_MATCH_STATUSES` kysyy "saako vastauksen tallentaa
+#: ikuisesti", ``stages.discover.PLAYED_STATUSES`` kysyy "onko ottelu pelattu",
+#: ja tämä kysyy "voiko tallenteen olettaa syntyneen". Yhteinen vakio sitoisi
+#: kolme eri päätöstä toisiinsa: jos FACEIT joskus lisäisi tilan, jossa ottelu
+#: on pelattu muttei vielä tallennettu, kaksi ensimmäistä haluaisivat sen ja
+#: tämä ei.
+DEMO_READY_STATUSES = frozenset({"FINISHED"})
+
+#: Montako tavua luetaan kerralla. Ei asetus vaan kuljetuksen yksityiskohta.
+DEMO_CHUNK_BYTES = 1024 * 1024
+
+#: Palan koon yläraja. Vartija: koko pala on muistissa yhtaikaa, ja 200 MB:n
+#: pala tekisi virtaavasta latauksesta muistiin lukemisen.
+MAX_DEMO_CHUNK_BYTES = 64 * 1024 * 1024
+
+
+def split_map_demo_id(map_demo_id: str) -> tuple[str, int]:
+    """Pura ``{match_id}-{map_index}`` osiinsa.
+
+    Jako on **viimeisestä väliviivasta** eikä ensimmäisestä: FACEITin
+    ``match_id`` on itsessään muotoa ``1-<uuid>`` ja sisältää viisi väliviivaa.
+    Ensimmäisestä jakaminen antaisi ``match_id``ksi ``"1"`` ja onnistuisi
+    hiljaa -- ottelua ``1`` ei ole, mutta virhe tulisi vasta rajapinnasta ja
+    näyttäisi verkkovialta.
+
+    Raises:
+        ~pappascout.errors.DemoUnavailable: Jos tunniste ei ole tätä muotoa.
+            **Ei ``ApiError``**: väärän muotoinen tunniste ei ole rajapinnan
+            vika, eikä sitä pidä yrittää uudelleen.
+    """
+    head, sep, tail = str(map_demo_id).rpartition("-")
+    if not sep or not head or not tail.isdigit():
+        raise DemoUnavailable(
+            f"Tunniste {map_demo_id!r} ei ole muotoa "
+            "'{match_id}-{map_index}', joten sille ei voi hakea demoa.\n"
+            "Tunnisteen loppuosan on oltava kartan 0-pohjainen järjestysluku."
+        )
+    return head, int(tail)
+
+
+def _round_number(value: Any) -> int | None:
+    """``instances[i].round`` kokonaislukuna, tai ``None`` jos se ei ole luku."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _demo_resource_url(
+    payload: Mapping[str, Any], map_index: int, map_demo_id: str
+) -> str:
+    """Etsi kartan tallenteen osoite ``instances``-listasta.
+
+    **``round`` luetaan, listapositiota ei lasketa.** Mitattu 2026-09-05
+    (``mittaus-faceit-aineisto.md`` luku 9): jokaisella instanssilla on
+    ``round``, joka on kartan **1-pohjainen** numero, eli oikea instanssi on
+    se, jolla ``round == map_index + 1``. Positioon nojaava haku olisi oikein
+    juuri niin kauan kuin jokainen vedon kartta myös pelataan -- ja väärin
+    hiljaa siitä hetkestä alkaen, kun 2-0 päättynyt BO3 jättää yhden
+    pelaamatta. Silloin demo tallentuisi väärän kartan nimellä, eikä mikään
+    kertoisi siitä.
+
+    **Kaikki instanssit käydään läpi, eikä ensimmäinen osuma ole viimeinen
+    sana.** Tyhjä ``demos``-lista oikean ``round``in kohdalla ei enää päätä
+    hakua: sama kartta voi esiintyä useammalla rivillä (uusinta-instanssi,
+    keskeytynyt tallennus), ja ensimmäiseen pysähtyminen ilmoittaisi "ei
+    tallennetta" vaikka seuraavalla rivillä on osoite -- ja tila ``no_demo``
+    on lopullinen, joten virhe olisi pysyvä.
+
+    Raises:
+        ~pappascout.errors.DemoUnavailable: Jos kartalle ei ole instanssia,
+            jos yhdelläkään sen instanssilla ei ole tallennetta, tai jos
+            tallenteita on **useita eikä valintaa voi tehdä**. Kolme eri
+            viestiä, koska ne ovat kolme eri tosiasiaa.
+    """
+    instances = payload.get("instances")
+    rounds_seen: list[int] = []
+    matched = 0
+    urls: list[str] = []
+    if isinstance(instances, Sequence) and not isinstance(instances, (str, bytes)):
+        for entry in instances:
+            if not isinstance(entry, Mapping):
+                continue
+            round_no = _round_number(entry.get("round"))
+            if round_no is None:
+                continue
+            rounds_seen.append(round_no)
+            if round_no != map_index + 1:
+                continue
+            matched += 1
+            demos = entry.get("demos")
+            if isinstance(demos, Sequence) and not isinstance(demos, (str, bytes)):
+                for candidate in demos:
+                    url = _text(candidate)
+                    if url is not None and url not in urls:
+                        urls.append(url)
+
+    if len(urls) == 1:
+        return urls[0]
+
+    if len(urls) > 1:
+        # **Ei hiljaista valintaa.** Monitulkintaisuutta ei ratkaista
+        # arvaamalla (sama sääntö kuin joukkuehaussa): väärä tallenne
+        # tallentuisi oikean nimellä, eikä mikään kertoisi siitä. Adapteri ei
+        # voi kysyä käyttäjältä, joten se kertoo mitä löytyi ja jättää yksikön
+        # tekemättä.
+        listing = "\n".join(f"    {u}" for u in urls)
+        raise DemoUnavailable(
+            f"Kartalle {map_index + 1} on {len(urls)} eri tallennetta "
+            f"({map_demo_id}), eikä työkalu valitse niistä yhtä arvaamalla.\n"
+            f"{listing}\n"
+            "Lataa haluamasi tiedosto käsin ja tuo se arkiston "
+            "import-hakemistoon."
+        )
+
+    if matched:
+        raise DemoUnavailable(
+            f"Ottelulla on kartta {map_index + 1} mutta ei tallennetta "
+            f"siitä ({map_demo_id}).\n"
+            "Kartta pelattiin, mutta FACEIT ei tarjoa siitä demoa. "
+            "Tämä on eri asia kuin poistettu demo."
+        )
+
+    played = (
+        ", ".join(str(n) for n in sorted(set(rounds_seen)))
+        if rounds_seen
+        else "ei yhtäkään"
+    )
+    raise DemoUnavailable(
+        f"Ottelussa ei ole karttaa {map_index + 1} ({map_demo_id}).\n"
+        f"Tallenteita on kartoista: {played}.\n"
+        "Karttaa ei siis pelattu -- ottelu ratkesi sitä ennen. Tämä ei ole "
+        "poistettu demo eikä verkkovirhe."
+    )
+
+
+
+#: Tilakoodi, jolla Downloads API hylkää pyynnön muotovirheenä.
+#:
+#: **Kaksi mahdollista syytä, eikä vastauksesta voi päätellä kumpi.** Mitattu
+#: 2026-09-05 epämuodostuneella tokenilla: tunniste, jota ei voi jäsentää,
+#: tuottaa 400 -- mutta niin tuottaa myös ``resource_url``, jota Downloads API
+#: ei hyväksy. Edellinen koskee kaikkia demoja, jälkimmäinen vain yhtä. Siksi
+#: viesti nimeää molemmat eikä valitse.
+DOWNLOADS_BAD_REQUEST = 400
+
+#: Montako merkkiä rajapinnan omaa virhetekstiä näytetään.
+#:
+#: Katkaistu, koska HTML-virhesivu on kilotavuja ja peittäisi ohjeen. Riittävän
+#: pitkä, jotta JSON-runko ``{"message": "..."}`` mahtuu kokonaan.
+MAX_ERROR_DETAIL_CHARS = 300
+
+#: Tilakoodit, jotka tarkoittavat "tunnisteella ei ole oikeutta".
+#:
+#: **Vain signauskutsussa.** Sama koodi tarkoittaa eri asiaa kahdessa eri
+#: kohdassa: Downloads API:n vastauksena se tarkoittaa "tokenilla ei ole
+#: Downloads-scopea" eli tilannetta, jossa yksikään demo ei voi onnistua;
+#: signatun linkin vastauksena se tarkoittaa vanhentunutta tai väärin
+#: muodostettua allekirjoitusta eli **yhden latauksen** vikaa, joka voi hyvinkin
+#: onnistua uudella linkillä. Niitä ei siis saa käsitellä samoin.
+DOWNLOADS_DENIED_STATUSES = frozenset({401, 403})
+
+#: Mistä Downloads API -hakemuksen tila tarkistetaan.
+DOWNLOADS_STATUS_URL = "https://fc-downloads.loza.gg/"
+
+#: Mistä Downloads API -käyttöoikeutta haetaan.
+DOWNLOADS_APPLICATION_URL = "https://fce.gg/downloads-api-application"
+
+#: Tilakoodit, jotka tarkoittavat "tallennetta ei ole", eivät "yritä uudelleen".
+#:
+#: 404 on tavallinen, 410 (Gone) on sama asia eksplisiittisemmin sanottuna.
+#: Kumpikaan ei korjaannu odottamalla, ja kummankin kohdalla uusi yritys
+#: maksaisi signauskutsun eli Downloads-kiintiötä.
+DEMO_GONE_STATUSES = frozenset({404, 410})
+
+#: Kuinka kauan FACEIT säilyttää tallenteita. **Arvio eikä lupaus**: luku on
+#: epicin oma havainto (``epic-3-context.md``), ei rajapinnan dokumentoima
+#: takuu. Siksi se on virheilmoituksessa sanalla "noin" eikä laskennassa.
+DEMO_RETENTION_DAYS = 30
+
+
+@contextmanager
+def _gone_is_no_demo(
+    payload: Mapping[str, Any], map_demo_id: str
+) -> Iterator[None]:
+    """Käännä 404/410 poissaoloksi ja kerro **miksi** demo on poissa.
+
+    Vaiheen päätös ``no_demo`` vs. ``download_failed`` tehdään tyypistä eikä
+    viestistä (``errors.ApiError``in dokumentaatio sanoo tämän ääneen), joten
+    käännös on tehtävä täällä -- adapteri on ainoa, joka näkee tilakoodin.
+
+    Viesti kertoo ottelun iän, koska pelkkä "ei löytynyt" ei kerro käyttäjälle
+    onko kyseessä odotettu vanheneminen vai jotain muuta. Ikä lasketaan
+    ``finished_at``ista, joka on samassa vastauksessa jo valmiina -- eikä siitä
+    tarvita uutta kutsua.
+    """
+    try:
+        yield
+    except ApiError as exc:
+        if exc.status_code not in DEMO_GONE_STATUSES:
+            raise
+        raise DemoUnavailable(
+            _gone_message(payload, map_demo_id, exc.status_code)
+        ) from None
+
+
+def _gone_message(
+    payload: Mapping[str, Any], map_demo_id: str, status_code: int | None
+) -> str:
+    """Suomenkielinen selitys sille, ettei tallennetta enää ole."""
+    finished = _moment(payload.get("finished_at"))
+    if finished is None:
+        age = (
+            "Ottelun päättymishetkeä ei ollut vastauksessa, joten ikää ei voi "
+            "kertoa."
+        )
+    else:
+        days = max((datetime.now(UTC) - finished).days, 0)
+        age = (
+            f"Ottelu päättyi {finished.date().isoformat()} eli {days} päivää "
+            "sitten."
+        )
+    return (
+        f"FACEIT ei enää tarjoa demoa {map_demo_id} "
+        f"(HTTP {status_code}).\n"
+        f"{age} FACEIT säilyttää tallenteet noin {DEMO_RETENTION_DAYS} "
+        "päivää, joten demo ei palaa eikä sitä yritetä uudelleen.\n"
+        "Jos demo on tallessa jossain käsin ladattuna, kopioi se arkiston "
+        "import-hakemistoon."
+    )
+
+
+def _error_detail(response: Any) -> str | None:
+    """Rajapinnan oma virheteksti lyhennettynä, tai ``None``.
+
+    Poimintajärjestys on tarkin ensin: FACEITin JSON-runko käyttää kenttiä
+    ``message`` ja ``errors[].message``. Jos runko ei ole JSONia, otetaan
+    tekstin alku -- lyhennettynä, koska HTML-virhesivu on kilotavuja ja
+    peittäisi ohjeen.
+
+    ``None`` tarkoittaa "rajapinta ei kertonut", ei tyhjää tekstiä: keksitty
+    selitys olisi pahempi kuin sen puuttuminen.
+    """
+    payload: Any = None
+    try:
+        payload = response.json()
+    except Exception:  # noqa: BLE001 - runko voi olla mitä tahansa
+        payload = None
+
+    if isinstance(payload, Mapping):
+        for key in ("message", "error", "detail"):
+            text = _text(payload.get(key))
+            if text is not None:
+                return text[:MAX_ERROR_DETAIL_CHARS]
+        errors = payload.get("errors")
+        if isinstance(errors, Sequence) and not isinstance(errors, (str, bytes)):
+            for entry in errors:
+                if isinstance(entry, Mapping):
+                    text = _text(entry.get("message"))
+                    if text is not None:
+                        return text[:MAX_ERROR_DETAIL_CHARS]
+
+    raw = _text(getattr(response, "text", None))
+    if raw is None:
+        return None
+    return " ".join(raw.split())[:MAX_ERROR_DETAIL_CHARS]
+
+
+def _content_length(headers: Any) -> int | None:
+    """``Content-Length`` kokonaislukuna, tai ``None`` jos lähde ei kertonut.
+
+    ``None`` on eri asia kuin nolla: keksitty luku muuttaisi ehjän latauksen
+    vajaaksi tai päinvastoin.
+    """
+    if not isinstance(headers, Mapping):
+        return None
+    raw = headers.get("Content-Length")
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        return None
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+class FaceitDemoSource:
+    """FACEITin demolähde: ``map_demo_id`` sisään, tavuvirta ulos.
+
+    Toteuttaa :class:`~pappascout.adapters.protocols.DemoSource`-portin.
+
+    Ketju on neljä askelta, ja jokaisella on oma syynsä olla täällä eikä
+    vaiheessa::
+
+        map_demo_id -> match_id + map_index      (tunnisteen muoto)
+        match_id    -> ottelun raakavastaus      (välimuistista, ei uutta kutsua)
+        instances   -> tallenteen osoite         (round == map_index + 1)
+        osoite      -> signattu linkki -> tavut  (Downloads API)
+
+    **Signattu linkki ei tule ulos tästä luokasta.** Se syntyy
+    :meth:`_sign`issä, kulkee yhteen ``GET``-kutsuun ja katoaa. Se ei ole
+    attribuutti, se ei ole paluuarvo, eikä se ole yhdessäkään
+    virheilmoituksessa: jokainen tämän luokan nostama :class:`ApiError` saa
+    ``url=None``, ja kuljetuksen omat poikkeukset -- joiden viestissä osoite on
+    -- katkaistaan ketjusta (``from None``) sen sijaan että ne liitettäisiin
+    syyksi. Linkki on valtuutus, ei osoite.
+
+    **Lataus tehdään heti.** Signatun linkin TTL on dokumentoimaton, joten
+    linkkiä ei säilötä eikä ladata myöhemmin.
+
+    Args:
+        client: :class:`FaceitClient`, jolta tulevat ottelun tiedot,
+            uudelleenyrityspolitiikka, aikakatkaisu ja kuljetus. **Ei uutta
+            asiakasta**: kaikki FACEIT-kutsut kulkevat yhden luokan läpi
+            (AD-8).
+        downloads_token: Downloads-scopen token. Eri tunniste kuin Data
+            API:n avain, ja siksi oma parametrinsa. Säilötään
+            :class:`~pydantic.SecretStr`inä.
+        downloads_base_url: Downloads API:n juuri. On oltava ``https``, koska
+            token kulkee otsakkeessa.
+        chunk_bytes: Montako tavua luetaan kerralla.
+
+    Raises:
+        ~pappascout.errors.SettingsError: Jos osoite ei ole ``https`` tai palan
+            koko on rajojensa ulkopuolella.
+    """
+
+    def __init__(
+        self,
+        client: FaceitClient,
+        downloads_token: str,
+        *,
+        downloads_base_url: str = FACEIT_DOWNLOADS_API_BASE,
+        chunk_bytes: int = DEMO_CHUNK_BYTES,
+        secrets_path: Path | None = None,
+    ) -> None:
+        self._client = client
+        self._token = SecretStr(downloads_token)
+        #: Mistä token luettiin. **Vain virheilmoitusta varten**: ohje, joka
+        #: kertoo tiedoston nimen mutta ei sen sijaintia, ei ole ohje.
+        self._secrets_path = secrets_path
+        self.downloads_base_url = _check_base_url(downloads_base_url)
+        self.chunk_bytes = _check_int(
+            chunk_bytes, "chunk_bytes", 1, MAX_DEMO_CHUNK_BYTES
+        )
+
+    @classmethod
+    def from_settings(
+        cls, settings: Settings, client: FaceitClient, **kwargs: Any
+    ) -> "FaceitDemoSource":
+        """Rakenna lähde koneen omasta avaintiedostosta.
+
+        **Tämä on ainoa paikka, joka lukee Downloads-tokenin.** Puuttuva token
+        pysäyttää ajon suomenkieliseen ohjeeseen, jossa on tiedoston polku ja
+        tarvittava rivi -- ja se tapahtuu **ennen ensimmäistäkään latausta**,
+        ei kesken sarjan.
+
+        Raises:
+            ~pappascout.errors.SettingsError: Jos token puuttuu tai on tyhjä.
+        """
+        kwargs.setdefault(
+            "secrets_path", settings.secrets_file or secrets_env_path()
+        )
+        return cls(client, settings.require_faceit_downloads_token(), **kwargs)
+
+    def __repr__(self) -> str:
+        """Esitys **ilman tokenia** -- sama syy kuin :meth:`FaceitClient.__repr__`."""
+        return f"FaceitDemoSource(downloads_base_url={self.downloads_base_url!r})"
+
+    # -- Portti --------------------------------------------------------------
+
+    @_only_api_errors
+    def get_demo(self, map_demo_id: str) -> DemoStream:
+        """Ks. portin dokumentaatio."""
+        match_id, map_index = split_map_demo_id(map_demo_id)
+        payload = self._client.match_payload(match_id)
+
+        status = _text(payload.get("status"))
+        if status not in DEMO_READY_STATUSES:
+            raise DemoUnavailable(
+                f"Ottelun {match_id} tila on {status or 'tuntematon'}, ei "
+                "FINISHED, joten demoa ei ole vielä olemassa "
+                f"({map_demo_id}).\n"
+                "Aja komento uudelleen, kun ottelu on pelattu."
+            )
+
+        resource_url = _demo_resource_url(payload, map_index, map_demo_id)
+        # **Molemmat kutsut kääntävät 404:n poissaoloksi.** Sekä linkin vaihto
+        # että itse lataus voivat vastata 404, ja kummassakin se tarkoittaa
+        # samaa: tallennetta ei ole enää olemassa. Ilman tätä käännöstä vaihe
+        # saisi ``ApiError``in, merkitsisi yksikön tilaan ``download_failed``
+        # ja kehottaisi ajamaan komennon uudelleen -- ja jokainen uusi ajo
+        # tekisi ensin signauskutsun eli kuluttaisi Downloads-kiintiötä
+        # demolle, joka ei palaa.
+        with _gone_is_no_demo(payload, map_demo_id):
+            signed = self._sign(resource_url, map_demo_id)
+            return self._open(signed, map_demo_id)
+
+    # -- Latauslinkin vaihto -------------------------------------------------
+
+    def _sign(self, resource_url: str, map_demo_id: str) -> str:
+        """Vaihda tallenteen osoite signattuun latauslinkkiin.
+
+        Kaksivaiheinen siksi, että CDN-osoite ei ole valtuutus: se on julkinen
+        nimi tiedostolle, jonka lataaminen vaatii allekirjoituksen. Vaihto
+        kuluttaa Downloads-kiintiötä, joten sitä ei tehdä varmuuden vuoksi vaan
+        vasta kun tiedetään, että demo aiotaan kirjoittaa.
+
+        **401 ja 403 nousevat täältä omana tyyppinään.** Ne eivät ole yhden
+        demon vika vaan tunnisteen, ja sarjan jatkaminen tekisi yhtä monta
+        tuomittua kutsua kuin otannassa on karttoja.
+        """
+        url = f"{self.downloads_base_url}/demos/download"
+        try:
+            payload, _attempts, _status = self._client._retry(
+                lambda: self._exchange(url, resource_url),
+                what=f"demon {map_demo_id} latauslinkkiä",
+                budget=self._client.new_budget(),
+                # Downloads API:n oma osoite on julkinen eikä sisällä tokenia
+                # -- sen saa näyttää. Signattu linkki ei, ja se ei ole tämä.
+                url=url,
+            )
+        except ApiError as exc:
+            if exc.status_code in DOWNLOADS_DENIED_STATUSES:
+                raise DownloadsAccessDenied(
+                    self._denied_message(exc.status_code),
+                    advice=(
+                        f"Tarkista hakemuksen tila osoitteesta "
+                        f"{DOWNLOADS_STATUS_URL} -- lataus onnistuu vasta kun "
+                        "se on hyväksytty. Uudelleenajo ei auta sitä ennen."
+                    ),
+                ) from None
+            if exc.status_code == DOWNLOADS_BAD_REQUEST:
+                raise ApiError(
+                    self._bad_request_message(
+                        map_demo_id, getattr(exc, "detail", None)
+                    ),
+                    status_code=exc.status_code,
+                    url=url,
+                    advice=(
+                        "Tarkista ensin FACEIT_DOWNLOADS_TOKEN koneesi "
+                        ".env-tiedostosta. Uudelleenajo ei auta ennen kuin "
+                        "syy on korjattu."
+                    ),
+                ) from None
+            raise
+        signed = None
+        inner = payload.get("payload") if isinstance(payload, Mapping) else None
+        if isinstance(inner, Mapping):
+            signed = _text(inner.get("download_url"))
+        if signed is None and isinstance(payload, Mapping):
+            signed = _text(payload.get("download_url"))
+        if signed is None:
+            raise ApiError(
+                f"FACEIT ei antanut latauslinkkiä demolle {map_demo_id}.\n"
+                "Vastaus tuli perille muttei sisältänyt download_url-kenttää.\n"
+                "Tarkista, että FACEIT_DOWNLOADS_TOKEN on Downloads-scopen "
+                "token eikä Data API -avain.",
+                url=url,
+            )
+        return signed
+
+    def _bad_request_message(
+        self, map_demo_id: str, detail: str | None
+    ) -> str:
+        """Mitä 400 voi tarkoittaa -- **molemmat vaihtoehdot, ei valintaa**.
+
+        Mitattu 2026-09-05 epämuodostuneella tokenilla. Kaksi syytä päätyy
+        samaan koodiin, eikä vastauksesta voi päätellä kumpi on kyseessä:
+
+        ``Tunniste on epämuodostunut``
+            Tavallisin: ``.env``-tiedostoa käsin muokatessa lipsahtaa merkki.
+            Silloin **jokainen** demo epäonnistuu identtisesti.
+        ``resource_url on epämuodostunut``
+            Harvinaisempi: FACEITin oma ``instances``-rivi sisältää osoitteen,
+            jota Downloads API ei hyväksy. Silloin vain **tämä** demo
+            epäonnistuu.
+
+        Erottelu on käyttäjälle helppo ja meille mahdoton: jos muutkin demot
+        kaatuvat samaan koodiin, vika on tunnisteessa. Siksi viesti kertoo
+        säännön eikä arvaa vastausta -- ja siksi sarja lopetetaan vasta
+        toistuvuuden perusteella (``stages.fetch.IDENTICAL_FAILURE_LIMIT``).
+
+        Rajapinnan oma virheteksti näytetään, jos se oli vastauksessa: se on
+        havainto, meidän arvauksemme ei.
+        """
+        secrets = self._secrets_path or secrets_env_path()
+        said = f"FACEIT sanoi: {detail}\n" if detail else ""
+        return (
+            f"FACEIT ei hyväksynyt latauslinkkipyyntöä demolle {map_demo_id} "
+            f"(HTTP {DOWNLOADS_BAD_REQUEST}).\n"
+            f"{said}"
+            "Tämä koodi tarkoittaa kahta eri asiaa, eikä vastauksesta voi "
+            "päätellä kumpaa:\n"
+            "  1. Downloads-tunniste on epämuodostunut. Tarkista rivi "
+            "FACEIT_DOWNLOADS_TOKEN\n"
+            f"     tiedostosta {secrets} -- ylimääräinen välilyönti tai "
+            "lainausmerkki riittää.\n"
+            "  2. Tämän kartan tallenneosoite on sellainen, jota Downloads "
+            "API ei hyväksy.\n"
+            "\n"
+            "Erotat ne toisistaan tästä ajosta: jos **kaikki** demot "
+            "epäonnistuvat samaan koodiin, syy on 1; jos vain tämä, syy on 2."
+        )
+
+    def _denied_message(self, status_code: int | None) -> str:
+        """Mitä tehdä, kun Downloads API kieltäytyy. **Odottaminen on osa sitä.**
+
+        Mitattu 2026-09-05 ensimmäisessä oikeassa ajossa: Data API -avain ei
+        kelpaa Downloads API:in, ja käyttöoikeutta haetaan erikseen. Veetin
+        hakemus oli tuolloin jonossa ("In queue -- waiting for review",
+        lähetetty 26.8.2026).
+
+        Yleinen viesti sanoi tästä "vika ei korjaannu odottamalla", ja se on
+        **harhaanjohtava juuri tässä**: väite on tosi uudelleenyrityksestä
+        sekunneissa, mutta epätosi hakemuksesta viikoissa -- ja odottaminen on
+        täsmälleen se, mikä tämän korjaa. Kaksi eri odotusta, ja viestin on
+        erotettava ne.
+        """
+        secrets = self._secrets_path or secrets_env_path()
+        return (
+            f"FACEIT ei myöntänyt lupaa demojen lataukseen (HTTP "
+            f"{status_code}).\n"
+            "Downloads API on erillinen käyttöoikeus: Data API -avain ei kelpaa "
+            "siihen, vaan lupa haetaan omalla hakemuksella.\n"
+            "\n"
+            "Tarkista tässä järjestyksessä:\n"
+            f"  1. Onko hakemuksesi jo hyväksytty? Tila näkyy osoitteessa\n"
+            f"     {DOWNLOADS_STATUS_URL}\n"
+            "  2. Jos hakemusta ei ole, tee se osoitteessa\n"
+            f"     {DOWNLOADS_APPLICATION_URL}\n"
+            "  3. Jos hakemus on hyväksytty, tarkista että tiedoston\n"
+            f"     {secrets}\n"
+            "     rivi FACEIT_DOWNLOADS_TOKEN on Downloads-scopen token eikä "
+            "Data API -avain.\n"
+            "\n"
+            "Komennon ajaminen uudelleen ei auta ennen kuin lupa on myönnetty "
+            "-- mutta hyväksynnän jälkeen se toimii sellaisenaan. Odottaminen "
+            "siis auttaa tässä, vaikka sekunnin päästä tehty uusi yritys ei "
+            "auta."
+        )
+
+    def _exchange(
+        self, url: str, resource_url: str
+    ) -> tuple[Mapping[str, Any], int | None]:
+        """Yksi ``POST`` Downloads API:in. **Token on täällä ja vain täällä.**"""
+        headers = {
+            "Authorization": f"Bearer {self._token.get_secret_value()}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        try:
+            response = self._client.session.post(
+                url,
+                headers=headers,
+                json={"resource_url": resource_url},
+                timeout=self._client.timeout_seconds,
+                # Uudelleenohjaus lähettäisi tokenin osoitteeseen, jota tämä
+                # moduuli ei valinnut -- sama sääntö kuin Data API:lla.
+                allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            raise _Retryable(f"yhteys ei onnistunut ({type(exc).__name__})") from exc
+        except Exception as exc:  # noqa: BLE001 - kuljetus on injektoitavissa
+            raise _Permanent(
+                f"kuljetus nosti poikkeuksen ({type(exc).__name__})"
+            ) from exc
+        return self._as_json(response, "latauslinkkiä")
+
+    def _as_json(
+        self, response: Any, what: str
+    ) -> tuple[Mapping[str, Any], int | None]:
+        """Tarkista tilakoodi ja pura JSON. Sama sääntöjako kuin Data API:lla.
+
+        Pysyvästä virheestä otetaan talteen **rajapinnan oma teksti**: se on
+        havainto siitä, mikä pyynnössä oli vialla, ja usein ainoa tapa erottaa
+        kaksi samaan tilakoodiin päätyvää syytä toisistaan.
+        """
+        status = int(getattr(response, "status_code", 0))
+        retry_after = _retry_after_seconds(getattr(response, "headers", None))
+        if status == _RATE_LIMIT_STATUS:
+            raise _Retryable(
+                "rajapinta rajoitti kutsuja (429)",
+                status_code=status,
+                retry_after=retry_after,
+            )
+        if 500 <= status < 600:
+            raise _Retryable(
+                f"rajapinta palautti palvelinvirheen ({status})",
+                status_code=status,
+                retry_after=retry_after,
+            )
+        if not 200 <= status < 300:
+            raise _Permanent(
+                f"tilakoodi {status}",
+                status_code=status,
+                detail=_error_detail(response),
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise _Permanent(
+                f"vastaus ei ollut JSONia kun haettiin {what} "
+                f"(tilakoodi {status})",
+                status_code=status,
+            ) from exc
+        if not isinstance(payload, Mapping):
+            raise _Permanent(
+                f"vastaus ei ollut olio vaan {type(payload).__name__}",
+                status_code=status,
+            )
+        return payload, status
+
+    # -- Tavuvirta -----------------------------------------------------------
+
+    def _open(self, signed_url: str, map_demo_id: str) -> DemoStream:
+        """Avaa lataus ja palauta virta. **Osoite ei kulje ulos.**"""
+        response, _attempts, _status = self._client._retry(
+            lambda: self._begin(signed_url),
+            what=f"demoa {map_demo_id}",
+            budget=self._client.new_budget(),
+            # Ainoa kohta koko moduulissa, jossa osoite jätetään pois: se on
+            # tässä signattu linkki eli valtuutus tiedostoon.
+            url=None,
+        )
+        return DemoStream(
+            chunks=_stream_chunks(response, self.chunk_bytes, map_demo_id),
+            content_length=_content_length(getattr(response, "headers", None)),
+            on_close=getattr(response, "close", None),
+        )
+
+    def _begin(self, signed_url: str) -> tuple[Any, int | None]:
+        """Yksi ``GET`` signattuun linkkiin; runkoa ei lueta vielä.
+
+        ``allow_redirects=True`` toisin kuin muualla: tähän kutsuun **ei liity
+        otsaketta, joka olisi salainen** -- valtuutus on osoitteessa itsessään,
+        ja CDN ohjaa lataukset rutiininomaisesti. Sama estäminen kuin Data
+        API:lla suojaisi otsakkeelta, jota ei ole, ja rikkoisi latauksen.
+        """
+        # **Poikkeus rakennetaan täällä ja nostetaan lohkon ulkopuolella.**
+        # ``requests``in oman poikkeuksen viestissä on koko signattu osoite.
+        # ``raise ... from exc`` panisi sen ``__cause__``iin, ja pelkkä
+        # ``from None`` ei riitä: Python liittää käsiteltävänä olevan
+        # poikkeuksen ``__context__``iin joka tapauksessa, jolloin valtuutus
+        # jäisi elämään uuden virheen attribuuttina. Except-lohkon
+        # ulkopuolella nostettuna ketjua ei synny lainkaan. Tyyppi kertoo sen,
+        # mikä käyttäjää ohjaa; osoite ei ohjaisi.
+        failure: Exception | None = None
+        response: Any = None
+        try:
+            response = self._client.session.get(
+                signed_url,
+                stream=True,
+                timeout=self._client.timeout_seconds,
+                allow_redirects=True,
+            )
+        except requests.RequestException as exc:
+            failure = _Retryable(f"yhteys ei onnistunut ({type(exc).__name__})")
+        except Exception as exc:  # noqa: BLE001 - kuljetus on injektoitavissa
+            failure = _Permanent(
+                f"kuljetus nosti poikkeuksen ({type(exc).__name__})"
+            )
+        if failure is not None:
+            raise failure
+
+        status = int(getattr(response, "status_code", 0))
+        retry_after = _retry_after_seconds(getattr(response, "headers", None))
+        if status == _RATE_LIMIT_STATUS:
+            raise _Retryable(
+                "rajapinta rajoitti kutsuja (429)",
+                status_code=status,
+                retry_after=retry_after,
+            )
+        if 500 <= status < 600:
+            raise _Retryable(
+                f"rajapinta palautti palvelinvirheen ({status})",
+                status_code=status,
+                retry_after=retry_after,
+            )
+        if not 200 <= status < 300:
+            # **404 päätyy tänne eikä ``_Retryable``iin, ja se on sääntö.**
+            # Poissa oleva demo on tosiasia: FACEIT säilyttää tallenteet noin
+            # 30 päivää, eikä odottaminen tuo takaisin sitä, mikä on poistettu.
+            # Uudelleenyritys kuluttaisi Downloads-kiintiötä varmasti turhaan.
+            raise _Permanent(f"tilakoodi {status}", status_code=status)
+        return response, status
+
+
+def _stream_chunks(
+    response: Any, chunk_bytes: int, map_demo_id: str
+) -> Iterator[bytes]:
+    """Lue vastauksen runko paloina ja käännä kuljetuksen vika ``ApiError``iksi.
+
+    Katkeaminen kesken virran on portin lupauksen alaista siinä missä
+    epäonnistunut avaus: vaihe saa kummastakin ``ApiError``in eikä
+    ``requests``in omaa tyyppiä. Uusi virhe nostetaan except-lohkon
+    **ulkopuolella** samasta syystä kuin :meth:`FaceitDemoSource._begin`issä:
+    kuljetuksen viestissä on signattu osoite, ja ketjuun liitettynä se jäisi
+    elämään uuden poikkeuksen attribuuttina.
+    """
+    failure: Exception | None = None
+    try:
+        for chunk in response.iter_content(chunk_size=chunk_bytes):
+            if chunk:
+                yield chunk
+    except requests.RequestException as exc:
+        failure = ApiError(
+            f"Demon {map_demo_id} lataus katkesi kesken "
+            f"({type(exc).__name__}).\n"
+            "Keskeneräistä tiedostoa ei jätetty arkistoon. Kyseessä on "
+            "ohimenevä vika: aja komento uudelleen."
+        )
+    if failure is not None:
+        raise failure

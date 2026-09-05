@@ -308,7 +308,23 @@ def resolve_demo(archive: ArchivePaths, target: str) -> tuple[str, Path]:
     """Tulkitse käyttäjän antama kohde tiedostoksi ja tunnisteeksi.
 
     Kohde saa olla joko polku demotiedostoon tai pelkkä ``map_demo_id``, jolloin
-    demo etsitään arkiston ``demos/``- ja ``import/``-hakemistoista.
+    demo etsitään **kolmesta paikasta tässä järjestyksessä**:
+
+    1. ``[project].demos_root`` -- ladattujen demojen paikallinen hakemisto,
+       jos asetus on käytössä,
+    2. arkiston ``demos/`` -- sinne ladattiin ennen kuin asetus oli olemassa,
+    3. arkiston ``import/`` -- käsin tuodut demot **kanonisella nimellä**
+       (FACEITin oma ``...-1-1.dem`` ei osu tähän; ks.
+       :meth:`~pappascout.archive.paths.ArchivePaths.demo_dirs`).
+
+    **Järjestys ei ole mielivaltainen.** Kohta 2 on siinä siksi, että
+    paikallisen hakemiston käyttöönotto ei saa tehdä jo ladatuista demoista
+    näkymättömiä; kohta 3 siksi, että tuotu demo käyttäytyy putkessa täsmälleen
+    kuten ladattu -- mikään vaihe ei erota niitä. Kaksi ensimmäistä tulevat
+    :meth:`~pappascout.archive.paths.ArchivePaths.find_demo`ilta, joka on sama
+    lukija kuin ``fetch``in idempotenssitarkistuksella: kaksi eri
+    hakujärjestystä samalle tiedostolle tarkoittaisi, että toinen lataisi sen,
+    minkä toinen jo löytää.
 
     Raises:
         DemoUnavailable: Jos demoa ei löydy. Viesti kertoo, mistä etsittiin.
@@ -322,14 +338,11 @@ def resolve_demo(archive: ArchivePaths, target: str) -> tuple[str, Path]:
     if found is not None:
         return map_demo_id, found
 
-    import_dir = archive.import_dir()
-    for suffix in DEMO_SUFFIXES:
-        path = import_dir / f"{map_demo_id}{suffix}"
-        if path.is_file():
-            return map_demo_id, path
-
-    searched = [str(archive.demo(map_demo_id, s)) for s in DEMO_SUFFIXES]
-    searched += [str(import_dir / f"{map_demo_id}{s}") for s in DEMO_SUFFIXES]
+    searched = [
+        str(directory / f"{map_demo_id}{suffix}")
+        for directory in archive.demo_dirs()
+        for suffix in DEMO_SUFFIXES
+    ]
     listing = "\n".join(f"    {p}" for p in searched)
     raise DemoUnavailable(
         f"Demoa {map_demo_id} ei löytynyt.\n"
@@ -353,8 +366,11 @@ def _demo_fingerprint(archive: ArchivePaths, map_demo_id: str, demo_path: Path) 
             saisi saman tunnisteen, jolloin toisen tulos näyttäisi toisen
             ajantasaiselta tulokselta.
     """
-    meta_path = archive.demo_meta(map_demo_id)
-    if meta_path.is_file():
+    # **Haku eikä kirjoituspolku.** Demo voi olla paikallisessa hakemistossa
+    # tai arkistossa, ja metatiedosto on aina demonsa vieressä; pelkkä
+    # ``demo_meta`` katsoisi vain sinne, minne uusi lataus menisi.
+    meta_path = archive.find_demo_meta(map_demo_id)
+    if meta_path is not None:
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):

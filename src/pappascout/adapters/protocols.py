@@ -11,11 +11,11 @@ periytyä mistään, ja tuonti pysyy kevyenä.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import polars as pl
 
@@ -38,6 +38,8 @@ __all__ = [
     "Match",
     "MatchTeam",
     "RosterPlayer",
+    "DemoSource",
+    "DemoStream",
     "ROUNDS_ADAPTER_COLUMNS",
     "TICKS_ADAPTER_COLUMNS",
     "EVENTS_ADAPTER_COLUMNS",
@@ -800,5 +802,92 @@ class MatchSource(Protocol):
         Raises:
             ~pappascout.errors.ApiError: Jos ottelua ei löydy tai sitä ei
                 saatu haettua.
+        """
+        ...
+
+
+# -- Demojen portti (Story 3.4) ---------------------------------------------
+#
+# Kolmas portti samalla kaavalla: dataluokka + protokolla täällä, ainoa
+# toteutus :mod:`pappascout.adapters.faceit`issa. Vaihe ei tunne HTTP:tä eikä
+# demojen säilytyspaikkaa -- se näkee tunnisteen sisään ja tavuvirran ulos.
+
+
+@dataclass(frozen=True)
+class DemoStream:
+    """Yhden demon tavuvirta ja se, mitä lähde siitä kertoi.
+
+    **Osoitetta ei ole täällä, eikä se ole unohdus.** Signattu latauslinkki on
+    valtuutus eikä osoite: se, jolla se on, saa tiedoston. Jos se kulkisi
+    portin läpi, se olisi kutsujan muuttuja -- ja muuttujasta tulee ennen pitkää
+    lokirivi, virheilmoitus tai kenttä metatiedostossa. Portti ottaa siksi
+    ``map_demo_id``:n ja palauttaa tavut; linkki syntyy ja kuolee adapterin
+    sisällä.
+
+    **Virta luetaan kerran.** ``chunks`` on iteraattori eikä lista, koska
+    pakattu demo on 142-223 MB (mitattu 2026-09-05) eikä sitä lueta muistiin
+    kokonaan. Sama syy kieltää toisen lukukerran: kutsuja laskee tiivisteen
+    samalla kun kirjoittaa, ei jälkikäteen.
+
+    Attributes:
+        chunks: Tavupalat siinä järjestyksessä kuin lähde ne antaa. Palan koko
+            on lähteen päätös; kutsuja ei saa olettaa siitä mitään.
+        content_length: Odotettu koko tavuina, **jos lähde sen kertoi**.
+            ``None`` tarkoittaa "lähde ei kertonut" eikä "nolla tavua":
+            keksitty luku muuttaisi ehjän latauksen vajaaksi. Kun luku on,
+            kutsuja vertaa sitä kirjoitettuun määrään -- juuri se erottaa
+            katkenneen latauksen valmiista.
+        on_close: Funktio, joka vapauttaa lähteen resurssit (avoin yhteys), tai
+            ``None``. Kutsutaan :meth:`close`sta, jonka
+            ``with``-lause hoitaa.
+    """
+
+    chunks: Iterable[bytes]
+    content_length: int | None = None
+    on_close: Callable[[], None] | None = None
+
+    def close(self) -> None:
+        """Vapauta lähteen resurssit. Turvallinen kutsua monta kertaa."""
+        if self.on_close is not None:
+            self.on_close()
+
+    def __enter__(self) -> "DemoStream":
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.close()
+
+
+@runtime_checkable
+class DemoSource(Protocol):
+    """Portti, jonka takaa vaihe näkee demot.
+
+    Yksi metodi, koska vaihe tarvitsee yhden asian: tavut. Kaikki muu --
+    ottelun haku, ``instances``-rakenne, latauslinkin vaihto, uudelleenyritys --
+    on toteutuksen sisällä, ja juuri siksi ``fetch``-vaiheen testit ajautuvat
+    ilman verkkoa.
+    """
+
+    def get_demo(self, map_demo_id: str) -> DemoStream:
+        """Avaa demon tavuvirta.
+
+        Args:
+            map_demo_id: Yksikön tunniste muotoa ``{match_id}-{map_index}``.
+                **Portti ei ota osoitetta eikä ottelua ja kartan numeroa
+                erikseen**: tunniste on se, minkä arkisto tuntee, ja
+                toteutuksen tehtävä on ratkaista se lähteen omalla sanastolla.
+
+        Returns:
+            :class:`DemoStream`, joka on suljettava (``with``-lause).
+
+        Raises:
+            ~pappascout.errors.DemoUnavailable: Kun demoa ei ole -- ottelua ei
+                ole pelattu, kartalle ei ole tallennetta, tai lähde on jo
+                poistanut sen. **Oma tyyppinsä eikä ``ApiError``**, koska
+                kutsujan päätös on eri: tämä on yksikön tila ``no_demo``, ja se
+                on lopullinen tosiasia, jota ei yritetä uudelleen.
+            ~pappascout.errors.ApiError: Kun lähde ei vastannut tai lataus
+                epäonnistui. Kutsujalle tämä on ``download_failed`` eli
+                tilanne, joka voi korjaantua uudella ajolla.
         """
         ...

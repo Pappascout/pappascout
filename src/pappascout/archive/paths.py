@@ -35,6 +35,7 @@ from pappascout.errors import PappascoutError
 __all__ = [
     "ArchivePaths",
     "ARCHIVE_ROOT_ENV_VAR",
+    "DEMOS_ROOT_ENV_VAR",
     "safe_component",
     "DEMO_SUFFIXES",
     "DEFAULT_DEMO_SUFFIX",
@@ -91,6 +92,16 @@ _MANIFEST_SUFFIX = ".manifest.json"
 #: Ympäristömuuttuja, jolla arkiston juuren voi ylikirjoittaa koneittain ilman
 #: että versioitua settings.tomlia tarvitsee muokata.
 ARCHIVE_ROOT_ENV_VAR = "PAPPASCOUT_ARCHIVE_ROOT"
+
+#: Ympäristömuuttuja, jolla demohakemiston voi ylikirjoittaa erikseen.
+#:
+#: **Olemassa siksi, että arkiston ohittaminen olisi muuten puolinainen.**
+#: ``PAPPASCOUT_ARCHIVE_ROOT`` on olemassa juuri sitä varten, että ajon voi
+#: ohjata testiarkistoon koskematta tuotannon tiedostoihin -- mutta
+#: ``demos_root`` on arkiston ulkopuolinen polku, eikä se seuraisi mukana.
+#: Testiarkistoa vasten ajettu ``fetch`` kirjoittaisi ja lukisi tuotannon
+#: demohakemistoa, hiljaa ja täysin vahingossa.
+DEMOS_ROOT_ENV_VAR = "PAPPASCOUT_DEMOS_ROOT"
 
 #: Polun osaan kelpaavat merkit. Tunnisteet (team_key, map_demo_id, host) tulevat
 #: FACEITista ja käyttäjän asetuksista, joten niitä ei interpoloida polkuun
@@ -356,13 +367,21 @@ _UNEXPANDED_VAR = (
 )
 
 
-def _check_expanded(expanded: str, raw: str, source: str) -> None:
+def _check_expanded(
+    expanded: str,
+    raw: str,
+    source: str,
+    subject: str = "Arkiston juuren polussa",
+) -> None:
     """Kaadu, jos ympäristömuuttuja jäi laajentamatta.
 
     Args:
         expanded: ``os.path.expandvars``in tulos.
         raw: Alkuperäinen arvo, virheviestiä varten.
         source: Mistä arvo tuli, jotta käyttäjä tietää mitä korjata.
+        subject: Minkä polun kyse on. Sama vartija koskee myös arkiston
+            ulkopuolista ``demos_root``ia, ja väärä nimi viestissä ohjaisi
+            korjaamaan väärää riviä.
 
     Raises:
         PappascoutError: Viesti nimeää puuttuvan muuttujan.
@@ -372,7 +391,7 @@ def _check_expanded(expanded: str, raw: str, source: str) -> None:
         return
     name = match.group(1) or match.group(2)
     raise PappascoutError(
-        f"Arkiston juuren polussa on ympäristömuuttuja {name}, jota ei ole "
+        f"{subject} on ympäristömuuttuja {name}, jota ei ole "
         f"asetettu tällä koneella.\n"
         f"Arvo tulee kohteesta {source} ja on {raw!r}.\n"
         f"Aseta {name} tai kirjoita polku kokonaan auki. Ilman tätä "
@@ -387,21 +406,46 @@ class ArchivePaths:
 
     Kaikki modulitason polkufunktiot ovat saatavilla metodeina, jotka palauttavat
     ``Path``-olion. Suhteellisen muodon saa aina funktioista suoraan.
+
+    Attributes:
+        root: Arkiston juuri (OneDrive).
+        demos_root: Ladattujen demojen paikallinen hakemisto arkiston
+            **ulkopuolella**, tai ``None``. Ks.
+            :attr:`~pappascout.domain.models.ProjectSettings.demos_root`.
+            Tämä on ainoa polku tässä luokassa, joka ei ole arkiston sisällä,
+            ja siksi se on oma kenttänsä eikä johdettavissa juuresta.
     """
 
     root: Path
+    demos_root: Path | None = None
 
     @classmethod
-    def from_settings(cls, archive_root: Path | str) -> ArchivePaths:
+    def from_settings(
+        cls, archive_root: Path | str, demos_root: Path | str | None = None
+    ) -> ArchivePaths:
         """Rakenna arkistopolut asetuksen arvosta.
 
         Polku laajennetaan kahdesti, jotta sama versioitu ``settings.toml``
         toimii molemmilla koneilla: ``%USERPROFILE%``-tyyliset
-        ympäristömuuttujat ja ``~`` korvataan koneen omilla arvoilla.
+        ympäristömuuttujat ja ``~`` korvataan koneen omilla arvoilla. Sama
+        laajennus tehdään ``demos_root``ille -- muuten paikallinen hakemisto
+        olisi ainoa polku, jota ei voi kirjoittaa koneriippumattomasti.
 
         Ympäristömuuttuja ``PAPPASCOUT_ARCHIVE_ROOT`` ylikirjoittaa asetuksen
         kokonaan -- se on tapa osoittaa toinen arkisto muokkaamatta versioitua
         tiedostoa.
+
+        **Arkiston ohittaminen vie demot mukanaan.** Kun
+        ``PAPPASCOUT_ARCHIVE_ROOT`` on asetettu, ``demos_root`` jätetään
+        huomiotta ja demot menevät ohjatun arkiston omaan ``demos/``iin.
+        Muuten testiarkistoa vasten ajettu ``fetch`` kirjoittaisi ja lukisi
+        **tuotannon** demohakemistoa -- ja koska idempotenssi katsoo vain
+        tiedoston olemassaoloa, testiajo näyttäisi onnistuvan lataamatta mitään
+        ja voisi ylikirjoittaa oikeita tiedostoja. Eristys ei ole eristys, jos
+        se koskee vain osaa poluista.
+
+        ``PAPPASCOUT_DEMOS_ROOT`` ylikirjoittaa molemmat: se on tapa sanoa
+        eksplisiittisesti "demot tänne" silloinkin, kun arkisto on ohjattu.
 
         Raises:
             PappascoutError: Jos laajennuksen jälkeen polussa on yhä
@@ -421,7 +465,30 @@ class ArchivePaths:
         )
         expanded = os.path.expandvars(str(raw))
         _check_expanded(expanded, raw, source)
-        return cls(root=Path(expanded).expanduser())
+
+        demos_override = os.environ.get(DEMOS_ROOT_ENV_VAR)
+        if demos_override:
+            raw_demos: str | None = demos_override
+            demos_source = f"ympäristömuuttuja {DEMOS_ROOT_ENV_VAR}"
+        elif override:
+            # Ohjattu arkisto vie demot mukanaan; ks. metodin docstring.
+            raw_demos = None
+            demos_source = ""
+        else:
+            raw_demos = None if demos_root is None else str(demos_root)
+            demos_source = "asetus [project].demos_root"
+
+        local: Path | None = None
+        if raw_demos is not None and raw_demos.strip():
+            expanded_demos = os.path.expandvars(raw_demos)
+            _check_expanded(
+                expanded_demos,
+                raw_demos,
+                demos_source,
+                subject="Demohakemiston polussa",
+            )
+            local = Path(expanded_demos).expanduser()
+        return cls(root=Path(expanded).expanduser(), demos_root=local)
 
     def resolve(self, relative: PurePosixPath | str) -> Path:
         """Liitä suhteellinen arkistopolku juureen.
@@ -472,19 +539,105 @@ class ArchivePaths:
     def next_opponent(self, team_key: str) -> Path:
         return self.resolve(next_opponent(team_key))
 
+    def demos_dir(self) -> Path:
+        """Hakemisto, **johon demot kirjoitetaan**.
+
+        Paikallinen :attr:`demos_root`, jos se on asetettu, muuten arkiston oma
+        ``demos/``. Yksi metodi eikä ehto joka kutsupaikassa: levytilatarkistus,
+        kirjoitus ja tuloste tarvitsevat kaikki saman vastauksen, ja kolme
+        erillistä ehtoa erkanisi.
+        """
+        if self.demos_root is not None:
+            return self.demos_root
+        return self.resolve(PurePosixPath("demos"))
+
+    def archive_demos_dir(self) -> Path:
+        """Arkiston oma ``demos/`` -- **myös silloin kun demot menevät muualle**.
+
+        Tarvitaan erikseen, koska paikallisen hakemiston käyttöönotto ei saa
+        kadottaa niitä demoja, jotka ehdittiin ladata arkistoon.
+        """
+        return self.resolve(PurePosixPath("demos"))
+
     def demo(self, map_demo_id: str, suffix: str = DEFAULT_DEMO_SUFFIX) -> Path:
-        return self.resolve(demo(map_demo_id, suffix))
+        """Demon **kirjoituspolku**: :meth:`demos_dir` + tunniste.
+
+        Huom: tämä ei ole enää aina ``resolve(demo(...))``. Modulitason
+        :func:`demo` kertoo arkiston sisäisen suhteellisen polun, ja se on yhä
+        oikea vastaus kysymykseen "missä arkistossa demo olisi" -- mutta
+        kysymys "minne tämä demo kirjoitetaan" voi osoittaa arkiston
+        ulkopuolelle.
+        """
+        name = f"{safe_component(map_demo_id, 'map_demo_id')}{suffix}"
+        return self.demos_dir() / name
 
     def find_demo(self, map_demo_id: str) -> Path | None:
-        """Etsi demo tuetuista päätteistä. ``None``, jos demoa ei ole."""
-        for suffix in DEMO_SUFFIXES:
-            candidate = self.demo(map_demo_id, suffix)
+        """Etsi demo **kaikista sijainneista**. ``None``, jos demoa ei ole.
+
+        Järjestys on paikallinen hakemisto ensin, arkisto toisena. Se on sama
+        järjestys kuin :func:`~pappascout.stages.parse.resolve_demo`illa (joka
+        jatkaa vielä ``import/``iin), ja yhteinen järjestys on tässä koko
+        idempotenssin ehto: **arkistoon aiemmin ladattua demoa ei saa ladata
+        uudelleen paikalliseen hakemistoon.** Jos haku katsoisi vain sinne,
+        minne kirjoitetaan, asetuksen käyttöönotto lataisi koko otannan
+        toistamiseen ja kuluttaisi Downloads-kiintiön turhaan.
+        """
+        for directory in self.demo_dirs():
+            for suffix in DEMO_SUFFIXES:
+                candidate = (
+                    directory
+                    / f"{safe_component(map_demo_id, 'map_demo_id')}{suffix}"
+                )
+                if candidate.is_file():
+                    return candidate
+        return None
+
+    def demo_meta(self, map_demo_id: str) -> Path:
+        """Metatiedoston **kirjoituspolku** -- aina demon vieressä.
+
+        Sama hakemisto kuin demolla eikä koskaan eri: metatiedosto on väite
+        juuri siitä tiedostosta, ja eri hakemistoissa ne erkanisivat heti kun
+        toinen kopioidaan tai poistetaan.
+        """
+        name = f"{safe_component(map_demo_id, 'map_demo_id')}.meta.json"
+        return self.demos_dir() / name
+
+    def find_demo_meta(self, map_demo_id: str) -> Path | None:
+        """Etsi metatiedosto samassa järjestyksessä kuin :meth:`find_demo`."""
+        name = f"{safe_component(map_demo_id, 'map_demo_id')}.meta.json"
+        for directory in self.demo_dirs():
+            candidate = directory / name
             if candidate.is_file():
                 return candidate
         return None
 
-    def demo_meta(self, map_demo_id: str) -> Path:
-        return self.resolve(demo_meta(map_demo_id))
+    def demo_dirs(self) -> tuple[Path, ...]:
+        """Hakemistot **hakujärjestyksessä**.
+
+        1. paikallinen ``demos_root``, jos asetettu -- sinne uudet lataukset
+           menevät,
+        2. arkiston ``demos/`` -- sinne ne menivät ennen asetusta,
+        3. arkiston ``import/`` -- käsin tuodut demot.
+
+        **Yksi järjestys, jota sekä haku että idempotenssi käyttävät.** Jos
+        ``fetch`` katsoisi eri paikoista kuin ``parse``, toinen lataisi sen,
+        minkä toinen jo löytää.
+
+        **``import/`` löytää vain kanonisella nimellä tallennetun demon**, ja
+        se on tämän hetken totuus eikä toive. FACEITin oma tiedostonimi on
+        ``{match_id}-{round}-{instance}`` (``...-1-1.dem``), kun taas arkiston
+        tunniste on ``{match_id}-{map_index}`` (``...-0``) -- selaimella
+        ladattu tiedosto ei siis osu tähän hakuun lainkaan, eikä sillä ole
+        ``.meta.json``ia, jota idempotenssi vaatii. Käsin tuodun demon
+        nimeäminen ja metatiedoston kirjoittaminen on **Story 3.6**, ja
+        ``instances[].id`` on se silta, jolla se tehdään. Siihen asti
+        selaimella haettu demo latautuu uudelleen FACEITista, ja se on
+        tiedostettu puute -- ei väite että näin ei kävisi.
+        """
+        dirs = [] if self.demos_root is None else [self.demos_root]
+        dirs.append(self.archive_demos_dir())
+        dirs.append(self.import_dir())
+        return tuple(dirs)
 
     def parsed_root(self) -> Path:
         return self.resolve(parsed_root())

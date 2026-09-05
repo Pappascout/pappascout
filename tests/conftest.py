@@ -295,6 +295,7 @@ LEAKY_ENV_VARS = (
     "FACEIT_API_KEY",
     "FACEIT_DOWNLOADS_TOKEN",
     "PAPPASCOUT_SETTINGS",
+    "PAPPASCOUT_DEMOS_ROOT",
     ARCHIVE_ROOT_ENV_VAR,
 )
 
@@ -371,10 +372,44 @@ def settings_text(archive_root: Path | str, **replacements: str) -> str:
 
 @pytest.fixture
 def settings_file(tmp_path: Path) -> Path:
-    """Kopio oikeasta ``settings.toml``ista, arkisto ohjattuna tmp_pathiin."""
+    """Kopio oikeasta ``settings.toml``ista, arkisto ohjattuna tmp_pathiin.
+
+    Demot menevät arkiston omaan ``demos/``iin, koska niin tekee myös
+    versioitu asetustiedosto. Toinen moodi on
+    :func:`settings_file_local_demos`, ja **molemmat on ajettava komennon
+    läpi**: se moodi, jota fixture ei kata, ei kulje CLI:stä kertaakaan, ja sen
+    rikkoutuminen näkyisi vain vaihetesteissä.
+    """
     archive_dir = tmp_path / "arkisto"
     target = tmp_path / "settings.toml"
     target.write_text(settings_text(archive_dir), encoding="utf-8")
+    return target
+
+
+#: Missä ladatut demot ovat, kun ``[project].demos_root`` on käytössä.
+LOCAL_DEMOS_DIRNAME = "paikalliset-demot"
+
+
+@pytest.fixture
+def settings_file_local_demos(tmp_path: Path) -> Path:
+    """Sama asetustiedosto, mutta demot arkiston **ulkopuolelle**.
+
+    Rivi on versioidussa tiedostossa kommentoituna (arkisto on oletus, koska se
+    seuraa koneelta toiselle ja OneDrive vapauttaa parsitun demon tilan
+    poistamatta tiedostoa). Se on silti tuettu moodi -- ja tuettu moodi, jota
+    mikään komentotesti ei aja, on moodi jonka rikkoutumisen huomaa vasta
+    käyttäjä.
+    """
+    archive_dir = tmp_path / "arkisto"
+    target = tmp_path / "settings.toml"
+    text = settings_text(archive_dir)
+    marker = "# demos_root = "
+    assert marker in text, "versioidusta settings.tomlista puuttuu demos_root-rivi"
+    line = next(r for r in text.splitlines() if r.startswith(marker))
+    text = text.replace(
+        line, f"demos_root = '{tmp_path / LOCAL_DEMOS_DIRNAME}'", 1
+    )
+    target.write_text(text, encoding="utf-8")
     return target
 
 

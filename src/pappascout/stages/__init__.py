@@ -77,5 +77,10 @@ def archive_paths(project: ProjectSettings) -> ArchivePaths:
 
     Tämä on ``cli``:n ainoa tie arkistoon: komentorivi ei tuo ``archive``-
     pakettia itse, vaan pyytää polut tästä kerroksesta.
+
+    Mukana kulkee myös ``demos_root``, joka on ainoa polku arkiston
+    ulkopuolella. Se annetaan tässä eikä jokaisessa vaiheessa erikseen, jotta
+    demojen sijainti on **yksi päätös yhdessä paikassa**: vaihe, joka lukisi
+    asetuksen itse, päättäisi ennen pitkää eri tavalla kuin naapurinsa.
     """
-    return ArchivePaths.from_settings(project.archive_root)
+    return ArchivePaths.from_settings(project.archive_root, project.demos_root)

@@ -244,10 +244,37 @@ class _Section(BaseModel):
 
 
 class ProjectSettings(_Section):
-    """``[project]`` -- oma joukkue, arkisto ja ajon perusasetukset."""
+    """``[project]`` -- oma joukkue, arkisto ja ajon perusasetukset.
+
+    Attributes:
+        own_team_name: Oma joukkue.
+        archive_root: Arkiston juuri. OneDrivessa ja molempien koneiden
+            yhteinen.
+        demos_root: **Ladattujen demojen hakemisto arkiston ulkopuolella**,
+            tai ``None`` = arkiston oma ``demos/``.
+
+            **Oletus on ``None``, ja se on päätös eikä puuttuva arvo**
+            (2026-09-05). Arkisto on OneDrivessa ja seuraa koneelta toiselle;
+            paikallisessa kansiossa olevat demot eivät seuraa, ja toisella
+            koneella ne haettaisiin FACEITista uudelleen -- mikä onnistuu vain
+            noin 30 päivän ajan. Lisäksi OneDriven Files On-Demand vapauttaa
+            parsitun demon paikallisen tilan **poistamatta tiedostoa**, kun taas
+            paikallisessa kansiossa tilan vapauttaminen on lopullinen poisto.
+            Kokoero (demo 142-223 MB, sen parsittu tulos noin 1 MB) puoltaisi
+            paikallista hakemistoa, mutta se ratkaisee vain levytilan -- ja
+            pilvi ratkaisee sen ilman että aineisto jää yhdelle koneelle.
+
+            Asetus on silti olemassa, koska levytila voi loppua koneella, jolla
+            pilvi ei ole vaihtoehto. Sen vaihtaminen **ei lataa mitään
+            uudelleen**: arkistossa jo olevat demot löytyvät yhä (ks.
+            :meth:`~pappascout.archive.paths.ArchivePaths.find_demo`).
+        language: Käyttöliittymän kieli.
+        lock_ttl_seconds: Arkiston lukon vanhenemisaika.
+    """
 
     own_team_name: str
     archive_root: Path
+    demos_root: Path | None = None
     language: Literal["fi"] = "fi"
     lock_ttl_seconds: PositiveInt = 600
 

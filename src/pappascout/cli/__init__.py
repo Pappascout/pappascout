@@ -50,6 +50,7 @@ from pappascout.stages import StageResult, archive_paths
 from pappascout.stages import aggregate as aggregate_stage
 from pappascout.stages import classify as classify_stage
 from pappascout.stages import discover as discover_stage
+from pappascout.stages import fetch as fetch_stage
 from pappascout.stages import parse as parse_stage
 from pappascout.stages import render as render_stage
 from pappascout.stages import select as select_stage
@@ -211,6 +212,11 @@ def _render_info(settings: Settings, show_size: bool = False) -> str:
 
     lines.append("Arkisto")
     lines.append(f"  Polku              {archive.root}")
+    # **Demojen sijainti on kerrottava, kun se ei ole arkistossa.** Ladattu
+    # demo voi olla paikallisella levyllä OneDriven ulkopuolella (Story 3.4),
+    # eikä käyttäjän pidä joutua avaamaan asetustiedostoa nähdäkseen missä.
+    demos_note = " (paikallinen)" if archive.demos_root is not None else ""
+    lines.append(f"  Demot              {archive.demos_dir()}{demos_note}")
     if not archive.exists():
         lines.append(
             "  Tila               puuttuu -- hakemisto luodaan ensimmäisellä ajolla"
@@ -612,6 +618,211 @@ def _select_rejections(stats: dict) -> list[str]:
             f"  (+{hidden} muuta -- koko luettelo syineen on valintatiedostossa)"
         )
     return lines
+
+
+#: Viesti, kun latausta ei tehdä käyttäjän vastauksen takia.
+#:
+#: Yksi merkkijono eikä kaksi: kieltävä vastaus ja vastaamatta jättäminen ovat
+#: sama lopputulos, ja kaksi eri sanamuotoa antaisi ymmärtää että ne eroavat.
+_PERUTTU = "Peruttu. Yhtään demoa ei ladattu."
+
+#: Vastaukset, jotka luetaan myöntymiseksi.
+#:
+#: ``k`` ja ``kyllä`` ovat ne, joita suomenkieliseltä käyttöliittymältä
+#: odotetaan. ``y`` ja ``yes`` ovat mukana siksi, että sormi muistaa ne
+#: jokaisesta muusta työkalusta -- niiden hylkääminen olisi periaatteellista
+#: eikä hyödyllistä. **Ei-vastausta ei luetella**: mikä tahansa muu kuin
+#: myöntyminen on ei, koska väärin ymmärretty vastaus ei saa johtaa lataukseen.
+_MYONTYMISET = frozenset({"k", "kylla", "kyllä", "y", "yes", "j", "joo"})
+
+
+def _vahvista(kysymys: str) -> None:
+    """Kysy vahvistus **suomeksi** ja keskeytä siististi, jos vastaus on ei.
+
+    ``typer.confirm`` ei kelpaa: sen vaihtoehdot ovat ``[y/N]`` ja sen
+    keskeytysviesti ``Aborted.``, eli käyttäjän pitäisi painaa ``y`` ja lukea
+    englantia työkalussa, jonka jokainen muu rivi on suomeksi.
+
+    Kieltävä vastaus **ei ole virhe**: käyttäjä sai kysymyksen ja vastasi
+    siihen. Siksi paluukoodi on 0 ja viesti toteaa mitä tapahtui, eikä
+    ``Aborted.``, joka näyttää siltä kuin jokin olisi mennyt pieleen.
+    """
+    try:
+        vastaus = typer.prompt(f"{kysymys} [k/e]", default="e", show_default=False)
+    except (typer.Abort, EOFError):
+        # **Sama viesti kuin kieltävälle vastaukselle, ja samasta syystä.**
+        # Ilman syötettä ajettu komento (putki, ajastin, Ctrl-C) saa EOF:n, ja
+        # silloin ``typer`` keskeyttää **omalla** viestillään ``Aborted.``
+        # ennen kuin alla oleva koodi näkee mitään. Se on sama englanninkielinen
+        # sana, jonka tämän funktion oli tarkoitus poistaa -- se vain tulee eri
+        # reittiä. Vastaamatta jättäminen on sekin vastaus, ja se on "ei".
+        typer.echo("")
+        typer.echo(_PERUTTU)
+        raise typer.Exit() from None
+    if str(vastaus).strip().lower() not in _MYONTYMISET:
+        typer.echo(_PERUTTU)
+        raise typer.Exit()
+
+
+@app.command("fetch")
+def fetch(
+    team: str = typer.Option(
+        ...,
+        "--team",
+        help=(
+            "Joukkueen nimi, sen yksikäsitteinen osa tai joukkuetunniste. "
+            "Kirjainkoolla ei ole väliä. Monitulkintainen nimi listaa "
+            "vaihtoehdot eikä valitse mitään."
+        ),
+    ),
+    kylla: bool = typer.Option(
+        False,
+        "--kylla",
+        help="Älä kysy vahvistusta. Suunnitelma näytetään silti.",
+    ),
+) -> None:
+    """Lataa joukkueen otantaan valitut demot levylle.
+
+    Komento lukee index/selections/<team_key>.json -tiedoston ja hakee ne
+    kartat, joilla roster_ok on tosi ja joita ei vielä ole levyllä. Aja ensin
+    select, jos valintatiedostoa ei ole.
+
+    Demot kirjoitetaan asetuksen [project].demos_root osoittamaan hakemistoon,
+    tai arkiston demos-hakemistoon jos asetusta ei ole. Demo, joka on jo
+    kummassa tahansa, ohitetaan -- eli asetuksen käyttöönotto ei lataa mitään
+    uudelleen.
+
+    Lataus on turvallinen ajaa uudelleen, ja yhden demon epäonnistuminen ei
+    keskeytä muita. Demo, jota FACEIT ei enää tarjoa, merkitään tilaan no_demo
+    syyn kanssa -- se ei ole virhe vaan tosiasia, eikä sitä yritetä uudelleen.
+
+    Ennen latausta näytetään montako demoa haetaan, minne ja paljonko
+    levytilaa ne vievät, ja kysytään vahvistus. Lataus kuluttaa FACEITin
+    Downloads-kiintiötä ja satoja megatavuja levytilaa, joten kysymys on
+    tarkoituksellinen; --kylla ohittaa sen.
+    """
+    settings = load_settings()
+    archive = archive_paths(settings.project)
+
+    team_key = fetch_stage.resolve_team_key(archive, team)
+    todo = fetch_stage.plan(archive, team_key)
+    free = fetch_stage.free_space(archive)
+    typer.echo(_render_fetch_plan(todo, free, str(archive.demos_dir())))
+
+    if not todo.pending:
+        return
+
+    # **Levytilan portti on ennen kysymystä.** Vahvistuksen pyytäminen
+    # lataukselle, joka ei mahdu levylle, olisi kysymys johon ei ole oikeaa
+    # vastausta. Vaihe tarkistaa saman uudelleen jokaisen demon kohdalla --
+    # tila voi loppua kesken sarjan.
+    need = fetch_stage.DEMO_SIZE_ESTIMATE_BYTES + fetch_stage.DISK_RESERVE_BYTES
+    if free is not None and free < need:
+        raise PappascoutError(
+            "Levytila ei riitä yhdenkään demon lataukseen: hakemiston "
+            f"{archive.demos_dir()} levyllä on vapaana "
+            f"{fetch_stage.size_fi(free)}, ja yksi demo varmuusvaroineen "
+            f"vaatii {fetch_stage.size_fi(need)}.\n"
+            "Vapauta tilaa poistamalla jo parsittuja demoja (parsed-taulut "
+            "säilyvät) tai osoita demot toiselle levylle asetuksella "
+            "[project].demos_root."
+        )
+
+    if not kylla:
+        _vahvista("Ladataanko nämä demot?")
+
+    source = fetch_stage.default_source(settings, archive)
+    results = fetch_stage.run_many(archive, todo.pending, source=source)
+    typer.echo(_render_fetch(results, todo))
+
+
+def _fetch_failures(heading: str, results) -> list[str]:
+    """Yksi lohko epäonnistumisia: **jokainen rivi syineen ja neuvoineen**.
+
+    Neuvo tulostetaan omalle rivilleen syyn alle eikä otsikkoon, koska kahdella
+    eri syystä epäonnistuneella yksiköllä on kaksi eri neuvoa -- ja yhteinen
+    otsikko voi olla oikea enintään toiselle niistä.
+    """
+    if not results:
+        return []
+    lines = ["", f"{heading} ({len(results)}):"]
+    for result in results:
+        lines.append(f"  {result.unit}")
+        for row in str(result.reason or "").splitlines():
+            lines.append(f"    {row}")
+        step = str(result.stats.get("next_step", "")).strip()
+        if step:
+            lines.append(f"    -> {step}")
+    return lines
+
+
+def _render_fetch_plan(todo, free: int | None, demos_dir: str) -> str:
+    """Suunnitelma **ennen** latausta: montako, minne, paljonko tilaa.
+
+    Vapaa tila on mukana siksi, ettei kysymys ole vastattavissa ilman sitä:
+    "12 demoa, 2,6 Gt" on eri kysymys levyllä, jolla on 100 Gt vapaana kuin
+    levyllä, jolla on 3 Gt. Kohdehakemisto on mukana samasta syystä -- demot
+    voivat mennä arkiston ulkopuolelle, eikä käyttäjän pidä joutua avaamaan
+    asetustiedostoa nähdäkseen minne.
+    """
+    lines = [
+        f"Otanta: {todo.selected} karttaa, joista {len(todo.present)} on jo "
+        "levyllä"
+    ]
+    if not todo.pending:
+        lines.append("Kaikki otannan demot ovat jo levyllä -- ei ladattavaa.")
+        return "\n".join(lines)
+    lines.append(
+        _line(
+            "Ladataan",
+            f"{len(todo.pending)} demoa, arviolta "
+            f"{fetch_stage.size_fi(todo.estimated_bytes)}",
+        )
+    )
+    lines.append(_line("Kohde", demos_dir))
+    if free is not None:
+        lines.append(_line("Levytilaa vapaana", fetch_stage.size_fi(free)))
+    for map_demo_id in todo.pending:
+        lines.append(f"  {map_demo_id}")
+    return "\n".join(lines)
+
+
+def _render_fetch(results, todo) -> str:
+    """Yhteenveto ladatuista, ohitetuista ja epäonnistuneista.
+
+    **Muu kuin ok luetellaan syineen ja neuvoineen.** Pelkkä luku
+    "3 epäonnistui" kertoisi määrän muttei sitä, mitä pitäisi tehdä.
+
+    Otsikko **toteaa vain mitä tapahtui**, eikä neuvo mitään. Aiemmin se sanoi
+    "Epäonnistui (N) -- aja komento uudelleen", ja se oli ämpäri, johon päätyi
+    sekä ohimenevä häiriö että pysyvä vika: kaksi peräkkäistä live-ajoa
+    2026-09-05 löysi saman kuvion, ensin 403:lla ja sitten 400:lla.
+    **Neuvo kuuluu vikaan, ei ämpäriin** -- muuten jokainen uusi vikaluokka
+    perii väärän neuvon oletuksena. Nyt jokainen rivi kantaa oman
+    ``next_step``insä, joka tulee virheen omasta ``advice``-kentästä.
+    """
+    downloaded = [r for r in results if r.status == "ok" and not r.skipped]
+    skipped = [r for r in results if r.skipped]
+    missing = [r for r in results if r.status == "no_demo"]
+    failed = [r for r in results if r.status == "download_failed"]
+    total_bytes = sum(int(r.stats.get("downloaded_bytes", 0)) for r in results)
+
+    lines = [
+        f"Lataus valmis: {len(downloaded)} haettu, "
+        f"{len(skipped) + len(todo.present)} oli jo levyllä, "
+        f"{len(missing)} ei saatavilla, {len(failed)} epäonnistui"
+    ]
+    lines.append(_line("Kirjoitettu", fetch_stage.size_fi(total_bytes)))
+    directories = sorted(
+        {str(r.stats["demos_dir"]) for r in downloaded if "demos_dir" in r.stats}
+    )
+    for directory in directories:
+        lines.append(_line("Kohde", directory))
+    lines.extend(_fetch_failures("Ei saatavilla", missing))
+    lines.extend(_fetch_failures("Epäonnistui", failed))
+    lines.append("")
+    lines.append(_line("Ajoaika", _seconds(sum(r.duration_s for r in results))))
+    return "\n".join(lines)
 
 
 @app.command("parse")
@@ -2253,7 +2464,12 @@ def main() -> None:
     try:
         app()
     except PappascoutError as exc:
-        typer.secho(f"Virhe: {exc}", fg=typer.colors.RED, err=True)
+        # Neuvo omalle rivilleen, jos virhe kantaa sellaisen. Sama sääntö kuin
+        # yksikkökohtaisilla epäonnistumisilla: neuvo tulee viasta, ei siitä
+        # mihin vika sattui lajittelemaan.
+        advice = getattr(exc, "advice", None)
+        tail = f"\n-> {advice}" if isinstance(advice, str) and advice.strip() else ""
+        typer.secho(f"Virhe: {exc}{tail}", fg=typer.colors.RED, err=True)
         sys.exit(EXIT_KNOWN_ERROR)
     except Exception as exc:  # noqa: BLE001 - viimeinen suoja käyttäjän edessä
         typer.secho(

@@ -1344,3 +1344,45 @@ def test_a_zero_z_weight_is_allowed(tmp_path: Path) -> None:
         tmp_path, **{"callout_z_weight = 1.0": "callout_z_weight = 0.0"}
     )
     assert _load(path).parse.callout_z_weight == 0.0
+
+
+def test_the_shipped_settings_keep_demos_in_the_archive(tmp_path: Path) -> None:
+    """Demot menevät arkistoon, ja se on päätös eikä puuttuva arvo.
+
+    Päätetty 2026-09-05 uuden tiedon jälkeen. Kaksi perustetta:
+
+    1. **Arkisto seuraa koneelta toiselle**, koska se on OneDrivessa.
+       Paikallisessa kansiossa olevat demot eivät seuraa, ja toisella koneella
+       ne haettaisiin FACEITista uudelleen -- mikä onnistuu vain noin 30 päivän
+       ajan.
+    2. **Files On-Demand vapauttaa parsitun demon tilan poistamatta
+       tiedostoa.** Paikallisessa kansiossa tilan vapauttaminen on lopullinen
+       poisto.
+
+    Väite kohdistuu **versioituun asetustiedostoon**, ja se on sama kohta, jossa
+    päätös eläisi jos se kumottaisiin: rivin poistaminen kommenteista kääntää
+    moodin, ja silloin tämä testi kertoo siitä.
+    """
+    from pappascout.archive.paths import ArchivePaths
+
+    settings = load_settings(REAL_SETTINGS)
+    assert settings.project.demos_root is None
+
+    archive = ArchivePaths.from_settings(
+        settings.project.archive_root, settings.project.demos_root
+    )
+    assert archive.demos_dir() == archive.root / "demos"
+    assert archive.demos_dir() == archive.archive_demos_dir()
+
+
+def test_the_demos_root_setting_stays_documented_in_the_shipped_file() -> None:
+    """Kommentoitu rivi on ohje, ei jäänne.
+
+    Asetus on tuettu moodi levytilan loppuessa koneella, jolla pilvi ei ole
+    vaihtoehto. Jos rivi katoaisi tiedostosta, ainoa tapa löytää se olisi lukea
+    lähdekoodia -- eikä käyttäjä koodaa itse.
+    """
+    text = REAL_SETTINGS.read_text(encoding="utf-8")
+    assert "# demos_root = " in text
+    # Perustelu on rivin vieressä eikä muistissa.
+    assert "Files On-Demand" in text

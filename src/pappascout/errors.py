@@ -21,6 +21,7 @@ __all__ = [
     "AggregateError",
     "LockError",
     "SettingsError",
+    "DownloadsAccessDenied",
 ]
 
 
@@ -28,7 +29,28 @@ class PappascoutError(Exception):
     """Pappascoutin virheiden kantaluokka.
 
     Viesti on aina suomeksi ja kertoo seuraavan toimenpiteen.
+
+    **Neuvo on kentässä eikä pelkässä viestissä (Story 3.4, 2026-09-05).**
+    Kaksi kertaa peräkkäin oikea ajo löysi saman kuvion: luokittelu oli oikein
+    mutta neuvo väärä, koska neuvo tuli **otsikosta**, jonka alle virhe
+    lajiteltiin. Otsikko "Epäonnistui -- aja komento uudelleen" olettaa
+    ohimenevän häiriön, ja jokainen uusi vikaluokka peri sen oletuksen
+    hiljaa: 403 (puuttuva käyttöoikeus) ja 400 (epämuodostunut tunniste)
+    saivat molemmat neuvon, joka ei auta kumpaankaan.
+
+    Kun neuvo on virheessä, uusi vikaluokka **ei voi periä väärää neuvoa**: se
+    joko tuo omansa tai jää ilman, ja jälkimmäisen huomaa vartija
+    (``stages.fetch._result``).
+
+    Args:
+        message: Suomenkielinen selitys siitä, mitä tapahtui.
+        advice: Yksi lause siitä, mitä käyttäjän pitää tehdä seuraavaksi.
+            ``None`` tarkoittaa "ei tiedossa" -- ei "aja uudelleen".
     """
+
+    def __init__(self, message: str, *, advice: str | None = None) -> None:
+        super().__init__(message)
+        self.advice = advice
 
 
 class ApiError(PappascoutError):
@@ -67,8 +89,9 @@ class ApiError(PappascoutError):
         status_code: int | None = None,
         attempts: int = 1,
         url: str | None = None,
+        advice: str | None = None,
     ) -> None:
-        super().__init__(message)
+        super().__init__(message, advice=advice)
         self.status_code = status_code
         self.attempts = attempts
         self.url = url
@@ -103,3 +126,25 @@ class LockError(PappascoutError):
 
 class SettingsError(PappascoutError):
     """Asetukset tai avaimet puuttuvat tai ovat virheellisiä."""
+
+
+class DownloadsAccessDenied(SettingsError):
+    """FACEIT ei myöntänyt lupaa demojen lataukseen (401/403, Story 3.4).
+
+    **Oma tyyppinsä, koska se on ainoa vika, joka ei ole yksikkökohtainen.**
+    AD-9 sanoo, että yksikön ongelma muuttuu ``status``-kentäksi eikä keskeytä
+    ajoa -- ja se pitää paikkansa jokaisesta viasta, joka koskee *yhtä demoa*:
+    poistettu tallenne, katkennut yhteys, täysi levy. Puuttuva Downloads-scope
+    ei ole sellainen. Se koskee **tunnistetta**, joten jokainen yksikkö
+    epäonnistuu identtisesti, eikä yksikään voi onnistua.
+
+    Ero on tärkeä eikä saa kadota: tämä **ei ole poikkeus** säännöstä "yhden
+    demon epäonnistuminen ei keskeytä ajoa". Kyse ei ole yhden demon
+    epäonnistumisesta vaan siitä, ettei yksikään voi onnistua -- ja sarjan
+    jatkaminen tekisi 12 tuomittua signauskutsua, jotka kaikki kuluttavat
+    kiintiötä ilman mahdollisuutta onnistua.
+
+    Periytyy :class:`SettingsError`istä, koska korjaus on samassa paikassa kuin
+    puuttuvalla avaimella: koneen oma ``.env``-tiedosto -- tai FACEITin
+    hyväksyntä sille hakemukselle, jota tiedoston rivi edellyttää.
+    """

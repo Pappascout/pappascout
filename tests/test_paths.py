@@ -12,7 +12,12 @@ import pytest
 
 from pappascout.archive import paths
 from pappascout.archive.atomic_write import atomic_write_bytes
-from pappascout.archive.paths import ARCHIVE_ROOT_ENV_VAR, ArchivePaths, safe_component
+from pappascout.archive.paths import (
+    ARCHIVE_ROOT_ENV_VAR,
+    DEMOS_ROOT_ENV_VAR,
+    ArchivePaths,
+    safe_component,
+)
 from pappascout.errors import PappascoutError
 
 RELATIVE_FUNCS = [
@@ -320,3 +325,109 @@ def test_find_demo_accepts_both_compressions(tmp_path: Path) -> None:
     zst = archive.demo("1234-0")
     zst.write_bytes(b"x")
     assert archive.find_demo("1234-0") == zst  # zst on ensisijainen
+
+
+# -- Demohakemisto: ympäristömuuttujat ja vartijat (Story 3.4) ---------------
+
+
+def test_an_unset_variable_in_demos_root_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sama vartija kuin arkiston juurella, ja samasta syystä.
+
+    ``os.path.expandvars`` **jättää ``%NIMI%``:n sellaisenaan**, jos muuttujaa
+    ei ole -- se ei nosta virhettä eikä palauta tyhjää. Ilman tarkistusta ajo
+    loisi hakemiston, jonka nimi on kirjaimellisesti ``%DEMOT%``, ja
+    kirjoittaisi sinne 2,3 GB demoja. Juuri tämä on tapahtunut tässä repossa
+    kerran jo arkiston juurella (ks.
+    ``test_an_unset_variable_in_the_path_is_refused``).
+    """
+    monkeypatch.delenv("EI_OLE_OLEMASSA", raising=False)
+
+    with pytest.raises(PappascoutError) as excinfo:
+        ArchivePaths.from_settings(r"C:\arkisto", r"%EI_OLE_OLEMASSA%\demot")
+
+    message = str(excinfo.value)
+    assert "EI_OLE_OLEMASSA" in message
+    # Viesti nimeää **demohakemiston** eikä arkiston juurta: väärä nimi ohjaisi
+    # korjaamaan väärää riviä settings.tomlissa.
+    assert "Demohakemiston" in message
+    assert "demos_root" in message
+
+
+def test_a_set_variable_in_demos_root_is_expanded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("DEMOJEN_ASEMA", str(tmp_path))
+
+    archive = ArchivePaths.from_settings(r"C:\arkisto", r"%DEMOJEN_ASEMA%\demot")
+
+    assert archive.demos_root == tmp_path / "demot"
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_demos_root_means_the_archive_directory(blank: str) -> None:
+    """Tyhjä rivi asetustiedostossa on "ei asetettu", ei tyhjä polku.
+
+    Ilman tätä haaraa ``Path("")`` osoittaisi työhakemistoon, ja demot menisivät
+    sinne mistä komento sattui ajettavaksi.
+    """
+    archive = ArchivePaths.from_settings(r"C:\arkisto", blank)
+
+    assert archive.demos_root is None
+    assert archive.demos_dir() == archive.archive_demos_dir()
+
+
+def test_overriding_the_archive_root_takes_the_demos_with_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Eristys ei ole eristys, jos se koskee vain osaa poluista.
+
+    ``PAPPASCOUT_ARCHIVE_ROOT`` on olemassa juuri sitä varten, että ajon voi
+    ohjata testiarkistoon koskematta tuotannon tiedostoihin. Jos ``demos_root``
+    jäisi voimaan, testiarkistoa vasten ajettu ``fetch`` kirjoittaisi ja lukisi
+    **tuotannon** demohakemistoa -- hiljaa, ja idempotenssin takia niin, että
+    ajo näyttäisi onnistuvan lataamatta mitään.
+    """
+    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "testiarkisto"))
+
+    archive = ArchivePaths.from_settings(r"C:\tuotanto", r"C:\tuotannon-demot")
+
+    assert archive.root == tmp_path / "testiarkisto"
+    assert archive.demos_root is None
+    assert archive.demos_dir() == tmp_path / "testiarkisto" / "demos"
+
+
+def test_the_demos_root_variable_wins_over_both(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Eksplisiittinen sanominen voittaa: "demot tänne" myös ohjatussa ajossa."""
+    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "testiarkisto"))
+    monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, str(tmp_path / "erilliset"))
+
+    archive = ArchivePaths.from_settings(r"C:\tuotanto", r"C:\tuotannon-demot")
+
+    assert archive.demos_root == tmp_path / "erilliset"
+
+
+def test_the_demos_root_variable_works_without_an_archive_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, str(tmp_path / "erilliset"))
+
+    archive = ArchivePaths.from_settings(r"C:\tuotanto", r"C:\tuotannon-demot")
+
+    assert archive.demos_root == tmp_path / "erilliset"
+
+
+def test_an_unset_variable_in_the_demos_root_variable_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sama vartija myös ympäristömuuttujan arvolle, ja viesti nimeää lähteen."""
+    monkeypatch.delenv("EI_OLE_OLEMASSA", raising=False)
+    monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, r"%EI_OLE_OLEMASSA%\demot")
+
+    with pytest.raises(PappascoutError) as excinfo:
+        ArchivePaths.from_settings(r"C:\arkisto")
+
+    assert DEMOS_ROOT_ENV_VAR in str(excinfo.value)
