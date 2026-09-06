@@ -177,11 +177,11 @@ def test_the_plan_size_is_the_size_of_the_file_on_disk(tuonti) -> None:
     Katselmus lisäsi kokoon ``+999 Gt`` kahdessa paikassa ja 70 testiä meni
     läpi. Luku, jota mikään ei vertaa mihinkään, on koristetta.
     """
-    from pappascout.cli import _human_size
+    from pappascout.stages.fetch import size_fi
 
     _archive, _parser = tuonti
 
-    assert rivit(invoke().output)["Koko"] == _human_size(len(ZSTD_BYTES))
+    assert rivit(invoke().output)["Koko"] == size_fi(len(ZSTD_BYTES))
 
 
 def test_the_plan_says_move_when_the_file_is_moved(tuonti) -> None:
@@ -316,14 +316,14 @@ def test_the_result_says_the_demo_came_from_an_import(tuonti) -> None:
 
 
 def test_the_result_size_is_the_size_of_the_written_file(tuonti) -> None:
-    from pappascout.cli import _human_size
+    from pappascout.stages.fetch import size_fi
 
     archive, _parser = tuonti
 
     rows = rivit(invoke().output)
     koko = (archive.demos_dir() / f"{UNIT}.dem.zst").stat().st_size
 
-    assert rows["Koko"] == _human_size(koko)
+    assert rows["Koko"] == size_fi(koko)
 
 
 def test_every_note_reaches_the_screen(tuonti) -> None:
@@ -601,3 +601,24 @@ def test_help_mentions_that_kylla_does_not_skip_the_map_check(tuonti) -> None:
 
     assert result.exit_code == 0
     assert "EI ohita" in result.output
+
+
+def test_help_does_not_claim_the_command_stays_off_the_network(tuonti) -> None:
+    """Story 3.7 (kohta 10): ohje vaitti "Komento ei lataa mitaan verkosta."
+
+    Vaite mitattiin vaaraksi: ``FaceitClient.match_payload`` hakee ottelun
+    rajapinnasta, jos sita ei ole vastausvalimuistissa, ja
+    ``raw/faceit/matches-1-79f71e00-....json`` kirjoitettiin tuontiajon aikana
+    5.9. klo 21:37:35. **Vaite korjattiin, ei toimintaa** -- verkosta haettu
+    vetotieto on juuri se, joka tekee karttatarkistuksesta mahdollisen.
+
+    Ohje kertoo nyt kaksi asiaa erikseen: demoja ei ladata (se on annettu
+    tiedosto), mutta vetotieto voi tulla verkosta.
+    """
+    result = runner.invoke(app, ["import", "--help"])
+
+    assert result.exit_code == 0
+    teksti = " ".join(result.output.split())
+    assert "ei lataa mitään verkosta" not in teksti
+    assert "ei lataa demoja" in teksti
+    assert "välimuisti" in teksti

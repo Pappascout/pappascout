@@ -1924,3 +1924,49 @@ def test_best_of_is_not_the_length_of_the_map_list(tmp_path: Path) -> None:
 
     assert match.best_of == 3
     assert len(match.map_picks) == 3
+
+
+# -- Story 3.7 (kohta 12): tilakoodilajittelu on yhdessa paikassa -------------
+
+
+def test_status_codes_are_classified_in_exactly_one_place() -> None:
+    """429/5xx/ei-2xx lajitellaan **yhdessa** funktiossa, ei kolmessa.
+
+    Sama saanto oli kirjoitettuna kolmeen paikkaan (``_single_request``,
+    ``_as_json``, ``_begin``), ja kopiot olivat jo ehtineet erkaantua
+    yksityiskohdissa, joita kukaan ei ollut paattanyt eri tavalla: vain
+    ``_as_json`` otti mukaan rajapinnan oman virhetekstin, ja vain
+    ``_single_request`` kasitteli 204/205:n. Neljas kutsupaikka perisi
+    umpimahkaan sen version, jonka kirjoittaja sattui kopioimaan.
+
+    **Vaite luetaan syntaksipuusta eika merkkijonoista.** Kaydaan lapi jokainen
+    funktio ja etsitaan vertailut tilakoodialueiden rajoihin; niita saa esiintya
+    tasan yhdessa funktiossa. Kayttosvartijana toimivat taman tiedoston muut
+    testit, jotka ajavat kaikki kolme kutsupaikkaa lapi.
+    """
+    puu = ast.parse(Path(faceit_module.__file__).read_text(encoding="utf-8"))
+    lajittelijat: set[str] = set()
+    for node in ast.walk(puu):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Compare):
+                continue
+            for arvo in [inner.left, *inner.comparators]:
+                if isinstance(arvo, ast.Constant) and arvo.value in (
+                    200,
+                    300,
+                    500,
+                    600,
+                ):
+                    lajittelijat.add(node.name)
+                if isinstance(arvo, ast.Name) and arvo.id in (
+                    "_RATE_LIMIT_STATUS",
+                    "_NO_CONTENT_STATUSES",
+                ):
+                    lajittelijat.add(node.name)
+
+    assert lajittelijat == {"_checked_status"}, (
+        "Tilakoodilajittelu on useammassa kuin yhdessa paikassa: kopiot "
+        f"erkaantuvat aina. {sorted(lajittelijat)}"
+    )

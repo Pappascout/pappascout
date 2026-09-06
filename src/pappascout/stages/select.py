@@ -550,11 +550,37 @@ def _row(row: MapSelection) -> dict[str, Any]:
 
 
 def _write(path: Path, document: dict[str, Any]) -> None:
-    """Kirjoita valintatiedosto atomisesti; hakemisto luodaan tarvittaessa."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
-    with atomic_path(path) as tmp:
-        tmp.write_text(text + "\n", encoding="utf-8")
+    """Kirjoita valintatiedosto atomisesti; hakemisto luodaan tarvittaessa.
+
+    Raises:
+        ~pappascout.errors.PappascoutError: Jos kirjoitus ei onnistu.
+            **Myös levyvirheet.** Sama sääntö ja sama peruste kuin
+            ``stages.fetch``issä ja ``stages.import_demo``issa: täysi levy,
+            OneDriven tiedostolukko ja katkennut verkkolevy ovat käyttäjän
+            tilanteita eivätkä ohjelmavirheitä. Lukupolku
+            (:func:`read_selection`) nappasi ``OSError``in jo, mutta
+            kirjoituspolku ei -- ja käsittelemättömänä se näkyi ruudulla
+            tekstinä "Odottamaton virhe: [Errno 28]" ja neuvona "Tämä on
+            ohjelmavirhe", eli väärä diagnoosi ja väärä toimenpide.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True)
+        with atomic_path(path) as tmp:
+            tmp.write_text(text + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise PappascoutError(
+            f"Joukkueen valintatiedoston ({path.name}) kirjoitus "
+            f"epäonnistui levyvirheeseen ({type(exc).__name__}: {exc}).\n"
+            f"Kohde oli {path}.\n"
+            "Tavallisimmat syyt: levy täyttyi kesken kirjoituksen, OneDrive "
+            "piti tiedostoa lukittuna, tai verkkolevy katkesi.\n"
+            "Vajaata tiedostoa ei jäänyt levylle.",
+            advice=(
+                "Vapauta levytilaa tai odota kunnes OneDrive vapauttaa "
+                "tiedostolukon, ja aja komento sitten uudelleen."
+            ),
+        ) from exc
 
 
 # -- Ajon yhteenveto ---------------------------------------------------------

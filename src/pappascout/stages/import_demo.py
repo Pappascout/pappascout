@@ -493,9 +493,11 @@ def default_source(settings: Settings, archive: ArchivePaths) -> MatchSource:
     välimuistiavainta. Tuonti on funktion sisällä, jotta tämän moduulin
     tuominen ei lataa ``requests``ia.
 
-    **Downloads-tokenia ei tarvita.** Tämä komento ei lataa mitään, joten sen
-    puuttuminen ei saa estää tuontia -- se on juuri se tilanne, jota varten
-    koko vaihe on olemassa.
+    **Downloads-tokenia ei tarvita.** Tämä komento ei lataa demoja, joten
+    tokenin puuttuminen ei saa estää tuontia -- se on juuri se tilanne, jota
+    varten koko vaihe on olemassa. Ottelun vetotieto sen sijaan haetaan
+    rajapinnasta, jos sitä ei ole vastausvälimuistissa; siihen riittää Data
+    API:n avain.
     """
     from pappascout.adapters.faceit import FaceitClient
 

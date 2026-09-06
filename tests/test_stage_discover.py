@@ -491,6 +491,73 @@ def test_a_failure_between_the_two_writes_leaves_both_untouched(
     assert not has_temp_leftovers(archive.root)
 
 
+def test_a_write_that_fails_on_disk_is_a_finnish_error_with_advice(
+    league, archive, thresholds, source
+) -> None:
+    """I/O-matriisi: ``discover`` ei voi kirjoittaa indekseja.
+
+    **Oikea vaihe, oikea kirjoitus.** Kohteen paikalle asetetaan hakemisto,
+    jolloin ``os.replace`` kaatuu aidosti ``OSError``iin atomisen kirjoituksen
+    viimeisella askeleella. Sama korjaus ja sama sana kuin ``select``illa: sen
+    lukupolku nappasi ``OSError``in jo, kirjoituspolku ei.
+    """
+    kohde = archive.teams_index()
+    kohde.parent.mkdir(parents=True, exist_ok=True)
+    kohde.mkdir()
+    (kohde / "esteena.txt").write_text("x", encoding="utf-8")
+
+    with pytest.raises(PappascoutError) as err:
+        discover(league, archive, thresholds, source)
+
+    viesti = str(err.value)
+    # **Sisarusten vartijat vaittavat samat asiat.** Kaksi korjausta, jotka
+    # on tehty eksplisiittisesti sisaruksina, eivat saa jaada eri tarkkuudella
+    # vartioiduiksi -- juuri se ero on se, mita Story 3.7 on korjaamassa.
+    assert "ohjelmavirhe" not in viesti
+    assert "epaonnistui levyvirheeseen" in viesti.replace("ä", "a")
+    assert kohde.name in viesti
+    assert err.value.advice
+    assert not kohde.is_file()
+    assert not has_temp_leftovers(archive.root)
+    # Pari on yha kirjoittamatta: kumpaakaan ei vaihdettu paikalleen.
+    assert not archive.matches_index().is_file()
+
+
+def test_a_failure_on_the_outer_index_says_the_pair_may_be_odd(
+    league, archive, thresholds, source
+) -> None:
+    """Toinen suunta: **ulompi** vaihto kaatuu, sisempi ehti onnistua.
+
+    ``_write_pair`` kirjoittaa molemmat valiaikaistiedostoihin ja vaihtaa ne
+    perakkain: teams ensin, matches sitten. Jos jalkimmainen vaihto kaatuu,
+    levylle ei jaa vajaata tiedostoa -- mutta levylle jaa **pariton pari**,
+    uusi teams vanhan (tai puuttuvan) matchesin rinnalle. Funktion oma
+    docstring puhuu juuri tasta valista, joten viesti ei saa vaieta siita.
+
+    Sisartesti kattaa sisemman suunnan; ilman tata testia puolet
+    ``_write_pair``in epaonnistumispinnasta olisi ajamatta.
+    """
+    kohde = archive.matches_index()
+    kohde.parent.mkdir(parents=True, exist_ok=True)
+    kohde.mkdir()
+    (kohde / "esteena.txt").write_text("x", encoding="utf-8")
+
+    with pytest.raises(PappascoutError) as err:
+        discover(league, archive, thresholds, source)
+
+    viesti = str(err.value)
+    assert "ohjelmavirhe" not in viesti
+    assert "epaonnistui levyvirheeseen" in viesti.replace("ä", "a")
+    assert kohde.name in viesti
+    assert err.value.advice
+    # Viesti ei vaikene parittomasta parista eika lupaa mahdotonta.
+    assert "generated_at" in viesti
+    # Ja pari ON pariton: teams ehti paikalleen, matches ei.
+    assert archive.teams_index().is_file()
+    assert not archive.matches_index().is_file()
+    assert not has_temp_leftovers(archive.root)
+
+
 # -- Nimihaku vaiheen läpi --------------------------------------------------
 
 

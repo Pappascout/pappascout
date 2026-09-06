@@ -847,9 +847,12 @@ def test_one_match_and_one_map_are_singular_in_finnish() -> None:
         "kohde",
     )
 
-    assert "Divisioona: 1 pelattu ottelu, 1 kartta," in text
+    assert "Divisioona: 1 pelattu ottelu, 1 kartta, josta 0 on jo " in text
     assert "pelattua ottelua" not in text
     assert "karttaa" not in text
+    # Relatiivipronomini taipuu samalla luvulla: sisar korjattiin samalla
+    # apurilla (``_of_which_fi``), joten sen on nakyttava myos taalla.
+    assert "joista" not in text
 
 
 def test_two_or_more_take_the_partitive() -> None:
@@ -861,14 +864,14 @@ def test_two_or_more_take_the_partitive() -> None:
         "kohde",
     )
 
-    assert "Divisioona: 2 pelattua ottelua, 2 karttaa," in text
+    assert "Divisioona: 2 pelattua ottelua, 2 karttaa, joista 0 on jo " in text
 
 
 def test_zero_takes_the_partitive_too() -> None:
     """Nolla taipuu kuten monikko: "0 pelattua ottelua"."""
     text = _render_collect_plan(fetch_stage.CollectPlan(), None, "kohde")
 
-    assert "0 pelattua ottelua, 0 karttaa," in text
+    assert "0 pelattua ottelua, 0 karttaa, joista 0 on jo " in text
 
 
 # -- Tuntematon pituus kertoo laajuutensa (katselmus 6.9.) ------------------
@@ -906,6 +909,37 @@ def test_the_unknown_length_count_scales_with_the_plan() -> None:
 
     assert "tuntematon 1 ottelussa" in yksi
     assert "tuntematon 9 ottelussa" in monta
+
+
+def test_the_unknown_length_line_says_what_to_do_about_it() -> None:
+    """Story 3.7 (kohta 11): havainto ilman neuvoa jattaa arvaamaan.
+
+    Kentta ei puutu lahteesta vaan **vanhasta indeksista**: ``discover``
+    kirjoittaa sen (``discover._match_row``), joten uudelleenajo korjaa rivin.
+    Ilman tata lausetta rivi nayttaa vialta, jolle ei ole tehtavissa mitaan.
+    """
+    text = _render_collect_plan(
+        fetch_stage.CollectPlan(
+            pending=("a-0",), matches_played=1, best_of_unknown=("a",)
+        ),
+        None,
+        "kohde",
+    )
+
+    assert "vanhasta indeksista" in text.replace("ä", "a").replace("ö", "o")
+    assert "uv run pappascout discover" in text
+
+
+def test_no_advice_line_appears_when_every_length_is_known() -> None:
+    """Neuvo kuuluu havaintoon: ilman havaintoa se olisi kohinaa."""
+    text = _render_collect_plan(
+        fetch_stage.CollectPlan(pending=("a-0",), matches_played=1),
+        None,
+        "kohde",
+    )
+
+    assert "Ottelun pituus" not in text
+    assert "uv run pappascout discover" not in text
 
 
 # -- Portit: indeksi, levytila, Downloads-oikeus -----------------------------

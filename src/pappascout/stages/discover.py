@@ -692,13 +692,41 @@ def _write_pair(
     Jäljelle jää kahden ``os.replace``in väli. Sitä varten molemmissa on sama
     ``generated_at``, ja :func:`read_indexes` vertaa niitä -- eli lukija
     huomaa parittoman parin sen sijaan että liittäisi ne hiljaa yhteen.
+
+    Raises:
+        ~pappascout.errors.PappascoutError: Jos kirjoitus ei onnistu.
+            **Myös levyvirheet.** Sama sääntö ja sama peruste kuin
+            ``stages.fetch``issä ja ``stages.import_demo``issa: täysi levy,
+            OneDriven tiedostolukko ja katkennut verkkolevy ovat käyttäjän
+            tilanteita eivätkä ohjelmavirheitä. Lukupolku (:func:`_read`)
+            nappasi ``OSError``in jo, mutta kirjoituspolku ei -- ja
+            käsittelemättömänä se näkyi ruudulla tekstinä "Odottamaton virhe:
+            [Errno 28]" ja neuvona "Tämä on ohjelmavirhe", eli väärä diagnoosi
+            ja väärä toimenpide.
     """
     matches_abs = archive.resolve(matches_index())
     teams_abs = archive.resolve(teams_index())
-    with atomic_path(matches_abs) as matches_tmp:
-        _dump(matches_tmp, matches_document)
-        with atomic_path(teams_abs) as teams_tmp:
-            _dump(teams_tmp, teams_document)
+    try:
+        with atomic_path(matches_abs) as matches_tmp:
+            _dump(matches_tmp, matches_document)
+            with atomic_path(teams_abs) as teams_tmp:
+                _dump(teams_tmp, teams_document)
+    except OSError as exc:
+        raise PappascoutError(
+            f"Arkiston indeksien ({matches_abs.name}, {teams_abs.name}) "
+            f"kirjoitus epäonnistui levyvirheeseen "
+            f"({type(exc).__name__}: {exc}).\n"
+            f"Kohde oli {matches_abs.parent}.\n"
+            "Tavallisimmat syyt: levy täyttyi kesken kirjoituksen, OneDrive "
+            "piti tiedostoa lukittuna, tai verkkolevy katkesi.\n"
+            "Vajaata tiedostoa ei jäänyt levylle. Jos kirjoitus katkesi kahden "
+            "vaihdon välissä, indeksit voivat silti jäädä eri-ikäisiksi -- lukija "
+            "huomaa sen generated_at-vertailusta eikä liitä niitä hiljaa yhteen.",
+            advice=(
+                "Vapauta levytilaa tai odota kunnes OneDrive vapauttaa "
+                "tiedostolukon, ja aja komento sitten uudelleen."
+            ),
+        ) from exc
 
 
 def _dump(path: Path, document: dict[str, Any]) -> None:
@@ -775,8 +803,11 @@ def _team_row(team: Team) -> dict[str, Any]:
         "name": team.name,
         "alternative_names": list(team.alternative_names),
         # Yhteys arkistoon, ei identiteetti. Arkiston hakemistot on nimetty
-        # kokoonpanotiivisteestä, ja tämä kenttä tekee siitä luettavan --
-        # uudelleennimeäminen on Story 3.4.
+        # kokoonpanotiivisteestä, ja tämä kenttä tekee siitä luettavan.
+        # **Hakemistojen uudelleennimeämistä ei ole luvattu millekään
+        # tarinalle.** Rivi lupasi sen Story 3.4:ään, joka oli demojen lataus
+        # Downloads API:lla eikä koskenut arkiston nimeämiseen lainkaan. Jos
+        # nimeäminen tehdään, se on oma tarinansa.
         "lineup_keys": list(team.lineup_keys),
         # Tunnistelistat, eivät lukumääriä -- nimi sanoo sen, jottei lukija
         # sekoittaisi niitä ajon yhteenvedon samannimisiin lukuihin.

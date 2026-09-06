@@ -31,6 +31,8 @@ from typer.testing import CliRunner
 
 from pappascout.cli import (
     EXIT_KNOWN_ERROR,
+    MAX_LISTED_UNITS,
+    _fetch_notes,
     _render_fetch,
     _render_fetch_plan,
     _render_info,
@@ -480,6 +482,211 @@ def test_the_summary_sums_the_real_byte_counts() -> None:
 
     assert "12 haettu" in text
     assert "Kirjoitettu" in text and "1,2 Gt" in text
+
+
+# -- Story 3.7: sisarkorjaukset ----------------------------------------------
+
+
+def test_a_single_map_sample_says_one_map_not_one_maps() -> None:
+    """I/O-matriisi: yhden kartan otanta -> "1 kartta", ei "1 karttaa".
+
+    Sana taipui kovakoodattuna, vaikka :func:`_maps_fi` oli olemassa ja
+    ``collect`` kaytti sita oikein. Yhden kartan otanta ei ole harvinaisuus:
+    kauden ensimmainen ajo osuu juuri siihen.
+
+    **Vaite kattaa koko lauseen eika vain lukusanaa.** Katselmus 2026-09-06
+    loysi, etta ensimmainen korjaus siirsi virheen yhta sanaa myohemmaksi
+    ("1 kartta, **joista** 0"), ja testi, joka katsoi vain alkuun asti,
+    lukitsi vaaran muodon paikalleen. Relatiivipronomini taipuu samalla
+    luvulla (:func:`_of_which_fi`).
+    """
+    yksi = _render_fetch_plan(
+        fetch_stage.FetchPlan("t", pending=("a-0",), estimated_bytes=1024**2),
+        None,
+        "kohde",
+    )
+    monta = _render_fetch_plan(
+        fetch_stage.FetchPlan(
+            "t", pending=("a-0", "a-1"), estimated_bytes=2 * 1024**2
+        ),
+        None,
+        "kohde",
+    )
+
+    assert "Otanta: 1 kartta, josta 0 on jo levylla" in yksi.replace(
+        "ä", "a"
+    )
+    assert "1 karttaa" not in yksi
+    assert "joista" not in yksi
+    assert "Otanta: 2 karttaa, joista 0 on jo levylla" in monta.replace(
+        "ä", "a"
+    )
+
+
+def test_the_fetch_plan_warns_when_it_does_not_fit_on_disk() -> None:
+    """I/O-matriisi: suunnitelma ei mahdu levylle -> varoitusrivi, ei porttia.
+
+    Rivi lisattiin Story 3.5:ssa vain ``collect``iin, mutta se ei koske
+    divisioonaa: 12 demon otanta ei mahdu 1 Gt:n levylle sen paremmin kuin
+    132:kaan, ja kayttaja vahvistaa tassa saman kysymyksen.
+    """
+    todo = fetch_stage.FetchPlan(
+        "t",
+        pending=tuple(f"a-{i}" for i in range(12)),
+        estimated_bytes=12 * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES,
+    )
+
+    ahdas = _render_fetch_plan(todo, 2560 * 1024**2, "kohde")
+    valjä = _render_fetch_plan(todo, 100 * 1024**3, "kohde")
+
+    assert "HUOM" in ahdas and "ei mahdu levylle" in ahdas
+    assert "HUOM" not in valjä
+
+
+def test_the_fetch_plan_truncates_a_long_listing() -> None:
+    """I/O-matriisi: yli 20 tunnistetta -> luettelo katkeaa ja sanoo montako.
+
+    Sama katto ja sama syy kuin ``collect``illa: toistasataa rivia
+    tunnisteita vierittaisi ruudulta pois juuri ne rivit, joiden takia
+    suunnitelma tulostetaan -- kohteen, vapaan tilan ja itse kysymyksen.
+    """
+    todo = fetch_stage.FetchPlan(
+        "t",
+        pending=tuple(f"a-{i}" for i in range(25)),
+        estimated_bytes=25 * 1024**2,
+    )
+
+    text = _render_fetch_plan(todo, None, "kohde")
+
+    assert text.count("\n  a-") == MAX_LISTED_UNITS
+    assert "(+5 muuta" in text
+
+
+def test_a_successful_download_shows_its_note_on_screen() -> None:
+    """I/O-matriisi: onnistunut lataus, pituutta ei voitu todeta -> huomio nakyy.
+
+    ``reason`` tulostettiin vain epaonnistumisten lohkoissa, joten
+    ``status="ok"`` -tuloksen huomio ei nakynyt koskaan. Niihin kuuluu
+    ``fetch._unverified_note``, jonka oma dokumentaatio sanoo etta vaiheen
+    **"on sanottava se"** -- ja vaiettu epavarmuus nayttaa varmuudelta.
+    """
+    todo = fetch_stage.FetchPlan("t", pending=("a-0",))
+    huomio = fetch_stage._unverified_note("a-0")
+    results = (
+        fetch_result("a-0", "ok", downloaded_bytes=1024**2, reason=huomio),
+        fetch_result("b-0", "ok", downloaded_bytes=1024**2),
+    )
+
+    text = _render_fetch(results, todo)
+
+    assert "Huomiot (1)" in text
+    assert "ei kertonut demon a-0 kokoa" in text
+    assert "b-0" not in text
+
+
+def test_a_skipped_download_does_not_repeat_its_note_for_every_unit() -> None:
+    """Ohitetun tuloksen ``reason`` on "oli jo levylla" -- se on jo luku.
+
+    Otannan mittainen luettelo samaa lausetta hukuttaisi juuri ne rivit,
+    joiden takia lohko on olemassa. Tama testi katsoo tulosteen lapi;
+    :func:`test_the_note_block_filters_skipped_results_itself` katsoo saman
+    saannon funktion omasta rungosta.
+    """
+    todo = fetch_stage.FetchPlan("t", pending=())
+    results = tuple(
+        fetch_result(f"a-{i}", "ok", skipped=True, reason="Demo oli jo hakemistossa.")
+        for i in range(12)
+    )
+
+    text = _render_fetch(results, todo)
+
+    assert "Huomiot" not in text
+
+
+def test_the_note_block_filters_skipped_results_itself() -> None:
+    """**Saanto on funktiossa, ei kutsupaikassa.**
+
+    Katselmus 2026-09-06: docstring lupasi "vain ladatut", mutta ohitettujen
+    poisto oli :func:`_render_fetch`issa (se antoi valmiiksi suodatetun
+    listan). Saanto, joka ei ole siella missa sen dokumentaatio on, katoaa
+    seuraavan kutsupaikan mukana -- ja se kutsupaikka saisi otannan mittaisen
+    luettelon lausetta "demo oli jo levylla". Siksi tama testi kutsuu
+    :func:`_fetch_notes`ia **suoraan** ja antaa sille suodattamattoman listan.
+    """
+    results = (
+        fetch_result("a-0", "ok", skipped=True, reason="Demo oli jo hakemistossa."),
+        fetch_result("b-0", "no_demo", reason="FACEIT poisti tallenteen."),
+        fetch_result("c-0", "download_failed", reason="Yhteys katkesi."),
+        fetch_result("d-0", "ok", reason="Ladattu, mutta pituutta ei todettu."),
+    )
+
+    lines = _fetch_notes(results)
+
+    teksti = "\n".join(lines)
+    assert "Huomiot (1)" in teksti
+    assert "d-0" in teksti and "pituutta ei todettu" in teksti
+    # Ohitettu, ei-saatavilla ja epaonnistunut eivat kuulu tahan lohkoon:
+    # kahdella viimeisella on oma lohkonsa neuvoineen (``_fetch_failures``).
+    assert "a-0" not in teksti
+    assert "b-0" not in teksti
+    assert "c-0" not in teksti
+
+
+def test_the_note_block_is_empty_when_there_is_nothing_to_say() -> None:
+    """Tyhja lohko olisi otsikko ilman sisaltoa."""
+    assert _fetch_notes(()) == []
+    assert _fetch_notes((fetch_result("a-0", "ok", reason=None),)) == []
+    assert _fetch_notes((fetch_result("a-0", "ok", reason="   "),)) == []
+
+
+def test_a_failed_orphan_removal_reaches_the_screen() -> None:
+    """I/O-matriisi: orpo metatiedosto, jota ei voi poistaa -> VAROITUS ruudulle.
+
+    Vaiheen huomio ja komennon tuloste ovat eri asia: huomio, joka syntyy
+    tulokseen muttei ruudulle, on sama asia kuin vaikeneminen.
+    """
+    todo = fetch_stage.FetchPlan("t", pending=("a-0",))
+    results = (
+        fetch_result(
+            "a-0",
+            "ok",
+            downloaded_bytes=1024**2,
+            reason=(
+                "VAROITUS: vanhaa metatiedostoa D:\\demot\\a-0.meta.json ei "
+                "saatu poistettua"
+            ),
+        ),
+    )
+
+    text = _render_fetch(results, todo)
+
+    assert "VAROITUS" in text
+    assert "poistettiin" not in text
+
+
+def test_the_same_byte_count_prints_the_same_string_in_every_command() -> None:
+    """Hyvaksymiskriteeri: sama tavumaara, sama merkkijono.
+
+    ``cli`` muotoili tavut omalla taulullaan (``Pt`` mukana) ja ``fetch``
+    omallaan (``Tt`` viimeisena), joten sama luku saattoi tulostua eri
+    tavalla sen mukaan, mika komento sen tulosti.
+    """
+    tavut = 234_163_493  # arkiston suurin pakattu demo, 223,3 Mt
+
+    suunnitelma = _render_fetch_plan(
+        fetch_stage.FetchPlan("t", pending=("a-0",), estimated_bytes=tavut),
+        tavut,
+        "kohde",
+    )
+    yhteenveto = _render_fetch(
+        (fetch_result("a-0", "ok", downloaded_bytes=tavut),),
+        fetch_stage.FetchPlan("t", pending=("a-0",)),
+    )
+
+    odotettu = fetch_stage.size_fi(tavut)
+    assert odotettu == "223,3 Mt"
+    assert suunnitelma.count(odotettu) == 2  # arvio ja vapaa tila
+    assert odotettu in yhteenveto
 
 
 # -- Oletusmoodi kulkee komennon läpi (B6) -----------------------------------

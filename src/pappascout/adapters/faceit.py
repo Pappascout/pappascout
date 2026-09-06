@@ -997,36 +997,9 @@ class FaceitClient:
                 f"kuljetus nosti poikkeuksen ({type(exc).__name__})"
             ) from exc
 
-        status = int(getattr(response, "status_code", 0))
-        retry_after = _retry_after_seconds(getattr(response, "headers", None))
-        if status == _RATE_LIMIT_STATUS:
-            raise _Retryable(
-                "rajapinta rajoitti kutsuja (429)",
-                status_code=status,
-                retry_after=retry_after,
-            )
-        if 500 <= status < 600:
-            raise _Retryable(
-                f"rajapinta palautti palvelinvirheen ({status})",
-                status_code=status,
-                retry_after=retry_after,
-            )
-        if not 200 <= status < 300:
-            # **Kaikki muu kuin 2xx, ei vain >= 400.** 3xx (uudelleenohjaus,
-            # jota ei seurata) ei ole JSONia, ja ilman tätä haaraa se päätyisi
-            # virheeseen "vastaus ei ollut JSONia" -- joka kertoo oireesta eikä
-            # syystä. Uudelleenohjaus on eri vika kuin rikkinäinen runko.
-            raise _Permanent(f"tilakoodi {status}", status_code=status)
-        if status in _NO_CONTENT_STATUSES:
-            # 204 ja 205 **ovat** 2xx, joten edellinen haara ei kata niitä --
-            # mutta niillä ei ole runkoa lainkaan, ja JSON-jäsennys sanoisi
-            # "vastaus ei ollut JSONia" tyhjästä vastauksesta. Se on totta
-            # muttei ohjaa mihinkään: syy on se, ettei rajapinnalla ollut
-            # mitään annettavaa.
-            raise _Permanent(
-                f"rajapinta palautti tyhjän vastauksen (tilakoodi {status})",
-                status_code=status,
-            )
+        # Runko jäsennetään JSONiksi, joten tyhjä 204/205 on täällä vika.
+        # Rajapinnan omaa virhetekstiä ei lueta Data API:n polulla.
+        status = _checked_status(response, no_content=True)
 
         try:
             payload = response.json()
@@ -1170,6 +1143,76 @@ def _check_match_list(payload: Mapping[str, Any]) -> None:
             raise _Invalid(f"rivi {index} ei ole olio vaan {type(entry).__name__}")
         if _text(entry.get("match_id")) is None:
             raise _Invalid(f"rivillä {index} ei ole match_id:tä")
+
+
+def _checked_status(
+    response: Any, *, detail: bool = False, no_content: bool = False
+) -> int:
+    """Tilakoodi vastauksesta, tai :class:`_Retryable` / :class:`_Permanent`.
+
+    **Yksi lajittelu kolmen sijaan.** Sama sääntö oli kirjoitettuna kolmeen
+    paikkaan (:meth:`FaceitClient._single_request`,
+    :meth:`FaceitDemoSource._as_json`, :meth:`FaceitDemoSource._begin`), ja
+    kopiot olivat jo ehtineet erkaantua toisistaan yksityiskohdissa, joita
+    kukaan ei ollut päättänyt eri tavalla. Sääntö itse on kaikilla sama:
+
+    * 429 -> ``_Retryable``. Rajoitus on määritelmän mukaan ohimenevä.
+    * 5xx -> ``_Retryable``. Palvelinvirhe voi korjaantua odottamalla.
+    * muu ei-2xx -> ``_Permanent``. **Kaikki muu kuin 2xx, ei vain >= 400:**
+      3xx (uudelleenohjaus, jota ei seurata) ei ole JSONia, ja ilman tätä
+      haaraa se päätyisi virheeseen "vastaus ei ollut JSONia" -- joka kertoo
+      oireesta eikä syystä. Tänne päätyy myös 404, ja se on sääntö: poissa
+      oleva demo on tosiasia, eikä odottaminen tuo takaisin sitä, mikä on
+      poistettu.
+
+    ``retry_after`` luetaan otsakkeesta jokaisessa tapauksessa samalla tavalla,
+    joten sekin on täällä eikä kutsupaikassa.
+
+    Args:
+        response: HTTP-vastaus. Kentät luetaan ``getattr``illa, koska kuljetus
+            on injektoitavissa eikä testin feikin tarvitse olla
+            ``requests.Response``.
+        detail: Otetaanko pysyvään virheeseen mukaan **rajapinnan oma
+            virheteksti** (:func:`_error_detail`). Downloads API kertoo sen ja
+            se on usein ainoa tapa erottaa kaksi samaan tilakoodiin päätyvää
+            syytä; Data API:n polulla sitä ei ole luettu, eikä tämä yhdistäminen
+            ala lukea sitä siellä.
+        no_content: Onko 204/205 vika tälle kutsupaikalle. Ne **ovat** 2xx,
+            joten edellinen haara ei kata niitä -- mutta niillä ei ole runkoa
+            lainkaan, ja JSON-jäsennys sanoisi tyhjästä vastauksesta "vastaus
+            ei ollut JSONia". Se on totta muttei ohjaa mihinkään. Tavuvirran
+            avauksessa (:meth:`FaceitDemoSource._begin`) runkoa ei jäsennetä
+            JSONiksi, joten siellä tätä ehtoa ei ole -- eikä sitä lisätä.
+
+    Returns:
+        Tilakoodi, kun vastaus kelpaa jatkettavaksi.
+    """
+    status = int(getattr(response, "status_code", 0))
+    retry_after = _retry_after_seconds(getattr(response, "headers", None))
+    if status == _RATE_LIMIT_STATUS:
+        raise _Retryable(
+            "rajapinta rajoitti kutsuja (429)",
+            status_code=status,
+            retry_after=retry_after,
+        )
+    if 500 <= status < 600:
+        raise _Retryable(
+            f"rajapinta palautti palvelinvirheen ({status})",
+            status_code=status,
+            retry_after=retry_after,
+        )
+    if not 200 <= status < 300:
+        raise _Permanent(
+            f"tilakoodi {status}",
+            status_code=status,
+            detail=_error_detail(response) if detail else None,
+        )
+    if no_content and status in _NO_CONTENT_STATUSES:
+        raise _Permanent(
+            f"rajapinta palautti tyhjän vastauksen (tilakoodi {status})",
+            status_code=status,
+        )
+    return status
 
 
 def _retry_after_seconds(headers: Any) -> float | None:
@@ -2058,26 +2101,10 @@ class FaceitDemoSource:
         havainto siitä, mikä pyynnössä oli vialla, ja usein ainoa tapa erottaa
         kaksi samaan tilakoodiin päätyvää syytä toisistaan.
         """
-        status = int(getattr(response, "status_code", 0))
-        retry_after = _retry_after_seconds(getattr(response, "headers", None))
-        if status == _RATE_LIMIT_STATUS:
-            raise _Retryable(
-                "rajapinta rajoitti kutsuja (429)",
-                status_code=status,
-                retry_after=retry_after,
-            )
-        if 500 <= status < 600:
-            raise _Retryable(
-                f"rajapinta palautti palvelinvirheen ({status})",
-                status_code=status,
-                retry_after=retry_after,
-            )
-        if not 200 <= status < 300:
-            raise _Permanent(
-                f"tilakoodi {status}",
-                status_code=status,
-                detail=_error_detail(response),
-            )
+        # ``detail=True``: Downloads API kertoo oman virhetekstinsä, ja se on
+        # havainto. 204/205 ei ole täällä oma haaransa eikä sitä lisätä --
+        # se muuttaisi tämän kutsupaikan käytöstä.
+        status = _checked_status(response, detail=True)
         try:
             payload = response.json()
         except ValueError as exc:
@@ -2145,26 +2172,13 @@ class FaceitDemoSource:
         if failure is not None:
             raise failure
 
-        status = int(getattr(response, "status_code", 0))
-        retry_after = _retry_after_seconds(getattr(response, "headers", None))
-        if status == _RATE_LIMIT_STATUS:
-            raise _Retryable(
-                "rajapinta rajoitti kutsuja (429)",
-                status_code=status,
-                retry_after=retry_after,
-            )
-        if 500 <= status < 600:
-            raise _Retryable(
-                f"rajapinta palautti palvelinvirheen ({status})",
-                status_code=status,
-                retry_after=retry_after,
-            )
-        if not 200 <= status < 300:
-            # **404 päätyy tänne eikä ``_Retryable``iin, ja se on sääntö.**
-            # Poissa oleva demo on tosiasia: FACEIT säilyttää tallenteet noin
-            # 30 päivää, eikä odottaminen tuo takaisin sitä, mikä on poistettu.
-            # Uudelleenyritys kuluttaisi Downloads-kiintiötä varmasti turhaan.
-            raise _Permanent(f"tilakoodi {status}", status_code=status)
+        # **404 päätyy pysyväksi eikä ``_Retryable``iksi, ja se on sääntö.**
+        # Poissa oleva demo on tosiasia: FACEIT säilyttää tallenteet noin 30
+        # päivää, eikä odottaminen tuo takaisin sitä, mikä on poistettu.
+        # Uudelleenyritys kuluttaisi Downloads-kiintiötä varmasti turhaan.
+        # Runkoa ei jäsennetä JSONiksi, joten 204/205 ei ole täällä vika --
+        # ja tavuvirran omaa virhetekstiä ei lueta, koska runko on demo.
+        status = _checked_status(response)
         return response, status
 
 

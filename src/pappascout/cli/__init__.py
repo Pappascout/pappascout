@@ -82,31 +82,18 @@ _SECRET_NAMES = ("FACEIT_API_KEY", "FACEIT_DOWNLOADS_TOKEN")
 EXIT_KNOWN_ERROR = 1
 EXIT_UNEXPECTED_ERROR = 2
 
-_SIZE_UNITS = ("kt", "Mt", "Gt", "Tt", "Pt")
-
 #: Montako pelaajaa luetellaan nimeltä yhdessä yhteenvedon rivissä.
 #: Loput lasketaan; koko luettelo on aina indeksitiedostossa.
 MAX_LISTED_PLAYERS = 5
 
 
-def _human_size(num_bytes: int) -> str:
-    """Muotoile tavumäärä luettavaksi.
-
-    Desimaalierottimena on pilkku suomalaisen käytännön mukaisesti. Alle
-    kilotavun määrät näytetään tarkkoina tavuina.
-
-    >>> _human_size(1536)
-    '1,5 kt'
-    """
-    if num_bytes < 1024:
-        return f"{num_bytes} tavua"
-    value = float(num_bytes)
-    unit = _SIZE_UNITS[0]
-    for unit in _SIZE_UNITS:
-        value /= 1024
-        if value < 1024:
-            break
-    return f"{value:.1f} {unit}".replace(".", ",")
+# **Tavumäärän muotoilija on yksi, ja se on ``fetch_stage.size_fi``.**
+# Tässä oli oma ``_human_size`` omalla yksikkötaulullaan, ja taulut olivat eri
+# mittaiset (``Pt`` vain täällä) -- eli sama luku saattoi tulostua kahdella eri
+# tavalla sen mukaan, mikä komento sen tulosti. Story 3.6 tiesi ``size_fi``:stä
+# ja käytti sitä vaihekerroksessa muttei täällä. Nyt ``Pt`` on ``size_fi``:n
+# taulussa ja tämä kerros kutsuu sitä. Vartija:
+# ``tests/test_cli.py::test_only_one_byte_formatter_exists``.
 
 
 def _version_callback(value: bool) -> None:
@@ -234,7 +221,10 @@ def _render_info(settings: Settings, show_size: bool = False) -> str:
             "  Tila               puuttuu -- hakemisto luodaan ensimmäisellä ajolla"
         )
     elif show_size:
-        lines.append(f"  Tila               löytyy, {_human_size(archive.total_size_bytes())}")
+        lines.append(
+            "  Tila               löytyy, "
+            f"{fetch_stage.size_fi(archive.total_size_bytes())}"
+        )
     else:
         lines.append("  Tila               löytyy")
         lines.append("  Koko               ei laskettu (--koko laskee sen)")
@@ -800,6 +790,43 @@ def _fetch_failures(heading: str, results) -> list[str]:
     return lines
 
 
+def _fetch_notes(results) -> list[str]:
+    """Onnistuneen latauksen huomiot -- **ruudulle eikä vain tulokseen**.
+
+    ``reason`` tulostettiin vain :func:`_fetch_failures`in lohkoissa, joten
+    ``status="ok"`` -tuloksen huomio ei näkynyt koskaan. Niitä on kaksi ja
+    molemmat ovat käyttäjän tietoa: ``fetch._unverified_note``, jonka oma
+    dokumentaatio sanoo että vaiheen **"on sanottava se"**, ja orvon
+    metatiedoston poiston tulos -- johon kuuluu myös se ``VAROITUS``, joka
+    kertoo ettei poisto onnistunut. Huomio, joka syntyy tulokseen muttei
+    ruudulle, on sama asia kuin vaikeneminen.
+
+    **Vain ladatut, ei ohitettuja -- ja rajaus on täällä, ei kutsupaikassa.**
+    Ohitetun tuloksen ``reason`` on "demo oli jo levyllä", ja se on jo
+    yhteenvedon ensimmäisen rivin luku -- otannan mittainen luettelo samaa
+    lausetta hukuttaisi juuri ne rivit, joiden takia tämä lohko on olemassa.
+    Katselmus 2026-09-06 huomautti, että sääntö oli dokumentoitu tänne mutta
+    toteutettu kutsupaikassa: seuraava kutsuja, joka antaisi koko
+    ``results``in, saisi juuri sen luettelon jota vastaan tämä rivi on
+    kirjoitettu. Funktio saa siis suodattaa itse.
+    """
+    rows = [
+        result
+        for result in results
+        if result.status == "ok"
+        and not result.skipped
+        and str(result.reason or "").strip()
+    ]
+    if not rows:
+        return []
+    lines = ["", f"Huomiot ({len(rows)}):"]
+    for result in rows:
+        lines.append(f"  {result.unit}")
+        for row in str(result.reason).splitlines():
+            lines.append(f"    {row}")
+    return lines
+
+
 def _render_fetch_plan(todo, free: int | None, demos_dir: str) -> str:
     """Suunnitelma **ennen** latausta: montako, minne, paljonko tilaa.
 
@@ -808,10 +835,21 @@ def _render_fetch_plan(todo, free: int | None, demos_dir: str) -> str:
     levyllä, jolla on 3 Gt. Kohdehakemisto on mukana samasta syystä -- demot
     voivat mennä arkiston ulkopuolelle, eikä käyttäjän pidä joutua avaamaan
     asetustiedostoa nähdäkseen minne.
+
+    **Levytilavaroitus ja luettelon katkaisu ovat samat kuin sisarella**
+    (:func:`_render_collect_plan`). Molemmat lisättiin Story 3.5:ssä vain
+    ``collect``iin, mutta kumpikaan ei koske divisioonaa: 12 demon otanta ei
+    mahdu 1 Gt:n levylle sen paremmin kuin 132:kaan, ja käyttäjä vahvistaa
+    tässä saman kysymyksen. Kaksi eri suunnitelmatulostetta samasta
+    latauksesta oli ero, ei päätös.
+
+    Sanan taivutus tulee :func:`_maps_fi`iltä eikä kovakoodatusta
+    "karttaa"-sanasta: yhden kartan otanta on kauden ensimmäisen ajon
+    normaalitila, ja "1 karttaa" on virhe joka rivillä, jolla se näkyy.
     """
     lines = [
-        f"Otanta: {todo.selected} karttaa, joista {len(todo.present)} on jo "
-        "levyllä"
+        f"Otanta: {_maps_fi(todo.selected)}, "
+        f"{_of_which_fi(todo.selected)} {len(todo.present)} on jo levyllä"
     ]
     if not todo.pending:
         lines.append("Kaikki otannan demot ovat jo levyllä -- ei ladattavaa.")
@@ -826,8 +864,8 @@ def _render_fetch_plan(todo, free: int | None, demos_dir: str) -> str:
     lines.append(_line("Kohde", demos_dir))
     if free is not None:
         lines.append(_line("Levytilaa vapaana", fetch_stage.size_fi(free)))
-    for map_demo_id in todo.pending:
-        lines.append(f"  {map_demo_id}")
+        lines.extend(_space_warning(todo, free))
+    lines.extend(_listed_units(todo.pending))
     return "\n".join(lines)
 
 
@@ -862,6 +900,7 @@ def _render_fetch(results, todo) -> str:
     )
     for directory in directories:
         lines.append(_line("Kohde", directory))
+    lines.extend(_fetch_notes(results))
     lines.extend(_fetch_failures("Ei saatavilla", missing))
     lines.extend(_fetch_failures("Epäonnistui", failed))
     lines.append("")
@@ -971,7 +1010,8 @@ def _render_collect_plan(
     """
     lines = [
         f"Divisioona: {_matches_fi(todo.matches_played)}, "
-        f"{_maps_fi(todo.selected)}, joista {len(todo.present)} on jo levyllä"
+        f"{_maps_fi(todo.selected)}, {_of_which_fi(todo.selected)} "
+        f"{len(todo.present)} on jo levyllä"
     ]
     lines.append(
         _line("Otteluindeksi", todo.index_generated_at or "aika tuntematon")
@@ -984,6 +1024,15 @@ def _render_collect_plan(
                 "puuttuu indeksistä) -- kartat luetaan vetotiedosta",
             )
         )
+        # **Havainto ilman neuvoa jättää käyttäjän arvaamaan.** Kenttä ei
+        # puutu lähteestä vaan **vanhasta indeksistä**: ``discover`` kirjoittaa
+        # sen (``discover._match_row``), joten uudelleenajo korjaa rivin. Ilman
+        # tätä lausetta rivi näyttää vialta, jolle ei ole tehtävissä mitään.
+        lines.append(
+            "  Kenttä puuttuu vanhasta indeksistä, ei lähteestä -- uusi ajo "
+            "kirjoittaa sen:\n"
+            "  uv run pappascout discover"
+        )
     if todo.pending:
         lines.append(
             _line(
@@ -995,7 +1044,7 @@ def _render_collect_plan(
         lines.append(_line("Kohde", demos_dir))
         if free is not None:
             lines.append(_line("Levytilaa vapaana", fetch_stage.size_fi(free)))
-            lines.extend(_collect_space_warning(todo, free))
+            lines.extend(_space_warning(todo, free))
         lines.extend(_listed_units(todo.pending))
     elif todo.selected:
         lines.append("Kaikki divisioonan demot ovat jo levyllä -- ei ladattavaa.")
@@ -1020,6 +1069,21 @@ def _maps_fi(count: int) -> str:
     return f"{count} kartta" if count == 1 else f"{count} karttaa"
 
 
+def _of_which_fi(count: int) -> str:
+    """``josta`` / ``joista`` -- **relatiivipronomini taipuu samalla luvulla**.
+
+    Sama kuvio kuin :func:`_maps_fi`illa ja :func:`_matches_fi`illa, ja se on
+    tassa omana apurinaan eika kahtena ehtona kutsupaikoissa: kaksi erillista
+    ehtoa erkanisi, ja juuri siita erkanemisesta koko Story 3.7 kertoo.
+
+    Katselmus 2026-09-06 loysi, etta ``_maps_fi``in kayttoonotto korjasi
+    lukusanan mutta jatti seuraavan sanan ennalleen -- "1 kartta, **joista** 0
+    on jo levylla". Korjaus, joka siirtaa virheen yhta sanaa myohemmaksi, ei
+    ole korjaus.
+    """
+    return "josta" if count == 1 else "joista"
+
+
 def _listed_units(units: tuple[str, ...]) -> list[str]:
     """Ladattavat tunnisteet, **katkaistuna** :data:`MAX_LISTED_UNITS`iin.
 
@@ -1037,8 +1101,15 @@ def _listed_units(units: tuple[str, ...]) -> list[str]:
     return lines
 
 
-def _collect_space_warning(todo: fetch_stage.CollectPlan, free: int) -> list[str]:
+def _space_warning(
+    todo: fetch_stage.CollectPlan | fetch_stage.FetchPlan, free: int
+) -> list[str]:
     """Varoita, jos koko suunnitelma ei mahdu levylle -- **äläkä estä ajoa**.
+
+    **Sama rivi molemmille suunnitelmille.** Funktio lukee vain
+    ``pending``in ja ``estimated_bytes``in, jotka ovat molemmissa; nimessä ei
+    siksi enää lue ``collect``. Varoitus, joka koskee vain toista kahdesta
+    latauskomennosta, olisi ero eikä päätös.
 
     Osittainen keräys on parempi kuin ei keräystä: FACEIT poistaa demon noin 30
     päivässä, ja se osa, joka ehditään hakea, on tallessa lopullisesti. Vaihe
@@ -1219,8 +1290,10 @@ def import_demo(
     vahvistuskysymys, jota --kylla EI ohita. Se on tämän työkalun ainoa
     kysymys, jota lippu ei hiljennä.
 
-    Komento ei lataa mitään verkosta. Ottelun vetotieto luetaan FACEITin
-    vastausvälimuistista.
+    Komento ei lataa demoja: demo on se tiedosto, jonka annat. Ottelun
+    vetotieto sen sijaan tulee FACEITista -- ensisijaisesti vastausvälimuistista
+    (raw/faceit/), ja jos ottelu ei ole siellä, se haetaan rajapinnasta ja
+    vastaus kirjoitetaan välimuistiin. Downloads-tokenia ei tarvita.
     """
     # **--map on merkkijono, ei kokonaisluku, ja se on tarkoituksellista.**
     # Typerin oma int-muunnos kaatuisi englanninkieliseen viestiin ennen kuin
@@ -1265,7 +1338,7 @@ def _render_import_plan(todo) -> str:
         _line("Tuodaan", todo.map_demo_id),
         _line("Lähde", str(todo.source_path)),
         _line("Kohde", str(todo.target_path)),
-        _line("Koko", _human_size(todo.size_bytes)),
+        _line("Koko", fetch_stage.size_fi(todo.size_bytes)),
         _line("Tapa", "siirto" if todo.move else "kopio (lähde jää paikalleen)"),
         _line("Kartta otsikosta", todo.header_map_name or "(ei nimeä)"),
         _line("Kartta vetotiedosta", todo.expected_map_name or "(ei vetotietoa)"),
@@ -1293,7 +1366,8 @@ def _integrity_text(todo) -> str:
     """
     if todo.declared_bytes is not None:
         return (
-            f"tarkistettu -- purettuna {_human_size(todo.declared_bytes)} "
+            "tarkistettu -- purettuna "
+            f"{fetch_stage.size_fi(todo.declared_bytes)} "
             "kehyksen ilmoittamana"
         )
     if todo.length_verified:
@@ -1316,7 +1390,7 @@ def _render_import(result: StageResult) -> str:
         f"Tuonti valmis: {result.unit}",
         _line("Demo", str(stats.get("demo_path", ""))),
         _line("Metatiedot", str(stats.get("meta_path", ""))),
-        _line("Koko", _human_size(int(stats.get("size", 0)))),
+        _line("Koko", fetch_stage.size_fi(int(stats.get("size", 0)))),
         _line("sha256", str(stats.get("sha256", ""))),
         # **"Lähdemerkintä" eikä "Lähde".** Suunnitelmassa "Lähde" on se
         # tiedosto, josta tuotiin; tässä kyse on metatiedoston

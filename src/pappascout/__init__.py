@@ -2,7 +2,10 @@
 
 Putki lukee FACEIT-otteluista demot, parsii ne tauluiksi, luokittelee kierrokset
 ja tuottaa suomenkielisen Markdown-raportin. Vaiheet ovat itsenäisiä
-tiedosto-tulos-funktioita, joiden järjestyksestä päättää ``stages.pipeline``.
+tiedosto-tulos-funktioita, ja **järjestyksen päättää käyttäjä ajamalla yhden
+komennon kerrallaan**: vaiheita ketjuttavaa moduulia ei ole olemassa. Vaiheen
+syöte on edellisen vaiheen kirjoittama tiedosto, ja jos sitä ei ole, vaihe
+sanoo sen ja kertoo mikä komento sen kirjoittaa.
 """
 
 from __future__ import annotations

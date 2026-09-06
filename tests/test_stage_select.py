@@ -1118,3 +1118,41 @@ def _snapshot(root: Path) -> dict[str, bytes]:
         for path in sorted(root.rglob("*"))
         if path.is_file()
     }
+
+
+# -- Story 3.7: kirjoitusvirhe on kayttajan tilanne, ei ohjelmavirhe ---------
+
+
+def test_a_write_that_fails_on_disk_is_a_finnish_error_with_advice(
+    league, archive, thresholds
+) -> None:
+    """I/O-matriisi: ``select`` ei voi kirjoittaa valintatiedostoa.
+
+    **Oikea vaihe, oikea kirjoitus.** Kohteen paikalle asetetaan hakemisto,
+    jolloin ``os.replace`` kaatuu aidosti ``OSError``iin atomisen kirjoituksen
+    viimeisella askeleella -- feikattu kirjoitus todistaisi vain, etta feikki
+    nostaa sen mita siita pyydettiin.
+
+    Lukupolku nappasi ``OSError``in jo, kirjoituspolku ei: kasittelemattomana
+    virhe nakyi ruudulla tekstina "Odottamaton virhe: [Errno 28]" ja neuvona
+    "Tama on ohjelmavirhe" -- eli vaara diagnoosi ja vaara toimenpide.
+    """
+    index(archive, league, thresholds)
+    kohde = archive.selection(subject_key(archive))
+    kohde.parent.mkdir(parents=True, exist_ok=True)
+    kohde.mkdir()
+    (kohde / "esteena.txt").write_text("x", encoding="utf-8")
+
+    with pytest.raises(PappascoutError) as err:
+        select(league, archive, thresholds)
+
+    viesti = str(err.value)
+    # **Sisarusten vartijat vaittavat samat asiat.** Kaksi korjausta, jotka
+    # on tehty eksplisiittisesti sisaruksina, eivat saa jaada eri tarkkuudella
+    # vartioiduiksi -- juuri se ero on se, mita Story 3.7 on korjaamassa.
+    assert "ohjelmavirhe" not in viesti
+    assert "epaonnistui levyvirheeseen" in viesti.replace("ä", "a")
+    assert kohde.name in viesti
+    assert err.value.advice
+    assert not kohde.is_file()
+    assert not has_temp_leftovers(archive.root)

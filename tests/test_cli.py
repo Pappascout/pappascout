@@ -11,6 +11,7 @@ Kolme vaatimusta, jotka näissä testeissä lukitaan:
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -21,11 +22,11 @@ from pappascout import __version__
 from pappascout.cli import (
     EXIT_KNOWN_ERROR,
     EXIT_UNEXPECTED_ERROR,
-    _human_size,
     _render_info,
     app,
     main,
 )
+from pappascout.stages.fetch import size_fi
 from pappascout.domain.models import SETTINGS_ENV_VAR, load_settings
 
 FAKE_KEY = "kokeiluavain-1234567890"
@@ -257,7 +258,7 @@ def test_main_exits_zero_on_success(
     assert "PotkukelkkaPeek" in capsys.readouterr().out
 
 
-# --- _human_size --------------------------------------------------------------
+# --- Tavumäärän muotoilu (Story 3.7, kohta 7) --------------------------------
 
 
 @pytest.mark.parametrize(
@@ -275,8 +276,70 @@ def test_main_exits_zero_on_success(
         (5 * 1024**5, "5,0 Pt"),
     ],
 )
-def test_human_size(num_bytes: int, expected: str) -> None:
-    assert _human_size(num_bytes) == expected
+def test_size_fi_covers_everything_the_cli_formatter_covered(
+    num_bytes: int, expected: str
+) -> None:
+    """``size_fi`` muotoilee sen, minkä ``cli._human_size`` muotoili.
+
+    Sama taulukko kuin ``_human_size``illa oli, ``Pt``-rivit mukaan lukien:
+    yhdistäminen ei saanut kaventaa kummankaan kattamaa aluetta.
+    """
+    assert size_fi(num_bytes) == expected
+
+
+def test_only_one_byte_formatter_exists() -> None:
+    """**Tavumäärän muotoilijoita on tasan yksi koko paketissa.**
+
+    Kaksi kopiota olivat jo erkaantuneet: ``cli._SIZE_UNITS`` päättyi
+    ``"Pt"``:hen ja ``fetch._SIZE_UNITS`` ``"Tt"``:hen, eli sama luku saattoi
+    tulostua eri tavalla sen mukaan, mikä komento sen tulosti. Väite luetaan
+    syntaksipuusta eikä merkkijonoista: mikään moduuli
+    ``stages/fetch.py``:n lisäksi ei saa sijoittaa nimeä ``_SIZE_UNITS``,
+    eikä yksikään moduuli saa määritellä tai kutsua nimeä ``_human_size``.
+
+    **Poikkeus on polku eikä tiedostonimi**, ja **sijoitus katsotaan
+    molemmissa muodoissaan.** Katselmus 2026-09-06 loysi kaksi aukkoa:
+    ``path.name != "fetch.py"`` olisi päästänyt minkä tahansa muun
+    ``fetch.py``:n puussa saamaan oman taulunsa, ja pelkkä ``ast.Assign``
+    olisi ohittanut tyypitetyn ``_SIZE_UNITS: tuple[str, ...] = (...)``:n,
+    joka on ``ast.AnnAssign``. Molemmat ovat halpoja, ja tämä vartija on
+    kohdan ainoa rakenteellinen suoja.
+
+    Vartija on olemassa siksi, että paluu vanhaan on yhden funktion mittainen
+    ja se ei näkyisi missään tulosteessa ennen kuin luku sattuu olemaan
+    riittävän suuri.
+    """
+    src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
+    sallittu = src / "stages" / "fetch.py"
+    loytymat: list[str] = []
+    for path in sorted(src.rglob("*.py")):
+        puu = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        rel = path.relative_to(src).as_posix()
+        for node in ast.walk(puu):
+            kohteet: list[ast.expr] = []
+            if isinstance(node, ast.Assign):
+                kohteet = list(node.targets)
+            elif isinstance(node, ast.AnnAssign):
+                kohteet = [node.target]
+            for target in kohteet:
+                if (
+                    isinstance(target, ast.Name)
+                    and target.id == "_SIZE_UNITS"
+                    and path != sallittu
+                ):
+                    loytymat.append(f"{rel}:{node.lineno} _SIZE_UNITS")
+            if isinstance(node, ast.FunctionDef) and node.name == "_human_size":
+                loytymat.append(f"{rel}:{node.lineno} def _human_size")
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_human_size"
+            ):
+                loytymat.append(f"{rel}:{node.lineno} _human_size()")
+    assert loytymat == [], (
+        "Tavumäärän muotoilijoita on enemmän kuin yksi: sama luku tulostuisi "
+        f"eri tavalla eri komennoissa. {loytymat}"
+    )
 
 
 # --- Rakenne ------------------------------------------------------------------
@@ -354,3 +417,49 @@ def test_help_lists_every_pipeline_command() -> None:
         "report",
     ):
         assert command in result.output, command
+
+
+# -- Story 3.7 (kohdat 8, 9): vaite, joka ei pida paikkaansa -----------------
+#
+# Tassa projektissa vaara vaite on vaarallisempi kuin puuttuva tieto: seuraava
+# lukija luottaa siihen. Naiden testien kohde on siis dokumentaatio, ei
+# kaytos -- ja se on tarkoituksellista.
+
+
+def test_no_module_claims_that_a_pipeline_module_decides_the_order() -> None:
+    """Moduulia ``stages.pipeline`` ei ole olemassa.
+
+    Kaksi pakettien docstringia ja ``stages.fetch``in moduulidocstring
+    vaittivat sen paattavan vaiheiden jarjestyksen. Jarjestyksen paattaa
+    kayttaja komento kerrallaan. Lukija, joka etsii moduulia, etsii sita
+    turhaan -- ja lukija, joka uskoo sen olevan olemassa, olettaa ketjutuksen
+    olevan jonkun muun vastuulla.
+    """
+    src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
+    assert not (src / "stages" / "pipeline.py").exists()
+
+    vaitteet: list[str] = []
+    for path in sorted(src.rglob("*.py")):
+        for numero, rivi in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if "stages.pipeline" in rivi or "``pipeline``" in rivi:
+                vaitteet.append(f"{path.name}:{numero}")
+    assert vaitteet == [], (
+        "Joku vaittaa yha, etta pipeline-moduuli paattaa jarjestyksen. "
+        f"{vaitteet}"
+    )
+
+
+def test_the_team_index_does_not_promise_a_rename_to_a_shipped_story() -> None:
+    """``discover`` lupasi arkiston uudelleennimeamisen "Story 3.4:ssa".
+
+    Story 3.4 oli demojen lataus Downloads API:lla eika koskenut arkiston
+    nimeamiseen lainkaan. Toteutunut tarina, joka ei tehnyt luvattua, on
+    pahempi kuin kirjaamaton tyo: lukija tarkistaa tarinan, ei loyda mitaan,
+    eika tieda kumpi on vaarin.
+    """
+    src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
+    lahde = (src / "stages" / "discover.py").read_text(encoding="utf-8")
+
+    assert "uudelleennimeäminen on Story" not in lahde

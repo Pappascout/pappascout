@@ -57,8 +57,9 @@ tahansa: se on koko keräyskomennon (Story 3.5) edellytys.
 
 Mitä tämä vaihe **ei** tee
 --------------------------
-Se ei kutsu ``parse``a eikä mitään muuta vaihetta -- järjestyksestä päättää
-``pipeline``. Se ei muuta ``index/``in tiedostoja: se on niiden lukija.
+Se ei kutsu ``parse``a eikä mitään muuta vaihetta -- järjestyksen päättää
+käyttäjä komento kerrallaan. Se ei muuta ``index/``in tiedostoja: se on niiden
+lukija.
 Se ei pura ``.dem.zst``:ää ``.dem``:iksi (kaksi kopiota samasta demosta
 kaksinkertaistaisi levytilan; ``parse`` purkaa tarvittaessa itse) eikä poista
 demoja parsinnan jälkeen -- se on oma tarinansa (``prune``).
@@ -160,11 +161,27 @@ DISK_RESERVE_BYTES = 2 * 1024 * 1024 * 1024
 #: hylätä oikeaa demoa, mutta se pysäyttää jokaisen virhesivun.
 MIN_PLAUSIBLE_DEMO_BYTES = 1024 * 1024
 
-_SIZE_UNITS = ("kt", "Mt", "Gt", "Tt")
+#: Yksikkötaulu :func:`size_fi`ille.
+#:
+#: ``Pt`` on mukana, koska se oli ``cli._human_size``in taulussa: kahden
+#: muotoilijan yhdistäminen ei saa hukata kummankaan kattamaa aluetta. Yksikään
+#: arkisto ei ole petatavun kokoinen, mutta poisjätetty yksikkö tarkoittaisi,
+#: että sama luku muotoillaan eri tavalla kuin ennen -- ja juuri se ero on se,
+#: mitä tässä oltiin korjaamassa.
+_SIZE_UNITS = ("kt", "Mt", "Gt", "Tt", "Pt")
 
 
 def size_fi(num_bytes: int) -> str:
-    """Tavumäärä luettavana suomalaisittain (desimaalipilkku)."""
+    """Tavumäärä luettavana suomalaisittain (desimaalipilkku).
+
+    **Projektin ainoa tavumäärän muotoilija.** ``cli``ssä oli oma
+    ``_human_size`` omalla yksikkötaulullaan, joten sama luku saattoi tulostua
+    kahdella eri tavalla sen mukaan, mikä komento sen tulosti. Vartija:
+    ``tests/test_cli.py::test_only_one_byte_formatter_exists``.
+
+    >>> size_fi(1536)
+    '1,5 kt'
+    """
     if num_bytes < 1024:
         return f"{num_bytes} tavua"
     value = float(num_bytes)
@@ -221,6 +238,16 @@ def plan(
     hylätyn kartan lataaminen kuluttaisi kiintiötä ja levytilaa aineistoon,
     jota mikään raportti ei lue.
 
+    **Sama tunniste ei voi päätyä listalle kahdesti.** Sama vartija ja sama
+    peruste kuin :func:`plan_division`illa: kaksoiskappale tarkoittaisi saman
+    demon hakemista kahdesti ja kaksinkertaista lukua sekä määrä- että
+    kokoarviossa -- eli vahvistuskysymyksen, joka kysyy väärää asiaa. Vartija
+    on tässä eikä lainattu valintatiedoston kirjoittajan invariantista: tämän
+    funktion tuloksen oikeellisuus ei saa riippua toisen funktion
+    invariantista, jota se ei itse valvo. Arkiston tiedosto on lisäksi
+    käsin muokattavissa. Hinta on yksi joukko, ja järjestys säilyy
+    valintatiedoston järjestyksenä.
+
     Args:
         archive: Arkiston polut.
         team_key: Kanoninen joukkuetunniste.
@@ -243,16 +270,25 @@ def plan(
 
     pending: list[str] = []
     present: list[str] = []
+    seen: set[str] = set()
     for row in rows:
         if not isinstance(row, dict) or not row.get("roster_ok"):
             continue
-        map_demo_id = row.get("map_demo_id")
-        if not isinstance(map_demo_id, str) or not map_demo_id:
+        # **Nimi on ``unit`` eikä ``map_demo_id``.** Moduulitasolla on
+        # samanniminen funktio (:func:`~pappascout.domain.selection.map_demo_id`),
+        # jota :func:`plan_division` kutsuu; paikallinen muuttuja varjosti sen
+        # tässä funktiossa, ja seuraava rivi, joka olisi tarvinnut funktiota,
+        # olisi kaatunut "str is not callable" -virheeseen keskellä ajoa.
+        unit = row.get("map_demo_id")
+        if not isinstance(unit, str) or not unit:
             continue
-        if in_archive(archive, map_demo_id):
-            present.append(map_demo_id)
+        if unit in seen:
+            continue
+        seen.add(unit)
+        if in_archive(archive, unit):
+            present.append(unit)
         else:
-            pending.append(map_demo_id)
+            pending.append(unit)
 
     return FetchPlan(
         team_key=team_key,
@@ -666,16 +702,14 @@ def run(
         # tiivisteen tiedostosta jota siellä ei ole -- ja ``parse`` lukee
         # tiivisteen juuri ensimmäisestä löytyneestä metatiedostosta.
         orphan = existing_meta if existing_meta != meta_path else None
-        where = (
-            f" Vanha metatiedosto hakemistossa {existing_meta.parent} "
-            "poistettiin, koska se kuvasi tiedostoa jota ei ole."
-            if orphan is not None
-            else " Vanha metatiedosto korvattiin."
-        )
-        redo = (
-            "Metatiedosto oli levyllä mutta demo puuttui, joten demo "
-            f"ladattiin.{where}"
-        )
+        redo = "Metatiedosto oli levyllä mutta demo puuttui, joten demo ladattiin."
+        if orphan is None:
+            redo += " Vanha metatiedosto korvattiin."
+        # **Orvon poistosta kerrotaan vasta kun se on yritetty**, ei tässä.
+        # Teksti rakennettiin ennen ``unlink``ia ja väitti poistoa tehdyksi,
+        # vaikka ``unlink`` vaikeni epäonnistumisesta -- ja OneDriven
+        # tiedostolukko on Windowsilla tavallinen. Loppuosa liitetään
+        # :func:`_orphan_note`ssa latauksen jälkeen.
 
     blocked = _preflight(
         archive,
@@ -775,10 +809,7 @@ def run(
         )
 
     if orphan is not None:
-        try:
-            orphan.unlink()
-        except OSError:  # pragma: no cover - riippuu levystä
-            pass
+        redo = " ".join(filter(None, (redo, _orphan_note(orphan))))
 
     # **Vasta tässä.** Demo on paikallaan ja luettu loppuun; metatiedosto saa
     # syntyä vasta nyt, koska se on väite juuri tästä tiedostosta.
@@ -1316,6 +1347,53 @@ def _unverified_note(map_demo_id: str) -> str:
         "paljastuisi vasta parsinnassa. Jos parse epäonnistuu tähän demoon, "
         "poista se ja aja fetch uudelleen."
     )
+
+
+def _remove(path: Path) -> bool:
+    """Poista tiedosto; epäonnistuminen on **tieto** eikä poikkeus.
+
+    Sama funktio ja sama peruste kuin ``stages.import_demo._remove``illa:
+    OneDriven tiedostolukko ja virustorjunnan avoin kahva ovat molemmat
+    tavallisia Windowsilla, eikä kumpikaan tarkoita että lataus epäonnistui --
+    demo on levyllä ja metatiedosto sen vieressä.
+
+    **Paluuarvo on luettava.** Aiemmin poisto oli ``except OSError: pass``, ja
+    huomio kertoi poistosta ennen kuin sitä oli edes yritetty.
+    """
+    try:
+        path.unlink(missing_ok=True)
+        return True
+    except OSError:
+        # **Ei ``pragma: no cover``.** Haara on testattu:
+        # ``test_an_orphan_meta_that_cannot_be_removed_is_never_claimed_removed``
+        # ajaa sen monkeypatchatulla ``Path.unlink``illa. Pragma katetulla
+        # rivilla piilottaisi kattavuudesta juuri sen kohdan, jonka takia
+        # funktio palauttaa totuusarvon eika vaikene.
+        return False
+
+
+def _orphan_note(orphan: Path) -> str:
+    """Orvon metatiedoston poisto -- **ja se, jos sitä ei saatu poistettua**.
+
+    Sama sääntö ja sama sanamuoto kuin ``stages.import_demo._orphan_note``illa:
+    metatiedosto, joka jää kuvaamaan tiedostoa jota ei ole, on väite
+    tiivisteestä -- ja ``parse`` lukee tiivisteen **ensimmäisestä löytyneestä**
+    metatiedostosta. Jos poisto epäonnistuu, huomio on ``VAROITUS`` eikä
+    hiljaisuus, koska väärä väite on vaarallisempi kuin puuttuva tieto: lukija
+    luottaa siihen.
+    """
+    if _remove(orphan):
+        return (
+            f"Vanha metatiedosto hakemistossa {orphan.parent} poistettiin, "
+            "koska se kuvasi tiedostoa jota ei ole."
+        )
+    return (
+        f"VAROITUS: vanhaa metatiedostoa {orphan} ei saatu poistettua "
+        "(esimerkiksi OneDriven tiedostolukko), ja se kuvaa tiedostoa jota ei "
+        "ole. Poista se käsin -- muuten parse voi lukea tiivisteen väärästä "
+        "tiedostosta."
+    )
+
 
 def _archive_outputs(
     archive: ArchivePaths, *paths: Path

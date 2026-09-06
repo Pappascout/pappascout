@@ -1656,6 +1656,115 @@ def test_a_selection_file_without_a_selections_list_says_what_to_run(
         fetch_stage.plan(archive, "joukkue")
 
 
+# -- Story 3.7: sisarkorjaukset ----------------------------------------------
+
+
+def test_the_plan_counts_a_duplicate_identifier_once(archive) -> None:
+    """I/O-matriisi: sama ``map_demo_id`` kahdesti -> tunniste kerran.
+
+    Sama vartija kuin :func:`plan_division`illa (Story 3.5). Ilman sitä
+    kaksoiskappale kaksinkertaistaisi sekä luettelon että kokoarvion -- eli
+    vahvistuskysymys kysyisi väärää asiaa, ja arvio ohjaisi levytilaportin
+    kieltämään latauksen, joka olisi mahtunut.
+    """
+    write_selection(
+        archive,
+        [
+            {"map_demo_id": UNIT, "roster_ok": True},
+            {"map_demo_id": UNIT, "roster_ok": True},
+            {"map_demo_id": OTHER, "roster_ok": True},
+        ],
+    )
+
+    todo = fetch_stage.plan(archive, "joukkue")
+
+    assert todo.pending == (UNIT, OTHER)
+    assert todo.selected == 2
+    assert todo.estimated_bytes == 2 * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
+
+
+def test_a_duplicate_identifier_already_on_disk_is_listed_once(
+    local_archive,
+) -> None:
+    """Vartija koskee myös levyllä olevaa puolta: "2 / 3" olisi väärä luku."""
+    write_selection(
+        local_archive,
+        [
+            {"map_demo_id": UNIT, "roster_ok": True},
+            {"map_demo_id": UNIT, "roster_ok": True},
+        ],
+    )
+    place(local_archive.archive_demos_dir(), UNIT)
+
+    todo = fetch_stage.plan(local_archive, "joukkue")
+
+    assert todo.present == (UNIT,)
+    assert todo.pending == ()
+    assert todo.selected == 1
+    assert todo.estimated_bytes == 0
+
+
+def test_plan_does_not_shadow_the_module_level_map_demo_id() -> None:
+    """``plan`` ei saa sitoa nimeä ``map_demo_id`` paikallisesti.
+
+    Moduulitasolla on samanniminen funktio
+    (``domain.selection.map_demo_id``), jota :func:`plan_division` kutsuu.
+    Paikallinen muuttuja varjosti sen tässä funktiossa: rivi, joka olisi
+    tarvinnut funktiota, olisi kaatunut ``str is not callable`` -virheeseen
+    keskellä ajoa eikä kääntäessä. Väite luetaan syntaksipuusta, koska
+    varjostus ei näy tulosteessa eikä käytöksessä ennen kuin on liian
+    myöhäistä.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    puu = ast.parse(textwrap.dedent(inspect.getsource(fetch_stage.plan)))
+    sidotut = {
+        node.id
+        for node in ast.walk(puu)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+    }
+    assert "map_demo_id" not in sidotut
+
+
+def test_an_orphan_meta_that_cannot_be_removed_is_never_claimed_removed(
+    local_archive, source, monkeypatch
+) -> None:
+    """I/O-matriisi: orpo metatiedosto, jota ei voi poistaa -> ei valhetta.
+
+    Poisto oli ``except OSError: pass`` ja huomio kertoi poistosta ennen kuin
+    sitä oli edes yritetty. OneDriven tiedostolukko on Windowsilla tavallinen,
+    ja jäljelle jäänyt meta väittää tiivisteen tiedostosta, jota siellä ei ole
+    -- ``parse`` lukee tiivisteen **ensimmäisestä löytyneestä** metatiedostosta,
+    joten valhe ei jää tulosteeseen vaan päätyy tulokseen.
+    """
+    orphan_dir = local_archive.archive_demos_dir()
+    orphan_dir.mkdir(parents=True, exist_ok=True)
+    orphan = orphan_dir / f"{UNIT}.meta.json"
+    orphan.write_text(json.dumps({"sha256": "orpo", "size": 1}), encoding="utf-8")
+
+    oikea_unlink = Path.unlink
+
+    def kieltaydy(self: Path, *args: Any, **kwargs: Any):
+        if str(self) == str(orphan):
+            raise PermissionError(13, "OneDrive pitaa tiedostoa lukittuna")
+        return oikea_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", kieltaydy)
+
+    result = run(local_archive, source)
+
+    reason = result.reason or ""
+    assert result.status == "ok"
+    assert "poistettiin" not in reason
+    assert "VAROITUS" in reason
+    assert str(orphan) in reason
+    # Demo on silti arkistossa: epaonnistunut poisto ei ole latauksen vika.
+    assert local_archive.find_demo(UNIT) is not None
+    assert orphan.exists()
+
+
 # -- Tuotannon portti (B1) ----------------------------------------------------
 
 

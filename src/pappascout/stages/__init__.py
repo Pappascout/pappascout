@@ -2,7 +2,8 @@
 
 Jokainen vaihe on funktio ``run(settings, archive, unit, *ports) -> StageResult``,
 jonka syöte ja tulos ovat arkiston tiedostoja. Vaihe ei kutsu toista vaihetta
-eikä kirjoita toisen vaiheen tulosalueelle; järjestyksestä päättää ``pipeline``.
+eikä kirjoita toisen vaiheen tulosalueelle; **järjestyksen päättää käyttäjä
+komento kerrallaan**, eikä vaiheita ketjuttavaa moduulia ole olemassa.
 
 Vaihe saa parametrikseen **vain oman asetusosionsa** (AD-3). Se ei siis pysty
 lukemaan muita osioita, ja siksi esimerkiksi ``[thresholds]``-arvon muuttaminen
