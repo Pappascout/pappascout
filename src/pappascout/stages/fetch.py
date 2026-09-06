@@ -84,7 +84,8 @@ from pappascout.archive.atomic_write import (
     temp_suffix,
 )
 from pappascout.archive.paths import ArchivePaths, safe_component
-from pappascout.domain.models import Settings
+from pappascout.domain.models import LeagueSettings, Settings
+from pappascout.domain.selection import map_demo_id
 from pappascout.errors import (
     ApiError,
     DemoUnavailable,
@@ -103,6 +104,9 @@ __all__ = [
     "DISK_RESERVE_BYTES",
     "FetchPlan",
     "plan",
+    "CollectPlan",
+    "NoVetoMatch",
+    "plan_division",
     "resolve_team_key",
     "in_archive",
     "free_space",
@@ -256,6 +260,249 @@ def plan(
         present=tuple(present),
         estimated_bytes=len(pending) * int(size_estimate),
     )
+
+
+# -- Divisioonan suunnitelma (Story 3.5) -------------------------------------
+
+
+@dataclass(frozen=True)
+class NoVetoMatch:
+    """Pelattu ottelu, jonka karttalistaa indeksissä ei ole.
+
+    **Oma tyyppinsä eikä pelkkä tunniste**, koska tämä rivi on olemassa vain
+    kertoakseen syyn. Story 3.3:n katselmus löysi saman puutteen valinnasta:
+    siellä pelattu ottelu ilman vetotietoa katosi laskuriin, jonka otsikko
+    sanoi syyksi "ei pelattu" -- eli tuloste väitti ottelusta jotain, mikä ei
+    ollut totta. Tunnisteista koostuva lista toistaisi vian, koska syy pitäisi
+    keksiä uudelleen tulostuskohdassa.
+
+    Attributes:
+        match_id: Ottelun tunniste.
+        reason: Miksi tästä ottelusta ei muodostu yhtään tunnistetta.
+            **Pakollinen, ilman oletusarvoa.** Tyyppi on olemassa vain
+            kertoakseen syyn, joten oletusarvo sallisi syyttömän rivin -- eli
+            täsmälleen sen tilan, jota vastaan luokka on kirjoitettu. Sääntö on
+            parempi kuin tulostuskohdan puolustus tyhjää syytä vastaan.
+        finished_at: Milloin ottelu päättyi, tai ``None``. Mukana siksi, että
+            juuri päättynyt ottelu on eri tapaus kuin kolme viikkoa vanha: se
+            ensimmäinen odottaa vain seuraavaa ``discover``ia, ja se toinen
+            tarkoittaa, ettei FACEIT kertonut vetoa lainkaan -- ja silloin
+            ``discover``in ajaminen uudelleen ei tuota mitään. Neuvo haarautuu
+            tästä kentästä (``cli._collect_no_veto``).
+    """
+
+    match_id: str
+    reason: str
+    finished_at: str | None = None
+
+
+@dataclass(frozen=True)
+class CollectPlan:
+    """Mitä ``collect`` aikoo ladata -- **ennen kuin se lataa mitään**.
+
+    :class:`FetchPlan`in sisar eikä sen muunnos. Molemmat kuvaavat saman
+    latauksen yksikköjoukon, mutta ne vastaavat eri kysymykseen ja siksi
+    kantavat eri kentät: ``FetchPlan`` kertoo yhden joukkueen otannan
+    (``team_key``, rosterikynnys), ``CollectPlan`` koko divisioonan
+    otteluindeksin (indeksin ikä, vetotiedottomat ottelut). Yhteinen luokka
+    joutuisi jättämään puolet kentistään tyhjäksi kummassakin käytössä, ja
+    tyhjä kenttä on kutsu tulkita se väärin.
+
+    Kolme ämpäriä eikä kaksi. ``pending`` ja ``present`` ovat samat kuin
+    ``fetch``illä, mutta **pelattu ottelu ilman karttalistaa ei tuota
+    kumpaakaan** -- ja jos sillä ei ole omaa paikkaansa, se katoaa. Kadonnut
+    ottelu on juuri se vika, jonka takia tämä komento on olemassa.
+
+    Attributes:
+        league_ids: ``[league].championship_ids``, joiden ottelut kelpasivat.
+            **Luetaan tulosteessa**, ei vain täytetä: kun suunnitelma on tyhjä,
+            juuri nämä tunnisteet ovat se, mitä käyttäjän on verrattava
+            indeksiin -- tyhjä tulos tarkoittaa useimmiten, että asetuksessa on
+            eri divisioona kuin indeksissä.
+        pending: Ladattavat MapDemot otteluindeksin järjestyksessä.
+        present: Divisioonan MapDemot, jotka ovat jo levyllä (demo **ja**
+            metatiedosto, mistä tahansa kolmesta sijainnista).
+        no_veto: Pelatut ottelut, joista ei muodostu tunnisteita, syineen.
+        matches_played: Montako divisioonan ottelua on pelattu.
+        estimated_bytes: Ladattavien yhteiskoon arvio.
+        index_generated_at: Otteluindeksin ``generated_at`` sellaisenaan.
+            **Suunnitelman kenttä eikä tulosteen koriste:** indeksi on
+            ``collect``in koko yksikköjoukon lähde, joten viikon vanha indeksi
+            tarkoittaa viikon verran otteluita, joita tämä ajo ei näe.
+        best_of_unknown: Ottelut, joiden pituutta ei tiedetä -- tunnisteina
+            eikä lippuna. Havainto, jonka perustelu on "havainto eikä oletus",
+            on oltava **jäljitettävissä**: pelkkä tosi/epätosi kertoisi, että
+            jokin ottelu on tuntematon, muttei mikä, eikä käyttäjä voisi
+            tarkistaa väitettä indeksistä. Mukaan päätyy sekä puuttuva
+            ``best_of`` että kelvoton (``< 1``): kumpikaan ei kerro ottelun
+            pituutta, ja kelvottoman esittäminen tunnettuna olisi väärä väite.
+            Kartat luetaan näissä ``map_picks``ista.
+    """
+
+    league_ids: tuple[str, ...] = ()
+    pending: tuple[str, ...] = ()
+    present: tuple[str, ...] = ()
+    no_veto: tuple[NoVetoMatch, ...] = ()
+    matches_played: int = 0
+    estimated_bytes: int = 0
+    index_generated_at: str | None = None
+    best_of_unknown: tuple[str, ...] = ()
+
+    @property
+    def selected(self) -> int:
+        """Montako MapDemoa divisioonasta tunnetaan kaikkiaan."""
+        return len(self.pending) + len(self.present)
+
+
+def plan_division(
+    archive: ArchivePaths,
+    league: LeagueSettings,
+    *,
+    size_estimate: int = DEMO_SIZE_ESTIMATE_BYTES,
+) -> CollectPlan:
+    """Lue otteluindeksi ja päätä, mitkä divisioonan demot puuttuvat levyltä.
+
+    :func:`plan`in sisar: sama lataus, toinen tapa valita yksiköt. Yksiköt
+    tulevat **otteluindeksistä eivätkä valintatiedostoista**, koska keräyksen
+    tarkoitus on ottaa talteen myös se, mikä ei vielä kuulu kenenkään otantaan
+    -- rosterikynnys on ``select``in asia, ja FACEIT poistaa demon noin 30
+    päivässä riippumatta siitä, kelpasiko kartta jonkun raporttiin.
+
+    Kolme sääntöä, jotka erottavat tämän ``select``in samannäköisestä
+    silmukasta (:func:`~pappascout.stages.select._candidates`):
+
+    **Pelaamaton ottelu ei tuota riviä eikä porttikutsua.** Demoa ei ole
+    olemassa, joten sen kysyminen kuluttaisi kiintiötä varmaan ``no_demo``hon.
+
+    **Pelattu ottelu ilman karttalistaa saa oman rivinsä.** Se ei ole nolla
+    karttaa vaan puuttuva tieto, ja hiljainen ohitus olisi väite "ei pelattu".
+
+    **Epävarma kartta yritetään, ei ohiteta.** ``select`` toimii päinvastoin ja
+    oikein: pelaamattoman kartan päätyminen otantaan valheellistaisi
+    tilastot. Täällä epäsymmetria kääntyy toisin päin -- turha yritys maksaa
+    yhden kutsun ja odotetun ``no_demo``n, mutta ohitus maksaa demon, jota ei
+    kuukauden päästä saa enää mistään. Siksi ``best_of`` **ei rajaa** listaa
+    (2-0 päättyneen BO3:n kolmas kartta yritetään), eikä
+    :func:`~pappascout.domain.selection.guaranteed_maps`ia kutsuta täällä
+    lainkaan.
+
+    ``best_of``:n puuttuminen on siis merkintä eikä oletus. Mitattu
+    2026-09-06: kenttä on koodissa (``discover._match_row``) mutta arkiston
+    4.9. kirjoitetussa indeksissä sitä ei ole yhdelläkään 66 rivillä. Tämä
+    funktio ei peri ``select``in hiljaista tulkintaa, jossa tuntematon pituus
+    luetaan "varmasti pelatuksi". Sama koskee **kelvotonta** arvoa: ``0`` tai
+    negatiivinen ei ole lyhyt ottelu vaan rikkinäinen kenttä, ja sen
+    esittäminen tunnettuna pituutena olisi väärä väite. Raja on sama kuin
+    :func:`~pappascout.domain.selection.guaranteed_maps`illa (``< 1``).
+
+    **Sama tunniste ei voi päätyä listalle kahdesti.** Kaksoiskappale
+    tarkoittaisi saman demon hakemista kahdesti ja kaksinkertaista lukua sekä
+    määrä- että kokoarviossa -- eli vahvistuskysymyksen, joka kysyy väärää
+    asiaa. Vartija on tässä eikä lainattu
+    :func:`~pappascout.stages.discover.matches_from_index`in omasta
+    duplikaattitarkistuksesta: tämän funktion tuloksen oikeellisuus ei saa
+    riippua toisen funktion invariantista, jota se ei itse valvo. Hinta on yksi
+    joukko, ja järjestys säilyy indeksin järjestyksenä.
+
+    Args:
+        archive: Arkiston polut.
+        league: ``[league]``-osio; siitä luetaan ``championship_ids``.
+        size_estimate: Yhden demon koon arvio tavuina.
+
+    Returns:
+        :class:`CollectPlan`.
+
+    Raises:
+        ~pappascout.errors.PappascoutError: Jos otteluindeksiä ei ole, se ei
+            ole luettavissa tai sen muoto on tuntematon. Viesti kehottaa
+            ajamaan ``discover``in. **Rikkinäinen ottelurivi kaataa ajon**
+            (:func:`~pappascout.stages.discover.matches_from_index`) eikä
+            katoa laskuriin -- ohitettu ottelu olisi juuri se hiljaisesti
+            menetetty demo, jota vastaan tämä komento on kirjoitettu.
+    """
+    # Tuonti on funktion sisällä samasta syystä kuin
+    # :func:`resolve_team_key`issä: ``discover``in polars-riippuvuus ei saa
+    # latautua, kun tästä moduulista tarvitaan vain :func:`run`.
+    from pappascout.stages.discover import matches_from_index, read_matches_index
+
+    document = read_matches_index(archive)
+    matches = matches_from_index(document)
+    league_ids = tuple(league.championship_ids)
+    wanted = frozenset(league_ids)
+
+    pending: list[str] = []
+    present: list[str] = []
+    no_veto: list[NoVetoMatch] = []
+    seen: set[str] = set()
+    played = 0
+    best_of_unknown: list[str] = []
+
+    for match in matches:
+        # Väärän kilpailun ottelu ei ole tämän divisioonan asia. Vertailu
+        # tehdään tunnisteella, koska nimeä indeksissä ei ole.
+        if match.competition_id not in wanted:
+            continue
+        if not match.played:
+            continue
+        played += 1
+        if not match.map_picks:
+            no_veto.append(
+                NoVetoMatch(
+                    match_id=match.match_id,
+                    finished_at=match.finished_at,
+                    reason=(
+                        "Ottelu on pelattu, mutta otteluindeksissä ei ole sen "
+                        "karttalistaa, joten karttojen tunnisteita ei voi "
+                        "muodostaa eikä demoja hakea. Tämä ei tarkoita, "
+                        "ettei ottelua olisi pelattu."
+                    ),
+                )
+            )
+            continue
+        if match.best_of is None or match.best_of < 1:
+            best_of_unknown.append(match.match_id)
+        for index in range(len(match.map_picks)):
+            unit = map_demo_id(match.match_id, index)
+            if unit in seen:
+                continue
+            seen.add(unit)
+            if in_archive(archive, unit):
+                present.append(unit)
+            else:
+                pending.append(unit)
+
+    return CollectPlan(
+        league_ids=league_ids,
+        pending=tuple(pending),
+        present=tuple(present),
+        no_veto=tuple(no_veto),
+        matches_played=played,
+        estimated_bytes=len(pending) * int(size_estimate),
+        index_generated_at=_optional_text(document.get("generated_at")),
+        best_of_unknown=tuple(best_of_unknown),
+    )
+
+
+def _optional_text(value: Any) -> str | None:
+    """Näytettävä merkkijono, tai ``None`` jos näytettävää ei ole.
+
+    Indeksin ``generated_at`` **näytetään käyttäjälle sellaisenaan**, joten
+    tämä on se kohta, jossa kenttä tarkistetaan ennen ruutua. Kolme tapausta
+    tuottavat ``None``:
+
+    * avain puuttuu (``document.get`` palautti ``None``),
+    * arvo ei ole merkkijono -- luku tai lista tulostuisi aikaleiman paikalla
+      aikaleiman näköisenä,
+    * arvo on tyhjä tai pelkkää tyhjämerkkiä. Välilyönti on totuusarvoltaan
+      tosi, joten ilman ``strip``iä se läpäisisi tarkistuksen ja jättäisi
+      riville tyhjän kohdan -- mikä näyttäisi tyhjältä aikaleimalta eikä
+      tuntemattomalta.
+
+    ``None`` on kutsujan asia sanoa ääneen, ei tämän funktion.
+    """
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
 
 
 def resolve_team_key(archive: ArchivePaths, team: str) -> str:

@@ -4,18 +4,25 @@ CLI on ohut: se lukee asetukset, valitsee vaiheet ja näyttää tuloksen. Se ei
 kutsu adaptereita eikä arkistoa suoraan, eikä siinä ole analyysilogiikkaa --
 sama putki ajetaan myöhemmin web-kuoren takaa muuttamatta domainia.
 
-Komentoja on seitsemän: ``info`` näyttää asetukset, arkiston tilan ja avainten
-tilan paljastamatta avainten arvoja, ``discover`` hakee divisioonan ottelut ja
+Komennot: ``info`` näyttää asetukset, arkiston tilan ja avainten tilan
+paljastamatta avainten arvoja, ``discover`` hakee divisioonan ottelut ja
 kirjoittaa niistä ottelu- ja joukkueindeksin, ``select`` valitsee joukkueen
 kartat rosterikynnyksellä, ``parse`` ajaa putken demovaiheen yhdelle demolle,
 ``classify`` luokittelee sen kierrokset yhden joukkueen näkökulmasta,
 ``aggregate`` kokoaa joukkueen luokitellut kierrokset yhdeksi
 ``report.json``-tiedostoksi ja ``report`` kirjoittaa siitä luettavan
-Markdown-raportin. ``fetch`` lataa otannan demot FACEITista ja ``import``
-ottaa vastaan selaimella ladatun demon -- ne ovat sama lopputulos kahdesta
-lähteestä, ja **``import`` on ainoa polku silloin kun Downloads-oikeutta ei
-ole**. Loput (``scout``, ``next``, ``collect``) tulevat myöhemmissä
-storyissa.
+Markdown-raportin. Demoja arkistoon tuovia on kolme, ja ne ovat sama lopputulos
+kolmesta yksikkövalinnasta: ``fetch`` lataa yhden joukkueen otannan,
+``collect`` koko divisioonan päättyneet ottelut otteluindeksistä ja ``import``
+ottaa vastaan selaimella ladatun demon -- ja **``import`` on ainoa polku
+silloin kun Downloads-oikeutta ei ole**. Loput (``scout``, ``next``) tulevat
+myöhemmissä storyissa.
+
+**Luetteloa ei aloiteta lukusanalla.** Rivi lupasi seitsemää komentoa vielä
+silloin, kun niitä oli yhdeksän: käsin ylläpidetty luku, jota mikään testi ei
+vartioi, vanhenee ensimmäisen lisäyksen kohdalla. Luettelo itse on vartioitu
+(``test_help_lists_every_pipeline_command``), joten luku ei kerro mitään, mitä
+ei jo lueta seuraavasta virkkeestä.
 
 Jokainen putken komento on ``test_help_lists_every_pipeline_command``in
 luettelossa. Se ei ole muodollisuus: Story 3.2:ssa ``discover`` lisättiin ilman
@@ -35,6 +42,7 @@ paluukoodeiksi.
 from __future__ import annotations
 
 import sys
+from datetime import UTC, datetime, timedelta
 
 import typer
 
@@ -721,21 +729,7 @@ def fetch(
     if not todo.pending:
         return
 
-    # **Levytilan portti on ennen kysymystä.** Vahvistuksen pyytäminen
-    # lataukselle, joka ei mahdu levylle, olisi kysymys johon ei ole oikeaa
-    # vastausta. Vaihe tarkistaa saman uudelleen jokaisen demon kohdalla --
-    # tila voi loppua kesken sarjan.
-    need = fetch_stage.DEMO_SIZE_ESTIMATE_BYTES + fetch_stage.DISK_RESERVE_BYTES
-    if free is not None and free < need:
-        raise PappascoutError(
-            "Levytila ei riitä yhdenkään demon lataukseen: hakemiston "
-            f"{archive.demos_dir()} levyllä on vapaana "
-            f"{fetch_stage.size_fi(free)}, ja yksi demo varmuusvaroineen "
-            f"vaatii {fetch_stage.size_fi(need)}.\n"
-            "Vapauta tilaa poistamalla jo parsittuja demoja (parsed-taulut "
-            "säilyvät) tai osoita demot toiselle levylle asetuksella "
-            "[project].demos_root."
-        )
+    _levytilaportti(str(archive.demos_dir()), free)
 
     if not kylla:
         _vahvista("Ladataanko nämä demot?")
@@ -743,6 +737,47 @@ def fetch(
     source = fetch_stage.default_source(settings, archive)
     results = fetch_stage.run_many(archive, todo.pending, source=source)
     typer.echo(_render_fetch(results, todo))
+
+
+def _levytilaportti(demos_dir: str, free: int | None) -> None:
+    """Keskeytä, jos levylle ei mahdu yksikään demo.
+
+    **Portti on ennen kysymystä.** Vahvistuksen pyytäminen lataukselle, joka ei
+    mahdu levylle, olisi kysymys johon ei ole oikeaa vastausta. Vaihe
+    tarkistaa saman uudelleen jokaisen demon kohdalla -- tila voi loppua kesken
+    sarjan.
+
+    Yhteinen ``fetch``in ja ``collect``in kanssa eikä kopioitu: kaksi
+    sanamuotoa samasta tilanteesta olisi kaksi eri ohjetta, ja niistä
+    korkeintaan toinen pysyisi ajan tasalla.
+
+    Parametri on **kohdehakemiston polku eikä arkisto-olio**, ja siihen on kaksi
+    syytä. Kerrossääntö (``tests/test_layering.py``) kieltää komentoriviltä
+    ``archive``-paketin, joten ``ArchivePaths`` ei ole täällä nimettävissä edes
+    tyyppinä. Ja tämä funktio tarvitsee arkistosta vain sen yhden polun, jonka
+    se tulostaa -- samasta merkkijonosta, jonka suunnitelma jo näytti, joten
+    portti ja suunnitelma eivät voi nimetä eri hakemistoa.
+
+    Args:
+        demos_dir: Hakemisto, johon demot kirjoitettaisiin.
+        free: Vapaa tila tavuina, tai ``None`` = ei saatu selville.
+
+    Raises:
+        ~pappascout.errors.PappascoutError: Jos vapaa tila tiedetään eikä se
+            riitä yhteen demoon varmuusvaroineen. Tuntematon tila (``None``)
+            ei estä latausta.
+    """
+    need = fetch_stage.DEMO_SIZE_ESTIMATE_BYTES + fetch_stage.DISK_RESERVE_BYTES
+    if free is not None and free < need:
+        raise PappascoutError(
+            "Levytila ei riitä yhdenkään demon lataukseen: hakemiston "
+            f"{demos_dir} levyllä on vapaana "
+            f"{fetch_stage.size_fi(free)}, ja yksi demo varmuusvaroineen "
+            f"vaatii {fetch_stage.size_fi(need)}.\n"
+            "Vapauta tilaa poistamalla jo parsittuja demoja (parsed-taulut "
+            "säilyvät) tai osoita demot toiselle levylle asetuksella "
+            "[project].demos_root."
+        )
 
 
 def _fetch_failures(heading: str, results) -> list[str]:
@@ -832,6 +867,297 @@ def _render_fetch(results, todo) -> str:
     lines.append("")
     lines.append(_line("Ajoaika", _seconds(sum(r.duration_s for r in results))))
     return "\n".join(lines)
+
+
+@app.command("collect")
+def collect(
+    kylla: bool = typer.Option(
+        False,
+        "--kylla",
+        help="Älä kysy vahvistusta. Suunnitelma näytetään silti.",
+    ),
+) -> None:
+    """Kerää koko divisioonan päättyneiden otteluiden demot levylle.
+
+    FACEIT poistaa demon noin 30 päivässä, ja kauden lopussa poistunut ottelu
+    on lopullisesti poissa. Siksi tämä komento ei katso rosterikynnystä eikä
+    yhtäkään valintatiedostoa: yksiköt tulevat suoraan otteluindeksistä, ja
+    mukaan otetaan jokainen pelattu ottelu -- myös se, joka ei vielä kuulu
+    kenenkään otantaan.
+
+    Ottelut luetaan index/matches.json -tiedostosta. Aja ensin discover, jos
+    indeksiä ei ole -- ja aja se uudelleen, jos suunnitelman kertoma indeksin
+    ikä on vanhempi kuin viimeksi pelatut ottelut. Komento ei hae otteluita
+    itse eikä kirjoita indeksiin.
+
+    Lataus on täsmälleen sama kuin fetchillä: sama kirjoitus, sama
+    metatiedosto, samat säännöt. Levyllä jo oleva demo ohitetaan kaikista
+    kolmesta sijainnista, joten komennon voi ajaa milloin tahansa uudelleen.
+
+    Pelattu ottelu, jonka karttalistaa indeksissä ei ole, näkyy omalla
+    rivillään syineen. Se ei ole nolla karttaa eikä pelaamaton ottelu.
+
+    Ennen latausta näytetään montako demoa haetaan, minne ja paljonko
+    levytilaa ne vievät, ja kysytään vahvistus. --kylla ohittaa kysymyksen,
+    ei suunnitelman tulostusta.
+    """
+    settings = load_settings()
+    archive = archive_paths(settings.project)
+
+    todo = fetch_stage.plan_division(archive, settings.league)
+    free = fetch_stage.free_space(archive)
+    typer.echo(_render_collect_plan(todo, free, str(archive.demos_dir())))
+
+    if not todo.pending:
+        return
+
+    _levytilaportti(str(archive.demos_dir()), free)
+
+    if not kylla:
+        _vahvista("Ladataanko nämä demot?")
+
+    source = fetch_stage.default_source(settings, archive)
+    results = fetch_stage.run_many(archive, todo.pending, source=source)
+    typer.echo(_render_fetch(results, todo))
+
+
+#: Montako ladattavaa tunnistetta suunnitelma luettelee ruudulle.
+#:
+#: **Katto eikä mielivaltainen raja.** ``fetch``illä luettelo oli otannan
+#: mittainen (yksi joukkue, muutama kartta), mutta ``collect`` kerää koko
+#: divisioonan: 12 demoa nyt ja kauden lopussa noin 132. Toistasataa riviä
+#: tunnisteita vierittäisi ruudulta pois juuri ne rivit, joiden takia
+#: suunnitelma ylipäätään tulostetaan -- kohteen, vapaan tilan,
+#: vetotiedottomat ottelut ja itse kysymyksen. Luettelo on lisätieto; luvut ja
+#: portit eivät ole.
+#:
+#: Kaksikymmentä on ruudullinen: sen näkee kerralla, ja se riittää
+#: tunnistamaan, ovatko tunnisteet oikean divisioonan otteluista.
+MAX_LISTED_UNITS = 20
+
+
+def _render_collect_plan(
+    todo: fetch_stage.CollectPlan, free: int | None, demos_dir: str
+) -> str:
+    """Divisioonan suunnitelma **ennen** latausta.
+
+    :func:`_render_fetch_plan`in sisar, ja neljä riviä enemmän -- jokainen
+    niistä vastaa kysymykseen, jota joukkuekohtaisessa haussa ei ole:
+
+    **Indeksin ikä.** ``collect``in koko yksikköjoukko tulee otteluindeksistä,
+    joten vanha indeksi tarkoittaa otteluita, joita tämä ajo ei näe lainkaan.
+    Mitattu 2026-09-06: arkiston indeksi oli 4.9. ja seuraavat ottelut alkoivat
+    6.9. klo 17. Ikä kerrotaan siksi ääneen eikä jätetä pääteltäväksi.
+
+    **Tuntematon ottelun pituus.** ``best_of`` puuttui koko 4.9. kirjoitetusta
+    indeksistä. Kartat luetaan silloin vetotiedosta, ja rivi sanoo sen --
+    vaieten se näyttäisi samalta kuin tiedetty pituus. Rivi kertoo myös
+    **montako** ottelua koskee, koska havainto ilman laajuutta ei ole
+    tarkistettavissa.
+
+    **Vetotiedottomat ottelut.** Oma lohkonsa syineen eikä nolla riviä. Story
+    3.3:n katselmus löysi saman vian valinnasta, jossa tällainen ottelu
+    laskettiin pelaamattomaksi.
+
+    **Levytilavaroitus.** Suunnitelman koko ja vapaa tila ovat samalla ruudulla,
+    mutta niiden vertaaminen jää käyttäjälle vain jos työkalu ei tee sitä.
+    Mitattu 2026-09-06: koko kausi on noin 25 GB ja vapaana 9,8 GB.
+
+    Kaksi tyhjää suunnitelmaa ovat **eri asia**, ja ne sanotaan eri sanoin.
+    "Kaikki jo levyllä" on tulos; "divisioonasta ei tunneta yhtään karttaa" on
+    merkki siitä, etteivät asetuksen ``championship_ids`` ja indeksi osu
+    yhteen, tai ettei kautta ole vielä pelattu. Yhteinen viesti väittäisi
+    jälkimmäisessä tapauksessa levyllä olevan jotain, mitä siellä ei ole.
+    """
+    lines = [
+        f"Divisioona: {_matches_fi(todo.matches_played)}, "
+        f"{_maps_fi(todo.selected)}, joista {len(todo.present)} on jo levyllä"
+    ]
+    lines.append(
+        _line("Otteluindeksi", todo.index_generated_at or "aika tuntematon")
+    )
+    if todo.best_of_unknown:
+        lines.append(
+            _line(
+                "Ottelun pituus",
+                f"tuntematon {len(todo.best_of_unknown)} ottelussa (best_of "
+                "puuttuu indeksistä) -- kartat luetaan vetotiedosta",
+            )
+        )
+    if todo.pending:
+        lines.append(
+            _line(
+                "Ladataan",
+                f"{len(todo.pending)} demoa, arviolta "
+                f"{fetch_stage.size_fi(todo.estimated_bytes)}",
+            )
+        )
+        lines.append(_line("Kohde", demos_dir))
+        if free is not None:
+            lines.append(_line("Levytilaa vapaana", fetch_stage.size_fi(free)))
+            lines.extend(_collect_space_warning(todo, free))
+        lines.extend(_listed_units(todo.pending))
+    elif todo.selected:
+        lines.append("Kaikki divisioonan demot ovat jo levyllä -- ei ladattavaa.")
+    else:
+        lines.append(_empty_division(todo))
+    lines.extend(_collect_no_veto(todo.no_veto))
+    return "\n".join(lines)
+
+
+def _matches_fi(count: int) -> str:
+    """``1 pelattu ottelu`` / ``6 pelattua ottelua``.
+
+    Suomen partitiivi taipuu luvulla 1, ja sama kuvio on jo
+    :func:`_rounds_fi`illä ja :func:`_players_fi`illä. Yhden ottelun
+    divisioona ei ole harvinaisuus: kauden ensimmäinen ajo osuu juuri siihen.
+    """
+    return f"{count} pelattu ottelu" if count == 1 else f"{count} pelattua ottelua"
+
+
+def _maps_fi(count: int) -> str:
+    """``1 kartta`` / ``12 karttaa``."""
+    return f"{count} kartta" if count == 1 else f"{count} karttaa"
+
+
+def _listed_units(units: tuple[str, ...]) -> list[str]:
+    """Ladattavat tunnisteet, **katkaistuna** :data:`MAX_LISTED_UNITS`iin.
+
+    Katkaisu sanoo montako jäi näyttämättä, samoin kuin
+    :func:`_select_rejections`illa. Hiljainen lyhennys näyttäisi
+    suunnitelmalta, joka on lyhyempi kuin sen oma "Ladataan"-rivi lupaa -- ja
+    juuri sitä lukua käyttäjä on vahvistamassa.
+    """
+    lines = [f"  {unit}" for unit in units[:MAX_LISTED_UNITS]]
+    hidden = len(units) - MAX_LISTED_UNITS
+    if hidden > 0:
+        lines.append(
+            f"  (+{hidden} muuta -- ne ladataan siinä missä yllä luetellutkin)"
+        )
+    return lines
+
+
+def _collect_space_warning(todo: fetch_stage.CollectPlan, free: int) -> list[str]:
+    """Varoita, jos koko suunnitelma ei mahdu levylle -- **äläkä estä ajoa**.
+
+    Osittainen keräys on parempi kuin ei keräystä: FACEIT poistaa demon noin 30
+    päivässä, ja se osa, joka ehditään hakea, on tallessa lopullisesti. Vaihe
+    tarkistaa tilan erikseen jokaisen demon kohdalla, joten ajo pysähtyy
+    itsestään oikeaan kohtaan eikä kirjoita levyä täyteen.
+
+    **Portti ja varoitus ovat eri asia.** :func:`_levytilaportti` estää ajon,
+    joka ei mahduttaisi yhtäkään demoa -- silloin ajolla ei ole mitään
+    saavutettavaa. Tämä rivi kertoo, ettei kaikki mahdu, ja jättää päätöksen
+    käyttäjälle, joka on juuri saamassa kysymyksen. Mitattu 2026-09-06: kausi
+    on noin 132 demoa eli 25 GB, ja vapaana oli 9,8 GB -- eli tämä rivi on
+    kauden lopun normaalitila eikä poikkeus.
+    """
+    if free >= todo.estimated_bytes:
+        return []
+    mahtuu = max(0, free - fetch_stage.DISK_RESERVE_BYTES) // max(
+        1, fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
+    )
+    return [
+        _line(
+            "HUOM",
+            f"koko suunnitelma ei mahdu levylle: tilaa riittää arviolta "
+            f"{min(mahtuu, len(todo.pending))} demolle {len(todo.pending)}:sta. "
+            "Loput jäävät hakematta, ja ne voi hakea myöhemmin ajamalla "
+            "komennon uudelleen.",
+        )
+    ]
+
+
+def _empty_division(todo: fetch_stage.CollectPlan) -> str:
+    """Divisioonasta ei tunneta yhtään karttaa -- **ei sama kuin "jo levyllä"**.
+
+    Väärä väite datasta on pahempi kuin vaikeaselkoinen: "kaikki on jo levyllä"
+    kertoisi demojen olevan tallessa, kun tosiasiassa yhtäkään ei tunneta.
+    Tilanne syntyy väärästä tai vieraasta ``championship_ids``ista, toisen
+    divisioonan indeksistä ja kaudesta, jota ei ole vielä pelattu -- ja
+    kahdessa ensimmäisessä käyttäjän on nähtävä juuri se tunniste, jolla
+    suodatettiin. Siksi viesti toistaa sen eikä vain kehota tarkistamaan.
+    """
+    ids = ", ".join(todo.league_ids) or "(ei yhtään)"
+    return (
+        "Otteluindeksissä ei ole yhtään pelattua ottelua tästä divisioonasta "
+        "-- ei ladattavaa.\n"
+        f"  Haettiin championship_ids-tunnisteilla: {ids}\n"
+        "  Tarkista [league].championship_ids asetuksista ja aja tarvittaessa "
+        "uudelleen: uv run pappascout discover"
+    )
+
+
+def _collect_no_veto(rows: tuple[fetch_stage.NoVetoMatch, ...]) -> list[str]:
+    """Pelatut ottelut ilman karttalistaa -- **jokainen syineen ja neuvoineen**.
+
+    Lohko on olemassa, jottei pelattu ottelu katoa hiljaa. Nolla riviä
+    näyttäisi täsmälleen samalta kuin ottelu, jota ei ole pelattu.
+
+    **Neuvo haarautuu ``finished_at``ista**, ja juuri se on kentän tarkoitus.
+    Tuoreelta ottelulta veto puuttuu indeksistä, koska indeksi on ottelua
+    vanhempi -- ``discover`` korjaa sen. Viikkoja vanhan ottelun kohdalla
+    ``discover`` on jo ajettu ottelun jälkeen eikä vetoa silti ole: silloin
+    uudelleenajo ei tuota mitään, ja jäljellä oleva reitti on selaimella haettu
+    ja käsin tuotu demo (``import``). Yhteinen neuvo olisi oikea korkeintaan
+    toiselle -- sama sääntö kuin :func:`_fetch_failures`illä (D1).
+    """
+    if not rows:
+        return []
+    lines = ["", f"Pelattu ottelu ilman vetotietoa ({len(rows)}):"]
+    for row in rows:
+        when = f" (päättyi {row.finished_at})" if row.finished_at else ""
+        lines.append(f"  {row.match_id}{when}")
+        for text in row.reason.splitlines():
+            lines.append(f"    {text}")
+        lines.append(f"    -> {_no_veto_next_step(row)}")
+    return lines
+
+
+#: Kuinka vanha ottelu on niin vanha, ettei ``discover`` enää tuo sille vetoa.
+#:
+#: Mitattu 2026-09-06: arkiston indeksi oli kahden vuorokauden ikäinen ja
+#: sisälsi jokaisen sitä vanhemman ottelun vetoineen. Raja on siis reilusti
+#: normaalin viiveen yläpuolella: sen ylittänyt ottelu on ollut indeksissä jo
+#: useamman ajon ajan ilman että veto olisi ilmestynyt.
+NO_VETO_STALE_DAYS = 7
+
+
+def _no_veto_next_step(row: fetch_stage.NoVetoMatch) -> str:
+    """Neuvo yhdelle vetotiedottomalle ottelulle, sen iän mukaan."""
+    if _is_older_than(row.finished_at, NO_VETO_STALE_DAYS) is not True:
+        # Tuore **tai tuntematon** ikä. Indeksi voi yksinkertaisesti olla
+        # ottelua vanhempi, ja se on halvin korjaus kokeilla ensin -- eikä
+        # tuntemattomalle iälle saa antaa neuvoa, joka väittää ottelun olevan
+        # vanha.
+        return "Aja uudelleen: uv run pappascout discover"
+    return (
+        f"Ottelu on yli {NO_VETO_STALE_DAYS} vuorokautta vanha eikä vetotietoa "
+        "ole ilmestynyt, joten discover ei todennäköisesti tuo sitä. Hae demot "
+        "selaimella ja tuo ne: uv run pappascout import"
+    )
+
+
+def _is_older_than(moment: str | None, days: int) -> bool | None:
+    """Onko ISO-aikaleima yli ``days`` vuorokautta vanha? ``None`` = ei tiedetä.
+
+    **Kolme paluuarvoa eikä kaksi.** Puuttuva tai jäsentymätön aikaleima ei ole
+    "tuore" eikä "vanha", ja sen esittäminen kumpanakin valitsisi neuvon
+    tiedolla, jota ei ole. Tuntematon saa saman neuvon kuin tuore, mutta valinta
+    tehdään näkyvästi kutsukohdassa eikä piiloteta tänne.
+    """
+    if not moment:
+        return None
+    try:
+        parsed = datetime.fromisoformat(moment)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        # Vyöhykkeetön aikaleima luetaan UTC:ksi, koska indeksin muut ajat ovat
+        # sitä. Paikallisaikana tulkittu leima heittäisi korkeintaan tunteja,
+        # eikä se voi kääntää seitsemän vuorokauden rajaa väärin päin.
+        parsed = parsed.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - parsed) > timedelta(days=days)
 
 
 #: Viesti, kun tuontia ei tehdä käyttäjän vastauksen takia.

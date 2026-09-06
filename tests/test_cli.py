@@ -346,6 +346,7 @@ def test_help_lists_every_pipeline_command() -> None:
         "discover",
         "select",
         "fetch",
+        "collect",
         "import",
         "parse",
         "classify",

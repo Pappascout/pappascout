@@ -45,6 +45,7 @@ uv run pappascout discover                       # divisioonan ottelu- ja joukku
 uv run pappascout discover --team "Rcave"        # sama + joukkueen vakirosteri
 uv run pappascout select --team "Rcave"          # kartat rosterikynnyksella
 uv run pappascout fetch --team "Rcave"           # lataa otannan demot FACEITista
+uv run pappascout collect                        # lataa koko divisioonan pelatut demot
 uv run pappascout import --match <match_id> --map 1   # kasin ladattu demo arkistoon
 uv run pappascout parse <tiedosto|map_demo_id>   # demosta kierrokset ja asetelmat
 uv run pappascout classify <map_demo_id> --team <tunniste> --show  # kierrostyypit
@@ -56,16 +57,40 @@ uv run pytest                   # testit
 uv run pytest -m "not demo"     # vain demoista riippumattomat testit
 ```
 
-### Demot arkistoon: `fetch` ja `import`
+### Demot arkistoon: `fetch`, `collect` ja `import`
 
-Molemmat kirjoittavat saman lopputuloksen -- `demos/<map_demo_id>.dem.zst` ja
-sen viereen `.meta.json` -- ja **tuotu demo on putkessa erottamaton
-ladatusta**: mikään myöhempi vaihe ei haaraudu sen mukaan, kummasta lähteestä
-tiedosto tuli. Aja kummalle tahansa suoraan `parse`.
+Kaikki kolme kirjoittavat saman lopputuloksen -- `demos/<map_demo_id>.dem.zst`
+ja sen viereen `.meta.json` -- ja **tuotu demo on putkessa erottamaton
+ladatusta**: mikään myöhempi vaihe ei haaraudu sen mukaan, mistä lähteestä
+tiedosto tuli. Aja millä tahansa haetulle suoraan `parse`.
 
-`fetch` hakee otannan demot FACEITin Downloads API:sta. Se vaatii erillisen
-Downloads-käyttöoikeuden, jota **tällä avaimella ei tällä hetkellä ole**
-(hakemus jonossa, mitattu 2026-09-05) -- signauskutsu vastaa 403.
+Ero on **yksikkövalinnassa, ei latauksessa**: `fetch` ja `collect` ajavat
+saman koodin ja samat säännöt, ne vain päättävät eri tavalla, mitkä demot
+haetaan.
+
+`fetch --team` hakee yhden joukkueen otannan eli ne kartat, jotka `select`
+hyväksyi rosterikynnyksellä. Se lukee `index/selections/<team_key>.json`:in.
+
+`collect` hakee **koko divisioonan** päättyneiden otteluiden demot suoraan
+`index/matches.json`:ista -- myös ne ottelut, jotka eivät kuulu kenenkään
+otantaan. Syy on säilytysaika: FACEIT poistaa demon noin 30 päivässä, ja
+kauden lopussa poistunutta ottelua ei saa enää mistään, vaikka se
+myöhemmin osoittautuisi tarpeelliseksi. Rosterikynnystä ei siis katsota.
+
+* **Aja `discover` ensin.** `collect` on otteluindeksin lukija eikä hae
+  otteluita itse. Ilman indeksiä komento kertoo ajamaan `discover`in, ja
+  suunnitelma näyttää aina indeksin iän: sitä vanhempia otteluita ajo ei näe.
+* Suunnitelma kertoo montako demoa haetaan, minne, paljonko ne vievät ja
+  paljonko levyllä on tilaa -- ja kysyy vahvistuksen. `--kylla` ohittaa
+  kysymyksen, ei suunnitelmaa.
+* Levyllä jo oleva demo ohitetaan kaikista kolmesta sijainnista, joten
+  komennon voi ajaa milloin tahansa uudelleen.
+* Pelattu ottelu, jonka karttalistaa indeksissä ei ole, näkyy **omalla
+  rivillään syineen**. Se ei ole nolla karttaa eikä pelaamaton ottelu.
+
+Molemmat vaativat erillisen FACEIT Downloads -käyttöoikeuden, jota **tällä
+avaimella ei tällä hetkellä ole** (hakemus jonossa, mitattu 2026-09-05) --
+signauskutsu vastaa 403.
 
 `import` ottaa vastaan selaimella kirjautuneena ladatun demon, ja se on siihen
 asti **ainoa toimiva polku demon saamiseksi arkistoon**:
@@ -1311,6 +1336,7 @@ laajennetaan latausvaiheessa -- siksi sama rivi toimii molemmilla koneilla.
 | `src/pappascout/adapters/faceit.py` | FACEIT Data API -asiakas -- ainoa paikka, joka tekee HTTP-kutsuja: avain otsakkeesta, uudelleenyritys vain 429/5xx:lle (`Retry-After` huomioiden), aikabudjetti per kutsu, sivutus; vastausvälimuisti `raw/faceit/` **vain valmiille otteluille**, ei ottelulistalle |
 | `src/pappascout/stages/discover.py` | `discover`-vaihe: divisioonan otteluista `index/matches.json` + `index/teams.json`; ei manifestia, koska vaihetta ei koskaan ohiteta. Sisältää myös indeksien lukijat: `read_indexes()`, `matches_from_index()`, `teams_from_index()` ja `resolve_team()` -- **rikkinäinen rivi kaataa ajon eikä katoa laskuriin** |
 | `src/pappascout/stages/select.py` | `select`-vaihe: indekseista `index/selections/<team_key>.json`; ei porttia (ei verkkoa) eika manifestia. Sisaltaa valintatiedoston lukijan (`read_selection()`) |
+| `src/pappascout/stages/fetch.py` | `fetch`-vaihe: MapDemo-tunnisteesta `demos/<map_demo_id>.dem.zst` + `.meta.json`; atominen kirjoitus, tiiviste kirjoitusvirran aikana, levytilatarkistus ennen latausta. Sisältää **kaksi yksikkövalintaa samalle lataukselle**: `plan()` lukee joukkueen valintatiedoston (`fetch --team`) ja `plan_division()` otteluindeksin koko divisioonalta (`collect`) -- sarjan ajaa kummassakin sama `run_many()` |
 | `src/pappascout/stages/parse.py` | `parse`-vaihe: demosta `rounds.parquet` + `ticks.parquet` + `events.parquet` + `lineups.parquet` + `deaths.parquet` + `callouts.parquet` + `match.parquet` + manifesti |
 | `src/pappascout/stages/classify.py` | `classify`-vaihe: kierrostaulusta kierrostyypit, kierroslista + manifesti |
 | `src/pappascout/domain/report.py` | `Report`-malli: `aggregate`- ja `render`-vaiheen jaettu sopimus, `Σ n = m` -tarkistus |

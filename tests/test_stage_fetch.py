@@ -840,6 +840,538 @@ def test_the_plan_says_what_to_run_when_the_selection_file_is_missing(
         fetch_stage.plan(archive, "joukkue")
 
 
+# -- Divisioonan suunnitelma (Story 3.5) --------------------------------------
+#
+# ``plan_division`` on ``plan``in sisar: sama lataus, toinen yksikkövalinta.
+# Yksiköt luetaan **otteluindeksistä**, joten tämän osan aineisto on
+# ``index/matches.json`` sellaisenaan -- ei valintatiedosto.
+
+#: Divisioona, jota nämä testit keräävät.
+LEAGUE_ID = "94681888-b5da-4ab5-bf50-f44b666b98a3"
+
+#: Toinen kilpailu samassa indeksissä: sen otteluita ei kerätä.
+OTHER_LEAGUE = "11111111-2222-3333-4444-555555555555"
+
+#: Otteluindeksin ``generated_at``, jonka suunnitelman on kannettava sanasta
+#: sanaan: se kertoo, kuinka vanhasta yksikköjoukosta ajossa on kyse.
+INDEX_GENERATED_AT = "2026-09-04T18:20:11+00:00"
+
+
+def league_settings(*ids: str) -> Any:
+    """``[league]``-osio näille testeille; ilman argumentteja :data:`LEAGUE_ID`."""
+    from pappascout.domain.models import LeagueSettings
+
+    return LeagueSettings(
+        season=13,
+        organizer_id="1bfc69fa-5a21-4ed9-9ef3-37edbd7210d8",
+        championship_ids=list(ids) or [LEAGUE_ID],
+        map_pool=["de_ancient", "de_nuke", "de_mirage"],
+    )
+
+
+def match_row(
+    match_id: str,
+    *,
+    played: bool = True,
+    status: str | None = "FINISHED",
+    map_picks: list[str] | None = None,
+    best_of: int | None = 2,
+    competition_id: str = LEAGUE_ID,
+    finished_at: str | None = "2026-08-31T20:14:00+00:00",
+    omit_best_of: bool = False,
+) -> dict[str, Any]:
+    """Yksi ottelurivi otteluindeksin muodossa.
+
+    ``omit_best_of`` **poistaa avaimen kokonaan** eikä aseta sitä nulliksi:
+    juuri niin arkiston 4.9.2026 kirjoitettu indeksi näyttää, ja ero on se,
+    jota testataan.
+    """
+    row: dict[str, Any] = {
+        "match_id": match_id,
+        "competition_id": competition_id,
+        "status": status,
+        "played": played,
+        "scheduled_at": "2026-08-31T18:00:00+00:00",
+        "started_at": "2026-08-31T18:02:00+00:00",
+        "finished_at": finished_at,
+        "map_picks": ["de_ancient", "de_nuke"] if map_picks is None else map_picks,
+        "best_of": best_of,
+        "teams": [],
+    }
+    if omit_best_of:
+        del row["best_of"]
+    return row
+
+
+def write_matches_index(archive: ArchivePaths, rows: list[dict[str, Any]]) -> None:
+    from pappascout.stages import discover as discover_stage
+
+    path = archive.matches_index()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": discover_stage.SCHEMA_VERSION,
+                "generated_at": INDEX_GENERATED_AT,
+                "competition_ids": [LEAGUE_ID],
+                "matches": rows,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_the_division_plan_takes_every_played_match_not_just_one_team(
+    archive,
+) -> None:
+    """Rosterikynnystä ei katsota: keräys ottaa talteen myös vieraan ottelun."""
+    write_matches_index(
+        archive, [match_row("1-aaa"), match_row("1-bbb")]
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.pending == ("1-aaa-0", "1-aaa-1", "1-bbb-0", "1-bbb-1")
+    assert todo.present == ()
+    assert todo.matches_played == 2
+    assert todo.selected == 4
+    assert todo.league_ids == (LEAGUE_ID,)
+    assert todo.estimated_bytes == 4 * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
+
+
+def test_an_unplayed_match_produces_no_row_and_no_call(archive) -> None:
+    """Pelaamattoman ottelun demoa ei ole olemassa: kysyminen olisi tuomittu."""
+    write_matches_index(
+        archive,
+        [
+            match_row("1-aaa"),
+            match_row(
+                "1-tuleva", played=False, status="SCHEDULED", map_picks=[]
+            ),
+        ],
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.pending == ("1-aaa-0", "1-aaa-1")
+    assert todo.no_veto == ()
+    assert todo.matches_played == 1
+    assert "1-tuleva" not in "".join(todo.pending + todo.present)
+
+
+def test_the_filter_is_played_not_the_status_string(archive) -> None:
+    """``played`` on ``discover``in **päätös**, ``status`` on lähteen sana.
+
+    Ne osuvat yhteen useimmiten, ja juuri siksi ero on testattava erikseen:
+    suodattimen vaihtaminen ``status == "FINISHED"``:ksi menisi läpi
+    jokaisesta aineistosta, jossa ne ovat samat -- ja ottaisi mukaan
+    keskeytetyn ottelun tai jättäisi pois pelatun, jonka lähde nimeää toisin.
+    """
+    write_matches_index(
+        archive,
+        [
+            # Pelattu, mutta lähde sanoo sen toisin sanoin.
+            match_row("1-pelattu", played=True, status="MATCH_COMPLETE"),
+            # Lähde sanoo FINISHED, mutta discover ei laskenut sitä pelatuksi.
+            match_row("1-peruttu", played=False, status="FINISHED"),
+        ],
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.pending == ("1-pelattu-0", "1-pelattu-1")
+    assert todo.matches_played == 1
+
+
+def test_a_played_match_without_map_picks_gets_its_own_bucket_with_a_reason(
+    archive,
+) -> None:
+    """**Pelattu ottelu ei katoa hiljaa.** Tyhjä ``map_picks`` on oma lohkonsa.
+
+    Story 3.3:n katselmus löysi saman vian valinnasta: siellä tällainen ottelu
+    laskettiin syyhyn "ei pelattu", eli tuloste väitti ottelusta jotain, mikä
+    ei ollut totta.
+    """
+    write_matches_index(
+        archive,
+        [
+            match_row("1-aaa"),
+            match_row("1-vedoton", map_picks=[], finished_at="2026-09-02T21:00:00+00:00"),
+        ],
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.pending == ("1-aaa-0", "1-aaa-1")
+    assert [row.match_id for row in todo.no_veto] == ["1-vedoton"]
+    only = todo.no_veto[0]
+    assert only.finished_at == "2026-09-02T21:00:00+00:00"
+    assert "pelattu" in only.reason
+    # Syy ei saa väittää ottelua pelaamattomaksi.
+    assert "ei pelattu" not in only.reason.lower()
+    # Ja ottelu lasketaan pelatuksi, koska se on pelattu.
+    assert todo.matches_played == 2
+
+
+def test_a_missing_best_of_is_an_observation_not_an_assumption(archive) -> None:
+    """Mitattu 2026-09-06: kenttää ei ole yhdelläkään arkiston 66 rivillä.
+
+    Kartat luetaan silloin ``map_picks``ista, ja suunnitelma **merkitsee**
+    pituuden tuntemattomaksi sen sijaan että olettaisi luvun.
+    """
+    write_matches_index(
+        archive, [match_row("1-aaa", omit_best_of=True)]
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.best_of_unknown == ("1-aaa",)
+    assert todo.pending == ("1-aaa-0", "1-aaa-1")
+
+
+def test_a_known_best_of_is_not_flagged_as_unknown(archive) -> None:
+    """Merkintä on väite, ei koriste: se ei saa syntyä kun pituus tiedetään."""
+    write_matches_index(archive, [match_row("1-aaa", best_of=2)])
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.best_of_unknown == ()
+
+
+def test_the_unknown_length_names_the_matches_it_means(archive) -> None:
+    """**Havainnon on oltava jäljitettävissä.**
+
+    Yksi bool koko divisioonalle kertoisi, että jokin ottelu on tuntematon,
+    muttei mikä -- eikä käyttäjä voisi tarkistaa väitettä indeksistä. Perustelu
+    "havainto eikä oletus" vaatii, että havainnon voi osoittaa.
+    """
+    write_matches_index(
+        archive,
+        [
+            match_row("1-tunnettu", best_of=2),
+            match_row("1-puuttuu", omit_best_of=True),
+            match_row("1-null", best_of=None),
+        ],
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.best_of_unknown == ("1-puuttuu", "1-null")
+    assert "1-tunnettu" not in todo.best_of_unknown
+
+
+@pytest.mark.parametrize("value", [0, -1, -3])
+def test_an_invalid_best_of_is_unknown_not_known(archive, value: int) -> None:
+    """``0`` ei ole lyhyt ottelu vaan rikkinäinen kenttä.
+
+    Ehto ``is None`` yksinään lukisi sen tunnetuksi pituudeksi, ja tuloste
+    väittäisi tietävänsä ottelun pituuden. Raja on sama kuin
+    :func:`~pappascout.domain.selection.guaranteed_maps`illa (``< 1``).
+    """
+    write_matches_index(archive, [match_row("1-rikki", best_of=value)])
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.best_of_unknown == ("1-rikki",)
+    # Ja kartat luetaan silti vetotiedosta: kelvoton pituus ei kadota niitä.
+    assert todo.pending == ("1-rikki-0", "1-rikki-1")
+
+
+def test_an_uncertain_map_is_attempted_not_skipped(archive) -> None:
+    """BO3 päättyi 2-0: kolmas kartta yritetään silti.
+
+    ``select`` toimii päinvastoin ja oikein -- phantom-rivi valheellistaisi
+    otannan. Täällä epäsymmetria kääntyy: yritys maksaa yhden kutsun ja
+    odotetun ``no_demo``n, ohitus maksaa pysyvästi menetetyn demon.
+    """
+    write_matches_index(
+        archive,
+        [
+            match_row(
+                "1-bo3",
+                best_of=3,
+                map_picks=["de_ancient", "de_nuke", "de_mirage"],
+            )
+        ],
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.pending == ("1-bo3-0", "1-bo3-1", "1-bo3-2")
+
+
+def test_a_match_from_another_competition_is_left_out(archive) -> None:
+    """Divisioona tarkoittaa divisioonaa -- ei kaikkea, mitä indeksissä on."""
+    write_matches_index(
+        archive,
+        [
+            match_row("1-oma"),
+            match_row("1-vieras", competition_id=OTHER_LEAGUE),
+            match_row("1-nimeton", competition_id=None),
+        ],
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.pending == ("1-oma-0", "1-oma-1")
+    assert todo.matches_played == 1
+
+
+def test_two_configured_championships_are_both_collected(archive) -> None:
+    """Suodatin lukee asetuksen, ei yhtä kovakoodattua tunnistetta."""
+    write_matches_index(
+        archive,
+        [match_row("1-oma"), match_row("1-vieras", competition_id=OTHER_LEAGUE)],
+    )
+
+    todo = fetch_stage.plan_division(
+        archive, league_settings(LEAGUE_ID, OTHER_LEAGUE)
+    )
+
+    assert todo.matches_played == 2
+    assert "1-vieras-0" in todo.pending
+    # Kentta kertoo, milla suodatettiin: tyhjan suunnitelman viesti lukee sen.
+    assert todo.league_ids == (LEAGUE_ID, OTHER_LEAGUE)
+
+
+@pytest.mark.parametrize("location", ["demos_root", "arkisto", "import"])
+def test_a_demo_already_on_disk_is_present_from_every_location(
+    tmp_path, location: str
+) -> None:
+    """``in_archive`` katsoo kaikki kolme sijaintia, ja niin katsoo keräyskin.
+
+    Yhden sijainnin katsominen lataisi arkistoon aiemmin haetun demon
+    uudelleen paikalliseen hakemistoon -- eli kuluttaisi kiintiön ja
+    kaksinkertaistaisi levytilan.
+    """
+    archive = ArchivePaths(
+        root=tmp_path / "arkisto", demos_root=tmp_path / "paikalliset"
+    )
+    directories = {
+        "demos_root": tmp_path / "paikalliset",
+        "arkisto": archive.archive_demos_dir(),
+        "import": archive.import_dir(),
+    }
+    write_matches_index(archive, [match_row("1-aaa")])
+    place(directories[location], "1-aaa-0")
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.present == ("1-aaa-0",)
+    assert todo.pending == ("1-aaa-1",)
+    assert todo.selected == 2
+    assert todo.estimated_bytes == fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
+
+
+def test_a_demo_without_its_meta_is_not_counted_as_present(tmp_path) -> None:
+    """Demo ilman metatiedostoa on katkennut ajo, ei valmis tulos."""
+    archive = ArchivePaths(root=tmp_path / "arkisto")
+    write_matches_index(archive, [match_row("1-aaa")])
+    place(archive.archive_demos_dir(), "1-aaa-0", meta=False)
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.pending == ("1-aaa-0", "1-aaa-1")
+    assert todo.present == ()
+
+
+def test_the_plan_carries_the_age_of_the_index_it_read(archive) -> None:
+    """Indeksin ikä on suunnitelman kenttä, koska se rajaa koko yksikköjoukon."""
+    write_matches_index(archive, [match_row("1-aaa")])
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.index_generated_at == INDEX_GENERATED_AT
+
+
+def test_the_division_plan_says_what_to_run_when_the_index_is_missing(
+    archive,
+) -> None:
+    with pytest.raises(PappascoutError, match="discover"):
+        fetch_stage.plan_division(archive, league_settings())
+
+
+def test_a_broken_match_row_stops_the_plan_instead_of_vanishing(archive) -> None:
+    """Ohitettu ottelu olisi juuri se hiljaisesti menetetty demo."""
+    write_matches_index(archive, [{"competition_id": LEAGUE_ID, "played": True}])
+
+    with pytest.raises(PappascoutError, match="discover"):
+        fetch_stage.plan_division(archive, league_settings())
+
+
+def test_nothing_pending_is_a_plan_too(archive) -> None:
+    """Kaikki jo levyllä: nolla ladattavaa, mutta kartat eivät katoa luvusta."""
+    write_matches_index(archive, [match_row("1-aaa")])
+    place(archive.archive_demos_dir(), "1-aaa-0")
+    place(archive.archive_demos_dir(), "1-aaa-1")
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.pending == ()
+    assert todo.selected == 2
+    assert todo.estimated_bytes == 0
+
+
+# -- Sama tunniste ei voi päätyä listalle kahdesti (katselmus 6.9.) ---------
+#
+# Veetin vaatimus sanatarkasti: "Kunhan emme hae duplikaatteja tai missaa
+# selviä otteluita." Kaksoiskappale hakisi saman demon kahdesti ja
+# kaksinkertaistaisi sekä lukumäärän että kokoarvion -- eli
+# vahvistuskysymyksen, joka kysyy väärää asiaa.
+
+
+def test_a_duplicate_match_does_not_produce_a_duplicate_download(
+    archive, monkeypatch
+) -> None:
+    """Vartija on ``plan_division``in oma, ei lainattu lukijalta.
+
+    ``matches_from_index`` torjuu kaksi riviä samalla ``match_id``:llä, mutta
+    **tämän funktion tuloksen oikeellisuus ei saa riippua toisen funktion
+    invariantista, jota se ei itse valvo**. Siksi duplikaatti syötetään tähän
+    ohi lukijan: sivutetun vastauksen limittyminen tuottaisi täsmälleen tämän,
+    ja korjaus lukijaan jättäisi tämän funktion yhä alttiiksi.
+    """
+    from pappascout.stages import discover as discover_stage
+
+    write_matches_index(archive, [match_row("1-aaa")])
+    kahdesti = discover_stage.matches_from_index(
+        {"matches": [match_row("1-aaa")]}
+    ) * 2
+    monkeypatch.setattr(
+        "pappascout.stages.discover.matches_from_index", lambda _d: kahdesti
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.pending == ("1-aaa-0", "1-aaa-1")
+    assert todo.selected == 2
+    assert todo.estimated_bytes == 2 * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
+
+
+def test_a_duplicate_that_is_already_on_disk_is_counted_once(
+    archive, monkeypatch
+) -> None:
+    """Dedup koskee molempia ämpäreitä, ei vain ladattavia."""
+    from pappascout.stages import discover as discover_stage
+
+    write_matches_index(archive, [match_row("1-aaa")])
+    place(archive.archive_demos_dir(), "1-aaa-0")
+    kahdesti = discover_stage.matches_from_index(
+        {"matches": [match_row("1-aaa")]}
+    ) * 2
+    monkeypatch.setattr(
+        "pappascout.stages.discover.matches_from_index", lambda _d: kahdesti
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.present == ("1-aaa-0",)
+    assert todo.pending == ("1-aaa-1",)
+
+
+def test_the_dedup_keeps_the_index_order(archive, monkeypatch) -> None:
+    """Järjestys on indeksin järjestys: joukko ei saa sekoittaa sitä."""
+    from pappascout.stages import discover as discover_stage
+
+    rows = [match_row("1-aaa"), match_row("1-bbb"), match_row("1-ccc")]
+    write_matches_index(archive, rows)
+    alkuperainen = discover_stage.matches_from_index({"matches": rows})
+    # Toisto keskellä: naiivi joukko-operaatio siirtäisi rivit väärään kohtaan.
+    limittyva = alkuperainen[:2] + alkuperainen
+    monkeypatch.setattr(
+        "pappascout.stages.discover.matches_from_index", lambda _d: limittyva
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.pending == (
+        "1-aaa-0",
+        "1-aaa-1",
+        "1-bbb-0",
+        "1-bbb-1",
+        "1-ccc-0",
+        "1-ccc-1",
+    )
+
+
+# -- Indeksin aikaleima tarkistetaan ennen ruutua (katselmus 6.9.) ----------
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(None, id="avain-puuttuu"),
+        pytest.param(1757000000, id="luku"),
+        pytest.param(["2026-09-04"], id="lista"),
+        pytest.param("", id="tyhja"),
+        pytest.param("   ", id="pelkka-valilyonti"),
+    ],
+)
+def test_an_unusable_generated_at_becomes_none(archive, value) -> None:
+    """``index_generated_at`` **näytetään käyttäjälle sellaisenaan**.
+
+    Siksi tarkistus on suunnitelmassa eikä tulostuskohdassa: luku tai lista
+    tulostuisi aikaleiman paikalla aikaleiman näköisenä, ja pelkkä välilyönti
+    on totuusarvoltaan tosi -- se jättäisi riville tyhjän kohdan, mikä näyttää
+    tyhjältä aikaleimalta eikä tuntemattomalta.
+    """
+    path = archive.matches_index()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    from pappascout.stages import discover as discover_stage
+
+    document: dict[str, Any] = {
+        "schema_version": discover_stage.SCHEMA_VERSION,
+        "competition_ids": [LEAGUE_ID],
+        "matches": [match_row("1-aaa")],
+    }
+    if value is not None:
+        document["generated_at"] = value
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.index_generated_at is None
+    # Eikä kelvoton aikaleima estä suunnitelmaa: se on lisätieto, ei ehto.
+    assert todo.pending == ("1-aaa-0", "1-aaa-1")
+
+
+def test_a_generated_at_with_padding_is_trimmed_not_dropped(archive) -> None:
+    """Ympäröivä tyhjämerkki ei tee aikaleimasta kelvotonta."""
+    path = archive.matches_index()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    from pappascout.stages import discover as discover_stage
+
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": discover_stage.SCHEMA_VERSION,
+                "generated_at": f"  {INDEX_GENERATED_AT}\n",
+                "competition_ids": [LEAGUE_ID],
+                "matches": [match_row("1-aaa")],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    todo = fetch_stage.plan_division(archive, league_settings())
+
+    assert todo.index_generated_at == INDEX_GENERATED_AT
+
+
+# -- Syytön rivi on mahdoton (katselmus 6.9.) -------------------------------
+
+
+def test_a_no_veto_row_cannot_be_built_without_a_reason() -> None:
+    """Tyyppi on olemassa vain kertoakseen syyn.
+
+    Oletusarvo sallisi syyttömän rivin -- täsmälleen sen tilan, jota vastaan
+    luokka on kirjoitettu. Sääntö on parempi kuin tulostuskohdan puolustus.
+    """
+    with pytest.raises(TypeError):
+        fetch_stage.NoVetoMatch(match_id="1-aaa")  # type: ignore[call-arg]
+
+
 # -- Levyvirhe on yksikön tila, ei ohjelmavirhe (A4, 2026-09-05) -------------
 
 
