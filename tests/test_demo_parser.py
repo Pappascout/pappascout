@@ -1126,7 +1126,7 @@ def test_ancient_first_contact_is_found_on_every_round(
 
 @pytest.mark.demo
 def test_ancient_sample_point_count_is_exact(ancient_ticks: pl.DataFrame) -> None:
-    """Ancientin näytepisteiden tarkka määrä -- README lainaa tätä lukua.
+    """Ancientin näytepisteiden tarkka määrä, lukittuna tähän.
 
     21 pelattua kierrosta ja neljä näytepistettä antaisi 84 aikapistettä, mutta
     kierroksen päättymisen jälkeisiä pisteitä ei ole: todellinen luku on 73.

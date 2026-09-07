@@ -123,9 +123,9 @@ def test_saving_round_types_are_a_proper_subset_of_the_round_types() -> None:
     kertoisi siitä.
 
     Pistooli on **ulkopuolella**: molemmilla puolilla on silloin sama vähäinen
-    raha, joten etenemisestä ei voi päätellä suunnitelmaa. READMEn sana
-    "säästökierros" tarkoittaa eri asiaa (renderöinnin sääntö, pistooli
-    mukana), ja molemmat paikat nimeävät oman merkityksensä.
+    raha, joten etenemisestä ei voi päätellä suunnitelmaa. Renderöinnin oma
+    "säästökierros" tarkoittaa eri asiaa (pistooli mukana), ja kumpikin paikka
+    nimeää oman merkityksensä siellä missä se on määritelty.
     """
     assert set(SAVING_ROUND_TYPES) < set(ROUND_TYPES)
     assert set(SAVING_ROUND_TYPES) == {"eco", "half", "force"}
@@ -147,8 +147,8 @@ def test_unit_statuses_match_the_error_policy() -> None:
 # --- Aseluokittelu (Story 1.6) ------------------------------------------------
 
 
-#: Luokittelun koko. Luku esiintyy koodin kommenteissa ja READMEssa, joten se
-#: lukitaan tässä: kolmeen paikkaan kirjoitettu luku vanhenee muuten hiljaa.
+#: Luokittelun koko. Luku esiintyy koodin kommenteissa, joten se lukitaan
+#: tässä: kahteen paikkaan kirjoitettu luku vanhenee muuten hiljaa.
 KNOWN_ITEM_COUNT = 57
 ARMING_WEAPON_COUNT = 31
 
@@ -156,8 +156,7 @@ ARMING_WEAPON_COUNT = 31
 def test_classification_sizes_are_locked() -> None:
     """Luokittelun koko on se, jonka dokumentaatio lupaa.
 
-    ``constants.py``, ``README.md`` ja tämän tarinan muutosloki nimeävät nämä
-    luvut. Ilman lukitusta aseen lisääminen tekisi jokaisesta niistä väärän
+    ``constants.py`` ja tämän tarinan muutosloki nimeävät nämä luvut. Ilman lukitusta aseen lisääminen tekisi jokaisesta niistä väärän
     ilman että mikään kertoo -- ja luku on juuri se, jota lukija käyttää
     arvioidessaan kattaako luettelo pelin.
 

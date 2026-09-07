@@ -1804,18 +1804,23 @@ def test_the_settings_file_describes_the_split_cache() -> None:
 
 
 def test_the_readme_describes_the_split_cache() -> None:
-    """Sama sääntö READMEssa: se on ainoa paikka, jota luetaan ilman koodia."""
+    """The same rule in the README: the only place read without the code.
+
+    The README is English since 2026-09-07, so the assertions are too. The
+    rule they guard is unchanged, and it is guarded here rather than trusted
+    because a trimmed README is exactly where a rule goes missing quietly.
+    """
     readme = REAL_SETTINGS.parent / "README.md"
     text = readme.read_text(encoding="utf-8")
 
-    assert "FACEIT-välimuisti on eriytetty kutsun lajin mukaan" in text
+    assert "The FACEIT cache is split by call type" in text
     assert "/championships/{id}/matches" in text
     assert "/matches/{id}" in text
     assert "FINISHED" in text
     assert "CANCELLED" in text
-    assert "itsekorjaava" in text
-    assert "Sama ehto koskee **lukemista**" in text
-    # Vanhat, nyt väärät otsikot ja lupaukset eivät saa jäädä.
+    assert "self-correcting" in text
+    assert "The same condition applies to **reading**" in text
+    # Neither the old Finnish headings nor the claims they made may come back.
     assert "FACEIT-välimuisti ei vanhene" not in text
     assert "ei päivity itsestään" not in text
     assert "on poistettava kerran" not in text

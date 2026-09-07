@@ -4394,8 +4394,8 @@ def test_the_legend_says_which_sample_point_is_missing_and_why() -> None:
 def test_the_legend_does_not_quote_one_sample_points_numbers_for_another() -> None:
     """Kappale ei väitä mitattuja lukuja näytepisteestä, jota ei mitattu.
 
-    45 s:n kattavuusluvut (53 %, 81 %) ovat ``settings.toml``issa ja
-    READMEssä, joissa ne perustelevat oletuksen. Lukuohjeessa ne olisivat
+    45 s:n kattavuusluvut (53 %, 81 %) ovat ``settings.toml``issa, jossa ne
+    perustelevat oletuksen. Lukuohjeessa ne olisivat
     väärät heti, kun asetus nimeää jonkin muun näytepisteen -- ja se on
     kelvollinen valinta.
     """

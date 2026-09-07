@@ -3634,8 +3634,8 @@ def test_an_events_table_with_the_retired_enum_value_is_reparsed(
 
     Tämä on se tilanne, johon käyttäjä oikeasti törmää -- arkistossa on
     Story 2.8:n ``events.parquet``, jonka ``area_source`` on
-    ``Enum(["observed", "snapped"])``. README, ``constants.py`` ja
-    ``_schema_is_current`` lupaavat kaikki, ettei se kelpaa ja että demo
+    ``Enum(["observed", "snapped"])``. Sekä ``constants.py`` että
+    ``_schema_is_current`` lupaavat, ettei se kelpaa ja että demo
     parsitaan uudelleen **ilman** ``--pakota``-lippua. Muut testit kattavat
     puuttuvan taulun ja pudotetun sarakkeen; tämä kattaa väärän arvojoukon,
     joka on eri vika: sarakkeet ovat kohdallaan ja rivit luettavissa.

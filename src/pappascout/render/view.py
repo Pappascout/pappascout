@@ -48,9 +48,8 @@ sisältää karsimattomia lohkoja, joten ehdoton lause olisi väärä.
 
 ``Report``, ``report.json`` ja ``REPORT_SCHEMA_VERSION`` eivät muutu, ja
 jokainen karsittu arvo on niissä yhä -- se vain jää kertomatta *tässä*
-raportissa. Mitatut perusteet ja luvut ovat ``settings.toml``issa ja
-READMEssä; mittausdokumentit itse asuvat BMAD-tuotoksissa eivätkä tässä
-repossa.
+raportissa. Mitatut perusteet ja luvut ovat ``settings.toml``issa;
+mittausdokumentit itse asuvat BMAD-tuotoksissa eivätkä tässä repossa.
 
 **Kuolemat mahtuvat kahteen riviin.** Raportti on jo satoja rivejä, kun
 Veetin oma analyysi on 30. Kuolemat lisättiin siksi, että ne selittävät muut
@@ -288,7 +287,7 @@ ESTIMATE_MARK = " (arvio)"
 #: eri asia: se osoittaa ``classify``-vaiheen kierroslistoihin arkistossa,
 #: kun tämä luku on raportin sisällä. Kaksi eri asiaa samalla sanalla tekee
 #: kumman tahansa mainitsemisen epäselväksi, joten luvusta puhutaan sen omalla
-#: nimellä sekä koodissa, testeissä että READMEssa.
+#: nimellä sekä koodissa että testeissä.
 TRACEABILITY_HEADING = "Tekninen jäljitettävyys"
 
 #: Poikkeamaluvun otsikko **sellaisena kuin malli sen latoo**.
