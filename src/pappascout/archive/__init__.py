@@ -1,10 +1,11 @@
-"""Arkistokerros: ainoa pysyvä tila (AD-7).
+"""Archive layer: the only durable state (AD-7).
 
-Kaikki tulokset ovat tiedostoja ``archive_root``in alla. Manifestit ja indeksit
-viittaavat vain suhteellisilla poluilla, jotta sama arkisto toimii molemmilla
-koneilla. Kaikki kirjoitukset ovat atomisia, koska arkisto on OneDrivessa.
+Every result is a file under ``archive_root``. Manifests and indexes refer to
+files by relative path only, so that the same archive works on both machines.
+Every write is atomic, because the archive lives in a synchronised folder.
 
-``archive`` ei riipu ``domain``ista -- se on putki, ei domain-mallien säilö.
+``archive`` does not depend on ``domain`` -- it is plumbing, not a store for
+domain models.
 """
 
 from pappascout.archive.atomic_write import (

@@ -1,4 +1,4 @@
-"""Manifestin testit: vaiheiden ohitussopimus (AD-1)."""
+"""Tests for the manifest: the skip contract between stages (AD-1)."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def _manifest(**overrides) -> Manifest:
 
 @pytest.fixture
 def archive(tmp_path: Path) -> Path:
-    """Arkiston juuri, jossa manifestin tulostiedosto on olemassa."""
+    """An archive root in which the manifest's output file exists."""
     output = tmp_path / OUTPUT
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(b"parquet")
@@ -64,7 +64,7 @@ def test_round_trip_through_disk(tmp_path: Path) -> None:
 
 
 def test_matching_manifest_allows_skip(archive: Path) -> None:
-    """Täsmäävä manifesti -> vaihe ohitetaan."""
+    """A matching manifest -> the stage is skipped."""
     m = _manifest()
     assert m.is_current(
         inputs=INPUTS, params_hash="hash-1", tool_versions=TOOLS, root=archive
@@ -82,7 +82,7 @@ def test_input_order_does_not_matter(archive: Path) -> None:
 
 
 def test_changed_params_hash_forces_rerun(archive: Path) -> None:
-    """Kynnysten muutos näkyy params_hashissa ja pakottaa uudelleenajon."""
+    """A threshold change shows in params_hash and forces a re-run."""
     m = _manifest()
     assert not m.is_current(
         inputs=INPUTS, params_hash="hash-2", tool_versions=TOOLS, root=archive
@@ -105,7 +105,7 @@ def test_missing_input_forces_rerun(archive: Path) -> None:
 
 
 def test_changed_tool_version_forces_rerun(archive: Path) -> None:
-    """demoparser2:n päivitys invalidoi parsinnan tuloksen."""
+    """Updating demoparser2 invalidates the parse result."""
     m = _manifest()
     new = {"demoparser2": "0.43.0"}
     assert not m.is_current(
@@ -117,15 +117,15 @@ def test_changed_tool_version_forces_rerun(archive: Path) -> None:
     "status", ["no_demo", "download_failed", "parse_failed", "no_freeze_end", "pruned"]
 )
 def test_non_ok_status_is_never_current(status: str, archive: Path) -> None:
-    """Vain onnistunut tulos kelpaa ohitukseen."""
-    m = _manifest(status=status, reason="testi")
+    """Only a successful result qualifies for a skip."""
+    m = _manifest(status=status, reason="test")
     assert not m.is_current(
         inputs=INPUTS, params_hash="hash-1", tool_versions=TOOLS, root=archive
     )
 
 
 def test_timestamp_does_not_affect_currency(archive: Path) -> None:
-    """Aikaleima ei ole osa vertailua -- muuten mikään ei ohittuisi koskaan."""
+    """The timestamp is not compared -- otherwise nothing would ever be skipped."""
     old = _manifest()
     new = _manifest()
     assert new.created_at >= old.created_at
@@ -137,17 +137,18 @@ def test_timestamp_does_not_affect_currency(archive: Path) -> None:
 
 def test_unknown_status_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        _manifest(status="ihan_uusi_tila")
+        _manifest(status="a_brand_new_status")
 
 
-# --- Tulostiedostojen olemassaolo (OneDrive) ---------------------------------
+# --- Output files still on disk (the synchronised folder) --------------------
 
 
 def test_missing_output_forces_rerun(tmp_path: Path) -> None:
-    """Manifesti täsmää mutta tulos puuttuu levyltä -> ei saa ohittaa.
+    """The manifest matches but the result is off disk -> no skip allowed.
 
-    OneDrive synkronoi pienen manifestin nopeasti mutta satojen megatavujen
-    Parquetin myöhemmin; käyttäjä on myös voinut poistaa tiedoston käsin.
+    The synchronised folder carries a small manifest quickly but a Parquet of
+    hundreds of megabytes later; the user may also have deleted the file by
+    hand.
     """
     m = _manifest()
     assert m.missing_outputs(tmp_path) == [OUTPUT]
@@ -176,7 +177,7 @@ def test_manifest_without_outputs_is_still_comparable(tmp_path: Path) -> None:
     )
 
 
-# --- Skeemaversio -------------------------------------------------------------
+# --- Schema version -----------------------------------------------------------
 
 
 def test_foreign_schema_version_is_not_current(archive: Path) -> None:
@@ -187,49 +188,49 @@ def test_foreign_schema_version_is_not_current(archive: Path) -> None:
 
 
 def test_newer_schema_version_has_its_own_message(tmp_path: Path) -> None:
-    """Uudempi manifesti ei ole 'vioittunut' -- viesti kertoo oikean syyn."""
-    target = tmp_path / "uusi.manifest.json"
+    """A newer manifest is not 'corrupt' -- the message gives the real reason."""
+    target = tmp_path / "newer.manifest.json"
     _manifest().model_copy(update={"schema_version": "2.0.0"}).write(target)
     with pytest.raises(PappascoutError) as exc:
         Manifest.read(target)
     message = str(exc.value)
-    assert "uudemmalla versiolla" in message
+    assert "written by a newer version" in message
     assert MANIFEST_SCHEMA_VERSION in message
-    assert "vioittunut" not in message
+    assert "corrupt" not in message
 
 
 def test_newer_schema_version_is_treated_as_missing(tmp_path: Path) -> None:
-    target = tmp_path / "uusi.manifest.json"
+    target = tmp_path / "newer.manifest.json"
     _manifest().model_copy(update={"schema_version": "2.0.0"}).write(target)
     assert Manifest.read_if_exists(target) is None
 
 
-# --- Lukuvirheet --------------------------------------------------------------
+# --- Read errors --------------------------------------------------------------
 
 
-def test_reading_missing_manifest_gives_finnish_error(tmp_path: Path) -> None:
+def test_reading_a_missing_manifest_says_so(tmp_path: Path) -> None:
     with pytest.raises(PappascoutError) as exc:
-        Manifest.read(tmp_path / "ei-ole.manifest.json")
-    assert "ei löytynyt" in str(exc.value)
+        Manifest.read(tmp_path / "does-not-exist.manifest.json")
+    assert "No manifest was found" in str(exc.value)
 
 
 def test_read_if_exists_returns_none_for_missing(tmp_path: Path) -> None:
-    assert Manifest.read_if_exists(tmp_path / "ei-ole.json") is None
+    assert Manifest.read_if_exists(tmp_path / "does-not-exist.json") is None
 
 
 def test_read_if_exists_treats_corrupt_as_missing(tmp_path: Path) -> None:
-    """Vioittunut manifesti ei kaada ajoa, vaan vaihe ajetaan uudelleen."""
-    broken = tmp_path / "rikki.manifest.json"
-    broken.write_text("{ ei ole jsonia", encoding="utf-8")
+    """A corrupt manifest does not fail the run; the stage is run again."""
+    broken = tmp_path / "broken.manifest.json"
+    broken.write_text("{ this is not json", encoding="utf-8")
     assert Manifest.read_if_exists(broken) is None
 
 
 def test_corrupt_manifest_read_says_what_to_do(tmp_path: Path) -> None:
-    broken = tmp_path / "rikki.manifest.json"
+    broken = tmp_path / "broken.manifest.json"
     broken.write_text('{"result_id": "x"}', encoding="utf-8")
     with pytest.raises(PappascoutError) as exc:
         Manifest.read(broken)
-    assert "vioittunut" in str(exc.value)
+    assert "corrupt" in str(exc.value)
 
 
 # --- tool_versions ------------------------------------------------------------
@@ -243,15 +244,15 @@ def test_tool_versions_reads_installed_packages() -> None:
 
 def test_tool_versions_rejects_unknown_package() -> None:
     with pytest.raises(PappascoutError) as exc:
-        tool_versions("eioleolemassa-paketti")
+        tool_versions("no-such-package-exists")
     assert "uv sync" in str(exc.value)
 
 
 def test_pappascout_version_is_not_a_tool_version() -> None:
-    """Oma versionnosto ei saa invalidoida koko arkistoa.
+    """Bumping our own version must not invalidate the whole archive.
 
-    Sääntö on kirjattu manifest.py:n docstringiin: manifestiin merkitään vain
-    ne työkalut, joiden versio oikeasti muuttaa vaiheen tuloksen.
+    The rule is recorded in the docstring of manifest.py: the manifest lists
+    only those tools whose version really changes the stage's result.
     """
     assert "pappascout" not in tool_versions("demoparser2")
 
@@ -278,19 +279,19 @@ def test_params_hash_is_stable_across_calls() -> None:
 
 
 def test_params_hash_rejects_non_json_values() -> None:
-    """WindowsPath merkkijonoutuisi koneriippuvasti -> eri hash eri koneella."""
+    """WindowsPath stringifies per machine -> a different hash per machine."""
     with pytest.raises(PappascoutError) as exc:
-        compute_params_hash({"parse": {"archive_root": Path("C:/arkisto")}})
+        compute_params_hash({"parse": {"archive_root": Path("C:/archive")}})
     message = str(exc.value)
     assert "parse.archive_root" in message
     assert "Path" in message
 
 
-# --- AD-3:n ydinlupaus: kynnysmuutos ei uudelleenparsi ------------------------
+# --- The core AD-3 promise: a threshold change does not reparse ---------------
 
 
 def _parse_hash_for(settings_path: Path) -> str:
-    """Laske parse-vaiheen parametrihash yhdestä asetustiedostosta."""
+    """Compute the parse stage's params hash from one settings file."""
     s = load_settings(settings_path, env_files=())
     return compute_params_hash(
         {**s.parse.model_dump(mode="json"), **tool_versions("demoparser2")}
@@ -298,25 +299,25 @@ def _parse_hash_for(settings_path: Path) -> str:
 
 
 def test_threshold_change_does_not_change_parse_hash(tmp_path: Path) -> None:
-    """Kynnysten säätö EI saa muuttaa parse-hashia.
+    """Adjusting a threshold must NOT change the parse hash.
 
-    Tämä on AD-3:n ydinlupaus ja koko Story 1.4:n perusta: kun käyttäjä säätää
-    ``[thresholds]``-arvoa, parsinta ohitetaan ja tulos valmistuu sekunneissa.
-    Kaksi asetustiedostoa, jotka eroavat VAIN kynnysosiossa, tuottavat siis
-    saman parse-hashin.
+    This is the core promise of AD-3 and the whole basis of Story 1.4: when
+    the user adjusts a ``[thresholds]`` value, parsing is skipped and the
+    result is ready in seconds. Two settings files that differ ONLY in the
+    thresholds section therefore produce the same parse hash.
     """
     a = tmp_path / "a.toml"
     b = tmp_path / "b.toml"
-    a.write_text(settings_text(tmp_path / "arkisto"), encoding="utf-8")
+    a.write_text(settings_text(tmp_path / "archive"), encoding="utf-8")
     b.write_text(
         settings_text(
-            tmp_path / "arkisto",
+            tmp_path / "archive",
             **{"full_equip_min = 4000": "full_equip_min = 4500"},
         ),
         encoding="utf-8",
     )
 
-    # Tiedostot eroavat oikeasti, ja ero on kynnysosiossa.
+    # The files really do differ, and the difference is in the thresholds.
     assert a.read_text(encoding="utf-8") != b.read_text(encoding="utf-8")
     assert load_settings(a, env_files=()).thresholds.full_equip_min == 4000
     assert load_settings(b, env_files=()).thresholds.full_equip_min == 4500
@@ -325,13 +326,13 @@ def test_threshold_change_does_not_change_parse_hash(tmp_path: Path) -> None:
 
 
 def test_parse_change_does_change_parse_hash(tmp_path: Path) -> None:
-    """Näytepisteiden muutos sen sijaan PAKOTTAA uudelleenparsinnan."""
+    """A change to the snapshot points, by contrast, FORCES a reparse."""
     a = tmp_path / "a.toml"
     b = tmp_path / "b.toml"
-    a.write_text(settings_text(tmp_path / "arkisto"), encoding="utf-8")
+    a.write_text(settings_text(tmp_path / "archive"), encoding="utf-8")
     b.write_text(
         settings_text(
-            tmp_path / "arkisto",
+            tmp_path / "archive",
             **{
                 "snapshot_seconds = [6.0, 15.0, 30.0, 45.0]": (
                     "snapshot_seconds = [6.0, 20.0, 30.0, 45.0]"
@@ -351,13 +352,13 @@ def test_parse_change_does_change_parse_hash(tmp_path: Path) -> None:
 
 
 def test_league_change_does_not_change_parse_hash(tmp_path: Path) -> None:
-    """Uusi kausi ei pakota parsimaan vanhoja demoja uudelleen."""
+    """A new season does not force old demos to be parsed again."""
     a = tmp_path / "a.toml"
     b = tmp_path / "b.toml"
-    a.write_text(settings_text(tmp_path / "arkisto"), encoding="utf-8")
+    a.write_text(settings_text(tmp_path / "archive"), encoding="utf-8")
     b.write_text(
         settings_text(
-            tmp_path / "arkisto",
+            tmp_path / "archive",
             **{
                 'championship_ids = ["94681888-b5da-4ab5-bf50-f44b666b98a3"]': (
                     'championship_ids = ["94681888-b5da-4ab5-bf50-f44b666b98a3", '

@@ -272,7 +272,7 @@ def test_report_name_numbering_starts_without_a_suffix() -> None:
     assert report_name("2026-08-30T0307", "abc", 2) == "2026-08-30T0307-abc-02.md"
     assert report_name("2026-08-30T0307", "abc", 12) == "2026-08-30T0307-abc-12.md"
     for bad in (0, -1, MAX_REPORTS_PER_MINUTE + 1):
-        with pytest.raises(ValueError, match="järjestysluvun"):
+        with pytest.raises(ValueError, match="report ordinal"):
             report_name("2026-08-30T0307", "abc", bad)
 
 

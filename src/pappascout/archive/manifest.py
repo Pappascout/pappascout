@@ -1,35 +1,40 @@
-"""Manifesti: vaiheiden ohitussopimus (AD-1).
+"""Manifest: the skip contract between stages (AD-1).
 
-Jokaisen vaiheen tulos saa rinnalleen ``*.manifest.json``-tiedoston. Kun vaihetta
-ollaan ajamassa uudelleen, se rakentaa odotetun manifestin ja vertaa sitä
-levyllä olevaan: jos ne täsmäävät, vaihe ohitetaan. Tämä on se mekanismi, jolla
-kynnysarvon säätö valmistuu sekunneissa -- parsintaa ei ajeta uudelleen, koska
-``parse``-manifestin ``params_hash`` lasketaan vain ``[parse]``-osiosta eikä se
-muutu.
+Every stage result gets a ``*.manifest.json`` file beside it. When a stage is
+about to run again, it builds the manifest it expects and compares it with the
+one on disk: if they match, the stage is skipped. This is the mechanism that
+lets a threshold adjustment finish in seconds -- parsing is not run again,
+because the ``parse`` manifest's ``params_hash`` is computed from the
+``[parse]`` section alone and does not change.
 
-Syötteiden tiivisteitä **ei lasketa uudelleen tiedostoista** vaan luetaan niiden
-omista meta- tai manifesttiedostoista. Yhden demon hashaus on 233 MB työtä, ja
-OneDrive-arkistossa se olisi sekä hidasta että altista väärille invalidoinneille.
+Input digests are **not recomputed from the files**; they are read from the
+inputs' own meta or manifest files. Hashing one demo is 233 MB of work, and
+in the synchronised folder that is both slow and prone to false
+invalidations. The mechanism behind both: the sync client is free to release
+a file's local copy while keeping the file itself, so hashing it drags all
+233 MB back down again, and a file still being transferred hashes to
+whatever has arrived so far -- a digest that does not match, on an input
+nobody changed, which reruns the stage for nothing.
 
-Sääntö ``tool_versions``-kentälle
----------------------------------
-Manifestiin merkitään **vain ne työkalut, joiden versio oikeasti muuttaa
-kyseisen vaiheen tulosta** -- ei kaikkia asennettuja paketteja eikä pappascoutin
-omaa versiota. Perustelu: jos ``pappascout``-versio olisi mukana, jokainen
-korjauspäivitys invalidoisi koko arkiston ja pakottaisi satojen demojen
-uudelleenparsinnan. Se on suoraan vastoin lupausta nopeasta uudelleenajosta.
+The rule for the ``tool_versions`` field
+----------------------------------------
+The manifest records **only those tools whose version really changes the
+result of that stage** -- not every installed package, and not pappascout's
+own version. The reason: if the ``pappascout`` version were included, every
+patch release would invalidate the whole archive and force hundreds of demos
+to be parsed again. That runs straight against the promise of a fast re-run.
 
-===============  =========================================
-Vaihe            ``tool_versions``
-===============  =========================================
+===============  =============================================
+Stage            ``tool_versions``
+===============  =============================================
 ``parse``        ``demoparser2``
-``classify``     (tyhjä -- puhdas domain-laskenta)
-``aggregate``    (tyhjä)
-``render``       ``jinja2``, jos raporttimalli muuttuu
-===============  =========================================
+``classify``     (empty -- pure domain computation)
+``aggregate``    (empty)
+``render``       ``jinja2``, if the report template changes
+===============  =============================================
 
-Versiot luetaan asennetuista paketeista funktiolla :func:`tool_versions`, ei
-kirjoiteta käsin.
+Versions are read from the installed packages with :func:`tool_versions`, not
+written by hand.
 """
 
 from __future__ import annotations
@@ -61,10 +66,10 @@ MANIFEST_SCHEMA_VERSION = "1.0.0"
 
 
 class ManifestInput(BaseModel):
-    """Yksi vaiheen syöte: edellisen tuloksen tunniste ja sen tiiviste.
+    """One input to a stage: the previous result's id and its digest.
 
-    ``sha256`` luetaan syötteen omasta meta- tai manifesttiedostosta, ei
-    laskemalla tiedostosta uudelleen.
+    ``sha256`` is read from the input's own meta or manifest file, not
+    computed from the file again.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -77,20 +82,20 @@ class ManifestInput(BaseModel):
 
 
 class Manifest(BaseModel):
-    """Vaiheen tuloksen manifesti.
+    """A stage result's manifest.
 
     Attributes:
-        result_id: Tämän tuloksen tunniste, jonka seuraava vaihe merkitsee
-            syötteekseen.
-        stage: Vaiheen nimi, esimerkiksi ``"parse"``.
-        inputs: Syötteet tunnisteineen ja tiivisteineen.
-        params_hash: Tiiviste **vain** siitä asetusosasta, jonka vaihe lukee.
-        tool_versions: Työkaluversiot, joista tämän vaiheen tulos riippuu.
-            Ks. moduulin docstringin sääntö -- ei pappascoutin omaa versiota.
-        created_at: Luontihetki UTC:na.
-        status: Yksikön tila (AD-9). Vain ``ok`` kelpaa ohitukseen.
-        reason: Vapaa selitys muulle kuin ``ok``-tilalle.
-        outputs: Tuloksen tiedostot arkiston sisäisinä suhteellisina polkuina.
+        result_id: This result's id, which the next stage records as its
+            input.
+        stage: Name of the stage, for example ``"parse"``.
+        inputs: The inputs with their ids and digests.
+        params_hash: Digest of **only** the settings section the stage reads.
+        tool_versions: Tool versions this stage's result depends on. See the
+            rule in the module docstring -- not pappascout's own version.
+        created_at: Creation time in UTC.
+        status: Unit status (AD-9). Only ``ok`` qualifies for a skip.
+        reason: Free-form explanation for a status other than ``ok``.
+        outputs: The result's files as archive-internal relative paths.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -119,7 +124,7 @@ class Manifest(BaseModel):
         reason: str | None = None,
         outputs: Sequence[str] = (),
     ) -> Manifest:
-        """Rakenna manifesti nykyisellä aikaleimalla."""
+        """Build a manifest with the current timestamp."""
         return cls(
             result_id=result_id,
             stage=stage,
@@ -140,28 +145,29 @@ class Manifest(BaseModel):
         tool_versions: Mapping[str, str],
         root: Path | str,
     ) -> bool:
-        """Kertoo, saako vaiheen ohittaa.
+        """Tell whether the stage may be skipped.
 
-        Ohitus edellyttää, että
+        A skip requires that
 
-        * manifestin ``schema_version`` on tämän koodin tuntema,
-        * tila on ``ok``,
-        * syötteet, parametrihash ja työkaluversiot ovat täsmälleen samat, ja
-        * **jokainen ``outputs``-tiedosto on yhä levyllä**.
+        * the manifest's ``schema_version`` is one this code knows,
+        * the status is ``ok``,
+        * inputs, params hash and tool versions are exactly the same, and
+        * **every ``outputs`` file is still on disk**.
 
-        Viimeinen ehto on OneDriven takia pakollinen: pieni manifesti
-        synkronoituu nopeasti, mutta satojen megatavujen tulos voi olla vielä
-        matkalla tai käyttäjä on poistanut sen. Ilman tarkistusta vaihe
-        ohitettaisiin ja seuraava vaihe kaatuisi puuttuvaan tiedostoon.
+        The last condition is required by the synchronised folder: a small
+        manifest syncs quickly, but a result of hundreds of megabytes may
+        still be on its way, or the user may have deleted it. Without the
+        check the stage would be skipped and the next stage would fail on a
+        missing file.
 
-        Syötteiden järjestyksellä ei ole väliä. Aikaleima jätetään huomiotta --
-        muuten mikään ei ohittuisi koskaan.
+        The order of the inputs does not matter. The timestamp is ignored --
+        otherwise nothing would ever be skipped.
 
         Args:
-            inputs: Odotetut syötteet tunnisteineen ja tiivisteineen.
-            params_hash: Odotettu parametrihash.
-            tool_versions: Odotetut työkaluversiot.
-            root: Arkiston juuri, johon ``outputs``-polut suhteutetaan.
+            inputs: The expected inputs with their ids and digests.
+            params_hash: The expected params hash.
+            tool_versions: The expected tool versions.
+            root: Archive root the ``outputs`` paths are resolved against.
         """
         if self.schema_version != MANIFEST_SCHEMA_VERSION:
             return False
@@ -176,34 +182,33 @@ class Manifest(BaseModel):
         return self.outputs_present(root)
 
     def outputs_present(self, root: Path | str) -> bool:
-        """Ovatko kaikki tuloksen tiedostot yhä levyllä?"""
+        """Are all of the result's files still on disk?"""
         return not self.missing_outputs(root)
 
     def missing_outputs(self, root: Path | str) -> list[str]:
-        """Puuttuvat tulostiedostot -- lokitusta ja virheilmoitusta varten."""
+        """The missing output files -- for logging and error messages."""
         base = Path(root)
         return [name for name in self.outputs if not (base / Path(name)).exists()]
 
     def fingerprint(self) -> str:
-        """Tämän tuloksen tunniste **manifestin sisällöstä**.
+        """This result's id, computed **from the manifest's contents**.
 
-        Seuraava vaihe kirjoittaa arvon omaan
-        :attr:`ManifestInput.sha256`-kenttäänsä. **Se ei ole tiedoston
-        tiiviste** vaan sha256 tämän manifestin parametrihashista,
-        syötteistä, työkaluversioista, tulostiedostoista ja tilasta. Vaiheen
-        tulostauluja ei hashata -- ne ovat johdettuja, ja niiden identiteetti
-        on juuri se, mistä ne johdettiin.
+        The next stage writes the value into its own
+        :attr:`ManifestInput.sha256` field. **It is not a file digest** but
+        the sha256 of this manifest's params hash, inputs, tool versions,
+        output files and status. The stage's result tables are not hashed --
+        they are derived, and their identity is exactly what they were
+        derived from.
 
-        Luontihetki jätetään pois tarkoituksella: sama syöte samoilla
-        asetuksilla tuottaa saman tuloksen, eikä pelkkä uudelleenajo
-        (``--pakota``) saa pakottaa seuraavaa vaihetta ajamaan uudelleen.
-        Kaikki muu on mukana, joten muuttunut demo, muuttunut asetus tai
-        vaihtunut työkaluversio näkyy heti.
+        The creation time is left out deliberately: the same input with the
+        same settings produces the same result, and a bare re-run
+        (``--pakota``) must not force the next stage to run again. Everything
+        else is included, so a changed demo, a changed setting or a changed
+        tool version shows up immediately.
 
-        Yksi määritelmä, koska sekä ``classify`` että ``aggregate``
-        tunnistavat syötteensä näin -- kaksi kopiota erkanisi ennemmin tai
-        myöhemmin, ja silloin toinen vaihe ohittaisi työn, jonka toinen ajaisi
-        uudelleen.
+        One definition, because both ``classify`` and ``aggregate`` identify
+        their inputs this way -- two copies would diverge sooner or later, and
+        then one stage would skip the work the other would run again.
         """
         return compute_params_hash(
             {
@@ -216,52 +221,51 @@ class Manifest(BaseModel):
         )
 
     def write(self, path: Path | str) -> Path:
-        """Kirjoita manifesti atomisesti JSONina."""
+        """Write the manifest atomically as JSON."""
         text = self.model_dump_json(indent=2)
         return atomic_write_text(path, text + "\n")
 
     @classmethod
     def read(cls, path: Path | str) -> Manifest:
-        """Lue manifesti levyltä.
+        """Read a manifest from disk.
 
         Raises:
-            PappascoutError: Jos tiedostoa ei ole, se on vioittunut tai se on
-                kirjoitettu tuntemattomalla skeemaversiolla.
+            PappascoutError: If the file does not exist, is corrupt, or was
+                written with an unknown schema version.
         """
         path = Path(path)
         try:
             raw = path.read_text(encoding="utf-8")
         except FileNotFoundError as exc:
             raise PappascoutError(
-                f"Manifestia ei löytynyt polusta {path}. "
-                "Aja vaihe uudelleen, niin manifesti syntyy."
+                f"No manifest was found at {path}. "
+                "Run the stage again and the manifest will be created."
             ) from exc
         try:
             manifest = cls.model_validate_json(raw)
         except ValidationError as exc:
             raise PappascoutError(
-                f"Manifesti {path} on vioittunut eikä sitä voi lukea. "
-                "Poista tiedosto ja aja vaihe uudelleen.\n"
+                f"Manifest {path} is corrupt and cannot be read. "
+                "Delete the file and run the stage again.\n"
                 f"{exc}"
             ) from exc
 
         if manifest.schema_version != MANIFEST_SCHEMA_VERSION:
             raise PappascoutError(
-                f"Manifesti {path} on kirjoitettu uudemmalla versiolla "
-                f"(manifestissa {manifest.schema_version}, tämä koodi tuntee "
-                f"version {MANIFEST_SCHEMA_VERSION}).\n"
-                "Päivitä pappascout uusimpaan versioon tai poista manifesti, "
-                "jolloin vaihe ajetaan uudelleen."
+                f"Manifest {path} was written by a newer version "
+                f"(the manifest says {manifest.schema_version}, this code "
+                f"knows version {MANIFEST_SCHEMA_VERSION}).\n"
+                "Update pappascout to the latest version, or delete the "
+                "manifest so the stage is run again."
             )
         return manifest
 
     @classmethod
     def read_if_exists(cls, path: Path | str) -> Manifest | None:
-        """Lue manifesti tai palauta ``None``, jos sitä ei ole.
+        """Read a manifest, or return ``None`` if there is none.
 
-        Vioittunut tai vieraalla skeemaversiolla kirjoitettu manifesti
-        käsitellään puuttuvana: vaihe ajetaan uudelleen sen sijaan että ajo
-        kaatuisi.
+        A corrupt manifest, or one written with a foreign schema version, is
+        treated as missing: the stage is run again instead of the run failing.
         """
         path = Path(path)
         if not path.is_file():
@@ -273,28 +277,29 @@ class Manifest(BaseModel):
 
 
 def compute_params_hash(params: Mapping[str, Any]) -> str:
-    """Laske parametrihash yhdestä asetusosasta.
+    """Compute the params hash for a single settings section.
 
-    Hash lasketaan kanonisesta JSON-esityksestä, jotta avainten järjestys tai
-    TOML-muotoilu ei muuta tulosta. Anna tähän **vain** se asetusosa, jonka
-    vaihe todella lukee -- se on koko ohitusmekanismin ehto.
+    The hash is computed from a canonical JSON representation, so that key
+    order or TOML formatting does not change the result. Pass **only** the
+    settings section the stage really reads -- that is the condition the whole
+    skip mechanism rests on.
 
-    Kaikkien arvojen on oltava JSON-tyyppejä. Serialisointia ei paikata
-    ``str()``-varasuunnitelmalla, koska esimerkiksi ``WindowsPath``
-    merkkijonoutuu koneriippuvasti: kaksi konetta saisivat eri hashin samasta
-    asetuksesta ja koko arkisto parsittaisiin uudelleen.
+    Every value has to be a JSON type. Serialisation is not patched up with a
+    ``str()`` fallback, because ``WindowsPath`` for instance stringifies
+    differently per machine: two machines would get different hashes from the
+    same setting and the whole archive would be parsed again.
 
     Args:
-        params: Asetusosa sanakirjana, esimerkiksi
-            ``settings.parse.model_dump(mode="json")`` täydennettynä
-            työkaluversiolla.
+        params: The settings section as a dict, for example
+            ``settings.parse.model_dump(mode="json")`` extended with the tool
+            version.
 
     Returns:
-        64 merkin heksadesimaalinen sha256-tiiviste.
+        A 64-character hexadecimal sha256 digest.
 
     Raises:
-        PappascoutError: Jos jokin arvo ei ole JSON-serialisoituva. Viesti
-            nimeää avaimen ja sen tyypin.
+        PappascoutError: If some value is not JSON-serialisable. The message
+            names the key and its type.
     """
     try:
         canonical = json.dumps(
@@ -303,19 +308,19 @@ def compute_params_hash(params: Mapping[str, Any]) -> str:
     except TypeError as exc:
         offending = _offending_keys(params)
         raise PappascoutError(
-            "Parametrihashia ei voi laskea: asetusosassa on arvo, jota ei voi "
-            f"esittää JSONina ({offending or exc}).\n"
-            "Muunna arvo ensin JSON-tyypiksi, esimerkiksi "
+            "The params hash cannot be computed: the settings section holds "
+            f"a value that cannot be represented as JSON ({offending or exc}).\n"
+            "Convert the value to a JSON type first, for example "
             'settings.parse.model_dump(mode="json").\n'
-            "Syy tiukkuudelle: esimerkiksi WindowsPath merkkijonoutuu "
-            "koneriippuvasti, jolloin kaksi konetta laskisivat eri hashin ja "
-            "koko arkisto parsittaisiin uudelleen."
+            "Why this is strict: WindowsPath, for instance, stringifies "
+            "differently per machine, so two machines would compute different "
+            "hashes and the whole archive would be parsed again."
         ) from exc
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _offending_keys(params: Mapping[str, Any]) -> str:
-    """Etsi avaimet, joiden arvo ei ole JSON-serialisoituva."""
+    """Find the keys whose value is not JSON-serialisable."""
     offending: list[str] = []
 
     def walk(value: Any, path: str) -> None:
@@ -336,17 +341,17 @@ def _offending_keys(params: Mapping[str, Any]) -> str:
 
 
 def tool_versions(*names: str) -> dict[str, str]:
-    """Lue annettujen pakettien versiot asennuksesta.
+    """Read the versions of the named packages from the installation.
 
-    Anna tähän **vain ne työkalut, joiden versio muuttaa tämän vaiheen
-    tulosta** (ks. moduulin docstring). Esimerkiksi::
+    Pass **only those tools whose version changes this stage's result** (see
+    the module docstring). For example::
 
-        tool_versions("demoparser2")   # parse-vaiheen manifestiin
+        tool_versions("demoparser2")   # for the parse stage's manifest
 
     Raises:
-        PappascoutError: Jos pakettia ei ole asennettu. Hiljainen ohitus
-            tuottaisi manifestin, joka näyttää täsmäävän vaikka työkalu on
-            vaihtunut.
+        PappascoutError: If a package is not installed. Skipping silently
+            would produce a manifest that looks like a match even though the
+            tool has changed.
     """
     versions: dict[str, str] = {}
     for name in names:
@@ -354,7 +359,7 @@ def tool_versions(*names: str) -> dict[str, str]:
             versions[name] = _package_version(name)
         except PackageNotFoundError as exc:
             raise PappascoutError(
-                f"Pakettia {name} ei ole asennettu, joten sen versiota ei voi "
-                "kirjata manifestiin. Aja: uv sync"
+                f"Package {name} is not installed, so its version cannot be "
+                "recorded in the manifest. Run: uv sync"
             ) from exc
     return versions

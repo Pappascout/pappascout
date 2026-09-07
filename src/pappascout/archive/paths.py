@@ -1,26 +1,26 @@
-"""Arkiston hakemistorakenne (AD-7).
+"""The archive's directory layout (AD-7).
 
-Puu on lukittu spinen konventiotaulukossa::
+The tree is fixed in the spine's convention table::
 
-    raw/faceit/                                  HTTP-välimuisti, saa tyhjentää
-    index/teams.json                             kirjoittaa vain discover
-    index/matches.json                           kirjoittaa vain discover
-    index/selections/<team_key>.json             kirjoittaa vain select
-    index/next_opponent/<team_key>.json          kirjoittaa vain discover
-    demos/<map_demo_id>.dem.zst  + .meta.json    kirjoittaa vain fetch / import
+    raw/faceit/                                  HTTP cache, may be emptied
+    index/teams.json                             written only by discover
+    index/matches.json                           written only by discover
+    index/selections/<team_key>.json             written only by select
+    index/next_opponent/<team_key>.json          written only by discover
+    demos/<map_demo_id>.dem.zst  + .meta.json    written only by fetch / import
     parsed/<map_demo_id>/{ticks,events,rounds,lineups,deaths}.parquet + manifest
     classified/<team_key>/<map_demo_id>.parquet + .md + manifest
     aggregates/<team_key>/report.json
-    reports/<team_key>/<YYYY-MM-DDTHHMM>-<team_slug>.md + sama nimi .manifest.json
-    import/                                      saapuvien kansio
+    reports/<team_key>/<YYYY-MM-DDTHHMM>-<team_slug>.md + same name .manifest.json
+    import/                                      incoming folder
     logs/<host>/
     .lock
 
-Moduuli tarjoaa polut kahdessa muodossa. Modulitason funktiot palauttavat
-**suhteellisen** ``PurePosixPath``-polun, joka on ainoa muoto, jonka saa
-tallentaa manifestiin tai indeksiin -- absoluuttinen polku rikkoisi arkiston
-toisella koneella. :class:`ArchivePaths` liittää juuren eteen ja palauttaa
-``Path``-olion, jota käytetään varsinaiseen I/O:hon.
+The module offers paths in two forms. Module-level functions return a
+**relative** ``PurePosixPath``, which is the only form that may be stored in a
+manifest or an index -- an absolute path would break the archive on the other
+machine. :class:`ArchivePaths` prefixes the root and returns a ``Path``
+object, which is what the actual I/O uses.
 """
 
 from __future__ import annotations
@@ -68,13 +68,13 @@ __all__ = [
     "logs_dir",
 ]
 
-#: FACEIT tarjoaa demot zstd-pakattuina (todettu 2026-08-28); ``.dem.gz`` on
-#: käsin tuotujen tiedostojen varamuoto.
+#: FACEIT serves demos zstd-compressed (observed 2026-08-28); ``.dem.gz`` is
+#: the fallback form for manually imported files.
 DEFAULT_DEMO_SUFFIX = ".dem.zst"
 DEMO_SUFFIXES: tuple[str, ...] = (".dem.zst", ".dem.gz", ".dem")
 
-#: ``parse``-vaiheen kirjoittamat taulut, yksi demoa kohden. Luettelo on
-#: portinvartija: nimi, jota ei ole täällä, ei voi päätyä arkiston polkuun.
+#: The tables the ``parse`` stage writes, one set per demo. The list is a
+#: gatekeeper: a name that is not here cannot end up in an archive path.
 PARSED_TABLES: tuple[str, ...] = (
     "rounds",
     "ticks",
@@ -89,120 +89,122 @@ LOCK_FILE = PurePosixPath(".lock")
 
 _MANIFEST_SUFFIX = ".manifest.json"
 
-#: Ympäristömuuttuja, jolla arkiston juuren voi ylikirjoittaa koneittain ilman
-#: että versioitua settings.tomlia tarvitsee muokata.
+#: Environment variable that overrides the archive root per machine, without
+#: having to edit the versioned settings.toml.
 ARCHIVE_ROOT_ENV_VAR = "PAPPASCOUT_ARCHIVE_ROOT"
 
-#: Ympäristömuuttuja, jolla demohakemiston voi ylikirjoittaa erikseen.
+#: Environment variable that overrides the demo directory separately.
 #:
-#: **Olemassa siksi, että arkiston ohittaminen olisi muuten puolinainen.**
-#: ``PAPPASCOUT_ARCHIVE_ROOT`` on olemassa juuri sitä varten, että ajon voi
-#: ohjata testiarkistoon koskematta tuotannon tiedostoihin -- mutta
-#: ``demos_root`` on arkiston ulkopuolinen polku, eikä se seuraisi mukana.
-#: Testiarkistoa vasten ajettu ``fetch`` kirjoittaisi ja lukisi tuotannon
-#: demohakemistoa, hiljaa ja täysin vahingossa.
+#: **It exists because redirecting the archive would otherwise be half a
+#: job.** ``PAPPASCOUT_ARCHIVE_ROOT`` exists precisely so that a run can be
+#: pointed at a test archive without touching the production files -- but
+#: ``demos_root`` is a path outside the archive, and it would not follow
+#: along. A ``fetch`` run against a test archive would write and read the
+#: production demo directory, silently and entirely by accident.
 DEMOS_ROOT_ENV_VAR = "PAPPASCOUT_DEMOS_ROOT"
 
-#: Polun osaan kelpaavat merkit. Tunnisteet (team_key, map_demo_id, host) tulevat
-#: FACEITista ja käyttäjän asetuksista, joten niitä ei interpoloida polkuun
-#: tarkistamatta -- muuten ".." karkaisi arkiston juuresta.
+#: Characters allowed in a path component. The ids (team_key, map_demo_id,
+#: host) come from FACEIT and from the user's settings, so they are not
+#: interpolated into a path unchecked -- otherwise ".." would escape the
+#: archive root.
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9_.-]{1,120}$")
 
 
 def safe_component(value: str, kind: str) -> str:
-    """Tarkista, että tunniste kelpaa polun osaksi sellaisenaan.
+    """Check that an id is usable as a path component as it stands.
 
     Args:
-        value: Tarkistettava tunniste.
-        kind: Tunnisteen laji virheilmoitusta varten, esimerkiksi ``"team_key"``.
+        value: The id to check.
+        kind: Kind of id, for the error message, for example ``"team_key"``.
 
     Returns:
-        Sama arvo muuttumattomana.
+        The same value, unchanged.
 
     Raises:
-        PappascoutError: Jos arvo sisältää polkuerottimia, on tyhjä, on ``.``
-            tai ``..``, tai on liian pitkä.
+        PappascoutError: If the value contains path separators, is empty, is
+            ``.`` or ``..``, or is too long.
     """
     if not isinstance(value, str) or not _SAFE_COMPONENT.match(value):
         raise PappascoutError(
-            f"Tunniste {kind}={value!r} ei kelpaa arkiston polun osaksi. "
-            "Sallittuja ovat kirjaimet, numerot sekä merkit _ . - "
-            "(enintään 120 merkkiä)."
+            f"The id {kind}={value!r} is not usable as an archive path "
+            "component. Letters, digits and the characters _ . - are allowed "
+            "(at most 120 characters)."
         )
     if value in {".", ".."}:
         raise PappascoutError(
-            f"Tunniste {kind}={value!r} ei kelpaa arkiston polun osaksi: "
-            "se osoittaisi arkiston juuren ulkopuolelle."
+            f"The id {kind}={value!r} is not usable as an archive path "
+            "component: it would point outside the archive root."
         )
     return value
 
 
 def raw_faceit_dir() -> PurePosixPath:
-    """HTTP-välimuisti. Saa tyhjentää milloin tahansa."""
+    """The HTTP cache. May be emptied at any time."""
     return PurePosixPath("raw/faceit")
 
 
 def index_dir() -> PurePosixPath:
-    """Indeksipuun juuri. Kaikki sen tiedostot ovat johdettavissa uudelleen.
+    """Root of the index tree. Every file in it can be derived again.
 
-    Hakemisto syntyy vasta kun ensimmäinen indeksi kirjoitetaan; sen
-    puuttuminen ei ole virhe vaan tieto siitä, ettei ``discover``ia ole vielä
-    ajettu.
+    The directory is created only when the first index is written; its
+    absence is not an error but the information that ``discover`` has not
+    been run yet.
     """
     return PurePosixPath("index")
 
 
 def teams_index() -> PurePosixPath:
-    """Joukkueindeksi: joukkueet vakirostereineen. Kirjoittaa vain ``discover``.
+    """Team index: teams and their regular rosters. Written only by ``discover``.
 
-    **Kirjoittaja vaihtui Story 3.2:ssa**, ja se oli mittauksen seuraus eikä
-    makuasia. Spine antoi tiedoston ``select``ille, koska vakirosterin
-    oletettiin vaativan oman rosterihakunsa. Mitattu 2026-09-04: rosteri on jo
-    ottelulistan rivillä (``roster`` ja ``substitutes``, 132/132 joukkueriviä),
-    joten ``discover`` saa sen samasta vastauksesta, jonka se joka tapauksessa
-    hakee. Jos tiedosto jäisi ``select``ille, sama vastaus haettaisiin kahdesti
-    -- tai vakirosteri kulkisi vaiheelta toiselle tiedostona, jota kumpikaan ei
-    omista. ``select`` lukee tämän ja kirjoittaa oman tuloksensa
-    :func:`selection`iin.
+    **The writer changed in Story 3.2**, and that followed from a
+    measurement, not from taste. The spine gave the file to ``select``,
+    because the regular roster was assumed to need a roster request of its
+    own. Measured 2026-09-04: the roster is already on the match-list row
+    (``roster`` and ``substitutes``, 132/132 team rows), so ``discover`` gets
+    it from the same response it fetches anyway. If the file stayed with
+    ``select``, the same response would be fetched twice -- or the regular
+    roster would travel from stage to stage as a file neither of them owns.
+    ``select`` reads this and writes its own result into :func:`selection`.
     """
     return index_dir() / "teams.json"
 
 
 def matches_index() -> PurePosixPath:
-    """Otteluindeksi: kilpailun ottelut sellaisinaan. Kirjoittaa vain ``discover``."""
+    """Match index: the competition's matches as-is. Written only by ``discover``."""
     return index_dir() / "matches.json"
 
 
 def selection(team_key: str) -> PurePosixPath:
-    """Joukkueen otteluvalinta ja rosterikynnys. Kirjoittaa vain ``select``."""
+    """The team's match selection and roster threshold. Written only by ``select``."""
     return index_dir() / "selections" / f"{safe_component(team_key, 'team_key')}.json"
 
 
 def next_opponent(team_key: str) -> PurePosixPath:
-    """Seuraava vastustaja. Kirjoittaa vain ``discover``."""
+    """The next opponent. Written only by ``discover``."""
     return index_dir() / "next_opponent" / f"{safe_component(team_key, 'team_key')}.json"
 
 
 def demo(map_demo_id: str, suffix: str = DEFAULT_DEMO_SUFFIX) -> PurePosixPath:
-    """Pakattu demotiedosto."""
+    """The compressed demo file."""
     return PurePosixPath("demos") / f"{safe_component(map_demo_id, 'map_demo_id')}{suffix}"
 
 
 def demo_meta(map_demo_id: str) -> PurePosixPath:
-    """Demon metatiedot: ``sha256``, ``size``, ``source``, ``fetched_at``.
+    """The demo's metadata: ``sha256``, ``size``, ``source``, ``fetched_at``.
 
-    Manifestit lukevat tiivisteen tästä tiedostosta eivätkä laske sitä
-    uudelleen demosta -- 233 MB:n hashaus jokaisella ajolla olisi liian hidas.
+    Manifests read the digest from this file rather than recomputing it from
+    the demo -- hashing 233 MB on every run would be too slow.
     """
     return PurePosixPath("demos") / f"{safe_component(map_demo_id, 'map_demo_id')}.meta.json"
 
 
 def parsed_root() -> PurePosixPath:
-    """Parsittujen demojen juuri.
+    """Root of the parsed demos.
 
-    Oma funktionsa, koska vaiheet käyvät hakemiston läpi (``discover`` etsii
-    sieltä kokoonpanotaulut). Ilman tätä nimi ``"parsed"`` olisi kovakoodattuna
-    vaiheessa, ja arkiston puun ainoa lähde olisi kaksi paikkaa.
+    A function of its own, because stages walk the directory (``discover``
+    looks for the lineup tables there). Without it the name ``"parsed"``
+    would be hard-coded in a stage, and the single source for the archive
+    tree would be in two places.
     """
     return PurePosixPath("parsed")
 
@@ -212,11 +214,11 @@ def parsed_dir(map_demo_id: str) -> PurePosixPath:
 
 
 def parsed_table(map_demo_id: str, table: str) -> PurePosixPath:
-    """Yksi parsittu taulu yhdelle demolle; ks. :data:`PARSED_TABLES`."""
+    """One parsed table for one demo; see :data:`PARSED_TABLES`."""
     if table not in PARSED_TABLES:
         raise ValueError(
-            f"Tuntematon parsittu taulu {table!r}. "
-            f"Sallitut: {', '.join(PARSED_TABLES)}."
+            f"Unknown parsed table {table!r}. "
+            f"Allowed: {', '.join(PARSED_TABLES)}."
         )
     return parsed_dir(map_demo_id) / f"{table}.parquet"
 
@@ -234,12 +236,13 @@ def classified(team_key: str, map_demo_id: str) -> PurePosixPath:
 
 
 def classified_round_list(team_key: str, map_demo_id: str) -> PurePosixPath:
-    """Kierroslista Markdownina, ``classify``-vaiheen toinen tulos.
+    """The round list as Markdown, the ``classify`` stage's second result.
 
-    Sama lista kuin ``--show`` tulostaa, mutta tiedostona: Veeti lukee sen
-    demon rinnalla ja tarkistaa jokaisen päätöksen perustelun ja lähtöarvot.
-    Tiedosto on ``classify``-vaiheen omassa hakemistossa, koska ``reports/`` on
-    ``render``-vaiheen aluetta eikä vaihe kirjoita toisen vaiheen tulosalueelle.
+    The same list ``--show`` prints, but as a file: Veeti reads it alongside
+    the demo and checks the reasoning and the inputs behind every decision.
+    The file lives in the ``classify`` stage's own directory, because
+    ``reports/`` is the ``render`` stage's territory and a stage does not
+    write into another stage's result area.
     """
     return (
         PurePosixPath("classified")
@@ -257,7 +260,7 @@ def classified_manifest(team_key: str, map_demo_id: str) -> PurePosixPath:
 
 
 def report_json(team_key: str) -> PurePosixPath:
-    """``aggregate``-vaiheen tulos: ``Report``-malli JSONina."""
+    """The ``aggregate`` stage's result: the ``Report`` model as JSON."""
     return PurePosixPath("aggregates") / safe_component(team_key, "team_key") / "report.json"
 
 
@@ -270,69 +273,70 @@ def report_manifest(team_key: str) -> PurePosixPath:
 
 
 def reports_dir(team_key: str) -> PurePosixPath:
-    """Markdown-raporttien hakemisto."""
+    """Directory for the Markdown reports."""
     return PurePosixPath("reports") / safe_component(team_key, "team_key")
 
 
-#: Raportin tiedostonimen aikaleima **paikallista aikaa**, minuutin
-#: tarkkuudella. Paikallinen siksi, että tiedostonimi on ainoa asia, jonka
-#: käyttäjä tästä näkee, ja hän muistaa milloin ajoi komennon -- ei sitä, mitä
-#: kello oli silloin UTC:ssä. Raportin sisällä oleva ``generated_at`` on UTC,
-#: koska se on datan aikaleima eikä käyttöliittymää.
+#: The timestamp in a report's file name, in **local time**, to the minute.
+#: Local, because the file name is the only part of this the user sees, and
+#: they remember when they ran the command -- not what the clock said in UTC
+#: at that moment. The ``generated_at`` inside the report is UTC, because
+#: that is a timestamp on the data and not user interface.
 REPORT_TIMESTAMP_FORMAT = "%Y-%m-%dT%H%M"
 
 
-#: Suurin järjestysluku saman minuutin raporteille. Kaksinumeroinen, koska
-#: nimen järjestysluku on nollatäytetty (ks. :func:`report_name`): kolminumeroinen
-#: raja rikkoisi täytön ja palauttaisi lajittelujärjestyksen sekaisin.
+#: The largest ordinal for reports written within the same minute. Two
+#: digits, because the ordinal in the name is zero-padded (see
+#: :func:`report_name`): a three-digit limit would break the padding and put
+#: the sort order back into disarray.
 MAX_REPORTS_PER_MINUTE = 99
 
 
 def report_name(timestamp: str, team_slug: str, ordinal: int = 1) -> str:
-    """Raportin tiedostonimi: ``<aikaleima>-<slug>.md``.
+    """A report's file name: ``<timestamp>-<slug>.md``.
 
     Args:
-        timestamp: Aikaleima muodossa :data:`REPORT_TIMESTAMP_FORMAT`.
-        team_slug: Joukkueen tiedostonimeen kelpaava muoto.
-        ordinal: Monesko raportti saman minuutin sisällä. Ensimmäinen on
-            nimetön, seuraavat saavat **nollatäytetyn** päätteen ``-02``,
-            ``-03``. Täyttö on lajittelua varten: ilman sitä hakemistolistaus
-            järjestäisi nimet ``-10, -100, -11, -2``, eli uusin raportti ei
-            olisi listan lopussa. **Yksikään aiempi raportti ei ylikirjoitu**,
-            koska uusi ajo ei koskaan osu vanhaan nimeen.
+        timestamp: Timestamp in the :data:`REPORT_TIMESTAMP_FORMAT` form.
+        team_slug: The team in a form that is valid inside a file name.
+        ordinal: Which report this is within the same minute. The first one
+            gets no **suffix**; the ones after it get a **zero-padded** one,
+            ``-02``, ``-03``. The padding is there for sorting: without it a
+            directory listing would order the names ``-10, -100, -11, -2``,
+            so the newest report would not be last in the list. **No earlier
+            report is ever overwritten**, because a new run never lands on an
+            old name.
 
     Raises:
-        ValueError: Jos ``ordinal`` on rajojen ``1``..
-            :data:`MAX_REPORTS_PER_MINUTE` ulkopuolella.
+        ValueError: If ``ordinal`` is outside the bounds ``1``..
+            :data:`MAX_REPORTS_PER_MINUTE`.
     """
     if not 1 <= ordinal <= MAX_REPORTS_PER_MINUTE:
         raise ValueError(
-            f"Raportin järjestysluvun on oltava 1..{MAX_REPORTS_PER_MINUTE}, "
-            f"oli {ordinal}."
+            f"The report ordinal has to be 1..{MAX_REPORTS_PER_MINUTE}, "
+            f"was {ordinal}."
         )
     suffix = "" if ordinal == 1 else f"-{ordinal:02d}"
     return f"{timestamp}-{team_slug}{suffix}.md"
 
 
 def report_markdown(team_key: str, filename: str) -> PurePosixPath:
-    """Yksi Markdown-raportti. ``render``-vaiheen tulos."""
+    """One Markdown report. The ``render`` stage's result."""
     return reports_dir(team_key) / safe_component(filename, "report_filename")
 
 
 def render_manifest(team_key: str, report_filename: str) -> PurePosixPath:
-    """Yhden raportin manifesti: ``<raportin nimi ilman .md>.manifest.json``.
+    """One report's manifest: ``<report name without .md>.manifest.json``.
 
-    Manifesti on **jäljitettävyyttä varten, ei ohitusta**: raportti
-    kirjoitetaan joka ajolla uudella nimellä, joten vaihetta ei koskaan
-    ohiteta.
+    The manifest is **for traceability, not for skipping**: the report is
+    written under a new name on every run, so the stage is never skipped.
 
-    **Manifesti on raporttikohtainen, ei joukkuekohtainen.** Yhteinen
-    ``render.manifest.json`` kestäisi huonosti juuri sitä rinnakkaisuutta,
-    jota varten tiedostonimi varataan atomisesti: kaksi yhtaikaista ajoa saisi
-    kumpikin oman raporttinsa, mutta viimeisenä kirjoittava manifesti jäisi
-    voimaan ja kuvaisi eri tiedostoa kuin se, jonka käyttäjä juuri sai.
-    Raportin nimi on jo yksikäsitteinen, joten siitä johdettu manifestinimi on
-    sitä myös.
+    **The manifest is per report, not per team.** A shared
+    ``render.manifest.json`` would stand up badly to exactly the concurrency
+    the file name is reserved atomically for: two simultaneous runs would
+    each get their own report, but the manifest written last would be the one
+    left standing, and it would describe a different file from the one the
+    user just received. The report name is already unique, so a manifest name
+    derived from it is unique too.
     """
     stem = report_filename.removesuffix(".md")
     return (
@@ -342,28 +346,29 @@ def render_manifest(team_key: str, report_filename: str) -> PurePosixPath:
 
 
 def import_dir() -> PurePosixPath:
-    """Saapuvien kansio, jota lukee vain ``pappascout import``."""
+    """The incoming folder, read only by ``pappascout import``."""
     return PurePosixPath("import")
 
 
 def logs_dir(host: str) -> PurePosixPath:
-    """Lokit per kone, jotta kaksi konetta ei kirjoita samaan tiedostoon."""
+    """Logs per machine, so that two machines do not write the same file."""
     return PurePosixPath("logs") / safe_component(host, "host")
 
 
-#: Laajentamaton ympäristömuuttuja polussa: ``%NIMI%`` tai ``${NIMI}``.
+#: An unexpanded environment variable in a path: ``%NAME%`` or ``${NAME}``.
 #:
-#: Paljas ``$NIMI`` on mukana vain muualla kuin Windowsilla. Windows-poluissa
-#: dollari on laillinen hakemistonimen merkki (``$Recycle.Bin``,
-#: hallintajaot), joten sen kieltäminen hylkäisi kelvollisia polkuja. Kaksi
-#: yksiselitteistä muotoa riittää: juuri ``%NIMI%`` on se, jonka
-#: ``settings.toml`` sisältää.
+#: A bare ``$NAME`` is included only off Windows. In Windows paths the dollar
+#: is a legal character in a directory name (``$Recycle.Bin``,
+#: administrative shares), so forbidding it would reject valid paths. Two
+#: unambiguous forms are enough: ``%NAME%`` is precisely the one
+#: ``settings.toml`` contains.
 #:
-#: **Windows-rajaus, kirjattuna eikä korjattuna.** Versioitu ``archive_root``
-#: on ``%PAPPASCOUT_ARCHIVE_ROOT%``, ja tuo muoto laajenee vain Windowsilla --
-#: joten kaatumisen nimeävät testit ovat Windows-testejä. Repo on
-#: Windows-only muutenkin (PowerShell-esimerkit, ``%USERPROFILE%``-avaintiedosto,
-#: levyasemakirjaimet), joten rajaus on kirjattu tänne eikä kierretty.
+#: **A Windows limitation, recorded rather than worked around.** The
+#: versioned ``archive_root`` is ``%PAPPASCOUT_ARCHIVE_ROOT%``, and that form
+#: expands only on Windows -- so the tests that name the failure are Windows
+#: tests. The repository is Windows-only anyway (PowerShell examples, the
+#: ``%USERPROFILE%`` key file, drive letters), so the limitation is recorded
+#: here rather than circumvented.
 _UNEXPANDED_VAR = (
     re.compile(r"%([A-Za-z_][A-Za-z0-9_]*)%|\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
     if os.name == "nt"
@@ -402,13 +407,14 @@ def _check_absolute(root: Path, raw: str, source: str) -> None:
     if root.is_absolute():
         return
     raise PappascoutError(
-        f"Arkiston juuren polku {str(root)!r} on suhteellinen, ja arkiston "
-        "juuren on oltava absoluuttinen polku.\n"
-        f"Arvo tulee kohteesta {source} ja on {raw!r}.\n"
-        f"Anna {ARCHIVE_ROOT_ENV_VAR}:lle arkiston koko polku levyaseman "
-        "juuresta alkaen -- ei kansion nimeä. Suhteellinen polku ratkaistaan "
-        "työhakemistosta, joten arkisto syntyisi sinne mistä komento sattui "
-        "ajautumaan, eikä ajo kertoisi siitä mitään."
+        f"The archive root path {str(root)!r} is relative, and the archive "
+        "root has to be an absolute path.\n"
+        f"The value comes from {source} and is {raw!r}.\n"
+        f"Give {ARCHIVE_ROOT_ENV_VAR} the archive's full path starting from "
+        "the drive root -- not a folder name. A relative path is resolved "
+        "against the working directory, so the archive would be created "
+        "wherever the command happened to be run from, and the run would say "
+        "nothing about it."
     )
 
 
@@ -416,49 +422,51 @@ def _check_expanded(
     expanded: str,
     raw: str,
     source: str,
-    subject: str = "Arkiston juuren polussa",
+    subject: str = "The archive root path",
 ) -> None:
-    """Kaadu, jos ympäristömuuttuja jäi laajentamatta.
+    """Fail if an environment variable was left unexpanded.
 
     Args:
-        expanded: ``os.path.expandvars``in tulos.
-        raw: Alkuperäinen arvo, virheviestiä varten.
-        source: Mistä arvo tuli, jotta käyttäjä tietää mitä korjata.
-        subject: Minkä polun kyse on. Sama vartija koskee myös arkiston
-            ulkopuolista ``demos_root``ia, ja väärä nimi viestissä ohjaisi
-            korjaamaan väärää riviä.
+        expanded: The result of ``os.path.expandvars``.
+        raw: The original value, for the error message.
+        source: Where the value came from, so the user knows what to fix.
+        subject: Which path this is about. The same guard also covers
+            ``demos_root``, which is outside the archive, and a wrong name in
+            the message would send the reader to fix the wrong line.
 
     Raises:
-        PappascoutError: Viesti nimeää puuttuvan muuttujan.
+        PappascoutError: The message names the missing variable.
     """
     match = _UNEXPANDED_VAR.search(expanded)
     if match is None:
         return
     name = match.group(1) or match.group(2)
     raise PappascoutError(
-        f"{subject} on ympäristömuuttuja {name}, jota ei ole "
-        f"asetettu tällä koneella.\n"
-        f"Arvo tulee kohteesta {source} ja on {raw!r}.\n"
-        f"Aseta {name} tai kirjoita polku kokonaan auki. Ilman tätä "
-        "tarkistusta arkisto kirjoitettaisiin hakemistoon, jonka nimi on "
-        f"kirjaimellisesti {match.group(0)!r}."
+        f"{subject} contains the environment variable {name}, which is "
+        "not set on this machine.\n"
+        f"The value comes from {source} and is {raw!r}.\n"
+        f"Set {name}, or write the path out in full. Without this check the "
+        "archive would be written into a directory whose name is literally "
+        f"{match.group(0)!r}."
     )
 
 
 @dataclass(frozen=True)
 class ArchivePaths:
-    """Arkiston juuri ja siihen sidotut absoluuttiset polut.
+    """The archive root and the absolute paths bound to it.
 
-    Kaikki modulitason polkufunktiot ovat saatavilla metodeina, jotka palauttavat
-    ``Path``-olion. Suhteellisen muodon saa aina funktioista suoraan.
+    Every module-level path function is available as a method that returns a
+    ``Path`` object. The relative form is always available from the functions
+    directly.
 
     Attributes:
-        root: Arkiston juuri (synkronoitu kansio).
-        demos_root: Ladattujen demojen paikallinen hakemisto arkiston
-            **ulkopuolella**, tai ``None``. Ks.
+        root: The archive root (a synchronised folder).
+        demos_root: Local directory for downloaded demos, **outside** the
+            archive, or ``None``. See
             :attr:`~pappascout.domain.models.ProjectSettings.demos_root`.
-            Tämä on ainoa polku tässä luokassa, joka ei ole arkiston sisällä,
-            ja siksi se on oma kenttänsä eikä johdettavissa juuresta.
+            This is the only path in this class that is not inside the
+            archive, which is why it is a field of its own and not derived
+            from the root.
     """
 
     root: Path
@@ -468,13 +476,14 @@ class ArchivePaths:
     def from_settings(
         cls, archive_root: Path | str, demos_root: Path | str | None = None
     ) -> ArchivePaths:
-        """Rakenna arkistopolut asetuksen arvosta.
+        """Build the archive paths from the settings value.
 
-        Polku laajennetaan kahdesti, jotta sama versioitu ``settings.toml``
-        toimii molemmilla koneilla: ``%USERPROFILE%``-tyyliset
-        ympäristömuuttujat ja ``~`` korvataan koneen omilla arvoilla. Sama
-        laajennus tehdään ``demos_root``ille -- muuten paikallinen hakemisto
-        olisi ainoa polku, jota ei voi kirjoittaa koneriippumattomasti.
+        The path is expanded twice, so that the same versioned
+        ``settings.toml`` works on both machines: ``%USERPROFILE%``-style
+        environment variables and ``~`` are replaced with the machine's own
+        values. The same expansion is applied to ``demos_root`` -- otherwise
+        the local directory would be the only path that cannot be written
+        machine-independently.
 
         **The environment variable is the only source of the real path.** The
         repository is public, so ``settings.toml`` does not carry the archive
@@ -493,26 +502,27 @@ class ArchivePaths:
         complain: the stages create what is missing, so the run would look
         like a success while filling a second, empty archive.
 
-        **Arkiston ohittaminen vie demot mukanaan.** Kun
-        ``PAPPASCOUT_ARCHIVE_ROOT`` on asetettu, ``demos_root`` jätetään
-        huomiotta ja demot menevät ohjatun arkiston omaan ``demos/``iin.
-        Muuten testiarkistoa vasten ajettu ``fetch`` kirjoittaisi ja lukisi
-        **tuotannon** demohakemistoa -- ja koska idempotenssi katsoo vain
-        tiedoston olemassaoloa, testiajo näyttäisi onnistuvan lataamatta mitään
-        ja voisi ylikirjoittaa oikeita tiedostoja. Eristys ei ole eristys, jos
-        se koskee vain osaa poluista.
+        **Redirecting the archive takes the demos with it.** When
+        ``PAPPASCOUT_ARCHIVE_ROOT`` is set, ``demos_root`` is ignored and the
+        demos go into the redirected archive's own ``demos/``. Otherwise a
+        ``fetch`` run against a test archive would write and read the
+        **production** demo directory -- and because idempotence only looks
+        at whether a file exists, the test run would appear to succeed
+        without downloading anything, and could overwrite real files.
+        Isolation is not isolation if it covers only some of the paths.
 
-        ``PAPPASCOUT_DEMOS_ROOT`` ylikirjoittaa molemmat: se on tapa sanoa
-        eksplisiittisesti "demot tänne" silloinkin, kun arkisto on ohjattu.
+        ``PAPPASCOUT_DEMOS_ROOT`` overrides both: it is the way to say
+        explicitly "demos here" even when the archive is redirected.
 
         Raises:
-            PappascoutError: Jos laajennuksen jälkeen polussa on yhä
-                laajentamaton ympäristömuuttuja. ``os.path.expandvars``
-                **jättää ``%NIMI%``:n sellaisenaan**, jos muuttujaa ei ole --
-                se ei nosta virhettä eikä palauta tyhjää. Ilman tätä
-                tarkistusta ajo loisi hakemiston, jonka nimi on kirjaimellisesti
-                ``%USERPROFILE%``, kirjoittaisi koko arkiston sinne ja näyttäisi
-                onnistuneen. Kahden koneen arkisto hajoaisi hiljaa.
+            PappascoutError: If after expansion the path still holds an
+                unexpanded environment variable. ``os.path.expandvars``
+                **leaves ``%NAME%`` as it is** when the variable does not
+                exist -- it raises no error and does not return an empty
+                string. Without this check the run would create a directory
+                named literally ``%USERPROFILE%``, write the whole archive
+                there, and look like it had succeeded. An archive shared by
+                two machines would break silently.
             PappascoutError: If the expanded archive root is relative. The
                 message names the source, so the reader knows whether to fix
                 the variable or the file.
@@ -520,9 +530,9 @@ class ArchivePaths:
         override = os.environ.get(ARCHIVE_ROOT_ENV_VAR)
         raw = override if override else str(archive_root)
         source = (
-            f"ympäristömuuttuja {ARCHIVE_ROOT_ENV_VAR}"
+            f"the environment variable {ARCHIVE_ROOT_ENV_VAR}"
             if override
-            else "asetus [project].archive_root tiedostossa settings.toml"
+            else "the setting [project].archive_root in settings.toml"
         )
         expanded = os.path.expandvars(str(raw))
         _check_expanded(expanded, raw, source)
@@ -532,14 +542,14 @@ class ArchivePaths:
         demos_override = os.environ.get(DEMOS_ROOT_ENV_VAR)
         if demos_override:
             raw_demos: str | None = demos_override
-            demos_source = f"ympäristömuuttuja {DEMOS_ROOT_ENV_VAR}"
+            demos_source = f"the environment variable {DEMOS_ROOT_ENV_VAR}"
         elif override:
-            # Ohjattu arkisto vie demot mukanaan; ks. metodin docstring.
+            # A redirected archive takes the demos with it; see the docstring.
             raw_demos = None
             demos_source = ""
         else:
             raw_demos = None if demos_root is None else str(demos_root)
-            demos_source = "asetus [project].demos_root tiedostossa settings.toml"
+            demos_source = "the setting [project].demos_root in settings.toml"
 
         local: Path | None = None
         if raw_demos is not None and raw_demos.strip():
@@ -548,45 +558,45 @@ class ArchivePaths:
                 expanded_demos,
                 raw_demos,
                 demos_source,
-                subject="Demohakemiston polussa",
+                subject="The demo directory path",
             )
             local = Path(expanded_demos).expanduser()
         return cls(root=root, demos_root=local)
 
     def resolve(self, relative: PurePosixPath | str) -> Path:
-        """Liitä suhteellinen arkistopolku juureen.
+        """Join a relative archive path to the root.
 
         Raises:
-            PappascoutError: Jos polku on absoluuttinen. Manifestit ja indeksit
-                saavat sisältää vain suhteellisia polkuja, joten absoluuttinen
-                polku on aina merkki virheestä eikä sitä hiljaisesti hyväksytä.
+            PappascoutError: If the path is absolute. Manifests and indexes
+                may contain relative paths only, so an absolute path is
+                always a sign of a bug and is not accepted silently.
         """
         candidate = Path(str(relative))
-        # Windowsilla "/etc/passwd" ei ole is_absolute() (asema puuttuu), mutta
-        # sen root on "\\" -- se on silti pako arkiston juuresta.
+        # On Windows "/etc/passwd" is not is_absolute() (no drive letter),
+        # but its root is "\\" -- it is still an escape from the archive root.
         if candidate.is_absolute() or candidate.drive or candidate.root:
             raise PappascoutError(
-                f"Arkistopolun {relative!r} pitää olla suhteellinen arkiston "
-                "juureen nähden. Absoluuttinen polku rikkoisi arkiston toisella "
-                "koneella."
+                f"The archive path {relative!r} has to be relative to the "
+                "archive root. An absolute path would break the archive on "
+                "the other machine."
             )
         if ".." in candidate.parts:
             raise PappascoutError(
-                f"Arkistopolku {relative!r} sisältää '..' eikä siksi pysy "
-                "arkiston juuren sisällä."
+                f"The archive path {relative!r} contains '..' and therefore "
+                "does not stay inside the archive root."
             )
         return self.root / candidate
 
     def relative(self, path: Path | str) -> PurePosixPath:
-        """Muunna absoluuttinen polku arkiston sisäiseen suhteelliseen muotoon.
+        """Convert an absolute path into the archive-internal relative form.
 
         Raises:
-            ValueError: Jos polku ei ole arkiston sisällä.
+            ValueError: If the path is not inside the archive.
         """
         rel = Path(path).resolve().relative_to(self.root.resolve())
         return PurePosixPath(rel.as_posix())
 
-    # -- Käteviä pikakuljetuksia ------------------------------------------
+    # -- Convenience shortcuts --------------------------------------------
     def raw_faceit(self) -> Path:
         return self.resolve(raw_faceit_dir())
 
@@ -603,47 +613,49 @@ class ArchivePaths:
         return self.resolve(next_opponent(team_key))
 
     def demos_dir(self) -> Path:
-        """Hakemisto, **johon demot kirjoitetaan**.
+        """The directory **demos are written to**.
 
-        Paikallinen :attr:`demos_root`, jos se on asetettu, muuten arkiston oma
-        ``demos/``. Yksi metodi eikä ehto joka kutsupaikassa: levytilatarkistus,
-        kirjoitus ja tuloste tarvitsevat kaikki saman vastauksen, ja kolme
-        erillistä ehtoa erkanisi.
+        The local :attr:`demos_root` if it is set, otherwise the archive's
+        own ``demos/``. One method rather than a condition at every call
+        site: the disk-space check, the write and the line printed to the
+        console all need the same answer, and three separate conditions would
+        diverge.
         """
         if self.demos_root is not None:
             return self.demos_root
         return self.resolve(PurePosixPath("demos"))
 
     def archive_demos_dir(self) -> Path:
-        """Arkiston oma ``demos/`` -- **myös silloin kun demot menevät muualle**.
+        """The archive's own ``demos/`` -- **even when demos go elsewhere**.
 
-        Tarvitaan erikseen, koska paikallisen hakemiston käyttöönotto ei saa
-        kadottaa niitä demoja, jotka ehdittiin ladata arkistoon.
+        Needed separately, because adopting a local directory must not lose
+        the demos that were already downloaded into the archive.
         """
         return self.resolve(PurePosixPath("demos"))
 
     def demo(self, map_demo_id: str, suffix: str = DEFAULT_DEMO_SUFFIX) -> Path:
-        """Demon **kirjoituspolku**: :meth:`demos_dir` + tunniste.
+        """The demo's **write path**: :meth:`demos_dir` + the id.
 
-        Huom: tämä ei ole enää aina ``resolve(demo(...))``. Modulitason
-        :func:`demo` kertoo arkiston sisäisen suhteellisen polun, ja se on yhä
-        oikea vastaus kysymykseen "missä arkistossa demo olisi" -- mutta
-        kysymys "minne tämä demo kirjoitetaan" voi osoittaa arkiston
-        ulkopuolelle.
+        Note: this is no longer always ``resolve(demo(...))``. The
+        module-level :func:`demo` gives the archive-internal relative path,
+        and that is still the right answer to "where in the archive would the
+        demo be" -- but the question "where is this demo written" can point
+        outside the archive.
         """
         name = f"{safe_component(map_demo_id, 'map_demo_id')}{suffix}"
         return self.demos_dir() / name
 
     def find_demo(self, map_demo_id: str) -> Path | None:
-        """Etsi demo **kaikista sijainneista**. ``None``, jos demoa ei ole.
+        """Find a demo in **all locations**. ``None`` if there is no demo.
 
-        Järjestys on paikallinen hakemisto ensin, arkisto toisena. Se on sama
-        järjestys kuin :func:`~pappascout.stages.parse.resolve_demo`illa (joka
-        jatkaa vielä ``import/``iin), ja yhteinen järjestys on tässä koko
-        idempotenssin ehto: **arkistoon aiemmin ladattua demoa ei saa ladata
-        uudelleen paikalliseen hakemistoon.** Jos haku katsoisi vain sinne,
-        minne kirjoitetaan, asetuksen käyttöönotto lataisi koko otannan
-        toistamiseen ja kuluttaisi Downloads-kiintiön turhaan.
+        The order is the local directory first, the archive second. It is the
+        same order :func:`~pappascout.stages.parse.resolve_demo` uses (which
+        carries on into ``import/``), and here the shared order is the whole
+        condition for idempotence: **a demo already downloaded into the
+        archive must not be downloaded again into the local directory.** If
+        the search looked only where writes go, adopting the setting would
+        download the entire sample a second time and waste the Downloads
+        quota for nothing.
         """
         for directory in self.demo_dirs():
             for suffix in DEMO_SUFFIXES:
@@ -656,17 +668,17 @@ class ArchivePaths:
         return None
 
     def demo_meta(self, map_demo_id: str) -> Path:
-        """Metatiedoston **kirjoituspolku** -- aina demon vieressä.
+        """The meta file's **write path** -- always beside the demo.
 
-        Sama hakemisto kuin demolla eikä koskaan eri: metatiedosto on väite
-        juuri siitä tiedostosta, ja eri hakemistoissa ne erkanisivat heti kun
-        toinen kopioidaan tai poistetaan.
+        The same directory as the demo and never a different one: the meta
+        file is a claim about that exact file, and in different directories
+        the two would diverge as soon as one is copied or deleted.
         """
         name = f"{safe_component(map_demo_id, 'map_demo_id')}.meta.json"
         return self.demos_dir() / name
 
     def find_demo_meta(self, map_demo_id: str) -> Path | None:
-        """Etsi metatiedosto samassa järjestyksessä kuin :meth:`find_demo`."""
+        """Find the meta file in the same order as :meth:`find_demo`."""
         name = f"{safe_component(map_demo_id, 'map_demo_id')}.meta.json"
         for directory in self.demo_dirs():
             candidate = directory / name
@@ -675,27 +687,32 @@ class ArchivePaths:
         return None
 
     def demo_dirs(self) -> tuple[Path, ...]:
-        """Hakemistot **hakujärjestyksessä**.
+        """The directories **in search order**.
 
-        1. paikallinen ``demos_root``, jos asetettu -- sinne uudet lataukset
-           menevät,
-        2. arkiston ``demos/`` -- sinne ne menivät ennen asetusta,
-        3. arkiston ``import/`` -- käsin tuodut demot.
+        1. the local ``demos_root``, if set -- that is where new downloads
+           go,
+        2. the archive's ``demos/`` -- where they went before the setting,
+        3. the archive's ``import/`` -- manually imported demos.
 
-        **Yksi järjestys, jota sekä haku että idempotenssi käyttävät.** Jos
-        ``fetch`` katsoisi eri paikoista kuin ``parse``, toinen lataisi sen,
-        minkä toinen jo löytää.
+        **One order, used by both the search and idempotence.** If ``fetch``
+        looked in different places from ``parse``, one would download what
+        the other already finds.
 
-        **``import/`` löytää vain kanonisella nimellä tallennetun demon**, ja
-        se on tämän hetken totuus eikä toive. FACEITin oma tiedostonimi on
-        ``{match_id}-{round}-{instance}`` (``...-1-1.dem``), kun taas arkiston
-        tunniste on ``{match_id}-{map_index}`` (``...-0``) -- selaimella
-        ladattu tiedosto ei siis osu tähän hakuun lainkaan, eikä sillä ole
-        ``.meta.json``ia, jota idempotenssi vaatii. Käsin tuodun demon
-        nimeäminen ja metatiedoston kirjoittaminen on **Story 3.6**, ja
-        ``instances[].id`` on se silta, jolla se tehdään. Siihen asti
-        selaimella haettu demo latautuu uudelleen FACEITista, ja se on
-        tiedostettu puute -- ei väite että näin ei kävisi.
+        **``import/`` finds only a demo stored under the canonical name**,
+        and that is how it is right now, not a wish. FACEIT's own file name
+        is ``{match_id}-{round}-{instance}`` (``...-1-1.dem``), while the
+        archive's id is ``{match_id}-{map_index}`` (``...-0``) -- a file
+        downloaded through the browser therefore does not match this search
+        at all, and it has no ``.meta.json``, which idempotence requires.
+        Renaming such a demo and writing its meta file is
+        **``pappascout import``'s job, and it is done** (Story 3.6): the
+        command reads the file from ``import/`` under FACEIT's own name and
+        writes it into :meth:`demos_dir` under the canonical one, with the
+        meta file beside it. So this search finds a browser-downloaded demo
+        after that command has run over it -- from ``demos/``, not from
+        ``import/`` -- and not before. That is why the search keeps one
+        naming scheme instead of reaching into ``import/`` with a second one:
+        the rename has an owner, and it is not this function.
         """
         dirs = [] if self.demos_root is None else [self.demos_root]
         dirs.append(self.archive_demos_dir())
@@ -744,12 +761,12 @@ class ArchivePaths:
     def lock_file(self) -> Path:
         return self.resolve(LOCK_FILE)
 
-    # -- Tilatiedot --------------------------------------------------------
+    # -- Status information ------------------------------------------------
     def exists(self) -> bool:
         return self.root.is_dir()
 
     def total_size_bytes(self) -> int:
-        """Arkiston yhteiskoko tavuina. ``0``, jos arkistoa ei ole vielä luotu."""
+        """The archive's total size in bytes. ``0`` if it does not exist yet."""
         if not self.root.is_dir():
             return 0
         total = 0
@@ -758,6 +775,7 @@ class ArchivePaths:
                 if path.is_file():
                     total += path.stat().st_size
             except OSError:
-                # OneDriven pilvipaikkamerkki tai kesken siirtyvä tiedosto.
+                # A cloud placeholder from the sync client, or a file
+                # still being transferred.
                 continue
         return total
