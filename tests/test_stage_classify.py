@@ -8,6 +8,8 @@ lopun regressiot, ja ne ohittavat itsensä siististi.
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
@@ -38,6 +40,8 @@ from pappascout.archive.paths import ArchivePaths
 from pappascout.domain.economy import per_player
 from pappascout.domain.models import load_settings
 from pappascout.domain.rounds import mark_played_rounds
+from pappascout.domain.selection import MapSelection
+from pappascout.domain.teams import Team, assign_lineup_keys
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
     CALLOUT_CLOUD,
@@ -54,9 +58,17 @@ from pappascout.domain.schemas import (
 from pappascout.errors import PappascoutError, SchemaError
 from test_calibration import TRUTH_TABLE
 from pappascout.stages import classify as classify_stage
+from pappascout.stages import discover as discover_stage
 from pappascout.stages import parse as parse_stage
+from pappascout.stages import select as select_stage
 
 MAP_DEMO_ID = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1"
+
+#: Tiedostottoman kutsujan **eksplisiittinen** tyhjä. ``classify_rounds``
+#: vaatii faktat avainsanaparametrina eikä oleta niitä tyhjiksi: oletus tekisi
+#: unohtamisesta hiljaisen ja tuottaisi juuri sen tyhjän sarakkeen, jonka
+#: korjaamisesta tämä koodi on.
+NO_FACTS = classify_stage.MatchFacts()
 
 A = "aaaaaaaaaaaaaaaa"
 B = "bbbbbbbbbbbbbbbb"
@@ -416,11 +428,17 @@ def test_loss_count_is_written_per_round(settings, parsed) -> None:
     ).all()
 
 
-def test_league_and_roster_fields_stay_empty_until_epic_three(
+def test_without_a_selection_file_the_league_fields_stay_empty(
     settings, parsed
 ) -> None:
-    """Arvaus olisi tässä pahempi kuin tyhjä: tieto tulee joukkueindeksistä."""
-    run_classify(settings, parsed)
+    """Käsin tuotu demo: arvaus olisi pahempi kuin tyhjä.
+
+    Tämä on myös se testi, joka kaatuu, jos puuttuvasta valintatiedostosta
+    tehdään poikkeus: ajon on onnistuttava ja arvojen jäätävä tyhjiksi.
+    """
+    result = run_classify(settings, parsed)
+
+    assert result.status == "ok"
     df = pl.read_parquet(parsed.classified(A, MAP_DEMO_ID))
     assert df["is_league"].null_count() == df.height
     assert df["roster_class"].null_count() == df.height
@@ -445,6 +463,595 @@ def test_nothing_is_written_into_the_parsed_area(settings, parsed) -> None:
         if p.is_file()
     }
     assert before == after
+
+
+# --- is_league ja roster_class valintatiedostosta -------------------------------
+#
+# Arvot ovat ``select``in laskemia, ja tämä vaihe on niiden lukija. Kiinnike
+# kirjoittaa siksi molemmat tiedostot käsin: joukkueindeksin, joka on silta
+# kokoonpanotunnisteesta kanoniseen ``team_key``:hin, ja valintatiedoston,
+# jossa arvot ovat.
+
+#: Kanoninen ``team_key`` on FACEITin ``faction_id`` eli UUID -- **ei**
+#: kokoonpanotiiviste. Juuri tämä ero on syy sille, että haku kulkee
+#: joukkueindeksin ``lineup_keys``-kentän kautta: suora haku
+#: ``index/selections/<lineup_key>.json`` osuisi aina tyhjään.
+TEAM_KEY = "0047af32-5ff8-449e-b665-8fd390e6a44d"
+OTHER_TEAM_KEY = "f257054b-46d5-41bb-8e01-543777cd7092"
+
+
+#: Fixtuurien aikaleima, **menneisyydessä**: valintatiedosto on silloin
+#: vanhempi kuin ajossa syntyvä manifesti, eikä vanhentumisvaroitus laukea.
+#: Varoituksella on oma testinsä omalla aikaleimallaan.
+PAST = "2026-09-01T12:00:00+00:00"
+
+#: Indeksien ja valintatiedoston muotoversiot **kirjaimellisina**. Vakioiden
+#: (``discover.SCHEMA_VERSION``, ``select.SCHEMA_VERSION``) lainaaminen
+#: tekisi fixtuurista aina ajan tasalla olevan, vaikka muoto olisi
+#: vanhentunut; kirjaimellinen luku pakottaa katsomaan fixtuuria, kun muoto
+#: nousee -- ja lukija näkee mitä vasten tämä testi on kirjoitettu.
+TEAMS_INDEX_VERSION = 1
+SELECTION_VERSION = 1
+
+
+def write_teams_index(archive: ArchivePaths, owners: dict[str, list[str]]) -> None:
+    """Joukkueindeksi, jossa jokainen ``team_key`` omistaa annetut kokoonpanot."""
+    keys = [key for lineups in owners.values() for key in lineups]
+    document = {
+        "schema_version": TEAMS_INDEX_VERSION,
+        "generated_at": PAST,
+        "competition_ids": ["kilpailu"],
+        "contested_lineup_keys": sorted({k for k in keys if keys.count(k) > 1}),
+        "teams": [
+            {"team_key": team_key, "lineup_keys": list(lineups), "roster": []}
+            for team_key, lineups in owners.items()
+        ],
+    }
+    write_json(archive.teams_index(), document)
+
+
+def write_json(path: Path, document: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+
+def selection_row(
+    *,
+    map_demo_id: str = MAP_DEMO_ID,
+    is_league: object = True,
+    roster_class: str | None = "5/5",
+    roster_ok: bool = True,
+) -> dict[str, object]:
+    """Valintarivi kaikilla kentillä, kuten ``select`` sen kirjoittaa."""
+    return {
+        "map_demo_id": map_demo_id,
+        "match_id": "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd",
+        "map_index": 1,
+        "map_name": "de_ancient",
+        "is_league": is_league,
+        "certainly_played": True,
+        "roster_ok": roster_ok,
+        "roster_reason": "kynnys täyttyi" if roster_ok else "kynnys ei täyttynyt",
+        "roster_class": roster_class,
+        "roster_source": "match_players",
+        "players_seen": 5,
+        "regulars": [],
+        "outsiders": [],
+        "joined": [],
+        "left": [],
+    }
+
+
+def write_selection(
+    archive: ArchivePaths,
+    rows: list[dict[str, object]],
+    *,
+    team_key: str = TEAM_KEY,
+    generated_at: str = PAST,
+) -> None:
+    """Valintatiedosto joukkueelle, muodossa jonka ``read_selection`` hyväksyy."""
+    document = {
+        "schema_version": SELECTION_VERSION,
+        "generated_at": generated_at,
+        "index_generated_at": generated_at,
+        "competition_ids": ["kilpailu"],
+        "team_key": team_key,
+        "team_name": "Testijoukkue",
+        "roster_size": 5,
+        "roster_min_regulars": 4,
+        "roster": [],
+        "counts": {},
+        "selections": rows,
+    }
+    write_json(archive.selection(team_key), document)
+
+
+def facts_of(archive: ArchivePaths, team: str = A) -> tuple[list, list]:
+    """Taulun kaksi saraketta uniikkeina arvoina.
+
+    Uniikkina siksi, että väite on kaksiosainen: arvo on oikea **ja** sama
+    jokaisella rivillä. Yhden rivin tarkistus ei huomaisi, jos arvo latottaisi
+    vain ensimmäiselle -- ja juuri sen ``domain.aggregate`` kaataisi.
+    """
+    df = pl.read_parquet(archive.classified(team, MAP_DEMO_ID))
+    assert df.height > 1, "latominen kaikille riveille on osa väitettä"
+    return (
+        df["is_league"].unique().to_list(),
+        df["roster_class"].unique().to_list(),
+    )
+
+
+def test_the_match_facts_are_read_from_the_selection_file(settings, parsed) -> None:
+    """Liigaottelu, jonka rosteri kelpasi: molemmat sarakkeet täyttyvät."""
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+
+    run_classify(settings, parsed)
+
+    assert facts_of(parsed) == ([True], ["5/5"])
+
+
+def test_another_faceit_match_is_written_as_not_league(settings, parsed) -> None:
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(is_league=False)])
+
+    run_classify(settings, parsed)
+
+    assert facts_of(parsed) == ([False], ["5/5"])
+
+
+def test_a_substitute_map_carries_the_four_of_five_class(settings, parsed) -> None:
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(roster_class="4/5")])
+
+    run_classify(settings, parsed)
+
+    assert facts_of(parsed) == ([True], ["4/5"])
+
+
+def test_the_roster_class_is_read_and_not_recomputed(settings, parsed) -> None:
+    """Tiedosto sanoo ``4/5``, vaikka rosteri näyttäisi ``5/5``:ltä.
+
+    Kierrostaulussa on viisi pelaajaa joka kierroksella, joten uudelleen
+    laskettu luokka olisi ``5/5``. ``select`` on ainoa laskija: se näkee
+    ottelun pelaajalistan ja vakirosterin, joita tämä vaihe ei näe. Testi
+    kaatuu, jos luokka lasketaan täällä uudelleen.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(roster_class="4/5")])
+
+    run_classify(settings, parsed)
+
+    rounds = pl.read_parquet(parsed.parsed_table(MAP_DEMO_ID, "rounds"))
+    own = rounds.filter(pl.col("lineup_key") == A)
+    assert own["players_buy_end"].unique().to_list() == [5], (
+        "fikstuurin rosteri on täysi -- muuten testi ei erottaisi lukemista "
+        "laskemisesta"
+    )
+    assert facts_of(parsed) == ([True], ["4/5"])
+
+
+def test_a_rejected_map_still_carries_the_match_facts(settings, parsed) -> None:
+    """Hylkäys on otannan asia eikä tosiasia ottelusta: arvot luetaan silti."""
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(roster_ok=False, roster_class="4/5")])
+
+    run_classify(settings, parsed)
+
+    assert facts_of(parsed) == ([True], ["4/5"])
+
+
+def test_a_missing_selection_file_leaves_both_empty(settings, parsed) -> None:
+    """Joukkue on indeksissä, mutta ``select``iä ei ole ajettu sille."""
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+
+    result = run_classify(settings, parsed)
+
+    assert result.status == "ok"
+    assert facts_of(parsed) == ([None], [None])
+    assert "pappascout select" in (result.reason or "")
+
+
+def test_every_empty_reason_is_named_and_they_differ(settings, parsed) -> None:
+    """Viisi eri syytä, viisi eri lausetta -- ei yhtä hiljaista tyhjää.
+
+    Ilman tätä väitettä rikkoutunut silta näyttäisi raportissa täsmälleen
+    samalta kuin käsin tuotu demo, ja "miksi otanta on tuntematon" olisi
+    arvattava. AD-9: vajaa tulos kuuluu ``reason``iin eikä vaikenemiseen.
+    """
+    reasons: dict[str, str] = {}
+
+    # 1. Indeksiä ei ole lainkaan.
+    reasons["no_index"] = run_classify(settings, parsed, force=True).reason or ""
+
+    # 2. Indeksi on, mutta kokoonpanolla ei omistajaa.
+    write_teams_index(parsed, {TEAM_KEY: [B]})
+    reasons["no_owner"] = run_classify(settings, parsed, force=True).reason or ""
+
+    # 3. Omistaja on, valintatiedostoa ei.
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    reasons["no_file"] = run_classify(settings, parsed, force=True).reason or ""
+
+    # 4. Tiedosto on, demolle ei riviä.
+    write_selection(parsed, [selection_row(map_demo_id="1-toinen-demo-1-1")])
+    reasons["no_row"] = run_classify(settings, parsed, force=True).reason or ""
+
+    # 5. Kaksi omistajaa, eri mieltä ottelun lajista.
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(is_league=True)], team_key=TEAM_KEY)
+    write_selection(
+        parsed, [selection_row(is_league=False)], team_key=OTHER_TEAM_KEY
+    )
+    reasons["conflict"] = run_classify(settings, parsed, force=True).reason or ""
+
+    assert all(reasons.values()), f"jokainen tila kertoo syyn: {reasons}"
+    assert len(set(reasons.values())) == len(reasons), (
+        f"viisi eri syytä, viisi eri lausetta: {reasons}"
+    )
+    assert "joukkueindeksi" in reasons["no_index"].lower()
+    assert A in reasons["no_owner"]
+    assert "pappascout select" in reasons["no_file"]
+    assert MAP_DEMO_ID in reasons["no_row"]
+    assert "is_league" in reasons["conflict"]
+
+
+def test_a_demo_that_has_no_row_in_the_file_leaves_both_empty(
+    settings, parsed
+) -> None:
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(map_demo_id="1-toinen-demo-1-1")])
+
+    result = run_classify(settings, parsed)
+
+    assert result.status == "ok"
+    assert facts_of(parsed) == ([None], [None])
+
+
+def test_the_bridge_reads_the_lineup_keys_that_discover_writes(
+    settings, parsed
+) -> None:
+    """Silta rakennetaan **tuottajan omalla kirjoittajalla**, ei käsin.
+
+    Käsin kirjoitettu indeksi pinnaa vain testin omat merkkijonot: jos
+    ``discover`` kirjoittaisi ``lineup_keys``iin eri tiivistesyötteen, eri
+    pituuden tai etuliitteen, ``owners`` olisi tyhjä **joka ainoalla demolla**
+    eikä yksikään käsin kirjoitettu fixtuuri kaatuisi -- ja tulos näyttäisi
+    samalta kuin aidosti tuntematon demo. Siksi kokoonpanot luetaan
+    ``discover``in omalla lukijalla, liitetään sen omalla säännöllä ja
+    kirjoitetaan sen omalla dokumentinrakentajalla; väite on, että sama
+    nimiavaruus tulee ulos ``classify``n päästä.
+
+    Kynnys on nolla, koska tämän testin kohde on **tunnisteiden nimiavaruus**
+    eikä rosterisääntö: kiinnikkeen pelaajatunnisteet eivät ole SteamID64:iä,
+    joten rosterileikkaus ei olisi tässä mielekäs. Kynnyksellä on omat
+    testinsä ``test_teams.py``:ssä.
+    """
+    lineups: dict[str, set[str]] = {}
+    discover_stage._read_lineups(parsed, MAP_DEMO_ID, lineups)
+    assert set(lineups) == set(classify_stage.team_keys(parsed, MAP_DEMO_ID)), (
+        "discover ja classify lukevat kokoonpanot samasta taulusta samalla "
+        "nimellä"
+    )
+
+    teams, contested = assign_lineup_keys((Team(team_key=TEAM_KEY),), lineups, 0)
+    document = discover_stage._teams_document(
+        teams, contested, ["kilpailu"], datetime(2026, 9, 1, 12, tzinfo=UTC)
+    )
+    write_json(parsed.teams_index(), document)
+
+    written = {key for row in document["teams"] for key in row["lineup_keys"]}
+    assert set(classify_stage.team_keys(parsed, MAP_DEMO_ID)) & written, (
+        "sillan molemmat päät ovat samassa nimiavaruudessa"
+    )
+
+    # Ja silta kantaa arvon perille asti, ei vain nimeä.
+    write_selection(parsed, [selection_row()])
+    facts = classify_stage.read_match_facts(parsed, A, MAP_DEMO_ID)
+    assert (facts.is_league, facts.roster_class) == (True, "5/5")
+    assert facts.note is None
+
+
+def test_a_lineup_that_no_team_owns_leaves_both_empty(settings, parsed) -> None:
+    """Silta puuttuu: indeksissä oleva joukkue ei omista tätä kokoonpanoa."""
+    write_teams_index(parsed, {TEAM_KEY: [B]})
+    write_selection(parsed, [selection_row()])
+
+    result = run_classify(settings, parsed, team=A)
+
+    assert facts_of(parsed, A) == ([None], [None])
+    # Erotettavissa aidosti tuntemattomasta demosta: syy nimeää kokoonpanon,
+    # jolle omistajaa ei löytynyt.
+    assert A in (result.reason or "")
+
+
+def test_each_team_gets_the_facts_from_its_own_selection_file(
+    settings, parsed
+) -> None:
+    """``--kaikki-joukkueet``: kumpikin ajo lukee oman joukkueensa tiedoston."""
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [B]})
+    write_selection(parsed, [selection_row(roster_class="5/5")], team_key=TEAM_KEY)
+    write_selection(
+        parsed,
+        [selection_row(roster_class="4/5", is_league=False)],
+        team_key=OTHER_TEAM_KEY,
+    )
+
+    for team in classify_stage.team_keys(parsed, MAP_DEMO_ID):
+        run_classify(settings, parsed, team=team)
+
+    assert facts_of(parsed, A) == ([True], ["5/5"])
+    assert facts_of(parsed, B) == ([False], ["4/5"])
+
+
+def test_a_contested_lineup_that_agrees_still_fills_the_columns(
+    settings, parsed
+) -> None:
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()], team_key=TEAM_KEY)
+    write_selection(parsed, [selection_row()], team_key=OTHER_TEAM_KEY)
+
+    run_classify(settings, parsed)
+
+    assert facts_of(parsed) == ([True], ["5/5"])
+
+
+def test_only_the_disagreeing_field_is_emptied(settings, parsed) -> None:
+    """Kaksi omistajaa, eri ``roster_class``, sama ``is_league``.
+
+    Luokka arvioidaan **kyseisen joukkueen** vakirosteria vasten (AD-6), joten
+    kahdella omistajalla saa olla siitä eri arvo -- se ei ole ristiriita vaan
+    normaalia. ``is_league`` kuvaa ottelua (AD-10), ja siitä omistajat ovat
+    yksimielisiä. Tietuetasoinen vertailu heittäisi yksimielisen
+    ``is_league``in pois vain siksi, että luokat erosivat; tämä testi kaatuu,
+    jos konsensus palaa tietuetasolle.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(roster_class="5/5")], team_key=TEAM_KEY)
+    write_selection(
+        parsed, [selection_row(roster_class="4/5")], team_key=OTHER_TEAM_KEY
+    )
+
+    result = run_classify(settings, parsed)
+
+    assert result.status == "ok"
+    assert facts_of(parsed) == ([True], [None])
+    assert "roster_class" in (result.reason or "")
+    assert "is_league" not in (result.reason or "")
+
+
+def test_a_disagreeing_league_flag_empties_only_that_field(
+    settings, parsed
+) -> None:
+    """Sama sääntö toiseen suuntaan: laji eri mieltä, luokka sama."""
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(is_league=True)], team_key=TEAM_KEY)
+    write_selection(
+        parsed, [selection_row(is_league=False)], team_key=OTHER_TEAM_KEY
+    )
+
+    result = run_classify(settings, parsed)
+
+    assert facts_of(parsed) == ([None], ["5/5"])
+    assert "is_league" in (result.reason or "")
+
+
+def test_two_rows_for_the_same_demo_are_not_resolved_by_the_first_one(
+    settings, parsed
+) -> None:
+    """Kahdennettu rivi menee samaan konsensukseen kuin kaksi omistajaa.
+
+    "Ensimmäinen voittaa" olisi täsmälleen se arpominen, joka
+    kiistanalaisilla kokoonpanoilla kiellettiin. Rivit ovat samassa
+    tiedostossa ja eri mieltä luokasta, joten luokka jää tyhjäksi -- ei
+    ensimmäisen arvoon.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(
+        parsed,
+        [selection_row(roster_class="5/5"), selection_row(roster_class="4/5")],
+    )
+
+    run_classify(settings, parsed)
+
+    assert facts_of(parsed) == ([True], [None])
+
+
+def test_one_owner_with_a_file_is_enough(settings, parsed) -> None:
+    """Kaksi omistajaa, vain toisella valintatiedosto: yksi ääni riittää.
+
+    Yksimielisyys yhdellä äänellä on tarkoituksellista: puuttuva tiedosto ei
+    ole eri mieltä vaan hiljaa, eikä hiljaisuus voi kumota luettua arvoa.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()], team_key=TEAM_KEY)
+
+    result = run_classify(settings, parsed)
+
+    assert facts_of(parsed) == ([True], ["5/5"])
+    assert result.reason is None
+
+
+def test_an_owner_whose_file_lacks_the_demo_does_not_veto(
+    settings, parsed
+) -> None:
+    """Sama sisar: toisen omistajan tiedostossa on vain toisen demon rivi."""
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()], team_key=TEAM_KEY)
+    write_selection(
+        parsed,
+        [selection_row(map_demo_id="1-toinen-demo-1-1", roster_class="4/5")],
+        team_key=OTHER_TEAM_KEY,
+    )
+
+    run_classify(settings, parsed)
+
+    assert facts_of(parsed) == ([True], ["5/5"])
+
+
+def test_the_field_names_come_from_selects_own_document_builder(
+    settings, parsed
+) -> None:
+    """Rivi rakennetaan ``select``in omalla kirjoittajalla, ei käsin.
+
+    Kaikki muut testit kaivavat raakoja avaimia käsin kirjoitetusta rivistä,
+    joten nimen vaihtaminen ``select``issä (``is_league`` -> ``league``)
+    pitäisi ne vihreinä ja tyhjentäisi tuotannon hiljaa. Tämä testi kulkee
+    tuottajan läpi: :class:`MapSelection` -> ``select._document`` ->
+    :func:`read_match_facts`, joten kenttänimi on pinnattu siihen koodiin,
+    joka sen kirjoittaa.
+    """
+    row = MapSelection(
+        map_demo_id=MAP_DEMO_ID,
+        match_id="1-a52ebff2-a23d-45eb-beb7-37271d96ddfd",
+        map_index=1,
+        map_name="de_ancient",
+        is_league=True,
+        roster_ok=True,
+        roster_reason="kynnys täyttyi",
+        roster_class="4/5",
+        roster_source="observed",
+    )
+    document = select_stage._document(
+        [row],
+        team=Team(team_key=TEAM_KEY),
+        league=settings.league,
+        thresholds=settings.thresholds,
+        generated_at=datetime(2026, 9, 1, 12, tzinfo=UTC),
+        index_generated_at=PAST,
+    )
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_json(parsed.selection(TEAM_KEY), document)
+
+    facts = classify_stage.read_match_facts(parsed, A, MAP_DEMO_ID)
+
+    assert (facts.is_league, facts.roster_class) == (True, "4/5")
+    assert facts.note is None
+
+
+def test_a_foreign_roster_class_stops_the_run(settings, parsed) -> None:
+    """Kelvoton arvo johdetaan skeemasta eikä kirjoiteta kovakoodattuna.
+
+    Tarkistus ja virheilmoitus tulevat molemmat ``CLASSIFIED``-skeeman
+    enumista, joten testin on kysyttävä samasta lähteestä: kovakoodattu
+    ``"3/5"`` kelpaisi jonain päivänä skeemaan ja testi menisi läpi
+    mittaamatta mitään.
+    """
+    allowed = classify_stage.roster_classes()
+    foreign = f"vieras-{allowed[0]}"
+    assert foreign not in allowed
+
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(roster_class=foreign)])
+
+    with pytest.raises(SchemaError) as err:
+        run_classify(settings, parsed)
+
+    message = str(err.value)
+    assert foreign in message
+    assert ", ".join(allowed) in message, "viesti luettelee saman joukon"
+    assert MAP_DEMO_ID in message
+    assert not parsed.classified(A, MAP_DEMO_ID).exists()
+
+
+def test_a_non_boolean_league_flag_stops_the_run(settings, parsed) -> None:
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(is_league="kylla")])
+
+    with pytest.raises(SchemaError) as err:
+        run_classify(settings, parsed)
+
+    assert "is_league" in str(err.value)
+
+
+def test_a_broken_selection_file_advises_running_select(settings, parsed) -> None:
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    path = parsed.selection(TEAM_KEY)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("ei ole jsonia", encoding="utf-8")
+
+    with pytest.raises(PappascoutError) as err:
+        run_classify(settings, parsed)
+
+    assert "pappascout select" in str(err.value)
+    assert not parsed.classified(A, MAP_DEMO_ID).exists()
+
+
+def test_the_selection_file_is_not_a_manifest_input(settings, parsed) -> None:
+    """Ohitettu ajo kantaa vanhaa arvoa, ja se on tarkoituksellista.
+
+    Testi pinnaa kytkennän rajan: valintatiedoston ilmestyminen **ei**
+    invalidoi valmista tulosta, ja ``--pakota`` on se tapa, jolla arvo
+    päivittyy. Ilman tätä väitettä joku lisäisi tiedoston manifestin
+    ``inputs``iin huomaamatta, että se pakottaisi koko arkiston
+    uudelleenluokitteluun.
+    """
+    run_classify(settings, parsed)
+    assert facts_of(parsed) == ([None], [None])
+
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+
+    skipped = run_classify(settings, parsed)
+    assert skipped.skipped, "manifesti täsmää: valintatiedosto ei ole syöte"
+    assert facts_of(parsed) == ([None], [None])
+
+    forced = run_classify(settings, parsed, force=True)
+    assert not forced.skipped
+    assert facts_of(parsed) == ([True], ["5/5"])
+
+
+def test_a_broken_selection_file_does_not_break_a_skipped_run(
+    settings, parsed
+) -> None:
+    """Faktat luetaan **ohitushaaran jälkeen**, ja tämä pinnaa järjestyksen.
+
+    Jos luku siirretään funktion alkuun "yhteen paikkaan", yksi korruptoitunut
+    valintatiedosto muuttaisi koko arkiston valmiit luokittelut virheiksi --
+    eikä yksikään muu testi kaatuisi, koska ne kaikki ajavat tuoreen ajon.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+    first = run_classify(settings, parsed)
+    assert not first.skipped
+
+    parsed.selection(TEAM_KEY).write_text("ei ole jsonia", encoding="utf-8")
+
+    result = run_classify(settings, parsed)
+
+    assert result.skipped, "valmista tulosta ei lueta uudelleen eikä rikota"
+    assert result.status == "ok"
+    assert facts_of(parsed) == ([True], ["5/5"])
+
+
+def test_a_newer_selection_file_warns_and_names_the_flag(
+    settings, parsed
+) -> None:
+    """Vanhentuminen on havaittavissa eikä vain dokumentoitu.
+
+    Valintatiedosto ei ole manifestin syöte, joten sen muuttuminen ei
+    invalidoi tulosta -- eikä siis kerro itsestään. Ilman varoitusta taulu
+    kantaisi vanhaa ``is_league``ia ja raportti näyttäisi ajan tasalla
+    olevalta, ja ``--pakota`` jäisi ihmisen muistin varaan.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+    run_classify(settings, parsed)
+
+    # Uudempi kuin luokittelun manifesti: select on ajettu uudelleen.
+    write_selection(
+        parsed,
+        [selection_row(is_league=False)],
+        generated_at="2099-01-01T00:00:00+00:00",
+    )
+
+    result = run_classify(settings, parsed)
+
+    assert result.skipped
+    assert "--pakota" in (result.reason or "")
+    assert classify_stage.SKIP_REASON in (result.reason or "")
+    # Ja kun tiedosto on vanhempi, varoitusta ei ole.
+    write_selection(parsed, [selection_row()])
+    assert run_classify(settings, parsed).reason == classify_stage.SKIP_REASON
 
 
 # --- Kierroslista Markdownina ----------------------------------------------------
@@ -1054,7 +1661,7 @@ def test_ancient_first_three_rounds_are_pistol_eco_full(settings_file: Path) -> 
     thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(ANCIENT_DEM, "ancient")
     df_, rows = classify_stage.classify_rounds(
-        df, subject_key(df), thresholds, "ancient", economy=economy
+        df, subject_key(df), thresholds, "ancient", economy=economy, facts=NO_FACTS
     )
     assert df_.height == ANCIENT_ROUNDS
     assert df_.sort("round_no")["round_type"].to_list()[:3] == ["pistol", "eco", "full"]
@@ -1068,7 +1675,7 @@ def test_ancient_has_no_unclassified_rounds(settings_file: Path) -> None:
     thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(ANCIENT_DEM, "ancient")
     result, _ = classify_stage.classify_rounds(
-        df, subject_key(df), thresholds, "ancient", economy=economy
+        df, subject_key(df), thresholds, "ancient", economy=economy, facts=NO_FACTS
     )
     assert result["round_type"].null_count() == 0
 
@@ -1079,7 +1686,7 @@ def test_nuke_overtime_rounds_get_no_economy_reasoning(settings_file: Path) -> N
     thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(NUKE_ZST, "nuke")
     result, _ = classify_stage.classify_rounds(
-        df, subject_key(df), thresholds, "nuke", economy=economy
+        df, subject_key(df), thresholds, "nuke", economy=economy, facts=NO_FACTS
     )
 
     assert result.height == NUKE_ROUNDS
@@ -1096,7 +1703,7 @@ def test_nuke_first_three_rounds_are_pistol_eco_full(settings_file: Path) -> Non
     thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(NUKE_ZST, "nuke")
     result, _ = classify_stage.classify_rounds(
-        df, subject_key(df), thresholds, "nuke", economy=economy
+        df, subject_key(df), thresholds, "nuke", economy=economy, facts=NO_FACTS
     )
     assert result.sort("round_no")["round_type"].to_list()[:3] == [
         "pistol",
@@ -1119,10 +1726,10 @@ def test_opponent_type_matches_the_other_teams_own_type(
     b = next(k for k in df["lineup_key"].unique().to_list() if k != a)
 
     own, _ = classify_stage.classify_rounds(
-        df, a, thresholds, identifier, economy=economy
+        df, a, thresholds, identifier, economy=economy, facts=NO_FACTS
     )
     other, _ = classify_stage.classify_rounds(
-        df, b, thresholds, identifier, economy=economy
+        df, b, thresholds, identifier, economy=economy, facts=NO_FACTS
     )
 
     assert own.sort("round_no")["round_type"].to_list() == (
@@ -1162,7 +1769,7 @@ def test_ancient_calibration_verdicts_hold_on_the_real_demo(
     observed: dict[tuple[int, str], dict] = {}
     for team in df["lineup_key"].unique().to_list():
         result, _ = classify_stage.classify_rounds(
-            df, team, thresholds, "ancient", economy=economy
+            df, team, thresholds, "ancient", economy=economy, facts=NO_FACTS
         )
         for row in result.iter_rows(named=True):
             observed[(int(row["round_no"]), str(row["side"]))] = row

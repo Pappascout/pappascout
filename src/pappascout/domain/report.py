@@ -40,11 +40,18 @@ muotoilee juuri sen rivin eri yksiköllä.
 
 Kolme lokeroa, ei kahta
 -----------------------
-``is_league`` syntyy vasta ``select``-vaiheessa (Epic 3), joten käsin tuoduilla
-demoilla se on ``null``. Kahden lokeron jako (``league`` / ``other``) pakottaisi
-valitsemaan kahdesta valheesta: merkitä käsin tuodut liigaotteluiksi tai muiksi.
-Otanta on siksi ``{league, other, unknown}`` jokaisella tasolla
-(:class:`Sample`), ja kolmas lokero sanoo mitä tiedetään.
+``is_league`` syntyy ``select``-vaiheessa ja kulkee ``classify``n kautta
+tauluun, joten se on tiedossa niistä demoista, jotka ovat joukkueen
+valintatiedostossa. ``null`` on **kaikkien muiden** tila, eikä niitä ole vain
+yksi: käsin tuotu demo (ei valittu mistään ottelulistasta), ``select``
+ajamatta, demo ilman riviä valintatiedostossa, kokoonpano jota yksikään
+joukkue ei omista, omistajat eri mieltä ottelun lajista, tai taulu joka
+luokiteltiin ennen ``select``iä. Kahden lokeron jako (``league`` / ``other``)
+pakottaisi valitsemaan kahdesta valheesta: merkitä ne kaikki liigaotteluiksi
+tai muiksi. Otanta on siksi ``{league, other, unknown}`` jokaisella tasolla
+(:class:`Sample`), ja kolmas lokero sanoo mitä tiedetään. **Miksi tieto
+puuttuu**, sen kertoo ``classify``n ajon syy (``StageResult.reason``) eikä
+raportti: raportti kertoo mitä tiedetään, ei mitä ajossa tapahtui.
 
 Kaikki lasketaan, raportti valitsee
 -----------------------------------
@@ -316,9 +323,13 @@ class Sample(_Node):
     """Otanta yhdellä tasolla kolmessa lokerossa.
 
     ``unknown`` on lokero demoille, joiden ``is_league`` on tyhjä. Se ei ole
-    virhetila vaan tavallisin tila ennen Epic 3:a: ihminen tietää haetun demon
-    lajin, mutta demossa itsessään ei ole sitä tietoa, eikä ``aggregate``
-    arvaa.
+    virhetila vaan **kaikkien niiden demojen lokero, joiden lajia ei tiedetä**,
+    ja syitä on useita: käsin tuotu demo, ``select`` ajamatta, demo ilman
+    riviä valintatiedostossa, kokoonpano ilman omistajaa joukkueindeksissä,
+    omistajat eri mieltä, tai ennen ``select``iä luokiteltu taulu. Yhden syyn
+    nimeäminen tekisi lokerosta kapeamman kuin se on. Ottelun laji tulee
+    ``select``in valintatiedostosta; demossa itsessään ei ole sitä tietoa,
+    eikä ``aggregate`` arvaa.
 
     ``demos`` ja ``rounds`` ovat lokeroiden summat valmiiksi laskettuina, jotta
     ``render`` ei laske niitä.

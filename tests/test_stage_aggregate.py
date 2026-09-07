@@ -81,6 +81,7 @@ def build_archive(
     bench_player: str | None = None,
     map_names: dict[str, str | None] | None = None,
     callouts: dict[str, Sequence[tuple[str, int, int, int]]] | None = None,
+    is_league: dict[str, bool | None] | None = None,
 ) -> ArchivePaths:
     """Rakenna arkisto, jossa on annetut demot annettujen kokoonpanojen alla.
 
@@ -111,12 +112,22 @@ def build_archive(
             pilvi**, jolloin siteryhmiä ei saada ja stack vaikenee -- niin
             vanhat testit mittaavat yhä sitä, mitä ne mittasivat ennen Story
             2.14:ää. Ruutu on ``(alue, cell_x, cell_y, cell_z)``.
+        is_league: ``map_demo_id -> is_league``. Oletus on ``None`` eli
+            **käsin tuodun demon tila**, jolloin otanta on ``unknown``-lokerossa
+            kuten ennen Story 3.8:aa -- niin vanhat testit mittaavat yhä sitä,
+            mitä ne mittasivat. Arvo on demokohtainen, koska se kuvaa ottelua
+            eikä kierrosta.
     """
     archive = ArchivePaths(root=tmp_path / "arkisto")
     for demo, lineup in demos.items():
         classified = classified_frame(
             [
-                classified_row(demo, n, round_type="pistol" if n == 1 else "full")
+                classified_row(
+                    demo,
+                    n,
+                    round_type="pistol" if n == 1 else "full",
+                    is_league=(is_league or {}).get(demo),
+                )
                 for n in range(1, rounds + 1)
             ]
         )
@@ -835,6 +846,67 @@ def test_a_table_written_with_a_different_column_order_still_reads(
 
     run(archive)
     assert read_report(archive).sample.demos == 2
+
+
+# --- Otannan kolme lokeroa (Story 3.8) ------------------------------------------
+#
+# ``classify`` täyttää ``is_league``-sarakkeen valintatiedostosta, joten
+# lokerointi saa vihdoin arvon. Nämä testit mittaavat sitä, että arvo menee
+# **läpi asti**: taulusta lokeroon ja lokerosta raportin summaan.
+
+
+def test_a_league_demo_lands_in_the_league_bucket(tmp_path: Path) -> None:
+    archive = build_archive(
+        tmp_path, {"Nuke_vs_a": TEAM}, is_league={"Nuke_vs_a": True}
+    )
+    run(archive)
+
+    sample = read_report(archive).sample
+    assert (sample.league.demos, sample.league.rounds) == (1, sample.rounds)
+    assert sample.other.demos == 0
+    assert sample.unknown.demos == 0
+
+
+def test_league_and_other_demos_fill_their_own_buckets(tmp_path: Path) -> None:
+    """Kolme demoa, kolme lokeroa: koko otanta ei enää ole ``tuntematon``issa.
+
+    Juuri tämä rivi luki ennen Story 3.8:aa *"liiga 0 / 0, muut 0 / 0,
+    tuntematon 4 / 85"*. Väite on lokerokohtainen **ja** summa: jokainen demo
+    kuuluu täsmälleen yhteen lokeroon, joten summan on oltava lokeroiden summa.
+    """
+    archive = build_archive(
+        tmp_path,
+        {"Nuke_vs_a": TEAM, "Ancient_vs_b": TEAM, "Anubis_vs_c": TEAM},
+        rounds=2,
+        is_league={"Nuke_vs_a": True, "Ancient_vs_b": False},
+    )
+    run(archive)
+
+    sample = read_report(archive).sample
+    assert sample.demos == 3
+    assert sample.league.demos == 1
+    assert sample.other.demos == 1
+    assert sample.unknown.demos == 1, "käsin tuotu demo jää tuntemattomaksi"
+    assert sample.rounds == (
+        sample.league.rounds + sample.other.rounds + sample.unknown.rounds
+    )
+    assert sample.league.rounds == 2
+    assert sample.other.rounds == 2
+
+
+def test_the_bucket_row_names_the_counts_in_the_summary(tmp_path: Path) -> None:
+    """Komennon yhteenveto kertoo lokerot, ei vain otannan kokoa."""
+    archive = build_archive(
+        tmp_path,
+        {"Nuke_vs_a": TEAM, "Ancient_vs_b": TEAM},
+        is_league={"Nuke_vs_a": True, "Ancient_vs_b": False},
+    )
+    result = run(archive)
+
+    text = _render_aggregate(result)
+    assert "liiga 1 demoa / 2 kierrosta" in text
+    assert "muut 1 demoa / 2 kierrosta" in text
+    assert "tuntematon 0 demoa / 0 kierrosta" in text
 
 
 # --- Regressiot oikeilla demoilla -----------------------------------------------
