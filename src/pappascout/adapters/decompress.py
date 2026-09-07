@@ -1,18 +1,20 @@
-"""Demotiedoston purku ja tunnistus.
+"""Decompressing and identifying a demo file.
 
-Erillään parsinnasta tarkoituksella: FACEIT tarjoaa demot ``.dem.zst``-muodossa,
-ja Epic 3:n demolataus tarvitsee saman purun sellaisenaan. Kun purku on omassa
-moduulissaan, lataus voi kutsua sitä ilman että se raahaa mukanaan demoparser2:ta.
+Deliberately kept apart from parsing: FACEIT serves demos as ``.dem.zst``, and
+Epic 3's demo download needs the same decompression as it stands. With
+decompression in a module of its own, the download can call it without
+dragging demoparser2 along with it.
 
-Purku on **virtaava**: 233 MB:n demo ei mahdu mielekkäästi 8 GB:n koneen muistiin
-yhtaikaa parsinnan kanssa, joten pakattu tiedosto puretaan lohko kerrallaan
-väliaikaistiedostoon. Väliaikaistiedosto on koneen omassa temp-hakemistossa,
-**ei arkistossa**: arkisto on OneDrivessa, ja satojen megatavujen välituotteen
-synkronointi olisi sekä hidasta että turhaa.
+Decompression **streams**: a 233 MB demo does not sensibly fit into an 8 GB
+machine's memory at the same time as parsing, so the compressed file is
+decompressed one chunk at a time into a temporary file. The temporary file
+lives in the machine's own temp directory, **not in the archive**: the archive
+sits in a synchronised folder, and synchronising a hundreds-of-megabytes
+intermediate would be both slow and pointless.
 
-Purku kirjoittaa ensin ``<nimi>.tmp``-tiedostoon ja nimeää sen vasta lopuksi,
-jotta keskeytynyt purku ei jätä jälkeensä puolikasta tiedostoa, joka näyttäisi
-valmiilta demolta.
+Decompression writes to ``<name>.tmp`` first and renames it only at the end,
+so that an interrupted decompression does not leave behind a half file that
+would look like a finished demo.
 """
 
 from __future__ import annotations
@@ -40,16 +42,17 @@ __all__ = [
     "decompressed_name",
 ]
 
-#: CS2-demon tiedostotunniste. CS:GO:n vanha muoto alkoi ``HL2DEMO``.
+#: The CS2 demo's file signature. CS:GO's old format began with ``HL2DEMO``.
 DEMO_MAGIC = b"PBDEMS2"
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 GZIP_MAGIC = b"\x1f\x8b"
 
-#: Pakkauspäätteet, jotka riisutaan puretun tiedoston nimestä.
+#: Compression suffixes that are stripped from the decompressed file's name.
 COMPRESSED_SUFFIXES: tuple[str, ...] = (".zst", ".zstd", ".gz")
 
-#: Purun lohkokoko. Iso lohko on nopeampi, mutta muistinkäytön on pysyttävä
-#: maltillisena, koska parsinta varaa oman osuutensa samalla koneella.
+#: The decompression chunk size. A large chunk is faster, but memory use has
+#: to stay moderate, because parsing reserves its own share on the same
+#: machine.
 _CHUNK = 1024 * 1024
 
 
@@ -59,9 +62,9 @@ def _head(path: Path, size: int = 8) -> bytes:
             return fh.read(size)
     except OSError as exc:
         raise ParseError(
-            f"Tiedostoa {path} ei voitu avata: {exc}\n"
-            "Tarkista polku ja se, ettei tiedosto ole OneDriven "
-            "pilvipaikkamerkki (avaa tiedosto kerran Resurssienhallinnassa)."
+            f"The file {path} could not be opened: {exc}\n"
+            "Check the path, and that the file is not a cloud placeholder "
+            "left by the sync client (open the file once in File Explorer)."
         ) from exc
 
 
@@ -70,19 +73,19 @@ def _size(path: Path) -> int:
         return path.stat().st_size
     except OSError as exc:
         raise ParseError(
-            f"Tiedoston {path} kokoa ei voitu lukea: {exc}\n"
-            "Tarkista, ettei tiedosto ole OneDriven pilvipaikkamerkki tai "
-            "kesken siirtyvä."
+            f"The size of the file {path} could not be read: {exc}\n"
+            "Check that the file is not a cloud placeholder left by the sync "
+            "client, and that it is not still being transferred."
         ) from exc
 
 
 def decompressed_name(path: Path) -> str:
-    """Puretun tiedoston nimi: pakkauspääte pois, muu nimi ennalleen.
+    """The decompressed file's name: compression suffix off, the rest as is.
 
-    Nimeä **ei** katkaista ensimmäisestä pisteestä. FACEITin tiedostonimissä on
-    useita pisteitä (``...-1-1.dem.zst``), ja katkaisu tuottaisi eri demoille
-    helposti saman nimen -- kaksi yhtaikaista purkua voisi silloin kirjoittaa
-    samaan tiedostoon.
+    The name is **not** cut at the first dot. FACEIT's file names carry
+    several dots (``...-1-1.dem.zst``), and cutting there would easily give
+    two different demos the same name -- two simultaneous decompressions
+    could then write into the same file.
     """
     name = path.name
     for suffix in COMPRESSED_SUFFIXES:
@@ -93,33 +96,34 @@ def decompressed_name(path: Path) -> str:
 
 
 def is_compressed(path: Path) -> bool:
-    """Onko tiedosto pakattu (zstd tai gzip)?
+    """Is the file compressed (zstd or gzip)?
 
-    Tunnistus tehdään tiedoston alkutavuista eikä päätteestä: käsin kopioitu
-    demo voi olla nimetty väärin, ja väärä arvaus näkyisi käyttäjälle
-    käsittämättömänä parsintavirheenä.
+    The detection is made from the file's leading bytes and not from its
+    suffix: a hand-copied demo may be named wrongly, and a wrong guess would
+    show up to the user as an incomprehensible parse error.
     """
     head = _head(path, 4)
     return head.startswith(ZSTD_MAGIC) or head.startswith(GZIP_MAGIC)
 
 
 def declared_size(path: Path) -> int | None:
-    """Purettu koko, jonka **tiedosto itse ilmoittaa**, tai ``None``.
+    """The decompressed size **the file itself declares**, or ``None``.
 
-    zstd-kehyksen otsikossa on valinnainen ``Frame_Content_Size``. Mitattu
-    2026-09-05: arkiston **jokainen** viisi ``.dem.zst``-tiedostoa ilmoittaa
-    sen (208-316 MB) ja jokaisessa on lisäksi XXH64-tarkistussumma. Kenttä on
-    siis tässä aineistossa käytettävissä eikä teoreettinen.
+    A zstd frame's header carries an optional ``Frame_Content_Size``.
+    Measured 2026-09-05: **every** one of the archive's five ``.dem.zst``
+    files declares it (208-316 MB), and every one carries an XXH64 checksum
+    as well. The field is therefore available in this data set and not
+    theoretical.
 
-    **Tämä on ainoa riippumaton pituuslähde, joka tuonnilla on.** ``fetch``
-    saa ``Content-Length``in lähteeltä; käsin kopioidulla tiedostolla ei ole
-    ketään kertomassa, minkä pituinen sen pitäisi olla -- paitsi tiedosto
-    itse. Pakkaamattomalla ``.dem``:llä ei ole tätäkään, ja silloin oikea
-    vastaus on ``None`` eikä arvaus.
+    **This is the only independent length source an import has.** ``fetch``
+    gets a ``Content-Length`` from the source; a hand-copied file has nobody
+    to tell it how long it ought to be -- except the file itself. An
+    uncompressed ``.dem`` does not have even that, and then the right answer
+    is ``None`` and not a guess.
 
     Returns:
-        Purettu koko tavuina, tai ``None`` jos tiedosto ei ole zstd tai jos
-        kehys ei ilmoita kokoa.
+        The decompressed size in bytes, or ``None`` if the file is not zstd
+        or if the frame does not declare a size.
     """
     head = _head(path, 64)
     if not head.startswith(ZSTD_MAGIC):
@@ -127,57 +131,60 @@ def declared_size(path: Path) -> int | None:
     try:
         zstandard = _zstd_module()
         size = zstandard.get_frame_parameters(head).content_size
-    except Exception:  # noqa: BLE001 - kirjaston oma virhetyyppi vaihtelee
+    except Exception:  # noqa: BLE001 - the library's own error type varies
         return None
-    # Kirjasto merkitsee "ei ilmoitettu" erittäin suurella sentinel-arvolla.
+    # The library marks "not declared" with a very large sentinel value.
     if not isinstance(size, int) or size <= 0 or size >= 2**64 - 1:
         return None
     return size
 
 
 def check_demo_magic(path: Path) -> None:
-    """Varmista, että puretun tiedoston alussa on ``PBDEMS2``.
+    """Make sure the decompressed file starts with ``PBDEMS2``.
 
     Raises:
-        ParseError: Jos tiedosto ei ole CS2-demo. Tämä tarkistus on ennen
-            demoparser2-kutsua, jotta tekstitiedosto ``.dem``-päätteellä antaa
-            selkeän suomenkielisen virheen eikä kirjaston omaa viestiä.
+        ParseError: If the file is not a CS2 demo. This check comes before
+            the demoparser2 call, so that a text file with a ``.dem`` suffix
+            gives a clear error of our own instead of the library's own
+            message.
     """
     head = _head(path, len(DEMO_MAGIC))
     if head != DEMO_MAGIC:
         raise ParseError(
-            f"Tiedosto {path.name} ei ole CS2-demo: sen otsikko on "
-            f"{head!r}, pitäisi olla {DEMO_MAGIC!r}.\n"
-            "CS2-demot alkavat merkkijonolla PBDEMS2. Tarkista, että lataus "
-            "onnistui ja että kyseessä on .dem-tiedosto eikä esimerkiksi "
-            "virheilmoitussivu tai CS:GO-aikainen demo."
+            f"The file {path.name} is not a CS2 demo: its header is "
+            f"{head!r}, it should be {DEMO_MAGIC!r}.\n"
+            "CS2 demos begin with the string PBDEMS2. Check that the "
+            "download succeeded and that this is a .dem file and not, for "
+            "example, an error page or a CS:GO-era demo."
         )
 
 
 def _zstd_module():
-    """Tuo ``zstandard`` tai kerro suomeksi, miten se asennetaan."""
+    """Import ``zstandard``, or say how it is installed."""
     try:
         import zstandard
-    except ImportError as exc:  # pragma: no cover - riippuvuus on pyproject.tomlissa
+    except ImportError as exc:  # pragma: no cover - the dependency is in pyproject.toml
         raise ParseError(
-            "Pakattua demoa ei voi purkaa: paketti zstandard puuttuu.\n"
-            "Aja: uv sync"
+            "A compressed demo cannot be decompressed: the package zstandard "
+            "is missing.\n"
+            "Run: uv sync"
         ) from exc
     return zstandard
 
 
 def decompress_to(source: Path, target: Path) -> Path:
-    """Pura ``source`` tiedostoon ``target`` lohko kerrallaan.
+    """Decompress ``source`` into ``target`` one chunk at a time.
 
-    Tukee zstd- ja gzip-pakkausta. Pakkaamaton tiedosto kopioidaan sellaisenaan.
-    Kirjoitus menee ensin ``<target>.tmp``-tiedostoon ja nimetään vasta
-    onnistuessa, joten keskeytys ei jätä puolikasta ``target``ia.
+    Supports zstd and gzip compression. An uncompressed file is copied as it
+    stands. The write goes to ``<target>.tmp`` first and is renamed only on
+    success, so an interruption does not leave a half ``target`` behind.
 
     Returns:
         ``target``.
 
     Raises:
-        ParseError: Jos purku epäonnistuu tai kohdehakemistoa ei voi luoda.
+        ParseError: If the decompression fails or the target directory
+            cannot be created.
     """
     head = _head(source, 4)
     source_size = _size(source)
@@ -185,8 +192,9 @@ def decompress_to(source: Path, target: Path) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise ParseError(
-            f"Purkuhakemistoa {target.parent} ei voitu luoda: {exc}\n"
-            "Tarkista levytila ja kirjoitusoikeudet."
+            f"The decompression directory {target.parent} could not be "
+            f"created: {exc}\n"
+            "Check the disk space and the write permissions."
         ) from exc
 
     tmp = target.with_name(target.name + ".tmp")
@@ -202,88 +210,91 @@ def decompress_to(source: Path, target: Path) -> Path:
         else:
             shutil.copyfile(source, tmp)
 
-        # **zstd ei nosta poikkeusta katkenneesta kehyksestä vaan lopettaa
-        # hiljaa.** Mitattu 2026-09-05 oikealla demolla: puoliväliin katkaistu
-        # ``ANCIENT_vs_RCAVE_VETERANS.dem.zst`` purkautui 104 464 384 tavuksi
-        # ilman virhettä, vaikka kehys ilmoittaa 208 561 416. Purettu alku on
-        # kelvollinen CS2-demo -- ``PBDEMS2`` on siinä, ja otsikon kartan nimi
-        # luetaan siitä oikein. Vaje paljastuu vasta parsinnassa.
+        # **zstd does not raise on a truncated frame; it stops silently.**
+        # Measured 2026-09-05 with a real demo: a half-truncated
+        # ``ANCIENT_vs_RCAVE_VETERANS.dem.zst`` decompressed to 104 464 384
+        # bytes without an error, even though the frame declares 208 561 416.
+        # The decompressed beginning is a valid CS2 demo -- ``PBDEMS2`` is
+        # there, and the map name in the header reads correctly out of it.
+        # The shortfall only comes out in parsing.
         #
-        # Kaksi tarkistusta, ja ne vastaavat eri kysymykseen.
+        # Two checks, and they answer different questions.
         actual = _size(tmp)
         expected = declared_size(source)
         if expected is not None and actual != expected:
-            # **Kehys itse kertoo, minkä pituinen sen pitäisi olla.** Tämä on
-            # ainoa riippumaton pituuslähde, joka käsin kopioidulla
-            # tiedostolla on, ja se on mitattu olemassa olevaksi arkiston
-            # jokaisessa ``.dem.zst``-tiedostossa.
+            # **The frame itself tells how long it ought to be.** This is the
+            # only independent length source a hand-copied file has, and it
+            # has been measured to exist in every one of the archive's
+            # ``.dem.zst`` files.
             raise ParseError(
-                f"Demon {source.name} purku jäi vajaaksi: tiedosto ilmoittaa "
-                f"purettuna {expected} tavua, mutta purkautui {actual} "
-                "tavuksi.\n"
-                "Pakattu tiedosto on katkennut -- joko lataus jäi kesken tai "
-                "kopiointi on yhä käynnissä.\n"
-                "Purettu alku on kelvollinen demo, joten vajautta ei näe "
-                "tiedostosta itsestään.",
+                f"Decompressing the demo {source.name} came up short: the "
+                f"file declares {expected} bytes decompressed, but it "
+                f"decompressed to {actual} bytes.\n"
+                "The compressed file is truncated -- either the download "
+                "stopped halfway or the copy is still running.\n"
+                "The decompressed beginning is a valid demo, so the "
+                "shortfall cannot be seen from the file itself.",
                 advice=(
-                    "Odota kunnes kopiointi tai OneDriven synkronointi on "
-                    "valmis ja aja komento uudelleen. Jos tiedosto ei enää "
-                    "kasva, lataa se uudelleen -- se on vaurioitunut."
+                    "Wait until the copy, or the sync client, has finished "
+                    "and run the command again. If the file no longer grows, "
+                    "download it again -- it is damaged."
                 ),
             )
         if source_size > 0 and actual == 0:
-            # Kehys ilman ilmoitettua kokoa: tyhjä tulos on silloin ainoa
-            # merkki, joka jää. Kapeampi vartija kuin yllä, ja siksi toinen.
+            # A frame without a declared size: an empty result is then the
+            # only sign that is left. A narrower guard than the one above,
+            # and that is why it is a second one.
             raise ParseError(
-                f"Demon {source.name} purku epäonnistui: tuloksena oli tyhjä "
-                "tiedosto.\n"
-                "Pakattu tiedosto on katkennut kesken latauksen.",
-                advice="Lataa demo uudelleen.",
+                f"Decompressing the demo {source.name} failed: the result "
+                "was an empty file.\n"
+                "The compressed file was truncated mid-download.",
+                advice="Download the demo again.",
             )
         os.replace(tmp, target)
     except ParseError:
         _remove(tmp)
         raise
-    except Exception as exc:  # noqa: BLE001 - kirjastojen virheet vaihtelevat
+    except Exception as exc:  # noqa: BLE001 - the libraries' errors vary
         _remove(tmp)
         raise ParseError(
-            f"Demon {source.name} purku epäonnistui: {exc}\n"
-            "Tiedosto on todennäköisesti keskeneräinen tai vioittunut. "
-            "Lataa demo uudelleen."
+            f"Decompressing the demo {source.name} failed: {exc}\n"
+            "The file is probably incomplete or corrupt. Download the demo "
+            "again."
         ) from exc
     return target
 
 
 def _remove(path: Path) -> None:
-    """Siivoa väliaikaistiedosto; puuttuva tiedosto ei ole virhe."""
+    """Clean up the temporary file; a missing file is not an error."""
     try:
         path.unlink(missing_ok=True)
-    except OSError:  # pragma: no cover - lukittu tiedosto Windowsilla
+    except OSError:  # pragma: no cover - a locked file on Windows
         pass
 
 
 @contextmanager
 def readable_demo(path: Path) -> Iterator[Path]:
-    """Anna polku puretulle demolle ja siivoa jälkesi.
+    """Give out a path to a decompressed demo and clean up after yourself.
 
-    Pakkaamaton demo annetaan sellaisenaan -- sitä ei kopioida turhaan.
-    Pakattu demo puretaan koneen temp-hakemistoon ja poistetaan lopuksi, myös
-    poikkeuksen sattuessa.
+    An uncompressed demo is given as it stands -- it is not copied for
+    nothing. A compressed demo is decompressed into the machine's temp
+    directory and removed at the end, an exception included.
 
-    Otsikko tarkistetaan aina **puretusta** sisällöstä, joten lohkosta ulos
-    tuleva polku on aina varmasti CS2-demo. Tämä on olennaista: FACEIT voi
-    palauttaa latauslinkin takaa virhesivun, joka pakkautuu moitteettomasti
-    zstd-tiedostoksi mutta ei ole demo.
+    The header is always checked against the **decompressed** content, so the
+    path that comes out of the block is always certainly a CS2 demo. That is
+    essential: FACEIT can return an error page from behind a download link,
+    and it compresses into a flawless zstd file that is not a demo.
 
     Raises:
-        ParseError: Jos tiedostoa ei ole, purku epäonnistuu tai tulos ei ole
-            CS2-demo.
+        ParseError: If the file does not exist, the decompression fails or
+            the result is not a CS2 demo.
     """
     path = Path(path)
     if not path.is_file():
         raise ParseError(
-            f"Demotiedostoa ei löytynyt polusta {path}.\n"
-            "Tarkista polku tai kopioi demo arkiston import-hakemistoon."
+            f"No demo file was found at the path {path}.\n"
+            "Check the path, or copy the demo into the archive's import "
+            "directory."
         )
 
     if not is_compressed(path):
@@ -292,11 +303,12 @@ def readable_demo(path: Path) -> Iterator[Path]:
         return
 
     try:
-        workdir = Path(tempfile.mkdtemp(prefix="pappascout-purku-"))
+        workdir = Path(tempfile.mkdtemp(prefix="pappascout-decompress-"))
     except OSError as exc:
         raise ParseError(
-            f"Väliaikaishakemistoa ei voitu luoda purkua varten: {exc}\n"
-            "Tarkista levytila ja TEMP-hakemiston oikeudet."
+            f"A temporary directory could not be created for the "
+            f"decompression: {exc}\n"
+            "Check the disk space and the permissions on the TEMP directory."
         ) from exc
 
     try:

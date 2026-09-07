@@ -341,11 +341,11 @@ def test_a_truncated_zstd_is_refused_instead_of_decompressing_silently(
     message = str(err.value)
     assert str(len(BIG_DEMO)) in message
     assert str(partial_size(BIG_TRUNCATED)) in message
-    assert "vajaaksi" in message
+    assert "came up short" in message
     assert err.value.advice
     # Neuvo on odottaminen eikä uudelleenlataus: tavallisin syy on kesken
     # oleva kopiointi tai OneDriven synkronointi.
-    assert "Odota" in err.value.advice
+    assert "Wait" in err.value.advice
 
 
 def test_a_truncated_zstd_leaves_no_half_file_behind(tmp_path: Path) -> None:
@@ -370,7 +370,7 @@ def test_readable_demo_refuses_a_truncated_archive(tmp_path: Path) -> None:
     source = tmp_path / "katkennut.dem.zst"
     source.write_bytes(BIG_TRUNCATED)
 
-    with pytest.raises(ParseError, match="vajaaksi"):
+    with pytest.raises(ParseError, match="came up short"):
         with readable_demo(source):
             pass
 
@@ -412,14 +412,14 @@ def test_a_complete_archive_still_decompresses(tmp_path: Path) -> None:
 # --- Virheet -------------------------------------------------------------------
 
 
-def test_text_file_with_dem_suffix_is_a_finnish_error(tmp_path: Path) -> None:
+def test_text_file_with_dem_suffix_is_not_a_cs2_demo(tmp_path: Path) -> None:
     path = tmp_path / "eidemo.dem"
     path.write_text("Tämä on tekstitiedosto, ei demo.\n", encoding="utf-8")
     with pytest.raises(ParseError) as exc:
         check_demo_magic(path)
     message = str(exc.value)
     assert "PBDEMS2" in message
-    assert "ei ole CS2-demo" in message
+    assert "is not a CS2 demo" in message
 
 
 def test_text_file_fails_before_demoparser_is_called(tmp_path: Path) -> None:
@@ -429,15 +429,15 @@ def test_text_file_fails_before_demoparser_is_called(tmp_path: Path) -> None:
         Demoparser2Adapter().parse_demo(path, SNAPSHOT_SECONDS).rounds
 
 
-def test_missing_file_is_a_finnish_error(tmp_path: Path) -> None:
+def test_missing_file_reports_that_no_demo_was_found(tmp_path: Path) -> None:
     with pytest.raises(ParseError) as exc:
         Demoparser2Adapter().parse_demo(
             tmp_path / "ei-ole.dem", SNAPSHOT_SECONDS
         )
-    assert "ei löytynyt" in str(exc.value)
+    assert "No demo file was found" in str(exc.value)
 
 
-def test_broken_zstd_is_a_finnish_error(tmp_path: Path) -> None:
+def test_broken_zstd_reports_the_read_came_up_short(tmp_path: Path) -> None:
     """Katkennut pakattu tiedosto kaatuu suomeksi -- ja **kertoo luvut**.
 
     Väite muuttui Story 3.6:ssa, ja muutos on tarkoituksellinen. Aiemmin tämä
@@ -455,7 +455,7 @@ def test_broken_zstd_is_a_finnish_error(tmp_path: Path) -> None:
     truncated.write_bytes(BIG_TRUNCATED)
     with pytest.raises(ParseError) as exc:
         Demoparser2Adapter().parse_demo(truncated, SNAPSHOT_SECONDS).rounds
-    assert "vajaaksi" in str(exc.value)
+    assert "came up short" in str(exc.value)
     assert str(len(BIG_DEMO)) in str(exc.value)
 
 
@@ -482,7 +482,7 @@ def test_zstd_compressed_error_page_is_refused(tmp_path: Path) -> None:
         Demoparser2Adapter().parse_demo(path, SNAPSHOT_SECONDS).rounds
     message = str(exc.value)
     assert "PBDEMS2" in message
-    assert "ei ole CS2-demo" in message
+    assert "is not a CS2 demo" in message
 
 
 def test_gzip_compressed_error_page_is_refused(tmp_path: Path) -> None:

@@ -71,33 +71,45 @@ from conftest import REPO_ROOT
 
 @dataclass(frozen=True)
 class Tranche:
-    """One tranche of the translation: a package **and** the tests for it.
+    """One tranche of the translation: what it translated **and** its tests.
 
     Attributes:
         story: The story that translated it, so the record says which one.
-        package: Repository-relative package directory. Its whole tree is
-            checked.
-        minimum_modules: The smallest number of ``.py`` files ``package`` may
-            contain. Recorded rather than derived: a module moved out of the
-            package would otherwise leave the entry resolving, the prose
-            check passing and the list length unchanged.
+        sources: What the tranche translated, each path paired with the
+            smallest number of ``.py`` files it must cover. A package
+            directory carries the count of its modules; a single module
+            carries one. The count is recorded rather than derived, because a
+            module moved out of a listed package would otherwise leave the
+            entry resolving, the prose check passing and the list length
+            unchanged.
         tests: The test files the tranche translated. Never empty -- a
             package's tests carry the same prose, and a tranche that leaves
             them out has done half the job.
+
+    **Why sources is a list of paths and not one package.** Story 3.11
+    translated a whole package and this class was shaped for that. That shape
+    does not survive the rest of the plan: measured 2026-09-08, the tranches
+    after it translate *part* of a package at a time, because ``adapters``
+    alone is ten times the pilot and ``demo_parser.py`` is five times it on
+    its own. Listing the package while two of its modules are still Finnish
+    fails the ratchet; leaving the tranche unlisted until its package
+    finishes leaves translated files unguarded for several tranches, which is
+    the drift this file exists to stop. So a tranche names what it actually
+    translated, at whatever granularity that was.
     """
 
     story: str
-    package: str
-    minimum_modules: int
+    sources: tuple[tuple[str, int], ...]
     tests: tuple[str, ...]
 
     def entries(self) -> tuple[tuple[str, int], ...]:
         """Every listed path with the fewest ``.py`` files it must cover.
 
-        A test file covers exactly itself, so its minimum is one; the package
-        carries the number that makes a move visible.
+        A test file covers exactly itself, so its minimum is one; a source
+        carries the number recorded for it, which is what makes a move
+        visible.
         """
-        return ((self.package, self.minimum_modules), *((t, 1) for t in self.tests))
+        return (*self.sources, *((t, 1) for t in self.tests))
 
 
 #: The translation, tranche by tranche. Add a tranche **in the commit that
@@ -105,8 +117,7 @@ class Tranche:
 TRANSLATED_TRANCHES: tuple[Tranche, ...] = (
     Tranche(
         story="3.11",
-        package="src/pappascout/archive",
-        minimum_modules=4,
+        sources=(("src/pappascout/archive", 4),),
         tests=(
             "tests/test_atomic_write.py",
             "tests/test_manifest.py",
@@ -116,6 +127,19 @@ TRANSLATED_TRANCHES: tuple[Tranche, ...] = (
             # nothing here is exempt from the rule it enforces.
             "tests/test_translated_prose.py",
         ),
+    ),
+    Tranche(
+        story="T2",
+        # Three of the five modules in ``adapters``. The package cannot be
+        # listed yet: ``demo_parser.py`` and ``faceit.py`` still hold 1 159
+        # and 518 Finnish prose lines, measured 2026-09-08. T3 and T4 take
+        # those, and the package entry replaces these three when it does.
+        sources=(
+            ("src/pappascout/adapters/protocols.py", 1),
+            ("src/pappascout/adapters/__init__.py", 1),
+            ("src/pappascout/adapters/decompress.py", 1),
+        ),
+        tests=("tests/test_faceit_demos.py",),
     ),
 )
 
@@ -372,9 +396,11 @@ def test_every_tranche_names_the_tests_that_go_with_it() -> None:
     """
     assert TRANSLATED_TRANCHES
     for tranche in TRANSLATED_TRANCHES:
-        assert tranche.package, tranche
+        assert tranche.sources, f"tranche {tranche.story} names no sources"
         assert tranche.tests, f"tranche {tranche.story} names no test files"
-        assert tranche.minimum_modules >= 1, tranche
+        for source, minimum in tranche.sources:
+            assert source, tranche
+            assert minimum >= 1, f"{source} records a minimum below one"
 
 
 def test_every_entry_covers_what_it_records_and_has_prose() -> None:

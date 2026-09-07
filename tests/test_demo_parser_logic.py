@@ -5859,7 +5859,7 @@ def test_a_file_that_is_not_a_demo_never_reaches_the_library(
     with pytest.raises(ParseError) as err:
         adapter.read_map_name(demo)
 
-    assert "ei ole CS2-demo" in str(err.value)
+    assert "is not a CS2 demo" in str(err.value)
     assert fake.header_calls == 0
 
 
@@ -5982,7 +5982,7 @@ def test_read_map_name_refuses_a_truncated_compressed_demo(
     with pytest.raises(ParseError) as err:
         adapter.read_map_name(demo)
 
-    assert "vajaaksi" in str(err.value)
+    assert "came up short" in str(err.value)
     assert str(osittainen) in str(err.value)
     assert fake.header_calls == 0
 

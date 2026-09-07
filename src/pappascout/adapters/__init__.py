@@ -1,26 +1,26 @@
-"""Adapterikerros: ainoa paikka, joka tuntee ulkomaailman.
+"""The adapter layer: the only place that knows the outside world.
 
-Spinen riippuvuusnuoli on ``stages -> adapters -> domain``. Adapteri kääntää
-vieraan kirjaston tai rajapinnan käsitteet pappascoutin omiksi tauluiksi, ja
-vaihe näkee vain protokollan -- ei demoparser2:ta, ei FACEITia, ei HTTP:tä
-(AD-8).
+The spine's dependency arrow is ``stages -> adapters -> domain``. An adapter
+translates the concepts of a foreign library or interface into pappascout's
+own tables, and a stage sees only the protocol -- not demoparser2, not FACEIT,
+not HTTP (AD-8).
 
-Tässä paketissa on kolme osaa:
+This package has three parts:
 
 ``protocols``
-    Portit, jotka vaiheet ottavat parametrina. Tuonti on kevyt eikä vedä
-    mukanaan raskaita riippuvuuksia, joten testifeikki voi toteuttaa portin
-    ilman demoparser2:ta.
+    The ports the stages take as a parameter. The import is light and does not
+    drag heavy dependencies along with it, so a test fake can implement a port
+    without demoparser2.
 ``decompress``
-    Pakatun demon purku. Erillään parsinnasta, koska Epic 3:n demolataus
-    tarvitsee saman purun sellaisenaan.
+    Decompressing a compressed demo. Kept apart from parsing, because Epic 3's
+    demo download needs the same decompression as it stands.
 ``demo_parser``
-    demoparser2-toteutus. **Ainoa** moduuli, jossa pelin propinimet
-    (``CCSPlayerPawn.*``) esiintyvät.
+    The demoparser2 implementation. The **only** module in which the game's
+    prop names (``CCSPlayerPawn.*``) appear.
 
-``demo_parser`` tuodaan tarkoituksella vain nimellä (``from
-pappascout.adapters.demo_parser import Demoparser2Adapter``): näin pelkkä
-``import pappascout.adapters`` ei lataa demoparser2:ta.
+``demo_parser`` is deliberately imported by name only (``from
+pappascout.adapters.demo_parser import Demoparser2Adapter``): that way a plain
+``import pappascout.adapters`` does not load demoparser2.
 """
 
 from pappascout.adapters.protocols import (

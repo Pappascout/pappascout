@@ -1,15 +1,16 @@
-"""FACEITin demolähteen testit -- kaikki offline (Story 3.4).
+"""Tests for FACEIT's demo source -- all of them offline (Story 3.4).
 
-Sama rakenne kuin ``test_faceit.py``:ssä: :func:`_no_network` estää jokaisen
-oikean HTTP-kutsun koko moduulin ajaksi, ja jokainen kutsu kulkee käsin
-kirjoitetun kuljetuksen läpi.
+The same structure as in ``test_faceit.py``: :func:`_no_network` blocks every
+real HTTP call for the whole module, and every call goes through a transport
+written by hand.
 
-Tämän tiedoston tärkein testijoukko on **linkkivuoto**. Signattu latauslinkki
-on valtuutus tiedostoon, ei osoite: se, jolla se on, saa demon. Jos se päätyisi
-metatiedostoon, lokiin, välimuistiin tai virheilmoitukseen, se olisi
-jaettavassa OneDrive-arkistossa ja versiohistoriassa. Testit etsivät siksi
-linkin tunnistetta *kaikesta*, mitä ajo jättää jälkeensä -- myös poikkeusten
-``__cause__``-ketjusta, jossa ``requests``in oma viesti kantaisi osoitteen.
+This file's most important set of tests is the **link leak**. A signed
+download link is an authorisation to a file, not an address: whoever has it
+gets the demo. If it ended up in a metadata file, in a log, in the cache or in
+an error message, it would be in a shared archive in a synchronised folder and
+in the version history. The tests therefore look for the link's marker in
+*everything* a run leaves behind -- the ``__cause__`` chain of exceptions
+included, where ``requests``'s own message would carry the address.
 """
 
 from __future__ import annotations
@@ -42,11 +43,11 @@ from pappascout.errors import (
 from pappascout.stages import fetch as fetch_stage
 from pappascout.archive.paths import ArchivePaths
 
-KEY = "salainen-avain-XYZZY-42"
+KEY = "secret-key-XYZZY-42"
 TOKEN = "downloads-token-QUUX-77"
 
-#: Tunniste, joka esiintyy **vain** signatussa linkissä. Geneerinen sana
-#: osuisi kommentteihin ja tekisi vartijasta hampaattoman.
+#: A marker that appears **only** in the signed link. A generic word would hit
+#: the comments and make the guard toothless.
 SIGNATURE = "SIGNATURE-ZORK-9f3a1c07"
 
 BASE = "https://faceit.invalid/data/v4"
@@ -59,16 +60,17 @@ SECOND = f"{MATCH}-1"
 CDN = "https://demos-europe-central.backblaze.faceit-cdn.net/cs2"
 SIGNED = f"https://cdn.invalid/demo.dem.zst?token={SIGNATURE}"
 
-#: Uskottava pakattu demo: zstd-taikatavut ja yli megatavun koko.
+#: A believable compressed demo: zstd magic bytes and over a megabyte in size.
 #:
-#: Vaihe hylkää sisällön, joka ei ala zstd-taikatavuilla tai on liian pieni
-#: ollakseen CS2-demo (HTML-virhesivu 200-statuksella, tyhjä runko). Läpi
-#: vaiheen ajettavan testin aineiston on siis läpäistävä sama portti kuin
-#: oikean demon.
+#: The stage rejects content that does not begin with the zstd magic bytes or
+#: is too small to be a CS2 demo (an HTML error page with a 200 status, an
+#: empty body). The data of a test that runs through the stage therefore has
+#: to pass the same gate as a real demo.
 DEMO_BYTES = (ZSTD_MAGIC + b"zstd-demo-tavuja" * 70_000)[: 1024 * 1024 + 4096]
 
-#: Ottelun päättymishetki: 45 vrk sitten, eli selvästi säilytysajan takana.
-#: Lasketaan ajohetkestä, jotta testi ei vanhene kalenterin mukana.
+#: The match's finish time: 45 days ago, that is, well past the retention
+#: period. Computed from the moment of the run, so that the test does not go
+#: stale with the calendar.
 FINISHED_AT = int(
     (datetime.now(UTC) - timedelta(days=45)).timestamp()
 )
@@ -76,26 +78,27 @@ FINISHED_AT = int(
 
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Katkaise oikea HTTP koko moduulin ajaksi."""
+    """Cut real HTTP off for the whole module."""
 
     def _refuse(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("Testi yritti mennä verkkoon.")
+        raise AssertionError("A test tried to go to the network.")
 
     monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", _refuse)
 
 
-# -- Kiinnikkeet -------------------------------------------------------------
+# -- Fixtures ----------------------------------------------------------------
 
 
 def match_payload(
     *, status: str = "FINISHED", rounds: tuple[int, ...] = (1, 2)
 ) -> dict[str, Any]:
-    """Ottelun raakavastaus mitatun muodon mukaisena (luku 9, 2026-09-05)."""
+    """A match's raw response in the measured shape (chapter 9, 2026-09-05)."""
     return {
         "match_id": MATCH,
         "status": status,
         "best_of": 2,
-        # Epoch-sekunnit kuten FACEIT ne antaa; poissaolon syy laskee iän tästä.
+        # Epoch seconds as FACEIT gives them; the reason for an absence
+        # computes the age from this.
         "finished_at": FINISHED_AT,
         "competition_id": "kilpailu",
         "voting": {"map": {"pick": ["de_ancient", "de_nuke"]}},
@@ -128,8 +131,8 @@ class FakeResponse:
         self.headers = dict(headers or {})
         self._stream_error = stream_error
         self.closed = False
-        #: Rungon teksti. Virhevastauksen runko ei aina ole JSONia, ja juuri
-        #: siitä poimitaan rajapinnan oma virheteksti.
+        #: The body's text. An error response's body is not always JSON, and
+        #: it is exactly where the interface's own error text is picked from.
         self.text = text if text is not None else ""
 
     def json(self) -> Any:
@@ -148,12 +151,12 @@ class FakeResponse:
 
 
 class FakeSession:
-    """Kuljetus, joka vastaa osoitteen perusteella eikä jonosta.
+    """A transport that answers by address and not from a queue.
 
-    Osoiteperusteinen siksi, että demolataus tekee kolme eri kutsua eri
-    protokollilla (``GET`` ottelu, ``POST`` linkki, ``GET`` tavut), ja jono
-    piilottaisi sen, jos ne menisivät väärään järjestykseen tai väärään
-    osoitteeseen.
+    Address-based because the demo download makes three different calls with
+    three different protocols (``GET`` the match, ``POST`` the link, ``GET``
+    the bytes), and a queue would hide it if they went in the wrong order or
+    to the wrong address.
     """
 
     def __init__(
@@ -183,13 +186,13 @@ class FakeSession:
 
 
 def _pop(entry: Any) -> FakeResponse:
-    """Vastaus, poikkeus tai lista niistä."""
+    """A response, an exception, or a list of them."""
     if isinstance(entry, list):
         entry = entry.pop(0)
     if isinstance(entry, Exception):
         raise entry
     if entry is None:
-        raise AssertionError("Kuljetukselle ei annettu vastausta tähän kutsuun.")
+        raise AssertionError("The transport was given no response for this call.")
     return entry
 
 
@@ -225,30 +228,30 @@ def download(source: FaceitDemoSource, unit: str = UNIT) -> bytes:
         return b"".join(stream.chunks)
 
 
-# -- Tunnisteen purku --------------------------------------------------------
+# -- Splitting the id --------------------------------------------------------
 
 
 def test_the_identifier_is_split_at_the_last_hyphen_not_the_first() -> None:
-    """``match_id`` on itsessään ``1-<uuid>``: viisi väliviivaa ennen indeksiä."""
+    """``match_id`` is itself ``1-<uuid>``: five hyphens before the index."""
     assert split_map_demo_id(UNIT) == (MATCH, 0)
     assert split_map_demo_id(SECOND) == (MATCH, 1)
 
 
-@pytest.mark.parametrize("bad", ["", "eiviivaa", f"{MATCH}-", "-0", f"{MATCH}-x"])
+@pytest.mark.parametrize("bad", ["", "nohyphen", f"{MATCH}-", "-0", f"{MATCH}-x"])
 def test_a_malformed_identifier_is_no_demo_not_an_api_error(bad: str) -> None:
     with pytest.raises(DemoUnavailable):
         split_map_demo_id(bad)
 
 
-# -- instances ratkaisee kartan ----------------------------------------------
+# -- instances settle the map ------------------------------------------------
 
 
 def test_the_instance_is_chosen_by_round_not_by_list_position(tmp_path) -> None:
-    """``round == map_index + 1``; listapositiota ei lasketa.
+    """``round == map_index + 1``; the position in the list does not count.
 
-    Aineisto on käännetty ympäri (kartta 2 ensin), jolloin positioon nojaava
-    haku antaisi kartalle 0 kartan 2 tallenteen -- ja demo tallentuisi väärän
-    kartan nimellä ilman että mikään kertoisi siitä.
+    The data is turned around (map 2 first), so that a lookup leaning on the
+    position would give map 0 the recording of map 2 -- and the demo would be
+    stored under the wrong map's name without anything saying so.
     """
     session = FakeSession(
         match=FakeResponse(200, match_payload(rounds=(2, 1))),
@@ -275,7 +278,7 @@ def test_the_second_map_asks_for_round_two(tmp_path) -> None:
 def test_a_map_that_was_never_played_is_no_demo_and_says_which_rounds_exist(
     tmp_path,
 ) -> None:
-    """2-0 päättynyt BO3: vedossa kolme karttaa, instansseja kaksi."""
+    """A BO3 that ended 2-0: three maps in the veto, two instances."""
     session = FakeSession(match=FakeResponse(200, match_payload(rounds=(1, 2))))
     source = build(tmp_path, session)
 
@@ -303,12 +306,12 @@ def test_an_instance_without_a_demo_is_a_different_reason_than_a_missing_one(
 
 
 def test_an_empty_first_instance_does_not_hide_a_later_one(tmp_path) -> None:
-    """**A8.** Ensimmäinen osuma ei ole viimeinen sana.
+    """**A8.** The first hit is not the last word.
 
-    Sama kartta voi esiintyä useammalla instanssirivillä (uusinta, keskeytynyt
-    tallennus). Ensimmäiseen pysähtyminen ilmoittaisi "ei tallennetta" vaikka
-    seuraavalla rivillä on osoite -- ja ``no_demo`` on lopullinen tila, joten
-    virhe olisi pysyvä.
+    The same map can appear on several instance rows (a rematch, an
+    interrupted recording). Stopping at the first one would report "no
+    recording" even though the next row has an address -- and ``no_demo`` is a
+    final state, so the error would be permanent.
     """
     payload = match_payload()
     payload["instances"] = [
@@ -330,14 +333,15 @@ def test_an_empty_first_instance_does_not_hide_a_later_one(tmp_path) -> None:
 def test_two_different_recordings_for_one_map_are_not_chosen_silently(
     tmp_path,
 ) -> None:
-    """Monitulkintaisuutta ei ratkaista arvaamalla -- sama sääntö kuin nimihaussa.
+    """Ambiguity is not resolved by guessing -- the same rule as in the name lookup.
 
-    Väärä tallenne tallentuisi oikean nimellä, eikä mikään kertoisi siitä.
+    The wrong recording would be stored under the right one's name, and
+    nothing would say so.
     """
     payload = match_payload()
     payload["instances"] = [
-        {"id": f"{MATCH}-1-1", "round": 1, "demos": [f"{CDN}/eka.dem.zst"]},
-        {"id": f"{MATCH}-1-2", "round": 1, "demos": [f"{CDN}/toka.dem.zst"]},
+        {"id": f"{MATCH}-1-1", "round": 1, "demos": [f"{CDN}/first.dem.zst"]},
+        {"id": f"{MATCH}-1-2", "round": 1, "demos": [f"{CDN}/second.dem.zst"]},
     ]
     session = FakeSession(match=FakeResponse(200, payload))
     source = build(tmp_path, session)
@@ -347,13 +351,13 @@ def test_two_different_recordings_for_one_map_are_not_chosen_silently(
 
     message = str(excinfo.value)
     assert "2 eri tallennetta" in message
-    assert "eka.dem.zst" in message
-    assert "toka.dem.zst" in message
+    assert "first.dem.zst" in message
+    assert "second.dem.zst" in message
     assert session.posts == []
 
 
 def test_the_same_url_twice_is_not_an_ambiguity(tmp_path) -> None:
-    """Kahdesti listattu sama osoite on yksi tallenne, ei kaksi."""
+    """The same address listed twice is one recording, not two."""
     payload = match_payload()
     url = f"{CDN}/{MATCH}-1-1.dem.zst"
     payload["instances"] = [
@@ -386,15 +390,15 @@ def test_a_match_that_is_not_finished_is_no_demo_and_nothing_is_downloaded(
     assert session.posts == []
 
 
-# -- Uudelleenyritys ---------------------------------------------------------
+# -- Retrying ----------------------------------------------------------------
 
 
 def test_a_404_is_never_retried(tmp_path) -> None:
-    """Poissa oleva demo on tosiasia, ei häiriö.
+    """A demo that is gone is a fact, not a disturbance.
 
-    FACEIT säilyttää tallenteet noin 30 päivää; odottaminen ei tuo takaisin
-    poistettua tiedostoa, mutta se kuluttaa Downloads-kiintiötä varmasti
-    turhaan.
+    FACEIT keeps recordings for about 30 days; waiting does not bring back a
+    deleted file, but it does spend the Downloads quota, certainly for
+    nothing.
     """
     session = FakeSession(
         sign=signed_response(),
@@ -405,7 +409,8 @@ def test_a_404_is_never_retried(tmp_path) -> None:
     with pytest.raises(DemoUnavailable):
         source.get_demo(UNIT)
 
-    # Yksi lataushaku, eikä toista: ottelun haku on eri osoitteessa.
+    # One download fetch and not a second: the match is fetched from a
+    # different address.
     downloads = [g for g in session.gets if not g.url.startswith(BASE)]
     assert len(downloads) == 1
 
@@ -414,14 +419,16 @@ def test_a_404_is_never_retried(tmp_path) -> None:
 def test_a_gone_demo_is_no_demo_and_says_how_old_the_match_is(
     tmp_path, status: int
 ) -> None:
-    """**A1.** 404 tarkoittaa "ei ole", ei "yritä uudelleen".
+    """**A1.** 404 means "there is none", not "try again".
 
-    ``ApiError``ina vaihe merkitsisi yksikön tilaan ``download_failed`` ja
-    kehottaisi ajamaan komennon uudelleen -- ja jokainen uusi ajo tekisi ensin
-    signauskutsun eli kuluttaisi Downloads-kiintiötä demolle, joka ei palaa.
+    As an ``ApiError`` the stage would mark the unit's state
+    ``download_failed`` and advise running the command again -- and every new
+    run would make the signing call first, that is, spend the Downloads quota
+    on a demo that is not coming back.
 
-    Syy kertoo myös iän, koska "ei löytynyt" ei kerro onko kyseessä odotettu
-    vanheneminen vai jokin muu. Luku on ``match_payload``issa jo valmiina.
+    The reason also tells the age, because "not found" does not say whether
+    this is the expected expiry or something else. The number is already there
+    in ``match_payload``.
     """
     session = FakeSession(sign=signed_response(), download=FakeResponse(status))
     source = build(tmp_path, session)
@@ -437,7 +444,7 @@ def test_a_gone_demo_is_no_demo_and_says_how_old_the_match_is(
 
 
 def test_a_404_from_the_link_exchange_is_also_no_demo(tmp_path) -> None:
-    """Poissaolo voi paljastua jo linkkiä vaihdettaessa."""
+    """An absence can come out already when the link is exchanged."""
     session = FakeSession(sign=FakeResponse(404))
     source = build(tmp_path, session)
 
@@ -448,7 +455,10 @@ def test_a_404_from_the_link_exchange_is_also_no_demo(tmp_path) -> None:
 def test_a_gone_demo_without_a_finish_time_does_not_invent_an_age(
     tmp_path,
 ) -> None:
-    """Puuttuvaa lukua ei korvata: keksitty ikä näyttäisi mittaukselta."""
+    """A missing number is not substituted for.
+
+    An invented age would look like a measurement.
+    """
     payload = match_payload()
     del payload["finished_at"]
     session = FakeSession(
@@ -465,11 +475,12 @@ def test_a_gone_demo_without_a_finish_time_does_not_invent_an_age(
 
 
 def test_a_403_is_still_a_download_failure_not_a_missing_demo(tmp_path) -> None:
-    """Väärä token ei tarkoita, ettei demoa ole -- ja ero on käyttäjälle iso.
+    """A wrong token does not mean there is no demo, and the difference is
+    big for the user.
 
-    ``no_demo`` on lopullinen: se ei yritä uudelleen koskaan. Jos
-    valtuutusvirhe päätyisi siihen tilaan, koko otanta merkittäisiin
-    olemattomaksi yhden väärän rivin takia .env-tiedostossa.
+    ``no_demo`` is final: it never tries again. If an authorisation error
+    ended up in that state, the whole sample would be marked non-existent
+    because of one wrong row in the .env file.
     """
     session = FakeSession(sign=signed_response(), download=FakeResponse(403))
     source = build(tmp_path, session)
@@ -547,7 +558,7 @@ def test_the_port_is_satisfied_by_the_real_adapter(tmp_path) -> None:
     assert isinstance(build(tmp_path, session), DemoSource)
 
 
-# -- Salaisuudet: token ja signattu linkki -----------------------------------
+# -- Secrets: the token and the signed link ----------------------------------
 
 
 def test_the_token_is_sent_only_to_the_downloads_api(tmp_path) -> None:
@@ -565,13 +576,14 @@ def test_the_token_is_sent_only_to_the_downloads_api(tmp_path) -> None:
 
 
 def test_the_download_get_carries_no_credential_at_all(tmp_path) -> None:
-    """**B4.** Valtuutus on osoitteessa; otsaketta ei ole eikä pidä olla.
+    """**B4.** The authorisation is in the address; there is no header, and
+    there must not be.
 
-    Kaksi eri vikaa, jotka molemmat menivät aiemmin läpi koko sarjasta:
-    salaisuus **osoitteeseen** liitettynä (vartija katsoi vain otsakkeita) ja
-    Data API:n avain lähetettynä **CDN-osoitteeseen** (mitään ei tarkistettu).
-    ``allow_redirects=True`` tekee molemmista erityisen ikäviä: kumpikin
-    seuraisi ohjausta mihin tahansa isäntään.
+    Two different faults, both of which used to pass the whole suite: a secret
+    attached to the **address** (the guard looked only at the headers) and the
+    Data API's key sent to a **CDN address** (nothing was checked at all).
+    ``allow_redirects=True`` makes both particularly nasty: either one would
+    follow a redirect to any host at all.
     """
     session = FakeSession(
         sign=signed_response(), download=FakeResponse(200, body=DEMO_BYTES)
@@ -584,25 +596,28 @@ def test_the_download_get_carries_no_credential_at_all(tmp_path) -> None:
     assert len(downloads) == 1
     call = downloads[0]
 
-    # 1) Ei valtuutusotsaketta -- ei tokenia eikä avainta, ei minkäänlaista.
+    # 1) No authorisation header -- no token and no key, none of any kind.
     headers = getattr(call, "headers", None) or {}
-    assert not headers, f"lataus-GET lähetti otsakkeita: {headers}"
+    assert not headers, f"the download GET sent headers: {headers}"
 
-    # 2) Salaisuus ei ole osoitteessa. Signattu linkki on, ja se on tarkoitus;
-    #    kumpikaan .env-tiedoston tunniste ei ole.
+    # 2) The secret is not in the address. The signed link is, and that is
+    #    intended; neither id from the .env file is.
     assert TOKEN not in call.url
     assert KEY not in call.url
     assert call.url == SIGNED
 
-    # 3) Ottelun haku sen sijaan kantaa avaimen otsakkeessa -- muuten testi
-    #    voisi mennä läpi sillä, ettei kuljetus välitä otsakkeita lainkaan.
+    # 3) The match fetch, on the other hand, carries the key in a header --
+    #    otherwise the test could pass by the transport not passing headers
+    #    on at all.
     api_calls = [g for g in session.gets if g.url.startswith(BASE)]
-    assert api_calls, "ottelua ei haettu -- testi ei mittaa eroa"
+    assert api_calls, (
+        "the match was not fetched -- the test does not measure the difference"
+    )
     assert api_calls[0].headers["Authorization"] == f"Bearer {KEY}"
 
 
 def test_the_api_key_is_never_sent_to_the_cdn(tmp_path) -> None:
-    """Data API:n avain kuuluu vain Data API:in."""
+    """The Data API's key belongs to the Data API only."""
     session = FakeSession(
         sign=signed_response(), download=FakeResponse(200, body=DEMO_BYTES)
     )
@@ -625,7 +640,7 @@ def test_neither_secret_is_in_the_repr(tmp_path) -> None:
 
 
 def test_the_signed_link_is_not_in_the_cache_or_in_any_file(tmp_path) -> None:
-    """Välimuistiin kirjoitetaan ottelun vastaus -- ei latauslinkkiä."""
+    """What is written to the cache is the match's response -- not the download link."""
     session = FakeSession(
         sign=signed_response(), download=FakeResponse(200, body=DEMO_BYTES)
     )
@@ -641,10 +656,10 @@ def test_the_signed_link_is_not_in_the_cache_or_in_any_file(tmp_path) -> None:
 def test_the_signed_link_is_not_in_any_error_message_or_exception_chain(
     tmp_path,
 ) -> None:
-    """Ketju lasketaan mukaan: ``requests``in oma viesti kantaa osoitteen.
+    """The chain counts too: ``requests``'s own message carries the address.
 
-    ``raise ... from exc`` liittäisi sen syyksi, ja jokainen jäljitys, joka
-    tämän virheen tulostaa, näyttäisi valtuutuksen kokonaisuudessaan.
+    ``raise ... from exc`` would attach it as the cause, and every traceback
+    that printed this error would show the authorisation in full.
     """
     session = FakeSession(
         sign=signed_response(),
@@ -695,31 +710,33 @@ def test_the_signed_link_is_not_in_the_error_when_the_download_is_rejected(
 
 
 def _assert_no_signature(error: BaseException) -> None:
-    """Käy poikkeusketju läpi ja vaadi, ettei allekirjoitus ole missään."""
+    """Walk the exception chain and require that the signature is nowhere in it."""
     seen: list[BaseException] = []
     current: BaseException | None = error
     while current is not None and current not in seen:
         seen.append(current)
         for rendering in (str(current), repr(current), str(getattr(current, "url", ""))):
             assert SIGNATURE not in rendering, (
-                f"signattu linkki vuoti: {type(current).__name__}"
+                f"the signed link leaked: {type(current).__name__}"
             )
         current = current.__cause__ or current.__context__
-    assert seen, "ketju oli tyhjä -- testi ei mittaa mitään"
+    assert seen, "the chain was empty -- the test measures nothing"
 
 
-# -- Läpi vaiheen: mitään ei jää arkistoon -----------------------------------
+# -- Through the stage: nothing is left in the archive ------------------------
 
 
 def test_a_full_run_through_the_stage_leaves_no_trace_of_the_signed_link(
     tmp_path,
 ) -> None:
-    """Adapteri ja vaihe yhdessä: linkki ei ole levyllä eikä tuloksessa.
+    """The adapter and the stage together: the link is neither on disk nor in
+    the result.
 
-    Tämä on se testi, joka kattaa metatiedoston: se syntyy vaiheessa, ja jos
-    portti joskus alkaisi palauttaa osoitteen, se päätyisi juuri sinne.
+    This is the test that covers the metadata file: it is born in the stage,
+    and if the port ever began returning the address, it would end up exactly
+    there.
     """
-    archive = ArchivePaths(root=tmp_path / "arkisto")
+    archive = ArchivePaths(root=tmp_path / "archive")
     session = FakeSession(
         sign=signed_response(),
         download=FakeResponse(
@@ -741,7 +758,7 @@ def test_a_full_run_through_the_stage_leaves_no_trace_of_the_signed_link(
             assert SIGNATURE not in path.read_bytes().decode("utf-8", "replace")
 
 
-# -- Asetukset ---------------------------------------------------------------
+# -- Settings ----------------------------------------------------------------
 
 
 def test_a_missing_downloads_token_stops_the_run_with_finnish_instructions(
@@ -752,7 +769,7 @@ def test_a_missing_downloads_token_stops_the_run_with_finnish_instructions(
     monkeypatch.setenv("PAPPASCOUT_SETTINGS", str(settings_file))
     monkeypatch.setenv("FACEIT_API_KEY", KEY)
     settings = load_settings()
-    archive = ArchivePaths(root=tmp_path / "arkisto")
+    archive = ArchivePaths(root=tmp_path / "archive")
 
     with pytest.raises(SettingsError) as excinfo:
         fetch_stage.default_source(settings, archive)
@@ -764,10 +781,11 @@ def test_a_missing_downloads_token_stops_the_run_with_finnish_instructions(
 
 @pytest.mark.parametrize("chunk", [0, -1, 65 * 1024 * 1024])
 def test_an_out_of_range_chunk_size_is_refused(tmp_path, chunk: int) -> None:
-    """**B10.** Pala on kokonaan muistissa: 200 MB:n pala ei ole virtaus.
+    """**B10.** A chunk is wholly in memory: a 200 MB chunk is not streaming.
 
-    Nolla ja negatiivinen ovat oma vikansa: ``iter_content(chunk_size=0)``
-    käyttäytyy kirjastokohtaisesti eikä koskaan halutulla tavalla.
+    Zero and negative are a fault of their own:
+    ``iter_content(chunk_size=0)`` behaves in a library-specific way and never
+    in the way that is wanted.
     """
     client = FaceitClient(api_key=KEY, cache_dir=tmp_path, base_url=BASE)
     with pytest.raises(SettingsError):
@@ -786,18 +804,19 @@ def test_a_non_https_downloads_url_is_refused(tmp_path) -> None:
         FaceitDemoSource(client, TOKEN, downloads_base_url="http://faceit.invalid")
 
 
-# -- Sauma: oikea adapteri oikean vaiheen läpi (A1, 2026-09-05) --------------
+# -- The seam: the real adapter through the real stage (A1, 2026-09-05) ------
 #
-# Matriisin rivi 5 ("demoa ei enää FACEITillä -> no_demo") oli toteutettu
-# kahtena puolikkaana, jotka eivät sopineet yhteen: vaihetestin feikki
-# mallinsi poissaolon ``DemoUnavailable``ina, mutta adapteri tuotti sen
-# ``ApiError``ina -- ja vaihe päätyi tilaan ``download_failed``. Molemmat
-# puolikkaat olivat vihreitä. **Sauma on juuri tässä**, ja siksi nämä testit
-# ajavat oikean adapterin oikean vaiheen läpi feikatun kuljetuksen takaa.
+# Row 5 of the matrix ("FACEIT no longer has the demo -> no_demo") had been
+# implemented as two halves that did not fit together: the stage test's fake
+# modelled the absence as a ``DemoUnavailable``, but the adapter produced it
+# as an ``ApiError`` -- and the stage ended up in the state
+# ``download_failed``. Both halves were green. **The seam is exactly here**,
+# and that is why these tests run the real adapter through the real stage from
+# behind a faked transport.
 
 
 def run_stage(tmp_path: Path, session: FakeSession, unit: str = UNIT):
-    archive = ArchivePaths(root=tmp_path / "arkisto")
+    archive = ArchivePaths(root=tmp_path / "archive")
     return archive, fetch_stage.run(
         archive,
         unit,
@@ -809,7 +828,7 @@ def run_stage(tmp_path: Path, session: FakeSession, unit: str = UNIT):
 def test_a_deleted_demo_becomes_no_demo_all_the_way_through_the_stage(
     tmp_path,
 ) -> None:
-    """404 adapterista -> ``no_demo`` vaiheesta, ei ``download_failed``."""
+    """404 from the adapter -> ``no_demo`` from the stage, not ``download_failed``."""
     session = FakeSession(sign=signed_response(), download=FakeResponse(404))
 
     archive, result = run_stage(tmp_path, session)
@@ -819,14 +838,15 @@ def test_a_deleted_demo_becomes_no_demo_all_the_way_through_the_stage(
     reason = result.reason or ""
     assert "30 päivää" in reason
     assert "45 päivää" in reason
-    # Käyttäjää ei kehoteta ajamaan komentoa uudelleen demolle, joka ei palaa.
+    # The user is not advised to run the command again for a demo that is not
+    # coming back.
     assert "aja komento uudelleen" not in reason.lower()
 
 
 def test_a_transient_failure_becomes_download_failed_through_the_stage(
     tmp_path,
 ) -> None:
-    """Sama sauma toiseen suuntaan: 503 ei saa muuttua poissaoloksi."""
+    """The same seam the other way round: a 503 must not turn into an absence."""
     session = FakeSession(sign=signed_response(), download=FakeResponse(503))
 
     _archive, result = run_stage(tmp_path, session)
@@ -835,7 +855,7 @@ def test_a_transient_failure_becomes_download_failed_through_the_stage(
 
 
 def test_an_unplayed_map_becomes_no_demo_through_the_stage(tmp_path) -> None:
-    """2-0 päättynyt BO3: kolmatta karttaa ei pelattu."""
+    """A BO3 that ended 2-0: the third map was not played."""
     payload = match_payload(rounds=(1, 2))
     session = FakeSession(match=FakeResponse(200, payload))
 
@@ -855,10 +875,10 @@ def test_an_unfinished_match_becomes_no_demo_through_the_stage(tmp_path) -> None
 
 
 def test_a_successful_download_becomes_ok_through_the_stage(tmp_path) -> None:
-    """Positiivinen kontrolli: sauma toimii myös onnistuessaan.
+    """A positive control: the seam works when it succeeds too.
 
-    Ilman tätä koko saumatestijoukon voisi läpäistä adapteri, joka ei koskaan
-    tuota mitään.
+    Without this, the whole set of seam tests could be passed by an adapter
+    that never produces anything.
     """
     session = FakeSession(
         sign=signed_response(),
@@ -875,10 +895,11 @@ def test_a_successful_download_becomes_ok_through_the_stage(tmp_path) -> None:
 
 
 def test_an_html_error_page_from_the_real_adapter_is_not_stored(tmp_path) -> None:
-    """Roskavartija saumassa: 200-status ja HTML-runko.
+    """The junk guard at the seam: a 200 status and an HTML body.
 
-    Tämä on se tapaus, jossa kaikki muu näyttää onnistuneelta -- adapteri ei
-    tarkista sisältöä eikä voikaan, koska se ei tiedä mitä kirjoitetaan.
+    This is the case in which everything else looks successful -- the adapter
+    does not check the content and cannot, because it does not know what is
+    being written.
     """
     junk = b"<!doctype html><h1>403</h1>" * 60_000
     session = FakeSession(
@@ -895,16 +916,17 @@ def test_an_html_error_page_from_the_real_adapter_is_not_stored(tmp_path) -> Non
     assert archive.find_demo_meta(UNIT) is None
 
 
-# -- Valtuutusvika on globaali (C1, C2 -- ensimmäinen oikea ajo 2026-09-05) --
+# -- An authorisation fault is global (C1, C2 -- first real run 2026-09-05) --
 #
-# Tuotteen omistajan Downloads API -hakemus oli jonossa, ja Data API -avain
-# ei kelpaa Downloads API:in. Ajo tuotti kaksi identtistä 403:a, jotka
-# lajiteltiin otsikon "aja komento uudelleen" alle -- neuvo, joka ei auta
-# ennen kuin hakemus hyväksytään. Kahdellatoista demolla se olisi ollut
-# kaksitoista tuomittua signauskutsua.
+# The product owner's Downloads API application was in the queue, and the Data
+# API key does not do for the Downloads API. The run produced two identical
+# 403s, which were sorted under the heading "aja komento uudelleen" -- advice
+# that does not help until the application is approved. With twelve demos it
+# would have been twelve doomed signing calls.
 #
-# Nämä testit ajavat **oikean adapterin oikean vaiheen läpi**, koska juuri se
-# sauma erosi: vaihetestin feikki ei voi tuottaa 403:a Downloads API:sta.
+# These tests run **the real adapter through the real stage**, because that is
+# exactly the seam that differed: the stage test's fake cannot produce a 403
+# from the Downloads API.
 
 
 def denied_session(status: int = 403) -> FakeSession:
@@ -913,12 +935,13 @@ def denied_session(status: int = 403) -> FakeSession:
 
 @pytest.mark.parametrize("status", [401, 403])
 def test_a_denied_downloads_token_is_not_a_unit_status(tmp_path, status: int) -> None:
-    """Vika on tunnisteessa, ei demossa -- eikä se siis ole yksikön tila.
+    """The fault is in the id, not in the demo -- and it is therefore not a
+    unit's state.
 
-    ``download_failed`` tarkoittaa "voi onnistua uudella ajolla". Puuttuva
-    Downloads-scope ei voi, ennen kuin FACEIT hyväksyy hakemuksen.
+    ``download_failed`` means "may succeed on a new run". A missing Downloads
+    scope cannot, until FACEIT approves the application.
     """
-    archive = ArchivePaths(root=tmp_path / "arkisto")
+    archive = ArchivePaths(root=tmp_path / "archive")
     source = build(tmp_path, denied_session(status))
 
     with pytest.raises(DownloadsAccessDenied):
@@ -932,12 +955,12 @@ def test_a_denied_downloads_token_is_not_a_unit_status(tmp_path, status: int) ->
 def test_a_denied_token_stops_the_run_after_exactly_one_signing_call(
     tmp_path,
 ) -> None:
-    """**C2:n ydin.** Kahdellatoista demolla tämä oli 12 tuomittua kutsua.
+    """**The core of C2.** With twelve demos this was 12 doomed calls.
 
-    Sarjan jatkaminen ei ole "sitkeyttä" vaan kiintiön kuluttamista ilman
-    mahdollisuutta onnistua: jokainen yksikkö epäonnistuisi identtisesti.
+    Carrying on with the series is not "persistence" but spending the quota
+    with no chance of succeeding: every unit would fail identically.
     """
-    archive = ArchivePaths(root=tmp_path / "arkisto")
+    archive = ArchivePaths(root=tmp_path / "archive")
     session = denied_session()
     source = build(tmp_path, session)
     units = [UNIT, SECOND, f"{MATCH}-2"]
@@ -948,14 +971,14 @@ def test_a_denied_token_stops_the_run_after_exactly_one_signing_call(
         )
 
     assert len(session.posts) == 1, (
-        f"signauskutsuja tehtiin {len(session.posts)}, pitäisi olla 1"
+        f"signing calls made: {len(session.posts)}, there should be 1"
     )
 
 
 def test_the_interrupted_run_says_what_it_managed_to_do(tmp_path) -> None:
-    """Keskeytynyt sarja ei saa näyttää samalta kuin sarja, joka ei alkanut."""
-    archive = ArchivePaths(root=tmp_path / "arkisto")
-    # Ensimmäinen onnistuu, toinen törmää kieltoon.
+    """An interrupted series must not look the same as a series that never started."""
+    archive = ArchivePaths(root=tmp_path / "archive")
+    # The first one succeeds, the second one runs into the refusal.
     session = FakeSession(
         sign=[signed_response(), FakeResponse(403)],
         download=FakeResponse(
@@ -975,17 +998,18 @@ def test_the_interrupted_run_says_what_it_managed_to_do(tmp_path) -> None:
     message = str(excinfo.value)
     assert "1 demoa ehdittiin hakea" in message
     assert "2 jäi hakematta" in message
-    # Ensimmäinen demo on levyllä eikä sitä siivota pois.
+    # The first demo is on disk and is not cleaned away.
     assert archive.demo(UNIT).is_file()
 
 
 def test_the_denied_message_says_where_to_check_and_where_to_apply(
     tmp_path,
 ) -> None:
-    """Käyttäjä ei koodaa itse: viestin on kerrottava seuraava toimenpide.
+    """The user does not write code: the message has to say what to do next.
 
-    Kolme eri asiaa, kolme eri korjausta: hakemus on jonossa (odota), hakemusta
-    ei ole (tee se), tai token on väärä (korjaa .env).
+    Three different things, three different fixes: the application is in the
+    queue (wait), there is no application (make one), or the token is wrong
+    (fix .env).
     """
     source = build(tmp_path, denied_session())
 
@@ -1003,10 +1027,11 @@ def test_the_denied_message_says_where_to_check_and_where_to_apply(
 def test_the_denied_message_does_not_claim_that_waiting_will_not_help(
     tmp_path,
 ) -> None:
-    """Yleinen viesti sanoi "vika ei korjaannu odottamalla" -- ja se on tässä väärin.
+    """The generic message said "the fault is not fixed by waiting", and here
+    that is wrong.
 
-    Väite on tosi uudelleenyrityksestä sekunneissa ja epätosi hakemuksesta
-    viikoissa. Odottaminen on täsmälleen se, mikä tämän korjaa.
+    The claim is true of a retry in seconds and false of an application in
+    weeks. Waiting is exactly what fixes this one.
     """
     source = build(tmp_path, denied_session())
 
@@ -1021,7 +1046,7 @@ def test_the_denied_message_does_not_claim_that_waiting_will_not_help(
 def test_the_denied_message_names_the_key_file_that_was_actually_read(
     tmp_path, settings_file, env_file, monkeypatch
 ) -> None:
-    """Ohje, joka kertoo tiedoston nimen muttei sijaintia, ei ole ohje."""
+    """Instructions that name the file but not its location are not instructions."""
     from pappascout.domain.models import load_settings
 
     env = env_file(
@@ -1046,7 +1071,7 @@ def test_the_denied_message_names_the_key_file_that_was_actually_read(
 
 
 def test_a_denied_token_does_not_leak_the_token_itself(tmp_path) -> None:
-    """Viesti kertoo mitä korjata, ei mitä tiedostossa lukee."""
+    """The message says what to fix, not what the file says."""
     source = build(tmp_path, denied_session())
 
     with pytest.raises(DownloadsAccessDenied) as excinfo:
@@ -1059,15 +1084,16 @@ def test_a_denied_token_does_not_leak_the_token_itself(tmp_path) -> None:
 def test_a_403_on_the_signed_link_is_still_a_single_unit_failure(
     tmp_path,
 ) -> None:
-    """**Sama koodi, eri kohta, eri merkitys -- ja se ero on säilytettävä.**
+    """**The same code, a different place, a different meaning -- and that
+    difference has to be kept.**
 
-    Downloads API:n 403 tarkoittaa "tokenilla ei ole scopea": yksikään demo ei
-    voi onnistua. Signatun linkin 403 tarkoittaa vanhentunutta tai väärin
-    muodostettua allekirjoitusta: **yhden** latauksen vika, joka voi hyvinkin
-    onnistua uudella linkillä. Jos ne käsiteltäisiin samoin, yksi vanhentunut
-    linkki keskeyttäisi koko otannan.
+    A 403 from the Downloads API means "the token has no scope": not a single
+    demo can succeed. A 403 on the signed link means an expired or badly
+    formed signature: **one** download's fault, which may very well succeed
+    with a new link. If they were handled alike, one expired link would
+    interrupt the whole sample.
     """
-    archive = ArchivePaths(root=tmp_path / "arkisto")
+    archive = ArchivePaths(root=tmp_path / "archive")
     session = FakeSession(
         sign=signed_response(),
         download=[
@@ -1092,11 +1118,11 @@ def test_a_403_on_the_signed_link_is_still_a_single_unit_failure(
     assert len(session.posts) == 2
 
 
-# -- 400 signauskutsusta (D2, live-ajo 2026-09-05) --------------------------
+# -- 400 from the signing call (D2, live run 2026-09-05) --------------------
 #
-# Mitattu epämuodostuneella tokenilla. Kolmas statuskoodi kolmesta mitatusta,
-# ja ainoa, joka osuu tavalliseen käyttäjään: .env-tiedostoa käsin muokatessa
-# lipsahtaa merkki.
+# Measured with a malformed token. The third status code out of the three
+# measured, and the only one that hits an ordinary user: a character slips
+# while the .env file is edited by hand.
 
 
 def bad_request(payload=None, text: str | None = None) -> FakeResponse:
@@ -1104,10 +1130,10 @@ def bad_request(payload=None, text: str | None = None) -> FakeResponse:
 
 
 def test_a_400_from_the_signing_call_is_not_a_missing_demo(tmp_path) -> None:
-    """Epämuodostunut pyyntö ei tarkoita, ettei demoa ole.
+    """A malformed request does not mean there is no demo.
 
-    ``no_demo`` on lopullinen: se ei yritä uudelleen koskaan. Yksi väärä merkki
-    ``.env``-tiedostossa merkitsisi silloin koko otannan olemattomaksi.
+    ``no_demo`` is final: it never tries again. One wrong character in the
+    ``.env`` file would then mark the whole sample non-existent.
     """
     session = FakeSession(sign=bad_request())
     source = build(tmp_path, session)
@@ -1119,10 +1145,10 @@ def test_a_400_from_the_signing_call_is_not_a_missing_demo(tmp_path) -> None:
 
 
 def test_a_400_does_not_advise_running_the_command_again(tmp_path) -> None:
-    """**D2:n ydin.** Uudelleenajo ei korjaa väärää tunnistetta.
+    """**The core of D2.** Running again does not fix a wrong id.
 
-    Vanha viesti lajitteli tämän otsikon "aja komento uudelleen" alle, ja neuvo
-    olisi toistunut jokaisella ajolla ikuisesti.
+    The old message sorted this under the heading "aja komento uudelleen", and
+    the advice would have repeated on every run for ever.
     """
     session = FakeSession(sign=bad_request())
     source = build(tmp_path, session)
@@ -1138,11 +1164,11 @@ def test_a_400_does_not_advise_running_the_command_again(tmp_path) -> None:
 def test_a_400_names_both_possible_causes_and_does_not_pick_one(
     tmp_path,
 ) -> None:
-    """400 ei ole yksiselitteinen, eikä työkalu saa väittää tietävänsä kumpi.
+    """A 400 is not unambiguous, and the tool must not claim to know which one it is.
 
-    Epämuodostunut tunniste kaataa kaikki demot; epämuodostunut resource_url
-    vain yhden. Vastauksesta ei voi päätellä kumpaa -- mutta ajosta voi, ja
-    viesti kertoo miten.
+    A malformed id brings down every demo; a malformed resource_url only one.
+    Which of them it is cannot be inferred from the response -- but it can be
+    from the run, and the message says how.
     """
     session = FakeSession(sign=bad_request())
     source = build(tmp_path, session)
@@ -1153,7 +1179,8 @@ def test_a_400_names_both_possible_causes_and_does_not_pick_one(
     message = str(excinfo.value)
     assert "FACEIT_DOWNLOADS_TOKEN" in message
     assert "tallenneosoite" in message
-    # Sääntö, jolla käyttäjä erottaa syyt -- ei arvaus kummasta on kyse.
+    # The rule by which the user tells the causes apart -- not a guess at
+    # which one it is.
     assert "kaikki" in message.lower()
     assert "vain tämä" in message
 
@@ -1161,7 +1188,7 @@ def test_a_400_names_both_possible_causes_and_does_not_pick_one(
 def test_a_400_shows_faceits_own_error_text_when_there_is_one(
     tmp_path,
 ) -> None:
-    """Rajapinnan oma teksti on havainto; meidän arvauksemme ei ole."""
+    """The interface's own text is an observation; our guess is not."""
     session = FakeSession(
         sign=bad_request({"message": "Invalid downloads token format"})
     )
@@ -1184,7 +1211,7 @@ def test_a_400_shows_faceits_own_error_text_when_there_is_one(
 def test_the_error_text_is_found_in_several_response_shapes(
     tmp_path, payload
 ) -> None:
-    """FACEITin virherunko ei ole yhtä muotoa; poiminta ei saa olla."""
+    """FACEIT's error body is not of one shape; the extraction must not be either."""
     session = FakeSession(sign=bad_request(payload))
 
     with pytest.raises(ApiError) as excinfo:
@@ -1194,7 +1221,7 @@ def test_the_error_text_is_found_in_several_response_shapes(
 
 
 def test_a_non_json_error_body_is_shown_but_truncated(tmp_path) -> None:
-    """HTML-virhesivu on kilotavuja ja peittäisi ohjeen."""
+    """An HTML error page is kilobytes and would bury the instructions."""
     session = FakeSession(sign=bad_request(text="<html>" + "x" * 5000))
 
     with pytest.raises(ApiError) as excinfo:
@@ -1208,7 +1235,10 @@ def test_a_non_json_error_body_is_shown_but_truncated(tmp_path) -> None:
 def test_a_400_without_any_body_does_not_invent_an_explanation(
     tmp_path,
 ) -> None:
-    """Puuttuvaa havaintoa ei korvata: keksitty selitys on pahempi kuin ei mitään."""
+    """A missing observation is not substituted for.
+
+    An invented explanation is worse than none at all.
+    """
     session = FakeSession(sign=bad_request())
 
     with pytest.raises(ApiError) as excinfo:
@@ -1229,12 +1259,12 @@ def test_a_400_does_not_leak_the_token(tmp_path) -> None:
 def test_a_400_reaches_the_stage_as_download_failed_with_its_own_advice(
     tmp_path,
 ) -> None:
-    """Sauma: oikea adapteri oikean vaiheen läpi.
+    """The seam: the real adapter through the real stage.
 
-    ``download_failed`` on oikea tila -- demo on todennäköisesti olemassa --
-    mutta neuvon on oltava tämän vian oma, ei ämpärin oletus.
+    ``download_failed`` is the right state -- the demo probably exists -- but
+    the advice has to be this fault's own and not the bucket's default.
     """
-    archive = ArchivePaths(root=tmp_path / "arkisto")
+    archive = ArchivePaths(root=tmp_path / "archive")
     session = FakeSession(sign=bad_request({"message": "Invalid token"}))
     source = build(tmp_path, session)
 
