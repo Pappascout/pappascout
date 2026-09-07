@@ -767,7 +767,9 @@ def test_report_ends_with_exactly_one_newline() -> None:
 
 
 def test_positions_utility_and_first_contact_are_bullets_not_paragraphs() -> None:
-    """Veetin analyysi on ranskalaisia viivoja; raportti on samaa muotoa."""
+    """Tuotteen omistajan analyysi on ranskalaisia viivoja; raportti on samaa
+    muotoa.
+    """
     text = render(report([pistol_map()]))
     body = text.split("**Pistooli** (1 kierros)")[1].split("\n\n")[0]
     # Ensimmäinen rivi on otsikon loppu ("-- pieni otanta"), ei havainto.
@@ -1621,7 +1623,7 @@ def test_rounds_without_an_inventory_reading_are_reported() -> None:
 # --- Panssaroidut (Story 2.8) ---------------------------------------------------
 
 
-def test_the_armored_line_reads_veetis_five_kevlars() -> None:
+def test_the_armored_line_reads_the_product_owners_five_kevlars() -> None:
     """*"5 kevlaria"*: panssaririvi on raportissa omana rivinään otantoineen."""
     text = render(report([pistol_map()]))
     assert "panssaroituja ostoajan lopussa: 5 (1/1 kierroksesta)" in text
@@ -4194,7 +4196,8 @@ def test_pruning_never_touches_the_report_model() -> None:
 
 
 def test_every_rule_is_its_own_setting() -> None:
-    """Veeti voi kääntää minkä tahansa säännön pois ilman koodimuutosta.
+    """Tuotteen omistaja voi kääntää minkä tahansa säännön pois ilman
+    koodimuutosta.
 
     Yksi kerrallaan: jokaisen säännön poiskääntäminen palauttaa oman rivinsä,
     eikä yksi asetus ohjaa kahta sääntöä.

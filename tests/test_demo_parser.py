@@ -646,9 +646,9 @@ def test_ancient_armed_player_count_matches_the_human_reading() -> None:
 
     * K19 CT -> **5**, ennen 4. Viides pelaaja osti kevlarin ja Deaglen vasta
       freezetimen jälkeen, joten ankkurista luettuna hän näytti jääneen
-      ilmaiseen oletuspistooliin. Veetin tuomio "ostivat tyhjäksi" **vahvistuu**
-      -- taskuun jäi 150 $ eikä 3 750 $ -- mutta hänen huomionsa "yksi jäi
-      ilman panssaria" oli lukema väärältä hetkeltä.
+      ilmaiseen oletuspistooliin. Tuotteen omistajan tuomio "ostivat
+      tyhjäksi" **vahvistuu** -- taskuun jäi 150 $ eikä 3 750 $ -- mutta hänen
+      huomionsa "yksi jäi ilman panssaria" oli lukema väärältä hetkeltä.
     * K20 T -> **5**. "2x AK, 2x tec9, 1x mac10, kaikilla kevlar+kypärä" --
       kaikki viisi, sama kummastakin hetkestä.
     * K21 T -> **2**. Eco: kahdella kevlar + ostettu pistooli, ja kolmas
@@ -2028,9 +2028,9 @@ def test_the_z_weight_is_what_keeps_the_floors_apart() -> None:
 # --- Ostoaika oikeissa demoissa (Story 1.9) ------------------------------------
 
 
-#: ``inferno_vs_ryhmarama``, kierros 6, Ryhmä Rämä T-puolella. Veeti katsoi
-#: tämän kierroksen demosta ja luki siitä luvut, jotka eivät täsmänneet
-#: työkalun tuottamiin -- se oli koko vian löytöhavainto.
+#: ``inferno_vs_ryhmarama``, kierros 6, Ryhmä Rämä T-puolella. Tuotteen
+#: omistaja katsoi tämän kierroksen demosta ja luki siitä luvut, jotka eivät
+#: täsmänneet työkalun tuottamiin -- se oli koko vian löytöhavainto.
 #:
 #: Freezetimen lopussa varusteita 11 550 ja rahaa 6 600; kaksi sekuntia
 #: myöhemmin 15 350 ja 2 400. Kolme viidestä pelaajasta osti vasta silloin.
@@ -2038,14 +2038,16 @@ INFERNO_ROUND_6 = {
     "equip_buy_end": 15_350,
     "money_buy_end": 2_400,
     "armed": 5,
-    # Veetin lukemat saldot pelaajittain (kalibrointidokumentti): 150, 0, 500,
-    # 1 750, 0. Summa on sama 2 400 -- ja juuri se on ongelma: summasta ei näe,
-    # että vain yksi pelaaja pääsee 4 000 dollariin häviöbonuksen kanssa.
+    # Tuotteen omistajan lukemat saldot pelaajittain (kalibrointidokumentti):
+    # 150, 0, 500, 1 750, 0. Summa on sama 2 400 -- ja juuri se on ongelma:
+    # summasta ei näe, että vain yksi pelaaja pääsee 4 000 dollariin
+    # häviöbonuksen kanssa.
     "money_players": [1_750, 500, 150, 0, 0],
 }
 
-#: Sama kierrokselta 10, jonka Veeti kutsui puoliostoksi. Molemmilla on viisi
-#: aseistettua pelaajaa, joten kalusto ei erota niitä -- vain jakauma erottaa.
+#: Sama kierrokselta 10, jonka tuotteen omistaja kutsui puoliostoksi.
+#: Molemmilla on viisi aseistettua pelaajaa, joten kalusto ei erota niitä --
+#: vain jakauma erottaa.
 INFERNO_ROUND_10 = {
     "equip_buy_end": 11_900,
     "money_buy_end": 7_900,
@@ -2053,8 +2055,9 @@ INFERNO_ROUND_10 = {
     "money_players": [2_150, 2_050, 2_000, 900, 800],
 }
 
-#: Samat pelaajat, samat aseet, Veetin lukemina. Kolme näistä on ostettu vasta
-#: freezetimen jälkeen; ankkurista luettuna kaikilla kolmella on Glock.
+#: Samat pelaajat, samat aseet, tuotteen omistajan lukemina. Kolme näistä on
+#: ostettu vasta freezetimen jälkeen; ankkurista luettuna kaikilla kolmella
+#: on Glock.
 INFERNO_ROUND_6_WEAPONS = {
     "petemonni": "P250",
     "Toumee": "Tec-9",
@@ -2064,7 +2067,8 @@ INFERNO_ROUND_6_WEAPONS = {
 
 @pytest.mark.demo
 def test_inferno_round_six_matches_the_human_reading() -> None:
-    """Vian löytökierros tuottaa nyt ne luvut, jotka Veeti luki demosta.
+    """Vian löytökierros tuottaa nyt ne luvut, jotka tuotteen omistaja luki
+    demosta.
 
     Kolme lukua yhdessä, koska ne rikkoutuivat yhdessä: varustearvo
     aliarvioitiin, taskuun jäänyt raha yliarvioitiin ja aseistettujen laskuri
@@ -2098,10 +2102,11 @@ def test_inferno_rounds_six_and_ten_differ_only_in_the_distribution() -> None:
     """Kaksi kierrosta, sama kalusto, eri tuomio -- ero on jakaumassa.
 
     Molemmissa on viisi aseistettua pelaajaa, joten puolioston ehto A ei
-    erota niitä lainkaan. Veeti kutsui kierrosta 6 forceksi ja kierrosta 10
-    puoliostoksi, ja perusteli sen sillä kuka pystyy ostamaan seuraavalla
-    kierroksella. Tämä testi pinnaa **havainnon**, josta se luetaan; säännön
-    oma testi on ``test_calibration.py``:ssä eikä tarvitse demoa.
+    erota niitä lainkaan. Tuotteen omistaja kutsui kierrosta 6 forceksi ja
+    kierrosta 10 puoliostoksi, ja perusteli sen sillä kuka pystyy ostamaan
+    seuraavalla kierroksella. Tämä testi pinnaa **havainnon**, josta se
+    luetaan; säännön oma testi on ``test_calibration.py``:ssä eikä tarvitse
+    demoa.
     """
     df = mark_played_rounds(
         real_parser()
@@ -2122,14 +2127,14 @@ def test_inferno_rounds_six_and_ten_differ_only_in_the_distribution() -> None:
 
 
 @pytest.mark.demo
-def test_inferno_round_six_players_hold_the_weapons_veeti_saw() -> None:
+def test_inferno_round_six_players_hold_the_weapons_the_product_owner_saw() -> None:
     """Pelaajakohtaiset aseet, ei vain joukkuesumma.
 
     Summa 15 350 osuisi myös silloin, jos mittauspiste olisi oikea mutta
     tavaraluettelo luettaisiin väärältä tickiltä -- ja juuri tavaraluettelo
-    ratkaisee aseistettujen laskurin. Veeti nimesi kolme asetta, jotka
-    ostettiin vasta freezetimen jälkeen; ankkurista luettuna kaikilla kolmella
-    on yhä ilmainen Glock.
+    ratkaisee aseistettujen laskurin. Tuotteen omistaja nimesi kolme asetta,
+    jotka ostettiin vasta freezetimen jälkeen; ankkurista luettuna kaikilla
+    kolmella on yhä ilmainen Glock.
     """
     from demoparser2 import DemoParser as _Demoparser2
 
@@ -2154,7 +2159,7 @@ def test_inferno_round_six_players_hold_the_weapons_veeti_saw() -> None:
     for player, weapon in INFERNO_ROUND_6_WEAPONS.items():
         assert player in inventories, sorted(inventories)
         assert weapon in inventories[player], (
-            f"{player}: Veeti näki {weapon!r}, demo antoi "
+            f"{player}: tuotteen omistaja näki {weapon!r}, demo antoi "
             f"{inventories[player]}"
         )
 
@@ -2711,7 +2716,7 @@ def test_a_knife_round_really_does_produce_death_rows() -> None:
 # --- Panssarilaskuri oikeista demoista (Story 2.8) ------------------------------
 
 #: Mittatikku 2026-08-30: MatureMayhemin panssari- ja kalustolaskurit niiltä
-#: kierroksilta, joista Veetin käsin tehty analyysi puhuu.
+#: kierroksilta, joista tuotteen omistajan käsin tehty analyysi puhuu.
 #:
 #: ``(demo, kierros, puoli) -> (panssaroituja, aseistettuja)``. Luvut mitattiin
 #: **ennen toteutusta** arkiston kierrostaulun ``buy_end_tick``-sarakkeelta eli
@@ -2722,8 +2727,8 @@ def test_a_knife_round_really_does_produce_death_rows() -> None:
 #: ovat tässä -- kaksi per demo (kierrokset 1 ja 13). Ilman niitä väite
 #: nojaisi mittaukseen, jota mikään ei aja uudelleen.
 #:
-#: Kaksi riviä ovat suoria osumia analyysiin: Nuken T-pistoolista Veeti
-#: kirjoitti *"5 kevlaria"* (mitattu 5/5) ja Ancientin CT-osuudesta
+#: Kaksi riviä ovat suoria osumia analyysiin: Nuken T-pistoolista tuotteen
+#: omistaja kirjoitti *"5 kevlaria"* (mitattu 5/5) ja Ancientin CT-osuudesta
 #: *"Kitit ja duelit takaboksille piiloon (ei kevuja)"* (mitattu 1/5).
 #: Kumpaakaan ei voi lukea aseistettujen laskurista, joka on 0 jokaisella
 #: kahdeksalla pistoolikierroksella.

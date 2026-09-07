@@ -782,9 +782,9 @@ class AggregateSettings(_Section):
 class ReportSettings(_Section):
     """``[report]`` -- karsintasäännöt: mitä raportti jättää kirjoittamatta.
 
-    Story 2.13. Raportti oli **noin 96 sisältöriviä karttaa kohden**, Veetin
-    oma analyysi noin 30, ja osa pituudesta oli puhdasta toistoa. Viisi
-    sääntöä jättää sen kirjoittamatta.
+    Story 2.13. Raportti oli **noin 96 sisältöriviä karttaa kohden**,
+    tuotteen omistajan oma analyysi noin 30, ja osa pituudesta oli puhdasta
+    toistoa. Viisi sääntöä jättää sen kirjoittamatta.
 
     **Mitatut perusteet ja luvut ovat ``settings.toml``issa**, eivät täällä.
     Ne ovat mittaustuloksia, joita säätävä ihminen lukee säätäessään arvoa, ja

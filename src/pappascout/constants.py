@@ -140,8 +140,9 @@ ANOMALY_RULES_DEFERRED: Final[tuple[str, ...]] = ()
 #: Poikkeamasääntöjen suomennokset. Vain otsikoissa, kuten
 #: :data:`ROUND_TYPE_FI`ssä -- dataan ei kirjoiteta suomea.
 #:
-#: ``crunch`` on **Veetin oma termi** eikä käännettävä sana ("lobby crunch on
-#: nukessa taktiikka, jossa..."), joten se jää sellaisenaan -- kuten calloutit.
+#: ``crunch`` on **tuotteen omistajan oma termi** eikä käännettävä sana
+#: ("lobby crunch on nukessa taktiikka, jossa..."), joten se jää sellaisenaan
+#: -- kuten calloutit.
 #: Iso alkukirjain silti, jotta se ei näytä puolivalmiilta ``CT-eteneminen``in
 #: vieressä; raportin lukuohje kertoo mitä se tarkoittaa.
 #: ``stack`` on samoin pelaajan oma sana ("4-5 pelaajan stack yhdellä

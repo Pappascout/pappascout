@@ -229,9 +229,9 @@ def test_every_public_set_is_named_in_the_classification() -> None:
 def test_arming_weapons_excludes_what_the_user_excluded() -> None:
     """Käyttäjän määritelmä rajaa ulos oletuspistoolit, veitset ja utilityn.
 
-    Nämä ovat ne neljä rajausta, jotka Veeti nimesi: ilmaisen oletuspistoolin
-    hallussapito ei kerro mitään, veitsi ei ole ase, kranaatti ei ole ase,
-    eikä Zeus korvaa asetta. C4 on tehtäväesine.
+    Nämä ovat ne neljä rajausta, jotka tuotteen omistaja nimesi: ilmaisen
+    oletuspistoolin hallussapito ei kerro mitään, veitsi ei ole ase, kranaatti
+    ei ole ase, eikä Zeus korvaa asetta. C4 on tehtäväesine.
     """
     for name in ("Glock-18", "USP-S", "P2000"):
         assert name not in ARMING_WEAPONS

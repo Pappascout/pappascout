@@ -128,7 +128,8 @@ def test_five_regulars_is_accepted_as_the_full_class() -> None:
 
 
 def test_four_regulars_and_one_outsider_is_accepted() -> None:
-    """Veeti 2026-09-04: ottelu on samaa joukkuetta vastaan vaikka yksi olisi sub.
+    """Tuotteen omistaja 2026-09-04: ottelu on samaa joukkuetta vastaan
+    vaikka yksi olisi sub.
 
     Ulkopuolinen **lasketaan mukaan** -- ero on luokassa, ei siinä kuka on
     otannassa.

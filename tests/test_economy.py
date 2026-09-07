@@ -878,7 +878,7 @@ def test_a_half_buy_is_never_played_after_a_win(thresholds, economy) -> None:
     """S1: säästö on aina reaktio häviöön, joten voiton jälkeen on normaali osto.
 
     Kalibroinnin kierros 2: pistoolin voittanut CT ostaa 3 200 $/pelaaja.
-    Vanha luokittelija sanoi ``half``; Veeti sanoo ``full``.
+    Vanha luokittelija sanoi ``half``; tuotteen omistaja sanoo ``full``.
     """
     decision = classify_round(
         row(round_no=2, equip_buy_end=16000, equip_round_start=1100),
@@ -934,7 +934,8 @@ def test_a_saved_rifle_does_not_turn_an_eco_into_a_buy(thresholds, economy) -> N
     """S3: säästetty ase nostaa varustearvoa, mutta ei ole ostos.
 
     Kalibroinnin kierros 11 CT: yksi säästetty M4, ostettu 600 $/pelaaja.
-    Veeti sanoo ``eco`` -- korkea varustearvo ei saa kääntää sitä ostokseksi.
+    Tuotteen omistaja sanoo ``eco`` -- korkea varustearvo ei saa kääntää
+    sitä ostokseksi.
     """
     decision = classify_round(
         row(

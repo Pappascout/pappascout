@@ -3,9 +3,9 @@
 Kaksi lähdettä, kaksi lohkoa ja **kaksi eri vaatimusta ympäristölle**.
 
 ``kalibrointi-kierrostyypit.md`` (Story 1.4)
-    Veeti katsoi Ancient-demon 2D-replaynä ja kertoi jokaisesta kierroksesta,
-    mitä siinä tapahtui. Luvut ovat dollaria **per pelaaja**, luettu
-    ``classified``-taulun ``inputs``-rakenteesta, ja ne muunnetaan
+    Tuotteen omistaja katsoi Ancient-demon 2D-replaynä ja kertoi jokaisesta
+    kierroksesta, mitä siinä tapahtui. Luvut ovat dollaria **per pelaaja**,
+    luettu ``classified``-taulun ``inputs``-rakenteesta, ja ne muunnetaan
     joukkuesummiksi kertomalla viidellä. Nämä testit eivät tarvitse mitään
     koneelta: ne rakentavat rivit käsin.
 
@@ -80,8 +80,8 @@ class Round(NamedTuple):
         left: Taskuun jäänyt raha $/pelaaja.
         bought: Ostettu summa $/pelaaja.
         equip: Varustearvo $/pelaaja.
-        truth: Veetin antama kierrostyyppi.
-        basis: Veetin sanallinen peruste, dokumentista.
+        truth: Tuotteen omistajan antama kierrostyyppi.
+        basis: Tuotteen omistajan sanallinen peruste, dokumentista.
         armed: Montako pelaajaa oli aseistettu (ehto A). ``None`` tarkoittaa
             "ei kirjattu": rivi ei päädy haaraan, joka lukisi laskurin, ja jos
             joskus päätyy, kierros jää luokittelematta ja tämä testi kaatuu.
@@ -89,10 +89,10 @@ class Round(NamedTuple):
         left_players: Taskuun jäänyt raha pelaajittain (ehto B), jos se on
             dokumentissa. ``None`` -> tasajako, ks. :func:`_rows`.
 
-    **Tuomio on Veetin, luvut ovat mittaus.** Luvut päivitetään, kun
-    mittaushetki muuttuu (ks. taulun muutosloki); tuomioon ei kosketa. Ilman
-    päivitystä tämä testi pinnaisi säännön syötteillä, joita tuote ei enää
-    tuota.
+    **Tuomio on tuotteen omistajan, luvut ovat mittaus.** Luvut päivitetään,
+    kun mittaushetki muuttuu (ks. taulun muutosloki); tuomioon ei kosketa.
+    Ilman päivitystä tämä testi pinnaisi säännön syötteillä, joita tuote ei
+    enää tuota.
     """
 
     round_no: int
@@ -109,10 +109,10 @@ class Round(NamedTuple):
 
 #: Totuustaulu sellaisenaan, dokumentin rivijärjestyksessä.
 #:
-#: **Tuomiot ovat Veetin**, luvut ovat mittaus. Story 1.9 siirsi mittaushetken
-#: freezetimen lopusta ostoajan loppuun, ja luvut on päivitetty siihen
-#: hetkeen -- muuten tämä taulu pinnaisi säännön syötteillä, joita tuote ei
-#: enää tuota, ja :func:`test_every_threshold_keeps_a_margin_to_the_nearest_observation`
+#: **Tuomiot ovat tuotteen omistajan**, luvut ovat mittaus. Story 1.9 siirsi
+#: mittaushetken freezetimen lopusta ostoajan loppuun, ja luvut on päivitetty
+#: siihen hetkeen -- muuten tämä taulu pinnaisi säännön syötteillä, joita
+#: tuote ei enää tuota, ja :func:`test_every_threshold_keeps_a_margin_to_the_nearest_observation`
 #: mittaisi etäisyyttä havaintoihin joita ei enää tehdä. Se olisi pahempi kuin
 #: vanhentunut luku: uusi mittaus vain **nostaa** varustearvoja, joten vartija
 #: voisi mennä läpi silloinkin kun sen premissi on datassa rikki.
@@ -234,7 +234,9 @@ def _test_id(k: Round) -> str:
 
 @pytest.mark.parametrize("k", TRUTH_TABLE, ids=[_test_id(k) for k in TRUTH_TABLE])
 def test_truth_table_row_matches_the_classifier(k: Round, thresholds, economy) -> None:
-    """Jokainen dokumentin rivi luokittuu siksi, mitä Veeti näki replaystä."""
+    """Jokainen dokumentin rivi luokittuu siksi, mitä tuotteen omistaja näki
+    replaystä.
+    """
     row, previous = _rows(k)
     decision = classify_round(row, previous, thresholds, economy=economy, loss_count=2)
     assert decision.round_type == k.truth, (
@@ -279,11 +281,12 @@ def test_the_two_sides_of_a_round_cannot_both_have_won_the_previous_one() -> Non
 def test_the_truth_table_covers_the_four_observed_round_types() -> None:
     """Taulussa on neljä tyyppiä viidestä -- ``half`` ja ``anomaly`` puuttuvat.
 
-    Tämä ei ole aukko testissä vaan **aineistossa**: Veeti ei nähnyt tässä
-    demossa yhtäkään puoliostoa eikä poikkeamaa. ``half`` ja ``anomaly`` on
-    siksi pinnattu erikseen ``test_economy.py``:n käsin rakennetuilla
-    tapauksilla, ja puolioston oma havainto tuli vasta toisesta demosta
-    (``inferno_vs_ryhmarama`` kierros 10, ks. ``test_inferno_*`` alempana).
+    Tämä ei ole aukko testissä vaan **aineistossa**: tuotteen omistaja ei
+    nähnyt tässä demossa yhtäkään puoliostoa eikä poikkeamaa. ``half`` ja
+    ``anomaly`` on siksi pinnattu erikseen ``test_economy.py``:n käsin
+    rakennetuilla tapauksilla, ja puolioston oma havainto tuli vasta toisesta
+    demosta (``inferno_vs_ryhmarama`` kierros 10, ks. ``test_inferno_*``
+    alempana).
     Jos tämä taulu joskus saa puoliostorivin, testi kaatuu -- ja se on hyvä:
     silloin Ancientin tuomiot on luettava uudelleen.
     """
@@ -368,8 +371,8 @@ def test_every_threshold_keeps_a_margin_to_the_nearest_observation(
 # --- Ensimmäinen havaittu puoliosto (Story 1.10) --------------------------------
 #
 # Ancientin aineistossa ei ole yhtäkään puoliostoa. ``inferno_vs_ryhmarama``
-# sulki aukon: Veeti katsoi kierrokset 6 ja 10 demosta ja antoi niille
-# tuomiot, ja kierros 11 vahvisti kierroksen 10 ennusteen.
+# sulki aukon: tuotteen omistaja katsoi kierrokset 6 ja 10 demosta ja antoi
+# niille tuomiot, ja kierros 11 vahvisti kierroksen 10 ennusteen.
 #
 # MITÄ NÄMÄ KIERROKSET TODISTAVAT -- ja mitä eivät. Molemmissa on viisi
 # aseistettua pelaajaa, joten ehto A ei erota niitä lainkaan; erottelun tekee
@@ -381,9 +384,9 @@ def test_every_threshold_keeps_a_margin_to_the_nearest_observation(
 #
 # Kierros 6 luokittui väärin vain ENNEN Story 1.9:ää, kun raha luettiin
 # freezetimen lopusta -- korjauksen teki mittaus, ei sääntö. Se, mitä nämä
-# rivit todistavat, on että uusi sääntö toistaa Veetin tuomiot; se, että
-# sääntö kestää epätasaisen jakauman, on pinnattu ``test_economy.py``:n
-# käsin rakennetuilla riveillä.
+# rivit todistavat, on että uusi sääntö toistaa tuotteen omistajan tuomiot;
+# se, että sääntö kestää epätasaisen jakauman, on pinnattu
+# ``test_economy.py``:n käsin rakennetuilla riveillä.
 #
 # Luvut on luettu ostoajan lopusta tuotannon asetuksilla (parsed-taulu
 # 2026-08-29). Kierrosten 6 ja 10 saldot ovat myös kalibrointidokumentin
@@ -391,7 +394,8 @@ def test_every_threshold_keeps_a_margin_to_the_nearest_observation(
 
 
 class InfernoRound(NamedTuple):
-    """Yksi mitattu kierros ``inferno_vs_ryhmarama``-demosta ja Veetin tuomio.
+    """Yksi mitattu kierros ``inferno_vs_ryhmarama``-demosta ja tuotteen
+    omistajan tuomio.
 
     Attributes:
         round_no: Kierrosnumero.
@@ -406,8 +410,8 @@ class InfernoRound(NamedTuple):
         can_buy: Montako pelaajaa pystyy normaaliin ostoon ensi kierroksella
             -- odotusarvo. ``None``, jos kierros ei saavuta ehtoa B lainkaan
             (esim. täysi osto ratkeaa jo varustearvosta).
-        truth: Veetin tuomio.
-        basis: Veetin sanat.
+        truth: Tuotteen omistajan tuomio.
+        basis: Tuotteen omistajan sanat.
     """
 
     round_no: int
@@ -481,16 +485,19 @@ INFERNO_BUY_ROUNDS: tuple[InfernoRound, ...] = tuple(
 @pytest.mark.parametrize(
     "k", INFERNO_TRUTH, ids=[f"k{k.round_no}-{k.truth}" for k in INFERNO_TRUTH]
 )
-def test_inferno_round_matches_veetis_verdict(
+def test_inferno_round_matches_the_product_owners_verdict(
     k: InfernoRound, thresholds, economy
 ) -> None:
-    """Kierrokset 6, 10 ja 11 luokittuvat siksi, mitä Veeti näki demosta."""
+    """Kierrokset 6, 10 ja 11 luokittuvat siksi, mitä tuotteen omistaja näki
+    demosta.
+    """
     row, previous = _inferno_rows(k)
     decision = classify_round(
         row, previous, thresholds, economy=economy, loss_count=k.loss_count
     )
     assert decision.round_type == k.truth, (
-        f"Kierros {k.round_no}: Veeti sanoo {k.truth!r} ({k.basis}), "
+        f"Kierros {k.round_no}: tuotteen omistaja sanoo {k.truth!r} "
+        f"({k.basis}), "
         f"luokittelija sanoi {decision.round_type!r}. "
         f"Perustelu: {decision.reason}"
     )
@@ -683,11 +690,11 @@ def test_the_buying_power_is_capped_at_the_money_ceiling(
 # STORY 1.9 SIIRSI MITTAUSHETKEÄ, ja yksi luku muuttui: **kierros 19 CT on
 # 5/5, ei 4/5**. Kolmas pelaaja osti kevlarin ja Desert Eaglen vasta
 # freezetimen jälkeen (ankkurilla ('knife', 'USP-S'), panssari 0; ostoajan
-# lopussa ('knife', 'Desert Eagle', 'Smoke Grenade'), panssari 100). Veetin
-# TUOMIO ei muutu -- kierros on force, ja "ostivat tyhjäksi" jopa vahvistuu,
-# koska taskuun jäi 150 $ eikä 3 750 $ -- mutta hänen sanansa "yksi jäi
-# ilmaiseen oletuspistooliin" oli lukema väärältä hetkeltä. Kierrokset 20 ja
-# 21 pysyivät ennallaan (5/5 ja 2/5).
+# lopussa ('knife', 'Desert Eagle', 'Smoke Grenade'), panssari 100). Tuotteen
+# omistajan TUOMIO ei muutu -- kierros on force, ja "ostivat tyhjäksi" jopa
+# vahvistuu, koska taskuun jäi 150 $ eikä 3 750 $ -- mutta hänen sanansa "yksi
+# jäi ilmaiseen oletuspistooliin" oli lukema väärältä hetkeltä. Kierrokset 20
+# ja 21 pysyivät ennallaan (5/5 ja 2/5).
 #
 # TAVARALUETTELOT OVAT MYÖHEMMÄSTÄ HETKESTÄ kuin ennen, ja se näkyy niissä
 # kahdella tavalla, jotka **eivät** vaikuta laskuriin:
@@ -701,15 +708,16 @@ def test_the_buying_power_is_capped_at_the_money_ceiling(
 # hallussa", eikä kranaatti ole ase eikä 90 ole nolla. Jos jompikumpi joskus
 # alkaa liikuttaa lukua, se näkyy täällä ennen kuin se näkyy raportissa.
 #
-# Kierroksen 21 luku perustuu edelleen oikeaan syyhyn. Veeti kuvasi
-# kierroksen: "kahdella kevlar+pistooli ja yhdellä 300 $:n p250 ilman
+# Kierroksen 21 luku perustuu edelleen oikeaan syyhyn. Tuotteen omistaja
+# kuvasi kierroksen: "kahdella kevlar+pistooli ja yhdellä 300 $:n p250 ilman
 # kevlaria". Vanha kynnys pudotti p250-pelaajan siksi, että 300 < 950; uusi
 # sääntö pudottaa hänet siksi, ettei hänellä ole panssaria. Sama luku, eri
-# väite -- ja jälkimmäinen on se, jonka Veeti sanoi.
+# väite -- ja jälkimmäinen on se, jonka tuotteen omistaja sanoi.
 
 
 class ArmedRound(NamedTuple):
-    """Yhden kierroksen pelaajakohtaiset havainnot ja Veetin kuvaus.
+    """Yhden kierroksen pelaajakohtaiset havainnot ja tuotteen omistajan
+    kuvaus.
 
     Attributes:
         round_no: Kierrosnumero.
@@ -717,7 +725,7 @@ class ArmedRound(NamedTuple):
         players: Viisi paria ``(tavaraluettelo, panssariarvo)`` demosta
             luettuna.
         armed: Montako niistä on aseistettu -- odotusarvo.
-        basis: Veetin sanallinen kuvaus, kalibrointidokumentista.
+        basis: Tuotteen omistajan sanallinen kuvaus, kalibrointidokumentista.
     """
 
     round_no: int
@@ -777,7 +785,7 @@ ARMED_TRUTH: tuple[ArmedRound, ...] = (
     "k", ARMED_TRUTH, ids=[f"k{k.round_no}-{k.side}" for k in ARMED_TRUTH]
 )
 def test_armed_player_count_matches_the_human_reading(k: ArmedRound) -> None:
-    """Laskuri antaa sen luvun, jonka Veeti näki replaystä.
+    """Laskuri antaa sen luvun, jonka tuotteen omistaja näki replaystä.
 
     Sääntö luetaan adapterilta eikä kirjoiteta tässä uudelleen: testi, joka
     tarkistaisi omalla lausekkeellaan onko pelaajalla ase, todistaisi vain
@@ -936,10 +944,11 @@ def test_armed_count_needs_the_whole_distribution_not_the_team_sum() -> None:
 def test_armor_and_weapon_are_both_required() -> None:
     """Kevlar ilman asetta ei riitä, eikä ase ilman kevlaria.
 
-    Veetin määritelmä on "kevlar **ja** jokin parannettu ase". Kierroksen 21
-    p250-pelaaja on jälkimmäinen tapaus, ja kierroksen 19 pelkkä-USP-pelaaja
-    edellinen: molemmat esiintyvät aineistossa, joten kumpaakaan ehtoa ei voi
-    pudottaa väittämättä jotain, mitä Veeti ei sanonut.
+    Tuotteen omistajan määritelmä on "kevlar **ja** jokin parannettu ase".
+    Kierroksen 21 p250-pelaaja on jälkimmäinen tapaus, ja kierroksen 19
+    pelkkä-USP-pelaaja edellinen: molemmat esiintyvät aineistossa, joten
+    kumpaakaan ehtoa ei voi pudottaa väittämättä jotain, mitä tuotteen
+    omistaja ei sanonut.
     """
     weapon_no_armor = [{"inventory": ("M9 Bayonet", "P250"), "armor_value": 0}]
     armor_no_weapon = [{"inventory": ("knife", "USP-S"), "armor_value": 100}]

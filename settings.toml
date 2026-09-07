@@ -428,9 +428,9 @@ force_buy_min = 1500
 
 # --- Puolioston kaksi ehtoa (Story 1.10) ---
 #
-# Veetin määritelmä on kaksisuuntainen: "Puoliosto ei ole force silloin kun
-# seuraavalla kierroksella mahdollistetaan normaali osto, ja ei ole eco kun
-# käytössä on tarpeeksi arvoa." MOLEMPIEN ehtojen on täytyttävä.
+# Tuotteen omistajan määritelmä on kaksisuuntainen: "Puoliosto ei ole force
+# silloin kun seuraavalla kierroksella mahdollistetaan normaali osto, ja ei
+# ole eco kun käytössä on tarpeeksi arvoa." MOLEMPIEN ehtojen on täytyttävä.
 #
 # Ehto A erottaa puolioston ECOSTA, ehto B FORCESTA. Ne mittaavat eri asiaa:
 # A katsoo tälle kierrokselle ostettua kalustoa, B seuraavan kierroksen
@@ -449,8 +449,8 @@ force_buy_min = 1500
 # ase ostoajan lopussa (havainto players_armed_buy_end). Alle sen kierrosta ei
 # oikeasti pelata, ja kyseessä on eco vaikka rahaa olisi liikkunut.
 #
-# Veetin oma raja: "vähintään kolmella pelaajalla on kevlar ja jokin
-# parannettu ase -- parempi pistooli, SMG tai halpa kivääri".
+# Tuotteen omistajan oma raja: "vähintään kolmella pelaajalla on kevlar ja
+# jokin parannettu ase -- parempi pistooli, SMG tai halpa kivääri".
 #
 # EI HAVAINTOA. Aineiston ainoa vähän aseistettu kierros (Ancient 21 T, 2/5)
 # ratkeaa jo ostorajalla force_buy_min eikä koskaan saavuta ehtoa A, joten
@@ -566,8 +566,9 @@ stack_min_players = 4
 #
 # Mitattu: 1,25 tuottaa Ancientilla aluejaon, joka on SANATARKASTI SAMA
 # kaikista kolmesta demosta (0/18 ristiriitaista aluetta) ja jonka B-ryhmä
-# vastaa sanatarkasti Veetin omaa reittimallia. Anubiksella yksi alue
-# (Middle) eroaa kahden demon välillä, ja se on kartan aidosti jaettu keski.
+# vastaa sanatarkasti tuotteen omistajan omaa reittimallia. Anubiksella yksi
+# alue (Middle) eroaa kahden demon välillä, ja se on kartan aidosti jaettu
+# keski.
 #
 # Alaraja on 1,0 (ModelSettings): sitä pienemmällä "lähempi" site voisi olla
 # kauempana. Yläraja 10,0: siteet ITSE eivät katoa millään marginaalilla
@@ -630,7 +631,7 @@ stack_site_separation_min = 2.0
 # 0,80 EIKÄ 0,70: Nuken piha (Outside) saa T-osuuden 0,70 (211/302), ja se on
 # aidosti molempien aluetta -- kynnys 0,70 tekisi jokaisesta pihalla olevasta
 # CT:stä "etenemisen". Ainoa lisäosuma 0,70:llä on yksi pelaaja ilman
-# vastinetta Veetin omassa analyysissä.
+# vastinetta tuotteen omistajan omassa analyysissä.
 #
 # Alaraja on yli 0,5 (ThresholdSettings.MajorityShare): kynnys kertoo
 # kummalle puolelle alue KUULUU, ja arvolla 0,5 tai alle alue voisi olla
@@ -668,20 +669,20 @@ advance_area_min_observations = 20
 # vaikka yhtäkään näytepistettä ei tutkittu.
 advance_max_sample_s = 30.0
 
-# Montako CT-pelaajaa T:n alueella riittää etenemiseksi. Veeti 2026-08-31:
-# "yksi riittää" -- raportti näyttää pelaajamäärän ja otannan, joten lukija
-# arvioi itse onko kyse lurkkerista vai sattumasta. Kuudesta merkitystä
-# kierroksesta neljä osuu yhden pelaajan havainnolla. [lausuttu]
+# Montako CT-pelaajaa T:n alueella riittää etenemiseksi. Tuotteen omistaja
+# 2026-08-31: "yksi riittää" -- raportti näyttää pelaajamäärän ja otannan,
+# joten lukija arvioi itse onko kyse lurkkerista vai sattumasta. Kuudesta
+# merkitystä kierroksesta neljä osuu yhden pelaajan havainnolla. [lausuttu]
 #
 # Yläraja on kentällä olevien määrä (5), ei rosterin koko: rosterissa voi olla
 # vaihtopelaajia, mutta kuusi pelaajaa alueella on mahdoton ehto.
 advance_min_players = 1
 
-# Crunchin kaksi lisäehtoa. Veetin määritelmä 31.8.: "pusketaan CT puolella T
-# puolen alueelle, joka on tyypillisesti aina T puolen hallussa eli lobbyyn
-# kahdesta tai useammasta suunnasta samaan aikaan." Kaksi pelaajaa kahdesta
-# suunnasta on siis jo crunch. Lähtösuunta on pelaajan oma edellinen alue eli
-# havainto -- ei karttageometriaa eikä aluenaapuruustaulua.
+# Crunchin kaksi lisäehtoa. Tuotteen omistajan määritelmä 31.8.: "pusketaan
+# CT puolella T puolen alueelle, joka on tyypillisesti aina T puolen hallussa
+# eli lobbyyn kahdesta tai useammasta suunnasta samaan aikaan." Kaksi
+# pelaajaa kahdesta suunnasta on siis jo crunch. Lähtösuunta on pelaajan oma
+# edellinen alue eli havainto -- ei karttageometriaa eikä aluenaapuruustaulua.
 #
 # Kynnyksiä ei tarvinnut tiukentaa: oikealla määritelmällä osumia on 5
 # kierroksella 93:sta (5 %), eli poikkeaman kokoluokka. Aiemmin harkitut
@@ -778,15 +779,16 @@ utility_seconds_buckets = [5.0, 10.0, 20.0]
 # Oletuksilla siis noin 30 riviä pois koko raportista eli 10 riviä kartalta.
 # SE EI OLE VIELÄ SIVU (noin 40 riviä kartalta): sivu vaatii kokonaisten
 # kierrostyyppilohkojen vaimennuksen, joka on rajattu Story 2.13:sta ulos
-# (Veeti 31.8.: "lisäys ensin, vaimennus myöhemmin"). Mittausdokumentit
-# asuvat BMAD-tuotoksissa (_bmad-output/implementation-artifacts/,
-# karsinta-mittaus.md) eivätkä tässä repossa.
+# (tuotteen omistaja 31.8.: "lisäys ensin, vaimennus myöhemmin").
+# Mittausdokumentit asuvat BMAD-tuotoksissa
+# (_bmad-output/implementation-artifacts/, karsinta-mittaus.md) eivätkä tässä
+# repossa.
 
 # SÄÄNTÖ 1. Kylläinen kalustorivi pois. Kylläinen = jakaumassa yksi pylväs,
 # sen arvo 5 ja havainto joka kierrokselta -- rivi sanoo "kaikilla viidellä
-# oli panssari joka kierroksella", mikä on odotus eikä havainto. Veetin oma
-# ohje: "CT:t voittivat edellisen kierroksen ja heillä on normaali osto (tätä
-# ei muuten tarvitse analyyseissä toistaa)".
+# oli panssari joka kierroksella", mikä on odotus eikä havainto. Tuotteen
+# omistajan oma ohje: "CT:t voittivat edellisen kierroksen ja heillä on
+# normaali osto (tätä ei muuten tarvitse analyyseissä toistaa)".
 #
 # POISTUU: 24 riviä (RCAVE) ja 20 riviä (MM) suojaamattomista lohkoista.
 # Kylläisyys ei ole ainoa syy, jonka takia rivi voi puuttua: täydellä ostolla
@@ -819,10 +821,10 @@ merge_equal_equipment_lines = true
 #
 # 45 s -rivi kuvaa noin puolta joukkuetta neljällä kierroksella viidestä. Se
 # on siis ohut ja vinoutunut -- se kertoo eloonjääneistä eikä asetelmasta --
-# mutta se EI OLE TOISTOA kuten säännöt 1, 2, 4 ja 5. Veetin analyyseissä on
-# myöhäisen kierroksen havaintoja ("mid lähti pian rotateen", "A pelaaja
-# odotti aika pitkään ja varoo flankkiä"), joten poistaminen voi maksaa
-# sisältöä. POISTAA arvolla [45.0]: 14 riviä (RCAVE) ja 16 riviä (MM).
+# mutta se EI OLE TOISTOA kuten säännöt 1, 2, 4 ja 5. Tuotteen omistajan
+# analyyseissä on myöhäisen kierroksen havaintoja ("mid lähti pian rotateen",
+# "A pelaaja odotti aika pitkään ja varoo flankkiä"), joten poistaminen voi
+# maksaa sisältöä. POISTAA arvolla [45.0]: 14 riviä (RCAVE) ja 16 riviä (MM).
 # [mitattu 2026-09-02]
 #
 # EI SAMA ASIA KUIN [parse].snapshot_seconds: näytepiste pysyy taulussa ja

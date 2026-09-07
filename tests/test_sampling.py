@@ -604,7 +604,9 @@ def test_the_same_player_twice_is_one_player() -> None:
 
 
 def test_the_player_minimum_is_a_threshold_not_a_constant() -> None:
-    """Veeti valitsi 1, mutta 2 on säädettävissä ilman koodimuutosta."""
+    """Tuotteen omistaja valitsi 1, mutta 2 on säädettävissä ilman
+    koodimuutosta.
+    """
     rows = at(30.0, T_AREA, "ct1")
     assert advance(rows, min_players=1)
     assert advance(rows, min_players=2) == []

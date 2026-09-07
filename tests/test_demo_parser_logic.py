@@ -1752,10 +1752,10 @@ def test_money_distribution_keeps_every_balance_not_just_the_sum(
 ) -> None:
     """Mitatut saldot säilyvät sellaisinaan, laskevasti lajiteltuina.
 
-    Luvut ovat ``inferno_vs_ryhmarama``n kierrokselta 10 (Veetin puoliosto):
-    2 150, 2 000, 2 050, 800, 900. Summa 7 900 on sama kuin ennen, mutta se ei
-    kertoisi, että kaikki viisi pystyvät ostamaan -- eikä erottaisi tätä
-    joukkueesta, jolla yhdellä olisi 7 900 ja neljällä nolla.
+    Luvut ovat ``inferno_vs_ryhmarama``n kierrokselta 10 (tuotteen omistajan
+    puoliosto): 2 150, 2 000, 2 050, 800, 900. Summa 7 900 on sama kuin ennen,
+    mutta se ei kertoisi, että kaikki viisi pystyvät ostamaan -- eikä
+    erottaisi tätä joukkueesta, jolla yhdellä olisi 7 900 ja neljällä nolla.
     """
     balances = [2150, 2000, 2050, 800, 900]
     rounds = normal_match(played=1, knife=False)
@@ -2214,8 +2214,9 @@ def test_armed_count_never_exceeds_the_player_count(tmp_path: Path) -> None:
 #
 # ``players_armored_buy_end`` on **sama lukema eri ehdolla**: montako samasta
 # pelaajajoukosta kantoi panssaria samalla ostoajan lopun tickillä. Se ei ole
-# yllä olevan laskurin yleistys vaan oma havaintonsa -- tästä luetaan Veetin
-# analyysin "5 kevlaria" ja "ei kevuja", joita aseistettujen laskurista ei saa.
+# yllä olevan laskurin yleistys vaan oma havaintonsa -- tästä luetaan
+# tuotteen omistajan analyysin "5 kevlaria" ja "ei kevuja", joita
+# aseistettujen laskurista ei saa.
 # Alla on spesifikaation I/O-matriisin jokainen rivi omana testinään.
 
 
@@ -2224,8 +2225,8 @@ def test_pistol_round_separates_the_two_counters(tmp_path: Path) -> None:
 
     **Tämä on koko storyn syy.** Ilmaispistooli ei ole parannettu ase, joten
     aseistettujen laskuri on 0, vaikka kaikilla viidellä olisi kevlar. Ilman
-    omaa saraketta Veetin rivi *"5 kevlaria"* ja rivi *"ei kevuja"* näyttävät
-    raportissa täsmälleen samalta.
+    omaa saraketta tuotteen omistajan rivi *"5 kevlaria"* ja rivi
+    *"ei kevuja"* näyttävät raportissa täsmälleen samalta.
 
     Pistoolikierros on myös se kierrostyyppi, jolla panssariluku on
     **ostohavainto** eikä hallussapitoa: puoliaika alkaa puhtaalta pöydältä

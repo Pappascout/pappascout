@@ -4,8 +4,8 @@ Tämä moduuli on ``classify``-vaiheen aivot. Se ei lue demoa, tiedostoja eikä
 asetustiedostoa -- se saa kierrostaulun rivit ja ``[thresholds]``-osion ja
 palauttaa jokaiselle kierrokselle tyypin, **ihmisluettavan perustelun** ja
 **kaikki vertailuun käytetyt arvot**. Perustelu ja lähtöarvot eivät ole koriste:
-ilman niitä kynnysten kalibrointi olisi arvailua, eikä Veeti pystyisi
-tarkistamaan työkalun näkemystä demoa vasten.
+ilman niitä kynnysten kalibrointi olisi arvailua, eikä tuotteen omistaja
+pystyisi tarkistamaan työkalun näkemystä demoa vasten.
 
 Mitä havaitaan ja mitä johdetaan
 --------------------------------
@@ -96,7 +96,7 @@ Järjestys on tarkoituksella jyrkkä, ja ensimmäinen osuma voittaa:
 
 Puolioston kaksi ehtoa (Story 1.10)
 -----------------------------------
-Veetin määritelmä on **kaksisuuntainen**:
+Tuotteen omistajan määritelmä on **kaksisuuntainen**:
 
     "Puoliosto ei ole force silloin kun seuraavalla kierroksella
     mahdollistetaan normaali osto, ja ei ole eco kun käytössä on tarpeeksi
@@ -116,8 +116,9 @@ kierroksella: oma saldo ostoajan lopussa plus häviöbonus yltää arvoon
 asiaa: A katsoo tälle kierrokselle ostettua kalustoa, B seuraavan kierroksen
 ostovoimaa. ``inferno_vs_ryhmarama`` kierroksilla 6 ja 10 on **molemmissa
 viisi aseistettua pelaajaa**, joten ehto A ei erota niitä lainkaan; erottelun
-tekee ehto B -- kierroksella 6 kukaan viidestä ei pysty ostamaan (Veeti:
-force), kierroksella 10 kaikki viisi (Veeti: puoliosto). Kierros 11 vahvisti
+tekee ehto B -- kierroksella 6 kukaan viidestä ei pysty ostamaan (tuotteen
+omistaja: force), kierroksella 10 kaikki viisi (tuotteen omistaja:
+puoliosto). Kierros 11 vahvisti
 ennusteen **normaalilla ostolla** -- viisi AK:ta, 4 940 $/pelaaja -- ja se on
 pinnattu omana rivinään ``test_calibration.py``:n ``INFERNO_TRUTH``iin,
 jottei väite eläisi vain kommenteissa.

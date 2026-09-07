@@ -238,8 +238,9 @@ def classified(team_key: str, map_demo_id: str) -> PurePosixPath:
 def classified_round_list(team_key: str, map_demo_id: str) -> PurePosixPath:
     """The round list as Markdown, the ``classify`` stage's second result.
 
-    The same list ``--show`` prints, but as a file: Veeti reads it alongside
-    the demo and checks the reasoning and the inputs behind every decision.
+    The same list ``--show`` prints, but as a file: the product owner reads
+    it alongside the demo and checks the reasoning and the inputs behind every
+    decision.
     The file lives in the ``classify`` stage's own directory, because
     ``reports/`` is the ``render`` stage's territory and a stage does not
     write into another stage's result area.

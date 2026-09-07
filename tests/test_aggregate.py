@@ -1299,8 +1299,8 @@ def test_the_two_counters_answer_different_questions_on_a_pistol_round() -> None
 def test_the_report_carries_both_counters_for_the_same_round_type() -> None:
     """Koko putki: molemmat jakaumat samassa haarassa, eri luvut.
 
-    Ancientin CT-pistooli, Veetin *"ei kevuja"*: yksi kevlar viidestä ja
-    nolla aseistettua.
+    Ancientin CT-pistooli, tuotteen omistajan *"ei kevuja"*: yksi kevlar
+    viidestä ja nolla aseistettua.
     """
     classified = [classified_row("Ancient_vs_x", 1, side="CT", armed=0)]
     report = report_for(
@@ -2613,7 +2613,9 @@ def test_the_time_bound_decides_whether_the_row_exists() -> None:
 
 
 def test_the_advance_player_minimum_decides_whether_the_row_exists() -> None:
-    """Veeti valitsi 1; kahden vaatimus jättäisi neljä kuudesta osumasta pois."""
+    """Tuotteen omistaja valitsi 1; kahden vaatimus jättäisi neljä kuudesta
+    osumasta pois.
+    """
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1, 2)
     ticks = advance_round(demo, 1, players=1)

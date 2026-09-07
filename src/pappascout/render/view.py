@@ -52,8 +52,8 @@ raportissa. Mitatut perusteet ja luvut ovat ``settings.toml``issa;
 mittausdokumentit itse asuvat BMAD-tuotoksissa eivätkä tässä repossa.
 
 **Kuolemat mahtuvat kahteen riviin.** Raportti on jo satoja rivejä, kun
-Veetin oma analyysi on 30. Kuolemat lisättiin siksi, että ne selittävät muut
-rivit -- ei siksi, että ne olisivat oma lukunsa. Raja on
+tuotteen omistajan oma analyysi on 30. Kuolemat lisättiin siksi, että ne
+selittävät muut rivit -- ei siksi, että ne olisivat oma lukunsa. Raja on
 :data:`MAX_DEATH_LINES`, ja sen ylitys on virhe eikä hiljainen kasvu.
 
 **Runko puhuu nimillä, ja tunnisteilla on oma lukunsa.** Joukkueen ja
@@ -196,10 +196,11 @@ ROUND_TYPE_ORDER: tuple[str, ...] = (
     "ot",
 )
 
-#: Kierrostyypit, joista kerrotaan **vain toistuvat kuviot**. Veeti: "ei
-#: tarvitse kertoa joka kierroksella mitä he tekivät, koittaa tunnistaa vain
-#: suuria viivoja". Täysi osto on kierroksen suunnitelmana epäselvin ja
-#: yleisin, joten kierroskohtainen kerronta olisi enimmäkseen toistoa.
+#: Kierrostyypit, joista kerrotaan **vain toistuvat kuviot**. Tuotteen
+#: omistaja: "ei tarvitse kertoa joka kierroksella mitä he tekivät, koittaa
+#: tunnistaa vain suuria viivoja". Täysi osto on kierroksen suunnitelmana
+#: epäselvin ja yleisin, joten kierroskohtainen kerronta olisi enimmäkseen
+#: toistoa.
 PATTERN_ROUND_TYPES: frozenset[str] = frozenset({"full", "ot"})
 
 #: Kierrostyypit, joita **ei karsita yhdelläkään säännöllä** (Story 2.13).
@@ -210,10 +211,10 @@ PATTERN_ROUND_TYPES: frozenset[str] = frozenset({"full", "ot"})
 #: ``pistol``
 #:     Story 2.8 mittasi, että panssariluku on ostohavainto vain
 #:     pistoolikierroksella: muualla se on hallussapitoa, joka periytyy
-#:     edelliseltä kierrokselta hengissä selvinneellä. Veetin analyysi
-#:     käsittelee pistoolikierroksia **kierroksen tarkkuudella** ja muita
-#:     kierrostyyppejä kuvioina, ja karsinta seuraa samaa jakoa -- sama jako,
-#:     jonka :data:`PATTERN_ROUND_TYPES` tekee toisesta päästä.
+#:     edelliseltä kierrokselta hengissä selvinneellä. Tuotteen omistajan
+#:     analyysi käsittelee pistoolikierroksia **kierroksen tarkkuudella** ja
+#:     muita kierrostyyppejä kuvioina, ja karsinta seuraa samaa jakoa -- sama
+#:     jako, jonka :data:`PATTERN_ROUND_TYPES` tekee toisesta päästä.
 #: ``anomaly``
 #:     ``classify`` varaa tyypin kahdelle tilanteelle: **havainto on
 #:     ristiriitainen** (varustearvo laski ostoaikana) tai **voiton jälkeen
@@ -250,11 +251,12 @@ MERGED_EQUIPMENT_LABEL = "aseistettuja ja panssaroituja ostoajan lopussa"
 
 #: Enintään näin monta riviä kuolemista kierrostyyppiä kohden.
 #:
-#: Raportti on jo satoja rivejä, kun Veetin oma analyysi on 30. Kuolemat
-#: lisättiin siksi, että ne **selittävät muut rivit** -- eivät siksi, että ne
-#: olisivat oma lukunsa. Kaksi riviä: mistä ensimmäinen kuolema tuli ja mistä
-#: joukkue teki tappoja. Luku on vakio eikä asetus, koska se on rajaus eikä
-#: säädin; sen nostaminen on sopimusmuutos ("Ask First").
+#: Raportti on jo satoja rivejä, kun tuotteen omistajan oma analyysi on 30.
+#: Kuolemat lisättiin siksi, että ne **selittävät muut rivit** -- eivät
+#: siksi, että ne olisivat oma lukunsa. Kaksi riviä: mistä ensimmäinen
+#: kuolema tuli ja mistä joukkue teki tappoja. Luku on vakio eikä asetus,
+#: koska se on rajaus eikä säädin; sen nostaminen on sopimusmuutos
+#: ("Ask First").
 MAX_DEATH_LINES = 2
 
 #: Tappojakauman otannan yksikkö. Vakio, koska sekä rivi että lukuohje
@@ -2781,8 +2783,9 @@ def _map_label(index: int, map_report: Any) -> str:
 
 #: Jäljitettävyysluvun selitys.
 #:
-#: Veeti 31.8.: *"ihmiselle hasheillä ja tunnisteilla ei ole mitään
-#: merkitystä, mutta projektille ja sen toiminnalle ne ovat arvokkaita"*.
+#: Tuotteen omistaja 31.8.: *"ihmiselle hasheillä ja tunnisteilla ei ole
+#: mitään merkitystä, mutta projektille ja sen toiminnalle ne ovat
+#: arvokkaita"*.
 #: Molemmat asiat ovat totta samassa lauseessa, joten pudotus palvelisi vain
 #: ensimmäistä. Luvun selitys sanoo tämän ääneen, jottei seuraava lukija
 #: pidä lukua jäänteenä.
@@ -3079,8 +3082,9 @@ def _pruning_legend(flags: _Flags, settings: ReportSettings) -> list[str]:
     raportissa karsimattomina.
 
     Jokainen kappale nimeää myös **asetuksen**, jolla sääntö käännetään pois.
-    Karsinta on Veetin säädettävissä ilman koodimuutosta, eikä se ole
-    säädettävissä, jos raportti ei kerro minkä nimistä arvoa säädetään.
+    Karsinta on tuotteen omistajan säädettävissä ilman koodimuutosta, eikä
+    se ole säädettävissä, jos raportti ei kerro minkä nimistä arvoa
+    säädetään.
     """
     notes: list[str] = []
     exception = _protected_round_types_text()

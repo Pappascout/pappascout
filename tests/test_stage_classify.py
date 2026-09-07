@@ -1747,13 +1747,14 @@ def test_ancient_calibration_verdicts_hold_on_the_real_demo(
     """Kalibroinnin 15 tuomiota **oikeasta demosta**, ei käsin rakennetusta rivistä.
 
     ``test_calibration.py`` pinnaa säännön: annetuilla luvuilla se antaa
-    Veetin tuomion. Se ei voi todeta, että demosta luetaan **ne luvut** --
-    taulun rivit ovat siellä syöte, ja jos mittaus ajautuu erilleen, sääntö
+    tuotteen omistajan tuomion. Se ei voi todeta, että demosta luetaan **ne
+    luvut** -- taulun rivit ovat siellä syöte, ja jos mittaus ajautuu
+    erilleen, sääntö
     menee yhä läpi omilla luvuillaan.
 
     Tämä sulkee ketjun toisesta päästä: demo parsitaan tuotannon asetuksilla,
     luokitellaan tuotannon kynnyksillä, ja jokaisen 15 rivin tuomiota
-    verrataan Veetin antamaan. Aiempi varmistus,
+    verrataan tuotteen omistajan antamaan. Aiempi varmistus,
     :func:`test_ancient_has_no_unclassified_rounds`, tyytyy siihen ettei arvo
     ole tyhjä -- minkä ``anomaly`` ja mikä tahansa väärä tuomio täyttää, eikä
     se kata kolmeatoista näistä viidestätoista rivistä lainkaan.
@@ -1779,7 +1780,8 @@ def test_ancient_calibration_verdicts_hold_on_the_real_demo(
         assert row is not None, f"kierros {k.round_no} {k.side} puuttuu demosta"
 
         assert row["round_type"] == k.truth, (
-            f"Kierros {k.round_no} {k.side}: Veeti sanoo {k.truth!r} "
+            f"Kierros {k.round_no} {k.side}: tuotteen omistaja sanoo "
+            f"{k.truth!r} "
             f"({k.basis}), demosta luokiteltuna {row['round_type']!r}. "
             f"Perustelu: {row['reason']}"
         )

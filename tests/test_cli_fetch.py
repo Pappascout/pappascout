@@ -787,10 +787,11 @@ def test_info_says_the_archive_directory_when_there_is_no_local_one(
     assert "(paikallinen)" not in rendered
 
 
-# -- Kohdehakemisto on osa kysymystä (Veeti 2026-09-05) ----------------------
+# -- Kohdehakemisto on osa kysymystä (tuotteen omistaja 2026-09-05) ----------
 #
-# Veeti ehdotti, että työkalu kysyisi mihin tallennetaan. Erillistä kysymystä ei
-# tehdä -- asetusrivi ja info-komento ovat jo se vastaus, ja joka ajolla
+# Tuotteen omistaja ehdotti, että työkalu kysyisi mihin tallennetaan.
+# Erillistä kysymystä ei tehdä -- asetusrivi ja info-komento ovat jo se
+# vastaus, ja joka ajolla
 # toistuva kysymys olisi kohinaa. Sen sijaan **vahvistuskysymys kertoo
 # kohteen** siinä missä se kertoo lukumäärän ja koon: käyttäjä näkee mihin
 # ollaan kirjoittamassa juuri silloin kun se ratkeaa, ja voi keskeyttää jos se
@@ -880,9 +881,10 @@ def test_a_denied_downloads_token_does_not_tell_the_user_to_retry(
 ) -> None:
     """**C1.** "Aja komento uudelleen" ei auta ennen kuin hakemus hyväksytään.
 
-    Mitattu 2026-09-05: Veetin hakemus oli jonossa ("waiting for review"), ja
-    työkalu lajitteli 403:n otsikon "Epäonnistui (2) -- aja komento uudelleen"
-    alle. Neuvo oli väärä, ja se olisi toistunut jokaisella ajolla.
+    Mitattu 2026-09-05: tuotteen omistajan hakemus oli jonossa ("waiting for
+    review"), ja työkalu lajitteli 403:n otsikon "Epäonnistui (2) -- aja
+    komento uudelleen" alle. Neuvo oli väärä, ja se olisi toistunut jokaisella
+    ajolla.
     """
     monkeypatch.setattr(
         "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--kylla"]

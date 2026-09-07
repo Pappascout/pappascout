@@ -1215,8 +1215,8 @@ def test_nothing_pending_is_a_plan_too(archive) -> None:
 
 # -- Sama tunniste ei voi päätyä listalle kahdesti (katselmus 6.9.) ---------
 #
-# Veetin vaatimus sanatarkasti: "Kunhan emme hae duplikaatteja tai missaa
-# selviä otteluita." Kaksoiskappale hakisi saman demon kahdesti ja
+# Tuotteen omistajan vaatimus sanatarkasti: "Kunhan emme hae duplikaatteja
+# tai missaa selviä otteluita." Kaksoiskappale hakisi saman demon kahdesti ja
 # kaksinkertaistaisi sekä lukumäärän että kokoarvion -- eli
 # vahvistuskysymyksen, joka kysyy väärää asiaa.
 

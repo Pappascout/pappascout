@@ -723,8 +723,9 @@ def test_threshold_values(settings_file: Path) -> None:
     assert t.full_equip_min == 4000
     assert t.anomaly_equip_max_after_win == 2000
     assert t.force_buy_min == 1500
-    # Puolioston kaksi ehtoa (Story 1.10). Ehto A on Veetin lausuma raja,
-    # ehto B kalibroitu inferno_vs_ryhmaraman kierroksia 6 ja 10 vasten.
+    # Puolioston kaksi ehtoa (Story 1.10). Ehto A on tuotteen omistajan
+    # lausuma raja, ehto B kalibroitu inferno_vs_ryhmaraman kierroksia 6 ja 10
+    # vasten.
     assert t.armed_players_min == 3
     assert t.normal_buy_money_min == 4000
     assert t.normal_buy_players_min == 3
@@ -1045,9 +1046,10 @@ def test_the_late_sample_point_is_off_by_default() -> None:
     """Sääntö 3 on mittaustulos: 45 s ei ole toistoa vaan ohut havainto.
 
     Mitattu kaikista kahdeksasta demosta: 45 s -piste kuvaa 53 % joukkueesta
-    ja on olemassa 285/354 kierrospuolella. Se on vinoutunut, mutta Veetin
-    analyyseissä on myöhäisen kierroksen havaintoja, joten poistaminen voi
-    maksaa sisältöä -- asetus on olemassa, oletus on säilyttää.
+    ja on olemassa 285/354 kierrospuolella. Se on vinoutunut, mutta tuotteen
+    omistajan analyyseissä on myöhäisen kierroksen havaintoja, joten
+    poistaminen voi maksaa sisältöä -- asetus on olemassa, oletus on
+    säilyttää.
     """
     assert ReportSettings().skip_sample_seconds == []
 

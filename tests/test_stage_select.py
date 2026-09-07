@@ -310,9 +310,9 @@ def test_four_regulars_and_one_outsider_is_accepted_and_the_reason_names_them(
 ) -> None:
     """I/O-matriisi: 4 vakipelaajaa + 1 ulkopuolinen -> kelpaa, luokka 4/5.
 
-    Veeti 2026-09-04: ottelu on samaa joukkuetta vastaan vaikka toisessa
-    ottelussa heillä olisi yksi substitution pelaaja. Ulkopuolinen **lasketaan
-    mukaan**; ero on luokassa.
+    Tuotteen omistaja 2026-09-04: ottelu on samaa joukkuetta vastaan vaikka
+    toisessa ottelussa heillä olisi yksi substitution pelaaja. Ulkopuolinen
+    **lasketaan mukaan**; ero on luokassa.
     """
     matches = borrow(division_matches(), SUBJECT_FACTION, PLAYED_MATCH, keep=4)
     index(archive, league, thresholds, matches=matches)
@@ -447,7 +447,8 @@ def test_is_league_is_not_read_from_the_competition_name(archive, thresholds) ->
 def test_a_third_map_in_a_best_of_three_is_not_counted_into_the_sample(
     league, archive, thresholds
 ) -> None:
-    """Veeti vahvisti 4.9.: playoffit ovat BO3, joten tämä ei ole teoreettinen.
+    """Tuotteen omistaja vahvisti 4.9.: playoffit ovat BO3, joten tämä ei ole
+    teoreettinen.
 
     2-0 päättyneessä BO3:ssa vedossa on kolme karttaa mutta demoja kaksi.
     Kolmas rivi syntyy -- se ei katoa hiljaa -- mutta se ei pääse otantaan

@@ -235,7 +235,7 @@ def match_payload(match_id: str = "1-aaaa", **overrides: Any) -> dict[str, Any]:
                 "roster": [
                     {
                         "player_id": "p-potku-1",
-                        "nickname": "veeti",
+                        "nickname": "pelaaja",
                         "game_player_id": "76561197977479426",
                     },
                     {
@@ -831,7 +831,8 @@ def test_the_default_budget_is_a_guard_not_a_neutral_zero() -> None:
 
 
 def test_the_match_list_is_never_cached(tmp_path: Path) -> None:
-    """Veetin päätös 4.9.2026: ottelulistaa ei välimuistiteta lainkaan.
+    """Tuotteen omistajan päätös 4.9.2026: ottelulistaa ei välimuistiteta
+    lainkaan.
 
     Se on **yksi kutsu per ajo** -- divisioonan 66 ottelua mahtuu yhdelle
     sivulle -- ja se **muuttuu jatkuvasti**: 60 ottelua 66:sta oli tilassa
@@ -1503,7 +1504,7 @@ def test_the_port_speaks_the_core_vocabulary_not_faceits(tmp_path: Path) -> None
     # Järjestys on avainten mukaan, jotta se on sama joka ajolla.
     assert [team.name for team in match.teams] == ["PotkukelkkaPeek", "Imuaijat"]
     assert [p.player_id for p in match.teams[0].roster] == ["p-potku-1", "p-potku-2"]
-    assert match.teams[0].roster[0].nickname == "veeti"
+    assert match.teams[0].roster[0].nickname == "pelaaja"
     # map_index on indeksi tähän monikkoon; map_demo_id rakentuu siitä.
     assert match.map_picks == ("de_nuke", "de_ancient")
     # best_of on eri luku kuin map_picksin pituus, ja se kulkee portin läpi.

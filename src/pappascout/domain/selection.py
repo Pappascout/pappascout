@@ -23,9 +23,10 @@ demosta. Rivi sanoo kummasta on kyse (:data:`ROSTER_SOURCES`), täsmälleen kute
 voittaa** ja ero ottelurosteriin kerrotaan -- vaihto karttojen välissä on juuri
 se asia, jota varten kynnys arvioidaan karttakohtaisesti, eikä sitä saa vaientaa.
 
-**Neljä vakipelaajaa ja yksi ulkopuolinen kelpaa.** Veeti 2026-09-04: *"ottelu on
-samaa joukkuetta vastaan vaikka toisessa ottelussa heillä olisi yksi
-substitution pelaaja."* Ulkopuolisen sijainnit lasketaan mukaan; luokka erottelee
+**Neljä vakipelaajaa ja yksi ulkopuolinen kelpaa.** Tuotteen omistaja
+2026-09-04: *"ottelu on samaa joukkuetta vastaan vaikka toisessa ottelussa
+heillä olisi yksi substitution pelaaja."* Ulkopuolisen sijainnit lasketaan
+mukaan; luokka erottelee
 ``5/5`` ja ``4/5``, jotta raportti voi erotella ne kierrokset toisistaan.
 
 **Vetotiedon kartta ei ole todiste pelatusta kartasta.** Kolmen kartan ottelusta

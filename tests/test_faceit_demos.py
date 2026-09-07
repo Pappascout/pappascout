@@ -897,11 +897,11 @@ def test_an_html_error_page_from_the_real_adapter_is_not_stored(tmp_path) -> Non
 
 # -- Valtuutusvika on globaali (C1, C2 -- ensimmäinen oikea ajo 2026-09-05) --
 #
-# Veetin Downloads API -hakemus oli jonossa, ja Data API -avain ei kelpaa
-# Downloads API:in. Ajo tuotti kaksi identtistä 403:a, jotka lajiteltiin
-# otsikon "aja komento uudelleen" alle -- neuvo, joka ei auta ennen kuin
-# hakemus hyväksytään. Kahdellatoista demolla se olisi ollut kaksitoista
-# tuomittua signauskutsua.
+# Tuotteen omistajan Downloads API -hakemus oli jonossa, ja Data API -avain
+# ei kelpaa Downloads API:in. Ajo tuotti kaksi identtistä 403:a, jotka
+# lajiteltiin otsikon "aja komento uudelleen" alle -- neuvo, joka ei auta
+# ennen kuin hakemus hyväksytään. Kahdellatoista demolla se olisi ollut
+# kaksitoista tuomittua signauskutsua.
 #
 # Nämä testit ajavat **oikean adapterin oikean vaiheen läpi**, koska juuri se
 # sauma erosi: vaihetestin feikki ei voi tuottaa 403:a Downloads API:sta.

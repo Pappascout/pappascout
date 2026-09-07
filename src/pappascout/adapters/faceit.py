@@ -55,8 +55,9 @@ mittausta** ja nojasi oletukseen, että vastaukset ovat pysyviä. Mittaus
   **muuttumattomia** heti kun ottelu on pelattu. Siellä välimuisti on selvä
   hyöty. FACEITin raja on epävirallisesti noin 10 000 kutsua tunnissa.
 
-Vaatimus, joka tämän ratkaisee, on Veetin oma ja parempi kuin mikään
-vanhenemisaika: *"Kunhan emme hae duplikaatteja tai missaa selviä otteluita."*
+Vaatimus, joka tämän ratkaisee, on tuotteen omistajan oma ja parempi kuin
+mikään vanhenemisaika: *"Kunhan emme hae duplikaatteja tai missaa selviä
+otteluita."*
 **Vanhenemisaikaa ei siksi ole** -- ei kelloa, ei TTL:ää, ei asetusta.
 Vähemmän liikkuvia osia kuin ajassa mitatussa säännössä, ja se sanoo suoraan
 sen mitä tarkoittaa: muuttumaton vastaus säilytetään, muuttuvaa ei.
@@ -200,8 +201,8 @@ _NO_CONTENT_STATUSES = frozenset({204, 205})
 #: Väärin päin tehdyn valinnan hinta ratkaisee: ``CANCELLED``in
 #: välimuistittaminen säästäisi **yhden kutsun**, ja epäonnistuessaan se
 #: hukkaisi **pelatun ottelun demon pysyvästi** (FACEIT säilyttää demot noin
-#: 30 päivää). Se on täsmälleen se, mitä Veetin vaatimus "älä missaa selviä
-#: otteluita" kieltää.
+#: 30 päivää). Se on täsmälleen se, mitä tuotteen omistajan vaatimus "älä
+#: missaa selviä otteluita" kieltää.
 CACHEABLE_MATCH_STATUSES = frozenset({"FINISHED"})
 
 #: Ohje, joka kuuluu jokaiseen virheeseen, jonka syy voi olla levyllä.
@@ -2032,9 +2033,9 @@ class FaceitDemoSource:
         """Mitä tehdä, kun Downloads API kieltäytyy. **Odottaminen on osa sitä.**
 
         Mitattu 2026-09-05 ensimmäisessä oikeassa ajossa: Data API -avain ei
-        kelpaa Downloads API:in, ja käyttöoikeutta haetaan erikseen. Veetin
-        hakemus oli tuolloin jonossa ("In queue -- waiting for review",
-        lähetetty 26.8.2026).
+        kelpaa Downloads API:in, ja käyttöoikeutta haetaan erikseen. Tuotteen
+        omistajan hakemus oli tuolloin jonossa ("In queue -- waiting for
+        review", lähetetty 26.8.2026).
 
         Yleinen viesti sanoi tästä "vika ei korjaannu odottamalla", ja se on
         **harhaanjohtava juuri tässä**: väite on tosi uudelleenyrityksestä

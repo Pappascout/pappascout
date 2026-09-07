@@ -164,8 +164,8 @@ Panssari säilyy kierroksen yli hengissä selvinneellä, myös vaurioituneena
 (37/100 on yhä panssari), joten laskuri kertoo mitä pelaajilla oli, ei mitä he
 ostivat. **Poikkeus on pistoolikierros** (1 ja 13): puoliaika alkaa puhtaalta
 pöydältä eikä perintää ole, joten siellä -- ja vain siellä -- luku on
-ostohavainto. Juuri siksi Veetin *"5 kevlaria"* on oikea luenta Nuken
-T-pistoolista.
+ostohavainto. Juuri siksi tuotteen omistajan *"5 kevlaria"* on oikea luenta
+Nuken T-pistoolista.
 
 Pistoolikierroksella laskurit myös eroavat eniten: 800 dollarin aloitusrahalla
 kevlar (650) ja parannettu ase eivät mahdu samaan ostokseen, joten aseistettuja
