@@ -843,7 +843,7 @@ class MatchSource(Protocol):
 
     An implementation may use the network, a cache and retries; the port
     promises nothing about them. The only promise is that an error is an
-    :class:`~pappascout.errors.ApiError` and that its message is in Finnish.
+    :class:`~pappascout.errors.ApiError`.
 
     **Two methods and not four.** ARCHITECTURE-SPINE (AD-8) also listed
     ``get_roster`` and ``get_veto`` for the port, but the data of both is in

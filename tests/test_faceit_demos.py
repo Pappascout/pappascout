@@ -286,7 +286,7 @@ def test_a_map_that_was_never_played_is_no_demo_and_says_which_rounds_exist(
         source.get_demo(f"{MATCH}-2")
 
     message = str(excinfo.value)
-    assert "kartta 3" in message.lower() or "karttaa 3" in message
+    assert "map 3" in message
     assert "1, 2" in message
     assert session.posts == []
 
@@ -302,7 +302,7 @@ def test_an_instance_without_a_demo_is_a_different_reason_than_a_missing_one(
     with pytest.raises(DemoUnavailable) as excinfo:
         source.get_demo(UNIT)
 
-    assert "ei tallennetta" in str(excinfo.value)
+    assert "no recording" in str(excinfo.value)
 
 
 def test_an_empty_first_instance_does_not_hide_a_later_one(tmp_path) -> None:
@@ -350,7 +350,7 @@ def test_two_different_recordings_for_one_map_are_not_chosen_silently(
         source.get_demo(UNIT)
 
     message = str(excinfo.value)
-    assert "2 eri tallennetta" in message
+    assert "2 different recordings" in message
     assert "first.dem.zst" in message
     assert "second.dem.zst" in message
     assert session.posts == []
@@ -438,8 +438,8 @@ def test_a_gone_demo_is_no_demo_and_says_how_old_the_match_is(
 
     message = str(excinfo.value)
     assert str(status) in message
-    assert "45 päivää" in message
-    assert "30 päivää" in message
+    assert "45 days" in message
+    assert "30 days" in message
     assert UNIT in message
 
 
@@ -471,7 +471,7 @@ def test_a_gone_demo_without_a_finish_time_does_not_invent_an_age(
     with pytest.raises(DemoUnavailable) as excinfo:
         source.get_demo(UNIT)
 
-    assert "ikää ei voi kertoa" in str(excinfo.value)
+    assert "age cannot be given" in str(excinfo.value)
 
 
 def test_a_403_is_still_a_download_failure_not_a_missing_demo(tmp_path) -> None:
@@ -836,11 +836,11 @@ def test_a_deleted_demo_becomes_no_demo_all_the_way_through_the_stage(
     assert result.status == "no_demo"
     assert archive.find_demo(UNIT) is None
     reason = result.reason or ""
-    assert "30 päivää" in reason
-    assert "45 päivää" in reason
+    assert "30 days" in reason
+    assert "45 days" in reason
     # The user is not advised to run the command again for a demo that is not
     # coming back.
-    assert "aja komento uudelleen" not in reason.lower()
+    assert "run the command again" not in reason.lower()
 
 
 def test_a_transient_failure_becomes_download_failed_through_the_stage(
@@ -1039,8 +1039,8 @@ def test_the_denied_message_does_not_claim_that_waiting_will_not_help(
         source.get_demo(UNIT)
 
     message = str(excinfo.value)
-    assert "ei korjaannu odottamalla" not in message
-    assert "Odottaminen" in message
+    assert "not fixed by waiting" not in message
+    assert "Waiting" in message
 
 
 def test_the_denied_message_names_the_key_file_that_was_actually_read(
@@ -1157,7 +1157,7 @@ def test_a_400_does_not_advise_running_the_command_again(tmp_path) -> None:
         source.get_demo(UNIT)
 
     advice = excinfo.value.advice or ""
-    assert "Uudelleenajo ei auta" in advice
+    assert "Running again does not help" in advice
     assert "FACEIT_DOWNLOADS_TOKEN" in advice
 
 
@@ -1178,11 +1178,11 @@ def test_a_400_names_both_possible_causes_and_does_not_pick_one(
 
     message = str(excinfo.value)
     assert "FACEIT_DOWNLOADS_TOKEN" in message
-    assert "tallenneosoite" in message
+    assert "recording address" in message
     # The rule by which the user tells the causes apart -- not a guess at
     # which one it is.
-    assert "kaikki" in message.lower()
-    assert "vain tämä" in message
+    assert "**all**" in message
+    assert "only this one" in message
 
 
 def test_a_400_shows_faceits_own_error_text_when_there_is_one(
@@ -1244,7 +1244,7 @@ def test_a_400_without_any_body_does_not_invent_an_explanation(
     with pytest.raises(ApiError) as excinfo:
         build(tmp_path, session).get_demo(UNIT)
 
-    assert "FACEIT sanoi" not in str(excinfo.value)
+    assert "FACEIT said" not in str(excinfo.value)
 
 
 def test_a_400_does_not_leak_the_token(tmp_path) -> None:
@@ -1275,6 +1275,6 @@ def test_a_400_reaches_the_stage_as_download_failed_with_its_own_advice(
     assert result.status == "download_failed"
     assert "Invalid token" in (result.reason or "")
     step = result.stats["next_step"]
-    assert "Uudelleenajo ei auta" in step
+    assert "Running again does not help" in step
     assert step != fetch_stage.DEFAULT_NEXT_STEP
     assert archive.find_demo(UNIT) is None

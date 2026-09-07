@@ -131,15 +131,25 @@ TRANSLATED_TRANCHES: tuple[Tranche, ...] = (
     Tranche(
         story="T2",
         # Three of the five modules in ``adapters``. The package cannot be
-        # listed yet: ``demo_parser.py`` and ``faceit.py`` still hold 1 159
-        # and 518 Finnish prose lines, measured 2026-09-08. T3 and T4 take
-        # those, and the package entry replaces these three when it does.
+        # listed yet: ``demo_parser.py`` still holds 1 159 Finnish prose
+        # lines, measured 2026-09-08. T4 takes it, and the package entry
+        # replaces the module entries when it does.
         sources=(
             ("src/pappascout/adapters/protocols.py", 1),
             ("src/pappascout/adapters/__init__.py", 1),
             ("src/pappascout/adapters/decompress.py", 1),
         ),
         tests=("tests/test_faceit_demos.py",),
+    ),
+    Tranche(
+        story="T3",
+        # The fourth of the five modules in ``adapters``, listed on its own
+        # for the reason above. ``protocols.py`` changed in this commit too
+        # -- ``MatchSource`` stopped promising that its error message is in
+        # Finnish, which was true only while this module was untranslated --
+        # but it is already listed under T2, and a path may be listed once.
+        sources=(("src/pappascout/adapters/faceit.py", 1),),
+        tests=("tests/test_faceit.py",),
     ),
 )
 

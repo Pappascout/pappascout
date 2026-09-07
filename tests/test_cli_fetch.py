@@ -920,7 +920,7 @@ def test_only_one_signing_call_is_made_before_the_run_stops(
     assert len(session.posts) == 1
 
 
-def test_the_denied_message_reaches_the_screen_in_finnish(
+def test_the_denied_message_reaches_the_screen_and_says_waiting_helps(
     denied_pipeline, monkeypatch, capsys
 ) -> None:
     _archive, _session, _units = denied_pipeline
@@ -932,8 +932,8 @@ def test_the_denied_message_reaches_the_screen_in_finnish(
         main()
 
     text = "".join(capsys.readouterr())
-    assert "Downloads API on erillinen käyttöoikeus" in text
-    assert "Odottaminen" in text
+    assert "The Downloads API is a separate authorisation" in text
+    assert "Waiting" in text
 
 
 # -- Vastaamatta jättäminen on vastaus (C3) ---------------------------------

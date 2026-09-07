@@ -1025,7 +1025,7 @@ def test_only_one_signing_call_is_made_before_the_run_stops(
     assert len(session.posts) == 1
 
 
-def test_the_denied_message_names_the_status_page_in_finnish(
+def test_the_denied_message_names_the_status_page(
     denied, monkeypatch, capsys
 ) -> None:
     monkeypatch.setattr("sys.argv", ["pappascout", "collect", "--kylla"])
@@ -1034,7 +1034,7 @@ def test_the_denied_message_names_the_status_page_in_finnish(
         main()
 
     text = "".join(capsys.readouterr())
-    assert "Downloads API on erillinen käyttöoikeus" in text
+    assert "The Downloads API is a separate authorisation" in text
     assert "downloads-api-application" in text
     assert "aja komento uudelleen" not in text.lower()
 

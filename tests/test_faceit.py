@@ -1,13 +1,13 @@
-"""FACEIT-asiakkaan testit -- kaikki offline (Story 3.1).
+"""The FACEIT client's tests -- all offline (Story 3.1).
 
-**Yksikään testi tässä tiedostossa ei koske verkkoon**, eikä se ole tapa vaan
-rakenne: :func:`_no_network` estää jokaisen oikean HTTP-kutsun koko moduulin
-ajaksi, ja jokainen asiakas rakennetaan :class:`FakeSession`illa, joka
-palauttaa käsin kirjoitetun vastauksen. Jos joku vahingossa poistaisi
-kuljetuksen parametrista, testi ei mene hiljaa verkkoon vaan kaatuu.
+**No test in this file touches the network**, and that is not a habit but a
+structure: :func:`_no_network` blocks every real HTTP call for the whole
+module, and every client is built with a :class:`FakeSession` that returns a
+hand-written response. If somebody removed the transport from the parameters
+by accident, the test does not go quietly to the network but fails.
 
-Oikeaa rajapintaa vasten todennetaan käsin, ja tulos kirjataan speksin
-"Manual checks" -osioon.
+Verification against the real interface is done by hand, and the result is
+recorded in the spec's "Manual checks" section.
 """
 
 from __future__ import annotations
@@ -42,18 +42,18 @@ from pappascout.domain.models import (
 )
 from pappascout.errors import ApiError, PappascoutError, SettingsError
 
-#: Avain, joka on tunnistettavissa tulosteesta ja tiedostosta.
+#: A key that can be recognised in the output and in a file.
 #:
-#: Ei "avain" eikä "test": haku ``grep`` löytää tämän merkkijonon vain, jos
-#: avain todella vuoti johonkin -- geneerinen sana osuisi kommentteihin ja
-#: tekisi vartijasta hampaattoman.
+#: Not "key" and not "test": a ``grep`` finds this string only if the key
+#: really leaked somewhere -- a generic word would hit the comments and would
+#: leave the guard toothless.
 KEY = "salainen-avain-XYZZY-42"
 
-#: Pappaliigan kauden 13 championship (settings.toml, [league]).
+#: The championship of Pappaliiga season 13 (settings.toml, [league]).
 CHAMPIONSHIP = "94681888-b5da-4ab5-bf50-f44b666b98a3"
 
-#: Testien oma juuri. **Ei oikea osoite**, jottei yksikään testi voi osua
-#: siihen edes vahingossa -- ja https, koska asiakas vaatii sen.
+#: The tests' own root. **Not a real address**, so that no test can hit it
+#: even by accident -- and https, because the client requires it.
 BASE = "https://faceit.invalid/data/v4"
 
 MATCHES_URL = f"{BASE}/championships/{CHAMPIONSHIP}/matches"
@@ -61,30 +61,32 @@ MATCHES_URL = f"{BASE}/championships/{CHAMPIONSHIP}/matches"
 
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Katkaise oikea HTTP koko moduulin ajaksi.
+    """Cut off real HTTP for the whole module.
 
-    ``conftest`` eristää testit koneen tiedostoista; tämä eristää ne verkosta.
-    Katkaisu on ``HTTPAdapter.send``issä eikä ``Session.get``issä, koska juuri
-    se on se kohta, jossa ``requests`` avaa yhteyden -- ja siksi sen ohi ei
-    pääse millään ``Session``in kutsutavalla.
+    ``conftest`` isolates the tests from the machine's files; this isolates
+    them from the network. The cut is in ``HTTPAdapter.send`` and not in
+    ``Session.get``, because that is precisely the place where ``requests``
+    opens a connection -- and so no way of calling ``Session`` can get past
+    it.
     """
 
     def _refuse(*args: Any, **kwargs: Any) -> None:
         raise AssertionError(
-            "Testi yritti mennä verkkoon. Anna FaceitClientille session-parametri."
+            "A test tried to go to the network. Give FaceitClient a session "
+            "parameter."
         )
 
     monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", _refuse)
 
 
-# -- Kiinnikkeet -------------------------------------------------------------
+# -- The fixtures ------------------------------------------------------------
 
 
 class FakeResponse:
-    """Käsin kirjoitettu HTTP-vastaus.
+    """A hand-written HTTP response.
 
-    ``payload=None`` tarkoittaa "vastaus ei ole JSONia": :meth:`json` nostaa
-    ``ValueError``in täsmälleen kuten ``requests`` tekee HTML-sivulle.
+    ``payload=None`` means "the response is not JSON": :meth:`json` raises a
+    ``ValueError`` exactly as ``requests`` does for an HTML page.
     """
 
     def __init__(
@@ -110,13 +112,14 @@ class FakeResponse:
 
 
 class FakeSession:
-    """Kuljetus, joka jakaa jonosta valmiita vastauksia eikä avaa yhteyttä.
+    """A transport that hands out ready responses from a queue and opens no
+    connection.
 
-    Jonon alkio saa olla myös poikkeus, jolloin se nostetaan -- niin
-    yhteysvirhe ja aikakatkaisu ovat testattavissa samalla kiinnikkeellä.
+    An item in the queue may also be an exception, in which case it is raised
+    -- so a connection error and a timeout are testable with the same fixture.
 
-    ``closed`` kertoo, sulkiko asiakas kuljetuksen. Injektoitua kuljetusta
-    **ei saa** sulkea: se on kutsujan omaisuutta.
+    ``closed`` says whether the client closed the transport. An injected
+    transport **must not** be closed: it is the caller's property.
     """
 
     def __init__(self, *responses: Any) -> None:
@@ -144,8 +147,8 @@ class FakeSession:
         )
         if not self.queue:
             raise AssertionError(
-                f"Kutsuja oli enemmän kuin vastauksia: {len(self.calls)}. "
-                f"Viimeisin: {url} {params}"
+                f"There were more calls than responses: {len(self.calls)}. "
+                f"The last one: {url} {params}"
             )
         item = self.queue.pop(0)
         if isinstance(item, Exception):
@@ -157,10 +160,11 @@ class FakeSession:
 
 
 class FakeClock:
-    """Kello, joka liikkuu vain kun testi liikuttaa sitä.
+    """A clock that moves only when the test moves it.
 
-    Aikabudjetti on mitattavissa vasta, kun aika on testin hallinnassa: oikeaa
-    kelloa vasten testi joko nukkuisi minuutteja tai mittaisi konetta.
+    The time budget is measurable only once time is under the test's control:
+    against a real clock the test would either sleep for minutes or measure
+    the machine.
     """
 
     def __init__(self) -> None:
@@ -176,11 +180,12 @@ class FakeClock:
 def make_client(
     tmp_path: Path, *responses: Any, **kwargs: Any
 ) -> tuple[FaceitClient, FakeSession, list[float]]:
-    """Asiakas kiinnikkeillä: kuljetus, tallennetut odotukset ja välimuisti.
+    """A client with its fixtures: the transport, the recorded waits and the
+    cache.
 
-    Heitto on oletuksena pois (``random_source`` palauttaa 0.0), jotta
-    odotukset ovat vertailtavissa lukuina; heiton oma testi antaa toisen
-    lähteen.
+    The jitter is off by default (``random_source`` returns 0.0), so that the
+    waits are comparable as numbers; the jitter's own test gives another
+    source.
     """
     session = FakeSession(*responses)
     waits: list[float] = []
@@ -197,11 +202,11 @@ def make_client(
 
 
 def match_payload(match_id: str = "1-aaaa", **overrides: Any) -> dict[str, Any]:
-    """Yksi FACEIT-ottelu sellaisena kuin rajapinta sen antaa.
+    """One FACEIT match as the interface gives it.
 
-    Kentät ja niiden muodot ovat Data API v4:n mukaiset: ajat epoch-sekunteina,
-    osapuolet ``faction1``/``faction2``-avaimien takana, kartat
-    ``voting.map.pick``-listassa.
+    The fields and their shapes follow the Data API v4: times as epoch
+    seconds, the sides behind the ``faction1``/``faction2`` keys, the maps in
+    the ``voting.map.pick`` list.
     """
     payload: dict[str, Any] = {
         "match_id": match_id,
@@ -254,7 +259,7 @@ def match_payload(match_id: str = "1-aaaa", **overrides: Any) -> dict[str, Any]:
             },
         },
         "voting": {"map": {"pick": ["de_nuke", "de_ancient"]}},
-        # Mitattu 2026-09-04: ``best_of`` on 2 kaikissa 66 ottelussa.
+        # Measured 2026-09-04: ``best_of`` is 2 in all 66 matches.
         "best_of": 2,
     }
     payload.update(overrides)
@@ -262,11 +267,12 @@ def match_payload(match_id: str = "1-aaaa", **overrides: Any) -> dict[str, Any]:
 
 
 def cache_files(client: FaceitClient) -> list[Path]:
-    """Välimuistitiedostot listana -- myös kun hakemistoa ei ole luotu.
+    """The cache files as a list -- even when the directory has not been
+    created.
 
-    Ottelulistaa ei enää välimuistiteta, joten hakemistoa ei välttämättä ole
-    olemassa lainkaan. ``glob`` puuttuvassa hakemistossa palauttaa tyhjän,
-    mutta tämä sanoo aikomuksen ääneen: "levylle ei jäänyt mitään".
+    The match list is no longer cached, so the directory need not exist at
+    all. ``glob`` on a missing directory returns nothing, but this says the
+    intent out loud: "nothing was left on disk".
     """
     return sorted(client.cache_dir.glob("*.json"))
 
@@ -275,21 +281,22 @@ def page(*matches: dict[str, Any]) -> FakeResponse:
     return FakeResponse(200, {"items": list(matches), "start": 0, "end": len(matches)})
 
 
-# -- Avain puuttuu tai on tyhjä ---------------------------------------------
+# -- The key is missing or empty ---------------------------------------------
 
 
 def test_missing_key_stops_the_run_and_names_the_file_and_the_line(
     settings_file: Path,
 ) -> None:
-    """I/O-matriisi: ``.env`` ilman ``FACEIT_API_KEY``.
+    """The I/O matrix: ``.env`` without ``FACEIT_API_KEY``.
 
-    Viesti kertoo **tiedoston polun ja tarvittavan rivin**. Pelkkä "avain
-    puuttuu" jättäisi käyttäjän etsimään, ja käyttäjä ei koodaa itse.
+    The message states **the file's path and the line that is needed**. "The
+    key is missing" alone would leave the user searching, and the user does
+    not code.
     """
     settings = load_settings(settings_file, env_files=())
 
     with pytest.raises(SettingsError) as exc:
-        FaceitClient.from_settings(settings, Path("ei-kayteta"))
+        FaceitClient.from_settings(settings, Path("not-used"))
 
     message = str(exc.value)
     assert "FACEIT_API_KEY" in message
@@ -301,17 +308,18 @@ def test_missing_key_stops_the_run_and_names_the_file_and_the_line(
 def test_empty_or_blank_key_is_the_same_as_a_missing_one(
     settings_file: Path, env_file: Any, value: str
 ) -> None:
-    """I/O-matriisi: tyhjä tai pelkkiä välilyöntejä sisältävä avain.
+    """The I/O matrix: a key that is empty or nothing but spaces.
 
-    Tyhjä merkkijono on avaimen puuttuminen kirjoitettuna näkyviin, ja
-    lainausmerkit ovat tavallisin tapa kirjoittaa se. Jos tämä menisi läpi,
-    virhe tulisi vasta rajapinnalta 401:nä -- eli väärästä paikasta.
+    An empty string is a missing key written out in the open, and quotation
+    marks are the commonest way of writing it. If this got through, the error
+    would come only from the interface as a 401 -- that is, from the wrong
+    place.
     """
     env = env_file(".env", FACEIT_API_KEY=value)
     settings = load_settings(settings_file, env_files=(env,))
 
     with pytest.raises(SettingsError) as exc:
-        FaceitClient.from_settings(settings, Path("ei-kayteta"))
+        FaceitClient.from_settings(settings, Path("not-used"))
 
     assert str(env) in str(exc.value)
 
@@ -319,18 +327,19 @@ def test_empty_or_blank_key_is_the_same_as_a_missing_one(
 def test_an_environment_variable_alone_is_not_a_key(
     settings_file: Path, env_file: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Avainta ei kierretä ympäristömuuttujalla ``Secrets``in ohi.
+    """The key is not smuggled past ``Secrets`` in an environment variable.
 
-    **Tämä testi asettaa avaimen oikeasti ympäristöön** ja jättää sen pois
-    ``.env``-tiedostosta. Ilman ``setenv``-kutsua testi olisi merkki merkiltä
-    sama kuin puuttuvan avaimen testi ja menisi läpi, vaikka asiakas lukisi
-    ``os.environ``ia suoraan -- eli vartija näyttäisi vartijalta olematta
-    sellainen. (Juuri niin se oli kirjoitettu ensin, ja katselmus löysi sen.)
+    **This test really does set the key in the environment** and leaves it out
+    of the ``.env`` file. Without the ``setenv`` call the test would be
+    character for character the same as the missing-key test and would pass
+    even if the client read ``os.environ`` directly -- that is, the guard
+    would look like a guard without being one. (That is exactly how it was
+    written first, and the review found it.)
 
-    ``.env`` ladataan **ennen** muuttujan asettamista, koska
-    ``pydantic-settings`` lukee ympäristön ``Settings``ia rakentaessaan: jos
-    muuttuja olisi asetettu ensin, avain päätyisi ``Settings``iin laillista
-    reittiä eikä testi mittaisi mitään.
+    ``.env`` is loaded **before** the variable is set, because
+    ``pydantic-settings`` reads the environment while building ``Settings``:
+    if the variable were set first, the key would end up in ``Settings`` by a
+    legitimate route and the test would measure nothing.
     """
     settings = load_settings(settings_file, env_files=(env_file(".env"),))
     assert settings.faceit_api_key is None
@@ -344,14 +353,15 @@ def test_an_environment_variable_alone_is_not_a_key(
 
 
 def test_the_module_never_touches_the_environment() -> None:
-    """``faceit.py`` ei lue ympäristöä lainkaan.
+    """``faceit.py`` does not read the environment at all.
 
-    Edellinen testi mittaa käytöstä; tämä mittaa rakennetta. Yhdessä ne
-    sanovat, ettei toista lukutapaa voi lisätä vahingossa.
+    The previous test measures behaviour; this measures structure. Together
+    they say that a second way of reading cannot be added by accident.
 
-    Tarkistus on AST:stä eikä tekstistä: tekstihaku osuisi moduulin omaan
-    docstringiin, joka **selittää** ettei ympäristöä lueta -- eli
-    dokumentaatio kaataisi vartijan, jota se kuvaa.
+    The check is on the AST and not on the text: a text search would hit the
+    module's own docstring, which **explains** that the environment is not
+    read -- that is, the documentation would bring down the guard it
+    describes.
     """
     source = Path(faceit_module.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source, filename=faceit_module.__file__)
@@ -369,7 +379,8 @@ def test_the_module_never_touches_the_environment() -> None:
 def test_from_settings_takes_every_knob_from_the_faceit_section(
     settings_file: Path, env_file: Any, tmp_path: Path
 ) -> None:
-    """``[faceit]``-osio on se, joka päättää -- ei adapterin oletus."""
+    """The ``[faceit]`` section is the one that decides -- not the adapter's
+    default."""
     env = env_file(".env", FACEIT_API_KEY=KEY)
     settings = load_settings(settings_file, env_files=(env,))
 
@@ -391,10 +402,11 @@ def test_from_settings_takes_every_knob_from_the_faceit_section(
 def test_from_settings_cannot_be_used_to_override_a_setting(
     settings_file: Path, env_file: Any, tmp_path: Path
 ) -> None:
-    """Asetusarvoa ei voi ohittaa ``from_settings``in kautta.
+    """A setting cannot be overridden through ``from_settings``.
 
-    Jos sen voisi, ``[faceit]``-osio ei enää olisi se, joka päättää -- ja
-    ohitus näkyisi vain kutsupaikalla, ei tiedostossa jota säädetään.
+    If it could, the ``[faceit]`` section would no longer be the one that
+    decides -- and the override would show only at the call site, not in the
+    file that is being adjusted.
     """
     env = env_file(".env", FACEIT_API_KEY=KEY)
     settings = load_settings(settings_file, env_files=(env,))
@@ -403,15 +415,17 @@ def test_from_settings_cannot_be_used_to_override_a_setting(
         FaceitClient.from_settings(settings, tmp_path, page_size=7)
 
 
-# -- Kutsun kohde ------------------------------------------------------------
+# -- Where the call goes -----------------------------------------------------
 
 
 def test_the_request_goes_to_the_documented_address(tmp_path: Path) -> None:
-    """Osoite, parametrit, otsakkeet ja aikakatkaisu ovat assertin takana.
+    """The address, the parameters, the headers and the timeout are behind an
+    assertion.
 
-    Ilman tätä ``FakeSession`` jakaisi vastauksia osoitteesta riippumatta:
-    polun voisi vaihtaa muotoon ``/match`` tai ``type``-parametrin poistaa, ja
-    koko sarja pysyisi vihreänä. Katselmus löysi juuri sen aukon.
+    Without this ``FakeSession`` would hand out responses whatever the
+    address: the path could be changed to ``/match`` or the ``type`` parameter
+    removed, and the whole suite would stay green. The review found exactly
+    that gap.
     """
     client, session, _waits = make_client(tmp_path, page(match_payload()))
 
@@ -422,8 +436,8 @@ def test_the_request_goes_to_the_documented_address(tmp_path: Path) -> None:
     assert call.params == {"type": "all", "offset": 0, "limit": client.page_size}
     assert call.headers["Accept"] == "application/json"
     assert call.timeout == client.timeout_seconds
-    # Uudelleenohjausta ei seurata: se lähettäisi avaimen osoitteeseen, jota
-    # tämä moduuli ei valinnut.
+    # A redirect is not followed: it would send the key to an address this
+    # module did not choose.
     assert call.allow_redirects is False
 
 
@@ -442,7 +456,8 @@ def test_the_match_request_goes_to_the_match_address(tmp_path: Path) -> None:
 
 
 def test_an_http_address_is_refused(tmp_path: Path) -> None:
-    """Avain kulkee otsakkeessa, ja ``http`` lähettäisi sen selkokielisenä."""
+    """The key travels in a header, and ``http`` would send it in the
+    clear."""
     with pytest.raises(SettingsError) as exc:
         FaceitClient(KEY, tmp_path, base_url="http://faceit.invalid/data/v4")
 
@@ -453,16 +468,16 @@ def test_the_real_default_address_is_https() -> None:
     assert FACEIT_DATA_API_BASE.startswith("https://")
 
 
-# -- Uudelleenyritys ---------------------------------------------------------
+# -- Retries -----------------------------------------------------------------
 
 
 def test_rate_limit_is_retried_and_the_run_continues(tmp_path: Path) -> None:
-    """I/O-matriisi: 429 ja sitten 200 -- ajo onnistuu.
+    """The I/O matrix: a 429 and then a 200 -- the run succeeds.
 
-    Hyväksymiskriteeri sanoo "uudelleenyrityksiä oli **vähintään yksi**", ja
-    juuri siksi luku luetaan ``requests_made``ista eikä pääteltäisi siitä,
-    että tulos tuli: ilman laskuria testi menisi läpi myös silloin, kun
-    uudelleenyritystä ei tapahtunut lainkaan.
+    The acceptance criterion says "there was **at least one** retry", and that
+    is exactly why the number is read from ``requests_made`` rather than
+    inferred from the result having arrived: without the counter the test
+    would pass even where no retry happened at all.
     """
     client, session, waits = make_client(
         tmp_path,
@@ -482,7 +497,7 @@ def test_rate_limit_is_retried_and_the_run_continues(tmp_path: Path) -> None:
 
 
 def test_server_errors_are_retried(tmp_path: Path) -> None:
-    """I/O-matriisi: 5xx käyttäytyy kuten 429."""
+    """The I/O matrix: a 5xx behaves like a 429."""
     client, _session, waits = make_client(
         tmp_path,
         FakeResponse(500),
@@ -495,12 +510,13 @@ def test_server_errors_are_retried(tmp_path: Path) -> None:
 
     assert len(client.get_matches(CHAMPIONSHIP)) == 1
     assert client.requests_made == 3
-    # Kasvava viive, ei vakio: 1 s, sitten 2 s.
+    # A growing delay, not a constant one: 1 s, then 2 s.
     assert waits == [1.0, 2.0]
 
 
 def test_the_growing_delay_stops_at_the_configured_ceiling(tmp_path: Path) -> None:
-    """Katto leikkaa viiveen -- muuten kahdeksas yritys olisi minuuttien päässä."""
+    """The ceiling cuts the delay -- otherwise the eighth attempt would be
+    minutes away."""
     client, _session, waits = make_client(
         tmp_path,
         *[FakeResponse(503) for _ in range(4)],
@@ -516,12 +532,13 @@ def test_the_growing_delay_stops_at_the_configured_ceiling(tmp_path: Path) -> No
 
 
 def test_retry_after_in_seconds_beats_the_guessed_delay(tmp_path: Path) -> None:
-    """Rajapinnan oma mittaus voittaa kasvavan viiveen.
+    """The interface's own measurement beats the growing delay.
 
-    Kasvava viive on sokea oletus; ``Retry-After`` on se luku, jonka palvelin
-    itse sanoo -- ja ``settings.toml`` myöntää itse, ettei 429-jaksojen
-    pituutta ole mitattu. Ilman tätä asiakas odottaisi 1 s siellä, missä
-    palvelin pyytää odottamaan 7 s, ja törmäisi rajoitukseen uudelleen.
+    The growing delay is a blind assumption; ``Retry-After`` is the number the
+    server itself states -- and ``settings.toml`` admits itself that the
+    length of 429 spells has not been measured. Without this the client would
+    wait 1 s where the server asks it to wait 7 s, and would hit the rate
+    limit again.
     """
     client, _session, waits = make_client(
         tmp_path,
@@ -538,7 +555,7 @@ def test_retry_after_in_seconds_beats_the_guessed_delay(tmp_path: Path) -> None:
 
 
 def test_retry_after_as_an_http_date_is_understood(tmp_path: Path) -> None:
-    """``Retry-After`` on RFC 9110:n mukaan joko sekunteja tai päiväys."""
+    """By RFC 9110 ``Retry-After`` is either seconds or a date."""
     later = format_datetime(datetime.now(UTC) + timedelta(seconds=30))
     client, _session, waits = make_client(
         tmp_path,
@@ -557,7 +574,7 @@ def test_retry_after_as_an_http_date_is_understood(tmp_path: Path) -> None:
 
 
 def test_a_retry_after_in_the_past_is_not_a_waiting_time(tmp_path: Path) -> None:
-    """Mennyt päiväys ja negatiivinen luku tarkoittaisivat "älä odota"."""
+    """A date in the past and a negative number would mean "do not wait"."""
     client, _session, waits = make_client(
         tmp_path,
         FakeResponse(429, retry_after="-5"),
@@ -569,7 +586,8 @@ def test_a_retry_after_in_the_past_is_not_a_waiting_time(tmp_path: Path) -> None
 
     client.get_matches(CHAMPIONSHIP)
 
-    # Palataan kasvavaan viiveeseen, koska otsake ei kelvannut odotusajaksi.
+    # Back to the growing delay, because the header did not qualify as a
+    # waiting time.
     assert waits == [1.0]
 
 
@@ -591,11 +609,11 @@ def test_a_nonsense_retry_after_falls_back_to_the_growing_delay(
 
 
 def test_jitter_spreads_two_parallel_runs_apart(tmp_path: Path) -> None:
-    """Heitto on olemassa, jotta kaksi ajoa ei odota samaan sekuntiin.
+    """The jitter exists so that two runs do not wait into the same second.
 
-    Eksponentiaalinen viive on kaikilla ajoilla sama funktio samasta hetkestä.
-    Ilman heittoa kaksi konetta törmäisi rajoitukseen yhdessä uudelleen ja
-    uudelleen.
+    The exponential delay is the same function from the same moment on every
+    run. Without the jitter two machines would hit the rate limit together
+    again and again.
     """
     session = FakeSession(FakeResponse(429), page(match_payload()))
     waits: list[float] = []
@@ -614,16 +632,16 @@ def test_jitter_spreads_two_parallel_runs_apart(tmp_path: Path) -> None:
 
     client.get_matches(CHAMPIONSHIP)
 
-    # 1.0 s + 25 % = 1.25 s, eli heitto on päällä eikä pyöristettynä pois.
+    # 1.0 s + 25 % = 1.25 s, that is, the jitter is on and not rounded away.
     assert waits == [1.25]
 
 
 def test_a_connection_error_is_retried(tmp_path: Path) -> None:
-    """Aikakatkaisu ja yhteysvirhe ovat ohimeneviä vikoja, ei virheitä."""
+    """A timeout and a connection error are transient faults, not errors."""
     client, _session, _waits = make_client(
         tmp_path,
-        requests.ConnectionError("verkko poikki"),
-        requests.Timeout("liian hidas"),
+        requests.ConnectionError("the network is down"),
+        requests.Timeout("too slow"),
         page(match_payload()),
         retry_attempts=4,
     )
@@ -635,7 +653,8 @@ def test_a_connection_error_is_retried(tmp_path: Path) -> None:
 def test_when_retries_run_out_the_error_names_the_attempt_count(
     tmp_path: Path,
 ) -> None:
-    """I/O-matriisi: lopulta virhe, joka kertoo yritysten määrän."""
+    """The I/O matrix: an error in the end that states the number of
+    attempts."""
     client, _session, _waits = make_client(
         tmp_path,
         *[FakeResponse(429) for _ in range(3)],
@@ -653,10 +672,10 @@ def test_when_retries_run_out_the_error_names_the_attempt_count(
 
 
 def test_a_client_error_is_not_retried_even_once(tmp_path: Path) -> None:
-    """I/O-matriisi: 4xx muu kuin 429 -- **ei uudelleenyritystä**.
+    """The I/O matrix: a 4xx other than 429 -- **no retry**.
 
-    Väärä id ei muutu oikeaksi odottamalla. Uudelleenyritys vain viivyttäisi
-    virhettä, joka on jo varma, ja kuluttaisi kutsukiintiötä.
+    A wrong id does not become right by waiting. A retry would only delay an
+    error that is already certain, and would spend the call quota.
     """
     client, session, waits = make_client(
         tmp_path,
@@ -667,19 +686,20 @@ def test_a_client_error_is_not_retried_even_once(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ApiError) as exc:
-        client.get_match("1-ei-ole")
+        client.get_match("1-no-such-thing")
 
     assert exc.value.attempts == 1
     assert exc.value.status_code == 404
     assert len(session.calls) == 1
     assert waits == []
     assert "404" in str(exc.value)
-    assert "1-ei-ole" in str(exc.value)
+    assert "1-no-such-thing" in str(exc.value)
     assert "raw/faceit/" in str(exc.value)
 
 
 def test_a_wrong_key_is_not_retried_either(tmp_path: Path) -> None:
-    """401 on sama luokka kuin 404: odottaminen ei tee avaimesta kelvollista."""
+    """A 401 is the same class as a 404: waiting does not make the key
+    valid."""
     client, _session, _waits = make_client(
         tmp_path, FakeResponse(401), retry_attempts=5
     )
@@ -695,11 +715,13 @@ def test_a_wrong_key_is_not_retried_either(tmp_path: Path) -> None:
 def test_a_non_2xx_that_is_not_an_error_status_names_its_status(
     tmp_path: Path, status: int
 ) -> None:
-    """204 ja 3xx eivät ole JSONia -- eivätkä ne saa näyttää JSON-vialta.
+    """A 204 and a 3xx are not JSON -- and they must not look like a JSON
+    fault.
 
-    Ehto oli ennen ``status >= 400``, joten kaikki sen alle jäävä valui
-    JSON-jäsennykseen ja päätyi virheeseen "vastaus ei ollut JSONia". Se kertoo
-    oireesta eikä syystä: uudelleenohjaus on eri vika kuin rikkinäinen runko.
+    The condition used to be ``status >= 400``, so everything below it flowed
+    into the JSON parsing and ended in the error "the response was not JSON".
+    That reports the symptom and not the cause: a redirect is a different
+    fault from a broken body.
     """
     client, _session, _waits = make_client(
         tmp_path, FakeResponse(status, None, text=""), retry_attempts=3
@@ -715,19 +737,20 @@ def test_a_non_2xx_that_is_not_an_error_status_names_its_status(
 
 
 def test_api_error_is_a_pappascout_error() -> None:
-    """Kutsuja nappaa yhden tyypin ja näyttää suomenkielisen viestin."""
+    """The caller catches one type and shows its message."""
     assert issubclass(ApiError, PappascoutError)
 
 
-# -- Aikabudjetti ------------------------------------------------------------
+# -- The time budget ---------------------------------------------------------
 
 
 def test_a_slow_api_stops_at_the_call_budget(tmp_path: Path) -> None:
-    """Yksi kutsu ei saa kestää hiljaa loputtomiin.
+    """One call must not go on quietly for ever.
 
-    ``retry_attempts`` ei rajaa aikaa: sivutus kertoo yritykset sivujen
-    määrällä, joten ``MAX_PAGES`` x ``retry_attempts`` olisi satoja pyyntöjä ja
-    kasvavalla viiveellä tunnin hiljaisuus. Katon on siksi oltava sekunneissa.
+    ``retry_attempts`` does not bound the time: pagination multiplies the
+    attempts by the number of pages, so ``MAX_PAGES`` x ``retry_attempts``
+    would be hundreds of requests and, with a growing delay, an hour of
+    silence. The ceiling therefore has to be in seconds.
     """
     clock = FakeClock()
     session = FakeSession(*[FakeResponse(503) for _ in range(9)])
@@ -748,19 +771,19 @@ def test_a_slow_api_stops_at_the_call_budget(tmp_path: Path) -> None:
     with pytest.raises(ApiError) as exc:
         client.get_match("1-hidas")
 
-    # 4 s + 8 s mahtuu (12 s), seuraava 16 s ei -- budjettia on jäljellä 8 s.
+    # 4 s + 8 s fits (12 s), the next 16 s does not -- 8 s of budget is left.
     assert client.requests_made == 3
     assert exc.value.attempts == 3
     assert exc.value.status_code == 503
-    assert "budjet" in str(exc.value).lower()
+    assert "budget" in str(exc.value).lower()
     assert "call_budget_seconds" in str(exc.value)
 
 
 def test_a_long_retry_after_does_not_buy_silence(tmp_path: Path) -> None:
-    """``Retry-After``, joka ylittää budjetin, on virhe eikä odotus.
+    """A ``Retry-After`` that exceeds the budget is an error and not a wait.
 
-    Palvelin saa pyytää odottamaan minuutteja, mutta odotus, joka ei mahdu
-    budjettiin, on hiljaisuutta ilman mahdollisuutta onnistua.
+    The server may ask for a wait of minutes, but a wait that does not fit the
+    budget is silence with no chance of succeeding.
     """
     clock = FakeClock()
     session = FakeSession(FakeResponse(429, retry_after="600"), page(match_payload()))
@@ -787,9 +810,9 @@ def test_a_long_retry_after_does_not_buy_silence(tmp_path: Path) -> None:
 
 
 def test_the_budget_spans_the_whole_pagination(tmp_path: Path) -> None:
-    """Budjetti on porttikutsun eikä yksittäisen sivun.
+    """The budget is the port call's and not a single page's.
 
-    Sivukohtainen budjetti ei rajaisi ``MAX_PAGES`` sivun hakua lainkaan.
+    A per-page budget would not bound a fetch of ``MAX_PAGES`` pages at all.
     """
     clock = FakeClock()
     session = FakeSession(*[page(match_payload(f"1-a{i}")) for i in range(10)])
@@ -813,32 +836,33 @@ def test_the_budget_spans_the_whole_pagination(tmp_path: Path) -> None:
     with pytest.raises(ApiError) as exc:
         client.get_matches(CHAMPIONSHIP)
 
-    # Budjetti tarkistetaan ENNEN sivun aloitusta, ja sivun kestoa ei voi
-    # tietää etukäteen: neljäs sivu alkaa 9 s kohdalla (alle 10 s) ja vie
-    # budjetin 12 sekuntiin, jolloin viides ei enää ala. Neljä pyyntöä on siis
-    # oikea luku -- viisi olisi vartijan pettäminen ja kolme lupaus, jota ei
-    # voi pitää.
+    # The budget is checked BEFORE a page begins, and a page's duration
+    # cannot be known in advance: the fourth page begins at 9 s (under 10 s)
+    # and takes the budget to 12 seconds, at which point the fifth does not
+    # begin. Four requests is therefore the right number -- five would be the
+    # guard failing and three a promise that cannot be kept.
     assert client.requests_made == 4
     assert "call_budget_seconds" in str(exc.value)
 
 
 def test_the_default_budget_is_a_guard_not_a_neutral_zero() -> None:
-    """Budjetin oletus on vartija samassa mielessä kuin :data:`MAX_PAGES`."""
+    """The budget's default is a guard in the same sense as
+    :data:`MAX_PAGES`."""
     assert DEFAULT_CALL_BUDGET_SECONDS > 0
 
 
-# -- Välimuisti --------------------------------------------------------------
+# -- The cache ---------------------------------------------------------------
 
 
 def test_the_match_list_is_never_cached(tmp_path: Path) -> None:
-    """Tuotteen omistajan päätös 4.9.2026: ottelulistaa ei välimuistiteta
-    lainkaan.
+    """The product owner's decision on 2026-09-04: the match list is not
+    cached at all.
 
-    Se on **yksi kutsu per ajo** -- divisioonan 66 ottelua mahtuu yhdelle
-    sivulle -- ja se **muuttuu jatkuvasti**: 60 ottelua 66:sta oli tilassa
-    ``SCHEDULED``. Välimuisti säästäisi siellä yhden kutsun ja maksaisi
-    oikeellisuuden. Vaatimus on "älä missaa selviä otteluita", ja tämä on
-    ainoa tapa pitää se ilman kelloa.
+    It is **one call per run** -- the division's 66 matches fit on a single
+    page -- and it **changes constantly**: 60 of the 66 matches were in state
+    ``SCHEDULED``. A cache would save one call there and cost correctness. The
+    requirement is "do not miss obvious matches", and this is the only way to
+    keep it without a clock.
     """
     client, session, _waits = make_client(
         tmp_path, page(match_payload()), page(match_payload())
@@ -851,42 +875,45 @@ def test_the_match_list_is_never_cached(tmp_path: Path) -> None:
     assert client.requests_made == 2
     assert client.cache_hits == 0
     assert len(session.calls) == 2
-    # Eikä levylle jäänyt mitään -- ei myöskään tiedostoa, joka harhauttaisi
-    # seuraavaa lukijaa.
+    # And nothing was left on disk -- not even a file that would mislead the
+    # next reader.
     assert cache_files(client) == []
 
 
 def test_a_new_match_appears_on_the_second_run(tmp_path: Path) -> None:
-    """Kauden aikana lisätty ottelu näkyy heti, ei vasta tyhjennyksen jälkeen.
+    """A match added during the season shows at once, not only after a clear.
 
-    Tämä on koko päätöksen tarkoitus. Välimuistitettuna toinen ajo palauttaisi
-    ensimmäisen listan, ja uusi ottelu jäisi pois ilman että mikään kertoisi.
+    This is the whole point of the decision. Cached, the second run would
+    return the first list, and the new match would be left out without
+    anything saying so.
     """
     client, _session, _waits = make_client(
         tmp_path,
-        page(match_payload("1-vanha")),
-        page(match_payload("1-vanha"), match_payload("1-uusi")),
+        page(match_payload("1-old")),
+        page(match_payload("1-old"), match_payload("1-new")),
     )
 
-    assert [m.match_id for m in client.get_matches(CHAMPIONSHIP)] == ["1-vanha"]
+    assert [m.match_id for m in client.get_matches(CHAMPIONSHIP)] == ["1-old"]
     assert [m.match_id for m in client.get_matches(CHAMPIONSHIP)] == [
-        "1-vanha",
-        "1-uusi",
+        "1-old",
+        "1-new",
     ]
 
 
 def test_a_finished_match_is_cached_permanently(tmp_path: Path) -> None:
-    """Pelatun ottelun tiedot eivät enää muutu, ja niitä haetaan jopa 66 kertaa.
+    """A played match's details do not change any more, and they are fetched
+    as many as 66 times.
 
-    Kuljetuksen jonossa on **vain yksi** vastaus, joten toinen verkkokutsu
-    kaataisi testin: osuma ei ole pääteltävissä laskurista vaan rakenteesta.
+    The transport's queue holds **only one** response, so a second network
+    call would fail the test: the hit is not inferred from a counter but from
+    the structure.
     """
     client, session, _waits = make_client(
-        tmp_path, FakeResponse(200, match_payload("1-valmis", status="FINISHED"))
+        tmp_path, FakeResponse(200, match_payload("1-finished", status="FINISHED"))
     )
 
-    first = client.get_match("1-valmis")
-    second = client.get_match("1-valmis")
+    first = client.get_match("1-finished")
+    second = client.get_match("1-finished")
 
     assert first == second
     assert client.requests_made == 1
@@ -899,57 +926,57 @@ def test_a_finished_match_is_cached_permanently(tmp_path: Path) -> None:
 def test_a_match_that_is_not_finished_is_not_cached(
     tmp_path: Path, status: str | None
 ) -> None:
-    """Keskeneräistä ottelua ei kirjoiteta levylle -- ja tulos päivittyy.
+    """An unfinished match is not written to disk -- and the result updates.
 
-    Kolmas parametri on ``CANCELLED``, joka näyttää yhtä lopulliselta kuin
-    ``FINISHED``. Se on silti ulkona, ja syy on epäsymmetrinen hinta:
-    peruminen on järjestäjän päätös, jonka järjestäjä voi perua, ja siirretty
-    ottelu pelataan samalla ``match_id``:llä. Välimuistitettu ``CANCELLED``
-    piilottaisi sen ikuisesti -- yhden säästetyn kutsun hinnalla menetettäisiin
-    pelatun ottelun demo pysyvästi (FACEIT säilyttää demot ~30 pv).
+    The third parameter is ``CANCELLED``, which looks just as final as
+    ``FINISHED``. It is out all the same, and the reason is the asymmetric
+    cost: cancelling is the organiser's decision, which the organiser can
+    undo, and a rescheduled match is played under the same ``match_id``. A
+    cached ``CANCELLED`` would hide it for ever -- for one saved call a played
+    match's demo would be lost permanently (FACEIT keeps demos for ~30 days).
 
-    Neljäs on puuttuva tila: "en tiedä" ei ole peruste säilyttää vastausta
-    ikuisesti, ja uusi tila FACEITissa johtaa siis yhteen ylimääräiseen
-    kutsuun eikä väärään vastaukseen.
+    The fourth is a missing state: "I do not know" is no reason to keep a
+    response for ever, and a new state in FACEIT therefore leads to one extra
+    call and not to a wrong answer.
     """
-    playing = match_payload("1-kesken", status=status)
+    playing = match_payload("1-unfinished", status=status)
     if status is None:
         del playing["status"]
-    finished = match_payload("1-kesken", status="FINISHED")
+    finished = match_payload("1-unfinished", status="FINISHED")
     client, session, _waits = make_client(
         tmp_path, FakeResponse(200, playing), FakeResponse(200, finished)
     )
 
-    first = client.get_match("1-kesken")
+    first = client.get_match("1-unfinished")
     assert cache_files(client) == []
 
-    second = client.get_match("1-kesken")
+    second = client.get_match("1-unfinished")
 
     assert client.requests_made == 2
     assert client.cache_hits == 0
     assert len(session.calls) == 2
-    # Toinen kutsu näkee ottelun valmistuneena: tulos on päivittynyt.
+    # The second call sees the match finished: the result has updated.
     assert first.status != "FINISHED"
     assert second.status == "FINISHED"
-    # Ja nyt se on välimuistissa.
+    # And now it is in the cache.
     assert len(cache_files(client)) == 1
 
 
 def test_the_cacheable_statuses_are_a_named_constant() -> None:
-    """Sääntö on nimetty vakio, ei taikamerkkijono kutsupaikassa.
+    """The rule is a named constant, not a magic string at the call site.
 
-    Nimettynä se on luettavissa, testattavissa ja muutettavissa yhdessä
-    paikassa; kutsupaikkaan kirjoitettuna se olisi päätös, joka näkyy vain
-    sille, joka lukee juuri sen rivin.
+    Named, it is readable, testable and changeable in one place; written at
+    the call site it would be a decision visible only to whoever reads that
+    one line.
     """
     assert CACHEABLE_MATCH_STATUSES == frozenset({"FINISHED"})
 
 
 def test_the_cache_keeps_only_what_cannot_change(tmp_path: Path) -> None:
-    """Sama ottelu ensin kesken, sitten valmiina: vain jälkimmäinen jää.
+    """The same match first unfinished, then finished: only the latter stays.
 
-    Tämä on päätös yhtenä lauseena: muuttumaton vastaus säilytetään, muuttuvaa
-    ei -- eikä sääntö nojaa kelloon lainkaan.
+    This is the decision in one sentence: an unchanging response is kept, a
+    changing one is not -- and the rule rests on no clock at all.
     """
     client, _session, _waits = make_client(
         tmp_path,
@@ -959,7 +986,7 @@ def test_the_cache_keeps_only_what_cannot_change(tmp_path: Path) -> None:
 
     client.get_match("1-x")
     client.get_match("1-x")
-    third = client.get_match("1-x")  # kolmas ei mene verkkoon
+    third = client.get_match("1-x")  # the third does not go to the network
 
     assert third.status == "FINISHED"
     assert client.requests_made == 2
@@ -969,23 +996,23 @@ def test_the_cache_keeps_only_what_cannot_change(tmp_path: Path) -> None:
 def test_a_cleared_cache_fetches_again_and_gives_the_same_result(
     tmp_path: Path,
 ) -> None:
-    """I/O-matriisi: ``raw/faceit/`` poistettu -- uusi kutsu, sama tulos.
+    """The I/O matrix: ``raw/faceit/`` deleted -- a new call, the same result.
 
-    Tämä on välimuistin lupaus: sen saa poistaa milloin tahansa, eikä
-    poistolla ole muuta seurausta kuin uusi kutsu. Ei manifestia, ei tilaa,
-    jota pitäisi korjata.
+    This is the cache's promise: it may be deleted at any time, and the
+    deletion has no consequence other than a new call. No manifest, no state
+    that would have to be repaired.
     """
-    payload = match_payload("1-valmis")
+    payload = match_payload("1-finished")
     client, _session, _waits = make_client(
         tmp_path, FakeResponse(200, payload), FakeResponse(200, payload)
     )
 
-    first = client.get_match("1-valmis")
+    first = client.get_match("1-finished")
     assert cache_files(client)
     for path in cache_files(client):
         path.unlink()
 
-    second = client.get_match("1-valmis")
+    second = client.get_match("1-finished")
 
     assert first == second
     assert client.requests_made == 2
@@ -993,78 +1020,82 @@ def test_a_cleared_cache_fetches_again_and_gives_the_same_result(
 
 
 def test_a_corrupt_cache_file_is_ignored_like_a_missing_one(tmp_path: Path) -> None:
-    """Kesken jäänyt kirjoitus ei saa kaataa ajoa eikä jäädä siivottavaksi."""
-    payload = match_payload("1-valmis")
+    """A write that was cut short must not fail the run or be left to clean
+    up."""
+    payload = match_payload("1-finished")
     client, _session, _waits = make_client(
         tmp_path, FakeResponse(200, payload), FakeResponse(200, payload)
     )
 
-    client.get_match("1-valmis")
+    client.get_match("1-finished")
     cached = cache_files(client)[0]
     cached.write_text('{"match_id": ', encoding="utf-8")
 
-    assert client.get_match("1-valmis").match_id == "1-valmis"
+    assert client.get_match("1-finished").match_id == "1-finished"
     assert client.requests_made == 2
 
 
 def test_a_broken_response_is_not_written_to_the_cache(tmp_path: Path) -> None:
-    """Rikkinäinen 200 ei saa jäädä levylle.
+    """A broken 200 must not be left on disk.
 
-    Jos se jäisi, **jokainen seuraava ajo kaatuisi samaan virheeseen käymättä
-    lainkaan verkossa** -- eli välimuisti muuttuisi tilaksi, joka on
-    siivottava, vaikka sen koko lupaus on päinvastainen. Toinen vastaus jonossa
-    todistaa, että seuraava ajo todella yrittää uudelleen.
+    If it were, **every later run would fail with the same error without going
+    to the network at all** -- that is, the cache would turn into state that
+    has to be cleaned up, although its whole promise is the opposite. The
+    second response in the queue proves that the next run really does try
+    again.
     """
     client, _session, _waits = make_client(
         tmp_path,
         FakeResponse(200, {"status": "FINISHED"}),
-        FakeResponse(200, match_payload("1-valmis")),
+        FakeResponse(200, match_payload("1-finished")),
     )
 
     with pytest.raises(ApiError) as exc:
-        client.get_match("1-valmis")
+        client.get_match("1-finished")
 
     assert cache_files(client) == []
     assert "match_id" in str(exc.value)
     assert "raw/faceit/" in str(exc.value)
-    # Ja seuraava ajo pääsee verkkoon asti.
-    assert client.get_match("1-valmis").match_id == "1-valmis"
+    # And the next run gets all the way to the network.
+    assert client.get_match("1-finished").match_id == "1-finished"
     assert client.requests_made == 2
 
 
 def test_a_poisoned_cache_file_is_dropped_and_refetched(tmp_path: Path) -> None:
-    """Vanhemman version kirjoittama kelvoton vastaus ei saa jäädä kaatamaan.
+    """An unusable response written by an older version must not go on failing
+    the run.
 
-    Tarkistus ennen kirjoitusta estää uudet myrkytykset; tämä hoitaa ne, jotka
-    ovat jo levyllä. Ilman sitä käyttäjän ainoa keino olisi tietää itse
-    tyhjentää hakemisto.
+    The check before a write stops new poisonings; this deals with the ones
+    already on disk. Without it the user's only recourse would be to know to
+    clear the directory themselves.
     """
-    payload = match_payload("1-valmis")
+    payload = match_payload("1-finished")
     client, _session, _waits = make_client(
         tmp_path, FakeResponse(200, payload), FakeResponse(200, payload)
     )
-    client.get_match("1-valmis")
+    client.get_match("1-finished")
     cached = cache_files(client)[0]
     cached.write_text('{"status": "FINISHED"}', encoding="utf-8")
 
-    assert client.get_match("1-valmis").match_id == "1-valmis"
+    assert client.get_match("1-finished").match_id == "1-finished"
     assert client.requests_made == 2
     assert "match_id" in json.loads(cached.read_text(encoding="utf-8"))
 
 
 def test_a_cached_unfinished_match_is_dropped_and_refetched(tmp_path: Path) -> None:
-    """Lukupolku soveltaa samaa ehtoa kuin kirjoituspolku -- itsekorjaavasti.
+    """The read path applies the same condition as the write path --
+    self-correctingly.
 
-    Kiinnike on **mitattu tilanne eikä keksitty**: jaetussa arkistossa oli
-    4.9.2026 edellisen version kirjoittama tiedosto, joka tarjoili
-    ``SCHEDULED``-ottelua levyltä ikuisesti ja täysin hiljaa. Ensin lukupolku
-    jätettiin ehdottomaksi perustelulla "jos tiedosto on olemassa, se on
-    kirjoitettu valmiista ottelusta", ja live-tarkistus osoitti sen premissin
-    vääräksi samana päivänä.
+    The fixture is **a measured situation and not an invented one**: on
+    2026-09-04 a shared archive held a file written by an earlier version,
+    which served a ``SCHEDULED`` match from disk for ever and entirely
+    silently. At first the read path was left unconditional, on the reasoning
+    that "if the file exists, it was written from a finished match", and a
+    live check showed that premise false the same day.
 
-    Symmetrinen ehto tekee invariantista sellaisen, joka ei riipu siitä, että
-    jokainen aiempi ja tuleva kirjoituspolku oli oikein -- vaan siitä, mitä
-    tiedostossa lukee.
+    The symmetric condition makes the invariant one that does not depend on
+    every earlier and future write path having been right -- but on what the
+    file says.
     """
     playing = match_payload("1-x", status="SCHEDULED")
     client, session, _waits = make_client(
@@ -1073,8 +1104,8 @@ def test_a_cached_unfinished_match_is_dropped_and_refetched(tmp_path: Path) -> N
         FakeResponse(200, playing),
     )
 
-    # Lämmitä välimuisti laillisesti, ja korvaa sitten tiedoston sisältö
-    # sellaisella, jota nykyinen kirjoituspolku ei olisi koskaan kirjoittanut.
+    # Warm the cache legitimately, then replace the file's contents with
+    # something the current write path would never have written.
     client.get_match("1-x")
     cached = cache_files(client)[0]
     cached.write_text(json.dumps(playing), encoding="utf-8")
@@ -1082,7 +1113,7 @@ def test_a_cached_unfinished_match_is_dropped_and_refetched(tmp_path: Path) -> N
 
     result = client.get_match("1-x")
 
-    # Verkkoon mentiin, eikä levylle jäänyt kelpaamatonta tiedostoa.
+    # The network was touched, and no unusable file was left on disk.
     assert client.requests_made == before + 1
     assert client.cache_hits == 0
     assert len(session.calls) == 2
@@ -1092,12 +1123,12 @@ def test_a_cached_unfinished_match_is_dropped_and_refetched(tmp_path: Path) -> N
 
 
 def test_a_cached_finished_match_is_still_read_from_disk(tmp_path: Path) -> None:
-    """Ehto ei saa hylätä sitä, minkä se on tarkoitus säilyttää.
+    """The condition must not reject what it is meant to keep.
 
-    Tiedoston sisältö korvataan **toisella valmiilla ottelulla**, jota
-    kuljetus ei koskaan palauta: jos tulos on se, vastaus tuli levyltä eikä
-    muistista tai verkosta. Ilman tätä paria edellinen testi voisi mennä läpi
-    myös silloin, kun lukupolku hylkää kaiken.
+    The file's contents are replaced with **another finished match**, which
+    the transport never returns: if that is the result, the response came from
+    disk and not from memory or the network. Without this pair the previous
+    test could pass even where the read path rejects everything.
     """
     client, session, _waits = make_client(
         tmp_path, FakeResponse(200, match_payload("1-x", status="FINISHED"))
@@ -1106,14 +1137,16 @@ def test_a_cached_finished_match_is_still_read_from_disk(tmp_path: Path) -> None
     client.get_match("1-x")
     cached = cache_files(client)[0]
     cached.write_text(
-        json.dumps(match_payload("1-x", status="FINISHED", competition_id="levylta")),
+        json.dumps(
+            match_payload("1-x", status="FINISHED", competition_id="from-disk")
+        ),
         encoding="utf-8",
     )
     before = client.requests_made
 
     result = client.get_match("1-x")
 
-    assert result.competition_id == "levylta"
+    assert result.competition_id == "from-disk"
     assert client.requests_made == before
     assert client.cache_hits == 1
     assert len(session.calls) == 1
@@ -1121,12 +1154,12 @@ def test_a_cached_finished_match_is_still_read_from_disk(tmp_path: Path) -> None
 
 
 def test_the_cache_leaves_no_temporary_files(tmp_path: Path) -> None:
-    """Kirjoitus on atominen: väliaikaistiedostoa ei jää hakemistoon."""
+    """The write is atomic: no temporary file is left in the directory."""
     client, _session, _waits = make_client(
-        tmp_path, FakeResponse(200, match_payload("1-valmis"))
+        tmp_path, FakeResponse(200, match_payload("1-finished"))
     )
 
-    client.get_match("1-valmis")
+    client.get_match("1-finished")
 
     assert cache_files(client)
     assert not has_temp_leftovers(client.cache_dir)
@@ -1135,30 +1168,32 @@ def test_the_cache_leaves_no_temporary_files(tmp_path: Path) -> None:
 def test_a_cache_write_failure_does_not_lose_the_answer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Välimuisti on nopeutus, ei tulos.
+    """The cache is a speed-up, not a result.
 
-    Jos levy on täynnä tai hakemisto vain luku, kutsu on jo onnistunut ja
-    vastaus on kädessä -- kaatuminen kirjoitukseen hukkaisi sen. Ilman tätä
-    testiä koko ``try/except`` voisi kadota huomaamatta.
+    If the disk is full or the directory is read-only, the call has already
+    succeeded and the response is in hand -- crashing on the write would throw
+    it away. Without this test the whole ``try/except`` could disappear
+    unnoticed.
     """
     original = Path.write_text
 
     def _refuse(self: Path, *args: Any, **kwargs: Any) -> int:
         if ".tmp-" in self.name:
-            raise OSError("levy täynnä")
+            raise OSError("the disk is full")
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "write_text", _refuse)
     client, _session, _waits = make_client(
-        tmp_path, FakeResponse(200, match_payload("1-valmis"))
+        tmp_path, FakeResponse(200, match_payload("1-finished"))
     )
 
-    assert client.get_match("1-valmis").match_id == "1-valmis"
+    assert client.get_match("1-finished").match_id == "1-finished"
     assert not has_temp_leftovers(client.cache_dir)
 
 
 def test_two_different_calls_get_two_cache_files(tmp_path: Path) -> None:
-    """Välimuistiavain erottaa kutsut -- muuten toinen palauttaisi väärän."""
+    """The cache key tells the calls apart -- otherwise one would return the
+    wrong response."""
     client, _session, _waits = make_client(
         tmp_path,
         FakeResponse(200, match_payload("1-aaaa")),
@@ -1174,35 +1209,36 @@ def test_two_different_calls_get_two_cache_files(tmp_path: Path) -> None:
 
 
 def test_two_addresses_do_not_share_a_cache_entry(tmp_path: Path) -> None:
-    """Osoite on osa välimuistiavainta.
+    """The address is part of the cache key.
 
-    Kaksi eri juurta samalla hakemistolla tarjoilisi muuten toistensa
-    vastauksia, eikä mikään kertoisi siitä.
+    Two different roots sharing one directory would otherwise serve each
+    other's responses, and nothing would say so.
     """
     cache = tmp_path / "raw" / "faceit"
     one = FaceitClient(
         KEY,
         cache,
         base_url=BASE,
-        session=FakeSession(FakeResponse(200, match_payload("1-yksi"))),
+        session=FakeSession(FakeResponse(200, match_payload("1-one"))),
     )
     two = FaceitClient(
         KEY,
         cache,
-        base_url="https://toinen.invalid/data/v4",
-        session=FakeSession(FakeResponse(200, match_payload("1-kaksi"))),
+        base_url="https://other.invalid/data/v4",
+        session=FakeSession(FakeResponse(200, match_payload("1-two"))),
     )
 
-    assert one.get_match("1-x").match_id == "1-yksi"
-    assert two.get_match("1-x").match_id == "1-kaksi"
+    assert one.get_match("1-x").match_id == "1-one"
+    assert two.get_match("1-x").match_id == "1-two"
     assert two.cache_hits == 0
 
 
-# -- Avain ei vuoda ----------------------------------------------------------
+# -- The key does not leak ---------------------------------------------------
 
 
 def test_the_key_travels_in_the_header_and_nowhere_else(tmp_path: Path) -> None:
-    """Avain on ``Authorization``-otsakkeessa, ei osoitteessa eikä parametreissa."""
+    """The key is in the ``Authorization`` header, not in the address and not
+    in the parameters."""
     client, session, _waits = make_client(tmp_path, page(match_payload()))
 
     client.get_matches(CHAMPIONSHIP)
@@ -1214,19 +1250,19 @@ def test_the_key_travels_in_the_header_and_nowhere_else(tmp_path: Path) -> None:
 
 
 def test_the_key_is_in_no_cache_file(tmp_path: Path) -> None:
-    """Hyväksymiskriteeri: avainta ei löydy yhdestäkään välimuistitiedostosta.
+    """The acceptance criterion: the key is in no cache file.
 
-    Tarkistetaan **tiedostonimistä ja sisällöistä**, koska välimuistiavain on
-    johdettu osoitteesta ja parametreista -- ja jos avain joskus päätyisi
-    kumpaankin, se päätyisi myös nimeen.
+    Checked **in the file names and in the contents**, because the cache key
+    is derived from the address and the parameters -- and if the key ever
+    ended up in either, it would end up in the name too.
     """
     client, _session, _waits = make_client(
-        tmp_path, FakeResponse(200, match_payload("1-valmis"))
+        tmp_path, FakeResponse(200, match_payload("1-finished"))
     )
 
-    # Ottelun tiedot, koska vain ne kirjoitetaan levylle: ottelulistasta ei
-    # synny tiedostoa lainkaan, joten sillä tämä vartija olisi tyhjä.
-    client.get_match("1-valmis")
+    # The match's details, because only they are written to disk: the match
+    # list produces no file at all, so this guard would be empty with it.
+    client.get_match("1-finished")
 
     files = [p for p in client.cache_dir.rglob("*") if p.is_file()]
     assert files
@@ -1238,7 +1274,8 @@ def test_the_key_is_in_no_cache_file(tmp_path: Path) -> None:
 
 
 def test_the_key_is_in_no_repr_and_no_error_message(tmp_path: Path) -> None:
-    """Avain ei päädy jäljitykseen, virheilmoitukseen eikä debuggeriin."""
+    """The key does not end up in a traceback, in an error message or in a
+    debugger."""
     client, _session, _waits = make_client(tmp_path, FakeResponse(404))
 
     assert KEY not in repr(client)
@@ -1249,20 +1286,20 @@ def test_the_key_is_in_no_repr_and_no_error_message(tmp_path: Path) -> None:
 
     assert KEY not in str(exc.value)
     assert KEY not in repr(exc.value)
-    # ``repr`` näyttää vain ``args``in, joten uudet attribuutit on katsottava
-    # erikseen -- muuten vartija ei näkisi kenttää, joka lisätään myöhemmin.
+    # ``repr`` shows only ``args``, so new attributes have to be looked at
+    # separately -- otherwise the guard would not see a field added later.
     assert KEY not in str(vars(exc.value))
 
 
-# -- Vastaus, joka ei ole JSONia --------------------------------------------
+# -- A response that is not JSON ---------------------------------------------
 
 
 def test_an_html_error_page_is_not_dumped_into_the_message(tmp_path: Path) -> None:
-    """I/O-matriisi: rajapinta palauttaa HTML-virhesivun.
+    """The I/O matrix: the interface returns an HTML error page.
 
-    Sivu on kilotavuja, eikä sen sisällössä ole mitään, mikä ohjaisi
-    käyttäjää. Viesti kertoo **että** vastaus ei ollut JSONia ja minkä
-    kokoinen se oli -- ei sitä, mitä sivulla luki.
+    The page is kilobytes, and there is nothing in its contents that would
+    guide the user. The message says **that** the response was not JSON and
+    how big it was -- not what the page said.
     """
     html = "<html><body>" + ("Bad Gateway " * 400) + "</body></html>"
     client, _session, _waits = make_client(
@@ -1280,12 +1317,13 @@ def test_an_html_error_page_is_not_dumped_into_the_message(tmp_path: Path) -> No
     assert "JSON" in message
     assert "text/html" in message
     assert len(message) < 600
-    # Ei uudelleenyritystä: rikkinäinen vastaus ei ole ohimenevä ruuhka.
+    # No retry: a broken response is not a transient rush.
     assert exc.value.attempts == 1
 
 
 def test_a_json_response_that_is_not_an_object_is_an_error(tmp_path: Path) -> None:
-    """Lista siellä missä pitäisi olla olio on rikkinäinen vastaus, ei tyhjä tulos."""
+    """A list where an object should be is a broken response, not an empty
+    result."""
     client, _session, _waits = make_client(tmp_path, FakeResponse(200, ["a", "b"]))
 
     with pytest.raises(ApiError):
@@ -1295,11 +1333,11 @@ def test_a_json_response_that_is_not_an_object_is_an_error(tmp_path: Path) -> No
 def test_a_match_list_without_items_is_an_error_not_an_empty_result(
     tmp_path: Path,
 ) -> None:
-    """Puuttuva ``items`` ei saa näyttää siltä, ettei otteluita ole.
+    """A missing ``items`` must not look as though there are no matches.
 
-    Tyhjä tulos on kelvollinen havainto; rikkinäinen vastaus ei ole. Jos nämä
-    kaksi sekoittuisivat, väärä championship-id tuottaisi hiljaa raportin,
-    jossa ei ole yhtään ottelua.
+    An empty result is a valid observation; a broken response is not. If those
+    two were confused, a wrong championship id would quietly produce a report
+    with no matches in it.
     """
     client, _session, _waits = make_client(tmp_path, FakeResponse(200, {"start": 0}))
 
@@ -1311,20 +1349,21 @@ def test_a_match_list_without_items_is_an_error_not_an_empty_result(
 
 
 def test_a_junk_row_stops_the_run_like_a_junk_response(tmp_path: Path) -> None:
-    """Roskarivi ei putoa hiljaa.
+    """A junk row does not drop out quietly.
 
-    Hiljainen pudotus olisi eri sääntö kuin puuttuvan ``items``in nostama
-    virhe, ja kahdesta säännöstä seuraisi, että sivun pituus riippuu siitä,
-    kumpaa katsotaan -- juuri se luku, jolla sivutus etenee.
+    A silent drop would be a different rule from the error a missing ``items``
+    raises, and two rules would mean that the page's length depends on which
+    of them is looked at -- precisely the number by which pagination
+    advances.
     """
     client, _session, _waits = make_client(
-        tmp_path, FakeResponse(200, {"items": [match_payload(), "roska"]})
+        tmp_path, FakeResponse(200, {"items": [match_payload(), "junk"]})
     )
 
     with pytest.raises(ApiError) as exc:
         client.get_matches(CHAMPIONSHIP)
 
-    assert "rivi 1" in str(exc.value)
+    assert "row 1" in str(exc.value)
 
 
 def test_a_row_without_a_match_id_stops_the_run(tmp_path: Path) -> None:
@@ -1339,13 +1378,13 @@ def test_a_row_without_a_match_id_stops_the_run(tmp_path: Path) -> None:
 
 
 def test_a_structure_error_reports_the_real_attempt_count(tmp_path: Path) -> None:
-    """``attempts`` ja ``status_code`` eivät saa valehdella.
+    """``attempts`` and ``status_code`` must not lie.
 
-    Story 3.4 päättää näistä, onko ottelun tila ``no_demo`` vai
-    ``download_failed``. ``ApiError``in docstring lupaa, että
-    ``status_code=None`` tarkoittaa "vastausta ei saatu lainkaan" -- ja
-    rakennevirhe raportoi ennen tätä juuri niin, vaikka vastaus oli 200 kolmen
-    yrityksen jälkeen.
+    Story 3.4 decides from these whether a match's state is ``no_demo`` or
+    ``download_failed``. ``ApiError``'s docstring promises that
+    ``status_code=None`` means "no response was obtained at all" -- and before
+    this a structure error reported exactly that, although the response was a
+    200 after three attempts.
     """
     client, _session, _waits = make_client(
         tmp_path,
@@ -1363,20 +1402,22 @@ def test_a_structure_error_reports_the_real_attempt_count(tmp_path: Path) -> Non
 
 
 def test_a_cache_hit_reports_no_attempts(tmp_path: Path) -> None:
-    """Välimuistiosuma: ``attempts = 0`` on eri asia kuin epäonnistunut yritys.
+    """A cache hit: ``attempts = 0`` is a different thing from a failed
+    attempt.
 
-    Kuljetuksen jono on tyhjä toisen kutsun kohdalla, joten verkkoon menevä
-    haku kaatuisi -- osuma on siis rakenteessa eikä pelkässä laskurissa.
+    The transport's queue is empty at the second call, so a fetch that went to
+    the network would fail -- the hit is therefore in the structure and not in
+    a counter alone.
     """
     client, _session, _waits = make_client(
-        tmp_path, FakeResponse(200, match_payload("1-valmis"))
+        tmp_path, FakeResponse(200, match_payload("1-finished"))
     )
-    client.get_match("1-valmis")
+    client.get_match("1-finished")
 
     fetched = client._get(
-        "/matches/1-valmis",
+        "/matches/1-finished",
         None,
-        what="koe",
+        what="a trial",
         validate=lambda payload: None,
         cache_when=lambda payload: True,
     )
@@ -1386,14 +1427,14 @@ def test_a_cache_hit_reports_no_attempts(tmp_path: Path) -> None:
     assert fetched.status_code is None
 
 
-# -- Sivutus -----------------------------------------------------------------
+# -- Pagination --------------------------------------------------------------
 
 
 def test_a_paginated_result_comes_back_as_one_list(tmp_path: Path) -> None:
-    """I/O-matriisi: otteluita enemmän kuin sivu vetää.
+    """The I/O matrix: more matches than a page holds.
 
-    Kaikki sivut haetaan, ja kutsuja näkee yhden listan: sivutus on
-    kuljetuksen yksityiskohta eikä vaiheen tietoa.
+    Every page is fetched, and the caller sees one list: pagination is a
+    detail of the transport and not something the stage knows.
     """
     first = page(*[match_payload(f"1-a{i}") for i in range(3)])
     second = page(*[match_payload(f"1-b{i}") for i in range(2)])
@@ -1407,7 +1448,8 @@ def test_a_paginated_result_comes_back_as_one_list(tmp_path: Path) -> None:
 
 
 def test_a_full_last_page_still_ends_the_paging(tmp_path: Path) -> None:
-    """Täysi sivu ja sen perässä tyhjä: silmukka päättyy tyhjään sivuun."""
+    """A full page followed by an empty one: the loop ends at the empty
+    page."""
     client, session, _waits = make_client(
         tmp_path,
         page(*[match_payload(f"1-a{i}") for i in range(2)]),
@@ -1420,11 +1462,12 @@ def test_a_full_last_page_still_ends_the_paging(tmp_path: Path) -> None:
 
 
 def test_an_oversized_page_does_not_skip_rows(tmp_path: Path) -> None:
-    """Siirtymä on **todellinen** sivun pituus, ei pyydetty.
+    """The offset is the **real** length of the page, not the requested one.
 
-    Jos rajapinta palauttaa enemmän kuin pyydettiin, ``offset += page_size``
-    hyppäisi rivien yli -- ja tulos näyttäisi täydeltä listalta, josta puuttuu
-    otteluita. Juuri sellaista puutetta ei huomaisi mistään.
+    If the interface returns more than was asked for, ``offset += page_size``
+    would skip over rows -- and the result would look like a full list with
+    matches missing from it. A gap of exactly that kind would be visible
+    nowhere.
     """
     client, session, _waits = make_client(
         tmp_path,
@@ -1440,11 +1483,12 @@ def test_an_oversized_page_does_not_skip_rows(tmp_path: Path) -> None:
 
 
 def test_a_match_repeated_on_two_pages_is_counted_once(tmp_path: Path) -> None:
-    """Deduplikointi ``match_id``llä.
+    """Deduplication by ``match_id``.
 
-    Sivutus nojaa ``offset``iin, ja lista muuttuu kesken kauden: uusi ottelu
-    listan alkuun siirtää kaikkia muita yhdellä, jolloin sama rivi tulee
-    kahdella sivulla. Ilman deduplikointia se laskettaisiin kahdesti.
+    Pagination rests on ``offset``, and the list changes mid-season: a new
+    match at the head of the list moves every other one along by one, so the
+    same row comes on two pages. Without deduplication it would be counted
+    twice.
     """
     client, _session, _waits = make_client(
         tmp_path,
@@ -1462,7 +1506,7 @@ def test_a_match_repeated_on_two_pages_is_counted_once(tmp_path: Path) -> None:
 def test_paging_stops_at_the_guard_instead_of_running_forever(
     tmp_path: Path,
 ) -> None:
-    """Vartija: rajapinta, joka ei koskaan lopeta, ei saa jumittaa ajoa."""
+    """A guard: an interface that never stops must not stall the run."""
     client, _session, _waits = make_client(
         tmp_path,
         *[page(match_payload(f"1-a{i}")) for i in range(MAX_PAGES + 1)],
@@ -1477,17 +1521,17 @@ def test_paging_stops_at_the_guard_instead_of_running_forever(
 
 
 def test_an_empty_championship_is_a_valid_result(tmp_path: Path) -> None:
-    """Kilpailu ilman otteluita on havainto, ei virhe."""
+    """A competition with no matches is an observation, not an error."""
     client, _session, _waits = make_client(tmp_path, page())
 
     assert client.get_matches(CHAMPIONSHIP) == ()
 
 
-# -- FACEIT-JSON ytimen sanastoksi ------------------------------------------
+# -- FACEIT JSON into the core's vocabulary ----------------------------------
 
 
 def test_the_port_speaks_the_core_vocabulary_not_faceits(tmp_path: Path) -> None:
-    """``faction1``, ``voting`` ja epoch-sekunnit jäävät adapterin sisään."""
+    """``faction1``, ``voting`` and epoch seconds stay inside the adapter."""
     client, _session, _waits = make_client(
         tmp_path, FakeResponse(200, match_payload("1-aaaa"))
     )
@@ -1501,21 +1545,23 @@ def test_the_port_speaks_the_core_vocabulary_not_faceits(tmp_path: Path) -> None
     assert match.started_at is not None
     assert match.started_at.tzinfo is not None
     assert match.started_at.timestamp() == 1_756_000_000
-    # Järjestys on avainten mukaan, jotta se on sama joka ajolla.
+    # The order is by key, so that it is the same on every run.
     assert [team.name for team in match.teams] == ["PotkukelkkaPeek", "Imuaijat"]
     assert [p.player_id for p in match.teams[0].roster] == ["p-potku-1", "p-potku-2"]
     assert match.teams[0].roster[0].nickname == "pelaaja"
-    # map_index on indeksi tähän monikkoon; map_demo_id rakentuu siitä.
+    # map_index is an index into this tuple; map_demo_id is built from it.
     assert match.map_picks == ("de_nuke", "de_ancient")
-    # best_of on eri luku kuin map_picksin pituus, ja se kulkee portin läpi.
+    # best_of is a different number from map_picks' length, and it travels
+    # through the port.
     assert match.best_of == 2
 
 
 def test_missing_fields_are_none_not_placeholders(tmp_path: Path) -> None:
-    """Puuttuva arvo on ``None``, ei korvike -- kuten kokoonpanotaulussakin.
+    """A missing value is ``None``, not a substitute -- as in the roster table
+    too.
 
-    Keksitty arvo näyttäisi myöhemmin täsmälleen samalta kuin mitattu, eikä
-    mikään kertoisi, kumpi se oli.
+    An invented value would look later exactly like a measured one, and
+    nothing would say which it was.
     """
     bare = {"match_id": "1-bare"}
     client, _session, _waits = make_client(tmp_path, FakeResponse(200, bare))
@@ -1532,54 +1578,54 @@ def test_missing_fields_are_none_not_placeholders(tmp_path: Path) -> None:
 
 
 def test_an_unstarted_match_has_no_start_time(tmp_path: Path) -> None:
-    """FACEIT merkitsee "ei alkanut" nollalla, ei puuttuvalla kentällä.
+    """FACEIT marks "not started" with a zero, not with a missing field.
 
-    Nolla epoch-sekuntia on 1.1.1970, ja sellaisenaan luettuna se tekisi
-    jokaisesta tulevasta ottelusta kaikkein aikaisimman -- eli ``team_key``:n
-    tasatilanteen ratkaisijasta väärän.
+    Zero epoch seconds is 1970-01-01, and read as it stands it would make
+    every future match the earliest of all -- that is, it would make
+    ``team_key``'s tie-breaker wrong.
     """
     client, _session, _waits = make_client(
         tmp_path,
-        FakeResponse(200, match_payload("1-tuleva", started_at=0, finished_at=0)),
+        FakeResponse(200, match_payload("1-future", started_at=0, finished_at=0)),
     )
 
-    match = client.get_match("1-tuleva")
+    match = client.get_match("1-future")
 
     assert match.started_at is None
     assert match.finished_at is None
 
 
 def test_an_empty_nickname_is_not_a_name(tmp_path: Path) -> None:
-    """Tyhjä merkkijono on havainnon puuttuminen, ei nimi."""
-    payload = match_payload("1-tyhja")
+    """An empty string is the absence of an observation, not a name."""
+    payload = match_payload("1-empty")
     payload["teams"]["faction1"]["roster"] = [
         {"player_id": "p-1", "nickname": "   "},
         {"player_id": "p-2"},
-        {"nickname": "ei-tunnistetta"},
+        {"nickname": "no-id-at-all"},
     ]
     client, _session, _waits = make_client(tmp_path, FakeResponse(200, payload))
 
-    team = client.get_match("1-tyhja").teams[0]
+    team = client.get_match("1-empty").teams[0]
 
-    # Pelaaja ilman tunnistetta pudotetaan: tunniste on koneen avain, nimimerkki
-    # ei ole. Ilman sitä pelaajaa ei voi liittää mihinkään.
+    # A player without an id is dropped: the id is the machine's key and the
+    # nickname is not. Without it the player cannot be joined to anything.
     assert [p.player_id for p in team.roster] == ["p-1", "p-2"]
     assert [p.nickname for p in team.roster] == [None, None]
 
 
 def test_the_port_carries_substitutes_and_steam_ids(tmp_path: Path) -> None:
-    """Story 3.2: ilman näitä kahta kenttää vakirosteri olisi väärä.
+    """Story 3.2: without these two fields the standing roster would be wrong.
 
-    ``substitutes`` on oma listansa, ja mitattu 2026-09-04: ilman sitä rosteri
-    aliarvioi järjestelmällisesti (``Lindberq_`` on demossa muttei
-    ``roster``issa). ``game_player_id`` on SteamID64 ja **ainoa** tunniste,
-    joka esiintyy demoissa -- ``player_id`` on FACEITin oma UUID.
+    ``substitutes`` is a list of its own, and measured 2026-09-04: without it
+    the roster systematically underestimates (``Lindberq_`` is in the demo but
+    not in ``roster``). ``game_player_id`` is a SteamID64 and the **only** id
+    that appears in the demos -- ``player_id`` is FACEIT's own UUID.
     """
     client, _session, _waits = make_client(
-        tmp_path, FakeResponse(200, match_payload("1-rosteri"))
+        tmp_path, FakeResponse(200, match_payload("1-roster"))
     )
 
-    team = client.get_match("1-rosteri").teams[0]
+    team = client.get_match("1-roster").teams[0]
 
     assert [p.nickname for p in team.substitutes] == ["Lindberq_"]
     assert [p.game_player_id for p in team.roster] == [
@@ -1587,51 +1633,55 @@ def test_the_port_carries_substitutes_and_steam_ids(tmp_path: Path) -> None:
         "76561197985923425",
     ]
     assert team.substitutes[0].game_player_id == "76561198062941501"
-    # Kaksi tunnistetta rinnakkain: kumpaakaan ei korvata toisella.
+    # Two ids side by side: neither is substituted for the other.
     assert team.roster[0].player_id == "p-potku-1"
 
 
 def test_a_missing_substitutes_list_is_an_empty_tuple_not_an_error(
     tmp_path: Path,
 ) -> None:
-    """Joukkueella ei ole pakko olla varapelaajia."""
-    payload = match_payload("1-ei-vaihtoja")
+    """A team does not have to have substitutes."""
+    payload = match_payload("1-no-substitutes")
     del payload["teams"]["faction1"]["substitutes"]
     client, _session, _waits = make_client(tmp_path, FakeResponse(200, payload))
 
-    assert client.get_match("1-ei-vaihtoja").teams[0].substitutes == ()
+    assert client.get_match("1-no-substitutes").teams[0].substitutes == ()
 
 
 def test_a_player_without_a_game_player_id_keeps_the_row_but_not_the_id(
     tmp_path: Path,
 ) -> None:
-    """SteamID64 saa puuttua; se on havainto, jonka vaihe kertoo ääneen.
+    """A SteamID64 may be missing; that is an observation the stage states out
+    loud.
 
-    ``player_id`` sen sijaan on koneen avain: ilman sitä riviä ei ole.
+    ``player_id`` on the other hand is the machine's key: without it there is
+    no row.
     """
-    payload = match_payload("1-vajaa")
+    payload = match_payload("1-partial")
     payload["teams"]["faction1"]["roster"] = [
         {"player_id": "p-1", "nickname": "a"},
         {"player_id": "p-2", "nickname": "b", "game_player_id": "   "},
     ]
     client, _session, _waits = make_client(tmp_path, FakeResponse(200, payload))
 
-    team = client.get_match("1-vajaa").teams[0]
+    team = client.get_match("1-partial").teams[0]
 
     assert [p.player_id for p in team.roster] == ["p-1", "p-2"]
     assert [p.game_player_id for p in team.roster] == [None, None]
 
 
 def test_the_schedule_is_a_separate_field_from_the_start_time(tmp_path: Path) -> None:
-    """Ottelulistassa on ``scheduled_at`` eikä ``started_at`` (mitattu 2026-09-04).
+    """The match list has ``scheduled_at`` and not ``started_at`` (measured
+    2026-09-04).
 
-    Aikataulu on suunnitelma ja alkuhetki havainto; jos ne luettaisiin samaan
-    kenttään, pelaamaton ottelu näyttäisi alkaneelta.
+    A schedule is a plan and a start time an observation; if they were read
+    into the same field, an unplayed match would look as though it had
+    started.
     """
-    payload = match_payload("1-tuleva", status="SCHEDULED", started_at=0, finished_at=0)
+    payload = match_payload("1-future", status="SCHEDULED", started_at=0, finished_at=0)
     client, _session, _waits = make_client(tmp_path, FakeResponse(200, payload))
 
-    match = client.get_match("1-tuleva")
+    match = client.get_match("1-future")
 
     assert match.started_at is None
     assert match.scheduled_at is not None
@@ -1639,7 +1689,7 @@ def test_the_schedule_is_a_separate_field_from_the_start_time(tmp_path: Path) ->
 
 
 def test_a_match_without_an_id_stops_the_run(tmp_path: Path) -> None:
-    """Ilman ``match_id``:tä ottelua ei voi liittää mihinkään."""
+    """Without a ``match_id`` a match cannot be joined to anything."""
     client, _session, _waits = make_client(tmp_path, FakeResponse(200, {"status": "X"}))
 
     with pytest.raises(ApiError) as exc:
@@ -1648,29 +1698,29 @@ def test_a_match_without_an_id_stops_the_run(tmp_path: Path) -> None:
     assert "match_id" in str(exc.value)
 
 
-# -- Portti ja kerrokset -----------------------------------------------------
+# -- The port and the layers -------------------------------------------------
 
 
 def test_only_api_errors_leave_the_port(tmp_path: Path) -> None:
-    """Portin ainoa lupaus on :class:`ApiError`.
+    """The port's only promise is :class:`ApiError`.
 
-    Injektoitu kuljetus voi nostaa mitä tahansa, eikä sen tyyppi saa vuotaa
-    vaiheeseen asti: AD-9:n mukaan yksikön virhe on ``status``, ei jäljitys
-    ruudulle.
+    An injected transport can raise anything, and its type must not leak all
+    the way to the stage: by AD-9 a unit's fault is a ``status``, not a
+    traceback on the screen.
     """
-    session = FakeSession(ZeroDivisionError("kuljetus rikki"))
+    session = FakeSession(ZeroDivisionError("the transport is broken"))
     client = FaceitClient(KEY, tmp_path, base_url=BASE, session=session)
 
     with pytest.raises(ApiError) as exc:
         client.get_match("1-aaaa")
 
     assert "ZeroDivisionError" in str(exc.value)
-    # Ei uudelleenyritystä: kuljetuksen vika ei ole ohimenevä ruuhka.
+    # No retry: the transport's fault is not a transient rush.
     assert exc.value.attempts == 1
 
 
 def test_a_transport_without_a_get_method_is_an_api_error(tmp_path: Path) -> None:
-    """Sekään, mitä kuljetus ei osaa, ei saa vuotaa muuna tyyppinä."""
+    """What the transport cannot do must not leak as another type either."""
     client = FaceitClient(KEY, tmp_path, base_url=BASE, session=object())
 
     with pytest.raises(ApiError):
@@ -1678,23 +1728,24 @@ def test_a_transport_without_a_get_method_is_an_api_error(tmp_path: Path) -> Non
 
 
 def test_the_client_implements_the_port(tmp_path: Path) -> None:
-    """Vaihe näkee portin, ei asiakasta.
+    """The stage sees the port, not the client.
 
-    ``runtime_checkable`` tarkistaa **vain metodinimien olemassaolon**, ei
-    allekirjoituksia eikä paluutyyppejä -- se on Pythonin rajoite eikä tämän
-    testin valinta, ja se on sanottava ääneen, jottei testi lupaa vartijaa
-    jota ei ole. Testi on silti arvokas: se kaataa nimenmuutoksen, joka tekisi
-    asiakkaasta portin ulkopuolisen. Allekirjoitusten yhtäpitävyyden todistavat
-    porttia käyttävät testit, eivät tämä.
+    ``runtime_checkable`` checks **only that the method names exist**, not the
+    signatures and not the return types -- that is Python's limit and not this
+    test's choice, and it has to be said out loud, so that the test does not
+    promise a guard that is not there. The test is valuable all the same: it
+    fails a rename that would put the client outside the port. That the
+    signatures agree is proved by the tests that use the port, not by this
+    one.
     """
     client, _session, _waits = make_client(tmp_path)
     assert isinstance(client, MatchSource)
 
 
 def test_the_client_closes_only_the_session_it_opened(tmp_path: Path) -> None:
-    """Injektoitu kuljetus on kutsujan omaisuutta.
+    """An injected transport is the caller's property.
 
-    Sen sulkeminen katkaisisi yhteydet, joita tämä luokka ei avannut.
+    Closing it would cut connections this class did not open.
     """
     session = FakeSession()
     with FaceitClient(KEY, tmp_path, base_url=BASE, session=session):
@@ -1702,14 +1753,15 @@ def test_the_client_closes_only_the_session_it_opened(tmp_path: Path) -> None:
     assert session.closed is False
 
     own = FaceitClient(KEY, tmp_path, base_url=BASE)
-    own.close()  # ei saa kaatua
+    own.close()  # must not fail
 
 
 def _third_party_imports(source: str, filename: str) -> set[str]:
-    """Kerää tiedoston tuomat ylätason paketit -- **molemmat tuontimuodot**.
+    """Collect the top-level packages a file imports -- **both forms of
+    import**.
 
-    Pelkkä ``"import requests" in source`` päästäisi läpi
-    ``from requests import get``.
+    ``"import requests" in source`` alone would let
+    ``from requests import get`` through.
     """
     found: set[str] = set()
     for node in ast.walk(ast.parse(source, filename=filename)):
@@ -1722,16 +1774,16 @@ def _third_party_imports(source: str, filename: str) -> set[str]:
 
 
 def test_no_layer_but_the_adapter_imports_requests_or_tenacity() -> None:
-    """Domain ei tunne HTTP:tä -- se näkee portin, ei asiakasta.
+    """The domain does not know HTTP -- it sees the port, not the client.
 
-    ``tests/test_layering.py`` valvoo pakettien välisiä nuolia; tämä valvoo
-    kirjastoja, joita nuoli ei kata: ``requests`` voisi valua domainiin
-    rikkomatta yhtäkään kerrossääntöä.
+    ``tests/test_layering.py`` watches the arrows between packages; this
+    watches the libraries an arrow does not cover: ``requests`` could seep
+    into the domain without breaking a single layering rule.
 
-    **Kolme pakettia eikä yksi.** ``render`` ei saa laskea mitään eikä
-    ``archive`` tuntea lähteitä, joten kumpikaan ei saa tuntea verkkoa sen
-    paremmin kuin ``domain``. Ilman niitä sääntö olisi kirjoitettu vain sinne,
-    mistä se sattui löytymään.
+    **Three packages and not one.** ``render`` must compute nothing and
+    ``archive`` must know no sources, so neither may know the network any more
+    than ``domain`` does. Without them the rule would have been written only
+    where it happened to be found.
     """
     src = Path(faceit_module.__file__).resolve().parents[1]
     forbidden = {"requests", "tenacity"}
@@ -1741,51 +1793,59 @@ def test_no_layer_but_the_adapter_imports_requests_or_tenacity() -> None:
                 path.read_text(encoding="utf-8"), str(path)
             )
             leaked = imported & forbidden
-            assert not leaked, f"{path.name} tuo verkkokirjaston: {sorted(leaked)}"
+            assert not leaked, (
+                f"{path.name} imports a network library: {sorted(leaked)}"
+            )
 
 
-# -- Asetusosio --------------------------------------------------------------
+# -- The settings section ----------------------------------------------------
 
 
 def test_the_faceit_section_is_a_typed_model_of_its_own(settings_file: Path) -> None:
-    """AD-3: ``[faceit]`` on oma osionsa, jonka arvot ovat asetuksia."""
+    """AD-3: ``[faceit]`` is a section of its own whose values are
+    settings."""
     settings = load_settings(settings_file, env_files=())
 
     assert isinstance(settings.faceit, FaceitSettings)
     assert settings.faceit.retry_attempts >= 1
     assert settings.faceit.page_size <= MAX_FACEIT_PAGE_SIZE
-    # Avaimet eivät ole osiossa: ne luetaan koneen omasta .env-tiedostosta.
+    # The keys are not in the section: they are read from the machine's own
+    # .env file.
     assert not hasattr(settings.faceit, "api_key")
     assert not hasattr(settings.faceit, "base_url")
 
 
 def test_faceit_defaults_match_the_settings_file(settings_file: Path) -> None:
-    """Koodioletus ei saa erota asetustiedostosta.
+    """The default in the code must not differ from the settings file.
 
-    Repon konventio (vrt. ``test_report_defaults_match_the_settings_file``):
-    jos koodioletus eroaisi tiedostosta, unohtunut avain käyttäytyisi eri
-    tavalla kuin tiedosto sanoo -- eikä mikään kertoisi, kummasta ajo syntyi.
+    The repository's convention (cf.
+    ``test_report_defaults_match_the_settings_file``): if the default in the
+    code differed from the file, a forgotten key would behave differently from
+    what the file says -- and nothing would say which of them the run came
+    from.
     """
     assert FaceitSettings() == load_settings(settings_file, env_files=()).faceit
 
 
 def test_every_faceit_value_is_written_out_in_the_settings_file() -> None:
-    """Jokainen asetus kirjoitetaan näkyviin, koska koodin oletus ei näy.
+    """Every setting is written out, because the default in the code is not
+    visible.
 
-    Sama sääntö kuin osioiden pakollisuudella: arvo, joka on vain koodissa, ei
-    näy tiedostossa jota säädetään.
+    The same rule as the sections being mandatory: a value that is only in the
+    code is not visible in the file that is being adjusted.
     """
     data = tomllib.loads(REAL_SETTINGS.read_text(encoding="utf-8"))
     assert set(data["faceit"]) == set(FaceitSettings.model_fields)
 
 
 def test_the_settings_file_describes_the_split_cache() -> None:
-    """Sääntö on kirjoitettava sinne, mistä käyttäjä sen löytää.
+    """The rule has to be written where the user finds it.
 
-    Kumpikin puoli erikseen: pelkkä "välimuisti on eriytetty" ei kerro
-    kummalle puolelle kumpi sääntö kuuluu, ja juuri se on koko päätös.
-    Aiempi versio kuvasi vanhaa käyttäytymistä ("VÄLIMUISTI EI VANHENE",
-    "kerran haettu ottelulista ei päivity"), joka on nyt väärä.
+    Each half separately: "the cache is split" alone does not say which rule
+    belongs to which half, and that is the whole decision. An earlier version
+    described the old behaviour -- that the cache never expires, and that a
+    match list once fetched does not update -- which is now wrong. The
+    settings file is Finnish, so the assertions below quote it as it stands.
     """
     text = REAL_SETTINGS.read_text(encoding="utf-8")
     section = text.split("[faceit]", 1)[1].split("\n[", 1)[0]
@@ -1793,12 +1853,12 @@ def test_the_settings_file_describes_the_split_cache() -> None:
     assert "EI VÄLIMUISTITETA LAINKAAN" in section
     assert "FINISHED" in section
     assert "raw/faceit/" in section
-    # Sääntö on symmetrinen, ja se on kirjoitettava näkyviin: pelkkä
-    # kirjoitusehto jättäisi lukijan uskomaan, että vanha tiedosto voi jäädä
-    # tarjoilemaan vanhentunutta vastausta.
+    # The rule is symmetric, and it has to be written out: the write
+    # condition alone would leave the reader believing that an old file can go
+    # on serving a stale response.
     assert "ITSEKORJAAVA" in section
     assert "SAMA EHTO KOSKEE LUKEMISTA" in section
-    # Vanhat, nyt väärät väitteet eivät saa jäädä tiedostoon.
+    # The old claims, now wrong, must not stay in the file.
     assert "VÄLIMUISTI EI VANHENE" not in section
     assert "tyhjennetään käsin" not in section
     assert "tarvitse tyhjentää käsin" not in section
@@ -1843,12 +1903,12 @@ def test_the_readme_describes_the_split_cache() -> None:
 def test_the_client_refuses_what_the_settings_model_refuses(
     tmp_path: Path, kwargs: dict[str, Any]
 ) -> None:
-    """**Ei hiljaista clamppausta.**
+    """**No silent clamping.**
 
-    ``max(1, int(page_size))`` päästi ennen läpi arvon 1000 ja tuotti juuri
-    sen 400-virheen, jonka rajan perustelu sanoo näyttävän verkkovialta. Sama
-    koski kattoa 0.0, joka leikkasi jokaisen odotuksen pois niin, että
-    uudelleenyritys näytti asetetulta muttei tapahtunut.
+    ``max(1, int(page_size))`` used to let the value 1000 through and produced
+    exactly the 400 error that the reasoning for the bound says looks like a
+    network fault. The same went for a ceiling of 0.0, which cut every wait
+    away so that the retry looked configured but did not happen.
     """
     with pytest.raises(SettingsError):
         FaceitClient(KEY, tmp_path, base_url=BASE, **kwargs)
@@ -1865,25 +1925,26 @@ def test_the_client_refuses_what_the_settings_model_refuses(
     ],
 )
 def test_the_settings_model_refuses_the_same_values(kwargs: dict[str, Any]) -> None:
-    """Sama raja molemmissa päissä, jottei kumpikaan vartioi yksin.
+    """The same bound at both ends, so that neither guards alone.
 
-    Erityisesti ``MAX_FACEIT_RETRY_ATTEMPTS``in ``le=``-raja oli aiemmin ilman
-    testiä, vaikka sisarrajoilla oli omansa: sen olisi voinut poistaa ilman
-    että mikään kaatuu.
+    ``MAX_FACEIT_RETRY_ATTEMPTS``'s ``le=`` bound in particular used to be
+    without a test although its sibling bounds had their own: it could have
+    been removed without anything failing.
     """
     with pytest.raises(ValueError):
         FaceitSettings(**kwargs)
 
 
 def test_a_budget_smaller_than_one_wait_is_rejected() -> None:
-    """Budjetti, joka ei kata yhtä odotusta, tekisi uudelleenyrityksestä kulissin."""
+    """A budget that does not cover one wait would make the retry a
+    facade."""
     with pytest.raises(ValueError) as exc:
         FaceitSettings(retry_max_delay_seconds=30.0, call_budget_seconds=10.0)
 
     assert "call_budget_seconds" in str(exc.value)
 
 
-# --- best_of kulkee portin läpi (Story 3.3) --------------------------------
+# --- best_of travels through the port (Story 3.3) ---------------------------
 
 
 @pytest.mark.parametrize(
@@ -1895,7 +1956,7 @@ def test_a_budget_smaller_than_one_wait_is_rejected() -> None:
         (0, None),
         (-1, None),
         (True, None),
-        ("kaksi", None),
+        ("two", None),
         (None, None),
         ({}, None),
     ],
@@ -1903,11 +1964,12 @@ def test_a_budget_smaller_than_one_wait_is_rejected() -> None:
 def test_best_of_is_read_only_when_it_is_a_real_match_length(
     tmp_path: Path, raw: object, expected: int | None
 ) -> None:
-    """Kelvoton arvo on ``None``, ei korvike.
+    """An unacceptable value is ``None``, not a substitute.
 
-    ``True`` on erikseen mukana: ``bool`` on Pythonissa ``int``, ja ilman
-    torjuntaa se päätyisi arvoksi ``1`` eli "yksi kartta" -- Story 3.4 odottaisi
-    silloin yhtä demoa kahden sijaan eikä mikään kertoisi miksi.
+    ``True`` is there in its own right: ``bool`` is an ``int`` in Python, and
+    without a refusal it would end up as the value ``1``, that is, "one map"
+    -- Story 3.4 would then expect one demo instead of two and nothing would
+    say why.
     """
     payload = match_payload("1-bo", best_of=raw)
     client, _session, _waits = make_client(tmp_path, FakeResponse(200, payload))
@@ -1918,7 +1980,8 @@ def test_best_of_is_read_only_when_it_is_a_real_match_length(
 
 
 def test_best_of_is_not_the_length_of_the_map_list(tmp_path: Path) -> None:
-    """2-0 päättyneessä BO3:ssa vedossa on kolme karttaa mutta demoja kaksi."""
+    """In a BO3 that ended two to nil the veto has three maps but there are
+    two demos."""
     payload = match_payload(
         "1-bo3",
         best_of=3,
@@ -1932,47 +1995,47 @@ def test_best_of_is_not_the_length_of_the_map_list(tmp_path: Path) -> None:
     assert len(match.map_picks) == 3
 
 
-# -- Story 3.7 (kohta 12): tilakoodilajittelu on yhdessa paikassa -------------
+# -- Story 3.7 (item 12): status codes are classified in one place ------------
 
 
 def test_status_codes_are_classified_in_exactly_one_place() -> None:
-    """429/5xx/ei-2xx lajitellaan **yhdessa** funktiossa, ei kolmessa.
+    """429/5xx/non-2xx are classified in **one** function, not in three.
 
-    Sama saanto oli kirjoitettuna kolmeen paikkaan (``_single_request``,
-    ``_as_json``, ``_begin``), ja kopiot olivat jo ehtineet erkaantua
-    yksityiskohdissa, joita kukaan ei ollut paattanyt eri tavalla: vain
-    ``_as_json`` otti mukaan rajapinnan oman virhetekstin, ja vain
-    ``_single_request`` kasitteli 204/205:n. Neljas kutsupaikka perisi
-    umpimahkaan sen version, jonka kirjoittaja sattui kopioimaan.
+    The same rule was written in three places (``_single_request``,
+    ``_as_json``, ``_begin``), and the copies had already drifted apart in
+    details that nobody had decided differently: only ``_as_json`` took in the
+    interface's own error text, and only ``_single_request`` handled 204/205.
+    A fourth call site would inherit at random whichever version its author
+    happened to copy.
 
-    **Vaite luetaan syntaksipuusta eika merkkijonoista.** Kaydaan lapi jokainen
-    funktio ja etsitaan vertailut tilakoodialueiden rajoihin; niita saa esiintya
-    tasan yhdessa funktiossa. Kayttosvartijana toimivat taman tiedoston muut
-    testit, jotka ajavat kaikki kolme kutsupaikkaa lapi.
+    **The claim is read from the syntax tree and not from strings.** Every
+    function is walked and comparisons against the bounds of the status-code
+    ranges are looked for; they may appear in exactly one function. The guard
+    on behaviour is this file's other tests, which run all three call sites.
     """
-    puu = ast.parse(Path(faceit_module.__file__).read_text(encoding="utf-8"))
-    lajittelijat: set[str] = set()
-    for node in ast.walk(puu):
+    tree = ast.parse(Path(faceit_module.__file__).read_text(encoding="utf-8"))
+    classifiers: set[str] = set()
+    for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef):
             continue
         for inner in ast.walk(node):
             if not isinstance(inner, ast.Compare):
                 continue
-            for arvo in [inner.left, *inner.comparators]:
-                if isinstance(arvo, ast.Constant) and arvo.value in (
+            for value in [inner.left, *inner.comparators]:
+                if isinstance(value, ast.Constant) and value.value in (
                     200,
                     300,
                     500,
                     600,
                 ):
-                    lajittelijat.add(node.name)
-                if isinstance(arvo, ast.Name) and arvo.id in (
+                    classifiers.add(node.name)
+                if isinstance(value, ast.Name) and value.id in (
                     "_RATE_LIMIT_STATUS",
                     "_NO_CONTENT_STATUSES",
                 ):
-                    lajittelijat.add(node.name)
+                    classifiers.add(node.name)
 
-    assert lajittelijat == {"_checked_status"}, (
-        "Tilakoodilajittelu on useammassa kuin yhdessa paikassa: kopiot "
-        f"erkaantuvat aina. {sorted(lajittelijat)}"
+    assert classifiers == {"_checked_status"}, (
+        "Status codes are classified in more than one place: copies always "
+        f"drift apart. {sorted(classifiers)}"
     )
