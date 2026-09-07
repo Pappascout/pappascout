@@ -11,9 +11,17 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from conftest import REAL_SETTINGS, LEAKY_ENV_VARS
-from pappascout.archive.paths import ArchivePaths
+import pytest
+
+from conftest import (
+    ARCHIVE_ROOT,
+    LEAKY_ENV_VARS,
+    REAL_SETTINGS,
+    _MACHINE_ROOT_SET,
+)
+from pappascout.archive.paths import ARCHIVE_ROOT_ENV_VAR, ArchivePaths
 from pappascout.domain.models import load_settings, secrets_env_path
+from pappascout.errors import PappascoutError
 
 
 def test_home_is_redirected_to_tmp(tmp_path: Path) -> None:
@@ -44,13 +52,50 @@ def test_settings_fixture_points_away_from_the_real_archive(
 
 
 def test_even_the_real_settings_cannot_reach_the_real_archive() -> None:
-    """Oikea settings.toml laajenee patchatun kodin alle, ei OneDriveen.
+    """The real settings.toml resolves to no archive without the variable.
 
-    Talla varmistetaan, etta arkistopolun siirtaminen %USERPROFILE%-muotoon
-    teki testeista koneriippumattomia myos silloin, kun testi lataa oikean
-    asetustiedoston.
+    This is what makes the archive path absent from the versioned file (Story
+    3.10): the real path lives in the machine's PAPPASCOUT_ARCHIVE_ROOT, which
+    the autouse fixture deletes. The versioned value is a placeholder, so the
+    load fails -- stronger isolation than the previous claim (a path under the
+    patched home), because no directory is created anywhere at all.
     """
     s = load_settings(REAL_SETTINGS, env_files=())
-    root = ArchivePaths.from_settings(s.project.archive_root).root
-    assert root.is_relative_to(Path.home())
-    assert not root.exists()
+    with pytest.raises(PappascoutError) as exc:
+        ArchivePaths.from_settings(s.project.archive_root)
+    assert ARCHIVE_ROOT_ENV_VAR in str(exc.value)
+
+
+def test_the_marked_tests_are_not_silently_skipped_on_this_machine() -> None:
+    """On a machine with an archive, the marked tests must actually run.
+
+    **This is the one guard against the whole marked suite evaporating.**
+    ``conftest._real_archive_root`` turns a resolution failure into ``None``,
+    and ``None`` makes ``require_demo`` and ``require_parsed`` skip. A skip is
+    not a failure, so 103 marker sites across four files could all stop
+    running and pytest would still exit zero -- nothing else in the suite
+    would notice.
+
+    The condition is deliberately machine-local: it fires only when
+    PAPPASCOUT_ARCHIVE_ROOT was set at import time, which is exactly the case
+    where a skip would be wrong. CI has no variable and no archive, so it
+    skips this test instead of failing it.
+
+    The other Story 3.10 tests call ``ArchivePaths.from_settings`` directly and
+    therefore never touch conftest's module-level resolution -- which is the
+    new part, and the part that can break this way.
+    """
+    if not _MACHINE_ROOT_SET:
+        pytest.skip(
+            "PAPPASCOUT_ARCHIVE_ROOT ei ollut asetettu tuontihetkella, "
+            "joten talla koneella ei ole arkistoa ohitettavaksi."
+        )
+    assert ARCHIVE_ROOT is not None, (
+        "PAPPASCOUT_ARCHIVE_ROOT on asetettu, mutta conftest ei saanut "
+        "arkiston juurta ratkaistua -- merkityt testit ohittuisivat kaikki "
+        "aanettomasti"
+    )
+    assert ARCHIVE_ROOT.is_dir(), (
+        f"Arkiston juuri {ARCHIVE_ROOT} ei ole hakemisto, joten "
+        "arkistoriippuvaiset testit ohittuisivat vaikka muuttuja on asetettu"
+    )

@@ -898,10 +898,10 @@ def _pick_advice(found: Sequence[Path]) -> str:
     Kaksi vikaa yhdessä rivissä, ja molemmat osuvat ensimmäiseen oikeaan
     ajoon:
 
-    **Lainausmerkit.** Arkiston polussa on kolme välilyöntiä (``Claude code``,
-    ``Finnpark Oy``), joten lainaamaton polku hajoaa komentotulkissa useaksi
-    argumentiksi ja tuottaa englanninkielisen ``typer``-virheen. Neuvo, jota
-    ei voi kopioida, ei ole neuvo.
+    **Lainausmerkit.** Arkiston polussa on välilyöntejä (synkronoidun kansion
+    nimessä ja projektikansiossa), joten lainaamaton polku hajoaa
+    komentotulkissa useaksi argumentiksi ja tuottaa englanninkielisen
+    ``typer``-virheen. Neuvo, jota ei voi kopioida, ei ole neuvo.
 
     **Järjestys.** Aakkosjärjestys nimeäisi aina ``.dem``:n ennen
     ``.dem.zst``:ää, eli neuvo ohjaisi tuomaan pakkaamattoman -- mitattu

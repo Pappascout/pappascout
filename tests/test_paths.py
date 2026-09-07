@@ -284,15 +284,95 @@ def test_a_set_variable_still_expands_without_complaint(
     assert archive.root == tmp_path / "arkisto"
 
 
-def test_real_settings_root_expands_to_an_absolute_path() -> None:
-    """Oikean asetustiedoston polku laajenee absoluuttiseksi tällä koneella."""
+def test_real_settings_needs_the_variable_and_resolves_from_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The shipped settings resolve through the variable, or not at all.
+
+    Story 3.10 moved the real path out of the versioned file into
+    ``PAPPASCOUT_ARCHIVE_ROOT``, so the claim is two-sided: with the variable
+    set the path resolves and keeps no unexpanded ``%NAME%`` part, and without
+    it the versioned placeholder stops the run by naming the variable rather
+    than creating a directory literally called ``%PAPPASCOUT_ARCHIVE_ROOT%``.
+
+    **The absolute-path assertion belongs to the relative-value test below,
+    not here.** Asserting ``is_absolute()`` on a root this test itself set to
+    an absolute value proves nothing about the loader.
+    """
     from conftest import REAL_SETTINGS
     import tomllib
 
     data = tomllib.loads(REAL_SETTINGS.read_text(encoding="utf-8"))
-    archive = ArchivePaths.from_settings(data["project"]["archive_root"])
-    assert archive.root.is_absolute()
+    raw = data["project"]["archive_root"]
+
+    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "arkisto"))
+    archive = ArchivePaths.from_settings(raw)
+    assert archive.root == tmp_path / "arkisto"
     assert "%" not in str(archive.root)
+
+    monkeypatch.delenv(ARCHIVE_ROOT_ENV_VAR)
+    with pytest.raises(PappascoutError) as exc:
+        ArchivePaths.from_settings(raw)
+    message = str(exc.value)
+    assert ARCHIVE_ROOT_ENV_VAR in message
+    assert "settings.toml" in message
+
+
+def test_a_relative_override_is_an_error_not_a_directory_next_to_the_code(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A relative archive root stops the run and names the variable.
+
+    **The failure path this closes.** The versioned line reads
+    ``archive_root = '%PAPPASCOUT_ARCHIVE_ROOT%'``, which reads like a folder
+    *name* rather than a whole path, so setting the variable to
+    ``pappascout-archive`` is the natural mistake. Nothing else catches it:
+    :func:`_check_expanded` is silent because there is no ``%NAME%`` left, and
+    every stage creates what is missing. The run would resolve the archive
+    against the working directory, fill a second empty archive there, and
+    report success -- and inside the repository ``.gitignore`` anchors only
+    ``/archive/``, so a tree under any other name would not even be ignored.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, "pappascout-archive")
+
+    with pytest.raises(PappascoutError) as exc:
+        ArchivePaths.from_settings("%" + ARCHIVE_ROOT_ENV_VAR + "%")
+
+    message = str(exc.value)
+    assert ARCHIVE_ROOT_ENV_VAR in message
+    assert "absoluuttinen" in message
+    # No archive was created in the working directory. (``koti`` is the
+    # isolated home the autouse fixture makes, not a product of this run.)
+    assert not (tmp_path / "pappascout-archive").exists()
+
+
+def test_a_relative_setting_is_an_error_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same guard covers the file, and the message names the file.
+
+    Two sources, two messages: the reader has to know whether to fix the
+    variable or ``settings.toml``.
+    """
+    monkeypatch.delenv(ARCHIVE_ROOT_ENV_VAR, raising=False)
+
+    with pytest.raises(PappascoutError) as exc:
+        ArchivePaths.from_settings("arkistot/pappascout")
+
+    message = str(exc.value)
+    assert "absoluuttinen" in message
+    assert "settings.toml" in message
+
+
+def test_an_absolute_root_still_passes_the_relative_guard(tmp_path: Path) -> None:
+    """The pair to the two above: the guard must not reject valid roots.
+
+    Without this, both relative tests would also pass an implementation that
+    rejects every path.
+    """
+    archive = ArchivePaths.from_settings(tmp_path / "arkisto")
+    assert archive.root == tmp_path / "arkisto"
 
 
 # --- Tilatiedot ---------------------------------------------------------------

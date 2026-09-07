@@ -1,6 +1,6 @@
 # Avaimet. Varsinainen avaintiedosto on %USERPROFILE%\.pappascout\.env eli
-# kokonaan repon ja OneDriven ulkopuolella; tämä estää projektin varakopion
-# päätymisen versionhallintaan.
+# kokonaan repon ja synkronoidun kansion ulkopuolella; tämä estää projektin
+# varakopion päätymisen versionhallintaan.
 .env
 .env.*
 
@@ -9,7 +9,8 @@
 *.dem.gz
 *.dem.zst
 
-# Arkisto. Pysyvä tila on OneDrivessa, ei repossa.
+# Arkisto. Pysyvä tila on synkronoidussa kansiossa, ei repossa; polku tulee
+# ympäristömuuttujasta PAPPASCOUT_ARCHIVE_ROOT.
 # Juurikiinnitetty: ilman kauttaviivaa alussa tämä osuisi myös lähdekoodiin
 # src/pappascout/archive/, jolloin koko paketti jäisi gitin ulkopuolelle.
 /archive/

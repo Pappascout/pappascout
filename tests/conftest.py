@@ -16,32 +16,120 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from pappascout.archive.paths import ARCHIVE_ROOT_ENV_VAR
+from pappascout.archive.paths import ARCHIVE_ROOT_ENV_VAR, ArchivePaths
 from pappascout.domain.schemas import Schema
+from pappascout.errors import PappascoutError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_SETTINGS = REPO_ROOT / "settings.toml"
 
 
-def _real_archive_root() -> Path | None:
-    """Oikean arkiston juuri -- ratkaistaan **tuontihetkellä**.
+#: Environment variable naming the machine-local denylist file.
+FORBIDDEN_NAMES_ENV_VAR = "PAPPASCOUT_FORBIDDEN_NAMES"
 
-    Polku on laskettava ennen kuin ``_isolate_from_machine`` ohjaa
-    ``USERPROFILE``:n väliaikaishakemistoon; muuten koneella olevaa arkistoa
-    tarvitsevat testit eivät löytäisi mitään edes koneella, jolla se on.
+#: Machine-local list of names this public repository must not carry.
+#:
+#: **Resolved at import time, and deliberately outside the repository.** Same
+#: shape as :func:`require_demo`: the machine knows, the repository does not.
+#: A denylist committed here would itself be the leak it guards against -- the
+#: story's own check is a ``git grep`` for those names over the working tree,
+#: and an in-repo list would put every one of them back.
+#:
+#: Format, one entry per line, ``#`` comments and blank lines ignored::
+#:
+#:     Some Employer Oy          # must not appear at all
+#:     SomeSyncProduct = 57      # ceiling: may appear at most 57 times
+#:
+#: The ceiling makes the guard a ratchet. Names that are already gone get 0, so
+#: writing one back anywhere fails immediately. Names still present in prose
+#: awaiting the per-package translation work get their measured count, so they
+#: cannot spread while that work is pending.
+FORBIDDEN_NAMES_FILE = Path(
+    os.environ.get(FORBIDDEN_NAMES_ENV_VAR)
+    or Path.home() / ".pappascout" / "forbidden-names.txt"
+)
+
+
+def _forbidden_names() -> dict[str, int] | None:
+    """Read the denylist, or ``None`` when this machine has no list.
 
     Returns:
-        Hakemisto tai ``None``, jos asetustiedostoa ei voitu lukea. ``None`` on
-        tarkoituksella eri asia kuin olemassa oleva polku: keksitty
-        paikkamerkkipolku kertoisi ohitusviestissä hakemistosta, jota ei ole
-        koskaan ollut olemassakaan.
+        Name mapped to the number of occurrences tolerated across the
+        repository, or ``None`` if the file does not exist -- CI and any other
+        machine then skip the guard rather than fail it.
     """
     try:
-        data = tomllib.loads(REAL_SETTINGS.read_text(encoding="utf-8"))
-        raw = str(data["project"]["archive_root"])
-    except (OSError, KeyError, tomllib.TOMLDecodeError):  # pragma: no cover
+        text = FORBIDDEN_NAMES_FILE.read_text(encoding="utf-8")
+    except OSError:
         return None
-    return Path(os.path.expandvars(raw)).expanduser()
+    names: dict[str, int] = {}
+    for line in text.splitlines():
+        entry = line.split("#", 1)[0].strip()
+        if not entry:
+            continue
+        name, _, ceiling = entry.partition("=")
+        names[name.strip()] = int(ceiling) if ceiling.strip() else 0
+    return names
+
+
+#: Denylist for :mod:`test_public_repo`, or ``None`` on a machine without one.
+FORBIDDEN_NAMES: dict[str, int] | None = _forbidden_names()
+
+
+#: Was ``PAPPASCOUT_ARCHIVE_ROOT`` set when this module was imported?
+#:
+#: Read here and not later because ``_isolate_from_machine`` deletes the
+#: variable for every test. It is the one fact that separates "this machine has
+#: no archive" from "this machine has one and we failed to find it", and
+#: :mod:`test_isolation` asserts on it: without that assertion the 222 marked
+#: tests could all turn into silent skips and pytest would still exit zero.
+_MACHINE_ROOT_SET = ARCHIVE_ROOT_ENV_VAR in os.environ
+
+
+def _real_archive_root() -> Path | None:
+    """The real archive root, resolved **at import time**.
+
+    It has to be computed before ``_isolate_from_machine`` redirects
+    ``USERPROFILE`` and deletes ``PAPPASCOUT_ARCHIVE_ROOT``; otherwise tests
+    that need the machine's archive would find nothing even on the machine
+    that has it.
+
+    **The same resolver as production.** Story 3.10 moved the real path out of
+    the versioned file into ``PAPPASCOUT_ARCHIVE_ROOT``, and the versioned
+    value is a placeholder. Reading only ``settings.toml`` would send the
+    ``demo``- and ``archive``-marked tests looking inside the placeholder --
+    that is, they would skip silently on the very machine that has the
+    archive. So the path comes from :meth:`ArchivePaths.from_settings`, the
+    same order the commands use.
+
+    **A broken settings file is not a missing variable.** Only the placeholder
+    case returns ``None``. Unreadable or malformed TOML, or a missing
+    ``[project].archive_root``, is a real defect in the repository: it would
+    turn 222 marked tests into silent skips everywhere, including CI, so it is
+    raised instead.
+
+    Returns:
+        The directory, or ``None`` when ``PAPPASCOUT_ARCHIVE_ROOT`` is unset on
+        this machine. ``None`` is deliberately different from a path that
+        happens not to exist: an invented placeholder path would make the skip
+        message name a directory that never existed.
+
+    Raises:
+        Exception: Whatever reading or parsing ``settings.toml`` raises, and
+            ``PappascoutError`` for any resolution failure other than the
+            unset variable -- a relative override, for instance.
+    """
+    data = tomllib.loads(REAL_SETTINGS.read_text(encoding="utf-8"))
+    raw = str(data["project"]["archive_root"])
+    try:
+        return ArchivePaths.from_settings(raw).root
+    except PappascoutError:
+        if _MACHINE_ROOT_SET:
+            # The variable is set, so this is a bad value rather than a bare
+            # machine -- swallowing it would hide a real misconfiguration
+            # behind 222 skips.
+            raise
+        return None
 
 
 def _real_import_dir() -> Path | None:
@@ -180,8 +268,11 @@ def require_demo(name: str) -> Path:
     """
     if DEMO_DIR is None:
         pytest.skip(
-            "Demohakemistoa ei voitu päätellä settings.tomlista. Aseta "
-            "ympäristömuuttuja PAPPASCOUT_TEST_DEMOS."
+            f"Demohakemistoa ei voitu päätellä, koska arkiston juurta ei "
+            f"tiedetä. Aseta ympäristömuuttuja {ARCHIVE_ROOT_ENV_VAR} "
+            "arkiston koko polkuun -- demot luetaan sen import-hakemistosta. "
+            "Pelkän demohakemiston voi ohjata erikseen muuttujalla "
+            "PAPPASCOUT_TEST_DEMOS."
         )
     path = DEMO_DIR / name
     if not path.is_file():
@@ -219,7 +310,12 @@ def require_parsed(*map_demo_ids: str) -> Path:
     puuttuva parsinta erottuu puuttuvasta arkistosta ja luokittelusta.
     """
     if ARCHIVE_ROOT is None:  # pragma: no cover - riippuu koneesta
-        pytest.skip("Arkiston juurta ei voitu päätellä settings.tomlista.")
+        pytest.skip(
+            f"Arkiston juurta ei tiedetä: ympäristömuuttujaa "
+            f"{ARCHIVE_ROOT_ENV_VAR} ei ole asetettu tällä koneella. "
+            "Versioitu settings.toml ei sisällä polkua, koska repo on "
+            "julkinen."
+        )
     if not ARCHIVE_ROOT.is_dir():  # pragma: no cover - riippuu koneesta
         pytest.skip(f"Arkistoa ei ole tällä koneella: {ARCHIVE_ROOT}")
     for map_demo_id in map_demo_ids:

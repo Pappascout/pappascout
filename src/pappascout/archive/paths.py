@@ -358,6 +358,12 @@ def logs_dir(host: str) -> PurePosixPath:
 #: hallintajaot), joten sen kieltäminen hylkäisi kelvollisia polkuja. Kaksi
 #: yksiselitteistä muotoa riittää: juuri ``%NIMI%`` on se, jonka
 #: ``settings.toml`` sisältää.
+#:
+#: **Windows-rajaus, kirjattuna eikä korjattuna.** Versioitu ``archive_root``
+#: on ``%PAPPASCOUT_ARCHIVE_ROOT%``, ja tuo muoto laajenee vain Windowsilla --
+#: joten kaatumisen nimeävät testit ovat Windows-testejä. Repo on
+#: Windows-only muutenkin (PowerShell-esimerkit, ``%USERPROFILE%``-avaintiedosto,
+#: levyasemakirjaimet), joten rajaus on kirjattu tänne eikä kierretty.
 _UNEXPANDED_VAR = (
     re.compile(r"%([A-Za-z_][A-Za-z0-9_]*)%|\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
     if os.name == "nt"
@@ -365,6 +371,45 @@ _UNEXPANDED_VAR = (
         r"%([A-Za-z_][A-Za-z0-9_]*)%|\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"
     )
 )
+
+
+def _check_absolute(root: Path, raw: str, source: str) -> None:
+    """Fail if the archive root is a relative path.
+
+    ``os.path.expandvars`` is silent about relative values and so is
+    :func:`_check_expanded` -- there is no ``%NAME%`` left to complain about.
+    A relative root is resolved against the current working directory, so the
+    archive would be created wherever the command was run from, and every
+    stage would happily fill it: the pipeline creates what is missing, so the
+    run would report success while writing a second, empty archive. Inside the
+    repository that tree would not even be ignored, because ``.gitignore``
+    anchors only ``/archive/``.
+
+    The trap is specific and cheap to fall into. The versioned line reads
+    ``archive_root = '%PAPPASCOUT_ARCHIVE_ROOT%'``, which invites reading the
+    variable as a *folder name* rather than a whole path; setting it to
+    ``pappascout-archive`` then produces exactly this failure.
+
+    Args:
+        root: Expanded archive root.
+        raw: Original value, for the message.
+        source: Where the value came from, so the reader knows what to fix.
+
+    Raises:
+        PappascoutError: The message names the source and demands an
+            absolute path.
+    """
+    if root.is_absolute():
+        return
+    raise PappascoutError(
+        f"Arkiston juuren polku {str(root)!r} on suhteellinen, ja arkiston "
+        "juuren on oltava absoluuttinen polku.\n"
+        f"Arvo tulee kohteesta {source} ja on {raw!r}.\n"
+        f"Anna {ARCHIVE_ROOT_ENV_VAR}:lle arkiston koko polku levyaseman "
+        "juuresta alkaen -- ei kansion nimeä. Suhteellinen polku ratkaistaan "
+        "työhakemistosta, joten arkisto syntyisi sinne mistä komento sattui "
+        "ajautumaan, eikä ajo kertoisi siitä mitään."
+    )
 
 
 def _check_expanded(
@@ -408,7 +453,7 @@ class ArchivePaths:
     ``Path``-olion. Suhteellisen muodon saa aina funktioista suoraan.
 
     Attributes:
-        root: Arkiston juuri (OneDrive).
+        root: Arkiston juuri (synkronoitu kansio).
         demos_root: Ladattujen demojen paikallinen hakemisto arkiston
             **ulkopuolella**, tai ``None``. Ks.
             :attr:`~pappascout.domain.models.ProjectSettings.demos_root`.
@@ -431,9 +476,22 @@ class ArchivePaths:
         laajennus tehdään ``demos_root``ille -- muuten paikallinen hakemisto
         olisi ainoa polku, jota ei voi kirjoittaa koneriippumattomasti.
 
-        Ympäristömuuttuja ``PAPPASCOUT_ARCHIVE_ROOT`` ylikirjoittaa asetuksen
-        kokonaan -- se on tapa osoittaa toinen arkisto muokkaamatta versioitua
-        tiedostoa.
+        **The environment variable is the only source of the real path.** The
+        repository is public, so ``settings.toml`` does not carry the archive
+        path: ``PAPPASCOUT_ARCHIVE_ROOT`` does, per machine. The versioned
+        value is a placeholder -- literally ``%PAPPASCOUT_ARCHIVE_ROOT%`` --
+        which ``os.path.expandvars`` leaves untouched when the variable is
+        unset, so a fresh clone stops with the error described below instead of
+        creating an empty archive somewhere else. The variable therefore does
+        not point at *another* archive; it points at *the* archive.
+
+        **The value must be absolute.** A relative value would be resolved
+        against the current working directory, so the archive would land
+        wherever the command happened to be run from -- inside the repository,
+        most likely, where ``.gitignore`` anchors only ``/archive/`` and would
+        not catch a tree under any other name. Nothing downstream would
+        complain: the stages create what is missing, so the run would look
+        like a success while filling a second, empty archive.
 
         **Arkiston ohittaminen vie demot mukanaan.** Kun
         ``PAPPASCOUT_ARCHIVE_ROOT`` on asetettu, ``demos_root`` jätetään
@@ -455,16 +513,21 @@ class ArchivePaths:
                 tarkistusta ajo loisi hakemiston, jonka nimi on kirjaimellisesti
                 ``%USERPROFILE%``, kirjoittaisi koko arkiston sinne ja näyttäisi
                 onnistuneen. Kahden koneen arkisto hajoaisi hiljaa.
+            PappascoutError: If the expanded archive root is relative. The
+                message names the source, so the reader knows whether to fix
+                the variable or the file.
         """
         override = os.environ.get(ARCHIVE_ROOT_ENV_VAR)
         raw = override if override else str(archive_root)
         source = (
             f"ympäristömuuttuja {ARCHIVE_ROOT_ENV_VAR}"
             if override
-            else "asetus [project].archive_root"
+            else "asetus [project].archive_root tiedostossa settings.toml"
         )
         expanded = os.path.expandvars(str(raw))
         _check_expanded(expanded, raw, source)
+        root = Path(expanded).expanduser()
+        _check_absolute(root, raw, source)
 
         demos_override = os.environ.get(DEMOS_ROOT_ENV_VAR)
         if demos_override:
@@ -476,7 +539,7 @@ class ArchivePaths:
             demos_source = ""
         else:
             raw_demos = None if demos_root is None else str(demos_root)
-            demos_source = "asetus [project].demos_root"
+            demos_source = "asetus [project].demos_root tiedostossa settings.toml"
 
         local: Path | None = None
         if raw_demos is not None and raw_demos.strip():
@@ -488,7 +551,7 @@ class ArchivePaths:
                 subject="Demohakemiston polussa",
             )
             local = Path(expanded_demos).expanduser()
-        return cls(root=Path(expanded).expanduser(), demos_root=local)
+        return cls(root=root, demos_root=local)
 
     def resolve(self, relative: PurePosixPath | str) -> Path:
         """Liitä suhteellinen arkistopolku juureen.

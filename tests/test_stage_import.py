@@ -1057,13 +1057,15 @@ def test_the_ambiguity_advice_quotes_a_path_with_spaces(
 ) -> None:
     """**Neuvo, jota ei voi kopioida, ei ole neuvo.**
 
-    Oikean arkiston polussa on kolme välilyöntiä (``Claude code``,
-    ``Finnpark Oy``), joten lainaamaton polku hajoaa komentotulkissa useaksi
-    argumentiksi ja tuottaa englanninkielisen ``typer``-virheen. Tämä tulisi
-    tapahtumaan ensimmäisellä oikealla ajolla, koska monitulkintainen pari on
-    mitattu olemassa olevaksi.
+    Oikean arkiston polussa on välilyöntejä, joten lainaamaton polku hajoaa
+    komentotulkissa useaksi argumentiksi ja tuottaa englanninkielisen
+    ``typer``-virheen. Tämä tulisi tapahtumaan ensimmäisellä oikealla ajolla,
+    koska monitulkintainen pari on mitattu olemassa olevaksi.
+
+    Hakemistonimi alla on ``Program Files``: mikä tahansa välilyönnin sisältävä
+    nimi todistaa saman, eikä oikean puun kansionimi kuulu julkiseen repoon.
     """
-    archive = ArchivePaths(root=tmp_path / "Claude code" / "arkisto")
+    archive = ArchivePaths(root=tmp_path / "Program Files" / "arkisto")
     place(archive, FACEIT_NAME, ZSTD_BYTES)
     place(archive, FACEIT_NAME_PLAIN, PLAIN_BYTES)
 

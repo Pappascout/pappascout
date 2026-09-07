@@ -7,12 +7,18 @@ ristiriidat jäävät kiinni latausvaiheessa.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from conftest import REAL_SETTINGS, settings_text
+from pappascout.archive.paths import (
+    ARCHIVE_ROOT_ENV_VAR,
+    ArchivePaths,
+    _UNEXPANDED_VAR,
+)
 from pappascout.constants import seconds_label
 from pappascout.domain.models import (
     AggregateSettings,
@@ -458,14 +464,105 @@ def test_project_values(settings_file: Path) -> None:
     assert s.project.lock_ttl_seconds == 600
 
 
-def test_real_archive_root_is_portable() -> None:
-    """Versioitu polku ei saa sisältää kovakoodattua käyttäjänimeä."""
+#: Path separators and the home shortcut -- everything that is not a name.
+_PATH_NOISE = re.compile(r"[\\/~\s]")
+
+
+def _literal_residue(line: str) -> str:
+    """What is left of the ``archive_root`` line once variables and separators go.
+
+    **The guard must not write the forbidden names down.** A list of employers
+    and sync products would be exactly the leak this test prevents: Story
+    3.10's own check is a ``git grep`` over those names, and a denylist here
+    would put every hit straight back into a versioned file. So this looks at
+    *shape* rather than names -- and shape is the stronger claim: a path with
+    no literal directory name in it cannot name anyone. The repository-wide
+    counterpart, which does use names, reads them from outside the repository
+    (:mod:`test_public_repo`).
+
+    The environment-reference pattern is **production's own**
+    (:data:`pappascout.archive.paths._UNEXPANDED_VAR`), not a local copy. A
+    looser local pattern such as ``%[^%]+%`` would disagree with the loader
+    about what a variable reference is, and the disagreement is exploitable:
+    ``%Some Employer Oy%`` would strip to nothing and pass here while the
+    loader treats it as a literal directory name.
+    """
+    value = line.split("=", 1)[1].strip().strip("'\"")
+    return _PATH_NOISE.sub("", _UNEXPANDED_VAR.sub("", value))
+
+
+def test_real_archive_root_names_no_one() -> None:
+    """The versioned path names no employer, no product and no user.
+
+    The repository is public, and this line was the whole of the leak. It
+    carries no literal directory name at all: the real path lives in the
+    machine's ``PAPPASCOUT_ARCHIVE_ROOT``.
+
+    **Portability is no longer asserted here, because it is no longer this
+    line's job.** The old guard demanded ``%USERPROFILE%`` or ``~`` so that
+    one committed line would work on two machines with different user names.
+    That premise died with this change: the line does not resolve on either
+    machine any more -- it is meant to fail -- and portability now comes from
+    the variable. What is left of the concern, "no user name written out", is
+    covered strictly harder by the residue check below.
+    """
     text = REAL_SETTINGS.read_text(encoding="utf-8")
     line = next(r for r in text.splitlines() if r.startswith("archive_root"))
-    assert "%USERPROFILE%" in line or "~" in line
-    assert "vpu" not in line
-    # Arkisto on OneDrivessa, koodi ei.
-    assert "OneDrive" in line
+    assert _literal_residue(line) == "", (
+        "versioidussa polussa on kirjaimellinen hakemistonimi, joka voi "
+        "nimetä organisaation, synkronointituotteen tai käyttäjän"
+    )
+
+
+def test_the_shipped_archive_root_names_the_environment_variable() -> None:
+    r"""The versioned value is a placeholder that fails, not a path that works.
+
+    Without this assertion the default could be neutral but usable -- say
+    ``%USERPROFILE%\pappascout-archive`` -- and a fresh clone with no
+    variable set would quietly create an **empty** archive in the wrong place
+    and look like a success.
+    """
+    text = REAL_SETTINGS.read_text(encoding="utf-8")
+    line = next(r for r in text.splitlines() if r.startswith("archive_root"))
+    assert f"%{ARCHIVE_ROOT_ENV_VAR}%" in line
+
+
+def test_the_shipped_settings_fail_loudly_without_the_environment_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Matrix row 2: a fresh clone with no variable stops, in Finnish.
+
+    The message names both the variable and the file the path would otherwise
+    live in; without the file the reader would know something is missing but
+    not where to fix it.
+    """
+    monkeypatch.delenv(ARCHIVE_ROOT_ENV_VAR, raising=False)
+    settings = load_settings(REAL_SETTINGS, env_files=())
+
+    with pytest.raises(PappascoutError) as exc:
+        ArchivePaths.from_settings(
+            settings.project.archive_root, settings.project.demos_root
+        )
+
+    message = str(exc.value)
+    assert ARCHIVE_ROOT_ENV_VAR in message
+    assert "settings.toml" in message
+
+
+def test_the_environment_variable_reaches_the_shipped_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Matrix row 1: with the variable set, the archive resolves from it.
+
+    The pair to the previous test: an implementation that never finds the
+    archive at all would also pass a test that only checks the failure.
+    """
+    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "arkisto"))
+    settings = load_settings(REAL_SETTINGS, env_files=())
+    archive = ArchivePaths.from_settings(
+        settings.project.archive_root, settings.project.demos_root
+    )
+    assert archive.root == tmp_path / "arkisto"
 
 
 def test_league_values_match_season_13(settings_file: Path) -> None:
@@ -1346,16 +1443,18 @@ def test_a_zero_z_weight_is_allowed(tmp_path: Path) -> None:
     assert _load(path).parse.callout_z_weight == 0.0
 
 
-def test_the_shipped_settings_keep_demos_in_the_archive(tmp_path: Path) -> None:
+def test_the_shipped_settings_keep_demos_in_the_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Demot menevät arkistoon, ja se on päätös eikä puuttuva arvo.
 
     Päätetty 2026-09-05 uuden tiedon jälkeen. Kaksi perustetta:
 
-    1. **Arkisto seuraa koneelta toiselle**, koska se on OneDrivessa.
-       Paikallisessa kansiossa olevat demot eivät seuraa, ja toisella koneella
-       ne haettaisiin FACEITista uudelleen -- mikä onnistuu vain noin 30 päivän
-       ajan.
-    2. **Files On-Demand vapauttaa parsitun demon tilan poistamatta
+    1. **Arkisto seuraa koneelta toiselle**, koska se on synkronoidussa
+       kansiossa. Paikallisessa kansiossa olevat demot eivät seuraa, ja
+       toisella koneella ne haettaisiin FACEITista uudelleen -- mikä onnistuu
+       vain noin 30 päivän ajan.
+    2. **Synkronoitu kansio vapauttaa parsitun demon tilan poistamatta
        tiedostoa.** Paikallisessa kansiossa tilan vapauttaminen on lopullinen
        poisto.
 
@@ -1363,7 +1462,11 @@ def test_the_shipped_settings_keep_demos_in_the_archive(tmp_path: Path) -> None:
     päätös eläisi jos se kumottaisiin: rivin poistaminen kommenteista kääntää
     moodin, ja silloin tämä testi kertoo siitä.
     """
-    from pappascout.archive.paths import ArchivePaths
+    # The versioned ``archive_root`` is a placeholder that fails without the
+    # environment variable (Story 3.10). This test's claim is about
+    # ``demos_root``, so point the archive at tmp_path -- never at the
+    # machine's own.
+    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "arkisto"))
 
     settings = load_settings(REAL_SETTINGS)
     assert settings.project.demos_root is None
@@ -1384,5 +1487,8 @@ def test_the_demos_root_setting_stays_documented_in_the_shipped_file() -> None:
     """
     text = REAL_SETTINGS.read_text(encoding="utf-8")
     assert "# demos_root = " in text
-    # Perustelu on rivin vieressä eikä muistissa.
-    assert "Files On-Demand" in text
+    # Perustelu on rivin vieressä eikä muistissa -- ja se kuvataan
+    # ominaisuutena eikä tuotenimenä, koska repo on julkinen. Se, ettei
+    # tuotenimi palaa tiedostoon, on repolaajuisen vartijan asia
+    # (tests/test_public_repo.py): nimi ei kuulu tähänkään tiedostoon.
+    assert "POISTAMATTA tiedostoa" in text

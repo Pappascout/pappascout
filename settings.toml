@@ -18,28 +18,44 @@
 # Oma joukkue. [domain] Pappaliigan kausi 13.
 own_team_name = "PotkukelkkaPeek"
 
-# Arkisto on OneDrivessa ja molempien koneiden yhteinen; koodirepo ei ole.
-# [spine] AD-7.
+# Arkisto on synkronoidussa kansiossa ja molempien koneiden yhteinen;
+# koodirepo ei ole. [spine] AD-7.
 #
-# Polussa saa kayttaa ymparistomuuttujia (%USERPROFILE%) ja tildea (~); ne
-# laajennetaan latausvaiheessa, joten sama versioitu rivi toimii molemmilla
-# koneilla vaikka kayttajanimi olisi eri.
+# OIKEAA POLKUA EI KIRJOITETA TAHAN TIEDOSTOON. Repo on julkinen, ja polku
+# kertoisi kansiopuun. Polku on koneen omassa ymparistomuuttujassa
+# PAPPASCOUT_ARCHIVE_ROOT, ja se on ainoa paikka, josta ajo sen loytaa.
 #
-# Yksittaisen ajon voi ohjata toiseen arkistoon muokkaamatta tata tiedostoa
-# asettamalla ymparistomuuttujan PAPPASCOUT_ARCHIVE_ROOT, esim. PowerShellissa:
+# MUUTTUJAN ARVO ON ARKISTON KOKO POLKU LEVYASEMAN JUURESTA ALKAEN, ei kansion
+# nimi eika alla olevan rivin osa. Suhteellinen arvo hylataan omalla
+# virheellaan: se ratkaistaisiin tyohakemistosta, joten arkisto syntyisi sinne
+# mista komento sattui ajautumaan, eika ajo kertoisi siita mitaan.
+#
+# PowerShellissa pysyvasti (uudet paatteet nakevat sen, nykyiset eivat)
+#   [Environment]::SetEnvironmentVariable(
+#       'PAPPASCOUT_ARCHIVE_ROOT', 'D:\polku\arkistoon', 'User')
+# ja yhteen ajoon
 #   $env:PAPPASCOUT_ARCHIVE_ROOT = 'D:\pappascout-testiarkisto'
-archive_root = '%USERPROFILE%\OneDrive - Finnpark Oy\Finnpark\MDM\Claude code\pappascout-archive'
+#
+# Alla oleva versioitu arvo on paikkamerkki, joka on tarkoitus kaataa: jos
+# PAPPASCOUT_ARCHIVE_ROOT puuttuu, %PAPPASCOUT_ARCHIVE_ROOT% jaa
+# laajentamatta ja lataus kertoo suomeksi mita asettaa ja missa. Ilman sita
+# tuore klooni loisi tyhjan arkiston vaaraan paikkaan ja nayttaisi
+# onnistuneen -- ja kahden koneen arkisto hajoaisi hiljaa.
+#
+# Muuttujaviittauksen %NIMI%-muoto laajenee vain Windowsilla; projekti on
+# Windows-only muutenkin (ks. README).
+archive_root = '%PAPPASCOUT_ARCHIVE_ROOT%'
 
 # Ladattujen demojen hakemisto. Kommentoituna demot menevat arkiston
 # demos-hakemistoon, ja se on tarkoituksellinen oletus (paatetty 5.9.2026).
 #
-# Kaksi syyta pitaa demot arkistossa eli OneDrivessa:
+# Kaksi syyta pitaa demot arkistossa eli synkronoidussa kansiossa:
 #
 # 1. Arkisto seuraa koneelta toiselle. Paikallisessa kansiossa olevat demot
 #    eivat seuraa, ja toisella koneella ne haettaisiin FACEITista uudelleen --
 #    mika onnistuu vain noin 30 paivan ajan. Arkistossa projektin koko tila
 #    liikkuu yhtena kokonaisuutena.
-# 2. OneDriven Files On-Demand vapauttaa parsitun demon paikallisen tilan
+# 2. Synkronoidussa kansiossa parsitun demon paikallinen tila voidaan vapauttaa
 #    POISTAMATTA tiedostoa: se jaa pilveen ja palautuu tarvittaessa.
 #    Paikallisessa kansiossa tilan vapauttaminen tarkoittaa demon lopullista
 #    poistamista. Tama kone on 96 % taynna, joten ero on kaytannon etu.
@@ -514,7 +530,7 @@ small_sample_rounds = 3
 # lukittu ehto kuin alueorientaatiolla.
 #
 # Koko perustelu on kalibrointi-stack.md:ssä, joka EI ole tässä repossa vaan
-# projektikansiossa _bmad-output/implementation-artifacts/ (OneDrive).
+# projektikansiossa _bmad-output/implementation-artifacts/.
 #
 # 4 EIKÄ 3: neljä on kalibroitu, kolme ei. Viisi ei ole tyhjä joukko vaan
 # säännön aito ääripää (2 kierrosta 66:sta), joten yläraja on kentällä
@@ -600,7 +616,7 @@ stack_site_separation_min = 2.0
 # ja kahdesta eri joukkueesta; mitatut luvut ovat tässä kommentissa, jotta ne
 # ovat tarkistettavissa ilman lähdedokumenttia. Koko perustelu on
 # kalibrointi-ct-eteneminen.md:ssä, joka EI ole tässä repossa vaan
-# projektikansiossa _bmad-output/implementation-artifacts/ (OneDrive).
+# projektikansiossa _bmad-output/implementation-artifacts/.
 # [kalibroitu] [spine] AD-10
 #
 # Alue on "T:n aluetta siinä demossa", jos sen elossa-havainnoista

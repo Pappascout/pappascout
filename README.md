@@ -29,9 +29,9 @@ redistributed, and volume is roughly 10–30 demos per month during the season.
 uv sync
 ```
 
-API keys live in a machine-local file, **not in this repo and not in OneDrive**
-(OneDrive makes conflict copies and keeps rotated keys in version history).
-Create `%USERPROFILE%\.pappascout\.env`:
+API keys live in a machine-local file, **not in this repo and not in the
+synchronised folder** (a sync client makes conflict copies and keeps rotated
+keys in version history). Create `%USERPROFILE%\.pappascout\.env`:
 
 ```
 FACEIT_API_KEY=<Data API server-side key>
@@ -42,6 +42,45 @@ FACEIT_DOWNLOADS_TOKEN=<Downloads API token>
 it is not the Data API key, and it only appears in the portal after the
 application is approved. Everything except `fetch` and `collect` works without
 it.
+
+### The archive path
+
+The archive path is machine-local too, and it is **not in `settings.toml`**:
+this repo is public, and a path names the folder tree it sits in. The versioned
+line is a deliberate placeholder, so **every command fails until you set the
+variable** — including on a machine where Pappascout already worked before this
+change. The message is in Finnish and names both the variable and the file.
+
+```powershell
+# Persistent, per user. Run once per machine.
+[Environment]::SetEnvironmentVariable(
+    'PAPPASCOUT_ARCHIVE_ROOT', 'D:\sync\pappascout-archive', 'User')
+```
+
+Four things that are easy to get wrong:
+
+- **The value is the whole path**, from the drive letter on — not a folder name,
+  and not a fragment of the versioned line. A relative value is rejected with
+  its own error, because it would be resolved against the working directory and
+  would quietly fill a second, empty archive wherever you happened to run the
+  command.
+- **A `User`-scope variable does not reach terminals that are already open.**
+  Open a new one, or set `$env:PAPPASCOUT_ARCHIVE_ROOT` for the current session
+  as well.
+- **Do it on both machines**, pointing at each machine's own path to the same
+  synchronised folder. The path may differ; the folder is the same.
+- **`%USERPROFILE%`-style references only expand on Windows.** This project is
+  Windows-only anyway (PowerShell examples, `%USERPROFILE%` key file, drive
+  letters), and the shipped placeholder is written in that form.
+
+The variable has to be a real environment variable. Putting
+`PAPPASCOUT_ARCHIVE_ROOT=` in `%USERPROFILE%\.pappascout\.env` **does not
+work** — measured, not assumed: that file is read by pydantic-settings into the
+settings model's own fields, and unknown keys are ignored, so the value never
+reaches the process environment that the archive loader reads. It fails exactly
+as if it were unset.
+
+Check it with `uv run pappascout info`, which prints the resolved archive path.
 
 ## Usage
 
@@ -118,8 +157,9 @@ itself, not to a shared heading, because two failures rarely have the same fix.
 
 ## Archive layout
 
-The archive lives in OneDrive and is shared by both machines. The code repo is
-deliberately outside OneDrive — git and OneDrive do not work together.
+The archive lives in a folder that is synchronised between both machines, and
+its path comes from `PAPPASCOUT_ARCHIVE_ROOT` (see Install). The code repo is
+deliberately outside that folder — git and file sync do not work together.
 
 ```
 raw/faceit/                                   HTTP cache, safe to delete
@@ -136,9 +176,9 @@ logs/<host>/
 ```
 
 **One writer per file.** Writes go through a host-tagged temporary file and then
-a rename, because the archive is in OneDrive. Every result gets a manifest, and
-a matching manifest means the stage is skipped — so changing a threshold re-runs
-`classify` in seconds without touching `parse`.
+a rename, because the archive is in a synchronised folder. Every result gets a
+manifest, and a matching manifest means the stage is skipped — so changing a
+threshold re-runs `classify` in seconds without touching `parse`.
 
 The `.dem.zst` files are 140–240 MB each and are the only large thing in the
 project; everything derived from them is under a megabyte. They can be deleted
