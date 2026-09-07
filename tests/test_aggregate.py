@@ -15,6 +15,8 @@ import pytest
 from conftest import OVERLAPPING_SITE_CLOUD, SITE_CLOUD
 from pappascout.domain.aggregate import (
     CLASSIFY_THRESHOLD_KEYS,
+    MISSING_ROSTER_CLASS_FI,
+    ROSTER_SAMPLE_BUCKETS,
     area_distributions,
     armed_players_for,
     armored_by_round,
@@ -24,7 +26,10 @@ from pappascout.domain.aggregate import (
     demo_buckets,
     first_contact_areas,
     lineups_of_same_team,
+    roster_class_values,
+    roster_demo_buckets,
     roster_entries,
+    roster_sample_for,
     team_identity,
     map_name_for,
     observed_map_name,
@@ -41,6 +46,7 @@ from pappascout.domain.aggregate import (
     utility_counts_for,
     utility_uses,
 )
+from pappascout.constants import ROSTER_CLASS_BUCKET
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
 from pappascout.domain.report import MissingDemo, RosterEntry, TeamReport
 from pappascout.domain.sampling import AreaObservations, CloudCell
@@ -58,7 +64,7 @@ from pappascout.domain.schemas import (
     TICKS,
     validate,
 )
-from pappascout.errors import AggregateError
+from pappascout.errors import AggregateError, SchemaError
 
 TEAM = "aaaaaaaaaaaaaaaa"
 OPPONENT = "bbbbbbbbbbbbbbbb"
@@ -112,6 +118,7 @@ def classified_row(
     side: str = "T",
     round_type: str | None = "pistol",
     is_league: bool | None = None,
+    roster_class: str | None = None,
     armed: int | None = 5,
 ) -> dict[str, object]:
     return {
@@ -125,7 +132,7 @@ def classified_row(
         "reason": "testi",
         "inputs": _inputs(armed),
         "is_league": is_league,
-        "roster_class": None,
+        "roster_class": roster_class,
     }
 
 
@@ -860,6 +867,142 @@ def test_league_and_other_stay_apart_through_the_sample() -> None:
     s = sample_for(rows, demo_buckets(rows))
     assert (s.league.rounds, s.other.rounds, s.unknown.rounds) == (1, 1, 1)
     assert s.demos == 3
+
+
+# --- Roster breakdown (Story 3.9) -----------------------------------------------
+
+
+def test_the_allowed_roster_classes_come_from_the_classified_schema() -> None:
+    """The set is read from the schema, not from a parallel constant.
+
+    ``ROSTER_CLASS_BUCKET`` is what turns a class into a bucket name, so a
+    class the schema allows but the mapping does not know would raise
+    ``KeyError`` instead of counting. Locking the two together here is the
+    check that keeps the third bucket from appearing silently.
+    """
+    assert set(roster_class_values()) == set(ROSTER_CLASS_BUCKET)
+    assert len(ROSTER_SAMPLE_BUCKETS) == len(ROSTER_CLASS_BUCKET) + 1
+
+
+def test_an_empty_roster_class_lands_in_unknown_not_in_a_class() -> None:
+    """Every demo in the archive is here: ``select`` gave it no class."""
+    rows = [classified_row("Anubis_vs_x", n) for n in (1, 2)]
+    assert roster_demo_buckets(rows) == {"Anubis_vs_x": "unknown"}
+    s = roster_sample_for(rows, roster_demo_buckets(rows))
+    assert (s.unknown.demos, s.unknown.rounds) == (1, 2)
+    assert s.full.rounds == 0 and s.partial.rounds == 0
+
+
+def test_the_two_roster_classes_map_to_their_own_buckets() -> None:
+    rows = [
+        classified_row("a", 1, roster_class="5/5"),
+        classified_row("b", 1, roster_class="4/5"),
+        classified_row("c", 1),
+    ]
+    assert roster_demo_buckets(rows) == {
+        "a": "full",
+        "b": "partial",
+        "c": "unknown",
+    }
+
+
+def test_a_demo_cannot_belong_to_two_roster_buckets() -> None:
+    """``roster_class`` describes the map; two values would split one demo."""
+    rows = [
+        classified_row("x", 1, roster_class="5/5"),
+        classified_row("x", 2, roster_class="4/5"),
+    ]
+    with pytest.raises(AggregateError, match="kahteen rosterilokeroon") as err:
+        roster_demo_buckets(rows)
+    assert "x" in str(err.value)
+
+
+def test_a_partly_classified_demo_is_a_different_fault_from_a_contradiction() -> None:
+    """Some rounds classified, some not: an interrupted run, not a conflict.
+
+    The fix differs -- reclassify the whole demo rather than resolve two
+    claims -- so the message has to differ too. And it must not print
+    Python's ``None`` into a Finnish sentence: the column is empty, and that
+    is a Finnish word.
+    """
+    rows = [
+        classified_row("x", 1, roster_class="5/5"),
+        classified_row("x", 2),
+    ]
+    with pytest.raises(AggregateError, match="kesken") as err:
+        roster_demo_buckets(rows)
+    message = str(err.value)
+    assert MISSING_ROSTER_CLASS_FI in message
+    assert "None" not in message
+    assert "kaksi eri roster_class-arvoa" not in message
+
+
+def test_a_table_without_the_roster_column_names_the_stage_to_rerun() -> None:
+    """The archive's current state, not a hypothesis (Story 3.9).
+
+    Every classified table written before Story 3.8 has no ``roster_class``
+    column at all. A bare ``row[...]`` would surface that as ``KeyError`` --
+    an internal error on the command line -- instead of telling the user to
+    reclassify.
+    """
+    rows = [{"map_demo_id": "x", "round_no": 1}]
+    with pytest.raises(SchemaError, match="puuttuu sarake") as err:
+        roster_demo_buckets(rows)
+    assert "classify" in str(err.value)
+
+
+def test_a_demo_outside_the_bucket_map_is_named_not_dropped() -> None:
+    """The buckets and the sample must come from the same rows.
+
+    Silently dropping the demo would reach the reader as a roster total
+    quietly smaller than the league one; the model would then reject the
+    report with a sum that does not add up, several layers from the cause.
+    """
+    rows = [classified_row("x", 1)]
+    with pytest.raises(AggregateError, match="ei ole rosterilokeroa") as err:
+        roster_sample_for(rows, {"y": "unknown"})
+    assert "x" in str(err.value)
+
+
+def test_a_foreign_roster_class_stops_the_run_naming_the_allowed_set() -> None:
+    """A corrupt table is not a missing measurement, so it is not ``unknown``."""
+    rows = [classified_row("x", 1, roster_class="3/5")]
+    with pytest.raises(SchemaError, match="sallittujen joukossa") as err:
+        roster_demo_buckets(rows)
+    for allowed in roster_class_values():
+        assert allowed in str(err.value)
+
+
+def test_the_roster_classes_stay_apart_through_the_sample() -> None:
+    rows = [
+        classified_row("a", 1, roster_class="5/5"),
+        classified_row("a", 2, roster_class="5/5"),
+        classified_row("b", 1, roster_class="4/5"),
+        classified_row("c", 1),
+        classified_row("d", 1),
+    ]
+    s = roster_sample_for(rows, roster_demo_buckets(rows))
+    assert (s.full.demos, s.full.rounds) == (1, 2)
+    assert (s.partial.demos, s.partial.rounds) == (1, 1)
+    assert (s.unknown.demos, s.unknown.rounds) == (2, 2)
+    assert (s.demos, s.rounds) == (4, 5)
+
+
+def test_the_two_breakdowns_of_one_sample_agree_on_the_totals() -> None:
+    """The invariant ``Report`` enforces, measured at the counting end.
+
+    The two dimensions are independent -- a league map can be played with a
+    stand-in -- so the buckets differ while the totals cannot.
+    """
+    rows = [
+        classified_row("a", 1, is_league=True, roster_class="4/5"),
+        classified_row("b", 1, is_league=False, roster_class="5/5"),
+        classified_row("c", 1),
+    ]
+    league = sample_for(rows, demo_buckets(rows))
+    roster = roster_sample_for(rows, roster_demo_buckets(rows))
+    assert (league.demos, league.rounds) == (roster.demos, roster.rounds)
+    assert (league.league.demos, roster.full.demos) == (1, 1)
 
 
 # --- Jakaumat -------------------------------------------------------------------

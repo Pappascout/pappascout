@@ -99,6 +99,9 @@ from typing import Any
 from pappascout.constants import (
     ANOMALY_RULE_FI,
     ANOMALY_RULES,
+    ROSTER_BUCKET_FI,
+    ROSTER_BUCKETS,
+    ROSTER_CLASS_BUCKET,
     ROUND_TYPE_FI,
     SAMPLE_BUCKET_FI,
     SAMPLE_BUCKETS,
@@ -2258,6 +2261,73 @@ def _sample_text(sample: Any) -> str:
     )
 
 
+def _roster_sample_text(sample: Any) -> str:
+    """The roster breakdown as one line. All three buckets, empty ones too.
+
+    Reads and formats; it counts nothing (AD-8). Every number here is a field
+    of ``report.json``, so the line cannot disagree with the sample it
+    describes. Whether the line is written at all is decided by the caller --
+    an all-unknown split is noise dressed as information.
+
+    The totals are deliberately absent: they are the same demos and rounds
+    the ``Otanta`` row already states, and repeating them would invite the
+    reader to check two numbers that cannot differ (``Report`` rejects the
+    report if they do).
+
+    **Why this row does not use the shape its sibling uses.** ``Otanta``
+    writes ``liiga 0 / 0, muut 0 / 0`` -- units named once in the heading,
+    then bare numbers. That shorthand cannot carry these bucket names,
+    because the name *is* ``5/5``: the row would read ``5/5 1 / 3``, three
+    slashed numbers in a row, and the reader could not tell the label from the
+    counts. So the units are repeated per number here, and the two rows differ
+    on purpose. Should the class names ever stop containing a slash, this row
+    should go back to the sibling's shape.
+    """
+    return ", ".join(
+        f"{ROSTER_BUCKET_FI[name]}: {demos_text(getattr(sample, name).demos)} / "
+        f"{rounds_text(getattr(sample, name).rounds)}"
+        for name in ROSTER_BUCKETS
+    )
+
+
+def _roster_row(report: Report) -> str:
+    """The ``Rosteriluokka`` row: the split, or one sentence saying there is none.
+
+    Two branches, not one. For as long as ``select`` has not been run over the
+    archive every demo is ``unknown``, and a three-bucket row would then read
+    ``5/5: 0 demoa / 0 kierrosta, ...`` -- noise dressed as information. Same
+    shape as the ``Liigatieto`` row: what is not confirmed is said once, in a
+    sentence, instead of being spelled out as zeros.
+
+    The gloss on ``4/5`` is attached **only when that bucket carries demos**.
+    Explaining a notation that does not appear in the row's own numbers would
+    make the reader look for it.
+
+    Called only when the sample has demos; see :func:`_summary`.
+    """
+    roster = report.roster_sample
+    known = [
+        name
+        for name in ROSTER_CLASS_BUCKET.values()
+        if getattr(roster, name).demos
+    ]
+    if not known:
+        return (
+            "yhdenkään demon rosteriluokkaa ei ole vahvistettu: kaikki ovat "
+            f"lokerossa {ROSTER_BUCKET_FI['unknown']}, eikä otanta erottele "
+            f"{ROSTER_BUCKET_FI['full']}- ja "
+            f"{ROSTER_BUCKET_FI['partial']}-karttoja"
+        )
+    text = _roster_sample_text(roster)
+    if roster.partial.demos:
+        text += (
+            f" -- {ROSTER_BUCKET_FI['partial']} on kartta, jolla yksi pelaaja "
+            "oli vakirosterin ulkopuolelta, joten se on heikompi havainto "
+            "joukkueen vakiasetelmasta"
+        )
+    return text
+
+
 def _flatten(values: Mapping[str, Any]) -> dict[str, str]:
     """Litistä kynnyssanakirja yhdeksi tasoksi ``avain -> arvo`` -pareja.
 
@@ -2398,14 +2468,23 @@ def _summary(
 
     items.append(SummaryItem("Otanta", _sample_text(report.sample)))
 
-    if report.sample.league.demos == 0 and report.sample.other.demos == 0:
-        items.append(
-            SummaryItem(
-                "Liigatieto",
-                "yhdenkään demon lajia ei ole vahvistettu: kaikki ovat lokerossa "
-                "tuntematon, eikä otannassa ole yhtään varmistettua liigaottelua",
+    # Both breakdown notes are silent on an empty sample. "Yhdenkään demon
+    # lajia ei ole vahvistettu" is a claim about demos, and with none in the
+    # sample there are no demos to make it about -- the Otanta row already
+    # says "0 demoa", and the empty-data note says the rest. Same fault class
+    # as an empty division in ``collect``, and the two rows have to agree on
+    # it or the reader learns to distrust both.
+    if report.sample.demos:
+        if report.sample.league.demos == 0 and report.sample.other.demos == 0:
+            items.append(
+                SummaryItem(
+                    "Liigatieto",
+                    "yhdenkään demon lajia ei ole vahvistettu: kaikki ovat "
+                    "lokerossa tuntematon, eikä otannassa ole yhtään "
+                    "varmistettua liigaottelua",
+                )
             )
-        )
+        items.append(SummaryItem("Rosteriluokka", _roster_row(report)))
 
     if report.unclassified_rounds:
         items.append(

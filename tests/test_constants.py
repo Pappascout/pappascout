@@ -13,6 +13,7 @@ from typing import get_args
 import pytest
 
 from pappascout import constants
+from pappascout.domain.selection import class_labels
 from pappascout.constants import (
     ANOMALY_RULE_FI,
     ANOMALY_RULES,
@@ -26,7 +27,11 @@ from pappascout.constants import (
     EVENT_KINDS,
     GRENADES,
     KNOWN_INVENTORY_ITEMS,
+    ROSTER_BUCKETS,
+    ROSTER_BUCKET_FI,
+    ROSTER_CLASS_BUCKET,
     ROSTER_CLASSES,
+    RosterBucketName,
     ROUND_TYPE_FI,
     ROUND_TYPES,
     SAMPLE_KINDS,
@@ -336,6 +341,59 @@ def test_every_sample_bucket_has_a_finnish_name() -> None:
     assert set(SAMPLE_BUCKET_FI) == set(SAMPLE_BUCKETS)
     assert len(set(SAMPLE_BUCKET_FI.values())) == len(SAMPLE_BUCKETS)
     assert SAMPLE_BUCKETS == ("league", "other", "unknown")
+
+
+def test_every_roster_bucket_has_a_printed_name() -> None:
+    """Same rule as the league buckets, and for the same reason.
+
+    ``render`` iterates :data:`ROSTER_BUCKETS` and looks the name up in
+    :data:`ROSTER_BUCKET_FI`, so a missing key would stop the run -- and two
+    identical names would merge two buckets into one row.
+    """
+    assert set(ROSTER_BUCKET_FI) == set(ROSTER_BUCKETS)
+    assert len(set(ROSTER_BUCKET_FI.values())) == len(ROSTER_BUCKETS)
+    assert ROSTER_BUCKETS == ("full", "partial", "unknown")
+
+
+def test_the_roster_buckets_follow_the_order_class_labels_returns() -> None:
+    """The pairing is bound to ``class_labels()``, not to an index.
+
+    ``class_labels`` is the only place that decides which class name means a
+    full roster and which means one outsider; it returns them as
+    ``(full, partial)``. Comparing ``ROSTER_BUCKET_FI["full"]`` against
+    ``ROSTER_CLASSES[0]`` would pass just as happily with the pair reversed,
+    and a reversed pair turns every roster number in the report upside down
+    without failing anything. So the assertion asks the function.
+    """
+    full_label, partial_label = class_labels(5, 4)
+    assert ROSTER_CLASS_BUCKET[full_label] == "full"
+    assert ROSTER_CLASS_BUCKET[partial_label] == "partial"
+    assert ROSTER_BUCKET_FI["full"] == full_label
+    assert ROSTER_BUCKET_FI["partial"] == partial_label
+
+
+def test_the_roster_buckets_are_derived_from_the_classes() -> None:
+    """The bucket names carry the class names, not a hand-written copy.
+
+    A third class would break the ``zip(..., strict=True)`` at import time
+    rather than fall silently out of the report, and that is the point of
+    building the pairing instead of writing it twice.
+    """
+    assert set(ROSTER_CLASS_BUCKET) == set(ROSTER_CLASSES)
+    assert len(ROSTER_CLASS_BUCKET) == len(ROSTER_CLASSES)
+    # The third bucket is the same honest word the league breakdown uses; two
+    # spellings of "unknown" would read as two different states.
+    assert ROSTER_BUCKET_FI["unknown"] == SAMPLE_BUCKET_FI["unknown"]
+
+
+def test_the_roster_bucket_names_are_the_bucket_list() -> None:
+    """The Literal and the tuple are two spellings of one set.
+
+    A mismatch between them would surface as an ``AttributeError`` during
+    validation rather than at import, which is exactly the silent divergence
+    the module goes out of its way to avoid elsewhere.
+    """
+    assert get_args(RosterBucketName) == ROSTER_BUCKETS
 
 
 def test_the_nearest_player_method_is_gone_from_the_area_sources() -> None:

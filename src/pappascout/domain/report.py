@@ -102,6 +102,7 @@ missään kentässä -- vain havaintoja ja lukumääriä. Poikkeavat asetelmat
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import datetime
 from math import isfinite
 from typing import Any, Literal
@@ -116,6 +117,7 @@ from pydantic import (
 
 from pappascout.constants import (
     ANOMALY_RULES,
+    ROSTER_BUCKETS,
     ROUND_TYPES,
     SAMPLE_BUCKETS,
     SITE_AREAS,
@@ -135,6 +137,7 @@ __all__ = [
     "SLUG_FALLBACK",
     "SampleBucket",
     "Sample",
+    "RosterSample",
     "PlayersCount",
     "AreaDistribution",
     "Position",
@@ -220,7 +223,17 @@ __all__ = [
 #: Kiristys, joka **hylkäisi** vanhan tiedoston, olisi eri asia: se nostaisi
 #: version, koska ``render`` kaatuisi pydanticin virheeseen sen sijaan että
 #: kertoisi aggregoinnin olevan ajettava uudelleen.
-REPORT_SCHEMA_VERSION = "8.0.0"
+#:
+#: **9.0.0 (Story 3.9): the summary carries the roster breakdown.**
+#: :attr:`Report.roster_sample` is a **required** field, so every
+#: ``report.json`` written before this story fails to validate -- which is the
+#: point. An old file has no roster dimension at all, and validating it as
+#: current would leave the reader with a summary that silently omits the
+#: ``5/5`` / ``4/5`` split rather than a stage that says "run aggregate
+#: again". A default would have been worse than a hard failure: it would have
+#: had to invent bucket counts, and the only honest invention -- everything
+#: ``unknown`` -- is indistinguishable from a measured all-unknown archive.
+REPORT_SCHEMA_VERSION = "9.0.0"
 
 
 #: Merkit, jotka eivät kelpaa tiedostonimeen. Slug on ASCII-osajoukko, koska
@@ -318,6 +331,68 @@ class SampleBucket(_Node):
     demos: int = Field(ge=0)
     rounds: int = Field(ge=0)
 
+    @model_validator(mode="after")
+    def _check_rounds_have_a_demo(self) -> SampleBucket:
+        """Rounds cannot exist without a demo to have played them.
+
+        ``aggregate`` counts both from the same rows, so it cannot produce
+        such a bucket; a ``report.json`` that carries one has been edited by
+        hand or written by something else. The guard belongs here rather than
+        in ``render``, which must not decide what a number means -- and every
+        reader of the field, not just the summary row, is then covered.
+
+        The converse is allowed: a demo whose rounds all fell out of a level
+        (``round_type`` missing, a pruned branch) is a real state.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If ``rounds`` is positive while
+                ``demos`` is zero.
+        """
+        if self.demos == 0 and self.rounds > 0:
+            raise AggregateError(
+                f"Otantalokero väittää {self.rounds} kierrosta ilman yhtään "
+                "demoa. Kierros on aina jonkin demon kierros, joten lokero, "
+                "jossa on kierroksia mutta ei demoa, ei voi olla mitattu.\n"
+                "Aggregointi ei tuota tällaista lukua: report.json on "
+                "muokattu käsin. Aja aggregointi uudelleen."
+            )
+        return self
+
+
+def _check_bucket_totals(
+    node: Sample | RosterSample, names: Sequence[str], label: str
+) -> None:
+    """Assert a breakdown's totals are the sum of its buckets.
+
+    Shared by both breakdowns of the same sample (:class:`Sample` and
+    :class:`RosterSample`) so that the two cannot come to disagree on what
+    "the total is the sum of the buckets" means, and so that one fault does
+    not produce two differently worded errors.
+
+    Args:
+        node: The breakdown to check.
+        names: Its bucket field names.
+        label: Which breakdown this is, in Finnish, for the message. The two
+            share one exception type on purpose (one fault, one type), so the
+            name is the only thing that tells the reader which of the summary's
+            two breakdowns failed.
+
+    Raises:
+        ~pappascout.errors.AggregateError: If either total differs from the
+            sum of the named buckets.
+    """
+    buckets = [getattr(node, name) for name in names]
+    demos = sum(b.demos for b in buckets)
+    rounds = sum(b.rounds for b in buckets)
+    if node.demos != demos or node.rounds != rounds:
+        raise AggregateError(
+            f"Otannan summat eivät täsmää lokeroihin ({label}): "
+            f"demos={node.demos} (lokerot {demos}), "
+            f"rounds={node.rounds} (lokerot {rounds}). "
+            "Jokainen demo kuuluu täsmälleen yhteen lokeroon, joten "
+            "summan on oltava lokeroiden summa."
+        )
+
 
 class Sample(_Node):
     """Otanta yhdellä tasolla kolmessa lokerossa.
@@ -343,17 +418,50 @@ class Sample(_Node):
 
     @model_validator(mode="after")
     def _check_totals(self) -> Sample:
-        buckets = (self.league, self.other, self.unknown)
-        demos = sum(b.demos for b in buckets)
-        rounds = sum(b.rounds for b in buckets)
-        if self.demos != demos or self.rounds != rounds:
-            raise AggregateError(
-                "Otannan summat eivät täsmää lokeroihin: "
-                f"demos={self.demos} (lokerot {demos}), "
-                f"rounds={self.rounds} (lokerot {rounds}). "
-                "Jokainen demo kuuluu täsmälleen yhteen lokeroon, joten "
-                "summan on oltava lokeroiden summa."
-            )
+        _check_bucket_totals(self, SAMPLE_BUCKETS, "liigajako")
+        return self
+
+
+class RosterSample(_Node):
+    """The same sample bucketed by ``roster_class`` instead of ``is_league``.
+
+    A sibling of :class:`Sample`, not a replacement: the two describe the
+    *same* demos and rounds along two different dimensions, and
+    :meth:`Report._check_breakdowns_agree` holds them to equal totals.
+
+    ``full`` is the class where every player on the map was a regular
+    (``5/5``) and ``partial`` the one where the roster threshold was met with
+    one outsider (``4/5``); the identifiers are in
+    :data:`~pappascout.constants.ROSTER_CLASS_BUCKET`, because a class name is
+    not a valid field name.
+
+    ``unknown`` is the bucket for every demo whose ``roster_class`` is empty,
+    and it is not an error state. It holds **two facts it cannot separate**,
+    for the reason given in
+    :data:`~pappascout.constants.ROSTER_BUCKETS`: a class that was never
+    measured, and a class that was measured and did not meet the threshold
+    (AD-6 stores one only when it does). So the row reports the absence of a
+    *confirmed* class, which is why the printed sentence says "ei ole
+    vahvistettu".
+
+    It carries the whole sample for as long as ``select`` has not been run
+    over the archive -- which is the state this story was written in. Two
+    buckets would have forced such a demo into ``5/5`` or ``4/5``, and either
+    would be a claim nobody made.
+
+    ``demos`` and ``rounds`` are the bucket sums, precomputed so that
+    ``render`` does not add them up (AD-8).
+    """
+
+    demos: int = Field(ge=0)
+    rounds: int = Field(ge=0)
+    full: SampleBucket
+    partial: SampleBucket
+    unknown: SampleBucket
+
+    @model_validator(mode="after")
+    def _check_totals(self) -> RosterSample:
+        _check_bucket_totals(self, ROSTER_BUCKETS, "rosterijako")
         return self
 
 
@@ -1807,6 +1915,20 @@ class Report(_Node):
     tool_versions: dict[str, str] = Field(default_factory=dict)
     team: TeamReport
     sample: Sample
+    #: The same sample as :attr:`sample`, bucketed by ``roster_class``
+    #: (Story 3.9). A second breakdown rather than a field on
+    #: :class:`TeamReport`, because it counts demos and rounds and that is
+    #: what a sample is.
+    #:
+    #: **Summary only.** AD-10 puts the ``5/5`` / ``4/5`` split in the summary
+    #: and gives the per-level contract as ``{league_rounds, other_rounds,
+    #: league_demos, other_demos}`` -- so :class:`MapReport`,
+    #: :class:`SideReport` and :class:`RoundTypeReport` keep one sample each.
+    #: Widening that is a spine change, not an implementation detail.
+    #:
+    #: **Required, not defaulted.** See :data:`REPORT_SCHEMA_VERSION`: an old
+    #: file must fail rather than read as current.
+    roster_sample: RosterSample
     #: ``[thresholds]``- ja ``[aggregate]``-osiot sellaisina kuin ne olivat
     #: **tätä aggregointia ajettaessa**. Ne eivät ole samat kuin ne, joilla
     #: kierrokset luokiteltiin -- luokittelu on eri vaihe ja voi olla ajettu
@@ -1869,8 +1991,50 @@ class Report(_Node):
                 f"karttojen summa on {demos}. Jokainen demo on täsmälleen "
                 "yhdellä kartalla, joten summan on täsmättävä."
             )
+        self._check_breakdowns_agree()
         self._check_anomalies()
         return self
+
+    def _check_breakdowns_agree(self) -> None:
+        """The two breakdowns of the summary sample must have equal totals.
+
+        :attr:`sample` and :attr:`roster_sample` bucket the *same* demos and
+        rounds -- one by ``is_league``, the other by ``roster_class`` -- so
+        their totals cannot differ. Each breakdown already checks its own
+        totals against its own buckets, and that check alone would pass a
+        breakdown that is internally consistent about the wrong demos.
+
+        **What this actually catches is a hand-edited ``report.json``.**
+        ``aggregate`` buckets both breakdowns from the same rows and gives
+        every demo a bucket in each, so it cannot emit a mismatched pair; a
+        demo missing from the roster bucketing stops
+        :func:`~pappascout.domain.aggregate.roster_sample_for` instead, and
+        stops it naming the demo. This guard is what keeps a file edited or
+        written elsewhere from being read as a measurement.
+
+        The exception is :class:`~pappascout.errors.AggregateError`, the same
+        type every other sample-total check raises, because it is the same
+        fault -- and the caller catches them as one.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If the demo or round totals of
+                the two breakdowns differ.
+        """
+        if (
+            self.sample.demos == self.roster_sample.demos
+            and self.sample.rounds == self.roster_sample.rounds
+        ):
+            return
+        raise AggregateError(
+            "Yhteenvedon kaksi jakoa kertovat eri otannasta: liigajako "
+            f"väittää {self.sample.demos} demoa ja {self.sample.rounds} "
+            f"kierrosta, rosterijako {self.roster_sample.demos} demoa ja "
+            f"{self.roster_sample.rounds} kierrosta.\n"
+            "Molemmat lokeroivat samat demot, joten summien on oltava samat. "
+            "Aggregointi ei voi tuottaa eroa -- se lokeroi molemmat jaot "
+            "samoista riveistä -- joten report.json on muokattu käsin tai "
+            "kirjoitettu muualla. Aja aggregointi uudelleen."
+        )
 
     def _check_anomalies(self) -> None:
         """Poikkeamat ovat puun ulkopuolella, joten side kiinnitetään täällä.

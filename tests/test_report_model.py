@@ -39,6 +39,7 @@ from pappascout.domain.report import (
     REPORT_SCHEMA_VERSION,
     Report,
     RosterEntry,
+    RosterSample,
     RoundTypeReport,
     SLUG_FALLBACK,
     Sample,
@@ -48,6 +49,7 @@ from pappascout.domain.report import (
     UtilityCounts,
     UtilityUse,
 )
+from pappascout.constants import ROSTER_BUCKETS
 from pappascout.errors import AggregateError
 
 
@@ -59,6 +61,26 @@ def sample(league: int = 0, other: int = 0, unknown: int = 1) -> Sample:
         "unknown": SampleBucket(demos=1 if unknown else 0, rounds=unknown),
     }
     return Sample(
+        demos=sum(b.demos for b in buckets.values()),
+        rounds=sum(b.rounds for b in buckets.values()),
+        **buckets,
+    )
+
+
+def roster_sample(
+    full: int = 0, partial: int = 0, unknown: int = 1
+) -> RosterSample:
+    """Roster breakdown with one demo per bucket that has rounds.
+
+    Mirrors :func:`sample` so a fixture can hand ``Report`` two breakdowns
+    whose totals agree without restating the arithmetic at every call site.
+    """
+    buckets = {
+        "full": SampleBucket(demos=1 if full else 0, rounds=full),
+        "partial": SampleBucket(demos=1 if partial else 0, rounds=partial),
+        "unknown": SampleBucket(demos=1 if unknown else 0, rounds=unknown),
+    }
+    return RosterSample(
         demos=sum(b.demos for b in buckets.values()),
         rounds=sum(b.rounds for b in buckets.values()),
         **buckets,
@@ -216,6 +238,43 @@ def test_sample_totals_must_match_the_buckets() -> None:
         )
 
 
+def test_a_bucket_cannot_hold_rounds_without_a_demo() -> None:
+    """Rounds are always some demo's rounds (Story 3.9).
+
+    ``aggregate`` counts both from the same rows and cannot produce this, so a
+    bucket like it comes from a ``report.json`` edited by hand. The guard is
+    in the model rather than the view, so every reader of the field is covered
+    and no view has to decide what the number means.
+    """
+    with pytest.raises(AggregateError, match="ilman yhtään demoa"):
+        SampleBucket(demos=0, rounds=3)
+
+
+def test_a_demo_whose_rounds_all_fell_out_is_still_allowed() -> None:
+    """The converse is a real state: a pruned branch, or no ``round_type``."""
+    assert SampleBucket(demos=1, rounds=0).demos == 1
+
+
+def test_the_totals_error_names_which_breakdown_failed() -> None:
+    """One exception type, two breakdowns -- the name is the only signal."""
+    with pytest.raises(AggregateError, match="liigajako"):
+        Sample(
+            demos=9,
+            rounds=0,
+            league=SampleBucket(demos=0, rounds=0),
+            other=SampleBucket(demos=0, rounds=0),
+            unknown=SampleBucket(demos=0, rounds=0),
+        )
+    with pytest.raises(AggregateError, match="rosterijako"):
+        RosterSample(
+            demos=9,
+            rounds=0,
+            full=SampleBucket(demos=0, rounds=0),
+            partial=SampleBucket(demos=0, rounds=0),
+            unknown=SampleBucket(demos=0, rounds=0),
+        )
+
+
 def test_unknown_bucket_exists_alongside_the_other_two() -> None:
     """Kolme lokeroa, ei kahta: tyhjä ``is_league`` ei ole ``other``."""
     s = sample(unknown=12)
@@ -223,6 +282,136 @@ def test_unknown_bucket_exists_alongside_the_other_two() -> None:
     assert s.other.rounds == 0
     assert s.league.rounds == 0
     assert s.rounds == 12
+
+
+# --- Roster breakdown (Story 3.9) -----------------------------------------------
+
+
+def test_the_roster_breakdown_totals_must_match_its_buckets() -> None:
+    """Same rule and same exception type as the league breakdown."""
+    with pytest.raises(AggregateError, match="Otannan summat"):
+        RosterSample(
+            demos=9,
+            rounds=1,
+            full=SampleBucket(demos=0, rounds=0),
+            partial=SampleBucket(demos=0, rounds=0),
+            unknown=SampleBucket(demos=1, rounds=1),
+        )
+
+
+def test_the_roster_breakdown_has_three_buckets_too() -> None:
+    """``5/5``, ``4/5`` and unknown. Two would force a claim nobody measured."""
+    s = roster_sample(unknown=12)
+    assert s.unknown.rounds == 12
+    assert s.full.rounds == 0
+    assert s.partial.rounds == 0
+    assert s.rounds == 12
+
+
+def test_the_roster_nodes_buckets_are_the_bucket_list() -> None:
+    """The field names are not a hand-written parallel list.
+
+    ``aggregate`` builds the node with ``**{name: ... for name in
+    ROSTER_BUCKETS}``, so a field renamed on one side surfaces as a runtime
+    ``AttributeError`` deep in validation rather than as a failing import.
+    """
+    fields = set(RosterSample.model_fields) - {"demos", "rounds"}
+    assert fields == set(ROSTER_BUCKETS)
+
+
+def _report_with_breakdowns(league: Sample, roster: RosterSample) -> Report:
+    """A report whose only map repeats the league breakdown handed in.
+
+    The whole map tree carries ``league`` itself, bucket for bucket, so that
+    the per-level sum checks pass and the test measures the cross-breakdown
+    check rather than one of those.
+    """
+    return Report(
+        generated_at=datetime(2026, 9, 7, tzinfo=UTC),
+        team=team(),
+        sample=league,
+        roster_sample=roster,
+        anomaly_scan=scan(rounds_scanned=league.rounds),
+        maps=[
+            MapReport(
+                map_name="de_nuke",
+                map_name_source="map_demo_id",
+                map_demo_ids=["Nuke_vs_a"],
+                sample=league,
+                sides=[
+                    SideReport(
+                        side="T",
+                        sample=league,
+                        round_types=[
+                            RoundTypeReport(
+                                round_type="pistol",
+                                sample=league,
+                                small_sample=False,
+                                positions=[],
+                                utility=[],
+                                utility_counts=[],
+                                players_armed=ArmedPlayers(
+                                    m=0, rounds_unknown=0, counts=[]
+                                ),
+                                players_armored=ArmoredPlayers(
+                                    m=0, rounds_unknown=0, counts=[]
+                                ),
+                                first_contact=[],
+                                deaths=DeathReport(
+                                    m=0, rounds_missing=league.rounds
+                                ),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+
+
+def test_the_two_breakdowns_may_bucket_the_same_demo_differently() -> None:
+    """Independent dimensions: a league map can be played with a stand-in."""
+    report = _report_with_breakdowns(
+        sample(league=3, unknown=0), roster_sample(partial=3, unknown=0)
+    )
+    assert report.sample.league.rounds == 3
+    assert report.roster_sample.partial.rounds == 3
+
+
+def test_a_report_whose_breakdowns_disagree_on_rounds_is_rejected() -> None:
+    """A round in one breakdown and not the other is the fault this catches."""
+    with pytest.raises(AggregateError, match="kaksi jakoa"):
+        _report_with_breakdowns(sample(unknown=3), roster_sample(unknown=2))
+
+
+def test_a_report_whose_breakdowns_disagree_on_demos_is_rejected() -> None:
+    """Equal rounds are not enough: a demo can fall out of a bucket alone."""
+    roster = RosterSample(
+        demos=2,
+        rounds=3,
+        full=SampleBucket(demos=1, rounds=1),
+        partial=SampleBucket(demos=1, rounds=2),
+        unknown=SampleBucket(demos=0, rounds=0),
+    )
+    with pytest.raises(AggregateError, match="kaksi jakoa"):
+        _report_with_breakdowns(sample(unknown=3), roster)
+
+
+def test_the_roster_breakdown_is_required_not_defaulted() -> None:
+    """An old ``report.json`` must fail rather than read as current.
+
+    A default would have had to invent bucket counts, and the only honest
+    invention -- everything ``unknown`` -- is indistinguishable from a
+    measured all-unknown archive.
+    """
+    with pytest.raises(ValidationError, match="roster_sample"):
+        Report(
+            generated_at=datetime(2026, 9, 7, tzinfo=UTC),
+            team=team(),
+            sample=sample(unknown=1),
+            anomaly_scan=scan(),
+            maps=[],
+        )
 
 
 # --- Sigma n = m ----------------------------------------------------------------
@@ -602,6 +791,7 @@ def full_report() -> Report:
         tool_versions={"pappascout": "0.1.0"},
         team=team(),
         sample=sample(unknown=1),
+        roster_sample=roster_sample(unknown=1),
         thresholds_used={"small_sample_rounds": 3},
         missing_demos=[MissingDemo(match="Nuke_vs_x", reason="ei parsittu")],
         unclassified_rounds=2,
@@ -654,6 +844,7 @@ def _report_with_anomalies(anomalies: list[Anomaly]) -> Report:
         generated_at=datetime(2026, 9, 2, 12, 0, tzinfo=UTC),
         team=team(),
         sample=sample(unknown=1),
+        roster_sample=roster_sample(unknown=1),
         anomaly_scan=scan(),
         anomalies=anomalies,
         maps=[
@@ -834,6 +1025,7 @@ def test_a_report_must_be_the_sum_of_its_maps() -> None:
             generated_at=datetime(2026, 8, 30, tzinfo=UTC),
             team=team(),
             sample=sample(unknown=7),
+            roster_sample=roster_sample(unknown=7),
             anomaly_scan=scan(),
             maps=[
                 MapReport(
@@ -853,6 +1045,7 @@ def test_unclassified_rounds_stay_outside_the_sample() -> None:
         generated_at=datetime(2026, 8, 30, tzinfo=UTC),
         team=team(),
         sample=sample(unknown=3),
+        roster_sample=roster_sample(unknown=3),
         unclassified_rounds=4,
         anomaly_scan=scan(rounds_scanned=3),
         maps=[
@@ -1076,7 +1269,7 @@ def test_the_schema_version_says_the_structure_changed() -> None:
     toteuttamattomaksi ja vaikenisi siitä, monellako kierroksella se voi
     osua.
     """
-    assert REPORT_SCHEMA_VERSION == "8.0.0"
+    assert REPORT_SCHEMA_VERSION == "9.0.0"
 
 
 def test_the_map_name_source_covers_all_three_sources() -> None:

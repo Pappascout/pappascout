@@ -57,6 +57,7 @@ from pappascout.domain.report import (
     Position,
     Report,
     RosterEntry,
+    RosterSample,
     RoundTypeReport,
     Sample,
     SampleBucket,
@@ -208,6 +209,25 @@ def sample(rounds: int, demos: int = 1, bucket: str = "unknown") -> Sample:
     buckets = {"league": zero, "other": zero, "unknown": zero}
     buckets[bucket] = SampleBucket(demos=demos, rounds=rounds)
     return Sample(
+        demos=sum(b.demos for b in buckets.values()),
+        rounds=sum(b.rounds for b in buckets.values()),
+        **buckets,
+    )
+
+
+def roster_sample(
+    rounds: int, demos: int = 1, bucket: str = "unknown"
+) -> RosterSample:
+    """Roster breakdown in one bucket; the others stay zero.
+
+    Default bucket is ``unknown``, which is the state of every demo in the
+    archive: the fixture therefore renders the sentence the reader actually
+    sees today, and a test that wants the split asks for it.
+    """
+    zero = SampleBucket(demos=0, rounds=0)
+    buckets = {"full": zero, "partial": zero, "unknown": zero}
+    buckets[bucket] = SampleBucket(demos=demos, rounds=rounds)
+    return RosterSample(
         demos=sum(b.demos for b in buckets.values()),
         rounds=sum(b.rounds for b in buckets.values()),
         **buckets,
@@ -425,6 +445,7 @@ def report(
     roster: list[RosterEntry] | None = None,
     lineup_keys: list[str] | None = None,
     generated_at: datetime | None = None,
+    roster_sample_: RosterSample | None = None,
 ) -> Report:
     entries = maps or []
     rounds = sum(m.sample.rounds for m in entries)
@@ -452,6 +473,16 @@ def report(
             roster_source="lineups",
         ),
         sample=sample(rounds, demos=demos),
+        # The roster breakdown defaults to **the same sample, wholly
+        # unknown**, which is the archive's state for as long as ``select``
+        # has not been run over it. The league and roster totals are equal,
+        # which the model requires; a test that measures the split hands in
+        # its own value.
+        roster_sample=(
+            roster_sample(rounds, demos=demos)
+            if roster_sample_ is None
+            else roster_sample_
+        ),
         thresholds_used=(
             {
                 "thresholds": {
@@ -1087,6 +1118,151 @@ def test_confirmed_league_demos_do_not_trigger_the_warning() -> None:
     entry = in_league(report([pistol_map()]))
     assert entry.sample.league.demos == 1
     assert "**Liigatieto:**" not in render(entry)
+
+
+# --- Roster class (Story 3.9) ---------------------------------------------------
+
+
+def three_demo_report(rounds: int = 6) -> Report:
+    """A report of one map played across three demos.
+
+    Three, because the roster split needs at least two known demos plus an
+    unknown one before the line can be read wrong: with one demo every bucket
+    count is either 0 or the total.
+    """
+    return report(
+        [
+            map_report(
+                "de_nuke",
+                [side("T", [round_type("full", rounds)])],
+                demo_ids=["Nuke_vs_a", "Nuke_vs_b", "Nuke_vs_c"],
+            )
+        ]
+    )
+
+
+def with_roster(entry: Report, buckets: dict[str, tuple[int, int]]) -> Report:
+    """Replace the report's roster breakdown. ``bucket -> (demos, rounds)``.
+
+    Missing buckets are zero. The model requires the roster totals to equal
+    the league totals, so a test that gets the arithmetic wrong fails at
+    construction instead of in an assertion about text. The round trip through
+    ``model_dump`` -> ``model_validate`` is the one ``render`` does when it
+    reads ``report.json``.
+    """
+    filled = {
+        name: {
+            "demos": buckets.get(name, (0, 0))[0],
+            "rounds": buckets.get(name, (0, 0))[1],
+        }
+        for name in ("full", "partial", "unknown")
+    }
+    data = entry.model_dump(mode="json")
+    data["roster_sample"] = {
+        "demos": sum(b["demos"] for b in filled.values()),
+        "rounds": sum(b["rounds"] for b in filled.values()),
+        **filled,
+    }
+    return Report.model_validate(data)
+
+
+#: The whole sentence for the unknown case, asserted as one string.
+#:
+#: A prefix assertion would let the half that carries the information -- which
+#: bucket the demos went into, and that the split is therefore absent -- be
+#: deleted while both this test and ``GOLDEN`` were updated to match.
+UNKNOWN_ROSTER_ROW = (
+    "- **Rosteriluokka:** yhdenkään demon rosteriluokkaa ei ole vahvistettu: "
+    "kaikki ovat lokerossa tuntematon, eikä otanta erottele 5/5- ja "
+    "4/5-karttoja"
+)
+
+
+def test_an_unknown_roster_class_is_said_once_without_a_zero_split() -> None:
+    """While ``select`` has not been run over the archive: zeros are not news."""
+    text = render(three_demo_report())
+    assert UNKNOWN_ROSTER_ROW in text
+    assert "5/5: 0 demoa" not in text
+    assert text.count("**Rosteriluokka:**") == 1
+
+
+def test_both_roster_classes_are_reported_with_demo_and_round_counts() -> None:
+    """AC: with demos classified ``5/5`` and ``4/5``, the summary says both."""
+    text = render(
+        with_roster(
+            three_demo_report(),
+            {"full": (1, 3), "partial": (2, 3)},
+        )
+    )
+    assert (
+        "**Rosteriluokka:** 5/5: 1 demo / 3 kierrosta, "
+        "4/5: 2 demoa / 3 kierrosta, tuntematon: 0 demoa / 0 kierrosta"
+    ) in text
+    assert "yhdenkään demon rosteriluokkaa" not in text
+
+
+def test_a_partly_known_roster_class_keeps_the_unknown_bucket() -> None:
+    """I/O matrix: one ``5/5`` and two unknown -- the split is still shown."""
+    text = render(
+        with_roster(three_demo_report(), {"full": (1, 2), "unknown": (2, 4)})
+    )
+    assert (
+        "**Rosteriluokka:** 5/5: 1 demo / 2 kierrosta, "
+        "4/5: 0 demoa / 0 kierrosta, tuntematon: 2 demoa / 4 kierrosta"
+    ) in text
+
+
+def test_the_roster_line_scales_with_the_data() -> None:
+    """The counts are read from the report; a hardcoded line would not move."""
+    few = render(with_roster(three_demo_report(), {"full": (1, 1), "partial": (2, 5)}))
+    many = render(
+        with_roster(three_demo_report(12), {"full": (2, 9), "partial": (1, 3)})
+    )
+    assert "5/5: 1 demo / 1 kierros, 4/5: 2 demoa / 5 kierrosta" in few
+    assert "5/5: 2 demoa / 9 kierrosta, 4/5: 1 demo / 3 kierrosta" in many
+
+
+def test_a_wholly_partial_roster_is_reported_and_not_called_unknown() -> None:
+    """Every classified map played with a stand-in -- the weakest evidence.
+
+    This is the case the story exists for: the observation is weaker and
+    therefore has to be *said*. A branch that asked only about ``full``
+    would print "yhdenkään demon rosteriluokkaa ei ole vahvistettu" over
+    measured ``4/5`` numbers.
+    """
+    text = render(with_roster(three_demo_report(), {"partial": (3, 6)}))
+    assert (
+        "**Rosteriluokka:** 5/5: 0 demoa / 0 kierrosta, "
+        "4/5: 3 demoa / 6 kierrosta"
+    ) in text
+    assert "yhdenkään demon rosteriluokkaa" not in text
+
+
+def test_the_partial_gloss_is_absent_when_no_demo_is_partial() -> None:
+    """A notation the row's own numbers do not use sends the reader looking."""
+    text = render(with_roster(three_demo_report(), {"full": (3, 6)}))
+    assert "5/5: 3 demoa / 6 kierrosta" in text
+    assert "vakirosterin ulkopuolelta" not in text
+
+
+def test_neither_breakdown_note_speaks_of_demos_that_are_not_there() -> None:
+    """Item 7: an empty sample has no demos to make a claim about.
+
+    Both notes are claims about the demos in the sample. With none in it, the
+    ``Otanta`` row already says ``0 demoa`` and the empty-data note says the
+    rest, so the two rows stay silent -- and they stay silent *together*, or
+    the reader learns to trust one and not the other.
+    """
+    text = render(report([]))
+    assert "Aineistoa ei ole" in text
+    assert "**Rosteriluokka:**" not in text
+    assert "**Liigatieto:**" not in text
+
+
+def test_the_roster_line_says_what_a_partial_class_means() -> None:
+    """``4/5`` is a notation the reader cannot interpret without a gloss."""
+    text = render(with_roster(three_demo_report(), {"full": (2, 4), "partial": (1, 2)}))
+    assert "yksi pelaaja oli vakirosterin ulkopuolelta" in text
 
 
 def test_missing_demos_get_their_own_section_with_reasons() -> None:
@@ -2467,6 +2643,7 @@ GOLDEN = """\
 - **Rosteri:** 5 pelaajaa (havaittu demoista): pelaaja1, pelaaja2, pelaaja3, pelaaja4, pelaaja5
 - **Otanta:** 1 demo, 4 kierrosta (demoa/kierrosta: liiga 0 / 0, muut 0 / 0, tuntematon 1 / 4)
 - **Liigatieto:** yhdenkään demon lajia ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otannassa ole yhtään varmistettua liigaottelua
+- **Rosteriluokka:** yhdenkään demon rosteriluokkaa ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otanta erottele 5/5- ja 4/5-karttoja
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta
 - **Luokittelun kynnykset:** full_equip_min 4000
 - **Aggregoinnin kynnykset:** advance_area_min_observations 20, advance_max_sample_s 30, advance_min_players 1, advance_t_share 0,8, crunch_min_players 2, crunch_min_sources 2, small_sample_rounds 3, stack_group_margin 1,25, stack_min_players 4, stack_site_separation_min 2, team_identity_min_common 3

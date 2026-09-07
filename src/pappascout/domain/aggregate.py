@@ -79,12 +79,15 @@ import polars as pl
 from pappascout.constants import (
     ANOMALY_RULES,
     ANOMALY_RULES_DEFERRED,
+    ROSTER_BUCKETS,
+    ROSTER_CLASS_BUCKET,
     ROUND_TYPES,
     SAMPLE_BUCKETS,
     SAVING_ROUND_TYPES,
     SIDES,
     UTILITY_BUCKET_ALL,
     UTILITY_BUCKET_UNKNOWN,
+    RosterBucketName,
 )
 from pappascout.domain import sampling
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
@@ -112,6 +115,7 @@ from pappascout.domain.report import (
     Position,
     Report,
     RosterEntry,
+    RosterSample,
     RoundTypeReport,
     Sample,
     SampleBucket,
@@ -122,11 +126,12 @@ from pappascout.domain.report import (
     slugify,
     team_slug,
 )
-from pappascout.domain.schemas import ARMORED_COLUMN
-from pappascout.errors import AggregateError
+from pappascout.domain.schemas import ARMORED_COLUMN, CLASSIFIED
+from pappascout.errors import AggregateError, SchemaError
 
 __all__ = [
     "LEAGUE_BUCKETS",
+    "ROSTER_SAMPLE_BUCKETS",
     "RoundKey",
     "bucket_labels",
     "seconds_bucket",
@@ -143,6 +148,10 @@ __all__ = [
     "roster_entries",
     "demo_buckets",
     "sample_for",
+    "roster_class_values",
+    "MISSING_ROSTER_CLASS_FI",
+    "roster_demo_buckets",
+    "roster_sample_for",
     "players_distribution",
     "area_distributions",
     "positions_for",
@@ -162,13 +171,22 @@ __all__ = [
     "build_report",
 ]
 
-#: Otannan kolme lokeroa. ``unknown`` ei ole virhetila vaan tavallisin tila
-#: ennen Epic 3:a: ``is_league`` tulee ``select``-vaiheesta, jota ei ole.
+#: Otannan kolme lokeroa. ``unknown`` ei ole virhetila: ``is_league`` tulee
+#: ``select``-vaiheen valintatiedostosta (Story 3.8 kytki sen ``classify``yn),
+#: ja se jää tyhjäksi jokaisesta demosta, jolle ``select`` ei antanut riviä --
+#: käsin tuotu demo, kokoonpano ilman omistajaa, tai ennen ``select``iä
+#: luokiteltu taulu.
 #:
 #: Sama luettelo kuin :data:`pappascout.constants.SAMPLE_BUCKETS`, koska
 #: lokeroiden suomennos (``SAMPLE_BUCKET_FI``) on siellä ja kahden luettelon
 #: erkaantuminen jättäisi kolmannen lokeron hiljaa pois tulosteesta.
 LEAGUE_BUCKETS: tuple[str, ...] = SAMPLE_BUCKETS
+
+#: The three buckets of the roster breakdown (Story 3.9). Same list as
+#: :data:`pappascout.constants.ROSTER_BUCKETS`, aliased here for the same
+#: reason ``LEAGUE_BUCKETS`` is: the printed names live beside it, and two
+#: diverging lists would drop a bucket from the report in silence.
+ROSTER_SAMPLE_BUCKETS: tuple[str, ...] = ROSTER_BUCKETS
 
 #: Kierroksen avain koko arkistossa. Pelkkä ``round_no`` sekoittaisi eri
 #: karttojen kierrokset keskenään.
@@ -639,6 +657,163 @@ def sample_for(
         for name in LEAGUE_BUCKETS
     }
     return Sample(
+        demos=sum(b.demos for b in made.values()),
+        rounds=sum(b.rounds for b in made.values()),
+        **made,
+    )
+
+
+def roster_class_values() -> tuple[str, ...]:
+    """The roster classes **the ``CLASSIFIED`` schema enum allows**.
+
+    Read from the contract the value is finally written against, not from the
+    parallel constant :data:`~pappascout.constants.ROSTER_CLASSES`. Two
+    sources could drift, and then the guard below and its error message would
+    speak of a different set than Polars does -- naming an allowed value as
+    foreign, or waving through one that breaks the write three stages later.
+
+    ``stages.classify.roster_classes`` reads the same enum for the same
+    reason; it cannot be called from here, because ``domain`` does not import
+    ``stages`` (see ``tests/test_layering.py``).
+    """
+    return tuple(str(value) for value in CLASSIFIED["roster_class"].categories)
+
+
+#: Tyhjän ``roster_class``in nimi käyttäjäviestissä. Pythonin ``None`` ei ole
+#: suomea eikä kerro lukijalle mitään; sarake on tyhjä, ja niin se sanotaan.
+MISSING_ROSTER_CLASS_FI = "tyhjä"
+
+
+def _classified_value(row: Mapping[str, Any], column: str, demo: str) -> Any:
+    """One ``CLASSIFIED`` column, or the stage that has to be run again.
+
+    A plain ``row[column]`` would raise ``KeyError`` on a table written before
+    the column existed, and a ``KeyError`` on the command line is an internal
+    error rather than an instruction. **This is the archive's current state,
+    not a hypothesis:** every classified table written before Story 3.8 lacks
+    ``roster_class`` entirely.
+
+    Raises:
+        SchemaError: If the column is missing from the row.
+    """
+    try:
+        return row[column]
+    except KeyError:
+        raise SchemaError(
+            f"Luokitellulta riviltä puuttuu sarake {column!r}"
+            + (f" (demo {demo})" if demo else "")
+            + ", joten rosterijakoa ei voi laskea.\n"
+            "Taulu on kirjoitettu ennen kuin sarake oli olemassa. Aja "
+            "luokittelu uudelleen: "
+            "uv run pappascout classify <map_demo_id> --pakota"
+        ) from None
+
+
+def roster_demo_buckets(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, RosterBucketName]:
+    """Demo -> roster bucket ``full`` / ``partial`` / ``unknown``.
+
+    ``roster_class`` describes the **map**, not the round: ``select`` judges
+    the roster threshold once per MapDemo and ``classify`` copies that one
+    value onto every round. So all rounds of one demo must carry it, exactly
+    like ``is_league`` in :func:`demo_buckets`.
+
+    The class itself is never recomputed here. ``select`` is the only stage
+    that judges the threshold (:mod:`pappascout.domain.selection`); this
+    function only reads the value the table carries and maps it to a bucket
+    name through :data:`~pappascout.constants.ROSTER_CLASS_BUCKET`.
+
+    Raises:
+        AggregateError: If one demo's rounds carry two different classes
+            (a contradictory classification), or if some carry a class and
+            others are empty (an **interrupted** classification -- a different
+            fault with a different fix, so it gets its own message). Either
+            way the demo would belong to two buckets, and the sample total
+            would stop being the sum of the buckets.
+        SchemaError: If a value is not in the ``CLASSIFIED`` enum, or if the
+            column is missing altogether. Both are a table that does not meet
+            the contract rather than a missing measurement, so they stop the
+            run instead of being counted as unknown.
+    """
+    seen: defaultdict[str, set[str | None]] = defaultdict(set)
+    for row in rows:
+        demo = str(_classified_value(row, "map_demo_id", ""))
+        value = _classified_value(row, "roster_class", demo)
+        seen[demo].add(None if value is None else str(value))
+    allowed = roster_class_values()
+    buckets: dict[str, RosterBucketName] = {}
+    for demo, values in seen.items():
+        known = sorted(value for value in values if value is not None)
+        if len(known) > 1:
+            raise AggregateError(
+                f"Demon {demo} kierroksilla on kaksi eri roster_class-arvoa "
+                f"({', '.join(known)}), joten demo kuuluisi kahteen "
+                "rosterilokeroon.\n"
+                "roster_class kuvaa karttaa eikä kierrosta. Aja luokittelu "
+                "uudelleen: uv run pappascout classify <map_demo_id> --pakota"
+            )
+        if known and None in values:
+            raise AggregateError(
+                f"Demon {demo} kierroksista osa kantaa roster_class-arvon "
+                f"{known[0]} ja osa on {MISSING_ROSTER_CLASS_FI}, joten demo "
+                "kuuluisi kahteen rosterilokeroon.\n"
+                "Kyse ei ole ristiriitaisesta luokittelusta vaan kesken "
+                "jääneestä: osa kierroksista on luokiteltu ennen kuin "
+                "valintatiedosto antoi kartalle luokan. Aja luokittelu "
+                "uudelleen kokonaan: "
+                "uv run pappascout classify <map_demo_id> --pakota"
+            )
+        if not known:
+            buckets[demo] = "unknown"
+            continue
+        value = known[0]
+        if value not in allowed:
+            raise SchemaError(
+                f"Demon {demo} roster_class-arvo {value!r} ei ole "
+                f"classified-taulun sallittujen joukossa "
+                f"({', '.join(allowed)}).\n"
+                "Luokka on skeeman enum-arvo, joten sitä ei voi keksiä "
+                "ajossa. Aja select ja luokittelu uudelleen."
+            )
+        buckets[demo] = ROSTER_CLASS_BUCKET[value]
+    return buckets
+
+
+def roster_sample_for(
+    rows: Sequence[Mapping[str, Any]], buckets: Mapping[str, str]
+) -> RosterSample:
+    """The roster breakdown of one sample: demos and rounds in three buckets.
+
+    Only the summary uses this (AD-10). Levels below it keep one sample each.
+
+    Raises:
+        AggregateError: If a row names a demo that ``buckets`` does not cover.
+            That means the two were built from different rows, and it is the
+            fault that would otherwise reach the reader as a roster total
+            quietly smaller than the league one -- named here, at the demo,
+            instead of as a sum that does not add up.
+        SchemaError: If ``map_demo_id`` is missing from a row.
+    """
+    demos: defaultdict[str, set[str]] = defaultdict(set)
+    rounds: Counter[str] = Counter()
+    for row in rows:
+        demo = str(_classified_value(row, "map_demo_id", ""))
+        bucket = buckets.get(demo)
+        if bucket is None:
+            raise AggregateError(
+                f"Demolle {demo} ei ole rosterilokeroa, joten sen kierrokset "
+                "putoaisivat rosterijaosta pois.\n"
+                "Lokerot on laskettu eri riveistä kuin otanta. Aja "
+                "aggregointi uudelleen."
+            )
+        demos[bucket].add(demo)
+        rounds[bucket] += 1
+    made = {
+        name: SampleBucket(demos=len(demos[name]), rounds=rounds[name])
+        for name in ROSTER_SAMPLE_BUCKETS
+    }
+    return RosterSample(
         demos=sum(b.demos for b in made.values()),
         rounds=sum(b.rounds for b in made.values()),
         **made,
@@ -2028,6 +2203,10 @@ def build_report(
 
     check_rounds_are_unique(rows)
     buckets = demo_buckets(rows)
+    # The second breakdown of the same sample. Bucketed from the same rows as
+    # the league one, so a demo cannot be in the sample of one and outside the
+    # other -- and ``Report`` holds the two totals to being equal.
+    roster_buckets = roster_demo_buckets(rows)
     played = [r for r in rows if r["round_type"] is not None]
     unclassified = len(rows) - len(played)
 
@@ -2125,6 +2304,7 @@ def build_report(
         tool_versions=dict(tool_versions or {}),
         team=team,
         sample=sample_for(played, buckets),
+        roster_sample=roster_sample_for(played, roster_buckets),
         thresholds_used=thresholds_used,
         classify_thresholds=classify_thresholds(rows, thresholds),
         unpaired_detonations=unpaired_detonations(event_rows),

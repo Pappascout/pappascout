@@ -38,6 +38,10 @@ __all__ = [
     "SAMPLE_BUCKETS",
     "SampleBucketName",
     "SAMPLE_BUCKET_FI",
+    "ROSTER_BUCKETS",
+    "RosterBucketName",
+    "ROSTER_BUCKET_FI",
+    "ROSTER_CLASS_BUCKET",
     "UTILITY_BUCKET_ALL",
     "UTILITY_BUCKET_UNKNOWN",
     "UNCLASSIFIED",
@@ -267,6 +271,61 @@ AreaSource = Literal["observed", "point_cloud"]
 #: Rosterikynnyksen luokka per MapDemo (AD-6).
 ROSTER_CLASSES: Final[tuple[str, ...]] = ("5/5", "4/5")
 RosterClass = Literal["5/5", "4/5"]
+
+#: The bucket identifiers as a type. Pinned to :data:`ROSTER_BUCKETS` by
+#: ``test_the_roster_bucket_names_are_the_bucket_list``, because a Literal and
+#: a tuple are two hand-written spellings of one set.
+RosterBucketName = Literal["full", "partial", "unknown"]
+
+#: The bucket identifiers of the roster breakdown, **in class order**.
+#:
+#: A class name (``"5/5"``) is not a valid field name, so each class gets an
+#: identifier. The order is the one
+#: :func:`~pappascout.domain.selection.class_labels` returns -- it yields
+#: ``(full, partial)`` -- and that coupling is what
+#: ``test_the_roster_buckets_follow_the_order_class_labels_returns`` pins:
+#: comparing against an index would pass just as happily with the pair
+#: reversed, and a reversed pair would turn the whole report upside down in
+#: silence.
+_ROSTER_CLASS_BUCKETS: Final[tuple[RosterBucketName, ...]] = ("full", "partial")
+
+#: ``roster_class`` -> the name of its summary bucket (Story 3.9).
+#:
+#: Built from :data:`ROSTER_CLASSES` rather than written out as a second list.
+#: ``strict=True`` is deliberate: should there ever be a third class, the
+#: import fails at once instead of the third class quietly falling out of the
+#: report.
+ROSTER_CLASS_BUCKET: Final[dict[str, RosterBucketName]] = dict(
+    zip(ROSTER_CLASSES, _ROSTER_CLASS_BUCKETS, strict=True)
+)
+
+#: The three buckets of the roster breakdown.
+#:
+#: ``unknown`` holds **two different facts, and it cannot separate them.**
+#: AD-6 stores a ``roster_class`` only when the roster threshold was met, so
+#: the bucket contains both *not measured* (no ``select`` row for the demo, a
+#: hand-imported demo, a lineup with no owner, a table classified before
+#: ``select`` existed) and *measured and below the threshold* (``select``
+#: judged the map and rejected it). The printed sentence therefore says the
+#: class "ei ole vahvistettu" rather than "ei tiedetä": what the bucket
+#: honestly reports is the absence of a confirmed class, not the absence of a
+#: measurement.
+#:
+#: Two buckets instead of three would have forced every such demo into
+#: ``5/5`` or ``4/5``, and either is a claim nobody made.
+ROSTER_BUCKETS: Final[tuple[RosterBucketName, ...]] = (
+    *_ROSTER_CLASS_BUCKETS,
+    "unknown",
+)
+
+#: Bucket names as printed. The first two **are the class name itself**
+#: (``5/5``, ``4/5``), because that is the notation the reader knows from the
+#: epic; the third is the same word the league breakdown uses. Output only,
+#: like :data:`SAMPLE_BUCKET_FI` -- the keys in ``report.json`` stay English.
+ROSTER_BUCKET_FI: Final[dict[str, str]] = {
+    **{klass_bucket: klass for klass, klass_bucket in ROSTER_CLASS_BUCKET.items()},
+    "unknown": SAMPLE_BUCKET_FI["unknown"],
+}
 
 
 # -- Aseluokittelu (Story 1.6) -------------------------------------------------

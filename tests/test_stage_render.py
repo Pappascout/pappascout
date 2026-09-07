@@ -34,8 +34,11 @@ from test_render import (
     DEMO_ID,
     TEAM_KEY,
     TEAM_SLUG,
+    UNKNOWN_ROSTER_ROW,
     pistol_map,
     report,
+    three_demo_report,
+    with_roster,
 )
 
 OTHER_TEAM = "bbbbbbbbbbbbbbbb"
@@ -89,6 +92,40 @@ def reports(archive: ArchivePaths, team_key: str = TEAM_KEY) -> list[Path]:
 
 
 # --- Perusajo -------------------------------------------------------------------
+
+
+def test_the_roster_row_reaches_the_written_markdown(tmp_path: Path) -> None:
+    """The stage writes the split into the file on disk, not just the model.
+
+    The sibling league row is pinned from rendered text at stage level, and
+    this is the same claim for the roster row: ``report.json`` -> template ->
+    ``.md``. Without it, "the template needed no change" would rest on the
+    view model alone -- and a template that dropped the row would still pass
+    every other test.
+    """
+    split = with_roster(three_demo_report(), {"full": (1, 2), "partial": (2, 4)})
+    archive = build_archive(tmp_path, teams={TEAM_KEY: split})
+    result = run(archive)
+
+    text = archive.resolve(result.outputs[0]).read_text(encoding="utf-8")
+    assert (
+        "- **Rosteriluokka:** 5/5: 1 demo / 2 kierrosta, "
+        "4/5: 2 demoa / 4 kierrosta, tuntematon: 0 demoa / 0 kierrosta "
+        "-- 4/5 on kartta, jolla yksi pelaaja oli vakirosterin "
+        "ulkopuolelta, joten se on heikompi havainto joukkueen "
+        "vakiasetelmasta"
+    ) in text
+
+
+def test_the_unknown_roster_row_reaches_the_written_markdown(
+    tmp_path: Path,
+) -> None:
+    """The other branch, through the same path: the sentence, whole."""
+    archive = build_archive(tmp_path, teams={TEAM_KEY: three_demo_report()})
+    result = run(archive)
+
+    text = archive.resolve(result.outputs[0]).read_text(encoding="utf-8")
+    assert UNKNOWN_ROSTER_ROW in text
 
 
 def test_run_writes_one_timestamped_markdown_file(tmp_path: Path) -> None:

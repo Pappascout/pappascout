@@ -82,6 +82,7 @@ def build_archive(
     map_names: dict[str, str | None] | None = None,
     callouts: dict[str, Sequence[tuple[str, int, int, int]]] | None = None,
     is_league: dict[str, bool | None] | None = None,
+    roster_class: dict[str, str | None] | None = None,
 ) -> ArchivePaths:
     """Rakenna arkisto, jossa on annetut demot annettujen kokoonpanojen alla.
 
@@ -117,6 +118,10 @@ def build_archive(
             kuten ennen Story 3.8:aa -- niin vanhat testit mittaavat yhä sitä,
             mitä ne mittasivat. Arvo on demokohtainen, koska se kuvaa ottelua
             eikä kierrosta.
+        roster_class: ``map_demo_id -> roster_class``. Same contract as
+            ``is_league`` and for the same reason: the default ``None`` is the
+            state of the archive, and the value describes the map rather than
+            the round, so it is written onto every round of the demo.
     """
     archive = ArchivePaths(root=tmp_path / "arkisto")
     for demo, lineup in demos.items():
@@ -127,6 +132,7 @@ def build_archive(
                     n,
                     round_type="pistol" if n == 1 else "full",
                     is_league=(is_league or {}).get(demo),
+                    roster_class=(roster_class or {}).get(demo),
                 )
                 for n in range(1, rounds + 1)
             ]
@@ -604,7 +610,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # Literaali eikä vakio: vakioon vertaaminen olisi tautologia --
     # koodi kirjoitti arvon juuri siitä vakiosta. Kun versio nousee,
     # tämän rivin PITÄÄ kaatua, jotta nosto on tietoinen.
-    assert data["schema_version"] == "8.0.0"
+    assert data["schema_version"] == "9.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -664,7 +670,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "8.0.0"
+    assert read_report(archive).schema_version == "9.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -907,6 +913,158 @@ def test_the_bucket_row_names_the_counts_in_the_summary(tmp_path: Path) -> None:
     assert "liiga 1 demoa / 2 kierrosta" in text
     assert "muut 1 demoa / 2 kierrosta" in text
     assert "tuntematon 0 demoa / 0 kierrosta" in text
+
+
+# --- Roster class split (Story 3.9) ---------------------------------------------
+#
+# Story 3.8 carried ``roster_class`` all the way into the ``CLASSIFIED`` table,
+# but nothing read it. These tests measure that the value now goes **the whole
+# way**: from the table into a bucket, and from the bucket into the report.
+
+
+def test_both_roster_classes_land_in_their_own_buckets(tmp_path: Path) -> None:
+    """AC: one ``5/5`` and one ``4/5`` -- the report reports both."""
+    archive = build_archive(
+        tmp_path,
+        {"Nuke_vs_a": TEAM, "Ancient_vs_b": TEAM},
+        rounds=2,
+        roster_class={"Nuke_vs_a": "5/5", "Ancient_vs_b": "4/5"},
+    )
+    run(archive)
+
+    roster = read_report(archive).roster_sample
+    assert (roster.full.demos, roster.full.rounds) == (1, 2)
+    assert (roster.partial.demos, roster.partial.rounds) == (1, 2)
+    assert roster.unknown.demos == 0
+
+
+def test_the_two_breakdowns_of_the_summary_agree_on_the_totals(
+    tmp_path: Path,
+) -> None:
+    """Equal totals, different buckets.
+
+    The two breakdowns describe the same demos along two dimensions: a league
+    match can be played with a stand-in. The model would reject a report whose
+    totals differed, so this test proves ``aggregate`` builds one that passes.
+    """
+    archive = build_archive(
+        tmp_path,
+        {"Nuke_vs_a": TEAM, "Ancient_vs_b": TEAM, "Anubis_vs_c": TEAM},
+        rounds=2,
+        is_league={"Nuke_vs_a": True, "Ancient_vs_b": False},
+        roster_class={"Nuke_vs_a": "4/5", "Ancient_vs_b": "5/5"},
+    )
+    run(archive)
+
+    entry = read_report(archive)
+    assert (entry.sample.demos, entry.sample.rounds) == (
+        entry.roster_sample.demos,
+        entry.roster_sample.rounds,
+    )
+    assert entry.sample.league.demos == 1
+    assert entry.roster_sample.partial.demos == 1
+    assert entry.roster_sample.unknown.demos == 1
+
+
+def test_an_unclassified_roster_leaves_the_whole_sample_unknown(
+    tmp_path: Path,
+) -> None:
+    """The archive's state for as long as ``select`` has not been run over it.
+
+    A condition rather than a date: a date in a comment is a fact about a
+    moment that nobody comes back to update -- which is exactly what this
+    story had to fix at ``aggregate.py:166``.
+    """
+    archive = build_archive(
+        tmp_path, {"Nuke_vs_a": TEAM, "Ancient_vs_b": TEAM}, rounds=2
+    )
+    run(archive)
+
+    roster = read_report(archive).roster_sample
+    assert (roster.unknown.demos, roster.unknown.rounds) == (2, 4)
+    assert roster.full.demos == 0 and roster.partial.demos == 0
+
+
+def test_a_demo_whose_rounds_disagree_on_the_roster_class_stops_the_run(
+    tmp_path: Path,
+) -> None:
+    """AC: a hand-edited table stops the run and names the demo.
+
+    Averaging the rounds would be worse than stopping: the demo would belong
+    to two buckets, and the sample total would stop being the sum of the
+    buckets -- the very check the whole structure rests on.
+    """
+    archive = build_archive(
+        tmp_path, {"Nuke_vs_a": TEAM}, rounds=2, roster_class={"Nuke_vs_a": "5/5"}
+    )
+    path = archive.classified(TEAM, "Nuke_vs_a")
+    df = pl.read_parquet(path)
+    df.with_columns(
+        roster_class=pl.when(pl.col("round_no") == 1)
+        .then(pl.lit("5/5"))
+        .otherwise(pl.lit("4/5"))
+        .cast(df.schema["roster_class"])
+    ).write_parquet(path)
+
+    with pytest.raises(PappascoutError, match="kahteen rosterilokeroon") as err:
+        run(archive)
+    assert "Nuke_vs_a" in str(err.value)
+
+
+def test_the_raw_json_keys_of_the_roster_breakdown_are_locked(
+    tmp_path: Path,
+) -> None:
+    """The names in the file, read **without** the model (Story 3.9).
+
+    Every other test reads ``report.json`` through ``Report``, which resolves
+    aliases -- so a renamed field or an added alias would break nothing here
+    while breaking every reader outside this repo. ``report.json`` is the
+    contract ``aggregate`` and ``render`` share, and the literals are the
+    only place that contract is written down as text.
+    """
+    archive = build_archive(
+        tmp_path,
+        {"Nuke_vs_a": TEAM, "Ancient_vs_b": TEAM},
+        rounds=2,
+        roster_class={"Nuke_vs_a": "5/5", "Ancient_vs_b": "4/5"},
+    )
+    run(archive)
+
+    data = json.loads(archive.report_json(TEAM).read_text(encoding="utf-8"))
+    roster = data["roster_sample"]
+    assert set(roster) == {"demos", "rounds", "full", "partial", "unknown"}
+    assert roster["full"] == {"demos": 1, "rounds": 2}
+    assert roster["partial"] == {"demos": 1, "rounds": 2}
+    assert roster["unknown"] == {"demos": 0, "rounds": 0}
+    assert (roster["demos"], roster["rounds"]) == (2, 4)
+    # Siblings, not nested: the roster breakdown is a second breakdown of the
+    # summary sample, not a field inside the league one.
+    assert "roster_sample" not in data["sample"]
+
+
+def test_a_report_without_the_roster_breakdown_is_written_again(
+    tmp_path: Path,
+) -> None:
+    """An old ``report.json`` does not read as current -- it is rebuilt.
+
+    The field is required, so a file written during Story 3.8 fails to
+    validate. The skip branch must treat that like a wrong version number:
+    compute the numbers again rather than return the old file's numbers as
+    this run's result.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    run(archive)
+    stale = json.loads(archive.report_json(TEAM).read_text(encoding="utf-8"))
+    del stale["roster_sample"]
+    stale["unclassified_rounds"] = 999
+    archive.report_json(TEAM).write_text(
+        json.dumps(stale, ensure_ascii=False), encoding="utf-8"
+    )
+
+    result = run(archive)
+    assert not result.skipped
+    assert result.stats["unclassified"] == 0
+    assert read_report(archive).roster_sample.demos == 1
 
 
 # --- Regressiot oikeilla demoilla -----------------------------------------------
