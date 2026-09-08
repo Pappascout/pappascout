@@ -1694,7 +1694,7 @@ def test_nuke_overtime_rounds_get_no_economy_reasoning(settings_file: Path) -> N
     assert sorted(overtime["round_no"].to_list()) == [25, 26, 27, 28]
     assert set(overtime["round_type"].to_list()) == {"ot"}
     assert set(overtime["opp_round_type"].to_list()) == {"ot"}
-    assert all("jatkoaikaa" in r for r in overtime["reason"].to_list())
+    assert all("is overtime" in r for r in overtime["reason"].to_list())
 
 
 @pytest.mark.demo

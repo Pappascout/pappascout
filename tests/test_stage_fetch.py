@@ -1,18 +1,18 @@
-"""``stages.fetch`` -- vaiheen testit (Story 3.4).
+"""``stages.fetch`` -- the stage's tests (Story 3.4).
 
-**Ei verkkoa.** Vaihe näkee vain
-:class:`~pappascout.adapters.protocols.DemoSource`-portin, ja tässä sen takana
-on :class:`FakeDemoSource`, joka rakentaa tavut käsin.
+**No network.** The stage sees only the
+:class:`~pappascout.adapters.protocols.DemoSource` port, and behind it here is
+:class:`FakeDemoSource`, which builds the bytes by hand.
 
-Feikki **tarkistaa saamansa tunnisteen**, eikä se ole yksityiskohta vaan koko
-sen arvo vartijana: lähde, joka palauttaa samat tavut kysyttiin mitä tahansa,
-läpäisisi jokaisen testin myös silloin, kun vaihe kysyy väärää demoa -- ja
-väärän kartan tallentuminen oikean nimellä on juuri se vika, jonka
-``instances``-rakenne poistaa. Tuntematon tunniste nostaa siksi
-``DemoUnavailable``in.
+The fake **checks the id it is given**, and that is not a detail but its whole
+value as a guard: a source returning the same bytes whatever it was asked for
+would pass every test even when the stage asks for the wrong demo -- and the
+wrong map being stored under the right name is exactly the fault the
+``instances`` structure removes. An unknown id therefore raises
+``DemoUnavailable``.
 
-I/O-matriisin rivit ovat tässä tiedostossa yksi testi kutakin kohden, ja
-nimestä tunnistaa rivin.
+The rows of the I/O matrix are one test each in this file, and the name
+identifies the row.
 """
 
 from __future__ import annotations
@@ -36,50 +36,51 @@ from pappascout.stages import fetch as fetch_stage
 from pappascout.stages import select as select_stage
 from pappascout.stages.fetch import MIN_PLAUSIBLE_DEMO_BYTES
 
-#: Oikean muotoinen tunniste: ``{match_id}-{map_index}``, match_id ``1-<uuid>``.
+#: A well-formed id: ``{match_id}-{map_index}``, with match_id ``1-<uuid>``.
 MATCH = "1-f6a06dc8-5c26-4238-b57a-6b357043a5af"
 UNIT = f"{MATCH}-0"
 OTHER = f"{MATCH}-1"
 
 def demo_bytes(marker: bytes = b"PAPPASCOUT", *, size: int | None = None) -> bytes:
-    """Uskottavan näköinen pakattu demo: zstd-taikatavut ja riittävä koko.
+    """A plausible-looking compressed demo: zstd magic bytes and enough size.
 
-    **Ei koristetta vaan testiaineiston vaatimus.** Vaihe hylkää nyt sisällön,
-    joka ei ala zstd-taikatavuilla tai on liian pieni ollakseen CS2-demo --
-    juuri siksi, ettei HTML-virhesivu tai tyhjä vastaus tallentuisi demoksi ja
-    jäisi idempotenssin ohittamaksi ikuisesti. Testiaineiston on siis
-    läpäistävä sama portti kuin oikean demon, muuten testit mittaisivat
-    torjuntaa eivätkä latausta.
+    **Not decoration but a requirement on the test material.** The stage now
+    rejects content that does not begin with the zstd magic bytes or is too
+    small to be a CS2 demo -- precisely so that an HTML error page or an empty
+    response is not stored as a demo and then skipped by idempotence for ever.
+    The test material therefore has to pass the same gate as a real demo,
+    otherwise the tests would measure the rejection rather than the download.
     """
     target = MIN_PLAUSIBLE_DEMO_BYTES + 4096 if size is None else size
     body = (marker + bytes(range(256))) * (target // (len(marker) + 256) + 1)
     return (ZSTD_MAGIC + body)[:target]
 
 
-#: Kelvollinen demo, jota useimmat testit käyttävät.
+#: A valid demo, which most of the tests use.
 DEMO_BYTES = demo_bytes()
 
-#: Sisältö, joka **ei** ole demo: HTML-virhesivu 200-statuksella.
+#: Content that is **not** a demo: an HTML error page with a 200 status.
 HTML_ERROR_PAGE = b"<!doctype html><html><body>403 Forbidden</body></html>" * (
     MIN_PLAUSIBLE_DEMO_BYTES // 50
 )
 
 
-# -- Kiinnikkeet -------------------------------------------------------------
+# -- Fixtures ----------------------------------------------------------------
 
 
 @dataclass
 class FakeDemo:
-    """Yksi demo lähteessä.
+    """One demo in the source.
 
     Attributes:
-        data: Tavut, jotka virta antaa.
-        announce: ``content_length``, jonka lähde **väittää**. ``None`` =
-            lähde ei kerro pituutta lainkaan. Väitteen ja tavujen ero on oma
-            kenttänsä, koska vajaa lataus on juuri se tila, jossa ne eroavat.
-        break_after: Katkaise virta tämän palamäärän jälkeen
-            (``ApiError``), tai ``None``.
-        chunk: Palan koko tavuina.
+        data: The bytes the stream gives out.
+        announce: The ``content_length`` the source **claims**. ``None`` = the
+            source does not state a length at all. The difference between the
+            claim and the bytes is a field of its own, because a short download
+            is exactly the state in which they differ.
+        break_after: Break the stream after this many chunks (``ApiError``), or
+            ``None``.
+        chunk: The chunk size in bytes.
     """
 
     data: bytes
@@ -93,10 +94,10 @@ class FakeDemo:
 
 @dataclass
 class FakeDemoSource:
-    """Portin feikki: tunnisteesta tavuiksi, ilman verkkoa.
+    """The port's fake: from an id to bytes, without a network.
 
-    ``asked`` on se, mitä vartijalta odotetaan: testi voi todeta, ettei
-    latausta edes aloitettu (levytilaportti, idempotenssi).
+    ``asked`` is what is expected of the guard: a test can establish that the
+    download was not even started (the disk gate, idempotence).
     """
 
     demos: dict[str, FakeDemo | Exception] = field(default_factory=dict)
@@ -109,8 +110,8 @@ class FakeDemoSource:
         entry = self.demos.get(map_demo_id)
         if entry is None:
             raise DemoUnavailable(
-                f"Lähteessä ei ole demoa {map_demo_id}. Tunniste ei täsmää "
-                "yhteenkään otteluun."
+                f"The source has no demo {map_demo_id}. The id matches no "
+                "match at all."
             )
         if isinstance(entry, Exception):
             raise entry
@@ -126,7 +127,7 @@ class FakeDemoSource:
         for start in range(0, len(entry.data), entry.chunk):
             if entry.break_after is not None and sent >= entry.break_after:
                 raise ApiError(
-                    f"Demon {map_demo_id} lataus katkesi kesken "
+                    f"The download of demo {map_demo_id} broke off midway "
                     "(ChunkedEncodingError)."
                 )
             yield entry.data[start : start + entry.chunk]
@@ -143,7 +144,7 @@ def archive(tmp_path: Path) -> ArchivePaths:
 
 @pytest.fixture
 def local_archive(tmp_path: Path) -> ArchivePaths:
-    """Arkisto, jonka demot menevät **arkiston ulkopuolelle** (2026-09-05)."""
+    """An archive whose demos go **outside the archive** (2026-09-05)."""
     return ArchivePaths(root=tmp_path / "arkisto", demos_root=tmp_path / "demot")
 
 
@@ -162,19 +163,19 @@ def read_meta(path: Path) -> dict[str, Any]:
 
 
 def place(directory: Path, unit: str, *, meta: bool = True) -> Path:
-    """Aseta valmis demo (ja metatiedosto) hakemistoon."""
+    """Put a finished demo (and its metadata file) into a directory."""
     directory.mkdir(parents=True, exist_ok=True)
     demo = directory / f"{unit}.dem.zst"
     demo.write_bytes(DEMO_BYTES)
     if meta:
         (directory / f"{unit}.meta.json").write_text(
-            json.dumps({"sha256": "vanha", "size": len(DEMO_BYTES)}),
+            json.dumps({"sha256": "old", "size": len(DEMO_BYTES)}),
             encoding="utf-8",
         )
     return demo
 
 
-# -- Matriisi: valittu MapDemo, ei arkistossa --------------------------------
+# -- Matrix: a selected MapDemo, not in the archive --------------------------
 
 
 def test_selected_map_demo_is_written_with_its_meta(archive, source) -> None:
@@ -189,15 +190,15 @@ def test_selected_map_demo_is_written_with_its_meta(archive, source) -> None:
     assert meta["sha256"] == hashlib.sha256(DEMO_BYTES).hexdigest()
     assert meta["size"] == len(DEMO_BYTES)
     assert meta["source"] == "downloads_api"
-    # Kelvollinen ISO-hetki eikä mikä tahansa merkkijono.
+    # A valid ISO instant and not just any string.
     assert datetime.fromisoformat(meta["fetched_at"]).tzinfo is not None
 
 
 def test_the_source_is_asked_for_exactly_the_unit_that_was_requested(
     archive,
 ) -> None:
-    """Vaihe ei saa kysyä muuta karttaa kuin sitä, joka sille annettiin."""
-    source = FakeDemoSource({UNIT: FakeDemo(DEMO_BYTES), OTHER: FakeDemo(demo_bytes(b"VAARA"))})
+    """The stage must not ask for any map other than the one it was given."""
+    source = FakeDemoSource({UNIT: FakeDemo(DEMO_BYTES), OTHER: FakeDemo(demo_bytes(b"WRONG"))})
     run(archive, source, UNIT)
     assert source.asked == [UNIT]
     assert archive.demo(UNIT).read_bytes() == DEMO_BYTES
@@ -210,7 +211,7 @@ def test_the_stream_is_closed_even_though_the_stage_never_saw_a_connection(
     assert source.closed == 1
 
 
-# -- Matriisi: demo jo levyllä (kolme sijaintia, kolme testiä) ---------------
+# -- Matrix: the demo already on disk (three locations, three tests) ---------
 
 
 def test_demo_already_in_the_archive_is_not_downloaded(archive, source) -> None:
@@ -238,11 +239,12 @@ def test_demo_already_in_the_local_demos_root_is_not_downloaded(
 def test_demo_in_the_archive_is_not_redownloaded_when_demos_root_is_set(
     local_archive, source
 ) -> None:
-    """Asetuksen käyttöönotto ei saa ladata koko otantaa uudelleen.
+    """Turning the setting on must not download the whole sample again.
 
-    Jos idempotenssi katsoisi vain sinne, minne kirjoitetaan, jokainen jo
-    OneDriveen ladattu demo haettaisiin toistamiseen -- 2,3 GB ja koko
-    Downloads-kiintiö siitä hyvästä, ettei asetusta ollut ennen olemassa.
+    If idempotence looked only where the writes go, every demo already
+    downloaded into the synchronised folder would be fetched a second time --
+    2.3 GB and the whole Downloads quota for the sake of a setting that did not
+    exist before.
     """
     place(local_archive.archive_demos_dir(), UNIT)
 
@@ -257,11 +259,11 @@ def test_demo_in_the_archive_is_not_redownloaded_when_demos_root_is_set(
 def test_a_demo_in_import_with_the_canonical_name_is_not_downloaded(
     local_archive, source
 ) -> None:
-    """``import/`` on kolmas hakusijainti -- **kanonisella nimellä**.
+    """``import/`` is the third search location -- **under the canonical name**.
 
-    Tämä on se tila, jonka Story 3.6 tuottaa: tunniste on arkiston muodossa ja
-    metatiedosto on kirjoitettu. Silloin tuotu demo käyttäytyy täsmälleen kuten
-    ladattu, eikä mikään vaihe erota niitä.
+    This is the state Story 3.6 produces: the id is in the archive's form and
+    the metadata file has been written. Then an imported demo behaves exactly
+    like a downloaded one, and no stage tells them apart.
     """
     place(local_archive.import_dir(), UNIT)
 
@@ -275,18 +277,19 @@ def test_a_demo_in_import_with_the_canonical_name_is_not_downloaded(
 def test_a_browser_downloaded_demo_in_import_is_still_fetched_again(
     local_archive, source
 ) -> None:
-    """**Tiedostettu puute, ei väite että näin ei kävisi (A9).**
+    """**A known gap, not a claim that this would not happen (A9).**
 
-    Selaimella haettu demo on ``import/``issa FACEITin omalla nimellä
-    ``{match_id}-{round}-{instance}.dem`` -- eri tunniste kuin arkiston
-    ``{match_id}-{map_index}`` -- eikä sillä ole ``.meta.json``ia, jota
-    idempotenssi vaatii. Se latautuu siis uudelleen.
+    A demo fetched with a browser is in ``import/`` under FACEIT's own name
+    ``{match_id}-{round}-{instance}.dem`` -- a different id from the archive's
+    ``{match_id}-{map_index}`` -- and it has no ``.meta.json``, which
+    idempotence requires. So it downloads again.
 
-    Testi lukitsee tämän **nykytilaksi eikä tavoitteeksi**: aiempi versio
-    asetti ``import/``iin tiedoston kanonisella nimellä ja metalla, eli tilan,
-    jota käsin tuonti ei tuota, ja antoi siten väärän turvan. Kun Story 3.6
-    nimeää tuodut demot ``instances[].id``:n avulla, tämä testi kääntyy
-    ympäri -- ja sen kääntäminen on silloin tietoinen muutos.
+    The test pins this **as the current state and not as a goal**: an earlier
+    version put a file into ``import/`` under the canonical name and with
+    metadata, that is, a state hand-importing does not produce, and so gave
+    false assurance. When Story 3.6 names imported demos using
+    ``instances[].id``, this test turns round -- and turning it round is then a
+    deliberate change.
     """
     faceit_name = local_archive.import_dir() / f"{MATCH}-1-1.dem"
     faceit_name.parent.mkdir(parents=True, exist_ok=True)
@@ -302,7 +305,7 @@ def test_a_browser_downloaded_demo_in_import_is_still_fetched_again(
 def test_a_demo_in_import_without_a_meta_is_fetched_again(
     local_archive, source
 ) -> None:
-    """Käsin kopioidulla demolla ei ole metatiedostoa -- eikä siis tiivistettä."""
+    """A hand-copied demo has no metadata file -- and therefore no digest."""
     place(local_archive.import_dir(), UNIT, meta=False)
 
     result = run(local_archive, source)
@@ -312,7 +315,7 @@ def test_a_demo_in_import_without_a_meta_is_fetched_again(
     assert source.asked == [UNIT]
 
 
-# -- Matriisi: vajaa tila levyllä (demo ilman metaa, meta ilman demoa) -------
+# -- Matrix: a partial state on disk (demo without meta, meta without demo) --
 
 
 def test_demo_without_meta_is_downloaded_again_and_the_reason_says_why(
@@ -325,7 +328,7 @@ def test_demo_without_meta_is_downloaded_again_and_the_reason_says_why(
     assert result.status == "ok"
     assert result.skipped is False
     assert source.asked == [UNIT]
-    assert "metatiedosto puuttui" in (result.reason or "")
+    assert "metadata file was missing" in (result.reason or "")
     assert read_meta(archive.demo_meta(UNIT))["sha256"] == (
         hashlib.sha256(DEMO_BYTES).hexdigest()
     )
@@ -337,7 +340,7 @@ def test_meta_without_demo_is_downloaded_again_and_the_old_meta_is_replaced(
     directory = archive.archive_demos_dir()
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{UNIT}.meta.json").write_text(
-        json.dumps({"sha256": "vanha-tiiviste", "size": 1}), encoding="utf-8"
+        json.dumps({"sha256": "old-digest", "size": 1}), encoding="utf-8"
     )
 
     result = run(archive, source)
@@ -349,7 +352,7 @@ def test_meta_without_demo_is_downloaded_again_and_the_old_meta_is_replaced(
     assert meta["size"] == len(DEMO_BYTES)
 
 
-# -- Matriisi: demoa ei ole ---------------------------------------------------
+# -- Matrix: the demo does not exist ------------------------------------------
 
 
 def test_a_demo_the_source_does_not_have_is_no_demo_and_writes_nothing(
@@ -366,21 +369,21 @@ def test_a_demo_the_source_does_not_have_is_no_demo_and_writes_nothing(
 
 
 def test_no_demo_is_a_different_status_from_download_failed(archive) -> None:
-    """Poissa oleva demo ja katkennut yhteys eivät saa näyttää samalta.
+    """An absent demo and a broken connection must not look the same.
 
-    Ne johtavat eri jatkoon: toinen ei enää koskaan onnistu, toinen
-    todennäköisesti onnistuu heti seuraavalla ajolla.
+    They lead to different continuations: one will never succeed again, the
+    other most likely succeeds on the very next run.
     """
-    gone = run(archive, FakeDemoSource({UNIT: DemoUnavailable("Poistettu.")}))
+    gone = run(archive, FakeDemoSource({UNIT: DemoUnavailable("Deleted.")}))
     broken = run(
         archive,
-        FakeDemoSource({UNIT: ApiError("Rajapinta ei vastannut.", status_code=503)}),
+        FakeDemoSource({UNIT: ApiError("The API did not answer.", status_code=503)}),
     )
     assert gone.status == "no_demo"
     assert broken.status == "download_failed"
 
 
-# -- Matriisi: katkennut virta ja vajaa Content-Length ------------------------
+# -- Matrix: a broken stream and a short Content-Length -----------------------
 
 
 def test_a_broken_stream_leaves_neither_a_demo_nor_a_temp_file(archive) -> None:
@@ -397,7 +400,7 @@ def test_a_broken_stream_leaves_neither_a_demo_nor_a_temp_file(archive) -> None:
 def test_a_short_download_names_both_numbers_and_is_not_moved_into_place(
     archive,
 ) -> None:
-    # Lähde lupaa enemmän kuin antaa: juuri se on vajaa lataus.
+    # The source promises more than it gives: that is exactly a short download.
     source = FakeDemoSource(
         {UNIT: FakeDemo(DEMO_BYTES, announce=len(DEMO_BYTES) + 4096)}
     )
@@ -414,16 +417,16 @@ def test_a_short_download_names_both_numbers_and_is_not_moved_into_place(
 def test_a_source_that_does_not_announce_a_length_says_so_out_loud(
     archive,
 ) -> None:
-    """``None`` on "ei kertonut" eikä "nolla tavua" -- **ja se sanotaan**.
+    """``None`` is "did not state" and not "zero bytes" -- **and that is said**.
 
-    Ilman ``Content-Length``iä katkennut virta näyttää täsmälleen samalta kuin
-    ehjä: tiedosto on paikallaan, alku on zstd-muotoa, koko on uskottava.
-    Vaihe ei voi erottaa niitä, joten se ei saa vaieta: vaiettu epävarmuus
-    näyttäisi varmuudelta, ja katkennut demo ohitettaisiin idempotenssin
-    nojalla ikuisesti.
+    Without a ``Content-Length`` a broken stream looks exactly like a whole
+    one: the file is in place, the start is in zstd form, the size is
+    plausible. The stage cannot tell them apart, so it must not stay silent:
+    unspoken uncertainty would look like certainty, and a truncated demo would
+    be skipped for ever on the strength of idempotence.
 
-    Aiempi versio tästä testistä lukitsi pelkän ``status == "ok"``:n
-    varmistamatta mitään ehjyydestä -- se antoi väärän turvan.
+    An earlier version of this test pinned only ``status == "ok"`` without
+    establishing anything about wholeness -- it gave false assurance.
     """
     source = FakeDemoSource({UNIT: FakeDemo(DEMO_BYTES, announce=None)})
 
@@ -431,19 +434,19 @@ def test_a_source_that_does_not_announce_a_length_says_so_out_loud(
 
     assert result.status == "ok"
     assert archive.demo(UNIT).read_bytes() == DEMO_BYTES
-    # 1) Metatiedosto kertoo koneelle, ettei pituutta tarkistettu.
+    # 1) The metadata file tells the machine that the length was not checked.
     assert read_meta(archive.demo_meta(UNIT))["length_verified"] is False
     assert result.stats["length_verified"] is False
-    # 2) Syy kertoo ihmiselle saman ja sen, mitä tehdä jos parse kaatuu.
+    # 2) The reason tells a person the same, and what to do if parse falls over.
     reason = result.reason or ""
     assert "Content-Length" in reason
-    assert "parsinnassa" in reason
+    assert "in parsing" in reason
 
 
 def test_a_verified_download_does_not_carry_the_uncertainty_note(
     archive, source
 ) -> None:
-    """Varoitus vain silloin kun on syytä: muuten se muuttuisi taustakohinaksi."""
+    """A warning only when there is cause: otherwise it becomes background noise."""
     result = run(archive, source)
 
     assert read_meta(archive.demo_meta(UNIT))["length_verified"] is True
@@ -451,18 +454,18 @@ def test_a_verified_download_does_not_carry_the_uncertainty_note(
     assert "Content-Length" not in (result.reason or "")
 
 
-# -- Roska ei kelpaa demoksi (2026-09-05) ------------------------------------
+# -- Rubbish does not pass as a demo (2026-09-05) ----------------------------
 
 
 def test_an_html_error_page_with_status_200_is_not_stored_as_a_demo(
     archive,
 ) -> None:
-    """200-statuksella tullut virhesivu on onnistunut HTTP-vastaus.
+    """An error page arriving with a 200 status is a successful HTTP response.
 
-    Se ei erotu mistään muusta kuin sisällöstään -- ja jos se kirjoittuisi
-    demoksi, idempotenssi ohittaisi sen **joka ajolla ikuisesti**: metatiedosto
-    antaisi sille sha256:n ja ``source: downloads_api``, eikä mikään enää
-    yrittäisi hakea oikeaa demoa.
+    Nothing but its content tells it apart -- and if it were written out as a
+    demo, idempotence would skip it **on every run, for ever**: the metadata
+    file would give it a sha256 and ``source: downloads_api``, and nothing
+    would try to fetch the real demo again.
     """
     source = FakeDemoSource({UNIT: FakeDemo(HTML_ERROR_PAGE)})
 
@@ -476,18 +479,18 @@ def test_an_html_error_page_with_status_200_is_not_stored_as_a_demo(
 
 
 def test_an_empty_response_is_not_stored_as_a_demo(archive) -> None:
-    """``Content-Length: 0`` läpäisee pituustarkistuksen (0 == 0)."""
+    """``Content-Length: 0`` passes the length check (0 == 0)."""
     source = FakeDemoSource({UNIT: FakeDemo(b"", announce=0)})
 
     result = run(archive, source)
 
     assert result.status == "download_failed"
     assert archive.find_demo(UNIT) is None
-    assert "liian vähän" in (result.reason or "")
+    assert "too little" in (result.reason or "")
 
 
 def test_a_truncated_but_correctly_labelled_file_is_not_stored(archive) -> None:
-    """Muutaman kilotavun zstd-alku ei ole CS2-demo."""
+    """A few kilobytes of zstd at the start is not a CS2 demo."""
     source = FakeDemoSource({UNIT: FakeDemo(ZSTD_MAGIC + b"a" * 5000)})
 
     result = run(archive, source)
@@ -497,23 +500,23 @@ def test_a_truncated_but_correctly_labelled_file_is_not_stored(archive) -> None:
 
 
 def test_the_size_estimate_covers_the_largest_measured_demo() -> None:
-    """Arvio on levytilaportin syöte: liian pieni päästäisi läpi liikaa.
+    """The estimate is the disk gate's input: too small would let through too much.
 
-    Arkiston suurin pakattu demo on 234 163 493 tavua (mitattu 2026-09-05).
-    Arvion on oltava sen yläpuolella, tai kuvauksen on lakattava kutsumasta
-    sitä ylärajaksi.
+    The largest compressed demo in the archive is 234,163,493 bytes (measured
+    2026-09-05). The estimate has to be above it, or the description has to
+    stop calling it an upper bound.
     """
     largest_measured = 234_163_493
     assert fetch_stage.DEMO_SIZE_ESTIMATE_BYTES > largest_measured
 
 
 def test_the_minimum_size_is_far_below_a_real_demo() -> None:
-    """Vartija ei saa hylätä oikeaa demoa: pienin arkistossa on yli 140 MB."""
+    """The guard must not reject a real demo: the smallest is over 140 MB."""
     smallest_measured = 142 * 1024 * 1024
     assert fetch_stage.MIN_PLAUSIBLE_DEMO_BYTES < smallest_measured
 
 
-# -- Matriisi: levytila -------------------------------------------------------
+# -- Matrix: disk space -------------------------------------------------------
 
 
 def test_a_full_disk_stops_the_download_before_it_starts(archive, source) -> None:
@@ -526,25 +529,25 @@ def test_a_full_disk_stops_the_download_before_it_starts(archive, source) -> Non
     )
 
     assert result.status == "download_failed"
-    # **Tärkein väite:** latausta ei aloitettu, joten kiintiötä ei kulunut
-    # eikä levylle kirjoitettu tavuakaan.
+    # **The most important claim:** the download was not started, so no quota
+    # was spent and not a byte was written to disk.
     assert source.asked == []
     assert archive.find_demo(UNIT) is None
-    assert result.reason and "Levytila ei riitä" in result.reason
+    assert result.reason and "Not enough disk space" in result.reason
 
 
-def test_the_disk_message_tells_the_user_what_to_do_in_finnish(
+def test_the_disk_message_tells_the_user_what_to_do(
     archive, source
 ) -> None:
     result = run(archive, source, disk_free=lambda _a: 1024, size_estimate=2048)
     reason = result.reason or ""
-    assert "Vapaana on" in reason
-    assert "tarvitaan" in reason
+    assert "Free space is" in reason
+    assert "is needed" in reason
     assert str(archive.demos_dir()) in reason
 
 
 def test_unknown_free_space_does_not_block_the_download(archive, source) -> None:
-    """``None`` on "ei saatu selville"; se ei saa pysäyttää työkalua."""
+    """``None`` is "could not be determined"; it must not stop the tool."""
     result = run(archive, source, disk_free=lambda _archive: None)
     assert result.status == "ok"
 
@@ -552,10 +555,11 @@ def test_unknown_free_space_does_not_block_the_download(archive, source) -> None
 def test_free_space_is_measured_where_the_demos_are_written(
     local_archive, monkeypatch
 ) -> None:
-    """Levytila kysytään kohdeasemalta, ei arkiston asemalta.
+    """Free space is asked of the target drive, not the archive's drive.
 
-    Tässä molemmat ovat sama levy, joten testi ei voi väittää eri lukuja --
-    mutta se voi väittää, että kysytty hakemisto on kohde eikä arkiston juuri.
+    Here both are the same disk, so the test cannot claim different numbers --
+    but it can claim that the directory asked about is the target and not the
+    archive root.
     """
     local_archive.demos_root.mkdir(parents=True)
     asked: list[Path] = []
@@ -571,7 +575,7 @@ def test_free_space_is_measured_where_the_demos_are_written(
     assert asked == [local_archive.demos_root]
 
 
-# -- Paikallinen demohakemisto (lisäys 2026-09-05) ---------------------------
+# -- The local demo directory (added 2026-09-05) -----------------------------
 
 
 def test_with_demos_root_the_demo_never_lands_in_the_archive(
@@ -589,8 +593,9 @@ def test_with_demos_root_the_demo_never_lands_in_the_archive(
 def test_the_meta_is_always_written_next_to_the_demo(
     tmp_path, source, local: bool
 ) -> None:
-    """Metatiedosto on väite juuri siitä tiedostosta; eri hakemistoissa ne
-    erkanisivat heti kun toinen kopioidaan tai poistetaan."""
+    """The metadata file is a claim about that exact file; in separate
+    directories the two would drift apart the moment one is copied or
+    deleted."""
     archive = ArchivePaths(
         root=tmp_path / "arkisto",
         demos_root=(tmp_path / "demot") if local else None,
@@ -606,11 +611,10 @@ def test_the_meta_is_always_written_next_to_the_demo(
 def test_outputs_never_claim_an_outside_path_is_an_archive_path(
     local_archive, source
 ) -> None:
-    """``outputs`` on sopimuksen mukaan arkiston sisäinen suhteellinen polku.
+    """By contract ``outputs`` is a path relative to the inside of the archive.
 
-    Paikallinen demo ei ole arkistossa, joten sitä ei ole siellä -- ja
-    absoluuttiset polut kulkevat ``stats``issa, jossa ne eivät väitä mitään
-    arkistosta.
+    A local demo is not in the archive, so it is not there -- and the absolute
+    paths travel in ``stats``, where they claim nothing about the archive.
     """
     result = run(local_archive, source)
 
@@ -632,16 +636,16 @@ def test_outputs_are_archive_relative_when_the_demo_is_in_the_archive(
     ]
 
 
-# -- Kirjoitusjärjestys ja tiiviste ------------------------------------------
+# -- The write order and the digest ------------------------------------------
 
 
 def test_the_meta_is_written_only_after_the_demo_is_in_place(
     archive, source, monkeypatch
 ) -> None:
-    """Metatiedosto ei saa koskaan kuvata tiedostoa, jota ei ole.
+    """The metadata file must never describe a file that does not exist.
 
-    Järjestys mitataan siitä, missä järjestyksessä atomiset siirrot tapahtuvat
-    -- se on sama tapahtuma, joka tekee tiedostosta näkyvän muille.
+    The order is measured from the order in which the atomic moves happen --
+    that is the same event that makes a file visible to others.
     """
     order: list[str] = []
     real_replace = os.replace
@@ -659,21 +663,21 @@ def test_the_meta_is_written_only_after_the_demo_is_in_place(
 def test_an_interrupted_run_leaves_the_demo_without_a_meta_not_the_reverse(
     archive, source, monkeypatch
 ) -> None:
-    """Keskeytyneen ajon jälki on korjattavissa; päinvastainen ei olisi.
+    """What an interrupted run leaves behind is repairable; the reverse would not be.
 
-    Demo ilman metaa ladataan uudelleen ja korjaantuu. Meta ilman demoa
-    väittäisi tiivisteen tiedostosta, jota ei ole -- ja ``parse`` liittäisi sen
-    manifestiinsa.
+    A demo without metadata is downloaded again and repairs itself. Metadata
+    without a demo would claim a digest for a file that does not exist -- and
+    ``parse`` would attach it to its manifest.
     """
 
     def boom(*args, **kwargs):
-        raise OSError("levy irtosi kesken metatiedoston kirjoituksen")
+        raise OSError("the disk dropped while the metadata file was written")
 
     monkeypatch.setattr(fetch_stage, "atomic_write_json", boom)
 
     result = run(archive, source)
 
-    # Levyvirhe on yksikön tila, ei ohjelmavirhe (ks. A4).
+    # A disk error is a unit's status, not a programming error (see A4).
     assert result.status == "download_failed"
     assert archive.demo(UNIT).is_file()
     assert not archive.demo_meta(UNIT).exists()
@@ -682,10 +686,10 @@ def test_an_interrupted_run_leaves_the_demo_without_a_meta_not_the_reverse(
 def test_the_demo_is_never_read_back_to_compute_its_hash(
     archive, source, monkeypatch
 ) -> None:
-    """200 MB:n uudelleenlukeminen hashausta varten on kielletty.
+    """Reading 200 MB again for hashing is forbidden.
 
-    Todiste on kaksiosainen: virta luetaan tasan kerran, eikä yhtäkään
-    demotiedostoa avata lukutilassa.
+    The proof has two parts: the stream is read exactly once, and no demo file
+    is opened in read mode.
     """
     opened: list[tuple[str, str]] = []
     real_open = open
@@ -704,14 +708,14 @@ def test_the_demo_is_never_read_back_to_compute_its_hash(
     demo_opens = [
         (path, mode) for path, mode in opened if f"{UNIT}.dem.zst" in path
     ]
-    assert demo_opens, "demoa ei avattu lainkaan -- testi ei mittaa mitään"
+    assert demo_opens, "the demo was never opened -- the test measures nothing"
     for path, mode in demo_opens:
-        assert "r" not in mode, f"demo avattiin lukutilassa: {path} ({mode})"
+        assert "r" not in mode, f"the demo was opened in read mode: {path} ({mode})"
 
 
 def test_the_hash_is_the_hash_of_the_bytes_that_were_written(archive) -> None:
-    """Tiiviste on todiste tiedostosta eikä virrasta, jos ne eroaisivat."""
-    payload = demo_bytes(b"TIIVISTE")
+    """The digest is evidence about the file and not the stream, if they differed."""
+    payload = demo_bytes(b"DIGEST")
     source = FakeDemoSource({UNIT: FakeDemo(payload, chunk=7919)})
 
     run(archive, source)
@@ -727,7 +731,7 @@ def test_writes_are_atomic(archive, source) -> None:
     assert not has_temp_leftovers(archive.root)
 
 
-# -- Sarja: yksi vika ei kaada ajoa ------------------------------------------
+# -- The series: one fault does not bring the run down -----------------------
 
 
 def test_one_missing_demo_does_not_stop_the_others(archive) -> None:
@@ -735,8 +739,8 @@ def test_one_missing_demo_does_not_stop_the_others(archive) -> None:
     source = FakeDemoSource(
         {
             UNIT: FakeDemo(DEMO_BYTES),
-            OTHER: DemoUnavailable("FACEIT on poistanut tallenteen."),
-            third: FakeDemo(demo_bytes(b"KOLMAS")),
+            OTHER: DemoUnavailable("FACEIT has deleted the recording."),
+            third: FakeDemo(demo_bytes(b"THIRD")),
         }
     )
 
@@ -753,15 +757,15 @@ def test_one_missing_demo_does_not_stop_the_others(archive) -> None:
 
 
 def test_a_programming_error_is_not_swallowed_by_the_loop(archive) -> None:
-    """``PappascoutError`` on yksikön tila; muu poikkeus on koodin vika.
+    """``PappascoutError`` is a unit's status; anything else is a code fault.
 
-    Jos silmukka nielaisisi kaiken, ``TypeError`` piiloutuisi yhdentoista
-    onnistuneen latauksen sekaan tilana ``download_failed``.
+    If the loop swallowed everything, a ``TypeError`` would hide among eleven
+    successful downloads as the status ``download_failed``.
     """
 
     class Broken:
         def get_demo(self, map_demo_id: str):
-            raise TypeError("ohjelmavirhe")
+            raise TypeError("programming error")
 
     with pytest.raises(TypeError):
         fetch_stage.run_many(
@@ -777,7 +781,7 @@ def test_a_bad_identifier_is_rejected_before_anything_is_asked(
     assert source.asked == []
 
 
-# -- Suunnitelma --------------------------------------------------------------
+# -- The plan -----------------------------------------------------------------
 
 
 def selection_document(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -840,25 +844,26 @@ def test_the_plan_says_what_to_run_when_the_selection_file_is_missing(
         fetch_stage.plan(archive, "joukkue")
 
 
-# -- Divisioonan suunnitelma (Story 3.5) --------------------------------------
+# -- The division's plan (Story 3.5) ------------------------------------------
 #
-# ``plan_division`` on ``plan``in sisar: sama lataus, toinen yksikkövalinta.
-# Yksiköt luetaan **otteluindeksistä**, joten tämän osan aineisto on
-# ``index/matches.json`` sellaisenaan -- ei valintatiedosto.
+# ``plan_division`` is ``plan``'s sibling: the same download, another way of
+# choosing the units. The units are read from the **match index**, so this
+# section's material is ``index/matches.json`` as it stands -- not a selection
+# file.
 
-#: Divisioona, jota nämä testit keräävät.
+#: The division these tests collect.
 LEAGUE_ID = "94681888-b5da-4ab5-bf50-f44b666b98a3"
 
-#: Toinen kilpailu samassa indeksissä: sen otteluita ei kerätä.
+#: Another competition in the same index: its matches are not collected.
 OTHER_LEAGUE = "11111111-2222-3333-4444-555555555555"
 
-#: Otteluindeksin ``generated_at``, jonka suunnitelman on kannettava sanasta
-#: sanaan: se kertoo, kuinka vanhasta yksikköjoukosta ajossa on kyse.
+#: The match index's ``generated_at``, which the plan has to carry word for
+#: word: it says how old the set of units in the run is.
 INDEX_GENERATED_AT = "2026-09-04T18:20:11+00:00"
 
 
 def league_settings(*ids: str) -> Any:
-    """``[league]``-osio näille testeille; ilman argumentteja :data:`LEAGUE_ID`."""
+    """The ``[league]`` section here; with no arguments, :data:`LEAGUE_ID`."""
     from pappascout.domain.models import LeagueSettings
 
     return LeagueSettings(
@@ -880,11 +885,11 @@ def match_row(
     finished_at: str | None = "2026-08-31T20:14:00+00:00",
     omit_best_of: bool = False,
 ) -> dict[str, Any]:
-    """Yksi ottelurivi otteluindeksin muodossa.
+    """One match row in the match index's shape.
 
-    ``omit_best_of`` **poistaa avaimen kokonaan** eikä aseta sitä nulliksi:
-    juuri niin arkiston 4.9.2026 kirjoitettu indeksi näyttää, ja ero on se,
-    jota testataan.
+    ``omit_best_of`` **removes the key altogether** rather than setting it to
+    null: that is exactly how the index written into the archive on 2026-09-04
+    looks, and that difference is what is being tested.
     """
     row: dict[str, Any] = {
         "match_id": match_id,
@@ -925,7 +930,7 @@ def write_matches_index(archive: ArchivePaths, rows: list[dict[str, Any]]) -> No
 def test_the_division_plan_takes_every_played_match_not_just_one_team(
     archive,
 ) -> None:
-    """Rosterikynnystä ei katsota: keräys ottaa talteen myös vieraan ottelun."""
+    """No roster threshold: collecting saves another team's match too."""
     write_matches_index(
         archive, [match_row("1-aaa"), match_row("1-bbb")]
     )
@@ -941,7 +946,7 @@ def test_the_division_plan_takes_every_played_match_not_just_one_team(
 
 
 def test_an_unplayed_match_produces_no_row_and_no_call(archive) -> None:
-    """Pelaamattoman ottelun demoa ei ole olemassa: kysyminen olisi tuomittu."""
+    """An unplayed match's demo does not exist: asking for it would be doomed."""
     write_matches_index(
         archive,
         [
@@ -961,19 +966,20 @@ def test_an_unplayed_match_produces_no_row_and_no_call(archive) -> None:
 
 
 def test_the_filter_is_played_not_the_status_string(archive) -> None:
-    """``played`` on ``discover``in **päätös**, ``status`` on lähteen sana.
+    """``played`` is ``discover``'s **decision**, ``status`` is the source's word.
 
-    Ne osuvat yhteen useimmiten, ja juuri siksi ero on testattava erikseen:
-    suodattimen vaihtaminen ``status == "FINISHED"``:ksi menisi läpi
-    jokaisesta aineistosta, jossa ne ovat samat -- ja ottaisi mukaan
-    keskeytetyn ottelun tai jättäisi pois pelatun, jonka lähde nimeää toisin.
+    They coincide most of the time, and that is exactly why the difference has
+    to be tested on its own: changing the filter to ``status == "FINISHED"``
+    would pass over every set of material in which they are the same -- and
+    would take in an abandoned match or leave out a played one the source names
+    otherwise.
     """
     write_matches_index(
         archive,
         [
-            # Pelattu, mutta lähde sanoo sen toisin sanoin.
+            # Played, but the source says so in different words.
             match_row("1-pelattu", played=True, status="MATCH_COMPLETE"),
-            # Lähde sanoo FINISHED, mutta discover ei laskenut sitä pelatuksi.
+            # The source says FINISHED, but discover did not count it as played.
             match_row("1-peruttu", played=False, status="FINISHED"),
         ],
     )
@@ -987,11 +993,12 @@ def test_the_filter_is_played_not_the_status_string(archive) -> None:
 def test_a_played_match_without_map_picks_gets_its_own_bucket_with_a_reason(
     archive,
 ) -> None:
-    """**Pelattu ottelu ei katoa hiljaa.** Tyhjä ``map_picks`` on oma lohkonsa.
+    """**A played match does not disappear quietly.** Empty ``map_picks``
+    gets a bucket of its own.
 
-    Story 3.3:n katselmus löysi saman vian valinnasta: siellä tällainen ottelu
-    laskettiin syyhyn "ei pelattu", eli tuloste väitti ottelusta jotain, mikä
-    ei ollut totta.
+    Story 3.3's review found the same fault in selection: there such a match
+    was counted under the reason "not played", that is, the output claimed
+    something about the match that was not true.
     """
     write_matches_index(
         archive,
@@ -1007,18 +1014,18 @@ def test_a_played_match_without_map_picks_gets_its_own_bucket_with_a_reason(
     assert [row.match_id for row in todo.no_veto] == ["1-vedoton"]
     only = todo.no_veto[0]
     assert only.finished_at == "2026-09-02T21:00:00+00:00"
-    assert "pelattu" in only.reason
-    # Syy ei saa väittää ottelua pelaamattomaksi.
-    assert "ei pelattu" not in only.reason.lower()
-    # Ja ottelu lasketaan pelatuksi, koska se on pelattu.
+    assert "played" in only.reason
+    # The reason must not claim the match went unplayed.
+    assert "not played" not in only.reason.lower()
+    # And the match counts as played, because it has been played.
     assert todo.matches_played == 2
 
 
 def test_a_missing_best_of_is_an_observation_not_an_assumption(archive) -> None:
-    """Mitattu 2026-09-06: kenttää ei ole yhdelläkään arkiston 66 rivillä.
+    """Measured 2026-09-06: the field is on none of the archive's 66 rows.
 
-    Kartat luetaan silloin ``map_picks``ista, ja suunnitelma **merkitsee**
-    pituuden tuntemattomaksi sen sijaan että olettaisi luvun.
+    The maps are then read from ``map_picks``, and the plan **notes** the
+    length as unknown instead of assuming a number.
     """
     write_matches_index(
         archive, [match_row("1-aaa", omit_best_of=True)]
@@ -1031,7 +1038,7 @@ def test_a_missing_best_of_is_an_observation_not_an_assumption(archive) -> None:
 
 
 def test_a_known_best_of_is_not_flagged_as_unknown(archive) -> None:
-    """Merkintä on väite, ei koriste: se ei saa syntyä kun pituus tiedetään."""
+    """The note is a claim, not decoration: not when the length is known."""
     write_matches_index(archive, [match_row("1-aaa", best_of=2)])
 
     todo = fetch_stage.plan_division(archive, league_settings())
@@ -1040,11 +1047,12 @@ def test_a_known_best_of_is_not_flagged_as_unknown(archive) -> None:
 
 
 def test_the_unknown_length_names_the_matches_it_means(archive) -> None:
-    """**Havainnon on oltava jäljitettävissä.**
+    """**An observation has to be traceable.**
 
-    Yksi bool koko divisioonalle kertoisi, että jokin ottelu on tuntematon,
-    muttei mikä -- eikä käyttäjä voisi tarkistaa väitettä indeksistä. Perustelu
-    "havainto eikä oletus" vaatii, että havainnon voi osoittaa.
+    One bool for the whole division would say that some match is unknown but
+    not which -- and the user could not check the claim against the index. The
+    justification "an observation and not an assumption" requires that the
+    observation can be pointed at.
     """
     write_matches_index(
         archive,
@@ -1063,27 +1071,28 @@ def test_the_unknown_length_names_the_matches_it_means(archive) -> None:
 
 @pytest.mark.parametrize("value", [0, -1, -3])
 def test_an_invalid_best_of_is_unknown_not_known(archive, value: int) -> None:
-    """``0`` ei ole lyhyt ottelu vaan rikkinäinen kenttä.
+    """``0`` is not a short match but a broken field.
 
-    Ehto ``is None`` yksinään lukisi sen tunnetuksi pituudeksi, ja tuloste
-    väittäisi tietävänsä ottelun pituuden. Raja on sama kuin
-    :func:`~pappascout.domain.selection.guaranteed_maps`illa (``< 1``).
+    The condition ``is None`` on its own would read it as a known length, and
+    the output would claim to know the match's length. The boundary is the same
+    as in :func:`~pappascout.domain.selection.guaranteed_maps` (``< 1``).
     """
     write_matches_index(archive, [match_row("1-rikki", best_of=value)])
 
     todo = fetch_stage.plan_division(archive, league_settings())
 
     assert todo.best_of_unknown == ("1-rikki",)
-    # Ja kartat luetaan silti vetotiedosta: kelvoton pituus ei kadota niitä.
+    # And the maps are still read from the veto: an invalid length does not
+    # lose them.
     assert todo.pending == ("1-rikki-0", "1-rikki-1")
 
 
 def test_an_uncertain_map_is_attempted_not_skipped(archive) -> None:
-    """BO3 päättyi 2-0: kolmas kartta yritetään silti.
+    """A BO3 ended 2-0: the third map is attempted all the same.
 
-    ``select`` toimii päinvastoin ja oikein -- phantom-rivi valheellistaisi
-    otannan. Täällä epäsymmetria kääntyy: yritys maksaa yhden kutsun ja
-    odotetun ``no_demo``n, ohitus maksaa pysyvästi menetetyn demon.
+    ``select`` does the opposite, and rightly -- a phantom row would falsify
+    the sample. Here the asymmetry turns round: an attempt costs one call and
+    an expected ``no_demo``, skipping costs a demo lost for good.
     """
     write_matches_index(
         archive,
@@ -1102,7 +1111,7 @@ def test_an_uncertain_map_is_attempted_not_skipped(archive) -> None:
 
 
 def test_a_match_from_another_competition_is_left_out(archive) -> None:
-    """Divisioona tarkoittaa divisioonaa -- ei kaikkea, mitä indeksissä on."""
+    """A division means a division -- not everything that is in the index."""
     write_matches_index(
         archive,
         [
@@ -1119,7 +1128,7 @@ def test_a_match_from_another_competition_is_left_out(archive) -> None:
 
 
 def test_two_configured_championships_are_both_collected(archive) -> None:
-    """Suodatin lukee asetuksen, ei yhtä kovakoodattua tunnistetta."""
+    """The filter reads the setting, not one hard-coded id."""
     write_matches_index(
         archive,
         [match_row("1-oma"), match_row("1-vieras", competition_id=OTHER_LEAGUE)],
@@ -1131,7 +1140,7 @@ def test_two_configured_championships_are_both_collected(archive) -> None:
 
     assert todo.matches_played == 2
     assert "1-vieras-0" in todo.pending
-    # Kentta kertoo, milla suodatettiin: tyhjan suunnitelman viesti lukee sen.
+    # The field says what the filter was: an empty plan's message reads it.
     assert todo.league_ids == (LEAGUE_ID, OTHER_LEAGUE)
 
 
@@ -1139,11 +1148,11 @@ def test_two_configured_championships_are_both_collected(archive) -> None:
 def test_a_demo_already_on_disk_is_present_from_every_location(
     tmp_path, location: str
 ) -> None:
-    """``in_archive`` katsoo kaikki kolme sijaintia, ja niin katsoo keräyskin.
+    """``in_archive`` looks at all three locations, and so does collecting.
 
-    Yhden sijainnin katsominen lataisi arkistoon aiemmin haetun demon
-    uudelleen paikalliseen hakemistoon -- eli kuluttaisi kiintiön ja
-    kaksinkertaistaisi levytilan.
+    Looking at one location would download a demo already fetched into the
+    archive again into the local directory -- that is, spend the quota and
+    double the disk usage.
     """
     archive = ArchivePaths(
         root=tmp_path / "arkisto", demos_root=tmp_path / "paikalliset"
@@ -1165,7 +1174,7 @@ def test_a_demo_already_on_disk_is_present_from_every_location(
 
 
 def test_a_demo_without_its_meta_is_not_counted_as_present(tmp_path) -> None:
-    """Demo ilman metatiedostoa on katkennut ajo, ei valmis tulos."""
+    """A demo without its metadata file is an interrupted run, not a finished result."""
     archive = ArchivePaths(root=tmp_path / "arkisto")
     write_matches_index(archive, [match_row("1-aaa")])
     place(archive.archive_demos_dir(), "1-aaa-0", meta=False)
@@ -1177,7 +1186,7 @@ def test_a_demo_without_its_meta_is_not_counted_as_present(tmp_path) -> None:
 
 
 def test_the_plan_carries_the_age_of_the_index_it_read(archive) -> None:
-    """Indeksin ikä on suunnitelman kenttä, koska se rajaa koko yksikköjoukon."""
+    """The index's age is a plan field: it bounds the whole set of units."""
     write_matches_index(archive, [match_row("1-aaa")])
 
     todo = fetch_stage.plan_division(archive, league_settings())
@@ -1193,7 +1202,7 @@ def test_the_division_plan_says_what_to_run_when_the_index_is_missing(
 
 
 def test_a_broken_match_row_stops_the_plan_instead_of_vanishing(archive) -> None:
-    """Ohitettu ottelu olisi juuri se hiljaisesti menetetty demo."""
+    """A skipped match would be exactly the silently lost demo."""
     write_matches_index(archive, [{"competition_id": LEAGUE_ID, "played": True}])
 
     with pytest.raises(PappascoutError, match="discover"):
@@ -1201,7 +1210,7 @@ def test_a_broken_match_row_stops_the_plan_instead_of_vanishing(archive) -> None
 
 
 def test_nothing_pending_is_a_plan_too(archive) -> None:
-    """Kaikki jo levyllä: nolla ladattavaa, mutta kartat eivät katoa luvusta."""
+    """All already on disk: nothing to download, and no map leaves the count."""
     write_matches_index(archive, [match_row("1-aaa")])
     place(archive.archive_demos_dir(), "1-aaa-0")
     place(archive.archive_demos_dir(), "1-aaa-1")
@@ -1213,24 +1222,25 @@ def test_nothing_pending_is_a_plan_too(archive) -> None:
     assert todo.estimated_bytes == 0
 
 
-# -- Sama tunniste ei voi päätyä listalle kahdesti (katselmus 6.9.) ---------
+# -- The same id cannot end up on the list twice (review 2026-09-06) --------
 #
-# Tuotteen omistajan vaatimus sanatarkasti: "Kunhan emme hae duplikaatteja
-# tai missaa selviä otteluita." Kaksoiskappale hakisi saman demon kahdesti ja
-# kaksinkertaistaisi sekä lukumäärän että kokoarvion -- eli
-# vahvistuskysymyksen, joka kysyy väärää asiaa.
+# The product owner's requirement, word for word: "As long as we do not fetch
+# duplicates or miss obvious matches." A duplicate would fetch the same demo
+# twice and double both the count and the size estimate -- that is, a
+# confirmation question that asks the wrong thing.
 
 
 def test_a_duplicate_match_does_not_produce_a_duplicate_download(
     archive, monkeypatch
 ) -> None:
-    """Vartija on ``plan_division``in oma, ei lainattu lukijalta.
+    """The guard is ``plan_division``'s own, not borrowed from the reader.
 
-    ``matches_from_index`` torjuu kaksi riviä samalla ``match_id``:llä, mutta
-    **tämän funktion tuloksen oikeellisuus ei saa riippua toisen funktion
-    invariantista, jota se ei itse valvo**. Siksi duplikaatti syötetään tähän
-    ohi lukijan: sivutetun vastauksen limittyminen tuottaisi täsmälleen tämän,
-    ja korjaus lukijaan jättäisi tämän funktion yhä alttiiksi.
+    ``matches_from_index`` rejects two rows with the same ``match_id``, but
+    **the correctness of this function's result must not depend on another
+    function's invariant that it does not enforce itself**. So the duplicate is
+    fed in here past the reader: overlapping pages of a paginated response would
+    produce exactly this, and a fix in the reader would leave this function
+    still exposed.
     """
     from pappascout.stages import discover as discover_stage
 
@@ -1252,7 +1262,7 @@ def test_a_duplicate_match_does_not_produce_a_duplicate_download(
 def test_a_duplicate_that_is_already_on_disk_is_counted_once(
     archive, monkeypatch
 ) -> None:
-    """Dedup koskee molempia ämpäreitä, ei vain ladattavia."""
+    """Deduplication applies to both buckets, not only to what is downloaded."""
     from pappascout.stages import discover as discover_stage
 
     write_matches_index(archive, [match_row("1-aaa")])
@@ -1271,13 +1281,14 @@ def test_a_duplicate_that_is_already_on_disk_is_counted_once(
 
 
 def test_the_dedup_keeps_the_index_order(archive, monkeypatch) -> None:
-    """Järjestys on indeksin järjestys: joukko ei saa sekoittaa sitä."""
+    """The order is the index's order: a set must not scramble it."""
     from pappascout.stages import discover as discover_stage
 
     rows = [match_row("1-aaa"), match_row("1-bbb"), match_row("1-ccc")]
     write_matches_index(archive, rows)
     alkuperainen = discover_stage.matches_from_index({"matches": rows})
-    # Toisto keskellä: naiivi joukko-operaatio siirtäisi rivit väärään kohtaan.
+    # A repeat in the middle: a naive set operation would move rows to the
+    # wrong place.
     limittyva = alkuperainen[:2] + alkuperainen
     monkeypatch.setattr(
         "pappascout.stages.discover.matches_from_index", lambda _d: limittyva
@@ -1295,26 +1306,26 @@ def test_the_dedup_keeps_the_index_order(archive, monkeypatch) -> None:
     )
 
 
-# -- Indeksin aikaleima tarkistetaan ennen ruutua (katselmus 6.9.) ----------
+# -- The index's timestamp is checked before the screen (review 2026-09-06) --
 
 
 @pytest.mark.parametrize(
     "value",
     [
-        pytest.param(None, id="avain-puuttuu"),
-        pytest.param(1757000000, id="luku"),
-        pytest.param(["2026-09-04"], id="lista"),
-        pytest.param("", id="tyhja"),
-        pytest.param("   ", id="pelkka-valilyonti"),
+        pytest.param(None, id="key-missing"),
+        pytest.param(1757000000, id="number"),
+        pytest.param(["2026-09-04"], id="list"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="whitespace-only"),
     ],
 )
 def test_an_unusable_generated_at_becomes_none(archive, value) -> None:
-    """``index_generated_at`` **näytetään käyttäjälle sellaisenaan**.
+    """``index_generated_at`` is **shown to the user as it stands**.
 
-    Siksi tarkistus on suunnitelmassa eikä tulostuskohdassa: luku tai lista
-    tulostuisi aikaleiman paikalla aikaleiman näköisenä, ja pelkkä välilyönti
-    on totuusarvoltaan tosi -- se jättäisi riville tyhjän kohdan, mikä näyttää
-    tyhjältä aikaleimalta eikä tuntemattomalta.
+    That is why the check is in the plan and not where it is printed: a number
+    or a list would be printed in the timestamp's place looking like a
+    timestamp, and a bare space is truthy -- it would leave a blank spot on the
+    line, which looks like an empty timestamp rather than an unknown one.
     """
     path = archive.matches_index()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1332,12 +1343,13 @@ def test_an_unusable_generated_at_becomes_none(archive, value) -> None:
     todo = fetch_stage.plan_division(archive, league_settings())
 
     assert todo.index_generated_at is None
-    # Eikä kelvoton aikaleima estä suunnitelmaa: se on lisätieto, ei ehto.
+    # And an unusable timestamp does not block the plan: it is extra
+    # information, not a condition.
     assert todo.pending == ("1-aaa-0", "1-aaa-1")
 
 
 def test_a_generated_at_with_padding_is_trimmed_not_dropped(archive) -> None:
-    """Ympäröivä tyhjämerkki ei tee aikaleimasta kelvotonta."""
+    """Surrounding whitespace does not make a timestamp unusable."""
     path = archive.matches_index()
     path.parent.mkdir(parents=True, exist_ok=True)
     from pappascout.stages import discover as discover_stage
@@ -1359,24 +1371,24 @@ def test_a_generated_at_with_padding_is_trimmed_not_dropped(archive) -> None:
     assert todo.index_generated_at == INDEX_GENERATED_AT
 
 
-# -- Syytön rivi on mahdoton (katselmus 6.9.) -------------------------------
+# -- A row without a reason is impossible (review 2026-09-06) ---------------
 
 
 def test_a_no_veto_row_cannot_be_built_without_a_reason() -> None:
-    """Tyyppi on olemassa vain kertoakseen syyn.
+    """The type exists only to state a reason.
 
-    Oletusarvo sallisi syyttömän rivin -- täsmälleen sen tilan, jota vastaan
-    luokka on kirjoitettu. Sääntö on parempi kuin tulostuskohdan puolustus.
+    A default would permit a row without one -- exactly the state the class was
+    written against. A rule is better than a defence where it is printed.
     """
     with pytest.raises(TypeError):
         fetch_stage.NoVetoMatch(match_id="1-aaa")  # type: ignore[call-arg]
 
 
-# -- Levyvirhe on yksikön tila, ei ohjelmavirhe (A4, 2026-09-05) -------------
+# -- A disk error is a unit's status, not a programming error (A4, 2026-09-05) --
 
 
 def _full_disk(monkeypatch, target_name: str) -> None:
-    """Anna ``ENOSPC`` jokaiselle kirjoitukselle, joka osuu kohteeseen."""
+    """Give ``ENOSPC`` to every write that hits the target."""
     real_open = open
 
     def spy(file, mode="r", *args, **kwargs):
@@ -1390,11 +1402,12 @@ def _full_disk(monkeypatch, target_name: str) -> None:
 def test_a_full_disk_mid_write_is_download_failed_not_a_crash(
     archive, source, monkeypatch
 ) -> None:
-    """``[Errno 28]`` ei saa päätyä ruudulle sanojen "ohjelmavirhe" kanssa.
+    """``[Errno 28]`` must not reach the screen with the words "programming error".
 
-    Levy on yksikön ominaisuus siinä missä verkkokin: se voi täyttyä kesken
-    kirjoituksen, OneDrive voi lukita tiedoston ja verkkolevy katketa. Kaikki
-    kolme nostavat ``OSError``in, eikä yksikään niistä ole koodin vika.
+    The disk is as much a property of the unit as the network is: it can fill
+    up during a write, the sync client can lock the file and the network drive
+    can drop. All three raise ``OSError``, and none of them is a fault in the
+    code.
     """
     _full_disk(monkeypatch, UNIT)
 
@@ -1402,8 +1415,8 @@ def test_a_full_disk_mid_write_is_download_failed_not_a_crash(
 
     assert result.status == "download_failed"
     reason = result.reason or ""
-    assert "levy" in reason.lower()
-    assert "Muut demot haettiin silti" in reason
+    assert "disk" in reason.lower()
+    assert "The other demos were fetched all the same" in reason
     assert archive.find_demo(UNIT) is None
     assert not has_temp_leftovers(archive.root)
 
@@ -1411,14 +1424,14 @@ def test_a_full_disk_mid_write_is_download_failed_not_a_crash(
 def test_a_full_disk_does_not_stop_the_rest_of_the_run(
     archive, monkeypatch
 ) -> None:
-    """Jäädytetty rajoite: yhden demon epäonnistuminen ei keskeytä ajoa.
+    """The frozen constraint: one demo's failure does not interrupt the run.
 
-    Ilman ``OSError``-haaraa ``run_many``issa seuraavaa demoa ei yritettäisi
-    lainkaan -- todennettu simuloidulla täydellä levyllä.
+    Without the ``OSError`` branch in ``run_many`` the next demo would not be
+    attempted at all -- verified with a simulated full disk.
     """
     second = f"{MATCH}-1"
     source = FakeDemoSource(
-        {UNIT: FakeDemo(DEMO_BYTES), second: FakeDemo(demo_bytes(b"TOINEN"))}
+        {UNIT: FakeDemo(DEMO_BYTES), second: FakeDemo(demo_bytes(b"SECOND"))}
     )
     _full_disk(monkeypatch, f"{UNIT}.dem")
 
@@ -1435,11 +1448,11 @@ def test_a_full_disk_does_not_stop_the_rest_of_the_run(
 
 
 def test_run_many_turns_a_pappascout_error_into_a_unit_result(archive) -> None:
-    """``run_many``in oma virhehaara: yksikkö ei saa kadota hiljaa.
+    """``run_many``'s own error branch: a unit must not disappear quietly.
 
-    ``run`` nostaa poikkeuksen kelvottomasta tunnisteesta, ja ilman tätä haaraa
-    tulosrivi jäisi syntymättä -- luettelo näyttäisi lyhyemmältä kuin
-    suunnitelma, eikä mikään kertoisi kummasta yksiköstä on kyse.
+    ``run`` raises on an unusable id, and without this branch the result row
+    would never come into being -- the listing would look shorter than the
+    plan, and nothing would say which unit was meant.
     """
     source = FakeDemoSource({UNIT: FakeDemo(DEMO_BYTES)})
 
@@ -1455,37 +1468,37 @@ def test_run_many_turns_a_pappascout_error_into_a_unit_result(archive) -> None:
     assert results[0].reason and "map_demo_id" in results[0].reason
 
 
-# -- Kohdehakemiston kirjoitettavuus (A5) ------------------------------------
+# -- Whether the target directory can be written to (A5) ---------------------
 
 
-def test_a_demos_root_that_is_a_file_is_reported_in_finnish(
+def test_a_demos_root_that_is_a_file_is_reported_with_advice(
     tmp_path, source
 ) -> None:
-    """Tiedosto hakemiston paikalla ei näy levytilassa mitenkään."""
+    """A file where the directory should be does not show up in free space at all."""
     blocker = tmp_path / "demot"
-    blocker.write_text("en ole hakemisto", encoding="utf-8")
+    blocker.write_text("i am not a directory", encoding="utf-8")
     archive = ArchivePaths(root=tmp_path / "arkisto", demos_root=blocker)
 
     result = run(archive, source, disk_free=lambda _a: 100 * 1024**3)
 
     assert result.status == "download_failed"
     assert "demos_root" in (result.reason or "") + result.stats["next_step"]
-    # Neuvo on omassa kentässään eikä otsikossa (D1).
+    # The advice is in a field of its own and not in the heading (D1).
     assert "settings.toml" in result.stats["next_step"]
-    # Tärkein väite: yhteyttä ei avattu, joten kiintiötä ei kulunut.
+    # The most important claim: no connection was opened, so no quota was spent.
     assert source.asked == []
 
 
 def test_an_unwritable_demos_root_is_reported_before_any_call(
     tmp_path, source, monkeypatch
 ) -> None:
-    """Kirjoitussuojattu hakemisto: kokeillaan, ei päätellä oikeuksista."""
+    """A write-protected directory: it is tried, not inferred from permissions."""
     local = tmp_path / "demot"
     archive = ArchivePaths(root=tmp_path / "arkisto", demos_root=local)
     real_write = Path.write_bytes
 
     def refuse(self, data):
-        if "kirjoituskoe" in self.name:
+        if "write-probe" in self.name:
             raise PermissionError(13, "Access is denied")
         return real_write(self, data)
 
@@ -1494,9 +1507,9 @@ def test_an_unwritable_demos_root_is_reported_before_any_call(
     result = run(archive, source, disk_free=lambda _a: 100 * 1024**3)
 
     assert result.status == "download_failed"
-    assert "ei voi kirjoittaa" in (result.reason or "")
-    assert "Downloads-kiintiötä" in (result.reason or "")
-    assert "kirjoitusoikeudet" in result.stats["next_step"]
+    assert "cannot be written to" in (result.reason or "")
+    assert "Downloads quota" in (result.reason or "")
+    assert "write permissions" in result.stats["next_step"]
     assert source.asked == []
 
 
@@ -1506,20 +1519,20 @@ def test_the_write_probe_leaves_nothing_behind(tmp_path, source) -> None:
 
     run(archive, source, disk_free=lambda _a: 100 * 1024**3)
 
-    assert [p.name for p in local.glob("*kirjoituskoe*")] == []
+    assert [p.name for p in local.glob("*write-probe*")] == []
 
 
-# -- Ei kahta kopiota samasta demosta (A10) ---------------------------------
+# -- No two copies of the same demo (A10) ------------------------------------
 
 
 def test_a_demo_missing_its_meta_is_refetched_in_place_not_duplicated(
     local_archive, source
 ) -> None:
-    """Vajaa demo arkistossa + paikallinen hakemisto käytössä.
+    """A partial demo in the archive + the local directory in use.
 
-    Oletuskohteeseen kirjoittaminen jättäisi arkiston 190 MB paikalleen ja
-    tekisi toisen kopion viereen -- eli kaksinkertaistaisi juuri sen, mitä
-    paikallisella hakemistolla vältetään.
+    Writing to the default target would leave the archive's 190 MB in place and
+    make a second copy beside it -- that is, double exactly what the local
+    directory avoids.
     """
     place(local_archive.archive_demos_dir(), UNIT, meta=False)
 
@@ -1530,7 +1543,7 @@ def test_a_demo_missing_its_meta_is_refetched_in_place_not_duplicated(
     in_archive_path = local_archive.archive_demos_dir() / f"{UNIT}.dem.zst"
     assert in_archive_path.read_bytes() == DEMO_BYTES
     assert (local_archive.archive_demos_dir() / f"{UNIT}.meta.json").is_file()
-    # Ei kopiota paikalliseen hakemistoon.
+    # No copy in the local directory.
     assert not (local_archive.demos_root / f"{UNIT}.dem.zst").exists()
     assert not (local_archive.demos_root / f"{UNIT}.meta.json").exists()
 
@@ -1538,36 +1551,36 @@ def test_a_demo_missing_its_meta_is_refetched_in_place_not_duplicated(
 def test_an_orphan_meta_elsewhere_is_removed_not_left_behind(
     local_archive, source
 ) -> None:
-    """Meta ilman demoa toisessa hakemistossa (A9).
+    """Metadata without a demo in another directory (A9).
 
-    Pelkkä uuden metan kirjoitus jättäisi vanhan paikalleen väittämään
-    tiivistettä tiedostosta jota siellä ei ole -- ja ``parse`` lukee tiivisteen
-    juuri ensimmäisestä löytyneestä metatiedostosta.
+    Merely writing the new metadata would leave the old one in place claiming a
+    digest for a file that is not there -- and ``parse`` reads the digest from
+    the first metadata file it finds.
     """
     orphan_dir = local_archive.archive_demos_dir()
     orphan_dir.mkdir(parents=True, exist_ok=True)
     orphan = orphan_dir / f"{UNIT}.meta.json"
-    orphan.write_text(json.dumps({"sha256": "orpo", "size": 1}), encoding="utf-8")
+    orphan.write_text(json.dumps({"sha256": "orphan", "size": 1}), encoding="utf-8")
 
     result = run(local_archive, source)
 
     assert result.status == "ok"
     assert not orphan.exists()
     assert (local_archive.demos_root / f"{UNIT}.meta.json").is_file()
-    assert read_meta(local_archive.find_demo_meta(UNIT))["sha256"] != "orpo"
-    assert "poistettiin" in (result.reason or "")
+    assert read_meta(local_archive.find_demo_meta(UNIT))["sha256"] != "orphan"
+    assert "was removed" in (result.reason or "")
 
 
-# -- Levytila todellisella koolla (A12) --------------------------------------
+# -- Disk space with the real size (A12) -------------------------------------
 
 
 def test_the_announced_length_is_checked_against_free_space_before_writing(
     archive,
 ) -> None:
-    """``Content-Length`` on tiedossa ennen kirjoitusta -- käytä sitä.
+    """``Content-Length`` is known before the write -- use it.
 
-    Arvio riittää portiksi vain siihen asti, kunnes lähde kertoo koon. Sen
-    jälkeen arvion käyttäminen olisi tahallista epätarkkuutta.
+    The estimate is enough of a gate only until the source states the size.
+    After that, using the estimate would be deliberate imprecision.
     """
     huge = 8 * 1024**3
     source = FakeDemoSource({UNIT: FakeDemo(DEMO_BYTES, announce=huge)})
@@ -1575,14 +1588,14 @@ def test_the_announced_length_is_checked_against_free_space_before_writing(
     result = run(
         archive,
         source,
-        # Arvio mahtuu, todellinen koko ei.
+        # The estimate fits, the real size does not.
         size_estimate=1024,
         reserve_bytes=1024,
         disk_free=lambda _a: 4 * 1024**3,
     )
 
     assert result.status == "download_failed"
-    assert "Levytila ei riitä" in (result.reason or "")
+    assert "Not enough disk space" in (result.reason or "")
     assert size_of(archive, UNIT) is None
     assert not has_temp_leftovers(archive.root)
 
@@ -1592,13 +1605,13 @@ def size_of(archive: ArchivePaths, unit: str) -> int | None:
     return None if found is None else found.stat().st_size
 
 
-# -- Atomisuus myös paikallisessa moodissa (B8) ------------------------------
+# -- Atomicity in local mode too (B8) ----------------------------------------
 
 
 def test_writes_are_atomic_in_the_local_demos_root_too(
     local_archive, source
 ) -> None:
-    """``settings.toml`` ottaa juuri tämän moodin käyttöön."""
+    """``settings.toml`` is what turns this very mode on."""
     run(local_archive, source)
     assert not has_temp_leftovers(local_archive.demos_root)
     assert not has_temp_leftovers(local_archive.root)
@@ -1616,11 +1629,11 @@ def test_a_broken_stream_leaves_no_temp_file_in_the_local_demos_root(
     assert local_archive.find_demo(UNIT) is None
 
 
-# -- Suunnitelman rivivartija (B5) -------------------------------------------
+# -- The plan's row guard (B5) -----------------------------------------------
 
 
 def test_the_plan_skips_rows_that_are_not_usable(archive) -> None:
-    """Rikkinäinen rivi ei saa päätyä tunnisteeksi, joka indeksoi polkua."""
+    """A broken row must not become an id that indexes a path."""
     write_selection(
         archive,
         [
@@ -1628,7 +1641,7 @@ def test_the_plan_skips_rows_that_are_not_usable(archive) -> None:
             {"map_demo_id": "", "roster_ok": True},
             {"map_demo_id": None, "roster_ok": True},
             {"roster_ok": True},
-            "en ole rivi",
+            "i am not a row",
         ],
     )
 
@@ -1656,16 +1669,16 @@ def test_a_selection_file_without_a_selections_list_says_what_to_run(
         fetch_stage.plan(archive, "joukkue")
 
 
-# -- Story 3.7: sisarkorjaukset ----------------------------------------------
+# -- Story 3.7: the sibling fixes --------------------------------------------
 
 
 def test_the_plan_counts_a_duplicate_identifier_once(archive) -> None:
-    """I/O-matriisi: sama ``map_demo_id`` kahdesti -> tunniste kerran.
+    """I/O matrix: the same ``map_demo_id`` twice -> the id once.
 
-    Sama vartija kuin :func:`plan_division`illa (Story 3.5). Ilman sitä
-    kaksoiskappale kaksinkertaistaisi sekä luettelon että kokoarvion -- eli
-    vahvistuskysymys kysyisi väärää asiaa, ja arvio ohjaisi levytilaportin
-    kieltämään latauksen, joka olisi mahtunut.
+    The same guard as in :func:`plan_division` (Story 3.5). Without it a
+    duplicate would double both the listing and the size estimate -- that is,
+    the confirmation question would ask the wrong thing, and the estimate would
+    lead the disk gate to refuse a download that would have fitted.
     """
     write_selection(
         archive,
@@ -1686,7 +1699,7 @@ def test_the_plan_counts_a_duplicate_identifier_once(archive) -> None:
 def test_a_duplicate_identifier_already_on_disk_is_listed_once(
     local_archive,
 ) -> None:
-    """Vartija koskee myös levyllä olevaa puolta: "2 / 3" olisi väärä luku."""
+    """The guard applies to the on-disk side too: "2 / 3" would be the wrong number."""
     write_selection(
         local_archive,
         [
@@ -1705,15 +1718,15 @@ def test_a_duplicate_identifier_already_on_disk_is_listed_once(
 
 
 def test_plan_does_not_shadow_the_module_level_map_demo_id() -> None:
-    """``plan`` ei saa sitoa nimeä ``map_demo_id`` paikallisesti.
+    """``plan`` must not bind the name ``map_demo_id`` locally.
 
-    Moduulitasolla on samanniminen funktio
-    (``domain.selection.map_demo_id``), jota :func:`plan_division` kutsuu.
-    Paikallinen muuttuja varjosti sen tässä funktiossa: rivi, joka olisi
-    tarvinnut funktiota, olisi kaatunut ``str is not callable`` -virheeseen
-    keskellä ajoa eikä kääntäessä. Väite luetaan syntaksipuusta, koska
-    varjostus ei näy tulosteessa eikä käytöksessä ennen kuin on liian
-    myöhäistä.
+    At module level there is a function of the same name
+    (``domain.selection.map_demo_id``) that :func:`plan_division` calls. A local
+    variable shadowed it inside this function: a line that needed the function
+    would have crashed with ``str is not callable`` in the middle of a run and
+    not at compile time. The claim is read from the syntax tree, because the
+    shadowing shows neither in the output nor in the behaviour until it is too
+    late.
     """
     import ast
     import inspect
@@ -1731,24 +1744,25 @@ def test_plan_does_not_shadow_the_module_level_map_demo_id() -> None:
 def test_an_orphan_meta_that_cannot_be_removed_is_never_claimed_removed(
     local_archive, source, monkeypatch
 ) -> None:
-    """I/O-matriisi: orpo metatiedosto, jota ei voi poistaa -> ei valhetta.
+    """I/O matrix: an orphaned metadata file that cannot be removed -> no lie.
 
-    Poisto oli ``except OSError: pass`` ja huomio kertoi poistosta ennen kuin
-    sitä oli edes yritetty. OneDriven tiedostolukko on Windowsilla tavallinen,
-    ja jäljelle jäänyt meta väittää tiivisteen tiedostosta, jota siellä ei ole
-    -- ``parse`` lukee tiivisteen **ensimmäisestä löytyneestä** metatiedostosta,
-    joten valhe ei jää tulosteeseen vaan päätyy tulokseen.
+    The removal used to be ``except OSError: pass`` and the note reported a
+    removal before it had even been attempted. A file lock held by the sync
+    client is ordinary on Windows, and the metadata left behind claims a digest
+    for a file that is not there -- ``parse`` reads the digest from the **first
+    metadata file it finds**, so the lie does not stay in the output but ends up
+    in the result.
     """
     orphan_dir = local_archive.archive_demos_dir()
     orphan_dir.mkdir(parents=True, exist_ok=True)
     orphan = orphan_dir / f"{UNIT}.meta.json"
-    orphan.write_text(json.dumps({"sha256": "orpo", "size": 1}), encoding="utf-8")
+    orphan.write_text(json.dumps({"sha256": "orphan", "size": 1}), encoding="utf-8")
 
     oikea_unlink = Path.unlink
 
     def kieltaydy(self: Path, *args: Any, **kwargs: Any):
         if str(self) == str(orphan):
-            raise PermissionError(13, "OneDrive pitaa tiedostoa lukittuna")
+            raise PermissionError(13, "the sync client is holding the file locked")
         return oikea_unlink(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "unlink", kieltaydy)
@@ -1757,28 +1771,29 @@ def test_an_orphan_meta_that_cannot_be_removed_is_never_claimed_removed(
 
     reason = result.reason or ""
     assert result.status == "ok"
-    assert "poistettiin" not in reason
-    assert "VAROITUS" in reason
+    assert "was removed" not in reason
+    assert "WARNING" in reason
     assert str(orphan) in reason
-    # Demo on silti arkistossa: epaonnistunut poisto ei ole latauksen vika.
+    # The demo is in the archive all the same: a failed removal is not the
+    # download's fault.
     assert local_archive.find_demo(UNIT) is not None
     assert orphan.exists()
 
 
-# -- Tuotannon portti (B1) ----------------------------------------------------
+# -- The production port (B1) -------------------------------------------------
 
 
 def test_default_source_really_builds_a_port(
     settings_file, env_file, tmp_path, monkeypatch
 ) -> None:
-    """``default_source`` ajetaan oikeasti -- **verkkoon menemättä**.
+    """``default_source`` is really run -- **without going to the network**.
 
-    Se on vaiheen ainoa rivi, joka liittää sen FACEITiin, ja jokainen muu testi
-    korvaa sen feikillä. Ilman tätä testiä väärä välimuistihakemisto tai väärä
-    Downloads-osoite menisi läpi koko sarjasta, ja ensimmäinen oikea ajo hakisi
-    olemattomasta osoitteesta.
+    It is the stage's only line that connects it to FACEIT, and every other
+    test replaces it with a fake. Without this test a wrong cache directory or
+    a wrong Downloads address would pass the whole suite, and the first real run
+    would fetch from an address that does not exist.
 
-    Portti **rakennetaan, ei käytetä**: yhtään pyyntöä ei lähde.
+    The port is **built, not used**: no request goes out.
     """
     from pappascout.adapters.faceit import FACEIT_DOWNLOADS_API_BASE
     from pappascout.adapters.protocols import DemoSource as DemoSourcePort
@@ -1797,24 +1812,25 @@ def test_default_source_really_builds_a_port(
     assert isinstance(port, DemoSourcePort)
     assert port.downloads_base_url == FACEIT_DOWNLOADS_API_BASE
     assert port._client.cache_dir == archive.raw_faceit()
-    # Kumpikaan salaisuus ei näy esityksessä; tämä on se kohta, jossa portti
-    # syntyy, ja siksi myös se kohta, jossa väite on mitattavissa.
+    # Neither secret shows in the representation; this is the place where the
+    # port comes into being, and therefore also the place where the claim is
+    # measurable.
     assert "XYZZY" not in repr(port)
     assert "QUUX" not in repr(port)
     port._client.close()
 
 
-# -- Toistuvuus lopettaa sarjan, ei syyn arvaus (D3, 2026-09-05) ------------
+# -- Repetition ends the series, not a guess at the cause (D3, 2026-09-05) --
 #
-# Ensimmäiseen 400:aan pysähtyminen olisi houkuttelevaa mutta perustelematonta:
-# 400 tarkoittaa joko epämuodostunutta tunnistetta (kaikki kaatuvat) tai
-# epämuodostunutta resource_urlia (vain yksi kaatuu). C2:n perustelu
-# ("ei yksikään voi onnistua") ei siis päde. Toistuvuus sen sijaan on
-# mitattavissa ilman että syytä tarvitsee tietää.
+# Stopping at the first 400 would be tempting but unjustified: a 400 means
+# either a malformed id (all of them fall over) or a malformed resource_url
+# (only one falls over). C2's justification ("none of them can succeed") does
+# not apply. Repetition, on the other hand, is measurable without the cause
+# having to be known.
 
 
 def failing(unit: str, status: int = 400) -> ApiError:
-    return ApiError(f"Yksikkö {unit} kaatui.", status_code=status, advice="X")
+    return ApiError(f"Unit {unit} fell over.", status_code=status, advice="X")
 
 
 def test_three_identical_failures_stop_the_run(archive) -> None:
@@ -1826,15 +1842,15 @@ def test_three_identical_failures_stop_the_run(archive) -> None:
         archive, units, source=source, disk_free=lambda _a: 100 * 1024**3
     )
 
-    # Vain kolme yritettiin; loput saivat rivin muttei kutsua.
+    # Only three were attempted; the rest got a row but no call.
     assert source.asked == units[:limit]
-    assert len(results) == len(units), "jokaiselle yksikölle on rivi"
+    assert len(results) == len(units), "there is a row for every unit"
     assert all(r.status == "download_failed" for r in results)
     assert all(r.stats.get("not_attempted") for r in results[limit:])
 
 
 def test_the_units_that_were_not_attempted_say_so_and_say_why(archive) -> None:
-    """Hiljainen lyhennys jättäisi käyttäjän arvaamaan mihin loput katosivat."""
+    """Silent shortening would leave the user guessing where the rest went."""
     limit = fetch_stage.IDENTICAL_FAILURE_LIMIT
     units = [f"{MATCH}-{i}" for i in range(limit + 2)]
     source = FakeDemoSource({u: failing(u) for u in units})
@@ -1846,17 +1862,17 @@ def test_the_units_that_were_not_attempted_say_so_and_say_why(archive) -> None:
     skipped = results[limit:]
     assert skipped
     for result in skipped:
-        assert "Ei yritetty" in (result.reason or "")
+        assert "Not attempted" in (result.reason or "")
         assert "http-400" in (result.reason or "")
-        assert "yhä hakematta" in result.stats["next_step"]
+        assert "still unfetched" in result.stats["next_step"]
 
 
 def test_different_failures_do_not_stop_the_run(archive) -> None:
-    """Toistuvuus on **sama** vika peräkkäin, ei mikä tahansa kolme vikaa.
+    """Repetition is the **same** fault in a row, not any three faults.
 
-    Eri koodit tarkoittavat eri syitä, eikä niistä voi päätellä yhteistä
-    vikaa -- ja sarjan lopettaminen silloin olisi juuri se arvaus, jota tämä
-    sääntö välttää.
+    Different codes mean different causes, and no common fault can be inferred
+    from them -- and ending the series then would be exactly the guess this
+    rule avoids.
     """
     units = [f"{MATCH}-{i}" for i in range(5)]
     codes = [400, 500, 400, 500, 400]
@@ -1873,7 +1889,7 @@ def test_different_failures_do_not_stop_the_run(archive) -> None:
 
 
 def test_a_success_between_failures_resets_the_run(archive) -> None:
-    """Onnistuminen todistaa, ettei vika ole yhteinen."""
+    """A success proves the fault is not a common one."""
     units = [f"{MATCH}-{i}" for i in range(6)]
     source = FakeDemoSource(
         {
@@ -1895,15 +1911,15 @@ def test_a_success_between_failures_resets_the_run(archive) -> None:
 
 
 def test_repeated_missing_demos_do_not_stop_the_run(archive) -> None:
-    """Kolme peräkkäistä poistettua demoa on normaali havainto, ei vika.
+    """Three deleted demos in a row is a normal observation, not a fault.
 
-    Vanhassa otannassa ``no_demo`` on odotettu lopputulos -- ja jos se
-    lopettaisi sarjan, uudemmat demot jäisivät hakematta juuri silloin kun
-    niitä eniten tarvitaan.
+    In an old sample ``no_demo`` is the expected outcome -- and if it ended the
+    series, the newer demos would be left unfetched exactly when they are needed
+    most.
     """
     units = [f"{MATCH}-{i}" for i in range(5)]
     source = FakeDemoSource(
-        {u: DemoUnavailable(f"Demoa {u} ei ole.") for u in units}
+        {u: DemoUnavailable(f"There is no demo {u}.") for u in units}
     )
 
     results = fetch_stage.run_many(
@@ -1915,7 +1931,7 @@ def test_repeated_missing_demos_do_not_stop_the_run(archive) -> None:
 
 
 def test_a_run_shorter_than_the_limit_is_never_cut_short(archive) -> None:
-    """Kahden yksikön ajossa ei ole mitään lopetettavaa."""
+    """In a run of two units there is nothing to end."""
     units = [UNIT, OTHER]
     source = FakeDemoSource({u: failing(u) for u in units})
 
@@ -1928,67 +1944,67 @@ def test_a_run_shorter_than_the_limit_is_never_cut_short(archive) -> None:
 
 
 def test_the_limit_is_above_two_so_a_coincidence_does_not_stop_the_run() -> None:
-    """Kaksi peräkkäistä samaa koodia on uskottavaa sattumaa.
+    """Two identical codes in a row is plausible coincidence.
 
-    Esimerkiksi kaksi poistettua demoa samasta ottelusta. Kolmen kutsun hinta
-    on pieni verrattuna siihen, että sarja lopetettaisiin väärin perustein.
+    Two deleted demos from the same match, for instance. The price of three
+    calls is small next to ending the series on a wrong justification.
     """
     assert fetch_stage.IDENTICAL_FAILURE_LIMIT >= 3
 
 
-# -- Jokainen epäonnistuminen kantaa neuvon (D1, vaihetaso) -----------------
+# -- Every failure carries its advice (D1, at stage level) ------------------
 
 
 def test_every_failure_from_the_stage_carries_a_next_step(archive) -> None:
-    """Vartija: epäonnistumista ei voi rakentaa ilman seuraavaa toimenpidettä.
+    """The guard: a failure cannot be built without a next step.
 
-    Ilman tätä uusi vikapolku voisi tuottaa rivin ilman neuvoa, ja tuloste
-    joutuisi keksimään sellaisen -- eli palaisi täsmälleen siihen oletukseen,
-    jonka koko korjaus poistaa.
+    Without it a new failure path could produce a row with no advice, and the
+    output would have to invent one -- that is, it would return to exactly the
+    default the whole fix removes.
     """
     cases = {
-        "levy": FakeDemo(DEMO_BYTES),
-        "poissa": DemoUnavailable("Ei ole."),
-        "verkko": ApiError("Ei vastannut.", status_code=503),
-        "roska": FakeDemo(HTML_ERROR_PAGE),
-        "vajaa": FakeDemo(DEMO_BYTES, announce=len(DEMO_BYTES) + 4096),
+        "disk": FakeDemo(DEMO_BYTES),
+        "absent": DemoUnavailable("It does not exist."),
+        "network": ApiError("It did not answer.", status_code=503),
+        "rubbish": FakeDemo(HTML_ERROR_PAGE),
+        "short": FakeDemo(DEMO_BYTES, announce=len(DEMO_BYTES) + 4096),
     }
     for name, entry in cases.items():
         unit = f"{MATCH}-0"
         source = FakeDemoSource({unit: entry})
-        free = 1024 if name == "levy" else 100 * 1024**3
+        free = 1024 if name == "disk" else 100 * 1024**3
         result = run(archive, source, unit, disk_free=lambda _a, f=free: f)
         if result.status == "ok":
             continue
         step = str(result.stats.get("next_step", "")).strip()
-        assert step, f"tapaus {name!r} tuotti epäonnistumisen ilman neuvoa"
+        assert step, f"case {name!r} produced a failure without advice"
 
 
 def test_a_failure_built_without_a_next_step_is_refused() -> None:
-    """Vartija on vartija vasta kun se laukeaa."""
+    """A guard is a guard only once it fires."""
     with pytest.raises(AssertionError, match="next_step"):
         fetch_stage._result(
             UNIT,
             status="download_failed",
             skipped=False,
             outputs=(),
-            reason="jotain meni pieleen",
+            reason="something went wrong",
             started=0.0,
             stats={"downloaded_bytes": 0},
         )
 
 
 def test_an_unknown_cause_does_not_default_to_run_it_again() -> None:
-    """Oletusneuvo oli molempien live-vikojen juurisyy.
+    """The default advice was the root cause of both live faults.
 
-    Tuntemattoman vian oikea neuvo on sanoa, ettei sitä tiedetä -- ei arvata
-    että uudelleenajo auttaa.
+    The right advice for an unknown fault is to say that it is not known -- not
+    to guess that running again helps.
     """
-    assert "aja komento uudelleen" not in fetch_stage.DEFAULT_NEXT_STEP.lower()
+    assert "run the command again" not in fetch_stage.DEFAULT_NEXT_STEP.lower()
     assert fetch_stage.next_step(ValueError("x")) == fetch_stage.DEFAULT_NEXT_STEP
 
 
 def test_the_next_step_is_read_from_the_error_not_guessed() -> None:
-    """Neuvo tulee siitä paikasta, jossa syy tiedetään."""
-    exc = ApiError("x", status_code=418, advice="Keitä teetä.")
-    assert fetch_stage.next_step(exc) == "Keitä teetä."
+    """The advice comes from the place where the cause is known."""
+    exc = ApiError("x", status_code=418, advice="Make some tea.")
+    assert fetch_stage.next_step(exc) == "Make some tea."

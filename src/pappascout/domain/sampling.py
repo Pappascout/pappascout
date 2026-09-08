@@ -1,71 +1,74 @@
-"""Näytepisteet, ensikontakti ja poikkeamasäännöt (AD-5, AD-10).
+"""Sample points, first contact and the anomaly rules (AD-5, AD-10).
 
-Asetelma poimitaan **useassa hetkessä**, ei yhtenä pysäytyskuvana: 6 s (CT:n
-suunta näkyy), 15 s (T:n rush erottuu defaultista), 30 s (asetelma), 45 s
-(kehitys) sekä **ensikontakti**. Ajat ovat asetus (``[parse].snapshot_seconds``),
-eivät koodia.
+The setup is picked at **several moments**, not as one freeze frame: 6 s (the
+CT side's direction shows), 15 s (a T rush is told apart from a default), 30 s
+(the setup), 45 s (the development) and **first contact**. The times are a
+setting (``[parse].snapshot_seconds``), not code.
 
-Näytepiste on aikaperusteinen mutta rajattu kierrokseen
--------------------------------------------------------
-Sekunnit muunnetaan tickeiksi ``freeze_end_tick + t x tick_rate``, ja piste
-**hylätään, jos se osuisi kierroksen päättymisen jälkeen**. Tämä on ainoa
-kohta, jossa kierroksen kesto vaikuttaa näytteistykseen -- ja se on syy, miksi
-pisteitä voi olla eri määrä eri kierroksilla. Jos kierros ratkeaa 30
-sekunnissa, 45 sekunnin pistettä ei ole olemassa eikä sitä saa keksiä;
-aggregointi ottaa sen huomioon otannassa (Story 2.3).
+A sample point is time-based but bounded by the round
+------------------------------------------------------
+The seconds are converted into ticks as ``freeze_end_tick + t x tick_rate``,
+and a point **is dropped if it would fall after the round ended**. This is the
+only place where a round's duration affects the sampling -- and it is why
+there can be a different number of points on different rounds. If a round is
+settled in 30 seconds, the 45-second point does not exist and must not be
+invented; aggregation takes that into account in the sample (Story 2.3).
 
-``t_s`` lasketaan aina **valitusta tickistä** eikä nimellisestä sekunnista:
-``t_s = (tick - freeze_end_tick) / tick_rate``. Ne eroavat toisistaan
-pyöristyksen verran, ja rivillä on molemmat -- ``sample_t_s`` kertoo, mihin
-näytepisteeseen rivi kuuluu, ``t_s`` sen todellisen hetken.
+``t_s`` is always computed from the **chosen tick** and not from the nominal
+second: ``t_s = (tick - freeze_end_tick) / tick_rate``. They differ by the
+rounding, and the row carries both -- ``sample_t_s`` says which sample point
+the row belongs to, ``t_s`` its real moment.
 
-Ensikontakti on oma näytepisteensä
-----------------------------------
-Se ei ole aikapiste vaan tapahtuma: ensimmäinen ``player_hurt``, jossa tekijä
-on **vastapuolella** eikä ase ole utilityä. Utilityvahinko ei ole kontakti --
-molotov palaa nurkan takana eikä paljasta asetelmaa samalla tavalla kuin
-ensimmäinen luoti. Jos kelvollista ``player_hurt``-tapahtumaa ei löydy,
-varalähde on ensimmäinen ``player_death`` samoilla ehdoilla.
+First contact is a sample point of its own
+------------------------------------------
+It is not a point in time but an event: the first ``player_hurt`` in which the
+attacker is **on the other side** and the weapon is not utility. Utility damage
+is not contact -- a molotov burns around the corner and does not reveal the
+setup the way the first bullet does. If no acceptable ``player_hurt`` event is
+found, the fallback source is the first ``player_death`` under the same
+conditions.
 
-Kolme poikkeamasääntöä, kolme eri kysymystä
--------------------------------------------
-Story 2.5 lisäsi kaksi sääntöä: :func:`ct_advance_hits` ja :func:`crunch_hits`.
-Molemmat vastaavat samaan kysymykseen -- **onko subjektin CT-pelaaja
-alueella, joka on siinä demossa T:n hallussa** -- ja jakavat siksi saman
-orientaatiolaskennan (:func:`t_side_shares`): kahdella laskennalla ne voisivat
-olla eri mieltä siitä, kumman aluetta alue on.
+Three anomaly rules, three different questions
+----------------------------------------------
+Story 2.5 added two rules: :func:`ct_advance_hits` and :func:`crunch_hits`.
+Both answer the same question -- **is the subject's CT player in an area that
+the T side holds in that demo** -- and they therefore share the same
+orientation computation (:func:`t_side_shares`): with two computations they
+could disagree about whose area an area is.
 
-**Kumpikaan näistä kahdesta ei sisällä toista.** Crunch lisää
-orientaatioehtoon suuntavaatimuksen mutta **pudottaa kierrostyyppirajauksen**,
-joten osumajoukot leikkaavat toisiaan: säästökierroksella crunch tuottaa myös
-etenemisosuman, täydellä ostolla vain crunchin (mitattu: MatureMayhem Anubis
-k10). Kumpaakaan ei siis saa kuvata toisen "tiukempana muotona".
+**Neither of these two contains the other.** Crunch adds a direction
+requirement to the orientation condition but **drops the round-type
+restriction**, so the hit sets intersect each other: on a saving round a crunch
+also produces an advance hit, on a full buy only the crunch (measured:
+MatureMayhem Anubis round 10). So neither may be described as a "stricter form"
+of the other.
 
-Orientaatio **tulee argumenttina** eikä lasketa täällä. Se on demon oma
-havainto alueen elossa-havainnoista aikanäytepisteillä, ja se on laskettava
-**suodattamattomasta** näytepistetaulusta eli molempien joukkueiden riveistä.
-Tämä on mitattu ehto eikä mieltymys: subjektin omilla riveillä laskettuna
-jokainen tosi positiivinen katoaa, koska poikkeama syö oman havaitsemisensa
-(:class:`AreaObservations`).
+The orientation **comes as an argument** and is not computed here. It is the
+demo's own observation from an area's alive observations at the time sample
+points, and it has to be computed from the **unfiltered** sample point table,
+that is, from both teams' rows. This is a measured condition and not a
+preference: computed on the subject's own rows every true positive disappears,
+because the anomaly eats its own detection (:class:`AreaObservations`).
 
-Story 2.14 lisää kolmannen, :func:`stack_hits`. Se **ei lue orientaatiota
-lainkaan**: se kysyy, onko subjektin oma puolustus kasautunut yhden siten
-ryhmään. Sen johdettu syöte on :func:`site_groups` -- kuvaus
-``alue -> "A" | "B"`` demon omasta pistepilvestä -- ja se on tässä samassa
-moduulissa säännön kanssa, jotta sääntö ja sen syöte eivät voi olla eri
-mieltä. Sama peruste kuin orientaatiolla: **ei karttatietokantaa, ei ihmisen
-antamaa aluejakoa, ei arkiston yli kertyvää taulua**. Karttuva lähde antaisi
-samalle demolle eri tuloksen sen mukaan, mitä muita demoja arkistossa on.
+Story 2.14 adds a third one, :func:`stack_hits`. It **does not read the
+orientation at all**: it asks whether the subject's own defence has piled into
+one site's group. Its derived input is :func:`site_groups` -- a mapping
+``area -> "A" | "B"`` from the demo's own point cloud -- and it is in this same
+module as the rule, so that the rule and its input cannot disagree. The same
+justification as with the orientation: **no map database, no human-supplied
+area division, no table accumulating across the archive**. An accumulating
+source would give the same demo a different result depending on what other
+demos are in the archive.
 
-Kolme sääntöä ovat kolme eri kysymystä samasta havainnosta, eikä yksikään ole
-toisen tiukempi tai löysempi muoto.
+The three rules are three different questions about the same observation, and
+not one of them is a stricter or a looser form of another.
 
-Tyhjä tulos on **kelvollinen tulos** eikä puute: demo, jossa ei ole
-poikkeamia, on havainto siitä ettei poikkeamia ollut.
+An empty result is a **valid result** and not a shortfall: a demo with no
+anomalies in it is an observation that there were no anomalies.
 
-Moduuli on puhdas: ei tiedostoja, ei demoparser2:ta, ei asetuksia. Sen voi
-siksi testata käsin rakennetuilla tietueilla, ja jokainen I/O-matriisin rivi on
-täällä yhden funktiokutsun päässä.
+The module is pure: no files, no demoparser2, no settings. That is why it can
+be tested with hand-built records, and every row of the I/O matrix is one
+function call away here.
 """
 
 from __future__ import annotations
@@ -111,29 +114,30 @@ __all__ = [
     "RULE_SIDE",
 ]
 
-#: Aikaperusteinen näytepiste.
+#: A time-based sample point.
 TIME_SAMPLE = "time"
-#: Ensimmäisen ristiinpuolisen osuman hetki.
+#: The moment of the first cross-side hit.
 FIRST_CONTACT_SAMPLE = "first_contact"
 
-# Molempien on oltava SAMPLE_KINDS-luettelossa. Vastaavuutta ei tarkisteta
-# tässä moduulitason assertilla -- se katoaisi python -O:lla juuri silloin, kun
-# sitä tarvittaisiin. Tarkistus on testissä test_sampling.py.
+# Both have to be in the SAMPLE_KINDS list. The correspondence is not checked
+# with a module-level assert here -- that would vanish under python -O exactly
+# when it was needed. The check is in the test test_sampling.py.
 
 
 @dataclass(frozen=True)
 class RoundBounds:
-    """Yhden kierroksen rajat tickeinä.
+    """One round's bounds in ticks.
 
     Attributes:
-        round_raw: Demon oma kierrosnumero. Kulkee näytepisteen mukana, jotta
-            vaihe voi liittää siihen ``round_no``:n -- numeroinnin omistaa
-            edelleen vain :mod:`pappascout.domain.rounds`.
-        freeze_end_tick: Kierroksen **viimeinen** ``round_freeze_end``. Sama
-            ankkuri kuin ``rounds``-taulussa. ``None`` = ankkuria ei ole,
-            jolloin ``t_s`` ei ole määritelty eikä kierrosta näytteistetä.
-        end_tick: Kierroksen ratkeamishetki. ``None`` = kierros ei ratkennut,
-            jolloin sen kestoa ei tunneta eikä pisteitä voi rajata kierrokseen.
+        round_raw: The demo's own round number. It travels with the sample
+            point so that the stage can attach a ``round_no`` to it -- the
+            numbering is still owned by :mod:`pappascout.domain.rounds` alone.
+        freeze_end_tick: The round's **last** ``round_freeze_end``. The same
+            anchor as in the ``rounds`` table. ``None`` = there is no anchor,
+            and then ``t_s`` is undefined and the round is not sampled.
+        end_tick: The moment the round was settled. ``None`` = the round was
+            not settled, and then its duration is unknown and points cannot be
+            bounded by the round.
     """
 
     round_raw: int
@@ -142,7 +146,7 @@ class RoundBounds:
 
     @property
     def is_samplable(self) -> bool:
-        """Onko kierroksella sekä ankkuri että loppu, ja tässä järjestyksessä."""
+        """Has the round both an anchor and an end, and in that order."""
         return (
             self.freeze_end_tick is not None
             and self.end_tick is not None
@@ -152,16 +156,16 @@ class RoundBounds:
 
 @dataclass(frozen=True)
 class SamplePoint:
-    """Yksi hetki yhdellä kierroksella; siitä syntyy rivi jokaiselle pelaajalle.
+    """One moment on one round; it produces a row for every player.
 
     Attributes:
-        round_raw: Kierros, jolle piste kuuluu.
-        tick: Demon tick, josta pelaajien sijainnit luetaan.
-        sample_kind: ``"time"`` tai ``"first_contact"``.
-        sample_t_s: Näytepisteen nimellisaika sekunteina. Aikapisteellä
-            asetuksen luku, ensikontaktilla sama kuin ``t_s`` -- kummassakin
-            tapauksessa se kertoo, mihin hetkeen rivi viittaa.
-        t_s: Todellinen aika ankkurista:
+        round_raw: The round the point belongs to.
+        tick: The demo tick the players' positions are read from.
+        sample_kind: ``"time"`` or ``"first_contact"``.
+        sample_t_s: The sample point's nominal time in seconds. On a time
+            point the setting's number, on first contact the same as ``t_s``
+            -- in either case it says which moment the row refers to.
+        t_s: The real time from the anchor:
             ``(tick - freeze_end_tick) / tick_rate``.
     """
 
@@ -174,19 +178,19 @@ class SamplePoint:
 
 @dataclass(frozen=True)
 class DamageEvent:
-    """``player_hurt`` tai ``player_death`` ensikontaktin päättelyä varten.
+    """A ``player_hurt`` or ``player_death`` for inferring first contact.
 
-    Puolet on selvitetty jo ennen tätä funktiota: domain ei tunne pelin
-    propinimiä eikä steamid-puoli-kuvausta.
+    The sides have been resolved before this function: the domain knows
+    neither the game's prop names nor the steamid-to-side mapping.
 
     Attributes:
-        tick: Tapahtuman hetki.
-        attacker_id: Tekijä. ``None`` = maailma (putoaminen, istuttajaton
-            pommi) -- ei kontakti.
-        victim_id: Uhri.
-        weapon: Aseen nimi sellaisena kuin demo sen antaa.
-        attacker_side: Tekijän puoli tällä kierroksella.
-        victim_side: Uhrin puoli tällä kierroksella.
+        tick: The moment of the event.
+        attacker_id: The attacker. ``None`` = the world (a fall, a bomb with
+            no planter) -- not contact.
+        victim_id: The victim.
+        weapon: The weapon's name as the demo gives it.
+        attacker_side: The attacker's side on this round.
+        victim_side: The victim's side on this round.
     """
 
     tick: int
@@ -198,11 +202,11 @@ class DamageEvent:
 
 
 def normalize_weapon(weapon: str | None) -> str | None:
-    """Siisti aseen nimi vertailua varten.
+    """A tidied weapon name for comparison.
 
-    Demon nimet ovat pieniä kirjaimia (``hegrenade``, ``molotov``), mutta
-    joissakin lähteissä on etuliite ``weapon_``. Vertailu tehdään
-    normalisoidusta nimestä, jotta asetustiedoston lista pysyy luettavana.
+    The demo's names are lower case (``hegrenade``, ``molotov``), but some
+    sources carry the prefix ``weapon_``. The comparison is made on the
+    normalised name, so that the settings file's list stays readable.
     """
     if weapon is None:
         return None
@@ -213,20 +217,21 @@ def normalize_weapon(weapon: str | None) -> str | None:
 
 
 def normalize_area(value: object) -> str | None:
-    """Alue havaintona: tyhjä tai pelkkää tyhjämerkkiä oleva nimi on ``None``.
+    """An area as an observation: an empty or whitespace-only name is ``None``.
 
-    **Yksi normalisointi kahdelle puoliskolle.** Poikkeamasääntö vertaa
-    alueen nimeä kahdesta eri lähteestä: läsnäolorivin ``area`` ja
-    orientaatiokartan avain. Jos vain toinen siivotaan, ``" Lobby "`` on
-    orientaatiossa eri alue kuin läsnäolossa -- ja sääntö vaikenee sillä
-    alueella ilman että mikään kertoo miksi. ``""`` puolestaan selviäisi
-    T-alueiden joukkoon ja tuottaisi poikkeaman nimettömälle alueelle.
+    **One normalisation for two halves.** An anomaly rule compares an area's
+    name from two different sources: the presence row's ``area`` and the
+    orientation map's key. If only one of them is cleaned, ``" Lobby "`` is a
+    different area in the orientation than in the presence -- and the rule
+    goes quiet on that area without anything saying why. ``""``, for its part,
+    would make it into the set of T-side areas and would produce an anomaly
+    for a nameless area.
 
-    ``parse`` kirjoittaa jo nyt tyhjän ``last_place_name``in ``null``:na, mutta
-    sopimus sallii merkkijonon eikä vanhalla versiolla kirjoitettu taulu ole
-    käynyt sitä sääntöä läpi. Funktio on täällä eikä aggregoinnissa, koska
-    sekä domain että ``aggregate``-vaihe tarvitsevat sen -- ja kahdesta
-    kopiosta juuri tämä pari erkanisi.
+    ``parse`` already writes an empty ``last_place_name`` as ``null``, but the
+    contract allows a string and a table written by an older version has not
+    been through that rule. The function is here and not in the aggregation,
+    because both the domain and the ``aggregate`` stage need it -- and of two
+    copies it is exactly this pair that would diverge.
     """
     if value is None:
         return None
@@ -237,10 +242,11 @@ def normalize_area(value: object) -> str | None:
 def seconds_since_freeze_end(
     tick: int, freeze_end_tick: int, tick_rate: float
 ) -> float:
-    """``t_s``: sekunnit kierroksen ankkurista tähän tickiin.
+    """``t_s``: the seconds from the round's anchor to this tick.
 
-    Sama kaava kuin ``rounds``-taulussa, jotta kaikki putken ajat ovat samasta
-    origosta: kierroksen **viimeisestä** ``round_freeze_end``-tickistä.
+    The same formula as in the ``rounds`` table, so that every time in the
+    pipeline has the same origin: the round's **last** ``round_freeze_end``
+    tick.
     """
     _check_tick_rate(tick_rate)
     return (tick - freeze_end_tick) / tick_rate
@@ -251,26 +257,28 @@ def sample_ticks(
     tick_rate: float,
     sample_seconds: Sequence[float],
 ) -> list[SamplePoint]:
-    """Muunna näytepistesekunnit tickeiksi kierrosten rajojen sisällä.
+    """Convert the sample point seconds into ticks inside the round bounds.
 
     Args:
-        segments: Kierrosten rajat. Kierros, jolta puuttuu freezetime-ankkuri
-            tai päättymistick, ohitetaan kokonaan: ilman ankkuria ``t_s`` ei
-            ole määritelty, ja ilman loppua pistettä ei voi rajata kierrokseen.
-        tick_rate: Demon tickrate.
-        sample_seconds: Näytepisteet sekunteina ankkurista. Järjestyksellä ei
-            ole väliä; tulos on aina ajan mukaan nousevassa järjestyksessä.
+        segments: The round bounds. A round that has no freezetime anchor or
+            no end tick is skipped entirely: without an anchor ``t_s`` is
+            undefined, and without an end a point cannot be bounded by the
+            round.
+        tick_rate: The demo's tick rate.
+        sample_seconds: The sample points in seconds from the anchor. The
+            order does not matter; the result is always in ascending order of
+            time.
 
     Returns:
-        Näytepisteet järjestyksessä ``(round_raw, sample_t_s)``. **Kierroksen
-        päättymisen jälkeisiä pisteitä ei ole**: jos kierros ratkeaa 28
-        sekunnissa, 30 ja 45 sekunnin pisteitä ei synny, ja erittäin lyhyt
-        kierros ei tuota yhtään aikapistettä.
+        The sample points in the order ``(round_raw, sample_t_s)``. **There
+        are no points after the round ended**: if a round is settled in 28
+        seconds, the 30- and 45-second points do not come into being, and a
+        very short round produces no time point at all.
 
     Raises:
-        ValueError: Jos tickrate ei ole positiivinen tai jokin näytepiste on
-            negatiivinen. Negatiivinen sekuntimäärä osoittaisi freezetimen
-            sisään, jossa pelaajat eivät ole vielä liikkuneet.
+        ValueError: If the tick rate is not positive or some sample point is
+            negative. A negative number of seconds would point inside
+            freezetime, where the players have not moved yet.
     """
     _check_tick_rate(tick_rate)
     seconds_list = _unique_sorted_seconds(sample_seconds)
@@ -285,7 +293,8 @@ def sample_ticks(
         for seconds in seconds_list:
             tick = freeze_end + round(seconds * tick_rate)
             if tick > end:
-                # Kierros ratkesi ennen tätä hetkeä: pistettä ei ole olemassa.
+                # The round was settled before this moment: the point does
+                # not exist.
                 continue
             points.append(
                 SamplePoint(
@@ -307,30 +316,32 @@ def first_contact_tick(
     death_events: Iterable[DamageEvent] = (),
     fallback_death: bool = True,
 ) -> int | None:
-    """Kierroksen ensimmäisen ristiinpuolisen osuman tick.
+    """The tick of the round's first cross-side hit.
 
-    Kelpaava osuma täyttää kaikki ehdot:
+    An acceptable hit meets every condition:
 
-    * tapahtuu kierroksen rajojen sisällä (ankkurista päättymiseen),
-    * tekijä ja uhri ovat **eri puolilla** -- oma vahinko ja itsensä
-      vahingoittaminen eivät ole kontakti,
-    * ase ei ole utilityä.
+    * it happens inside the round's bounds (from the anchor to the end),
+    * the attacker and the victim are **on different sides** -- friendly fire
+      and self-damage are not contact,
+    * the weapon is not utility.
 
     Args:
-        hurt_events: Kierroksen ``player_hurt``-tapahtumat, järjestys vapaa.
-        round_bounds: Kierroksen rajat. Ilman ankkuria tai päättymistickiä
-            palautetaan ``None``: hetkeä ei voisi suhteuttaa kierrokseen.
-        exclude_weapons: Aseet, jotka eivät kelpaa kontaktiksi
-            (``[parse].first_contact_exclude_weapons``). Vertailu tehdään
-            normalisoidusta nimestä.
-        death_events: Varalähteen ``player_death``-tapahtumat.
-        fallback_death: Saako varalähdettä käyttää
+        hurt_events: The round's ``player_hurt`` events, in any order.
+        round_bounds: The round's bounds. Without an anchor or an end tick
+            ``None`` is returned: the moment could not be related to the
+            round.
+        exclude_weapons: The weapons that do not count as contact
+            (``[parse].first_contact_exclude_weapons``). The comparison is
+            made on the normalised name.
+        death_events: The fallback source's ``player_death`` events.
+        fallback_death: Whether the fallback source may be used
             (``[parse].first_contact_fallback_death``).
 
     Returns:
-        Tick tai ``None``, jos kierroksella ei ollut kontaktia. ``None`` on
-        oikea vastaus eikä virhe: kierros voi ratketa ajan loppumiseen tai
-        pelkkään utilityvahinkoon, ja silloin ensikontaktirivejä ei ole.
+        A tick, or ``None`` if there was no contact on the round. ``None`` is
+        the right answer and not an error: a round can be settled by time
+        running out or by utility damage alone, and then there are no first
+        contact rows.
     """
     if not round_bounds.is_samplable:
         return None
@@ -348,71 +359,75 @@ def first_contact_tick(
     return _first_matching(death_events, round_bounds, excluded_weapons)
 
 
-# -- Poikkeamasäännöt (AD-10, Story 2.5) --------------------------------------
+# -- The anomaly rules (AD-10, Story 2.5) -------------------------------------
 
 
-#: CT-eteneminen: subjektin CT-pelaaja alueella, joka on **siinä demossa** T:n
-#: hallussa, säästökierroksella.
+#: CT advance: the subject's CT player in an area that is held by the T side
+#: **in that demo**, on a saving round.
 CT_ADVANCE = "ct_advance"
 
-#: Puoli, jonka rivejä poikkeamasäännöt tutkivat.
+#: The side whose rows the anomaly rules examine.
 #:
-#: Kaikki kolme sääntöä kysyvät, mitä **subjekti tekee CT:nä**, joten T-puolen
-#: rivit eivät voi tuottaa osumaa yhdelläkään. Vakiona siksi, että sama arvo
-#: tarvitaan kahdessa paikassa: rivien suodatuksessa (:func:`_is_ct_time_row`)
-#: ja aggregoinnin kattavuusluvussa, joka kertoo montako kierrosta sääntö
-#: **voi** osua. Kahtena kirjoitettuna kattavuus voisi luvata enemmän kuin
-#: sääntö tutkii.
+#: All three rules ask what **the subject does as CT**, so T-side rows cannot
+#: produce a hit under any of them. A constant because the same value is
+#: needed in two places: in the filtering of the rows
+#: (:func:`_is_ct_time_row`) and in the aggregation's coverage figure, which
+#: says on how many rounds the rule **can** hit. Written out twice, the
+#: coverage could promise more than the rule examines.
 RULE_SIDE = "CT"
 
-#: Crunch: sama alue, mutta vähintään kaksi pelaajaa **saapuneena** vähintään
-#: kahdesta eri suunnasta yhtä aikaa -- **millä tahansa kierrostyypillä**.
-#: Sama orientaatioehto kuin etenemisellä, yksi lisävaatimus ja yksi rajaus
-#: vähemmän, joten sääntöjen osumajoukot leikkaavat toisiaan eikä kumpikaan
-#: sisällä toista.
+#: Crunch: the same area, but at least two players having **arrived** from at
+#: least two different directions at the same time -- **on any round type**.
+#: The same orientation condition as the advance, one requirement more and one
+#: restriction fewer, so the rules' hit sets intersect each other and neither
+#: contains the other.
 CRUNCH = "crunch"
 
-#: Stack: vähintään ``min_players`` subjektin elossa olevaa CT-pelaajaa saman
-#: siten ryhmässä, ja vähintään yksi heistä siten **omalla** alueella.
+#: Stack: at least ``min_players`` of the subject's living CT players in the
+#: same site's group, and at least one of them on the site's **own** area.
 #:
-#: Sääntö ei lue orientaatiota eikä kierrostyyppiä. Se on kolmas kysymys
-#: samasta havainnosta, ei kahden muun muunnelma.
+#: The rule reads neither the orientation nor the round type. It is a third
+#: question about the same observation, not a variant of the other two.
 STACK = "stack"
 
-#: Alueet, jotka **eivät kelpaa** stackin laskentaan.
+#: The areas that **do not count** towards the stack computation.
 #:
-#: Spawnissa seisova ei puolusta sitea. Rajaus on määritelmää eikä siivousta:
-#: ``CTSpawn`` osuu Ancientilla A-ryhmään ja Infernolla B-ryhmään, joten ilman
-#: sitä pelkkä **aloitusasetelma** laukaisisi säännön molemmilla kartoilla --
-#: eli sääntö mittaisi kierroksen alkua eikä puolustuksen valintaa.
+#: Standing in spawn is not defending a site. The restriction is definition
+#: and not tidying: ``CTSpawn`` falls into the A group on Ancient and into the
+#: B group on Inferno, so without it the **starting setup** alone would fire
+#: the rule on both maps -- that is, the rule would measure the start of the
+#: round and not the defence's choice.
 #:
-#: ``TSpawn`` on mukana samasta syystä: se on Anubiksella B-ryhmässä, ja
-#: CT-pelaaja siellä on jo eri havainto (``ct_advance``), ei stack.
+#: ``TSpawn`` is here for the same reason: it is in the B group on Anubis, and
+#: a CT player there is already a different observation (``ct_advance``), not
+#: a stack.
 SPAWN_AREAS: frozenset[str] = frozenset({"CTSpawn", "TSpawn"})
 
 
 @dataclass(frozen=True)
 class AreaObservations:
-    """Yhden alueen elossa-havainnot demon **suodattamattomasta** taulusta.
+    """One area's alive observations from the demo's **unfiltered** table.
 
-    Orientaatio on demon oma havainto: ei karttatietokantaa, ei ihmisen
-    antamaa aluejakoa, ei arkiston yli kertyvää taulua. Karttuva lähde antaisi
-    samalle demolle eri tuloksen sen mukaan, mitä muita demoja arkistossa on.
+    The orientation is the demo's own observation: no map database, no
+    human-supplied area division, no table accumulating across the archive. An
+    accumulating source would give the same demo a different result depending
+    on what other demos are in the archive.
 
-    **Molempien joukkueiden rivit, ei vain subjektin.** Tämä on mitattu ehto
-    eikä mieltymys: kun subjekti etenee alueelle CT:nä, hänen omat
-    CT-havaintonsa laskevat sen alueen T-osuutta -- poikkeama syö oman
-    havaitsemisensa. Subjektin riveillä laskettuna kolme aluetta putoaa
-    kynnyksen alle (0,88 -> 0,79, 0,85 -> 0,75, 0,84 -> 0,75), ja ne ovat
-    täsmälleen ne kolme, jotka tuottivat kaikki oikeat osumat.
+    **Both teams' rows, not only the subject's.** This is a measured condition
+    and not a preference: when the subject advances into an area as CT, their
+    own CT observations lower that area's T share -- the anomaly eats its own
+    detection. Computed on the subject's rows, three areas fall below the
+    threshold (0.88 -> 0.79, 0.85 -> 0.75, 0.84 -> 0.75), and they are exactly
+    the three that produced every true hit.
 
     Attributes:
-        t: Havainnot, joissa rivin puoli oli ``T``.
-        total: Alueen kaikki elossa-havainnot aikanäytepisteillä.
+        t: The observations in which the row's side was ``T``.
+        total: All of the area's alive observations at the time sample points.
 
     Raises:
-        ValueError: Jos luvut ovat mahdottomia. ``total = 0`` ei ole alue
-            vaan alueen puuttuminen, eikä siitä voi laskea osuutta lainkaan.
+        ValueError: If the numbers are impossible. ``total = 0`` is not an
+            area but the absence of one, and no share can be computed from it
+            at all.
     """
 
     t: int
@@ -421,41 +436,43 @@ class AreaObservations:
     def __post_init__(self) -> None:
         if self.total <= 0:
             raise ValueError(
-                f"Alueella on {self.total} havaintoa, joten sillä ei ole "
-                "orientaatiota. Nolla havaintoa ei ole alue vaan alueen "
-                "puuttuminen, eikä T-osuutta voi laskea."
+                f"The area has {self.total} observations, so it has no "
+                "orientation. Zero observations is not an area but the "
+                "absence of one, and no T share can be computed."
             )
         if not 0 <= self.t <= self.total:
             raise ValueError(
-                f"T-havaintoja on {self.t} kun havaintoja on yhteensä "
-                f"{self.total}; osajoukko ei voi olla joukkoa suurempi."
+                f"There are {self.t} T observations when there are "
+                f"{self.total} observations in total; a subset cannot be "
+                "larger than the set."
             )
 
     @property
     def t_share(self) -> float:
-        """T-havaintojen osuus alueen kaikista havainnoista."""
+        """The T observations' share of all of the area's observations."""
         return self.t / self.total
 
 
 @dataclass(frozen=True)
 class AreaPresence:
-    """Yhden pelaajan läsnäolo yhdellä näytepisteellä yhdellä kierroksella.
+    """One player's presence at one sample point on one round.
 
-    Rivi on ``TICKS``-taulun rivi ilman koordinaatteja: säännöt lukevat vain
-    alueen, ja koordinaatit houkuttelisivat geometriaan, jota ei ole.
+    The row is a ``TICKS`` table row without the coordinates: the rules read
+    only the area, and coordinates would tempt one into a geometry that does
+    not exist.
 
     Attributes:
-        player_id: Pelaaja. Osumien pelaajamäärä lasketaan **eri
-            pelaajista**, ei riveistä.
-        side: Rivin joukkueen puoli tällä kierroksella. Säännöt tutkivat vain
-            ``CT``-rivejä, joten sama pelaaja T:nä ei voi tuottaa osumaa.
-        sample_kind: ``"time"`` tai ``"first_contact"``. Vain aikanäytepisteet
-            kelpaavat: ensikontaktin ``sample_t_s`` on **mitattu hetki**, joten
-            se läpäisisi aikarajan mielivaltaisesti eikä olisi
-            vertailukelpoinen kierrosten välillä.
-        sample_t_s: Näytepisteen nimellisaika sekunteina.
-        area: Pelin oma ``env_cs_place``-alue tai ``None``.
-        is_alive: Kuollut pelaaja ei ole alueella.
+        player_id: The player. A hit's player count is computed from
+            **distinct players**, not from rows.
+        side: The row's team's side on this round. The rules examine only
+            ``CT`` rows, so the same player as T cannot produce a hit.
+        sample_kind: ``"time"`` or ``"first_contact"``. Only time sample
+            points count: first contact's ``sample_t_s`` is a **measured
+            moment**, so it would pass the time bound arbitrarily and would
+            not be comparable between rounds.
+        sample_t_s: The sample point's nominal time in seconds.
+        area: The game's own ``env_cs_place`` area, or ``None``.
+        is_alive: A dead player is not on the area.
     """
 
     player_id: str
@@ -468,39 +485,43 @@ class AreaPresence:
 
 @dataclass(frozen=True)
 class AnomalyHit:
-    """Yksi osuma: sääntö, alue, hetki ja havainnon luvut.
+    """One hit: the rule, the area, the moment and the observation's numbers.
 
-    Osuma on **yhden näytepisteen** havainto yhdellä kierroksella. Sama alue
-    voi osua useammalla näytepisteellä ja useammalla kierroksella;
-    ryhmittely otannaksi (``n/m``) tehdään aggregoinnissa, ei täällä.
+    A hit is the observation of **one sample point** on one round. The same
+    area can hit at several sample points and on several rounds; grouping
+    them into a sample (``n/m``) is done in the aggregation, not here.
 
-    **Kenttä kuuluu sille säännölle, joka sen mittasi.** Neljä kenttää on
-    sääntökohtaisia, ja :meth:`__post_init__` vaatii ne täsmälleen oikealta
-    säännöltä. Ilman vartijaa osuma voisi kantaa lukua, jota sen sääntö ei
-    laskenut -- ja raportin rivi väittäisi mitatuksi jotain, jota ei mitattu.
-    Sama peruste kuin ``sources``illa jo oli: etenemisrivin tyhjä
-    lähtöaluelista tarkoittaa "ei kysytty", ei "ei suuntia".
+    **A field belongs to the rule that measured it.** Four fields are
+    rule-specific, and :meth:`__post_init__` requires them from exactly the
+    right rule. Without the guard a hit could carry a number its rule did not
+    compute -- and the report's row would claim as measured something that was
+    not measured. The same justification ``sources`` already had: an empty
+    source-area list on an advance row means "not asked", not "no directions".
 
     Attributes:
-        rule: :data:`CT_ADVANCE`, :data:`CRUNCH` tai :data:`STACK`.
-        area: Alue, jolla osuma havaittiin. Ei koskaan ``None``: alue ilman
-            nimeä ei voi olla T:n aluetta. Stackilla se on **siten oma alue**
-            (:data:`SITE_AREAS`), koska juuri se on ryhmän ankkuri ja säännön
-            lisäehto -- ei se alue, jolla pelaajia sattui olemaan eniten.
-        sample_t_s: Näytepiste, jolla osuma havaittiin.
-        players: Eri pelaajien määrä. Etenemisessä kaikki alueella olevat
-            CT-pelaajat, crunchissa vain **saapuneet** (ks.
-            :func:`crunch_hits`), stackissa ryhmässä olevat.
-        t_share: Alueen T-osuus tässä demossa. **Vain orientaatiosäännöillä**:
-            stack ei lue orientaatiota, joten sillä luku olisi keksitty.
-        observations: Alueen havaintojen määrä, eli orientaation oma otanta.
-            Sama rajaus kuin ``t_share``illa.
-        sources: Crunchin lähtöalueet aakkosjärjestyksessä; muilla tyhjä.
-        alive: Subjektin elossa olevat CT-pelaajat **tällä näytepisteellä**.
-            Vain stackilla. Se on osuman nimittäjä: neljä viidestä ja neljä
-            neljästä ovat eri havainto, ja pelkkä ``players`` ei erota niitä.
-        site: Siten ryhmä (:data:`SITE_GROUPS`), jossa pelaajat olivat. Vain
-            stackilla.
+        rule: :data:`CT_ADVANCE`, :data:`CRUNCH` or :data:`STACK`.
+        area: The area the hit was observed on. Never ``None``: an area with
+            no name cannot be the T side's area. On a stack it is the
+            **site's own area** (:data:`SITE_AREAS`), because that is the
+            group's anchor and the rule's extra condition -- not the area
+            that happened to hold the most players.
+        sample_t_s: The sample point the hit was observed at.
+        players: The number of distinct players. On the advance every CT
+            player on the area, on the crunch only those who **arrived** (see
+            :func:`crunch_hits`), on the stack those in the group.
+        t_share: The area's T share in this demo. **Only on the orientation
+            rules**: the stack does not read the orientation, so the number
+            would be invented there.
+        observations: The number of the area's observations, that is, the
+            orientation's own sample. The same restriction as on ``t_share``.
+        sources: The crunch's source areas in alphabetical order; empty on the
+            others.
+        alive: The subject's living CT players **at this sample point**. Only
+            on the stack. It is the hit's denominator: four out of five and
+            four out of four are a different observation, and ``players``
+            alone does not tell them apart.
+        site: The site's group (:data:`SITE_GROUPS`) the players were in. Only
+            on the stack.
     """
 
     rule: str
@@ -514,12 +535,12 @@ class AnomalyHit:
     site: str | None = None
 
     def __post_init__(self) -> None:
-        """Sääntökohtaiset kentät kuuluvat omalle säännölleen.
+        """The rule-specific fields belong to their own rule.
 
         Raises:
-            ValueError: Jos osuma kantaa kenttää, jota sen sääntö ei mittaa,
-                tai jos siltä puuttuu kenttä, jonka sen sääntö mittaa.
-                Kumpikin tekisi raportin rivistä väitteen ilman havaintoa.
+            ValueError: If the hit carries a field its rule does not measure,
+                or if it lacks a field its rule does measure. Either would
+                make the report's row a claim without an observation.
         """
         orientation_rule = self.rule in (CT_ADVANCE, CRUNCH)
         has_orientation = self.t_share is not None or self.observations is not None
@@ -527,68 +548,71 @@ class AnomalyHit:
             self.t_share is not None and self.observations is not None
         ):
             raise ValueError(
-                f"Osuma {self.rule!r} alueella {self.area!r} ei kanna alueen "
-                "orientaatiota. Sääntö nojaa siihen, että alue on T:n "
-                "hallussa, joten osuma ilman T-osuutta ja havaintomäärää on "
-                "väite ilman todistetta."
+                f"The hit {self.rule!r} on area {self.area!r} does not carry "
+                "the area's orientation. The rule leans on the area being "
+                "held by the T side, so a hit without a T share and an "
+                "observation count is a claim without evidence."
             )
         if self.rule == STACK:
             if has_orientation:
                 raise ValueError(
-                    f"Stack-osuma alueella {self.area!r} kantaa alueen "
-                    "orientaatiota, vaikka sääntö ei lue sitä lainkaan. "
-                    "Luku näyttäisi mitatulta muttei koskisi tätä osumaa."
+                    f"A stack hit on area {self.area!r} carries the area's "
+                    "orientation, although the rule does not read it at all. "
+                    "The number would look measured but would not concern "
+                    "this hit."
                 )
             if self.site not in SITE_GROUPS:
                 raise ValueError(
-                    f"Stack-osuman siteryhmä on {self.site!r}; sallitut ovat "
-                    f"{list(SITE_GROUPS)}. Ryhmä on osuman ankkuri, eikä "
-                    "sitä voi jättää nimeämättä."
+                    f"A stack hit's site group is {self.site!r}; the allowed "
+                    f"ones are {list(SITE_GROUPS)}. The group is the hit's "
+                    "anchor, and it cannot be left unnamed."
                 )
             if self.alive is None:
                 raise ValueError(
-                    f"Stack-osuma alueella {self.area!r} ei kerro, montako "
-                    "pelaajaa oli elossa. Neljä viidestä ja neljä neljästä "
-                    "ovat eri havainto, eikä pelkkä pelaajamäärä erota niitä."
+                    f"A stack hit on area {self.area!r} does not say how many "
+                    "players were alive. Four out of five and four out of "
+                    "four are a different observation, and the player count "
+                    "alone does not tell them apart."
                 )
             if not 0 < self.players <= self.alive:
                 raise ValueError(
-                    f"Stack-osuma väittää {self.players} pelaajaa ryhmässä, "
-                    f"kun elossa on {self.alive}. Ryhmässä olevat ovat "
-                    "osajoukko elossa olevista."
+                    f"A stack hit claims {self.players} players in the group "
+                    f"when {self.alive} are alive. Those in the group are a "
+                    "subset of those alive."
                 )
         else:
             if self.alive is not None or self.site is not None:
                 raise ValueError(
-                    f"Osuma {self.rule!r} alueella {self.area!r} kantaa "
-                    "stackin kenttiä (elossa, siteryhmä), vaikka sääntö ei "
-                    "mittaa niitä."
+                    f"The hit {self.rule!r} on area {self.area!r} carries the "
+                    "stack's fields (alive, site group), although the rule "
+                    "does not measure them."
                 )
         if self.sources and self.rule != CRUNCH:
             raise ValueError(
-                f"Osuma {self.rule!r} alueella {self.area!r} kantaa "
-                "lähtöalueita, vaikka vain crunch laskee suuntia."
+                f"The hit {self.rule!r} on area {self.area!r} carries source "
+                "areas, although only the crunch computes directions."
             )
 
 
 @dataclass(frozen=True)
 class CloudCell:
-    """Yksi pistepilven ruutu: missä kartalla on seisottu ja mikä alue se on.
+    """One cell of the point cloud: where people stood and which area it is.
 
-    ``CALLOUT_CLOUD``-taulun rivi ilman ``map_demo_id``:tä ja
-    ``observations``ia. Kumpikin jätetään pois tarkoituksella:
+    A ``CALLOUT_CLOUD`` table row without ``map_demo_id`` and
+    ``observations``. Both are deliberately left out:
 
-    * demon tunniste on kutsujan kirjanpitoa, ei säännön syötettä;
-    * **havaintomäärä ei paina** aluekeskipisteessä. Jokainen ruutu painaa
-      yhden, ja se on mitattu ehto eikä yksinkertaistus -- ks.
-      :func:`site_groups`.
+    * the demo's id is the caller's bookkeeping, not the rule's input;
+    * **the observation count carries no weight** in an area's centre. Every
+      cell weighs one, and that is a measured condition and not a
+      simplification -- see :func:`site_groups`.
 
     Attributes:
-        area: Ruudun alue pelin omalla nimellä (``env_cs_place``).
-        cell_x: Ruudun indeksi, ``floor(x / [parse].callout_grid_units)``.
-        cell_y: Sama y-akselilla.
-        cell_z: Sama z-akselilla. **Mukana eikä sivuutettuna**: Nuke on
-            kerroksellinen, ja siteet erottaa siellä vain pystyero.
+        area: The cell's area under the game's own name (``env_cs_place``).
+        cell_x: The cell's index, ``floor(x / [parse].callout_grid_units)``.
+        cell_y: The same on the y axis.
+        cell_z: The same on the z axis. **Included and not passed over**: Nuke
+            has floors, and the only thing that tells its sites apart there is
+            the vertical difference.
     """
 
     area: str
@@ -603,46 +627,48 @@ def t_side_shares(
     t_share_min: float,
     min_observations: int,
 ) -> dict[str, AreaObservations]:
-    """Alueet, jotka ovat **tässä demossa** T:n hallussa.
+    """The areas that are held by the T side **in this demo**.
 
-    Molemmat poikkeamasäännöt lukevat alueen puoliorientaation tästä samasta
-    funktiosta. Se ei ole koodin säästöä vaan määritelmä: säännöt kysyvät
-    saman kysymyksen, ja kahdella laskennalla ne voisivat olla eri mieltä
-    siitä, kumman aluetta alue on.
+    Both anomaly rules read an area's side orientation from this same
+    function. That is not code thrift but definition: the rules ask the same
+    question, and with two computations they could disagree about whose area
+    an area is.
 
     Args:
-        orientation: Alue -> sen havainnot. Avain ``None`` (alueen nimeä ei
-            saatu) **ohitetaan**: nimetön alue ei voi olla kumman tahansa
-            puolen aluetta, ja osuma "tuntemattomalla alueella" ei kertoisi
-            mistä.
+        orientation: Area -> its observations. The key ``None`` (the area's
+            name could not be obtained) is **skipped**: a nameless area cannot
+            be either side's area, and a hit "on an unknown area" would not
+            say where.
         t_share_min: ``[thresholds].advance_t_share``.
-        min_observations: ``[thresholds].advance_area_min_observations``.
-            Vertailu on ``>=``: **rajalla oleva alue kelpaa**, ja tasan 20
-            havainnon alue on siis mukana. Tarkkuus on tässä kantavaa, koska
-            koko kynnysten kalibrointi nojaa tasarajoihin (Nuken piha on
-            tasan 0,70). Alue, joka **alittaa** rajan, ei ole T:n eikä CT:n
-            aluetta -- orientaatiota ei arvata ohuesta havainnosta.
+        min_observations: ``[thresholds].advance_area_min_observations``. The
+            comparison is ``>=``: **an area exactly at the bound counts**, and
+            an area with exactly 20 observations is therefore included. The
+            precision carries weight here, because the whole calibration of
+            the thresholds leans on exact bounds (Nuke's outside is exactly
+            0.70). An area that falls **below** the bound is neither the T
+            side's nor the CT side's area -- an orientation is not guessed
+            from a thin observation.
 
     Returns:
-        Alue -> havainnot, vain kynnykset ylittäneistä alueista.
+        Area -> observations, only for the areas that passed the thresholds.
 
     Raises:
-        ValueError: Jos ``t_share_min`` ei ole välillä 0..1 tai
-            ``min_observations`` ei ole positiivinen. Kumpikin tekisi säännön
-            hiljaa mahdottomaksi tai laukaisisi sen joka alueella.
+        ValueError: If ``t_share_min`` is not in the range 0..1 or
+            ``min_observations`` is not positive. Either would silently make
+            the rule impossible or fire it on every area.
     """
     if not 0.0 <= t_share_min <= 1.0:
         raise ValueError(
-            f"T-osuuden kynnys {t_share_min!r} ei ole välillä 0..1. Osuus on "
-            "T-havaintojen määrä jaettuna alueen kaikilla havainnoilla, joten "
-            "sen ulkopuolinen kynnys joko hiljentäisi säännön kokonaan tai "
-            "tekisi jokaisesta alueesta T:n aluetta."
+            f"The T share threshold {t_share_min!r} is not in the range 0..1. "
+            "The share is the number of T observations divided by all of the "
+            "area's observations, so a threshold outside it would either "
+            "silence the rule altogether or make every area the T side's."
         )
     if min_observations < 1:
         raise ValueError(
-            f"Alueen vähimmäishavaintomäärä {min_observations!r} ei ole "
-            "positiivinen. Ilman havaintoa alueella ei ole orientaatiota, "
-            "eikä sitä saa arvata."
+            f"The area's minimum observation count {min_observations!r} is "
+            "not positive. Without an observation an area has no orientation, "
+            "and it must not be guessed."
         )
     seen_raw: set[str] = set()
     passed: dict[str, AreaObservations] = {}
@@ -652,10 +678,10 @@ def t_side_shares(
             continue
         if area in seen_raw:
             raise ValueError(
-                f"Orientaatiokartassa on alue {area!r} kahdesti eri "
-                f"kirjoitusasussa. Alueen nimi on havainto, joten kahdesta "
-                "asusta ei voi valita -- kirjoita kartta yhdellä "
-                "normalisoinnilla (domain.sampling.normalize_area)."
+                f"The orientation map holds the area {area!r} twice in "
+                f"different spellings. An area's name is an observation, so "
+                "one of two spellings cannot be chosen -- write the map with "
+                "one normalisation (domain.sampling.normalize_area)."
             )
         seen_raw.add(area)
         if obs.total >= min_observations and obs.t_share >= t_share_min:
@@ -669,101 +695,104 @@ def site_groups(
     margin: float,
     separation_min: float,
 ) -> dict[str, str] | None:
-    """Kuvaus ``alue -> "A" | "B"`` **demon omasta pistepilvestä**.
+    """A mapping ``area -> "A" | "B"`` **from the demo's own point cloud**.
 
-    Tämä on stack-säännön puuttunut pala. Peli jakaa siten useaan alueeseen
-    (Ancientin B on ``Alley`` + ``BombsiteB`` + ``SideEntrance``), joten neljä
-    puolustajaa eivät koskaan ole samalla ``env_cs_place``-alueella: sääntö
-    tarvitsee ryhmän, ja ryhmä **johdetaan** eikä anneta. Sama lukittu ehto
-    kuin :class:`AreaObservations`illa -- ei karttatietokantaa, ei ihmisen
-    antamaa aluejakoa, ei arkiston yli kertyvää taulua.
+    This is the piece the stack rule was missing. The game splits a site
+    across several areas (Ancient's B is ``Alley`` + ``BombsiteB`` +
+    ``SideEntrance``), so four defenders are never on the same
+    ``env_cs_place`` area: the rule needs a group, and the group is
+    **derived**, not given. The same locked condition as on
+    :class:`AreaObservations` -- no map database, no human-supplied area
+    division, no table accumulating across the archive.
 
-    Menetelmä on kolmiosainen:
+    The method is in three parts:
 
-    1. **Aluekeskipiste on solumediaani**: jokainen ruutu painaa yhden,
-       havaintomäärä ei paina. Tämä on mitattu ehto. Pelin
-       ``m_szLastPlaceName`` on *viimeksi nimetty* alue, joten nimeämättömässä
-       kohdassa seisova pelaaja kantaa edellisen kierroksen aluetta;
-       ``Ancient_vs_kaljukostaja``n CT-spawnin ruuduissa on ``BombsiteB``
-       75 524 havaintoa ja ``CTSpawn`` vain 135. Havaintopainotettu keskiarvo
-       vetää siten keskipisteen spawniin, solumediaani ei -- 75 000 havaintoa
-       16 ruudussa painaa 16 ruudun verran. Mitattu: Ancientin ristiriitaiset
-       alueet 5/18 -> **0/18**, ja aluejako on sanatarkasti sama kaikista
-       kolmesta Ancient-demosta.
-    2. **Alueen koko on ruutujen mediaanietäisyys** omasta keskipisteestään.
-       Mediaani eikä keskiarvo tai suurin: yksi vanhentunut nimi kartan
-       toisella laidalla venyttäisi molempia, ja juuri se vika tässä
-       torjutaan.
-    3. **Ryhmä on lähempi site marginaalilla**: alue kuuluu lähempään siteen
-       vain, jos toinen site on vähintään ``margin``-kertaa kauempana. Muuten
-       alue jää ryhmättömäksi (kartan jaettu keski), eikä suuntaa arvata.
+    1. **An area's centre is the cell median**: every cell weighs one, the
+       observation count carries no weight. This is a measured condition. The
+       game's ``m_szLastPlaceName`` is the *last named* area, so a player
+       standing in an unnamed spot carries the previous round's area; in
+       ``Ancient_vs_kaljukostaja``'s CT spawn cells ``BombsiteB`` has 75,524
+       observations and ``CTSpawn`` only 135. An observation-weighted mean
+       therefore drags the centre into the spawn, the cell median does not --
+       75,000 observations in 16 cells weigh as much as 16 cells. Measured:
+       Ancient's contradictory areas 5/18 -> **0/18**, and the area division
+       is word for word the same from all three Ancient demos.
+    2. **An area's size is the cells' median distance** from their own centre.
+       The median and not the mean or the largest: one stale name on the other
+       side of the map would stretch both of those, and it is precisely that
+       fault that is warded off here.
+    3. **The group is the nearer site by a margin**: an area belongs to the
+       nearer site only if the other site is at least ``margin`` times
+       further away. Otherwise the area is left without a group (the map's
+       shared middle), and no direction is guessed.
 
-    **Kartta, jolla siteet eivät erotu, vaikenee.** Nukella ``BombsiteA`` ja
-    ``BombsiteB`` ovat päällekkäin eri kerroksissa, joten *mikä tahansa*
-    A/B-etäisyysmittari on siellä mieletön. Vartija on suhdeluku eikä
-    karttalista: siteiden keskipisteiden etäisyys jaettuna siteiden omalla
-    koolla on 0,47-0,54 Nukella ja 3,70-5,04 kolmella muulla kartalla, joten
-    kynnys 2,0 erottaa ne puhtaasti **ilman että karttaa nimetään koodissa**.
-    Vaikeneminen on oikea vastaus eikä puute -- mutta se on kirjattava
-    kattavuuteen (``AnomalyScan.demos_without_site_groups``), ei jätettävä
-    hiljaiseksi.
+    **A map whose sites do not separate goes quiet.** On Nuke ``BombsiteA``
+    and ``BombsiteB`` are on top of each other on different floors, so *any*
+    A/B distance measure is meaningless there. The guard is a ratio and not a
+    list of maps: the distance between the sites' centres divided by the
+    sites' own size is 0.47-0.54 on Nuke and 3.70-5.04 on the three other
+    maps, so a threshold of 2.0 separates them cleanly **without naming a map
+    in the code**. Going quiet is the right answer and not a shortfall -- but
+    it has to be recorded in the coverage
+    (``AnomalyScan.demos_without_site_groups``), not left silent.
 
-    **Ruudukon koko supistuu pois, ja siksi sitä ei anneta.** Ruutuindeksi ei
-    ole koordinaatti: oikea koordinaatti on ``ruutu * [parse].callout_grid_units``.
-    Molemmat kynnykset ovat kuitenkin **kahden etäisyyden osamääriä**, ja
-    ruudukon koko kertoo jokaisen etäisyyden samalla luvulla, joten se
-    supistuu kummastakin vertailusta pois. Juuri siksi tämä funktio -- ja
-    aggregointi sen kutsujana -- ei lue ``[parse]``-osiota lainkaan. **Jos
-    tähän joskus lisätään absoluuttinen etäisyysraja, muunnos on pakollinen**,
-    eikä sen lähdettä ole vielä olemassa aggregoinnissa.
+    **The grid size cancels out, and that is why it is not given.** A cell
+    index is not a coordinate: the real coordinate is
+    ``cell * [parse].callout_grid_units``. Both thresholds are, however,
+    **quotients of two distances**, and the grid size multiplies every
+    distance by the same number, so it cancels out of both comparisons. That
+    is exactly why this function -- and the aggregation as its caller -- does
+    not read the ``[parse]`` section at all. **If an absolute distance limit
+    is ever added here, the conversion is mandatory**, and its source does not
+    yet exist in the aggregation.
 
     Args:
-        cells: Demon pistepilven ruudut. Järjestys vapaa; tyhjä pilvi on
-            kelvollinen syöte ja tuottaa ``None``.
-        margin: ``[thresholds].stack_group_margin``. Vähintään 1,0.
+        cells: The demo's point cloud cells. In any order; an empty cloud is
+            a valid input and produces ``None``.
+        margin: ``[thresholds].stack_group_margin``. At least 1.0.
         separation_min: ``[thresholds].stack_site_separation_min``.
 
     Returns:
-        ``alue -> "A" | "B"`` niistä alueista, joilla on ryhmä, tai ``None``
-        jos kartalla ei ole tasoerottuvaa A/B-jakoa. Ryhmättömät alueet
-        **puuttuvat** kuvauksesta; ``None``-arvoa ei kirjoiteta, jotta
-        ``groups.get(area)`` on yksiselitteinen.
+        ``area -> "A" | "B"`` for the areas that have a group, or ``None`` if
+        the map has no A/B division that separates evenly. Areas without a
+        group are **absent** from the mapping; a ``None`` value is not
+        written, so that ``groups.get(area)`` is unambiguous.
 
-        **Tulos ei voi olla tyhjä kuvaus.** Siten etäisyys omaan
-        keskipisteeseensä on 0, joten kumpikin site kuuluu aina omaan
-        ryhmäänsä millä tahansa marginaalilla; jos funktio pääsee tänne asti,
-        kuvauksessa on vähintään ne kaksi. Tyhjä sanakirja on siis
-        mahdollinen vain kutsujan omana arvona (esimerkiksi testissä), ei
-        tämän funktion tuloksena, eikä koodi saa nojata sen erottamiseen
-        ``None``ista.
+        **The result cannot be an empty mapping.** A site's distance to its
+        own centre is 0, so each site always belongs to its own group under
+        any margin; if the function gets this far, the mapping holds at least
+        those two. An empty dictionary is therefore possible only as a
+        caller's own value (in a test, for instance), not as this function's
+        result, and the code must not lean on telling it apart from ``None``.
 
     Raises:
-        ValueError: Jos ``margin`` on alle 1,0 tai ``separation_min`` ei ole
-            positiivinen. Edellinen tekisi "lähemmästä" kauemman,
-            jälkimmäinen poistaisi vartijan kokonaan -- eli Nuken
-            päällekkäisistä siteistä johdettaisiin jako, jota ei ole.
+        ValueError: If ``margin`` is below 1.0 or ``separation_min`` is not
+            positive. The former would make the "nearer" one the further one,
+            the latter would remove the guard altogether -- that is, a
+            division would be derived from Nuke's overlapping sites that does
+            not exist.
     """
     if not (margin >= 1.0 and math.isfinite(margin)):
         raise ValueError(
-            f"Ryhmämarginaali {margin!r} on alle 1,0 tai ei ole äärellinen. "
-            "Marginaali kertoo, kuinka paljon kauempana toisen siten on "
-            "oltava, ja alle yhden arvolla 'lähempi' site voisi olla "
-            "kauempana."
+            f"The group margin {margin!r} is below 1.0 or is not finite. The "
+            "margin says how much further away the other site has to be, and "
+            "with a value below one the 'nearer' site could be the further "
+            "one."
         )
     if not (separation_min > 0.0 and math.isfinite(separation_min)):
         raise ValueError(
-            f"Erottuvuuskynnys {separation_min!r} ei ole positiivinen "
-            "äärellinen luku. Arvolla 0 vartija ei vaientaisi yhtäkään "
-            "karttaa, eli päällekkäisistä siteistä johdettaisiin aluejako, "
-            "jota ei ole olemassa."
+            f"The separation threshold {separation_min!r} is not positive and "
+            "finite. With the value 0 the guard would silence no map at all, "
+            "that is, an area division that does not exist would be derived "
+            "from overlapping sites."
         )
 
     points: dict[str, list[tuple[float, float, float]]] = {}
     for cell in cells:
         area = normalize_area(cell.area)
         if area is None:
-            # Nimetön ruutu ei nimeä aluetta. Sama sääntö kuin pilven
-            # rakentamisessa (domain.utility.point_cloud).
+            # A nameless cell does not name an area. The same rule as in
+            # building the cloud (domain.utility.point_cloud).
             continue
         points.setdefault(area, []).append(
             (float(cell.cell_x), float(cell.cell_y), float(cell.cell_z))
@@ -772,26 +801,27 @@ def site_groups(
     centres = {area: _cell_median(pts) for area, pts in points.items()}
     site_a, site_b = SITE_AREAS["A"], SITE_AREAS["B"]
     if site_a not in centres or site_b not in centres:
-        # Pilvi, jossa toista sitea ei ole, ei voi kertoa siteiden välistä
-        # jakoa. Havainnon puuttuminen ei ole havainto jaon puuttumisesta.
+        # A cloud in which one of the sites is missing cannot say how the
+        # division between the sites runs. The absence of an observation is
+        # not an observation that the division is absent.
         return None
 
     span = _spread(points[site_a], centres[site_a]) + _spread(
         points[site_b], centres[site_b]
     )
     separation = math.dist(centres[site_a], centres[site_b])
-    # Kolme ehtoa, ja kaksi ensimmäistä ovat vartijan aukkoja eivätkä
-    # varmuuden vuoksi -tarkistuksia.
+    # Three conditions, and the first two are holes in the guard and not
+    # just-in-case checks.
     #
-    # ``span <= 0`` on **nollakokoinen site**: molemmilla siteillä on yksi
-    # ruutu, jolloin suhde jakaa nollalla ja mikä tahansa erotus läpäisisi
-    # kynnyksen. Kahden ruudun havainto ei kerro kartan siterakenteesta
-    # mitään, ja demo, jonka pilvi on noin ohut, on rikki eikä
-    # tasoerottuva.
+    # ``span <= 0`` is a **site of zero size**: both sites have one cell, so
+    # the ratio divides by zero and any difference at all would pass the
+    # threshold. An observation of two cells says nothing about the map's site
+    # structure, and a demo whose cloud is that thin is broken, not a map
+    # whose sites separate evenly.
     #
-    # ``separation <= 0`` on **päällekkäiset keskipisteet**: siteitä ei voi
-    # erottaa toisistaan lainkaan, eikä kumpikaan olisi aidosti lähempänä
-    # yhtäkään aluetta.
+    # ``separation <= 0`` is **overlapping centres**: the sites cannot be told
+    # apart from each other at all, and neither would be genuinely nearer to
+    # any area.
     if span <= 0.0 or separation <= 0.0:
         return None
     if separation < separation_min * span:
@@ -801,9 +831,9 @@ def site_groups(
     for area, centre in centres.items():
         to_a = math.dist(centre, centres[site_a])
         to_b = math.dist(centre, centres[site_b])
-        # Aidosti lähempi ENNEN marginaalia: arvolla margin == 1,0 pelkkä
-        # marginaaliehto täyttyisi tasatilanteessa molempiin suuntiin, ja
-        # ryhmä ratkeaisi siitä, kumpi haara kirjoitettiin ensin.
+        # Genuinely nearer BEFORE the margin: with margin == 1.0 the margin
+        # condition alone would hold in both directions on a tie, and the
+        # group would be settled by which branch was written first.
         if to_a < to_b and to_b >= margin * to_a:
             found[area] = "A"
         elif to_b < to_a and to_a >= margin * to_b:
@@ -821,32 +851,35 @@ def ct_advance_hits(
     max_sample_s: float,
     min_players: int,
 ) -> list[AnomalyHit]:
-    """Yhden kierroksen CT-etenemiset.
+    """One round's CT advances.
 
-    Sääntö: subjektin CT-pelaaja alueella, joka on **siinä demossa** T:n
-    hallussa, säästökierroksella ja enintään ``max_sample_s`` sekunnin
-    kohdalla.
+    The rule: the subject's CT player in an area that is held by the T side
+    **in that demo**, on a saving round and at ``max_sample_s`` seconds at the
+    latest.
 
-    Rajaus säästökierroksiin on **taloudellinen havainto** eikä otannan
-    kapeuttamista: köyhä CT ei normaalisti etene T:n alueelle, joten juuri
-    silloin eteneminen kertoo suunnitelmasta. Kierrostyypit ovat
+    The restriction to saving rounds is an **economic observation** and not a
+    narrowing of the sample: a poor CT does not normally advance into the T
+    side's area, so it is exactly then that an advance says something about a
+    plan. The round types are
     :data:`~pappascout.constants.SAVING_ROUND_TYPES`.
 
     Args:
-        presences: Kierroksen näytepisterivit, järjestys vapaa. Muut kuin
-            elossa olevat CT-rivit aikanäytepisteiltä ohitetaan täällä, jotta
-            kutsujan ei tarvitse muistaa suodattaa niitä.
-        round_type: Kierroksen tyyppi. ``None`` (luokittelematon kierros) ei
-            voi osua: ilman tyyppiä ei tiedetä oliko kierros säästökierros.
-        orientation: Alue -> havainnot demon **suodattamattomasta** taulusta.
+        presences: The round's sample point rows, in any order. Anything other
+            than living CT rows from the time sample points is skipped here,
+            so that the caller does not have to remember to filter them out.
+        round_type: The round's type. ``None`` (an unclassified round) cannot
+            hit: without a type it is not known whether the round was a saving
+            round.
+        orientation: Area -> observations from the demo's **unfiltered**
+            table.
         t_share_min: ``[thresholds].advance_t_share``.
         area_min_observations: ``[thresholds].advance_area_min_observations``.
         max_sample_s: ``[thresholds].advance_max_sample_s``.
         min_players: ``[thresholds].advance_min_players``.
 
     Returns:
-        Osumat järjestyksessä ``(sample_t_s, area)``. Tyhjä lista on
-        kelvollinen tulos eikä puute.
+        The hits in the order ``(sample_t_s, area)``. An empty list is a valid
+        result and not a shortfall.
     """
     if round_type not in SAVING_ROUND_TYPES:
         return []
@@ -887,43 +920,47 @@ def crunch_hits(
     min_players: int,
     min_sources: int,
 ) -> list[AnomalyHit]:
-    """Yhden kierroksen crunchit.
+    """One round's crunches.
 
-    Sääntö lukee saman orientaation kuin :func:`ct_advance_hits`, mutta vaatii
-    lisäksi että pelaajat ovat **saapuneet** alueelle vähintään
-    ``min_sources`` eri suunnasta yhtä aikaa. Lähtöalue on pelaajan oma alue
-    **edellisellä** aikanäytepisteellä eli havainto -- ei karttageometriaa
-    eikä aluenaapuruustaulua.
+    The rule reads the same orientation as :func:`ct_advance_hits`, but it
+    also requires the players to have **arrived** on the area from at least
+    ``min_sources`` different directions at the same time. A source area is
+    the player's own area at the **previous** time sample point, that is, an
+    observation -- not map geometry and not a table of neighbouring areas.
 
-    **Crunch ei rajoitu säästökierroksiin, vaikka eteneminen rajoittuu.**
-    Epic asettaa taloudellisen ehdon vain etenemiselle, ja mittaus tukee sitä:
-    yksi viidestä crunchista (MatureMayhem Anubis k10) on täysi osto. Sääntö ei
-    siis ole etenemisen "tiukempi muoto": se on tiukempi suunnista ja
-    löysempi kierrostyypistä, joten osumajoukot leikkaavat toisiaan.
+    **A crunch is not limited to saving rounds even though the advance is.**
+    The epic sets the economic condition on the advance only, and the
+    measurement supports it: one of the five crunches (MatureMayhem Anubis
+    round 10) is a full buy. So the rule is not a "stricter form" of the
+    advance: it is stricter about directions and looser about the round type,
+    so the hit sets intersect each other.
 
-    ``players`` on **saapuneiden** määrä eikä alueella olevien: pelaaja, joka
-    oli alueella jo edellisellä näytepisteellä, ei saapunut sinne mistään.
-    Sama näytepiste voi siis tuottaa etenemisosuman kolmella pelaajalla ja
-    crunch-osuman kahdella, ja se on kaksi eri havaintoa samasta hetkestä.
+    ``players`` is the number of those who **arrived** and not of those on the
+    area: a player who was already on the area at the previous sample point
+    did not arrive there from anywhere. The same sample point can therefore
+    produce an advance hit with three players and a crunch hit with two, and
+    those are two different observations of the same moment.
 
-    Pelaaja, jonka edellinen alue ei ole tiedossa (nimetön alue tai kierroksen
-    ensimmäinen näytepiste), **ei ole saapunut mistään**: suuntaa ei arvata.
+    A player whose previous area is not known (a nameless area or the round's
+    first sample point) **has not arrived from anywhere**: no direction is
+    guessed.
 
     Args:
-        presences: Kierroksen näytepisterivit, järjestys vapaa. Lähtöalueiden
-            takia mukana on oltava **kierroksen kaikki** aikanäytepisteet,
-            myös ne, jotka ovat ``max_sample_s``:n jälkeen -- muuten edellinen
-            näytepiste voi puuttua ja saapuminen jäisi näkymättä.
-        orientation: Kuten :func:`ct_advance_hits`issa.
-        t_share_min: ``[thresholds].advance_t_share``, **jaettu** etenemisen
-            kanssa.
+        presences: The round's sample point rows, in any order. Because of the
+            source areas, **all** of the round's time sample points have to be
+            included, also the ones after ``max_sample_s`` -- otherwise the
+            previous sample point can be missing and the arrival would go
+            unseen.
+        orientation: As in :func:`ct_advance_hits`.
+        t_share_min: ``[thresholds].advance_t_share``, **shared** with the
+            advance.
         area_min_observations: ``[thresholds].advance_area_min_observations``.
         max_sample_s: ``[thresholds].advance_max_sample_s``.
         min_players: ``[thresholds].crunch_min_players``.
         min_sources: ``[thresholds].crunch_min_sources``.
 
     Returns:
-        Osumat järjestyksessä ``(sample_t_s, area)``.
+        The hits in the order ``(sample_t_s, area)``.
     """
     t_areas = t_side_shares(
         orientation,
@@ -942,7 +979,8 @@ def crunch_hits(
             continue
         source = previous.get((row.player_id, row.sample_t_s))
         if source is None or source == area:
-            # Ei saapunut: suunta on tuntematon tai pelaaja oli jo alueella.
+            # Did not arrive: the direction is unknown or the player was
+            # already on the area.
             continue
         arrivals.setdefault((row.sample_t_s, area), {})[row.player_id] = source
 
@@ -973,74 +1011,75 @@ def stack_hits(
     max_sample_s: float,
     min_players: int,
 ) -> list[AnomalyHit]:
-    """Yhden kierroksen stackit.
+    """One round's stacks.
 
-    Sääntö: **vähintään** ``min_players`` subjektin elossa olevaa CT-pelaajaa
-    saman siten ryhmässä yhdellä aikanäytepisteellä, **ja vähintään yksi
-    heistä siten omalla alueella** (:data:`SITE_AREAS`).
+    The rule: **at least** ``min_players`` of the subject's living CT players
+    in the same site's group at one time sample point, **and at least one of
+    them on the site's own area** (:data:`SITE_AREAS`).
 
-    Kaksi lisäehtoa eivät ole hienosäätöä vaan määritelmää:
+    The two extra conditions are not fine-tuning but definition:
 
-    * **Siten oma alue.** "Stack sitellä" tarkoittaa että ollaan sitellä, ei
-      että ollaan kartan siinä puoliskossa. Ilman ehtoa Ancientin ``Alley``
-      yksin tuottaa osumia 6 s kohdalla -- se on CT-spawnin uloskäytävä, ei
-      site. Mitattu: ehto pudottaa 17 kierrosta -> 9 (26 osumaa -> 10).
-    * **Spawnit pois** (:data:`SPAWN_AREAS`). Spawnissa seisova ei puolusta
-      sitea, ja ``CTSpawn`` osuu Ancientilla A-ryhmään ja Infernolla
-      B-ryhmään -- ilman rajausta pelkkä aloitusasetelma laukaisisi säännön
-      molemmilla kartoilla.
+    * **The site's own area.** The players' own phrase "Stack sitellä" means
+      being on the site, not being on that half of the map. Without the
+      condition Ancient's ``Alley`` alone produces hits at 6 s -- it is the
+      CT spawn's exit corridor, not a site. Measured: the condition drops
+      17 rounds -> 9 (26 hits -> 10).
+    * **The spawns out** (:data:`SPAWN_AREAS`). Standing in spawn is not
+      defending a site, and ``CTSpawn`` falls into the A group on Ancient and
+      into the B group on Inferno -- without the restriction the starting
+      setup alone would fire the rule on both maps.
 
-    Sääntö **ei rajoitu kierrostyyppiin** eikä lue alueen orientaatiota. Se ei
-    siis ole kummankaan toisen säännön tiukempi tai löysempi muoto vaan kolmas
-    kysymys samasta havainnosta.
+    The rule **is not limited by round type** and does not read the area's
+    orientation. So it is not a stricter or a looser form of either of the
+    other two rules but a third question about the same observation.
 
     Args:
-        presences: Kierroksen näytepisterivit, järjestys vapaa. Muut kuin
-            elossa olevat CT-rivit aikanäytepisteiltä ohitetaan täällä.
-        groups: :func:`site_groups`in tulos tälle demolle. ``None``
-            (kartalla ei ole tasoerottuvaa A/B-jakoa) **vaientaa säännön**, ja
-            se on oikea vastaus eikä puute -- mutta kutsujan on kirjattava se
-            kattavuuteen, ei jätettävä hiljaiseksi.
-        max_sample_s: ``[thresholds].advance_max_sample_s``. **Yhteinen**
-            kahden muun säännön kanssa eikä oma kynnys: kolme sääntöä kysyvät
-            samasta havainnosta, ja kahdella aikarajalla ne voisivat olla eri
-            mieltä siitä, milloin kierroksen alku loppuu.
+        presences: The round's sample point rows, in any order. Anything other
+            than living CT rows from the time sample points is skipped here.
+        groups: The result of :func:`site_groups` for this demo. ``None`` (the
+            map has no A/B division that separates evenly) **silences the
+            rule**, and that is the right answer and not a shortfall -- but
+            the caller has to record it in the coverage, not leave it silent.
+        max_sample_s: ``[thresholds].advance_max_sample_s``. **Shared** with
+            the two other rules and not a threshold of its own: three rules
+            ask about the same observation, and with two time bounds they
+            could disagree about when the start of the round ends.
         min_players: ``[thresholds].stack_min_players``.
 
     Returns:
-        Osumat järjestyksessä ``(sample_t_s, area)``. Tyhjä lista on
-        kelvollinen tulos; ``groups=None`` tuottaa myös tyhjän listan, ja
-        **niitä kahta ei voi erottaa täältä** -- ero on kattavuudessa.
+        The hits in the order ``(sample_t_s, area)``. An empty list is a valid
+        result; ``groups=None`` also produces an empty list, and **the two
+        cannot be told apart from here** -- the difference is in the coverage.
 
     Raises:
-        ValueError: Jos ``min_players`` ei ole positiivinen tai jos
-            ``groups`` nimeää ryhmän, jota ei ole. Edellinen laukaisisi
-            säännön jokaisella näytepisteellä, jälkimmäinen tarkoittaisi että
-            ryhmät tulevat muualta kuin :func:`site_groups`ista.
+        ValueError: If ``min_players`` is not positive, or if ``groups`` names
+            a group that does not exist. The former would fire the rule at
+            every sample point, the latter would mean that the groups come
+            from somewhere other than :func:`site_groups`.
     """
     if min_players < 1:
         raise ValueError(
-            f"Stackin vähimmäispelaajamäärä {min_players!r} ei ole "
-            "positiivinen. Nollalla sääntö osuisi jokaisella näytepisteellä, "
-            "jolla siten ryhmässä ei ole ketään."
+            f"The stack's minimum player count {min_players!r} is not "
+            "positive. With zero the rule would hit at every sample point at "
+            "which there is nobody in the site's group."
         )
     if groups is None:
         return []
     unknown = sorted({name for name in groups.values() if name not in SITE_GROUPS})
     if unknown:
         raise ValueError(
-            f"Siteryhmien joukossa on tuntematon ryhmä: {unknown}. Sallitut "
-            f"ovat {list(SITE_GROUPS)}, ja ne tulevat site_groups()ista."
+            f"The site groups hold an unknown group: {unknown}. The allowed "
+            f"ones are {list(SITE_GROUPS)}, and they come from site_groups()."
         )
 
-    # Elossaolo lasketaan KAIKISTA kelpaavista riveistä, myös spawnissa ja
-    # ryhmättömällä alueella olevista: se on osuman nimittäjä ("neljä
-    # viidestä"), eikä pelaaja lakkaa olemasta elossa siksi, että hän seisoo
-    # väärässä paikassa.
+    # Being alive is counted from ALL acceptable rows, including those in
+    # spawn and on an area without a group: it is the hit's denominator
+    # ("four out of five"), and a player does not stop being alive because
+    # they are standing in the wrong place.
     alive: dict[float, set[str]] = {}
-    # (näytepiste, ryhmä) -> pelaaja -> hänen alueensa. Pelaajat ovat avaimia
-    # eivätkä rivejä: kaksoisrivi samasta pelaajasta ei saa nostaa
-    # pelaajamäärää, koska juuri se on raportin luku.
+    # (sample point, group) -> player -> their areas. The players are the keys
+    # and not the rows: a duplicated row for the same player must not raise
+    # the player count, because that count is precisely the report's number.
     members: dict[tuple[float, str], dict[str, set[str]]] = {}
     for row in presences:
         if not _is_ct_time_row(row) or row.sample_t_s > max_sample_s:
@@ -1076,18 +1115,19 @@ def stack_hits(
     return sorted(hits, key=lambda hit: (hit.sample_t_s, hit.area))
 
 
-# -- Sisäinen -----------------------------------------------------------------
+# -- Internal -----------------------------------------------------------------
 
 
 def _cell_median(
     points: Sequence[tuple[float, float, float]],
 ) -> tuple[float, float, float]:
-    """Akselikohtainen mediaani ruutujoukosta.
+    """The per-axis median of a set of cells.
 
-    **Jokainen ruutu painaa yhden.** Mediaani lasketaan akseleittain eikä
-    monidimensioisena (geometrisena) mediaanina: jälkimmäinen olisi
-    iteratiivinen approksimaatio, jonka tulos riippuisi aloitusarvosta ja
-    kierrosmäärästä -- eli sama demo voisi antaa eri keskipisteen eri ajolla.
+    **Every cell weighs one.** The median is computed axis by axis and not as
+    a multidimensional (geometric) median: the latter would be an iterative
+    approximation whose result would depend on the starting value and the
+    number of iterations -- that is, the same demo could give a different
+    centre on a different run.
     """
     return (
         median(p[0] for p in points),
@@ -1100,24 +1140,25 @@ def _spread(
     points: Sequence[tuple[float, float, float]],
     centre: tuple[float, float, float],
 ) -> float:
-    """Alueen koko: ruutujen **mediaanietäisyys** keskipisteestä.
+    """An area's size: the cells' **median distance** from the centre.
 
-    Mediaani eikä keskiarvo tai suurin. Yksi vanhentunut aluenimi kartan
-    toisella laidalla venyttää molemmat jälkimmäiset, ja juuri se vika tekisi
-    erottuvuusvartijasta epäluotettavan: mitattuna keskiarvo antaa
-    ``Ancient_vs_kaljukostaja``lle suhteen 3,14 kun kahdelle muulle
-    Ancient-demolle 3,88-3,92, mediaani 3,70 kun 3,82-3,95.
+    The median and not the mean or the largest. One stale area name on the
+    other side of the map stretches both of the latter, and it is precisely
+    that fault that would make the separation guard unreliable: measured, the
+    mean gives ``Ancient_vs_kaljukostaja`` the ratio 3.14 against 3.88-3.92
+    for the two other Ancient demos, the median 3.70 against 3.82-3.95.
     """
     return median(math.dist(point, centre) for point in points)
 
 
 def _is_ct_time_row(row: AreaPresence) -> bool:
-    """Kelpaako rivi poikkeamasäännölle lainkaan.
+    """Does the row count for an anomaly rule at all.
 
-    Kolme ehtoa yhdessä paikassa, koska kaikki kolme sääntöä tarvitsevat ne
-    kaikki: elossa oleva **CT**-pelaaja **aikanäytepisteellä**. Ensikontaktin
-    rivi ei kelpaa, koska sen ``sample_t_s`` on mitattu hetki -- se läpäisisi
-    aikarajan sen mukaan, milloin kierroksella satuttiin ampumaan.
+    Three conditions in one place, because all three rules need all of them: a
+    living **CT** player **at a time sample point**. A first contact row does
+    not count, because its ``sample_t_s`` is a measured moment -- it would
+    pass the time bound according to when on the round somebody happened to
+    shoot.
     """
     return (
         row.is_alive
@@ -1131,10 +1172,11 @@ def _players_by_point(
     t_areas: Mapping[str, AreaObservations],
     max_sample_s: float,
 ) -> dict[tuple[float, str], set[str]]:
-    """``(näytepiste, alue) -> eri pelaajat``, vain T:n alueilta ja ajoissa.
+    """``(sample point, area) -> distinct players``, T areas and in time only.
 
-    Pelaajat ovat **joukko**: kaksoisrivi samasta pelaajasta ei saa nostaa
-    pelaajamäärää, koska juuri pelaajamäärä on raportin luku.
+    The players are a **set**: a duplicated row for the same player must not
+    raise the player count, because the player count is precisely the
+    report's number.
     """
     found: dict[tuple[float, str], set[str]] = {}
     for row in presences:
@@ -1150,24 +1192,25 @@ def _players_by_point(
 def _previous_areas(
     rows: Sequence[AreaPresence],
 ) -> dict[tuple[str, float], str]:
-    """``(pelaaja, näytepiste) -> alue edellisellä näytepisteellä``.
+    """``(player, sample point) -> the area at the previous sample point``.
 
-    Vain nimetyt alueet: ``None`` ei ole suunta. Puuttuva avain tarkoittaa
-    siis kahta asiaa yhtä aikaa -- kierroksen ensimmäinen näytepiste tai
-    tuntematon edellinen alue -- ja kumpikin on sama vastaus: pelaaja ei
-    saapunut mistään.
+    Named areas only: ``None`` is not a direction. A missing key therefore
+    means two things at once -- the round's first sample point or an unknown
+    previous area -- and both are the same answer: the player did not arrive
+    from anywhere.
 
-    **Näytepiste tiivistetään ensin, vasta sitten pariutetaan.** Ilman sitä
-    kaksoisrivi samasta pelaajasta samalla näytepisteellä pariutuisi
-    itsensä kanssa, jolloin lähtöalueeksi tulisi kohdealue -- ja
-    ``source == area`` vaientaisi saapumisen kokonaan. Kaksoisrivi ei ole
-    teoreettinen: sama vartija on jo :func:`_players_by_point`issa, jossa
-    pelaajat ovat joukko. Jos sama pelaaja on kahdella eri alueella samalla
-    näytepisteellä, taulu on ristiriitainen; silloin valitaan
-    aakkosjärjestyksessä ensimmäinen, jotta tulos on sama ajosta toiseen.
+    **The sample point is collapsed first and only then paired up.** Without
+    that, a duplicated row for the same player at the same sample point would
+    pair up with itself, so the source area would become the target area --
+    and ``source == area`` would silence the arrival altogether. A duplicated
+    row is not theoretical: the same guard is already in
+    :func:`_players_by_point`, where the players are a set. If the same player
+    is on two different areas at the same sample point, the table is
+    contradictory; the alphabetically first one is then chosen, so that the
+    result is the same from one run to the next.
     """
-    # (pelaaja, näytepiste) -> alueet joukkona. Joukko tiivistää kaksoisrivin
-    # yhdeksi havainnoksi ennen pariutusta.
+    # (player, sample point) -> the areas as a set. The set collapses a
+    # duplicated row into one observation before the pairing up.
     by_point: dict[tuple[str, float], set[str]] = {}
     for row in rows:
         area = normalize_area(row.area)
@@ -1194,7 +1237,7 @@ def _first_matching(
     bounds: RoundBounds,
     excluded: Collection[str],
 ) -> int | None:
-    """Pienin tick, jolla tapahtuma täyttää kontaktin ehdot."""
+    """The smallest tick at which an event meets the conditions for contact."""
     ticks = [e.tick for e in events if _is_contact(e, bounds, excluded)]
     return min(ticks) if ticks else None
 
@@ -1202,27 +1245,27 @@ def _first_matching(
 def _is_contact(
     event: DamageEvent, bounds: RoundBounds, excluded: Collection[str]
 ) -> bool:
-    """Onko tapahtuma ristiinpuolinen, aseellinen kontakti tällä kierroksella."""
+    """Is the event a cross-side, armed contact on this round."""
     if bounds.freeze_end_tick is None or bounds.end_tick is None:
         return False
     if not bounds.freeze_end_tick <= event.tick <= bounds.end_tick:
         return False
     if event.attacker_id is None or event.victim_id is None:
-        # Maailman aiheuttama vahinko: putoaminen tai istuttajaton pommi.
+        # Damage caused by the world: a fall or a bomb with no planter.
         return False
     if event.attacker_id == event.victim_id:
         return False
     if event.attacker_side not in SIDES or event.victim_side not in SIDES:
         return False
     if event.attacker_side == event.victim_side:
-        # Oma vahinko. Se ei kerro vastustajan asetelmasta mitään.
+        # Friendly fire. It says nothing about the opponent's setup.
         return False
     weapon_name = normalize_weapon(event.weapon)
     if weapon_name is None:
-        # Tuntematon tai tyhjä asenimi ei kelpaa kontaktiksi. Tyhjä nimi ei ole
-        # poissuljettujen listalla, joten se menisi muuten läpi juuri kuin
-        # kiväärillä ammuttu osuma -- ja ensikontakti voisi aikaistua hetkeen,
-        # jonka lähdettä ei tunneta.
+        # An unknown or empty weapon name does not count as contact. An empty
+        # name is not on the exclusion list, so it would otherwise pass just
+        # like a hit fired with a rifle -- and first contact could move
+        # earlier, to a moment whose source is not known.
         return False
     return weapon_name not in excluded
 
@@ -1230,19 +1273,20 @@ def _is_contact(
 def _check_tick_rate(tick_rate: float) -> None:
     if not tick_rate > 0:
         raise ValueError(
-            f"Tickrate {tick_rate!r} ei kelpaa näytteistykseen: sen on oltava "
-            "positiivinen, muuten sekunteja ei voi muuntaa tickeiksi."
+            f"The tick rate {tick_rate!r} does not do for sampling: it has to "
+            "be positive, otherwise seconds cannot be converted into ticks."
         )
 
 
 def _unique_sorted_seconds(sample_seconds: Sequence[float]) -> list[float]:
-    """Näytepisteet nousevassa järjestyksessä, kaksoiskappaleet poistettuna."""
+    """The sample points in ascending order, with duplicates removed."""
     values = [float(s) for s in sample_seconds]
     negative = [s for s in values if s < 0]
     if negative:
         raise ValueError(
-            f"Näytepiste {negative[0]:g} s on negatiivinen. Näytepisteet "
-            "mitataan freezetimen lopusta eteenpäin, joten negatiivinen arvo "
-            "osoittaisi ostoaikaan, jossa pelaajat eivät ole vielä liikkuneet."
+            f"The sample point {negative[0]:g} s is negative. Sample points "
+            "are measured forward from the end of freezetime, so a negative "
+            "value would point into buy time, where the players have not "
+            "moved yet."
         )
     return sorted(set(values))

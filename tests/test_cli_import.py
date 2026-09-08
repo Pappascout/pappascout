@@ -136,7 +136,7 @@ def test_a_matching_map_needs_no_question_at_all(tuonti) -> None:
     result = invoke()
 
     assert result.exit_code == 0, result.output
-    assert "Tuodaanko" not in result.output
+    assert f"Import {UNIT} anyway?" not in result.output
     assert imported(archive) is not None
     meta = json.loads(
         (archive.demos_dir() / f"{UNIT}.meta.json").read_text(encoding="utf-8")
@@ -342,7 +342,7 @@ def test_every_note_reaches_the_screen(tuonti) -> None:
     assert result.exit_code == 0, result.output
     # Poikkeama ja lähdetiedoston kohtalo ovat molemmat omia huomioitaan.
     assert "de_nuke" in result.output
-    assert "poistettiin tuontikansiosta" in result.output
+    assert "was removed from the import folder" in result.output
 
 
 def test_the_run_time_is_reported(tuonti) -> None:
@@ -391,7 +391,9 @@ def test_the_plan_is_printed_before_the_question_is_asked(tuonti) -> None:
 
     output = invoke(input="e\n").output
 
-    assert output.index("Kartta otsikosta") < output.index("Tuodaanko")
+    assert output.index("Kartta otsikosta") < output.index(
+        f"Import {UNIT} anyway?"
+    )
 
 
 # -- Karttapoikkeama: --kylla EI ohita ---------------------------------------
@@ -405,8 +407,8 @@ def test_kylla_does_not_skip_the_map_confirmation(tuonti) -> None:
     result = invoke("--kylla", input="e\n")
 
     assert result.exit_code == 0, result.output
-    assert "Kartta ei täsmää" in result.output
-    assert "Tuodaanko" in result.output
+    assert "The map does not match" in result.output
+    assert f"Import {UNIT} anyway?" in result.output
     assert imported(archive) is None
     assert (archive.import_dir() / FACEIT_NAME).read_bytes() == ZSTD_BYTES
 
@@ -425,7 +427,7 @@ def test_kylla_does_not_skip_the_question_when_there_is_no_veto_data(
     result = invoke("--kylla", input="e\n")
 
     assert result.exit_code == 0, result.output
-    assert "vetotieto" in result.output
+    assert "veto data" in result.output
     assert imported(archive) is None
 
 
@@ -465,7 +467,7 @@ def test_kylla_does_skip_the_overwrite_question(tuonti) -> None:
     result = invoke("--kylla")
 
     assert result.exit_code == 0, result.output
-    assert "Korvataanko" not in result.output
+    assert f"Replace {UNIT}?" not in result.output
     assert vanha.read_bytes() == ZSTD_BYTES
 
 
@@ -480,7 +482,7 @@ def test_without_kylla_the_existing_file_is_not_overwritten_silently(
     result = invoke(input="e\n")
 
     assert result.exit_code == 0, result.output
-    assert "Korvataanko" in result.output
+    assert f"Replace {UNIT}?" in result.output
     assert vanha.read_bytes() == b"vanha"
 
 
@@ -523,7 +525,7 @@ def test_an_empty_answer_does_not_import(tuonti) -> None:
     assert imported(archive) is None
 
 
-def test_a_non_numeric_map_is_a_finnish_error(tuonti, monkeypatch, capsys) -> None:
+def test_a_non_numeric_map_is_the_tools_own_error(tuonti, monkeypatch, capsys) -> None:
     """**``--map abc`` ei saa kaatua typerin englanninkieliseen viestiin.**
 
     Aiemmin komentorivi julisti arvon kokonaisluvuksi, jolloin ``typer``
@@ -542,7 +544,7 @@ def test_a_non_numeric_map_is_a_finnish_error(tuonti, monkeypatch, capsys) -> No
     assert exit_info.value.code == EXIT_KNOWN_ERROR
     captured = capsys.readouterr()
     output = captured.err + captured.out
-    assert "ei ole kokonaisluku" in output
+    assert "is not a whole number" in output
     assert "Invalid value" not in output
 
 
@@ -565,7 +567,7 @@ def test_a_rejection_shows_its_advice_on_its_own_line(
     assert exit_info.value.code == EXIT_KNOWN_ERROR
     captured = capsys.readouterr()
     output = captured.err + captured.out
-    assert "alkaa ykk" in output
+    assert "starts at one" in output
     assert "-> " in output
 
 

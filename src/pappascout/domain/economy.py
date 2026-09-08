@@ -1,266 +1,276 @@
-"""Kierroksen talouspäättely: loss count ja kierrostyyppi (AD-4).
+"""The round's economy reasoning: loss count and round type (AD-4).
 
-Tämä moduuli on ``classify``-vaiheen aivot. Se ei lue demoa, tiedostoja eikä
-asetustiedostoa -- se saa kierrostaulun rivit ja ``[thresholds]``-osion ja
-palauttaa jokaiselle kierrokselle tyypin, **ihmisluettavan perustelun** ja
-**kaikki vertailuun käytetyt arvot**. Perustelu ja lähtöarvot eivät ole koriste:
-ilman niitä kynnysten kalibrointi olisi arvailua, eikä tuotteen omistaja
-pystyisi tarkistamaan työkalun näkemystä demoa vasten.
+This module is the brain of the ``classify`` stage. It reads no demo, no
+files and no settings file -- it is given the rows of the rounds table and
+the ``[thresholds]`` section, and it returns for every round a type, a
+**human-readable reason** and **every value used in the comparison**. The
+reason and the input values are not decoration: without them calibrating the
+thresholds would be guesswork, and the product owner could not check the
+tool's verdict against the demo.
 
-Mitä havaitaan ja mitä johdetaan
---------------------------------
-``parse`` havaitsee: raha ja käytetty raha ostoajan lopussa, varustearvo
-ostoajan lopussa, kierroksen alun varustearvo, luettavissa olleiden
-pelaajien määrä, eloonjääneet ja voittaja. Tämä moduuli johtaa niistä loss
-countin ja kierrostyypin. Mitään johdettua ei kirjoiteta takaisin
-``parsed/``-hakemistoon.
+What is observed and what is derived
+------------------------------------
+``parse`` observes: money and money spent at the end of buy time, the
+equipment value at the end of buy time, the equipment value at the start of
+the round, the number of players that could be read, the survivors and the
+winner. This module derives the loss count and the round type from those.
+Nothing derived is written back into the ``parsed/`` directory.
 
-Rahan kaksi suuntaa -- lue tämä ennen kuin muutat kynnyksiä
------------------------------------------------------------
-``money_buy_end`` on **jäljelle jäänyt saldo ostoajan jälkeen**, ei
-käytettävissä ollut raha. Säästökierroksella se on siksi *suuri* ja täydellä
-ostolla *pieni*. Käytettävissä ollut raha saadaan summana::
+The two directions of money -- read this before you change a threshold
+----------------------------------------------------------------------
+``money_buy_end`` is the **balance left over after buy time**, not the money
+that was available. On a saving round it is therefore *large* and on a full
+buy *small*. The money that was available is obtained as the sum::
 
-    käytettävissä = money_buy_end + money_spent
+    available = money_buy_end + money_spent
 
-Kalibrointi 2026-08-29 osoitti, että **päätös nojaa jäljelle jääneeseen
-saldoon**, ei käytettävissä olleeseen rahaan: se erottaa forcen puoliostosta
-(S2 alla). Käytettävissä ollut raha kulkee yhä perustelussa ja
-``inputs``-rakenteessa, koska se selittää lukijalle, mistä joukkueen tilanne
-syntyi, mutta yksikään sääntö ei enää vertaa siihen.
+The calibration of 2026-08-29 showed that **the decision leans on the balance
+left over**, not on the money that was available: that is what separates a
+force from a half-buy (S2 below). The money that was available still travels
+in the reason and in the ``inputs`` structure, because it explains to the
+reader how the team's situation came about, but no rule compares against it
+any more.
 
-Ostettu summa on erotus ``equip_buy_end - equip_round_start``. Se on ainoa
-suoraan havaittu mittari sille, ostiko joukkue vai ei, ja juuri se erottaa
-ostokierroksen (force tai puoliosto) ecosta.
+The amount bought is the difference ``equip_buy_end - equip_round_start``. It
+is the only directly observed measure of whether the team bought or not, and
+it is exactly what separates a buy round (a force or a half-buy) from an eco.
 
-Oletuspistooli (Glock / USP-S / P2000) on ilmainen mutta lasketaan
-varustearvoon **200 $:n** arvoisena, joten jokaisella pelaajalla on aina
-vähintään 200 $ varustearvoa ja täysi eco on joukkueena noin 1 000 $, ei 0.
-Kynnykset pidetään raa'assa varustearvossa; pistoolin osuutta ei vähennetä.
+The default pistol (Glock / USP-S / P2000) is free but is counted into the
+equipment value as being worth **$200**, so every player always has at least
+$200 of equipment value and a full eco is about $1,000 for the team, not 0.
+The thresholds are kept in the raw equipment value; the pistol's share is not
+subtracted.
 
-Kolme kovaa sääntöä (kalibrointi 2026-08-29)
---------------------------------------------
-Nämä ovat sääntöjä, eivät kynnyksiä. Niitä ei viilata luvuilla. Ne tulevat
-``kalibrointi-kierrostyypit.md``-dokumentista, joka on ihmisen antama totuus:
-jos tämä moduuli ja se dokumentti ovat eri mieltä, **tämä moduuli on väärässä**.
-
-* **S1 -- Säästö on aina reaktio häviöön.** Voitetun kierroksen jälkeen
-  joukkue tekee normaalin oston. Voiton jälkeen ei siis koskaan ``eco``,
-  ``force`` eikä ``half``; ainoa poikkeus on niin matala varustearvo, ettei se
-  ole osto lainkaan -- se on ``anomaly``.
-* **S2 -- Force ja puoliosto eroavat taskuun jätetystä rahasta, eivät
-  varustearvosta.** Force = ostettiin tyhjäksi. Puoliosto = ostettiin, mutta
-  jätettiin varaa seuraavalle kierrokselle. **Ehto lasketaan pelaajista, ei
-  keskiarvosta** (ks. "Puolioston kaksi ehtoa" alla).
-* **S3 -- Säästetty ase ei ole ostos.** Ratkaisee tällä kierroksella ostettu
-  summa (``equip_buy_end - equip_round_start``), ei varustearvo. Eloon
-  jääneiden säästämä kalusto nostaa varustearvoa ilman että mitään ostettiin,
-  ja varustearvoon nojaava sääntö kääntäisi sellaisen econ puoliostoksi.
-
-Sääntöjärjestys
----------------
-Järjestys on tarkoituksella jyrkkä, ja ensimmäinen osuma voittaa:
-
-1. **Puuttuva havainto** -- ``status != "ok"`` tai raha, varustearvo tai
-   kierroksen alun varustearvo tyhjä. Kierrosta ei luokitella: ``round_type``
-   on ``None`` ja syy kertoo miksi. Ajo ei kaadu. Puuttuvaa lähtöarvoa ei
-   korvata nollalla: nolla väittäisi, että koko varustearvo ostettiin tällä
-   kierroksella, ja kääntäisi aidon säästön forceksi.
-2. **Pistooli** -- kierrosnumerosta (``pistol_rounds``), ei rahasta.
-3. **Jatkoaika** -- ``round_no > regulation_rounds``.
-4. **Negatiivinen ostos** -- varustearvo laski kierroksen alusta freezetimen
-   loppuun. Havainnot ovat ristiriidassa, joten tulos on ``anomaly``; nollaan
-   vaimentaminen piilottaisi virheen. Tämä on **ennen** täyttä ostoa: jos
-   havainnot ovat keskenään ristiriidassa, niistä ei lueta luokkaa, oli
-   varustearvo miten korkea tahansa.
-5. **Täysi osto** -- varustearvo/pelaaja ``>= full_equip_min``.
-6. **Edellistä kierrosta ei ole** -- eco, force ja puoliosto ovat sääntöjä
-   *suhteessa edelliseen kierrokseen*, joten ilman sitä tulos on ``anomaly``.
-7. **Voiton jälkeen** (S1) -- ``full``, paitsi jos varustearvo jäi
-   ``anomaly_equip_max_after_win``iin tai sen alle: silloin ``anomaly``.
-   Voiton jälkeen ei ole ecoa, forcea eikä puoliostoa.
-8. **Hävityn jälkeen** -- osto on kaikkien yhteinen edellytys, ja sen
-   jälkeen kaksi ehtoa ratkaisevat luokan::
-
-       varusteet >= full_equip_min                       -> full  (vaihe 5)
-       ostettu < force_buy_min                           -> eco   (S3)
-       ostettu >= force_buy_min:
-           havainto puuttuu tai on ristiriitainen        -> ei luokitella
-           ehto A ei täyty (liian harva aseistettu)      -> eco
-           raha ei siirry seuraavalle kierrokselle       -> force
-           ehto A täyttyy, ehto B ei                     -> force
-           molemmat täyttyvät                            -> half
-
-   Ensimmäinen rivi on sama sääntö kuin vaihe 5 ja osuu jo siellä; se on
-   tässä siksi, että häviön haara olisi luettavissa yksinään.
-
-Puolioston kaksi ehtoa (Story 1.10)
------------------------------------
-Tuotteen omistajan määritelmä on **kaksisuuntainen**:
-
-    "Puoliosto ei ole force silloin kun seuraavalla kierroksella
-    mahdollistetaan normaali osto, ja ei ole eco kun käytössä on tarpeeksi
-    arvoa."
-
-**Ehto A -- kalusto.** Vähintään ``armed_players_min`` pelaajalla oli panssari
-ja jokin parannettu ase ostoajan lopussa (havainto ``players_armed_buy_end``,
-Story 1.6). Tämä erottaa puolioston **ecosta**: alle sen kierrosta ei oikeasti
-pelata.
-
-**Ehto B -- ensi kierroksen varallisuus.** Vähintään
-``normal_buy_players_min`` pelaajaa pystyy normaaliin ostoon seuraavalla
-kierroksella: oma saldo ostoajan lopussa plus häviöbonus yltää arvoon
-``normal_buy_money_min``. Tämä erottaa puolioston **forcesta**.
-
-**Molempien on täytyttävä, eikä kumpikaan riitä yksin.** Ehdot mittaavat eri
-asiaa: A katsoo tälle kierrokselle ostettua kalustoa, B seuraavan kierroksen
-ostovoimaa. ``inferno_vs_ryhmarama`` kierroksilla 6 ja 10 on **molemmissa
-viisi aseistettua pelaajaa**, joten ehto A ei erota niitä lainkaan; erottelun
-tekee ehto B -- kierroksella 6 kukaan viidestä ei pysty ostamaan (tuotteen
-omistaja: force), kierroksella 10 kaikki viisi (tuotteen omistaja:
-puoliosto). Kierros 11 vahvisti
-ennusteen **normaalilla ostolla** -- viisi AK:ta, 4 940 $/pelaaja -- ja se on
-pinnattu omana rivinään ``test_calibration.py``:n ``INFERNO_TRUTH``iin,
-jottei väite eläisi vain kommenteissa.
-
-Mikä tässä on mitattu ja mikä ei
---------------------------------
-**Yksikään mitattu kierros ei erota tätä sääntöä poistuneesta
-keskiarvosäännöstä.** Kuudessa demossa on 23 hävityn kierroksen jälkeistä
-ostokierrosta, ja vanha ``force_money_left_max`` antaisi niistä jokaiselle
-saman luokan kuin ehdot A ja B. Myös aineiston epätasaisin jakauma (Anubis
-kierros 6 CT: 5 050, 4 500, 2 700, 2 250, 2 150) menee samoin.
-
-Kierrokset 6 ja 10 eivät ole vastaesimerkki vanhalle säännölle. Vanha sääntö
-luokitteli kierroksen 6 väärin vain **ennen Story 1.9:ää**, kun raha luettiin
-freezetimen lopusta eikä ostoajan lopusta; korjauksen teki mittaus, ei sääntö.
-
-Säännön peruste on siis kaksiosainen, ja kumpikaan osa ei ole "mittaus kumosi
-edellisen säännön":
-
-1. **Se toteuttaa käyttäjän oman määritelmän**, joka on pelaajakohtainen:
-   *"paljonko rahaa on jätetty taskuun ja mitä se tarkoittaa seuraavalle
-   ostolle"* -- kysymys yksittäisistä pelaajista, ei joukkueen keskiarvosta.
-2. **Se kestää epätasaisen jakauman.** Käsin rakennetut rivit
-   (``test_economy.py``) osoittavat sen suoraan: sama joukkuesumma, eri
-   jakauma, eri tuomio. Keskiarvo ei voi erottaa niitä millään kynnyksellä.
-
-Aineisto ei siis vielä koettele sääntöä. Ensimmäinen kierros, jolla raha on
-kasautunut harvoille, on myös ensimmäinen, joka voi kumota sen.
-
-Miksi jakauma eikä keskiarvo
-----------------------------
-Ehto B lasketaan **pelaajakohtaisesta rahajakaumasta**
-(``money_players_buy_end``), ei joukkuesummasta. Keskiarvo peittää juuri sen,
-mistä on kyse: joukkue jolla yhdellä on 5 000 ja neljällä nolla saa saman
-keskiarvon kuin joukkue jolla kaikilla on 1 000, mutta edellisessä neljä
-viidestä ei voi ostaa mitään. Keskiarvo antaa myös mahdottomia lukuja:
-kalibroinnin kierros 19 CT näytti "30 $/pelaaja", kun todelliset saldot olivat
-0, 0, 50, 50, 50 -- kaikki hinnat ovat viidenkymmenen monikertoja, joten 30 ei
-voi olla kenenkään saldo.
-
-Sama vika **voi olla** säännössä eikä vain esitystavassa: poistunut
-``force_money_left_max`` oli kiinteä raja joukkuesummalle viidellä jaettuna,
-joten sen läpäisisi myös joukkue, jonka neljä viidestä ei voi ostaa mitään.
-Aineistossa sellaista kierrosta ei toistaiseksi ole -- väite on siis säännön
-rakenteesta, ei havainnosta.
-
-Miksi bonus lasketaan häviön oletuksella
-----------------------------------------
-Puoliosto on päätös, joka tehdään varautuen siihen ettei tätä kierrosta
-voiteta. Jos joukkue voittaa, rahaa tulee enemmän eikä kysymystä ole. Sääntö
-kysyy siis: *jos tämä menee pieleen, onko meillä silti varaa?* Siksi bonus
-luetaan loss countista, joka **on jo** se porras, joka maksetaan tämän
-kierroksen häviöstä (:func:`loss_bonus_if_lost`).
-
-Miksi ``loss_count`` palaa päätöksentekoon
+Three hard rules (calibration 2026-08-29)
 -----------------------------------------
-Se poistui päätöksestä Story 1.4:ssä, koska yksikään sääntö ei enää
-verrannut siihen. Nyt sillä on tehtävä: häviöbonus on suoraan sen funktio
-(``[economy].loss_bonus_steps``, portaat 1 400-3 400 $), ja juuri bonus
-ratkaisee erottelun. Kierroksilla 6 ja 10 taskuun jäänyt raha on samaa
-suuruusluokkaa, mutta bonus on 1 900 vastaan 3 400 -- ja se siirtää rajaa.
+These are rules, not thresholds. They are not tuned with numbers. They come
+from the ``kalibrointi-kierrostyypit.md`` document, which is the truth given
+by a human: if this module and that document disagree, **this module is
+wrong**.
 
-Bonusta ei kovakoodata: portaat luetaan asetuksista, ja siksi tämä moduuli
-saa myös ``[economy]``-osion. ``stages.classify`` ottaa sen mukaan
-parametrihashiinsa, joten portaan muuttaminen invalidoi luokittelun tuloksen.
+* **S1 -- Saving is always a reaction to a loss.** After a round that was won
+  a team makes a normal buy. So after a win there is never ``eco``, ``force``
+  or ``half``; the only exception is an equipment value so low that it is not
+  a buy at all -- that is an ``anomaly``.
+* **S2 -- A force and a half-buy differ by the money left in the pocket, not
+  by the equipment value.** Force = bought until empty. Half-buy = bought,
+  but left room for the next round. **The condition is computed from the
+  players, not from an average** (see "The half-buy's two conditions" below).
+* **S3 -- A saved weapon is not a purchase.** What decides is the amount
+  bought on this round (``equip_buy_end - equip_round_start``), not the
+  equipment value. The kit the survivors saved raises the equipment value
+  without anything having been bought, and a rule leaning on the equipment
+  value would turn such an eco into a half-buy.
 
-Miksi täysi osto ratkaistaan ennen edellisen kierroksen tuntemista
--------------------------------------------------------------------
-Kalibrointidokumentin johdettu järjestys tarkistaa edellisen kierroksen ennen
-täyttä ostoa. Tässä moduulissa vaihe 5 on tarkoituksella ennen vaihetta 6:
-5 000 $/pelaaja on täysi osto riippumatta siitä, tunnetaanko edellinen kierros.
-Vasta puoliajan ensimmäisellä kierroksella ja kierrosnumeroiden aukossa
-edellistä ei ole, ja niissä ``anomaly`` väittäisi ilmiselvästä täydestä ostosta,
-ettei sitä voi luokitella. Edellisen kierroksen tuntemista tarvitaan vain
-econ, forcen ja puolioston erottamiseen toisistaan -- ei täyden oston
-tunnistamiseen. Järjestys on pinnattu testillä, jotta se ei muutu vahingossa.
+Rule order
+----------
+The order is deliberately steep, and the first match wins:
 
-Miksi ``force_buy_min`` on forcen **ehto**, ei sen kaista
----------------------------------------------------------
-Vanha malli vertasi ostettua summaa kaistaan ``force_money_min`` ..
-``force_money_max``. Yläraja teki kalibrointidemon kierroksesta 20
-poikkeaman: 2 710 $/pelaaja ylitti kaistan mutta jäi täyden oston alle, eikä
-mikään sääntö kattanut sitä. Ylhäältä rajaa nyt ``full_equip_min``, joten
-kaistaa ei tarvita.
+1. **A missing observation** -- ``status != "ok"``, or money, the equipment
+   value or the equipment value at the start of the round is empty. The round
+   is not classified: ``round_type`` is ``None`` and the reason says why. The
+   run does not come down. A missing input value is not replaced with zero:
+   zero would claim that the whole equipment value was bought on this round,
+   and would turn a genuine saving round into a force.
+2. **Pistol** -- from the round number (``pistol_rounds``), not from money.
+3. **Overtime** -- ``round_no > regulation_rounds``.
+4. **A negative purchase** -- the equipment value fell from the start of the
+   round to the end of freezetime. The observations contradict each other, so
+   the result is ``anomaly``; damping it to zero would hide the fault. This is
+   **before** the full buy: if the observations contradict each other, no
+   class is read off them, however high the equipment value is.
+5. **A full buy** -- equipment value/player ``>= full_equip_min``.
+6. **There is no previous round** -- eco, force and half-buy are rules
+   *relative to the previous round*, so without it the result is ``anomaly``.
+7. **After a win** (S1) -- ``full``, except when the equipment value stayed at
+   ``anomaly_equip_max_after_win`` or below: then ``anomaly``. After a win
+   there is no eco, no force and no half-buy.
+8. **After a loss** -- a purchase is the shared precondition of them all, and
+   after it two conditions decide the class::
 
-Alaraja sen sijaan tarvitaan, eikä pelkkä "raha loppui" riitä forceksi: köyhä
-joukkue, joka ostaa panssarin ja pistoolin viimeisillä rahoillaan, tyhjensi
-kassan mutta ei forcannut. Siksi ``force_buy_min`` on kaikkien häviön
-jälkeisten ostosääntöjen yhteinen edellytys, ja vasta sen jälkeen ehdot A ja B
-erottavat econ, forcen ja puolioston toisistaan.
+       equipment >= full_equip_min                    -> full  (step 5)
+       bought < force_buy_min                         -> eco   (S3)
+       bought >= force_buy_min:
+           an observation is missing or contradictory -> not classified
+           condition A fails (too few armed)          -> eco
+           money does not carry to the next round     -> force
+           condition A holds, condition B does not    -> force
+           both hold                                  -> half
 
-``force_buy_min`` **on havaittu**: kalibrointiaineiston forcet ostivat
-1 840-2 710 ja ecot 120-950 $/pelaaja, eli valittu 1 500 on tyhjässä välissä
-ja marginaalia jää molempiin suuntiin (550 ecoihin, 340 forceihin). Se ei ole
-välin keskikohta eikä sen tarvitse olla; olennaista on, että kumpikaan havaittu
-joukko ei ole lähellä.
+   The first row is the same rule as step 5 and already hits there; it is here
+   so that the loss branch can be read on its own.
 
-Aukkoja ei enää ole
--------------------
-Häviön haara on tyhjentävä: neljäs rivi (``eco``) kattaa kaiken, mitä kolme
-ensimmäistä eivät kata, joten talouspäättelyyn ei jää poikkeamaksi putoavaa
-väliä. ``anomaly`` on nyt varattu tilanteille, joissa **havainto** on
-ristiriitainen (negatiivinen ostos, puuttuva tai epäjatkuva edellinen kierros)
-tai joissa voiton jälkeen ei ostettu käytännössä mitään.
+The half-buy's two conditions (Story 1.10)
+------------------------------------------
+The product owner's definition is **two-directional**:
 
-Tunnetut rajaukset
-------------------
-* **Jatkoaika litistetään yhdeksi ``ot``-tyypiksi.** Myös jatkoajassa
-  säästetään ja forcataan, mutta talousmalli on eri (aloitusraha
-  ``league.ot_start_money``, ei eco-sykliä), eikä ``[league]``-osio vaikuta
-  tässä storyssa päättelyyn lainkaan -- vain manifestin parametrihashiin ja
-  kierroslistan otsikkoon. Jatkoajan oma talouspäättely on v2.
-* **Häviön jälkeinen ostokierros vaatii molemmat pelaajakohtaiset havainnot.**
-  Jos ``players_armed_buy_end`` tai ``money_players_buy_end`` puuttuu -- tai
-  jos ne ovat keskenään ristiriidassa ``players_buy_end``in kanssa --
-  kierrosta ei luokitella lainkaan. Ehtoja A ja B ei voi arvata
-  joukkuesummasta. Muut haarat (pistooli, jatkoaika, täysi osto, voiton
-  jälkeen, eco ilman ostoa) eivät lue niitä eivätkä siis kaadu niiden
-  puutteeseen.
-* **Puoliajan viimeisellä kierroksella ehtoa B ei lasketa.** Raha ei siirry
-  pistoolikierrokselle eikä jatkoajalle, joten taskuun jätettyä rahaa ei ole
-  jätetty varaa varten -- tulos on ``force`` (ks.
-  :func:`_money_carries_over`). Sääntö ei siis voi tuottaa puoliostoa
-  kierrokselle, jolla säästäminen on mahdotonta.
-* **Vajaalla joukkueella molemmat pelaajalaskurit skaalataan luettavien
-  määrään** (``min(kynnys, luettavat)``). Kolmea aseistettua ei voi havaita
-  kahdesta pelaajasta, ja ilman skaalausta puoliosto olisi tavoittamaton aina
-  kun luettavia on kynnystä vähemmän. Skaalaus kerrotaan perustelussa. Se on
-  myönnytys, ei tarkennus: kahdesta luettavasta pelaajasta ei voi päätellä,
-  mitä kolme muuta tekivät.
-* ``normal_buy_money_min`` on **yhden pelaajan oma saldo**, ei joukkueen
-  keskiarvo -- toisin kuin kaikki muut tämän moduulin raharajat, jotka ovat
-  per pelaaja -arvoja. Ero on koko säännön syy.
-* ``armed_players_min`` **on lausuttu sääntö, ei havainto.** Käyttäjä sanoi
-  rajan ("vähintään kolmella kevlar ja jokin parannettu ase"), mutta yksikään
-  kalibroitu kierros ei koettele sitä: aineiston ainoa vähän aseistettu
-  kierros (Ancient 21 T, 2/5) ratkeaa jo ostorajalla ``force_buy_min`` eikä
-  koskaan saavuta ehtoa A. Sama koskee ``normal_buy_players_min``ia:
-  havainnot ovat 0/5 ja 5/5, joten mikä tahansa arvo väliltä 1..5 tuottaisi
-  samat tuomiot.
+    "A half-buy is not a force when a normal buy is made possible on the
+    next round, and is not an eco when there is enough value in use."
 
-Moduuli on puhdas ja testataan käsin rakennetuilla tauluilla ilman demoja.
+**Condition A -- kit.** At least ``armed_players_min`` players had armour and
+some upgraded weapon at the end of buy time (the observation
+``players_armed_buy_end``, Story 1.6). This separates the half-buy from an
+**eco**: below that the round is not really played.
+
+**Condition B -- the next round's wealth.** At least
+``normal_buy_players_min`` players can make a normal buy on the next round:
+their own balance at the end of buy time plus the loss bonus reaches
+``normal_buy_money_min``. This separates the half-buy from a **force**.
+
+**Both must hold, and neither is enough on its own.** The conditions measure
+different things: A looks at the kit bought for this round, B at the buying
+power of the next one. ``inferno_vs_ryhmarama`` rounds 6 and 10 both have
+**five armed players**, so condition A does not separate them at all; the
+separation is made by condition B -- on round 6 not one of the five can buy
+(the product owner: force), on round 10 all five can (the product owner:
+half-buy). Round 11 confirmed the prediction with a **normal buy** -- five
+AKs, $4,940/player -- and it is pinned as a row of its own in
+``test_calibration.py``'s ``INFERNO_TRUTH``, so that the claim does not live
+in comments alone.
+
+What is measured here and what is not
+-------------------------------------
+**Not one measured round separates this rule from the retired average rule.**
+Six demos hold 23 buy rounds after a loss, and the old ``force_money_left_max``
+would give every one of them the same class as conditions A and B do. The most
+uneven distribution in the data (Anubis round 6 CT: 5,050, 4,500, 2,700, 2,250,
+2,150) goes the same way too.
+
+Rounds 6 and 10 are not a counterexample to the old rule. The old rule
+classified round 6 wrongly only **before Story 1.9**, when money was read at
+the end of freezetime and not at the end of buy time; the measurement made the
+correction, not the rule.
+
+The rule's justification is therefore in two parts, and neither part is "a
+measurement overturned the previous rule":
+
+1. **It implements the user's own definition**, which is per player: *"how
+   much money has been left in the pocket and what that means for the next
+   buy"* -- a question about individual players, not about the team's average.
+2. **It stands up to an uneven distribution.** The hand-built rows
+   (``test_economy.py``) show it directly: the same team total, a different
+   distribution, a different verdict. No threshold lets an average separate
+   them.
+
+So the data does not test the rule yet. The first round on which money has
+piled up on a few players is also the first one that can overturn it.
+
+Why the distribution and not the average
+----------------------------------------
+Condition B is computed from the **per-player money distribution**
+(``money_players_buy_end``), not from the team total. An average hides exactly
+what is at stake: a team where one player has 5,000 and four have nothing gets
+the same average as a team where everyone has 1,000, but in the former four
+out of five cannot buy anything. An average also gives impossible numbers: the
+calibration's round 19 CT showed "$30/player" when the real balances were 0,
+0, 50, 50, 50 -- every price is a multiple of fifty, so 30 cannot be anyone's
+balance.
+
+The same fault **can be** in the rule and not only in the presentation: the
+retired ``force_money_left_max`` was a fixed limit on the team total divided by
+five, so a team of which four out of five cannot buy anything would pass it
+too. There is no such round in the data so far -- the claim is therefore about
+the rule's structure, not about an observation.
+
+Why the bonus is computed on the assumption of a loss
+-----------------------------------------------------
+A half-buy is a decision made in preparation for not winning this round. If the
+team wins, more money comes in and there is no question. So the rule asks: *if
+this goes wrong, can we still afford it?* That is why the bonus is read off the
+loss count, which **already is** the step that is paid for losing this round
+(:func:`loss_bonus_if_lost`).
+
+Why ``loss_count`` returns to the decision
+------------------------------------------
+It left the decision in Story 1.4, because no rule compared against it any
+more. Now it has a job: the loss bonus is directly a function of it
+(``[economy].loss_bonus_steps``, the steps $1,400-3,400), and it is precisely
+the bonus that decides the separation. On rounds 6 and 10 the money left in the
+pocket is of the same order, but the bonus is 1,900 against 3,400 -- and that
+moves the boundary.
+
+The bonus is not hard-coded: the steps are read from the settings, and that is
+why this module is given the ``[economy]`` section as well. ``stages.classify``
+takes it into its parameter hash, so changing a step invalidates the result of
+the classification.
+
+Why the full buy is decided before the previous round is known
+--------------------------------------------------------------
+The calibration document's derived order checks the previous round before the
+full buy. In this module step 5 is deliberately before step 6: $5,000/player is
+a full buy whether or not the previous round is known. Only on the first round
+of a half and in a gap in the round numbers is there no previous round, and
+there ``anomaly`` would claim of an obvious full buy that it cannot be
+classified. Knowing the previous round is needed only to separate eco, force
+and half-buy from each other -- not to recognise a full buy. The order is
+pinned by a test so that it does not change by accident.
+
+Why ``force_buy_min`` is a **condition** for a force and not its band
+---------------------------------------------------------------------
+The old model compared the amount bought against the band ``force_money_min``
+.. ``force_money_max``. The upper bound made round 20 of the calibration demo
+an anomaly: $2,710/player exceeded the band but stayed below the full buy, and
+no rule covered it. The bound from above is now ``full_equip_min``, so the band
+is not needed.
+
+The lower bound, on the other hand, is needed, and "the money ran out" alone is
+not enough for a force: a poor team that buys armour and a pistol with its last
+money emptied the till but did not force. That is why ``force_buy_min`` is the
+shared precondition of every buy rule after a loss, and only after it do
+conditions A and B separate eco, force and half-buy from each other.
+
+``force_buy_min`` **is observed**: the forces in the calibration data bought
+$1,840-2,710 and the ecos $120-950 per player, so the chosen 1,500 is in an
+empty gap and margin is left in both directions (550 to the ecos, 340 to the
+forces). It is not the midpoint of the gap and it does not have to be; what
+matters is that neither observed set is close.
+
+There are no gaps left
+----------------------
+The loss branch is exhaustive: the fourth row (``eco``) covers everything the
+first three do not, so no interval is left in the economy reasoning that would
+fall through as an anomaly. ``anomaly`` is now reserved for situations in which
+the **observation** is contradictory (a negative purchase, a missing or
+non-contiguous previous round) or in which practically nothing was bought after
+a win.
+
+Known limitations
+-----------------
+* **Overtime is flattened into a single ``ot`` type.** Teams save and force in
+  overtime too, but the economy model is different (starting money
+  ``league.ot_start_money``, no eco cycle), and the ``[league]`` section does
+  not affect the reasoning in this story at all -- only the manifest's
+  parameter hash and the round list's heading. Overtime's own economy
+  reasoning is v2.
+* **A buy round after a loss requires both per-player observations.** If
+  ``players_armed_buy_end`` or ``money_players_buy_end`` is missing -- or if
+  they contradict ``players_buy_end`` -- the round is not classified at all.
+  Conditions A and B cannot be guessed from the team total. The other branches
+  (pistol, overtime, full buy, after a win, an eco without a purchase) do not
+  read them and so do not come down over their absence.
+* **On the last round of a half condition B is not computed.** The money does
+  not carry over to a pistol round or to overtime, so the money left in the
+  pocket has not been left in order to leave room -- the result is ``force``
+  (see :func:`_money_carries_over`). So the rule cannot produce a half-buy on a
+  round on which saving is impossible.
+* **On a short-handed team both player counters are scaled to the number that
+  could be read** (``min(threshold, readable)``). Three armed players cannot be
+  observed from two players, and without the scaling a half-buy would be out of
+  reach whenever fewer players than the threshold can be read. The scaling is
+  stated in the reason. It is a concession, not a refinement: from two readable
+  players it cannot be deduced what the other three did.
+* ``normal_buy_money_min`` is **one player's own balance**, not the team's
+  average -- unlike every other money limit in this module, which are per
+  player values. The difference is the whole reason for the rule.
+* ``armed_players_min`` **is a stated rule, not an observation.** The user gave
+  the limit ("at least three with kevlar and some upgraded weapon"), but not one
+  calibrated round tests it: the only lightly armed round in the data (Ancient
+  21 T, 2/5) is already settled by the buy limit ``force_buy_min`` and never
+  reaches condition A. The same goes for ``normal_buy_players_min``: the
+  observations are 0/5 and 5/5, so any value between 1 and 5 would produce the
+  same verdicts.
+
+The module is pure and is tested with hand-built tables without demos.
 """
 
 from __future__ import annotations
@@ -289,18 +299,18 @@ __all__ = [
 
 
 class Decision(NamedTuple):
-    """Yhden kierroksen luokittelupäätös.
+    """One round's classification decision.
 
-    NamedTuple, joten se puretaan ``round_type, reason, inputs = ...``
-    -muodossa mutta kentät ovat myös nimillä luettavissa.
+    A NamedTuple, so it unpacks in the form ``round_type, reason, inputs =
+    ...`` but the fields can also be read by name.
 
     Attributes:
-        round_type: Kierrostyyppi tai ``None``, jos kierrosta ei voitu
-            luokitella (havainto puuttuu).
-        reason: Suomenkielinen perustelu, joka nimeää päätöksen ratkaisseet
-            arvot. Sisältää aina rahan ja loss countin.
-        inputs: Kaikki vertailuun käytetyt arvot ja kynnykset
-            (``schemas.CLASSIFIED_INPUTS``-rakenne).
+        round_type: The round type, or ``None`` if the round could not be
+            classified (an observation is missing).
+        reason: The reason, which names the values that settled the decision.
+            It always contains the money and the loss count.
+        inputs: Every value and threshold used in the comparison (the
+            ``schemas.CLASSIFIED_INPUTS`` structure).
     """
 
     round_type: str | None
@@ -308,20 +318,20 @@ class Decision(NamedTuple):
     inputs: dict[str, Any]
 
 
-#: Sarakkeet, jotka :func:`loss_counts` tarvitsee.
+#: The columns :func:`loss_counts` needs.
 LOSS_COUNT_COLUMNS: tuple[str, ...] = ("round_no", "side", "won")
 
-#: Sarakkeet, jotka :func:`classify_round` lukee kierrosriviltä.
+#: The columns :func:`classify_round` reads off a round row.
 #:
-#: **Tämä ei ole dokumentaatiota vaan valinta.**
-#: :func:`~pappascout.stages.classify._classify_team` poimii kierrostaulusta
-#: tasan nämä sarakkeet ennen kuin antaa rivit tänne, joten sarakkeen
-#: pudottaminen listalta pudottaa sen myös päätöksestä. Ilman sitä lista
-#: olisi kommentti, joka voi vanhentua hiljaa.
+#: **This is not documentation but a choice.**
+#: :func:`~pappascout.stages.classify._classify_team` picks exactly these
+#: columns out of the rounds table before it hands the rows over here, so
+#: dropping a column from the list drops it from the decision as well. Without
+#: that the list would be a comment, and a comment can go stale in silence.
 #:
-#: ``won`` ja ``survivors`` ovat mukana, koska ne luetaan **edelliseltä**
-#: riviltä (S1 ja ``inputs.survivors_prev``) -- sama rivijoukko kiertää
-#: molemmissa rooleissa.
+#: ``won`` and ``survivors`` are here because they are read off the
+#: **previous** row (S1 and ``inputs.survivors_prev``) -- the same set of rows
+#: goes round in both roles.
 CLASSIFY_COLUMNS: tuple[str, ...] = (
     "round_no",
     "side",
@@ -333,15 +343,16 @@ CLASSIFY_COLUMNS: tuple[str, ...] = (
     "equip_buy_end",
     "equip_round_start",
     "players_buy_end",
-    # Puolioston kaksi ehtoa. Kumpaakaan ei voi laskea joukkuesummasta, ja
-    # juuri siksi ne ovat omina havaintoinaan kierrostaulussa.
+    # The half-buy's two conditions. Neither can be computed from the team
+    # total, and that is exactly why they are observations of their own in
+    # the rounds table.
     ARMED_COLUMN,
     MONEY_DISTRIBUTION_COLUMN,
     "survivors_equip_prev",
 )
 
-#: ``CLASSIFIED_INPUTS``-rakenteen kentät siinä järjestyksessä, jossa ne
-#: kirjoitetaan. Nimet on lukittu ``domain/schemas.py``:ssä.
+#: The fields of the ``CLASSIFIED_INPUTS`` structure in the order in which
+#: they are written. The names are locked in ``domain/schemas.py``.
 INPUT_FIELDS: tuple[str, ...] = (
     "money_buy_end",
     "money_spent",
@@ -366,16 +377,17 @@ INPUT_FIELDS: tuple[str, ...] = (
 
 
 def available_money(row: Mapping[str, Any]) -> int | None:
-    """Kierroksella käytettävissä ollut raha = jäljelle jäänyt + käytetty.
+    """The money available on the round = left over + spent.
 
-    ``None``, jos kumpikaan osa ei ole tiedossa.
+    ``None`` if neither part is known.
 
-    **Yksikään sääntö ei vertaa tähän lukuun.** Eco erottuu ostetusta summasta
-    (``force_buy_min``), ja force erottuu puoliostosta pelaajakohtaisesta
-    rahajakaumasta (ehto B). Käytettävissä ollut raha on perustelussa ja
-    ``inputs``-rakenteessa siksi, että se selittää lukijalle, mistä joukkueen
-    tilanne syntyi -- ja siksi, ettei jäljelle jäänyttä saldoa luulisi
-    käytettävissä olleeksi rahaksi.
+    **No rule compares against this number.** An eco is told apart by the
+    amount bought (``force_buy_min``), and a force is told apart from a
+    half-buy by the per-player money distribution (condition B). The money
+    that was available is in the reason and in the ``inputs`` structure
+    because it explains to the reader how the team's situation came about --
+    and so that the balance left over is not taken for the money that was
+    available.
     """
     left = row.get("money_buy_end")
     spent = row.get("money_spent")
@@ -385,11 +397,11 @@ def available_money(row: Mapping[str, Any]) -> int | None:
 
 
 def per_player(value: Any, players: int) -> int | None:
-    """Dollarimäärä per pelaaja kokonaislukuna.
+    """A dollar amount per player as a whole number.
 
-    **Ainoa** paikka, jossa per pelaaja -arvo pyöristetään. Taulukko ja
-    perustelu näyttävät siksi samalla rivillä saman luvun; kaksi eri
-    pyöristystä erottaisi ne toisistaan dollarilla.
+    The **only** place where a per player value is rounded. That is why the
+    table and the reason show the same number on the same row; two different
+    roundings would separate them by a dollar.
     """
     if value is None or not players:
         return None
@@ -401,38 +413,39 @@ def loss_bonus_if_lost(
     thresholds: ThresholdSettings,
     economy: EconomySettings,
 ) -> int:
-    """Häviöbonus, jonka joukkue saa **jos tämä kierros hävitään**.
+    """The loss bonus the team gets **if this round is lost**.
 
-    Bonus luetaan portaista ``[economy].loss_bonus_steps`` (1 400-3 400 $) --
-    sitä ei kovakoodata. **Indeksi on loss count sellaisenaan**, ei
-    ``loss_count + 1``: laskuri kuvaa tilaa kierrokseen mentäessä, ja juuri
-    se porras maksetaan, jos kierros hävitään. ``settings.toml`` sanoo saman
-    suoraan -- puoliajan alku (``loss_count_half_start = 1``) antaa
-    pistoolihäviöstä 1 900 $, ja se on portaan 1 arvo.
+    The bonus is read off the steps ``[economy].loss_bonus_steps``
+    ($1,400-3,400) -- it is not hard-coded. **The index is the loss count as
+    it is**, not ``loss_count + 1``: the counter describes the state on going
+    into the round, and that is exactly the step that is paid if the round is
+    lost. ``settings.toml`` says the same directly -- the start of a half
+    (``loss_count_half_start = 1``) gives $1,900 for losing the pistol round,
+    and that is the value of step 1.
 
-    Puoliosto on päätös, joka tehdään varautuen häviöön, joten tämä on se
-    luku, jolla ehto B lasketaan. Voitolla kysymystä ei ole: silloin rahaa
-    tulee enemmän kuin bonuksesta.
+    A half-buy is a decision made in preparation for a loss, so this is the
+    number condition B is computed with. On a win there is no question: more
+    money then comes in than from the bonus.
 
-    Mitattu: ``inferno_vs_ryhmarama`` kierros 6 menee laskurilla 1 arvoon
-    1 900 $ ja kierros 10 laskurilla 4 arvoon 3 400 $ (katto). Ero on
-    1 500 $, ja se siirtää rajaa -- taskuun jäänyt raha on kierroksilla samaa
-    suuruusluokkaa.
+    Measured: ``inferno_vs_ryhmarama`` round 6 comes to $1,900 with counter 1
+    and round 10 to $3,400 with counter 4 (the cap). The difference is $1,500,
+    and it moves the boundary -- the money left in the pocket is of the same
+    order on both rounds.
 
     Args:
-        loss_count: Tähän kierrokseen mentäessä voimassa oleva laskuri.
-        thresholds: ``[thresholds]``-osio (laskurin katto).
-        economy: ``[economy]``-osio (portaat).
+        loss_count: The counter in force on going into this round.
+        thresholds: The ``[thresholds]`` section (the counter's cap).
+        economy: The ``[economy]`` section (the steps).
 
     Returns:
-        Bonus dollareina **yhdelle pelaajalle**.
+        The bonus in dollars for **one player**.
     """
     steps = economy.loss_bonus_steps
     index = min(int(loss_count), thresholds.loss_count_max)
-    # Asetusten lataus vaatii tasan loss_count_max + 1 porrasta, joten
-    # katkaisu on turva eikä sääntö: ilman sitä käsin rakennettu
-    # EconomySettings tai negatiivinen laskuri kaataisi luokittelun
-    # IndexErroriin sen sijaan että antaisi reunimmaisen portaan.
+    # Loading the settings requires exactly loss_count_max + 1 steps, so the
+    # clamp is a safeguard and not a rule: without it a hand-built
+    # EconomySettings or a negative counter would bring the classification
+    # down with an IndexError instead of giving the outermost step.
     return int(steps[max(0, min(index, len(steps) - 1))])
 
 
@@ -442,44 +455,47 @@ def players_who_can_buy(
     thresholds: ThresholdSettings,
     economy: EconomySettings,
 ) -> int:
-    """Montako pelaajaa pystyy normaaliin ostoon seuraavalla kierroksella.
+    """How many players can make a normal buy on the next round.
 
-    Ehto B. Pelaaja pystyy, jos hänen **oma** saldonsa ostoajan lopussa plus
-    häviöbonus yltää arvoon ``normal_buy_money_min``.
+    Condition B. A player can if their **own** balance at the end of buy time
+    plus the loss bonus reaches ``normal_buy_money_min``.
 
-    ``normal_buy_money_min`` on yhden pelaajan oma saldo, ei joukkueen
-    keskiarvo. Keskiarvo peittää juuri sen, mistä tässä on kyse: joukkue jolla
-    yhdellä on 5 000 ja neljällä nolla saa saman keskiarvon kuin joukkue jolla
-    kaikilla on 1 000, mutta edellisessä neljä viidestä ei voi ostaa mitään.
+    ``normal_buy_money_min`` is one player's own balance, not the team's
+    average. An average hides exactly what is at stake here: a team where one
+    player has 5,000 and four have nothing gets the same average as a team
+    where everyone has 1,000, but in the former four out of five cannot buy
+    anything.
 
-    **Summa katkaistaan rahakattoon** (``[economy].max_money``). Peli ei anna
-    pelaajalle sen enempää, joten katkaisematta laskuri lupaisi ostovoimaa
-    rahalla, jonka peli leikkaisi pois. Nykyisillä arvoilla katto on 16 000 $
-    eikä pure, mutta se on osa mallia eikä sattumaa.
+    **The sum is clamped to the money cap** (``[economy].max_money``). The
+    game gives a player no more than that, so without the clamp the counter
+    would promise buying power out of money the game would cut away. With the
+    current values the cap is $16,000 and does not bite, but it is part of the
+    model and not an accident.
 
     Args:
-        money_players: Rahajakauma, yksi alkio per luettavissa ollut pelaaja
-            (``ROUNDS.money_players_buy_end``). Ei saa sisältää tyhjiä
-            arvoja: lukuvirhe nollana väittäisi pelaajaa rahattomaksi.
-        loss_bonus: :func:`loss_bonus_if_lost`-funktion tulos.
-        thresholds: ``[thresholds]``-osio.
-        economy: ``[economy]``-osio (rahakatto).
+        money_players: The money distribution, one element per player that
+            could be read (``ROUNDS.money_players_buy_end``). It must not
+            contain empty values: a read error as a zero would claim the
+            player has no money.
+        loss_bonus: The result of :func:`loss_bonus_if_lost`.
+        thresholds: The ``[thresholds]`` section.
+        economy: The ``[economy]`` section (the money cap).
 
     Returns:
-        Laskuri välillä ``0..len(money_players)``.
+        A counter in the range ``0..len(money_players)``.
 
     Raises:
-        SchemaError: Jos jakaumassa on tyhjä arvo. Funktio on julkinen, joten
-            sopimus ei voi elää vain kutsujissa -- hiljainen nolla näyttäisi
-            forcelta.
+        SchemaError: If the distribution holds an empty value. The function is
+            public, so the contract cannot live in the callers alone -- a
+            silent zero would look like a force.
     """
     if any(money is None for money in money_players):
         raise SchemaError(
-            "players_who_can_buy: rahajakaumassa on tyhjä arvo. Puuttuvaa "
-            "saldoa ei korvata nollalla, koska se väittäisi pelaajaa "
-            "rahattomaksi ja kääntäisi puolioston forceksi. Anna jakauma, "
-            "jossa jokainen alkio on havaittu, tai jätä kierros "
-            "luokittelematta."
+            "players_who_can_buy: the money distribution holds an empty "
+            "value. A missing balance is not replaced with zero, because that "
+            "would claim the player has no money and would turn a half-buy "
+            "into a force. Give a distribution in which every element is "
+            "observed, or leave the round unclassified."
         )
     return sum(
         1
@@ -490,39 +506,40 @@ def players_who_can_buy(
 
 
 def loss_counts(team_rounds: pl.DataFrame, thresholds: ThresholdSettings) -> list[int]:
-    """Laske yhden joukkueen loss count jokaiselle kierrokselle.
+    """Compute one team's loss count for every round.
 
-    Laskuri kuvaa tilaa **kierrokseen mentäessä**: puoliajan ensimmäisellä
-    kierroksella se on ``loss_count_half_start``, ja sen jälkeen edellisen
-    kierroksen tulos siirtää sitä yhdellä (häviö ylös, voitto alas) rajojen
-    ``loss_count_min``..``loss_count_max`` sisällä.
+    The counter describes the state **on going into the round**: on the first
+    round of a half it is ``loss_count_half_start``, and after that the
+    previous round's result moves it by one (a loss up, a win down) inside the
+    bounds ``loss_count_min``..``loss_count_max``.
 
-    Puoliaika tunnistetaan **``side``-sarakkeen vaihtumisesta**, ei
-    kierrosnumerosta. Kierrosnumero pettäisi jatkoajassa ja demossa, jossa
-    puoliaika ei ala kierroksesta 13.
+    A half is recognised **from the ``side`` column changing**, not from the
+    round number. The round number would fail in overtime and on a demo whose
+    second half does not start at round 13.
 
-    Kierros, jonka tulos on tuntematon (``won`` on tyhjä), ei siirrä laskuria
-    kumpaankaan suuntaan -- arvaus vääristäisi kaikki seuraavat kierrokset.
+    A round whose result is unknown (``won`` is empty) does not move the
+    counter in either direction -- a guess would distort every round that
+    follows.
 
     Args:
-        team_rounds: Yhden joukkueen rivit, **yksi rivi per kierros** ja
-            järjestettynä ``round_no``-sarakkeen mukaan nousevasti. Vaaditut
-            sarakkeet ovat :data:`LOSS_COUNT_COLUMNS`.
-        thresholds: ``[thresholds]``-osio.
+        team_rounds: One team's rows, **one row per round** and ordered
+            ascending by the ``round_no`` column. The required columns are
+            :data:`LOSS_COUNT_COLUMNS`.
+        thresholds: The ``[thresholds]`` section.
 
     Returns:
-        Lista, jonka alkiot vastaavat syötteen rivejä samassa järjestyksessä.
+        A list whose elements correspond to the input rows in the same order.
 
     Raises:
-        SchemaError: Jos sarake puuttuu, ``round_no`` tai ``side`` on tyhjä,
-            tai rivit eivät ole nousevassa kierrosjärjestyksessä ilman
-            toistoja.
+        SchemaError: If a column is missing, ``round_no`` or ``side`` is
+            empty, or the rows are not in ascending round order without
+            repeats.
     """
     missing = [name for name in LOSS_COUNT_COLUMNS if name not in team_rounds.columns]
     if missing:
         raise SchemaError(
-            "loss_counts tarvitsee sarakkeet "
-            f"{', '.join(LOSS_COUNT_COLUMNS)}; puuttuu: {', '.join(missing)}."
+            "loss_counts needs the columns "
+            f"{', '.join(LOSS_COUNT_COLUMNS)}; missing: {', '.join(missing)}."
         )
     if team_rounds.is_empty():
         return []
@@ -531,21 +548,21 @@ def loss_counts(team_rounds: pl.DataFrame, thresholds: ThresholdSettings) -> lis
     numbers = [r["round_no"] for r in rows]
     if any(n is None for n in numbers):
         raise SchemaError(
-            "loss_counts: round_no sisältää tyhjiä arvoja. Loss count on "
-            "kierrosten järjestykseen sidottu laskuri, joten numeroimaton "
-            "kierros ei voi olla mukana."
+            "loss_counts: round_no holds empty values. The loss count is a "
+            "counter tied to the order of the rounds, so an unnumbered round "
+            "cannot be part of it."
         )
     if any(r["side"] is None for r in rows):
         raise SchemaError(
-            "loss_counts: side sisältää tyhjiä arvoja. Puoliaika tunnistetaan "
-            "puolen vaihtumisesta, joten tyhjä puoli nollaisi laskurin "
-            "äänettömästi ja vääristäisi kaikki seuraavat kierrokset."
+            "loss_counts: side holds empty values. A half is recognised from "
+            "the side changing, so an empty side would reset the counter "
+            "silently and distort every round that follows."
         )
     if any(b <= a for a, b in zip(numbers, numbers[1:])):
         raise SchemaError(
-            "loss_counts: rivit eivät ole nousevassa kierrosjärjestyksessä tai "
-            "sama kierros esiintyy kahdesti. Anna yhden joukkueen rivit "
-            "järjestettynä round_no-sarakkeen mukaan."
+            "loss_counts: the rows are not in ascending round order, or the "
+            "same round appears twice. Give one team's rows ordered by the "
+            "round_no column."
         )
 
     result: list[int] = []
@@ -576,33 +593,33 @@ def classify_round(
     economy: EconomySettings,
     loss_count: int,
 ) -> Decision:
-    """Luokittele yksi kierros yhden joukkueen näkökulmasta.
+    """Classify one round from one team's point of view.
 
-    Sääntöjärjestys on moduulin docstringissä. Ensimmäinen osuva sääntö
-    voittaa, eikä mitään arvata: tuntematon tilanne on ``anomaly``
-    perusteluineen.
+    The rule order is in the module docstring. The first rule that matches
+    wins, and nothing is guessed: an unknown situation is an ``anomaly`` with
+    its reason.
 
     Args:
-        row: Kierrosrivi, sarakkeet :data:`CLASSIFY_COLUMNS`.
-        previous: Saman joukkueen edellinen kierrosrivi tai ``None``.
-            **Jatkuvuus tarkistetaan täällä**: rivi kelpaa edelliseksi vain,
-            jos sen ``round_no`` on tasan yksi pienempi ja ``side`` on sama.
-            Muuten kierroksella ei ole edellistä, eikä voiton tai häviön
-            jälkeisiä sääntöjä sovelleta.
-        thresholds: ``[thresholds]``-osio.
-        economy: ``[economy]``-osio. Tästä luetaan ``loss_bonus_steps``
-            (puolioston ehto B) ja ``max_money`` (sen rahakatto). Osio on
-            kokonaisena parametrina, koska ``stages.classify`` ottaa sen
-            parametrihashiinsa sellaisenaan. **Avainsanaparametri**:
-            positionaalisesti annettuna se sitoutuisi hiljaa
-            ``thresholds``in paikalle, ja kaksi pydantic-osiota menisi
-            vaihtaen läpi tyyppitarkistuksesta.
-        loss_count: Tähän kierrokseen mentäessä voimassa oleva laskuri,
-            :func:`loss_counts`-funktiosta. Se palasi päätöksentekoon Story
-            1.10:ssä: häviöbonus on suoraan sen funktio.
+        row: The round row, the columns :data:`CLASSIFY_COLUMNS`.
+        previous: The same team's previous round row, or ``None``.
+            **Contiguity is checked here**: a row is accepted as the previous
+            one only if its ``round_no`` is exactly one smaller and its
+            ``side`` is the same. Otherwise the round has no previous round,
+            and the rules for after a win or a loss are not applied.
+        thresholds: The ``[thresholds]`` section.
+        economy: The ``[economy]`` section. ``loss_bonus_steps`` (the
+            half-buy's condition B) and ``max_money`` (its money cap) are read
+            from it. The section is a parameter as a whole, because
+            ``stages.classify`` takes it into its parameter hash as it is. A
+            **keyword parameter**: given positionally it would silently bind
+            in ``thresholds``'s place, and two pydantic sections would pass
+            the type check swapped.
+        loss_count: The counter in force on going into this round, from
+            :func:`loss_counts`. It returned to the decision in Story 1.10:
+            the loss bonus is directly a function of it.
 
     Returns:
-        :class:`Decision`, joka purkautuu myös muodossa
+        A :class:`Decision`, which also unpacks in the form
         ``(round_type, reason, inputs)``.
     """
     players, readable, divisor_ok = _players(row, thresholds)
@@ -614,7 +631,7 @@ def classify_round(
     round_no = row.get("round_no")
     if round_no is None:
         return Decision(
-            None, "Kierrosta ei ole numeroitu, joten sitä ei luokitella.", inputs
+            None, "The round has not been numbered, so it is not classified.", inputs
         )
     round_no = int(round_no)
 
@@ -622,8 +639,9 @@ def classify_round(
     if status is not None and str(status) != "ok":
         return Decision(
             None,
-            f"Kierrosta {round_no} ei luokitella: kierroksen tila on "
-            f"{status!r}, eli ostoajan lopun havainnot puuttuvat.",
+            f"Round {round_no} is not classified: the round's status is "
+            f"{status!r}, so the observations from the end of buy time are "
+            "missing.",
             inputs,
         )
 
@@ -633,18 +651,19 @@ def classify_round(
     missing = [
         name
         for name, value in (
-            ("raha", money),
-            ("varustearvo", equip),
-            ("kierroksen alun varustearvo", equip_start),
+            ("money", money),
+            ("equipment value", equip),
+            ("the equipment value at the start of the round", equip_start),
         )
         if value is None
     ]
     if missing:
         return Decision(
             None,
-            f"Kierrosta {round_no} ei luokitella: ostoajan lopusta puuttuu "
-            f"{', '.join(missing)}. Puuttuvaa arvoa ei korvata nollalla, koska "
-            "se väittäisi koko varustearvon ostetuksi tällä kierroksella.",
+            f"Round {round_no} is not classified: the end of buy time is "
+            f"missing {', '.join(missing)}. A missing value is not replaced "
+            "with zero, because that would claim the whole equipment value "
+            "was bought on this round.",
             inputs,
         )
 
@@ -653,56 +672,56 @@ def classify_round(
     if round_no in thresholds.pistol_rounds:
         return Decision(
             "pistol",
-            f"Kierros {round_no} on pistoolikierros "
-            f"({_listing(thresholds.pistol_rounds)}), joten talouspäättelyä ei "
-            f"sovelleta. {basis}",
+            f"Round {round_no} is a pistol round "
+            f"({_listing(thresholds.pistol_rounds)}), so the economy "
+            f"reasoning is not applied. {basis}",
             inputs,
         )
 
     if round_no > thresholds.regulation_rounds:
         return Decision(
             "ot",
-            f"Kierros {round_no} on jatkoaikaa (säännönmukaisia kierroksia "
-            f"{thresholds.regulation_rounds}), joten talouspäättelyä ei "
-            f"sovelleta. {basis}",
+            f"Round {round_no} is overtime (regulation rounds "
+            f"{thresholds.regulation_rounds}), so the economy reasoning is "
+            f"not applied. {basis}",
             inputs,
         )
 
-    # Kaikki vertailtavat per pelaaja -luvut pyöristetään **kerran**, ja
-    # perustelu tulostaa tasan samat luvut. Jos vertailu tehtäisiin
-    # pyöristämättömällä liukuluvulla, perustelu voisi sanoa "ostettu 1500 $
-    # eli alle 1500 $" -- teksti ja päätös olisivat keskenään ristiriidassa
-    # juuri siinä rajatapauksessa, jonka lukija haluaa tarkistaa.
+    # Every per player number that is compared is rounded **once**, and the
+    # reason prints exactly the same numbers. If the comparison were made
+    # with an unrounded float, the reason could say "bought 1500 $, that is
+    # below 1500 $" -- the text and the decision would contradict each other
+    # in exactly the borderline case the reader wants to check.
     #
-    # Puolioston ehdoissa A ja B ongelmaa ei ole lainkaan: ne lasketaan
-    # pelaajakohtaisista havainnoista eikä joukkuesummasta, joten mitään ei
-    # jaeta eikä pyöristetä.
+    # In the half-buy's conditions A and B there is no such problem at all:
+    # they are computed from the per-player observations and not from the
+    # team total, so nothing is divided and nothing is rounded.
     #
-    # Varustearvo ja kierroksen alun varustearvo on juuri todettu olemassa
-    # oleviksi ja pelaajia on aina vähintään yksi, joten nämä eivät voi olla
-    # None.
+    # The equipment value and the equipment value at the start of the round
+    # have just been found to exist, and there is always at least one player,
+    # so these cannot be None.
     equip_pp = per_player(equip, players) or 0
     bought = int(equip) - int(equip_start)
     bought_pp = per_player(bought, players) or 0
 
-    # Ristiriitainen havainto ennen täyttä ostoa: jos varustearvo laski
-    # ostoaikana, luvuista ei lueta luokkaa, oli varustearvo miten korkea
-    # tahansa. Merkki luetaan joukkuesummasta, koska pyöristys per pelaaja
-    # voisi vaimentaa pienen laskun nollaan.
+    # A contradictory observation before the full buy: if the equipment value
+    # fell during buy time, no class is read off the numbers, however high
+    # the equipment value is. The sign is read off the team total, because
+    # rounding per player could damp a small fall to zero.
     if bought < 0:
         return Decision(
             "anomaly",
-            f"Varustearvo laski kierroksen alusta ostoajan loppuun "
-            f"({bought} $ joukkueena, {_d(bought_pp)} $/pelaaja), mikä ei ole "
-            "ostotapahtuma. Havainnot ovat ristiriidassa, eikä erotusta "
-            f"vaimenneta nollaan. {basis}",
+            f"The equipment value fell from the start of the round to the end "
+            f"of buy time ({bought} $ for the team, {_d(bought_pp)} $/player), "
+            "which is not a purchase. The observations contradict each other, "
+            f"and the difference is not damped to zero. {basis}",
             inputs,
         )
 
     if equip_pp >= thresholds.full_equip_min:
         return Decision(
             "full",
-            f"Täysi osto: varustearvo {_d(equip_pp)} $/pelaaja vähintään "
+            f"Full buy: equipment value {_d(equip_pp)} $/player, at least "
             f"{thresholds.full_equip_min} $. {basis}",
             inputs,
         )
@@ -711,38 +730,38 @@ def classify_round(
     if previous_won is None:
         return Decision(
             "anomaly",
-            "Edellistä kierrosta ei ole tai sen tulosta ei tiedetä, joten "
-            "eco-, force- ja puoliostosääntöjä ei voi soveltaa -- ne pätevät "
-            f"vain suhteessa edelliseen kierrokseen. {basis}",
+            "There is no previous round or its result is not known, so the "
+            "eco, force and half-buy rules cannot be applied -- they hold "
+            f"only in relation to the previous round. {basis}",
             inputs,
         )
 
     if bool(previous_won):
-        # S1: säästö on reaktio häviöön, joten voiton jälkeen ei ole ecoa,
-        # forcea eikä puoliostoa -- vain normaali osto tai poikkeama.
+        # S1: saving is a reaction to a loss, so after a win there is no eco,
+        # no force and no half-buy -- only a normal buy or an anomaly.
         if equip_pp <= thresholds.anomaly_equip_max_after_win:
             return Decision(
                 "anomaly",
-                f"Matala varustearvo voiton jälkeen: {_d(equip_pp)} "
-                f"$/pelaaja enintään {thresholds.anomaly_equip_max_after_win} $. "
-                "Ecoa, forcea eikä puoliostoa ei pelata voiton jälkeen, joten "
-                f"tämä on poikkeama eikä eco. {basis}",
+                f"A low equipment value after a win: {_d(equip_pp)} "
+                f"$/player, at most {thresholds.anomaly_equip_max_after_win} $. "
+                "No eco, force or half-buy is played after a win, so this is "
+                f"an anomaly and not an eco. {basis}",
                 inputs,
             )
         return Decision(
             "full",
-            f"Normaali osto voitetun kierroksen jälkeen: varustearvo "
-            f"{_d(equip_pp)} $/pelaaja ylittää matalan varustearvon rajan "
-            f"{thresholds.anomaly_equip_max_after_win} $. Säästö on aina reaktio "
-            "häviöön, joten voiton jälkeen ei tehdä ecoa, forcea eikä "
-            f"puoliostoa. {basis}",
+            f"A normal buy after a round that was won: equipment value "
+            f"{_d(equip_pp)} $/player exceeds the low equipment value limit "
+            f"{thresholds.anomaly_equip_max_after_win} $. Saving is always a "
+            "reaction to a loss, so after a win no eco, force or half-buy is "
+            f"made. {basis}",
             inputs,
         )
 
-    # Edellinen kierros hävittiin. Täysi osto on jo ratkaistu vaiheessa 5,
-    # joten jäljellä ovat force, puoliosto ja eco. Kaikkien yhteinen edellytys
-    # on, että joukkue oikeasti osti (S3): säästetty ase nostaa varustearvoa,
-    # mutta ei ole ostos.
+    # The previous round was lost. The full buy has already been settled in
+    # step 5, so what is left is force, half-buy and eco. Their shared
+    # precondition is that the team really bought (S3): a saved weapon raises
+    # the equipment value but is not a purchase.
     if bought_pp >= thresholds.force_buy_min:
         return _after_loss_purchase(
             row,
@@ -758,31 +777,31 @@ def classify_round(
 
     return Decision(
         "eco",
-        f"Eco hävityn kierroksen jälkeen: ostettu vain {_d(bought_pp)} "
-        f"$/pelaaja eli alle forcen edellytyksen {thresholds.force_buy_min} $. "
-        f"Varustearvo {_d(equip_pp)} $/pelaaja ei ratkaise: säästetty "
-        f"kalusto ei ole tällä kierroksella tehty ostos. {basis}",
+        f"Eco after a round that was lost: bought only {_d(bought_pp)} "
+        f"$/player, below the force precondition {thresholds.force_buy_min} $. "
+        f"The equipment value {_d(equip_pp)} $/player does not decide it: the "
+        f"kit saved is not a purchase made on this round. {basis}",
         inputs,
     )
 
 
-# -- Apurit --------------------------------------------------------------------
+# -- Helpers -------------------------------------------------------------------
 
 
 def _money_carries_over(round_no: int, thresholds: ThresholdSettings) -> bool:
-    """Siirtyykö taskuun jäänyt raha tältä kierrokselta seuraavalle?
+    """Does the money left in the pocket carry from this round to the next?
 
-    Ei siirry kahdessa tilanteessa, ja molemmissa saldo nollataan:
+    It does not in two situations, and in both the balance is reset:
 
-    * **Seuraava kierros on pistoolikierros** (puoliajan ensimmäinen). Peli
-      antaa silloin kaikille ``[economy].start_money``n.
-    * **Seuraava kierros on jatkoaikaa.** Jatkoajalla on oma aloitusraha
-      (``league.ot_start_money``, Pappaliigassa 12 500 $).
+    * **The next round is a pistol round** (the first of a half). The game
+      then gives everyone ``[economy].start_money``.
+    * **The next round is overtime.** Overtime has its own starting money
+      (``league.ot_start_money``, $12,500 in Pappaliiga).
 
-    Ehto B kysyy "onko ensi kierroksella varaa normaaliin ostoon", ja näissä
-    kahdessa tapauksessa kysymys on merkityksetön: taskuun jätetty raha
-    haihtuu. Ks. :func:`_after_loss_purchase` siitä, mitä sääntö silloin
-    tekee.
+    Condition B asks "is there enough for a normal buy on the next round", and
+    in these two cases the question is meaningless: the money left in the
+    pocket evaporates. See :func:`_after_loss_purchase` for what the rule does
+    then.
     """
     following = round_no + 1
     return not (
@@ -803,97 +822,100 @@ def _after_loss_purchase(
     inputs: dict[str, Any],
     basis: str,
 ) -> Decision:
-    """Eco, force vai puoliosto -- kun hävityn jälkeen oikeasti ostettiin.
+    """Eco, force or half-buy -- when after a loss the team really bought.
 
-    Kaksi ehtoa, ja **molempien on täytyttävä** jotta kierros on puoliosto:
+    Two conditions, and **both must hold** for the round to be a half-buy:
 
-    * **Ehto A (kalusto)** erottaa puolioston **ecosta**: vähintään
-      ``armed_players_min`` pelaajalla oli panssari ja ase ostoajan lopussa.
-      Alle sen kierrosta ei oikeasti pelata.
-    * **Ehto B (ensi kierroksen varallisuus)** erottaa sen **forcesta**:
-      vähintään ``normal_buy_players_min`` pelaajaa pystyy normaaliin ostoon
-      seuraavalla kierroksella.
+    * **Condition A (kit)** separates the half-buy from an **eco**: at least
+      ``armed_players_min`` players had armour and a weapon at the end of buy
+      time. Below that the round is not really played.
+    * **Condition B (the next round's wealth)** separates it from a **force**:
+      at least ``normal_buy_players_min`` players can make a normal buy on the
+      next round.
 
-    Ehdot mittaavat eri asioita eikä kumpikaan korvaa toista, mutta **yksikään
-    mitattu kierros ei vielä erota niitä poistuneesta keskiarvosäännöstä**:
-    kuudessa demossa on 23 häviön jälkeistä ostokierrosta, ja vanha sääntö
-    antaisi niistä jokaiselle saman luokan. Ero näkyy vasta epätasaisella
-    jakaumalla, jonka ``test_economy.py`` rakentaa käsin: sama joukkuesumma,
-    eri jakauma, eri tuomio. Säännön peruste on siis käyttäjän oma
-    määritelmä, joka on pelaajakohtainen -- ei mittaus, joka olisi kumonnut
-    edellisen säännön.
+    The conditions measure different things and neither replaces the other,
+    but **not one measured round separates them from the retired average rule
+    yet**: six demos hold 23 buy rounds after a loss, and the old rule would
+    give every one of them the same class. The difference shows only on an
+    uneven distribution, which ``test_economy.py`` builds by hand: the same
+    team total, a different distribution, a different verdict. The rule's
+    justification is therefore the user's own definition, which is per player
+    -- not a measurement that would have overturned the previous rule.
 
-    **Kun raha ei siirry seuraavalle kierrokselle** (ks.
-    :func:`_money_carries_over`), ehto B jätetään laskematta ja tulos on
-    ``force``. Taskuun jätetty raha haihtuu puoliajan vaihtuessa, joten sitä
-    ei ole jätetty *varaa varten* -- eikä kierros voi olla puoliosto S2:n
-    merkityksessä. Tämä on johdos pelin talousmallista, ei kynnys: uutta
-    asetusta ei tarvita, eikä sääntö voi tuottaa puoliostoa kierrokselle,
-    jolla säästäminen on mahdotonta.
+    **When the money does not carry to the next round** (see
+    :func:`_money_carries_over`), condition B is left uncomputed and the
+    result is ``force``. The money left in the pocket evaporates when the half
+    changes, so it has not been left *to leave room* -- and the round cannot
+    be a half-buy in the sense of S2. This follows from the game's economy
+    model and is not a threshold: no new setting is needed, and the rule
+    cannot produce a half-buy on a round on which saving is impossible.
 
-    Molemmat laskurit ovat perustelussa myös silloin, kun toinen jo ratkaisi
-    asian: lukija ei muuten näe, kumpi ehto hylkäsi kierroksen ja kuinka
-    läheltä.
+    Both counters are in the reason even when one of them has already settled
+    the matter: otherwise the reader cannot see which condition rejected the
+    round, and by how little.
     """
     armed = row.get(ARMED_COLUMN)
     money_players = row.get(MONEY_DISTRIBUTION_COLUMN)
 
     missing: list[str] = []
     if armed is None:
-        missing.append("aseistettujen laskuri")
-    # Tyhjä lista on sama asia kuin puuttuva: se ei ole havainto siitä, ettei
-    # ketään ollut, vaan siitä ettei ketään saatu luettua. Yksittäinen tyhjä
-    # alkio tyhjentää saman tien koko jakauman: null tulkittuna nollaksi
-    # väittäisi pelaajaa rahattomaksi, ja lukuvirhe näyttäisi forcelta.
+        missing.append("the armed counter")
+    # An empty list is the same thing as a missing one: it is not an
+    # observation that nobody was there, but that nobody could be read. A
+    # single empty element empties the whole distribution at once: a null
+    # read as zero would claim the player has no money, and a read error
+    # would look like a force.
     if not money_players:
-        missing.append("pelaajakohtainen rahajakauma")
+        missing.append("the per-player money distribution")
     elif any(money is None for money in money_players):
-        missing.append("yhden pelaajan saldo rahajakaumasta")
+        missing.append("one player's balance from the money distribution")
 
     if missing:
         return Decision(
             None,
-            f"Kierrosta {round_no} ei luokitella: hävityn kierroksen jälkeen "
-            f"ostettiin {_d(bought_pp)} $/pelaaja, mutta puoliosto erotetaan "
-            f"forcesta ja ecosta pelaajakohtaisista havainnoista, ja niistä "
-            f"puuttuu {_names(missing)}. Joukkuesummasta niitä ei voi "
-            f"päätellä, eikä luokkaa arvata. {basis}",
+            f"Round {round_no} is not classified: after a round that was lost "
+            f"the team bought {_d(bought_pp)} $/player, but a half-buy is told "
+            f"apart from a force and an eco by the per-player observations, "
+            f"and those are missing {_names(missing)}. They cannot be deduced "
+            f"from the team total, and the class is not guessed. {basis}",
             inputs,
         )
 
     armed = int(armed)
     players_read = len(money_players)
 
-    # Rivin sisäinen ristiriita: kaikkien pelaajakohtaisten lukujen on
-    # tultava **samasta joukosta**. Jos jakauman pituus ja havaittu
-    # pelaajamäärä eroavat, samalla rivillä olisi kaksi eri jakajaa -- ja
-    # laskuri "3/5" tarkoittaisi eri asiaa kuin varustearvo per pelaaja.
-    # Eroa ei paikata kumpaankaan suuntaan.
+    # A contradiction inside the row: every per-player number has to come
+    # from the **same set**. If the length of the distribution and the
+    # observed number of players differ, there would be two different
+    # divisors on the same row -- and the counter "3/5" would mean something
+    # other than the equipment value per player. The difference is not
+    # patched in either direction.
     conflict: str | None = None
     if readable is None or readable != players_read:
         conflict = (
-            f"rahajakaumassa on {players_read} pelaajaa, mutta "
-            f"players_buy_end sanoo {readable}"
+            f"the money distribution holds {players_read} players, but "
+            f"players_buy_end says {readable}"
         )
     elif armed > players_read:
         conflict = (
-            f"aseistettuja on {armed}, mutta luettavissa oli vain "
-            f"{players_read} pelaajaa"
+            f"there are {armed} armed players, but only "
+            f"{players_read} players could be read"
         )
     if conflict is not None:
         return Decision(
             None,
-            f"Kierrosta {round_no} ei luokitella: pelaajakohtaiset havainnot "
-            f"ovat keskenään ristiriidassa -- {conflict}. Laskurit on "
-            f"laskettava samasta joukosta kuin summat, eikä eroa paikata "
-            f"arvaamalla. {basis}",
+            f"Round {round_no} is not classified: the per-player observations "
+            f"contradict each other -- {conflict}. The counters have to be "
+            f"computed from the same set as the totals, and the difference is "
+            f"not patched by guessing. {basis}",
             inputs,
         )
 
-    # Vajaa joukkue: kolmea aseistettua ei voi havaita kahdesta pelaajasta,
-    # joten kynnys skaalataan luettavien määrään. Ilman tätä puoliosto olisi
-    # tavoittamaton aina kun luettavia on kynnystä vähemmän, ja jokainen
-    # ostos putoaisi ecoksi -- hiljaa ja uskottavan näköisesti.
+    # A short-handed team: three armed players cannot be observed from two
+    # players, so the threshold is scaled to the number that could be read.
+    # Without this a half-buy would be out of reach whenever fewer players
+    # than the threshold can be read, and every purchase would fall through
+    # to an eco -- silently and plausibly.
     armed_min = min(thresholds.armed_players_min, players_read)
     buyers_min = min(thresholds.normal_buy_players_min, players_read)
     needed = max(thresholds.armed_players_min, thresholds.normal_buy_players_min)
@@ -901,8 +923,9 @@ def _after_loss_purchase(
         ""
         if players_read >= needed
         else (
-            f" Vaatimukset on skaalattu luettavien pelaajien määrään "
-            f"({players_read}), koska sitä suurempaa laskuria ei voi havaita."
+            f" The requirements have been scaled to the number of players "
+            f"that could be read ({players_read}), because a counter larger "
+            "than that cannot be observed."
         )
     )
 
@@ -914,67 +937,69 @@ def _after_loss_purchase(
         else None
     )
 
-    armed_part = f"{armed}/{players_read} aseistettua"
+    armed_part = f"{armed}/{players_read} armed"
     buy_part = (
-        f"{can_buy}/{players_read} pystyy ostamaan ensi kierroksella"
+        f"{can_buy}/{players_read} can buy on the next round"
         if carries
-        else "ehtoa B ei lasketa, koska raha ei siirry seuraavalle kierrokselle"
+        else "condition B is not computed, because the money does not carry "
+        "to the next round"
     )
     counters = f"{armed_part}, {buy_part}"
     bonus_note = (
         (
-            f"ehto B laskettiin häviön oletuksella: oma saldo + häviöbonus "
-            f"{bonus} $ vähintään {thresholds.normal_buy_money_min} $, saldot "
+            f"condition B was computed on the assumption of a loss: own "
+            f"balance + loss bonus {bonus} $, at least "
+            f"{thresholds.normal_buy_money_min} $, balances "
             f"{_listing_money(money_players)}"
         )
         if carries
         else (
-            f"saldot {_listing_money(money_players)}, mutta ne nollautuvat "
-            f"ennen kierrosta {round_no + 1}"
+            f"balances {_listing_money(money_players)}, but they are reset "
+            f"before round {round_no + 1}"
         )
     )
 
     if armed < armed_min:
-        # Ehto A ensin: jos kierrosta ei oikeasti pelata, se ei ole force
-        # eikä puoliosto vaikka rahaa olisi liikkunut paljonkin.
+        # Condition A first: if the round is not really played, it is neither
+        # a force nor a half-buy however much money may have moved.
         return Decision(
             "eco",
-            f"Eco hävityn kierroksen jälkeen: ostettiin {_d(bought_pp)} "
-            f"$/pelaaja eli vähintään {thresholds.force_buy_min} $, mutta "
-            f"{counters} -- aseistettuja on alle {armed_min}, eli kierrosta ei "
-            f"oikeasti pelata. ({bonus_note}.){scaled} {basis}",
+            f"Eco after a round that was lost: bought {_d(bought_pp)} "
+            f"$/player, at least {thresholds.force_buy_min} $, but "
+            f"{counters} -- fewer than {armed_min} armed, so the round is not "
+            f"really played. ({bonus_note}.){scaled} {basis}",
             inputs,
         )
 
     if not carries:
         return Decision(
             "force",
-            f"Force hävityn kierroksen jälkeen: ostettu {_d(bought_pp)} "
-            f"$/pelaaja eli vähintään {thresholds.force_buy_min} $, "
-            f"{armed_part}. Taskuun jäänyt raha ei siirry kierrokselle "
-            f"{round_no + 1}, joten sitä ei ole jätetty varaa varten eikä "
-            f"kierros voi olla puoliosto. ({bonus_note}.){scaled} {basis}",
+            f"Force after a round that was lost: bought {_d(bought_pp)} "
+            f"$/player, at least {thresholds.force_buy_min} $, "
+            f"{armed_part}. The money left in the pocket does not carry to "
+            f"round {round_no + 1}, so it has not been left to leave room and "
+            f"the round cannot be a half-buy. ({bonus_note}.){scaled} {basis}",
             inputs,
         )
 
     if can_buy >= buyers_min:
         return Decision(
             "half",
-            f"Puoliosto hävityn kierroksen jälkeen: ostettu {_d(bought_pp)} "
-            f"$/pelaaja eli vähintään {thresholds.force_buy_min} $, "
-            f"{counters} -- aseistettuja vähintään {armed_min} ja "
-            f"ostokykyisiä vähintään {buyers_min}, eli ostettiin, mutta "
-            f"jätettiin varaa seuraavalle kierrokselle. ({bonus_note}.)"
+            f"Half-buy after a round that was lost: bought {_d(bought_pp)} "
+            f"$/player, at least {thresholds.force_buy_min} $, "
+            f"{counters} -- at least {armed_min} armed and at least "
+            f"{buyers_min} able to buy, so the team bought but "
+            f"left room for the next round. ({bonus_note}.)"
             f"{scaled} {basis}",
             inputs,
         )
 
     return Decision(
         "force",
-        f"Force hävityn kierroksen jälkeen: ostettu {_d(bought_pp)} "
-        f"$/pelaaja eli vähintään {thresholds.force_buy_min} $, {counters} "
-        f"-- ostokykyisiä on alle {buyers_min}, eli ostettu tyhjäksi: "
-        f"seuraavalle kierrokselle ei jätetty varaa. ({bonus_note}.)"
+        f"Force after a round that was lost: bought {_d(bought_pp)} "
+        f"$/player, at least {thresholds.force_buy_min} $, {counters} "
+        f"-- fewer than {buyers_min} able to buy, so bought until empty: "
+        f"no room was left for the next round. ({bonus_note}.)"
         f"{scaled} {basis}",
         inputs,
     )
@@ -983,12 +1008,12 @@ def _after_loss_purchase(
 def _continuous_previous(
     row: Mapping[str, Any], previous: Mapping[str, Any] | None
 ) -> Mapping[str, Any] | None:
-    """Palauta edellinen kierros vain, jos se oikeasti on edellinen.
+    """Return the previous round only if it really is the previous one.
 
-    Kelpaa vain ``round_no - 1`` samalta puolelta. Aukko kierrosnumeroissa tai
-    puolen vaihtuminen tarkoittaa, että "edellinen kierros" on eri puoliajalta
-    tai puuttuu kokonaan -- silloin voiton ja häviön jälkeiset säännöt eivät
-    päde, eikä niitä sovelleta arvaamalla.
+    Only ``round_no - 1`` from the same side is accepted. A gap in the round
+    numbers or a change of side means that the "previous round" is from
+    another half or missing altogether -- and then the rules for after a win
+    and after a loss do not hold, and they are not applied by guessing.
     """
     if previous is None:
         return None
@@ -1006,25 +1031,27 @@ def _continuous_previous(
 def _players(
     row: Mapping[str, Any], thresholds: ThresholdSettings
 ) -> tuple[int, int | None, bool]:
-    """Jakaja per pelaaja -arvoille.
+    """The divisor for per player values.
 
-    Pappaliigassa vajaalla pelaaminen on käytännössä mahdotonta, mutta otanta
-    sisältää myös liigan ulkopuolisia jonopelejä, joissa se on tavallista.
-    Siksi jakaja luetaan havainnosta eikä oleteta viideksi.
+    In Pappaliiga playing short-handed is in practice impossible, but the
+    sample also holds queue games outside the league, in which it is ordinary.
+    That is why the divisor is read off the observation and not assumed to be
+    five.
 
-    Havainto hyväksytään vain välillä ``1..roster_size``. Sen ulkopuolinen arvo
-    -- nolla, negatiivinen tai kokoonpanoa suurempi (vanhentuneet tai
-    ylimääräiset rivit tickissä) -- aliarvioisi tai räjäyttäisi per pelaaja
-    -arvot, joten silloin käytetään ``roster_size``ia ja se kerrotaan
-    perustelussa.
+    The observation is accepted only in the range ``1..roster_size``. A value
+    outside it -- zero, negative or larger than the roster (stale or extra
+    rows in the tick) -- would underestimate or blow up the per player values,
+    so ``roster_size`` is used instead and the reason says so.
 
     Returns:
-        ``(jakaja, luettavien määrä havaintona, kelpasiko havainto)``.
+        ``(divisor, the number that could be read as an observation, whether
+        the observation was acceptable)``.
     """
     if thresholds.roster_size < 1:
         raise SchemaError(
-            f"thresholds.roster_size on {thresholds.roster_size}; per pelaaja "
-            "-arvoja ei voi laskea, koska jakaja olisi nolla tai negatiivinen."
+            f"thresholds.roster_size is {thresholds.roster_size}; per player "
+            "values cannot be computed, because the divisor would be zero or "
+            "negative."
         )
     observed = row.get("players_buy_end")
     readable = None if observed is None else int(observed)
@@ -1042,36 +1069,38 @@ def _inputs(
     readable: int | None,
     loss_count: int,
 ) -> dict[str, Any]:
-    """Kokoa päätöksen lähtöarvot ``CLASSIFIED_INPUTS``-rakenteeseen.
+    """Collect the decision's input values into ``CLASSIFIED_INPUTS``.
 
-    Ostettu summa ei ole omana kenttänään: se on erotus
-    ``equip_buy_end - equip_round_start``, ja molemmat ovat mukana.
-    Käytettävissä ollut raha on vastaavasti ``money_buy_end + money_spent``.
-    Kumpikin on siis jäljitettävissä ilman skeemamuutosta.
+    The amount bought is not a field of its own: it is the difference
+    ``equip_buy_end - equip_round_start``, and both are here. The money that
+    was available is likewise ``money_buy_end + money_spent``. Either can
+    therefore be traced without a schema change.
 
-    ``loss_bonus_if_lost`` ja ``players_can_buy`` lasketaan **joka
-    kierrokselle**, ei vain sille haaralle joka niitä lukee. Kierroslista on
-    silloin luettavissa yhtenä tauluna: lukija voi verrata forcen ja
-    puolioston laskureita myös niihin kierroksiin, joilla luokka ratkesi
-    muualla. ``players_can_buy`` on ``None`` vain, jos jakaumaa ei saatu.
+    ``loss_bonus_if_lost`` and ``players_can_buy`` are computed for **every
+    round**, not only for the branch that reads them. The round list can then
+    be read as one table: the reader can compare the force and half-buy
+    counters against the rounds whose class was settled elsewhere too.
+    ``players_can_buy`` is ``None`` only if the distribution could not be
+    obtained.
     """
     money_players = row.get(MONEY_DISTRIBUTION_COLUMN)
     if money_players is not None:
         money_players = [_i(money) for money in money_players]
 
-    # Häviöbonus ja ostokykyisten laskuri lasketaan vain silloin, kun ne
-    # tarkoittavat jotain:
+    # The loss bonus and the counter of players able to buy are computed only
+    # when they mean something:
     #
-    #   * Jatkoajassa (round_no > regulation_rounds) tämän moduulin talousmalli
-    #     ei päde lainkaan -- aloitusraha on eri eikä eco-sykliä ole (ks.
-    #     "Tunnetut rajaukset"). Bonusluku siellä olisi tästä mallista lainattu
-    #     ja lukisi kuin havainto.
-    #   * Puoliajan viimeisellä kierroksella raha ei siirry seuraavalle
-    #     kierrokselle (ks. :func:`_money_carries_over`), joten kysymys "onko
-    #     ensi kierroksella varaa" on merkityksetön.
+    #   * In overtime (round_no > regulation_rounds) this module's economy
+    #     model does not hold at all -- the starting money is different and
+    #     there is no eco cycle (see "Known limitations"). A bonus figure
+    #     there would be borrowed from this model and would read like an
+    #     observation.
+    #   * On the last round of a half the money does not carry to the next
+    #     round (see :func:`_money_carries_over`), so the question "is there
+    #     enough for the next round" is meaningless.
     #
-    # Molemmissa kenttä jää tyhjäksi. Tyhjä on tässä väite: lukua ei ole,
-    # eikä sitä pidä lukea kierroslistalta ikään kuin se olisi.
+    # In both the field is left empty. Empty is a claim here: the number does
+    # not exist, and it must not be read off the round list as if it did.
     round_no = row.get("round_no")
     applies = round_no is not None and int(round_no) <= thresholds.regulation_rounds
     if applies:
@@ -1120,73 +1149,74 @@ def _basis(
     loss_count: int,
     divisor_ok: bool,
 ) -> str:
-    """Jokaisen perustelun yhteinen loppuosa.
+    """The shared tail of every reason.
 
-    I/O-matriisi vaatii, että perustelu kertoo rahan ja loss countin -- myös
-    silloin kun päätös ratkesi varustearvosta. Rahasta näytetään molemmat
-    suunnat, jotta lukija ei sekoita jäljelle jäänyttä saldoa käytettävissä
-    olleeseen rahaan.
+    The I/O matrix requires the reason to state the money and the loss count
+    -- also when the decision was settled by the equipment value. Both
+    directions of the money are shown, so that the reader does not confuse the
+    balance left over with the money that was available.
     """
     equip = row.get("equip_buy_end")
     start = row.get("equip_round_start")
     bought = None if equip is None or start is None else int(equip) - int(start)
     parts = [
-        f"Käytettävissä {_pp(available_money(row), players)}"
-        f" (jäljellä {_pp(row.get('money_buy_end'), players)}"
-        f", käytetty {_pp(row.get('money_spent'), players)})",
-        f"varusteet {_pp(equip, players)}",
-        f"ostettu {_pp(bought, players)}",
+        f"Available {_pp(available_money(row), players)}"
+        f" (left {_pp(row.get('money_buy_end'), players)}"
+        f", spent {_pp(row.get('money_spent'), players)})",
+        f"equipment {_pp(equip, players)}",
+        f"bought {_pp(bought, players)}",
         f"loss count {loss_count}",
     ]
     if divisor_ok and readable is not None and readable < thresholds.roster_size:
         divisor = (
-            f"vain {readable} pelaajan arvot olivat luettavissa "
-            f"(kokoonpano {thresholds.roster_size}), ja jakajana on se määrä"
+            f"only {readable} players' values could be read "
+            f"(roster {thresholds.roster_size}), and that number is the divisor"
         )
     elif divisor_ok:
-        divisor = f"{players} pelaajaa"
+        divisor = f"{players} players"
     elif readable is None:
         divisor = (
-            "pelaajamäärä ei ollut luettavissa, jaettu asetuksen roster_size "
-            f"arvolla {thresholds.roster_size}"
+            "the number of players could not be read, divided by the "
+            f"roster_size setting's value {thresholds.roster_size}"
         )
     else:
         divisor = (
-            f"luettu pelaajamäärä {readable} on sallitun välin "
-            f"1-{thresholds.roster_size} ulkopuolella, jaettu asetuksen "
-            f"roster_size arvolla {thresholds.roster_size}"
+            f"the number of players read, {readable}, is outside the allowed "
+            f"range 1-{thresholds.roster_size}, divided by the roster_size "
+            f"setting's value {thresholds.roster_size}"
         )
     return f"({'; '.join(parts)}; {divisor}.)"
 
 
 def _pp(value: Any, players: int) -> str:
     number = per_player(value, players)
-    return "ei tiedossa" if number is None else f"{number} $/pelaaja"
+    return "not known" if number is None else f"{number} $/player"
 
 
 def _d(value: float) -> str:
-    """Dollarimäärä ilman desimaaleja; sama pyöristys kuin :func:`per_player`."""
+    """A dollar amount with no decimals; same rounding as :func:`per_player`."""
     return str(round(value))
 
 
 def _listing(values: list[int]) -> str:
-    return "kierrokset " + ", ".join(str(a) for a in values)
+    return "rounds " + ", ".join(str(a) for a in values)
 
 
 def _listing_money(values: list[int] | tuple[int, ...]) -> str:
-    """Rahajakauma sellaisenaan, jotta laskuri on tarkistettavissa.
+    """The money distribution as it is, so that the counter can be checked.
 
-    Pelkkä "0/5 pystyy ostamaan" ei kerro, kuinka läheltä viisi muuta
-    jäivät -- eikä sitä voi tarkistaa demoa vasten ilman lukuja.
+    "0/5 can buy" alone does not say how close the other five came -- and it
+    cannot be checked against the demo without the numbers.
 
-    Yksikkö toistetaan **jokaisessa** luvussa. Pelkkä lopun dollarimerkki
-    ("1750, 500, 150, 0, 0 $") lukisi kuin se koskisi vain viimeistä.
+    The unit is repeated on **every** number. A dollar sign at the end alone
+    ("1750, 500, 150, 0, 0 $") would read as if it concerned only the last
+    one.
     """
     return ", ".join(f"{int(v)} $" for v in values)
 
 
 def _names(values: list[str]) -> str:
-    """Puuttuvien havaintojen nimet luettavana listana."""
+    """The names of the missing observations as a readable list."""
     return ", ".join(values)
 
 

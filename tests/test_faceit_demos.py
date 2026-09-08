@@ -996,8 +996,8 @@ def test_the_interrupted_run_says_what_it_managed_to_do(tmp_path) -> None:
         )
 
     message = str(excinfo.value)
-    assert "1 demoa ehdittiin hakea" in message
-    assert "2 jäi hakematta" in message
+    assert "demos fetched: 1" in message
+    assert "demos left unfetched: 2" in message
     # The first demo is on disk and is not cleaned away.
     assert archive.demo(UNIT).is_file()
 

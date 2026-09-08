@@ -197,6 +197,41 @@ TRANSLATED_TRANCHES: tuple[Tranche, ...] = (
             "tests/test_demo_parser_logic.py",
         ),
     ),
+    Tranche(
+        story="T10",
+        # Two more of the eleven modules in ``domain``. The package still
+        # cannot be listed: aggregate, models and report are still Finnish.
+        sources=(
+            ("src/pappascout/domain/economy.py", 1),
+            ("src/pappascout/domain/sampling.py", 1),
+        ),
+        tests=(
+            "tests/test_economy.py",
+            "tests/test_sampling.py",
+        ),
+    ),
+    Tranche(
+        story="T11",
+        # The eighth of the eleven modules in ``domain``. models.py's tests
+        # live in test_settings.py, which the plan had assigned elsewhere --
+        # a tranche must name its tests, and these are they.
+        sources=(("src/pappascout/domain/models.py", 1),),
+        tests=("tests/test_settings.py",),
+    ),
+    Tranche(
+        story="T7",
+        # Two of the nine modules in ``stages``. The package cannot be listed
+        # yet: __init__, aggregate, classify, discover, parse, render and
+        # select are still Finnish.
+        sources=(
+            ("src/pappascout/stages/fetch.py", 1),
+            ("src/pappascout/stages/import_demo.py", 1),
+        ),
+        tests=(
+            "tests/test_stage_fetch.py",
+            "tests/test_stage_import.py",
+        ),
+    ),
 )
 
 #: Every listed path with its recorded minimum, flattened out of the tranches.
@@ -290,6 +325,62 @@ def _prose_line_numbers(source: str, filename: str = "<source>") -> set[int]:
     return lines
 
 
+@dataclass(frozen=True)
+class QuotedFinnish:
+    """One line of prose allowed to stay Finnish, and the reason it is.
+
+    Some Finnish sentences are quoted **because of the words themselves**, not
+    because of what they claim. The stack rule's only source is a phrase in
+    which a player inflects two English loanwords into Finnish -- that is the
+    whole evidence, and translating it deletes the evidence and leaves an
+    assertion behind.
+
+    T13 met the same thing and got away with it by accident: its quotations
+    happen to contain none of the three letters, so the scanner never saw
+    them. T10's does. That is luck, not a rule, so the rule is written here.
+
+    Note this docstring may not spell the quotation out, for the reason the
+    class exists -- the file is itself listed, and nothing here is exempt from
+    the rule it enforces. The first draft of this docstring quoted the phrase
+    and the ratchet rejected it, which is the demonstration.
+
+    Attributes:
+        path: Repository-relative file the exemption applies to. An entry
+            never reaches beyond its own file.
+        text: The quoted fragment, matched as a substring. Matching the text
+            rather than a line number means the exemption survives the line
+            moving, and **stops applying the moment the text changes** -- an
+            exemption that outlives its quotation fails closed.
+        why: Why this one cannot be translated. An exemption without a reason
+            is a hole.
+    """
+
+    path: str
+    text: str
+    why: str
+
+
+#: Every line exempt from the ratchet, with its reason. Two tests below keep
+#: the list honest: an entry that no longer matches anything fails, and so
+#: does an entry whose line would not have been reported anyway.
+QUOTED_FINNISH: tuple[QuotedFinnish, ...] = (
+    QuotedFinnish(
+        path="src/pappascout/domain/sampling.py",
+        text="Stack sitellä",
+        why=(
+            "The players' own phrase, and the only source for what the stack "
+            "rule means. The point of quoting it is that both loanwords are "
+            "inflected into Finnish; translated, it stops being evidence."
+        ),
+    ),
+    QuotedFinnish(
+        path="tests/test_sampling.py",
+        text="Stack sitellä",
+        why="The same quotation, in the test that pins the rule it defines.",
+    ),
+)
+
+
 def finnish_prose_lines(path: Path) -> list[str]:
     """Docstring and comment lines in ``path`` that carry a Finnish letter.
 
@@ -313,8 +404,11 @@ def finnish_prose_lines(path: Path) -> list[str]:
         if number > len(rows):  # pragma: no cover - defensive
             continue
         line = rows[number - 1]
-        if FINNISH_CHARACTERS.intersection(line):
-            found.append(f"{name}:{number}: {line.strip()}")
+        if not FINNISH_CHARACTERS.intersection(line):
+            continue
+        if any(q.path == name and q.text in line for q in QUOTED_FINNISH):
+            continue
+        found.append(f"{name}:{number}: {line.strip()}")
     return found
 
 
@@ -499,3 +593,46 @@ def test_no_finnish_prose_in_anything_translated() -> None:
     assert not offenders, (
         "Finnish prose in something already translated:\n" + "\n".join(offenders)
     )
+
+
+def test_every_exemption_still_matches_the_line_it_was_written_for() -> None:
+    """An exemption that outlives its quotation is a hole in the ratchet.
+
+    :data:`QUOTED_FINNISH` matches on text rather than on a line number, so it
+    survives the line moving -- but that also means a quotation someone edited
+    or deleted would leave a standing permission behind, pointed at nothing.
+    This fails instead.
+    """
+    assert QUOTED_FINNISH
+    for quoted in QUOTED_FINNISH:
+        path = REPO_ROOT / quoted.path
+        assert path.is_file(), f"{quoted.path} names nothing on disk"
+        rows = _read_source(path).splitlines()
+        hits = [row for row in rows if quoted.text in row]
+        assert hits, f"{quoted.path} no longer contains {quoted.text!r}"
+        assert quoted.why.strip(), f"{quoted.path}: exemption with no reason"
+
+
+def test_no_exemption_is_idle() -> None:
+    """An exemption that exempts nothing is worse than none at all.
+
+    It reads as though the ratchet has a hole where it has not, so the next
+    reader either trusts a permission that does nothing or spends the time
+    finding out. Every entry must cover a line the scanner would really have
+    reported: prose, and carrying one of the three letters.
+    """
+    for quoted in QUOTED_FINNISH:
+        path = REPO_ROOT / quoted.path
+        source = _read_source(path)
+        rows = source.splitlines()
+        prose = _prose_line_numbers(source, quoted.path)
+        covered = [
+            number
+            for number in prose
+            if quoted.text in rows[number - 1]
+            and FINNISH_CHARACTERS.intersection(rows[number - 1])
+        ]
+        assert covered, (
+            f"{quoted.path}: {quoted.text!r} is not on any prose line carrying "
+            "a Finnish letter, so this exemption does nothing"
+        )

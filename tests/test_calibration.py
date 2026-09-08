@@ -523,15 +523,15 @@ def test_inferno_reason_names_both_counters(
         row, previous, thresholds, economy=economy, loss_count=k.loss_count
     )
     bonus = economy.loss_bonus_steps[k.loss_count]
-    assert f"{k.armed}/{PLAYERS} aseistettua" in decision.reason
+    assert f"{k.armed}/{PLAYERS} armed" in decision.reason
     assert (
-        f"{k.can_buy}/{PLAYERS} pystyy ostamaan ensi kierroksella"
+        f"{k.can_buy}/{PLAYERS} can buy on the next round"
         in decision.reason
     )
     # Jakauma sellaisenaan, yksikkö jokaisessa luvussa.
     assert ", ".join(f"{m} $" for m in k.money_players) in decision.reason
     # Häviöbonus näkyviin: ilman sitä lukija ei voi laskea laskuria itse.
-    assert f"häviöbonus {bonus} $" in decision.reason
+    assert f"loss bonus {bonus} $" in decision.reason
     assert decision.inputs["players_can_buy"] == k.can_buy
     assert decision.inputs["players_armed"] == k.armed
     assert decision.inputs["loss_bonus_if_lost"] == bonus

@@ -392,8 +392,8 @@ def test_a_match_without_map_picks_is_not_called_unplayed(division) -> None:
     result = runner.invoke(app, ["collect", "--kylla"])
 
     lohko = result.output.split("Pelattu ottelu ilman vetotietoa", 1)[1]
-    assert "ei pelattu" not in lohko.lower()
-    assert "karttalistaa" in lohko
+    assert "not played" not in lohko.lower()
+    assert "map list" in lohko
     # Aineiston ottelut ovat viikkoja vanhoja, joten neuvo on tuonti eikä
     # discoverin uudelleenajo -- ks. test_the_advice_branches_on_the_age.
     assert "uv run pappascout import" in lohko
@@ -509,7 +509,7 @@ def test_the_same_fault_three_times_stops_the_series_and_every_unit_gets_a_row(
     assert f"{len(units)} epäonnistui" in result.output
     for unit in units:
         assert unit in result.output
-    assert "Ei yritetty" in result.output
+    assert "Not attempted" in result.output
 
 
 def test_the_summary_separates_all_four_outcomes(division) -> None:
@@ -738,7 +738,9 @@ def test_a_plan_that_does_not_fit_warns_but_does_not_stop(
     assert "ei mahdu levylle" in result.output
     # Varoitus, ei portti: kysymys esitetään silti.
     assert "Ladataanko" in result.output
+    # The CLI's own hard error is still Finnish; the stage's is English now.
     assert "Levytila ei riitä" not in result.output
+    assert "Not enough disk space" not in result.output
 
 
 def test_a_plan_that_fits_gets_no_warning(division) -> None:
@@ -1037,6 +1039,9 @@ def test_the_denied_message_names_the_status_page(
     assert "The Downloads API is a separate authorisation" in text
     assert "downloads-api-application" in text
     assert "aja komento uudelleen" not in text.lower()
+    # ``fetch.run_many``'s progress note is English and rides in this same
+    # text, so the Finnish needle alone no longer covers the whole output.
+    assert "run the command again" not in text.lower()
 
 
 def test_the_production_port_is_wired_on_the_collect_path(

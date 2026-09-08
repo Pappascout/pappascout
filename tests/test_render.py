@@ -4610,7 +4610,7 @@ def test_the_setting_and_the_row_label_share_one_formatter() -> None:
     assert seconds_label(45.0) == "45"
     assert seconds_label(9.5) == "9,5"
     assert view_module._seconds(9.5) == seconds_label(9.5)
-    with pytest.raises(ValidationError, match="kahdesti"):
+    with pytest.raises(ValidationError, match="twice"):
         ReportSettings(skip_sample_seconds=[45.0, 45.0000001])
 
 

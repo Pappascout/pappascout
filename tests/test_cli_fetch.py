@@ -580,7 +580,7 @@ def test_a_successful_download_shows_its_note_on_screen() -> None:
     text = _render_fetch(results, todo)
 
     assert "Huomiot (1)" in text
-    assert "ei kertonut demon a-0 kokoa" in text
+    assert "did not state the size of demo a-0" in text
     assert "b-0" not in text
 
 
@@ -651,17 +651,19 @@ def test_a_failed_orphan_removal_reaches_the_screen() -> None:
             "a-0",
             "ok",
             downloaded_bytes=1024**2,
+            # The stage's own wording (``fetch._orphan_note``), so the needles
+            # below stay pointed at the note this test exists for.
             reason=(
-                "VAROITUS: vanhaa metatiedostoa D:\\demot\\a-0.meta.json ei "
-                "saatu poistettua"
+                "WARNING: the old metadata file D:\\demot\\a-0.meta.json "
+                "could not be removed"
             ),
         ),
     )
 
     text = _render_fetch(results, todo)
 
-    assert "VAROITUS" in text
-    assert "poistettiin" not in text
+    assert "WARNING" in text
+    assert "was removed" not in text
 
 
 def test_the_same_byte_count_prints_the_same_string_in_every_command() -> None:
@@ -751,7 +753,7 @@ def test_a_disk_that_fills_up_between_demos_stops_only_that_demo(
     result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
 
     assert result.exit_code == 0, result.output
-    assert "Levytila ei riitä" in result.output
+    assert "Not enough disk space" in result.output
     assert len(source.asked) < len(units)
 
 
@@ -897,6 +899,9 @@ def test_a_denied_downloads_token_does_not_tell_the_user_to_retry(
     out = capsys.readouterr()
     text = out.out + out.err
     assert "aja komento uudelleen" not in text.lower()
+    # ``fetch.run_many``'s progress note is English and rides in this same
+    # text, so the Finnish needle alone no longer covers the whole output.
+    assert "run the command again" not in text.lower()
     assert "Epäonnistui" not in text
     assert "fc-downloads.loza.gg" in text
     assert "downloads-api-application" in text

@@ -72,9 +72,20 @@ def test_info_shows_settings_archive_and_key_status(
 
     # Avaimet: tila kyllä, arvo ei
     assert "FACEIT_API_KEY" in output_text
-    assert "asetettu" in output_text
+    # The status word is matched on its own line, not anywhere in the output:
+    # ``set`` is a substring of every path that names ``settings``, so a
+    # substring check here would pass without the status being printed at all.
+    assert _key_status(output_text, "FACEIT_API_KEY") == "set"
     assert FAKE_KEY not in output_text
     assert FAKE_TOKEN not in output_text
+
+
+def _key_status(output_text: str, name: str) -> str:
+    """The status word ``info`` printed for one key."""
+    line = next(
+        row for row in output_text.splitlines() if row.strip().startswith(name)
+    )
+    return line.rsplit(" ", 1)[-1]
 
 
 def test_info_reports_missing_key_without_crashing(
@@ -85,7 +96,10 @@ def test_info_reports_missing_key_without_crashing(
     output_text = _render_info(settings)
     keys_section = _section(output_text, "Avaimet")
     assert "FACEIT_API_KEY" in keys_section
-    assert "puuttuu" in keys_section
+    # On its own line for the same reason as above: the temporary directory
+    # in the path beside it is named after this test, which contains
+    # ``missing``.
+    assert _key_status(keys_section, "FACEIT_API_KEY") == "missing"
     assert FAKE_TOKEN not in output_text
 
 
@@ -186,7 +200,7 @@ def test_info_command_runs_end_to_end(
     result = runner.invoke(app, ["info"])
     assert result.exit_code == 0, result.output
     assert "PotkukelkkaPeek" in result.output
-    assert "asetettu" in result.output
+    assert _key_status(result.output, "FACEIT_API_KEY") == "set"
     assert FAKE_KEY not in result.output
 
 

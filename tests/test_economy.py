@@ -1,11 +1,12 @@
-"""``domain.economy`` -- loss count ja kierrostyypin luokittelu ilman demoja.
+"""``domain.economy`` -- the loss count and round type classification, no demos.
 
-Nämä testit ovat I/O-matriisin rivit yksi kerrallaan käsin rakennetuilla
-tauluilla. Yksikään ei tarvitse demotiedostoa, joten ``pytest -m "not demo"``
-kattaa koko luokittelulogiikan.
+These tests are the rows of the I/O matrix one at a time with hand-built
+tables. Not one of them needs a demo file, so ``pytest -m "not demo"`` covers
+the whole classification logic.
 
-Kynnykset luetaan **oikeasta** ``settings.toml``ista: testi, joka keksisi omat
-rajansa, ei todistaisi mitään siitä asetustiedostosta, jolla työkalu ajetaan.
+The thresholds are read from the **real** ``settings.toml``: a test that
+invented its own bounds would prove nothing about the settings file the tool
+is run with.
 """
 
 from __future__ import annotations
@@ -44,20 +45,23 @@ def thresholds(settings_file: Path) -> ThresholdSettings:
 
 @pytest.fixture
 def economy(settings_file: Path) -> EconomySettings:
-    """``[economy]``-osio: puolioston ehto B lukee siitä häviöbonuksen portaat."""
+    """``[economy]``: the half-buy's condition B reads the bonus steps here."""
     return load_settings(settings_file, env_files=()).economy
 
 
 def row(**overrides) -> dict:
-    """Kierrosrivi oletusarvoilla; testi muuttaa vain sen mitä tutkii.
+    """A round row with default values; a test changes only what it examines.
 
-    Oletus on täysi osto viidellä pelaajalla: 25 000 $ / 5 = 5 000 $/pelaaja.
+    The default is a full buy with five players: $25,000 / 5 = $5,000 per
+    player.
 
-    Rahajakauma ja aseistettujen laskuri johdetaan muista arvoista, ellei
-    testi anna niitä itse: jakauma on ``money_buy_end`` tasan jaettuna ja
-    laskuri ``players_buy_end``. Ilman johdosta jokainen ``money_buy_end``in
-    muuttava testi jättäisi rivin sisäisesti ristiriitaiseksi -- jakauma
-    väittäisi eri summaa kuin sarake, ja ehto B mittaisi väärää rahaa.
+    The money distribution and the armed counter are derived from the other
+    values unless the test gives them itself: the distribution is
+    ``money_buy_end`` split evenly and the counter is ``players_buy_end``.
+    Without the derivation every test that changes ``money_buy_end`` would
+    leave the row internally contradictory -- the distribution would claim a
+    different total than the column, and condition B would measure the wrong
+    money.
     """
     defaults = {
         "round_no": 5,
@@ -86,14 +90,14 @@ def row(**overrides) -> dict:
 
 
 def previous(won: bool | None = False, *, round_no: int = 4, **overrides) -> dict:
-    """Edellinen kierros: oletuksena tasan yhtä pienempi numero, sama puoli."""
+    """The previous round: by default one number smaller, the same side."""
     defaults = row(round_no=round_no, won=won, survivors=0)
     defaults.update(overrides)
     return defaults
 
 
 def team_frame(rounds: list[tuple[int, str, bool | None]]) -> pl.DataFrame:
-    """Yhden joukkueen rivit ``(round_no, side, won)``-kolmikoista."""
+    """One team's rows out of ``(round_no, side, won)`` triples."""
     return pl.DataFrame(
         [{"round_no": no, "side": side, "won": won} for no, side, won in rounds],
         schema={"round_no": pl.Int32, "side": pl.Utf8, "won": pl.Boolean},
@@ -109,7 +113,7 @@ def test_half_starts_at_one_and_climbs_with_losses(thresholds) -> None:
 
 
 def test_a_win_steps_the_counter_down_by_one(thresholds) -> None:
-    """Voitto laskee laskuria yhdellä portaalla, ei nollaa sitä."""
+    """A win steps the counter down by one; it does not reset it."""
     df = team_frame([(1, "T", False), (2, "T", False), (3, "T", True), (4, "T", True)])
     assert loss_counts(df, thresholds) == [1, 2, 3, 2]
 
@@ -125,12 +129,12 @@ def test_counter_is_clamped_to_the_configured_range(thresholds) -> None:
 def test_new_half_is_detected_from_the_side_swap_not_the_round_number(
     thresholds,
 ) -> None:
-    """I/O-matriisi: puoli vaihtuu 12 -> 13, joten loss count palaa yhteen."""
+    """I/O matrix: the side changes 12 -> 13, so the loss count returns to one."""
     rounds = [(no, "T", False) for no in range(1, 13)]
     rounds += [(no, "CT", False) for no in range(13, 16)]
     result = loss_counts(team_frame(rounds), thresholds)
-    assert result[11] == thresholds.loss_count_max  # kierros 12, kattoon asti
-    assert result[12] == thresholds.loss_count_half_start  # kierros 13
+    assert result[11] == thresholds.loss_count_max  # round 12, up to the cap
+    assert result[12] == thresholds.loss_count_half_start  # round 13
     assert result[13] == 2
 
 
@@ -140,7 +144,7 @@ def test_overtime_side_swap_also_starts_a_new_half(thresholds) -> None:
 
 
 def test_an_unresolved_round_does_not_move_the_counter(thresholds) -> None:
-    """Arvaus siirtäisi kaikkia seuraavia kierroksia."""
+    """A guess would move every round that follows."""
     df = team_frame([(1, "T", False), (2, "T", None), (3, "T", False)])
     assert loss_counts(df, thresholds) == [1, 2, 2]
 
@@ -157,14 +161,14 @@ def test_missing_column_is_a_schema_error(thresholds) -> None:
 
 def test_unordered_rounds_are_refused(thresholds) -> None:
     df = team_frame([(2, "T", False), (1, "T", False)])
-    with pytest.raises(SchemaError, match="nousevassa"):
+    with pytest.raises(SchemaError, match="ascending round order"):
         loss_counts(df, thresholds)
 
 
 def test_duplicate_round_is_refused(thresholds) -> None:
-    """Kaksi riviä samalle kierrokselle tarkoittaisi molempia joukkueita."""
+    """Two rows for the same round would mean both teams."""
     df = team_frame([(1, "T", False), (1, "CT", True)])
-    with pytest.raises(SchemaError, match="nousevassa"):
+    with pytest.raises(SchemaError, match="ascending round order"):
         loss_counts(df, thresholds)
 
 
@@ -177,13 +181,13 @@ def test_unnumbered_round_is_refused(thresholds) -> None:
 
 
 def test_empty_side_is_refused_instead_of_silently_resetting(thresholds) -> None:
-    """Tyhjä puoli näyttäisi puolen vaihdolta ja nollaisi laskurin äänettömästi."""
+    """An empty side would look like a side change and reset the counter."""
     df = team_frame([(1, "T", False), (2, None, False), (3, "T", False)])
     with pytest.raises(SchemaError, match="side"):
         loss_counts(df, thresholds)
 
 
-# --- Kierrostyyppi: kierrosnumeron säännöt --------------------------------------
+# --- Round type: the round number's rules ---------------------------------------
 
 
 @pytest.mark.parametrize("round_no", [1, 13])
@@ -192,7 +196,7 @@ def test_pistol_round_is_decided_by_the_round_number(
     economy,
     round_no,
 ) -> None:
-    """Pistooli ratkeaa numerosta ennen kuin rahaa katsotaan lainkaan."""
+    """Pistol is settled by the number before money is looked at at all."""
     decision = classify_round(
         row(round_no=round_no, equip_buy_end=25000),
         previous(won=True, round_no=round_no - 1),
@@ -201,7 +205,7 @@ def test_pistol_round_is_decided_by_the_round_number(
         loss_count=1,
     )
     assert decision.round_type == "pistol"
-    assert "pistoolikierros" in decision.reason
+    assert "pistol round" in decision.reason
 
 
 @pytest.mark.parametrize("round_no", [25, 26, 27, 28])
@@ -218,7 +222,7 @@ def test_overtime_round_gets_no_economy_reasoning(
         loss_count=4,
     )
     assert decision.round_type == "ot"
-    assert "jatkoaikaa" in decision.reason
+    assert "is overtime" in decision.reason
 
 
 def test_regulation_round_is_never_overtime(thresholds, economy) -> None:
@@ -232,7 +236,7 @@ def test_regulation_round_is_never_overtime(thresholds, economy) -> None:
     assert decision.round_type != "ot"
 
 
-# --- Kierrostyyppi: talous ------------------------------------------------------
+# --- Round type: the economy ----------------------------------------------------
 
 
 def test_full_buy_is_decided_from_the_equipment_value(thresholds, economy) -> None:
@@ -247,7 +251,7 @@ def test_full_buy_is_decided_from_the_equipment_value(thresholds, economy) -> No
 
 
 def test_full_buy_wins_over_the_after_loss_rules(thresholds, economy) -> None:
-    """Täysi osto ratkeaa varustearvosta, vaikka edellinen olisi hävitty."""
+    """A full buy is settled by the equipment value, even after a loss."""
     decision = classify_round(
         row(equip_buy_end=25000, money_buy_end=100),
         previous(won=False),
@@ -259,7 +263,7 @@ def test_full_buy_wins_over_the_after_loss_rules(thresholds, economy) -> None:
 
 
 def test_eco_after_a_loss_when_the_team_did_not_buy(thresholds, economy) -> None:
-    """Todennettu tilanne: pistoolihäviön jälkeen säästö, raha jää kassaan."""
+    """A verified case: saving after a pistol loss, the money stays in the till."""
     decision = classify_round(
         row(
             round_no=2,
@@ -274,16 +278,16 @@ def test_eco_after_a_loss_when_the_team_did_not_buy(thresholds, economy) -> None
         loss_count=2,
     )
     assert decision.round_type == "eco"
-    # I/O-matriisi: perustelu kertoo rahan ja loss countin.
+    # I/O matrix: the reason states the money and the loss count.
     assert "loss count 2" in decision.reason
-    assert "$/pelaaja" in decision.reason
+    assert "$/player" in decision.reason
 
 
 def test_force_after_a_loss_when_the_team_bought_itself_empty(
     thresholds,
     economy,
 ) -> None:
-    """I/O-matriisi: ostettiin tyhjäksi -- 2 380 $/pelaaja, saldoa jäljellä 30 $."""
+    """I/O matrix: bought until empty -- $2,380 per player, $30 balance left."""
     decision = classify_round(
         row(
             round_no=23,
@@ -298,24 +302,26 @@ def test_force_after_a_loss_when_the_team_bought_itself_empty(
         loss_count=2,
     )
     assert decision.round_type == "force"
-    assert "ostettu tyhjäksi" in decision.reason
-    # Perustelu nimeää molemmat laskurit, myös sen joka ei ratkaissut asiaa:
-    # lukija ei muuten näe, kumpi ehto hylkäsi kierroksen.
+    assert "bought until empty" in decision.reason
+    # The reason names both counters, including the one that did not settle
+    # the matter: otherwise the reader cannot see which condition rejected the
+    # round.
     assert str(thresholds.force_buy_min) in decision.reason
-    assert "5/5 aseistettua" in decision.reason
-    assert "0/5 pystyy ostamaan ensi kierroksella" in decision.reason
+    assert "5/5 armed" in decision.reason
+    assert "0/5 can buy on the next round" in decision.reason
 
 
 def test_half_after_a_loss_when_the_team_left_money_in_the_pocket(
     thresholds,
     economy,
 ) -> None:
-    """I/O-matriisi: ostettiin ja jätettiin varaa -- sama ostos, eri jakauma.
+    """I/O matrix: bought and left room -- the same purchase, another spread.
 
-    Ehto B erottaa forcen puoliostosta. Tämä on tasan edellisen testin pari:
-    ostos, aseistus ja loss count ovat samat, ja **jopa joukkueen
-    kokonaissaldo on sama**. Vain sen jakauma eroaa -- ja juuri se on koko
-    säännön syy. Keskiarvo ei voisi erottaa näitä kahta riviä mitenkään.
+    Condition B separates a force from a half-buy. This is exactly the
+    previous test's pair: the purchase, the armament and the loss count are
+    the same, and **even the team's total balance is the same**. Only its
+    distribution differs -- and that is precisely the whole reason for the
+    rule. An average could not tell these two rows apart in any way.
     """
     shared = dict(
         round_no=23,
@@ -324,10 +330,10 @@ def test_half_after_a_loss_when_the_team_left_money_in_the_pocket(
         money_spent=11900,
         money_buy_end=5000,
     )
-    # Loss count 2 -> häviöbonus on porras 2 = 2400 $, joten normaaliin
-    # ostoon (4000 $) tarvitaan 1600 $ omaa rahaa.
+    # Loss count 2 -> the loss bonus is step 2 = $2,400, so a normal buy
+    # ($4,000) needs $1,600 of one's own money.
     bought_empty = classify_round(
-        # Yksi rikas, neljä tyhjää: vain hän voi ostaa. 1/5 < 3.
+        # One rich, four empty: only he can buy. 1/5 < 3.
         row(money_players_buy_end=[5000, 0, 0, 0, 0], **shared),
         previous(won=False, round_no=22),
         thresholds,
@@ -335,8 +341,8 @@ def test_half_after_a_loss_when_the_team_left_money_in_the_pocket(
         loss_count=2,
     )
     left_room = classify_round(
-        # Sama 5 000 $ toisin jaettuna: kolmella 1 600 (+2 400 = 4 000,
-        # tasan rajalla) ja kahdella 100. 3/5 >= 3.
+        # The same $5,000 split differently: three with 1,600 (+2,400 =
+        # 4,000, exactly at the bound) and two with 100. 3/5 >= 3.
         row(money_players_buy_end=[1600, 1600, 1600, 100, 100], **shared),
         previous(won=False, round_no=22),
         thresholds,
@@ -345,27 +351,27 @@ def test_half_after_a_loss_when_the_team_left_money_in_the_pocket(
     )
     assert bought_empty.round_type == "force"
     assert left_room.round_type == "half"
-    assert "jätettiin varaa" in left_room.reason
-    assert "3/5 pystyy ostamaan ensi kierroksella" in left_room.reason
-    # Sama joukkuesumma molemmilla -- keskiarvo ei erottaisi niitä.
+    assert "left room" in left_room.reason
+    assert "3/5 can buy on the next round" in left_room.reason
+    # The same team total on both -- an average would not tell them apart.
     assert (
         bought_empty.inputs["money_buy_end"] == left_room.inputs["money_buy_end"]
     )
 
 
 def test_a_purchase_with_too_few_armed_players_is_an_eco(thresholds, economy) -> None:
-    """I/O-matriisi: ostettiin, mutta vain kaksi aseistettua -> eco.
+    """I/O matrix: the team bought, but only two were armed -> eco.
 
-    Ehto A erottaa puolioston **ecosta**: alle ``armed_players_min``
-    aseistetulla kierrosta ei oikeasti pelata, ja silloin se on eco vaikka
-    rahaa olisi liikkunut ostorajan yli. Ancientin kierros 21 T (kaksi
-    aseistettua) on tämän havaittu tapaus.
+    Condition A separates the half-buy from an **eco**: with fewer than
+    ``armed_players_min`` armed the round is not really played, and then it is
+    an eco even if money moved past the buy limit. Ancient's round 21 T (two
+    armed) is the observed case of this.
     """
     decision = classify_round(
         row(
             equip_buy_end=5 * 2000,
             equip_round_start=5 * 300,
-            money_buy_end=5 * 3000,  # rahaa on, ehto B täyttyisi helposti
+            money_buy_end=5 * 3000,  # there is money, condition B would hold
             players_armed_buy_end=2,
         ),
         previous(won=False),
@@ -374,15 +380,15 @@ def test_a_purchase_with_too_few_armed_players_is_an_eco(thresholds, economy) ->
         loss_count=2,
     )
     assert decision.round_type == "eco"
-    assert "2/5 aseistettua" in decision.reason
+    assert "2/5 armed" in decision.reason
     assert str(thresholds.armed_players_min) in decision.reason
 
 
 def test_a_missing_money_distribution_is_not_classified(thresholds, economy) -> None:
-    """I/O-matriisi: jakauma puuttuu -> ei luokitella, syy kerrotaan.
+    """I/O matrix: the distribution is missing -> not classified, reason given.
 
-    Joukkuesummasta ehtoa B ei voi päätellä, eikä luokkaa arvata. Sama
-    jäljelle jäänyt saldo voi tarkoittaa 0/5 tai 5/5 ostokykyistä.
+    Condition B cannot be deduced from the team total, and the class is not
+    guessed. The same balance left over can mean 0/5 or 5/5 able to buy.
     """
     decision = classify_round(
         row(
@@ -397,15 +403,15 @@ def test_a_missing_money_distribution_is_not_classified(thresholds, economy) -> 
         loss_count=2,
     )
     assert decision.round_type is None
-    assert "pelaajakohtainen rahajakauma" in decision.reason
+    assert "the per-player money distribution" in decision.reason
     assert decision.inputs["players_can_buy"] is None
 
 
 def test_a_missing_armed_count_is_not_classified(thresholds, economy) -> None:
-    """Sama toiselle ehdolle: laskuri puuttuu -> ei arvata kumpaakaan suuntaa.
+    """The same for the other condition: no counter -> no guess either way.
 
-    ``players_armed_buy_end`` on ``null``, jos yhdenkään pelaajan panssaria
-    tai tavaraluetteloa ei saatu luettua. Nolla olisi havainto, ``null`` ei.
+    ``players_armed_buy_end`` is ``null`` if no player's armour or inventory
+    could be read. Zero would be an observation, ``null`` is not.
     """
     decision = classify_round(
         row(
@@ -420,14 +426,14 @@ def test_a_missing_armed_count_is_not_classified(thresholds, economy) -> None:
         loss_count=2,
     )
     assert decision.round_type is None
-    assert "aseistettujen laskuri" in decision.reason
+    assert "the armed counter" in decision.reason
 
 
 def test_a_hole_inside_the_distribution_empties_it(thresholds, economy) -> None:
-    """Yksi tyhjä alkio riittää: nollaksi tulkittu null väittäisi köyhyyttä.
+    """One empty element is enough: a null read as zero would claim poverty.
 
-    Lukuvirhe näyttäisi silloin forcelta -- ja juuri sellainen hiljainen
-    väärinluku oli koko tarinan lähtökohta.
+    A read error would then look like a force -- and that kind of silent
+    misreading is exactly where the whole story started.
     """
     decision = classify_round(
         row(
@@ -442,16 +448,16 @@ def test_a_hole_inside_the_distribution_empties_it(thresholds, economy) -> None:
         loss_count=2,
     )
     assert decision.round_type is None
-    assert "yhden pelaajan saldo" in decision.reason
+    assert "one player's balance" in decision.reason
 
 
 def test_a_short_handed_team_counts_from_the_same_set(thresholds, economy) -> None:
-    """I/O-matriisi: neljä pelaajaa luettavissa -> molemmat laskurit neljästä.
+    """I/O matrix: four players readable -> both counters out of four.
 
-    Jakaja on sama joukko kuin summissa (``players_buy_end``), joten
-    perustelun laskurit ovat "x/4" eikä "x/5". Viidellä jaettu laskuri
-    väittäisi, ettei viides pelaaja pysty ostamaan -- vaikka totuus on, ettei
-    häntä saatu luettua.
+    The divisor is the same set as in the totals (``players_buy_end``), so the
+    reason's counters are "x/4" and not "x/5". A counter divided by five would
+    claim that the fifth player cannot buy -- when the truth is that he could
+    not be read.
     """
     decision = classify_round(
         row(
@@ -466,20 +472,20 @@ def test_a_short_handed_team_counts_from_the_same_set(thresholds, economy) -> No
         loss_count=2,
     )
     assert decision.round_type == "half"
-    assert "4/4 aseistettua" in decision.reason
-    assert "4/4 pystyy ostamaan ensi kierroksella" in decision.reason
+    assert "4/4 armed" in decision.reason
+    assert "4/4 can buy on the next round" in decision.reason
 
 
 def test_the_loss_bonus_comes_from_the_configured_steps(thresholds, economy) -> None:
-    """I/O-matriisi: loss count maksimissa -> bonus luetaan portaan mukaan.
+    """I/O matrix: loss count at the maximum -> the bonus is read by the step.
 
-    Bonusta ei kovakoodata: portaat ovat ``[economy].loss_bonus_steps``, ja
-    indeksi on loss count sellaisenaan. Katolla (``loss_count = 4``) porras
-    on viimeinen.
+    The bonus is not hard-coded: the steps are ``[economy].loss_bonus_steps``,
+    and the index is the loss count as it is. At the cap (``loss_count = 4``)
+    the step is the last one.
     """
     top = thresholds.loss_count_max
     bonus = economy.loss_bonus_steps[top]
-    # Jokaisella tasan sen verran, että bonus riittää rajalle asti.
+    # Everyone has exactly enough for the bonus to reach the bound.
     own = thresholds.normal_buy_money_min - bonus
     decision = classify_round(
         row(
@@ -495,19 +501,19 @@ def test_the_loss_bonus_comes_from_the_configured_steps(thresholds, economy) -> 
     )
     assert decision.round_type == "half"
     assert decision.inputs["loss_bonus_if_lost"] == bonus
-    assert f"häviöbonus {bonus} $" in decision.reason
+    assert f"loss bonus {bonus} $" in decision.reason
 
 
 def test_the_bonus_is_the_step_the_counter_already_points_at(
     thresholds, economy
 ) -> None:
-    """Bonus on ``steps[loss_count]`` -- ei ``steps[loss_count + 1]``.
+    """The bonus is ``steps[loss_count]`` -- not ``steps[loss_count + 1]``.
 
-    Loss count kuvaa tilaa **kierrokseen mentäessä**, ja juuri se porras
-    maksetaan, jos kierros hävitään. ``settings.toml`` sanoo saman suoraan:
-    puoliajan alku (laskuri 1) antaa pistoolihäviöstä 1 900 $, eli portaan
-    1 arvon. Yhden liian suuri indeksi antaisi jokaiselle pelaajalle 500 $
-    liikaa ostovoimaa.
+    The loss count describes the state **on going into the round**, and that
+    is exactly the step that is paid if the round is lost. ``settings.toml``
+    says the same directly: the start of a half (counter 1) gives $1,900 for
+    losing the pistol round, that is, the value of step 1. An index one too
+    large would give every player $500 too much buying power.
     """
     for loss_count in range(thresholds.loss_count_min, thresholds.loss_count_max + 1):
         decision = classify_round(
@@ -523,16 +529,16 @@ def test_the_bonus_is_the_step_the_counter_already_points_at(
 
 
 def test_the_last_round_of_a_half_cannot_be_a_half_buy(thresholds, economy) -> None:
-    """Kun raha ei siirry, ehtoa B ei lasketa ja tulos on force.
+    """When the money does not carry, B is not computed and the result is force.
 
-    Puoliajan viimeisen kierroksen jälkeen saldo nollataan
-    pistoolikierrokselle, joten taskuun jätetty raha haihtuu. Sitä ei siis
-    ole jätetty *varaa varten*, eikä kierros voi olla puoliosto sääntö S2:n
-    merkityksessä.
+    After the last round of a half the balance is reset for the pistol round,
+    so the money left in the pocket evaporates. It has therefore not been left
+    *to leave room*, and the round cannot be a half-buy in the sense of rule
+    S2.
 
-    Sama rivi keskellä puoliaikaa on puoliosto -- vain kierrosnumero eroaa.
-    Se on tämän testin koko väite: sääntö ei nojaa rahaan vaan siihen, onko
-    rahalla käyttöä.
+    The same row in the middle of a half is a half-buy -- only the round
+    number differs. That is this test's whole claim: the rule does not lean on
+    the money but on whether the money has any use.
     """
     shared = dict(
         equip_buy_end=5 * 2000,
@@ -549,15 +555,15 @@ def test_the_last_round_of_a_half_cannot_be_a_half_buy(thresholds, economy) -> N
             loss_count=2,
         ).round_type
 
-    # Kierros 12 -> 13 on pistoolikierros: raha nollataan.
+    # Round 12 -> 13 is a pistol round: the money is reset.
     last_of_half = thresholds.pistol_rounds[1] - 1
     assert verdict(last_of_half) == "force"
-    # Sama tilanne keskellä puoliaikaa.
+    # The same situation in the middle of a half.
     assert verdict(last_of_half - 1) == "half"
 
 
 def test_the_last_regulation_round_cannot_be_a_half_buy(thresholds, economy) -> None:
-    """Jatkoajalla on oma aloitusraha, joten sekään ei peri saldoa."""
+    """Overtime has its own starting money, so it inherits no balance either."""
     decision = classify_round(
         row(
             round_no=thresholds.regulation_rounds,
@@ -571,17 +577,18 @@ def test_the_last_regulation_round_cannot_be_a_half_buy(thresholds, economy) -> 
         loss_count=2,
     )
     assert decision.round_type == "force"
-    assert "ei siirry kierrokselle" in decision.reason
-    # Ehtoa B ei lasketa, joten sen lukuja ei myöskään väitetä.
+    assert "does not carry to round" in decision.reason
+    # Condition B is not computed, so its numbers are not claimed either.
     assert decision.inputs["players_can_buy"] is None
     assert decision.inputs["loss_bonus_if_lost"] is None
 
 
 def test_overtime_rounds_carry_no_loss_bonus(thresholds, economy) -> None:
-    """Jatkoajan talousmalli on eri, joten bonusluku jää tyhjäksi.
+    """Overtime's economy model is different, so the bonus is left empty.
 
-    Moduulin oma rajaus sanoo, ettei tämä malli päde jatkoajalla. Luku
-    lainattuna sieltä lukisi kierroslistalla kuin havainto.
+    The module's own limitation says that this model does not hold in
+    overtime. A number borrowed from there would read on the round list like
+    an observation.
     """
     decision = classify_round(
         row(round_no=thresholds.regulation_rounds + 1),
@@ -596,13 +603,15 @@ def test_overtime_rounds_carry_no_loss_bonus(thresholds, economy) -> None:
 
 
 def test_a_two_player_team_can_still_reach_a_half_buy(thresholds, economy) -> None:
-    """Vajaa joukkue: kynnykset skaalataan luettavien määrään.
+    """A short-handed team: the thresholds are scaled to what can be read.
 
-    Kolmea aseistettua ei voi havaita kahdesta pelaajasta. Ilman skaalausta
-    puoliosto olisi tavoittamaton aina kun luettavia on kynnystä vähemmän, ja
-    jokainen ostos putoaisi ecoksi -- hiljaa ja uskottavan näköisesti.
+    Three armed players cannot be observed from two players. Without the
+    scaling a half-buy would be out of reach whenever fewer players than the
+    threshold can be read, and every purchase would fall through to an eco --
+    silently and plausibly.
 
-    Skaalaus on myönnytys eikä tarkennus, ja perustelu sanoo sen ääneen.
+    The scaling is a concession and not a refinement, and the reason says so
+    out loud.
     """
     decision = classify_round(
         row(
@@ -617,12 +626,12 @@ def test_a_two_player_team_can_still_reach_a_half_buy(thresholds, economy) -> No
         loss_count=2,
     )
     assert decision.round_type == "half"
-    assert "2/2 aseistettua" in decision.reason
-    assert "skaalattu luettavien pelaajien määrään (2)" in decision.reason
+    assert "2/2 armed" in decision.reason
+    assert "scaled to the number of players that could be read (2)" in decision.reason
 
 
 def test_a_full_team_reason_does_not_mention_scaling(thresholds, economy) -> None:
-    """Skaalauslause on vain siellä, missä skaalataan."""
+    """The scaling sentence is only where scaling happens."""
     decision = classify_round(
         row(
             equip_buy_end=5 * 2000,
@@ -635,17 +644,18 @@ def test_a_full_team_reason_does_not_mention_scaling(thresholds, economy) -> Non
         loss_count=2,
     )
     assert decision.round_type == "half"
-    assert "skaalattu" not in decision.reason
+    assert "scaled" not in decision.reason
 
 
 def test_a_distribution_that_disagrees_with_the_player_count_is_refused(
     thresholds, economy
 ) -> None:
-    """Kaksi eri jakajaa samalla rivillä on vika, ei tulkintakysymys.
+    """Two divisors on one row is a fault, not a question of interpretation.
 
-    ``players_buy_end`` on jakaja per pelaaja -arvoille, ja jakauman pituus
-    on jakaja laskureille. Jos ne eroavat, "3/5" tarkoittaisi eri joukkoa
-    kuin varustearvo per pelaaja. Eroa ei paikata kumpaankaan suuntaan.
+    ``players_buy_end`` is the divisor for the per player values, and the
+    length of the distribution is the divisor for the counters. If they
+    differ, "3/5" would mean a different set than the equipment value per
+    player. The difference is not patched in either direction.
     """
     decision = classify_round(
         row(
@@ -661,17 +671,18 @@ def test_a_distribution_that_disagrees_with_the_player_count_is_refused(
         loss_count=2,
     )
     assert decision.round_type is None
-    assert "ristiriidassa" in decision.reason
-    assert "players_buy_end sanoo 5" in decision.reason
+    assert "contradict each other" in decision.reason
+    assert "players_buy_end says 5" in decision.reason
 
 
 def test_more_armed_players_than_readable_ones_is_refused(
     thresholds, economy
 ) -> None:
-    """``players_armed_buy_end`` ei voi ylittää luettavien määrää.
+    """``players_armed_buy_end`` cannot exceed the number that could be read.
 
-    Adapterin sopimus lupaa ``0 <= armed <= players_buy_end``. Jos lupaus
-    joskus rikkoutuu, laskuri "6/5" menisi läpi ilman että kukaan huomaa.
+    The adapter's contract promises ``0 <= armed <= players_buy_end``. If the
+    promise is ever broken, the counter "6/5" would go through without anybody
+    noticing.
     """
     decision = classify_round(
         row(
@@ -686,17 +697,18 @@ def test_more_armed_players_than_readable_ones_is_refused(
         loss_count=2,
     )
     assert decision.round_type is None
-    assert "aseistettuja on 6" in decision.reason
+    assert "there are 6 armed players" in decision.reason
 
 
 def test_the_purchase_threshold_is_inclusive_at_exactly_the_limit(
     thresholds,
     economy,
 ) -> None:
-    """``>=``, ei ``>``: tasan rajalla oleva ostos on jo ostos.
+    """``>=``, not ``>``: a purchase exactly at the bound is already a purchase.
 
-    Rajan molemmat naapurit on pinnattu muualla; tämä pinnaa itse rajan.
-    Ilman tätä ``>=`` voi vaihtua merkiksi ``>`` ilman että mikään huomauttaa.
+    Both of the bound's neighbours are pinned elsewhere; this pins the bound
+    itself. Without it ``>=`` can turn into ``>`` without anything remarking
+    on it.
     """
     def decision(bought_pp: int) -> str | None:
         return classify_round(
@@ -719,17 +731,17 @@ def test_the_next_round_buying_power_is_inclusive_at_exactly_the_limit(
     thresholds,
     economy,
 ) -> None:
-    """``>=``, ei ``>``: tasan rajalle yltävä pelaaja pystyy jo ostamaan.
+    """``>=``, not ``>``: a player reaching exactly the bound can already buy.
 
-    Ehto B:n molemmat naapurit yhdellä dollarilla erotettuina. Ilman tätä
-    ``>=`` voi vaihtua merkiksi ``>`` ilman että mikään huomauttaa.
+    Both of condition B's neighbours separated by one dollar. Without this
+    ``>=`` can turn into ``>`` without anything remarking on it.
     """
-    bonus = economy.loss_bonus_steps[2]  # loss count 2 -> porras 2
+    bonus = economy.loss_bonus_steps[2]  # loss count 2 -> step 2
     need = thresholds.normal_buy_money_min - bonus
 
     def decision(own_money: int) -> str | None:
-        # Kolme pelaajaa rajan tuntumassa, kaksi rahatonta: laskuri on 3 tai
-        # 0, eli tasan normal_buy_players_minin kummallakin puolella.
+        # Three players near the bound, two with no money: the counter is 3 or
+        # 0, that is, exactly on either side of normal_buy_players_min.
         return classify_round(
             row(
                 equip_buy_end=5 * 2000,
@@ -751,18 +763,18 @@ def test_the_reason_never_contradicts_its_own_rounded_number(
     thresholds,
     economy,
 ) -> None:
-    """P13: vertailu ja perustelun luku ovat sama pyöristetty luku.
+    """P13: the comparison and the reason's number are the same rounded number.
 
-    Pyöristämätön vertailu tuottaisi tekstin "ostettu 1500 $/pelaaja eli alle
-    1500 $" -- juuri siinä rajatapauksessa, jonka lukija haluaa tarkistaa.
-    Ostettu summa on ainoa luku, joka luokittelussa vielä jaetaan pelaajien
-    määrällä; puolioston ehdot A ja B lasketaan pelaajakohtaisista
-    havainnoista eikä jaeta lainkaan.
+    An unrounded comparison would produce the text "bought 1500 $/player, that
+    is below 1500 $" -- in exactly the borderline case the reader wants to
+    check. The amount bought is the only number the classification still
+    divides by the number of players; the half-buy's conditions A and B are
+    computed from the per-player observations and are not divided at all.
     """
     limit = thresholds.force_buy_min
     decision = classify_round(
         row(
-            # 1500,4 $/pelaaja -> pyöristyy 1500:een, eli tasan rajalle.
+            # 1500.4 $/player -> rounds to 1500, that is, exactly to the bound.
             equip_buy_end=5 * 300 + 5 * limit + 2,
             equip_round_start=5 * 300,
             money_buy_end=0,
@@ -773,18 +785,18 @@ def test_the_reason_never_contradicts_its_own_rounded_number(
         loss_count=2,
     )
     assert decision.round_type == "force"
-    assert f"ostettu {limit} $/pelaaja eli vähintään {limit} $" in decision.reason
+    assert f"bought {limit} $/player, at least {limit} $" in decision.reason
 
 
 def test_a_poor_team_that_did_not_buy_is_an_eco_not_a_force(
     thresholds,
     economy,
 ) -> None:
-    """I/O-matriisi: köyhä joukkue -- kassa tyhjä, mutta ostos jäi rajan alle.
+    """I/O matrix: a poor team -- till empty, purchase below the bound.
 
-    Pelkkä "raha loppui" ei ole force: panssarin ja pistoolin viimeisillä
-    rahoillaan ostava joukkue tyhjensi kassan mutta ei forcannut. Siksi
-    ``force_buy_min`` on forcen **edellytys**, ei vain sen kaista.
+    "The money ran out" alone is not a force: a team buying armour and a
+    pistol with its last money emptied the till but did not force. That is why
+    ``force_buy_min`` is a **precondition** for a force and not just its band.
     """
     decision = classify_round(
         row(
@@ -803,7 +815,7 @@ def test_a_poor_team_that_did_not_buy_is_an_eco_not_a_force(
 
 
 def test_force_and_eco_differ_only_by_what_was_bought(thresholds, economy) -> None:
-    """Sama varustearvo, eri ostos: erottava havainto on ostettu summa."""
+    """Same equipment value, another purchase: the amount bought separates."""
     bought = classify_round(
         row(equip_buy_end=9000, equip_round_start=1000, money_buy_end=500),
         previous(won=False),
@@ -823,11 +835,11 @@ def test_force_and_eco_differ_only_by_what_was_bought(thresholds, economy) -> No
 
 
 def test_a_large_purchase_below_full_is_still_a_force(thresholds, economy) -> None:
-    """Forcella ei ole ylärajaa: ylhäältä rajaa ``full_equip_min``.
+    """A force has no upper bound: ``full_equip_min`` bounds it from above.
 
-    Kalibrointidemon kierros 20 (2 710 $/pelaaja ostettu, 2 910 varusteita)
-    putosi vanhan kaistan yläpuolelle ja luokittui poikkeamaksi. Kaista
-    poistui, joten sama tilanne on nyt force.
+    Round 20 of the calibration demo ($2,710 per player bought, 2,910 of
+    equipment) fell above the old band and was classified as an anomaly. The
+    band is gone, so the same situation is now a force.
     """
     purchase_pp = 2710
     decision = classify_round(
@@ -847,13 +859,14 @@ def test_a_large_purchase_below_full_is_still_a_force(thresholds, economy) -> No
 def test_equipment_value_alone_does_not_make_a_half_buy(
     thresholds, economy
 ) -> None:
-    """S2: puoliosto ei ratkea varustearvosta vaan pelaajien rahasta.
+    """S2: a half-buy is settled by the players' money, not the equipment value.
 
-    Sama varustearvo, sama ostos, sama aseistus -- ja tulos on eri, koska
-    pelaajien saldot eroavat. Ero kulkee nyt ehdon B kautta (tasajako
-    :func:`conftest.even_split`istä), ei enää poistuneen kiinteän rajan
-    kautta. Jos joku kytkee varustearvorajan takaisin puolioston
-    päätökseen, tämä testi kaatuu.
+    The same equipment value, the same purchase, the same armament -- and the
+    result differs, because the players' balances differ. The difference now
+    runs through condition B (the even split from
+    :func:`conftest.even_split`), no longer through the retired fixed bound.
+    If somebody wires the equipment value bound back into the half-buy
+    decision, this test comes down.
     """
     shared = dict(equip_buy_end=5 * 3500, equip_round_start=1000)
     bought_empty = classify_round(
@@ -875,10 +888,11 @@ def test_equipment_value_alone_does_not_make_a_half_buy(
 
 
 def test_a_half_buy_is_never_played_after_a_win(thresholds, economy) -> None:
-    """S1: säästö on aina reaktio häviöön, joten voiton jälkeen on normaali osto.
+    """S1: saving always reacts to a loss, so after a win it is a normal buy.
 
-    Kalibroinnin kierros 2: pistoolin voittanut CT ostaa 3 200 $/pelaaja.
-    Vanha luokittelija sanoi ``half``; tuotteen omistaja sanoo ``full``.
+    The calibration's round 2: the CT side that won the pistol round buys
+    $3,200 per player. The old classifier said ``half``; the product owner
+    says ``full``.
     """
     decision = classify_round(
         row(round_no=2, equip_buy_end=16000, equip_round_start=1100),
@@ -888,7 +902,7 @@ def test_a_half_buy_is_never_played_after_a_win(thresholds, economy) -> None:
         loss_count=1,
     )
     assert decision.round_type == "full"
-    assert "voitetun kierroksen jälkeen" in decision.reason
+    assert "after a round that was won" in decision.reason
 
 
 def test_low_value_after_a_win_is_an_anomaly_not_an_eco(thresholds, economy) -> None:
@@ -904,15 +918,15 @@ def test_low_value_after_a_win_is_an_anomaly_not_an_eco(thresholds, economy) -> 
         loss_count=1,
     )
     assert decision.round_type == "anomaly"
-    assert "voiton jälkeen" in decision.reason
+    assert "after a win" in decision.reason
 
 
 def test_there_is_no_gap_left_after_a_win(thresholds, economy) -> None:
-    """S1: voiton jälkeen on vain normaali osto tai poikkeama, ei väliä.
+    """S1: after a win there is only a normal buy or an anomaly, no interval.
 
-    Vanha luokittelija jätti poikkeamarajan ja puoliostorajan väliin aukon,
-    joka putosi poikkeamaksi. Testi ajetaan koko sillä välillä, joka jää
-    poikkeamarajan ja täyden oston väliin.
+    The old classifier left a gap between the anomaly bound and the half-buy
+    bound that fell through as an anomaly. The test is run across the whole
+    interval that lies between the anomaly bound and the full buy.
     """
     low = thresholds.anomaly_equip_max_after_win
     high = thresholds.full_equip_min
@@ -931,11 +945,11 @@ def test_there_is_no_gap_left_after_a_win(thresholds, economy) -> None:
 
 
 def test_a_saved_rifle_does_not_turn_an_eco_into_a_buy(thresholds, economy) -> None:
-    """S3: säästetty ase nostaa varustearvoa, mutta ei ole ostos.
+    """S3: a saved weapon raises the equipment value but is not a purchase.
 
-    Kalibroinnin kierros 11 CT: yksi säästetty M4, ostettu 600 $/pelaaja.
-    Tuotteen omistaja sanoo ``eco`` -- korkea varustearvo ei saa kääntää
-    sitä ostokseksi.
+    The calibration's round 11 CT: one saved M4, $600 per player bought. The
+    product owner says ``eco`` -- a high equipment value must not turn it into
+    a purchase.
     """
     decision = classify_round(
         row(
@@ -950,14 +964,14 @@ def test_a_saved_rifle_does_not_turn_an_eco_into_a_buy(thresholds, economy) -> N
         loss_count=3,
     )
     assert decision.round_type == "eco"
-    assert "säästetty kalusto ei ole" in decision.reason
+    assert "the kit saved is not" in decision.reason
 
 
 def test_negative_purchase_is_an_anomaly_not_silenced_to_zero(
     thresholds,
     economy,
 ) -> None:
-    """Varustearvon lasku ei ole ostotapahtuma; nolla piilottaisi ristiriidan."""
+    """A fall in equipment value is not a purchase; zero would hide the clash."""
     decision = classify_round(
         row(equip_buy_end=10000, equip_round_start=14000),
         previous(won=False),
@@ -966,15 +980,15 @@ def test_negative_purchase_is_an_anomaly_not_silenced_to_zero(
         loss_count=2,
     )
     assert decision.round_type == "anomaly"
-    assert "laski" in decision.reason
+    assert "equipment value fell" in decision.reason
 
 
 def test_a_negative_purchase_beats_the_full_buy_rule(thresholds, economy) -> None:
-    """I/O-matriisin rivi on ehdoton: negatiivinen ostos -> anomaly.
+    """The I/O matrix's row is absolute: a negative purchase -> anomaly.
 
-    Korkea varustearvo ei saa peittää ristiriitaista havaintoa. Jos
-    täyden oston tarkistus siirtyisi tämän eteen, kierros luokittuisi
-    fulliksi ja rikkinäinen havainto katoaisi näkyvistä.
+    A high equipment value must not cover a contradictory observation. If the
+    full buy check moved ahead of this one, the round would be classified as a
+    full and the broken observation would disappear from view.
     """
     decision = classify_round(
         row(
@@ -987,14 +1001,14 @@ def test_a_negative_purchase_beats_the_full_buy_rule(thresholds, economy) -> Non
         loss_count=2,
     )
     assert decision.round_type == "anomaly"
-    assert "laski" in decision.reason
+    assert "equipment value fell" in decision.reason
 
 
 def test_a_small_negative_purchase_is_not_rounded_away(thresholds, economy) -> None:
-    """Merkki luetaan joukkuesummasta, ei pyöristetystä per pelaaja -luvusta.
+    """The sign is read off the team total, not the rounded per player number.
 
-    Kahden dollarin lasku viidellä pelaajalla pyöristyy nollaan per pelaaja.
-    Se on silti ristiriitainen havainto, eikä sitä saa vaimentaa.
+    A fall of two dollars across five players rounds to zero per player. It is
+    still a contradictory observation, and it must not be damped.
     """
     decision = classify_round(
         row(equip_buy_end=9998, equip_round_start=10000),
@@ -1004,10 +1018,10 @@ def test_a_small_negative_purchase_is_not_rounded_away(thresholds, economy) -> N
         loss_count=2,
     )
     assert decision.round_type == "anomaly"
-    assert "-2 $ joukkueena" in decision.reason
+    assert "-2 $ for the team" in decision.reason
 
 
-# --- Edellisen kierroksen jatkuvuus ---------------------------------------------
+# --- The previous round's contiguity --------------------------------------------
 
 
 def test_missing_previous_round_is_an_anomaly(thresholds, economy) -> None:
@@ -1015,20 +1029,20 @@ def test_missing_previous_round_is_an_anomaly(thresholds, economy) -> None:
         row(equip_buy_end=5000), None, thresholds, economy=economy, loss_count=1
     )
     assert decision.round_type == "anomaly"
-    assert "edelliseen kierrokseen" in decision.reason
+    assert "to the previous round" in decision.reason
 
 
 def test_a_full_buy_is_recognised_even_without_a_previous_round(
     thresholds,
     economy,
 ) -> None:
-    """Tietoinen poikkeus kalibrointidokumentin johdetusta järjestyksestä.
+    """A deliberate exception to the calibration document's derived order.
 
-    5 000 $/pelaaja on täysi osto riippumatta siitä, tunnetaanko edellinen
-    kierros. Puoliajan ensimmäisellä kierroksella ja kierrosnumeroiden aukossa
-    edellistä ei ole, ja ``anomaly`` väittäisi siellä ilmiselvästä täydestä
-    ostosta, ettei sitä voi luokitella. Edellistä tarvitaan vain econ, forcen
-    ja puolioston erottamiseen toisistaan.
+    $5,000 per player is a full buy whether or not the previous round is
+    known. On the first round of a half and in a gap in the round numbers
+    there is no previous round, and there ``anomaly`` would claim of an
+    obvious full buy that it cannot be classified. The previous round is
+    needed only to separate eco, force and half-buy from each other.
     """
     decision = classify_round(
         row(equip_buy_end=5 * thresholds.full_equip_min),
@@ -1042,7 +1056,7 @@ def test_a_full_buy_is_recognised_even_without_a_previous_round(
 
 
 def test_a_gap_in_round_numbers_breaks_the_previous_round(thresholds, economy) -> None:
-    """``rivit[index - 1]`` ei ole edellinen kierros, jos numeroissa on aukko."""
+    """``rows[index - 1]`` is not the previous round if the numbers have a gap."""
     decision = classify_round(
         row(round_no=8, equip_buy_end=5000),
         previous(won=False, round_no=5),
@@ -1055,7 +1069,7 @@ def test_a_gap_in_round_numbers_breaks_the_previous_round(thresholds, economy) -
 
 
 def test_a_side_change_breaks_the_previous_round(thresholds, economy) -> None:
-    """Puolen vaihtuminen tarkoittaa, että edellinen kierros on toiselta puoliajalta."""
+    """A change of side means the previous round is from the other half."""
     decision = classify_round(
         row(round_no=14, side="CT", equip_buy_end=5000),
         previous(won=False, round_no=13, side="T"),
@@ -1085,11 +1099,11 @@ def test_a_contiguous_previous_round_is_used(thresholds, economy) -> None:
     assert decision.inputs["survivors_prev"] == 2
 
 
-# --- Vajaa joukkue ja puuttuvat havainnot ---------------------------------------
+# --- A short-handed team and missing observations -------------------------------
 
 
 def test_per_player_values_use_the_observed_player_count(thresholds, economy) -> None:
-    """Neljällä pelaajalla sama joukkuesumma ylittää täyden oston rajan."""
+    """With four players the same team total exceeds the full buy bound."""
     total = 4 * thresholds.full_equip_min
     four_players = classify_round(
         row(equip_buy_end=total, players_buy_end=4),
@@ -1109,11 +1123,11 @@ def test_per_player_values_use_the_observed_player_count(thresholds, economy) ->
     assert five_players.round_type != "full"
     assert four_players.inputs["players"] == 4
     assert four_players.inputs["players_readable"] == 4
-    assert "vain 4 pelaajan arvot" in four_players.reason
+    assert "only 4 players' values" in four_players.reason
 
 
 def test_unknown_player_count_falls_back_and_says_so(thresholds, economy) -> None:
-    """I/O-matriisi: jos määrä ei ole tiedossa, se kirjataan perusteluun."""
+    """I/O matrix: if the count is not known, that is recorded in the reason."""
     decision = classify_round(
         row(players_buy_end=None),
         previous(won=False),
@@ -1130,7 +1144,8 @@ def test_unknown_player_count_falls_back_and_says_so(thresholds, economy) -> Non
 def test_player_count_outside_the_roster_is_refused_as_a_divisor(
     thresholds, economy, observed
 ) -> None:
-    """Ylimääräinen tai vanhentunut rivi tickissä aliarvioisi per pelaaja -arvot."""
+    """An extra or stale row in the tick would underestimate the per player
+    values."""
     decision = classify_round(
         row(players_buy_end=observed),
         previous(won=False),
@@ -1140,7 +1155,7 @@ def test_player_count_outside_the_roster_is_refused_as_a_divisor(
     )
     assert decision.inputs["players"] == thresholds.roster_size
     assert decision.inputs["players_readable"] == observed
-    assert "sallitun välin" in decision.reason
+    assert "outside the allowed range" in decision.reason
 
 
 def test_round_without_a_freeze_anchor_is_not_classified(thresholds, economy) -> None:
@@ -1174,14 +1189,14 @@ def test_missing_observation_without_a_status_is_not_classified(
         loss_count=2,
     )
     assert decision.round_type is None
-    assert "varustearvo" in decision.reason
+    assert "equipment value" in decision.reason
 
 
 def test_missing_round_start_equipment_is_not_classified(thresholds, economy) -> None:
-    """Nollana luettuna koko varustearvo näyttäisi tällä kierroksella ostetulta.
+    """Read as zero, the whole equipment value would look bought this round.
 
-    Silloin aito säästö saisi tuomion "force -- ostettu lähes tyhjäksi", eli
-    tasan päinvastoin kuin demossa tapahtui.
+    A genuine saving round would then get the verdict "force -- bought almost
+    empty", that is, exactly the opposite of what happened in the demo.
     """
     decision = classify_round(
         row(equip_buy_end=9000, equip_round_start=None),
@@ -1191,7 +1206,7 @@ def test_missing_round_start_equipment_is_not_classified(thresholds, economy) ->
         loss_count=2,
     )
     assert decision.round_type is None
-    assert "kierroksen alun varustearvo" in decision.reason
+    assert "the equipment value at the start of the round" in decision.reason
 
 
 def test_zero_roster_size_is_refused_instead_of_dividing_by_zero(
@@ -1203,14 +1218,15 @@ def test_zero_roster_size_is_refused_instead_of_dividing_by_zero(
         classify_round(row(), previous(won=False), zero, economy=economy, loss_count=2)
 
 
-# --- Perustelu ja lähtöarvot ----------------------------------------------------
+# --- The reason and the input values --------------------------------------------
 
 
 def test_every_decision_carries_money_and_loss_count_in_its_reason(
     thresholds,
     economy,
 ) -> None:
-    """Ilman rahaa ja loss countia kalibrointi Story 1.4:ssä olisi mahdotonta."""
+    """Without money and the loss count, Story 1.4's calibration would be
+    impossible."""
     cases = [
         (row(round_no=1), previous(True, round_no=0), 1),
         (row(round_no=25), previous(False, round_no=24), 3),
@@ -1224,16 +1240,19 @@ def test_every_decision_carries_money_and_loss_count_in_its_reason(
     ]
     for r, e, lc in cases:
         decision = classify_round(r, e, thresholds, economy=economy, loss_count=lc)
-        assert "Käytettävissä" in decision.reason, decision
-        assert "jäljellä" in decision.reason, decision
+        assert "Available" in decision.reason, decision
+        # ``(left `` and not ``left``: the shared tail is what this pins, and
+        # the bare word also appears in the half-buy and force verdicts.
+        assert "(left " in decision.reason, decision
         assert f"loss count {lc}" in decision.reason, decision
 
 
 def test_eco_reason_names_the_purchase_it_compared_against(thresholds, economy) -> None:
-    """Eco ratkeaa ostetusta summasta, ja perustelu näyttää molemmat luvut.
+    """An eco is settled by the amount bought; the reason shows both numbers.
 
-    Perustelu kertoo silti myös rahan molemmat suunnat, jotta lukija ei sekoita
-    jäljelle jäänyttä saldoa käytettävissä olleeseen rahaan.
+    The reason still states both directions of the money too, so that the
+    reader does not confuse the balance left over with the money that was
+    available.
     """
     decision = classify_round(
         row(
@@ -1250,10 +1269,10 @@ def test_eco_reason_names_the_purchase_it_compared_against(thresholds, economy) 
     )
     assert decision.round_type == "eco"
     lowered = decision.reason.lower()
-    assert f"ostettu vain {per_player(600, 5)} $/pelaaja" in lowered
-    assert f"alle forcen edellytyksen {thresholds.force_buy_min} $" in lowered
-    assert f"käytettävissä {per_player(9000 + 600, 5)} $/pelaaja" in lowered
-    assert "jäljellä 1800 $/pelaaja" in lowered
+    assert f"bought only {per_player(600, 5)} $/player" in lowered
+    assert f"below the force precondition {thresholds.force_buy_min} $" in lowered
+    assert f"available {per_player(9000 + 600, 5)} $/player" in lowered
+    assert "left 1800 $/player" in lowered
 
 
 def test_available_money_is_the_sum_of_left_and_spent() -> None:
@@ -1263,7 +1282,7 @@ def test_available_money_is_the_sum_of_left_and_spent() -> None:
 
 
 def test_inputs_match_the_classified_schema_exactly(thresholds, economy) -> None:
-    """``inputs`` on skeemasopimus, ei vapaa sanakirja."""
+    """``inputs`` is a schema contract, not a free dictionary."""
     decision = classify_round(
         row(), previous(False), thresholds, economy=economy, loss_count=2
     )
@@ -1295,10 +1314,10 @@ def test_inputs_carry_every_threshold_the_rules_compare_against(
 
 
 def test_inputs_no_longer_carry_the_retired_thresholds(thresholds, economy) -> None:
-    """Poistuneet kynnykset poistuivat kaikkialta, myös lähtöarvoista.
+    """The retired thresholds went from everywhere, the input values included.
 
-    Puolittainen siivous jättäisi taulun sarakkeen, jolla ei ole lukijaa --
-    ja seuraava lukija luulisi sen kertovan jotain päätöksestä.
+    A half-done clean-up would leave a table column with no reader -- and the
+    next reader would think it said something about the decision.
     """
     decision = classify_round(
         row(), previous(False), thresholds, economy=economy, loss_count=2
@@ -1311,8 +1330,8 @@ def test_inputs_no_longer_carry_the_retired_thresholds(thresholds, economy) -> N
         "force_money_min",
         "force_money_max",
         "half_equip_min",
-        # Story 1.10: kiinteä raja taskuun jääneelle rahalle korvautui
-        # pelaajakohtaisilla ehdoilla A ja B.
+        # Story 1.10: the fixed bound on the money left in the pocket was
+        # replaced by the per-player conditions A and B.
         "force_money_left_max",
     ):
         assert retired not in decision.inputs
@@ -1336,7 +1355,7 @@ def test_bought_and_available_are_recoverable_without_new_columns(
     thresholds,
     economy,
 ) -> None:
-    """Molemmat johdokset saa ``inputs``-rakenteesta ilman skeemamuutosta."""
+    """Both derivations come out of ``inputs`` without a schema change."""
     decision = classify_round(
         row(
             equip_buy_end=12000,
@@ -1356,7 +1375,7 @@ def test_bought_and_available_are_recoverable_without_new_columns(
 
 
 def test_per_player_rounds_the_same_way_everywhere(thresholds, economy) -> None:
-    """Sama luku ei saa poiketa dollarilla taulukossa ja perustelussa."""
+    """The same number must not differ by a dollar in the table and the reason."""
     decision = classify_round(
         row(equip_buy_end=12345, equip_round_start=1000),
         previous(won=False),
@@ -1365,7 +1384,7 @@ def test_per_player_rounds_the_same_way_everywhere(thresholds, economy) -> None:
         loss_count=2,
     )
     expected = per_player(12345, 5)
-    assert f"{expected} $/pelaaja" in decision.reason
+    assert f"{expected} $/player" in decision.reason
 
 
 def test_decision_unpacks_as_a_triple(thresholds, economy) -> None:
@@ -1383,7 +1402,8 @@ def test_decision_unpacks_as_a_triple(thresholds, economy) -> None:
 
 
 def test_a_threshold_change_changes_the_verdict(thresholds, economy) -> None:
-    """Kynnykset ovat asetuksia, eivät koodia: sama rivi, eri raja, eri tulos."""
+    """Thresholds are settings, not code: same row, another bound, another
+    result."""
     stricter = thresholds.model_copy(update={"full_equip_min": 6000})
     r = row(equip_buy_end=25000, equip_round_start=1000)
     baseline = classify_round(
