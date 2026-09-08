@@ -2127,8 +2127,8 @@ def test_impossible_win_reason_is_refused(parse_settings, archive, demo) -> None
     with pytest.raises(ParseError) as exc:
         run_parse(parse_settings, archive, FakeParser(frame), demo)
     message = str(exc.value)
-    assert "sääntöjen vastaista" in message
-    assert "väärin päin" in message
+    assert "against the rules" in message
+    assert "wrong way round" in message
     assert not archive.parsed_table(MAP_DEMO_ID, "rounds").exists()
 
 

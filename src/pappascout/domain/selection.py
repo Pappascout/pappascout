@@ -1,54 +1,58 @@
-"""Otteluvalinta rosterikynnyksellä (Story 3.3).
+"""Match selection by the roster threshold (Story 3.3).
 
-Moduuli on **puhdas**: se ei tunne tiedostoja, HTTP:tä eikä FACEITin sanastoa.
-Sisään tulee :class:`MapCandidate` -- yksi kartta yhdessä ottelussa, kaksi
-pelaajajoukkoa ja tieto siitä, onko ottelu liigasta -- ja ulos tulee
-:class:`MapSelection`, joka on valintatiedoston rivi. Muunnoksen indeksien
-sanastosta tekee ``stages.select``, joten tämän moduulin säännöt ovat
-testattavissa käsin rakennetuilla joukoilla ilman verkkoa ja ilman arkistoa.
+The module is **pure**: it knows nothing of files, of HTTP, or of FACEIT's
+vocabulary. In comes :class:`MapCandidate` -- one map in one match, two sets
+of players and whether the match is a league match -- and out comes
+:class:`MapSelection`, which is a row of the selection file. ``stages.select``
+does the translation from the vocabulary of the indexes, so this module's
+rules can be tested with hand-built sets, without the network and without the
+archive.
 
-Viisi sääntöä, jotka tämä moduuli pitää voimassa
-------------------------------------------------
-
-**Kynnys on joukko-operaatio, ei uusi käsite.** Vakirosteri on SteamID64-joukko
-(``domain.teams.Team.player_ids``), kartan kokoonpano on toinen SteamID64-joukko,
-ja päätös on niiden leikkauksen koko. Nimimerkit ovat vain syytä varten;
-yksikään päätös ei riipu niistä.
-
-**Rosteriluokka on ennuste ennen parsintaa ja havainto sen jälkeen.** FACEITin
-``roster`` on **ottelukohtainen**, ei karttakohtainen, mutta Pappaliiga sallii
-kaksi vaihtoa karttojen välissä -- kartan todellisen kokoonpanon näkee vasta
-demosta. Rivi sanoo kummasta on kyse (:data:`ROSTER_SOURCES`), täsmälleen kuten
-``map_name_source`` Story 2.11:ssä. Kun molemmat ovat tiedossa, **havainto
-voittaa** ja ero ottelurosteriin kerrotaan -- vaihto karttojen välissä on juuri
-se asia, jota varten kynnys arvioidaan karttakohtaisesti, eikä sitä saa vaientaa.
-
-**Neljä vakipelaajaa ja yksi ulkopuolinen kelpaa.** Tuotteen omistaja
-2026-09-04: *"ottelu on samaa joukkuetta vastaan vaikka toisessa ottelussa
-heillä olisi yksi substitution pelaaja."* Ulkopuolisen sijainnit lasketaan
-mukaan; luokka erottelee
-``5/5`` ja ``4/5``, jotta raportti voi erotella ne kierrokset toisistaan.
-
-**Vetotiedon kartta ei ole todiste pelatusta kartasta.** Kolmen kartan ottelusta
-osa päättyy kahteen, ja vedossa on silti kolme nimeä. Kartta, joka **saattoi
-jäädä pelaamatta**, saa rivin muttei pääse otantaan -- ja rivi sanoo syyksi
-juuri sen (:func:`guaranteed_maps`). Parsittu demo on todiste: sellaista ei ole
-olemassa kartasta, jota ei pelattu, joten havainto palauttaa varmuuden.
-
-**Hylkäyksellä on aina luettava syy.** :attr:`MapSelection.roster_reason` ei ole
-koskaan tyhjä -- ei hyväksytyllä eikä hylätyllä rivillä. Käyttäjä ei koodaa itse,
-joten "tämä kartta ei kelvannut" ilman lukuja olisi päätös, jota hän ei voi
-tarkistaa. Syy kertoo montako löytyi, mikä kynnys on, ketkä olivat ulkopuolisia
-ja **mistä tieto on peräisin**.
-
-Mitä tämä moduuli **ei** tee
+Five rules this module keeps
 ----------------------------
-Se ei päättele, onko ottelu pelattu: pelaamattomasta ottelusta ei rakenneta
-:class:`MapCandidate`ia lainkaan (mitattu 2026-09-04, ``map_picks`` on tyhjä
-60/66 ottelussa -- ajastettu ottelu ei ole "valinta odottaa" vaan "ei vielä
-olemassa"). Se ei myöskään päättele ``is_league``ia: se on ``competition_id``:n
-ja ``[league].championship_ids``-listan vertailu, ja vertailun tekee vaihe, joka
-näkee asetukset.
+
+**The threshold is a set operation, not a new concept.** The standing roster
+is a set of SteamID64s (``domain.teams.Team.player_ids``), the map's lineup is
+another set of SteamID64s, and the decision is the size of their intersection.
+Nicknames exist only for the reason text; not one decision depends on them.
+
+**The roster class is a prediction before the parse and an observation after
+it.** FACEIT's ``roster`` is **per match**, not per map, but the league allows
+two substitutions between maps -- the real lineup of a map is visible only in
+the demo. The row says which of the two it is (:data:`ROSTER_SOURCES`),
+exactly like ``map_name_source`` in Story 2.11. When both are known, **the
+observation wins** and the difference from the match roster is stated -- a
+substitution between maps is precisely the thing the threshold is assessed per
+map for, and it must not be silenced.
+
+**Four regulars and one outsider is enough.** The product owner on
+2026-09-04: *"the match is against the same team even if in another match they
+had one substitute player."* The outsider's positions are counted in; the
+class distinguishes ``5/5`` from ``4/5`` so that the report can tell those
+rounds apart.
+
+**A map in the veto data is not proof that the map was played.** Some
+three-map matches end after two, and the veto still holds three names. A map
+that **may have gone unplayed** gets a row but does not reach the sample --
+and the row gives exactly that as the reason (:func:`guaranteed_maps`). A
+parsed demo is proof: one does not exist for a map that was not played, so an
+observation restores certainty.
+
+**A rejection always has a readable reason.**
+:attr:`MapSelection.roster_reason` is never empty -- not on an accepted row
+and not on a rejected one. The user does not write code, so "this map did not
+qualify" without the numbers would be a decision they cannot check. The reason
+says how many were found, what the threshold is, who the outsiders were and
+**where the information came from**.
+
+What this module does **not** do
+--------------------------------
+It does not infer whether a match has been played: no :class:`MapCandidate` is
+built at all from an unplayed match (measured 2026-09-04, ``map_picks`` is
+empty in 60 of 66 matches -- a scheduled match is not "a selection pending"
+but "does not exist yet"). Nor does it infer ``is_league``: that is a
+comparison between ``competition_id`` and the ``[league].championship_ids``
+list, and the comparison is made by the stage, which can see the settings.
 """
 
 from __future__ import annotations
@@ -75,75 +79,82 @@ __all__ = [
     "counts",
 ]
 
-#: Mistä kartan kokoonpano tiedetään.
+#: How the map's lineup is known.
 #:
 #: ``observed``
-#:     Demon kokoonpanotaulusta (``parsed/<map_demo_id>/lineups.parquet``).
-#:     Tämä on se, ketkä kartalla **olivat**.
+#:     From the demo's lineup table (``parsed/<map_demo_id>/lineups.parquet``).
+#:     This is who **were** on the map.
 #: ``predicted``
-#:     Ottelun rosterista. Tämä on se, ketkä kartalla **odotettiin olevan** --
-#:     FACEITin rosteri on ottelukohtainen, ja karttojen välissä saa vaihtaa.
+#:     From the match roster. This is who were **expected** to be on the map --
+#:     FACEIT's roster is per match, and substitutions are allowed between
+#:     maps.
 #:
-#: Järjestys on ensisijaisuusjärjestys: havainto ennen ennustetta.
+#: The order is the order of precedence: observation before prediction.
 ROSTER_SOURCES: Final[tuple[str, ...]] = ("observed", "predicted")
 RosterSource = Literal["observed", "predicted"]
 
-#: Lähteen suomenkielinen nimi käyttäjän tulostetta ja syytä varten.
+#: The name of the source for the user's console output and for the reason.
+#:
+#: The ``_FI`` suffix is a leftover from the time when the console spoke
+#: Finnish. This is **console vocabulary, not report content** (AD-11): the
+#: value reaches the screen through ``roster_reason`` in the ``select``
+#: command's output, and never through ``render/``. It is therefore in
+#: English, unlike the report vocabulary that keeps the same suffix.
 ROSTER_SOURCE_FI: Final[dict[str, str]] = {
-    "observed": "havainto",
-    "predicted": "ennuste",
+    "observed": "observation",
+    "predicted": "prediction",
 }
 
 
 def map_demo_id(match: str, index: int) -> str:
-    """Yksikön tunniste: ``{match_id}-{map_index}`` (AD-7).
+    """The unit's id: ``{match_id}-{map_index}`` (AD-7).
 
-    ``map_index`` on **0-pohjainen indeksi** ottelun karttalistaan, ja juuri
-    tässä se ensimmäisen kerran kirjoitetaan tunnisteeksi -- ``parse`` ja
-    ``classify`` saavat tunnisteen valmiina. Käyttäjälle näytettävä ``map_no``
-    on ``map_index + 1``, eikä sitä koskaan kirjoiteta tunnisteeseen.
+    ``map_index`` is the **0-based index** into the match's list of maps, and
+    this is where it is first written into an id -- ``parse`` and ``classify``
+    receive the id ready-made. The ``map_no`` shown to the user is
+    ``map_index + 1``, and it is never written into the id.
 
     >>> map_demo_id("1-f6a06dc8", 0)
     '1-f6a06dc8-0'
 
     Raises:
-        ValueError: Jos ``index`` on negatiivinen tai ``match`` on tyhjä.
-            Kumpikaan ei voi tuottaa tunnistetta, jolla mitään löytyisi, ja
-            hiljainen ``"-1"``-pääte osoittaisi tiedostoon, jota ei ole.
+        ValueError: If ``index`` is negative or ``match`` is empty. Neither
+            can produce an id that would find anything, and a silent ``"-1"``
+            suffix would point at a file that does not exist.
     """
     if not match:
-        raise ValueError("map_demo_id tarvitsee ottelutunnisteen; se oli tyhjä.")
+        raise ValueError("map_demo_id needs a match id; it was empty.")
     if index < 0:
         raise ValueError(
-            f"map_index ei voi olla negatiivinen, oli {index}. "
-            "Indeksi on 0-pohjainen paikka ottelun karttalistassa."
+            f"map_index cannot be negative, it was {index}. The index is the "
+            "0-based place in the match's list of maps."
         )
     return f"{match}-{index}"
 
 
 def guaranteed_maps(best_of: int | None) -> int | None:
-    """Montako karttaa ``best_of``-ottelussa pelataan **varmasti**.
+    """How many maps a ``best_of`` match **certainly** plays.
 
-    Ottelu päättyy, kun toinen on voittanut ``best_of // 2 + 1`` karttaa, joten
-    vähintään niin monta karttaa pelataan aina -- ja loput vain, jos ottelu ei
-    ole vielä ratkennut.
+    The match ends once one side has won ``best_of // 2 + 1`` maps, so at
+    least that many maps are always played -- and the rest only if the match
+    is not yet decided.
 
     >>> [guaranteed_maps(n) for n in (1, 2, 3, 4, 5)]
     [1, 2, 2, 3, 3]
 
-    **BO2 on kokonaan varma, ja se on kaavan tulos eikä poikkeus:** kahdesta
-    kartasta ei voi voittaa kahta ennen kuin molemmat on pelattu. Pappaliigan
-    runkosarjassa (mitattu 2026-09-04: ``best_of`` on ``2`` kaikissa 66
-    ottelussa) yksikään rivi ei siis jää epävarmaksi. BO3-playoffeissa kolmas
-    kartta jää -- ja juuri siksi tämä sääntö on olemassa.
+    **BO2 is entirely certain, and that is a result of the formula rather
+    than an exception:** you cannot win two of two maps before both have been
+    played. In the league's regular season (measured 2026-09-04: ``best_of``
+    is ``2`` in all 66 matches) not one row is therefore left uncertain. In
+    BO3 playoffs the third map is -- and that is exactly why this rule exists.
 
     Args:
-        best_of: Ottelun pituus karttoina, tai ``None``.
+        best_of: The length of the match in maps, or ``None``.
 
     Returns:
-        Varmasti pelattujen karttojen määrä, tai ``None`` jos ottelun pituutta
-        ei tiedetä. ``None`` on eri asia kuin nolla: se tarkoittaa, ettei
-        varmuudesta voi sanoa mitään suuntaan eikä toiseen.
+        The number of maps certainly played, or ``None`` if the length of the
+        match is not known. ``None`` is a different thing from zero: it means
+        nothing can be said about certainty either way.
     """
     if best_of is None or best_of < 1:
         return None
@@ -151,94 +162,102 @@ def guaranteed_maps(best_of: int | None) -> int | None:
 
 
 def class_labels(roster_size: int, roster_min_regulars: int) -> tuple[str, str]:
-    """Rosteriluokkien nimet asetusarvoista: ``("5/5", "4/5")``.
+    """The roster class names from the settings values: ``("5/5", "4/5")``.
 
-    Nimet **johdetaan kynnyksistä** eikä kirjoiteta käsin, jotta luokka ei voi
-    valehdella asetuksesta. Samalla tämä on se kohta, joka sitoo
-    ``[thresholds]``-arvot :data:`~pappascout.constants.ROSTER_CLASSES`-
-    luetteloon: jos kynnyksiä muutetaan, luokan nimi lakkaa kelpaamasta
-    ``CLASSIFIED``-skeeman enumiin, ja se on parempi kuulla tässä kuin
-    kolme vaihetta myöhemmin Polarsin tyyppivirheenä.
+    The names are **derived from the thresholds** rather than written by hand,
+    so that the class cannot lie about the setting. This is at the same time
+    the place that binds the ``[thresholds]`` values to the
+    :data:`~pappascout.constants.ROSTER_CLASSES` list: if the thresholds are
+    changed, the class name stops being valid for the ``CLASSIFIED`` schema's
+    enum, and it is better to hear that here than three stages later as a
+    Polars type error.
 
     >>> class_labels(5, 4)
     ('5/5', '4/5')
 
     Args:
-        roster_size: Montako pelaajaa kartalla on. ``[thresholds].roster_size``.
-        roster_min_regulars: Montako heistä on oltava vakirosterista.
-            ``[thresholds].roster_min_regulars``.
+        roster_size: How many players are on a map.
+            ``[thresholds].roster_size``.
+        roster_min_regulars: How many of them have to come from the standing
+            roster. ``[thresholds].roster_min_regulars``.
 
     Returns:
-        ``(täysi, vajaa)`` -- luokka, kun kaikki ovat vakirosterista, ja luokka,
-        kun kynnys täyttyy mutta yksi on ulkopuolinen.
+        ``(full, partial)`` -- the class when everybody is from the standing
+        roster, and the class when the threshold is met but one is an
+        outsider.
 
     Raises:
-        ~pappascout.errors.SettingsError: Jos kynnykset ovat epäkelvot tai jos
-            niistä johdettu nimi ei ole ``ROSTER_CLASSES``-luettelossa.
-            **Asetusvirhe eikä ohjelmavirhe**: molemmat arvot tulevat
-            ``settings.toml``ista, ja kumpikin on itsessään kelvollinen
-            ``PositiveInt``. Paljas ``ValueError`` päätyisi komentorivillä
-            muotoon "Odottamaton virhe -- ohjelmavirhe", vaikka korjaus on
-            käyttäjän asetustiedostossa.
+        ~pappascout.errors.SettingsError: If the thresholds are invalid, or if
+            the name derived from them is not in the ``ROSTER_CLASSES`` list.
+            **A settings error, not a program error**: both values come from
+            ``settings.toml``, and each is a valid ``PositiveInt`` in itself.
+            A bare ``ValueError`` would reach the command line as "Unexpected
+            error -- a program error", although the fix is in the user's
+            settings file.
     """
     if roster_size < 1:
         raise SettingsError(
-            f"Asetus [thresholds].roster_size on {roster_size}, mutta kartalla "
-            "on aina vähintään yksi pelaaja. Korjaa arvo settings.tomlissa."
+            f"The setting [thresholds].roster_size is {roster_size}, but a map "
+            "always has at least one player. Correct the value in "
+            "settings.toml."
         )
     if not 1 <= roster_min_regulars <= roster_size:
         raise SettingsError(
-            f"Asetus [thresholds].roster_min_regulars on {roster_min_regulars}, "
-            f"mutta sen on oltava välillä 1..{roster_size} "
-            "([thresholds].roster_size). Korjaa arvo settings.tomlissa."
+            f"The setting [thresholds].roster_min_regulars is "
+            f"{roster_min_regulars}, but it has to be in the range "
+            f"1..{roster_size} ([thresholds].roster_size). Correct the value "
+            "in settings.toml."
         )
     full = f"{roster_size}/{roster_size}"
     partial = f"{roster_min_regulars}/{roster_size}"
     unknown = [name for name in (full, partial) if name not in ROSTER_CLASSES]
     if unknown:
         raise SettingsError(
-            f"Kynnyksistä roster_size={roster_size} ja "
-            f"roster_min_regulars={roster_min_regulars} johdettu rosteriluokka "
-            f"{', '.join(unknown)} ei ole tunnettujen luokkien joukossa "
+            f"The roster class derived from the thresholds "
+            f"roster_size={roster_size} and "
+            f"roster_min_regulars={roster_min_regulars} is "
+            f"{', '.join(unknown)}, which is not among the known classes "
             f"({', '.join(ROSTER_CLASSES)}).\n"
-            "Rosteriluokka on myös classified-taulun enum-arvo, joten sitä ei "
-            "voi keksiä ajossa. Palauta kynnykset settings.tomlissa arvoihin, "
-            "joista syntyy tunnettu luokka."
+            "The roster class is also an enum value of the classified table, "
+            "so it cannot be invented at run time. Return the thresholds in "
+            "settings.toml to values that produce a known class."
         )
     return full, partial
 
 
 @dataclass(frozen=True)
 class MapCandidate:
-    """Yksi MapDemo ennen päättelyä. Moduulin syöte.
+    """One MapDemo before the inference. The module's input.
 
     Attributes:
-        map_demo_id: Yksikön tunniste, ``{match_id}-{map_index}``.
-        match_id: Ottelu, jonka kartta tämä on.
-        map_index: 0-pohjainen paikka ottelun karttalistassa.
-        map_name: Kartan nimi vetotiedosta, tai ``None``. **Ei koskaan päätöksen
-            peruste** -- se on rivin luettavuutta varten. Kartan lopullinen nimi
-            luetaan demon otsikosta (Story 2.11), ja tämä on vetotiedon havainto.
-        is_league: Onko ottelu ``[league].championship_ids``-listalta. Vertailun
-            tekee vaihe; tämä on sen tulos.
-        certainly_played: Onko kartta varmasti pelattu. ``False`` tarkoittaa,
-            että kartta on vetotiedossa mutta ottelu on voinut ratketa ennen
-            sitä (ks. :func:`guaranteed_maps`). Vaihe laskee tämän
-            ``best_of``ista; ``True`` on oletus, koska ilman ottelun pituutta
-            ei ole perustetta epäillä yhtään karttaa.
-        match_roster: Ottelun rosteri -- **ennuste** siitä, ketkä kartalla
-            olivat. FACEITin ``roster`` eli aloittajat, ei vaihtopelaajat:
-            vaihtopenkki ei ole kartalla, ja sen laskeminen mukaan ennustaisi
-            kymmenen pelaajaa viiden paikalle.
-        observed_players: Kartan kokoonpano demosta, tai ``None`` jos demoa ei
-            ole parsittu. ``None`` ja tyhjä joukko ovat **eri asioita**:
-            edellinen on "ei tiedossa", jälkimmäinen "demo luettiin eikä siinä
-            ollut tätä joukkuetta".
-        observation_note: Suomenkielinen selitys sille, **miksi havaintoa ei
-            ole**, tai ``None``. Rikkinäinen kokoonpanotaulu ja kahden
-            kokoonpanon tasapeli ovat molemmat "ei havaintoa", mutta kumpikaan
-            ei ole sama asia kuin "demoa ei ole parsittu" -- ja ilman tätä
-            kenttää ero katoaisi jäljettömästi. Kulkee rivin syyhyn.
+        map_demo_id: The unit's id, ``{match_id}-{map_index}``.
+        match_id: The match this map belongs to.
+        map_index: The 0-based place in the match's list of maps.
+        map_name: The map's name from the veto data, or ``None``. **Never a
+            basis for the decision** -- it is there to make the row readable.
+            The final name of the map is read from the demo header (Story
+            2.11), and this is the veto data's observation.
+        is_league: Whether the match is on the ``[league].championship_ids``
+            list. The comparison is made by the stage; this is its result.
+        certainly_played: Whether the map was certainly played. ``False``
+            means the map is in the veto data but the match may have been
+            decided before it (see :func:`guaranteed_maps`). The stage
+            computes this from ``best_of``; ``True`` is the default, because
+            without the length of the match there is no reason to doubt any
+            map.
+        match_roster: The match roster -- the **prediction** of who were on
+            the map. FACEIT's ``roster``, that is the starters, not the
+            substitutes: the bench is not on the map, and counting it in would
+            predict ten players for five places.
+        observed_players: The map's lineup from the demo, or ``None`` if the
+            demo has not been parsed. ``None`` and an empty set are
+            **different things**: the former is "not known", the latter "the
+            demo was read and this team was not in it".
+        observation_note: An explanation of **why there is no observation**,
+            or ``None``. A broken lineup table and a tie between two lineups
+            are both "no observation", but neither is the same thing as "the
+            demo has not been parsed" -- and without this field the difference
+            would vanish without a trace. It travels into the row's reason.
     """
 
     map_demo_id: str
@@ -254,36 +273,37 @@ class MapCandidate:
 
 @dataclass(frozen=True)
 class MapSelection:
-    """Yhden MapDemon valintapäätös. Valintatiedoston rivi.
+    """The selection decision for one MapDemo. A row of the selection file.
 
     Attributes:
-        map_demo_id: Yksikön tunniste.
-        match_id: Ottelu.
-        map_index: Kartan paikka ottelussa.
-        map_name: Kartan nimi vetotiedosta, tai ``None``.
-        is_league: Onko ottelu liigasta.
-        roster_ok: Kelpaako kartta otantaan.
-        roster_reason: **Aina luettava syy**, myös hyväksytyllä rivillä. Kertoo
-            luvut ja kynnyksen, jotta päätöksen voi tarkistaa avaamatta demoa.
-        roster_class: ``"5/5"`` tai ``"4/5"``, tai ``None`` jos kartta ei
-            kelvannut. Hylätyllä rivillä luokka olisi väite kierroksista, joita
-            ei lasketa; hyväksytyllä rivillä sen puuttuminen tekisi rivistä
-            otannan, jota kumpikaan luokkalaskuri ei löydä.
-        roster_source: ``"observed"`` tai ``"predicted"``; ks.
+        map_demo_id: The unit's id.
+        match_id: The match.
+        map_index: The map's place in the match.
+        map_name: The map's name from the veto data, or ``None``.
+        is_league: Whether the match is from the league.
+        roster_ok: Whether the map qualifies for the sample.
+        roster_reason: **Always a readable reason**, on an accepted row too.
+            It states the numbers and the threshold, so that the decision can
+            be checked without opening the demo.
+        roster_class: ``"5/5"`` or ``"4/5"``, or ``None`` if the map did not
+            qualify. On a rejected row the class would be a claim about rounds
+            that are not counted; on an accepted row its absence would make
+            the row a sample that neither class counter finds.
+        roster_source: ``"observed"`` or ``"predicted"``; see
             :data:`ROSTER_SOURCES`.
-        certainly_played: Tiedetäänkö, että kartta pelattiin. **Johtopäätös
-            eikä syöte**: tosi, kun ottelun pituus takaa kartan
-            (:func:`guaranteed_maps`) **tai** kun demo on parsittu -- sellaista
-            ei ole olemassa kartasta, jota ei pelattu. Epätosi rivi on
-            vetotiedossa mutta odottaa todistetta.
-        regulars: Kartan pelaajat, jotka ovat vakirosterissa. Lajiteltu.
-        outsiders: Kartan pelaajat, jotka eivät ole vakirosterissa. Lajiteltu.
-            **Nämä lasketaan mukaan** otantaan, kun kynnys täyttyy -- ero on
-            luokassa, ei siinä kuka on mukana.
-        players_seen: Montako pelaajaa kartalla tiedettiin olevan.
-        joined: Pelaajat, jotka olivat demossa muttei ottelurosterissa.
-            Tyhjä, kun havaintoa tai ennustetta ei ole vertailtavaksi.
-        left: Pelaajat, jotka olivat ottelurosterissa muttei demossa.
+        certainly_played: Whether it is known that the map was played. **A
+            conclusion, not an input**: true when the length of the match
+            guarantees the map (:func:`guaranteed_maps`) **or** when the demo
+            has been parsed -- one does not exist for a map that was not
+            played. A false row is in the veto data but awaits proof.
+        regulars: The map's players who are in the standing roster. Sorted.
+        outsiders: The map's players who are not in the standing roster.
+            Sorted. **These are counted in** to the sample when the threshold
+            is met -- the difference is in the class, not in who is included.
+        players_seen: How many players were known to be on the map.
+        joined: Players who were in the demo but not in the match roster.
+            Empty when there is no observation or no prediction to compare.
+        left: Players who were in the match roster but not in the demo.
     """
 
     map_demo_id: str
@@ -305,37 +325,41 @@ class MapSelection:
     def __post_init__(self) -> None:
         if not self.roster_reason.strip():
             raise ValueError(
-                f"Valintarivillä {self.map_demo_id!r} ei ole syytä. "
-                "Päätös ilman syytä ei ole tarkistettavissa, eikä sellaista "
-                "riviä saa kirjoittaa."
+                f"The selection row {self.map_demo_id!r} has no reason. A "
+                "decision without a reason cannot be checked, and such a row "
+                "must not be written."
             )
         if self.roster_source not in ROSTER_SOURCES:
             raise ValueError(
-                f"Valintarivin {self.map_demo_id!r} lähde on "
-                f"{self.roster_source!r}, jota ei ole tunnettujen lähteiden "
-                f"joukossa ({', '.join(ROSTER_SOURCES)})."
+                f"The source of the selection row {self.map_demo_id!r} is "
+                f"{self.roster_source!r}, which is not among the known "
+                f"sources ({', '.join(ROSTER_SOURCES)})."
             )
         if not self.roster_ok and self.roster_class is not None:
             raise ValueError(
-                f"Hylätyllä valintarivillä {self.map_demo_id!r} on rosteriluokka "
-                f"{self.roster_class!r}. Luokka on väite kierroksista, joita ei "
-                "lasketa."
+                f"The rejected selection row {self.map_demo_id!r} carries the "
+                f"roster class {self.roster_class!r}. The class is a claim "
+                "about rounds that are not counted."
             )
         if self.roster_ok and self.roster_class is None:
             raise ValueError(
-                f"Hyväksytyllä valintarivillä {self.map_demo_id!r} ei ole "
-                "rosteriluokkaa. Sellainen rivi olisi otannassa muttei "
-                "kummassakaan luokkalaskurissa, eikä mikään kertoisi eroa."
+                f"The accepted selection row {self.map_demo_id!r} has no "
+                "roster class. Such a row would be in the sample but in "
+                "neither class counter, and nothing would tell the difference."
             )
 
     @property
     def source_fi(self) -> str:
-        """Lähde suomeksi: ``havainto`` tai ``ennuste``."""
+        """The source as a word: ``observation`` or ``prediction``.
+
+        The ``_fi`` in the name is a leftover from the Finnish console; see
+        :data:`ROSTER_SOURCE_FI`.
+        """
         return ROSTER_SOURCE_FI[self.roster_source]
 
     @property
     def drifted(self) -> bool:
-        """Erosiko kartan kokoonpano ottelurosterista?"""
+        """Did the map's lineup differ from the match roster?"""
         return bool(self.joined or self.left)
 
 
@@ -347,37 +371,39 @@ def evaluate(
     roster_min_regulars: int,
     names: Mapping[str, str] | None = None,
 ) -> MapSelection:
-    """Päätä yhden MapDemon kohtalo joukko-operaationa.
+    """Decide the fate of one MapDemo as a set operation.
 
-    Tarkistukset ovat tässä järjestyksessä, ja järjestys on merkityksellinen:
-    jokainen niistä tekee seuraavasta merkityksettömän, joten ensimmäinen
-    osuva on aina se, joka kertoo eniten.
+    The checks are in this order, and the order matters: each of them makes
+    the next one meaningless, so the first one that applies is always the one
+    that says the most.
 
-    1. **Vakirosteri tuntematon** -- ilman sitä ei ole mitään, mitä vasten
-       verrata, eikä kynnyksen alitus ole tosi väite.
-    2. **Kartta saattoi jäädä pelaamatta** -- kokoonpanon arviointi kartalle,
-       jota ei ehkä ole olemassa, olisi väite tyhjästä. Parsittu demo kumoaa
-       tämän: sitä ei olisi olemassa pelaamattomasta kartasta.
-    3. **Kokoonpano tuntematon** -- eri syy riippuen siitä, oliko demo
-       parsittu vai ei.
-    4. **Kynnys.**
+    1. **The standing roster is unknown** -- without it there is nothing to
+       compare against, and falling short of the threshold is not a true
+       claim.
+    2. **The map may have gone unplayed** -- assessing the lineup of a map
+       that may not exist would be a claim about nothing. A parsed demo
+       overturns this: it would not exist for an unplayed map.
+    3. **The lineup is unknown** -- a different reason depending on whether
+       the demo was parsed or not.
+    4. **The threshold.**
 
     Args:
-        candidate: Kartta ja sen kaksi pelaajajoukkoa.
-        roster: Joukkueen vakirosteri SteamID64-joukkona
+        candidate: The map and its two sets of players.
+        roster: The team's standing roster as a set of SteamID64s
             (``domain.teams.Team.player_ids``).
-        roster_size: ``[thresholds].roster_size`` -- montako pelaajaa kartalla on.
-        roster_min_regulars: ``[thresholds].roster_min_regulars`` -- montako
-            heistä on oltava vakirosterista.
-        names: SteamID64 -> nimimerkki, pelkkää syytä varten. Puuttuva nimi on
-            tunniste sellaisenaan: syy on ihmiselle, mutta keksitty nimi
-            osoittaisi väärään pelaajaan.
+        roster_size: ``[thresholds].roster_size`` -- how many players are on a
+            map.
+        roster_min_regulars: ``[thresholds].roster_min_regulars`` -- how many
+            of them have to come from the standing roster.
+        names: SteamID64 -> nickname, for the reason text only. A missing name
+            is the id as it stands: the reason is for a human, but an invented
+            name would point at the wrong player.
 
     Returns:
-        :class:`MapSelection`, jolla on aina syy.
+        A :class:`MapSelection`, which always has a reason.
 
     Raises:
-        ~pappascout.errors.SettingsError: Jos kynnykset ovat epäkelvot; ks.
+        ~pappascout.errors.SettingsError: If the thresholds are invalid; see
             :func:`class_labels`.
     """
     full_label, partial_label = class_labels(roster_size, roster_min_regulars)
@@ -394,10 +420,11 @@ def evaluate(
     joined, left = _drift(candidate)
     note = candidate.observation_note
 
-    # Rivin ``certainly_played`` on **johtopaatos**, ei syote: ottelun pituus
-    # takaa kartan, TAI parsittu demo todistaa sen. Pelkka syotteen kopiointi
-    # jattaisi rivin ikuisesti epavarmaksi, vaikka demo on arkistossa -- ja
-    # yhteenveto kertoisi epavarmoja karttoja, jotka on jo todistettu.
+    # The row's ``certainly_played`` is a **conclusion**, not an input: the
+    # length of the match guarantees the map, OR a parsed demo proves it.
+    # Merely copying the input would leave the row uncertain for ever even
+    # though the demo is in the archive -- and the summary would report
+    # uncertain maps that have already been proved.
     known_played = candidate.certainly_played or observed is not None
 
     def rejected(reason: str) -> MapSelection:
@@ -417,17 +444,18 @@ def evaluate(
 
     if not roster:
         return rejected(
-            "Ei kelpaa: joukkueen vakirosteria ei tiedetä, joten kynnystä ei "
-            "voi arvioida lainkaan."
+            "Not eligible: the team's standing roster is not known, so the "
+            "threshold cannot be assessed at all."
         )
 
-    # Havainto on todiste pelatusta kartasta: parsittua demoa ei ole olemassa
-    # kartasta, jota ei pelattu.
+    # An observation is proof that the map was played: a parsed demo does not
+    # exist for a map that was not played.
     if not candidate.certainly_played and observed is None:
         return rejected(
-            f"Ei kelpaa: kartta on vetotiedossa {candidate.map_index + 1}. "
-            "eikä ottelun pituus takaa, että se pelattiin. Kartta pääsee "
-            "otantaan, kun sen demo on ladattu ja parsittu -- demo on todiste."
+            f"Not eligible: the map is number {candidate.map_index + 1} in the "
+            "veto data and the match length does not guarantee that it was "
+            "played. The map reaches the sample once its demo has been "
+            "downloaded and parsed -- the demo is the proof."
         )
 
     if not on_map:
@@ -437,9 +465,10 @@ def evaluate(
     outsiders = tuple(sorted(on_map - frozenset(roster)))
     found = len(regulars)
 
-    # Luokka kertoo, montako **kartan viidestä paikasta** on vakipelaajan.
-    # Ilman kattoa kuuden pelaajan kokoonpano tuottaisi luokan 5/5 ja syyn
-    # "6/6", eli luokka ja syy väittäisivät eri asiaa.
+    # The class says how many of the **map's five places** belong to a
+    # regular. Without a cap a six-player lineup would produce the class 5/5
+    # and the reason "6/6", that is the class and the reason would claim
+    # different things.
     counted = min(found, roster_size)
     if counted >= roster_size:
         label: str | None = full_label
@@ -488,10 +517,10 @@ def select_maps(
     roster_min_regulars: int,
     names: Mapping[str, str] | None = None,
 ) -> tuple[MapSelection, ...]:
-    """Päätä monen MapDemon kohtalo. Ks. :func:`evaluate`.
+    """Decide the fate of many MapDemos. See :func:`evaluate`.
 
-    Järjestys on sama kuin syötteessä: vaihe päättää järjestyksen, jotta kahden
-    ajon ero on diffattavissa.
+    The order is the same as in the input: the stage decides the order, so
+    that the difference between two runs can be read as a diff.
     """
     return tuple(
         evaluate(
@@ -505,7 +534,7 @@ def select_maps(
     )
 
 
-# -- Sisäiset apurit ---------------------------------------------------------
+# -- Internal helpers --------------------------------------------------------
 
 
 def _row(
@@ -542,12 +571,14 @@ def _row(
 
 
 def _drift(candidate: MapCandidate) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Havainnon ja ennusteen ero -- vaihto karttojen välissä.
+    """The difference between observation and prediction -- a substitution
+    between maps.
 
-    Ero lasketaan **vain kun molemmat ovat olemassa ja epätyhjiä**. Ilman
-    ottelurosteria ero olisi koko havaittu kokoonpano; ilman havaittua
-    kokoonpanoa ero olisi koko ottelurosteri, ja rivi kertoisi "vaihdosta"
-    kartalla, jonka oma syy sanoo kokoonpanon olevan tuntematon.
+    The difference is computed **only when both exist and are non-empty**.
+    Without the match roster the difference would be the whole observed
+    lineup; without the observed lineup it would be the whole match roster,
+    and the row would report a "substitution" on a map whose own reason says
+    the lineup is unknown.
     """
     observed = candidate.observed_players
     if not observed or not candidate.match_roster:
@@ -572,12 +603,13 @@ def _with_note(reason: str, note: str | None) -> str:
 def _no_players_reason(source: RosterSource) -> str:
     if source == "observed":
         return (
-            "Ei kelpaa: kartan kokoonpanoa ei tiedetä. Demo on parsittu, mutta "
-            "siinä ei ollut yhtään tämän joukkueen pelaajaa."
+            "Not eligible: the map's lineup is not known. The demo has been "
+            "parsed, but it held not one player of this team."
         )
     return (
-        "Ei kelpaa: kartan kokoonpanoa ei tiedetä. Ottelurosteri on tyhjä eikä "
-        "demoa ole parsittu, joten kynnystä ei voi arvioida."
+        "Not eligible: the map's lineup is not known. The match roster is "
+        "empty and the demo has not been parsed, so the threshold cannot be "
+        "assessed."
     )
 
 
@@ -596,71 +628,79 @@ def _reason(
     show,
     note: str | None,
 ) -> str:
-    """Yhden rivin syy: luvut, kynnys, ulkopuoliset, ero ja lähde.
+    """One row's reason: the numbers, the threshold, the outsiders, the
+    difference and the source.
 
-    Sama runko sekä hyväksytylle että hylätylle riville, koska käyttäjä
-    tarkistaa molemmat samasta paikasta. Ero on ensimmäisessä lauseessa.
+    The same skeleton for the accepted and the rejected row, because the user
+    checks both in the same place. The difference is in the first sentence.
     """
     origin = ROSTER_SOURCE_FI[source]
     origin_text = (
-        "kokoonpano demosta" if source == "observed" else "kokoonpano ottelurosterista"
+        "lineup from the demo"
+        if source == "observed"
+        else "lineup from the match roster"
     )
     parts: list[str] = []
 
     if ok:
         parts.append(
-            f"Kelpaa: {found}/{on_map} kartan pelaajasta on vakirosterissa, "
-            f"luokka {label}."
+            f"Eligible: {found}/{on_map} of the map's players are in the "
+            f"standing roster, class {label}."
         )
     else:
         parts.append(
-            f"Ei kelpaa: vain {found}/{on_map} kartan pelaajasta on "
-            f"vakirosterissa, ja kynnys on {roster_min_regulars}/{roster_size}."
+            f"Not eligible: only {found}/{on_map} of the map's players are in "
+            f"the standing roster, and the threshold is "
+            f"{roster_min_regulars}/{roster_size}."
         )
 
-    # Luokka puhuu aina viidestä paikasta. Jos kartalla oli eri määrä pelaajia,
-    # luokan nimittäjä ja lauseen nimittäjä eroavat -- ja se sanotaan, ettei
-    # lukija päättelisi luokasta ulkopuolista, jota ei ole.
+    # The class always speaks of five places. If the map held a different
+    # number of players, the denominator of the class and the denominator of
+    # the sentence differ -- and that is said, so that the reader does not
+    # infer from the class an outsider who does not exist.
     if on_map != roster_size:
         parts.append(
-            f"Huomaa: kokoonpanossa oli {on_map} pelaajaa odotetun "
-            f"{roster_size} sijaan, joten luokka ja lukusuhde eivät ole "
-            "samasta nimittäjästä."
+            f"Note: the lineup held {on_map} players instead of the expected "
+            f"{roster_size}, so the class and the ratio do not share a "
+            "denominator."
         )
 
     if outsiders:
         named = ", ".join(show(player) for player in outsiders)
-        parts.append(f"Vakirosterin ulkopuolelta: {named}.")
+        parts.append(f"From outside the standing roster: {named}.")
     elif ok and found < roster_size:
         parts.append(
-            "Ulkopuolisia ei ollut -- vajaa luokka johtuu kokoonpanon koosta, "
-            "ei vieraasta pelaajasta."
+            "There were no outsiders -- the partial class comes from the size "
+            "of the lineup, not from a foreign player."
         )
 
     if joined or left:
         changed: list[str] = []
         if joined:
-            changed.append("mukaan tuli " + ", ".join(show(p) for p in joined))
+            changed.append("joined: " + ", ".join(show(p) for p in joined))
         if left:
-            changed.append("pois jäi " + ", ".join(show(p) for p in left))
-        parts.append("Kokoonpano eroaa ottelurosterista: " + "; ".join(changed) + ".")
+            changed.append("left: " + ", ".join(show(p) for p in left))
+        parts.append(
+            "The lineup differs from the match roster: " + "; ".join(changed) + "."
+        )
 
-    parts.append(f"Lähde: {origin} ({origin_text}).")
+    parts.append(f"Source: {origin} ({origin_text}).")
     return _with_note(" ".join(parts), note)
 
 
 def sort_key(selection: MapSelection) -> tuple[str, int]:
-    """Rivien järjestys tiedostossa: ottelu, sitten kartan indeksi."""
+    """The order of the rows in the file: match, then the map's index."""
     return (selection.match_id, selection.map_index)
 
 
 def counts(selections: Sequence[MapSelection]) -> dict[str, int]:
-    """Yhteenvetoluvut valintariveistä, käyttäjän tulostetta varten.
+    """Summary numbers from the selection rows, for the user's output.
 
-    Luvut lasketaan **riveistä eikä ajon varrelta**, jotta tiedosto ja
-    yhteenveto eivät voi kertoa eri asiaa. Kaksi invarianttia pitää:
-    ``accepted + rejected == map_demos`` ja ``class_5/5 + class_4/5 ==
-    accepted`` -- jälkimmäisen takaa :meth:`MapSelection.__post_init__`.
+    The numbers are computed **from the rows and not along the way**, so that
+    the file and the summary cannot say different things. Two invariants hold:
+    ``accepted + rejected == map_demos`` and ``class_5/5 + class_4/5 ==
+    accepted`` -- the latter is guaranteed by
+    :meth:`MapSelection.__post_init__`.
     """
     accepted = [row for row in selections if row.roster_ok]
     return {

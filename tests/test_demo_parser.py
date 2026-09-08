@@ -1,12 +1,12 @@
-"""Demoadapterin testit: purku, otsikkotarkistus ja oikea demo.
+"""Tests for the demo adapter: decompression, header check and a real demo.
 
-Kaksi kerrosta:
+Two layers:
 
-* **Ilman demoja** -- purku, tunnistus ja virheilmoitukset testataan pienillä
-  itse tehdyillä tiedostoilla. Nämä ajetaan aina.
-* **Oikealla demolla** (``@pytest.mark.demo``) -- kierrosmäärä, jatkoaika ja
-  purun tavuvastaavuus. Nämä ohittavat itsensä, jos 100-230 MB:n demoja ei ole
-  koneella.
+* **Without demos** -- decompression, recognition and the error messages are
+  tested with small hand-made files. These always run.
+* **With a real demo** (``@pytest.mark.demo``) -- the round count, overtime
+  and the byte-for-byte match of the decompression. These skip themselves if
+  the 100-230 MB demos are not on the machine.
 """
 
 from __future__ import annotations
@@ -79,26 +79,27 @@ from pappascout.stages import parse as parse_stage
 
 FAKE_DEMO = DEMO_MAGIC + b"\x00" + b"tekaistua sisaltoa" * 64
 
-#: Näytepisteet, joita demotestit käyttävät. Sama lista kuin ``settings.toml``in
-#: ``[parse]``-osiossa; :func:`test_snapshot_seconds_match_the_real_settings`
-#: pitää huolen siitä, etteivät ne pääse erkanemaan. Vakiona eikä
-#: asetuslatauksena, jottei moduulin tuonti lue tiedostoja -- se tapahtuisi
-#: myös ``-m "not demo"`` -ajossa, jossa mitään demoa ei kosketa.
+#: The sample points the demo tests use. The same list as in
+#: ``settings.toml``'s ``[parse]`` section;
+#: :func:`test_snapshot_seconds_match_the_real_settings` makes sure they
+#: cannot diverge. A constant rather than a settings load, so that importing
+#: the module does not read files -- that would happen in a
+#: ``-m "not demo"`` run too, where no demo is touched.
 SNAPSHOT_SECONDS: tuple[float, ...] = (6.0, 15.0, 30.0, 45.0)
 
 
 @lru_cache(maxsize=1)
 def _parse_settings():
-    """Oikeat ``[parse]``-asetukset, luettuna vasta kun niitä tarvitaan."""
+    """The real ``[parse]`` settings, read only when they are needed."""
     return load_settings(REAL_SETTINGS, env_files=()).parse
 
 
 def real_parser() -> Demoparser2Adapter:
-    """Adapteri tuotannon ensikontakti- ja aluesäännöillä.
+    """The adapter with production's first-contact and area rules.
 
-    Demotestit ajetaan tuotannon arvoilla -- keksityillä poissulkulistoilla tai
-    keksityllä ``area_snap_units``illa ne eivät todistaisi mitään oikeasta
-    ajosta.
+    The demo tests are run with production's values -- with invented exclusion
+    lists or an invented ``area_snap_units`` they would prove nothing about a
+    real run.
     """
     parse_settings = _parse_settings()
     return Demoparser2Adapter(
@@ -110,15 +111,15 @@ def real_parser() -> Demoparser2Adapter:
 
 
 def test_snapshot_seconds_match_the_real_settings() -> None:
-    """Testien näytepisteet ovat samat kuin tuotannon.
+    """The tests' sample points are the same as production's.
 
-    Jos ne erkanisivat, demotestien luvut (94 näytepistettä) mittaisivat eri
-    konfiguraatiota kuin se, jolla arkisto oikeasti syntyy.
+    If they diverged, the demo tests' figures (94 sample points) would measure
+    a different configuration from the one the archive is really built with.
     """
     assert tuple(_parse_settings().snapshot_seconds) == SNAPSHOT_SECONDS
 
 
-# --- Portti -------------------------------------------------------------------
+# --- The port -----------------------------------------------------------------
 
 
 def test_adapter_implements_the_port() -> None:
@@ -126,13 +127,13 @@ def test_adapter_implements_the_port() -> None:
 
 
 def test_port_contract_is_an_exact_column_set() -> None:
-    """Sopimus on täsmällinen joukko, ei osajoukko.
+    """The contract is an exact set, not a subset.
 
-    ``map_demo_id`` puuttuu, koska adapteri ei voi tietää arkiston tunnistetta.
-    ``score_start`` ja ``score_end`` ovat mukana, koska
-    ``mark_played_rounds`` vaatii ne -- ilman niitä sopimuksessa toinen
-    adapteri läpäisisi vaiheen saraketarkistuksen ja kaatuisi vasta
-    domain-kerroksessa.
+    ``map_demo_id`` is absent, because the adapter cannot know the archive's
+    id. ``score_start`` and ``score_end`` are present, because
+    ``mark_played_rounds`` requires them -- without them in the contract
+    another adapter would pass the stage's column check and fail only in the
+    domain layer.
     """
     assert set(ROUNDS_ADAPTER_COLUMNS) == (set(ROUNDS) - {"map_demo_id"}) | {
         "score_start",
@@ -143,27 +144,27 @@ def test_port_contract_is_an_exact_column_set() -> None:
 
 
 def test_events_port_contract_is_events_without_the_archive_id() -> None:
-    """Tapahtumataulun sopimus on ``EVENTS`` ilman ``map_demo_id``:tä.
+    """The events table's contract is ``EVENTS`` without ``map_demo_id``.
 
-    Kranaatin oma juokseva numero ei ole mukana: se on adapterin sisäinen
-    parin avain, joka kuolee ennen kuin taulu ylittää portin.
+    The grenade's own running number is not in it: it is the adapter's
+    internal key for the pair, and it dies before the table crosses the port.
     """
     assert set(EVENTS_ADAPTER_COLUMNS) == set(EVENTS) - {"map_demo_id"}
     assert len(EVENTS_ADAPTER_COLUMNS) == len(set(EVENTS_ADAPTER_COLUMNS))
 
 
 def test_ticks_port_contract_is_ticks_without_the_archive_id() -> None:
-    """Näytepistetaulun sopimus on ``TICKS`` ilman ``map_demo_id``:tä.
+    """The sample point table's contract is ``TICKS`` without ``map_demo_id``.
 
-    Kaikki muu on mukana, myös ``round_no`` -- se on adapterin taulussa aina
-    tyhjä, mutta sen paikka on varattu, jotta vaihe voi täyttää sen ilman että
-    sarakkeiden järjestys muuttuu.
+    Everything else is in it, ``round_no`` included -- it is always empty in
+    the adapter's table, but its place is reserved so that the stage can fill
+    it in without the column order changing.
     """
     assert set(TICKS_ADAPTER_COLUMNS) == set(TICKS) - {"map_demo_id"}
     assert len(TICKS_ADAPTER_COLUMNS) == len(set(TICKS_ADAPTER_COLUMNS))
 
 
-# --- Tunnistus ja purku --------------------------------------------------------
+# --- Recognition and decompression ---------------------------------------------
 
 
 def test_plain_demo_is_not_compressed(tmp_path: Path) -> None:
@@ -173,7 +174,7 @@ def test_plain_demo_is_not_compressed(tmp_path: Path) -> None:
 
 
 def test_zstd_and_gzip_are_recognised_from_content_not_suffix(tmp_path: Path) -> None:
-    """Väärin nimetty tiedosto tunnistetaan silti oikein."""
+    """A misnamed file is still recognised correctly."""
     zst = tmp_path / "vaarin-nimetty.dem"
     zst.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
     gz = tmp_path / "toinen.dem"
@@ -214,7 +215,11 @@ def test_readable_demo_does_not_copy_an_uncompressed_demo(tmp_path: Path) -> Non
 
 
 def test_decompression_never_writes_into_the_archive(tmp_path: Path) -> None:
-    """Purku menee koneen temp-hakemistoon, ei OneDrive-arkistoon."""
+    """Decompression goes to the machine's temp directory, not the archive.
+
+    The archive lives in a synchronised folder that two machines share, and a
+    sync client would upload every temporary file written there.
+    """
     archive_dir = tmp_path / "arkisto"
     archive_dir.mkdir()
     source = archive_dir / "import" / "a.dem.zst"
@@ -225,81 +230,85 @@ def test_decompression_never_writes_into_the_archive(tmp_path: Path) -> None:
     assert list(archive_dir.rglob("*.dem")) == []
 
 
-# --- Katkennut pakattu tiedosto (Story 3.6, A1) --------------------------------
+# --- A truncated compressed file (Story 3.6, A1) -------------------------------
 #
-# **Testisyötteen koko on itse väite, ei mukavuus.**
+# **The size of the test input is the claim itself, not a convenience.**
 #
-# Mitattu 2026-09-05: alle megatavun hyötykuorma mahtuu yhteen zstd-lohkoon,
-# joten puoliväliin katkaistuna se purkautuu **nollaksi tavuksi** -- eli osuu
-# vanhaan "tuloksena oli tyhjä tiedosto" -vartijaan, joka oli olemassa jo
-# ennen tätä tarinaa::
+# Measured 2026-09-05: a payload under a megabyte fits into a single zstd
+# block, so truncated in half it decompresses to **zero bytes** -- that is, it
+# hits the old "the result was an empty file" guard, which existed before this
+# story::
 #
-#     raaka  1 160 -> pakattu    44 -> katkaistu   22 -> purkautui          0
-#     raaka  4 104 -> pakattu    26 -> katkaistu   13 -> purkautui          0
-#     raaka 40 000 007 -> pakattu 1 249 -> katkaistu 624 -> purkautui 19 529 728
+#     raw  1,160 -> compressed    44 -> truncated   22 -> decompressed          0
+#     raw  4,104 -> compressed    26 -> truncated   13 -> decompressed          0
+#     raw 40,000,007 -> compressed 1,249 -> truncated 624 -> decompressed 19,529,728
 #
-# Uuden kehyskokovartijan olemassaolon syy on **päinvastainen tapaus**: purku
-# onnistuu vajaana muttei tyhjänä, jolloin mikään aiempi tarkistus ei näe
-# mitään vikaa. Juuri niin oikea demo käyttäytyi (148 871 905 tavua puoleen
-# katkaistuna -> 104 464 384 tavua, kehys ilmoittaa 208 561 416).
+# The reason the new frame-size guard exists is **the opposite case**: the
+# decompression succeeds partially but not emptily, and then no earlier check
+# sees anything wrong. That is exactly how a real demo behaved (148,871,905
+# bytes cut in half -> 104,464,384 bytes, with the frame declaring
+# 208,561,416).
 #
-# Pienellä syötteellä testi kaatuisi mutaatioon vain **virheviestin sanamuodon
-# takia**, ja korjaaja voisi korjata sen muuttamalla assertiota -- jolloin
-# oikea vika jäisi. Siksi katkaisutestit käyttävät :data:`BIG_DEMO`ia, ja
+# With a small input the test would fail a mutation only **because of the
+# error message's wording**, and whoever fixed it could fix it by changing the
+# assertion -- leaving the real fault in place. That is why the truncation
+# tests use :data:`BIG_DEMO`, and
 # :func:`test_the_truncation_fixture_decompresses_partially_not_to_nothing`
-# vartioi sitä ominaisuutta erikseen.
+# guards that property separately.
 #
-# Hinta on olematon: 40 MB pelkkää ``x``:ää pakkautuu 1 249 tavuun ja purkuun
-# menee 0,04 s.
+# The cost is negligible: 40 MB of nothing but ``x`` compresses to 1,249 bytes
+# and takes 0.04 s to decompress.
 
-#: Iso, erittäin tiiviisti pakkautuva demo katkaisutestejä varten.
+#: A large, extremely compressible demo for the truncation tests.
 BIG_DEMO = DEMO_MAGIC + b"x" * 40_000_000
 BIG_ZSTD = zstandard.ZstdCompressor().compress(BIG_DEMO)
 BIG_TRUNCATED = BIG_ZSTD[: len(BIG_ZSTD) // 2]
 
 
 def partial_size(blob: bytes) -> int:
-    """Montako tavua katkennut kehys purkaa **kirjaston omin voimin**.
+    """How many bytes a truncated frame decompresses to **on its own**.
 
-    Mittaus tehdään ``zstandard``illa suoraan eikä pappascoutin purun kautta:
-    testisyötteen ominaisuutta ei voi todistaa sillä koodilla, jota syöte on
-    olemassa testaamaan.
+    The measurement is made with ``zstandard`` directly and not through
+    pappascout's decompression: a property of the test input cannot be proved
+    with the very code the input exists to test.
     """
     return len(zstandard.ZstdDecompressor().stream_reader(io.BytesIO(blob)).read())
 
 
 def test_the_truncation_fixture_decompresses_partially_not_to_nothing() -> None:
-    """**Syöte purkautuu vajaana muttei tyhjänä -- muuten se testaa väärää.**
+    """**The input decompresses partially but not emptily -- or it tests the
+    wrong thing.**
 
-    Tämä testi ei mittaa tuotantokoodia lainkaan. Se mittaa testiaineistoa, ja
-    se on tarkoitus: jos syöte purkautuisi nollaksi, kaikki alla olevat
-    katkaisutestit menisivät läpi vanhan tyhjätarkistuksen nojalla ja
-    kehyskokovartijan poisto näkyisi vain virheviestin sanamuodossa.
+    This test does not measure production code at all. It measures the test
+    data, and that is deliberate: if the input decompressed to zero, every
+    truncation test below would pass on the strength of the old emptiness
+    check, and removing the frame-size guard would show only in the wording of
+    an error message.
     """
     osittainen = partial_size(BIG_TRUNCATED)
 
-    assert osittainen > 0, "syöte purkautuu tyhjäksi -- osuu vanhaan vartijaan"
-    assert osittainen < len(BIG_DEMO), "syöte ei ole vajaa lainkaan"
+    assert osittainen > 0, "the input decompresses to nothing -- it hits the old guard"
+    assert osittainen < len(BIG_DEMO), "the input is not partial at all"
 #
-# Mitattu 2026-09-05 oikealla demolla: puoliväliin katkaistu
-# ``ANCIENT_vs_RCAVE_VETERANS.dem.zst`` (148 871 905 tavua) purkautui
-# 104 464 384 tavuksi **ilman virhettä**, vaikka kehys ilmoittaa 208 561 416.
-# Purettu alku on kelvollinen CS2-demo: ``PBDEMS2`` on paikallaan ja otsikon
-# kartan nimeksi luettiin ``de_ancient``. Vajautta ei siis näe mistään, mitä
-# tiedostosta katsomalla voisi todeta -- se paljastuu vasta parsinnassa,
-# jolloin tuonti on jo poistanut lähdetiedoston.
+# Measured 2026-09-05 with a real demo: ``ANCIENT_vs_RCAVE_VETERANS.dem.zst``
+# (148,871,905 bytes) cut in half decompressed to 104,464,384 bytes **without
+# an error**, even though the frame declares 208,561,416. The decompressed
+# beginning is a valid CS2 demo: ``PBDEMS2`` is in place and the header's map
+# name read as ``de_ancient``. The shortfall is therefore invisible to
+# anything that can be seen by looking at the file -- it only surfaces during
+# the parse, by which time the import has already deleted the source file.
 #
-# Nämä testit ajetaan **ilman oikeita demoja**: sama vika toistuu kahdella
-# kilotavulla, koska kyse on kehyksen rakenteesta eikä koosta.
+# These tests are run **without real demos**: the same fault reproduces with
+# two kilobytes, because it is about the frame's structure and not its size.
 
 
 def test_zstd_declares_its_decompressed_size(tmp_path: Path) -> None:
-    """Kehys kertoo puretun koon, ja se on ainoa riippumaton pituuslähde.
+    """The frame declares the decompressed size, the only independent source.
 
-    ``fetch`` saa ``Content-Length``in lähteeltä; käsin kopioidulla
-    tiedostolla ei ole ketään kertomassa oikeaa pituutta -- paitsi tiedosto
-    itse. Väite on kirjastosta eikä oletuksesta: jos ``ZstdCompressor``
-    lakkaisi kirjoittamasta kokoa, koko vartija olisi hiljaa hampaaton.
+    ``fetch`` gets a ``Content-Length`` from the source; a file copied by hand
+    has nobody to state its right length -- except the file itself. The claim
+    is about the library and not an assumption: if ``ZstdCompressor`` stopped
+    writing the size, the whole guard would be silently toothless.
     """
     source = tmp_path / "a.dem.zst"
     source.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
@@ -308,7 +317,7 @@ def test_zstd_declares_its_decompressed_size(tmp_path: Path) -> None:
 
 
 def test_an_uncompressed_demo_declares_nothing(tmp_path: Path) -> None:
-    """Pakkaamattomassa demossa ei ole pituutta -- eikä sitä saa keksiä."""
+    """An uncompressed demo has no length -- and none may be invented."""
     source = tmp_path / "a.dem"
     source.write_bytes(FAKE_DEMO)
 
@@ -318,19 +327,21 @@ def test_an_uncompressed_demo_declares_nothing(tmp_path: Path) -> None:
 def test_a_truncated_zstd_is_refused_instead_of_decompressing_silently(
     tmp_path: Path,
 ) -> None:
-    """**Vajaa pakattu tiedosto ei saa purkautua hiljaa.**
+    """**A partial compressed file must not decompress silently.**
 
-    Ilman tätä vartijaa katkennut demo tuodaan arkistoon oikean näköisenä,
-    ``length_verified`` on ``true`` ja lähdetiedosto poistetaan -- ja
-    ``import/``issa on kuusi kauden 12 liigademoa, joita FACEIT ei enää
-    tarjoa.
+    Without this guard a truncated demo is imported into the archive looking
+    right, ``length_verified`` is ``true`` and the source file is deleted --
+    and ``import/`` holds six of the season's 12 league demos that FACEIT no
+    longer offers.
 
-    Syöte purkautuu **vajaana muttei tyhjänä**, joten mikään aiempi tarkistus
-    ei näe siinä vikaa: kehyksen ilmoittama koko on ainoa, joka sen paljastaa.
+    The input decompresses **partially but not emptily**, so no earlier check
+    sees anything wrong with it: the size the frame declares is the only thing
+    that exposes it.
 
-    Viesti nimeää **molemmat luvut**, koska ero on koko havainto: pelkkä
-    "tiedosto on vioittunut" ei kerro onko kyse tavusta vai sadasta
-    megatavusta, eikä siitä että kopiointi voi yhä olla kesken.
+    The message names **both numbers**, because the difference is the whole
+    observation: a bare "the file is corrupt" does not say whether it is about
+    a byte or a hundred megabytes, nor that the copying may still be in
+    progress.
     """
     source = tmp_path / "katkennut.dem.zst"
     source.write_bytes(BIG_TRUNCATED)
@@ -343,16 +354,16 @@ def test_a_truncated_zstd_is_refused_instead_of_decompressing_silently(
     assert str(partial_size(BIG_TRUNCATED)) in message
     assert "came up short" in message
     assert err.value.advice
-    # Neuvo on odottaminen eikä uudelleenlataus: tavallisin syy on kesken
-    # oleva kopiointi tai OneDriven synkronointi.
+    # The advice is to wait rather than to download again: the most common
+    # cause is a copy still in progress, or a sync client still uploading.
     assert "Wait" in err.value.advice
 
 
 def test_a_truncated_zstd_leaves_no_half_file_behind(tmp_path: Path) -> None:
-    """Torjuttu purku ei jätä puolikasta tiedostoa, joka näyttäisi demolta.
+    """A refused decompression leaves no half file that would look like a demo.
 
-    Puolikas on tässä 19,5 MB kelvollista dataa ``PBDEMS2``-otsikoineen --
-    juuri sellainen tiedosto, joka läpäisisi jokaisen muun tarkistuksen.
+    The half here is 19.5 MB of valid data with a ``PBDEMS2`` header -- exactly
+    the kind of file that would pass every other check.
     """
     source = tmp_path / "katkennut.dem.zst"
     source.write_bytes(BIG_TRUNCATED)
@@ -366,7 +377,7 @@ def test_a_truncated_zstd_leaves_no_half_file_behind(tmp_path: Path) -> None:
 
 
 def test_readable_demo_refuses_a_truncated_archive(tmp_path: Path) -> None:
-    """Sama vartija myös sitä reittiä, jota tuonti ja parsinta käyttävät."""
+    """The same guard on the route the import and the parse use as well."""
     source = tmp_path / "katkennut.dem.zst"
     source.write_bytes(BIG_TRUNCATED)
 
@@ -376,15 +387,16 @@ def test_readable_demo_refuses_a_truncated_archive(tmp_path: Path) -> None:
 
 
 def test_a_truncated_gzip_is_refused_too(tmp_path: Path) -> None:
-    """Gzipillä sama tehtävä on virran lopetusmerkillä.
+    """With gzip the same job is done by the stream's end marker.
 
-    Eri mekanismi, sama lupaus: katkennut tiedosto ei purkaudu hiljaa. Väite
-    on tässä siksi, että :func:`~pappascout.stages.import_demo.length_source`
-    nojaa juuri siihen kun se sanoo gzipin olevan tarkistettu muoto.
+    A different mechanism, the same promise: a truncated file does not
+    decompress silently. The claim is here because
+    :func:`~pappascout.stages.import_demo.length_source` rests on exactly that
+    when it calls gzip a checked format.
 
-    Sama iso hyötykuorma kuin zstd-testeillä: pieni gzip purkautuisi
-    nollaksi, ja silloin testi mittaisi tyhjätarkistusta eikä
-    lopetusmerkkiä.
+    The same large payload as in the zstd tests: a small gzip would
+    decompress to nothing, and then the test would measure the emptiness check
+    rather than the end marker.
     """
     whole = gzip.compress(BIG_DEMO)
     source = tmp_path / "katkennut.dem.gz"
@@ -395,11 +407,11 @@ def test_a_truncated_gzip_is_refused_too(tmp_path: Path) -> None:
 
 
 def test_a_complete_archive_still_decompresses(tmp_path: Path) -> None:
-    """Vartija ei saa hylätä ehjää tiedostoa.
+    """The guard must not reject an intact file.
 
-    Sen sanominen erikseen ei ole muodollisuus: kokoa vertaava tarkistus, joka
-    laskee väärin, kaataisi jokaisen tuonnin -- ja se olisi yhtä paha vika
-    toiseen suuntaan.
+    Saying so separately is not a formality: a size comparison that counts
+    wrongly would bring down every import -- and that would be just as bad a
+    fault in the other direction.
     """
     source = tmp_path / "ehja.dem.zst"
     source.write_bytes(zstandard.ZstdCompressor().compress(FAKE_DEMO))
@@ -409,12 +421,12 @@ def test_a_complete_archive_still_decompresses(tmp_path: Path) -> None:
     assert target.read_bytes() == FAKE_DEMO
 
 
-# --- Virheet -------------------------------------------------------------------
+# --- Errors --------------------------------------------------------------------
 
 
 def test_text_file_with_dem_suffix_is_not_a_cs2_demo(tmp_path: Path) -> None:
     path = tmp_path / "eidemo.dem"
-    path.write_text("Tämä on tekstitiedosto, ei demo.\n", encoding="utf-8")
+    path.write_text("This is a text file, not a demo.\n", encoding="utf-8")
     with pytest.raises(ParseError) as exc:
         check_demo_magic(path)
     message = str(exc.value)
@@ -438,18 +450,19 @@ def test_missing_file_reports_that_no_demo_was_found(tmp_path: Path) -> None:
 
 
 def test_broken_zstd_reports_the_read_came_up_short(tmp_path: Path) -> None:
-    """Katkennut pakattu tiedosto kaatuu suomeksi -- ja **kertoo luvut**.
+    """A truncated compressed file fails cleanly -- and **states the numbers**.
 
-    Väite muuttui Story 3.6:ssa, ja muutos on tarkoituksellinen. Aiemmin tämä
-    tapaus osui vartijaan "tuloksena oli tyhjä tiedosto", joka pitää vain
-    silloin kun katkaisu osuu ensimmäiseen lohkoon. Isolla demolla se ei osu:
-    mitattu 2026-09-05, että puoliväliin katkaistu oikea demo purkautui
-    104 464 384 tavuksi eikä nollaksi -- eli **läpäisi vanhan vartijan**.
-    Nyt kehyksen ilmoittama koko on se, jota vasten tulos tarkistetaan, ja
-    viesti nimeää molemmat luvut.
+    The claim changed in Story 3.6, and the change is deliberate. This case
+    used to hit the "the result was an empty file" guard, which holds only
+    when the truncation falls inside the first block. With a large demo it
+    does not: it was measured 2026-09-05 that a real demo cut in half
+    decompressed to 104,464,384 bytes rather than zero -- that is, it **passed
+    the old guard**. Now the size the frame declares is what the result is
+    checked against, and the message names both numbers.
 
-    Syöte on siksi :data:`BIG_DEMO`: pienellä tiedostolla tämä testi mittaisi
-    yhä vanhaa tyhjätarkistusta eikä sitä vartijaa, jonka nimeä se kantaa.
+    The input is therefore :data:`BIG_DEMO`: with a small file this test would
+    still be measuring the old emptiness check and not the guard whose name it
+    carries.
     """
     truncated = tmp_path / "katkennut.dem.zst"
     truncated.write_bytes(BIG_TRUNCATED)
@@ -459,20 +472,34 @@ def test_broken_zstd_reports_the_read_came_up_short(tmp_path: Path) -> None:
     assert str(len(BIG_DEMO)) in str(exc.value)
 
 
-def test_truncated_demo_is_a_finnish_error(tmp_path: Path) -> None:
-    """Otsikko on oikea mutta sisältö loppuu kesken -- demoparser2 kaatuu."""
+def test_a_truncated_demo_says_to_download_it_again(tmp_path: Path) -> None:
+    """The header is right but the content runs out -- demoparser2 fails.
+
+    The failure surfaces in ``parse_header``, so the message is the header
+    reader's: it names both possible causes and ends with what to do. Either
+    way the library's own exception is wrapped into a ``ParseError``.
+
+    Renamed in T4: the name used to claim the message is in Finnish, and that
+    stopped being true when this module was translated. The second branch used
+    to read ``"katkennut"``, which matched **the temporary file's name** and
+    not the message at all; it now names the diagnosis the message really
+    carries.
+    """
     path = tmp_path / "katkennut.dem"
     path.write_bytes(FAKE_DEMO)
     with pytest.raises(ParseError) as exc:
         Demoparser2Adapter().parse_demo(path, SNAPSHOT_SECONDS).rounds
-    assert "Lataa demo uudelleen" in str(exc.value) or "katkennut" in str(exc.value)
+    assert "download the demo again" in str(exc.value) or "corrupt" in str(
+        exc.value
+    )
 
 
 def test_zstd_compressed_error_page_is_refused(tmp_path: Path) -> None:
-    """FACEIT voi palauttaa latauslinkin takaa virhesivun.
+    """FACEIT can return an error page from behind a download link.
 
-    Se pakkautuu moitteettomasti zstd-tiedostoksi, joten purku onnistuu --
-    virheen on tultava vasta puretun sisällön otsikkotarkistuksesta.
+    It compresses into a zstd file perfectly well, so the decompression
+    succeeds -- the error has to come from the header check on the
+    decompressed content.
     """
     error_page = b"<html><head><title>404</title></head><body>Not Found</body></html>"
     path = tmp_path / "lataus.dem.zst"
@@ -503,16 +530,16 @@ def test_gzip_compressed_error_page_is_refused(tmp_path: Path) -> None:
     ],
 )
 def test_decompressed_name_keeps_the_whole_name(name: str, expected: str) -> None:
-    """Nimeä ei katkaista ensimmäisestä pisteestä.
+    """The name is not cut at the first dot.
 
-    FACEITin tiedostonimissä on useita pisteitä, ja katkaisu tuottaisi eri
-    demoille helposti saman purkunimen.
+    FACEIT's file names have several dots, and cutting would easily give
+    different demos the same decompressed name.
     """
     assert decompressed_name(Path("/x") / name) == expected
 
 
 def test_partial_decompression_leaves_no_tmp_file(tmp_path: Path) -> None:
-    """Keskeytynyt purku ei saa jättää tiedostoa, joka näyttäisi demolta."""
+    """An interrupted decompression must leave no file that looks like a demo."""
     intact = zstandard.ZstdCompressor().compress(FAKE_DEMO)
     truncated = tmp_path / "katkennut.dem.zst"
     truncated.write_bytes(intact[: len(intact) // 2])
@@ -524,7 +551,7 @@ def test_partial_decompression_leaves_no_tmp_file(tmp_path: Path) -> None:
     assert list(target.parent.glob("*.tmp")) == []
 
 
-# --- Oikeat demot --------------------------------------------------------------
+# --- Real demos ----------------------------------------------------------------
 
 
 @pytest.mark.demo
@@ -546,24 +573,24 @@ def test_ancient_columns_match_the_port_contract() -> None:
         if name == "map_demo_id":
             continue
         assert df.schema[name] == dtype, name
-    # round_no jätetään tyhjäksi: numeroinnin päättää domain.rounds.
+    # round_no is left empty: the numbering is decided by domain.rounds.
     assert df["round_no"].null_count() == df.height
 
 
 @pytest.mark.demo
 def test_ancient_knife_round_is_present_but_unnumbered() -> None:
-    """Puukkokierros on demossa, mutta se ei ole pelattu kierros."""
+    """The knife round is in the demo, but it is not a round played."""
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
     )
     unnumbered = df.filter(pl.col("round_no").is_null())
-    assert unnumbered.height == 2  # yksi rivi kummallekin joukkueelle
+    assert unnumbered.height == 2  # one row for each team
     assert unnumbered["round_raw"].unique().to_list() == [1]
 
 
 @pytest.mark.demo
 def test_ancient_observations_are_plausible() -> None:
-    """Havaitut arvot ovat oikeasta demosta, eivät johdettuja tai tyhjiä."""
+    """The observed values come from a real demo, not derived or empty."""
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
     ).filter(pl.col("round_no").is_not_null())
@@ -578,11 +605,11 @@ def test_ancient_observations_are_plausible() -> None:
     assert df["survivors"].is_between(0, 5).all()
     assert df["status"].unique().to_list() == ["ok"]
 
-    # Kummallakin kierroksella on täsmälleen yksi voittaja.
+    # Every round has exactly one winner.
     per_round = df.group_by("round_no").agg(pl.col("won").sum().alias("voittajia"))
     assert per_round["voittajia"].unique().to_list() == [1]
 
-    # Ancient päättyi 13-8 (FACEIT). Voitot jakautuvat siten kokoonpanoittain.
+    # Ancient ended 13-8 (FACEIT). The wins split that way between lineups.
     wins = sorted(
         df.group_by("lineup_key").agg(pl.col("won").sum())["won"].to_list()
     )
@@ -591,19 +618,19 @@ def test_ancient_observations_are_plausible() -> None:
 
 @pytest.mark.demo
 def test_ancient_pistol_round_shows_a_pistol_economy() -> None:
-    """Kierros 1 on pistoolikierros: varustearvo on murto-osa täydestä."""
+    """Round 1 is the pistol round: the equipment value is a fraction of full."""
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
     ).filter(pl.col("round_no") == 1)
     assert df.height == 2
-    # 5 pelaajaa x (pistooli 200 + kevlar 650..1000) -> selvästi alle 10 000 $.
+    # 5 players x (pistol 200 + kevlar 650..1000) -> well under $10,000.
     assert df["equip_buy_end"].max() < 10_000
     assert df["equip_buy_end"].min() > 0
 
 
 @pytest.mark.demo
 def test_zst_and_dem_give_byte_identical_tables(tmp_path: Path) -> None:
-    """Sama demo pakattuna ja purettuna tuottaa samat taulut tavu tavulta."""
+    """The same demo, compressed and decompressed, gives byte-identical tables."""
     dem = real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
     zst = real_parser().parse_demo(require_demo(ANCIENT_ZST), SNAPSHOT_SECONDS)
     decompressed, compressed = dem.rounds, zst.rounds
@@ -626,7 +653,7 @@ def test_nuke_reaches_round_twenty_eight_in_overtime() -> None:
     ).filter(pl.col("round_no").is_not_null())
     assert df["round_no"].max() == NUKE_ROUNDS
     assert df.height == NUKE_ROUNDS * 2
-    # Jatkoajan kierrokset 25-28 ovat mukana normaalisti.
+    # The overtime rounds 25-28 are included as normal.
     overtime = df.filter(pl.col("round_no") > 24)
     assert sorted(overtime["round_no"].unique().to_list()) == [25, 26, 27, 28]
     assert overtime["won"].null_count() == 0
@@ -634,27 +661,29 @@ def test_nuke_reaches_round_twenty_eight_in_overtime() -> None:
 
 @pytest.mark.demo
 def test_ancient_armed_player_count_matches_the_human_reading() -> None:
-    """Kalustolaskuri kierroksilla 19-21 vasten ihmisen antamaa totuutta.
+    """The armed count on rounds 19-21 against the truth a human gave.
 
-    **Sääntö itse on kalibroitu demovapaassa** ``test_calibration.py``:ssä
-    (``ARMED_TRUTH``), jotta ``pytest -m "not demo"`` valvoo sitä myös
-    koneella, jolla demoja ei ole. Tämä testi tarkistaa toisen puolen samasta
-    väitteestä: että samat tavaraluettelot ja panssariarvot todella tulevat
-    demosta ulos, eivätkä ole taulukkoon kirjattu muistikuva.
+    **The rule itself is calibrated demo-free** in ``test_calibration.py``
+    (``ARMED_TRUTH``), so that ``pytest -m "not demo"`` guards it on a machine
+    with no demos too. This test checks the other half of the same claim: that
+    the same inventories and armour values really do come out of the demo, and
+    are not a recollection written into a table.
 
-    Havainnot **ostoajan lopussa** (Story 1.9; ennen sitä ankkurista):
+    The observations are **at the end of the buy time** (Story 1.9; before
+    that, at the anchor):
 
-    * K19 CT -> **5**, ennen 4. Viides pelaaja osti kevlarin ja Deaglen vasta
-      freezetimen jälkeen, joten ankkurista luettuna hän näytti jääneen
-      ilmaiseen oletuspistooliin. Tuotteen omistajan tuomio "ostivat
-      tyhjäksi" **vahvistuu** -- taskuun jäi 150 $ eikä 3 750 $ -- mutta hänen
-      huomionsa "yksi jäi ilman panssaria" oli lukema väärältä hetkeltä.
-    * K20 T -> **5**. "2x AK, 2x tec9, 1x mac10, kaikilla kevlar+kypärä" --
-      kaikki viisi, sama kummastakin hetkestä.
-    * K21 T -> **2**. Eco: kahdella kevlar + ostettu pistooli, ja kolmas
-      p250-pelaaja putoaa **panssarin puutteeseen**. Story 1.5:n kynnys
-      pudotti hänet siksi, että 300 $ < 950 $; sama luku, mutta nyt oikeasta
-      syystä.
+    * R19 CT -> **5**, previously 4. The fifth player bought kevlar and a
+      Deagle only after freezetime, so read at the anchor he looked as though
+      he had stayed on the free default pistol. The product owner's verdict
+      "they bought themselves empty" **is confirmed** -- $150 was left in
+      pocket, not $3,750 -- but his remark "one was left without armour" was a
+      reading from the wrong moment.
+    * R20 T -> **5**. "2x AK, 2x tec9, 1x mac10, everyone with kevlar and a
+      helmet" -- all five, the same from either moment.
+    * R21 T -> **2**. Eco: two with kevlar and a bought pistol, and the third
+      p250 player drops out **for lack of armour**. Story 1.5's threshold
+      dropped him because $300 < $950; the same number, but now for the right
+      reason.
     """
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
@@ -672,18 +701,20 @@ def test_ancient_armed_player_count_matches_the_human_reading() -> None:
 
 @pytest.mark.demo
 def test_ancient_inventories_match_the_calibration_table() -> None:
-    """``ARMED_TRUTH``in tavaraluettelot ja panssarit ovat demosta, ei muistista.
+    """``ARMED_TRUTH``'s inventories and armour come from the demo, not memory.
 
-    Edellinen testi toteaa vain kolme lukua, ja ne osuisivat myös silloin, jos
-    taulun rivit olisivat ajautuneet erilleen demosta ja sääntö kompensoisi
-    eron. Tämä lukee samat kolme **mittauspistettä** uudelleen ja vertaa
-    jokaisen pelaajan tavaraluettelon ja panssarin taulun riviin.
+    The previous test states only three numbers, and they would still match if
+    the table's rows had drifted away from the demo and the rule compensated
+    for the difference. This one reads the same three **measurement points**
+    again and compares each player's inventory and armour against the table's
+    row.
 
-    Tick on ``buy_end_tick`` eikä ``freeze_end_tick``: laskuri lasketaan siltä,
-    joten ankkurin lukeminen tässä vertaisi taulua hetkeen, jota tuote ei
-    käytä.
+    The tick is ``buy_end_tick`` and not ``freeze_end_tick``: the count is
+    computed at the former, so reading the anchor here would compare the table
+    against a moment the product does not use.
 
-    Vertailu on joukkona: taulun pelaajajärjestys on dokumentin, ei demon.
+    The comparison is as a set: the table's player order is the document's,
+    not the demo's.
     """
     from demoparser2 import DemoParser as _Demoparser2
 
@@ -719,14 +750,14 @@ def test_ancient_inventories_match_the_calibration_table() -> None:
             (tuple(sorted(inventory)), armor) for inventory, armor in truth.players
         )
         assert observed == expected, (
-            f"Kierros {truth.round_no} {truth.side}: demo ja ARMED_TRUTH "
-            f"eroavat.\nDemo: {observed}\nTaulu: {expected}"
+            f"Round {truth.round_no} {truth.side}: the demo and ARMED_TRUTH "
+            f"differ.\nDemo: {observed}\nTable: {expected}"
         )
 
 
-#: Kaikki koneella olevat demot: kaksi vanhaa testidemoa ja neljä liigademoa.
-#: Aineistoa koskevat väitteet ajetaan koko aineistolla -- liigademot ovat se
-#: aineisto, jota vasten tuote lopulta arvioidaan.
+#: Every demo on the machine: two old test demos and four league demos.
+#: Claims about the data are run over the whole data set -- the league demos
+#: are the data the product is ultimately judged against.
 ALL_DEMOS: tuple[str, ...] = (
     ANCIENT_DEM,
     NUKE_ZST,
@@ -737,16 +768,16 @@ ALL_DEMOS: tuple[str, ...] = (
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_real_demo_has_no_unknown_inventory_items(demo_name: str) -> None:
-    """Aseluokittelu tuntee jokaisen nimen, jonka testidemot sisältävät.
+    """The weapon classification knows every name the test demos contain.
 
-    Tuntematon nimi ei aseista ketään, joten tuntematon **ase** laskisi
-    laskurin hiljaa alas. Testi ei vaadi, että luettelo kattaa koko pelin --
-    se vaatii, että se kattaa sen aineiston, jota vasten laskuri on
-    kalibroitu. Uusi demo saa tuoda uusia nimiä; silloin tämä kertoo mitkä.
+    An unknown name arms nobody, so an unknown **weapon** would silently push
+    the count down. The test does not require the list to cover the whole game
+    -- it requires it to cover the data the count is calibrated against. A new
+    demo may bring new names; this then says which.
 
-    Samalla todetaan, ettei yhdelläkään rivillä jäänyt panssari tai
-    tavaraluettelo lukematta: se tyhjentäisi laskurin, ja tyhjä rivi
-    näyttäisi ankkurittomalta kierrokselta.
+    At the same time it establishes that no row was left with unread armour or
+    an unread inventory: that would empty the count, and an empty row would
+    look like a round without an anchor.
     """
     adapter = real_parser()
     adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
@@ -759,12 +790,12 @@ def test_real_demo_has_no_unknown_inventory_items(demo_name: str) -> None:
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_armed_count_stays_within_its_divisor(demo_name: str) -> None:
-    """``0 <= players_armed_buy_end <= players_buy_end`` joka rivillä.
+    """``0 <= players_armed_buy_end <= players_buy_end`` on every row.
 
-    Laskuri ja jakaja tulevat samasta pelaajajoukosta, joten rajan ylitys
-    tarkoittaisi kahta eri jakajaa samalla rivillä -- vika, joka näkyisi vasta
-    raportissa. Ja koska joukko on sama, havainto on aina molemmissa tai ei
-    kummassakaan.
+    The count and the divisor come from the same set of players, so exceeding
+    the bound would mean two different divisors on the same row -- a fault
+    that would show only in the report. And because the set is the same, an
+    observation is always in both or in neither.
     """
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
@@ -773,18 +804,18 @@ def test_armed_count_stays_within_its_divisor(demo_name: str) -> None:
     assert (
         df[ARMED_COLUMN].null_count() == df["players_buy_end"].null_count()
     )
-    # Ankkuriton kierros on laillinen havainto, ei virhe: suodatetaan pois sen
-    # sijaan että vaadittaisiin, ettei niitä ole. Muuten tuleva demo kaataisi
-    # tämän testin väärästä syystä.
+    # A round without an anchor is a legitimate observation and not an error:
+    # they are filtered out rather than forbidden. Otherwise a future demo
+    # would fail this test for the wrong reason.
     observed = df.filter(pl.col(ARMED_COLUMN).is_not_null())
     assert not observed.is_empty()
     assert observed.select(
         (pl.col(ARMED_COLUMN) >= 0)
         & (pl.col(ARMED_COLUMN) <= pl.col("players_buy_end"))
     ).to_series().all()
-    # Sääntö erottaa oikeasti: pelkkä yksi arvo koko taulussa tarkoittaisi,
-    # ettei se pure aineistoon lainkaan -- esimerkiksi että jokainen nimi on
-    # tuntematon ja laskuri siis aina nolla.
+    # The rule really does discriminate: a single value across the whole table
+    # would mean it does not bite on the data at all -- that every name is
+    # unknown, for instance, and the count therefore always zero.
     assert observed[ARMED_COLUMN].n_unique() > 1
 
 
@@ -796,19 +827,19 @@ def test_armed_count_stays_within_its_divisor(demo_name: str) -> None:
 def test_real_demos_obey_the_cs2_win_rule(
     demo_name: str, expected_rounds: int
 ) -> None:
-    """CS2:n sääntö pitää molemmissa oikeissa demoissa.
+    """CS2's rule holds in both real demos.
 
-    T voittaa vain eliminoimalla CT:t tai räjäyttämällä pommin; CT
-    eliminoimalla, purkamalla tai ajan loppuessa. Jos tämä pettäisi, puolet
-    olisivat menneet väärin päin ja jokainen havainto olisi väärällä
-    joukkueella.
+    T wins only by eliminating the CTs or by detonating the bomb; CT by
+    eliminating, by defusing, or when time runs out. If this failed, the sides
+    would have gone the wrong way round and every observation would be on the
+    wrong team.
     """
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
     ).filter(pl.col("round_no").is_not_null())
 
     assert df["round_no"].n_unique() == expected_rounds
-    check_win_reasons(df)  # nostaa ParseErrorin, jos sääntö pettää
+    check_win_reasons(df)  # raises a ParseError if the rule fails
 
     wins = df.filter(pl.col("won"))
     for side, allowed in (("T", T_WIN_REASONS), ("CT", CT_WIN_REASONS)):
@@ -818,11 +849,11 @@ def test_real_demos_obey_the_cs2_win_rule(
 
 @pytest.mark.demo
 def test_round_raw_is_the_demo_own_counter() -> None:
-    """``round_raw`` tulee ``round_end``-tapahtuman ``round``-kentästä.
+    """``round_raw`` comes from the ``round`` field of the ``round_end`` event.
 
-    Ancientissa puukkokierros on demon kierros 1, joten pelatut kierrokset
-    1..21 vastaavat raaka-arvoja 2..22. Aukko on nimenomaan se todiste, että
-    puukkokierros ohitettiin.
+    On Ancient the knife round is the demo's round 1, so the rounds played
+    1..21 correspond to raw values 2..22. The gap is precisely the evidence
+    that the knife round was skipped.
     """
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS).rounds
@@ -832,7 +863,7 @@ def test_round_raw_is_the_demo_own_counter() -> None:
     assert df.filter(pl.col("round_no").is_null())["round_raw"].unique().to_list() == [1]
 
 
-# --- Liigademot ja ottelun uudelleenaloitus -------------------------------------
+# --- League demos and the match restart -----------------------------------------
 
 
 @pytest.mark.demo
@@ -840,12 +871,12 @@ def test_round_raw_is_the_demo_own_counter() -> None:
 def test_league_demo_parses_despite_the_match_restart(
     demo_name: str, expected_rounds: int
 ) -> None:
-    """Liigademo parsiutuu, ja uudelleenaloitus jää kierrosten ulkopuolelle.
+    """A league demo parses, and the restart stays outside the rounds.
 
-    Nämä neljä kaatuivat aiemmin monotonisuustarkistukseen: puukkokierroksen
-    jälkeinen uudelleenaloitus sai naapurista numeron, joka osui heti perään
-    demon omaan numeroon. Nyt se jää numeroimattomaksi, ja kierrosmäärä on
-    demon ``round_end``-tapahtumien määrä miinus puukkokierros.
+    These four used to fail the monotonicity check: the restart after the
+    knife round took a number from a neighbour that collided immediately with
+    the demo's own next number. Now it is left unnumbered, and the round count
+    is the number of the demo's ``round_end`` events minus the knife round.
     """
     parser = real_parser()
     df = mark_played_rounds(
@@ -858,15 +889,17 @@ def test_league_demo_parses_despite_the_match_restart(
     assert sorted(played["round_no"].unique().to_list()) == list(
         range(1, expected_rounds + 1)
     )
-    # Puukkokierros on demon kierros 1, joten pelatut alkavat raaka-arvosta 2.
-    # Uudelleenaloitusta ei ole taulussa lainkaan, joten jono on aukoton.
+    # The knife round is the demo's round 1, so the rounds played start at raw
+    # value 2. The restart is not in the table at all, so the run is
+    # unbroken.
     assert sorted(played["round_raw"].unique().to_list()) == list(
         range(2, expected_rounds + 2)
     )
     assert df.filter(pl.col("round_no").is_null())["round_raw"].to_list() == [1, 1]
 
     assert parser.diagnostics is not None
-    # Tasan yksi: useampi tarkoittaisi eri ilmiötä, ja parsinta pysähtyisi.
+    # Exactly one: more would mean a different phenomenon, and the parse would
+    # stop.
     assert parser.diagnostics.match_restarts == 1
     assert parser.diagnostics.rounds_seen == expected_rounds + 2
 
@@ -876,10 +909,11 @@ def test_league_demo_parses_despite_the_match_restart(
 def test_league_demo_counters_are_observations(
     demo_name: str, expected_rounds: int
 ) -> None:
-    """Liigademon havainnot ovat demosta eivätkä tyhjiä tai oletettuja.
+    """A league demo's observations come from the demo, not empty or assumed.
 
-    Uudelleenaloitus katkaisee kaluston ja rahan ketjun heti demon alussa, ja
-    juuri siinä kohdassa hiljainen tyhjä rivi olisi helppo jäädä huomaamatta.
+    The restart breaks the chain of kit and money right at the start of the
+    demo, and that is exactly the place where a silently empty row would be
+    easy to miss.
     """
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
@@ -895,14 +929,14 @@ def test_league_demo_counters_are_observations(
         assert df[name].null_count() == 0, name
     assert df["players_buy_end"].unique().to_list() == [5]
     assert df["equip_buy_end"].min() > 0
-    # Jokainen kierros ratkeaa jommalle kummalle: tasan yksi voittaja per
-    # kierros ja tasan kaksi riviä.
+    # Every round is decided for one side or the other: exactly one winner per
+    # round and exactly two rows.
     assert df.filter(pl.col("won"))["round_no"].n_unique() == expected_rounds
     assert df.group_by("round_no").len()["len"].unique().to_list() == [2]
-    # Ensimmäinen kierros on pistoolikierros myös uudelleenaloituksen jälkeen:
-    # jos numerointi olisi siirtynyt yhdellä, tämä osuisi täyteen ostoon.
-    # 5 pelaajaa x (pistooli 200..800 + kevlar 650..1000) -> alle 10 000 $,
-    # kun täysi osto on noin 21 000 $.
+    # The first round is a pistol round after the restart as well: if the
+    # numbering had shifted by one, this would land on a full buy.
+    # 5 players x (pistol 200..800 + kevlar 650..1000) -> under $10,000, where
+    # a full buy is about $21,000.
     pistol = df.filter(pl.col("round_no") == 1)
     assert pistol.height == 2
     assert pistol["equip_buy_end"].max() < 10_000
@@ -913,18 +947,19 @@ def test_league_demo_counters_are_observations(
 def test_league_round_count_matches_the_demos_own_event_stream(
     demo_name: str, expected_rounds: int
 ) -> None:
-    """Kierrosmäärän oraakkeli luetaan demosta **ohi oman numerointimme**.
+    """The oracle for the round count is read from the demo **past our own
+    numbering**.
 
-    ``LEAGUE_DEMOS``in luvut mitattiin adapterilla, eli sillä koodilla jota ne
-    testaavat. Yksin ne siis todistaisivat vain, ettei tulos ole muuttunut --
-    eivät sitä, että se on oikea. Tässä sama luku johdetaan demoparser2:n
-    raa'asta tapahtumavirrasta: ``round_end``-tapahtumien määrä miinus
-    puukkokierros. Mikään tämän tarinan koodista ei ole välissä.
+    ``LEAGUE_DEMOS``'s figures were measured with the adapter, that is, with
+    the very code they test. On their own they would therefore prove only that
+    the result has not changed -- not that it is right. Here the same figure
+    is derived from demoparser2's raw event stream: the number of ``round_end``
+    events minus the knife round. None of this story's code is in between.
 
-    Ensimmäinen ``round_end`` on tyhjä alkuarvo tickissä 1 (ks.
-    :mod:`pappascout.adapters.demo_parser`), joten se rajataan pois samalla
-    ehdolla kuin adapterissa -- se on kirjaston ominaisuus eikä meidän
-    sääntömme.
+    The first ``round_end`` is an empty initial value at tick 1 (see
+    :mod:`pappascout.adapters.demo_parser`), so it is excluded by the same
+    condition as in the adapter -- it is a property of the library and not a
+    rule of ours.
     """
     from demoparser2 import DemoParser as _Demoparser2
 
@@ -938,31 +973,31 @@ def test_league_round_count_matches_the_demos_own_event_stream(
 def test_league_demo_is_the_file_the_numbers_were_measured_from(
     demo_name: str,
 ) -> None:
-    """Koko ja tiiviste erottavat **väärän** kopion puuttuvasta.
+    """The size and the digest tell a **wrong** copy from a missing one.
 
-    Liigademot ovat korvaamattomia: FACEIT ei enää tarjoa niitä. Puuttuva demo
-    saa ohittaa testin siististi, mutta väärä tai keskeneräinen kopio ei saa
-    mennä läpi hiljaa -- silloin koko uudelleenaloituksen regressiosarja ajaisi
-    eri aineistolla kuin se väittää.
+    The league demos are irreplaceable: FACEIT no longer offers them. A
+    missing demo may skip the test cleanly, but a wrong or incomplete copy
+    must not pass silently -- the whole restart regression suite would then be
+    running on different data from the one it claims.
     """
     path = require_demo(demo_name)
     size, digest = LEAGUE_DEMO_FILES[demo_name]
-    assert path.stat().st_size == size, f"{demo_name}: koko ei täsmää"
+    assert path.stat().st_size == size, f"{demo_name}: the size does not match"
 
     reader = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
             reader.update(chunk)
-    assert reader.hexdigest() == digest, f"{demo_name}: tiiviste ei täsmää"
+    assert reader.hexdigest() == digest, f"{demo_name}: the digest does not match"
 
 
-# --- Näytepisteet oikeasta demosta ---------------------------------------------
+# --- Sample points from a real demo --------------------------------------------
 
-#: Ancientin ``env_cs_place``-alueet, luettu demosta 2026-08-29. Pelin omat
-#: alueet ovat noin kaksi kertaa karkeampia kuin Total CS -calloutit: esimerkiksi
-#: A-sitelle johtava Ramp on omansa, mutta Donut ja Cave sulautuvat naapureihin.
-#: Lista on tarkoituksella kiinteä -- demosta johdettu joukko hyväksyisi minkä
-#: tahansa nimen ja lakkaisi olemasta tarkistus.
+#: Ancient's ``env_cs_place`` areas, read from the demo 2026-08-29. The game's
+#: own areas are about twice as coarse as the Total CS callouts: the Ramp
+#: leading to the A site is one of its own, for instance, but Donut and Cave
+#: merge into their neighbours. The list is deliberately fixed -- a set derived
+#: from the demo would accept any name and would stop being a check.
 ANCIENT_PLACES: frozenset[str] = frozenset(
     {
         "Alley",
@@ -986,9 +1021,9 @@ ANCIENT_PLACES: frozenset[str] = frozenset(
     }
 )
 
-#: Ancientin T-puolen alueet. CT-pelaaja ei voi olla näissä kuuden sekunnin
-#: kohdalla; jos on, puolet ovat menneet väärin päin ja jokainen asetelma
-#: olisi kohdistettu väärälle joukkueelle.
+#: Ancient's T-side areas. A CT player cannot be in these at the six-second
+#: mark; if he is, the sides have gone the wrong way round and every setup
+#: would have been attributed to the wrong team.
 T_SIDE_PLACES: frozenset[str] = frozenset(
     {"TSpawn", "TSideUpper", "TSideLower", "Outside", "Tunnel"}
 )
@@ -996,7 +1031,7 @@ T_SIDE_PLACES: frozenset[str] = frozenset(
 
 @pytest.fixture(scope="module")
 def ancient_tables():
-    """Ancient-demon taulut ja diagnostiikka. Parsitaan kerran, ei testiä kohden."""
+    """The Ancient demo's tables and diagnostics. Parsed once, not per test."""
     adapter = real_parser()
     tables = adapter.parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
     return tables, adapter.diagnostics
@@ -1004,7 +1039,7 @@ def ancient_tables():
 
 @pytest.fixture(scope="module")
 def ancient_ticks(ancient_tables) -> pl.DataFrame:
-    """Ancient-demon näytepistetaulu."""
+    """The Ancient demo's sample point table."""
     return ancient_tables[0].ticks
 
 
@@ -1021,12 +1056,12 @@ def test_ancient_ticks_match_the_port_contract(ancient_ticks: pl.DataFrame) -> N
 def test_ancient_samples_ten_players_at_every_point(
     ancient_ticks: pl.DataFrame,
 ) -> None:
-    """Kaikki kymmenen tallennetaan joka näytepisteessä, myös kuolleet.
+    """All ten are recorded at every sample point, the dead included.
 
-    Puukkokierros (``round_raw`` 1) on poikkeus: siinä yksi pelaaja ei ollut
-    vielä liittynyt joukkueeseen, joten rivejä on yhdeksän. Kierros ei ole
-    pelattu eikä päädy arkistoon, joten poikkeus ei näy tuloksessa -- mutta
-    sitä ei myöskään paikata keksimällä kymmenettä riviä.
+    The knife round (``round_raw`` 1) is the exception: there one player had
+    not yet joined a team, so there are nine rows. The round is not played and
+    does not reach the archive, so the exception does not show in the result
+    -- but it is not patched by inventing a tenth row either.
     """
     played = ancient_ticks.filter(pl.col("round_raw") > 1)
     per_point = played.group_by("round_raw", "sample_kind", "sample_t_s").len()
@@ -1038,10 +1073,10 @@ def test_ancient_samples_ten_players_at_every_point(
 def test_ancient_has_no_sample_after_the_round_ended(
     ancient_ticks: pl.DataFrame,
 ) -> None:
-    """Hyväksymiskriteeri: lyhyt kierros ei saa 45 sekunnin pistettä.
+    """Acceptance criterion: a short round gets no 45-second point.
 
-    Todiste on siinä, että aikapisteiden määrä **vaihtelee** kierroksittain:
-    jos kaikilla olisi neljä, rajausta ei tapahtuisi lainkaan.
+    The proof is that the number of time points **varies** from round to
+    round: if every round had four, no bounding would be happening at all.
     """
     time_samples = ancient_ticks.filter(pl.col("sample_kind") == "time")
     per_round = time_samples.group_by("round_raw").agg(
@@ -1049,34 +1084,34 @@ def test_ancient_has_no_sample_after_the_round_ended(
     )
     counts = set(per_round["pisteita"].to_list())
     assert counts <= set(range(1, len(SNAPSHOT_SECONDS) + 1))
-    assert len(counts) > 1, "yksikään kierros ei jäänyt lyhyeksi -- rajaus ei purrut"
+    assert len(counts) > 1, "no round came out short -- the bounding did not bite"
     assert set(time_samples["sample_t_s"].unique().to_list()) <= set(SNAPSHOT_SECONDS)
 
 
 @pytest.mark.demo
 def test_ancient_areas_are_real_callouts(ancient_ticks: pl.DataFrame) -> None:
-    """Hyväksymiskriteeri: kierroksen 1 alueet ovat Ancientin callouteja.
+    """Acceptance criterion: round 1's areas are Ancient's callouts.
 
-    ``round_raw`` 2 on pelattu kierros 1 (puukkokierros on 1). Alueiden nimet
-    ovat pelin omia ``env_cs_place``-nimiä, ja niiden on kuuluttava Ancientin
-    nimijoukkoon -- pelkkä "ei tyhjä" menisi läpi myös väärältä kartalta
-    luetuilla nimillä tai steamideilla.
+    ``round_raw`` 2 is round 1 played (the knife round is 1). The area names
+    are the game's own ``env_cs_place`` names, and they have to belong to
+    Ancient's set of names -- a bare "not empty" would pass with names read
+    off the wrong map, or with steamids.
     """
     first_round = ancient_ticks.filter(pl.col("round_raw") == 2)
     areas = {a for a in first_round["area"].to_list() if a}
-    assert areas, "kierroksen 1 alueet olivat tyhjiä"
+    assert areas, "round 1's areas were empty"
     assert areas <= ANCIENT_PLACES, sorted(areas - ANCIENT_PLACES)
-    # CT-pelaajien on oltava CT-puolen alueilla kierroksen alussa: kuuden
-    # sekunnin kohdalla kukaan ei ole vielä ehtinyt T-puolen alueille.
+    # The CT players have to be in CT-side areas at the start of the round: at
+    # six seconds nobody has reached the T-side areas yet.
     ct_at_start = first_round.filter(
         (pl.col("side") == "CT") & (pl.col("sample_t_s") == min(SNAPSHOT_SECONDS))
     )
     assert ct_at_start.height == 5
     assert not (set(ct_at_start["area"].to_list()) & T_SIDE_PLACES), (
-        "CT-pelaaja oli T-puolen alueella kuuden sekunnin kohdalla -- puolet "
-        "ovat todennäköisesti väärin päin"
+        "a CT player was in a T-side area at six seconds -- the sides are "
+        "most likely the wrong way round"
     )
-    # Ja sama toisin päin: T:t eivät ole ehtineet CT-spawniin.
+    # And the same the other way: the Ts have not reached the CT spawn.
     t_at_start = first_round.filter(
         (pl.col("side") == "T") & (pl.col("sample_t_s") == min(SNAPSHOT_SECONDS))
     )
@@ -1086,17 +1121,17 @@ def test_ancient_areas_are_real_callouts(ancient_ticks: pl.DataFrame) -> None:
 
 @pytest.mark.demo
 def test_ancient_uses_only_ancient_place_names(ancient_ticks: pl.DataFrame) -> None:
-    """Koko demon alueiden on oltava Ancientin nimiä, ei vain kierroksen 1."""
+    """The whole demo's areas have to be Ancient's names, not just round 1's."""
     areas = {a for a in ancient_ticks["area"].to_list() if a}
     assert areas <= ANCIENT_PLACES, sorted(areas - ANCIENT_PLACES)
-    assert len(areas) > 5, "vain muutama alue -- näytteistys osunee samaan hetkeen"
+    assert len(areas) > 5, "only a few areas -- the sampling probably hits one moment"
 
 
 @pytest.mark.demo
 def test_ancient_coordinates_are_present_even_without_an_area(
     ancient_ticks: pl.DataFrame,
 ) -> None:
-    """Tuntematon alue jää nulliksi, mutta riviä ei pudoteta."""
+    """An unknown area stays null, but the row is not dropped."""
     assert ancient_ticks["x"].null_count() == 0
     assert ancient_ticks["y"].null_count() == 0
     unnamed = ancient_ticks.filter(pl.col("area").is_null())
@@ -1108,30 +1143,30 @@ def test_ancient_coordinates_are_present_even_without_an_area(
 def test_ancient_first_contact_is_found_on_every_round(
     ancient_ticks: pl.DataFrame,
 ) -> None:
-    """Ensikontakti löytyy Ancientissa jokaiselta kierrokselta.
+    """A first contact is found on every round in Ancient.
 
-    ``settings.toml`` perustelee ``planted_c4``:n poisjätön sillä, että
-    ensikontakti löytyy ilman sitä joka kierrokselta. Tämä testi on se väite:
-    jos se pettää, kommentti on väärässä eikä toisin päin.
+    ``settings.toml`` justifies leaving ``planted_c4`` out on the grounds that
+    a first contact is found without it on every round. This test is that
+    claim: if it fails, the comment is wrong and not the other way round.
     """
     contacts = ancient_ticks.filter(pl.col("sample_kind") == "first_contact")
     round_count = ancient_ticks["round_raw"].n_unique()
     assert contacts["round_raw"].n_unique() == round_count
-    # sample_t_s ja t_s kertovat saman hetken, eivät jää tyhjiksi.
+    # sample_t_s and t_s state the same moment and are not left empty.
     assert contacts["sample_t_s"].null_count() == 0
     assert (contacts["sample_t_s"] == contacts["t_s"]).all()
-    # Kontakti tapahtuu kierroksen sisällä, ei ennen ankkuria.
+    # The contact happens inside the round, not before the anchor.
     assert contacts["t_s"].min() > 0
 
 
 @pytest.mark.demo
 def test_ancient_sample_point_count_is_exact(ancient_ticks: pl.DataFrame) -> None:
-    """Ancientin näytepisteiden tarkka määrä, lukittuna tähän.
+    """Ancient's exact number of sample points, locked down here.
 
-    21 pelattua kierrosta ja neljä näytepistettä antaisi 84 aikapistettä, mutta
-    kierroksen päättymisen jälkeisiä pisteitä ei ole: todellinen luku on 73.
-    Ensikontakteja on yksi per kierros, ja puukkokierros (``round_raw`` 1) tuo
-    omansa päälle -- yhteensä 94 näytepistettä 21 pelatulta kierrokselta.
+    21 rounds played and four sample points would give 84 time points, but
+    there are no points after a round has ended: the real figure is 73. There
+    is one first contact per round, and the knife round (``round_raw`` 1)
+    brings its own on top -- 94 sample points in all from 21 rounds played.
     """
     played = ancient_ticks.filter(pl.col("round_raw") > 1)
     point_count = played.select("round_raw", "sample_kind", "sample_t_s").n_unique()
@@ -1154,13 +1189,14 @@ def test_ancient_sample_point_count_is_exact(ancient_ticks: pl.DataFrame) -> Non
 
 @pytest.mark.demo
 def test_ancient_reports_no_partial_samples(ancient_tables) -> None:
-    """Pelatuilla kierroksilla ei ole vajaita näytepisteitä.
+    """The rounds played have no partial sample points.
 
-    Vajaat ovat puukkokierroksen molemmat näytepisteet -- sen 6 sekunnin piste
-    ja sen ensikontakti -- joissa yksi pelaaja ei ollut vielä liittynyt
-    joukkueeseen. Kaksi on siis oikea luku; suurempi tarkoittaisi propivikaa.
-    Puukkokierros ei ole pelattu eikä päädy arkistoon, joten vajaus ei näy
-    tuloksessa; se näkyy vain tässä luvussa, ja siinä se kuuluukin näkyä.
+    The partial ones are the knife round's two sample points -- its 6-second
+    point and its first contact -- where one player had not yet joined a team.
+    Two is therefore the right figure; more would mean a prop fault. The knife
+    round is not played and does not reach the archive, so the shortfall does
+    not show in the result; it shows only in this figure, and that is where it
+    belongs.
     """
     diagnostics_obj = ancient_tables[1]
     assert diagnostics_obj.partial_samples == 2
@@ -1171,7 +1207,7 @@ def test_ancient_reports_no_partial_samples(ancient_tables) -> None:
 def test_ancient_alive_flag_thins_out_over_the_round(
     ancient_ticks: pl.DataFrame,
 ) -> None:
-    """Elossaolo on havainto: myöhemmällä pisteellä elossa on vähemmän."""
+    """Being alive is an observation: at a later point fewer are alive."""
     time_samples = ancient_ticks.filter(pl.col("sample_kind") == "time")
     per_point = (
         time_samples.group_by("sample_t_s")
@@ -1179,15 +1215,16 @@ def test_ancient_alive_flag_thins_out_over_the_round(
         .sort("sample_t_s")
     )
     shares = per_point["osuus"].to_list()
-    assert shares[0] == 1.0, "ensimmäisellä pisteellä kaikkien pitäisi olla elossa"
+    assert shares[0] == 1.0, "at the first point everyone should be alive"
     assert shares[-1] < shares[0]
 
 
-# --- Utility oikeasta demosta --------------------------------------------------
+# --- Utility from a real demo --------------------------------------------------
 
-#: Ancientin utility-luvut, mitattu 2026-08-29. Kiinteät luvut eivät ole
-#: itsetarkoitus: ne ovat ainoa tapa huomata, jos lentoratojen jaksotus alkaa
-#: yhdistää tai katkaista kranaatteja väärin. Yksikin virhe siirtäisi näitä.
+#: Ancient's utility figures, measured 2026-08-29. Fixed figures are not an
+#: end in themselves: they are the only way to notice if the trajectory
+#: segmentation starts merging or splitting grenades wrongly. A single error
+#: would move these.
 ANCIENT_GRENADES = 373
 ANCIENT_GRENADE_TYPES: dict[str, int] = {
     "smoke": 96,
@@ -1196,34 +1233,35 @@ ANCIENT_GRENADE_TYPES: dict[str, int] = {
     "incendiary": 62,
     "molotov": 30,
 }
-#: ``[parse].area_snap_units``, jolla :data:`ANCIENT_DETONATIONS_WITH_AREA` on
-#: mitattu. Luku ei tarkoita mitään ilman rajaa, joten testi tarkistaa
-#: esiehdon eikä oleta sitä.
+#: The ``[parse].area_snap_units`` at which
+#: :data:`ANCIENT_DETONATIONS_WITH_AREA` was measured. The figure means
+#: nothing without the bound, so the test checks the precondition rather than
+#: assuming it.
 #:
-#: Kalibroitu uudelleen Story 2.9:ssä, kun menetelmä vaihtui pistepilveen:
-#: kuudesta demosta (2 544 räjähdystä) rajan 256 sisään osuu 95,4 %.
-#: Demokohtaiset luvut ovat :data:`DEMO_AREA_COVERAGE`ssa ja summa
-#: :data:`CALIBRATION_TOTAL`issa -- molemmat vartioituina, jotta
-#: ``settings.toml``in taulukko ei voi vanhentua huomaamatta.
+#: Recalibrated in Story 2.9 when the method changed to the point cloud: over
+#: six demos (2,544 detonations) 95.4 % fall within the bound of 256. The
+#: per-demo figures are in :data:`DEMO_AREA_COVERAGE` and the total in
+#: :data:`CALIBRATION_TOTAL` -- both guarded, so that ``settings.toml``'s
+#: table cannot go stale unnoticed.
 CALIBRATED_SNAP_UNITS = 256
 
-#: CS2:n kierrosaika ja pommin ajastin sekunteina. Kierros voi jatkua näiden
-#: summan verran ankkurista, joten heiton t_s ei voi ylittää sitä.
+#: CS2's round time and the bomb timer in seconds. A round can continue for
+#: the sum of these from the anchor, so a throw's t_s cannot exceed it.
 ROUND_SECONDS = 115.0
 BOMB_SECONDS = 40.0
 
-#: Räjähdysalueen kattavuus **demoittain**: nimi -> (nimetty, räjähdyksiä).
+#: Detonation area coverage **per demo**: name -> (named, detonations).
 #:
-#: Mitattu 2026-08-30 kaikista kuudesta demosta asetuksilla ruutu 32 / paino 1
-#: / toleranssi 72 ja kynnys :data:`CALIBRATED_SNAP_UNITS`. Nämä ovat samat
-#: luvut, joilla ``settings.toml``in kynnys on kalibroitu -- ja siksi ne ovat
-#: **täällä** eivätkä vain asetustiedoston kommentissa: kalibrointitaulukko
-#: ilman regressiovartijaa vanhenee ensimmäisessä muutoksessa, joka siirtää
-#: aluetta yhdelläkään demolla.
+#: Measured 2026-08-30 over all six demos with the settings cell 32 / weight 1
+#: / tolerance 72 and the threshold :data:`CALIBRATED_SNAP_UNITS`. These are
+#: the same figures ``settings.toml``'s threshold is calibrated on -- and that
+#: is why they are **here** and not only in a comment in the settings file: a
+#: calibration table without a regression guard goes stale at the first change
+#: that moves an area on any demo.
 #:
-#: Kaksi karttaa ei riitä. Ancient ja Nuke ovat ääripäät (91,8 % ja 99,0 %),
-#: ja juuri välissä olevat Anubis ja Inferno paljastaisivat muutoksen, joka
-#: pitää ääripäät ennallaan mutta rikkoo kaiken muun.
+#: Two maps are not enough. Ancient and Nuke are the extremes (91.8 % and
+#: 99.0 %), and it is Anubis and Inferno in between that would expose a change
+#: which leaves the extremes alone but breaks everything else.
 DEMO_AREA_COVERAGE: dict[str, tuple[int, int]] = {
     ANCIENT_DEM: (335, 373),
     NUKE_ZST: (451, 455),
@@ -1233,47 +1271,48 @@ DEMO_AREA_COVERAGE: dict[str, tuple[int, int]] = {
     "inferno_vs_ryhmarama.dem": (437, 444),
 }
 
-#: Räjähdykset, joiden lähin **pistepilviruutu** oli enintään
-#: :data:`CALIBRATED_SNAP_UNITS`in päässä, Ancientin testidemolla.
+#: The detonations whose nearest **point cloud cell** was at most
+#: :data:`CALIBRATED_SNAP_UNITS` away, on the Ancient test demo.
 #:
-#: **Tämä luku on Story 2.9:n mitta.** Edellinen menetelmä -- lähin elossa
-#: oleva pelaaja -- antoi 170/373 eli 46 %. Pistepilvi antaa 335/373 eli
-#: 90 %, ja ero ei ole tarkkuudessa vaan siinä mitä mitataan: savu heitetään
-#: sinne, missä ketään ei ole. Jos tämä luku romahtaa, menetelmä on
-#: rikkoutunut -- ja pelkkä kattavuusprosentti tulosteessa ei kertoisi sitä,
-#: koska se laskettaisiin samasta rikkinäisestä tuloksesta.
+#: **This figure is Story 2.9's measure.** The previous method -- the nearest
+#: living player -- gave 170/373, that is, 46 %. The point cloud gives
+#: 335/373, that is, 90 %, and the difference is not in precision but in what
+#: is measured: smoke is thrown where nobody is. If this figure collapses, the
+#: method is broken -- and a bare coverage percentage in the output would not
+#: say so, because it would be computed from the same broken result.
 #:
-#: Johdettu :data:`DEMO_AREA_COVERAGE`ista, ei kirjoitettu erikseen: kaksi
-#: kopiota samasta luvusta erkanisi.
+#: Derived from :data:`DEMO_AREA_COVERAGE` rather than written out separately:
+#: two copies of the same figure would diverge.
 ANCIENT_DETONATIONS_WITH_AREA = DEMO_AREA_COVERAGE[ANCIENT_DEM][0]
 
-#: Sama luku **edellisellä menetelmällä** (lähin elossa oleva pelaaja, kynnys
-#: 500), mitattu Story 2.2:ssa. Se on tässä vertailukohtana: ilman sitä
-#: "kattavuus 90 %" ei kerro paranivatko vai huononivatko asiat.
+#: The same figure **under the previous method** (the nearest living player,
+#: threshold 500), measured in Story 2.2. It is here as the point of
+#: comparison: without it "90 % coverage" does not say whether things got
+#: better or worse.
 ANCIENT_DETONATIONS_WITH_THE_OLD_METHOD = 170
 
-#: Kynnyksen 256 kalibroinnin kokonaisluku: 2 428/2 544 eli 95,4 %.
-#: Johdettu demoittaisista luvuista, jotta taulukko ja summa eivät voi
-#: erkaantua.
+#: The total behind the calibration of the threshold 256: 2,428/2,544, that
+#: is, 95.4 %. Derived from the per-demo figures, so that the table and the
+#: total cannot diverge.
 CALIBRATION_TOTAL = (
     sum(named for named, _ in DEMO_AREA_COVERAGE.values()),
     sum(total for _, total in DEMO_AREA_COVERAGE.values()),
 )
 
-#: Räjähdykset kierroksen päättymisen jälkeen. Käytännössä savuja, jotka
-#: haihtuvat vasta seuraavan ostoajan puolella.
+#: Detonations after the round ended. In practice smokes that do not fade
+#: until the next buy time.
 #:
-#: **Ne saavat alueensa kuten muutkin.** Story 2.2:ssa ne jätettiin
-#: tarkoituksella aluettomiksi, koska silloinen menetelmä olisi lukenut
-#: alueen seuraavan kierroksen spawnissa seisovista pelaajista. Pistepilvi ei
-#: riipu hetkestä, joten syy katosi menetelmän mukana -- ja juuri se on osa
-#: sitä, miksi kattavuus nousi.
+#: **They get their areas like every other.** In Story 2.2 they were left
+#: without an area deliberately, because the method of the day would have read
+#: the area off the players standing in the next round's spawn. The point
+#: cloud does not depend on the moment, so the reason went away with the
+#: method -- and that is part of why the coverage rose.
 ANCIENT_DETONATIONS_AFTER_ROUND = 22
 
-#: Demon omat räjähdystapahtumat ja niitä vastaava kanoninen tyyppi.
-#: ``inferno_startburn`` puuttuu listalta tarkoituksella: palo syntyy **eri**
-#: entiteettinä muutama tick radan päättymisen jälkeen, joten sen paikka ei ole
-#: sama piste vaan lähellä sitä.
+#: The demo's own detonation events and the canonical type each corresponds
+#: to. ``inferno_startburn`` is deliberately absent from the list: the fire is
+#: created as a **different** entity a few ticks after the trajectory ends, so
+#: its position is not the same point but near it.
 DETONATE_EVENTS: tuple[tuple[str, str], ...] = (
     ("smokegrenade_detonate", "smoke"),
     ("hegrenade_detonate", "he"),
@@ -1283,7 +1322,7 @@ DETONATE_EVENTS: tuple[tuple[str, str], ...] = (
 
 @pytest.fixture(scope="module")
 def ancient_events(ancient_tables) -> pl.DataFrame:
-    """Ancient-demon utility-tapahtumataulu."""
+    """The Ancient demo's utility events table."""
     return ancient_tables[0].events
 
 
@@ -1298,7 +1337,7 @@ def test_ancient_events_match_the_port_contract(ancient_events: pl.DataFrame) ->
 
 @pytest.mark.demo
 def test_ancient_grenade_count_is_exact(ancient_events: pl.DataFrame) -> None:
-    """Hyväksymiskriteeri: jokaisesta kranaatista heitto ja räjähdys."""
+    """Acceptance criterion: a throw and a detonation for every grenade."""
     throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
     detonations = ancient_events.filter(pl.col("event_kind") == "grenade_detonate")
     assert throws.height == ANCIENT_GRENADES
@@ -1308,7 +1347,7 @@ def test_ancient_grenade_count_is_exact(ancient_events: pl.DataFrame) -> None:
 
 @pytest.mark.demo
 def test_ancient_grenade_types_are_plausible(ancient_events: pl.DataFrame) -> None:
-    """Savut, flashit, HE:t ja tulikranaatit uskottavina määrinä."""
+    """Smokes, flashes, HEs and fire grenades in plausible numbers."""
     throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
     counts_by_type = {
         row["grenade_type"]: row["len"]
@@ -1321,11 +1360,13 @@ def test_ancient_grenade_types_are_plausible(ancient_events: pl.DataFrame) -> No
 def test_ancient_fire_grenades_follow_the_side_that_can_buy_them(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """Molotov on T:n ja incendiary CT:n ase -- erottelu ei tule puolesta.
+    """Molotov is T's weapon and incendiary CT's -- the distinction is not
+    taken from the side.
 
-    Tyyppi luetaan heittäjän repusta, ei puolesta, joten tämä on riippumaton
-    tarkistus: jos erottelu olisi rikki, jakauma menisi ristiin. Poikkeuksia
-    saa olla vähän (pudotettu kranaatti poimitaan), mutta ei paljon.
+    The type is read from the thrower's bag and not from the side, so this is
+    an independent check: if the distinction were broken, the distribution
+    would go crosswise. A few exceptions are allowed (a dropped grenade gets
+    picked up), but not many.
     """
     fire_grenades = ancient_events.filter(
         pl.col("grenade_type").is_in(["molotov", "incendiary"])
@@ -1336,9 +1377,9 @@ def test_ancient_fire_grenades_follow_the_side_that_can_buy_them(
     }
     assert distribution.get(("T", "molotov"), 0) > 0
     assert distribution.get(("CT", "incendiary"), 0) > 0
-    # T ei voi ostaa incendiarya lainkaan.
+    # T cannot buy an incendiary at all.
     assert distribution.get(("T", "incendiary"), 0) == 0
-    # CT:llä molotov on aina poimittu, joten niitä on selvä vähemmistö.
+    # For a CT a molotov is always picked up, so they are a clear minority.
     assert distribution.get(("CT", "molotov"), 0) < distribution[("CT", "incendiary")] / 4
 
 
@@ -1346,48 +1387,50 @@ def test_ancient_fire_grenades_follow_the_side_that_can_buy_them(
 def test_ancient_data_claim_entity_ids_recycle_only_between_rounds(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """**AINEISTOVÄITE, EI SOPIMUS.** Miksi vika ei näkynyt ensimmäisillä demoilla.
+    """**A CLAIM ABOUT THE DATA, NOT A CONTRACT.** Why the fault did not show
+    on the first demos.
 
-    Tämä testi ei lupaa mitään ``EVENTS``-taulusta. Se kuvaa yhden demon
-    sisältöä: Ancientilla pelin oma tunniste toistuu demon aikana muttei
-    kierroksen sisällä, joten vanha avain ``(round_raw, grenade_entity_id)``
-    näytti riittävän. Liigademot osoittivat toisin -- ks.
+    This test promises nothing about the ``EVENTS`` table. It describes one
+    demo's content: on Ancient the game's own id repeats during the demo but
+    not within a round, so the old key ``(round_raw, grenade_entity_id)``
+    looked sufficient. The league demos showed otherwise -- see
     :func:`test_inferno_id_564_is_three_trajectories_on_one_round`.
 
-    Testi on tallessa siksi, että se dokumentoi juuri sen aineiston
-    rajallisuuden, joka johti väärään sopimukseen. Jos se joskus kaatuu, se
-    tarkoittaa että Ancient-demo on vaihtunut -- ei että sopimus olisi rikki.
-    Sopimuksen tae on
-    :func:`test_the_trajectory_id_is_unique_in_every_demo`.
+    The test is kept because it documents exactly the limitation of the data
+    that led to the wrong contract. If it ever fails, it means the Ancient
+    demo has been replaced -- not that the contract is broken. The contract's
+    guarantee is :func:`test_the_trajectory_id_is_unique_in_every_demo`.
     """
     counts = ancient_events.group_by(
         "round_raw", "grenade_entity_id", "event_kind"
     ).len()
     assert counts["len"].max() == 1
 
-    # Koko demossa tunniste toistuu -- se ei siis yksilöi kranaattia.
+    # Across the whole demo the id repeats -- so it does not identify a
+    # grenade.
     whole_demo = ancient_events.group_by("grenade_entity_id", "event_kind").len()
     assert whole_demo["len"].max() > 1
 
 
 @pytest.mark.demo
 def test_ancient_throw_area_is_always_observed(ancient_events: pl.DataFrame) -> None:
-    """Heiton alue tulee heittäjältä itseltään, ei lähimmältä pelaajalta.
+    """A throw's area comes from the thrower himself, not the nearest player.
 
-    Kaikki 373 heittoa saavat alueen, koska heittäjä on aina paikalla omalla
-    tickillään. Jos tämä luku ei ole täysi, joko koordinaatit tai puolet ovat
-    menneet sekaisin.
+    All 373 throws get an area, because the thrower is always present on his
+    own tick. If this figure is not full, either the coordinates or the sides
+    have gone astray.
     """
     throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
     assert throws["area"].null_count() == 0
     assert throws["area_source"].unique().to_list() == ["observed"]
-    # Havainto ei ole minkään päässä: etäisyys kuuluu vain arviolle.
+    # An observation is not at a distance from anything: distance belongs to
+    # an estimate alone.
     assert throws["snap_distance"].null_count() == throws.height
 
 
 @pytest.mark.demo
 def test_ancient_throw_areas_are_real_callouts(ancient_events: pl.DataFrame) -> None:
-    """Heittäjän oma alue on Ancientin oma callout, ei mikään muu."""
+    """The thrower's own area is one of Ancient's own callouts, nothing else."""
     throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
     areas = set(throws["area"].drop_nulls().unique().to_list())
     assert areas <= ANCIENT_PLACES, areas - ANCIENT_PLACES
@@ -1397,10 +1440,11 @@ def test_ancient_throw_areas_are_real_callouts(ancient_events: pl.DataFrame) -> 
 def test_ancient_snap_distances_are_within_the_configured_limit(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """Etäisyys on olemassa täsmälleen niillä riveillä, jotka saivat alueen.
+    """The distance exists on exactly the rows that got an area.
 
-    Ilman etäisyyttä kuluttaja ei voisi erottaa 15 yksikön osumaa 240 yksikön
-    arvauksesta, eikä kynnystä voisi kalibroida ilman uutta ajoa.
+    Without the distance a consumer could not tell a 15-unit hit from a
+    240-unit estimate, and the threshold could not be calibrated without a new
+    run.
     """
     limit = _parse_settings().area_snap_units
     assert limit == CALIBRATED_SNAP_UNITS
@@ -1416,14 +1460,14 @@ def test_ancient_snap_distances_are_within_the_configured_limit(
 def test_ancient_detonations_beyond_the_threshold_keep_their_distance(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """I/O-matriisi: räjähdys kaukana -> alue null, ``snap_distance`` tallessa.
+    """I/O matrix: a distant detonation -> area null, ``snap_distance`` kept.
 
-    **Tämä on se rivi, joka todistaa ettei kynnys ole turha.** Pistepilvestä
-    lähin ruutu löytyy aina, joten ilman kynnystä jokainen räjähdys saisi
-    alueen ja kattavuus olisi 100 % -- eikä se olisi kattavuutta vaan
-    mittarin puuttuminen. Nämä rivit ovat todiste siitä, että osa
-    räjähdyksistä tapahtuu kaukana kaikesta, missä yksikään pelaaja on
-    seissyt.
+    **This is the row that proves the threshold is not pointless.** The
+    nearest cell is always found in the point cloud, so without a threshold
+    every detonation would get an area and the coverage would be 100 % -- and
+    that would not be coverage but the absence of a measure. These rows are
+    the evidence that some detonations happen far from everything any player
+    has stood on.
     """
     limit = _parse_settings().area_snap_units
     detonations = ancient_events.filter(
@@ -1433,7 +1477,7 @@ def test_ancient_detonations_beyond_the_threshold_keep_their_distance(
     assert not far.is_empty()
     assert far["snap_distance"].null_count() == 0
     assert far["snap_distance"].min() > limit
-    # Ja koordinaatit jäävät: riviä ei pudoteta.
+    # And the coordinates stay: the row is not dropped.
     for column in ("x", "y", "z"):
         assert far[column].null_count() == 0
 
@@ -1442,21 +1486,22 @@ def test_ancient_detonations_beyond_the_threshold_keep_their_distance(
 def test_ancient_point_cloud_is_written_and_covers_the_map(
     ancient_tables,
 ) -> None:
-    """Pistepilvi on räjähdysalueiden lähde, joten se on oltava tallessa.
+    """The point cloud is the source of the detonation areas, so it is kept.
 
-    Alueiden määrä on tärkeämpi kuin ruutujen: ruutujen määrä kertoo vain
-    ruudun koon, mutta alueiden määrä kertoo, tunnistiko pilvi kartan.
-    Ancientilla ``env_cs_place``-alueita on 18, ja pilven on löydettävä ne
-    kaikki -- yksinumeroinen luku tarkoittaisi, että ``last_place_name`` tulee
-    enimmäkseen tyhjänä ja jokainen räjähdysalue olisi arvausta.
+    The number of areas matters more than the number of cells: the number of
+    cells says only what the cell size is, but the number of areas says
+    whether the cloud recognised the map. Ancient has 18 ``env_cs_place``
+    areas and the cloud has to find all of them -- a single-digit figure would
+    mean ``last_place_name`` mostly arrives empty and every detonation area
+    would be a guess.
     """
     cloud = ancient_tables[0].callouts
     assert list(cloud.columns) == list(CALLOUTS_ADAPTER_COLUMNS)
     assert cloud.height > 5000
     assert set(cloud["area"].unique().to_list()) == ANCIENT_PLACES
     assert cloud["area"].null_count() == 0
-    # Ruutu esiintyy täsmälleen kerran: kaksi riviä tarkoittaisi, ettei
-    # moodivalinta tehnyt työtään.
+    # A cell appears exactly once: two rows would mean the mode selection did
+    # not do its job.
     key = cloud.select("cell_x", "cell_y", "cell_z")
     assert key.height == key.unique().height
 
@@ -1465,12 +1510,12 @@ def test_ancient_point_cloud_is_written_and_covers_the_map(
 def test_ancient_detonation_area_coverage_beats_the_old_method(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """Hyväksymiskriteeri: alueettomien osuus laskee mitattavasti.
+    """Acceptance criterion: the share without an area falls measurably.
 
-    Lähimmän elossa olevan pelaajan menetelmä antoi tälle demolle 170/373
-    aluetta (46 %). Pistepilvi antaa :data:`ANCIENT_DETONATIONS_WITH_AREA`.
-    Vertailuluku on kirjattu tähän, koska ilman sitä "kattavuus 90 %" ei
-    kerro paranivatko vai huononivatko asiat.
+    The nearest-living-player method gave this demo 170/373 areas (46 %). The
+    point cloud gives :data:`ANCIENT_DETONATIONS_WITH_AREA`. The comparison
+    figure is recorded here, because without it "90 % coverage" does not say
+    whether things got better or worse.
     """
     detonations = ancient_events.filter(
         pl.col("event_kind") == "grenade_detonate"
@@ -1479,18 +1524,18 @@ def test_ancient_detonation_area_coverage_beats_the_old_method(
     assert (named, detonations.height) == DEMO_AREA_COVERAGE[ANCIENT_DEM]
     assert named == ANCIENT_DETONATIONS_WITH_AREA
     assert named > ANCIENT_DETONATIONS_WITH_THE_OLD_METHOD
-    # Tarkka osuus eikä "yli 0,85": löysä raja päästäisi läpi menetelmän,
-    # joka menettää kymmenen prosenttia kattavuudesta huomaamatta.
+    # An exact share rather than "over 0.85": a loose bound would let through
+    # a method that loses ten per cent of the coverage unnoticed.
     assert named / detonations.height == pytest.approx(0.898, abs=0.001)
 
 
 def test_the_coverage_table_covers_every_demo() -> None:
-    """Taulukon on katettava koko aineisto, ei osaa siitä.
+    """The table has to cover the whole data set, not part of it.
 
-    Ilman tätä uusi demo lisättäisiin :data:`ALL_DEMOS`iin mutta ei tänne, ja
-    sen kattavuus jäisi vartioimatta -- juuri se ero, jonka takia Anubis ja
-    Inferno olivat aiemmin kirjattuja mutta testaamattomia. Ei
-    ``demo``-merkintää: tämä on luettelon vertailu eikä vaadi demoja.
+    Without this a new demo would be added to :data:`ALL_DEMOS` but not here,
+    and its coverage would go unguarded -- exactly the gap that left Anubis
+    and Inferno recorded but untested. No ``demo`` marker: this compares two
+    lists and needs no demos.
     """
     assert set(DEMO_AREA_COVERAGE) == set(ALL_DEMOS)
 
@@ -1498,15 +1543,15 @@ def test_the_coverage_table_covers_every_demo() -> None:
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", sorted(DEMO_AREA_COVERAGE))
 def test_every_demo_keeps_its_measured_area_coverage(demo_name: str) -> None:
-    """Kalibrointitaulukon jokainen rivi on regressiovartija.
+    """Every row of the calibration table is a regression guard.
 
-    ``settings.toml``in kynnys 256 on perusteltu **kuuden demon** mittauksella,
-    mutta ilman tätä testiä vain kaksi niistä olisi vartioitu. Muutos, joka
-    siirtää aluetta Anubiksella tai Infernolla, menisi silloin läpi -- ja
-    asetustiedoston taulukko jäisi valehtelemaan.
+    ``settings.toml``'s threshold of 256 is justified by a measurement over
+    **six demos**, but without this test only two of them would be guarded. A
+    change that moves an area on Anubis or Inferno would then pass -- and the
+    settings file's table would be left lying.
 
-    Luvut ovat tarkkoja eivätkä alarajoja: kattavuuden **nousukin** on
-    muutos, joka on nähtävä ja kirjattava.
+    The figures are exact and not lower bounds: a **rise** in coverage is a
+    change that has to be seen and recorded too.
     """
     events = parsed_demo(demo_name)[0].events
     detonations = events.filter(pl.col("event_kind") == "grenade_detonate")
@@ -1516,10 +1561,11 @@ def test_every_demo_keeps_its_measured_area_coverage(demo_name: str) -> None:
 
 @pytest.mark.demo
 def test_the_calibration_total_matches_the_recorded_table() -> None:
-    """Kuuden demon summa on se luku, jolla kynnys 256 on perusteltu.
+    """The six demos' total is the figure the threshold 256 is justified by.
 
-    ``settings.toml`` sanoo 2 428/2 544 eli 95,4 %. Jos yksikään demo siirtyy,
-    summa siirtyy -- ja asetuksen perustelu on korjattava samalla.
+    ``settings.toml`` says 2,428/2,544, that is, 95.4 %. If any demo moves,
+    the total moves -- and the setting's justification has to be corrected at
+    the same time.
     """
     named = total = 0
     for demo_name in DEMO_AREA_COVERAGE:
@@ -1535,7 +1581,7 @@ def test_the_calibration_total_matches_the_recorded_table() -> None:
 def test_ancient_detonation_areas_are_real_callouts(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """Alue on Ancientin oma callout tai tyhjä -- ei koskaan keksitty nimi."""
+    """The area is one of Ancient's own callouts or empty -- never invented."""
     assert _parse_settings().area_snap_units == CALIBRATED_SNAP_UNITS
 
     detonations = ancient_events.filter(pl.col("event_kind") == "grenade_detonate")
@@ -1552,7 +1598,7 @@ def test_ancient_detonation_areas_are_real_callouts(
 def test_ancient_area_source_is_set_exactly_when_the_area_is(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """Sopimus: ``area_source`` on tyhjä silloin ja vain silloin kun alue on."""
+    """Contract: ``area_source`` is empty if and only if the area is."""
     conflicts = ancient_events.filter(
         pl.col("area").is_null() != pl.col("area_source").is_null()
     )
@@ -1563,7 +1609,7 @@ def test_ancient_area_source_is_set_exactly_when_the_area_is(
 def test_ancient_coordinates_are_kept_even_without_an_area(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """I/O-matriisi: kaukana räjähtänyt saa ``area = null``, ei pudotusta."""
+    """I/O matrix: a distant detonation gets ``area = null``, not a drop."""
     without_area = ancient_events.filter(pl.col("area").is_null())
     assert not without_area.is_empty()
     for column in ("x", "y", "z"):
@@ -1574,17 +1620,17 @@ def test_ancient_coordinates_are_kept_even_without_an_area(
 def test_ancient_events_stay_inside_their_round(
     ancient_events: pl.DataFrame,
 ) -> None:
-    """Heitto tapahtuu kierroksen sisällä; räjähdys saa jäädä sen ulkopuolelle.
+    """The throw happens inside the round; the detonation may fall outside it.
 
-    Kierroksen lopussa heitetty savu palaa vasta seuraavan puolella, ja se
-    kuuluu silti heittokierrokselle -- mutta heiton itsensä on oltava
-    kierroksen rajoissa, muuten ``t_s`` ei tarkoita mitään.
+    A smoke thrown at the end of a round only burns out on the next one's
+    side, and it still belongs to the round it was thrown in -- but the throw
+    itself has to be within the round's boundaries, or ``t_s`` means nothing.
     """
     throws = ancient_events.filter(pl.col("event_kind") == "grenade_thrown")
     assert throws["t_s"].min() >= 0.0
-    # CS2:n kierrosaika on 115 s, mutta istutettu pommi jatkaa kierrosta vielä
-    # 40 sekunnilla: post plant -savu 130 sekunnin kohdalla on normaali, ei
-    # virhe. Raja on siis 115 + 40 eikä 115.
+    # CS2's round time is 115 s, but a planted bomb extends the round by
+    # another 40 seconds: a post-plant smoke at 130 seconds is normal, not an
+    # error. The bound is therefore 115 + 40 and not 115.
     assert throws["t_s"].max() <= ROUND_SECONDS + BOMB_SECONDS
 
 
@@ -1593,12 +1639,13 @@ def test_ancient_events_stay_inside_their_round(
 def test_ancient_detonation_point_matches_the_games_own_event(
     ancient_events: pl.DataFrame, event_name: str, grenade_kind: str
 ) -> None:
-    """Radan viimeinen piste on räjähdyspaikka -- riippumaton tarkistus.
+    """The trajectory's last point is the detonation position -- checked
+    independently.
 
-    Demossa on omat räjähdystapahtumansa, joissa on ``x, y, z``. Niitä ei
-    lueta ajossa (kolme ylimääräistä tapahtumalukua ilman lisätietoa), mutta
-    ne kelpaavat testin totuudeksi: jos jaksotus katkaisisi radan liian
-    aikaisin, räjähdyspaikka olisi jossain lentoradan varrella.
+    The demo has detonation events of its own with ``x, y, z``. They are not
+    read during a run (three extra event reads without extra information), but
+    they serve as the test's truth: if the segmentation cut the trajectory too
+    early, the detonation position would be somewhere along the flight path.
     """
     from demoparser2 import DemoParser as _Demoparser2
 
@@ -1608,17 +1655,18 @@ def test_ancient_detonation_point_matches_the_games_own_event(
         (pl.col("event_kind") == "grenade_detonate")
         & (pl.col("grenade_type") == grenade_kind)
     )
-    # Vertailu tehdään **taulusta tapahtumiin**, ei toisin päin: pudotettu
-    # kranaatti (kierroksen ulkopuolinen heitto, tuntematon puoli) puuttuu
-    # taulusta täysin oikeutetusti, eikä testi saa vaatia että pudonneet
-    # sattuisivat aina olemaan muuta tyyppiä kuin tämä.
+    # The comparison runs **from the table to the events**, not the other way
+    # round: a dropped grenade (a throw outside the rounds, an unknown side)
+    # is absent from the table entirely legitimately, and the test must not
+    # require that the dropped ones always happen to be of some other type
+    # than this one.
     assert not own_rows.is_empty()
     assert own_rows.height <= observed.height
 
-    # Paritus entiteettitunnisteella; sama tunniste esiintyy useasti, joten
-    # riittää että jokin sen radoista päättyy tapahtuman paikkaan. Sallittu ero
-    # on yksi pelin yksikkö -- mitattu ero on alle 0,03, ja lentoradan varrella
-    # oleva piste olisi satojen yksiköiden päässä.
+    # Pairing by entity id; the same id appears several times, so it is enough
+    # that one of its trajectories ends at the event's position. The allowed
+    # difference is one game unit -- the measured difference is under 0.03, and
+    # a point along the flight path would be hundreds of units away.
     positions: dict[int, list[tuple[float, float, float]]] = {}
     for row in own_rows.iter_rows(named=True):
         positions.setdefault(int(row["grenade_entity_id"]), []).append(
@@ -1631,69 +1679,72 @@ def test_ancient_detonation_point_matches_the_games_own_event(
             for r in observed.iter_rows(named=True)
             if int(r["entityid"]) == entity
         ]
-        assert targets, f"{event_name}: entiteetille {entity} ei ole tapahtumaa"
+        assert targets, f"{event_name}: entity {entity} has no event"
         for point in points:
             distances = [math.dist(point, target) for target in targets]
             assert min(distances) < 1.0, (
-                f"{event_name} entiteetti {entity}: radan pää on "
-                f"{min(distances):.1f} yksikön päässä lähimmästä "
-                "räjähdyspaikasta"
+                f"{event_name} entity {entity}: the trajectory's end is "
+                f"{min(distances):.1f} units from the nearest detonation "
+                "position"
             )
 
 
 @pytest.mark.demo
 def test_ancient_utility_diagnostics_are_clean(ancient_tables) -> None:
-    """Pudotettu kranaatti on poikkeus, ei normaali tulos."""
+    """A dropped grenade is the exception, not the normal result."""
     diagnostics = ancient_tables[1]
     assert diagnostics.grenades_without_thrower == 0
     assert diagnostics.grenades_unknown_side == 0
-    # Yksi kranaatti lähtee kierroksen ratkeamisen jälkeen -- se on oikea
-    # havainto eikä vika, mutta sille ei ole t_s:ää.
+    # One grenade leaves after the round has been decided -- that is a correct
+    # observation and not a fault, but there is no t_s for it.
     assert diagnostics.grenades_outside_rounds == 1
-    # Ancientilla tunnisteet kierrätetään demon aikana mutta eivät kierroksen
-    # sisällä. Liigademoissa kierrätetään myös kierroksen sisällä, ja siksi
-    # taulun avain on grenade_no eikä pelin oma tunniste.
+    # On Ancient the ids are recycled during the demo but not within a round.
+    # In the league demos they are recycled within a round too, and that is
+    # why the table's key is grenade_no and not the game's own id.
     assert diagnostics.grenades_sharing_an_entity_id == 0
-    # Luokkanimet ja tulikranaatin erottelu ovat ajan tasalla.
+    # The class names and the fire-grenade distinction are up to date.
     assert diagnostics.grenades_unknown_type == 0
     assert diagnostics.grenades_fire_type_unresolved == 0
-    # Tämä on ainoa luku, joka on suoraan vika: päätepistetick ilman pelaajia
-    # tarkoittaisi, ettei aluetta voitu edes yrittää.
+    # This is the only figure that is a fault outright: an endpoint tick with
+    # no players would mean the area could not even be attempted.
     assert diagnostics.grenade_ticks_without_players == 0
-    # Savu haihtuu usein vasta seuraavan ostoajan puolella. Luku on havainto
-    # eikä pudotus: pistepilvi ei riipu hetkestä, joten myöhäinen räjähdys
-    # saa alueensa kuten muutkin.
+    # A smoke often does not fade until the next buy time. The figure is an
+    # observation and not a drop: the point cloud does not depend on the
+    # moment, so a late detonation gets its area like every other.
     assert (
         diagnostics.grenades_detonating_after_round
         == ANCIENT_DETONATIONS_AFTER_ROUND
     )
-    # Pistepilvi syntyi: alueiden määrä on se luku, joka kertoo tunnistiko se
-    # kartan. Ruutujen määrä kertoisi vain ruudun koon.
+    # The point cloud was built: the number of areas is the figure that says
+    # whether it recognised the map. The number of cells would say only what
+    # the cell size is.
     assert diagnostics.callout_cloud_rows_read > 1_000_000
     assert diagnostics.callout_cloud_empty_reason is None
 
 
-#: Liigademo, jossa kierrätys näkyy. Nimi luetaan :data:`LEAGUE_DEMOS`ista
-#: eikä kirjoiteta uudelleen: oma kopio vanhenisi hiljaa, ja ``require_demo``
-#: ohittaisi testin muka puuttuvana demona.
+#: The league demo where the recycling shows. The name is read from
+#: :data:`LEAGUE_DEMOS` and not written out again: a copy of its own would go
+#: stale silently, and ``require_demo`` would skip the test as though the demo
+#: were missing.
 INFERNO_DEMO = next(name for name, _ in LEAGUE_DEMOS if name.startswith("inferno"))
 
-#: ``inferno_vs_ryhmarama`` kierroksella 11 pelin tunniste 564 kantaa **kolme**
-#: eri lentorataa. Mitattu arkiston ``events.parquet``ista 2026-08-29, ja se on
-#: koko Story 1.8:n olemassaolon syy: pari ``(round_no, grenade_entity_id)`` ei
-#: yksilöi kranaattia.
+#: In ``inferno_vs_ryhmarama`` on round 11 the game's id 564 carries **three**
+#: different trajectories. Measured from the archive's ``events.parquet``
+#: 2026-08-29, and it is the whole reason Story 1.8 exists: the pair
+#: ``(round_no, grenade_entity_id)`` does not identify a grenade.
 #:
-#: Adapterin taulussa ``round_no`` on aina tyhjä -- numeroinnin omistaa
-#: ``stages.parse`` -- joten kierros nimetään tässä demon omalla laskurilla.
-#: ``round_raw`` 12 on ``round_no`` 11: puukkokierros ja ottelun
-#: uudelleenaloitus eivät ole pelattuja kierroksia.
+#: In the adapter's table ``round_no`` is always empty -- the numbering
+#: belongs to ``stages.parse`` -- so the round is named here by the demo's own
+#: counter. ``round_raw`` 12 is ``round_no`` 11: the knife round and the match
+#: restart are not rounds played.
 INFERNO_REUSED_ROUND_RAW = 12
 INFERNO_REUSED_ENTITY = 564
 
-#: Tunnisteen 564 kolme rataa **ennen tätä muutosta**, luettuna arkiston
-#: ``events.parquet``ista. Uusi sarake ei saa muuttaa yhtäkään näistä: jaksotus
-#: pysyy ennallaan, ja vain tunniste on uusi. Ajat verrataan toleranssilla --
-#: väite on "sama havainto", ei "sama liukulukubitti".
+#: Id 564's three trajectories **before this change**, read from the archive's
+#: ``events.parquet``. The new column must not change any of these: the
+#: segmentation stays as it was and only the id is new. The times are compared
+#: with a tolerance -- the claim is "the same observation", not "the same
+#: floating-point bits".
 INFERNO_564_THROWS: tuple[tuple[str, float], ...] = (
     ("molotov", 9.1875),
     ("flashbang", 18.015625),
@@ -1705,9 +1756,9 @@ INFERNO_564_DETONATIONS: tuple[tuple[str, float], ...] = (
     ("incendiary", 65.78125),
 )
 
-#: Sallitut tapahtumalajit yhtä ``grenade_no``:ta kohden. Räjähtämätön
-#: kranaatti tuottaa vain heiton, joten kaksi riviä on sallittua muttei
-#: pakollista -- ja kaksi riviä on aina juuri tämä pari, ei kaksi heittoa.
+#: The event kinds allowed per ``grenade_no``. A grenade that does not
+#: detonate produces only a throw, so two rows are allowed but not required --
+#: and two rows are always exactly this pair, never two throws.
 GRENADE_ROW_SHAPES: tuple[tuple[str, ...], ...] = (
     ("grenade_thrown",),
     ("grenade_thrown", "grenade_detonate"),
@@ -1716,51 +1767,51 @@ GRENADE_ROW_SHAPES: tuple[tuple[str, ...], ...] = (
 
 @lru_cache(maxsize=None)
 def parsed_demo(demo_name: str):
-    """Demon taulut ja diagnostiikka, parsittuna **kerran per ajo**.
+    """A demo's tables and diagnostics, parsed **once per run**.
 
-    Sama kuvio kuin ``ancient_tables``-fikstuurissa, mutta nimellä
-    parametroituna: kuusi 100-230 MB:n demoa ei mahdu parsittavaksi uudelleen
-    joka testissä. ``require_demo`` on kutsun sisällä, jotta puuttuva demo
-    ohittaa testin siististi eikä välimuistiin jää ohitusta.
+    The same pattern as the ``ancient_tables`` fixture, but parametrised by
+    name: six 100-230 MB demos cannot be reparsed in every test.
+    ``require_demo`` is inside the call, so that a missing demo skips the test
+    cleanly and no skip is left in the cache.
     """
     adapter = real_parser()
     tables = adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
     return tables, adapter.diagnostics
 
 
-# --- Pawniton pelaaja oikeasta demosta (Story 2.10) ----------------------------
+# --- The pawnless player from a real demo (Story 2.10) -------------------------
 
 
 @pytest.mark.demo
 def test_the_pawnless_demo_is_the_file_the_numbers_were_measured_from() -> None:
-    """Koko ja tiiviste erottavat väärän kopion puuttuvasta.
+    """The size and the digest tell a wrong copy from a missing one.
 
-    Alla olevat luvut (15 riviä, 22 kierrosta) koskevat **tätä tiedostoa**.
-    Toisesta kopiosta mitattuna ne eivät todistaisi mitään.
+    The figures below (15 rows, 22 rounds) are about **this file**. Measured
+    from another copy they would prove nothing.
     """
     path = require_demo(PAWNLESS_DEMO)
     size, digest = PAWNLESS_DEMO_FILE
-    assert path.stat().st_size == size, "vikademon koko ei täsmää"
+    assert path.stat().st_size == size, "the fault demo's size does not match"
 
     reader = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
             reader.update(chunk)
-    assert reader.hexdigest() == digest, "vikademon tiiviste ei täsmää"
+    assert reader.hexdigest() == digest, "the fault demo's digest does not match"
 
 
 @pytest.mark.demo
 def test_the_demo_that_broke_the_guard_parses_and_counts_its_skipped_rows() -> None:
-    """Regressiosuoja vialle, jonka takia koko Story 2.10 kirjoitettiin.
+    """A regression guard for the fault the whole of Story 2.10 was written for.
 
-    Ennen korjausta tämä demo nosti ``ParseError``in tickistä 119132 eikä
-    tuottanut yhtään taulua. Nyt se parsiutuu, ja **ohitetut rivit ovat
-    luettavissa lukuna** eivätkä vain poissa taulusta.
+    Before the fix this demo raised a ``ParseError`` at tick 119132 and
+    produced no tables at all. Now it parses, and **the skipped rows are
+    readable as a figure** rather than merely absent from the table.
 
-    Kolme väitettä eikä yksi: parsiutuminen todistaa korjauksen, kierrosmäärä
-    todistaa ettei mitään kadonnut sen mukana, ja rivimäärä todistaa ettei
-    ohitus ole löysentynyt eikä laskuri lakannut näkemästä kumpaakaan
-    lukupolkuaan.
+    Three claims rather than one: parsing proves the fix, the round count
+    proves nothing disappeared with it, and the row count proves the skip has
+    not loosened and the counter has not stopped seeing either of its read
+    paths.
     """
     tables, diagnostics = parsed_demo(PAWNLESS_DEMO)
 
@@ -1771,39 +1822,39 @@ def test_the_demo_that_broke_the_guard_parses_and_counts_its_skipped_rows() -> N
     assert diagnostics is not None
     assert diagnostics.sample_rows_without_pawn == PAWNLESS_DEMO_ROWS
     assert diagnostics.sample_points_without_pawn == PAWNLESS_DEMO_POINTS
-    # Pawniton pelaaja ei heittänyt mitään, joten heiton alue ei jäänyt
-    # kertaakaan lukematta. Nollasta poikkeava luku tarkoittaisi, että
-    # ohitus on alkanut niellä heittäjien omia rivejä.
+    # The pawnless player threw nothing, so no throw's area was ever left
+    # unread. A non-zero figure would mean the skip has started swallowing
+    # throwers' own rows.
     assert diagnostics.grenade_throwers_without_row == 0
 
 
 @pytest.mark.demo
 def test_the_pawnless_round_keeps_its_place_in_the_sample() -> None:
-    """Pawniton pelaaja pienentää kierroksen asetelmaa muttei pudota sitä.
+    """A pawnless player shrinks the round's setup but does not drop it.
 
-    Kierros 19 on koko demon pienin: CT-puolella neljä pelaajaa viidestä
-    jokaisella näytepisteellä. Se on yhä otannassa, ja neljä on selvästi yli
-    sen rajan, jolla kyse olisi rikkinäisestä demosta eikä yhdestä
-    irronneesta pelaajasta.
+    Round 19 is the whole demo's smallest: four players out of five on the CT
+    side at every sample point. It is still in the sample, and four is well
+    above the bound at which this would be a broken demo rather than one
+    player dropping out.
     """
     tables, _ = parsed_demo(PAWNLESS_DEMO)
     ticks = tables.ticks
 
     per_side = ticks.group_by("round_raw", "sample_kind", "sample_t_s", "side").len()
     assert per_side["len"].min() == 4
-    # Jokainen kierros, jolla on rivejä, on mukana kaikilla näytepisteillään.
+    # Every round that has rows is in with all of its sample points.
     assert ticks.filter(pl.col("round_raw") == 19).height > 0
 
 
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_a_healthy_demo_has_no_pawnless_rows(demo_name: str) -> None:
-    """Nolla on normaali tulos, ja se on mitattava eikä oletettava.
+    """Zero is the normal result, and it has to be measured, not assumed.
 
-    Ilman tätä väitettä ohituksen löysentyminen -- esimerkiksi laukeaminen
-    pelkästä puuttuvasta elossaolosta -- näyttäisi terveessä demossa
-    täsmälleen samalta kuin ehjä sääntö. Vikademon oma luku ei sitä paljasta:
-    siellä ohituksen *kuuluu* laueta.
+    Without this claim a loosening of the skip -- firing on a missing alive
+    state alone, for instance -- would look exactly like an intact rule in a
+    healthy demo. The fault demo's own figure does not expose it: there the
+    skip is *supposed* to fire.
     """
     _, diagnostics = parsed_demo(demo_name)
     assert diagnostics is not None
@@ -1815,17 +1866,17 @@ def test_a_healthy_demo_has_no_pawnless_rows(demo_name: str) -> None:
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_the_trajectory_id_is_unique_in_every_demo(demo_name: str) -> None:
-    """Hyväksymiskriteeri: ``(grenade_no, event_kind)`` on yksikäsitteinen.
+    """Acceptance criterion: ``(grenade_no, event_kind)`` is unique.
 
-    Väite koskee **koko taulua** eikä kierrosta, ja se ajetaan kaikilla
-    kuudella demolla. Kahdella vanhalla testidemolla myös vanha avain olisi
-    mennyt läpi -- juuri siksi väite on ajettava sillä aineistolla, jossa vika
-    näkyi.
+    The claim is about **the whole table** and not a round, and it is run over
+    all six demos. On the two old test demos the old key would have passed too
+    -- which is exactly why the claim has to be run over the data in which the
+    fault showed.
 
-    Jokainen väite kestää **tyhjän taulun**: demo ilman utilityä on
-    kelvollinen tulos, eikä sopimustesti saa vaatia aineistolta sisältöä.
-    Se, että näissä kuudessa demossa utilityä on, on erillinen aineistoväite
-    tämän testin lopussa.
+    Every claim survives **an empty table**: a demo without utility is a valid
+    result, and a contract test must not demand content from the data. That
+    utility was thrown in these six demos is a separate claim about the data
+    at the end of this test.
     """
     events = parsed_demo(demo_name)[0].events
 
@@ -1833,12 +1884,12 @@ def test_the_trajectory_id_is_unique_in_every_demo(demo_name: str) -> None:
     keys = events.select("grenade_no", "event_kind")
     assert keys.height == keys.unique().height
 
-    # Pelin oma tunniste säilyy -- se on ainoa side takaisin demoon.
+    # The game's own id is kept -- it is the only tie back to the demo.
     assert events["grenade_entity_id"].null_count() == 0
 
-    # Heitto ja räjähdys jakavat numeron, eikä kaksi riviä voi olla kaksi
-    # heittoa. Väite on muodosta eikä lukumäärästä, joten se pitää myös
-    # räjähtämättömälle kranaatille.
+    # The throw and the detonation share the number, and two rows cannot be
+    # two throws. The claim is about shape and not about count, so it holds
+    # for a grenade that never detonated too.
     shapes = (
         events.group_by("grenade_no")
         .agg(pl.col("event_kind").sort().cast(pl.Utf8).alias("kinds"))["kinds"]
@@ -1846,18 +1897,20 @@ def test_the_trajectory_id_is_unique_in_every_demo(demo_name: str) -> None:
     )
     assert all(tuple(kinds) in GRENADE_ROW_SHAPES for kinds in shapes)
 
-    # Aineistoväite, ei sopimus: näissä kuudessa demossa utilityä heitettiin.
+    # A claim about the data, not a contract: utility was thrown in these six
+    # demos.
     assert not events.is_empty()
 
 
 @pytest.mark.demo
 def test_inferno_id_564_is_three_trajectories_on_one_round() -> None:
-    """Hyväksymiskriteeri: tunniste 564 hajoaa kolmeen -- ajat ja tyypit ennallaan.
+    """Acceptance criterion: id 564 splits into three -- times and types
+    unchanged.
 
-    Tämä on se mitattu tapaus, jota vanha sopimus ei kestänyt. Uuden
-    tunnisteen on erotettava radat toisistaan **muuttamatta havaintoa**:
-    jaksotukseen ei kosketa, joten ajat ja kranaattityypit ovat samat kuin
-    ennen muutosta.
+    This is the measured case the old contract did not survive. The new id has
+    to separate the trajectories **without changing the observation**: the
+    segmentation is untouched, so the times and the grenade types are the same
+    as before the change.
     """
     events = parsed_demo(INFERNO_DEMO)[0].events
     subset = events.filter(
@@ -1872,21 +1925,22 @@ def test_inferno_id_564_is_three_trajectories_on_one_round() -> None:
         return list(zip(frame["grenade_type"].to_list(), frame["t_s"].to_list()))
 
     def expected(pairs: tuple[tuple[str, float], ...]) -> list[tuple[str, object]]:
-        # Toleranssi tickin murto-osan verran: väite on sama havainto, ei sama
-        # liukulukubitti. Tickrate- tai pyöristysmuutos ei saa näyttää siltä,
-        # että jaksotus muuttui.
+        # A tolerance of a fraction of a tick: the claim is the same
+        # observation, not the same floating-point bits. A change to the tick
+        # rate or to rounding must not look like a change to the
+        # segmentation.
         return [(name, pytest.approx(t_s, abs=0.02)) for name, t_s in pairs]
 
-    # Havainto on ennallaan: samat kolme tyyppiä samoilla hetkillä.
+    # The observation is unchanged: the same three types at the same moments.
     assert observed(throws) == expected(INFERNO_564_THROWS)
     assert observed(detonations) == expected(INFERNO_564_DETONATIONS)
 
-    # Kolme rataa, kolme tunnistetta -- ja pelin oma tunniste on yhä sama.
+    # Three trajectories, three ids -- and the game's own id is still the same.
     assert throws["grenade_no"].n_unique() == 3
     assert subset["grenade_no"].n_unique() == 3
     assert subset["grenade_entity_id"].unique().to_list() == [INFERNO_REUSED_ENTITY]
 
-    # Heitto ja räjähdys jakavat numeron: se on niiden ainoa side.
+    # The throw and the detonation share the number: it is their only tie.
     for _, pair in subset.group_by("grenade_no", maintain_order=True):
         assert sorted(pair["event_kind"].to_list()) == [
             "grenade_detonate",
@@ -1896,33 +1950,35 @@ def test_inferno_id_564_is_three_trajectories_on_one_round() -> None:
 
 @pytest.mark.demo
 def test_parsing_the_same_demo_twice_gives_identical_tables() -> None:
-    """Hyväksymiskriteeri: sama demo kahdesti -> identtiset taulut.
+    """Acceptance criterion: the same demo twice -> identical tables.
 
-    Tunnisteen vakaus on ehto: jos numerot vaihtuisivat ajojen välillä,
-    arkiston uudelleenparsinta näyttäisi muutokselta ilman muutosta.
+    The stability of the id is a condition: if the numbers changed between
+    runs, reparsing the archive would look like a change without a change.
 
-    Väite on tässä heikko -- deterministinen funktio samalla syötteellä --
-    ja sen vahva muoto on ``test_utility.py``:n puolella, jossa lentoratojen
-    **rivijärjestys sekoitetaan** ennen jaksotusta. Demolla sitä ei voi tehdä,
-    joten tämä varmistaa vain, ettei koko putkeen ole jäänyt satunnaisuutta
-    (hajautusjärjestys, rinnakkaisuus). Ensimmäinen parsinta on jaettu muiden
-    testien kanssa, joten hinta on yksi ylimääräinen luku eikä kaksi.
+    The claim is weak here -- a deterministic function on the same input --
+    and its strong form lives in ``test_utility.py``, where the trajectories'
+    **row order is shuffled** before the segmentation. That cannot be done
+    with a demo, so this only makes sure no randomness (hash order,
+    parallelism) is left anywhere in the pipeline. The first parse is shared
+    with the other tests, so the cost is one extra read and not two.
     """
     first = parsed_demo(ANCIENT_DEM)[0]
     second = real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
 
     assert not first.events.is_empty()
     assert first.events.equals(second.events)
-    # Pistepilvi on samassa väitteessä, koska räjähdysalueet johdetaan siitä:
-    # jos ruudun alue voisi vaihtua ajojen välillä (moodin tasatilanne,
-    # ryhmittelyn järjestys), events olisi vakaa vain sattumalta.
+    # The point cloud is part of the same claim, because the detonation areas
+    # are derived from it: if a cell's area could change between runs (a tie
+    # in the mode, the grouping's order), events would be stable only by
+    # accident.
     assert not first.callouts.is_empty()
     assert first.callouts.equals(second.callouts)
 
 
 @pytest.mark.demo
 def test_nuke_utility_is_read_too() -> None:
-    """Toinen kartta, toinen nimistö: aluepäättely ei saa olla Ancient-kohtainen."""
+    """Another map, another set of names: the area logic must not be
+    Ancient-specific."""
     tables = real_parser().parse_demo(require_demo(NUKE_ZST), SNAPSHOT_SECONDS)
     events = tables.events
     assert not events.is_empty()
@@ -1930,31 +1986,32 @@ def test_nuke_utility_is_read_too() -> None:
     assert throws["area"].null_count() == 0
     assert throws["area_source"].unique().to_list() == ["observed"]
     detonations = events.filter(pl.col("event_kind") == "grenade_detonate")
-    # Nuken calloutit ovat tiheämmässä kuin Ancientin, joten alue ratkeaa
-    # useammin -- mutta ei koskaan kaikille.
+    # Nuke's callouts are denser than Ancient's, so the area resolves more
+    # often -- but never for all of them.
     received = detonations.height - detonations["area"].null_count()
     assert 0 < received < detonations.height
 
 
-#: Nuken kerrosraja pelin yksiköissä, **luettu pistepilvestä** 2026-08-30
-#: (``1-79f71e00...``): :data:`NUKE_LOWER_PLACES`in ruudut ovat välillä
-#: -784 .. -560 ja päätason ruudut alkavat -464:stä. Raja on niiden välissä,
-#: eikä sitä ole arvattu kartan geometriasta.
+#: Nuke's floor boundary in game units, **read from the point cloud**
+#: 2026-08-30 (``1-79f71e00...``): :data:`NUKE_LOWER_PLACES`'s cells lie
+#: between -784 and -560 and the main level's cells start at -464. The
+#: boundary is between them and has not been guessed from the map's geometry.
 #:
-#: Raja itse kuuluu **alakertaan** (``z <= raja``), jotta jokainen räjähdys
-#: on tasan toisessa joukossa. Kumpikin ehto tiukkana jättäisi tasan rajalla
-#: olevan räjähdyksen kummankin väitteen ulkopuolelle.
+#: The boundary itself belongs to the **lower floor** (``z <= boundary``), so
+#: that every detonation is in exactly one of the two sets. With both
+#: conditions strict, a detonation exactly on the boundary would fall outside
+#: both claims.
 NUKE_LOWER_FLOOR_Z = -560.0
 
-#: Nuken aluenimet, jotka ovat **vain alakerrassa**. Kiinteä lista
-#: tarkoituksella: demosta johdettu joukko hyväksyisi minkä tahansa nimen ja
-#: lakkaisi olemasta tarkistus.
+#: Nuke's area names that are **only downstairs**. A fixed list on purpose: a
+#: set derived from the demo would accept any name and would stop being a
+#: check.
 #:
-#: ``Ramp``, ``Secret`` ja ``Vents`` **eivät** ole listalla, vaikka ne ovat
-#: alakerran nimiä puheessa: mitattuna niiden ruudut jakautuvat kahdelle
-#: tasolle (``Ramp`` -624 .. -208), koska ne ovat kulkuyhteyksiä kerrosten
-#: välillä. Niiden mukanaolo tekisi testistä väitteen kartan puhekielestä
-#: eikä sen geometriasta.
+#: ``Ramp``, ``Secret`` and ``Vents`` are **not** on the list even though they
+#: are downstairs names in conversation: measured, their cells split across
+#: two levels (``Ramp`` -624 .. -208), because they are connections between
+#: the floors. Including them would make the test a claim about the map's
+#: everyday language rather than its geometry.
 NUKE_LOWER_PLACES: frozenset[str] = frozenset(
     {"BombsiteB", "Tunnels", "Decon", "Observation"}
 )
@@ -1962,17 +2019,17 @@ NUKE_LOWER_PLACES: frozenset[str] = frozenset(
 
 @pytest.mark.demo
 def test_nuke_upper_floor_smoke_never_gets_a_lower_floor_area() -> None:
-    """Hyväksymiskriteeri: yläkerran räjähdys ei saa alakerran aluetta.
+    """Acceptance criterion: an upstairs detonation gets no downstairs area.
 
-    **Etäisyysmittaus ei kerro tätä.** Nuke on 99 % kynnyksen sisällä
-    kaikilla painovaihtoehdoilla, joten mediaani ja kattavuus näyttäisivät
-    yhtä hyviltä silläkin painolla, joka panee yläkerran savun alakerran
-    alueelle. Ainoa asia, joka erottaa ne, on tämä väite -- ja siksi se on
-    testi eikä silmämääräinen tarkistus.
+    **A distance measurement does not say this.** Nuke is 99 % inside the
+    threshold at every weight option, so the median and the coverage would
+    look just as good at the weight that puts an upstairs smoke in a
+    downstairs area. The only thing that separates them is this claim -- and
+    that is why it is a test and not an eyeball check.
 
-    Yläkerran räjähdys tunnistetaan korkeudesta
-    (:data:`NUKE_LOWER_FLOOR_Z`), ei alueesta: alue on juuri se, jota
-    epäillään.
+    An upstairs detonation is recognised by its height
+    (:data:`NUKE_LOWER_FLOOR_Z`), not by its area: the area is precisely what
+    is in doubt.
     """
     events = parsed_demo(NUKE_ZST)[0].events
     detonations = events.filter(
@@ -1981,15 +2038,16 @@ def test_nuke_upper_floor_smoke_never_gets_a_lower_floor_area() -> None:
     )
     upper = detonations.filter(pl.col("z") > NUKE_LOWER_FLOOR_Z)
     lower = detonations.filter(pl.col("z") <= NUKE_LOWER_FLOOR_Z)
-    # Raja kuuluu tasan yhteen puoleen: muuten tasan rajalla oleva räjähdys
-    # ei olisi kummassakaan joukossa eikä kumpikaan väite koskisi sitä.
+    # The boundary belongs to exactly one side: otherwise a detonation exactly
+    # on it would be in neither set and neither claim would cover it.
     assert upper.height + lower.height == detonations.height
-    assert not upper.is_empty(), "yläkerran räjähdyksiä ei löytynyt lainkaan"
+    assert not upper.is_empty(), "no upstairs detonations were found at all"
     wrong = upper.filter(pl.col("area").is_in(sorted(NUKE_LOWER_PLACES)))
     assert wrong.is_empty(), wrong.select("area", "z", "snap_distance").head(5).to_dicts()
 
-    # Ja toiseen suuntaan: alakerran räjähdykset **saavat** alakerran alueita,
-    # joten testi ei mene läpi vain siksi ettei alakerran nimiä esiinny.
+    # And in the other direction: downstairs detonations **do** get downstairs
+    # areas, so the test does not pass merely because no downstairs names
+    # occur.
     assert not lower.filter(
         pl.col("area").is_in(sorted(NUKE_LOWER_PLACES))
     ).is_empty()
@@ -1997,19 +2055,22 @@ def test_nuke_upper_floor_smoke_never_gets_a_lower_floor_area() -> None:
 
 @pytest.mark.demo
 def test_the_z_weight_is_what_keeps_the_floors_apart() -> None:
-    """Ilman painoa yläkerran savu **saa** alakerran alueen -- mitattuna.
+    """Without the weight an upstairs smoke **does** get a downstairs area --
+    measured.
 
-    Edellinen testi ei yksin riitä: se menisi läpi myös silloin, kun paino ei
-    tee mitään, jos kartta sattuisi olemaan riittävän harva. Tämä ajaa saman
-    demon painolla 0 ja osoittaa, että virhe on aito ja että asetus estää sen.
-    Mitattu 2026-08-30 molemmilta Nuke-demoilta: painolla 0 väärin nimettyjä
-    on 38 (``Nuke_vs_imuaijat``) ja 25 (``1-79f71e00...``), painoilla 1, 2 ja
-    3 nolla. Tuotannon paino on 1, koska se riittää -- ja koska jokainen sitä
-    suurempi paino maksaa kattavuutta (99,0 % -> 98,8 % -> 97,4 %).
+    The previous test is not enough on its own: it would pass even when the
+    weight does nothing, if the map happened to be sparse enough. This one
+    runs the same demo at weight 0 and shows that the error is real and that
+    the setting prevents it. Measured 2026-08-30 on both Nuke demos: at weight
+    0 there are 38 wrongly named (``Nuke_vs_imuaijat``) and 25
+    (``1-79f71e00...``), and at weights 1, 2 and 3 none. Production's weight
+    is 1, because that is enough -- and because every weight above it costs
+    coverage (99.0 % -> 98.8 % -> 97.4 %).
     """
-    # Portti rakennetaan **default_parserin kautta** eikä käsin: käsin
-    # annettu argumenttilista jäisi jälkeen heti, kun [parse] saa uuden
-    # asetuksen, ja tämä testi ajaisi silloin eri kokoonpanoa kuin tuotanto.
+    # The port is built **through default_parser** and not by hand: an
+    # argument list written by hand would fall behind the moment [parse] gains
+    # a new setting, and this test would then be running a different
+    # configuration from production.
     flat = parse_stage.default_parser(
         _parse_settings().model_copy(update={"callout_z_weight": 0.0})
     )
@@ -2020,34 +2081,34 @@ def test_the_z_weight_is_what_keeps_the_floors_apart() -> None:
         & pl.col("area").is_in(sorted(NUKE_LOWER_PLACES))
     )
     assert not wrong.is_empty(), (
-        "paino 0 ei tuottanut yhtään väärän kerroksen aluetta -- silloin "
-        "edellinen testi ei todista painosta mitään"
+        "weight 0 produced no wrong-floor area at all -- the previous test "
+        "then proves nothing about the weight"
     )
 
 
-# --- Ostoaika oikeissa demoissa (Story 1.9) ------------------------------------
+# --- The buy time in real demos (Story 1.9) ------------------------------------
 
 
-#: ``inferno_vs_ryhmarama``, kierros 6, Ryhmä Rämä T-puolella. Tuotteen
-#: omistaja katsoi tämän kierroksen demosta ja luki siitä luvut, jotka eivät
-#: täsmänneet työkalun tuottamiin -- se oli koko vian löytöhavainto.
+#: ``inferno_vs_ryhmarama``, round 6, Ryhma Rama on the T side. The product
+#: owner watched this round in the demo and read figures off it that did not
+#: match the tool's -- that was the observation that found the whole fault.
 #:
-#: Freezetimen lopussa varusteita 11 550 ja rahaa 6 600; kaksi sekuntia
-#: myöhemmin 15 350 ja 2 400. Kolme viidestä pelaajasta osti vasta silloin.
+#: At the end of freezetime the equipment was 11,550 and the money 6,600; two
+#: seconds later 15,350 and 2,400. Three of the five players bought only then.
 INFERNO_ROUND_6 = {
     "equip_buy_end": 15_350,
     "money_buy_end": 2_400,
     "armed": 5,
-    # Tuotteen omistajan lukemat saldot pelaajittain (kalibrointidokumentti):
-    # 150, 0, 500, 1 750, 0. Summa on sama 2 400 -- ja juuri se on ongelma:
-    # summasta ei näe, että vain yksi pelaaja pääsee 4 000 dollariin
-    # häviöbonuksen kanssa.
+    # The balances per player as the product owner read them (the calibration
+    # document): 150, 0, 500, 1,750, 0. The total is the same 2,400 -- and
+    # that is exactly the problem: the total does not show that only one
+    # player reaches $4,000 with the loss bonus.
     "money_players": [1_750, 500, 150, 0, 0],
 }
 
-#: Sama kierrokselta 10, jonka tuotteen omistaja kutsui puoliostoksi.
-#: Molemmilla on viisi aseistettua pelaajaa, joten kalusto ei erota niitä --
-#: vain jakauma erottaa.
+#: The same from round 10, which the product owner called a half-buy. Both
+#: have five armed players, so the kit does not tell them apart -- only the
+#: distribution does.
 INFERNO_ROUND_10 = {
     "equip_buy_end": 11_900,
     "money_buy_end": 7_900,
@@ -2055,9 +2116,9 @@ INFERNO_ROUND_10 = {
     "money_players": [2_150, 2_050, 2_000, 900, 800],
 }
 
-#: Samat pelaajat, samat aseet, tuotteen omistajan lukemina. Kolme näistä on
-#: ostettu vasta freezetimen jälkeen; ankkurista luettuna kaikilla kolmella
-#: on Glock.
+#: The same players and the same weapons as the product owner read them.
+#: Three of these were bought only after freezetime; read at the anchor, all
+#: three have a Glock.
 INFERNO_ROUND_6_WEAPONS = {
     "petemonni": "P250",
     "Toumee": "Tec-9",
@@ -2067,13 +2128,13 @@ INFERNO_ROUND_6_WEAPONS = {
 
 @pytest.mark.demo
 def test_inferno_round_six_matches_the_human_reading() -> None:
-    """Vian löytökierros tuottaa nyt ne luvut, jotka tuotteen omistaja luki
-    demosta.
+    """The round that found the fault now produces the figures the product
+    owner read off the demo.
 
-    Kolme lukua yhdessä, koska ne rikkoutuivat yhdessä: varustearvo
-    aliarvioitiin, taskuun jäänyt raha yliarvioitiin ja aseistettujen laskuri
-    antoi 2 vaikka totuus oli 5. Yksikään niistä ei olisi paljastanut vikaa
-    yksinään -- laskurin 2 näytti uskottavalta ecolta.
+    Three figures together, because they broke together: the equipment value
+    was underestimated, the money left in pocket overestimated, and the armed
+    count gave 2 when the truth was 5. None of them would have exposed the
+    fault on its own -- a count of 2 looked like a plausible eco.
     """
     df = mark_played_rounds(
         real_parser()
@@ -2092,21 +2153,21 @@ def test_inferno_round_six_matches_the_human_reading() -> None:
         list(observed[MONEY_DISTRIBUTION_COLUMN])
         == INFERNO_ROUND_6["money_players"]
     )
-    # Mittauspiste on ankkurin jälkeen mutta ennen ikkunan loppua: kierroksen
-    # ensimmäinen kuolema (18,1 s) katkaisi ikkunan.
+    # The measurement point is after the anchor but before the end of the
+    # window: the round's first death (18.1 s) cut the window short.
     assert observed["buy_end_tick"] > observed["freeze_end_tick"]
 
 
 @pytest.mark.demo
 def test_inferno_rounds_six_and_ten_differ_only_in_the_distribution() -> None:
-    """Kaksi kierrosta, sama kalusto, eri tuomio -- ero on jakaumassa.
+    """Two rounds, the same kit, a different verdict -- the difference is in
+    the distribution.
 
-    Molemmissa on viisi aseistettua pelaajaa, joten puolioston ehto A ei
-    erota niitä lainkaan. Tuotteen omistaja kutsui kierrosta 6 forceksi ja
-    kierrosta 10 puoliostoksi, ja perusteli sen sillä kuka pystyy ostamaan
-    seuraavalla kierroksella. Tämä testi pinnaa **havainnon**, josta se
-    luetaan; säännön oma testi on ``test_calibration.py``:ssä eikä tarvitse
-    demoa.
+    Both have five armed players, so the half-buy's condition A does not tell
+    them apart at all. The product owner called round 6 a force and round 10 a
+    half-buy, and justified that by who can buy on the next round. This test
+    pins the **observation** the rule is read from; the rule's own test is in
+    ``test_calibration.py`` and needs no demo.
     """
     df = mark_played_rounds(
         real_parser()
@@ -2128,13 +2189,13 @@ def test_inferno_rounds_six_and_ten_differ_only_in_the_distribution() -> None:
 
 @pytest.mark.demo
 def test_inferno_round_six_players_hold_the_weapons_the_product_owner_saw() -> None:
-    """Pelaajakohtaiset aseet, ei vain joukkuesumma.
+    """The weapons per player, not just the team total.
 
-    Summa 15 350 osuisi myös silloin, jos mittauspiste olisi oikea mutta
-    tavaraluettelo luettaisiin väärältä tickiltä -- ja juuri tavaraluettelo
-    ratkaisee aseistettujen laskurin. Tuotteen omistaja nimesi kolme asetta,
-    jotka ostettiin vasta freezetimen jälkeen; ankkurista luettuna kaikilla
-    kolmella on yhä ilmainen Glock.
+    The total of 15,350 would also match if the measurement point were right
+    but the inventory were read at the wrong tick -- and it is the inventory
+    that decides the armed count. The product owner named three weapons that
+    were bought only after freezetime; read at the anchor, all three players
+    still have the free Glock.
     """
     from demoparser2 import DemoParser as _Demoparser2
 
@@ -2159,7 +2220,7 @@ def test_inferno_round_six_players_hold_the_weapons_the_product_owner_saw() -> N
     for player, weapon in INFERNO_ROUND_6_WEAPONS.items():
         assert player in inventories, sorted(inventories)
         assert weapon in inventories[player], (
-            f"{player}: tuotteen omistaja näki {weapon!r}, demo antoi "
+            f"{player}: the product owner saw {weapon!r}, the demo gave "
             f"{inventories[player]}"
         )
 
@@ -2167,15 +2228,15 @@ def test_inferno_round_six_players_hold_the_weapons_the_product_owner_saw() -> N
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_no_purchase_is_lost_behind_the_death_cut(demo_name: str) -> None:
-    """Kuoleman katkaisu ei maksa yhtään ostosta -- todettuna, ei oletettuna.
+    """The death cut costs no purchase -- established, not assumed.
 
-    Tämä on ostoikkunan koko kompromissi yhtenä lukuna. Ikkuna on 20 s, mutta
-    kuolema katkaisee sen noin puolella kierroksista; jos joku ostaisi vielä
-    katkaisun jälkeen, mittaus menettäisi ostoksen. Mitattuna kaikista kuudesta
-    demosta niin ei käy kertaakaan.
+    This is the buy window's whole trade-off as one figure. The window is 20
+    s, but a death cuts it on about half the rounds; if anyone bought after
+    the cut, the measurement would lose a purchase. Measured over all six
+    demos, that never happens.
 
-    Katkaisujen määrää **ei** väitetä nollaksi: se on normaali polku eikä
-    vika. Väite koskee vain sen hintaa.
+    The number of cuts is **not** claimed to be zero: it is the normal path
+    and not a fault. The claim is only about its price.
     """
     adapter = real_parser()
     adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
@@ -2184,24 +2245,26 @@ def test_no_purchase_is_lost_behind_the_death_cut(demo_name: str) -> None:
     cuts = adapter.diagnostics.buy_window_cuts
     assert sum(missed for _, missed in cuts) == 0
     assert adapter.diagnostics.buy_window_ticks_without_players == 0
-    # Katkaisuja on, eli ikkuna todella rajautuu kuolemaan. Ilman tätä
-    # rivi menisi läpi myös silloin, jos kuolemia ei luettaisi lainkaan.
-    assert cuts, "yhtäkään ikkunaa ei katkaistu -- kuolemia ei ilmeisesti lueta"
+    # There are cuts, that is, the window really is bounded by a death.
+    # Without this the row would pass even if deaths were not read at all.
+    assert cuts, "no window was cut at all -- deaths are apparently not read"
 
 
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_the_measurement_point_stays_inside_its_round(demo_name: str) -> None:
-    """Mittauspiste on ankkurin jälkeen, ikkunan sisällä ja sama molemmilla.
+    """The measurement point is after the anchor, inside the window and the
+    same for both teams.
 
-    Kolme invarianttia, joista jokainen rikkoutuisi eri tavalla: mittauspiste
-    ennen ankkuria lukisi freezetimen sisältä, ikkunan lopun jälkeen se ei
-    enää olisi ostoaika, ja joukkuekohtainen piste tekisi kahden rivin
-    summista vertailukelvottomat.
+    Three invariants, each of which would break differently: a measurement
+    point before the anchor would read inside freezetime, one after the end of
+    the window would no longer be buy time, and a per-team point would make
+    the two rows' totals incomparable.
 
-    Neljäs raja -- kierroksen loppu -- on omassa testissään
-    :func:`test_the_measurement_never_reaches_the_next_round`, koska se vaatii
-    vertailun **seuraavaan** kierrokseen eikä ole luettavissa yhdeltä riviltä.
+    The fourth bound -- the end of the round -- has a test of its own,
+    :func:`test_the_measurement_never_reaches_the_next_round`, because it
+    requires a comparison with the **next** round and cannot be read off a
+    single row.
     """
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
@@ -2222,17 +2285,17 @@ def test_the_measurement_point_stays_inside_its_round(demo_name: str) -> None:
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_the_anchor_reading_is_what_it_was_before_the_window(demo_name: str) -> None:
-    """Ikkuna 0 toistaa Story 1.9:ää edeltävän mittauksen sellaisenaan.
+    """A window of 0 reproduces the pre-Story-1.9 measurement exactly.
 
-    Varustearvo luetaan nyt propista ``m_unCurrentEquipmentValue`` eikä
-    ``m_unFreezetimeEndEquipmentValue``sta -- jälkimmäinen ei päivity
-    freezetimen jälkeen, joten sillä koko korjaus jäisi näkymättömäksi.
-    Ankkurilla nämä kaksi ovat sama luku, ja juuri se tekee vaihdosta
-    turvallisen: ilman sitä propinvaihto olisi voinut siirtää jokaisen luvun
-    hiljaa.
+    The equipment value is now read from the prop
+    ``m_unCurrentEquipmentValue`` and not from
+    ``m_unFreezetimeEndEquipmentValue`` -- the latter does not update after
+    freezetime, so with it the whole fix would stay invisible. At the anchor
+    these two are the same number, and that is exactly what makes the switch
+    safe: without it the prop change could have moved every figure silently.
 
-    Vertailuarvot ovat kalibrointidokumentin ja vikaraportin lukuja, jotka on
-    mitattu vanhalla propilla.
+    The comparison values are figures from the calibration document and the
+    fault report, measured with the old prop.
     """
     parse_settings = _parse_settings()
     adapter = Demoparser2Adapter(
@@ -2251,8 +2314,8 @@ def test_the_anchor_reading_is_what_it_was_before_the_window(demo_name: str) -> 
 
     if demo_name != ANCIENT_DEM:
         return
-    # Ancientin kalibrointiluvut vanhalla mittauksella, dokumentista
-    # (kalibrointi-kierrostyypit.md, totuustaulu; $/pelaaja x 5).
+    # Ancient's calibration figures under the old measurement, from the
+    # document (kalibrointi-kierrostyypit.md, the truth table; $/player x 5).
     def equip(round_no: int, side: str) -> int:
         row = df.filter((pl.col("round_no") == round_no) & (pl.col("side") == side))
         assert row.height == 1, (round_no, side)
@@ -2266,18 +2329,18 @@ def test_the_anchor_reading_is_what_it_was_before_the_window(demo_name: str) -> 
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_the_round_start_equipment_is_the_same_at_both_ticks(demo_name: str) -> None:
-    """``m_unRoundStartEquipmentValue`` ei muutu ostoikkunan aikana.
+    """``m_unRoundStartEquipmentValue`` does not change during the buy window.
 
-    Ostettu summa on ``equip_buy_end - equip_round_start``, ja se on sääntö
-    S3:n koko perusta. Vähennettävä luetaan nyt myöhemmältä tickiltä kuin
-    ennen, ja **juuri tässä tarinassa osoittautui**, että toinen samannäköinen
-    kenttä (``m_unFreezetimeEndEquipmentValue``) ei käyttäydy odotetusti
-    myöhemmältä tickiltä luettuna. Sama oletus ei saa jäädä toisen kentän
-    kohdalla pelkän mittauksen varaan.
+    The amount bought is ``equip_buy_end - equip_round_start``, and that is
+    the whole foundation of rule S3. The subtrahend is now read at a later
+    tick than before, and **this very story showed** that another
+    similar-looking field (``m_unFreezetimeEndEquipmentValue``) does not
+    behave as expected when read at a later tick. The same assumption must not
+    be left resting on a single measurement for the other field.
 
-    Vertailu tehdään pelaajakohtaisesti molemmilta tickeiltä: jos kenttä
-    joskus alkaa elää kierroksen aikana, ostettu summa liukuisi hiljaa ja
-    S3 kääntäisi säästöjä ostoiksi.
+    The comparison is made per player at both ticks: if the field ever starts
+    moving during a round, the amount bought would drift silently and S3 would
+    turn saves into buys.
     """
     from demoparser2 import DemoParser as _Demoparser2
 
@@ -2295,7 +2358,7 @@ def test_the_round_start_equipment_is_the_same_at_both_ticks(demo_name: str) -> 
         if row["freeze_end_tick"] is not None and row["buy_end_tick"] is not None
     }
     moved = {(a, b) for a, b in pairs if a != b}
-    assert moved, "yksikään mittauspiste ei siirtynyt ankkurista"
+    assert moved, "not one measurement point moved away from the anchor"
 
     wanted = sorted({tick for pair in moved for tick in pair})
     with readable_demo(demo) as demo_path:
@@ -2310,10 +2373,10 @@ def test_the_round_start_equipment_is_the_same_at_both_ticks(demo_name: str) -> 
                 continue
             compared += 1
             assert row["equip_round_start"] == before, (
-                f"{demo_name}: pelaajan {row['steamid']} "
-                "round_start_equip_value muuttui ankkurin ja mittauspisteen "
-                f"välillä ({before} -> {row['equip_round_start']}). "
-                "Ostettu summa ei ole enää luotettava."
+                f"{demo_name}: player {row['steamid']}'s "
+                "round_start_equip_value changed between the anchor and the "
+                f"measurement point ({before} -> {row['equip_round_start']}). "
+                "The amount bought is no longer reliable."
             )
     assert compared >= 5 * len(moved), (compared, len(moved))
 
@@ -2321,13 +2384,14 @@ def test_the_round_start_equipment_is_the_same_at_both_ticks(demo_name: str) -> 
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_the_measurement_never_reaches_the_next_round(demo_name: str) -> None:
-    """Mittauspiste ei yllä seuraavan kierroksen ankkuriin.
+    """The measurement point does not reach the next round's anchor.
 
-    Kierroksen loppuun rajautuminen on kolmas raja mittauspisteen kaavassa,
-    eikä sitä ole tähän asti todettu oikealla demolla lainkaan -- feikissä
-    kierros on 39 s, joten 20 sekunnin ikkuna mahtuu aina sisään. Oikeassa
-    demossa kierros voi ratketa alle 20 sekunnissa, ja silloin rajaton ikkuna
-    lukisi seuraavan kierroksen talousarvot tämän kierroksen riville.
+    Bounding to the end of the round is the third bound in the measurement
+    point's formula, and until now it had never been established with a real
+    demo -- in the fake a round is 39 s, so a 20-second window always fits
+    inside. In a real demo a round can be decided in under 20 seconds, and an
+    unbounded window would then read the next round's economy values onto this
+    round's row.
     """
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
@@ -2346,26 +2410,26 @@ def test_the_measurement_never_reaches_the_next_round(demo_name: str) -> None:
 
     for index in range(len(anchors) - 1):
         assert measured[index] < anchors[index + 1], (
-            f"{demo_name}: kierroksen {per_round['round_no'][index]} "
-            f"mittauspiste {measured[index]} yltää seuraavan kierroksen "
-            f"ankkuriin {anchors[index + 1]}."
+            f"{demo_name}: round {per_round['round_no'][index]}'s "
+            f"measurement point {measured[index]} reaches the next round's "
+            f"anchor {anchors[index + 1]}."
         )
 
 
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_the_buy_window_reports_no_broken_measurement(demo_name: str) -> None:
-    """Mittauspisteen vikalaskurit ovat nollia koko aineistossa.
+    """The measurement point's fault counters are zero across the whole data.
 
-    Nämä neljä ovat **vikoja eivätkä havaintoja**: tyhjä ostotick, ankkurilta
-    kadonneet pelaajat, kokonaan tyhjäksi jäänyt joukkuerivi ja tarkistamatta
-    jäänyt katkaisu. Yksikään ei laukea kuudessa demossa, ja juuri siksi ne on
-    pinnattava: nollasta poikkeava arvo on merkki siitä, että jokin
-    mittauspisteen oletus on rikki.
+    These four are **faults and not observations**: an empty buy tick, players
+    lost since the anchor, a team row left entirely empty, and a cut that
+    could not be checked. Not one of them fires in the six demos, and that is
+    exactly why they have to be pinned: a non-zero value is a sign that some
+    assumption behind the measurement point is broken.
 
-    Palautukset ja niiden jättämä vanhentunut varustearvo **eivät** ole tässä:
-    ne ovat pelin käyttäytymistä eivätkä meidän vikojamme, ja niillä on omat
-    testinsä.
+    Refunds and the stale equipment value they leave behind are **not** here:
+    they are the game's behaviour and not faults of ours, and they have tests
+    of their own.
     """
     adapter = real_parser()
     adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
@@ -2383,14 +2447,14 @@ def test_the_buy_window_reports_no_broken_measurement(demo_name: str) -> None:
 
 @pytest.mark.demo
 def test_refunds_are_observed_and_stay_rare() -> None:
-    """Palautuksia esiintyy, ja niiden jättämä vanhentunut arvo on harvinaista.
+    """Refunds do occur, and the stale value they leave behind is rare.
 
-    Molemmat luvut ovat pelin käyttäytymistä eivätkä vikoja, mutta ne on
-    pinnattava kahdesta suunnasta. Nolla palautusta tarkoittaisi, ettei
-    tunnistus enää toimi -- ``cash_spent``in lasku on niiden ainoa
-    yksikäsitteinen merkki. Suuri määrä vanhentunutta arvoa taas tarkoittaisi,
-    ettei varustearvoon voi luottaa; mitattuna se on yksi pelaajarivi koko
-    aineistossa.
+    Both figures are the game's behaviour and not faults, but they have to be
+    pinned from two directions. Zero refunds would mean the detection has
+    stopped working -- a decrease in ``cash_spent`` is their only unambiguous
+    sign. A large amount of stale value, on the other hand, would mean the
+    equipment value cannot be trusted; measured, it is one player row across
+    the whole data set.
     """
     refunds = 0
     stale = 0
@@ -2401,23 +2465,23 @@ def test_refunds_are_observed_and_stay_rare() -> None:
         refunds += adapter.diagnostics.buy_window_refunds
         stale += adapter.diagnostics.buy_window_stale_equipment
 
-    assert refunds > 0, "palautuksia ei havaittu lainkaan -- tunnistus on rikki"
-    # 8 palautusta ja 1 vanhentunut arvo, mitattu 2026-08-29. Rajat ovat
-    # väljät, koska luvut ovat aineiston ominaisuus eivätkä sopimus; tiukka
-    # yhtäsuuruus kaatuisi heti kun aineistoon lisätään demo.
+    assert refunds > 0, "no refunds were observed at all -- the detection is broken"
+    # 8 refunds and 1 stale value, measured 2026-08-29. The bounds are loose,
+    # because the figures are a property of the data and not a contract; a
+    # strict equality would fail as soon as a demo is added to the data.
     assert refunds <= 20, refunds
     assert stale <= 3, stale
 
 
-# --- Kokoonpanotaulu oikeista demoista (Story 2.6) ------------------------------
+# --- The lineups table from real demos (Story 2.6) ------------------------------
 
-#: Liigademojen klaaninimet, mitattu 2026-08-30 suoraan demoista.
+#: The league demos' clan names, measured 2026-08-30 straight from the demos.
 #:
-#: Nämä eivät ole meidän koodimme tuotos: ne ovat pelin oma
-#: ``team_clan_name`` -kenttä jokaisen pelaajan ankkuririvillä. Testi lukee ne
-#: uudelleen, koska juuri nämä merkkijonot päätyvät raportin otsikkoon --
-#: uudelleennimeäminen demoparser2:ssa näkyisi muuten vasta valmiissa
-#: raportissa.
+#: These are not an output of our code: they are the game's own
+#: ``team_clan_name`` field on every player's anchor row. The test reads them
+#: again, because it is these very strings that end up in the report's
+#: heading -- a rename in demoparser2 would otherwise show only in the
+#: finished report.
 LEAGUE_CLANS: dict[str, tuple[str, str]] = {
     "Ancient_vs_kaljukostaja.dem": ("KALJUKOSTAJA", "MatureMayhem"),
     "Anubis_vs_ryhmarama.dem": ("MatureMayhem", "Ryhma Rama"),
@@ -2429,11 +2493,11 @@ LEAGUE_CLANS: dict[str, tuple[str, str]] = {
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", sorted(LEAGUE_CLANS))
 def test_real_demo_gives_ten_players_two_clans_five_each(demo_name: str) -> None:
-    """Kymmenen riviä, kaksi klaania, viisi pelaajaa kumpaankin.
+    """Ten rows, two clans, five players in each.
 
-    Vaihtopelaaja tekee poikkeuksen: jos joukkue vaihtoi pelaajaa kesken
-    kartan, rivimäärä on suurempi. Testidemoissa vaihto tapahtuu **karttojen
-    välissä** eikä niiden sisällä, joten jokainen niistä antaa tasan kymmenen.
+    A substitute is the exception: if a team substituted a player mid-map, the
+    row count is larger. In the test demos substitutions happen **between**
+    maps and not inside them, so every one of them gives exactly ten.
     """
     tables = real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
     lineups = tables.lineups
@@ -2451,18 +2515,18 @@ def test_real_demo_gives_ten_players_two_clans_five_each(demo_name: str) -> None
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", sorted(LEAGUE_CLANS))
 def test_every_player_has_exactly_one_clan_and_one_name(demo_name: str) -> None:
-    """Yksi klaani ja yksi nimi per SteamID -- myös puoliajan vaihdon yli.
+    """One clan and one name per SteamID -- across the half-time switch too.
 
-    Tämä on se mittaus, jonka takia klaani luetaan pelaajakohtaisesti eikä
-    puolen kautta. Puolen kautta luettuna ``team_num=2`` on 1. puoliajalla
-    toinen joukkue ja 2. puoliajalla toinen.
+    This is the measurement that made the clan be read per player rather than
+    through the side. Read through the side, ``team_num=2`` is one team in the
+    first half and the other in the second.
 
-    **Väite on raakoihin havaintoihin, ei valmiiseen tauluun.** Taulu on
-    kollapsoitu: ``_most_observed`` takaa yhden rivin ja yhden arvon per
-    pelaaja riippumatta siitä, montako klaania havaittiin, joten taulusta
-    luettu "yksi arvo per pelaaja" olisi väite koodin rakenteesta eikä
-    demosta. Ainoa paikka, jossa ero näkyy, on adapterin oma laskuri --
-    ja siksi sitä luetaan tässä.
+    **The claim is about the raw observations, not the finished table.** The
+    table is collapsed: ``_most_observed`` guarantees one row and one value
+    per player no matter how many clans were observed, so "one value per
+    player" read from the table would be a claim about the code's structure
+    and not about the demo. The only place the difference shows is the
+    adapter's own counter -- and that is why it is read here.
     """
     adapter = real_parser()
     adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
@@ -2475,10 +2539,10 @@ def test_every_player_has_exactly_one_clan_and_one_name(demo_name: str) -> None:
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", sorted(LEAGUE_CLANS))
 def test_the_lineup_key_matches_the_players_in_the_table(demo_name: str) -> None:
-    """Tunniste on tiiviste taulun omista SteamID:istä, ei mistään muusta.
+    """The id is a digest of the table's own SteamIDs and of nothing else.
 
-    Jos nämä erkanisivat, ``aggregate`` liittäisi rosterin joukkueeseen, jota
-    ``lineup_key`` ei tarkoita.
+    If these diverged, ``aggregate`` would join the roster to a team that
+    ``lineup_key`` does not mean.
     """
     tables = real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
     for key, group in tables.lineups.group_by("lineup_key"):
@@ -2492,11 +2556,12 @@ def test_the_lineup_key_matches_the_players_in_the_table(demo_name: str) -> None
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", sorted(LEAGUE_CLANS))
 def test_no_name_is_missing_from_a_league_demo(demo_name: str) -> None:
-    """Liigademoissa jokaisella pelaajalla on nimi ja klaani.
+    """In the league demos every player has a name and a clan.
 
-    Eri väite kuin ristiriidattomuus: tämä sanoo, että havainto ylipäätään
-    saatiin. Nullit ovat sallittu tulos sopimuksessa, mutta tässä aineistossa
-    niitä ei ole -- ja jos joskus on, se näkyy raportissa SteamID:nä.
+    A different claim from consistency: this one says the observation was made
+    at all. Nulls are a permitted result under the contract, but there are
+    none in this data -- and if there ever are, it shows in the report as a
+    SteamID.
     """
     tables = real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
     assert tables.lineups["clan_name"].null_count() == 0
@@ -2505,7 +2570,7 @@ def test_no_name_is_missing_from_a_league_demo(demo_name: str) -> None:
 
 @pytest.mark.demo
 def test_the_ticks_table_agrees_with_the_lineups_table() -> None:
-    """Sama kokoonpano molemmissa tauluissa; liitos ei saa mennä ristiin."""
+    """The same lineup in both tables; the join must not go crosswise."""
     tables = real_parser().parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
 
     from_ticks = set(
@@ -2514,22 +2579,21 @@ def test_the_ticks_table_agrees_with_the_lineups_table() -> None:
     from_lineups = set(
         tables.lineups.select("lineup_key", "player_id").iter_rows()
     )
-    # Kokoonpanotaulu on kartan totuus: näytepistetaulusta voi puuttua
-    # pelaaja,
-    # joka ei ehtinyt yhdellekään näytepisteelle, mutta yhtään ylimääräistä
-    # siinä ei saa olla.
+    # The lineups table is the map's truth: a player who did not make it to a
+    # single sample point may be missing from the sample point table, but
+    # there must not be a single extra one in it.
     assert from_ticks <= from_lineups
 
 
-# --- Kuolemat oikeasta demosta (Story 2.7) -------------------------------------
+# --- Deaths from a real demo (Story 2.7) ---------------------------------------
 
-#: Ampujattomat kuolemat demoittain, mitattu 2026-08-30 **adapterin
-#: tuotoksesta** (ennen kuin ``stages.parse`` pudottaa numeroimattomat
-#: kierrokset). Putoaminen ja pommi ovat aitoja tapauksia, mutta niiden määrä
-#: on pieni ja tunnettu: jos se hyppää, jokin muu on rikki.
+#: Attackerless deaths per demo, measured 2026-08-30 **from the adapter's
+#: output** (before ``stages.parse`` drops the unnumbered rounds). Falling and
+#: the bomb are genuine cases, but their number is small and known: if it
+#: jumps, something else is broken.
 #:
-#: Luvut ovat demokohtaisia eivätkä yhteissumma, koska yhteissumma säilyisi
-#: samana vaikka kaksi demoa vaihtaisi lukujaan keskenään.
+#: The figures are per demo and not a total, because a total would stay the
+#: same even if two demos swapped their figures.
 LEAGUE_DEATHS_WITHOUT_ATTACKER: dict[str, int] = {
     "Ancient_vs_kaljukostaja.dem": 1,
     "Anubis_vs_ryhmarama.dem": 0,
@@ -2540,7 +2604,7 @@ LEAGUE_DEATHS_WITHOUT_ATTACKER: dict[str, int] = {
 
 @lru_cache(maxsize=None)
 def _league_deaths(demo_name: str) -> tuple[pl.DataFrame, object]:
-    """Yhden liigademon kuolemataulu ja diagnostiikka, parsittu kerran."""
+    """One league demo's deaths table and diagnostics, parsed once."""
     adapter = real_parser()
     tables = adapter.parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
     return tables.deaths, adapter.diagnostics
@@ -2549,29 +2613,30 @@ def _league_deaths(demo_name: str) -> tuple[pl.DataFrame, object]:
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", sorted(LEAGUE_DEATHS_WITHOUT_ATTACKER))
 def test_real_demo_deaths_match_the_port_contract(demo_name: str) -> None:
-    """Sarakkeet ja tyypit tulevat oikeasta demosta, eivät vain feikistä."""
+    """The columns and types come from a real demo, not only from the fake."""
     deaths, _ = _league_deaths(demo_name)
 
     assert tuple(deaths.columns) == DEATHS_ADAPTER_COLUMNS
     for name in DEATHS_ADAPTER_COLUMNS:
         assert deaths.schema[name] == DEATHS[name], name
     assert not deaths.is_empty()
-    # Numeroinnin omistaa stages.parse; adapteri jättää sarakkeen tyhjäksi.
+    # The numbering belongs to stages.parse; the adapter leaves the column
+    # empty.
     assert deaths["round_no"].null_count() == deaths.height
 
 
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", sorted(LEAGUE_DEATHS_WITHOUT_ATTACKER))
 def test_every_victim_has_an_area_in_a_real_demo(demo_name: str) -> None:
-    """Uhrin alue on koko storyn väite, ja se on **luettava demosta**.
+    """The victim's area is the whole story's claim, and it must be **read
+    from the demo**.
 
-    ``DEATH_COLUMNS``-vartija tarkistaa sarakkeen olemassaolon eikä sisältöä.
-    Jos ``last_place_name`` palaisi tyhjänä merkkijonona, taulu olisi
-    skeemakelvollinen ja jokainen rivi alueeton -- eikä yksikään feikkitesti
-    huomaisi mitään, koska feikki tuottaa alueet itse.
+    The ``DEATH_COLUMNS`` guard checks that the column exists, not its
+    content. If ``last_place_name`` came back as an empty string, the table
+    would be schema-valid and every row would have no area -- and no fake test
+    would notice anything, because the fake produces the areas itself.
 
-    Mitattu 2026-08-30: 0 puuttuvaa uhrin aluetta 591 kirjoitetusta
-    kuolemasta.
+    Measured 2026-08-30: 0 missing victim areas out of 591 deaths written.
     """
     deaths, _ = _league_deaths(demo_name)
     assert deaths["victim_area"].null_count() == 0
@@ -2582,24 +2647,24 @@ def test_every_victim_has_an_area_in_a_real_demo(demo_name: str) -> None:
 def test_the_attacker_area_is_missing_only_when_the_attacker_is(
     demo_name: str,
 ) -> None:
-    """Alue ei katoa ampujalta -- ampuja katoaa.
+    """The area does not disappear from the attacker -- the attacker does.
 
-    Kaksi väitettä yhdessä: ampujattomia rivejä on täsmälleen mitattu määrä,
-    ja jokainen puuttuva ampujan alue on **niillä riveillä**. Jälkimmäinen on
-    se, joka erottaa rehellisen putoamisen rikkoutuneesta aluehavainnosta.
+    Two claims together: there are exactly as many attackerless rows as were
+    measured, and every missing attacker area is **on those rows**. The latter
+    is what separates an honest absence from a broken area observation.
     """
     deaths, _ = _league_deaths(demo_name)
 
     without_attacker = deaths.filter(pl.col("attacker_id").is_null())
     assert without_attacker.height == LEAGUE_DEATHS_WITHOUT_ATTACKER[demo_name]
 
-    # Ampuja tiedossa mutta alue tyhjä: nolla mitatussa aineistossa.
+    # Attacker known but area empty: zero in the measured data.
     unnamed = deaths.filter(
         pl.col("attacker_id").is_not_null() & pl.col("attacker_area").is_null()
     )
     assert unnamed.is_empty(), unnamed.head(3).to_dicts()
 
-    # Ampujaton rivi on kokonaan ampujaton, myös oikeassa demossa.
+    # An attackerless row is attackerless throughout, in a real demo too.
     for column in (
         "attacker_lineup_key",
         "attacker_side",
@@ -2616,12 +2681,12 @@ def test_the_attacker_area_is_missing_only_when_the_attacker_is(
 def test_no_death_is_dropped_for_a_missing_side_in_a_real_demo(
     demo_name: str,
 ) -> None:
-    """Puolen päättely ei saa hukata kuolemia oikeasta ottelusta.
+    """Side inference must not lose deaths from a real match.
 
-    Luku on adapterin oma laskuri eikä valmis taulu: pudotettu rivi ei ole
-    taulussa, joten sen puuttumista ei voi lukea sieltä. Nolla on odotusarvo,
-    ja nollasta poikkeava arvo tarkoittaisi että ``m_iTeamNum``-koodit tai
-    kokoonpanojen tunnistus ovat muuttuneet.
+    The figure is the adapter's own counter and not the finished table: a
+    dropped row is not in the table, so its absence cannot be read there. Zero
+    is the expected value, and a non-zero one would mean the ``m_iTeamNum``
+    codes or the lineup identification have changed.
     """
     _, diagnostics = _league_deaths(demo_name)
 
@@ -2634,11 +2699,11 @@ def test_no_death_is_dropped_for_a_missing_side_in_a_real_demo(
 
 @pytest.mark.demo
 def test_ancient_death_areas_are_real_callouts() -> None:
-    """Molemmat alueet ovat Ancientin omia calloutteja, eivät keksittyjä.
+    """Both areas are Ancient's own callouts, not invented ones.
 
-    Sama vartija kuin utilityn heittoalueilla. Ilman sitä
-    ``user_last_place_name`` voisi palata kokonaan eri kentästä -- vaikkapa
-    aseen nimenä -- ja taulu olisi silti kelvollinen.
+    The same guard as on utility's throw areas. Without it
+    ``user_last_place_name`` could come back from an entirely different field
+    -- as the weapon's name, say -- and the table would still be valid.
     """
     deaths, _ = _league_deaths(ANCIENT_DEM)
 
@@ -2650,7 +2715,7 @@ def test_ancient_death_areas_are_real_callouts() -> None:
 
 @pytest.mark.demo
 def test_ancient_deaths_carry_coordinates_for_every_actor_present() -> None:
-    """Koordinaatit ovat tallessa aina kun toimija on -- alueesta riippumatta."""
+    """The coordinates are kept whenever the actor is -- whatever the area."""
     deaths, _ = _league_deaths(ANCIENT_DEM)
 
     for axis in ("victim_x", "victim_y", "victim_z"):
@@ -2662,10 +2727,10 @@ def test_ancient_deaths_carry_coordinates_for_every_actor_present() -> None:
 
 @pytest.mark.demo
 def test_ancient_deaths_stay_inside_their_round() -> None:
-    """Kuolema kuuluu sille kierrokselle, jonka rajojen sisään se osuu.
+    """A death belongs to the round within whose boundaries it falls.
 
-    ``t_s`` on aika ankkurista, joten negatiivinen arvo tarkoittaisi kuolemaa
-    ennen freezetimen loppua -- eli väärää kierrosta.
+    ``t_s`` is the time from the anchor, so a negative value would mean a
+    death before the end of freezetime -- that is, the wrong round.
     """
     deaths, _ = _league_deaths(ANCIENT_DEM)
     assert deaths["t_s"].null_count() == 0
@@ -2674,12 +2739,12 @@ def test_ancient_deaths_stay_inside_their_round() -> None:
 
 @pytest.mark.demo
 def test_ancient_victim_side_agrees_with_the_ticks_table() -> None:
-    """Kuoleman puoli on sama kuin näytepistetaulun puoli samalla kierroksella.
+    """A death's side is the same as the sample point table's on that round.
 
-    Tämä on se ristiintarkistus, jota feikki ei voi tehdä: se rakentaa
-    molemmat taulut samasta kuvauksesta, joten ne eivät voi olla eri mieltä.
-    Oikeassa demossa ne luetaan eri lähteistä -- ``player_death``-tapahtumasta
-    ja ``parse_ticks``istä -- ja juuri siksi ne voisivat erota.
+    This is the cross-check the fake cannot make: it builds both tables from
+    the same map, so they cannot disagree. In a real demo they are read from
+    different sources -- the ``player_death`` event and ``parse_ticks`` -- and
+    that is exactly why they could differ.
     """
     adapter = real_parser()
     tables = adapter.parse_demo(require_demo(ANCIENT_DEM), SNAPSHOT_SECONDS)
@@ -2695,16 +2760,16 @@ def test_ancient_victim_side_agrees_with_the_ticks_table() -> None:
             continue
         checked += 1
         assert row["victim_lineup_key"] == expected, row
-    assert checked > 100, f"vain {checked} riviä vertailtavissa"
+    assert checked > 100, f"only {checked} rows available for comparison"
 
 
 @pytest.mark.demo
 def test_a_knife_round_really_does_produce_death_rows() -> None:
-    """Puukkokierroksen pudotus ei ole teoriaa: adapteri tuottaa ne rivit.
+    """Dropping the knife round is not theory: the adapter produces its rows.
 
-    Jos adapteri suodattaisi ne itse, ``stages.parse``in liitos ei tekisi
-    mitään eikä väite "sama mekanismi kuin muissa tauluissa" tarkoittaisi
-    mitään. Puukkokierros on liigademon ensimmäinen kierrosraja.
+    If the adapter filtered them itself, ``stages.parse``'s join would do
+    nothing and the claim "the same mechanism as in the other tables" would
+    mean nothing. The knife round is a league demo's first round boundary.
     """
     deaths, _ = _league_deaths(ANCIENT_DEM)
     first_round = deaths["round_raw"].min()
@@ -2713,29 +2778,30 @@ def test_a_knife_round_really_does_produce_death_rows() -> None:
     assert deaths.filter(pl.col("round_raw") == 1).height > 0
 
 
-# --- Panssarilaskuri oikeista demoista (Story 2.8) ------------------------------
+# --- The armour count from real demos (Story 2.8) -------------------------------
 
-#: Mittatikku 2026-08-30: MatureMayhemin panssari- ja kalustolaskurit niiltä
-#: kierroksilta, joista tuotteen omistajan käsin tehty analyysi puhuu.
+#: The yardstick of 2026-08-30: MatureMayhem's armour and armed counts on the
+#: rounds the product owner's hand-made analysis talks about.
 #:
-#: ``(demo, kierros, puoli) -> (panssaroituja, aseistettuja)``. Luvut mitattiin
-#: **ennen toteutusta** arkiston kierrostaulun ``buy_end_tick``-sarakkeelta eli
-#: samalta hetkeltä, jolta talousluvut jo luetaan -- ei arvatulta tickiltä.
+#: ``(demo, round, side) -> (armoured, armed)``. The figures were measured
+#: **before the implementation** from the archive's rounds table at the
+#: ``buy_end_tick`` column, that is, at the same moment the economy figures
+#: are already read at -- not at a guessed tick.
 #:
-#: **Kiinnike kattaa väitteen kokonaan.** Dokumentaatio sanoo kolmessa paikassa
-#: "neljä demoa, kaikki kahdeksan pistoolikierrosta", joten kaikki kahdeksan
-#: ovat tässä -- kaksi per demo (kierrokset 1 ja 13). Ilman niitä väite
-#: nojaisi mittaukseen, jota mikään ei aja uudelleen.
+#: **The fixture covers the claim completely.** The documentation says in
+#: three places "four demos, all eight pistol rounds", so all eight are here
+#: -- two per demo (rounds 1 and 13). Without them the claim would rest on a
+#: measurement nothing runs again.
 #:
-#: Kaksi riviä ovat suoria osumia analyysiin: Nuken T-pistoolista tuotteen
-#: omistaja kirjoitti *"5 kevlaria"* (mitattu 5/5) ja Ancientin CT-osuudesta
-#: *"Kitit ja duelit takaboksille piiloon (ei kevuja)"* (mitattu 1/5).
-#: Kumpaakaan ei voi lukea aseistettujen laskurista, joka on 0 jokaisella
-#: kahdeksalla pistoolikierroksella.
+#: Two rows are direct hits on the analysis: about Nuke's T pistol round the
+#: product owner wrote *"5 kevlars"* (measured 5/5) and about Ancient's CT
+#: half *"Kits and duals hidden in the back box (no kevs)"* (measured 1/5).
+#: Neither can be read from the armed count, which is 0 on all eight pistol
+#: rounds.
 #:
-#: Kolme viimeistä riviä ovat eco ja force: siellä laskurit ovat lähellä
-#: toisiaan, ja ne ovat mukana siksi, ettei testi läpäisisi toteutusta, joka
-#: tuottaa eron aina.
+#: The last three rows are an eco and a force: there the counts are close to
+#: each other, and they are included so that the test does not pass an
+#: implementation that always produces a difference.
 ARMOR_TRUTH: dict[tuple[str, int, str], tuple[int, int]] = {
     ("Nuke_vs_imuaijat.dem", 1, "CT"): (4, 0),
     ("Nuke_vs_imuaijat.dem", 13, "T"): (5, 0),
@@ -2750,20 +2816,22 @@ ARMOR_TRUTH: dict[tuple[str, int, str], tuple[int, int]] = {
     ("Ancient_vs_kaljukostaja.dem", 14, "T"): (5, 5),
 }
 
-#: Pistoolikierrokset MR12:ssa. Luettelona, jotta väite "kaikki kahdeksan" on
-#: laskettavissa kiinnikkeestä eikä kirjoitettu käsin.
+#: The pistol rounds in MR12. As a list, so that the claim "all eight" can be
+#: counted from the fixture rather than written by hand.
 PISTOL_ROUNDS: tuple[int, ...] = (1, 13)
 
-#: Mitattu **vastaesimerkki** väitteelle "pistoolikierroksella aseistettuja on
-#: aina 0". Vastustaja (Ryhmä Rämä) Anubiksen kierroksella 13: panssaroituja 3,
-#: aseistettuja 1. 800 dollarilla ei osteta sekä kevlaria että parannettua
-#: asetta, mutta **poimittu ase** riittää aseistamaan -- luku on siis rahan
-#: seuraus eikä sääntö, ja dokumentaatio sanoo "käytännössä" eikä "aina".
+#: A measured **counter-example** to the claim "on a pistol round the armed
+#: count is always 0". The opponent (Ryhma Rama) on Anubis round 13: 3
+#: armoured, 1 armed. $800 does not buy both kevlar and an upgraded weapon,
+#: but **a picked-up weapon** is enough to arm a player -- the figure is
+#: therefore a consequence of the money and not a rule, and the documentation
+#: says "in practice" and not "always".
 ARMED_ON_A_PISTOL_ROUND = ("Anubis_vs_ryhmarama.dem", 13, "CT", (3, 1))
 
-#: Joukkue, jonka riveistä mittatikku puhuu. Rivit tunnistetaan klaaninimestä
-#: eikä kokoonpanotunnisteesta: tunniste on hash pelaajajoukosta ja muuttuisi
-#: vaihtopelaajasta, jolloin testi kaatuisi väärästä syystä.
+#: The team whose rows the yardstick is about. The rows are identified by the
+#: clan name and not by the lineup id: the id is a hash of the set of players
+#: and would change with a substitute, and the test would then fail for the
+#: wrong reason.
 ARMOR_TRUTH_TEAM = "MatureMayhem"
 
 
@@ -2772,12 +2840,14 @@ ARMOR_TRUTH_TEAM = "MatureMayhem"
     "demo_name", sorted({demo for demo, _, _ in ARMOR_TRUTH})
 )
 def test_the_armor_counter_matches_the_measured_truth(demo_name: str) -> None:
-    """Mitatut luvut demosta, ei muistista -- ja molemmat laskurit rinnakkain.
+    """The measured figures from the demo, not from memory -- and both counts
+    side by side.
 
-    Neljä pistoolikierrosta ovat mukana siksi, että niillä laskurit **eroavat**
-    (panssaria on, aseita ei), ja kolme muuta siksi, että niillä ne ovat lähes
-    samat. Pelkkä ero tai pelkkä yhtäläisyys menisi läpi myös väärällä
-    toteutuksella: ensimmäisen läpäisisi vakio, jälkimmäisen kopioitu sarake.
+    The four pistol rounds are included because on them the counts **differ**
+    (there is armour, there are no weapons), and the other three because on
+    them they are nearly the same. Difference alone or sameness alone would
+    pass a wrong implementation too: the first would be passed by a constant,
+    the second by a copied column.
     """
     tables = real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS)
     ours = {
@@ -2785,7 +2855,7 @@ def test_the_armor_counter_matches_the_measured_truth(demo_name: str) -> None:
         for row in tables.lineups.iter_rows(named=True)
         if row["clan_name"] == ARMOR_TRUTH_TEAM
     }
-    assert ours, f"{ARMOR_TRUTH_TEAM} ei ole demon kokoonpanotaulussa"
+    assert ours, f"{ARMOR_TRUTH_TEAM} is not in the demo's lineups table"
 
     df = mark_played_rounds(tables.rounds).filter(pl.col("round_no").is_not_null())
     for (demo, round_no, side), expected in ARMOR_TRUTH.items():
@@ -2804,33 +2874,35 @@ def test_the_armor_counter_matches_the_measured_truth(demo_name: str) -> None:
 
 
 def test_the_armor_fixture_covers_the_claim_the_docs_make() -> None:
-    """Kiinnike kattaa väitteen "neljä demoa, kaikki kahdeksan pistoolia".
+    """The fixture covers the claim "four demos, all eight pistol rounds".
 
-    Ei tarvitse demoja: tämä lukee kiinnikkeen eikä aineistoa. Ilman sitä
-    dokumentaation luku ja regressiotestin kattavuus voisivat erkaantua --
-    ja juuri niin oli, kun kiinnike pinnasi kaksi demoa ja neljä kierrosta.
+    No demos needed: this reads the fixture and not the data. Without it the
+    documentation's figure and the regression test's coverage could diverge --
+    and that is exactly what had happened when the fixture pinned two demos
+    and four rounds.
     """
     pistols = [key for key in ARMOR_TRUTH if key[1] in PISTOL_ROUNDS]
     assert len({demo for demo, _, _ in pistols}) == 4
     assert len(pistols) == 8
-    # Ja väite "aseistettuja 0 kaikilla kahdeksalla" on kiinnikkeessä.
+    # And the claim "armed 0 on all eight" is in the fixture.
     assert all(ARMOR_TRUTH[key][1] == 0 for key in pistols)
 
 
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", ALL_DEMOS)
 def test_the_armored_count_stays_within_its_divisor(demo_name: str) -> None:
-    """``0 <= players_armored_buy_end <= players_buy_end`` joka rivillä.
+    """``0 <= players_armored_buy_end <= players_buy_end`` on every row.
 
-    Ja lisäksi: aseistettu on **osajoukko** panssaroiduista, koska aseistetun
-    ehto sisältää panssarin. Rivi, jolla aseistettuja on enemmän, tarkoittaisi
-    että laskurit lukevat eri pelaajajoukkoa tai eri tickiä.
+    And in addition: the armed are a **subset** of the armoured, because the
+    armed condition includes armour. A row with more armed players would mean
+    the counts are reading a different set of players or a different tick.
 
-    **Sarakkeiden eroa ei vaadita.** Demo, jossa panssarin ostanut osti aina
-    myös aseen, tuottaa laillisesti identtiset sarakkeet -- eroavuusväite
-    kaatuisi siitä oikeasta aineistosta. Se, että laskurit ovat eri
-    havaintoja, todennetaan :data:`ARMOR_TRUTH`in pistoolikierroksilla ja
-    synteettisillä testeillä, joissa asetelma on valittu eikä satunnainen.
+    **No difference between the columns is required.** A demo in which
+    everyone who bought armour also bought a weapon legitimately produces
+    identical columns -- a difference claim would fail on that real data. That
+    the counts are different observations is established by
+    :data:`ARMOR_TRUTH`'s pistol rounds and by synthetic tests where the setup
+    is chosen rather than incidental.
     """
     df = mark_played_rounds(
         real_parser().parse_demo(require_demo(demo_name), SNAPSHOT_SECONDS).rounds
@@ -2848,19 +2920,20 @@ def test_the_armored_count_stays_within_its_divisor(demo_name: str) -> None:
         pl.col(ARMED_COLUMN) <= pl.col(ARMORED_COLUMN)
     ).to_series().all()
 
-    # Sääntö erottaa oikeasti: yksi ainoa arvo koko taulussa tarkoittaisi,
-    # ettei se pure aineistoon lainkaan.
+    # The rule really does discriminate: a single value across the whole table
+    # would mean it does not bite on the data at all.
     assert observed[ARMORED_COLUMN].n_unique() > 1
 
 
 @pytest.mark.demo
 def test_a_pistol_round_can_have_an_armed_player_after_all() -> None:
-    """Mitattu vastaesimerkki: "aina 0" olisi väärä sääntö.
+    """A measured counter-example: "always 0" would be the wrong rule.
 
-    800 dollarilla ei osteta sekä kevlaria (650) että parannettua asetta,
-    joten aseistettuja on pistoolikierroksella **tyypillisesti** 0 -- mutta
-    poimittu ase riittää aseistamaan. Ilman tätä testiä dokumentaation
-    varovainen muotoilu näyttäisi turhalta ja joku palauttaisi sanan "aina".
+    $800 does not buy both kevlar (650) and an upgraded weapon, so on a pistol
+    round the armed count is **typically** 0 -- but a picked-up weapon is
+    enough to arm a player. Without this test the documentation's careful
+    wording would look pointless and somebody would put the word "always"
+    back.
     """
     demo_name, round_no, side, expected = ARMED_ON_A_PISTOL_ROUND
     df = mark_played_rounds(
@@ -2874,26 +2947,26 @@ def test_a_pistol_round_can_have_an_armed_player_after_all() -> None:
     assert observed[ARMED_COLUMN] > 0
 
 
-# --- Ottelutaulu: kartan nimi oikeasta demosta (Story 2.11) -------------------
+# --- The match table: the map name from a real demo (Story 2.11) --------------
 
 
-#: Kartan nimi demon otsikossa, mitattu 2026-08-31
-#: (``demoparser2.DemoParser.parse_header()``, pakatut ``readable_demo``in
-#: kautta). Taulukko on **regressiotesti eikä muistiinpano**: sama kuvio kuin
-#: :data:`ARMED_TRUTH`illa ja :data:`DEMO_AREA_COVERAGE`illa.
+#: The map's name in the demo's header, measured 2026-08-31
+#: (``demoparser2.DemoParser.parse_header()``, compressed ones through
+#: ``readable_demo``). The table is a **regression test and not a note**: the
+#: same pattern as :data:`ARMED_TRUTH` and :data:`DEMO_AREA_COVERAGE`.
 #:
-#: Kaksi väitettä kerrallaan. Ensimmäinen: nimi löytyy jokaiselta demolta,
-#: eli otsikko ei ole valinnainen kenttä tässä aineistossa. Toinen: nimi on
-#: **täsmälleen** karttapoolin kirjoitusasu (``de_ancient``, ei ``Ancient``
-#: eikä ``de_ancient_v2``), joten ``aggregate``n ei tarvitse normalisoida
-#: haaran nimeä -- ja juuri se väite on koko tarinan perusta. Jos jokin demo
-#: antaisi poolin ulkopuolisen kirjoitusasun, kartta jakautuisi kahdeksi
-#: haaraksi ilman että mikään olisi rikki.
+#: Two claims at once. First: a name is found on every demo, that is, the
+#: header is not an optional field in this data. Second: the name is
+#: **exactly** the map pool's spelling (``de_ancient``, not ``Ancient`` and
+#: not ``de_ancient_v2``), so ``aggregate`` does not need to normalise the
+#: branch's name -- and that claim is the whole story's foundation. If some
+#: demo gave a spelling outside the pool, the map would split into two
+#: branches without anything being broken.
 #:
-#: ``PAWNLESS_DEMO`` on mukana, vaikka se ei ole :data:`ALL_DEMOS`issa: se on
-#: arkiston demo, sen otsikko mitattiin muiden mukana, eikä sen poissaolo
-#: tästä taulukosta tarkoittaisi mitään muuta kuin että väite kattaa
-#: vähemmän.
+#: ``PAWNLESS_DEMO`` is included even though it is not in :data:`ALL_DEMOS`:
+#: it is an archive demo, its header was measured along with the others, and
+#: its absence from this table would mean nothing except that the claim covers
+#: less.
 DEMO_HEADER_MAP_NAMES: dict[str, str] = {
     ANCIENT_DEM: "de_ancient",
     NUKE_ZST: "de_nuke",
@@ -2906,12 +2979,12 @@ DEMO_HEADER_MAP_NAMES: dict[str, str] = {
 
 
 def test_the_map_name_table_covers_every_demo() -> None:
-    """Taulukon on katettava koko aineisto, ei osaa siitä.
+    """The table has to cover the whole data set, not part of it.
 
-    Sama vartija kuin :func:`test_the_coverage_table_covers_every_demo`illa:
-    ilman sitä uusi demo lisättäisiin :data:`ALL_DEMOS`iin mutta ei tänne, ja
-    sen otsikko jäisi mittaamatta. Ei ``demo``-merkintää: tämä on luettelon
-    vertailu eikä vaadi demoja.
+    The same guard as :func:`test_the_coverage_table_covers_every_demo`:
+    without it a new demo would be added to :data:`ALL_DEMOS` but not here,
+    and its header would go unmeasured. No ``demo`` marker: this compares two
+    lists and needs no demos.
     """
     assert set(DEMO_HEADER_MAP_NAMES) == set(ALL_DEMOS) | {PAWNLESS_DEMO}
 
@@ -2919,19 +2992,20 @@ def test_the_map_name_table_covers_every_demo() -> None:
 @pytest.mark.demo
 @pytest.mark.parametrize("demo_name", sorted(DEMO_HEADER_MAP_NAMES))
 def test_every_demo_header_names_its_map_in_pool_spelling(demo_name: str) -> None:
-    """Jokaisen demon otsikko nimeää karttansa poolin kirjoitusasussa.
+    """Every demo's header names its map in the pool's spelling.
 
-    Väite on aineistosta eikä pelistä: se ei vaadi, että jokaisessa CS2-demossa
-    on ``map_name``, vaan että sitä on jokaisessa siinä aineistossa, jota
-    vasten tuote arvioidaan. Juuri se ero on syy sille, että kartan nimi
-    luetaan havaintona eikä päätellä tiedostonimestä.
+    The claim is about the data and not about the game: it does not require
+    every CS2 demo to have a ``map_name``, only that every demo in the data
+    the product is judged against has one. That difference is exactly why the
+    map name is read as an observation rather than inferred from the file
+    name.
     """
     tables, _ = parsed_demo(demo_name)
     match = tables.match
 
     assert tuple(match.columns) == MATCH_ADAPTER_COLUMNS
     assert match.schema["map_name"] == MATCH["map_name"]
-    assert match.height == 1, "ottelutaulussa on yksi rivi per demo"
+    assert match.height == 1, "the match table has one row per demo"
     assert match["map_name"].to_list() == [DEMO_HEADER_MAP_NAMES[demo_name]]
 
 
@@ -2940,16 +3014,18 @@ def test_every_demo_header_names_its_map_in_pool_spelling(demo_name: str) -> Non
 def test_read_map_name_agrees_with_the_full_parse_on_real_demos(
     demo_name: str,
 ) -> None:
-    """Portin uusi operaatio (Story 3.6) nakee saman kartan kuin parsinta.
+    """The port's new operation (Story 3.6) sees the same map as the parse.
 
-    Sama vaatimus oikealla aineistolla kuin logiikkatesteissa feikilla: jos
-    tuonti ja parsinta voisivat nahda demon kartasta eri nimen, tuonnin
-    ristiintarkistus koskisi eri havaintoa kuin se, joka lopulta paatyy
-    ottelutauluun. Taulukko :data:`DEMO_HEADER_MAP_NAMES` on molempien
-    yhteinen oraakkeli, joten kumpikaan ei voi ajautua yksin.
+    The same requirement over real data as in the logic tests over the fake:
+    if the import and the parse could see a different name for a demo's map,
+    the import's cross-check would be about a different observation from the
+    one that ends up in the match table. The table
+    :data:`DEMO_HEADER_MAP_NAMES` is the shared oracle for both, so neither
+    can drift on its own.
 
-    Testi on **lukeva**: se ei kirjoita arkistoon mitaan eika tuo yhtaan
-    demoa. Pakattu demo puretaan koneen temp-hakemistoon ja poistetaan.
+    The test is **read-only**: it writes nothing into the archive and imports
+    no demo. A compressed demo is decompressed into the machine's temp
+    directory and deleted.
     """
     observed = real_parser().read_map_name(require_demo(demo_name))
 
@@ -2958,13 +3034,13 @@ def test_read_map_name_agrees_with_the_full_parse_on_real_demos(
 
 @pytest.mark.demo
 def test_the_faceit_identifier_carries_no_map_name(ancient_tables) -> None:
-    """Sama demo, kaksi lähdettä: tunniste ei tiedä karttaa, otsikko tietää.
+    """The same demo, two sources: the id does not know the map, the header does.
 
-    Tämä on koko tarinan syy yhtenä väitteenä. Demon tunniste on
-    ``1-a52ebff2-...-1-1``, josta karttapooli ei tunnista mitään -- ja
-    otsikko sanoo ``de_ancient``. Ilman otsikkoa tämä demo jää omaksi
-    karttahaarakseen tunnisteensa nimellä eikä yhdisty toiseen saman kartan
-    demoon.
+    This is the whole story's reason as a single claim. The demo's id is
+    ``1-a52ebff2-...-1-1``, from which the map pool recognises nothing -- and
+    the header says ``de_ancient``. Without the header this demo is left as a
+    map branch of its own under its id's name and does not join up with
+    another demo of the same map.
     """
     from pappascout.domain.aggregate import map_name_for
     from test_aggregate import MAP_POOL

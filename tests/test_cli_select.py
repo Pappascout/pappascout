@@ -264,4 +264,4 @@ def test_a_bad_threshold_is_a_settings_error_not_a_program_error(
         main()
 
     assert exit_info.value.code == EXIT_KNOWN_ERROR
-    assert "settings.tomlissa" in capsys.readouterr().err
+    assert "settings.toml" in capsys.readouterr().err

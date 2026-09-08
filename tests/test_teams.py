@@ -1,18 +1,20 @@
-"""``domain.teams`` -- nimihaun ja vakirosterin testit (Story 3.2).
+"""``domain.teams`` -- tests for the name lookup and the standing roster
+(Story 3.2).
 
-**Oikeat nimet, ei keksittyjä.** Divisioonan 12 joukkuetta ja niiden mitatut
-rosterikoot ovat ``mittaus-faceit-aineisto.md``in luvuista 3 ja 4, ja ne on
-kirjoitettu tänne sellaisinaan. Keksityllä joukkueluettelolla nimihaun
-monitulkintaisuus olisi teoreettinen tapaus, jonka voisi vahingossa tehdä
-helpoksi; oikeilla nimillä se on se, mitä käyttäjä oikeasti kirjoittaa.
+**Real names, not invented ones.** The division's 12 teams and their measured
+roster sizes come from sections 3 and 4 of ``mittaus-faceit-aineisto.md``, and
+they are written here as they stand. With an invented list of teams the
+ambiguity of the name lookup would be a theoretical case that one could
+accidentally make easy; with the real names it is what the user actually
+types.
 
-Rcave Veteransin neljä SteamID64:ää ovat mitattuja (luku 2, leikkaus arkiston
-``lineups.parquet``in kanssa). Loput on **rakennettu** juoksevasta luvusta --
-ne ovat oikean muotoisia mutteivät oikeita tilejä, ja se sanotaan tässä ääneen,
-jottei niitä myöhemmin luulisi mittaukseksi.
+Rcave Veterans' four SteamID64s are measured (section 2, the intersection with
+the archive's ``lineups.parquet``). The rest are **constructed** from a running
+number -- they are of the right shape but are not real accounts, and that is
+said here out loud, so that nobody later takes them for a measurement.
 
-Yksikään testi ei käy verkossa eikä levyllä: moduuli on puhdas, ja havainnot
-rakennetaan käsin.
+Not one test goes on the network or to the disk: the module is pure, and the
+observations are built by hand.
 """
 
 from __future__ import annotations
@@ -33,7 +35,8 @@ from pappascout.domain.teams import (
     is_steam_id64,
 )
 
-#: Divisioonan joukkueet ja niiden **mitatut** vakirosterikoot (luku 3).
+#: The division's teams and their **measured** standing roster sizes
+#: (section 3).
 DIVISION: dict[str, int] = {
     "popsiCS": 9,
     "JYSAEYTTAEJAET": 8,
@@ -49,7 +52,7 @@ DIVISION: dict[str, int] = {
     "Tankkiluola vilttiketju": 6,
 }
 
-#: Mitatut nimimerkit kahdelta joukkueelta (luku 3).
+#: The measured nicknames of two teams (section 3).
 RCAVE = (
     "HCNoRage",
     "Kronnennn",
@@ -70,9 +73,10 @@ POTKU = (
     "wormi27z",
 )
 
-#: Mitatut SteamID64:t: nämä neljä löytyivät sekä FACEITista että arkiston
-#: demosta ``ANCIENT_vs_RCAVE_VETERANS`` (luku 2). Koordinaattorin live-ajossa
-#: leikkaus oli lopulta **5**, kun varapelaajat luettiin mukaan.
+#: The measured SteamID64s: these four were found both in FACEIT and in the
+#: archive's demo ``ANCIENT_vs_RCAVE_VETERANS`` (section 2). In the
+#: coordinator's live run the intersection was in the end **5**, once the
+#: substitutes were counted in.
 MEASURED_RCAVE_IDS = {
     "SSStttNNN": "76561197977479426",
     "pornopertti": "76561197985923425",
@@ -80,18 +84,18 @@ MEASURED_RCAVE_IDS = {
     "bobb_y": "76561198062941501",
 }
 
-#: Round robin, 12 joukkuetta: 11 ottelua per joukkue.
+#: Round robin, 12 teams: 11 matches per team.
 MATCHES_PER_TEAM = 11
 
-#: Kynnys, jolla kaksi lähdetunnistetta ovat sama joukkue
-#: (``[thresholds].team_identity_min_common``, oletus 3).
+#: The threshold at which two source ids are the same team
+#: (``[thresholds].team_identity_min_common``, default 3).
 MIN_COMMON = 3
 
 KICKOFF = datetime(2026, 8, 3, 18, 0, tzinfo=UTC)
 
 
 def steam_id(number: int) -> str:
-    """Rakennettu mutta oikean muotoinen SteamID64."""
+    """A constructed but correctly shaped SteamID64."""
     return str(STEAM_ID64_BASE + number)
 
 
@@ -118,12 +122,12 @@ def members(team_name: str, size: int, offset: int) -> tuple[RosterMember, ...]:
 def division_observations(
     played: dict[str, int] | None = None,
 ) -> list[TeamObservation]:
-    """Divisioonan havainnot: 12 joukkuetta, 11 ottelua kummallekin.
+    """The division's observations: 12 teams, 11 matches for each.
 
-    Vakirosteri **hajautetaan otteluiden kesken**: jokaisessa ottelussa on viisi
-    aloittajaa ja loput vaihtopelaajina, ja aloittajajoukko kiertää. Näin
-    yhdenkään ottelun rivi ei yksin sisällä koko rosteria -- eli testi mittaa
-    yhdistettä eikä viimeisintä ottelua.
+    The standing roster is **spread across the matches**: every match has five
+    starters and the rest as substitutes, and the set of starters rotates.
+    This way no single match's row holds the whole roster on its own -- that
+    is, the test measures the union rather than the latest match.
     """
     played = played or {}
     observations: list[TeamObservation] = []
@@ -149,13 +153,13 @@ def division_observations(
 
 @pytest.fixture
 def division() -> tuple[Team, ...]:
-    """Divisioona, jossa PotkukelkkaPeek on pelannut 1 ottelun 11:stä."""
+    """The division, in which PotkukelkkaPeek has played 1 match out of 11."""
     return build_teams(
         division_observations(played={"PotkukelkkaPeek": 1}), min_common=MIN_COMMON
     )
 
 
-# -- SteamID64 on rosterin ainoa tunniste -----------------------------------
+# -- The SteamID64 is the roster's only id -----------------------------------
 
 
 @pytest.mark.parametrize(
@@ -165,12 +169,14 @@ def division() -> tuple[Team, ...]:
         ("76561198062941501", True),
         (str(STEAM_ID64_BASE), True),
         (str(STEAM_ID64_MAX), True),
-        # FACEITin oma player_id on UUID eikä esiinny demoissa lainkaan.
+        # FACEIT's own player_id is a UUID and does not occur in the demos at
+        # all.
         ("f56dd02a-6107-48e2-abfb-75e7ec7ebcb2", False),
-        # Oikea pituus, mutta pienempi kuin pienin mahdollinen SteamID64.
+        # The right length, but smaller than the smallest possible SteamID64.
         ("12345678901234567", False),
-        # Oikea pituus ja suurempi kuin alaraja, mutta suurempi kuin yhdenkään
-        # olemassa olevan tilin tunniste. Ilman ylärajaa tämä kelpaisi.
+        # The right length and larger than the lower bound, but larger than
+        # the id of any account that exists. Without the upper bound this
+        # would pass.
         ("99999999999999999", False),
         (str(STEAM_ID64_MAX + 1), False),
         ("7656119797747942", False),
@@ -187,16 +193,19 @@ def test_only_steam_id64_shaped_values_are_identifiers(
 
 
 def test_the_upper_bound_is_the_largest_possible_account_id() -> None:
-    """Yläraja ei ole arvattu: se on tilitunnuksen 32-bittinen katto."""
+    """The upper bound is not a guess: it is the account number's 32-bit
+    ceiling."""
     assert STEAM_ID64_MAX == STEAM_ID64_BASE + 0xFFFFFFFF
     assert len(str(STEAM_ID64_MAX)) == 17
 
 
 def test_a_roster_member_without_a_steam_id_cannot_exist() -> None:
-    """Tunniste on avain: väärän muotoinen ei liittyisi demoihin vaan katoaisi.
+    """The id is the key: a wrongly shaped one would not join to the demos but
+    would vanish.
 
-    Virhe tulee heti rakennettaessa eikä vasta liitoksessa, jossa se näyttäisi
-    tyhjältä leikkaukselta -- eli havainnolta eikä virheeltä.
+    The error comes at once when the object is built and not only in the join,
+    where it would look like an empty intersection -- that is, like an
+    observation rather than an error.
     """
     with pytest.raises(ValueError, match="SteamID64"):
         RosterMember(game_player_id="f56dd02a-6107-48e2-abfb-75e7ec7ebcb2")
@@ -205,20 +214,20 @@ def test_a_roster_member_without_a_steam_id_cannot_exist() -> None:
 def test_every_identifier_in_every_roster_is_steam_id64_shaped(
     division: tuple[Team, ...],
 ) -> None:
-    """Hyväksymiskriteeri: jokainen tunniste on SteamID64-muotoinen."""
+    """The acceptance criterion: every id is in SteamID64 form."""
     for team in division:
         assert team.player_ids, team.team_key
         assert all(is_steam_id64(pid) for pid in team.player_ids), team.team_key
 
 
-# -- Vakirosteri on yhdiste -------------------------------------------------
+# -- The standing roster is a union ------------------------------------------
 
 
 def test_the_standing_roster_is_the_union_not_the_latest_match() -> None:
-    """I/O-matriisi: rosteri vaihtelee otteluiden välillä.
+    """The I/O matrix: the roster varies between matches.
 
-    Kolme ottelua, joissa jokaisessa viisi aloittajaa mutta eri viisi. Viimeisin
-    ottelu antaisi viisi pelaajaa; yhdiste antaa seitsemän.
+    Three matches, each with five starters but a different five. The latest
+    match would give five players; the union gives seven.
     """
     roster = members("Rcave Veterans", 7, offset=0)
     observations = [
@@ -239,12 +248,13 @@ def test_the_standing_roster_is_the_union_not_the_latest_match() -> None:
 
 
 def test_substitutes_are_part_of_the_standing_roster() -> None:
-    """Mitattu: ilman ``substitutes``ia rosteri aliarvioi järjestelmällisesti.
+    """Measured: without ``substitutes`` the roster underestimates
+    systematically.
 
-    ``Lindberq_`` on arkiston demossa muttei kertaakaan ``roster``issa, joten
-    pelkkä aloittajalista jättäisi hänet pois -- ja rosterikynnys (Story 3.3)
-    laskisi siksi joka kerta yhden liian vähän. Koordinaattorin live-ajossa
-    leikkaus oli varapelaajien kanssa 5/5 eikä 4/5.
+    ``Lindberq_`` is in a demo in the archive but not once in ``roster``, so
+    the list of starters alone would leave him out -- and the roster threshold
+    (Story 3.3) would therefore be one short every time. In the coordinator's
+    live run the intersection with the substitutes was 5/5 and not 4/5.
     """
     roster = members("Rcave Veterans", 7, offset=0)
     starters = tuple(m for m in roster if m.nickname != "Lindberq_")[:5]
@@ -268,7 +278,7 @@ def test_substitutes_are_part_of_the_standing_roster() -> None:
 
 
 def test_a_missing_substitutes_list_is_not_an_error() -> None:
-    """I/O-matriisi: ``substitutes`` puuttuu tai on tyhjä."""
+    """The I/O matrix: ``substitutes`` is missing or empty."""
     roster = members("KASIKAASU", 5, offset=0)
 
     (team,) = build_teams(
@@ -290,11 +300,11 @@ def test_a_missing_substitutes_list_is_not_an_error() -> None:
 def test_the_number_of_played_matches_does_not_change_the_roster(
     division: tuple[Team, ...],
 ) -> None:
-    """Hyväksymiskriteeri: PotkukelkkaPeek, 1 pelattu ottelu 11:stä.
+    """The acceptance criterion: PotkukelkkaPeek, 1 played match out of 11.
 
-    Vakirosteri on täysi, koska se luetaan **kaikista** otteluista -- myös
-    pelaamattomista. Jos rosteri riippuisi pelatuista otteluista, kauden alussa
-    yksikään joukkue ei olisi tunnistettavissa.
+    The standing roster is full, because it is read from **all** the matches
+    -- the unplayed ones too. If the roster depended on the played matches,
+    not one team would be identifiable at the start of a season.
     """
     lookup = find_teams(division, "PotkukelkkaPeek")
 
@@ -307,7 +317,8 @@ def test_the_number_of_played_matches_does_not_change_the_roster(
 def test_every_roster_in_the_division_is_between_six_and_nine_players(
     division: tuple[Team, ...],
 ) -> None:
-    """Hyväksymiskriteeri: rosterit 6--9 pelaajaa. Epicin lupaus oli 5--10."""
+    """The acceptance criterion: rosters of 6--9 players. The epic's promise
+    was 5--10."""
     sizes = {team.display_name: len(team.roster) for team in division}
 
     assert sizes == DIVISION
@@ -316,7 +327,8 @@ def test_every_roster_in_the_division_is_between_six_and_nine_players(
 
 
 def test_building_teams_does_not_depend_on_observation_order() -> None:
-    """Sama syöte eri järjestyksessä on sama tulos -- muuten indeksi heiluisi."""
+    """The same input in a different order is the same result -- otherwise the
+    index would wobble."""
     observations = division_observations()
 
     assert build_teams(observations, min_common=MIN_COMMON) == build_teams(
@@ -324,30 +336,30 @@ def test_building_teams_does_not_depend_on_observation_order() -> None:
     )
 
 
-# -- Identiteetti on rosteri, ei tunniste -----------------------------------
+# -- Identity is the roster, not the id --------------------------------------
 
 
 def two_seasons(
-    *, shared: int, first_key: str = "kausi-12", second_key: str = "kausi-13"
+    *, shared: int, first_key: str = "season-12", second_key: str = "season-13"
 ) -> list[TeamObservation]:
-    """Sama joukkue kahdella kaudella, kaksi eri lähdetunnistetta.
+    """The same team in two seasons, two different source ids.
 
-    ``shared`` kertoo, montako viiden pelaajan rosterista on sama molemmilla
-    kausilla. Loput ovat uusia pelaajia.
+    ``shared`` says how many of the five-player roster are the same in both
+    seasons. The rest are new players.
     """
-    old = members("kausi", 5, offset=0)
-    new = old[:shared] + members("uusi", 5, offset=500)[shared:]
+    old = members("season", 5, offset=0)
+    new = old[:shared] + members("newcomers", 5, offset=500)[shared:]
     return [
         TeamObservation(
             faction_id=first_key,
-            match_id="1-vanha",
+            match_id="1-old",
             observed_at=KICKOFF,
             name="Rcave Veterans",
             roster=old,
         ),
         TeamObservation(
             faction_id=second_key,
-            match_id="1-uusi",
+            match_id="1-new",
             observed_at=KICKOFF + timedelta(days=365),
             name="Rcave Veterans",
             roster=new,
@@ -356,38 +368,39 @@ def two_seasons(
 
 
 def test_a_new_season_identifier_is_the_same_team_when_the_roster_stays() -> None:
-    """Epicin AC3: nimen tai divisioonan vaihto ei katkaise identiteettiä.
+    """The epic's AC3: a change of name or of division does not break the
+    identity.
 
-    Uusi kausi antaa samalle porukalle uuden ``faction_id``:n. Jos tunniste
-    olisi identiteetti, tuloksena olisi kaksi joukkuetta, joita mikään ei
-    yhdistä -- ja koko arkiston historia katkeaisi kauden vaihtuessa.
+    A new season gives the same group of people a new ``faction_id``. If the
+    id were the identity, the result would be two teams that nothing connects
+    -- and the whole archive's history would break at the turn of the season.
 
-    **Tätä ei voi todentaa live-aineistoa vasten**: asetuksissa on yksi
-    championship, ja mitattu tulos oli tasan yksi tunniste per joukkue.
+    **This cannot be verified against the live data**: the settings hold one
+    championship, and the measured result was exactly one id per team.
     """
     teams = build_teams(two_seasons(shared=4), min_common=MIN_COMMON)
 
     assert len(teams) == 1
-    assert teams[0].faction_ids == ("kausi-12", "kausi-13")
+    assert teams[0].faction_ids == ("season-12", "season-13")
 
 
 def test_the_canonical_key_is_the_earliest_identifier_and_does_not_change() -> None:
-    """``team_key`` ei muutu, kun uusi kausi tuo uuden tunnisteen.
+    """``team_key`` does not change when a new season brings a new id.
 
-    Kanoninen tunniste on **varhaisimman havainnon** tunniste, ja järjestys
-    tulee ``observed_at``ista -- ei ``match_id``-merkkijonosta, joka FACEITin
-    UUID-pohjaisilla tunnisteilla olisi satunnainen.
+    The canonical id is the id of the **earliest observation**, and the order
+    comes from ``observed_at`` -- not from the ``match_id`` string, which with
+    FACEIT's UUID-based ids would be arbitrary.
     """
     teams = build_teams(two_seasons(shared=4), min_common=MIN_COMMON)
 
-    assert teams[0].team_key == "kausi-12"
+    assert teams[0].team_key == "season-12"
 
 
 def test_two_identifiers_below_the_threshold_stay_two_teams() -> None:
-    """Kaksi yhteistä pelaajaa ei ole sama joukkue vaan sattuma.
+    """Two shared players are not the same team but a coincidence.
 
-    Tämä on liittämisen vastinpari: ilman kynnystä mikä tahansa yhteinen
-    pelaaja sulauttaisi kaksi eri joukkuetta yhdeksi.
+    This is the counterpart of joining: without a threshold any shared player
+    would fuse two different teams into one.
     """
     teams = build_teams(two_seasons(shared=2), min_common=MIN_COMMON)
 
@@ -395,11 +408,11 @@ def test_two_identifiers_below_the_threshold_stay_two_teams() -> None:
 
 
 def test_joining_is_never_chained_through_a_middle_roster() -> None:
-    """A--B ja B--C eivät tee A:sta ja C:stä samaa joukkuetta.
+    """A--B and B--C do not make A and C the same team.
 
-    Ketjuttaminen liittäisi kaksi eri joukkuetta toisiinsa yhden välissä olevan
-    kokoonpanon kautta -- sama peruste kuin
-    ``domain.aggregate.lineups_of_same_team``illa.
+    Chaining would join two different teams through one lineup that sits
+    between them -- the same reasoning as in
+    ``domain.aggregate.lineups_of_same_team``.
     """
     pool = members("pool", 9, offset=0)
     observations = [
@@ -428,34 +441,35 @@ def test_joining_is_never_chained_through_a_middle_roster() -> None:
 
     teams = build_teams(observations, min_common=MIN_COMMON)
 
-    # B liittyy A:han (3 yhteistä). C jakaa A:n kanssa vain yhden, joten se jää
-    # omakseen, vaikka se jakaisi B:n kanssa kolme.
+    # B joins A (3 shared). C shares only one with A, so it stays on its own
+    # even though it would share three with B.
     keys = {team.team_key: team.faction_ids for team in teams}
     assert keys == {"A": ("A", "B"), "C": ("C",)}
 
 
 def test_a_zero_threshold_would_make_the_division_one_team_and_is_refused() -> None:
-    with pytest.raises(ValueError, match="vähintään 1"):
+    with pytest.raises(ValueError, match="at least 1"):
         build_teams(division_observations(), min_common=0)
 
 
 def test_an_old_season_identifier_still_finds_the_team() -> None:
-    """Vanha tunniste on yhä avain, vaikkei se enää ole kanoninen."""
+    """An old id is still a key, even though it is no longer the canonical
+    one."""
     teams = build_teams(two_seasons(shared=4), min_common=MIN_COMMON)
 
-    lookup = find_teams(teams, "kausi-13")
+    lookup = find_teams(teams, "season-13")
 
     assert lookup.is_unique
-    assert lookup.team.team_key == "kausi-12"
+    assert lookup.team.team_key == "season-12"
 
 
-# -- Siirtyvä pelaaja -------------------------------------------------------
+# -- The transferring player -------------------------------------------------
 
 
 def transfer_observations(
     *, second_moment: datetime | None, first_moment: datetime | None = KICKOFF
 ) -> list[TeamObservation]:
-    """Pelaaja ``siirtyja`` havaitaan ensin joukkueessa A ja sitten B:ssä."""
+    """The player ``mover`` is observed first in team A and then in B."""
     a_players = members("aaa", 5, offset=0)
     b_players = members("bbb", 5, offset=100)
     mover = a_players[0]
@@ -464,25 +478,25 @@ def transfer_observations(
             faction_id="A",
             match_id="1-a",
             observed_at=first_moment,
-            name="Aakkoset",
+            name="Alpha",
             roster=a_players,
         ),
         TeamObservation(
             faction_id="B",
             match_id="1-b",
             observed_at=second_moment,
-            name="Beeta",
+            name="Beta",
             roster=b_players[:4] + (mover,),
         ),
     ]
 
 
 def test_a_player_who_moved_leaves_the_old_roster() -> None:
-    """Katselmus: yhdiste kaikista otteluista jätti siirtyjän molempiin.
+    """Review: a union over all the matches left the mover in both.
 
-    Se paisuttaisi rostereita ja vääristäisi sekä rosterikynnystä (Story 3.3)
-    että joukkueiden liittämistä -- kaksi eri joukkuetta alkaisi näyttää
-    samalta, koska molemmilla olisi sama pelaaja.
+    That would inflate the rosters and distort both the roster threshold
+    (Story 3.3) and the joining of teams -- two different teams would start to
+    look the same, because both would hold the same player.
     """
     teams = build_teams(
         transfer_observations(second_moment=KICKOFF + timedelta(days=30)),
@@ -492,29 +506,29 @@ def test_a_player_who_moved_leaves_the_old_roster() -> None:
     by_name = {team.display_name: team for team in teams}
     mover = members("aaa", 5, offset=0)[0].game_player_id
 
-    assert mover not in by_name["Aakkoset"].player_ids
-    assert mover in by_name["Beeta"].player_ids
+    assert mover not in by_name["Alpha"].player_ids
+    assert mover in by_name["Beta"].player_ids
 
 
 def test_the_old_team_still_remembers_the_player_who_left() -> None:
-    """Pudotus ei ole poisto: havainto säilyy ``released``issä."""
+    """Dropping is not deleting: the observation survives in ``released``."""
     teams = build_teams(
         transfer_observations(second_moment=KICKOFF + timedelta(days=30)),
         min_common=MIN_COMMON,
     )
 
     by_name = {team.display_name: team for team in teams}
-    released = [m.nickname for m in by_name["Aakkoset"].released]
+    released = [m.nickname for m in by_name["Alpha"].released]
 
     assert released == ["aaa1"]
-    assert by_name["Beeta"].released == ()
+    assert by_name["Beta"].released == ()
 
 
 def test_an_equally_recent_observation_moves_nobody() -> None:
-    """Kahden joukkueen yhtä myöhäinen havainto on kiista, ei siirtymä.
+    """An equally late observation in two teams is a dispute, not a transfer.
 
-    Kiistaa ei ratkaista arpomalla: pelaaja jää molempiin rostereihin ja se,
-    että kiista on olemassa, on luettavissa.
+    The dispute is not settled by drawing lots: the player stays in both
+    rosters, and the fact that a dispute exists can be read.
     """
     teams = build_teams(
         transfer_observations(second_moment=KICKOFF), min_common=MIN_COMMON
@@ -528,7 +542,7 @@ def test_an_equally_recent_observation_moves_nobody() -> None:
 
 
 def test_an_unknown_observation_time_moves_nobody() -> None:
-    """Ilman aikaa ei voi väittää tietävänsä, kumpi havainto oli myöhempi."""
+    """Without a time one cannot claim to know which observation was later."""
     teams = build_teams(
         transfer_observations(second_moment=None), min_common=MIN_COMMON
     )
@@ -541,16 +555,17 @@ def test_an_unknown_observation_time_moves_nobody() -> None:
 def test_a_player_seen_in_only_one_team_is_never_released(
     division: tuple[Team, ...],
 ) -> None:
-    """Kolme ottelua yhdestätoista ei ole siirtymä vaan vähän peliaikaa."""
+    """Three matches out of eleven is not a transfer but a little playing
+    time."""
     assert all(team.released == () for team in division)
     assert all(team.shared_players == () for team in division)
 
 
-# -- Nimihaku ---------------------------------------------------------------
+# -- The name lookup ---------------------------------------------------------
 
 
 def test_an_exact_name_finds_exactly_one_team(division: tuple[Team, ...]) -> None:
-    """I/O-matriisi: täsmällinen nimi ``Rcave Veterans``."""
+    """The I/O matrix: the exact name ``Rcave Veterans``."""
     lookup = find_teams(division, "Rcave Veterans")
 
     assert lookup.is_unique
@@ -574,11 +589,11 @@ def test_an_exact_name_finds_exactly_one_team(division: tuple[Team, ...]) -> Non
 def test_case_does_not_matter(
     division: tuple[Team, ...], query: str, expected: str
 ) -> None:
-    """I/O-matriisi: kirjainkoko eroaa.
+    """The I/O matrix: the letter case differs.
 
-    Divisioonan nimissä kirjainkoko vaihtelee aidosti (``uncs67``,
-    ``cM Esports``, ``popsiCS``, ``JYSAEYTTAEJAET``), joten tämä ei ole
-    mukavuus vaan edellytys.
+    The case genuinely varies in the division's names (``uncs67``,
+    ``cM Esports``, ``popsiCS``, ``JYSAEYTTAEJAET``), so this is not a
+    convenience but a requirement.
     """
     lookup = find_teams(division, query)
 
@@ -587,7 +602,7 @@ def test_case_does_not_matter(
 
 
 def test_an_unambiguous_partial_name_is_enough(division: tuple[Team, ...]) -> None:
-    """I/O-matriisi: ``Rcave`` osuu yksikäsitteisesti yhteen."""
+    """The I/O matrix: ``Rcave`` hits exactly one."""
     lookup = find_teams(division, "Rcave")
 
     assert lookup.is_unique
@@ -598,22 +613,23 @@ def test_an_unambiguous_partial_name_is_enough(division: tuple[Team, ...]) -> No
 def test_the_rcave_roster_is_the_seven_measured_players(
     division: tuple[Team, ...],
 ) -> None:
-    """Hyväksymiskriteeri: haku ``Rcave`` -> yksi joukkue, rosteri 7 pelaajaa."""
+    """The acceptance criterion: the query ``Rcave`` -> one team, a roster of
+    7 players."""
     lookup = find_teams(division, "Rcave")
 
     assert [member.nickname for member in lookup.team.roster] == list(RCAVE)
-    # Neljä mitattua tunnistetta ovat mukana sellaisinaan: juuri ne liittävät
-    # rosterin arkiston demoon.
+    # The four measured ids are included as they stand: they are exactly what
+    # joins the roster to the archive's demo.
     assert set(MEASURED_RCAVE_IDS.values()) <= lookup.team.player_ids
 
 
 def test_an_ambiguous_prefix_lists_all_three_and_chooses_none(
     division: tuple[Team, ...],
 ) -> None:
-    """Hyväksymiskriteeri: ``T`` osuu kolmeen, eikä yhtään valita.
+    """The acceptance criterion: ``T`` hits three, and not one is chosen.
 
-    Tämä on **mitattu tapaus eikä teoreettinen**: divisioonan 12 nimestä kolme
-    alkaa T:llä.
+    This is a **measured case and not a theoretical one**: three of the
+    division's 12 names begin with T.
     """
     lookup = find_teams(division, "T")
 
@@ -623,12 +639,12 @@ def test_an_ambiguous_prefix_lists_all_three_and_chooses_none(
         "Tankkiluola vilttiketju",
         "TUUHEE",
     ]
-    with pytest.raises(ValueError, match="Valinta on kysyttävä"):
+    with pytest.raises(ValueError, match="has to be asked for"):
         _ = lookup.team
 
 
 def test_an_unknown_name_finds_nothing(division: tuple[Team, ...]) -> None:
-    """I/O-matriisi: ``Astralis`` ei ole divisioonassa."""
+    """The I/O matrix: ``Astralis`` is not in the division."""
     lookup = find_teams(division, "Astralis")
 
     assert lookup.is_empty
@@ -636,10 +652,10 @@ def test_an_unknown_name_finds_nothing(division: tuple[Team, ...]) -> None:
 
 
 def test_two_teams_with_the_same_name_are_both_listed() -> None:
-    """I/O-matriisi: sama nimi kahdella joukkueella.
+    """The I/O matrix: the same name on two teams.
 
-    Teoreettinen mutta ei mahdoton. Täsmällinen nimi ei tee valintaa yhtään sen
-    hiljaisemmin kuin osittainenkaan.
+    Theoretical but not impossible. An exact name makes the choice no more
+    silently than a partial one does.
     """
     teams = build_teams(
         [
@@ -668,10 +684,10 @@ def test_two_teams_with_the_same_name_are_both_listed() -> None:
 
 
 def test_an_exact_name_wins_over_being_a_prefix_of_another() -> None:
-    """Täsmällinen nimi ei jää monitulkintaiseksi toisen nimen alkuna.
+    """An exact name is not left ambiguous as the start of another name.
 
-    Ilman portaikkoa ``uncs67`` osuisi myös joukkueeseen ``uncs67 Academy``, ja
-    joukkueen omalla nimellä hakeminen olisi mahdotonta.
+    Without the ladder ``uncs67`` would also hit the team ``uncs67 Academy``,
+    and searching by the team's own name would be impossible.
     """
     teams = build_teams(
         [
@@ -700,7 +716,8 @@ def test_an_exact_name_wins_over_being_a_prefix_of_another() -> None:
 
 
 def test_a_team_can_be_found_by_its_key(division: tuple[Team, ...]) -> None:
-    """Tunniste kelpaa yhä hakuun -- indeksi lisää nimen, ei poista tunnistetta."""
+    """The id is still valid for a lookup -- the index adds the name, it does
+    not remove the id."""
     lookup = find_teams(division, "faction-09")
 
     assert lookup.is_unique
@@ -708,7 +725,8 @@ def test_a_team_can_be_found_by_its_key(division: tuple[Team, ...]) -> None:
 
 
 def test_a_name_can_be_found_from_the_middle(division: tuple[Team, ...]) -> None:
-    """``vilttiketju`` on nimen loppuosa, ja sekin riittää kun se on yksiselitteinen."""
+    """``vilttiketju`` is the end of the name, and even that is enough when it
+    is unambiguous."""
     lookup = find_teams(division, "vilttiketju")
 
     assert lookup.is_unique
@@ -719,61 +737,61 @@ def test_a_name_can_be_found_from_the_middle(division: tuple[Team, ...]) -> None
 def test_an_empty_query_finds_nothing_rather_than_everything(
     division: tuple[Team, ...],
 ) -> None:
-    """Tyhjä haku osuisi kaikkiin, eikä "kaikki" ole hakutulos."""
+    """An empty query would hit them all, and "all" is not a lookup result."""
     assert find_teams(division, "   ").is_empty
 
 
-# -- Nimet ja nimimerkit ovat havaintoja ------------------------------------
+# -- Names and nicknames are observations ------------------------------------
 
 
 def test_the_most_often_observed_name_wins_and_the_others_are_kept() -> None:
-    """Nimenvaihtoa ei piiloteta: vaihtoehdot ovat luettavissa."""
+    """A name change is not hidden: the alternatives can be read."""
     roster = members("x", 5, offset=0)
     observations = [
         TeamObservation(
             faction_id="a",
             match_id="1-m0",
             observed_at=KICKOFF,
-            name="Vanha nimi",
+            name="Old name",
             roster=roster,
         ),
         TeamObservation(
             faction_id="a",
             match_id="1-m1",
             observed_at=KICKOFF + timedelta(days=1),
-            name="Uusi nimi",
+            name="New name",
             roster=roster,
         ),
         TeamObservation(
             faction_id="a",
             match_id="1-m2",
             observed_at=KICKOFF + timedelta(days=2),
-            name="Uusi nimi",
+            name="New name",
             roster=roster,
         ),
     ]
 
     (team,) = build_teams(observations, min_common=MIN_COMMON)
 
-    assert team.name == "Uusi nimi"
-    assert team.alternative_names == ("Vanha nimi",)
+    assert team.name == "New name"
+    assert team.alternative_names == ("Old name",)
 
 
 def test_a_changed_nickname_is_kept_the_same_way_a_changed_team_name_is() -> None:
-    """Katselmus: joukkueella oli ``alternative_names``, pelaajalla ei mitään.
+    """Review: the team had ``alternative_names``, the player had nothing.
 
-    Nimimerkin vaihtuminen on täsmälleen samanlainen havainto kuin joukkueen
-    nimen vaihtuminen, eikä kumpaakaan piiloteta.
+    A nickname changing is exactly the same kind of observation as a team's
+    name changing, and neither is hidden.
     """
-    old = RosterMember(game_player_id=steam_id(1), nickname="vanha", player_id="u1")
-    new = RosterMember(game_player_id=steam_id(1), nickname="uusi", player_id="u1")
+    old = RosterMember(game_player_id=steam_id(1), nickname="oldnick", player_id="u1")
+    new = RosterMember(game_player_id=steam_id(1), nickname="newnick", player_id="u1")
     rest = members("x", 5, offset=100)[1:]
     observations = [
         TeamObservation(
             faction_id="a",
             match_id=f"1-m{index}",
             observed_at=KICKOFF + timedelta(days=index),
-            name="Joukkue",
+            name="Team",
             roster=(member,) + rest,
         )
         for index, member in enumerate((old, new, new))
@@ -782,12 +800,13 @@ def test_a_changed_nickname_is_kept_the_same_way_a_changed_team_name_is() -> Non
     (team,) = build_teams(observations, min_common=MIN_COMMON)
     player = next(m for m in team.roster if m.game_player_id == steam_id(1))
 
-    assert player.nickname == "uusi"
-    assert player.alternative_nicknames == ("vanha",)
+    assert player.nickname == "newnick"
+    assert player.alternative_nicknames == ("oldnick",)
 
 
 def test_a_team_without_any_observed_name_falls_back_to_its_key() -> None:
-    """Puuttuva nimi on ``None``, ei korvike -- mutta näytettävä on aina jotain."""
+    """A missing name is ``None``, not a substitute -- but there is always
+    something to display."""
     (team,) = build_teams(
         [
             TeamObservation(
@@ -804,17 +823,18 @@ def test_a_team_without_any_observed_name_falls_back_to_its_key() -> None:
     assert team.display_name == "faction-x"
 
 
-# -- Silta arkistoon --------------------------------------------------------
+# -- The bridge to the archive -----------------------------------------------
 
 
 def test_lineup_keys_are_attached_to_every_team_above_the_threshold(
     division: tuple[Team, ...],
 ) -> None:
-    """Arkiston kokoonpanotiiviste liitetään joukkueeseen rosterin perusteella.
+    """The archive's lineup hash is attached to a team on the basis of the
+    roster.
 
-    Tiiviste ei ole identiteetti -- yksi vaihto muuttaa sen -- mutta se on ainoa
-    silta ``aggregates/<team_key>``-hakemistoihin, joita tämä tarina ei nimeä
-    uudelleen.
+    The hash is not an identity -- one substitution changes it -- but it is
+    the only bridge to the ``aggregates/<team_key>`` directories, which this
+    story does not rename.
     """
     rcave = find_teams(division, "Rcave").team
     lineup = set(sorted(rcave.player_ids)[:5])
@@ -832,25 +852,27 @@ def test_lineup_keys_are_attached_to_every_team_above_the_threshold(
 def test_a_lineup_below_the_threshold_is_attached_to_nobody(
     division: tuple[Team, ...],
 ) -> None:
-    """Kaksi yhteistä pelaajaa ei ole joukkue vaan sattuma."""
+    """Two shared players are not a team but a coincidence."""
     rcave = find_teams(division, "Rcave").team
     lineup = set(sorted(rcave.player_ids)[:2])
 
-    updated, contested = assign_lineup_keys(division, {"jokinlineup": lineup}, 3)
+    updated, contested = assign_lineup_keys(division, {"some-lineup": lineup}, 3)
 
     assert all(not team.lineup_keys for team in updated)
     assert contested == ()
 
 
 def test_a_lineup_claimed_by_two_teams_is_given_to_both_and_flagged() -> None:
-    """Katselmus: "eniten voittaa" tarkoitti eri asiaa kuin ``aggregate``issa.
+    """Review: "the most shared wins" meant a different thing from what it
+    means in ``aggregate``.
 
-    Sama asetusarvo (``team_identity_min_common``) merkitsi kahdessa paikassa
-    kahta eri asiaa: ``aggregate`` liittää **kaikki** kynnyksen ylittävät, tämä
-    liitti vain parhaan. Nyt sääntö on sama, ja kiista on merkitty -- jotta
-    jatkovaihe ei laskisi tiivistettä kahdesti tietämättä tekevänsä niin.
+    The same settings value (``team_identity_min_common``) stood for two
+    different things in two places: ``aggregate`` attaches **all** that cross
+    the threshold, this attached only the best. Now the rule is the same, and
+    the dispute is flagged -- so that a later stage does not count the hash
+    twice without knowing that it does.
     """
-    shared = members("yhteiset", 4, offset=0)
+    shared = members("shared", 4, offset=0)
     a = build_teams(
         [
             TeamObservation(
@@ -868,17 +890,18 @@ def test_a_lineup_claimed_by_two_teams_is_given_to_both_and_flagged() -> None:
                 roster=shared + members("bbb", 2, offset=200)[:1],
             ),
         ],
-        # Kynnys 5, jottei liittäminen tee näistä samaa joukkuetta -- tässä
-        # mitataan kokoonpanoliitosta eikä identiteettiä.
+        # A threshold of 5, so that the joining does not make these the same
+        # team -- what is measured here is the lineup attachment and not the
+        # identity.
         min_common=5,
     )
     lineup = {member.game_player_id for member in shared}
 
-    updated, contested = assign_lineup_keys(a, {"yhteinen": lineup}, 3)
+    updated, contested = assign_lineup_keys(a, {"shared-lineup": lineup}, 3)
 
     assert len(a) == 2
-    assert all(team.lineup_keys == ("yhteinen",) for team in updated)
-    assert contested == ("yhteinen",)
+    assert all(team.lineup_keys == ("shared-lineup",) for team in updated)
+    assert contested == ("shared-lineup",)
 
 
 def test_assigning_lineups_keeps_the_teams_otherwise_untouched(

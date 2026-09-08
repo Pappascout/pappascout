@@ -1,25 +1,26 @@
-"""``domain.selection`` -- rosterikynnyksen testit (Story 3.3).
+"""``domain.selection`` -- tests for the roster threshold (Story 3.3).
 
-Moduuli on puhdas, joten yksikään testi tässä tiedostossa ei koske verkkoon
-eikä levylle: pelaajajoukot rakennetaan käsin. Tunnisteet ovat oikean muotoisia
-SteamID64:iä (``test_teams.steam_id``), koska kynnys on joukko-operaatio niiden
-välillä -- keksitty ``"a"`` läpäisisi testin muttei kertoisi mitään siitä, mitä
-oikeassa aineistossa tapahtuu.
+The module is pure, so not one test in this file touches the network or the
+disk: the sets of players are built by hand. The ids are of the right shape
+for a SteamID64 (``test_teams.steam_id``), because the threshold is a set
+operation between them -- an invented ``"a"`` would pass the test but would
+say nothing about what happens in real data.
 
-Kuusi asiaa lukitaan täällä:
+Six things are locked down here:
 
-* **Kynnys on joukko-operaatio.** 5/5 kelpaa, 4/5 kelpaa, 3/5 ei -- ja
-  ulkopuolinen lasketaan mukaan otantaan, ei pois.
-* **Rivin invariantit ovat rakenteessa.** Tyhjä syy, hylkäys luokan kanssa,
-  hyväksyntä ilman luokkaa ja tuntematon lähde ovat kaikki mahdottomia
-  rakentaa.
-* **Lähde sanotaan ääneen.** Parsittu demo on havainto, parsimaton ennuste.
-* **Havainto voittaa, ero kerrotaan** -- mutta eroa ei väitetä silloin kun
-  vertailtavaa ei ole.
-* **Luokka ja lukusuhde eivät saa väittää eri asiaa.** Neljä vakipelaajaa ilman
-  ulkopuolista ja kuusi vakipelaajaa ovat molemmat tapauksia, joissa luokan
-  nimittäjä eroaa kokoonpanon koosta -- ja rivi sanoo sen.
-* **Vetotiedon kartta ei ole todiste pelatusta kartasta.**
+* **The threshold is a set operation.** 5/5 qualifies, 4/5 qualifies, 3/5 does
+  not -- and an outsider is counted into the sample, not out of it.
+* **The row's invariants are in the structure.** An empty reason, a rejection
+  with a class, an acceptance without a class and an unknown source are all
+  impossible to build.
+* **The source is said out loud.** A parsed demo is an observation, an
+  unparsed one a prediction.
+* **The observation wins, and the difference is told** -- but no difference is
+  claimed when there is nothing to compare against.
+* **The class and the ratio must not claim different things.** Four regulars
+  without an outsider and six regulars are both cases in which the class's
+  denominator differs from the size of the lineup -- and the row says so.
+* **A map in the veto data is not proof that the map was played.**
 """
 
 from __future__ import annotations
@@ -43,11 +44,12 @@ from pappascout.domain.selection import (
 )
 from pappascout.errors import SettingsError
 
-#: ``[thresholds]``-osion mitatut oletukset (settings.toml:464-473).
+#: The measured defaults of the ``[thresholds]`` section
+#: (settings.toml:464-473).
 ROSTER_SIZE = 5
 MIN_REGULARS = 4
 
-#: Seitsemän pelaajan vakirosteri, sama koko kuin Rcave Veteransilla (mitattu).
+#: A seven-player standing roster, the same size as Rcave Veterans' (measured).
 REGULARS = tuple(steam_id(index) for index in range(1, 8))
 OUTSIDER = steam_id(90)
 SECOND_OUTSIDER = steam_id(91)
@@ -55,8 +57,8 @@ SECOND_OUTSIDER = steam_id(91)
 MATCH = "1-f6a06dc8-5c26-4238-b57a-6b357043a5af"
 
 NAMES = {
-    OUTSIDER: "vieras",
-    SECOND_OUTSIDER: "toinen_vieras",
+    OUTSIDER: "guest",
+    SECOND_OUTSIDER: "second_guest",
     REGULARS[0]: "SSStttNNN",
 }
 
@@ -71,7 +73,8 @@ def candidate(
     certainly_played: bool = True,
     observation_note: str | None = None,
 ) -> MapCandidate:
-    """Yksi kartta: ottelurosteri ennusteeksi, demon kokoonpano havainnoksi."""
+    """One map: the match roster as the prediction, the demo's lineup as the
+    observation."""
     return MapCandidate(
         map_demo_id=map_demo_id(MATCH, index),
         match_id=MATCH,
@@ -98,7 +101,7 @@ def decide(
 
 
 def row(**overrides) -> dict:
-    """Kelvollisen rivin kentät, jotta invarianttitesti muuttaa vain yhtä."""
+    """The fields of a valid row, so that an invariant test changes only one."""
     base = {
         "map_demo_id": "1-x-0",
         "match_id": "1-x",
@@ -106,7 +109,7 @@ def row(**overrides) -> dict:
         "map_name": None,
         "is_league": False,
         "roster_ok": True,
-        "roster_reason": "Kelpaa.",
+        "roster_reason": "Eligible.",
         "roster_class": "5/5",
         "roster_source": "predicted",
     }
@@ -114,11 +117,11 @@ def row(**overrides) -> dict:
     return base
 
 
-# -- Kynnys joukko-operaationa ----------------------------------------------
+# -- The threshold as a set operation ----------------------------------------
 
 
 def test_five_regulars_is_accepted_as_the_full_class() -> None:
-    """I/O-matriisi: 5 vakipelaajaa -> kelpaa, luokka 5/5."""
+    """The I/O matrix: 5 regulars -> eligible, class 5/5."""
     decided = decide(candidate(REGULARS[:5]))
 
     assert decided.roster_ok is True
@@ -128,11 +131,11 @@ def test_five_regulars_is_accepted_as_the_full_class() -> None:
 
 
 def test_four_regulars_and_one_outsider_is_accepted() -> None:
-    """Tuotteen omistaja 2026-09-04: ottelu on samaa joukkuetta vastaan
-    vaikka yksi olisi sub.
+    """The product owner on 2026-09-04: the match is against the same team
+    even if one of them is a sub.
 
-    Ulkopuolinen **lasketaan mukaan** -- ero on luokassa, ei siinä kuka on
-    otannassa.
+    The outsider **is counted in** -- the difference is in the class, not in
+    who is in the sample.
     """
     decided = decide(candidate(REGULARS[:4] + (OUTSIDER,)))
 
@@ -143,7 +146,8 @@ def test_four_regulars_and_one_outsider_is_accepted() -> None:
 
 
 def test_three_regulars_is_rejected_and_the_reason_names_the_threshold() -> None:
-    """I/O-matriisi: 3 vakipelaajaa -> ei kelpaa, syy kertoo luvut ja kynnyksen."""
+    """The I/O matrix: 3 regulars -> not eligible, the reason gives the
+    numbers and the threshold."""
     decided = decide(candidate(REGULARS[:3] + (OUTSIDER, SECOND_OUTSIDER)))
 
     assert decided.roster_ok is False
@@ -153,7 +157,8 @@ def test_three_regulars_is_rejected_and_the_reason_names_the_threshold() -> None
 
 
 def test_no_rejection_is_ever_without_a_reason() -> None:
-    """Frozen-sääntö: ``roster_ok = false`` ilman syytä on kielletty."""
+    """The frozen rule: ``roster_ok = false`` without a reason is
+    forbidden."""
     rows = select_maps(
         [
             candidate(REGULARS[:5], index=0),
@@ -170,37 +175,39 @@ def test_no_rejection_is_ever_without_a_reason() -> None:
         assert decided.roster_reason.strip()
 
 
-# -- Rivin invariantit ovat rakenteessa -------------------------------------
+# -- The row's invariants are in the structure -------------------------------
 
 
 def test_a_row_without_a_reason_cannot_be_built_at_all() -> None:
-    with pytest.raises(ValueError, match="ei ole syytä"):
+    with pytest.raises(ValueError, match="has no reason"):
         MapSelection(**row(roster_reason="   "))
 
 
 def test_a_rejected_row_cannot_carry_a_class() -> None:
-    """Luokka hylätyllä rivillä olisi väite kierroksista, joita ei lasketa."""
-    with pytest.raises(ValueError, match="rosteriluokka"):
+    """A class on a rejected row would be a claim about rounds that are not
+    counted."""
+    with pytest.raises(ValueError, match="carries the roster class"):
         MapSelection(**row(roster_ok=False, roster_class="4/5"))
 
 
 def test_an_accepted_row_cannot_be_missing_its_class() -> None:
-    """Sellainen rivi olisi otannassa muttei kummassakaan luokkalaskurissa.
+    """Such a row would be in the sample but in neither class counter.
 
-    Ilman tätä väitettä ``accepted != class_5/5 + class_4/5`` olisi mahdollista
-    ilman että mikään huutaa -- ja juuri sen invariantin :func:`counts` lupaa.
+    Without this claim ``accepted != class_5/5 + class_4/5`` would be possible
+    without anything shouting -- and that is exactly the invariant
+    :func:`counts` promises.
     """
-    with pytest.raises(ValueError, match="rosteriluokkaa"):
+    with pytest.raises(ValueError, match="has no roster class"):
         MapSelection(**row(roster_ok=True, roster_class=None))
 
 
 def test_an_unknown_source_cannot_be_built() -> None:
-    """``Literal`` on tarkistus tyyppitarkistimelle, ei ajossa.
+    """``Literal`` is a check for the type checker, not at run time.
 
-    Ilman vartijaa kelvoton arvo rakentuisi ja räjähtäisi vasta ``source_fi``n
-    KeyErrorina jossain aivan muualla.
+    Without the guard an invalid value would be built and would blow up only
+    as a KeyError from ``source_fi`` somewhere else entirely.
     """
-    with pytest.raises(ValueError, match="lähde on"):
+    with pytest.raises(ValueError, match="The source of the selection row"):
         MapSelection(**row(roster_source="guessed"))
 
 
@@ -224,19 +231,21 @@ def test_the_counts_invariants_hold_for_every_row() -> None:
     )
 
 
-# -- Syy on luettava ja nimeää ihmiset ---------------------------------------
+# -- The reason is readable and names the people -----------------------------
 
 
 def test_the_reason_names_the_outsider_by_nickname() -> None:
-    """I/O-matriisi: syy kertoo **kuka** oli ulkopuolinen, ei vain montako."""
+    """The I/O matrix: the reason says **who** the outsider was, not just how
+    many."""
     decided = decide(candidate(REGULARS[:4] + (OUTSIDER,)))
 
-    assert "vieras" in decided.roster_reason
+    assert "guest" in decided.roster_reason
     assert OUTSIDER not in decided.roster_reason
 
 
 def test_an_unnamed_outsider_falls_back_to_the_identifier() -> None:
-    """Nimimerkki voi puuttua; keksitty nimi osoittaisi väärään pelaajaan."""
+    """The nickname may be missing; an invented name would point at the wrong
+    player."""
     unknown = steam_id(555)
     decided = decide(candidate(REGULARS[:4] + (unknown,)))
 
@@ -244,12 +253,13 @@ def test_an_unnamed_outsider_falls_back_to_the_identifier() -> None:
 
 
 def test_an_observation_note_is_carried_into_the_reason() -> None:
-    """Rikkinäinen kokoonpanotaulu ei saa kadota jäljettömästi.
+    """A broken lineup table must not vanish without a trace.
 
-    Ilman tätä ketjua havainto demottuisi ennusteeksi hiljaa: rivi näyttäisi
-    tavalliselta ennusteelta, vaikka demo on olemassa ja rikki.
+    Without this chain an observation would silently demote itself into a
+    prediction: the row would look like an ordinary prediction although the
+    demo exists and is broken.
     """
-    note = "Huom: demon kokoonpanotaulu on olemassa muttei luettavissa."
+    note = "Note: the demo's lineup table exists but is not readable."
     decided = decide(candidate(REGULARS[:5], observation_note=note))
 
     assert note in decided.roster_reason
@@ -257,93 +267,100 @@ def test_an_observation_note_is_carried_into_the_reason() -> None:
 
 
 def test_an_unknown_roster_is_its_own_reason_not_a_failed_threshold() -> None:
-    """Ilman vakirosteria kynnyksen alitus ei ole tosi väite."""
+    """Without a standing roster, falling short of the threshold is not a true
+    claim."""
     decided = decide(candidate(REGULARS[:5]), roster=())
 
     assert decided.roster_ok is False
-    assert "vakirosteria ei tiedetä" in decided.roster_reason
-    assert "kynnys on" not in decided.roster_reason
+    assert "standing roster is not known" in decided.roster_reason
+    assert "the threshold is" not in decided.roster_reason
 
 
 def test_a_map_without_any_known_players_is_rejected() -> None:
-    """Tyhjä ottelurosteri ei ole kynnyksen alitus vaan tuntematon kokoonpano."""
+    """An empty match roster is not a failed threshold but an unknown
+    lineup."""
     decided = decide(candidate(()))
 
     assert decided.roster_ok is False
     assert decided.roster_class is None
-    assert "ei tiedetä" in decided.roster_reason
+    assert "is not known" in decided.roster_reason
 
 
 def test_a_parsed_demo_without_this_team_is_rejected_with_its_own_reason() -> None:
-    """Havaittu tyhjä on eri asia kuin "ei tiedossa", ja syy sanoo sen."""
+    """An observed empty is a different thing from "not known", and the reason
+    says so."""
     decided = decide(candidate(REGULARS[:5], observed=()))
 
     assert decided.roster_ok is False
     assert decided.roster_source == "observed"
-    assert "Demo on parsittu" in decided.roster_reason
+    assert "The demo has been parsed" in decided.roster_reason
 
 
-# -- Luokka ja lukusuhde eivät väitä eri asiaa -------------------------------
+# -- The class and the ratio do not claim different things -------------------
 
 
 def test_four_regulars_and_nobody_else_says_there_was_no_outsider() -> None:
-    """Luokka ``4/5`` väittäisi yksin ulkopuolista, jota ei ole.
+    """The class ``4/5`` on its own would claim an outsider who is not there.
 
-    Neljän pelaajan kokoonpanossa neljä vakipelaajaa täyttää kynnyksen, mutta
-    viides paikka on tyhjä eikä vieraan. Rivi sanoo molemmat.
+    In a four-player lineup four regulars meet the threshold, but the fifth
+    place is empty rather than a guest's. The row says both.
     """
     decided = decide(candidate(REGULARS[:4]))
 
     assert decided.roster_ok is True
     assert decided.roster_class == "4/5"
     assert decided.outsiders == ()
-    assert "Ulkopuolisia ei ollut" in decided.roster_reason
-    assert "4 pelaajaa odotetun 5 sijaan" in decided.roster_reason
+    assert "There were no outsiders" in decided.roster_reason
+    assert "4 players instead of the expected 5" in decided.roster_reason
 
 
 def test_six_regulars_is_the_full_class_and_the_reason_admits_the_size() -> None:
-    """Ilman kattoa luokka olisi 5/5 ja syy sanoisi "6/6" -- eri nimittäjät."""
+    """Without a cap the class would be 5/5 and the reason would say "6/6" --
+    different denominators."""
     decided = decide(candidate(REGULARS[:6]))
 
     assert decided.roster_class == "5/5"
     assert decided.players_seen == 6
     assert "6/6" in decided.roster_reason
-    assert "6 pelaajaa odotetun 5 sijaan" in decided.roster_reason
+    assert "6 players instead of the expected 5" in decided.roster_reason
 
 
 def test_a_full_five_player_lineup_says_nothing_about_the_size() -> None:
-    """Huomautus on poikkeamaa varten; normaalitilanne ei tarvitse sitä."""
+    """The note is there for the anomaly; the normal case does not need it."""
     decided = decide(candidate(REGULARS[:5]))
 
-    assert "odotetun" not in decided.roster_reason
+    assert "instead of the expected" not in decided.roster_reason
 
 
-# -- Ennuste vs. havainto ----------------------------------------------------
+# -- Prediction vs. observation ----------------------------------------------
 
 
 def test_an_unparsed_map_is_a_prediction_and_says_so() -> None:
-    """I/O-matriisi: demoa ei ole parsittu -> luokka on ennuste ottelurosterista."""
+    """The I/O matrix: the demo has not been parsed -> the class is a
+    prediction from the match roster."""
     decided = decide(candidate(REGULARS[:5]))
 
     assert decided.roster_source == "predicted"
-    assert decided.source_fi == "ennuste"
-    assert "ennuste" in decided.roster_reason
+    assert decided.source_fi == "prediction"
+    assert "prediction" in decided.roster_reason
 
 
 def test_a_parsed_map_is_an_observation_and_says_so() -> None:
-    """I/O-matriisi: ``lineups.parquet`` olemassa -> luokka on havainto."""
+    """The I/O matrix: ``lineups.parquet`` exists -> the class is an
+    observation."""
     decided = decide(candidate(REGULARS[:5], observed=REGULARS[:5]))
 
     assert decided.roster_source == "observed"
-    assert decided.source_fi == "havainto"
-    assert "havainto" in decided.roster_reason
+    assert decided.source_fi == "observation"
+    assert "observation" in decided.roster_reason
 
 
 def test_the_observation_wins_over_the_match_roster() -> None:
-    """I/O-matriisi: parsittu kokoonpano eroaa ottelurosterista -> havainto voittaa.
+    """The I/O matrix: the parsed lineup differs from the match roster -> the
+    observation wins.
 
-    Ottelurosterissa on viisi vakipelaajaa, demossa neljä ja yksi ulkopuolinen:
-    vaihto karttojen välissä. Luokka on **4/5**, ei 5/5.
+    The match roster holds five regulars, the demo four and one outsider: a
+    substitution between maps. The class is **4/5**, not 5/5.
     """
     decided = decide(candidate(REGULARS[:5], observed=REGULARS[:4] + (OUTSIDER,)))
 
@@ -353,18 +370,20 @@ def test_the_observation_wins_over_the_match_roster() -> None:
 
 
 def test_the_difference_to_the_match_roster_is_told_not_silenced() -> None:
-    """I/O-matriisi: ero kerrotaan -- vaihto on juuri se, mitä varten kynnys on."""
+    """The I/O matrix: the difference is told -- a substitution is exactly
+    what the threshold is there for."""
     decided = decide(candidate(REGULARS[:5], observed=REGULARS[:4] + (OUTSIDER,)))
 
     assert decided.drifted is True
     assert decided.joined == (OUTSIDER,)
     assert decided.left == (REGULARS[4],)
-    assert "eroaa ottelurosterista" in decided.roster_reason
-    assert "vieras" in decided.roster_reason
+    assert "differs from the match roster" in decided.roster_reason
+    assert "guest" in decided.roster_reason
 
 
 def test_no_difference_is_claimed_when_there_is_no_match_roster() -> None:
-    """Ilman ottelurosteria koko havainto olisi "ero", ja se olisi väärä väite."""
+    """Without a match roster the whole observation would be a "difference",
+    and that would be a false claim."""
     decided = evaluate(
         MapCandidate(
             map_demo_id=map_demo_id(MATCH, 0),
@@ -383,27 +402,29 @@ def test_no_difference_is_claimed_when_there_is_no_match_roster() -> None:
 
 
 def test_no_difference_is_claimed_when_the_observation_is_empty() -> None:
-    """Rivi ei saa kertoa vaihdosta kartalla, jonka kokoonpano on tuntematon.
+    """The row must not report a substitution on a map whose lineup is
+    unknown.
 
-    Tyhjä havainto tuottaisi vertailussa ``left`` = koko ottelurosteri, ja
-    tuloste kertoisi "Vaihto karttojen välissä" kartalle, jonka oma syy sanoo
-    ettei kokoonpanoa tiedetä. Kaksi väitettä, joista toinen on väärä.
+    An empty observation would produce ``left`` = the whole match roster in
+    the comparison, and the output would report "a substitution between maps"
+    for a map whose own reason says the lineup is not known. Two claims, one
+    of which is false.
     """
     decided = decide(candidate(REGULARS[:5], observed=()))
 
     assert decided.drifted is False
     assert decided.left == ()
-    assert "eroaa ottelurosterista" not in decided.roster_reason
+    assert "differs from the match roster" not in decided.roster_reason
 
 
 def test_an_identical_observation_reports_no_difference() -> None:
     decided = decide(candidate(REGULARS[:5], observed=REGULARS[:5]))
 
     assert decided.drifted is False
-    assert "eroaa" not in decided.roster_reason
+    assert "differs" not in decided.roster_reason
 
 
-# -- Vetotiedon kartta ei ole todiste pelatusta kartasta ---------------------
+# -- A map in the veto data is not proof that the map was played -------------
 
 
 @pytest.mark.parametrize(
@@ -413,26 +434,28 @@ def test_an_identical_observation_reports_no_difference() -> None:
 def test_the_guaranteed_map_count_comes_from_the_match_length(
     best_of: int | None, expected: int | None
 ) -> None:
-    """BO2 on kokonaan varma, BO3 vain kahden kartan osalta."""
+    """BO2 is entirely certain, BO3 only as to two of the maps."""
     assert guaranteed_maps(best_of) == expected
 
 
 def test_a_map_that_may_not_have_been_played_is_kept_out_of_the_sample() -> None:
-    """2-0 päättyneessä BO3:ssa vedossa on kolme karttaa mutta demoja kaksi.
+    """In a BO3 that ended 2-0 the veto holds three maps but there are two
+    demos.
 
-    Ilman tätä sääntöä kolmas kartta olisi otannassa täytenä 5/5-karttana,
-    vaikka sitä ei ehkä pelattu lainkaan.
+    Without this rule the third map would be in the sample as a full 5/5 map,
+    although it may not have been played at all.
     """
     decided = decide(candidate(REGULARS[:5], index=2, certainly_played=False))
 
     assert decided.roster_ok is False
     assert decided.roster_class is None
     assert decided.certainly_played is False
-    assert "ottelun pituus" in decided.roster_reason
+    assert "match length" in decided.roster_reason
 
 
 def test_a_parsed_demo_proves_the_map_was_played() -> None:
-    """Demoa ei ole olemassa kartasta, jota ei pelattu -- havainto on todiste."""
+    """A demo does not exist for a map that was not played -- the observation
+    is the proof."""
     decided = decide(
         candidate(REGULARS[:5], index=2, certainly_played=False, observed=REGULARS[:5])
     )
@@ -459,11 +482,12 @@ def test_uncertain_maps_are_counted_separately() -> None:
     assert numbers["accepted"] == 2
 
 
-# -- is_league kulkee läpi muuttumatta --------------------------------------
+# -- is_league passes through unchanged --------------------------------------
 
 
 def test_is_league_is_carried_through_unchanged_in_both_directions() -> None:
-    """Päätöksen tekee vaihe ``competition_id``:stä; domain ei arvaa kumpaakaan."""
+    """The decision is made by the stage from ``competition_id``; the domain
+    guesses neither."""
     league = decide(candidate(REGULARS[:5], is_league=True))
     other = decide(candidate(REGULARS[:5], is_league=False))
 
@@ -471,7 +495,7 @@ def test_is_league_is_carried_through_unchanged_in_both_directions() -> None:
     assert other.is_league is False
 
 
-# -- Tunniste ---------------------------------------------------------------
+# -- The id ------------------------------------------------------------------
 
 
 def test_the_unit_identifier_is_match_id_and_zero_based_map_index() -> None:
@@ -481,12 +505,12 @@ def test_the_unit_identifier_is_match_id_and_zero_based_map_index() -> None:
 
 @pytest.mark.parametrize("match,index", [("", 0), (MATCH, -1)])
 def test_an_impossible_unit_identifier_is_refused(match: str, index: int) -> None:
-    """Hiljainen ``-1``-pääte osoittaisi tiedostoon, jota ei ole."""
+    """A silent ``-1`` suffix would point at a file that does not exist."""
     with pytest.raises(ValueError):
         map_demo_id(match, index)
 
 
-# -- Luokkien nimet johdetaan kynnyksistä ------------------------------------
+# -- The class names are derived from the thresholds -------------------------
 
 
 def test_the_class_labels_come_from_the_thresholds() -> None:
@@ -495,27 +519,28 @@ def test_the_class_labels_come_from_the_thresholds() -> None:
 
 
 def test_a_threshold_that_would_invent_a_class_is_a_settings_error() -> None:
-    """``roster_size = 6`` on kelvollinen PositiveInt mutta väärä asetus.
+    """``roster_size = 6`` is a valid PositiveInt but a wrong setting.
 
-    **Asetusvirhe eikä ohjelmavirhe**: paljas ``ValueError`` päätyisi
-    komentorivillä muotoon "Odottamaton virhe -- ohjelmavirhe", exit 2, vaikka
-    korjaus on käyttäjän omassa settings.tomlissa.
+    **A settings error, not a program error**: a bare ``ValueError`` would
+    reach the command line as "Unexpected error -- a program error", exit 2,
+    although the fix is in the user's own settings.toml.
     """
-    with pytest.raises(SettingsError, match="tunnettujen luokkien"):
+    with pytest.raises(SettingsError, match="known classes"):
         class_labels(6, 5)
 
 
 @pytest.mark.parametrize("size,minimum", [(0, 0), (5, 0), (5, 6), (-1, 1)])
 def test_impossible_thresholds_are_settings_errors(size: int, minimum: int) -> None:
-    with pytest.raises(SettingsError, match="settings.tomlissa"):
+    with pytest.raises(SettingsError, match="settings.toml"):
         class_labels(size, minimum)
 
 
-# -- Järjestys ja yhteenvetoluvut -------------------------------------------
+# -- The order and the summary numbers ---------------------------------------
 
 
 def test_rows_sort_by_match_and_then_map_index() -> None:
-    """Diffattavuus: kahden ajon ero on luettava vain vakaassa järjestyksessä."""
+    """Diffability: the difference between two runs is readable only in a
+    stable order."""
     rows = [
         decide(candidate(REGULARS[:5], index=1)),
         decide(candidate(REGULARS[:5], index=0)),
@@ -525,7 +550,8 @@ def test_rows_sort_by_match_and_then_map_index() -> None:
 
 
 def test_the_counts_are_computed_from_the_rows_themselves() -> None:
-    """Tiedosto ja yhteenveto eivät voi kertoa eri asiaa, koska lähde on sama."""
+    """The file and the summary cannot say different things, because the
+    source is the same."""
     rows = select_maps(
         [
             candidate(REGULARS[:5], index=0),
@@ -550,7 +576,7 @@ def test_the_counts_are_computed_from_the_rows_themselves() -> None:
     assert numbers["class_4/5"] == 1
 
 
-def test_the_source_names_are_finnish_and_cover_every_source() -> None:
+def test_the_source_names_cover_every_source() -> None:
     assert set(ROSTER_SOURCE_FI) == set(ROSTER_SOURCES)
-    assert ROSTER_SOURCE_FI["observed"] == "havainto"
-    assert ROSTER_SOURCE_FI["predicted"] == "ennuste"
+    assert ROSTER_SOURCE_FI["observed"] == "observation"
+    assert ROSTER_SOURCE_FI["predicted"] == "prediction"

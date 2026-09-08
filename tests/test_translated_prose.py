@@ -162,6 +162,41 @@ TRANSLATED_TRANCHES: tuple[Tranche, ...] = (
         ),
         tests=("tests/test_constants.py",),
     ),
+    Tranche(
+        story="T9",
+        # Six of the eleven modules in ``domain``. The package cannot be
+        # listed yet: aggregate, economy, models, report and sampling are
+        # still Finnish.
+        sources=(
+            ("src/pappascout/domain/rounds.py", 1),
+            ("src/pappascout/domain/selection.py", 1),
+            ("src/pappascout/domain/teams.py", 1),
+            ("src/pappascout/domain/utility.py", 1),
+            ("src/pappascout/domain/schemas.py", 1),
+            ("src/pappascout/domain/__init__.py", 1),
+        ),
+        tests=(
+            "tests/test_rounds.py",
+            "tests/test_selection.py",
+            "tests/test_teams.py",
+            "tests/test_utility.py",
+            "tests/test_schemas.py",
+        ),
+    ),
+    Tranche(
+        story="T4",
+        # The fifth and last module in ``adapters``. The whole package is
+        # translated as of this entry, so the three T2 sources and the T3
+        # source could collapse into one ("src/pappascout/adapters", 5).
+        # Left as modules deliberately: the collapse is an edit to three
+        # other tranches' records, and a record of what each tranche did is
+        # worth more than a shorter list.
+        sources=(("src/pappascout/adapters/demo_parser.py", 1),),
+        tests=(
+            "tests/test_demo_parser.py",
+            "tests/test_demo_parser_logic.py",
+        ),
+    ),
 )
 
 #: Every listed path with its recorded minimum, flattened out of the tranches.

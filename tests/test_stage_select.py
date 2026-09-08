@@ -325,7 +325,7 @@ def test_four_regulars_and_one_outsider_is_accepted_and_the_reason_names_them(
     for row in document["selections"]:
         assert row["roster_class"] == "4/5"
         assert len(row["outsiders"]) == 1
-        assert "ulkopuolelta" in row["roster_reason"]
+        assert "From outside the standing roster" in row["roster_reason"]
 
 
 def test_the_reason_names_the_outsider_by_nickname_end_to_end(
@@ -470,7 +470,7 @@ def test_a_third_map_in_a_best_of_three_is_not_counted_into_the_sample(
     assert result.stats["uncertain"] == 1
     assert rows[2]["roster_ok"] is False
     assert rows[2]["certainly_played"] is False
-    assert "ottelun pituus" in rows[2]["roster_reason"]
+    assert "match length" in rows[2]["roster_reason"]
     assert rows[0]["roster_ok"] is True
     assert rows[1]["roster_ok"] is True
 
@@ -527,7 +527,7 @@ def test_an_unparsed_map_is_a_prediction_from_the_match_roster(
     assert result.stats["observed"] == 0
     for row in document["selections"]:
         assert row["roster_source"] == "predicted"
-        assert "ennuste" in row["roster_reason"]
+        assert "prediction" in row["roster_reason"]
 
 
 def test_a_parsed_map_is_an_observation_from_the_demo(
@@ -549,7 +549,7 @@ def test_a_parsed_map_is_an_observation_from_the_demo(
 
     rows = rows_by_index(archive)
     assert rows[0]["roster_source"] == "observed"
-    assert "havainto" in rows[0]["roster_reason"]
+    assert "observation" in rows[0]["roster_reason"]
     assert rows[1]["roster_source"] == "predicted"
     assert result.stats["observed"] == 1
     assert result.stats["predicted"] == 1
@@ -577,7 +577,7 @@ def test_the_observation_wins_and_the_difference_is_told(
     assert rows[1]["roster_class"] == "4/5"
     assert rows[1]["joined"] == [outsider]
     assert rows[1]["left"] == [roster[4]]
-    assert "eroaa ottelurosterista" in rows[1]["roster_reason"]
+    assert "differs from the match roster" in rows[1]["roster_reason"]
     assert result.stats["drifted"] == 1
 
 
@@ -600,7 +600,7 @@ def test_a_short_lineup_is_accepted_but_the_reason_admits_the_size(
     assert rows[0]["roster_class"] == "4/5"
     assert rows[0]["outsiders"] == []
     assert rows[0]["players_seen"] == 4
-    assert "Ulkopuolisia ei ollut" in rows[0]["roster_reason"]
+    assert "There were no outsiders" in rows[0]["roster_reason"]
 
 
 def test_a_long_lineup_is_the_full_class_and_the_reason_admits_the_size(
@@ -625,7 +625,7 @@ def test_a_long_lineup_is_the_full_class_and_the_reason_admits_the_size(
     rows = rows_by_index(archive)
     assert rows[0]["roster_class"] == "5/5"
     assert rows[0]["players_seen"] == 6
-    assert "odotetun 5 sijaan" in rows[0]["roster_reason"]
+    assert "instead of the expected 5" in rows[0]["roster_reason"]
 
 
 def test_a_demo_without_this_team_does_not_become_a_false_observation(

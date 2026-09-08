@@ -1,5 +1,5 @@
-"""Puhdas domain-kerros: pelisäännöt ja jaetut taulusopimukset.
+"""The pure domain layer: the rules of the game and the shared table contracts.
 
-``domain`` ei tee I/O:ta eikä tuo mitään muista pappascout-paketeista
-(poikkeuksena ``constants`` ja ``errors``, joilla ei ole riippuvuuksia).
+``domain`` does no I/O and imports nothing from the other pappascout packages
+(``constants`` and ``errors`` are the exception; they have no dependencies).
 """

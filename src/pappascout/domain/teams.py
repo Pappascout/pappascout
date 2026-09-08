@@ -1,51 +1,52 @@
-"""Joukkueen identiteetti: nimihaku ja vakirosteri (Story 3.2).
+"""Team identity: name lookup and the standing roster (Story 3.2).
 
-Moduuli on **puhdas**: se ei tunne HTTP:tä, tiedostoja eikä FACEITin sanastoa.
-Sisään tulee :class:`TeamObservation` -- yksi havainto joukkueesta yhdessä
-ottelussa -- ja ulos tulee :class:`Team`. Muunnoksen lähteen sanastosta tekee
-``stages.discover``, joten tämän moduulin säännöt ovat testattavissa käsin
-rakennetuilla havainnoilla ilman verkkoa.
+The module is **pure**: it knows nothing of HTTP, of files, or of FACEIT's
+vocabulary. In comes :class:`TeamObservation` -- one observation of a team in
+one match -- and out comes :class:`Team`. ``stages.discover`` does the
+translation from the source's vocabulary, so this module's rules can be tested
+with hand-built observations, without the network.
 
-Neljä sääntöä, jotka tämä moduuli pitää voimassa
-------------------------------------------------
+Four rules this module keeps
+----------------------------
 
-**Identiteetti on rosteri, tunniste on vain tunniste.** Lähteen oma
-joukkuetunniste (FACEITillä ``faction_id``) on *avain*, ei identiteetti: uusi
-kausi tai uudelleenrekisteröinti antaa samalle porukalle uuden tunnisteen, ja
-kierrätetty tunniste antaisi kahdelle eri porukalle saman. :func:`build_teams`
-liittää siksi kaksi tunnistetta samaksi joukkueeksi, kun niiden rosterit
-jakavat vähintään ``min_common`` pelaajaa -- sama kynnys
-(``[thresholds].team_identity_min_common``) ja sama vertailutapa kuin
-``domain.aggregate.lineups_of_same_team``illa. **Kanoninen ``team_key`` on
-varhaisimman havainnon tunniste**, joten se ei muutu, kun uusi kausi tuo uuden
-tunnisteen.
+**Identity is the roster; an id is only an id.** The source's own team id
+(``faction_id`` at FACEIT) is a *key*, not an identity: a new season or a
+re-registration gives the same group of people a new id, and a recycled id
+would give two different groups the same one. :func:`build_teams` therefore
+joins two ids into the same team when their rosters share at least
+``min_common`` players -- the same threshold
+(``[thresholds].team_identity_min_common``) and the same way of comparing as
+``domain.aggregate.lineups_of_same_team``. **The canonical ``team_key`` is the
+id of the earliest observation**, so it does not change when a new season
+brings a new id.
 
-*Tätä sääntöä ei voi todentaa nykyistä live-aineistoa vasten*: asetuksissa on
-yksi championship, ja mitattu tulos oli tasan yksi ``faction_id`` per joukkue.
-Sääntö on siis yksikkötesteillä todennettu ja odottaa toista kautta -- se
-sanotaan tässä ääneen, jottei lukija luulisi sitä mitatuksi.
+*This rule cannot be verified against the current live data*: the settings
+hold one championship, and the measured result was exactly one ``faction_id``
+per team. The rule is therefore verified by unit tests and is waiting for a
+second season -- which is said here out loud, so that the reader does not take
+it for measured.
 
-**Rosteri on yhdiste, ei viimeisin ottelu.** Rosteri kootaan joukkueen
-*kaikista* otteluista, ja siinä ovat sekä aloittajat että vaihtopelaajat.
-Viimeisin ottelu kertoisi vain siitä illasta, ja pelkkä ``roster`` aliarvioisi
-joukkueen järjestelmällisesti: mitattu 2026-09-04, ``Lindberq_`` on arkiston
-demossa muttei kertaakaan Rcave Veteransin ``roster``issa.
+**The roster is a union, not the latest match.** The roster is gathered from
+*all* of the team's matches, and it holds both the starters and the
+substitutes. The latest match would tell only about that evening, and the
+``roster`` alone would underestimate the team systematically: measured
+2026-09-04, ``Lindberq_`` is in a demo in the archive but not once in Rcave
+Veterans' ``roster``.
 
-**Yhdiste ei kuitenkaan ole ikuinen.** Kesken kauden siirtyvä pelaaja jäisi
-pelkällä yhdisteellä molempiin joukkueisiin pysyvästi, ja se paisuttaisi
-rostereita sekä vääristäisi rosterikynnystä (Story 3.3). Sääntö on siksi:
-**pelaaja kuuluu siihen joukkueeseen, joka havaitsi hänet viimeksi**; aiemmat
-joukkueet säilyttävät hänet :attr:`Team.released`issä, jottei havainto katoa.
-Jos kaksi joukkuetta havaitsi hänet **yhtä myöhään** -- tai jos havaintojen
-aika ei ole tiedossa -- häntä ei siirretä kummastakaan, vaan hän on molempien
-:attr:`Team.shared_players`issä. Kiistaa ei ratkaista arpomalla.
+**The union is not eternal, though.** A player transferring mid-season would,
+under a plain union, stay in both teams for ever, and that would inflate the
+rosters and distort the roster threshold (Story 3.3). The rule is therefore:
+**a player belongs to the team that observed them last**; the earlier teams
+keep them in :attr:`Team.released`, so that the observation is not lost. If
+two teams observed them **equally late** -- or if the time of the observations
+is not known -- they are moved out of neither, and are in both teams'
+:attr:`Team.shared_players`. The dispute is not settled by drawing lots.
 
-**Monitulkintaisuus on tulos, ei poikkeus.** :func:`find_teams` palauttaa aina
-:class:`TeamLookup`in, jossa osumia voi olla nolla, yksi tai monta. Hiljainen
-"otetaan ensimmäinen" olisi juuri se virhe, jota vastaan sääntö on kirjoitettu:
-divisioonan alkukirjain ``T`` osuu kolmeen joukkueeseen (``TUUHEE``,
-``Takakeno``, ``Tankkiluola vilttiketju``), eikä mikään niistä ole
-"todennäköisesti se oikea".
+**Ambiguity is a result, not an exception.** :func:`find_teams` always returns
+a :class:`TeamLookup`, in which there may be zero, one or many hits. A silent
+"take the first" would be exactly the mistake the rule is written against: the
+division's initial letter ``T`` hits three teams (``TUUHEE``, ``Takakeno``,
+``Tankkiluola vilttiketju``), and none of them is "probably the right one".
 """
 
 from __future__ import annotations
@@ -68,28 +69,31 @@ __all__ = [
     "assign_lineup_keys",
 ]
 
-#: SteamID64:n pituus merkkeinä. Kaikki CS2-tilit ovat tässä pituudessa.
+#: The length of a SteamID64 in characters. Every CS2 account is this long.
 STEAM_ID64_LENGTH = 17
 
-#: Pienin mahdollinen SteamID64 (``STEAM_0:0:0``, universumi 1, tyyppi 1).
+#: The smallest possible SteamID64 (``STEAM_0:0:0``, universe 1, type 1).
 #:
-#: Tarkistus on väli eikä pelkkä numeroisuus, koska ``game_player_id`` on
-#: **lähteen antama merkkijono** eikä tämän ohjelman kirjoittama arvo. Pelkkä
-#: "17 numeroa" hyväksyisi minkä tahansa 17-numeroisen luvun, ja väärä tunniste
-#: näyttäisi myöhemmin tyhjältä leikkaukselta demoihin -- ei virheeltä.
+#: The check is a range rather than mere digitness, because
+#: ``game_player_id`` is a **string given by the source** and not a value this
+#: program wrote. A plain "17 digits" would accept any 17-digit number, and a
+#: wrong id would later look like an empty intersection with the demos -- not
+#: like an error.
 STEAM_ID64_BASE = 76561197960265728
 
-#: Suurin mahdollinen yksilötilin SteamID64: :data:`STEAM_ID64_BASE` plus
-#: 32-bittisen tilitunnuksen suurin arvo (``0xFFFFFFFF``).
+#: The largest possible SteamID64 of an individual account:
+#: :data:`STEAM_ID64_BASE` plus the largest value of the 32-bit account number
+#: (``0xFFFFFFFF``).
 #:
-#: **Yläraja on yhtä tarpeellinen kuin alaraja.** Ilman sitä esimerkiksi
-#: ``"99999999999999999"`` kelpaisi tunnisteeksi: se on 17 numeroa ja suurempi
-#: kuin alaraja, mutta se ei ole yhdenkään olemassa olevan tilin tunniste.
+#: **The upper bound is as necessary as the lower one.** Without it, for
+#: example ``"99999999999999999"`` would pass as an id: it is 17 digits and
+#: larger than the lower bound, but it is not the id of any account that
+#: exists.
 STEAM_ID64_MAX = STEAM_ID64_BASE + 0xFFFFFFFF
 
 
 def is_steam_id64(value: object) -> bool:
-    """Onko arvo SteamID64-muotoinen yksilötilin tunniste?
+    """Is the value an individual account id in SteamID64 form?
 
     >>> is_steam_id64("76561197977479426")
     True
@@ -109,19 +113,19 @@ def is_steam_id64(value: object) -> bool:
 
 @dataclass(frozen=True)
 class RosterMember:
-    """Yksi pelaaja joukkueen rosterissa.
+    """One player in a team's roster.
 
     Attributes:
-        game_player_id: **SteamID64 ja ainoa avain.** Sillä pelaaja liitetään
-            demon kokoonpanotauluun.
-        nickname: Useimmin havaittu nimimerkki, tai ``None``. Ihmiselle
-            näytettävä nimi; ei koskaan avain, koska se voi vaihtua.
-        player_id: Lähteen oma pelaajatunniste (FACEITillä UUID), tai ``None``.
-            Mukana jäljitettävyyttä varten -- sillä pelaajan tiedot haetaan
-            rajapinnasta, mutta demoihin se ei liity.
-        alternative_nicknames: Muut havaitut nimimerkit. Nimimerkin vaihtuminen
-            on havainto samalla tavalla kuin joukkueen nimen vaihtuminen, eikä
-            sitä siksi piiloteta kummassakaan tapauksessa.
+        game_player_id: **The SteamID64, and the only key.** It is what joins
+            the player to the demo's lineup table.
+        nickname: The most often observed nickname, or ``None``. The name
+            shown to a human; never a key, because it can change.
+        player_id: The source's own player id (a UUID at FACEIT), or ``None``.
+            Kept for traceability -- it is what fetches the player's details
+            from the API, but it does not connect to the demos.
+        alternative_nicknames: The other observed nicknames. A nickname
+            changing is an observation in the same way a team name changing
+            is, and neither is therefore hidden.
     """
 
     game_player_id: str
@@ -132,41 +136,43 @@ class RosterMember:
     def __post_init__(self) -> None:
         if not is_steam_id64(self.game_player_id):
             raise ValueError(
-                f"Rosterin tunniste {self.game_player_id!r} ei ole "
-                "SteamID64-muotoinen, joten sitä ei voi liittää demoihin."
+                f"The roster id {self.game_player_id!r} is not in SteamID64 "
+                "form, so it cannot be joined to the demos."
             )
 
     @property
     def display_name(self) -> str:
-        """Nimimerkki, tai tunniste jos nimimerkkiä ei havaittu."""
+        """The nickname, or the id if no nickname was observed."""
         return self.nickname if self.nickname else self.game_player_id
 
 
 @dataclass(frozen=True)
 class TeamObservation:
-    """Yksi havainto joukkueesta yhdessä ottelussa.
+    """One observation of a team in one match.
 
-    Tämä on moduulin **syöte** ja samalla se raja, jonka taakse lähteen sanasto
-    jää. ``stages.discover`` muuntaa ottelut näiksi; testi rakentaa ne käsin.
+    This is the module's **input** and at the same time the boundary behind
+    which the source's vocabulary stays. ``stages.discover`` turns matches
+    into these; a test builds them by hand.
 
     Attributes:
-        faction_id: Joukkueen tunniste lähteessä. **Avain, ei identiteetti**:
-            :func:`build_teams` päättää, mitkä tunnisteet ovat sama joukkue.
-        match_id: Ottelu, josta havainto on. Sama joukkue esiintyy monessa.
-        observed_at: Havainnon hetki (ottelun aikataulu tai alku), tai ``None``
-            jos aikaa ei tiedetä. **Tämä on se, mikä tekee sanoista
-            "ensimmäinen" ja "viimeisin" tosia.** Ilman sitä järjestys olisi
-            ``match_id``-merkkijonojärjestys, ja FACEITin tunnisteet ovat
-            UUID-pohjaisia -- eli järjestys olisi satunnainen ja "viimeksi
-            havaittu joukkue" tarkoittaisi "aakkosissa viimeinen".
-        name: Joukkueen nimi havaintona, tai ``None``.
-        played: Onko ottelu pelattu. Vaikuttaa vain lukuun "pelattuja
-            otteluita" -- **ei rosteriin**: pelattujen otteluiden määrä ei saa
-            vaikuttaa siihen, tunnetaanko joukkue. Mitattu 2026-09-04,
-            ``PotkukelkkaPeek``illä on yksi pelattu ottelu yhdestätoista ja
-            silti täysi kahdeksan pelaajan vakirosteri.
-        roster: Aloittajat lähteen järjestyksessä.
-        substitutes: Vaihtopelaajat lähteen järjestyksessä.
+        faction_id: The team's id in the source. **A key, not an identity**:
+            :func:`build_teams` decides which ids are the same team.
+        match_id: The match the observation comes from. The same team appears
+            in many.
+        observed_at: The moment of the observation (the match's schedule or
+            start), or ``None`` if the time is not known. **This is what makes
+            the words "first" and "latest" true.** Without it the order would
+            be the string order of ``match_id``, and FACEIT's ids are
+            UUID-based -- that is, the order would be arbitrary and "the team
+            observed last" would mean "the last one alphabetically".
+        name: The team's name as an observation, or ``None``.
+        played: Whether the match has been played. Affects only the number
+            "matches played" -- **not the roster**: the number of matches
+            played must not affect whether the team is known. Measured
+            2026-09-04, ``PotkukelkkaPeek`` has one played match out of eleven
+            and still a full eight-player standing roster.
+        roster: The starters in the source's order.
+        substitutes: The substitutes in the source's order.
     """
 
     faction_id: str
@@ -179,35 +185,39 @@ class TeamObservation:
 
     @property
     def everyone(self) -> tuple[RosterMember, ...]:
-        """Aloittajat ja vaihtopelaajat yhtenä listana."""
+        """The starters and the substitutes as one list."""
         return self.roster + self.substitutes
 
 
 @dataclass(frozen=True)
 class Team:
-    """Yksi joukkue vakirostereineen.
+    """One team with its standing roster.
 
     Attributes:
-        team_key: **Kanoninen tunniste**: varhaisimman havainnon ``faction_id``.
-            Ei muutu, kun joukkue saa uuden tunnisteen uudella kaudella.
-        faction_ids: Kaikki lähteen tunnisteet, jotka tunnistettiin tähän
-            joukkueeseen, varhaisin ensin. Yleensä yksi.
-        name: Yleisimmin havaittu nimi, tai ``None`` jos nimeä ei havaittu.
-        roster: Vakirosteri: aloittajat ja vaihtopelaajat yhdisteenä kaikista
-            otteluista, **paitsi** ne, jotka on sittemmin havaittu toisessa
-            joukkueessa. Järjestys on nimimerkin mukainen, nimettömät lopussa.
-        released: Pelaajat, jotka havaittiin tässä joukkueessa mutta myöhemmin
-            toisessa. Eivät ole rosterissa, mutta eivät myöskään kadonneet.
-        shared_players: SteamID64:t, jotka toinen joukkue havaitsi **yhtä
-            myöhään**. Nämä ovat yhä rosterissa, koska kiistaa ei ratkaista
-            arpomalla -- mutta se, että kiista on olemassa, on luettavissa.
-        match_ids: Kaikki ottelut, joissa joukkue esiintyi, aikajärjestyksessä.
-        played_match_ids: Niistä pelatut.
-        lineup_keys: Arkistosta tunnistetut kokoonpanotiivisteet, jos niitä on
-            liitetty (:func:`assign_lineup_keys`). **Ei identiteetti vaan
-            silta**: tiiviste vaihtuu yhdestäkin vaihdosta, ``team_key`` ei.
-        alternative_names: Muut havaitut nimet ``name``n lisäksi. Nimenvaihto
-            on havainto, jota ei piiloteta.
+        team_key: **The canonical id**: the ``faction_id`` of the earliest
+            observation. It does not change when the team gets a new id in a
+            new season.
+        faction_ids: Every id from the source that was recognised as this
+            team, earliest first. Usually one.
+        name: The most commonly observed name, or ``None`` if no name was
+            observed.
+        roster: The standing roster: the starters and the substitutes as a
+            union over all the matches, **except** those since observed in
+            another team. The order is by nickname, the nameless last.
+        released: The players observed in this team but later in another.
+            They are not in the roster, but neither have they vanished.
+        shared_players: The SteamID64s that another team observed **equally
+            late**. These are still in the roster, because the dispute is not
+            settled by drawing lots -- but the fact that a dispute exists can
+            be read.
+        match_ids: Every match the team appeared in, in chronological order.
+        played_match_ids: The played ones among them.
+        lineup_keys: The lineup hashes recognised from the archive, if any
+            have been attached (:func:`assign_lineup_keys`). **Not an identity
+            but a bridge**: the hash changes on a single substitution,
+            ``team_key`` does not.
+        alternative_names: The other observed names besides ``name``. A name
+            change is an observation, and it is not hidden.
     """
 
     team_key: str
@@ -223,12 +233,13 @@ class Team:
 
     @property
     def display_name(self) -> str:
-        """Nimi, tai tunniste jos nimeä ei havaittu."""
+        """The name, or the id if no name was observed."""
         return self.name if self.name else self.team_key
 
     @property
     def player_ids(self) -> frozenset[str]:
-        """Vakirosteri SteamID64-joukkona -- se, mikä liittyy demoihin."""
+        """The standing roster as a set of SteamID64s -- what joins to the
+        demos."""
         return frozenset(member.game_player_id for member in self.roster)
 
     @property
@@ -238,16 +249,17 @@ class Team:
 
 @dataclass(frozen=True)
 class TeamLookup:
-    """Nimihaun tulos. **Monitulkintaisuus on tässä, ei poikkeuksessa.**
+    """The result of a name lookup. **Ambiguity lives here, not in an
+    exception.**
 
     Attributes:
-        query: Haku sellaisenaan kuin käyttäjä sen kirjoitti.
-        teams: Osumat. Nolla, yksi tai monta -- kaikki kolme ovat kelvollisia
-            tuloksia, ja kutsuja päättää mitä niistä seuraa.
-        matched_by: Miten osumat löytyivät (``"name"``, ``"team_key"``,
-            ``"prefix"`` tai ``"contains"``), tai ``None`` jos osumia ei ole.
-            Mukana siksi, että "miksi juuri nämä" on luettavissa eikä
-            arvattavissa.
+        query: The query exactly as the user wrote it.
+        teams: The hits. Zero, one or many -- all three are valid results, and
+            the caller decides what follows from them.
+        matched_by: How the hits were found (``"name"``, ``"team_key"``,
+            ``"prefix"`` or ``"contains"``), or ``None`` if there are no hits.
+            Included so that "why exactly these" can be read rather than
+            guessed.
     """
 
     query: str
@@ -268,26 +280,27 @@ class TeamLookup:
 
     @property
     def team(self) -> Team:
-        """Ainoa osuma.
+        """The only hit.
 
         Raises:
-            ValueError: Jos osumia ei ole tai niitä on monta. Kutsujan on
-                kysyttävä valinta ennen tätä; hiljainen valinta on kielletty.
+            ValueError: If there are no hits or there are many. The caller has
+                to ask for the choice before this; a silent choice is
+                forbidden.
         """
         if not self.is_unique:
             raise ValueError(
-                f"Haku {self.query!r} ei tuottanut yhtä ainoaa joukkuetta "
-                f"vaan {len(self.teams)}. Valinta on kysyttävä."
+                f"The query {self.query!r} did not produce one single team "
+                f"but {len(self.teams)}. The choice has to be asked for."
             )
         return self.teams[0]
 
 
-# -- Joukkueiden kokoaminen --------------------------------------------------
+# -- Assembling the teams ----------------------------------------------------
 
 
 @dataclass
 class _Faction:
-    """Yhden lähdetunnisteen kertymä ennen kuin identiteetti on ratkaistu."""
+    """The accumulation for one source id, before identity is resolved."""
 
     faction_id: str
     members: dict[str, RosterMember]
@@ -295,57 +308,57 @@ class _Faction:
     names: dict[str, int]
     match_ids: list[str]
     played_match_ids: list[str]
-    #: Pelaajan viimeisin havaintohetki tämän tunnisteen alla. ``None``
-    #: tarkoittaa "aika ei tiedossa", ja se on eri asia kuin varhainen hetki.
+    #: The player's latest observation moment under this id. ``None`` means
+    #: "the time is not known", and that is a different thing from an early
+    #: moment.
     last_seen: dict[str, datetime | None]
 
 
 def build_teams(
     observations: Iterable[TeamObservation], *, min_common: int
 ) -> tuple[Team, ...]:
-    """Kokoa havainnoista joukkueet vakirostereineen.
+    """Assemble the teams with their standing rosters from the observations.
 
-    Kolme vaihetta, ja jokainen toteuttaa yhden moduulin säännöistä:
+    Three phases, and each carries out one of the module's rules:
 
-    1. **Kertymä tunnisteittain.** Rosteri on aloittajien ja vaihtopelaajien
-       yhdiste, avaimena ``game_player_id``.
-    2. **Identiteetti rosterista.** Kaksi tunnistetta ovat sama joukkue, kun
-       niiden rosterit jakavat vähintään ``min_common`` pelaajaa. Vertailu
-       tehdään **ankkuriin**, ei ketjuna: ketjuttaminen liittäisi kaksi eri
-       joukkuetta toisiinsa yhden välissä olevan kokoonpanon kautta. Sama
-       peruste kuin ``domain.aggregate.lineups_of_same_team``illa.
-    3. **Siirtyneet pelaajat pois rosterista.** Pelaaja kuuluu siihen
-       joukkueeseen, joka havaitsi hänet viimeksi; muissa hän on
-       :attr:`Team.released`issä. Yhtä myöhäinen havainto kahdessa joukkueessa
-       ei siirrä ketään -- se kirjataan :attr:`Team.shared_players`iin.
+    1. **Accumulation per id.** The roster is the union of the starters and
+       the substitutes, keyed by ``game_player_id``.
+    2. **Identity from the roster.** Two ids are the same team when their
+       rosters share at least ``min_common`` players. The comparison is made
+       against the **anchor**, not as a chain: chaining would join two
+       different teams through one lineup that sits between them. The same
+       reasoning as in ``domain.aggregate.lineups_of_same_team``.
+    3. **Transferred players out of the roster.** A player belongs to the team
+       that observed them last; in the others they are in
+       :attr:`Team.released`. An equally late observation in two teams moves
+       nobody -- it is recorded in :attr:`Team.shared_players`.
 
-    Nimeksi tulee **useimmin havaittu** nimi; sama sääntö koskee nimimerkkejä.
-    Tasatilanteessa aakkosjärjestys ratkaisee, jottei tulos riipu siitä, missä
-    järjestyksessä ottelut sattuivat tulemaan.
+    The name becomes the **most often observed** one; the same rule applies to
+    nicknames. A tie is settled alphabetically, so that the result does not
+    depend on the order the matches happened to arrive in.
 
     Args:
-        observations: Havainnot missä tahansa järjestyksessä. Funktio järjestää
-            ne itse ``observed_at``in mukaan, joten tulos ei riipu syötteen
-            järjestyksestä.
-        min_common: Vähimmäismäärä yhteisiä pelaajia, jolla kaksi
-            lähdetunnistetta ovat sama joukkue
+        observations: The observations in any order. The function sorts them
+            itself by ``observed_at``, so the result does not depend on the
+            order of the input.
+        min_common: The minimum number of shared players at which two source
+            ids are the same team
             (``[thresholds].team_identity_min_common``).
-            **Avainsanaparametri**: paljas kokonaisluku havaintolistan perässä
-            olisi vaihdettavissa mihin tahansa muuhun lukuun ilman että mikään
-            huomauttaisi.
+            **A keyword parameter**: a bare integer after the list of
+            observations would be interchangeable with any other number
+            without anything remarking on it.
 
     Returns:
-        Joukkueet nimen mukaan järjestettynä (nimettömät lopussa).
+        The teams sorted by name (the nameless last).
 
     Raises:
-        ValueError: Jos ``min_common`` ei ole positiivinen. Nolla liittäisi
-            jokaisen tunnisteen jokaiseen, eli koko divisioona olisi yksi
-            joukkue.
+        ValueError: If ``min_common`` is not positive. Zero would join every
+            id to every other, that is, the whole division would be one team.
     """
     if min_common < 1:
         raise ValueError(
-            f"Joukkueiden liittämisen kynnyksen on oltava vähintään 1, oli "
-            f"{min_common}. Nolla tekisi koko divisioonasta yhden joukkueen."
+            f"The threshold for joining teams has to be at least 1, it was "
+            f"{min_common}. Zero would make the whole division one team."
         )
 
     ordered = sorted(observations, key=_observation_order)
@@ -355,10 +368,10 @@ def build_teams(
 
 
 def _observation_order(observation: TeamObservation) -> tuple[int, float, str, str]:
-    """Aikajärjestys; ajattomat havainnot viimeisenä, sitten ``match_id``.
+    """Chronological order; timeless observations last, then ``match_id``.
 
-    Ajaton havainto ei ole "vanhin" vaan "ei tiedossa", joten se ei saa
-    ratkaista, mikä tunniste on kanoninen.
+    A timeless observation is not "the oldest" but "not known", so it must not
+    decide which id is the canonical one.
     """
     moment = observation.observed_at
     if moment is None:
@@ -367,7 +380,7 @@ def _observation_order(observation: TeamObservation) -> tuple[int, float, str, s
 
 
 def _collect(ordered: Sequence[TeamObservation]) -> list[_Faction]:
-    """Kerää havainnot lähdetunnisteittain, aikajärjestys säilyttäen."""
+    """Gather the observations per source id, preserving chronological order."""
     factions: dict[str, _Faction] = {}
     for observation in ordered:
         faction = factions.get(observation.faction_id)
@@ -406,12 +419,12 @@ def _collect(ordered: Sequence[TeamObservation]) -> list[_Faction]:
 def _later(
     known: datetime | None, candidate: datetime | None, *, seen: bool
 ) -> datetime | None:
-    """Myöhempi kahdesta hetkestä; **tuntematon voittaa tunnetun**.
+    """The later of two moments; **the unknown beats the known**.
 
-    Tuntematon hetki ei ole varhainen hetki: jos pelaaja on havaittu kerran
-    ilman aikaa, emme voi väittää tietävämme, milloin hänet nähtiin viimeksi.
-    Sen pitäminen ``None``ina jättää hänet kiistanalaiseksi eikä siirrä häntä
-    väärään joukkueeseen.
+    An unknown moment is not an early moment: if a player has been observed
+    once without a time, we cannot claim to know when they were last seen.
+    Keeping it ``None`` leaves them disputed and does not move them into the
+    wrong team.
     """
     if not seen:
         return candidate
@@ -421,14 +434,14 @@ def _later(
 
 
 def _cluster(factions: Sequence[_Faction], min_common: int) -> list[list[_Faction]]:
-    """Ryhmittele lähdetunnisteet joukkueiksi rosterin perusteella.
+    """Group the source ids into teams on the basis of the roster.
 
-    Tunniste liitetään siihen ryhmään, jonka **ankkurin** rosterin kanssa sillä
-    on eniten yhteisiä pelaajia, kun yhteisiä on vähintään ``min_common``.
-    Ankkuri on ryhmän varhaisin tunniste, ja vertailu tehdään aina siihen --
-    ei ryhmän kasvaneeseen yhdisteeseen. Näin liittäminen ei ketjuunnu: A--B ja
-    B--C eivät tee A:sta ja C:stä samaa joukkuetta, ellei A jaa kynnyksen
-    verran pelaajia myös C:n kanssa.
+    An id is joined to the group whose **anchor** roster it shares the most
+    players with, provided the shared count is at least ``min_common``. The
+    anchor is the group's earliest id, and the comparison is always made
+    against it -- not against the group's grown union. This way joining does
+    not chain: A--B and B--C do not make A and C the same team unless A also
+    shares the threshold's worth of players with C.
     """
     clusters: list[list[_Faction]] = []
     anchors: list[frozenset[str]] = []
@@ -450,10 +463,10 @@ def _cluster(factions: Sequence[_Faction], min_common: int) -> list[list[_Factio
 
 
 def _teams(clusters: Sequence[Sequence[_Faction]]) -> list[Team]:
-    """Muunna ryhmät joukkueiksi ja ratkaise siirtyneet pelaajat."""
-    #: Pelaajan viimeisin havaintohetki **jokaisessa** joukkueessa. Tarvitaan
-    #: ennen kuin yhtäkään rosteria voi rajata: siirtyminen on kahden
-    #: joukkueen välinen asia, eikä se näy kummastakaan yksin.
+    """Turn the groups into teams and resolve the transferred players."""
+    #: The player's latest observation moment in **every** team. Needed before
+    #: any roster can be narrowed: a transfer is a matter between two teams,
+    #: and it is not visible in either one alone.
     latest: dict[str, dict[int, datetime | None]] = {}
     for index, cluster in enumerate(clusters):
         for faction in cluster:
@@ -496,7 +509,7 @@ def _teams(clusters: Sequence[Sequence[_Faction]]) -> list[Team]:
 
 
 def _merge_factions(cluster: Sequence[_Faction]) -> _Faction:
-    """Yhdistä ryhmän tunnisteet yhdeksi kertymäksi, järjestys säilyttäen."""
+    """Merge the group's ids into one accumulation, preserving the order."""
     merged = _Faction(
         faction_id=cluster[0].faction_id,
         members={},
@@ -525,14 +538,15 @@ def _merge_factions(cluster: Sequence[_Faction]) -> _Faction:
 
 
 def _belongs(per_team: Mapping[int, datetime | None], index: int) -> str:
-    """Kuuluuko pelaaja tähän joukkueeseen: ``own``, ``shared`` vai ``released``?
+    """Does the player belong to this team: ``own``, ``shared`` or
+    ``released``?
 
-    * Yhdessä joukkueessa havaittu pelaaja on aina ``own`` -- pelaaja, joka on
-      ollut mukana vain kolmessa ottelussa yhdestätoista, ei ole siirtynyt
-      minnekään.
-    * Useammassa havaittu kuuluu sille, joka näki hänet **myöhimmin**.
-    * Yhtä myöhäinen -- tai tuntematon -- havainto on ``shared``: kiista, jota
-      ei ratkaista arpomalla.
+    * A player observed in one team is always ``own`` -- a player who has been
+      involved in only three matches out of eleven has not transferred
+      anywhere.
+    * One observed in several belongs to the one that saw them **latest**.
+    * An equally late -- or an unknown -- observation is ``shared``: a dispute
+      that is not settled by drawing lots.
     """
     if len(per_team) <= 1:
         return "own"
@@ -549,7 +563,7 @@ def _belongs(per_team: Mapping[int, datetime | None], index: int) -> str:
 
 
 def _merge_member(member: RosterMember, counts: Mapping[str, int]) -> RosterMember:
-    """Pelaaja, jonka nimimerkki on useimmin havaittu ja muut ovat tallessa."""
+    """The player with their most often observed nickname, the others kept."""
     if not counts:
         return member
     return replace(
@@ -560,11 +574,11 @@ def _merge_member(member: RosterMember, counts: Mapping[str, int]) -> RosterMemb
 
 
 def _best_key(counts: Mapping[str, int]) -> str | None:
-    """Useimmin havaittu arvo; tasatilanteessa aakkosjärjestyksen ensimmäinen.
+    """The most often observed value; on a tie the first alphabetically.
 
-    Aakkosjärjestys on ``casefold``attu samoin kuin joukkueiden järjestys
-    (:func:`_team_order`), jottei samassa moduulissa olisi kahta eri
-    aakkosjärjestystä.
+    The alphabetical order is ``casefold``ed in the same way as the order of
+    the teams (:func:`_team_order`), so that there are not two different
+    alphabetical orders in one module.
     """
     if not counts:
         return None
@@ -577,13 +591,13 @@ def _other_keys(counts: Mapping[str, int]) -> tuple[str, ...]:
 
 
 def _member_order(member: RosterMember) -> tuple[int, str, str]:
-    """Nimimerkin mukaan, nimettömät lopussa.
+    """By nickname, the nameless last.
 
-    Vertailu on nimimerkki **sellaisenaan** eikä pienaakkosiksi muutettuna:
-    juuri se tuottaa mittausdokumentin (luku 3) luettelemat rosterit siinä
-    järjestyksessä kuin ne siellä lukevat. Tämä on eri asia kuin
-    :func:`_best_key`in tasatilanteen ratkaisu, joka ei ole näytettävä
-    järjestys vaan valinta kahden yhtä usein havaitun arvon väliltä.
+    The comparison is the nickname **as it stands** and not lowercased: that
+    is exactly what produces the rosters listed in the measurement document
+    (section 3) in the order they are written there. This is a different thing
+    from :func:`_best_key`'s tie-break, which is not a display order but a
+    choice between two values observed equally often.
     """
     if member.nickname is None:
         return (1, "", member.game_player_id)
@@ -596,33 +610,34 @@ def _team_order(team: Team) -> tuple[int, str, str]:
     return (0, team.name.casefold(), team.team_key)
 
 
-# -- Nimihaku ----------------------------------------------------------------
+# -- Name lookup -------------------------------------------------------------
 
 
 def find_teams(teams: Sequence[Team], query: str) -> TeamLookup:
-    """Etsi joukkue nimellä. **Kirjainkoosta riippumatta, hiljaa valitsematta.**
+    """Find a team by name. **Case-insensitively, and without choosing
+    silently.**
 
-    Haku etenee tarkimmasta väljimpään, ja **ensimmäinen osuva taso ratkaisee**:
+    The lookup goes from the most precise to the loosest, and **the first
+    level that matches decides**:
 
-    1. nimi täsmälleen (kirjainkoosta riippumatta),
-    2. tunniste täsmälleen -- sekä kanoninen ``team_key`` että mikä tahansa
-       :attr:`Team.faction_ids`in tunniste, jotta vanhalla kausitunnisteella
-       löytää yhä saman joukkueen,
-    3. nimen alku,
-    4. nimen sisältä.
+    1. the name exactly (case-insensitively),
+    2. the id exactly -- both the canonical ``team_key`` and any id in
+       :attr:`Team.faction_ids`, so that an old season id still finds the same
+       team,
+    3. the start of the name,
+    4. the middle of the name.
 
-    Portaikko on siinä siksi, ettei täsmällinen nimi jäisi monitulkintaiseksi
-    vain siksi, että se sattuu olemaan toisen nimen alku. Jos taso tuottaa
-    monta osumaa, tulos on monitulkintainen -- myös silloin kun kaksi
-    joukkuetta on samannimistä. Valintaa **ei tehdä täällä**.
+    The ladder is there so that an exact name is not left ambiguous merely
+    because it happens to be the start of another name. If a level produces
+    many hits, the result is ambiguous -- including when two teams have the
+    same name. The choice is **not made here**.
 
     Args:
-        teams: Joukkueet, tavallisesti :func:`build_teams`in tulos.
-        query: Käyttäjän kirjoittama nimi, sen osa tai tunniste.
+        teams: The teams, usually the result of :func:`build_teams`.
+        query: The name, part of it, or the id, as written by the user.
 
     Returns:
-        :class:`TeamLookup`, jonka osumat ovat samassa järjestyksessä kuin
-        ``teams``.
+        A :class:`TeamLookup` whose hits are in the same order as ``teams``.
     """
     needle = query.strip().casefold()
     if not needle:
@@ -651,7 +666,7 @@ def find_teams(teams: Sequence[Team], query: str) -> TeamLookup:
     return TeamLookup(query=query)
 
 
-# -- Silta arkistoon ---------------------------------------------------------
+# -- The bridge to the archive -----------------------------------------------
 
 
 def assign_lineup_keys(
@@ -659,35 +674,38 @@ def assign_lineup_keys(
     lineups: Mapping[str, Set[str]],
     min_common: int,
 ) -> tuple[tuple[Team, ...], tuple[str, ...]]:
-    """Liitä arkiston kokoonpanotiivisteet joukkueisiin rosterin perusteella.
+    """Attach the archive's lineup hashes to the teams on the basis of the
+    roster.
 
-    Silta on rakennettava, koska arkiston hakemistot on nimetty
-    kokoonpanotiivisteestä ja tämä tarina **ei nimeä niitä uudelleen** (se
-    päätös on Story 3.4). Ilman siltaa ``index/teams.json`` ja
-    ``aggregates/<team_key>`` olisivat kaksi toisistaan tietämätöntä maailmaa.
+    The bridge has to be built, because the archive's directories are named
+    after the lineup hash and this story **does not rename them** (that
+    decision is Story 3.4). Without the bridge ``index/teams.json`` and
+    ``aggregates/<team_key>`` would be two worlds that know nothing of each
+    other.
 
-    Sääntö on **sama kuin** ``domain.aggregate.lineups_of_same_team``illa:
-    tiiviste liitetään **jokaiseen** joukkueeseen, jonka vakirosterin kanssa
-    sillä on vähintään ``min_common`` yhteistä pelaajaa. Aiemmin tässä oli
-    "eniten yhteisiä voittaa", ja se tarkoitti, että sama asetusarvo
-    (``team_identity_min_common``) merkitsi kahdessa paikassa kahta eri asiaa.
+    The rule is **the same as** in ``domain.aggregate.lineups_of_same_team``:
+    the hash is attached to **every** team whose standing roster it shares at
+    least ``min_common`` players with. Earlier this was "the most shared
+    wins", and that meant the same settings value
+    (``team_identity_min_common``) stood for two different things in two
+    places.
 
-    Kynnyksen ylittäminen kahdessa joukkueessa on **aito monitulkintaisuus**
-    eikä sitä ratkaista arpomalla. Tiivisteet, jotka useampi joukkue omistaa,
-    palautetaan erikseen, jottei jatkovaihe laskisi niitä kahdesti tietämättä
-    tekevänsä niin.
+    Crossing the threshold in two teams is **genuine ambiguity** and it is not
+    settled by drawing lots. The hashes that more than one team owns are
+    returned separately, so that a later stage does not count them twice
+    without knowing that it does.
 
     Args:
-        teams: Joukkueet, joihin liitetään.
-        lineups: ``lineup_key`` -> pelaajien SteamID64-joukko, luettuna
-            arkiston kokoonpanotauluista.
-        min_common: Vähimmäismäärä yhteisiä pelaajia
+        teams: The teams to attach to.
+        lineups: ``lineup_key`` -> the set of the players' SteamID64s, read
+            from the archive's lineup tables.
+        min_common: The minimum number of shared players
             (``[thresholds].team_identity_min_common``).
 
     Returns:
-        ``(joukkueet, kiistanalaiset)``. Joukkueet ovat samassa järjestyksessä
-        kuin sisään tullessaan, ``lineup_keys`` täytettynä. Kiistanalaiset ovat
-        ne tiivisteet, jotka useampi kuin yksi joukkue omistaa.
+        ``(teams, contested)``. The teams are in the same order as they came
+        in, with ``lineup_keys`` filled. The contested ones are the hashes
+        that more than one team owns.
     """
     assigned: dict[str, list[str]] = {}
     contested: list[str] = []

@@ -1,88 +1,95 @@
-"""Utilityn lentoratojen pelkistys ja räjähdyksen alue (AD-5).
+"""Reducing utility trajectories, and the detonation's area (AD-5).
 
-Utility mitataan **heitoista, ei ostoista**: utilityä dropataan, joten ostaja ja
-heittäjä voivat olla eri pelaajat. Heittoa ei kuitenkaan saa tapahtumasta --
-``grenade_thrown``-tapahtumaa ei ole olemassa -- vaan lentoradoista, jotka
-demoparser2 palauttaa **rivi per kranaatti per tick**. Ancientissa niitä on
-1 553 329, ja siksi tämän moduulin tärkein tehtävä on pelkistää rata kahteen
-pisteeseen heti: radan ensimmäinen piste on heitto, viimeinen räjähdys.
+Utility is measured **from throws, not from purchases**: utility gets dropped,
+so the buyer and the thrower can be different players. The throw cannot be had
+from an event, though -- there is no ``grenade_thrown`` event -- but from the
+trajectories, which demoparser2 returns as **a row per grenade per tick**. On
+Ancient there are 1 553 329 of them, and that is why this module's most
+important task is to reduce a trajectory to two points at once: the
+trajectory's first point is the throw, the last one the detonation.
 
-Miksi pelkkä ``grenade_entity_id`` ei riitä
--------------------------------------------
-Peli **kierrättää entiteettitunnisteet**. Ancientissa 374 lentorataa mahtuu 187
-tunnisteeseen: sama ``grenade_entity_id`` on ensin molotov kierroksella 2 ja
-sitten HE kierroksella 14. Pelkkä ``group_by(grenade_entity_id)`` yhdistäisi ne
-yhdeksi kranaatiksi, jonka heitto olisi ensimmäisestä ja "räjähdys"
-viimeisestä -- eri kierrokselta, eri pelaajalta, eri kartan puolelta. Rata on
-siksi katkaistava **yhtenäisiin jaksoihin**: tunnisteen, heittäjän tai tyypin
-vaihtuminen aloittaa uuden kranaatin, samoin tickeihin jäävä aukko.
+Why ``grenade_entity_id`` alone is not enough
+---------------------------------------------
+The game **recycles the entity ids**. On Ancient 374 trajectories fit into 187
+ids: the same ``grenade_entity_id`` is first a molotov on round 2 and then an
+HE on round 14. A plain ``group_by(grenade_entity_id)`` would join them into
+one grenade whose throw came from the first and whose "detonation" came from
+the last -- a different round, a different player, a different side of the
+map. The trajectory therefore has to be cut into **contiguous runs**: a change
+of id, of thrower or of type starts a new grenade, and so does a gap left in
+the ticks.
 
-Kierros ei pelasta tunnistetta. Pitkään näytti siltä, että kierrätys tapahtuu
-vain kierrosten välillä ja että ``(round_no, grenade_entity_id)`` riittäisi
-avaimeksi. Liigademot osoittivat toisin: ``inferno_vs_ryhmarama`` kierroksella
-11 tunniste 564 kantaa **kolme eri lentorataa** saman kierroksen sisällä --
-molotov 9,2 s, flashbang 18,0 s ja incendiary 64,2 s. Jaksotus erottaa ne
-oikein, mutta pari ei yksilöi niitä -- siksi jokainen rata saa oman
-``grenade_no``:nsa, joka on yksikäsitteinen koko demossa.
+The round does not save the id. For a long time it looked as though the
+recycling happened only between rounds and that ``(round_no,
+grenade_entity_id)`` would do as a key. The league demos showed otherwise: on
+``inferno_vs_ryhmarama`` round 11 the id 564 carries **three different
+trajectories** within the same round -- a molotov at 9.2 s, a flashbang at
+18.0 s and an incendiary at 64.2 s. The segmentation tells them apart
+correctly, but the pair does not identify them -- which is why every
+trajectory gets a ``grenade_no`` of its own, unambiguous across the whole
+demo.
 
-Miksi koordinaatiton rivi ei ole rata
--------------------------------------
-Kranaatilla on rivejä myös silloin, kun se on pelaajan repussa: tyyppi on
-``CSmokeGrenade`` (ei ``...Projectile``) ja ``x, y, z`` ovat tyhjiä. Ancientin
-1,55 miljoonasta rivistä 1,34 miljoonaa on tällaisia. Ne eivät ole lentorataa
-eivätkä heittoja, joten ne suodatetaan pois ennen jaksotusta.
+Why a row without coordinates is not a trajectory
+-------------------------------------------------
+A grenade has rows while it is in a player's bag as well: the type is
+``CSmokeGrenade`` (not ``...Projectile``) and ``x, y, z`` are empty. Of
+Ancient's 1.55 million rows, 1.34 million are of this kind. They are not a
+trajectory and not throws, so they are filtered out before the segmentation.
 
-Räjähdyksen alue on johdettu, heiton alue havaittu
---------------------------------------------------
-Nämä kaksi eivät ole samaa tietoa, eikä niitä saa laskea samalla tavalla.
+The detonation's area is derived, the throw's area observed
+-----------------------------------------------------------
+These two are not the same information, and they must not be computed the same
+way.
 
-**Heittäjällä** on oma ``m_szLastPlaceName`` samalta tickiltä, joten heiton
-alue luetaan suoraan häneltä. Se on havainto, eikä sitä johdeta mistään --
-tämä moduuli ei ole heiton polulla lainkaan.
+**The thrower** has their own ``m_szLastPlaceName`` from the same tick, so the
+throw's area is read straight from them. It is an observation and is not
+derived from anything -- this module is not on the throw's path at all.
 
-**Kranaatilla** ei ole ``last_place_name``-kenttää, joten räjähdyksen alue on
-pääteltävä koordinaateista. Menetelmä on **pistepilvi**
-(:func:`build_point_cloud`, :func:`nearest_cells`): demon omista tickeistä
-kootaan ruudukko siitä, missä pelaajat ovat kartalla oikeasti seisoneet ja mikä
-alue kussakin kohdassa on, ja räjähdys nimetään lähimmän ruudun alueella.
+**A grenade** has no ``last_place_name`` field, so the detonation's area has
+to be inferred from the coordinates. The method is a **point cloud**
+(:func:`build_point_cloud`, :func:`nearest_cells`): from the demo's own ticks
+a grid is assembled of where the players have really stood on the map and
+which area is at each spot, and the detonation is named after the nearest
+cell's area.
 
-Miksi ei lähin elossa oleva pelaaja
-------------------------------------
-Story 2.2 johti räjähdysalueen lähimmästä elossa olevasta pelaajasta. Se ei
-ollut epätarkka vaan **rakenteellisesti väärä**: savu heitetään sinne, missä
-ketään ei ole -- juuri siksi, että se estää näkyvyyden ja pakottaa
-rotaatioita. Proxy mittasi siis päinvastaista kuin piti, ja **42 %
-räjähdyksistä jäi kokonaan ilman aluetta** (mitattu neljästä liigademosta,
-1 716 räjähdystä). Pistepilvellä osuus on 6,4 %.
+Why not the nearest living player
+----------------------------------
+Story 2.2 derived the detonation area from the nearest living player. That was
+not imprecise but **structurally wrong**: smoke is thrown where nobody is --
+precisely because it blocks sight and forces rotations. The proxy therefore
+measured the opposite of what it was meant to, and **42% of the detonations
+were left without any area at all** (measured from four league demos, 1 716
+detonations). With the point cloud the share is 6.4%.
 
-Pistepilvessä lähde on pelin oma aluemäärittely (``env_cs_place``) eikä
-naapuripelaaja. Menetelmää **ei jätetä rinnalle varalähteeksi**: kaksi
-menetelmää tekisi rivistä tulkitsemattoman, koska lukija ei näkisi kummalla
-alue nimettiin.
+In the point cloud the source is the game's own area definition
+(``env_cs_place``) rather than a neighbouring player. The method is **not kept
+alongside as a fallback source**: two methods would make the row
+uninterpretable, because the reader would not see which one named the area.
 
-Kynnys ei poistu
-----------------
-"Lähin ruutu löytyy aina" ei ole kattavuutta. Mitattu maksimietäisyys
-kuudessa demossa on 1 074 yksikköä; ilman kynnystä raportti väittäisi aluetta
-räjähdykselle, joka tapahtui kaukana kaikesta, missä yksikään pelaaja on
-koskaan seissyt. ``[parse].area_snap_units`` on siksi tallella ja
-**pakollinen**, ja se on kalibroitu pistepilveä varten uudelleen: kynnyksellä
-256 alueen saa 2 428/2 544 räjähdyksestä eli 95,4 %.
+The threshold does not go away
+------------------------------
+"The nearest cell is always found" is not coverage. The maximum distance
+measured across six demos is 1 074 units; without a threshold the report would
+claim an area for a detonation that happened far from everywhere any player
+has ever stood. ``[parse].area_snap_units`` is therefore kept and
+**mandatory**, and it has been recalibrated for the point cloud: with the
+threshold 256 the area is obtained for 2 428/2 544 detonations, that is 95.4%.
 
-Etäisyys **säilyy silloinkin**, kun se ylittää kynnyksen: ``area`` jää
-tyhjäksi mutta ``snap_distance`` kertoo kuinka kaukaa alue olisi otettu. Ilman
-sitä "kaukana kaikesta" ja "pistepilvi oli tyhjä" näyttäisivät samalta.
+The distance **survives even then**, when it exceeds the threshold: ``area``
+is left empty but ``snap_distance`` says how far away the area would have been
+taken from. Without it "far from everywhere" and "the point cloud was empty"
+would look the same.
 
-Ero näkyy taulussa asti: ``EVENTS.area_source`` erottaa havainnon arviosta ja
-``snap_distance`` kertoo arvion etäisyyden. Ilman niitä raportti esittäisi
-600 yksikön päästä poimitun calloutin yhtä varmana kuin heittäjän oman
-alueen.
+The difference reaches all the way into the table: ``EVENTS.area_source``
+tells an observation from an estimate and ``snap_distance`` gives the
+estimate's distance. Without them the report would present a callout picked up
+from 600 units away as being as certain as the thrower's own area.
 
-Moduuli on puhdas: ei tiedostoja, ei demoparser2:ta, ei asetuksia. Pelin omat
-luokkanimet (``CSmokeGrenadeProjectile``) eivät esiinny täällä -- adapteri
-kääntää ne ennen kutsua, jotta tämä logiikka pysyy testattavana käsin
-rakennetuilla radoilla. Sama koskee pistepilveä: adapteri lukee tickit, tämä
-moduuli pelkistää ne ruudukoksi.
+The module is pure: no files, no demoparser2, no settings. The game's own
+class names (``CSmokeGrenadeProjectile``) do not appear here -- the adapter
+translates them before the call, so that this logic stays testable with
+hand-built trajectories. The same goes for the point cloud: the adapter reads
+the ticks, this module reduces them into a grid.
 """
 
 from __future__ import annotations
@@ -110,20 +117,21 @@ __all__ = [
     "trajectory_gap_ticks",
 ]
 
-#: Heiton tapahtumalaji (``EVENT_KINDS[0]``).
+#: The throw's event kind (``EVENT_KINDS[0]``).
 THROWN = "grenade_thrown"
-#: Räjähdyksen tapahtumalaji (``EVENT_KINDS[1]``).
+#: The detonation's event kind (``EVENT_KINDS[1]``).
 DETONATE = "grenade_detonate"
 
-# Vastaavuutta EVENT_KINDS-luetteloon ei tarkisteta moduulitason assertilla --
-# se katoaisi python -O:lla juuri silloin kun sitä tarvittaisiin. Tarkistus on
-# testissä test_utility.py.
+# The correspondence with the EVENT_KINDS list is not checked with a
+# module-level assert -- it would vanish under python -O exactly when it was
+# needed. The check is in the test test_utility.py.
 
-#: Sarakkeet, jotka lentoratataulussa on oltava. Nimet ovat pappascoutin omia,
-#: eivät demoparser2:n: ``steamid`` on jo käännetty ``thrower_id``:ksi.
-#: ``grenade_type``a ei tulkita täällä lainkaan -- se on jaksotuksen avain ja
-#: kulkee muuttumattomana läpi, ja pelin luokkanimen kääntäminen kanoniseksi
-#: (``smoke``, ``flashbang``, ...) on adapterin työtä.
+#: The columns the trajectory table has to hold. The names are pappascout's
+#: own, not demoparser2's: ``steamid`` has already been translated into
+#: ``thrower_id``. ``grenade_type`` is not interpreted here at all -- it is a
+#: key of the segmentation and passes through unchanged, and translating the
+#: game's class name into the canonical one (``smoke``, ``flashbang``, ...) is
+#: the adapter's job.
 TRAJECTORY_COLUMNS: tuple[str, ...] = (
     "grenade_entity_id",
     "grenade_type",
@@ -134,25 +142,26 @@ TRAJECTORY_COLUMNS: tuple[str, ...] = (
     "z",
 )
 
-#: Sarakkeet, jotka :func:`grenade_endpoints` palauttaa.
+#: The columns :func:`grenade_endpoints` returns.
 #:
-#: ``grenade_no`` on lentoradan juokseva numero demossa ja **ainoa luotettava
-#: parin avain**: ``grenade_entity_id`` kierrätetään -- myös saman kierroksen
-#: sisällä -- joten se ei yksilöi kranaattia. Numero on yksikäsitteinen
-#: **koko demossa**, ei vain kierroksen sisällä: kierroskohtainen juokseva
-#: numero näyttäisi yksikäsitteiseltä, mutta pettäisi heti kun aggregointi
-#: liittää kahden kierroksen utilityn yhteen kehykseen.
+#: ``grenade_no`` is the trajectory's running number in the demo and **the
+#: only reliable key for the pair**: ``grenade_entity_id`` is recycled -- also
+#: within the same round -- so it does not identify a grenade. The number is
+#: unambiguous **across the whole demo**, not only within a round: a per-round
+#: running number would look unambiguous but would fail as soon as the
+#: aggregation joined the utility of two rounds into one frame.
 #:
-#: Numero **päätyy ``EVENTS``-tauluun sellaisenaan** (Story 1.8): se on ainoa
-#: sarake, jolla heitto ja räjähdys yhdistyvät, ja adapteri käyttää sitä myös
-#: liittääkseen kierroksen, puolen ja alueen molempiin riveihin samalla
-#: päätöksellä.
+#: The number **ends up in the ``EVENTS`` table as it stands** (Story 1.8): it
+#: is the only column by which the throw and the detonation join, and the
+#: adapter also uses it to attach the round, the side and the area to both
+#: rows with the same decision.
 #:
-#: Muoto: numerointi **alkaa nollasta** ja kasvaa heiton tickin mukaan. Se on
-#: yksikäsitteinen mutta ei yhtenäinen väli ``0..n-1``: heittäjätön rata
-#: pudotetaan jo täällä, ja ``stages.parse`` pudottaa lisäksi
-#: numeroimattomien kierrosten rivit, joten valmiissa taulussa on aukkoja.
-#: Numero ei siis ole indeksi eikä sen suurin arvo ole kranaattien määrä.
+#: Shape: the numbering **starts from zero** and grows by the throw's tick. It
+#: is unambiguous but not a contiguous range ``0..n-1``: a trajectory without
+#: a thrower is dropped already here, and ``stages.parse`` additionally drops
+#: the rows of unnumbered rounds, so the finished table has gaps. The number
+#: is therefore not an index and its largest value is not the number of
+#: grenades.
 ENDPOINT_COLUMNS: tuple[str, ...] = (
     "grenade_no",
     "grenade_entity_id",
@@ -165,24 +174,24 @@ ENDPOINT_COLUMNS: tuple[str, ...] = (
     "z",
 )
 
-#: Suurin radan sisään jäävä aukko **sekunteina**, jonka jälkeen rata on yhä
-#: sama kranaatti.
+#: The largest gap **in seconds** that can fall inside a trajectory with it
+#: still being the same grenade.
 #:
-#: Ancientin 374 radasta yksikään ei ole katkonainen, joten nolla riittäisi
-#: havaintoon. Pieni pelivara on silti turvallisempi: yksi hukkuva tick
-#: **katkaisisi** radan kahdeksi kranaatiksi ja keksisi kokonaisen ylimääräisen
-#: heitto-räjähdys-parin, kun taas kahden eri kranaatin yhdistäminen vaatisi,
-#: että sama tunniste vapautuu ja otetaan uudelleen käyttöön tässä ajassa
-#: samalta pelaajalta samalla kranaattityypillä. Keksitty rivi on pahempi
-#: virhe kuin kadonnut, ja tämä raja sulkee sen pois.
+#: Not one of Ancient's 374 trajectories is broken, so zero would be enough
+#: for the observation. A little slack is safer all the same: one lost tick
+#: would **break** a trajectory into two grenades and invent a whole extra
+#: throw-detonation pair, whereas joining two different grenades would require
+#: the same id to be released and taken back into use within this time by the
+#: same player with the same grenade type. An invented row is a worse error
+#: than a lost one, and this limit rules it out.
 #:
-#: Raja on **aikaa eikä tickejä**: 128-tickisessä demossa kahdeksan tickiä
-#: olisi puolet lyhyempi hetki kuin 64-tickisessä, ja sama lento voisi
-#: pilkkoutua kahdeksi kranaatiksi vain siksi että palvelin ajoi tiheämmin.
+#: The limit is **time and not ticks**: in a 128-tick demo eight ticks would
+#: be half as long a moment as in a 64-tick one, and the same flight could
+#: split into two grenades merely because the server ran more densely.
 MAX_TRAJECTORY_GAP_SECONDS = 0.125
 
-#: Tyhjän tuloksen tyypit. Polars päättelisi tyhjästä listasta ``Null``-tyypin,
-#: jolloin adapterin jatkokäsittely kaatuisi vasta myöhemmin.
+#: The types of the empty result. Polars would infer a ``Null`` type from an
+#: empty list, and the adapter's later handling would then fail only later on.
 _ENDPOINT_SCHEMA: dict[str, pl.DataType | pl.DataTypeClass] = {
     "grenade_no": pl.Int32,
     "grenade_entity_id": pl.Int32,
@@ -195,22 +204,23 @@ _ENDPOINT_SCHEMA: dict[str, pl.DataType | pl.DataTypeClass] = {
     "z": pl.Float32,
 }
 
-#: Sarakkeet, jotka pistepilven havaintotaulussa on oltava.
+#: The columns the point cloud's observation table has to hold.
 #:
-#: Nimet ovat pappascoutin omia eivätkä demoparser2:n: adapteri on jo kääntänyt
-#: ``CCSPlayerPawn.m_szLastPlaceName``in ``area``ksi ja ``m_lifeState``in
-#: ``is_alive``ksi. Koordinaatit ovat samat ``x, y, z`` kuin lentoradoilla,
-#: jolloin :func:`flight_point` kelpaa molemmille eikä koordinaatittoman rivin
-#: sääntöä ole kahdessa paikassa.
+#: The names are pappascout's own and not demoparser2's: the adapter has
+#: already translated ``CCSPlayerPawn.m_szLastPlaceName`` into ``area`` and
+#: ``m_lifeState`` into ``is_alive``. The coordinates are the same ``x, y, z``
+#: as on the trajectories, so that :func:`flight_point` serves both and the
+#: rule for a row without coordinates is not in two places.
 CLOUD_OBSERVATION_COLUMNS: tuple[str, ...] = ("x", "y", "z", "area", "is_alive")
 
-#: Sarakkeet, jotka :func:`build_point_cloud` palauttaa -- ja jotka
-#: ``CALLOUT_CLOUD``-taulussa ovat ``map_demo_id``:n lisäksi.
+#: The columns :func:`build_point_cloud` returns -- and which, besides
+#: ``map_demo_id``, are in the ``CALLOUT_CLOUD`` table.
 #:
-#: ``cell_x``, ``cell_y`` ja ``cell_z`` ovat ruudun **indeksejä** eivätkä
-#: koordinaatteja: koordinaatin saa kertomalla ruudun särmällä. Indeksi eikä
-#: keskipiste siksi, että se on tarkka kokonaisluku -- keskipiste tallentaisi
-#: saman tiedon liukulukuna, jonka pyöristys voisi siirtää ruutua.
+#: ``cell_x``, ``cell_y`` and ``cell_z`` are the cell's **indexes** and not
+#: coordinates: the coordinate is obtained by multiplying by the cell's edge.
+#: An index rather than the centre, because it is an exact integer -- the
+#: centre would store the same information as a float whose rounding could
+#: shift the cell.
 CLOUD_CELL_COLUMNS: tuple[str, ...] = (
     "cell_x",
     "cell_y",
@@ -219,16 +229,16 @@ CLOUD_CELL_COLUMNS: tuple[str, ...] = (
     "observations",
 )
 
-#: Sarakkeet, jotka :func:`nearest_cells`in syötetaulussa on oltava.
-#: ``point_id`` on kutsujan oma avain (``EVENTS.grenade_no``), joka palautuu
-#: tuloksessa sellaisenaan -- funktio ei tunne kranaatteja.
+#: The columns :func:`nearest_cells`'s input table has to hold. ``point_id``
+#: is the caller's own key (``EVENTS.grenade_no``), which comes back in the
+#: result as it stands -- the function knows nothing of grenades.
 NEAREST_POINT_COLUMNS: tuple[str, ...] = ("point_id", "x", "y", "z")
 
-#: Sarakkeet, jotka :func:`nearest_cells` palauttaa.
+#: The columns :func:`nearest_cells` returns.
 NEAREST_RESULT_COLUMNS: tuple[str, ...] = ("point_id", "area", "distance")
 
-#: Pistepilven tyypit. Sama peruste kuin :data:`_ENDPOINT_SCHEMA`illa: tyhjästä
-#: listasta Polars päättelisi ``Null``-tyypin.
+#: The point cloud's types. The same reason as with :data:`_ENDPOINT_SCHEMA`:
+#: Polars would infer a ``Null`` type from an empty list.
 _CLOUD_SCHEMA: dict[str, pl.DataType | pl.DataTypeClass] = {
     "cell_x": pl.Int32,
     "cell_y": pl.Int32,
@@ -237,39 +247,44 @@ _CLOUD_SCHEMA: dict[str, pl.DataType | pl.DataTypeClass] = {
     "observations": pl.Int32,
 }
 
-#: Montako pistettä kerrallaan verrataan pistepilveen (:func:`nearest_cells`).
+#: How many points are compared against the point cloud at a time
+#: (:func:`nearest_cells`).
 #:
-#: Vertailu on ristitulo: jokainen piste jokaista ruutua vasten, ja sen perään
-#: lajittelu. Se on tarkka eikä nojaa hakupuuhun, mutta rivimäärä on tulo.
+#: The comparison is a cross product: every point against every cell, and a
+#: sort after it. It is exact and does not rely on a search tree, but the row
+#: count is a product.
 #:
-#: **Paloittelu ei ole optimointi vaan yläraja.** Mitatussa aineistossa se
-#: leikkaa huipun 4,8 miljoonasta rivistä 2,7 miljoonaan (455 räjähdystä x
-#: 10 522 ruutua vs. 256 x 10 522) eli 44 % -- ei suuruusluokkaa. Sen arvo on
-#: siinä, ettei huippu **kasva** kranaattien määrän mukana: demo, jossa
-#: heitetään 2 000 kranaattia, mahtuu samaan rajaan.
+#: **The chunking is not an optimisation but an upper bound.** In the measured
+#: data it cuts the peak from 4.8 million rows to 2.7 million (455 detonations
+#: x 10 522 cells vs. 256 x 10 522), that is by 44% -- not an order of
+#: magnitude. Its value is that the peak does not **grow** with the number of
+#: grenades: a demo in which 2 000 grenades are thrown fits within the same
+#: bound.
 #:
-#: **Hinta on mitattu, ei mitätön.** Koko haku (ristitulo + lajittelu) vie
-#: 285-580 ms per demo, kun pilvessä on 7 700-10 500 ruutua ja räjähdyksiä
-#: 373-465. Se on muutama prosentti demon 6-12 sekunnin parsinnasta, mutta se
-#: on kertaluokkia enemmän kuin nolla, ja hakupuu olisi nopeampi -- vain ei
-#: yhtä yksinkertainen eikä yhtä helposti todeksi todistettava.
+#: **The cost is measured, not negligible.** The whole search (cross product +
+#: sort) takes 285-580 ms per demo, when the cloud holds 7 700-10 500 cells
+#: and there are 373-465 detonations. That is a few per cent of the demo's
+#: 6-12 second parse, but it is orders of magnitude more than nothing, and a
+#: search tree would be faster -- only not as simple and not as easily proved
+#: correct.
 #:
-#: Tulokseen palan koko **ei vaikuta**: lähin ruutu on sama riippumatta siitä,
-#: missä erässä piste käsiteltiin, ja :func:`nearest_cells` hylkää
-#: kaksoisavaimet, jotka voisivat monistua palojen rajalla.
+#: The chunk size **does not affect** the result: the nearest cell is the same
+#: regardless of which batch the point was handled in, and
+#: :func:`nearest_cells` refuses duplicate keys, which could multiply at a
+#: chunk boundary.
 NEAREST_CHUNK_POINTS = 256
 
 
 def flight_point() -> pl.Expr:
-    """Lauseke, joka on tosi vain oikealla lentoradan pisteellä.
+    """An expression that is true only on a real point of a trajectory.
 
-    Kranaatti saa rivin myös pelaajan repussa ollessaan, ja silloin
-    koordinaatit puuttuvat. Sama lauseke on käytettävä molemmissa suunnissa:
-    :func:`grenade_endpoints` pitää nämä rivit ja adapteri poimii reppurivit
-    sen komplementista. Jos suodattimet erkanisivat -- toinen tarkistaisi vain
-    ``null``:in ja toinen myös NaN:in -- osa riveistä olisi kummassakin tai ei
-    kummassakaan, ja tulikranaatin tyypin haku etsisi repusta lentoradan
-    riveiltä.
+    A grenade gets a row while it is in a player's bag as well, and then the
+    coordinates are missing. The same expression has to be used in both
+    directions: :func:`grenade_endpoints` keeps these rows and the adapter
+    picks the bag rows from its complement. If the filters drifted apart --
+    one checking only for ``null`` and the other for NaN too -- some rows
+    would be in both or in neither, and the lookup of the fire grenade's type
+    would search the bag among the trajectory rows.
     """
     return pl.all_horizontal(
         (pl.col(name).is_not_null() & pl.col(name).is_finite()).fill_null(False)
@@ -278,22 +293,22 @@ def flight_point() -> pl.Expr:
 
 
 def trajectory_gap_ticks(tick_rate: float) -> int:
-    """:data:`MAX_TRAJECTORY_GAP_SECONDS` tickeinä tällä tickratella.
+    """:data:`MAX_TRAJECTORY_GAP_SECONDS` in ticks at this tick rate.
 
     Args:
-        tick_rate: Demon tickrate.
+        tick_rate: The demo's tick rate.
 
     Returns:
-        Vähintään 1. Nolla tarkoittaisi, ettei aukkoa sallita lainkaan, jolloin
-        yksi hukkuva tick keksisi ylimääräisen kranaatin.
+        At least 1. Zero would mean that no gap is allowed at all, and then
+        one lost tick would invent an extra grenade.
 
     Raises:
-        ValueError: Jos tickrate ei ole positiivinen äärellinen luku.
+        ValueError: If the tick rate is not a positive finite number.
     """
     if not (tick_rate > 0 and math.isfinite(tick_rate)):
         raise ValueError(
-            f"Tickrate {tick_rate!r} ei kelpaa lentoratojen jaksotukseen: sen "
-            "on oltava positiivinen ja äärellinen."
+            f"Tickrate {tick_rate!r} cannot be used to segment trajectories: "
+            "it has to be positive and finite."
         )
     return max(1, round(MAX_TRAJECTORY_GAP_SECONDS * tick_rate))
 
@@ -301,54 +316,58 @@ def trajectory_gap_ticks(tick_rate: float) -> int:
 def grenade_endpoints(
     trajectories: pl.DataFrame, *, max_gap_ticks: int
 ) -> tuple[pl.DataFrame, int]:
-    """Pelkistä lentoradat kahteen pisteeseen per kranaatti.
+    """Reduce the trajectories to two points per grenade.
 
     Args:
-        trajectories: Lentoratataulu, sarakkeet vähintään
-            :data:`TRAJECTORY_COLUMNS`. Rivi per kranaatti per tick;
-            koordinaatittomat rivit (kranaatti pelaajan repussa) saavat olla
-            mukana, ne suodatetaan täällä.
-        max_gap_ticks: Suurin tickiaukko, jonka yli rata on yhä sama kranaatti.
-            Laske se :func:`trajectory_gap_ticks`illä demon omasta
-            tickratesta -- kiinteä tickimäärä olisi eri mittainen hetki eri
-            tickratella.
+        trajectories: The trajectory table, columns at least
+            :data:`TRAJECTORY_COLUMNS`. A row per grenade per tick; rows
+            without coordinates (the grenade in a player's bag) may be
+            included, they are filtered out here.
+        max_gap_ticks: The largest tick gap across which the trajectory is
+            still the same grenade. Compute it with
+            :func:`trajectory_gap_ticks` from the demo's own tick rate -- a
+            fixed number of ticks would be a moment of a different length at a
+            different tick rate.
 
     Returns:
-        ``(päätepisteet, ohitetut)``.
+        ``(endpoints, dropped)``.
 
-        ``päätepisteet`` on pitkä taulu, sarakkeet :data:`ENDPOINT_COLUMNS`:
-        yksi ``grenade_thrown``-rivi jokaisesta kranaatista ja
-        ``grenade_detonate``-rivi niistä, joiden rata on yhtä pistettä pidempi.
-        Jokainen rata saa oman ``grenade_no``:nsa, joka on yksikäsitteinen
-        koko taulussa ja **sama radan molemmilla riveillä** -- se on heiton ja
-        räjähdyksen ainoa side. Numerointi on vakaa: sama syöte antaa samat
-        numerot, koska jaksotus ja sen lajitteluavain ovat deterministisiä.
-        **Yhden pisteen rata ei tuota räjähdystä**: se on ainoa radasta itsestään
-        luettavissa oleva merkki siitä, ettei kranaatti koskaan lentänyt --
-        keksitty räjähdys samaan pisteeseen väittäisi savua siellä, missä sitä
-        ei ollut.
+        ``endpoints`` is a long table, columns :data:`ENDPOINT_COLUMNS`: one
+        ``grenade_thrown`` row for every grenade and a ``grenade_detonate``
+        row for those whose trajectory is longer than a single point. Every
+        trajectory gets a ``grenade_no`` of its own, which is unambiguous
+        across the whole table and **the same on both rows of the
+        trajectory** -- it is the throw's and the detonation's only link. The
+        numbering is stable: the same input gives the same numbers, because
+        the segmentation and its sort key are deterministic.
+        **A single-point trajectory produces no detonation**: it is the only
+        sign readable from the trajectory itself that the grenade never flew
+        -- an invented detonation at the same point would claim smoke where
+        there was none.
 
-        ``ohitetut`` on niiden ratojen määrä, joilta puuttuu heittäjä. Ne
-        pudotetaan kokonaan (myös räjähdys), koska riviä ei voi kohdistaa
-        joukkueelle -- mutta niiden määrä raportoidaan, jottei utility katoa
-        hiljaa.
+        ``dropped`` is the number of trajectories missing a thrower. They are
+        dropped entirely (the detonation too), because the row cannot be
+        attributed to a team -- but their number is reported, so that utility
+        does not vanish silently.
 
     Raises:
-        ValueError: Jos taulusta puuttuu sarake. Ilman tarkistusta tulos olisi
-            tyhjä taulu, joka näyttäisi demolta ilman utilityä.
+        ValueError: If a column is missing from the table. Without the check
+            the result would be an empty table that looked like a demo without
+            utility.
     """
     missing = [name for name in TRAJECTORY_COLUMNS if name not in trajectories.columns]
     if missing:
         raise ValueError(
-            f"Lentoratataulusta puuttuu sarake: {', '.join(missing)}. "
-            f"Odotetut sarakkeet ovat {', '.join(TRAJECTORY_COLUMNS)}."
+            f"The trajectory table is missing a column: {', '.join(missing)}. "
+            f"The expected columns are {', '.join(TRAJECTORY_COLUMNS)}."
         )
 
     flight = trajectories.select(TRAJECTORY_COLUMNS).filter(
         pl.col("grenade_entity_id").is_not_null()
         & pl.col("tick").is_not_null()
-        # Tyhjä tyyppi ei kelpaa: se on EVENTS-sopimuksessa pakollinen, joten
-        # se kaataisi koko demon validoinnissa yhden rikkinäisen rivin takia.
+        # An empty type will not do: it is mandatory in the EVENTS contract,
+        # so it would bring down a whole demo in the validation because of one
+        # broken row.
         & pl.col("grenade_type").is_not_null()
         & flight_point()
     )
@@ -362,16 +381,16 @@ def grenade_endpoints(
     if runs.is_empty():
         return pl.DataFrame(schema=_ENDPOINT_SCHEMA), without_thrower.height
 
-    # Numerointi on tunnisteen koko määritelmä, ja kaksi asiaa on pidettävä
-    # yhtä aikaa totena. **Yksikäsitteisyys**: rivi-indeksi juoksee koko
-    # demon yli, joten sama numero ei voi osua kahdelle radalle edes saman
-    # kierroksen sisällä -- juuri se rikkoi vanhan
-    # (round_no, grenade_entity_id) -avaimen. **Vakaus**: lajitteluavain
-    # (throw_tick, grenade_entity_id) on yksikäsitteinen, koska saman
-    # tunnisteen jaksot ovat aikajärjestyksessä eivätkä voi alkaa samalta
-    # tickiltä. Järjestys ei siis riipu lajittelun vakaudesta, ja sama demo
-    # samoilla asetuksilla antaa samat numerot joka ajolla -- muuten arkiston
-    # uudelleenparsinta näyttäisi muutokselta.
+    # The numbering is the whole definition of the id, and two things have to
+    # be true at once. **Unambiguity**: the row index runs across the whole
+    # demo, so the same number cannot land on two trajectories even within the
+    # same round -- which is exactly what broke the old
+    # (round_no, grenade_entity_id) key. **Stability**: the sort key
+    # (throw_tick, grenade_entity_id) is unambiguous, because the runs of the
+    # same id are in chronological order and cannot start on the same tick.
+    # The order therefore does not depend on the stability of the sort, and
+    # the same demo with the same settings gives the same numbers on every run
+    # -- otherwise re-parsing the archive would look like a change.
     runs = runs.sort("throw_tick", "grenade_entity_id").with_row_index(
         "grenade_no"
     )
@@ -382,10 +401,11 @@ def grenade_endpoints(
             _endpoint_rows(runs.filter(pl.col("points") > 1), DETONATE, "detonate"),
         ]
     )
-    # Järjestys on osa sopimusta: heitto tulee aina ennen räjähdystään. Pelkkä
-    # tick riittäisi oikeassa demossa, mutta ei ole invariantti -- laji on
-    # siksi eksplisiittinen avain eikä nojaa merkkijonojen aakkosjärjestykseen,
-    # jossa "grenade_detonate" tulisi ennen "grenade_thrownia".
+    # The order is part of the contract: the throw always comes before its
+    # detonation. The tick alone would do in a real demo, but it is not an
+    # invariant -- the kind is therefore an explicit key and does not rely on
+    # the alphabetical order of the strings, in which "grenade_detonate" would
+    # come before "grenade_thrown".
     result = result.sort(
         "grenade_no",
         pl.col("event_kind").replace_strict({THROWN: 0, DETONATE: 1}, return_dtype=pl.Int8),
@@ -396,13 +416,13 @@ def grenade_endpoints(
 
 
 def empty_point_cloud() -> pl.DataFrame:
-    """Tyhjä pistepilvi sopimuksen tyypeillä.
+    """An empty point cloud with the contract's types.
 
-    Tyhjä on **kelvollinen tulos**, ei virhe: demo, josta ei saatu yhtään
-    elossa-riviä nimetyllä alueella, on aidosti pilvetön. Sopimuksen mukainen
-    tyhjä taulu on silti pakko rakentaa tyypeistä eikä tyhjästä listasta --
-    Polars päättelisi jälkimmäisestä ``Null``-tyypin, ja kirjoitus kaatuisi
-    vasta arkistoon asti.
+    Empty is a **valid result**, not an error: a demo from which not one
+    alive row on a named area was obtained is genuinely cloudless. The empty
+    table matching the contract still has to be built from the types rather
+    than from an empty list -- Polars would infer a ``Null`` type from the
+    latter, and the write would fail only at the archive.
     """
     return pl.DataFrame(schema=_CLOUD_SCHEMA)
 
@@ -410,61 +430,67 @@ def empty_point_cloud() -> pl.DataFrame:
 def build_point_cloud(
     observations: pl.DataFrame, *, grid_units: int
 ) -> pl.DataFrame:
-    """Pelkistä demon tickit ruudukoksi: missä on seisty ja mikä alue se on.
+    """Reduce the demo's ticks into a grid: where players stood and which area
+    that is.
 
-    Ruudukko on **demon oma**, ei karttakohtainen arkistotaulu. Perustelu on
-    toistettavuus: karttuva taulu antaisi samalle demolle eri tuloksen sen
-    mukaan, mitä muita demoja arkistossa sattuu olemaan, eikä ``params_hash``
-    voisi kattaa sitä.
+    The grid is **the demo's own**, not a per-map archive table. The reason is
+    reproducibility: an accumulating table would give the same demo a
+    different result depending on what other demos happen to be in the
+    archive, and ``params_hash`` could not cover that.
 
-    Ruudun **alue on moodi** eikä ensimmäinen havainto: ruudun reunalla on
-    aina muutama rivi naapurialueelta, ja ensimmäinen rivi olisi kiinni siinä,
-    missä järjestyksessä demoparser2 tickit antoi. Tasatilanne ratkeaa alueen
-    nimen aakkosjärjestyksellä, jotta sama demo antaa aina saman pilven.
+    The cell's **area is the mode** and not the first observation: at the edge
+    of a cell there are always a few rows from the neighbouring area, and the
+    first row would depend on the order demoparser2 gave the ticks in. A tie
+    is settled by the alphabetical order of the area's name, so that the same
+    demo always gives the same cloud.
 
     Args:
-        observations: Rivi per (pelaaja, tick), sarakkeet vähintään
-            :data:`CLOUD_OBSERVATION_COLUMNS`. Kuolleet, alueettomat ja
-            koordinaatittomat rivit saavat olla mukana -- ne suodatetaan
-            täällä, jotta suodatussääntö on yhdessä paikassa.
-        grid_units: Ruudun särmä pelin yksiköissä
+        observations: A row per (player, tick), columns at least
+            :data:`CLOUD_OBSERVATION_COLUMNS`. Dead, arealess and
+            coordinateless rows may be included -- they are filtered out here,
+            so that the filtering rule is in one place.
+        grid_units: The cell's edge in the game's units
             (``[parse].callout_grid_units``).
 
     Returns:
-        Taulu sarakkeilla :data:`CLOUD_CELL_COLUMNS`, järjestettynä ruudun
-        koordinaateilla. ``observations`` on ruudun **kaikki** havainnot, ei
-        vain voittaneen alueen -- se kertoo, kuinka vahvasti ruutu on nähty.
+        A table with the columns :data:`CLOUD_CELL_COLUMNS`, ordered by the
+        cell's coordinates. ``observations`` is **all** of the cell's
+        observations, not only the winning area's -- it says how strongly the
+        cell has been seen.
 
     Raises:
-        ValueError: Jos sarake puuttuu tai ``grid_units`` ei ole positiivinen
-            äärellinen luku. Ilman tarkistusta tulos olisi tyhjä pilvi, joka
-            näyttäisi demolta, jossa kukaan ei liikkunut.
+        ValueError: If a column is missing or ``grid_units`` is not a positive
+            finite number. Without the check the result would be an empty
+            cloud that looked like a demo in which nobody moved.
     """
     if not (grid_units > 0 and math.isfinite(grid_units)):
         raise ValueError(
-            f"Ruudun koko {grid_units!r} ei kelpaa pistepilveen: sen on oltava "
-            "positiivinen ja äärellinen."
+            f"The cell size {grid_units!r} cannot be used for a point cloud: "
+            "it has to be positive and finite."
         )
     missing = [
         name for name in CLOUD_OBSERVATION_COLUMNS if name not in observations.columns
     ]
     if missing:
         raise ValueError(
-            f"Pistepilven havaintotaulusta puuttuu sarake: {', '.join(missing)}. "
-            f"Odotetut sarakkeet ovat {', '.join(CLOUD_OBSERVATION_COLUMNS)}."
+            f"The point cloud's observation table is missing a column: "
+            f"{', '.join(missing)}. "
+            f"The expected columns are {', '.join(CLOUD_OBSERVATION_COLUMNS)}."
         )
 
     usable = observations.select(CLOUD_OBSERVATION_COLUMNS).filter(
         pl.col("is_alive").fill_null(False)
-        # Nimetön alue ei kelpaa pilveen: ruutu, jonka nimi on "ei nimeä",
-        # nimeäisi räjähdyksen tyhjäksi ja näyttäisi silti osumalta -- eli
-        # rivi ei erottuisi siitä, ettei aluetta saatu lainkaan.
+        # An unnamed area will not do for the cloud: a cell whose name is "no
+        # name" would name a detonation empty and would still look like a hit
+        # -- that is, the row would not be distinguishable from one where no
+        # area was obtained at all.
         #
-        # **Tyhjä ja pelkkiä välilyöntejä oleva nimi ovat sama asia kuin
-        # null.** Adapteri muuttaa pelin tyhjän merkkijonon jo null:iksi, mutta
-        # sääntö on täällä eikä siellä: tämä funktio on julkinen ja sen
-        # sopimus on "alueeton havainto ei päädy pilveen". Jos ehto olisi vain
-        # adapterissa, toinen kutsuja saisi ruudun nimeltä ``" "``.
+        # **An empty name and a name of nothing but spaces are the same thing
+        # as null.** The adapter already turns the game's empty string into
+        # null, but the rule is here rather than there: this function is
+        # public and its contract is "an arealess observation does not reach
+        # the cloud". If the condition were only in the adapter, another
+        # caller would get a cell named ``" "``.
         & (pl.col("area").str.strip_chars().str.len_chars() > 0).fill_null(False)
         & flight_point()
     )
@@ -477,10 +503,10 @@ def build_point_cloud(
         (pl.col("z") // grid_units).cast(pl.Int32).alias("cell_z"),
         pl.col("area"),
     )
-    # Kaksi vaihetta: ensin (ruutu, alue) -> havaintoja, sitten ruutua kohden
-    # eniten havaintoja saanut alue. Lajittelu on osa vastausta eikä
-    # esitystapa: se on ainoa asia, joka tekee moodista deterministisen
-    # tasatilanteessa.
+    # Two phases: first (cell, area) -> observations, then the area with the
+    # most observations per cell. The sort is part of the answer and not a way
+    # of presenting it: it is the only thing that makes the mode
+    # deterministic on a tie.
     per_area = cells.group_by("cell_x", "cell_y", "cell_z", "area").len()
     return (
         per_area.sort(
@@ -507,61 +533,66 @@ def nearest_cells(
     z_tolerance_units: float,
     max_units: float | None,
 ) -> pl.DataFrame:
-    """Nimeä jokainen piste lähimmän pistepilviruudun alueella.
+    """Name every point after the area of the nearest point-cloud cell.
 
-    Etäisyys on painotettu::
+    The distance is weighted::
 
         d = sqrt(dx^2 + dy^2 + (z_weight * max(0, |dz| - z_tolerance))^2)
 
-    **Miksi toleranssi.** Pystyero maksaa ilman toleranssia myös silloin, kun
-    se on täysin normaali: pistepilvi tallentaa pelaajan sijainnin, mutta
-    kranaatti räjähtää mistä tahansa lattian ja pään väliltä -- savu ilmassa,
-    molotov lattialla. Mitattuna painon kasvattaminen ilman toleranssia
-    *huonontaa* tulosta (mediaani 20 -> 30 Ancientilla, 20 -> 31 Nukella),
-    ja kun z-erosta vähennetään pelaajan korkeus ennen painotusta, mediaani
-    putoaa 15:een ja 14:ään.
+    **Why a tolerance.** Without a tolerance a vertical difference costs
+    something even when it is entirely normal: the point cloud records a
+    player's position, but a grenade detonates anywhere between the floor and
+    a head -- smoke in the air, a molotov on the floor. Measured, raising the
+    weight without a tolerance *worsens* the result (the median 20 -> 30 on
+    Ancient, 20 -> 31 on Nuke), and when a player's height is subtracted from
+    the z difference before the weighting, the median drops to 15 and to 14.
 
-    Toleranssi on **symmetrinen**: vapaus vain ylöspäin nostaa mediaanin
-    15 -> 17 ja 14 -> 19 parantamatta kattavuutta.
+    The tolerance is **symmetric**: freedom upwards only raises the median
+    15 -> 17 and 14 -> 19 without improving the coverage.
 
-    **Miksi paino ylipäätään.** Nuke on kerroksellinen: alakerran ruutu on
-    ylhäältä katsoen aivan vieressä mutta eri alueella. Ilman painoa
-    yläkerran savu **saa** alakerran alueen -- mitattuna 38 räjähdystä
-    ``Nuke_vs_imuaijat``illa ja 25 toisella Nuke-demolla.
+    **Why a weight at all.** Nuke is layered: the cell below is right next
+    door seen from above but in a different area. Without a weight the smoke
+    upstairs **gets** the area downstairs -- measured, 38 detonations on
+    ``Nuke_vs_imuaijat`` and 25 on the other Nuke demo.
 
-    **Miksi paino on 1 eikä enemmän.** Paino 1 riittää: nolla väärän
-    kerroksen aluetta molemmilla Nuke-demoilla. Jokainen sitä suurempi paino
-    maksaa kattavuutta ostamatta mitään -- 99,0 % painolla 1, 98,8 %
-    painolla 2, 97,4 % painolla 3 -- eikä mediaani liiku lainkaan.
+    **Why the weight is 1 and not more.** A weight of 1 is enough: zero areas
+    from the wrong floor on both Nuke demos. Every weight larger than that
+    costs coverage without buying anything -- 99.0% at weight 1, 98.8% at
+    weight 2, 97.4% at weight 3 -- and the median does not move at all.
 
-    Ruudun edustaja on sen **keskipiste**, ei havaintojen keskiarvo: keskiarvo
-    liikkuisi sen mukaan, mihin kohtaan ruutua pelaajat sattuivat asettumaan,
-    eikä ruudukko olisi enää säännöllinen.
+    The cell's representative is its **centre**, not the mean of the
+    observations: the mean would move depending on where inside the cell the
+    players happened to place themselves, and the grid would no longer be
+    regular.
 
     Args:
-        points: Nimettävät pisteet, sarakkeet :data:`NEAREST_POINT_COLUMNS`.
-            ``point_id`` on kutsujan oma avain, joka palautuu sellaisenaan.
-        cloud: Pistepilvi, sarakkeet :data:`CLOUD_CELL_COLUMNS`.
-        grid_units: Sama ruudun särmä, jolla pilvi rakennettiin.
-        z_weight: Pystyeron painokerroin toleranssin jälkeen.
-        z_tolerance_units: Pystyero, joka on ilmaista (pelaajan korkeus).
-        max_units: Enimmäisetäisyys, jonka sisältä alue saa tulla. ``None`` tai
-            ei-äärellinen = ei kynnystä käytössä, jolloin **aluetta ei anneta
-            lainkaan**. Se on kalibroimattoman asetuksen rehellinen arvo:
-            lähin ruutu löytyy aina, joten kynnyksetön nimeäminen väittäisi
-            aluetta räjähdykselle, joka tapahtui kaukana kaikesta.
+        points: The points to be named, columns :data:`NEAREST_POINT_COLUMNS`.
+            ``point_id`` is the caller's own key, which comes back as it
+            stands.
+        cloud: The point cloud, columns :data:`CLOUD_CELL_COLUMNS`.
+        grid_units: The same cell edge the cloud was built with.
+        z_weight: The weighting factor for the vertical difference after the
+            tolerance.
+        z_tolerance_units: The vertical difference that is free (a player's
+            height).
+        max_units: The maximum distance the area may come from within.
+            ``None`` or non-finite = no threshold in use, in which case **no
+            area is given at all**. That is the honest value of an
+            uncalibrated setting: the nearest cell is always found, so naming
+            without a threshold would claim an area for a detonation that
+            happened far from everything.
 
     Returns:
-        Rivi per syötepiste, sarakkeet :data:`NEAREST_RESULT_COLUMNS`.
+        A row per input point, columns :data:`NEAREST_RESULT_COLUMNS`.
 
-        ``distance`` on **aina** lähimmän ruudun etäisyys, myös kun se ylittää
-        kynnyksen -- juuri se erottaa tapauksen "kaukana kaikesta" tapauksesta
-        "pilvi oli tyhjä", jossa se on ``null``. ``area`` on annettu vain
-        kynnyksen sisällä.
+        ``distance`` is **always** the nearest cell's distance, also when it
+        exceeds the threshold -- that is exactly what tells the case "far from
+        everything" apart from "the cloud was empty", where it is ``null``.
+        ``area`` is given only within the threshold.
 
     Raises:
-        ValueError: Jos sarake puuttuu tai painotuksen parametri ei ole
-            äärellinen ei-negatiivinen luku.
+        ValueError: If a column is missing or a parameter of the weighting is
+            not a finite non-negative number.
     """
     for name, value in (
         ("z_weight", z_weight),
@@ -569,31 +600,32 @@ def nearest_cells(
     ):
         if not (value >= 0 and math.isfinite(value)):
             raise ValueError(
-                f"{name} on {value!r}, joka ei kelpaa etäisyyden painotukseen: "
-                "sen on oltava äärellinen eikä negatiivinen."
+                f"{name} is {value!r}, which cannot be used to weight the "
+                "distance: it has to be finite and not negative."
             )
     missing = [name for name in NEAREST_POINT_COLUMNS if name not in points.columns]
     if missing:
         raise ValueError(
-            f"Nimettävien pisteiden taulusta puuttuu sarake: {', '.join(missing)}. "
-            f"Odotetut sarakkeet ovat {', '.join(NEAREST_POINT_COLUMNS)}."
+            f"The table of points to be named is missing a column: "
+            f"{', '.join(missing)}. "
+            f"The expected columns are {', '.join(NEAREST_POINT_COLUMNS)}."
         )
     missing = [name for name in CLOUD_CELL_COLUMNS if name not in cloud.columns]
     if missing:
         raise ValueError(
-            f"Pistepilvestä puuttuu sarake: {', '.join(missing)}. "
-            f"Odotetut sarakkeet ovat {', '.join(CLOUD_CELL_COLUMNS)}."
+            f"The point cloud is missing a column: {', '.join(missing)}. "
+            f"The expected columns are {', '.join(CLOUD_CELL_COLUMNS)}."
         )
-    # ``point_id`` on avain, ja lopullinen vasen liitos **monistaisi** rivin,
-    # jos sama avain esiintyisi kahdesti eri paloissa. Tulos olisi silloin
-    # pidempi kuin syöte, ja kutsuja saisi saman kranaatin kahdesti tauluun
-    # ilman että mikään kaatuisi.
+    # ``point_id`` is a key, and the final left join would **multiply** the
+    # row if the same key occurred twice in different chunks. The result would
+    # then be longer than the input, and the caller would get the same grenade
+    # twice in the table without anything failing.
     duplicates = points.height - points["point_id"].n_unique()
     if duplicates:
         raise ValueError(
-            f"Nimettävien pisteiden avain point_id ei ole yksikäsitteinen: "
-            f"{duplicates} riviä on kaksoiskappaleita. Tulos monistuisi "
-            "liitoksessa, eli sama piste palautuisi useammin kuin kerran."
+            f"The key point_id of the points to be named is not unambiguous: "
+            f"{duplicates} rows are duplicates. The result would multiply in "
+            "the join, that is, the same point would come back more than once."
         )
 
     empty = points.select(
@@ -604,9 +636,9 @@ def nearest_cells(
     if points.is_empty() or cloud.is_empty():
         return empty
 
-    # Piste ilman koordinaatteja ei voi saada etäisyyttä -- eikä se saa myöskään
-    # pudota: rivi on taulussa joka tapauksessa, ja puuttuva tulos on sen
-    # rehellinen sisältö.
+    # A point without coordinates cannot get a distance -- and neither may it
+    # drop out: the row is in the table in any case, and a missing result is
+    # its honest content.
     locatable = points.filter(flight_point())
     if locatable.is_empty():
         return empty
@@ -630,19 +662,20 @@ def nearest_cells(
         + vertical**2
     ).sqrt()
 
-    # Ristitulo pisteiden ja ruutujen välillä on tarkka ja yksinkertainen,
-    # mutta se kasvaa tulona: 456 räjähdystä x 10 500 ruutua on 4,8 miljoonaa
-    # riviä. Pisteet käsitellään siksi paloissa, jolloin muistihuippu on palan
-    # koko kertaa ruudut eikä koko demo kertaa ruudut.
+    # The cross product between the points and the cells is exact and simple,
+    # but it grows as a product: 456 detonations x 10 500 cells is 4.8 million
+    # rows. The points are therefore handled in chunks, so that the memory
+    # peak is the chunk size times the cells rather than the whole demo times
+    # the cells.
     best_frames: list[pl.DataFrame] = []
     for offset in range(0, locatable.height, NEAREST_CHUNK_POINTS):
         chunk = locatable.slice(offset, NEAREST_CHUNK_POINTS)
         best_frames.append(
             chunk.join(centers, how="cross")
             .with_columns(distance.alias("_d"))
-            # Lajittelu on osa vastausta: kaksi yhtä kaukaista ruutua eri
-            # alueilla ratkeaa nimen aakkosjärjestyksellä, jotta sama demo
-            # antaa saman alueen joka ajolla.
+            # The sort is part of the answer: two equally distant cells in
+            # different areas are settled by the alphabetical order of the
+            # name, so that the same demo gives the same area on every run.
             .sort(["point_id", "_d", "_area"])
             .group_by("point_id", maintain_order=True)
             .agg(pl.col("_area").first(), pl.col("_d").first())
@@ -665,31 +698,32 @@ def nearest_cells(
     )
 
 
-# -- Sisäinen -----------------------------------------------------------------
+# -- Internal -----------------------------------------------------------------
 
 
 def _aggregate_runs(flight: pl.DataFrame, max_gap_ticks: int) -> pl.DataFrame:
-    """Katkaise rata yhtenäisiin jaksoihin ja tiivistä jokainen päätepisteiksi.
+    """Cut the trajectory into contiguous runs and condense each into
+    endpoints.
 
-    Jakso vaihtuu, kun tunniste, heittäjä tai kranaattityyppi vaihtuu tai
-    tickeihin jää ``max_gap_ticks``:iä suurempi aukko. ``ne_missing`` eikä
-    ``!=``: tyhjä heittäjä on jaksossa yhtä hyvä arvo kuin mikä tahansa muu, ja
-    ``!=`` palauttaisi sille ``null``:in, jolloin jaksoraja jäisi huomaamatta.
+    A run changes when the id, the thrower or the grenade type changes, or
+    when a gap larger than ``max_gap_ticks`` is left in the ticks.
+    ``ne_missing`` and not ``!=``: an empty thrower is as good a value in a run
+    as any other, and ``!=`` would return ``null`` for it, so the run boundary
+    would go unnoticed.
 
-    Lajitteluavain on ``(tunniste, tick)`` **ja sen perässä jokainen jäljellä
-    oleva sarake**. Kaksi ensimmäistä määräävät järjestyksen; loput ovat
-    pelkkiä tasapelin ratkaisijoita, eivätkä ne siirrä yhtäkään riviä
-    tilanteessa, jossa pari on yksikäsitteinen.
+    The sort key is ``(id, tick)`` **followed by every remaining column**. The
+    first two determine the order; the rest are mere tie-breakers, and they do
+    not move a single row in a situation where the pair is unambiguous.
 
-    Ne ovat mukana determinismin takia. Jaksoraja luetaan viereisistä
-    riveistä, joten se riippuu lajittelun tuloksesta, eikä Polarsin lajittelu
-    ole vakaa: kaksi riviä samalla tunnisteella ja samalla tickillä voisivat
-    vaihtaa paikkaa ajojen välillä. Silloin **jaksotus itse** -- ei vain
-    numerointi -- olisi määräämätön, ja ``grenade_no``:n vakaus olisi tyhjä
-    lupaus. Kun avaimessa on jokainen sarake, järjestys on rivien
-    **sisällön** funktio: kaksi täsmälleen samanlaista riviä ovat keskenään
-    vaihdettavissa, joten tulos on sama riippumatta siitä missä
-    järjestyksessä demoparser2 rivit antoi.
+    They are there for determinism. The run boundary is read from the
+    neighbouring rows, so it depends on the result of the sort, and Polars'
+    sort is not stable: two rows with the same id and the same tick could swap
+    places between runs. Then **the segmentation itself** -- not just the
+    numbering -- would be undetermined, and ``grenade_no``'s stability would
+    be an empty promise. With every column in the key, the order is a function
+    of the rows' **content**: two exactly identical rows are interchangeable,
+    so the result is the same regardless of the order demoparser2 gave the
+    rows in.
     """
     tie_break = [
         name
@@ -722,7 +756,7 @@ def _aggregate_runs(flight: pl.DataFrame, max_gap_ticks: int) -> pl.DataFrame:
 
 
 def _endpoint_rows(runs: pl.DataFrame, event_kind: str, prefix: str) -> pl.DataFrame:
-    """Poimi jaksoista joko heitto- tai räjähdysrivit."""
+    """Pick either the throw rows or the detonation rows out of the runs."""
     return runs.select(
         pl.col("grenade_no"),
         pl.col("grenade_entity_id"),

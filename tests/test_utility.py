@@ -1,13 +1,14 @@
-"""``domain.utility`` -- lentoratojen pelkistys ja räjähdysalue pistepilvestä.
+"""``domain.utility`` -- reducing trajectories and the detonation area from the
+point cloud.
 
-Jokainen funktio on puhdas, joten jokainen I/O-matriisin rivi on täällä yhden
-kutsun päässä ilman demotiedostoa. Radat rakennetaan käsin, ja ne
-jäljittelevät oikean demon rakennetta: kranaatilla on rivejä myös pelaajan
-repussa (koordinaatit tyhjiä), ja ``grenade_entity_id`` kierrätetään.
+Every function is pure, so every row of the I/O matrix is one call away here
+without a demo file. The trajectories are built by hand, and they imitate the
+structure of a real demo: a grenade has rows while it is in a player's bag as
+well (the coordinates empty), and ``grenade_entity_id`` gets recycled.
 
-Pistepilvi rakennetaan samalla tavalla käsin: muutama havainto riittää
-todistamaan moodivalinnan, tasatilanteen ratkaisun, pystypainon ja kynnyksen,
-eikä yksikään niistä vaadi miljoonaa riviä.
+The point cloud is built by hand in the same way: a handful of observations is
+enough to prove the choice of the mode, the tie-break, the vertical weight and
+the threshold, and not one of those needs a million rows.
 """
 
 from __future__ import annotations
@@ -34,13 +35,14 @@ from pappascout.domain.utility import (
     trajectory_gap_ticks,
 )
 
-#: Pistepilven ruudun särmä näissä testeissä. Sama kuin ``settings.toml``in
-#: ``callout_grid_units``, jotta testien luvut mittaavat tuotannon ruudukkoa.
+#: The point cloud's cell edge in these tests. The same as ``settings.toml``'s
+#: ``callout_grid_units``, so that the tests' numbers measure the production
+#: grid.
 GRID = 32
 
-#: Havaintotaulun tyypit. Eksplisiittisesti, koska yksikin pelkkiä
-#: ``None``-arvoja sisältävä sarake saisi muuten ``Null``-tyypin -- ja
-#: suodatin, jota testataan, kaatuisi eri syystä kuin testi väittää.
+#: The observation table's types. Explicitly, because even one column holding
+#: nothing but ``None`` values would otherwise get a ``Null`` type -- and the
+#: filter under test would fail for a different reason than the test claims.
 OBSERVATION_SCHEMA: dict[str, object] = {
     "x": pl.Float64,
     "y": pl.Float64,
@@ -49,7 +51,7 @@ OBSERVATION_SCHEMA: dict[str, object] = {
     "is_alive": pl.Boolean,
 }
 
-#: Feikkidemojen tickrate; radan sallittu aukko lasketaan siitä.
+#: The fake demos' tick rate; the trajectory's allowed gap is computed from it.
 TICK_RATE = 64.0
 GAP = trajectory_gap_ticks(TICK_RATE)
 
@@ -74,16 +76,17 @@ def trajectory(
     step: tuple[float, float, float] = (10.0, 0.0, 0.0),
     in_bag: list[int] | None = None,
 ) -> list[dict[str, object]]:
-    """Yhden kranaatin rivit: valinnainen reppuvaihe ja sitten lentorata.
+    """One grenade's rows: an optional bag phase and then the trajectory.
 
     Args:
         entity: ``grenade_entity_id``.
-        thrower: Heittäjä; ``None`` jäljittelee rataa ilman heittäjää.
-        grenade_type: Tyyppi sellaisena kuin adapteri sen antaa.
-        ticks: Lentoradan tickit.
-        start: Radan ensimmäinen piste.
-        step: Siirtymä tickiä kohden.
-        in_bag: Tickit, joilla kranaatti on repussa (koordinaatit tyhjiä).
+        thrower: The thrower; ``None`` imitates a trajectory without one.
+        grenade_type: The type as the adapter gives it.
+        ticks: The trajectory's ticks.
+        start: The trajectory's first point.
+        step: The displacement per tick.
+        in_bag: The ticks on which the grenade is in a bag (the coordinates
+            empty).
     """
     rows: list[dict[str, object]] = []
     for tick in in_bag or []:
@@ -119,18 +122,18 @@ def frame(*grenades: list[dict[str, object]]) -> pl.DataFrame:
 
 
 def endpoints(frame_in: pl.DataFrame, *, gap: int = GAP):
-    """``grenade_endpoints`` tavallisen 64-tickisen demon aukolla."""
+    """``grenade_endpoints`` with an ordinary 64-tick demo's gap."""
     return grenade_endpoints(frame_in, max_gap_ticks=gap)
 
 
-# --- Vakiot --------------------------------------------------------------------
+# --- Constants -----------------------------------------------------------------
 
 
 def test_event_kinds_match_the_shared_enum() -> None:
-    """Tapahtumalajit ovat sama luettelo kuin ``EVENTS``-skeemassa.
+    """The event kinds are the same list as in the ``EVENTS`` schema.
 
-    Tarkistus on testissä eikä moduulitason assertissa: assert katoaisi
-    ``python -O``:lla juuri silloin, kun sitä tarvittaisiin.
+    The check is in a test rather than in a module-level assert: an assert
+    would vanish under ``python -O`` exactly when it was needed.
     """
     assert (THROWN, DETONATE) == EVENT_KINDS
 
@@ -144,7 +147,8 @@ def test_endpoint_columns_are_unique() -> None:
 
 
 def test_a_normal_grenade_becomes_two_rows() -> None:
-    """I/O-matriisi: heitetty ja räjähtänyt savu -> heitto ja räjähdys."""
+    """The I/O matrix: a smoke thrown and detonated -> a throw and a
+    detonation."""
     result, dropped = endpoints(
         frame(trajectory(7, "aaa", "smoke", [100, 101, 102, 103]))
     )
@@ -160,7 +164,7 @@ def test_a_normal_grenade_becomes_two_rows() -> None:
 
 
 def test_the_whole_trajectory_collapses_to_the_two_endpoints() -> None:
-    """1,55 miljoonaa riviä ei saa kulkea eteenpäin -- kaksi riittää."""
+    """1.55 million rows must not travel onwards -- two are enough."""
     long_flight = trajectory(3, "aaa", "smoke", list(range(1000, 3000)))
     result, _ = endpoints(frame(long_flight))
     assert result.height == 2
@@ -168,10 +172,10 @@ def test_the_whole_trajectory_collapses_to_the_two_endpoints() -> None:
 
 
 def test_a_single_point_trajectory_gets_no_invented_detonation() -> None:
-    """I/O-matriisi: rata katkeaa -> vain ``grenade_thrown``.
+    """The I/O matrix: the trajectory breaks off -> only ``grenade_thrown``.
 
-    Keksitty räjähdys samaan pisteeseen väittäisi savua siellä, missä sitä ei
-    ollut.
+    An invented detonation at the same point would claim smoke where there was
+    none.
     """
     result, dropped = endpoints(frame(trajectory(9, "aaa", "he", [500])))
     assert dropped == 0
@@ -180,11 +184,11 @@ def test_a_single_point_trajectory_gets_no_invented_detonation() -> None:
 
 
 def test_rows_without_coordinates_are_not_a_trajectory() -> None:
-    """Repussa oleva kranaatti ei ole heitto.
+    """A grenade in a bag is not a throw.
 
-    Oikeassa demossa 1,34 miljoonaa riviä 1,55:stä on tällaisia. Ilman tätä
-    suodatusta heittopaikaksi tulisi tyhjä koordinaatti minuutteja ennen
-    varsinaista heittoa.
+    In a real demo 1.34 million rows out of 1.55 are of this kind. Without
+    this filtering the throwing place would be an empty coordinate minutes
+    before the actual throw.
     """
     result, dropped = endpoints(
         frame(
@@ -198,7 +202,7 @@ def test_rows_without_coordinates_are_not_a_trajectory() -> None:
 
 
 def test_a_grenade_never_thrown_produces_nothing() -> None:
-    """Pelkkiä reppurivejä -> ei kranaattia, ei ohitusta."""
+    """Nothing but bag rows -> no grenade, no drop."""
     result, dropped = endpoints(
         frame(trajectory(4, "aaa", "smoke", [], in_bag=[100, 101, 102]))
     )
@@ -207,11 +211,11 @@ def test_a_grenade_never_thrown_produces_nothing() -> None:
 
 
 def test_a_reused_entity_id_is_two_grenades() -> None:
-    """Peli kierrättää tunnisteet -- ryhmittely tunnisteen mukaan yhdistäisi ne.
+    """The game recycles the ids -- grouping by the id would join them.
 
-    Oikeassa demossa Ancientin 374 lentorataa mahtuu 187 tunnisteeseen. Jos
-    nämä yhdistyisivät, heitto olisi ensimmäisestä kierroksesta ja "räjähdys"
-    toisesta, eri pelaajalta ja eri kartan puolelta.
+    In a real demo Ancient's 374 trajectories fit into 187 ids. If these
+    joined, the throw would come from the first round and the "detonation"
+    from the second, from a different player and a different side of the map.
     """
     result, _ = endpoints(
         frame(
@@ -226,7 +230,8 @@ def test_a_reused_entity_id_is_two_grenades() -> None:
 
 
 def test_the_same_entity_and_thrower_split_on_a_tick_gap() -> None:
-    """Sama tunniste, sama heittäjä, sama tyyppi -- vain aukko erottaa."""
+    """The same id, the same thrower, the same type -- only the gap separates
+    them."""
     result, _ = endpoints(
         frame(
             trajectory(5, "aaa", "smoke", [100, 101, 102]),
@@ -238,10 +243,10 @@ def test_the_same_entity_and_thrower_split_on_a_tick_gap() -> None:
 
 
 def test_a_small_hole_in_the_trajectory_does_not_invent_a_grenade() -> None:
-    """Yksi hukkuva tick ei saa katkaista rataa kahdeksi kranaatiksi.
+    """One lost tick must not break a trajectory into two grenades.
 
-    Keksitty rivi on pahempi virhe kuin kadonnut: se lisäisi heiton, jota ei
-    tapahtunut.
+    An invented row is a worse error than a lost one: it would add a throw
+    that did not happen.
     """
     ticks = [100, 101, 102 + GAP - 1]
     result, _ = endpoints(frame(trajectory(5, "aaa", "smoke", ticks)))
@@ -250,7 +255,8 @@ def test_a_small_hole_in_the_trajectory_does_not_invent_a_grenade() -> None:
 
 
 def test_a_trajectory_without_a_thrower_is_dropped_and_counted() -> None:
-    """I/O-matriisi: rata ilman heittoa -> ohitetaan, määrä raportoidaan."""
+    """The I/O matrix: a trajectory without a throw -> skipped, the number
+    reported."""
     result, dropped = endpoints(
         frame(
             trajectory(1, None, "smoke", [100, 101]),
@@ -263,7 +269,7 @@ def test_a_trajectory_without_a_thrower_is_dropped_and_counted() -> None:
 
 
 def test_grenades_are_numbered_in_throw_order() -> None:
-    """``grenade_no`` on parin ainoa luotettava avain, ja se seuraa aikaa."""
+    """``grenade_no`` is the pair's only reliable key, and it follows time."""
     result, _ = endpoints(
         frame(
             trajectory(50, "aaa", "smoke", [900, 901]),
@@ -275,14 +281,15 @@ def test_grenades_are_numbered_in_throw_order() -> None:
 
 
 def test_three_trajectories_on_one_id_get_three_numbers() -> None:
-    """I/O-matriisi: tunniste toistuu kierroksella -> kolme lentorataa.
+    """The I/O matrix: the id repeats within a round -> three trajectories.
 
-    Mitattu ``inferno_vs_ryhmarama``sta: kierroksella 11 tunniste 564 kantaa
-    kolme rataa -- molotov, flashbang ja incendiary. Jaksotus erottaa ne
-    oikein, mutta pari ``(round_no, grenade_entity_id)`` ei -- siksi
-    jokaisella on oma ``grenade_no``, ja pelin oma tunniste on kaikilla sama.
-    Tyypit ovat samat kuin oikeassa demossa; ajat on tiivistetty testin
-    tickeiksi.
+    Measured from ``inferno_vs_ryhmarama``: on round 11 the id 564 carries
+    three trajectories -- a molotov, a flashbang and an incendiary. The
+    segmentation tells them apart correctly, but the pair ``(round_no,
+    grenade_entity_id)`` does not -- which is why each has its own
+    ``grenade_no``, and the game's own id is the same on all of them. The
+    types are the same as in the real demo; the times are condensed into the
+    test's ticks.
     """
     result, _ = endpoints(
         frame(
@@ -296,7 +303,8 @@ def test_three_trajectories_on_one_id_get_three_numbers() -> None:
     assert throws.height == 3
     assert throws["grenade_no"].n_unique() == 3
     assert throws["grenade_entity_id"].unique().to_list() == [564]
-    # Ajat ja tyypit säilyvät sellaisinaan -- tunniste ei muuta havaintoa.
+    # The times and the types survive as they stand -- the id does not change
+    # the observation.
     assert throws["tick"].to_list() == [500, 800, 1200]
     assert throws["grenade_type"].to_list() == [
         "molotov",
@@ -306,11 +314,11 @@ def test_three_trajectories_on_one_id_get_three_numbers() -> None:
 
 
 def test_the_number_is_unique_over_the_whole_result() -> None:
-    """Yksikäsitteisyys on demonlaajuinen, ei kierroskohtainen.
+    """The unambiguity is demo-wide, not per round.
 
-    Kierroskohtainen juokseva numero näyttäisi tässä yhtä hyvältä, mutta
-    pettäisi heti kun aggregointi liittää kahden kierroksen utilityn samaan
-    kehykseen. Siksi väite on koko taulusta.
+    A per-round running number would look just as good here, but it would fail
+    as soon as the aggregation joined the utility of two rounds into the same
+    frame. That is why the claim is about the whole table.
     """
     result, _ = endpoints(
         frame(
@@ -327,7 +335,8 @@ def test_the_number_is_unique_over_the_whole_result() -> None:
 
 
 def test_the_throw_and_its_detonation_share_the_number() -> None:
-    """I/O-matriisi: heitto ja räjähdys -- numero on niiden ainoa side."""
+    """The I/O matrix: a throw and a detonation -- the number is their only
+    link."""
     result, _ = endpoints(frame(trajectory(7, "aaa", "smoke", [100, 104, 108])))
 
     assert result["event_kind"].to_list() == [THROWN, DETONATE]
@@ -335,7 +344,8 @@ def test_the_throw_and_its_detonation_share_the_number() -> None:
 
 
 def test_an_unexploded_grenade_gets_a_number_of_its_own() -> None:
-    """I/O-matriisi: yhden pisteen rata -> vain heitto, mutta oma numero."""
+    """The I/O matrix: a single-point trajectory -> only a throw, but a number
+    of its own."""
     result, _ = endpoints(
         frame(
             trajectory(1, "aaa", "smoke", [100]),
@@ -350,12 +360,12 @@ def test_an_unexploded_grenade_gets_a_number_of_its_own() -> None:
 
 
 def test_the_same_input_gives_the_same_numbers() -> None:
-    """I/O-matriisi: sama demo uudelleen -> samat tunnisteet.
+    """The I/O matrix: the same demo again -> the same ids.
 
-    Vakaus ei ole mukavuus vaan ehto: jos numerot vaihtuisivat ajojen välillä,
-    arkiston uudelleenparsinta näyttäisi muutokselta ilman muutosta. Syöte
-    sekoitetaan, koska saman funktion toistaminen samalla syötteellä ei
-    todistaisi vakaudesta mitään.
+    Stability is not a convenience but a condition: if the numbers changed
+    between runs, re-parsing the archive would look like a change. The input
+    is shuffled, because repeating the same function on the same input would
+    prove nothing about stability.
     """
     rows = frame(
         trajectory(3, "aaa", "smoke", [900, 906]),
@@ -369,16 +379,16 @@ def test_the_same_input_gives_the_same_numbers() -> None:
 
 
 def test_two_rows_on_the_same_tick_do_not_make_the_result_undefined() -> None:
-    """Jaksotus ei saa riippua siitä, missä järjestyksessä rivit tulivat.
+    """The segmentation must not depend on the order the rows came in.
 
-    Jaksoraja luetaan viereisistä riveistä, ja Polarsin lajittelu ei ole
-    vakaa. Jos avain olisi pelkkä ``(tunniste, tick)``, kaksi riviä samalla
-    tunnisteella ja samalla tickillä voisivat vaihtaa paikkaa ajojen välillä
-    -- ja silloin **jaksotus itse**, ei vain numerointi, olisi määräämätön.
+    The run boundary is read from the neighbouring rows, and Polars' sort is
+    not stable. If the key were just ``(id, tick)``, two rows with the same id
+    and the same tick could swap places between runs -- and then **the
+    segmentation itself**, not just the numbering, would be undetermined.
 
-    Tässä sama tunniste kantaa kahta eri tyyppiä samoilla tickeillä, mikä on
-    pahin tapaus: tyyppi on jaksotuksen avain, joten rivien järjestys päättää
-    missä jakso katkeaa.
+    Here the same id carries two different types on the same ticks, which is
+    the worst case: the type is a key of the segmentation, so the order of the
+    rows decides where a run breaks.
     """
     rows = frame(
         trajectory(9, "aaa", "smoke", [100, 102], start=(0.0, 0.0, 0.0)),
@@ -391,11 +401,12 @@ def test_two_rows_on_the_same_tick_do_not_make_the_result_undefined() -> None:
 
 
 def test_two_trajectories_at_the_same_moment_stay_apart() -> None:
-    """Tasapeli ajassa ei sekoita ratoja keskenään.
+    """A tie in time does not mix the trajectories with each other.
 
-    Kaksi kranaattia voi lähteä samalta tickiltä (kaksi pelaajaa heittää yhtä
-    aikaa). Numeron on erotettava ne, ja radan molemmat rivit on pysyttävä
-    saman numeron alla -- muuten heitto ja räjähdys menisivät ristiin.
+    Two grenades can leave on the same tick (two players throwing at once).
+    The number has to tell them apart, and both rows of a trajectory have to
+    stay under the same number -- otherwise the throw and the detonation would
+    cross over.
     """
     result, _ = endpoints(
         frame(
@@ -411,7 +422,7 @@ def test_two_trajectories_at_the_same_moment_stay_apart() -> None:
 
 
 def test_an_empty_table_gives_an_empty_result_with_the_right_types() -> None:
-    """I/O-matriisi: demo ilman utilityä -> tyhjä tulos, ei kaatumista."""
+    """The I/O matrix: a demo without utility -> an empty result, no crash."""
     result, dropped = endpoints(pl.DataFrame(schema=dict(TRAJECTORY_SCHEMA)))
     assert result.is_empty()
     assert dropped == 0
@@ -419,7 +430,8 @@ def test_an_empty_table_gives_an_empty_result_with_the_right_types() -> None:
 
 
 def test_a_missing_column_is_an_error_not_an_empty_result() -> None:
-    """Tyhjä tulos näyttäisi demolta, jossa ei heitetty yhtään kranaattia."""
+    """An empty result would look like a demo in which no grenade was
+    thrown."""
     broken = frame(trajectory(1, "aaa", "smoke", [10, 11])).drop("thrower_id")
     with pytest.raises(ValueError) as exc:
         endpoints(broken)
@@ -427,22 +439,22 @@ def test_a_missing_column_is_an_error_not_an_empty_result() -> None:
 
 
 def test_non_finite_coordinates_are_not_a_trajectory_point() -> None:
-    """NaN-koordinaatti ei ole havainto, vaikka se ei olekaan null."""
+    """A NaN coordinate is not an observation, even though it is not null."""
     rows = trajectory(1, "aaa", "smoke", [10, 11, 12])
     rows[0]["x"] = float("nan")
     result, _ = endpoints(frame(rows))
     assert result["tick"].to_list() == [11, 12]
 
 
-# --- Aukon skaalaus tickratella ------------------------------------------------
+# --- Scaling the gap with the tick rate ----------------------------------------
 
 
 def test_the_gap_is_the_same_moment_at_any_tick_rate() -> None:
-    """Aukko on aikaa eikä tickejä.
+    """The gap is time and not ticks.
 
-    Kiinteä tickimäärä olisi 128-tickisessä demossa puolet lyhyempi hetki, ja
-    sama lento voisi pilkkoutua kahdeksi kranaatiksi -- eli **keksiä
-    ylimääräisen heiton** -- vain siksi että palvelin ajoi tiheämmin.
+    A fixed number of ticks would be half as long a moment in a 128-tick demo,
+    and the same flight could split into two grenades -- that is, **invent an
+    extra throw** -- merely because the server ran more densely.
     """
     assert trajectory_gap_ticks(64.0) == 8
     assert trajectory_gap_ticks(128.0) == 16
@@ -453,7 +465,8 @@ def test_the_gap_is_the_same_moment_at_any_tick_rate() -> None:
 
 
 def test_the_gap_is_never_zero() -> None:
-    """Nolla tarkoittaisi, ettei aukkoa sallita -- yksi hukkuva tick riittäisi."""
+    """Zero would mean that no gap is allowed -- one lost tick would be
+    enough."""
     assert trajectory_gap_ticks(1.0) >= 1
 
 
@@ -464,16 +477,17 @@ def test_an_impossible_tick_rate_is_refused(tick_rate: float) -> None:
 
 
 def test_a_128_tick_demo_keeps_a_trajectory_whole() -> None:
-    """Sama aukko sekunneissa, eri tickeinä: rata ei saa katketa."""
+    """The same gap in seconds, a different one in ticks: the trajectory must
+    not break."""
     ticks = [1000, 1001, 1001 + trajectory_gap_ticks(128.0)]
     result, _ = endpoints(
         frame(trajectory(5, "aaa", "smoke", ticks)),
         gap=trajectory_gap_ticks(128.0),
     )
     assert result.height == 2
-    # Samalla aukolla 64 tickin demossa se olisi eri kranaatti: kaksi
-    # pistettä ja sitten yksinäinen kolmas, eli heitto + räjähdys + keksitty
-    # kolmas heitto.
+    # With the same gap in a 64-tick demo it would be a different grenade: two
+    # points and then a lone third, that is a throw + a detonation + an
+    # invented third throw.
     split_result, _ = endpoints(
         frame(trajectory(5, "aaa", "smoke", ticks)),
         gap=trajectory_gap_ticks(64.0),
@@ -482,14 +496,15 @@ def test_a_128_tick_demo_keeps_a_trajectory_whole() -> None:
     assert split_result.filter(pl.col("event_kind") == THROWN).height == 2
 
 
-# --- Puuttuvat arvot -----------------------------------------------------------
+# --- Missing values ------------------------------------------------------------
 
 
 def test_a_row_without_a_grenade_type_is_not_a_trajectory_point() -> None:
-    """Tyhjä tyyppi kaataisi koko demon ``EVENTS``-validoinnissa.
+    """An empty type would bring down a whole demo in the ``EVENTS``
+    validation.
 
-    ``grenade_type`` on sopimuksessa pakollinen, joten yksi rikkinäinen rivi
-    estäisi 233 MB:n demon parsinnan kokonaan.
+    ``grenade_type`` is mandatory in the contract, so one broken row would
+    prevent the parse of a 233 MB demo entirely.
     """
     rows = trajectory(1, "aaa", "smoke", [10, 11, 12])
     rows[0]["grenade_type"] = None
@@ -507,11 +522,11 @@ def test_a_trajectory_of_only_null_types_disappears() -> None:
     assert dropped == 0
 
 
-# --- Pistepilven rakentaminen --------------------------------------------------
+# --- Building the point cloud --------------------------------------------------
 
 
 def observations(rows: list[dict[str, object]]) -> pl.DataFrame:
-    """Havaintotaulu sopimuksen tyypeillä."""
+    """An observation table with the contract's types."""
     return pl.DataFrame(rows, schema=OBSERVATION_SCHEMA, orient="row")
 
 
@@ -526,7 +541,8 @@ def seen(
 
 
 def test_the_cloud_is_a_grid_of_where_players_stood() -> None:
-    """Kaksi havaintoa samassa ruudussa on yksi ruutu, kaukainen on toinen."""
+    """Two observations in the same cell are one cell, a distant one is
+    another."""
     cloud = build_point_cloud(
         observations([seen(10.0, 10.0), seen(20.0, 12.0), seen(300.0, 300.0, area="Mid")]),
         grid_units=GRID,
@@ -537,42 +553,44 @@ def test_the_cloud_is_a_grid_of_where_players_stood() -> None:
 
 
 def test_the_cell_area_is_the_mode_not_the_first_row() -> None:
-    """Ruudun reunalla on aina rivejä naapurialueelta.
+    """At the edge of a cell there are always rows from the neighbouring area.
 
-    Ensimmäinen rivi olisi kiinni siinä, missä järjestyksessä demoparser2
-    tickit antoi -- eli sama demo voisi antaa eri alueen eri ajolla.
+    The first row would depend on the order demoparser2 gave the ticks in --
+    that is, the same demo could give a different area on a different run.
     """
-    rows = [seen(1.0, 1.0, area="Reuna")] + [seen(2.0, 2.0, area="Keskus")] * 3
+    rows = [seen(1.0, 1.0, area="Edge")] + [seen(2.0, 2.0, area="Centre")] * 3
     cloud = build_point_cloud(observations(rows), grid_units=GRID)
-    assert cloud["area"].to_list() == ["Keskus"]
-    # Havainnot ovat ruudun KAIKKI rivit, ei vain voittaneen alueen.
+    assert cloud["area"].to_list() == ["Centre"]
+    # The observations are ALL of the cell's rows, not only the winning area's.
     assert cloud["observations"].to_list() == [4]
 
 
 def test_a_tie_is_broken_by_the_area_name() -> None:
-    """Tasatilanne ei saa jäädä lajittelun sattuman varaan."""
-    rows = [seen(1.0, 1.0, area="Zulu"), seen(2.0, 2.0, area="Alfa")]
+    """A tie must not be left to the chance of the sort."""
+    rows = [seen(1.0, 1.0, area="Zulu"), seen(2.0, 2.0, area="Alpha")]
     assert build_point_cloud(observations(rows), grid_units=GRID)["area"].to_list() == [
-        "Alfa"
+        "Alpha"
     ]
-    # Sama sisältö toisessa järjestyksessä antaa saman vastauksen.
+    # The same content in another order gives the same answer.
     assert build_point_cloud(
         observations(list(reversed(rows))), grid_units=GRID
-    )["area"].to_list() == ["Alfa"]
+    )["area"].to_list() == ["Alpha"]
 
 
 def test_a_dead_player_is_not_in_the_cloud() -> None:
-    """Ruumis jää siihen mihin pelaaja kaatui; kuollut ei liiku kartalla."""
-    rows = [seen(10.0, 10.0, area="Elossa"), seen(300.0, 300.0, area="Ruumis", alive=False)]
+    """A body stays where the player fell; a dead player does not move on the
+    map."""
+    rows = [seen(10.0, 10.0, area="Alive"), seen(300.0, 300.0, area="Body", alive=False)]
     cloud = build_point_cloud(observations(rows), grid_units=GRID)
-    assert cloud["area"].to_list() == ["Elossa"]
+    assert cloud["area"].to_list() == ["Alive"]
 
 
 def test_an_unnamed_area_is_not_in_the_cloud() -> None:
-    """Ruutu nimeltä "ei nimeä" nimeäisi räjähdyksen tyhjäksi.
+    """A cell named "no name" would name a detonation empty.
 
-    Rivi näyttäisi silti osumalta -- alue null kynnyksen sisältä -- eikä
-    lukija voisi erottaa sitä siitä, ettei aluetta saatu lainkaan.
+    The row would still look like a hit -- the area null from within the
+    threshold -- and the reader could not tell it apart from a case where no
+    area was obtained at all.
     """
     rows = [seen(10.0, 10.0, area=None), seen(300.0, 300.0, area="Mid")]
     cloud = build_point_cloud(observations(rows), grid_units=GRID)
@@ -582,8 +600,8 @@ def test_an_unnamed_area_is_not_in_the_cloud() -> None:
 
 def test_a_row_without_coordinates_is_not_in_the_cloud() -> None:
     rows = [
-        {"x": None, "y": 1.0, "z": 0.0, "area": "Haamu", "is_alive": True},
-        {"x": float("nan"), "y": 1.0, "z": 0.0, "area": "Haamu", "is_alive": True},
+        {"x": None, "y": 1.0, "z": 0.0, "area": "Ghost", "is_alive": True},
+        {"x": float("nan"), "y": 1.0, "z": 0.0, "area": "Ghost", "is_alive": True},
         seen(300.0, 300.0, area="Mid"),
     ]
     cloud = build_point_cloud(observations(rows), grid_units=GRID)
@@ -591,20 +609,22 @@ def test_a_row_without_coordinates_is_not_in_the_cloud() -> None:
 
 
 def test_negative_coordinates_round_downwards() -> None:
-    """CS-kartat ovat origon molemmin puolin, joten katkaisu olisi vika.
+    """CS maps lie on both sides of the origin, so truncation would be a
+    defect.
 
-    Katkaisu nollaa kohti panisi -1 ja +1 samaan ruutuun, jolloin ruudukko
-    olisi origon kohdalla kaksinkertainen ja kaksi eri aluetta sulautuisi.
+    Truncating towards zero would put -1 and +1 in the same cell, and then the
+    grid would be twice the size at the origin and two different areas would
+    fuse.
     """
     cloud = build_point_cloud(
-        observations([seen(-1.0, -1.0), seen(1.0, 1.0, area="Toinen")]),
+        observations([seen(-1.0, -1.0), seen(1.0, 1.0, area="Other")]),
         grid_units=GRID,
     )
     assert cloud.select("cell_x", "cell_y").rows() == [(-1, -1), (0, 0)]
 
 
 def test_an_empty_cloud_still_has_the_contract_columns() -> None:
-    """I/O-matriisi: tyhjä pistepilvi on kelvollinen tulos, ei virhe."""
+    """The I/O matrix: an empty point cloud is a valid result, not an error."""
     cloud = build_point_cloud(observations([]), grid_units=GRID)
     assert cloud.is_empty()
     assert cloud.columns == list(CLOUD_CELL_COLUMNS)
@@ -617,18 +637,19 @@ def test_a_cloud_of_only_dead_players_is_empty_not_broken() -> None:
 
 
 def test_the_cloud_does_not_depend_on_the_row_order() -> None:
-    """Hyväksymiskriteeri: sama demo kahdesti -> identtiset taulut.
+    """The acceptance criterion: the same demo twice -> identical tables.
 
-    Demolla väite on heikko (deterministinen funktio samalla syötteellä).
-    Tämä on sen vahva muoto: **sama sisältö eri järjestyksessä**. Jos
-    moodivalinta nojaisi ryhmittelyn tai lajittelun vakauteen, ruudun alue
-    voisi vaihtua ajojen välillä -- ja räjähdysalue sen mukana.
+    With a demo the claim is weak (a deterministic function on the same
+    input). This is its strong form: **the same content in a different
+    order**. If the choice of the mode relied on the stability of the grouping
+    or of the sort, the cell's area could change between runs -- and the
+    detonation area with it.
     """
-    rows = [seen(1.0, 1.0, area="Alfa")] * 3 + [
-        seen(2.0, 2.0, area="Beeta")
+    rows = [seen(1.0, 1.0, area="Alpha")] * 3 + [
+        seen(2.0, 2.0, area="Beta")
     ] * 3 + [seen(3.0, 3.0, area="Gamma"), seen(300.0, 300.0, area="Delta")]
     forwards = build_point_cloud(observations(rows), grid_units=GRID)
-    # Kaksi eri sekoitusta, jotta yksikään ei ole "sama järjestys toisin päin".
+    # Two different shuffles, so that neither is "the same order backwards".
     backwards = build_point_cloud(observations(rows[::-1]), grid_units=GRID)
     interleaved = build_point_cloud(
         observations(rows[1::2] + rows[0::2]), grid_units=GRID
@@ -639,8 +660,8 @@ def test_the_cloud_does_not_depend_on_the_row_order() -> None:
 
 @pytest.mark.parametrize("column", CLOUD_OBSERVATION_COLUMNS)
 def test_a_missing_observation_column_is_named(column: str) -> None:
-    """Ilman tarkistusta tulos olisi tyhjä pilvi -- eli demo, jossa kukaan ei
-    liikkunut."""
+    """Without the check the result would be an empty cloud -- that is, a demo
+    in which nobody moved."""
     rows = observations([seen(1.0, 1.0)]).drop(column)
     with pytest.raises(ValueError, match=column):
         build_point_cloud(rows, grid_units=GRID)
@@ -648,11 +669,11 @@ def test_a_missing_observation_column_is_named(column: str) -> None:
 
 @pytest.mark.parametrize("grid", [0, -32, float("nan"), float("inf")])
 def test_an_impossible_grid_size_is_refused(grid: float) -> None:
-    with pytest.raises(ValueError, match="Ruudun koko"):
+    with pytest.raises(ValueError, match="cell size"):
         build_point_cloud(observations([seen(1.0, 1.0)]), grid_units=grid)
 
 
-# --- Lähimmän ruudun haku ------------------------------------------------------
+# --- Looking up the nearest cell -----------------------------------------------
 
 
 def points(rows: list[tuple[int, float | None, float | None, float | None]]):
@@ -669,20 +690,20 @@ def points(rows: list[tuple[int, float | None, float | None, float | None]]):
 
 
 def two_area_cloud() -> pl.DataFrame:
-    """Kaksi ruutua kaukana toisistaan, eri alueilla."""
+    """Two cells far from each other, in different areas."""
     return build_point_cloud(
-        observations([seen(16.0, 16.0, area="Alaosa"), seen(1000.0, 16.0, area="Ylaosa")]),
+        observations([seen(16.0, 16.0, area="Lower"), seen(1000.0, 16.0, area="Upper")]),
         grid_units=GRID,
     )
 
 
 def nearest(pts, cloud, *, max_units=256.0, z_weight=2.0, z_tolerance=72.0):
-    """Lähimmän ruudun haku testien oletusmitoilla.
+    """The nearest-cell lookup with the tests' default measures.
 
-    Paino on tässä **2 eikä tuotannon 1**, ja se on tarkoituksellista: nämä
-    testit mittaavat painotuksen *mekaniikkaa* eivätkä tuotannon
-    kokoonpanoa, ja kahden yksikön kerroin tekee käsin lasketuista
-    odotusarvoista luettavia. Tuotannon arvon vartioi
+    The weight here is **2 and not production's 1**, and that is deliberate:
+    these tests measure the *mechanics* of the weighting and not the
+    production configuration, and a factor of two units makes the
+    hand-computed expected values readable. The production value is guarded by
     ``tests/test_settings.py``.
     """
     return nearest_cells(
@@ -697,30 +718,33 @@ def nearest(pts, cloud, *, max_units=256.0, z_weight=2.0, z_tolerance=72.0):
 
 def test_the_nearest_cell_gives_the_area() -> None:
     result = nearest(points([(7, 20.0, 20.0, 0.0)]), two_area_cloud())
-    assert result["area"].to_list() == ["Alaosa"]
+    assert result["area"].to_list() == ["Lower"]
     assert result["distance"][0] == pytest.approx(5.657, abs=0.01)
 
 
 def test_the_point_id_comes_back_unchanged() -> None:
-    """Avain on kutsujan oma (``grenade_no``); funktio ei tunne kranaatteja."""
+    """The key is the caller's own (``grenade_no``); the function knows nothing
+    of grenades."""
     result = nearest(points([(41, 20.0, 20.0, 0.0), (7, 20.0, 20.0, 0.0)]), two_area_cloud())
     assert sorted(result["point_id"].to_list()) == [7, 41]
 
 
 def test_a_point_beyond_the_threshold_keeps_its_distance() -> None:
-    """I/O-matriisi: räjähdys kaukana -> ``area`` null, ``snap_distance`` tallessa.
+    """The I/O matrix: a detonation far away -> ``area`` null,
+    ``snap_distance`` kept.
 
-    Etäisyys on se, mikä erottaa tämän tyhjästä pistepilvestä: molemmissa alue
-    on null, mutta vain tässä tiedetään kuinka kaukaa se olisi otettu.
+    The distance is what tells this apart from an empty point cloud: in both
+    the area is null, but only here is it known how far away it would have
+    been taken from.
     """
     result = nearest(points([(1, 5000.0, 16.0, 0.0)]), two_area_cloud())
     assert result["area"].to_list() == [None]
-    # Ruudun keskipiste on 1008 (ruutu 31), joten etaisyys on 3992.
+    # The cell's centre is 1008 (cell 31), so the distance is 3992.
     assert result["distance"][0] == pytest.approx(3992.0, abs=0.5)
 
 
 def test_the_threshold_itself_still_counts() -> None:
-    """Raja on ``<=`` eikä ``<``: 256 yksikön päässä oleva ruutu kelpaa."""
+    """The limit is ``<=`` and not ``<``: a cell 256 units away qualifies."""
     cloud = build_point_cloud(observations([seen(16.0, 16.0, area="Mid")]), grid_units=GRID)
     exactly = nearest(points([(1, 16.0 + 256.0, 16.0, 0.0)]), cloud, max_units=256.0)
     assert exactly["area"].to_list() == ["Mid"]
@@ -729,7 +753,7 @@ def test_the_threshold_itself_still_counts() -> None:
 
 
 def test_an_empty_cloud_gives_neither_area_nor_distance() -> None:
-    """I/O-matriisi: tyhjä pistepilvi -> kaikki räjähdysalueet null."""
+    """The I/O matrix: an empty point cloud -> every detonation area null."""
     result = nearest(points([(1, 20.0, 20.0, 0.0)]), empty_point_cloud())
     assert result["area"].to_list() == [None]
     assert result["distance"].to_list() == [None]
@@ -742,56 +766,58 @@ def test_a_point_without_coordinates_gives_nothing() -> None:
 
 
 def test_the_players_own_height_is_free() -> None:
-    """Kranaatti räjähtää mistä tahansa lattian ja pään väliltä.
+    """A grenade detonates anywhere between the floor and a head.
 
-    Pystyrangaistus ilman toleranssia osuisi juuri normaaliin tapaukseen:
-    savu ilmassa, molotov lattialla. Pelaajan korkeuden verran pystyeroa ei
-    siis saa maksaa mitään.
+    A vertical penalty without a tolerance would hit exactly the normal case:
+    smoke in the air, a molotov on the floor. A player's height of vertical
+    difference must therefore cost nothing.
     """
     cloud = build_point_cloud(observations([seen(16.0, 16.0, 16.0, "Mid")]), grid_units=GRID)
-    # Ruudun keskipiste on z = 16; 72 yksikköä ylempänä ero on ilmainen.
+    # The cell's centre is z = 16; 72 units higher the difference is free.
     result = nearest(points([(1, 16.0, 16.0, 16.0 + 72.0)]), cloud)
     assert result["distance"][0] == pytest.approx(0.0, abs=0.01)
     assert result["area"].to_list() == ["Mid"]
 
 
 def test_height_beyond_the_tolerance_is_weighted() -> None:
-    """Kerroskartta: alakerran ruutu on ylhäältä katsoen aivan vieressä.
+    """A layered map: the cell below is right next door seen from above.
 
-    Savu on tässä täsmälleen alakerran ruudun yläpuolella, 192 yksikköä
-    ylempänä, ja yläkerran ruutu on 224 yksikön päässä samassa tasossa. Ilman
-    painoa alakerta olisi lähempänä (192 < 224) ja savu saisi väärän
-    kerroksen; painotettuna sen etäisyys on 2 * (192 - 72) = 240, eli
-    yläkerta voittaa. Juuri tämä on painon koko tehtävä.
+    The smoke here is exactly above the lower cell, 192 units higher, and the
+    upper cell is 224 units away in the same plane. Without a weight the lower
+    one would be nearer (192 < 224) and the smoke would get the wrong floor;
+    weighted, its distance is 2 * (192 - 72) = 240, so the upper one wins.
+    That is the whole task of the weight.
     """
     cloud = build_point_cloud(
         observations(
             [
-                seen(16.0, 16.0, -180.0, "Alakerta"),
-                seen(240.0, 16.0, 16.0, "Ylakerta"),
+                seen(16.0, 16.0, -180.0, "Downstairs"),
+                seen(240.0, 16.0, 16.0, "Upstairs"),
             ]
         ),
         grid_units=GRID,
     )
     smoke = points([(1, 16.0, 16.0, 16.0)])
     result = nearest(smoke, cloud, max_units=1000.0)
-    assert result["area"].to_list() == ["Ylakerta"]
+    assert result["area"].to_list() == ["Upstairs"]
     assert result["distance"][0] == pytest.approx(224.0, abs=0.5)
-    # Ilman painoa ja toleranssia (paino 1, toleranssi 0) alakerta olisi
-    # lähempänä -- se on se virhe, jota vastaan paino on olemassa.
+    # Without the weight and the tolerance (weight 1, tolerance 0) the lower
+    # one would be nearer -- that is the error the weight exists against.
     unweighted = nearest(
         smoke, cloud, max_units=1000.0, z_weight=1.0, z_tolerance=0.0
     )
-    assert unweighted["area"].to_list() == ["Alakerta"]
+    assert unweighted["area"].to_list() == ["Downstairs"]
     assert unweighted["distance"][0] == pytest.approx(192.0, abs=0.5)
 
 
 @pytest.mark.parametrize("limit", [None, float("nan"), float("inf")])
 def test_a_threshold_that_is_not_a_number_gives_no_area(limit: float | None) -> None:
-    """Kalibroimattoman asetuksen rehellinen arvo, ei rajan katoaminen.
+    """The honest value of an uncalibrated setting, not the disappearance of
+    the limit.
 
-    Lähin ruutu löytyy aina, joten kynnyksetön nimeäminen olisi väite eikä
-    mittaus. Etäisyys mitataan silti -- se on aineisto kalibrointiin.
+    The nearest cell is always found, so naming without a threshold would be a
+    claim rather than a measurement. The distance is measured all the same --
+    it is the material for the calibration.
     """
     result = nearest(points([(1, 20.0, 20.0, 0.0)]), two_area_cloud(), max_units=limit)
     assert result["area"].to_list() == [None]
@@ -799,20 +825,21 @@ def test_a_threshold_that_is_not_a_number_gives_no_area(limit: float | None) -> 
 
 
 def test_an_equal_distance_is_broken_by_the_area_name() -> None:
-    """Kaksi yhtä kaukaista ruutua eri alueilla: sama demo, sama vastaus."""
+    """Two equally distant cells in different areas: the same demo, the same
+    answer."""
     cloud = build_point_cloud(
-        observations([seen(-16.0, 16.0, area="Zulu"), seen(48.0, 16.0, area="Alfa")]),
+        observations([seen(-16.0, 16.0, area="Zulu"), seen(48.0, 16.0, area="Alpha")]),
         grid_units=GRID,
     )
     result = nearest(points([(1, 16.0, 16.0, 0.0)]), cloud, max_units=1000.0)
-    assert result["area"].to_list() == ["Alfa"]
+    assert result["area"].to_list() == ["Alpha"]
 
 
 def test_chunking_does_not_change_the_answer() -> None:
-    """Palan koko on muistiraja, ei osa vastausta.
+    """The chunk size is a memory bound, not part of the answer.
 
-    Pisteitä on tässä enemmän kuin yhteen palaan mahtuu, joten sekä
-    paloittelu että sen jälkeinen yhdistäminen tulevat ajetuiksi.
+    There are more points here than fit into one chunk, so both the chunking
+    and the merging after it are exercised.
     """
     cloud = two_area_cloud()
     many = points(
@@ -823,16 +850,16 @@ def test_chunking_does_not_change_the_answer() -> None:
     assert result.height == many.height
     odd = result.filter(pl.col("point_id") % 2 == 1)
     even = result.filter(pl.col("point_id") % 2 == 0)
-    assert odd["area"].unique().to_list() == ["Alaosa"]
-    assert even["area"].unique().to_list() == ["Ylaosa"]
+    assert odd["area"].unique().to_list() == ["Lower"]
+    assert even["area"].unique().to_list() == ["Upper"]
 
 
 def test_no_points_at_all_gives_an_empty_result() -> None:
-    """Tyhjä syöte on kelvollinen: nolla kranaattia on nolla riviä.
+    """An empty input is valid: zero grenades is zero rows.
 
-    Varhaispaluu on olemassa, koska ristitulo tyhjällä puolella tuottaisi
-    tyhjän kehyksen väärillä tyypeillä -- ja kutsuja liittäisi sen
-    hiljaa tyhjäksi.
+    The early return exists because a cross product with an empty side would
+    produce an empty frame with the wrong types -- and the caller would join
+    it silently empty.
     """
     empty = points([])
     result = nearest(empty, two_area_cloud())
@@ -841,12 +868,12 @@ def test_no_points_at_all_gives_an_empty_result() -> None:
 
 
 def test_a_duplicate_point_id_is_refused() -> None:
-    """Avain, joka esiintyy kahdesti, **monistuisi** lopullisessa liitoksessa.
+    """A key that occurs twice would **multiply** in the final join.
 
-    Palat ryhmitellään erikseen ja yhdistetään, joten sama avain kahdessa
-    palassa tuottaisi kaksi riviä ``best``iin ja sitä kautta neljä riviä
-    tulokseen. Kutsuja saisi saman kranaatin useammin kuin kerran ilman että
-    mikään kaatuisi.
+    The chunks are grouped separately and then merged, so the same key in two
+    chunks would produce two rows in ``best`` and through that four rows in
+    the result. The caller would get the same grenade more than once without
+    anything failing.
     """
     doubled = points([(7, 20.0, 20.0, 0.0), (7, 30.0, 30.0, 0.0)])
     with pytest.raises(ValueError, match="point_id"):
@@ -854,11 +881,12 @@ def test_a_duplicate_point_id_is_refused() -> None:
 
 
 def test_a_blank_area_is_not_an_area() -> None:
-    """Pelkkä välilyönti ei ole aluenimi, vaikka se ei olekaan null.
+    """A single space is not an area name, even though it is not null.
 
-    Sääntö on täällä eikä vain adapterissa: tämä funktio on julkinen, ja sen
-    sopimus on "alueeton havainto ei päädy pilveen". Ruutu nimeltä ``" "``
-    nimeäisi räjähdyksen tyhjäksi kynnyksen sisällä ja näyttäisi osumalta.
+    The rule is here and not only in the adapter: this function is public, and
+    its contract is "an arealess observation does not reach the cloud". A cell
+    named ``" "`` would name a detonation empty within the threshold and would
+    look like a hit.
     """
     rows = [seen(10.0, 10.0, area=""), seen(12.0, 12.0, area="   "),
             seen(300.0, 300.0, area="Mid")]

@@ -1,9 +1,9 @@
-"""``domain.rounds`` -- kierrosnumeroinnin ja kierrosinvarianttien testit.
+"""``domain.rounds`` -- tests for round numbering and the round invariants.
 
-Numerointi on koko Story 1.2:n ainoa aito päättelykohta, ja funktio on puhdas,
-joten se testataan **käsin rakennetuilla tauluilla ilman demoja**. Jokainen
-testi vastaa yhteen tilanteeseen, jonka oikea demo tuottaa: warmup, puukko-
-kierros, ``mp_restartgame``-nollaus, puoliajan vaihto ja jatkoaika.
+Numbering is the only real inference in the whole of Story 1.2, and the
+function is pure, so it is tested with **hand-built tables and no demos**.
+Each test covers one situation that a real demo produces: warm-up, the knife
+round, an ``mp_restartgame`` reset, the half-time switch and overtime.
 """
 
 from __future__ import annotations
@@ -21,9 +21,10 @@ from pappascout.errors import ParseError, SchemaError
 
 
 def rounds(*scores: tuple[int, int, int]) -> pl.DataFrame:
-    """Rakenna kierrostaulu kolmikoista ``(round_raw, score_start, score_end)``.
+    """Build a rounds table from triples ``(round_raw, score_start,
+    score_end)``.
 
-    Jokaisesta kierroksesta syntyy kaksi riviä, kuten oikeassakin taulussa.
+    Every round produces two rows, as it does in the real table.
     """
     rows = []
     for round_raw, start, end in scores:
@@ -49,7 +50,7 @@ def rounds(*scores: tuple[int, int, int]) -> pl.DataFrame:
 
 
 def round_numbers(df: pl.DataFrame) -> list[int | None]:
-    """Kierrosnumerot ``round_raw``-järjestyksessä, kerran per kierros."""
+    """The round numbers in ``round_raw`` order, once per round."""
     return (
         df.unique(subset=["round_raw"], keep="first", maintain_order=True)
         .sort("round_raw")["round_no"]
@@ -57,7 +58,7 @@ def round_numbers(df: pl.DataFrame) -> list[int | None]:
     )
 
 
-# --- Perustapaus --------------------------------------------------------------
+# --- The basic case -----------------------------------------------------------
 
 
 def test_played_rounds_are_numbered_from_one() -> None:
@@ -85,14 +86,14 @@ def test_original_columns_and_row_order_survive() -> None:
     assert result["round_raw"].to_list() == source["round_raw"].to_list()
 
 
-# --- Warmup, puukkokierros ja uudelleenkäynnistys ------------------------------
+# --- Warm-up, the knife round and the restart ---------------------------------
 
 
 def test_knife_round_gets_no_number() -> None:
-    """Puukkokierros: pisteen antaa, mutta restart nollaa sen.
+    """The knife round: it gives a point, but the restart wipes it.
 
-    Ancient-demossa tämä on kierros 1: pistemäärä ennen ja jälkeen on 0, koska
-    ``mp_restartgame`` pyyhkii puukkokierroksen tuloksen.
+    In the Ancient demo this is round 1: the score before and after is 0,
+    because ``mp_restartgame`` erases the knife round's result.
     """
     result = mark_played_rounds(rounds((1, 0, 0), (2, 0, 1), (3, 1, 2)))
     assert round_numbers(result) == [None, 1, 2]
@@ -104,32 +105,33 @@ def test_warmup_rounds_get_no_number() -> None:
 
 
 def test_score_reset_is_not_a_played_round() -> None:
-    """``mp_restartgame`` kesken ottelun: pistemäärä laskee, ei kasva."""
+    """``mp_restartgame`` mid-match: the score drops, it does not grow."""
     result = mark_played_rounds(rounds((1, 0, 1), (2, 1, 2), (3, 2, 0), (4, 0, 1)))
     assert round_numbers(result) == [1, 2, None, 3]
 
 
 def test_numbering_is_continuous_over_a_skipped_round() -> None:
-    """Ohitettu kierros ei jätä aukkoa numerointiin, vain ``round_raw``iin."""
+    """A skipped round leaves no gap in the numbering, only in ``round_raw``."""
     result = mark_played_rounds(rounds((5, 0, 1), (6, 1, 1), (7, 1, 2)))
     assert round_numbers(result) == [1, None, 2]
 
 
-# --- Puoliaika ja jatkoaika ----------------------------------------------------
+# --- Half time and overtime ----------------------------------------------------
 
 
 def test_half_time_switch_does_not_break_numbering() -> None:
-    """Yhteispistemäärä kestää puolenvaihdon.
+    """The combined score survives the change of sides.
 
-    Puoliajalla joukkuekohtaiset pisteet vaihtavat paikkaa (4-7 -> 7-4), mutta
-    summa säilyy. Siksi numerointi nojaa summaan eikä joukkueen omaan lukuun.
+    At half time the per-team scores swap places (4-7 -> 7-4), but the sum
+    stays the same. That is why the numbering relies on the sum rather than on
+    a team's own number.
     """
     result = mark_played_rounds(rounds((12, 11, 12), (13, 12, 13), (14, 13, 14)))
     assert round_numbers(result) == [1, 2, 3]
 
 
 def test_overtime_rounds_are_numbered_like_any_other() -> None:
-    """Nuke-demo: 28 kierrosta, joista neljä viimeistä jatkoaikaa."""
+    """The Nuke demo: 28 rounds, the last four of them overtime."""
     scores = [(1, 0, 0)] + [(i + 2, i, i + 1) for i in range(28)]
     result = mark_played_rounds(rounds(*scores))
     all_numbers = round_numbers(result)
@@ -138,11 +140,11 @@ def test_overtime_rounds_are_numbered_like_any_other() -> None:
     assert max(n for n in all_numbers if n is not None) == 28
 
 
-# --- Reunatapaukset ------------------------------------------------------------
+# --- Edge cases ----------------------------------------------------------------
 
 
 def test_unfinished_last_round_is_not_numbered() -> None:
-    """Katkennut demo: viimeinen kierros ei ehtinyt tuottaa pistettä."""
+    """A truncated demo: the last round never produced a point."""
     result = mark_played_rounds(rounds((1, 0, 1), (2, 1, 1)))
     assert round_numbers(result) == [1, None]
 
@@ -165,7 +167,7 @@ def test_empty_table_gets_an_empty_round_no_column() -> None:
     assert result.schema["round_no"] == pl.Int32
 
 
-def test_missing_column_is_a_finnish_error() -> None:
+def test_missing_column_is_named_in_the_error() -> None:
     with pytest.raises(SchemaError) as exc:
         mark_played_rounds(rounds((1, 0, 1)).drop("score_end"))
     assert "score_end" in str(exc.value)
@@ -181,7 +183,7 @@ def test_null_round_raw_is_an_error() -> None:
 
 
 def test_conflicting_scores_for_one_round_are_an_error() -> None:
-    """Kierroksen pisteet ovat kierroskohtaisia, ei joukkuekohtaisia."""
+    """A round's score belongs to the round, not to a team."""
     source = rounds((1, 0, 1))
     source[1, "score_end"] = 5
     with pytest.raises(SchemaError) as exc:
@@ -189,18 +191,18 @@ def test_conflicting_scores_for_one_round_are_an_error() -> None:
     assert "score_start" in str(exc.value) or "score_end" in str(exc.value)
 
 
-# --- Pistemäärän askel ---------------------------------------------------------
+# --- The step in the score -----------------------------------------------------
 
 
 def test_score_jump_larger_than_one_is_refused() -> None:
-    """Kahden pisteen hyppy tarkoittaa, että kierros jäi tunnistamatta.
+    """A jump of two points means a round went unrecognised.
 
-    Hiljainen hyväksyntä siirtäisi kaikkien seuraavien kierrosten numeroinnin
-    yhdellä, ja koko kierroslista olisi väärässä kohdassa demoa.
+    Accepting it silently would shift the numbering of every following round
+    by one, and the whole round list would be at the wrong place in the demo.
     """
     with pytest.raises(ParseError) as exc:
         mark_played_rounds(rounds((1, 0, 1), (2, 1, 3)))
-    assert "enemmän kuin" in str(exc.value)
+    assert "more than one" in str(exc.value)
     assert "round_raw=2" in str(exc.value)
 
 
@@ -212,11 +214,11 @@ def test_score_drop_is_allowed_because_it_is_a_restart() -> None:
     ]
 
 
-# --- Voiton syyn invariantti ---------------------------------------------------
+# --- The win-reason invariant --------------------------------------------------
 
 
 def wins(*rows: tuple[str, bool, str | None]) -> pl.DataFrame:
-    """Rakenna taulu kolmikoista ``(side, won, win_reason)``."""
+    """Build a table from triples ``(side, won, win_reason)``."""
     return pl.DataFrame(
         [
             {"round_no": i + 1, "side": side, "won": won, "win_reason": reason}
@@ -243,7 +245,7 @@ def test_ct_may_win_by_elimination_defuse_or_time(reason: str) -> None:
 
 
 def test_ct_wins_when_nobody_does_anything() -> None:
-    """Jos molemmat joukkueet istuvat aloituspaikalla, CT voittaa ajan loppuessa."""
+    """If both teams sit at their spawn, CT wins when time runs out."""
     check_win_reasons(wins(("CT", True, "time_ran_out"), ("T", False, "time_ran_out")))
 
 
@@ -252,29 +254,29 @@ def test_t_cannot_win_by_a_ct_reason(reason: str) -> None:
     with pytest.raises(ParseError) as exc:
         check_win_reasons(wins(("T", True, reason)))
     message = str(exc.value)
-    assert "sääntöjen vastaista" in message
-    assert "väärin päin" in message
+    assert "against the rules" in message
+    assert "wrong way round" in message
 
 
 @pytest.mark.parametrize("reason", ["ct_killed", "bomb_exploded"])
 def test_ct_cannot_win_by_a_t_reason(reason: str) -> None:
-    with pytest.raises(ParseError, match="sääntöjen vastaista"):
+    with pytest.raises(ParseError, match="against the rules"):
         check_win_reasons(wins(("CT", True, reason)))
 
 
 def test_unknown_reason_is_refused_rather_than_ignored() -> None:
     with pytest.raises(ParseError) as exc:
-        check_win_reasons(wins(("CT", True, "keksitty_syy")))
-    assert "tunnettu" in str(exc.value)
+        check_win_reasons(wins(("CT", True, "no-such-reason")))
+    assert "not a known way" in str(exc.value)
 
 
 def test_losing_rows_are_not_checked() -> None:
-    """Häviäjän rivillä on voittajan syy -- se ei ole rikkomus."""
+    """The loser's row carries the winner's reason -- that is no breach."""
     check_win_reasons(wins(("T", True, "bomb_exploded"), ("CT", False, "bomb_exploded")))
 
 
 def test_unresolved_rounds_are_skipped() -> None:
-    """Kierros, joka ei ehtinyt ratketa, ei riko sääntöä."""
+    """A round that never got resolved does not break the rule."""
     check_win_reasons(wins(("T", None, None), ("CT", None, None)))
 
 

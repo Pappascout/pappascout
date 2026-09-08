@@ -1,7 +1,7 @@
-"""Skeemavalidoinnin testit -- I/O-matriisin neljä ensimmäistä riviä.
+"""Tests for the schema validation -- the first four rows of the I/O matrix.
 
-``validate`` on tarkoituksella tiukka molempiin suuntiin: hiljaa tyhjäksi menevä
-Polars-join on juuri se vika, jonka tämä sopimus estää.
+``validate`` is deliberately strict in both directions: the Polars join that
+goes silently empty is exactly the defect this contract prevents.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from pappascout.errors import PappascoutError, SchemaError
 
 @pytest.mark.parametrize("name", sorted(SCHEMAS))
 def test_valid_frame_passes_through_unchanged(name: str) -> None:
-    """Skeema kunnossa -> validate palauttaa DataFramen muuttumattomana."""
+    """The schema is in order -> validate returns the DataFrame unchanged."""
     schema = SCHEMAS[name]
     df = empty_frame(schema)
     result = validate(df, schema, name)
@@ -38,28 +38,30 @@ def test_valid_frame_passes_through_unchanged(name: str) -> None:
 
 
 def test_missing_column_names_column_and_expected_type() -> None:
-    """Sarake puuttuu -> SchemaError nimeää puuttuvan sarakkeen ja sen tyypin."""
+    """A column is missing -> SchemaError names the missing column and its
+    type."""
     df = empty_frame(ROUNDS).drop("round_no")
     with pytest.raises(SchemaError) as exc:
         validate(df, ROUNDS, "rounds")
     message = str(exc.value)
     assert "round_no" in message
     assert "Int32" in message
-    assert "puuttuu" in message
+    assert "missing" in message
 
 
 def test_extra_column_names_the_extra_column() -> None:
-    """Ylimääräinen sarake -> SchemaError nimeää ylimääräisen sarakkeen."""
-    df = empty_frame(ROUNDS).with_columns(pl.lit(1).alias("kaikki_rahat"))
+    """An extra column -> SchemaError names the extra column."""
+    df = empty_frame(ROUNDS).with_columns(pl.lit(1).alias("not_a_column"))
     with pytest.raises(SchemaError) as exc:
         validate(df, ROUNDS, "rounds")
     message = str(exc.value)
-    assert "kaikki_rahat" in message
-    assert "ylimääräinen" in message
+    assert "not_a_column" in message
+    assert "extra column" in message
 
 
 def test_wrong_dtype_names_column_expected_and_actual() -> None:
-    """Väärä tyyppi -> SchemaError nimeää sarakkeen, odotetun ja saadun tyypin."""
+    """A wrong type -> SchemaError names the column, the expected and the
+    actual type."""
     df = empty_frame(ROUNDS).with_columns(pl.col("round_no").cast(pl.Utf8))
     with pytest.raises(SchemaError) as exc:
         validate(df, ROUNDS, "rounds")
@@ -70,7 +72,7 @@ def test_wrong_dtype_names_column_expected_and_actual() -> None:
 
 
 def test_missing_is_reported_before_wrong_type() -> None:
-    """Puuttuva sarake raportoidaan, vaikka toisessa olisi myös väärä tyyppi."""
+    """The missing column is reported even when another has a wrong type."""
     df = empty_frame(ROUNDS).drop("round_no").with_columns(
         pl.col("won").cast(pl.Int32)
     )
@@ -80,11 +82,12 @@ def test_missing_is_reported_before_wrong_type() -> None:
 
 
 def test_advice_replaces_the_developer_instruction() -> None:
-    """Kutsuja voi vaihtaa toimintaohjeen, muttei diagnoosia.
+    """The caller can replace the instruction, but not the diagnosis.
 
-    Oletusohje puhuu kehittäjälle, koska sopimusta rikkoo useimmiten koodi.
-    Arkistosta luettu taulu on eri tilanne: sen on rikkonut ohjelman oma
-    aiempi versio, eikä käyttäjä korjaa sitä muokkaamalla schemas.py:tä.
+    The default instruction speaks to a developer, because most often it is
+    code that breaks the contract. A table read from the archive is a
+    different situation: it was broken by an earlier version of the program
+    itself, and the user does not fix it by editing schemas.py.
     """
     df = empty_frame(ROUNDS).drop("round_no")
 
@@ -93,68 +96,73 @@ def test_advice_replaces_the_developer_instruction() -> None:
     assert "domain/schemas.py" in str(default.value)
 
     with pytest.raises(SchemaError) as replaced:
-        validate(df, ROUNDS, "rounds", advice="Aja parsinta uudelleen.")
+        validate(df, ROUNDS, "rounds", advice="Run the parse again.")
     message = str(replaced.value)
-    assert "round_no" in message  # diagnoosi säilyy
-    assert message.endswith("Aja parsinta uudelleen.")
+    assert "round_no" in message  # the diagnosis survives
+    assert message.endswith("Run the parse again.")
     assert "domain/schemas.py" not in message
 
 
 def test_column_order_does_not_matter() -> None:
-    """Sarakkeiden järjestys ei ole osa sopimusta."""
+    """The order of the columns is not part of the contract."""
     df = empty_frame(ROUNDS)
     reversed_frame = df.select(reversed(df.columns))
     assert validate(reversed_frame, ROUNDS, "rounds") is reversed_frame
 
 
 def test_schema_error_is_a_pappascout_error() -> None:
-    """CLI voi napata kaikki työkalun virheet yhdellä except-lauseella."""
+    """The CLI can catch every error of the tool with one except clause."""
     assert issubclass(SchemaError, PappascoutError)
 
 
 def test_rounds_has_one_row_per_team_columns() -> None:
-    """Kierrostaulu on pitkä: rivillä on aina joukkueen puoli ja kokoonpano."""
+    """The rounds table is long: a row always has the team's side and
+    lineup."""
     assert ROUNDS["side"] == pl.Enum(list(SIDES))
     assert "lineup_key" in ROUNDS
     assert ROUNDS["status"] == pl.Enum(list(UNIT_STATUSES))
 
 
 def test_rounds_carries_the_armed_player_count() -> None:
-    """Kalustolaskuri kuuluu kierrostaulun sopimukseen kokonaislukuna.
+    """The equipment counter belongs to the rounds table's contract as an
+    integer.
 
-    Sarakkeiden **järjestystä ei tarkisteta**: tämän moduulin oma
-    ``test_column_order_does_not_matter`` ja ``validate``in
-    docstring sanovat, ettei järjestys ole osa sopimusta -- järjestysvaatimus
-    tässä olisi ristiriita niiden kanssa.
+    The **order** of the columns is not checked: this module's own
+    ``test_column_order_does_not_matter`` and ``validate``'s docstring say
+    that the order is not part of the contract -- requiring an order here
+    would contradict them.
     """
     assert ARMED_COLUMN in ROUNDS
     assert ROUNDS[ARMED_COLUMN] == pl.Int32
 
 
 def test_rounds_carries_the_armored_player_count() -> None:
-    """Panssarilaskuri on oma sarakkeensa kalustolaskurin rinnalla."""
+    """The armour counter is a column of its own beside the equipment
+    counter."""
     assert ARMORED_COLUMN in ROUNDS
     assert ROUNDS[ARMORED_COLUMN] == pl.Int32
 
 
 def test_the_two_player_counters_are_separate_columns() -> None:
-    """Kaksi laskuria, kaksi nimeä, kaksi saraketta -- ei yhtä yleistystä.
+    """Two counters, two names, two columns -- not one generalisation.
 
-    Ne vastaavat eri kysymyksiin: aseistettu on puolioston kalibroitu ehto A,
-    panssaroitu on "monellako oli panssari". Sama nimi tai sama sarake
-    peittäisi eron, joka on pistoolikierroksella suurimmillaan.
+    They answer different questions: armed is the half-buy's calibrated
+    condition A, armoured is "how many had armour". The same name or the same
+    column would hide the difference, which is at its largest on a pistol
+    round.
     """
     assert ARMED_COLUMN != ARMORED_COLUMN
     assert {ARMED_COLUMN, ARMORED_COLUMN} <= set(ROUNDS)
 
 
 def test_the_armored_count_is_not_a_classify_input() -> None:
-    """Panssarilaskuri on havainto, ei luokittelun syöte.
+    """The armour counter is an observation, not an input of the
+    classification.
 
-    Rajaus on koko Story 2.8:n ehto: puolioston ehto A pysyy
-    ``players_armed_buy_end``issä, ja uusi sarake ei saa vaikuttaa yhteenkään
-    kierrostyyppiin. Jos se päätyisi ``CLASSIFY_COLUMNS``iin, mikään ei estäisi
-    sääntöä nojaamasta siihen huomaamatta.
+    The boundary is the condition of the whole of Story 2.8: the half-buy's
+    condition A stays in ``players_armed_buy_end``, and the new column must
+    not affect a single round type. If it ended up in ``CLASSIFY_COLUMNS``,
+    nothing would stop a rule from relying on it unnoticed.
     """
     from pappascout.domain.economy import CLASSIFY_COLUMNS
 
@@ -162,11 +170,11 @@ def test_the_armored_count_is_not_a_classify_input() -> None:
 
 
 def test_rounds_carries_the_per_player_money_distribution() -> None:
-    """Rahajakauma on lista kokonaislukuja, yksi per luettavissa ollut pelaaja.
+    """The money distribution is a list of integers, one per readable player.
 
-    Joukkuesumma ``money_buy_end`` on yhä paikallaan: se on eri kysymys.
-    Jakauma vastaa siihen, mihin summa ei pysty -- moniko yksittäinen pelaaja
-    pystyy ostamaan seuraavalla kierroksella.
+    The team sum ``money_buy_end`` is still in place: it is a different
+    question. The distribution answers the one the sum cannot -- how many
+    individual players can buy on the next round.
     """
     assert MONEY_DISTRIBUTION_COLUMN in ROUNDS
     assert ROUNDS[MONEY_DISTRIBUTION_COLUMN] == pl.List(pl.Int32)
@@ -174,12 +182,13 @@ def test_rounds_carries_the_per_player_money_distribution() -> None:
 
 
 def test_the_half_buy_observations_are_classify_inputs() -> None:
-    """Puolioston kaksi ehtoa luetaan kierrostaulusta, eivät joukkuesummasta.
+    """The half-buy's two conditions are read from the rounds table, not from
+    the team sum.
 
-    Story 1.5 ja 1.6 tuottivat kalustolaskurin havaintona ilman sääntöä;
-    Story 1.9 korjasi mittaushetken; Story 1.10 otti molemmat käyttöön. Jos
-    kumpi tahansa sarake katoaisi ``CLASSIFY_COLUMNS``ista, sääntö putoaisi
-    takaisin keskiarvoon -- ja juuri se oli vika.
+    Story 1.5 and 1.6 produced the equipment counter as an observation without
+    a rule; Story 1.9 fixed the moment of measurement; Story 1.10 put both to
+    use. If either column vanished from ``CLASSIFY_COLUMNS``, the rule would
+    fall back to the mean -- and that was exactly the defect.
     """
     from pappascout.domain.economy import CLASSIFY_COLUMNS
 
@@ -188,10 +197,11 @@ def test_the_half_buy_observations_are_classify_inputs() -> None:
 
 
 def test_money_and_equip_columns_are_integer_dollars() -> None:
-    """Konventio: *money* ja *equip* ovat kokonaislukuja dollareita.
+    """The convention: *money* and *equip* are integer dollars.
 
-    Rahajakauma on lista samaa tyyppiä: yksi kokonaisluku per pelaaja. Sama
-    konventio, eri muoto -- ja muoto on koko sarakkeen olemassaolon syy.
+    The money distribution is a list of the same type: one integer per player.
+    The same convention, a different shape -- and the shape is the whole
+    reason the column exists.
     """
     for schema in SCHEMAS.values():
         for name, dtype in schema.items():
@@ -206,7 +216,7 @@ def test_money_and_equip_columns_are_integer_dollars() -> None:
 
 
 def test_second_columns_are_float() -> None:
-    """Konventio: *_s on sekunteja liukulukuna."""
+    """The convention: *_s is seconds as a float."""
     for schema in SCHEMAS.values():
         for name, dtype in schema.items():
             if name.endswith("_s"):
@@ -214,12 +224,12 @@ def test_second_columns_are_float() -> None:
 
 
 def test_coordinates_are_float32() -> None:
-    """Konventio: koordinaatit x, y, z ovat float32.
+    """The convention: the coordinates x, y, z are float32.
 
-    Kuolemataulussa koordinaatteja on kaksi joukkoa -- uhrin ja ampujan --
-    ja **molemmat** on tarkistettava. Yhden joukon tarkistaminen jättäisi
-    toisen ajautumaan Float64:ksi, ja tiedostot kasvaisivat ilman että
-    yksikään testi huomaisi.
+    In the deaths table there are two sets of coordinates -- the victim's and
+    the attacker's -- and **both** have to be checked. Checking one set would
+    leave the other free to drift to Float64, and the files would grow without
+    a single test noticing.
     """
     for schema in (TICKS, EVENTS):
         for axis in ("x", "y", "z"):
@@ -230,14 +240,16 @@ def test_coordinates_are_float32() -> None:
 
 
 def test_round_type_enum_matches_shared_constant() -> None:
-    """Kierrostyyppi on sama koodissa, Parquetissa, asetuksissa ja raportissa."""
+    """The round type is the same in the code, in Parquet, in the settings and
+    in the report."""
     expected = pl.Enum(list(ROUND_TYPES))
     assert CLASSIFIED["round_type"] == expected
     assert CLASSIFIED["opp_round_type"] == expected
 
 
 def test_classified_keeps_decision_inputs() -> None:
-    """Jokainen luokiteltu rivi kantaa perustelun ja päätöksen syötteet."""
+    """Every classified row carries the justification and the decision's
+    inputs."""
     assert CLASSIFIED["reason"] == pl.Utf8
     fields = {field.name for field in CLASSIFIED["inputs"].fields}
     assert "equip_buy_end" in fields
@@ -245,24 +257,25 @@ def test_classified_keeps_decision_inputs() -> None:
     assert "full_equip_min" in fields
 
 
-# --- EVENTS: lentoradan tunniste ---------------------------------------------
+# --- EVENTS: the trajectory's id ---------------------------------------------
 
 
 def test_events_carries_a_trajectory_id_of_its_own() -> None:
-    """Sopimuksessa on sarake, joka yksilöi lentoradan.
+    """The contract holds a column that identifies a trajectory.
 
-    Ilman sitä taulussa ei ole yhtään saraketta, joka erottaisi kaksi samaa
-    entiteettitunnistetta kantavaa rataa toisistaan.
+    Without it the table has not one column that would tell two trajectories
+    carrying the same entity id apart.
     """
     assert EVENTS["grenade_no"] == pl.Int32
 
 
 def test_events_keeps_the_games_own_entity_id_too() -> None:
-    """Pelin tunniste on ainoa side takaisin demoon, joten se säilyy.
+    """The game's id is the only link back into the demo, so it survives.
 
-    Se ei yksilöi kranaattia -- peli kierrättää sen myös kierroksen sisällä --
-    mutta ilman sitä kranaattia ei voi enää etsiä katselimesta. Kaksi eri
-    saraketta eikä yksi korvattu: havainto ja johdos pidetään erillään.
+    It does not identify a grenade -- the game recycles it within a round too
+    -- but without it the grenade can no longer be looked up in a viewer. Two
+    separate columns rather than one replaced: the observation and the derived
+    value are kept apart.
     """
     assert EVENTS["grenade_entity_id"] == pl.Int32
     assert "grenade_no" in EVENTS
@@ -270,11 +283,11 @@ def test_events_keeps_the_games_own_entity_id_too() -> None:
 
 
 def events_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
-    """Sopimuksen mukainen tapahtumataulu; nimeämättömät sarakkeet ``null``.
+    """An events table matching the contract; unnamed columns are ``null``.
 
-    Taulu rakennetaan ``EVENTS``in omista sarakkeista ja tyypeistä, joten
-    testi kaatuu heti, jos sarake katoaa sopimuksesta. Käsin kirjoitettu
-    kehys menisi läpi silloinkin -- se ei tuo tuotantokoodista mitään.
+    The table is built from ``EVENTS``'s own columns and types, so the test
+    fails at once if a column vanishes from the contract. A hand-written frame
+    would pass even then -- it brings nothing from the production code.
     """
     return pl.DataFrame(
         {name: [row.get(name) for row in rows] for name in EVENTS},
@@ -283,12 +296,12 @@ def events_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
 
 
 def test_the_trajectory_id_makes_the_utility_join_safe() -> None:
-    """Hyväksymiskriteeri: liitos uudella tunnisteella ei monista rivejä.
+    """The acceptance criterion: a join on the new id does not multiply rows.
 
-    Aineisto on kolme rataa samalla entiteettitunnisteella samalla
-    kierroksella, kuten ``inferno_vs_ryhmarama`` kierroksella 11. Liitos
-    tehdään taulusta itseensä avaimella, koska juuri se on väite: avaimella
-    haettu rivi on yksi rivi.
+    The data is three trajectories with the same entity id on the same round,
+    as in ``inferno_vs_ryhmarama`` on round 11. The join is made from the
+    table to itself on the key, because that is precisely the claim: a row
+    fetched by the key is one row.
     """
     events = events_frame(
         [
@@ -307,19 +320,19 @@ def test_the_trajectory_id_makes_the_utility_join_safe() -> None:
     assert events.select(new_key).is_unique().all()
     assert events.join(events.select(new_key), on=new_key, how="inner").height == 3
 
-    # Vanha avain ei erota rivejä toisistaan lainkaan: sama liitos monistaa
-    # kolme riviä yhdeksäksi.
+    # The old key does not tell the rows apart at all: the same join multiplies
+    # three rows into nine.
     old_key = ["map_demo_id", "round_no", "grenade_entity_id", "event_kind"]
     assert not events.select(old_key).is_unique().any()
     assert events.join(events.select(old_key), on=old_key, how="inner").height == 9
 
 
 def test_the_trajectory_id_is_unique_across_demos_only_with_map_demo_id() -> None:
-    """Numero juoksee demon sisällä, joten demojen välinen avain on pari.
+    """The number runs inside a demo, so the key across demos is the pair.
 
-    ``aggregate`` lukee kymmeniä demoja yhteen kehykseen. Pelkkä
-    ``grenade_no`` osuisi silloin ristiin kahden demon kranaattien välillä --
-    sama vika kuin ``round_no``lla ilman ``map_demo_id``:tä.
+    ``aggregate`` reads dozens of demos into one frame. ``grenade_no`` alone
+    would then collide between the grenades of two demos -- the same defect as
+    ``round_no`` without ``map_demo_id``.
     """
     events = events_frame(
         [
@@ -338,21 +351,21 @@ def test_the_trajectory_id_is_unique_across_demos_only_with_map_demo_id() -> Non
     assert not events.select("grenade_no", "event_kind").is_unique().any()
 
 
-# --- map_demo_id: aggregoinnin liitosavain -----------------------------------
+# --- map_demo_id: the aggregation's join key ---------------------------------
 
 
 @pytest.mark.parametrize("name", sorted(SCHEMAS))
 def test_every_table_carries_map_demo_id(name: str) -> None:
-    """Liitos (map_demo_id, round_no) vaatii avaimen molemmilta puolilta.
+    """The join (map_demo_id, round_no) needs the key on both sides.
 
-    Pelkka round_no ei riita: aggregate lukee kymmenia demoja yhteen kehykseen,
-    ja kierros 5 on eri kierros eri kartalla.
+    round_no alone is not enough: aggregate reads dozens of demos into one
+    frame, and round 5 is a different round on a different map.
     """
     assert SCHEMAS[name]["map_demo_id"] == pl.Utf8
 
 
 def test_classified_joins_to_ticks_on_map_demo_id_and_round_no() -> None:
-    """Liitos toimii kaytannossa eika sekoita kahden demon kierroksia."""
+    """The join works in practice and does not mix the rounds of two demos."""
     classified = pl.DataFrame(
         {
             "map_demo_id": ["m1-0", "m1-0", "m2-0"],
@@ -370,12 +383,12 @@ def test_classified_joins_to_ticks_on_map_demo_id_and_round_no() -> None:
 
     joined = ticks.join(classified, on=["map_demo_id", "round_no"], how="inner")
     assert joined.height == 4
-    # m2-0:n kierros 1 on pistooli, muttei sama rivi kuin m1-0:n kierros 1.
+    # m2-0's round 1 is a pistol round, but not the same row as m1-0's round 1.
     m2 = joined.filter(pl.col("map_demo_id") == "m2-0")
     assert sorted(m2["area"].to_list()) == ["Lobby", "Main"]
     assert set(m2["round_type"].to_list()) == {"pistol"}
 
-    # Ilman map_demo_idia sama liitos tuottaisi ristiin meneviä rivejä.
+    # Without map_demo_id the same join would produce rows that cross over.
     wrong_join = ticks.drop("map_demo_id").join(
         classified.drop("map_demo_id"), on="round_no", how="inner"
     )
@@ -383,12 +396,12 @@ def test_classified_joins_to_ticks_on_map_demo_id_and_round_no() -> None:
 
 
 def test_lineups_is_identity_not_a_round_observation() -> None:
-    """Nimi on kartan ominaisuus, ei kierroksen (Story 2.6).
+    """The name is a property of the map, not of a round (Story 2.6).
 
-    Kierrosnumero taulussa tarkoittaisi, että nimi voi vaihtua
-    kierroksittain,
-    ja ``parse`` pudottaisi puukkokierroksen rivit -- eli pelaajan, joka pelasi
-    kartan. Avain on (kokoonpano, pelaaja) eikä (kierros, pelaaja).
+    A round number in the table would mean that the name can change from
+    round to round,
+    and ``parse`` would drop the knife round's rows -- that is, a player who
+    played the map. The key is (lineup, player) and not (round, player).
     """
     assert "round_no" not in LINEUPS
     assert "round_raw" not in LINEUPS
@@ -403,8 +416,8 @@ def test_lineups_is_identity_not_a_round_observation() -> None:
 
 
 def test_the_name_never_lands_in_the_ticks_table() -> None:
-    """Nimi ei ole kierroskohtainen havainto eikä saa toistua kymmenissä
-    tuhansissa riveissä."""
+    """The name is not a per-round observation and must not repeat over tens
+    of thousands of rows."""
     for column in ("player_name", "clan_name", "name", "team_clan_name"):
         assert column not in TICKS
         assert column not in ROUNDS
@@ -412,28 +425,28 @@ def test_the_name_never_lands_in_the_ticks_table() -> None:
 
 
 def test_the_roster_keeps_the_steamid_beside_the_name() -> None:
-    """Nimi on luettavuutta varten; tunniste on ainoa jaljitettava arvo."""
+    """The name is for readability; the id is the only traceable value."""
     assert LINEUPS["player_id"] == pl.Utf8
     assert LINEUPS["player_name"] == pl.Utf8
     assert LINEUPS["clan_name"] == pl.Utf8
 
 
 def test_map_demo_id_is_first_column_in_parse_tables() -> None:
-    """Liitosavain ensimmaisena helpottaa taulun lukemista kasin."""
+    """The join key first makes the table easier to read by hand."""
     for schema in (ROUNDS, TICKS, EVENTS, LINEUPS, DEATHS, CLASSIFIED):
         assert next(iter(schema)) == "map_demo_id"
 
 
-# --- DEATHS: kaksi toimijaa, molemmat havaintoina ----------------------------
+# --- DEATHS: two actors, both as observations --------------------------------
 
 
 def test_a_death_carries_both_actors_with_their_own_place() -> None:
-    """Kuolemalla on kaksi toimijaa, ja molempien paikka on merkityksellinen.
+    """A death has two actors, and the place of both matters.
 
-    Juuri tämä on syy omaan tauluun: ``EVENTS``in konventio on yksi toimija ja
-    yksi paikka riviä kohden. Jos jompikumpi puolisko katoaisi sopimuksesta,
-    taulu palaisi yhden toimijan muotoon eikä "Vihu meni secret pihalta"
-    olisi enää luettavissa mistään.
+    This is exactly the reason for a table of its own: ``EVENTS``'s convention
+    is one actor and one place per row. If either half vanished from the
+    contract, the table would fall back to the one-actor shape and "the enemy
+    came through secret from the yard" would no longer be readable anywhere.
     """
     for prefix in ("victim", "attacker"):
         assert DEATHS[f"{prefix}_id"] == pl.Utf8
@@ -443,28 +456,32 @@ def test_a_death_carries_both_actors_with_their_own_place() -> None:
 
 
 def test_the_death_areas_are_observations_not_derived() -> None:
-    """Alue tulee samalta tapahtumalta, joten johdoksen kenttiä ei ole.
+    """The area comes from the same event, so there are no fields of a derived
+    value.
 
-    ``area_source`` ja ``snap_distance`` ovat olemassa kranaatin
-    approksimaatiota varten. Kuolemataulussa ne väittäisivät, että alue on
-    arvio -- ja raportti merkitsisi havainnon arvioksi tai päinvastoin.
+    ``area_source`` and ``snap_distance`` exist for the grenade's
+    approximation. In the deaths table they would claim that the area is an
+    estimate -- and the report would mark an observation as an estimate, or
+    the other way round.
     """
     assert "area_source" not in DEATHS
     assert "snap_distance" not in DEATHS
 
 
 def test_deaths_carry_no_derived_concepts() -> None:
-    """Trade, entry ja duel-voitto ovat tulkintaa, eivät havaintoja.
+    """A trade, an entry and a duel win are interpretation, not observations.
 
-    Työnjako on: havainto koneelta, tulkinta ihmiseltä. Sarake nimeltä
-    ``trade`` tekisi tulkinnasta arkiston totuuden.
+    The division of labour is: observation from the machine, interpretation
+    from the human. A column named ``trade`` would make interpretation the
+    archive's truth.
     """
     for name in ("trade", "is_trade", "entry", "duel", "duel_won", "assister_id"):
         assert name not in DEATHS
 
 
 def test_the_death_table_joins_to_the_others_on_the_same_key() -> None:
-    """``(map_demo_id, round_no)`` on sama liitosavain kuin muissa tauluissa."""
+    """``(map_demo_id, round_no)`` is the same join key as in the other
+    tables."""
     assert DEATHS["map_demo_id"] == pl.Utf8
     assert DEATHS["round_no"] == pl.Int32
     assert DEATHS["round_raw"] == pl.Int32
