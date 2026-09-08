@@ -151,6 +151,17 @@ TRANSLATED_TRANCHES: tuple[Tranche, ...] = (
         sources=(("src/pappascout/adapters/faceit.py", 1),),
         tests=("tests/test_faceit.py",),
     ),
+    Tranche(
+        story="T13",
+        # The three top-level modules. The package cannot be listed: every
+        # other module under src/pappascout is still Finnish.
+        sources=(
+            ("src/pappascout/constants.py", 1),
+            ("src/pappascout/errors.py", 1),
+            ("src/pappascout/__init__.py", 1),
+        ),
+        tests=("tests/test_constants.py",),
+    ),
 )
 
 #: Every listed path with its recorded minimum, flattened out of the tranches.

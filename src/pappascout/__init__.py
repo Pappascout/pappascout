@@ -1,11 +1,11 @@
-"""Pappascout -- Pappaliigan CS2-vastustajascouting.
+"""Pappascout -- CS2 opponent scouting for Pappaliiga.
 
-Putki lukee FACEIT-otteluista demot, parsii ne tauluiksi, luokittelee kierrokset
-ja tuottaa suomenkielisen Markdown-raportin. Vaiheet ovat itsenäisiä
-tiedosto-tulos-funktioita, ja **järjestyksen päättää käyttäjä ajamalla yhden
-komennon kerrallaan**: vaiheita ketjuttavaa moduulia ei ole olemassa. Vaiheen
-syöte on edellisen vaiheen kirjoittama tiedosto, ja jos sitä ei ole, vaihe
-sanoo sen ja kertoo mikä komento sen kirjoittaa.
+The pipeline reads the recordings of FACEIT matches, parses them into tables,
+classifies the rounds and produces a Finnish Markdown report. The stages are
+independent file-to-result functions, and **the user decides the order by
+running one command at a time**: there is no module that chains the stages
+together. A stage's input is the file the previous stage wrote, and if it is
+not there, the stage says so and names the command that writes it.
 """
 
 from __future__ import annotations
@@ -17,5 +17,5 @@ __all__ = ["__version__"]
 
 try:
     __version__ = _version("pappascout")
-except PackageNotFoundError:  # pragma: no cover - vain ilman asennusta
+except PackageNotFoundError:  # pragma: no cover - only without an installation
     __version__ = "0.0.0+unknown"

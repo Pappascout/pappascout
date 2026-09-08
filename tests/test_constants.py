@@ -1,9 +1,10 @@
-"""Jaettujen vakioluetteloiden testit.
+"""Tests for the shared enumerations.
 
-``constants.py`` maarittelee jokaisen enumin kahdesti: ajonaikaisena tuplena
-(jota Polars-skeemat ja asetukset kayttavat) ja tyyppivihjeena (jota pydantic ja
-tyyppitarkistus kayttavat). Jos ne erkanevat, Parquetiin voi paatya arvo jota
-malli ei hyvaksy -- tai painvastoin. Nama testit lukitsevat parit yhteen.
+``constants.py`` defines every enum twice: as a runtime tuple (which the
+Polars schemas and the settings use) and as a type hint (which pydantic and
+the type check use). If they diverge, a value the model does not accept can
+end up in Parquet -- or the other way round. These tests lock the pairs
+together.
 """
 
 from __future__ import annotations
@@ -63,7 +64,7 @@ PAIRS = [
 
 @pytest.mark.parametrize("name,values,literal_type", PAIRS, ids=[p[0] for p in PAIRS])
 def test_literal_matches_runtime_tuple(name: str, values: tuple, literal_type) -> None:
-    """Tyyppivihje ja ajonaikainen luettelo sisaltavat samat arvot."""
+    """The type hint and the runtime list hold the same values."""
     assert set(get_args(literal_type)) == set(values), name
 
 
@@ -73,32 +74,32 @@ def test_values_are_unique(name: str, values: tuple, literal_type) -> None:
 
 
 def test_finnish_labels_cover_every_round_type() -> None:
-    """Raporttimalli kaantaa jokaisen kierrostyypin -- ei puuttuvia otsikoita."""
+    """The report model translates every round type -- no missing headings."""
     assert set(ROUND_TYPE_FI) == set(ROUND_TYPES)
 
 
 def test_full_is_shown_as_default_in_reports() -> None:
-    """Spinen konventio: full esitetaan raportissa nimella 'default'."""
+    """The spine's convention: full is shown in the report as 'default'."""
     assert ROUND_TYPE_FI["full"] == "default"
 
 
 def test_finnish_labels_cover_every_anomaly_rule() -> None:
-    """Uusi sääntö ei voi näkyä raportissa nimettömänä.
+    """A new rule cannot appear in the report without a name.
 
-    Väite on **vain täällä**: ``render.view`` indeksoi karttaa suoraan
-    (``ANOMALY_RULE_FI[rule]``), joten puuttuva nimi kaataa renderöinnin sen
-    sijaan että rappeutuisi hiljaa sääntönimeen. Tämä testi on se, joka pitää
-    kartan täytenä.
+    The claim is **only here**: ``render.view`` indexes the map directly
+    (``ANOMALY_RULE_FI[rule]``), so a missing name stops the rendering instead
+    of degrading quietly into the rule name. This test is the one that keeps
+    the map full.
     """
     assert set(ANOMALY_RULE_FI) == set(ANOMALY_RULES)
 
 
 def test_the_site_groups_are_derived_from_the_site_areas() -> None:
-    """Ryhmätunnukset ovat johdos eivätkä toisinto.
+    """The group ids are derived and not a second copy.
 
-    Kaksi käsin kirjoitettua luetteloa voisi erota toisistaan, ja ero
-    näkyisi vasta siinä, että sääntö hylkää oman tuloksensa tuntemattomana
-    ryhmänä.
+    Two hand-written lists could differ from each other, and the difference
+    would show only when the rule rejected its own result as an unknown
+    group.
     """
     from pappascout.constants import SITE_AREAS
 
@@ -107,13 +108,13 @@ def test_the_site_groups_are_derived_from_the_site_areas() -> None:
 
 
 def test_the_deferred_rules_are_not_among_the_implemented_ones() -> None:
-    """Kattavuuden nimittäjä: sama sääntö ei voi olla molemmissa.
+    """The denominator of the coverage: one rule cannot be in both.
 
-    Story 2.14 siirsi ``stack``in luettelosta toiseen, ja lykättyjen luettelo
-    on nyt tyhjä. **Väite on yhä tarpeellinen molempiin suuntiin**: jos sääntö
-    olisi hetken molemmissa, raportti väittäisi ajaneensa säännön, jota se
-    nimeää ajamattomaksi. Tyhjä luettelo jää olemaan seuraavaa lykättyä
-    sääntöä varten -- se on kattavuuden nimittäjä eikä siirtymän jäänne.
+    Story 2.14 moved ``stack`` from one list to the other, and the deferred
+    list is now empty. **The claim is still needed in both directions**: if a
+    rule were in both for a moment, the report would claim to have run a rule
+    it names as unrun. The empty list stays for the next deferred rule -- it
+    is the denominator of the coverage and not a leftover of the move.
     """
     assert not set(ANOMALY_RULES) & set(constants.ANOMALY_RULES_DEFERRED)
     assert constants.ANOMALY_RULES_DEFERRED == ()
@@ -121,16 +122,15 @@ def test_the_deferred_rules_are_not_among_the_implemented_ones() -> None:
 
 
 def test_saving_round_types_are_a_proper_subset_of_the_round_types() -> None:
-    """Säästökierros on kierrostyypin osajoukko eikä oma luettelonsa.
+    """A saving round is a subset of the round types, not a list of its own.
 
-    Ilman tätä vartijaa kirjoitusvirhe (``"ecos"``) hiljentäisi
-    CT-etenemissäännön kokonaan: kierrostyyppi ei osuisi koskaan, eikä mikään
-    kertoisi siitä.
+    Without this guard a typo (``"ecos"``) would silence the CT-advance rule
+    completely: the round type would never match, and nothing would say so.
 
-    Pistooli on **ulkopuolella**: molemmilla puolilla on silloin sama vähäinen
-    raha, joten etenemisestä ei voi päätellä suunnitelmaa. Renderöinnin oma
-    "säästökierros" tarkoittaa eri asiaa (pistooli mukana), ja kumpikin paikka
-    nimeää oman merkityksensä siellä missä se on määritelty.
+    The pistol round is **outside**: both sides then have the same small
+    amount of money, so an advance says nothing about a plan. The rendering's
+    own "saving round" means something else (the pistol round is included),
+    and each place names its own meaning where it is defined.
     """
     assert set(SAVING_ROUND_TYPES) < set(ROUND_TYPES)
     assert set(SAVING_ROUND_TYPES) == {"eco", "half", "force"}
@@ -138,7 +138,7 @@ def test_saving_round_types_are_a_proper_subset_of_the_round_types() -> None:
 
 
 def test_unit_statuses_match_the_error_policy() -> None:
-    """AD-9:n tilajoukko sellaisenaan."""
+    """AD-9's set of statuses as it stands."""
     assert set(UNIT_STATUSES) == {
         "ok",
         "no_demo",
@@ -149,50 +149,52 @@ def test_unit_statuses_match_the_error_policy() -> None:
     }
 
 
-# --- Aseluokittelu (Story 1.6) ------------------------------------------------
+# --- Weapon classification (Story 1.6) ----------------------------------------
 
 
-#: Luokittelun koko. Luku esiintyy koodin kommenteissa, joten se lukitaan
-#: tässä: kahteen paikkaan kirjoitettu luku vanhenee muuten hiljaa.
+#: The size of the classification. The number appears in the code's
+#: comments, so it is locked here: a number written in two places otherwise
+#: goes quietly stale.
 KNOWN_ITEM_COUNT = 57
 ARMING_WEAPON_COUNT = 31
 
 
 def test_classification_sizes_are_locked() -> None:
-    """Luokittelun koko on se, jonka dokumentaatio lupaa.
+    """The size of the classification is the one the documentation promises.
 
-    ``constants.py`` ja tämän tarinan muutosloki nimeävät nämä luvut. Ilman lukitusta aseen lisääminen tekisi jokaisesta niistä väärän
-    ilman että mikään kertoo -- ja luku on juuri se, jota lukija käyttää
-    arvioidessaan kattaako luettelo pelin.
+    ``constants.py`` and this story's change log name these numbers. Without
+    the lock, adding a weapon would make every one of them wrong without
+    anything saying so -- and the number is exactly what a reader uses to
+    judge whether the list covers the game.
 
-    Jos lisäät aseen: päivitä tämä luku **ja** ne kolme paikkaa. Tiiviste
-    muuttuu joka tapauksessa, joten arkisto parsitaan uudelleen.
+    If you add a weapon: update this number **and** those three places. The
+    digest changes in any case, so the archive is parsed again.
     """
     assert len(KNOWN_INVENTORY_ITEMS) == KNOWN_ITEM_COUNT
     assert len(ARMING_WEAPONS) == ARMING_WEAPON_COUNT
 
 
 def test_categories_do_not_overlap() -> None:
-    """Nimi kuuluu tasan yhteen luokkaan.
+    """A name belongs to exactly one class.
 
-    Päällekkäisyys tarkoittaisi, että sama nimi on sekä veitsi että ase -- ja
-    koska aseistus katsoo vain :data:`ARMING_WEAPONS`ia, veitsi aseistaisi
-    pelaajan. Se ei näkyisi missään muualla kuin lopputuloksessa.
+    An overlap would mean that the same name is both a knife and a weapon --
+    and because the arming looks only at :data:`ARMING_WEAPONS`, the knife
+    would arm the player. It would show nowhere except in the end result.
     """
     for index, (name_a, _, a) in enumerate(constants._CLASSIFICATION):
         for name_b, _, b in constants._CLASSIFICATION[index + 1 :]:
-            assert not (a & b), f"{name_a} ja {name_b}: {sorted(a & b)}"
+            assert not (a & b), f"{name_a} and {name_b}: {sorted(a & b)}"
 
 
 def test_arming_weapons_and_known_items_come_from_the_classification() -> None:
-    """Molemmat julkiset joukot johdetaan **samasta** luettelosta.
+    """Both public sets are derived from the **same** list.
 
-    Tämä on rakenteen toteamista, ei laskutoimituksen: aiemmin unioni
-    kirjoitettiin erikseen, ja silloin uuden aseluokan pystyi lisäämään
-    ``ARMING_WEAPONS``iin koskematta luetteloon -- nimi aseisti pelaajat,
-    laskettiin tunnetuksi ja **tiiviste pysyi samana**, eli arkisto jäi
-    hiljaa vanhentuneeksi koko testisarjan pysyessä vihreänä. Kun molemmat
-    johdetaan luettelosta, sitä reittiä ei ole.
+    This states the structure, not a calculation: the union used to be written
+    out separately, and then a new weapon class could be added to
+    ``ARMING_WEAPONS`` without touching the list -- the name armed players,
+    was counted as known and **the digest stayed the same**, that is, the
+    archive went quietly stale while the whole suite stayed green. When both
+    are derived from the list, that route does not exist.
     """
     arming = {
         name for _, arms, names in constants._CLASSIFICATION if arms for name in names
@@ -200,17 +202,17 @@ def test_arming_weapons_and_known_items_come_from_the_classification() -> None:
     known = {name for _, _, names in constants._CLASSIFICATION for name in names}
     assert ARMING_WEAPONS == arming
     assert KNOWN_INVENTORY_ITEMS == known
-    # Aseistava nimi on aina myös tunnettu -- muuten se raportoitaisiin
-    # tuntemattomana ja aseistaisi silti.
+    # An arming name is always known as well -- otherwise it would be
+    # reported as unknown and would arm all the same.
     assert ARMING_WEAPONS <= KNOWN_INVENTORY_ITEMS
 
 
 def test_every_public_set_is_named_in_the_classification() -> None:
-    """Jokainen moduulin julkinen esinejoukko on luettelossa.
+    """Every public item set of the module is in the list.
 
-    Ilman tätä uuden joukon voisi määritellä ja unohtaa lisätä luetteloon.
-    Silloin sen nimet olisivat tuntemattomia, mutta mikään ei kertoisi
-    kummassa päässä vika on.
+    Without this, a new set could be defined and forgotten from the list. Its
+    names would then be unknown, but nothing would say which end the fault is
+    at.
     """
     listed = {id(names) for _, _, names in constants._CLASSIFICATION}
     for name in (
@@ -227,11 +229,11 @@ def test_every_public_set_is_named_in_the_classification() -> None:
 
 
 def test_arming_weapons_excludes_what_the_user_excluded() -> None:
-    """Käyttäjän määritelmä rajaa ulos oletuspistoolit, veitset ja utilityn.
+    """The user's definition excludes default pistols, knives and utility.
 
-    Nämä ovat ne neljä rajausta, jotka tuotteen omistaja nimesi: ilmaisen
-    oletuspistoolin hallussapito ei kerro mitään, veitsi ei ole ase, kranaatti
-    ei ole ase, eikä Zeus korvaa asetta. C4 on tehtäväesine.
+    These are the four exclusions the product owner named: possessing a free
+    default pistol says nothing, a knife is not a weapon, a grenade is not a
+    weapon, and a Zeus does not replace a weapon. The C4 is a mission item.
     """
     for name in ("Glock-18", "USP-S", "P2000"):
         assert name not in ARMING_WEAPONS
@@ -244,28 +246,29 @@ def test_arming_weapons_excludes_what_the_user_excluded() -> None:
 
 
 def test_arming_weapons_covers_every_class_the_user_named() -> None:
-    """"Parempi pistooli, SMG tai halpa kivääri" -- kaikki kolme luokkaa.
+    """"A better pistol, an SMG or a cheap rifle" -- all three classes.
 
-    Yksikin puuttuva luokka tarkoittaisi kokonaisen ostotyypin putoamista
-    laskurista, ja se näkyisi vain jakauman hienoisena vinoutumana.
+    A single missing class would mean a whole buy type dropping out of the
+    counter, and it would show only as a slight skew in the distribution.
     """
-    for name in ("P250", "Tec-9", "Desert Eagle"):  # paremmat pistoolit
+    for name in ("P250", "Tec-9", "Desert Eagle"):  # the better pistols
         assert name in ARMING_WEAPONS
-    for name in ("MAC-10", "MP9", "MP7"):  # SMG:t
+    for name in ("MAC-10", "MP9", "MP7"):  # the SMGs
         assert name in ARMING_WEAPONS
-    for name in ("Galil AR", "FAMAS", "AK-47", "AWP"):  # kiväärit
+    for name in ("Galil AR", "FAMAS", "AK-47", "AWP"):  # the rifles
         assert name in ARMING_WEAPONS
-    for name in ("Nova", "MAG-7", "XM1014"):  # haulikot
+    for name in ("Nova", "MAG-7", "XM1014"):  # the shotguns
         assert name in ARMING_WEAPONS
 
 
 def test_digest_ignores_the_order_of_names_and_classes(monkeypatch) -> None:
-    """Sama luokittelu eri järjestyksessä antaa saman tiivisteen.
+    """The same classification in another order gives the same digest.
 
-    Joukko on järjestämätön ja luokkalista on käsin kirjoitettu, joten ilman
-    lajittelua tiiviste voisi vaihtua ilman että luokittelu muuttuu -- ja koko
-    arkisto parsittaisiin uudelleen ilman syytä. Aiempi versio tästä testistä
-    vertasi funktiota itseensä eikä siis mitannut järjestystä lainkaan.
+    A set is unordered and the class list is hand-written, so without the
+    sorting the digest could change without the classification changing -- and
+    the whole archive would be parsed again for no reason. An earlier version
+    of this test compared the function with itself and so did not measure the
+    order at all.
     """
     before = weapon_classification_digest()
 
@@ -280,11 +283,12 @@ def test_digest_ignores_the_order_of_names_and_classes(monkeypatch) -> None:
 
 
 def test_digest_changes_when_a_name_moves_between_classes(monkeypatch) -> None:
-    """Tiiviste huomaa myös siirron luokasta toiseen, ei vain lisäyksen.
+    """The digest notices a move between classes too, not only an addition.
 
-    Jos ase siirretään veitsiin, tunnettujen nimien unioni ei muutu lainkaan
-    -- mutta luokittelu muuttuu ja laskuri sen mukana. Siksi tiiviste
-    lasketaan nimetyistä luokista eikä uniosta.
+    If a weapon is moved into the knives, the union of the known names does
+    not change at all -- but the classification changes and the counter with
+    it. That is why the digest is computed from the named classes and not from
+    the union.
     """
     before = weapon_classification_digest()
     moved = tuple(
@@ -300,11 +304,11 @@ def test_digest_changes_when_a_name_moves_between_classes(monkeypatch) -> None:
 
 
 def test_digest_changes_when_a_class_is_added(monkeypatch) -> None:
-    """Uusi aseluokka mitätöi arkiston, vaikka mikään vanha nimi ei muuttuisi.
+    """A new weapon class invalidates the archive, even if no old name changes.
 
-    Tämä on se tapaus, jonka katselmoija mursi: uusi joukko lisättiin
-    aseistaviin, uusi nimi aseisti pelaajat -- ja tiiviste pysyi täsmälleen
-    samana. Nyt luettelo on ainoa lähde, joten sama muutos näkyy tiivisteessä.
+    This is the case the reviewer broke: a new set was added to the arming
+    ones, a new name armed players -- and the digest stayed exactly the same.
+    Now the list is the only source, so the same change shows in the digest.
     """
     before = weapon_classification_digest()
     monkeypatch.setattr(
@@ -316,11 +320,12 @@ def test_digest_changes_when_a_class_is_added(monkeypatch) -> None:
 
 
 def test_digest_changes_when_a_class_stops_arming(monkeypatch) -> None:
-    """Aseistavuuden vaihtaminen muuttaa tiivisteen, vaikka nimet säilyvät.
+    """Changing whether a class arms changes the digest, though the names stay.
 
-    Haulikoiden pudottaminen pois aseistavista on luokittelun muutos siinä
-    missä nimen poistokin: ilman aseistavuutta tiivisteessä arkisto jäisi
-    voimaan vanhalla säännöllä.
+    Dropping the shotguns out of the arming ones is a change to the
+    classification just as much as removing a name is: without
+    whether-it-arms in the digest, the archive would stay valid under the old
+    rule.
     """
     before = weapon_classification_digest()
     disarmed = tuple(
@@ -332,11 +337,12 @@ def test_digest_changes_when_a_class_stops_arming(monkeypatch) -> None:
 
 
 def test_every_sample_bucket_has_a_finnish_name() -> None:
-    """Kolmas lokero ei saa jäädä pois tulosteesta suomennoksen puuttuessa.
+    """The third bucket must not drop out of the output for want of a Finnish
+    name.
 
-    ``cli`` iteroi :data:`SAMPLE_BUCKETS`in yli ja hakee nimen
-    :data:`SAMPLE_BUCKET_FI`:stä, joten puuttuva avain kaataisi ajon --
-    ja kaksi samaa suomennosta sulauttaisi kaksi lokeroa yhdeksi riviksi.
+    ``cli`` iterates over :data:`SAMPLE_BUCKETS` and looks the name up in
+    :data:`SAMPLE_BUCKET_FI`, so a missing key would stop the run -- and two
+    identical Finnish names would merge two buckets into one row.
     """
     assert set(SAMPLE_BUCKET_FI) == set(SAMPLE_BUCKETS)
     assert len(set(SAMPLE_BUCKET_FI.values())) == len(SAMPLE_BUCKETS)
@@ -397,16 +403,17 @@ def test_the_roster_bucket_names_are_the_bucket_list() -> None:
 
 
 def test_the_nearest_player_method_is_gone_from_the_area_sources() -> None:
-    """``snapped`` poistui Story 2.9:ssa, koska menetelma poistui.
+    """``snapped`` went away in Story 2.9, because the method went away.
 
-    Se tarkoitti "lahimman elossa olevan pelaajan alue", ja se mittasi
-    rakenteellisesti painvastaista kuin piti: savu heitetaan sinne, missa
-    ketaan ei ole. Arvoa ei jatetty luetteloon varalahteeksi -- kaksi
-    rinnakkaista menetelmaa tekisi rivista tulkitsemattoman, koska lukija ei
-    naisi kummalla se nimettiin.
+    It meant "the area of the nearest living player", and it measured
+    structurally the opposite of what it should have: smoke is thrown where
+    nobody is. The value was not left in the list as a fallback source -- two
+    parallel methods would make the row uninterpretable, because the reader
+    would not see which of them named it.
 
-    Vanha ``events.parquet`` ei siis lataudu tahan enumiin, ja se on
-    tarkoitus: ``parse`` ajaa demon uudelleen ilman ``--pakota``-lippua.
+    An old ``events.parquet`` therefore does not load into this enum, and that
+    is intended: ``parse`` runs the recording again without the ``--pakota``
+    flag.
     """
     assert AREA_SOURCES == ("observed", "point_cloud")
     assert "snapped" not in AREA_SOURCES

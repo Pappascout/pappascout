@@ -1,9 +1,10 @@
-"""Jaetut vakioluettelot.
+"""Shared enumerations.
 
-Nämä enum-arvot esiintyvät samanlaisina koodissa, Parquet-tauluissa,
-asetuksissa ja raportissa (spinen konventiotaulukko). Moduuli on tarkoituksella
-riippumaton kaikesta muusta, jotta sekä ``domain`` että ``archive`` voivat tuoda
-sen rikkomatta kerrossääntöä (``archive`` ei saa riippua ``domain``ista).
+These enum values appear identically in the code, in the Parquet tables, in
+the settings and in the report (the spine's convention table). The module is
+deliberately independent of everything else, so that both ``domain`` and
+``archive`` can import it without breaking the layering rule (``archive`` must
+not depend on ``domain``).
 """
 
 from __future__ import annotations
@@ -59,11 +60,12 @@ __all__ = [
     "seconds_label",
 ]
 
-#: Rivin joukkueen puoli.
+#: The side of the row's team.
 SIDES: Final[tuple[str, ...]] = ("T", "CT")
 Side = Literal["T", "CT"]
 
-#: Kierrostyyppi (AD-4). Sama arvo koodissa, Parquetissa, asetuksissa ja raportissa.
+#: Round type (AD-4). The same value in the code, in Parquet, in the
+#: settings and in the report.
 ROUND_TYPES: Final[tuple[str, ...]] = (
     "pistol",
     "eco",
@@ -75,112 +77,120 @@ ROUND_TYPES: Final[tuple[str, ...]] = (
 )
 RoundType = Literal["pistol", "eco", "half", "force", "full", "ot", "anomaly"]
 
-#: Säästökierrokset: kierrostyypit, joilla joukkueella **ei ole rahaa
-#: normaaliin ostoon**. Luettelo on :data:`ROUND_TYPES`-arvojen osajoukko.
+#: Saving rounds: the round types on which a team **has no money for a
+#: normal buy**. The list is a subset of the :data:`ROUND_TYPES` values.
 #:
-#: Miksi tämä on oma luettelonsa eikä kynnys: Story 2.5:n CT-etenemissääntö
-#: rajautuu näihin, koska havainto on **taloudellinen** -- köyhä CT ei
-#: normaalisti etene T:n alueelle. Epicin sanamuoto on "eco- tai
-#: force-kierroksella", ja puoliosto (``half``) on mukana siksi, että
-#: kalibroinnin kuudesta osumasta yksi (MatureMayhem Anubis k6) on puoliosto:
-#: kierrostyyppien raja kulkee ostokyvyn mukaan eikä nimen.
+#: Why this is a list of its own and not a threshold: Story 2.5's CT-advance
+#: rule is limited to these, because the observation is **economic** -- a poor
+#: CT does not normally advance into the T side's area. The epic's wording is
+#: "on an eco or a force round", and the half buy (``half``) is included
+#: because one of the six calibration hits (MatureMayhem Anubis round 6) is a
+#: half buy: the boundary between round types runs along buying power and not
+#: along the name.
 #:
-#: Pistooli **ei ole** säästökierros vaikka rahaa on vähän: silloin kummallakaan
-#: puolella ei ole ostokykyä, joten etenemisestä ei voi päätellä suunnitelmaa.
+#: A pistol round is **not** a saving round even though there is little money:
+#: neither side has buying power then, so an advance says nothing about a plan.
 #:
-#: **HUOM: sana "säästökierros" tarkoittaa READMEssa eri asiaa.** Siellä se on
-#: renderöinnin sääntö -- ne kierrostyypit, joista raportti kertoo kierroksen
-#: tarkkuudella (``pistol``, ``eco``, ``force``, ``half``) vastakohtana
-#: ``render.view.PATTERN_ROUND_TYPES``ille (``full``, ``ot``). Tämä luettelo on
-#: **taloudellinen**: kierrostyypit, joilla joukkueella ei ole varaa normaaliin
-#: ostoon. Pistooli kuuluu edelliseen muttei tähän, ja se on koko ero. Kaksi
-#: käsitettä samalla sanalla, joten kumpikin paikka nimeää oman merkityksensä.
+#: **NOTE: the word "saving round" means something else in the README.** There
+#: it is a rendering rule -- the round types the report describes round by
+#: round (``pistol``, ``eco``, ``force``, ``half``) as opposed to
+#: ``render.view.PATTERN_ROUND_TYPES`` (``full``, ``ot``). This list is
+#: **economic**: the round types on which a team cannot afford a normal buy.
+#: The pistol round belongs to the former but not to this one, and that is the
+#: whole difference. Two concepts under one word, so each place names its own
+#: meaning.
 SAVING_ROUND_TYPES: Final[tuple[str, ...]] = ("eco", "half", "force")
 
-#: Poikkeamasäännöt (AD-10, Story 2.5 ja 2.14). Sama arvo koodissa,
-#: ``report.json``issa ja raportissa; suomennos vain esityksessä
-#: (:data:`ANOMALY_RULE_FI`).
+#: The anomaly rules (AD-10, Story 2.5 and 2.14). The same value in the code,
+#: in ``report.json`` and in the report; the Finnish appears in the
+#: presentation only (:data:`ANOMALY_RULE_FI`).
 #:
-#: **Kolme sääntöä ovat kolme eri kysymystä samasta havainnosta, eikä yksikään
-#: sisällä toista.** ``ct_advance`` ja ``crunch`` jakavat orientaatioehdon
-#: ("onko subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa"):
-#: crunch lisää siihen suuntavaatimuksen **mutta pudottaa
-#: kierrostyyppirajauksen**, joten osumajoukot leikkaavat toisiaan --
-#: säästökierroksella crunch tuottaa myös etenemisosuman, täydellä ostolla
-#: vain crunchin (mitattu: MatureMayhem Anubis k10 on täysi osto).
+#: **Three rules are three different questions about the same observation, and
+#: not one of them contains another.** ``ct_advance`` and ``crunch`` share the
+#: orientation condition ("is the subject's CT player in an area that the T
+#: side holds in that recording"): crunch adds a direction requirement to it
+#: **but drops the round-type restriction**, so the hit sets intersect each
+#: other -- on a saving round crunch also produces an advance hit, on a full
+#: buy only the crunch (measured: MatureMayhem Anubis round 10 is a full buy).
 #:
-#: ``stack`` ei lue orientaatiota lainkaan. Se kysyy, onko subjektin oma
-#: puolustus kasautunut **yhden siten ryhmään**; siinä ei ole T:n aluetta,
-#: suuntia eikä kierrostyyppirajausta. Sitä ei siis saa kuvata kahden muun
-#: tiukempana eikä löysempänä muotona.
+#: ``stack`` does not read orientation at all. It asks whether the subject's
+#: own defence has piled into **one site's group**; there is no T-side area in
+#: it, no directions and no round-type restriction. So it must not be
+#: described as a stricter or a looser form of the other two.
 #:
-#: Järjestys on raportin järjestys: ``render.view._anomaly_rank`` lajittelee
-#: ``ANOMALY_RULES.index``illä, joten uuden säännön paikka luvussa päätetään
-#: **tässä** eikä renderöinnissä.
+#: The order is the report's order: ``render.view._anomaly_rank`` sorts by
+#: ``ANOMALY_RULES.index``, so a new rule's place in the section is decided
+#: **here** and not in the rendering.
 ANOMALY_RULES: Final[tuple[str, ...]] = ("ct_advance", "crunch", "stack")
 AnomalyRule = Literal["ct_advance", "crunch", "stack"]
 
-#: Poikkeamasäännöt, jotka arkkitehtuuri (AD-10) nimeää mutta joita ei ole
-#: toteutettu. Luettelo on **kattavuuden nimittäjä**: tyhjä poikkeamaluku voi
-#: väittää mitattua negatiivista vain niistä säännöistä, jotka ajettiin, ja
-#: lukija tarvitsee tiedon siitä, montako selkärangan sääntöä jäi ajamatta.
+#: The anomaly rules the architecture (AD-10) names but which are not
+#: implemented. The list is **the denominator of the coverage**: an empty
+#: anomaly section can claim a measured negative only about the rules that
+#: were run, and the reader needs to know how many of the spine's rules were
+#: left unrun.
 #:
-#: **Tyhjä Story 2.14:stä lähtien.** ``stack`` oli täällä siksi, että sääntö
-#: vaati kuvauksen alue -> alueryhmä, jota ei ollut: neljä puolustajaa samalla
-#: ``env_cs_place``-alueella antoi 0 osumaa 93 kierroksesta, koska peli jakaa
-#: siten useaan alueeseen (Ancientin B on ``Alley`` + ``BombsiteB`` +
-#: ``SideEntrance``). Ryhmä johdetaan nyt demon omasta pistepilvestä
-#: (``domain.sampling.site_groups``), joten nimi siirtyi
-#: :data:`ANOMALY_RULES`iin ja kattavuusteksti korjaantui itsestään.
+#: **Empty since Story 2.14.** ``stack`` was here because the rule required a
+#: mapping area -> area group, which did not exist: four defenders in the same
+#: ``env_cs_place`` area gave 0 hits out of 93 rounds, because the game splits
+#: a site across several areas (Ancient's B is ``Alley`` + ``BombsiteB`` +
+#: ``SideEntrance``). The group is now derived from the recording's own point
+#: cloud (``domain.sampling.site_groups``), so the name moved to
+#: :data:`ANOMALY_RULES` and the coverage text corrected itself.
 #:
-#: Luettelo **jää olemaan tyhjänäkin**: se on kattavuuden nimittäjä, ja
-#: seuraava arkkitehtuurin nimeämä mutta toteuttamaton sääntö kuuluu tänne.
+#: The list **stays even while it is empty**: it is the denominator of the
+#: coverage, and the next rule the architecture names but does not implement
+#: belongs here.
 ANOMALY_RULES_DEFERRED: Final[tuple[str, ...]] = ()
 
-#: Poikkeamasääntöjen suomennokset. Vain otsikoissa, kuten
-#: :data:`ROUND_TYPE_FI`ssä -- dataan ei kirjoiteta suomea.
+#: The Finnish names of the anomaly rules. Headings only, as in
+#: :data:`ROUND_TYPE_FI` -- no Finnish is written into the data.
 #:
-#: ``crunch`` on **tuotteen omistajan oma termi** eikä käännettävä sana
-#: ("lobby crunch on nukessa taktiikka, jossa..."), joten se jää sellaisenaan
-#: -- kuten calloutit.
-#: Iso alkukirjain silti, jotta se ei näytä puolivalmiilta ``CT-eteneminen``in
-#: vieressä; raportin lukuohje kertoo mitä se tarkoittaa.
-#: ``stack`` on samoin pelaajan oma sana ("4-5 pelaajan stack yhdellä
-#: sitellä"), eikä sille ole suomenkielistä vastinetta, joka tarkoittaisi
-#: samaa -- "kasauma" olisi käännös, jota kukaan ei sano ääneen.
+#: ``crunch`` is **the product owner's own term** and not a word to translate
+#: ("lobby crunch on nukessa taktiikka, jossa..."), so it stays as it is --
+#: like the callouts.
+#: Capitalised all the same, so that it does not look half-finished next to
+#: ``CT-eteneminen``; the report's reading guide says what it means.
+#: ``stack`` is likewise the players' own word -- they say it inside Finnish
+#: sentences ("4-5 pelaajan stack" on one site) -- and Finnish has no
+#: equivalent that would mean the same: "kasauma" would be a translation
+#: nobody says out loud.
 ANOMALY_RULE_FI: Final[dict[str, str]] = {
     "ct_advance": "CT-eteneminen",
     "crunch": "Crunch",
     "stack": "Stack",
 }
 
-#: Siten ryhmä -> siten oma alue pelin omalla nimellä.
+#: A site's group -> that site's own area under the game's own name.
 #:
-#: **Nämä kaksi nimeä ovat pelin vakioita eivätkä aluejako.** Jokaisella
-#: ``de_``-kartalla on ``env_cs_place``-alueet ``BombsiteA`` ja ``BombsiteB``,
-#: aivan kuten jokaisella kierroksella on puolet ``T`` ja ``CT``. Stack-säännön
-#: lukittu ehto kieltää ihmisen antaman **aluejaon** -- sen, mitkä alueet
-#: kuuluvat kummankin siten ympärille -- ja juuri se johdetaan demosta
-#: (``domain.sampling.site_groups``). Site itse ei ole jako vaan ankkuri,
-#: josta jako mitataan.
+#: **These two names are constants of the game and not an area division.**
+#: Every ``de_`` map has the ``env_cs_place`` areas ``BombsiteA`` and
+#: ``BombsiteB``, exactly as every round has the sides ``T`` and ``CT``. The
+#: stack rule's locked condition forbids a human-supplied **area division** --
+#: which areas belong around each of the sites -- and that is precisely what
+#: is derived from the recording (``domain.sampling.site_groups``). The site
+#: itself is not a division but the anchor the division is measured from.
 #:
-#: Sanasto on täällä eikä säännön vieressä, koska sitä lukee kaksi
-#: domain-moduulia: sääntö (``domain.sampling``) ja raporttimalli
-#: (``domain.report``, joka valvoo ettei ``Anomaly.site`` ja ``Anomaly.area``
-#: voi olla eri mieltä). Kahdesta kopiosta juuri se pari erkanisi.
+#: The vocabulary is here rather than next to the rule, because two domain
+#: modules read it: the rule (``domain.sampling``) and the report model
+#: (``domain.report``, which makes sure that ``Anomaly.site`` and
+#: ``Anomaly.area`` cannot disagree). Of two copies it was exactly that pair
+#: that diverged.
 SITE_AREAS: Final[dict[str, str]] = {"A": "BombsiteA", "B": "BombsiteB"}
 
-#: Siteryhmien tunnukset vakiojärjestyksessä. **Johdos eikä toisinto**:
-#: kaksi käsin kirjoitettua luetteloa voisi erota toisistaan.
+#: The ids of the site groups in their fixed order. **Derived, not a second
+#: copy**: two hand-written lists could differ from each other.
 SITE_GROUPS: Final[tuple[str, ...]] = tuple(SITE_AREAS)
 SiteGroup = Literal["A", "B"]
 
-#: Kierros, jota ei voitu luokitella lainkaan (havainto puuttuu). Ei ole
-#: kierrostyyppi vaan sen puuttuminen: taulussa ``round_type`` on ``null``,
-#: ja tämä on sen ainoa näkyvä nimi tulosteissa ja luvuissa.
+#: A round that could not be classified at all (the observation is missing).
+#: Not a round type but the absence of one: ``round_type`` is ``null`` in the
+#: table, and this is its only visible name in the output and in the report's
+#: sections.
 UNCLASSIFIED: Final[str] = "luokittelematon"
 
-#: Raporttimallin suomennokset. Vain otsikoissa – dataan ei kirjoiteta suomea.
+#: The report model's Finnish names. Headings only -- no Finnish is written
+#: into the data.
 ROUND_TYPE_FI: Final[dict[str, str]] = {
     "pistol": "pistooli",
     "eco": "eco",
@@ -191,39 +201,42 @@ ROUND_TYPE_FI: Final[dict[str, str]] = {
     "anomaly": "poikkeama",
 }
 
-#: Otannan kolme lokeroa (Story 2.3). **Kolme, ei kaksi:** ``is_league`` syntyy
-#: vasta ``select``-vaiheessa (Epic 3), joten käsin tuodulla demolla se on
-#: ``null``. Kahden lokeron jako pakottaisi merkitsemään sellaisen demon joko
-#: liigaotteluksi tai muuksi, ja kumpikin olisi väärin.
+#: The sample's three buckets (Story 2.3). **Three, not two:** ``is_league``
+#: comes into being only in the ``select`` stage (Epic 3), so on a
+#: hand-imported recording it is ``null``. A division into two buckets would
+#: force such a recording to be marked either a league match or something
+#: else, and either would be wrong.
 SAMPLE_BUCKETS: Final[tuple[str, ...]] = ("league", "other", "unknown")
 SampleBucketName = Literal["league", "other", "unknown"]
 
-#: Lokeroiden suomennokset. Vain tulosteessa -- dataan ei kirjoiteta suomea,
-#: aivan kuten :data:`ROUND_TYPE_FI`ssä. Avaimet pysyvät englanniksi, koska ne
-#: ovat osa ``report.json``in sopimusta.
+#: The Finnish names of the buckets. In the output only -- no Finnish is
+#: written into the data, exactly as in :data:`ROUND_TYPE_FI`. The keys stay
+#: English, because they are part of the ``report.json`` contract.
 SAMPLE_BUCKET_FI: Final[dict[str, str]] = {
     "league": "liiga",
     "other": "muut",
     "unknown": "tuntematon",
 }
 
-#: Utilityn aikaikkunan kaksi **erikoisnimeä**, jotka eivät ole aikavälejä.
+#: The two **special names** of the utility time window, which are not time
+#: ranges.
 #:
 #: ``UTILITY_BUCKET_ALL``
-#:     Aikaikkunat on otettu pois käytöstä (``utility_seconds_buckets`` on
-#:     tyhjä), joten lokeroita on yksi.
+#:     The time windows have been switched off (``utility_seconds_buckets`` is
+#:     empty), so there is one bucket.
 #: ``UTILITY_BUCKET_UNKNOWN``
-#:     Heiton hetkeä ei saatu: ankkuri puuttui, aika oli negatiivinen tai se
-#:     ei ollut äärellinen luku. Puuttuva aika ei putoa pois -- se saa oman
-#:     lokeronsa, jottei se sulaudu lokeroon ``0-5`` ja näytä "instalta".
+#:     The moment of the throw was not obtained: the anchor was missing, the
+#:     time was negative, or it was not a finite number. A missing time does
+#:     not drop out -- it gets a bucket of its own, so that it does not merge
+#:     into the ``0-5`` bucket and look like an "insta".
 #:
-#: Nimet ovat täällä, koska ne kirjoitetaan ``aggregate``ssa ja luetaan
-#: ``render``issä. Kaksi kopiota erkanisi: nimen muuttaminen tuottaisi
-#: raporttiin hiljaa rivin ``" kaikki s"`` sen sijaan että mikään kaatuisi.
+#: The names are here because they are written in ``aggregate`` and read in
+#: ``render``. Two copies would diverge: changing the name would quietly put
+#: the row ``" kaikki s"`` into the report instead of anything failing.
 UTILITY_BUCKET_ALL: Final[str] = "kaikki"
 UTILITY_BUCKET_UNKNOWN: Final[str] = "tuntematon"
 
-#: Yksikön (Match / MapDemo) käsittelytila (AD-9).
+#: The processing status of a unit (Match / MapDemo) (AD-9).
 UNIT_STATUSES: Final[tuple[str, ...]] = (
     "ok",
     "no_demo",
@@ -236,40 +249,43 @@ UnitStatus = Literal[
     "ok", "no_demo", "download_failed", "parse_failed", "no_freeze_end", "pruned"
 ]
 
-#: Näytepisteen laji (AD-5).
+#: The kind of a sample point (AD-5).
 SAMPLE_KINDS: Final[tuple[str, ...]] = ("time", "first_contact")
 SampleKind = Literal["time", "first_contact"]
 
-#: Utility-tapahtuman laji (AD-5). Tarkat demoparser2-nimet lukitaan Story 1.2:ssa.
+#: The kind of a utility event (AD-5). The exact demoparser2 names are
+#: locked in Story 1.2.
 EVENT_KINDS: Final[tuple[str, ...]] = ("grenade_thrown", "grenade_detonate")
 EventKind = Literal["grenade_thrown", "grenade_detonate"]
 
-#: Mistä utility-tapahtuman alue on peräisin (AD-5).
+#: Where a utility event's area comes from (AD-5).
 #:
 #: ``observed``
-#:     Heittäjän oma ``m_szLastPlaceName`` samalta tickiltä. Heittorivillä alue
-#:     on siis havainto, ei arvio.
+#:     The thrower's own ``m_szLastPlaceName`` from the same tick. On a throw
+#:     row the area is therefore an observation, not an estimate.
 #: ``point_cloud``
-#:     Demon oman pistepilven lähimmän ruudun alue etäisyysrajan sisältä.
-#:     Räjähdyksellä ei ole omaa aluenimeä, joten se on aina approksimaatio --
-#:     mutta approksimaatio *pelin omasta aluemäärittelystä*, ei naapurista.
+#:     The area of the nearest cell of the recording's own point cloud, from
+#:     within the distance limit. A detonation has no area name of its own, so
+#:     it is always an approximation -- but an approximation *of the game's
+#:     own area definition*, not of a neighbouring one.
 #:
-#: ``null`` tarkoittaa, ettei aluetta saatu lainkaan. Ilman tätä saraketta
-#: raportti ei voisi erottaa varmaa tietoa arviosta.
+#: ``null`` means that no area was obtained at all. Without this column the
+#: report could not tell a certain fact from an estimate.
 #:
-#: **Arvo ``snapped`` poistui Story 2.9:ssä, koska menetelmä poistui.** Se
-#: tarkoitti "lähimmän elossa olevan pelaajan alue", ja se mittasi
-#: rakenteellisesti päinvastaista kuin piti: savu heitetään sinne, missä ketään
-#: ei ole -- juuri siksi, että se estää näkyvyyden. Proxyn korjaaminen olisi
-#: ollut mahdotonta, koska vika ei ollut tarkkuudessa vaan siinä mitä se mittasi.
-#: Arvoa ei jätetty luetteloon varalähteeksi: kaksi rinnakkaista menetelmää
-#: tekisi rivistä tulkitsemattoman, koska lukija ei näkisi kummalla se
-#: nimettiin. Vanha ``events.parquet`` ei siis lataudu tähän enumiin, ja se on
-#: tarkoitus -- ``parse`` ajaa demon uudelleen ilman ``--pakota``-lippua.
+#: **The value ``snapped`` went away in Story 2.9, because the method went
+#: away.** It meant "the area of the nearest living player", and it measured
+#: structurally the opposite of what it should have: smoke is thrown where
+#: nobody is -- precisely because it blocks the view. Repairing the proxy
+#: would have been impossible, because the fault was not in its accuracy but
+#: in what it measured. The value was not left in the list as a fallback
+#: source: two parallel methods would make the row uninterpretable, because
+#: the reader would not see which of them named it. An old ``events.parquet``
+#: therefore does not load into this enum, and that is intended -- ``parse``
+#: runs the recording again without the ``--pakota`` flag.
 AREA_SOURCES: Final[tuple[str, ...]] = ("observed", "point_cloud")
 AreaSource = Literal["observed", "point_cloud"]
 
-#: Rosterikynnyksen luokka per MapDemo (AD-6).
+#: The roster threshold's class per MapDemo (AD-6).
 ROSTER_CLASSES: Final[tuple[str, ...]] = ("5/5", "4/5")
 RosterClass = Literal["5/5", "4/5"]
 
@@ -308,9 +324,9 @@ ROSTER_CLASS_BUCKET: Final[dict[str, RosterBucketName]] = dict(
 #: hand-imported demo, a lineup with no owner, a table classified before
 #: ``select`` existed) and *measured and below the threshold* (``select``
 #: judged the map and rejected it). The printed sentence therefore says the
-#: class "ei ole vahvistettu" rather than "ei tiedetä": what the bucket
-#: honestly reports is the absence of a confirmed class, not the absence of a
-#: measurement.
+#: class "ei ole vahvistettu" rather than claiming it is not known: what the
+#: bucket honestly reports is the absence of a confirmed class, not the
+#: absence of a measurement.
 #:
 #: Two buckets instead of three would have forced every such demo into
 #: ``5/5`` or ``4/5``, and either is a claim nobody made.
@@ -329,36 +345,37 @@ ROSTER_BUCKET_FI: Final[dict[str, str]] = {
 }
 
 
-# -- Aseluokittelu (Story 1.6) -------------------------------------------------
+# -- Weapon classification (Story 1.6) ----------------------------------------
 #
-# Nämä nimet ovat demoparser2:n ``inventory``-listan arvoja, luettu
-# ostoajan lopun tickiltä. Nimet on **mitattu kuudesta demosta** (Ancient,
-# Nuke ja neljä Pappaliiga-demoa; Ancientin .dem ja .dem.zst ovat sama ottelu),
-# ei arvattu: 48 eri nimeä. Yhdeksän muuta pelin asetta on luettelossa, vaikka
-# niitä ei näissä demoissa esiintynyt -- ne ovat pelissä olemassa, ja
-# puuttuvasta aseesta seuraisi hiljaa liian pieni laskuri.
+# These names are values of demoparser2's ``inventory`` list, read from the
+# tick at the end of the buy time. The names are **measured from six
+# recordings** (Ancient, Nuke and four Pappaliiga recordings; Ancient's .dem
+# and .dem.zst are the same match), not guessed: 48 different names. Nine
+# other weapons of the game are in the list even though they did not occur in
+# these recordings -- they exist in the game, and a missing weapon would
+# quietly leave a counter too small.
 #
-# LUOKITTELU ON SALLITTUJEN ASEIDEN LUETTELO, EI KIELLETTYJEN. Veitset ovat
-# avoin joukko -- kuudessa demossa on jo 15 eri skininimeä ja Valve lisää niitä
-# jokaisessa kauppapäivityksessä. Aseita on 31 ja uusi ase on harvinainen
-# tapaus. Jos tuntematon nimi laskettaisiin aseeksi, jokainen uusi veitsiskini
-# aseistaisi pelaajan väärin ja tekisi sen hiljaa. Sallittujen luettelo
-# vanhenee näkyvästi ja väärään suuntaan: uusi ase jää laskematta, mikä on
-# turvallisempi virhe kuin veitsi joka aseistaa.
+# THE CLASSIFICATION IS A LIST OF THE ALLOWED WEAPONS, NOT OF THE FORBIDDEN
+# ONES. Knives are an open set -- the six recordings already hold 15 different
+# skin names, and Valve adds more in every shop update. There are 31 weapons
+# and a new weapon is a rare event. If an unknown name were counted as a
+# weapon, every new knife skin would arm a player wrongly and would do it
+# quietly. A list of the allowed ones ages visibly and in the wrong direction:
+# a new weapon goes uncounted, which is a safer error than a knife that arms.
 #
-# HALLUSSAPITO, EI OSTOS. Luettelo kertoo, mikä *ase* aseistaa pelaajan, ei
-# sitä ostiko hän sen. Tavaraluettelo luetaan ostoajan lopusta, joten
-# edelliseltä kierrokselta säästetty tai vainajalta poimittu kivääri laskeutuu
-# samoin kuin juuri ostettu. Se on tarkoitus eikä puute: kierroksen kannalta
-# ratkaisee mitä kädessä on, ei mistä se tuli, ja säästetty AK on tismalleen
-# yhtä vaarallinen kuin ostettu. Ainoa poikkeus ovat oletuspistoolit, jotka
-# rajataan ulos siksi, että ne saa joka kierros ilmaiseksi -- niiden
-# hallussapito ei kerro yhtään mitään.
+# POSSESSION, NOT PURCHASE. The list says which *weapon* arms a player, not
+# whether he bought it. The inventory is read at the end of the buy time, so a
+# rifle saved from the previous round or picked up from a dead player counts
+# the same as one just bought. That is intended and not a shortcoming: what
+# decides the round is what is in hand, not where it came from, and a saved AK
+# is exactly as dangerous as a bought one. The only exception is the default
+# pistols, which are excluded because they are free every round -- possessing
+# them says nothing at all.
 
-#: Veitset -- **avoin joukko**, tässä on vain se, mitä aineistossa on nähty.
-#: Luettelo ei ole eikä yritä olla täydellinen: sen ainoa tehtävä on hiljentää
-#: tuntemattomien nimien raportti niistä, jotka on jo tunnistettu. Puuttuva
-#: veitsi ei aseista ketään, koska :data:`ARMING_WEAPONS` ratkaisee sen.
+#: Knives -- an **open set**; only what has been seen in the material is
+#: here. The list is not and does not try to be complete: its only job is to
+#: quieten the report of unknown names about those already recognised. A
+#: missing knife arms nobody, because :data:`ARMING_WEAPONS` decides that.
 KNIVES: Final[frozenset[str]] = frozenset(
     {
         "Bayonet",
@@ -379,12 +396,14 @@ KNIVES: Final[frozenset[str]] = frozenset(
     }
 )
 
-#: Oletuspistoolit: pelaaja saa ne joka kierros ilmaiseksi, joten niiden
-#: hallussapito ei kerro yhtään mitään. Varustearvo laskee ne silti mukaan
-#: 200 $:n arvoisina -- juuri siksi varustearvo ei kelvannut mittariksi.
+#: The default pistols: a player gets them free every round, so possessing
+#: them says nothing at all. The equipment value counts them in all the same,
+#: at $200 -- which is exactly why the equipment value did not do as a
+#: measure.
 DEFAULT_PISTOLS: Final[frozenset[str]] = frozenset({"Glock-18", "P2000", "USP-S"})
 
-#: Pistoolit, jotka on hankittava erikseen -- oletuspistooli tulee ilmaiseksi.
+#: The pistols that have to be bought separately -- the default pistol
+#: comes free.
 PURCHASED_PISTOLS: Final[frozenset[str]] = frozenset(
     {
         "CZ75-Auto",
@@ -397,7 +416,7 @@ PURCHASED_PISTOLS: Final[frozenset[str]] = frozenset(
     }
 )
 
-#: Konepistoolit.
+#: Submachine guns.
 SMGS: Final[frozenset[str]] = frozenset(
     {
         "MAC-10",
@@ -410,7 +429,7 @@ SMGS: Final[frozenset[str]] = frozenset(
     }
 )
 
-#: Kiväärit, tarkkuuskiväärit ja konekiväärit.
+#: Rifles, sniper rifles and machine guns.
 RIFLES: Final[frozenset[str]] = frozenset(
     {
         "AK-47",
@@ -429,13 +448,13 @@ RIFLES: Final[frozenset[str]] = frozenset(
     }
 )
 
-#: Haulikot.
+#: Shotguns.
 SHOTGUNS: Final[frozenset[str]] = frozenset(
     {"MAG-7", "Nova", "Sawed-Off", "XM1014"}
 )
 
-#: Kranaatit. Eivät aseista: käyttäjän määritelmä on "kevlar ja jokin
-#: parannettu ase", eikä valo ole ase.
+#: Grenades. They do not arm: the user's definition is "kevlar and some
+#: upgraded weapon", and a flash is not a weapon.
 GRENADES: Final[frozenset[str]] = frozenset(
     {
         "Decoy Grenade",
@@ -447,26 +466,28 @@ GRENADES: Final[frozenset[str]] = frozenset(
     }
 )
 
-#: Tavarat, jotka eivät ole aseita eivätkä kranaatteja.
+#: The items that are neither weapons nor grenades.
 #:
-#: C4 on tehtäväesine, jonka T saa ilmaiseksi. Zeus on lähietäisyyden
-#: kertalaukaus, jolla ei pelata kierrosta -- se latautuu CS2:ssa kyllä
-#: uudelleen, mutta se ei tee siitä asetta käyttäjän määritelmässä "parempi
-#: pistooli, SMG tai halpa kivääri". Kumpikaan ei siis aseista.
+#: The C4 is a mission item that a T gets free. The Zeus is a single
+#: close-range shot with which a round is not played -- it does recharge in
+#: CS2, but that does not make it a weapon under the user's definition, "a
+#: better pistol, an SMG or a cheap rifle". So neither of them arms.
 OTHER_ITEMS: Final[frozenset[str]] = frozenset({"C4 Explosive", "Zeus x27"})
 
-#: Luokat, joista koko luokittelu johdetaan: ``(nimi, aseistaako, joukko)``.
+#: The classes the whole classification is derived from:
+#: ``(name, does it arm, set)``.
 #:
-#: **Tämä on ainoa paikka, johon aseluokka lisätään.** Sekä
-#: :data:`ARMING_WEAPONS`, :data:`KNOWN_INVENTORY_ITEMS` että
-#: :func:`weapon_classification_digest` johdetaan tästä, joten uusi luokka ei
-#: voi päätyä toiseen mutta jäädä pois toisesta. Aiemmin unioni kirjoitettiin
-#: erikseen, ja silloin uuden luokan pystyi lisäämään aseistamaan pelaajia
-#: ilman että tiiviste muuttui -- eli arkisto jäi hiljaa vanhentuneeksi.
+#: **This is the only place a weapon class is added to.**
+#: :data:`ARMING_WEAPONS`, :data:`KNOWN_INVENTORY_ITEMS` and
+#: :func:`weapon_classification_digest` are all derived from this, so a new
+#: class cannot end up in one of them and be left out of another. The union
+#: used to be written out separately, and then a new class could be added to
+#: arm players without the digest changing -- that is, the archive went
+#: quietly stale.
 #:
-#: Luokan **nimi ja aseistavuus** ovat osa tiivistettä, eivät vain sen sisältö:
-#: jos ase siirtyy luokasta toiseen eikä yksikään nimi katoa, unioni ei
-#: muuttuisi mutta luokittelu muuttuisi.
+#: A class's **name and whether it arms** are part of the digest, not only its
+#: contents: if a weapon moves from one class to another and not one name
+#: disappears, the union would not change but the classification would.
 _CLASSIFICATION: Final[tuple[tuple[str, bool, frozenset[str]], ...]] = (
     ("knives", False, KNIVES),
     ("default_pistols", False, DEFAULT_PISTOLS),
@@ -478,41 +499,41 @@ _CLASSIFICATION: Final[tuple[tuple[str, bool, frozenset[str]], ...]] = (
     ("other", False, OTHER_ITEMS),
 )
 
-#: **Aseistavat aseet** (31 kpl): pelaajan aseistaa mikä tahansa näistä, kun
-#: hänellä on myös panssari. Johdettu :data:`_CLASSIFICATION`ista, ei
-#: kirjoitettu erikseen. Oletuspistoolit eivät ole mukana (ne saa ilmaiseksi),
-#: veitsi ei ole ase, kranaatti ei ole ase.
+#: **The arming weapons** (31 of them): a player is armed by any one of these
+#: when he also has armour. Derived from :data:`_CLASSIFICATION`, not written
+#: out separately. The default pistols are not among them (they come free), a
+#: knife is not a weapon, a grenade is not a weapon.
 ARMING_WEAPONS: Final[frozenset[str]] = frozenset(
     name for _, arms, names in _CLASSIFICATION if arms for name in names
 )
 
-#: Kaikki tunnetut tavaraluettelon nimet (57 kpl). Tämän joukon **ulkopuolinen**
-#: nimi on tuntematon: se ei aseista ketään, ja se raportoidaan ajon
-#: yhteydessä. Hiljainen pudotus olisi yhtä paha kuin hiljainen hyväksyntä.
+#: All the known inventory names (57 of them). A name **outside** this set is
+#: unknown: it arms nobody, and it is reported as part of the run. A silent
+#: drop would be as bad as a silent acceptance.
 KNOWN_INVENTORY_ITEMS: Final[frozenset[str]] = frozenset(
     name for _, _, names in _CLASSIFICATION for name in names
 )
 
 
 def weapon_classification_digest() -> str:
-    """Tiiviste aseluokittelun **sisällöstä**.
+    """A digest of the **contents** of the weapon classification.
 
-    Menee ``parse``-vaiheen parametrihashiin, jolloin taulun muutos mitätöi
-    arkiston ja pakottaa uudelleenparsinnan. Vaihtoehto olisi ``[parse]``-asetus,
-    jota nostetaan käsin taulun muuttuessa -- se toimii vain jos kukaan ei
-    unohda, eikä ``settings.toml`` täyty 57 esinenimestä, joita käyttäjä ei
-    koskaan säädä.
+    It goes into the ``parse`` stage's parameter hash, so that a change to the
+    table invalidates the archive and forces a re-parse. The alternative would
+    be a ``[parse]`` setting raised by hand when the table changes -- that
+    works only if nobody forgets, and ``settings.toml`` does not fill up with
+    57 item names the user never adjusts.
 
-    Tiiviste kattaa jokaisen :data:`_CLASSIFICATION`-luokan nimen, sen
-    aseistaako se, ja sen sisällön. Uusi luokka muuttaa siis tiivistettä
-    väistämättä -- ei siksi että joku muistaa lisätä sen tänne, vaan siksi
-    että sama luettelo on ainoa lähde myös :data:`ARMING_WEAPONS`ille.
+    The digest covers the name of every :data:`_CLASSIFICATION` class, whether
+    it arms, and its contents. A new class therefore changes the digest
+    inevitably -- not because somebody remembers to add it here, but because
+    the same list is the only source for :data:`ARMING_WEAPONS` as well.
 
     Returns:
-        64 merkin heksadesimaalinen sha256-tiiviste. Sama luokittelu antaa aina
-        saman tiivisteen: sekä nimet että luokat järjestetään, joten joukkojen
-        sisäinen järjestys ja luokkien kirjoitusjärjestys eivät vaikuta
-        tulokseen.
+        A 64-character hexadecimal sha256 digest. The same classification
+        always gives the same digest: both the names and the classes are
+        sorted, so the internal order of the sets and the order the classes
+        are written in do not affect the result.
     """
     payload = "\n".join(
         f"{label}:{int(arms)}:{','.join(sorted(names))}"
@@ -522,20 +543,20 @@ def weapon_classification_digest() -> str:
 
 
 def seconds_label(value: float) -> str:
-    """Sekuntiluku **sellaisena kuin raportti sen näyttää**: ``45``, ``9,5``.
+    """A number of seconds **as the report shows it**: ``45``, ``9,5``.
 
-    Muotoilu on ``constants``issa eikä renderöinnin sisällä, koska **kaksi
-    kerrosta joutuu olemaan siitä samaa mieltä** (Story 2.13). Asetus
-    ``[report].skip_sample_seconds`` nimeää näytepisteen sillä luvulla, jonka
-    lukija näkee rivillä, ja täsmäys tehdään tästä muodosta -- liukuluku-
-    vertailu ratkaisisi kirjoitusasun perusteella, poistuuko rivi (``45`` vs
-    ``45.0``). Sama funktio tarkistaa latausvaiheessa, ettei asetuksessa ole
-    kahta arvoa, jotka näyttäisivät rivillä samalta.
+    The formatting is in ``constants`` and not inside the rendering, because
+    **two layers have to agree about it** (Story 2.13). The setting
+    ``[report].skip_sample_seconds`` names a sample point by the number the
+    reader sees on the row, and the match is made from this form -- a
+    floating-point comparison would let the spelling decide whether the row
+    goes away (``45`` vs ``45.0``). The same function checks at load time that
+    the setting does not hold two values that would look the same on the row.
 
-    Kahtena kopiona ne sopisivat vain **tänään**: jos raportti alkaisi näyttää
-    yhden desimaalin, kaksi asetusarvoa voisi tarkoittaa samaa riviä eikä
-    validointi huomaisi sitä.
+    As two copies they would agree only **today**: if the report started
+    showing one decimal, two setting values could mean the same row and the
+    validation would not notice it.
 
-    Desimaalierotin on pilkku, koska raportti on suomeksi.
+    The decimal separator is a comma, because the report is in Finnish.
     """
     return f"{value:g}".replace(".", ",")
