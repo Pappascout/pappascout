@@ -1,149 +1,156 @@
-"""``parse`` -- putken ensimmäinen vaihe: demosta seitsemän taulua.
+"""``parse`` -- the pipeline's first stage: seven tables out of a demo.
 
-Vaihe lukee yhden demon portin takaa ja kirjoittaa arkistoon
+The stage reads one demo from behind the port and writes into the archive
 ``parsed/<map_demo_id>/rounds.parquet``, ``.../ticks.parquet``,
 ``.../events.parquet``, ``.../lineups.parquet``, ``.../deaths.parquet``,
-``.../callouts.parquet``, ``.../match.parquet`` sekä niiden yhteisen
-manifestin.
+``.../callouts.parquet``, ``.../match.parquet`` and their shared manifest.
 
-``rounds`` on kaksi riviä jokaista **pelattua** kierrosta kohden, yksi
-kummallekin joukkueelle, ja kaikki arvot ovat demosta *havaittuja*: raha ja
-varustearvo ostoajan lopussa, kierroksen alun varustearvo, eloonjääneet,
-voittaja ja voiton syy. Kierrostyyppi, loss count ja muut johdokset syntyvät
-vasta ``classify``-vaiheessa, joka laskee ne joka ajolla uudelleen.
+``rounds`` is two rows for every **played** round, one for each team, and
+every value is *observed* from the demo: money and equipment value at the end
+of buy time, the equipment value at the start of the round, the survivors,
+the winner and the win reason. The round type, the loss count and the other
+derived values are not born until the ``classify`` stage, which recomputes
+them on every run.
 
-``ticks`` on rivi per (pelaaja, kierros, näytepiste): alue, koordinaatit ja
-elossaolo muutamassa hetkessä kierroksen alusta (``[parse].snapshot_seconds``)
-sekä ensikontaktin hetkellä. Kymmenen pelaajaa tallentuu joka näytepisteessä
-``is_alive``-lipulla; kuolleiden suodatus ja aggregointi ovat myöhempien
-vaiheiden työtä (AD-10).
+``ticks`` is a row per (player, round, sample point): area, coordinates and
+being alive at a few moments from the start of the round
+(``[parse].snapshot_seconds``) and at the moment of first contact. All ten
+players are recorded at every sample point with an ``is_alive`` flag;
+filtering out the dead and aggregating are the work of later stages (AD-10).
 
-``events`` on rivi per utility-tapahtuma: heitto ja räjähdys ovat kaksi riviä,
-jotka yhdistää ``grenade_no``, lentoradan demokohtainen tunniste. Kahden demon
-taulut yhdistetään parilla ``(map_demo_id, grenade_no)``. Utility mitataan
-**heitoista, ei ostoista** -- utilityä dropataan, joten ostaja ja heittäjä
-voivat olla eri pelaajat. **Tyhjä tapahtumataulu on kelvollinen tulos**,
-toisin kuin tyhjä kierros- tai näytepistetaulu: demossa on voitu jättää utility
-heittämättä, mutta pelattuja kierroksia ja asetelmia siinä on aina.
+``events`` is a row per utility event: the throw and the detonation are two
+rows joined by ``grenade_no``, the trajectory's demo-local id. Two demos'
+tables are joined on the pair ``(map_demo_id, grenade_no)``. Utility is
+measured **from throws, not from purchases** -- utility gets dropped, so the
+buyer and the thrower can be different players. **An empty event table is a
+valid result**, unlike an empty rounds or sample-point table: a demo may hold
+no utility thrown at all, but it always holds played rounds and setups.
 
-``lineups`` on rivi per (kokoonpano, pelaaja): pelaajan nimi ja hänen
-klaaninimensä. Se on **identiteettitaulu**, ei kierrostaulu -- nimi on sama
-koko kartan ajan, joten sillä ei ole ``round_no``:ta eikä sen rivejä pudoteta
-puukkokierroksen mukana. Nimi on havainto: puuttuva klaani on ``null``, ja
-raportti sanoo puuttumisen ääneen sen sijaan että keksisi korvikkeen.
+``lineups`` is a row per (lineup, player): the player's name and their clan
+name. It is an **identity table**, not a round table -- the name is the same
+for the whole map, so it has no ``round_no`` and its rows are not dropped
+along with the knife round. The name is an observation: a missing clan is
+``null``, and the report says the absence out loud instead of inventing a
+substitute.
 
-``deaths`` on rivi per kuolema: uhri ja ampuja molemmat alueineen ja
-koordinaatteineen. Kuolemalla on **kaksi toimijaa**, joten se ei mahdu
-``EVENTS``-taulun yhden toimijan muotoon -- eikä sen alue ole johdos vaan
-havainto samalta tapahtumalta. Ampujaton kuolema (putoaminen, pommi) on aito
-tapaus: ampujan kentät ovat silloin tyhjiä eikä riviä pudoteta.
+``deaths`` is a row per death: the victim and the attacker, both with their
+areas and coordinates. A death has **two actors**, so it does not fit the
+single-actor shape of the ``EVENTS`` table -- and its area is not a derived
+value but an observation from the same event. A death without an attacker (a
+fall, the bomb) is a genuine case: the attacker's fields are then empty and
+the row is not dropped.
 
-``callouts`` on rivi per pistepilven ruutu: demon omista tickeistä koottu
-ruudukko siitä, missä pelaajat ovat kartalla seisoneet ja mikä alue kussakin
-kohdassa on. Se on ``events``-taulun **räjähdysalueiden lähde**, ja se
-kirjoitetaan juuri siksi: johdettu alue on tarkistettavissa demoa vasten vain,
-jos se mistä se johdettiin on tallessa. Sama periaate kuin
-``ROUNDS.buy_end_tick``-sarakkeella -- mittausta ei esitetä ilman sitä, mistä
-se luettiin. Tyhjä pistepilvi on kelvollinen tulos: silloin jokainen
-räjähdysalue on ``null``, ajo ei kaadu ja syy kerrotaan ajon yhteenvedossa.
+``callouts`` is a row per point-cloud cell: a grid, assembled from the demo's
+own ticks, of where the players have stood on the map and which area is at
+each spot. It is the **source of the ``events`` table's detonation areas**,
+and it is written for exactly that reason: a derived area can be checked
+against the demo only if what it was derived from is kept. The same principle
+as with the ``ROUNDS.buy_end_tick`` column -- a measurement is not presented
+without the thing it was read from. An empty point cloud is a valid result:
+every detonation area is then ``null``, the run does not fail, and the reason
+is given in the run's summary.
 
-``match`` on **yksi rivi**: ottelun omat havainnot, tällä hetkellä kartan
-nimi demon otsikosta (``parse_header``). Kartta on ottelun ominaisuus eikä
-kierroksen, joten se ei ole kierrostaulun sarake, jossa sama arvo toistuisi
-joka rivillä -- sama peruste kuin kokoonpanotaululla. Nimi on **havainto**:
-se käytetään sellaisenaan eikä sitä verrata karttapooliin, ja puuttuva nimi
-on ``null`` eikä korvike. Vasta silloin ``aggregate`` päättelee nimen
-``map_demo_id``:stä.
+``match`` is **one row**: the match's own observations, at present the map
+name from the demo's header (``parse_header``). The map is a property of the
+match and not of a round, so it is not a column of the rounds table where the
+same value would repeat on every row -- the same grounds as with the lineup
+table. The name is an **observation**: it is used as it stands and is not
+compared against a map pool, and a missing name is ``null`` and not a
+substitute. Only then does ``aggregate`` infer the name from the
+``map_demo_id``.
 
-**Tyhjä kuolemataulu on virhe, tyhjä tapahtumataulu ei.** Epäsymmetria on
-tarkoituksellinen, ja se seuraa siitä mitä tyhjyys kummassakin tarkoittaa.
-Utility voi aidosti puuttua: joukkue voi jättää kranaatit ostamatta, ja
-"nolla heittoa" on silloin havainto kierroksesta. Kuolema ei ole valinta. CS2:n
-kierros ratkeaa tappamalla tai pommilla, ja pommikin tappaa; koko ottelu ilman
-yhtään kuolemaa ei ole pelattu ottelu. Tyhjä kuolemataulu tarkoittaa siis aina
-lukuvirhettä -- käytännössä uudelleennimettyä ``player_death``-tapahtumaa --
-eikä havaintoa, ja ok-tuloksena se jäisi manifestin perusteella pysyvästi
-ohitetuksi. Virheilmoitus nimeää adapterin omat pudotuslaskurit, joten syy on
-luettavissa eikä arvattavissa.
+**An empty deaths table is an error, an empty event table is not.** The
+asymmetry is deliberate, and it follows from what emptiness means in each of
+them. Utility can genuinely be absent: a team may leave the grenades unbought,
+and "zero throws" is then an observation about the round. A death is not a
+choice. A CS2 round is decided by killing or by the bomb, and the bomb kills
+too; a whole match without a single death is not a match that was played. An
+empty deaths table therefore always means a read error -- in practice a
+renamed ``player_death`` event -- and not an observation, and as an ok result
+it would stay permanently skipped on the strength of the manifest. The error
+message names the adapter's own drop counters, so the reason can be read
+rather than guessed.
 
-Mitä tauluihin päätyy
----------------------
-Warmup-kierrokset, puukkokierros ja ``mp_restartgame``-nollaukset **eivät ole
-pelattuja kierroksia**: ne eivät saa kierrosnumeroa eivätkä päädy tauluun.
-``round_raw`` on demon oma kierroslaskuri, joten ohitetut kierrokset näkyvät
-taulussa aukkona (Ancient: ``round_no`` 1..21 vastaa ``round_raw`` 2..22) --
-niiden lukumäärä kerrotaan myös ajon yhteenvedossa. Päätöksen tekee yksi ainoa
-funktio, :func:`~pappascout.domain.rounds.mark_played_rounds`, jota vain tämä
-vaihe kutsuu.
+What ends up in the tables
+--------------------------
+Warm-up rounds, the knife round and ``mp_restartgame`` resets **are not played
+rounds**: they get no round number and do not end up in the table.
+``round_raw`` is the demo's own round counter, so the skipped rounds show in
+the table as a gap (Ancient: ``round_no`` 1..21 corresponds to ``round_raw``
+2..22) -- their number is given in the run's summary as well. The decision is
+made by one single function,
+:func:`~pappascout.domain.rounds.mark_played_rounds`, which only this stage
+calls.
 
-Pistepilvi on **poikkeus, ja se on tarkoitus**: sen rivit eivät putoa
-numeroinnissa. Pilvi on kartan ominaisuus tässä demossa eikä kierroksen
-havainto, ja lämmittelyn ja puukkokierroksen tickit kertovat kartasta yhtä
-paljon kuin pelattujen kierrosten. Sama sääntö kuin kokoonpanotaululla.
+The point cloud is an **exception, and that is intended**: its rows do not
+fall away in the numbering. The cloud is a property of the map in this demo
+and not an observation about a round, and the ticks of the warm-up and of the
+knife round tell as much about the map as those of the played rounds. The
+same rule as with the lineup table.
 
-Sama päätös rajaa myös näytepisteet, utility-tapahtumat ja kuolemat:
-adapteri tuottaa rivejä kaikilta ankkuroiduilta kierrosrajoilta, ja vaihe
-pudottaa numeroimattomien kierrosten rivit samalla, kun se liittää
-``round_no``:n avaimella ``round_raw``. Näin puukkokierros ei tuota tick-,
-tapahtuma- eikä kuolemarivejä, eikä adapterin tarvitse tuntea
-numerointisääntöä. **Puukkokierroksella kuollaan oikeasti**, joten juuri tämä
-liitos on ainoa paikka, jossa ne kuolemat putoavat -- erillistä
-puukkokierrossääntöä ei ole eikä saa olla.
+The same decision also bounds the sample points, the utility events and the
+deaths: the adapter produces rows from every anchored round boundary, and the
+stage drops the rows of unnumbered rounds at the same time as it joins
+``round_no`` on the key ``round_raw``. This way the knife round produces
+neither tick nor event nor death rows, and the adapter does not need to know
+the numbering rule. **People really do die on the knife round**, so this very
+join is the only place where those deaths fall away -- there is no separate
+knife-round rule and there must not be one.
 
-Yhden tapauksen ratkaisee jo adapteri: **ottelun uudelleenaloitus**. Sillä on
-freezetime-ankkuri mutta ei ``round_end``iä, ja demon oma kierrosnumerointi
-jatkuu sen yli yhdellä -- se ei siis ole kierros lainkaan, eikä sillä ole edes
-``round_raw``:ta, jonka varassa se voisi kulkea tänne asti. Adapteri ei tuota
-siitä yhtään riviä, ja kertoo lukumäärän diagnostiikassaan
-(``match_restarts``); vaihe välittää sen ajon yhteenvetoon. Luku on eri asia
-kuin yllä mainittu ohitettujen kierrosten määrä: ohitettu kierros on taulussa
-ilman ``round_no``:ta, uudelleenaloitus ei ole taulussa lainkaan.
+One case is settled by the adapter already: the **match restart**. It has a
+freezetime anchor but no ``round_end``, and the demo's own round numbering
+carries on over it by one -- so it is not a round at all, and it does not even
+have a ``round_raw`` on which it could travel this far. The adapter produces
+no row from it, and reports the count in its diagnostics
+(``match_restarts``); the stage passes that on to the run's summary. The
+number is a different thing from the count of skipped rounds mentioned above:
+a skipped round is in the table without a ``round_no``, a restart is not in
+the table at all.
 
-Tarkistukset ennen kirjoitusta
-------------------------------
-Vaihe validoi sekä lukemansa että kirjoittamansa taulun (AD-2), ja lisäksi
-kaksi asiaa, jotka pelkkä skeema ei näe:
+The checks before the write
+---------------------------
+The stage validates both the table it reads and the table it writes (AD-2),
+and two further things that the schema alone does not see:
 
-* :func:`~pappascout.domain.rounds.check_win_reasons` -- CS2:n sääntö siitä,
-  kuka voi voittaa kierroksen millä tavalla. Rikkomus tarkoittaa lähes aina,
-  että puolet ovat menneet väärin päin.
-* Rivimäärä on tasan kaksi per kierros. Yksi tai kolme riviä menisi skeemasta
-  läpi mutta vääristäisi jokaisen myöhemmän joukkuekohtaisen summan.
+* :func:`~pappascout.domain.rounds.check_win_reasons` -- the CS2 rule about
+  who can win a round in what way. A violation nearly always means the sides
+  have gone the wrong way round.
+* The row count is exactly two per round. One row or three would pass the
+  schema but distort every later per-team sum.
 
-Uudelleenajo
-------------
-Manifestin ``params_hash`` lasketaan **vain** ``[parse]``-osiosta, ja
-``tool_versions`` sisältää vain demoparser2:n. ``[thresholds]``-arvon
-muuttaminen ei siis voi invalidoida parsintaa -- se on koko AD-3:n
-asetuspartition tarkoitus, ja tämä vaihe ei edes näe muita osioita.
+Rerunning
+---------
+The manifest's ``params_hash`` is computed from the ``[parse]`` section
+**only**, and ``tool_versions`` holds demoparser2 alone. Changing a
+``[thresholds]`` value therefore cannot invalidate the parse -- that is the
+whole point of AD-3's settings partition, and this stage does not even see
+the other sections.
 
-**Skeemamuutos pakottaa uudelleenparsinnan.** Manifestin parametrihash ei
-liiku, kun tauluihin tulee uusi sarake tai kokonaan uusi taulu, joten pelkkä
-manifestin täsmäys ei riitä ohituksen ehdoksi: vaihe vaatii lisäksi, että
-**jokainen** tämän version tuottama taulutiedosto on paikallaan
-(``expected_outputs``) ja että ne vastaavat yhä voimassa olevaa sopimusta
-(:func:`_schema_is_current`). Arkiston demo, jolta ``lineups.parquet``
-puuttuu, ei siis ole ajan tasalla, ja se parsitaan uudelleen ilman
-``--pakota``-lippua.
+**A schema change forces a reparse.** The manifest's parameter hash does not
+move when a table gains a new column or a wholly new table appears, so a
+matching manifest is not enough on its own as the condition for skipping: the
+stage also requires that **every** table file this version produces is in
+place (``expected_outputs``) and that they still match the contract in force
+(:func:`_schema_is_current`). An archived demo missing ``lineups.parquet`` is
+therefore not up to date, and it is reparsed without the ``--pakota`` flag.
 
-Demon tiiviste luetaan sen omasta ``.meta.json``-tiedostosta. Jos sitä ei ole
-(käsin arkistoon kopioitu demo), tunnisteena on tiedoston **koko ja
-muokkausaika**: 233 MB:n sha256 jokaisella ajolla olisi hitaampi kuin itse
-parsinta. Muokkausaika on mukana, koska pelkkä koko ei huomaa muuttunutta
-demoa. Jos OneDrive-synkronointi muuttaa aikaleimaa, seurauksena on yksi turha
-uudelleenparsinta -- vaarattomampi virhe kuin vanhentunut tulos. Manifestin voi
-aina ohittaa lipulla ``force``.
+The demo's digest is read from its own ``.meta.json`` file. If there is none
+(a demo copied into the archive by hand), the id is the file's **size and
+modification time**: a sha256 over 233 MB on every run would be slower than
+the parse itself. The modification time is included because size alone does
+not notice a changed demo. If the sync client changes the timestamp, the
+consequence is one needless reparse -- a less dangerous mistake than a stale
+result. The manifest can always be overridden with the ``force`` flag.
 
-Virhepolitiikka
----------------
-Sääntö on yksi: **kelvollista tulosta ei koskaan ylikirjoiteta
-epäonnistumisella.** Jos parsinta kaatuu ja arkistossa on jo ehjät taulut ja
-niiden ``ok``-manifesti, kaikki jätetään koskematta. Muussa tapauksessa
-kirjoitetaan ``parse_failed``-manifesti, joka estää ohituksen ja kertoo syyn.
-Vajaata taulua ei synny kummassakaan tapauksessa, koska kirjoitukset ovat
-atomisia ja tapahtuvat vasta kaikkien tarkistusten jälkeen. Manifesti
-kirjoitetaan viimeisenä, joten keskeytynyt ajo näkyy seuraavalla kerralla
-puuttuvana tuloksena eikä ajantasaisena.
+The error policy
+----------------
+The rule is one: **a valid result is never overwritten by a failure.** If the
+parse fails and the archive already holds intact tables and their ``ok``
+manifest, everything is left untouched. Otherwise a ``parse_failed`` manifest
+is written, which both blocks the skip and gives the reason. A partial table
+is born in neither case, because the writes are atomic and happen only after
+all the checks. The manifest is written last, so an interrupted run shows up
+on the next occasion as a missing result and not as an up-to-date one.
 """
 
 from __future__ import annotations
@@ -218,19 +225,20 @@ __all__ = [
 
 @dataclass(frozen=True)
 class _ParsedTables:
-    """Yhden demon valmiit, tarkistetut taulut ja niiden pudotusluvut.
+    """One demo's finished, checked tables and their drop counts.
 
-    Dataclass eikä monikko: paluuarvossa on viisi kehystä ja kolme paljasta
-    kokonaislukua, ja kaksi vierekkäistä ``int``:iä on vaihdettavissa
-    keskenään ilman että mikään tyyppitarkistus huomaa. Sama kuvio kuin
-    :class:`~pappascout.adapters.protocols.DemoTables`illa ja adapterin
-    laskuriluokilla -- ja seuraava taulu ei kasvata monikkoa yhdeksään.
+    A dataclass and not a tuple: the return value holds five frames and three
+    bare integers, and two adjacent ``int`` values can be swapped with each
+    other without any type check noticing. The same pattern as with
+    :class:`~pappascout.adapters.protocols.DemoTables` and the adapter's
+    counter classes -- and the next table will not grow the tuple to nine.
 
     Attributes:
-        skipped_rounds: Numeroimattomat kierrosrajat (warmup, puukkokierros).
-        unnumbered_utility: Numeroimattomilta kierroksilta pudonneet heitot.
-        unnumbered_deaths: Samoin pudonneet kuolemat. Liigademossa aina
-            epätyhjä: puukkokierroksella kuollaan oikeasti.
+        skipped_rounds: The unnumbered round boundaries (warm-up, the knife
+            round).
+        unnumbered_utility: The throws dropped from unnumbered rounds.
+        unnumbered_deaths: The deaths dropped the same way. Never empty in a
+            league demo: people really do die on the knife round.
     """
 
     rounds: pl.DataFrame
@@ -254,26 +262,26 @@ DEATHS_TABLE = "deaths"
 CALLOUTS_TABLE = "callouts"
 MATCH_TABLE = "match"
 
-#: Työkalut, joiden versio muuttaa tämän vaiheen tuloksen (manifest-moduulin
-#: sääntö). Pappascoutin omaa versiota ei merkitä: korjauspäivitys ei saa
-#: pakottaa koko arkiston uudelleenparsintaa.
+#: The tools whose version changes this stage's result (the manifest module's
+#: rule). Pappascout's own version is not recorded: a patch release must not
+#: force a reparse of the whole archive.
 TOOLS = ("demoparser2",)
 
-#: Virheet, joista kirjataan yksikkökohtainen tila manifestiin (AD-9).
+#: The errors for which a per-unit status is recorded in the manifest (AD-9).
 _RECORDED_ERRORS = (ParseError, SchemaError, OSError, pl.exceptions.PolarsError)
 
 
 def default_parser(settings: ParseSettings) -> DemoParser:
-    """Tuotannon demoparser2-toteutus.
+    """The production demoparser2 implementation.
 
-    Tuonti on funktion sisällä, jotta tämän moduulin tuominen ei lataa
-    demoparser2:ta -- vaihe itse tuntee vain portin, ja testit antavat sille
-    feikin.
+    The import is inside the function so that importing this module does not
+    load demoparser2 -- the stage itself knows only the port, and the tests
+    hand it a fake.
 
     Args:
-        settings: ``[parse]``-osio. Ensikontaktin säännön parametrit ovat
-            asetuksia eivätkä koodia, joten adapteri saa ne kutsussa eikä lue
-            niitä itse.
+        settings: The ``[parse]`` section. The parameters of the first-contact
+            rule are settings and not code, so the adapter is given them in
+            the call rather than reading them itself.
     """
     from pappascout.adapters.demo_parser import Demoparser2Adapter
 
@@ -289,10 +297,10 @@ def default_parser(settings: ParseSettings) -> DemoParser:
 
 
 def map_demo_id_from_path(path: Path) -> str:
-    """Päättele ``map_demo_id`` demotiedoston nimestä.
+    """Infer the ``map_demo_id`` from the demo file's name.
 
-    FACEITin tiedostonimi on tunniste sellaisenaan, joten pääte riisutaan ja
-    loppu tarkistetaan polun osaksi kelpaavaksi.
+    FACEIT's file name is the id as it stands, so the suffix is stripped and
+    the rest is checked to be acceptable as part of a path.
     """
     name = Path(path).name
     for suffix in sorted(DEMO_SUFFIXES, key=len, reverse=True):
@@ -305,29 +313,31 @@ def map_demo_id_from_path(path: Path) -> str:
 
 
 def resolve_demo(archive: ArchivePaths, target: str) -> tuple[str, Path]:
-    """Tulkitse käyttäjän antama kohde tiedostoksi ja tunnisteeksi.
+    """Interpret the target the user gave as a file and an id.
 
-    Kohde saa olla joko polku demotiedostoon tai pelkkä ``map_demo_id``, jolloin
-    demo etsitään **kolmesta paikasta tässä järjestyksessä**:
+    The target may be either a path to a demo file or a bare ``map_demo_id``,
+    in which case the demo is looked for in **three places, in this order**:
 
-    1. ``[project].demos_root`` -- ladattujen demojen paikallinen hakemisto,
-       jos asetus on käytössä,
-    2. arkiston ``demos/`` -- sinne ladattiin ennen kuin asetus oli olemassa,
-    3. arkiston ``import/`` -- käsin tuodut demot **kanonisella nimellä**
-       (FACEITin oma ``...-1-1.dem`` ei osu tähän; ks.
+    1. ``[project].demos_root`` -- the local directory of downloaded demos, if
+       the setting is in use,
+    2. the archive's ``demos/`` -- that is where downloads went before the
+       setting existed,
+    3. the archive's ``import/`` -- demos imported by hand **under the
+       canonical name** (FACEIT's own ``...-1-1.dem`` does not match here; see
        :meth:`~pappascout.archive.paths.ArchivePaths.demo_dirs`).
 
-    **Järjestys ei ole mielivaltainen.** Kohta 2 on siinä siksi, että
-    paikallisen hakemiston käyttöönotto ei saa tehdä jo ladatuista demoista
-    näkymättömiä; kohta 3 siksi, että tuotu demo käyttäytyy putkessa täsmälleen
-    kuten ladattu -- mikään vaihe ei erota niitä. Kaksi ensimmäistä tulevat
-    :meth:`~pappascout.archive.paths.ArchivePaths.find_demo`ilta, joka on sama
-    lukija kuin ``fetch``in idempotenssitarkistuksella: kaksi eri
-    hakujärjestystä samalle tiedostolle tarkoittaisi, että toinen lataisi sen,
-    minkä toinen jo löytää.
+    **The order is not arbitrary.** Item 2 is there because taking the local
+    directory into use must not make already downloaded demos invisible; item
+    3 because an imported demo behaves in the pipeline exactly like a
+    downloaded one -- no stage tells them apart. The first two come from
+    :meth:`~pappascout.archive.paths.ArchivePaths.find_demo`, which is the
+    same reader as ``fetch``'s idempotence check: two different search orders
+    for the same file would mean that one of them downloads what the other
+    already finds.
 
     Raises:
-        DemoUnavailable: Jos demoa ei löydy. Viesti kertoo, mistä etsittiin.
+        DemoUnavailable: If the demo is not found. The message says where the
+            search looked.
     """
     candidate = Path(target).expanduser()
     if candidate.is_file():
@@ -345,30 +355,31 @@ def resolve_demo(archive: ArchivePaths, target: str) -> tuple[str, Path]:
     ]
     listing = "\n".join(f"    {p}" for p in searched)
     raise DemoUnavailable(
-        f"Demoa {map_demo_id} ei löytynyt.\n"
-        "Etsin näistä poluista:\n"
+        f"Demo {map_demo_id} was not found.\n"
+        "I looked in these paths:\n"
         f"{listing}\n"
-        "Kopioi demo arkiston import-hakemistoon tai anna tiedoston polku "
-        "suoraan komennolle."
+        "Copy the demo into the archive's import directory, or give the "
+        "file's path straight to the command."
     )
 
 
 def _demo_fingerprint(archive: ArchivePaths, map_demo_id: str, demo_path: Path) -> str:
-    """Demon tunniste manifestin syötelistaan.
+    """The demo's id for the manifest's input list.
 
-    Ensisijaisesti ``demos/<id>.meta.json``-tiedoston ``sha256``; muuten
-    tiedoston koko ja muokkausaika. Tiivistettä ei lasketa demosta uudelleen
-    (ks. moduulin docstring).
+    Primarily the ``sha256`` of the ``demos/<id>.meta.json`` file; otherwise
+    the file's size and modification time. The digest is not recomputed from
+    the demo (see the module docstring).
 
     Raises:
-        DemoUnavailable: Jos tiedoston tietoja ei saada luettua. Yhteinen
-            varakonstantti olisi vaarallinen: kaksi eri lukukelvotonta demoa
-            saisi saman tunnisteen, jolloin toisen tulos näyttäisi toisen
-            ajantasaiselta tulokselta.
+        DemoUnavailable: If the file's details cannot be read. A shared
+            fallback constant would be dangerous: two different unreadable
+            demos would get the same id, and then one's result would look
+            like an up-to-date result for the other.
     """
-    # **Haku eikä kirjoituspolku.** Demo voi olla paikallisessa hakemistossa
-    # tai arkistossa, ja metatiedosto on aina demonsa vieressä; pelkkä
-    # ``demo_meta`` katsoisi vain sinne, minne uusi lataus menisi.
+    # **A search and not a write path.** The demo may be in the local
+    # directory or in the archive, and the metadata file is always next to
+    # its demo; ``demo_meta`` on its own would look only where a new download
+    # would go.
     meta_path = archive.find_demo_meta(map_demo_id)
     if meta_path is not None:
         try:
@@ -382,26 +393,28 @@ def _demo_fingerprint(archive: ArchivePaths, map_demo_id: str, demo_path: Path) 
         stat = demo_path.stat()
     except OSError as exc:
         raise DemoUnavailable(
-            f"Demon {demo_path} tietoja ei voitu lukea: {exc}\n"
-            "Tarkista, ettei tiedosto ole OneDriven pilvipaikkamerkki (avaa se "
-            "kerran Resurssienhallinnassa) ja että polku on oikea."
+            f"The details of demo {demo_path} could not be read: {exc}\n"
+            "Check that the file is not a cloud placeholder in a synchronised "
+            "folder (open it once in File Explorer) and that the path is "
+            "right."
         ) from exc
     return f"size-{stat.st_size}-mtime-{stat.st_mtime_ns}"
 
 
 def _params_hash(settings: ParseSettings) -> str:
-    """Parametrihash: ``[parse]``-osio **ja** aseluokittelun tiiviste.
+    """Parameter hash: ``[parse]`` **and** the weapon classification digest.
 
-    Kalustolaskuri lukee aseluettelon koodista eikä asetuksista, joten pelkkä
-    osion hash jättäisi luettelon muutoksen näkymättömäksi: arkiston vanha
-    laskuri jäisi voimaan eikä mikään kertoisi siitä. Tiiviste luokittelun
-    sisällöstä pakottaa uudelleenparsinnan ilman että kenenkään tarvitsee
-    muistaa nostaa versionumeroa.
+    The kit counter reads the weapon list from the code and not from the
+    settings, so the section's hash alone would leave a change to the list
+    invisible: the archive's old counter would stay in force and nothing
+    would say so. A digest of the classification's contents forces a reparse
+    without anyone having to remember to raise a version number.
 
-    Osiot ovat **kaksitasoisessa rakenteessa** eivätkä sisaruksina samassa
-    sanakirjassa: sisarusavaimena tiivisteen voisi peittää samanniminen
-    ``[parse]``-asetus, ja se pitäisi torjua vartijalla, jota mikään ei voi
-    laukaista. Sisäkkäisyys tekee törmäyksen mahdottomaksi rakenteen tasolla.
+    The sections are in a **two-level structure** and not siblings in the same
+    dictionary: as a sibling key the digest could be masked by a ``[parse]``
+    setting of the same name, and that would have to be fended off with a
+    guard that nothing can trip. Nesting makes the collision impossible at
+    the level of the structure.
     """
     return compute_params_hash(
         {
@@ -417,11 +430,12 @@ def _check_port_columns(
     table_name: str,
     contract: str,
 ) -> None:
-    """Tarkista adapterin tuottama taulu ennen jatkokäsittelyä.
+    """Check the table the adapter produced before going any further.
 
-    Vaatimus on **täsmällinen sarakejoukko**, ei osajoukko: ylimääräinen sarake
-    tarkoittaa, että portin toteutus ja sopimus ovat erkaantuneet, ja se
-    päätyisi hiljaa mukaan tai kaatuisi vasta domain-kerroksessa.
+    The requirement is the **exact set of columns**, not a subset: an extra
+    column means that the port's implementation and the contract have drifted
+    apart, and it would either be carried along silently or fail only in the
+    domain layer.
     """
     received = set(df.columns)
     expected = set(expected_columns)
@@ -431,22 +445,22 @@ def _check_port_columns(
         return
     parts = []
     if missing:
-        parts.append(f"puuttuu: {', '.join(missing)}")
+        parts.append(f"missing: {', '.join(missing)}")
     if extra:
-        parts.append(f"ylimääräisiä: {', '.join(extra)}")
+        parts.append(f"extra: {', '.join(extra)}")
     raise SchemaError(
-        f"Demoportti palautti sopimuksen vastaisen {table_name} -- "
+        f"The demo port returned a {table_name} that breaks the contract -- "
         f"{'; '.join(parts)}.\n"
-        f"Portin sopimus on adapters/protocols.py:n {contract}."
+        f"The port's contract is {contract} in adapters/protocols.py."
     )
 
 
 def _check_two_rows_per_round(df: pl.DataFrame) -> None:
-    """Jokaisella kierroksella on oltava tasan kaksi riviä.
+    """Every round must have exactly two rows.
 
-    Taulu on pitkä: yksi rivi kummallekin joukkueelle. Kolmas rivi tai
-    puuttuva pari läpäisisi skeeman mutta kaksinkertaistaisi tai puolittaisi
-    joukkuekohtaiset summat kaikessa myöhemmässä analyysissa.
+    The table is long: one row for each team. A third row or a missing pair
+    would pass the schema but would double or halve the per-team sums in all
+    later analysis.
     """
     round_count = df["round_no"].n_unique()
     if df.height == 2 * round_count:
@@ -459,51 +473,53 @@ def _check_two_rows_per_round(df: pl.DataFrame) -> None:
         .head(5)
     )
     raise SchemaError(
-        f"Kierrostaulussa on {df.height} riviä {round_count} kierrokselle; "
-        "pitäisi olla tasan kaksi riviä per kierros (yksi kummallekin "
-        "joukkueelle).\n"
-        f"Poikkeavat kierrokset: {deviating.to_dicts()}"
+        f"The rounds table has {df.height} rows for {round_count} rounds; "
+        "there should be exactly two rows per round (one for each "
+        "team).\n"
+        f"The deviating rounds: {deviating.to_dicts()}"
     )
 
 
 def _check_player_counters(df: pl.DataFrame) -> None:
-    """Varmista, että pelaajalaskurit pysyvät jakajassaan ja sisäkkäin.
+    """Make sure the player counters stay within their divisor and nested.
 
-    ``validate`` tarkistaa sarakkeet ja tyypit muttei arvoja, ja juuri arvot
-    ovat näiden kahden sarakkeen koko lupaus. Kaksi invarianttia, jotka
-    seuraavat siitä että molemmat lasketaan **samasta pelaajajoukosta samalta
-    tickiltä**:
+    ``validate`` checks the columns and the types but not the values, and the
+    values are the whole promise of these two columns. Two invariants, which
+    follow from both being counted **from the same set of players at the same
+    tick**:
 
-    * ``0 <= laskuri <= players_buy_end`` -- ylitys tarkoittaisi kahta eri
-      jakajaa samalla rivillä, ja raportti näyttäisi "6/5".
-    * ``players_armed_buy_end <= players_armored_buy_end`` -- aseistetun ehto
-      sisältää panssarin, joten aseistetut ovat panssaroitujen **osajoukko**.
-      Ylitys tarkoittaisi, että laskurit lukevat eri tickiä tai eri joukkoa.
+    * ``0 <= counter <= players_buy_end`` -- exceeding it would mean two
+      different divisors on the same row, and the report would show "6/5".
+    * ``players_armed_buy_end <= players_armored_buy_end`` -- the armed
+      condition includes armour, so the armed are a **subset** of the
+      armoured. Exceeding it would mean the counters are reading a different
+      tick or a different set.
 
-    Tarkistus tehdään **lukuhetkellä** eikä vain luvata skeeman docstringissä:
-    ilman sitä mahdoton luku kirjoittuisi arkistoon ja paljastuisi vasta
-    raportissa, jos silloinkaan. Null-arvot ohitetaan -- ne ovat rehellinen
-    "ei havaintoa" eivätkä rikkoutunut invariantti.
+    The check is done **at read time** and not merely promised in the schema's
+    docstring: without it an impossible number would be written into the
+    archive and would come to light only in the report, if even then. Nulls
+    are passed over -- they are an honest "no observation" and not a broken
+    invariant.
 
     Raises:
-        SchemaError: Nimeää rikkoutuneen invariantin ja enintään viisi riviä.
+        SchemaError: Names the broken invariant and at most five rows.
     """
     checks = (
         (
             (pl.col(ARMED_COLUMN) < 0)
             | (pl.col(ARMED_COLUMN) > pl.col("players_buy_end")),
-            f"{ARMED_COLUMN} on rajojen 0..players_buy_end ulkopuolella",
+            f"{ARMED_COLUMN} is outside the bounds 0..players_buy_end",
         ),
         (
             (pl.col(ARMORED_COLUMN) < 0)
             | (pl.col(ARMORED_COLUMN) > pl.col("players_buy_end")),
-            f"{ARMORED_COLUMN} on rajojen 0..players_buy_end ulkopuolella",
+            f"{ARMORED_COLUMN} is outside the bounds 0..players_buy_end",
         ),
         (
             pl.col(ARMED_COLUMN) > pl.col(ARMORED_COLUMN),
-            f"{ARMED_COLUMN} > {ARMORED_COLUMN}, vaikka aseistetun ehto "
-            "sisältää panssarin -- aseistettujen on oltava panssaroitujen "
-            "osajoukko",
+            f"{ARMED_COLUMN} > {ARMORED_COLUMN}, although the armed "
+            "condition includes armour -- the armed must be a subset of the "
+            "armoured",
         ),
     )
     for condition, complaint in checks:
@@ -514,28 +530,29 @@ def _check_player_counters(df: pl.DataFrame) -> None:
             "round_no", "side", "players_buy_end", ARMED_COLUMN, ARMORED_COLUMN
         ).head(5)
         raise SchemaError(
-            f"Kierrostaulussa {complaint}: {broken.height} riviä.\n"
-            f"Ensimmäiset: {rows.to_dicts()}"
+            f"In the rounds table {complaint}: {broken.height} rows.\n"
+            f"The first ones: {rows.to_dicts()}"
         )
 
 
 def _check_grenade_key(events: pl.DataFrame) -> None:
-    """Varmista, että ``(map_demo_id, grenade_no, event_kind)`` yksilöi rivin.
+    """Make sure ``(map_demo_id, grenade_no, event_kind)`` identifies a row.
 
-    ``validate`` tarkistaa sarakkeet ja tyypit muttei avainta, ja juuri avain
-    on tämän taulun koko lupaus: aggregointi liittää utilityn kierroksiin sillä
-    oletuksella, ettei liitos monista rivejä. Rikkoutunut avain läpäisisi
-    skeeman ja näkyisi vasta raportin luvuissa kaksinkertaisena savuna --
-    täsmälleen se hiljainen vika, jonka takia ``grenade_no`` ylipäätään on
-    olemassa.
+    ``validate`` checks the columns and the types but not the key, and the key
+    is the whole promise of this table: aggregation joins utility to rounds on
+    the assumption that the join does not multiply rows. A broken key would
+    pass the schema and would show only in the report's numbers, as smoke
+    counted twice -- exactly the silent defect that ``grenade_no`` exists for
+    in the first place.
 
-    ``map_demo_id`` on avaimessa mukana, koska ``grenade_no`` juoksee **demon
-    sisällä**: kahden demon taulut yhdistävä ``aggregate`` tarvitsee parin.
-    Yhden demon taulussa se on vakio eikä muuta tulosta, mutta väite on
-    kirjoitettava siinä muodossa, jossa sitä käytetään.
+    ``map_demo_id`` is in the key because ``grenade_no`` runs **within a
+    demo**: ``aggregate``, which joins two demos' tables, needs the pair. In
+    one demo's table it is a constant and does not change the result, but the
+    claim has to be written in the form in which it is used.
 
     Raises:
-        SchemaError: Jos numero puuttuu tai jos sama avain esiintyy kahdesti.
+        SchemaError: If the number is missing, or if the same key occurs
+            twice.
     """
     if events.is_empty():
         return
@@ -543,9 +560,9 @@ def _check_grenade_key(events: pl.DataFrame) -> None:
     missing = int(events["grenade_no"].null_count())
     if missing:
         raise SchemaError(
-            f"Tapahtumataulussa on {missing} riviä ilman grenade_no-numeroa.\n"
-            "Numero on heiton ja räjähdyksen ainoa side; ilman sitä riviä ei "
-            "voi liittää mihinkään."
+            f"The event table has {missing} rows without a grenade_no.\n"
+            "The number is the only tie between the throw and the detonation; "
+            "without it the row cannot be joined to anything."
         )
 
     key = events.select("map_demo_id", "grenade_no", "event_kind")
@@ -559,15 +576,15 @@ def _check_grenade_key(events: pl.DataFrame) -> None:
         .head(5)
     )
     raise SchemaError(
-        "Tapahtumataulun avain (map_demo_id, grenade_no, event_kind) ei ole "
-        f"yksikäsitteinen: {key.height - key.unique().height} riviä on "
-        "kaksoiskappaleita.\n"
-        f"Ensimmäiset toistuvat avaimet: {duplicates.to_dicts()}"
+        "The event table's key (map_demo_id, grenade_no, event_kind) is not "
+        f"unique: {key.height - key.unique().height} rows are "
+        "duplicates.\n"
+        f"The first repeated keys: {duplicates.to_dicts()}"
     )
 
 
 def _round_stats(df: pl.DataFrame, skipped_rounds: int = 0) -> dict[str, object]:
-    """Kierrostaulun luvut."""
+    """The rounds table's numbers."""
     if df.is_empty():
         stats: dict[str, object] = {
             "rounds": 0,
@@ -586,21 +603,22 @@ def _round_stats(df: pl.DataFrame, skipped_rounds: int = 0) -> dict[str, object]
                 df.filter(pl.col("status") == "no_freeze_end")["round_no"].n_unique()
             ),
         }
-    # Myös tyhjästä taulusta: muut luvut palautetaan nollina, joten laskurin
-    # puuttuminen tekisi tyhjästä ajosta samannäköisen kuin laskurittomasta
-    # versiosta.
+    # From an empty table as well: the other numbers are returned as zeroes,
+    # so a missing counter would make an empty run look the same as a version
+    # that has no counter at all.
     stats.update(_armed_stats(df))
     stats.update(_armored_stats(df))
     return stats
 
 
 def _column_distribution(df: pl.DataFrame, column: str) -> tuple[dict[int, int], int]:
-    """Yhden laskurisarakkeen arvojakauma ja puuttuvien rivien määrä.
+    """One counter column's value distribution and its count of missing rows.
 
-    Jaettu kahden laskurin kesken tarkoituksella: aseistetut ja panssaroidut
-    ovat **eri havaintoja samasta tickistä**, ja kaksi erillistä laskentaa
-    voisi erkaantua toisistaan -- toinen laskisi ankkurittoman kierroksen
-    nollaksi ja toinen puuttuvaksi, eikä lukuja voisi enää verrata.
+    Shared between the two counters on purpose: the armed and the armoured are
+    **different observations from the same tick**, and two separate
+    computations could drift apart from each other -- one would count a round
+    without an anchor as zero and the other as missing, and the numbers could
+    no longer be compared.
     """
     counts = (
         df.filter(pl.col(column).is_not_null()).group_by(column).len().sort(column)
@@ -612,39 +630,39 @@ def _column_distribution(df: pl.DataFrame, column: str) -> tuple[dict[int, int],
 
 
 def _armed_stats(df: pl.DataFrame) -> dict[str, object]:
-    """Kalustolaskurin **arvojakauma** kierrostaulusta.
+    """The kit counter's **value distribution** from the rounds table.
 
-    Jakauma kerrotaan ajon yhteydessä, koska laskuri on ainoa havainto, jonka
-    oikeellisuuden voi tarkistaa vain katsomalla sitä: väärä sääntö tai
-    vanhentunut aseluettelo tuottaisi taulun, joka läpäisee jokaisen
-    skeematarkistuksen.
+    The distribution is given with the run because the counter is the one
+    observation whose correctness can be checked only by looking at it: a
+    wrong rule or a stale weapon list would produce a table that passes every
+    schema check.
 
-    Nimenomaan jakauma eikä ääripäät: 41 riviä nollaa ja yksi viitonen antaisi
-    ``0-5``, joka näyttää terveeltä. ``{0: 41, 5: 1}`` ei näytä.
+    The distribution specifically, not the extremes: 41 rows of zero and one
+    five would give ``0-5``, which looks healthy. ``{0: 41, 5: 1}`` does not.
 
     Returns:
-        ``armed_distribution`` (arvo -> rivien määrä, arvon mukaan
-        järjestettynä) ja ``armed_missing`` (rivit, joilta havainto puuttuu).
+        ``armed_distribution`` (value -> number of rows, ordered by value) and
+        ``armed_missing`` (the rows where the observation is missing).
     """
     distribution, missing = _column_distribution(df, ARMED_COLUMN)
     return {"armed_distribution": distribution, "armed_missing": missing}
 
 
 def _armored_stats(df: pl.DataFrame) -> dict[str, object]:
-    """Panssarilaskurin **arvojakauma** kierrostaulusta.
+    """The armour counter's **value distribution** from the rounds table.
 
-    Oma rivinsä eikä aseistettujen jakauman jatke: ne ovat eri havaintoja ja
-    eroavat eniten pistoolikierroksella, jolla aseistettuja on käytännössä 0.
-    Yksi rivi kahdesta luvusta peittäisi juuri sen eron, jonka vuoksi
-    laskureita on kaksi.
+    A line of its own and not an extension of the armed distribution: they are
+    different observations and they differ most on the pistol round, where the
+    armed are in practice 0. One line built from two numbers would hide the
+    very difference for which there are two counters.
 
-    Jakauma toimii samalla itsetarkistuksena: jos panssarilaskuri ajautuisi
-    lukemaan aseistettujen ehtoa, jakaumat olisivat identtiset -- ja se näkyy
-    ajon tulosteessa heti eikä vasta raportissa.
+    The distribution doubles as a self-check: if the armour counter drifted
+    into reading the armed condition, the distributions would be identical --
+    and that shows in the run's output at once and not only in the report.
 
     Returns:
-        ``armored_distribution`` (arvo -> rivien määrä) ja ``armored_missing``
-        (rivit, joilta havainto puuttuu).
+        ``armored_distribution`` (value -> number of rows) and
+        ``armored_missing`` (the rows where the observation is missing).
     """
     distribution, missing = _column_distribution(df, ARMORED_COLUMN)
     return {"armored_distribution": distribution, "armored_missing": missing}
@@ -653,28 +671,31 @@ def _armored_stats(df: pl.DataFrame) -> dict[str, object]:
 def _buy_window_stats(
     df: pl.DataFrame, diagnostics: object
 ) -> dict[str, object]:
-    """Ostoikkunan luvut **pelatuista kierroksista**, ei kaikista kierrosrajoista.
+    """Buy-window numbers **from played rounds**, not from every boundary.
 
-    Adapteri antaa katkaisut ``round_raw``-numeroina eikä valmiina lukuina, ja
-    syy on puukkokierros: se saa oman ``round_raw``:nsa mutta ei ole kierros
-    eikä päädy tauluun. Adapterin laskema luku sisältäisi sen, eikä sitä voisi
-    enää vähentää pois -- käyttäjä näkisi "13 katkaisua" taulussa, jossa niitä
-    on 12. Sama koskee mittaushetkien jakaumaa: puukkokierros ratkeaa ennen
-    ikkunan loppua, joten sen mukanaolo vetäisi jakauman alarajan sekunnin
-    murto-osiin ja väittäisi mittausta, jota kierroslistalla ei ole.
+    The adapter gives the truncations as ``round_raw`` numbers rather than as
+    finished counts, and the reason is the knife round: it gets a
+    ``round_raw`` of its own but is not a round and does not end up in the
+    table. A count computed by the adapter would include it, and it could no
+    longer be subtracted out -- the user would see "13 truncations" for a
+    table that holds 12. The same goes for the distribution of measurement
+    moments: the knife round is decided before the window ends, so including
+    it would pull the distribution's lower bound down to a fraction of a
+    second and would claim a measurement that is not in the round list.
 
-    Mittaushetkien jakauma lasketaan kokonaan täällä, suoraan kirjoitettavasta
-    taulusta: se on ``buy_end_tick``-sarakkeen ainoa näkyvä muoto, ja jos
-    sarake ja tuloste voisivat erkaantua, tarkistettavuus olisi näennäistä.
+    The distribution of measurement moments is computed entirely here, straight
+    from the table being written: it is the only visible form of the
+    ``buy_end_tick`` column, and if the column and the output could drift
+    apart, checkability would be only apparent.
 
     Args:
-        df: Valmis kierrostaulu, vain pelatut kierrokset.
-        diagnostics: Portin diagnostiikka, tai ``None``.
+        df: The finished rounds table, played rounds only.
+        diagnostics: The port's diagnostics, or ``None``.
 
     Returns:
-        Vain ne avaimet, jotka voidaan laskea. Puuttuva avain tarkoittaa
-        ohitettua ajoa, ja ``cli`` jättää rivin silloin pois -- "ei yhtään"
-        olisi väite, jota mikään ei tue.
+        Only the keys that can be computed. A missing key means a skipped run,
+        and ``cli`` then leaves the line out -- "none at all" would be a claim
+        that nothing supports.
     """
     if diagnostics is None:
         return {}
@@ -713,15 +734,16 @@ def _buy_window_stats(
 
 
 def _buy_end_offsets(df: pl.DataFrame) -> tuple[float, float, float] | None:
-    """Mittaushetkien jakauma sekunteina ankkurista: ``(pienin, mediaani, suurin)``.
+    """Measurement moments in seconds from the anchor: ``(min, median, max)``.
 
-    Asetus lupaa ikkunan pituuden; nämä kolme lukua kertovat mihin mittaus
-    oikeasti osui. Jos ikkuna on 20 s mutta mediaani 12 s, kuolema katkaisee
-    ikkunan useammin kuin ei -- eikä sitä näe asetuksesta.
+    The setting promises the window's length; these three numbers say where
+    the measurement actually landed. If the window is 20 s but the median is
+    12 s, a death truncates the window more often than not -- and that cannot
+    be seen from the setting.
 
     Returns:
-        Kolmikko sekunteina, tai ``None`` jos yhdelläkään rivillä ei ole
-        molempia tickejä eikä kelvollista tickratea.
+        A triple in seconds, or ``None`` if no row has both ticks and a valid
+        tick rate.
     """
     if df.is_empty():
         return None
@@ -746,7 +768,7 @@ def _stats(
     match: pl.DataFrame,
     skipped_rounds: int = 0,
 ) -> dict[str, object]:
-    """Käyttäjälle näytettävät luvut valmiista tauluista."""
+    """The numbers shown to the user, from the finished tables."""
     stats = _round_stats(df, skipped_rounds)
     stats.update(_tick_stats(ticks))
     stats.update(_event_stats(events))
@@ -758,16 +780,17 @@ def _stats(
 
 
 def _match_stats(match: pl.DataFrame) -> dict[str, object]:
-    """Ottelutaulun luvut: kartan nimi tai sen puuttuminen.
+    """The match table's numbers: the map name, or its absence.
 
-    Luettavissa **valmiista taulusta**, joten se lasketaan täällä eikä
-    adapterissa -- sama sääntö kuin näytepisteillä ja pistepilvellä, ja seuraus
-    on että myös ohitettu ajo kertoo kartan. Juuri se on rivin arvo: ohitettu
-    ajo on se tila, jossa käyttäjä muuten ei näe kartasta mitään.
+    Readable **from the finished table**, so it is computed here and not in
+    the adapter -- the same rule as with sample points and the point cloud,
+    and the consequence is that a skipped run gives the map as well. That is
+    exactly the line's value: a skipped run is the state in which the user
+    otherwise sees nothing at all about the map.
 
-    Avain asetetaan **aina**, myös kun nimi puuttuu. Puuttuva avain ja ``None``
-    tarkoittaisivat tulosteessa samaa, ja tuloste on ainoa paikka, jossa
-    kadonnut otsikkokenttä näkyy.
+    The key is set **always**, including when the name is missing. A missing
+    key and ``None`` would mean the same thing in the output, and the output
+    is the only place where a lost header field shows.
     """
     if match.is_empty():
         return {"map_name": None}
@@ -776,12 +799,12 @@ def _match_stats(match: pl.DataFrame) -> dict[str, object]:
 
 
 def _tick_stats(ticks: pl.DataFrame) -> dict[str, object]:
-    """Näytepisteiden luvut.
+    """The sample points' numbers.
 
-    ``sample_points`` on kierros x hetki, ei rivimäärä: kymmenen pelaajan rivit
-    ovat sama näytepiste. ``first_contact_rounds`` kertoo, monellako
-    kierroksella kontakti ylipäätään löytyi -- pelkkä rivimäärä ei paljastaisi,
-    jos sääntö jäisi puremattomaksi.
+    ``sample_points`` is round x moment, not a row count: ten players' rows
+    are the same sample point. ``first_contact_rounds`` says on how many
+    rounds contact was found at all -- a row count on its own would not reveal
+    it if the rule failed to bite.
     """
     if ticks.is_empty():
         return {
@@ -802,40 +825,41 @@ def _tick_stats(ticks: pl.DataFrame) -> dict[str, object]:
 
 
 def _event_stats(events: pl.DataFrame) -> dict[str, object]:
-    """Utility-tapahtumien luvut.
+    """The utility events' numbers.
 
-    Heitot ja räjähdykset erikseen, koska niiden **erotus** on itsessään
-    havainto: räjähtämättömiä kranaatteja on aina muutama, mutta iso ero
-    tarkoittaisi, että radan loppu jää tunnistamatta.
+    Throws and detonations separately, because their **difference** is itself
+    an observation: there are always a few grenades that do not go off, but a
+    large difference would mean the end of the trajectory is going
+    unrecognised.
 
-    Alueesta kerrotaan kolme lukua, koska ne ovat kolmea eri laatua olevaa
-    tietoa eivätkä saa niputtua yhdeksi:
+    Three numbers are given about the area, because they are three different
+    kinds of information and must not be bundled into one:
 
     ``utility_area_observed``
-        Heittäjän oma alue. Havainto.
+        The thrower's own area. An observation.
     ``utility_area_point_cloud``
-        Räjähdyksen alue demon pistepilven lähimmästä ruudusta. Arvio, jonka
-        luotettavuuden ``snap_distance`` kertoo rivikohtaisesti.
+        The detonation's area from the nearest cell of the demo's point
+        cloud. An estimate, whose reliability ``snap_distance`` gives per row.
     ``utility_area_beyond_threshold``
-        Lähin ruutu löytyi, mutta se on kauempana kuin
-        ``[parse].area_snap_units``. **Tämä on kynnyksen hinta ja ainoa
-        paikka, jossa se näkyy.** Ilman omaa lukuaan se sekoittuisi
-        tapaukseen, jossa pistepilvi oli tyhjä -- molemmissa alue on null,
-        mutta vain tässä on etäisyys.
+        The nearest cell was found, but it is farther away than
+        ``[parse].area_snap_units``. **This is the threshold's price and the
+        only place where it shows.** Without a number of its own it would be
+        confused with the case where the point cloud was empty -- in both the
+        area is null, but only here is there a distance.
 
-    ``utility_without_area`` on näiden ulkopuolelle jäävä loppu: alue puuttuu
-    kokonaan.
+    ``utility_without_area`` is the remainder left outside these: the area is
+    missing altogether.
 
-    Kolme viimeistä lukua ovat **räjähdysten kattavuus**, ja se on Story 2.9:n
-    tärkein mittari: ``utility_detonation_area_coverage`` on niiden
-    räjähdysten osuus, jotka saivat alueen. Se on ainoa luku, joka vastaa
-    kysymykseen "kuinka moni utility-rivi jää ilman aluetta", ja se lasketaan
-    joka ajolla eikä kerran kalibroinnissa.
+    The last three numbers are the **detonations' coverage**, and that is
+    Story 2.9's most important measure: ``utility_detonation_area_coverage``
+    is the share of detonations that got an area. It is the one number that
+    answers the question "how many utility rows are left without an area", and
+    it is computed on every run and not once during calibration.
 
-    Etäisyysjakauma (``utility_snap_distance``) on kolmikko
-    ``(mediaani, p90, suurin)`` pelin yksiköissä, ``None`` jos yksikään
-    räjähdys ei saanut etäisyyttä. Se on kynnyksen valinnan ainoa aineisto:
-    asetus kertoo rajan, tämä kertoo mihin mittaus oikeasti osui.
+    The distance spread (``utility_snap_distance``) is a triple
+    ``(median, p90, max)`` in the game's units, ``None`` if no detonation got
+    a distance. It is the only material for choosing the threshold: the
+    setting gives the bound, this says where the measurement actually landed.
     """
     if events.is_empty():
         return {
@@ -867,8 +891,9 @@ def _event_stats(events: pl.DataFrame) -> dict[str, object]:
             ).height
         ),
         "utility_without_area": int(events["area"].null_count()),
-        # Osuus eikä pelkkä osoittaja: 356 aluetta on eri uutinen 400:sta kuin
-        # 4 000:sta, eikä lukija laske sitä itse ajon tulosteesta.
+        # A share and not just a numerator: 356 areas out of 400 is different
+        # news from 356 out of 4,000, and the reader does not work it out from
+        # the run's output.
         "utility_detonation_area_coverage": (
             None if detonations.is_empty() else (named, int(detonations.height))
         ),
@@ -879,21 +904,21 @@ def _event_stats(events: pl.DataFrame) -> dict[str, object]:
 def _snap_distance_spread(
     detonations: pl.DataFrame,
 ) -> tuple[float, float, float] | None:
-    """Räjähdysten etäisyysjakauma: ``(mediaani, p90, suurin)``.
+    """The detonations' distance spread: ``(median, p90, max)``.
 
-    Kolme lukua eikä yksi: mediaani kertoo tavallisen tapauksen, p90 sen missä
-    kynnys alkaa purra ja maksimi sen, kuinka kaukana kaukaisin räjähdys on
-    kaikesta, missä yksikään pelaaja on seissyt. Juuri maksimi on se luku,
-    joka osoittaa miksi kynnys on olemassa: ilman sitä "lähin ruutu löytyy
-    aina" näyttäisi kattavuudelta.
+    Three numbers and not one: the median says what the ordinary case is, the
+    p90 where the threshold starts to bite, and the maximum how far the
+    farthest detonation is from everywhere any player has stood. The maximum
+    is exactly the number that shows why the threshold exists: without it "a
+    nearest cell is always found" would look like coverage.
 
-    Mukana ovat **kaikki** räjähdykset, joilla on etäisyys -- myös kynnyksen
-    yli jääneet. Ne ovat jakauman häntä, ja sen leikkaaminen pois piilottaisi
-    juuri sen mitä mitataan.
+    **Every** detonation that has a distance is included -- those beyond the
+    threshold as well. They are the distribution's tail, and cutting it off
+    would hide the very thing being measured.
 
     Returns:
-        Kolmikko, tai ``None`` jos yksikään räjähdys ei saanut etäisyyttä
-        (tyhjä pistepilvi tai ei räjähdyksiä).
+        A triple, or ``None`` if no detonation got a distance (an empty point
+        cloud, or no detonations).
     """
     measured = detonations.filter(pl.col("snap_distance").is_not_null())
     if measured.is_empty():
@@ -907,19 +932,20 @@ def _snap_distance_spread(
 
 
 def _callout_stats(callouts: pl.DataFrame) -> dict[str, object]:
-    """Pistepilven luvut.
+    """The point cloud's numbers.
 
-    ``callout_cells`` ja ``callout_areas`` ovat luettavissa valmiista
-    taulusta, joten ne lasketaan täällä eikä adapterissa -- sama sääntö kuin
-    näytepisteillä ja utilityllä.
+    ``callout_cells`` and ``callout_areas`` are readable from the finished
+    table, so they are computed here and not in the adapter -- the same rule
+    as with sample points and utility.
 
-    **Alueiden määrä on tärkeämpi kuin ruutujen.** Ruutujen määrä kertoo vain
-    ruudun koon; alueiden määrä kertoo, tunnistiko pilvi kartan. Mitattu
-    2026-08-30: Ancient 18, Nuke 29, Anubis 28, Inferno 24. Yksinumeroinen
-    luku tarkoittaisi, että ``last_place_name`` tulee enimmäkseen tyhjänä.
+    **The number of areas matters more than the number of cells.** The number
+    of cells says only what the cell size is; the number of areas says whether
+    the cloud recognised the map. Measured 2026-08-30: Ancient 18, Nuke 29,
+    Anubis 28, Inferno 24. A single-digit number would mean that
+    ``last_place_name`` comes back mostly empty.
 
-    ``callout_observations`` on kaikkien ruutujen havaintojen summa eli se
-    rivimäärä, joka pilveen kelpasi.
+    ``callout_observations`` is the sum of every cell's observations, that is,
+    the number of rows that were accepted into the cloud.
     """
     if callouts.is_empty():
         return {
@@ -935,25 +961,28 @@ def _callout_stats(callouts: pl.DataFrame) -> dict[str, object]:
 
 
 def _death_stats(deaths: pl.DataFrame) -> dict[str, object]:
-    """Kuolemataulun luvut.
+    """The deaths table's numbers.
 
-    Viisi lukua, viisi eri kysymystä. ``death_rows`` ja ``death_rounds``
-    kertovat, syntyikö aineistoa lainkaan. Kolme muuta ovat kattavuuslukuja,
-    ja ne ovat erikseen siksi, että ne tarkoittavat eri asioita:
+    Five numbers, five different questions. ``death_rows`` and
+    ``death_rounds`` say whether any material was produced at all. The other
+    three are coverage numbers, and they are separate because they mean
+    different things:
 
     ``deaths_without_attacker``
-        Ampujaton kuolema -- putoaminen tai pommi. **Havainto eikä vika**.
-        Mitattu ``Ancient_vs_kaljukostaja``: kaksi ``planted_c4``-riviä
-        151:stä, joista toinen osui kierrosten väliin eikä siis päädy tähän
-        tauluun lainkaan -- valmiissa taulussa luku on 1.
+        A death without an attacker -- a fall or the bomb. **An observation
+        and not a defect**. Measured on ``Ancient_vs_kaljukostaja``: two
+        ``planted_c4`` rows out of 151, one of which fell between rounds and
+        therefore does not end up in this table at all -- in the finished
+        table the number is 1.
     ``deaths_without_victim_area``
-        Uhrin alue puuttuu. Mitatussa aineistossa **nolla**, ja juuri siksi
-        luku on olemassa: nollasta poikkeava arvo tarkoittaa, että
-        aluehavainto on rikkoutunut.
+        The victim's area is missing. **Zero** in the measured material, and
+        that is exactly why the number exists: a value other than zero means
+        the area observation has broken.
     ``deaths_without_attacker_area``
-        Ampujan alue puuttuu **vaikka ampuja tunnetaan**. Ampujattomat rivit
-        eivät ole tässä luvussa: ne on jo laskettu yllä, ja yhteinen luku
-        näyttäisi aluevialta.
+        The attacker's area is missing **although the attacker is known**.
+        Rows without an attacker are not in this number: they have already
+        been counted above, and a shared number would look like an area
+        defect.
     """
     if deaths.is_empty():
         return {
@@ -978,33 +1007,33 @@ def _death_stats(deaths: pl.DataFrame) -> dict[str, object]:
 
 
 def _lineup_stats(lineups: pl.DataFrame) -> dict[str, object]:
-    """Kokoonpanotaulun luvut, **kokoonpano kerrallaan**.
+    """The lineup table's numbers, **one lineup at a time**.
 
-    Erittely ei ole koristetta. Demo sisältää molempien joukkueiden rivit, ja
-    yhteisluku vastaisi eri kysymykseen kuin se, jonka käyttäjä esittää:
-    "onko *tällä* joukkueella nimi" ei ratkea listasta, joka on epätyhjä heti
-    kun vastustajalla on klaani. Sama koskee nimettömiä pelaajia -- ne rivit
-    voisivat kaikki kuulua vastustajalle.
+    The breakdown is not decoration. The demo holds both teams' rows, and a
+    combined number would answer a different question from the one the user
+    asks: "does *this* team have a name" is not settled by a list that is
+    non-empty as soon as the opponent has a clan. The same goes for players
+    without a name -- those rows could all belong to the opponent.
 
-    ``lineup_key`` on mukana jokaisella rivillä, koska käyttäjän seuraava
-    komento on ``classify --team <lineup_key>`` ja vaiheella on molemmat arvot
-    kädessä. Ilman sitä tuloste kertoisi nimen mutta ei sitä, mitä nimen
-    tilalle kirjoitetaan komentoriville.
+    ``lineup_key`` is on every row because the user's next command is
+    ``classify --team <lineup_key>`` and the stage has both values in hand.
+    Without it the output would give the name but not what to write in its
+    place on the command line.
 
     Returns:
-        ``lineup_rows`` ja ``lineups``, jälkimmäinen monikkona
-        ``(lineup_key, klaani tai None, pelaajia, nimettömiä)``
-        ``lineup_key``-järjestyksessä.
+        ``lineup_rows`` and ``lineups``, the latter as a tuple of
+        ``(lineup_key, clan or None, players, without a name)`` in
+        ``lineup_key`` order.
     """
     if lineups.is_empty():
         return {"lineup_rows": 0, "lineups": ()}
     grouped = (
         lineups.group_by("lineup_key")
         .agg(
-            # Klaani on kokoonpanon ominaisuus: yksi arvo per kokoonpano.
-            # ``max`` on vain deterministinen valinta yhden alkion joukosta --
-            # useampi arvo olisi vika, jonka adapterin
-            # ``lineup_clan_conflicts`` paljastaa.
+            # The clan is a property of the lineup: one value per lineup.
+            # ``max`` is merely a deterministic choice from a one-element set
+            # -- more than one value would be a defect, and the adapter's
+            # ``lineup_clan_conflicts`` reveals it.
             pl.col("clan_name").drop_nulls().unique().sort().alias("clans"),
             pl.len().alias("players"),
             pl.col("player_name").null_count().alias("without_name"),
@@ -1026,7 +1055,7 @@ def _lineup_stats(lineups: pl.DataFrame) -> dict[str, object]:
 
 
 def _read_table(path: Path) -> pl.DataFrame | str:
-    """Lue taulu tai palauta virheen kuvaus merkkijonona."""
+    """Read a table, or return a description of the error as a string."""
     try:
         return pl.read_parquet(path)
     except (OSError, pl.exceptions.PolarsError) as exc:
@@ -1042,29 +1071,31 @@ def _schema_is_current(
     callouts_abs: Path,
     match_abs: Path,
 ) -> bool:
-    """Vastaavatko arkiston valmiit taulut yhä voimassa olevaa sopimusta.
+    """Do the archive's finished tables still match the contract in force.
 
-    Täsmäävä manifesti ei yksin riitä -- sama syy kuin
-    :func:`pappascout.stages.classify._usable_result`issa. Tulostaulun skeema
-    voi muuttua ilman että manifestin sisältö muuttuu: parametrihash lasketaan
-    ``[parse]``-osiosta ja demoparser2:n versiosta (AD-3), eikä kumpikaan
-    liiku, kun ``EVENTS`` saa uuden sarakkeen. Ilman tätä tarkistusta vanha
-    taulu jäisi hiljaa voimaan ja näyttäisi ajantasaiselta, kunnes joku
-    myöhempi vaihe kaatuisi siihen.
+    A matching manifest is not enough on its own -- the same reason as in
+    :func:`pappascout.stages.classify._usable_result`. An output table's
+    schema can change without the manifest's contents changing: the parameter
+    hash is computed from the ``[parse]`` section and demoparser2's version
+    (AD-3), and neither moves when ``EVENTS`` gains a new column. Without this
+    check the old table would stay silently in force and would look up to
+    date, until some later stage failed on it.
 
-    Story 2.9 on tästä tarkka esimerkki. ``AREA_SOURCES``-luettelosta poistui
-    arvo ``snapped``, joten vanha ``events.parquet`` ei enää lataudu tämän
-    version Enumiin -- ja ``callouts.parquet`` puuttuu siitä kokonaan. Kumpi
-    tahansa riittää: demo parsitaan uudelleen ilman ``--pakota``-lippua.
+    Story 2.9 is a precise example of this. The value ``snapped`` was removed
+    from the ``AREA_SOURCES`` list, so an old ``events.parquet`` no longer
+    loads into this version's Enum -- and ``callouts.parquet`` is missing from
+    it entirely. Either is enough: the demo is reparsed without the
+    ``--pakota`` flag.
 
-    Lukukelvoton taulu on **eri vika eikä tämän funktion asia**: se ei parane
-    demon uudelleenluvusta sen todennäköisemmin kuin ilman sitä, ja sillä on
-    jo oma raportointinsa :func:`_existing_stats`issa. Tässä ratkaistaan vain
-    se, onko ehjä taulu edelleen sopimuksen mukainen.
+    An unreadable table is **a different defect and not this function's
+    business**: it is no more likely to be cured by rereading the demo than
+    without it, and it already has its own reporting in
+    :func:`_existing_stats`. What is settled here is only whether an intact
+    table still matches the contract.
 
     Returns:
-        ``False`` heti ensimmäisestä sopimusrikosta -- silloin vaihe ajetaan
-        uudelleen ja taulut kirjoitetaan nykyisillä sarakkeilla.
+        ``False`` at the first contract break -- the stage is then run again
+        and the tables are written with the current columns.
     """
     for path, schema, name in (
         (table_abs, ROUNDS, TABLE),
@@ -1094,14 +1125,15 @@ def _existing_stats(
     callouts_abs: Path,
     match_abs: Path,
 ) -> dict[str, object]:
-    """Luvut ohitettuun ajoon: luetaan valmiit taulut, ei parsita demoa.
+    """Numbers for a skipped run: read the finished tables, do not parse.
 
-    Taulut luetaan **erikseen**. Yhteinen try-lohko hukkaisi kierrosluvut
-    silloin, kun vain näytepistetaulu on lukukelvoton, ja käyttäjä näkisi
-    "lukuja ei saatu" myös siitä mikä oli aivan ehjä.
+    The tables are read **separately**. A shared try block would lose the
+    round counts whenever only the sample-point table is unreadable, and the
+    user would see "the numbers could not be obtained" about what was
+    perfectly intact as well.
 
-    Jos tulosta ei saada luettua, palautetaan tieto siitä eikä nollia --
-    nollarivi näyttäisi siltä, että demossa ei ollut yhtään kierrosta.
+    If the result cannot be read, that fact is returned rather than zeroes --
+    a row of zeroes would look as though the demo held no rounds at all.
     """
     rounds = _read_table(table_abs)
     ticks = _read_table(ticks_abs)
@@ -1111,10 +1143,10 @@ def _existing_stats(
     callouts = _read_table(callouts_abs)
     match = _read_table(match_abs)
 
-    # Kierros- ja näytepistetaulu ovat vaiheen ydintulos. Jos **kumpikaan** ei
-    # aukea, koko tulos on lukukelvoton eikä siitä koota osittaista
-    # yhteenvetoa: pelkkien utility-lukujen näyttäminen antaisi vaikutelman
-    # ajantasaisesta tuloksesta.
+    # The rounds and sample-point tables are the stage's core result. If
+    # **neither** opens, the whole result is unreadable and no partial summary
+    # is assembled from it: showing the utility numbers alone would give the
+    # impression of an up-to-date result.
     if isinstance(rounds, str) and isinstance(ticks, str):
         return {"unreadable": rounds}
 
@@ -1159,28 +1191,29 @@ def run(
     demo_path: Path | None = None,
     force: bool = False,
 ) -> StageResult:
-    """Parsi yksi demo kuudeksi tauluksi.
+    """Parse one demo into six tables.
 
     Args:
-        settings: ``[parse]``-osio -- ainoa osio, jonka tämä vaihe näkee.
-        archive: Arkiston polut.
-        map_demo_id: Yksikön tunniste, ``{match_id}-{map_index}``.
-        parser: Demoportti (AD-8). Tuotannossa :func:`default_parser`.
-        demo_path: Demotiedosto. Oletuksena etsitään arkistosta.
-        force: Ohita manifestin täsmäys ja parsi joka tapauksessa.
+        settings: The ``[parse]`` section -- the only section this stage sees.
+        archive: The archive's paths.
+        map_demo_id: The unit's id, ``{match_id}-{map_index}``.
+        parser: The demo port (AD-8). In production :func:`default_parser`.
+        demo_path: The demo file. By default it is looked for in the archive.
+        force: Ignore the manifest match and parse in any case.
 
     Returns:
-        :class:`~pappascout.stages.StageResult`, jossa ``stats`` kertoo
-        kierrosten määrän, rivimäärän, suurimman kierrosnumeron, ohitettujen ja
-        ankkurittomien kierrosten lukumäärän, näytepisteiden ja
-        ensikontaktien määrän sekä utility-heittojen, räjähdysten ja
-        aluettomien tapahtumien määrän.
+        A :class:`~pappascout.stages.StageResult` whose ``stats`` gives the
+        number of rounds, the row count, the largest round number, the counts
+        of skipped rounds and of rounds without an anchor, the number of
+        sample points and of first contacts, and the number of utility
+        throws, of detonations and of events without an area.
 
     Raises:
-        DemoUnavailable: Jos demoa ei löydy tai sitä ei voi lukea.
-        ~pappascout.errors.ParseError: Jos demo ei ole luettavissa tai sen
-            sisältö rikkoo CS2:n sääntöjä.
-        ~pappascout.errors.SchemaError: Jos tulos ei vastaa sopimusta.
+        DemoUnavailable: If the demo is not found or cannot be read.
+        ~pappascout.errors.ParseError: If the demo is not readable, or its
+            contents break the CS2 rules.
+        ~pappascout.errors.SchemaError: If the result does not match the
+            contract.
     """
     started = time.perf_counter()
     map_demo_id = safe_component(map_demo_id, "map_demo_id")
@@ -1216,10 +1249,11 @@ def run(
     params_hash = _params_hash(settings)
     versions = tool_versions(*TOOLS)
 
-    # Tulokset, jotka **tämän version** ajo tuottaa. Manifestin oma
-    # outputs-lista ei riita ohituksen ehdoksi: vanha manifesti nimeaa vain ne
-    # taulut, jotka silloinen koodi osasi kirjoittaa, joten uusi taulu ei
-    # koskaan syntyisi arkistoon jo parsituille demoille.
+    # The results a run of **this version** produces. The manifest's own
+    # outputs list is not enough as the condition for skipping: an old
+    # manifest names only those tables the code of the time knew how to
+    # write, so a new table would never be born in the archive for demos that
+    # have already been parsed.
     expected_outputs = (
         (table_rel, table_abs),
         (ticks_rel, ticks_abs),
@@ -1241,8 +1275,8 @@ def run(
             root=archive.root,
         )
         and all(path.is_file() for _, path in expected_outputs)
-        # Sopimus viimeisenä: se lukee taulut, ja halvemmat ehdot karsivat
-        # suurimman osan ajoista jo ennen sitä.
+        # The contract last: it reads the tables, and the cheaper conditions
+        # prune most runs away before it.
         and _schema_is_current(
             table_abs,
             ticks_abs,
@@ -1261,8 +1295,8 @@ def run(
             outputs=tuple(PurePosixPath(o) for o in existing.outputs),
             manifest_path=manifest_rel,
             reason=(
-                "Tulos on ajan tasalla: manifesti täsmää eikä demoa tarvitse "
-                "parsia uudelleen."
+                "The result is up to date: the manifest matches and the demo "
+                "does not need to be parsed again."
             ),
             duration_s=time.perf_counter() - started,
             stats=_existing_stats(
@@ -1279,10 +1313,10 @@ def run(
     try:
         parsed = _parse_tables(parser, settings, demo_path, map_demo_id)
         df = parsed.rounds
-        # Kirjoitus on saman virhekäsittelyn sisällä kuin parsinta: levy voi
-        # täyttyä tai OneDrive lukita tiedoston, ja silloinkin manifestiin on
-        # jäätävä merkintä epäonnistumisesta -- muuten seuraava ajo ohittaisi
-        # vaiheen puolikkaan tuloksen päältä.
+        # The write is inside the same error handling as the parse: the disk
+        # can fill up or the sync client can hold the file locked, and even
+        # then the manifest has to be left with a record of the failure --
+        # otherwise the next run would skip the stage over half a result.
         _write_tables(
             (
                 (table_abs, df),
@@ -1318,8 +1352,8 @@ def run(
 
     diagnostics = getattr(parser, "diagnostics", None)
 
-    # Manifesti viimeisenä: keskeytynyt ajo näkyy seuraavalla kerralla
-    # puuttuvana tuloksena eikä ajantasaisena.
+    # The manifest last: an interrupted run shows up on the next occasion as
+    # a missing result and not as an up-to-date one.
     Manifest.new(
         result_id=result_id,
         stage=STAGE,
@@ -1348,37 +1382,39 @@ def run(
         parsed.match,
         parsed.skipped_rounds,
     )
-    # Ostoikkunan luvut lasketaan **valmiista taulusta**, jotta puukkokierros
-    # ei ole niissä mukana; ks. _buy_window_stats.
+    # The buy-window numbers are computed **from the finished table**, so that
+    # the knife round is not among them; see _buy_window_stats.
     stats.update(_buy_window_stats(df, diagnostics))
-    # Tuntemattomat tavaraluettelon nimet: ne eivät ole taulussa, koska ne
-    # eivät aseista ketään -- ilman tätä riviä uusi ase näyttäisi täsmälleen
-    # samalta kuin uusi veitsiskini. Avain asetetaan **jokaisessa tuoreessa
-    # ajossa**, myös silloin kun portti ei raportoi niitä: puuttuva avain
-    # tarkoittaa ohitettua ajoa, ja ``None`` porttia joka ei osaa kertoa.
-    # Ilman eroa nämä kolme tilaa näyttäisivät tulosteessa samalta.
+    # Unknown inventory names: they are not in the table, because they arm
+    # nobody -- without this line a new weapon would look exactly like a new
+    # knife skin. The key is set **on every fresh run**, including when the
+    # port does not report them: a missing key means a skipped run, and
+    # ``None`` a port that cannot say. Without the difference these three
+    # states would look the same in the output.
     stats["armed_unknown_items"] = (
         None
         if diagnostics is None
         else tuple(getattr(diagnostics, "unknown_inventory_items", ()) or ())
     )
-    # Ottelun uudelleenaloitus ei tuota riviä yhteenkään tauluun, joten sen
-    # määrää **ei voi laskea valmiista tuloksesta**. Kolme tilaa on pidettävä
-    # erillään täsmälleen kuten yllä: avain puuttuu (ohitettu ajo), ``None``
-    # (tuore ajo, portti ei kerro) ja luku (tuore ajo, portti kertoo). Ilman
-    # eroa välimuistista ajettu demo väittäisi hiljaa "ei uudelleenaloitusta".
+    # A match restart produces no row in any table, so its count **cannot be
+    # computed from the finished result**. Three states have to be kept apart
+    # exactly as above: the key is missing (a skipped run), ``None`` (a fresh
+    # run, the port does not say) and a number (a fresh run, the port says).
+    # Without the difference a demo served from the cache would silently
+    # claim "no restart".
     stats["match_restarts"] = (
         None if diagnostics is None else getattr(diagnostics, "match_restarts", None)
     )
-    # Pawniton pelaaja: kontrolleri tallella, hahmoa ei kartalla. Riviä ei ole
-    # taulussa eikä pistettä taulun näytepisteissä, joten kumpaakaan lukua
-    # **ei voi laskea valmiista tuloksesta**.
+    # A pawnless player: the controller is there, the character is not on the
+    # map. The row is not in the table and the point is not among the table's
+    # sample points, so neither number **can be computed from the finished
+    # result**.
     #
-    # Kolme tilaa erillään kuten uudelleenaloituksilla, ja tässä se on
-    # erityisen tarpeen: avaimen puuttuminen tarkoittaisi tulosteessa samaa
-    # kuin nolla, ja ohitettu ajo väittäisi hiljaa puhdasta asetelmaa. Juuri
-    # se on se valhe, jonka koko laskuri on olemassa poistamaan -- puuttuva
-    # pelaaja näyttäisi kierrokselta, jolla joukkue vain pelasi vajaalla.
+    # Three states kept apart as with the restarts, and here it is especially
+    # needed: a missing key would mean the same thing in the output as zero,
+    # and a skipped run would silently claim a clean setup. That is exactly
+    # the lie the whole counter exists to remove -- a missing player would
+    # look like a round on which the team simply played a man down.
     for _name in (
         "sample_rows_without_pawn",
         "sample_points_without_pawn",
@@ -1387,39 +1423,41 @@ def run(
         stats[_name] = (
             None if diagnostics is None else getattr(diagnostics, _name, None)
         )
-    # Vain tuoreesta ajosta: numeroimattomien kierrosten rivit eivät ole
-    # taulussa, joten ohitetusta ajosta lukua ei voi lukea takaisin.
+    # From a fresh run only: the rows of unnumbered rounds are not in the
+    # table, so the number cannot be read back from a skipped run.
     stats["utility_unnumbered_rounds"] = parsed.unnumbered_utility
-    # Sama sääntö kuin utilityllä, ja tässä se on erityisen tarpeen:
-    # puukkokierroksella kuollaan oikeasti, joten pudotus on aina epätyhjä
-    # liigademossa. Ilman lukua se näyttäisi siltä, ettei kuolemia ollut.
+    # The same rule as with utility, and here it is especially needed: people
+    # really do die on the knife round, so the drop is never empty in a league
+    # demo. Without the number it would look as though there had been no
+    # deaths.
     stats["deaths_unnumbered_rounds"] = parsed.unnumbered_deaths
     if diagnostics is not None:
         stats["tick_rate"] = diagnostics.tick_rate
         stats["tick_rate_measured"] = diagnostics.tick_rate_measured
-        # Näitä ei voi laskea valmiista taulusta: vajaa näytepiste, ohitettu
-        # vahinkotapahtuma ja pudotettu kranaatti näkyvät vain siinä hetkessä,
-        # kun demoa luetaan. Ohitetussa ajossa ne siis puuttuvat, ja se on
-        # oikein.
+        # These cannot be computed from the finished table: a partial sample
+        # point, a skipped damage event and a dropped grenade show only in the
+        # moment when the demo is being read. In a skipped run they are
+        # therefore absent, and that is right.
         stats["partial_samples"] = getattr(diagnostics, "partial_samples", 0)
-        # Kokoonpanotaulun oletus "yksi nimi ja yksi klaani per pelaaja" ei ole
-        # luettavissa valmiista taulusta: se kirjoittaa moodin, joten
-        # rikkoutunut oletus näyttää siellä ehjältä. Vain tuore ajo tietää.
+        # The lineup table's assumption "one name and one clan per player" is
+        # not readable from the finished table: it writes the mode, so a
+        # broken assumption looks intact there. Only a fresh run knows.
         for name in ("lineup_name_conflicts", "lineup_clan_conflicts"):
             stats[name] = getattr(diagnostics, name, 0)
         stats["armed_unreadable_rows"] = getattr(
             diagnostics, "armed_unreadable_rows", 0
         )
-        # Oma lukunsa, koska laskureiden luettavuusehdot eroavat: erotus
-        # kertoo montako riviä kaatui pelkkään tavaraluetteloon, eikä sitä
-        # voi lukea valmiista taulusta.
+        # A number of its own, because the counters' readability conditions
+        # differ: the difference says how many rows fell on the inventory
+        # alone, and that cannot be read from the finished table.
         stats["armored_unreadable_rows"] = getattr(
             diagnostics, "armored_unreadable_rows", 0
         )
-        # Ostoikkuna: mistä hetkestä luvut on luettu, kuinka usein kuolema
-        # katkaisi ikkunan ja **maksoiko katkaisu jotain**. Viimeinen on
-        # tämän tarinan tärkein luku: se on ainoa merkki siitä, että
-        # kompromissi puri, eikä sitä voi laskea valmiista taulusta.
+        # The buy window: from what moment the numbers have been read, how
+        # often a death truncated the window and **whether the truncation cost
+        # anything**. The last is this story's most important number: it is
+        # the only sign that the compromise bit, and it cannot be computed
+        # from the finished table.
         stats["unknown_side_events"] = getattr(
             diagnostics, "unknown_side_events", 0
         )
@@ -1444,17 +1482,19 @@ def run(
             "callout_cloud_rows_read",
         ):
             stats[name] = getattr(diagnostics, name, 0)
-        # Tyhjän pistepilven syy: **vain tuoreesta ajosta**. Valmis taulu
-        # kertoo että pilvi on tyhjä, muttei sitä miksi -- ja juuri se ero
-        # erottaa rikkinäisen propin demosta, jossa kukaan ei liikkunut.
+        # The reason for an empty point cloud: **from a fresh run only**. The
+        # finished table says that the cloud is empty but not why -- and that
+        # difference is exactly what separates a broken prop from a demo in
+        # which nobody moved.
         stats["callout_cloud_empty_reason"] = getattr(
             diagnostics, "callout_cloud_empty_reason", None
         )
-        # Miksi kartan nimeä ei saatu: **vain tuoreesta ajosta**, kuten
-        # pistepilven tyhjyyden syy. Valmis taulu kertoo että nimi puuttuu,
-        # muttei sitä puuttuiko kenttä otsikosta kokonaan -- ja juuri se ero
-        # erottaa kirjaston uudelleennimeämän kentän demosta, jonka otsikkoon
-        # karttaa ei kirjattu.
+        # Why the map name was not obtained: **from a fresh run only**, like
+        # the reason for the cloud's emptiness. The finished table says that
+        # the name is missing but not whether the field was absent from the
+        # header altogether -- and that difference is exactly what separates a
+        # field the library renamed from a demo whose header never recorded
+        # the map.
         stats["header_map_name_missing_reason"] = getattr(
             diagnostics, "header_map_name_missing_reason", None
         )
@@ -1480,18 +1520,18 @@ def run(
 
 
 def _write_tables(tables: tuple[tuple[Path, pl.DataFrame], ...]) -> None:
-    """Kirjoita kaikki taulut yhtenä tapahtumana.
+    """Write all the tables as one transaction.
 
-    Jokainen taulu menee ensin omaan väliaikaistiedostoonsa, ja vasta kun
-    **kaikki** on kirjoitettu, ne siirretään kohteisiinsa. Peräkkäiset
-    ``atomic_path``-lohkot eivät riitä: jos toinen kirjoitus kaatuu, ensimmäinen
-    olisi jo paikallaan ja arkistoon jäisi kierrostaulu, joka kertoo 21
-    kierrosta, sekä näytepistetaulu, joka tuntee niistä kaksi -- yhdistelmä,
-    joka läpäisisi jokaisen skeematarkistuksen.
+    Each table goes first into a temporary file of its own, and only once
+    **all** of them are written are they moved to their targets. Successive
+    ``atomic_path`` blocks are not enough: if the second write fails, the
+    first would already be in place and the archive would be left with a
+    rounds table saying 21 rounds and a sample-point table that knows two of
+    them -- a combination that would pass every schema check.
 
-    Siirto itse ei ole yksi atominen operaatio (yksi ``os.replace`` taulua
-    kohden), mutta niiden väliin jäävä ikkuna on mikrosekunteja eikä sisällä
-    I/O:ta.
+    The move itself is not one atomic operation (one ``os.replace`` per
+    table), but the window left between them is microseconds and holds no
+    I/O.
     """
     with ExitStack() as stack:
         pending_writes = [
@@ -1500,9 +1540,9 @@ def _write_tables(tables: tuple[tuple[Path, pl.DataFrame], ...]) -> None:
         ]
         for tmp, frame in pending_writes:
             frame.write_parquet(tmp)
-    # ExitStack purkaa lohkot vasta tässä, ja jokainen atomic_path tekee oman
-    # renamensa. Poikkeus missä tahansa kirjoituksessa siivoaa kaikki
-    # väliaikaistiedostot eikä koske kohteisiin.
+    # ExitStack unwinds the blocks only here, and each atomic_path does its
+    # own rename. An exception in any of the writes cleans up all the
+    # temporary files and does not touch the targets.
 
 
 def _parse_tables(
@@ -1511,42 +1551,42 @@ def _parse_tables(
     demo_path: Path,
     map_demo_id: str,
 ) -> _ParsedTables:
-    """Lue demo ja rakenna valmiit, tarkistetut taulut."""
+    """Read the demo and build the finished, checked tables."""
     tables: DemoTables = parser.parse_demo(demo_path, settings.snapshot_seconds)
     _check_port_columns(
-        tables.rounds, ROUNDS_ADAPTER_COLUMNS, "kierrostaulun", "ROUNDS_ADAPTER_COLUMNS"
+        tables.rounds, ROUNDS_ADAPTER_COLUMNS, "rounds table", "ROUNDS_ADAPTER_COLUMNS"
     )
     _check_port_columns(
-        tables.ticks, TICKS_ADAPTER_COLUMNS, "näytepistetaulun", "TICKS_ADAPTER_COLUMNS"
+        tables.ticks, TICKS_ADAPTER_COLUMNS, "sample-point table", "TICKS_ADAPTER_COLUMNS"
     )
     _check_port_columns(
         tables.events,
         EVENTS_ADAPTER_COLUMNS,
-        "tapahtumataulun",
+        "event table",
         "EVENTS_ADAPTER_COLUMNS",
     )
     _check_port_columns(
         tables.lineups,
         LINEUPS_ADAPTER_COLUMNS,
-        "kokoonpanotaulun",
+        "lineup table",
         "LINEUPS_ADAPTER_COLUMNS",
     )
     _check_port_columns(
         tables.deaths,
         DEATHS_ADAPTER_COLUMNS,
-        "kuolemataulun",
+        "deaths table",
         "DEATHS_ADAPTER_COLUMNS",
     )
     _check_port_columns(
         tables.callouts,
         CALLOUTS_ADAPTER_COLUMNS,
-        "pistepilven",
+        "point cloud",
         "CALLOUTS_ADAPTER_COLUMNS",
     )
     _check_port_columns(
         tables.match,
         MATCH_ADAPTER_COLUMNS,
-        "ottelutaulun",
+        "match table",
         "MATCH_ADAPTER_COLUMNS",
     )
 
@@ -1563,12 +1603,12 @@ def _parse_tables(
 
     if df.is_empty():
         raise ParseError(
-            f"Demosta {demo_path.name} ei löytynyt yhtään pelattua kierrosta "
-            f"({skipped_rounds} kierrosrajaa oli warmupia tai "
-            "puukkokierros).\n"
-            "Tyhjää tulosta ei kirjoiteta -- muuten se jäisi manifestin "
-            "perusteella pysyvästi ohitetuksi. Tarkista, että demo on koko "
-            "ottelun tallenne."
+            f"No played round was found in demo {demo_path.name} "
+            f"({skipped_rounds} round boundaries were warm-up or the knife "
+            "round).\n"
+            "An empty result is not written -- otherwise it would stay "
+            "permanently skipped on the strength of the manifest. Check that "
+            "the demo is a recording of the whole match."
         )
 
     validate(df, ROUNDS, TABLE)
@@ -1581,18 +1621,19 @@ def _parse_tables(
 
     if ticks.is_empty():
         raise ParseError(
-            f"Demosta {demo_path.name} syntyi {df['round_no'].n_unique()} "
-            "pelattua kierrosta mutta ei yhtään näytepistettä.\n"
-            "Tyhjää asetelmataulua ei kirjoiteta ok-tuloksena: se jäisi "
-            "manifestin perusteella pysyvästi ohitetuksi ja aggregointi "
-            "raportoisi kartan ilman yhtään asetelmaa.\n"
+            f"Demo {demo_path.name} produced {df['round_no'].n_unique()} "
+            "played rounds but not a single sample point.\n"
+            "An empty setup table is not written as an ok result: it would "
+            "stay permanently skipped on the strength of the manifest, and "
+            "aggregation would report a map without a single setup.\n"
             + _tick_drop_reason(parser)
         )
 
-    # Tyhjää tapahtumataulua **ei** kohdella virheenä, toisin kuin kahta muuta:
-    # demossa on aina pelattuja kierroksia ja asetelmia, mutta utility voi
-    # aidosti puuttua (harjoitusottelu, pelkkiä pistoolikierroksia). Virhe
-    # estäisi koko demon parsinnan tiedosta, joka on itsessään havainto.
+    # An empty event table is **not** treated as an error, unlike the other
+    # two: a demo always holds played rounds and setups, but utility can
+    # genuinely be absent (a practice match, pistol rounds only). An error
+    # would block the parse of the whole demo over a piece of information
+    # that is itself an observation.
     events, unnumbered = _number_events(tables.events, numbered, map_demo_id)
     validate(events, EVENTS, EVENTS_TABLE)
     _check_grenade_key(events)
@@ -1601,11 +1642,12 @@ def _parse_tables(
     validate(lineups, LINEUPS, LINEUPS_TABLE)
     _check_lineup_key(lineups, demo_path)
 
-    # Eheysvartijat ajetaan **ennen numerointia**, eli adapterin koko
-    # tuotokselle. Numerointi pudottaa lämmittelyn ja puukkokierroksen rivit,
-    # ja juuri ne ovat kierroksia, joilta kirjaston puolinainen rivi
-    # todennäköisimmin tulee -- numeroinnin jälkeen vartija katsoisi vain
-    # sitä osaa aineistoa, jossa vikaa ei odoteta.
+    # The integrity guards are run **before the numbering**, that is, over
+    # the adapter's whole output. The numbering drops the warm-up and
+    # knife-round rows, and those are exactly the rounds a half-formed row
+    # from the library most likely comes from -- after the numbering the
+    # guard would look only at the part of the material where no defect is
+    # expected.
     _check_victim_is_whole(tables.deaths)
     _check_attacker_is_whole(tables.deaths)
 
@@ -1614,32 +1656,33 @@ def _parse_tables(
     )
     validate(deaths, DEATHS, DEATHS_TABLE)
 
-    # Pistepilveä **ei numeroida**: se on kartan ominaisuus tässä demossa eikä
-    # kierroksen havainto, joten sen rivit eivät putoa puukkokierroksen
-    # mukana -- sama sääntö kuin kokoonpanotaululla. Tyhjä pilvi on
-    # kelvollinen tulos, toisin kuin tyhjä kokoonpanotaulu: demo, jossa
-    # last_place_name jää tyhjäksi, on aidosti pilvetön, ja sen seuraus
-    # (kaikki räjähdysalueet null) on oikea lopputulos eikä hiljainen vika --
-    # syy kerrotaan ajon yhteenvedossa.
+    # The point cloud is **not numbered**: it is a property of the map in this
+    # demo and not an observation about a round, so its rows do not fall away
+    # along with the knife round -- the same rule as with the lineup table. An
+    # empty cloud is a valid result, unlike an empty lineup table: a demo in
+    # which last_place_name comes back empty is genuinely cloudless, and the
+    # consequence (every detonation area null) is the right outcome and not a
+    # silent defect -- the reason is given in the run's summary.
     callouts = _build_callouts(tables.callouts, map_demo_id)
     validate(callouts, CALLOUT_CLOUD, CALLOUTS_TABLE)
     _check_callout_cells(callouts)
 
-    # Rivimäärä **ennen** rakentamista: ks. _check_single_match_row.
+    # The row count **before** the build: see _check_single_match_row.
     #
-    # Ottelutaulua **ei numeroida** samasta syystä kuin kokoonpanotaulua ja
-    # pistepilveä: kartta on ottelun ominaisuus eikä kierroksen havainto.
+    # The match table is **not numbered** for the same reason as the lineup
+    # table and the point cloud: the map is a property of the match and not an
+    # observation about a round.
     _check_single_match_row(tables.match, demo_path)
     match = _build_match(tables.match, map_demo_id)
     validate(match, MATCH, MATCH_TABLE)
 
     if deaths.is_empty():
         raise ParseError(
-            f"Demosta {demo_path.name} syntyi {df['round_no'].n_unique()} "
-            "pelattua kierrosta mutta ei yhtään kuolemaa.\n"
-            "Tyhjää kuolemataulua ei kirjoiteta ok-tuloksena: se jäisi "
-            "manifestin perusteella pysyvästi ohitetuksi, ja raportti "
-            "kertoisi kartan, jolla kukaan ei kuollut.\n"
+            f"Demo {demo_path.name} produced {df['round_no'].n_unique()} "
+            "played rounds but not a single death.\n"
+            "An empty deaths table is not written as an ok result: it would "
+            "stay permanently skipped on the strength of the manifest, and "
+            "the report would give a map on which nobody died.\n"
             + _death_drop_reasons(parser, unnumbered_deaths)
         )
 
@@ -1658,46 +1701,47 @@ def _parse_tables(
 
 
 def _tick_drop_reason(parser: DemoParser) -> str:
-    """Miksi asetelmataulu jäi tyhjäksi -- luku, joka on jo laskettu.
+    """Why the setup table came out empty -- a number already computed.
 
-    Ilman tätä virheilmoitus nimeäisi kaksi arvausta ("tarkista
-    ``snapshot_seconds`` ja freezetime-ankkurit") myös silloin, kun adapteri
-    on jo laskenut oikean syyn. Pawniton näytepiste on sellainen syy: jos
-    jokainen piste jäi väliin siksi, ettei kenelläkään ollut hahmoa kartalla,
-    asetuksissa ja ankkureissa ei ole mitään vikaa eikä niitä pidä käskeä
-    tarkistamaan.
+    Without this the error message would name two guesses ("check
+    ``snapshot_seconds`` and the freezetime anchors") even when the adapter
+    has already worked out the real reason. A pawnless sample point is such a
+    reason: if every point was missed because nobody had a character on the
+    map, there is nothing wrong with the settings or the anchors and the user
+    must not be told to check them.
     """
     diagnostics = getattr(parser, "diagnostics", None)
     dropped = getattr(diagnostics, "sample_points_without_pawn", 0) or 0
     rows = getattr(diagnostics, "sample_rows_without_pawn", 0) or 0
     if dropped:
         return (
-            f"Syy on luettu demosta: {dropped} näytepistettä jäi kokonaan "
-            f"väliin, koska jokainen pelaajarivi oli pawniton ({rows} riviä). "
-            "Kyse ei siis ole [parse].snapshot_secondsista eikä "
-            "freezetime-ankkureista vaan siitä, ettei demossa ole "
-            "pelaajahahmoja näytepisteiden tickeillä. Tarkista demo."
+            f"The reason has been read from the demo: {dropped} sample "
+            "points were missed entirely, because every player row was "
+            f"pawnless ({rows} rows). So it is not about "
+            "[parse].snapshot_seconds or the freezetime anchors but about "
+            "there being no player characters in the demo at the sample "
+            "points' ticks. Check the demo."
         )
     return (
-        "Tarkista [parse].snapshot_seconds ja se, löytyykö kierroksilta "
-        "freezetime-ankkuri."
+        "Check [parse].snapshot_seconds, and whether the rounds have a "
+        "freezetime anchor."
     )
 
 
 def _death_drop_reasons(parser: DemoParser, unnumbered: int) -> str:
-    """Miksi kuolemataulu jäi tyhjäksi -- luvut, jotka on jo laskettu.
+    """Why the deaths table came out empty -- numbers already computed.
 
-    Adapteri erittelee jokaisen pudotussyyn omaan laskuriinsa, ja ne ovat
-    kädessä juuri tässä. Ilman niitä virheilmoitus nimeäisi kaksi arvausta
-    ("rikkinäinen portti tai uudelleennimetty tapahtuma") tilanteessa, jossa
-    todellinen syy on luettavissa.
+    The adapter breaks every drop reason out into a counter of its own, and
+    they are in hand right here. Without them the error message would name two
+    guesses ("a broken port or a renamed event") in a situation where the real
+    reason can be read.
     """
     diagnostics = getattr(parser, "diagnostics", None)
     counts = [
-        ("tick puuttui", "deaths_without_tick"),
-        ("kierrosten ulkopuolella", "deaths_outside_rounds"),
-        ("uhri puuttui", "deaths_without_victim"),
-        ("uhrin puolta ei saatu", "deaths_without_victim_side"),
+        ("no tick", "deaths_without_tick"),
+        ("outside the rounds", "deaths_outside_rounds"),
+        ("no victim", "deaths_without_victim"),
+        ("the victim's side not obtained", "deaths_without_victim_side"),
     ]
     named = [
         f"{label} {value}"
@@ -1705,36 +1749,37 @@ def _death_drop_reasons(parser: DemoParser, unnumbered: int) -> str:
         if diagnostics is not None and (value := getattr(diagnostics, name, 0))
     ]
     if unnumbered:
-        named.append(f"numeroimattomilla kierroksilla {unnumbered}")
+        named.append(f"on unnumbered rounds {unnumbered}")
     if named:
         return (
-            "Pudotetut kuolemat: " + ", ".join(named) + ".\n"
-            "Jos jokainen luku on nolla, demoportti ei tuottanut yhtään "
-            "kuolemaa; muussa tapauksessa syy on nimetty yllä."
+            "Dropped deaths: " + ", ".join(named) + ".\n"
+            "If every number is zero, the demo port produced no death at "
+            "all; otherwise the reason is named above."
         )
     return (
-        "Yksikään pudotuslaskuri ei ole nollasta poikkeava, joten demoportti "
-        "ei tuottanut yhtään kuolemaa. Tarkista, ettei "
-        "player_death-tapahtumaa ole nimetty uudelleen demoparser2:ssa."
+        "Not one drop counter is other than zero, so the demo port produced "
+        "no death at all. Check that the player_death event has not been "
+        "renamed in demoparser2."
     )
 
 
 def _check_victim_is_whole(deaths: pl.DataFrame) -> None:
-    """Uhri on rivin identiteetti, eikä sitä saa puuttua.
+    """The victim is the row's identity, and it must not be missing.
 
-    Kuolema ilman uhria ei ole kuolema. Tyhjä ``victim_id``,
-    ``victim_lineup_key`` tai ``victim_side`` läpäisisi ``validate``in --
-    jokainen niistä on nullable-sarake -- ja aggregointi laskisi rivin
-    **ei kuolemaksi eikä tapoksi**: se katoaisi hiljaa, koska molemmat
-    suodattimet vertaavat kokoonpanoon.
+    A death without a victim is not a death. An empty ``victim_id``,
+    ``victim_lineup_key`` or ``victim_side`` would pass ``validate`` -- each
+    of them is a nullable column -- and aggregation would count the row as
+    **neither a death nor a kill**: it would disappear silently, because both
+    filters compare against the lineup.
 
-    Ampujalla on oma vartijansa (:func:`_check_attacker_is_whole`), ja se on
-    löysempi tarkoituksella: ampujaton kuolema on aito havainto, uhriton ei
-    ole mitään.
+    The attacker has a guard of its own
+    (:func:`_check_attacker_is_whole`), and it is looser on purpose: a death
+    without an attacker is a genuine observation, one without a victim is
+    nothing.
 
     Raises:
-        SchemaError: Jos yhdeltäkin riviltä puuttuu uhrin tunniste, kokoonpano
-            tai puoli.
+        SchemaError: If even one row is missing the victim's id, lineup or
+            side.
     """
     if deaths.is_empty():
         return
@@ -1750,34 +1795,35 @@ def _check_victim_is_whole(deaths: pl.DataFrame) -> None:
         if broken[name].null_count()
     )
     raise SchemaError(
-        f"Kuolemataulussa on {broken.height} riviä, joilta puuttuu uhrin "
-        f"tieto ({empty}).\n"
-        "Uhri on rivin identiteetti: kuolema ilman uhria ei kuulu "
-        "kummallekaan joukkueelle, joten se katoaisi aggregoinnissa hiljaa "
-        "-- ei kuolemana eikä tappona.\n"
-        "Ensimmäiset rivit: "
+        f"The deaths table has {broken.height} rows that are missing the "
+        f"victim's details ({empty}).\n"
+        "The victim is the row's identity: a death without a victim belongs "
+        "to neither team, so it would disappear silently in aggregation "
+        "-- neither as a death nor as a kill.\n"
+        "The first rows: "
         f"{broken.select('round_raw', 't_s').head(3).to_dicts()}"
     )
 
 
 def _check_attacker_is_whole(deaths: pl.DataFrame) -> None:
-    """Ampujaton kuolema on **kokonaan** ampujaton.
+    """A death without an attacker is **wholly** without an attacker.
 
-    Putoaminen ja pommi tuottavat rivin, jolla ampujaa ei ole, ja se on aito
-    havainto. Puolikas ampuja ei ole: rivi, jolla ``attacker_id`` on tyhjä
-    mutta koordinaatit tai alue eivät, väittäisi paikkaa toimijalle, jota ei
-    ole -- ja aggregointi laskisi sen alueen "tapoiksi", joita kukaan ei
-    tehnyt. Skeema ei näe tätä, koska jokainen kenttä on erikseen kelvollinen.
+    A fall and the bomb produce a row on which there is no attacker, and that
+    is a genuine observation. Half an attacker is not: a row on which
+    ``attacker_id`` is empty but the coordinates or the area are not would
+    claim a place for an actor who does not exist -- and aggregation would
+    count that area as "kills" nobody made. The schema does not see this,
+    because each field is valid on its own.
 
-    ``attacker_side`` ja ``attacker_lineup_key`` **eivät** ole tarkistuksessa
-    mukana: ne ovat kierroksen puolikuvauksesta johdettuja eivätkä
-    tapahtuman omia, ja ne voivat puuttua ampujalta, joka tunnetaan.
-    ``attacker_area`` on mukana vain tässä suunnassa -- se saa puuttua
-    yksinään, mutta ei olla olemassa ilman ampujaa.
+    ``attacker_side`` and ``attacker_lineup_key`` are **not** part of the
+    check: they are derived from the round's side description rather than
+    being the event's own, and they can be missing for an attacker who is
+    known. ``attacker_area`` is included in this direction only -- it may be
+    missing on its own, but it may not exist without an attacker.
 
     Raises:
-        SchemaError: Jos yhdelläkin ampujattomalla rivillä on ampujan
-            havaintoja.
+        SchemaError: If even one row without an attacker carries attacker
+            observations.
     """
     if deaths.is_empty():
         return
@@ -1791,13 +1837,13 @@ def _check_attacker_is_whole(deaths: pl.DataFrame) -> None:
     if broken.is_empty():
         return
     raise SchemaError(
-        f"Kuolemataulussa on {broken.height} riviä, joilla ei ole ampujaa "
-        "mutta on ampujan havaintoja "
+        f"The deaths table has {broken.height} rows that have no attacker "
+        "but do have attacker observations "
         f"({', '.join(observations)}).\n"
-        "Ampujaton kuolema (putoaminen, pommi) on aito tapaus, mutta silloin "
-        "jokainen ampujan kenttä on tyhjä: paikka ilman toimijaa laskeutuisi "
-        "raportissa tapoksi, jota kukaan ei tehnyt.\n"
-        "Ensimmäiset rivit: "
+        "A death without an attacker (a fall, the bomb) is a genuine case, "
+        "but then every attacker field is empty: a place without an actor "
+        "would land in the report as a kill nobody made.\n"
+        "The first rows: "
         f"{broken.select('round_raw', 't_s', 'victim_id').head(3).to_dicts()}"
     )
 
@@ -1805,27 +1851,28 @@ def _check_attacker_is_whole(deaths: pl.DataFrame) -> None:
 def _number_deaths(
     deaths: pl.DataFrame, numbered: pl.DataFrame, map_demo_id: str
 ) -> tuple[pl.DataFrame, int]:
-    """Liitä kuolemiin ``round_no`` ja pudota numeroimattomat kierrokset.
+    """Join ``round_no`` to the deaths and drop the unnumbered rounds.
 
-    Sama päätös ja sama liitos kuin näytepisteillä ja utilityllä. Tässä
-    taulussa pudotus on **aina epätyhjä liigademossa**: puukkokierroksella
-    kuollaan oikeasti, ja mitatussa aineistossa se tuottaa kymmenkunta
-    ``player_death``-riviä. Juuri siksi niitä ei suodateta erikseen -- yksi
-    puukkokierrossääntö kahdessa paikassa erkanisi muusta numeroinnista.
+    The same decision and the same join as with sample points and utility. In
+    this table the drop is **never empty in a league demo**: people really do
+    die on the knife round, and in the measured material it produces about ten
+    ``player_death`` rows. That is exactly why they are not filtered out
+    separately -- one knife-round rule in two places would drift away from the
+    rest of the numbering.
 
-    Lajitteluavain on ``(round_no, t_s, victim_id)``: kaksi joukkuekaveria voi
-    kuolla samalla tickillä, ja ilman uhrin tunnistetta niiden järjestys
-    riippuisi liitoksen vakaudesta.
+    The sort key is ``(round_no, t_s, victim_id)``: two team-mates can die on
+    the same tick, and without the victim's id their order would depend on the
+    join's stability.
 
-    ``nulls_last=True`` on sama sääntö kuin
-    :func:`~pappascout.domain.aggregate._death_order`issa: **puuttuva aika ei
-    ole nolla**. Ilman sitä ankkuriton kuolema johtaisi kierrostaan
-    parquetissa mutta olisi viimeisenä aggregoinnissa, ja sama asia
-    järjestyisi kahdella eri tavalla riippuen siitä kumpaa katsoo.
+    ``nulls_last=True`` is the same rule as in
+    :func:`~pappascout.domain.aggregate._death_order`: **a missing time is not
+    zero**. Without it a death with no anchor would lead its round in the
+    parquet but would be last in aggregation, and the same thing would be
+    ordered in two different ways depending on which one you look at.
 
     Returns:
-        ``(taulu, pudonneet kuolemat)``. Jälkimmäinen raportoidaan, koska
-        hiljainen pudotus näyttäisi demolta, jossa kuolemia oli vähemmän.
+        ``(the table, the deaths dropped)``. The latter is reported, because a
+        silent drop would look like a demo that held fewer deaths.
     """
     numbers = (
         numbered.select("round_raw", "round_no")
@@ -1845,11 +1892,11 @@ def _number_deaths(
 
 
 def _build_lineups(lineups: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
-    """Liitä kokoonpanotauluun ``map_demo_id`` ja järjestä rivit.
+    """Join ``map_demo_id`` to the lineup table and order the rows.
 
-    Kierrosnumerointia **ei tehdä**: kokoonpano ja nimi ovat kartan
-    ominaisuuksia eivätkä kierroksen, joten puukkokierroksen pudottaminen
-    veisi tästä taulusta pelaajan, joka pelasi kartan.
+    Round numbering is **not done**: the lineup and the name are properties of
+    the map and not of a round, so dropping the knife round would take out of
+    this table a player who played the map.
     """
     return lineups.select(
         pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
@@ -1858,17 +1905,17 @@ def _build_lineups(lineups: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
 
 
 def _build_callouts(callouts: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
-    """Liitä pistepilveen ``map_demo_id`` ja järjestä rivit.
+    """Join ``map_demo_id`` to the point cloud and order the rows.
 
-    Kierrosnumerointia **ei tehdä**: pistepilvi on kartan ominaisuus tässä
-    demossa eikä kierroksen havainto, ja puukkokierroksen pudottaminen veisi
-    siitä ruutuja, joissa on oikeasti seisottu. Sama peruste kuin
-    :func:`_build_lineups`illa.
+    Round numbering is **not done**: the point cloud is a property of the map
+    in this demo and not an observation about a round, and dropping the knife
+    round would take out of it cells where people really did stand. The same
+    grounds as with :func:`_build_lineups`.
 
-    Lajitteluavain on ruudun koordinaatti, jotta sama demo tuottaa tavu
-    tavulta saman tiedoston -- adapterin oma järjestys riittäisi, mutta
-    kirjoitusjärjestys on osa tuloksen toistettavuutta eikä sitä jätetä
-    toisen kerroksen varaan.
+    The sort key is the cell's coordinate, so that the same demo produces the
+    same file byte for byte -- the adapter's own order would do, but the write
+    order is part of the result's reproducibility and it is not left to
+    another layer.
     """
     return callouts.select(
         pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
@@ -1877,12 +1924,12 @@ def _build_callouts(callouts: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
 
 
 def _build_match(match: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
-    """Liitä ottelutauluun ``map_demo_id``.
+    """Join ``map_demo_id`` to the match table.
 
-    Kierrosnumerointia **ei tehdä** eikä lajittelua tarvita: taulussa on yksi
-    rivi. Sama sääntö kuin :func:`_build_lineups`illa ja
-    :func:`_build_callouts`illa -- ottelu ei ole kierros, joten puukkokierroksen
-    pudottaminen ei koske tätä taulua.
+    Round numbering is **not done** and no ordering is needed: the table has
+    one row. The same rule as with :func:`_build_lineups` and
+    :func:`_build_callouts` -- a match is not a round, so dropping the knife
+    round does not concern this table.
     """
     return match.select(
         pl.lit(map_demo_id, dtype=pl.Utf8).alias("map_demo_id"),
@@ -1891,67 +1938,70 @@ def _build_match(match: pl.DataFrame, map_demo_id: str) -> pl.DataFrame:
 
 
 def _check_single_match_row(match: pl.DataFrame, demo_path: Path) -> None:
-    """Varmista, että ottelutaulussa on täsmälleen yksi rivi.
+    """Make sure the match table holds exactly one row.
 
-    Tarkistus ajetaan **ennen** :func:`_build_match`ia eikä sen jälkeen.
-    Jälkikäteen se toimisi vain siksi, että ``pl.lit`` sattuu broadcastaamaan
-    myös korkeuteen 0; jos se lakkaisi tekemästä niin, käyttäjä saisi
-    englanninkielisen Polars-poikkeuksen suomenkielisen ohjeen tilalle. Sama
-    sääntö kuin ``stages.aggregate._in_schema_order``in ``ShapeError``illa:
-    epäonnistumistapa poistetaan, ei käännetä.
+    The check is run **before** :func:`_build_match` and not after it.
+    Afterwards it would work only because ``pl.lit`` happens to broadcast to
+    height 0 as well; if it stopped doing so, the user would get a Polars
+    exception in place of our own guidance. The same rule as with the
+    ``ShapeError`` in ``stages.aggregate._in_schema_order``: the failure mode
+    is removed, not translated.
 
-    Rivimäärä on osa sopimusta, mutta skeemavalidointi ei näe sitä: se katsoo
-    sarakkeita ja tyyppejä. Kaksi vikaa mahtuisi läpi.
+    The row count is part of the contract, but schema validation does not see
+    it: it looks at columns and types. Two defects would fit through.
 
-    * **Nolla riviä.** ``aggregate`` lukee nimikarttaan vain ne demot, joilta
-      rivi löytyy, joten tyhjä taulu näyttäisi täsmälleen samalta kuin demo,
-      jonka otsikossa ei ollut karttaa -- eli havaintona sen, ettei havaintoa
-      ole. Ero on olennainen: jälkimmäinen on aito havainto, edellinen
-      rikkinäinen portti.
-    * **Kaksi riviä.** Kaksi ottelua samassa tiedostossa ei ole tosi, ja
-      nimikartta saisi arvonsa sen mukaan kumpi rivi sattui olemaan
-      ensimmäisenä -- eli sama demo voisi antaa eri kartan eri ajolla.
+    * **Zero rows.** ``aggregate`` reads into the name map only those demos
+      for which a row is found, so an empty table would look exactly like a
+      demo whose header held no map -- that is, as the observation that there
+      is no observation. The difference matters: the latter is a genuine
+      observation, the former a broken port.
+    * **Two rows.** Two matches in the same file is not true, and the name map
+      would take its value according to whichever row happened to be first --
+      that is, the same demo could give a different map on a different run.
 
-    ``map_name`` saa olla ``null``: se on havainnon puuttuminen eikä puuttuva
-    rivi.
+    ``map_name`` may be ``null``: that is the absence of an observation and
+    not a missing row.
     """
     if match.height == 1:
         return
     raise ParseError(
-        f"Demon {demo_path.name} ottelutaulussa on {match.height} riviä, "
-        "vaikka niitä on oltava täsmälleen yksi.\n"
-        "Taulu kuvaa yhtä ottelua, joten nolla riviä tarkoittaa demoa ilman "
-        "ottelua ja kaksi riviä kahta ottelua samassa tiedostossa. Kumpikaan "
-        "ei ole tosi, ja kumpikin antaisi kartan nimelle arvon, jota ei "
-        "havaittu. Kyseessä on portin vika: korjaa demoparser2-adapteri."
+        f"The match table of demo {demo_path.name} has {match.height} rows, "
+        "although there must be exactly one.\n"
+        "The table describes one match, so zero rows means a demo without a "
+        "match and two rows means two matches in the same file. Neither is "
+        "true, and either would give the map name a value that was not "
+        "observed. This is a defect in the port: fix the demoparser2 adapter."
     )
 
 
 def _check_callout_cells(callouts: pl.DataFrame) -> None:
-    """Varmista, että ruutu on yksikäsitteinen ja että sillä on alue.
+    """Make sure a cell is unique and that it has an area.
 
-    Kaksi vikaa, jotka läpäisisivät skeeman mutta rikkoisivat räjähdysalueet:
+    Two defects that would pass the schema but would break the detonation
+    areas:
 
-    * **Kaksoisruutu.** Sama ``(cell_x, cell_y, cell_z)`` kahdesti tarkoittaisi,
-      ettei moodivalinta tehnyt työtään: räjähdys saisi alueen sen mukaan,
-      kumpi rivi sattui olemaan lähempänä lajittelussa, ja sama demo voisi
-      antaa eri alueen eri ajolla.
-    * **Nimetön ruutu.** ``area`` on nullable-sarake, joten tyhjä nimi menisi
-      skeemasta läpi -- ja nimeäisi räjähdyksen tyhjäksi *kynnyksen sisällä*.
-      Rivi näyttäisi siis samalta kuin "aluetta ei saatu", vaikka osuma oli
-      hyvä. Nimetön alue ei kuulu pilveen lainkaan, eikä myöskään pelkistä
-      välilyönneistä koostuva nimi: ``strip`` tekee niistä saman asian.
-    * **Havainnoton ruutu.** ``observations`` on ``Int32``, joten nolla ja
-      negatiivinen menisivät skeemasta läpi. Ruutu syntyy vain havainnosta,
-      joten nolla tarkoittaisi keksittyä ruutua -- ja se vääristäisi sekä
-      ``callout_observations``-luvun että ajon kelpoisuussuhteen hiljaa
-      alaspäin.
+    * **A duplicate cell.** The same ``(cell_x, cell_y, cell_z)`` twice would
+      mean the mode selection had not done its work: a detonation would get
+      its area according to whichever row happened to be nearer in the
+      ordering, and the same demo could give a different area on a different
+      run.
+    * **A cell without a name.** ``area`` is a nullable column, so an empty
+      name would pass the schema -- and would name the detonation empty
+      *inside the threshold*. The row would then look the same as "no area was
+      obtained", although the hit was good. An area without a name does not
+      belong in the cloud at all, and neither does a name made of nothing but
+      spaces: ``strip`` makes them the same thing.
+    * **A cell without observations.** ``observations`` is ``Int32``, so zero
+      and negative would pass the schema. A cell is born only from an
+      observation, so zero would mean an invented cell -- and that would skew
+      both the ``callout_observations`` number and the run's usable-row ratio
+      silently downwards.
 
-    Tyhjä taulu ei ole kumpikaan näistä: se on kelvollinen tulos, ja sen syy
-    kerrotaan ajon yhteenvedossa.
+    An empty table is neither of these: it is a valid result, and its reason
+    is given in the run's summary.
 
     Raises:
-        SchemaError: Nimeää rikkoutuneen invariantin ja enintään viisi riviä.
+        SchemaError: Names the broken invariant and at most five rows.
     """
     if callouts.is_empty():
         return
@@ -1964,11 +2014,12 @@ def _check_callout_cells(callouts: pl.DataFrame) -> None:
     )
     if unnamed:
         raise SchemaError(
-            f"Pistepilvessä on {unnamed} ruutua ilman aluenimeä.\n"
-            "Nimetön ruutu nimeäisi räjähdyksen tyhjäksi kynnyksen sisällä, "
-            "eli rivi näyttäisi samalta kuin 'aluetta ei saatu' vaikka osuma "
-            "oli hyvä. Alueeton havainto ei kuulu pilveen lainkaan -- "
-            "tarkista suodatin funktiossa domain.utility.build_point_cloud."
+            f"The point cloud has {unnamed} cells without an area name.\n"
+            "A cell without a name would name the detonation empty inside "
+            "the threshold, that is, the row would look the same as 'no area "
+            "was obtained' although the hit was good. An observation without "
+            "an area does not belong in the cloud at all -- check the filter "
+            "in the function domain.utility.build_point_cloud."
         )
 
     empty_cells = callouts.filter(
@@ -1976,12 +2027,13 @@ def _check_callout_cells(callouts: pl.DataFrame) -> None:
     )
     if not empty_cells.is_empty():
         raise SchemaError(
-            f"Pistepilvessä on {empty_cells.height} ruutua, jolla ei ole "
-            "yhtään havaintoa.\n"
-            "Ruutu syntyy vain havainnosta, joten nolla tai negatiivinen "
-            "tarkoittaa keksittyä ruutua -- ja se vääristää sekä pilven "
-            "havaintoluvun että ajon kelpoisuussuhteen hiljaa alaspäin.\n"
-            f"Ensimmäiset rivit: "
+            f"The point cloud has {empty_cells.height} cells that have not a "
+            "single observation.\n"
+            "A cell is born only from an observation, so zero or negative "
+            "means an invented cell -- and that skews both the cloud's "
+            "observation count and the run's usable ratio silently "
+            "downwards.\n"
+            f"The first rows: "
             f"{empty_cells.select('cell_x', 'cell_y', 'cell_z', 'observations').head(3).to_dicts()}"
         )
 
@@ -1996,34 +2048,34 @@ def _check_callout_cells(callouts: pl.DataFrame) -> None:
         .head(5)
     )
     raise SchemaError(
-        "Pistepilven avain (cell_x, cell_y, cell_z) ei ole yksikäsitteinen: "
-        f"{key.height - key.unique().height} riviä on kaksoiskappaleita.\n"
-        "Ruudulla on tasan yksi alue -- se on havainnoista yleisin -- ja kaksi "
-        "riviä tarkoittaisi, että räjähdys saisi alueensa lajittelun "
-        "sattumasta.\n"
-        f"Ensimmäiset toistuvat ruudut: {duplicates.to_dicts()}"
+        "The point cloud's key (cell_x, cell_y, cell_z) is not unique: "
+        f"{key.height - key.unique().height} rows are duplicates.\n"
+        "A cell has exactly one area -- the most common of the observations "
+        "-- and two rows would mean that a detonation got its area from the "
+        "accident of the ordering.\n"
+        f"The first repeated cells: {duplicates.to_dicts()}"
     )
 
 
 def _check_lineup_key(lineups: pl.DataFrame, demo_path: Path) -> None:
-    """Varmista, että ``(lineup_key, player_id)`` yksilöi rivin -- ja on olemassa.
+    """Make sure ``(lineup_key, player_id)`` identifies a row -- and exists.
 
-    Kaksi vikaa, jotka läpäisisivät skeeman mutta rikkoisivat raportin:
+    Two defects that would pass the schema but would break the report:
 
-    * **Tyhjä taulu.** Kokoonpanot tunnistetaan jokaisesta demosta, joten
-      tyhjä taulu tarkoittaa rikkinäistä porttia. Se jäisi manifestin
-      perusteella pysyvästi ohitetuksi, ja jokainen raportti puhuisi
-      tiivisteistä ilman että mikään kertoisi miksi.
-    * **Kaksoisrivi.** ``aggregate`` liittää rosterin tällä avaimella; kahdesti
-      esiintyvä pelaaja näkyisi rosterissa kahdesti.
+    * **An empty table.** Lineups are identified from every demo, so an empty
+      table means a broken port. It would stay permanently skipped on the
+      strength of the manifest, and every report would talk about digests
+      without anything saying why.
+    * **A duplicate row.** ``aggregate`` joins the standing roster on this
+      key; a player occurring twice would show twice in the roster.
     """
     if lineups.is_empty():
         raise SchemaError(
-            f"Demosta {demo_path.name} ei syntynyt yhtään kokoonpanoriviä.\n"
-            "Kokoonpanot tunnistetaan jokaisesta demosta, joten tyhjä taulu "
-            "tarkoittaa rikkinäistä demoporttia. Tyhjää tulosta ei kirjoiteta: "
-            "se jäisi manifestin perusteella pysyvästi ohitetuksi ja raportti "
-            "puhuisi tiivisteistä kertomatta miksi."
+            f"Demo {demo_path.name} produced no lineup row at all.\n"
+            "Lineups are identified from every demo, so an empty table means "
+            "a broken demo port. An empty result is not written: it would "
+            "stay permanently skipped on the strength of the manifest and the "
+            "report would talk about digests without saying why."
         )
     key = lineups.select("lineup_key", "player_id")
     if key.height == key.unique().height:
@@ -2036,24 +2088,23 @@ def _check_lineup_key(lineups: pl.DataFrame, demo_path: Path) -> None:
         .head(5)
     )
     raise SchemaError(
-        "Kokoonpanotaulun avain (lineup_key, player_id) ei ole "
-        f"yksikäsitteinen: {key.height - key.unique().height} riviä on "
-        "kaksoiskappaleita.\n"
-        f"Ensimmäiset toistuvat avaimet: {duplicates.to_dicts()}"
+        "The lineup table's key (lineup_key, player_id) is not "
+        f"unique: {key.height - key.unique().height} rows are "
+        "duplicates.\n"
+        f"The first repeated keys: {duplicates.to_dicts()}"
     )
 
 
 def _number_ticks(
     ticks: pl.DataFrame, numbered: pl.DataFrame, map_demo_id: str
 ) -> pl.DataFrame:
-    """Liitä näytepisteisiin ``round_no`` ja pudota numeroimattomat kierrokset.
+    """Join ``round_no`` to the sample points and drop unnumbered rounds.
 
-    Adapteri näytteistää kaikki ankkuroidut kierrosrajat, koska se ei tunne
-    numerointisääntöä -- sen omistaa
-    :func:`~pappascout.domain.rounds.mark_played_rounds`. Warmupin ja
-    puukkokierroksen rivit poistuvat siis vasta tässä, samalla päätöksellä kuin
-    kierrostaulusta, jolloin taulut eivät voi olla eri mieltä siitä mikä
-    kierros pelattiin.
+    The adapter samples every anchored round boundary, because it does not
+    know the numbering rule -- that belongs to
+    :func:`~pappascout.domain.rounds.mark_played_rounds`. The warm-up and
+    knife-round rows therefore go only here, by the same decision as from the
+    rounds table, so the tables cannot disagree about which round was played.
     """
     numbers = (
         numbered.select("round_raw", "round_no")
@@ -2075,27 +2126,29 @@ def _number_ticks(
 def _number_events(
     events: pl.DataFrame, numbered: pl.DataFrame, map_demo_id: str
 ) -> tuple[pl.DataFrame, int]:
-    """Liitä tapahtumiin ``round_no`` ja pudota numeroimattomat kierrokset.
+    """Join ``round_no`` to the events and drop the unnumbered rounds.
 
-    Sama päätös ja sama liitos kuin näytepisteillä (:func:`_number_ticks`):
-    lämmittelyssä ja puukkokierroksella heitetty utility poistuu tässä, jolloin
-    taulut eivät voi olla eri mieltä siitä mikä kierros pelattiin.
+    The same decision and the same join as with the sample points
+    (:func:`_number_ticks`): utility thrown during the warm-up and on the
+    knife round goes here, so the tables cannot disagree about which round was
+    played.
 
-    Lajitteluavain on ``(round_no, grenade_no, event_kind, t_s)``.
-    ``grenade_no`` on **ennen** ``event_kind``ia, jotta radan kaksi riviä
-    pysyvät vierekkäin: pelin tunnisteella lajiteltuna kierrätetyn tunnisteen
-    kaikki heitot tulisivat ennen sen kaikkia räjähdyksiä, ja pari hajoaisi
-    taulun eri kohtiin. ``event_kind`` on ennen ``t_s``:ää, jotta heitto tulee
-    aina ennen räjähdystään silloinkin, kun molemmilla on sama ``t_s``; se on
-    Enum, joten järjestys on luettelon järjestys eikä aakkosjärjestys.
-    ``grenade_no`` on yksikäsitteinen, joten avain määrää järjestyksen
-    täysin -- pelin oma tunniste ei ole lajittelussa lainkaan, koska se ei
-    erota kahta rataa toisistaan.
+    The sort key is ``(round_no, grenade_no, event_kind, t_s)``.
+    ``grenade_no`` comes **before** ``event_kind`` so that a trajectory's two
+    rows stay next to each other: sorted by the game's id, all the throws of a
+    recycled id would come before all of its detonations, and the pair would
+    scatter to different places in the table. ``event_kind`` comes before
+    ``t_s`` so that the throw always comes before its detonation even when
+    both have the same ``t_s``; it is an Enum, so the order is the order of
+    the list and not alphabetical. ``grenade_no`` is unique, so the key
+    determines the order completely -- the game's own id is not in the sort at
+    all, because it does not tell two trajectories apart.
 
     Returns:
-        ``(taulu, pudonneet heitot)``. Jälkimmäinen lasketaan, koska kolme
-        muuta utilityn pudotussyytä raportoidaan nimenomaan siksi, ettei
-        utility katoa hiljaa -- eikä tämä saa olla poikkeus.
+        ``(the table, the throws dropped)``. The latter is counted because the
+        three other reasons for dropping utility are reported for exactly the
+        reason that utility must not disappear silently -- and this must not
+        be an exception.
     """
     numbers = (
         numbered.select("round_raw", "round_no")
@@ -2128,14 +2181,14 @@ def _record_failure(
     versions: dict[str, str],
     reason: str,
 ) -> None:
-    """Kirjaa epäonnistuminen manifestiin -- mutta älä tuhoa ehjää tulosta.
+    """Record the failure in the manifest -- but do not destroy a good result.
 
-    Jos arkistossa on jo kelvolliset taulut ja niiden ``ok``-manifesti, kaikki
-    jätetään paikalleen. Muuten manifestiin kirjataan ``parse_failed``, joka
-    sekä kertoo syyn että estää ohituksen seuraavalla ajolla.
+    If the archive already holds valid tables and their ``ok`` manifest,
+    everything is left in place. Otherwise ``parse_failed`` is recorded in the
+    manifest, which both gives the reason and blocks the skip on the next run.
 
-    **Kaikkien** taulujen on oltava paikallaan: vanha ``rounds`` uuden
-    ``ticks``-taulun kanssa olisi puolikas tulos, joka näyttäisi ehjältä.
+    **Every** table has to be in place: an old ``rounds`` together with a new
+    ``ticks`` table would be half a result that looked intact.
     """
     intact_result = (
         existing is not None

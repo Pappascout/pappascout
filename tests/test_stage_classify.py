@@ -1,9 +1,9 @@
-"""``stages.classify`` -- vaiheen testit.
+"""``stages.classify`` -- the stage's tests.
 
-Vaihe ei lue demoa lainkaan, joten sen koko logiikka -- kierrostaulun luku,
-molempien joukkueiden luokittelu, kierroslista, manifesti ja ohitus --
-testataan käsin rakennetulla kierrostaululla. Ainoat demoa vaativat testit ovat
-lopun regressiot, ja ne ohittavat itsensä siististi.
+The stage does not read the demo at all, so its whole logic -- reading the
+rounds table, classifying both teams, the round list, the manifest and the skip
+-- is tested with a hand-built rounds table. The only tests that need a demo
+are the regressions at the end, and they skip themselves cleanly.
 """
 
 from __future__ import annotations
@@ -64,17 +64,17 @@ from pappascout.stages import select as select_stage
 
 MAP_DEMO_ID = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1"
 
-#: Tiedostottoman kutsujan **eksplisiittinen** tyhjä. ``classify_rounds``
-#: vaatii faktat avainsanaparametrina eikä oleta niitä tyhjiksi: oletus tekisi
-#: unohtamisesta hiljaisen ja tuottaisi juuri sen tyhjän sarakkeen, jonka
-#: korjaamisesta tämä koodi on.
+#: A caller without a file saying **explicitly** that it has nothing.
+#: ``classify_rounds`` requires the facts as a keyword argument and does not
+#: default them to empty: a default would make forgetting silent and would
+#: produce exactly the empty column this code exists to fix.
 NO_FACTS = classify_stage.MatchFacts()
 
 A = "aaaaaaaaaaaaaaaa"
 B = "bbbbbbbbbbbbbbbb"
 
 
-# --- Kierrostaulun rakennus ------------------------------------------------------
+# --- Building the rounds table ---------------------------------------------------
 
 
 def round_rows(
@@ -94,10 +94,10 @@ def round_rows(
     b_players: int | None = 5,
     status: str = "ok",
 ) -> list[dict[str, object]]:
-    """Yhden kierroksen kaksi riviä, yksi kummallekin kokoonpanolle.
+    """One round's two rows, one for each lineup.
 
-    Voiton syy valitaan puolen mukaan, jotta CS2:n sääntöinvariantti pysyy
-    voimassa myös tässä käsin rakennetussa taulussa.
+    The reason for the win is chosen by side, so that CS2's rule invariant
+    holds in this hand-built table as well.
     """
     b_side = "CT" if a_side == "T" else "T"
     win_reason = "ct_killed" if (a_side == "T") == a_won else "t_killed"
@@ -120,10 +120,11 @@ def round_rows(
                 "equip_buy_end": None if status != "ok" else equip,
                 "equip_round_start": None if status != "ok" else start,
                 "players_buy_end": None if status != "ok" else players,
-                # Puolioston kaksi havaintoa johdetaan muista arvoista, jotta
-                # rivi on sisäisesti johdonmukainen: jakauman summa on
-                # money_buy_end ja laskurin katto players_buy_end. Testi, joka
-                # tutkii nimenomaan niitä, rakentaa oman rivinsä.
+                # The half-buy's two observations are derived from the other
+                # values, so that the row is internally consistent: the
+                # distribution's sum is money_buy_end and the counter's ceiling
+                # is players_buy_end. A test that examines those in particular
+                # builds a row of its own.
                 ARMED_COLUMN: None if status != "ok" else players,
                 MONEY_DISTRIBUTION_COLUMN: (
                     None
@@ -133,8 +134,8 @@ def round_rows(
                 "survivors": 2 if won else 0,
                 "survivors_equip_prev": 0,
                 "freeze_end_tick": None if status != "ok" else 1000 * round_no,
-                # Eri kuin ankkuri, kuten oikeassa ajossa: tyhjäksi jätetty
-                # sarake ei paljastaisi, jos vaihe pudottaisi sen matkalta.
+                # Different from the anchor, as on a real run: a column left
+                # empty would not reveal it if the stage dropped it on the way.
                 "buy_end_tick": None if status != "ok" else 1000 * round_no + 1280,
                 "tick_rate": 64.0,
                 "status": status,
@@ -150,7 +151,7 @@ def rounds_frame(rounds: list[list[dict[str, object]]]) -> pl.DataFrame:
 
 
 def match(played: int = 6) -> list[list[dict[str, object]]]:
-    """Yksinkertainen ottelu: A voittaa pistoolin, sen jälkeen vuorotellen."""
+    """A simple match: A wins the pistol round, after that they alternate."""
     rounds = [round_rows(1, a_won=True, a_equip=4000, b_equip=4000)]
     for no in range(2, played + 1):
         rounds.append(round_rows(no, a_won=no % 2 == 0))
@@ -170,12 +171,12 @@ def settings(settings_file: Path):
 
 
 def _minimal_deaths(frame: pl.DataFrame) -> pl.DataFrame:
-    """Kuolemataulu kierrostaulusta, portin sopimuksen mukaisena.
+    """A deaths table from the rounds table, as the port's contract requires.
 
-    Luokittelu ei lue kuolemia lainkaan, mutta ``parse`` kieltäytyy
-    kirjoittamasta tyhjää kuolemataulua: pelatussa ottelussa kuollaan.
-    Yksi kuolema per kierros riittää, ja uhri on sama pelaaja kuin
-    :func:`_minimal_ticks`issa, jotta taulut eivät ole eri mieltä.
+    The classification does not read the deaths at all, but ``parse`` refuses
+    to write an empty deaths table: in a match that was played, people die. One
+    death per round is enough, and the victim is the same player as in
+    :func:`_minimal_ticks`, so that the tables do not disagree.
     """
     rows: list[dict[str, object]] = []
     for row in frame.iter_rows(named=True):
@@ -211,13 +212,12 @@ def _minimal_deaths(frame: pl.DataFrame) -> pl.DataFrame:
 
 
 def _minimal_lineups(frame: pl.DataFrame) -> pl.DataFrame:
-    """Kokoonpanotaulu kierrostaulun kokoonpanoista, portin sopimuksen mukaisena.
+    """A lineups table from the rounds table's lineups, as the port's contract requires.
 
-    Luokittelu ei lue nimiä lainkaan, mutta ``parse`` kieltäytyy
-    kirjoittamasta tyhjää kokoonpanotaulua: kokoonpanot tunnistetaan
-    jokaisesta demosta.
-    Pelaajatunnisteet ovat samat kuin :func:`_minimal_ticks`issa, jotta
-    taulut eivät ole eri mieltä kokoonpanosta.
+    The classification does not read the names at all, but ``parse`` refuses to
+    write an empty lineups table: the lineups are recognised from every demo.
+    The player ids are the same as in :func:`_minimal_ticks`, so that the
+    tables do not disagree about the lineup.
     """
     rows = [
         {
@@ -242,12 +242,12 @@ def _minimal_lineups(frame: pl.DataFrame) -> pl.DataFrame:
 
 
 def _minimal_ticks(frame: pl.DataFrame) -> pl.DataFrame:
-    """Yksi näytepiste per kierrosrivi, portin sopimuksen mukaisena.
+    """One sample point per round row, as the port's contract requires.
 
-    Luokittelu ei lue näytepisteitä lainkaan, mutta ``parse`` kieltäytyy
-    kirjoittamasta tyhjää asetelmataulua ei-tyhjälle kierrostaululle. Tämä
-    pitää kiinnikkeen rehellisenä: se tuottaa sen mitä oikea adapteri
-    tuottaisi, ei tyhjää kuorta.
+    The classification does not read the sample points at all, but ``parse``
+    refuses to write an empty setup table for a non-empty rounds table. This
+    keeps the fixture honest: it produces what a real adapter would produce,
+    not an empty shell.
     """
     rows = [
         {
@@ -282,12 +282,12 @@ def write_parse(
     *,
     force: bool = False,
 ) -> None:
-    """Kirjoita kierrostaulu ja aito ``parse``-manifesti arkistoon.
+    """Write the rounds table and a genuine ``parse`` manifest into the archive.
 
-    Manifesti kirjoitetaan oikealla vaiheella eikä käsin, jotta ohitusketju
-    ``parse -> classify`` testataan sellaisena kuin se tuotannossa on.
-    Demotiedostoa ei kirjoiteta uudelleen, jos se on jo olemassa: sen koko ja
-    muokkausaika ovat osa parsinnan syötetunnistetta.
+    The manifest is written with the real stage and not by hand, so that the
+    skip chain ``parse -> classify`` is tested as it is in production. The demo
+    file is not written again if it already exists: its size and modification
+    time are part of the parsing's input id.
     """
     demo = archive.import_dir() / f"{MAP_DEMO_ID}.dem"
     demo.parent.mkdir(parents=True, exist_ok=True)
@@ -300,15 +300,15 @@ def write_parse(
         pl.col("round_no").alias("score_end"),
     )
 
-    # Näytepistetaulu on Story 2.1:n tulos eikä vaikuta luokitteluun, mutta se
-    # ei saa olla tyhjä: parse hylkää asetelmattoman tuloksen. Feikki antaa
-    # siksi yhden näytepisteen per kierros, samoilla avaimilla kuin
-    # kierrostaulussa.
+    # The sample point table is Story 2.1's result and has no effect on the
+    # classification, but it must not be empty: parse refuses a result with no
+    # setup. The fake therefore gives one sample point per round, with the same
+    # keys as in the rounds table.
     ticks_frame = _minimal_ticks(frame)
 
-    # Utility ei vaikuta luokitteluun lainkaan, ja tyhjä tapahtumataulu on
-    # kelvollinen tulos -- toisin kuin tyhjä asetelmataulu. Kiinnike antaa siis
-    # tyhjän mutta sopimuksen mukaisen taulun.
+    # Utility has no effect on the classification at all, and an empty events
+    # table is a valid result -- unlike an empty setup table. The fixture
+    # therefore gives an empty table that still matches the contract.
     events_frame = pl.DataFrame(
         schema={name: EVENTS[name] for name in EVENTS_ADAPTER_COLUMNS}
     )
@@ -316,15 +316,15 @@ def write_parse(
     lineups_frame = _minimal_lineups(frame)
     deaths_frame = _minimal_deaths(frame)
 
-    # Pistepilvi ei vaikuta luokitteluun lainkaan, ja tyhjä pilvi on
-    # kelvollinen tulos -- samoin kuin tyhjä tapahtumataulu. Kiinnike antaa
-    # siis tyhjän mutta sopimuksen mukaisen taulun.
+    # The point cloud has no effect on the classification at all, and an empty
+    # cloud is a valid result -- just like an empty events table. The fixture
+    # therefore gives an empty table that still matches the contract.
     callouts_frame = pl.DataFrame(
         schema={name: CALLOUT_CLOUD[name] for name in CALLOUTS_ADAPTER_COLUMNS}
     )
 
-    # Kartan nimi ei vaikuta luokitteluun lainkaan, mutta ottelutaulun on
-    # oltava paikallaan: parse vaatii siitä täsmälleen yhden rivin.
+    # The map's name has no effect on the classification at all, but the match
+    # table has to be in place: parse requires exactly one row from it.
     match_frame = pl.DataFrame(
         [{"map_name": "de_ancient"}],
         schema={name: MATCH[name] for name in MATCH_ADAPTER_COLUMNS},
@@ -365,7 +365,7 @@ def run_classify(settings, archive, team=A, **kwargs):
     )
 
 
-# --- Onnistunut ajo --------------------------------------------------------------
+# --- A successful run ------------------------------------------------------------
 
 
 def test_writes_a_valid_classified_table(settings, parsed) -> None:
@@ -375,7 +375,7 @@ def test_writes_a_valid_classified_table(settings, parsed) -> None:
     assert path.is_file()
     df = pl.read_parquet(path)
     assert df.schema == dict(CLASSIFIED)
-    assert df.height == 6, "yksi rivi per kierros, ei kahta"
+    assert df.height == 6, "one row per round, not two"
     assert df["round_no"].to_list() == [1, 2, 3, 4, 5, 6]
     assert df["map_demo_id"].unique().to_list() == [MAP_DEMO_ID]
     assert result.status == "ok"
@@ -390,7 +390,7 @@ def test_result_is_written_under_the_subject_team(settings, parsed) -> None:
 
 
 def test_every_row_carries_a_reason_and_its_inputs(settings, parsed) -> None:
-    """Ilman perustelua ja lähtöarvoja kalibrointi Story 1.4:ssä on mahdotonta."""
+    """Without the reason and the input values, calibrating in Story 1.4 is impossible."""
     run_classify(settings, parsed)
     df = pl.read_parquet(parsed.classified(A, MAP_DEMO_ID))
     assert df["reason"].null_count() == 0
@@ -407,7 +407,7 @@ def test_pistol_round_is_classified_from_the_round_number(settings, parsed) -> N
 
 
 def test_both_teams_are_classified_in_the_same_run(settings, parsed) -> None:
-    """``opp_round_type`` on toisen joukkueen oma ``round_type`` samalta ajolta."""
+    """``opp_round_type`` is the other team's own ``round_type`` from the same run."""
     run_classify(settings, parsed, team=A)
     run_classify(settings, parsed, team=B)
 
@@ -431,10 +431,10 @@ def test_loss_count_is_written_per_round(settings, parsed) -> None:
 def test_without_a_selection_file_the_league_fields_stay_empty(
     settings, parsed
 ) -> None:
-    """Käsin tuotu demo: arvaus olisi pahempi kuin tyhjä.
+    """A hand-imported demo: a guess would be worse than empty.
 
-    Tämä on myös se testi, joka kaatuu, jos puuttuvasta valintatiedostosta
-    tehdään poikkeus: ajon on onnistuttava ja arvojen jäätävä tyhjiksi.
+    This is also the test that fails if a missing selection file is turned into
+    an exception: the run has to succeed and the values have to stay empty.
     """
     result = run_classify(settings, parsed)
 
@@ -450,7 +450,7 @@ def test_write_is_atomic(settings, parsed) -> None:
 
 
 def test_nothing_is_written_into_the_parsed_area(settings, parsed) -> None:
-    """``classify`` ei kirjoita toisen vaiheen tulosalueelle."""
+    """``classify`` does not write into another stage's result area."""
     before = {
         p: p.stat().st_mtime_ns
         for p in (parsed.root / "parsed").rglob("*")
@@ -465,37 +465,38 @@ def test_nothing_is_written_into_the_parsed_area(settings, parsed) -> None:
     assert before == after
 
 
-# --- is_league ja roster_class valintatiedostosta -------------------------------
+# --- is_league and roster_class from the selection file -------------------------
 #
-# Arvot ovat ``select``in laskemia, ja tämä vaihe on niiden lukija. Kiinnike
-# kirjoittaa siksi molemmat tiedostot käsin: joukkueindeksin, joka on silta
-# kokoonpanotunnisteesta kanoniseen ``team_key``:hin, ja valintatiedoston,
-# jossa arvot ovat.
+# The values are computed by ``select``, and this stage is their reader. The
+# fixture therefore writes both files by hand: the team index, which is the
+# bridge from the lineup key to the canonical ``team_key``, and the selection
+# file, which holds the values.
 
-#: Kanoninen ``team_key`` on FACEITin ``faction_id`` eli UUID -- **ei**
-#: kokoonpanotiiviste. Juuri tämä ero on syy sille, että haku kulkee
-#: joukkueindeksin ``lineup_keys``-kentän kautta: suora haku
-#: ``index/selections/<lineup_key>.json`` osuisi aina tyhjään.
+#: The canonical ``team_key`` is FACEIT's ``faction_id``, that is, a UUID --
+#: **not** a lineup hash. This difference is exactly why the lookup goes
+#: through the team index's ``lineup_keys`` field: a direct lookup of
+#: ``index/selections/<lineup_key>.json`` would always hit nothing.
 TEAM_KEY = "0047af32-5ff8-449e-b665-8fd390e6a44d"
 OTHER_TEAM_KEY = "f257054b-46d5-41bb-8e01-543777cd7092"
 
 
-#: Fixtuurien aikaleima, **menneisyydessä**: valintatiedosto on silloin
-#: vanhempi kuin ajossa syntyvä manifesti, eikä vanhentumisvaroitus laukea.
-#: Varoituksella on oma testinsä omalla aikaleimallaan.
+#: The fixtures' timestamp, **in the past**: the selection file is then older
+#: than the manifest the run produces, and the staleness warning does not fire.
+#: The warning has a test of its own with a timestamp of its own.
 PAST = "2026-09-01T12:00:00+00:00"
 
-#: Indeksien ja valintatiedoston muotoversiot **kirjaimellisina**. Vakioiden
-#: (``discover.SCHEMA_VERSION``, ``select.SCHEMA_VERSION``) lainaaminen
-#: tekisi fixtuurista aina ajan tasalla olevan, vaikka muoto olisi
-#: vanhentunut; kirjaimellinen luku pakottaa katsomaan fixtuuria, kun muoto
-#: nousee -- ja lukija näkee mitä vasten tämä testi on kirjoitettu.
+#: The format versions of the indexes and of the selection file **as
+#: literals**. Borrowing the constants (``discover.SCHEMA_VERSION``,
+#: ``select.SCHEMA_VERSION``) would make the fixture always up to date even
+#: when the format was stale; a literal number forces someone to look at the
+#: fixture when the format rises -- and the reader sees what this test was
+#: written against.
 TEAMS_INDEX_VERSION = 1
 SELECTION_VERSION = 1
 
 
 def write_teams_index(archive: ArchivePaths, owners: dict[str, list[str]]) -> None:
-    """Joukkueindeksi, jossa jokainen ``team_key`` omistaa annetut kokoonpanot."""
+    """A team index in which each ``team_key`` owns the given lineups."""
     keys = [key for lineups in owners.values() for key in lineups]
     document = {
         "schema_version": TEAMS_INDEX_VERSION,
@@ -522,7 +523,7 @@ def selection_row(
     roster_class: str | None = "5/5",
     roster_ok: bool = True,
 ) -> dict[str, object]:
-    """Valintarivi kaikilla kentillä, kuten ``select`` sen kirjoittaa."""
+    """A selection row with every field, as ``select`` writes it."""
     return {
         "map_demo_id": map_demo_id,
         "match_id": "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd",
@@ -531,7 +532,7 @@ def selection_row(
         "is_league": is_league,
         "certainly_played": True,
         "roster_ok": roster_ok,
-        "roster_reason": "kynnys täyttyi" if roster_ok else "kynnys ei täyttynyt",
+        "roster_reason": "threshold met" if roster_ok else "threshold not met",
         "roster_class": roster_class,
         "roster_source": "match_players",
         "players_seen": 5,
@@ -549,7 +550,7 @@ def write_selection(
     team_key: str = TEAM_KEY,
     generated_at: str = PAST,
 ) -> None:
-    """Valintatiedosto joukkueelle, muodossa jonka ``read_selection`` hyväksyy."""
+    """A selection file for the team, in the shape ``read_selection`` accepts."""
     document = {
         "schema_version": SELECTION_VERSION,
         "generated_at": generated_at,
@@ -567,14 +568,15 @@ def write_selection(
 
 
 def facts_of(archive: ArchivePaths, team: str = A) -> tuple[list, list]:
-    """Taulun kaksi saraketta uniikkeina arvoina.
+    """The table's two columns as their unique values.
 
-    Uniikkina siksi, että väite on kaksiosainen: arvo on oikea **ja** sama
-    jokaisella rivillä. Yhden rivin tarkistus ei huomaisi, jos arvo latottaisi
-    vain ensimmäiselle -- ja juuri sen ``domain.aggregate`` kaataisi.
+    Unique because the claim has two parts: the value is right **and** the same
+    on every row. Checking one row would not notice if the value were set onto
+    the first one only -- and that is exactly what ``domain.aggregate`` would
+    stop the run over.
     """
     df = pl.read_parquet(archive.classified(team, MAP_DEMO_ID))
-    assert df.height > 1, "latominen kaikille riveille on osa väitettä"
+    assert df.height > 1, "setting it onto every row is part of the claim"
     return (
         df["is_league"].unique().to_list(),
         df["roster_class"].unique().to_list(),
@@ -582,7 +584,7 @@ def facts_of(archive: ArchivePaths, team: str = A) -> tuple[list, list]:
 
 
 def test_the_match_facts_are_read_from_the_selection_file(settings, parsed) -> None:
-    """Liigaottelu, jonka rosteri kelpasi: molemmat sarakkeet täyttyvät."""
+    """A league match whose roster passed: both columns are filled."""
     write_teams_index(parsed, {TEAM_KEY: [A]})
     write_selection(parsed, [selection_row()])
 
@@ -610,12 +612,12 @@ def test_a_substitute_map_carries_the_four_of_five_class(settings, parsed) -> No
 
 
 def test_the_roster_class_is_read_and_not_recomputed(settings, parsed) -> None:
-    """Tiedosto sanoo ``4/5``, vaikka rosteri näyttäisi ``5/5``:ltä.
+    """The file says ``4/5``, although the roster would look like ``5/5``.
 
-    Kierrostaulussa on viisi pelaajaa joka kierroksella, joten uudelleen
-    laskettu luokka olisi ``5/5``. ``select`` on ainoa laskija: se näkee
-    ottelun pelaajalistan ja vakirosterin, joita tämä vaihe ei näe. Testi
-    kaatuu, jos luokka lasketaan täällä uudelleen.
+    The rounds table holds five players on every round, so a recomputed class
+    would be ``5/5``. ``select`` is the only computer: it sees the match's
+    player list and the standing roster, which this stage does not see. The
+    test fails if the class is computed again here.
     """
     write_teams_index(parsed, {TEAM_KEY: [A]})
     write_selection(parsed, [selection_row(roster_class="4/5")])
@@ -625,14 +627,14 @@ def test_the_roster_class_is_read_and_not_recomputed(settings, parsed) -> None:
     rounds = pl.read_parquet(parsed.parsed_table(MAP_DEMO_ID, "rounds"))
     own = rounds.filter(pl.col("lineup_key") == A)
     assert own["players_buy_end"].unique().to_list() == [5], (
-        "fikstuurin rosteri on täysi -- muuten testi ei erottaisi lukemista "
-        "laskemisesta"
+        "the fixture's roster is full -- otherwise the test would not tell "
+        "reading from computing"
     )
     assert facts_of(parsed) == ([True], ["4/5"])
 
 
 def test_a_rejected_map_still_carries_the_match_facts(settings, parsed) -> None:
-    """Hylkäys on otannan asia eikä tosiasia ottelusta: arvot luetaan silti."""
+    """Rejection is the sample's business and not a fact about the match: the values are read all the same."""
     write_teams_index(parsed, {TEAM_KEY: [A]})
     write_selection(parsed, [selection_row(roster_ok=False, roster_class="4/5")])
 
@@ -642,7 +644,7 @@ def test_a_rejected_map_still_carries_the_match_facts(settings, parsed) -> None:
 
 
 def test_a_missing_selection_file_leaves_both_empty(settings, parsed) -> None:
-    """Joukkue on indeksissä, mutta ``select``iä ei ole ajettu sille."""
+    """The team is in the index, but ``select`` has not been run for it."""
     write_teams_index(parsed, {TEAM_KEY: [A]})
 
     result = run_classify(settings, parsed)
@@ -653,30 +655,31 @@ def test_a_missing_selection_file_leaves_both_empty(settings, parsed) -> None:
 
 
 def test_every_empty_reason_is_named_and_they_differ(settings, parsed) -> None:
-    """Viisi eri syytä, viisi eri lausetta -- ei yhtä hiljaista tyhjää.
+    """Five different reasons, five different sentences -- not one silent blank.
 
-    Ilman tätä väitettä rikkoutunut silta näyttäisi raportissa täsmälleen
-    samalta kuin käsin tuotu demo, ja "miksi otanta on tuntematon" olisi
-    arvattava. AD-9: vajaa tulos kuuluu ``reason``iin eikä vaikenemiseen.
+    Without this claim a broken bridge would look in the report exactly like a
+    hand-imported demo, and "why is the sample unknown" would have to be
+    guessed. AD-9: an incomplete result belongs in ``reason`` and not in
+    silence.
     """
     reasons: dict[str, str] = {}
 
-    # 1. Indeksiä ei ole lainkaan.
+    # 1. There is no index at all.
     reasons["no_index"] = run_classify(settings, parsed, force=True).reason or ""
 
-    # 2. Indeksi on, mutta kokoonpanolla ei omistajaa.
+    # 2. There is an index, but the lineup has no owner.
     write_teams_index(parsed, {TEAM_KEY: [B]})
     reasons["no_owner"] = run_classify(settings, parsed, force=True).reason or ""
 
-    # 3. Omistaja on, valintatiedostoa ei.
+    # 3. There is an owner, but no selection file.
     write_teams_index(parsed, {TEAM_KEY: [A]})
     reasons["no_file"] = run_classify(settings, parsed, force=True).reason or ""
 
-    # 4. Tiedosto on, demolle ei riviä.
+    # 4. There is a file, but no row for the demo.
     write_selection(parsed, [selection_row(map_demo_id="1-toinen-demo-1-1")])
     reasons["no_row"] = run_classify(settings, parsed, force=True).reason or ""
 
-    # 5. Kaksi omistajaa, eri mieltä ottelun lajista.
+    # 5. Two owners, disagreeing about the kind of match.
     write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
     write_selection(parsed, [selection_row(is_league=True)], team_key=TEAM_KEY)
     write_selection(
@@ -684,11 +687,11 @@ def test_every_empty_reason_is_named_and_they_differ(settings, parsed) -> None:
     )
     reasons["conflict"] = run_classify(settings, parsed, force=True).reason or ""
 
-    assert all(reasons.values()), f"jokainen tila kertoo syyn: {reasons}"
+    assert all(reasons.values()), f"every state says its reason: {reasons}"
     assert len(set(reasons.values())) == len(reasons), (
-        f"viisi eri syytä, viisi eri lausetta: {reasons}"
+        f"five different reasons, five different sentences: {reasons}"
     )
-    assert "joukkueindeksi" in reasons["no_index"].lower()
+    assert "team index" in reasons["no_index"].lower()
     assert A in reasons["no_owner"]
     assert "pappascout select" in reasons["no_file"]
     assert MAP_DEMO_ID in reasons["no_row"]
@@ -710,27 +713,27 @@ def test_a_demo_that_has_no_row_in_the_file_leaves_both_empty(
 def test_the_bridge_reads_the_lineup_keys_that_discover_writes(
     settings, parsed
 ) -> None:
-    """Silta rakennetaan **tuottajan omalla kirjoittajalla**, ei käsin.
+    """The bridge is built with the **producer's own writer**, not by hand.
 
-    Käsin kirjoitettu indeksi pinnaa vain testin omat merkkijonot: jos
-    ``discover`` kirjoittaisi ``lineup_keys``iin eri tiivistesyötteen, eri
-    pituuden tai etuliitteen, ``owners`` olisi tyhjä **joka ainoalla demolla**
-    eikä yksikään käsin kirjoitettu fixtuuri kaatuisi -- ja tulos näyttäisi
-    samalta kuin aidosti tuntematon demo. Siksi kokoonpanot luetaan
-    ``discover``in omalla lukijalla, liitetään sen omalla säännöllä ja
-    kirjoitetaan sen omalla dokumentinrakentajalla; väite on, että sama
-    nimiavaruus tulee ulos ``classify``n päästä.
+    A hand-written index pins only the test's own strings: if ``discover``
+    wrote a different hash input, a different length or a prefix into
+    ``lineup_keys``, ``owners`` would be empty **on every single demo** and not
+    one hand-written fixture would fail -- and the result would look the same
+    as a genuinely unknown demo. So the lineups are read with ``discover``'s
+    own reader, joined with its own rule and written with its own document
+    builder; the claim is that the same namespace comes out of ``classify``'s
+    end.
 
-    Kynnys on nolla, koska tämän testin kohde on **tunnisteiden nimiavaruus**
-    eikä rosterisääntö: kiinnikkeen pelaajatunnisteet eivät ole SteamID64:iä,
-    joten rosterileikkaus ei olisi tässä mielekäs. Kynnyksellä on omat
-    testinsä ``test_teams.py``:ssä.
+    The threshold is zero, because this test's subject is **the ids'
+    namespace** and not the roster rule: the fixture's player ids are not
+    SteamID64s, so a roster intersection would make no sense here. The
+    threshold has tests of its own in ``test_teams.py``.
     """
     lineups: dict[str, set[str]] = {}
     discover_stage._read_lineups(parsed, MAP_DEMO_ID, lineups)
     assert set(lineups) == set(classify_stage.team_keys(parsed, MAP_DEMO_ID)), (
-        "discover ja classify lukevat kokoonpanot samasta taulusta samalla "
-        "nimellä"
+        "discover and classify read the lineups from the same table under "
+        "the same name"
     )
 
     teams, contested = assign_lineup_keys((Team(team_key=TEAM_KEY),), lineups, 0)
@@ -741,10 +744,10 @@ def test_the_bridge_reads_the_lineup_keys_that_discover_writes(
 
     written = {key for row in document["teams"] for key in row["lineup_keys"]}
     assert set(classify_stage.team_keys(parsed, MAP_DEMO_ID)) & written, (
-        "sillan molemmat päät ovat samassa nimiavaruudessa"
+        "both ends of the bridge are in the same namespace"
     )
 
-    # Ja silta kantaa arvon perille asti, ei vain nimeä.
+    # And the bridge carries the value all the way, not only the name.
     write_selection(parsed, [selection_row()])
     facts = classify_stage.read_match_facts(parsed, A, MAP_DEMO_ID)
     assert (facts.is_league, facts.roster_class) == (True, "5/5")
@@ -752,22 +755,22 @@ def test_the_bridge_reads_the_lineup_keys_that_discover_writes(
 
 
 def test_a_lineup_that_no_team_owns_leaves_both_empty(settings, parsed) -> None:
-    """Silta puuttuu: indeksissä oleva joukkue ei omista tätä kokoonpanoa."""
+    """The bridge is missing: the team in the index does not own this lineup."""
     write_teams_index(parsed, {TEAM_KEY: [B]})
     write_selection(parsed, [selection_row()])
 
     result = run_classify(settings, parsed, team=A)
 
     assert facts_of(parsed, A) == ([None], [None])
-    # Erotettavissa aidosti tuntemattomasta demosta: syy nimeää kokoonpanon,
-    # jolle omistajaa ei löytynyt.
+    # Distinguishable from a genuinely unknown demo: the reason names the
+    # lineup for which no owner was found.
     assert A in (result.reason or "")
 
 
 def test_each_team_gets_the_facts_from_its_own_selection_file(
     settings, parsed
 ) -> None:
-    """``--kaikki-joukkueet``: kumpikin ajo lukee oman joukkueensa tiedoston."""
+    """``--kaikki-joukkueet``: each run reads its own team's file."""
     write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [B]})
     write_selection(parsed, [selection_row(roster_class="5/5")], team_key=TEAM_KEY)
     write_selection(
@@ -796,14 +799,15 @@ def test_a_contested_lineup_that_agrees_still_fills_the_columns(
 
 
 def test_only_the_disagreeing_field_is_emptied(settings, parsed) -> None:
-    """Kaksi omistajaa, eri ``roster_class``, sama ``is_league``.
+    """Two owners, different ``roster_class``, the same ``is_league``.
 
-    Luokka arvioidaan **kyseisen joukkueen** vakirosteria vasten (AD-6), joten
-    kahdella omistajalla saa olla siitä eri arvo -- se ei ole ristiriita vaan
-    normaalia. ``is_league`` kuvaa ottelua (AD-10), ja siitä omistajat ovat
-    yksimielisiä. Tietuetasoinen vertailu heittäisi yksimielisen
-    ``is_league``in pois vain siksi, että luokat erosivat; tämä testi kaatuu,
-    jos konsensus palaa tietuetasolle.
+    The class is judged against **that team's** standing roster (AD-6), so two
+    owners are allowed to have different values for it -- that is not a
+    contradiction but the normal course of things. ``is_league`` describes the
+    match (AD-10), and the owners agree about it. A record-level comparison
+    would throw away an ``is_league`` everyone agrees on merely because the
+    classes differed; this test fails if the consensus goes back to the record
+    level.
     """
     write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
     write_selection(parsed, [selection_row(roster_class="5/5")], team_key=TEAM_KEY)
@@ -822,7 +826,7 @@ def test_only_the_disagreeing_field_is_emptied(settings, parsed) -> None:
 def test_a_disagreeing_league_flag_empties_only_that_field(
     settings, parsed
 ) -> None:
-    """Sama sääntö toiseen suuntaan: laji eri mieltä, luokka sama."""
+    """The same rule the other way round: the kind disagrees, the class is the same."""
     write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
     write_selection(parsed, [selection_row(is_league=True)], team_key=TEAM_KEY)
     write_selection(
@@ -838,12 +842,11 @@ def test_a_disagreeing_league_flag_empties_only_that_field(
 def test_two_rows_for_the_same_demo_are_not_resolved_by_the_first_one(
     settings, parsed
 ) -> None:
-    """Kahdennettu rivi menee samaan konsensukseen kuin kaksi omistajaa.
+    """A duplicated row goes into the same consensus as two owners.
 
-    "Ensimmäinen voittaa" olisi täsmälleen se arpominen, joka
-    kiistanalaisilla kokoonpanoilla kiellettiin. Rivit ovat samassa
-    tiedostossa ja eri mieltä luokasta, joten luokka jää tyhjäksi -- ei
-    ensimmäisen arvoon.
+    "The first one wins" would be exactly the draw that was forbidden for
+    contested lineups. The rows are in the same file and disagree about the
+    class, so the class stays empty -- not the first one's value.
     """
     write_teams_index(parsed, {TEAM_KEY: [A]})
     write_selection(
@@ -857,10 +860,10 @@ def test_two_rows_for_the_same_demo_are_not_resolved_by_the_first_one(
 
 
 def test_one_owner_with_a_file_is_enough(settings, parsed) -> None:
-    """Kaksi omistajaa, vain toisella valintatiedosto: yksi ääni riittää.
+    """Two owners, only one with a selection file: one vote is enough.
 
-    Yksimielisyys yhdellä äänellä on tarkoituksellista: puuttuva tiedosto ei
-    ole eri mieltä vaan hiljaa, eikä hiljaisuus voi kumota luettua arvoa.
+    Unanimity on one vote is deliberate: a missing file does not disagree, it
+    is silent, and silence cannot overturn a value that was read.
     """
     write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
     write_selection(parsed, [selection_row()], team_key=TEAM_KEY)
@@ -874,7 +877,7 @@ def test_one_owner_with_a_file_is_enough(settings, parsed) -> None:
 def test_an_owner_whose_file_lacks_the_demo_does_not_veto(
     settings, parsed
 ) -> None:
-    """Sama sisar: toisen omistajan tiedostossa on vain toisen demon rivi."""
+    """The same sibling: the other owner's file holds only another demo's row."""
     write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
     write_selection(parsed, [selection_row()], team_key=TEAM_KEY)
     write_selection(
@@ -891,14 +894,13 @@ def test_an_owner_whose_file_lacks_the_demo_does_not_veto(
 def test_the_field_names_come_from_selects_own_document_builder(
     settings, parsed
 ) -> None:
-    """Rivi rakennetaan ``select``in omalla kirjoittajalla, ei käsin.
+    """The row is built with ``select``'s own writer, not by hand.
 
-    Kaikki muut testit kaivavat raakoja avaimia käsin kirjoitetusta rivistä,
-    joten nimen vaihtaminen ``select``issä (``is_league`` -> ``league``)
-    pitäisi ne vihreinä ja tyhjentäisi tuotannon hiljaa. Tämä testi kulkee
-    tuottajan läpi: :class:`MapSelection` -> ``select._document`` ->
-    :func:`read_match_facts`, joten kenttänimi on pinnattu siihen koodiin,
-    joka sen kirjoittaa.
+    Every other test digs raw keys out of a hand-written row, so renaming a
+    field in ``select`` (``is_league`` -> ``league``) would keep them green and
+    would empty production silently. This test goes through the producer:
+    :class:`MapSelection` -> ``select._document`` -> :func:`read_match_facts`,
+    so the field name is pinned to the code that writes it.
     """
     row = MapSelection(
         map_demo_id=MAP_DEMO_ID,
@@ -907,7 +909,7 @@ def test_the_field_names_come_from_selects_own_document_builder(
         map_name="de_ancient",
         is_league=True,
         roster_ok=True,
-        roster_reason="kynnys täyttyi",
+        roster_reason="threshold met",
         roster_class="4/5",
         roster_source="observed",
     )
@@ -929,12 +931,11 @@ def test_the_field_names_come_from_selects_own_document_builder(
 
 
 def test_a_foreign_roster_class_stops_the_run(settings, parsed) -> None:
-    """Kelvoton arvo johdetaan skeemasta eikä kirjoiteta kovakoodattuna.
+    """The invalid value is derived from the schema and not hard-coded.
 
-    Tarkistus ja virheilmoitus tulevat molemmat ``CLASSIFIED``-skeeman
-    enumista, joten testin on kysyttävä samasta lähteestä: kovakoodattu
-    ``"3/5"`` kelpaisi jonain päivänä skeemaan ja testi menisi läpi
-    mittaamatta mitään.
+    The check and the error message both come from the ``CLASSIFIED`` schema's
+    enum, so the test has to ask the same source: a hard-coded ``"3/5"`` would
+    one day be valid for the schema and the test would pass measuring nothing.
     """
     allowed = classify_stage.roster_classes()
     foreign = f"vieras-{allowed[0]}"
@@ -948,7 +949,7 @@ def test_a_foreign_roster_class_stops_the_run(settings, parsed) -> None:
 
     message = str(err.value)
     assert foreign in message
-    assert ", ".join(allowed) in message, "viesti luettelee saman joukon"
+    assert ", ".join(allowed) in message, "the message lists the same set"
     assert MAP_DEMO_ID in message
     assert not parsed.classified(A, MAP_DEMO_ID).exists()
 
@@ -967,7 +968,7 @@ def test_a_broken_selection_file_advises_running_select(settings, parsed) -> Non
     write_teams_index(parsed, {TEAM_KEY: [A]})
     path = parsed.selection(TEAM_KEY)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("ei ole jsonia", encoding="utf-8")
+    path.write_text("not json", encoding="utf-8")
 
     with pytest.raises(PappascoutError) as err:
         run_classify(settings, parsed)
@@ -977,13 +978,13 @@ def test_a_broken_selection_file_advises_running_select(settings, parsed) -> Non
 
 
 def test_the_selection_file_is_not_a_manifest_input(settings, parsed) -> None:
-    """Ohitettu ajo kantaa vanhaa arvoa, ja se on tarkoituksellista.
+    """A skipped run carries the old value, and that is deliberate.
 
-    Testi pinnaa kytkennän rajan: valintatiedoston ilmestyminen **ei**
-    invalidoi valmista tulosta, ja ``--pakota`` on se tapa, jolla arvo
-    päivittyy. Ilman tätä väitettä joku lisäisi tiedoston manifestin
-    ``inputs``iin huomaamatta, että se pakottaisi koko arkiston
-    uudelleenluokitteluun.
+    The test pins where the connection stops: the selection file appearing does
+    **not** invalidate a finished result, and ``--pakota`` is how the value is
+    updated. Without this claim somebody would add the file to the manifest's
+    ``inputs`` without noticing that it would force the whole archive to be
+    classified again.
     """
     run_classify(settings, parsed)
     assert facts_of(parsed) == ([None], [None])
@@ -992,7 +993,7 @@ def test_the_selection_file_is_not_a_manifest_input(settings, parsed) -> None:
     write_selection(parsed, [selection_row()])
 
     skipped = run_classify(settings, parsed)
-    assert skipped.skipped, "manifesti täsmää: valintatiedosto ei ole syöte"
+    assert skipped.skipped, "the manifest matches: the selection file is not an input"
     assert facts_of(parsed) == ([None], [None])
 
     forced = run_classify(settings, parsed, force=True)
@@ -1003,22 +1004,23 @@ def test_the_selection_file_is_not_a_manifest_input(settings, parsed) -> None:
 def test_a_broken_selection_file_does_not_break_a_skipped_run(
     settings, parsed
 ) -> None:
-    """Faktat luetaan **ohitushaaran jälkeen**, ja tämä pinnaa järjestyksen.
+    """The facts are read **after the skip branch**, and this pins the order.
 
-    Jos luku siirretään funktion alkuun "yhteen paikkaan", yksi korruptoitunut
-    valintatiedosto muuttaisi koko arkiston valmiit luokittelut virheiksi --
-    eikä yksikään muu testi kaatuisi, koska ne kaikki ajavat tuoreen ajon.
+    If the read is moved to the top of the function "into one place", one
+    corrupted selection file would turn the whole archive's finished
+    classifications into errors -- and not one other test would fail, because
+    they all make a fresh run.
     """
     write_teams_index(parsed, {TEAM_KEY: [A]})
     write_selection(parsed, [selection_row()])
     first = run_classify(settings, parsed)
     assert not first.skipped
 
-    parsed.selection(TEAM_KEY).write_text("ei ole jsonia", encoding="utf-8")
+    parsed.selection(TEAM_KEY).write_text("not json", encoding="utf-8")
 
     result = run_classify(settings, parsed)
 
-    assert result.skipped, "valmista tulosta ei lueta uudelleen eikä rikota"
+    assert result.skipped, "a finished result is neither re-read nor broken"
     assert result.status == "ok"
     assert facts_of(parsed) == ([True], ["5/5"])
 
@@ -1026,18 +1028,19 @@ def test_a_broken_selection_file_does_not_break_a_skipped_run(
 def test_a_newer_selection_file_warns_and_names_the_flag(
     settings, parsed
 ) -> None:
-    """Vanhentuminen on havaittavissa eikä vain dokumentoitu.
+    """Staleness is observable and not merely documented.
 
-    Valintatiedosto ei ole manifestin syöte, joten sen muuttuminen ei
-    invalidoi tulosta -- eikä siis kerro itsestään. Ilman varoitusta taulu
-    kantaisi vanhaa ``is_league``ia ja raportti näyttäisi ajan tasalla
-    olevalta, ja ``--pakota`` jäisi ihmisen muistin varaan.
+    The selection file is not a manifest input, so changing it does not
+    invalidate the result -- and so it does not say anything about itself.
+    Without the warning the table would carry an old ``is_league`` and the
+    report would look up to date, and ``--pakota`` would rest on a human's
+    memory.
     """
     write_teams_index(parsed, {TEAM_KEY: [A]})
     write_selection(parsed, [selection_row()])
     run_classify(settings, parsed)
 
-    # Uudempi kuin luokittelun manifesti: select on ajettu uudelleen.
+    # Newer than the classification's manifest: select has been run again.
     write_selection(
         parsed,
         [selection_row(is_league=False)],
@@ -1049,12 +1052,12 @@ def test_a_newer_selection_file_warns_and_names_the_flag(
     assert result.skipped
     assert "--pakota" in (result.reason or "")
     assert classify_stage.SKIP_REASON in (result.reason or "")
-    # Ja kun tiedosto on vanhempi, varoitusta ei ole.
+    # And when the file is older, there is no warning.
     write_selection(parsed, [selection_row()])
     assert run_classify(settings, parsed).reason == classify_stage.SKIP_REASON
 
 
-# --- Kierroslista Markdownina ----------------------------------------------------
+# --- The round list as Markdown --------------------------------------------------
 
 
 def test_writes_a_readable_round_list_beside_the_table(settings, parsed) -> None:
@@ -1064,31 +1067,32 @@ def test_writes_a_readable_round_list_beside_the_table(settings, parsed) -> None
     text = path.read_text(encoding="utf-8")
 
     assert MAP_DEMO_ID in text
-    assert text.count("\n|") >= 6, "rivi jokaiselle kierrokselle"
-    # Kynnykset ovat mukana, muuten lista ei kerro mitä vasten päätös tehtiin.
-    # Tarkistus kohdistuu otsikon LAUSEESEEN, ei pelkkään lukuun: fikstuurin
-    # rahasummat sisältävät samoja numeroita, joten irrallinen "1000" löytyisi
-    # taulukon riveiltä vaikka otsikko olisi rikki.
+    assert text.count("\n|") >= 6, "a row for every round"
+    # The thresholds are there, otherwise the list does not say what the
+    # decision was made against. The check is aimed at the heading's SENTENCE
+    # and not at the number alone: the fixture's money sums hold the same
+    # digits, so a bare "1000" would be found on the table's rows even if the
+    # heading were broken.
     t = settings.thresholds
-    header_line = next(r for r in text.splitlines() if r.startswith("- Kynnykset"))
-    assert f"täysi osto vähintään {t.full_equip_min}" in header_line
-    assert f"voiton jälkeen enintään {t.anomaly_equip_max_after_win}" in header_line
-    assert f"ostettua vähintään {t.force_buy_min}" in header_line
-    # Puolioston kaksi ehtoa ovat omalla rivillään: ne eivät ole
-    # dollarikynnyksiä per pelaaja vaan pelaajalaskureita, ja yhteen lauseeseen
-    # ahdettuna kumpikaan ei olisi luettavissa.
-    half_line = next(r for r in text.splitlines() if r.startswith("- Puolioston"))
-    assert f"vähintään {t.armed_players_min} pelaajaa aseistettuna" in half_line
-    assert f"vähintään {t.normal_buy_players_min} pelaajaa" in half_line
-    assert f"vähintään {t.normal_buy_money_min} $" in half_line
-    # Häviöbonuksen portaat ovat mukana: ilman niitä ehdon B luku ei ole
-    # tarkistettavissa, koska bonus ei näy missään muualla listassa.
-    bonus_line = next(r for r in text.splitlines() if r.startswith("- Ehto B"))
+    header_line = next(r for r in text.splitlines() if r.startswith("- Thresholds"))
+    assert f"a full buy is at least {t.full_equip_min}" in header_line
+    assert f"after a win at most {t.anomaly_equip_max_after_win}" in header_line
+    assert f"a buy needs at least {t.force_buy_min}" in header_line
+    # The half-buy's two conditions are on a line of their own: they are not
+    # dollar thresholds per player but player counters, and crammed into one
+    # sentence neither would be readable.
+    half_line = next(r for r in text.splitlines() if r.startswith("- The half-buy"))
+    assert f"at least {t.armed_players_min} players armed" in half_line
+    assert f"at least {t.normal_buy_players_min} players" in half_line
+    assert f"at least {t.normal_buy_money_min} $" in half_line
+    # The loss bonus's steps are there: without them condition B's figure
+    # cannot be checked, because the bonus shows nowhere else in the list.
+    bonus_line = next(r for r in text.splitlines() if r.startswith("- Condition B"))
     for step in settings.economy.loss_bonus_steps:
         assert str(step) in bonus_line
     assert str(settings.league.ot_start_money) in text
-    # Poistuneita kynnyksiä ei mainita: otsikko kertoo vain sen, mitä
-    # luokittelu oikeasti vertaili.
+    # Retired thresholds are not mentioned: the heading says only what the
+    # classification really compared.
     for retired in (
         "eco_money_max",
         "eco_loss_count_min",
@@ -1109,11 +1113,11 @@ def test_round_list_is_listed_as_an_output_in_the_manifest(settings, parsed) -> 
     assert any(o.endswith(".parquet") for o in manifest.outputs)
 
 
-# --- Manifesti ja ohitus ---------------------------------------------------------
+# --- The manifest and the skip ---------------------------------------------------
 
 
 def test_manifest_has_no_tool_versions(settings, parsed) -> None:
-    """Luokittelu on puhdasta domain-laskentaa: mikään kirjastoversio ei muuta sitä."""
+    """Classification is pure domain computation: no library version changes it."""
     run_classify(settings, parsed)
     manifest = Manifest.read(parsed.classified_manifest(A, MAP_DEMO_ID))
     assert manifest.stage == "classify"
@@ -1130,7 +1134,7 @@ def test_second_run_is_skipped(settings, parsed) -> None:
     assert result.skipped
     assert path.stat().st_mtime_ns == before
     assert result.stats["rounds"] == 6
-    assert result.stats["rows"], "kierroslista luetaan valmiista tuloksesta"
+    assert result.stats["rows"], "the round list is read from the finished result"
 
 
 def test_force_overrides_a_matching_manifest(settings, parsed) -> None:
@@ -1139,21 +1143,22 @@ def test_force_overrides_a_matching_manifest(settings, parsed) -> None:
 
 
 def test_a_stale_inputs_struct_is_recomputed_not_read(settings, parsed) -> None:
-    """Vanha tulos, jonka ``inputs``-rakenne on eri muotoa, ajetaan uudelleen.
+    """An old result whose ``inputs`` structure is a different shape is run again.
 
-    ``inputs``-structin kentät muuttuivat kalibroinnissa 2026-08-29 ilman että
-    manifestin skeemaversio muuttui, joten täsmäävä manifesti voi osoittaa
-    vanhamuotoiseen tauluun. Sen on johdettava uudelleenlaskentaan -- ei
-    kaatumiseen eikä hiljaiseen vanhan tuloksen palauttamiseen.
+    The fields of the ``inputs`` struct changed during the calibration on
+    2026-08-29 without the manifest's schema version changing, so a matching
+    manifest can point at a table in the old shape. That has to lead to a
+    recomputation -- not to a crash and not to the old result being returned
+    silently.
     """
     run_classify(settings, parsed)
     path = parsed.classified(A, MAP_DEMO_ID)
-    assert run_classify(settings, parsed).skipped, "esiehto: manifesti täsmää"
+    assert run_classify(settings, parsed).skipped, "precondition: the manifest matches"
 
-    # Kirjoita taulu uudelleen vanhanmallisella inputs-rakenteella:
-    # poistetut kynnykset takaisin, uudet pois. Molempien on oltava
-    # oikeasti poistuneita tai oikeasti uusia -- elävän avaimen
-    # poistaminen testaisi eri asiaa kuin mitä nimi lupaa.
+    # Write the table again with the old-shaped inputs structure: the retired
+    # thresholds back, the new ones out. Both have to be really retired or
+    # really new -- removing a live key would test something other than what
+    # the name promises.
     df = pl.read_parquet(path)
     old_inputs = []
     for i in df["inputs"].to_list():
@@ -1176,7 +1181,7 @@ def test_a_stale_inputs_struct_is_recomputed_not_read(settings, parsed) -> None:
     df.with_columns(pl.Series("inputs", old_inputs)).write_parquet(path)
 
     result = run_classify(settings, parsed)
-    assert not result.skipped, "vanhamuotoista tulosta ei saa palauttaa sellaisenaan"
+    assert not result.skipped, "a result in the old shape must not be returned as it is"
     assert result.status == "ok"
     fields = set(pl.read_parquet(path)["inputs"].to_list()[0])
     assert "force_buy_min" in fields
@@ -1186,7 +1191,7 @@ def test_a_stale_inputs_struct_is_recomputed_not_read(settings, parsed) -> None:
 def test_threshold_change_reruns_classify_but_not_parse(
     tmp_path: Path, archive
 ) -> None:
-    """Hyväksymiskriteeri: kynnysmuutos ajaa luokittelun, ei parsintaa."""
+    """The acceptance criterion: a threshold change re-runs the classification, not the parsing."""
     base_toml = tmp_path / "perus.toml"
     base_toml.write_text(settings_text(archive.root), encoding="utf-8")
     changed_toml = tmp_path / "muutettu.toml"
@@ -1205,19 +1210,19 @@ def test_threshold_change_reruns_classify_but_not_parse(
     run_classify(a, archive)
     result = run_classify(b, archive)
 
-    assert not result.skipped, "kynnysmuutoksen jälkeen luokittelu ajetaan uudelleen"
+    assert not result.skipped, "after a threshold change the classification is run again"
     assert archive.parsed_table(MAP_DEMO_ID, "rounds").stat().st_mtime_ns == (
         parse_mtime_before
-    ), "parsintaa ei saa ajaa uudelleen"
+    ), "the parsing must not be run again"
 
 
 def test_a_forced_reparse_with_the_same_result_does_not_rerun_classify(
     settings, parsed
 ) -> None:
-    """Luokittelun syöte on parsinnan **tulos**, ei sen ajohetki.
+    """The classification's input is the parsing's **result**, not the moment it ran.
 
-    Ilman tätä jokainen ``parse --pakota`` pakottaisi myös uuden luokittelun,
-    vaikka kierrostaulu olisi tavu tavulta sama.
+    Without this, every ``parse --pakota`` would force a new classification as
+    well, even when the rounds table was byte for byte the same.
     """
     run_classify(settings, parsed)
     write_parse(parsed, rounds_frame(match()), settings.parse, force=True)
@@ -1225,7 +1230,7 @@ def test_a_forced_reparse_with_the_same_result_does_not_rerun_classify(
 
 
 def test_a_changed_demo_forces_a_new_classification(settings, parsed) -> None:
-    """Uusi parsinta uudesta demosta ei saa jäädä vanhan luokittelun taakse."""
+    """A new parse of a new demo must not stay behind the old classification."""
     run_classify(settings, parsed)
     demo = parsed.import_dir() / f"{MAP_DEMO_ID}.dem"
     demo.write_bytes(b"PBDEMS2\x00" + b"y" * 4096)
@@ -1241,9 +1246,9 @@ def test_missing_output_forces_a_rerun(settings, parsed) -> None:
 
 
 def test_unreadable_result_is_recomputed_not_reported(settings, parsed) -> None:
-    """Luokittelu on halpaa: rikkinäinen tulos lasketaan uudelleen."""
+    """Classification is cheap: a broken result is computed again."""
     run_classify(settings, parsed)
-    parsed.classified(A, MAP_DEMO_ID).write_bytes(b"ei parquetia")
+    parsed.classified(A, MAP_DEMO_ID).write_bytes(b"not parquet")
 
     result = run_classify(settings, parsed)
     assert not result.skipped
@@ -1254,10 +1259,10 @@ def test_unreadable_result_is_recomputed_not_reported(settings, parsed) -> None:
 def test_result_that_no_longer_matches_the_contract_is_recomputed(
     settings, parsed
 ) -> None:
-    """Täsmäävä manifesti ei riitä, jos tulostaulun sopimus on muuttunut.
+    """A matching manifest is not enough if the result table's contract has changed.
 
-    Skeeman laajentuminen ei muuta manifestin sisältöä, joten vanha tulos
-    näyttäisi ajantasaiselta mutta siitä puuttuisivat uudet arvot.
+    Widening the schema does not change the manifest's content, so an old
+    result would look up to date but the new values would be missing from it.
     """
     run_classify(settings, parsed)
     path = parsed.classified(A, MAP_DEMO_ID)
@@ -1268,7 +1273,7 @@ def test_result_that_no_longer_matches_the_contract_is_recomputed(
     assert "loss_count" in pl.read_parquet(path).columns
 
 
-# --- Joukkueen valinta -----------------------------------------------------------
+# --- Choosing the team -----------------------------------------------------------
 
 
 def test_team_can_be_given_as_a_unique_prefix(settings, parsed) -> None:
@@ -1282,7 +1287,7 @@ def test_unknown_team_lists_both_lineups_of_the_demo(settings, parsed) -> None:
     message = str(exc.value)
     assert A in message
     assert B in message
-    assert "ei täsmää" in message
+    assert "matches neither lineup" in message
 
 
 def test_missing_team_lists_both_lineups_too(settings, parsed) -> None:
@@ -1294,7 +1299,7 @@ def test_missing_team_lists_both_lineups_too(settings, parsed) -> None:
 
 
 def test_ambiguous_prefix_is_refused(settings, archive) -> None:
-    """Yhteinen alkuosa ei saa valita kokoonpanoa arpomalla."""
+    """A shared prefix must not choose a lineup by drawing lots."""
     frame = rounds_frame(match()).with_columns(
         pl.when(pl.col("lineup_key") == A)
         .then(pl.lit("yhteinen1"))
@@ -1302,37 +1307,39 @@ def test_ambiguous_prefix_is_refused(settings, archive) -> None:
         .alias("lineup_key")
     )
     write_parse(archive, frame, settings.parse)
-    with pytest.raises(PappascoutError, match="useampaan"):
+    with pytest.raises(PappascoutError, match="matches more than one lineup"):
         run_classify(settings, archive, team="yhteinen")
 
 
-# --- Virheet ---------------------------------------------------------------------
+# --- Errors ----------------------------------------------------------------------
 
 
 def test_unparsed_demo_tells_which_command_to_run(settings, archive) -> None:
     with pytest.raises(PappascoutError) as exc:
         run_classify(settings, archive)
     message = str(exc.value)
-    assert "ei ole vielä parsittu" in message
+    assert "has not been parsed yet" in message
     assert "pappascout parse" in message
 
 
 def test_failed_parse_is_not_classified_over(settings, parsed) -> None:
     manifest = Manifest.read(parsed.parsed_manifest(MAP_DEMO_ID))
     broken = manifest.model_copy(
-        update={"status": "parse_failed", "reason": "demo katkennut"}
+        update={"status": "parse_failed", "reason": "the demo is truncated"}
     )
     broken.write(parsed.parsed_manifest(MAP_DEMO_ID))
 
     with pytest.raises(PappascoutError) as exc:
         run_classify(settings, parsed)
     assert "parse_failed" in str(exc.value)
-    assert "demo katkennut" in str(exc.value)
+    assert "the demo is truncated" in str(exc.value)
 
 
-def test_missing_parse_manifest_is_a_finnish_error(settings, parsed) -> None:
+def test_missing_parse_manifest_names_the_path_and_the_next_command(
+    settings, parsed
+) -> None:
     parsed.parsed_manifest(MAP_DEMO_ID).unlink()
-    with pytest.raises(PappascoutError, match="manifestia ei löytynyt"):
+    with pytest.raises(PappascoutError, match="parse manifest was not found"):
         run_classify(settings, parsed)
 
 
@@ -1348,15 +1355,15 @@ def test_rounds_table_that_breaks_the_contract_is_refused(
 def test_outdated_rounds_table_tells_the_user_to_reparse(
     settings, parsed
 ) -> None:
-    """Vanha taulu on käyttäjän tilanne, ei kehittäjän.
+    """An old table is the user's situation, not the developer's.
 
-    ``validate`` puhuu kehittäjälle: "Lisää sarake tai korjaa taulun
-    tuottanut vaihe -- sopimus on tiedostossa domain/schemas.py." Se on
-    väärä neuvo sille, joka ei koodaa itse: arkistossa oleva taulu on
-    parsittu vanhemmalla versiolla, ja korjaus on ajaa parsinta uudelleen.
+    ``validate`` speaks to the developer: "Add the column or fix the stage that
+    produced the table -- the contract is in the file domain/schemas.py." That
+    is the wrong advice for someone who does not code: the table in the archive
+    was parsed with an older version, and the fix is to parse it again.
 
-    Sarake on kalustolaskuri, koska se on tuorein ``ROUNDS``-laajennus ja
-    siten se, jonka vuoksi tämä tilanne oikeasti syntyy.
+    The column is the armed counter, because it is the most recent ``ROUNDS``
+    extension and therefore the one this situation really arises over.
     """
     path = parsed.parsed_table(MAP_DEMO_ID, "rounds")
     pl.read_parquet(path).drop(ARMED_COLUMN).write_parquet(path)
@@ -1365,21 +1372,26 @@ def test_outdated_rounds_table_tells_the_user_to_reparse(
         run_classify(settings, parsed)
 
     message = str(exc.value)
-    # Diagnoosi säilyy: viesti nimeää sarakkeen, joka puuttuu.
+    # The diagnosis stays: the message names the column that is missing.
     assert ARMED_COLUMN in message
-    # Neuvo on käyttäjän tekemä toimenpide, ei koodimuutos.
-    assert "parsittu ohjelman vanhemmalla versiolla" in message
+    # The advice is an action the user takes, not a code change.
+    assert "parsed with an older version of the program" in message
     assert f"pappascout parse {MAP_DEMO_ID} --pakota" in message
-    # Kehittäjän ohje ei saa vuotaa mukaan: se kehottaisi muokkaamaan koodia,
-    # jota käyttäjä ei kirjoita.
+    # The developer's advice must not leak in: it would tell the reader to edit
+    # code the user does not write.
+    #
+    # The second guard names the English text ``validate`` writes today. It
+    # named the Finnish wording until T9 translated ``domain/schemas.py``, and
+    # from that commit on it matched nothing and guarded nothing -- a negative
+    # guard whose subject was translated in another tranche. Found in T6.
     assert "domain/schemas.py" not in message
-    assert "Lisää sarake" not in message
+    assert "Add the column" not in message
 
 
 def test_a_round_without_an_anchor_does_not_break_the_run(
     settings, archive
 ) -> None:
-    """I/O-matriisi: ankkuriton kierros jää luokittelematta, ajo jatkuu."""
+    """The I/O matrix: a round with no anchor is left unclassified, the run goes on."""
     rounds = match()
     rounds[2] = round_rows(3, status="no_freeze_end")
     write_parse(archive, rounds_frame(rounds), settings.parse)
@@ -1397,7 +1409,7 @@ def test_a_round_without_an_anchor_does_not_break_the_run(
 def test_short_handed_team_is_divided_by_the_observed_count(
     settings, archive
 ) -> None:
-    """Vajaa joukkue: per pelaaja -arvo lasketaan oikealla määrällä."""
+    """A short-handed team: the per-player value is computed with the right count."""
     total = 4 * settings.thresholds.full_equip_min
     rounds = match()
     rounds[3] = round_rows(4, a_won=False, a_equip=total, a_players=4)
@@ -1412,15 +1424,15 @@ def test_short_handed_team_is_divided_by_the_observed_count(
 
 
 
-# --- Katselmuksen nostamat reunatapaukset ----------------------------------------
+# --- Edge cases the review raised ------------------------------------------------
 
 
 def test_unnumbered_rounds_are_dropped_and_counted(settings, archive) -> None:
-    """Numeroimaton rivi kaataisi loss countin; se pudotetaan ja kerrotaan.
+    """An unnumbered row would break the loss count; it is dropped and told.
 
-    Kierrostaulu kirjoitetaan tässä suoraan, koska ``parse`` ei itse päästä
-    numeroimatonta riviä läpi -- mutta arkistossa voi olla vanhemmalla
-    versiolla kirjoitettu taulu, eikä luokittelu saa kaatua siihen.
+    The rounds table is written directly here, because ``parse`` itself does
+    not let an unnumbered row through -- but the archive may hold a table
+    written with an older version, and the classification must not fail on it.
     """
     write_parse(archive, rounds_frame(match()), settings.parse)
     path = archive.parsed_table(MAP_DEMO_ID, "rounds")
@@ -1439,11 +1451,11 @@ def test_unnumbered_rounds_are_dropped_and_counted(settings, archive) -> None:
 
 
 def test_skipped_run_gives_exactly_the_same_round_list(settings, parsed) -> None:
-    """Yksi polku kierroslistalle: ohitus ei saa näyttää eri lukuja.
+    """One path to the round list: a skip must not show different figures.
 
-    Jos tuore ja ohitettu ajo rakentaisivat rivit eri tavalla, ``--show``
-    näyttäisi toisella ajolla esimerkiksi vastustajan talouden subjektin
-    kierroksilla -- eikä mikään kertoisi siitä.
+    If a fresh run and a skipped one built the rows differently, ``--show``
+    would show on the second run, for example, the opponent's economy on the
+    subject's rounds -- and nothing would say so.
     """
     fresh = run_classify(settings, parsed)
     skipped_run = run_classify(settings, parsed)
@@ -1455,7 +1467,7 @@ def test_skipped_run_gives_exactly_the_same_round_list(settings, parsed) -> None
 
 
 def test_league_change_reruns_classify_but_not_parse(tmp_path: Path, archive) -> None:
-    """``[league]`` on osa luokittelun parametrihashia siinä missä kynnyksetkin."""
+    """``[league]`` is part of the classification's parameter hash just as the thresholds are."""
     base_toml = tmp_path / "perus.toml"
     base_toml.write_text(settings_text(archive.root), encoding="utf-8")
     changed_toml = tmp_path / "muutettu.toml"
@@ -1481,7 +1493,7 @@ def test_league_change_reruns_classify_but_not_parse(tmp_path: Path, archive) ->
 
 
 def test_markdown_row_matches_the_parquet_row(settings, parsed) -> None:
-    """Taulukon sisältö, ei vain sen muoto: tyyppi ja perustelu ovat samat."""
+    """The table's content, not only its shape: the type and the reason are the same."""
     run_classify(settings, parsed)
     text = parsed.classified_round_list(A, MAP_DEMO_ID).read_text(encoding="utf-8")
     df = pl.read_parquet(parsed.classified(A, MAP_DEMO_ID)).sort("round_no")
@@ -1492,23 +1504,23 @@ def test_markdown_row_matches_the_parquet_row(settings, parsed) -> None:
     headers = [o for o, _ in classify_stage.ROUND_LIST_COLUMNS]
     fields = dict(zip(headers, cells))
 
-    assert fields["Tyyppi"] == str(expected["round_type"])
-    assert fields["Vast."] == str(expected["opp_round_type"])
+    assert fields["Type"] == str(expected["round_type"])
+    assert fields["Opp."] == str(expected["opp_round_type"])
     assert fields["Loss"] == str(expected["loss_count"])
-    assert fields["Puoli"] == str(expected["side"])
-    # Perustelu on sama teksti, vain Markdown-suojaukset poistettuna.
-    assert fields["Perustelu"].replace("\\", "") == str(expected["reason"]).replace(
+    assert fields["Side"] == str(expected["side"])
+    # The reason is the same text, only with the Markdown escapes removed.
+    assert fields["Reason"].replace("\\", "") == str(expected["reason"]).replace(
         "\\", ""
     )
-    # Ja per pelaaja -arvot vastaavat inputs-rakennetta.
+    # And the per-player values match the inputs structure.
     inputs = expected["inputs"]
-    assert fields["Varusteet"] == str(
+    assert fields["Equipment"] == str(
         per_player(inputs["equip_buy_end"], inputs["players"])
     )
 
 
 def test_markdown_escapes_everything_that_would_break_the_table(settings) -> None:
-    """Rivinvaihto rikkoisi taulukon ja backtick söisi loput rivistä."""
+    """A newline would break the table and a backtick would eat the rest of the line."""
     rows = [
         {
             "round_no": 1,
@@ -1522,7 +1534,7 @@ def test_markdown_escapes_everything_that_would_break_the_table(settings) -> Non
             "spent_per_player": 100,
             "equip_per_player": 300,
             "players": 5,
-            "reason": "Rivi\nvaihto | putki `backtick`.",
+            "reason": "Row\nbreak | pipe `backtick`.",
         }
     ]
     text = classify_stage.render_round_list_markdown(
@@ -1534,7 +1546,7 @@ def test_markdown_escapes_everything_that_would_break_the_table(settings) -> Non
         economy=settings.economy,
     )
     table_lines = [r for r in text.splitlines() if r.startswith("| 1 |")]
-    assert len(table_lines) == 1, "rivinvaihto ei saa katkaista solua"
+    assert len(table_lines) == 1, "a newline must not break the cell"
     row = table_lines[0]
     assert row.count("|") == len(classify_stage.ROUND_LIST_COLUMNS) + 1 + 1
     assert "\\`" in row
@@ -1542,17 +1554,17 @@ def test_markdown_escapes_everything_that_would_break_the_table(settings) -> Non
 
 
 def test_markdown_is_byte_identical_on_a_rerun(settings, parsed) -> None:
-    """Ajohetki kuuluu manifestiin, ei tulosteeseen -- muuten erot eivät näy."""
+    """The moment of the run belongs in the manifest, not in the output -- otherwise differences do not show."""
     run_classify(settings, parsed)
     before = parsed.classified_round_list(A, MAP_DEMO_ID).read_bytes()
     run_classify(settings, parsed, force=True)
     assert parsed.classified_round_list(A, MAP_DEMO_ID).read_bytes() == before
-    # Aikaleima on kuitenkin tallessa.
+    # The timestamp is safe all the same.
     assert Manifest.read(parsed.classified_manifest(A, MAP_DEMO_ID)).created_at
 
 
 def test_rounds_table_of_another_demo_is_refused(settings, parsed) -> None:
-    """Väärä parquet oikeassa polussa luokiteltaisiin väärän tunnisteen alle."""
+    """The wrong parquet in the right path would be classified under the wrong id."""
     path = parsed.parsed_table(MAP_DEMO_ID, "rounds")
     pl.read_parquet(path).with_columns(
         pl.lit("1-toinen-demo-1").alias("map_demo_id")
@@ -1560,7 +1572,7 @@ def test_rounds_table_of_another_demo_is_refused(settings, parsed) -> None:
 
     with pytest.raises(PappascoutError) as exc:
         run_classify(settings, parsed)
-    assert "toisen demon rivejä" in str(exc.value)
+    assert "holds rows of another demo" in str(exc.value)
     assert "1-toinen-demo-1" in str(exc.value)
 
 
@@ -1572,12 +1584,12 @@ def test_three_lineups_are_refused_with_the_right_count(settings, archive) -> No
     with pytest.raises(SchemaError) as exc:
         run_classify(settings, archive)
     message = str(exc.value)
-    assert "3 kokoonpanoa" in message
+    assert "3 lineups" in message
     assert "cccccccccccccccc" in message
 
 
 def test_round_number_mismatch_between_teams_is_refused(settings, parsed) -> None:
-    """Ilman tarkistusta vastustajan tyyppi liittyisi väärälle riville."""
+    """Without the check the opponent's type would be joined to the wrong row."""
     path = parsed.parsed_table(MAP_DEMO_ID, "rounds")
     pl.read_parquet(path).with_columns(
         pl.when((pl.col("lineup_key") == B) & (pl.col("round_no") == 6))
@@ -1586,7 +1598,7 @@ def test_round_number_mismatch_between_teams_is_refused(settings, parsed) -> Non
         .alias("round_no")
     ).write_parquet(path)
 
-    with pytest.raises(SchemaError, match="eivät täsmää"):
+    with pytest.raises(SchemaError, match="round numbers do not match"):
         run_classify(settings, parsed)
 
 
@@ -1595,7 +1607,7 @@ def test_team_keys_lists_both_lineups(settings, parsed) -> None:
 
 
 def test_inputs_carry_the_money_that_was_available(settings, parsed) -> None:
-    """Story 1.4 tarvitsee käytettävissä olleen rahan, ei vain jäljelle jäänyttä."""
+    """Story 1.4 needs the money that was available, not only what was left."""
     run_classify(settings, parsed)
     df = pl.read_parquet(parsed.classified(A, MAP_DEMO_ID))
     for inputs in df["inputs"].to_list():
@@ -1606,26 +1618,28 @@ def test_inputs_carry_the_money_that_was_available(settings, parsed) -> None:
             inputs["normal_buy_money_min"]
             == settings.thresholds.normal_buy_money_min
         )
-        # Story 1.10: jakauma ja molempien ehtojen laskurit kulkevat mukana,
-        # jotta kierroslistan rivi on tarkistettavissa ilman uutta ajoa.
+        # Story 1.10: the distribution and the counters of both conditions
+        # travel along, so that the round list's row can be checked without a
+        # new run.
         assert sum(inputs["money_players"]) == inputs["money_buy_end"]
         assert inputs["players_can_buy"] is not None
         assert inputs["loss_bonus_if_lost"] in settings.economy.loss_bonus_steps
 
 
-# --- Oikeat demot ----------------------------------------------------------------
+# --- Real demos ------------------------------------------------------------------
 
 
 def real_rounds(demo_name: str, map_demo_id: str) -> pl.DataFrame:
-    """Oikean demon kierrostaulu ``ROUNDS``-muodossa, ilman arkistoa."""
+    """A real demo's rounds table in ``ROUNDS`` shape, with no archive."""
     from pappascout.adapters.demo_parser import Demoparser2Adapter
 
-    # Yksi näytepiste riittää: tämä apuri käyttää vain kierrostaulua, ja
-    # portti palauttaa molemmat samasta lukukerrasta. Poissulkulista **ja
-    # ostoikkuna** ovat tuotannon, jotta adapteri ajetaan samoilla säännöillä
-    # kuin oikeasti. Ilman ikkunaa adapterin oletus on 0,0 eli mittaus
-    # ankkurilta, ja koko tämän tiedoston demopohjainen sarja varmentaisi
-    # tuomioita luvuista, joita tuote ei enää tuota.
+    # One sample point is enough: this helper uses the rounds table only, and
+    # the port returns both from the same read. The exclusion list **and the
+    # buy window** are production's, so that the adapter is run under the same
+    # rules as it really is. Without the window the adapter's default is 0.0,
+    # that is, the measurement from the anchor, and this file's whole
+    # demo-based series would confirm verdicts about figures the product no
+    # longer produces.
     parse_settings_real = load_settings(REAL_SETTINGS, env_files=()).parse
     adapter = Demoparser2Adapter(
         exclude_weapons=parse_settings_real.first_contact_exclude_weapons,
@@ -1642,12 +1656,12 @@ def real_rounds(demo_name: str, map_demo_id: str) -> pl.DataFrame:
 
 
 def subject_key(df: pl.DataFrame) -> str:
-    """Kokoonpano, joka aloitti T-puolella.
+    """The lineup that started on the T side.
 
-    Molemmissa testidemoissa se on ``team_SSStttNNN``
-    (``_bmad-output/implementation-artifacts/testiaineisto.md``). Nimeä ei voi
-    lukea demosta -- kierrostaulussa on vain kokoonpanotiiviste -- joten
-    subjekti tunnistetaan aloituspuolesta.
+    In both test demos it is ``team_SSStttNNN``
+    (``_bmad-output/implementation-artifacts/testiaineisto.md``). The name
+    cannot be read from the demo -- the rounds table holds only the lineup hash
+    -- so the subject is recognised from the starting side.
     """
     return str(
         df.filter((pl.col("round_no") == 1) & (pl.col("side") == "T"))["lineup_key"][0]
@@ -1656,7 +1670,7 @@ def subject_key(df: pl.DataFrame) -> str:
 
 @pytest.mark.demo
 def test_ancient_first_three_rounds_are_pistol_eco_full(settings_file: Path) -> None:
-    """Regressio: todennettu jakso pistooli -> säästö -> täysi osto."""
+    """A regression: the verified sequence pistol -> saving round -> full buy."""
     loaded = load_settings(settings_file, env_files=())
     thresholds, economy = loaded.thresholds, loaded.economy
     df = real_rounds(ANCIENT_DEM, "ancient")
@@ -1665,7 +1679,7 @@ def test_ancient_first_three_rounds_are_pistol_eco_full(settings_file: Path) -> 
     )
     assert df_.height == ANCIENT_ROUNDS
     assert df_.sort("round_no")["round_type"].to_list()[:3] == ["pistol", "eco", "full"]
-    # Perustelu kertoo rahan ja loss countin jokaisella kierroksella.
+    # The reason says the money and the loss count on every round.
     assert all("loss count" in str(r["reason"]) for r in rows)
 
 
@@ -1737,31 +1751,32 @@ def test_opponent_type_matches_the_other_teams_own_type(
     )
 
 
-# --- Kalibrointi oikealla demolla (Story 1.9) ---------------------------------
+# --- Calibration on a real demo (Story 1.9) -----------------------------------
 
 
 @pytest.mark.demo
 def test_ancient_calibration_verdicts_hold_on_the_real_demo(
     settings_file: Path,
 ) -> None:
-    """Kalibroinnin 15 tuomiota **oikeasta demosta**, ei käsin rakennetusta rivistä.
+    """The calibration's 15 verdicts **from a real demo**, not from a hand-built row.
 
-    ``test_calibration.py`` pinnaa säännön: annetuilla luvuilla se antaa
-    tuotteen omistajan tuomion. Se ei voi todeta, että demosta luetaan **ne
-    luvut** -- taulun rivit ovat siellä syöte, ja jos mittaus ajautuu
-    erilleen, sääntö
-    menee yhä läpi omilla luvuillaan.
+    ``test_calibration.py`` pins the rule: on the given figures it gives the
+    product owner's verdict. It cannot establish that **those figures** are
+    read from the demo -- there the table's rows are the input, and if the
+    measurement drifts apart, the rule
+    still passes on figures of its own.
 
-    Tämä sulkee ketjun toisesta päästä: demo parsitaan tuotannon asetuksilla,
-    luokitellaan tuotannon kynnyksillä, ja jokaisen 15 rivin tuomiota
-    verrataan tuotteen omistajan antamaan. Aiempi varmistus,
-    :func:`test_ancient_has_no_unclassified_rounds`, tyytyy siihen ettei arvo
-    ole tyhjä -- minkä ``anomaly`` ja mikä tahansa väärä tuomio täyttää, eikä
-    se kata kolmeatoista näistä viidestätoista rivistä lainkaan.
+    This closes the chain from the other end: the demo is parsed with
+    production's settings, classified with production's thresholds, and each of
+    the 15 rows' verdicts is compared against the one the product owner gave.
+    The earlier check, :func:`test_ancient_has_no_unclassified_rounds`, settles
+    for the value not being empty -- which ``anomaly`` and any wrong verdict
+    satisfy, and it does not cover thirteen of these fifteen rows at all.
 
-    **Luvut tarkistetaan tuomion lisäksi**, koska tuomio kestää yllättävän
-    suuria muutoksia: kierros 21 T on eco sekä 710 että 750 dollarilla, joten
-    pelkkä tuomio ei huomaisi mittauspisteen liukumista.
+    **The figures are checked as well as the verdict**, because a verdict
+    survives surprisingly large changes: round 21 T is eco at both 710 and 750
+    dollars, so the verdict alone would not notice the measurement point
+    sliding.
     """
     loaded = load_settings(settings_file, env_files=())
     thresholds, economy = loaded.thresholds, loaded.economy
@@ -1777,13 +1792,13 @@ def test_ancient_calibration_verdicts_hold_on_the_real_demo(
 
     for k in TRUTH_TABLE:
         row = observed.get((k.round_no, k.side))
-        assert row is not None, f"kierros {k.round_no} {k.side} puuttuu demosta"
+        assert row is not None, f"round {k.round_no} {k.side} is missing from the demo"
 
         assert row["round_type"] == k.truth, (
-            f"Kierros {k.round_no} {k.side}: tuotteen omistaja sanoo "
+            f"Round {k.round_no} {k.side}: the product owner says "
             f"{k.truth!r} "
-            f"({k.basis}), demosta luokiteltuna {row['round_type']!r}. "
-            f"Perustelu: {row['reason']}"
+            f"({k.basis}), classified from the demo {row['round_type']!r}. "
+            f"Reason: {row['reason']}"
         )
 
         inputs = row["inputs"]
@@ -1794,11 +1809,11 @@ def test_ancient_calibration_verdicts_hold_on_the_real_demo(
             inputs["equip_buy_end"] - inputs["equip_round_start"], players
         )
         assert (left, bought, equip) == (k.left, k.bought, k.equip), (
-            f"Kierros {k.round_no} {k.side}: totuustaulun luvut ovat "
-            f"{(k.left, k.bought, k.equip)}, demo antaa "
-            f"{(left, bought, equip)} (jäljellä / ostettu / varusteet, "
-            "$/pelaaja). Päivitä taulun luvut ja muutosloki -- tuomioon ei "
-            "kosketa."
+            f"Round {k.round_no} {k.side}: the truth table's figures are "
+            f"{(k.left, k.bought, k.equip)}, the demo gives "
+            f"{(left, bought, equip)} (left / bought / equipment, "
+            "$/player). Update the table's figures and the changelog -- the "
+            "verdict is not touched."
         )
 
 
@@ -1806,19 +1821,19 @@ def test_ancient_calibration_verdicts_hold_on_the_real_demo(
 def test_the_calibration_demo_is_measured_from_the_buy_window(
     settings_file: Path,
 ) -> None:
-    """Kalibrointidemo mitataan ostoajan lopusta, ei ankkurista.
+    """The calibration demo is measured from the end of the buy time, not from the anchor.
 
-    Edellinen testi menisi läpi myös silloin, jos sekä mittaus että
-    totuustaulu palautuisivat yhtä matkaa ankkuriin -- kaksi virhettä, jotka
-    kumoavat toisensa. Tämä toteaa mittauspisteen suoraan: jokaisella
-    kierroksella on ``buy_end_tick``, ja niistä ainakin yksi on ankkurin
-    jäljessä.
+    The previous test would pass even if both the measurement and the truth
+    table fell back the same distance to the anchor -- two mistakes that cancel
+    each other out. This one establishes the measurement point directly: every
+    round has a ``buy_end_tick``, and at least one of them is behind the
+    anchor.
     """
     df = real_rounds(ANCIENT_DEM, "ancient")
 
     assert df["buy_end_tick"].null_count() == 0
     later = df.filter(pl.col("buy_end_tick") > pl.col("freeze_end_tick"))
     assert later.height > 0, (
-        "yhdelläkään kierroksella mittauspiste ei ole ankkurin jäljessä -- "
-        "real_rounds ajaa todennäköisesti ilman tuotannon ostoikkunaa"
+        "on not one round is the measurement point behind the anchor -- "
+        "real_rounds is probably running without production's buy window"
     )

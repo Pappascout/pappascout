@@ -274,6 +274,38 @@ TRANSLATED_TRANCHES: tuple[Tranche, ...] = (
         sources=(("src/pappascout/domain/report.py", 1),),
         tests=("tests/test_report_model.py",),
     ),
+    Tranche(
+        story="T6",
+        # Two more of the nine modules in ``stages``. The package cannot be
+        # listed yet: parse.py is still Finnish (T8).
+        sources=(
+            ("src/pappascout/stages/aggregate.py", 1),
+            ("src/pappascout/stages/classify.py", 1),
+        ),
+        tests=(
+            "tests/test_stage_aggregate.py",
+            "tests/test_stage_classify.py",
+        ),
+    ),
+    Tranche(
+        story="T12b",
+        # The eleventh and last module in ``domain``. With this the whole
+        # package is translated, so T9, T10, T11 and T12's sources could
+        # collapse into one ("src/pappascout/domain", 11). Left as modules for
+        # the reason T4 gave for ``adapters``: the collapse is an edit to four
+        # other tranches' records, and a record of what each tranche did is
+        # worth more than a shorter list.
+        sources=(("src/pappascout/domain/aggregate.py", 1),),
+        tests=("tests/test_aggregate.py",),
+    ),
+    Tranche(
+        story="T8",
+        # The seventh of the nine modules in ``stages``. The package cannot be
+        # listed yet: __init__.py aside, aggregate.py and classify.py landed
+        # in the same wave and are listed under T6.
+        sources=(("src/pappascout/stages/parse.py", 1),),
+        tests=("tests/test_stage_parse.py",),
+    ),
 )
 
 #: Every listed path with its recorded minimum, flattened out of the tranches.

@@ -1,66 +1,70 @@
-"""Aggregoinnin laskenta puhtaina funktioina (Story 2.3).
+"""The aggregation's computation as pure functions (Story 2.3).
 
-Moduuli ottaa vastaan valmiit taulut (``CLASSIFIED``, ``TICKS``, ``EVENTS``,
-``DEATHS``) ja palauttaa :class:`~pappascout.domain.report.Report`-mallin.
-**Ei tiedostoja, ei arkistoa, ei asetusten latausta** -- kaikki tämän moduulin
-testit rakentavat taulunsa käsin, eikä yksikään niistä tarvitse demoa.
+The module takes finished tables (``CLASSIFIED``, ``TICKS``, ``EVENTS``,
+``DEATHS``) and returns a :class:`~pappascout.domain.report.Report` model.
+**No files, no archive, no settings loading** -- every test of this module
+builds its tables by hand, and not one of them needs a demo.
 
-Mitä täällä lasketaan
+What is computed here
 ---------------------
-Kuusi havaintoa, jokainen otantansa kanssa, tasolla kartta -> puoli ->
-kierrostyyppi:
+Six observations, each with its own sample, at the level map -> side ->
+round type:
 
 ``positions``
-    Pelaajamäärä alueittain jokaisessa näytepisteessä. Tästä luetaan rivi
-    *"3A ja 2B"*.
+    The player count per area at every sample point. The line *"3A and 2B"*
+    is read from here.
 ``utility``
-    Kranaatin tyyppi, heittoalue, räjähdysalue ja aikaikkuna. Tästä luetaan
-    *"T-spawnista CT-savu B sitelle"* ja *"insta mid talo savu"*.
+    The grenade's type, throw area, detonation area and time window. The
+    lines *"a CT smoke onto the B site from T spawn"* and *"insta mid house
+    smoke"* are read from here.
 ``utility_counts``
-    Montako kutakin kranaattityyppiä heitettiin kierroksella. Tästä luetaan
-    *"2 savua 2 valoo"*. Se **ei** ole johdettavissa ``utility``-riveistä:
-    niiden ``n`` laskee kierroksia eikä kranaatteja.
+    How many of each grenade type were thrown on a round. *"2 smokes 2
+    flashes"* is read from here. It is **not** derivable from the ``utility``
+    rows: their ``n`` counts rounds and not grenades.
 ``players_armed``
-    Montako pelaajaa oli aseistettu ostoajan lopussa (Story 1.6:n laskuri:
-    panssari **ja** parannettu ase). Se on puolioston kalibroitu ehto A.
+    How many players were armed at the end of the buy time (Story 1.6's
+    count: armour **and** an upgraded weapon). It is the half-buy's
+    calibrated condition A.
 ``players_armored``
-    Montako pelaajaa kantoi panssaria ostoajan lopussa (Story 2.8). Tästä --
-    **eikä edellisestä** -- luetaan *"5 kevlaria"* ja *"ei kevuja"*:
-    pistoolikierroksella edellinen on käytännössä 0, koska 800 dollarilla ei
-    osta sekä kevlaria että parannettua asetta. Luku on hallussapitoa eikä
-    ostosta paitsi pistoolikierroksella (1 ja 13), jolla perintää ei ole.
+    How many players carried armour at the end of the buy time (Story 2.8).
+    *"5 kevlars"* and *"no kevs"* are read from here -- **and not from the
+    previous one**: on a pistol round the previous one is in practice 0,
+    because $800 does not buy both kevlar and an upgraded weapon. The figure
+    is possession and not a purchase, except on a pistol round (1 and 13),
+    where nothing is inherited.
 ``first_contact``
-    Millä alueilla joukkueella oli pelaaja ensikontaktin hetkellä. Tästä
-    luetaan *"otti kontaktin partsi käytävällä"*.
+    Which areas the team had a player in at the moment of first contact.
+    *"took contact in the Apartments corridor"* is read from here.
 ``deaths``
-    Missä ja milloin joukkue menetti ensimmäisen pelaajansa, ja miltä
-    alueilta se teki tappoja. Tästä luetaan *"Luola kuolee nii pelaa
-    siteltä"* ja *"Vihu meni secret pihalta"*.
+    Where and when the team lost its first player, and from which areas it
+    made kills. *"Cave dies so they play from the site"* and *"the enemy came
+    through the secret yard"* are read from here.
 
-Kaksi sääntöä, jotka eivät jousta
----------------------------------
-**Pelaajamäärä lasketaan vain elossa olevista.** Kuollut pelaaja ei tuota
-riviä alueelle; hän on kierroksella mukana, mutta ei kartalla.
+Two rules that do not bend
+--------------------------
+**The player count is taken from the living only.** A dead player produces no
+row for an area; he is in the round, but not on the map.
 
-**Yksi jakauma laskee tappoja eikä kierroksia.** ``deaths``in tappopuoli on
-ainoa kohta, jossa ``m`` ei ole kierroksia: kierrostyypillä voi olla enemmän
-tappoja kuin kierroksia. Ero on kirjoitettu :class:`DeathReport`in
-sopimukseen, ja raportti muotoilee juuri sen rivin eri yksiköllä.
+**One distribution counts kills and not rounds.** ``deaths``'s kill side is
+the only place where ``m`` is not rounds: a round type can have more kills
+than rounds. The difference is written into :class:`DeathReport`'s contract,
+and the report formats that very row with a different unit.
 
-**Otanta on aina näytepisteen oma.** ``m`` on niiden kierrosten määrä, joilla
-kyseinen näytepiste on olemassa -- ei kierrostyypin kaikkien kierrosten määrä.
-Ne eroavat: 45 sekunnin näyte puuttuu kierrokselta, joka ratkesi 30 sekunnissa.
-Jos ``m``:ksi otettaisiin kierrostyypin kokonaismäärä, ratkennut kierros
-näkyisi jokaisella alueella arvona "0 pelaajaa" -- eli väitteenä, että alue oli
-tyhjä. Sellainen luku näyttää havainnolta muttei ole sellainen.
+**The sample is always the sample point's own.** ``m`` is the number of rounds
+on which that sample point exists -- not the number of all the round type's
+rounds. They differ: the 45-second sample is missing from a round that was
+decided in 30 seconds. If the round type's total were taken as ``m``, the
+decided round would show in every area as "0 players" -- that is, as a claim
+that the area was empty. Such a figure looks like an observation but is not
+one.
 
-Miksi Polarsia käytetään vain lukemiseen
-----------------------------------------
-Taulut ovat pieniä (neljä demoa = muutama tuhat riviä), ja jokainen tämän
-moduulin laskutoimitus on ryhmittely, jonka Polars-muotoilu piilottaisi
-sen, mistä otanta koostuu. Rivit puretaan siksi kerran sanakirjoiksi ja
-lasketaan tavallisella Pythonilla, jotta ``Σ n = m`` on luettavissa koodista
-eikä vain testistä.
+Why Polars is used for reading only
+-----------------------------------
+The tables are small (four demos = a few thousand rows), and every
+computation in this module is a grouping whose Polars phrasing would hide
+what the sample is made of. The rows are therefore unpacked into
+dictionaries once and counted in plain Python, so that ``Σ n = m`` is
+readable from the code and not only from the test.
 """
 
 from __future__ import annotations
@@ -171,15 +175,15 @@ __all__ = [
     "build_report",
 ]
 
-#: Otannan kolme lokeroa. ``unknown`` ei ole virhetila: ``is_league`` tulee
-#: ``select``-vaiheen valintatiedostosta (Story 3.8 kytki sen ``classify``yn),
-#: ja se jää tyhjäksi jokaisesta demosta, jolle ``select`` ei antanut riviä --
-#: käsin tuotu demo, kokoonpano ilman omistajaa, tai ennen ``select``iä
-#: luokiteltu taulu.
+#: The sample's three buckets. ``unknown`` is not an error state:
+#: ``is_league`` comes from the ``select`` stage's selection file (Story 3.8
+#: wired it into ``classify``), and it stays empty for every demo ``select``
+#: gave no row -- a demo imported by hand, a lineup with no owner, or a table
+#: classified before ``select``.
 #:
-#: Sama luettelo kuin :data:`pappascout.constants.SAMPLE_BUCKETS`, koska
-#: lokeroiden suomennos (``SAMPLE_BUCKET_FI``) on siellä ja kahden luettelon
-#: erkaantuminen jättäisi kolmannen lokeron hiljaa pois tulosteesta.
+#: The same list as :data:`pappascout.constants.SAMPLE_BUCKETS`, because the
+#: buckets' Finnish names (``SAMPLE_BUCKET_FI``) live there and two diverging
+#: lists would drop the third bucket from the output in silence.
 LEAGUE_BUCKETS: tuple[str, ...] = SAMPLE_BUCKETS
 
 #: The three buckets of the roster breakdown (Story 3.9). Same list as
@@ -188,25 +192,26 @@ LEAGUE_BUCKETS: tuple[str, ...] = SAMPLE_BUCKETS
 #: diverging lists would drop a bucket from the report in silence.
 ROSTER_SAMPLE_BUCKETS: tuple[str, ...] = ROSTER_BUCKETS
 
-#: Kierroksen avain koko arkistossa. Pelkkä ``round_no`` sekoittaisi eri
-#: karttojen kierrokset keskenään.
+#: A round's key across the whole archive. ``round_no`` on its own would mix
+#: up the rounds of different maps.
 RoundKey = tuple[str, int]
 
-#: Kierrosrivin avain **puoli mukaan lukien**. ``ROUNDS``-taulussa on kaksi
-#: riviä per kierros, yksi kummallekin joukkueelle, joten pelkkä
-#: :data:`RoundKey` osuisi molempiin -- ja vastustajan panssarit näyttäisivät
-#: omilta. Luokiteltu rivi kantaa oman puolensa, joten liitos on tarkka.
+#: A round row's key **including the side**. The ``ROUNDS`` table has two rows
+#: per round, one for each team, so :data:`RoundKey` on its own would hit both
+#: -- and the opponent's armour would look like ours. A classified row carries
+#: its own side, so the join is exact.
 SideRoundKey = tuple[str, int, str]
 
-#: Rivinvaihto virheilmoituksissa. Omana vakionaan, koska nämä tiedostot
-#: muokkataan usein skripteillä, joissa kenoviiva ei säily.
+#: The line break in error messages. A constant of its own, because these
+#: files are often edited with scripts in which a backslash does not survive.
 NEWLINE = "\n"
 
 _NON_WORD = re.compile(r"[^a-z0-9]+")
 
-#: Ne ``CLASSIFIED.inputs`` -kentät, jotka ovat kynnysarvoja eivätkä havaintoja.
-#: Vain nämä päätyvät raportin kenttään ``classify_thresholds``; loput ovat
-#: kierroskohtaisia mittauksia (rahat, varusteet), joilla ei ole yhtä arvoa.
+#: Those ``CLASSIFIED.inputs`` fields that are thresholds and not
+#: observations. Only these reach the report's ``classify_thresholds`` field;
+#: the rest are per-round measurements (money, equipment) that have no single
+#: value.
 CLASSIFY_THRESHOLD_KEYS: tuple[str, ...] = (
     "full_equip_min",
     "force_buy_min",
@@ -217,35 +222,35 @@ CLASSIFY_THRESHOLD_KEYS: tuple[str, ...] = (
 )
 
 
-# -- Pienet puhtaat apurit -------------------------------------------------------
+# -- Small pure helpers ----------------------------------------------------------
 
 
 def bucket_labels(edges: Sequence[float]) -> list[str]:
-    """Aikaikkunoiden nimet rajoista.
+    """The time windows' names, from their edges.
 
     >>> bucket_labels([5.0, 10.0, 20.0])
     ['0-5', '5-10', '10-20', '20+']
     >>> bucket_labels([])
     ['kaikki']
 
-    Tyhjä rajalista tarkoittaa yhtä lokeroa: aikaikkunan poistaminen on
-    kelvollinen valinta eikä sen tarvitse olla koodimuutos.
+    An empty edge list means one bucket: removing the time window is a valid
+    choice and it does not have to be a code change.
     """
     if not edges:
         return [UTILITY_BUCKET_ALL]
-    # Tarkistus tehdään RAJOJEN nimistä eikä valmiista lokeroista: kaksi
-    # lähekkäistä rajaa tuottaa lokeron "5-5", joka on eri merkkijono kuin
-    # naapurinsa muttei tarkoita mitään. Vasta kolmas raja tuottaisi kaksi
-    # täsmälleen samannimistä lokeroa, ja siihen asti vika olisi näkyvissä
-    # vain merkityksettömänä nimenä.
+    # The check is made from the EDGES' names and not from the finished
+    # buckets: two edges close together produce the bucket "5-5", which is a
+    # different string from its neighbour but does not mean anything. Only a
+    # third edge would produce two buckets with exactly the same name, and
+    # until then the fault would be visible only as a meaningless name.
     names = [_seconds(edge) for edge in edges]
     if len(names) != len(set(names)):
         raise AggregateError(
-            "Kaksi aikaikkunan rajaa näyttää samalta lokeron nimessä "
-            f"({', '.join(names)}). Nimi muotoillaan lyhimpään "
-            "esitysmuotoon, joten kaksi lähekkäistä rajaa olisi raportissa "
-            "erottamattomia.\n"
-            "Korjaa asetus [aggregate].utility_seconds_buckets."
+            "Two time window edges look the same in the bucket name "
+            f"({', '.join(names)}). The name is formatted to its shortest "
+            "representation, so two edges close together would be "
+            "indistinguishable in the report.\n"
+            "Fix the setting [aggregate].utility_seconds_buckets."
         )
     labels = [f"0-{_seconds(edges[0])}"]
     labels += [
@@ -257,29 +262,31 @@ def bucket_labels(edges: Sequence[float]) -> list[str]:
 
 
 def _seconds(value: float) -> str:
-    """Sekuntiluku nimeen: ``5.0 -> '5'``, ``7.5 -> '7.5'``."""
+    """A second count as a name: ``5.0 -> '5'``, ``7.5 -> '7.5'``."""
     return f"{value:g}"
 
 
 def seconds_bucket(t_s: float | None, edges: Sequence[float]) -> str:
-    """Niputa heiton hetki aikaikkunaan.
+    """Put the moment of the throw into a time window.
 
-    Raja kuuluu **ylempään** lokeroon: rajalla 5 s heitto hetkellä 5,0 s on
-    lokerossa ``5-10``. Sääntö on mielivaltainen mutta yksi, eikä kumpaakaan
-    lokeroa saa lukea molempiin suuntiin.
+    The edge belongs to the **upper** bucket: with an edge at 5 s, a throw at
+    5.0 s is in the bucket ``5-10``. The rule is arbitrary but it is one rule,
+    and neither bucket may be read in both directions.
 
-    Kelvoton hetki saa oman lokeronsa eikä putoa pois -- puuttuva aika on eri
-    asia kuin nolla. Kelvottomia ovat kolme:
+    An invalid moment gets a bucket of its own instead of dropping out -- a
+    missing time is a different thing from zero. There are three invalid
+    kinds:
 
-    * ``None`` -- kierrokselta puuttui ankkuri, joten aikaa ei ole.
-    * **negatiivinen** -- kranaatti lähti ennen freezetimen loppua, eli
-      mittaus on ristiriitainen. Ilman tarkistusta se niputtuisi lokeroon
-      ``0-5`` ja näyttäisi "instalta".
-    * **NaN tai ääretön** -- jokainen vertailu NaN:iin on epätosi, joten se
-      valuisi viimeiseen lokeroon (``20+``) ja näyttäisi myöhäiseltä heitolta.
+    * ``None`` -- the round had no anchor, so there is no time.
+    * **negative** -- the grenade left before the end of freezetime, so the
+      measurement is contradictory. Without the check it would land in the
+      ``0-5`` bucket and look like an "insta".
+    * **NaN or infinite** -- every comparison with NaN is false, so it would
+      slide into the last bucket (``20+``) and look like a late throw.
 
-    Tarkistus on **ennen** tyhjän rajalistan oikosulkua: muuten tuntematon
-    hetki sulautuisi tunnettuihin heti kun aikaikkunat poistetaan käytöstä.
+    The check is **before** the empty-edge-list short circuit: otherwise an
+    unknown moment would merge into the known ones the moment the time
+    windows are turned off.
     """
     if t_s is None or not isfinite(t_s) or t_s < 0:
         return UTILITY_BUCKET_UNKNOWN
@@ -292,61 +299,62 @@ def seconds_bucket(t_s: float | None, edges: Sequence[float]) -> str:
     return labels[-1]
 
 
-#: Kartan nimen lähteet **heikkenevässä** järjestyksessä. Pieni luku =
-#: vahvempi. Vertailtavana lukuna siksi, että haaran lähde on sen demojen
-#: heikoin (ks. :func:`weakest_map_source`).
+#: The sources of a map's name in **weakening** order. A small number = a
+#: stronger source. A comparable number, because a branch's source is the
+#: weakest of its demos (see :func:`weakest_map_source`).
 #:
-#: **Johdettu eikä kirjoitettu.** :data:`~pappascout.domain.report.MAP_NAME_SOURCES`
-#: on jo ensisijaisuusjärjestyksessä, ja kahtena luettelona ne erkanisivat:
-#: uusi lähde kelpaisi mallille ja kaatuisi tähän -- tai päinvastoin,
-#: saisi hiljaa sijaluvun, joka ei vastaa sen vahvuutta.
+#: **Derived, not written out.** :data:`~pappascout.domain.report.MAP_NAME_SOURCES`
+#: is already in order of precedence, and as two lists they would diverge: a
+#: new source would be accepted by the model and rejected here -- or the other
+#: way round, it would quietly get a rank that does not match its strength.
 MAP_NAME_SOURCE_RANK: dict[str, int] = {
     source: rank for rank, source in enumerate(MAP_NAME_SOURCES)
 }
 
 
 def weakest_map_source(sources: Iterable[str]) -> str:
-    """Haaran lähde on sen demojen **heikoin**, ei vahvin.
+    """A branch's source is the **weakest** of its demos, not the strongest.
 
-    Kaksi demoa samalta kartalta on yksi haara (``map_demo_ids`` luettelee ne),
-    ja niiden nimen lähde voi erota: toisen otsikossa oli kartta, toisen ei.
+    Two demos from the same map are one branch (``map_demo_ids`` lists them),
+    and the source of their name can differ: one had the map in its header,
+    the other did not.
 
-    Lähde vastaa lukijan kysymykseen "voinko luottaa tähän nimeen", ja siihen
-    yksi päätelty jäsen riittää vastaamaan "ei täysin". Vahvimman valitseminen
-    olisi ylisanomista: haara näyttäisi kokonaan havaittuna, vaikka osa sen
-    kierroksista on liitetty siihen tiedostonimen perusteella. Väärä nimi
-    yhdellä demolla tuo väärät kierrokset koko haaraan, joten heikoin lenkki on
-    se, joka on kerrottava.
+    The source answers the reader's question "can I trust this name", and one
+    inferred member is enough to answer "not entirely". Choosing the strongest
+    would be overstating it: the branch would look wholly observed even though
+    some of its rounds were attached to it on the strength of a filename. A
+    wrong name on one demo brings wrong rounds into the whole branch, so the
+    weakest link is the one that has to be reported.
 
-    ``unknown`` ei voi päätyä tähän toisen nimen kanssa: sen nimi on
-    ``map_demo_id`` itse, joten se ei törmää yhdenkään oikean kartan nimeen.
+    ``unknown`` cannot end up here beside another name: its name is the
+    ``map_demo_id`` itself, so it does not collide with any real map's name.
 
     Args:
-        sources: Haaran demojen lähteet. Epätyhjä.
+        sources: The sources of the branch's demos. Non-empty.
 
     Returns:
-        Heikoin lähde :data:`MAP_NAME_SOURCE_RANK`-järjestyksessä.
+        The weakest source in :data:`MAP_NAME_SOURCE_RANK` order.
 
     Raises:
-        AggregateError: Jos luettelo on tyhjä tai sisältää tuntemattoman
-            lähteen. Kumpikaan ei voi syntyä tämän moduulin omasta
-            ryhmittelystä, joten kyseessä olisi kutsuvirhe -- ja hiljaa
-            palautettu oletus valehtelisi lukijalle nimen luotettavuudesta.
+        AggregateError: If the list is empty or holds an unknown source.
+            Neither can arise from this module's own grouping, so it would be
+            a caller's mistake -- and a default returned in silence would lie
+            to the reader about how reliable the name is.
     """
     known = list(sources)
     if not known:
         raise AggregateError(
-            "Karttahaaran lähdeluettelo on tyhjä.\n"
-            "Haara syntyy vain demoista, joten jokaisella on ainakin yksi "
-            "lähde. Tyhjä luettelo tarkoittaa, että ryhmittely on rikki."
+            "The map branch's source list is empty.\n"
+            "A branch is created only from demos, so every one of them has at "
+            "least one source. An empty list means the grouping is broken."
         )
     unknown = sorted(set(known) - set(MAP_NAME_SOURCE_RANK))
     if unknown:
         raise AggregateError(
-            f"Tuntematon kartan nimen lähde: {', '.join(unknown)}.\n"
-            f"Sallitut ovat {', '.join(MAP_NAME_SOURCE_RANK)}. Uusi lähde on "
-            "lisättävä sekä tähän luetteloon että ``MapReport``in sopimukseen, "
-            "jotta sen vahvuus on määritelty."
+            f"Unknown map name source: {', '.join(unknown)}.\n"
+            f"The allowed ones are {', '.join(MAP_NAME_SOURCE_RANK)}. A new "
+            "source has to be added both to this list and to ``MapReport``'s "
+            "contract, so that its strength is defined."
         )
     return max(known, key=lambda source: MAP_NAME_SOURCE_RANK[source])
 
@@ -354,30 +362,31 @@ def weakest_map_source(sources: Iterable[str]) -> str:
 def observed_map_name(
     map_names: Mapping[str, str | None], demo: str
 ) -> str | None:
-    """Demon otsikosta havaittu nimi; puuttuva **avain** on virhe.
+    """The name observed from the demo's header; a missing **key** is an error.
 
-    Kahta asiaa ei saa niputtaa: arvo ``None`` on laillinen havainto ("otsikossa
-    ei ollut karttaa", jolloin päättely jää voimaan), mutta **puuttuva avain**
-    tarkoittaa että demo ei ollut ``aggregate``n lukemassa nimikartassa
-    lainkaan. Se on ohjelmointivirhe -- ja juuri sen estämiseksi
-    :func:`build_report`in ``map_names`` tehtiin pakolliseksi ilman oletusta.
+    Two things must not be conflated: the value ``None`` is a legal
+    observation ("there was no map in the header", so the inference stays in
+    force), but a **missing key** means the demo was not in the name map
+    ``aggregate`` read at all. That is a programming error -- and it is
+    exactly what :func:`build_report`'s ``map_names`` was made mandatory
+    without a default to prevent.
 
-    ``Mapping.get`` sotkisi ne yhteen ja palauttaisi kartan hiljaa päättelyyn:
-    FACEIT-demo saisi haaransa tunnisteestaan, eikä mikään kertoisi että
-    havainto oli olemassa mutta ei löytänyt perille.
+    ``Mapping.get`` would mix the two together and quietly hand the map over
+    to inference: a FACEIT demo would get its branch from its id, and nothing
+    would say that the observation existed but did not arrive.
 
     Raises:
-        AggregateError: Jos ``demo`` ei ole ``map_names``-kartassa.
+        AggregateError: If ``demo`` is not in the ``map_names`` map.
     """
     if demo not in map_names:
         raise AggregateError(
-            f"Demo {demo} ei ole kartan nimien joukossa.\n"
-            "``aggregate`` lukee nimen jokaisen mukaan otetun demon "
-            "``match.parquet``-taulusta, joten puuttuva avain tarkoittaa, "
-            "ettei taulua luettu tälle demolle. Puuttuva **nimi** on eri "
-            "asia: se on ``None`` ja täysin laillinen, ja silloin nimi "
-            "päätellään tunnisteesta.\n"
-            f"Aja: uv run pappascout parse {demo}"
+            f"Demo {demo} is not among the map names.\n"
+            "``aggregate`` reads the name from every included demo's "
+            "``match.parquet`` table, so a missing key means the table was "
+            "not read for this demo. A missing **name** is a different "
+            "thing: it is ``None`` and entirely legal, and then the name is "
+            "inferred from the id.\n"
+            f"Run: uv run pappascout parse {demo}"
         )
     return map_names[demo]
 
@@ -385,46 +394,51 @@ def observed_map_name(
 def map_name_for(
     map_demo_id: str, map_pool: Iterable[str], observed: str | None = None
 ) -> tuple[str, str]:
-    """Kartan nimi: havainto ensin, päättely vasta sen puuttuessa.
+    """The map's name: the observation first, inference only in its absence.
 
-    ``observed`` on demon otsikosta luettu nimi (``MATCH.map_name``, Story
-    2.11). Se **voittaa aina** ja käytetään sellaisenaan: sitä ei verrata
-    karttapooliin, koska poolin ulkopuolinen kartta -- workshop-versio tai
-    ``de_train`` -- on aito havainto eikä tuntematon kartta. Hiljainen korjaus
-    poolin nimeksi tekisi havainnosta johdoksen.
+    ``observed`` is the name read from the demo's header (``MATCH.map_name``,
+    Story 2.11). It **always wins** and is used as it stands: it is not
+    compared against the map pool, because a map outside the pool -- a
+    workshop version or ``de_train`` -- is a genuine observation and not an
+    unknown map. Quietly correcting it to a pool name would turn the
+    observation into an inference.
 
-    Ilman havaintoa nimi päätellään tunnisteesta. Käsin tuodulla demolla se on
-    tiedostonimessä (``Ancient_vs_kaljukostaja``), joten se luetaan sieltä
-    karttapoolia vasten. Tunniste pilkotaan sanoiksi eikä haeta
-    osamerkkijonona: osumahaku pitäisi joukkuetta nimeltä *Inferno* Infernona.
+    Without an observation the name is inferred from the id. On a
+    hand-imported demo it is in the filename (``Ancient_vs_kaljukostaja``), so
+    it is read from there against the map pool. The id is split into words
+    rather than searched as a substring: a substring match would take a team
+    called *Inferno* for Inferno.
 
     Args:
-        map_demo_id: Demon tunniste.
-        map_pool: ``[league].map_pool``, jota vasten päättely tehdään.
-        observed: Otsikosta havaittu nimi tai ``None``. Tyhjä ja pelkistä
-            välilyönneistä koostuva merkkijono ovat sama asia kuin ``None``:
-            kumpikaan ei ole nimi, joten päättely jää voimaan. Reunojen
-            välilyönnit leikataan, jotta sama kartta ei jakaudu kahdeksi
-            haaraksi.
+        map_demo_id: The demo's id.
+        map_pool: ``[league].map_pool``, the pool the inference is made
+            against.
+        observed: The name observed from the header, or ``None``. An empty
+            string and a string of nothing but spaces are the same thing as
+            ``None``: neither is a name, so the inference stays in force.
+            Edge whitespace is trimmed, so that the same map does not split
+            into two branches.
 
     Returns:
-        ``(nimi, lähde)``. Lähde on ensisijaisuusjärjestyksessä
-        ``"demo_header"`` (havainto otsikosta), ``"map_demo_id"`` (pooli
-        tunnisti yksikäsitteisesti yhden kartan tunnisteesta) tai
-        ``"unknown"``, jolloin nimeksi jää ``map_demo_id`` sellaisenaan.
-        Arvausta ei tehdä: FACEIT-tunnisteessa (``1-a52ebff2-...``) ei ole
-        kartan nimeä, eikä kartaton demo saa sulautua toisen kartan haaraan.
+        ``(name, source)``. In order of precedence the source is
+        ``"demo_header"`` (observed from the header), ``"map_demo_id"`` (the
+        pool identified exactly one map from the id) or ``"unknown"``, in
+        which case the name stays ``map_demo_id`` as it is. No guess is made:
+        a FACEIT id (``1-a52ebff2-...``) holds no map name, and a demo without
+        a map must not merge into another map's branch.
     """
     if observed is not None and observed.strip():
-        # Leikattu, ei raaka. Docstring lupaa jo, että pelkät välilyönnit ovat
-        # sama asia kuin ``None``; jos reunan välilyönnit jäisivät nimeen,
-        # ``" de_ancient"`` olisi eri haara kuin ``"de_ancient"`` -- eli
-        # havainto pirstoisi kartan sen sijaan että kokoaisi sen.
+        # Trimmed, not raw. The docstring already promises that nothing but
+        # spaces is the same thing as ``None``; if edge whitespace stayed in
+        # the name, ``" de_ancient"`` would be a different branch from
+        # ``"de_ancient"`` -- that is, the observation would break the map
+        # apart instead of assembling it.
         #
-        # Leikkaus **ei ole validointia**: se ei vertaa nimeä karttapooliin
-        # eikä muuta kirjoitusasua. Adapteri leikkaa nimen jo lukiessaan, joten
-        # tämä on toinen puolustuslinja -- mutta funktio on julkinen ja sillä
-        # on oma sopimuksensa, joten se ei nojaa kutsujan siisteyteen.
+        # Trimming **is not validation**: it does not compare the name against
+        # the map pool and does not change its spelling. The adapter trims the
+        # name as it reads it, so this is a second line of defence -- but the
+        # function is public and has a contract of its own, so it does not
+        # lean on the caller's tidiness.
         return observed.strip(), "demo_header"
     tokens = {t for t in _NON_WORD.split(map_demo_id.lower()) if t}
     hits = {
@@ -442,33 +456,33 @@ def lineups_of_same_team(
     members: Mapping[str, Iterable[str]],
     min_common: int,
 ) -> list[str]:
-    """Kokoonpanot, jotka ovat sama joukkue kuin ``target``.
+    """The lineups that are the same team as ``target``.
 
-    Kokoonpanotunniste on tiiviste kartalla pelanneista pelaajista, joten
-    **yksi vaihto tuottaa uuden tunnisteen**. MatureMayhem on neljässä demossa
-    kahden eri tunnisteen alla, ja ilman liittämistä raportti näkisi kolme
-    demoa neljästä eikä kertoisi menettäneensä yhtä.
+    A lineup id is a digest of the players who played on the map, so **one
+    substitution produces a new id**. MatureMayhem appears in four demos under
+    two different ids, and without joining them the report would see three
+    demos out of four and would not say it had lost one.
 
-    Sääntö on ``[thresholds].team_identity_min_common`` (AD-6): kokoonpanot
-    ovat sama joukkue, kun yhteisiä pelaajia on vähintään ``min_common``.
-    Vertailu tehdään **aina kohteeseen**, ei ketjuna: ketjuttaminen liittäisi
-    kaksi joukkuetta toisiinsa yhden yhteisen kokoonpanon kautta.
+    The rule is ``[thresholds].team_identity_min_common`` (AD-6): lineups are
+    the same team when they have at least ``min_common`` players in common.
+    The comparison is **always against the target**, never chained: chaining
+    would join two teams to each other through one shared lineup.
 
     Args:
-        target: Kohteena oleva kokoonpanotunniste.
-        members: Tunniste -> pelaajat.
-        min_common: Vähimmäismäärä yhteisiä pelaajia.
+        target: The lineup id being matched against.
+        members: Id -> players.
+        min_common: The minimum number of players in common.
 
     Returns:
-        Tunnisteet lajiteltuna, ``target`` aina mukana.
+        The ids sorted, ``target`` always among them.
 
     Raises:
-        AggregateError: Jos ``target`` ei ole ``members``-kartassa.
+        AggregateError: If ``target`` is not in the ``members`` map.
     """
     if target not in members:
         raise AggregateError(
-            f"Kokoonpanoa {target!r} ei löydy annetuista kokoonpanoista, joten "
-            "joukkueidentiteettiä ei voi ratkaista."
+            f"Lineup {target!r} is not among the lineups given, so the team "
+            "identity cannot be resolved."
         )
     own = set(members[target])
     return sorted(
@@ -480,21 +494,21 @@ def lineups_of_same_team(
 
 @dataclass(frozen=True)
 class TeamIdentity:
-    """Joukkueen nimi ja rosteri sellaisina kuin ne demoista havaittiin.
+    """The team's name and roster as they were observed from the demos.
 
     Attributes:
-        display_name: Useimmin havaittu klaaninimi, tai ``None`` jos yhtään ei
-            havaittu. ``None`` on rehellinen tulos: nimen puuttuminen on
-            havainto, ei syy keksiä korviketta tunnisteesta tai
-            tiedostonimestä.
-        alternatives: Muut havaitut klaaninimet aakkosjärjestyksessä.
-            **Ristiriita ei katoa**: jos liitetyt demot antavat joukkueelle eri
-            nimiä, näytettäväksi valitaan useimmin havaittu ja loput
-            luetellaan, jotta lukija näkee että joukkue esiintyi kahdella
-            nimellä.
-        names: ``player_id -> nimi`` niille pelaajille, joilla nimi havaittiin.
-            Puuttuva avain tarkoittaa, ettei nimeä saatu -- rosterirvi
-            kirjoitetaan silti, koska SteamID on aina olemassa.
+        display_name: The most often observed clan name, or ``None`` if none
+            was observed. ``None`` is an honest result: the absence of a name
+            is an observation, not a reason to invent a substitute from the id
+            or the filename.
+        alternatives: The other observed clan names in alphabetical order.
+            **A contradiction does not vanish**: if the joined demos give the
+            team different names, the most often observed one is chosen for
+            display and the rest are listed, so the reader sees that the team
+            appeared under two names.
+        names: ``player_id -> name`` for those players whose name was
+            observed. A missing key means the name was not obtained -- the
+            roster row is written anyway, because the SteamID always exists.
     """
 
     display_name: str | None = None
@@ -503,38 +517,38 @@ class TeamIdentity:
 
 
 def team_identity(rows: Sequence[Mapping[str, Any]]) -> TeamIdentity:
-    """Päättele joukkueen nimi ja pelaajien nimet kokoonpanoriveistä.
+    """Infer the team's name and the players' names from the lineup rows.
 
     Args:
-        rows: ``LINEUPS``-taulun rivit, **suodatettuna tämän joukkueen
-            kokoonpanoihin**. Suodatus on kutsujan vastuu: funktio ei tiedä
-            mitkä kokoonpanot ovat sama joukkue.
+        rows: The rows of the ``LINEUPS`` table, **filtered to this team's
+            lineups**. Filtering is the caller's responsibility: the function
+            does not know which lineups are the same team.
 
-    Klaaninimen äänestys on **kaksivaiheinen enemmistö**, ei "yksi ääni per
-    demossa havaittu nimi". Ensin ratkaistaan demon sisällä yleisin klaani,
-    sitten se saa demonsa **yhden** äänen, ja lopulta äänestetään demojen yli.
+    The clan name vote is a **two-stage majority**, not "one vote per name
+    observed in a demo". First the most common clan inside the demo is
+    settled, then it gets its demo's **one** vote, and finally the vote is
+    taken across the demos.
 
-    Ero on ratkaiseva pienellä otannalla. Jos demossa on viisi pelaajaa joista
-    neljällä on klaani ``A`` ja yhdellä ``B``, "ääni per havaittu nimi" antaisi
-    molemmille yhden -- yhden demon otannalla se on tasatilanne, ja
-    aakkosjärjestys voisi nostaa otsikkoon nimen, jonka yksi ainoa pelaaja
-    kantoi. Enemmistö demon sisällä ratkaisee sen oikein, ja demojen yli
-    laskettuna viiden pelaajan demo ei silti paina viittä kertaa yhden pelaajan
-    demoa.
+    The difference is decisive on a small sample. If a demo has five players,
+    four of them carrying the clan ``A`` and one carrying ``B``, "a vote per
+    observed name" would give both of them one -- on a one-demo sample that is
+    a tie, and alphabetical order could raise into the heading a name that one
+    single player carried. A majority inside the demo settles that correctly,
+    and counted across the demos a five-player demo still does not weigh five
+    times a one-player demo.
 
-    Tasatilanne ratkeaa **molemmilla tasoilla aakkosjärjestyksessä**, jotta
-    sama arkisto antaa saman raportin ajosta toiseen. Ilman sitä tulos
-    riippuisi siitä, missä järjestyksessä tiedostot sattuivat tulemaan
-    luetuiksi.
+    A tie is resolved **alphabetically at both levels**, so that the same
+    archive gives the same report from one run to the next. Without it the
+    result would depend on the order in which the files happened to be read.
 
     Returns:
         :class:`TeamIdentity`.
 
     Raises:
-        AggregateError: Jos jonkin rivin ``map_demo_id`` on tyhjä. Se on
-            halpa vartija kalliille virheelle: tyhjä tunniste sulauttaisi
-            kaikki demot yhdeksi ääneksi, jolloin neljän demon enemmistö
-            kutistuisi yhdeksi eikä mikään kertoisi siitä.
+        AggregateError: If some row's ``map_demo_id`` is empty. It is a cheap
+            guard against an expensive fault: an empty id would merge all the
+            demos into one vote, so a majority of four demos would shrink to
+            one and nothing would say so.
     """
     clans_per_demo: dict[str, Counter[str]] = {}
     name_votes: dict[str, Counter[str]] = {}
@@ -543,11 +557,11 @@ def team_identity(rows: Sequence[Mapping[str, Any]]) -> TeamIdentity:
         demo = _clean_name(row.get("map_demo_id"))
         if demo is None:
             raise AggregateError(
-                "Kokoonpanotaulun rivillä ei ole map_demo_id:tä, joten sitä ei "
-                "voi kohdistaa demoon.\n"
-                "Joukkueen nimi äänestetään demo kerrallaan, ja tunnisteeton "
-                "rivi sulauttaisi kaikki demot yhdeksi ääneksi. Aja parsinta "
-                "uudelleen."
+                "A row of the lineup table has no map_demo_id, so it cannot "
+                "be matched to a demo.\n"
+                "The team's name is voted on one demo at a time, and a row "
+                "without an id would merge all the demos into one vote. Run "
+                "the parse again."
             )
         clan = _clean_name(row.get("clan_name"))
         if clan is not None:
@@ -557,7 +571,7 @@ def team_identity(rows: Sequence[Mapping[str, Any]]) -> TeamIdentity:
         if player_id is not None and name is not None:
             name_votes.setdefault(str(player_id), Counter())[name] += 1
 
-    # Vaihe 1: demon sisäinen enemmistö. Vaihe 2: yksi ääni per demo.
+    # Stage 1: the majority inside the demo. Stage 2: one vote per demo.
     clan_votes: Counter[str] = Counter(
         _by_votes(votes)[0] for votes in clans_per_demo.values() if votes
     )
@@ -576,11 +590,12 @@ def team_identity(rows: Sequence[Mapping[str, Any]]) -> TeamIdentity:
 def roster_entries(
     player_ids: Iterable[str], names: Mapping[str, str]
 ) -> list[RosterEntry]:
-    """Rosteri: jokainen pelaaja tunnisteineen ja nimineen.
+    """The roster: every player with his id and his name.
 
-    Pelaajajoukko tulee **tunnisteista eikä nimistä**: rivi kirjoitetaan
-    silloinkin, kun nimeä ei saatu, koska SteamID on ainoa jäljitettävä arvo ja
-    hiljaa pudotettu pelaaja kutistaisi rosterin kertomatta siitä.
+    The set of players comes **from the ids and not from the names**: the row
+    is written even when the name was not obtained, because the SteamID is the
+    only traceable value and a player dropped in silence would shrink the
+    roster without saying so.
     """
     return [
         RosterEntry(player_id=player_id, display_name=names.get(player_id))
@@ -589,11 +604,11 @@ def roster_entries(
 
 
 def _clean_name(value: Any) -> str | None:
-    """Nimi ilman ympäröiviä välilyöntejä, tai ``None``.
+    """A name without surrounding whitespace, or ``None``.
 
-    Tyhjä merkkijono ei ole nimi. Sama sääntö kuin parsinnassa, toistettuna
-    tässä siksi, että vanhalla versiolla kirjoitettu taulu voi sisältää tyhjän
-    merkkijonon eikä sitä saa esittää nimenä.
+    An empty string is not a name. The same rule as in the parse, repeated
+    here because a table written with an older version may hold an empty
+    string, and that must not be presented as a name.
     """
     if value is None:
         return None
@@ -602,24 +617,24 @@ def _clean_name(value: Any) -> str | None:
 
 
 def _by_votes(votes: Counter[str]) -> list[str]:
-    """Arvot ääniä laskien, tasatilanne aakkosjärjestyksessä."""
+    """The values by vote count, ties in alphabetical order."""
     return sorted(votes, key=lambda name: (-votes[name], name))
 
 
-# -- Otanta ----------------------------------------------------------------------
+# -- Sampling --------------------------------------------------------------------
 
 
 def demo_buckets(rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
-    """Demo -> otantalokero ``league`` / ``other`` / ``unknown``.
+    """Demo -> sample bucket ``league`` / ``other`` / ``unknown``.
 
-    ``is_league`` on demokohtainen tieto (se kertoo ottelun lajin), joten
-    saman demon kaikilla kierroksilla on oltava sama arvo.
+    ``is_league`` is per-demo information (it says what kind of match it was),
+    so every round of the same demo has to carry the same value.
 
     Raises:
-        AggregateError: Jos yhden demon kierroksilla on kaksi eri arvoa.
-            Silloin demo kuuluisi kahteen lokeroon, eikä otannan summa enää
-            olisi lokeroiden summa -- ja juuri se summa on koko rakenteen
-            tarkistus.
+        AggregateError: If one demo's rounds carry two different values. The
+            demo would then belong to two buckets, and the sample total would
+            stop being the sum of the buckets -- and that sum is the whole
+            structure's check.
     """
     seen: defaultdict[str, set[bool | None]] = defaultdict(set)
     for row in rows:
@@ -628,11 +643,12 @@ def demo_buckets(rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
     for demo, values in seen.items():
         if len(values) > 1:
             raise AggregateError(
-                f"Demon {demo} kierroksilla on kaksi eri is_league-arvoa "
-                f"({sorted(str(v) for v in values)}), joten demo kuuluisi "
-                "kahteen otantalokeroon.\n"
-                "is_league kuvaa ottelua eikä kierrosta. Aja luokittelu "
-                "uudelleen: uv run pappascout classify <map_demo_id> --pakota"
+                f"Demo {demo}'s rounds carry two different is_league values "
+                f"({sorted(str(v) for v in values)}), so the demo would "
+                "belong to two sample buckets.\n"
+                "is_league describes the match and not the round. Run the "
+                "classification again: "
+                "uv run pappascout classify <map_demo_id> --pakota"
             )
         value = next(iter(values))
         buckets[demo] = (
@@ -644,7 +660,7 @@ def demo_buckets(rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
 def sample_for(
     rows: Sequence[Mapping[str, Any]], buckets: Mapping[str, str]
 ) -> Sample:
-    """Otanta yhdelle tasolle: demot ja kierrokset kolmessa lokerossa."""
+    """One level's sample: demos and rounds in three buckets."""
     demos: defaultdict[str, set[str]] = defaultdict(set)
     rounds: Counter[str] = Counter()
     for row in rows:
@@ -679,9 +695,19 @@ def roster_class_values() -> tuple[str, ...]:
     return tuple(str(value) for value in CLASSIFIED["roster_class"].categories)
 
 
-#: Tyhjän ``roster_class``in nimi käyttäjäviestissä. Pythonin ``None`` ei ole
-#: suomea eikä kerro lukijalle mitään; sarake on tyhjä, ja niin se sanotaan.
-MISSING_ROSTER_CLASS_FI = "tyhjä"
+#: The name of an empty ``roster_class`` in a user-facing message. Python's
+#: ``None`` tells the reader nothing; the column is empty, and that is how it
+#: is said.
+#:
+#: **The ``_FI`` suffix is a leftover and the value is English.** Measured
+#: 2026-09-09: this constant has exactly one production consumer, an
+#: ``AggregateError`` message, and none at all under ``render/``. It is
+#: console vocabulary, not report vocabulary, so AD-11 puts it in English --
+#: the same case as ``ROSTER_SOURCE_FI``, and the same conclusion T9 reached
+#: for that one. The name is left alone because renaming a symbol is a change
+#: of its own; both want ``_LABEL`` and neither should get it inside a
+#: translation diff.
+MISSING_ROSTER_CLASS_FI = "empty"
 
 
 def _classified_value(row: Mapping[str, Any], column: str, demo: str) -> Any:
@@ -700,11 +726,11 @@ def _classified_value(row: Mapping[str, Any], column: str, demo: str) -> Any:
         return row[column]
     except KeyError:
         raise SchemaError(
-            f"Luokitellulta riviltä puuttuu sarake {column!r}"
+            f"A classified row is missing the column {column!r}"
             + (f" (demo {demo})" if demo else "")
-            + ", joten rosterijakoa ei voi laskea.\n"
-            "Taulu on kirjoitettu ennen kuin sarake oli olemassa. Aja "
-            "luokittelu uudelleen: "
+            + ", so the roster breakdown cannot be computed.\n"
+            "The table was written before the column existed. Run the "
+            "classification again: "
             "uv run pappascout classify <map_demo_id> --pakota"
         ) from None
 
@@ -747,21 +773,22 @@ def roster_demo_buckets(
         known = sorted(value for value in values if value is not None)
         if len(known) > 1:
             raise AggregateError(
-                f"Demon {demo} kierroksilla on kaksi eri roster_class-arvoa "
-                f"({', '.join(known)}), joten demo kuuluisi kahteen "
-                "rosterilokeroon.\n"
-                "roster_class kuvaa karttaa eikä kierrosta. Aja luokittelu "
-                "uudelleen: uv run pappascout classify <map_demo_id> --pakota"
+                f"Demo {demo}'s rounds carry two different roster_class "
+                f"values ({', '.join(known)}), so the demo would belong to "
+                "two roster buckets.\n"
+                "roster_class describes the map and not the round. Run the "
+                "classification again: "
+                "uv run pappascout classify <map_demo_id> --pakota"
             )
         if known and None in values:
             raise AggregateError(
-                f"Demon {demo} kierroksista osa kantaa roster_class-arvon "
-                f"{known[0]} ja osa on {MISSING_ROSTER_CLASS_FI}, joten demo "
-                "kuuluisi kahteen rosterilokeroon.\n"
-                "Kyse ei ole ristiriitaisesta luokittelusta vaan kesken "
-                "jääneestä: osa kierroksista on luokiteltu ennen kuin "
-                "valintatiedosto antoi kartalle luokan. Aja luokittelu "
-                "uudelleen kokonaan: "
+                f"Some of demo {demo}'s rounds carry the roster_class value "
+                f"{known[0]} and some are {MISSING_ROSTER_CLASS_FI}, so the "
+                "demo would belong to two roster buckets.\n"
+                "This is not a contradictory classification but an "
+                "interrupted one: some of the rounds were classified before "
+                "the selection file gave the map a class. Run the whole "
+                "classification again: "
                 "uv run pappascout classify <map_demo_id> --pakota"
             )
         if not known:
@@ -770,11 +797,12 @@ def roster_demo_buckets(
         value = known[0]
         if value not in allowed:
             raise SchemaError(
-                f"Demon {demo} roster_class-arvo {value!r} ei ole "
-                f"classified-taulun sallittujen joukossa "
+                f"Demo {demo}'s roster_class value {value!r} is not among "
+                f"the ones the classified table allows "
                 f"({', '.join(allowed)}).\n"
-                "Luokka on skeeman enum-arvo, joten sitä ei voi keksiä "
-                "ajossa. Aja select ja luokittelu uudelleen."
+                "The class is an enum value of the schema, so it cannot be "
+                "invented during a run. Run select and the classification "
+                "again."
             )
         buckets[demo] = ROSTER_CLASS_BUCKET[value]
     return buckets
@@ -802,10 +830,10 @@ def roster_sample_for(
         bucket = buckets.get(demo)
         if bucket is None:
             raise AggregateError(
-                f"Demolle {demo} ei ole rosterilokeroa, joten sen kierrokset "
-                "putoaisivat rosterijaosta pois.\n"
-                "Lokerot on laskettu eri riveistä kuin otanta. Aja "
-                "aggregointi uudelleen."
+                f"Demo {demo} has no roster bucket, so its rounds would drop "
+                "out of the roster breakdown.\n"
+                "The buckets were computed from different rows than the "
+                "sample. Run the aggregation again."
             )
         demos[bucket].add(demo)
         rounds[bucket] += 1
@@ -820,14 +848,15 @@ def roster_sample_for(
     )
 
 
-# -- Jakaumat --------------------------------------------------------------------
+# -- Distributions ---------------------------------------------------------------
 
 
 def players_distribution(counts: Iterable[int]) -> list[PlayersCount]:
-    """Pelaajamäärien jakauma pylväiksi.
+    """The player counts' distribution as bars.
 
-    Syöte on **kierros per alkio**, myös nollat: juuri niistä syntyy
-    ``players = 0`` -pylväs, jota ilman ``Σ n = m`` ei pitäisi.
+    The input is **one element per round**, zeros included: they are exactly
+    what produces the ``players = 0`` bar, without which ``Σ n = m`` would not
+    hold.
     """
     tally = Counter(int(c) for c in counts)
     return [
@@ -839,17 +868,17 @@ def players_distribution(counts: Iterable[int]) -> list[PlayersCount]:
 def area_distributions(
     rows_by_round: Mapping[RoundKey, Sequence[Mapping[str, Any]]],
 ) -> list[AreaDistribution]:
-    """Alueiden jakaumat yhdessä näytepisteessä.
+    """The areas' distributions at one sample point.
 
-    Alueiden joukko on **kaikkien kierrosten alueiden unioni**, ja jokainen
-    kierros tuottaa jokaiselle alueelle havainnon -- myös arvon 0. Ilman
-    unionia jakauma kertoisi vain siitä kierroksesta, jolla alueella sattui
-    olemaan joku, ja "kolmella kierroksella neljästä B oli tyhjä" olisi
-    puuttuva rivi eikä havainto.
+    The set of areas is the **union of every round's areas**, and every round
+    produces an observation for every area -- the value 0 included. Without
+    the union the distribution would speak only of the round on which the area
+    happened to hold somebody, and "on three rounds out of four B was empty"
+    would be a missing row rather than an observation.
 
     Args:
-        rows_by_round: Kierros -> näytepisteen rivit. **Vain elossa olevat**;
-            kuollutta pelaajaa ei lasketa.
+        rows_by_round: Round -> the sample point's rows. **The living only**;
+            a dead player is not counted.
     """
     m = len(rows_by_round)
     areas: set[str | None] = set()
@@ -874,43 +903,43 @@ def area_distributions(
 
 
 def _area_sort_key(area: str | None) -> tuple[int, str]:
-    """Alueet aakkosjärjestyksessä, tuntematon viimeisenä."""
+    """The areas in alphabetical order, the unknown one last."""
     return (1, "") if area is None else (0, area)
 
 
 def _sample_seconds(row: Mapping[str, Any]) -> float:
-    """Näytepisteen nimellisaika, tai virhe jos sitä ei ole.
+    """A sample point's nominal time, or an error if it has none.
 
-    **Yksi tarkistus kahdelle lukijalle.** Sekä :func:`positions_for` että
-    poikkeamasäännöt tarvitsevat tämän luvun, ja kumpikaan ei voi jatkaa
-    ilman: aikanäytepiste ilman nimellistä sekuntia ei ole ryhmiteltävissä
-    (tyhjä arvo sulauttaisi kaksi eri näytepistettä yhteen), ja poikkeamalla
-    sitä verrataan aikarajaan. Kahtena kirjoitettuna toinen ehtisi ensin ja
-    toinen olisi kuollutta koodia, jonka voi poistaa vahingossa -- ja
-    järjestys, johon se nojaisi, ei ole minkään pakottama.
+    **One check for two readers.** Both :func:`positions_for` and the anomaly
+    rules need this figure, and neither can carry on without it: a time sample
+    point without a nominal second cannot be grouped (an empty value would
+    merge two different sample points into one), and an anomaly compares it
+    against a time bound. Written twice, one of them would get there first and
+    the other would be dead code that can be deleted by accident -- and the
+    ordering it would lean on is not enforced by anything.
 
     Raises:
-        AggregateError: Jos ``sample_t_s`` puuttuu. Ohje on parsinnan
-            uudelleenajo, koska arvo syntyy siellä.
+        AggregateError: If ``sample_t_s`` is missing. The instruction is to
+            run the parse again, because the value is created there.
     """
     value = row["sample_t_s"]
     if value is None:
         raise AggregateError(
-            f"Näytepisteeltä puuttuu sample_t_s (demo "
-            f"{row['map_demo_id']!r}, kierros {row['round_no']!r}, "
-            f"sample_kind={row['sample_kind']!r}). Aja parsinta uudelleen: "
+            f"A sample point is missing sample_t_s (demo "
+            f"{row['map_demo_id']!r}, round {row['round_no']!r}, "
+            f"sample_kind={row['sample_kind']!r}). Run the parse again: "
             f"uv run pappascout parse {row['map_demo_id']} --pakota"
         )
     return float(value)
 
 
 def _round_key(row: Mapping[str, Any]) -> RoundKey | None:
-    """Rivin kierrosavain, tai ``None`` jos kierrosta ei ole numeroitu.
+    """The row's round key, or ``None`` if the round has no number.
 
-    Lämmittelyn, puukkokierroksen ja ottelun uudelleenaloituksen rivit tulevat
-    ``parse``-vaiheelta ilman ``round_no``:ta. Ne eivät ole kierroksia, joten
-    ne eivät voi kuulua yhdenkään kierrostyypin otantaan -- eikä niitä silti
-    saa yrittää muuttaa numeroksi.
+    The rows of the warmup, the knife round and a match restart come from the
+    ``parse`` stage without a ``round_no``. They are not rounds, so they
+    cannot belong to any round type's sample -- and they must not be turned
+    into a number either.
     """
     if row["round_no"] is None:
         return None
@@ -921,11 +950,11 @@ def positions_for(
     ticks: Sequence[Mapping[str, Any]],
     round_keys: Sequence[RoundKey],
 ) -> list[Position]:
-    """Näytepisteet yhdelle kartta/puoli/kierrostyyppi -haaralle.
+    """The sample points of one map/side/round type branch.
 
-    Aikanäytepisteet ryhmitellään ``sample_t_s``:n mukaan, ensikontakti
-    **yhdeksi** näytepisteeksi: sen hetki on eri joka kierroksella, joten
-    ``sample_t_s``:llä ryhmittely tuottaisi yhden näytepisteen per kierros.
+    Time sample points are grouped by ``sample_t_s``, first contact into
+    **one** sample point: its moment differs on every round, so grouping it by
+    ``sample_t_s`` would produce one sample point per round.
     """
     total_rounds = len(round_keys)
     groups: defaultdict[
@@ -941,9 +970,10 @@ def positions_for(
         kind = str(row["sample_kind"])
         seconds = _sample_seconds(row)
         group = groups[(kind, seconds if kind == "time" else None)]
-        # Kierros on näytepisteessä mukana heti kun sillä on yksikin rivi --
-        # myös silloin, kun jokainen pelaaja on kuollut. Muuten kierros, jolla
-        # koko joukkue oli kaatunut, katoaisi otannasta ja Σ n = m pettäisi.
+        # A round is in the sample point as soon as it has even one row --
+        # including when every player is dead. Otherwise a round on which the
+        # whole team had fallen would vanish from the sample and Σ n = m
+        # would fail.
         group.setdefault(key, [])
         if kind == "first_contact":
             contact_seconds[key] = float(row["sample_t_s"])
@@ -952,11 +982,11 @@ def positions_for(
 
     positions: list[Position] = []
     for (kind, seconds), rows_by_round in groups.items():
-        # Mediaani lasketaan KIERROKSISTA eikä pelaajariveistä: sama hetki
-        # toistuu jokaisella elossa olevalla pelaajalla, joten rivipohjainen
-        # mediaani painottaisi kierrosta, jolla oli enemmän pelaajia
-        # hengissä. Neljä pelaajaa 10 s kohdalla ja yksi 20 s kohdalla
-        # antaisi 10,0 vaikka kierrosten mediaani on 15,0.
+        # The median is computed from the ROUNDS and not from the player
+        # rows: the same moment repeats for every living player, so a
+        # row-based median would weight the round that had more players
+        # alive. Four players at 10 s and one at 20 s would give 10.0 even
+        # though the rounds' median is 15.0.
         contact_times = (
             sorted(contact_seconds[key] for key in rows_by_round)
             if kind == "first_contact"
@@ -974,8 +1004,8 @@ def positions_for(
                 areas=area_distributions(rows_by_round),
             )
         )
-    # Aikanäytepisteet nousevassa järjestyksessä, ensikontakti viimeisenä:
-    # se ei ole kellonaika vaan tapahtuma.
+    # Time sample points in ascending order, first contact last: it is not a
+    # clock time but an event.
     positions.sort(key=lambda p: (p.sample_kind == "first_contact", p.seconds or 0.0))
     return positions
 
@@ -983,12 +1013,12 @@ def positions_for(
 def armed_players_for(
     rows: Sequence[Mapping[str, Any]],
 ) -> ArmedPlayers:
-    """Aseistettujen pelaajien jakauma kierroksittain.
+    """The armed players' distribution, round by round.
 
-    Havainto on ``classify``-vaiheen tallentama ``inputs.players_armed`` eli
-    Story 1.6:n laskuri. ``null`` tarkoittaa lukukelvotonta tavaraluetteloa,
-    ja se pidetään erillään nollasta: nolla aseistettua on säästökierros,
-    lukukelvoton ei ole havainto lainkaan.
+    The observation is ``inputs.players_armed`` as stored by the ``classify``
+    stage, that is Story 1.6's count. ``null`` means an unreadable inventory,
+    and it is kept apart from zero: zero armed is a saving round, unreadable
+    is not an observation at all.
     """
     values = [_armed(row) for row in rows]
     known = [v for v in values if v is not None]
@@ -1003,7 +1033,7 @@ def armed_players_for(
 
 
 def _armed(row: Mapping[str, Any]) -> int | None:
-    """``inputs.players_armed`` yhdeltä riviltä, ``None`` jos puuttuu."""
+    """``inputs.players_armed`` from one row, ``None`` if it is missing."""
     inputs = row.get("inputs")
     if not isinstance(inputs, Mapping):
         return None
@@ -1012,48 +1042,48 @@ def _armed(row: Mapping[str, Any]) -> int | None:
 
 
 def armored_by_round(rounds: Sequence[Mapping[str, Any]]) -> dict[SideRoundKey, int]:
-    """Panssarilaskuri kierrostaulusta, avaimella (demo, kierros, puoli).
+    """The armour count from the rounds table, keyed by (demo, round, side).
 
-    **Lähde on ``parsed/rounds`` eikä ``classified``**, toisin kuin
-    aseistettujen laskurilla. Syy on rajaus eikä mukavuus: aseistettujen
-    laskuri on puolioston ehto A, joten ``classify`` lukee sen joka
-    tapauksessa ja tallentaa päätöksen syötteisiin. Panssarilaskuri ei ole
-    päätöksen syöte -- se on havainto -- eikä sitä siksi lisätä
-    ``economy.CLASSIFY_COLUMNS``iin. Luokittelusääntö pysyy ennallaan, ja
-    havainto luetaan sieltä missä se on.
+    **The source is ``parsed/rounds`` and not ``classified``**, unlike the
+    armed count. The reason is scope and not convenience: the armed count is
+    the half-buy's condition A, so ``classify`` reads it in any case and
+    stores the decision in its inputs. The armour count is not an input to the
+    decision -- it is an observation -- and it is therefore not added to
+    ``economy.CLASSIFY_COLUMNS``. The classification rule stays as it is, and
+    the observation is read from where it lives.
 
-    Avaimessa on **puoli mukana**: kierrostaulussa on kaksi riviä per kierros,
-    ja ilman puolta vastustajan panssarit voisivat päätyä omalle riville.
+    The key **includes the side**: the rounds table has two rows per round,
+    and without the side the opponent's armour could end up on our own row.
 
-    Numeroimattomat kierrokset (lämmittely, puukkokierros), rivit joilta
-    havaintoa ei saatu ja rivit joiden avain on vajaa jäävät kartasta pois.
-    Puuttuva avain tarkoittaa ``rounds_unknown``ia
-    :func:`armored_players_for`issä -- nollaa se ei saa tarkoittaa, koska
-    nolla on havainto ja lukuvirhe ei ole.
+    Unnumbered rounds (the warmup, the knife round), rows from which the
+    observation was not obtained and rows whose key is incomplete stay out of
+    the map. A missing key means ``rounds_unknown`` in
+    :func:`armored_players_for` -- it must not mean zero, because zero is an
+    observation and a failed read is not.
 
     Raises:
-        AggregateError: Jos kaksi riviä väittää samaa avainta. Hiljainen
-            ylikirjoitus jättäisi voimaan sen, joka sattuu olemaan viimeisenä,
-            eikä mikään kertoisi kumpi luku raporttiin päätyi. Luokitelluille
-            riveille sama tarkistus on :func:`check_rounds_are_unique`.
+        AggregateError: If two rows claim the same key. Overwriting in silence
+            would leave in force whichever happens to be last, and nothing
+            would say which figure reached the report. For classified rows the
+            same check is :func:`check_rounds_are_unique`.
     """
     lookup: dict[SideRoundKey, int] = {}
     for row in rounds:
         round_no = row.get("round_no")
         value = row.get(ARMORED_COLUMN)
         demo, side = row.get("map_demo_id"), row.get("side")
-        # Vajaa avain pudotetaan **ennen** str()-muunnosta: ``str(None)``
-        # rakentaisi avaimen "None", joka ei osu koskaan mutta näyttää
-        # kartassa täysin tavalliselta.
+        # An incomplete key is dropped **before** the str() conversion:
+        # ``str(None)`` would build the key "None", which never matches
+        # anything but looks entirely ordinary in the map.
         if round_no is None or value is None or demo is None or side is None:
             continue
         key = (str(demo), int(round_no), str(side))
         if key in lookup and lookup[key] != int(value):
             raise AggregateError(
-                f"Kierrostaulussa on kaksi eri panssarilukua samalle "
-                f"kierrokselle {key}: {lookup[key]} ja {int(value)}.\n"
-                "Raporttiin päätyisi se, joka sattuu olemaan viimeisenä. "
-                "Aja parsinta uudelleen: uv run pappascout parse "
+                f"The rounds table holds two different armour counts for the "
+                f"same round {key}: {lookup[key]} and {int(value)}.\n"
+                "Whichever happens to be last would reach the report. "
+                "Run the parse again: uv run pappascout parse "
                 f"{demo} --pakota"
             )
         lookup[key] = int(value)
@@ -1064,28 +1094,30 @@ def armored_players_for(
     rows: Sequence[Mapping[str, Any]],
     armored: Mapping[SideRoundKey, int],
 ) -> ArmoredPlayers:
-    """Panssaroitujen pelaajien jakauma kierroksittain.
+    """The armoured players' distribution, round by round.
 
-    **Eri havainto kuin** :func:`armed_players_for`, ei sen yleistys. Tästä
-    luetaan tavoiteanalyysin *"5 kevlaria"* ja *"ei kevuja"*, joita
-    aseistettujen jakaumasta ei saa: pistoolikierroksella se on käytännössä 0,
-    koska 800 dollarilla ei osta sekä kevlaria että parannettua asetta.
+    **A different observation from** :func:`armed_players_for`, not a
+    generalisation of it. The target analysis's *"5 kevlars"* and *"no kevs"*
+    are read from here, and the armed distribution cannot give them: on a
+    pistol round it is in practice 0, because $800 does not buy both kevlar
+    and an upgraded weapon.
 
     Args:
-        rows: Kierrostyypin luokitellut rivit. Ne määräävät otannan, joten
-            kierros, jolta panssarilukua ei saatu, on ``rounds_unknown`` eikä
-            katoa jakaumasta.
-        armored: :func:`armored_by_round`in kartta koko otannasta.
+        rows: The round type's classified rows. They determine the sample, so
+            a round from which the armour count was not obtained is
+            ``rounds_unknown`` and does not vanish from the distribution.
+        armored: :func:`armored_by_round`'s map over the whole sample.
     """
     values: list[int | None] = []
     for row in rows:
         round_no = row.get("round_no")
         demo, side = row.get("map_demo_id"), row.get("side")
-        # Vajaa avain on **puuttuva havainto eikä kaatuva ajo**: jokainen
-        # annettu rivi tuottaa alkion, jotta otanta ei pienene hiljaa, ja
-        # yksi vajaa rivi jää tuntemattomaksi sen sijaan että veisi koko
-        # aggregoinnin mukanaan. ``classify`` pudottaa numeroimattomat jo
-        # ennen tätä, joten haara on puolustus eikä odotettu tila.
+        # An incomplete key is a **missing observation and not a crashing
+        # run**: every row given produces an element, so that the sample does
+        # not shrink in silence, and one incomplete row stays unknown instead
+        # of taking the whole aggregation with it. ``classify`` drops the
+        # unnumbered ones before this, so the branch is a defence and not an
+        # expected state.
         values.append(
             None
             if round_no is None or demo is None or side is None
@@ -1107,12 +1139,12 @@ def first_contact_areas(
     ticks: Sequence[Mapping[str, Any]],
     round_keys: Sequence[RoundKey],
 ) -> list[FirstContactArea]:
-    """Alueet, joilla joukkueella oli pelaaja ensikontaktin hetkellä.
+    """The areas the team had a player in at the moment of first contact.
 
-    Havainto on **läsnäolo**: sama kierros tuottaa havainnon jokaiselle
-    alueelle, jolla joukkueella oli elossa oleva pelaaja. ``Σ n = m`` ei siis
-    päde eikä ole tarkoituskaan -- täysi jakauma samalta hetkeltä on
-    ``positions``-listan ensikontaktinäytepisteessä.
+    The observation is **presence**: the same round produces an observation
+    for every area in which the team had a living player. ``Σ n = m``
+    therefore does not hold and is not meant to -- the full distribution from
+    the same moment is in the ``positions`` list's first-contact sample point.
     """
     keys = set(round_keys)
     rounds_with_sample: set[RoundKey] = set()
@@ -1136,7 +1168,7 @@ def first_contact_areas(
     return areas
 
 
-# -- Kuolemat --------------------------------------------------------------------
+# -- Deaths ----------------------------------------------------------------------
 
 
 def deaths_for(
@@ -1144,41 +1176,43 @@ def deaths_for(
     round_keys: Sequence[RoundKey],
     lineup_keys: Iterable[str],
 ) -> DeathReport:
-    """Joukkueen omat kuolemat ja tapot yhdelle kierrostyypille.
+    """The team's own deaths and kills for one round type.
 
-    Kaksi reunajakaumaa, ja ne luetaan **saman taulun eri sarakkeista**:
-    ``victim_lineup_key`` kertoo omat kuolemat, ``attacker_lineup_key`` omat
-    tapot. Sama rivi voi olla molempia -- teamkillissä joukkueen pelaaja
-    tappoi joukkuekaverinsa -- eikä kumpaakaan suodateta pois: havainto on
-    että pelaaja kuoli ja että ampuja oli tietyllä alueella, ja teamkillin
-    erottaminen olisi tulkintaa.
+    Two marginal distributions, and they are read **from different columns of
+    the same table**: ``victim_lineup_key`` gives the own deaths,
+    ``attacker_lineup_key`` the own kills. The same row can be both -- in a
+    teamkill a player of the team killed his own teammate -- and neither is
+    filtered out: the observation is that a player died and that the shooter
+    was in a particular area, and telling a teamkill apart would be
+    interpretation.
 
-    **Ensimmäinen kuolema kierroksella** on se, jolla on pienin ``t_s``.
-    Tasatilanne -- kaksi joukkuekaveria samalla tickillä -- ratkeaa uhrin
-    tunnisteella, jotta sama aineisto antaa saman tuloksen ajosta toiseen.
-    Rivi, jolta ``t_s`` puuttuu, on järjestyksessä viimeisenä eikä
-    ensimmäisenä: puuttuva aika ei ole nolla.
+    **The first death of a round** is the one with the smallest ``t_s``. A tie
+    -- two teammates on the same tick -- is resolved by the victim's id, so
+    that the same data gives the same result from one run to the next. A row
+    from which ``t_s`` is missing is last in the ordering and not first: a
+    missing time is not zero.
 
-    **Tappoalue on ampujan oma alue**, ei uhrin. Juuri niin tavoiteanalyysin
-    rivi "Vihu meni secret pihalta" on kirjoitettu: se kertoo mistä ampuja
-    ampui.
+    **The kill area is the shooter's own area**, not the victim's. That is
+    exactly how the target analysis's line "the enemy came through the secret
+    yard" is written: it says where the shooter shot from.
 
-    **Itsemurha ei ole tappo.** Rivi, jolla ampuja ja uhri ovat sama pelaaja,
-    on oma kuolema muttei oma tappo: tapporivi kertoo mistä joukkue ampuu, ja
-    itsemurhan alue on paikka josta kukaan ei ampunut. Teamkill sen sijaan
-    lasketaan molempiin -- siinä joukkuekaveri **oikeasti ampui** tuolta
-    alueelta. Mitattu 2026-08-30: 0 itsemurhaa ja 1 teamkill 591 kuolemasta.
+    **A suicide is not a kill.** A row on which the shooter and the victim are
+    the same player is an own death but not an own kill: a kill row says where
+    the team shoots from, and a suicide's area is a place nobody shot from. A
+    teamkill, in contrast, counts towards both -- there a teammate **really
+    did shoot** from that area. Measured 2026-08-30: 0 suicides and 1 teamkill
+    out of 591 deaths.
 
     Args:
-        deaths: ``DEATHS``-rivit. **Ei suodatettuna kokoonpanoon**: funktio
-            tarvitsee molemmat sarakkeet, ja kutsuja ei voi tietää kumpi
-            niistä osuu.
-        round_keys: Tämän haaran kierrokset.
-        lineup_keys: Joukkueen kokoonpanotunnisteet.
+        deaths: The ``DEATHS`` rows. **Not filtered to the lineup**: the
+            function needs both columns, and the caller cannot know which of
+            them will match.
+        round_keys: This branch's rounds.
+        lineup_keys: The team's lineup ids.
 
     Returns:
-        :class:`~pappascout.domain.report.DeathReport`. Tyhjä mutta
-        kelvollinen, jos haarassa ei kuoltu.
+        :class:`~pappascout.domain.report.DeathReport`. Empty but valid if
+        nobody died in the branch.
     """
     keys = set(round_keys)
     own = set(lineup_keys)
@@ -1215,9 +1249,9 @@ def deaths_for(
     )
     m = len(first)
 
-    # Yleisin alue ensin, tasatilanne aakkosin ja tuntematon viimeisenä --
-    # sama järjestys kuin ensikontaktin alueilla, jotta raportin rivit
-    # luetaan samalla tavalla.
+    # The most common area first, ties alphabetically and the unknown one
+    # last -- the same order as the first-contact areas, so that the report's
+    # rows are read the same way.
     first_areas = [
         FirstDeathArea(area=area, n=n, m=m)
         for area, n in sorted(areas.items(), key=_by_count_then_area)
@@ -1239,15 +1273,16 @@ def deaths_for(
 
 
 def _observed_area(value: Any) -> str | None:
-    """Alue havaintona: tyhjä merkkijono **ei ole alue** vaan ``None``.
+    """The area as an observation: an empty string **is not an area** but
+    ``None``.
 
-    ``parse`` kirjoittaa jo nyt tyhjän ``last_place_name``in ``null``:na, mutta
-    sopimus sallii merkkijonon eikä vanhalla versiolla kirjoitettu taulu ole
-    käynyt sitä sääntöä läpi. Ilman normalisointia sama havainto tulisi
-    jakaumaan **kahdesti**: mallin kaksoiskappaletarkistus vertaa raaka-arvoja
-    (``""`` ja ``None`` ovat eri), mutta raportti näyttää molemmat nimellä
-    "tuntematon alue" -- eli yksi rivi kertoisi saman asian kaksi kertaa eri
-    luvuilla.
+    ``parse`` already writes an empty ``last_place_name`` as ``null``, but the
+    contract allows a string and a table written with an older version has not
+    been through that rule. Without normalisation the same observation would
+    reach the distribution **twice**: the model's duplicate check compares raw
+    values (``""`` and ``None`` are different), but the report shows both
+    under the name "tuntematon alue" -- that is, one row would say the same
+    thing twice with different figures.
     """
     if value is None:
         return None
@@ -1256,25 +1291,25 @@ def _observed_area(value: Any) -> str | None:
 
 
 def _by_count_then_area(item: tuple[str | None, int]) -> tuple[int, int, str]:
-    """Lajitteluavain aluejakaumalle: yleisin ensin, tuntematon viimeisenä.
+    """The sort key for an area distribution: most common first, the unknown
+    one last.
 
-    **Yksi kirjoitusasu yhdelle säännölle.** Sekä ensikontaktin, ensimmäisen
-    kuoleman että tappojen alueet järjestyvät näin, ja kaksi kopiota
-    erkanisivat: raportin rivit luetaan samalla tavalla, joten niiden on myös
-    järjestyttävä samalla tavalla.
+    **One spelling for one rule.** The areas of first contact, of the first
+    death and of the kills all order this way, and two copies would diverge:
+    the report's rows are read the same way, so they have to order the same
+    way too.
     """
     area, count = item
     return (-count, *_area_sort_key(area))
 
 
 def _death_order(row: Mapping[str, Any]) -> tuple[int, float, str]:
-    """Järjestysavain kierroksen sisällä: aika ensin, uhrin tunniste sitten.
+    """The ordering key inside a round: the time first, the victim's id next.
 
-    Ensimmäinen alkio erottaa **puuttuvan ajan nollasta**: ilman sitä rivi,
-    jolta ``t_s`` puuttuu, olisi kierroksen ensimmäinen kuolema. Uhrin
-    tunniste tekee tasatilanteesta toistettavan -- kaksi joukkuekaveria voi
-    kuolla samalla tickillä, eikä rivijärjestys saa ratkaista kumpi näkyy
-    raportissa.
+    The first element tells **a missing time apart from zero**: without it a
+    row from which ``t_s`` is missing would be the round's first death. The
+    victim's id makes a tie repeatable -- two teammates can die on the same
+    tick, and the row order must not decide which one appears in the report.
     """
     t_s = row["t_s"]
     return (
@@ -1290,14 +1325,15 @@ def _death_order(row: Mapping[str, Any]) -> tuple[int, float, str]:
 def _detonations(
     events: Sequence[Mapping[str, Any]],
 ) -> dict[tuple[str, int], Mapping[str, Any]]:
-    """Räjähdysrivit avaimella ``(map_demo_id, grenade_no)``.
+    """The detonation rows keyed by ``(map_demo_id, grenade_no)``.
 
-    **Kierrosta ei suodateta.** Molotov palaa seitsemän sekuntia ja savu
-    kahdeksantoista, joten kierroksen lopussa heitetty kranaatti räjähtää
-    seuraavan kierroksen puolella ja saa eri ``round_no``:n. Jos molemmat
-    rivit suodatettaisiin kierrosta vasten erikseen, pari katkeaisi ilman
-    kirjausta ja kranaatti menettäisi alueensa hiljaa. Kranaatti kuuluu sille
-    kierrokselle, jolla se **heitettiin**, joten vain heitto suodatetaan.
+    **The round is not filtered.** A molotov burns for seven seconds and a
+    smoke for eighteen, so a grenade thrown at the end of a round detonates on
+    the next round's side of the boundary and gets a different ``round_no``.
+    If both rows were filtered against the round separately, the pair would
+    break with nothing recorded and the grenade would lose its area in
+    silence. A grenade belongs to the round on which it was **thrown**, so
+    only the throw is filtered.
     """
     return {
         (str(row["map_demo_id"]), int(row["grenade_no"])): row
@@ -1307,13 +1343,13 @@ def _detonations(
 
 
 def unpaired_detonations(events: Sequence[Mapping[str, Any]]) -> int:
-    """Räjähdykset, joilta puuttuu heittorivi.
+    """The detonations that have no throw row.
 
-    ``parse`` kirjoittaa heiton ja räjähdyksen aina parina samalla
-    ``grenade_no``:lla, joten pariton räjähdys tarkoittaa rikkinäistä taulua.
-    Se pudotetaan utilityn laskennasta -- heittoaluetta eikä heittohetkeä ei
-    ole -- mutta lukumäärä palautetaan, koska hiljainen pudotus näyttäisi
-    siltä, ettei kranaattia heitetty lainkaan.
+    ``parse`` always writes the throw and the detonation as a pair with the
+    same ``grenade_no``, so an unpaired detonation means a broken table. It is
+    dropped from the utility computation -- there is neither a throw area nor
+    a moment of throw -- but the count is returned, because dropping it in
+    silence would look as though the grenade had not been thrown at all.
     """
     thrown = {
         (str(row["map_demo_id"]), int(row["grenade_no"]))
@@ -1326,17 +1362,18 @@ def unpaired_detonations(events: Sequence[Mapping[str, Any]]) -> int:
 def _grenades(
     events: Sequence[Mapping[str, Any]], round_keys: Sequence[RoundKey]
 ) -> list[dict[str, Any]]:
-    """Pariuta heitto ja räjähdys yhdeksi kranaatiksi.
+    """Pair up the throw and the detonation into one grenade.
 
-    Pari yhdistetään avaimella ``(map_demo_id, grenade_no)``: ``grenade_no``
-    on yksikäsitteinen demon sisällä, ``grenade_entity_id`` ei ole -- peli
-    kierrättää entiteettitunnisteet jopa saman kierroksen sisällä.
+    The pair is joined by the key ``(map_demo_id, grenade_no)``:
+    ``grenade_no`` is unique inside a demo, ``grenade_entity_id`` is not --
+    the game recycles entity ids even inside one round.
 
-    **Vain heitto suodatetaan kierrosta vasten** (ks. :func:`_detonations`).
-    Räjähdysrivin puuttuminen ei pudota kranaattia: heitto on havainto
-    omillaan ja se on juuri se, mistä utility mitataan. Pariton räjähdys sen
-    sijaan putoaa -- sillä ei ole heittoaluetta eikä heittohetkeä -- ja sen
-    lukumäärä raportoidaan erikseen funktiolla :func:`unpaired_detonations`.
+    **Only the throw is filtered against the round** (see
+    :func:`_detonations`). A missing detonation row does not drop the grenade:
+    the throw is an observation on its own and it is exactly what the utility
+    is measured from. An unpaired detonation does drop -- it has neither a
+    throw area nor a moment of throw -- and its count is reported separately
+    by :func:`unpaired_detonations`.
     """
     keys = set(round_keys)
     detonate = _detonations(events)
@@ -1356,9 +1393,10 @@ def _grenades(
                 "throw_area": row["area"],
                 "t_s": None if row["t_s"] is None else float(row["t_s"]),
                 "detonate_area": None if blast is None else blast["area"],
-                # Lähde luetaan sellaisenaan eikä johdeta alueesta: jos
-                # taulussa on alue ilman lähdettä, raporttimalli kaatuu siihen
-                # äänekkäästi sen sijaan että arvio menisi läpi havaintona.
+                # The source is read as it stands and not derived from the
+                # area: if the table holds an area without a source, the
+                # report model fails on it loudly instead of letting an
+                # estimate through as an observation.
                 "area_source": (
                     None
                     if blast is None or blast["area_source"] is None
@@ -1374,15 +1412,16 @@ def utility_uses(
     round_keys: Sequence[RoundKey],
     bucket_edges: Sequence[float],
 ) -> list[UtilityUse]:
-    """Utility-kuviot: tyyppi, heittoalue, räjähdysalue ja aikaikkuna.
+    """Utility patterns: type, throw area, detonation area and time window.
 
-    ``n`` laskee **kierroksia** ja ``throws`` **kranaatteja**. Ne eroavat, kun
-    samalla kierroksella heitetään kaksi samanlaista kranaattia samaan
-    paikkaan, ja siksi ``n``-arvojen summa ei ole kranaattien määrä.
+    ``n`` counts **rounds** and ``throws`` counts **grenades**. They differ
+    when two identical grenades are thrown to the same place on the same
+    round, which is why the sum of the ``n`` values is not the number of
+    grenades.
 
-    Alueeton kranaatti (``area`` on ``null``) saa oman lokeronsa eikä putoa
-    pois: savu heitetään usein sinne, missä ei ole ketään, ja juuri se on sen
-    tarkoitus.
+    A grenade without an area (``area`` is ``null``) gets a bucket of its own
+    instead of dropping out: a smoke is often thrown where nobody is, and that
+    is precisely its purpose.
     """
     m = len(round_keys)
     rounds: defaultdict[tuple[Any, ...], set[RoundKey]] = defaultdict(set)
@@ -1411,8 +1450,9 @@ def utility_uses(
         )
         for key, seen in rounds.items()
     ]
-    # Aikaikkunat aikajärjestyksessä eivätkä aakkosissa: aakkosissa "10-20"
-    # tulisi ennen "5-10", ja kuvion lukija odottaa kellon järjestystä.
+    # The time windows in clock order and not alphabetically: alphabetically
+    # "10-20" would come before "5-10", and the reader of a pattern expects
+    # the order of the clock.
     order = {label: i for i, label in enumerate(bucket_labels(bucket_edges))}
     uses.sort(
         key=lambda u: (
@@ -1429,13 +1469,13 @@ def utility_counts_for(
     events: Sequence[Mapping[str, Any]],
     round_keys: Sequence[RoundKey],
 ) -> list[UtilityCounts]:
-    """Montako kutakin kranaattityyppiä heitettiin kierroksella.
+    """How many of each grenade type were thrown on a round.
 
-    Tyyppijoukko on **tässä haarassa havaitut tyypit**. Nollapylväs syntyy
-    niistä kierroksista, joilla tyyppiä ei heitetty, joten "eivät heittäneet
-    yhtään savua" on havainto eikä puuttuva rivi. Tyyppiä, jota ei heitetty
-    kertaakaan, ei kirjoiteta lainkaan -- sama sääntö kuin tyhjällä
-    kierrostyypillä.
+    The set of types is **the types observed in this branch**. The zero bar
+    comes from those rounds on which the type was not thrown, so "they threw
+    no smokes at all" is an observation and not a missing row. A type that was
+    never thrown once is not written at all -- the same rule as for an empty
+    round type.
     """
     m = len(round_keys)
     per_type: defaultdict[str, Counter[RoundKey]] = defaultdict(Counter)
@@ -1459,7 +1499,7 @@ def utility_counts_for(
     return result
 
 
-# -- Poikkeamat ------------------------------------------------------------------
+# -- Anomalies -------------------------------------------------------------------
 
 
 def anomalies_for(
@@ -1471,84 +1511,84 @@ def anomalies_for(
     point_clouds: Mapping[str, Sequence[sampling.CloudCell]],
     thresholds: ThresholdSettings,
 ) -> tuple[list[Anomaly], AnomalyScan]:
-    """Poikkeavat asetelmat kaikilta kartoilta ja puolilta yhtenä listana.
+    """Anomalous set-ups from every map and side as one list.
 
-    Säännöt itse ovat :mod:`pappascout.domain.sampling`issa ja ne katsovat
-    **yhtä kierrosta kerrallaan**; tämä funktio tekee kolme asiaa, joita
-    sääntö ei voi tehdä: kutsuu ne oikean demon orientaatiolla, **ryhmittelee
-    osumat otannaksi** ja kirjaa mitä ylipäätään tutkittiin.
+    The rules themselves are in :mod:`pappascout.domain.sampling` and they
+    look at **one round at a time**; this function does three things a rule
+    cannot: it calls them with the right demo's orientation, **groups the hits
+    into a sample** and records what was examined in the first place.
 
-    **Ryhmittelyavain on sääntökohtainen.** ``ct_advance`` ryhmitellään
-    ``(kartta, puoli, kierrostyyppi, alue)``, koska se on säästökierrosten
-    ilmiö ja kierrostyyppi on osa havaintoa. ``crunch`` ja ``stack``
-    ryhmitellään ``(kartta, puoli, alue)`` **ilman kierrostyyppiä**: kumpikaan
-    ei tunne sitä, ja jakaminen eco-riviksi ja default-riviksi antaisi samalle
-    kuviolle kaksi eri jakajaa eikä lukija näkisi kokonaismäärää -- eli luku
-    toistaisi sisällään juuri sen hajanaisuuden, jonka poistamiseksi se
-    tehtiin.
+    **The grouping key is per rule.** ``ct_advance`` is grouped by ``(map,
+    side, round type, area)``, because it is a phenomenon of the saving rounds
+    and the round type is part of the observation. ``crunch`` and ``stack``
+    are grouped by ``(map, side, area)`` **without the round type**: neither
+    of them knows it, and splitting into an eco row and a default row would
+    give the same pattern two different denominators and the reader would not
+    see the total -- that is, the figure would reproduce inside itself the
+    very scatter it was made to remove.
 
-    ``n`` on niiden **kierrosten** määrä, joilla osuma havaittiin: sama alue
-    kahdella eco-kierroksella on yksi rivi otannalla ``2/m``, ei kaksi riviä,
-    eikä sama kierros kahdella näytepisteellä nosta ``n``:ää kahteen. ``m`` on
-    ryhmittelytason kaikki kierrokset -- etenemisellä kierrostyypin, crunchilla
-    ja stackilla puolen.
+    ``n`` is the number of **rounds** on which the hit was observed: the same
+    area on two eco rounds is one row with a sample of ``2/m``, not two rows,
+    and the same round with two sample points does not raise ``n`` to two.
+    ``m`` is all of the grouping level's rounds -- for the advance the round
+    type's, for crunch and stack the side's.
 
-    **Siteryhmät johdetaan kerran demoa kohden**, ei kerran kierrosta kohden
-    kuten orientaation kynnyssuodatus. Ero on mitattu: pistepilvessä on
-    tuhansia ruutuja ja johtaminen lajittelee ne, kun taas orientaation
-    suodatus on kymmeniä sanakirjahakuja. Demon oma pilvi on demokohtainen
-    vakio, joten kerran laskettu tulos on täsmälleen sama -- ja se on
-    laskettava joka tapauksessa myös kattavuutta varten.
+    **The site groups are derived once per demo**, not once per round like the
+    orientation's threshold filtering. The difference is measured: a point
+    cloud holds thousands of cells and deriving them sorts the cells, whereas
+    the orientation's filtering is tens of dictionary lookups. A demo's own
+    cloud is a per-demo constant, so a result computed once is exactly the
+    same -- and it has to be computed in any case for the coverage as well.
 
     Args:
-        rows: Luokitellut kierrokset, joilla **on** kierrostyyppi. Tämä on
-            ainoa lähde sille, mikä kierros on olemassa ja mitä puolta ja
-            tyyppiä se on -- sama sääntö kuin muualla raportissa.
-        ticks: Näytepisterivit, **suodatettuna joukkueen kokoonpanoihin**.
-            Poikkeama on subjektin oma liike, joten osumat luetaan hänen
-            riveistään; alueen orientaatio sen sijaan **ei voi** tulla niistä
-            (ks. ``area_orientation``).
-        by_map: Kartan nimi -> sen demot. Sama ryhmittely kuin
-            :func:`build_report`issa, jotta poikkeama on samalla kartalla kuin
-            karttaluku.
-        map_sources: Kartan nimi -> haaran ``map_name_source``. Kannetaan
-            poikkeamaan asti, koska raportin runko puhuu nimillä (Story 2.12):
-            lähteellä ``unknown`` nimi **on** demotunniste, eikä sitä saa
-            latoa runkoon paljaana.
-        area_orientation: ``map_demo_id`` -> (alue -> havainnot) demon
-            **suodattamattomasta** näytepistetaulusta. Argumentti eikä
-            johdos: subjektin riveillä laskettuna jokainen tosi positiivinen
-            katoaa, koska poikkeama syö oman havaitsemisensa.
-        point_clouds: ``map_demo_id`` -> demon ``CALLOUT_CLOUD``-ruudut.
-            Stackin siteryhmät johdetaan tästä
-            (:func:`~pappascout.domain.sampling.site_groups`). Sama lukittu
-            ehto kuin orientaatiolla: **demon oma havainto**, ei
-            karttatietokantaa eikä arkiston yli kertyvää taulua. Pilvi ei ole
-            suodatettu joukkueen kokoonpanoihin eikä sitä saa suodattaa:
-            kartta on siellä missä on, riippumatta siitä kumpi joukkue on
-            subjekti.
-        thresholds: ``[thresholds]``-osio. Siitä luetaan yhdeksän
-            poikkeamakynnystä ja ``small_sample_rounds``.
+        rows: The classified rounds that **have** a round type. This is the
+            only source for which rounds exist and what side and type they
+            are -- the same rule as everywhere else in the report.
+        ticks: The sample point rows, **filtered to the team's lineups**. An
+            anomaly is the subject's own movement, so the hits are read from
+            his rows; the area's orientation, in contrast, **cannot** come
+            from them (see ``area_orientation``).
+        by_map: Map name -> its demos. The same grouping as in
+            :func:`build_report`, so that an anomaly is on the same map as the
+            map chapter.
+        map_sources: Map name -> the branch's ``map_name_source``. Carried all
+            the way to the anomaly, because the report's body speaks in names
+            (Story 2.12): with the source ``unknown`` the name **is** the demo
+            id, and it must not be set into the body bare.
+        area_orientation: ``map_demo_id`` -> (area -> observations) from the
+            demo's **unfiltered** sample point table. An argument and not a
+            derivation: computed on the subject's rows, every true positive
+            vanishes, because the anomaly eats its own detection.
+        point_clouds: ``map_demo_id`` -> the demo's ``CALLOUT_CLOUD`` cells.
+            The stack's site groups are derived from this
+            (:func:`~pappascout.domain.sampling.site_groups`). The same locked
+            condition as for the orientation: **the demo's own observation**,
+            not a map database and not a table accumulated across the archive.
+            The cloud is not filtered to the team's lineups and must not be:
+            the map is where it is, no matter which team is the subject.
+        thresholds: The ``[thresholds]`` section. Nine anomaly thresholds and
+            ``small_sample_rounds`` are read from it.
 
     Returns:
-        Pari ``(poikkeamat, kattavuus)``. Poikkeamat ovat järjestyksessä
-        kartta, puoli, sääntö, kierrostyypit, alue. **Tyhjä lista on
-        kelvollinen tulos**, ja juuri siksi kattavuus palautetaan sen
-        rinnalla: "ei poikkeamia" on havainto vain siitä, mitä tutkittiin.
+        The pair ``(anomalies, coverage)``. The anomalies are in the order
+        map, side, rule, round types, area. **An empty list is a valid
+        result**, and that is exactly why the coverage is returned beside it:
+        "no anomalies" is an observation only about what was examined.
 
     Raises:
-        AggregateError: Jos jonkin mukaan otetun kierroksen demo puuttuu
-            ``area_orientation``ista tai ``point_clouds``ista **kokonaan**.
-            Puuttuva avain on eri asia kuin tyhjä orientaatio tai vaiennettu
-            pilvi: edellinen tarkoittaa, että kutsuja jätti demon pois, ja
-            hiljainen oletus vaientaisi säännöt juuri sillä demolla ilman että
-            mikään kertoisi siitä. Tyhjä orientaatio ja ryhmätön pilvi sen
-            sijaan ovat kelvollisia havaintoja, ja ne kirjataan kattavuuteen
-            (``demos_without_orientation``, ``demos_without_site_groups``).
+        AggregateError: If some included round's demo is missing from
+            ``area_orientation`` or from ``point_clouds`` **altogether**. A
+            missing key is a different thing from an empty orientation or a
+            silenced cloud: the former means the caller left the demo out, and
+            a default assumed in silence would silence the rules on that very
+            demo with nothing to say so. An empty orientation and a cloud
+            without groups, in contrast, are valid observations, and they are
+            recorded in the coverage (``demos_without_orientation``,
+            ``demos_without_site_groups``).
     """
-    # Rivit ja näytepisteet jaetaan **kertaalleen**. Aiempi versio suodatti
-    # koko rivilistan uudelleen joka (kartta, puoli, kierrostyyppi)
-    # -kolmikolle, eli 24-kertaisesti yhdellä kartalla.
+    # The rows and the sample points are split **once**. An earlier version
+    # re-filtered the whole row list for every (map, side, round type)
+    # triple, that is 24 times over on one map.
     ticks_by_round: defaultdict[RoundKey, list[Mapping[str, Any]]] = defaultdict(
         list
     )
@@ -1562,25 +1602,25 @@ def anomalies_for(
         for demo in demos:
             map_of_demo[demo] = map_name
 
-    # Siteryhmät demoa kohden **kerran**: demo -> (alue -> "A"|"B") tai None,
-    # kun kartalla ei ole tasoerottuvaa A/B-jakoa. ``None`` ja tyhjä kuvaus
-    # ovat eri vastauksia, joten arvo säilytetään sellaisenaan eikä
-    # normalisoida kumpaakaan toiseksi.
+    # The site groups **once** per demo: demo -> (area -> "A"|"B") or None,
+    # when the map has no A/B split that separates on the level. ``None`` and
+    # an empty description are different answers, so the value is kept as it
+    # stands and neither is normalised into the other.
     #
-    # Silmukka käy ``rows``in demot eikä ``point_clouds``in avaimet: kattavuus
-    # lasketaan siitä, mitkä demot otettiin mukaan, eikä siitä mitä pilviä
-    # kutsuja sattui antamaan.
+    # The loop walks ``rows``'s demos and not ``point_clouds``'s keys: the
+    # coverage is computed from which demos were included, not from which
+    # clouds the caller happened to supply.
     groups_by_demo: dict[str, dict[str, str] | None] = {}
     for demo in {str(row["map_demo_id"]) for row in rows}:
         if demo not in point_clouds:
             raise AggregateError(
-                f"Demon {demo} pistepilveä ei annettu, joten stack-sääntöä ei "
-                "voi ajaa sille.\n"
-                "Pilvi on demon oma havainto (parsed/<demo>/callouts.parquet) "
-                "ja siitä johdetaan siteryhmät. Puuttuva avain tarkoittaa, "
-                "että aggregointi jätti demon pois -- ei sitä, että demolla "
-                "ei olisi pilveä. Hiljainen oletus vaientaisi säännön juuri "
-                "sillä demolla."
+                f"Demo {demo}'s point cloud was not given, so the stack rule "
+                "cannot be run for it.\n"
+                "The cloud is the demo's own observation "
+                "(parsed/<demo>/callouts.parquet) and the site groups are "
+                "derived from it. A missing key means the aggregation left "
+                "the demo out -- not that the demo has no cloud. A default "
+                "assumed in silence would silence the rule on that very demo."
             )
         groups_by_demo[demo] = sampling.site_groups(
             point_clouds[demo],
@@ -1588,9 +1628,9 @@ def anomalies_for(
             separation_min=thresholds.stack_site_separation_min,
         )
 
-    # (kartta, puoli) -> kierrostyyppi -> kierrosrivit. Yksi jako, josta sekä
-    # etenemisen (kierrostyyppi mukana) että crunchin ja stackin
-    # (kierrostyyppi pois) nimittäjä on luettavissa.
+    # (map, side) -> round type -> round rows. One split, from which both the
+    # advance's denominator (round type included) and crunch's and stack's
+    # (round type left out) can be read.
     branches: defaultdict[
         tuple[str, str], defaultdict[str, list[Mapping[str, Any]]]
     ] = defaultdict(lambda: defaultdict(list))
@@ -1598,13 +1638,13 @@ def anomalies_for(
         demo = str(row["map_demo_id"])
         map_name = map_of_demo.get(demo)
         if map_name is None:
-            # Kierros demosta, joka ei ole yhdelläkään kartalla. build_report
-            # ei voi tuottaa tätä, mutta funktio on julkinen.
+            # A round from a demo that is on no map at all. build_report
+            # cannot produce this, but the function is public.
             raise AggregateError(
-                f"Kierros demosta {demo!r} ei kuulu yhdellekään kartalle, "
-                "joten poikkeamaa ei voi nimetä. Karttajako on "
-                "``build_report``in oma, joten ero tarkoittaa että "
-                "``by_map`` ja ``rows`` eivät ole samasta ajosta."
+                f"A round from demo {demo!r} belongs to no map, so the "
+                "anomaly cannot be named. The map split is "
+                "``build_report``'s own, so a difference means that "
+                "``by_map`` and ``rows`` are not from the same run."
             )
         branches[(map_name, str(row["side"]))][str(row["round_type"])].append(row)
 
@@ -1617,9 +1657,9 @@ def anomalies_for(
         by_type = branches[(map_name, side)]
         side_rows = [row for type_rows in by_type.values() for row in type_rows]
         source = map_sources.get(map_name, "unknown")
-        # Eteneminen ensin: sen nimittäjä on kapeampi, joten lukija näkee
-        # ensin kierrostyyppikohtaisen havainnon ja sitten koko puolen
-        # crunchin ja stackin. Järjestys on sama ajosta toiseen.
+        # The advance first: its denominator is narrower, so the reader sees
+        # the per-round-type observation first and then the whole side's
+        # crunch and stack. The order is the same from one run to the next.
         for round_type in ROUND_TYPES:
             type_rows = by_type.get(round_type)
             if not type_rows:
@@ -1635,16 +1675,17 @@ def anomalies_for(
                     thresholds=thresholds,
                 )
             )
-        # Crunch ja stack jakavat nimittäjän MUODON (puolen kaikki
-        # kierrokset) muttei sen sisältöä: crunch lukee alueen orientaation ja
-        # saapumisen suunnat, stack ei kumpaakaan.
+        # Crunch and stack share the SHAPE of the denominator (all of the
+        # side's rounds) but not its content: crunch reads the area's
+        # orientation and the source directions, stack reads neither.
         #
-        # **Stackin nimittäjästä putoavat vaiennetun demon kierrokset.**
-        # Kartalla voi olla kaksi demoa (Story 2.11), joista toiselta ei saatu
-        # siteryhmiä; ne kierrokset ovat crunchin nimittäjässä mutta eivät
-        # stackin, koska sääntö ei nähnyt niitä. Sama rajaus kuin
-        # kattavuusluvussa ``stack_rounds`` -- ja ilman sitä rivin ``n/m``
-        # kertoisi eri kattavuudesta kuin luvun oma kattavuusteksti.
+        # **A silenced demo's rounds drop out of the stack's denominator.**
+        # A map can have two demos (Story 2.11), one of which yielded no site
+        # groups; those rounds are in crunch's denominator but not in
+        # stack's, because the rule did not see them. The same scoping as in
+        # the coverage figure ``stack_rounds`` -- and without it a row's
+        # ``n/m`` would speak of a different coverage from the chapter's own
+        # coverage text.
         stack_rows = [
             row
             for row in side_rows
@@ -1668,12 +1709,12 @@ def anomalies_for(
                 )
             )
 
-    # Kattavuus lasketaan siitä, mitä sääntö VOI tutkia, ei siitä montako
-    # kierrosta silmukka kävi läpi. Kaikki kolme sääntöä lukevat vain
-    # ``sampling.RULE_SIDE``-rivejä, joten T-puolen kierros ei voi tuottaa
-    # osumaa yhdelläkään -- ja pelkkä kierrosten kokonaismäärä lupaisi
-    # kattavuutta, jota ei ole (mitattu: RCAVEn 92 kierroksesta 45 on CT ja
-    # niistä 8 säästökierrosta, joten eteneminen näki 8 eikä 92).
+    # The coverage is computed from what the rule CAN examine, not from how
+    # many rounds the loop walked through. All three rules read only
+    # ``sampling.RULE_SIDE`` rows, so a T-side round cannot produce a hit in
+    # any of them -- and the bare total number of rounds would promise a
+    # coverage that does not exist (measured: of RCAVE's 92 rounds 45 are CT
+    # and 8 of those are saving rounds, so the advance saw 8 and not 92).
     crunch_rounds = sum(
         1 for row in rows if str(row["side"]) == sampling.RULE_SIDE
     )
@@ -1683,10 +1724,11 @@ def anomalies_for(
         if str(row["side"]) == sampling.RULE_SIDE
         and str(row["round_type"]) in SAVING_ROUND_TYPES
     )
-    # Stackin nimittäjä EI OLE crunchin nimittäjä, vaikka kumpikaan ei rajaa
-    # kierrostyyppiä: vaiennetun demon (siteet eivät erotu) CT-kierrokset ovat
-    # crunchin nimittäjässä mutta eivät stackin. Ilman omaa lukua Nuken 27
-    # kierrosta näyttäisivät tutkituilta nollatuloksella.
+    # The stack's denominator IS NOT crunch's denominator, even though
+    # neither scopes by round type: a silenced demo's (the sites do not
+    # separate) CT rounds are in crunch's denominator but not in stack's.
+    # Without a figure of its own, Nuke's 27 rounds would look examined with
+    # a nil result.
     stack_rounds = sum(
         1
         for row in rows
@@ -1702,9 +1744,10 @@ def anomalies_for(
             min_observations=thresholds.advance_area_min_observations,
         )
     )
-    # Vaiennetut demot: ``None`` eikä tyhjä kuvaus. Tyhjä kuvaus tarkoittaa
-    # "kartalla on A/B-jako, mutta yksikään alue ei ole kummankaan puolella"
-    # -- se on havainto, ei sokea piste, ja sillä demolla sääntö AJETTIIN.
+    # The silenced demos: ``None`` and not an empty description. An empty
+    # description means "the map has an A/B split, but no area is on either
+    # side of it" -- that is an observation, not a blind spot, and on that
+    # demo the rule WAS run.
     without_groups = sorted(
         demo for demo, groups in groups_by_demo.items() if groups is None
     )
@@ -1728,41 +1771,42 @@ def _rule_hits(
     groups_by_demo: Mapping[str, Mapping[str, str] | None],
     thresholds: ThresholdSettings,
 ) -> dict[RoundKey, list[sampling.AnomalyHit]]:
-    """Kaikkien kolmen säännön osumat kierros kerrallaan, kertaalleen laskettuna.
+    """All three rules' hits round by round, computed once.
 
-    Säännöt ajetaan **kierrosta kohden kerran**, ei kerran ryhmittelytasoa
-    kohden: crunchin ja stackin nimittäjä on puoli ja etenemisen
-    kierrostyyppi, joten sama kierros kuuluu kahteen tasoon. Ilman tätä
-    välivaihetta jokainen kierros ajettaisiin kahdesti ja säännöt voisivat --
-    kahden eri kutsupaikan kautta -- saada eri kynnykset.
+    The rules are run **once per round**, not once per grouping level:
+    crunch's and stack's denominator is the side and the advance's is the
+    round type, so the same round belongs to two levels. Without this
+    intermediate step every round would be run twice and the rules could --
+    through two different call sites -- get different thresholds.
 
-    **Orientaation kynnyssuodatus toistuu yhä kierrosta ja sääntöä kohden**,
-    vaikka tulos on demokohtainen vakio: sääntö saa speksin mukaan
-    orientaation argumenttina ja **soveltaa kynnykset itse**, joten
-    esisuodatettu kartta siirtäisi määritelmän pois säännöstä. Mitattu hinta
-    on olematon -- kahdeksan demoa, 93 kierrosta ja noin 18 aluetta tekee
-    luokkaa 3 000 sanakirjahakua -- joten itsenäisyys on tässä kaupan arvoinen.
-    Jos otanta kasvaa Epic 3:ssa kymmeniin demoihin, oikea korjaus on
-    välimuisti demon avaimella, ei säännön sopimuksen muuttaminen.
+    **The orientation's threshold filtering still repeats per round and per
+    rule**, even though the result is a per-demo constant: by the spec a rule
+    is given the orientation as an argument and **applies the thresholds
+    itself**, so a pre-filtered map would move the definition out of the rule.
+    The measured cost is negligible -- eight demos, 93 rounds and about 18
+    areas make on the order of 3,000 dictionary lookups -- so the
+    independence is worth the trade here. If the sample grows to tens of demos
+    in Epic 3, the right fix is a cache keyed by demo, not a change to the
+    rule's contract.
     """
     found: dict[RoundKey, list[sampling.AnomalyHit]] = {}
     for row in rows:
         key = _round_key(row)
         if key is None:
-            # classify pudottaa numeroimattomat kierrokset, joten tämä
-            # tarkoittaa että luokiteltu taulu on rikki. build_report nostaa
-            # siitä oman virheensä ohjeineen.
+            # classify drops the unnumbered rounds, so this means the
+            # classified table is broken. build_report raises its own error
+            # about it, with instructions.
             continue
         demo = key[0]
         if demo not in area_orientation:
             raise AggregateError(
-                f"Demon {demo} alueorientaatiota ei annettu, joten "
-                "poikkeamasääntöjä ei voi ajaa sille.\n"
-                "Orientaatio on demon oma havainto ja se lasketaan "
-                "SUODATTAMATTOMASTA näytepistetaulusta. Puuttuva avain "
-                "tarkoittaa, että aggregointi jätti demon pois -- ei sitä, "
-                "että demolla ei olisi orientaatiota. Hiljainen oletus "
-                "vaientaisi säännöt juuri sillä demolla."
+                f"Demo {demo}'s area orientation was not given, so the "
+                "anomaly rules cannot be run for it.\n"
+                "The orientation is the demo's own observation and it is "
+                "computed from the UNFILTERED sample point table. A missing "
+                "key means the aggregation left the demo out -- not that the "
+                "demo has no orientation. A default assumed in silence would "
+                "silence the rules on that very demo."
             )
         orientation = area_orientation[demo]
         presences = [_presence(tick) for tick in ticks_by_round.get(key, ())]
@@ -1784,12 +1828,12 @@ def _rule_hits(
             min_sources=thresholds.crunch_min_sources,
         ) + sampling.stack_hits(
             presences,
-            # ``None`` (siteet eivät erotu) vaientaa säännön, ja se on eri
-            # asia kuin puuttuva avain: puuttuva avain nostaa virheen jo
-            # ``anomalies_for``issa, koska se tarkoittaisi että demo jäi
-            # kutsujalta pois.
+            # ``None`` (the sites do not separate) silences the rule, and
+            # that is a different thing from a missing key: a missing key
+            # raises an error already in ``anomalies_for``, because it would
+            # mean the caller left the demo out.
             groups=groups_by_demo[demo],
-            # Aikaraja on kaikkien kolmen säännön YHTEINEN eikä stackin oma.
+            # The time bound is COMMON to all three rules and not stack's own.
             max_sample_s=thresholds.advance_max_sample_s,
             min_players=thresholds.stack_min_players,
         )
@@ -1806,12 +1850,12 @@ def _grouped_anomalies(
     side: str,
     thresholds: ThresholdSettings,
 ) -> list[Anomaly]:
-    """Yhden säännön poikkeamat yhdellä ryhmittelytasolla.
+    """One rule's anomalies at one grouping level.
 
-    ``branch_rows`` on se joukko, joka määrää nimittäjän: etenemisellä yhden
-    kierrostyypin kierrokset, crunchilla puolen kaikki kierrokset. Sama
-    funktio kelpaa molemmille, koska ero on **vain** siinä, mitkä rivit
-    annetaan.
+    ``branch_rows`` is the set that determines the denominator: for the
+    advance one round type's rounds, for crunch all of the side's rounds. The
+    same function serves both, because the difference is **only** in which
+    rows are given.
     """
     m = len(branch_rows)
     tally: defaultdict[str, _AnomalyTally] = defaultdict(_AnomalyTally)
@@ -1840,23 +1884,24 @@ def _grouped_anomalies(
 
 @dataclass
 class _RoundTally:
-    """Yhden kierroksen kertymä: näytepisteet havaintoineen ja suunnat.
+    """One round's tally: the sample points with their observations, and the
+    source directions.
 
-    Suunnat kerätään **kierroksen sisällä**, koska vain siellä ne ovat
-    yhtäaikaisia. Kahden kierroksen yhdiste lukisi useammaksi samanaikaiseksi
-    suunnaksi kuin havaittiin.
+    The directions are collected **inside the round**, because only there are
+    they simultaneous. The union of two rounds would read as more simultaneous
+    directions than were observed.
 
-    **Pelaajamäärä ei ole yhtäaikainen edes kierroksen sisällä.** Yksi maksimi
-    ja luettelo näytepisteitä latoi raporttiin maksimin jokaiselle pisteelle
-    -- mitattuna MatureMayhem Inferno k2 on 15 s kohdalla viisi pelaajaa ja
-    30 s kohdalla yksi, mutta rivi luki "5 pelaajaa 15 ja 30 s kohdalla".
-    Siksi luku on näytepisteen omalla rivillä eikä kierroksen yhteenvedossa.
+    **The player count is not simultaneous even inside a round.** One maximum
+    and a list of sample points set the maximum against every point in the
+    report -- measured, MatureMayhem Inferno round 2 has five players at 15 s
+    and one at 30 s, but the row read "5 players at 15 and 30 s". So the
+    figure is on the sample point's own row and not in the round's summary.
     """
 
     round_type: str
-    #: Näytepiste -> (pelaajat, elossa). Sanakirja eikä lista: sama sääntö
-    #: tuottaa yhdelle alueelle enintään yhden osuman per näytepiste, joten
-    #: avain on yksikäsitteinen ja järjestys tulee lajittelusta.
+    #: Sample point -> (players, alive). A dictionary and not a list: the same
+    #: rule produces at most one hit per sample point for one area, so the key
+    #: is unique and the order comes from the sort.
     points: dict[float, tuple[int, int | None]] = field(default_factory=dict)
     sources: set[str] = field(default_factory=set)
 
@@ -1866,28 +1911,28 @@ class _RoundTally:
 
     @property
     def players_max(self) -> int:
-        """Suurin pelaajamäärä kierroksella; rivin ``players_max``in lähde."""
+        """The largest player count on the round; the source of the row's
+        ``players_max``."""
         return max(players for players, _ in self.points.values())
 
 
 @dataclass
 class _AnomalyTally:
-    """Yhden alueen kertymä yhdellä ryhmittelytasolla.
+    """One area's tally at one grouping level.
 
-    Kierroskohtainen kirjanpito eikä yksi joukko: raportin rivi kertoo neljä
-    asiaa (kuinka usein, milloin, mistä, kuinka monta), ja kolme niistä on
-    tosia vain kierroksen sisällä.
+    Per-round bookkeeping and not one set: the report's row says four things
+    (how often, when, from where, how many), and three of them are true only
+    inside a round.
     """
 
     rounds: dict[RoundKey, _RoundTally] = field(default_factory=dict)
-    #: Demo -> alueen orientaatio siinä demossa. Kartta voi olla kahdesta
-    #: demosta (Story 2.11), ja niiden T-osuudet voivat erota -- yksi luku
-    #: pakottaisi valitsemaan keskiarvon, jota ei ole havaittu. **Tyhjä
-    #: stackilla**: sääntö ei lue orientaatiota, joten sillä ei ole sitä
-    #: kirjattavaksi.
+    #: Demo -> the area's orientation in that demo. A map can come from two
+    #: demos (Story 2.11), and their T shares can differ -- one figure would
+    #: force choosing a mean that was never observed. **Empty for stack**: the
+    #: rule does not read the orientation, so it has none to record.
     orientation: dict[str, tuple[float, int]] = field(default_factory=dict)
-    #: Siten ryhmä. Vain stackilla; kaikki saman alueen osumat ovat samasta
-    #: ryhmästä, koska alue **on** ryhmän oma site.
+    #: The site's group. Only for stack; every hit for the same area is from
+    #: the same group, because the area **is** the group's own site.
     site: str | None = None
 
     def add(
@@ -1959,30 +2004,31 @@ class _AnomalyTally:
 
 
 def _presence(tick: Mapping[str, Any]) -> sampling.AreaPresence:
-    """Näytepisterivi säännön tietueeksi.
+    """A sample point row as the rule's record.
 
-    Koordinaatit jäävät pois tarkoituksella: säännöt lukevat vain alueen, ja
-    koordinaatti houkuttelisi geometriaan, jota ei ole.
+    The coordinates are left out on purpose: the rules read only the area, and
+    a coordinate would tempt one into geometry that is not there.
 
-    **Puoli ja elossaolo vaaditaan havaintoina.** ``str(None)`` ja
-    ``bool(None)`` päättäisivät hiljaa, ettei rivi ole CT tai että pelaaja on
-    kuollut -- ja poikkeamalla se ero on koko tulos, ei yksi pylväs
-    jakaumassa. Näytepisteiden jakaumissa (:func:`positions_for`) puuttuva
-    ``is_alive`` maksaa yhden pelaajan; täällä se ratkaisee, onko poikkeama
-    olemassa, joten sitä ei saa lukea oletukseksi.
+    **The side and being alive are required as observations.** ``str(None)``
+    and ``bool(None)`` would quietly decide that the row is not CT or that the
+    player is dead -- and for an anomaly that difference is the whole result,
+    not one bar in a distribution. In the sample points' distributions
+    (:func:`positions_for`) a missing ``is_alive`` costs one player; here it
+    decides whether the anomaly exists at all, so it must not be read as a
+    default.
 
     Raises:
-        AggregateError: Jos ``sample_t_s``, ``side`` tai ``is_alive`` puuttuu
-            tai on tuntematon.
+        AggregateError: If ``sample_t_s``, ``side`` or ``is_alive`` is missing
+            or unknown.
     """
     seconds = _sample_seconds(tick)
     side = tick["side"]
     if side not in SIDES:
         raise AggregateError(
-            _broken_tick(tick, f"puoli on {side!r} eikä {' tai '.join(SIDES)}")
+            _broken_tick(tick, f"the side is {side!r} and not {' or '.join(SIDES)}")
         )
     if tick["is_alive"] is None:
-        raise AggregateError(_broken_tick(tick, "elossaolo puuttuu"))
+        raise AggregateError(_broken_tick(tick, "being alive is missing"))
     return sampling.AreaPresence(
         player_id=str(tick["player_id"]),
         side=str(side),
@@ -1994,47 +2040,47 @@ def _presence(tick: Mapping[str, Any]) -> sampling.AreaPresence:
 
 
 def _broken_tick(tick: Mapping[str, Any], what: str) -> str:
-    """Virheilmoitus rikkinäisestä näytepisterivistä, ohje mukana."""
+    """The error message for a broken sample point row, instructions included."""
     demo = tick["map_demo_id"]
     return (
-        f"Näytepisterivillä {what} (demo {demo!r}, kierros "
-        f"{tick['round_no']!r}), joten poikkeamasääntöä ei voi ajaa sille."
-        f"{NEWLINE}Aja parsinta uudelleen: uv run pappascout parse {demo} "
+        f"On a sample point row {what} (demo {demo!r}, round "
+        f"{tick['round_no']!r}), so the anomaly rule cannot be run for it."
+        f"{NEWLINE}Run the parse again: uv run pappascout parse {demo} "
         "--pakota"
     )
 
 
-# -- Koko raportti ---------------------------------------------------------------
+# -- The whole report ------------------------------------------------------------
 
 
 def check_rounds_are_unique(rows: Sequence[Mapping[str, Any]]) -> None:
-    """Varmista, että ``(map_demo_id, round_no)`` esiintyy korkeintaan kerran.
+    """Make sure ``(map_demo_id, round_no)`` occurs at most once.
 
-    Avain on koko rakenteen liitosavain, ja kaksoiskappale hajottaisi otannan
-    kahdella tavalla yhtä aikaa: kierrostyypin ``m`` laskee **listasta**
-    (kaksoiskappale mukana) mutta näytepisteen ``m`` **joukosta**
-    (kaksoiskappale pois), jolloin sama data tuottaisi kaksi eri lukua ja
-    erotus näkyisi kentässä ``rounds_missing`` -- juuri siinä kentässä, jonka
-    tehtävä on estää kierroksen katoaminen.
+    The key is the whole structure's join key, and a duplicate would break the
+    sample in two ways at the same time: a round type's ``m`` counts from the
+    **list** (the duplicate included) but a sample point's ``m`` from the
+    **set** (the duplicate excluded), so the same data would produce two
+    different figures and the difference would show in the ``rounds_missing``
+    field -- the very field whose job is to stop a round from vanishing.
 
     Raises:
-        AggregateError: Jos sama kierros esiintyy kahdesti. Käytännössä syy on
-            kaksi luokiteltua taulua samasta demosta.
+        AggregateError: If the same round occurs twice. In practice the cause
+            is two classified tables from the same demo.
     """
     seen: Counter[RoundKey] = Counter()
     for row in rows:
         key = _round_key(row)
         if key is not None:
             seen[key] += 1
-    twice = sorted(f"{demo} kierros {no}" for (demo, no), n in seen.items() if n > 1)
+    twice = sorted(f"{demo} round {no}" for (demo, no), n in seen.items() if n > 1)
     if twice:
         raise AggregateError(
-            "Sama kierros esiintyy luokitelluissa tauluissa useammin kuin "
-            f"kerran: {', '.join(twice[:10])}"
-            + (f" (+{len(twice) - 10} muuta)" if len(twice) > 10 else "")
+            "The same round occurs in the classified tables more than "
+            f"once: {', '.join(twice[:10])}"
+            + (f" (+{len(twice) - 10} more)" if len(twice) > 10 else "")
             + ".\n"
-            "Liitosavain (map_demo_id, round_no) on koko rakenteen "
-            "perusta, ja kaksoiskappale vääristäisi jokaisen otannan."
+            "The join key (map_demo_id, round_no) is the whole structure's "
+            "foundation, and a duplicate would distort every sample."
         )
 
 
@@ -2042,27 +2088,28 @@ def classify_thresholds(
     rows: Sequence[Mapping[str, Any]],
     expected: ThresholdSettings | None = None,
 ) -> dict[str, int]:
-    """Ne kynnysarvot, joilla kierrokset **oikeasti luokiteltiin**.
+    """The thresholds the rounds were **actually classified with**.
 
-    Luetaan ``CLASSIFIED.inputs``-sarakkeesta, jonne ``classify`` tallentaa
-    jokaisen kierroksen vertailuun käytetyt arvot. Tämä on havainto eikä
-    nykyisten asetusten kopio: käyttäjä voi muuttaa ``settings.toml``ia ja ajaa
-    pelkän aggregoinnin, jolloin ``[thresholds]`` kertoisi kynnyksistä, joilla
-    yhtäkään kierrosta ei luokiteltu.
+    Read from the ``CLASSIFIED.inputs`` column, where ``classify`` stores the
+    values used for every round's comparison. This is an observation and not a
+    copy of the current settings: the user can change ``settings.toml`` and
+    run the aggregation alone, in which case ``[thresholds]`` would speak of
+    thresholds no round was classified with.
 
     Args:
-        rows: Luokitellut kierrokset.
-        expected: Nykyiset ``[thresholds]``-asetukset. Jos annettu, havaittuja
-            arvoja **verrataan niihin**: ero tarkoittaa, että kynnystä on
-            muutettu eikä luokittelua ole ajettu uudelleen, jolloin raportti
-            nimeäisi kynnykset, joilla yhtäkään kierrosta ei luokiteltu.
+        rows: The classified rounds.
+        expected: The current ``[thresholds]`` settings. If given, the
+            observed values **are compared against them**: a difference means
+            a threshold has been changed and the classification has not been
+            run again, in which case the report would name thresholds no round
+            was classified with.
 
     Raises:
-        AggregateError: Jos jokin kynnys eroaa kierrosten välillä tai
-            nykyisistä asetuksista. Edellinen sekoittaisi eri säännöillä
-            luokiteltuja kierroksia samaan lukuun, jälkimmäinen antaisi
-            raportille väärän selityksen -- kummassakin tapauksessa luku
-            näyttäisi oikealta muttei tarkoittaisi sitä mitä väittää.
+        AggregateError: If some threshold differs between the rounds or from
+            the current settings. The former would mix rounds classified by
+            different rules into the same figure, the latter would give the
+            report the wrong explanation -- in both cases the figure would
+            look right but would not mean what it claims.
     """
     seen: defaultdict[str, set[int]] = defaultdict(set)
     for row in rows:
@@ -2076,26 +2123,27 @@ def classify_thresholds(
     mixed = sorted(f"{name}: {sorted(v)}" for name, v in seen.items() if len(v) > 1)
     if mixed:
         raise AggregateError(
-            "Kierrokset on luokiteltu eri kynnyksillä, joten niitä ei voi "
-            f"laskea samaan otantaan: {'; '.join(mixed)}.\n"
-            "Aja luokittelu uudelleen jokaiselle demolle samoilla "
-            "asetuksilla: uv run pappascout classify <map_demo_id> --team "
+            "The rounds have been classified with different thresholds, so "
+            f"they cannot be counted into the same sample: {'; '.join(mixed)}.\n"
+            "Run the classification again for every demo with the same "
+            "settings: uv run pappascout classify <map_demo_id> --team "
             "<tunniste> --pakota"
         )
     found = {name: next(iter(v)) for name, v in sorted(seen.items())}
     if expected is not None:
         stale = sorted(
-            f"{name}: luokiteltu {value}, asetuksissa {getattr(expected, name)}"
+            f"{name}: classified with {value}, in the settings "
+            f"{getattr(expected, name)}"
             for name, value in found.items()
             if getattr(expected, name, value) != value
         )
         if stale:
             raise AggregateError(
-                "Kierrokset on luokiteltu eri kynnyksillä kuin mitä "
-                "asetuksissa nyt on, joten raportti nimeäisi kynnykset, "
-                f"joilla yhtäkään kierrosta ei luokiteltu: "
+                "The rounds have been classified with different thresholds "
+                "from what is in the settings now, so the report would name "
+                f"thresholds no round was classified with: "
                 f"{'; '.join(stale)}.\n"
-                "Aja luokittelu uudelleen ennen aggregointia: "
+                "Run the classification again before the aggregation: "
                 "uv run pappascout classify <map_demo_id> --team "
                 "<tunniste> --pakota"
             )
@@ -2120,80 +2168,81 @@ def build_report(
     tool_versions: Mapping[str, str] | None = None,
     missing_demos: Sequence[MissingDemo] = (),
 ) -> Report:
-    """Rakenna koko raportti valmiista tauluista.
+    """Build the whole report from finished tables.
 
     Args:
-        classified: Kaikkien demojen ``CLASSIFIED``-rivit yhtenä kehyksenä.
-            Tämä on ainoa lähde sille, mikä kierros on olemassa ja minkä
-            tyyppinen se on.
-        ticks: Kaikkien demojen ``TICKS``-rivit, **suodatettuna joukkueen
-            kokoonpanoihin**.
-        events: Kaikkien demojen ``EVENTS``-rivit, samoin suodatettuna.
-        deaths: Kaikkien demojen ``DEATHS``-rivit. Suodatus on **erilainen**:
-            rivi kuuluu joukkueelle, jos joko uhri tai ampuja on sen
-            kokoonpanossa, joten yhden sarakkeen suodatus pudottaisi joko
-            kuolemat tai tapot. Rivien jako niiden kesken tehdään täällä
-            (:func:`deaths_for`) joukkueen ``lineup_keys``-listaa vasten.
-        rounds: Kaikkien demojen ``ROUNDS``-rivit, **suodatettuna joukkueen
-            kokoonpanoihin**. Tästä luetaan vain panssarilaskuri
-            (:func:`armored_by_round`): se on havainto eikä luokittelun
-            päätöksen syöte, joten ``classify`` ei kanna sitä eteenpäin.
-            Kierrostyypin ja otannan omistaa yhä ``classified`` -- tämä taulu
-            ei saa lisätä eikä poistaa yhtäkään kierrosta.
-        team: Joukkueen tiedot; ``aggregate``-vaihe kokoaa ne arkistosta.
-        thresholds: ``[thresholds]``-osio. Siitä luetaan
-            ``small_sample_rounds``.
-        aggregate: ``[aggregate]``-osio. Siitä luetaan
-            ``utility_seconds_buckets``. Molemmat osiot kirjataan
-            ``thresholds_used``-kenttään jäljitettävyyden vuoksi -- ne ovat
-            **tämän ajon** asetukset, eivät ne joilla kierrokset luokiteltiin
-            (ks. :func:`classify_thresholds`).
-        map_pool: ``[league].map_pool``, jota vasten kartan nimi päätellään,
-            kun otsikossa ei ollut nimeä.
-        map_names: ``map_demo_id`` -> otsikosta havaittu kartan nimi tai
-            ``None``. Lähde on ``MATCH.map_name`` (Story 2.11). Argumentti
-            on **pakollinen eikä sillä ole oletusta**: tyhjä oletus
-            palauttaisi koko raportin hiljaa päättelyyn, jolloin
-            FACEIT-demot hajoaisivat taas omiksi haaroikseen ilman että
-            mikään kertoisi siitä. Jokaisen mukaan otetun demon on oltava
-            kartassa; puuttuva avain nostaa virheen
-            (:func:`observed_map_name`), koska se on eri asia kuin arvo
-            ``None``. Kartat ryhmitellään **nimestä**, ja haaran
-            ``map_name_source`` on sen demojen heikoin
-            (:func:`weakest_map_source`).
-        area_orientation: ``map_demo_id`` -> (alue -> havainnot) demon
-            **suodattamattomasta** näytepistetaulusta, eli molempien
-            joukkueiden riveistä. Poikkeamasäännöt lukevat siitä, kumman
-            puolen aluetta alue on siinä demossa. Jokaisen mukaan otetun
-            demon on oltava kartassa; puuttuva avain nostaa virheen, koska se
-            on eri asia kuin **tyhjä** orientaatio (joka on kelvollinen
-            havainto ja kirjataan ``anomaly_scan``iin).
+        classified: Every demo's ``CLASSIFIED`` rows as one frame. This is the
+            only source for which rounds exist and what type they are.
+        ticks: Every demo's ``TICKS`` rows, **filtered to the team's
+            lineups**.
+        events: Every demo's ``EVENTS`` rows, filtered the same way.
+        deaths: Every demo's ``DEATHS`` rows. The filtering is **different**:
+            a row belongs to the team if either the victim or the shooter is
+            in its lineup, so filtering on one column would drop either the
+            deaths or the kills. Splitting the rows between them is done here
+            (:func:`deaths_for`) against the team's ``lineup_keys`` list.
+        rounds: Every demo's ``ROUNDS`` rows, **filtered to the team's
+            lineups**. Only the armour count is read from here
+            (:func:`armored_by_round`): it is an observation and not an input
+            to the classification's decision, so ``classify`` does not carry
+            it forward. The round type and the sample are still owned by
+            ``classified`` -- this table must not add or remove a single
+            round.
+        team: The team's details; the ``aggregate`` stage assembles them from
+            the archive.
+        thresholds: The ``[thresholds]`` section. ``small_sample_rounds`` is
+            read from it.
+        aggregate: The ``[aggregate]`` section. ``utility_seconds_buckets`` is
+            read from it. Both sections are recorded in the
+            ``thresholds_used`` field for traceability -- they are **this
+            run's** settings, not the ones the rounds were classified with
+            (see :func:`classify_thresholds`).
+        map_pool: ``[league].map_pool``, the pool the map's name is inferred
+            against when the header held no name.
+        map_names: ``map_demo_id`` -> the map name observed from the header,
+            or ``None``. The source is ``MATCH.map_name`` (Story 2.11). The
+            argument is **mandatory and has no default**: an empty default
+            would quietly hand the whole report back to inference, and the
+            FACEIT demos would break into branches of their own again with
+            nothing to say so. Every included demo has to be in the map; a
+            missing key raises an error (:func:`observed_map_name`), because
+            it is a different thing from the value ``None``. The maps are
+            grouped **by name**, and a branch's ``map_name_source`` is the
+            weakest of its demos (:func:`weakest_map_source`).
+        area_orientation: ``map_demo_id`` -> (area -> observations) from the
+            demo's **unfiltered** sample point table, that is from both teams'
+            rows. The anomaly rules read from it which side's area an area is
+            in that demo. Every included demo has to be in the map; a missing
+            key raises an error, because it is a different thing from an
+            **empty** orientation (which is a valid observation and is
+            recorded in ``anomaly_scan``).
 
-            Argumentti on **pakollinen eikä sillä ole oletusta**, ja se
-            tulee vaiheelta eikä tästä funktiosta kahdesta syystä yhtä aikaa.
-            Ensimmäinen on mitattu: ``ticks`` on suodatettu joukkueen
-            kokoonpanoihin, ja subjektin omilla riveillä laskettuna jokainen
-            tosi positiivinen katoaa -- kun subjekti etenee alueelle CT:nä,
-            hänen omat CT-havaintonsa laskevat sen alueen T-osuutta, eli
-            poikkeama syö oman havaitsemisensa. Toinen on rakenteellinen:
-            ``build_report`` näkee vain subjektin rivit, ja koko taulun
-            antaminen tänne avaisi oven vastustajan lukujen vuotamiseen
-            raporttiin.
-        point_clouds: ``map_demo_id`` -> demon ``CALLOUT_CLOUD``-ruudut, joista
-            stackin siteryhmät johdetaan. **Pakollinen eikä oletuksellinen**
-            samasta syystä kuin ``area_orientation``: tyhjä oletus vaientaisi
-            säännön jokaisella demolla ja kirjaisi sen kattavuuteen sokeana
-            pisteenä, joka on kutsujan unohdus eikä demon ominaisuus.
-            Jokaisen mukaan otetun demon on oltava kartassa; puuttuva avain
-            nostaa virheen, koska se on eri asia kuin pilvi, josta ryhmiä ei
-            saatu.
-        generated_at: Ajon hetki.
-        tool_versions: Työkaluversiot raportin omaan kenttään.
-        missing_demos: Ottelut, joiden dataa ei ollut.
+            The argument is **mandatory and has no default**, and it comes
+            from the stage rather than from this function for two reasons at
+            once. The first is measured: ``ticks`` is filtered to the team's
+            lineups, and computed on the subject's own rows every true
+            positive vanishes -- when the subject advances into an area as CT,
+            his own CT observations lower that area's T share, that is, the
+            anomaly eats its own detection. The second is structural:
+            ``build_report`` sees only the subject's rows, and passing the
+            whole table in here would open the door to the opponent's figures
+            leaking into the report.
+        point_clouds: ``map_demo_id`` -> the demo's ``CALLOUT_CLOUD`` cells,
+            from which the stack's site groups are derived. **Mandatory and
+            without a default** for the same reason as ``area_orientation``:
+            an empty default would silence the rule on every demo and record
+            it in the coverage as a blind spot, which is the caller's
+            oversight and not a property of the demo. Every included demo has
+            to be in the map; a missing key raises an error, because it is a
+            different thing from a cloud that yielded no groups.
+        generated_at: The moment of the run.
+        tool_versions: The tool versions, for the report's own field.
+        missing_demos: The matches whose data was not there.
 
     Returns:
-        Validoitu :class:`Report`. Jos otanta ei täsmää jollakin tasolla,
-        malli itse nostaa :class:`~pappascout.errors.AggregateError`.
+        A validated :class:`Report`. If the sample does not match at some
+        level, the model itself raises
+        :class:`~pappascout.errors.AggregateError`.
     """
     rows = classified.to_dicts()
     tick_rows = ticks.to_dicts()
@@ -2214,20 +2263,22 @@ def build_report(
     for row in played:
         by_demo[str(row["map_demo_id"])].append(row)
 
-    # Kaksi demoa samalta kartalta on yksi haara: kierrokset summautuvat, ja
-    # map_demo_ids kertoo mistä.
+    # Two demos from the same map are one branch: the rounds add up, and
+    # map_demo_ids says where they came from.
     #
-    # RYHMITTELY ON **NIMESTÄ**, EI PARISTA (nimi, lähde). Pari näyttäisi
-    # oikealta mutta pirstoisi kartan täsmälleen niin kuin puuttuva otsikko
-    # ennen tätä tarinaa: ``ANCIENT_vs_RCAVE_VETERANS`` (havainto otsikosta) ja
-    # ``Ancient_vs_kaljukostaja`` (päättely tiedostonimestä) ovat kumpikin
-    # ``de_ancient``, mutta eri lähteellä -- ja kahtena avaimena ne olisivat
-    # kaksi ``de_ancient``-osiota, molemmat merkinnällä "(1/1 kierroksesta)".
-    # Ennen Story 2.11:tä vikaa ei voinut olla: ``unknown``-haaran nimi on
-    # tunniste itse, joten se ei törmää oikeaan nimeen. Havainnon myötä kaksi
-    # eri lähdettä voi tuottaa saman nimen, ja siksi avain on nimi.
+    # THE GROUPING IS **BY NAME**, NOT BY THE PAIR (name, source). The pair
+    # would look right but would break the map apart exactly the way a
+    # missing header did before this story: ``ANCIENT_vs_RCAVE_VETERANS``
+    # (observed from the header) and ``Ancient_vs_kaljukostaja`` (inferred
+    # from the filename) are both ``de_ancient``, but with a different source
+    # -- and as two keys they would be two ``de_ancient`` sections, both
+    # marked "(1/1 kierroksesta)". Before Story 2.11 the fault could not
+    # arise: an ``unknown`` branch's name is the id itself, so it does not
+    # collide with a real name. With the observation, two different sources
+    # can produce the same name, and that is why the key is the name.
     #
-    # Haaran lähde on sen demojen **heikoin** (:func:`weakest_map_source`).
+    # A branch's source is the **weakest** of its demos
+    # (:func:`weakest_map_source`).
     by_map: defaultdict[str, list[str]] = defaultdict(list)
     branch_sources: defaultdict[str, list[str]] = defaultdict(list)
     for demo in sorted(by_demo):
@@ -2236,9 +2287,9 @@ def build_report(
         )
         by_map[name].append(demo)
         branch_sources[name].append(source)
-    # Haaran lähde kertaalleen: sekä karttaluku että poikkeamarivi tarvitsevat
-    # sen, ja kahdesti laskettuna ne voisivat olla eri mieltä siitä, onko
-    # kartan nimi tunnistettu.
+    # The branch's source once: both the map chapter and the anomaly row need
+    # it, and computed twice they could disagree about whether the map's name
+    # was identified.
     map_sources = {
         name: weakest_map_source(sources)
         for name, sources in branch_sources.items()
@@ -2274,17 +2325,17 @@ def build_report(
                 ),
             )
         )
-    # Pelatuimmat kartat ensin; tasatilanteessa nimi, jotta järjestys on sama
-    # ajosta toiseen.
+    # The most played maps first; on a tie the name, so that the order is the
+    # same from one run to the next.
     maps.sort(key=lambda m: (-m.sample.rounds, m.map_name))
 
-    # Poikkeamat lasketaan **karttojen jälkeen** eikä ennen, ja kutsu on
-    # täällä eikä Report-kutsun argumenttilistassa: molemmat lukevat samat
-    # näytepisterivit, ja rikkinäisen taulun virheen on tultava siitä
-    # lukijasta, joka sen tavallisesti kohtaa. Näytepisteen puuttuva
-    # sample_t_s on nyt yhdessä paikassa (:func:`_sample_seconds`), joten
-    # järjestys ei enää ratkaise virheilmoituksen sanamuotoa -- se ratkaisee
-    # vain, kummasta rivistä se kertoo.
+    # The anomalies are computed **after the maps** and not before, and the
+    # call is here and not in the Report call's argument list: both read the
+    # same sample point rows, and a broken table's error has to come from the
+    # reader that ordinarily meets it. A sample point's missing sample_t_s is
+    # now in one place (:func:`_sample_seconds`), so the order no longer
+    # decides the wording of the error message -- it decides only which row it
+    # speaks of.
     anomalies, scan = anomalies_for(
         played,
         tick_rows,
@@ -2336,7 +2387,7 @@ def _sides_for(
     aggregate: AggregateSettings,
     lineup_keys: Sequence[str],
 ) -> list[SideReport]:
-    """Puolet vakiojärjestyksessä; puoli, jolla ei ole kierroksia, jää pois."""
+    """The sides in a fixed order; a side with no rounds is left out."""
     sides: list[SideReport] = []
     for side in SIDES:
         side_rows = [r for r in rows if str(r["side"]) == side]
@@ -2373,12 +2424,13 @@ def _round_types_for(
     aggregate: AggregateSettings,
     lineup_keys: Sequence[str],
 ) -> list[RoundTypeReport]:
-    """Kierrostyypit vakiojärjestyksessä.
+    """The round types in a fixed order.
 
-    Tyyppi, jota kartalla ei pelattu, **puuttuu rakenteesta** eikä ole
-    nollarivi: nollarivi väittäisi havainnoksi sen, ettei havaintoa ole.
-    Suodatusta ei tehdä toiseen suuntaankaan -- myös täydet ostot ja jatkoaika
-    lasketaan, koska raportti valitsee mitä sanoo.
+    A type that was not played on the map is **absent from the structure** and
+    is not a zero row: a zero row would claim as an observation that there is
+    no observation. No filtering is done in the other direction either -- full
+    buys and overtime are counted too, because the report chooses what it
+    says.
     """
     reports: list[RoundTypeReport] = []
     for round_type in ROUND_TYPES:
@@ -2389,15 +2441,14 @@ def _round_types_for(
         for row in type_rows:
             key = _round_key(row)
             if key is None:
-                # classify pudottaa numeroimattomat kierrokset, joten
-                # tämä tarkoittaa että luokiteltu taulu on rikki.
-                # Suojaamaton int(None) kaatuisi TypeErroriin ilman
-                # ohjetta.
+                # classify drops the unnumbered rounds, so this means the
+                # classified table is broken. An unguarded int(None) would
+                # fail with a TypeError and no instructions.
                 raise AggregateError(
-                    f"Luokitellussa taulussa {row['map_demo_id']!r} on rivi "
-                    "ilman kierrosnumeroa, joten sitä ei voi liittää "
-                    "näytepisteisiin.\n"
-                    f"Aja luokittelu uudelleen: uv run pappascout classify "
+                    f"The classified table {row['map_demo_id']!r} holds a row "
+                    "without a round number, so it cannot be joined to the "
+                    "sample points.\n"
+                    f"Run the classification again: uv run pappascout classify "
                     f"{row['map_demo_id']} --pakota"
                 )
             keys.append(key)

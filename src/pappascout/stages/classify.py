@@ -1,94 +1,96 @@
-"""``classify`` -- putken toinen vaihe: kierrostaulusta kierrostyypit.
+"""``classify`` -- the pipeline's second stage: round types from the rounds table.
 
-Vaihe lukee ``parsed/<map_demo_id>/rounds.parquet``:n ja kirjoittaa
-``classified/<team_key>/<map_demo_id>.parquet``-taulun, sen manifestin ja saman
-sisällön luettavana kierroslistana ``<map_demo_id>.md``. **Demoa ei lueta eikä
-``parsed/``-hakemistoon kirjoiteta** -- kaikki tämän vaiheen arvot ovat
-johdettuja, ja ne lasketaan joka ajolla uudelleen puhtailla
-``domain.economy``-funktioilla.
+The stage reads ``parsed/<map_demo_id>/rounds.parquet`` and writes the
+``classified/<team_key>/<map_demo_id>.parquet`` table, its manifest and the
+same content as a readable round list ``<map_demo_id>.md``. **The demo is not
+read and nothing is written into the ``parsed/`` directory** -- every value of
+this stage is derived, and they are computed again on every run with pure
+``domain.economy`` functions.
 
-Molemmat joukkueet, yksi rivi
------------------------------
-Kierrostaulussa on kaksi riviä per kierros. Luokittelu tehdään **molemmille**
-joukkueille samassa ajossa, mutta tulos on yksi rivi per kierros
-subjektijoukkueen näkökulmasta: subjektin tyyppi on ``round_type`` ja
-vastustajan ``opp_round_type``. Sama demo voidaan luokitella myös toiselle
-joukkueelle -- silloin syntyy oma tulos omaan ``classified/<team_key>/``
--hakemistoon, eikä ``parse``-vaihetta ajeta uudelleen.
+Both teams, one row
+-------------------
+The rounds table has two rows per round. The classification is done for
+**both** teams in the same run, but the result is one row per round from the
+subject team's point of view: the subject's type is ``round_type`` and the
+opponent's ``opp_round_type``. The same demo can be classified for the other
+team as well -- a result of its own is then written into its own
+``classified/<team_key>/`` directory, and the ``parse`` stage is not run again.
 
-Yksi polku kierroslistalle
+One path to the round list
 --------------------------
-Kierroslistan rivit rakennetaan **aina** valmiista ``CLASSIFIED``-taulusta
-funktiolla :func:`round_list_rows`, sekä tuoreessa että ohitetussa ajossa. Kaksi
-polkua erkanisi ennemmin tai myöhemmin, ja silloin ``--show`` näyttäisi
-ohituksen jälkeen eri luvut kuin ensimmäisellä ajolla.
+The round list's rows are **always** built from the finished ``CLASSIFIED``
+table with :func:`round_list_rows`, on a fresh run and on a skipped one alike.
+Two paths would drift apart sooner or later, and then ``--show`` would show
+different figures after a skip than it did on the first run.
 
-``team_key`` tässä vaiheessa
----------------------------
-Subjekti valitaan ``--team``-valinnalla suoraan **kokoonpanotunnisteella**
-(``lineup_key``), ja sitä käytetään myös hakemistonimenä. Kanoninen
-``team_key`` on eri tunniste: se syntyy ``discover``issa ja nimeää
-joukkueindeksin ja valintatiedostot. Hakemistoja ei nimetä uudelleen tässä
-vaiheessa, joten kaksi tunnistetta elää rinnakkain ja niiden välinen silta on
-``index/teams.json``in ``lineup_keys``-kenttä.
+``team_key`` in this stage
+--------------------------
+The subject is chosen with the ``--team`` option directly by its **lineup key**
+(``lineup_key``), and that is used as the directory name as well. The canonical
+``team_key`` is a different id: it comes into being in ``discover`` and names
+the team index and the selection files. Directories are not renamed in this
+stage, so the two ids live side by side and the bridge between them is the
+``lineup_keys`` field of ``index/teams.json``.
 
-``is_league`` ja ``roster_class`` luetaan, ei lasketa
-----------------------------------------------------
-Molemmat kuvaavat **ottelua** eivätkä kierrosta, ja molemmat on jo laskettu:
-``select`` kirjoittaa ne joukkueen valintatiedostoon
-(``index/selections/<team_key>.json``). Tämä vaihe on niiden **lukija** --
-:func:`read_match_facts` etsii käsiteltävän demon rivin, ja arvot latotaan
-sellaisinaan jokaiselle kierrosriville. Sama päättely kahdessa paikassa olisi
-kaksi totuutta, joten ``is_league``ia ei päätellä ``competition_id``:stä eikä
-``roster_class``ia rosterikynnyksistä täällä.
+``is_league`` and ``roster_class`` are read, not computed
+---------------------------------------------------------
+Both describe the **match** and not the round, and both have already been
+computed: ``select`` writes them into the team's selection file
+(``index/selections/<team_key>.json``). This stage is their **reader** --
+:func:`read_match_facts` looks up the row of the demo being handled, and the
+values are set as they are onto every round row. The same inference in two
+places would be two truths, so ``is_league`` is not inferred from
+``competition_id`` here, nor ``roster_class`` from the roster thresholds.
 
-**Arvoa ei arvata, eikä syy jää sanomatta.** Sarake jää tyhjäksi viidestä eri
-syystä -- joukkueindeksiä ei ole, kokoonpanolla ei ole omistajaa, omistajalla
-ei ole valintatiedostoa, demolle ei ole riviä, tai osumat ovat kentästä eri
-mieltä -- ja jokainen niistä nimetään :attr:`MatchFacts.note`ssa, jonka
-``run`` vie ``StageResult.reason``iin (AD-9). Ilman sitä rikkoutunut silta
-näyttäisi raportissa täsmälleen samalta kuin käsin tuotu demo, jonka oikea
-arvo on tyhjä: raportin ``unknown``-lokero on lokero eikä virhetila, ja arvaus
-("luultavasti liigaottelu") olisi väärä väite datasta.
+**A value is not guessed at, and the reason is not left unsaid.** The column
+stays empty for five different reasons -- there is no team index, the lineup
+has no owner, the owner has no selection file, there is no row for the demo, or
+the hits disagree about the field -- and each of them is named in
+:attr:`MatchFacts.note`, which ``run`` carries into ``StageResult.reason``
+(AD-9). Without it a broken bridge would look in the report exactly like a
+hand-imported demo whose right value is empty: the report's ``unknown`` bucket
+is a bucket and not an error state, and a guess ("probably a league match")
+would be a false claim about the data.
 
-**Konsensus on kentittäin.** Kokoonpanon voi omistaa useampi joukkue, ja
-samassa tiedostossa voi olla kaksi riviä samalle demolle. ``is_league`` kuvaa
-ottelua (AD-10), joten kaikkien osumien on oltava siitä samaa mieltä;
-``roster_class`` arvioidaan **kyseisen joukkueen** vakirosteria vasten (AD-6),
-joten kaksi omistajaa saa siitä eri arvon normaalisti. Erimielinen kenttä jää
-tyhjäksi -- toinen ei -- eikä kumpaakaan ratkaista arpomalla.
+**Consensus is field by field.** A lineup can be owned by more than one team,
+and the same file can hold two rows for the same demo. ``is_league`` describes
+the match (AD-10), so all the hits have to agree about it; ``roster_class`` is
+judged against **that team's** standing roster (AD-6), so two owners get
+different values for it in the normal course of things. A field that is
+disagreed on stays empty -- the other one does not -- and neither is settled by
+drawing lots.
 
-**Kytkentä ei ole manifestin syötteessä, ja vanhentuminen sanotaan ääneen.**
-Valintatiedosto **ei** ole tämän vaiheen manifestin ``inputs``issa: yksi uusi
-``select``-ajo pakottaisi muuten koko arkiston uudelleenluokitteluun. Hinta on
-se, että valmis taulu voi kantaa vanhaa arvoa, joten ohitettu ajo
-**varoittaa**, kun valintatiedosto on kirjoitettu tämän luokittelun jälkeen
-(:func:`selection_staleness_note`), ja neuvoo ``--pakota``. Pelkkä
-dokumentoitu sääntö jäisi ihmisen muistin varaan; varoitus tekee hiljaisesta
-väärästä luvusta näkyvän.
+**The connection is not in the manifest's input, and staleness is said out
+loud.** The selection file is **not** in this stage's manifest ``inputs``: one
+new ``select`` run would otherwise force the whole archive to be classified
+again. The price is that a finished table can carry an old value, so a skipped
+run **warns** when the selection file was written after this classification
+(:func:`selection_staleness_note`), and advises ``--pakota``. A documented rule
+alone would rest on a human's memory; the warning makes a silently wrong figure
+visible.
 
-Uudelleenajo
-------------
-Manifestin ``params_hash`` lasketaan **vain** ``[thresholds]``-, ``[league]``-
-ja ``[economy]``-osioista (AD-3), ja ``tool_versions`` on tyhjä, koska laskenta
-on puhdasta domain-koodia. Kynnysarvon muuttaminen invalidoi siis tämän
-vaiheen muttei parsintaa: tulos valmistuu sekunneissa, koska demoa ei lueta.
+Re-running
+----------
+The manifest's ``params_hash`` is computed from the ``[thresholds]``,
+``[league]`` and ``[economy]`` sections **only** (AD-3), and ``tool_versions``
+is empty, because the computation is pure domain code. Changing a threshold
+therefore invalidates this stage but not the parsing: the result is ready in
+seconds, because the demo is not read.
 
-``[economy]`` tuli mukaan Story 1.10:ssä. Puolioston ehto B kysyy, pystyykö
-pelaaja normaaliin ostoon seuraavalla kierroksella, ja vastaus riippuu
-häviöbonuksesta (``loss_bonus_steps``). Ilman osiota hashissa portaan
-muuttaminen jättäisi vanhan tuloksen paikalleen ja näyttäisi ajan tasalla
-olevalta.
+``[economy]`` came along in Story 1.10. The half-buy's condition B asks whether
+a player can make a normal buy on the next round, and the answer depends on the
+loss bonus (``loss_bonus_steps``). Without the section in the hash, changing a
+step would leave the old result in place and it would look up to date.
 
-Syötteenä on ``parse``-vaiheen tulos. Sen tunniste kirjoitetaan
-``ManifestInput.sha256``-kenttään, mutta **se ei ole tiedoston tiiviste** vaan
-parsinnan manifestin sisällöstä laskettu parametrihash (ks.
-:meth:`~pappascout.archive.manifest.Manifest.fingerprint`). Kenttä on
-manifestimallissa nimetty tiivisteeksi,
-koska ``parse`` kirjoittaa siihen demon sha256:n; tässä vaiheessa syöte on
-toisen vaiheen tulos, jolla ei ole omaa tiivistettä, joten sen identiteetti
-lasketaan manifestista. Vertailu toimii samoin kummassakin tapauksessa:
-sama arvo tarkoittaa samaa syötettä.
+The input is the ``parse`` stage's result. Its id is written into the
+``ManifestInput.sha256`` field, but **it is not the file's hash**; it is the
+parameter hash computed from the content of the parse manifest (see
+:meth:`~pappascout.archive.manifest.Manifest.fingerprint`). The field is named
+a hash in the manifest model
+because ``parse`` writes the demo's sha256 into it; in this stage the input is
+another stage's result, which has no hash of its own, so its identity is
+computed from the manifest. The comparison works the same way in either case:
+the same value means the same input.
 """
 
 from __future__ import annotations
@@ -150,8 +152,8 @@ __all__ = [
 STAGE = "classify"
 TABLE = "classified"
 
-#: Tyhjä: luokittelu on puhdasta domain-laskentaa, eikä minkään ulkopuolisen
-#: kirjaston versio muuta sen tulosta (manifest-moduulin sääntö).
+#: Empty: classification is pure domain computation, and no external library's
+#: version changes its result (the manifest module's rule).
 TOOLS: tuple[str, ...] = ()
 
 
@@ -165,46 +167,47 @@ def run(
     economy: EconomySettings,
     force: bool = False,
 ) -> StageResult:
-    """Luokittele yhden demon kierrokset yhden joukkueen näkökulmasta.
+    """Classify one demo's rounds from one team's point of view.
 
     Args:
-        thresholds: ``[thresholds]``-osio.
-        league: ``[league]``-osio.
-        economy: ``[economy]``-osio, **avainsanaparametrina**. Siitä
-            luetaan ``loss_bonus_steps`` ja ``max_money`` (puolioston ehto
-            B). Kaikki kolme osiota ovat mukana parametrihashissa (AD-3),
-            eikä vaihe näe muita. Avainsana siksi, että kolme
-            pydantic-osiota peräkkäin menisi positionaalisesti vaihtaen
-            läpi ilman että mikään huomauttaisi.
-        archive: Arkiston polut.
-        map_demo_id: Yksikön tunniste.
-        team: Subjektijoukkueen kokoonpanotunniste tai sen yksikäsitteinen
-            alkuosa. ``None`` tuottaa suomenkielisen virheen, joka listaa demon
-            kaksi kokoonpanoa.
-        force: Ohita manifestin täsmäys ja luokittele joka tapauksessa.
+        thresholds: The ``[thresholds]`` section.
+        league: The ``[league]`` section.
+        economy: The ``[economy]`` section, **as a keyword argument**.
+            ``loss_bonus_steps`` and ``max_money`` (the half-buy's condition
+            B) are read from it. All three sections are in the parameter hash
+            (AD-3), and the stage sees no others. A keyword because three
+            pydantic sections in a row would go through positionally with two
+            of them swapped without anything remarking on it.
+        archive: The archive's paths.
+        map_demo_id: The unit's id.
+        team: The subject team's lineup key or an unambiguous prefix of it.
+            ``None`` produces an error that lists the demo's two lineups.
+        force: Skip the manifest match and classify in any case.
 
     Returns:
-        :class:`~pappascout.stages.StageResult`, jonka ``stats`` sisältää
-        kierrosten määrän, tyyppijakauman ja koko kierroslistan riveinä.
+        A :class:`~pappascout.stages.StageResult` whose ``stats`` holds the
+        number of rounds, the distribution of types and the whole round list as
+        rows.
 
     Raises:
-        ~pappascout.errors.PappascoutError: Jos demoa ei ole parsittu, ``team``
-            ei täsmää kumpaankaan kokoonpanoon tai joukkueindeksi taikka
-            valintatiedosto on rikki. **Puuttuva** valintatiedosto ei ole
-            virhe: silloin ``is_league`` ja ``roster_class`` jäävät tyhjiksi.
-        ~pappascout.errors.SchemaError: Jos kierrostaulu tai tulos ei vastaa
-            sopimusta, tai jos valintatiedoston ``roster_class`` ei kelpaa
-            ``CLASSIFIED``-skeeman enumiin.
+        ~pappascout.errors.PappascoutError: If the demo has not been parsed,
+            ``team`` matches neither lineup, or the team index or the selection
+            file is broken. A **missing** selection file is not an error: then
+            ``is_league`` and ``roster_class`` stay empty.
+        ~pappascout.errors.SchemaError: If the rounds table or the result does
+            not match the contract, or if the selection file's
+            ``roster_class`` is not valid for the ``CLASSIFIED`` schema's enum.
     """
     started = time.perf_counter()
     map_demo_id = safe_component(map_demo_id, "map_demo_id")
 
     rounds, unnumbered = _read_rounds(archive, map_demo_id)
     parse_manifest = _read_parse_manifest(archive, map_demo_id)
-    # **Kokoonpanotunniste, ei kanoninen ``team_key``.** Arkiston hakemisto on
-    # nimetty tästä (``paths.classified``in parametri on historiallisista
-    # syistä ``team_key``), mutta arvo on ``lineup_key`` -- ja juuri siksi
-    # valintatiedosto haetaan joukkueindeksin kautta eikä tällä nimellä.
+    # **The lineup key, not the canonical ``team_key``.** The archive's
+    # directory is named from this (``paths.classified``'s parameter is
+    # ``team_key`` for historical reasons), but the value is a ``lineup_key``
+    # -- and that is exactly why the selection file is looked up through the
+    # team index and not by this name.
     lineup_key = resolve_team(rounds, team, map_demo_id)
 
     table_rel = classified(lineup_key, map_demo_id)
@@ -215,10 +218,10 @@ def run(
     manifest_abs = archive.resolve(manifest_rel)
 
     inputs = [
-        # Syötteen tunniste on parsinnan MANIFESTIN sisällöstä, ei
-        # kierrostaulun tiivisteestä: taulu on johdettu tuloste, ja sen
-        # identiteetti on juuri se, mistä se johdettiin. Sama määritelmä
-        # kuin aggregate-vaiheessa.
+        # The input's id is from the content of the parse MANIFEST, not from
+        # a hash of the rounds table: the table is a derived output, and its
+        # identity is precisely what it was derived from. The same definition
+        # as in the aggregate stage.
         ManifestInput(
             result_id=parse_manifest.result_id,
             sha256=parse_manifest.fingerprint(),
@@ -254,11 +257,12 @@ def run(
             ),
         )
 
-    # **Luetaan vasta tässä, ohitushaaran jälkeen.** Ohitettu ajo ei lue
-    # arvoja lainkaan, joten yksi rikkinäinen valintatiedosto ei muuta koko
-    # arkiston valmiita luokitteluja virheiksi. Siirto funktion alkuun olisi
-    # juuri se regressio; ``test_a_broken_selection_file_does_not_break_a_skipped_run``
-    # pinnaa järjestyksen.
+    # **Read only here, after the skip branch.** A skipped run does not read
+    # the values at all, so one broken selection file does not turn the whole
+    # archive's finished classifications into errors. Moving this to the top of
+    # the function would be exactly that regression;
+    # ``test_a_broken_selection_file_does_not_break_a_skipped_run``
+    # pins the order.
     facts = read_match_facts(archive, lineup_key, map_demo_id)
 
     df, rows = classify_rounds(
@@ -296,79 +300,78 @@ def run(
         skipped=False,
         outputs=(table_rel, list_rel),
         manifest_path=manifest_rel,
-        # AD-9: tulos on ``ok`` myös silloin kun kaksi saraketta jäivät
-        # tyhjiksi, mutta **syy ei jää sanomatta**. Ilman tätä riviä
-        # rikkoutunut silta näyttäisi raportissa täsmälleen samalta kuin
-        # käsin tuotu demo.
+        # AD-9: the result is ``ok`` even when the two columns stayed empty,
+        # but **the reason is not left unsaid**. Without this line a broken
+        # bridge would look in the report exactly like a hand-imported demo.
         reason=facts.note,
         duration_s=time.perf_counter() - started,
         stats=_stats(rows, lineup_key, list_rel, unnumbered),
     )
 
 
-# -- Syötteet -------------------------------------------------------------------
+# -- The inputs -----------------------------------------------------------------
 
 
 def _read_rounds(
     archive: ArchivePaths, map_demo_id: str
 ) -> tuple[pl.DataFrame, int]:
-    """Lue ja validoi parsittu kierrostaulu.
+    """Read and validate the parsed rounds table.
 
-    Numeroimattomat kierrokset (``round_no`` tyhjä) pudotetaan ennen
-    luokittelua: loss count on kierrosten järjestykseen sidottu laskuri, joka
-    ei voi käsitellä numeroimatonta riviä. Määrä palautetaan, jotta ajo voi
-    kertoa siitä eikä rivi katoa hiljaa.
+    Unnumbered rounds (``round_no`` empty) are dropped before the
+    classification: the loss count is a counter bound to the order of the
+    rounds, and it cannot handle an unnumbered row. The number is returned so
+    that the run can say so and the row does not disappear silently.
 
     Returns:
-        ``(taulu, pudotettujen numeroimattomien kierrosten määrä)``.
+        ``(table, the number of unnumbered rounds dropped)``.
 
     Raises:
-        PappascoutError: Jos taulua ei ole, sitä ei voi lukea, se on tyhjä tai
-            se kuuluu toiselle demolle.
+        PappascoutError: If the table is not there, cannot be read, is empty or
+            belongs to another demo.
     """
     path = archive.resolve(parsed_table(map_demo_id, "rounds"))
     if not path.is_file():
         raise PappascoutError(
-            f"Demoa {map_demo_id} ei ole vielä parsittu: tiedostoa {path} ei "
-            "ole.\n"
-            f"Aja ensin: uv run pappascout parse {map_demo_id}"
+            f"Demo {map_demo_id} has not been parsed yet: the file {path} is "
+            "not there.\n"
+            f"Run first: uv run pappascout parse {map_demo_id}"
         )
     try:
         df = pl.read_parquet(path)
     except (OSError, pl.exceptions.PolarsError) as exc:
         raise PappascoutError(
-            f"Kierrostaulua {path} ei voitu lukea: {exc}\n"
-            f"Aja parsinta uudelleen: uv run pappascout parse {map_demo_id} "
+            f"The rounds table {path} could not be read: {exc}\n"
+            f"Parse it again: uv run pappascout parse {map_demo_id} "
             "--pakota"
         ) from exc
 
-    # validate puhuu oletuksena kehittäjälle ("lisää sarake tai korjaa taulun
-    # tuottanut vaihe -- sopimus on tiedostossa domain/schemas.py"). Se on
-    # väärä neuvo tässä: taulu tulee arkistosta, sen on kirjoittanut ohjelman
-    # oma aiempi versio, eikä käyttäjä korjaa sitä koodia muokkaamalla.
-    # Korjaus on ajaa parsinta uudelleen, joten se on myös se, mitä viesti
-    # sanoo. Sarakkeen nimi säilyy diagnoosiksi.
+    # By default validate speaks to the developer ("add the column or fix the
+    # stage that produced the table -- the contract is in the file
+    # domain/schemas.py"). That is the wrong advice here: the table comes from
+    # the archive, an earlier version of the program itself wrote it, and the
+    # user does not fix it by editing code. The fix is to parse again, so that
+    # is also what the message says. The column's name stays as the diagnosis.
     validate(
         df,
         ROUNDS,
         "rounds",
         advice=(
-            "Taulu on parsittu ohjelman vanhemmalla versiolla. Aja parsinta "
-            f"uudelleen: uv run pappascout parse {map_demo_id} --pakota"
+            "The table was parsed with an older version of the program. Parse "
+            f"it again: uv run pappascout parse {map_demo_id} --pakota"
         ),
     )
 
-    # Väärä parquet oikeassa polussa luokiteltaisiin muuten väärän tunnisteen
-    # alle, ja tulos näyttäisi täysin kelvolliselta.
+    # Otherwise the wrong parquet in the right path would be classified under
+    # the wrong id, and the result would look perfectly valid.
     foreign = sorted(
         {str(v) for v in df["map_demo_id"].unique().to_list() if v != map_demo_id}
     )
     if foreign:
         raise PappascoutError(
-            f"Kierrostaulu {path} sisältää toisen demon rivejä "
-            f"({', '.join(foreign)}), vaikka sen pitäisi olla demon "
-            f"{map_demo_id} taulu.\n"
-            f"Poista hakemisto ja aja parsinta uudelleen: uv run pappascout "
+            f"The rounds table {path} holds rows of another demo "
+            f"({', '.join(foreign)}), although it should be the table of demo "
+            f"{map_demo_id}.\n"
+            f"Remove the directory and parse again: uv run pappascout "
             f"parse {map_demo_id} --pakota"
         )
 
@@ -378,35 +381,35 @@ def _read_rounds(
     )
     if numbered.is_empty():
         raise PappascoutError(
-            f"Kierrostaulussa {path} ei ole yhtään numeroitua kierrosta, joten "
-            "luokiteltavaa ei ole.\n"
-            f"Aja parsinta uudelleen: uv run pappascout parse {map_demo_id} "
+            f"The rounds table {path} has not one numbered round, so there is "
+            "nothing to classify.\n"
+            f"Parse it again: uv run pappascout parse {map_demo_id} "
             "--pakota"
         )
     return numbered, unnumbered
 
 
 def _read_parse_manifest(archive: ArchivePaths, map_demo_id: str) -> Manifest:
-    """Lue ``parse``-manifesti; se on tämän vaiheen ainoa syöte.
+    """Read the ``parse`` manifest; it is this stage's only input.
 
     Raises:
-        PappascoutError: Jos manifestia ei ole tai parsinta ei onnistunut.
-            Vanhentuneen tai epäonnistuneen parsinnan päälle ei luokitella.
+        PappascoutError: If there is no manifest or the parsing did not
+            succeed. Nothing is classified on top of a stale or failed parse.
     """
     path = archive.resolve(parsed_manifest(map_demo_id))
     manifest = Manifest.read_if_exists(path)
     if manifest is None:
         raise PappascoutError(
-            f"Parsinnan manifestia ei löytynyt polusta {path}, joten "
-            "luokittelun syötettä ei voi tunnistaa.\n"
-            f"Aja ensin: uv run pappascout parse {map_demo_id}"
+            f"The parse manifest was not found at {path}, so the "
+            "classification's input cannot be recognised.\n"
+            f"Run first: uv run pappascout parse {map_demo_id}"
         )
     if manifest.status != "ok":
         raise PappascoutError(
-            f"Demon {map_demo_id} parsinta on merkitty tilaan "
-            f"{manifest.status!r}, joten sen tulosta ei luokitella.\n"
-            f"Syy: {manifest.reason or 'ei kirjattu'}\n"
-            f"Aja parsinta uudelleen: uv run pappascout parse {map_demo_id} "
+            f"The parsing of demo {map_demo_id} is marked with the status "
+            f"{manifest.status!r}, so its result is not classified.\n"
+            f"Reason: {manifest.reason or 'not recorded'}\n"
+            f"Parse it again: uv run pappascout parse {map_demo_id} "
             "--pakota"
         )
     return manifest
@@ -417,14 +420,14 @@ def _params_hash(
     league: LeagueSettings,
     economy: EconomySettings,
 ) -> str:
-    """AD-3: vain nämä kolme osiota vaikuttavat luokittelun tulokseen.
+    """AD-3: only these three sections affect the classification's result.
 
-    ``[economy]`` on mukana kokonaisena, vaikka luokittelu lukee siitä vain
-    ``loss_bonus_steps``. Osittainen hash vaatisi listan siitä, mitä osion
-    kentistä säännöt sattuvat lukemaan -- ja se lista vanhenisi hiljaa
-    ensimmäisenä päivänä, jona sääntö lukee yhden kentän lisää. Hinta on
-    tarpeeton uudelleenajo, kun jokin muu talousarvo muuttuu; se maksaa
-    sekunteja, koska demoa ei lueta.
+    ``[economy]`` is included whole, although the classification reads only
+    ``loss_bonus_steps`` from it. A partial hash would need a list of which of
+    the section's fields the rules happen to read -- and that list would go
+    stale silently on the first day a rule reads one field more. The price is
+    an unnecessary re-run when some other economy value changes; it costs
+    seconds, because the demo is not read.
     """
     return compute_params_hash(
         {
@@ -436,32 +439,32 @@ def _params_hash(
 
 
 def team_keys(archive: ArchivePaths, map_demo_id: str) -> list[str]:
-    """Demon kokoonpanotunnisteet, jotta kaikki joukkueet voi luokitella.
+    """The demo's lineup keys, so that every team can be classified.
 
-    Luetaan kierrostaulusta eikä joukkueindeksistä: tunniste on tässä
-    vaiheessa kokoonpanotunniste, ja demon molemmat kokoonpanot ovat
-    kierrostaulussa riippumatta siitä, tunnetaanko niiden joukkueet.
+    Read from the rounds table and not from the team index: the id in this
+    stage is the lineup key, and both of the demo's lineups are in the rounds
+    table whether or not their teams are known.
     """
     rounds, _ = _read_rounds(archive, safe_component(map_demo_id, "map_demo_id"))
     return [str(k["lineup_key"]) for k in _lineups(rounds)]
 
 
 def resolve_team(df: pl.DataFrame, team: str | None, map_demo_id: str) -> str:
-    """Tulkitse ``--team`` demon kokoonpanotunnisteeksi.
+    """Read ``--team`` as one of the demo's lineup keys.
 
-    Hyväksyy sekä täyden ``lineup_key``:n että sen yksikäsitteisen alkuosan --
-    16 merkin tiiviste on epämukava kirjoittaa käsin.
+    Accepts both the full ``lineup_key`` and an unambiguous prefix of it -- a
+    16-character hash is uncomfortable to type by hand.
 
     Raises:
-        PappascoutError: Jos tunniste puuttuu, ei täsmää tai täsmää useampaan.
-            Viesti listaa aina demon kokoonpanot, joten seuraava komento on
-            suoraan kopioitavissa.
+        PappascoutError: If the id is missing, matches nothing or matches more
+            than one. The message always lists the demo's lineups, so the next
+            command can be copied straight from it.
     """
     lineups = _lineups(df)
     if team is None:
         raise PappascoutError(
-            "Kerro --team-valinnalla, kumman joukkueen näkökulmasta demo "
-            f"{map_demo_id} luokitellaan.\n{_lineup_listing(lineups)}"
+            "Say with the --team option from which team's point of view demo "
+            f"{map_demo_id} is classified.\n{_lineup_listing(lineups)}"
         )
 
     query = team.strip().lower()
@@ -472,18 +475,18 @@ def resolve_team(df: pl.DataFrame, team: str | None, map_demo_id: str) -> str:
         return safe_component(str(matches[0]["lineup_key"]), "team_key")
 
     problem = (
-        f"Kokoonpanotunniste {team!r} täsmää useampaan kuin yhteen kokoonpanoon."
+        f"The lineup key {team!r} matches more than one lineup."
         if matches
         else (
-            f"Kokoonpanotunniste {team!r} ei täsmää kumpaankaan demon "
-            f"{map_demo_id} kokoonpanoon."
+            f"The lineup key {team!r} matches neither lineup of demo "
+            f"{map_demo_id}."
         )
     )
     raise PappascoutError(f"{problem}\n{_lineup_listing(lineups)}")
 
 
 def _lineups(df: pl.DataFrame) -> list[dict[str, object]]:
-    """Demon kokoonpanot tunnisteineen, aloituspuolineen ja voittoineen."""
+    """The demo's lineups with their keys, starting sides and wins."""
     first_round = df["round_no"].min()
     summary = (
         df.group_by("lineup_key")
@@ -508,55 +511,60 @@ def _lineups(df: pl.DataFrame) -> list[dict[str, object]]:
 
 def _lineup_listing(lineups: list[dict[str, object]]) -> str:
     if not lineups:
-        return "Kierrostaulussa ei ole yhtään kokoonpanoa."
+        return "The rounds table has not one lineup."
     rows = [
-        f"    {k['lineup_key']}  (aloitti puolella {k['first_side'] or '?'}, "
-        f"voitti {k['wins']} kierrosta)"
+        f"    {k['lineup_key']}  (started on side {k['first_side'] or '?'}, "
+        f"won {k['wins']} rounds)"
         for k in lineups
     ]
     example = str(lineups[0]["lineup_key"])[:8]
     return (
-        "Demon kokoonpanot ovat:\n"
+        "The demo's lineups are:\n"
         + "\n".join(rows)
-        + "\nAnna tunniste kokonaan tai sen alkuosa, esimerkiksi:\n"
+        + "\nGive the id in full or its beginning, for example:\n"
         + f"    --team {example}"
     )
 
 
-# -- Ottelutosiasiat valintatiedostosta -----------------------------------------
+# -- Match facts from the selection file ----------------------------------------
 
 
 class MatchFacts(NamedTuple):
-    """Demokohtaiset ottelutosiasiat, jotka ``select`` on jo laskenut.
+    """The per-demo match facts ``select`` has already computed.
 
-    Oletusarvo on **tyhjä molemmilta**, ja se on rehellinen tila eikä
-    puuttuva: käsin tuodulla demolla ei ole valintariviä, eikä kumpaakaan
-    arvoa voi silloin tietää.
+    The default is **empty for both**, and that is an honest state and not a
+    missing one: a hand-imported demo has no selection row, and neither value
+    can be known then.
 
-    ``note`` kertoo **miksi** arvo puuttuu. Ilman sitä viisi eri tilannetta --
-    indeksi puuttuu, kokoonpanolla ei omistajaa, omistajalla ei
-    valintatiedostoa, demolle ei riviä, rivit eri mieltä -- näyttäisivät
-    raportissa täsmälleen samalta, ja rikkoutunut silta olisi erottamaton
-    käsin tuodusta demosta. ``run`` vie sen ``StageResult.reason``iin (AD-9).
+    ``note`` says **why** a value is absent. Without it five different
+    situations -- the index is absent, the lineup has no owner, the owner has
+    no selection file, there is no row for the demo, the rows disagree -- would
+    look exactly the same in the report, and a broken bridge would be
+    indistinguishable from a hand-imported demo. ``run`` carries it into
+    ``StageResult.reason`` (AD-9).
     """
 
-    #: Onko ottelu asetusten championshipeissa. ``None`` = ei tiedossa.
+    #: Whether the match is in the settings' championships. ``None`` = not
+    #: known.
     is_league: bool | None = None
-    #: Rosterikynnyksen luokka, ``CLASSIFIED``-skeeman enumin arvo.
+    #: The roster threshold's class, a value of the ``CLASSIFIED`` schema's
+    #: enum.
     roster_class: str | None = None
-    #: Suomenkielinen syy vajaalle tulokselle, tai ``None`` kun molemmat saatiin.
+    #: The reason for an incomplete result, or ``None`` when both were
+    #: obtained.
     note: str | None = None
 
 
 def roster_classes() -> tuple[str, ...]:
-    """Kelvolliset rosteriluokat **``CLASSIFIED``-skeeman enumista**.
+    """The valid roster classes **from the ``CLASSIFIED`` schema's enum**.
 
-    Luettelo johdetaan siitä sopimuksesta, jota vasten arvo lopulta
-    kirjoitetaan, eikä rinnakkaisesta vakiosta
-    (:data:`~pappascout.constants.ROSTER_CLASSES`). Kaksi lähdettä voisivat
-    erkaantua, ja silloin tarkistus ja virheilmoitus puhuisivat eri joukosta
-    kuin Polars: viesti sanoisi "ei kelpaa skeemaan" arvosta, joka kelpaa --
-    tai päästäisi läpi arvon, joka kaataa kirjoituksen kolme riviä myöhemmin.
+    The list is derived from the contract the value is finally written against,
+    and not from a parallel constant
+    (:data:`~pappascout.constants.ROSTER_CLASSES`). Two sources could drift
+    apart, and then the check and the error message would speak of a different
+    set than Polars: the message would say "not valid for the schema" of a
+    value that is valid -- or let through a value that breaks the write three
+    lines later.
     """
     return tuple(str(value) for value in CLASSIFIED["roster_class"].categories)
 
@@ -564,50 +572,53 @@ def roster_classes() -> tuple[str, ...]:
 def read_match_facts(
     archive: ArchivePaths, lineup_key: str, map_demo_id: str
 ) -> MatchFacts:
-    """Etsi demon ``is_league`` ja ``roster_class`` valintatiedostosta.
+    """Look up the demo's ``is_league`` and ``roster_class`` in the selection file.
 
-    Arvoja **ei lasketa täällä**: ``select`` on niiden ainoa laskija, ja tämä
-    on lukija. Reitti on kaksivaiheinen, koska tunnisteita on kaksi: tämän
-    vaiheen hakemistonimi on kokoonpanotunniste, kun taas valintatiedosto on
-    nimetty kanonisella ``team_key``:llä. Silta on ``index/teams.json``in
-    ``lineup_keys``, ja omistajat päätellään siitä kentästä lukemalla -- se on
-    ainoa kohta, jossa käännös tehdään.
+    The values are **not computed here**: ``select`` is their only computer,
+    and this is a reader. The route has two steps because there are two ids:
+    this stage's directory name is the lineup key, whereas the selection file
+    is named by the canonical ``team_key``. The bridge is
+    ``index/teams.json``'s ``lineup_keys``, and the owners are inferred by
+    reading that field -- it is the only place the translation is made.
 
-    **Konsensus on kentittäin eikä tietueena.** Kokoonpanon voi omistaa
-    useampi joukkue, ja samassa tiedostossa voi olla kaksi riviä samalle
-    demolle; kaikki osumat luetaan ja kumpikin kenttä ratkaistaan erikseen.
-    Ero on olennainen: ``is_league`` kuvaa **ottelua** (AD-10), joten kaikkien
-    osumien on oltava siitä samaa mieltä, kun taas ``roster_class`` arvioidaan
-    **kyseisen joukkueen** vakirosteria vasten (AD-6), joten kaksi omistajaa
-    saa siitä eri arvon täysin normaalisti. Tietuetasoinen vertailu heittäisi
-    yksimielisen ``is_league``in pois vain siksi, että luokat erosivat.
+    **Consensus is field by field and not record by record.** A lineup can be
+    owned by more than one team, and the same file can hold two rows for the
+    same demo; all the hits are read and each field is settled separately. The
+    difference matters: ``is_league`` describes the **match** (AD-10), so all
+    the hits have to agree about it, whereas ``roster_class`` is judged against
+    **that team's** standing roster (AD-6), so two owners get different values
+    for it in the perfectly normal course of things. A record-level comparison
+    would throw away an ``is_league`` everyone agrees on merely because the
+    classes differed.
 
-    Kun kenttä on erimielinen, se jää **tyhjäksi** ja syy kirjataan
-    ``note``en: kiistaa ei ratkaista arpomalla, ja "ensimmäinen voittaa" olisi
-    juuri se arpominen.
+    When a field is disagreed on, it stays **empty** and the reason is recorded
+    in ``note``: a dispute is not settled by drawing lots, and "the first one
+    wins" would be exactly that draw.
 
     Args:
-        archive: Arkiston polut.
-        lineup_key: Subjektin **kokoonpanotunniste**, sama jolla tulos
-            kirjoitetaan. Ei kanoninen ``team_key``.
-        map_demo_id: Käsiteltävän demon tunniste.
+        archive: The archive's paths.
+        lineup_key: The subject's **lineup key**, the same one the result is
+            written under. Not the canonical ``team_key``.
+        map_demo_id: The id of the demo being handled.
 
     Returns:
-        :class:`MatchFacts`. Kun arvo puuttuu, ``note`` nimeää syyn.
+        A :class:`MatchFacts`. When a value is absent, ``note`` names the
+        reason.
 
     Raises:
-        ~pappascout.errors.PappascoutError: Jos joukkueindeksi tai
-            valintatiedosto on olemassa mutta rikki. **Puuttuva** tiedosto ei
-            ole virhe, vaan tuntematon arvo.
-        ~pappascout.errors.SchemaError: Jos rivin ``is_league`` tai
-            ``roster_class`` ei kelpaa ``CLASSIFIED``-skeemaan.
+        ~pappascout.errors.PappascoutError: If the team index or the selection
+            file exists but is broken. A **missing** file is not an error but
+            an unknown value.
+        ~pappascout.errors.SchemaError: If the row's ``is_league`` or
+            ``roster_class`` is not valid for the ``CLASSIFIED`` schema.
     """
     if not archive.teams_index().is_file():
         return MatchFacts(
             note=(
-                "Joukkueindeksiä ei ole, joten ottelun lajia ja rosteriluokkaa "
-                "ei voitu lukea (is_league ja roster_class jäivät tyhjiksi).\n"
-                "Aja halutessasi ensin: uv run pappascout discover"
+                "There is no team index, so the match's kind and roster class "
+                "could not be read (is_league and roster_class stayed "
+                "empty).\n"
+                "If you like, run first: uv run pappascout discover"
             )
         )
 
@@ -615,10 +626,10 @@ def read_match_facts(
     if not owners:
         return MatchFacts(
             note=(
-                f"Kokoonpanoa {lineup_key} ei omista yksikään joukkueindeksin "
-                "joukkue, joten valintatiedostoa ei voitu paikantaa "
-                "(is_league ja roster_class jäivät tyhjiksi). Käsin tuodulla "
-                "demolla tämä on odotettua."
+                f"The lineup {lineup_key} is owned by no team in the team "
+                "index, so the selection file could not be located "
+                "(is_league and roster_class stayed empty). On a "
+                "hand-imported demo this is expected."
             )
         )
 
@@ -635,19 +646,19 @@ def read_match_facts(
         if len(missing_file) == len(owners):
             return MatchFacts(
                 note=(
-                    "Joukkueelle "
-                    f"{', '.join(missing_file)} ei ole valintatiedostoa, joten "
-                    "is_league ja roster_class jäivät tyhjiksi.\n"
-                    "Aja ensin: uv run pappascout select --team "
+                    "Team "
+                    f"{', '.join(missing_file)} has no selection file, so "
+                    "is_league and roster_class stayed empty.\n"
+                    "Run first: uv run pappascout select --team "
                     f'"{missing_file[0]}"'
                 )
             )
         return MatchFacts(
             note=(
-                f"Demoa {map_demo_id} ei ole joukkueen "
-                f"{', '.join(k for k in owners if k not in missing_file)} "
-                "valintatiedostossa, joten is_league ja roster_class jäivät "
-                "tyhjiksi. Käsin tuodulla demolla tämä on odotettua."
+                f"Demo {map_demo_id} is not in the selection file of team "
+                f"{', '.join(k for k in owners if k not in missing_file)}, so "
+                "is_league and roster_class stayed empty. On a hand-imported "
+                "demo this is expected."
             )
         )
 
@@ -655,16 +666,17 @@ def read_match_facts(
         [(team_key, facts.is_league) for team_key, facts in hits],
         field="is_league",
         why=(
-            "is_league kuvaa ottelua eikä joukkuetta, joten kahta eri arvoa ei "
-            "voi olla oikein"
+            "is_league describes the match and not the team, so two different "
+            "values cannot both be right"
         ),
     )
     roster_class, class_note = _consensus(
         [(team_key, facts.roster_class) for team_key, facts in hits],
         field="roster_class",
         why=(
-            "rosteriluokka arvioidaan joukkueen omaa vakirosteria vasten, joten "
-            "eri arvot ovat odotettuja eikä niistä voi valita yhtä"
+            "the roster class is judged against the team's own standing "
+            "roster, so different values are expected and one of them cannot "
+            "be chosen"
         ),
     )
     notes = [note for note in (league_note, class_note) if note]
@@ -676,15 +688,15 @@ def read_match_facts(
 
 
 def _owners(archive: ArchivePaths, lineup_key: str) -> list[str]:
-    """Joukkueindeksin joukkueet, jotka omistavat tämän kokoonpanon.
+    """The team index's teams that own this lineup.
 
-    Käännös tehdään **tässä ja vain tässä**, jotta jokainen lukija saa saman
-    vastauksen. Omistajuus luetaan ``lineup_keys``-kentästä, koska se on se
-    kenttä, jonka ``discover`` kirjoittaa jokaiselle joukkueelle
-    (``domain.teams.assign_lineup_keys``). Indeksin
-    ``contested_lineup_keys``-luetteloa ei tarvita eikä luettaisi: se on
-    ``discover``in raportti samasta havainnosta, ja kahden lähteen sijaan
-    kysytään sitä, joka kertoo **ketkä** omistajat ovat.
+    The translation is made **here and only here**, so that every reader gets
+    the same answer. Ownership is read from the ``lineup_keys`` field, because
+    that is the field ``discover`` writes for every team
+    (``domain.teams.assign_lineup_keys``). The index's
+    ``contested_lineup_keys`` list is not needed and would not be read: it is
+    ``discover``'s report of the same observation, and instead of two sources
+    the one that says **who** the owners are is asked.
     """
     return [
         team.team_key
@@ -696,15 +708,15 @@ def _owners(archive: ArchivePaths, lineup_key: str) -> list[str]:
 def _consensus(
     values: list[tuple[str, object]], *, field: str, why: str
 ) -> tuple[Any, str | None]:
-    """Yksi arvo, jos kaikki osumat ovat samaa mieltä -- muuten tyhjä ja syy.
+    """One value if all the hits agree -- otherwise empty, and the reason.
 
     Args:
-        values: ``(team_key, arvo)`` jokaisesta löytyneestä valintarivistä.
-        field: Kentän nimi virheilmoitukseen.
-        why: Miksi erimielisyys on juuri tässä kentässä sitä mitä se on.
+        values: ``(team_key, value)`` from every selection row that was found.
+        field: The field's name for the error message.
+        why: Why a disagreement in this particular field is what it is.
 
     Returns:
-        ``(arvo, huomio)``. Huomio on ``None``, kun arvo saatiin.
+        ``(value, note)``. The note is ``None`` when the value was obtained.
     """
     distinct = {value for _, value in values}
     if len(distinct) == 1:
@@ -713,34 +725,34 @@ def _consensus(
         f"{team_key}: {value!r}" for team_key, value in sorted(values, key=str)
     )
     return None, (
-        f"Valintariveillä on {len(distinct)} eri arvoa kentässä {field} "
-        f"({listed}), joten se jäi tyhjäksi -- {why}."
+        f"The selection rows hold {len(distinct)} different values in the "
+        f"field {field} ({listed}), so it stayed empty -- {why}."
     )
 
 
 def _selection_rows(
     archive: ArchivePaths, team_key: str, map_demo_id: str
 ) -> list[dict[str, Any]]:
-    """Demon **kaikki** rivit joukkueen valintatiedostosta.
+    """**All** the demo's rows from the team's selection file.
 
-    Kaikki eikä ensimmäinen: kahdennettu rivi ratkeaisi muuten hiljaisella
-    "ensimmäinen voittaa" -säännöllä, ja se on sama arpominen, joka
-    kiistanalaisilla kokoonpanoilla nimenomaan kiellettiin. Kahdennus menee
-    samaan konsensukseen kuin kaksi omistajaa.
+    All and not the first: a duplicated row would otherwise be settled by a
+    silent "the first one wins" rule, and that is the same draw that was
+    expressly forbidden for contested lineups. A duplicate goes into the same
+    consensus as two owners.
 
     Raises:
-        PappascoutError: Jos tiedosto ei ole luettavissa tai sen muoto on
-            tuntematon (:func:`~pappascout.stages.select.read_selection`), tai
-            jos ``selections`` ei ole luettelo. Sama viesti ja sama neuvo kuin
-            ``fetch``issä: aja ``select`` uudelleen.
+        PappascoutError: If the file cannot be read or its shape is unknown
+            (:func:`~pappascout.stages.select.read_selection`), or if
+            ``selections`` is not a list. The same message and the same advice
+            as in ``fetch``: run ``select`` again.
     """
     document = read_selection(archive, team_key)
     rows = document.get("selections")
     if not isinstance(rows, list):
         raise PappascoutError(
-            f"Joukkueen {team_key} valintatiedostossa ei ole "
-            "selections-listaa.\n"
-            f'Aja uudelleen: uv run pappascout select --team "{team_key}"'
+            f"The selection file of team {team_key} has no "
+            "selections list.\n"
+            f'Run it again: uv run pappascout select --team "{team_key}"'
         )
     return [
         row
@@ -752,39 +764,39 @@ def _selection_rows(
 def _match_facts(
     row: dict[str, Any], team_key: str, map_demo_id: str
 ) -> MatchFacts:
-    """Poimi kaksi kenttää valintariviltä ja tarkista, että ne kelpaavat.
+    """Pick the two fields off a selection row and check that they are valid.
 
-    Tarkistus on tässä eikä vasta Polarsin tyypityksessä: vieras arvo
-    kaatuisi muuten ``pl.Enum``in sisällä viestillä, joka ei kerro mistä
-    tiedostosta se tuli. ``roster_ok`` **ei vaikuta**: hylkäys on otannan
-    asia, eivät nämä kaksi tosiasiaa ottelusta.
+    The check is here and not left to Polars' typing: a foreign value would
+    otherwise fail inside ``pl.Enum`` with a message that does not say which
+    file it came from. ``roster_ok`` **has no effect**: rejection is the
+    sample's business, not that of these two facts about the match.
 
     Raises:
-        SchemaError: Jos arvo ei kelpaa ``CLASSIFIED``-skeemaan.
+        SchemaError: If a value is not valid for the ``CLASSIFIED`` schema.
     """
     is_league = row.get("is_league")
     roster_class = row.get("roster_class")
     if is_league is not None and not isinstance(is_league, bool):
         raise SchemaError(
-            f"Joukkueen {team_key} valintatiedoston rivillä {map_demo_id} on "
-            f"is_league-arvo {is_league!r}, joka ei ole totuusarvo.\n"
-            f'Aja uudelleen: uv run pappascout select --team "{team_key}"'
+            f"The selection file of team {team_key}, on row {map_demo_id}, "
+            f"has the is_league value {is_league!r}, which is not a boolean.\n"
+            f'Run it again: uv run pappascout select --team "{team_key}"'
         )
     allowed = roster_classes()
     if roster_class is not None and roster_class not in allowed:
         raise SchemaError(
-            f"Joukkueen {team_key} valintatiedoston rivillä {map_demo_id} on "
-            f"roster_class-arvo {roster_class!r}, joka ei ole "
-            f"CLASSIFIED-skeeman luokka ({', '.join(allowed)}).\n"
-            f'Aja uudelleen: uv run pappascout select --team "{team_key}"'
+            f"The selection file of team {team_key}, on row {map_demo_id}, "
+            f"has the roster_class value {roster_class!r}, which is not a "
+            f"class of the CLASSIFIED schema ({', '.join(allowed)}).\n"
+            f'Run it again: uv run pappascout select --team "{team_key}"'
         )
     return MatchFacts(is_league=is_league, roster_class=roster_class)
 
 
-#: Ohituksen syy ilman vanhentumisvaroitusta.
+#: The reason for the skip, without the staleness warning.
 SKIP_REASON = (
-    "Tulos on ajan tasalla: manifesti täsmää eikä kierroksia tarvitse "
-    "luokitella uudelleen."
+    "The result is up to date: the manifest matches and the rounds do not "
+    "need to be classified again."
 )
 
 
@@ -798,22 +810,22 @@ def _skip_reason(
 def selection_staleness_note(
     archive: ArchivePaths, lineup_key: str, manifest: Manifest
 ) -> str | None:
-    """Varoitus, jos valintatiedosto on uudempi kuin valmis luokittelu.
+    """A warning if the selection file is newer than the finished classification.
 
-    Valintatiedosto **ei** ole manifestin syöte, joten sen muuttuminen ei
-    invalidoi tulosta -- eikä siis myöskään kerro itsestään. Vanhentuminen
-    olisi ilman tätä dokumentoitu muttei havaittavissa mistään: taulu kantaisi
-    vanhaa ``is_league``ia, ja raportti näyttäisi ajan tasalla olevalta. Halvin
-    korjaus on **sanoa se ohituksen syyssä** ja neuvoa ``--pakota``.
+    The selection file is **not** a manifest input, so changing it does not
+    invalidate the result -- and so it does not say anything about itself
+    either. Without this, staleness would be documented but observable from
+    nowhere: the table would carry an old ``is_league``, and the report would
+    look up to date. The cheapest fix is **to say it in the skip's reason** and
+    to advise ``--pakota``.
 
-    **Ei nosta koskaan.** Ohitettu ajo ei lue arvoja lainkaan, joten
-    rikkinäinen valintatiedosto ei saa muuttaa valmista tulosta virheeksi;
-    lukukelvoton tiedosto tarkoittaa tässä vain sitä, ettei vanhentumisesta
-    voi sanoa mitään.
+    **It never raises.** A skipped run does not read the values at all, so a
+    broken selection file must not turn a finished result into an error; an
+    unreadable file means here only that nothing can be said about staleness.
 
     Returns:
-        Varoitus, tai ``None`` jos tiedosto on vanhempi, sitä ei ole tai sen
-        aikaleimaa ei voi lukea.
+        The warning, or ``None`` if the file is older, is not there or its
+        timestamp cannot be read.
     """
     newest: datetime | None = None
     whose: str | None = None
@@ -831,16 +843,16 @@ def selection_staleness_note(
     if newest is None or newest <= manifest.created_at:
         return None
     return (
-        f"Huomio: joukkueen {whose} valintatiedosto on kirjoitettu "
-        f"{newest.isoformat()}, tämä luokittelu {manifest.created_at.isoformat()}. "
-        "Valintatiedosto ei ole tämän vaiheen syöte, joten is_league ja "
-        "roster_class voivat olla vanhentuneita -- aja uudelleen lipulla "
-        "--pakota, jos haluat ne tiedoston mukaan."
+        f"Note: the selection file of team {whose} was written "
+        f"{newest.isoformat()}, this classification {manifest.created_at.isoformat()}. "
+        "The selection file is not an input of this stage, so is_league and "
+        "roster_class may be stale -- run again with the flag "
+        "--pakota if you want them as the file has them."
     )
 
 
 def _moment(value: object) -> datetime | None:
-    """ISO-aikaleima aikavyöhykkeellisenä, tai ``None`` jos sitä ei voi lukea."""
+    """An ISO timestamp with a time zone, or ``None`` if it cannot be read."""
     if not isinstance(value, str):
         return None
     try:
@@ -850,7 +862,7 @@ def _moment(value: object) -> datetime | None:
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
-# -- Luokittelu ------------------------------------------------------------------
+# -- Classification --------------------------------------------------------------
 
 
 def classify_rounds(
@@ -862,28 +874,28 @@ def classify_rounds(
     economy: EconomySettings,
     facts: MatchFacts,
 ) -> tuple[pl.DataFrame, list[dict[str, object]]]:
-    """Rakenna ``CLASSIFIED``-taulu ja kierroslistan rivit kierrostaulusta.
+    """Build the ``CLASSIFIED`` table and the round list's rows from the rounds table.
 
-    Julkinen, koska tämä on vaiheen koko päättely ilman tiedostoja: sen voi
-    ajaa suoraan sekä käsin rakennetulla taululla että oikean demon
-    kierrostaululla ilman arkistoa.
+    Public, because this is the stage's whole reasoning without files: it can
+    be run directly both on a hand-built table and on a real demo's rounds
+    table without an archive.
 
-    Kumpikin joukkue luokitellaan omilla loss counteillaan ja omalla
-    kierroshistoriallaan; subjektin rivi saa vastustajan tyypin
-    ``opp_round_type``-sarakkeeseen.
+    Each team is classified with its own loss counts and its own round history;
+    the subject's row gets the opponent's type in the ``opp_round_type``
+    column.
 
     Args:
-        facts: Demokohtaiset ottelutosiasiat, jotka :func:`read_match_facts`
-            luki valintatiedostosta. **Ne latotaan sellaisinaan jokaiselle
-            riville** eikä niitä lasketa täällä; ``is_league`` kuvaa ottelua
-            eikä kierrosta, ja ``domain.aggregate`` kaataa ajon, jos yhden
-            demon kierroksilla olisi kaksi eri arvoa.
+        facts: The per-demo match facts :func:`read_match_facts` read from the
+            selection file. **They are set as they are onto every row** and are
+            not computed here; ``is_league`` describes the match and not the
+            round, and ``domain.aggregate`` stops the run if one demo's rounds
+            were to hold two different values.
 
-            **Pakollinen eikä oletukseltaan tyhjä.** Oletus tekisi
-            unohtamisesta hiljaisen: kutsuja, joka ei anna faktoja, tuottaisi
-            täsmälleen sen tyhjän sarakkeen, jonka korjaamisesta tämä koodi
-            on. Tiedostoton kutsuja antaa ``MatchFacts()`` ja sanoo silloin
-            ääneen, ettei se tiedä arvoja.
+            **Required and not empty by default.** A default would make
+            forgetting silent: a caller that gives no facts would produce
+            exactly the empty column this code exists to fix. A caller without
+            a file gives ``MatchFacts()`` and thereby says out loud that it
+            does not know the values.
     """
     subject = rounds.filter(pl.col("lineup_key") == team_key).sort("round_no")
     opponent = rounds.filter(pl.col("lineup_key") != team_key).sort("round_no")
@@ -892,16 +904,15 @@ def classify_rounds(
     if others != 1:
         found = sorted({str(k) for k in rounds["lineup_key"].unique().to_list()})
         raise SchemaError(
-            f"Kierrostaulussa on {len(found)} kokoonpanoa "
-            f"({', '.join(found)}), joten vastustajaa ei voi tunnistaa "
-            "yksikäsitteisesti. Kierrostaulussa on oltava tasan kaksi "
-            "kokoonpanoa."
+            f"The rounds table has {len(found)} lineups "
+            f"({', '.join(found)}), so the opponent cannot be recognised "
+            "unambiguously. The rounds table must have exactly two lineups."
         )
     if subject["round_no"].to_list() != opponent["round_no"].to_list():
         raise SchemaError(
-            "Joukkueiden kierrosnumerot eivät täsmää keskenään, joten "
-            "vastustajan kierrostyyppiä ei voi liittää oikealle riville. "
-            "Kierrostaulussa on oltava tasan kaksi riviä per kierros."
+            "The teams' round numbers do not match each other, so the "
+            "opponent's round type cannot be joined to the right row. "
+            "The rounds table must have exactly two rows per round."
         )
 
     subject_decisions, subject_loss = _classify_team(
@@ -923,9 +934,9 @@ def classify_rounds(
                 "loss_count": subject_loss[index],
                 "reason": decision.reason,
                 "inputs": decision.inputs,
-                # Luettu, ei laskettu: arvo tulee ``select``in
-                # valintatiedostosta ja on demokohtainen, joten sama arvo
-                # jokaiselle riville. Tyhjä, kun riviä ei ollut.
+                # Read, not computed: the value comes from ``select``'s
+                # selection file and is per demo, so the same value goes onto
+                # every row. Empty when there was no row.
                 "is_league": facts.is_league,
                 "roster_class": facts.roster_class,
             }
@@ -933,7 +944,7 @@ def classify_rounds(
 
     df = pl.DataFrame(table, schema=dict(CLASSIFIED))
     validate(df, CLASSIFIED, TABLE)
-    # Sama funktio kuin ohitetussa ajossa: kierroslistalla on vain yksi polku.
+    # The same function as on a skipped run: the round list has only one path.
     return df, round_list_rows(df)
 
 
@@ -943,15 +954,15 @@ def _classify_team(
     *,
     economy: EconomySettings,
 ) -> tuple[list[Decision], list[int]]:
-    """Luokittele yhden joukkueen kaikki kierrokset järjestyksessä.
+    """Classify all of one team's rounds in order.
 
-    Palauttaa myös loss countit, jotta niitä ei lasketa kahdesti samalle
-    joukkueelle -- kaksi laskentaa voisi erkaantua toisistaan.
+    Also returns the loss counts, so that they are not computed twice for the
+    same team -- two computations could drift apart from each other.
 
-    Riveiltä poimitaan **tasan** ``domain.economy.CLASSIFY_COLUMNS``, ja se on
-    tarkoituksellista: sopimus siitä, mitä luokittelu lukee, on silloin
-    koodissa eikä kommentissa. Sarakkeen pudottaminen listalta pudottaa sen
-    myös päätöksestä, joten lista ei voi vanhentua hiljaa.
+    **Exactly** ``domain.economy.CLASSIFY_COLUMNS`` is picked off the rows, and
+    that is deliberate: the contract about what the classification reads is
+    then in the code and not in a comment. Dropping a column from the list
+    drops it from the decision as well, so the list cannot go stale silently.
     """
     counters = loss_counts(team_rounds, thresholds)
     rows = team_rounds.select(list(CLASSIFY_COLUMNS)).to_dicts()
@@ -968,42 +979,42 @@ def _classify_team(
     return decisions, counters
 
 
-# -- Kierroslista ------------------------------------------------------------------
+# -- The round list ----------------------------------------------------------------
 
-#: Kierroslistan sarakkeet: ``(otsikko, avain)``. Sekä konsoli että Markdown
-#: rakennetaan tästä, jotta ne eivät voi esittää eri sarakkeita.
+#: The round list's columns: ``(heading, key)``. Both the console and the
+#: Markdown are built from this, so that they cannot present different columns.
 #:
-#: **Ratkaisevat luvut ovat taulukossa, eivät vain proosassa.** Hyvitys ja
-#: kaksi pelaajalaskuria (``Aseist.``, ``Ostokyky``) ovat ne, joista
-#: häviön jälkeinen luokka ratkeaa; ilman niitä lukija näkisi taulukossa
-#: vain ``Jäljellä``-sarakkeen, joka on **joukkueen keskiarvo** eikä
-#: ratkaise mitään. Keskiarvo on silti mukana, koska se kertoo joukkueen
-#: kokonaistilanteen -- otsikko sanoo kumpi on kumpi.
+#: **The deciding figures are in the table, not only in the prose.** The bonus
+#: and the two player counters (``Armed``, ``Can-buy``) are the ones the class
+#: after a loss is settled by; without them the reader would see in the table
+#: only the ``Left`` column, which is **the team's mean** and settles nothing.
+#: The mean is there all the same, because it says what the team's overall
+#: situation is -- the heading says which is which.
 ROUND_LIST_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("Kierros", "round_no"),
-    ("Puoli", "side"),
-    ("Tulos", "won"),
-    ("Tyyppi", "round_type"),
-    ("Vast.", "opp_round_type"),
-    ("Käytössä", "money_available_per_player"),
-    ("Jäljellä", "money_per_player"),
-    ("Ostettu", "spent_per_player"),
-    ("Varusteet", "equip_per_player"),
+    ("Round", "round_no"),
+    ("Side", "side"),
+    ("Result", "won"),
+    ("Type", "round_type"),
+    ("Opp.", "opp_round_type"),
+    ("Available", "money_available_per_player"),
+    ("Left", "money_per_player"),
+    ("Bought", "spent_per_player"),
+    ("Equipment", "equip_per_player"),
     ("Loss", "loss_count"),
     ("Bonus", "loss_bonus_if_lost"),
-    ("Aseist.", "armed_of_players"),
-    ("Ostokyky", "can_buy_of_players"),
-    ("Perustelu", "reason"),
+    ("Armed", "armed_of_players"),
+    ("Can-buy", "can_buy_of_players"),
+    ("Reason", "reason"),
 )
 
-_RESULT_WORDS: dict[bool | None, str] = {True: "voitto", False: "häviö", None: "-"}
+_RESULT_WORDS: dict[bool | None, str] = {True: "win", False: "loss", None: "-"}
 
 
 def _counter(value: object, players: int) -> str | None:
-    """Pelaajalaskuri muodossa ``"4/5"``, tai ``None`` jos lukua ei ole.
+    """A player counter in the form ``"4/5"``, or ``None`` if there is no figure.
 
-    Nimittäjä on sama jakaja kuin per pelaaja -arvoissa, joten rivin kaikki
-    luvut puhuvat samasta joukosta.
+    The denominator is the same divisor as in the per-player values, so all the
+    row's figures speak of the same set.
     """
     if value is None or not players:
         return None
@@ -1011,11 +1022,11 @@ def _counter(value: object, players: int) -> str | None:
 
 
 def round_list_rows(df: pl.DataFrame) -> list[dict[str, object]]:
-    """Rakenna kierroslistan rivit valmiista ``CLASSIFIED``-taulusta.
+    """Build the round list's rows from the finished ``CLASSIFIED`` table.
 
-    Ainoa polku kierroslistalle -- sekä tuore että ohitettu ajo kutsuu tätä.
-    Per pelaaja -arvot lasketaan ``inputs``-rakenteesta samalla pyöristyksellä
-    kuin perustelussa (``domain.economy.per_player``).
+    The only path to the round list -- a fresh run and a skipped one both call
+    this. The per-player values are computed from the ``inputs`` structure with
+    the same rounding as in the reason (``domain.economy.per_player``).
     """
     rows: list[dict[str, object]] = []
     for r in df.sort("round_no").iter_rows(named=True):
@@ -1048,9 +1059,10 @@ def round_list_rows(df: pl.DataFrame) -> list[dict[str, object]]:
                 ),
                 "equip_per_player": per_player(equip, players),
                 "players": players or None,
-                # Pelaajalaskurit näytetään muodossa "4/5": pelkkä luku
-                # 4 ei kerro, oliko joukkue täysilukuinen -- ja juuri se
-                # ratkaisee, mitä vasten kynnystä verrattiin.
+                # The player counters are shown in the form "4/5": the figure
+                # 4 on its own does not say whether the team was at full
+                # strength -- and that is exactly what settles what the
+                # threshold was compared against.
                 "loss_bonus_if_lost": inputs.get("loss_bonus_if_lost"),
                 "armed_of_players": _counter(
                     inputs.get("players_armed"), players
@@ -1065,7 +1077,7 @@ def round_list_rows(df: pl.DataFrame) -> list[dict[str, object]]:
 
 
 def round_list_cells(row: dict[str, object]) -> tuple[str, ...]:
-    """Yhden rivin solut :data:`ROUND_LIST_COLUMNS`-järjestyksessä."""
+    """One row's cells in :data:`ROUND_LIST_COLUMNS` order."""
     cells: list[str] = []
     for _, key in ROUND_LIST_COLUMNS:
         value = row.get(key)
@@ -1089,72 +1101,75 @@ def render_round_list_markdown(
     league: LeagueSettings,
     economy: EconomySettings,
 ) -> str:
-    """Kirjoita kierroslista Markdowniksi, jotta sen voi lukea demon rinnalla.
+    """Write the round list as Markdown, so it can be read beside the demo.
 
-    Otsikkoon tulevat käytetyt kynnysarvot: ilman niitä lista ei kerro, mitä
-    vasten päätökset tehtiin, eikä kalibrointikierros olisi jäljitettävissä.
+    The thresholds that were used go into the heading: without them the list
+    does not say what the decisions were made against, and a calibration round
+    would not be traceable.
 
-    Tuloste on **toistettava**: samoista syötteistä syntyy tavu tavulta sama
-    teksti. Ajohetki ei ole tässä vaan manifestin ``created_at``-kentässä --
-    muuten tiedosto muuttuisi joka ajolla eikä eroa voisi katsoa.
+    The output is **repeatable**: the same inputs produce byte for byte the
+    same text. The moment of the run is not here but in the manifest's
+    ``created_at`` field -- otherwise the file would change on every run and
+    the difference could not be looked at.
     """
     parts: list[str] = []
-    parts.append(f"# Kierroslista -- {map_demo_id}")
+    parts.append(f"# Round list -- {map_demo_id}")
     parts.append("")
-    parts.append(f"- Joukkue (kokoonpanotunniste): `{team_key}`")
-    parts.append(f"- Kierroksia: {len(rows)}")
+    parts.append(f"- Team (lineup key): `{team_key}`")
+    parts.append(f"- Rounds: {len(rows)}")
     parts.append(
-        f"- Liigaformaatti: MR{league.mr}, säännönmukaisia kierroksia "
-        f"{thresholds.regulation_rounds}, pistoolikierrokset "
-        f"{', '.join(str(r) for r in thresholds.pistol_rounds)}, jatkoajan "
-        f"aloitusraha {league.ot_start_money} $"
+        f"- League format: MR{league.mr}, regulation rounds "
+        f"{thresholds.regulation_rounds}, pistol rounds "
+        f"{', '.join(str(r) for r in thresholds.pistol_rounds)}, overtime "
+        f"starting money {league.ot_start_money} $"
     )
     parts.append(
-        f"- Kynnykset ($/pelaaja): täysi osto vähintään "
-        f"{thresholds.full_equip_min}, matala varustearvo voiton jälkeen "
-        f"enintään {thresholds.anomaly_equip_max_after_win}; hävityn jälkeen "
-        f"osto vaatii ostettua vähintään {thresholds.force_buy_min}, muuten eco"
+        f"- Thresholds ($/player): a full buy is at least "
+        f"{thresholds.full_equip_min}, a low equipment value after a win at "
+        f"most {thresholds.anomaly_equip_max_after_win}; after a loss a buy "
+        f"needs at least {thresholds.force_buy_min} bought, otherwise eco"
     )
     parts.append(
-        f"- Puolioston kaksi ehtoa, **molempien** on täytyttävä: A) "
-        f"vähintään {thresholds.armed_players_min} pelaajaa aseistettuna "
-        f"(erottaa ecosta) ja B) vähintään "
-        f"{thresholds.normal_buy_players_min} pelaajaa, joiden **oma** "
-        f"saldo + häviöbonus on vähintään "
-        f"{thresholds.normal_buy_money_min} $ (erottaa forcesta)"
+        f"- The half-buy's two conditions, **both** must hold: A) at "
+        f"least {thresholds.armed_players_min} players armed "
+        f"(tells it from eco) and B) at least "
+        f"{thresholds.normal_buy_players_min} players whose **own** "
+        f"balance + loss bonus is at least "
+        f"{thresholds.normal_buy_money_min} $ (tells it from force)"
     )
     parts.append(
-        "- Ehto B lasketaan **pelaajakohtaisesta rahajakaumasta**, ei "
-        "keskiarvosta: keskiarvo peittää jakauman ja voi osua arvoon, jota "
-        "kukaan ei voi pitää. Häviöbonus on loss countin porras (portaat "
+        "- Condition B is computed from the **per-player money "
+        "distribution** and not from the mean: the mean hides the "
+        "distribution and can land on a value nobody can hold. The loss bonus "
+        "is the loss count's step (the steps are "
         + ", ".join(str(s) for s in economy.loss_bonus_steps)
-        + f" $), ja summa katkaistaan rahakattoon {economy.max_money} $. "
-        "Puoliajan viimeisellä kierroksella ehtoa B ei lasketa lainkaan: "
-        "raha ei siirry pistoolikierrokselle eikä jatkoajalle, joten sitä "
-        "ei ole jätetty varaa varten."
+        + f" $), and the sum is cut off at the money ceiling {economy.max_money} $. "
+        "On the last round of a half condition B is not computed at all: "
+        "the money does not carry over to the pistol round or to overtime, so "
+        "none of it has been left in reserve."
     )
     parts.append(
-        f"- Loss count: puoliajan alku {thresholds.loss_count_half_start}, rajat "
-        f"{thresholds.loss_count_min}-{thresholds.loss_count_max}"
-    )
-    parts.append("")
-    parts.append(
-        "**Aseist.** ja **Ostokyky** ovat pelaajalaskureita, ja niistä "
-        "hävityn kierroksen jälkeinen luokka ratkeaa. **Bonus** on se "
-        "häviöbonus, jolla ostokyky laskettiin; tyhjä tarkoittaa, ettei "
-        "ehtoa B lasketa tällä kierroksella (jatkoaika tai puoliajan viimeinen "
-        "kierros). **Jäljellä** on sen sijaan joukkueen keskiarvo eikä "
-        "ratkaise mitään -- pelaajakohtaiset saldot ovat perustelussa."
+        f"- Loss count: the start of a half is {thresholds.loss_count_half_start}, "
+        f"the limits are {thresholds.loss_count_min}-{thresholds.loss_count_max}"
     )
     parts.append("")
     parts.append(
-        "Kaikki rahaluvut ovat dollareita per pelaaja ostoajan lopussa "
-        "(freezetimen loppu + [parse].buy_window_seconds, katkaistuna "
-        "kierroksen ensimmäiseen kuolemaan). "
-        "**Käytössä** = jäljellä + käytetty eli se raha, joka joukkueella oli "
-        "ostoaikana. **Jäljellä** on saldo ostojen jälkeen, joten "
-        "säästökierroksella se on suuri. **Ostettu** on varustearvon kasvu "
-        "kierroksen alusta ostoajan loppuun."
+        "**Armed** and **Can-buy** are player counters, and the class after a "
+        "lost round is settled by them. **Bonus** is the loss bonus the "
+        "can-buy count was computed with; empty means condition B is not "
+        "computed on this round (overtime or the last round of a half). "
+        "**Left**, by contrast, is the team's mean and settles nothing -- "
+        "the per-player balances are in the reason."
+    )
+    parts.append("")
+    parts.append(
+        "Every money figure is dollars per player at the end of the buy time "
+        "(the end of freezetime + [parse].buy_window_seconds, cut off at the "
+        "round's first death). "
+        "**Available** = left + spent, that is, the money the team had during "
+        "the buy time. **Left** is the balance after the buys, so on a "
+        "saving round it is large. **Bought** is the growth of the equipment "
+        "value from the start of the round to the end of the buy time."
     )
     parts.append("")
 
@@ -1165,26 +1180,26 @@ def render_round_list_markdown(
         parts.append("| " + " | ".join(_md(s) for s in round_list_cells(row)) + " |")
 
     parts.append("")
-    parts.append("## Kierrostyypit")
+    parts.append("## Round types")
     parts.append("")
     for value, label_fi in ROUND_TYPE_FI.items():
         parts.append(f"- `{value}` -- {label_fi}")
-    parts.append(f"- `{UNCLASSIFIED}` -- havainto puuttui, kierrosta ei luokiteltu")
+    parts.append(f"- `{UNCLASSIFIED}` -- the observation was missing, not classified")
     parts.append("")
     parts.append(
-        "`is_league` ja `roster_class` jäävät tässä vaiheessa tyhjiksi: ne "
-        "tulevat joukkueindeksistä, joka syntyy vasta Epicissä 3."
+        "`is_league` and `roster_class` stay empty in this stage: they come "
+        "from the team index, which comes into being only in Epic 3."
     )
     parts.append("")
     return "\n".join(parts)
 
 
 def _md(text: str) -> str:
-    """Suojaa solun sisältö Markdown-taulukkoa varten.
+    """Escape a cell's content for a Markdown table.
 
-    Putkimerkki katkaisisi solun ja rivinvaihto koko taulukon; backtick
-    aloittaisi koodijakson, joka söisi loput rivistä. Kaikki kolme tulevat
-    perusteluista, jotka ovat vapaata tekstiä.
+    A pipe would break the cell and a newline the whole table; a backtick would
+    start a code span that would eat the rest of the line. All three come from
+    the reasons, which are free text.
     """
     return (
         text.replace("\\", "\\\\")
@@ -1196,7 +1211,7 @@ def _md(text: str) -> str:
     )
 
 
-# -- Luvut ------------------------------------------------------------------------
+# -- The figures ------------------------------------------------------------------
 
 
 def _stats(
@@ -1205,10 +1220,10 @@ def _stats(
     list_rel: PurePosixPath,
     unnumbered: int,
 ) -> dict[str, object]:
-    """Käyttäjälle näytettävät luvut.
+    """The figures shown to the user.
 
-    ``by_type`` sisältää vain oikeat kierrostyypit; luokittelemattomat ovat
-    omana lukunaan, jotta niitä ei näytetä kahdesti.
+    ``by_type`` holds the real round types only; the unclassified ones are a
+    figure of their own, so that they are not shown twice.
     """
     distribution: dict[str, int] = {}
     unclassified = 0
@@ -1231,18 +1246,18 @@ def _stats(
 
 
 def _usable_result(table_abs: Path) -> pl.DataFrame | None:
-    """Valmis tulos, jos se on luettavissa **ja** vastaa yhä sopimusta.
+    """The finished result, if it can be read **and** still matches the contract.
 
-    Täsmäävä manifesti ei yksin riitä. Tulostaulun skeema voi muuttua ilman
-    että manifestin sisältö muuttuu -- esimerkiksi kun ``CLASSIFIED``-sopimus
-    saa uuden kentän -- ja silloin vanha tulos näyttäisi ajantasaiselta mutta
-    puuttuisi uudet arvot. Luokittelu on halpaa (demoa ei lueta), joten
-    epäkelpo tulos lasketaan mieluummin uudelleen kuin raportoidaan
-    vajaana.
+    A matching manifest is not enough on its own. The result table's schema can
+    change without the manifest's content changing -- when the ``CLASSIFIED``
+    contract gains a new field, for example -- and then an old result would
+    look up to date but the new values would be missing from it.
+    Classification is cheap (the demo is not read), so an invalid result is
+    computed again rather than reported incomplete.
 
     Returns:
-        Taulu, tai ``None`` jos se on lukukelvoton tai sopimuksen vastainen --
-        kummassakin tapauksessa vaihe ajetaan uudelleen.
+        The table, or ``None`` if it is unreadable or against the contract --
+        in either case the stage is run again.
     """
     try:
         df = pl.read_parquet(table_abs)

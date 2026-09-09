@@ -1,9 +1,9 @@
-"""``stages.aggregate`` -- vaiheen testit.
+"""``stages.aggregate`` -- the stage's tests.
 
-Vaihe ei lue demoa, joten sen koko logiikka -- joukkueen kokoaminen, taulujen
-luku, atominen kirjoitus, manifesti ja ohitus -- testataan käsin rakennetuilla
-tauluilla väliaikaisessa arkistossa. Ainoat demoa vaativat testit ovat lopun
-regressiot, ja ne ohittavat itsensä siististi.
+The stage does not read the demo, so its whole logic -- collecting the team,
+reading the tables, the atomic write, the manifest and the skip -- is tested
+with hand-built tables in a temporary archive. The only tests that need a demo
+are the regressions at the end, and they skip themselves cleanly.
 """
 
 from __future__ import annotations
@@ -32,8 +32,8 @@ from pappascout.domain.schemas import ARMORED_COLUMN
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "pappascout"
 
-#: Kentät, joita vaihe lukee asetusosioistaan. Luetaan lähdekoodista,
-#: jotta hashattu luettelo ei voi vanheta hiljaa.
+#: The fields the stage reads from its settings sections. Read from the
+#: source, so that the hashed list cannot go stale silently.
 THRESHOLD_READ = r"\bthresholds\.([a-z_]+)"
 LEAGUE_READ = r"\bleague\.([a-z_]+)"
 from pappascout.errors import AggregateError, PappascoutError, SchemaError
@@ -63,7 +63,7 @@ from test_aggregate import (
 )
 
 
-# --- Arkiston rakennus ----------------------------------------------------------
+# --- Building the archive -------------------------------------------------------
 
 
 def build_archive(
@@ -84,40 +84,41 @@ def build_archive(
     is_league: dict[str, bool | None] | None = None,
     roster_class: dict[str, str | None] | None = None,
 ) -> ArchivePaths:
-    """Rakenna arkisto, jossa on annetut demot annettujen kokoonpanojen alla.
+    """Build an archive that holds the given demos under the given lineups.
 
     Args:
         demos: ``map_demo_id -> lineup_key``.
-        rounds: Kierroksia per demo.
-        players: Kohdejoukkueen pelaajien määrä näytepistetaulussa.
-        write_parsed: Kirjoitetaanko ``parsed/``-taulut. ``False`` tuottaa
-            puuttuvan demon.
-        write_manifest: Kirjoitetaanko luokittelun manifesti.
-        opponent_players: Vastustajan pelaajien määrä; heidän rivinsä eivät saa
-            päätyä raporttiin.
-        clan: Kohdejoukkueen klaaninimi kokoonpanotaulussa. ``None`` = nimeä ei
-            havaittu, jolloin raportin on puhuttava tunnisteesta.
-        clan_by_demo: Demokohtainen poikkeus ``clan``iin -- nimiristiriidan
-            rakentamiseen.
-        player_names: Kirjoitetaanko pelaajille nimet. ``False`` jättää ne
-            tyhjiksi, jolloin rosterissa on pelkkä SteamID.
-        bench_player: Pelaaja, joka on **vain kokoonpanotaulussa** eikä
-            yhdelläkään näytepisteellä. Juuri tällainen pelaaja katoaisi, jos
-            kokoonpanot luettaisiin ``ticks``-taulusta -- ja se on koko syy
-            sille, että ne luetaan ``lineups``-taulusta.
-        map_names: ``map_demo_id -> kartan nimi otsikossa``. Oletus on, ettei
-            otsikossa ole nimeä (``None``), jolloin nimi päätellään
-            tunnisteesta kuten ennen Story 2.11:tä -- niin vanhat testit
-            mittaavat yhä päättelyä ja uudet havaintoa.
-        callouts: ``map_demo_id -> pistepilven ruudut``. Oletus on **tyhjä
-            pilvi**, jolloin siteryhmiä ei saada ja stack vaikenee -- niin
-            vanhat testit mittaavat yhä sitä, mitä ne mittasivat ennen Story
-            2.14:ää. Ruutu on ``(alue, cell_x, cell_y, cell_z)``.
-        is_league: ``map_demo_id -> is_league``. Oletus on ``None`` eli
-            **käsin tuodun demon tila**, jolloin otanta on ``unknown``-lokerossa
-            kuten ennen Story 3.8:aa -- niin vanhat testit mittaavat yhä sitä,
-            mitä ne mittasivat. Arvo on demokohtainen, koska se kuvaa ottelua
-            eikä kierrosta.
+        rounds: Rounds per demo.
+        players: The number of the subject team's players in the sample point
+            table.
+        write_parsed: Whether the ``parsed/`` tables are written. ``False``
+            produces a missing demo.
+        write_manifest: Whether the classification's manifest is written.
+        opponent_players: The number of the opponent's players; their rows must
+            not end up in the report.
+        clan: The subject team's clan name in the lineups table. ``None`` = the
+            name was not observed, and the report then has to speak of the id.
+        clan_by_demo: A per-demo exception to ``clan`` -- for building a name
+            conflict.
+        player_names: Whether names are written for the players. ``False``
+            leaves them empty, and the roster then holds the SteamID alone.
+        bench_player: A player who is **only in the lineups table** and on not
+            one sample point. Exactly such a player would disappear if the
+            lineups were read from the ``ticks`` table -- and that is the whole
+            reason they are read from the ``lineups`` table.
+        map_names: ``map_demo_id -> the map's name in the header``. The default
+            is that there is no name in the header (``None``), and the name is
+            then inferred from the id as it was before Story 2.11 -- so the old
+            tests still measure the inference and the new ones the observation.
+        callouts: ``map_demo_id -> the point cloud's cells``. The default is an
+            **empty cloud**, so no site groups are obtained and the stack rule
+            stays silent -- so the old tests still measure what they measured
+            before Story 2.14. A cell is ``(area, cell_x, cell_y, cell_z)``.
+        is_league: ``map_demo_id -> is_league``. The default is ``None``, that
+            is, **the state of a hand-imported demo**, so the sample is in the
+            ``unknown`` bucket as it was before Story 3.8 -- so the old tests
+            still measure what they measured. The value is per demo, because it
+            describes the match and not the round.
         roster_class: ``map_demo_id -> roster_class``. Same contract as
             ``is_league`` and for the same reason: the default ``None`` is the
             state of the archive, and the value describes the map rather than
@@ -175,10 +176,10 @@ def build_archive(
             event_rows(demo, 1, 0, "smoke", lineup=lineup)
             + event_rows(demo, 1, 1, "he", lineup=OPPONENT, side="CT")
         )
-        # Kaksi kuolemaa kierroksella 1: yksi omalle pelaajalle (oma kuolema)
-        # ja yksi vastustajalle (oma tappo). Molemmat tarvitaan, koska vaihe
-        # suodattaa kahdesta eri sarakkeesta -- yhdellä rivillä toinen
-        # suodatin jäisi todentamatta.
+        # Two deaths on round 1: one for our own player (an own death) and one
+        # for the opponent (an own kill). Both are needed, because the stage
+        # filters over two different columns -- with one row the other filter
+        # would be left unverified.
         deaths = deaths_frame(
             [
                 death_row(
@@ -204,10 +205,9 @@ def build_archive(
                 ),
             ]
         )
-        # Kierrostaulu: kaksi riviä per kierros, yksi kummallekin
-        # joukkueelle -- kuten parse sen kirjoittaa. Vain panssarilaskuri
-        # luetaan täältä, mutta molemmat rivit ovat mukana, jotta
-        # kokoonpanosuodatus on oikeasti testattavana.
+        # The rounds table: two rows per round, one for each team -- as parse
+        # writes it. Only the armour counter is read from here, but both rows
+        # are present so that the lineup filter is really under test.
         rounds_table = rounds_frame(
             [
                 round_row(demo, n, lineup=lineup, side="T", armored=5)
@@ -276,7 +276,7 @@ def run(archive: ArchivePaths, team: str | None = TEAM, **kwargs):
 
 
 def _league():
-    """``[league]``-osio oikeasta asetustiedostosta ilman arkistoa."""
+    """The ``[league]`` section from the real settings file, with no archive."""
     from conftest import REAL_SETTINGS
 
     return load_settings(REAL_SETTINGS, env_files=()).league
@@ -288,7 +288,7 @@ def read_report(archive: ArchivePaths, team: str = TEAM) -> Report:
     )
 
 
-# --- Perusajo -------------------------------------------------------------------
+# --- A basic run ----------------------------------------------------------------
 
 
 def test_one_demo_produces_a_report_that_validates(tmp_path: Path) -> None:
@@ -330,7 +330,7 @@ def test_four_demos_of_the_same_team_become_one_report(tmp_path: Path) -> None:
 
 
 def test_the_opponents_rows_are_filtered_out(tmp_path: Path) -> None:
-    """Vastustajan näytepisteet ja kranaatit eivät kuulu tähän raporttiin."""
+    """The opponent's sample points and grenades do not belong in this report."""
     archive = build_archive(
         tmp_path, {"Nuke_vs_a": TEAM}, players=3, opponent_players=5
     )
@@ -347,10 +347,10 @@ def test_the_opponents_rows_are_filtered_out(tmp_path: Path) -> None:
 
 
 def test_lineups_of_the_same_team_are_joined(tmp_path: Path) -> None:
-    """Yksi vaihto tuottaa uuden kokoonpanotunnisteen; demo ei saa kadota."""
+    """One substitution produces a new lineup key; the demo must not vanish."""
     other = "cccccccccccccccc"
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
-    # Toinen kokoonpano, joka jakaa kolme pelaajaa ensimmäisen kanssa.
+    # A second lineup that shares three players with the first.
     extra = build_archive(tmp_path / "toinen", {"Anubis_vs_b": other})
     for src in (extra.root / "classified").rglob("*"):
         if src.is_file():
@@ -361,7 +361,7 @@ def test_lineups_of_the_same_team_are_joined(tmp_path: Path) -> None:
         dst = archive.root / src.relative_to(extra.root)
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(src.read_bytes())
-    # Kirjoitetaan toisen demon näytepisteet niin, että kolme pelaajaa on samoja.
+    # Write the second demo's sample points so that three players are the same.
     shared = ticks_frame(
         [
             tick_row("Anubis_vs_b", n, f"{TEAM}-p{i}", "BombsiteA", lineup=other)
@@ -375,9 +375,8 @@ def test_lineups_of_the_same_team_are_joined(tmp_path: Path) -> None:
         ]
     )
     shared.write_parquet(archive.parsed_table("Anubis_vs_b", "ticks"))
-    # Joukkueidentiteetti luetaan kokoonpanotaulusta (Story 2.6), joten
-    # yhteiset pelaajat on kirjoitettava sinne -- ei pelkkiin
-    # näytepisteisiin.
+    # Team identity is read from the lineups table (Story 2.6), so the shared
+    # players have to be written there -- not into the sample points alone.
     lineups_frame(
         [
             lineup_row(
@@ -407,7 +406,7 @@ def test_lineups_of_the_same_team_are_joined(tmp_path: Path) -> None:
 
 
 def test_a_demo_without_parsed_tables_is_reported_missing(tmp_path: Path) -> None:
-    """Puuttuva demo ei kaada ajoa eikä katoa hiljaa."""
+    """A missing demo does not stop the run and does not vanish silently."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     broken = build_archive(
         tmp_path / "rikki", {"Anubis_vs_b": TEAM}, write_parsed=False
@@ -422,10 +421,10 @@ def test_a_demo_without_parsed_tables_is_reported_missing(tmp_path: Path) -> Non
     assert result.status == "ok"
     report = read_report(archive)
     assert [m.match for m in report.missing_demos] == ["Anubis_vs_b"]
-    # ``_demo_unusable`` palauttaa **ensimmäisen** puuttuvan taulun, ja
-    # luettelon järjestys on osa käyttäjälle näkyvää sopimusta. Väite nimeää
-    # taulun eikä tyydy siihen, että jokin puute mainitaan: yleinen väite
-    # menisi läpi vaikka luettelosta katoaisi taulu.
+    # ``_demo_unusable`` returns the **first** missing table, and the order of
+    # the list is part of the contract the user sees. The claim names the table
+    # and does not settle for some absence being mentioned: a general claim
+    # would pass even if a table disappeared from the list.
     assert "rounds.parquet" in report.missing_demos[0].reason
     assert report.sample.demos == 1
 
@@ -436,12 +435,12 @@ def test_a_demo_without_parsed_tables_is_reported_missing(tmp_path: Path) -> Non
 def test_each_required_parsed_table_is_guarded_on_its_own(
     tmp_path: Path, table: str
 ) -> None:
-    """Jokainen kuudesta taulusta nimetään puuttuessaan.
+    """Each of the six tables is named when it is absent.
 
-    Yhteinen testi, joka poistaa vain yhden taulun, jättää loput
-    vartioimatta: ``_demo_unusable`` palauttaa ensimmäisen puutteen, joten
-    luettelon alkupään taulu peittää kaikki sen jälkeiset. Todennettu
-    poistamalla ``"ticks"`` luettelosta -- koko sviitti meni läpi.
+    One shared test that removes a single table leaves the rest unguarded:
+    ``_demo_unusable`` returns the first absence, so a table near the head of
+    the list hides every one after it. Verified by removing ``"ticks"`` from
+    the list -- the whole suite passed.
     """
     archive = build_archive(
         tmp_path, {"Ancient_vs_a": TEAM, "Nuke_vs_b": TEAM}
@@ -457,9 +456,9 @@ def test_each_required_parsed_table_is_guarded_on_its_own(
 
 def test_no_usable_demo_is_an_error_that_names_the_reason(tmp_path: Path) -> None:
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM}, write_parsed=False)
-    # Näytepistetaulu on silti tarpeen kokoonpanon lukemiseen, joten
-    # kokoaminen kaatuu jo siihen.
-    with pytest.raises(PappascoutError, match="kokoonpanoa ei saatu luettua"):
+    # The sample point table is still needed to read the lineup, so collecting
+    # already fails on it.
+    with pytest.raises(PappascoutError, match="could not be read: the lineups"):
         run(archive)
 
 
@@ -478,10 +477,10 @@ def test_missing_classify_manifest_moves_the_demo_to_missing(tmp_path: Path) -> 
     run(archive)
     report = read_report(archive)
     assert [m.match for m in report.missing_demos] == ["Anubis_vs_b"]
-    assert "manifesti" in report.missing_demos[0].reason.lower()
+    assert "manifest" in report.missing_demos[0].reason.lower()
 
 
-# --- Joukkueen valinta ----------------------------------------------------------
+# --- Choosing the team ----------------------------------------------------------
 
 
 def test_a_prefix_is_enough_to_name_the_team(tmp_path: Path) -> None:
@@ -491,13 +490,13 @@ def test_a_prefix_is_enough_to_name_the_team(tmp_path: Path) -> None:
 
 def test_missing_team_lists_the_alternatives(tmp_path: Path) -> None:
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
-    with pytest.raises(PappascoutError, match="Arkiston luokitellut joukkueet"):
+    with pytest.raises(PappascoutError, match="archive's classified teams"):
         run(archive, team=None)
 
 
 def test_an_unknown_team_is_named_in_the_error(tmp_path: Path) -> None:
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
-    with pytest.raises(PappascoutError, match="ei täsmää yhteenkään"):
+    with pytest.raises(PappascoutError, match="matches no team at all"):
         run(archive, team="zzzz")
 
 
@@ -513,7 +512,7 @@ def test_team_keys_lists_only_directories_with_results(tmp_path: Path) -> None:
     assert aggregate_stage.team_keys(archive) == [TEAM]
 
 
-# --- Manifesti ja ohitus --------------------------------------------------------
+# --- The manifest and the skip --------------------------------------------------
 
 
 def test_a_second_run_is_skipped_and_reports_the_same_numbers(
@@ -535,7 +534,7 @@ def test_force_runs_again_even_when_the_manifest_matches(tmp_path: Path) -> None
 
 
 def test_a_changed_classify_result_invalidates_the_report(tmp_path: Path) -> None:
-    """Syötteen tunniste on manifestin sisällöstä, ei tiedoston tiivisteestä."""
+    """The input's id is from the manifest's content, not from a file hash."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
     Manifest.new(
@@ -549,7 +548,7 @@ def test_a_changed_classify_result_invalidates_the_report(tmp_path: Path) -> Non
 
 
 def test_a_deleted_report_is_written_again(tmp_path: Path) -> None:
-    """OneDrive: pieni manifesti ehtii synkata ennen tulosta."""
+    """A synchronised folder: the small manifest syncs before the result."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
     archive.report_json(TEAM).unlink()
@@ -580,7 +579,7 @@ def test_the_manifest_records_every_demo_as_an_input(tmp_path: Path) -> None:
 
 
 def test_thresholds_change_the_params_hash(tmp_path: Path) -> None:
-    """Kynnysten säätö ajaa aggregoinnin uudelleen mutta ei parsintaa."""
+    """Adjusting the thresholds re-runs the aggregation but not the parsing."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
     before = Manifest.read(archive.report_manifest(TEAM)).params_hash
@@ -594,7 +593,7 @@ def test_thresholds_change_the_params_hash(tmp_path: Path) -> None:
     assert Manifest.read(archive.report_manifest(TEAM)).params_hash != before
 
 
-# --- Kirjoitus ------------------------------------------------------------------
+# --- The write ------------------------------------------------------------------
 
 
 def test_the_write_leaves_no_temporary_files(tmp_path: Path) -> None:
@@ -607,9 +606,9 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
     data = json.loads(archive.report_json(TEAM).read_text(encoding="utf-8"))
-    # Literaali eikä vakio: vakioon vertaaminen olisi tautologia --
-    # koodi kirjoitti arvon juuri siitä vakiosta. Kun versio nousee,
-    # tämän rivin PITÄÄ kaatua, jotta nosto on tietoinen.
+    # A literal and not the constant: comparing against the constant would be
+    # a tautology -- the code wrote the value from that very constant. When the
+    # version rises, this line MUST fail, so that the rise is deliberate.
     assert data["schema_version"] == "9.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
@@ -623,16 +622,16 @@ def test_a_corrupt_classified_table_is_named(tmp_path: Path) -> None:
         run(archive)
 
 
-# --- Katselmuksen löydökset -----------------------------------------------------
+# --- The review's findings ------------------------------------------------------
 
 
 def test_a_report_that_no_longer_passes_the_sample_check_is_written_again(
     tmp_path: Path,
 ) -> None:
-    """Summavirhe on AggregateError eikä ValueError.
+    """A sum error is an AggregateError and not a ValueError.
 
-    Vanha ``report.json``, joka ei enää läpäise summavalidaattoreita, ei saa
-    kaataa ohitushaaraa ikuisesti -- vaihe kirjoittaa tilalle uuden.
+    An old ``report.json`` that no longer passes the sum validators must not
+    break the skip branch for ever -- the stage writes a new one in its place.
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
@@ -653,10 +652,11 @@ def test_a_report_that_no_longer_passes_the_sample_check_is_written_again(
 def test_a_report_from_a_foreign_schema_version_is_written_again(
     tmp_path: Path,
 ) -> None:
-    """Skeemaversio on verrattava, kuten ``Manifest`` tekee.
+    """The schema version has to be compared, as ``Manifest`` does.
 
-    Vanha tiedosto voi validoitua kenttä kentältä ja tarkoittaa silti eri
-    asiaa; ilman vertailua ohitus palauttaisi sen luvut tämän ajon tuloksena.
+    An old file can validate field by field and still mean something else;
+    without the comparison the skip would return its figures as this run's
+    result.
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
@@ -674,11 +674,11 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
-    """Vaiheen ja tulosteen sopimusta ei valvo mikään muu testi.
+    """No other test watches over the contract between the stage and the output.
 
-    Jokainen CLI-testi rakentaa statsit käsin ja jokainen vaihetesti vertaa
-    tuottajaa itseensä, joten avaimen uudelleennimeäminen menisi läpi
-    vihreällä testisarjalla ja kaatuisi vasta oikeassa ajossa.
+    Every CLI test builds the stats by hand and every stage test compares the
+    producer against itself, so renaming a key would pass with a green suite
+    and fail only on a real run.
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM, "Anubis_vs_b": TEAM})
     text = _render_aggregate(run(archive))
@@ -688,7 +688,7 @@ def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
 
 
 def test_the_summary_reports_the_roster_size(tmp_path: Path) -> None:
-    """Rosteri-rivi oli tulosteessa ilman testiä."""
+    """The roster line was in the output without a test."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM}, players=5)
     assert "5 pelaajaa havaittu" in _render_aggregate(run(archive))
 
@@ -696,7 +696,7 @@ def test_the_summary_reports_the_roster_size(tmp_path: Path) -> None:
 def test_a_lineup_that_cannot_be_read_at_all_is_still_reported(
     tmp_path: Path,
 ) -> None:
-    """Kokoonpano, jota ei voi liittää, ei saa kadota jäljettömiin."""
+    """A lineup that cannot be joined must not vanish without trace."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     orphan = build_archive(
         tmp_path / "orpo", {"Anubis_vs_b": "cccccccccccccccc"}, write_parsed=False
@@ -710,7 +710,7 @@ def test_a_lineup_that_cannot_be_read_at_all_is_still_reported(
     run(archive)
     report = read_report(archive)
     assert [m.match for m in report.missing_demos] == ["Anubis_vs_b"]
-    assert "ei tiedetä kuuluuko demo tälle joukkueelle" in (
+    assert "not known whether the demo belongs to this team" in (
         report.missing_demos[0].reason
     )
 
@@ -718,10 +718,10 @@ def test_a_lineup_that_cannot_be_read_at_all_is_still_reported(
 def test_many_teams_in_the_archive_do_not_confuse_the_identity(
     tmp_path: Path,
 ) -> None:
-    """Identiteetti ratkaistaan kaikkia kokoonpanoja vasten.
+    """Identity is settled against every lineup.
 
-    Arkistossa on neljä joukkuetta, joista yksikään muu ei jaa pelaajia
-    kohteen kanssa -- joten liittäminen ei saa vetää niitä mukaan.
+    The archive holds four teams, of which no other shares players with the
+    subject -- so the join must not drag them along.
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     for index, name in enumerate(("Anubis_vs_b", "inferno_vs_c", "Ancient_vs_d")):
@@ -745,7 +745,7 @@ def test_many_teams_in_the_archive_do_not_confuse_the_identity(
 def test_the_report_names_the_thresholds_the_rounds_were_classified_with(
     tmp_path: Path,
 ) -> None:
-    """Luokittelun kynnykset luetaan taulusta, ei nykyisistä asetuksista."""
+    """The classification's thresholds are read from the table, not the settings."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
     report = read_report(archive)
@@ -760,7 +760,7 @@ def test_the_report_names_the_thresholds_the_rounds_were_classified_with(
 def test_an_unrelated_threshold_does_not_invalidate_the_report(
     tmp_path: Path,
 ) -> None:
-    """Parametrihash vain siitä, mikä muuttaa tämän vaiheen tulosta."""
+    """A parameter hash only of what changes this stage's result."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
     before = Manifest.read(archive.report_manifest(TEAM)).params_hash
@@ -789,12 +789,12 @@ def test_the_time_windows_do_change_the_params_hash(tmp_path: Path) -> None:
 
 
 def test_every_setting_the_stage_reads_is_in_the_params_hash() -> None:
-    """Nimetty luettelo ei saa vanheta hiljaa.
+    """A named list must not go stale silently.
 
-    Luetaan lähdekoodista, mitä ``thresholds.``- ja ``league.``-kenttiä vaihe
-    ja sen domain-funktiot lukevat, ja verrataan hashattuun luetteloon. Jos
-    joku lisää uuden luetun kentän muttei hashiin, raportti jäisi
-    vanhentuneeksi ilman että mikään kertoisi siitä.
+    Which ``thresholds.`` and ``league.`` fields the stage and its domain
+    functions read is taken from the source and compared against the hashed
+    list. If somebody adds a new field that is read but not to the hash, the
+    report would stay stale without anything saying so.
     """
     source = "".join(
         (SRC / name).read_text(encoding="utf-8")
@@ -808,7 +808,7 @@ def test_every_setting_the_stage_reads_is_in_the_params_hash() -> None:
 
 
 def test_the_manifest_fingerprint_ignores_only_the_timestamp() -> None:
-    """Sopimus "luontihetki jätetään pois" oli vain välillisesti testattu."""
+    """The contract "the moment of creation is left out" was only tested indirectly."""
 
     def make(params_hash: str = "h") -> Manifest:
         return Manifest.new(
@@ -830,13 +830,12 @@ def test_the_manifest_fingerprint_ignores_only_the_timestamp() -> None:
 def test_a_table_written_with_a_different_column_order_still_reads(
     tmp_path: Path,
 ) -> None:
-    """Sarakejärjestys ei ole osa sopimusta, mutta ``pl.concat`` välittää.
+    """Column order is not part of the contract, but ``pl.concat`` cares.
 
-    ``validate`` hyväksyy minkä tahansa järjestyksen -- sopimus on nimistä ja
-    tyypeistä -- joten kahdella eri versiolla kirjoitettu arkisto voi sisältää
-    saman taulun eri järjestyksessä. Ilman järjestämistä ``pl.concat``
-    kaatuisi englanninkieliseen ``ShapeError``iin, joka ei kerro käyttäjälle
-    mitään.
+    ``validate`` accepts any order -- the contract is about names and types --
+    so an archive written with two different versions can hold the same table
+    in a different order. Without the ordering ``pl.concat`` would fail with a
+    raw ``ShapeError`` that tells the user nothing.
     """
     archive = build_archive(
         tmp_path, {"Nuke_vs_a": TEAM, "Anubis_vs_b": TEAM}
@@ -854,11 +853,12 @@ def test_a_table_written_with_a_different_column_order_still_reads(
     assert read_report(archive).sample.demos == 2
 
 
-# --- Otannan kolme lokeroa (Story 3.8) ------------------------------------------
+# --- The sample's three buckets (Story 3.8) -------------------------------------
 #
-# ``classify`` täyttää ``is_league``-sarakkeen valintatiedostosta, joten
-# lokerointi saa vihdoin arvon. Nämä testit mittaavat sitä, että arvo menee
-# **läpi asti**: taulusta lokeroon ja lokerosta raportin summaan.
+# ``classify`` fills the ``is_league`` column from the selection file, so the
+# bucketing finally gets a value. These tests measure that the value goes **the
+# whole way**: from the table into a bucket, and from the bucket into the
+# report's total.
 
 
 def test_a_league_demo_lands_in_the_league_bucket(tmp_path: Path) -> None:
@@ -874,11 +874,11 @@ def test_a_league_demo_lands_in_the_league_bucket(tmp_path: Path) -> None:
 
 
 def test_league_and_other_demos_fill_their_own_buckets(tmp_path: Path) -> None:
-    """Kolme demoa, kolme lokeroa: koko otanta ei enää ole ``tuntematon``issa.
+    """Three demos, three buckets: the whole sample is no longer ``unknown``.
 
-    Juuri tämä rivi luki ennen Story 3.8:aa *"liiga 0 / 0, muut 0 / 0,
-    tuntematon 4 / 85"*. Väite on lokerokohtainen **ja** summa: jokainen demo
-    kuuluu täsmälleen yhteen lokeroon, joten summan on oltava lokeroiden summa.
+    Before Story 3.8 this very line read *"liiga 0 / 0, muut 0 / 0, tuntematon
+    4 / 85"*. The claim is per bucket **and** a total: every demo belongs to
+    exactly one bucket, so the total has to be the sum of the buckets.
     """
     archive = build_archive(
         tmp_path,
@@ -892,7 +892,7 @@ def test_league_and_other_demos_fill_their_own_buckets(tmp_path: Path) -> None:
     assert sample.demos == 3
     assert sample.league.demos == 1
     assert sample.other.demos == 1
-    assert sample.unknown.demos == 1, "käsin tuotu demo jää tuntemattomaksi"
+    assert sample.unknown.demos == 1, "a hand-imported demo stays unknown"
     assert sample.rounds == (
         sample.league.rounds + sample.other.rounds + sample.unknown.rounds
     )
@@ -901,7 +901,7 @@ def test_league_and_other_demos_fill_their_own_buckets(tmp_path: Path) -> None:
 
 
 def test_the_bucket_row_names_the_counts_in_the_summary(tmp_path: Path) -> None:
-    """Komennon yhteenveto kertoo lokerot, ei vain otannan kokoa."""
+    """The command's summary says the buckets, not only the sample's size."""
     archive = build_archive(
         tmp_path,
         {"Nuke_vs_a": TEAM, "Ancient_vs_b": TEAM},
@@ -1006,7 +1006,7 @@ def test_a_demo_whose_rounds_disagree_on_the_roster_class_stops_the_run(
         .cast(df.schema["roster_class"])
     ).write_parquet(path)
 
-    with pytest.raises(PappascoutError, match="kahteen rosterilokeroon") as err:
+    with pytest.raises(PappascoutError, match="two roster buckets") as err:
         run(archive)
     assert "Nuke_vs_a" in str(err.value)
 
@@ -1067,18 +1067,18 @@ def test_a_report_without_the_roster_breakdown_is_written_again(
     assert read_report(archive).roster_sample.demos == 1
 
 
-# --- Regressiot oikeilla demoilla -----------------------------------------------
+# --- Regressions on real demos --------------------------------------------------
 
 
 @pytest.mark.demo
 def test_the_league_demos_aggregate_into_one_team(tmp_path: Path) -> None:
-    """Neljä MatureMayhem-demoa, yksi raportti, otanta ``unknown``.
+    """Four MatureMayhem demos, one report, the sample ``unknown``.
 
-    Testi ajaa koko putken (parse -> classify -> aggregate) väliaikaiseen
-    arkistoon, joten se ei nojaa siihen, mitä kehittäjän omassa arkistossa
-    sattuu olemaan. Se on myös ainoa paikka, jossa kokoonpanojen liittäminen
-    todennetaan oikealla aineistolla: MatureMayhem on näissä neljässä demossa
-    kahden eri kokoonpanotunnisteen alla.
+    The test runs the whole pipeline (parse -> classify -> aggregate) into a
+    temporary archive, so it does not rest on whatever happens to be in the
+    developer's own archive. It is also the only place where joining lineups is
+    verified on real material: across these four demos MatureMayhem is under
+    two different lineup keys.
     """
     from pappascout.stages import classify as classify_stage
     from pappascout.stages import parse as parse_stage
@@ -1101,7 +1101,7 @@ def test_the_league_demos_aggregate_into_one_team(tmp_path: Path) -> None:
 
     subject = _common_lineups(members, settings.thresholds.team_identity_min_common)
     assert len(subject) == len(demos), (
-        "Jokaisessa demossa pitäisi olla sama joukkue; löytyi " f"{subject}"
+        "Every demo should hold the same team; found " f"{subject}"
     )
 
     for map_demo_id, lineup in subject.items():
@@ -1166,10 +1166,10 @@ def _lineup_members(
 def _common_lineups(
     members: dict[str, dict[str, set[str]]], min_common: int
 ) -> dict[str, str]:
-    """Demo -> se kokoonpano, joka esiintyy kaikissa demoissa.
+    """Demo -> the lineup that appears in every demo.
 
-    Kokoonpanotunniste vaihtuu, jos joukkue vaihtaa pelaajaa, joten vertailu
-    on tehtävä pelaajajoukoilla eikä tunnisteilla.
+    A lineup key changes if the team substitutes a player, so the comparison
+    has to be made with sets of players and not with keys.
     """
     first = next(iter(members))
     for candidate, players in members[first].items():
@@ -1189,11 +1189,11 @@ def _common_lineups(
     return {}
 
 
-# --- Joukkueen ja pelaajien nimet (Story 2.6) -----------------------------------
+# --- The team's and the players' names (Story 2.6) ------------------------------
 
 
 def test_the_team_name_comes_from_the_lineups_table(tmp_path: Path) -> None:
-    """Nimi on havainto demosta, ei johdos tunnisteesta."""
+    """The name is an observation from the demo, not derived from the id."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
 
@@ -1201,15 +1201,15 @@ def test_the_team_name_comes_from_the_lineups_table(tmp_path: Path) -> None:
     assert report.team.display_name == TEAM_CLAN
     assert report.team.display_name_source == "clan_name"
     assert report.team.display_name_alternatives == []
-    # Tiedostonimen slug seuraa nimeä, jotta raportin nimessä lukee
-    # joukkue eikä tiiviste.
+    # The file name's slug follows the name, so that the report's name says
+    # the team and not a hash.
     assert report.team.slug == "maturemayhem"
-    # Avain ei muutu: se on hakemistorakenne.
+    # The key does not change: it is the directory structure.
     assert report.team.key == TEAM
 
 
 def test_the_opponents_clan_name_does_not_become_the_title(tmp_path: Path) -> None:
-    """Sama demo sisältää molempien joukkueiden rivit."""
+    """The same demo holds both teams' rows."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
     report = read_report(archive)
@@ -1220,7 +1220,7 @@ def test_the_opponents_clan_name_does_not_become_the_title(tmp_path: Path) -> No
 
 
 def test_a_team_without_a_clan_name_keeps_the_key_and_says_so(tmp_path: Path) -> None:
-    """Ilman havaintoa nimi on tunniste, ja lähde sanoo sen ääneen."""
+    """Without an observation the name is the id, and the source says so."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM}, clan=None)
     run(archive)
 
@@ -1231,12 +1231,12 @@ def test_a_team_without_a_clan_name_keeps_the_key_and_says_so(tmp_path: Path) ->
 
 
 def test_a_clan_name_without_ascii_still_names_its_own_file(tmp_path: Path) -> None:
-    """Kyrillinen klaani: nimi otsikkoon, slug tunnisteesta.
+    """A Cyrillic clan: the name into the title, the slug from the id.
 
-    Slugista ei jää yhtään merkkiä, mutta nimi on silti havaittu. Jos
-    varapolku olisi jaettu vakio, jokainen tällainen joukkue saisi
-    tiedostonimen ``<aikaleima>-joukkue.md`` -- eli raportit törmäisivät
-    toisiinsa ja nimi katoaisi tiedostonimestä kokonaan.
+    Not one character is left of the slug, but the name was observed all the
+    same. If the fallback were a shared constant, every such team would get the
+    file name ``<timestamp>-joukkue.md`` -- so the reports would collide with
+    each other and the name would disappear from the file name entirely.
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM}, clan="Кибер")
     run(archive)
@@ -1251,7 +1251,7 @@ def test_a_clan_name_without_ascii_still_names_its_own_file(tmp_path: Path) -> N
 def test_conflicting_clan_names_are_resolved_and_the_rest_listed(
     tmp_path: Path,
 ) -> None:
-    """Kolme demoa yhdellä nimellä, yksi toisella: enemmistö voittaa."""
+    """Three demos with one name, one with another: the majority wins."""
     archive = build_archive(
         tmp_path,
         {
@@ -1291,7 +1291,7 @@ def test_a_player_without_a_name_is_still_in_the_roster(tmp_path: Path) -> None:
 def test_a_demo_without_the_lineups_table_is_reported_missing(
     tmp_path: Path,
 ) -> None:
-    """Puuttuva kokoonpanotaulu ei kaada ajoa mutta ei myöskään katoa."""
+    """A missing lineups table does not stop the run but does not vanish either."""
     archive = build_archive(
         tmp_path, {"Nuke_vs_a": TEAM, "Ancient_vs_b": TEAM}
     )
@@ -1308,12 +1308,13 @@ def test_a_demo_without_the_lineups_table_is_reported_missing(
 def test_a_player_seen_only_in_the_lineups_table_is_in_the_roster(
     tmp_path: Path,
 ) -> None:
-    """Kokoonpanot luetaan ``lineups``-taulusta eikä ``ticks``-taulusta.
+    """Lineups are read from the ``lineups`` table and not from ``ticks``.
 
-    Näytepistetaulusta puuttuu pelaaja, joka ei ehtinyt yhdellekään
-    näytepisteelle -- ja ``lineup_key`` on silti laskettu hänet mukaan lukien.
-    Jos kokoonpanot luettaisiin näytepisteistä, tunniste ja sen pelaajajoukko
-    olisivat eri mieltä, ja rosterista puuttuisi pelaaja joka pelasi kartan.
+    The sample point table is missing a player who did not make it to a single
+    sample point -- and ``lineup_key`` was computed with him in all the same.
+    If the lineups were read from the sample points, the key and its set of
+    players would disagree, and the roster would be missing a player who played
+    the map.
     """
     bench = f"{TEAM}-penkki"
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM}, bench_player=bench)
@@ -1324,8 +1325,8 @@ def test_a_player_seen_only_in_the_lineups_table_is_in_the_roster(
     assert bench in ids
     assert len(roster) == 6
 
-    # Ja hän on aidosti poissa näytepistetaulusta -- muuten testi ei
-    # todistaisi mitään lähteen vaihdosta.
+    # And he really is absent from the sample point table -- otherwise the
+    # test would prove nothing about the change of source.
     ticks = pl.read_parquet(archive.parsed_table("Nuke_vs_a", "ticks"))
     assert bench not in set(ticks["player_id"])
 
@@ -1333,11 +1334,11 @@ def test_a_player_seen_only_in_the_lineups_table_is_in_the_roster(
 def test_the_lineup_join_can_rest_on_a_player_who_has_no_sample_points(
     tmp_path: Path,
 ) -> None:
-    """Joukkueiden liitos tehdään kokoonpanotaulun pelaajajoukolla.
+    """The join between teams is made with the lineups table's set of players.
 
-    Kolme yhteistä pelaajaa riittää liitokseen. Tässä kaksi niistä on
-    pelaajia, joita näytepistetaulussa ei ole lainkaan, joten vanha lähde ei
-    löytäisi yhteisiä pelaajia riittävästi eikä liittäisi kokoonpanoja.
+    Three players in common are enough for the join. Here two of them are
+    players who are not in the sample point table at all, so the old source
+    would not find enough players in common and would not join the lineups.
     """
     other = "cccccccccccccccc"
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
@@ -1352,9 +1353,9 @@ def test_the_lineup_join_can_rest_on_a_player_who_has_no_sample_points(
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(src.read_bytes())
 
-    # Näytepisteissä toisella kokoonpanolla on VAIN omat pelaajansa:
-    # yhteisiä ei näy yhtään. Yhteiset kolme ovat pelkästään
-    # kokoonpanotaulussa.
+    # In the sample points the second lineup has ONLY its own players: not one
+    # of the shared ones shows. The three shared players are in the lineups
+    # table alone.
     ticks_frame(
         [
             tick_row("Anubis_vs_b", n, f"{other}-p{i}", "BombsiteA", lineup=other)
@@ -1378,15 +1379,15 @@ def test_the_lineup_join_can_rest_on_a_player_who_has_no_sample_points(
     assert sorted(report.team.lineup_keys) == sorted([TEAM, other])
 
 
-# --- Kuolemataulu (Story 2.7) --------------------------------------------------
+# --- The deaths table (Story 2.7) ----------------------------------------------
 
 
 def test_own_deaths_and_own_kills_both_reach_the_report(tmp_path: Path) -> None:
-    """Suodatus on kahdesta sarakkeesta, ja molemmat puolet on säilyttävä.
+    """The filter is over two columns, and both halves have to survive.
 
-    Pelkkä ``victim_lineup_key`` pudottaisi omat tapot ja pelkkä
-    ``attacker_lineup_key`` omat kuolemat -- ja kumpikin virhe näyttäisi
-    raportissa siltä, että joukkue ei tehnyt sitä mitä se teki.
+    ``victim_lineup_key`` alone would drop our own kills and
+    ``attacker_lineup_key`` alone our own deaths -- and either mistake would
+    look in the report as though the team had not done what it did.
     """
     archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
     run(archive)
@@ -1399,7 +1400,7 @@ def test_own_deaths_and_own_kills_both_reach_the_report(tmp_path: Path) -> None:
 
 
 def test_the_opponents_own_deaths_do_not_become_ours(tmp_path: Path) -> None:
-    """Vastustajien keskinäinen kuolema ei kuulu tähän raporttiin."""
+    """A death between two opponents does not belong in this report."""
     archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
     extra = deaths_frame(
         [
@@ -1429,7 +1430,7 @@ def test_the_opponents_own_deaths_do_not_become_ours(tmp_path: Path) -> None:
 def test_a_demo_without_the_deaths_table_is_reported_missing(
     tmp_path: Path,
 ) -> None:
-    """Puuttuva taulu ei kaada ajoa mutta ei myöskään katoa hiljaa."""
+    """A missing table does not stop the run but does not vanish silently."""
     archive = build_archive(
         tmp_path, {"Ancient_vs_a": TEAM, "Nuke_vs_b": TEAM}
     )
@@ -1445,7 +1446,7 @@ def test_a_demo_without_the_deaths_table_is_reported_missing(
 def test_an_outdated_deaths_table_tells_the_user_to_reparse(
     tmp_path: Path,
 ) -> None:
-    """Vanhalla versiolla kirjoitettu taulu ei mene läpi hiljaa."""
+    """A table written with an old version does not pass silently."""
     archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
     path = archive.parsed_table("Ancient_vs_a", "deaths")
     pl.read_parquet(path).drop("attacker_area").write_parquet(path)
@@ -1459,12 +1460,12 @@ def test_an_outdated_deaths_table_tells_the_user_to_reparse(
 def test_an_attackerless_own_death_survives_the_lineup_filter(
     tmp_path: Path,
 ) -> None:
-    """Pommiin kuollut oma pelaaja ei saa pudota suodattimessa.
+    """Our own player killed by the bomb must not drop out in the filter.
 
-    ``attacker_lineup_key`` on silloin ``null``, ja Polarsissa ``is_in``
-    antaa nullille nullin. Ilman ``fill_null(False)``:ää ehto nojaisi siihen,
-    että ``true | null`` on tosi -- oikein tänään, mutta hiljainen riippuvuus
-    kolmiarvoisen logiikan yksityiskohdasta.
+    ``attacker_lineup_key`` is then ``null``, and in Polars ``is_in`` gives
+    null for null. Without ``fill_null(False)`` the condition would rest on
+    ``true | null`` being true -- right today, but a silent dependency on a
+    detail of three-valued logic.
     """
     archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
     only_bomb = deaths_frame(
@@ -1494,10 +1495,10 @@ def test_an_attackerless_own_death_survives_the_lineup_filter(
 def test_a_deaths_table_that_names_no_known_lineup_is_refused(
     tmp_path: Path,
 ) -> None:
-    """Tyhjäksi suodattunut kuolemakehys on sama tila, jonka parse kieltää.
+    """A deaths frame filtered empty is the state parse forbids.
 
-    Ilman vartijaa jokainen kierrostyyppi raportoisi "ei omia kuolemia" --
-    eli havaintona sen, ettei havaintoa ole.
+    Without the guard every round type would report "no own deaths" -- that
+    is, as an observation that there is no observation.
     """
     archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
     strangers = deaths_frame(
@@ -1516,20 +1517,20 @@ def test_a_deaths_table_that_names_no_known_lineup_is_refused(
 
     with pytest.raises(PappascoutError) as exc:
         run(archive, force=True)
-    assert "yhtään kuolemaa" in str(exc.value)
+    assert "Not one death was found" in str(exc.value)
     assert "--pakota" in str(exc.value)
 
 
-# --- Kierrostaulu ja panssarilaskuri (Story 2.8) --------------------------------
+# --- The rounds table and the armour counter (Story 2.8) ------------------------
 
 
 def test_an_outdated_rounds_table_tells_the_user_to_reparse(
     tmp_path: Path,
 ) -> None:
-    """Vanha kierrostaulu ilman panssarisaraketta ei mene läpi hiljaa.
+    """An old rounds table without the armour column does not pass silently.
 
-    I/O-matriisin rivi "vanha arkisto" aggregoinnin puolelta: skeemavirhe on
-    suomenkielinen ja nimeää sekä puuttuvan sarakkeen että komennon.
+    The I/O matrix's row "an old archive" from the aggregation's side: the
+    schema error names both the missing column and the command.
     """
     archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
     path = archive.parsed_table("Ancient_vs_a", "rounds")
@@ -1544,10 +1545,10 @@ def test_an_outdated_rounds_table_tells_the_user_to_reparse(
 def test_an_extra_column_in_the_rounds_table_is_refused_too(
     tmp_path: Path,
 ) -> None:
-    """Sopimus on tiukka molempiin suuntiin, myös kierrostaululla.
+    """The contract is strict in both directions, on the rounds table too.
 
-    Ylimääräinen sarake tarkoittaa taulua, jonka joku muu versio kirjoitti;
-    pelkkä puuttuvan tarkistus päästäisi sen läpi.
+    An extra column means a table some other version wrote; a check for missing
+    columns alone would let it through.
     """
     archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
     path = archive.parsed_table("Ancient_vs_a", "rounds")
@@ -1562,11 +1563,12 @@ def test_an_extra_column_in_the_rounds_table_is_refused_too(
 def test_the_armored_count_reaches_the_report_from_the_rounds_table(
     tmp_path: Path,
 ) -> None:
-    """Kytkentä levyltä raporttiin: laskuri ei ole luokitellussa taulussa.
+    """The connection from disk to the report: the counter is not in the classified table.
 
-    ``build_archive`` kirjoittaa omalle joukkueelle viisi kevlaria ja
-    vastustajalle nolla. Ilman tätä testiä ``rounds``-taulun luku voisi
-    puuttua vaiheesta kokonaan ja jakauma olisi hiljaa tyhjä.
+    ``build_archive`` writes five kevlars for our own team and zero for the
+    opponent. Without this test the read of the ``rounds`` table could be
+    missing from the stage entirely and the distribution would be silently
+    empty.
     """
     archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
 
@@ -1577,12 +1579,12 @@ def test_the_armored_count_reaches_the_report_from_the_rounds_table(
 
 
 def test_only_our_own_rounds_row_reaches_the_distribution(tmp_path: Path) -> None:
-    """Kierrostaulussa on kaksi riviä per kierros -- vain oma päätyy jakaumaan.
+    """The rounds table has two rows per round -- only our own reaches the distribution.
 
-    Vastustajalla on nolla kevlaria samalla kierroksella. Kaksi estettä
-    yhdessä: kokoonpanosuodatus pudottaa hänen rivinsä ennen hakukarttaa, ja
-    avaimen kolmas osa (puoli) valitsisi oman rivin silloinkin, jos suodatus
-    puuttuisi. Testi todentaa lopputuloksen, jonka molemmat takaavat.
+    The opponent has zero kevlars on the same round. Two obstacles together:
+    the lineup filter drops his row before the lookup map, and the key's third
+    part (the side) would pick our own row even if the filter were absent. The
+    test verifies the outcome both of them guarantee.
     """
     archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
 
@@ -1594,12 +1596,12 @@ def test_only_our_own_rounds_row_reaches_the_distribution(tmp_path: Path) -> Non
 
 
 def test_rounds_that_name_no_known_lineup_are_refused(tmp_path: Path) -> None:
-    """Tyhjäksi suodattunut kierrostaulu on virhe, ei hiljainen puute.
+    """A rounds table filtered empty is an error, not a silent absence.
 
-    Sama vartija kuin kuolemataululla ja samasta syystä: ilman sitä jokainen
-    kierrostyyppi raportoisi panssarijakaumakseen pelkän "havainto puuttuu"
-    -- eli havaintona sen, ettei havaintoa ole. Juuri sen lopputuloksen
-    välttäminen on tämän sarakkeen olemassaolon syy.
+    The same guard as on the deaths table and for the same reason: without it
+    every round type would report its armour distribution as nothing but "the
+    observation is missing" -- that is, as an observation that there is no
+    observation. Avoiding precisely that outcome is why this column exists.
     """
     archive = build_archive(tmp_path, {"Ancient_vs_a": TEAM})
     strangers = rounds_frame(
@@ -1616,19 +1618,20 @@ def test_rounds_that_name_no_known_lineup_are_refused(tmp_path: Path) -> None:
 
     with pytest.raises(PappascoutError) as exc:
         run(archive, force=True)
-    assert "kierrosriviä" in str(exc.value)
+    assert "Not one round row was found" in str(exc.value)
     assert "--pakota" in str(exc.value)
 
 
-# --- Kartan nimi otsikosta (Story 2.11) ---------------------------------------
+# --- The map's name from the header (Story 2.11) ------------------------------
 
 
 def test_the_map_name_comes_from_the_match_table(tmp_path: Path) -> None:
-    """Havainto voittaa päättelyn myös vaiheen läpi ajettuna.
+    """The observation beats the inference through the stage as well.
 
-    Tunniste sanoo ``Nuke``, otsikko sanoo ``de_ancient``. Raportissa on
-    otsikon nimi ja lähde ``demo_header``: ilman kytkentää taulusta
-    raporttiin tämä testi näyttäisi täsmälleen samalta kuin ennen muutosta.
+    The id says ``Nuke``, the header says ``de_ancient``. The report holds the
+    header's name and the source ``demo_header``: without the connection from
+    the table to the report this test would look exactly as it did before the
+    change.
     """
     archive = build_archive(
         tmp_path,
@@ -1645,11 +1648,10 @@ def test_the_map_name_comes_from_the_match_table(tmp_path: Path) -> None:
 
 
 def test_two_faceit_demos_of_the_same_map_are_one_branch(tmp_path: Path) -> None:
-    """RCAVE-tapaus: kaksi tunnistetta, yksi kartta, yksi haara.
+    """The RCAVE case: two ids, one map, one branch.
 
-    Kumpikaan tunniste ei sisällä kartan nimeä, joten ilman otsikkoa nämä
-    olisivat kaksi haaraa -- ja jokainen rivi kantaisi merkintää
-    "(1/1 kierroksesta)".
+    Neither id holds the map's name, so without the header these would be two
+    branches -- and every row would carry the note "(1/1 kierroksesta)".
     """
     archive = build_archive(
         tmp_path,
@@ -1673,7 +1675,7 @@ def test_two_faceit_demos_of_the_same_map_are_one_branch(tmp_path: Path) -> None
 def test_a_demo_without_a_header_name_falls_back_to_the_identifier(
     tmp_path: Path,
 ) -> None:
-    """Nimetön otsikko ei kaada ajoa: päättely poolista jää voimaan."""
+    """A nameless header does not stop the run: inference from the pool stands."""
     archive = build_archive(
         tmp_path,
         {"Nuke_vs_a": TEAM, "1-a52ebff2-1-1": TEAM},
@@ -1691,7 +1693,7 @@ def test_a_demo_without_a_header_name_falls_back_to_the_identifier(
 def test_a_match_table_written_with_a_different_column_order_still_reads(
     tmp_path: Path,
 ) -> None:
-    """Sarakejärjestys ei ole osa sopimusta, mutta ``pl.concat`` välittää."""
+    """Column order is not part of the contract, but ``pl.concat`` cares."""
     archive = build_archive(
         tmp_path,
         {"Nuke_vs_a": TEAM, "Anubis_vs_b": TEAM},
@@ -1709,11 +1711,11 @@ def test_a_match_table_written_with_a_different_column_order_still_reads(
 def test_an_observed_and_an_inferred_demo_of_one_map_are_one_branch(
     tmp_path: Path,
 ) -> None:
-    """Sama kartta kahdesta eri lähteestä on yksi haara, myös vaiheen läpi.
+    """The same map from two different sources is one branch, through the stage too.
 
-    ``Ancient_vs_a``:n otsikossa on kartta, ``Ancient_vs_b``:n ei. Molempien
-    nimi on ``de_ancient``, joten ne ovat yksi haara -- ja sen lähde on
-    heikompi eli ``map_demo_id``, koska toinen jäsen on päätelty.
+    ``Ancient_vs_a``'s header holds the map, ``Ancient_vs_b``'s does not. Both
+    are named ``de_ancient``, so they are one branch -- and its source is the
+    weaker one, ``map_demo_id``, because one member was inferred.
     """
     archive = build_archive(
         tmp_path,
@@ -1735,16 +1737,17 @@ def test_an_observed_and_an_inferred_demo_of_one_map_are_one_branch(
 def test_the_map_name_follows_the_demo_the_table_was_read_for(
     tmp_path: Path,
 ) -> None:
-    """Nimi liitetään **luettuun demoon**, ei taulun omaan sarakkeeseen.
+    """The name is joined to the **demo that was read**, not to the table's own column.
 
-    Vanhentunut tai väärään hakemistoon joutunut ``match.parquet`` kantaa
-    väärää ``map_demo_id``-arvoa; skeemavalidointi ei näe sitä, koska sarake on
-    tyypiltään oikea. Jos sanakirja rakennettaisiin sarakkeesta, nimi
-    kirjautuisi väärälle demolle ja oikea demo palaisi hiljaa päättelyyn --
-    ja kaksi samaa tunnistetta pudottaisi toisen kokonaan.
+    A stale ``match.parquet``, or one that ended up in the wrong directory,
+    carries a wrong ``map_demo_id`` value; schema validation does not see it,
+    because the column's type is right. If the map were built from the column,
+    the name would be recorded against the wrong demo and the right demo would
+    fall back silently to inference -- and two identical ids would drop one of
+    them entirely.
 
-    Tässä molempien demojen taulu väittää olevansa saman kolmannen demon.
-    Silmukan avaimella nimet päätyvät silti oikeille demoille.
+    Here the table of both demos claims to belong to the same third demo. With
+    the loop's key the names still end up on the right demos.
     """
     archive = build_archive(
         tmp_path,
@@ -1768,13 +1771,13 @@ def test_the_map_name_follows_the_demo_the_table_was_read_for(
 def test_a_match_table_without_exactly_one_row_is_refused(
     tmp_path: Path, rows: int
 ) -> None:
-    """Rivimäärä tarkistetaan myös luettaessa, ei vain kirjoitettaessa.
+    """The row count is checked on reading too, not only on writing.
 
-    Sopimusta valvoo se vaihe, joka kirjoittaa -- mutta luettu tiedosto voi
-    olla ohjelman vanhemman version kirjoittama, eikä lukija saa nojata
-    siihen että kirjoittaja oli tämä versio. Nolla riviä näyttäisi samalta
-    kuin havainto ``null``, ja kahdesta rivistä nimi valikoituisi
-    rivijärjestyksen mukaan.
+    The contract is enforced by the stage that writes -- but the file that was
+    read may have been written by an older version of the program, and a reader
+    must not rest on the writer having been this version. Zero rows would look
+    the same as the observation ``null``, and out of two rows the name would be
+    picked by row order.
     """
     archive = build_archive(
         tmp_path, {"Nuke_vs_a": TEAM}, map_names={"Nuke_vs_a": "de_nuke"}
@@ -1783,33 +1786,34 @@ def test_a_match_table_without_exactly_one_row_is_refused(
     df = pl.read_parquet(path)
     pl.concat([df] * rows if rows else [df.head(0)]).write_parquet(path)
 
-    with pytest.raises(PappascoutError, match="ottelutaulussa on"):
+    with pytest.raises(PappascoutError, match="match table of demo"):
         run(archive)
 
 
-# --- Poikkeamien orientaatio (Story 2.5) ----------------------------------------
+# --- The anomalies' orientation (Story 2.5) -------------------------------------
 #
-# Vaiheen oma osa poikkeamasäännöistä on **alueiden puoliorientaatio**, ja se
-# lasketaan ennen kokoonpanosuodatusta. Testit todistavat sen kahdesta
-# suunnasta: mitä orientaatio laskee, ja mitä katoaa jos suodatus siirretään
-# sen eteen.
+# The stage's own part of the anomaly rules is the **areas' side orientation**,
+# and it is computed before the lineup filter. The tests prove it from two
+# directions: what the orientation counts, and what disappears if the filter is
+# moved ahead of it.
 
-#: Alue, jota vastustaja pitää hallussaan koko demossa -- Nuken lobby.
+#: An area the opponent holds throughout the demo -- Nuke's lobby.
 LOBBY = "Lobby"
 
 
 def lobby_ticks(demo: str) -> list[dict[str, object]]:
-    """Näytepisteet, joissa subjekti puskee vastustajan alueelle.
+    """Sample points on which the subject pushes into the opponent's area.
 
-    Vastustaja (T) on ``Lobby``ssa jokaisella näytepisteellä jokaisella
-    kierroksella: 45 havaintoa. Subjektin CT-pelaajat ovat omalla puolellaan,
-    ja **vain kierroksella 1** kaksi heistä siirtyy sinne kahdesta eri
-    suunnasta -- 2 havaintoa.
+    The opponent (T) is in ``Lobby`` at every sample point on every round: 45
+    observations. The subject's CT players are on their own side, and **only on
+    round 1** two of them move there from two different source directions -- 2
+    observations.
 
-    Luvut ovat valittu niin, että sama alue on kynnyksen **eri puolilla**
-    riippuen siitä, mistä taulusta orientaatio lasketaan: koko taulusta
-    T-osuus on 45/47 = 0,96, mutta subjektin riveistä 0/2. Juuri sitä eroa
-    kalibrointi mittasi oikeilla demoilla.
+    The figures are chosen so that the same area is on **different sides** of
+    the threshold depending on which table the orientation is computed from:
+    from the whole table the T share is 45/47 = 0.96, but from the subject's
+    rows 0/2. That difference is exactly what the calibration measured on real
+    demos.
     """
     rows: list[dict[str, object]] = []
     for round_no in (1, 2, 3):
@@ -1832,7 +1836,7 @@ def lobby_ticks(demo: str) -> list[dict[str, object]]:
             )
             for i in range(5)
         ]
-        # Kaksi eri lähtöaluetta kierroksella 1, jotta crunch on mahdollinen.
+        # Two different source areas on round 1, so that crunch is possible.
         rows += [
             tick_row(
                 demo, round_no, f"{TEAM}-p0", "Ramp", side="CT", sample_t_s=15.0
@@ -1862,7 +1866,7 @@ def lobby_ticks(demo: str) -> list[dict[str, object]]:
 
 
 def eco_ct_rounds(demo: str, count: int = 3) -> list[dict[str, object]]:
-    """Luokitellut kierrokset: subjekti CT:nä säästökierroksilla."""
+    """Classified rounds: the subject as CT on saving rounds."""
     return [
         classified_row(demo, n, side="CT", round_type="eco")
         for n in range(1, count + 1)
@@ -1870,7 +1874,7 @@ def eco_ct_rounds(demo: str, count: int = 3) -> list[dict[str, object]]:
 
 
 def test_the_orientation_counts_t_rows_against_all_rows() -> None:
-    """Osuus on demon oma havainto: T-havainnot per kaikki havainnot."""
+    """The share is the demo's own observation: T observations per all."""
     demo = "Nuke_vs_a"
     found = aggregate_stage._area_orientation(ticks_frame(lobby_ticks(demo)))
     assert found[LOBBY].t == 45
@@ -1879,7 +1883,7 @@ def test_the_orientation_counts_t_rows_against_all_rows() -> None:
 
 
 def test_the_orientation_ignores_first_contact_dead_and_unnamed_rows() -> None:
-    """Neljä rajausta, jokainen määritelmä eikä siivous."""
+    """Four restrictions, each a definition and not tidying."""
     demo = "Nuke_vs_a"
     rows = [
         tick_row(demo, 1, "p1", "Ramp", side="T"),
@@ -1895,12 +1899,12 @@ def test_the_orientation_ignores_first_contact_dead_and_unnamed_rows() -> None:
 
 
 def test_an_unknown_side_is_left_out_of_the_denominator_too() -> None:
-    """**Jakajan rajaus, ei osoittajan.**
+    """**A restriction on the denominator, not on the numerator.**
 
-    Ilman ``side``-suodatusta ``pl.len()`` laskisi tuntemattoman puolen rivin
-    mukaan mutta ``side == "T"`` ei voisi laskea sitä T:ksi -- osuus painuisi
-    alaspäin ja voisi pudottaa T:n alueen kynnyksen alle. Juuri se osuus on
-    molempien sääntöjen perusta, joten vartija on tässä eikä säännössä.
+    Without the ``side`` filter ``pl.len()`` would count in a row of unknown
+    side but ``side == "T"`` could not count it as T -- the share would press
+    down and could drop a T area below the threshold. That share is precisely
+    what both rules rest on, so the guard is here and not in the rule.
     """
     demo = "Nuke_vs_a"
     rows = [tick_row(demo, 1, f"t{i}", "Lobby", side="T") for i in range(9)]
@@ -1915,18 +1919,18 @@ def test_an_unknown_side_is_left_out_of_the_denominator_too() -> None:
         extra["side"] = None
         with_null.append(extra)
     dirty = aggregate_stage._area_orientation(ticks_frame(with_null))
-    # Tuntemattoman puolen rivit eivät ole kummassakaan luvussa, joten osuus
-    # on sama kuin ilman niitä.
+    # The rows of unknown side are in neither figure, so the share is the same
+    # as it is without them.
     assert dirty["Lobby"].t_share == pytest.approx(0.9)
     assert dirty["Lobby"].total == clean["Lobby"].total
 
 
 def test_the_orientation_normalises_the_area_name() -> None:
-    """Sama normalisointi kuin läsnäolorivillä; muuten säännöt vaikenevat.
+    """The same normalisation as on the presence row; otherwise the rules fall silent.
 
-    ``" Lobby "`` ja ``"Lobby"`` ovat yksi alue, ja niiden havainnot
-    **lasketaan yhteen**: toisen pudottaminen laskisi osuuden osajoukosta ja
-    voisi kääntää kynnyksen.
+    ``" Lobby "`` and ``"Lobby"`` are one area, and their observations **are
+    added together**: dropping one would compute the share from a subset and
+    could turn the threshold.
     """
     demo = "Nuke_vs_a"
     rows = [
@@ -1942,20 +1946,20 @@ def test_the_orientation_normalises_the_area_name() -> None:
 
 
 def test_a_demo_without_named_areas_gets_an_empty_orientation() -> None:
-    """Tyhjä kartta on oikea vastaus eikä virhe: suuntaa ei arvata."""
+    """An empty map is the right answer and not an error: the side is not guessed."""
     demo = "Nuke_vs_a"
     rows = [tick_row(demo, 1, "p1", None, side="T")]
     assert aggregate_stage._area_orientation(ticks_frame(rows)) == {}
 
 
 def test_the_orientation_must_come_from_the_unfiltered_table() -> None:
-    """**Suodatus siirrettynä orientaation eteen syö osuman kokonaan.**
+    """**The filter moved ahead of the orientation eats the hit entirely.**
 
-    Tämä on Story 2.5:n mitattu ehto koneellisena vartijana. Sama taulu,
-    sama sääntö, sama kynnys -- ainoa ero on se, lasketaanko orientaatio
-    koko taulusta vai subjektin riveistä. Ilman tätä testiä ``_aggregate``in
-    silmukan voisi siirtää suodatuksen jälkeen, ja jokainen tosi positiivinen
-    katoaisi ilman että yksikään testi kaatuisi.
+    This is Story 2.5's measured condition as a machine guard. The same table,
+    the same rule, the same threshold -- the only difference is whether the
+    orientation is computed from the whole table or from the subject's rows.
+    Without this test ``_aggregate``'s loop could be moved after the filter,
+    and every true positive would disappear without one test failing.
     """
     demo = "Nuke_vs_a"
     ticks = ticks_frame(lobby_ticks(demo))
@@ -1967,8 +1971,8 @@ def test_the_orientation_must_come_from_the_unfiltered_table() -> None:
     assert from_all[LOBBY].t_share > 0.80
     assert from_subject[LOBBY].t_share == 0.0
 
-    # ``build_report`` näkee molemmissa tapauksissa vain subjektin rivit;
-    # vain orientaation lähde vaihtuu.
+    # ``build_report`` sees only the subject's rows in either case; only the
+    # orientation's source changes.
     subject_rows = subject.to_dicts()
     found = report_for(
         classified, subject_rows, area_orientation={demo: from_all}
@@ -1983,7 +1987,7 @@ def test_the_orientation_must_come_from_the_unfiltered_table() -> None:
 def test_the_stage_reads_the_orientation_before_it_filters(
     tmp_path: Path,
 ) -> None:
-    """Koko vaihe päästä päähän: poikkeama on ``report.json``issa."""
+    """The whole stage end to end: the anomaly is in ``report.json``."""
     demo = "Nuke_vs_a"
     archive = build_archive(tmp_path, {demo: TEAM}, rounds=3)
     classified_frame(eco_ct_rounds(demo)).write_parquet(
@@ -2016,7 +2020,7 @@ def test_the_stage_reads_the_orientation_before_it_filters(
 def test_the_run_output_names_the_anomalies_and_the_coverage(
     tmp_path: Path,
 ) -> None:
-    """Ajon tuloste kertoo poikkeamista: muuten säätö näkyy vasta raportissa."""
+    """The run's output says the anomalies: otherwise an adjustment shows only in the report."""
     demo = "Nuke_vs_a"
     archive = build_archive(tmp_path, {demo: TEAM}, rounds=3)
     classified_frame(eco_ct_rounds(demo)).write_parquet(
@@ -2032,9 +2036,10 @@ def test_the_run_output_names_the_anomalies_and_the_coverage(
         "säännöt ct_advance, crunch, stack ajettiin 3 kierrokselle -- crunch "
         "voi osua 3, eteneminen 3 ja stack 0"
     ) in text
-    # Lykättyjä sääntöjä ei enää ole, joten lause ei kuulu tulosteeseen.
-    # Stackin nolla ei ole "ajamatta" vaan vaiennettu demo, ja se sanotaan
-    # omana lukunaan -- muuten käyttäjä etsisi puuttuvaa toteutusta.
+    # There are no deferred rules any more, so the sentence does not belong in
+    # the output. The stack rule's zero is not "not run" but a silenced demo,
+    # and that is said as a figure of its own -- otherwise the user would go
+    # looking for an implementation that is not missing.
     assert "ajamatta" not in text
     assert "ilman siteryhmiä 1 demoa: Nuke_vs_a" in text
 
@@ -2042,19 +2047,20 @@ def test_the_run_output_names_the_anomalies_and_the_coverage(
 def test_the_run_output_says_when_a_demo_has_no_orientation(
     tmp_path: Path,
 ) -> None:
-    """Sokea piste näkyy myös ajon tulosteessa, ei vain raportissa."""
+    """A blind spot shows in the run's output too, not only in the report."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     text = _render_aggregate(run(archive))
     assert "ilman alueorientaatiota 1 demoa" in text
 
 
 def test_a_demo_without_anomalies_writes_an_empty_list(tmp_path: Path) -> None:
-    """Tyhjä poikkeamalista on kelvollinen tulos eikä puuttuva kenttä.
+    """An empty anomaly list is a valid result and not a missing field.
 
-    Kattavuus kirjoitetaan silti: oletusarkiston näytepisteissä on vain kaksi
-    aluetta ja kolme havaintoa, joten yksikään ei ylitä havaintokynnystä --
-    eli tyhjä luku on **sokea piste** eikä mitattu negatiivinen, ja juuri se
-    ero on kattavuuden tehtävä sanoa.
+    The coverage is written all the same: the default archive's sample points
+    hold only two areas and three observations, so not one crosses the
+    observation threshold -- that is, the empty figure is a **blind spot** and
+    not a measured negative, and saying exactly that difference is the
+    coverage's job.
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
@@ -2063,15 +2069,15 @@ def test_a_demo_without_anomalies_writes_an_empty_list(tmp_path: Path) -> None:
     assert report.anomaly_scan.rules == ["ct_advance", "crunch", "stack"]
     assert report.anomaly_scan.rules_deferred == []
     assert report.anomaly_scan.demos_without_orientation == ["Nuke_vs_a"]
-    # Kaksi sokeaa pistettä, kaksi eri syytä: orientaatiota ei saatu (kaksi
-    # aluetta, kolme havaintoa) eikä siteryhmiä (oletuspilvi on tyhjä).
-    # Kumpikaan ei ole mitattu negatiivinen.
+    # Two blind spots, two different reasons: no orientation was obtained (two
+    # areas, three observations) and no site groups either (the default cloud
+    # is empty). Neither is a measured negative.
     assert report.anomaly_scan.demos_without_site_groups == ["Nuke_vs_a"]
     assert report.anomaly_scan.stack_rounds == 0
 
 
 def stack_ticks(demo: str, round_no: int) -> list[dict[str, object]]:
-    """Neljä CT-pelaajaa B:n ryhmässä, viides A:lla -- yksi näytepiste."""
+    """Four CT players in B's group, the fifth on A -- one sample point."""
     areas = ("BombsiteB", "BombsiteB", "SideEntrance", "Ramp", "BombsiteA")
     return [
         tick_row(demo, round_no, f"{TEAM}-p{i}", area, side="CT", sample_t_s=15.0)
@@ -2082,11 +2088,11 @@ def stack_ticks(demo: str, round_no: int) -> list[dict[str, object]]:
 def test_the_stage_reads_the_point_cloud_and_finds_the_stack(
     tmp_path: Path,
 ) -> None:
-    """Koko ketju vaiheesta raporttiin: callouts.parquet -> siteryhmät -> rivi.
+    """The whole chain from the stage to the report: callouts.parquet -> site groups -> row.
 
-    Tämä on ainoa hermeettinen testi, joka todistaa **taulun lukemisen**:
-    domainin testit antavat pilven suoraan, ja kalibrointitestit ohittavat
-    itsensä koneella, jolla arkistoa ei ole.
+    This is the only hermetic test that proves **the table is read**: the
+    domain's tests give the cloud directly, and the calibration tests skip
+    themselves on a machine that has no archive.
     """
     demo = "Ancient_vs_a"
     archive = build_archive(
@@ -2107,8 +2113,9 @@ def test_the_stage_reads_the_point_cloud_and_finds_the_stack(
     assert stacks[0].rounds[0].points[0].alive == 5
     assert report.anomaly_scan.demos_without_site_groups == []
     assert report.anomaly_scan.stack_rounds == report.anomaly_scan.crunch_rounds
-    # Ajon tuloste kertoo saman murtolukuna: "4 pelaajaa" yksin olisi juuri
-    # se luku, jonka merkityksettömyys on koko säännön väite.
+    # The run's output says the same as a fraction: "4 pelaajaa" on its own
+    # would be exactly the figure whose meaninglessness is the rule's whole
+    # claim.
     assert (
         "stack de_ancient CT eco: BombsiteB 4/5 pelaajaa (1/3)"
         in _render_aggregate(result)
@@ -2118,11 +2125,11 @@ def test_the_stage_reads_the_point_cloud_and_finds_the_stack(
 def test_a_demo_without_the_callouts_table_is_reported_missing(
     tmp_path: Path,
 ) -> None:
-    """Puuttuva taulu on puute, ei vaiennettu kartta.
+    """A missing table is an absence, not a silenced map.
 
-    Ero on koko kattavuuden arvo: vaiennettu demo on havainto kartasta,
-    puuttuva taulu on vanhalla versiolla parsittu demo. Hiljaisena
-    jälkimmäinen lukisi kattavuudessa edellisenä.
+    The difference is the whole value of the coverage: a silenced demo is an
+    observation about the map, a missing table is a demo parsed with an old
+    version. Silent, the latter would read in the coverage as the former.
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM, "Anubis_vs_b": TEAM})
     archive.parsed_table("Anubis_vs_b", "callouts").unlink()
@@ -2133,13 +2140,13 @@ def test_a_demo_without_the_callouts_table_is_reported_missing(
     assert result.status == "ok"
 
 
-#: Jokaiselle poikkeamakynnykselle **kelvollinen** muutos oletuksesta.
+#: For every anomaly threshold, a **valid** change from the default.
 #:
-#: Sanakirja eikä yksittäinen avain, koska ``crunch_min_sources`` ei voi
-#: liikkua yksin: alaraja on 2 (crunch on määritelmällisesti useaa suuntaa) ja
-#: validaattori kieltää suuntia enemmän kuin pelaajia, joten sen ainoa suunta
-#: ylöspäin nostaa myös ``crunch_min_players``ia. Se sanotaan tässä ääneen,
-#: jotta puuttuva avain ei näytä unohdukselta.
+#: A dictionary and not a single key, because ``crunch_min_sources`` cannot
+#: move on its own: its lower bound is 2 (crunch is by definition several
+#: source directions) and the validator forbids more source directions than
+#: players, so its only way up raises ``crunch_min_players`` as well. That is
+#: said out loud here, so that a missing key does not look like an oversight.
 ANOMALY_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
     ("advance_t_share", {"advance_t_share": 0.9}),
     ("advance_area_min_observations", {"advance_area_min_observations": 40}),
@@ -2150,9 +2157,9 @@ ANOMALY_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
         "crunch_min_sources",
         {"crunch_min_players": 3, "crunch_min_sources": 3},
     ),
-    # Stackin kolme (Story 2.14). Kaksi jälkimmäistä eivät muuta sääntöä vaan
-    # sen SYÖTETTÄ -- siteryhmät demon pistepilvestä -- ja juuri siksi ne
-    # unohtuisivat hashista helpoimmin.
+    # The stack rule's three (Story 2.14). The latter two change not the rule
+    # but its INPUT -- the site groups from the demo's point cloud -- and that
+    # is exactly why they would be the easiest to forget from the hash.
     ("stack_min_players", {"stack_min_players": 5}),
     ("stack_group_margin", {"stack_group_margin": 1.5}),
     ("stack_site_separation_min", {"stack_site_separation_min": 3.0}),
@@ -2167,16 +2174,16 @@ ANOMALY_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
 def test_every_anomaly_threshold_changes_the_params_hash(
     tmp_path: Path, key: str, overrides: dict[str, object]
 ) -> None:
-    """Ilman tätä kynnyksen säätö ei ajaisi aggregointia uudelleen.
+    """Without this, adjusting a threshold would not re-run the aggregation.
 
-    Sama vika kuin Story 1.8:ssa: raportti pitäisi vanhat poikkeamat, ja
-    käyttäjä näkisi säädön vaikutuksen vasta ``--pakota``lla.
+    The same defect as in Story 1.8: the report would keep the old anomalies,
+    and the user would see the effect of the adjustment only with ``--pakota``.
 
-    **Tämä on ajonaikainen vartija**, toisin kuin
-    :func:`test_every_setting_the_stage_reads_is_in_the_params_hash`, joka
-    lukee luetut kentät lähdetekstistä regexillä eikä aja hashia lainkaan.
-    Kynnyksen vaikutus **raportin sisältöön** todistetaan erikseen
-    ``test_aggregate.py``:n poikkeamalohkossa.
+    **This is a runtime guard**, unlike
+    :func:`test_every_setting_the_stage_reads_is_in_the_params_hash`, which
+    reads the fields that are read from the source text with a regex and does
+    not run the hash at all. A threshold's effect on **the report's content**
+    is proved separately in ``test_aggregate.py``'s anomaly block.
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
@@ -2192,12 +2199,12 @@ def test_every_anomaly_threshold_changes_the_params_hash(
 
 
 def test_every_hashed_anomaly_threshold_has_a_runtime_case() -> None:
-    """Luettelo ei saa vanheta hiljaa.
+    """The list must not go stale silently.
 
-    Hashattujen avainten ja tämän tiedoston ajonaikaisten tapausten on
-    katettava samat poikkeamakynnykset. Ilman tätä uusi kynnys voisi päätyä
-    hashiin ilman yhtäkään ajoa, joka todistaa sen vaikuttavan -- eli
-    täsmälleen se tila, jonka katselmus löysi ``crunch_min_sources``ista.
+    The hashed keys and this file's runtime cases have to cover the same
+    anomaly thresholds. Without this a new threshold could end up in the hash
+    with not one run proving that it has an effect -- that is, exactly the
+    state the review found ``crunch_min_sources`` in.
     """
     hashed = {
         key

@@ -206,8 +206,8 @@ def test_summary_never_claims_zero_rounds_when_unreadable() -> None:
 
 def test_round_list_shows_every_input_the_decision_used() -> None:
     output_text = _render_round_list([row()])
-    for label in ("Kierros", "Puoli", "Tyyppi", "Käytössä", "Jäljellä", "Ostettu",
-                    "Varusteet", "Loss"):
+    for label in ("Round", "Side", "Type", "Available", "Left", "Bought",
+                    "Equipment", "Loss"):
         assert label in output_text
     assert "270" in output_text
     assert "1070" in output_text
@@ -247,7 +247,7 @@ def test_round_list_marks_an_unclassified_round() -> None:
     assert data_line.split() == [
         "1",
         "T",
-        "häviö",
+        "loss",
         UNCLASSIFIED,
         "pistol",
         "-",
@@ -255,8 +255,8 @@ def test_round_list_marks_an_unclassified_round() -> None:
         "-",
         "-",
         "1",
-        # Bonus, Aseist. ja Ostokyky: puuttuva laskuri on viiva eikä "0/5".
-        # Nolla väittäisi havainnoksi sen, ettei kukaan pystynyt ostamaan.
+        # Bonus, Armed and Can-buy: a missing counter is a dash and not "0/5".
+        # A zero would claim as an observation that nobody was able to buy.
         "-",
         "-",
         "-",
@@ -281,7 +281,7 @@ def test_console_and_markdown_share_one_column_definition() -> None:
     # Perustelu on omalla rivillään, muut sarakkeet otsikkorivillä.
     for label in headers[:-1]:
         assert label in header_line
-    assert headers[-1] == "Perustelu"
+    assert headers[-1] == "Reason"
     # Solut tulevat vaiheen omasta funktiosta, eivät komentorivin kopiosta.
     cells = round_list_cells(row())
     assert len(cells) == len(ROUND_LIST_COLUMNS)
@@ -333,11 +333,11 @@ def test_force_flag_reaches_the_stage(fake_stage) -> None:
 
 def test_round_list_is_printed_only_with_show(fake_stage) -> None:
     without_show = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM])
-    assert "Kierros " not in without_show.output
+    assert "Round " not in without_show.output
 
     with_show = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM, "--show"])
     assert with_show.exit_code == 0, with_show.output
-    assert "Kierros" in with_show.output
+    assert "Round" in with_show.output
     assert "pistoolikierros" in with_show.output
 
 

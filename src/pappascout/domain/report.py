@@ -854,7 +854,7 @@ class ArmoredPlayers(_Node):
 class FirstContactArea(_Node):
     """An area in which the team had a player at the moment of first contact.
 
-    The line *"took contact with the AWP in the corridor"* is read from here.
+    The line *"took contact in the Apartments corridor"* is read from here.
     The observation is **presence**, not a player count: ``n`` is the rounds
     on which the area held at least one living player at the moment the
     round's first cross-side hit happened.

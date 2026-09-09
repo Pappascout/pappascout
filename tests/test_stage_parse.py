@@ -1,9 +1,10 @@
-"""``stages.parse`` -- vaiheen testit ilman demoja.
+"""``stages.parse`` -- the stage's tests without demos.
 
-Vaihe näkee demon vain portin takaa (AD-8), joten sen koko logiikka -- taulujen
-validointi, kierrosnumeron liittäminen näytepisteisiin ja tapahtumiin, atominen
-kirjoitus, manifesti ja ohitus -- testataan feikillä, joka rakentaa kaikki
-taulut käsin. Yksikään näistä testeistä ei tarvitse demotiedostoa.
+The stage sees the demo only from behind the port (AD-8), so its whole logic
+-- validating the tables, joining the round number to the sample points and
+the events, the atomic write, the manifest and the skip -- is tested with a
+fake that builds every table by hand. Not one of these tests needs a demo
+file.
 """
 
 from __future__ import annotations
@@ -50,45 +51,50 @@ from pappascout.stages import parse as parse_stage
 
 MAP_DEMO_ID = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1"
 
-#: Portin sopimuksen tyypit: ``ROUNDS`` täydennettynä numerointisarakkeilla.
+#: The port contract's types: ``ROUNDS`` with the numbering columns added.
 ADAPTER_SCHEMA: dict[str, object] = {
     name: ROUNDS.get(name, pl.Int32) for name in ROUNDS_ADAPTER_COLUMNS
 }
 
-#: Näytepistetaulun tyypit portin takana: ``TICKS`` ilman ``map_demo_id``:tä.
+#: The sample-point table's types behind the port: ``TICKS`` without
+#: ``map_demo_id``.
 TICKS_ADAPTER_SCHEMA: dict[str, object] = {
     name: TICKS[name] for name in TICKS_ADAPTER_COLUMNS
 }
 
-#: Tapahtumataulun tyypit portin takana: ``EVENTS`` ilman ``map_demo_id``:tä.
+#: The event table's types behind the port: ``EVENTS`` without
+#: ``map_demo_id``.
 EVENTS_ADAPTER_SCHEMA: dict[str, object] = {
     name: EVENTS[name] for name in EVENTS_ADAPTER_COLUMNS
 }
 
-#: Pistepilven tyypit portin takana: ``CALLOUT_CLOUD`` ilman ``map_demo_id``:tä.
+#: The point cloud's types behind the port: ``CALLOUT_CLOUD`` without
+#: ``map_demo_id``.
 CALLOUTS_ADAPTER_SCHEMA: dict[str, object] = {
     name: CALLOUT_CLOUD[name] for name in CALLOUTS_ADAPTER_COLUMNS
 }
 
-#: Ottelutaulun tyypit portin takana: ``MATCH`` ilman ``map_demo_id``:tä.
+#: The match table's types behind the port: ``MATCH`` without
+#: ``map_demo_id``.
 MATCH_ADAPTER_SCHEMA: dict[str, object] = {
     name: MATCH[name] for name in MATCH_ADAPTER_COLUMNS
 }
 
-#: Ruudun särmä, jolla feikin pistepilvi on rakennettu. Sama kuin
-#: ``settings.toml``in ``callout_grid_units``.
+#: The cell edge the fake's point cloud is built with. The same as
+#: ``settings.toml``'s ``callout_grid_units``.
 CALLOUT_GRID = 32
 
-#: Näytepisteet, joilla feikki rakentaa tick-rivinsä.
+#: The sample points the fake builds its tick rows with.
 SAMPLE_SECONDS = (6.0, 15.0)
 
 
 def build_callouts(cells: int = 4) -> pl.DataFrame:
-    """Pistepilvi, kuten adapteri sen antaisi: rivi per ruutu, ei kierrosnumeroa.
+    """A point cloud as the adapter would give it: a row per cell, no round.
 
-    Ruudut ovat peräkkäisiä ja alueita on kaksi, jotta taulu näyttää siltä
-    mitä oikea pilvi on: monta ruutua alueen sisällä. Havaintomäärät ovat eri
-    suuria, koska ne ovat ruudun oma havainto eivätkä vakio.
+    The cells are consecutive and there are two areas, so that the table looks
+    like what a real cloud is: many cells inside an area. The observation
+    counts differ in size, because they are the cell's own observation and not
+    a constant.
     """
     rows = [
         {
@@ -106,10 +112,10 @@ def build_callouts(cells: int = 4) -> pl.DataFrame:
 def build_match(
     map_name: str | None = "de_ancient", *, rows: int | None = None
 ) -> pl.DataFrame:
-    """Ottelutaulu, kuten adapteri sen antaisi: yksi rivi, ei kierrosnumeroa.
+    """A match table as the adapter would give it: one row, no round number.
 
-    ``rows`` on vain rivimäärän vartijan testaamista varten: sillä feikki voi
-    palauttaa nollan tai kahden rivin taulun, jonka skeema on silti oikein.
+    ``rows`` is only for testing the row-count guard: with it the fake can
+    return a table of zero or two rows whose schema is still right.
     """
     row = {"map_name": map_name}
     payload = [row] if rows is None else [row] * rows
@@ -118,7 +124,7 @@ def build_match(
     return pl.DataFrame(payload, schema=dict(MATCH_ADAPTER_SCHEMA))
 
 
-# --- Feikki portin taakse ------------------------------------------------------
+# --- The fake behind the port --------------------------------------------------
 
 
 def build_rounds(
@@ -127,17 +133,18 @@ def build_rounds(
     warmup: int = 1,
     without_anchor: tuple[int, ...] = (),
 ) -> pl.DataFrame:
-    """Rakenna kierrostaulu käsin, kuten oikea adapteri sen palauttaisi.
+    """Build the rounds table by hand, as the real adapter would return it.
 
-    Voittaja on aina T ja syy ``ct_killed``, joka on CS2:n sääntöjen mukainen
-    tapa T:n voitolle -- muuten ``check_win_reasons`` hylkäisi taulun.
+    The winner is always T and the reason ``ct_killed``, which is a way for T
+    to win that the CS2 rules allow -- otherwise ``check_win_reasons`` would
+    reject the table.
 
     Args:
-        pelatut: Pelattujen kierrosten määrä.
-        warmup: Numeroimattomien kierrosten määrä alussa (puukkokierros ja
-            warmup): niiden yhteispistemäärä ei kasva.
-        ilman_ankkuria: Ne ``round_raw``-arvot, joilta freezetime-ankkuri
-            puuttuu.
+        played: The number of played rounds.
+        warmup: The number of unnumbered rounds at the start (the knife round
+            and the warm-up): their combined score does not grow.
+        without_anchor: The ``round_raw`` values that have no freezetime
+            anchor.
     """
     rows: list[dict[str, object]] = []
     round_raw = 0
@@ -160,21 +167,22 @@ def build_rounds(
                     "equip_buy_end": None if no_anchor else 20000 + index,
                     "equip_round_start": None if no_anchor else 1000 + index,
                     "players_buy_end": None if no_anchor else 5,
-                    # Adapteri antaa laskurin valmiina; vaihe vain kuljettaa
-                    # sen. Puolikohtainen ero tekee kuljetuksesta todettavan.
+                    # The adapter gives the counter ready-made; the stage only
+                    # carries it. A per-side difference makes the carrying
+                    # observable.
                     ARMED_COLUMN: None if no_anchor else 5 - index,
-                    # Panssarilaskuri on tarkoituksella **eri jakauma** kuin
-                    # aseistettujen: jos vaihe kuljettaisi saman sarakkeen
-                    # kahdesti, jakaumat olisivat identtiset eikä yksikään
-                    # testi näkisi sitä.
+                    # The armour counter is deliberately a **different
+                    # distribution** from the armed one: if the stage carried
+                    # the same column twice, the distributions would be
+                    # identical and not one test would see it.
                     ARMORED_COLUMN: None if no_anchor else 5,
                     "survivors": index,
                     "survivors_equip_prev": 500,
                     "freeze_end_tick": None if no_anchor else 1000 * round_raw,
-                    # Mittauspiste on tarkoituksella eri kuin ankkuri: jos se
-                    # jätettäisiin täyttämättä, Polars täyttäisi sen tyhjällä
-                    # eikä yksikään vaihetesti näkisi saraketta koskaan
-                    # täytettynä.
+                    # The measurement point is deliberately different from the
+                    # anchor: if it were left unfilled, Polars would fill it
+                    # with a null and not one stage test would ever see the
+                    # column filled.
                     "buy_end_tick": None if no_anchor else 1000 * round_raw + 1280,
                     "tick_rate": 64.0,
                     "status": "no_freeze_end" if no_anchor else "ok",
@@ -200,26 +208,29 @@ def build_ticks(
     short_rounds: dict[int, float] | None = None,
     contact_t_s: float = 9.5,
 ) -> pl.DataFrame:
-    """Näytepistetaulu ``build_rounds``-taulua vastaavana, kuten adapteri sen antaisi.
+    """A sample-point table matching ``build_rounds``, as the adapter gives it.
 
-    Adapteri näytteistää **kaikki** ankkuroidut kierrosrajat, myös warmupin ja
-    puukkokierroksen: se ei tunne numerointisääntöä. Vaiheen tehtävä on pudottaa
-    ne, joten feikin on tuotettava ne mukaan.
+    The adapter samples **every** anchored round boundary, the warm-up and the
+    knife round included: it does not know the numbering rule. Dropping them
+    is the stage's job, so the fake has to produce them.
 
     Args:
-        rounds: Kierrostaulu, josta ``round_raw``, ``side`` ja ``lineup_key``
-            luetaan -- avaimet eivät saa erota tauluissa.
-        sample_seconds: Aikapisteet.
-        first_contact_rounds: Ne ``round_raw``-arvot, joilta löytyi ensikontakti.
-        lyhyet: ``round_raw -> kierroksen kesto sekunteina``. Näytepiste, joka
-            ylittää keston, jätetään pois -- kuten oikeassa demossa.
+        rounds: The rounds table from which ``round_raw``, ``side`` and
+            ``lineup_key`` are read -- the keys must not differ between the
+            tables.
+        sample_seconds: The moments in time.
+        first_contact_rounds: The ``round_raw`` values on which first contact
+            was found.
+        short_rounds: ``round_raw -> the round's duration in seconds``. A
+            sample point that exceeds the duration is left out -- as in a real
+            demo.
     """
     duration = short_rounds or {}
     rows: list[dict[str, object]] = []
     for round_row in rounds.iter_rows(named=True):
         raw = round_row["round_raw"]
         if round_row["freeze_end_tick"] is None:
-            continue  # ankkuriton kierros ei tuota näytepisteitä
+            continue  # a round without an anchor produces no sample points
         moments: list[tuple[str, float]] = [
             ("time", s) for s in sample_seconds if s <= duration.get(raw, 1e9)
         ]
@@ -247,8 +258,9 @@ def build_ticks(
     return pl.DataFrame(rows, schema=dict(TICKS_ADAPTER_SCHEMA), orient="row")
 
 
-#: Tunniste, jonka kaikki saman kierroksen kranaatit jakavat, kun
-#: ``build_events(recycle_entity_ids=True)``. Peli tekee juuri näin.
+#: The id that every grenade of the same round shares when
+#: ``build_events(recycle_entity_ids=True)``. This is exactly what the game
+#: does.
 RECYCLED_ENTITY_ID = 564
 
 
@@ -260,35 +272,38 @@ def build_events(
     without_area: tuple[int, ...] = (),
     recycle_entity_ids: bool = False,
 ) -> pl.DataFrame:
-    """Tapahtumataulu ``build_rounds``-taulua vastaavana, kuten adapteri sen antaisi.
+    """An event table matching ``build_rounds``, as the adapter would give it.
 
-    Adapteri tuottaa rivejä **kaikilta ankkuroiduilta** kierrosrajoilta, myös
-    lämmittelystä ja puukkokierrokselta -- se ei tunne numerointisääntöä.
+    The adapter produces rows from **every anchored** round boundary, the
+    warm-up and the knife round included -- it does not know the numbering
+    rule.
 
     Args:
-        rounds: Kierrostaulu, josta ``round_raw``, ``side`` ja ``lineup_key``
-            luetaan; avaimet eivät saa erota tauluissa.
-        per_round: Montako kranaattia kumpikin joukkue heittää kierroksella.
-        unexploded: Ne kranaattien järjestysnumerot, joilta räjähdysrivi
-            puuttuu (1-pohjainen, sama luku kuin ``without_area``ssa).
-        without_area: Ne kranaattien järjestysnumerot, joiden alue jäi
-            tyhjäksi.
-        recycle_entity_ids: Anna kaikille saman kierroksen kranaateille **sama**
-            ``grenade_entity_id``, kuten peli oikeasti tekee
-            (``inferno_vs_ryhmarama`` kierros 11). Vanha avain
-            ``(round_no, grenade_entity_id)`` menee silloin päällekkäin, ja
-            vain ``grenade_no`` erottaa radat.
+        rounds: The rounds table from which ``round_raw``, ``side`` and
+            ``lineup_key`` are read; the keys must not differ between the
+            tables.
+        per_round: How many grenades each team throws in a round.
+        unexploded: The ordinal numbers of the grenades that have no
+            detonation row (1-based, the same number as in
+            ``without_area``).
+        without_area: The ordinal numbers of the grenades whose area came out
+            empty.
+        recycle_entity_ids: Give every grenade of the same round the **same**
+            ``grenade_entity_id``, as the game really does
+            (``inferno_vs_ryhmarama`` round 11). The old key
+            ``(round_no, grenade_entity_id)`` then collides, and only
+            ``grenade_no`` tells the trajectories apart.
 
-    ``grenade_no`` ja ``grenade_entity_id`` saavat **eri arvot**: numerot
-    alkavat 500:sta. Identtisillä arvoilla sarakkeiden menemistä ristiin ei
-    voisi havaita, koska molemmat ovat ``Int32``.
+    ``grenade_no`` and ``grenade_entity_id`` get **different values**: the
+    numbers start from 500. With identical values the columns crossing over
+    could not be observed, because both are ``Int32``.
     """
     rows: list[dict[str, object]] = []
     entity = 0
     number = 500
     for round_row in rounds.iter_rows(named=True):
         if round_row["freeze_end_tick"] is None:
-            continue  # ankkuriton kierros ei tuota tapahtumia
+            continue  # a round without an anchor produces no events
         for index in range(per_round):
             entity += 1
             number += 1
@@ -316,8 +331,9 @@ def build_events(
                         "y": -100.0 * index,
                         "z": 2.0,
                         "area": None if entity in without_area else "Ramp",
-                        # Heiton alue on havainto, räjähdyksen arvio -- kuten
-                        # oikea adapteri ne tuottaa.
+                        # The throw's area is an observation, the
+                        # detonation's an estimate -- as the real adapter
+                        # produces them.
                         "area_source": (
                             None
                             if entity in without_area
@@ -331,12 +347,13 @@ def build_events(
     return pl.DataFrame(rows, schema=dict(EVENTS_ADAPTER_SCHEMA), orient="row")
 
 
-#: Kokoonpanotaulun tyypit portin takana: ``LINEUPS`` ilman ``map_demo_id``:ta.
+#: The lineup table's types behind the port: ``LINEUPS`` without
+#: ``map_demo_id``.
 LINEUPS_ADAPTER_SCHEMA: dict[str, object] = {
     name: LINEUPS[name] for name in LINEUPS_ADAPTER_COLUMNS
 }
 
-#: Klaaninimet, jotka feikki antaa kokoonpanoille. Oikeista demoista mitattuja.
+#: The clan names the fake gives the lineups. Measured from real demos.
 CLANS: dict[str, str] = {"aaa": "MatureMayhem", "bbb": "KALJUKOSTAJA"}
 
 
@@ -346,16 +363,16 @@ def build_lineups(
     without_clan: tuple[str, ...] = (),
     without_name: tuple[str, ...] = (),
 ) -> pl.DataFrame:
-    """Kokoonpanotaulu ``build_rounds``-taulua vastaavana, kuten adapteri sen antaisi.
+    """A lineup table matching ``build_rounds``, as the adapter would give it.
 
-    Rivi per (kokoonpano, pelaaja) ja **ei kierrosnumeroa**: nimi on kartan
-    ominaisuus eikä kierroksen. Pelaajatunnisteet ovat samat kuin
-    ``build_ticks``issa, jotta taulut eivät ole eri mieltä kokoonpanosta.
+    A row per (lineup, player) and **no round number**: the name is a property
+    of the map and not of a round. The player ids are the same as in
+    ``build_ticks``, so that the tables do not disagree about the lineup.
 
     Args:
-        rounds: Kierrostaulu, josta kokoonpanotunnisteet luetaan.
-        without_clan: Ne kokoonpanot, joilta klaaninimi puuttuu.
-        without_name: Ne kokoonpanot, joilta pelaajien nimet puuttuvat.
+        rounds: The rounds table from which the lineup ids are read.
+        without_clan: The lineups that have no clan name.
+        without_name: The lineups whose players have no names.
     """
     rows: list[dict[str, object]] = []
     for lineup in sorted({r["lineup_key"] for r in rounds.iter_rows(named=True)}):
@@ -375,7 +392,8 @@ def build_lineups(
     return pl.DataFrame(rows, schema=dict(LINEUPS_ADAPTER_SCHEMA), orient="row")
 
 
-#: Kuolemataulun tyypit portin takana: ``DEATHS`` ilman ``map_demo_id``:ta.
+#: The deaths table's types behind the port: ``DEATHS`` without
+#: ``map_demo_id``.
 DEATHS_ADAPTER_SCHEMA: dict[str, object] = {
     name: DEATHS[name] for name in DEATHS_ADAPTER_COLUMNS
 }
@@ -389,24 +407,26 @@ def build_deaths(
     without_victim_area: tuple[int, ...] = (),
     without_attacker_area: tuple[int, ...] = (),
 ) -> pl.DataFrame:
-    """Kuolemataulu ``build_rounds``-taulua vastaavana, kuten adapteri sen antaisi.
+    """A deaths table matching ``build_rounds``, as the adapter would give it.
 
-    Adapteri tuottaa rivejä **kaikilta ankkuroiduilta** kierrosrajoilta, myös
-    lämmittelystä ja puukkokierrokselta: puukkokierroksella kuollaan
-    oikeasti, eikä adapteri tunne numerointisääntöä.
+    The adapter produces rows from **every anchored** round boundary, the
+    warm-up and the knife round included: people really do die on the knife
+    round, and the adapter does not know the numbering rule.
 
-    Kuolema kirjataan T-puolen rivin näkökulmasta: uhri on T-kokoonpanosta ja
-    ampuja CT-kokoonpanosta. ``rounds`` on pitkä taulu (kaksi riviä per
-    kierros), joten vain toinen puoli luetaan -- muuten jokainen kuolema
-    syntyisi kahdesti.
+    The death is recorded from the point of view of the T-side row: the victim
+    is from the T lineup and the attacker from the CT lineup. ``rounds`` is a
+    long table (two rows per round), so only one side is read -- otherwise
+    every death would be born twice.
 
     Args:
-        rounds: Kierrostaulu, josta ``round_raw`` ja kokoonpanot luetaan.
-        per_round: Montako kuolemaa kierroksella.
-        without_attacker: Ne kuolemien järjestysnumerot (1-pohjainen), joilta
-            ampuja puuttuu kokonaan -- putoaminen tai pommi.
-        without_victim_area: Numerot, joilta uhrin alue puuttuu.
-        without_attacker_area: Numerot, joilta **vain** ampujan alue puuttuu.
+        rounds: The rounds table from which ``round_raw`` and the lineups are
+            read.
+        per_round: How many deaths in a round.
+        without_attacker: The ordinal numbers of the deaths (1-based) that
+            have no attacker at all -- a fall or the bomb.
+        without_victim_area: The numbers that have no victim area.
+        without_attacker_area: The numbers that are missing **only** the
+            attacker's area.
     """
     sides = {
         row["side"]: row["lineup_key"] for row in rounds.iter_rows(named=True)
@@ -458,7 +478,7 @@ def build_deaths(
 
 
 class FakeParser:
-    """Portin toteutus, joka ei koske demoparser2:een."""
+    """An implementation of the port that does not touch demoparser2."""
 
     def __init__(
         self,
@@ -500,7 +520,7 @@ class FakeParser:
         )
 
 
-# --- Kiinnikkeet ---------------------------------------------------------------
+# --- Fixtures --------------------------------------------------------------
 
 
 @pytest.fixture
@@ -512,7 +532,7 @@ def archive(tmp_path: Path) -> ArchivePaths:
 
 @pytest.fixture
 def demo(archive: ArchivePaths) -> Path:
-    """Demon paikkamerkki: feikki ei lue sisältöä, mutta polun on oltava aito."""
+    """A placeholder demo: the fake reads no content, the path must be real."""
     path = archive.import_dir() / f"{MAP_DEMO_ID}.dem"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"PBDEMS2\x00" + b"x" * 1024)
@@ -530,7 +550,7 @@ def run_parse(settings, archive, parser, demo, **kwargs):
     )
 
 
-# --- Onnistunut ajo ------------------------------------------------------------
+# --- A successful run --------------------------------------------------------
 
 
 def test_writes_a_valid_rounds_table(parse_settings, archive, demo) -> None:
@@ -553,7 +573,7 @@ def test_writes_a_valid_rounds_table(parse_settings, archive, demo) -> None:
 def test_numbering_columns_never_reach_the_archive(
     parse_settings, archive, demo
 ) -> None:
-    """``score_start`` ja ``score_end`` ovat portin sisäisiä työkaluja."""
+    """``score_start`` and ``score_end`` are the port's internal tools."""
     run_parse(parse_settings, archive, FakeParser(), demo)
     df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "rounds"))
     assert "score_start" not in df.columns
@@ -568,14 +588,15 @@ def test_unplayed_rounds_stay_out_of_the_table_but_are_counted(
     assert df["round_no"].null_count() == 0
     assert df.height == 4
     assert result.stats["skipped_rounds"] == 3
-    # round_raw säilyy demon omana numerona, joten ohitus näkyy aukkona.
+    # round_raw stays the demo's own number, so the skip shows as a gap.
     assert sorted(df["round_raw"].unique().to_list()) == [4, 5]
 
 
 def test_round_without_a_freeze_anchor_stays_in_the_table(
     parse_settings, archive, demo
 ) -> None:
-    """Puuttuva ankkuri ei kaada ajoa: kierros on mukana omalla tilallaan."""
+    """A missing anchor does not fail the run: the round is in with its own
+    status."""
     frame = build_rounds(3, warmup=0, without_anchor=(2,))
     result = run_parse(parse_settings, archive, FakeParser(frame), demo)
 
@@ -612,7 +633,7 @@ def test_writes_a_manifest_with_only_the_parse_section(
 def test_demo_hash_is_read_from_meta_not_recomputed(
     parse_settings, archive, demo
 ) -> None:
-    """233 MB:n sha256 jokaisella ajolla olisi hitaampi kuin itse parsinta."""
+    """A sha256 over 233 MB on every run would be slower than the parse."""
     meta_path = archive.demo_meta(MAP_DEMO_ID)
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     meta_path.write_text(json.dumps({"sha256": "kokeiltu-tiiviste"}), encoding="utf-8")
@@ -633,11 +654,11 @@ def test_rows_are_sorted_by_round(parse_settings, archive, demo) -> None:
     assert df["round_no"].to_list() == sorted(df["round_no"].to_list())
 
 
-# --- Näytepistetaulu -----------------------------------------------------------
+# --- The sample-point table --------------------------------------------------
 
 
 def test_writes_a_valid_ticks_table(parse_settings, archive, demo) -> None:
-    """Hyväksymiskriteeri: ``ticks.parquet`` läpäisee ``validate(TICKS)``."""
+    """Acceptance criterion: ``ticks.parquet`` passes ``validate(TICKS)``."""
     rounds = build_rounds(played=3, warmup=0)
     result = run_parse(
         parse_settings, archive, FakeParser(rounds, ticks=build_ticks(rounds)), demo
@@ -649,10 +670,10 @@ def test_writes_a_valid_ticks_table(parse_settings, archive, demo) -> None:
     assert list(df.columns) == list(TICKS)
     assert df.schema == dict(TICKS)
     assert df["map_demo_id"].unique().to_list() == [MAP_DEMO_ID]
-    # 3 kierrosta x 2 joukkuetta x 2 näytepistettä x 5 pelaajaa.
+    # 3 rounds x 2 teams x 2 sample points x 5 players.
     assert df.height == 60
     assert result.stats["tick_rows"] == 60
-    assert result.stats["sample_points"] == 6  # kierros x hetki
+    assert result.stats["sample_points"] == 6  # round x moment
     assert result.stats["sample_rounds"] == 3
 
 
@@ -674,24 +695,24 @@ def test_all_seven_tables_are_listed_among_the_outputs(
 def test_ticks_get_the_round_number_from_the_rounds_table(
     parse_settings, archive, demo
 ) -> None:
-    """Numeroinnin omistaa domain.rounds; vaihe vain liittää sen."""
+    """The numbering belongs to domain.rounds; the stage only joins it."""
     rounds = build_rounds(played=3, warmup=0)
     run_parse(parse_settings, archive, FakeParser(rounds, ticks=build_ticks(rounds)), demo)
     df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "ticks"))
 
     assert df["round_no"].null_count() == 0
     assert sorted(df["round_no"].unique().to_list()) == [1, 2, 3]
-    # round_raw säilyy demon omana numerona rinnalla.
+    # round_raw stays alongside as the demo's own number.
     pairs = set(zip(df["round_raw"].to_list(), df["round_no"].to_list()))
     assert pairs == {(1, 1), (2, 2), (3, 3)}
 
 
 def test_unnumbered_rounds_produce_no_tick_rows(parse_settings, archive, demo) -> None:
-    """I/O-matriisi: warmup ja puukkokierros -> ei tick-rivejä.
+    """I/O matrix: the warm-up and the knife round -> no tick rows.
 
-    Adapteri näytteistää ne, koska se ei tunne numerointisääntöä; tämä testi
-    lukitsee sen, että vaihe pudottaa ne samalla päätöksellä kuin
-    kierrostaulusta.
+    The adapter samples them because it does not know the numbering rule;
+    this test locks in that the stage drops them by the same decision as from
+    the rounds table.
     """
     rounds = build_rounds(played=2, warmup=3)
     result = run_parse(
@@ -700,7 +721,7 @@ def test_unnumbered_rounds_produce_no_tick_rows(parse_settings, archive, demo) -
     df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "ticks"))
 
     assert sorted(df["round_no"].unique().to_list()) == [1, 2]
-    # Numeroimattomat round_raw-arvot 1..3 eivät ole taulussa.
+    # The unnumbered round_raw values 1..3 are not in the table.
     assert sorted(df["round_raw"].unique().to_list()) == [4, 5]
     assert result.stats["skipped_rounds"] == 3
 
@@ -708,7 +729,7 @@ def test_unnumbered_rounds_produce_no_tick_rows(parse_settings, archive, demo) -
 def test_a_round_without_an_anchor_has_no_tick_rows(
     parse_settings, archive, demo
 ) -> None:
-    """I/O-matriisi: ankkuriton kierros on rounds-taulussa mutta ei ticksissä."""
+    """I/O matrix: a round without an anchor is in rounds but not in ticks."""
     rounds = build_rounds(3, warmup=0, without_anchor=(2,))
     run_parse(parse_settings, archive, FakeParser(rounds, ticks=build_ticks(rounds)), demo)
 
@@ -721,9 +742,9 @@ def test_a_round_without_an_anchor_has_no_tick_rows(
 def test_a_short_round_keeps_only_the_points_it_reached(
     parse_settings, archive, demo
 ) -> None:
-    """Hyväksymiskriteeri: ei näytepistettä kierroksen päättymisen jälkeen."""
+    """Acceptance criterion: no sample point after the round has ended."""
     rounds = build_rounds(played=2, warmup=0)
-    ticks = build_ticks(rounds, short_rounds={2: 10.0})  # round_raw 2 ratkesi 10 s
+    ticks = build_ticks(rounds, short_rounds={2: 10.0})  # round_raw 2 ended at 10 s
     run_parse(parse_settings, archive, FakeParser(rounds, ticks=ticks), demo)
 
     df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "ticks"))
@@ -749,7 +770,7 @@ def test_first_contact_rows_are_counted_separately(
 def test_lineup_keys_join_across_the_two_tables(
     parse_settings, archive, demo
 ) -> None:
-    """Liitos ``(map_demo_id, round_no)`` ei saa mennä ristiin joukkueissa."""
+    """The join ``(map_demo_id, round_no)`` must not cross the teams over."""
     run_parse(parse_settings, archive, FakeParser(), demo)
     rounds_list = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "rounds"))
     ticks = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "ticks"))
@@ -774,7 +795,7 @@ def test_ticks_rows_are_sorted_by_round_and_time(
 def test_the_stage_passes_the_configured_sample_seconds_to_the_port(
     parse_settings, archive, demo
 ) -> None:
-    """Näytepisteajat ovat asetus eivätkä koodia (AD-3)."""
+    """The sample-point times are a setting and not code (AD-3)."""
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
     assert parser.seen_seconds == [tuple(parse_settings.snapshot_seconds)]
@@ -788,7 +809,7 @@ def test_a_ticks_table_breaking_the_port_contract_is_rejected(
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(rounds, ticks=broken), demo)
     assert "area" in str(exc.value)
-    assert "näytepistetaulun" in str(exc.value)
+    assert "sample-point table" in str(exc.value)
 
 
 def test_an_extra_ticks_column_is_a_contract_break_too(
@@ -809,7 +830,7 @@ def test_a_lineups_table_breaking_the_port_contract_is_rejected(
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(rounds, lineups=broken), demo)
     assert "clan_name" in str(exc.value)
-    assert "kokoonpanotaulun" in str(exc.value)
+    assert "lineup table" in str(exc.value)
 
 
 def test_an_extra_lineups_column_is_a_contract_break_too(
@@ -820,23 +841,23 @@ def test_an_extra_lineups_column_is_a_contract_break_too(
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(rounds, lineups=broken), demo)
     assert "ylimaarainen" in str(exc.value)
-    assert "kokoonpanotaulun" in str(exc.value)
+    assert "lineup table" in str(exc.value)
 
 
 def test_an_empty_ticks_table_with_rounds_is_refused(
     parse_settings, archive, demo
 ) -> None:
-    """Kierroksia mutta ei yhtään näytepistettä on virhe, ei ok-tulos.
+    """Rounds but not a single sample point is an error, not an ok result.
 
-    Tyhjä asetelmataulu jäisi manifestin perusteella pysyvästi ohitetuksi, ja
-    aggregointi raportoisi kartan ilman yhtään asetelmaa -- tasan se hiljainen
-    tyhjyys, jonka koko sopimuksen on tarkoitus estää.
+    An empty setup table would stay permanently skipped on the strength of
+    the manifest, and aggregation would report a map without a single setup
+    -- exactly the silent emptiness the whole contract is meant to prevent.
     """
     rounds = build_rounds(played=2, warmup=0)
     empty = pl.DataFrame(schema=dict(TICKS_ADAPTER_SCHEMA))
     with pytest.raises(ParseError) as exc:
         run_parse(parse_settings, archive, FakeParser(rounds, ticks=empty), demo)
-    assert "näytepistettä" in str(exc.value)
+    assert "not a single sample point" in str(exc.value)
 
     assert not archive.parsed_table(MAP_DEMO_ID, "ticks").exists()
     assert Manifest.read(archive.parsed_manifest(MAP_DEMO_ID)).status == "parse_failed"
@@ -854,7 +875,7 @@ def test_a_failure_leaves_no_partial_ticks_table(
 def test_a_missing_ticks_table_forces_a_reparse(
     parse_settings, archive, demo
 ) -> None:
-    """Puolikas tulos ei ole ajantasainen tulos."""
+    """Half a result is not an up-to-date result."""
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
     archive.parsed_table(MAP_DEMO_ID, "ticks").unlink()
@@ -867,19 +888,20 @@ def test_a_missing_ticks_table_forces_a_reparse(
 def test_an_archive_parsed_by_an_older_version_is_reparsed(
     parse_settings, archive, demo
 ) -> None:
-    """Story 1.3:n arkisto ei saa jäädä ilman ``ticks.parquet``-taulua.
+    """A Story 1.3 archive must not be left without a ``ticks.parquet``.
 
-    ``ParseSettings`` ei muuttunut Story 2.1:ssä, joten ``params_hash`` on
-    identtinen. Manifestin ``outputs_present()`` tarkistaa vain ne polut, jotka
-    **levyllä oleva** manifesti nimeää -- ja vanha manifesti nimeää vain
-    kierrostaulun. Ilman erillistä tarkistusta ajo ohitettaisiin, asetelmataulu
-    ei syntyisi koskaan, ja käyttäjälle kerrottaisiin "Tulos on ajan tasalla".
+    ``ParseSettings`` did not change in Story 2.1, so ``params_hash`` is
+    identical. The manifest's ``outputs_present()`` checks only the paths the
+    manifest **on disk** names -- and the old manifest names only the rounds
+    table. Without a separate check the run would be skipped, the setup table
+    would never be born, and the user would be told "the result is up to
+    date".
     """
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
 
-    # Kelaa arkisto Story 1.3:n muotoon: manifesti nimeää vain rounds-taulun
-    # ja ticks-taulua ei ole.
+    # Wind the archive back to Story 1.3's shape: the manifest names only the
+    # rounds table and there is no ticks table.
     manifest_path = archive.parsed_manifest(MAP_DEMO_ID)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["outputs"] = [f"parsed/{MAP_DEMO_ID}/rounds.parquet"]
@@ -888,7 +910,7 @@ def test_an_archive_parsed_by_an_older_version_is_reparsed(
 
     result = run_parse(parse_settings, archive, parser, demo)
 
-    assert not result.skipped, "vanha arkisto olisi jäänyt ilman asetelmataulua"
+    assert not result.skipped, "the old archive would have been left without a setup table"
     assert parser.calls == 2
     assert archive.parsed_table(MAP_DEMO_ID, "ticks").is_file()
 
@@ -896,11 +918,12 @@ def test_an_archive_parsed_by_an_older_version_is_reparsed(
 def test_a_failed_second_write_never_looks_up_to_date(
     parse_settings, archive, demo, monkeypatch
 ) -> None:
-    """Kolmen taulun kirjoitus on yksi tapahtuma.
+    """Writing the three tables is one transaction.
 
-    Jos ticks-kirjoitus kaatuu peräkkäisissä lohkoissa, arkistoon jäisi
-    kierrostaulu ilman pariaan -- ja koska manifesti kirjoitettaisiin silti,
-    seuraava ajo ohittaisi vaiheen ja kertoisi iloisesti kierrosmäärän.
+    If the ticks write fails in successive blocks, the archive would be left
+    with a rounds table without its pair -- and because the manifest would be
+    written anyway, the next run would skip the stage and cheerfully give the
+    round count.
     """
     original_write = pl.DataFrame.write_parquet
     calls = {"n": 0}
@@ -919,14 +942,14 @@ def test_a_failed_second_write_never_looks_up_to_date(
 
     monkeypatch.undo()
 
-    # Yksikään taulu ei jäänyt paikalleen, ja manifesti kertoo virheestä.
+    # Not one table was left in place, and the manifest tells of the error.
     assert not archive.parsed_table(MAP_DEMO_ID, "rounds").exists()
     assert not archive.parsed_table(MAP_DEMO_ID, "ticks").exists()
     assert not archive.parsed_table(MAP_DEMO_ID, "events").exists()
     assert not has_temp_leftovers(archive.root)
     assert Manifest.read(archive.parsed_manifest(MAP_DEMO_ID)).status == "parse_failed"
 
-    # Ja seuraava ajo ei ohita.
+    # And the next run does not skip.
     result = run_parse(parse_settings, archive, FakeParser(build_rounds(5, warmup=0)), demo)
     assert not result.skipped
     assert result.stats["rounds"] == 5
@@ -936,10 +959,11 @@ def test_a_failed_second_write_never_looks_up_to_date(
 def test_ticks_are_sorted_deterministically_by_kind_too(
     parse_settings, archive, demo
 ) -> None:
-    """Ensikontakti voi osua tasan konfiguroidulle sekunnille.
+    """First contact can land on exactly the configured second.
 
-    Ilman ``sample_kind``ia lajitteluavaimessa kahden rivin järjestys riippuisi
-    syötejärjestyksestä, ja sama demo tuottaisi eri tavut eri ajoilla.
+    Without ``sample_kind`` in the sort key, the order of two rows would
+    depend on the input order, and the same demo would produce different bytes
+    on different runs.
     """
     rounds = build_rounds(played=2, warmup=0)
     ticks = build_ticks(rounds, first_contact_rounds=(1, 2), contact_t_s=6.0)
@@ -948,9 +972,9 @@ def test_ticks_are_sorted_deterministically_by_kind_too(
     df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "ticks"))
     same_second = df.filter(pl.col("sample_t_s") == 6.0)
     assert set(same_second["sample_kind"].unique()) == {"time", "first_contact"}
-    # sample_kind on Enum, joten Polars lajittelee sen luettelon
-    # järjestyksessä (time, first_contact) eikä aakkosittain. Kumpi tahansa
-    # kelpaa; olennaista on että järjestys on määrätty eikä satunnainen.
+    # sample_kind is an Enum, so Polars sorts it in the order of the list
+    # (time, first_contact) and not alphabetically. Either will do; what
+    # matters is that the order is determined and not random.
     kind_order = {name: index for index, name in enumerate(SAMPLE_KINDS)}
     side_order = {name: index for index, name in enumerate(SIDES)}
     keys = [
@@ -968,7 +992,7 @@ def test_ticks_are_sorted_deterministically_by_kind_too(
 def test_unreadable_ticks_do_not_hide_the_round_counts(
     parse_settings, archive, demo
 ) -> None:
-    """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
+    """One broken table must not take another's numbers away."""
     run_parse(parse_settings, archive, FakeParser(build_rounds(played=4, warmup=0)), demo)
     archive.parsed_table(MAP_DEMO_ID, "ticks").write_bytes(b"ei parquetia")
 
@@ -982,22 +1006,23 @@ def test_unreadable_ticks_do_not_hide_the_round_counts(
 def test_skipped_run_reports_the_tick_counts_too(
     parse_settings, archive, demo
 ) -> None:
-    """Ohitettu ajo lukee luvut valmiista tauluista, ei parsi demoa."""
+    """A skipped run reads the numbers from the finished tables, not the
+    demo."""
     rounds = build_rounds(played=3, warmup=0)
     ticks = build_ticks(rounds, first_contact_rounds=(2,))
     run_parse(parse_settings, archive, FakeParser(rounds, ticks=ticks), demo)
 
     result = run_parse(parse_settings, archive, FakeParser(rounds, ticks=ticks), demo)
     assert result.skipped
-    assert result.stats["tick_rows"] == 70  # 60 aikapistettä + 10 ensikontaktia
+    assert result.stats["tick_rows"] == 70  # 60 time points + 10 first contacts
     assert result.stats["first_contact_rounds"] == 1
 
 
-# --- Tapahtumataulu ------------------------------------------------------------
+# --- The event table -----------------------------------------------------------
 
 
 def test_writes_a_valid_events_table(parse_settings, archive, demo) -> None:
-    """Hyväksymiskriteeri: ``events.parquet`` läpäisee ``validate(EVENTS)``."""
+    """Acceptance criterion: ``events.parquet`` passes ``validate(EVENTS)``."""
     rounds = build_rounds(played=3, warmup=0)
     result = run_parse(
         parse_settings, archive, FakeParser(rounds, events=build_events(rounds)), demo
@@ -1009,7 +1034,7 @@ def test_writes_a_valid_events_table(parse_settings, archive, demo) -> None:
     assert list(df.columns) == list(EVENTS)
     assert df.schema == dict(EVENTS)
     assert df["map_demo_id"].unique().to_list() == [MAP_DEMO_ID]
-    # 3 kierrosta x 2 joukkuetta x 2 kranaattia x 2 riviä.
+    # 3 rounds x 2 teams x 2 grenades x 2 rows.
     assert df.height == 24
     assert result.stats["event_rows"] == 24
     assert result.stats["utility_throws"] == 12
@@ -1020,7 +1045,7 @@ def test_writes_a_valid_events_table(parse_settings, archive, demo) -> None:
 def test_every_grenade_has_at_most_one_throw_and_one_detonation(
     parse_settings, archive, demo
 ) -> None:
-    """Hyväksymiskriteeri: pari on pari, ei kolmea riviä."""
+    """Acceptance criterion: a pair is a pair, not three rows."""
     rounds = build_rounds(played=4, warmup=0)
     run_parse(parse_settings, archive, FakeParser(rounds, events=build_events(rounds)), demo)
 
@@ -1032,15 +1057,15 @@ def test_every_grenade_has_at_most_one_throw_and_one_detonation(
 def test_the_trajectory_id_is_unique_in_the_written_table(
     parse_settings, archive, demo
 ) -> None:
-    """Hyväksymiskriteeri: ``(grenade_no, event_kind)`` on yksikäsitteinen.
+    """Acceptance criterion: ``(grenade_no, event_kind)`` is unique.
 
-    Aineistossa **on** kierrätetty tunniste, joten vanha avain menee
-    päällekkäin samassa taulussa. Ilman sitä testi menisi läpi myös silloin,
-    kun ``grenade_no`` ei tee mitään.
+    The material **does** hold a recycled id, so the old key collides within
+    the same table. Without that the test would also pass when ``grenade_no``
+    does nothing.
 
-    Väite koskee koko taulua, ei kierrosta: kierroskohtainen tunniste
-    näyttäisi tässä yhtä hyvältä, mutta pettäisi heti kun aggregointi liittää
-    monta kierrosta yhteen kehykseen.
+    The claim concerns the whole table, not a round: a per-round id would look
+    just as good here, but would fail the moment aggregation joins many rounds
+    into one frame.
     """
     rounds = build_rounds(played=4, warmup=0)
     events = build_events(rounds, recycle_entity_ids=True)
@@ -1050,7 +1075,7 @@ def test_the_trajectory_id_is_unique_in_the_written_table(
     assert df["grenade_no"].null_count() == 0
     assert df.select("map_demo_id", "grenade_no", "event_kind").is_unique().all()
 
-    # Vanha avain **ei** ole yksikäsitteinen tässä samassa taulussa.
+    # The old key is **not** unique in this same table.
     old_key = df.select("map_demo_id", "round_no", "grenade_entity_id", "event_kind")
     assert not old_key.is_unique().all()
 
@@ -1058,12 +1083,12 @@ def test_the_trajectory_id_is_unique_in_the_written_table(
 def test_joining_utility_on_the_new_key_does_not_duplicate_rows(
     parse_settings, archive, demo
 ) -> None:
-    """Hyväksymiskriteeri: liitos uudella tunnisteella ei monista rivejä.
+    """Acceptance criterion: a join on the new id does not multiply rows.
 
-    Liitos tehdään taulusta itseensä avaimella, koska juuri se on väite:
-    avaimella haettu rivi on yksi rivi. Sama liitos vanhalla avaimella
-    monistaa rivit, ja molemmat luvut tarkistetaan -- muuten testi menisi
-    läpi myös taululla, jossa avainta ei ole lainkaan.
+    The join is made from the table to itself on the key, because that is the
+    claim: a row fetched by the key is one row. The same join on the old key
+    multiplies the rows, and both numbers are checked -- otherwise the test
+    would also pass on a table that has no key at all.
     """
     rounds = build_rounds(played=3, warmup=0)
     events = build_events(rounds, recycle_entity_ids=True)
@@ -1082,11 +1107,12 @@ def test_joining_utility_on_the_new_key_does_not_duplicate_rows(
 def test_the_stage_passes_the_adapters_numbers_through_unchanged(
     parse_settings, archive, demo
 ) -> None:
-    """Vaihe ei numeroi rivejä uudelleen -- numero tulee adapterilta.
+    """The stage does not renumber the rows -- the number comes from the
+    adapter.
 
-    Ilman tätä vaihe voisi antaa omat juoksevat numeronsa, ja jokainen muu
-    uusi testi menisi silti läpi: tulos olisi yhä yksikäsitteinen, mutta se ei
-    olisi enää sama tunniste kuin lentoradalla.
+    Without this the stage could give running numbers of its own, and every
+    other new test would still pass: the result would still be unique, but it
+    would no longer be the same id as the trajectory's.
     """
     rounds = build_rounds(played=3, warmup=2)
     events = build_events(rounds)
@@ -1105,26 +1131,26 @@ def test_the_stage_passes_the_adapters_numbers_through_unchanged(
             events["t_s"].to_list(),
         )
     )
-    # Numeroimattomien kierrosten rivit putoavat; jäljelle jääneet kantavat
-    # adapterin numeron sellaisenaan, ja numero osoittaa samaan tapahtumaan.
+    # The rows of unnumbered rounds fall away; those that remain carry the
+    # adapter's number as it stands, and the number points at the same event.
     assert written
     assert set(written) < set(given)
     for key, t_s in written.items():
         assert given[key] == t_s
 
-    # Ja numerot alkavat 500:sta kuten adapteri ne antoi -- vaihe ei
-    # uudelleennumeroi nollasta.
+    # And the numbers start from 500 as the adapter gave them -- the stage
+    # does not renumber from zero.
     assert min(no for no, _ in written) >= 500
 
 
 def test_a_duplicate_trajectory_id_is_refused(
     parse_settings, archive, demo
 ) -> None:
-    """Sopimusrikko nostetaan virheenä eikä kirjoiteta arkistoon.
+    """A contract break is raised as an error and not written to the archive.
 
-    ``validate`` tarkistaa sarakkeet ja tyypit muttei avainta, joten
-    kaksoiskappale läpäisisi sen ja näkyisi vasta raportin luvuissa
-    kaksinkertaisena savuna.
+    ``validate`` checks the columns and the types but not the key, so a
+    duplicate would pass it and would show only in the report's numbers, as
+    smoke counted twice.
     """
     rounds = build_rounds(played=2, warmup=0)
     events = build_events(rounds)
@@ -1141,7 +1167,7 @@ def test_a_duplicate_trajectory_id_is_refused(
 def test_a_missing_trajectory_id_is_refused(
     parse_settings, archive, demo
 ) -> None:
-    """Tyhjä numero jättäisi rivin ilman sidettä pariinsa."""
+    """An empty number would leave the row with no tie to its pair."""
     rounds = build_rounds(played=2, warmup=0)
     events = build_events(rounds)
     broken = events.with_columns(
@@ -1156,13 +1182,14 @@ def test_a_missing_trajectory_id_is_refused(
 def test_a_stale_table_missing_a_column_is_reparsed(
     parse_settings, archive, demo
 ) -> None:
-    """Skeemamuutos mitätöi arkiston, vaikka manifestiin ei kosketa.
+    """A schema change invalidates the archive without touching the manifest.
 
-    Parametrihash lasketaan ``[parse]``-osiosta ja demoparser2:n versiosta
-    (AD-3), eikä kumpikaan liiku, kun ``EVENTS`` saa uuden sarakkeen. Ilman
-    skeematarkistusta vanha taulu jäisi hiljaa voimaan ja näyttäisi
-    ajantasaiselta. Kolme muuta "vanha arkisto" -testiä eivät kata tätä: kaksi
-    poistaa tiedoston ja kolmas ylikirjoittaa ``params_hash``in.
+    The parameter hash is computed from the ``[parse]`` section and
+    demoparser2's version (AD-3), and neither moves when ``EVENTS`` gains a
+    new column. Without the schema check the old table would stay silently in
+    force and would look up to date. The three other "old archive" tests do
+    not cover this: two delete a file and the third overwrites
+    ``params_hash``.
     """
     parser = FakeParser(build_rounds(played=3, warmup=0))
     run_parse(parse_settings, archive, parser, demo)
@@ -1178,14 +1205,15 @@ def test_a_stale_table_missing_a_column_is_reparsed(
     fresh = pl.read_parquet(table)
     assert "grenade_no" in fresh.columns
     assert fresh.schema == dict(EVENTS)
-    # Manifesti oli koko ajan täsmäävä -- uudelleenajon laukaisi skeema.
+    # The manifest matched the whole time -- the rerun was set off by the
+    # schema.
     assert manifest_before != ""
 
 
 def test_an_unexploded_grenade_has_no_invented_detonation(
     parse_settings, archive, demo
 ) -> None:
-    """I/O-matriisi: rata katkeaa -> vain ``grenade_thrown``."""
+    """I/O matrix: the trajectory breaks off -> only ``grenade_thrown``."""
     rounds = build_rounds(played=2, warmup=0)
     events = build_events(rounds, unexploded=(1,))
     result = run_parse(parse_settings, archive, FakeParser(rounds, events=events), demo)
@@ -1210,7 +1238,7 @@ def test_events_get_the_round_number_from_the_rounds_table(
 def test_unnumbered_rounds_produce_no_event_rows(
     parse_settings, archive, demo
 ) -> None:
-    """I/O-matriisi: heitto numeroimattomalla kierroksella -> ei rivejä."""
+    """I/O matrix: a throw on an unnumbered round -> no rows."""
     rounds = build_rounds(played=2, warmup=3)
     run_parse(parse_settings, archive, FakeParser(rounds, events=build_events(rounds)), demo)
     df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "events"))
@@ -1222,7 +1250,7 @@ def test_unnumbered_rounds_produce_no_event_rows(
 def test_a_round_without_an_anchor_has_no_event_rows(
     parse_settings, archive, demo
 ) -> None:
-    """I/O-matriisi: ankkuriton kierros -> ei rivejä (``t_s`` ei määritelty)."""
+    """I/O matrix: a round without an anchor -> no rows (``t_s`` undefined)."""
     rounds = build_rounds(3, warmup=0, without_anchor=(2,))
     run_parse(parse_settings, archive, FakeParser(rounds, events=build_events(rounds)), demo)
 
@@ -1233,11 +1261,12 @@ def test_a_round_without_an_anchor_has_no_event_rows(
 def test_an_empty_events_table_is_a_valid_result(
     parse_settings, archive, demo
 ) -> None:
-    """I/O-matriisi: demo ilman utilityä -> tyhjä ``events.parquet``.
+    """I/O matrix: a demo without utility -> an empty ``events.parquet``.
 
-    Toisin kuin tyhjä kierros- tai näytepistetaulu, tämä ei ole virhe: demossa
-    on aina pelattuja kierroksia, mutta utility voi aidosti puuttua. Virhe
-    estäisi koko demon parsinnan tiedosta, joka on itsessään havainto.
+    Unlike an empty rounds or sample-point table, this is not an error: a demo
+    always holds played rounds, but utility can genuinely be absent. An error
+    would block the parse of the whole demo over a piece of information that
+    is itself an observation.
     """
     rounds = build_rounds(played=2, warmup=0)
     empty = pl.DataFrame(schema=dict(EVENTS_ADAPTER_SCHEMA))
@@ -1254,15 +1283,16 @@ def test_an_empty_events_table_is_a_valid_result(
 
 
 def test_events_without_an_area_are_counted(parse_settings, archive, demo) -> None:
-    """I/O-matriisi: räjähdys kaukana kaikista -> ``area = null``, ei pudotusta."""
+    """I/O matrix: a detonation far from everything -> ``area = null``, no
+    drop."""
     rounds = build_rounds(played=2, warmup=0)
     events = build_events(rounds, without_area=(2, 4))
     result = run_parse(parse_settings, archive, FakeParser(rounds, events=events), demo)
 
     df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "events"))
     without_area_rows = df.filter(pl.col("area").is_null())
-    assert without_area_rows.height == 4  # kaksi kranaattia x kaksi riviä
-    # Koordinaatit säilyvät, vaikka alue ei ratkennut.
+    assert without_area_rows.height == 4  # two grenades x two rows
+    # The coordinates survive although the area was not settled.
     assert without_area_rows["x"].null_count() == 0
     assert without_area_rows["area_source"].null_count() == 4
     assert result.stats["utility_without_area"] == 4
@@ -1271,10 +1301,11 @@ def test_events_without_an_area_are_counted(parse_settings, archive, demo) -> No
 def test_observed_and_derived_areas_are_counted_separately(
     parse_settings, archive, demo
 ) -> None:
-    """Havainto ja arvio ovat eri laatua olevaa tietoa eivätkä saa niputtua.
+    """An observation and an estimate are different kinds of information and
+    must not be bundled.
 
-    Ilman erottelua raportti esittäisi räjähdyksen arvion yhtä varmana kuin
-    heittäjän oman alueen.
+    Without the distinction the report would present the detonation's estimate
+    as being as certain as the thrower's own area.
     """
     rounds = build_rounds(played=2, warmup=0)
     result = run_parse(
@@ -1286,7 +1317,8 @@ def test_observed_and_derived_areas_are_counted_separately(
     detonations = df.filter(pl.col("event_kind") == "grenade_detonate")
     assert throws["area_source"].unique().to_list() == ["observed"]
     assert detonations["area_source"].unique().to_list() == ["point_cloud"]
-    # Napsautusetäisyys on vain arviolla -- havainto ei ole minkään päässä.
+    # Only the estimate has a snap distance -- an observation is no distance
+    # away from anything.
     assert throws["snap_distance"].null_count() == throws.height
     assert detonations["snap_distance"].null_count() == 0
     assert result.stats["utility_area_observed"] == throws.height
@@ -1296,19 +1328,20 @@ def test_observed_and_derived_areas_are_counted_separately(
 def test_utility_on_unnumbered_rounds_is_counted_not_just_dropped(
     parse_settings, archive, demo
 ) -> None:
-    """Kolme muuta pudotussyytä raportoidaan -- tämä ei saa olla poikkeus."""
+    """The three other drop reasons are reported -- this must not be an
+    exception."""
     rounds = build_rounds(played=2, warmup=3)
     result = run_parse(
         parse_settings, archive, FakeParser(rounds, events=build_events(rounds)), demo
     )
-    # 3 numeroimatonta kierrosta x 2 joukkuetta x 2 kranaattia = 12 heittoa.
+    # 3 unnumbered rounds x 2 teams x 2 grenades = 12 throws.
     assert result.stats["utility_unnumbered_rounds"] == 12
 
 
 def test_lineup_keys_join_from_events_to_rounds(
     parse_settings, archive, demo
 ) -> None:
-    """Heittäjän joukkue on sama kuin kierrostaulussa; ei ristiinkytkentää."""
+    """The thrower's team is the same as in the rounds table; no crossover."""
     run_parse(parse_settings, archive, FakeParser(), demo)
     rounds_list = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "rounds"))
     events = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "events"))
@@ -1324,7 +1357,7 @@ def test_lineup_keys_join_from_events_to_rounds(
 def test_event_rows_are_sorted_deterministically(
     parse_settings, archive, demo
 ) -> None:
-    """Saman kranaatin heitto tulee aina ennen sen räjähdystä."""
+    """A grenade's throw always comes before its own detonation."""
     rounds = build_rounds(played=3, warmup=0)
     run_parse(parse_settings, archive, FakeParser(rounds, events=build_events(rounds)), demo)
 
@@ -1343,13 +1376,13 @@ def test_an_events_table_breaking_the_port_contract_is_rejected(
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(rounds, events=broken), demo)
     assert "area" in str(exc.value)
-    assert "tapahtumataulun" in str(exc.value)
+    assert "event table" in str(exc.value)
 
 
 def test_a_missing_events_table_forces_a_reparse(
     parse_settings, archive, demo
 ) -> None:
-    """Puolikas tulos ei ole ajantasainen tulos."""
+    """Half a result is not an up-to-date result."""
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
     archive.parsed_table(MAP_DEMO_ID, "events").unlink()
@@ -1362,12 +1395,12 @@ def test_a_missing_events_table_forces_a_reparse(
 def test_an_archive_parsed_before_utility_is_reparsed(
     parse_settings, archive, demo
 ) -> None:
-    """Story 2.1:n arkisto ei saa jäädä ilman ``events.parquet``-taulua.
+    """A Story 2.1 archive must not be left without an ``events.parquet``.
 
-    Sama ansa kuin Story 2.1:ssä: ``ParseSettings`` muuttui vain
-    ``area_snap_units``-kentän oletuksella, ja jos se on sama, ``params_hash``
-    on identtinen. Manifestin ``outputs_present()`` tarkistaa vain ne polut,
-    jotka **levyllä oleva** manifesti nimeää.
+    The same trap as in Story 2.1: ``ParseSettings`` changed only in the
+    default of the ``area_snap_units`` field, and if that is the same,
+    ``params_hash`` is identical. The manifest's ``outputs_present()`` checks
+    only the paths the manifest **on disk** names.
     """
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
@@ -1383,7 +1416,7 @@ def test_an_archive_parsed_before_utility_is_reparsed(
 
     result = run_parse(parse_settings, archive, parser, demo)
 
-    assert not result.skipped, "vanha arkisto olisi jäänyt ilman utility-taulua"
+    assert not result.skipped, "the old archive would have been left without a utility table"
     assert archive.parsed_table(MAP_DEMO_ID, "events").is_file()
 
 
@@ -1414,7 +1447,7 @@ def test_skipped_run_reports_the_event_counts_too(
     assert result.stats["utility_detonations"] == 12
 
 
-# --- Ohitus --------------------------------------------------------------------
+# --- Skipping ------------------------------------------------------------------
 
 
 def test_second_run_is_skipped(parse_settings, archive, demo) -> None:
@@ -1426,10 +1459,10 @@ def test_second_run_is_skipped(parse_settings, archive, demo) -> None:
     result = run_parse(parse_settings, archive, parser, demo)
 
     assert result.skipped
-    assert parser.calls == 1, "demoa ei saa parsia uudelleen"
-    assert table.stat().st_mtime_ns == before, "tiedostoa ei saa kirjoittaa uudelleen"
+    assert parser.calls == 1, "the demo must not be parsed again"
+    assert table.stat().st_mtime_ns == before, "the file must not be written again"
     assert result.stats["rounds"] == 21
-    assert "ajan tasalla" in (result.reason or "")
+    assert "up to date" in (result.reason or "")
 
 
 def test_force_overrides_a_matching_manifest(parse_settings, archive, demo) -> None:
@@ -1442,12 +1475,12 @@ def test_force_overrides_a_matching_manifest(parse_settings, archive, demo) -> N
 
 
 def test_changed_demo_bytes_trigger_a_reparse(parse_settings, archive, demo) -> None:
-    """Pelkkä manifesti ei riitä: vanhentunut tulos ei saa jäädä pysyvästi."""
+    """The manifest alone is not enough: a stale result must not be permanent."""
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
     assert run_parse(parse_settings, archive, parser, demo).skipped
 
-    demo.write_bytes(b"PBDEMS2\x00" + b"y" * 2048)  # eri sisältö ja eri koko
+    demo.write_bytes(b"PBDEMS2\x00" + b"y" * 2048)  # different content, different size
 
     result = run_parse(parse_settings, archive, parser, demo)
     assert not result.skipped
@@ -1457,7 +1490,7 @@ def test_changed_demo_bytes_trigger_a_reparse(parse_settings, archive, demo) -> 
 def test_threshold_change_does_not_trigger_a_reparse(
     tmp_path: Path, archive, demo
 ) -> None:
-    """AD-3: kynnysten säätö ei saa invalidoida parsintaa."""
+    """AD-3: adjusting the thresholds must not invalidate the parse."""
     base_toml = tmp_path / "perus.toml"
     base_toml.write_text(settings_text(archive.root), encoding="utf-8")
     changed_toml = tmp_path / "muutettu.toml"
@@ -1503,13 +1536,15 @@ def test_parse_setting_change_triggers_a_reparse(tmp_path: Path, archive, demo) 
 def test_params_hash_covers_the_weapon_classification(
     parse_settings, monkeypatch
 ) -> None:
-    """Aseluokittelun muutos mitätöi arkiston, vaikka asetukset eivät muutu.
+    """A change to the weapon classification invalidates the archive even
+    though the settings do not change.
 
-    Luokittelu on koodia eikä asetus, joten pelkkä ``[parse]``-osion hash
-    jättäisi sen muutoksen näkymättömäksi: taulu olisi laskettu vanhalla
-    aseluettelolla, manifesti täsmäisi ja arkistoon jäisi hiljaa vanhentunut
-    laskuri. Vaihtoehto olisi käsin nostettava versionumero -- se toimii vain
-    jos kukaan ei unohda.
+    The classification is code and not a setting, so the hash of the
+    ``[parse]`` section alone would leave its change invisible: the table
+    would have been computed with the old weapon list, the manifest would
+    match, and a stale counter would stay silently in the archive. The
+    alternative would be a version number raised by hand -- and that works
+    only if nobody forgets.
     """
     before = parse_stage._params_hash(parse_settings)
     monkeypatch.setattr(
@@ -1521,13 +1556,13 @@ def test_params_hash_covers_the_weapon_classification(
 def test_params_hash_still_covers_the_parse_section(
     tmp_path: Path, archive
 ) -> None:
-    """Hash lasketaan myös koko ``ParseSettings``-osiosta -- todettuna.
+    """The hash covers the whole ``ParseSettings`` section too -- established.
 
-    ``_params_hash`` dumppaa osion sellaisenaan, joten uusi kenttä *pitäisi*
-    tulla hashiin automaattisesti. Juuri siksi se tarkistetaan: hiljainen
-    poikkeus (esim. ``exclude``-lista) jäisi muuten huomaamatta, ja
-    luokittelun tiivisteen lisääminen dictiin on juuri sellainen kohta,
-    jossa osio olisi voinut jäädä pois.
+    ``_params_hash`` dumps the section as it stands, so a new field *should*
+    reach the hash automatically. That is exactly why it is checked: a silent
+    exception (an ``exclude`` list, say) would otherwise go unnoticed, and
+    adding the classification's digest to the dict is precisely the kind of
+    place where the section could have been left out.
     """
     base_toml = tmp_path / "perus.toml"
     base_toml.write_text(settings_text(archive.root), encoding="utf-8")
@@ -1549,12 +1584,14 @@ def test_params_hash_still_covers_the_parse_section(
 def test_params_hash_keeps_the_section_and_the_digest_apart(
     parse_settings, monkeypatch
 ) -> None:
-    """Asetusosio ja tiiviste ovat eri tasoilla, eivät sisaruksina.
+    """The settings section and the digest are on different levels, not
+    siblings.
 
-    Sisarusavaimena samanniminen ``[parse]``-asetus voisi peittää tiivisteen,
-    ja sitä pitäisi torjua vartijalla, jota mikään ei voi laukaista.
-    Kaksitasoinen rakenne tekee törmäyksen mahdottomaksi, ja tämä toteaa
-    että molemmat puolet ovat oikeasti hashissa: kummankin muutos riittää.
+    As a sibling key, a ``[parse]`` setting of the same name could mask the
+    digest, and that would have to be fended off with a guard that nothing can
+    trip. The two-level structure makes the collision impossible, and this
+    establishes that both halves really are in the hash: a change to either is
+    enough.
     """
     before = parse_stage._params_hash(parse_settings)
 
@@ -1571,11 +1608,13 @@ def test_params_hash_keeps_the_section_and_the_digest_apart(
 def test_old_table_without_the_column_is_reparsed_not_rejected(
     parse_settings, archive, demo
 ) -> None:
-    """Arkiston vanha ``rounds.parquet`` ilman uutta saraketta ei kaada ajoa.
+    """An archive's old ``rounds.parquet`` without the new column does not
+    fail the run.
 
-    Vanhan koodin kirjoittama manifesti on hashattu ilman kalustokynnystä,
-    joten ohitusehto ei täyty ja demo parsitaan uudelleen. Skeemavirhe johtaa
-    siis **ajoon**, ei poikkeukseen -- eikä vanha taulu jää hiljaa voimaan.
+    A manifest written by the old code was hashed without the kit threshold,
+    so the skip condition is not met and the demo is parsed again. A schema
+    error therefore leads to **a run**, not to an exception -- and the old
+    table does not stay silently in force.
     """
     parser = FakeParser(build_rounds(played=3))
     run_parse(parse_settings, archive, parser, demo)
@@ -1598,7 +1637,7 @@ def test_old_table_without_the_column_is_reparsed_not_rejected(
 
 
 def test_armed_count_survives_the_write(parse_settings, archive, demo) -> None:
-    """Laskuri kulkee adapterilta levylle asti muuttumattomana."""
+    """The counter travels unchanged from the adapter all the way to disk."""
     run_parse(parse_settings, archive, FakeParser(build_rounds(played=3)), demo)
 
     df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "rounds"))
@@ -1608,15 +1647,16 @@ def test_armed_count_survives_the_write(parse_settings, archive, demo) -> None:
 
 
 def test_run_reports_the_armed_distribution(parse_settings, archive, demo) -> None:
-    """``run()`` palauttaa ne avaimet, joita tuloste lukee.
+    """``run()`` returns the keys the output reads.
 
-    Ilman tätä tuottaja ja kuluttaja testataan vain erikseen: tilastofunktio
-    käsin rakennettua taulua vasten ja tuloste käsin kirjoitettua dictiä
-    vasten. Kun välistä poistettiin ``stats.update(_armed_stats(df))``, 124
-    testiä meni läpi ja "Aseistettuja"-rivi vain katosi tulosteesta.
+    Without this the producer and the consumer are tested only separately: the
+    statistics function against a hand-built table and the output against a
+    hand-written dict. When ``stats.update(_armed_stats(df))`` was removed
+    from between them, 124 tests passed and the "Aseistettuja" line simply
+    vanished from the output.
 
-    ``build_rounds`` antaa T:lle 5 ja CT:lle 4 joka kierroksella, joten
-    jakauma on tarkalleen tiedossa.
+    ``build_rounds`` gives T 5 and CT 4 on every round, so the distribution is
+    known exactly.
     """
     result = run_parse(
         parse_settings, archive, FakeParser(build_rounds(played=3)), demo
@@ -1629,12 +1669,13 @@ def test_run_reports_the_armed_distribution(parse_settings, archive, demo) -> No
 def test_skipped_run_reports_the_armed_distribution_too(
     parse_settings, archive, demo
 ) -> None:
-    """Ohitettu ajo lukee jakauman valmiista taulusta, ei muistista.
+    """A skipped run reads the distribution from the finished table, not from
+    memory.
 
-    Tuntemattomia nimiä ohitettu ajo **ei** raportoi: ne eivät ole taulussa,
-    koska ne eivät aseista ketään, eikä niitä voi lukea takaisin ilman demoa.
-    Puuttuva avain on siis oikea tulos -- keksitty tyhjä lista väittäisi,
-    ettei tuntemattomia ollut.
+    A skipped run does **not** report unknown names: they are not in the
+    table, because they arm nobody, and they cannot be read back without the
+    demo. A missing key is therefore the right result -- an invented empty
+    list would claim there had been no unknowns.
     """
     parser = FakeParser(build_rounds(played=3))
     run_parse(parse_settings, archive, parser, demo)
@@ -1649,32 +1690,33 @@ def test_skipped_run_reports_the_armed_distribution_too(
 def test_armed_distribution_counts_rounds_without_an_anchor_as_missing(
     parse_settings, archive, demo
 ) -> None:
-    """Ankkuriton kierros ei ole nolla vaan puuttuva havainto."""
+    """A round without an anchor is not zero but a missing observation."""
     parser = FakeParser(build_rounds(played=3, without_anchor=(2,)))
     result = run_parse(parse_settings, archive, parser, demo)
 
-    assert result.stats["armed_missing"] == 2  # yksi rivi per joukkue
+    assert result.stats["armed_missing"] == 2  # one row per team
     assert result.stats["armed_distribution"] == {4: 2, 5: 2}
 
 
 def test_armored_count_survives_the_write(parse_settings, archive, demo) -> None:
-    """Panssarilaskuri kulkee adapterilta levylle asti muuttumattomana."""
+    """The armour counter travels unchanged from the adapter to disk."""
     run_parse(parse_settings, archive, FakeParser(build_rounds(played=3)), demo)
 
     df = pl.read_parquet(archive.parsed_table(MAP_DEMO_ID, "rounds"))
     assert df[ARMORED_COLUMN].dtype == pl.Int32
     assert df[ARMORED_COLUMN].to_list() == [5] * 6
-    # Eri sarake eikä sama kahdesti: aseistettujen jakauma on toinen.
+    # A different column and not the same one twice: the armed distribution
+    # is another one.
     assert df[ARMED_COLUMN].to_list() != df[ARMORED_COLUMN].to_list()
 
 
 def test_run_reports_the_armored_distribution(parse_settings, archive, demo) -> None:
-    """``run()`` palauttaa ne avaimet, joita panssaririvi lukee.
+    """``run()`` returns the keys the armour line reads.
 
-    Sama kytkentätesti kuin aseistettujen jakaumalla ja samasta syystä: ilman
-    sitä tuottaja ja kuluttaja testataan vain erikseen, ja väliltä puuttuva
-    ``stats.update(_armored_stats(df))`` vain pudottaisi rivin tulosteesta
-    ilman että yksikään testi kaatuu.
+    The same wiring test as with the armed distribution and for the same
+    reason: without it the producer and the consumer are tested only
+    separately, and a missing ``stats.update(_armored_stats(df))`` in between
+    would simply drop the line from the output without a single test failing.
     """
     result = run_parse(
         parse_settings, archive, FakeParser(build_rounds(played=3)), demo
@@ -1682,14 +1724,16 @@ def test_run_reports_the_armored_distribution(parse_settings, archive, demo) -> 
 
     assert result.stats["armored_distribution"] == {5: 6}
     assert result.stats["armored_missing"] == 0
-    # Kaksi eri jakaumaa samasta ajosta -- juuri se on sarakkeen tarkoitus.
+    # Two different distributions from the same run -- that is exactly what
+    # the column is for.
     assert result.stats["armed_distribution"] == {4: 3, 5: 3}
 
 
 def test_skipped_run_reports_the_armored_distribution_too(
     parse_settings, archive, demo
 ) -> None:
-    """Ohitettu ajo lukee panssarijakauman valmiista taulusta, ei muistista."""
+    """A skipped run reads the armour distribution from the finished table,
+    not from memory."""
     parser = FakeParser(build_rounds(played=3))
     run_parse(parse_settings, archive, parser, demo)
 
@@ -1702,23 +1746,25 @@ def test_skipped_run_reports_the_armored_distribution_too(
 def test_armored_distribution_counts_rounds_without_an_anchor_as_missing(
     parse_settings, archive, demo
 ) -> None:
-    """Ankkuriton kierros ei ole nolla panssaria vaan puuttuva havainto."""
+    """A round without an anchor is not zero armour but a missing
+    observation."""
     parser = FakeParser(build_rounds(played=3, without_anchor=(2,)))
     result = run_parse(parse_settings, archive, parser, demo)
 
-    assert result.stats["armored_missing"] == 2  # yksi rivi per joukkue
+    assert result.stats["armored_missing"] == 2  # one row per team
     assert result.stats["armored_distribution"] == {5: 4}
 
 
 def test_an_old_table_without_the_armored_column_is_reparsed(
     parse_settings, archive, demo
 ) -> None:
-    """Arkiston vanha ``rounds.parquet`` ilman panssarisaraketta ei kaada ajoa.
+    """An archive's old ``rounds.parquet`` without the armour column does not
+    fail the run.
 
-    I/O-matriisin rivi "vanha arkisto". **Manifestia ei kosketa**: se on
-    täsmäävä, ja juuri se on testin ydin. Skeematarkistus yksin riittää
-    pakottamaan uudelleenajon, joten käyttäjän ei tarvitse tietää
-    ``--pakota``-lipusta eikä vanha taulu jää hiljaa voimaan.
+    The I/O matrix's "old archive" row. **The manifest is not touched**: it
+    matches, and that is the heart of the test. The schema check alone is
+    enough to force a rerun, so the user does not need to know about the
+    ``--pakota`` flag and the old table does not stay silently in force.
     """
     parser = FakeParser(build_rounds(played=3))
     run_parse(parse_settings, archive, parser, demo)
@@ -1738,11 +1784,12 @@ def test_an_old_table_without_the_armored_column_is_reparsed(
 def test_an_armored_count_above_its_divisor_is_refused(
     parse_settings, archive, demo
 ) -> None:
-    """``0 <= panssaroidut <= players_buy_end`` valvotaan lukuhetkellä.
+    """``0 <= armoured <= players_buy_end`` is enforced at read time.
 
-    Skeeman docstring lupaa rajan, mutta ``validate`` tarkistaa vain tyypit.
-    Ilman arvotarkistusta mahdoton luku kirjoittuisi arkistoon ja näkyisi
-    raportissa muodossa "6 (1/1 kierroksesta)" viiden pelaajan joukkueelle.
+    The schema's docstring promises the bound, but ``validate`` checks only
+    the types. Without a value check an impossible number would be written
+    into the archive and would show in the report as "6 (1/1 kierroksesta)"
+    for a team of five players.
     """
     rounds = build_rounds(played=3).with_columns(
         pl.when(pl.col("round_raw") == 2)
@@ -1761,7 +1808,8 @@ def test_an_armored_count_above_its_divisor_is_refused(
 def test_an_armed_count_above_its_divisor_is_refused(
     parse_settings, archive, demo
 ) -> None:
-    """Sama raja koskee kalustolaskuria -- se oli valvomatta jo ennen tätä."""
+    """The same bound applies to the kit counter -- it was unenforced before
+    this."""
     rounds = build_rounds(played=3).with_columns(
         pl.when(pl.col("round_raw") == 2)
         .then(6)
@@ -1778,11 +1826,12 @@ def test_an_armed_count_above_its_divisor_is_refused(
 def test_more_armed_than_armored_players_is_refused(
     parse_settings, archive, demo
 ) -> None:
-    """Aseistettujen on oltava panssaroitujen osajoukko.
+    """The armed must be a subset of the armoured.
 
-    Aseistetun ehto sisältää panssarin, joten ylitys tarkoittaisi että
-    laskurit lukevat eri tickiä tai eri pelaajajoukkoa -- vika, joka näkyisi
-    raportissa vain kahtena uskottavan näköisenä lukuna.
+    The armed condition includes armour, so exceeding it would mean the
+    counters are reading a different tick or a different set of players -- a
+    defect that would show in the report only as two plausible-looking
+    numbers.
     """
     rounds = build_rounds(played=3).with_columns(
         pl.when(pl.col("round_raw") == 2)
@@ -1794,16 +1843,16 @@ def test_more_armed_than_armored_players_is_refused(
 
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(rounds), demo)
-    assert "osajoukko" in str(exc.value)
+    assert "subset of the armoured" in str(exc.value)
 
 
 def test_a_null_counter_is_not_an_invariant_break(
     parse_settings, archive, demo
 ) -> None:
-    """Ankkuriton kierros läpäisee tarkistuksen: null on rehellinen puute.
+    """A round without an anchor passes the check: null is an honest gap.
 
-    Ilman tätä paria edelliset kolme testiä menisivät läpi myös
-    toteutuksella, joka hylkää jokaisen tyhjän laskurin.
+    Without this counterpart the previous three tests would also pass on an
+    implementation that rejects every empty counter.
     """
     result = run_parse(
         parse_settings,
@@ -1817,13 +1866,14 @@ def test_a_null_counter_is_not_an_invariant_break(
 def test_run_reports_the_unknown_inventory_items(
     parse_settings, archive, demo
 ) -> None:
-    """Tuntemattomat tavaraluettelon nimet kulkevat diagnostiikasta lukuihin.
+    """Unknown inventory names travel from the diagnostics into the numbers.
 
-    Ilman tätä tuottaja ja kuluttaja testataan vain erikseen: adapteri
-    kerää nimet ja tuloste osaa muotoilla ne, mutta väliltä puuttuisi se
-    yksi rivi, joka siirtää ne. Tuntematon nimi ei aseista ketään, joten
-    ilman tulostetta uusi ase näyttäisi täsmälleen samalta kuin uusi
-    veitsiskini: jakauma vain valuisi hiljaa alaspäin.
+    Without this the producer and the consumer are tested only separately: the
+    adapter collects the names and the output knows how to format them, but
+    the one line that moves them across would be missing from between. An
+    unknown name arms nobody, so without the output a new weapon would look
+    exactly like a new knife skin: the distribution would simply drift
+    silently downwards.
     """
     parser = FakeParser(build_rounds(played=3))
     parser.diagnostics = ParseDiagnostics(
@@ -1844,11 +1894,11 @@ def test_run_reports_the_unknown_inventory_items(
 def test_run_reports_an_empty_unknown_list_as_empty(
     parse_settings, archive, demo
 ) -> None:
-    """Tyhjä on eri asia kuin puuttuva.
+    """Empty is a different thing from missing.
 
-    Tyhjä luettelo on tuore ajo, jossa jokainen nimi tunnistettiin; avaimen
-    puuttuminen on ohitettu ajo, josta nimiä ei voi lukea takaisin. Vain
-    edellisestä saa sanoa "ei yhtään".
+    An empty list is a fresh run in which every name was recognised; a missing
+    key is a skipped run from which the names cannot be read back. Only of the
+    former may one say "none at all".
     """
     parser = FakeParser(build_rounds(played=3))
     parser.diagnostics = ParseDiagnostics(
@@ -1863,12 +1913,13 @@ def test_run_reports_an_empty_unknown_list_as_empty(
 def test_fresh_run_without_diagnostics_is_not_the_same_as_a_skipped_one(
     parse_settings, archive, demo
 ) -> None:
-    """Portti, joka ei raportoi tuntemattomia, saa oman tilansa.
+    """A port that does not report unknowns gets a state of its own.
 
-    Kolme tilaa on pidettävä erillään: avain puuttuu (ohitettu ajo, nimiä ei
-    voi lukea takaisin), ``None`` (tuore ajo, portti ei kerro) ja tyhjä
-    (tuore ajo, jokainen nimi tunnistettiin). Ilman eroa tuloste väittäisi
-    diagnostiikattomasta ajosta samaa kuin ohitetusta.
+    Three states have to be kept apart: the key is missing (a skipped run, the
+    names cannot be read back), ``None`` (a fresh run, the port does not say)
+    and empty (a fresh run, every name was recognised). Without the difference
+    the output would claim the same about a run without diagnostics as about a
+    skipped one.
     """
     parser = FakeParser(build_rounds(played=3))
     assert not hasattr(parser, "diagnostics")
@@ -1883,10 +1934,12 @@ def test_fresh_run_without_diagnostics_is_not_the_same_as_a_skipped_one(
 def test_unreadable_armed_rows_reach_the_stats(
     parse_settings, archive, demo
 ) -> None:
-    """Kalustolaskurin lukuvirheet kulkevat diagnostiikasta lukuihin.
+    """The kit counter's read errors travel from the diagnostics into the
+    numbers.
 
-    Luku on vika eikä havainto: ilman sitä laskuri voisi olla tyhjä koko
-    demossa propivian takia, ja tulos näyttäisi vain säästökierroksilta.
+    The number is a defect and not an observation: without it the counter
+    could be empty for the whole demo because of a prop fault, and the result
+    would just look like saving rounds.
     """
     parser = FakeParser(build_rounds(played=3))
     parser.diagnostics = ParseDiagnostics(
@@ -1904,13 +1957,13 @@ def test_unreadable_armed_rows_reach_the_stats(
 def test_the_two_unreadable_counters_reach_the_stats_separately(
     parse_settings, archive, demo
 ) -> None:
-    """Kaksi lukua eikä yksi: erotus kertoo mikä propeista petti.
+    """Two numbers and not one: the difference says which prop failed.
 
-    Laskureiden luettavuusehdot eroavat -- panssarilaskuri ei lue
-    tavaraluetteloa -- joten yhteinen luku ei erottaisi riviä, jolla panssari
-    jäi lukematta, rivistä, jolla petti pelkkä tavaraluettelo. Juuri se on
-    väite, jonka koko kahden sarakkeen ratkaisu tekee, eikä sitä voi lukea
-    valmiista taulusta.
+    The counters' readability conditions differ -- the armour counter does not
+    read the inventory -- so a shared number would not tell a row on which the
+    armour went unread from a row on which only the inventory failed. That is
+    exactly the claim the whole two-column solution makes, and it cannot be
+    read from the finished table.
     """
     parser = FakeParser(build_rounds(played=3))
     parser.diagnostics = ParseDiagnostics(
@@ -1925,7 +1978,7 @@ def test_the_two_unreadable_counters_reach_the_stats_separately(
 
     assert result.stats["armed_unreadable_rows"] == 5
     assert result.stats["armored_unreadable_rows"] == 2
-    # Erotus on "rivit, joilla vain tavaraluettelo petti".
+    # The difference is "the rows on which only the inventory failed".
     assert (
         result.stats["armed_unreadable_rows"]
         - result.stats["armored_unreadable_rows"]
@@ -1936,11 +1989,11 @@ def test_the_two_unreadable_counters_reach_the_stats_separately(
 def test_match_restarts_reach_the_stats(
     parse_settings, archive, demo
 ) -> None:
-    """Uudelleenaloitusten määrä kulkee diagnostiikasta lukuihin.
+    """The number of restarts travels from the diagnostics into the numbers.
 
-    Ottelun uudelleenaloitus ei tuota riviä yhteenkään tauluun, joten sen
-    määrää **ei voi laskea valmiista tuloksesta**. Ilman tätä yhtä riviä
-    pudotus olisi hiljainen: adapteri tietäisi sen, mutta kukaan ei kertoisi.
+    A match restart produces no row in any table, so its count **cannot be
+    computed from the finished result**. Without this one line the drop would
+    be silent: the adapter would know it, but nobody would say so.
     """
     parser = FakeParser(build_rounds(played=3))
     parser.diagnostics = ParseDiagnostics(
@@ -1958,12 +2011,11 @@ def test_match_restarts_reach_the_stats(
 def test_zero_match_restarts_is_not_the_same_as_no_answer(
     parse_settings, archive, demo
 ) -> None:
-    """Kolme tilaa pidetään erillään, kuten tuntemattomilla esineillä.
+    """Three states are kept apart, as with the unknown items.
 
-    Portti, joka ei raportoi uudelleenaloituksia, saa ``None``:n; portti joka
-    raportoi nollan saa nollan. Ohitetussa ajossa avainta ei ole lainkaan.
-    Ilman eroa välimuistista ajettu demo väittäisi hiljaa "ei
-    uudelleenaloitusta".
+    A port that does not report restarts gets ``None``; a port that reports
+    zero gets zero. In a skipped run there is no key at all. Without the
+    difference a demo served from the cache would silently claim "no restart".
     """
     reporting = FakeParser(build_rounds(played=3))
     reporting.diagnostics = ParseDiagnostics(
@@ -1981,7 +2033,8 @@ def test_zero_match_restarts_is_not_the_same_as_no_answer(
 
 
 def test_missing_output_forces_a_reparse(parse_settings, archive, demo) -> None:
-    """OneDrive voi olla vielä siirtämässä tulosta -- manifesti ei yksin riitä."""
+    """The sync client may still be moving the result -- the manifest alone is
+    not enough."""
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
     archive.parsed_table(MAP_DEMO_ID, "rounds").unlink()
@@ -1994,7 +2047,7 @@ def test_missing_output_forces_a_reparse(parse_settings, archive, demo) -> None:
 def test_unreadable_result_is_reported_not_zeroed(
     parse_settings, archive, demo
 ) -> None:
-    """Nollarivi näyttäisi siltä, ettei demossa ollut yhtään kierrosta."""
+    """A row of zeroes would look as though the demo held no rounds at all."""
     run_parse(parse_settings, archive, FakeParser(), demo)
     archive.parsed_table(MAP_DEMO_ID, "rounds").write_bytes(b"ei parquetia")
 
@@ -2004,7 +2057,7 @@ def test_unreadable_result_is_reported_not_zeroed(
     assert "rounds" not in result.stats
 
 
-# --- Virheet -------------------------------------------------------------------
+# --- Errors --------------------------------------------------------------------
 
 
 def test_parse_error_is_recorded_in_the_manifest(parse_settings, archive, demo) -> None:
@@ -2019,7 +2072,7 @@ def test_parse_error_is_recorded_in_the_manifest(parse_settings, archive, demo) 
 
 
 def test_schema_error_is_recorded_too(parse_settings, archive, demo) -> None:
-    """Sopimusrikkokin on yksikön tila, ei jälkeä jättämätön kaatuminen."""
+    """A contract break too is the unit's status, not a trackless crash."""
     frame = build_rounds().drop("survivors")
     with pytest.raises(SchemaError):
         run_parse(parse_settings, archive, FakeParser(frame), demo)
@@ -2039,12 +2092,12 @@ def test_parse_error_leaves_no_partial_table(parse_settings, archive, demo) -> N
 
 
 def test_failure_never_overwrites_a_valid_result(parse_settings, archive, demo) -> None:
-    """Kelvollinen taulu ja epäonnistumista väittävä manifesti on pahin pari."""
+    """A valid table with a manifest claiming failure is the worst pair."""
     run_parse(parse_settings, archive, FakeParser(build_rounds(played=4)), demo)
     table = archive.parsed_table(MAP_DEMO_ID, "rounds")
     before = table.read_bytes()
 
-    # Sama demo ja sama asetus -> ohitus, joten ajo pakotetaan.
+    # The same demo and the same settings -> a skip, so the run is forced.
     with pytest.raises(ParseError):
         run_parse(
             parse_settings,
@@ -2056,7 +2109,7 @@ def test_failure_never_overwrites_a_valid_result(parse_settings, archive, demo) 
 
     assert table.read_bytes() == before
     manifest = Manifest.read(archive.parsed_manifest(MAP_DEMO_ID))
-    assert manifest.status == "ok", "ehjää tulosta ei saa merkitä epäonnistuneeksi"
+    assert manifest.status == "ok", "an intact result must not be marked failed"
 
 
 def test_failed_manifest_is_not_treated_as_current(
@@ -2075,35 +2128,37 @@ def test_failed_manifest_is_not_treated_as_current(
 def test_zero_played_rounds_is_an_error_not_an_empty_result(
     parse_settings, archive, demo
 ) -> None:
-    """Tyhjä taulu jäisi manifestin perusteella pysyvästi ohitetuksi."""
+    """An empty table would stay permanently skipped on the manifest."""
     frame = build_rounds(played=0, warmup=3)
-    with pytest.raises(ParseError, match="yhtään pelattua kierrosta"):
+    with pytest.raises(ParseError, match="No played round was found"):
         run_parse(parse_settings, archive, FakeParser(frame), demo)
 
     assert not archive.parsed_table(MAP_DEMO_ID, "rounds").exists()
     assert Manifest.read(archive.parsed_manifest(MAP_DEMO_ID)).status == "parse_failed"
 
 
-def test_missing_demo_is_a_finnish_error(parse_settings, archive) -> None:
+def test_a_missing_demo_names_the_paths_that_were_searched(
+    parse_settings, archive
+) -> None:
     with pytest.raises(DemoUnavailable) as exc:
         parse_stage.run(parse_settings, archive, MAP_DEMO_ID, FakeParser())
-    assert "ei löytynyt" in str(exc.value)
+    assert "was not found" in str(exc.value)
 
 
 def test_unreadable_demo_does_not_get_a_shared_fingerprint(
     parse_settings, archive, tmp_path
 ) -> None:
-    """Yhteinen varakonstantti tekisi kahdesta eri demosta saman syötteen."""
+    """A shared fallback constant would make two demos the same input."""
     missing = tmp_path / "kadonnut.dem"
     with pytest.raises(DemoUnavailable):
         run_parse(parse_settings, archive, FakeParser(), missing)
 
 
-# --- Sopimustarkistukset -------------------------------------------------------
+# --- Contract checks -------------------------------------------------------------
 
 
 def test_port_contract_is_checked_exactly(parse_settings, archive, demo) -> None:
-    """Ylimääräinen sarake on yhtä lailla sopimusrikko kuin puuttuva."""
+    """An extra column breaks the contract just as much as a missing one."""
     frame = build_rounds().with_columns(pl.lit(1).alias("ylimaarainen"))
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(frame), demo)
@@ -2120,7 +2175,8 @@ def test_table_that_breaks_the_contract_is_rejected(
 
 
 def test_impossible_win_reason_is_refused(parse_settings, archive, demo) -> None:
-    """CS2:ssa T ei voi voittaa syyllä ``t_killed`` -- puolet ovat väärin päin."""
+    """In CS2 T cannot win by ``t_killed`` -- the sides are the wrong way
+    round."""
     frame = build_rounds(played=3, warmup=0).with_columns(
         pl.lit("t_killed").alias("win_reason")
     )
@@ -2133,15 +2189,15 @@ def test_impossible_win_reason_is_refused(parse_settings, archive, demo) -> None
 
 
 def test_uneven_row_count_per_round_is_refused(parse_settings, archive, demo) -> None:
-    """Kolmas rivi kierrokselle vääristäisi jokaisen myöhemmän summan."""
+    """A third row for a round would distort every later sum."""
     frame = build_rounds(played=3, warmup=0)
     frame = pl.concat([frame, frame.head(1)])
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(frame), demo)
-    assert "kaksi riviä" in str(exc.value)
+    assert "two rows per round" in str(exc.value)
 
 
-# --- Kohteen tulkinta ----------------------------------------------------------
+# --- Interpreting the target -----------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -2184,18 +2240,18 @@ def test_unsafe_identifier_is_refused(archive) -> None:
         parse_stage.resolve_demo(archive, "../pako")
 
 
-# --- Portin kytkentä asetuksiin ------------------------------------------------
+# --- Wiring the port to the settings ---------------------------------------------
 
 
-#: ``[parse]``-asetus -> adapterin attribuutti, jolle se kytketään.
+#: A ``[parse]`` setting -> the adapter attribute it is wired to.
 #:
-#: ``None`` tarkoittaa asetusta, joka **ei** kulje konstruktorin kautta.
-#: Luettelo on täydellinen, ja :func:`test_every_parse_setting_is_in_the_wiring_map`
-#: pitää sen sellaisena: uusi asetus kaataa testin, kunnes sille on päätetty
-#: paikka.
+#: ``None`` means a setting that does **not** go through the constructor. The
+#: list is complete, and :func:`test_every_parse_setting_is_in_the_wiring_map`
+#: keeps it so: a new setting fails the test until a place has been decided
+#: for it.
 PORT_WIRING: dict[str, str | None] = {
-    # Annetaan parse_demo-kutsussa, ei konstruktorissa. Oma testinsä:
-    # test_the_stage_passes_the_configured_sample_seconds_to_the_port.
+    # Given in the parse_demo call, not in the constructor. It has a test of
+    # its own: test_the_stage_passes_the_configured_sample_seconds_to_the_port.
     "snapshot_seconds": None,
     "buy_window_seconds": "buy_window_seconds",
     "first_contact_exclude_weapons": "exclude_weapons",
@@ -2206,11 +2262,11 @@ PORT_WIRING: dict[str, str | None] = {
     "callout_z_tolerance_units": "callout_z_tolerance_units",
 }
 
-#: Arvot, jotka eroavat **sekä** tuotannon asetuksista **että** adapterin
-#: omista oletuksista. Jälkimmäinen on koko testin idea: adapterin oletukset
-#: ovat tarkoituksella samat mitatut luvut kuin asetusten oletukset, joten
-#: pelkkä ``port.x == settings.x`` menisi läpi myös silloin, kun kwarg on
-#: pudonnut kytkennästä kokonaan.
+#: Values that differ **both** from the production settings **and** from the
+#: adapter's own defaults. The latter is the whole idea of the test: the
+#: adapter's defaults are deliberately the same measured numbers as the
+#: settings' defaults, so ``port.x == settings.x`` on its own would also pass
+#: when the kwarg has dropped out of the wiring altogether.
 DISTINCT_SETTINGS: dict[str, object] = {
     "snapshot_seconds": [7.0, 21.0],
     "buy_window_seconds": 11.0,
@@ -2224,24 +2280,23 @@ DISTINCT_SETTINGS: dict[str, object] = {
 
 
 def test_every_parse_setting_is_in_the_wiring_map() -> None:
-    """Kartan on katettava jokainen ``[parse]``-kenttä.
+    """The map has to cover every ``[parse]`` field.
 
-    Ilman tätä uusi asetus voisi jäädä kytkemättä porttiin, ja
-    :func:`test_default_parser_hands_every_parse_setting_to_the_adapter`
-    väittäisi kattavuutta jota sillä ei ole -- se iteroi juuri tämän kartan
-    yli.
+    Without this a new setting could be left unwired to the port, and
+    :func:`test_default_parser_hands_every_parse_setting_to_the_adapter` would
+    claim a coverage it does not have -- it iterates over this very map.
     """
     assert set(PORT_WIRING) == set(ParseSettings.model_fields)
 
 
 def test_the_distinct_values_really_differ_from_the_adapter_defaults() -> None:
-    """Esiehto: testiarvo, joka on adapterin oletus, ei todista kytkennästä.
+    """Precondition: a test value that is the adapter's default proves nothing
+    about the wiring.
 
-    Juuri tämä ansa oli auki Story 2.9:ssä: adapterin oletukset
+    This very trap was open in Story 2.9: the adapter's defaults
     (``callout_grid_units=32``, ``callout_z_weight=1.0``,
-    ``callout_z_tolerance_units=72.0``) ovat samat luvut kuin asetusten
-    oletukset, joten kytkentärivin poisto olisi jättänyt jokaisen testin
-    vihreäksi.
+    ``callout_z_tolerance_units=72.0``) are the same numbers as the settings'
+    defaults, so removing the wiring line would have left every test green.
     """
     defaults = inspect.signature(Demoparser2Adapter.__init__).parameters
     for field, attribute in PORT_WIRING.items():
@@ -2249,25 +2304,26 @@ def test_the_distinct_values_really_differ_from_the_adapter_defaults() -> None:
             continue
         default = defaults[attribute].default
         assert DISTINCT_SETTINGS[field] != default, (
-            f"{field}: testiarvo on sama kuin adapterin oletus {default!r}, "
-            "joten se ei paljastaisi pudonnutta kytkentää"
+            f"{field}: the test value is the same as the adapter's default "
+            f"{default!r}, so it would not reveal a dropped wiring"
         )
 
 
 def test_default_parser_hands_every_parse_setting_to_the_adapter() -> None:
-    """Kytkentä on koodin ainoa kohta, jota mikään muu testi ei kata.
+    """The wiring is the one place in the code no other test covers.
 
-    Jokainen muu testi rakentaa adapterin itse ja antaa parametrit käsin, joten
-    jos yksikin kwarg katoaisi tästä, koko testijoukko menisi läpi ja
-    tuotannossa arvo olisi hiljaa oletuksensa: ``exclude_weapons=()``
-    päästäisi utilityosuman ensikontaktiksi, ja pistepilven mitat
-    rakentuisivat adapterin kovakoodatuista luvuista, vaikka käyttäjä olisi
-    säätänyt niitä -- ja koska hänen säätönsä muuttaa ``params_hash``ia, hän
-    saisi täyden uudelleenparsinnan ja "valmis"-yhteenvedon säätämättömällä
-    ruudukolla.
+    Every other test builds the adapter itself and hands it the parameters by
+    hand, so if even one kwarg disappeared from here, the whole test set would
+    pass and in production the value would silently be its default:
+    ``exclude_weapons=()`` would let a utility hit through as first contact,
+    and the point cloud's dimensions would be built from the adapter's
+    hard-coded numbers although the user had adjusted them -- and because
+    their adjustment changes ``params_hash``, they would get a full reparse
+    and a "done" summary on an unadjusted grid.
 
-    Arvot ovat siksi **kaikki eri kuin adapterin oletukset**; esiehdon
-    tarkistaa :func:`test_the_distinct_values_really_differ_from_the_adapter_defaults`.
+    That is why the values are **all different from the adapter's defaults**;
+    the precondition is checked by
+    :func:`test_the_distinct_values_really_differ_from_the_adapter_defaults`.
     """
     settings = ParseSettings(**DISTINCT_SETTINGS)
     port = parse_stage.default_parser(settings)
@@ -2279,14 +2335,15 @@ def test_default_parser_hands_every_parse_setting_to_the_adapter() -> None:
         actual = getattr(port, attribute)
         if isinstance(expected, list):
             actual = list(actual)
-        assert actual == expected, f"{field} ei päätynyt portin {attribute}:iin"
+        assert actual == expected, f"{field} did not reach the port's {attribute} attribute"
 
 
 def test_default_parser_carries_the_real_settings_too(parse_settings) -> None:
-    """Sama kytkentä tuotannon arvoilla: kalibroitu kynnys ei ole None."""
+    """The same wiring with production values: a calibrated threshold is not
+    None."""
     port = parse_stage.default_parser(parse_settings)
     assert port.area_snap_units == parse_settings.area_snap_units
-    assert port.area_snap_units is not None, "asetus on kalibroitu, ei None"
+    assert port.area_snap_units is not None, "the setting is calibrated, not None"
     assert port.callout_grid_units == parse_settings.callout_grid_units
     assert port.callout_z_weight == parse_settings.callout_z_weight
     assert (
@@ -2295,7 +2352,8 @@ def test_default_parser_carries_the_real_settings_too(parse_settings) -> None:
 
 
 def test_default_parser_notices_a_changed_snap_distance(settings_file: Path) -> None:
-    """Asetuksen muutos on näyttävä portilla asti, ei vain asetusoliossa."""
+    """A change to the setting must show at the port, not just in the settings
+    object."""
     changed_toml = settings_file.parent / "muutettu.toml"
     changed_toml.write_text(
         settings_text(
@@ -2311,12 +2369,12 @@ def test_default_parser_notices_a_changed_snap_distance(settings_file: Path) -> 
 def test_changing_the_snap_distance_forces_a_reparse(
     tmp_path: Path, archive, demo
 ) -> None:
-    """``area_snap_units`` muuttaa jokaisen rivin ``area``-arvon.
+    """``area_snap_units`` changes every row's ``area`` value.
 
-    Se on siis oltava ``params_hash``issa: muuten arkistoon jäisi vanhalla
-    rajalla laskettu utility-taulu, ja käyttäjälle kerrottaisiin "tulos on ajan
-    tasalla". Vertailukohtana ``[thresholds]``-muutos, joka ei saa parsia
-    uudelleen -- sama tiedosto, eri osio.
+    It therefore has to be in ``params_hash``: otherwise a utility table
+    computed with the old bound would stay in the archive, and the user would
+    be told "the result is up to date". For comparison, a ``[thresholds]``
+    change, which must not reparse -- the same file, a different section.
     """
     base_toml = tmp_path / "perus.toml"
     base_toml.write_text(settings_text(archive.root), encoding="utf-8")
@@ -2332,35 +2390,36 @@ def test_changing_the_snap_distance_forces_a_reparse(
     run_parse(load_settings(base_toml, env_files=()).parse, archive, parser, demo)
     result = run_parse(load_settings(changed_toml, env_files=()).parse, archive, parser, demo)
 
-    assert not result.skipped, "vanhalla rajalla laskettu alue olisi jäänyt voimaan"
+    assert not result.skipped, "an area computed with the old bound would have stayed in force"
     assert parser.calls == 2
 
 
-# --- Ostoikkuna (Story 1.9) ---------------------------------------------------
+# --- The buy window (Story 1.9) -------------------------------------------------
 
 
 def test_default_parser_hands_the_buy_window_to_the_adapter(parse_settings) -> None:
-    """Ostoikkuna on kytkettävä portille asti.
+    """The buy window has to be wired all the way to the port.
 
-    Adapterin oletus on **0**, eli mittaus ankkurista. Jos kwarg unohtuisi
-    tästä, koko putki mittaisi hiljaa freezetimen lopusta -- täsmälleen se
-    vika, jonka Story 1.9 korjaa -- eikä yksikään muu testi huomaisi sitä,
-    koska ne rakentavat adapterin itse.
+    The adapter's default is **0**, that is, measuring from the anchor. If the
+    kwarg were forgotten here, the whole pipeline would silently measure from
+    the end of freezetime -- exactly the defect Story 1.9 fixes -- and not one
+    other test would notice, because they build the adapter themselves.
     """
     port = parse_stage.default_parser(parse_settings)
 
     assert port.buy_window_seconds == parse_settings.buy_window_seconds
-    assert port.buy_window_seconds > 0, "asetus on pelin sääntö, ei nolla"
+    assert port.buy_window_seconds > 0, "the setting is a rule of the game, not zero"
 
 
 def test_changing_the_buy_window_forces_a_reparse(
     tmp_path: Path, archive, demo
 ) -> None:
-    """I/O-matriisi: ``buy_window_seconds`` muuttuu -> ``parse`` ajetaan uudelleen.
+    """I/O matrix: ``buy_window_seconds`` changes -> ``parse`` is run again.
 
-    Ikkuna siirtää jokaisen talousrivin mittaushetkeä, joten vanha tulos ei ole
-    ajan tasalla. Se on ``[parse]``-osiossa juuri siksi: kynnysten säätö ei
-    parsi uudelleen, mutta mittauspisteen siirto parsii.
+    The window moves the measurement moment of every economy row, so the old
+    result is not up to date. That is exactly why it is in the ``[parse]``
+    section: adjusting the thresholds does not reparse, but moving the
+    measurement point does.
     """
     base_toml = tmp_path / "perus.toml"
     base_toml.write_text(settings_text(archive.root), encoding="utf-8")
@@ -2386,18 +2445,18 @@ def test_changing_the_buy_window_forces_a_reparse(
 def test_the_knife_round_is_not_counted_in_the_buy_window_numbers(
     parse_settings, archive, demo
 ) -> None:
-    """Ostoikkunan luvut lasketaan **pelatuista** kierroksista.
+    """The buy-window numbers are computed from the **played** rounds.
 
-    Puukkokierros saa oman ``round_raw``:nsa, mutta se ei ole kierros eikä
-    päädy tauluun. Adapteri ei tiedä sitä, joten se antaa katkaisut
-    ``round_raw``-numeroina ja vaihe suodattaa ne. Ilman suodatusta käyttäjä
-    näkisi rivin "3 kierrosta mitattiin aiemmin" taulussa, jossa niitä on
-    kaksi -- ja mittaushetkien jakauma alkaisi puukkokierroksen sekunnin
-    murto-osista.
+    The knife round gets a ``round_raw`` of its own, but it is not a round and
+    does not end up in the table. The adapter does not know that, so it gives
+    the truncations as ``round_raw`` numbers and the stage filters them.
+    Without the filtering the user would see the line "3 rounds were measured
+    earlier" for a table that holds two -- and the distribution of measurement
+    moments would start from the knife round's fraction of a second.
 
-    ``build_rounds`` tuottaa yhden numeroimattoman kierroksen (``round_raw``
-    1) ja kolme pelattua (2-4), joten katkaisu numerolla 1 on juuri se, jonka
-    on kadottava.
+    ``build_rounds`` produces one unnumbered round (``round_raw`` 1) and three
+    played ones (2-4), so the truncation numbered 1 is exactly the one that
+    has to disappear.
     """
 
     class _Cutting(FakeParser):
@@ -2406,8 +2465,8 @@ def test_the_knife_round_is_not_counted_in_the_buy_window_numbers(
             tick_rate_measured=True,
             rounds_seen=4,
             buy_window_seconds=20.0,
-            # Puukkokierros (1) ja kaksi pelattua (2, 3); kierroksella 3 jäi
-            # yksi ostos katkaisun taakse.
+            # The knife round (1) and two played ones (2, 3); on round 3 one
+            # purchase was left behind the truncation.
             buy_window_cuts=((1, 4), (2, 0), (3, 1)),
             buy_window_unchecked_cuts=(1, 2),
         )
@@ -2416,22 +2475,24 @@ def test_the_knife_round_is_not_counted_in_the_buy_window_numbers(
     stats = result.stats
 
     assert stats["buy_window_truncated_by_death"] == 2
-    # Puukkokierroksen neljä menetettyä ostosta eivät ole taulussa, joten ne
-    # eivät saa olla luvussakaan.
+    # The knife round's four lost purchases are not in the table, so they
+    # must not be in the number either.
     assert stats["buy_window_purchases_after_cut"] == 1
     assert stats["buy_window_rounds_with_lost_purchases"] == (3,)
     assert stats["buy_window_cuts_unchecked"] == 1
 
 
 def test_run_reports_the_pawnless_rows(parse_settings, archive, demo) -> None:
-    """Story 2.10: pawnittomat luvut kulkevat diagnostiikasta lukuihin.
+    """Story 2.10: the pawnless numbers travel from the diagnostics into the
+    numbers.
 
-    Riviä ei ole taulussa eikä pudonnutta pistettä sen näytepisteissä, joten
-    kumpaakaan **ei voi laskea valmiista tuloksesta**. Ilman tätä yhtä
-    siirtoa tuottaja ja kuluttaja testattaisiin vain erikseen: adapteri
-    laskee ohitukset ja tuloste osaa muotoilla ne, mutta väliltä puuttuisi se
-    rivi, joka vie luvun perille -- ja puuttuva pelaaja näyttäisi
-    kierrokselta, jolla joukkue vain pelasi vajaalla.
+    The row is not in the table and the dropped point is not among its sample
+    points, so neither **can be computed from the finished result**. Without
+    this one transfer the producer and the consumer would be tested only
+    separately: the adapter counts the skips and the output knows how to
+    format them, but the line that carries the number across would be missing
+    from between -- and a missing player would look like a round on which the
+    team simply played a man down.
     """
     parser = FakeParser(build_rounds(played=3))
     parser.diagnostics = ParseDiagnostics(
@@ -2453,10 +2514,11 @@ def test_run_reports_the_pawnless_rows(parse_settings, archive, demo) -> None:
 def test_a_port_that_never_saw_a_pawnless_row_reports_zero(
     parse_settings, archive, demo
 ) -> None:
-    """Nolla on tuoreen ajon rehellinen tulos, ja se sanotaan ääneen.
+    """Zero is a fresh run's honest result, and it is said out loud.
 
-    Tuloste jättää rivin pois nollalla, joten avaimen olemassaolo on ainoa
-    ero "ei yhtään ohitusta" ja "ohituksia ei laskettu" välillä.
+    The output leaves the line out on a zero, so the key's existence is the
+    only difference between "no skips at all" and "the skips were not
+    counted".
     """
     parser = FakeParser(build_rounds(played=3))
     parser.diagnostics = ParseDiagnostics(
@@ -2473,10 +2535,10 @@ def test_a_port_that_never_saw_a_pawnless_row_reports_zero(
 def test_a_port_without_pawnless_diagnostics_claims_nothing(
     parse_settings, archive, demo
 ) -> None:
-    """Portti, joka ei kerro pawnittomista, ei saa tuottaa nollaa.
+    """A port that says nothing about pawnless rows must not produce a zero.
 
-    Nolla olisi väite puhtaasta asetelmasta -- täsmälleen se valhe, jonka
-    koko laskuri on olemassa poistamaan.
+    A zero would be a claim of a clean setup -- exactly the lie the whole
+    counter exists to remove.
     """
 
     class _Silent(FakeParser):
@@ -2492,11 +2554,12 @@ def test_a_port_without_pawnless_diagnostics_claims_nothing(
 def test_an_empty_tick_table_names_the_pawnless_reason(
     parse_settings, archive, demo
 ) -> None:
-    """Tyhjä asetelmataulu ei saa syyttää asetuksia, kun syy on luettu demosta.
+    """An empty setup table must not blame the settings when the reason has
+    been read from the demo.
 
-    Jos jokainen näytepiste jäi väliin pawnittomuuden takia,
-    ``[parse].snapshot_seconds``issa ja freezetime-ankkureissa ei ole mitään
-    vikaa -- eikä niitä pidä käskeä tarkistamaan.
+    If every sample point was missed because of pawnlessness, there is nothing
+    wrong with ``[parse].snapshot_seconds`` or the freezetime anchors -- and
+    the user must not be told to check them.
     """
     empty = pl.DataFrame(schema=dict(TICKS_ADAPTER_SCHEMA))
     parser = FakeParser(build_rounds(played=3, warmup=0), ticks=empty)
@@ -2512,21 +2575,24 @@ def test_an_empty_tick_table_names_the_pawnless_reason(
         run_parse(parse_settings, archive, parser, demo)
 
     message = str(exc.value)
-    assert "12 näytepistettä jäi kokonaan väliin" in message
-    assert "snapshot_seconds" not in message.split("Syy on luettu demosta:")[0]
+    assert "12 sample points were missed entirely" in message
+    assert "snapshot_seconds" not in message.split(
+        "The reason has been read from the demo:"
+    )[0]
 
 
 def test_the_measurement_offsets_come_from_the_written_table(
     parse_settings, archive, demo
 ) -> None:
-    """Mittaushetkien jakauma lasketaan siitä taulusta, joka kirjoitetaan.
+    """The distribution of measurement moments is computed from the table that
+    is written.
 
-    Se on ``buy_end_tick``-sarakkeen ainoa näkyvä muoto. Jos jakauma tulisi
-    muualta, sarake ja tuloste voisivat erkaantua, ja tarkistettavuus olisi
-    näennäistä.
+    It is the only visible form of the ``buy_end_tick`` column. If the
+    distribution came from elsewhere, the column and the output could drift
+    apart, and checkability would be only apparent.
 
-    ``build_rounds`` asettaa mittauspisteen 1280 tickin päähän ankkurista
-    jokaisella kierroksella, eli 20,0 sekuntiin tickratella 64.
+    ``build_rounds`` places the measurement point 1,280 ticks from the anchor
+    on every round, that is, at 20.0 seconds at a tick rate of 64.
     """
 
     class _Measured(FakeParser):
@@ -2544,10 +2610,10 @@ def test_the_measurement_offsets_come_from_the_written_table(
 def test_a_port_without_buy_window_diagnostics_claims_nothing(
     parse_settings, archive, demo
 ) -> None:
-    """Portti, joka ei kerro ostoikkunasta, ei saa tuottaa nollia.
+    """A port that says nothing about the buy window must not produce zeroes.
 
-    ``getattr``-oletus 0 tekisi tuntemattomasta puhtaan ajon näköisen: "ei
-    yhtään katkaisua" olisi väite, jota mikään ei tue.
+    A ``getattr`` default of 0 would make the unknown look like a clean run:
+    "no truncations at all" would be a claim that nothing supports.
     """
 
     class _Silent(FakeParser):
@@ -2564,11 +2630,11 @@ def test_a_port_without_buy_window_diagnostics_claims_nothing(
 def test_a_skipped_run_has_no_buy_window_numbers(
     parse_settings, archive, demo
 ) -> None:
-    """Ohitetussa ajossa lukuja ei ole, eikä niitä keksitä.
+    """In a skipped run there are no numbers, and none are invented.
 
-    Katkaisuja ja menetettyjä ostoja ei voi lukea valmiista taulusta, joten
-    avaimet puuttuvat kokonaan ja ``cli`` jättää rivit pois -- sama sääntö
-    kuin uudelleenaloituksilla ja tuntemattomilla esineillä.
+    Truncations and lost purchases cannot be read from the finished table, so
+    the keys are missing altogether and ``cli`` leaves the lines out -- the
+    same rule as with the restarts and the unknown items.
     """
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
@@ -2579,7 +2645,7 @@ def test_a_skipped_run_has_no_buy_window_numbers(
     assert "buy_end_offsets_s" not in result.stats
 
 
-# --- Kokoonpanotaulu (Story 2.6) -----------------------------------------------
+# --- The lineup table (Story 2.6) ------------------------------------------------
 
 
 def test_the_lineups_table_is_written_and_carries_the_map_demo_id(
@@ -2597,10 +2663,11 @@ def test_the_lineups_table_is_written_and_carries_the_map_demo_id(
 def test_the_knife_round_does_not_drop_a_player_from_the_lineups_table(
     parse_settings, archive, demo
 ) -> None:
-    """Kokoonpano on kartan ominaisuus: numerointi ei koske sita.
+    """The lineup is a property of the map: the numbering does not touch it.
 
-    Näytepiste- ja tapahtumataulusta puukkokierroksen rivit pudotetaan, mutta
-    pelaaja pelasi kartan -- eikä häntä saa pudottaa rosterista.
+    The knife round's rows are dropped from the sample-point and event tables,
+    but the player played the map -- and must not be dropped from the standing
+    roster.
     """
     run_parse(parse_settings, archive, FakeParser(), demo)
 
@@ -2627,18 +2694,19 @@ def test_a_missing_clan_name_is_written_as_null_not_as_the_key(
 def test_an_empty_lineups_table_is_refused_instead_of_written(
     parse_settings, archive, demo
 ) -> None:
-    """Tyhjä taulu jäisi manifestin perusteella pysyvästi ohitetuksi."""
+    """An empty table would stay permanently skipped on the manifest."""
     empty = pl.DataFrame(schema=dict(LINEUPS_ADAPTER_SCHEMA))
     parser = FakeParser(lineups=empty)
 
-    with pytest.raises(SchemaError, match="kokoonpanoriviä"):
+    with pytest.raises(SchemaError, match="no lineup row"):
         run_parse(parse_settings, archive, parser, demo)
 
     assert not archive.parsed_table(MAP_DEMO_ID, "lineups").exists()
 
 
 def test_a_duplicate_roster_row_is_refused(parse_settings, archive, demo) -> None:
-    """``aggregate`` liittaa rosterin talla avaimella; kaksoisrivi kahdentaisi pelaajan."""
+    """``aggregate`` joins the standing roster on this key; a duplicate row
+    would double the player."""
     frame = build_rounds()
     lineups = build_lineups(frame)
     doubled = pl.concat([lineups, lineups.head(1)])
@@ -2651,10 +2719,10 @@ def test_a_duplicate_roster_row_is_refused(parse_settings, archive, demo) -> Non
 def test_an_archive_without_the_lineups_table_is_not_up_to_date(
     parse_settings, archive, demo
 ) -> None:
-    """Skeemamuutos pakottaa uudelleenparsinnan ilman --pakota-lippua.
+    """A schema change forces a reparse without the --pakota flag.
 
-    Manifestin parametrihash ei liiku, kun tauluja tulee lisaa, joten pelkka
-    manifestin tasmays hyvaksyisi vanhan tuloksen ajan tasalla olevana.
+    The manifest's parameter hash does not move when more tables appear, so a
+    manifest match on its own would accept the old result as up to date.
     """
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
@@ -2669,11 +2737,11 @@ def test_an_archive_without_the_lineups_table_is_not_up_to_date(
 def test_the_run_reports_the_clans_per_lineup_not_as_one_list(
     parse_settings, archive, demo
 ) -> None:
-    """Luvut eritellään kokoonpanoittain, koska demossa on kaksi joukkuetta.
+    """The numbers are broken out per lineup, because a demo holds two teams.
 
-    Yhteinen luettelo vastaisi eri kysymykseen kuin se, jonka käyttäjä esittää:
-    "onko *tällä* joukkueella nimi" ei ratkea listasta, joka on epätyhjä heti
-    kun vastustajalla on klaani.
+    A combined list would answer a different question from the one the user
+    asks: "does *this* team have a name" is not settled by a list that is
+    non-empty as soon as the opponent has a clan.
     """
     result = run_parse(parse_settings, archive, FakeParser(), demo)
 
@@ -2687,7 +2755,8 @@ def test_the_run_reports_the_clans_per_lineup_not_as_one_list(
 def test_one_lineup_without_a_clan_does_not_hide_behind_the_other(
     parse_settings, archive, demo
 ) -> None:
-    """Nimetön kokoonpano näkyy omana rivinään, ei vastustajan nimen alla."""
+    """A lineup without a name shows on a line of its own, not under the
+    opponent's name."""
     frame = build_rounds()
     parser = FakeParser(
         frame,
@@ -2704,12 +2773,12 @@ def test_one_lineup_without_a_clan_does_not_hide_behind_the_other(
 def test_the_run_reports_players_whose_name_or_clan_changed_mid_map(
     parse_settings, archive, demo
 ) -> None:
-    """Kokoonpanotaulun perusoletus on ajonaikaisesti tarkistettava.
+    """The lineup table's basic assumption has to be checked at run time.
 
-    Taulu kirjaa useimmin havaitun arvon, joten rikkoutunut oletus näyttää
-    siellä täsmälleen samalta kuin ehjä. Vain diagnostiikka erottaa ne, ja
-    nollasta poikkeava luku on juuri se oire, josta puolen kautta lukemisen
-    ansan varoitus puhuu.
+    The table records the most frequently observed value, so a broken
+    assumption looks there exactly like an intact one. Only the diagnostics
+    tell them apart, and a number other than zero is precisely the symptom the
+    warning about the read-through-the-side trap speaks of.
     """
     clean = FakeParser()
     clean.diagnostics = ParseDiagnostics(
@@ -2736,18 +2805,19 @@ def test_the_run_reports_players_whose_name_or_clan_changed_mid_map(
     text = _render_parse(again, 24)
     assert "Klaani vaihtui kesken" in text
     assert "Nimi vaihtui kesken" in text
-    # Nolla on odotusarvo, eikä sitä tulosteta.
+    # Zero is the expected value, and it is not printed.
     assert "vaihtui kesken" not in _render_parse(result, 24)
 
 
 def test_the_parse_summary_renders_every_key_the_stage_produces(
     parse_settings, archive, demo
 ) -> None:
-    """Tuottajan ja kuluttajan avainsopimus, valvottuna kuten aggregate-puolella.
+    """The producer/consumer key contract, enforced as on the aggregate side.
 
-    ``_render_parse`` lukee kymmeniä avaimia ``stats``ista. Ilman tätä testiä
-    vaiheen tuottama avain ja komentorivin lukema avain voisivat erota, ja
-    lohko jäisi hiljaa tulostumatta -- ei kaatuisi, vaan katoaisi.
+    ``_render_parse`` reads dozens of keys out of ``stats``. Without this test
+    the key the stage produces and the key the command line reads could
+    differ, and the block would silently go unprinted -- it would not fail, it
+    would disappear.
     """
     from pappascout.cli import _render_parse
 
@@ -2759,7 +2829,7 @@ def test_the_parse_summary_renders_every_key_the_stage_produces(
     assert "KALJUKOSTAJA (bbb)" in text
 
 
-# --- Kuolemataulu (Story 2.7) --------------------------------------------------
+# --- The deaths table (Story 2.7) ------------------------------------------------
 
 
 def read_deaths(archive: ArchivePaths) -> pl.DataFrame:
@@ -2769,19 +2839,19 @@ def read_deaths(archive: ArchivePaths) -> pl.DataFrame:
 def test_the_deaths_table_is_written_and_carries_the_map_demo_id(
     parse_settings, archive, demo
 ) -> None:
-    """I/O-matriisi: normaali demo -> deaths.parquet sopimuksen mukaisena."""
+    """I/O matrix: an ordinary demo -> deaths.parquet matching the contract."""
     run_parse(parse_settings, archive, FakeParser(), demo)
     df = read_deaths(archive)
 
     validate(df, DEATHS, "deaths")
     assert set(df["map_demo_id"].to_list()) == {MAP_DEMO_ID}
-    assert df.height == 3  # kolme pelattua kierrosta, yksi kuolema kullakin
+    assert df.height == 3  # three played rounds, one death on each
 
 
 def test_deaths_get_the_round_number_from_the_rounds_table(
     parse_settings, archive, demo
 ) -> None:
-    """Numeroinnin omistaa domain.rounds; vaihe vain liittää sen."""
+    """The numbering belongs to domain.rounds; the stage only joins it."""
     rounds = build_rounds(played=3, warmup=0)
     run_parse(
         parse_settings,
@@ -2798,11 +2868,11 @@ def test_deaths_get_the_round_number_from_the_rounds_table(
 def test_knife_round_deaths_are_dropped_by_the_same_join(
     parse_settings, archive, demo
 ) -> None:
-    """I/O-matriisi: puukkokierroksen kuolemat eivät päädy tauluun.
+    """I/O matrix: the knife round's deaths do not end up in the table.
 
-    Adapteri tuottaa ne, koska se ei tunne numerointisääntöä --
-    puukkokierroksella kuollaan oikeasti. Ne putoavat samassa liitoksessa
-    kuin näytepisteet ja kranaatit, ei erillisellä säännöllä.
+    The adapter produces them because it does not know the numbering rule --
+    people really do die on the knife round. They fall away in the same join
+    as the sample points and the grenades, not by a separate rule.
     """
     rounds = build_rounds(played=2, warmup=3)
     result = run_parse(
@@ -2821,7 +2891,7 @@ def test_knife_round_deaths_are_dropped_by_the_same_join(
 def test_dropped_deaths_are_counted_not_just_dropped(
     parse_settings, archive, demo
 ) -> None:
-    """Hiljainen pudotus näyttäisi demolta, jossa kuolemia oli vähemmän."""
+    """A silent drop would look like a demo that held fewer deaths."""
     rounds = build_rounds(played=2, warmup=2)
     result = run_parse(
         parse_settings,
@@ -2840,7 +2910,8 @@ def test_dropped_deaths_are_counted_not_just_dropped(
 def test_a_death_without_an_attacker_survives_the_write(
     parse_settings, archive, demo
 ) -> None:
-    """I/O-matriisi: ampujaton kuolema -> attacker_* null, rivi säilyy."""
+    """I/O matrix: a death without an attacker -> attacker_* null, the row
+    survives."""
     rounds = build_rounds(played=2, warmup=0)
     result = run_parse(
         parse_settings,
@@ -2865,10 +2936,11 @@ def test_a_death_without_an_attacker_survives_the_write(
 def test_an_attacker_without_an_area_is_counted_apart_from_a_missing_attacker(
     parse_settings, archive, demo
 ) -> None:
-    """Ampujaton rivi ei ole aluevika, joten luvut ovat erikseen.
+    """A row without an attacker is not an area defect, so the numbers are
+    separate.
 
-    Yhteinen luku näyttäisi kahdelta aluevialta silloin, kun toinen on
-    rehellinen putoaminen.
+    A shared number would look like two area defects when one of them is an
+    honest fall.
     """
     rounds = build_rounds(played=3, warmup=0)
     result = run_parse(
@@ -2891,8 +2963,8 @@ def test_an_attacker_without_an_area_is_counted_apart_from_a_missing_attacker(
 def test_a_victim_without_an_area_is_counted(
     parse_settings, archive, demo
 ) -> None:
-    """Uhrin alueen puuttuminen on mitatussa aineistossa nolla -- luku kertoo
-    jos se muuttuu."""
+    """A missing victim area is zero in the measured material -- the number
+    says so if that changes."""
     rounds = build_rounds(played=2, warmup=0)
     result = run_parse(
         parse_settings,
@@ -2911,7 +2983,7 @@ def test_a_victim_without_an_area_is_counted(
 def test_death_rows_are_sorted_by_round_and_time(
     parse_settings, archive, demo
 ) -> None:
-    """Vakaa järjestys: sama syöte, samat tavut."""
+    """A stable order: the same input, the same bytes."""
     rounds = build_rounds(played=3, warmup=0)
     run_parse(
         parse_settings,
@@ -2931,25 +3003,25 @@ def test_death_rows_are_sorted_by_round_and_time(
 def test_a_deaths_table_breaking_the_port_contract_is_rejected(
     parse_settings, archive, demo
 ) -> None:
-    """Puuttuva sarake -> suomenkielinen SchemaError, joka nimeää taulun."""
+    """A missing column -> a SchemaError of our own that names the table."""
     rounds = build_rounds()
     broken = build_deaths(rounds).drop("victim_area")
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(rounds, deaths=broken), demo)
     assert "victim_area" in str(exc.value)
-    assert "kuolemataulun" in str(exc.value)
+    assert "deaths table" in str(exc.value)
 
 
 def test_an_extra_deaths_column_is_a_contract_break_too(
     parse_settings, archive, demo
 ) -> None:
-    """Ylimääräinen sarake tarkoittaa, että portti ja sopimus erkanivat."""
+    """An extra column means the port and the contract have drifted apart."""
     rounds = build_rounds()
     broken = build_deaths(rounds).with_columns(pl.lit(1).alias("ylimaarainen"))
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(rounds, deaths=broken), demo)
     assert "ylimaarainen" in str(exc.value)
-    assert "kuolemataulun" in str(exc.value)
+    assert "deaths table" in str(exc.value)
 
 
 @pytest.mark.parametrize(
@@ -2958,11 +3030,11 @@ def test_an_extra_deaths_column_is_a_contract_break_too(
 def test_an_attackerless_death_may_not_carry_attacker_observations(
     parse_settings, archive, demo, column: str
 ) -> None:
-    """Puolikas ampuja on vika, vaikka skeema hyväksyisi jokaisen kentän.
+    """Half an attacker is a defect even if the schema accepts every field.
 
-    Paikka ilman toimijaa laskeutuisi raportissa tapoksi, jota kukaan ei
-    tehnyt. Jokainen havaintokenttä testataan erikseen: yksi yhteinen testi
-    menisi läpi, vaikka kolme neljästä ehdosta poistettaisiin.
+    A place without an actor would land in the report as a kill nobody made.
+    Each observation field is tested separately: one shared test would pass
+    even if three of the four conditions were removed.
     """
     rounds = build_rounds(played=2, warmup=0)
     value = "Middle" if column == "attacker_area" else 1.0
@@ -2980,16 +3052,17 @@ def test_an_attackerless_death_may_not_carry_attacker_observations(
             FakeParser(rounds, ticks=build_ticks(rounds), deaths=broken),
             demo,
         )
-    assert "ampujaa" in str(exc.value)
+    assert "no attacker" in str(exc.value)
     assert column in str(exc.value)
 
 
 def test_an_attackerless_death_with_only_nulls_is_accepted(
     parse_settings, archive, demo
 ) -> None:
-    """Vartijan toinen haara: ehjä ampujaton rivi menee läpi.
+    """The guard's other branch: an intact attackerless row passes.
 
-    Ilman tätä edellinen testi todistaisi vain, että jokin kaataa ajon.
+    Without this the previous test would prove only that something fails the
+    run.
     """
     rounds = build_rounds(played=2, warmup=0)
     run_parse(
@@ -3008,10 +3081,10 @@ def test_an_attackerless_death_with_only_nulls_is_accepted(
 def test_an_empty_deaths_table_is_refused_instead_of_written(
     parse_settings, archive, demo
 ) -> None:
-    """Pelatussa ottelussa kuollaan, joten tyhjä taulu on rikkinäinen portti.
+    """People die in a played match, so an empty table is a broken port.
 
-    Tyhjä tulos jäisi manifestin perusteella pysyvästi ohitetuksi, ja
-    raportti kertoisi kartasta, jolla kukaan ei kuollut.
+    An empty result would stay permanently skipped on the strength of the
+    manifest, and the report would tell of a map on which nobody died.
     """
     rounds = build_rounds(played=2, warmup=0)
     empty = pl.DataFrame(schema=dict(DEATHS_ADAPTER_SCHEMA))
@@ -3022,7 +3095,7 @@ def test_an_empty_deaths_table_is_refused_instead_of_written(
             FakeParser(rounds, ticks=build_ticks(rounds), deaths=empty),
             demo,
         )
-    assert "kuolemaa" in str(exc.value)
+    assert "not a single death" in str(exc.value)
     assert not archive.parsed_table(MAP_DEMO_ID, "deaths").exists()
     assert Manifest.read(archive.parsed_manifest(MAP_DEMO_ID)).status == "parse_failed"
 
@@ -3030,11 +3103,11 @@ def test_an_empty_deaths_table_is_refused_instead_of_written(
 def test_an_archive_without_the_deaths_table_is_not_up_to_date(
     parse_settings, archive, demo
 ) -> None:
-    """I/O-matriisi: vanha arkisto ilman deaths.parquet -> ajetaan uudelleen.
+    """I/O matrix: an old archive without deaths.parquet -> it is run again.
 
-    ``ParseSettings`` ei muuttunut, joten parametrihash on identtinen ja
-    vanha manifesti nimeää vain neljä taulua. Ilman erillistä tarkistusta ajo
-    ohitettaisiin ja kuolemataulu ei syntyisi koskaan.
+    ``ParseSettings`` did not change, so the parameter hash is identical and
+    the old manifest names only four tables. Without a separate check the run
+    would be skipped and the deaths table would never be born.
     """
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
@@ -3049,7 +3122,7 @@ def test_an_archive_without_the_deaths_table_is_not_up_to_date(
 
     result = run_parse(parse_settings, archive, parser, demo)
 
-    assert not result.skipped, "vanha arkisto olisi jäänyt ilman kuolemataulua"
+    assert not result.skipped, "the old archive would have been left without a deaths table"
     assert parser.calls == 2
     assert archive.parsed_table(MAP_DEMO_ID, "deaths").is_file()
 
@@ -3057,7 +3130,7 @@ def test_an_archive_without_the_deaths_table_is_not_up_to_date(
 def test_a_stale_deaths_table_missing_a_column_is_reparsed(
     parse_settings, archive, demo
 ) -> None:
-    """Sopimusmuutos pakottaa uudelleenparsinnan ilman ``--pakota``."""
+    """A contract change forces a reparse without ``--pakota``."""
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
 
@@ -3073,12 +3146,12 @@ def test_a_stale_deaths_table_missing_a_column_is_reparsed(
 def test_unreadable_deaths_do_not_hide_the_other_counts(
     parse_settings, archive, demo
 ) -> None:
-    """Yksi lukukelvoton taulu ei saa viedä muiden lukuja.
+    """One unreadable table must not take the others' numbers away.
 
-    Taulut luetaan erikseen: rikkinäinen kuolemataulu kerrotaan omalla
-    avaimellaan, ja kierros-, näytepiste- ja utility-luvut säilyvät.
-    Lukukelvoton taulu on eri vika kuin vanhentunut sopimus, eikä se parane
-    demon uudelleenluvusta -- siksi ajo pysyy ohitettuna.
+    The tables are read separately: a broken deaths table is reported under a
+    key of its own, and the round, sample-point and utility numbers survive.
+    An unreadable table is a different defect from a stale contract, and it is
+    not cured by rereading the demo -- which is why the run stays skipped.
     """
     run_parse(parse_settings, archive, FakeParser(), demo)
     archive.parsed_table(MAP_DEMO_ID, "deaths").write_text("ei parquetia")
@@ -3094,21 +3167,23 @@ def test_unreadable_deaths_do_not_hide_the_other_counts(
 def test_skipped_run_reports_the_death_counts_too(
     parse_settings, archive, demo
 ) -> None:
-    """Ohitettu ajo lukee luvut valmiista taulusta eikä väitä nollaa."""
+    """A skipped run reads the numbers from the finished table and does not
+    claim zero."""
     run_parse(parse_settings, archive, FakeParser(), demo)
     result = run_parse(parse_settings, archive, FakeParser(), demo)
 
     assert result.skipped
     assert result.stats["death_rows"] == 3
     assert result.stats["death_rounds"] == 3
-    # Numeroimattomilta pudonneita ei voi lukea valmiista taulusta.
+    # Those dropped from unnumbered rounds cannot be read from the finished
+    # table.
     assert "deaths_unnumbered_rounds" not in result.stats
 
 
 def test_the_deaths_diagnostics_reach_the_stats(
     parse_settings, archive, demo
 ) -> None:
-    """Adapterin omat luvut kulkevat ajon yhteenvetoon sellaisinaan."""
+    """The adapter's own numbers reach the run's summary as they stand."""
 
     class WithDiagnostics(FakeParser):
         diagnostics = ParseDiagnostics(
@@ -3129,10 +3204,10 @@ def test_the_deaths_diagnostics_reach_the_stats(
 def test_the_parse_summary_names_every_death_line(
     parse_settings, archive, demo
 ) -> None:
-    """Tuottajan ja kuluttajan avainsopimus jokaiselle uudelle tulosteriville.
+    """The producer/consumer key contract for every new output line.
 
-    Jokainen rivi tarkistetaan **arvoineen**: pelkkä otsikon etsiminen menisi
-    läpi, vaikka luku olisi väärästä avaimesta.
+    Every line is checked **with its value**: searching for the heading alone
+    would pass even if the number came from the wrong key.
     """
     from pappascout.cli import _render_parse
 
@@ -3150,9 +3225,9 @@ def test_the_parse_summary_names_every_death_line(
     parser = WithDiagnostics(
         rounds,
         ticks=build_ticks(rounds),
-        # Numerot juoksevat KAIKKIEN kierrosrajojen yli, myös warmupin:
-        # numerot 1-2 putoavat numeroimattomina, joten poikkeukset on
-        # asetettava pelatuille kierroksille 3-5.
+        # The numbers run over ALL round boundaries, the warm-up included:
+        # numbers 1-2 fall away as unnumbered, so the exceptions have to be
+        # placed on the played rounds 3-5.
         deaths=build_deaths(
             rounds,
             without_attacker=(3,),
@@ -3175,7 +3250,8 @@ def test_the_parse_summary_names_every_death_line(
 def test_the_parse_summary_stays_silent_when_every_death_is_whole(
     parse_settings, archive, demo
 ) -> None:
-    """Nolla on odotusarvo, eikä sitä tulosteta -- vain rivimäärä jää."""
+    """Zero is the expected value and is not printed -- only the row count
+    stays."""
     from pappascout.cli import _render_parse
 
     text = _render_parse(
@@ -3193,7 +3269,7 @@ def test_the_parse_summary_stays_silent_when_every_death_is_whole(
 def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
     parse_settings, archive, demo
 ) -> None:
-    """Lukukelvoton taulu kerrotaan, ei nollata."""
+    """An unreadable table is reported, not zeroed."""
     from pappascout.cli import _render_parse
 
     stats = parse_stage._existing_stats(
@@ -3219,7 +3295,8 @@ def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
         archive.parsed_table(MAP_DEMO_ID, "match"),
     )
     assert "deaths_unreadable" in stats
-    # Yksi rikki mennyt taulu ei vie toisen lukuja: pistepilvi on ehjä.
+    # One broken table does not take another's numbers: the point cloud is
+    # intact.
     assert stats["callout_cells"] == 4
     text = _render_parse(
         StageResult(
@@ -3234,7 +3311,7 @@ def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
     assert "Kuolemat" in text and "lukuja ei saatu" in text
 
 
-# --- Katselmuskierros: uhrin eheys, järjestys ja pudotussyyt -------------------
+# --- Review round: victim integrity, ordering and drop reasons -----------------
 
 
 @pytest.mark.parametrize(
@@ -3243,12 +3320,14 @@ def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
 def test_a_death_without_its_victim_is_refused(
     parse_settings, archive, demo, column: str
 ) -> None:
-    """Uhri on rivin identiteetti; ilman sitä rivi katoaisi hiljaa.
+    """The victim is the row's identity; without it the row would vanish
+    silently.
 
-    Jokainen näistä on nullable-sarake, joten ``validate`` päästäisi rivin
-    läpi -- ja aggregoinnissa se ei olisi kuolema eikä tappo, koska molemmat
-    suodattimet vertaavat kokoonpanoon. Sarakkeet testataan erikseen: yksi
-    yhteinen testi menisi läpi, vaikka kaksi kolmesta ehdosta poistettaisiin.
+    Each of these is a nullable column, so ``validate`` would let the row
+    through -- and in aggregation it would be neither a death nor a kill,
+    because both filters compare against the lineup. The columns are tested
+    separately: one shared test would pass even if two of the three conditions
+    were removed.
     """
     rounds = build_rounds(played=2, warmup=0)
     broken = build_deaths(rounds).with_columns(
@@ -3265,14 +3344,15 @@ def test_a_death_without_its_victim_is_refused(
             FakeParser(rounds, ticks=build_ticks(rounds), deaths=broken),
             demo,
         )
-    assert "uhrin" in str(exc.value)
+    assert "the victim's details" in str(exc.value)
     assert column in str(exc.value)
 
 
 def test_a_whole_victim_passes_the_guard(parse_settings, archive, demo) -> None:
-    """Vartijan toinen haara: ehjä uhri menee läpi.
+    """The guard's other branch: an intact victim passes.
 
-    Ilman tätä edellinen testi todistaisi vain, että jokin kaataa ajon.
+    Without this the previous test would prove only that something fails the
+    run.
     """
     run_parse(parse_settings, archive, FakeParser(), demo)
     assert read_deaths(archive).height == 3
@@ -3281,16 +3361,17 @@ def test_a_whole_victim_passes_the_guard(parse_settings, archive, demo) -> None:
 def test_the_integrity_guards_see_the_knife_round_too(
     parse_settings, archive, demo
 ) -> None:
-    """Vartijat ajetaan **ennen** numerointia, eli koko adapterin tuotokselle.
+    """The guards are run **before** the numbering, over the adapter's whole
+    output.
 
-    Puolinainen rivi tulee todennäköisimmin juuri lämmittelystä ja
-    puukkokierrokselta -- ne ovat kierroksia, joilla pelin tila on epävakain.
-    Numeroinnin jälkeen vartija katsoisi vain sitä osaa aineistoa, jossa
-    vikaa ei odoteta.
+    A half-formed row most likely comes from the warm-up and the knife round
+    -- those are the rounds on which the game's state is least stable. After
+    the numbering the guard would look only at the part of the material where
+    no defect is expected.
     """
     rounds = build_rounds(played=2, warmup=2)
-    # Rikotaan **vain** numeroimaton kierros: numeroinnin jälkeen ajettu
-    # vartija ei näkisi tätä riviä lainkaan.
+    # Break **only** the unnumbered round: a guard run after the numbering
+    # would not see this row at all.
     broken = build_deaths(rounds).with_columns(
         pl.when(pl.col("round_raw") <= 2)
         .then(None)
@@ -3305,13 +3386,14 @@ def test_the_integrity_guards_see_the_knife_round_too(
             FakeParser(rounds, ticks=build_ticks(rounds), deaths=broken),
             demo,
         )
-    assert "uhrin" in str(exc.value)
+    assert "the victim's details" in str(exc.value)
 
 
 def test_the_attacker_guard_sees_the_knife_round_too(
     parse_settings, archive, demo
 ) -> None:
-    """Sama ampujan vartijalle: pudotettu kierros ei saa piilottaa vikaa."""
+    """The same for the attacker's guard: a dropped round must not hide a
+    defect."""
     rounds = build_rounds(played=2, warmup=2)
     broken = build_deaths(rounds, without_attacker=(1, 2)).with_columns(
         pl.when(pl.col("attacker_id").is_null())
@@ -3326,17 +3408,18 @@ def test_the_attacker_guard_sees_the_knife_round_too(
             FakeParser(rounds, ticks=build_ticks(rounds), deaths=broken),
             demo,
         )
-    assert "ampujaa" in str(exc.value)
+    assert "no attacker" in str(exc.value)
 
 
 def test_a_death_without_a_time_sorts_last_in_the_written_table(
     parse_settings, archive, demo
 ) -> None:
-    """Puuttuva aika ei ole nolla -- eikä parquetissa toisin kuin domainissa.
+    """A missing time is not zero -- and not one way in the parquet and
+    another in the domain.
 
-    ``deaths_for`` järjestää tyhjän ``t_s``:n viimeiseksi. Ilman
-    ``nulls_last=True``:tä sama rivi johtaisi kierrostaan taulussa, ja sama
-    asia järjestyisi kahdella eri tavalla riippuen kummasta katsoo.
+    ``deaths_for`` sorts an empty ``t_s`` last. Without ``nulls_last=True``
+    the same row would lead its round in the table, and the same thing would
+    be ordered in two different ways depending on which one you look at.
     """
     rounds = build_rounds(played=1, warmup=0)
     deaths = build_deaths(rounds, per_round=3).with_columns(
@@ -3361,10 +3444,12 @@ def test_a_death_without_a_time_sorts_last_in_the_written_table(
 def test_the_empty_table_error_names_the_counters_it_already_has(
     parse_settings, archive, demo
 ) -> None:
-    """Virheilmoitus ei arvaa syytä, kun luvut ovat kädessä.
+    """The error message does not guess the reason when the numbers are in
+    hand.
 
-    Adapteri erittelee jokaisen pudotussyyn, ja ne on laskettu ennen kuin
-    tyhjyys havaitaan. Ilman niitä ilmoitus nimeäisi kaksi arvausta.
+    The adapter breaks out every drop reason, and they have been computed
+    before the emptiness is noticed. Without them the message would name two
+    guesses.
     """
 
     class WithDrops(FakeParser):
@@ -3386,14 +3471,14 @@ def test_the_empty_table_error_names_the_counters_it_already_has(
             demo,
         )
     message = str(exc.value)
-    assert "kierrosten ulkopuolella 7" in message
-    assert "uhri puuttui 2" in message
+    assert "outside the rounds 7" in message
+    assert "no victim 2" in message
 
 
 def test_the_empty_table_error_says_so_when_every_counter_is_zero(
     parse_settings, archive, demo
 ) -> None:
-    """Toinen haara: ilman pudotuksia syy on portti itse."""
+    """The other branch: with no drops the reason is the port itself."""
     rounds = build_rounds(played=2, warmup=0)
     empty = pl.DataFrame(schema=dict(DEATHS_ADAPTER_SCHEMA))
     with pytest.raises(ParseError) as exc:
@@ -3404,14 +3489,15 @@ def test_the_empty_table_error_says_so_when_every_counter_is_zero(
             demo,
         )
     message = str(exc.value)
-    assert "ei tuottanut yhtään kuolemaa" in message
+    assert "produced no death at all" in message
     assert "player_death" in message
 
 
 def test_the_new_drop_counters_reach_the_stats_and_the_summary(
     parse_settings, archive, demo
 ) -> None:
-    """Tickitön ja uhriton kuolema ovat eri syitä, ja molemmat näkyvät."""
+    """A death without a tick and one without a victim are different reasons,
+    and both show."""
     from pappascout.cli import _render_parse
 
     class WithDrops(FakeParser):
@@ -3432,18 +3518,19 @@ def test_the_new_drop_counters_reach_the_stats_and_the_summary(
     assert "Kuolema ilman uhria" in text and "3 (" in text
 
 
-# --- Pistepilvi (Story 2.9) ------------------------------------------------------
+# --- The point cloud (Story 2.9) -------------------------------------------------
 
 
 def test_the_usable_row_count_has_exactly_one_source(
     parse_settings, archive, demo
 ) -> None:
-    """Kelvolliset rivit ovat ruutujen havaintojen summa, eivät oma laskuri.
+    """The usable rows are the sum of the cells' observations, not a counter
+    of their own.
 
-    Kaksi lähdettä samalle luvulle voi erkaantua: adapterin suodatin ja
-    taulun summa antaisivat eri vastauksen heti, jos toista muutettaisiin.
-    Portti ei siis raportoi lukua lainkaan -- vaihe laskee sen taulusta ja
-    ``cli`` käyttää sitä suhteen osoittajana.
+    Two sources for the same number can drift apart: the adapter's filter and
+    the table's sum would give different answers the moment one of them was
+    changed. So the port does not report the number at all -- the stage
+    computes it from the table and ``cli`` uses it as the ratio's numerator.
     """
     assert not hasattr(ParseDiagnostics(tick_rate=64.0,
                                         tick_rate_measured=True,
@@ -3455,11 +3542,11 @@ def test_the_usable_row_count_has_exactly_one_source(
 
 
 def test_writes_a_valid_callout_cloud(parse_settings, archive, demo) -> None:
-    """Hyväksymiskriteeri: ``callouts.parquet`` läpäisee ``validate``in.
+    """Acceptance criterion: ``callouts.parquet`` passes ``validate``.
 
-    Taulu on räjähdysalueiden **lähde**, ja se kirjoitetaan juuri siksi:
-    johdettu alue on tarkistettavissa demoa vasten vain, jos se mistä se
-    johdettiin on tallessa.
+    The table is the **source** of the detonation areas, and it is written for
+    exactly that reason: a derived area can be checked against the demo only
+    if what it was derived from is kept.
     """
     result = run_parse(parse_settings, archive, FakeParser(), demo)
 
@@ -3472,19 +3559,20 @@ def test_writes_a_valid_callout_cloud(parse_settings, archive, demo) -> None:
     assert df.height == 4
     assert result.stats["callout_cells"] == 4
     assert result.stats["callout_areas"] == 2
-    # Havainnot ovat ruudun omia lukuja, ei vakio: 10 + 11 + 12 + 13.
+    # The observations are the cells' own numbers, not a constant:
+    # 10 + 11 + 12 + 13.
     assert result.stats["callout_observations"] == 46
 
 
 def test_the_cloud_keeps_every_round_including_the_knife_round(
     parse_settings, archive, demo
 ) -> None:
-    """Pistepilveä ei numeroida, joten sen rivit eivät putoa numeroinnissa.
+    """The point cloud is not numbered, so its rows do not fall away in it.
 
-    Pilvi on kartan ominaisuus tässä demossa eikä kierroksen havainto, ja
-    lämmittelyn ja puukkokierroksen tickit kertovat kartasta yhtä paljon kuin
-    pelattujen kierrosten. Sama sääntö kuin kokoonpanotaululla: taulussa ei
-    ole ``round_no``-saraketta lainkaan.
+    The cloud is a property of the map in this demo and not an observation
+    about a round, and the ticks of the warm-up and of the knife round tell as
+    much about the map as those of the played rounds. The same rule as with
+    the lineup table: the table has no ``round_no`` column at all.
     """
     rounds = build_rounds(played=3, warmup=2)
     run_parse(parse_settings, archive, FakeParser(rounds), demo)
@@ -3495,7 +3583,7 @@ def test_the_cloud_keeps_every_round_including_the_knife_round(
 
 
 def test_the_cloud_rows_are_sorted_by_cell(parse_settings, archive, demo) -> None:
-    """Sama demo tuottaa tavu tavulta saman tiedoston."""
+    """The same demo produces the same file byte for byte."""
     shuffled = build_callouts().sort("cell_x", descending=True)
     run_parse(
         parse_settings, archive, FakeParser(callouts=shuffled), demo
@@ -3507,13 +3595,13 @@ def test_the_cloud_rows_are_sorted_by_cell(parse_settings, archive, demo) -> Non
 def test_an_empty_cloud_is_written_and_does_not_stop_the_run(
     parse_settings, archive, demo
 ) -> None:
-    """I/O-matriisi: tyhjä pistepilvi -> ajo ei kaadu, luvut ovat nollia.
+    """I/O matrix: an empty point cloud -> the run holds, the numbers are zero.
 
-    Tyhjä kuolemataulu on virhe ja tyhjä pistepilvi ei -- ero on siinä mitä
-    tyhjyys tarkoittaa. Kuolema ei ole valinta, mutta demo, jonka
-    ``last_place_name`` jää tyhjäksi, on aidosti pilvetön. Sen seuraus
-    (kaikki räjähdysalueet null) on oikea lopputulos, ja syy kerrotaan
-    diagnostiikassa.
+    An empty deaths table is an error and an empty point cloud is not -- the
+    difference is in what emptiness means. A death is not a choice, but a demo
+    whose ``last_place_name`` comes back empty is genuinely cloudless. Its
+    consequence (every detonation area null) is the right outcome, and the
+    reason is given in the diagnostics.
     """
     empty = pl.DataFrame(schema=dict(CALLOUTS_ADAPTER_SCHEMA))
     result = run_parse(
@@ -3535,7 +3623,7 @@ def test_a_callouts_table_breaking_the_port_contract_is_rejected(
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(callouts=broken), demo)
     assert "observations" in str(exc.value)
-    assert "pistepilven" in str(exc.value)
+    assert "point cloud" in str(exc.value)
 
 
 def test_an_extra_callouts_column_is_a_contract_break_too(
@@ -3545,78 +3633,82 @@ def test_an_extra_callouts_column_is_a_contract_break_too(
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(callouts=broken), demo)
     assert "ylimaarainen" in str(exc.value)
-    assert "pistepilven" in str(exc.value)
+    assert "point cloud" in str(exc.value)
 
 
 def test_a_duplicate_cell_is_refused(parse_settings, archive, demo) -> None:
-    """Kaksi riviä samalle ruudulle tarkoittaisi, ettei moodivalinta toiminut.
+    """Two rows for the same cell would mean the mode selection did not work.
 
-    Räjähdys saisi alueensa sen mukaan, kumpi rivi sattui olemaan lähempänä
-    lajittelussa, ja sama demo voisi antaa eri alueen eri ajolla. Skeema ei
-    näe tätä: molemmat rivit ovat erikseen kelvollisia.
+    A detonation would get its area according to whichever row happened to be
+    nearer in the ordering, and the same demo could give a different area on a
+    different run. The schema does not see this: both rows are valid on their
+    own.
     """
     doubled = pl.concat([build_callouts(), build_callouts().head(1)])
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(callouts=doubled), demo)
     assert "cell_x, cell_y, cell_z" in str(exc.value)
-    assert "kaksoiskappaleita" in str(exc.value)
+    assert "duplicates" in str(exc.value)
 
 
 def test_a_cell_without_an_area_is_refused(parse_settings, archive, demo) -> None:
-    """Nimetön ruutu nimeäisi räjähdyksen tyhjäksi *kynnyksen sisällä*.
+    """A cell without a name would name a detonation empty *inside the
+    threshold*.
 
-    Rivi näyttäisi siis samalta kuin "aluetta ei saatu", vaikka osuma oli
-    hyvä. ``area`` on nullable-sarake, joten skeema päästäisi sen läpi.
+    The row would then look the same as "no area was obtained", although the
+    hit was good. ``area`` is a nullable column, so the schema would let it
+    through.
     """
     nameless = build_callouts().with_columns(
         pl.lit(None, dtype=pl.Utf8).alias("area")
     )
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(callouts=nameless), demo)
-    assert "ilman aluenimeä" in str(exc.value)
+    assert "without an area name" in str(exc.value)
 
 
 @pytest.mark.parametrize("observations", [0, -1, None])
 def test_a_cell_without_observations_is_refused(
     parse_settings, archive, demo, observations
 ) -> None:
-    """Ruutu syntyy vain havainnosta, joten nolla tarkoittaa keksittyä ruutua.
+    """A cell is born only from an observation, so zero means an invented cell.
 
-    ``Int32`` päästää nollan ja negatiivisen läpi, ja avaintarkistus katsoo
-    vain koordinaatteja. Seuraus olisi hiljainen: ``callout_observations`` ja
-    ajon kelpoisuussuhde näyttäisivät todellista pienemmiltä, eikä mikään
-    kertoisi miksi.
+    ``Int32`` lets zero and negative through, and the key check looks only at
+    the coordinates. The consequence would be silent:
+    ``callout_observations`` and the run's usable ratio would look smaller
+    than they are, and nothing would say why.
     """
     broken = build_callouts().with_columns(
         pl.lit(observations, dtype=pl.Int32).alias("observations")
     )
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(callouts=broken), demo)
-    assert "yhtään havaintoa" in str(exc.value)
+    assert "not a single observation" in str(exc.value)
 
 
 def test_a_cell_with_a_blank_area_is_refused(
     parse_settings, archive, demo
 ) -> None:
-    """Pelkkä välilyönti ei ole aluenimi, vaikka se ei olekaan null.
+    """A bare space is not an area name, even though it is not null.
 
-    Tyhjä nimi nimeäisi räjähdyksen tyhjäksi *kynnyksen sisällä*, eli rivi
-    näyttäisi samalta kuin "aluetta ei saatu" vaikka osuma oli hyvä.
+    An empty name would name a detonation empty *inside the threshold*, that
+    is, the row would look the same as "no area was obtained" although the hit
+    was good.
     """
     broken = build_callouts().with_columns(pl.lit("   ").alias("area"))
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(callouts=broken), demo)
-    assert "ilman aluenimeä" in str(exc.value)
+    assert "without an area name" in str(exc.value)
 
 
 def test_a_missing_callouts_table_forces_a_reparse(
     parse_settings, archive, demo
 ) -> None:
-    """Puolikas tulos ei ole ajantasainen tulos.
+    """Half a result is not an up-to-date result.
 
-    Story 2.8:n arkisto on juuri tässä tilassa: manifesti täsmää, mutta
-    ``callouts.parquet`` puuttuu. Ilman tarkistusta ajo ohitettaisiin ja
-    käyttäjälle kerrottaisiin "Tulos on ajan tasalla".
+    A Story 2.8 archive is in exactly this state: the manifest matches, but
+    ``callouts.parquet`` is missing. Without the check the run would be
+    skipped and the user would be told "the result is up to date".
     """
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
@@ -3630,15 +3722,16 @@ def test_a_missing_callouts_table_forces_a_reparse(
 def test_an_events_table_with_the_retired_enum_value_is_reparsed(
     parse_settings, archive, demo
 ) -> None:
-    """Story 2.9:n oikea migraatiopolku: vanha ``snapped`` ei lataudu enumiin.
+    """Story 2.9's real migration path: an old ``snapped`` does not load.
 
-    Tämä on se tilanne, johon käyttäjä oikeasti törmää -- arkistossa on
-    Story 2.8:n ``events.parquet``, jonka ``area_source`` on
-    ``Enum(["observed", "snapped"])``. Sekä ``constants.py`` että
-    ``_schema_is_current`` lupaavat, ettei se kelpaa ja että demo
-    parsitaan uudelleen **ilman** ``--pakota``-lippua. Muut testit kattavat
-    puuttuvan taulun ja pudotetun sarakkeen; tämä kattaa väärän arvojoukon,
-    joka on eri vika: sarakkeet ovat kohdallaan ja rivit luettavissa.
+    This is the situation the user really runs into -- the archive holds a
+    Story 2.8 ``events.parquet`` whose ``area_source`` is
+    ``Enum(["observed", "snapped"])``. Both ``constants.py`` and
+    ``_schema_is_current`` promise that it will not do and that the demo is
+    parsed again **without** the ``--pakota`` flag. Other tests cover a
+    missing table and a dropped column; this covers the wrong value set,
+    which is a different defect: the columns are in order and the rows can be
+    read.
     """
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
@@ -3647,8 +3740,8 @@ def test_an_events_table_with_the_retired_enum_value_is_reparsed(
     table = archive.parsed_table(MAP_DEMO_ID, "events")
     old_enum = pl.Enum(["observed", "snapped"])
     stale = pl.read_parquet(table).with_columns(
-        # Arvot palautetaan vanhaan sanastoon: juuri sellainen tiedosto
-        # arkistossa on, kun se on kirjoitettu Story 2.8:n koodilla.
+        # The values are put back into the old vocabulary: that is exactly
+        # the file in the archive when it was written by Story 2.8's code.
         pl.col("area_source")
         .cast(pl.Utf8)
         .replace("point_cloud", "snapped")
@@ -3660,14 +3753,14 @@ def test_an_events_table_with_the_retired_enum_value_is_reparsed(
     result = run_parse(parse_settings, archive, parser, demo)
     assert not result.skipped
     assert parser.calls == 2
-    # Ja uusi tulos on nykyisellä luettelolla.
+    # And the new result is on the current list.
     assert pl.read_parquet(table).schema["area_source"] == EVENTS["area_source"]
 
 
 def test_a_callouts_table_that_no_longer_matches_the_contract_is_reparsed(
     parse_settings, archive, demo
 ) -> None:
-    """Skeemamuutos ei liikuta parametrihashia, joten se on tarkistettava."""
+    """A schema change does not move the parameter hash, so it is checked."""
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
     table = archive.parsed_table(MAP_DEMO_ID, "callouts")
@@ -3681,8 +3774,8 @@ def test_a_callouts_table_that_no_longer_matches_the_contract_is_reparsed(
 def test_the_cloud_counts_come_back_from_a_skipped_run(
     parse_settings, archive, demo
 ) -> None:
-    """Ruudut ja alueet ovat luettavissa valmiista taulusta, joten ne kerrotaan
-    myös ohitetussa ajossa -- toisin kuin luetut tickirivit."""
+    """The cells and areas are readable from the finished table, so they are
+    given in a skipped run too -- unlike the tick rows that were read."""
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
     result = run_parse(parse_settings, archive, parser, demo)
@@ -3695,10 +3788,10 @@ def test_the_cloud_counts_come_back_from_a_skipped_run(
 def test_the_cloud_diagnostics_reach_the_stats_and_the_summary(
     parse_settings, archive, demo
 ) -> None:
-    """Luetut ja kelvolliset rivit näkee vain lukuhetkellä.
+    """The rows read and the rows usable are visible only at read time.
 
-    Valmis taulu kertoo, montako ruutua syntyi, muttei sitä mistä ne
-    pelkistettiin -- eikä sitä, miksi pilvi jäi tyhjäksi.
+    The finished table says how many cells were born but not what they were
+    reduced from -- nor why the cloud came out empty.
     """
     from pappascout.cli import _render_parse
 
@@ -3714,7 +3807,7 @@ def test_the_cloud_diagnostics_reach_the_stats_and_the_summary(
     result = run_parse(parse_settings, archive, parser, demo)
     assert result.stats["callout_cloud_rows_read"] == 1529910
     assert result.stats["callout_cloud_empty_reason"].startswith("1529910 tickiriviä")
-    # Kelvolliset rivit tulevat taulusta, eivät toisesta laskurista.
+    # The usable rows come from the table, not from another counter.
     assert result.stats["callout_observations"] == 0
 
     text = _render_parse(result, regulation_rounds=24)
@@ -3725,16 +3818,17 @@ def test_the_cloud_diagnostics_reach_the_stats_and_the_summary(
 def test_the_detonation_area_coverage_and_distance_reach_the_stats(
     parse_settings, archive, demo
 ) -> None:
-    """Kattavuus ja etäisyysjakauma lasketaan valmiista taulusta joka ajolla.
+    """Coverage and distance spread are computed from the finished table on
+    every run.
 
-    Ne ovat Story 2.9:n mittarit, eikä niitä saa jättää kalibroinnin varaan:
-    kynnys voi vanhentua uuden kartan myötä, ja silloin sen kuuluu näkyä
-    ajossa eikä vasta raportissa.
+    They are Story 2.9's measures, and they must not be left to calibration:
+    the threshold can go stale with a new map, and when it does that belongs
+    in the run and not only in the report.
     """
     rounds = build_rounds(played=2, warmup=0)
     events = build_events(rounds)
-    # Kaksi räjähdystä neljästä jää kynnyksen taakse: alue null, etäisyys
-    # tallessa. Se on I/O-matriisin rivi "räjähdys kaukana".
+    # Two detonations out of four stay behind the threshold: area null,
+    # distance kept. That is the I/O matrix's "a distant detonation" row.
     detonation = pl.col("event_kind") == "grenade_detonate"
     far = pl.col("grenade_no") % 2 == 1
     events = events.with_columns(
@@ -3768,23 +3862,25 @@ def test_the_detonation_area_coverage_and_distance_reach_the_stats(
 def test_the_distance_spread_reports_three_different_numbers(
     parse_settings, archive, demo
 ) -> None:
-    """Mediaani, p90 ja suurin ovat **kolme eri lukua**, eivät sama kolmesti.
+    """The median, the p90 and the max are **three different numbers**, not
+    the same one three times.
 
-    Ilman tätä kiinnikettä ``p90`` on laskettu mutta havaitsematon: sen voi
-    vaihtaa ``quantile(0.3)``:een eikä yksikään väite kaadu, koska muut
-    testit joko purkavat sen muuttujaan käyttämättä sitä tai vertaavat
-    tulosteessa kovakoodattuun literaaliin. Ja juuri p90 on se luku, jota
-    asetusten docstringit myyvät ainoana ajokohtaisena todisteena kynnyksen
-    kalibroinnista.
+    Without this fixture ``p90`` is computed but unobserved: it can be
+    swapped for ``quantile(0.3)`` and not one claim fails, because the other
+    tests either unpack it into a variable without using it or compare against
+    a hard-coded literal in the output. And the p90 is exactly the number the
+    settings' docstrings sell as the only per-run evidence of the threshold's
+    calibration.
 
-    Etäisyydet ovat 10, 20, ..., 200 (20 räjähdystä): mediaani 105, p90
-    (lähin havainto) 180 ja suurin 200. Kolme eri lukua, ja mikä tahansa muu
-    kvantiili antaisi eri tuloksen -- ``quantile(0.3)`` antaisi 60.
+    The distances are 10, 20, ..., 200 (20 detonations): median 105, p90 (the
+    nearest observation) 180 and max 200. Three different numbers, and any
+    other quantile would give a different result -- ``quantile(0.3)`` would
+    give 60.
     """
     rounds = build_rounds(played=5, warmup=0)
     events = build_events(rounds)
     detonations = pl.col("event_kind") == "grenade_detonate"
-    # 20 räjähdystä, etäisyydet 10..200 nousevassa järjestyksessä.
+    # 20 detonations, distances 10..200 in ascending order.
     step = (
         pl.col("grenade_no").rank("ordinal").over("event_kind").cast(pl.Float32)
         * 10.0
@@ -3799,17 +3895,18 @@ def test_the_distance_spread_reports_three_different_numbers(
     median, p90, largest = result.stats["utility_snap_distance"]
     assert result.stats["utility_detonations"] == 20
     assert (median, p90, largest) == pytest.approx((105.0, 180.0, 200.0))
-    # Kolme eri lukua: jos kaksi olisi sama, väite ei erottaisi kvantiileja.
+    # Three different numbers: if two were the same, the claim would not tell
+    # the quantiles apart.
     assert len({median, p90, largest}) == 3
 
 
-# --- Ottelutaulu (Story 2.11) --------------------------------------------------
+# --- The match table (Story 2.11) ------------------------------------------------
 
 
 def test_writes_a_match_table_with_one_row_and_the_map_demo_id(
     parse_settings, archive, demo
 ) -> None:
-    """Yksi rivi per demo, ja ``map_demo_id`` liitosavaimena kuten muissakin."""
+    """One row per demo, with ``map_demo_id`` as the join key as elsewhere."""
     run_parse(parse_settings, archive, FakeParser(match=build_match("de_nuke")), demo)
 
     table = archive.parsed_table(MAP_DEMO_ID, "match")
@@ -3824,11 +3921,12 @@ def test_writes_a_match_table_with_one_row_and_the_map_demo_id(
 def test_a_match_table_without_a_name_is_still_written(
     parse_settings, archive, demo
 ) -> None:
-    """Puuttuva nimi on ``null`` eikä puuttuva rivi.
+    """A missing name is ``null`` and not a missing row.
 
-    Aggregointi lukee nimikarttaansa vain ne demot, joilta rivi löytyy. Ilman
-    riviä "otsikossa ei ollut karttaa" näyttäisi täsmälleen samalta kuin
-    "taulua ei ole" -- ja jälkimmäinen pudottaa demon otannasta kokonaan.
+    Aggregation reads into its name map only those demos for which a row is
+    found. Without the row, "the header held no map" would look exactly like
+    "there is no table" -- and the latter drops the demo out of the sample
+    altogether.
     """
     run_parse(parse_settings, archive, FakeParser(match=build_match(None)), demo)
 
@@ -3841,17 +3939,17 @@ def test_a_match_table_without_a_name_is_still_written(
 def test_a_match_table_without_exactly_one_row_is_refused(
     parse_settings, archive, demo, rows: int
 ) -> None:
-    """Rivimäärä on sopimus, jota skeemavalidointi ei näe.
+    """The row count is a contract that schema validation does not see.
 
-    Nolla riviä on demo ilman ottelua ja kaksi riviä kaksi ottelua samassa
-    tiedostossa; kumpikaan ei ole tosi, ja molemmat menisivät ``validate``sta
-    läpi, koska sarakkeet ja tyypit ovat kohdallaan.
+    Zero rows is a demo without a match and two rows is two matches in the
+    same file; neither is true, and both would pass ``validate``, because the
+    columns and the types are in order.
     """
     broken = build_match("de_nuke", rows=rows)
     with pytest.raises(ParseError) as exc:
         run_parse(parse_settings, archive, FakeParser(match=broken), demo)
 
-    assert "ottelutaulussa" in str(exc.value)
+    assert "match table of demo" in str(exc.value)
     assert not archive.parsed_table(MAP_DEMO_ID, "match").exists()
     assert Manifest.read(archive.parsed_manifest(MAP_DEMO_ID)).status == "parse_failed"
 
@@ -3859,7 +3957,7 @@ def test_a_match_table_without_exactly_one_row_is_refused(
 def test_a_match_table_breaking_the_port_contract_is_rejected(
     parse_settings, archive, demo
 ) -> None:
-    """Portin sarakeluettelo tarkistetaan ennen kuin taulua rakennetaan."""
+    """The port's column list is checked before the table is built."""
     broken = build_match("de_nuke").drop("map_name")
     with pytest.raises(SchemaError) as exc:
         run_parse(parse_settings, archive, FakeParser(match=broken), demo)
@@ -3869,10 +3967,11 @@ def test_a_match_table_breaking_the_port_contract_is_rejected(
 def test_an_unreadable_header_marks_the_demo_parse_failed(
     parse_settings, archive, demo
 ) -> None:
-    """Adapterin ``ParseError`` kirjautuu manifestiin ja estää ohituksen.
+    """The adapter's ``ParseError`` is recorded in the manifest and blocks the
+    skip.
 
-    Manifesti on se, joka pitää huolen ettei seuraava ajo ohita puolikasta
-    tulosta: ilman merkintää demo näyttäisi ajantasaiselta.
+    The manifest is what makes sure the next run does not skip over half a
+    result: without the record the demo would look up to date.
     """
     parser = FakeParser(error=ParseError("Demon otsikkoa ei voitu lukea: rikki"))
     with pytest.raises(ParseError):
@@ -3883,7 +3982,8 @@ def test_an_unreadable_header_marks_the_demo_parse_failed(
     assert "otsikkoa ei voitu lukea" in (manifest.reason or "")
     assert not archive.parsed_table(MAP_DEMO_ID, "match").exists()
 
-    # Ja seuraava ajo ei ohita: virheellinen tulos ei ole ajantasainen tulos.
+    # And the next run does not skip: a failed result is not an up-to-date
+    # result.
     result = run_parse(parse_settings, archive, FakeParser(), demo)
     assert not result.skipped
 
@@ -3891,12 +3991,13 @@ def test_an_unreadable_header_marks_the_demo_parse_failed(
 def test_a_missing_match_table_forces_a_reparse(
     parse_settings, archive, demo
 ) -> None:
-    """Vanha arkisto: manifesti täsmää, mutta uusi taulu puuttuu.
+    """An old archive: the manifest matches, but the new table is missing.
 
-    Story 1.8: ``params_hash`` lasketaan vain ``[parse]``-osiosta ja
-    demoparser2:n versiosta, joten pelkkä skeemamuutos **ei** mitätöi
-    arkistoa. ``expected_outputs`` on ainoa este sille, että kahdeksan jo
-    parsittua demoa jäisi ilman kartan nimeä -- ja ilman ``--pakota``-lippua.
+    Story 1.8: ``params_hash`` is computed only from the ``[parse]`` section
+    and demoparser2's version, so a schema change on its own does **not**
+    invalidate the archive. ``expected_outputs`` is the only thing standing
+    between eight already parsed demos and being left without the map name --
+    and without the ``--pakota`` flag.
     """
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
@@ -3912,7 +4013,7 @@ def test_a_missing_match_table_forces_a_reparse(
 def test_a_match_table_that_no_longer_matches_the_contract_is_reparsed(
     parse_settings, archive, demo
 ) -> None:
-    """Skeemamuutos ei liikuta parametrihashia, joten se on tarkistettava."""
+    """A schema change does not move the parameter hash, so it is checked."""
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
     table = archive.parsed_table(MAP_DEMO_ID, "match")
@@ -3926,12 +4027,12 @@ def test_a_match_table_that_no_longer_matches_the_contract_is_reparsed(
 def test_the_match_table_is_listed_in_the_manifest_and_the_result(
     parse_settings, archive, demo
 ) -> None:
-    """Manifesti **ja ajon tulos** nimeävät kaikki kirjoitetut taulut.
+    """The manifest **and the run's result** name every table written.
 
-    Kaksi eri luetteloa, ja molemmat on pidettävä ajan tasalla: manifesti
-    ohjaa ohitusta, ``StageResult.outputs`` on se, minkä käyttäjä näkee ajon
-    yhteenvedon ``Tulos``-riveillä. Puuttuva rivi tulosteessa antaisi
-    vaikutelman, ettei taulua kirjoitettu.
+    Two different lists, and both have to be kept up to date: the manifest
+    governs the skip, ``StageResult.outputs`` is what the user sees on the
+    run summary's ``Tulos`` lines. A missing line in the output would give the
+    impression that the table had not been written.
     """
     result = run_parse(parse_settings, archive, FakeParser(), demo)
 
@@ -3943,12 +4044,12 @@ def test_the_match_table_is_listed_in_the_manifest_and_the_result(
 def test_the_map_name_reaches_the_stats_and_the_summary(
     parse_settings, archive, demo
 ) -> None:
-    """Kartan nimi näkyy ajon yhteenvedossa -- se on ainoa merkki siitä.
+    """The map name shows in the run's summary -- that is the only sign of it.
 
-    Nimi on ``aggregate``n ainoa keino yhdistää kaksi demoa samaksi kartaksi,
-    eikä FACEIT-tunnisteesta sitä voi päätellä. Ilman riviä tulosteessa
-    kadonnut otsikkokenttä palauttaisi koko arkiston demokohtaisiin
-    karttahaaroihin ilman yhtään merkkiä.
+    The name is ``aggregate``'s only means of joining two demos into the same
+    map, and it cannot be inferred from the FACEIT id. Without the line in the
+    output, a lost header field would send the whole archive back to per-demo
+    map branches without a single sign.
     """
     from pappascout.cli import _render_parse
 
@@ -3961,10 +4062,10 @@ def test_the_map_name_reaches_the_stats_and_the_summary(
 
 
 def test_a_missing_map_name_says_so_out_loud(parse_settings, archive, demo) -> None:
-    """Puuttuva nimi on oma rivinsä, ei tyhjä kohta tulosteessa.
+    """A missing name is a line of its own, not a blank spot in the output.
 
-    Puuttuva avain ja ``None`` tarkoittaisivat tulosteessa samaa, ja tuloste on
-    ainoa paikka, jossa kadonnut otsikkokenttä näkyy.
+    A missing key and ``None`` would mean the same thing in the output, and
+    the output is the only place where a lost header field shows.
     """
     from pappascout.cli import _render_parse
 
@@ -3980,11 +4081,12 @@ def test_a_missing_map_name_says_so_out_loud(parse_settings, archive, demo) -> N
 def test_the_reason_for_a_missing_map_name_reaches_the_summary(
     parse_settings, archive, demo
 ) -> None:
-    """Syy tulee diagnostiikasta ja näkyy vain tuoreesta ajosta.
+    """The reason comes from the diagnostics and shows only from a fresh run.
 
-    Valmis taulu kertoo että nimi puuttuu, muttei sitä puuttuiko kenttä
-    otsikosta kokonaan -- ja juuri se ero erottaa kirjaston uudelleennimeämän
-    kentän demosta, jonka otsikkoon karttaa ei kirjattu.
+    The finished table says that the name is missing but not whether the field
+    was absent from the header altogether -- and that difference is exactly
+    what separates a field the library renamed from a demo whose header never
+    recorded the map.
     """
     from pappascout.cli import _render_parse
 
@@ -4008,11 +4110,13 @@ def test_the_reason_for_a_missing_map_name_reaches_the_summary(
 def test_the_map_name_comes_back_from_a_skipped_run(
     parse_settings, archive, demo
 ) -> None:
-    """Ohitettu ajo kertoo kartan, koska nimi on luettavissa taulusta.
+    """A skipped run gives the map, because the name is readable from the
+    table.
 
-    Juuri se on rivin arvo: ohitettu ajo on se tila, jossa käyttäjä muuten ei
-    näe kartasta mitään. Syy puuttumiselle sen sijaan tulee diagnostiikasta,
-    joten sitä ei ole ohitetussa ajossa -- ja se on oikein.
+    That is exactly the line's value: a skipped run is the state in which the
+    user otherwise sees nothing at all about the map. The reason for an
+    absence, on the other hand, comes from the diagnostics, so it is not there
+    in a skipped run -- and that is right.
     """
     parser = FakeParser(match=build_match("de_anubis"))
     run_parse(parse_settings, archive, parser, demo)
@@ -4024,20 +4128,20 @@ def test_the_map_name_comes_back_from_a_skipped_run(
     assert "header_map_name_missing_reason" not in result.stats
 
 
-def test_an_empty_match_table_gets_a_finnish_error_not_a_polars_one(
+def test_an_empty_match_table_gets_our_own_error_not_a_polars_one(
     parse_settings, archive, demo
 ) -> None:
-    """Rivimäärä tarkistetaan **ennen** kehyksen rakentamista.
+    """The row count is checked **before** the frame is built.
 
-    Jälkikäteen tarkistettuna suomenkielinen virhe säilyisi vain siksi, että
-    ``pl.lit`` sattuu broadcastaamaan myös korkeuteen 0. Sama sääntö kuin
-    ``stages.aggregate._in_schema_order``in ``ShapeError``illa: epäonnistumistapa
-    poistetaan, ei käännetä.
+    Checked afterwards, our own error would survive only because ``pl.lit``
+    happens to broadcast to height 0 as well. The same rule as with the
+    ``ShapeError`` in ``stages.aggregate._in_schema_order``: the failure mode
+    is removed, not translated.
     """
     broken = build_match("de_nuke", rows=0)
     with pytest.raises(ParseError) as exc:
         run_parse(parse_settings, archive, FakeParser(match=broken), demo)
 
     message = str(exc.value)
-    assert "ottelutaulussa on 0 riviä" in message
+    assert "has 0 rows" in message
     assert "ShapeError" not in message

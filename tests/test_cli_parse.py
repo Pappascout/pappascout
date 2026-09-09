@@ -899,7 +899,10 @@ def test_missing_demo_is_finnish_without_a_traceback(
     assert exc.value.code == EXIT_KNOWN_ERROR
     error = capsys.readouterr().err
     assert "Virhe:" in error
-    assert "ei löytynyt" in error
+    # The body of the message comes from ``stages.parse.resolve_demo``, which
+    # T8 translated; the CLI's own wrapper around it is still Finnish, and it
+    # is what keeps this test's name true.
+    assert "was not found" in error
     assert "Traceback" not in error
 
 

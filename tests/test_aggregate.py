@@ -1,7 +1,7 @@
-"""``domain.aggregate`` -- aggregoinnin laskennan testit.
+"""``domain.aggregate`` -- the tests for the aggregation's computation.
 
-Kaikki taulut rakennetaan käsin, eikä yksikään testi tarvitse demoa tai
-arkistoa: I/O-matriisin jokainen rivi on tässä tiedostossa omana testinään.
+Every table is built by hand, and not one test needs a demo or the archive:
+every row of the I/O matrix is in this file as a test of its own.
 """
 
 from __future__ import annotations
@@ -72,22 +72,22 @@ MAP_POOL = ["de_ancient", "de_anubis", "de_inferno", "de_nuke", "de_mirage"]
 
 
 def thresholds(**overrides: object) -> ThresholdSettings:
-    """Kynnykset testiä varten; oletukset ovat samat kuin tuotannossa."""
+    """The thresholds for a test; the defaults are the production ones."""
     values: dict[str, object] = {"pistol_rounds": [1, 13]}
     values.update(overrides)
     return ThresholdSettings(**values)
 
 
 def aggregate_settings(**overrides: object) -> AggregateSettings:
-    """``[aggregate]``-osio testiä varten; oletus on sama kuin tuotannossa."""
+    """The ``[aggregate]`` section for a test; the default is production's."""
     return AggregateSettings(**overrides)
 
 
-# --- Taulujen rakennus ----------------------------------------------------------
+# --- Building the tables --------------------------------------------------------
 
 
 def _inputs(armed: int | None) -> dict[str, object]:
-    """``CLASSIFIED.inputs`` -struktin kaikki kentät, jotta skeema täsmää."""
+    """Every field of the ``CLASSIFIED.inputs`` struct, so the schema fits."""
     return {
         "money_buy_end": 0,
         "money_spent": 0,
@@ -176,8 +176,8 @@ def ticks_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
     return validate(df, TICKS, "ticks")
 
 
-#: Klaaninimet, jotka kokoonpanotaulu antaa testiarkistossa. Oikeista demoista
-#: mitattuja: raportin otsikko on juuri tämä merkkijono.
+#: The clan names the lineup table gives in the test archive. Measured from
+#: real demos: the report's heading is this very string.
 TEAM_CLAN = "MatureMayhem"
 OPPONENT_CLAN = "KALJUKOSTAJA"
 
@@ -190,10 +190,10 @@ def lineup_row(
     player_name: str | None = None,
     clan_name: str | None = TEAM_CLAN,
 ) -> dict[str, object]:
-    """Yksi kokoonpanotaulun rivi.
+    """One row of the lineup table.
 
-    ``player_name`` ja ``clan_name`` ovat havaintoja: ``None`` tarkoittaa
-    "ei havaittu" eikä sitä korvata tunnisteella.
+    ``player_name`` and ``clan_name`` are observations: ``None`` means "not
+    observed" and it is not replaced by the id.
     """
     return {
         "map_demo_id": demo,
@@ -210,9 +210,9 @@ def lineups_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
 
 
 def match_frame(demo: str, map_name: str | None) -> pl.DataFrame:
-    """Ottelutaulu: yksi rivi, kartan nimi otsikosta tai ``None``.
+    """The match table: one row, the map name from the header or ``None``.
 
-    Ei ``orient``ia: sanakirjarivi kertoo sarakkeensa nimellä.
+    No ``orient``: the dictionary row names its column itself.
     """
     df = pl.DataFrame(
         [{"map_demo_id": demo, "map_name": map_name}], schema=dict(MATCH)
@@ -223,12 +223,12 @@ def match_frame(demo: str, map_name: str | None) -> pl.DataFrame:
 def callouts_frame(
     demo: str, cells: Sequence[tuple[str, int, int, int]] = ()
 ) -> pl.DataFrame:
-    """Pistepilvi: rivi per ruutu ``(alue, cell_x, cell_y, cell_z)``.
+    """The point cloud: a row per cell ``(area, cell_x, cell_y, cell_z)``.
 
-    Oletus on **tyhjä pilvi**, ja se on tarkoituksellinen: siitä ei saada
-    siteryhmiä, joten stack vaikenee ja jokainen vanha testi mittaa sitä,
-    mitä se mittasi ennen Story 2.14:ää. Ryhmiä tarvitseva testi antaa ruudut
-    itse.
+    The default is an **empty cloud**, and that is deliberate: no site groups
+    are obtained from it, so stack stays silent and every old test measures
+    what it measured before Story 2.14. A test that needs groups supplies the
+    cells itself.
     """
     df = pl.DataFrame(
         [
@@ -259,7 +259,7 @@ def event_rows(
     lineup: str = TEAM,
     side: str = "T",
 ) -> list[dict[str, object]]:
-    """Heitto ja räjähdys parina, kuten ``parse`` ne kirjoittaa."""
+    """The throw and the detonation as a pair, as ``parse`` writes them."""
     common = {
         "map_demo_id": demo,
         "round_raw": round_no + 1,
@@ -314,11 +314,11 @@ def death_row(
     t_s: float = 24.0,
     weapon: str = "ak47",
 ) -> dict[str, object]:
-    """Yksi kuolemarivi, kuten ``parse`` sen kirjoittaa.
+    """One death row, as ``parse`` writes it.
 
-    Oletus on vastustajan tekemä tappo omalle pelaajalle: uhri on
-    :data:`TEAM`in kokoonpanossa ja ampuja :data:`OPPONENT`in. Omat tapot
-    rakennetaan vaihtamalla ``attacker_lineup``.
+    The default is a kill made by the opponent on one of our own players: the
+    victim is in :data:`TEAM`'s lineup and the shooter in :data:`OPPONENT`'s.
+    Own kills are built by swapping ``attacker_lineup``.
     """
     return {
         "map_demo_id": demo,
@@ -357,10 +357,10 @@ def round_row(
     armored: int | None = 5,
     armed: int | None = 0,
 ) -> dict[str, object]:
-    """Yksi kierrostaulun rivi. Vain panssarilaskuri luetaan täältä.
+    """One row of the rounds table. Only the armour count is read from here.
 
-    Oletus on pistoolikierroksen asetelma -- viisi kevlaria, nolla aseistettua
-    -- koska juuri se erottaa laskurit toisistaan.
+    The default is a pistol round's set-up -- five kevlars, zero armed --
+    because that is exactly what tells the two counts apart.
     """
     return {
         "map_demo_id": demo,
@@ -393,10 +393,10 @@ def rounds_frame(rows: list[dict[str, object]]) -> pl.DataFrame:
 
 
 def rounds_for(classified: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Kierrostaulu, joka kattaa täsmälleen annetut luokitellut kierrokset.
+    """A rounds table covering exactly the classified rounds given.
 
-    Panssariluku on oletusarvoinen; testi, joka tutkii sitä, rakentaa
-    kierrostaulunsa itse.
+    The armour count is the default one; a test that examines it builds its
+    own rounds table.
     """
     return [
         round_row(str(row["map_demo_id"]), row["round_no"], side=str(row["side"]))
@@ -434,30 +434,31 @@ def report_for(
     area_orientation: dict[str, dict[str | None, AreaObservations]] | None = None,
     point_clouds: dict[str, list[CloudCell]] | None = None,
 ):
-    """Raportti käsin rakennetuista riveistä.
+    """A report from hand-built rows.
 
-    ``map_names`` **annettuna käytetään sellaisenaan**, myös tyhjänä. Ilman
-    sitä oletus on, ettei yhdenkään demon otsikossa ollut kartan nimeä
-    (``None`` jokaiselle), jolloin nimi päätellään tunnisteesta kuten ennen
-    Story 2.11:tä -- niin vanhat testit mittaavat yhä päättelyä ja uudet
-    havaintoa.
+    ``map_names`` **is used as it stands when given**, empty included.
+    Without it the default is that no demo's header held a map name (``None``
+    for every one), so the name is inferred from the id as it was before
+    Story 2.11 -- that way the old tests still measure the inference and the
+    new ones the observation.
 
-    Oletusta ei täytetä annetun kartan päälle: puuttuva avain on
-    ``build_report``in mielestä virhe, ja juuri sitä vartijaa on voitava
-    testata tämän apurin läpi.
+    The default is not filled in on top of a map that was given: a missing key
+    is an error as far as ``build_report`` is concerned, and that is exactly
+    the guard that has to be testable through this helper.
 
-    ``area_orientation`` toimii samoin, ja sen oletus on **tyhjä orientaatio
-    joka demolle**: yksikään alue ei ylitä havaintokynnystä, joten
-    poikkeamasäännöt vaikenevat. Se on tarkoituksellinen -- poikkeamat
-    testataan omilla riveillään, ja jokainen muu testi mittaa sitä, mitä se
-    mittasi ennen Story 2.5:tä. Tyhjä kartta on myös oikea vastaus: demo,
-    jonka näytepisteissä ei ole nimettyjä alueita, ei anna orientaatiota
-    millekään alueelle.
+    ``area_orientation`` works the same way, and its default is an **empty
+    orientation for every demo**: no area passes the observation threshold, so
+    the anomaly rules stay silent. That is deliberate -- the anomalies are
+    tested on rows of their own, and every other test measures what it
+    measured before Story 2.5. An empty map is also the right answer: a demo
+    whose sample points hold no named areas gives an orientation for no area
+    at all.
 
-    ``point_clouds`` toimii samoin, ja sen oletus on **tyhjä pilvi joka
-    demolle**: siitä ei saada siteryhmiä, joten stack vaikenee. Sama peruste
-    kuin orientaatiolla -- stack testataan omilla riveillään, ja jokainen muu
-    testi mittaa sitä, mitä se mittasi ennen Story 2.14:ää.
+    ``point_clouds`` works the same way, and its default is an **empty cloud
+    for every demo**: no site groups are obtained from it, so stack stays
+    silent. The same reasoning as for the orientation -- stack is tested on
+    rows of its own, and every other test measures what it measured before
+    Story 2.14.
     """
     if map_names is None:
         map_names = {str(row["map_demo_id"]): None for row in classified}
@@ -486,13 +487,13 @@ def report_for(
 
 
 def branch(report, map_name: str, side: str, round_type: str):
-    """Yhden kartta/puoli/kierrostyyppi -haaran haku raportista."""
+    """Look up one map/side/round type branch in the report."""
     m = next(m for m in report.maps if m.map_name == map_name)
     s = next(s for s in m.sides if s.side == side)
     return next(rt for rt in s.round_types if rt.round_type == round_type)
 
 
-# --- Pienet puhtaat funktiot ----------------------------------------------------
+# --- Small pure functions -------------------------------------------------------
 
 
 def test_bucket_labels_name_every_window_including_the_open_one() -> None:
@@ -500,7 +501,7 @@ def test_bucket_labels_name_every_window_including_the_open_one() -> None:
 
 
 def test_empty_bucket_edges_mean_one_window() -> None:
-    """Aikaikkunan poistaminen on asetus, ei koodimuutos."""
+    """Removing the time window is a setting, not a code change."""
     assert bucket_labels([]) == ["kaikki"]
     assert seconds_bucket(37.0, []) == "kaikki"
 
@@ -510,12 +511,12 @@ def test_empty_bucket_edges_mean_one_window() -> None:
     [(0.0, "0-5"), (4.9, "0-5"), (5.0, "5-10"), (19.9, "10-20"), (20.0, "20+")],
 )
 def test_bucket_edge_belongs_to_the_upper_window(t_s: float, expected: str) -> None:
-    """Yksi sääntö rajalle; kahta lukutapaa ei sallita."""
+    """One rule for the edge; two readings are not allowed."""
     assert seconds_bucket(t_s, [5.0, 10.0, 20.0]) == expected
 
 
 def test_missing_throw_time_gets_its_own_bucket() -> None:
-    """Puuttuva aika on eri asia kuin nolla sekuntia."""
+    """A missing time is a different thing from zero seconds."""
     assert seconds_bucket(None, [5.0, 10.0]) == "tuntematon"
 
 
@@ -532,25 +533,26 @@ def test_map_name_is_read_from_the_demo_id(demo: str, expected: tuple) -> None:
 
 
 def test_unknown_map_keeps_its_identifier_and_says_so() -> None:
-    """FACEIT-tunnisteessa ei ole kartan nimeä, eikä sitä arvata."""
+    """A FACEIT id holds no map name, and no guess is made."""
     assert map_name_for("1-a52ebff2-1-1", MAP_POOL) == ("1-a52ebff2-1-1", "unknown")
 
 
 def test_map_name_is_not_matched_as_a_substring() -> None:
-    """Joukkue nimeltä *Infernal* ei ole Inferno."""
+    """A team called *Infernal* is not Inferno."""
     name, source = map_name_for("Infernal_vs_x", MAP_POOL)
     assert source == "unknown"
     assert name == "Infernal_vs_x"
 
 
-# --- Kartan nimi otsikosta (Story 2.11) ---------------------------------------
+# --- The map name from the header (Story 2.11) ----------------------------------
 
 
 def test_the_observed_map_name_wins_over_the_identifier() -> None:
-    """FACEIT-tunnisteessa ei ole karttaa, mutta otsikossa on.
+    """A FACEIT id holds no map, but the header does.
 
-    Juuri tämä rivi I/O-matriisista on koko tarinan syy: ilman otsikkoa
-    ``1-79f71e00-...`` jää omaksi haaraksi tunnisteensa nimellä.
+    This very row of the I/O matrix is the reason for the whole story: without
+    the header ``1-79f71e00-...`` stays a branch of its own under the name of
+    its id.
     """
     assert map_name_for("1-79f71e00-1-1", MAP_POOL, "de_nuke") == (
         "de_nuke",
@@ -559,7 +561,7 @@ def test_the_observed_map_name_wins_over_the_identifier() -> None:
 
 
 def test_a_hand_imported_demo_keeps_its_name_but_changes_source() -> None:
-    """Sama nimi kuin ennen, lähde vaihtuu havainnoksi."""
+    """The same name as before, the source changes to the observation."""
     assert map_name_for("Ancient_vs_kaljukostaja", MAP_POOL, "de_ancient") == (
         "de_ancient",
         "demo_header",
@@ -567,11 +569,11 @@ def test_a_hand_imported_demo_keeps_its_name_but_changes_source() -> None:
 
 
 def test_an_observed_name_outside_the_pool_is_used_as_is() -> None:
-    """Poolin ulkopuolinen kartta on aito havainto eikä tuntematon kartta.
+    """A map outside the pool is a genuine observation, not an unknown map.
 
-    ``de_train`` ei ole kauden poolissa, mutta demo on siltä kartalta. Nimen
-    hiljainen korjaus poolin nimeksi olisi valhe, ja lähteen pudottaminen
-    arvoon ``unknown`` väittäisi, ettei nimeä havaittu.
+    ``de_train`` is not in the season's pool, but the demo is from that map.
+    Quietly correcting the name to a pool name would be a lie, and dropping
+    the source to ``unknown`` would claim that no name was observed.
     """
     assert map_name_for("1-79f71e00-1-1", MAP_POOL, "de_train") == (
         "de_train",
@@ -580,10 +582,10 @@ def test_an_observed_name_outside_the_pool_is_used_as_is() -> None:
 
 
 def test_the_observation_beats_a_conflicting_identifier() -> None:
-    """Tunniste on tiedostonimi, otsikko on demon oma tieto.
+    """The id is a filename, the header is the demo's own information.
 
-    Ristiriidassa havainto voittaa: tiedostonimen voi kirjoittaa kuka vain,
-    otsikon kirjoitti peli.
+    In a conflict the observation wins: anybody can write a filename, the
+    header was written by the game.
     """
     assert map_name_for("Ancient_vs_x", MAP_POOL, "de_nuke") == (
         "de_nuke",
@@ -595,7 +597,7 @@ def test_the_observation_beats_a_conflicting_identifier() -> None:
 def test_without_an_observation_the_inference_still_applies(
     observed: str | None,
 ) -> None:
-    """Tyhjä merkkijono ei ole nimi, joten päättely jää voimaan."""
+    """An empty string is not a name, so the inference stays in force."""
     assert map_name_for("Ancient_vs_kaljukostaja", MAP_POOL, observed) == (
         "de_ancient",
         "map_demo_id",
@@ -607,12 +609,13 @@ def test_without_an_observation_the_inference_still_applies(
 
 
 def test_two_faceit_demos_of_the_same_map_form_one_branch() -> None:
-    """Epicin oma mittari: monidemo-otanta kuvion ja yksittäistapauksen erolle.
+    """The epic's own measure: a multi-demo sample for the difference between
+    a pattern and a one-off.
 
-    Kaksi eri ``map_demo_id``:tä samalla havaitulla nimellä on **yksi** haara:
-    kierrokset summautuvat ja ``map_demo_ids`` luettelee molemmat. Ilman
-    otsikkoa nämä kaksi olisivat kaksi haaraa, joista jokainen rivi kantaisi
-    merkintää "(1/1 kierroksesta)".
+    Two different ``map_demo_id``s with the same observed name are **one**
+    branch: the rounds add up and ``map_demo_ids`` lists both. Without the
+    header these two would be two branches, every row of which would carry the
+    marking "(1/1 kierroksesta)".
     """
     report = report_for(
         [
@@ -638,10 +641,10 @@ def test_two_faceit_demos_of_the_same_map_form_one_branch() -> None:
 
 
 def test_a_demo_without_a_name_does_not_merge_into_another_branch() -> None:
-    """Tuntematon kartta pysyy tunnisteenaan; arvausta ei tehdä.
+    """An unknown map stays its id; no guess is made.
 
-    Havainto yhdeltä demolta ei kelpaa toisen nimeksi, vaikka ne olisivat
-    samassa ajossa.
+    An observation from one demo will not do as another one's name, even when
+    they are in the same run.
     """
     report = report_for(
         [
@@ -658,20 +661,20 @@ def test_a_demo_without_a_name_does_not_merge_into_another_branch() -> None:
     }
 
 
-# --- Haaran avain on nimi, lähde on heikoin (Story 2.11, katselmus 1) --------
+# --- The branch key is the name, the source is the weakest (Story 2.11, review 1)
 
 
 def test_the_observed_and_the_inferred_name_form_one_branch() -> None:
-    """Sama kartta kahdesta eri lähteestä on **yksi** haara.
+    """The same map from two different sources is **one** branch.
 
-    Tämä on se vika, jonka pari ``(nimi, lähde)`` avaimena tekisi: molemmat
-    demot ovat ``de_ancient``, mutta toisen nimi tulee otsikosta ja toisen
-    tiedostonimestä. Kahtena avaimena raportissa olisi kaksi
-    ``de_ancient``-osiota, molemmat merkinnällä "(1/1 kierroksesta)" -- eli
-    täsmälleen se pirstoutuminen, jonka tämä tarina poistaa, uudessa muodossa.
+    This is the fault the pair ``(name, source)`` as a key would cause: both
+    demos are ``de_ancient``, but one's name comes from the header and the
+    other's from the filename. As two keys the report would hold two
+    ``de_ancient`` sections, both marked "(1/1 kierroksesta)" -- that is,
+    exactly the scatter this story removes, in a new form.
 
-    Ennen Story 2.11:tä vikaa ei voinut olla: ``unknown``-haaran nimi on
-    tunniste itse, joten se ei törmää oikeaan nimeen.
+    Before Story 2.11 the fault could not arise: an ``unknown`` branch's name
+    is the id itself, so it does not collide with a real name.
     """
     report = report_for(
         [
@@ -693,15 +696,16 @@ def test_the_observed_and_the_inferred_name_form_one_branch() -> None:
         "ANCIENT_vs_RCAVE_VETERANS",
         "Ancient_vs_kaljukostaja",
     ]
-    # Haaran lähde on sen demojen HEIKOIN: yksi päätelty jäsen riittää.
+    # A branch's source is the WEAKEST of its demos: one inferred member is
+    # enough.
     assert entry.map_name_source == "map_demo_id"
 
 
 def test_a_branch_is_demo_header_only_when_every_demo_was_observed() -> None:
-    """Toinen haara: kaikki havaittu = ``demo_header``.
+    """The other branch: everything observed = ``demo_header``.
 
-    Ilman tätä väitettä edellinen testi menisi läpi myös toteutuksella, joka
-    kirjoittaa aina ``map_demo_id``in.
+    Without this claim the previous test would also pass with an
+    implementation that always writes ``map_demo_id``.
     """
     report = report_for(
         [
@@ -732,58 +736,62 @@ def test_a_branch_is_demo_header_only_when_every_demo_was_observed() -> None:
 def test_the_branch_source_is_the_weakest_of_its_demos(
     sources: list[str], expected: str
 ) -> None:
-    """Lähde vastaa kysymykseen "voinko luottaa tähän nimeen".
+    """The source answers the question "can I trust this name".
 
-    Yksi päätelty jäsen riittää vastaamaan "ei täysin", ja vahvimman
-    valitseminen olisi ylisanomista: haara näyttäisi kokonaan havaittuna,
-    vaikka osa sen kierroksista on liitetty siihen tiedostonimen perusteella.
-    Järjestys ei vaikuta tulokseen.
+    One inferred member is enough to answer "not entirely", and choosing the
+    strongest would be overstating it: the branch would look wholly observed
+    even though some of its rounds were attached to it on the strength of a
+    filename. The order does not affect the result.
     """
     assert weakest_map_source(sources) == expected
 
 
 def test_an_empty_source_list_is_an_error_not_a_default() -> None:
-    """Tyhjä luettelo on rikkinäinen ryhmittely, ei oletusarvoinen lähde."""
-    with pytest.raises(AggregateError, match="lähdeluettelo on tyhjä"):
+    """An empty list is a broken grouping, not a default source."""
+    with pytest.raises(AggregateError, match="source list is empty"):
         weakest_map_source([])
 
 
 def test_an_unknown_source_is_refused() -> None:
-    """Uusi lähde on lisättävä vahvuusjärjestykseen, ei vain malliin.
+    """A new source has to be added to the strength order, not just to the
+    model.
 
-    Hiljaa palautettu oletus valehtelisi lukijalle nimen luotettavuudesta.
+    A default returned in silence would lie to the reader about how reliable
+    the name is.
     """
-    with pytest.raises(AggregateError, match="Tuntematon kartan nimen lähde"):
+    with pytest.raises(AggregateError, match="Unknown map name source"):
         weakest_map_source(["demo_header", "tiedostonimi"])
 
 
 def test_a_missing_map_name_key_is_an_error_but_a_null_value_is_not() -> None:
-    """``None`` on laillinen havainto; **puuttuva avain** on ohjelmointivirhe.
+    """``None`` is a legal observation; a **missing key** is a programming
+    error.
 
-    Juuri sen estämiseksi ``build_report``in ``map_names`` tehtiin pakolliseksi.
-    ``Mapping.get`` sotkisi nämä yhteen ja palauttaisi kartan hiljaa
-    päättelyyn: FACEIT-demo saisi haaransa tunnisteestaan, eikä mikään
-    kertoisi että havainto oli olemassa mutta ei löytänyt perille.
+    That is exactly what ``build_report``'s ``map_names`` was made mandatory
+    to prevent. ``Mapping.get`` would mix the two together and quietly hand
+    the map over to inference: a FACEIT demo would get its branch from its id,
+    and nothing would say that the observation existed but did not arrive.
     """
     assert observed_map_name({"Nuke_vs_a": None}, "Nuke_vs_a") is None
     assert observed_map_name({"Nuke_vs_a": "de_nuke"}, "Nuke_vs_a") == "de_nuke"
 
-    with pytest.raises(AggregateError, match="ei ole kartan nimien joukossa"):
+    with pytest.raises(AggregateError, match="is not among the map names"):
         observed_map_name({"Nuke_vs_a": None}, "Anubis_vs_b")
 
 
 def test_build_report_refuses_a_demo_that_is_not_in_the_name_map() -> None:
-    """Sama vartija koko raportin läpi ajettuna."""
-    with pytest.raises(AggregateError, match="ei ole kartan nimien joukossa"):
+    """The same guard run through the whole report."""
+    with pytest.raises(AggregateError, match="is not among the map names"):
         report_for([classified_row("Nuke_vs_a", 1)], map_names={})
 
 
 @pytest.mark.parametrize("padded", ["  de_ancient", "de_ancient  ", " de_ancient "])
 def test_a_padded_observed_name_is_trimmed(padded: str) -> None:
-    """Reunojen välilyönnit eivät saa jakaa karttaa kahdeksi haaraksi.
+    """Edge whitespace must not split a map into two branches.
 
-    Adapteri leikkaa nimen jo lukiessaan, mutta ``map_name_for`` on julkinen
-    domain-funktio omalla sopimuksellaan eikä nojaa kutsujan siisteyteen.
+    The adapter trims the name as it reads it, but ``map_name_for`` is a
+    public domain function with a contract of its own and does not lean on the
+    caller's tidiness.
     """
     assert map_name_for("1-a52ebff2-1-1", MAP_POOL, padded) == (
         "de_ancient",
@@ -792,7 +800,7 @@ def test_a_padded_observed_name_is_trimmed(padded: str) -> None:
 
 
 def test_a_padded_and_a_clean_name_are_the_same_branch() -> None:
-    """Leikkauksen seuraus koko raportissa: yksi haara eikä kaksi."""
+    """The consequence of trimming in the whole report: one branch, not two."""
     report = report_for(
         [
             classified_row("1-a52ebff2-1-1", 1),
@@ -809,7 +817,7 @@ def test_a_padded_and_a_clean_name_are_the_same_branch() -> None:
 
 
 def test_lineups_with_enough_shared_players_are_one_team() -> None:
-    """Yksi vaihto tuottaa uuden tunnisteen; sama joukkue silti."""
+    """One substitution produces a new id; the same team all the same."""
     members = {
         "a": {"1", "2", "3", "4", "5"},
         "b": {"1", "2", "3", "4", "9"},
@@ -819,7 +827,8 @@ def test_lineups_with_enough_shared_players_are_one_team() -> None:
 
 
 def test_lineups_are_not_chained_through_a_third_team() -> None:
-    """Vertailu tehdään kohteeseen; ketjuttaminen sulattaisi kaksi joukkuetta."""
+    """The comparison is against the target; chaining would melt two teams
+    into one."""
     members = {
         "a": {"1", "2", "3", "4", "5"},
         "b": {"3", "4", "5", "6", "7"},
@@ -829,7 +838,7 @@ def test_lineups_are_not_chained_through_a_third_team() -> None:
 
 
 def test_unknown_lineup_is_an_error_not_an_empty_team() -> None:
-    with pytest.raises(AggregateError, match="ei löydy"):
+    with pytest.raises(AggregateError, match="is not among the lineups"):
         lineups_of_same_team("x", {"a": {"1"}}, 3)
 
 
@@ -837,11 +846,12 @@ def test_team_slug_survives_an_identifier_that_is_not_a_filename() -> None:
     assert team_slug("Mature Mayhem / 2026") == "mature-mayhem-2026"
 
 
-# --- Otanta ---------------------------------------------------------------------
+# --- Sampling -------------------------------------------------------------------
 
 
 def test_empty_is_league_lands_in_unknown_not_other() -> None:
-    """Käsin tuotu demo ei ole liigaottelu eikä 'muu' -- se on tuntematon."""
+    """A hand-imported demo is neither a league match nor 'other' -- it is
+    unknown."""
     rows = [classified_row("Anubis_vs_x", n) for n in (1, 2)]
     assert demo_buckets(rows) == {"Anubis_vs_x": "unknown"}
     s = sample_for(rows, demo_buckets(rows))
@@ -854,7 +864,7 @@ def test_a_demo_cannot_belong_to_two_buckets() -> None:
         classified_row("x", 1, is_league=True),
         classified_row("x", 2, is_league=False),
     ]
-    with pytest.raises(AggregateError, match="kahteen otantalokeroon"):
+    with pytest.raises(AggregateError, match="two sample buckets"):
         demo_buckets(rows)
 
 
@@ -912,7 +922,7 @@ def test_a_demo_cannot_belong_to_two_roster_buckets() -> None:
         classified_row("x", 1, roster_class="5/5"),
         classified_row("x", 2, roster_class="4/5"),
     ]
-    with pytest.raises(AggregateError, match="kahteen rosterilokeroon") as err:
+    with pytest.raises(AggregateError, match="two roster buckets") as err:
         roster_demo_buckets(rows)
     assert "x" in str(err.value)
 
@@ -922,19 +932,19 @@ def test_a_partly_classified_demo_is_a_different_fault_from_a_contradiction() ->
 
     The fix differs -- reclassify the whole demo rather than resolve two
     claims -- so the message has to differ too. And it must not print
-    Python's ``None`` into a Finnish sentence: the column is empty, and that
-    is a Finnish word.
+    Python's ``None`` into the sentence: the column is empty, and
+    :data:`MISSING_ROSTER_CLASS_FI` is the word for that.
     """
     rows = [
         classified_row("x", 1, roster_class="5/5"),
         classified_row("x", 2),
     ]
-    with pytest.raises(AggregateError, match="kesken") as err:
+    with pytest.raises(AggregateError, match="interrupted one") as err:
         roster_demo_buckets(rows)
     message = str(err.value)
     assert MISSING_ROSTER_CLASS_FI in message
     assert "None" not in message
-    assert "kaksi eri roster_class-arvoa" not in message
+    assert "two different roster_class values" not in message
 
 
 def test_a_table_without_the_roster_column_names_the_stage_to_rerun() -> None:
@@ -946,7 +956,7 @@ def test_a_table_without_the_roster_column_names_the_stage_to_rerun() -> None:
     reclassify.
     """
     rows = [{"map_demo_id": "x", "round_no": 1}]
-    with pytest.raises(SchemaError, match="puuttuu sarake") as err:
+    with pytest.raises(SchemaError, match="missing the column") as err:
         roster_demo_buckets(rows)
     assert "classify" in str(err.value)
 
@@ -959,7 +969,7 @@ def test_a_demo_outside_the_bucket_map_is_named_not_dropped() -> None:
     report with a sum that does not add up, several layers from the cause.
     """
     rows = [classified_row("x", 1)]
-    with pytest.raises(AggregateError, match="ei ole rosterilokeroa") as err:
+    with pytest.raises(AggregateError, match="has no roster bucket") as err:
         roster_sample_for(rows, {"y": "unknown"})
     assert "x" in str(err.value)
 
@@ -967,7 +977,7 @@ def test_a_demo_outside_the_bucket_map_is_named_not_dropped() -> None:
 def test_a_foreign_roster_class_stops_the_run_naming_the_allowed_set() -> None:
     """A corrupt table is not a missing measurement, so it is not ``unknown``."""
     rows = [classified_row("x", 1, roster_class="3/5")]
-    with pytest.raises(SchemaError, match="sallittujen joukossa") as err:
+    with pytest.raises(SchemaError, match="the classified table allows") as err:
         roster_demo_buckets(rows)
     for allowed in roster_class_values():
         assert allowed in str(err.value)
@@ -1005,7 +1015,7 @@ def test_the_two_breakdowns_of_one_sample_agree_on_the_totals() -> None:
     assert (league.league.demos, roster.full.demos) == (1, 1)
 
 
-# --- Jakaumat -------------------------------------------------------------------
+# --- Distributions --------------------------------------------------------------
 
 
 def test_players_distribution_keeps_the_zero_bucket() -> None:
@@ -1014,7 +1024,8 @@ def test_players_distribution_keeps_the_zero_bucket() -> None:
 
 
 def test_area_without_players_still_gets_a_row() -> None:
-    """I/O-matriisi: näytepisteessä tyhjä alue on havainto, ei puuttuva rivi."""
+    """I/O matrix: an empty area at a sample point is an observation, not a
+    missing row."""
     rows = {
         ("d", 1): [{"area": "BombsiteA"}, {"area": "BombsiteA"}],
         ("d", 2): [{"area": "BombsiteB"}],
@@ -1037,7 +1048,8 @@ def test_dead_players_do_not_count_towards_an_area() -> None:
 
 
 def test_a_round_where_everyone_died_still_belongs_to_the_sample() -> None:
-    """Muuten kierros katoaisi otannasta ja Σ n = m pettäisi."""
+    """Otherwise the round would vanish from the sample and Σ n = m would
+    fail."""
     ticks = [
         tick_row("d", 1, "p1", "BombsiteA"),
         tick_row("d", 2, "p1", "BombsiteA", is_alive=False),
@@ -1051,7 +1063,8 @@ def test_a_round_where_everyone_died_still_belongs_to_the_sample() -> None:
 
 
 def test_a_sample_point_that_the_round_never_reached_is_reported_missing() -> None:
-    """45 s puuttuu kierrokselta, joka ratkesi 30 sekunnissa."""
+    """The 45 s sample is missing from a round that was decided in 30
+    seconds."""
     ticks = [
         tick_row("d", 1, "p1", "A", sample_t_s=6.0),
         tick_row("d", 2, "p1", "A", sample_t_s=6.0),
@@ -1063,7 +1076,7 @@ def test_a_sample_point_that_the_round_never_reached_is_reported_missing() -> No
 
 
 def test_first_contact_is_one_position_not_one_per_round() -> None:
-    """Hetki on eri joka kierroksella, joten sillä ei voi ryhmitellä."""
+    """The moment differs on every round, so it cannot be grouped by."""
     ticks = [
         tick_row("d", 1, "p1", "A", sample_kind="first_contact", sample_t_s=11.0),
         tick_row("d", 2, "p1", "A", sample_kind="first_contact", sample_t_s=23.0),
@@ -1102,7 +1115,7 @@ def test_utility_pairs_throw_and_detonation_by_grenade_no() -> None:
 
 
 def test_utility_without_a_detonation_area_is_counted_not_dropped() -> None:
-    """I/O-matriisi: savu heitetään sinne, missä ei ole ketään."""
+    """I/O matrix: a smoke is thrown where nobody is."""
     events = event_rows("d", 1, 0, "smoke", detonate_area=None)
     use = utility_uses(events, [("d", 1)], [5.0])[0]
     assert use.detonate_area is None
@@ -1111,14 +1124,15 @@ def test_utility_without_a_detonation_area_is_counted_not_dropped() -> None:
 
 
 def test_rounds_and_throws_are_counted_separately() -> None:
-    """Kaksi samanlaista kranaattia yhdellä kierroksella on yksi kierros."""
+    """Two identical grenades on one round are one round."""
     events = event_rows("d", 1, 0, "flashbang") + event_rows("d", 1, 1, "flashbang")
     use = utility_uses(events, [("d", 1), ("d", 2)], [5.0])[0]
     assert (use.n, use.throws, use.m) == (1, 2, 2)
 
 
 def test_utility_counts_answer_how_many_were_thrown_per_round() -> None:
-    """Tavoiteanalyysin rivi *"2 savua"* -- ei johdettavissa utility-riveistä."""
+    """The target analysis's line *"2 smokes"* -- not derivable from the
+    utility rows."""
     events = (
         event_rows("d", 1, 0, "smoke")
         + event_rows("d", 1, 1, "smoke")
@@ -1137,7 +1151,7 @@ def test_events_from_other_rounds_do_not_leak_into_the_branch() -> None:
     assert utility_counts_for(events, [("d", 1)]) == []
 
 
-# --- Aseistetut pelaajat --------------------------------------------------------
+# --- Armed players --------------------------------------------------------------
 
 
 def test_armed_players_distribution_keeps_unknown_out_of_the_sample() -> None:
@@ -1152,14 +1166,14 @@ def test_armed_players_distribution_keeps_unknown_out_of_the_sample() -> None:
     assert [(c.armed, c.n) for c in armed.counts] == [(0, 1), (5, 1)]
 
 
-# --- Panssaroidut pelaajat (Story 2.8) ------------------------------------------
+# --- Armoured players (Story 2.8) -----------------------------------------------
 
 
 def test_armored_lookup_reads_the_rounds_table_by_demo_round_and_side() -> None:
-    """Avain on kolmiosainen: kierrostaulussa on kaksi riviä per kierros.
+    """The key has three parts: the rounds table has two rows per round.
 
-    Ilman puolta vastustajan panssariluku voisi päätyä omalle riville --
-    pelkkä (demo, kierros) osuu molempiin.
+    Without the side the opponent's armour count could end up on our own row
+    -- (demo, round) alone hits both.
     """
     lookup = armored_by_round(
         [
@@ -1172,11 +1186,10 @@ def test_armored_lookup_reads_the_rounds_table_by_demo_round_and_side() -> None:
 
 
 def test_armored_lookup_drops_unnumbered_rounds_and_missing_observations() -> None:
-    """Numeroimaton kierros ja lukukelvoton panssari eivät ole nollia.
+    """An unnumbered round and an unreadable armour value are not zeros.
 
-    Kumpikin jää kartasta pois, ja puuttuva avain tarkoittaa
-    ``rounds_unknown``ia -- nolla väittäisi, ettei kenelläkään ollut
-    panssaria.
+    Both stay out of the map, and a missing key means ``rounds_unknown`` --
+    zero would claim that nobody had armour.
     """
     lookup = armored_by_round(
         [
@@ -1190,13 +1203,13 @@ def test_armored_lookup_drops_unnumbered_rounds_and_missing_observations() -> No
 
 
 def test_two_different_armor_readings_for_one_round_are_refused() -> None:
-    """Kaksoisavain on virhe eikä hiljainen ylikirjoitus.
+    """A duplicate key is an error and not a silent overwrite.
 
-    Luokitelluille riveille ajetaan ``check_rounds_are_unique``; ilman
-    vastaavaa tarkistusta hakukartassa jäisi voimaan se rivi, joka sattuu
-    olemaan viimeisenä, eikä mikään kertoisi kumpi luku raporttiin päätyi.
+    ``check_rounds_are_unique`` is run for the classified rows; without the
+    equivalent check in the lookup map, whichever row happens to be last would
+    stay in force, and nothing would say which figure reached the report.
     """
-    with pytest.raises(AggregateError, match="kaksi eri panssarilukua"):
+    with pytest.raises(AggregateError, match="two different armour counts"):
         armored_by_round(
             [
                 round_row("d", 1, side="T", armored=5),
@@ -1206,11 +1219,12 @@ def test_two_different_armor_readings_for_one_round_are_refused() -> None:
 
 
 def test_an_identical_duplicate_row_is_not_an_error() -> None:
-    """Sama luku kahdesti ei ole ristiriita, joten se ei kaada ajoa.
+    """The same figure twice is not a contradiction, so it does not stop the
+    run.
 
-    Ilman tätä paria edellinen testi menisi läpi myös toteutuksella, joka
-    hylkää jokaisen toistuvan avaimen -- ja kahdesti luettu identtinen rivi
-    ei jätä epäselväksi mikä luku raporttiin päätyy.
+    Without this pair the previous test would also pass with an
+    implementation that rejects every repeated key -- and an identical row
+    read twice leaves no doubt about which figure reaches the report.
     """
     lookup = armored_by_round(
         [
@@ -1222,11 +1236,11 @@ def test_an_identical_duplicate_row_is_not_an_error() -> None:
 
 
 def test_a_rounds_row_with_a_missing_key_part_is_dropped() -> None:
-    """Vajaa avain pudotetaan **ennen** ``str()``-muunnosta.
+    """An incomplete key is dropped **before** the ``str()`` conversion.
 
-    ``str(None)`` rakentaisi avaimen ``"None"``, joka ei osu koskaan mutta
-    näyttää kartassa täysin tavalliselta -- rivi katoaisi hiljaa ja näkyisi
-    vasta puuttuvana havaintona raportissa.
+    ``str(None)`` would build the key ``"None"``, which never matches anything
+    but looks entirely ordinary in the map -- the row would vanish in silence
+    and show only as a missing observation in the report.
     """
     lookup = armored_by_round(
         [
@@ -1240,10 +1254,11 @@ def test_a_rounds_row_with_a_missing_key_part_is_dropped() -> None:
 
 
 def test_a_classified_row_with_a_missing_key_part_is_unknown_not_a_crash() -> None:
-    """Vajaa avain on puuttuva havainto, ei kaatuva ajo.
+    """An incomplete key is a missing observation, not a crashing run.
 
-    ``int(None)`` tai ``row["side"]`` nostaisi poikkeuksen, joka veisi koko
-    aggregoinnin -- yhden kierroksen puute ei saa maksaa koko raporttia.
+    ``int(None)`` or ``row["side"]`` would raise an exception that took the
+    whole aggregation with it -- one round's absence must not cost the whole
+    report.
     """
     rows = [
         classified_row("d", 1),
@@ -1256,7 +1271,8 @@ def test_a_classified_row_with_a_missing_key_part_is_unknown_not_a_crash() -> No
 
 
 def test_armored_players_distribution_keeps_unknown_out_of_the_sample() -> None:
-    """Sama erottelu kuin aseistetuilla: puuttuva havainto ei ole nolla."""
+    """The same distinction as for the armed: a missing observation is not
+    zero."""
     rows = [classified_row("d", n) for n in (1, 2, 3)]
     lookup = armored_by_round(
         [
@@ -1272,7 +1288,8 @@ def test_armored_players_distribution_keeps_unknown_out_of_the_sample() -> None:
 
 
 def test_a_round_missing_from_the_rounds_table_is_unknown_not_zero() -> None:
-    """Vanha tai vajaa kierrostaulu ei saa näyttää kevlarittomalta kierrokselta."""
+    """An old or incomplete rounds table must not look like a round without
+    kevlar."""
     armored = armored_players_for([classified_row("d", 1)], {})
     assert armored.m == 0
     assert armored.rounds_unknown == 1
@@ -1280,12 +1297,12 @@ def test_a_round_missing_from_the_rounds_table_is_unknown_not_zero() -> None:
 
 
 def test_the_two_counters_answer_different_questions_on_a_pistol_round() -> None:
-    """Pistoolikierros: panssarijakauma 5/5, aseistettujen jakauma 0.
+    """A pistol round: the armour distribution 5/5, the armed distribution 0.
 
-    Tämä on tavoiteanalyysin rivi *"5 kevlaria"* (Nuke, T) sellaisena kuin
-    aggregointi sen tuottaa. Jos jompikumpi laskuri luettaisiin toisesta
-    lähteestä väärin, luvut olisivat samat -- ja juuri se on vika, jonka
-    tämä testi estää.
+    This is the target analysis's line *"5 kevlars"* (Nuke, T) as the
+    aggregation produces it. If either count were read wrongly from the other
+    source, the figures would be the same -- and that is exactly the fault
+    this test prevents.
     """
     rows = [classified_row("Nuke_vs_x", 13, armed=0)]
     lookup = armored_by_round([round_row("Nuke_vs_x", 13, armored=5)])
@@ -1297,10 +1314,11 @@ def test_the_two_counters_answer_different_questions_on_a_pistol_round() -> None
 
 
 def test_the_report_carries_both_counters_for_the_same_round_type() -> None:
-    """Koko putki: molemmat jakaumat samassa haarassa, eri luvut.
+    """The whole pipeline: both distributions in the same branch, different
+    figures.
 
-    Ancientin CT-pistooli, tuotteen omistajan *"ei kevuja"*: yksi kevlar
-    viidestä ja nolla aseistettua.
+    Ancient's CT pistol, the product owner's *"no kevs"*: one kevlar out of
+    five and zero armed.
     """
     classified = [classified_row("Ancient_vs_x", 1, side="CT", armed=0)]
     report = report_for(
@@ -1314,11 +1332,11 @@ def test_the_report_carries_both_counters_for_the_same_round_type() -> None:
 
 
 def test_the_key_picks_our_side_from_the_two_rows_of_one_round() -> None:
-    """Kierrostaulussa on kaksi riviä per kierros -- avain valitsee oman.
+    """The rounds table has two rows per round -- the key picks our own.
 
-    Testi todentaa **avaimen kolmatta osaa**, ei kokoonpanosuodatusta: rivit
-    annetaan tässä suodattamattomina, kuten ne kierrostaulussa ovat, ja
-    pelkkä (demo, kierros) osuisi molempiin.
+    The test verifies **the key's third part**, not the lineup filtering: the
+    rows are given here unfiltered, as they are in the rounds table, and
+    (demo, round) alone would hit both.
     """
     classified = [classified_row("Nuke_vs_x", 13, side="T", armed=0)]
     report = report_for(
@@ -1332,7 +1350,7 @@ def test_the_key_picks_our_side_from_the_two_rows_of_one_round() -> None:
     assert [(c.armored, c.n) for c in entry.players_armored.counts] == [(5, 1)]
 
 
-# --- Koko raportti: I/O-matriisi ------------------------------------------------
+# --- The whole report: the I/O matrix -------------------------------------------
 
 
 def test_one_demo_gives_one_map_and_an_unknown_sample() -> None:
@@ -1362,7 +1380,7 @@ def test_four_demos_become_four_map_branches_and_the_sample_adds_up() -> None:
 
 
 def test_the_same_map_twice_merges_into_one_branch() -> None:
-    """I/O-matriisi: kierrokset summautuvat, ``demos`` on kaksi."""
+    """I/O matrix: the rounds add up, ``demos`` is two."""
     report = report_for(
         [
             classified_row("Nuke_vs_a", 1),
@@ -1395,7 +1413,8 @@ def test_overtime_is_its_own_round_type() -> None:
 
 
 def test_full_buys_are_not_filtered_out() -> None:
-    """Aggregointi ei päätä mitä raportoidaan; se laskee kaiken."""
+    """The aggregation does not decide what is reported; it counts
+    everything."""
     report = report_for(
         [classified_row("Nuke_vs_a", n, round_type="full") for n in (1, 2, 3, 4)]
     )
@@ -1403,7 +1422,7 @@ def test_full_buys_are_not_filtered_out() -> None:
 
 
 def test_an_unclassified_round_is_counted_but_not_placed() -> None:
-    """I/O-matriisi: ei mukaan rakenteeseen, mutta lukumäärä raportoidaan."""
+    """I/O matrix: not into the structure, but the count is reported."""
     report = report_for(
         [
             classified_row("Nuke_vs_a", 1, round_type="pistol"),
@@ -1433,7 +1452,7 @@ def test_a_sample_at_or_above_the_threshold_is_not_marked_small() -> None:
 
 
 def test_the_sample_check_holds_across_every_area_of_a_real_shaped_branch() -> None:
-    """Σ n = m alueen yli, kun kierrokset ovat eri alueilla."""
+    """Σ n = m over an area, when the rounds are in different areas."""
     classified = [classified_row("Nuke_vs_a", n, round_type="eco") for n in (1, 2, 3)]
     ticks = [
         tick_row("Nuke_vs_a", 1, "p1", "Ramp"),
@@ -1453,7 +1472,8 @@ def test_the_sample_check_holds_across_every_area_of_a_real_shaped_branch() -> N
 
 
 def test_a_lost_round_breaks_the_sample_check_loudly() -> None:
-    """Rakennettu rikki tarkoituksella: alueen otanta ei saa poiketa muista."""
+    """Built broken on purpose: an area's sample must not differ from the
+    others."""
     from pappascout.domain.report import AreaDistribution, PlayersCount, Position
 
     with pytest.raises(AggregateError):
@@ -1474,14 +1494,15 @@ def test_a_lost_round_breaks_the_sample_check_loudly() -> None:
 
 
 def test_the_opponents_rows_never_reach_the_report() -> None:
-    """Kokoonpanosuodatus on vaiheen vastuu, mutta liitos ei saa vuotaa."""
+    """Lineup filtering is the stage's responsibility, but the join must not
+    leak."""
     classified = [classified_row("Nuke_vs_a", 1, round_type="pistol")]
     ticks = [
         tick_row("Nuke_vs_a", 1, "p1", "Ramp"),
         tick_row("Nuke_vs_a", 1, "x1", "Ramp", lineup=OPPONENT, side="CT"),
     ]
-    # build_report saa jo suodatetun taulun, joten tämä testaa suodatuksen
-    # jälkeistä tilaa: vain oman kokoonpanon rivit lasketaan.
+    # build_report is given an already filtered table, so this tests the state
+    # after the filtering: only our own lineup's rows are counted.
     own = [r for r in ticks if r["lineup_key"] == TEAM]
     position = branch(report_for(classified, own), "de_nuke", "T", "pistol").positions[0]
     assert [(p.players, p.n) for p in position.areas[0].players_dist] == [(1, 1)]
@@ -1525,17 +1546,18 @@ def test_both_sides_stay_apart() -> None:
 
 
 def test_the_report_carries_no_interpretation() -> None:
-    """Ei tulkintoja -- vain havaintoja ja lukumääriä."""
+    """No interpretations -- only observations and counts."""
     report = report_for(
         [classified_row("Nuke_vs_a", 1)],
         events=event_rows("Nuke_vs_a", 1, 0, "smoke"),
     )
-    # Kaksi kenttää on **jäljitettävyyttä eikä havaintoja**, ja molemmissa
-    # esiintyy sana stack: thresholds_used on kynnysten kopio (kynnysnimet
-    # stack_min_players, stack_group_margin, stack_site_separation_min) ja
-    # anomaly_scan nimeää ajetut säännöt -- se on kattavuuden nimittäjä.
-    # Tarkistus koskee havaintoja, joten molemmat nostetaan pois; alla
-    # varmistetaan erikseen, ettei sana katoa siitä paikasta, johon se kuuluu.
+    # Two fields are **traceability and not observations**, and the word stack
+    # appears in both: thresholds_used is a copy of the thresholds (the
+    # threshold names stack_min_players, stack_group_margin,
+    # stack_site_separation_min) and anomaly_scan names the rules that were
+    # run -- it is the coverage's denominator. The check concerns
+    # observations, so both are lifted out; below it is verified separately
+    # that the word does not vanish from the place where it belongs.
     data = report.model_dump(mode="json")
     thresholds_used = data.pop("thresholds_used")
     scan = data.pop("anomaly_scan")
@@ -1546,7 +1568,7 @@ def test_the_report_carries_no_interpretation() -> None:
         assert word not in text
 
 
-# --- Katselmuksen löydökset ------------------------------------------------------
+# --- The review's findings ------------------------------------------------------
 
 
 def test_a_single_edge_still_names_both_windows() -> None:
@@ -1554,25 +1576,27 @@ def test_a_single_edge_still_names_both_windows() -> None:
 
 
 def test_two_edges_that_look_alike_are_refused() -> None:
-    """Kaksi lokeroa samalla nimellä tekisi raportin rivistä monitulkintaisen."""
-    with pytest.raises(AggregateError, match="samalta lokeron nimessä"):
+    """Two buckets with the same name would make a report row ambiguous."""
+    with pytest.raises(AggregateError, match="the same in the bucket name"):
         bucket_labels([5.000000001, 5.000000002])
 
 
 def test_unknown_time_stays_unknown_even_without_windows() -> None:
-    """Tyhjä rajalista ei saa sulauttaa tuntematonta hetkeä tunnettuihin."""
+    """An empty edge list must not merge an unknown moment into the known
+    ones."""
     assert seconds_bucket(None, []) == "tuntematon"
     assert seconds_bucket(float("nan"), []) == "tuntematon"
 
 
 @pytest.mark.parametrize("t_s", [-1.0, float("nan"), float("inf")])
 def test_an_impossible_throw_time_does_not_look_like_a_pattern(t_s: float) -> None:
-    """Negatiivinen niputtuisi "instaksi" ja NaN valuisi viimeiseen lokeroon."""
+    """A negative would land as an "insta" and NaN would slide into the last
+    bucket."""
     assert seconds_bucket(t_s, [5.0, 10.0, 20.0]) == "tuntematon"
 
 
 def test_first_contact_median_is_taken_over_rounds_not_player_rows() -> None:
-    """Neljä elossa olevaa 10 s kohdalla ei saa painaa mediaania alas."""
+    """Four players alive at 10 s must not pull the median down."""
     ticks = [
         tick_row("d", 1, f"p{i}", "A", sample_kind="first_contact", sample_t_s=10.0)
         for i in range(4)
@@ -1591,9 +1615,10 @@ def test_a_time_sample_without_its_second_is_an_error_not_a_crash() -> None:
 
 
 def test_a_grenade_that_detonates_in_the_next_round_keeps_its_area() -> None:
-    """Molotov palaa seitsemän sekuntia; pari ei saa katketa kierrosrajalla."""
+    """A molotov burns for seven seconds; the pair must not break at the round
+    boundary."""
     rows = event_rows("d", 1, 0, "molotov", detonate_area="Banana", t_s=110.0)
-    # Räjähdys osuu seuraavan kierroksen puolelle, kuten oikeassa demossa.
+    # The detonation lands on the next round's side, as in a real demo.
     rows[1]["round_no"] = 2
     rows[1]["round_raw"] = 3
     use = utility_uses(rows, [("d", 1)], [5.0, 10.0, 20.0])[0]
@@ -1606,65 +1631,68 @@ def test_a_detonation_without_a_throw_is_counted_not_hidden() -> None:
     orphan = [r for r in rows if r["event_kind"] == "grenade_detonate"]
     assert unpaired_detonations(rows) == 0
     assert unpaired_detonations(orphan) == 1
-    # Ja se ei päädy utilityyn: heittoaluetta eikä hetkeä ei ole.
+    # And it does not reach the utility: there is neither a throw area nor a
+    # moment.
     assert utility_uses(orphan, [("d", 1)], [5.0]) == []
 
 
 def test_a_duplicated_round_is_refused() -> None:
-    """Kaksoiskappale vääristäisi sekä m:n että rounds_missingin."""
+    """A duplicate would distort both m and rounds_missing."""
     rows = [classified_row("d", 1), classified_row("d", 1)]
-    with pytest.raises(AggregateError, match="useammin kuin"):
+    with pytest.raises(AggregateError, match="tables more than once"):
         check_rounds_are_unique(rows)
 
 
 def test_a_classified_row_without_a_round_number_is_named() -> None:
-    """Suojaamaton int(None) kaatuisi TypeErroriin ilman ohjetta."""
+    """An unguarded int(None) would fail with a TypeError and no
+    instructions."""
     row = classified_row("Nuke_vs_a", 1)
     row["round_no"] = None
-    with pytest.raises(AggregateError, match="ilman kierrosnumeroa"):
+    with pytest.raises(AggregateError, match="without a round number"):
         report_for([classified_row("Nuke_vs_a", 2), row])
 
 
 def test_classify_thresholds_are_read_from_the_classified_table() -> None:
-    """Havainto siitä, millä kynnyksillä kierrokset oikeasti luokiteltiin."""
+    """The observation of which thresholds the rounds were actually
+    classified with."""
     found = classify_thresholds([classified_row("d", 1)])
     assert set(found) == set(CLASSIFY_THRESHOLD_KEYS)
     assert found["full_equip_min"] == 4000
 
 
 def test_rounds_classified_with_different_thresholds_are_refused() -> None:
-    """Sekoitus tuottaisi luvun, joka ei tarkoita yhtä asiaa."""
+    """A mixture would produce a figure that does not mean one thing."""
     a = classified_row("d", 1)
     b = classified_row("d", 2)
     b["inputs"] = dict(b["inputs"]) | {"full_equip_min": 3800}
-    with pytest.raises(AggregateError, match="eri kynnyksillä"):
+    with pytest.raises(AggregateError, match="with different thresholds"):
         classify_thresholds([a, b])
 
 
 def test_rounds_classified_with_stale_thresholds_are_refused() -> None:
-    """Kynnyksen muutos ilman uutta luokittelua nimeäisi väärät kynnykset.
+    """Changing a threshold without reclassifying would name the wrong
+    thresholds.
 
-    Käyttäjä voi muuttaa ``settings.toml``ia ja ajaa pelkän aggregoinnin.
-    Silloin ``thresholds_used`` kertoisi kynnyksistä, joilla yhtäkään
-    kierrosta ei luokiteltu -- ja jokainen kierrostyyppi olisi laskettu
-    vanhoilla säännöillä.
+    The user can change ``settings.toml`` and run the aggregation alone. Then
+    ``thresholds_used`` would speak of thresholds no round was classified with
+    -- and every round type would have been counted by the old rules.
     """
     rows = [classified_row("d", 1)]
-    with pytest.raises(AggregateError, match="kuin mitä"):
+    with pytest.raises(AggregateError, match="from what is in the settings"):
         classify_thresholds(rows, thresholds(full_equip_min=4500))
-    # Samoilla arvoilla ei valiteta.
+    # With the same values there is no complaint.
     assert classify_thresholds(rows, thresholds())["full_equip_min"] == 4000
 
 
 def test_the_report_records_the_thresholds_the_rounds_were_classified_with() -> None:
     report = report_for([classified_row("Nuke_vs_a", 1)])
     assert report.classify_thresholds["force_buy_min"] == 1500
-    # thresholds_used on TÄMÄN ajon asetukset, ei sama asia.
+    # thresholds_used is THIS run's settings, which is not the same thing.
     assert "thresholds" in report.thresholds_used
 
 
 def test_utility_rows_are_ordered_by_the_clock_not_the_alphabet() -> None:
-    """Aakkosissa "10-20" tulisi ennen "5-10"."""
+    """Alphabetically "10-20" would come before "5-10"."""
     events = (
         event_rows("d", 1, 0, "smoke", t_s=1.0)
         + event_rows("d", 1, 1, "smoke", t_s=7.0)
@@ -1675,11 +1703,11 @@ def test_utility_rows_are_ordered_by_the_clock_not_the_alphabet() -> None:
     assert [u.seconds_bucket for u in uses] == ["0-5", "5-10", "10-20", "20+"]
 
 
-# --- Joukkueen ja pelaajien nimet (Story 2.6) -----------------------------------
+# --- The team's and the players' names (Story 2.6) ------------------------------
 
 
 def test_a_team_without_a_clan_name_has_no_name_at_all() -> None:
-    """Puuttuva nimi on ``None``, ei tunniste eikä tyhjä merkkijono."""
+    """A missing name is ``None``, not the id and not an empty string."""
     identity = team_identity(
         [
             lineup_row("d", "p1", clan_name=None),
@@ -1691,7 +1719,7 @@ def test_a_team_without_a_clan_name_has_no_name_at_all() -> None:
 
 
 def test_an_empty_string_is_not_a_name() -> None:
-    """Vanhalla versiolla kirjoitettu taulu voi sisältää tyhjän merkkijonon."""
+    """A table written with an older version may hold an empty string."""
     identity = team_identity([lineup_row("d", "p1", clan_name="   ")])
     assert identity.display_name is None
 
@@ -1709,7 +1737,8 @@ def test_the_same_clan_in_every_demo_is_the_teams_name() -> None:
 
 
 def test_conflicting_names_keep_the_most_observed_and_list_the_rest() -> None:
-    """Ristiriita ei katoa: useimmin havaittu naytetaan, muut luetellaan."""
+    """A contradiction does not vanish: the most often observed one is shown,
+    the rest are listed."""
     rows = [
         lineup_row(demo, f"p{i}", clan_name="MatureMayhem")
         for demo in ("a", "b", "c")
@@ -1722,11 +1751,11 @@ def test_conflicting_names_keep_the_most_observed_and_list_the_rest() -> None:
 
 
 def test_the_vote_is_per_demo_not_per_row() -> None:
-    """Viiden pelaajan demo ei saa äänestää viidesti.
+    """A five-player demo must not vote five times.
 
-    Ristiriita syntyy siitä, että kaksi *demoa* antaa eri nimen.
-    Rivipohjainen laskenta antaisi viisinkertaisen painon demolle, jossa
-    sattui olemaan viisi pelaajaa.
+    The contradiction arises because two *demos* give a different name. A
+    row-based count would give fivefold weight to the demo that happened to
+    hold five players.
     """
     rows = [lineup_row("a", f"p{i}", clan_name="Aakkoset") for i in range(5)] + [
         lineup_row("b", "p9", clan_name="Bee"),
@@ -1738,16 +1767,17 @@ def test_the_vote_is_per_demo_not_per_row() -> None:
 
 
 def test_one_player_cannot_outvote_his_own_team_inside_a_demo() -> None:
-    """Demon sisällä ratkaisee **enemmistö**, ei "yksi ääni per havaittu nimi".
+    """Inside a demo the **majority** decides, not "one vote per observed
+    name".
 
-    Neljä pelaajaa kantaa klaania ``Zulu``, yksi klaania ``Alfa``. Ääni per
-    havaittu nimi antaisi molemmille yhden, yhden demon otannalla se on
-    tasatilanne, ja aakkosjärjestys nostaisi otsikkoon nimen jonka yksi ainoa
-    pelaaja kantoi -- eikä siitä jäisi mitään jälkeä raporttiin.
+    Four players carry the clan ``Zulu``, one the clan ``Alfa``. A vote per
+    observed name would give both of them one; on a one-demo sample that is a
+    tie, and alphabetical order would raise into the heading a name that one
+    single player carried -- and no trace of it would be left in the report.
 
-    Vähemmistö ei myöskään ole *demojen välinen* ristiriita, joten se ei kuulu
-    vaihtoehtoisiin nimiin: se on demon sisäinen havainto, ja parsinnan
-    ``lineup_clan_conflicts`` kertoo siitä.
+    Nor is the minority a contradiction *between demos*, so it does not belong
+    among the alternative names: it is an observation inside the demo, and the
+    parse's ``lineup_clan_conflicts`` reports it.
     """
     rows = [
         lineup_row("d", f"p{i}", clan_name="Zulu" if i < 4 else "Alfa")
@@ -1759,26 +1789,26 @@ def test_one_player_cannot_outvote_his_own_team_inside_a_demo() -> None:
 
 
 def test_a_demos_majority_is_one_vote_no_matter_how_many_players_carry_it() -> None:
-    """Kaksi demoa, kaksi ääntä -- vaikka toisessa on viisi pelaajaa."""
+    """Two demos, two votes -- even though one of them holds five players."""
     rows = [
         lineup_row("iso", f"p{i}", clan_name="Zulu") for i in range(5)
     ] + [lineup_row("pieni", "p9", clan_name="Alfa")]
 
     identity = team_identity(rows)
-    # Tasatilanne demojen yli -> aakkoset.
+    # A tie across the demos -> the alphabet.
     assert identity.display_name == "Alfa"
     assert identity.alternatives == ["Zulu"]
 
 
 def test_a_row_without_a_map_demo_id_is_refused() -> None:
-    """Tunnisteeton rivi sulauttaisi kaikki demot yhdeksi ääneksi."""
+    """A row without an id would merge all the demos into one vote."""
     with pytest.raises(AggregateError, match="map_demo_id"):
         team_identity([lineup_row("", "p1", clan_name="Zulu")])
 
 
 def test_a_tie_is_resolved_alphabetically_so_the_run_repeats() -> None:
-    """Ilman aakkosjärjestystä tulos riippuisi tiedostojen
-    lukujärjestyksestä."""
+    """Without alphabetical order the result would depend on the order the
+    files were read in."""
     rows = [
         lineup_row("b", "p1", clan_name="Zulu"),
         lineup_row("a", "p1", clan_name="Alfa"),
@@ -1797,24 +1827,26 @@ def test_the_player_name_is_the_most_observed_one() -> None:
 
 
 def test_the_roster_keeps_a_player_whose_name_was_never_read() -> None:
-    """Hiljaa pudotettu pelaaja kutistaisi rosterin kertomatta siitä."""
+    """A player dropped in silence would shrink the roster without saying
+    so."""
     entries = roster_entries(["p2", "p1"], {"p1": "Sassiz"})
     assert [e.player_id for e in entries] == ["p1", "p2"]
     assert entries[0].display_name == "Sassiz"
     assert entries[1].display_name is None
 
 
-# --- Kuolemat ja tapot (Story 2.7) ---------------------------------------------
+# --- Deaths and kills (Story 2.7) -----------------------------------------------
 
 
 KEYS = [("Ancient_vs_x", 1), ("Ancient_vs_x", 2)]
 
 
 def test_the_first_death_of_a_round_is_the_earliest_one() -> None:
-    """Ensimmäinen kuolema on pienimmän ``t_s``:n rivi, ei taulun ensimmäinen.
+    """The first death is the row with the smallest ``t_s``, not the table's
+    first row.
 
-    Rivit annetaan tarkoituksella väärässä järjestyksessä: jos funktio
-    ottaisi ensimmäisen osuman, se poimisi Longin.
+    The rows are given in the wrong order on purpose: if the function took the
+    first match, it would pick Long.
     """
     report = deaths_for(
         [
@@ -1830,7 +1862,8 @@ def test_the_first_death_of_a_round_is_the_earliest_one() -> None:
 
 
 def test_the_first_death_distribution_sums_to_its_own_sample() -> None:
-    """``Σ n = m``, ja ``m`` on kierroksia joilla joukkue menetti pelaajan."""
+    """``Σ n = m``, and ``m`` is the rounds on which the team lost a
+    player."""
     report = deaths_for(
         [
             death_row("Ancient_vs_x", 1, victim="p1", victim_area="Cave"),
@@ -1845,10 +1878,10 @@ def test_the_first_death_distribution_sums_to_its_own_sample() -> None:
 
 
 def test_rounds_without_an_own_death_are_counted_apart() -> None:
-    """Kierros ilman omaa kuolemaa ei ole nollarivi vaan ``rounds_missing``.
+    """A round without an own death is not a zero row but ``rounds_missing``.
 
-    Nollarivi väittäisi havainnoksi sen, ettei havaintoa ole -- ja
-    rikkoisi ``Σ n = m``:n.
+    A zero row would claim as an observation that there is no observation --
+    and it would break ``Σ n = m``.
     """
     report = deaths_for(
         [death_row("Ancient_vs_x", 1, victim="p1")], KEYS, [TEAM]
@@ -1858,10 +1891,10 @@ def test_rounds_without_an_own_death_are_counted_apart() -> None:
 
 
 def test_the_median_is_measured_from_the_rounds_not_the_rows() -> None:
-    """Mediaani lasketaan kierroksen ensimmäisistä kuolemista.
+    """The median is computed from the rounds' first deaths.
 
-    Muut saman kierroksen kuolemat eivät saa painaa: viisi kaatunutta
-    pelaajaa yhdellä kierroksella siirtäisi mediaanin loppupäähän.
+    The other deaths of the same round must not weigh: five players fallen on
+    one round would shift the median to the far end.
     """
     rows = [
         death_row("Ancient_vs_x", 1, victim="p1", t_s=10.0),
@@ -1874,8 +1907,8 @@ def test_the_median_is_measured_from_the_rounds_not_the_rows() -> None:
 
 
 def test_a_tie_on_the_same_tick_is_broken_by_the_victim_id() -> None:
-    """Kaksi joukkuekaveria samalla hetkellä: valinta ei saa riippua
-    rivijärjestyksestä."""
+    """Two teammates at the same moment: the choice must not depend on the row
+    order."""
     rows = [
         death_row("Ancient_vs_x", 1, victim="p9", victim_area="Long", t_s=12.0),
         death_row("Ancient_vs_x", 1, victim="p1", victim_area="Cave", t_s=12.0),
@@ -1887,10 +1920,10 @@ def test_a_tie_on_the_same_tick_is_broken_by_the_victim_id() -> None:
 
 
 def test_a_death_without_a_time_is_last_not_first() -> None:
-    """Puuttuva aika ei ole nolla.
+    """A missing time is not zero.
 
-    Ilman erottelua tyhjä ``t_s`` järjestyisi ennen kaikkia mitattuja ja
-    väittäisi olevansa kierroksen ensimmäinen kuolema.
+    Without the distinction an empty ``t_s`` would order before every measured
+    one and would claim to be the round's first death.
     """
     rows = [
         death_row("Ancient_vs_x", 1, victim="p1", victim_area="Cave", t_s=30.0),
@@ -1902,7 +1935,8 @@ def test_a_death_without_a_time_is_last_not_first() -> None:
 
 
 def test_a_round_whose_only_death_has_no_time_still_counts() -> None:
-    """Aika puuttuu, havainto ei: alue on silti kierroksen ensimmäinen."""
+    """The time is missing, the observation is not: the area is still the
+    round's first."""
     report = deaths_for(
         [death_row("Ancient_vs_x", 1, victim="p1", victim_area="Cave", t_s=None)],
         KEYS[:1],
@@ -1914,7 +1948,8 @@ def test_a_round_whose_only_death_has_no_time_still_counts() -> None:
 
 
 def test_kills_are_counted_from_the_attackers_lineup_and_area() -> None:
-    """Tappo on **ampujan** havainto: alue on se, mistä hän ampui."""
+    """A kill is the **shooter's** observation: the area is where he shot
+    from."""
     rows = [
         death_row(
             "Ancient_vs_x",
@@ -1944,13 +1979,13 @@ def test_kills_are_counted_from_the_attackers_lineup_and_area() -> None:
     report = deaths_for(rows, KEYS, [TEAM])
     assert report.kills_total == 2
     assert [(k.area, k.n) for k in report.kills] == [("Middle", 2)]
-    # Omia kuolemia ei ollut: nämä ovat vastustajan kuolemia.
+    # There were no own deaths: these are the opponent's deaths.
     assert report.m == 0
     assert report.rounds_missing == 2
 
 
 def test_the_kill_sample_counts_kills_not_rounds() -> None:
-    """Tappoja voi olla enemmän kuin kierroksia -- ``Σ n = kills_total``."""
+    """There can be more kills than rounds -- ``Σ n = kills_total``."""
     rows = [
         death_row(
             "Ancient_vs_x",
@@ -1973,7 +2008,8 @@ def test_the_kill_sample_counts_kills_not_rounds() -> None:
 
 
 def test_a_kill_without_an_area_gets_its_own_bucket() -> None:
-    """Tuntematon alue ei putoa: se on eri asia kuin tappojen puuttuminen."""
+    """An unknown area does not drop out: it is a different thing from having
+    no kills."""
     rows = [
         death_row(
             "Ancient_vs_x",
@@ -1992,9 +2028,10 @@ def test_a_kill_without_an_area_gets_its_own_bucket() -> None:
 
 
 def test_a_teamkill_is_both_an_own_death_and_an_own_kill() -> None:
-    """Kummankaan suodattaminen olisi tulkintaa.
+    """Filtering out either one would be interpretation.
 
-    Havainto on, että pelaaja kuoli ja että ampuja oli tietyllä alueella.
+    The observation is that a player died and that the shooter was in a
+    particular area.
     """
     rows = [
         death_row(
@@ -2017,7 +2054,7 @@ def test_a_teamkill_is_both_an_own_death_and_an_own_kill() -> None:
 
 
 def test_a_death_between_two_opponents_is_neither() -> None:
-    """Vastustajien keskinäinen kuolema ei kuulu tähän raporttiin."""
+    """A death between two opponents does not belong in this report."""
     rows = [
         death_row(
             "Ancient_vs_x",
@@ -2036,7 +2073,7 @@ def test_a_death_between_two_opponents_is_neither() -> None:
 
 
 def test_a_death_outside_the_branch_is_ignored() -> None:
-    """Toisen kierrostyypin kierros ei saa vuotaa tähän otantaan."""
+    """A round of another round type must not leak into this sample."""
     rows = [
         death_row("Ancient_vs_x", 1, victim="p1"),
         death_row("Ancient_vs_x", 9, victim="p1"),
@@ -2046,7 +2083,7 @@ def test_a_death_outside_the_branch_is_ignored() -> None:
 
 
 def test_an_unnumbered_death_row_is_ignored() -> None:
-    """``round_no`` tyhjänä tarkoittaa kierrosta, jota ei pelattu."""
+    """An empty ``round_no`` means a round that was not played."""
     row = death_row("Ancient_vs_x", 1, victim="p1")
     row["round_no"] = None
     report = deaths_for([row], KEYS, [TEAM])
@@ -2054,7 +2091,7 @@ def test_an_unnumbered_death_row_is_ignored() -> None:
 
 
 def test_several_lineups_of_the_same_team_all_count_as_ours() -> None:
-    """Yksi vaihto tuottaa uuden kokoonpanotunnisteen; molemmat ovat meitä."""
+    """One substitution produces a new lineup id; both of them are us."""
     other = "cccccccccccccccc"
     rows = [
         death_row("Ancient_vs_x", 1, victim="p1", victim_lineup=TEAM),
@@ -2065,7 +2102,8 @@ def test_several_lineups_of_the_same_team_all_count_as_ours() -> None:
 
 
 def test_the_death_report_reaches_the_round_type_branch() -> None:
-    """Reunajakauma on rakenteessa siellä, missä raportti sen lukee."""
+    """The marginal distribution is in the structure where the report reads
+    it."""
     report = report_for(
         [classified_row("Ancient_vs_x", 1)],
         [tick_row("Ancient_vs_x", 1, "p1", "BombsiteA")],
@@ -2093,13 +2131,13 @@ def test_the_death_report_reaches_the_round_type_branch() -> None:
 
 
 def test_an_attackerless_own_death_is_counted_as_a_death_and_nothing_else() -> None:
-    """Pommiin tai putoamiseen kuollut oma pelaaja on oma kuolema.
+    """An own player killed by the bomb or by a fall is an own death.
 
-    Parse kohtelee ampujatonta kuolemaa ensiluokkaisena tapauksena, mutta
-    aggregointiin asti se ei kulkenut yhdenkään testin läpi -- ja siellä
-    ``attacker_lineup_key`` on ``null``, mikä on eri asia kuin "ei meidän".
-    Ilman tätä tapausta pommiin kuolleet omat pelaajat voisivat pudota
-    raportista ilman että mikään kaatuu.
+    Parse treats a death without a shooter as a first-class case, but as far
+    as the aggregation it went through no test at all -- and there
+    ``attacker_lineup_key`` is ``null``, which is a different thing from "not
+    ours". Without this case own players killed by the bomb could drop out of
+    the report without anything failing.
     """
     report = deaths_for(
         [
@@ -2117,19 +2155,19 @@ def test_an_attackerless_own_death_is_counted_as_a_death_and_nothing_else() -> N
     )
     assert report.m == 1
     assert [(a.area, a.n) for a in report.first_death_areas] == [("BombsiteB", 1)]
-    # Ampujaa ei ole, joten tappoa ei ole -- eikä null-kokoonpano saa osua
-    # omien tappojen suodattimeen.
+    # There is no shooter, so there is no kill -- and a null lineup must not
+    # match the own-kills filter.
     assert report.kills_total == 0
     assert report.kills == []
 
 
 def test_a_suicide_is_a_death_but_not_a_kill() -> None:
-    """Itsemurhan alue on paikka, josta kukaan ei ampunut.
+    """A suicide's area is a place nobody shot from.
 
-    Rivi läpäisisi molemmat haarat, koska ampuja on omassa kokoonpanossa.
-    Tappoihin laskettuna se kasvattaisi ``kills_total``ia ja lisäisi
-    "mistä he ampuvat" -riville sijainnin, jota ei ole olemassa.
-    Aineistossa on 0 itsemurhaa 591 kuolemasta, joten vika olisi latentti.
+    The row would pass both branches, because the shooter is in our own
+    lineup. Counted towards the kills it would raise ``kills_total`` and would
+    add to the "where they shoot from" row a location that does not exist. The
+    data holds 0 suicides out of 591 deaths, so the fault would be latent.
     """
     report = deaths_for(
         [
@@ -2153,10 +2191,11 @@ def test_a_suicide_is_a_death_but_not_a_kill() -> None:
 
 
 def test_a_teamkill_is_still_a_kill_beside_the_suicide_rule() -> None:
-    """Vartijan toinen haara: joukkuekaveri **oikeasti ampui** tuolta alueelta.
+    """The guard's other branch: a teammate **really did shoot** from that
+    area.
 
-    Ilman tätä itsemurhasääntö voisi olla kirjoitettu kokoonpanon eikä
-    pelaajan mukaan, ja teamkill katoaisi tapoista sen mukana.
+    Without this the suicide rule could have been written by lineup rather
+    than by player, and the teamkill would vanish from the kills with it.
     """
     report = deaths_for(
         [
@@ -2178,12 +2217,13 @@ def test_a_teamkill_is_still_a_kill_beside_the_suicide_rule() -> None:
 
 
 def test_an_empty_area_string_is_the_same_observation_as_a_missing_one() -> None:
-    """Tyhjä merkkijono ei ole alue.
+    """An empty string is not an area.
 
-    Ilman normalisointia sama havainto tulisi jakaumaan kahdesti: mallin
-    kaksoiskappaletarkistus vertaa raaka-arvoja (``""`` ja ``None`` ovat eri),
-    mutta raportti näyttää molemmat nimellä "tuntematon alue" -- eli yksi
-    rivi kertoisi saman asian kaksi kertaa eri luvuilla.
+    Without normalisation the same observation would reach the distribution
+    twice: the model's duplicate check compares raw values (``""`` and
+    ``None`` are different), but the report shows both under the name
+    "tuntematon alue" -- that is, one row would say the same thing twice with
+    different figures.
     """
     report = deaths_for(
         [
@@ -2197,7 +2237,8 @@ def test_an_empty_area_string_is_the_same_observation_as_a_missing_one() -> None
 
 
 def test_an_empty_kill_area_string_collapses_too() -> None:
-    """Sama sääntö tappojen puolella; eri rivi koodissa, eri testi tässä."""
+    """The same rule on the kill side; a different line in the code, a
+    different test here."""
     rows = [
         death_row(
             "Ancient_vs_x",
@@ -2216,25 +2257,27 @@ def test_an_empty_kill_area_string_collapses_too() -> None:
     assert [(k.area, k.n) for k in report.kills] == [(None, 2)]
 
 
-# --- Poikkeamat (Story 2.5) -----------------------------------------------------
+# --- Anomalies (Story 2.5) ------------------------------------------------------
 #
-# Ryhmittely otannaksi on aggregoinnin työ, ei säännön: sääntö näkee yhden
-# kierroksen kerrallaan. Testit rakentavat siksi kierroksia ja tarkistavat
-# ``n/m``:n, kartan, puolen ja kierrostyypit -- eivät sitä, milloin sääntö
-# osuu (se on ``test_sampling.py``).
+# Grouping into a sample is the aggregation's job and not the rule's: a rule
+# sees one round at a time. The tests therefore build rounds and check the
+# ``n/m``, the map, the side and the round types -- not when a rule hits (that
+# is ``test_sampling.py``).
 #
-# **Kynnykset kulkevat aina ``limits=``-parametrin kautta.** Se ei ole
-# tyylivalinta: ilman sitä testit todistaisivat vain, että sääntö osuu
-# oletusarvoilla, eikä yksikään väite kaatuisi jos kutsupaikka johdottaisi
-# kynnykset väärin tai jättäisi ne lukematta. Juuri se on Story 1.8:n vika --
-# säädetty settings.toml muuttaa parametrihashin muttei raporttia.
+# **The thresholds always travel through the ``limits=`` parameter.** That is
+# not a matter of style: without it the tests would prove only that a rule
+# hits on the default values, and not one claim would fail if the call site
+# wired the thresholds wrongly or left them unread. That is exactly Story
+# 1.8's fault -- an adjusted settings.toml changes the parameter hash but not
+# the report.
 
-#: Alue, joka on demossa T:n hallussa: Ancientin B suora, T-osuus 0,88 (n 24).
+#: An area the T side holds in the demo: Ancient's B long, T share 0.88
+#: (n 24).
 ANOMALY_AREA = "TSideLower"
 
 
 def t_side(demo: str, *, area: str = ANOMALY_AREA, t: int = 21, total: int = 24):
-    """Orientaatiokartta yhdelle demolle: yksi alue T:n hallussa."""
+    """The orientation map for one demo: one area held by the T side."""
     return {demo: {area: AreaObservations(t=t, total=total)}}
 
 
@@ -2246,7 +2289,7 @@ def advance_round(
     players: int = 1,
     seconds: float = 30.0,
 ) -> list[dict[str, object]]:
-    """Näytepisterivit, jotka laukaisevat CT-etenemisen yhdellä kierroksella."""
+    """The sample point rows that trigger a CT advance on one round."""
     return [
         tick_row(
             demo,
@@ -2268,7 +2311,8 @@ def crunch_round(
     sources: tuple[str, ...] = ("SideEntrance", "TSideUpper"),
     seconds: float = 30.0,
 ) -> list[dict[str, object]]:
-    """Pelaajat saapuvat alueelle annetuista suunnista -- yksi per suunta."""
+    """The players arrive in the area from the given source directions -- one
+    per direction."""
     rows: list[dict[str, object]] = []
     for i, source in enumerate(sources):
         rows.append(
@@ -2290,14 +2334,14 @@ def crunch_round(
 
 
 def eco_ct(demo: str, *rounds: int, round_type: str = "eco"):
-    """Luokitellut CT-kierrokset annetulla tyypillä."""
+    """Classified CT rounds of the given type."""
     return [
         classified_row(demo, n, side="CT", round_type=round_type) for n in rounds
     ]
 
 
 def stack_cloud(demo: str) -> dict[str, list[CloudCell]]:
-    """Demokohtainen pistepilvi, josta siteryhmät saadaan."""
+    """A per-demo point cloud that yields site groups."""
     return {demo: [CloudCell(a, x, y, z) for a, x, y, z in SITE_CLOUD]}
 
 
@@ -2310,11 +2354,11 @@ def stack_round(
     elsewhere: tuple[str, ...] = ("BombsiteA",),
     seconds: float = 15.0,
 ) -> list[dict[str, object]]:
-    """Neljä CT-pelaajaa saman siten ryhmässä, yksi sitellä itsellään.
+    """Four CT players in the same site's group, one on the site itself.
 
-    ``elsewhere`` on ryhmän ulkopuolella: se nostaa elossa olevien määrän
-    viiteen ilman että se kasvattaisi ryhmän kokoa -- eli juuri se ero, jota
-    ``4/5`` mittaa.
+    ``elsewhere`` is outside the group: it raises the number of living players
+    to five without raising the group's size -- that is, exactly the
+    difference ``4/5`` measures.
     """
     areas = (site, site, *others, *elsewhere)
     return [
@@ -2340,11 +2384,11 @@ def anomaly_report(
     map_names: dict[str, str | None] | None = None,
     point_clouds: dict[str, list[CloudCell]] | None = None,
 ):
-    """Raportti poikkeamatestille -- kynnykset **aina** nimettyinä.
+    """A report for an anomaly test -- the thresholds **always** named.
 
-    ``point_clouds`` oletuksena tyhjä pilvi: siteryhmiä ei saada, joten
-    stack vaikenee eivätkä etenemistä ja crunchia koskevat testit mittaa
-    vahingossa kolmatta sääntöä.
+    ``point_clouds`` defaults to an empty cloud: no site groups are obtained,
+    so stack stays silent and the tests about the advance and crunch do not
+    measure the third rule by accident.
     """
     return report_for(
         classified,
@@ -2357,12 +2401,12 @@ def anomaly_report(
 
 
 def areas_of(report, rule: str) -> list[str]:
-    """Annetun säännön poikkeama-alueet raportista."""
+    """The anomaly areas of the given rule, from the report."""
     return [a.area for a in report.anomalies if a.rule == rule]
 
 
 def test_an_anomaly_carries_its_map_side_round_type_and_sample() -> None:
-    """Jokainen poikkeama kantaa otantansa sekä kartan, puolen ja tyypin."""
+    """Every anomaly carries its sample and the map, the side and the type."""
     demo = "Ancient_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1, 2, 3),
@@ -2388,7 +2432,7 @@ def test_an_anomaly_carries_its_map_side_round_type_and_sample() -> None:
 
 
 def test_the_round_numbers_are_carried_not_thrown_away() -> None:
-    """Scoutin seuraava teko on avata se kierros demolta."""
+    """The scout's next act is to open that round on the demo."""
     demo = "Ancient_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1, 2, 3),
@@ -2401,7 +2445,8 @@ def test_the_round_numbers_are_carried_not_thrown_away() -> None:
 
 
 def test_the_same_area_on_two_rounds_is_one_row_with_a_sample_of_two() -> None:
-    """I/O-matriisin viimeinen rivi: yksi rivi otannalla 2/m, ei kaksi riviä."""
+    """The I/O matrix's last row: one row with a sample of 2/m, not two
+    rows."""
     demo = "Ancient_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1, 2, 3),
@@ -2417,7 +2462,7 @@ def test_the_same_area_on_two_rounds_is_one_row_with_a_sample_of_two() -> None:
 
 
 def test_two_sample_points_on_one_round_do_not_double_the_sample() -> None:
-    """``n`` on kierroksia: sama alue 15 s ja 30 s kohdalla on yksi kierros."""
+    """``n`` is rounds: the same area at 15 s and at 30 s is one round."""
     demo = "Ancient_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1, 2),
@@ -2431,7 +2476,7 @@ def test_two_sample_points_on_one_round_do_not_double_the_sample() -> None:
 
 
 def test_a_crunch_round_produces_both_rows() -> None:
-    """Säännöt jakavat orientaation; säästökierroksella molemmat osuvat."""
+    """The rules share the orientation; on a saving round both of them hit."""
     demo = "Ancient_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1, 2, 3),
@@ -2447,13 +2492,14 @@ def test_a_crunch_round_produces_both_rows() -> None:
 
 
 def test_an_empty_anomaly_list_is_a_valid_report() -> None:
-    """Matriisin rivi 7: yksikään sääntö ei osu."""
+    """The matrix's row 7: not one rule hits."""
     demo = "Nuke_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1),
         advance_round(demo, 1, area="Outside"),
         demo=demo,
-        # Nuken piha: T-osuus 0,70 eli kynnyksen alle.
+        # Nuke's outside yard: a T share of 0.70, that is below the
+        # threshold.
         orientation={demo: {"Outside": AreaObservations(t=211, total=302)}},
         limits=thresholds(),
     )
@@ -2461,7 +2507,7 @@ def test_an_empty_anomaly_list_is_a_valid_report() -> None:
 
 
 def test_a_full_buy_round_gets_no_advance_but_can_get_a_crunch() -> None:
-    """Matriisin rivi 8: eteneminen ei voi osua, crunch voi."""
+    """The matrix's row 8: the advance cannot hit, crunch can."""
     demo = "Ancient_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1, 2, 3, round_type="full"),
@@ -2472,15 +2518,15 @@ def test_a_full_buy_round_gets_no_advance_but_can_get_a_crunch() -> None:
     assert [a.rule for a in report.anomalies] == ["crunch"]
 
 
-# --- Speksimuutos 2: crunchia ei avainnella kierrostyypin mukaan ----------------
+# --- Spec change 2: crunch is not keyed by round type ---------------------------
 
 
 def test_a_crunch_on_two_round_types_is_one_row_over_the_whole_side() -> None:
-    """Sama kuvio kahdella kierrostyypillä on yksi rivi, ei kaksi.
+    """The same pattern on two round types is one row, not two.
 
-    Ilman tätä sama crunch hajoaisi eco-riviksi ja default-riviksi eri
-    jakajilla, eikä kokonaismäärää voisi nähdä -- juuri se hajanaisuus, jonka
-    poistamiseksi koko luku tehtiin.
+    Without this the same crunch would break into an eco row and a default row
+    with different denominators, and the total could not be seen -- exactly
+    the scatter the whole chapter was made to remove.
     """
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1, 2) + eco_ct(demo, 3, 4, round_type="full")
@@ -2493,14 +2539,15 @@ def test_a_crunch_on_two_round_types_is_one_row_over_the_whole_side() -> None:
     crunches = [a for a in report.anomalies if a.rule == "crunch"]
     assert len(crunches) == 1
     crunch = crunches[0]
-    # Nimittäjä on puolen KAIKKI kierrokset, ei yhden kierrostyypin.
+    # The denominator is ALL of the side's rounds, not one round type's.
     assert (crunch.n, crunch.m) == (2, 4)
     assert crunch.round_types == ["eco", "full"]
     assert [entry.round_type for entry in crunch.rounds] == ["eco", "full"]
 
 
 def test_the_advance_is_still_keyed_by_round_type() -> None:
-    """Eteneminen on säästökierrosten ilmiö, joten tyyppi on osa havaintoa."""
+    """The advance is a phenomenon of the saving rounds, so the type is part
+    of the observation."""
     demo = "Ancient_vs_x"
     classified = (
         eco_ct(demo, 1, 2)
@@ -2520,7 +2567,7 @@ def test_the_advance_is_still_keyed_by_round_type() -> None:
 
 
 def test_an_advance_row_never_carries_two_round_types() -> None:
-    """Malli valvoo sen, mutta ryhmittelyn on tuotettava se oikein."""
+    """The model enforces it, but the grouping has to produce it correctly."""
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1) + eco_ct(demo, 2, round_type="force")
     report = anomaly_report(
@@ -2535,7 +2582,7 @@ def test_an_advance_row_never_carries_two_round_types() -> None:
 
 
 def test_the_crunch_denominator_is_the_side_not_the_round_type() -> None:
-    """Kokonaismäärä on nähtävissä: 1/24 eikä 1/2 ja 0/22."""
+    """The total is visible: 1/24 and not 1/2 plus 0/22."""
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1, 2) + eco_ct(
         demo, *range(3, 25), round_type="full"
@@ -2550,22 +2597,24 @@ def test_the_crunch_denominator_is_the_side_not_the_round_type() -> None:
     assert (crunch.n, crunch.m) == (1, 24)
 
 
-# --- Kynnykset vaikuttavat raportin sisältöön ----------------------------------
+# --- The thresholds affect the report's content ---------------------------------
 #
-# Jokainen kuudesta kynnyksestä todistetaan **kahteen suuntaan**: arvo, jolla
-# rivi on, ja arvo, jolla se katoaa. Mutaatiotesti, jonka nämä pysäyttävät:
-# kynnyksen johdottaminen väärin tai lukematta jättäminen.
+# Each of the six thresholds is proved **in both directions**: a value at
+# which the row is there, and a value at which it disappears. The mutation
+# these stop: wiring a threshold wrongly, or leaving it unread.
 
 
 def test_the_t_share_threshold_decides_whether_the_row_exists() -> None:
-    """Nuken piha (0,70) on rajatapaus, josta koko kynnys on kalibroitu."""
+    """Nuke's outside yard (0.70) is the borderline case the whole threshold
+    is calibrated from."""
     demo = "Nuke_vs_x"
     classified = eco_ct(demo, 1, 2)
     ticks = advance_round(demo, 1, area="Outside")
-    # Nuken piha on **tasan** kynnyksellä: koko 0,80:n perustelu nojaa siihen,
-    # että 0,70 päästäisi sen läpi. Luvut ovat siksi tasan 0,70 eivätkä
-    # mitattu 211/302 (= 0,6987), joka pyöristyy 0,70:een muttei saavuta sitä
-    # -- juuri se ero on syy kirjoittaa vertailu näkyviin.
+    # Nuke's outside yard is **exactly** on the threshold: the whole
+    # justification for 0.80 rests on 0.70 letting it through. The figures are
+    # therefore exactly 0.70 and not the measured 211/302 (= 0.6987), which
+    # rounds to 0.70 but does not reach it -- that very difference is the
+    # reason to write the comparison out.
     orientation = {demo: {"Outside": AreaObservations(t=210, total=300)}}
     strict = anomaly_report(
         classified, ticks, demo=demo, orientation=orientation,
@@ -2580,7 +2629,7 @@ def test_the_t_share_threshold_decides_whether_the_row_exists() -> None:
 
 
 def test_the_observation_minimum_decides_whether_the_row_exists() -> None:
-    """Ohut alue ei ole kummankaan puolen aluetta -- kynnys ratkaisee."""
+    """A thin area is neither side's area -- the threshold decides."""
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1, 2)
     ticks = advance_round(demo, 1, area="Ramp")
@@ -2598,7 +2647,7 @@ def test_the_observation_minimum_decides_whether_the_row_exists() -> None:
 
 
 def test_the_time_bound_decides_whether_the_row_exists() -> None:
-    """45 s -osuma on rajauksen ulkopuolella, 30 s sisällä."""
+    """A hit at 45 s is outside the bound, one at 30 s inside it."""
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1, 2)
     ticks = advance_round(demo, 1, seconds=45.0)
@@ -2613,8 +2662,8 @@ def test_the_time_bound_decides_whether_the_row_exists() -> None:
 
 
 def test_the_advance_player_minimum_decides_whether_the_row_exists() -> None:
-    """Tuotteen omistaja valitsi 1; kahden vaatimus jättäisi neljä kuudesta
-    osumasta pois.
+    """The product owner chose 1; requiring two would leave four hits out of
+    six behind.
     """
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1, 2)
@@ -2630,7 +2679,7 @@ def test_the_advance_player_minimum_decides_whether_the_row_exists() -> None:
 
 
 def test_the_crunch_player_minimum_decides_whether_the_row_exists() -> None:
-    """Kolmen pelaajan vaatimus pudottaa kahden pelaajan crunchin."""
+    """Requiring three players drops a two-player crunch."""
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1, 2)
     ticks = crunch_round(demo, 1)
@@ -2645,7 +2694,7 @@ def test_the_crunch_player_minimum_decides_whether_the_row_exists() -> None:
 
 
 def test_the_crunch_source_minimum_decides_whether_the_row_exists() -> None:
-    """Kolmen suunnan vaatimus pudottaa kahden suunnan crunchin."""
+    """Requiring three source directions drops a two-direction crunch."""
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1, 2)
     ticks = crunch_round(demo, 1)
@@ -2661,9 +2710,9 @@ def test_the_crunch_source_minimum_decides_whether_the_row_exists() -> None:
         demo=demo,
         limits=thresholds(crunch_min_players=3, crunch_min_sources=3),
     )
-    # Kaksi pelaajaa kahdesta suunnasta: crunch_min_players=3 pudottaa sen
-    # kummallakin suuntavaatimuksella, joten suuntavaatimus todistetaan
-    # kolmen pelaajan aineistolla alla.
+    # Two players from two directions: crunch_min_players=3 drops it under
+    # either direction requirement, so the direction requirement is proved
+    # with three-player data below.
     assert areas_of(two, "crunch") == []
     assert areas_of(three, "crunch") == []
 
@@ -2687,19 +2736,20 @@ def test_the_crunch_source_minimum_decides_whether_the_row_exists() -> None:
 
 
 def test_the_two_crunch_thresholds_are_not_interchangeable() -> None:
-    """**Mutaatiovartija: kynnysten vaihtaminen keskenään kaataa tämän.**
+    """**Mutation guard: swapping the thresholds over fails this test.**
 
-    Aineisto on kolme pelaajaa kahdesta suunnasta, ja kynnykset ovat
-    ``players=3, sources=2``. Oikein johdotettuna se osuu. Jos kutsupaikka
-    vaihtaa kynnykset keskenään, ehdoksi tulee ``players>=2, sources>=3`` --
-    ja kaksi suuntaa ei riitä kolmeen, joten rivi katoaa.
+    The data is three players from two source directions, and the thresholds
+    are ``players=3, sources=2``. Wired correctly it hits. If the call site
+    swaps the thresholds over, the condition becomes ``players>=2,
+    sources>=3`` -- and two directions do not reach three, so the row
+    disappears.
 
-    Oletusarvoilla (2 ja 2) vaihto ei näy lainkaan, ja juuri siksi tämä testi
-    käyttää eri arvoja.
+    On the default values (2 and 2) the swap does not show at all, and that is
+    exactly why this test uses different values.
     """
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1, 2)
-    # Kolme pelaajaa, kaksi suuntaa: p0 ja p1 samasta suunnasta.
+    # Three players, two source directions: p0 and p1 from the same direction.
     ticks = [
         tick_row(demo, 1, f"{TEAM}-p0", "SideEntrance", side="CT", sample_t_s=15.0),
         tick_row(demo, 1, f"{TEAM}-p1", "SideEntrance", side="CT", sample_t_s=15.0),
@@ -2720,10 +2770,11 @@ def test_the_two_crunch_thresholds_are_not_interchangeable() -> None:
 
 
 def test_the_small_sample_threshold_decides_the_mark_both_ways() -> None:
-    """Sisarlipun sääntö: molemmat suunnat, ei vain ``True``.
+    """The sibling flag's rule: both directions, not just ``True``.
 
-    Mutaatio ``m <`` -> ``m <=`` merkitsisi jokaisen kolmen kierroksen haaran
-    poikkeaman pieneksi otannaksi, eikä yksisuuntainen väite huomaisi sitä.
+    The mutation ``m <`` -> ``m <=`` would mark every three-round branch's
+    anomaly as a small sample, and a one-directional claim would not notice
+    it.
     """
     demo = "Ancient_vs_x"
     small = anomaly_report(
@@ -2744,11 +2795,11 @@ def test_the_small_sample_threshold_decides_the_mark_both_ways() -> None:
     assert big.anomalies[0].m == 3
 
 
-# --- Ryhmittely ja kattavuus ----------------------------------------------------
+# --- Grouping and coverage ------------------------------------------------------
 
 
 def test_two_demos_of_the_same_map_keep_both_orientations() -> None:
-    """Kartta voi olla kahdesta demosta, ja niiden T-osuudet voivat erota."""
+    """A map can come from two demos, and their T shares can differ."""
     first, second = "Ancient_vs_x", "Ancient_vs_y"
     report = anomaly_report(
         eco_ct(first, 1) + eco_ct(second, 1),
@@ -2770,7 +2821,7 @@ def test_two_demos_of_the_same_map_keep_both_orientations() -> None:
 
 
 def test_anomalies_from_two_maps_stay_apart() -> None:
-    """Poikkeama on kartan havainto; kaksi karttaa on kaksi riviä."""
+    """An anomaly is a map's observation; two maps are two rows."""
     ancient, anubis = "Ancient_vs_x", "Anubis_vs_x"
     report = anomaly_report(
         eco_ct(ancient, 1) + eco_ct(anubis, 1),
@@ -2789,7 +2840,8 @@ def test_anomalies_from_two_maps_stay_apart() -> None:
 
 
 def test_an_anomaly_denominator_matches_the_round_type_branch() -> None:
-    """Etenemisen ``m`` on sama luku kuin vastaavan kierrostyypin otanta."""
+    """The advance's ``m`` is the same figure as the matching round type's
+    sample."""
     demo = "Ancient_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1, 2, 3) + eco_ct(demo, 4, round_type="full"),
@@ -2803,9 +2855,9 @@ def test_an_anomaly_denominator_matches_the_round_type_branch() -> None:
 
 
 def test_a_demo_without_an_orientation_is_refused() -> None:
-    """Puuttuva avain on eri asia kuin tyhjä orientaatio."""
+    """A missing key is a different thing from an empty orientation."""
     demo = "Ancient_vs_x"
-    with pytest.raises(AggregateError, match="alueorientaatiota ei annettu"):
+    with pytest.raises(AggregateError, match="area orientation was not given"):
         anomaly_report(
             eco_ct(demo, 1),
             advance_round(demo, 1),
@@ -2816,7 +2868,8 @@ def test_a_demo_without_an_orientation_is_refused() -> None:
 
 
 def test_an_empty_orientation_silences_the_rules_and_is_recorded() -> None:
-    """Tyhjä orientaatio on **sokea piste**, ja kattavuus sanoo sen ääneen."""
+    """An empty orientation is a **blind spot**, and the coverage says so out
+    loud."""
     demo = "Ancient_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1),
@@ -2830,7 +2883,7 @@ def test_an_empty_orientation_silences_the_rules_and_is_recorded() -> None:
 
 
 def test_the_scan_says_what_was_run_and_on_what() -> None:
-    """Tyhjä luku on havainto vain siitä, mitä tutkittiin."""
+    """An empty chapter is an observation only about what was examined."""
     demo = "Ancient_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1, 2) + eco_ct(demo, 3, round_type="full"),
@@ -2842,23 +2895,25 @@ def test_the_scan_says_what_was_run_and_on_what() -> None:
     assert scan.rules == ["ct_advance", "crunch", "stack"]
     assert scan.rules_deferred == []
     assert scan.rounds_scanned == 3
-    # Kaikki kolme kierrosta ovat CT-puolen, ja niistä kaksi on ecoa:
-    # crunch voi osua kolmella, eteneminen kahdella.
+    # All three rounds are the CT side's, and two of them are eco: crunch can
+    # hit on three, the advance on two.
     assert scan.crunch_rounds == 3
     assert scan.advance_rounds == 2
-    # Stack ei nähnyt yhtäkään: apurin oletuspilvi on tyhjä, joten
-    # siteryhmiä ei saatu. **Juuri se ero on kattavuuden syy**: sama demo on
-    # crunchin nimittäjässä kolmella kierroksella ja stackin nollalla.
+    # Stack saw none of them: the helper's default cloud is empty, so no site
+    # groups were obtained. **That very difference is the reason for the
+    # coverage**: the same demo is in crunch's denominator with three rounds
+    # and in stack's with zero.
     assert scan.stack_rounds == 0
     assert scan.demos_without_site_groups == [demo]
     assert scan.demos_without_orientation == []
 
 
 def test_an_area_below_the_threshold_leaves_no_blind_spot() -> None:
-    """Sokea piste on **orientaation puuttuminen**, ei osuman puuttuminen.
+    """A blind spot is **a missing orientation**, not a missing hit.
 
-    Demo, jolla on T:n alue muttei osumaa, on mitattu negatiivinen -- juuri
-    se, mitä Nuken nolla crunchia on. Se ei kuulu sokeiden listaan.
+    A demo that has a T-side area but no hit is a measured negative -- exactly
+    what Nuke's zero crunches are. It does not belong on the list of the
+    blind.
     """
     demo = "Nuke_vs_x"
     report = anomaly_report(
@@ -2873,7 +2928,7 @@ def test_an_area_below_the_threshold_leaves_no_blind_spot() -> None:
 
 
 def test_the_map_name_source_is_carried_to_the_anomaly() -> None:
-    """Tunnistamaton kartta on tunnistettava myös poikkeamarivillä."""
+    """An unidentified map has to be recognisable on the anomaly row too."""
     demo = "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1"
     report = anomaly_report(
         eco_ct(demo, 1),
@@ -2886,33 +2941,33 @@ def test_the_map_name_source_is_carried_to_the_anomaly() -> None:
 
 
 def test_a_null_side_on_a_sample_row_is_refused() -> None:
-    """``str(None)`` päättäisi hiljaa, ettei rivi ole CT."""
+    """``str(None)`` would quietly decide that the row is not CT."""
     demo = "Ancient_vs_x"
     rows = advance_round(demo, 1)
     rows[0]["side"] = None
-    with pytest.raises(AggregateError, match="puoli on None"):
+    with pytest.raises(AggregateError, match="the side is None"):
         anomaly_report(
             eco_ct(demo, 1), rows, demo=demo, limits=thresholds()
         )
 
 
 def test_a_null_is_alive_on_a_sample_row_is_refused() -> None:
-    """``bool(None)`` päättäisi hiljaa, että pelaaja on kuollut."""
+    """``bool(None)`` would quietly decide that the player is dead."""
     demo = "Ancient_vs_x"
     rows = advance_round(demo, 1)
     rows[0]["is_alive"] = None
-    with pytest.raises(AggregateError, match="elossaolo puuttuu"):
+    with pytest.raises(AggregateError, match="being alive is missing"):
         anomaly_report(
             eco_ct(demo, 1), rows, demo=demo, limits=thresholds()
         )
 
 
 def test_an_area_written_with_stray_whitespace_still_matches() -> None:
-    """Orientaatio ja läsnäolo normalisoidaan samalla funktiolla.
+    """The orientation and the presence are normalised by the same function.
 
-    Ilman sitä ``" TSideLower "`` olisi orientaatiossa eri alue kuin
-    läsnäolossa ja sääntö vaikenisi sillä alueella -- ilman että mikään
-    kertoisi miksi.
+    Without it ``" TSideLower "`` would be a different area in the orientation
+    from the one in the presence, and the rule would stay silent on that area
+    -- with nothing to say why.
     """
     demo = "Ancient_vs_x"
     rows = advance_round(demo, 1)
@@ -2928,10 +2983,10 @@ def test_an_area_written_with_stray_whitespace_still_matches() -> None:
 
 
 def test_a_duplicated_sample_row_does_not_silence_the_crunch() -> None:
-    """Kaksoisrivi pariutui aiemmin itsensä kanssa ja söi lähtöalueen."""
+    """A duplicated row used to pair with itself and eat the source area."""
     demo = "Ancient_vs_x"
     rows = crunch_round(demo, 1)
-    # Kaksinnetaan yksi kohdealueen rivi.
+    # Duplicate one row of the target area.
     rows.append(dict(rows[-1]))
     report = anomaly_report(
         eco_ct(demo, 1, 2), rows, demo=demo, limits=thresholds()
@@ -2945,11 +3000,11 @@ def test_a_duplicated_sample_row_does_not_silence_the_crunch() -> None:
 
 
 def test_a_stack_anomaly_carries_the_site_its_group_and_the_survivors() -> None:
-    """Rivi nimeää siten oman alueen, ryhmän ja elossa olleet.
+    """The row names the site's own area, the group and the survivors.
 
-    Nimittäjä on **puolen kaikki kierrokset**, kuten crunchilla: sääntö ei
-    tunne kierrostyyppiä, ja jakaminen eco-riviksi ja default-riviksi antaisi
-    samalle kuviolle kaksi eri jakajaa.
+    The denominator is **all of the side's rounds**, as with crunch: the rule
+    does not know the round type, and splitting into an eco row and a default
+    row would give the same pattern two different denominators.
     """
     demo = "Ancient_vs_x"
     report = anomaly_report(
@@ -2970,15 +3025,16 @@ def test_a_stack_anomaly_carries_the_site_its_group_and_the_survivors() -> None:
     assert [(p.sample_t_s, p.players, p.alive) for p in stack.rounds[0].points] == [
         (15.0, 4, 5)
     ]
-    # Orientaatio on tyhjä: sääntö ei lue sitä, joten luku olisi keksitty.
+    # The orientation is empty: the rule does not read it, so a figure would
+    # have been invented.
     assert stack.orientation == []
 
 
 def test_a_stack_spanning_round_types_is_one_row() -> None:
-    """Kierrostyyppi on havainto rivillä, ei nimittäjä.
+    """The round type is an observation on the row, not the denominator.
 
-    Sama kuvio ecolla ja täydellä ostolla on **yksi rivi otannalla 2/3**,
-    ja ``round_types`` kertoo millä tyypeillä se havaittiin.
+    The same pattern on eco and on a full buy is **one row with a sample of
+    2/3**, and ``round_types`` says on which types it was observed.
     """
     demo = "Ancient_vs_x"
     report = anomaly_report(
@@ -2995,15 +3051,15 @@ def test_a_stack_spanning_round_types_is_one_row() -> None:
 
 
 def test_a_silenced_demo_is_in_the_coverage_and_not_in_the_denominator() -> None:
-    """Vaiennettu demo on crunchin nimittäjässä muttei stackin.
+    """A silenced demo is in crunch's denominator but not in stack's.
 
-    Juuri tämä ero on koko ``stack_rounds``-kentän syy: ilman sitä Nuken
-    kierrokset näyttäisivät tutkituilta nollatuloksella.
+    This very difference is the reason for the whole ``stack_rounds`` field:
+    without it Nuke's rounds would look examined with a nil result.
     """
     speaks = "Ancient_vs_x"
     silent = "Nuke_vs_y"
     clouds = stack_cloud(speaks)
-    # Siteet päällekkäin: erotus 2 ruutua, siteiden oma koko 20 + 20.
+    # The sites overlap: a separation of 2 cells, the sites' own size 20 + 20.
     clouds[silent] = [
         CloudCell(a, x, y, z) for a, x, y, z in OVERLAPPING_SITE_CLOUD
     ]
@@ -3026,12 +3082,13 @@ def test_a_silenced_demo_is_in_the_coverage_and_not_in_the_denominator() -> None
 
 
 def test_a_silenced_demo_is_not_in_the_stack_denominator() -> None:
-    """Kartta kahdesta demosta, joista toinen vaikenee.
+    """A map from two demos, one of which stays silent.
 
-    Vaiennetun demon kierrokset ovat **crunchin** nimittäjässä mutta eivät
-    stackin: sääntö ei nähnyt niitä. Ilman rajausta rivin ``n/m`` kertoisi
-    eri kattavuudesta kuin luvun oma kattavuusteksti (``stack_rounds``), joka
-    osaa jättää ne pois -- eli sama luku kahdella arvolla samassa raportissa.
+    The silenced demo's rounds are in **crunch's** denominator but not in
+    stack's: the rule did not see them. Without the scoping a row's ``n/m``
+    would speak of a different coverage from the chapter's own coverage text
+    (``stack_rounds``), which does leave them out -- that is, the same figure
+    with two values in the same report.
     """
     speaks = "ANCIENT_vs_a"
     silent = "Ancient_vs_b"
@@ -3048,25 +3105,26 @@ def test_a_silenced_demo_is_not_in_the_stack_denominator() -> None:
         map_names={speaks: "de_ancient", silent: "de_ancient"},
         point_clouds=clouds,
     )
-    # Yksi kartta, viisi CT-kierrosta -- mutta stack näki niistä kaksi.
+    # One map, five CT rounds -- but stack saw two of them.
     assert [m.map_name for m in report.maps] == ["de_ancient"]
     stack = next(a for a in report.anomalies if a.rule == "stack")
     assert (stack.n, stack.m) == (1, 2)
     assert report.anomaly_scan.crunch_rounds == 5
     assert report.anomaly_scan.stack_rounds == 2
-    # Rivin nimittäjä ja kattavuusluku kertovat saman: molemmat 2, ei 5.
+    # The row's denominator and the coverage figure say the same: both 2,
+    # not 5.
     assert stack.m == report.anomaly_scan.stack_rounds
 
 
 def test_a_missing_point_cloud_is_refused_rather_than_assumed() -> None:
-    """Puuttuva avain ei ole sama asia kuin pilvi, josta ryhmiä ei saatu.
+    """A missing key is not the same thing as a cloud that yielded no groups.
 
-    Hiljainen oletus vaientaisi säännön juuri sillä demolla, ja kattavuus
-    kirjaisi sen kartan ominaisuutena -- vaikka kyse olisi kutsujan
-    unohduksesta.
+    A default assumed in silence would silence the rule on that very demo, and
+    the coverage would record it as a property of the map -- even though it
+    would be the caller's oversight.
     """
     demo = "Ancient_vs_x"
-    with pytest.raises(AggregateError, match="pistepilveä ei annettu"):
+    with pytest.raises(AggregateError, match="point cloud was not given"):
         anomaly_report(
             eco_ct(demo, 1),
             stack_round(demo, 1),
@@ -3077,7 +3135,7 @@ def test_a_missing_point_cloud_is_refused_rather_than_assumed() -> None:
 
 
 def test_the_stack_threshold_is_read_from_the_settings() -> None:
-    """Neljän pelaajan asetelma katoaa, kun kynnys nostetaan viiteen."""
+    """A four-player set-up disappears when the threshold is raised to five."""
     demo = "Ancient_vs_x"
 
     def stacks(min_players: int) -> list[str]:
@@ -3095,20 +3153,22 @@ def test_the_stack_threshold_is_read_from_the_settings() -> None:
 
 
 def test_the_separation_threshold_is_a_setting_not_code() -> None:
-    """Sama demo vaikenee tai puhuu sen mukaan, mikä kynnys on asetettu.
+    """The same demo stays silent or speaks depending on which threshold is
+    set.
 
-    Pilvenä on **päällekkäisten siteiden** pilvi, jonka suhde on 0,05 --
-    Nuken kärjistys. Tuotannon kynnyksellä 2,0 se vaikenee; riittävän
-    matalalla se puhuu, ja silloin sama asetelma tuottaa osuman. Suunta on
-    tämä päin siksi, että erottuvan pilven suhde on 25 eikä yksikään mallin
-    sallima kynnys (yläraja 20) vaientaisi sitä -- ja juuri se on yläraja
-    hyvä uutinen: mitattujen karttojen vaientaminen vahingossa ei onnistu.
+    The cloud is the **overlapping sites** cloud, whose ratio is 0.05 -- the
+    Nuke case sharpened. At production's threshold of 2.0 it stays silent; low
+    enough, it speaks, and then the same set-up produces a hit. The direction
+    is this way round because a separating cloud's ratio is 25 and no
+    threshold the model allows (an upper bound of 20) would silence it -- and
+    that upper bound is exactly the good news: silencing the measured maps by
+    accident cannot be done.
     """
     demo = "Nuke_vs_x"
     clouds = {
         demo: [CloudCell(a, x, y, z) for a, x, y, z in OVERLAPPING_SITE_CLOUD]
     }
-    # ``House`` on tässä pilvessä B:n ryhmässä (10 vs 8 ruutua).
+    # ``House`` is in B's group in this cloud (10 cells against 8).
     rows = stack_round(
         demo, 1, others=("House", "House"), elsewhere=("BombsiteA",)
     )

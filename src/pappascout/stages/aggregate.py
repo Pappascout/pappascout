@@ -1,79 +1,83 @@
-"""``aggregate`` -- putken kolmas vaihe: luokitelluista kierroksista raportti.
+"""``aggregate`` -- the pipeline's third stage: a report from classified rounds.
 
-Vaihe lukee arkistosta joukkueen luokitellut kierrokset
-(``classified/<team_key>/<map_demo_id>.parquet``) sekä niiden näytepiste-,
-tapahtuma-, kokoonpano- ja kuolemataulut
-(``parsed/<map_demo_id>/{ticks,events,lineups,deaths}.parquet``) ja kirjoittaa
-**yhden tiedoston**: ``aggregates/<team_key>/report.json``, joka on
-:class:`~pappascout.domain.report.Report`-malli JSONina. Demoa ei lueta.
+The stage reads a team's classified rounds from the archive
+(``classified/<team_key>/<map_demo_id>.parquet``) together with their sample
+point, event, lineup and deaths tables
+(``parsed/<map_demo_id>/{ticks,events,lineups,deaths}.parquet``) and writes
+**one file**: ``aggregates/<team_key>/report.json``, which is the
+:class:`~pappascout.domain.report.Report` model as JSON. The demo is not read.
 
-Se laskee kaiken, ``render`` ei laske mitään
---------------------------------------------
-Vaihe **ei valitse mitä raportoidaan**. Se laskee jokaisen kierrostyypin, myös
-täydet ostot ja jatkoajan, ja jättää valinnan Story 2.4:lle. Jos aggregointi
-suodattaisi, esitysvalinnan muuttaminen vaatisi uudelleenlaskennan ja
-``report.json`` lakkaisi olemasta täysi kuva siitä, mitä demoista tiedetään.
+It computes everything, ``render`` computes nothing
+---------------------------------------------------
+The stage **does not choose what is reported**. It computes every round type,
+full buys and overtime included, and leaves the choice to Story 2.4. If
+aggregation filtered, changing the presentation choice would need a
+recomputation and ``report.json`` would stop being a full picture of what is
+known about the demos.
 
-Vaihe ei myöskään tulkitse. Sanoja "fake" tai "rush" ei ole missään kentässä --
-vain havaintoja ja lukumääriä. Tulkinnan tekee ihminen.
+Nor does the stage interpret. The words "fake" and "rush" are in no field --
+only observations and counts. The interpreting is done by a human.
 
-``team_key`` tässä storyssa
----------------------------
-Joukkueindeksi (``index/teams.json``) syntyy vasta ``select``-vaiheessa
-(Epic 3), joten ``--team`` on toistaiseksi ``classified/``-hakemiston nimi eli
-kokoonpanotunniste, aivan kuten ``classify``-vaiheessa.
-
-Kokoonpanotunniste on tiiviste kartalla pelanneista pelaajista, joten **yksi
-vaihto tuottaa uuden tunnisteen**: MatureMayhem on neljässä demossa kahden eri
-tunnisteen alla. Vaihe liittää ne yhteen säännöllä, joka on jo asetuksissa
-(``[thresholds].team_identity_min_common``, AD-6): kokoonpanot ovat sama
-joukkue, kun yhteisiä pelaajia on vähintään kolme. Ilman liittämistä raportti
-näkisi kolme demoa neljästä eikä kertoisi menettäneensä yhtä. Liitetyt
-tunnisteet kirjataan raporttiin (``team.lineup_keys``), joten päätös on
-tarkistettavissa.
-
-Joukkueen nimi on havainto
+``team_key`` in this story
 --------------------------
-Nimi luetaan kokoonpanotaulun ``clan_name``-sarakkeesta, joka on demosta
-havaittu arvo. Sitä ei johdeta tiedostonimestä, FACEIT-tunnisteesta eikä
-mistään muusta lähteestä: ilman havaintoa ``display_name`` on ``team_key``
-itse, ``display_name_source`` on ``team_key``, ja raportti sanoo puuttumisen
-ääneen.
+The team index (``index/teams.json``) comes into being only in the ``select``
+stage (Epic 3), so for now ``--team`` is the name of the ``classified/``
+directory, that is, the lineup key -- exactly as in the ``classify`` stage.
 
-**Ristiriita ei katoa.** Jos liitetyt demot antavat joukkueelle eri nimen,
-näytettäväksi valitaan useimmin havaittu ja loput päätyvät kenttään
-``display_name_alternatives``. Ääni on demokohtainen eikä rivikohtainen, ja
-tasatilanne ratkeaa aakkosjärjestyksessä, jotta ajo on toistettava
+A lineup key is a hash of the players who played the map, so **one
+substitution produces a new key**: MatureMayhem is under two different keys
+across the four demos. The stage joins them with a rule that is already in the
+settings (``[thresholds].team_identity_min_common``, AD-6): two lineups are the
+same team when they have at least three players in common. Without the join
+the report would see three demos out of four and would not say it had lost
+one. The joined keys are recorded in the report (``team.lineup_keys``), so the
+decision can be checked.
+
+The team's name is an observation
+---------------------------------
+The name is read from the lineups table's ``clan_name`` column, which is a
+value observed from the demo. It is not derived from the file name, from the
+FACEIT id or from any other source: without an observation ``display_name`` is
+the ``team_key`` itself, ``display_name_source`` is ``team_key``, and the
+report says the absence out loud.
+
+**A conflict does not disappear.** If the joined demos give the team different
+names, the one observed most often is chosen to be shown and the rest end up
+in the ``display_name_alternatives`` field. The vote is per demo and not per
+row, and a tie is settled alphabetically so that the run is repeatable
 (:func:`~pappascout.domain.aggregate.team_identity`).
 
-**Joukkueen avain ei muutu.** ``team_key`` on hakemistorakenne
-(``classified/<team_key>/``), ja sen vaihtaminen nimeksi on Epic 3:n
-``select``-vaiheen työtä. Tämä vaihe vaihtaa vain sen, mitä näytetään -- ja
-tiedostonimen slugin, joka seuraa näytettävää nimeä.
+**The team's key does not change.** ``team_key`` is the directory structure
+(``classified/<team_key>/``), and turning it into a name is the work of Epic
+3's ``select`` stage. This stage changes only what is shown -- and the file
+name's slug, which follows the shown name.
 
-Kartan nimi on havainto, päättely on varalähde
-----------------------------------------------
-Kartan nimi luetaan ``parsed/<map_demo_id>/match.parquet``-taulusta, johon
-``parse`` kirjoittaa sen demon otsikosta (Story 2.11). Nimeä ei validoida
-karttapoolia vasten: poolin ulkopuolinen kartta on aito havainto.
+The map's name is an observation, inference is the fallback
+-----------------------------------------------------------
+The map's name is read from the ``parsed/<map_demo_id>/match.parquet`` table,
+into which ``parse`` writes it from the demo's header (Story 2.11). The name is
+not validated against the map pool: a map outside the pool is a genuine
+observation.
 
-Vasta jos havaintoa ei ole -- ``map_name`` on ``null`` -- nimi päätellään
-``map_demo_id``:stä karttapoolia vasten. ``map_name_source`` kertoo mistä nimi
-tuli (``demo_header`` -> ``map_demo_id`` -> ``unknown``), eikä tuntematon kartta
-sulaudu toisen kartan haaraan vaan jää omakseen tunnisteensa nimellä.
+Only if there is no observation -- ``map_name`` is ``null`` -- is the name
+inferred from the ``map_demo_id`` against the map pool. ``map_name_source``
+says where the name came from (``demo_header`` -> ``map_demo_id`` ->
+``unknown``), and an unknown map does not melt into another map's branch but
+stays its own under the name of its id.
 
-Kaksi demoa samalta kartalta on **yksi haara**: nimi on sama, kierrokset
-summautuvat ja ``map_demo_ids`` luettelee demot. Juuri tämä ei toteudu ilman
-otsikkoa, koska FACEIT-tunnisteessa (``1-79f71e00-...``) ei ole kartan nimeä.
+Two demos of the same map are **one branch**: the name is the same, the rounds
+add up and ``map_demo_ids`` lists the demos. This is exactly what does not
+happen without the header, because a FACEIT id (``1-79f71e00-...``) does not
+carry the map's name.
 
-Manifesti ja uudelleenajo
--------------------------
-Syötteitä ovat kaikkien mukaan otettujen demojen ``classify``-manifestit, ja
-niiden tunniste lasketaan funktiolla
-:meth:`~pappascout.archive.manifest.Manifest.fingerprint` -- sama määritelmä,
-jolla ``classify`` tunnistaa oman syötteensä. Parametrihash lasketaan vain
-``[thresholds]``- ja ``[league]``-osioista (AD-3), joten kynnysten säätö ajaa
-tämän vaiheen uudelleen mutta ei parsintaa.
+The manifest and re-running
+---------------------------
+The inputs are the ``classify`` manifests of every demo taken along, and their
+id is computed with
+:meth:`~pappascout.archive.manifest.Manifest.fingerprint` -- the same
+definition with which ``classify`` recognises its own input. The parameter hash
+is computed from the ``[thresholds]`` and ``[league]`` sections only (AD-3), so
+adjusting a threshold re-runs this stage but not the parsing.
 """
 
 from __future__ import annotations
@@ -159,34 +163,37 @@ __all__ = [
 
 STAGE = "aggregate"
 
-#: Tyhjä: aggregointi on puhdasta laskentaa luetuista tauluista, eikä minkään
-#: ulkopuolisen kirjaston versio muuta sen tulosta (manifest-moduulin sääntö).
+#: Empty: aggregation is pure computation over the tables that were read, and
+#: no external library's version changes its result (the manifest module's
+#: rule).
 #:
-#: Luettelo on silti olemassa ja se luetaan :func:`_tools`illa, jotta uuden
-#: riippuvuuden lisääminen on yhden rivin muutos eikä kahden kovakoodatun
-#: ``{}``:n etsimistä -- sama kuvio kuin ``stages.parse``issa.
+#: The list exists all the same and is read with :func:`_tools`, so that adding
+#: a new dependency is a one-line change rather than a hunt for two hard-coded
+#: ``{}``\ s -- the same shape as in ``stages.parse``.
 TOOLS: tuple[str, ...] = ()
 
 
 def _tools() -> dict[str, str]:
-    """Työkaluversiot manifestiin. Tyhjä, kunnes :data:`TOOLS` ei ole."""
+    """Tool versions for the manifest. Empty until :data:`TOOLS` is not."""
     return tool_versions(*TOOLS)
 
 
 @dataclass(frozen=True)
 class TeamSources:
-    """Joukkueen aineisto arkistossa: kokoonpanot, demot ja puuttuvat demot.
+    """A team's material in the archive: lineups, demos and missing demos.
 
-    Erotettu omaksi tyypikseen, jotta joukkueen kokoaminen on testattavissa
-    ilman raportin rakentamista -- ja jotta sen tulos on luettavissa
-    virheilmoituksessa silloin, kun demoja ei löytynyt yhtään.
+    Split into a type of its own so that collecting a team is testable without
+    building the report -- and so that its result can be read out in the error
+    message when no demos were found at all.
 
     Attributes:
-        team_key: Käyttäjän valitsema hakemistonimi; myös tuloksen hakemisto.
-        lineup_keys: Samaksi joukkueeksi liitetyt kokoonpanotunnisteet.
-        demos: ``(lineup_key, map_demo_id)`` jokaiselle mukaan otetulle demolle.
-        roster: Havaitut pelaajat kaikista liitetyistä kokoonpanoista.
-        missing: Demot, joiden dataa ei ollut. Eivät katoa hiljaa.
+        team_key: The directory name the user chose; also the result's
+            directory.
+        lineup_keys: The lineup keys joined into the same team.
+        demos: ``(lineup_key, map_demo_id)`` for every demo taken along.
+        roster: The players observed across all the joined lineups.
+        missing: The demos whose data was not there. They do not vanish
+            silently.
     """
 
     team_key: str
@@ -205,33 +212,34 @@ def run(
     aggregate_settings: AggregateSettings,
     force: bool = False,
 ) -> StageResult:
-    """Aggregoi yhden joukkueen luokitellut kierrokset raportiksi.
+    """Aggregate one team's classified rounds into a report.
 
     Args:
-        thresholds: ``[thresholds]``-osio; siitä luetaan
-            ``small_sample_rounds`` ja ``team_identity_min_common``.
-        league: ``[league]``-osio; siitä luetaan karttapooli kartan nimen
-            päättelyä varten.
-        aggregate_settings: ``[aggregate]``-osio, **avainsanaparametrina**.
-            Avainsana siksi, että kolme pydantic-osiota peräkkäin menisi
-            positionaalisesti vaihtaen läpi ilman että mikään huomauttaisi --
-            sama syy kuin ``classify``in ``economy``-parametrissa.
-        archive: Arkiston polut.
-        team: Joukkueen tunniste tai sen yksikäsitteinen alkuosa. ``None``
-            tuottaa suomenkielisen virheen, joka listaa arkiston joukkueet.
-        force: Aggregoi vaikka manifesti täsmäisi.
+        thresholds: The ``[thresholds]`` section; ``small_sample_rounds`` and
+            ``team_identity_min_common`` are read from it.
+        league: The ``[league]`` section; the map pool is read from it for
+            inferring the map's name.
+        aggregate_settings: The ``[aggregate]`` section, **as a keyword
+            argument**. A keyword because three pydantic sections in a row
+            would go through positionally with two of them swapped without
+            anything remarking on it -- the same reason as for ``classify``'s
+            ``economy`` argument.
+        archive: The archive's paths.
+        team: The team's id or an unambiguous prefix of it. ``None`` produces
+            an error that lists the archive's teams.
+        force: Aggregate even if the manifest matched.
 
     Returns:
-        :class:`~pappascout.stages.StageResult`, jonka ``stats`` sisältää
-        otannat, karttojen määrän ja puuttuvat demot.
+        A :class:`~pappascout.stages.StageResult` whose ``stats`` holds the
+        samples, the number of maps and the missing demos.
 
     Raises:
-        ~pappascout.errors.PappascoutError: Jos joukkuetta ei tunnisteta tai
-            yhtään luokiteltua demoa ei löydy.
-        ~pappascout.errors.AggregateError: Jos otanta ei täsmää jollakin
-            tasolla.
-        ~pappascout.errors.SchemaError: Jos jokin luettu taulu ei vastaa
-            sopimusta.
+        ~pappascout.errors.PappascoutError: If the team is not recognised or no
+            classified demo is found at all.
+        ~pappascout.errors.AggregateError: If the sample does not add up at
+            some level.
+        ~pappascout.errors.SchemaError: If some table that was read does not
+            match the contract.
     """
     started = time.perf_counter()
     team_key = resolve_team(archive, team)
@@ -266,8 +274,8 @@ def run(
                 outputs=tuple(PurePosixPath(o) for o in existing.outputs),
                 manifest_path=manifest_rel,
                 reason=(
-                    "Tulos on ajan tasalla: manifesti täsmää eikä kierroksia "
-                    "tarvitse aggregoida uudelleen."
+                    "The result is up to date: the manifest matches and the "
+                    "rounds do not need to be aggregated again."
                 ),
                 duration_s=time.perf_counter() - started,
                 stats=_stats(ready, sources),
@@ -300,11 +308,11 @@ def run(
     )
 
 
-# -- Joukkueen kokoaminen --------------------------------------------------------
+# -- Collecting the team ---------------------------------------------------------
 
 
 def team_keys(archive: ArchivePaths) -> list[str]:
-    """Arkiston luokitellut joukkueet eli ``classified/``-hakemistot."""
+    """The archive's classified teams, that is, the ``classified/`` dirs."""
     root = archive.resolve(PurePosixPath("classified"))
     if not root.is_dir():
         return []
@@ -314,33 +322,33 @@ def team_keys(archive: ArchivePaths) -> list[str]:
 
 
 def _demo_ids(directory: Path) -> list[str]:
-    """Hakemiston luokitellut demot tunnisteina."""
+    """The directory's classified demos as ids."""
     return sorted(p.stem for p in directory.glob("*.parquet"))
 
 
 def resolve_team(archive: ArchivePaths, team: str | None) -> str:
-    """Tulkitse ``--team`` arkiston joukkuehakemistoksi.
+    """Read ``--team`` as one of the archive's team directories.
 
-    Hyväksyy sekä täyden tunnisteen että sen yksikäsitteisen alkuosan -- 16
-    merkin tiiviste on epämukava kirjoittaa käsin.
+    Accepts both the full id and an unambiguous prefix of it -- a 16-character
+    hash is uncomfortable to type by hand.
 
     Raises:
-        PappascoutError: Jos tunniste puuttuu, ei täsmää tai täsmää useampaan.
-            Viesti listaa aina arkiston joukkueet, joten seuraava komento on
-            suoraan kopioitavissa.
+        PappascoutError: If the id is missing, matches nothing or matches more
+            than one. The message always lists the archive's teams, so the next
+            command can be copied straight from it.
     """
     available = team_keys(archive)
     if not available:
         raise PappascoutError(
-            "Arkistossa ei ole yhtään luokiteltua joukkuetta, joten "
-            "aggregoitavaa ei ole.\n"
-            "Aja ensin: uv run pappascout classify <map_demo_id> --team "
-            "<tunniste>"
+            "The archive has no classified team at all, so there is nothing "
+            "to aggregate.\n"
+            "Run first: uv run pappascout classify <map_demo_id> --team "
+            "<id>"
         )
     if team is None:
         raise PappascoutError(
-            "Kerro --team-valinnalla, minkä joukkueen kierrokset "
-            f"aggregoidaan.\n{_team_listing(available)}"
+            "Say with the --team option whose rounds are to be "
+            f"aggregated.\n{_team_listing(available)}"
         )
 
     query = team.strip().lower()
@@ -351,9 +359,9 @@ def resolve_team(archive: ArchivePaths, team: str | None) -> str:
         return safe_component(matches[0], "team_key")
 
     problem = (
-        f"Joukkuetunniste {team!r} täsmää useampaan kuin yhteen joukkueeseen."
+        f"The team id {team!r} matches more than one team."
         if matches
-        else f"Joukkuetunniste {team!r} ei täsmää yhteenkään joukkueeseen."
+        else f"The team id {team!r} matches no team at all."
     )
     raise PappascoutError(f"{problem}\n{_team_listing(available)}")
 
@@ -361,9 +369,9 @@ def resolve_team(archive: ArchivePaths, team: str | None) -> str:
 def _team_listing(available: Sequence[str]) -> str:
     rows = "\n".join(f"    {key}" for key in available)
     return (
-        "Arkiston luokitellut joukkueet ovat:\n"
+        "The archive's classified teams are:\n"
         + rows
-        + "\nAnna tunniste kokonaan tai sen alkuosa, esimerkiksi:\n"
+        + "\nGive the id in full or its beginning, for example:\n"
         + f"    --team {available[0][:8]}"
     )
 
@@ -371,25 +379,25 @@ def _team_listing(available: Sequence[str]) -> str:
 def collect_team(
     archive: ArchivePaths, team_key: str, thresholds: ThresholdSettings
 ) -> TeamSources:
-    """Kokoa joukkueen kokoonpanot, demot ja rosteri arkistosta.
+    """Collect the team's lineups, demos and roster from the archive.
 
-    Kokoonpanojen jäsenet luetaan **yhdestä demosta per kokoonpano**:
-    tunniste on tiiviste kartalla pelanneista pelaajista, joten sama tunniste
-    tarkoittaa aina samaa joukkoa eikä useampaa demoa tarvitse lukea.
+    A lineup's members are read from **one demo per lineup**: the key is a hash
+    of the players who played the map, so the same key always means the same
+    set and there is no need to read more than one demo.
 
-    **Haun laajuus ja sen raja.** Joukkueidentiteetti on vertailu *muihin*
-    kokoonpanoihin, joten kaikkien arkiston kokoonpanojen jäsenet on
-    tunnettava -- yhden joukkueen omat demot eivät riitä. Kustannus on siksi
-    yksi luku per ``classified/``-hakemisto, ei per demo, ja luku on kaksi
-    saraketta (``lineup_key``, ``player_id``) näytepistetaulusta. Neljällä
-    demolla se on millisekunteja; sadalla joukkueella se on sata pientä
-    lukua. Jos arkisto joskus kasvaa niin suureksi että tämä maksaa, oikea
-    ratkaisu on Epic 3:n joukkueindeksi (``index/teams.json``), joka poistaa
-    koko päättelyn -- ei tämän silmukan optimointi.
+    **How wide the search is, and where it stops.** Team identity is a
+    comparison against the *other* lineups, so the members of every lineup in
+    the archive have to be known -- one team's own demos are not enough. The
+    cost is therefore one read per ``classified/`` directory, not per demo, and
+    the read is two columns (``lineup_key``, ``player_id``) from the sample
+    point table. With four demos that is milliseconds; with a hundred teams it
+    is a hundred small reads. If the archive ever grows large enough for this
+    to cost, the right answer is Epic 3's team index
+    (``index/teams.json``), which removes the whole inference -- not optimising
+    this loop.
 
     Raises:
-        PappascoutError: Jos joukkueella ei ole yhtään luettavissa olevaa
-            demoa.
+        PappascoutError: If the team has no readable demo at all.
     """
     root = archive.resolve(PurePosixPath("classified"))
     demos_by_lineup = (
@@ -415,16 +423,16 @@ def collect_team(
 
     known = {k: v for k, v in members.items() if k in demos_by_lineup}
 
-    # Kokoonpano, jonka yhdeltäkään demolta ei saatu kokoonpanotaulua, ei ole
-    # vertailtavissa muihin -- eikä siis liitettävissä joukkueeseen. Sen demot
-    # eivät saa silti kadota jäljettömiin: ne kirjataan puuttuviksi syyn
-    # kanssa, jotta lukija näkee että otannasta puuttuu jotain, vaikka
-    # aggregointi ei voi tietää kenelle se kuului.
+    # A lineup whose lineups table could not be read from any of its demos is
+    # not comparable to the others -- and so cannot be joined to a team. Its
+    # demos must not vanish without trace all the same: they are recorded as
+    # missing with the reason, so that the reader sees something is absent from
+    # the sample even though aggregation cannot know whose it was.
     #
-    # **Rivi per demo, ei per kokoonpano.** Yksi demo sisältää molemmat
-    # joukkueet, joten sama tiedosto on kahden hakemiston alla ja tuottaisi
-    # kaksi riviä samasta puutteesta. Mitattu ensimmäisestä ajosta: neljä
-    # riviä kahdesta demosta. Se lukee kuin otannasta puuttuisi neljä ottelua.
+    # **One row per demo, not per lineup.** One demo holds both teams, so the
+    # same file is under two directories and would produce two rows for the
+    # same absence. Measured on the first run: four rows from two demos. That
+    # reads as though four matches were missing from the sample.
     for lineup, lineup_demos in demos_by_lineup.items():
         if lineup in known:
             continue
@@ -432,22 +440,24 @@ def collect_team(
             missing.append(
                 MissingDemo(
                     match=demo,
-                    # Syy sanoo mitä oikeasti tiedetään: lukukelvoton
-                    # kokoonpanotaulu ei kerro kenen demo tämä on, joten sitä
-                    # ei voi väittää *tämän* joukkueen menetetyksi otteluksi.
+                    # The reason says what is actually known: an unreadable
+                    # lineups table does not say whose demo this is, so it
+                    # cannot be claimed to be a match *this* team lost.
                     reason=(
-                        "Kokoonpanotaulua (lineups.parquet) ei saatu luettua, "
-                        "joten ei tiedetä kuuluuko demo tälle joukkueelle. "
-                        f"Aja parsinta uudelleen: uv run pappascout parse {demo}"
+                        "The lineups table (lineups.parquet) could not be "
+                        "read, so it is not known whether the demo belongs to "
+                        "this team. "
+                        f"Parse it again: uv run pappascout parse {demo}"
                     ),
                 )
             )
 
     if team_key not in known:
         raise PappascoutError(
-            f"Joukkueen {team_key} kokoonpanoa ei saatu luettua: yhdenkään sen "
-            "demon kokoonpanotaulua (lineups.parquet) ei löytynyt arkistosta.\n"
-            "Aja parsinta uudelleen: uv run pappascout parse <map_demo_id>"
+            f"The lineup of team {team_key} could not be read: the lineups "
+            "table (lineups.parquet) of not one of its demos was found in the "
+            "archive.\n"
+            "Parse them again: uv run pappascout parse <map_demo_id>"
         )
 
     lineup_keys = lineups_of_same_team(
@@ -465,19 +475,19 @@ def collect_team(
             else:
                 missing.append(MissingDemo(match=demo, reason=reason))
 
-    # Mukaan päässyt demo ei ole puuttuva, vaikka se olisi myös jonkin
-    # lukukelvottoman kokoonpanon alla: sama tiedosto on aina kahden joukkueen
-    # hakemistossa, ja vastustajan lukukelvoton kokoonpano ei vie meiltä
-    # ottelua jonka juuri luimme.
+    # A demo that got in is not missing even if it is also under some
+    # unreadable lineup: the same file is always in two teams' directories, and
+    # the opponent's unreadable lineup does not take from us a match we have
+    # just read.
     included = {demo for _, demo in demos}
     missing = _unique_by_match(m for m in missing if m.match not in included)
 
     if not demos:
         raise PappascoutError(
-            f"Joukkueella {team_key} ei ole yhtäkään demoa, jonka sekä "
-            "luokittelu että parsinta olisivat arkistossa.\n"
+            f"Team {team_key} has not one demo whose classification and "
+            "parsing are both in the archive.\n"
             + (
-                "Puuttuvat:\n"
+                "Missing:\n"
                 + "\n".join(f"    {m.match}: {m.reason}" for m in missing)
                 if missing
                 else ""
@@ -487,12 +497,12 @@ def collect_team(
 
 
 def _unique_by_match(entries: Iterable[MissingDemo]) -> list[MissingDemo]:
-    """Yksi rivi per demo, ensimmäinen syy voittaa.
+    """One row per demo, the first reason wins.
 
-    Puuttuvat demot luetellaan **otteluina**, koska niin lukija ne laskee.
-    Sama tiedosto on kahden kokoonpanon alla (molemmat joukkueet), ja kahden
-    kokoonpanon alta löytyvä sama puute näyttäisi luettelossa kahdelta eri
-    puuttuvalta ottelulta.
+    Missing demos are listed as **matches**, because that is how the reader
+    counts them. The same file is under two lineups (both teams), and the same
+    absence found under two lineups would look in the list like two different
+    missing matches.
     """
     seen: dict[str, MissingDemo] = {}
     for entry in entries:
@@ -503,13 +513,13 @@ def _unique_by_match(entries: Iterable[MissingDemo]) -> list[MissingDemo]:
 def _lineup_members(
     archive: ArchivePaths, map_demo_id: str
 ) -> dict[str, set[str]] | None:
-    """Demon kokoonpanot pelaajineen, tai ``None`` jos taulua ei ole.
+    """The demo's lineups with their players, or ``None`` if there is no table.
 
-    Lähde on ``lineups.parquet`` eikä ``ticks.parquet`` (Story 2.6). Kaksi
-    syytä: kokoonpanotaulu on kymmeniä rivejä siinä missä näytepistetaulu on
-    kymmeniä tuhansia, ja sen pelaajajoukko on **täsmälleen se**, josta
-    ``lineup_key`` on laskettu -- näytepistetaulusta puuttuisi pelaaja, joka
-    ei ehtinyt yhdellekään näytepisteelle.
+    The source is ``lineups.parquet`` and not ``ticks.parquet`` (Story 2.6).
+    Two reasons: the lineups table is tens of rows where the sample point table
+    is tens of thousands, and its set of players is **exactly the one**
+    ``lineup_key`` was computed from -- the sample point table would be missing
+    a player who did not make it to a single sample point.
     """
     path = archive.resolve(parsed_table(map_demo_id, "lineups"))
     if not path.is_file():
@@ -527,27 +537,29 @@ def _lineup_members(
 def _demo_unusable(
     archive: ArchivePaths, lineup: str, map_demo_id: str
 ) -> str | None:
-    """Syy, miksi demoa ei voi ottaa mukaan -- tai ``None`` jos voi.
+    """The reason the demo cannot be taken along -- or ``None`` if it can.
 
-    Puuttuva parsinta ei kaada ajoa: demo menee ``missing_demos``-listaan syyn
-    kanssa, ja raportti kertoo sen. Yksittäinen puuttuva demo ei saa viedä
-    koko otantaa -- se veisi mukanaan kolme muuta, jotka ovat kunnossa.
+    A missing parse does not stop the run: the demo goes into the
+    ``missing_demos`` list with its reason, and the report says so. A single
+    missing demo must not take the whole sample with it -- it would take along
+    three others that are in order.
     """
-    # Kierrostaulu on mukana Story 2.8:sta lähtien: panssarilaskuri on siellä
-    # eikä luokitellussa taulussa, koska se on havainto eikä luokittelun
-    # päätöksen syöte. Puuttuva taulu on siis sama puute kuin muutkin --
-    # ilman sitä raportti näyttäisi kierrostyypiltä, jolla kukaan ei ostanut
-    # kevlaria.
-    # Ottelutaulu on mukana Story 2.11:sta lähtien: kartan nimi on siellä.
-    # Ilman sitä demo saisi haaransa päättelystä, eli FACEIT-demo jäisi
-    # omaksi haarakseen tunnisteensa nimellä -- ja monidemo-otanta hajoaisi
-    # hiljaa juuri sillä demolla, jonka taulu puuttuu.
-    # Pistepilvi on mukana Story 2.14:sta lähtien: stackin siteryhmät
-    # johdetaan siitä. PUUTTUVA TAULU EI OLE SAMA ASIA KUIN VAIENNETTU DEMO.
-    # Jälkimmäinen on havainto kartasta (siteet eivät erotu tasoina) ja se
-    # kirjataan kattavuuteen; edellinen tarkoittaa, että demo on parsittu
-    # ohjelman vanhemmalla versiolla -- ja hiljaisena se lukisi kattavuudessa
-    # kartan ominaisuutena.
+    # The rounds table has been on the list since Story 2.8: the armour counter
+    # is there and not in the classified table, because it is an observation
+    # and not an input to the classification's decision. A missing table is
+    # therefore the same absence as any other -- without it the report would
+    # look like a round type on which nobody bought armour.
+    # The match table has been on the list since Story 2.11: the map's name is
+    # there. Without it the demo would get its branch by inference, that is, a
+    # FACEIT demo would stay a branch of its own under the name of its id --
+    # and a multi-demo sample would fall apart silently on exactly the demo
+    # whose table is absent.
+    # The point cloud has been on the list since Story 2.14: the stack rule's
+    # site groups are derived from it. A MISSING TABLE IS NOT THE SAME THING AS
+    # A SILENCED DEMO. The latter is an observation about the map (the sites do
+    # not separate into levels) and is recorded in the coverage; the former
+    # means the demo was parsed with an older version of the program -- and,
+    # silent, it would read in the coverage as a property of the map.
     for table in (
         "rounds",
         "ticks",
@@ -559,26 +571,27 @@ def _demo_unusable(
     ):
         if not archive.resolve(parsed_table(map_demo_id, table)).is_file():
             return (
-                f"Parsittua taulua {table}.parquet ei ole arkistossa. "
-                f"Aja: uv run pappascout parse {map_demo_id}"
+                f"The parsed table {table}.parquet is not in the archive. "
+                f"Run: uv run pappascout parse {map_demo_id}"
             )
     manifest = Manifest.read_if_exists(
         archive.resolve(classified_manifest(lineup, map_demo_id))
     )
     if manifest is None:
         return (
-            "Luokittelun manifestia ei ole, joten syötettä ei voi tunnistaa. "
-            f"Aja: uv run pappascout classify {map_demo_id} --team {lineup}"
+            "There is no classification manifest, so the input cannot be "
+            "recognised. "
+            f"Run: uv run pappascout classify {map_demo_id} --team {lineup}"
         )
     if manifest.status != "ok":
         return (
-            f"Luokittelu on merkitty tilaan {manifest.status!r}: "
-            f"{manifest.reason or 'syytä ei kirjattu'}"
+            f"The classification is marked with the status {manifest.status!r}: "
+            f"{manifest.reason or 'no reason was recorded'}"
         )
     return None
 
 
-# -- Aggregointi -----------------------------------------------------------------
+# -- Aggregation -----------------------------------------------------------------
 
 
 def _aggregate(
@@ -588,64 +601,68 @@ def _aggregate(
     league: LeagueSettings,
     aggregate_settings: AggregateSettings,
 ) -> Report:
-    """Lue taulut ja rakenna raportti."""
+    """Read the tables and build the report."""
     classified_frames: list[pl.DataFrame] = []
     tick_frames: list[pl.DataFrame] = []
     event_frames: list[pl.DataFrame] = []
     lineup_frames: list[pl.DataFrame] = []
     death_frames: list[pl.DataFrame] = []
     round_frames: list[pl.DataFrame] = []
-    # Kartan nimi demoittain: havainto tai ``None``.
+    # The map's name per demo: an observation or ``None``.
     #
-    # AVAIN ON **LUETTU DEMO**, EI TAULUN OMA SARAKE. ``_read_parsed``
-    # validoi skeeman muttei sitä, että ``map_demo_id``-sarakkeen arvo vastaa
-    # sitä demoa, jonka hakemistosta taulu luettiin. Vanhentunut tai väärään
-    # hakemistoon joutunut ``match.parquet`` kirjaisi nimensä väärälle demolle
-    # ja oikea demo palaisi hiljaa päättelyyn; kaksi samaa tunnistetta
-    # pudottaisi toisen kokonaan. Silmukan ``demo`` on se, jonka polusta taulu
-    # luettiin, joten avaimena se poistaa koko epäonnistumisluokan -- myös
-    # tyhjän ja ``null``-tunnisteen tapauksen -- ilman uusia tarkistuksia.
+    # THE KEY IS THE **DEMO THAT WAS READ**, NOT THE TABLE'S OWN COLUMN.
+    # ``_read_parsed`` validates the schema but not that the value of the
+    # ``map_demo_id`` column matches the demo from whose directory the table
+    # was read. A stale ``match.parquet``, or one that ended up in the wrong
+    # directory, would record its name against the wrong demo and the right
+    # demo would fall back silently to inference; two identical ids would drop
+    # one of them entirely. The loop's ``demo`` is the one from whose path the
+    # table was read, so as the key it removes the whole class of failure --
+    # the empty and ``null`` id cases included -- without any new checks.
     #
-    # Taulua **ei suodateta kokoonpanoilla** kuten muita: siinä ei ole
-    # ``lineup_key``-saraketta, koska kartta on ottelun ominaisuus eikä
-    # kummankaan joukkueen.
+    # The table is **not filtered by lineup** as the others are: it has no
+    # ``lineup_key`` column, because the map is a property of the match and not
+    # of either team.
     #
-    # Rivi per demo on ``parse``-vaiheen valvoma sopimus, joten kartta ei voi
-    # saada kahta arvoa samalle demolle.
+    # One row per demo is a contract the ``parse`` stage enforces, so the map
+    # cannot get two values for the same demo.
     map_names: dict[str, str | None] = {}
-    # Alueiden puoliorientaatio demoittain (Story 2.5): alue -> montako sen
-    # elossa-havainnoista on T-puolelta ja montako niitä on kaikkiaan.
+    # The side orientation of the areas, per demo (Story 2.5): area -> how many
+    # of its alive observations are from the T side and how many there are all
+    # told.
     #
-    # LASKETAAN TÄSSÄ SILMUKASSA, ENNEN KOKOONPANOSUODATUSTA. Suodatus
-    # tapahtuu vasta silmukan jälkeen (``ticks.filter(...)``), ja se on koko
-    # syy sille, että orientaatio lasketaan täällä eikä domainissa: sääntö
-    # tarvitsee **molempien joukkueiden** rivit. Subjektin omilla riveillä
-    # laskettuna jokainen tosi positiivinen katoaa -- kun subjekti etenee
-    # alueelle CT:nä, hänen omat CT-havaintonsa laskevat sen alueen
-    # T-osuutta, eli poikkeama syö oman havaitsemisensa. Mitattuna kolme
-    # aluetta putoaa kynnyksen alle (0,88 -> 0,79, 0,85 -> 0,75,
-    # 0,84 -> 0,75), ja ne ovat täsmälleen ne kolme, jotka tuottivat kaikki
-    # oikeat osumat.
+    # COMPUTED IN THIS LOOP, BEFORE THE LINEUP FILTER. The filter happens only
+    # after the loop (``ticks.filter(...)``), and that is the whole reason the
+    # orientation is computed here and not in the domain: the rule needs
+    # **both teams'** rows. Computed on the subject's own rows every true
+    # positive disappears -- when the subject advances into an area as CT, his
+    # own CT observations lower that area's T share, so the anomaly eats its
+    # own detection. Measured, three areas fall below the threshold (0.88 ->
+    # 0.79, 0.85 -> 0.75, 0.84 -> 0.75), and they are exactly the three that
+    # produced every true hit.
     #
-    # Avain on **luettu demo** samasta syystä kuin ``map_names``issa, ja
-    # orientaatio on demokohtainen eikä karttakohtainen: karttuva lähde
-    # antaisi samalle demolle eri tuloksen sen mukaan, mitä muita demoja
-    # arkistossa sattuu olemaan (Story 2.9:n peruste).
+    # The key is the **demo that was read** for the same reason as in
+    # ``map_names``, and the orientation is per demo and not per map: an
+    # accumulating source would give the same demo a different result
+    # depending on which other demos happen to be in the archive (Story 2.9's
+    # grounds).
     area_orientation: dict[str, dict[str | None, AreaObservations]] = {}
-    # Demon pistepilvi (Story 2.14): stackin siteryhmät johdetaan siitä.
+    # The demo's point cloud (Story 2.14): the stack rule's site groups are
+    # derived from it.
     #
-    # **Pilveä EI suodateta kokoonpanoilla**, toisin kuin näytepisteitä.
-    # Kartta on siellä missä on, riippumatta siitä kumpi joukkue on subjekti,
-    # ja pilvi on koottu demon kaikkien pelaajien tickeistä jo parsinnassa.
-    # Suodatus tekisi jaosta joukkuekohtaisen, eli sama demo antaisi kahdelle
-    # joukkueelle eri aluejaon -- juuri se ristiriita, jonka demokohtaisuus
-    # (Story 2.9) on olemassa estämään.
+    # **The cloud is NOT filtered by lineup**, unlike the sample points. The
+    # map is where it is regardless of which team is the subject, and the cloud
+    # was collected from the ticks of all the demo's players already during
+    # parsing. Filtering would make the division per team, so the same demo
+    # would give two teams a different division of areas -- exactly the
+    # contradiction that being per demo (Story 2.9) exists to prevent.
     #
-    # Avain on **luettu demo** samasta syystä kuin ``map_names``issa:
-    # taulun oma ``map_demo_id``-sarake voi olla väärä, silmukan tunniste ei.
+    # The key is the **demo that was read** for the same reason as in
+    # ``map_names``: the table's own ``map_demo_id`` column may be wrong, the
+    # loop's id may not.
     #
-    # Ryhmät johdetaan vasta domainissa, ei täällä: kynnykset ovat säännön
-    # omia ja niiden soveltaminen kuuluu sinne, missä sääntökin on.
+    # The groups are derived in the domain and not here: the thresholds are the
+    # rule's own and applying them belongs where the rule is.
     point_clouds: dict[str, list[CloudCell]] = {}
 
     for lineup, demo in sources.demos:
@@ -661,61 +678,61 @@ def _aggregate(
         point_clouds[demo] = _read_point_cloud(archive, demo)
 
     lineups = set(sources.lineup_keys)
-    # Kierrostaulussa on kaksi riviä per kierros, yksi kummallekin
-    # joukkueelle. Oman rivin valitsee jo kolmiosainen avain (demo, kierros,
-    # puoli), joten suodatus on **puolustus eikä ainoa este**: se pitää
-    # vastustajan rivit pois hakukartasta, jolloin avainten törmäystarkistus
-    # (``armored_by_round``) valvoo vain omia rivejä ja puoliaikojen
-    # puolenvaihto ei voi tuoda kahta ehdokasta samalle avaimelle.
+    # The rounds table has two rows per round, one for each team. The
+    # three-part key (demo, round, side) already picks our own row, so the
+    # filter is **a defence and not the only obstacle**: it keeps the
+    # opponent's rows out of the lookup map, so that the key collision check
+    # (``armored_by_round``) watches over our own rows only and the change of
+    # sides at half time cannot bring two candidates for the same key.
     rounds = pl.concat(round_frames).filter(pl.col("lineup_key").is_in(lineups))
     if rounds.is_empty():
         raise PappascoutError(
-            f"Joukkueen {sources.team_key} demoista ei löytynyt yhtään "
-            "kierrosriviä sen omilla kokoonpanotunnisteilla.\n"
-            "``parse`` kieltäytyy kirjoittamasta tyhjää kierrostaulua, joten "
-            "tyhjä tulos tarkoittaa että kokoonpanosuodatin ei osunut: "
-            "kierrostaulut on kirjoitettu eri kokoonpanotunnisteilla kuin "
-            "mitä tälle joukkueelle on liitetty. Aja parsinta uudelleen: "
+            f"Not one round row was found in the demos of team "
+            f"{sources.team_key} under its own lineup keys.\n"
+            "``parse`` refuses to write an empty rounds table, so an empty "
+            "result means the lineup filter did not hit: the rounds tables "
+            "were written under different lineup keys than the ones joined to "
+            "this team. Parse them again: "
             "uv run pappascout parse <map_demo_id> --pakota\n"
-            "Ilman tätä tarkistusta jokainen kierrostyyppi raportoisi "
-            "panssarijakaumakseen pelkän 'havainto puuttuu' -- eli "
-            "havaintona sen, ettei havaintoa ole."
+            "Without this check every round type would report its armour "
+            "distribution as nothing but 'the observation is missing' -- that "
+            "is, as an observation that there is no observation."
         )
     ticks = pl.concat(tick_frames).filter(pl.col("lineup_key").is_in(lineups))
     events = pl.concat(event_frames).filter(pl.col("lineup_key").is_in(lineups))
-    # Kuolemataulussa suodatus on **kahdesta sarakkeesta**: rivi kuuluu
-    # joukkueelle, jos joko uhri tai ampuja on sen kokoonpanossa. Pelkkä
-    # ``victim_lineup_key`` pudottaisi omat tapot ja pelkkä
-    # ``attacker_lineup_key`` omat kuolemat. Vastustajien keskinäinen kuolema
-    # putoaa, koska kumpikaan ehto ei täyty. Rivien jako kuolemiksi ja
-    # tapoiksi tehdään ``domain.aggregate.deaths_for``issa, joka näkee
-    # molemmat sarakkeet.
+    # In the deaths table the filter is over **two columns**: a row belongs to
+    # the team if either the victim or the attacker is in its lineup.
+    # ``victim_lineup_key`` alone would drop our own kills and
+    # ``attacker_lineup_key`` alone our own deaths. A death between two
+    # opponents drops out, because neither condition holds. Splitting the rows
+    # into deaths and kills is done in ``domain.aggregate.deaths_for``, which
+    # sees both columns.
     #
-    # ``fill_null(False)`` on **välttämätön eikä koriste**: ampujaton kuolema
-    # (putoaminen, pommi) jättää ``attacker_lineup_key``in tyhjäksi, ja
-    # Polarsissa ``is_in`` antaa nullille nullin. Ilman täyttöä ehto nojaisi
-    # siihen, että ``true | null`` on tosi -- oikein tänään, mutta hiljainen
-    # riippuvuus kolmiarvoisen logiikan yksityiskohdasta. Juuri se rivi on
-    # oma kuolema, jonka katoaminen näkyisi raportissa vain puuttuvana.
+    # ``fill_null(False)`` is **necessary and not decoration**: a death with no
+    # attacker (a fall, the bomb) leaves ``attacker_lineup_key`` empty, and in
+    # Polars ``is_in`` gives null for null. Without the fill the condition
+    # would rest on ``true | null`` being true -- right today, but a silent
+    # dependency on a detail of three-valued logic. That row is precisely an
+    # own death, whose disappearance would show in the report only as an
+    # absence.
     deaths = pl.concat(death_frames).filter(
         pl.col("victim_lineup_key").is_in(lineups).fill_null(False)
         | pl.col("attacker_lineup_key").is_in(lineups).fill_null(False)
     )
     if deaths.is_empty():
         raise PappascoutError(
-            f"Joukkueen {sources.team_key} demoista ei löytynyt yhtään "
-            "kuolemaa, jossa se olisi uhrina tai ampujana.\n"
-            "``parse`` kieltäytyy kirjoittamasta tyhjää kuolemataulua, joten "
-            "tyhjä tulos tarkoittaa että kokoonpanosuodatin ei osunut: "
-            "kuolemataulut on kirjoitettu eri kokoonpanotunnisteilla kuin "
-            "mitä tälle joukkueelle on liitetty. Aja parsinta uudelleen: "
+            f"Not one death was found in the demos of team "
+            f"{sources.team_key} in which it was the victim or the attacker.\n"
+            "``parse`` refuses to write an empty deaths table, so an empty "
+            "result means the lineup filter did not hit: the deaths tables "
+            "were written under different lineup keys than the ones joined to "
+            "this team. Parse them again: "
             "uv run pappascout parse <map_demo_id> --pakota\n"
-            "Ilman tätä tarkistusta jokainen kierrostyyppi raportoisi "
-            "'ei omia kuolemia' -- eli havaintona sen, ettei havaintoa ole."
+            "Without this check every round type would report 'no own deaths' "
+            "-- that is, as an observation that there is no observation."
         )
-    # Vain tämän joukkueen kokoonpanot: sama demo sisältää molempien
-    # joukkueiden rivit, ja suodattamatta vastustajan klaaninimi äänestäisi
-    # otsikosta.
+    # This team's lineups only: the same demo holds both teams' rows, and
+    # unfiltered the opponent's clan name would get a vote on the title.
     lineup_rows = (
         pl.concat(lineup_frames)
         .filter(pl.col("lineup_key").is_in(lineups))
@@ -725,33 +742,35 @@ def _aggregate(
 
     team = TeamReport(
         key=sources.team_key,
-        # Tiedostonimen slug seuraa nimeä silloin kun nimi on havainto.
+        # The file name's slug follows the name whenever the name is an
+        # observation.
         #
-        # Varapolku on **tunniste eikä jaettu vakio**, ja ketju on kolmiosainen
-        # tarkoituksella: kyrillinen tai CJK-klaaninimi on olemassa ja
-        # havaittu, mutta siitä ei jää yhtään ASCII-merkkiä. ``team_slug``in
-        # oma varapolku antaisi silloin jokaiselle tällaiselle joukkueelle
-        # saman tiedostonimen ``<aikaleima>-joukkue.md``, eli nimi katoaisi ja
-        # tiedostot törmäisivät toisiinsa. Tunnisteesta johdettu slug on
-        # yksikäsitteinen. Sama sääntö on kirjoitettu ``TeamReport``in
-        # sopimukseen, jotta levyltä luettu raportti ei voi olla eri mieltä.
+        # The fallback is **the id and not a shared constant**, and the chain
+        # is three-part on purpose: a Cyrillic or CJK clan name exists and was
+        # observed, but not one ASCII character is left of it. ``team_slug``'s
+        # own fallback would then give every such team the same file name
+        # ``<timestamp>-joukkue.md``, so the name would disappear and the files
+        # would collide with each other. A slug derived from the id is
+        # unambiguous. The same rule is written into ``TeamReport``'s contract,
+        # so that a report read from disk cannot disagree.
         slug=(
             slugify(identity.display_name or "")
             or slugify(sources.team_key)
             or SLUG_FALLBACK
         ),
-        # Nimi on havainto demosta (``LINEUPS.clan_name``), ei johdos. Ilman
-        # havaintoa nimi on tunniste ja lähde sanoo sen ääneen; raportti ei
-        # keksi korviketta tiedostonimestä tai FACEIT-tunnisteesta.
+        # The name is an observation from the demo (``LINEUPS.clan_name``) and
+        # not a derivation. Without an observation the name is the id and the
+        # source says so out loud; the report does not invent a substitute from
+        # the file name or from the FACEIT id.
         display_name=identity.display_name or sources.team_key,
         display_name_source=(
             "clan_name" if identity.display_name else "team_key"
         ),
         display_name_alternatives=identity.alternatives,
         lineup_keys=sources.lineup_keys,
-        # Pelaajajoukko tulee ``sources.roster``ista eikä nimikartasta:
-        # rosterirvi kirjoitetaan silloinkin, kun nimeä ei saatu, koska
-        # SteamID on ainoa jäljitettävä arvo.
+        # The set of players comes from ``sources.roster`` and not from the
+        # name map: a roster row is written even when no name was obtained,
+        # because the SteamID is the only traceable value.
         roster=roster_entries(sources.roster, identity.names),
         roster_source="lineups",
     )
@@ -784,8 +803,8 @@ def _read_classified(
         CLASSIFIED,
         "classified",
         advice=(
-            "Taulu on luokiteltu ohjelman vanhemmalla versiolla. Aja "
-            f"luokittelu uudelleen: uv run pappascout classify {map_demo_id} "
+            "The table was classified with an older version of the program. "
+            f"Classify it again: uv run pappascout classify {map_demo_id} "
             f"--team {lineup} --pakota"
         ),
     )
@@ -795,47 +814,49 @@ def _read_classified(
 def _area_orientation(
     ticks: pl.DataFrame,
 ) -> dict[str | None, AreaObservations]:
-    """Alue -> puoliorientaation havainnot yhdestä demosta.
+    """Area -> the side orientation's observations from one demo.
 
-    Lähde on **suodattamaton** näytepistetaulu eli molempien joukkueiden
-    rivit; ks. kutsupaikan kommentti siitä, miksi se on mitattu ehto eikä
-    mieltymys.
+    The source is the **unfiltered** sample point table, that is, both teams'
+    rows; see the comment at the call site for why that is a measured
+    condition and not a preference.
 
-    Neljä rajausta, ja jokainen niistä on määritelmä eikä siivous:
+    Four restrictions, and every one of them is a definition and not tidying:
 
-    * ``sample_kind == "time"`` -- ensikontaktin hetki on eri joka
-      kierroksella, joten sen rivit painottaisivat orientaatiota niiden
-      kierrosten mukaan, joilla satuttiin ampumaan aikaisin.
-    * ``is_alive`` -- kuollut pelaaja ei ole alueella. Sama sääntö kuin
-      pelaajamäärissä (``positions_for``), joten orientaatio ja asetelma
-      lasketaan samasta joukosta.
-    * ``side`` on ``T`` tai ``CT`` -- **tämä on jakajan rajaus, ei
-      osoittajan.** Ilman sitä ``pl.len()`` laskisi mukaan rivin, jonka
-      puolta ei tiedetä, mutta ``side == "T"`` ei voisi laskea sitä T:ksi:
-      tuntematon puoli painaisi T-osuutta alaspäin ja voisi pudottaa T:n
-      alueen kynnyksen alle. Juuri se osuus on molempien sääntöjen perusta.
-    * ``area`` ei tyhjä -- nimetön alue ei voi olla kumman tahansa puolen
-      aluetta, eikä poikkeamaa "tuntemattomalla alueella" voisi kertoa.
+    * ``sample_kind == "time"`` -- the moment of first contact is different on
+      every round, so its rows would weight the orientation towards the rounds
+      on which somebody happened to shoot early.
+    * ``is_alive`` -- a dead player is not in an area. The same rule as in the
+      player counts (``positions_for``), so the orientation and the setup are
+      computed from the same set.
+    * ``side`` is ``T`` or ``CT`` -- **this is a restriction on the
+      denominator, not on the numerator.** Without it ``pl.len()`` would count
+      in a row whose side is not known, but ``side == "T"`` could not count it
+      as T: an unknown side would press the T share down and could drop a T
+      area below the threshold. That share is precisely what both rules rest
+      on.
+    * ``area`` is not empty -- an unnamed area cannot be either side's area,
+      and an anomaly "in an unknown area" could not be told.
 
-    ``fill_null(False)`` elossaolossa on **välttämätön eikä koriste**:
-    Polarsissa ``null`` totuusarvona ei ole epätosi vaan null, ja se veisi
-    rivin mukanaan suodattimen läpi tai pois sen mukaan, miten ehdot
-    yhdistetään. Havainnon puuttuminen ei ole havainto siitä, että pelaaja
-    olisi elossa.
+    ``fill_null(False)`` on being alive is **necessary and not decoration**: in
+    Polars ``null`` as a truth value is not false but null, and it would carry
+    the row through the filter or out of it depending on how the conditions are
+    combined. A missing observation is not an observation that the player was
+    alive.
 
-    Aluenimi normalisoidaan **samalla funktiolla** kuin läsnäolorivi
-    (:func:`~pappascout.domain.sampling.normalize_area`). Ilman sitä
-    ``" Lobby "`` olisi orientaatiossa eri alue kuin läsnäolossa ja säännöt
-    vaikenisivat sillä alueella; ``""`` puolestaan selviäisi T-alueiden
-    joukkoon ja tuottaisi poikkeaman nimettömälle alueelle.
+    The area name is normalised with the **same function** as the presence row
+    (:func:`~pappascout.domain.sampling.normalize_area`). Without it
+    ``" Lobby "`` would be a different area in the orientation than in the
+    presence, and the rules would fall silent on that area; ``""``, for its
+    part, would get through into the T areas and produce an anomaly for an
+    unnamed area.
 
     Returns:
-        Alue -> :class:`~pappascout.domain.sampling.AreaObservations`. Tyhjä
-        kartta on kelvollinen tulos: demo, jonka näytepisteissä ei ole
-        yhtäkään nimettyä aluetta, ei anna orientaatiota millekään alueelle
-        -- eikä sitä silloin arvata. Tulos päätyy raportin kattavuuslukuun
-        (``anomaly_scan.demos_without_orientation``), joten tyhjä ei katoa
-        hiljaa.
+        Area -> :class:`~pappascout.domain.sampling.AreaObservations`. An empty
+        map is a valid result: a demo with not one named area in its sample
+        points gives no orientation to any area -- and it is not guessed at
+        then. The result ends up in the report's coverage figure
+        (``anomaly_scan.demos_without_orientation``), so an empty one does not
+        disappear silently.
     """
     grouped = (
         ticks.filter(
@@ -847,8 +868,9 @@ def _area_orientation(
         .group_by("area")
         .agg(
             pl.len().alias("observations"),
-            # Puoli on rivin oma havainto; "T" on TICKS-taulun arvojoukon
-            # jäsen (``constants.SIDES``) eikä johdos.
+            # The side is the row's own observation; "T" is a member of the
+            # TICKS table's value set (``constants.SIDES``) and not a
+            # derivation.
             (pl.col("side") == "T").sum().alias("t"),
         )
     )
@@ -861,10 +883,10 @@ def _area_orientation(
             t=int(row["t"]), total=int(row["observations"])
         )
         previous = found.get(area)
-        # Kaksi kirjoitusasua samasta alueesta (``"Lobby"`` ja ``" Lobby "``)
-        # ovat yksi alue, joten niiden havainnot LASKETAAN YHTEEN. Vaihtoehto
-        # olisi pudottaa toinen, mikä laskisi orientaation osuuden osajoukosta
-        # ja voisi kääntää kynnyksen.
+        # Two spellings of the same area (``"Lobby"`` and ``" Lobby "``) are
+        # one area, so their observations ARE ADDED TOGETHER. The alternative
+        # would be to drop one, which would compute the orientation's share
+        # from a subset and could turn the threshold.
         found[area] = (
             observed
             if previous is None
@@ -879,24 +901,24 @@ def _area_orientation(
 def _read_point_cloud(
     archive: ArchivePaths, map_demo_id: str
 ) -> list[CloudCell]:
-    """Demon pistepilven ruudut säännön tietueina.
+    """The cells of the demo's point cloud as the rule's records.
 
-    Kaksi saraketta jätetään pois, ja kumpikin on päätös eikä puute:
+    Two columns are left out, and each is a decision and not an omission:
 
-    * ``map_demo_id`` on kutsujan kirjanpitoa; kutsuja käyttää avaimenaan
-      **luettua** demoa, ei taulun omaa saraketta (sama peruste kuin
-      :func:`_read_map_name`illa).
-    * ``observations`` **ei paina** aluekeskipisteessä. Solumediaani on
-      mitattu ehto: pelin ``m_szLastPlaceName`` on *viimeksi nimetty* alue,
-      joten havaintopainotettu keskiarvo vetää keskipisteen sinne, missä
-      seisottiin pisimpään -- ``Ancient_vs_kaljukostaja``n CT-spawnissa
-      ``BombsiteB``-nimisiin ruutuihin. Sarakkeen kantaminen tänne asti
-      houkuttelisi painottamaan sillä.
+    * ``map_demo_id`` is the caller's bookkeeping; the caller uses the demo it
+      **read** as its key, not the table's own column (the same grounds as for
+      :func:`_read_map_name`).
+    * ``observations`` **does not weight** the area's centre point. The cell
+      median is a measured condition: the game's ``m_szLastPlaceName`` is the
+      *last named* area, so an observation-weighted mean pulls the centre point
+      to where the players stood longest -- in
+      ``Ancient_vs_kaljukostaja``'s CT spawn, into cells named ``BombsiteB``.
+      Carrying the column this far would invite weighting by it.
 
-    Tyhjä pilvi on **kelvollinen tulos** eikä puute: siitä ei saada
-    siteryhmiä, ja se kirjataan kattavuuteen
-    (``AnomalyScan.demos_without_site_groups``). Puuttuva **tiedosto** on eri
-    asia, ja sen on jo pysäyttänyt :func:`_demo_unusable`.
+    An empty cloud is a **valid result** and not an omission: no site groups
+    come out of it, and it is recorded in the coverage
+    (``AnomalyScan.demos_without_site_groups``). A missing **file** is a
+    different matter, and :func:`_demo_unusable` has already stopped it.
     """
     df = _read_parsed(archive, map_demo_id, "callouts", CALLOUT_CLOUD)
     return [
@@ -907,34 +929,36 @@ def _read_point_cloud(
             cell_z=int(row["cell_z"]),
         )
         for row in df.iter_rows(named=True)
-        # Sopimus sanoo, ettei nimetön alue pääse pilveen lainkaan, mutta
-        # vanhemmalla versiolla kirjoitettu taulu ei ole käynyt sitä sääntöä
-        # läpi. ``str(None)`` tekisi siitä alueen nimeltä "None".
+        # The contract says an unnamed area does not get into the cloud at
+        # all, but a table written with an older version has not been through
+        # that rule. ``str(None)`` would make it an area named "None".
         if normalize_area(row["area"]) is not None
     ]
 
 
 def _read_map_name(archive: ArchivePaths, map_demo_id: str) -> str | None:
-    """Kartan nimi demon ``match.parquet``-taulusta, tai ``None``.
+    """The map's name from the demo's ``match.parquet`` table, or ``None``.
 
-    Taulussa on ``parse``-vaiheen valvoman sopimuksen mukaan täsmälleen yksi
-    rivi. Tarkistus toistetaan tässä siksi, että luettu tiedosto voi olla
-    ohjelman vanhemman version kirjoittama: sopimusta valvoo se vaihe, joka
-    kirjoittaa, eikä lukija saa nojata siihen että kirjoittaja oli tämä versio.
+    By the contract the ``parse`` stage enforces, the table has exactly one
+    row. The check is repeated here because the file that was read may have
+    been written by an older version of the program: the contract is enforced
+    by the stage that writes, and a reader must not rest on the writer having
+    been this version.
 
-    Palautettava arvo on **nimi tai sen puuttuminen**, ei taulu: kutsuja ei
-    tarvitse kehystä mihinkään, ja rivin nostaminen tässä pitää sopimuksen
-    tarkistuksen yhdessä paikassa.
+    The value returned is **the name or its absence**, not a table: the caller
+    needs the frame for nothing, and lifting the row out here keeps the
+    contract's check in one place.
     """
     df = _read_parsed(archive, map_demo_id, "match", MATCH)
     if df.height != 1:
         raise PappascoutError(
-            f"Demon {map_demo_id} ottelutaulussa on {df.height} riviä, "
-            "vaikka niitä on oltava täsmälleen yksi.\n"
-            "Taulu kuvaa yhtä ottelua. Nolla riviä tarkoittaisi, ettei kartan "
-            "nimeä havaittu -- mutta se on eri asia kuin havainto ``null``, "
-            "ja kahdesta rivistä nimi valikoituisi rivijärjestyksen mukaan.\n"
-            f"Aja parsinta uudelleen: uv run pappascout parse {map_demo_id} "
+            f"The match table of demo {map_demo_id} has {df.height} rows, "
+            "although there must be exactly one.\n"
+            "The table describes one match. Zero rows would mean the map's "
+            "name was not observed -- but that is a different matter from the "
+            "observation ``null``, and out of two rows the name would be "
+            "picked by row order.\n"
+            f"Parse it again: uv run pappascout parse {map_demo_id} "
             "--pakota"
         )
     name = df["map_name"][0]
@@ -951,23 +975,22 @@ def _read_parsed(
         schema,
         table,
         advice=(
-            "Taulu on parsittu ohjelman vanhemmalla versiolla. Aja parsinta "
-            f"uudelleen: uv run pappascout parse {map_demo_id} --pakota"
+            "The table was parsed with an older version of the program. Parse "
+            f"it again: uv run pappascout parse {map_demo_id} --pakota"
         ),
     )
     return _in_schema_order(df, schema)
 
 
 def _in_schema_order(df: pl.DataFrame, schema: Schema) -> pl.DataFrame:
-    """Järjestä sarakkeet sopimuksen mukaiseen järjestykseen.
+    """Put the columns into the order the contract gives.
 
-    :func:`~pappascout.domain.schemas.validate` hyväksyy minkä tahansa
-    sarakejärjestyksen -- sopimus on nimistä ja tyypeistä. ``pl.concat`` ei:
-    kaksi kehystä, joissa on samat sarakkeet eri järjestyksessä, kaatuu
-    ``ShapeError``iin, joka on englanninkielinen Polars-poikkeus eikä kerro
-    käyttäjälle mitään. Kahdella eri versiolla kirjoitettu arkisto on juuri
-    se tilanne, jossa niin voi käydä. Järjestäminen poistaa koko
-    epäonnistumistavan sen sijaan että se käännettäisiin suomeksi.
+    :func:`~pappascout.domain.schemas.validate` accepts any column order -- the
+    contract is about names and types. ``pl.concat`` does not: two frames with
+    the same columns in a different order fail with a ``ShapeError``, a raw
+    Polars exception that tells the user nothing. An archive written with two
+    different versions is exactly the situation in which that can happen.
+    Ordering removes the whole failure mode instead of rewording it.
     """
     return df.select(list(schema))
 
@@ -977,30 +1000,30 @@ def _read_parquet(path: Path, map_demo_id: str) -> pl.DataFrame:
         return pl.read_parquet(path)
     except (OSError, pl.exceptions.PolarsError) as exc:
         raise PappascoutError(
-            f"Taulua {path} ei voitu lukea: {exc}\n"
-            f"Aja vaihe uudelleen demolle {map_demo_id}."
+            f"The table {path} could not be read: {exc}\n"
+            f"Run the stage again for demo {map_demo_id}."
         ) from exc
 
 
 def _read_report(path: Path) -> Report | None:
-    """Lue aiemmin kirjoitettu raportti, tai ``None`` jos sitä ei voi käyttää.
+    """Read a report written earlier, or ``None`` if it cannot be used.
 
-    Ohitus ei saa nojata pelkkään manifestiin, ja tarkistuksia on kaksi.
+    The skip must not rest on the manifest alone, and there are two checks.
 
-    **Skeemaversio.** Vanhalla versiolla kirjoitettu ``report.json`` voi
-    validoitua nykyistä mallia vasten kenttä kentältä ja tarkoittaa silti eri
-    asiaa. Vertailu on sama kuin :meth:`Manifest.read`issa: eri versio =
-    tuntematon tiedosto, ja vaihe ajetaan uudelleen. Ilman tätä ohitus
-    palauttaisi vanhan tuloksen luvut ja väittäisi niitä tämän ajon
-    tulokseksi.
+    **The schema version.** A ``report.json`` written with an old version can
+    validate field by field against the current model and still mean something
+    else. The comparison is the same as in :meth:`Manifest.read`: a different
+    version = an unknown file, and the stage is run again. Without this the
+    skip would return the old result's figures and claim them as this run's
+    result.
 
-    **Poikkeuslaji.** Otannan summatarkistukset nostavat
-    :class:`~pappascout.errors.AggregateError`in, joka periytyy
-    ``PappascoutError``ista **eikä ValueErrorista**. Pelkkä ``ValueError``
-    jättäisi sen kiinni ottamatta, jolloin vanha epäkelpo raportti kaataisi
-    ohitushaaran joka ajolla sen sijaan että vaihe kirjoittaisi tilalle uuden.
-    Kaikki kolme lajia -- luku-, validointi- ja summavirhe -- tarkoittavat
-    tässä samaa: tulosta ei voi käyttää, joten se lasketaan uudelleen.
+    **The kind of exception.** The sample's sum checks raise
+    :class:`~pappascout.errors.AggregateError`, which inherits from
+    ``PappascoutError`` **and not from ValueError**. ``ValueError`` alone would
+    leave it uncaught, so an old invalid report would break the skip branch on
+    every run instead of the stage writing a new one in its place. All three
+    kinds -- a read error, a validation error and a sum error -- mean the same
+    thing here: the result cannot be used, so it is computed again.
     """
     if not path.is_file():
         return None
@@ -1013,22 +1036,22 @@ def _read_report(path: Path) -> Report | None:
     return report
 
 
-# -- Manifesti -------------------------------------------------------------------
+# -- The manifest ----------------------------------------------------------------
 
 
 def _inputs(
     archive: ArchivePaths, demos: Sequence[tuple[str, str]]
 ) -> list[ManifestInput]:
-    """Syötteet: jokaisen mukaan otetun demon ``classify``-manifesti."""
+    """The inputs: the ``classify`` manifest of every demo taken along."""
     inputs: list[ManifestInput] = []
     for lineup, demo in demos:
         path = archive.resolve(classified_manifest(lineup, demo))
         manifest = Manifest.read_if_exists(path)
         if manifest is None:
             raise PappascoutError(
-                f"Luokittelun manifestia ei löytynyt polusta {path}, joten "
-                "aggregoinnin syötettä ei voi tunnistaa.\n"
-                f"Aja: uv run pappascout classify {demo} --team {lineup}"
+                f"The classification manifest was not found at {path}, so the "
+                "aggregation's input cannot be recognised.\n"
+                f"Run: uv run pappascout classify {demo} --team {lineup}"
             )
         inputs.append(
             ManifestInput(
@@ -1038,47 +1061,51 @@ def _inputs(
     return inputs
 
 
-#: Ne ``[thresholds]``- ja ``[league]``-avaimet, jotka **oikeasti muuttavat**
-#: aggregoinnin tulosta. Vain nämä menevät parametrihashiin.
+#: The ``[thresholds]`` and ``[league]`` keys that **really change** the
+#: result of the aggregation. Only these go into the parameter hash.
 #:
-#: Miksi nimetty luettelo eikä koko osio (toisin kuin ``classify``issa):
-#: ``[thresholds]`` on luokittelun osio ja siinä on kolmisenkymmentä
-#: kynnysarvoa, joista aggregointi lukee vain osan. Koko osion hashaaminen
-#: mitätöisi jokaisen raportin aina kun mikä tahansa luokittelukynnys
-#: muuttuu -- ja juuri silloin luokittelu ajetaan uudelleen, mikä näkyy jo
-#: syötteiden tunnisteissa. Sama työ tehtäisiin siis kahdesti.
+#: Why a named list and not the whole section (unlike in ``classify``):
+#: ``[thresholds]`` is the classification's section and holds some thirty
+#: threshold values, of which aggregation reads only a part. Hashing the whole
+#: section would invalidate every report whenever any classification threshold
+#: changes -- and it is exactly then that the classification is run again,
+#: which already shows in the inputs' ids. The same work would therefore be
+#: done twice.
 #:
-#: Luettelon vanhenemisen estää testi
-#: ``test_every_setting_the_stage_reads_is_in_the_params_hash``: se lukee
-#: lähdekoodista, mitä kenttiä vaihe ja sen domain-funktiot lukevat, ja
-#: vertaa tähän luetteloon.
+#: The list is kept from going stale by the test
+#: ``test_every_setting_the_stage_reads_is_in_the_params_hash``: it reads from
+#: the source which fields the stage and its domain functions read, and
+#: compares them against this list.
 #:
-#: **Yksi tietoinen poikkeus.** :func:`~pappascout.domain.aggregate.classify_thresholds`
-#: lukee kuusi luokittelun kynnysarvoa nimellä (``getattr``) verratakseen
-#: niitä siihen, millä kierrokset oikeasti luokiteltiin. Ne eivät ole tässä
-#: luettelossa eivätkä kuulukaan: ne eivät muuta yhtäkään raportin lukua,
-#: vaan **keskeyttävät ajon** jos luokittelu on vanhentunut. Ja jos käyttäjä
-#: ajaa luokittelun uudelleen, sen manifestin tunniste muuttuu -- eli
-#: aggregointi ajetaan uudelleen syötteen eikä parametrin takia.
+#: **One deliberate exception.** :func:`~pappascout.domain.aggregate.classify_thresholds`
+#: reads six of the classification's thresholds by name (``getattr``) in order
+#: to compare them against the ones the rounds were really classified with.
+#: They are not on this list and they do not belong on it: they change not one
+#: figure in the report but **stop the run** if the classification is stale.
+#: And if the user runs the classification again, its manifest's id changes --
+#: so the aggregation is run again because of the input and not because of a
+#: parameter.
 HASHED_THRESHOLD_KEYS: tuple[str, ...] = (
     "small_sample_rounds",
     "team_identity_min_common",
-    # Poikkeamakynnykset (Story 2.5). Ilman näitä kynnyksen säätö ei ajaisi
-    # aggregointia uudelleen, ja raportti pitäisi vanhat poikkeamat --
-    # sama vika kuin Story 1.8:ssa. Vaiheella on tästä oma vartija
-    # (``test_every_setting_the_stage_reads_is_in_the_params_hash``), joka
-    # lukee luetut kentät lähdekoodista.
+    # The anomaly thresholds (Story 2.5). Without them adjusting a threshold
+    # would not re-run the aggregation, and the report would keep the old
+    # anomalies -- the same defect as in Story 1.8. The stage has a guard of
+    # its own for this
+    # (``test_every_setting_the_stage_reads_is_in_the_params_hash``), which
+    # reads the fields that are read from the source.
     "advance_t_share",
     "advance_area_min_observations",
     "advance_max_sample_s",
     "advance_min_players",
     "crunch_min_players",
     "crunch_min_sources",
-    # Stackin kolme kynnystä (Story 2.14). Kaksi jälkimmäistä ovat tarinan
-    # hiljaisin ansa: ne eivät muuta yhtäkään sääntöä vaan sen SYÖTETTÄ
-    # (siteryhmät demon pistepilvestä), joten niiden unohtaminen jättäisi
-    # raporttiin poikkeamat, jotka on laskettu vanhalla aluejaolla -- ja
-    # kynnyksen säätäjä näkisi vaikutuksen vasta ``--pakota``lla.
+    # The stack rule's three thresholds (Story 2.14). The latter two are the
+    # story's quietest trap: they change not one rule but its INPUT (the site
+    # groups from the demo's point cloud), so forgetting them would leave in
+    # the report anomalies computed with the old division of areas -- and
+    # whoever adjusted the threshold would see the effect only with
+    # ``--pakota``.
     "stack_min_players",
     "stack_group_margin",
     "stack_site_separation_min",
@@ -1091,18 +1118,17 @@ def _params_hash(
     league: LeagueSettings,
     aggregate_settings: AggregateSettings,
 ) -> str:
-    """AD-3: parametrihash vain siitä, mikä vaikuttaa tämän vaiheen tulokseen.
+    """AD-3: a parameter hash only of what affects this stage's result.
 
-    ``[aggregate]`` on mukana **kokonaisena**, koska se on tämän vaiheen oma
-    osio: jokainen sen arvo on määritelmän mukaan tälle vaiheelle, eikä
-    luettelo voi vanheta. ``[thresholds]``- ja ``[league]``-osioista otetaan
-    vain nimetyt avaimet (:data:`HASHED_THRESHOLD_KEYS`,
+    ``[aggregate]`` is included **whole**, because it is this stage's own
+    section: every value in it is by definition for this stage, and the list
+    cannot go stale. From the ``[thresholds]`` and ``[league]`` sections only
+    the named keys are taken (:data:`HASHED_THRESHOLD_KEYS`,
     :data:`HASHED_LEAGUE_KEYS`).
 
-    ``[parse]`` ei ole mukana tarkoituksella: näytepisteet luetaan taulusta
-    sellaisina kuin ne ovat, eikä niiden muuttaminen voi vaikuttaa tähän
-    vaiheeseen ilman että parsinta ajetaan uudelleen -- ja se näkyy jo
-    syötteiden tunnisteissa.
+    ``[parse]`` is left out on purpose: the sample points are read from the
+    table as they are, and changing them cannot affect this stage without the
+    parsing being run again -- and that already shows in the inputs' ids.
     """
     return compute_params_hash(
         {
@@ -1115,19 +1141,20 @@ def _params_hash(
     )
 
 
-# -- Tulosteen luvut -------------------------------------------------------------
+# -- The output's figures --------------------------------------------------------
 
 
 def _alive_at_max(anomaly: Anomaly) -> int | None:
-    """Elossa olevat sillä näytepisteellä, jolta rivin ``players_max`` on.
+    """The players alive at the sample point the row's ``players_max`` is from.
 
-    ``None`` kahdella orientaatiosäännöllä: kumpikaan ei laske elossa olevia,
-    eikä keksitty nimittäjä erotu tulosteessa mitatusta.
+    ``None`` for the two orientation rules: neither counts the players alive,
+    and an invented denominator would not be distinguishable in the output from
+    a measured one.
 
-    Piste haetaan **maksimin kohdalta** eikä erikseen: rivi lukee "5/5", ja
-    sen kahden luvun on oltava samalta hetkeltä. Tasatilanteessa (kaksi
-    pistettä samalla pelaajamäärällä) valitaan aikajärjestyksessä ensimmäinen,
-    jotta tuloste on sama ajosta toiseen.
+    The point is looked up **at the maximum** and not separately: the row reads
+    "5/5", and its two figures have to be from the same moment. On a tie (two
+    points with the same player count) the first in time order is chosen, so
+    that the output is the same from one run to the next.
     """
     for entry in anomaly.rounds:
         for point in entry.points:
@@ -1137,23 +1164,24 @@ def _alive_at_max(anomaly: Anomaly) -> int | None:
 
 
 def _stats(report: Report, sources: TeamSources) -> dict[str, Any]:
-    """Luvut, jotka ``cli`` näyttää käyttäjälle."""
+    """The figures ``cli`` shows the user."""
     return {
         "team_key": report.team.key,
         "lineup_keys": list(report.team.lineup_keys),
         "display_name": report.team.display_name,
         "display_name_source": report.team.display_name_source,
         "display_name_alternatives": list(report.team.display_name_alternatives),
-        # Rosteri tulosteeseen pareina: nimi ja tunniste rinnakkain, ei
-        # kumpaakaan yksin. Nimi voi olla ``None``, ja se on havainto.
+        # The roster into the output as pairs: the name and the id side by
+        # side, neither on its own. The name may be ``None``, and that is an
+        # observation.
         "roster": [
             {"player_id": entry.player_id, "display_name": entry.display_name}
             for entry in report.team.roster
         ],
         "demos": report.sample.demos,
         "rounds": report.sample.rounds,
-        # Lokerot luetaan yhdestä luettelosta, jotta kolmas lokero ei voi
-        # jäädä pois tulosteesta samalla kun se on rakenteessa.
+        # The buckets are read from one list, so that the third bucket cannot
+        # be left out of the output while it is in the structure.
         "sample": {
             name: {
                 "demos": getattr(report.sample, name).demos,
@@ -1163,11 +1191,11 @@ def _stats(report: Report, sources: TeamSources) -> dict[str, Any]:
         },
         "unclassified": report.unclassified_rounds,
         "unpaired_detonations": report.unpaired_detonations,
-        # Poikkeamat tulosteeseen, koska ne ovat epicin arvokkain tuotos: ilman
-        # tätä riviä käyttäjä näkee kynnyksen säädön vaikutuksen vasta
-        # avaamalla raportin. Kattavuus on rivillä mukana samasta syystä kuin
-        # raportissa -- nolla poikkeamaa on havainto vain siitä, mitä
-        # tutkittiin.
+        # The anomalies into the output, because they are the epic's most
+        # valuable product: without this line the user sees the effect of
+        # adjusting a threshold only by opening the report. The coverage is on
+        # the line for the same reason as in the report -- zero anomalies is an
+        # observation only about what was examined.
         "anomalies": [
             {
                 "rule": entry.rule,
@@ -1176,10 +1204,11 @@ def _stats(report: Report, sources: TeamSources) -> dict[str, Any]:
                 "round_types": list(entry.round_types),
                 "area": entry.area,
                 "players_max": entry.players_max,
-                # Elossa olevat sillä näytepisteellä, jolta ``players_max``
-                # on -- vain stackilla, muilla ``None``. Ilman sitä tulosteen
-                # rivi latoisi "4 pelaajaa", ja koko säännön väite on että
-                # se luku on merkityksetön yksin.
+                # The players alive at the sample point ``players_max`` is
+                # from -- for stack only, ``None`` for the others. Without it
+                # the output's row would set "4 players", and the whole
+                # claim of the rule is that the figure means nothing on its
+                # own.
                 "alive_at_max": _alive_at_max(entry),
                 "n": entry.n,
                 "m": entry.m,
