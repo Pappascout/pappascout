@@ -15,6 +15,7 @@ guards against.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,53 @@ def _require_denylist() -> dict[str, int]:
     return FORBIDDEN_NAMES
 
 
+#: Prefix marking a denylist entry as being about **commit metadata** rather
+#: than file contents.
+#:
+#: One file, two guards. The names differ: an employer's mail domain never
+#: appears in the prose but sits in every commit's author field, and the two
+#: ceilings fall on different schedules -- file contents shrink tranche by
+#: tranche, metadata only when the history is rewritten. Keeping them in one
+#: machine-local file means one thing to copy to the second machine; keeping
+#: them in separate key spaces means neither guard silently inherits the
+#: other's entries.
+COMMIT_PREFIX = "commit:"
+
+
+def _file_ceilings() -> dict[str, int]:
+    """Denylist entries about the contents of files."""
+    return {
+        name: ceiling
+        for name, ceiling in _require_denylist().items()
+        if not name.startswith(COMMIT_PREFIX)
+    }
+
+
+def _commit_ceilings() -> dict[str, int]:
+    """Denylist entries about author and committer identity."""
+    return {
+        name[len(COMMIT_PREFIX) :].strip(): ceiling
+        for name, ceiling in _require_denylist().items()
+        if name.startswith(COMMIT_PREFIX)
+    }
+
+
+def _identity_fields() -> list[str]:
+    """Author and committer name and mail from every commit in the history."""
+    result = subprocess.run(
+        ["git", "log", "--all", "--format=%an%n%ae%n%cn%n%ce"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0:  # pragma: no cover - machine without git
+        pytest.skip(f"git log failed: {result.stderr.strip()}")
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
 def test_the_watched_set_is_not_empty() -> None:
     """A walker that finds nothing would pass every guard below.
 
@@ -89,7 +137,7 @@ def test_no_forbidden_name_exceeds_its_ceiling() -> None:
     The failure names the files, because a count alone does not tell the
     reader what to fix.
     """
-    denylist = _require_denylist()
+    denylist = _file_ceilings()
     hits: dict[str, list[str]] = {name: [] for name in denylist}
     for path in _watched_files():
         try:
@@ -131,3 +179,49 @@ def test_the_archive_root_line_is_covered_by_the_walker() -> None:
         if row.startswith("archive_root")
     )
     assert "PAPPASCOUT_ARCHIVE_ROOT" in line
+
+
+def test_the_history_is_not_empty() -> None:
+    """A history that reads as empty would pass the guard below for nothing.
+
+    ``git log`` returning nothing -- a shallow clone, a detached worktree, a
+    changed format string -- would make the metadata guard report success over
+    no commits at all. That is the same no-op this file already refuses for
+    the file walker.
+    """
+    fields = _identity_fields()
+    assert len(fields) >= 40, len(fields)
+    assert any("@" in field for field in fields), "no mail address in any commit"
+
+
+def test_no_forbidden_name_is_in_the_commit_metadata() -> None:
+    """Author and committer identity carry no name the denylist forbids.
+
+    **This guard exists because its absence was the leak.** Every other check
+    here walks files, and files were clean: the sweep that removed the
+    author's name from the tree reported zero, and it was right about the
+    tree. It said nothing about ``git log``, where 43 of 45 commits carried
+    the employer's mail domain in author and committer fields, public on
+    every commit page. Green meant "not checked".
+
+    Metadata cannot be edited in place -- correcting it means rewriting the
+    history -- so the ceiling starts at the measured count and falls to zero
+    when that rewrite lands. Until then this guard's job is to stop the count
+    rising, which is exactly what it would do if a machine committed without
+    the per-repository identity override.
+    """
+    ceilings = _commit_ceilings()
+    assert ceilings, (
+        "the denylist records no commit: entries, so this guard checks "
+        "nothing -- see COMMIT_PREFIX"
+    )
+    fields = [field.lower() for field in _identity_fields()]
+    over: dict[str, tuple[int, int]] = {}
+    for name, ceiling in ceilings.items():
+        found = sum(field.count(name.lower()) for field in fields)
+        if found > ceiling:
+            over[name] = (found, ceiling)
+    assert not over, "commit metadata over ceiling: " + "; ".join(
+        f"{found} occurrences against a ceiling of {ceiling}"
+        for found, ceiling in over.values()
+    )
