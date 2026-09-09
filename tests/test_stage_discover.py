@@ -1,18 +1,19 @@
-"""``stages.discover`` -- vaiheen testit (Story 3.2).
+"""``stages.discover`` -- the stage's tests (Story 3.2).
 
-**Ei verkkoa.** Portin tilalla on :class:`FakeSource`, joka palauttaa käsin
-rakennetut ottelut ja laskee kutsunsa. Jos joku poistaisi ``source``-parametrin,
-testi ei menisi hiljaa verkkoon vaan kaatuisi.
+**No network.** In the port's place is :class:`FakeSource`, which returns
+hand-built matches and counts its calls. If somebody removed the ``source``
+parameter, the test would not go quietly to the network but would fail.
 
-Yksi poikkeus on tarkoituksellinen: :func:`test_default_source_really_builds_a_port`
-ajaa ``default_source``in oikeasti. Se on vaiheen ainoa rivi, joka liittää sen
-verkkoon, ja jokainen muu testi korvaa sen -- ilman tätä testiä sen rikkoutuminen
-ei kaataisi mitään. Verkkoon se ei silti mene: asiakas rakennetaan, ei käytetä.
+One exception is deliberate: :func:`test_default_source_really_builds_a_port`
+really runs ``default_source``. It is the stage's only line that connects it to
+the network, and every other test replaces it -- without this test its breaking
+would fail nothing. It still does not go to the network: the client is built,
+not used.
 
-Aineisto on divisioonan oikea muoto: 12 joukkuetta, round robin, 66 ottelua, 11
-per joukkue -- samat luvut kuin ``mittaus-faceit-aineisto.md``issa. Nimet ja
-rosterikoot tulevat ``test_teams``ista, jotta mitatut luvut ovat yhdessä
-paikassa.
+The data is the division's real shape: 12 teams, round robin, 66 matches, 11
+per team -- the same numbers as in ``mittaus-faceit-aineisto.md``. The names and
+the roster sizes come from ``test_teams``, so that the measured numbers are in
+one place.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ from pappascout.stages import discover as discover_stage
 
 CHAMPIONSHIP = "94681888-b5da-4ab5-bf50-f44b666b98a3"
 
-#: Mitattu: 66 ottelua, joista 6 pelattu.
+#: Measured: 66 matches, of which 6 played.
 TOTAL_MATCHES = 66
 FINISHED_MATCHES = 6
 
@@ -50,7 +51,7 @@ KICKOFF = datetime(2026, 8, 3, 18, 0, tzinfo=UTC)
 
 
 class FakeSource:
-    """Otteluportin feikki. Laskee kutsut, jotta "haetaan uudelleen" on mitattava."""
+    """The match port's fake. Counts the calls, so "fetched again" is measurable."""
 
     def __init__(self, matches: dict[str, tuple[Match, ...]]) -> None:
         self._matches = matches
@@ -63,17 +64,18 @@ class FakeSource:
         self.calls.append(competition_id)
         return self._matches.get(competition_id, ())
 
-    def get_match(self, match_id: str) -> Match:  # pragma: no cover - ei käytössä
-        raise AssertionError("discover ei hae yksittäisiä otteluita")
+    def get_match(self, match_id: str) -> Match:  # pragma: no cover - not in use
+        raise AssertionError("discover does not fetch single matches")
 
 
 def players(
     team_name: str, size: int, offset: int, shift: int
 ) -> tuple[tuple[RosterPlayer, ...], tuple[RosterPlayer, ...]]:
-    """Yhden ottelun aloittajat ja vaihtopelaajat portin sanastolla.
+    """One match's starters and substitutes in the port's vocabulary.
 
-    Aloittajajoukko kiertää ottelusta toiseen, joten yksikään ottelurivi ei
-    yksinään sisällä koko vakirosteria -- vaiheen on koottava se yhdisteenä.
+    The set of starters rotates from match to match, so that no single match
+    row holds the whole standing roster -- the stage has to gather it as a
+    union.
     """
     roster = members(team_name, size, offset=offset)
     rotated = roster[shift % size :] + roster[: shift % size]
@@ -89,12 +91,13 @@ def players(
 
 
 def division_matches() -> tuple[Match, ...]:
-    """Round robin: 12 joukkuetta, 66 ottelua, 11 per joukkue.
+    """Round robin: 12 teams, 66 matches, 11 per team.
 
-    Kuusi ensimmäistä ottelua on pelattu ja loput ajastettu -- sama suhde kuin
-    mitattu (6 ``FINISHED``, 60 ``SCHEDULED``). ``PotkukelkkaPeek`` on
-    divisioonan kolmas nimi, joten se osuu pelattuihin **tasan kerran**: juuri
-    se tapaus, jonka hyväksymiskriteeri vaatii.
+    The first six matches have been played and the rest are scheduled -- the
+    same ratio as measured (6 ``FINISHED``, 60 ``SCHEDULED``).
+    ``PotkukelkkaPeek`` is the division's third name, so it hits the played
+    ones **exactly once**: precisely the case the acceptance criterion
+    requires.
     """
     names = list(DIVISION)
     appearances = {name: 0 for name in names}
@@ -132,9 +135,9 @@ def division_matches() -> tuple[Match, ...]:
                     ),
                     teams=tuple(sides),
                     map_picks=("de_ancient", "de_nuke") if played else (),
-                    # Mitattu 2026-09-04: best_of on 2 kaikissa 66 ottelussa,
-                    # myös pelaamattomissa -- se on sääntökirjan lupaus eikä
-                    # havainto pelatusta ottelusta.
+                    # Measured 2026-09-04: best_of is 2 in all 66 matches, in
+                    # the unplayed ones too -- it is the rule book's promise
+                    # and not an observation of a played match.
                     best_of=2,
                 )
             )
@@ -153,7 +156,9 @@ def league() -> LeagueSettings:
 
 @pytest.fixture
 def thresholds() -> ThresholdSettings:
-    """``[thresholds]``-osio oletuksillaan; ``team_identity_min_common`` = 3."""
+    """The ``[thresholds]`` section at its defaults; ``team_identity_min_common``
+    is 3.
+    """
     return ThresholdSettings(pistol_rounds=[1, 13])
 
 
@@ -183,13 +188,14 @@ def read_index(archive: ArchivePaths, name: str) -> dict[str, Any]:
     return json.loads((archive.root / "index" / name).read_text(encoding="utf-8"))
 
 
-# -- Yksi kutsu, kaksi indeksiä ---------------------------------------------
+# -- One call, two indexes ---------------------------------------------------
 
 
 def test_one_call_per_competition_produces_both_indexes(
     league, archive, thresholds, source
 ) -> None:
-    """Mitattu: rosteri on ottelurivillä, joten erillistä rosterihakua ei tarvita."""
+    """Measured: the roster is on the match row, so no separate roster lookup is
+    needed."""
     result = discover(league, archive, thresholds, source)
 
     assert source.calls == [CHAMPIONSHIP]
@@ -219,7 +225,7 @@ def test_the_run_summary_counts_matches_and_teams(
 def test_the_stage_has_no_manifest_because_it_never_skips(
     league, archive, thresholds, source
 ) -> None:
-    """Ohitus säästäisi yhden kutsun ja maksaisi uusien otteluiden näkemisen."""
+    """A skip would save one call and would cost seeing the new matches."""
     result = discover(league, archive, thresholds, source)
 
     assert result.manifest_path is None
@@ -228,10 +234,10 @@ def test_the_stage_has_no_manifest_because_it_never_skips(
 def test_the_unit_is_one_identifier_not_a_list(
     archive, thresholds
 ) -> None:
-    """``StageResult.unit`` on muualla putkessa aina yksi tunniste.
+    """``StageResult.unit`` is everywhere else in the pipeline a single id.
 
-    Pilkuilla yhdistetty lista lukisi tulosteessa tunnisteelta olematta
-    sellainen; koko luettelo on ``stats["competition_ids"]``issä.
+    A comma-joined list would read in the output as an id without being one;
+    the whole listing is in ``stats["competition_ids"]``.
     """
     league = LeagueSettings(
         season=13,
@@ -248,13 +254,13 @@ def test_the_unit_is_one_identifier_not_a_list(
     assert result.stats["competition_ids"] == [CHAMPIONSHIP, "toinen"]
 
 
-# -- Joukkueindeksin sisältö ------------------------------------------------
+# -- The team index's content ------------------------------------------------
 
 
 def test_the_teams_index_holds_twelve_teams_with_six_to_nine_players(
     league, archive, thresholds, source
 ) -> None:
-    """Hyväksymiskriteeri: 12 joukkuetta, rosterit 6--9 pelaajaa."""
+    """Acceptance criterion: 12 teams, rosters of 6--9 players."""
     discover(league, archive, thresholds, source)
 
     document = read_index(archive, "teams.json")
@@ -268,10 +274,10 @@ def test_the_teams_index_holds_twelve_teams_with_six_to_nine_players(
 def test_every_roster_identifier_in_the_index_is_steam_id64(
     league, archive, thresholds, source
 ) -> None:
-    """Hyväksymiskriteeri: jokainen tunniste on SteamID64-muotoinen.
+    """Acceptance criterion: every id is in SteamID64 form.
 
-    ``player_id`` (FACEITin UUID) on rivillä mukana jäljitettävyyttä varten,
-    mutta se **ei ole** rosterin tunniste -- sitä ei esiinny demoissa.
+    ``player_id`` (FACEIT's UUID) is on the row for the sake of traceability,
+    but it **is not** the roster's id -- it does not appear in the demos.
     """
     discover(league, archive, thresholds, source)
 
@@ -284,10 +290,10 @@ def test_every_roster_identifier_in_the_index_is_steam_id64(
 def test_the_team_row_carries_identifier_lists_not_counts(
     league, archive, thresholds, source
 ) -> None:
-    """Indeksissä on tunnisteet, jotta ottelun ja joukkueen liitos on tehtävissä.
+    """The index holds the ids, so that the match and the team can be joined.
 
-    Pelkkä lukumäärä ei kertoisi, **mitkä** ottelut nämä ovat, eikä
-    ``index/matches.json``iin voisi liittyä mistään.
+    A bare count would not say **which** matches these are, and nothing could
+    be joined to ``index/matches.json``.
     """
     discover(league, archive, thresholds, source)
 
@@ -304,10 +310,10 @@ def test_the_team_row_carries_identifier_lists_not_counts(
 def test_both_indexes_order_matches_the_same_way(
     league, archive, thresholds, source
 ) -> None:
-    """Katselmus: ottelut olivat aikajärjestyksessä, joukkueen ottelut eivät.
+    """Review: the matches were in time order, the team's matches were not.
 
-    Kaksi eri järjestystä samoille tunnisteille tekisi tiedostojen
-    rinnakkaisesta lukemisesta työlästä ilman syytä.
+    Two different orders for the same ids would make reading the files side by
+    side laborious for no reason.
     """
     discover(league, archive, thresholds, source)
 
@@ -346,8 +352,9 @@ def test_the_matches_index_carries_status_schedule_and_maps(
     assert first["scheduled_at"].startswith("2026-08-03")
     assert first["map_picks"] == ["de_ancient", "de_nuke"]
     assert [side["name"] for side in first["teams"]] == ["popsiCS", "JYSAEYTTAEJAET"]
-    # Ottelurivillä on lähteen tunniste, ei kanoninen team_key: rivi kertoo mitä
-    # lähde sanoi, ja identiteetin päättää joukkueindeksi.
+    # The match row carries the source's id, not the canonical team_key: the
+    # row says what the source said, and the identity is decided by the team
+    # index.
     assert first["teams"][0]["faction_id"] == "faction-00"
 
     last = document["matches"][-1]
@@ -358,12 +365,12 @@ def test_the_matches_index_carries_status_schedule_and_maps(
 def test_the_matches_index_carries_best_of(
     league, archive, thresholds, source
 ) -> None:
-    """``best_of`` on indeksissä, koska Story 3.4 tarvitsee sen -- eikä se ole
-    laskettavissa ``map_picks``in pituudesta.
+    """``best_of`` is in the index because Story 3.4 needs it -- and it cannot be
+    computed from the length of ``map_picks``.
 
-    Mitattu 2026-09-04: arvo on 2 kaikissa 66 ottelussa, mutta ennen tätä se ei
-    kulkenut portin läpi lainkaan. Pelaamaton ottelu kantaa sen myös: se on
-    sääntökirjan lupaus, ei havainto pelatusta ottelusta.
+    Measured 2026-09-04: the value is 2 in all 66 matches, but before this it
+    did not travel through the port at all. An unplayed match carries it too:
+    it is the rule book's promise, not an observation of a played match.
     """
     discover(league, archive, thresholds, source)
 
@@ -376,11 +383,11 @@ def test_the_matches_index_carries_best_of(
 def test_an_older_index_without_the_best_of_key_is_still_readable(
     league, archive, thresholds, source
 ) -> None:
-    """Juuri tama on syy, miksi SCHEMA_VERSION ei noussut kentan myota.
+    """This is exactly why SCHEMA_VERSION did not rise with the field.
 
-    Vanhassa tiedostossa avainta **ei ole lainkaan** -- ei nullina vaan
-    puuttuvana. Tuore tiedosto, johon kirjoitetaan ``best_of: null``, ei
-    testaisi tata tapausta: se on jo taman version kirjoittama.
+    In an old file the key is **not there at all** -- not as null but as
+    missing. A fresh file into which ``best_of: null`` is written would not
+    test this case: it is already written by this version.
     """
     discover(league, archive, thresholds, source)
     path = archive.root / "index" / "matches.json"
@@ -389,7 +396,7 @@ def test_an_older_index_without_the_best_of_key_is_still_readable(
         del row["best_of"]
     path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
 
-    # Lukija hyvaksyy vanhan tiedoston: puuttuva arvo on kelvollinen havainto.
+    # The reader accepts the old file: a missing value is a valid observation.
     matches = discover_stage.matches_from_index(
         discover_stage.read_matches_index(archive)
     )
@@ -401,7 +408,7 @@ def test_an_older_index_without_the_best_of_key_is_still_readable(
 def test_a_broken_best_of_is_refused_instead_of_defaulted(
     league, archive, thresholds, source
 ) -> None:
-    """Puuttuva on havainto, rikki on rikki -- ja ne ovat eri asioita."""
+    """Missing is an observation, broken is broken -- and they are different things."""
     discover(league, archive, thresholds, source)
     path = archive.root / "index" / "matches.json"
     document = json.loads(path.read_text(encoding="utf-8"))
@@ -414,13 +421,14 @@ def test_a_broken_best_of_is_refused_instead_of_defaulted(
         )
 
 
-# -- Lukija ------------------------------------------------------------------
+# -- The reader ---------------------------------------------------------------
 
 
 def test_the_indexes_can_be_read_back_as_a_pair(
     league, archive, thresholds, source
 ) -> None:
-    """``schema_version`` kirjoitetaan **ja** luetaan; jatkovaihe ei pura JSONia."""
+    """``schema_version`` is written **and** read; a later stage does not unpack
+    the JSON."""
     discover(league, archive, thresholds, source)
 
     matches, teams = discover_stage.read_indexes(archive)
@@ -438,7 +446,7 @@ def test_reading_a_missing_index_says_what_to_run(archive) -> None:
 def test_an_unknown_schema_version_is_refused(
     league, archive, thresholds, source
 ) -> None:
-    """Tuntematon muoto on virhe, ei arvaus."""
+    """An unknown format is an error, not a guess."""
     discover(league, archive, thresholds, source)
     path = archive.teams_index()
     document = json.loads(path.read_text(encoding="utf-8"))
@@ -452,10 +460,11 @@ def test_an_unknown_schema_version_is_refused(
 def test_indexes_from_two_different_runs_are_refused_as_a_pair(
     league, archive, thresholds, source
 ) -> None:
-    """Kirjoitus voi keskeytyä tiedostojen välissä; silloin niitä ei saa liittää.
+    """The write can be interrupted between the files; then they must not be joined.
 
-    Molemmissa on sama ``generated_at`` juuri tätä varten -- ilman vertailua
-    lukija liittäisi uuden ottelulistan vanhaan joukkueindeksiin hiljaa.
+    Both carry the same ``generated_at`` for exactly this -- without the
+    comparison the reader would join a new match list to an old team index
+    silently.
     """
     discover(league, archive, thresholds, source)
     path = archive.teams_index()
@@ -463,24 +472,24 @@ def test_indexes_from_two_different_runs_are_refused_as_a_pair(
     document["generated_at"] = "2020-01-01T00:00:00+00:00"
     path.write_text(json.dumps(document), encoding="utf-8")
 
-    with pytest.raises(PappascoutError, match="eri ajoista"):
+    with pytest.raises(PappascoutError, match="from different runs"):
         discover_stage.read_indexes(archive)
 
 
 def test_a_failure_between_the_two_writes_leaves_both_untouched(
     league, archive, thresholds, source, monkeypatch
 ) -> None:
-    """Pari kirjoitetaan väliaikaistiedostoihin ennen kuin kumpaakaan vaihdetaan.
+    """The pair is written into temporary files before either is swapped.
 
-    Ilman tätä epäonnistuminen jättäisi arkistoon uuden ottelulistan ja vanhan
-    joukkueindeksin, ja lukija liittäisi ne yhteen.
+    Without this a failure would leave a new match list and an old team index
+    in the archive, and the reader would join them together.
     """
     discover(league, archive, thresholds, source)
     before_matches = archive.matches_index().read_bytes()
     before_teams = archive.teams_index().read_bytes()
 
     def explode(*args, **kwargs):
-        raise RuntimeError("levy täynnä")
+        raise RuntimeError("the disk is full")
 
     monkeypatch.setattr("pappascout.stages.discover._dump", explode)
     with pytest.raises(RuntimeError):
@@ -491,15 +500,15 @@ def test_a_failure_between_the_two_writes_leaves_both_untouched(
     assert not has_temp_leftovers(archive.root)
 
 
-def test_a_write_that_fails_on_disk_is_a_finnish_error_with_advice(
+def test_a_write_that_fails_on_disk_is_a_clear_error_with_advice(
     league, archive, thresholds, source
 ) -> None:
-    """I/O-matriisi: ``discover`` ei voi kirjoittaa indekseja.
+    """I/O matrix: ``discover`` cannot write the indexes.
 
-    **Oikea vaihe, oikea kirjoitus.** Kohteen paikalle asetetaan hakemisto,
-    jolloin ``os.replace`` kaatuu aidosti ``OSError``iin atomisen kirjoituksen
-    viimeisella askeleella. Sama korjaus ja sama sana kuin ``select``illa: sen
-    lukupolku nappasi ``OSError``in jo, kirjoituspolku ei.
+    **The real stage, a real write.** A directory is put in the target's place,
+    so that ``os.replace`` really fails with an ``OSError`` at the atomic
+    write's last step. The same fix and the same word as in ``select``: its
+    read path caught ``OSError`` already, its write path did not.
     """
     kohde = archive.teams_index()
     kohde.parent.mkdir(parents=True, exist_ok=True)
@@ -510,32 +519,33 @@ def test_a_write_that_fails_on_disk_is_a_finnish_error_with_advice(
         discover(league, archive, thresholds, source)
 
     viesti = str(err.value)
-    # **Sisarusten vartijat vaittavat samat asiat.** Kaksi korjausta, jotka
-    # on tehty eksplisiittisesti sisaruksina, eivat saa jaada eri tarkkuudella
-    # vartioiduiksi -- juuri se ero on se, mita Story 3.7 on korjaamassa.
-    assert "ohjelmavirhe" not in viesti
-    assert "epaonnistui levyvirheeseen" in viesti.replace("ä", "a")
+    # **The siblings' guards claim the same things.** Two fixes made
+    # explicitly as siblings must not be left guarded to different degrees --
+    # that difference is exactly what Story 3.7 is putting right.
+    assert "programming error" not in viesti
+    assert "failed with a disk error" in viesti
     assert kohde.name in viesti
     assert err.value.advice
     assert not kohde.is_file()
     assert not has_temp_leftovers(archive.root)
-    # Pari on yha kirjoittamatta: kumpaakaan ei vaihdettu paikalleen.
+    # The pair is still unwritten: neither was swapped into place.
     assert not archive.matches_index().is_file()
 
 
 def test_a_failure_on_the_outer_index_says_the_pair_may_be_odd(
     league, archive, thresholds, source
 ) -> None:
-    """Toinen suunta: **ulompi** vaihto kaatuu, sisempi ehti onnistua.
+    """The other direction: the **outer** swap fails, the inner one got through.
 
-    ``_write_pair`` kirjoittaa molemmat valiaikaistiedostoihin ja vaihtaa ne
-    perakkain: teams ensin, matches sitten. Jos jalkimmainen vaihto kaatuu,
-    levylle ei jaa vajaata tiedostoa -- mutta levylle jaa **pariton pari**,
-    uusi teams vanhan (tai puuttuvan) matchesin rinnalle. Funktion oma
-    docstring puhuu juuri tasta valista, joten viesti ei saa vaieta siita.
+    ``_write_pair`` writes both into temporary files and swaps them one after
+    the other: teams first, matches then. If the latter swap fails, no
+    incomplete file is left on the disk -- but what is left on the disk is an
+    **odd pair**, a new teams beside the old (or missing) matches. The
+    function's own docstring speaks of exactly that gap, so the message must
+    not be silent about it.
 
-    Sisartesti kattaa sisemman suunnan; ilman tata testia puolet
-    ``_write_pair``in epaonnistumispinnasta olisi ajamatta.
+    The sibling test covers the inner direction; without this test half of
+    ``_write_pair``'s failure surface would go unrun.
     """
     kohde = archive.matches_index()
     kohde.parent.mkdir(parents=True, exist_ok=True)
@@ -546,25 +556,26 @@ def test_a_failure_on_the_outer_index_says_the_pair_may_be_odd(
         discover(league, archive, thresholds, source)
 
     viesti = str(err.value)
-    assert "ohjelmavirhe" not in viesti
-    assert "epaonnistui levyvirheeseen" in viesti.replace("ä", "a")
+    assert "programming error" not in viesti
+    assert "failed with a disk error" in viesti
     assert kohde.name in viesti
     assert err.value.advice
-    # Viesti ei vaikene parittomasta parista eika lupaa mahdotonta.
+    # The message is not silent about the odd pair and does not promise the
+    # impossible.
     assert "generated_at" in viesti
-    # Ja pari ON pariton: teams ehti paikalleen, matches ei.
+    # And the pair IS odd: teams got into place, matches did not.
     assert archive.teams_index().is_file()
     assert not archive.matches_index().is_file()
     assert not has_temp_leftovers(archive.root)
 
 
-# -- Nimihaku vaiheen läpi --------------------------------------------------
+# -- The name lookup through the stage ---------------------------------------
 
 
 def test_a_partial_name_finds_rcave_and_its_seven_players(
     league, archive, thresholds, source
 ) -> None:
-    """Hyväksymiskriteeri: ``Rcave`` -> yksi joukkue, vakirosteri 7 pelaajaa."""
+    """Acceptance criterion: ``Rcave`` -> one team, a standing roster of 7 players."""
     result = discover(league, archive, thresholds, source, team="Rcave")
 
     team = result.stats["team"]
@@ -577,7 +588,7 @@ def test_a_partial_name_finds_rcave_and_its_seven_players(
 def test_the_measured_rcave_identifiers_survive_into_the_index(
     league, archive, thresholds, source
 ) -> None:
-    """Neljä mitattua SteamID64:ää ovat juuri ne, jotka liittävät demoon."""
+    """The four measured SteamID64s are exactly the ones that join to the demo."""
     discover(league, archive, thresholds, source)
 
     document = read_index(archive, "teams.json")
@@ -590,7 +601,7 @@ def test_the_measured_rcave_identifiers_survive_into_the_index(
 def test_a_team_with_one_played_match_out_of_eleven_is_found_in_full(
     league, archive, thresholds, source
 ) -> None:
-    """Hyväksymiskriteeri: pelattujen otteluiden määrä ei vaikuta rosteriin."""
+    """Acceptance criterion: the number of played matches does not affect the roster."""
     result = discover(league, archive, thresholds, source, team="PotkukelkkaPeek")
 
     team = result.stats["team"]
@@ -610,22 +621,23 @@ def test_case_does_not_matter_through_the_stage(
 def test_an_ambiguous_name_lists_all_three_and_chooses_none(
     league, archive, thresholds, source
 ) -> None:
-    """Hyväksymiskriteeri: ``T`` listaa kolme joukkuetta eikä valitse yhtään."""
+    """Acceptance criterion: ``T`` lists three teams and picks none."""
     with pytest.raises(PappascoutError) as error:
         discover(league, archive, thresholds, source, team="T")
 
     message = str(error.value)
     for name in ("TUUHEE", "Takakeno", "Tankkiluola vilttiketju"):
         assert name in message
-    assert "valinta on tehtävä" in message.lower()
+    assert "a choice has to be made" in message.lower()
 
 
 def test_the_ambiguity_listing_shows_identifiers_and_suggests_a_working_query(
     league, archive, thresholds
 ) -> None:
-    """Katselmus: samannimisten kohdalla ehdotus oli juuri se haku, joka epäonnistui.
+    """Review: with teams of the same name the suggestion was the very search that
+    failed.
 
-    Kaksi identtistä riviä ilman tunnistetta ei ole valinta vaan umpikuja.
+    Two identical rows without the id are not a choice but a dead end.
     """
     shared_name = "Takakeno"
     matches = (
@@ -655,18 +667,18 @@ def test_the_ambiguity_listing_shows_identifiers_and_suggests_a_working_query(
 
     message = str(error.value)
     assert "faction-a" in message and "faction-b" in message
-    # Ehdotus on tunniste eikä nimi, koska nimi osuu molempiin.
+    # The suggestion is the id and not the name, because the name hits both.
     assert "--team faction-a" in message
 
 
 def test_the_indexes_are_written_even_when_the_name_is_ambiguous(
     league, archive, thresholds, source
 ) -> None:
-    """Haku on näkymä hakutulokseen, ei ehto sille.
+    """The lookup is a view onto the result, not a condition for it.
 
-    Ilman tätä monitulkintainen nimi jättäisi indeksit kirjoittamatta, ja
-    käyttäjän olisi ajettava komento kahdesti nähdäkseen ne joukkueet, joiden
-    väliltä hän valitsee.
+    Without this an ambiguous name would leave the indexes unwritten, and the
+    user would have to run the command twice to see the teams he is choosing
+    between.
     """
     with pytest.raises(PappascoutError):
         discover(league, archive, thresholds, source, team="T")
@@ -678,7 +690,7 @@ def test_the_indexes_are_written_even_when_the_name_is_ambiguous(
 def test_an_unknown_name_lists_the_whole_division(
     league, archive, thresholds, source
 ) -> None:
-    """I/O-matriisi: ``Astralis`` ei ole divisioonassa."""
+    """I/O matrix: ``Astralis`` is not in the division."""
     with pytest.raises(PappascoutError) as error:
         discover(league, archive, thresholds, source, team="Astralis")
 
@@ -691,11 +703,10 @@ def test_an_unknown_name_lists_the_whole_division(
 def test_the_division_can_be_listed_without_causing_an_error(
     league, archive, thresholds, source
 ) -> None:
-    """Katselmus: nimet sai näkyviin vain syöttämällä tahallaan väärän nimen.
+    """Review: the names could be seen only by entering a wrong name on purpose.
 
-    Ilman ``--team``-valintaa yhteenveto luettelee divisioonan joukkueet
-    tunnisteineen -- juuri se, mitä käyttäjä tarvitsee monitulkintaisen haun
-    jälkeen.
+    Without the ``--team`` option the summary lists the division's teams with
+    their ids -- exactly what the user needs after an ambiguous search.
     """
     result = discover(league, archive, thresholds, source)
 
@@ -707,16 +718,17 @@ def test_the_division_can_be_listed_without_causing_an_error(
     assert "team" not in result.stats
 
 
-# -- Toinen ajo -------------------------------------------------------------
+# -- The second run -----------------------------------------------------------
 
 
 def test_running_twice_fetches_the_match_list_again(
     league, archive, thresholds, source
 ) -> None:
-    """Hyväksymiskriteeri: uudet ottelut eivät jää näkymättä.
+    """Acceptance criterion: new matches do not stay invisible.
 
-    Ottelulistaa ei välimuistiteta eikä vaihetta ohiteta, joten toinen ajo
-    näkee sen, mikä muuttui. 60 ottelua 66:sta oli mittaushetkellä pelaamatta.
+    The match list is not cached and the stage is not skipped, so the second
+    run sees what changed. 60 matches out of 66 were unplayed at the time of
+    the measurement.
     """
     discover(league, archive, thresholds, source)
     discover(league, archive, thresholds, source)
@@ -749,16 +761,16 @@ def test_a_new_match_shows_up_on_the_second_run(league, archive, thresholds) -> 
     assert "1-match-99" in ids
 
 
-# -- Arkisto pysyy koskemattomana -------------------------------------------
+# -- The archive stays untouched ----------------------------------------------
 
 
 def test_aggregates_and_classified_are_neither_renamed_nor_changed(
     league, archive, thresholds, source
 ) -> None:
-    """Hyväksymiskriteeri: arkiston joukkuehakemistot säilyvät sellaisinaan.
+    """Acceptance criterion: the archive's team directories stay as they are.
 
-    Arkiston nimeämispäätös on Story 3.4, ja se tehdään havainnolla eikä
-    ennakolta -- joten tämä vaihe ei saa koskea niihin lainkaan.
+    The archive's naming decision is Story 3.4, and it is made on an
+    observation and not in advance -- so this stage must not touch them at all.
     """
     for kind in ("aggregates", "classified"):
         directory = archive.root / kind / "ff03fb54599d3311"
@@ -785,7 +797,7 @@ def test_aggregates_and_classified_are_neither_renamed_nor_changed(
 def test_no_selection_or_next_opponent_file_is_written(
     league, archive, thresholds, source
 ) -> None:
-    """Rajat: ``index/selections/`` on Story 3.3 ja ``next_opponent`` on Epic 4."""
+    """Boundaries: ``index/selections/`` is Story 3.3, ``next_opponent`` Epic 4."""
     discover(league, archive, thresholds, source, team="Rcave")
 
     written = sorted(
@@ -799,13 +811,14 @@ def test_no_selection_or_next_opponent_file_is_written(
 def test_atomic_writes_leave_no_temporary_files(
     league, archive, thresholds, source
 ) -> None:
-    """Arkisto on OneDrivessa: puolikas indeksi olisi konfliktikopion siemen."""
+    """The archive is a synchronised folder: half an index would be the seed of a
+    conflict copy."""
     discover(league, archive, thresholds, source)
 
     assert not has_temp_leftovers(archive.root)
 
 
-# -- Silta arkistoon --------------------------------------------------------
+# -- The bridge to the archive ------------------------------------------------
 
 
 def write_lineups(archive: ArchivePaths, map_demo_id: str, lineups: dict) -> None:
@@ -828,10 +841,10 @@ def write_lineups(archive: ArchivePaths, map_demo_id: str, lineups: dict) -> Non
 def test_known_lineup_keys_bridge_the_index_to_the_archive(
     league, archive, thresholds, source
 ) -> None:
-    """``index/teams.json`` kantaa tunnetut kokoonpanotiivisteet.
+    """``index/teams.json`` carries the known lineup hashes.
 
-    Se on ainoa luettava yhteys ``aggregates/<team_key>``-hakemistoihin, joita
-    tämä tarina ei nimeä uudelleen.
+    It is the only readable connection to the ``aggregates/<team_key>``
+    directories, which this story does not rename.
     """
     write_lineups(
         archive,
@@ -851,10 +864,10 @@ def test_known_lineup_keys_bridge_the_index_to_the_archive(
 def test_a_lineup_claimed_by_two_teams_is_flagged_in_the_index(
     league, archive, thresholds, source
 ) -> None:
-    """Kiistanalainen tiiviste on merkitty, jottei jatkovaihe laske sitä kahdesti."""
+    """A contested hash is flagged, so that a later stage does not count it twice."""
     rcave = list(MEASURED_RCAVE_IDS.values())
-    # Kolme Rcaven pelaajaa ja kolme PotkukelkkaPeekin: molemmat ylittävät
-    # kynnyksen 3, eikä kumpikaan ole "enemmän oikeassa".
+    # Three of Rcave's players and three of PotkukelkkaPeek's: both cross the
+    # threshold of 3, and neither is "more right".
     potku_ids = [steam_id(200 + index) for index in range(3)]
     write_lineups(archive, "1-match-00-0", {"kiistanalainen": rcave[:3] + potku_ids})
 
@@ -870,10 +883,10 @@ def test_a_lineup_claimed_by_two_teams_is_flagged_in_the_index(
 def test_a_missing_or_unreadable_lineup_table_is_not_a_reason_to_fail(
     league, archive, thresholds, source
 ) -> None:
-    """Silta on lisätietoa: ilman sitä indeksi on yhä oikea."""
+    """The bridge is extra information: without it the index is still correct."""
     broken = archive.resolve(parsed_table("1-rikki-0", "lineups"))
     broken.parent.mkdir(parents=True, exist_ok=True)
-    broken.write_bytes(b"ei ole parquet")
+    broken.write_bytes(b"not a parquet file")
     (archive.root / "parsed" / "ei-hakemisto").write_text("x", encoding="utf-8")
 
     result = discover(league, archive, thresholds, source, team="Rcave")
@@ -881,17 +894,17 @@ def test_a_missing_or_unreadable_lineup_table_is_not_a_reason_to_fail(
     assert result.stats["team"]["lineup_keys"] == []
 
 
-# -- Havaintojen reunatapaukset ---------------------------------------------
+# -- The observations' edge cases ---------------------------------------------
 
 
 def test_the_same_player_missing_a_steam_id_is_counted_once_not_once_per_match(
     league, archive, thresholds
 ) -> None:
-    """Katselmus: laskuri laski esiintymiä, joten yksi pelaaja oli "11 pelaajaa".
+    """Review: the counter counted appearances, so one player was "11 players".
 
-    Pudotetut kerrotaan lisäksi **nimeltä**, jotta käyttäjä voi tarkistaa
-    keneltä tunniste puuttui -- pelkkä luku olisi väite ilman
-    tarkistusmahdollisuutta.
+    The dropped are told **by name** as well, so that the user can check whose
+    id was missing -- a bare number would be a claim without any way of
+    checking it.
     """
     matches = tuple(
         Match(
@@ -937,9 +950,9 @@ def test_the_same_player_missing_a_steam_id_is_counted_once_not_once_per_match(
 def test_a_side_without_an_identifier_is_counted_not_only_dropped(
     league, archive, thresholds
 ) -> None:
-    """Katselmus: pudotetut pelaajat kerrottiin, pudotetut joukkuerivit eivät.
+    """Review: dropped players were told of, dropped team rows were not.
 
-    Epäsymmetria oli hiljainen pudotus siinä missä mikä tahansa muukin.
+    The asymmetry was a silent drop just like any other.
     """
     match = Match(
         match_id="1-tuntematon",
@@ -955,14 +968,15 @@ def test_a_side_without_an_identifier_is_counted_not_only_dropped(
     assert result.stats["teams"] == 0
     assert result.stats["team_rows_without_id"] == 1
     assert result.reason is not None
-    assert "joukkuetta" in result.reason
+    assert "recognisable team" in result.reason
 
 
 def test_an_empty_competition_says_where_to_look(league, archive, thresholds) -> None:
-    """Kilpailu ilman otteluita on havainto, ei virhe -- mutta ei myöskään hiljainen.
+    """A competition without matches is an observation, not an error -- but not
+    silent either.
 
-    ``status`` pysyy ``ok``:na, koska haku onnistui; syy kerrotaan
-    ``reason``issa, ja komento nostaa sen tulosteensa kärkeen.
+    ``status`` stays ``ok``, because the lookup succeeded; the reason is told
+    in ``reason``, and the command lifts it to the head of its output.
     """
     source = FakeSource({CHAMPIONSHIP: ()})
 
@@ -978,7 +992,7 @@ def test_an_empty_competition_says_where_to_look(league, archive, thresholds) ->
 def test_a_team_whose_players_all_lack_steam_ids_is_named_in_the_reason(
     league, archive, thresholds
 ) -> None:
-    """Tyhjä rosteri kirjoitettiin indeksiin ilman merkintää mistään."""
+    """An empty roster was written into the index without a mark of any kind."""
     match = Match(
         match_id="1-tyhja",
         competition_id=CHAMPIONSHIP,
@@ -1013,7 +1027,7 @@ def test_a_name_search_in_an_empty_division_says_why(
 def test_the_same_match_in_two_competitions_is_counted_once(
     archive, thresholds
 ) -> None:
-    """Sama ottelu kahdessa kilpailussa on yksi ottelu, ei kaksi."""
+    """The same match in two competitions is one match, not two."""
     other = "toinen-championship"
     league = LeagueSettings(
         season=13,
@@ -1033,7 +1047,7 @@ def test_the_same_match_in_two_competitions_is_counted_once(
 def test_a_transferred_player_is_reported_in_the_run_summary(
     league, archive, thresholds
 ) -> None:
-    """Siirtymä muuttaa rosteria, joten se ei saa jäädä vain tiedostoon."""
+    """A transfer changes the roster, so it must not be left only in the file."""
     mover = RosterPlayer(
         player_id="uuid-mover", nickname="siirtyja", game_player_id=steam_id(1)
     )
@@ -1078,24 +1092,26 @@ def test_a_transferred_player_is_reported_in_the_run_summary(
 
 
 def test_the_fake_source_satisfies_the_port(source) -> None:
-    """Feikki ei saa olla löysempi kuin portti, tai testit mittaisivat väärää."""
+    """The fake must not be looser than the port, or the tests would measure the
+    wrong thing."""
     assert isinstance(source, MatchSource)
 
 
-# -- Tuotannon portti --------------------------------------------------------
+# -- The production port -----------------------------------------------------
 
 
 def test_default_source_really_builds_a_port(
     settings_file: Path, env_file, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``default_source`` ajetaan oikeasti -- **verkkoon menemättä**.
+    """``default_source`` is really run -- **without going to the network**.
 
-    Se on vaiheen ainoa rivi, joka liittää sen FACEITiin, ja jokainen muu testi
-    korvaa sen feikillä. Ilman tätä testiä sen rikkoutuminen ei kaataisi mitään.
-    Sisarensa ``stages.parse.default_parser`` ajetaan samoin aidosti.
+    It is the stage's only line that connects it to FACEIT, and every other
+    test replaces it with a fake. Without this test its breaking would fail
+    nothing. Its sibling ``stages.parse.default_parser`` is likewise run for
+    real.
 
-    Asiakas **rakennetaan, ei käytetä**: yhtään pyyntöä ei lähde, ja
-    välimuistihakemisto tarkistetaan siitä, minkä arkisto antoi.
+    The client is **built, not used**: not one request goes out, and the cache
+    directory is checked against what the archive gave.
     """
     env = env_file(".env", FACEIT_API_KEY="salainen-avain-XYZZY-42")
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
@@ -1106,8 +1122,8 @@ def test_default_source_really_builds_a_port(
 
     assert isinstance(port, MatchSource)
     assert port.cache_dir == archive.raw_faceit()
-    # Avain ei näy esityksessä; se on adapterin lupaus, ja tämä on se kohta,
-    # jossa asiakas syntyy.
+    # The key does not show in the representation; that is the adapter's
+    # promise, and this is the place where the client comes into being.
     assert "XYZZY" not in repr(port)
     port.close()
 
@@ -1115,7 +1131,7 @@ def test_default_source_really_builds_a_port(
 def test_default_source_without_a_key_says_which_file_to_edit(
     settings_file: Path, tmp_path: Path
 ) -> None:
-    """Puuttuva avain pysäyttää ajon suomenkieliseen ohjeeseen, ei pinojälkeen."""
+    """A missing credential stops the run with an instruction, not a stack trace."""
     settings = load_settings(settings_file, env_files=())
     archive = ArchivePaths(root=tmp_path / "arkisto")
 
@@ -1123,17 +1139,17 @@ def test_default_source_without_a_key_says_which_file_to_edit(
         discover_stage.default_source(settings, archive)
 
 
-# -- Lukija palauttaa domainin oliot ----------------------------------------
+# -- The reader returns the domain's objects ---------------------------------
 
 
 def test_the_teams_index_reads_back_as_domain_teams(
     league, archive, thresholds, source
 ) -> None:
-    """``select`` saa täsmälleen ne joukkueet, jotka ``discover`` kirjoitti.
+    """``select`` gets exactly the teams ``discover`` wrote.
 
-    Ilman tätä lukijaa jokainen jatkovaihe tulkitsisi indeksin kentät omalla
-    tavallaan, ja nimihaku toimisi eri tavalla riippuen siitä, kuka sen
-    kirjoitti.
+    Without this reader every later stage would read the index's fields in a
+    way of its own, and the name lookup would work differently depending on
+    who wrote it.
     """
     discover(league, archive, thresholds, source)
 
@@ -1151,13 +1167,13 @@ def test_the_teams_index_reads_back_as_domain_teams(
 def test_every_written_team_field_survives_the_round_trip(
     league, archive, thresholds, source
 ) -> None:
-    """Kirjoittaja-lukija-pari lukitaan **kentta kentalta**.
+    """The writer-reader pair is locked **field by field**.
 
-    Pelkka rosterin tarkistus ei huomaisi, jos ``shared_players``,
-    ``alternative_names``, ``lineup_keys`` tai ``released`` katoaisi kierrossa
-    -- ja juuri ne ovat ne kentat, joita kukaan ei katso ennen kuin ne
-    puuttuvat. Vertailu tehdaan tiedoston omaa rivia vasten, joten uusi kentta
-    on lisattava molempiin puoliin tai tama kaatuu.
+    A check of the roster alone would not notice if ``shared_players``,
+    ``alternative_names``, ``lineup_keys`` or ``released`` disappeared on the
+    round trip -- and those are exactly the fields nobody looks at until they
+    are missing. The comparison is made against the file's own row, so a new
+    field has to be added to both sides or this fails.
     """
     write_lineups(
         archive,
@@ -1189,18 +1205,18 @@ def test_every_written_team_field_survives_the_round_trip(
         assert [m.game_player_id for m in team.released] == [
             p["game_player_id"] for p in written["released"]
         ]
-    # Ainakin yhdella joukkueella on tunnettu kokoonpanotiiviste, jotta
-    # lineup_keys-vertailu ei ole tyhja molemmilta puolilta.
+    # At least one team has a known lineup hash, so that the lineup_keys
+    # comparison is not empty on both sides.
     assert any(team.lineup_keys for team in teams)
 
 
 def test_a_non_string_in_a_list_field_is_refused_not_dropped(
     league, archive, thresholds, source
 ) -> None:
-    """Vajaa ``faction_ids`` jattaisi ottelun tunnistamatta.
+    """An incomplete ``faction_ids`` would leave a match unrecognised.
 
-    Aiempi lukija pudotti ei-merkkijonot hiljaa -- eli teki juuri sen, minka
-    sen oma docstring lupasi estavansa.
+    An earlier reader dropped non-strings silently -- that is, did exactly what
+    its own docstring promised to prevent.
     """
     discover(league, archive, thresholds, source)
     path = archive.root / "index" / "teams.json"
@@ -1208,7 +1224,7 @@ def test_a_non_string_in_a_list_field_is_refused_not_dropped(
     document["teams"][0]["faction_ids"].append(42)
     path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
 
-    with pytest.raises(PappascoutError, match="ei ole merkkijono"):
+    with pytest.raises(PappascoutError, match="is not a string"):
         discover_stage.teams_from_index(
             discover_stage.read_teams_index(archive)
         )
@@ -1217,7 +1233,8 @@ def test_a_non_string_in_a_list_field_is_refused_not_dropped(
 def test_the_same_lookup_rules_apply_to_the_teams_read_back(
     league, archive, thresholds, source
 ) -> None:
-    """Kaksi kopiota nimihausta olisi kaksi eri virheilmoitusta samasta asiasta."""
+    """Two copies of the name lookup would be two different error messages for the
+    same thing."""
     discover(league, archive, thresholds, source)
     teams = discover_stage.teams_from_index(
         discover_stage.read_teams_index(archive)
@@ -1226,21 +1243,22 @@ def test_the_same_lookup_rules_apply_to_the_teams_read_back(
     found = discover_stage.resolve_team(teams, "Rcave")
 
     assert found.name == "Rcave Veterans"
-    with pytest.raises(PappascoutError, match="osuu 3 joukkueeseen"):
+    with pytest.raises(PappascoutError, match="hits 3 teams"):
         discover_stage.resolve_team(teams, "T")
 
 
 def test_a_hand_broken_teams_index_is_refused_not_silently_thinned(
     league, archive, thresholds, source
 ) -> None:
-    """Vajaa rosteri olisi väärä rosterikynnys, eikä mikään kertoisi miksi."""
+    """An incomplete roster would be the wrong roster threshold, and nothing would
+    say why."""
     discover(league, archive, thresholds, source)
     path = archive.root / "index" / "teams.json"
     document = json.loads(path.read_text(encoding="utf-8"))
     document["teams"][0]["roster"][0]["game_player_id"] = "ei-steamid"
     path.write_text(json.dumps(document), encoding="utf-8")
 
-    with pytest.raises(PappascoutError, match="ei voi liittää demoihin"):
+    with pytest.raises(PappascoutError, match="cannot be attached to the demos"):
         discover_stage.teams_from_index(
             discover_stage.read_teams_index(archive)
         )

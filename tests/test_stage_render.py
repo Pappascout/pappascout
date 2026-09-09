@@ -1,12 +1,11 @@
-"""``stages.render`` -- vaiheen testit.
+"""``stages.render`` -- the stage's tests.
 
-Vaihe lukee yhden tiedoston ja kirjoittaa yhden tiedoston, joten sen koko
-logiikka -- joukkueen valinta, syötteen tarkistus, aikaleimattu nimi, atominen
-kirjoitus ja manifesti -- testataan väliaikaisessa arkistossa ilman demoja.
+The stage reads one file and writes one file, so its whole logic -- choosing
+the team, checking the input, the timestamped name, the atomic write and the
+manifest -- is tested in a temporary archive without demos.
 
-Raportin **sisältö** testataan ``test_render``issä ja komennon tuloste
-``test_cli_report``issa; täällä testataan vain se, mitä vaihe tekee
-tiedostoille.
+The report's **content** is tested in ``test_render`` and the command's output
+in ``test_cli_report``; here only what the stage does to the files is tested.
 """
 
 from __future__ import annotations
@@ -45,7 +44,7 @@ OTHER_TEAM = "bbbbbbbbbbbbbbbb"
 STAMP = datetime(2026, 8, 30, 3, 7)
 
 
-# --- Arkiston rakennus ----------------------------------------------------------
+# --- Building the archive -------------------------------------------------------
 
 
 def build_archive(
@@ -54,7 +53,7 @@ def build_archive(
     teams: dict[str, Report] | None = None,
     write_manifest: bool = True,
 ) -> ArchivePaths:
-    """Arkisto, jossa on annettujen joukkueiden ``report.json``-tiedostot."""
+    """An archive holding the given teams' ``report.json`` files."""
     archive = ArchivePaths(root=tmp_path / "arkisto")
     entries = teams if teams is not None else {TEAM_KEY: report([pistol_map()])}
     for team_key, entry in entries.items():
@@ -78,11 +77,11 @@ def run(
     settings: ReportSettings = DEFAULT_PRUNING,
     **kwargs,
 ):
-    """Vaiheen ajo tuotannon karsinta-asetuksilla (Story 2.13).
+    """The stage run with the production pruning settings (Story 2.13).
 
-    Oletus on ``settings.toml``in oletus samasta syystä kuin
-    ``test_render``issä: kiinnike, joka ajaisi karsinnan pois päältä,
-    testaisi vaihetta tilassa, jota kukaan ei aja.
+    The default is ``settings.toml``'s default for the same reason as in
+    ``test_render``: a fixture that turned the pruning off would test the
+    stage in a state nobody runs.
     """
     return render_stage.run(settings, archive, team, **kwargs)
 
@@ -91,7 +90,7 @@ def reports(archive: ArchivePaths, team_key: str = TEAM_KEY) -> list[Path]:
     return sorted(archive.reports_dir(team_key).glob("*.md"))
 
 
-# --- Perusajo -------------------------------------------------------------------
+# --- The basic run --------------------------------------------------------------
 
 
 def test_the_roster_row_reaches_the_written_markdown(tmp_path: Path) -> None:
@@ -145,11 +144,11 @@ def test_run_writes_one_timestamped_markdown_file(tmp_path: Path) -> None:
 
 
 def test_the_file_on_disk_is_exactly_what_render_produced(tmp_path: Path) -> None:
-    """Vaihe ei muotoile mitään kirjoitushetkellä -- ääkköset mukaan lukien.
+    """The stage formats nothing at write time -- the Finnish letters included.
 
-    Tiedosto luetaan takaisin **UTF-8:na ja tavuina**: väärä koodaus tuottaisi
-    tiedoston, joka avautuu Windowsilla mutta näyttää Discordissa väärältä, ja
-    osamerkkijonoväite ei huomaisi sitä.
+    The file is read back **as UTF-8 and as bytes**: the wrong encoding would
+    produce a file that opens on Windows but looks wrong in Discord, and a
+    substring claim would not notice that.
     """
     from pappascout.render import render_report
 
@@ -177,7 +176,7 @@ def test_the_file_name_carries_the_timestamp_and_the_team_slug(
 
 
 def test_running_twice_never_overwrites_the_earlier_report(tmp_path: Path) -> None:
-    """Sama minuutti, kaksi ajoa: uusi tiedosto, vanha säilyy koskemattomana."""
+    """The same minute, two runs: a new file, the old one left untouched."""
     archive = build_archive(tmp_path)
 
     first = run(archive, now=STAMP)
@@ -198,22 +197,23 @@ def test_running_twice_never_overwrites_the_earlier_report(tmp_path: Path) -> No
 
 
 def test_rendering_twice_leaves_the_report_json_untouched(tmp_path: Path) -> None:
-    """``render`` on lukija: syöte on tavu tavulta sama ajon jälkeen.
+    """``render`` is a reader: the input is the same byte for byte after a run.
 
-    **Tämä testi vartioi vaiheen lukuoikeussopimusta, ei yhtään tarinaa.**
-    ``render`` ei ole koskaan kirjoittanut ``report.json``ia, joten testi
-    menisi läpi myös ennen Story 2.12:ta -- se ei siis todista, että
-    tunnisteiden siirto oli pelkkä esitysvalinta. Sen todistaa se, ettei
-    ``domain/report.py``ssa ole muutosta lainkaan.
+    **This test guards the stage's read-only contract, not any story.**
+    ``render`` has never written ``report.json``, so the test would pass
+    before Story 2.12 as well -- it therefore does not prove that moving the
+    ids was a mere presentation choice. What proves that is that there is no
+    change in ``domain/report.py`` at all.
 
-    Sopimus kannattaa silti vartioida: ``render`` on putken ainoa vaihe, joka
-    lukee toisen vaiheen tulosalueelta, ja kirjoitus sinne olisi juuri se
-    kerrosrikko, jonka vaiheen sopimus (``run(...) -> StageResult``) kieltää.
-    Väite tehdään **tavuista**: levyltä luettu ja takaisin kirjoitettu
-    tiedosto voisi olla kelvollinen ``Report`` ja silti eri tiedosto.
+    The contract is worth guarding all the same: ``render`` is the pipeline's
+    only stage that reads from another stage's result area, and a write there
+    would be exactly the layering breach the stage's contract
+    (``run(...) -> StageResult``) forbids. The claim is made about **bytes**: a
+    file read off the disk and written back could be a valid ``Report`` and
+    still be a different file.
 
-    Kaksi ajoa eikä yksi, koska ohituksen puuttuminen on tämän vaiheen
-    sopimus: vaihe ajetaan aina, ja silti syöte pysyy koskemattomana.
+    Two runs and not one, because the absence of a skip is this stage's
+    contract: the stage is always run, and still the input stays untouched.
     """
     archive = build_archive(tmp_path)
     source = archive.report_json(TEAM_KEY)
@@ -223,15 +223,15 @@ def test_rendering_twice_leaves_the_report_json_untouched(tmp_path: Path) -> Non
     run(archive, now=STAMP)
 
     assert source.read_bytes() == before
-    # Vakio eikä neljäs kopio literaalista: version pinnaus kuuluu
-    # ``test_report_model``iin, ja täällä väite on "sama versio kuin ennen
-    # ajoa" -- ei "versio on tämä luku".
+    # The constant and not a fourth copy of the literal: pinning the version
+    # belongs to ``test_report_model``, and the claim here is "the same
+    # version as before the run" -- not "the version is this number".
     assert json.loads(before)["schema_version"] == REPORT_SCHEMA_VERSION
     assert len(reports(archive)) == 2
 
 
 def test_the_ordinal_is_zero_padded_so_the_listing_sorts(tmp_path: Path) -> None:
-    """Ilman täyttöä hakemistolistaus järjestäisi ``-10, -100, -11, -2``."""
+    """Without the padding a directory listing would order ``-10, -100, -11, -2``."""
     archive = build_archive(tmp_path)
     for _ in range(11):
         run(archive, now=STAMP)
@@ -241,8 +241,8 @@ def test_the_ordinal_is_zero_padded_so_the_listing_sorts(tmp_path: Path) -> None
         if path.name != f"2026-08-30T0307-{TEAM_SLUG}.md"
     ]
     assert len(numbered) == 10
-    # Aakkosjarjestys on numerojarjestys vain nollataytettyna: ilman taytetta
-    # "-10" tulisi ennen "-2":ta.
+    # Alphabetical order is numerical order only when zero-padded: without the
+    # padding "-10" would come before "-2".
     assert numbered == sorted(numbered)
     assert numbered[0].endswith("-02.md")
     assert numbered[-1].endswith("-11.md")
@@ -251,12 +251,12 @@ def test_the_ordinal_is_zero_padded_so_the_listing_sorts(tmp_path: Path) -> None
 def test_a_full_minute_of_reports_fails_instead_of_overwriting(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Nimien loppuminen on virhe, ei syy ylikirjoittaa vanhaa raporttia."""
+    """Running out of names is an error, not a reason to overwrite an old report."""
     monkeypatch.setattr(render_stage, "MAX_REPORTS_PER_MINUTE", 2)
     archive = build_archive(tmp_path)
     run(archive, now=STAMP)
     run(archive, now=STAMP)
-    with pytest.raises(PappascoutError, match="ei ylikirjoiteta"):
+    with pytest.raises(PappascoutError, match="never overwritten"):
         run(archive, now=STAMP)
     assert len(reports(archive)) == 2
 
@@ -276,26 +276,27 @@ def test_report_name_numbering_starts_without_a_suffix() -> None:
             report_name("2026-08-30T0307", "abc", bad)
 
 
-# --- Varaus ja epäonnistunut kirjoitus ------------------------------------------
+# --- The reservation and a failed write -----------------------------------------
 
 
 def test_a_failed_write_does_not_leave_an_empty_report_behind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Varaus on tyhjä tiedosto; jos kirjoitus kaatuu, se on peruttava.
+    """The reservation is an empty file; if the write fails, it has to be undone.
 
-    Ilman perumista hakemistoon jäisi pysyvästi nollatavuinen ``.md``, joka
-    näyttää raportilta, vie järjestysluvun eikä ole atomisen kirjoituksen
-    väliaikaistiedosto -- eli sitä ei löydä mikään siivousta etsivä tarkistus.
+    Without undoing it a zero-byte ``.md`` would stay in the directory for
+    good, looking like a report, taking up an ordinal and not being an atomic
+    write's temporary file -- that is, no check that looks for leftovers finds
+    it.
     """
 
     def boom(*args, **kwargs):
-        raise OSError("levy täynnä")
+        raise OSError("the disk is full")
 
     monkeypatch.setattr(render_stage, "atomic_write_text", boom)
     archive = build_archive(tmp_path)
 
-    with pytest.raises(PappascoutError, match="Varaus peruttiin"):
+    with pytest.raises(PappascoutError, match="reservation was cancelled"):
         run(archive, now=STAMP)
 
     assert reports(archive) == []
@@ -305,14 +306,14 @@ def test_a_failed_write_does_not_leave_an_empty_report_behind(
 def test_a_write_failure_frees_the_name_for_the_next_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Peruttu varaus ei saa viedä järjestyslukua seuraavalta ajolta."""
+    """A cancelled reservation must not take the ordinal from the next run."""
     calls = {"n": 0}
     real = render_stage.atomic_write_text
 
     def once(path, text):
         calls["n"] += 1
         if calls["n"] == 1:
-            raise OSError("levy täynnä")
+            raise OSError("the disk is full")
         return real(path, text)
 
     monkeypatch.setattr(render_stage, "atomic_write_text", once)
@@ -323,34 +324,34 @@ def test_a_write_failure_frees_the_name_for_the_next_run(
     assert result.outputs[0].name == f"2026-08-30T0307-{TEAM_SLUG}.md"
 
 
-def test_an_unwritable_directory_is_a_finnish_error_not_a_stack_trace(
+def test_an_unwritable_directory_is_a_clear_error_not_a_stack_trace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Vain ``FileExistsError`` tarkoittaa "nimi varattu"; muu on virhe."""
+    """Only ``FileExistsError`` means "the name is taken"; anything else is an error."""
     archive = build_archive(tmp_path)
 
     def denied(*args, **kwargs):
-        raise PermissionError("ei oikeuksia")
+        raise PermissionError("no permission")
 
     monkeypatch.setattr(os, "open", denied)
-    with pytest.raises(PappascoutError, match="ei voitu varata"):
+    with pytest.raises(PappascoutError, match="could not be reserved"):
         run(archive, now=STAMP)
 
 
-def test_an_uncreatable_directory_is_a_finnish_error(
+def test_an_uncreatable_directory_is_a_clear_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     archive = build_archive(tmp_path)
 
     def denied(*args, **kwargs):
-        raise PermissionError("ei oikeuksia")
+        raise PermissionError("no permission")
 
     monkeypatch.setattr(Path, "mkdir", denied)
-    with pytest.raises(PappascoutError, match="ei voitu luoda"):
+    with pytest.raises(PappascoutError, match="could not be created"):
         run(archive, now=STAMP)
 
 
-# --- Syötteen tarkistus ---------------------------------------------------------
+# --- Checking the input ---------------------------------------------------------
 
 
 def test_a_missing_report_json_tells_the_user_to_aggregate(tmp_path: Path) -> None:
@@ -363,7 +364,7 @@ def test_a_missing_report_json_tells_the_user_to_aggregate(tmp_path: Path) -> No
 def test_a_different_schema_version_refuses_and_says_to_aggregate(
     tmp_path: Path,
 ) -> None:
-    """Vanha skeemaversio: ajo kieltäytyy eikä muotoile puolikasta raporttia."""
+    """An old schema version: the run refuses and does not format half a report."""
     archive = build_archive(tmp_path)
     path = archive.report_json(TEAM_KEY)
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -373,7 +374,7 @@ def test_a_different_schema_version_refuses_and_says_to_aggregate(
     with pytest.raises(PappascoutError) as excinfo:
         run(archive)
     message = str(excinfo.value)
-    assert "skeemaversio" in message
+    assert "schema version" in message
     assert "0.9.0" in message
     assert "aggregate" in message
     assert reports(archive) == []
@@ -383,8 +384,8 @@ def test_a_broken_report_json_is_a_clear_error_not_a_stack_trace(
     tmp_path: Path,
 ) -> None:
     archive = build_archive(tmp_path)
-    archive.report_json(TEAM_KEY).write_text("{ ei jsonia", encoding="utf-8")
-    with pytest.raises(PappascoutError, match="JSONina"):
+    archive.report_json(TEAM_KEY).write_text("{ not json", encoding="utf-8")
+    with pytest.raises(PappascoutError, match="as JSON"):
         run(archive)
 
 
@@ -394,15 +395,15 @@ def test_a_report_that_does_not_match_the_model_is_rejected(tmp_path: Path) -> N
     data = json.loads(path.read_text(encoding="utf-8"))
     data["sample"]["rounds"] = 999
     path.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(PappascoutError, match="ei vastaa raporttimallia"):
+    with pytest.raises(PappascoutError, match="does not match the report model"):
         run(archive)
 
 
 def test_a_report_belonging_to_another_team_is_refused(tmp_path: Path) -> None:
-    """``team.key`` ja hakemiston nimi ovat sama asia -- tai tiedosto on väärässä.
+    """``team.key`` and the directory's name are the same thing -- or the file is wrong.
 
-    Ero tarkoittaa, että raportti nimettäisiin hakemiston mukaan mutta
-    kierrosliitteen polut ja tilastot kertoisivat toisesta joukkueesta.
+    A difference means the report would be named after the directory while the
+    round-list appendix's paths and the statistics told of another team.
     """
     archive = build_archive(tmp_path)
     path = archive.report_json(TEAM_KEY)
@@ -410,12 +411,12 @@ def test_a_report_belonging_to_another_team_is_refused(tmp_path: Path) -> None:
     data["team"]["key"] = OTHER_TEAM
     path.write_text(json.dumps(data), encoding="utf-8")
 
-    with pytest.raises(PappascoutError, match="koskee joukkuetta"):
+    with pytest.raises(PappascoutError, match="is about team"):
         run(archive)
     assert reports(archive) == []
 
 
-# --- Joukkueen valinta ----------------------------------------------------------
+# --- Choosing the team ----------------------------------------------------------
 
 
 def test_team_keys_lists_only_aggregated_teams(tmp_path: Path) -> None:
@@ -431,13 +432,13 @@ def test_a_unique_prefix_is_enough(tmp_path: Path) -> None:
 
 def test_a_prefix_that_matches_nothing_lists_the_candidates(tmp_path: Path) -> None:
     archive = build_archive(tmp_path)
-    with pytest.raises(PappascoutError, match="ei täsmää yhteenkään"):
+    with pytest.raises(PappascoutError, match="matches no team at all"):
         render_stage.resolve_team(archive, "zz")
 
 
 def test_a_missing_team_option_lists_the_candidates(tmp_path: Path) -> None:
     archive = build_archive(tmp_path)
-    with pytest.raises(PappascoutError, match="Kerro --team"):
+    with pytest.raises(PappascoutError, match="with the --team option"):
         render_stage.resolve_team(archive, None)
 
 
@@ -445,13 +446,13 @@ def test_a_missing_team_option_lists_the_candidates(tmp_path: Path) -> None:
 def test_an_empty_team_is_not_a_prefix_that_matches_everything(
     tmp_path: Path, empty: str
 ) -> None:
-    """Jokainen tunniste alkaa tyhjällä merkkijonolla.
+    """Every id begins with the empty string.
 
-    Ilman tarkistusta ``--team ""`` valitsisi hiljaa ainoan joukkueen -- eli
-    tekisi juuri sen, minkä ``--team``in vaatiminen estää.
+    Without the check ``--team ""`` would silently pick the only team -- that
+    is, do exactly what requiring ``--team`` prevents.
     """
     archive = build_archive(tmp_path)
-    with pytest.raises(PappascoutError, match="tyhjä"):
+    with pytest.raises(PappascoutError, match="The team id is empty"):
         render_stage.resolve_team(archive, empty)
 
 
@@ -460,7 +461,7 @@ def test_a_prefix_matching_two_teams_is_refused(tmp_path: Path) -> None:
         tmp_path,
         teams={"aaaa1111": report([pistol_map()]), "aaaa2222": report([pistol_map()])},
     )
-    with pytest.raises(PappascoutError, match="useampaan"):
+    with pytest.raises(PappascoutError, match="matches more than one team"):
         render_stage.resolve_team(archive, "aaaa")
 
 
@@ -470,13 +471,13 @@ def test_an_empty_archive_says_to_aggregate_first(tmp_path: Path) -> None:
         render_stage.resolve_team(archive, TEAM_KEY)
 
 
-# --- Kierrosliitteen polut ------------------------------------------------------
+# --- The round-list appendix's paths --------------------------------------------
 
 
 def test_round_list_paths_are_absolute_and_come_from_archive_paths(
     tmp_path: Path,
 ) -> None:
-    """Discordiin liitetystä raportista lukija ei näe missä arkiston juuri on."""
+    """From a report attached in Discord the reader cannot see where the archive is."""
     archive = build_archive(tmp_path)
     entry = render_stage.read_report(archive.report_json(TEAM_KEY), TEAM_KEY)
     paths = render_stage.round_list_paths(archive, entry)
@@ -491,7 +492,7 @@ def test_the_written_report_contains_those_paths(tmp_path: Path) -> None:
     assert str(archive.classified_round_list(TEAM_KEY, DEMO_ID)) in text
 
 
-# --- Manifesti ------------------------------------------------------------------
+# --- The manifest ---------------------------------------------------------------
 
 
 def manifest_of(archive: ArchivePaths, result) -> Manifest:
@@ -514,9 +515,9 @@ def test_the_manifest_records_the_input_the_parameters_and_the_output(
 
 
 def test_each_report_gets_its_own_manifest(tmp_path: Path) -> None:
-    """Yhteinen manifesti kestäisi huonosti juuri sitä rinnakkaisuutta,
-    jonka varalta nimi varataan: viimeisenä kirjoittava jäisi voimaan ja
-    kuvaisi eri raporttia kuin se, jonka käyttäjä juuri sai."""
+    """A shared manifest would stand up badly to exactly the concurrency the
+    name is reserved against: the last writer would remain in force and would
+    describe a different report from the one the user has just been given."""
     archive = build_archive(tmp_path)
     first = run(archive, now=STAMP)
     second = run(archive, now=STAMP)
@@ -530,7 +531,7 @@ def test_each_report_gets_its_own_manifest(tmp_path: Path) -> None:
 def test_a_missing_aggregate_manifest_does_not_stop_the_report(
     tmp_path: Path,
 ) -> None:
-    """Raportti on tärkeämpi kuin jäljitettävyys; syöte merkitään tuntemattomaksi."""
+    """The report matters more than the traceability; the input is marked unknown."""
     archive = build_archive(tmp_path, write_manifest=False)
     result = run(archive)
     assert archive.resolve(result.outputs[0]).is_file()
@@ -540,7 +541,7 @@ def test_a_missing_aggregate_manifest_does_not_stop_the_report(
 def test_the_template_is_part_of_the_parameter_hash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Mallin muokkaaminen muuttaa raporttia, joten se näkyy manifestissa."""
+    """Editing the template changes the report, so it shows up in the manifest."""
     archive = build_archive(tmp_path)
     before = manifest_of(archive, run(archive)).params_hash
 
@@ -550,11 +551,11 @@ def test_the_template_is_part_of_the_parameter_hash(
 
 
 def test_a_pruning_setting_is_part_of_the_parameter_hash(tmp_path: Path) -> None:
-    """Story 2.13: luettu asetus, joka ei näy hashissa, on Story 1.8:n vika.
+    """Story 2.13: a setting that is read but not in the hash is the Story 1.8 defect.
 
-    Vaihe sai tarinassa ensimmäiset omat asetuksensa. Ilman niitä hashissa
-    manifesti väittäisi kahta eri raporttia samaksi tulokseksi -- ja juuri
-    tämä vika on tässä projektissa löytynyt kolmesti.
+    The stage got its first settings of its own in that story. Without them in
+    the hash the manifest would claim that two different reports are the same
+    result -- and this defect has been found three times in this project.
     """
     archive = build_archive(tmp_path)
     default = manifest_of(archive, run(archive)).params_hash
@@ -569,20 +570,21 @@ def test_a_pruning_setting_is_part_of_the_parameter_hash(tmp_path: Path) -> None
         other = manifest_of(archive, run(archive, settings=changed)).params_hash
         assert other != default, changed
 
-    # Ja sama asetus tuottaa saman hashin: hash ei saa muuttua ajon ajasta
-    # eikä tiedostonimestä, tai manifesti ei kertoisi mistään.
+    # And the same setting produces the same hash: the hash must not change
+    # with the run's time or the file's name, or the manifest would say
+    # nothing about anything.
     assert manifest_of(archive, run(archive)).params_hash == default
 
 
 def test_the_hash_covers_the_template_and_the_whole_section(
     tmp_path: Path,
 ) -> None:
-    """Hashin syöte on lukittu: malli ja ``[report]`` **kokonaisena**.
+    """The hash's input is locked: the template and ``[report]`` **whole**.
 
-    Osio menee hashiin ``model_dump``ina eikä nimettyinä kenttinä, joten
-    kuudes karsintasääntö on siellä heti kun se on osiossa. Luettelo
-    vanhenisi hiljaa juuri silloin, kun sääntö lisätään -- ja se on sama
-    epäonnistumistapa kuin puuttuva asetus itse.
+    The section goes into the hash as a ``model_dump`` and not as named
+    fields, so a sixth pruning rule is in there the moment it is in the
+    section. A listing would go stale quietly at exactly the moment the rule
+    is added -- and that is the same failure mode as a missing setting itself.
     """
     archive = build_archive(tmp_path)
     settings = ReportSettings(max_kill_areas=4)
@@ -598,12 +600,13 @@ def test_the_hash_covers_the_template_and_the_whole_section(
 def test_the_same_rules_in_a_different_order_hash_the_same(
     tmp_path: Path,
 ) -> None:
-    """Kohta G1: identtinen raportti, identtinen parametrihash.
+    """Point G1: an identical report, an identical parameter hash.
 
-    Näytepistelista järjestetään latauksessa, joten ``[45, 15]`` ja
-    ``[15, 45]`` ovat sama asetus. Ilman järjestämistä manifesti väittäisi
-    kahden merkki merkiltä saman raportin syntyneen eri parametreilla -- ja
-    manifestin koko arvo on se, että ero siinä tarkoittaa eroa tuloksessa.
+    The sample-point list is sorted at load time, so ``[45, 15]`` and
+    ``[15, 45]`` are the same setting. Without the sorting the manifest would
+    claim that two character-for-character identical reports came from
+    different parameters -- and the manifest's whole value is that a
+    difference in it means a difference in the result.
     """
     archive = build_archive(tmp_path)
     one = ReportSettings(skip_sample_seconds=[45.0, 15.0])
@@ -612,7 +615,8 @@ def test_the_same_rules_in_a_different_order_hash_the_same(
     first = manifest_of(archive, run(archive, settings=one))
     second = manifest_of(archive, run(archive, settings=other))
     assert first.params_hash == second.params_hash
-    # Ja eri joukko on eri hash: järjestäminen ei saa niputtaa eri arvoja.
+    # And a different set is a different hash: sorting must not lump different
+    # values together.
     third = manifest_of(
         archive, run(archive, settings=ReportSettings(skip_sample_seconds=[30.0]))
     )
@@ -620,7 +624,7 @@ def test_the_same_rules_in_a_different_order_hash_the_same(
 
 
 def test_the_stage_is_never_skipped(tmp_path: Path) -> None:
-    """Käyttäjä pyysi raportin; ohitus jättäisi hänet ilman tiedostoa."""
+    """The user asked for a report; a skip would leave him without the file."""
     archive = build_archive(tmp_path)
     first = run(archive)
     second = run(archive)
@@ -629,7 +633,7 @@ def test_the_stage_is_never_skipped(tmp_path: Path) -> None:
     assert first.outputs != second.outputs
 
 
-# --- Tuloksen luvut -------------------------------------------------------------
+# --- The result's numbers -------------------------------------------------------
 
 
 def test_stats_carry_the_numbers_the_user_checks(tmp_path: Path) -> None:

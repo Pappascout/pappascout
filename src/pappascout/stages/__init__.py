@@ -1,17 +1,20 @@
-"""Putken vaiheet: tiedostosta tiedostoon (AD-1).
+"""The pipeline's stages: from file to file (AD-1).
 
-Jokainen vaihe on funktio ``run(settings, archive, unit, *ports) -> StageResult``,
-jonka syöte ja tulos ovat arkiston tiedostoja. Vaihe ei kutsu toista vaihetta
-eikä kirjoita toisen vaiheen tulosalueelle; **järjestyksen päättää käyttäjä
-komento kerrallaan**, eikä vaiheita ketjuttavaa moduulia ole olemassa.
+Every stage is a function ``run(settings, archive, unit, *ports) -> StageResult``
+whose input and result are files in the archive. A stage does not call another
+stage and does not write into another stage's result area; **the order is
+decided by the user one command at a time**, and no module chaining the stages
+together exists.
 
-Vaihe saa parametrikseen **vain oman asetusosionsa** (AD-3). Se ei siis pysty
-lukemaan muita osioita, ja siksi esimerkiksi ``[thresholds]``-arvon muuttaminen
-ei voi vaikuttaa ``parse``-vaiheen tulokseen eikä sen parametrihashiin.
+A stage is given **only its own settings section** (AD-3). It therefore cannot
+read the other sections, which is why for instance changing a
+``[thresholds]`` value cannot affect the ``parse`` stage's result or its
+parameter hash.
 
-Tämä paketti on myös se kerros, jonka kautta ``cli`` koskee arkistoon:
-riippuvuusnuoli on ``cli -> stages -> {domain, adapters, archive}``, joten
-komentorivi ei tuo ``archive``- eikä ``adapters``-pakettia itse.
+This package is also the layer through which ``cli`` touches the archive: the
+dependency arrow is ``cli -> stages -> {domain, adapters, archive}``, so the
+command line does not import the ``archive`` or the ``adapters`` package
+itself.
 """
 
 from __future__ import annotations
@@ -29,37 +32,39 @@ __all__ = ["StageResult", "archive_paths"]
 
 @dataclass(frozen=True)
 class StageResult:
-    """Yhden vaiheen ja yhden yksikön ajon tulos.
+    """The result of running one stage over one unit.
 
-    Vaihe ei tulosta mitään itse: se palauttaa tämän, ja ``cli`` päättää mitä
-    käyttäjälle näytetään. Sama vaihe toimii siten myös web-kuoren takana.
+    A stage prints nothing itself: it returns this, and ``cli`` decides what
+    is shown to the user. The same stage therefore works behind a web shell
+    as well.
 
     Attributes:
-        stage: Vaiheen nimi, esimerkiksi ``"parse"``.
-        unit: Käsitelty yksikkö, ``parse``-vaiheessa ``map_demo_id``.
-        status: Yksikön tila (AD-9).
-        skipped: Ohitettiinko vaihe täsmäävän manifestin perusteella.
-        outputs: Kirjoitetut tiedostot arkiston sisäisinä suhteellisina
-            polkuina. Ohitetussa ajossa nämä ovat aiemman ajon tiedostot.
-        manifest_path: Manifestin polku arkiston sisällä.
-        reason: Suomenkielinen selitys muulle kuin ``ok``-tilalle,
-            ohitukselle **tai vajaalle tulokselle**. Kolmas kayttotapa on
-            putken alkupaan vaiheiden (``discover``, ``select``): niilla
-            ``status`` on aina ``ok`` -- haku onnistui -- mutta tulos voi
-            silti olla tyhja tai vajaa, ja "0 rivia" ilman sanaakaan syysta
-            jattaisi kayttajan arvaamaan. Uusi ``UnitStatus``-arvo ei ole
-            vaihtoehto: se laajentaisi ``CLASSIFIED``in polars-enumia eli
-            muuttaisi arkistossa jo olevien parquet-tiedostojen
-            skeemasopimusta.
+        stage: The stage's name, for example ``"parse"``.
+        unit: The unit processed, in the ``parse`` stage ``map_demo_id``.
+        status: The unit's status (AD-9).
+        skipped: Whether the stage was skipped on the strength of a matching
+            manifest.
+        outputs: The files written, as paths relative to the inside of the
+            archive. In a skipped run these are the previous run's files.
+        manifest_path: The manifest's path inside the archive.
+        reason: An explanation for a status other than ``ok``, for a skip
+            **or for an incomplete result**. The third use is that of the
+            stages at the head of the pipeline (``discover``, ``select``):
+            for those ``status`` is always ``ok`` -- the lookup succeeded --
+            but the result can still be empty or incomplete, and "0 rows"
+            without a word about why would leave the user guessing. A new
+            ``UnitStatus`` value is not an option: it would extend
+            ``CLASSIFIED``'s polars enum, that is, change the schema contract
+            of the parquet files already in the archive.
 
-            **Yksi merkkijono, vaikka huomioita olisi monta.** Vaihe, jolla
-            niita voi olla useita, kantaa ne erillisina myos
-            ``stats["notes"]``issa, jotta komento tulostaa jokaisen omalle
-            rivilleen eika yksikaan katoa toisen peraan.
-        duration_s: Ajoaika sekunteina.
-        stats: Vaihekohtaiset luvut käyttäjän tulostetta varten, esimerkiksi
-            kierrosten määrä. Vapaamuotoinen, koska jokainen vaihe kertoo eri
-            asian.
+            **One string, even when there are many notes.** A stage that can
+            have several of them also carries them separately in
+            ``stats["notes"]``, so that the command prints each on its own
+            line and none of them disappears behind another.
+        duration_s: The running time in seconds.
+        stats: Per-stage numbers for the user's output, for example the
+            number of rounds. Free-form, because every stage says something
+            different.
     """
 
     stage: str
@@ -74,14 +79,15 @@ class StageResult:
 
 
 def archive_paths(project: ProjectSettings) -> ArchivePaths:
-    """Rakenna arkistopolut ``[project]``-osiosta.
+    """Build the archive paths from the ``[project]`` section.
 
-    Tämä on ``cli``:n ainoa tie arkistoon: komentorivi ei tuo ``archive``-
-    pakettia itse, vaan pyytää polut tästä kerroksesta.
+    This is ``cli``'s only way into the archive: the command line does not
+    import the ``archive`` package itself, it asks this layer for the paths.
 
-    Mukana kulkee myös ``demos_root``, joka on ainoa polku arkiston
-    ulkopuolella. Se annetaan tässä eikä jokaisessa vaiheessa erikseen, jotta
-    demojen sijainti on **yksi päätös yhdessä paikassa**: vaihe, joka lukisi
-    asetuksen itse, päättäisi ennen pitkää eri tavalla kuin naapurinsa.
+    ``demos_root`` travels along too; it is the only path outside the
+    archive. It is given here rather than separately in every stage, so that
+    the demos' location is **one decision in one place**: a stage that read
+    the setting itself would before long decide differently from its
+    neighbour.
     """
     return ArchivePaths.from_settings(project.archive_root, project.demos_root)

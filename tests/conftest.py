@@ -1,10 +1,11 @@
-"""Testien jaetut apurit.
+"""Shared helpers for the tests.
 
-Testit eivät tarvitse demoja, verkkoa **eivätkä tätä konetta**: taulut
-rakennetaan käsin, ja sekä kotihakemisto että arkiston juuri ohjataan
-väliaikaishakemistoon. Ilman sitä testit lukisivat oikeaa
-``%USERPROFILE%\\.pappascout\\.env``-tiedostoa ja kävisivät läpi satojen
-megatavujen OneDrive-arkiston -- tulos riippuisi koneesta.
+The tests need no demos, no network **and not this machine**: the tables are
+built by hand, and both the home directory and the archive root are
+redirected to a temporary directory. Without that the tests would read the
+real ``%USERPROFILE%\\.pappascout\\.env`` file and walk through a
+synchronised folder holding hundreds of megabytes of archive -- and the
+result would depend on the machine.
 """
 
 from __future__ import annotations
@@ -133,58 +134,58 @@ def _real_archive_root() -> Path | None:
 
 
 def _real_import_dir() -> Path | None:
-    """Oikeiden demojen hakemisto arkiston juuren alla."""
+    """The directory of the real demos, under the archive root."""
     root = _real_archive_root()
     return None if root is None else root / "import"
 
 
-#: Oikean arkiston juuri, tai ``None`` jos sitä ei voitu päätellä.
+#: The real archive root, or ``None`` if it could not be resolved.
 ARCHIVE_ROOT: Path | None = _real_archive_root()
 
-#: Oikeiden demojen hakemisto, tai ``None`` jos sitä ei voitu päätellä.
-#: ``PAPPASCOUT_TEST_DEMOS`` ylikirjoittaa sen.
+#: The directory of the real demos, or ``None`` if it could not be resolved.
+#: ``PAPPASCOUT_TEST_DEMOS`` overrides it.
 _FROM_ENV = os.environ.get("PAPPASCOUT_TEST_DEMOS")
 DEMO_DIR: Path | None = Path(_FROM_ENV) if _FROM_ENV else _real_import_dir()
 
-#: Testiaineisto (``_bmad-output/implementation-artifacts/testiaineisto.md``).
+#: Test data (``_bmad-output/implementation-artifacts/testiaineisto.md``).
 ANCIENT_DEM = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1.dem"
 ANCIENT_ZST = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1.dem.zst"
 NUKE_ZST = "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1.dem.zst"
 
-#: Odotetut tulokset oikeista demoista (FACEIT Data API, haettu 2026-08-28).
+#: Expected results from the real demos (FACEIT Data API, fetched 2026-08-28).
 ANCIENT_ROUNDS = 21
 NUKE_ROUNDS = 28
 
-#: Pappaliigan viime kauden demot ja niiden pelatut kierrokset.
+#: The demos of Pappaliiga's last season and the rounds played in them.
 #:
-#: **Korvaamatonta aineistoa.** FACEIT ei enää tarjoa näitä (säilytys ~30 pv),
-#: eikä uusintaa ole. Ne ovat ainoa liigadata, jota vasten ottelun
-#: uudelleenaloituksen käsittely on todennettu, eivätkä ne ole repossa vaan
-#: arkiston ``import/``-hakemistossa. :func:`require_demo` ohittaa testin
-#: siististi, jos niitä ei ole -- eli toisella koneella koko regressiosarja
-#: haihtuu äänettömästi. Siksi koko ja tiiviste ovat kirjattuina
-#: :data:`LEAGUE_DEMO_FILES`iin: väärä tai typistynyt kopio erottuu
-#: puuttuvasta.
+#: **Irreplaceable data.** FACEIT no longer offers these (retention ~30 days)
+#: and there is no re-run. They are the only league data against which the
+#: handling of a match restart has been verified, and they are not in the
+#: repository but in the archive's ``import/`` directory. :func:`require_demo`
+#: skips the test cleanly when they are absent -- that is, on another machine
+#: the whole regression set evaporates silently. That is why the size and the
+#: digest are recorded in :data:`LEAGUE_DEMO_FILES`: a wrong or truncated copy
+#: is then distinguishable from a missing one.
 #:
-#: Kaikissa neljässä on puukkokierroksen jälkeen ottelun uudelleenaloitus: oma
-#: ``round_freeze_end`` ilman ``round_end``iä, ja demon oma kierrosnumerointi
-#: jatkuu sen yli yhdellä. Se pelataan, mutta se ei ole kierros. Kuvion mittaus
-#: on tallessa BMAD-projektin tiedostossa
-#: ``_bmad-output/implementation-artifacts/vika-kierrosnumerointi.md``, joka on
-#: **tämän repon ulkopuolella**; olennainen sisältö on toistettu
-#: :mod:`pappascout.adapters.demo_parser`in moduulidokumentaatiossa, jottei
-#: testi nojaa tiedostoon jota täällä ei ole.
+#: All four have a match restart after the knife round: a ``round_freeze_end``
+#: of its own with no ``round_end``, and the demo's own round numbering
+#: carries on over it by one. It is played, but it is not a round. The
+#: measurement of the pattern is kept in the BMAD project's file
+#: ``_bmad-output/implementation-artifacts/vika-kierrosnumerointi.md``, which
+#: is **outside this repository**; the essential content is repeated in
+#: :mod:`pappascout.adapters.demo_parser`'s module documentation, so that the
+#: test does not lean on a file that is not here.
 #:
-#: **Kierrosmäärän oraakkeli ei ole oman koodimme tuotos.** Se on demon omien
-#: ``round_end``-tapahtumien määrä miinus puukkokierros, luettuna suoraan
-#: demoparser2:n tapahtumavirrasta ohi kierrosnumeroinnistamme. Sama johdos
-#: ajetaan testinä
-#: (``test_league_round_count_matches_the_demos_own_event_stream``), joten luku
-#: ei voi ajautua yhtä matkaa numeroinnin kanssa.
+#: **The oracle for the round count is not a product of our own code.** It is
+#: the number of the demo's own ``round_end`` events minus the knife round,
+#: read straight from demoparser2's event stream, past our own round
+#: numbering. The same derivation is run as a test
+#: (``test_league_round_count_matches_the_demos_own_event_stream``), so the
+#: number cannot drift in step with the numbering.
 #:
-#: **Älä käytä puolikohtaisia voittoja ottelun tuloksena.** Puolet vaihtuvat
-#: puoliajalla, joten ``round_end``in ``winner``-kentän T/CT-jakauma ei ole
-#: joukkueen tulos vaan puolen tulos.
+#: **Do not use per-half wins as the match result.** The sides swap at half
+#: time, so the T/CT split of ``round_end``'s ``winner`` field is not the
+#: team's result but the side's result.
 LEAGUE_DEMOS: tuple[tuple[str, int], ...] = (
     ("Ancient_vs_kaljukostaja.dem", 20),
     ("Anubis_vs_ryhmarama.dem", 22),
@@ -192,11 +193,11 @@ LEAGUE_DEMOS: tuple[tuple[str, int], ...] = (
     ("inferno_vs_ryhmarama.dem", 20),
 )
 
-#: Liigademojen koko tavuina ja SHA-256, mitattu 2026-08-29.
+#: The league demos' size in bytes and SHA-256, measured 2026-08-29.
 #:
-#: Nämä eivät ole varmuuskopio vaan **tunniste**: jos arkiston tiedosto ei
-#: täsmää, testien luvut eivät koske sitä tiedostoa. Puuttuva demo ohitetaan
-#: siististi, mutta väärä demo ei saa mennä läpi hiljaa.
+#: These are not a backup but an **id**: if the file in the archive does not
+#: match, the tests' numbers do not apply to that file. A missing demo is
+#: skipped cleanly, but a wrong demo must not pass silently.
 LEAGUE_DEMO_FILES: dict[str, tuple[int, str]] = {
     "Ancient_vs_kaljukostaja.dem": (
         379_946_762,
@@ -217,75 +218,79 @@ LEAGUE_DEMO_FILES: dict[str, tuple[int, str]] = {
 }
 
 
-#: Story 2.10:n vikademo: pelaaja, jonka kontrolleri on tallella mutta pawn ei.
+#: Story 2.10's fault demo: a player whose controller is there but whose
+#: pawn is not.
 #:
-#: ``anubis_vs_RCAVE_VETERANS`` **ei parsiutunut lainkaan** ennen Story 2.10:tä:
-#: yhdellä pelaajalla yhdellä kierroksella ei ollut hahmoa kartalla, ja
-#: näytepistelukijan elossaolovartija kaatoi koko demon. Se maksoi kolmanneksen
-#: uuden vastustajan aineistosta.
+#: ``anubis_vs_RCAVE_VETERANS`` **did not parse at all** before Story 2.10:
+#: one player on one round had no character on the map, and the sample-point
+#: reader's alive guard brought the whole demo down. It cost a third of the
+#: data on a new opponent.
 #:
-#: Demo on tässä siksi, että korjauksen mittaus olisi **toistettavissa
-#: reposta** eikä vain kirjattuna docstringiin. Se on arkiston ``import/``in
-#: ainoa demo, jossa pawnittomia rivejä on, ja siksi ainoa, joka voi kertoa
-#: ohituksen lakanneen toimimasta.
+#: The demo is here so that the measurement of the fix is **reproducible from
+#: the repository** and not merely recorded in a docstring. It is the only
+#: demo in the archive's ``import/`` that has pawnless rows, and therefore the
+#: only one that can report that the skip has stopped working.
 #:
-#: Se ei ole :data:`LEAGUE_DEMOS`issa eikä ``ALL_DEMOS``issa: se on
-#: Europe 5v5 Queue -ottelu eikä liigaottelu, eivätkä sen luvut kuulu
-#: uudelleenaloituksen tai kalibroinnin regressiosarjoihin.
+#: It is not in :data:`LEAGUE_DEMOS` nor in ``ALL_DEMOS``: it is a
+#: Europe 5v5 Queue match and not a league match, and its numbers belong to
+#: neither the restart nor the calibration regression sets.
 PAWNLESS_DEMO = "anubis_vs_RCAVE_VETERANS.dem.zst"
 
-#: Vikademon koko ja SHA-256, mitattu 2026-08-31. Sama sääntö kuin
-#: :data:`LEAGUE_DEMO_FILES`illa: puuttuva demo ohitetaan, väärä ei saa mennä
-#: läpi hiljaa.
+#: The fault demo's size and SHA-256, measured 2026-08-31. The same rule as
+#: for :data:`LEAGUE_DEMO_FILES`: a missing demo is skipped, a wrong one must
+#: not pass silently.
 PAWNLESS_DEMO_FILE: tuple[int, str] = (
     204_420_133,
     "e9dcf35da6836f6d81d30d14029c62b8fc7661861ba685c0b89a18511035b7b5",
 )
 
-#: Vikademon mitatut luvut (2026-08-31, tuotannon ``[parse]``-asetuksilla).
+#: The fault demo's measured numbers (2026-08-31, with production's
+#: ``[parse]`` settings).
 #:
 #: ``PAWNLESS_DEMO_ROUNDS``
-#:     Pelatut kierrokset. Tulos 13-9, eli MR12:n mukainen ottelu.
+#:     Rounds played. The result was 13-9, that is, an MR12 match.
 #: ``PAWNLESS_DEMO_ROWS``
-#:     Ohitetut pawnittomat pelaajarivit: **yksi pelaaja** (``egerrrrr``,
-#:     76561199635619622) **yhdellä kierroksella** (round_no 19). Viisi
-#:     näytepisteiden tickeiltä ja kymmenen utilityn heittotickeiltä; sama
-#:     tick lasketaan kerran.
+#:     Pawnless player rows skipped: **one player** (``egerrrrr``,
+#:     76561199635619622) on **one round** (round_no 19). Five from the sample
+#:     points' ticks and ten from the utility throw ticks; the same tick is
+#:     counted once.
 #: ``PAWNLESS_DEMO_POINTS``
-#:     Kokonaan väliin jääneet näytepisteet. Nolla: yksi puuttuva pelaaja
-#:     kymmenestä jättää pisteen vajaaksi muttei tyhjäksi.
+#:     Sample points missed entirely. Zero: one missing player out of ten
+#:     leaves a point short of players, not empty.
 PAWNLESS_DEMO_ROUNDS = 22
 PAWNLESS_DEMO_ROWS = 15
 PAWNLESS_DEMO_POINTS = 0
 
 
 def require_demo(name: str) -> Path:
-    """Palauta oikean demon polku tai ohita testi selkeällä syyllä.
+    """Return the real demo's path, or skip the test with a clear reason.
 
-    Demot ovat 100-230 MB eivätkä kuulu repoon, joten toisella koneella tai
-    CI:ssä testin on ohituttava -- ei kaaduttava. Ohitusviesti kertoo aina,
-    mistä etsittiin, jotta puuttuva demo erottuu väärästä polusta.
+    The demos are 100-230 MB and do not belong in the repository, so on
+    another machine or in CI the test has to skip -- not fail. The skip
+    message always says where it looked, so that a missing demo is
+    distinguishable from a wrong path.
     """
     if DEMO_DIR is None:
         pytest.skip(
-            f"Demohakemistoa ei voitu päätellä, koska arkiston juurta ei "
-            f"tiedetä. Aseta ympäristömuuttuja {ARCHIVE_ROOT_ENV_VAR} "
-            "arkiston koko polkuun -- demot luetaan sen import-hakemistosta. "
-            "Pelkän demohakemiston voi ohjata erikseen muuttujalla "
-            "PAPPASCOUT_TEST_DEMOS."
+            f"The demo directory could not be resolved, because the archive "
+            f"root is not known. Set the environment variable {ARCHIVE_ROOT_ENV_VAR} "
+            "to the archive's full path -- the demos are read from its import "
+            "directory. The demo directory alone can be redirected with the "
+            "variable PAPPASCOUT_TEST_DEMOS."
         )
     path = DEMO_DIR / name
     if not path.is_file():
-        pytest.skip(f"Oikeaa demoa ei ole tällä koneella: {path}")
+        pytest.skip(f"There is no real demo on this machine: {path}")
     return path
 
 
-#: Taulut, jotka arkistoriippuvainen testi tarvitsee jokaiselta demolta.
+#: The tables an archive-dependent test needs from every demo.
 #:
-#: **Koko luettelo eikä vain se, jota testi lukee suoraan.** Kalibroinnin
-#: testit rakentavat raportin ``stages.aggregate``in läpi, ja vaihe lukee
-#: nämä kaikki; osittain parsittu arkisto kaataisi testin sen sijaan että
-#: ohittaisi sen, eikä virhe kertoisi että vika on koneen aineistossa.
+#: **The whole list, not only the one the test reads directly.** The
+#: calibration tests build the report through ``stages.aggregate``, and the
+#: stage reads all of these; a partially parsed archive would fail the test
+#: instead of skipping it, and the error would not say that the fault is in
+#: the machine's data.
 REQUIRED_PARSED_TABLES = (
     "rounds",
     "ticks",
@@ -298,66 +303,69 @@ REQUIRED_PARSED_TABLES = (
 
 
 def require_parsed(*map_demo_ids: str) -> Path:
-    """Palauta arkiston juuri tai ohita testi, jos demoja ei ole parsittu.
+    """Return the archive root, or skip the test if the demos are not parsed.
 
-    **Eri vaatimus kuin :func:`require_demo`illa.** Kalibroinnin luvut
-    lasketaan ``parsed/``- ja ``classified/``-tauluista, ei demotiedostoista:
-    ne ovat megatavuja siinä missä demot ovat satoja megatavuja, ja ne ovat
-    juuri se aineisto, jota vasten kynnykset mitattiin. Testi **ei kirjoita
-    arkistoon mitään** -- se lukee taulut ja rakentaa raportin muistiin.
+    **A different requirement from :func:`require_demo`'s.** The calibration
+    numbers are computed from the ``parsed/`` and ``classified/`` tables, not
+    from the demo files: those are megabytes where the demos are hundreds of
+    megabytes, and they are exactly the data the thresholds were measured
+    against. The test **writes nothing into the archive** -- it reads the
+    tables and builds the report in memory.
 
-    Ohitusviesti nimeää puuttuvan taulun ja komennon, jolla se saadaan, jotta
-    puuttuva parsinta erottuu puuttuvasta arkistosta ja luokittelusta.
+    The skip message names the missing table and the command that produces
+    it, so that a missing parse is distinguishable from a missing archive and
+    from a missing classification.
     """
-    if ARCHIVE_ROOT is None:  # pragma: no cover - riippuu koneesta
+    if ARCHIVE_ROOT is None:  # pragma: no cover - depends on the machine
         pytest.skip(
-            f"Arkiston juurta ei tiedetä: ympäristömuuttujaa "
-            f"{ARCHIVE_ROOT_ENV_VAR} ei ole asetettu tällä koneella. "
-            "Versioitu settings.toml ei sisällä polkua, koska repo on "
-            "julkinen."
+            f"The archive root is not known: the environment variable "
+            f"{ARCHIVE_ROOT_ENV_VAR} is not set on this machine. The "
+            "versioned settings.toml does not carry the path, because the "
+            "repository is public."
         )
-    if not ARCHIVE_ROOT.is_dir():  # pragma: no cover - riippuu koneesta
-        pytest.skip(f"Arkistoa ei ole tällä koneella: {ARCHIVE_ROOT}")
+    if not ARCHIVE_ROOT.is_dir():  # pragma: no cover - depends on the machine
+        pytest.skip(f"There is no archive on this machine: {ARCHIVE_ROOT}")
     for map_demo_id in map_demo_ids:
         for name in REQUIRED_PARSED_TABLES:
             table = ARCHIVE_ROOT / "parsed" / map_demo_id / f"{name}.parquet"
-            if not table.is_file():  # pragma: no cover - riippuu koneesta
+            if not table.is_file():  # pragma: no cover - depends on the machine
                 pytest.skip(
-                    f"Demon {map_demo_id} taulua {name}.parquet ei ole tässä "
-                    f"arkistossa ({table}). Aja: uv run pappascout parse "
+                    f"Demo {map_demo_id} has no {name}.parquet table in this "
+                    f"archive ({table}). Run: uv run pappascout parse "
                     f"{map_demo_id}"
                 )
-        # Luokittelu on oma vaiheensa: parsittu demo ilman luokittelua ei
-        # kelpaa aggregoinnille, ja ohitusviesti nimeää eri komennon.
+        # Classification is a stage of its own: a parsed demo without a
+        # classification is no use to the aggregation, and the skip message
+        # names a different command.
         classified = list(
             (ARCHIVE_ROOT / "classified").glob(f"*/{map_demo_id}.parquet")
         )
-        if not classified:  # pragma: no cover - riippuu koneesta
+        if not classified:  # pragma: no cover - depends on the machine
             pytest.skip(
-                f"Demoa {map_demo_id} ei ole luokiteltu tähän arkistoon. "
-                f"Aja: uv run pappascout classify {map_demo_id} "
+                f"Demo {map_demo_id} has not been classified into this "
+                f"archive. Run: uv run pappascout classify {map_demo_id} "
                 "--kaikki-joukkueet"
             )
     return ARCHIVE_ROOT
 
-#: Pistepilvi, jonka siteet erottuvat toisistaan: A on ruudun 0 ympärillä ja
-#: B ruudun 100. Ruutu on ``(alue, cell_x, cell_y, cell_z)``.
+#: A point cloud whose sites separate from each other: A is around cell 0 and
+#: B around cell 100. A cell is ``(area, cell_x, cell_y, cell_z)``.
 #:
-#: **Kolme ruutua per site**, koska yhden ruudun alueen säde on 0 -- ja
-#: erottuvuusvartija jakaa siteiden etäisyyden juuri siteiden koolla, joten
-#: yhden ruudun siteillä se vaientaa demon (ja on oikeassa: kahden ruudun
-#: pilvi ei kerro kartan siterakenteesta mitään).
+#: **Three cells per site**, because the radius of a one-cell area is 0 -- and
+#: the separation guard divides the distance between the sites by the size of
+#: the sites themselves, so with one-cell sites it silences the demo (and it
+#: is right to: a two-cell cloud says nothing about the map's site structure).
 #:
-#: Muut alueet ovat samalla akselilla, jotta jokainen ryhmä on luettavissa
-#: silmällä: ``House`` 10 (A), ``SideEntrance`` 90 ja ``Ramp`` 85 (B),
-#: ``Middle`` 50 (yhtä kaukana, siis jaettu keski). Spawnit ovat mukana
-#: **tarkoituksella ryhmässä** -- ``CTSpawn`` A:n ja ``TSpawn`` B:n puolella,
-#: kuten oikeilla kartoilla -- koska juuri se tekee spawnrajauksesta
-#: määritelmän eikä siivousta.
+#: The other areas are on the same axis, so that every group can be read by
+#: eye: ``House`` 10 (A), ``SideEntrance`` 90 and ``Ramp`` 85 (B), ``Middle``
+#: 50 (equally far, so shared middle). The spawns are **deliberately in a
+#: group** -- ``CTSpawn`` on A's side and ``TSpawn`` on B's, as on the real
+#: maps -- because that is exactly what makes excluding the spawns a
+#: definition and not a tidy-up.
 #:
-#: Yksi kopio kolmen sijaan: sääntö (``test_sampling``), aggregointi
-#: (``test_aggregate``) ja vaihe (``test_stage_aggregate``) mittaavat samaa
-#: geometriaa, ja kolmesta kopiosta ne voisivat ajautua erilleen.
+#: One copy instead of three: the rule (``test_sampling``), the aggregation
+#: (``test_aggregate``) and the stage (``test_stage_aggregate``) measure the
+#: same geometry, and three copies could drift apart.
 SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
     ("BombsiteA", 0, 0, 0),
     ("BombsiteA", 2, 0, 0),
@@ -373,9 +381,10 @@ SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
     ("TSpawn", 95, 0, 0),
 )
 
-#: Sama pilvi, mutta siteet ovat päällekkäin: keskipisteiden ero on 2 ruutua
-#: ja siteiden oma koko 20 + 20, eli suhde 0,05. Nukella mitattu suhde on
-#: 0,47-0,54 ja kynnys 2,0, joten tämä on sama tila kärjistettynä.
+#: The same cloud, but with the sites on top of each other: the difference
+#: between the centres is 2 cells and the sites' own size 20 + 20, that is, a
+#: ratio of 0.05. The ratio measured on Nuke is 0.47-0.54 and the threshold
+#: 2.0, so this is the same situation taken to an extreme.
 OVERLAPPING_SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
     ("BombsiteA", 0, 0, 0),
     ("BombsiteA", 20, 0, 0),
@@ -386,7 +395,7 @@ OVERLAPPING_SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
     ("House", 10, 0, 0),
 )
 
-#: Ympäristömuuttujat, jotka eivät saa vuotaa koneelta testeihin.
+#: Environment variables that must not leak from the machine into the tests.
 LEAKY_ENV_VARS = (
     "FACEIT_API_KEY",
     "FACEIT_DOWNLOADS_TOKEN",
@@ -398,14 +407,14 @@ LEAKY_ENV_VARS = (
 
 @pytest.fixture(autouse=True)
 def _isolate_from_machine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Eristä jokainen testi koneen omista tiedostoista ja avaimista."""
+    """Isolate every test from the machine's own files and credentials."""
     for name in LEAKY_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
         monkeypatch.delenv(name.lower(), raising=False)
 
-    # Path.home() lukee Windowsilla USERPROFILE:n ja muualla HOME:n. Kumpikin
-    # ohjataan tyhjään hakemistoon, jotta secrets_env_path() ei osu oikeaan
-    # avaintiedostoon.
+    # Path.home() reads USERPROFILE on Windows and HOME elsewhere. Both are
+    # redirected to an empty directory, so that secrets_env_path() does not
+    # hit the real credentials file.
     home_dir = tmp_path / "koti"
     home_dir.mkdir(exist_ok=True)
     monkeypatch.setenv("HOME", str(home_dir))
@@ -415,31 +424,31 @@ def _isolate_from_machine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def even_split(total: int, players: int) -> list[int]:
-    """Jaa joukkuesumma pelaajille mahdollisimman tasan, laskevasti.
+    """Split a team total among the players as evenly as possible, descending.
 
-    **Oletus, ei havainto.** Kierrostaulu kirjaa pelaajakohtaisen jakauman,
-    mutta käsin rakennetut rivit ja vanhat totuustaulut kirjaavat vain
-    joukkuesumman. Tasajako pitää rivin sisäisesti johdonmukaisena (jakauman
-    summa on ``money_buy_end``) ilman että jokainen testi kirjoittaa viisi
-    lukua.
+    **An assumption, not an observation.** The rounds table records the
+    per-player distribution, but hand-built rows and the older truth tables
+    record only the team total. An even split keeps a row internally
+    consistent (the distribution sums to ``money_buy_end``) without every test
+    writing five numbers.
 
-    Yksi paikka, koska tämä on juuri se oletus, jonka Story 1.10 sanoo
-    oletukseksi: kaksi kopiota erkanisi toisistaan ja kumpikin näyttäisi
-    itsenäiseltä todisteelta. Testi, joka tutkii nimenomaan jakaumaa, antaa
-    sen itse.
+    One place, because this is exactly the assumption Story 1.10 calls an
+    assumption: two copies would drift apart and each would look like
+    independent evidence. A test that examines the distribution itself gives
+    the distribution itself.
     """
     base, extra = divmod(int(total), players)
     return [base + 1] * extra + [base] * (players - extra)
 
 
 def empty_frame(schema: Schema) -> pl.DataFrame:
-    """Rakenna tyhjä DataFrame, joka vastaa täsmälleen annettua sopimusta."""
+    """Build an empty DataFrame matching the given contract exactly."""
     return pl.DataFrame(schema=dict(schema))
 
 
 @pytest.fixture
 def env_file(tmp_path: Path):
-    """Tehdas väliaikaisille .env-tiedostoille."""
+    """A factory for temporary .env files."""
 
     def _make(name: str = ".env", **values: str) -> Path:
         path = tmp_path / name
@@ -452,29 +461,29 @@ def env_file(tmp_path: Path):
 
 
 def settings_text(archive_root: Path | str, **replacements: str) -> str:
-    """Oikean ``settings.toml``in sisältö arkistopolku vaihdettuna.
+    """The real ``settings.toml``'s content with the archive path replaced.
 
-    Testit käyttävät samoja lukuja kuin tuotanto -- muuten ne eivät todistaisi
-    mitään oikeasta asetustiedostosta -- mutta eivät koskaan oikeaa arkistoa.
+    The tests use the same numbers as production -- otherwise they would
+    prove nothing about the real settings file -- but never the real archive.
     """
     text = REAL_SETTINGS.read_text(encoding="utf-8")
     line = next(r for r in text.splitlines() if r.startswith("archive_root"))
     text = text.replace(line, f"archive_root = '{archive_root}'")
     for old, new in replacements.items():
-        assert old in text, f"korvattavaa ei löydy: {old}"
+        assert old in text, f"nothing to replace: {old}"
         text = text.replace(old, new)
     return text
 
 
 @pytest.fixture
 def settings_file(tmp_path: Path) -> Path:
-    """Kopio oikeasta ``settings.toml``ista, arkisto ohjattuna tmp_pathiin.
+    """A copy of the real ``settings.toml``, the archive redirected to tmp_path.
 
-    Demot menevät arkiston omaan ``demos/``iin, koska niin tekee myös
-    versioitu asetustiedosto. Toinen moodi on
-    :func:`settings_file_local_demos`, ja **molemmat on ajettava komennon
-    läpi**: se moodi, jota fixture ei kata, ei kulje CLI:stä kertaakaan, ja sen
-    rikkoutuminen näkyisi vain vaihetesteissä.
+    The demos go into the archive's own ``demos/``, because that is what the
+    versioned settings file does too. The other mode is
+    :func:`settings_file_local_demos`, and **both have to be run through a
+    command**: the mode a fixture does not cover never passes through the CLI
+    at all, and its breaking would show only in the stage tests.
     """
     archive_dir = tmp_path / "arkisto"
     target = tmp_path / "settings.toml"
@@ -482,25 +491,25 @@ def settings_file(tmp_path: Path) -> Path:
     return target
 
 
-#: Missä ladatut demot ovat, kun ``[project].demos_root`` on käytössä.
+#: Where the downloaded demos are when ``[project].demos_root`` is in use.
 LOCAL_DEMOS_DIRNAME = "paikalliset-demot"
 
 
 @pytest.fixture
 def settings_file_local_demos(tmp_path: Path) -> Path:
-    """Sama asetustiedosto, mutta demot arkiston **ulkopuolelle**.
+    """The same settings file, but with the demos **outside** the archive.
 
-    Rivi on versioidussa tiedostossa kommentoituna (arkisto on oletus, koska se
-    seuraa koneelta toiselle ja OneDrive vapauttaa parsitun demon tilan
-    poistamatta tiedostoa). Se on silti tuettu moodi -- ja tuettu moodi, jota
-    mikään komentotesti ei aja, on moodi jonka rikkoutumisen huomaa vasta
-    käyttäjä.
+    The line is commented out in the versioned file (the archive is the
+    default, because it follows from one machine to the other and the sync
+    client can free a parsed demo's space without deleting the file). It is a
+    supported mode all the same -- and a supported mode that no command test
+    runs is a mode whose breaking the user is the first to notice.
     """
     archive_dir = tmp_path / "arkisto"
     target = tmp_path / "settings.toml"
     text = settings_text(archive_dir)
     marker = "# demos_root = "
-    assert marker in text, "versioidusta settings.tomlista puuttuu demos_root-rivi"
+    assert marker in text, "the versioned settings.toml has no demos_root line"
     line = next(r for r in text.splitlines() if r.startswith(marker))
     text = text.replace(
         line, f"demos_root = '{tmp_path / LOCAL_DEMOS_DIRNAME}'", 1
@@ -511,7 +520,7 @@ def settings_file_local_demos(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def isolated_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Vaihda työhakemisto tyhjään väliaikaishakemistoon."""
+    """Change the working directory to an empty temporary directory."""
     work = tmp_path / "work"
     work.mkdir()
     monkeypatch.chdir(work)
@@ -519,5 +528,5 @@ def isolated_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def has_temp_leftovers(directory: Path) -> bool:
-    """Onko hakemistoon jäänyt atomisen kirjoituksen väliaikaistiedostoja."""
+    """Whether an atomic write has left temporary files in the directory."""
     return any(p.name for p in directory.rglob("*.tmp-*"))

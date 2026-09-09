@@ -55,9 +55,9 @@ def _require_denylist() -> dict[str, int]:
     """The denylist, or a clean skip on a machine that has no list."""
     if FORBIDDEN_NAMES is None:
         pytest.skip(
-            f"Kiellettyjen nimien luetteloa ei ole tällä koneella: "
-            f"{FORBIDDEN_NAMES_FILE}. Luettelo on tarkoituksella repon "
-            f"ulkopuolella; toisen polun voi antaa muuttujalla "
+            f"This machine has no denylist at {FORBIDDEN_NAMES_FILE}. The list is "
+            f"deliberately outside the repository -- a committed one would be "
+            f"the leak it guards against. Another path can be given with "
             f"{FORBIDDEN_NAMES_ENV_VAR}."
         )
     return FORBIDDEN_NAMES
@@ -157,8 +157,8 @@ def test_no_forbidden_name_exceeds_its_ceiling() -> None:
         if sum(int(place.rsplit("(", 1)[1].rstrip(")")) for place in places)
         > denylist[name]
     }
-    assert not over, "kielletty nimi ylittää kattonsa: " + "; ".join(
-        f"{len(places)} tiedostossa -> {', '.join(places)}"
+    assert not over, "a forbidden name is over its ceiling: " + "; ".join(
+        f"in {len(places)} files -> {', '.join(places)}"
         for places in over.values()
     )
 

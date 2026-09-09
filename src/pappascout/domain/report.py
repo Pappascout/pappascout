@@ -1,102 +1,107 @@
-"""``Report`` -- ``aggregate``-vaiheen tulos ja ``render``-vaiheen ainoa syöte.
+"""``Report`` -- the ``aggregate`` stage's result and ``render``'s only input.
 
-Tämä moduuli on **jaettu sopimus** täsmälleen samassa mielessä kuin
-:mod:`pappascout.domain.schemas` on tauluille: ``aggregate`` (Story 2.3)
-kirjoittaa mallin JSONiksi tiedostoon ``aggregates/<team_key>/report.json``, ja
-``render`` (Story 2.4) lukee sen. **``render`` ei laske mitään** -- jokainen
-raportissa esiintyvä luku on täällä valmiina, ja uusi luku raporttiin tarkoittaa
-muutosta **tähän malliin**, ei Jinja-raporttimalliin.
+This module is a **shared contract** in exactly the same sense as
+:mod:`pappascout.domain.schemas` is for the tables: ``aggregate`` (Story 2.3)
+writes the model as JSON into ``aggregates/<team_key>/report.json``, and
+``render`` (Story 2.4) reads it. **``render`` computes nothing** -- every
+number that appears in the report is ready here, and a new number in the
+report means a change to **this model**, not to the Jinja report template.
 
-Otanta on rakenteessa, ei kommentissa
--------------------------------------
-Jokainen väite kantaa otantansa. Kaksi lukua, joilla on täsmälleen yksi
-tulkinta:
+The sample is in the structure, not in a comment
+------------------------------------------------
+Every claim carries its sample. Two numbers with exactly one reading:
 
 ``n``
-    Kierrokset, joissa havainto tehtiin.
+    The rounds in which the observation was made.
 ``m``
-    Kyseisen puolen ja kierrostyypin kaikki kierrokset, joista havainto **oli
-    ylipäätään luettavissa**.
+    Every round of that side and round type from which the observation **was
+    readable at all**.
 
-Alueen jakauma :class:`AreaDistribution` sisältää myös arvon ``players = 0``
-(alue oli tyhjä), joten ``n``-arvojen summa yhden alueen yli on aina ``m``.
-Se ei ole koriste vaan tarkistus: jos summa ei täsmää, jokin kierros katosi
-liitoksessa. Malli valvoo sen itse (:meth:`AreaDistribution._check_sample`), eli
-epäkelpoa raporttia ei voi edes rakentaa muistiin. Sama tarkistus tehdään
-**tasojen välillä**: kierrostyyppien summa on puolen otanta, puolien summa
-kartan ja karttojen summa koko raportin -- juuri siellä kadonnut kierros
-näkyisi ensimmäisenä, eikä yksikään lehti huomaisi mitään.
+An area's distribution :class:`AreaDistribution` also holds the value
+``players = 0`` (the area was empty), so the sum of the ``n`` values over one
+area is always ``m``. That is not decoration but a check: if the sum does not
+match, some round was lost in the join. The model enforces it itself
+(:meth:`AreaDistribution._check_sample`), so an invalid report cannot even be
+built in memory. The same check is made **between the levels**: the sum of the
+round types is the side's sample, the sum of the sides is the map's and the sum
+of the maps is the whole report's -- a round lost there is what would show
+first, and not one leaf would notice a thing.
 
-Yksi kenttä on tarkoituksella sääntöä lukuun ottamatta: :class:`FirstContactArea`
-laskee läsnäoloa eikä pelaajamäärää, joten sama kierros tuottaa havainnon
-jokaiselle alueelle, jolla joukkueella oli pelaaja. Täysi jakauma samalta
-hetkeltä on ``positions``-listan ``first_contact``-näytepisteessä.
+One field is deliberately outside the rule: :class:`FirstContactArea` counts
+presence and not the number of players, so the same round produces an
+observation for every area in which the team had a player. The full
+distribution from the same moment is in the ``positions`` list's
+``first_contact`` sample point.
 
-Yhdessä paikassa ``m`` **ei ole kierroksia**: :class:`KillArea` laskee tappoja,
-joten sen ``Σ n = tappojen määrä``. Kierrostyypillä voi olla enemmän tappoja
-kuin kierroksia, joten "n/m kierroksesta" olisi siellä suoraan väärä lause --
-ja :class:`DeathReport`in dokumentaatio sanoo sen ääneen, koska raportti
-muotoilee juuri sen rivin eri yksiköllä.
+In one place ``m`` **is not rounds**: :class:`KillArea` counts kills, so its
+``Σ n = the number of kills``. A round type can have more kills than rounds, so
+"n/m of the rounds" would be a plainly wrong sentence there -- and
+:class:`DeathReport`'s documentation says so out loud, because the report
+formats that very row with a different unit.
 
-Kolme lokeroa, ei kahta
------------------------
-``is_league`` syntyy ``select``-vaiheessa ja kulkee ``classify``n kautta
-tauluun, joten se on tiedossa niistä demoista, jotka ovat joukkueen
-valintatiedostossa. ``null`` on **kaikkien muiden** tila, eikä niitä ole vain
-yksi: käsin tuotu demo (ei valittu mistään ottelulistasta), ``select``
-ajamatta, demo ilman riviä valintatiedostossa, kokoonpano jota yksikään
-joukkue ei omista, omistajat eri mieltä ottelun lajista, tai taulu joka
-luokiteltiin ennen ``select``iä. Kahden lokeron jako (``league`` / ``other``)
-pakottaisi valitsemaan kahdesta valheesta: merkitä ne kaikki liigaotteluiksi
-tai muiksi. Otanta on siksi ``{league, other, unknown}`` jokaisella tasolla
-(:class:`Sample`), ja kolmas lokero sanoo mitä tiedetään. **Miksi tieto
-puuttuu**, sen kertoo ``classify``n ajon syy (``StageResult.reason``) eikä
-raportti: raportti kertoo mitä tiedetään, ei mitä ajossa tapahtui.
+Three buckets, not two
+----------------------
+``is_league`` is created in the ``select`` stage and travels through
+``classify`` into the table, so it is known for those demos that are in the
+team's selection file. ``null`` is the state of **all the others**, and there
+is not just one of them: a demo imported by hand (not selected from any match
+list), ``select`` not run, a demo with no row in the selection file, a lineup
+no team owns, owners that disagree about the kind of match, or a table that was
+classified before ``select``. A two-bucket split (``league`` / ``other``) would
+force a choice between two lies: marking them all league matches or marking
+them all other matches. The sample is therefore ``{league, other, unknown}`` at
+every level (:class:`Sample`), and the third bucket says what is known. **Why
+the information is missing** is told by ``classify``'s run reason
+(``StageResult.reason``) and not by the report: the report says what is known,
+not what happened in the run.
 
-Kaikki lasketaan, raportti valitsee
------------------------------------
-Malli sisältää **kaikki** kierrostyypit, myös täydet ostot ja jatkoajan.
-Säästökierrosten ja defaultin eri käsittely on esitysvalinta, ja se kuuluu
-``render``-vaiheeseen: jos aggregointi suodattaisi, valinnan muuttaminen
-vaatisi uudelleenlaskennan ja ``report.json`` lakkaisi olemasta täysi kuva
-siitä, mitä demoista tiedetään.
+Everything is computed, the report chooses
+------------------------------------------
+The model holds **every** round type, overtime and full buys included.
+Treating saving rounds and default differently is a presentation choice, and it
+belongs to the ``render`` stage: if aggregation filtered, changing the choice
+would need a recomputation and ``report.json`` would stop being a full picture
+of what is known about the demos.
 
-Poikkeamat ovat raportin juuressa eivätkä kierrostyypin alla
-------------------------------------------------------------
-``anomalies`` on :class:`Report`in kenttä, ei :class:`RoundTypeReport`in.
-Poikkeama on epicin arvokkain tuotos, ja kierrostyypin alla se olisi
-hajallaan 24 lohkossa -- juuri se ongelma, jonka Story 2.5 ratkaisee. Siksi
-jokainen :class:`Anomaly` kantaa itse kartan, puolen ja kierrostyypit: se on
-luettavissa yhtenä lukuna ilman että lukija etsii sen paikkaa puusta.
+Anomalies are at the root of the report and not under the round type
+--------------------------------------------------------------------
+``anomalies`` is a field of :class:`Report`, not of :class:`RoundTypeReport`.
+An anomaly is the epic's most valuable output, and under the round type it
+would be scattered over 24 blocks -- the very problem Story 2.5 solves. So
+every :class:`Anomaly` carries the map, the side and the round types itself: it
+can be read as one section without the reader hunting for its place in the
+tree.
 
-**Nimittäjä on sääntökohtainen, ja se on tarkoitus.** ``ct_advance`` on
-säästökierrosten ilmiö, joten kierrostyyppi on osa havaintoa ja ``m`` on sen
-kierrostyypin kierrokset kartalla ja puolella. ``crunch`` ei tunne
-kierrostyyppiä lainkaan, joten sen ryhmittely kierrostyypin mukaan hajottaisi
-saman kuvion eco-riviksi ja default-riviksi eri jakajilla -- eli toistaisi
-luvun sisällä juuri sen hajanaisuuden, jonka poistamiseksi luku tehtiin.
-Crunchin ``m`` on siksi puolen **kaikki** kierrokset kartalla, ja
-``round_types`` kertoo millä tyypeillä se havaittiin.
+**The denominator is per rule, and that is intended.** ``ct_advance`` is a
+phenomenon of the saving rounds, so the round type is part of the observation
+and ``m`` is that round type's rounds on the map and side. ``crunch`` does not
+know the round type at all, so grouping it by round type would break the same
+pattern into an eco row and a default row with different denominators -- that
+is, it would reproduce inside the section the very scatter the section was made
+to remove. Crunch's ``m`` is therefore **all** of the side's rounds on the map,
+and ``round_types`` says on which types it was observed.
 
-Rakenne ei valvo nimittäjää ristiin puuta vasten (poikkeamat eivät ole puun
-lehtiä), joten yhteys on aggregoinnin vastuulla. :class:`Anomaly` valvoo sen
-sijaan **sisäisen** ristiriidattomuutensa: ``n`` on kierroslistan pituus,
-``players_max`` sen suurin havainto ja ``round_types`` sen tyyppijoukko, joten
-yhteenveto ei voi olla eri mieltä kuin rivit joista se on koottu.
+The structure does not cross-check the denominator against the tree (anomalies
+are not leaves of the tree), so the connection is aggregation's
+responsibility. :class:`Anomaly` instead enforces its **internal** consistency:
+``n`` is the length of the round list, ``players_max`` its largest observation
+and ``round_types`` its set of types, so the summary cannot disagree with the
+rows it was assembled from.
 
-Rivi ei väitä yhtäaikaisuutta yli kierrosrajan
-----------------------------------------------
-:class:`AnomalyRound` on omana solmunaan siksi, että crunchin **lähtösuunnat
-ovat yhtäaikaisia vain saman kierroksen sisällä**. Kahden kierroksen
-suuntien yhdiste ("suunnista A, B, C ja D") lukisi neljäksi yhtäaikaiseksi
-suunnaksi, mikä on päinvastoin kuin määritelmä. Sama koskee näytepisteitä ja
-pelaajamäärää. Kierrosnumero on samassa solmussa, koska scoutin seuraava teko
-on katsoa se kierros demolta -- ja luku on turha, jos se kertoo että jotain
-tapahtui muttei missä sen näkee.
+A row does not claim simultaneity across a round boundary
+---------------------------------------------------------
+:class:`AnomalyRound` is a node of its own because crunch's **source
+directions are simultaneous only within the same round**. The union of two
+rounds' directions ("from the directions A, B, C and D") would read as four
+simultaneous directions, which is the opposite of the definition. The same
+holds for the sample points and the player count. The round number is in the
+same node, because the scout's next act is to watch that round on the demo --
+and the section is useless if it says that something happened but not where to
+see it.
 
-Mitä täällä **ei** ole: tulkintoja. Sanoja "fake" tai "rush" ei esiinny
-missään kentässä -- vain havaintoja ja lukumääriä. Poikkeavat asetelmat
-(``anomalies``) ovat Story 2.5:n lisäys tähän samaan malliin.
+What is **not** here: interpretations. The words "fake" and "rush" appear in no
+field -- only observations and counts. Anomalous setups (``anomalies``) are
+Story 2.5's addition to this same model.
 """
 
 from __future__ import annotations
@@ -168,61 +173,65 @@ __all__ = [
     "Report",
 ]
 
-#: Raporttimallin skeemaversio. Nostetaan, kun rakenne muuttuu niin, ettei
-#: vanha ``report.json`` enää validoidu -- silloin ``render`` kertoo, että
-#: aggregointi on ajettava uudelleen, sen sijaan että se muotoilisi puolikkaan
-#: raportin hiljaa.
+#: The report model's schema version. Raised when the structure changes so
+#: that an old ``report.json`` no longer validates -- then ``render`` says
+#: that aggregation has to be run again, instead of silently formatting half
+#: a report.
 #:
-#: **5.0.0 (Story 2.9): rakenne ei muuttunut, mutta arvojoukko muuttui.**
-#: ``AreaSource``-luettelosta poistui ``snapped`` ja tilalle tuli
-#: ``point_cloud``, joten vanha ``report.json`` ei enää validoidu -- yksikään
-#: kenttä ei kadonnut, mutta ``UtilityUse.area_source`` hylkää vanhan arvon.
-#: Versio nousee siksi täsmälleen samasta syystä kuin puuttuvasta kentästä:
-#: ehto on "validoituuko vanha tiedosto", ei "tuliko uusi kenttä".
+#: **5.0.0 (Story 2.9): the structure did not change, but the value set did.**
+#: ``snapped`` was dropped from the ``AreaSource`` enumeration and
+#: ``point_cloud`` took its place, so an old ``report.json`` no longer
+#: validates -- no field disappeared, but ``UtilityUse.area_source`` rejects
+#: the old value. The version therefore rises for exactly the same reason as
+#: for a missing field: the condition is "does the old file validate", not
+#: "was a new field added".
 #:
-#: **6.0.0 (Story 2.11): sama sääntö, sama syy.** ``MapReport.map_name_source``
-#: sai uuden arvon ``demo_header``, joten **uusi** ``report.json`` ei validoidu
-#: vanhaa mallia vasten -- ja vanhan tiedoston kartat on joka tapauksessa
-#: ryhmitelty eri säännöllä kuin tämän version, koska nimi luetaan nyt demon
-#: otsikosta. Kaksi FACEIT-demoa samalta kartalta on vanhassa tiedostossa kaksi
-#: haaraa ja uudessa yksi; sama rakenne, eri luvut. Sitä ei saa muotoilla
-#: hiljaa tämän ajon tulokseksi.
+#: **6.0.0 (Story 2.11): the same rule, the same reason.**
+#: ``MapReport.map_name_source`` gained a new value ``demo_header``, so a
+#: **new** ``report.json`` does not validate against the old model -- and an
+#: old file's maps are in any case grouped by a different rule than this
+#: version's, because the name is now read from the demo header. Two FACEIT
+#: demos from the same map are two branches in an old file and one in a new
+#: one; the same structure, different numbers. That must not be silently
+#: formatted as this run's result.
 #:
-#: **7.0.0 (Story 2.5): uusi kenttä, jolla on oletus -- ja versio nousee
-#: silti.** ``Report.anomalies`` on ``default_factory=list``, joten vanha
-#: ``report.json`` validoituisi tyhjällä listalla. Juuri se on syy nostaa:
-#: tyhjä poikkeamaluku on tässä mallissa **havainto** ("ei poikkeamia"), joten
-#: vanhasta tiedostosta renderöity raportti väittäisi mitatuksi tulokseksi
-#: sen, ettei sääntöjä ollut olemassa. Ehto "validoituuko vanha tiedosto" ei
-#: siis riitä yksin: myös oletusarvo, joka on erotettavissa havainnosta,
-#: nostaa version.
+#: **7.0.0 (Story 2.5): a new field that has a default -- and the version
+#: rises anyway.** ``Report.anomalies`` is ``default_factory=list``, so an old
+#: ``report.json`` would validate with an empty list. That is exactly the
+#: reason to raise it: an empty anomaly section is an **observation** in this
+#: model ("no anomalies"), so a report rendered from an old file would claim
+#: as a measured result that the rules did not exist. So the condition "does
+#: the old file validate" is not enough on its own: a default value that has
+#: to be told apart from an observation raises the version too.
 #:
-#: **8.0.0 (Story 2.14): kolmas poikkeamasääntö, ja kattavuus muuttuu
-#: merkitykseltään.** ``Anomaly.rule`` sai arvon ``stack``, joten uusi
-#: tiedosto ei validoidu vanhaa mallia vasten. Tärkeämpi puoli on
-#: vastakkainen: vanha tiedosto validoituisi, mutta sen ``anomaly_scan``
-#: nimeäisi stackin **toteuttamattomaksi** ja vaikenisi siitä, monellako
-#: kierroksella se voi osua. Renderöitynä se väittäisi mitatuksi
-#: kattavuudeksi luvun, joka koski kahta sääntöä kolmesta.
+#: **8.0.0 (Story 2.14): a third anomaly rule, and coverage changes in
+#: meaning.** ``Anomaly.rule`` gained the value ``stack``, so a new file does
+#: not validate against the old model. The more important side is the
+#: opposite one: an old file would validate, but its ``anomaly_scan`` would
+#: name stack as **not implemented** and stay silent about how many rounds it
+#: can hit. Rendered, it would claim as measured coverage a number that
+#: covered two rules out of three.
 #:
-#: **8.0.0 pysyy Story 2.15:ssä, vaikka malli tiukkeni, ja peruste on
-#: mitattava eikä oletettava.** Tarina lisäsi duplikaattivartijan neljään
-#: jakaumaan (:class:`ArmedPlayers`, :class:`ArmoredPlayers`,
-#: :class:`Position`, :class:`RoundTypeReport.first_contact`). Ehto version
-#: nostolle on "validoituuko vanha tiedosto", ja vastaus on kyllä:
+#: **8.0.0 stays in Story 2.15, although the model got stricter, and the
+#: grounds are to be measured, not assumed.** The story added a duplicate
+#: guard to four distributions (:class:`ArmedPlayers`,
+#: :class:`ArmoredPlayers`, :class:`Position`,
+#: :class:`RoundTypeReport.first_contact`). The condition for raising the
+#: version is "does the old file validate", and the answer is yes:
 #:
-#: * ``aggregate`` rakentaa jokaisen näistä jakaumista
-#:   ``collections.Counter``ista tai vastaavasta sanakirjasta, jonka avain on
-#:   juuri se arvo, jonka toistumisen vartija kieltää -- duplikaattia ei voi
-#:   syntyä, joten yksikään aiemmin kirjoitettu ``report.json`` ei voi
-#:   sisältää sellaista;
-#:   ``Σ n = m`` -tarkistus olisi lisäksi hylännyt useimmat niistä jo ennen.
-#: * Tarkistettu ajamalla: arkiston molemmat ``report.json``it validoituvat
-#:   tätä mallia vasten muuttumatta (``render`` luki ne 3.9. ajossa).
+#: * ``aggregate`` builds each of these distributions from a
+#:   ``collections.Counter`` or a similar dictionary whose key is exactly the
+#:   value whose repetition the guard forbids -- a duplicate cannot arise, so
+#:   no previously written ``report.json`` can hold one;
+#:   the ``Σ n = m`` check would in addition have rejected most of them
+#:   already.
+#: * Checked by running it: both of the archive's ``report.json`` files
+#:   validate against this model unchanged (``render`` read them in the run of
+#:   2026-09-03).
 #:
-#: Kiristys, joka **hylkäisi** vanhan tiedoston, olisi eri asia: se nostaisi
-#: version, koska ``render`` kaatuisi pydanticin virheeseen sen sijaan että
-#: kertoisi aggregoinnin olevan ajettava uudelleen.
+#: A tightening that would **reject** an old file would be a different thing:
+#: it would raise the version, because ``render`` would fall over on a
+#: pydantic error instead of saying that aggregation has to be run again.
 #:
 #: **9.0.0 (Story 3.9): the summary carries the roster breakdown.**
 #: :attr:`Report.roster_sample` is a **required** field, so every
@@ -236,38 +245,36 @@ __all__ = [
 REPORT_SCHEMA_VERSION = "9.0.0"
 
 
-#: Merkit, jotka eivät kelpaa tiedostonimeen. Slug on ASCII-osajoukko, koska
-#: arkisto on OneDrivessa ja kahden koneen yhteinen.
+#: Characters that a file name will not take. The slug is an ASCII subset,
+#: because the archive is a synchronised folder two machines share.
 _NON_WORD = re.compile(r"[^a-z0-9]+")
 
-#: Slug, jota käytetään kun nimestä ei jää mitään jäljelle. Se on **jaettu
-#: vakio**, joten se ei yksilöi mitään -- kaksi joukkuetta saisi saman
-#: tiedostonimen. Käytä sitä vain viimeisenä keinona, kun edes tunnisteesta ei
-#: saada slugia.
+#: The slug used when nothing is left of the name. It is a **shared
+#: constant**, so it identifies nothing -- two teams would get the same file
+#: name. Use it only as a last resort, when not even the id yields a slug.
 SLUG_FALLBACK = "joukkue"
 
 
 def slugify(text: str) -> str:
-    """Tiedostonimeen kelpaava muoto, tai **tyhjä merkkijono**.
+    """A form a file name will take, or an **empty string**.
 
-    Tyhjä paluuarvo on tarkoituksellinen ja se erottaa tämän funktion
-    :func:`team_slug`istä: kyrillinen tai CJK-nimi ei jätä jäljelle yhtään
-    ASCII-merkkiä, ja silloin kutsujan on voitava valita **oma** varapolkunsa.
-    Jaettu vakio antaisi jokaiselle tällaiselle joukkueelle saman
-    tiedostonimen.
+    The empty return value is deliberate and it is what separates this
+    function from :func:`team_slug`: a Cyrillic or CJK name leaves no ASCII
+    character at all, and then the caller has to be able to choose its **own**
+    fallback. A shared constant would give every such team the same file name.
     """
     return _NON_WORD.sub("-", text.lower()).strip("-")
 
 
 def team_slug(team_key: str) -> str:
-    """Tiedostonimeen kelpaava muoto joukkueen tunnisteesta.
+    """A form a file name will take, made from the team id.
 
-    ``render`` nimeää raportin ``<aika>-<team_slug>.md``, joten slug ei saa
-    sisältää polkuerottimia eikä ääkkösiä.
+    ``render`` names the report ``<time>-<team_slug>.md``, so the slug must
+    not hold path separators or non-ASCII letters.
 
-    Varapolku on :data:`SLUG_FALLBACK`, joka **ei yksilöi mitään**. Kun
-    kutsujalla on toinen ehdokas (esimerkiksi tunniste nimen rinnalla), käytä
-    :func:`slugify`ä ja valitse varapolku itse.
+    The fallback is :data:`SLUG_FALLBACK`, which **identifies nothing**. When
+    the caller has another candidate (an id alongside the name, for example),
+    use :func:`slugify` and choose the fallback yourself.
     """
     return slugify(team_key) or SLUG_FALLBACK
 
@@ -275,25 +282,26 @@ def team_slug(team_key: str) -> str:
 def _check_rounds_add_up(
     total: "Sample", parts: "list[Sample]", level: str, child: str
 ) -> None:
-    """Tarkista, että ylätason otanta on alatasojen summa.
+    """Check that the upper level's sample is the sum of the lower ones.
 
-    ``Σ n = m`` valvotaan lehdissä, mutta juuri **tasojen välissä** kadonnut
-    kierros näkyisi ensimmäisenä: liitos ``(map_demo_id, round_no)`` voi
-    pudottaa rivin, jolloin kierrostyyppien summa jää puolen otantaa
-    pienemmäksi eikä yksikään lehti huomaa mitään. Vertailu tehdään sekä
-    yhteissummasta että **jokaisesta lokerosta erikseen**, koska kierros voisi
-    muuten vaihtaa lokeroa summan muuttumatta.
+    ``Σ n = m`` is enforced in the leaves, but a round lost **between the
+    levels** is what would show first: the join ``(map_demo_id, round_no)``
+    can drop a row, which leaves the sum of the round types smaller than the
+    side's sample without a single leaf noticing anything. The comparison is
+    made both on the total and on **each bucket separately**, because a round
+    could otherwise change bucket without the total changing.
 
-    Demoja ei summata: sama demo tuottaa kierroksia molemmille puolille ja
-    useaan kierrostyyppiin, joten alatasojen demomäärien summa on suurempi
-    kuin ylätason. Karttataso on ainoa poikkeus, ja se tarkistetaan siellä
-    erikseen.
+    Demos are not summed: the same demo produces rounds for both sides and for
+    several round types, so the sum of the lower levels' demo counts is larger
+    than the upper level's. The map level is the only exception, and it is
+    checked there separately.
 
     Raises:
-        AggregateError: Jos summa ei täsmää. Viesti nimeää tason ja lokeron.
+        AggregateError: If the sum does not match. The message names the level
+            and the bucket.
     """
-    # Lokerot luetaan samasta luettelosta kuin muualla: kaksi kopiota
-    # erkanisivat, ja silloin uusi lokero jäisi tarkistamatta.
+    # The buckets are read from the same list as everywhere else: two copies
+    # would drift apart, and then a new bucket would go unchecked.
     for bucket in (None, *SAMPLE_BUCKETS):
         got = (
             total.rounds
@@ -305,28 +313,28 @@ def _check_rounds_add_up(
             for p in parts
         )
         if got != parts_sum:
-            where = "yhteensä" if bucket is None else f"lokerossa {bucket}"
+            where = "in total" if bucket is None else f"in bucket {bucket}"
             raise AggregateError(
-                f"Otanta ei täsmää tasolla {level}: {child}-tasojen "
-                f"kierrosten summa on {parts_sum} {where}, mutta {level} "
-                f"väittää otannakseen {got}.\n"
-                "Ero tarkoittaa, että kierros katosi tasojen välissä -- "
-                "yleensä liitoksessa (map_demo_id, round_no)."
+                f"The sample does not match at level {level}: the sum of the "
+                f"{child} levels' rounds is {parts_sum} {where}, but {level} "
+                f"claims a sample of {got}.\n"
+                "The difference means a round was lost between the levels -- "
+                "usually in the join (map_demo_id, round_no)."
             )
 
 
 class _Node(BaseModel):
-    """Raporttimallin kantaluokka: tuntematon kenttä on virhe, ei ohitus.
+    """The report model's base class: an unknown field is an error, not a skip.
 
-    ``frozen`` siksi, että malli on sopimus eikä työtila: ``render`` ei saa
-    korjailla lukuja lukiessaan niitä.
+    ``frozen`` because the model is a contract and not a workspace: ``render``
+    must not touch up the numbers as it reads them.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class SampleBucket(_Node):
-    """Yhden otantalokeron demo- ja kierrosmäärä."""
+    """One sample bucket's demo and round counts."""
 
     demos: int = Field(ge=0)
     rounds: int = Field(ge=0)
@@ -350,11 +358,11 @@ class SampleBucket(_Node):
         """
         if self.demos == 0 and self.rounds > 0:
             raise AggregateError(
-                f"Otantalokero väittää {self.rounds} kierrosta ilman yhtään "
-                "demoa. Kierros on aina jonkin demon kierros, joten lokero, "
-                "jossa on kierroksia mutta ei demoa, ei voi olla mitattu.\n"
-                "Aggregointi ei tuota tällaista lukua: report.json on "
-                "muokattu käsin. Aja aggregointi uudelleen."
+                f"A sample bucket claims {self.rounds} rounds without a "
+                "single demo. A round is always some demo's round, so a "
+                "bucket that holds rounds but no demo cannot be measured.\n"
+                "Aggregation does not produce a figure like this: report.json "
+                "has been edited by hand. Run aggregation again."
             )
         return self
 
@@ -372,10 +380,10 @@ def _check_bucket_totals(
     Args:
         node: The breakdown to check.
         names: Its bucket field names.
-        label: Which breakdown this is, in Finnish, for the message. The two
-            share one exception type on purpose (one fault, one type), so the
-            name is the only thing that tells the reader which of the summary's
-            two breakdowns failed.
+        label: Which breakdown this is, for the message. The two share one
+            exception type on purpose (one fault, one type), so the name is
+            the only thing that tells the reader which of the summary's two
+            breakdowns failed.
 
     Raises:
         ~pappascout.errors.AggregateError: If either total differs from the
@@ -386,28 +394,29 @@ def _check_bucket_totals(
     rounds = sum(b.rounds for b in buckets)
     if node.demos != demos or node.rounds != rounds:
         raise AggregateError(
-            f"Otannan summat eivät täsmää lokeroihin ({label}): "
-            f"demos={node.demos} (lokerot {demos}), "
-            f"rounds={node.rounds} (lokerot {rounds}). "
-            "Jokainen demo kuuluu täsmälleen yhteen lokeroon, joten "
-            "summan on oltava lokeroiden summa."
+            f"The sample totals do not match the buckets ({label}): "
+            f"demos={node.demos} (buckets {demos}), "
+            f"rounds={node.rounds} (buckets {rounds}). "
+            "Every demo belongs to exactly one bucket, so the total has to be "
+            "the sum of the buckets."
         )
 
 
 class Sample(_Node):
-    """Otanta yhdellä tasolla kolmessa lokerossa.
+    """The sample at one level in three buckets.
 
-    ``unknown`` on lokero demoille, joiden ``is_league`` on tyhjä. Se ei ole
-    virhetila vaan **kaikkien niiden demojen lokero, joiden lajia ei tiedetä**,
-    ja syitä on useita: käsin tuotu demo, ``select`` ajamatta, demo ilman
-    riviä valintatiedostossa, kokoonpano ilman omistajaa joukkueindeksissä,
-    omistajat eri mieltä, tai ennen ``select``iä luokiteltu taulu. Yhden syyn
-    nimeäminen tekisi lokerosta kapeamman kuin se on. Ottelun laji tulee
-    ``select``in valintatiedostosta; demossa itsessään ei ole sitä tietoa,
-    eikä ``aggregate`` arvaa.
+    ``unknown`` is the bucket for demos whose ``is_league`` is empty. It is
+    not an error state but **the bucket of every demo whose kind is not
+    known**, and there are several reasons for that: a demo imported by hand,
+    ``select`` not run, a demo with no row in the selection file, a lineup
+    with no owner in the team index, owners that disagree, or a table
+    classified before ``select``. Naming one reason would make the bucket
+    narrower than it is. The kind of the match comes from ``select``'s
+    selection file; the demo itself does not hold that information, and
+    ``aggregate`` does not guess.
 
-    ``demos`` ja ``rounds`` ovat lokeroiden summat valmiiksi laskettuina, jotta
-    ``render`` ei laske niitä.
+    ``demos`` and ``rounds`` are the bucket sums, precomputed so that
+    ``render`` does not add them up.
     """
 
     demos: int = Field(ge=0)
@@ -418,7 +427,7 @@ class Sample(_Node):
 
     @model_validator(mode="after")
     def _check_totals(self) -> Sample:
-        _check_bucket_totals(self, SAMPLE_BUCKETS, "liigajako")
+        _check_bucket_totals(self, SAMPLE_BUCKETS, "league breakdown")
         return self
 
 
@@ -461,16 +470,16 @@ class RosterSample(_Node):
 
     @model_validator(mode="after")
     def _check_totals(self) -> RosterSample:
-        _check_bucket_totals(self, ROSTER_BUCKETS, "rosterijako")
+        _check_bucket_totals(self, ROSTER_BUCKETS, "roster breakdown")
         return self
 
 
 class PlayersCount(_Node):
-    """Yksi pylväs alueen pelaajamääräjakaumassa.
+    """One bar in an area's player-count distribution.
 
-    ``players`` on **elossa olevien** pelaajien määrä alueella näytepisteessä
-    -- kuollut pelaaja ei tuota riviä alueelle. ``n`` on niiden kierrosten
-    määrä, joissa alueella oli täsmälleen tämä määrä.
+    ``players`` is the number of **living** players in the area at the sample
+    point -- a dead player produces no row for the area. ``n`` is the number
+    of rounds in which the area held exactly that many.
     """
 
     players: int = Field(ge=0)
@@ -478,69 +487,74 @@ class PlayersCount(_Node):
 
 
 class AreaDistribution(_Node):
-    """Yhden alueen pelaajamääräjakauma yhdessä näytepisteessä.
+    """One area's player-count distribution at one sample point.
 
-    Tämä on se rakenne, josta tavoiteanalyysin rivi *"3A ja 2B"* luetaan:
-    alue ``BombsiteA``, ``players = 3``, ``n`` kierrosta ``m``:stä.
+    This is the structure the target analysis's line *"3A and 2B"* is read
+    from: area ``BombsiteA``, ``players = 3``, ``n`` rounds out of ``m``.
 
-    Jakauma sisältää myös arvon ``players = 0``, joten ``n``-arvojen summa on
-    aina ``m``. Pylväitä, joiden ``n`` on nolla, ei kirjoiteta -- ne
-    väittäisivät havainnoksi sen, ettei havaintoa ole.
+    The distribution also holds the value ``players = 0``, so the sum of the
+    ``n`` values is always ``m``. Bars whose ``n`` is zero are not written --
+    they would claim as an observation that there is no observation.
     """
 
-    #: Pelin oma ``env_cs_place``-alue. ``null`` = pelaajan aluetta ei saatu;
-    #: rivi ei katoa, koska tuntematon sijainti on eri asia kuin tyhjä alue.
+    #: The game's own ``env_cs_place`` area. ``null`` = the player's area was
+    #: not obtained; the row does not vanish, because an unknown position is a
+    #: different thing from an empty area.
     area: str | None
     m: int = Field(ge=0)
     players_dist: list[PlayersCount]
 
     @model_validator(mode="after")
     def _check_sample(self) -> AreaDistribution:
-        """``Σ n = m``. Ilman tätä luku ei tarkoita mitään.
+        """``Σ n = m``. Without this the figure means nothing.
 
         Raises:
-            AggregateError: Jos summa ei täsmää. Poikkeus on tarkoituksella
-                :class:`~pappascout.errors.AggregateError` eikä pelkkä
-                ``ValueError``: kyse ei ole muotoiluvirheestä vaan siitä, että
-                kierros katosi liitoksessa.
+            AggregateError: If the sum does not match. The exception is
+                deliberately :class:`~pappascout.errors.AggregateError` and
+                not a plain ``ValueError``: this is not a formatting mistake
+                but a round lost in the join.
         """
         total = sum(p.n for p in self.players_dist)
         if total != self.m:
             raise AggregateError(
-                f"Otanta ei täsmää alueella {self.area!r}: pelaajamäärien "
-                f"n-arvojen summa on {total}, mutta kierroksia on {self.m}.\n"
-                "Jokaisen kierroksen on tuotettava alueelle täsmälleen yksi "
-                "havainto -- myös silloin, kun alue oli tyhjä (players = 0). "
-                "Ero tarkoittaa, että kierros katosi liitoksessa "
-                "(map_demo_id, round_no) tai että jakaumasta puuttuu "
-                "nollalokero."
+                f"The sample does not match in area {self.area!r}: the sum of "
+                f"the player counts' n values is {total}, but there are "
+                f"{self.m} rounds.\n"
+                "Every round has to produce exactly one observation for the "
+                "area -- including when the area was empty (players = 0). "
+                "The difference means a round was lost in the join "
+                "(map_demo_id, round_no) or that the distribution has no "
+                "zero bucket."
             )
         seen = [p.players for p in self.players_dist]
         if len(seen) != len(set(seen)):
             raise ValueError(
-                f"Alueen {self.area!r} jakaumassa on sama pelaajamäärä "
-                "kahdesti; jakauman on oltava pylväs per pelaajamäärä."
+                f"Area {self.area!r} has the same player count twice in its "
+                "distribution; the distribution must be one bar per player "
+                "count."
             )
         return self
 
 
 class Position(_Node):
-    """Yksi näytepiste: kaikkien alueiden jakaumat samalta hetkeltä.
+    """One sample point: every area's distribution from the same moment.
 
-    Näytepisteitä on kahta lajia, ja ``sample_kind`` erottaa ne:
+    There are two kinds of sample point, and ``sample_kind`` tells them apart:
 
     ``time``
-        ``[parse].snapshot_seconds`` -luku sellaisenaan (6, 15, 30, 45 s), sama
-        joka kierroksella ja siksi vertailukelpoinen. ``seconds`` on se luku.
+        The ``[parse].snapshot_seconds`` figure as it stands (6, 15, 30, 45 s),
+        the same on every round and therefore comparable. ``seconds`` is that
+        figure.
     ``first_contact``
-        Kierroksen ensimmäinen ristiinpuolinen osuma. Hetki on eri joka
-        kierroksella, joten ``seconds`` on ``null`` ja ``seconds_median``
-        kertoo mitatun ajoituksen.
+        The round's first cross-side hit. The moment is different on every
+        round, so ``seconds`` is ``null`` and ``seconds_median`` gives the
+        measured timing.
 
-    ``m`` on niiden kierrosten määrä, joilla **tämä näytepiste on olemassa**,
-    ei kierrostyypin kaikkien kierrosten määrä. Ne eroavat: 45 sekunnin näyte
-    puuttuu kierrokselta, joka ratkesi 30 sekunnissa. ``rounds_missing``
-    kertoo erotuksen, jotta kierros ei katoa hiljaa.
+    ``m`` is the number of rounds on which **this sample point exists**, not
+    the number of all the round type's rounds. They differ: the 45-second
+    sample is missing from a round that was decided in 30 seconds.
+    ``rounds_missing`` gives the difference, so that a round does not vanish
+    quietly.
     """
 
     sample_kind: SampleKind
@@ -552,29 +566,30 @@ class Position(_Node):
 
     @model_validator(mode="after")
     def _check_areas_share_the_sample(self) -> Position:
-        """Kaikilla alueilla sama otanta, ja jokainen alue kerran.
+        """The same sample on every area, and each area once.
 
-        Jälkimmäinen on sama vartija kuin :class:`AreaDistribution`illa
-        (pylväs per pelaajamäärä) mutta askelta ylempänä: siellä se estää
-        saman **pelaajamäärän** kahdesti yhdellä alueella, täällä saman
-        **alueen** kahdesti yhdellä näytepisteellä. Ilman sitä rivi latoisi
-        ``Middle 3 (2/2 kierroksesta), Middle 1 (2/2 kierroksesta)``, eli
-        saman alueen kahtena havaintona, joiden summa ylittää otannan.
+        The latter is the same guard as :class:`AreaDistribution`'s (one bar
+        per player count) but a step higher: there it stops the same **player
+        count** twice on one area, here the same **area** twice on one sample
+        point. Without it the row would set
+        ``Middle 3 (2/2 kierroksesta), Middle 1 (2/2 kierroksesta)``, that is,
+        the same area as two observations whose sum exceeds the sample.
         """
         for area in self.areas:
             if area.m != self.m:
                 raise AggregateError(
-                    f"Näytepisteen {self.seconds!r} alue {area.area!r} väittää "
-                    f"otannakseen {area.m}, mutta näytepisteellä on {self.m} "
-                    "kierrosta. Saman näytepisteen kaikkien alueiden on "
-                    "jaettava sama otanta -- muuten kaksi lukua samasta "
-                    "hetkestä eivät ole vertailukelpoisia."
+                    f"At sample point {self.seconds!r} area {area.area!r} "
+                    f"claims a sample of {area.m}, but the sample point has "
+                    f"{self.m} rounds. Every area of the same sample point "
+                    "has to share the same sample -- otherwise two figures "
+                    "from the same moment are not comparable."
                 )
         seen = [area.area for area in self.areas]
         if len(seen) != len(set(seen)):
             raise ValueError(
-                f"Näytepisteen {self.seconds!r} jakaumassa on sama alue "
-                "kahdesti; näytepisteellä on aluetta kohden yksi jakauma."
+                f"Sample point {self.seconds!r} has the same area twice in "
+                "its distribution; a sample point has one distribution per "
+                "area."
             )
         return self
 
@@ -582,43 +597,46 @@ class Position(_Node):
     def _check_seconds_matches_kind(self) -> Position:
         if self.sample_kind == "time" and self.seconds is None:
             raise ValueError(
-                "Aikanäytepisteellä on oltava seconds; ilman sitä kahta "
-                "näytepistettä ei voi erottaa toisistaan."
+                "A time sample point must have seconds; without it two "
+                "sample points cannot be told apart."
             )
         if self.sample_kind == "first_contact" and self.seconds is not None:
             raise ValueError(
-                "Ensikontaktin näytepisteellä ei ole nimellistä sekuntilukua: "
-                "hetki on eri joka kierroksella. Käytä seconds_mediania."
+                "A first-contact sample point has no nominal second: the "
+                "moment is different on every round. Use seconds_median."
             )
         return self
 
 
 class UtilityUse(_Node):
-    """Yksi utility-kuvio: tyyppi, heittoalue, räjähdysalue ja aikaikkuna.
+    """One utility pattern: type, throw area, detonation area and time window.
 
-    Tästä luetaan tavoiteanalyysin rivi *"T-spawnista CT-savu B sitelle"*:
-    ``grenade_type = "smoke"``, ``throw_area = "TSpawn"``,
+    The target analysis's line *"a CT smoke onto the B site from T spawn"* is
+    read from here: ``grenade_type = "smoke"``, ``throw_area = "TSpawn"``,
     ``detonate_area = "BombsiteB"``.
 
-    ``n`` on kierrosten määrä, ``throws`` heittojen määrä. Ne eroavat, kun
-    samalla kierroksella heitetään kaksi samanlaista kranaattia samaan
-    paikkaan -- ja juuri siksi ``n``-arvoja ei saa laskea yhteen kranaattien
-    määräksi. Kranaattien määrä kierroksella on :class:`UtilityCounts`.
+    ``n`` is the number of rounds, ``throws`` the number of throws. They differ
+    when two grenades of the same kind are thrown to the same place on the same
+    round -- and that is exactly why the ``n`` values must not be added up into
+    a count of grenades. The number of grenades on a round is
+    :class:`UtilityCounts`.
     """
 
     grenade_type: str
-    #: Heittäjän oma alue heittohetkellä. **Havainto**, ei arvio.
+    #: The thrower's own area at the moment of the throw. An **observation**,
+    #: not an estimate.
     throw_area: str | None
-    #: Räjähdyksen alue. **Arvio**: kranaatilla ei ole aluenimeä, joten se on
-    #: luettu demon pistepilven lähimmästä ruudusta -- siitä kohdasta kartalla,
-    #: jossa pelaajat ovat lähinnä räjähdystä oikeasti seisoneet.
+    #: The area of the detonation. An **estimate**: a grenade has no area
+    #: name, so it is read from the nearest cell of the demo's point cloud --
+    #: from the spot on the map where players have really stood closest to the
+    #: detonation.
     detonate_area: str | None
-    #: Mistä ``detonate_area`` on peräisin. ``null`` aina ja vain silloin, kun
-    #: ``detonate_area`` on ``null``. Ilman tätä raportti esittäisi arvion
-    #: havaintona.
+    #: Where ``detonate_area`` came from. ``null`` always and only when
+    #: ``detonate_area`` is ``null``. Without this the report would present an
+    #: estimate as an observation.
     area_source: AreaSource | None
-    #: Aikaikkunan nimi, esimerkiksi ``"0-5"`` tai ``"20+"``. Rajat ovat
-    #: ``[thresholds].utility_seconds_buckets``.
+    #: The name of the time window, for example ``"0-5"`` or ``"20+"``. The
+    #: bounds are ``[thresholds].utility_seconds_buckets``.
     seconds_bucket: str
     n: int = Field(gt=0)
     throws: int = Field(gt=0)
@@ -628,46 +646,47 @@ class UtilityUse(_Node):
     def _check_counts(self) -> UtilityUse:
         if self.n > self.m:
             raise AggregateError(
-                f"Utility-kuvio {self.grenade_type} {self.throw_area!r} -> "
-                f"{self.detonate_area!r} esiintyy {self.n} kierroksella, "
-                f"vaikka kierroksia on {self.m}."
+                f"The utility pattern {self.grenade_type} {self.throw_area!r} "
+                f"-> {self.detonate_area!r} appears on {self.n} rounds, "
+                f"although there are {self.m} rounds."
             )
         if self.throws < self.n:
             raise AggregateError(
-                f"Utility-kuviolla {self.grenade_type} on {self.throws} "
-                f"heittoa mutta {self.n} kierrosta; heittoja ei voi olla "
-                "vähemmän kuin kierroksia."
+                f"The utility pattern {self.grenade_type} has {self.throws} "
+                f"throws but {self.n} rounds; there cannot be fewer throws "
+                "than rounds."
             )
         if (self.area_source is None) != (self.detonate_area is None):
             raise ValueError(
-                f"detonate_area={self.detonate_area!r} ja "
-                f"area_source={self.area_source!r} ovat ristiriidassa: "
-                "kumpikin on joko annettu tai molemmat tyhjiä. Alue ilman "
-                "lähdettä esittäisi arvion havaintona, ja lähde ilman aluetta "
-                "väittäisi johdosta alueelle, jota ei ole."
+                f"detonate_area={self.detonate_area!r} and "
+                f"area_source={self.area_source!r} contradict each other: "
+                "either both are given or both are empty. An area without a "
+                "source would present an estimate as an observation, and a "
+                "source without an area would claim a derivation for an area "
+                "that does not exist."
             )
         return self
 
 
 class GrenadeCount(_Node):
-    """Yksi pylväs jakaumassa "montako heitettiin kierroksella"."""
+    """One bar in the "how many were thrown on a round" distribution."""
 
     thrown: int = Field(ge=0)
     n: int = Field(gt=0)
 
 
 class UtilityCounts(_Node):
-    """Yhden kranaattityypin määräjakauma kierroksittain.
+    """One grenade type's count distribution, round by round.
 
-    Tästä luetaan tavoiteanalyysin rivit *"2 savua 2 valoo"* ja *"3 polttoo,
-    2 HE, 1 savu"*: kysymys ei ole siitä missä kranaatti räjähti vaan siitä,
-    montako niitä heitettiin. :class:`UtilityUse` ei vastaa siihen, koska sen
-    ``n`` laskee kierroksia eikä kranaatteja.
+    The target analysis's lines *"2 smokes 2 flashes"* and *"3 molotovs, 2 HE,
+    1 smoke"* are read from here: the question is not where the grenade went
+    off but how many of them were thrown. :class:`UtilityUse` does not answer
+    that, because its ``n`` counts rounds and not grenades.
 
-    Jakauma sisältää arvon ``thrown = 0`` samasta syystä kuin
-    :class:`AreaDistribution` sisältää arvon ``players = 0``: ilman sitä
-    ``Σ n = m`` ei pitäisi, eikä "eivät heittäneet yhtään savua" olisi
-    havainto vaan puuttuva rivi.
+    The distribution holds the value ``thrown = 0`` for the same reason
+    :class:`AreaDistribution` holds the value ``players = 0``: without it
+    ``Σ n = m`` would not hold, and "they threw no smokes at all" would not be
+    an observation but a missing row.
     """
 
     grenade_type: str
@@ -679,45 +698,45 @@ class UtilityCounts(_Node):
         total = sum(c.n for c in self.counts)
         if total != self.m:
             raise AggregateError(
-                f"Otanta ei täsmää kranaattityypillä {self.grenade_type!r}: "
-                f"n-arvojen summa on {total}, mutta kierroksia on {self.m}. "
-                "Jokaisen kierroksen on tuotettava havainto -- myös silloin, "
-                "kun heittoja oli nolla."
+                f"The sample does not match for grenade type "
+                f"{self.grenade_type!r}: the sum of the n values is {total}, "
+                f"but there are {self.m} rounds. Every round has to produce "
+                "an observation -- including when the throws were zero."
             )
         seen = [c.thrown for c in self.counts]
         if len(seen) != len(set(seen)):
             raise ValueError(
-                f"Kranaattityypin {self.grenade_type!r} jakaumassa on sama "
-                "lukumäärä kahdesti."
+                f"Grenade type {self.grenade_type!r} has the same count twice "
+                "in its distribution."
             )
         return self
 
 
 class ArmedCount(_Node):
-    """Yksi pylväs jakaumassa "montako pelaajaa oli aseistettu"."""
+    """One bar in the "how many players were armed" distribution."""
 
     armed: int = Field(ge=0)
     n: int = Field(gt=0)
 
 
 class ArmedPlayers(_Node):
-    """Aseistettujen pelaajien määrä ostoajan lopussa, kierroksittain.
+    """The number of armed players at the end of the buy time, round by round.
 
-    Havainto on Story 1.6:n laskuri ``players_armed_buy_end``: pelaajalla oli
-    panssari **ja** vähintään yksi ase hallussa. Se on hallussapito eikä
-    ostos, joten säästetty kivääri laskeutuu samoin kuin ostettu.
+    The observation is Story 1.6's counter ``players_armed_buy_end``: the
+    player had armour **and** at least one weapon in hand. It is possession
+    and not a purchase, so a saved rifle counts the same as a bought one.
 
-    **Tästä EI lueta** tavoiteanalyysin rivejä *"5 kevlaria"* ja *"ei
-    kevuja"*: ne ovat :class:`ArmoredPlayers`issä. Pistoolikierroksella tämä
-    jakauma on käytännössä ``0``, koska 800 dollarin aloitusrahalla ei osta
-    sekä kevlaria (650) että parannettua asetta -- aiempi versio tästä
-    docstringistä väitti päinvastaista, ja se väärinluenta maksoi Story 2.3:n
-    hyväksymisajossa yhden väärän rivin.
+    The target analysis's lines *"5 kevlars"* and *"no kevs"* are **NOT** read
+    from here: they are in :class:`ArmoredPlayers`. On a pistol round this
+    distribution is in practice ``0``, because the $800 of starting money does
+    not buy both kevlar (650) and an upgraded weapon -- an earlier version of
+    this docstring claimed the opposite, and that misreading cost one wrong
+    row in Story 2.3's acceptance run.
 
-    ``m`` on niiden kierrosten määrä, joilta havainto **saatiin**;
-    ``rounds_unknown`` on loput. Ne on pidettävä erillään: nolla aseistettua
-    on eri asia kuin lukukelvoton tavaraluettelo, ja jälkimmäinen näyttäisi
-    säästökierrokselta.
+    ``m`` is the number of rounds from which the observation **was obtained**;
+    ``rounds_unknown`` is the rest. They have to be kept apart: zero armed is
+    a different thing from an unreadable inventory, and the latter would look
+    like a saving round.
     """
 
     m: int = Field(ge=0)
@@ -726,36 +745,37 @@ class ArmedPlayers(_Node):
 
     @model_validator(mode="after")
     def _check_sample(self) -> ArmedPlayers:
-        """``Σ n = m``, ja jokainen pylväs esiintyy kerran.
+        """``Σ n = m``, and every bar appears once.
 
-        Jälkimmäinen on sama vartija kuin
-        :meth:`AreaDistribution._check_sample`illa, :class:`UtilityCounts`illa
-        ja :class:`DeathReport`illa. Se puuttui täältä **Story 2.8:sta Story
-        2.15:een**, vaikka rivin luenta on sama: raportti latoisi saman
-        pylvään kahdesti eri luvuilla, ja lukija näkisi yhden havainnon
-        kahtena.
+        The latter is the same guard as
+        :meth:`AreaDistribution._check_sample`'s, :class:`UtilityCounts`'s and
+        :class:`DeathReport`'s. It was missing from here **from Story 2.8 to
+        Story 2.15**, although the row is read the same way: the report would
+        set the same bar twice with different figures, and the reader would
+        see one observation as two.
         """
         total = sum(c.n for c in self.counts)
         if total != self.m:
             raise AggregateError(
-                "Otanta ei täsmää aseistettujen pelaajien jakaumassa: "
-                f"n-arvojen summa on {total}, mutta havaintoja on {self.m}."
+                "The sample does not match in the armed players' "
+                f"distribution: the sum of the n values is {total}, but there "
+                f"are {self.m} observations."
             )
         seen = [c.armed for c in self.counts]
         if len(seen) != len(set(seen)):
             raise ValueError(
-                "Aseistettujen pelaajien jakaumassa on sama pelaajamäärä "
-                "kahdesti; jakauman on oltava pylväs per pelaajamäärä."
+                "The armed players' distribution has the same player count "
+                "twice; the distribution must be one bar per player count."
             )
         return self
 
 
 class ArmoredCount(_Node):
-    """Yksi pylväs jakaumassa "montako pelaajaa kantoi panssaria".
+    """One bar in the "how many players carried armour" distribution.
 
-    Kenttä on ``armored`` eikä ``armed`` tarkoituksella: ``report.json``
-    luetaan myös käsin, ja kaksi lähes samannimistä jakaumaa sekoittuisi
-    keskenään, jos ne käyttäisivät samaa kenttänimeä.
+    The field is ``armored`` and not ``armed`` on purpose: ``report.json`` is
+    also read by hand, and two distributions with nearly the same name would
+    be confused with each other if they used the same field name.
     """
 
     armored: int = Field(ge=0)
@@ -763,41 +783,44 @@ class ArmoredCount(_Node):
 
 
 class ArmoredPlayers(_Node):
-    """Panssaria kantaneiden pelaajien määrä ostoajan lopussa, kierroksittain.
+    """The number of players carrying armour at the end of the buy time,
+    round by round.
 
-    **Tästä** luetaan tavoiteanalyysin rivit *"5 kevlaria"* (Nuke, T-pistooli)
-    ja *"ei kevuja"* (Ancient, CT). Havainto on ``players_armored_buy_end``:
-    pelaajalla oli panssaria (``m_ArmorValue > 0``) ostoajan lopussa. Kypärää
-    ei eroteta, eikä vaurioitunutta panssaria ehjästä.
+    The target analysis's lines *"5 kevlars"* (Nuke, T pistol) and *"no kevs"*
+    (Ancient, CT) are read from **here**. The observation is
+    ``players_armored_buy_end``: the player had armour (``m_ArmorValue > 0``)
+    at the end of the buy time. A helmet is not told apart, nor damaged armour
+    from intact armour.
 
-    **Eri luku kuin** :class:`ArmedPlayers`, ei sen yleistys. Ne vastaavat eri
-    kysymyksiin ja molempia tarvitaan:
+    **A different figure from** :class:`ArmedPlayers`, not a generalisation of
+    it. They answer different questions and both are needed:
 
-    * aseistettu = panssari **ja** parannettu ase -- puolioston kalibroitu
-      ehto A, jonka ``classify`` lukee
-    * panssaroitu = panssari, piste -- "monellako oli panssari"
+    * armed = armour **and** an upgraded weapon -- the half-buy's calibrated
+      condition A, which ``classify`` reads
+    * armoured = armour, full stop -- "how many had armour"
 
-    Ne ovat **sisäkkäisiä eivätkä rinnakkaisia**: aseistetun ehto sisältää
-    panssarin, joten aseistetut ovat panssaroitujen osajoukko. Molemmat
-    luetaan samalta tickiltä ja samasta pelaajajoukosta, joten myös jakajat
-    ovat samat.
+    They are **nested and not parallel**: the armed condition includes the
+    armour, so the armed are a subset of the armoured. Both are read from the
+    same tick and from the same set of players, so the denominators are the
+    same too.
 
-    **Hallussapito, ei ostos.** Panssari säilyy kierroksen yli hengissä
-    selvinneellä, joten muilla kierrostyypeillä luku kertoo mitä pelaajilla
-    oli eikä mitä he ostivat. **Pistoolikierros (1 ja 13) on poikkeus**:
-    puoliaika alkaa puhtaalta pöydältä eikä perintää ole, joten siellä luku on
-    ostohavainto -- ja juuri siksi *"5 kevlaria"* on oikea luenta.
+    **Possession, not a purchase.** Armour carries over the round for anyone
+    who survived, so on other round types the figure says what the players had
+    and not what they bought. **The pistol round (1 and 13) is the
+    exception**: the half starts from a clean slate and nothing is inherited,
+    so there the figure is an observation of buying -- and that is exactly why
+    *"5 kevlars"* is the right reading.
 
-    Pistoolikierroksella laskurit myös eroavat eniten: mitattu neljästä
-    MatureMayhem-demosta 2026-08-30, kaikilla kahdeksalla pistoolikierroksella
-    aseistettuja 0 ja panssaroituja 1--5. Sääntö se ei ole vaan rahan seuraus,
-    ja poimittu ase riittää aseistamaan: samassa aineistossa vastustajan
-    Anubis-kierroksella 13 laskurit ovat 3 ja 1.
+    On a pistol round the counters also differ the most: measured from four
+    MatureMayhem demos on 2026-08-30, on all eight pistol rounds the armed
+    were 0 and the armoured 1--5. That is not a rule but a consequence of
+    money, and a picked-up weapon is enough to arm: in the same material, on
+    the opponent's Anubis round 13 the counters are 3 and 1.
 
-    ``m`` on niiden kierrosten määrä, joilta havainto **saatiin**;
-    ``rounds_unknown`` on loput. Sama erottelu kuin
-    :class:`ArmedPlayers`issä: nolla panssaroitua on havainto, lukukelvoton
-    panssari ei ole havainto lainkaan.
+    ``m`` is the number of rounds from which the observation **was obtained**;
+    ``rounds_unknown`` is the rest. The same distinction as in
+    :class:`ArmedPlayers`: zero armoured is an observation, unreadable armour
+    is no observation at all.
     """
 
     m: int = Field(ge=0)
@@ -806,39 +829,40 @@ class ArmoredPlayers(_Node):
 
     @model_validator(mode="after")
     def _check_sample(self) -> ArmoredPlayers:
-        """``Σ n = m``, ja jokainen pylväs esiintyy kerran.
+        """``Σ n = m``, and every bar appears once.
 
-        Sama vartija kuin :class:`ArmedPlayers`illä -- ja se puuttui täältä
-        samasta syystä: tämä luokka kopioitiin siitä Story 2.8:ssa, joten
-        aukko monistui sen sijaan että se olisi huomattu.
+        The same guard as :class:`ArmedPlayers`'s -- and it was missing from
+        here for the same reason: this class was copied from it in Story 2.8,
+        so the gap was duplicated instead of being noticed.
         """
         total = sum(c.n for c in self.counts)
         if total != self.m:
             raise AggregateError(
-                "Otanta ei täsmää panssaroitujen pelaajien jakaumassa: "
-                f"n-arvojen summa on {total}, mutta havaintoja on {self.m}."
+                "The sample does not match in the armoured players' "
+                f"distribution: the sum of the n values is {total}, but there "
+                f"are {self.m} observations."
             )
         seen = [c.armored for c in self.counts]
         if len(seen) != len(set(seen)):
             raise ValueError(
-                "Panssaroitujen pelaajien jakaumassa on sama pelaajamäärä "
-                "kahdesti; jakauman on oltava pylväs per pelaajamäärä."
+                "The armoured players' distribution has the same player count "
+                "twice; the distribution must be one bar per player count."
             )
         return self
 
 
 class FirstContactArea(_Node):
-    """Alue, jolla joukkueella oli pelaaja ensikontaktin hetkellä.
+    """An area in which the team had a player at the moment of first contact.
 
-    Tästä luetaan rivi *"Otti kontaktin partsi käytävällä"*. Havainto on
-    **läsnäolo**, ei pelaajamäärä: ``n`` on kierrokset, joilla alueella oli
-    ainakin yksi elossa oleva pelaaja sillä hetkellä, kun kierroksen
-    ensimmäinen ristiinpuolinen osuma tapahtui.
+    The line *"took contact with the AWP in the corridor"* is read from here.
+    The observation is **presence**, not a player count: ``n`` is the rounds
+    on which the area held at least one living player at the moment the
+    round's first cross-side hit happened.
 
-    ``Σ n = m`` **ei päde tässä** eikä ole tarkoituskaan: sama kierros tuottaa
-    havainnon jokaiselle alueelle, jolla joukkueella oli pelaaja. Täysi
-    jakauma samalta hetkeltä on ``positions``-listan ``first_contact``
-    -näytepisteessä.
+    ``Σ n = m`` **does not hold here** and is not meant to: the same round
+    produces an observation for every area in which the team had a player. The
+    full distribution from the same moment is in the ``positions`` list's
+    ``first_contact`` sample point.
     """
 
     area: str | None
@@ -849,29 +873,30 @@ class FirstContactArea(_Node):
     def _check_counts(self) -> FirstContactArea:
         if self.n > self.m:
             raise AggregateError(
-                f"Ensikontaktin alue {self.area!r} esiintyy {self.n} "
-                f"kierroksella, vaikka kierroksia on {self.m}."
+                f"The first-contact area {self.area!r} appears on {self.n} "
+                f"rounds, although there are {self.m} rounds."
             )
         return self
 
 
 class FirstDeathArea(_Node):
-    """Alue, jolla joukkue menetti **ensimmäisen** pelaajansa kierroksella.
+    """The area where the team lost its **first** player on a round.
 
-    Tästä luetaan tavoiteanalyysin rivi *"Luola kuolee nii pelaa
-    siteltä/nyypästä ja longilta"*: kierroksen ensimmäinen oma kuolema on se,
-    joka selittää mitä joukkue teki sen jälkeen.
+    The target analysis's line *"Cave dies so they play from the site / from
+    the newbie spot and from long"* is read from here: the round's first own
+    death is the one that explains what the team did afterwards.
 
-    ``Σ n = m`` **pätee tässä**, toisin kuin :class:`FirstContactArea`ssa:
-    jokaisella kierroksella on täsmälleen yksi ensimmäinen kuolema, joten se
-    tuottaa havainnon täsmälleen yhdelle alueelle. ``m`` on niiden kierrosten
-    määrä, joilla joukkue **menetti pelaajan**; kierrokset, joilla kukaan ei
-    kuollut, ovat :attr:`DeathReport.rounds_missing`issä eivätkä nollarivinä
-    -- nollarivi väittäisi havainnoksi sen, ettei havaintoa ole.
+    ``Σ n = m`` **does hold here**, unlike in :class:`FirstContactArea`: every
+    round has exactly one first death, so it produces an observation for
+    exactly one area. ``m`` is the number of rounds on which the team **lost a
+    player**; rounds on which nobody died are in
+    :attr:`DeathReport.rounds_missing` and not a zero row -- a zero row would
+    claim as an observation that there is no observation.
     """
 
-    #: Uhrin oma ``last_place_name`` kuolinhetkellä. **Havainto**, ei arvio.
-    #: ``null`` = pelin aluenimeä ei saatu; rivi ei katoa.
+    #: The victim's own ``last_place_name`` at the moment of death. An
+    #: **observation**, not an estimate. ``null`` = the game's area name was
+    #: not obtained; the row does not vanish.
     area: str | None
     n: int = Field(gt=0)
     m: int = Field(ge=0)
@@ -880,24 +905,24 @@ class FirstDeathArea(_Node):
     def _check_counts(self) -> FirstDeathArea:
         if self.n > self.m:
             raise AggregateError(
-                f"Ensimmäisen kuoleman alue {self.area!r} esiintyy {self.n} "
-                f"kierroksella, vaikka kierroksia on {self.m}."
+                f"The first-death area {self.area!r} appears on {self.n} "
+                f"rounds, although there are {self.m} rounds."
             )
         return self
 
 
 class KillArea(_Node):
-    """Alue, jolta joukkueen pelaaja teki tapon.
+    """The area from which a player of the team made a kill.
 
-    Tästä luetaan tavoiteanalyysin rivi *"Vihu meni secret pihalta"*: alue on
-    **ampujan oma** ``last_place_name`` tappohetkellä, ei uhrin.
+    The target analysis's line *"the enemy came through the secret yard"* is
+    read from here: the area is the **shooter's own** ``last_place_name`` at
+    the moment of the kill, not the victim's.
 
-    ``m`` **ei ole kierroksia vaan tappoja**, ja ``Σ n = m`` sen yli. Ero
-    :class:`AreaDistribution`iin on olennainen: siellä jokainen kierros
-    tuottaa yhden havainnon jokaiselle alueelle, tässä jokainen **tappo**
-    tuottaa yhden havainnon yhdelle alueelle. Kierrostyypillä voi olla
-    enemmän tappoja kuin kierroksia, joten lukua ei saa lukea muodossa
-    "n kierroksella m:stä".
+    ``m`` **is not rounds but kills**, and ``Σ n = m`` over it. The difference
+    from :class:`AreaDistribution` matters: there every round produces one
+    observation for every area, here every **kill** produces one observation
+    for one area. A round type can have more kills than rounds, so the figure
+    must not be read as "n rounds out of m".
     """
 
     area: str | None
@@ -908,127 +933,131 @@ class KillArea(_Node):
     def _check_counts(self) -> KillArea:
         if self.n > self.m:
             raise AggregateError(
-                f"Tappoalue {self.area!r} esiintyy {self.n} tapossa, vaikka "
-                f"tappoja on {self.m}."
+                f"The kill area {self.area!r} appears in {self.n} kills, "
+                f"although there are {self.m} kills."
             )
         return self
 
 
 class DeathReport(_Node):
-    """Joukkueen omat kuolemat ja tapot yhdellä kierrostyypillä.
+    """The team's own deaths and kills on one round type.
 
-    Kaksi reunajakaumaa, ja niillä on **eri nimittäjä**. Sekaannus olisi
-    helppo ja kallis, joten se on kirjoitettu tähän:
+    Two marginal distributions, and they have **different denominators**. The
+    confusion would be easy and expensive, so it is written down here:
 
     ``first_death_areas``
-        Missä joukkue menetti ensimmäisen pelaajansa. Yksi havainto per
-        kierros, joten ``Σ n = m`` ja ``m`` on **kierroksia**.
+        Where the team lost its first player. One observation per round, so
+        ``Σ n = m`` and ``m`` is **rounds**.
     ``kills``
-        Mistä joukkueen pelaajat tekivät tappoja. Yksi havainto per **tappo**,
-        joten ``Σ n = kills_total`` ja luku voi ylittää kierrosten määrän.
+        Where the team's players made kills from. One observation per
+        **kill**, so ``Σ n = kills_total`` and the figure can exceed the
+        number of rounds.
 
-    ``rounds_missing`` on ne kierrokset, joilla joukkue **ei menettänyt
-    yhtään pelaajaa**. Se on oma lukunsa eikä nollarivi: alue "ei kuollut" ei
-    ole alue, ja ilman erillistä lukua ``Σ n = m`` pettäisi.
+    ``rounds_missing`` is the rounds on which the team **lost no player at
+    all**. It is a figure of its own and not a zero row: the area "did not
+    die" is not an area, and without a separate figure ``Σ n = m`` would fail.
 
-    **Omat tapot sisältävät teamkillin.** Jos joukkueen pelaaja tappaa
-    joukkuekaverinsa, rivi on sekä oma kuolema että oma tappo. Kummankaan
-    pois suodattaminen olisi tulkintaa: havainto on, että pelaaja kuoli ja
-    että ampuja oli tietyllä alueella. Teamkill on harvinainen (1 kpl 591
-    kuolemasta, mitattu 2026-08-30), mutta jos se joskus näkyy raportin
-    luvussa, se näkyy siksi että se tapahtui.
+    **Own kills include the team kill.** If a player of the team kills a
+    team-mate, the row is both an own death and an own kill. Filtering either
+    of them out would be interpretation: the observation is that a player died
+    and that the shooter was in a particular area. A team kill is rare (1 out
+    of 591 deaths, measured 2026-08-30), but if it ever shows in a figure in
+    the report, it shows because it happened.
 
-    **Itsemurha ei ole tappo.** Jos ampuja ja uhri ovat sama pelaaja, rivi on
-    oma kuolema muttei oma tappo. Se ei ole tulkinta vaan sama havainto
-    luettuna oikein: "tapot alueittain" kertoo, **mistä joukkue ampuu**, ja
-    itsemurhan alue on paikka, josta kukaan ei ampunut. Mitattu aineistossa
-    0/591, joten vika olisi ollut latentti -- ja siksi se on kirjoitettu
-    säännöksi eikä jätetty tapahtumatta.
+    **Suicide is not a kill.** If the shooter and the victim are the same
+    player, the row is an own death but not an own kill. That is not an
+    interpretation but the same observation read correctly: "kills by area"
+    says **where the team shoots from**, and the area of a suicide is a place
+    nobody shot from. Measured 0/591 in the material, so the fault would have
+    been latent -- and that is why it is written down as a rule rather than
+    left to not happen.
     """
 
-    #: Kierrokset, joilla joukkue menetti vähintään yhden pelaajan.
+    #: Rounds on which the team lost at least one player.
     m: int = Field(ge=0)
-    #: Kierrokset, joilla joukkue ei menettänyt yhtäkään pelaajaa.
+    #: Rounds on which the team lost no player at all.
     rounds_missing: int = Field(ge=0)
-    #: Ensimmäisen oman kuoleman ajoituksen mediaani sekunteina, tai ``null``
-    #: jos yhdeltäkään kierrokselta ei saatu ajoitusta.
+    #: The median timing of the first own death in seconds, or ``null`` if no
+    #: timing was obtained from any round.
     first_death_seconds_median: float | None = None
     first_death_areas: list[FirstDeathArea] = Field(default_factory=list)
-    #: Joukkueen omat tapot yhteensä. Tämä on ``kills``-listan nimittäjä.
+    #: The team's own kills in total. This is the ``kills`` list's denominator.
     kills_total: int = Field(default=0, ge=0)
     kills: list[KillArea] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_first_death_sample(self) -> DeathReport:
-        """``Σ n = m`` ja jokainen alue jakaa saman otannan.
+        """``Σ n = m`` and every area shares the same sample.
 
-        Ilman jälkimmäistä kaksi aluetta voisi väittää eri nimittäjää, ja
-        raportin kaksi lukua samasta jakaumasta eivät olisi vertailukelpoisia.
+        Without the latter two areas could claim different denominators, and
+        two figures from the same distribution in the report would not be
+        comparable.
         """
         for entry in self.first_death_areas:
             if entry.m != self.m:
                 raise AggregateError(
-                    f"Ensimmäisen kuoleman alue {entry.area!r} väittää "
-                    f"otannakseen {entry.m}, mutta kierroksia joilla joukkue "
-                    f"menetti pelaajan on {self.m}."
+                    f"The first-death area {entry.area!r} claims a sample of "
+                    f"{entry.m}, but the rounds on which the team lost a "
+                    f"player are {self.m}."
                 )
         total = sum(entry.n for entry in self.first_death_areas)
         if total != self.m:
             raise AggregateError(
-                "Otanta ei täsmää ensimmäisen kuoleman alueissa: n-arvojen "
-                f"summa on {total}, mutta kierroksia joilla joukkue menetti "
-                f"pelaajan on {self.m}.\n"
-                "Jokaisella sellaisella kierroksella on täsmälleen yksi "
-                "ensimmäinen kuolema, joten summan on oltava sama luku."
+                "The sample does not match in the first-death areas: the sum "
+                f"of the n values is {total}, but the rounds on which the "
+                f"team lost a player are {self.m}.\n"
+                "Every such round has exactly one first death, so the sum has "
+                "to be the same figure."
             )
         seen = [entry.area for entry in self.first_death_areas]
         if len(seen) != len(set(seen)):
             raise ValueError(
-                "Ensimmäisen kuoleman jakaumassa on sama alue kahdesti."
+                "The first-death distribution has the same area twice."
             )
         return self
 
     @model_validator(mode="after")
     def _check_kill_sample(self) -> DeathReport:
-        """``Σ n = kills_total``, ja nimittäjä on tappoja eikä kierroksia."""
+        """``Σ n = kills_total``, and the denominator is kills, not rounds."""
         for entry in self.kills:
             if entry.m != self.kills_total:
                 raise AggregateError(
-                    f"Tappoalue {entry.area!r} väittää otannakseen "
-                    f"{entry.m}, mutta tappoja on {self.kills_total}."
+                    f"The kill area {entry.area!r} claims a sample of "
+                    f"{entry.m}, but there are {self.kills_total} kills."
                 )
         total = sum(entry.n for entry in self.kills)
         if total != self.kills_total:
             raise AggregateError(
-                "Otanta ei täsmää tappoalueissa: n-arvojen summa on "
-                f"{total}, mutta tappoja on {self.kills_total}.\n"
-                "Jokainen tappo kuuluu täsmälleen yhdelle alueelle -- myös "
-                "silloin, kun alue on tuntematon."
+                "The sample does not match in the kill areas: the sum of the "
+                f"n values is {total}, but there are {self.kills_total} "
+                "kills.\n"
+                "Every kill belongs to exactly one area -- including when the "
+                "area is unknown."
             )
         seen = [entry.area for entry in self.kills]
         if len(seen) != len(set(seen)):
-            raise ValueError("Tappojakaumassa on sama alue kahdesti.")
+            raise ValueError("The kill distribution has the same area twice.")
         return self
 
     @model_validator(mode="after")
     def _check_median_has_a_sample(self) -> DeathReport:
-        """Mediaani ilman yhtäkään kuolemaa olisi luku tyhjästä."""
+        """A median without a single death would be a figure out of nothing."""
         if self.first_death_seconds_median is not None and self.m == 0:
             raise AggregateError(
-                "Ensimmäisen kuoleman mediaani on "
-                f"{self.first_death_seconds_median}, mutta yhdelläkään "
-                "kierroksella ei kuollut ketään. Mediaani ilman havaintoja "
-                "olisi luku tyhjästä."
+                "The median of the first death is "
+                f"{self.first_death_seconds_median}, but nobody died on a "
+                "single round. A median without observations would be a "
+                "figure out of nothing."
             )
         return self
 
 
 class RoundTypeReport(_Node):
-    """Yhden kierrostyypin kaikki havainnot yhdellä kartalla ja puolella.
+    """Every observation of one round type on one map and side.
 
-    ``small_sample`` on merkintä eikä suodatin: alle
-    ``[thresholds].small_sample_rounds`` kierroksen otanta esitetään yhä, mutta
-    merkittynä. Yksi toistuma ei ole kuvio, ja raportin on sanottava se.
+    ``small_sample`` is a mark and not a filter: a sample of fewer than
+    ``[thresholds].small_sample_rounds`` rounds is still shown, but marked.
+    One repetition is not a pattern, and the report has to say so.
     """
 
     round_type: RoundType
@@ -1038,72 +1067,75 @@ class RoundTypeReport(_Node):
     utility: list[UtilityUse]
     utility_counts: list[UtilityCounts]
     players_armed: ArmedPlayers
-    #: Panssaroidut omana havaintonaan aseistettujen rinnalla. **Ei oletusta**
-    #: samasta syystä kuin ``deaths``illä: tyhjä oletus antaisi vanhalla
-    #: versiolla lasketun haaran näyttää kierrostyypiltä, jolla kenelläkään ei
-    #: ollut panssaria -- ja juuri sen eron skeemaversio erottaa.
+    #: The armoured as an observation of their own alongside the armed. **No
+    #: default**, for the same reason as with ``deaths``: an empty default
+    #: would let a branch computed with an old version look like a round type
+    #: on which nobody had armour -- and that is exactly the difference the
+    #: schema version tells apart.
     players_armored: ArmoredPlayers
     first_contact: list[FirstContactArea]
-    #: Omat kuolemat ja tapot. Ei oletusta: tyhjä oletus antaisi vanhalla
-    #: versiolla lasketun haaran näyttää kierrostyypiltä, jolla kukaan ei
-    #: kuollut -- ja juuri se on ero, jonka skeemaversio erottaa.
+    #: Own deaths and kills. No default: an empty default would let a branch
+    #: computed with an old version look like a round type on which nobody
+    #: died -- and that is exactly the difference the schema version tells
+    #: apart.
     deaths: DeathReport
 
     @model_validator(mode="after")
     def _check_deaths_cover_the_rounds(self) -> RoundTypeReport:
-        """Kuolemien kierrokset ovat täsmälleen kierrostyypin kierrokset.
+        """The deaths' rounds are exactly the round type's rounds.
 
-        ``Σ n = m`` valvotaan :class:`DeathReport`in sisällä, mutta se pitää
-        myös silloin kun ``m`` on laskettu **väärästä kierrosjoukosta**:
-        jakauma olisi sisäisesti johdonmukainen ja hiljaa väärä. Jokainen muu
-        taso tarkistaa kierrossummansa ylöspäin (:func:`_check_rounds_add_up`),
-        ja tämä on kuolemien vastine sille.
+        ``Σ n = m`` is enforced inside :class:`DeathReport`, but it holds even
+        when ``m`` has been computed from the **wrong set of rounds**: the
+        distribution would be internally consistent and quietly wrong. Every
+        other level checks its round sum upwards
+        (:func:`_check_rounds_add_up`), and this is the deaths' counterpart to
+        that.
 
         Raises:
-            AggregateError: Jos kuolleet ja kuolemattomat kierrokset eivät
-                yhdessä ole kierrostyypin otanta.
+            AggregateError: If the rounds with deaths and the rounds without
+                them are not together the round type's sample.
         """
         covered = self.deaths.m + self.deaths.rounds_missing
         if covered != self.sample.rounds:
             raise AggregateError(
-                f"Kierrostyypin {self.round_type} kuolemat kattavat "
-                f"{covered} kierrosta ({self.deaths.m} joilla joukkue "
-                f"menetti pelaajan, {self.deaths.rounds_missing} joilla ei), "
-                f"mutta kierrostyypin otanta on {self.sample.rounds} "
-                "kierrosta.\n"
-                "Ero tarkoittaa, että kuolemat on laskettu eri "
-                "kierrosjoukosta kuin muut havainnot -- jakauma näyttäisi "
-                "silti sisäisesti oikealta."
+                f"The deaths of round type {self.round_type} cover "
+                f"{covered} rounds ({self.deaths.m} on which the team lost a "
+                f"player, {self.deaths.rounds_missing} on which it did not), "
+                f"but the round type's sample is {self.sample.rounds} "
+                "rounds.\n"
+                "The difference means the deaths were computed from a "
+                "different set of rounds than the other observations -- the "
+                "distribution would still look internally correct."
             )
         return self
 
     @model_validator(mode="after")
     def _check_first_contact_areas_are_unique(self) -> RoundTypeReport:
-        """Sama alue kerran ensikontaktin läsnäololuettelossa.
+        """The same area once in the first-contact presence list.
 
-        ``Σ n = m`` **ei päde tässä** eikä ole tarkoituskaan (sama kierros
-        tuottaa havainnon jokaiselle alueelle, jolla joukkueella oli
-        pelaaja), joten duplikaatti ei paljastu summasta niin kuin muissa
-        jakaumissa -- se on vain kaksi riviä samasta alueesta eri luvuilla.
-        Vartija on siksi täällä eikä :class:`FirstContactArea`ssa: alue on
-        yksikäsitteinen vasta luettelossaan.
+        ``Σ n = m`` **does not hold here** and is not meant to (the same round
+        produces an observation for every area in which the team had a
+        player), so a duplicate does not show up in the sum the way it does in
+        the other distributions -- it is just two rows about the same area with
+        different figures. The guard is therefore here and not in
+        :class:`FirstContactArea`: an area is unambiguous only within its list.
 
         Raises:
-            ValueError: Jos sama alue esiintyy kahdesti. Raportti latoisi
-                ``Middle (2/2 kierroksesta), Middle (1/2 kierroksesta)``, ja
-                lukija näkisi yhden havainnon kahtena.
+            ValueError: If the same area appears twice. The report would set
+                ``Middle (2/2 kierroksesta), Middle (1/2 kierroksesta)``, and
+                the reader would see one observation as two.
         """
         seen = [entry.area for entry in self.first_contact]
         if len(seen) != len(set(seen)):
             raise ValueError(
-                f"Kierrostyypin {self.round_type} ensikontaktin "
-                "läsnäololuettelossa on sama alue kahdesti."
+                f"The first-contact presence list of round type "
+                f"{self.round_type} holds the same area twice."
             )
         return self
 
 
 class SideReport(_Node):
-    """Yhden puolen kierrostyypit yhdellä kartalla."""
+    """One side's round types on one map."""
 
     side: Side
     sample: Sample
@@ -1112,30 +1144,30 @@ class SideReport(_Node):
     @model_validator(mode="after")
     def _check_rounds(self) -> SideReport:
         _check_rounds_add_up(
-            self.sample, [rt.sample for rt in self.round_types], "puoli", "kierrostyyppi"
+            self.sample, [rt.sample for rt in self.round_types], "side", "round type"
         )
         return self
 
 
 class MapReport(_Node):
-    """Yhden kartan molemmat puolet.
+    """Both sides of one map.
 
-    ``map_name`` on ensisijaisesti **havainto**: ``parse`` lukee kartan nimen
-    demon otsikosta ``MATCH``-tauluun (Story 2.11), eikä sitä validoida
-    karttapoolia vasten -- poolin ulkopuolinen kartta on aito havainto.
-    Havainnon puuttuessa nimi päätellään ``map_demo_id``:stä karttapoolia
-    vasten, ja tuntematonkaan kartta ei katoa: silloin nimi on ``map_demo_id``
-    itse ja lähde ``unknown``.
-
-    ``map_name_source`` kertoo mistä nimi tuli, ja sen arvot ovat
-    ensisijaisuusjärjestyksessä: ``demo_header`` -> ``map_demo_id`` ->
+    ``map_name`` is first of all an **observation**: ``parse`` reads the map's
+    name from the demo header into the ``MATCH`` table (Story 2.11), and it is
+    not validated against the map pool -- a map outside the pool is a genuine
+    observation. When the observation is missing, the name is derived from the
+    ``map_demo_id`` against the map pool, and even an unknown map does not
+    vanish: then the name is the ``map_demo_id`` itself and the source is
     ``unknown``.
+
+    ``map_name_source`` says where the name came from, and its values in order
+    of precedence are: ``demo_header`` -> ``map_demo_id`` -> ``unknown``.
     """
 
     map_name: str
     map_name_source: MapNameSource
-    #: Kartan demot. Kaksi demoa samalta kartalta summautuu yhdeksi haaraksi,
-    #: ja tämä lista kertoo mistä.
+    #: The map's demos. Two demos from the same map add up into one branch,
+    #: and this list says which ones.
     map_demo_ids: list[str]
     sample: Sample
     sides: list[SideReport]
@@ -1143,30 +1175,31 @@ class MapReport(_Node):
     @model_validator(mode="after")
     def _check_rounds(self) -> MapReport:
         _check_rounds_add_up(
-            self.sample, [s.sample for s in self.sides], "kartta", "puoli"
+            self.sample, [s.sample for s in self.sides], "map", "side"
         )
         if self.sample.demos != len(self.map_demo_ids):
             raise AggregateError(
-                f"Kartta {self.map_name} väittää otannakseen "
-                f"{self.sample.demos} demoa, mutta listaa "
+                f"Map {self.map_name} claims a sample of "
+                f"{self.sample.demos} demos, but lists "
                 f"{len(self.map_demo_ids)}: "
                 f"{', '.join(self.map_demo_ids)}.\n"
-                "Kartan demot on lueteltava tarkalleen, koska juuri niistä "
-                "kierrokset summautuivat."
+                "The map's demos have to be listed exactly, because they are "
+                "what the rounds added up from."
             )
         return self
 
 
 class RosterEntry(_Node):
-    """Yksi rosteririvi: pelaaja tunnisteineen ja nimineen.
+    """One roster row: a player with their id and their name.
 
-    **Molemmat, aina.** SteamID64 säilyy nimen rinnalla, koska nimi on
-    luettavuutta varten mutta tunniste on ainoa jäljitettävä arvo: nimi voi
-    vaihtua ottelusta toiseen, tunniste ei.
+    **Both, always.** The SteamID64 stays alongside the name, because the name
+    is there for readability but the id is the only traceable value: a name
+    can change from one match to the next, an id cannot.
 
-    ``display_name`` on ``None``, jos nimeä ei saatu luettua demosta. Se ei ole
-    sama asia kuin tyhjä merkkijono eikä sitä korvata tunnisteella tässä --
-    korvaus on esitysvalinta ja kuuluu ``render``-vaiheeseen.
+    ``display_name`` is ``None`` if no name could be read from the demo. That
+    is not the same thing as an empty string, and it is not replaced with the
+    id here -- the replacement is a presentation choice and belongs to the
+    ``render`` stage.
     """
 
     player_id: str
@@ -1175,12 +1208,12 @@ class RosterEntry(_Node):
     @field_validator("display_name")
     @classmethod
     def _empty_is_not_a_name(cls, value: str | None) -> str | None:
-        """Tyhjä merkkijono ei ole nimi -- se on ``None``.
+        """An empty string is not a name -- it is ``None``.
 
-        Ilman tätä rosterirvi näyttäisi tyhjän nimen SteamID:n vieressä, mikä
-        lukee kuin nimi olisi tyhjä eikä kuin sitä ei olisi. ``TeamReport``
-        vartioi saman asian joukkueen nimelle; pelaajan nimi ei voi olla
-        löysempi.
+        Without this a roster row would show an empty name beside the SteamID,
+        which reads as though the name were empty and not as though there were
+        none. ``TeamReport`` guards the same thing for the team's name; a
+        player's name cannot be looser.
         """
         if value is None:
             return None
@@ -1188,89 +1221,92 @@ class RosterEntry(_Node):
 
 
 class TeamReport(_Node):
-    """Joukkue, jonka näkökulmasta raportti on tehty.
+    """The team from whose point of view the report was made.
 
-    ``key`` on ``classified/``-hakemiston nimi. Ennen Epic 3:a se on
-    kokoonpanotunniste (``lineup_key``); ``lineup_keys`` kertoo, mitkä
-    kokoonpanot liitettiin samaksi joukkueeksi ja millä perusteella
-    (``[thresholds].team_identity_min_common`` yhteistä pelaajaa).
+    ``key`` is the name of the directory under ``classified/``. Before Epic 3
+    it is a lineup id (``lineup_key``); ``lineup_keys`` says which lineups
+    were joined into the same team and on what grounds
+    (``[thresholds].team_identity_min_common`` players in common).
 
-    **Nimi on havainto, ei johdos.** ``display_name`` on joukkueen klaaninimi
-    demosta (``LINEUPS.clan_name``) silloin ja vain silloin, kun
-    ``display_name_source`` on ``clan_name``. Ilman havaintoa nimi on tunniste
-    ja lähde ``team_key``, ja raportti sanoo sen ääneen sen sijaan että
-    esittäisi tiivisteen nimenä.
+    **The name is an observation, not a derivation.** ``display_name`` is the
+    team's clan name from the demo (``LINEUPS.clan_name``) when and only when
+    ``display_name_source`` is ``clan_name``. Without an observation the name
+    is the id and the source is ``team_key``, and the report says so out loud
+    instead of presenting a hash as a name.
     """
 
     key: str
     slug: str
     display_name: str
-    #: Mistä ``display_name`` tulee. ``clan_name`` = havaittu demosta;
-    #: ``team_key`` = havaintoa ei ole, joten nimi on tunniste itse.
+    #: Where ``display_name`` comes from. ``clan_name`` = observed from the
+    #: demo; ``team_key`` = there is no observation, so the name is the id
+    #: itself.
     display_name_source: Literal["clan_name", "team_key"] = "team_key"
-    #: Muut klaaninimet, joita liitetyistä demoista havaittiin. Ristiriita ei
-    #: katoa: näytettäväksi valitaan useimmin havaittu, ja loput luetellaan
-    #: tässä, jotta lukija näkee että joukkue esiintyi kahdella nimellä.
+    #: The other clan names observed in the joined demos. The conflict does
+    #: not vanish: the most often observed one is chosen to be shown, and the
+    #: rest are listed here, so that the reader sees the team appeared under
+    #: two names.
     display_name_alternatives: list[str] = Field(default_factory=list)
     lineup_keys: list[str]
     roster: list[RosterEntry]
-    #: Mistä ``roster`` tulee. ``lineups`` = havaittu demoista;
-    #: ``index`` = joukkueindeksistä (Epic 3, ei vielä olemassa).
+    #: Where ``roster`` comes from. ``lineups`` = observed from the demos;
+    #: ``index`` = from the team index (Epic 3, does not exist yet).
     roster_source: Literal["lineups", "index"]
 
     @model_validator(mode="after")
     def _check_name_source(self) -> TeamReport:
-        """Lähde, nimi, vaihtoehdot ja slug eivät saa olla eri mieltä.
+        """The source, the name, the alternatives and the slug must agree.
 
-        Ilman tätä ``display_name_source = "clan_name"`` yhdessä tunnisteen
-        kanssa väittäisi tiivistettä havaituksi nimeksi -- ja raportin otsikko
-        rakentuu juuri tämän eron varaan.
+        Without this ``display_name_source = "clan_name"`` together with the
+        id would claim a hash as an observed name -- and the report's heading
+        is built on exactly that difference.
 
-        **Slug on osa samaa väitettä.** Se päätyy tiedostonimeen, jonka lukija
-        näkee ennen kuin avaa raportin; slug, joka on eri mieltä nimen kanssa,
-        nimeäisi tiedoston joukkueen mukaan jota raportti ei käsittele. Sitä ei
-        voi vartioida erikseen, koska juuri pari (nimi, slug) on se väite.
+        **The slug is part of the same claim.** It ends up in the file name,
+        which the reader sees before opening the report; a slug that disagrees
+        with the name would name the file after a team the report is not
+        about. It cannot be guarded separately, because the claim is precisely
+        the pair (name, slug).
 
-        **Vaihtoehtoiset nimet ovat havaintoja.** Tyhjä merkkijono ei ole nimi,
-        sama nimi kahdesti ei ole kaksi havaintoa, eikä näytettävä nimi ole
-        oma vaihtoehtonsa. ``aggregate`` estää nämä jo laskiessaan, mutta
-        ``render`` ja levyltä luettu ``report.json`` nojaavat tähän sopimukseen
-        eivätkä siihen laskentaan.
+        **Alternative names are observations.** An empty string is not a name,
+        the same name twice is not two observations, and the shown name is not
+        an alternative to itself. ``aggregate`` prevents these already as it
+        computes, but ``render`` and a ``report.json`` read from disk lean on
+        this contract and not on that computation.
         """
         self._check_alternatives()
         self._check_slug()
         if self.display_name_source == "team_key":
             if self.display_name != self.key:
                 raise AggregateError(
-                    f"Joukkueen nimeksi on merkitty {self.display_name!r}, "
-                    f"mutta lähteeksi {self.display_name_source!r}, joka "
-                    f"tarkoittaa ettei nimeä ole -- silloin nimen on oltava "
-                    f"tunniste {self.key!r} itse."
+                    f"The team's name is recorded as {self.display_name!r}, "
+                    f"but the source as {self.display_name_source!r}, which "
+                    f"means there is no name -- then the name has to be the "
+                    f"id {self.key!r} itself."
                 )
             if self.display_name_alternatives:
                 raise AggregateError(
-                    "Joukkueelle on merkitty vaihtoehtoisia nimiä "
-                    f"({', '.join(self.display_name_alternatives)}), mutta "
-                    "lähteeksi 'team_key', joka tarkoittaa ettei yhtään nimeä "
-                    "havaittu. Vaihtoehdot ovat havaintoja, joten niitä ei voi "
-                    "olla ilman havaittua nimeä."
+                    "The team has alternative names recorded "
+                    f"({', '.join(self.display_name_alternatives)}), but the "
+                    "source is 'team_key', which means no name at all was "
+                    "observed. The alternatives are observations, so there "
+                    "cannot be any without an observed name."
                 )
         elif not self.display_name.strip():
             raise AggregateError(
-                "Joukkueen nimeksi on merkitty tyhjä merkkijono, vaikka "
-                "lähteeksi on merkitty 'clan_name'. Tyhjä merkkijono ei ole "
-                "nimi -- silloin lähde on 'team_key'."
+                "The team's name is recorded as an empty string, although the "
+                "source is recorded as 'clan_name'. An empty string is not a "
+                "name -- then the source is 'team_key'."
             )
         return self
 
     def _check_alternatives(self) -> None:
-        """Vaihtoehtoiset nimet ovat havaintoja, eivät koristeita."""
+        """Alternative names are observations, not decoration."""
         blank = [name for name in self.display_name_alternatives if not name.strip()]
         if blank:
             raise AggregateError(
-                f"Joukkueen {self.key} vaihtoehtoisissa nimissä on "
-                f"{len(blank)} tyhjää merkkijonoa. Tyhjä merkkijono ei ole "
-                "nimi, eikä havaintoa voi esittää sellaisena."
+                f"Team {self.key} has {len(blank)} empty strings among its "
+                "alternative names. An empty string is not a name, and an "
+                "observation cannot be presented as one."
             )
         seen = sorted(
             {
@@ -1281,78 +1317,80 @@ class TeamReport(_Node):
         )
         if seen:
             raise AggregateError(
-                f"Joukkueen {self.key} vaihtoehtoiset nimet toistuvat: "
-                f"{', '.join(seen)}. Sama nimi kahdesti ei ole kaksi "
-                "havaintoa, ja luettelo väittäisi useampaa ristiriitaa kuin "
-                "havaittiin."
+                f"Team {self.key} has repeated alternative names: "
+                f"{', '.join(seen)}. The same name twice is not two "
+                "observations, and the list would claim more conflicts than "
+                "were observed."
             )
         if self.display_name in self.display_name_alternatives:
             raise AggregateError(
-                f"Joukkueen näytettävä nimi {self.display_name!r} on myös "
-                "omien vaihtoehtojensa joukossa. Vaihtoehdot ovat ne nimet, "
-                "joita EI valittu -- muuten raportti luettelisi valitun nimen "
-                "ristiriitana itsensä kanssa."
+                f"The team's shown name {self.display_name!r} is also among "
+                "its own alternatives. The alternatives are the names that "
+                "were NOT chosen -- otherwise the report would list the "
+                "chosen name as a conflict with itself."
             )
 
     def _check_slug(self) -> None:
-        """Slug johdetaan näytettävästä nimestä, varapolkuna tunniste.
+        """The slug is derived from the shown name, with the id as fallback.
 
-        Sama sääntö kuin ``aggregate``ssa, kirjoitettuna tähän sopimukseen:
-        levyltä luettu ``report.json`` ei ole käynyt sen laskennan läpi.
+        The same rule as in ``aggregate``, written into this contract: a
+        ``report.json`` read from disk has not been through that computation.
         """
         expected = slugify(self.display_name) or slugify(self.key) or SLUG_FALLBACK
         if self.slug != expected:
             raise AggregateError(
-                f"Joukkueen slug on {self.slug!r}, mutta nimestä "
-                f"{self.display_name!r} johdettuna se olisi {expected!r}.\n"
-                "Slug päätyy raportin tiedostonimeen, joten eri mieltä oleva "
-                "slug nimeäisi tiedoston joukkueen mukaan, jota raportti ei "
-                "käsittele."
+                f"The team's slug is {self.slug!r}, but derived from the name "
+                f"{self.display_name!r} it would be {expected!r}.\n"
+                "The slug ends up in the report's file name, so a slug that "
+                "disagrees would name the file after a team the report is not "
+                "about."
             )
 
 
 class MissingDemo(_Node):
-    """Ottelu, joka kuuluisi otantaan mutta jonka dataa ei ole.
+    """A match that would belong to the sample but whose data is not there.
 
-    Puuttuva demo ei katoa hiljaa: se on tässä listassa syyn kanssa, ja
-    raportti kertoo sen. Yksittäinen puuttuva demo ei kaada ajoa.
+    A missing demo does not vanish quietly: it is in this list with its
+    reason, and the report says so. A single missing demo does not bring the
+    run down.
     """
 
     match: str
     reason: str
 
 
-#: Mistä kartan nimi on peräisin, ensisijaisuusjärjestyksessä.
+#: Where the map's name came from, in order of precedence.
 #:
-#: Luettelo on täällä, koska sitä lukee nyt kaksi solmua
-#: (:class:`MapReport` ja :class:`Anomaly`) eikä yksi. Kahtena kirjoitettuna
-#: uusi lähde kelpaisi toisessa ja kaatuisi toisessa.
+#: The list is here because two nodes read it now (:class:`MapReport` and
+#: :class:`Anomaly`) and not one. Written out twice, a new source would be
+#: accepted in one and rejected in the other.
 MAP_NAME_SOURCES: tuple[str, ...] = ("demo_header", "map_demo_id", "unknown")
 MapNameSource = Literal["demo_header", "map_demo_id", "unknown"]
 
 
 class AreaOrientation(_Node):
-    """Alueen puoliorientaatio **yhdessä demossa**.
+    """An area's side orientation **in one demo**.
 
-    Poikkeaman todistuskappale: alue on T:n aluetta siinä demossa, jos sen
-    elossa-havainnoista aikanäytepisteillä vähintään ``advance_t_share``
-    tulee T-puolelta. Luku on demon oma havainto -- ei karttatietokantaa, ei
-    ihmisen antamaa aluejakoa, ei arkiston yli kertyvää taulua. Karttuva lähde
-    antaisi samalle demolle eri tuloksen sen mukaan, mitä muita demoja
-    arkistossa sattuu olemaan.
+    The anomaly's piece of evidence: the area is T territory in that demo if
+    at least ``advance_t_share`` of its alive observations at the time sample
+    points come from the T side. The figure is the demo's own observation --
+    not a map database, not a human-given division of areas, not a table that
+    accumulates across the archive. An accumulating source would give the same
+    demo a different result depending on what other demos happen to be in the
+    archive.
 
-    **Rivi per demo eikä yksi luku.** Kaksi demoa samalta kartalta on yksi
-    haara (Story 2.11), ja niiden T-osuudet voivat erota. Yksi luku
-    pakottaisi valitsemaan keskiarvon (jota ei ole havaittu) tai ääriarvon
-    (joka kertoisi vain toisesta demosta), joten poikkeama kantaa jokaisen
-    demonsa orientaation erikseen.
+    **A row per demo and not one figure.** Two demos from the same map are one
+    branch (Story 2.11), and their T shares can differ. One figure would force
+    a choice between the mean (which was not observed) and an extreme (which
+    would say something about one demo only), so an anomaly carries the
+    orientation of each of its demos separately.
 
     Attributes:
-        map_demo_id: Demo, jonka havainto tämä on.
-        t_share: T-havaintojen osuus alueen kaikista havainnoista.
-        observations: Alueen kaikki elossa-havainnot, eli orientaation oma
-            otanta. Ilman sitä osuus 1,00 näyttäisi samalta yhdestä ja
-            sadasta havainnosta.
+        map_demo_id: The demo this is an observation of.
+        t_share: The T observations' share of all the area's observations.
+        observations: All of the area's alive observations, that is, the
+            orientation's own sample. Without it a share of 1.00 would look
+            the same from one observation and from a hundred.
     """
 
     map_demo_id: str
@@ -1361,52 +1399,55 @@ class AreaOrientation(_Node):
 
 
 def _check_seconds(seconds: list[float], where: str) -> None:
-    """Näytepisteet: äärellisiä, ei-negatiivisia ja toisistaan eroavia.
+    """Sample points: finite, non-negative and distinct from one another.
 
-    Kolme ehtoa yhdessä paikassa, jotta jokainen näytepistelista on
-    tarkistettu samoilla ehdoilla. NaN on tässä pahempi kuin väärä luku: se
-    läpäisisi jokaisen vertailun epätotena, ja raportti muotoilisi sen
-    muodossa ``nan s kohdalla`` -- eli lukuna, jota lukija ei voi tulkita.
+    Three conditions in one place, so that every list of sample points is
+    checked against the same conditions. NaN is worse here than a wrong
+    figure: it would pass every comparison as false, and the report would
+    format it as ``nan s kohdalla`` -- that is, as a figure the reader cannot
+    interpret.
     """
     for value in seconds:
         if not isfinite(value):
             raise ValueError(
-                f"{where}: näytepiste {value!r} ei ole äärellinen luku. "
-                "Näytepiste on sekuntimäärä kierroksen ankkurista."
+                f"{where}: sample point {value!r} is not a finite number. "
+                "A sample point is a number of seconds from the round's "
+                "anchor."
             )
         if value < 0:
             raise ValueError(
-                f"{where}: näytepiste {value:g} s on negatiivinen. "
-                "Näytepisteet mitataan freezetimen lopusta eteenpäin, joten "
-                "negatiivinen arvo osoittaisi ostoaikaan."
+                f"{where}: sample point {value:g} s is negative. "
+                "Sample points are measured forward from the end of "
+                "freezetime, so a negative value would point into the buy "
+                "time."
             )
     if len(set(seconds)) != len(seconds):
         raise ValueError(
-            f"{where}: näytepisteet toistuvat ({seconds}); sama hetki on "
-            "yksi havainto."
+            f"{where}: sample points repeat ({seconds}); the same moment is "
+            "one observation."
         )
 
 
 class AnomalyPoint(_Node):
-    """Yhden näytepisteen havainto yhdellä kierroksella.
+    """One sample point's observation on one round.
 
-    **Luku kuuluu siihen hetkeen, jolta se mitattiin.** Story 2.5:stä 2.14:ään
-    kierros kantoi yhden maksimin ja luettelon näytepisteitä, ja raportin rivi
-    latoi maksimin jokaiselle niistä. Se on väite datasta, jota ei ole:
-    mitattuna MatureMayhem Inferno k2 on 15 s kohdalla viisi pelaajaa ja 30 s
-    kohdalla **yksi**, mutta rivi luki "5 pelaajaa 15 ja 30 s kohdalla"; Anubis
-    k4 on 15 s kohdalla 5/5 ja 30 s kohdalla **4/5**. Yhteenveto ei voi olla
-    näytepistekohtainen, joten rakenne on.
+    **A figure belongs to the moment it was measured at.** From Story 2.5 to
+    2.14 a round carried one maximum and a list of sample points, and the
+    report's row set the maximum against every one of them. That is a claim
+    about data that does not exist: measured, MatureMayhem Inferno round 2 has
+    five players at 15 s and **one** at 30 s, but the row read "5 pelaajaa 15
+    ja 30 s kohdalla"; Anubis round 4 is 5/5 at 15 s and **4/5** at 30 s. The
+    summary cannot be per sample point, so the structure is.
 
     Attributes:
-        sample_t_s: Näytepisteen nimellisaika sekunteina.
-        players: Pelaajamäärä **tällä** näytepisteellä -- ei kierroksen
-            suurin.
-        alive: Subjektin elossa olevat CT-pelaajat tällä näytepisteellä.
-            **Vain stackilla**, ja siellä jokaisella pisteellä: neljä
-            viidestä ja neljä neljästä ovat eri havainto, eikä pelkkä
-            pelaajamäärä erota niitä. Kahdella muulla säännöllä luku olisi
-            keksitty -- kumpikaan ei laske elossa olevia.
+        sample_t_s: The sample point's nominal time in seconds.
+        players: The player count at **this** sample point -- not the round's
+            largest.
+        alive: The subject's living CT players at this sample point. **Only on
+            stack**, and there at every point: four out of five and four out
+            of four are a different observation, and the player count alone
+            does not tell them apart. On the two other rules the figure would
+            be invented -- neither of them counts the living.
     """
 
     sample_t_s: float
@@ -1415,44 +1456,46 @@ class AnomalyPoint(_Node):
 
     @model_validator(mode="after")
     def _check_point(self) -> AnomalyPoint:
-        """Ryhmässä olevat ovat osajoukko elossa olevista.
+        """Those in the group are a subset of those alive.
 
         Raises:
-            ValueError: Jos pelaajia on enemmän kuin elossa olevia. Se ei ole
-                tiukempi havainto vaan rikkinäinen.
+            ValueError: If there are more players than living ones. That is
+                not a stricter observation but a broken one.
         """
         if self.alive is not None and self.alive < self.players:
             raise ValueError(
-                f"Näytepisteellä {self.sample_t_s:g} s on {self.players} "
-                f"pelaajaa mutta elossa {self.alive}. Ryhmässä olevat ovat "
-                "osajoukko elossa olevista."
+                f"At sample point {self.sample_t_s:g} s there are "
+                f"{self.players} players but {self.alive} alive. Those in the "
+                "group are a subset of those alive."
             )
         return self
 
 
 class AnomalyRound(_Node):
-    """Yksi kierros, jolla poikkeama havaittiin.
+    """One round on which an anomaly was observed.
 
-    **Tämä solmu on se, joka tekee rivistä luettavan oikein.** Crunchin
-    lähtösuunnat ovat yhtäaikaisia vain saman kierroksen sisällä: kahden
-    kierroksen suuntien yhdiste ("suunnista A, B, C ja D") lukisi neljäksi
-    yhtäaikaiseksi suunnaksi, mikä on päinvastoin kuin määritelmä.
+    **This node is what makes the row read correctly.** Crunch's source
+    directions are simultaneous only within the same round: the union of two
+    rounds' directions ("from the directions A, B, C and D") would read as
+    four simultaneous directions, which is the opposite of the definition.
 
-    Pelaajamäärä menee askeleen pidemmälle: se ei ole yhtäaikainen edes saman
-    kierroksen sisällä, koska jokainen näytepiste on oma havaintonsa. Siksi
-    luvut ovat :class:`AnomalyPoint`-riveinä eivätkä yhtenä maksimina ja
-    sekuntilistana.
+    The player count goes one step further: it is not simultaneous even within
+    the same round, because every sample point is an observation of its own.
+    That is why the figures are :class:`AnomalyPoint` rows and not one maximum
+    with a list of seconds.
 
     Attributes:
-        map_demo_id: Demo, jolta kierros on. Yhdellä kartalla voi olla kaksi
-            demoa (Story 2.11), joten pelkkä kierrosnumero ei yksilöi.
-        round_no: Kierrosnumero, jonka scoutti hakee demolta. Ilman sitä luku
-            kertoisi että jotain tapahtui muttei missä sen näkee.
-        round_type: Kierrostyyppi. Crunchilla ja stackilla se vaihtelee rivin
-            sisällä, koska kumpikaan ei tunne sitä.
-        points: Näytepisteet havaintoineen, **nousevassa järjestyksessä**.
-        sources: Lähtöalueet tällä kierroksella -- **yhtäaikaiset**. Vain
-            crunchilla.
+        map_demo_id: The demo the round is from. One map can have two demos
+            (Story 2.11), so the round number alone does not identify it.
+        round_no: The round number the scout looks up on the demo. Without it
+            the section would say that something happened but not where to see
+            it.
+        round_type: The round type. On crunch and stack it varies within the
+            row, because neither of them knows it.
+        points: The sample points with their observations, in **ascending
+            order**.
+        sources: The source areas on this round -- **simultaneous**. Only on
+            crunch.
     """
 
     map_demo_id: str = Field(min_length=1)
@@ -1463,144 +1506,151 @@ class AnomalyRound(_Node):
 
     @property
     def seconds(self) -> list[float]:
-        """Näytepisteiden hetket. Johdos eikä kenttä, jottei se voi erota."""
+        """The sample points' moments. Derived, not a field, so it cannot differ."""
         return [point.sample_t_s for point in self.points]
 
     @property
     def players_max(self) -> int:
-        """Suurin pelaajamäärä tällä kierroksella.
+        """The largest player count on this round.
 
-        **Yhteenveto eikä rivin luku.** Sitä käytetään vain siellä, missä
-        koko kierrosta verrataan johonkin (lähtösuuntien määrä, rivin
-        ``players_max``); raportin rivi latoo näytepistekohtaiset luvut.
+        **A summary and not the row's figure.** It is used only where the
+        whole round is compared against something (the number of source
+        directions, the row's ``players_max``); the report's row sets the
+        per-sample-point figures.
         """
         return max(point.players for point in self.points)
 
     @property
     def points_without_alive(self) -> list[AnomalyPoint]:
-        """Näytepisteet, jotka eivät kerro elossa olevien määrää."""
+        """The sample points that do not give the number of the living."""
         return [point for point in self.points if point.alive is None]
 
     @model_validator(mode="after")
     def _check_round(self) -> AnomalyRound:
-        """Kierroksen sisäinen ristiriidattomuus.
+        """The round's internal consistency.
 
         Raises:
-            ValueError: Jos näytepisteet ovat mahdottomia, lähtöalueet
-                toistuvat tai suuntia on enemmän kuin pelaajia. Viimeinen on
-                mahdoton havainto: jokainen suunta tarvitsee oman pelaajansa,
-                joten kolme suuntaa kahdella pelaajalla ei ole tiukempi
-                havainto vaan rikkinäinen.
+            ValueError: If the sample points are impossible, the source areas
+                repeat, or there are more directions than players. The last is
+                an impossible observation: every direction needs a player of
+                its own, so three directions with two players is not a
+                stricter observation but a broken one.
         """
-        where = f"kierros {self.round_no} ({self.map_demo_id})"
+        where = f"round {self.round_no} ({self.map_demo_id})"
         seconds = self.seconds
         _check_seconds(seconds, where)
         if sorted(seconds) != seconds:
             raise ValueError(
-                f"{where}: näytepisteet eivät ole nousevassa järjestyksessä "
+                f"{where}: the sample points are not in ascending order "
                 f"({seconds})."
             )
         if len(set(self.sources)) != len(self.sources):
             raise ValueError(
-                f"{where}: lähtöalueet toistuvat ({self.sources}); sama "
-                "suunta on yksi suunta."
+                f"{where}: the source areas repeat ({self.sources}); the same "
+                "direction is one direction."
             )
-        # Nimettömyys ennen järjestystä: nimetön alue ei ole suunta lainkaan,
-        # eikä sen paikasta luettelossa kannata kertoa mitään.
+        # Namelessness before order: a nameless area is not a direction at
+        # all, and there is no point saying anything about its place in the
+        # list.
         if any(not name.strip() for name in self.sources):
             raise ValueError(
-                f"{where}: lähtöalueiden joukossa on nimetön alue "
-                f"({self.sources}). Nimetön alue ei ole suunta."
+                f"{where}: there is a nameless area among the source areas "
+                f"({self.sources}). A nameless area is not a direction."
             )
         if sorted(self.sources) != self.sources:
             raise ValueError(
-                f"{where}: lähtöalueet eivät ole aakkosjärjestyksessä "
-                f"({self.sources}). Suunnat ovat yhtäaikaisia, joten niillä "
-                "ei ole omaa järjestystä -- vakiojärjestys tekee raportin "
-                "rivistä saman ajosta toiseen."
+                f"{where}: the source areas are not in alphabetical order "
+                f"({self.sources}). The directions are simultaneous, so they "
+                "have no order of their own -- a fixed order makes the "
+                "report's row the same from one run to the next."
             )
         if len(self.sources) > self.players_max:
             raise ValueError(
-                f"{where}: lähtöalueita on {len(self.sources)} mutta "
-                f"pelaajia {self.players_max}. Jokainen suunta tarvitsee "
-                "oman pelaajansa, joten havainto on rikkinäinen."
+                f"{where}: there are {len(self.sources)} source areas but "
+                f"{self.players_max} players. Every direction needs a player "
+                "of its own, so the observation is broken."
             )
-        # Elossa-luku on kaikilla pisteillä tai ei yhdelläkään. Puolikas
-        # rivi latoisi "4/5 ja 4 pelaajaa", eli kaksi eri yksikköä samalla
-        # rivillä. Kumpi niistä on oikein, päätetään säännön mukaan
-        # (Anomaly._check_stack_fields); täällä valvotaan vain, ettei rivi
-        # ole itsensä kanssa eri mieltä.
+        # The alive figure is on every point or on none of them. Half a row
+        # would set "4/5 ja 4 pelaajaa", that is, two different units on the
+        # same row. Which of them is right is decided by the rule
+        # (Anomaly._check_stack_fields); here it is only enforced that the row
+        # does not disagree with itself.
         missing = len(self.points_without_alive)
         if missing not in (0, len(self.points)):
             raise ValueError(
-                f"{where}: {missing} näytepistettä {len(self.points)}:sta ei "
-                "kerro elossa olevien määrää. Luku on joko kaikilla tai ei "
-                "yhdelläkään -- muuten sama rivi latoisi kaksi eri yksikköä."
+                f"{where}: {missing} sample points out of {len(self.points)} "
+                "do not give the number of the living. The figure is on all "
+                "of them or on none -- otherwise the same row would set two "
+                "different units."
             )
         return self
 
 
 class Anomaly(_Node):
-    """Yksi poikkeava asetelma otantansa kanssa.
+    """One anomalous setup together with its sample.
 
-    Rivi on **yksi (sääntö, kartta, puoli, alue)** -yhdistelmä ja
-    etenemisellä lisäksi kierrostyyppi, ei yksi kierros: sama alue kahdella
-    eco-kierroksella on yksi rivi otannalla ``2/m``, ei kaksi riviä. Ilman
-    ryhmittelyä toistuva poikkeama näyttäisi kahdelta eri havainnolta, ja
-    juuri toistuminen on se, mikä erottaa suunnitelman sattumasta.
+    A row is **one (rule, map, side, area)** combination, plus the round type
+    on advance, and not one round: the same area on two eco rounds is one row
+    with the sample ``2/m``, not two rows. Without the grouping a repeated
+    anomaly would look like two different observations, and it is exactly the
+    repetition that tells a plan from a coincidence.
 
-    **Nimittäjä on sääntökohtainen.** ``ct_advance`` on säästökierrosten
-    ilmiö, joten ``m`` on sen kierrostyypin kierrokset kartalla ja puolella ja
-    ``round_types`` on yksialkioinen. ``crunch`` ei tunne kierrostyyppiä, joten
-    ``m`` on puolen **kaikki** kierrokset kartalla ja ``round_types`` kertoo
-    millä tyypeillä se havaittiin. Yksi kierros on kelvollinen otanta; se
-    merkitään pieneksi samalla säännöllä kuin muut (``small_sample``).
+    **The denominator is per rule.** ``ct_advance`` is a phenomenon of the
+    saving rounds, so ``m`` is that round type's rounds on the map and side
+    and ``round_types`` has a single element. ``crunch`` does not know the
+    round type, so ``m`` is **all** of the side's rounds on the map and
+    ``round_types`` says on which types it was observed. One round is a valid
+    sample; it is marked as small by the same rule as the others
+    (``small_sample``).
 
-    **Stackin nimittäjä on sama kuin crunchin**: se ei tunne kierrostyyppiä,
-    joten ``m`` on puolen kaikki kierrokset kartalla ja ``round_types`` kertoo
-    millä tyypeillä se havaittiin.
+    **Stack's denominator is the same as crunch's**: it does not know the
+    round type, so ``m`` is all of the side's rounds on the map and
+    ``round_types`` says on which types it was observed.
 
     Attributes:
-        rule: ``ct_advance``, ``crunch`` tai ``stack``. Kaksi ensimmäistä
-            **jakavat** orientaatioehdon, mutta kumpikaan osumajoukko ei
-            sisällä toista: crunch lisää suuntavaatimuksen ja pudottaa
-            kierrostyyppirajauksen, joten säästökierroksella sama kierros
-            tuottaa molemmat rivit ja täydellä ostolla vain crunchin.
-            ``stack`` ei lue orientaatiota lainkaan eikä ole kummankaan
-            muunnelma.
-        map_name: Kartta, jolla poikkeama havaittiin.
-        map_name_source: Mistä kartan nimi tuli. Kannetaan siksi, että
-            raportin runko puhuu nimillä (Story 2.12): kun lähde on
-            ``unknown``, ``map_name`` **on** demotunniste, eikä sitä saa latoa
-            runkoon paljaana.
-        side: Subjektin puoli. Käytännössä aina ``CT``, koska kaikki kolme
-            sääntöä tutkivat CT-rivejä; kenttä on rakenteessa, koska rivi
-            kertoo puolen eikä lukija saa päätellä sitä säännön nimestä.
-        area: Pelin oma ``env_cs_place``-alue. **Ei koskaan tyhjä**: alue
-            ilman nimeä ei voi olla T:n aluetta. Stackilla se on **siten oma
-            alue** (``BombsiteA`` / ``BombsiteB``), joka on ryhmän ankkuri ja
-            säännön lisäehto -- ei se alue, jolla pelaajia oli eniten.
-        site: Siten ryhmä, ``"A"`` tai ``"B"``. **Vain stackilla.** Kenttä on
-            rakenteessa, vaikka ``area`` määrää sen: ``report.json``in lukijan
-            ei pidä joutua päättelemään merkkijonosta ``"BombsiteB"``, että
-            kyse on B-ryhmästä, ja malli valvoo etteivät ne voi olla eri
-            mieltä.
-        round_types: Kierrostyypit, joilla poikkeama havaittiin,
-            ``ROUND_TYPES``-järjestyksessä. Etenemisellä täsmälleen yksi.
-        rounds: Kierrokset havaintoineen. Tästä luetaan "milloin", "mistä" ja
-            "kuinka monta" niin, ettei rivi väitä yhtäaikaisuutta yli
-            kierrosrajan.
-        orientation: Alueen orientaatio niistä demoista, joissa poikkeama
-            havaittiin -- poikkeaman todistuskappale. **Tyhjä stackilla ja
-            vain sillä**: sääntö ei lue orientaatiota, joten luku olisi siinä
-            keksitty. Sama sääntö kuin ``AnomalyRound.sources``illa -- tyhjä
-            tarkoittaa "ei kysytty", ei "ei havaittu".
-        players_max: Suurin havaittu pelaajamäärä koko rivillä. Yhteenveto
-            ``rounds``ista, ja malli valvoo että se vastaa niitä.
-        n: Kierrokset, joilla poikkeama havaittiin (``len(rounds)``).
-        m: Nimittäjä, ks. yllä.
-        small_sample: Onko ``m`` alle ``small_sample_rounds``. Sama merkintä
-            samalla säännöllä kuin muualla; ``render`` ei laske sitä.
+        rule: ``ct_advance``, ``crunch`` or ``stack``. The first two **share**
+            the orientation condition, but neither hit set contains the other:
+            crunch adds the direction requirement and drops the round-type
+            restriction, so on a saving round the same round produces both
+            rows and on a full buy only crunch's. ``stack`` does not read the
+            orientation at all and is not a variant of either.
+        map_name: The map on which the anomaly was observed.
+        map_name_source: Where the map's name came from. It is carried because
+            the report's body speaks in names (Story 2.12): when the source is
+            ``unknown``, ``map_name`` **is** the demo id, and it must not be
+            set into the body bare.
+        side: The subject's side. In practice always ``CT``, because all three
+            rules examine CT rows; the field is in the structure because the
+            row states the side and the reader must not have to infer it from
+            the rule's name.
+        area: The game's own ``env_cs_place`` area. **Never empty**: an area
+            without a name cannot be T territory. On stack it is **the site's
+            own area** (``BombsiteA`` / ``BombsiteB``), which is the group's
+            anchor and the rule's extra condition -- not the area that held
+            the most players.
+        site: The site group, ``"A"`` or ``"B"``. **Only on stack.** The field
+            is in the structure although ``area`` determines it: a reader of
+            ``report.json`` should not have to infer from the string
+            ``"BombsiteB"`` that this is about group B, and the model enforces
+            that the two cannot disagree.
+        round_types: The round types on which the anomaly was observed, in
+            ``ROUND_TYPES`` order. Exactly one on advance.
+        rounds: The rounds with their observations. "When", "from where" and
+            "how many" are read from here in a way that does not let the row
+            claim simultaneity across a round boundary.
+        orientation: The area's orientation from those demos in which the
+            anomaly was observed -- the anomaly's piece of evidence. **Empty
+            on stack and only there**: the rule does not read the orientation,
+            so the figure would be invented for it. The same rule as with
+            ``AnomalyRound.sources`` -- empty means "not asked", not "not
+            observed".
+        players_max: The largest observed player count on the whole row. A
+            summary of ``rounds``, and the model enforces that it matches
+            them.
+        n: The rounds on which the anomaly was observed (``len(rounds)``).
+        m: The denominator, see above.
+        small_sample: Whether ``m`` is below ``small_sample_rounds``. The same
+            mark by the same rule as elsewhere; ``render`` does not compute it.
     """
 
     rule: AnomalyRule
@@ -1619,34 +1669,34 @@ class Anomaly(_Node):
 
     @model_validator(mode="after")
     def _check_observation(self) -> Anomaly:
-        """Yhteenveto ei voi olla eri mieltä kuin rivit joista se on koottu.
+        """The summary cannot disagree with the rows it was assembled from.
 
         Raises:
-            AggregateError: Jos otanta on mahdoton (``n > m``) tai ``n`` ei
-                ole kierroslistan pituus. Kumpikin tarkoittaa, että rivi ja
-                sen todisteet ovat eri kokoisia.
-            ValueError: Jos kierros esiintyy kahdesti, orientaatio ei kata
-                juuri niitä demoja joilla poikkeama havaittiin, sääntö ja
-                lähtöalueiden olemassaolo ovat ristiriidassa, tai
-                ``round_types`` ei vastaa kierroksia.
+            AggregateError: If the sample is impossible (``n > m``) or ``n`` is
+                not the length of the round list. Either means that the row
+                and its evidence are of different sizes.
+            ValueError: If a round appears twice, if the orientation does not
+                cover exactly those demos on which the anomaly was observed,
+                if the rule and the presence of source areas contradict each
+                other, or if ``round_types`` does not match the rounds.
         """
         if self.n != len(self.rounds):
             raise AggregateError(
-                f"Poikkeama {self.rule} alueella {self.area!r} väittää "
-                f"otannakseen {self.n} kierrosta, mutta kantaa "
-                f"{len(self.rounds)} kierrosriviä. Luku ja sen todisteet "
-                "ovat eri kokoisia."
+                f"The anomaly {self.rule} in area {self.area!r} claims a "
+                f"sample of {self.n} rounds, but the number of round rows is "
+                f"{len(self.rounds)}. The figure and its evidence are of "
+                "different sizes."
             )
         if self.n > self.m:
             raise AggregateError(
-                f"Poikkeama {self.rule} alueella {self.area!r} esiintyy "
-                f"{self.n} kierroksella, vaikka kierroksia on {self.m}."
+                f"The anomaly {self.rule} in area {self.area!r} appears on "
+                f"{self.n} rounds, although there are {self.m} rounds."
             )
         keys = [(entry.map_demo_id, entry.round_no) for entry in self.rounds]
         if len(set(keys)) != len(keys):
             raise ValueError(
-                f"Poikkeaman {self.area!r} kierroslistassa on sama kierros "
-                f"kahdesti ({sorted(keys)}); kierros on yksi havainto."
+                f"The round list of anomaly {self.area!r} holds the same "
+                f"round twice ({sorted(keys)}); a round is one observation."
             )
         expected_types = [
             name for name in ROUND_TYPES
@@ -1654,76 +1704,78 @@ class Anomaly(_Node):
         ]
         if list(self.round_types) != expected_types:
             raise ValueError(
-                f"Poikkeaman {self.area!r} round_types on {self.round_types}, "
-                f"mutta kierrokset ovat tyypeiltään {expected_types}. "
-                "Yhteenveto ei voi nimetä tyyppiä, jota yksikään kierros ei "
-                "ole -- eikä jättää pois tyyppiä, joka on."
+                f"The round_types of anomaly {self.area!r} is "
+                f"{self.round_types}, but the rounds are of the types "
+                f"{expected_types}. A summary cannot name a type that no "
+                "round is -- nor leave out a type that is there."
             )
         if self.rule == "ct_advance" and len(self.round_types) != 1:
             raise ValueError(
-                f"CT-eteneminen alueella {self.area!r} kantaa "
-                f"{len(self.round_types)} kierrostyyppiä ({self.round_types}). "
-                "Eteneminen ryhmitellään kierrostyypin mukaan, koska se on "
-                "säästökierrosten ilmiö ja kierrostyyppi on osa havaintoa, "
-                "joten yhdellä rivillä on täsmälleen yksi tyyppi."
+                f"The CT advance in area {self.area!r} carries "
+                f"{len(self.round_types)} round types ({self.round_types}). "
+                "Advance is grouped by round type, because it is a phenomenon "
+                "of the saving rounds and the round type is part of the "
+                "observation, so one row has exactly one type."
             )
         biggest = max(entry.players_max for entry in self.rounds)
         if self.players_max != biggest:
             raise ValueError(
-                f"Poikkeaman {self.area!r} players_max on {self.players_max}, "
-                f"mutta kierrosten suurin on {biggest}."
+                f"The players_max of anomaly {self.area!r} is "
+                f"{self.players_max}, but the largest of the rounds is "
+                f"{biggest}."
             )
         with_sources = [entry for entry in self.rounds if entry.sources]
         if self.rule == "crunch" and len(with_sources) != len(self.rounds):
             raise ValueError(
-                f"Crunch alueella {self.area!r} kantaa kierroksia ilman "
-                "lähtöalueita. Crunch on saapumista alueelle useasta "
-                "suunnasta samaan aikaan, joten suunnaton kierros olisi eri "
-                "sääntö samalla nimellä."
+                f"The crunch in area {self.area!r} carries rounds without "
+                "source areas. Crunch is arrival into an area from several "
+                "directions at the same time, so a round without directions "
+                "would be a different rule under the same name."
             )
         if self.rule != "crunch" and with_sources:
             raise ValueError(
-                f"Sääntö {self.rule} alueella {self.area!r} kantaa "
-                "lähtöalueita, vaikka vain crunch laskee suuntia. Suunnat "
-                "väittäisivät mitatuksi jotain, jota ei mitattu."
+                f"The rule {self.rule} in area {self.area!r} carries source "
+                "areas, although only crunch counts directions. The "
+                "directions would claim as measured something that was not "
+                "measured."
             )
         self._check_stack_fields()
         demos = [entry.map_demo_id for entry in self.orientation]
         if len(set(demos)) != len(demos):
             raise ValueError(
-                f"Poikkeaman {self.area!r} orientaatiossa on sama demo "
-                f"kahdesti ({sorted(demos)}); alueella on demoa kohden yksi "
-                "T-osuus."
+                f"The orientation of anomaly {self.area!r} holds the same "
+                f"demo twice ({sorted(demos)}); an area has one T share per "
+                "demo."
             )
         if self.rule == "stack":
-            # Orientaatiota ei ole, joten kattavuusvertailua ei voi tehdä --
-            # eikä sen puuttuminen ole puute. _check_stack_fields on jo
-            # vaatinut listan tyhjäksi.
+            # There is no orientation, so the coverage comparison cannot be
+            # made -- and its absence is not a gap. _check_stack_fields has
+            # already required the list to be empty.
             return self
         seen = {entry.map_demo_id for entry in self.rounds}
         if set(demos) != seen:
             raise ValueError(
-                f"Poikkeaman {self.area!r} orientaatio kattaa demot "
-                f"{sorted(demos)}, mutta havainnot ovat demoista "
-                f"{sorted(seen)}. Orientaatio on poikkeaman todistuskappale, "
-                "joten sen on katettava täsmälleen ne demot joilla poikkeama "
-                "havaittiin -- ei enempää eikä vähempää."
+                f"The orientation of anomaly {self.area!r} covers the demos "
+                f"{sorted(demos)}, but the observations are from the demos "
+                f"{sorted(seen)}. The orientation is the anomaly's piece of "
+                "evidence, so it has to cover exactly those demos on which "
+                "the anomaly was observed -- no more and no fewer."
             )
         return self
 
     def _check_stack_fields(self) -> None:
-        """Stackin kentät kuuluvat stackille, eivätkä muut kanna niitä.
+        """Stack's fields belong to stack, and the others do not carry them.
 
-        Kolme kenttää erottaa stackin kahdesta muusta säännöstä, ja jokainen
-        on tässä molempiin suuntiin: ``site`` ja ``AnomalyPoint.alive`` ovat
-        stackin havaintoja, ``orientation`` ei ole. Ilman vartijaa rivi voisi
-        kantaa lukua, jota sen sääntö ei mitannut -- ja raportin lukija ei näe
-        kentän lähdettä, vain sen arvon.
+        Three fields separate stack from the two other rules, and each of them
+        is here in both directions: ``site`` and ``AnomalyPoint.alive`` are
+        stack's observations, ``orientation`` is not. Without the guard a row
+        could carry a figure its rule did not measure -- and a reader of the
+        report does not see a field's source, only its value.
 
         Raises:
-            ValueError: Jos kenttä on väärällä säännöllä, puuttuu omaltaan,
-                tai jos ``site`` ja ``area`` ovat eri mieltä siitä, kumpi site
-                on kyseessä.
+            ValueError: If a field is on the wrong rule, is missing from its
+                own, or if ``site`` and ``area`` disagree about which site
+                this is.
         """
         without_alive = [
             entry for entry in self.rounds if entry.points_without_alive
@@ -1731,92 +1783,96 @@ class Anomaly(_Node):
         if self.rule != "stack":
             if self.site is not None:
                 raise ValueError(
-                    f"Sääntö {self.rule} alueella {self.area!r} nimeää "
-                    f"siteryhmän {self.site!r}, vaikka vain stack lukee "
-                    "siteryhmiä."
+                    f"The rule {self.rule} in area {self.area!r} names the "
+                    f"site group {self.site!r}, although only stack reads "
+                    "site groups."
                 )
             if len(without_alive) != len(self.rounds):
                 raise ValueError(
-                    f"Sääntö {self.rule} alueella {self.area!r} kertoo "
-                    "elossa olevien määrän, vaikka se ei laske sitä. "
-                    "Luku näyttäisi mitatulta muttei koskisi tätä riviä."
+                    f"The rule {self.rule} in area {self.area!r} gives the "
+                    "number of the living, although it does not count it. "
+                    "The figure would look measured but would not concern "
+                    "this row."
                 )
             return
         if self.site not in SITE_AREAS:
             raise ValueError(
-                f"Stack alueella {self.area!r} nimeää siteryhmäksi "
-                f"{self.site!r}; sallitut ovat {sorted(SITE_AREAS)}. Ryhmä on "
-                "rivin ankkuri, eikä sitä voi jättää nimeämättä."
+                f"The stack in area {self.area!r} names the site group "
+                f"{self.site!r}; the allowed ones are {sorted(SITE_AREAS)}. "
+                "The group is the row's anchor, and it cannot be left "
+                "unnamed."
             )
         if SITE_AREAS[self.site] != self.area:
             raise ValueError(
-                f"Stackin siteryhmä {self.site!r} ja alue {self.area!r} ovat "
-                f"eri mieltä: ryhmän oma alue on "
-                f"{SITE_AREAS[self.site]!r}. Kenttä on rakenteessa vain siksi, "
-                "ettei lukijan tarvitse päätellä ryhmää aluenimestä, joten "
-                "niiden on kerrottava sama asia."
+                f"The stack's site group {self.site!r} and area {self.area!r} "
+                f"disagree: the group's own area is "
+                f"{SITE_AREAS[self.site]!r}. The field is in the structure "
+                "only so that the reader does not have to infer the group "
+                "from the area name, so the two have to say the same thing."
             )
         if without_alive:
             raise ValueError(
-                f"Stack alueella {self.area!r} kantaa kierroksia, jotka eivät "
-                "kerro montako pelaajaa oli elossa "
+                f"The stack in area {self.area!r} carries rounds that do not "
+                "give how many players were alive "
                 f"({sorted(entry.round_no for entry in without_alive)}). "
-                "Neljä viidestä ja neljä neljästä ovat eri havainto."
+                "Four out of five and four out of four are a different "
+                "observation."
             )
         if self.orientation:
             raise ValueError(
-                f"Stack alueella {self.area!r} kantaa alueen orientaatiota, "
-                "vaikka sääntö ei lue sitä lainkaan. Sen T-osuus koskisi "
-                "toista kysymystä kuin tämä rivi."
+                f"The stack in area {self.area!r} carries the area's "
+                "orientation, although the rule does not read it at all. Its "
+                "T share would concern a different question from this row."
             )
 
 
 class AnomalyScan(_Node):
-    """Mitä poikkeamasäännöt saivat luettavakseen.
+    """What the anomaly rules were given to read.
 
-    **Tyhjä poikkeamaluku on havainto vain siitä, mitä tutkittiin.** Ilman
-    tätä solmua "ei poikkeamia" lukisi mitattuna negatiivisena myös silloin,
-    kun sääntöjä ei ajettu millekään kierrokselle tai kun jonkin demon
-    orientaatio jäi tyhjäksi -- ja juuri se ero ("havainto eikä puute") on
-    koko luvun arvo.
+    **An empty anomaly section is an observation only about what was
+    examined.** Without this node "no anomalies" would read as a measured
+    negative also when the rules were not run on any round at all, or when
+    some demo's orientation came out empty -- and that difference ("an
+    observation and not a gap") is the whole value of the section.
 
     Attributes:
-        rules: Säännöt, jotka ajettiin.
-        rules_deferred: Arkkitehtuurin (AD-10) nimeämät säännöt, joita ei ole
-            toteutettu. Kattavuuden nimittäjä: lukija näkee montako
-            selkärangan sääntöä jäi ajamatta.
-        rounds_scanned: Kierrokset, jotka säännöt näkivät -- eli ne, joilla on
-            kierrostyyppi. Luokittelemattomat eivät mahdu rakenteeseen
-            lainkaan, ja niiden määrä on ``Report.unclassified_rounds``.
-        crunch_rounds: Niistä ne, joilla **crunch voi osua**: subjektin
-            CT-puolen kierrokset. Kaikki kolme sääntöä tutkivat vain
-            CT-rivejä, joten T-puolen kierros ei voi tuottaa osumaa
-            yhdelläkään -- ja ``rounds_scanned`` yksin lupaisi kattavuutta,
-            jota ei ole.
-        advance_rounds: Niistä ne, joilla **CT-eteneminen voi osua**:
-            CT-puolen säästökierrokset. Kapein luku, ja juuri se on
-            etenemisen todellinen nimittäjä kattavuutena.
-        stack_rounds: Niistä ne, joilla **stack voi osua**: CT-kierrokset
-            **niistä demoista, joilla siteryhmät saatiin johdettua**.
-            Pakollinen eikä oletuksellinen, kuten kaksi muuta kattavuuslukua:
-            puuttuva avain luettaisiin hiljaa nollaksi, eli sokea piste
-            luettaisiin mitattuna negatiivisena -- juuri se, mitä tämä solmu
-            on olemassa estämään.
-            *Ei sama luku kuin* ``crunch_rounds``, vaikka kierrostyyppiä ei
-            kummassakaan rajata: kartta, jolla siteet eivät erotu (Nuke),
-            vaientaa stackin kokonaan, ja sen kierrokset ovat crunchin
-            nimittäjässä mutta eivät stackin. Ilman omaa lukua Nuken
-            kierrokset näyttäisivät tutkituilta nollatuloksella.
-        demos_without_orientation: Demot, joiden näytepisteistä ei saatu
-            yhtään aluetta havaintokynnyksen yli. Niillä **eteneminen ja
-            crunch** vaikenevat, eikä se ole mitattu negatiivinen vaan sokea
-            piste.
-        demos_without_site_groups: Demot, joilta ei saatu siteryhmiä:
-            pistepilvestä puuttuu site, tai siteiden keskipisteiden etäisyys
-            suhteessa siteiden omaan kokoon alittaa kynnyksen (Nukella siteet
-            ovat päällekkäin eri kerroksissa). Niillä **stack** vaikenee.
-            Sama peruste kuin edellisellä: vaikeneminen on oikea vastaus,
-            mutta se on kirjattava -- hiljaisena se lukisi nollaosumana.
+        rules: The rules that were run.
+        rules_deferred: The rules named by the architecture (AD-10) that have
+            not been implemented. The coverage's denominator: the reader sees
+            how many of the spine's rules were left unrun.
+        rounds_scanned: The rounds the rules saw -- that is, the ones that
+            have a round type. Unclassified ones do not fit into the structure
+            at all, and their number is ``Report.unclassified_rounds``.
+        crunch_rounds: Of those, the ones **crunch can hit**: the subject's CT
+            side rounds. All three rules examine CT rows only, so a T side
+            round cannot produce a hit on any of them -- and
+            ``rounds_scanned`` alone would promise coverage that is not there.
+        advance_rounds: Of those, the ones **CT advance can hit**: the CT
+            side's saving rounds. The narrowest figure, and it is exactly
+            advance's real denominator as coverage.
+        stack_rounds: Of those, the ones **stack can hit**: the CT rounds
+            **from those demos in which the site groups could be derived**.
+            Required and not defaulted, like the two other coverage figures:
+            a missing key would be read quietly as zero, that is, a blind spot
+            would be read as a measured negative -- exactly what this node
+            exists to prevent.
+            *Not the same figure as* ``crunch_rounds``, although neither of
+            them restricts the round type: a map on which the sites do not
+            separate (Nuke) silences stack completely, and its rounds are in
+            crunch's denominator but not in stack's. Without a figure of its
+            own, Nuke's rounds would look examined with a zero result.
+        demos_without_orientation: The demos from whose sample points not a
+            single area came out above the observation threshold. On those
+            **advance and crunch** stay silent, and that is not a measured
+            negative but a blind spot.
+        demos_without_site_groups: The demos from which no site groups could
+            be obtained: a site is missing from the point cloud, or the
+            distance between the sites' centres relative to the sites' own
+            size falls below the threshold (on Nuke the sites are on top of
+            each other on different floors). On those **stack** stays silent.
+            The same grounds as for the previous one: silence is the right
+            answer, but it has to be recorded -- unspoken it would read as a
+            zero hit.
     """
 
     rules: list[AnomalyRule] = Field(min_length=1)
@@ -1830,73 +1886,75 @@ class AnomalyScan(_Node):
 
     @model_validator(mode="after")
     def _check_scan(self) -> AnomalyScan:
-        """Kattavuusluvut ovat sisäkkäisiä, ja järjestys on määritelmä.
+        """The coverage figures are nested, and the order is a definition.
 
-        ``advance_rounds`` (CT + säästö) on osajoukko ``crunch_rounds``ista
-        (CT), joka on osajoukko ``rounds_scanned``ista (kaikki). Väärä
-        järjestys tarkoittaisi, että kattavuus lupaa säännölle enemmän
-        kierroksia kuin sääntö voi tutkia.
+        ``advance_rounds`` (CT + saving) is a subset of ``crunch_rounds``
+        (CT), which is a subset of ``rounds_scanned`` (all). The wrong order
+        would mean that the coverage promises a rule more rounds than the rule
+        can examine.
 
-        ``stack_rounds`` on osajoukko ``crunch_rounds``ista muttei
-        ``advance_rounds``in yli- eikä alipuoli: se on CT-kierrokset ilman
-        kierrostyyppirajausta mutta **vain vaientamattomista demoista**, ja
-        säästökierroksia voi olla enemmän tai vähemmän kuin niitä. Vertailu
-        näiden kahden välillä olisi siis sääntö ilman perustetta -- sama tila
-        kuin ``crunch_min_players``in ja ``advance_min_players``in välillä.
+        ``stack_rounds`` is a subset of ``crunch_rounds`` but neither a
+        superset nor a subset of ``advance_rounds``: it is the CT rounds
+        without a round-type restriction but **only from the demos that were
+        not silenced**, and there can be more or fewer saving rounds than
+        those. A comparison between these two would therefore be a rule
+        without grounds -- the same state as between ``crunch_min_players``
+        and ``advance_min_players``.
         """
         if not self.advance_rounds <= self.crunch_rounds <= self.rounds_scanned:
             raise AggregateError(
-                f"Kattavuusluvut eivät ole sisäkkäisiä: eteneminen "
+                f"The coverage figures are not nested: advance "
                 f"{self.advance_rounds}, crunch {self.crunch_rounds}, "
-                f"kaikki {self.rounds_scanned}.\n"
-                "CT-puolen säästökierrokset ovat osajoukko CT-kierroksista, "
-                "jotka ovat osajoukko kaikista kierroksista."
+                f"all {self.rounds_scanned}.\n"
+                "The CT side's saving rounds are a subset of the CT rounds, "
+                "which are a subset of all the rounds."
             )
         if self.stack_rounds > self.crunch_rounds:
             raise AggregateError(
-                f"Stackin kattavuus {self.stack_rounds} on suurempi kuin "
-                f"CT-kierrosten määrä {self.crunch_rounds}.\n"
-                "Stack tutkii CT-kierroksia niistä demoista, joilla "
-                "siteryhmät saatiin, joten sen nimittäjä ei voi ylittää "
-                "CT-kierrosten kokonaismäärää."
+                f"Stack's coverage {self.stack_rounds} is larger than the "
+                f"number of CT rounds {self.crunch_rounds}.\n"
+                "Stack examines CT rounds from those demos in which the site "
+                "groups were obtained, so its denominator cannot exceed the "
+                "total number of CT rounds."
             )
         if self.stack_rounds < self.crunch_rounds and not (
             self.demos_without_site_groups
         ):
             raise AggregateError(
-                f"Stack näki {self.stack_rounds} kierrosta "
-                f"{self.crunch_rounds}:sta, mutta yhtäkään demoa ei ole "
-                "kirjattu siteryhmättömäksi.\n"
-                "Erotuksella on aina nimettävä syy: kierros putoaa stackin "
-                "nimittäjästä vain, jos sen demolta ei saatu siteryhmiä -- "
-                "nimeämätön erotus lukisi mitattuna negatiivisena."
+                f"Stack saw {self.stack_rounds} rounds out of "
+                f"{self.crunch_rounds}, but not a single demo has been "
+                "recorded as having no site groups.\n"
+                "The difference always has to have a named cause: a round "
+                "falls out of stack's denominator only if no site groups were "
+                "obtained from its demo -- an unnamed difference would read "
+                "as a measured negative."
             )
-        # VASTAKKAINEN SUUNTA EI OLE INVARIANTTI, eikä sitä saa lisätä.
-        # Vaiennetulla demolla voi olla nolla subjektin CT-kierrosta, jolloin
-        # se on tässä listassa vaikka luvut ovat yhtä suuret. Ehto
-        # "lista epätyhjä => luvut eroavat" hylkäisi silloin kelvollisen
-        # havainnon.
+        # THE OPPOSITE DIRECTION IS NOT AN INVARIANT, and it must not be
+        # added. A silenced demo can have zero of the subject's CT rounds, in
+        # which case it is in this list although the figures are equal. The
+        # condition "list non-empty => the figures differ" would then reject a
+        # valid observation.
         if len(set(self.demos_without_site_groups)) != len(
             self.demos_without_site_groups
         ):
             raise ValueError(
-                "Sama demo kahdesti siteryhmättömien listassa: "
-                f"{self.demos_without_site_groups}."
+                "The same demo twice in the list of those without site "
+                f"groups: {self.demos_without_site_groups}."
             )
         unknown = sorted(set(self.rules) - set(ANOMALY_RULES))
         if unknown:
             raise ValueError(
-                f"Tuntemattomia poikkeamasääntöjä: {unknown}. Sallitut ovat "
+                f"Unknown anomaly rules: {unknown}. The allowed ones are "
                 f"{list(ANOMALY_RULES)}."
             )
         if len(set(self.rules)) != len(self.rules):
-            raise ValueError(f"Sama sääntö kahdesti: {self.rules}.")
+            raise ValueError(f"The same rule twice: {self.rules}.")
         if len(set(self.demos_without_orientation)) != len(
             self.demos_without_orientation
         ):
             raise ValueError(
-                "Sama demo kahdesti orientaatiottomien listassa: "
-                f"{self.demos_without_orientation}."
+                "The same demo twice in the list of those without an "
+                f"orientation: {self.demos_without_orientation}."
             )
         return self
 
@@ -1904,14 +1962,15 @@ class AnomalyScan(_Node):
 class Report(_Node):
     """``aggregates/<team_key>/report.json``.
 
-    Kaikki luvut on laskettu valmiiksi; ``render`` vain valitsee ja muotoilee.
+    Every figure has been computed in advance; ``render`` only picks and
+    formats.
     """
 
     schema_version: str = REPORT_SCHEMA_VERSION
     generated_at: datetime
-    #: Työkalut, joiden versio vaikutti tähän tulokseen. Ei manifestin kenttä
-    #: vaan jäljitettävyyttä varten: ``report.json`` ylikirjoitetaan aina, joten
-    #: sen sisältö saa kertoa millä versiolla se tehtiin.
+    #: The tools whose version affected this result. Not a manifest field but
+    #: there for traceability: ``report.json`` is always overwritten, so its
+    #: contents may say which version made it.
     tool_versions: dict[str, str] = Field(default_factory=dict)
     team: TeamReport
     sample: Sample
@@ -1929,67 +1988,67 @@ class Report(_Node):
     #: **Required, not defaulted.** See :data:`REPORT_SCHEMA_VERSION`: an old
     #: file must fail rather than read as current.
     roster_sample: RosterSample
-    #: ``[thresholds]``- ja ``[aggregate]``-osiot sellaisina kuin ne olivat
-    #: **tätä aggregointia ajettaessa**. Ne eivät ole samat kuin ne, joilla
-    #: kierrokset luokiteltiin -- luokittelu on eri vaihe ja voi olla ajettu
-    #: eri asetuksilla. Luokittelun omat kynnykset ovat kentässä
-    #: :attr:`classify_thresholds`, ja ne luetaan luokitellusta taulusta eikä
-    #: nykyisistä asetuksista.
+    #: The ``[thresholds]`` and ``[aggregate]`` sections as they were **when
+    #: this aggregation was run**. They are not the same as the ones the
+    #: rounds were classified with -- classification is a different stage and
+    #: may have been run with different settings. Classification's own
+    #: thresholds are in the field :attr:`classify_thresholds`, and they are
+    #: read from the classified table and not from the current settings.
     thresholds_used: dict[str, Any] = Field(default_factory=dict)
-    #: Ne kynnysarvot, joilla kierrokset **oikeasti luokiteltiin**, luettuna
-    #: ``CLASSIFIED.inputs``-sarakkeesta. ``classify`` tallentaa jokaiselle
-    #: kierrokselle vertailuun käytetyt arvot, joten tämä on havainto eikä
-    #: nykyisten asetusten kopio. ``aggregate`` kieltäytyy, jos arvot eroavat
-    #: kierrosten välillä: silloin raportti sekoittaisi eri säännöillä
-    #: luokiteltuja kierroksia samaan lukuun.
+    #: The threshold values the rounds **really were classified with**, read
+    #: from the ``CLASSIFIED.inputs`` column. ``classify`` stores for every
+    #: round the values used in the comparison, so this is an observation and
+    #: not a copy of the current settings. ``aggregate`` refuses if the values
+    #: differ between rounds: the report would then mix rounds classified by
+    #: different rules into the same figure.
     classify_thresholds: dict[str, int] = Field(default_factory=dict)
-    #: Räjähdykset, joilta puuttuu heittorivi. Pari yhdistetään avaimella
-    #: ``(map_demo_id, grenade_no)``, ja ``parse`` kirjoittaa ne aina parina --
-    #: pariton rivi on siis merkki rikkoutuneesta taulusta. Se pudotetaan
-    #: utilityn laskennasta, mutta lukumäärä on tässä, koska hiljainen pudotus
-    #: näyttäisi siltä, ettei kranaattia heitetty.
+    #: Detonations that have no throw row. The pair is joined by the key
+    #: ``(map_demo_id, grenade_no)``, and ``parse`` always writes them as a
+    #: pair -- so an odd row is a sign of a broken table. It is dropped from
+    #: the utility computation, but the count is here, because a silent drop
+    #: would look as though the grenade had not been thrown.
     unpaired_detonations: int = Field(default=0, ge=0)
     missing_demos: list[MissingDemo] = Field(default_factory=list)
-    #: Kierrokset, joilta kierrostyyppi puuttuu. Ne eivät ole rakenteessa --
-    #: kierrostyyppitasoa ei voi rakentaa ilman tyyppiä -- mutta lukumäärä
-    #: raportoidaan, jottei kierros katoa hiljaa.
+    #: Rounds that have no round type. They are not in the structure -- the
+    #: round-type level cannot be built without a type -- but the count is
+    #: reported, so that a round does not vanish quietly.
     unclassified_rounds: int = Field(default=0, ge=0)
-    #: Poikkeavat asetelmat, kaikki kartat ja puolet samassa listassa. Tyhjä
-    #: lista on **havainto** eikä puute: "ei poikkeamia" on tulos, ja
-    #: raportti sanoo sen ääneen omassa luvussaan -- mutta vain siitä, mitä
-    #: :attr:`anomaly_scan` kertoo tutkitun.
+    #: Anomalous setups, every map and side in the same list. An empty list is
+    #: an **observation** and not a gap: "no anomalies" is a result, and the
+    #: report says so out loud in its own section -- but only about what
+    #: :attr:`anomaly_scan` says was examined.
     #:
-    #: Lista on raportin juuressa eikä kierrostyypin alla, koska poikkeama on
-    #: epicin arvokkain tuotos: 24 lohkoon hajotettuna se olisi juuri se
-    #: ongelma, jonka Story 2.5 ratkaisee. Jokainen rivi kantaa siksi itse
-    #: kartan, puolen ja kierrostyypit.
+    #: The list is at the root of the report and not under the round type,
+    #: because an anomaly is the epic's most valuable output: broken into 24
+    #: blocks it would be the very problem Story 2.5 solves. Every row
+    #: therefore carries the map, the side and the round types itself.
     anomalies: list[Anomaly] = Field(default_factory=list)
-    #: Poikkeamasääntöjen kattavuus: mitä ajettiin, mille ja mikä jäi sokeaan
-    #: pisteeseen. **Pakollinen eikä oletuksellinen**, koska juuri tyhjä
-    #: poikkeamalista tarvitsee sitä: ilman kattavuutta "ei poikkeamia" ei
-    #: erotu siitä, ettei sääntöjä ajettu.
+    #: The anomaly rules' coverage: what was run, on what, and what was left
+    #: in a blind spot. **Required and not defaulted**, because it is exactly
+    #: the empty anomaly list that needs it: without the coverage "no
+    #: anomalies" does not differ from the rules not having been run.
     anomaly_scan: AnomalyScan
     maps: list[MapReport] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_rounds(self) -> Report:
-        """Ylätason otanta on karttojen summa.
+        """The top-level sample is the sum of the maps.
 
-        ``unclassified_rounds`` **ei** ole mukana summassa eikä saa olla:
-        kierros ilman kierrostyyppiä ei mahdu rakenteeseen lainkaan, joten se
-        ei ole yhdenkään kartan, puolen eikä kierrostyypin otannassa. Se on
-        oma lukunsa juuri siksi, ettei sitä laskettaisi mukaan väitteisiin,
-        joita se ei tue.
+        ``unclassified_rounds`` is **not** part of the sum and must not be: a
+        round without a round type does not fit into the structure at all, so
+        it is not in any map's, any side's or any round type's sample. It is a
+        figure of its own exactly so that it is not counted into claims it
+        does not support.
         """
         _check_rounds_add_up(
-            self.sample, [m.sample for m in self.maps], "raportti", "kartta"
+            self.sample, [m.sample for m in self.maps], "report", "map"
         )
         demos = sum(m.sample.demos for m in self.maps)
         if self.sample.demos != demos:
             raise AggregateError(
-                f"Raportin otanta väittää {self.sample.demos} demoa, mutta "
-                f"karttojen summa on {demos}. Jokainen demo on täsmälleen "
-                "yhdellä kartalla, joten summan on täsmättävä."
+                f"The report's sample claims {self.sample.demos} demos, but "
+                f"the sum of the maps is {demos}. Every demo is on exactly "
+                "one map, so the sum has to match."
             )
         self._check_breakdowns_agree()
         self._check_anomalies()
@@ -2026,27 +2085,30 @@ class Report(_Node):
         ):
             return
         raise AggregateError(
-            "Yhteenvedon kaksi jakoa kertovat eri otannasta: liigajako "
-            f"väittää {self.sample.demos} demoa ja {self.sample.rounds} "
-            f"kierrosta, rosterijako {self.roster_sample.demos} demoa ja "
-            f"{self.roster_sample.rounds} kierrosta.\n"
-            "Molemmat lokeroivat samat demot, joten summien on oltava samat. "
-            "Aggregointi ei voi tuottaa eroa -- se lokeroi molemmat jaot "
-            "samoista riveistä -- joten report.json on muokattu käsin tai "
-            "kirjoitettu muualla. Aja aggregointi uudelleen."
+            "The summary's two breakdowns speak of different samples: the "
+            f"league breakdown claims {self.sample.demos} demos and "
+            f"{self.sample.rounds} rounds, the roster breakdown "
+            f"{self.roster_sample.demos} demos and "
+            f"{self.roster_sample.rounds} rounds.\n"
+            "Both bucket the same demos, so the totals have to be the same. "
+            "Aggregation cannot produce a difference -- it buckets both "
+            "breakdowns from the same rows -- so report.json has been edited "
+            "by hand or written elsewhere. Run aggregation again."
         )
 
     def _check_anomalies(self) -> None:
-        """Poikkeamat ovat puun ulkopuolella, joten side kiinnitetään täällä.
+        """Anomalies are outside the tree, so the side is pinned here.
 
-        Kaksi ehtoa, joita yksikään :class:`Anomaly` ei voi tarkistaa itse:
-        rivi ei saa nimetä karttaa, jota raportissa ei ole (lukija etsisi
-        karttalukua, jota ei kirjoitettu), eikä kaksi riviä saa jakaa samaa
-        ryhmittelyavainta (silloin sama havainto olisi luvussa kahdesti eri
-        luvuilla -- juuri se, minkä ryhmittely on olemassa estämään).
+        Two conditions no :class:`Anomaly` can check by itself: a row must not
+        name a map that is not in the report (the reader would look for a map
+        section that was never written), and two rows must not share the same
+        grouping key (the same observation would then be in the section twice
+        with different figures -- exactly what the grouping exists to
+        prevent).
 
         Raises:
-            AggregateError: Jos kartta puuttuu raportista tai avain toistuu.
+            AggregateError: If the map is missing from the report or a key
+                repeats.
         """
         known = {entry.map_name for entry in self.maps}
         missing = sorted(
@@ -2054,9 +2116,10 @@ class Report(_Node):
         )
         if missing:
             raise AggregateError(
-                f"Poikkeama nimeää kartan, jota raportissa ei ole: {missing}. "
-                f"Raportin kartat ovat {sorted(known)}.\n"
-                "Lukija etsisi karttalukua, jota ei kirjoitettu."
+                f"An anomaly names a map that is not in the report: "
+                f"{missing}. The report's maps are {sorted(known)}.\n"
+                "The reader would look for a map section that was never "
+                "written."
             )
         keys = [
             (a.rule, a.map_name, a.side, a.area)
@@ -2066,9 +2129,9 @@ class Report(_Node):
         twice = sorted({key for key in keys if keys.count(key) > 1})
         if twice:
             raise AggregateError(
-                f"Sama poikkeama on luvussa kahdesti: {twice}.\n"
-                "Ryhmittelyavain on (sääntö, kartta, puoli, alue) ja "
-                "etenemisellä lisäksi kierrostyyppi. Kaksi riviä samalla "
-                "avaimella tarkoittaa, että ryhmittely ei tehnyt työtään: "
-                "sama havainto näkyisi kahdesti eri otannoilla."
+                f"The same anomaly is in the section twice: {twice}.\n"
+                "The grouping key is (rule, map, side, area) plus the round "
+                "type on advance. Two rows with the same key mean that the "
+                "grouping did not do its work: the same observation would "
+                "show twice with different samples."
             )

@@ -476,4 +476,7 @@ def test_the_team_index_does_not_promise_a_rename_to_a_shipped_story() -> None:
     src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
     lahde = (src / "stages" / "discover.py").read_text(encoding="utf-8")
 
-    assert "uudelleennimeäminen on Story" not in lahde
+    # T5 translated ``discover``: the Finnish sentence this guard used to look
+    # for is no longer in the file, so a guard for it would pass for ever
+    # without guarding anything.
+    assert "renaming is Story" not in lahde

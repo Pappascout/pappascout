@@ -232,6 +232,48 @@ TRANSLATED_TRANCHES: tuple[Tranche, ...] = (
             "tests/test_stage_import.py",
         ),
     ),
+    Tranche(
+        story="T5",
+        # Four more of the nine modules in ``stages``. The package cannot be
+        # listed yet: aggregate, classify and parse are still Finnish.
+        sources=(
+            ("src/pappascout/stages/__init__.py", 1),
+            ("src/pappascout/stages/render.py", 1),
+            ("src/pappascout/stages/select.py", 1),
+            ("src/pappascout/stages/discover.py", 1),
+        ),
+        tests=(
+            "tests/test_stage_render.py",
+            "tests/test_stage_select.py",
+            "tests/test_stage_discover.py",
+        ),
+    ),
+    Tranche(
+        story="T16",
+        # Cross-cutting test infrastructure, which belongs to no package --
+        # hence no sources. test_settings.py, which the plan assigned here,
+        # went to T11 with domain/models.py, whose tests it holds.
+        sources=(),
+        tests=(
+            "tests/conftest.py",
+            "tests/test_calibration.py",
+            "tests/test_layering.py",
+            # The two guards themselves. Measured 2026-09-09: both already
+            # carry zero Finnish prose, and they belonged to no tranche in
+            # the plan -- an omission found by asking which test files were
+            # listed nowhere, not by any guard. The guards were the last
+            # thing left unguarded.
+            "tests/test_isolation.py",
+            "tests/test_public_repo.py",
+        ),
+    ),
+    Tranche(
+        story="T12",
+        # The tenth of the eleven modules in ``domain``. The package still
+        # cannot be listed: aggregate.py is still Finnish.
+        sources=(("src/pappascout/domain/report.py", 1),),
+        tests=("tests/test_report_model.py",),
+    ),
 )
 
 #: Every listed path with its recorded minimum, flattened out of the tranches.
@@ -546,7 +588,15 @@ def test_every_tranche_names_the_tests_that_go_with_it() -> None:
     """
     assert TRANSLATED_TRANCHES
     for tranche in TRANSLATED_TRANCHES:
-        assert tranche.sources, f"tranche {tranche.story} names no sources"
+        # ``sources`` may be empty and ``tests`` may not. The rule this test
+        # exists for runs one way only: a package translated without its
+        # tests leaves prose outside every guard. Tests translated without a
+        # package is the opposite case -- T16 is cross-cutting test
+        # infrastructure, conftest and the layering guard, which belong to no
+        # package at all. Requiring a source there would have forced either a
+        # lie (listing an untranslated module) or a gap (leaving three
+        # translated files unguarded), and the first draft of this class
+        # required it.
         assert tranche.tests, f"tranche {tranche.story} names no test files"
         for source, minimum in tranche.sources:
             assert source, tranche

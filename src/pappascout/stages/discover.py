@@ -1,53 +1,56 @@
-"""``discover`` -- putken alkupään ensimmäinen vaihe: divisioona kahdeksi indeksiksi.
+"""``discover`` -- the pipeline's first stage at the head: a division into two indexes.
 
-Vaihe hakee kilpailun ottelut portin takaa **yhdellä kutsulla per kilpailu** ja
-kirjoittaa niistä kaksi tiedostoa:
+The stage fetches the competition's matches from behind the port **with one
+call per competition** and writes two files out of them:
 
 ``index/matches.json``
-    Ottelut sellaisenaan: tunniste, tila, aikataulu, osapuolet ja karttavalinnat.
+    The matches as they are: id, status, schedule, sides and map picks.
 ``index/teams.json``
-    Joukkueet vakirostereineen. Vakirosteri on aloittajien ja vaihtopelaajien
-    **yhdiste** joukkueen kaikista otteluista.
+    The teams with their standing rosters. A standing roster is the **union**
+    of the starters and the substitutes over all of the team's matches.
 
-Molemmilla on **yksi kirjoittaja, ja se on tämä vaihe**. Muut vaiheet lukevat --
-:func:`read_indexes` on se lukija, jottei jokainen jatkovaihe purkaisi JSONia
-käsin ja tulkitsisi ``schema_version``ia omalla tavallaan.
+Both have **one writer, and it is this stage**. The other stages read --
+:func:`read_indexes` is that reader, so that not every later stage unpacks the
+JSON by hand and reads ``schema_version`` in a way of its own.
 
-Miksi erillistä rosterihakua ei ole
------------------------------------
-Mittaus 2026-09-04 (``mittaus-faceit-aineisto.md`` luku 1): jokaisella
-ottelurivillä on molempien osapuolten ``roster`` **ja** ``substitutes``, 132
-joukkueriviä 132:sta. Vakirosteri on siis koottavissa ottelulistasta, eikä
-portille tarvita ``get_roster``ia -- se olisi toinen tapa hakea sama asia ja
-toinen välimuistiavain samalle vastaukselle.
+Why there is no separate roster lookup
+--------------------------------------
+Measured 2026-09-04 (``mittaus-faceit-aineisto.md`` chapter 1): every match row
+carries both sides' ``roster`` **and** ``substitutes``, 132 team rows out of
+132. The standing roster can therefore be gathered from the match list, and the
+port needs no ``get_roster`` -- that would be a second way of fetching the same
+thing and a second cache key for the same answer.
 
-Miksi vaiheella ei ole manifestia
----------------------------------
-Muut vaiheet ohittavat työn, kun manifesti täsmää. Tämä ei: ottelulista
-**muuttuu jatkuvasti** (mitattu 2026-09-04: 60 ottelua 66:sta oli vielä
-pelaamatta), ja koko vaiheen tarkoitus on nähdä uudet ottelut. Ohitus säästäisi
-yhden kutsun ja maksaisi juuri sen, mitä varten komento ajetaan. Samasta syystä
-adapteri ei välimuistita ottelulistaa eikä komennossa ole ``--pakota``-lippua:
-ei ole mitään pakotettavaa, kun mitään ei koskaan ohiteta.
+Why the stage has no manifest
+-----------------------------
+The other stages skip the work when the manifest matches. This one does not:
+the match list **changes constantly** (measured 2026-09-04: 60 matches out of
+66 were still unplayed), and the whole point of the stage is to see the new
+matches. A skip would save one call and would cost exactly what the command is
+run for. For the same reason the adapter does not cache the match list and the
+command has no ``--pakota`` flag: there is nothing to force when nothing is
+ever skipped.
 
-Miksi ``status`` on aina ``ok``
+Why ``status`` is always ``ok``
 -------------------------------
-Tyhjä divisioona ei ole tämän vaiheen epäonnistuminen: haku onnistui, ja tulos
-oli tyhjä. ``UnitStatus``in arvot (AD-9) kuvaavat **demoyksikön** kohtaloa
-(``no_demo``, ``parse_failed``, ...), eikä yksikään niistä tarkoita "kilpailussa
-ei ollut otteluita" -- ja uuden arvon lisääminen laajentaisi ``CLASSIFIED``in
-polars-enumia, eli muuttaisi arkistossa jo olevien parquet-tiedostojen
-skeemasopimusta. Tyhjä tulos kerrotaan siksi :attr:`StageResult.reason`issa, ja
-komento nostaa sen tulosteensa kärkeen. Hiljaiseksi se ei jää.
+An empty division is not this stage's failure: the lookup succeeded, and the
+result was empty. ``UnitStatus``'s values (AD-9) describe the fate of a **demo
+unit** (``no_demo``, ``parse_failed``, ...), and not one of them means "the
+competition had no matches" -- and adding a new value would extend
+``CLASSIFIED``'s polars enum, that is, change the schema contract of the
+parquet files already in the archive. An empty result is therefore told in
+:attr:`StageResult.reason`, and the command lifts it to the head of its output.
+Silent it does not stay.
 
-Mitä tämä vaihe **ei** tee
---------------------------
-Ei lataa demoja, ei valitse otteluita rosterikynnyksellä (Story 3.3), ei
-kirjoita ``index/selections/``- eikä ``index/next_opponent/``-tiedostoja (Epic
-4). **Eikä nimeä arkiston hakemistoja uudelleen**: ``aggregates/<team_key>`` ja
-``classified/<team_key>`` säilyvät sellaisinaan, ja yhteys niihin kulkee
-``index/teams.json``in ``lineup_keys``-kentän kautta. Arkiston nimeämispäätös on
-Story 3.4, ja se tehdään havainnolla eikä ennakolta.
+What this stage does **not** do
+-------------------------------
+It does not download demos, does not select matches by the roster threshold
+(Story 3.3), and does not write the ``index/selections/`` or
+``index/next_opponent/`` files (Epic 4). **Nor does it rename the archive's
+directories**: ``aggregates/<team_key>`` and ``classified/<team_key>`` stay as
+they are, and the connection to them runs through the ``lineup_keys`` field of
+``index/teams.json``. The archive's naming decision is Story 3.4, and it is
+made on an observation and not in advance.
 """
 
 from __future__ import annotations
@@ -103,42 +106,43 @@ __all__ = [
 
 STAGE = "discover"
 
-#: Indeksitiedostojen muodon versio. Lukija tarkistaa sen
-#: (:func:`read_indexes`) sen sijaan että päättelisi muodon kenttien
-#: olemassaolosta.
+#: The version of the index files' format. The reader checks it
+#: (:func:`read_indexes`) instead of inferring the format from which fields
+#: exist.
 #:
-#: **Story 3.3 lisäsi ottelurivin kentän ``best_of`` eikä nostanut versiota**,
-#: ja se on sääntö eikä unohdus. Versio kertoo, voiko vanhaa tiedostoa lukea
-#: tällä koodilla: yksikään aiempi kenttä ei kadonnut eikä vaihtanut
-#: merkitystä, ja puuttuva ``best_of`` on **kelvollinen havainto** ("lähde ei
-#: kertonut") eikä rikkinäinen tiedosto. Nosto pakottaisi verkkokutsun
-#: ``discover``iin ennen kuin ``select`` -- joka ei kenttää tarvitse -- suostuisi
-#: ajamaan lainkaan. Versio nousee, kun vanha tiedosto lakkaa olemasta
-#: luettava tai sen kentän merkitys muuttuu.
+#: **Story 3.3 added the match row's ``best_of`` field and did not raise the
+#: version**, and that is a rule and not an oversight. The version says
+#: whether an old file can be read by this code: not one earlier field
+#: disappeared or changed meaning, and a missing ``best_of`` is a **valid
+#: observation** ("the source did not say") and not a broken file. Raising it
+#: would force a network call into ``discover`` before ``select`` -- which
+#: does not need the field -- would agree to run at all. The version rises
+#: when an old file stops being readable or the meaning of one of its fields
+#: changes.
 SCHEMA_VERSION = 1
 
-#: Tilat, joissa ottelu on pelattu. Sama joukko kuin adapterin
-#: ``CACHEABLE_MATCH_STATUSES``illa, mutta **eri päätös**: siellä kysytään
-#: "saako vastauksen tallentaa ikuisesti", täällä "onko tämä ottelu pelattu".
-#: Yhteinen vakio sitoisi kaksi eri kysymystä toisiinsa.
+#: The statuses in which a match has been played. The same set as the
+#: adapter's ``CACHEABLE_MATCH_STATUSES``, but a **different decision**: there
+#: the question is "may the answer be stored for ever", here "has this match
+#: been played". A shared constant would tie two different questions together.
 PLAYED_STATUSES = frozenset({"FINISHED"})
 
 
 @dataclass(frozen=True)
 class IndexedMatchTeam:
-    """Ottelun osapuoli **sellaisena kuin se on indeksissä**.
+    """A match's side **as it stands in the index**.
 
-    Ei sama kuin :class:`~pappascout.adapters.protocols.MatchTeam`: siinä
-    pelaajat ovat olioita nimimerkkeineen, tässä pelkkiä SteamID64-tunnisteita.
-    Ero on tarkoituksellinen ja se on ``_match_team_row``in päätös -- nimet ovat
-    joukkueindeksissä, eikä sama luettelo saa olla kahdessa tiedostossa kahtena
-    eri totuutena.
+    Not the same as :class:`~pappascout.adapters.protocols.MatchTeam`: there
+    the players are objects with their nicknames, here they are bare SteamID64
+    ids. The difference is deliberate and it is ``_match_team_row``'s decision
+    -- the names are in the team index, and the same listing must not be in two
+    files as two different truths.
 
     Attributes:
-        faction_id: Lähteen joukkuetunniste, tai ``None``.
-        name: Joukkueen nimi havaintona, tai ``None``.
-        roster: Aloittajien SteamID64:t.
-        substitutes: Vaihtopelaajien SteamID64:t.
+        faction_id: The source's team id, or ``None``.
+        name: The team's name as an observation, or ``None``.
+        roster: The starters' SteamID64s.
+        substitutes: The substitutes' SteamID64s.
     """
 
     faction_id: str | None = None
@@ -149,13 +153,13 @@ class IndexedMatchTeam:
 
 @dataclass(frozen=True)
 class IndexedMatch:
-    """Yksi ottelu **sellaisena kuin se on indeksissä**.
+    """One match **as it stands in the index**.
 
-    Ajat ovat ISO-merkkijonoja eivätkä ``datetime``-olioita: ne kirjoitettiin
-    tiedostoon merkkijonoina, ja niiden jäsentäminen takaisin olisi muunnos,
-    jota yksikään lukija ei ole vielä pyytänyt. ``played`` on ``discover``in
-    **päätös** ottelun tilasta, ei tila itse -- ja juuri se päätös on se, jonka
-    ``select`` haluaa.
+    The times are ISO strings and not ``datetime`` objects: they were written
+    into the file as strings, and parsing them back would be a conversion no
+    reader has asked for yet. ``played`` is ``discover``'s **decision** about
+    the match's status, not the status itself -- and that decision is exactly
+    the one ``select`` wants.
     """
 
     match_id: str
@@ -178,34 +182,35 @@ def run(
     source: MatchSource,
     thresholds: ThresholdSettings,
 ) -> StageResult:
-    """Hae divisioonan ottelut ja kirjoita otteluindeksi ja joukkueindeksi.
+    """Fetch the division's matches and write the match index and the team index.
 
     Args:
-        league: ``[league]``-osio; siitä luetaan ``championship_ids``.
-        archive: Arkiston polut.
-        team: Joukkueen nimi, sen osa tai tunniste. ``None`` on kelvollinen:
-            silloin indeksit kirjoitetaan ja yhteenveto listaa koko divisioonan.
-        source: Otteluportti, **avainsanaparametrina**. Testissä feikki, ajossa
-            :func:`default_source`.
-        thresholds: ``[thresholds]``-osio, avainsanaparametrina. Siitä luetaan
-            ``team_identity_min_common``, jolla sekä lähdetunnisteet liitetään
-            samaksi joukkueeksi että arkiston kokoonpanotiivisteet liitetään
-            joukkueisiin. Kaksi pydantic-osiota peräkkäin menisi
-            positionaalisesti vaihtaen läpi ilman että mikään huomauttaisi --
-            sama syy kuin ``aggregate``in ``aggregate_settings``issa.
+        league: The ``[league]`` section; ``championship_ids`` is read from it.
+        archive: The archive's paths.
+        team: The team's name, a part of it, or its id. ``None`` is valid:
+            then the indexes are written and the summary lists the whole
+            division.
+        source: The match port, **as a keyword parameter**. A fake in the
+            tests, :func:`default_source` in a real run.
+        thresholds: The ``[thresholds]`` section, as a keyword parameter.
+            ``team_identity_min_common`` is read from it, and it both joins
+            source ids into the same team and attaches the archive's lineup
+            hashes to teams. Two pydantic sections in a row would pass through
+            swapped positionally without anything remarking on it -- the same
+            reason as with ``aggregate``'s ``aggregate_settings``.
 
     Returns:
-        :class:`~pappascout.stages.StageResult`. ``stats`` kertoo otteluiden ja
-        joukkueiden määrän, koko divisioonan luettelon, pudotetut pelaajat ja --
-        jos ``team`` annettiin -- sen joukkueen tiedot.
+        A :class:`~pappascout.stages.StageResult`. ``stats`` gives the number
+        of matches and teams, the whole division's listing, the dropped
+        players and -- if ``team`` was given -- that team's details.
 
     Raises:
-        ~pappascout.errors.PappascoutError: Jos nimi ei täsmää yhteenkään
-            joukkueeseen tai täsmää useampaan. **Indeksit on siinäkin
-            tapauksessa jo kirjoitettu**: haku on näkymä hakutulokseen, ei ehto
-            sille. Viesti listaa vaihtoehdot tunnisteineen ja pyytää valinnan;
-            hiljaista valintaa ei tehdä.
-        ~pappascout.errors.ApiError: Jos otteluita ei saatu haettua.
+        ~pappascout.errors.PappascoutError: If the name matches no team or
+            matches more than one. **The indexes have been written even in
+            that case**: the lookup is a view onto the result, not a condition
+            for it. The message lists the alternatives with their ids and asks
+            for a choice; no silent choice is made.
+        ~pappascout.errors.ApiError: If the matches could not be fetched.
     """
     started = time.perf_counter()
     generated_at = datetime.now(UTC)
@@ -244,8 +249,8 @@ def run(
         stage=STAGE,
         unit=unit,
         status="ok",
-        # Ei koskaan ohitusta: ottelulista muuttuu joka päivä, ja koko vaiheen
-        # tarkoitus on nähdä muutos. Ks. moduulin docstring.
+        # Never a skip: the match list changes every day, and the whole point
+        # of the stage is to see the change. See the module docstring.
         skipped=False,
         outputs=outputs,
         manifest_path=None,
@@ -256,36 +261,37 @@ def run(
 
 
 def default_source(settings: Settings, archive: ArchivePaths) -> MatchSource:
-    """Tuotannon FACEIT-toteutus otteluportille.
+    """The production FACEIT implementation of the match port.
 
-    Tuonti on funktion sisällä, jotta tämän moduulin tuominen ei lataa
-    ``requests``ia eikä koko adapteria -- vaihe itse tuntee vain portin, ja
-    testit antavat sille feikin. Sama kuvio kuin
-    ``stages.parse.default_parser``illa.
+    The import is inside the function so that importing this module does not
+    load ``requests`` or the whole adapter -- the stage itself knows only the
+    port, and the tests give it a fake. The same pattern as in
+    ``stages.parse.default_parser``.
 
-    **Sääntö koskee adapteria, ei riippuvuuksien painoa.** ``polars`` tuodaan
-    tämän moduulin alussa, koska se on vaihekerroksen oma työkalu (samoin
-    ``stages.aggregate``issa); ``requests`` ja ``FaceitClient`` ovat portin
-    toisella puolella, ja juuri se raja pidetään lataamattomana.
+    **The rule concerns the adapter, not the weight of the dependencies.**
+    ``polars`` is imported at the top of this module, because it is the stage
+    layer's own tool (the same as in ``stages.aggregate``); ``requests`` and
+    ``FaceitClient`` are on the other side of the port, and it is that
+    boundary which is kept unloaded.
 
-    Tämä on myös se kohta, jonka kautta ``cli`` saa portin **koskematta
-    adaptereihin**: riippuvuusnuoli on ``cli -> stages -> adapters``.
+    This is also the place through which ``cli`` gets the port **without
+    touching the adapters**: the dependency arrow is
+    ``cli -> stages -> adapters``.
     """
     from pappascout.adapters.faceit import FaceitClient
 
     return FaceitClient.from_settings(settings, archive.raw_faceit())
 
 
-# -- Haku ja havainnot -------------------------------------------------------
+# -- The lookup and the observations -----------------------------------------
 
 
 def _fetch(source: MatchSource, competition_ids: Sequence[str]) -> tuple[Match, ...]:
-    """Hae kaikkien kilpailujen ottelut yhdeksi listaksi.
+    """Fetch the matches of every competition into one list.
 
-    Sama ottelu voi periaatteessa kuulua kahteen kilpailuun; ``match_id``
-    deduplikoi, jottei se laskeutuisi indeksiin kahdesti. Järjestys on
-    aikataulun mukainen, jotta tiedosto on luettava ja kahden ajon ero on
-    diffattavissa.
+    The same match can in principle belong to two competitions; ``match_id``
+    deduplicates, so that it does not land in the index twice. The order is by
+    schedule, so that the file is readable and two runs can be diffed.
     """
     seen: dict[str, Match] = {}
     for competition_id in competition_ids:
@@ -302,22 +308,22 @@ def _match_order(match: Match) -> tuple[int, float, str]:
 
 
 def _moment_of(match: Match) -> datetime | None:
-    """Ottelun hetki: aikataulu ensin, todellinen alku vasta sen puuttuessa.
+    """The match's moment: the schedule first, the real start only if it is missing.
 
-    Mitattu 2026-09-04: ottelulistalla on ``scheduled_at`` eikä ``started_at``,
-    joten aikataulu on ainoa hetki, joka pelaamattomalla ottelulla on.
+    Measured 2026-09-04: the match list carries ``scheduled_at`` and not
+    ``started_at``, so the schedule is the only moment an unplayed match has.
     """
     return match.scheduled_at or match.started_at
 
 
 class _Dropped:
-    """Se, mitä havainnoista jäi pois -- lukumäärinä ja tunnistettavina riveinä.
+    """What was left out of the observations -- as counts and as identifiable rows.
 
-    **Erilliset pelaajat, ei esiintymät.** Sama tunnisteeton pelaaja on
-    divisioonan jokaisella ottelurivillä, joten esiintymien laskeminen sanoisi
-    "11 pelaajaa jäi pois" yhdestä pelaajasta. Nimimerkki ja ottelu ovat
-    tallessa, jotta käyttäjä voi tarkistaa keneltä tunniste puuttui -- pelkkä
-    luku olisi väite ilman tarkistusmahdollisuutta.
+    **Distinct players, not appearances.** The same player without an id is on
+    every match row in the division, so counting appearances would say "11
+    players were left out" of one player. The nickname and the match are kept,
+    so that the user can check whose id was missing -- a bare number would be a
+    claim without any way of checking it.
     """
 
     def __init__(self) -> None:
@@ -350,20 +356,20 @@ class _Dropped:
 
 
 def _observe(matches: Iterable[Match]) -> tuple[list[TeamObservation], _Dropped]:
-    """Muunna ottelut domainin havainnoiksi.
+    """Turn the matches into the domain's observations.
 
-    Tässä lähteen sanasto loppuu: ``domain.teams`` ei näe :class:`Match`ia
-    lainkaan, joten sen säännöt ovat testattavissa käsin rakennetuilla
-    havainnoilla.
+    This is where the source's vocabulary ends: ``domain.teams`` does not see
+    :class:`Match` at all, so its rules can be tested with observations built
+    by hand.
 
-    Kaksi pudotusta, ja **molemmat lasketaan**:
+    Two drops, and **both are counted**:
 
-    * **Osapuoli ilman tunnistetta** ei ole joukkue, johon mitään voisi liittää.
-    * **Pelaaja ilman SteamID64:ää** ei ole liitettävissä demoihin, ja
-      vakirosteri on nimenomaan se joukko, joka niihin liittyy.
+    * **A side without an id** is not a team anything could be attached to.
+    * **A player without a SteamID64** cannot be attached to the demos, and the
+      standing roster is precisely the set that is attached to them.
 
-    Kummastakin kerrotaan ajon yhteenvedossa. Aiemmin joukkuerivin pudotus oli
-    hiljainen ja pelaajan ei -- epäsymmetria, jonka katselmus löysi.
+    Both are told in the run's summary. Earlier a dropped team row was silent
+    and a dropped player was not -- an asymmetry the review found.
     """
     observations: list[TeamObservation] = []
     dropped = _Dropped()
@@ -398,7 +404,7 @@ def _members(
     match_id: str,
     dropped: _Dropped,
 ) -> tuple[RosterMember, ...]:
-    """Portin pelaajat domainin rosterijäseniksi; pudotetut kirjataan."""
+    """The port's players into the domain's roster members; the drops are recorded."""
     members: list[RosterMember] = []
     for player in players:
         steam_id = player.game_player_id
@@ -416,20 +422,20 @@ def _members(
 
 
 def _is_played(match: Match) -> bool:
-    """Onko ottelu pelattu? Tuntematon tila ei ole pelattu."""
+    """Has the match been played? An unknown status is not played."""
     return match.status is not None and match.status.upper() in PLAYED_STATUSES
 
 
-# -- Silta arkistoon ---------------------------------------------------------
+# -- The bridge to the archive -----------------------------------------------
 
 
 def _archive_lineups(archive: ArchivePaths) -> dict[str, set[str]]:
-    """Arkiston kokoonpanot: ``lineup_key`` -> pelaajien SteamID64-joukko.
+    """The archive's lineups: ``lineup_key`` -> the set of players' SteamID64s.
 
-    Lähde on ``lineups.parquet`` samoin kuin ``aggregate``illa: sen pelaajajoukko
-    on **täsmälleen se**, josta ``lineup_key`` on laskettu. Lukukelvoton tai
-    puuttuva taulu ohitetaan -- silta on lisätietoa, eikä puuttuva silta ole syy
-    jättää indeksi kirjoittamatta.
+    The source is ``lineups.parquet``, the same as for ``aggregate``: its set
+    of players is **exactly the one** ``lineup_key`` was computed from. An
+    unreadable or missing table is skipped -- the bridge is extra information,
+    and a missing bridge is no reason to leave the index unwritten.
     """
     root = archive.parsed_root()
     if not root.is_dir():
@@ -448,7 +454,7 @@ def _read_lineups(
     try:
         path = archive.resolve(parsed_table(map_demo_id, "lineups"))
     except PappascoutError:
-        # Hakemisto, jonka nimi ei kelpaa tunnisteeksi, ei ole parsittu demo.
+        # A directory whose name is not valid as an id is not a parsed demo.
         return
     if not path.is_file():
         return
@@ -460,24 +466,24 @@ def _read_lineups(
         into.setdefault(str(row["lineup_key"]), set()).add(str(row["player_id"]))
 
 
-# -- Nimihaku ----------------------------------------------------------------
+# -- The name lookup ---------------------------------------------------------
 
 
 def resolve_team(teams: Sequence[Team], query: str) -> Team:
-    """Tulkitse ``--team`` joukkueeksi, tai kerro miksi se ei onnistu.
+    """Read ``--team`` as a team, or say why that does not work.
 
-    **Julkinen, koska ``select`` kysyy saman kysymyksen.** Kaksi kopiota
-    tästä olisi kaksi eri virheilmoitusta samasta tilanteesta, ja käyttäjä
-    näkisi eri luettelon riippuen siitä, minkä komennon hän ajoi. Vaihe ei
-    kutsu tästä toista vaihetta -- tämä on lukija, kuten
+    **Public, because ``select`` asks the same question.** Two copies of this
+    would be two different error messages for the same situation, and the user
+    would see a different listing depending on which command he ran. The stage
+    does not call another stage from here -- this is a reader, like
     :func:`read_indexes`.
 
     Raises:
-        PappascoutError: Kun osumia on nolla tai monta. Viesti listaa
-            vaihtoehdot **tunnisteineen** -- tunniste on ainoa tapa erottaa
-            kaksi samannimistä joukkuetta toisistaan -- ja pyytää valinnan.
-            Ensimmäisen osuman ottaminen olisi hiljainen valinta, ja juuri se
-            on kielletty.
+        PappascoutError: When there are zero hits or many. The message lists
+            the alternatives **with their ids** -- the id is the only way to
+            tell two teams with the same name apart -- and asks for a choice.
+            Taking the first hit would be a silent choice, and that is exactly
+            what is forbidden.
     """
     lookup = find_teams(teams, query)
     if lookup.is_unique:
@@ -486,46 +492,46 @@ def resolve_team(teams: Sequence[Team], query: str) -> Team:
 
 
 def _lookup_problem(lookup: TeamLookup, teams: Sequence[Team]) -> str:
-    """Suomenkielinen selitys sille, miksi haku ei tuottanut yhtä joukkuetta."""
+    """The explanation for why the lookup did not produce one single team."""
     if lookup.is_ambiguous:
         return (
-            f"Haku {lookup.query!r} osuu {len(lookup.teams)} joukkueeseen, "
-            "joten valinta on tehtävä:\n"
+            f"The search {lookup.query!r} hits {len(lookup.teams)} teams, "
+            "so a choice has to be made:\n"
             + _listing(lookup.teams)
-            + "\nTarkenna hakua niin, että se osuu yhteen -- esimerkiksi:\n"
+            + "\nNarrow the search so that it hits one -- for example:\n"
             + f"    --team {_unambiguous_query(lookup.teams)}"
         )
     if not teams:
         return (
-            f"Haku {lookup.query!r} ei osu yhteenkään joukkueeseen, koska "
-            "divisioonasta ei löytynyt otteluita.\n"
-            "Tarkista [league].championship_ids asetuksista."
+            f"The search {lookup.query!r} hits no team at all, because no "
+            "matches were found in the division.\n"
+            "Check [league].championship_ids in the settings."
         )
     return (
-        f"Haku {lookup.query!r} ei osu yhteenkään divisioonan joukkueeseen.\n"
-        "Divisioonan joukkueet ovat:\n" + _listing(teams)
+        f"The search {lookup.query!r} hits no team in the division.\n"
+        "The division's teams are:\n" + _listing(teams)
     )
 
 
 def _listing(teams: Sequence[Team]) -> str:
-    """Joukkueet nimineen, rosterikokoineen ja **tunnisteineen**.
+    """The teams with their names, roster sizes and **ids**.
 
-    Tunniste on mukana, koska ilman sitä kahden samannimisen joukkueen
-    luettelo olisi kaksi identtistä riviä eikä valintaa voisi tehdä millään.
+    The id is there because without it a listing of two teams with the same
+    name would be two identical rows and the choice could not be made at all.
     """
     return "\n".join(
-        f"    {team.display_name} ({len(team.roster)} pelaajaa, "
-        f"tunniste {team.team_key})"
+        f"    {team.display_name} ({len(team.roster)} players, "
+        f"id {team.team_key})"
         for team in teams
     )
 
 
 def _unambiguous_query(teams: Sequence[Team]) -> str:
-    """Hakuehdotus, joka osuu tasan yhteen näistä joukkueista.
+    """A search suggestion that hits exactly one of these teams.
 
-    Nimi kelpaa vain, jos se on osumien joukossa yksikäsitteinen; muuten
-    ehdotetaan tunnistetta. Ilman tätä ehdotus olisi samannimisten joukkueiden
-    tapauksessa täsmälleen se haku, joka juuri epäonnistui.
+    A name will do only if it is unambiguous among the hits; otherwise the id
+    is suggested. Without this the suggestion would, in the case of teams with
+    the same name, be exactly the search that has just failed.
     """
     first = teams[0]
     names = [team.display_name for team in teams]
@@ -534,16 +540,16 @@ def _unambiguous_query(teams: Sequence[Team]) -> str:
     return first.team_key
 
 
-# -- Ajon yhteenvedon luvut --------------------------------------------------
+# -- The run summary's numbers -----------------------------------------------
 
 
 def _unit(league: LeagueSettings) -> str:
-    """Yksikkö silloin kun joukkuetta ei haettu: **yksi tunniste, ei luettelo**.
+    """The unit when no team was looked up: **one id, not a listing**.
 
-    ``StageResult.unit`` on muualla putkessa aina yksi tunniste
-    (``map_demo_id``, ``team_key``), ja pilkuilla yhdistetty lista lukisi
-    tulosteessa tunnisteelta olematta sellainen. Koko luettelo on
-    ``stats["competition_ids"]``issä.
+    ``StageResult.unit`` is everywhere else in the pipeline a single id
+    (``map_demo_id``, ``team_key``), and a comma-joined list would read in the
+    output as an id without being one. The whole listing is in
+    ``stats["competition_ids"]``.
     """
     return league.championship_ids[0]
 
@@ -551,33 +557,33 @@ def _unit(league: LeagueSettings) -> str:
 def _reason(
     matches: Sequence[Match], teams: Sequence[Team], dropped: _Dropped
 ) -> str | None:
-    """Suomenkielinen selitys tyhjälle tai vajaalle tulokselle, tai ``None``.
+    """An explanation for an empty or incomplete result, or ``None``.
 
-    Haku onnistui, joten ``status`` on ``ok`` -- mutta "0 joukkuetta, 0
-    ottelua" ilman sanaakaan siitä, mistä se johtuu, jättäisi käyttäjän
-    arvaamaan. Ks. moduulin docstring siitä, miksei tähän ole omaa tilaa.
+    The lookup succeeded, so ``status`` is ``ok`` -- but "0 teams, 0 matches"
+    without a word about what causes it would leave the user guessing. See the
+    module docstring on why there is no status of its own for this.
     """
     if not matches:
         return (
-            "Kilpailusta ei löytynyt yhtään ottelua. Tarkista "
-            "[league].championship_ids asetuksista -- indeksit kirjoitettiin "
-            "tyhjinä."
+            "No match at all was found in the competition. Check "
+            "[league].championship_ids in the settings -- the indexes were "
+            "written empty."
         )
     if not teams:
         return (
-            "Otteluita löytyi, mutta yhdelläkään ei ollut tunnistettavaa "
-            "joukkuetta. Joukkueindeksi jäi tyhjäksi."
+            "Matches were found, but not one of them had a recognisable "
+            "team. The team index was left empty."
         )
     empty = [team.display_name for team in teams if not team.roster]
     if empty:
         return (
-            "Näiltä joukkueilta ei saatu yhtään SteamID64-tunnistettua "
-            "pelaajaa, joten niiden rosteri on tyhjä: " + ", ".join(empty)
+            "Not one SteamID64-identified player was obtained from these "
+            "teams, so their roster is empty: " + ", ".join(empty)
         )
     if dropped.player_count:
         return (
-            f"{dropped.player_count} pelaajaa jäi pois rostereista, koska "
-            "heillä ei ollut SteamID64-tunnistetta."
+            f"{dropped.player_count} players were left out of the rosters, "
+            "because they had no SteamID64."
         )
     return None
 
@@ -603,9 +609,9 @@ def _stats(
         "team_rows_without_id": dropped.team_rows,
         "contested_lineup_keys": list(contested),
         "transfers": _transfers(teams),
-        # Koko divisioona luettelona, jotta nimet saa näkyviin **ilman
-        # virhettä**: monitulkintaisen haun jälkeen juuri tämä on se, mitä
-        # käyttäjä tarvitsee seuraavaksi.
+        # The whole division as a listing, so that the names can be seen
+        # **without an error**: after an ambiguous search this is exactly what
+        # the user needs next.
         "division": [
             {
                 "team_key": team.team_key,
@@ -620,11 +626,11 @@ def _stats(
 
 
 def _transfers(teams: Sequence[Team]) -> list[dict[str, Any]]:
-    """Pelaajat, jotka havaittiin useammassa kuin yhdessä joukkueessa.
+    """The players observed in more than one team.
 
-    Sekä siirtyneet (``released``) että kiistanalaiset (``shared_players``) --
-    molemmat ovat tapauksia, joissa rosteri ei ole pelkkä yhdiste, ja
-    molemmat kuuluvat ajon yhteenvetoon eivätkä pelkästään tiedostoon.
+    Both the transferred (``released``) and the contested (``shared_players``)
+    -- both are cases in which the roster is not a plain union, and both belong
+    in the run's summary and not only in the file.
     """
     rows: list[dict[str, Any]] = []
     for team in teams:
@@ -672,7 +678,7 @@ def _team_stats(team: Team) -> dict[str, Any]:
     }
 
 
-# -- Indeksitiedostot --------------------------------------------------------
+# -- The index files ---------------------------------------------------------
 
 
 def _write_pair(
@@ -681,28 +687,29 @@ def _write_pair(
     matches_document: dict[str, Any],
     teams_document: dict[str, Any],
 ) -> None:
-    """Kirjoita molemmat indeksit niin, ettei toinen jää ilman toista.
+    """Write both indexes so that neither is left without the other.
 
-    **Pari ei ole atominen, mutta se on niin lähellä kuin tiedostojärjestelmällä
-    pääsee.** Molemmat sarjallistetaan ja kirjoitetaan väliaikaistiedostoihin
-    ensin, ja vasta kun molemmat ovat levyllä ehjinä, ne vaihdetaan paikoilleen
-    peräkkäin. Sarjallistusvirhe ei siis voi jättää arkistoon uutta
-    ottelulistaa ja vanhaa joukkueindeksiä.
+    **The pair is not atomic, but it is as close as a file system gets.** Both
+    are serialised and written into temporary files first, and only once both
+    are on the disk intact are they swapped into place one after the other. A
+    serialisation error therefore cannot leave a new match list and an old team
+    index in the archive.
 
-    Jäljelle jää kahden ``os.replace``in väli. Sitä varten molemmissa on sama
-    ``generated_at``, ja :func:`read_indexes` vertaa niitä -- eli lukija
-    huomaa parittoman parin sen sijaan että liittäisi ne hiljaa yhteen.
+    What remains is the gap between the two ``os.replace`` calls. For that both
+    carry the same ``generated_at``, and :func:`read_indexes` compares them --
+    that is, the reader notices an odd pair instead of joining them silently.
 
     Raises:
-        ~pappascout.errors.PappascoutError: Jos kirjoitus ei onnistu.
-            **Myös levyvirheet.** Sama sääntö ja sama peruste kuin
-            ``stages.fetch``issä ja ``stages.import_demo``issa: täysi levy,
-            OneDriven tiedostolukko ja katkennut verkkolevy ovat käyttäjän
-            tilanteita eivätkä ohjelmavirheitä. Lukupolku (:func:`_read`)
-            nappasi ``OSError``in jo, mutta kirjoituspolku ei -- ja
-            käsittelemättömänä se näkyi ruudulla tekstinä "Odottamaton virhe:
-            [Errno 28]" ja neuvona "Tämä on ohjelmavirhe", eli väärä diagnoosi
-            ja väärä toimenpide.
+        ~pappascout.errors.PappascoutError: If the write does not succeed.
+            **Disk errors too.** The same rule and the same ground as in
+            ``stages.fetch`` and ``stages.import_demo``: a full disk, a file
+            lock held by the sync client and a dropped network drive are the
+            user's situations and not programming errors. The read path
+            (:func:`_read`) caught ``OSError`` already, but the write path did
+            not -- and unhandled it showed on the screen as the text
+            "Unexpected error: [Errno 28]" and the advice "This is a
+            programming error", that is, the wrong diagnosis and the wrong
+            action.
     """
     matches_abs = archive.resolve(matches_index())
     teams_abs = archive.resolve(teams_index())
@@ -713,18 +720,19 @@ def _write_pair(
                 _dump(teams_tmp, teams_document)
     except OSError as exc:
         raise PappascoutError(
-            f"Arkiston indeksien ({matches_abs.name}, {teams_abs.name}) "
-            f"kirjoitus epäonnistui levyvirheeseen "
+            f"Writing the archive's indexes ({matches_abs.name}, "
+            f"{teams_abs.name}) failed with a disk error "
             f"({type(exc).__name__}: {exc}).\n"
-            f"Kohde oli {matches_abs.parent}.\n"
-            "Tavallisimmat syyt: levy täyttyi kesken kirjoituksen, OneDrive "
-            "piti tiedostoa lukittuna, tai verkkolevy katkesi.\n"
-            "Vajaata tiedostoa ei jäänyt levylle. Jos kirjoitus katkesi kahden "
-            "vaihdon välissä, indeksit voivat silti jäädä eri-ikäisiksi -- lukija "
-            "huomaa sen generated_at-vertailusta eikä liitä niitä hiljaa yhteen.",
+            f"The target was {matches_abs.parent}.\n"
+            "The most common causes: the disk filled up during the write, the "
+            "sync client held the file locked, or the network drive dropped.\n"
+            "No incomplete file was left on the disk. If the write was cut "
+            "off between the two swaps, the indexes can still be left of "
+            "different ages -- the reader notices that from the generated_at "
+            "comparison and does not join them silently.",
             advice=(
-                "Vapauta levytilaa tai odota kunnes OneDrive vapauttaa "
-                "tiedostolukon, ja aja komento sitten uudelleen."
+                "Free some disk space or wait until the sync client releases "
+                "the file lock, then run the command again."
             ),
         ) from exc
 
@@ -755,10 +763,11 @@ def _match_row(match: Match) -> dict[str, Any]:
         "started_at": _moment(match.started_at),
         "finished_at": _moment(match.finished_at),
         "map_picks": list(match.map_picks),
-        # Ottelun pituus karttoina, ``null`` jos lähde ei sitä kertonut.
-        # **Ei sama luku kuin len(map_picks)**: 2-0 päättyneessä BO3:ssa
-        # vedossa on kolme karttaa mutta demoja kaksi, joten Story 3.4 laskee
-        # odotettavat demot tästä eikä karttalistan pituudesta.
+        # The match's length in maps, ``null`` if the source did not say.
+        # **Not the same number as len(map_picks)**: in a BO3 that ended 2-0
+        # the veto holds three maps but there are two demos, so Story 3.4
+        # computes the expected demos from this and not from the length of the
+        # map list.
         "best_of": match.best_of,
         "teams": [_match_team_row(side) for side in match.teams],
     }
@@ -768,10 +777,10 @@ def _match_team_row(side: MatchTeam) -> dict[str, Any]:
     return {
         "faction_id": side.team_id,
         "name": side.name,
-        # Rosteri **ei** ole otteluindeksissä nimineen: se on joukkueindeksin
-        # asia, ja sama luettelo kahdessa tiedostossa olisi kaksi eri totuutta
-        # heti kun toinen kirjoitetaan uudelleen. Ottelurivi kertoo, ketkä
-        # olivat tässä ottelussa, tunnisteina.
+        # The roster is **not** in the match index with its names: that is the
+        # team index's business, and the same listing in two files would be two
+        # different truths the moment one of them is rewritten. The match row
+        # says who were in this match, as ids.
         "roster": [p.game_player_id for p in side.roster if p.game_player_id],
         "substitutes": [p.game_player_id for p in side.substitutes if p.game_player_id],
     }
@@ -787,8 +796,8 @@ def _teams_document(
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at.isoformat(),
         "competition_ids": list(competition_ids),
-        # Kokoonpanotiivisteet, jotka useampi joukkue omistaa. Ilman tätä
-        # listaa jatkovaihe laskisi ne kahdesti tietämättä tekevänsä niin.
+        # The lineup hashes that more than one team owns. Without this list a
+        # later stage would count them twice without knowing it was doing so.
         "contested_lineup_keys": list(contested),
         "teams": [_team_row(team) for team in teams],
     }
@@ -797,29 +806,29 @@ def _teams_document(
 def _team_row(team: Team) -> dict[str, Any]:
     return {
         "team_key": team.team_key,
-        # Kaikki lähteen tunnisteet, jotka ovat tätä joukkuetta. Identiteetti
-        # on rosteri; nämä ovat avaimia, joilla lähde sen tunsi.
+        # All of the source's ids that are this team. The identity is the
+        # roster; these are the keys by which the source knew it.
         "faction_ids": list(team.faction_ids),
         "name": team.name,
         "alternative_names": list(team.alternative_names),
-        # Yhteys arkistoon, ei identiteetti. Arkiston hakemistot on nimetty
-        # kokoonpanotiivisteestä, ja tämä kenttä tekee siitä luettavan.
-        # **Hakemistojen uudelleennimeämistä ei ole luvattu millekään
-        # tarinalle.** Rivi lupasi sen Story 3.4:ään, joka oli demojen lataus
-        # Downloads API:lla eikä koskenut arkiston nimeämiseen lainkaan. Jos
-        # nimeäminen tehdään, se on oma tarinansa.
+        # The connection to the archive, not an identity. The archive's
+        # directories are named from the lineup hash, and this field makes that
+        # readable. **Renaming the directories has not been promised to any
+        # story.** This row promised it to Story 3.4, which was the download of
+        # demos over the Downloads API and did not touch the archive's naming
+        # at all. If the renaming is done, it is a story of its own.
         "lineup_keys": list(team.lineup_keys),
-        # Tunnistelistat, eivät lukumääriä -- nimi sanoo sen, jottei lukija
-        # sekoittaisi niitä ajon yhteenvedon samannimisiin lukuihin.
+        # Lists of ids, not counts -- the name says so, lest the reader confuse
+        # them with the identically named numbers in the run's summary.
         "match_ids": list(team.match_ids),
         "played_match_ids": list(team.played_match_ids),
         "roster_size": len(team.roster),
         "roster": [_player_row(member) for member in team.roster],
-        # Pelaajat, jotka havaittiin tässä joukkueessa mutta myöhemmin
-        # toisessa. Eivät rosterissa, mutta eivät myöskään kadonneet.
+        # Players who were observed in this team but later in another. Not in
+        # the roster, but not gone either.
         "released": [_player_row(member) for member in team.released],
-        # Pelaajat, jotka toinen joukkue havaitsi yhtä myöhään. Yhä
-        # rosterissa; kiistaa ei ratkaista arpomalla.
+        # Players whom another team observed just as late. Still in the roster;
+        # a dispute is not settled by drawing lots.
         "shared_players": list(team.shared_players),
     }
 
@@ -837,88 +846,89 @@ def _moment(value: datetime | None) -> str | None:
     return None if value is None else value.isoformat()
 
 
-# -- Lukija ------------------------------------------------------------------
+# -- The reader --------------------------------------------------------------
 
 
 def read_matches_index(archive: ArchivePaths) -> dict[str, Any]:
-    """Lue ``index/matches.json``. Ks. :func:`read_indexes`."""
-    return _read(archive.matches_index(), "otteluindeksi")
+    """Read ``index/matches.json``. See :func:`read_indexes`."""
+    return _read(archive.matches_index(), "match index")
 
 
 def read_teams_index(archive: ArchivePaths) -> dict[str, Any]:
-    """Lue ``index/teams.json``. Ks. :func:`read_indexes`."""
-    return _read(archive.teams_index(), "joukkueindeksi")
+    """Read ``index/teams.json``. See :func:`read_indexes`."""
+    return _read(archive.teams_index(), "team index")
 
 
 def read_indexes(archive: ArchivePaths) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Lue molemmat indeksit ja tarkista, että ne ovat **samasta ajosta**.
+    """Read both indexes and check that they are **from the same run**.
 
-    Lukija on täällä eikä jokaisessa jatkovaiheessa, koska muuten
-    ``schema_version`` olisi kirjoitettu muttei luettu -- ja jokainen vaihe
-    tulkitsisi muodon omalla tavallaan.
+    The reader is here and not in every later stage, because otherwise
+    ``schema_version`` would be written but not read -- and every stage would
+    read the format in a way of its own.
 
     Returns:
-        ``(ottelut, joukkueet)`` sanakirjoina.
+        ``(matches, teams)`` as dictionaries.
 
     Raises:
-        PappascoutError: Jos tiedostoa ei ole, se ei ole kelvollista JSONia, sen
-            ``schema_version`` on tuntematon tai tiedostojen ``generated_at``
-            eroaa. Viimeinen tarkoittaa, että kirjoitus keskeytyi tiedostojen
-            välissä; silloin niitä ei saa liittää yhteen, vaan ``discover`` on
-            ajettava uudelleen.
+        PappascoutError: If a file is not there, is not valid JSON, its
+            ``schema_version`` is unknown, or the files' ``generated_at``
+            differs. The last means that the write was interrupted between the
+            files; then they must not be joined, and ``discover`` has to be run
+            again.
     """
     matches = read_matches_index(archive)
     teams = read_teams_index(archive)
     if matches.get("generated_at") != teams.get("generated_at"):
         raise PappascoutError(
-            "Otteluindeksi ja joukkueindeksi ovat eri ajoista "
-            f"({matches.get('generated_at')} ja {teams.get('generated_at')}), "
-            "joten niitä ei voi liittää yhteen.\n"
-            "Aja uudelleen: uv run pappascout discover"
+            "The match index and the team index are from different runs "
+            f"({matches.get('generated_at')} and {teams.get('generated_at')}), "
+            "so they cannot be joined.\n"
+            "Run again: uv run pappascout discover"
         )
     return matches, teams
 
 
 def teams_from_index(document: Mapping[str, Any]) -> tuple[Team, ...]:
-    """Rakenna :class:`Team`-oliot joukkueindeksin sanakirjasta.
+    """Build :class:`Team` objects out of the team index's dictionary.
 
-    Tämä on :func:`_team_row`in vastapari, ja se on täällä samasta syystä kuin
-    :func:`read_indexes`: ilman sitä jokainen jatkovaihe tulkitsisi indeksin
-    kentät omalla tavallaan, ja nimihaku toimisi eri tavalla riippuen siitä,
-    kuka sen kirjoitti. ``select`` saa näin täsmälleen ne joukkueet, jotka
-    ``discover`` kirjoitti -- ja samat säännöt (:func:`resolve_team`).
+    This is :func:`_team_row`'s counterpart, and it is here for the same reason
+    as :func:`read_indexes`: without it every later stage would read the
+    index's fields in a way of its own, and the name lookup would work
+    differently depending on who wrote it. ``select`` gets in this way exactly
+    the teams ``discover`` wrote -- and the same rules
+    (:func:`resolve_team`).
 
     Args:
-        document: :func:`read_teams_index`in palauttama sanakirja.
+        document: The dictionary :func:`read_teams_index` returns.
 
     Returns:
-        Joukkueet tiedoston järjestyksessä.
+        The teams in the file's order.
 
     Raises:
-        PappascoutError: Jos tiedoston joukkuerivi on rikki -- tunniste
-            puuttuu tai pelaajan ``game_player_id`` ei ole SteamID64. Molemmat
-            tarkoittavat, että tiedostoa on muokattu käsin tai se on toisen
-            version kirjoittama, ja hiljainen ohitus tuottaisi vajaan rosterin
-            eli väärän rosterikynnyksen.
+        PappascoutError: If a team row of the file is broken -- the id is
+            missing or a player's ``game_player_id`` is not a SteamID64. Both
+            mean that the file has been edited by hand or was written by
+            another version, and a silent skip would produce an incomplete
+            roster, that is, the wrong roster threshold.
     """
     rows = document.get("teams")
     if not isinstance(rows, list):
         raise PappascoutError(
-            "Arkiston joukkueindeksissä ei ole teams-luetteloa.\n"
-            "Aja uudelleen: uv run pappascout discover"
+            "The archive's team index has no teams list.\n"
+            "Run again: uv run pappascout discover"
         )
     teams: list[Team] = []
     for row in rows:
         if not isinstance(row, dict):
             raise PappascoutError(
-                "Arkiston joukkueindeksissä on rivi, joka ei ole olio.\n"
-                "Aja uudelleen: uv run pappascout discover"
+                "The archive's team index has a row that is not an object.\n"
+                "Run again: uv run pappascout discover"
             )
         team_key = row.get("team_key")
         if not isinstance(team_key, str) or not team_key:
             raise PappascoutError(
-                "Arkiston joukkueindeksissä on joukkue ilman team_key-kenttää.\n"
-                "Aja uudelleen: uv run pappascout discover"
+                "The archive's team index has a team with no team_key field.\n"
+                "Run again: uv run pappascout discover"
             )
         teams.append(
             Team(
@@ -946,56 +956,58 @@ def teams_from_index(document: Mapping[str, Any]) -> tuple[Team, ...]:
 
 
 def _strings(value: Any, what: str) -> tuple[str, ...]:
-    """Merkkijonolista monikkona -- **hiljaista ohennusta ei tehdä**.
+    """A list of strings as a tuple -- **no silent thinning is done**.
 
-    Puuttuva avain on tyhjä monikko: vanhassa tiedostossa kenttää ei
-    välttämättä ole, ja "ei mainittu" on kelvollinen havainto. Mutta väärän
-    tyyppinen arvo tai ei-merkkijono luettelon sisällä on **rikki**, ja sen
-    pudottaminen tekisi juuri sen, minkä :func:`teams_from_index`in docstring
-    lupaa estävänsä: lyhyemmän luettelon ilman että mikään kertoisi miksi.
-    Vajaa ``faction_ids`` jättäisi ottelun tunnistamatta, vajaa ``match_ids``
-    vääristäisi otteluluvun.
+    A missing key is an empty tuple: an old file may not have the field, and
+    "not mentioned" is a valid observation. But a value of the wrong type, or a
+    non-string inside the list, is **broken**, and dropping it would do exactly
+    what :func:`teams_from_index`'s docstring promises to prevent: a shorter
+    listing without anything saying why. An incomplete ``faction_ids`` would
+    leave a match unrecognised, an incomplete ``match_ids`` would distort the
+    match count.
     """
     if value is None:
         return ()
     if not isinstance(value, list):
         raise PappascoutError(
-            f"Arkiston indeksissä kenttä {what} ei ole luettelo vaan "
+            f"In the archive's index the field {what} is not a list but a "
             f"{type(value).__name__}.\n"
-            "Aja uudelleen: uv run pappascout discover"
+            "Run again: uv run pappascout discover"
         )
     for item in value:
         if not isinstance(item, str):
             raise PappascoutError(
-                f"Arkiston indeksissä kentässä {what} on arvo {item!r}, joka ei "
-                "ole merkkijono. Sen pudottaminen lyhentäisi luetteloa hiljaa.\n"
-                "Aja uudelleen: uv run pappascout discover"
+                f"In the archive's index the field {what} holds the value "
+                f"{item!r}, which is not a string. Dropping it would shorten "
+                "the listing silently.\n"
+                "Run again: uv run pappascout discover"
             )
     return tuple(value)
 
 
 def _members_from_index(value: Any, team_key: str) -> tuple[RosterMember, ...]:
-    """Rosterin pelaajat indeksin riveistä. Rikkinäinen rivi **kaataa ajon**.
+    """The roster's players from the index's rows. A broken row **fails the run**.
 
-    Vajaa rosteri on väärä rosterikynnys (Story 3.3): pudotettu pelaaja
-    näyttäisi myöhemmin siltä, ettei hän ollut joukkueessa, ja kartta
-    hylättäisiin syyllä, joka on tosi vain siksi että rivi katosi.
+    An incomplete roster is the wrong roster threshold (Story 3.3): a dropped
+    player would later look as though he had not been in the team, and a map
+    would be rejected for a reason that is true only because a row went
+    missing.
     """
     if value is None:
         return ()
     if not isinstance(value, list):
         raise PappascoutError(
-            f"Arkiston joukkueindeksissä joukkueen {team_key} rosteri ei ole "
-            f"luettelo vaan {type(value).__name__}.\n"
-            "Aja uudelleen: uv run pappascout discover"
+            f"In the archive's team index the roster of team {team_key} is "
+            f"not a list but a {type(value).__name__}.\n"
+            "Run again: uv run pappascout discover"
         )
     members: list[RosterMember] = []
     for entry in value:
         if not isinstance(entry, dict):
             raise PappascoutError(
-                f"Arkiston joukkueindeksissä joukkueella {team_key} on "
-                f"rosteririvi {entry!r}, joka ei ole olio.\n"
-                "Aja uudelleen: uv run pappascout discover"
+                f"In the archive's team index team {team_key} has the roster "
+                f"row {entry!r}, which is not an object.\n"
+                "Run again: uv run pappascout discover"
             )
         try:
             members.append(
@@ -1019,62 +1031,65 @@ def _members_from_index(value: Any, team_key: str) -> tuple[RosterMember, ...]:
             )
         except ValueError as exc:
             raise PappascoutError(
-                f"Arkiston joukkueindeksissä on joukkueella {team_key} pelaaja, "
-                f"jota ei voi liittää demoihin: {exc}\n"
-                "Aja uudelleen: uv run pappascout discover"
+                f"In the archive's team index team {team_key} has a player "
+                f"who cannot be attached to the demos: {exc}\n"
+                "Run again: uv run pappascout discover"
             ) from exc
     return tuple(members)
 
 
 def matches_from_index(document: Mapping[str, Any]) -> tuple[IndexedMatch, ...]:
-    """Rakenna :class:`IndexedMatch`-oliot otteluindeksin sanakirjasta.
+    """Build :class:`IndexedMatch` objects out of the match index's dictionary.
 
-    :func:`teams_from_index`in vastine ottelupuolelle, ja olemassa samasta
-    syystä: ilman sitä jokainen jatkovaihe purkaisi ``matches.json``in käsin ja
-    päättäisi omin päin, mikä rivi on riittävän ehjä käytettäväksi.
+    :func:`teams_from_index`'s counterpart on the match side, and it exists for
+    the same reason: without it every later stage would unpack ``matches.json``
+    by hand and decide on its own which row is intact enough to use.
 
-    **Rikkinäinen rivi kaataa ajon eikä katoa laskuriin.** Ohitettu ottelu
-    lyhentäisi otantaa hiljaa, ja se on juuri se virhe, jota vastaan valinnan
-    laskurit on kirjoitettu.
+    **A broken row fails the run and does not disappear into a counter.** A
+    skipped match would shorten the sample silently, and that is exactly the
+    error the selection's counters are written against.
 
     Args:
-        document: :func:`read_matches_index`in palauttama sanakirja.
+        document: The dictionary :func:`read_matches_index` returns.
 
     Returns:
-        Ottelut tiedoston järjestyksessä.
+        The matches in the file's order.
 
     Raises:
-        PappascoutError: Jos ``matches``-luetteloa ei ole, jos rivi ei ole olio,
-            jos ``match_id`` puuttuu, jos sama ``match_id`` esiintyy kahdesti
-            (kaksi riviä samasta ottelusta tuottaisi jokaisen sen kartan
-            otantaan kahdesti) tai jos jokin kenttä on väärää tyyppiä.
+        PappascoutError: If there is no ``matches`` list, if a row is not an
+            object, if ``match_id`` is missing, if the same ``match_id``
+            appears twice (two rows for the same match would put every one of
+            its maps into the sample twice) or if some field is of the wrong
+            type.
     """
     rows = document.get("matches")
     if not isinstance(rows, list):
         raise PappascoutError(
-            "Arkiston otteluindeksissä ei ole matches-luetteloa.\n"
-            "Aja uudelleen: uv run pappascout discover"
+            "The archive's match index has no matches list.\n"
+            "Run again: uv run pappascout discover"
         )
     matches: list[IndexedMatch] = []
     seen: set[str] = set()
     for row in rows:
         if not isinstance(row, dict):
             raise PappascoutError(
-                f"Arkiston otteluindeksissä on rivi {row!r}, joka ei ole olio.\n"
-                "Aja uudelleen: uv run pappascout discover"
+                f"The archive's match index has the row {row!r}, which is not "
+                "an object.\n"
+                "Run again: uv run pappascout discover"
             )
         match_id = row.get("match_id")
         if not isinstance(match_id, str) or not match_id:
             raise PappascoutError(
-                "Arkiston otteluindeksissä on ottelu ilman match_id-kenttää.\n"
-                "Aja uudelleen: uv run pappascout discover"
+                "The archive's match index has a match with no match_id "
+                "field.\n"
+                "Run again: uv run pappascout discover"
             )
         if match_id in seen:
             raise PappascoutError(
-                f"Arkiston otteluindeksissä on ottelu {match_id} kahdesti. "
-                "Kaksi riviä samasta ottelusta tuottaisi jokaisen sen kartan "
-                "otantaan kahdesti.\n"
-                "Aja uudelleen: uv run pappascout discover"
+                f"The archive's match index has match {match_id} twice. "
+                "Two rows for the same match would put every one of its maps "
+                "into the sample twice.\n"
+                "Run again: uv run pappascout discover"
             )
         seen.add(match_id)
         matches.append(
@@ -1099,17 +1114,17 @@ def _match_teams_from_index(value: Any, match_id: str) -> tuple[IndexedMatchTeam
         return ()
     if not isinstance(value, list):
         raise PappascoutError(
-            f"Arkiston otteluindeksissä ottelun {match_id} teams ei ole "
-            f"luettelo vaan {type(value).__name__}.\n"
-            "Aja uudelleen: uv run pappascout discover"
+            f"In the archive's match index the teams of match {match_id} is "
+            f"not a list but a {type(value).__name__}.\n"
+            "Run again: uv run pappascout discover"
         )
     sides: list[IndexedMatchTeam] = []
     for entry in value:
         if not isinstance(entry, dict):
             raise PappascoutError(
-                f"Arkiston otteluindeksissä ottelulla {match_id} on osapuoli "
-                f"{entry!r}, joka ei ole olio.\n"
-                "Aja uudelleen: uv run pappascout discover"
+                f"In the archive's match index match {match_id} has the side "
+                f"{entry!r}, which is not an object.\n"
+                "Run again: uv run pappascout discover"
             )
         sides.append(
             IndexedMatchTeam(
@@ -1129,18 +1144,19 @@ def _optional_str(value: Any) -> str | None:
 
 
 def _optional_int(value: Any, what: str) -> int | None:
-    """Kokonaisluku tai ``None``; muu tyyppi on rikki eikä oletus.
+    """An integer or ``None``; another type is broken and not a default.
 
-    ``None`` on **kelvollinen havainto**: vanhassa indeksissä kenttää ei ole,
-    ja "lähde ei kertonut" on eri asia kuin "arvo on rikki".
+    ``None`` is a **valid observation**: an old index does not have the field,
+    and "the source did not say" is a different matter from "the value is
+    broken".
     """
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
         raise PappascoutError(
-            f"Arkiston otteluindeksissä kenttä {what} on {value!r}, joka ei ole "
-            "kokonaisluku eikä puuttuva arvo.\n"
-            "Aja uudelleen: uv run pappascout discover"
+            f"In the archive's match index the field {what} is {value!r}, "
+            "which is neither an integer nor a missing value.\n"
+            "Run again: uv run pappascout discover"
         )
     return value
 
@@ -1148,25 +1164,26 @@ def _optional_int(value: Any, what: str) -> int | None:
 def _read(path: Path, what: str) -> dict[str, Any]:
     if not path.is_file():
         raise PappascoutError(
-            f"Arkistosta puuttuu {what} ({path.name}).\n"
-            "Aja ensin: uv run pappascout discover"
+            f"The archive is missing the {what} ({path.name}).\n"
+            "Run first: uv run pappascout discover"
         )
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise PappascoutError(
-            f"Arkiston {what} ({path.name}) ei ole luettavissa: {exc}\n"
-            "Aja uudelleen: uv run pappascout discover"
+            f"The archive's {what} ({path.name}) cannot be read: {exc}\n"
+            "Run again: uv run pappascout discover"
         ) from exc
     if not isinstance(document, dict):
         raise PappascoutError(
-            f"Arkiston {what} ({path.name}) ei ole odotetun muotoinen olio."
+            f"The archive's {what} ({path.name}) is not an object of the "
+            "expected shape."
         )
     version = document.get("schema_version")
     if version != SCHEMA_VERSION:
         raise PappascoutError(
-            f"Arkiston {what} on muotoa {version!r}, mutta tämä versio osaa "
-            f"lukea vain muotoa {SCHEMA_VERSION}.\n"
-            "Aja uudelleen: uv run pappascout discover"
+            f"The archive's {what} is in format {version!r}, but this version "
+            f"can read only format {SCHEMA_VERSION}.\n"
+            "Run again: uv run pappascout discover"
         )
     return document
