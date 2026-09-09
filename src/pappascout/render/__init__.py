@@ -1,57 +1,57 @@
-"""``render`` -- ``report.json`` Markdowniksi. **Ei laske mitään.**
+"""``render`` -- ``report.json`` into Markdown. **It computes nothing.**
 
-Paketti on raportin *esityskerros*: se valitsee, mitä
-:class:`~pappascout.domain.report.Report`in luvuista sanotaan, ja Jinja2-malli
-:data:`TEMPLATE_NAME` päättää missä muodossa. Jokainen luku tulee sellaisenaan
-``report.json``ista -- täällä ei summata, keskiarvoisteta eikä johdeta uusia
-lukuja. Jos raportti tarvitsee luvun, jota mallissa ei ole, korjaus tehdään
-``aggregate``-vaiheeseen (Story 2.3), ei tänne.
+The package is the report's *presentation layer*: it chooses what is said
+about :class:`~pappascout.domain.report.Report`'s numbers, and the Jinja2
+template :data:`TEMPLATE_NAME` decides in what shape. Every number comes
+straight from ``report.json`` -- nothing here is summed, averaged or derived
+into a new number. If the report needs a number the model does not have, the
+fix goes into the ``aggregate`` stage (Story 2.3), not here.
 
-Työnjako: **koodi valitsee mitä sanotaan, malli miten**
---------------------------------------------------------
-:mod:`pappascout.render.view` rakentaa raportista näkymämallin -- rivit,
-väitteet ja niiden otannat -- ja malli latoo ne. Raportin muoto muuttuu
-varmasti, kun ihminen lukee ensimmäisen version, ja tekstitiedostona sen voi
-muuttaa koskematta valintalogiikkaan.
+The division of work: **the code chooses what is said, the template how**
+------------------------------------------------------------------------
+:mod:`pappascout.render.view` builds a view model out of the report -- rows,
+claims and their samples -- and the template sets them. The report's shape is
+certain to change once a human reads the first version, and as a text file it
+can be changed without touching the selection logic.
 
-Malli on osa tulosta, ei ympäristöä
------------------------------------
-:func:`template_digest` on mallin sisällön tiiviste, ja se menee
-``render``-vaiheen parametrihashiin. Ilman sitä mallin muokkaaminen muuttaisi
-raportin sisältöä ilman että manifestissa näkyisi mitään -- sama
-epäonnistumistapa, jonka
-:func:`~pappascout.constants.weapon_classification_digest` estää parsinnassa.
+The template is part of the result, not of the environment
+----------------------------------------------------------
+:func:`template_digest` is a digest of the template's content, and it goes
+into the ``render`` stage's parameter hash. Without it, editing the template
+would change the report's content without anything showing in the manifest --
+the same failure mode that
+:func:`~pappascout.constants.weapon_classification_digest` prevents in
+parsing.
 
-**Parametrihash kattaa mallin mutta ei :mod:`pappascout.render.view`iä.**
-Näkymämoduulin muokkaaminen muuttaa raporttia yhtä varmasti kuin mallin, eikä
-se näy manifestissa lainkaan: Story 2.12 kirjoitti uudelleen lähes joka
-tekstirivin ``view.py``:ssä, ja ilman mallin omaa uutta lukua manifestit
-olisivat olleet tavu tavulta samat. Puute ei päästä vanhentunutta raporttia
-ulos -- ``render`` ei koskaan ohita ajoa manifestin perusteella, joten
-jokainen ajo latoo raportin uudelleen -- mutta se tarkoittaa, ettei kahden
-raportin manifesteista voi päätellä, syntyivätkö ne samasta koodista. Puute on
-kirjattu suunnittelun ``deferred-work.md``:hyn -- se asuu BMAD-tuotoksissa
-(``_bmad-output/implementation-artifacts/``) eikä tässä repossa, joten
-tiedostoa ei kannata etsiä työpuusta. Sen sulkeminen on oma tarinansa,
-koska ``view.py``:n tiiviste muuttuisi myös pelkästä docstringin
-korjauksesta ja pakottaisi uudelleenrenderöinnin ilman että raportti
-muuttuu.
+**The parameter hash covers the template but not :mod:`pappascout.render.view`.**
+Editing the view module changes the report just as surely as the template
+does, and it does not show in the manifest at all: Story 2.12 rewrote nearly
+every line of text in ``view.py``, and without the template's own new number
+the manifests would have been byte for byte the same. The gap does not let a
+stale report out -- ``render`` never skips a run on the strength of a
+manifest, so every run sets the report again -- but it means that two
+reports' manifests cannot tell whether they came from the same code. The gap
+is recorded in the design's ``deferred-work.md`` -- which lives in the BMAD
+output (``_bmad-output/implementation-artifacts/``) and not in this
+repository, so there is no point looking for the file in the working tree.
+Closing it is a story of its own, because ``view.py``'s digest would change
+from a mere docstring fix as well and would force a re-render without the
+report changing.
 
-**Hash kattaa Story 2.13:n jälkeen myös vaiheen lukemat asetukset.**
-``render`` lukee nyt ``[report]``-osion (karsintasäännöt), ja asetus, joka
-ei näy hashissa, on juuri se Story 1.8:n vika, joka on tässä projektissa
-löytynyt kolmesti: säädetty arvo tuottaisi manifestin, joka väittää
-tulosta samaksi. Osio on hashissa **kokonaisena** samasta syystä kuin
-``[aggregate]`` on ``aggregate``ssa -- luettelo luetuista kentistä
-vanhenisi hiljaa.
+**Since Story 2.13 the hash also covers the settings the stage reads.**
+``render`` now reads the ``[report]`` section (the pruning rules), and a
+setting that does not show in the hash is exactly the Story 1.8 fault that
+has been found three times in this project: an adjusted value would produce a
+manifest that claims the result is the same. The section is in the hash
+**whole** for the same reason ``[aggregate]`` is in ``aggregate`` -- a list
+of the fields read would go stale in silence.
 
-**Tiiviste ja renderöinti lukevat saman tekstin.** Kumpaakaan ei
-välimuistiteta: aiemmin tiiviste oli ``lru_cache``ssa ja Jinjan
-``FileSystemLoader`` latasi mallin uudelleen automaattisesti, jolloin ajon
-aikana muokattu malli olisi tuottanut uuden raportin vanhalla tiivisteellä --
-täsmälleen se tila, jonka tiiviste on lisätty estämään. Malli on muutama
-kilotavu ja luetaan kerran ajossa, joten välimuistilla ei ole mitään
-voitettavaa.
+**The digest and the rendering read the same text.** Neither is cached:
+the digest used to be in an ``lru_cache`` while Jinja's ``FileSystemLoader``
+reloaded the template automatically, so a template edited during a run would
+have produced a new report under the old digest -- precisely the state the
+digest was added to prevent. The template is a few kilobytes and is read once
+per run, so there is nothing for a cache to win.
 """
 
 from __future__ import annotations
@@ -79,63 +79,64 @@ __all__ = [
     "ReportView",
 ]
 
-#: Raporttimallin tiedostonimi tämän paketin hakemistossa.
+#: The report template's file name in this package's directory.
 TEMPLATE_NAME = "report.md.j2"
 
 
 def template_path() -> Path:
-    """Raporttimallin polku.
+    """The report template's path.
 
-    Malli luetaan paketin omasta hakemistosta eikä arkistosta: se on osa
-    ohjelmaa, ei käyttäjän dataa. Arkistossa oleva malli tarkoittaisi, että
-    kahdella koneella voi olla eri raporttimuoto samalla ohjelmaversiolla.
+    The template is read from the package's own directory and not from the
+    archive: it is part of the program, not the user's data. A template in
+    the archive would mean that two machines can have a different report
+    shape on the same program version.
     """
     return Path(__file__).resolve().parent / TEMPLATE_NAME
 
 
 def template_text() -> str:
-    """Mallin sisältö tekstinä, rivinvaihdot normalisoituna.
+    """The template's content as text, with the line endings normalised.
 
-    Normalisointi tehdään **täällä** eikä tiivistefunktiossa, jotta tiiviste
-    ja renderöinti näkevät kirjaimellisesti saman merkkijonon: muuten sama
-    malli antaisi eri tiivisteen riippuen siitä, onko työkopio haettu CRLF-
-    vai LF-päätteillä.
+    The normalisation is done **here** and not in the digest function, so
+    that the digest and the rendering see literally the same string:
+    otherwise the same template would give a different digest depending on
+    whether the working copy was checked out with CRLF or LF endings.
     """
     return template_path().read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
 def template_digest() -> str:
-    """Mallin sisällön sha256.
+    """The sha256 of the template's content.
 
-    Menee ``render``-vaiheen parametrihashiin, jolloin mallin muokkaaminen
-    näkyy manifestissa.
+    It goes into the ``render`` stage's parameter hash, so that editing the
+    template shows in the manifest.
 
     Returns:
-        64 merkin heksadesimaalinen tiiviste **siitä samasta tekstistä**, jonka
-        :func:`render_report` latoo.
+        A 64-character hexadecimal digest of **the very text**
+        :func:`render_report` sets.
     """
     return hashlib.sha256(template_text().encode("utf-8")).hexdigest()
 
 
 @lru_cache(maxsize=1)
 def _environment() -> Environment:
-    """Jinja-ympäristö ilman lataajaa.
+    """A Jinja environment without a loader.
 
-    Malli annetaan ``from_string``illa :func:`template_text`istä, joten
-    ympäristöllä ei ole omaa käsitystä tiedostosta eikä siten omaa
-    välimuistia, joka voisi erkaantua tiivisteestä.
+    The template is handed in with ``from_string`` out of
+    :func:`template_text`, so the environment has no notion of a file of its
+    own and therefore no cache of its own that could drift from the digest.
 
-    ``StrictUndefined`` on olennainen: oletusarvoinen ``Undefined`` latoo
-    puuttuvan kentän **tyhjänä merkkijonona**, jolloin mallin kirjoitusvirhe
-    tuottaisi raportin, josta yksi rivi puuttuu hiljaa. Se on juuri se
-    epäonnistumistapa, jonka "mikään ei katoa hiljaa" kieltää.
+    ``StrictUndefined`` is essential: the default ``Undefined`` sets a
+    missing field as an **empty string**, so a typo in the template would
+    produce a report with one row missing in silence. That is exactly the
+    failure mode that "nothing vanishes in silence" forbids.
     """
     return Environment(
         undefined=StrictUndefined,
         trim_blocks=True,
         lstrip_blocks=True,
         keep_trailing_newline=True,
-        autoescape=False,  # noqa: S701 - Markdownia, ei HTML:ää
+        autoescape=False,  # noqa: S701 - Markdown, not HTML
     )
 
 
@@ -145,24 +146,25 @@ def render_report(
     settings: ReportSettings,
     round_list_paths: Sequence[str] = (),
 ) -> str:
-    """Muotoile raportti Markdowniksi.
+    """Format the report into Markdown.
 
     Args:
-        report: ``aggregate``-vaiheen tulos sellaisenaan.
-        settings: ``[report]``-osio eli karsintasäännöt (Story 2.13).
-            **Pakollinen eikä oletusarvoinen** -- ks. :func:`build_view`.
-        round_list_paths: Kierroslistojen polut kierrosliitettä varten. Vaihe
-            ratkaisee ne ``archive.paths``ista; tämä kerros ei näe arkistoa.
+        report: The ``aggregate`` stage's result as it is.
+        settings: The ``[report]`` section, that is the pruning rules (Story
+            2.13). **Mandatory and not defaulted** -- see :func:`build_view`.
+        round_list_paths: The round lists' paths for the round appendix. The
+            stage resolves them out of ``archive.paths``; this layer does not
+            see the archive.
 
     Returns:
-        Yksi Markdown-dokumentti, joka päättyy rivinvaihtoon.
+        One Markdown document that ends in a newline.
 
     Raises:
-        ~pappascout.errors.PappascoutError: Jos malli on rikki tai siinä
-            viitataan kenttään, jota näkymässä ei ole. Jinjan oma
-            ``TemplateError`` ei periydy ``PappascoutError``ista, joten ilman
-            käärettä vaiheen dokumentoitu virhesopimus ei pitäisi ja käyttäjä
-            näkisi englanninkielisen pinojäljen.
+        ~pappascout.errors.PappascoutError: If the template is broken or
+            refers to a field the view does not have. Jinja's own
+            ``TemplateError`` does not inherit from ``PappascoutError``, so
+            without the wrapper the stage's documented error contract would
+            not hold and the user would see an English traceback.
     """
     view = build_view(
         report, settings=settings, round_list_paths=round_list_paths
@@ -172,20 +174,21 @@ def render_report(
         text = template.render(view=view)
     except TemplateError as exc:
         raise PappascoutError(
-            f"Raporttimallin {template_path()} latominen epäonnistui: {exc}\n"
-            "Kyseessä on ohjelmavirhe raporttimallissa, ei käyttäjän "
-            "aineistossa. Palauta malli versionhallinnasta."
+            f"Rendering the report template {template_path()} failed: {exc}\n"
+            "This is a programming error in the report template, not in the "
+            "user's data. Restore the template from version control."
         ) from exc
     return _tidy(text)
 
 
 def _tidy(text: str) -> str:
-    """Siivoa mallin väistämättä tuottama tyhjätila.
+    """Clean up the whitespace the template inevitably produces.
 
-    Ehtolauseet jättävät peräkkäisiä tyhjiä rivejä aina kun osio jää pois.
-    Siivous on täällä eikä mallissa, jotta mallin ehdot pysyvät luettavina --
-    hinta on, että dokumentin lopullinen muoto syntyy kahdessa paikassa, ja
-    juuri siksi siitä on golden-testi.
+    Conditionals leave consecutive blank lines behind whenever a section is
+    left out. The cleanup is here and not in the template, so that the
+    template's conditions stay readable -- the price is that the document's
+    final shape comes about in two places, and that is exactly why there is a
+    golden test of it.
     """
     lines = text.replace("\r\n", "\n").split("\n")
     cleaned: list[str] = []

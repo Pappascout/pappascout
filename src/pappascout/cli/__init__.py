@@ -1,42 +1,44 @@
-"""Komentorivikuori (Typer).
+"""The command-line shell (Typer).
 
-CLI on ohut: se lukee asetukset, valitsee vaiheet ja näyttää tuloksen. Se ei
-kutsu adaptereita eikä arkistoa suoraan, eikä siinä ole analyysilogiikkaa --
-sama putki ajetaan myöhemmin web-kuoren takaa muuttamatta domainia.
+The CLI is thin: it reads the settings, chooses the stages and shows the
+result. It does not call the adapters or the archive directly, and it holds no
+analysis logic -- the same pipeline will later be run behind a web shell
+without changing the domain.
 
-Komennot: ``info`` näyttää asetukset, arkiston tilan ja avainten tilan
-paljastamatta avainten arvoja, ``discover`` hakee divisioonan ottelut ja
-kirjoittaa niistä ottelu- ja joukkueindeksin, ``select`` valitsee joukkueen
-kartat rosterikynnyksellä, ``parse`` ajaa putken demovaiheen yhdelle demolle,
-``classify`` luokittelee sen kierrokset yhden joukkueen näkökulmasta,
-``aggregate`` kokoaa joukkueen luokitellut kierrokset yhdeksi
-``report.json``-tiedostoksi ja ``report`` kirjoittaa siitä luettavan
-Markdown-raportin. Demoja arkistoon tuovia on kolme, ja ne ovat sama lopputulos
-kolmesta yksikkövalinnasta: ``fetch`` lataa yhden joukkueen otannan,
-``collect`` koko divisioonan päättyneet ottelut otteluindeksistä ja ``import``
-ottaa vastaan selaimella ladatun demon -- ja **``import`` on ainoa polku
-silloin kun Downloads-oikeutta ei ole**. Loput (``scout``, ``next``) tulevat
-myöhemmissä storyissa.
+The commands: ``info`` shows the settings, the state of the archive and the
+state of the credentials without revealing the credentials' values,
+``discover`` fetches the division's matches and writes the match index and the
+team index out of them, ``select`` chooses a team's maps with the roster
+threshold, ``parse`` runs the pipeline's demo stage for one demo, ``classify``
+classifies its rounds from one team's point of view, ``aggregate`` gathers a
+team's classified rounds into one ``report.json`` file and ``report`` writes a
+readable Markdown report out of it. Three commands bring demos into the
+archive, and they are the same outcome of three different unit choices:
+``fetch`` downloads one team's sample, ``collect`` the whole division's
+finished matches from the match index, and ``import`` takes in a demo
+downloaded with a browser -- and **``import`` is the only route when there is
+no Downloads permission**. The rest (``scout``, ``next``) come in later
+stories.
 
-**Luetteloa ei aloiteta lukusanalla.** Rivi lupasi seitsemää komentoa vielä
-silloin, kun niitä oli yhdeksän: käsin ylläpidetty luku, jota mikään testi ei
-vartioi, vanhenee ensimmäisen lisäyksen kohdalla. Luettelo itse on vartioitu
-(``test_help_lists_every_pipeline_command``), joten luku ei kerro mitään, mitä
-ei jo lueta seuraavasta virkkeestä.
+**The listing does not open with a count.** The line still promised seven
+commands when there were nine: a hand-maintained number that no test guards
+goes stale at the first addition. The listing itself is guarded
+(``test_help_lists_every_pipeline_command``), so the number says nothing that
+is not already read from the next sentence.
 
-Jokainen putken komento on ``test_help_lists_every_pipeline_command``in
-luettelossa. Se ei ole muodollisuus: Story 3.2:ssa ``discover`` lisättiin ilman
-sitä, ja komento oli ohjeessa mutta väite sen olemassaolosta puuttui juuri siitä
-testistä, jonka docstring varoittaa tästä.
+Every pipeline command is in ``test_help_lists_every_pipeline_command``'s
+listing. That is not a formality: in Story 3.2 ``discover`` was added without
+it, and the command was in the help but the claim that it exists was missing
+from exactly the test whose docstring warns about this.
 
-Arkistoon ja adaptereihin ei kosketa täältä: polut pyydetään
-``stages.archive_paths``ilta, demoportti ``stages.parse.default_parser``ilta ja
-otteluportti ``stages.discover.default_source``ilta. Riippuvuusnuoli on
+The archive and the adapters are not touched from here: the paths are asked
+of ``stages.archive_paths``, the demo port of
+``stages.parse.default_parser`` and the match port of
+``stages.discover.default_source``. The dependency arrow is
 ``cli -> stages -> {domain, adapters, archive}``.
 
-Käyttäjä ei koodaa itse, joten mikään virhe ei saa päätyä ruudulle raakana
-pinojälkenä: :func:`main` muuntaa ne suomenkielisiksi viesteiksi ja
-paluukoodeiksi.
+The user does not code, so no error may reach the screen as a raw traceback:
+:func:`main` turns them into readable messages and exit codes.
 """
 
 from __future__ import annotations
@@ -71,28 +73,28 @@ __all__ = ["app", "main"]
 
 app = typer.Typer(
     name="pappascout",
-    help="Pappaliigan CS2-vastustajascouting: demoista kierrostyypit ja raportti.",
+    help="Pappaliiga CS2 opponent scouting: round types and a report from demos.",
     no_args_is_help=True,
     add_completion=False,
 )
 
 _SECRET_NAMES = ("FACEIT_API_KEY", "FACEIT_DOWNLOADS_TOKEN")
 
-#: Paluukoodit. 0 = onnistui, 1 = odotettu virhe, 2 = odottamaton virhe.
+#: The exit codes. 0 = succeeded, 1 = a known error, 2 = an unexpected error.
 EXIT_KNOWN_ERROR = 1
 EXIT_UNEXPECTED_ERROR = 2
 
-#: Montako pelaajaa luetellaan nimeltä yhdessä yhteenvedon rivissä.
-#: Loput lasketaan; koko luettelo on aina indeksitiedostossa.
+#: How many players are listed by name on one line of a summary.
+#: The rest are counted; the whole listing is always in the index file.
 MAX_LISTED_PLAYERS = 5
 
 
-# **Tavumäärän muotoilija on yksi, ja se on ``fetch_stage.size_fi``.**
-# Tässä oli oma ``_human_size`` omalla yksikkötaulullaan, ja taulut olivat eri
-# mittaiset (``Pt`` vain täällä) -- eli sama luku saattoi tulostua kahdella eri
-# tavalla sen mukaan, mikä komento sen tulosti. Story 3.6 tiesi ``size_fi``:stä
-# ja käytti sitä vaihekerroksessa muttei täällä. Nyt ``Pt`` on ``size_fi``:n
-# taulussa ja tämä kerros kutsuu sitä. Vartija:
+# **There is one byte-count formatter, and it is ``fetch_stage.size_fi``.**
+# This module had a ``_human_size`` of its own with a unit table of its own,
+# and the tables were of different lengths (``Pt`` only here) -- so the same
+# number could print two different ways depending on which command printed it.
+# Story 3.6 knew about ``size_fi`` and used it in the stage layer but not here.
+# Now ``Pt`` is in ``size_fi``'s table and this layer calls it. The guard:
 # ``tests/test_cli.py::test_only_one_byte_formatter_exists``.
 
 
@@ -104,10 +106,10 @@ def _version_callback(value: bool) -> None:
 
 @app.callback()
 def _root(
-    version: bool = typer.Option(  # noqa: ARG001 - Typerin callback-konventio
+    version: bool = typer.Option(  # noqa: ARG001 - Typer's callback convention
         False,
         "--version",
-        help="Näytä versio ja lopeta.",
+        help="Show the version and stop.",
         callback=_version_callback,
         is_eager=True,
     ),
@@ -121,46 +123,52 @@ def info(
         False,
         "--koko",
         help=(
-            "Laske myös arkiston yhteiskoko. Oletuksena pois päältä, koska se "
-            "lukee koko hakemistopuun läpi."
+            "Compute the archive's total size as well. Off by default, "
+            "because it reads through the whole directory tree."
         ),
     ),
 ) -> None:
-    """Näytä asetukset, arkiston tila ja avainten tila.
+    """Show the settings, the state of the archive and the state of the credentials.
 
-    Avainten arvoja ei tulosteta koskaan -- vain tieto siitä, onko avain
-    asetettu.
+    A credential's value is never printed -- only whether it is set.
     """
     settings = load_settings()
     typer.echo(_render_info(settings, show_size=size))
 
 
 def _pruning_value(value: object) -> str:
-    """Karsinta-asetuksen arvo ``info``-tulosteeseen.
+    """A pruning setting's value for the ``info`` output.
 
-    Sama muoto kuin raportin yhteenvedossa
-    (:func:`pappascout.render.view._pruning_summary_text`): tyhjä lista on
-    "ei yhtään" eikä tyhjä merkkijono, ja totuusarvo on suomeksi. Kaksi
-    tulostetta samasta osiosta eri sanoilla lukisi kuin arvot olisivat eri.
+    The same *shape* as in the report's summary
+    (:func:`pappascout.render.view._pruning_summary_text`): an empty list is a
+    word of its own and not an empty string, and a boolean is a word and not
+    ``True``. Two outputs of the same section in different shapes would read
+    as if the values were different.
+
+    **The wording is no longer shared, and that is AD-11's line.** The report
+    is read in Finnish and this line is console output, so the report keeps
+    its own Finnish word where this one says "yes". What has to stay identical
+    is which settings appear and in what form, because that is what the reader
+    compares between the two.
     """
     if isinstance(value, bool):
-        return "kyllä" if value else "ei"
+        return "yes" if value else "no"
     if isinstance(value, list):
-        return "/".join(f"{item:g}".replace(".", ",") for item in value) or "ei yhtään"
+        return "/".join(f"{item:g}".replace(".", ",") for item in value) or "none"
     return str(value)
 
 
 def _render_info(settings: Settings, show_size: bool = False) -> str:
-    """Kokoa ``info``-komennon tuloste.
+    """Assemble the ``info`` command's output.
 
-    Erotettu omaksi funktiokseen, jotta tuloste on testattavissa ilman
-    komentorivin ajamista.
+    Split into a function of its own so that the output can be tested without
+    running the command line.
 
     Args:
-        settings: Ladatut asetukset.
-        show_size: Lasketaanko arkiston yhteiskoko. Oletuksena ei: arkistossa on
-            satoja megatavuja demoja, ja koko puun läpikäynti tekisi nopeasta
-            tilannekatsauksesta hitaan.
+        settings: The loaded settings.
+        show_size: Whether the archive's total size is computed. Not by
+            default: the archive holds hundreds of megabytes of demos, and
+            walking the whole tree would make a fast status check slow.
     """
     archive = archive_paths(settings.project)
     lines: list[str] = []
@@ -168,40 +176,40 @@ def _render_info(settings: Settings, show_size: bool = False) -> str:
     lines.append(f"Pappascout {__version__}")
     lines.append("")
 
-    lines.append("Asetukset")
-    lines.append(f"  Asetustiedosto     {settings.settings_file}")
-    lines.append(f"  Oma joukkue        {settings.project.own_team_name}")
-    lines.append(f"  Kieli              {settings.project.language}")
-    lines.append(f"  Kausi              {settings.league.season}")
-    lines.append(f"  Championshipit     {', '.join(settings.league.championship_ids)}")
-    lines.append(f"  Karttapooli        {', '.join(settings.league.map_pool)}")
+    lines.append("Settings")
+    lines.append(f"  Settings file      {settings.settings_file}")
+    lines.append(f"  Own team           {settings.project.own_team_name}")
+    lines.append(f"  Language           {settings.project.language}")
+    lines.append(f"  Season             {settings.league.season}")
+    lines.append(f"  Championships      {', '.join(settings.league.championship_ids)}")
+    lines.append(f"  Map pool           {', '.join(settings.league.map_pool)}")
     lines.append(
-        "  Omat vakiobanit    "
-        + (", ".join(settings.league.own_default_bans) or "ei asetettu")
+        "  Own default bans   "
+        + (", ".join(settings.league.own_default_bans) or "not set")
     )
     lines.append(
-        f"  Formaatti          MR{settings.league.mr}, "
-        f"jatkoajan aloitusraha {settings.league.ot_start_money} $"
+        f"  Format             MR{settings.league.mr}, "
+        f"${settings.league.ot_start_money} starting money in overtime"
     )
     lines.append(
-        "  Näytepisteet       "
+        "  Sample points      "
         + ", ".join(f"{s:g} s" for s in settings.parse.snapshot_seconds)
     )
     lines.append(
-        f"  Täyden oston raja  {settings.thresholds.full_equip_min} $ / pelaaja"
+        f"  Full buy threshold ${settings.thresholds.full_equip_min} / player"
     )
     lines.append(
-        "  Pistoolikierrokset "
+        "  Pistol rounds      "
         + ", ".join(str(r) for r in settings.thresholds.pistol_rounds)
-        + f"; säännönmukaisia kierroksia {settings.thresholds.regulation_rounds}"
+        + f"; regulation rounds {settings.thresholds.regulation_rounds}"
     )
-    # Karsintasäännöt (Story 2.13). Rivi on mekaaninen luettelo osion
-    # kentistä, joten kuudes sääntö näkyy heti kun se on osiossa -- ja se on
-    # tässä samasta syystä kuin raportin yhteenvedossa: sääntö, joka ei osu
-    # kertaakaan, ei näy raportissa mitenkään, joten ilman tätä riviä
-    # käyttäjä ei näe mistään, mitkä säännöt ovat päällä.
+    # The pruning rules (Story 2.13). The line is a mechanical listing of the
+    # section's fields, so a sixth rule shows up as soon as it is in the
+    # section -- and it is here for the same reason as in the report's
+    # summary: a rule that never hits does not show in the report at all, so
+    # without this line the user has nowhere to see which rules are on.
     lines.append(
-        "  Karsinta           "
+        "  Pruning            "
         + ", ".join(
             f"{key} {_pruning_value(value)}"
             for key, value in sorted(settings.report.model_dump(mode="json").items())
@@ -209,29 +217,30 @@ def _render_info(settings: Settings, show_size: bool = False) -> str:
     )
     lines.append("")
 
-    lines.append("Arkisto")
-    lines.append(f"  Polku              {archive.root}")
-    # **Demojen sijainti on kerrottava, kun se ei ole arkistossa.** Ladattu
-    # demo voi olla paikallisella levyllä OneDriven ulkopuolella (Story 3.4),
-    # eikä käyttäjän pidä joutua avaamaan asetustiedostoa nähdäkseen missä.
-    demos_note = " (paikallinen)" if archive.demos_root is not None else ""
-    lines.append(f"  Demot              {archive.demos_dir()}{demos_note}")
+    lines.append("Archive")
+    lines.append(f"  Path               {archive.root}")
+    # **Where the demos are has to be said when it is not the archive.** A
+    # downloaded demo can be on a local disk outside the synchronised folder
+    # (Story 3.4), and the user should not have to open the settings file to
+    # see where.
+    demos_note = " (local)" if archive.demos_root is not None else ""
+    lines.append(f"  Demos              {archive.demos_dir()}{demos_note}")
     if not archive.exists():
         lines.append(
-            "  Tila               puuttuu -- hakemisto luodaan ensimmäisellä ajolla"
+            "  Status             missing -- the directory is created on the first run"
         )
     elif show_size:
         lines.append(
-            "  Tila               löytyy, "
+            "  Status             found, "
             f"{fetch_stage.size_fi(archive.total_size_bytes())}"
         )
     else:
-        lines.append("  Tila               löytyy")
-        lines.append("  Koko               ei laskettu (--koko laskee sen)")
+        lines.append("  Status             found")
+        lines.append("  Size               not computed (--koko computes it)")
     lines.append("")
 
-    lines.append("Avaimet")
-    lines.append(f"  Tiedosto           {settings.secrets_file or secrets_env_path()}")
+    lines.append("Credentials")
+    lines.append(f"  File               {settings.secrets_file or secrets_env_path()}")
     width = max(len(name) for name in _SECRET_NAMES)
     for name in _SECRET_NAMES:
         lines.append(f"  {name:<{width}} {settings.secret_status(name)}")
@@ -245,30 +254,30 @@ def discover(
         None,
         "--team",
         help=(
-            "Joukkueen nimi, sen yksikäsitteinen osa tai joukkuetunniste. "
-            "Kirjainkoolla ei ole väliä. Monitulkintainen nimi listaa "
-            "vaihtoehdot eikä valitse mitään. Ilman tätä indeksit "
-            "kirjoitetaan eikä joukkuetta haeta."
+            "The team's name, an unambiguous part of it, or the team id. "
+            "Letter case does not matter. An ambiguous name lists the "
+            "alternatives and chooses nothing. Without this the indexes are "
+            "written and no team is looked up."
         ),
     ),
 ) -> None:
-    """Hae divisioonan ottelut ja kirjoita ottelu- ja joukkueindeksi.
+    """Fetch the division's matches and write the match index and the team index.
 
-    Yksi verkkokutsu per kilpailu riittää: ottelurivillä ovat molempien
-    joukkueiden aloittajat ja vaihtopelaajat. Vakirosteri on niiden yhdiste
-    joukkueen kaikista otteluista -- myös pelaamattomista, joten yksi pelattu
-    ottelu yhdestätoista ei tee rosterista vajaata.
+    One network call per competition is enough: the match row carries both
+    teams' starters and substitutes. The standing roster is their union over
+    all of the team's matches -- the unplayed ones too, so one match played
+    out of eleven does not make the roster incomplete.
 
-    Komento hakee ottelulistan **joka kerta uudelleen**: sitä ei välimuistiteta
-    eikä ajoa ohiteta, koska uusien otteluiden näkeminen on koko komennon
-    tarkoitus. Siksi tässä ei ole --pakota-valintaa.
+    The command fetches the match list **every single time**: it is not cached
+    and the run is not skipped, because seeing the new matches is the whole
+    point of the command. That is why there is no --pakota option here.
 
-    Arkiston hakemistoja ei nimetä uudelleen. Yhteys arkistoon näkyy
-    index/teams.json:in lineup_keys-kentässä.
+    The archive's directories are not renamed. The bridge to the archive is
+    visible in the lineup_keys field of index/teams.json.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
-    typer.echo("Haetaan divisioonan otteluita...", err=True)
+    typer.echo("Fetching the division's matches...", err=True)
     result = discover_stage.run(
         settings.league,
         archive,
@@ -280,17 +289,18 @@ def discover(
 
 
 def _render_discover(result: StageResult) -> str:
-    """Kokoa ``discover``-komennon yhteenveto.
+    """Assemble the ``discover`` command's summary.
 
-    Tärkein rivi on joukkueiden ja rosterien laajuus: käyttäjä tarkistaa siitä,
-    näkyykö koko divisioona. Rosterien vaihteluväli on mukana, koska liian pieni
-    rosteri on ainoa tapa huomata puuttuva ``substitutes``-lista avaamatta
-    tiedostoa.
+    The most important line is the scope of the teams and the rosters: the
+    user checks from it whether the whole division shows up. The range of
+    roster sizes is there because too small a roster is the only way to notice
+    a missing ``substitutes`` list without opening the file.
 
-    Ilman ``--team``-valintaa tuloste **luettelee divisioonan joukkueet**.
-    Ilman sitä nimet näkisi vain syöttämällä tahallaan tuntemattoman nimen ja
-    lukemalla ne virheilmoituksesta -- eli juuri sitä, mitä käyttäjä tarvitsee
-    monitulkintaisen haun jälkeen, ei saisi ilman virhettä.
+    Without the ``--team`` option the output **lists the division's teams**.
+    Without that, the names could be seen only by deliberately entering an
+    unknown name and reading them off the error message -- that is, exactly
+    what the user needs after an ambiguous search would not be available
+    without causing an error.
     """
     stats = result.stats
     matches_found = int(stats.get("matches", 0) or 0)
@@ -298,24 +308,24 @@ def _render_discover(result: StageResult) -> str:
     roster_min = int(stats.get("roster_min", 0) or 0)
     roster_max = int(stats.get("roster_max", 0) or 0)
     span = (
-        f"{roster_min} pelaajaa"
+        f"{roster_min} players"
         if roster_min == roster_max
-        else f"{roster_min}-{roster_max} pelaajaa"
+        else f"{roster_min}-{roster_max} players"
     )
 
     lines: list[str] = []
     lines.append(
-        f"Divisioona haettu: {teams_found} joukkuetta, {matches_found} ottelua"
+        f"Division fetched: {teams_found} teams, {matches_found} matches"
     )
     if result.reason:
-        lines.append(_line("Huomio", result.reason))
+        lines.append(_line("Note", result.reason))
     lines.append(
         _line(
-            "Pelatut ottelut",
+            "Matches played",
             f"{int(stats.get('matches_played', 0) or 0)} / {matches_found}",
         )
     )
-    lines.append(_line("Rosterit", span))
+    lines.append(_line("Rosters", span))
     lines.extend(_discover_gaps(stats))
 
     team = stats.get("team")
@@ -326,16 +336,17 @@ def _render_discover(result: StageResult) -> str:
 
     lines.append("")
     for path in result.outputs:
-        lines.append(_line("Tulos", str(path)))
-    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+        lines.append(_line("Output", str(path)))
+    lines.append(_line("Run time", _seconds(result.duration_s)))
     return "\n".join(lines)
 
 
 def _discover_gaps(stats: dict) -> list[str]:
-    """Rivit siitä, mikä jäi pois -- pudotukset, kiistat ja siirtymät.
+    """The lines about what was left out -- drops, disputes and transfers.
 
-    Jokainen näistä on hiljainen pudotus, jos sitä ei sanota ääneen: rosteri
-    olisi vain lyhyempi tai pidempi kuin pitäisi, eikä mikään kertoisi miksi.
+    Every one of these is a silent drop if it is not said out loud: the roster
+    would simply be shorter or longer than it should be, and nothing would say
+    why.
     """
     lines: list[str] = []
     without_id = int(stats.get("players_without_steam_id", 0) or 0)
@@ -346,20 +357,20 @@ def _discover_gaps(stats: dict) -> list[str]:
             for row in dropped[:MAX_LISTED_PLAYERS]
         )
         if len(dropped) > MAX_LISTED_PLAYERS:
-            named += f" (+{len(dropped) - MAX_LISTED_PLAYERS} muuta)"
+            named += f" (+{len(dropped) - MAX_LISTED_PLAYERS} more)"
         lines.append(
             _line(
-                "Ilman SteamID64:aa",
-                f"{without_id} pelaajaa jäi pois rostereista: {named}",
+                "Without a SteamID64",
+                f"{without_id} players were left out of the rosters: {named}",
             )
         )
     rows_without_id = int(stats.get("team_rows_without_id", 0) or 0)
     if rows_without_id:
         lines.append(
             _line(
-                "Tunnisteettomat joukkuerivit",
-                f"{rows_without_id} kpl ohitettiin -- niitä ei voi liittää "
-                "yhteenkään joukkueeseen",
+                "Team rows without id",
+                f"{rows_without_id} were skipped -- they cannot be attached "
+                "to any team",
             )
         )
     transfers = stats.get("transfers") or []
@@ -368,7 +379,7 @@ def _discover_gaps(stats: dict) -> list[str]:
     if moved:
         lines.append(
             _line(
-                "Siirtyneet pelaajat",
+                "Transferred players",
                 ", ".join(
                     f"{t.get('nickname') or t.get('game_player_id')} "
                     f"({t.get('from_team')})"
@@ -379,7 +390,7 @@ def _discover_gaps(stats: dict) -> list[str]:
     if shared:
         lines.append(
             _line(
-                "Kahdessa joukkueessa",
+                "In two teams",
                 ", ".join(
                     f"{t.get('nickname') or t.get('game_player_id')} "
                     f"({t.get('from_team')})"
@@ -391,76 +402,76 @@ def _discover_gaps(stats: dict) -> list[str]:
     if contested:
         lines.append(
             _line(
-                "Kiistanalaiset kokoonpanot",
+                "Contested lineups",
                 ", ".join(str(key) for key in contested)
-                + " -- useampi joukkue ylittää kynnyksen",
+                + " -- more than one team is over the threshold",
             )
         )
     return lines
 
 
 def _discover_division(stats: dict) -> list[str]:
-    """Divisioonan joukkueet luettelona, tunnisteineen."""
+    """The division's teams as a listing, with their ids."""
     division = stats.get("division") or []
     if not division:
         return []
-    lines = ["", "Divisioonan joukkueet:"]
+    lines = ["", "The division's teams:"]
     for team in division:
         name = str(team.get("name") or team.get("team_key") or "")
         lines.append(
-            f"  {name} -- {int(team.get('roster_size', 0) or 0)} pelaajaa, "
-            f"tunniste {team.get('team_key')}"
+            f"  {name} -- {int(team.get('roster_size', 0) or 0)} players, "
+            f"id {team.get('team_key')}"
         )
     return lines
 
 
 def _discover_team(team: dict) -> list[str]:
-    """Haetun joukkueen rivit."""
-    lines = ["", f"Joukkue: {team.get('name') or team.get('team_key') or ''}"]
-    lines.append(_line("Tunniste", str(team.get("team_key", ""))))
+    """The rows of the team that was looked up."""
+    lines = ["", f"Team: {team.get('name') or team.get('team_key') or ''}"]
+    lines.append(_line("Id", str(team.get("team_key", ""))))
     faction_ids = [str(key) for key in team.get("faction_ids") or []]
     if len(faction_ids) > 1:
         lines.append(
             _line(
-                "Lähteen tunnisteet",
-                ", ".join(faction_ids) + " -- sama joukkue, eri kaudet",
+                "Source ids",
+                ", ".join(faction_ids) + " -- the same team, different seasons",
             )
         )
     roster = [str(player) for player in team.get("roster") or []]
     lines.append(
         _line(
-            "Vakirosteri",
-            f"{len(roster)} pelaajaa: {', '.join(roster)}"
+            "Standing roster",
+            f"{len(roster)} players: {', '.join(roster)}"
             if roster
-            else "ei yhtään pelaajaa",
+            else "no players at all",
         )
     )
     released = [str(player) for player in team.get("released") or []]
     if released:
         lines.append(
-            _line("Siirtyneet pois", ", ".join(released))
+            _line("Transferred away", ", ".join(released))
         )
     shared = [str(player) for player in team.get("shared_players") or []]
     if shared:
         lines.append(
             _line(
-                "Myös toisessa joukkueessa",
-                f"{len(shared)} pelaajaa -- kiistaa ei ratkaistu",
+                "Also in another team",
+                f"{len(shared)} players -- the dispute was not resolved",
             )
         )
     lines.append(
         _line(
-            "Ottelut",
-            f"{int(team.get('matches', 0) or 0)} kpl, joista pelattu "
+            "Matches",
+            f"{int(team.get('matches', 0) or 0)} in all, played "
             f"{int(team.get('matches_played', 0) or 0)}",
         )
     )
     lineups = [str(key) for key in team.get("lineup_keys") or []]
     if lineups:
-        lines.append(_line("Arkiston kokoonpanot", ", ".join(lineups)))
+        lines.append(_line("Archive lineups", ", ".join(lineups)))
     alternatives = [str(other) for other in team.get("alternative_names") or []]
     if alternatives:
-        lines.append(_line("Muut havaitut nimet", ", ".join(alternatives)))
+        lines.append(_line("Other observed names", ", ".join(alternatives)))
     return lines
 
 
@@ -470,26 +481,27 @@ def select(
         ...,
         "--team",
         help=(
-            "Joukkueen nimi, sen yksikäsitteinen osa tai joukkuetunniste. "
-            "Kirjainkoolla ei ole väliä. Monitulkintainen nimi listaa "
-            "vaihtoehdot eikä valitse mitään."
+            "The team's name, an unambiguous part of it, or the team id. "
+            "Letter case does not matter. An ambiguous name lists the "
+            "alternatives and chooses nothing."
         ),
     ),
 ) -> None:
-    """Valitse joukkueen kartat rosterikynnyksellä.
+    """Choose a team's maps with the roster threshold.
 
-    Komento lukee ottelu- ja joukkueindeksin ja kirjoittaa
-    index/selections/<team_key>.json -tiedoston, jossa on rivi jokaisesta
-    MapDemosta: kelpaako se otantaan, miksi, mikä rosteriluokka ja onko kyseessä
-    liigaottelu. Kynnys arvioidaan karttakohtaisesti, koska liiga sallii kaksi
-    vaihtoa karttojen välissä.
+    The command reads the match index and the team index and writes
+    index/selections/<team_key>.json, which holds one row per MapDemo: whether
+    it qualifies for the sample, why, which roster class it is and whether it
+    is a league match. The threshold is judged per map, because the league
+    allows two substitutions between maps.
 
-    Rivi syntyy vain pelatuista otteluista: pelaamattomalla ottelulla ei ole
-    karttoja, joten MapDemoja ei ole olemassa.
+    A row comes into being only from a played match: an unplayed match has no
+    maps, so no MapDemos exist.
 
-    Kartan kokoonpano on ennuste ottelurosterista siihen asti, kunnes demo on
-    parsittu -- sen jälkeen se on havainto demosta, ja rivi sanoo kummasta on
-    kyse. Aja ensin discover, jos indeksejä ei ole.
+    A map's lineup is a prediction from the match roster until the demo has
+    been parsed -- after that it is an observation from the demo, and the row
+    says which of the two it is. Run discover first if the indexes are not
+    there.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
@@ -503,20 +515,21 @@ def select(
 
 
 def _render_select(result: StageResult) -> str:
-    """Kokoa ``select``-komennon yhteenveto.
+    """Assemble the ``select`` command's summary.
 
-    Tärkein rivi on hyväksyttyjen ja hylättyjen suhde: käyttäjä tarkistaa siitä,
-    onko otanta sitä mitä hän odotti. Heti sen perässä ovat **hylkäysten syyt
-    kokonaisina**, koska hylkäys ilman lukuja on päätös, jota hän ei voi
-    tarkistaa avaamatta tiedostoa -- eikä hän koodaa itse.
+    The most important line is the ratio of accepted to rejected: the user
+    checks from it whether the sample is what they expected. Right after it
+    come **the reasons for the rejections in full**, because a rejection
+    without the numbers is a decision they cannot check without opening the
+    file -- and they do not code.
 
-    **Avaimet luetaan suoraan eikä oletusarvon kanssa.** ``stats`` on tämän
-    vaiheen oma sopimus tälle funktiolle, ei käyttäjän dataa: puuttuva avain
-    tarkoittaa, että vaihe ja tuloste ovat erkaantuneet, ja
-    ``stats.get(nimi, 0)`` muuttaisi sen hiljaiseksi nollaksi. Nolla näyttää
-    mitatulta tulokselta. Poikkeus on parempi -- ja
-    ``test_the_summary_renders_from_a_real_stage_result`` on se testi, joka
-    huomaa eron ennen käyttäjää.
+    **The keys are read directly and not with a default.** ``stats`` is this
+    stage's own contract with this function, not the user's data: a missing
+    key means the stage and the output have drifted apart, and
+    ``stats.get(name, 0)`` would turn that into a silent zero. A zero looks
+    like a measured result. An exception is better -- and
+    ``test_the_summary_renders_from_a_real_stage_result`` is the test that
+    notices the difference before the user does.
     """
     stats = result.stats
     total = int(stats["map_demos"])
@@ -524,145 +537,150 @@ def _render_select(result: StageResult) -> str:
 
     lines: list[str] = []
     lines.append(
-        f"Valinta tehty: {stats['team_display']} -- "
-        f"{accepted} / {total} karttaa otantaan"
+        f"Selection made: {stats['team_display']} -- "
+        f"{accepted} / {total} maps into the sample"
     )
-    # Jokainen huomio omalle rivilleen: yhteen merkkijonoon liitettynä
-    # jälkimmäinen katoaisi ensimmäisen perään.
+    # Every note on a line of its own: joined into one string, the second one
+    # would disappear behind the first.
     for note in stats["notes"]:
-        lines.append(_line("Huomio", str(note)))
-    lines.append(_line("Tunniste", str(stats["team_key"])))
+        lines.append(_line("Note", str(note)))
+    lines.append(_line("Id", str(stats["team_key"])))
     lines.append(
         _line(
-            "Vakirosteri",
-            f"{int(stats['roster_players'])} pelaajaa, kynnys "
+            "Standing roster",
+            f"{int(stats['roster_players'])} players, threshold "
             f"{stats['roster_threshold']}",
         )
     )
     lines.append(
         _line(
-            "Ottelut",
-            f"{int(stats['matches_with_maps'])} pelattua kartoin, "
-            f"{int(stats['matches_not_played'])} pelaamatta, "
-            f"{int(stats['matches_without_veto'])} ilman vetotietoa "
-            f"({int(stats['matches_seen'])} kaikkiaan)",
+            "Matches",
+            f"{int(stats['matches_with_maps'])} played with maps, "
+            f"{int(stats['matches_not_played'])} not played, "
+            f"{int(stats['matches_without_veto'])} without veto data "
+            f"({int(stats['matches_seen'])} in all)",
         )
     )
     lines.extend(_select_classes(stats))
     lines.append(
-        _line("Liigaotteluita", f"{int(stats['league'])} / {total} kartasta")
+        _line("League matches", f"{int(stats['league'])} of {total} maps")
     )
     lines.append(
         _line(
-            "Kokoonpanon lähde",
-            f"{int(stats['observed'])} havaintoa demosta, "
-            f"{int(stats['predicted'])} ennustetta ottelurosterista",
+            "Lineup source",
+            f"{int(stats['observed'])} observations from the demo, "
+            f"{int(stats['predicted'])} predictions from the match roster",
         )
     )
     uncertain = int(stats["uncertain"])
     if uncertain:
         lines.append(
             _line(
-                "Ehkä pelaamatta",
-                f"{uncertain} karttaa on vetotiedossa, mutta ottelun pituus ei "
-                "takaa että ne pelattiin",
+                "Possibly not played",
+                f"{uncertain} maps are in the veto data, but the match length "
+                "does not guarantee that they were played",
             )
         )
     drifted = int(stats["drifted"])
     if drifted:
         lines.append(
             _line(
-                "Vaihto karttojen välissä",
-                f"{drifted} kartalla kokoonpano erosi ottelurosterista",
+                "Substitution between maps",
+                f"{drifted} of the maps had a lineup that differed from the "
+                "match roster",
             )
         )
     lines.extend(_select_rejections(stats))
 
     lines.append("")
     for path in result.outputs:
-        lines.append(_line("Tulos", str(path)))
-    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+        lines.append(_line("Output", str(path)))
+    lines.append(_line("Run time", _seconds(result.duration_s)))
     return "\n".join(lines)
 
 
 def _select_classes(stats: dict) -> list[str]:
-    """Luokkajakauma, ja **vain hyväksytyistä riveistä**.
+    """The class breakdown, and **only over the accepted rows**.
 
-    Hylätyllä rivillä ei ole luokkaa: luokka olisi väite kierroksista, joita ei
-    lasketa. Summa on siksi aina sama kuin hyväksyttyjen määrä.
+    A rejected row has no class: a class would be a claim about rounds that
+    are not counted. The sum is therefore always the same as the number of
+    accepted rows.
     """
     parts = [f"{label}: {int(stats[f'class_{label}'])}" for label in ROSTER_CLASSES]
-    return [_line("Rosteriluokat", ", ".join(parts))]
+    return [_line("Roster classes", ", ".join(parts))]
 
 
 def _select_rejections(stats: dict) -> list[str]:
-    """Hylätyt kartat syineen -- kokonaisina, ei typistettyinä.
+    """The rejected maps with their reasons -- in full, not truncated.
 
-    Syy on se, mitä varten koko rivi on olemassa: katkaistu syy näyttäisi
-    perustelulta olematta sellainen. Luettelo sen sijaan **on** katkaistu
-    (``MAX_LISTED_REJECTIONS``), ja silloin tuloste sanoo montako jäi
-    näyttämättä ja mistä ne löytyvät.
+    The reason is what the whole row exists for: a truncated reason would look
+    like a justification without being one. The *listing*, on the other hand,
+    **is** truncated (``MAX_LISTED_REJECTIONS``), and then the output says how
+    many were not shown and where they can be found.
     """
     rows = stats["rejections"]
     total = int(stats["rejections_total"])
     if not total:
         return []
-    lines = ["", f"Hylätyt kartat ({total}):"]
+    lines = ["", f"Rejected maps ({total}):"]
     for row in rows:
         unit = str(row["map_demo_id"])
         name = row.get("map_name")
-        # Ilman nimeä tunniste on jo otsikossa, eikä sitä toisteta suluissa.
+        # Without a name the id is already in the heading, and it is not
+        # repeated in brackets.
         lines.append(f"  {name} ({unit})" if name else f"  {unit}")
         lines.append(f"    {row['roster_reason']}")
     hidden = total - len(rows)
     if hidden > 0:
         lines.append(
-            f"  (+{hidden} muuta -- koko luettelo syineen on valintatiedostossa)"
+            f"  (+{hidden} more -- the whole listing with reasons is in the "
+            "selection file)"
         )
     return lines
 
 
-#: Viesti, kun latausta ei tehdä käyttäjän vastauksen takia.
+#: The message when nothing is downloaded because of the user's answer.
 #:
-#: Yksi merkkijono eikä kaksi: kieltävä vastaus ja vastaamatta jättäminen ovat
-#: sama lopputulos, ja kaksi eri sanamuotoa antaisi ymmärtää että ne eroavat.
-_PERUTTU = "Peruttu. Yhtään demoa ei ladattu."
+#: One string and not two: answering no and not answering at all are the same
+#: outcome, and two different wordings would suggest that they differ.
+_PERUTTU = "Cancelled. No demos were downloaded."
 
-#: Vastaukset, jotka luetaan myöntymiseksi.
+#: The answers that are read as consent.
 #:
-#: ``k`` ja ``kyllä`` ovat ne, joita suomenkieliseltä käyttöliittymältä
-#: odotetaan. ``y`` ja ``yes`` ovat mukana siksi, että sormi muistaa ne
-#: jokaisesta muusta työkalusta -- niiden hylkääminen olisi periaatteellista
-#: eikä hyödyllistä. **Ei-vastausta ei luetella**: mikä tahansa muu kuin
-#: myöntyminen on ei, koska väärin ymmärretty vastaus ei saa johtaa lataukseen.
+#: ``y`` and ``yes`` are the ones this interface expects, and the finger
+#: remembers them from every other tool. The five Finnish forms beside them
+#: are what the tool asked for until 2026-09-09, and they stay accepted: a
+#: season of muscle memory should not turn into a cancelled download. **The
+#: no-answers are not listed**: anything other than consent is a no, because
+#: a misread answer must never lead to a download.
 _MYONTYMISET = frozenset({"k", "kylla", "kyllä", "y", "yes", "j", "joo"})
 
 
 def _vahvista(kysymys: str, peruttu: str = _PERUTTU) -> None:
-    """Kysy vahvistus **suomeksi** ja keskeytä siististi, jos vastaus on ei.
+    """Ask for confirmation and stop cleanly if the answer is no.
 
-    ``peruttu`` on se lause, joka tulostetaan kieltävästä vastauksesta.
-    Parametri eikä vakio, koska lause kertoo **mitä jäi tekemättä**: latauksessa
-    "yhtään demoa ei ladattu", tuonnissa "demoa ei tuotu". Yhteinen sanamuoto
-    olisi väärä toiselle niistä.
+    ``peruttu`` is the sentence printed for a negative answer. A parameter and
+    not a constant, because the sentence says **what was left undone**: on a
+    download "no demos were downloaded", on an import "the demo was not
+    imported". A shared wording would be wrong for one of the two.
 
-    ``typer.confirm`` ei kelpaa: sen vaihtoehdot ovat ``[y/N]`` ja sen
-    keskeytysviesti ``Aborted.``, eli käyttäjän pitäisi painaa ``y`` ja lukea
-    englantia työkalussa, jonka jokainen muu rivi on suomeksi.
+    ``typer.confirm`` will not do, and the reason survived the translation:
+    its abort message is ``Aborted.`` and its exit code is not zero, so a user
+    who answered the question would be told that something went wrong.
 
-    Kieltävä vastaus **ei ole virhe**: käyttäjä sai kysymyksen ja vastasi
-    siihen. Siksi paluukoodi on 0 ja viesti toteaa mitä tapahtui, eikä
-    ``Aborted.``, joka näyttää siltä kuin jokin olisi mennyt pieleen.
+    A negative answer **is not an error**: the user was asked and answered.
+    The exit code is therefore 0 and the message states what happened, rather
+    than ``Aborted.``, which looks as if something had gone wrong.
     """
     try:
-        vastaus = typer.prompt(f"{kysymys} [k/e]", default="e", show_default=False)
+        vastaus = typer.prompt(f"{kysymys} [y/n]", default="n", show_default=False)
     except (typer.Abort, EOFError):
-        # **Sama viesti kuin kieltävälle vastaukselle, ja samasta syystä.**
-        # Ilman syötettä ajettu komento (putki, ajastin, Ctrl-C) saa EOF:n, ja
-        # silloin ``typer`` keskeyttää **omalla** viestillään ``Aborted.``
-        # ennen kuin alla oleva koodi näkee mitään. Se on sama englanninkielinen
-        # sana, jonka tämän funktion oli tarkoitus poistaa -- se vain tulee eri
-        # reittiä. Vastaamatta jättäminen on sekin vastaus, ja se on "ei".
+        # **The same message as for a negative answer, and for the same
+        # reason.** A command run without input (a pipe, a scheduler, Ctrl-C)
+        # gets EOF, and then ``typer`` aborts with a message of **its own**,
+        # ``Aborted.``, before the code below sees anything. That word claims
+        # a failure where there was none -- it just arrives by another route.
+        # Not answering is an answer too, and it is "no".
         typer.echo("")
         typer.echo(peruttu)
         raise typer.Exit() from None
@@ -677,36 +695,37 @@ def fetch(
         ...,
         "--team",
         help=(
-            "Joukkueen nimi, sen yksikäsitteinen osa tai joukkuetunniste. "
-            "Kirjainkoolla ei ole väliä. Monitulkintainen nimi listaa "
-            "vaihtoehdot eikä valitse mitään."
+            "The team's name, an unambiguous part of it, or the team id. "
+            "Letter case does not matter. An ambiguous name lists the "
+            "alternatives and chooses nothing."
         ),
     ),
     kylla: bool = typer.Option(
         False,
         "--kylla",
-        help="Älä kysy vahvistusta. Suunnitelma näytetään silti.",
+        help="Do not ask for confirmation. The plan is still shown.",
     ),
 ) -> None:
-    """Lataa joukkueen otantaan valitut demot levylle.
+    """Download the demos chosen into the team's sample onto the disk.
 
-    Komento lukee index/selections/<team_key>.json -tiedoston ja hakee ne
-    kartat, joilla roster_ok on tosi ja joita ei vielä ole levyllä. Aja ensin
-    select, jos valintatiedostoa ei ole.
+    The command reads index/selections/<team_key>.json and fetches the maps
+    whose roster_ok is true and which are not on the disk yet. Run select
+    first if there is no selection file.
 
-    Demot kirjoitetaan asetuksen [project].demos_root osoittamaan hakemistoon,
-    tai arkiston demos-hakemistoon jos asetusta ei ole. Demo, joka on jo
-    kummassa tahansa, ohitetaan -- eli asetuksen käyttöönotto ei lataa mitään
-    uudelleen.
+    The demos are written into the directory named by the [project].demos_root
+    setting, or into the archive's demos directory if the setting is not
+    there. A demo that is already in either one is skipped -- so taking the
+    setting into use does not download anything again.
 
-    Lataus on turvallinen ajaa uudelleen, ja yhden demon epäonnistuminen ei
-    keskeytä muita. Demo, jota FACEIT ei enää tarjoa, merkitään tilaan no_demo
-    syyn kanssa -- se ei ole virhe vaan tosiasia, eikä sitä yritetä uudelleen.
+    The download is safe to run again, and one demo failing does not stop the
+    others. A demo that FACEIT no longer offers is marked with the status
+    no_demo and a reason -- that is not an error but a fact, and it is not
+    retried.
 
-    Ennen latausta näytetään montako demoa haetaan, minne ja paljonko
-    levytilaa ne vievät, ja kysytään vahvistus. Lataus kuluttaa FACEITin
-    Downloads-kiintiötä ja satoja megatavuja levytilaa, joten kysymys on
-    tarkoituksellinen; --kylla ohittaa sen.
+    Before the download it shows how many demos are fetched, where to and how
+    much disk space they take, and asks for confirmation. A download spends
+    FACEIT's Downloads quota and hundreds of megabytes of disk space, so the
+    question is deliberate; --kylla skips it.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
@@ -722,7 +741,7 @@ def fetch(
     _levytilaportti(str(archive.demos_dir()), free)
 
     if not kylla:
-        _vahvista("Ladataanko nämä demot?")
+        _vahvista("Download these demos?")
 
     source = fetch_stage.default_source(settings, archive)
     results = fetch_stage.run_many(archive, todo.pending, source=source)
@@ -730,52 +749,55 @@ def fetch(
 
 
 def _levytilaportti(demos_dir: str, free: int | None) -> None:
-    """Keskeytä, jos levylle ei mahdu yksikään demo.
+    """Stop if not one demo would fit on the disk.
 
-    **Portti on ennen kysymystä.** Vahvistuksen pyytäminen lataukselle, joka ei
-    mahdu levylle, olisi kysymys johon ei ole oikeaa vastausta. Vaihe
-    tarkistaa saman uudelleen jokaisen demon kohdalla -- tila voi loppua kesken
-    sarjan.
+    **The gate comes before the question.** Asking for confirmation of a
+    download that does not fit on the disk would be a question with no right
+    answer. The stage checks the same thing again for every demo -- the space
+    can run out part way through the series.
 
-    Yhteinen ``fetch``in ja ``collect``in kanssa eikä kopioitu: kaksi
-    sanamuotoa samasta tilanteesta olisi kaksi eri ohjetta, ja niistä
-    korkeintaan toinen pysyisi ajan tasalla.
+    Shared between ``fetch`` and ``collect`` rather than copied: two wordings
+    for the same situation would be two different instructions, and at most
+    one of them would stay up to date.
 
-    Parametri on **kohdehakemiston polku eikä arkisto-olio**, ja siihen on kaksi
-    syytä. Kerrossääntö (``tests/test_layering.py``) kieltää komentoriviltä
-    ``archive``-paketin, joten ``ArchivePaths`` ei ole täällä nimettävissä edes
-    tyyppinä. Ja tämä funktio tarvitsee arkistosta vain sen yhden polun, jonka
-    se tulostaa -- samasta merkkijonosta, jonka suunnitelma jo näytti, joten
-    portti ja suunnitelma eivät voi nimetä eri hakemistoa.
+    The parameter is **the target directory's path and not an archive
+    object**, and there are two reasons for that. The layering rule
+    (``tests/test_layering.py``) forbids the ``archive`` package from the
+    command line, so ``ArchivePaths`` cannot even be named here as a type. And
+    this function needs only the one path from the archive that it prints --
+    the same string the plan already showed, so the gate and the plan cannot
+    name different directories.
 
     Args:
-        demos_dir: Hakemisto, johon demot kirjoitettaisiin.
-        free: Vapaa tila tavuina, tai ``None`` = ei saatu selville.
+        demos_dir: The directory the demos would be written into.
+        free: The free space in bytes, or ``None`` = it could not be found
+            out.
 
     Raises:
-        ~pappascout.errors.PappascoutError: Jos vapaa tila tiedetään eikä se
-            riitä yhteen demoon varmuusvaroineen. Tuntematon tila (``None``)
-            ei estä latausta.
+        ~pappascout.errors.PappascoutError: If the free space is known and is
+            not enough for one demo plus the reservation. Unknown space
+            (``None``) does not stop the download.
     """
     need = fetch_stage.DEMO_SIZE_ESTIMATE_BYTES + fetch_stage.DISK_RESERVE_BYTES
     if free is not None and free < need:
         raise PappascoutError(
-            "Levytila ei riitä yhdenkään demon lataukseen: hakemiston "
-            f"{demos_dir} levyllä on vapaana "
-            f"{fetch_stage.size_fi(free)}, ja yksi demo varmuusvaroineen "
-            f"vaatii {fetch_stage.size_fi(need)}.\n"
-            "Vapauta tilaa poistamalla jo parsittuja demoja (parsed-taulut "
-            "säilyvät) tai osoita demot toiselle levylle asetuksella "
-            "[project].demos_root."
+            "The disk has no room for a single demo: the "
+            f"disk holding {demos_dir} has "
+            f"{fetch_stage.size_fi(free)} free, and one demo plus the "
+            f"reservation needs {fetch_stage.size_fi(need)}.\n"
+            "Free some space by deleting demos that have been parsed (the "
+            "parsed tables stay) or point the demos at another disk with the "
+            "[project].demos_root setting."
         )
 
 
 def _fetch_failures(heading: str, results) -> list[str]:
-    """Yksi lohko epäonnistumisia: **jokainen rivi syineen ja neuvoineen**.
+    """One block of failures: **every row with its reason and its advice**.
 
-    Neuvo tulostetaan omalle rivilleen syyn alle eikä otsikkoon, koska kahdella
-    eri syystä epäonnistuneella yksiköllä on kaksi eri neuvoa -- ja yhteinen
-    otsikko voi olla oikea enintään toiselle niistä.
+    The advice is printed on a line of its own under the reason rather than in
+    the heading, because two units that failed for two different reasons have
+    two different pieces of advice -- and a shared heading can be right for at
+    most one of them.
     """
     if not results:
         return []
@@ -791,24 +813,25 @@ def _fetch_failures(heading: str, results) -> list[str]:
 
 
 def _fetch_notes(results) -> list[str]:
-    """Onnistuneen latauksen huomiot -- **ruudulle eikä vain tulokseen**.
+    """A successful download's notes -- **onto the screen, not only into the result**.
 
-    ``reason`` tulostettiin vain :func:`_fetch_failures`in lohkoissa, joten
-    ``status="ok"`` -tuloksen huomio ei näkynyt koskaan. Niitä on kaksi ja
-    molemmat ovat käyttäjän tietoa: ``fetch._unverified_note``, jonka oma
-    dokumentaatio sanoo että vaiheen **"on sanottava se"**, ja orvon
-    metatiedoston poiston tulos -- johon kuuluu myös se ``VAROITUS``, joka
-    kertoo ettei poisto onnistunut. Huomio, joka syntyy tulokseen muttei
-    ruudulle, on sama asia kuin vaikeneminen.
+    ``reason`` was printed only inside :func:`_fetch_failures`' blocks, so a
+    note on a ``status="ok"`` result was never seen. There are two of them and
+    both are the user's information: ``fetch._unverified_note``, whose own
+    documentation says the stage **"has to say it"**, and the outcome of
+    removing an orphaned metadata file -- which includes the ``WARNING`` that
+    says the removal did not succeed. A note that comes into being in the
+    result but not on the screen is the same thing as silence.
 
-    **Vain ladatut, ei ohitettuja -- ja rajaus on täällä, ei kutsupaikassa.**
-    Ohitetun tuloksen ``reason`` on "demo oli jo levyllä", ja se on jo
-    yhteenvedon ensimmäisen rivin luku -- otannan mittainen luettelo samaa
-    lausetta hukuttaisi juuri ne rivit, joiden takia tämä lohko on olemassa.
-    Katselmus 2026-09-06 huomautti, että sääntö oli dokumentoitu tänne mutta
-    toteutettu kutsupaikassa: seuraava kutsuja, joka antaisi koko
-    ``results``in, saisi juuri sen luettelon jota vastaan tämä rivi on
-    kirjoitettu. Funktio saa siis suodattaa itse.
+    **Only the downloaded ones, not the skipped ones -- and the filter is
+    here, not at the call site.** A skipped result's ``reason`` is "the demo
+    was already on the disk", and that is already the count on the summary's
+    first line -- a listing of the same sentence as long as the sample would
+    drown exactly the rows this block exists for. The review of 2026-09-06
+    pointed out that the rule was documented here but implemented at the call
+    site: the next caller, who passed the whole ``results``, would get exactly
+    the listing this line is written against. So the function filters for
+    itself.
     """
     rows = [
         result
@@ -819,7 +842,7 @@ def _fetch_notes(results) -> list[str]:
     ]
     if not rows:
         return []
-    lines = ["", f"Huomiot ({len(rows)}):"]
+    lines = ["", f"Notes ({len(rows)}):"]
     for result in rows:
         lines.append(f"  {result.unit}")
         for row in str(result.reason).splitlines():
@@ -828,60 +851,63 @@ def _fetch_notes(results) -> list[str]:
 
 
 def _render_fetch_plan(todo, free: int | None, demos_dir: str) -> str:
-    """Suunnitelma **ennen** latausta: montako, minne, paljonko tilaa.
+    """The plan **before** the download: how many, where to, how much space.
 
-    Vapaa tila on mukana siksi, ettei kysymys ole vastattavissa ilman sitä:
-    "12 demoa, 2,6 Gt" on eri kysymys levyllä, jolla on 100 Gt vapaana kuin
-    levyllä, jolla on 3 Gt. Kohdehakemisto on mukana samasta syystä -- demot
-    voivat mennä arkiston ulkopuolelle, eikä käyttäjän pidä joutua avaamaan
-    asetustiedostoa nähdäkseen minne.
+    The free space is there because the question cannot be answered without
+    it: "12 demos, 2.6 Gt" is a different question on a disk with 100 GB free
+    than on one with 3 GB. The target directory is there for the same reason
+    -- the demos can go outside the archive, and the user should not have to
+    open the settings file to see where.
 
-    **Levytilavaroitus ja luettelon katkaisu ovat samat kuin sisarella**
-    (:func:`_render_collect_plan`). Molemmat lisättiin Story 3.5:ssä vain
-    ``collect``iin, mutta kumpikaan ei koske divisioonaa: 12 demon otanta ei
-    mahdu 1 Gt:n levylle sen paremmin kuin 132:kaan, ja käyttäjä vahvistaa
-    tässä saman kysymyksen. Kaksi eri suunnitelmatulostetta samasta
-    latauksesta oli ero, ei päätös.
+    **The disk-space warning and the truncation of the listing are the same as
+    the sister's** (:func:`_render_collect_plan`). Both were added in Story
+    3.5 to ``collect`` only, but neither is about the division: a sample of 12
+    demos fits on a 1 GB disk no better than one of 132, and the user
+    confirms the same question here. Two different plan outputs for the same
+    download were a difference, not a decision.
 
-    Sanan taivutus tulee :func:`_maps_fi`iltä eikä kovakoodatusta
-    "karttaa"-sanasta: yhden kartan otanta on kauden ensimmäisen ajon
-    normaalitila, ja "1 karttaa" on virhe joka rivillä, jolla se näkyy.
+    The inflection of the noun comes from :func:`_maps_fi` and not from a
+    hard-coded "maps": a one-map sample is the normal state of the season's
+    first run, and "1 maps" is a mistake on every line it appears on.
     """
     lines = [
-        f"Otanta: {_maps_fi(todo.selected)}, "
-        f"{_of_which_fi(todo.selected)} {len(todo.present)} on jo levyllä"
+        f"Sample: {_maps_fi(todo.selected)}, "
+        f"{_of_which_fi(todo.selected)} {len(todo.present)} already on disk"
     ]
     if not todo.pending:
-        lines.append("Kaikki otannan demot ovat jo levyllä -- ei ladattavaa.")
+        lines.append(
+            "Every demo in the sample is already on disk -- nothing to download."
+        )
         return "\n".join(lines)
     lines.append(
         _line(
-            "Ladataan",
-            f"{len(todo.pending)} demoa, arviolta "
+            "Demos",
+            f"{len(todo.pending)} to download, an estimated "
             f"{fetch_stage.size_fi(todo.estimated_bytes)}",
         )
     )
-    lines.append(_line("Kohde", demos_dir))
+    lines.append(_line("Target", demos_dir))
     if free is not None:
-        lines.append(_line("Levytilaa vapaana", fetch_stage.size_fi(free)))
+        lines.append(_line("Free disk space", fetch_stage.size_fi(free)))
         lines.extend(_space_warning(todo, free))
     lines.extend(_listed_units(todo.pending))
     return "\n".join(lines)
 
 
 def _render_fetch(results, todo) -> str:
-    """Yhteenveto ladatuista, ohitetuista ja epäonnistuneista.
+    """The summary of what was downloaded, skipped and failed.
 
-    **Muu kuin ok luetellaan syineen ja neuvoineen.** Pelkkä luku
-    "3 epäonnistui" kertoisi määrän muttei sitä, mitä pitäisi tehdä.
+    **Anything other than ok is listed with its reason and its advice.** The
+    bare number "3 failed" would give the count but not what to do about it.
 
-    Otsikko **toteaa vain mitä tapahtui**, eikä neuvo mitään. Aiemmin se sanoi
-    "Epäonnistui (N) -- aja komento uudelleen", ja se oli ämpäri, johon päätyi
-    sekä ohimenevä häiriö että pysyvä vika: kaksi peräkkäistä live-ajoa
-    2026-09-05 löysi saman kuvion, ensin 403:lla ja sitten 400:lla.
-    **Neuvo kuuluu vikaan, ei ämpäriin** -- muuten jokainen uusi vikaluokka
-    perii väärän neuvon oletuksena. Nyt jokainen rivi kantaa oman
-    ``next_step``insä, joka tulee virheen omasta ``advice``-kentästä.
+    The heading **states only what happened**, and advises nothing. It used to
+    say "Failed (N) -- run the command again", and that was a bucket that
+    collected both a passing glitch and a permanent fault: two consecutive
+    live runs on 2026-09-05 found the same pattern, first with a 403 and then
+    with a 400. **The advice belongs to the fault, not to the bucket** --
+    otherwise every new class of fault inherits the wrong advice by default.
+    Now every row carries its own ``next_step``, which comes from the error's
+    own ``advice`` field.
     """
     downloaded = [r for r in results if r.status == "ok" and not r.skipped]
     skipped = [r for r in results if r.skipped]
@@ -890,21 +916,21 @@ def _render_fetch(results, todo) -> str:
     total_bytes = sum(int(r.stats.get("downloaded_bytes", 0)) for r in results)
 
     lines = [
-        f"Lataus valmis: {len(downloaded)} haettu, "
-        f"{len(skipped) + len(todo.present)} oli jo levyllä, "
-        f"{len(missing)} ei saatavilla, {len(failed)} epäonnistui"
+        f"Download done: {len(downloaded)} fetched, "
+        f"{len(skipped) + len(todo.present)} already on disk, "
+        f"{len(missing)} not available, {len(failed)} failed"
     ]
-    lines.append(_line("Kirjoitettu", fetch_stage.size_fi(total_bytes)))
+    lines.append(_line("Written", fetch_stage.size_fi(total_bytes)))
     directories = sorted(
         {str(r.stats["demos_dir"]) for r in downloaded if "demos_dir" in r.stats}
     )
     for directory in directories:
-        lines.append(_line("Kohde", directory))
+        lines.append(_line("Target", directory))
     lines.extend(_fetch_notes(results))
-    lines.extend(_fetch_failures("Ei saatavilla", missing))
-    lines.extend(_fetch_failures("Epäonnistui", failed))
+    lines.extend(_fetch_failures("Not available", missing))
+    lines.extend(_fetch_failures("Failed", failed))
     lines.append("")
-    lines.append(_line("Ajoaika", _seconds(sum(r.duration_s for r in results))))
+    lines.append(_line("Run time", _seconds(sum(r.duration_s for r in results))))
     return "\n".join(lines)
 
 
@@ -913,32 +939,32 @@ def collect(
     kylla: bool = typer.Option(
         False,
         "--kylla",
-        help="Älä kysy vahvistusta. Suunnitelma näytetään silti.",
+        help="Do not ask for confirmation. The plan is still shown.",
     ),
 ) -> None:
-    """Kerää koko divisioonan päättyneiden otteluiden demot levylle.
+    """Collect the demos of the whole division's finished matches onto the disk.
 
-    FACEIT poistaa demon noin 30 päivässä, ja kauden lopussa poistunut ottelu
-    on lopullisesti poissa. Siksi tämä komento ei katso rosterikynnystä eikä
-    yhtäkään valintatiedostoa: yksiköt tulevat suoraan otteluindeksistä, ja
-    mukaan otetaan jokainen pelattu ottelu -- myös se, joka ei vielä kuulu
-    kenenkään otantaan.
+    FACEIT removes a demo in about 30 days, and at the end of the season a
+    match that has gone is gone for good. That is why this command looks at
+    neither the roster threshold nor any selection file: the units come
+    straight from the match index, and every played match is taken in -- the
+    one that is not yet in anybody's sample too.
 
-    Ottelut luetaan index/matches.json -tiedostosta. Aja ensin discover, jos
-    indeksiä ei ole -- ja aja se uudelleen, jos suunnitelman kertoma indeksin
-    ikä on vanhempi kuin viimeksi pelatut ottelut. Komento ei hae otteluita
-    itse eikä kirjoita indeksiin.
+    The matches are read from index/matches.json. Run discover first if there
+    is no index -- and run it again if the index age the plan reports is older
+    than the most recently played matches. The command does not fetch matches
+    itself and does not write to the index.
 
-    Lataus on täsmälleen sama kuin fetchillä: sama kirjoitus, sama
-    metatiedosto, samat säännöt. Levyllä jo oleva demo ohitetaan kaikista
-    kolmesta sijainnista, joten komennon voi ajaa milloin tahansa uudelleen.
+    The download is exactly the same as fetch's: the same write, the same
+    metadata file, the same rules. A demo already on the disk is skipped in
+    all three locations, so the command can be run again at any time.
 
-    Pelattu ottelu, jonka karttalistaa indeksissä ei ole, näkyy omalla
-    rivillään syineen. Se ei ole nolla karttaa eikä pelaamaton ottelu.
+    A played match whose map list is not in the index shows up on a row of its
+    own with its reason. It is neither zero maps nor an unplayed match.
 
-    Ennen latausta näytetään montako demoa haetaan, minne ja paljonko
-    levytilaa ne vievät, ja kysytään vahvistus. --kylla ohittaa kysymyksen,
-    ei suunnitelman tulostusta.
+    Before the download it shows how many demos are fetched, where to and how
+    much disk space they take, and asks for confirmation. --kylla skips the
+    question, not the printing of the plan.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
@@ -953,101 +979,108 @@ def collect(
     _levytilaportti(str(archive.demos_dir()), free)
 
     if not kylla:
-        _vahvista("Ladataanko nämä demot?")
+        _vahvista("Download these demos?")
 
     source = fetch_stage.default_source(settings, archive)
     results = fetch_stage.run_many(archive, todo.pending, source=source)
     typer.echo(_render_fetch(results, todo))
 
 
-#: Montako ladattavaa tunnistetta suunnitelma luettelee ruudulle.
+#: How many ids of things to download the plan lists on the screen.
 #:
-#: **Katto eikä mielivaltainen raja.** ``fetch``illä luettelo oli otannan
-#: mittainen (yksi joukkue, muutama kartta), mutta ``collect`` kerää koko
-#: divisioonan: 12 demoa nyt ja kauden lopussa noin 132. Toistasataa riviä
-#: tunnisteita vierittäisi ruudulta pois juuri ne rivit, joiden takia
-#: suunnitelma ylipäätään tulostetaan -- kohteen, vapaan tilan,
-#: vetotiedottomat ottelut ja itse kysymyksen. Luettelo on lisätieto; luvut ja
-#: portit eivät ole.
+#: **A ceiling and not an arbitrary limit.** With ``fetch`` the listing was as
+#: long as the sample (one team, a few maps), but ``collect`` gathers the
+#: whole division: 12 demos now and about 132 at the end of the season. Over a
+#: hundred rows of ids would scroll off the screen exactly the rows the plan
+#: is printed for in the first place -- the target, the free space, the
+#: matches without veto data and the question itself. The listing is extra
+#: information; the numbers and the gates are not.
 #:
-#: Kaksikymmentä on ruudullinen: sen näkee kerralla, ja se riittää
-#: tunnistamaan, ovatko tunnisteet oikean divisioonan otteluista.
+#: Twenty is a screenful: it can be taken in at once, and it is enough to tell
+#: whether the ids are from the right division's matches.
 MAX_LISTED_UNITS = 20
 
 
 def _render_collect_plan(
     todo: fetch_stage.CollectPlan, free: int | None, demos_dir: str
 ) -> str:
-    """Divisioonan suunnitelma **ennen** latausta.
+    """The division's plan **before** the download.
 
-    :func:`_render_fetch_plan`in sisar, ja neljä riviä enemmän -- jokainen
-    niistä vastaa kysymykseen, jota joukkuekohtaisessa haussa ei ole:
+    :func:`_render_fetch_plan`'s sister, and four lines longer -- each of them
+    answers a question that the per-team fetch does not have:
 
-    **Indeksin ikä.** ``collect``in koko yksikköjoukko tulee otteluindeksistä,
-    joten vanha indeksi tarkoittaa otteluita, joita tämä ajo ei näe lainkaan.
-    Mitattu 2026-09-06: arkiston indeksi oli 4.9. ja seuraavat ottelut alkoivat
-    6.9. klo 17. Ikä kerrotaan siksi ääneen eikä jätetä pääteltäväksi.
+    **The index's age.** ``collect``'s whole set of units comes from the match
+    index, so an old index means matches this run does not see at all.
+    Measured 2026-09-06: the archive's index was from the 4th and the next
+    matches started on the 6th at 17:00. The age is therefore said out loud
+    and not left to be inferred.
 
-    **Tuntematon ottelun pituus.** ``best_of`` puuttui koko 4.9. kirjoitetusta
-    indeksistä. Kartat luetaan silloin vetotiedosta, ja rivi sanoo sen --
-    vaieten se näyttäisi samalta kuin tiedetty pituus. Rivi kertoo myös
-    **montako** ottelua koskee, koska havainto ilman laajuutta ei ole
-    tarkistettavissa.
+    **An unknown match length.** ``best_of`` was missing from the whole index
+    written on the 4th. The maps are then read from the veto data, and the row
+    says so -- silently it would look the same as a known length. The row also
+    says **how many** matches this concerns, because an observation without
+    its scope cannot be checked.
 
-    **Vetotiedottomat ottelut.** Oma lohkonsa syineen eikä nolla riviä. Story
-    3.3:n katselmus löysi saman vian valinnasta, jossa tällainen ottelu
-    laskettiin pelaamattomaksi.
+    **Matches without veto data.** A block of their own with their reasons,
+    not zero rows. Story 3.3's review found the same fault in the selection,
+    where such a match was counted as unplayed.
 
-    **Levytilavaroitus.** Suunnitelman koko ja vapaa tila ovat samalla ruudulla,
-    mutta niiden vertaaminen jää käyttäjälle vain jos työkalu ei tee sitä.
-    Mitattu 2026-09-06: koko kausi on noin 25 GB ja vapaana 9,8 GB.
+    **The disk-space warning.** The plan's size and the free space are on the
+    same screen, but comparing them is left to the user only if the tool does
+    not do it. Measured 2026-09-06: the whole season is about 25 GB and 9.8 GB
+    was free.
 
-    Kaksi tyhjää suunnitelmaa ovat **eri asia**, ja ne sanotaan eri sanoin.
-    "Kaikki jo levyllä" on tulos; "divisioonasta ei tunneta yhtään karttaa" on
-    merkki siitä, etteivät asetuksen ``championship_ids`` ja indeksi osu
-    yhteen, tai ettei kautta ole vielä pelattu. Yhteinen viesti väittäisi
-    jälkimmäisessä tapauksessa levyllä olevan jotain, mitä siellä ei ole.
+    Two empty plans are **different things**, and they are said in different
+    words. "Everything already on disk" is a result; "not one map of the
+    division is known" is a sign that the ``championship_ids`` setting and the
+    index do not meet, or that the season has not been played yet. A shared
+    message would, in the latter case, claim that something is on the disk
+    that is not.
     """
     lines = [
-        f"Divisioona: {_matches_fi(todo.matches_played)}, "
+        f"Division: {_matches_fi(todo.matches_played)}, "
         f"{_maps_fi(todo.selected)}, {_of_which_fi(todo.selected)} "
-        f"{len(todo.present)} on jo levyllä"
+        f"{len(todo.present)} already on disk"
     ]
     lines.append(
-        _line("Otteluindeksi", todo.index_generated_at or "aika tuntematon")
+        _line("Match index", todo.index_generated_at or "time unknown")
     )
     if todo.best_of_unknown:
         lines.append(
             _line(
-                "Ottelun pituus",
-                f"tuntematon {len(todo.best_of_unknown)} ottelussa (best_of "
-                "puuttuu indeksistä) -- kartat luetaan vetotiedosta",
+                "Match length",
+                f"unknown in {len(todo.best_of_unknown)} of the matches "
+                "(best_of is missing from the index) -- the maps are read "
+                "from the veto data",
             )
         )
-        # **Havainto ilman neuvoa jättää käyttäjän arvaamaan.** Kenttä ei
-        # puutu lähteestä vaan **vanhasta indeksistä**: ``discover`` kirjoittaa
-        # sen (``discover._match_row``), joten uudelleenajo korjaa rivin. Ilman
-        # tätä lausetta rivi näyttää vialta, jolle ei ole tehtävissä mitään.
+        # **An observation without advice leaves the user guessing.** The
+        # field is not missing from the source but from **the old index**:
+        # ``discover`` writes it (``discover._match_row``), so running again
+        # fixes the row. Without this sentence the row looks like a fault
+        # nothing can be done about.
         lines.append(
-            "  Kenttä puuttuu vanhasta indeksistä, ei lähteestä -- uusi ajo "
-            "kirjoittaa sen:\n"
+            "  The field is missing from the old index, not from the source "
+            "-- a new run writes it:\n"
             "  uv run pappascout discover"
         )
     if todo.pending:
         lines.append(
             _line(
-                "Ladataan",
-                f"{len(todo.pending)} demoa, arviolta "
+                "Demos",
+                f"{len(todo.pending)} to download, an estimated "
                 f"{fetch_stage.size_fi(todo.estimated_bytes)}",
             )
         )
-        lines.append(_line("Kohde", demos_dir))
+        lines.append(_line("Target", demos_dir))
         if free is not None:
-            lines.append(_line("Levytilaa vapaana", fetch_stage.size_fi(free)))
+            lines.append(_line("Free disk space", fetch_stage.size_fi(free)))
             lines.extend(_space_warning(todo, free))
         lines.extend(_listed_units(todo.pending))
     elif todo.selected:
-        lines.append("Kaikki divisioonan demot ovat jo levyllä -- ei ladattavaa.")
+        lines.append(
+            "Every demo in the division is already on disk -- nothing to download."
+        )
     else:
         lines.append(_empty_division(todo))
     lines.extend(_collect_no_veto(todo.no_veto))
@@ -1055,48 +1088,53 @@ def _render_collect_plan(
 
 
 def _matches_fi(count: int) -> str:
-    """``1 pelattu ottelu`` / ``6 pelattua ottelua``.
+    """``1 match played`` / ``6 matches played``.
 
-    Suomen partitiivi taipuu luvulla 1, ja sama kuvio on jo
-    :func:`_rounds_fi`illä ja :func:`_players_fi`illä. Yhden ottelun
-    divisioona ei ole harvinaisuus: kauden ensimmäinen ajo osuu juuri siihen.
+    The noun inflects at 1, and the same pattern is already in
+    :func:`_rounds_fi` and :func:`_players_fi`. A one-match division is not a
+    rarity: the season's first run lands on exactly that.
     """
-    return f"{count} pelattu ottelu" if count == 1 else f"{count} pelattua ottelua"
+    return f"{count} match played" if count == 1 else f"{count} matches played"
 
 
 def _maps_fi(count: int) -> str:
-    """``1 kartta`` / ``12 karttaa``."""
-    return f"{count} kartta" if count == 1 else f"{count} karttaa"
+    """``1 map`` / ``12 maps``."""
+    return f"{count} map" if count == 1 else f"{count} maps"
 
 
 def _of_which_fi(count: int) -> str:
-    """``josta`` / ``joista`` -- **relatiivipronomini taipuu samalla luvulla**.
+    """``of which`` -- **and in English it does not inflect with the number**.
 
-    Sama kuvio kuin :func:`_maps_fi`illa ja :func:`_matches_fi`illa, ja se on
-    tassa omana apurinaan eika kahtena ehtona kutsupaikoissa: kaksi erillista
-    ehtoa erkanisi, ja juuri siita erkanemisesta koko Story 3.7 kertoo.
+    In Finnish the relative pronoun took the same number as the noun before
+    it, and that is why this helper exists at all rather than two conditions
+    at the call sites: two separate conditions would drift apart, and Story
+    3.7 is about exactly that drift. The review of 2026-09-06 found that
+    adopting ``_maps_fi`` fixed the numeral but left the next word alone --
+    "1 kartta, **joista** 0 on jo levylla". A fix that moves the mistake one
+    word later is not a fix.
 
-    Katselmus 2026-09-06 loysi, etta ``_maps_fi``in kayttoonotto korjasi
-    lukusanan mutta jatti seuraavan sanan ennalleen -- "1 kartta, **joista** 0
-    on jo levylla". Korjaus, joka siirtaa virheen yhta sanaa myohemmaksi, ei
-    ole korjaus.
+    English has one form, so both branches now return the same word. **The
+    branch is kept and the call sites are unchanged**: the sentence they build
+    still depends on the count through :func:`_maps_fi`, and this helper is
+    where a future language with two forms would put them back.
     """
-    return "josta" if count == 1 else "joista"
+    return "of which" if count == 1 else "of which"
 
 
 def _listed_units(units: tuple[str, ...]) -> list[str]:
-    """Ladattavat tunnisteet, **katkaistuna** :data:`MAX_LISTED_UNITS`iin.
+    """The ids to download, **truncated** to :data:`MAX_LISTED_UNITS`.
 
-    Katkaisu sanoo montako jäi näyttämättä, samoin kuin
-    :func:`_select_rejections`illa. Hiljainen lyhennys näyttäisi
-    suunnitelmalta, joka on lyhyempi kuin sen oma "Ladataan"-rivi lupaa -- ja
-    juuri sitä lukua käyttäjä on vahvistamassa.
+    The truncation says how many were not shown, just as with
+    :func:`_select_rejections`. A silent shortening would look like a plan
+    shorter than its own "Downloading" line promises -- and that is the very
+    number the user is confirming.
     """
     lines = [f"  {unit}" for unit in units[:MAX_LISTED_UNITS]]
     hidden = len(units) - MAX_LISTED_UNITS
     if hidden > 0:
         lines.append(
-            f"  (+{hidden} muuta -- ne ladataan siinä missä yllä luetellutkin)"
+            f"  (+{hidden} more -- they are downloaded just like the ones "
+            "listed above)"
         )
     return lines
 
@@ -1104,24 +1142,24 @@ def _listed_units(units: tuple[str, ...]) -> list[str]:
 def _space_warning(
     todo: fetch_stage.CollectPlan | fetch_stage.FetchPlan, free: int
 ) -> list[str]:
-    """Varoita, jos koko suunnitelma ei mahdu levylle -- **äläkä estä ajoa**.
+    """Warn if the whole plan does not fit on the disk -- **and do not stop the run**.
 
-    **Sama rivi molemmille suunnitelmille.** Funktio lukee vain
-    ``pending``in ja ``estimated_bytes``in, jotka ovat molemmissa; nimessä ei
-    siksi enää lue ``collect``. Varoitus, joka koskee vain toista kahdesta
-    latauskomennosta, olisi ero eikä päätös.
+    **The same line for both plans.** The function reads only ``pending`` and
+    ``estimated_bytes``, which are in both; that is why the name no longer
+    says ``collect``. A warning that applied to only one of the two download
+    commands would be a difference, not a decision.
 
-    Osittainen keräys on parempi kuin ei keräystä: FACEIT poistaa demon noin 30
-    päivässä, ja se osa, joka ehditään hakea, on tallessa lopullisesti. Vaihe
-    tarkistaa tilan erikseen jokaisen demon kohdalla, joten ajo pysähtyy
-    itsestään oikeaan kohtaan eikä kirjoita levyä täyteen.
+    A partial collection is better than no collection: FACEIT removes a demo
+    in about 30 days, and the part that is fetched in time is kept for good.
+    The stage checks the space separately for every demo, so the run stops of
+    its own accord at the right point and does not fill the disk.
 
-    **Portti ja varoitus ovat eri asia.** :func:`_levytilaportti` estää ajon,
-    joka ei mahduttaisi yhtäkään demoa -- silloin ajolla ei ole mitään
-    saavutettavaa. Tämä rivi kertoo, ettei kaikki mahdu, ja jättää päätöksen
-    käyttäjälle, joka on juuri saamassa kysymyksen. Mitattu 2026-09-06: kausi
-    on noin 132 demoa eli 25 GB, ja vapaana oli 9,8 GB -- eli tämä rivi on
-    kauden lopun normaalitila eikä poikkeus.
+    **The gate and the warning are different things.** :func:`_levytilaportti`
+    stops a run that could not fit a single demo -- there is then nothing the
+    run could achieve. This line says that not everything fits, and leaves the
+    decision to the user, who is about to be asked. Measured 2026-09-06: the
+    season is about 132 demos, that is 25 GB, and 9.8 GB was free -- so this
+    line is the normal state at the end of a season and not an exception.
     """
     if free >= todo.estimated_bytes:
         return []
@@ -1130,54 +1168,56 @@ def _space_warning(
     )
     return [
         _line(
-            "HUOM",
-            f"koko suunnitelma ei mahdu levylle: tilaa riittää arviolta "
-            f"{min(mahtuu, len(todo.pending))} demolle {len(todo.pending)}:sta. "
-            "Loput jäävät hakematta, ja ne voi hakea myöhemmin ajamalla "
-            "komennon uudelleen.",
+            "NOTE",
+            f"the whole plan does not fit on the disk: there is room for an "
+            f"estimated {min(mahtuu, len(todo.pending))} of the "
+            f"{len(todo.pending)} demos. The rest are left unfetched, and "
+            "they can be fetched later by running the command again.",
         )
     ]
 
 
 def _empty_division(todo: fetch_stage.CollectPlan) -> str:
-    """Divisioonasta ei tunneta yhtään karttaa -- **ei sama kuin "jo levyllä"**.
+    """Not one map of the division is known -- **not the same as "already on disk"**.
 
-    Väärä väite datasta on pahempi kuin vaikeaselkoinen: "kaikki on jo levyllä"
-    kertoisi demojen olevan tallessa, kun tosiasiassa yhtäkään ei tunneta.
-    Tilanne syntyy väärästä tai vieraasta ``championship_ids``ista, toisen
-    divisioonan indeksistä ja kaudesta, jota ei ole vielä pelattu -- ja
-    kahdessa ensimmäisessä käyttäjän on nähtävä juuri se tunniste, jolla
-    suodatettiin. Siksi viesti toistaa sen eikä vain kehota tarkistamaan.
+    A wrong claim about the data is worse than a hard-to-read one: "everything
+    is already on disk" would say the demos are safe when in fact not one of
+    them is known. The situation comes from a wrong or foreign
+    ``championship_ids``, from another division's index, and from a season
+    that has not been played yet -- and in the first two the user has to see
+    exactly the id that was filtered with. That is why the message repeats it
+    rather than merely telling them to check.
     """
-    ids = ", ".join(todo.league_ids) or "(ei yhtään)"
+    ids = ", ".join(todo.league_ids) or "(none at all)"
     return (
-        "Otteluindeksissä ei ole yhtään pelattua ottelua tästä divisioonasta "
-        "-- ei ladattavaa.\n"
-        f"  Haettiin championship_ids-tunnisteilla: {ids}\n"
-        "  Tarkista [league].championship_ids asetuksista ja aja tarvittaessa "
-        "uudelleen: uv run pappascout discover"
+        "The match index holds no played match from this division at all "
+        "-- nothing to download.\n"
+        f"  Filtered with these championship_ids: {ids}\n"
+        "  Check [league].championship_ids in the settings and, if need be, "
+        "run again: uv run pappascout discover"
     )
 
 
 def _collect_no_veto(rows: tuple[fetch_stage.NoVetoMatch, ...]) -> list[str]:
-    """Pelatut ottelut ilman karttalistaa -- **jokainen syineen ja neuvoineen**.
+    """Played matches with no map list -- **each with its reason and its advice**.
 
-    Lohko on olemassa, jottei pelattu ottelu katoa hiljaa. Nolla riviä
-    näyttäisi täsmälleen samalta kuin ottelu, jota ei ole pelattu.
+    The block exists so that a played match does not disappear quietly. Zero
+    rows would look exactly like a match that was not played.
 
-    **Neuvo haarautuu ``finished_at``ista**, ja juuri se on kentän tarkoitus.
-    Tuoreelta ottelulta veto puuttuu indeksistä, koska indeksi on ottelua
-    vanhempi -- ``discover`` korjaa sen. Viikkoja vanhan ottelun kohdalla
-    ``discover`` on jo ajettu ottelun jälkeen eikä vetoa silti ole: silloin
-    uudelleenajo ei tuota mitään, ja jäljellä oleva reitti on selaimella haettu
-    ja käsin tuotu demo (``import``). Yhteinen neuvo olisi oikea korkeintaan
-    toiselle -- sama sääntö kuin :func:`_fetch_failures`illä (D1).
+    **The advice branches on ``finished_at``**, and that is exactly what the
+    field is for. On a fresh match the veto is missing from the index because
+    the index is older than the match -- ``discover`` fixes that. On a match
+    weeks old, ``discover`` has already been run since the match and there is
+    still no veto: running it again then produces nothing, and the remaining
+    route is a demo fetched with a browser and imported by hand (``import``).
+    A shared piece of advice would be right for at most one of the two -- the
+    same rule as :func:`_fetch_failures`' (D1).
     """
     if not rows:
         return []
-    lines = ["", f"Pelattu ottelu ilman vetotietoa ({len(rows)}):"]
+    lines = ["", f"Played match with no veto data ({len(rows)}):"]
     for row in rows:
-        when = f" (päättyi {row.finished_at})" if row.finished_at else ""
+        when = f" (ended {row.finished_at})" if row.finished_at else ""
         lines.append(f"  {row.match_id}{when}")
         for text in row.reason.splitlines():
             lines.append(f"    {text}")
@@ -1185,37 +1225,37 @@ def _collect_no_veto(rows: tuple[fetch_stage.NoVetoMatch, ...]) -> list[str]:
     return lines
 
 
-#: Kuinka vanha ottelu on niin vanha, ettei ``discover`` enää tuo sille vetoa.
+#: How old a match has to be for ``discover`` to stop bringing it a veto.
 #:
-#: Mitattu 2026-09-06: arkiston indeksi oli kahden vuorokauden ikäinen ja
-#: sisälsi jokaisen sitä vanhemman ottelun vetoineen. Raja on siis reilusti
-#: normaalin viiveen yläpuolella: sen ylittänyt ottelu on ollut indeksissä jo
-#: useamman ajon ajan ilman että veto olisi ilmestynyt.
+#: Measured 2026-09-06: the archive's index was two days old and held every
+#: match older than itself with its veto. The limit is therefore comfortably
+#: above the normal delay: a match past it has been in the index for several
+#: runs already without the veto appearing.
 NO_VETO_STALE_DAYS = 7
 
 
 def _no_veto_next_step(row: fetch_stage.NoVetoMatch) -> str:
-    """Neuvo yhdelle vetotiedottomalle ottelulle, sen iän mukaan."""
+    """The advice for one match without veto data, according to its age."""
     if _is_older_than(row.finished_at, NO_VETO_STALE_DAYS) is not True:
-        # Tuore **tai tuntematon** ikä. Indeksi voi yksinkertaisesti olla
-        # ottelua vanhempi, ja se on halvin korjaus kokeilla ensin -- eikä
-        # tuntemattomalle iälle saa antaa neuvoa, joka väittää ottelun olevan
-        # vanha.
-        return "Aja uudelleen: uv run pappascout discover"
+        # A fresh **or unknown** age. The index may simply be older than the
+        # match, and that is the cheapest fix to try first -- and an unknown
+        # age must not be given advice that claims the match is old.
+        return "Run again: uv run pappascout discover"
     return (
-        f"Ottelu on yli {NO_VETO_STALE_DAYS} vuorokautta vanha eikä vetotietoa "
-        "ole ilmestynyt, joten discover ei todennäköisesti tuo sitä. Hae demot "
-        "selaimella ja tuo ne: uv run pappascout import"
+        f"The match is over {NO_VETO_STALE_DAYS} days old and no veto data "
+        "has appeared, so discover probably will not bring it. Fetch the "
+        "demos with a browser and import them: uv run pappascout import"
     )
 
 
 def _is_older_than(moment: str | None, days: int) -> bool | None:
-    """Onko ISO-aikaleima yli ``days`` vuorokautta vanha? ``None`` = ei tiedetä.
+    """Is an ISO timestamp over ``days`` days old? ``None`` = it is not known.
 
-    **Kolme paluuarvoa eikä kaksi.** Puuttuva tai jäsentymätön aikaleima ei ole
-    "tuore" eikä "vanha", ja sen esittäminen kumpanakin valitsisi neuvon
-    tiedolla, jota ei ole. Tuntematon saa saman neuvon kuin tuore, mutta valinta
-    tehdään näkyvästi kutsukohdassa eikä piiloteta tänne.
+    **Three return values and not two.** A missing or unparseable timestamp is
+    neither "fresh" nor "old", and presenting it as either would choose the
+    advice with information that does not exist. An unknown age gets the same
+    advice as a fresh one, but the choice is made visibly at the call site and
+    not hidden in here.
     """
     if not moment:
         return None
@@ -1224,20 +1264,23 @@ def _is_older_than(moment: str | None, days: int) -> bool | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        # Vyöhykkeetön aikaleima luetaan UTC:ksi, koska indeksin muut ajat ovat
-        # sitä. Paikallisaikana tulkittu leima heittäisi korkeintaan tunteja,
-        # eikä se voi kääntää seitsemän vuorokauden rajaa väärin päin.
+        # A timestamp without a zone is read as UTC, because the index's other
+        # times are. Read as local time it would be off by hours at most, and
+        # it cannot turn the seven-day limit the wrong way round.
         parsed = parsed.replace(tzinfo=UTC)
     return (datetime.now(UTC) - parsed) > timedelta(days=days)
 
 
-#: Viesti, kun tuontia ei tehdä käyttäjän vastauksen takia.
+#: The message when nothing is imported because of the user's answer.
 #:
-#: Oma lauseensa eikä :data:`_PERUTTU`, koska peruminen kertoo mitä jäi
-#: tekemättä -- ja tässä komennossa ei ladata mitään, joten "yhtään demoa ei
-#: ladattu" olisi vastaus kysymykseen jota ei esitetty. Loppuosa on sama lupaus
-#: kuin torjunnoilla: lähdetiedostoon ei kosketa.
-_PERUTTU_TUONTI = "Peruttu. Demoa ei tuotu, eikä lähdetiedostoon koskettu."
+#: A sentence of its own rather than :data:`_PERUTTU`, because a cancellation
+#: says what was left undone -- and this command downloads nothing, so "no
+#: demos were downloaded" would answer a question that was not asked. The
+#: latter half is the same promise as the rejections make: the source file is
+#: not touched.
+_PERUTTU_TUONTI = (
+    "Cancelled. The demo was not imported, and the source file was not touched."
+)
 
 
 @app.command("import")
@@ -1246,67 +1289,71 @@ def import_demo(
         ...,
         "--match",
         help=(
-            "Ottelun FACEIT-tunniste, esimerkiksi 1-<uuid>. Tunnisteet ovat "
-            "arkiston tiedostossa index/matches.json."
+            "The match's FACEIT id, for example 1-<uuid>. The ids are in the "
+            "archive's index/matches.json file."
         ),
     ),
     map_no: str = typer.Option(
         ...,
         "--map",
         help=(
-            "Kartan numero ottelussa, 1-pohjaisena: ensimmäinen kartta on 1. "
-            "Arkiston tunnisteessa sama kartta on 0."
+            "The map's number in the match, 1-based: the first map is 1. In "
+            "the archive's id the same map is 0."
         ),
     ),
     file: str | None = typer.Option(
         None,
         "--file",
         help=(
-            "Tuotava tiedosto nimenomaisesti. Ilman tätä tiedosto etsitään "
-            "arkiston import-kansiosta FACEITin omalla nimellä. "
-            "Import-kansion ulkopuolinen tiedosto kopioidaan, ei siirretä."
+            "The file to import, named explicitly. Without this the file is "
+            "looked for in the archive's import folder under FACEIT's own "
+            "name. A file outside the import folder is copied, not moved."
         ),
     ),
     kylla: bool = typer.Option(
         False,
         "--kylla",
         help=(
-            "Älä kysy vahvistusta. EI ohita karttatarkistuksen kysymystä: "
-            "väärällä nimellä tallennettu demo pilaisi raportin hiljaa."
+            "Do not ask for confirmation. Does NOT skip the map check's "
+            "question: a demo saved under the wrong name would quietly spoil "
+            "the report."
         ),
     ),
 ) -> None:
-    """Tuo selaimella ladattu demo arkistoon.
+    """Import a demo downloaded with a browser into the archive.
 
-    Komento siirtää tiedoston nimelle demos/<map_demo_id>.dem.zst ja kirjoittaa
-    sen viereen .meta.json-tiedoston merkinnällä source = import. Tuotu demo on
-    putkessa erottamaton ladatusta: aja sille suoraan parse.
+    The command moves the file to the name demos/<map_demo_id>.dem.zst and
+    writes a .meta.json file beside it with the entry source = import. An
+    imported demo is indistinguishable from a downloaded one in the pipeline:
+    run parse on it directly.
 
-    Tiedoston pääte päätetään sisällöstä eikä annetusta nimestä, joten
-    pakkaamaton .dem ei päädy arkistoon nimellä .dem.zst.
+    The file's extension is decided from the content and not from the name
+    given, so an uncompressed .dem does not end up in the archive named
+    .dem.zst.
 
-    Kartan nimi luetaan demon omasta otsikosta ja verrataan FACEIT-ottelun
-    vetotietoon. Poikkeama -- ja myös se, ettei vertailua voitu tehdä -- on
-    vahvistuskysymys, jota --kylla EI ohita. Se on tämän työkalun ainoa
-    kysymys, jota lippu ei hiljennä.
+    The map's name is read from the demo's own header and compared against the
+    FACEIT match's veto data. A mismatch -- and the fact that the comparison
+    could not be made at all -- is a confirmation question that --kylla does
+    NOT skip. It is this tool's only question that the flag does not silence.
 
-    Komento ei lataa demoja: demo on se tiedosto, jonka annat. Ottelun
-    vetotieto sen sijaan tulee FACEITista -- ensisijaisesti vastausvälimuistista
-    (raw/faceit/), ja jos ottelu ei ole siellä, se haetaan rajapinnasta ja
-    vastaus kirjoitetaan välimuistiin. Downloads-tokenia ei tarvita.
+    The command does not download demos: the demo is the file you give it. The
+    match's veto data, on the other hand, comes from FACEIT -- primarily from
+    the response cache (raw/faceit/), and if the match is not there it is
+    fetched from the interface and the response is written into the cache. No
+    Downloads token is needed.
     """
-    # **--map on merkkijono, ei kokonaisluku, ja se on tarkoituksellista.**
-    # Typerin oma int-muunnos kaatuisi englanninkieliseen viestiin ennen kuin
-    # vaihe näkee arvoa lainkaan, ja vaiheen oma suomenkielinen tarkistus
-    # olisi komentoriviltä saavuttamatonta koodia. Muunnos ja sen virhe
-    # kuuluvat samaan paikkaan kuin muutkin numeron säännöt.
+    # **--map is a string and not an integer, and that is deliberate.**
+    # Typer's own int conversion would fail with a message of its own before
+    # the stage saw the value at all, and the stage's own check would be code
+    # unreachable from the command line. The conversion and its error belong
+    # in the same place as the number's other rules.
     settings = load_settings()
     archive = archive_paths(settings.project)
 
-    # Pakattu demo puretaan kokonaan otsikon lukua varten, ja se vie
-    # sekunteja. Ilman tätä riviä käyttäjä katsoo tyhjää ruutua eikä tiedä,
-    # käynnistyikö mikään.
-    typer.echo("Luetaan demon otsikkoa kartan nimen selvittämiseksi...", err=True)
+    # A compressed demo is decompressed in full to read the header, and that
+    # takes seconds. Without this line the user looks at a blank screen and
+    # does not know whether anything started.
+    typer.echo("Reading the demo's header to find out the map name...", err=True)
 
     todo = import_stage.plan(
         archive,
@@ -1328,82 +1375,82 @@ def import_demo(
 
 
 def _render_import_plan(todo) -> str:
-    """Mitä tuonti aikoo tehdä -- **ennen kuin se tekee sitä**.
+    """What the import intends to do -- **before it does it**.
 
-    Molemmat karttahavainnot ovat omilla riveillään myös silloin, kun ne
-    täsmäävät. Vain poikkeaman näyttäminen tarkoittaisi, ettei käyttäjä näe
-    onnistunutta tarkistusta kertaakaan -- eikä siis tiedä sen tapahtuvan.
+    Both map observations are on rows of their own even when they agree.
+    Showing only the mismatch would mean the user never sees a successful
+    check -- and so does not know that it happens.
     """
     lines = [
-        _line("Tuodaan", todo.map_demo_id),
-        _line("Lähde", str(todo.source_path)),
-        _line("Kohde", str(todo.target_path)),
-        _line("Koko", fetch_stage.size_fi(todo.size_bytes)),
-        _line("Tapa", "siirto" if todo.move else "kopio (lähde jää paikalleen)"),
-        _line("Kartta otsikosta", todo.header_map_name or "(ei nimeä)"),
-        _line("Kartta vetotiedosta", todo.expected_map_name or "(ei vetotietoa)"),
+        _line("Importing", todo.map_demo_id),
+        _line("Source", str(todo.source_path)),
+        _line("Target", str(todo.target_path)),
+        _line("Size", fetch_stage.size_fi(todo.size_bytes)),
+        _line("Method", "move" if todo.move else "copy (the source stays put)"),
+        _line("Map from the header", todo.header_map_name or "(no name)"),
+        _line("Map from the veto", todo.expected_map_name or "(no veto data)"),
         _line(
-            "Karttatarkistus",
-            "täsmää" if todo.map_matches else "EI TÄSMÄÄ -- kysytään alla",
+            "Map check",
+            "matches" if todo.map_matches else "DOES NOT MATCH -- asked below",
         ),
-        # **Ehjyys omalle rivilleen, molemmissa suunnissa.** Rivi, joka
-        # ilmestyy vain epäonnistuessa, ei kerro onnistuneesta tarkistuksesta
-        # mitään -- eikä käyttäjä silloin tiedä sen tapahtuvan.
-        _line("Ehjyys", _integrity_text(todo)),
+        # **Completeness on a row of its own, in both directions.** A row that
+        # appears only on a failure says nothing about a successful check --
+        # and then the user does not know that it happens.
+        _line("Completeness", _integrity_text(todo)),
     ]
     return "\n".join(lines)
 
 
 def _integrity_text(todo) -> str:
-    """Voitiinko lähteen kokonaisuus todeta, ja mitä vasten.
+    """Whether the source could be found complete, and against what.
 
-    **Epävarmuus sanotaan ääneen samalla rivillä kuin varmuus.** Mitattu
-    2026-09-05: puoliväliin katkaistu ``.dem.zst`` purkautuu hiljaa ja sen
-    otsikosta luetaan oikea kartan nimi, joten vajautta ei näe mistään.
-    Pakattu tiedosto tarkistetaan kehyksen ilmoittamaa kokoa vasten;
-    pakkaamattomalla ``.dem``:llä ei ole mitään tarkistettavaa, ja se on
-    käyttäjän tietoa eikä toteutuksen yksityiskohta.
+    **Uncertainty is said out loud on the same row as certainty.** Measured
+    2026-09-05: a ``.dem.zst`` truncated half way decompresses quietly and the
+    right map name is read from its header, so the shortfall is not visible
+    anywhere. A compressed file is checked against the size the frame declares;
+    an uncompressed ``.dem`` has nothing to check against, and that is the
+    user's information and not an implementation detail.
     """
     if todo.declared_bytes is not None:
         return (
-            "tarkistettu -- purettuna "
+            "checked -- decompressed "
             f"{fetch_stage.size_fi(todo.declared_bytes)} "
-            "kehyksen ilmoittamana"
+            "as the frame declares"
         )
     if todo.length_verified:
-        return "tarkistettu -- gzip-virran lopetusmerkki"
+        return "checked -- the gzip stream's end marker"
     return (
-        "EI VOITU TARKISTAA -- pakkaamattomassa demossa ei ole pituustietoa, "
-        "joten vajaa tiedosto paljastuisi vasta parsinnassa"
+        "COULD NOT BE CHECKED -- an uncompressed demo carries no length, so a "
+        "short file would come to light only during parsing"
     )
 
 
 def _render_import(result: StageResult) -> str:
-    """Mitä tuonti teki: tiedostot, tiiviste ja jokainen huomio omalla rivillään.
+    """What the import did: the files, the digest and every note on its own row.
 
-    Tiiviste tulostetaan, koska se on se luku, jolla tuotu demo tunnistetaan
-    myöhemmin -- ``parse`` lukee sen metatiedostosta eikä laske uudelleen, joten
-    tämä on ainoa kerta, jolloin se näkyy.
+    The digest is printed because it is the number an imported demo is
+    identified by later -- ``parse`` reads it from the metadata file and does
+    not compute it again, so this is the only time it is seen.
     """
     stats = result.stats
     lines = [
-        f"Tuonti valmis: {result.unit}",
+        f"Import done: {result.unit}",
         _line("Demo", str(stats.get("demo_path", ""))),
-        _line("Metatiedot", str(stats.get("meta_path", ""))),
-        _line("Koko", fetch_stage.size_fi(int(stats.get("size", 0)))),
+        _line("Metadata", str(stats.get("meta_path", ""))),
+        _line("Size", fetch_stage.size_fi(int(stats.get("size", 0)))),
         _line("sha256", str(stats.get("sha256", ""))),
-        # **"Lähdemerkintä" eikä "Lähde".** Suunnitelmassa "Lähde" on se
-        # tiedosto, josta tuotiin; tässä kyse on metatiedoston
-        # ``source``-kentän arvosta. Sama sana kahdesta eri asiasta samassa
-        # tulosteessa on väärinluettava -- ja se peitti myös testin, joka
-        # yritti tarkistaa kummankin rivin erikseen.
-        _line("Lähdemerkintä", str(stats.get("demo_source", ""))),
+        # **"Source entry" and not "Source".** In the plan "Source" is the
+        # file that was imported from; here it is the value of the metadata
+        # file's ``source`` field. The same word for two different things in
+        # the same output is misreadable -- and it also masked the test that
+        # tried to check the two rows separately.
+        _line("Source entry", str(stats.get("demo_source", ""))),
     ]
     for note in stats.get("notes", ()):
         for row in str(note).splitlines():
             lines.append(f"  {row}")
     lines.append("")
-    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+    lines.append(_line("Run time", _seconds(result.duration_s)))
     return "\n".join(lines)
 
 
@@ -1411,35 +1458,37 @@ def _render_import(result: StageResult) -> str:
 def parse(
     target: str = typer.Argument(
         ...,
-        metavar="TIEDOSTO|MAP_DEMO_ID",
+        metavar="FILE|MAP_DEMO_ID",
         help=(
-            "Demotiedoston polku tai map_demo_id, jolloin demo etsitään "
-            "arkiston demos- ja import-hakemistoista."
+            "The path of a demo file, or a map_demo_id, in which case the "
+            "demo is looked for in the archive's demos and import directories."
         ),
     ),
     force: bool = typer.Option(
         False,
         "--pakota",
         help=(
-            "Parsi vaikka manifesti täsmäisi. Käytä, jos epäilet että arkiston "
-            "tulos on vanhentunut."
+            "Parse even if the manifest matches. Use this if you suspect the "
+            "archive's result is out of date."
         ),
     ),
 ) -> None:
-    """Parsi demo kuudeksi tauluksi.
+    """Parse a demo into six tables.
 
-    Kirjoittaa ``parsed/<map_demo_id>/rounds.parquet``-, ``ticks.parquet``-,
-    ``events.parquet``-, ``lineups.parquet``-, ``deaths.parquet``- ja
-    ``callouts.parquet``-taulut sekä niiden manifestin.
-    Jos manifesti täsmää, vaihe ohitetaan eikä demoa lueta uudelleen.
+    Writes the ``parsed/<map_demo_id>/rounds.parquet``, ``ticks.parquet``,
+    ``events.parquet``, ``lineups.parquet``, ``deaths.parquet`` and
+    ``callouts.parquet`` tables and their manifest.
+    If the manifest matches, the stage is skipped and the demo is not read
+    again.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
     map_demo_id, demo_path = parse_stage.resolve_demo(archive, target)
 
-    # 233 MB:n demo vie sekunteja, pakattu enemmän. Ilman tätä riviä käyttäjä
-    # katsoo tyhjää ruutua eikä tiedä, käynnistyikö mikään.
-    typer.echo(f"Parsitaan {map_demo_id} ({demo_path.name})...", err=True)
+    # A 233 MB demo takes seconds, a compressed one more. Without this line
+    # the user looks at a blank screen and does not know whether anything
+    # started.
+    typer.echo(f"Parsing {map_demo_id} ({demo_path.name})...", err=True)
 
     result = parse_stage.run(
         settings.parse,
@@ -1452,70 +1501,71 @@ def parse(
     typer.echo(_render_parse(result, regulation_rounds=2 * settings.league.mr))
 
 
-#: Tulosteen sarakeleveys, jotta arvot linjautuvat otsikoiden alle. Pisin
-#: otsikko on "Tuntemattomat esineet" (21 merkkiä), ja arvo tarvitsee vähintään
-#: yhden välilyönnin eteensä.
+#: The output's column width, so that the values line up under the labels. The
+#: longest label is "Partial sample points" (21 characters), and a value needs
+#: at least one space in front of it.
 _PARSE_LABEL_WIDTH = 22
 
 
 def _line(label: str, value: str) -> str:
-    """Muotoile yksi tulosterivi tasalevyisellä otsikkosarakkeella."""
+    """Format one output row with a fixed-width label column."""
     return f"  {label:<{_PARSE_LABEL_WIDTH}}{value}"
 
 
 def _render_parse(result: StageResult, regulation_rounds: int) -> str:
-    """Kokoa ``parse``-komennon tuloste.
+    """Assemble the ``parse`` command's output.
 
-    Erotettu omaksi funktiokseen, jotta tuloste on testattavissa ilman
-    komentorivin ajamista.
+    Split into a function of its own so that the output can be tested without
+    running the command line.
 
     Args:
-        result: Vaiheen palauttama tulos.
-        regulation_rounds: Säännönmukaisten kierrosten määrä (MR12 -> 24).
-            Tätä käytetään **vain** tulosteen jatkoaikamaininnassa; vaihe itse
-            ei näe liiga- eikä kynnysasetuksia (AD-3).
+        result: The result the stage returned.
+        regulation_rounds: The number of regulation rounds (MR12 -> 24). This
+            is used **only** in the output's mention of overtime; the stage
+            itself sees neither the league nor the threshold settings (AD-3).
     """
     stats = result.stats
     lines: list[str] = []
 
-    lines.append(f"{'Ohitettu' if result.skipped else 'Parsittu'}: {result.unit}")
+    lines.append(f"{'Skipped' if result.skipped else 'Parsed'}: {result.unit}")
 
-    # AD-9: tila näytetään aina kun se ei ole ok, jottei epäonnistunut yksikkö
-    # näytä onnistuneelta.
+    # AD-9: the status is always shown when it is not ok, so that a failed
+    # unit does not look like a successful one.
     if result.status != "ok":
-        lines.append(_line("Tila", str(result.status)))
+        lines.append(_line("Status", str(result.status)))
     if result.reason:
-        lines.append(_line("Syy", result.reason))
+        lines.append(_line("Reason", result.reason))
 
     if "unreadable" in stats:
-        lines.append(_line("Kierrokset", f"lukuja ei saatu ({stats['unreadable']})"))
-        lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+        lines.append(_line("Rounds", f"no counts obtained ({stats['unreadable']})"))
+        lines.append(_line("Run time", _seconds(result.duration_s)))
         return "\n".join(lines)
 
     rounds = int(stats.get("rounds", 0) or 0)
     lines.append(
-        _line("Kierrokset", f"{rounds} (rivejä {int(stats.get('rows', 0) or 0)})")
+        _line("Rounds", f"{rounds} ({int(stats.get('rows', 0) or 0)} rows)")
     )
 
     max_round = int(stats.get("max_round_no", 0) or 0)
     if max_round > regulation_rounds:
         lines.append(
             _line(
-                "Jatkoaika",
-                f"kyllä -- kierroksia {max_round}, säännönmukaisia {regulation_rounds}",
+                "Overtime",
+                f"yes -- {max_round} rounds played, regulation is "
+                f"{regulation_rounds}",
             )
         )
     else:
-        lines.append(_line("Jatkoaika", f"ei ({max_round}/{regulation_rounds})"))
+        lines.append(_line("Overtime", f"no ({max_round}/{regulation_rounds})"))
 
-    # Ohitetussa ajossa lukua ei ole: numeroimattomat kierrokset eivät ole
-    # taulussa, joten niiden määrää ei voi lukea valmiista tuloksesta.
+    # A skipped run has no count: unnumbered rounds are not in the table, so
+    # their number cannot be read out of a finished result.
     skipped_rounds = int(stats.get("skipped_rounds", 0) or 0)
     if not result.skipped and skipped_rounds:
         lines.append(
             _line(
-                "Ohitetut kierrokset",
-                f"{skipped_rounds} (warmup ja puukkokierros)",
+                "Skipped rounds",
+                f"{skipped_rounds} (warmup and the knife round)",
             )
         )
 
@@ -1525,8 +1575,9 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
     if no_anchor:
         lines.append(
             _line(
-                "Ilman ankkuria",
-                f"{no_anchor} (freezetime-tick puuttuu, kierros silti mukana)",
+                "Without an anchor",
+                f"{no_anchor} (the freezetime tick is missing, the round is "
+                "still included)",
             )
         )
 
@@ -1544,58 +1595,61 @@ def _render_parse(result: StageResult, regulation_rounds: int) -> str:
         lines.append(
             _line(
                 "Tickrate",
-                f"{stats['tick_rate']:g} (oletus -- demosta ei saatu mitattua)",
+                f"{stats['tick_rate']:g} (a default -- it could not be "
+                "measured from the demo)",
             )
         )
 
     for path in result.outputs:
-        lines.append(_line("Tulos", str(path)))
+        lines.append(_line("Output", str(path)))
     if result.manifest_path is not None:
-        lines.append(_line("Manifesti", str(result.manifest_path)))
-    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+        lines.append(_line("Manifest", str(result.manifest_path)))
+    lines.append(_line("Run time", _seconds(result.duration_s)))
 
     return "\n".join(lines)
 
 
-#: Montako kierrosnumeroa tulostetaan, kun ostoja jäi katkaisun taakse.
-#: Katkaisu osuu noin puoleen kierroksista, joten pahimmillaan lista olisi koko
-#: ottelun mittainen -- ja juuri silloin käyttäjän pitäisi nähdä yhdellä
-#: silmäyksellä, että kyse on systemaattisesta viasta eikä yhdestä kierroksesta.
+#: How many round numbers are printed when purchases were left behind the cut.
+#: The cut hits about half of the rounds, so at worst the list would be as long
+#: as the whole match -- and that is exactly when the user should see at a
+#: glance that this is a systematic fault and not one round.
 _MAX_LOST_PURCHASE_ROUNDS = 10
 
 
 def _buy_window(stats: dict) -> list[str]:
-    """Ostoikkunan rivit ``parse``-tulosteeseen.
+    """The buy window's rows for the ``parse`` output.
 
-    Kolme asiaa, jotka on sanottava ääneen:
+    Three things that have to be said out loud:
 
-    **Mistä hetkestä luvut on luettu.** Talous mitataan ostoajan lopusta eikä
-    freezetimen lopusta, ja mittaushetki on asetus. Ilman riviä kaksi eri
-    asetuksella ajettua tulosta näyttäisivät samalta. Rivi kertoo myös
-    mittaushetkien todellisen jakauman: asetus lupaa ikkunan pituuden, mutta
-    kuoleman katkaisu vetää mediaanin usein sen alle.
+    **Which moment the numbers were read from.** The economy is measured at
+    the end of the buy time and not at the end of the freezetime, and the
+    moment of measurement is a setting. Without the row, two results run with
+    two different settings would look the same. The row also gives the real
+    spread of the moments of measurement: the setting promises the window's
+    length, but a death cutting it short often drags the median below that.
 
-    **Maksoiko kuoleman katkaisu jotain.** Kuolema katkaisee ikkunan noin
-    puolella kierroksista -- se on normaali polku eikä poikkeus, joten pelkkä
-    katkaisujen määrä ei ole hälytys. Hälytys on
-    ``buy_window_purchases_after_cut``: jos joku osti vielä katkaisun jälkeen,
-    mittaus menetti ostoksen. Sen kuuluu olla nolla, ja **nolla sanotaan
-    ääneen** -- vaiettu nolla ei erottuisi vaietusta viidestä. Nollalla on
-    kaksi eri syytä, joten tarkistamatta jääneet katkaisut sanotaan erikseen.
+    **Whether the death cut cost anything.** A death cuts the window short in
+    about half of the rounds -- that is the normal path and not an exception,
+    so the number of cuts alone is not an alarm. The alarm is
+    ``buy_window_purchases_after_cut``: if somebody bought after the cut, the
+    measurement lost a purchase. It ought to be zero, and **the zero is said
+    out loud** -- an unspoken zero would not stand apart from an unspoken
+    five. A zero has two different causes, so the cuts that went unchecked are
+    said separately.
 
-    **Mitä mittauspisteessä meni pieleen.** Tyhjä tick, kadonneet pelaajat,
-    kokonaan tyhjä joukkuerivi ja palautuksen jättämä vanhentunut varustearvo
-    saavat kukin rivinsä vain kun luku on nollasta poikkeava: ne ovat vikoja
-    eivätkä normaalia, joten nollan toistaminen hukuttaisi ne.
+    **What went wrong at the measurement point.** An empty tick, players lost,
+    an entirely empty team row and the stale equipment value a refund leaves
+    behind each get a row only when the number is non-zero: they are faults
+    and not the normal state, so repeating a zero would drown them.
 
-    Ohitetussa ajossa rivit jätetään pois: mittauspiste on tauluissa
-    (``buy_end_tick``), mutta katkaisujen ja menetettyjen ostosten määrää ei
-    voi lukea valmiista tuloksesta.
+    On a skipped run the rows are left out: the measurement point is in the
+    tables (``buy_end_tick``), but the number of cuts and of lost purchases
+    cannot be read out of a finished result.
     """
     if "buy_window_truncated_by_death" not in stats:
         return []
 
-    lines: list[str] = [_line("Mittauspiste", _measurement_point(stats))]
+    lines: list[str] = [_line("Measurement point", _measurement_point(stats))]
 
     truncated = int(stats.get("buy_window_truncated_by_death", 0) or 0)
     missed = int(stats.get("buy_window_purchases_after_cut", 0) or 0)
@@ -1603,85 +1657,86 @@ def _buy_window(stats: dict) -> list[str]:
 
     if truncated:
         cut = (
-            f"{_rounds_fi(truncated)} mitattiin aiemmin, koska kierroksen "
-            "ensimmäinen kuolema katkaisi ikkunan"
+            f"{_rounds_fi(truncated)} measured earlier, because the round's "
+            "first death cut the window short"
         )
     else:
-        cut = "ei yhtään -- ikkuna ylsi loppuun joka kierroksella"
+        cut = "none at all -- the window ran to its end in every round"
     if missed:
-        cut += f"; {_players_fi(missed)} osti vielä katkaisun jälkeen"
+        cut += f"; {_players_fi(missed)} bought after the cut"
         rounds = tuple(stats.get("buy_window_rounds_with_lost_purchases") or ())
         if rounds:
             shown = rounds[:_MAX_LOST_PURCHASE_ROUNDS]
             listed = ", ".join(str(number) for number in shown)
             if len(rounds) > len(shown):
-                listed += f" (+{len(rounds) - len(shown)} muuta)"
-            cut += f" -- kierrokset (round_raw) {listed}"
+                listed += f" (+{len(rounds) - len(shown)} more)"
+            cut += f" -- rounds (round_raw) {listed}"
         else:
-            cut += " -- ostoja jäi mittauksen taakse"
+            cut += " -- purchases were left behind the measurement"
     else:
-        cut += "; yksikään osto ei jäänyt katkaisun taakse"
+        cut += "; not one purchase was left behind the cut"
     if unchecked:
         cut += (
-            f"; {_rounds_fi(unchecked)} ei voitu tarkistaa lainkaan "
-            "(ikkunan lopun tickiltä ei saatu pelaajia)"
+            f"; {_rounds_fi(unchecked)} could not be checked at all "
+            "(no players were obtained from the window's last tick)"
         )
-    lines.append(_line("Kuoleman katkaisu", cut))
+    lines.append(_line("Cut short by a death", cut))
 
     lines.extend(_buy_window_faults(stats))
     return lines
 
 
 def _measurement_point(stats: dict) -> str:
-    """Rivin ``Mittauspiste`` teksti: mistä hetkestä talousluvut on luettu.
+    """The ``Measurement point`` row's text: which moment the economy was read from.
 
-    Kolme tilaa on pidettävä erillään. ``buy_window_seconds`` puuttuu tai on
-    ``None``, kun portti ei kerro ikkunaa -- silloin mittaushetkeä ei tiedetä
-    eikä sitä saa väittää. Nolla tarkoittaa ankkuria, ja se sanotaan
-    freezetimen lopuksi: "ostoajan loppu, ikkuna 0,0 s" olisi totta mutta
-    harhaanjohtavaa, koska juuri sen niminen mittaus oli tämän tarinan vika.
-    Positiivinen arvo on ostoajan loppu.
+    Three states have to be kept apart. ``buy_window_seconds`` is missing or
+    ``None`` when the port does not report the window -- the moment of
+    measurement is then unknown and must not be claimed. Zero means the
+    anchor, and it is said as the end of the freezetime: "the end of the buy
+    time, window 0.0 s" would be true but misleading, because a measurement by
+    exactly that name was this story's fault. A positive value is the end of
+    the buy time.
     """
     window = stats.get("buy_window_seconds")
     if window is None:
-        return "ei tiedossa (demoportti ei kerro ostoikkunan pituutta)"
+        return "not known (the demo port does not report the buy window's length)"
 
     window = float(window)
     if not window:
-        return "talous luettu freezetimen lopusta (ikkuna 0,0 s)"
+        return "economy read at the end of the freezetime (window 0,0 s)"
 
-    text = f"talous luettu ostoajan lopusta (ikkuna {_seconds(window)}"
-    # Ikkuna lasketaan tickratesta. Jos sitä ei saatu mitattua, myös sekunnit
-    # ovat oletuksen varassa -- ja rivi, joka tulostaa sekunnit yhtä varmasti
-    # kummassakin tapauksessa, väittäisi mittausta.
+    text = f"economy read at the end of the buy time (window {_seconds(window)}"
+    # The window is computed from the tickrate. If that could not be measured,
+    # the seconds rest on a default too -- and a row that prints the seconds
+    # with equal confidence in both cases would claim a measurement.
     if "tick_rate" in stats and not stats.get("tick_rate_measured", True):
-        text += ", tickrate oletus"
+        text += ", tickrate a default"
     text += ")"
 
     offsets = stats.get("buy_end_offsets_s")
     if offsets:
         low, middle, high = (float(value) for value in offsets)
         text += (
-            f"; mitattu {_seconds(low)}-{_seconds(high)} ankkurista, "
-            f"mediaani {_seconds(middle)}"
+            f"; measured {_seconds(low)}-{_seconds(high)} from the anchor, "
+            f"median {_seconds(middle)}"
         )
     return text
 
 
 def _buy_window_faults(stats: dict) -> list[str]:
-    """Mittauspisteen viat omina riveinään -- vain kun luku on nollasta poikkeava.
+    """The measurement point's faults as rows of their own -- only when non-zero.
 
-    Nämä neljä ovat kaikki **vikoja eivätkä havaintoja**, toisin kuin kuoleman
-    katkaisu. Nollan toistaminen joka ajossa opettaisi lukijan ohittamaan ne.
+    All four of these are **faults and not observations**, unlike the death
+    cut. Repeating a zero on every run would teach the reader to skip them.
     """
     lines: list[str] = []
     empty = int(stats.get("buy_window_ticks_without_players", 0) or 0)
     if empty:
         lines.append(
             _line(
-                "Ostoajan tick tyhjä",
-                f"{_rounds_fi(empty)} -- tickiltä ei saatu pelaajia, mittaus "
-                "palautui freezetimen ankkuriin",
+                "Buy-end tick empty",
+                f"{_rounds_fi(empty)} -- no players were obtained from the "
+                "tick, the measurement fell back to the freezetime anchor",
             )
         )
 
@@ -1689,111 +1744,114 @@ def _buy_window_faults(stats: dict) -> list[str]:
     sides = int(stats.get("buy_window_sides_without_rows", 0) or 0)
     if lost:
         text = (
-            f"{_players_fi(lost)} oli luettavissa ankkurilla mutta ei enää "
-            "mittauspisteessä"
+            f"{_players_fi(lost)} could be read at the anchor but no longer "
+            "at the measurement point"
         )
         if sides:
             text += (
-                f"; {sides} joukkueriviä jäi kokonaan tyhjäksi, eikä niitä "
-                "luokitella"
+                f"; {sides} of the team rows ended up entirely empty, and "
+                "they are not classified"
             )
-        lines.append(_line("Kadonneet pelaajat", text))
+        lines.append(_line("Players lost", text))
 
     stale = int(stats.get("buy_window_stale_equipment", 0) or 0)
     if stale:
         lines.append(
             _line(
-                "Vanhentunut arvo",
-                f"{_players_fi(stale)}: arvo nousi ilman ostosta -- "
-                "palautetun ostoksen jälki, enintään 1000 $/pelaaja",
+                "Stale value",
+                f"{_players_fi(stale)}: the value rose without a purchase -- "
+                "the trace of a refund, at most $1000 per player",
             )
         )
     return lines
 
 
 def _rounds_fi(count: int) -> str:
-    """``1 kierros`` / ``13 kierrosta`` -- suomen partitiivi taipuu luvulla 1."""
-    return f"{count} kierros" if count == 1 else f"{count} kierrosta"
+    """``1 round`` / ``13 rounds`` -- the noun inflects at 1."""
+    return f"{count} round" if count == 1 else f"{count} rounds"
 
 
 def _players_fi(count: int) -> str:
-    """``1 pelaaja`` / ``2 pelaajaa``.
+    """``1 player`` / ``2 players``.
 
-    Yksi menetetty ostos on juuri se tapaus, jota rivi on kertomassa, joten
-    "1 pelaajaa" olisi väärin juuri silloin kun rivi eniten merkitsee.
+    One lost purchase is exactly the case the row is reporting, so "1 players"
+    would be wrong at the very moment the row matters most.
     """
-    return f"{count} pelaaja" if count == 1 else f"{count} pelaajaa"
+    return f"{count} player" if count == 1 else f"{count} players"
 
 
-#: Sääntö, jolla ``players_armed_buy_end`` lasketaan. Tulostetaan aina
-#: jakauman kanssa: ilman sitä lukuja ei voi tulkita, ja rivin koko tarkoitus
-#: on olla itsetarkistus ajon yhteydessä.
-_ARMED_RULE = "panssari ja ase hallussa ostoajan lopussa"
+#: The rule by which ``players_armed_buy_end`` is counted. Always printed with
+#: the distribution: without it the numbers cannot be interpreted, and the
+#: whole point of the row is to be a self-check during a run.
+_ARMED_RULE = "armour and a weapon held at the end of the buy time"
 
-#: Sääntö, jolla ``players_armored_buy_end`` lasketaan. Sama peruste kuin
-#: yllä, ja lisäksi yksi: kaksi lähes samannimistä riviä peräkkäin luetaan
-#: väärin ilman sääntöä kummankin perässä. **Hallussa eikä ostettu**, kuten
-#: ylemmälläkin -- panssari säilyy kierroksen yli hengissä selvinneellä.
-_ARMORED_RULE = "panssari hallussa ostoajan lopussa, aseesta riippumatta"
+#: The rule by which ``players_armored_buy_end`` is counted. The same
+#: justification as above, and one more: two rows with nearly the same name in
+#: succession are read wrongly without the rule after each of them. **Held and
+#: not bought**, as in the one above -- armour survives the round for a player
+#: who lived through it.
+_ARMORED_RULE = "armour held at the end of the buy time, regardless of weapon"
 
-#: Montako tuntematonta nimeä tulostetaan enintään. Jos demoparser2 muuttaa
-#: nimeämistapaansa, **jokainen** nimi on tuntematon: ilman katkaisua rivi
-#: olisi satojen nimien mittainen juuri silloin, kun käyttäjän pitäisi nähdä
-#: yhdellä silmäyksellä että jokin on pahasti pielessä.
+#: How many unknown names are printed at most. If demoparser2 changes the way
+#: it names things, **every** name is unknown: without the truncation the row
+#: would be hundreds of names long at exactly the moment the user should see
+#: at a glance that something is badly wrong.
 _MAX_UNKNOWN_ITEMS = 20
 
 
 def _player_counter_line(
     label: str, rule: str, distribution: dict | None, missing: int
 ) -> list[str]:
-    """Yhden pelaajalaskurin arvojakauma yhtenä tulosteriviä.
+    """One player counter's value distribution as a single output row.
 
-    Jaettu aseistettujen ja panssaroitujen kesken samasta syystä kuin
-    ``stages.parse``in ``_column_distribution``: rivien **ero** on se, mitä
-    lukija tulosteesta lukee, ja kaksi kopiota latoisi ne ennen pitkää eri
-    tavalla -- toinen kertoisi puuttuvista havainnoista ja toinen vaikenisi.
+    Shared between the armed and the armoured counters for the same reason as
+    ``stages.parse``'s ``_column_distribution``: the **difference** between the
+    rows is what the reader reads out of the output, and two copies would
+    before long lay them out differently -- one reporting missing observations
+    and the other keeping quiet.
 
-    **Jakauma eikä ääripäät**: 41 riviä nollaa ja yksi viitonen antaisi
-    ``0-5``, joka näyttää terveeltä, mutta ``0 -> 41, 5 -> 1`` ei.
+    **A distribution and not the extremes**: 41 rows of zero and a single five
+    would give ``0-5``, which looks healthy, but ``0 -> 41, 5 -> 1`` does not.
 
     Args:
-        label: Rivin otsikko.
-        rule: Sääntö, jolla luku on laskettu. Aina mukana: kaksi lähes
-            samannimistä riviä peräkkäin luetaan väärin ilman sitä.
-        distribution: Arvo -> rivien määrä, tai ``None`` jos lukua ei ole
-            (ohitettu ajo vanhalla portilla). Rivi jätetään silloin pois.
-        missing: Rivit, joilta havainto puuttuu.
+        label: The row's label.
+        rule: The rule by which the number was counted. Always included: two
+            rows with nearly the same name in succession are read wrongly
+            without it.
+        distribution: Value -> number of rows, or ``None`` if there is no
+            count (a skipped run with an old port). The row is then left out.
+        missing: The rows that have no observation.
 
     Returns:
-        Nolla tai yksi riviä.
+        Zero or one rows.
     """
     if distribution is None:
         return []
     prefix = f"{rule}; "
     if not distribution:
-        return [_line(label, f"{prefix}ei yhtään havaintoa ({missing} riviä)")]
+        return [_line(label, f"{prefix}no observations at all ({missing} rows)")]
     spread = ", ".join(
-        f"{value} -> {rows} riviä" for value, rows in sorted(distribution.items())
+        f"{value} -> {rows} rows" for value, rows in sorted(distribution.items())
     )
     text = f"{prefix}{spread}"
     if missing:
-        text += f"; havainto puuttuu {missing} riviltä"
+        text += f"; the observation is missing from {missing} rows"
     return [_line(label, text)]
 
 
 def _armed_players(stats: dict) -> list[str]:
-    """Kalustolaskurin arvojakauma ``parse``-tulosteeseen.
+    """The equipment counter's value distribution for the ``parse`` output.
 
-    Laskuri on havainto, jonka voi tarkistaa vain katsomalla: väärä sääntö
-    tuottaisi taulun, joka läpäisee jokaisen skeematarkistuksen.
+    The counter is an observation that can be checked only by looking: a wrong
+    rule would produce a table that passes every schema check.
 
-    Tuntemattomat tavaraluettelon nimet saavat oman rivinsä. Ne eivät aseista
-    ketään (luokittelu on sallittujen aseiden luettelo), joten ilman riviä uusi
-    ase ja uusi veitsiskini näyttäisivät täsmälleen samalta: jakauma vain
-    valuisi hiljaa alaspäin.
+    Unknown inventory names get a row of their own. They arm nobody (the
+    classification is a list of allowed weapons), so without the row a new
+    weapon and a new knife skin would look exactly alike: the distribution
+    would simply drift quietly downwards.
     """
     return _player_counter_line(
-        "Aseistettuja",
+        "Armed",
         _ARMED_RULE,
         stats.get("armed_distribution"),
         int(stats.get("armed_missing", 0) or 0),
@@ -1801,22 +1859,23 @@ def _armed_players(stats: dict) -> list[str]:
 
 
 def _armored_players(stats: dict) -> list[str]:
-    """Panssarilaskurin arvojakauma ``parse``-tulosteeseen.
+    """The armour counter's value distribution for the ``parse`` output.
 
-    Oma rivinsä aseistettujen rivin alla, ei sen jatke. Ne ovat eri havaintoja
-    ja eroavat eniten pistoolikierroksella, jolla aseistettuja on käytännössä
-    0: juuri siitä erosta tavoiteanalyysin *"5 kevlaria"* luetaan. Yhdistetty
-    rivi peittäisi eron, jonka takia laskureita on kaksi.
+    A row of its own beneath the armed row, not a continuation of it. They are
+    different observations and differ most on a pistol round, where the armed
+    count is in practice 0: it is exactly that difference the target analysis'
+    *"5 kevlars"* is read from. A combined row would hide the difference the
+    two counters exist for.
 
-    Rivi toimii myös itsetarkistuksena ajon yhteydessä: jos jakauma on
-    identtinen aseistettujen jakauman kanssa, panssarilaskuri lukee väärää
-    ehtoa -- ja se näkyy tässä eikä vasta raportissa.
+    The row also works as a self-check during a run: if the distribution is
+    identical to the armed distribution, the armour counter is reading the
+    wrong condition -- and that shows here rather than only in the report.
 
-    Tuntemattomia esineitä ei tulosteta tässä: panssarilaskuri ei lue
-    tavaraluetteloa, joten esinenimet eivät voi vaikuttaa siihen.
+    Unknown items are not printed here: the armour counter does not read the
+    inventory, so item names cannot affect it.
     """
     return _player_counter_line(
-        "Panssaroituja",
+        "Armoured",
         _ARMORED_RULE,
         stats.get("armored_distribution"),
         int(stats.get("armored_missing", 0) or 0),
@@ -1824,22 +1883,24 @@ def _armored_players(stats: dict) -> list[str]:
 
 
 def _match_restarts(stats: dict) -> list[str]:
-    """Ottelun uudelleenaloitukset ``parse``-tulosteeseen.
+    """The match restarts for the ``parse`` output.
 
-    Uudelleenaloitus ei ole kierros: se ei päädy tauluun lainkaan, joten se
-    **ei sisälly** ohitettujen kierrosten lukuun. Oma rivinsä siis, muuten
-    kaksi riviä laskisi saman asian tai pudotus jäisi hiljaiseksi.
+    A restart is not a round: it does not reach the table at all, so it **is
+    not included** in the count of skipped rounds. A row of its own, then --
+    otherwise two rows would count the same thing or the drop would stay
+    silent.
 
-    Kolme tilaa pidetään erillään samoin kuin :func:`_armed_unknown_items`issa:
+    Three states are kept apart, as in :func:`_armed_unknown_items`:
 
-    ``match_restarts`` puuttuu
-        Ohitettu ajo. Uudelleenaloitus ei ole tauluissa, joten sen määrää ei
-        voi lukea valmiista tuloksesta. Rivi jätetään pois kokonaan.
-    arvo on ``None``
-        Tuore ajo portilla, joka ei raportoi uudelleenaloituksia. "Ei yhtään"
-        olisi väite, jota mikään ei tue.
-    arvo on luku
-        Tuore ajo, jossa portti kertoi luvun. Myös nolla sanotaan ääneen.
+    ``match_restarts`` is missing
+        A skipped run. A restart is not in the tables, so its number cannot be
+        read out of a finished result. The row is left out entirely.
+    the value is ``None``
+        A fresh run with a port that does not report restarts. "None at all"
+        would be a claim nothing supports.
+    the value is a number
+        A fresh run where the port gave the number. A zero is said out loud
+        too.
     """
     if "match_restarts" not in stats:
         return []
@@ -1847,42 +1908,42 @@ def _match_restarts(stats: dict) -> list[str]:
     if value is None:
         return [
             _line(
-                "Uudelleenaloitukset",
-                "ei tiedossa (demoportti ei raportoi uudelleenaloituksia)",
+                "Match restarts",
+                "not known (the demo port does not report restarts)",
             )
         ]
     count = int(value)
     if not count:
-        return [_line("Uudelleenaloitukset", "ei yhtään")]
-    # Yksikkö taipuu: "1 kierrosraja", "2 kierrosrajaa".
-    boundaries = "kierrosraja" if count == 1 else "kierrosrajaa"
+        return [_line("Match restarts", "none at all")]
+    # The noun inflects: "1 round boundary", "2 round boundaries".
+    boundaries = "round boundary" if count == 1 else "round boundaries"
     return [
         _line(
-            "Uudelleenaloitukset",
-            f"{count} {boundaries} ilman demon omaa numeroa "
-            "-- ei kierros, ei riviä tauluun",
+            "Match restarts",
+            f"{count} {boundaries} with no number of the demo's own "
+            "-- not a round, not a row in the table",
         )
     ]
 
 
 def _armed_unknown_items(stats: dict) -> list[str]:
-    """Tavaraluettelon nimet, joita aseluokittelu ei tunne.
+    """The inventory names the weapon classification does not recognise.
 
-    Kolme eri tilaa, jotka on pidettävä erillään:
+    Three different states that have to be kept apart:
 
-    ``armed_unknown_items`` puuttuu
-        Ohitettu ajo. Nimiä ei ole taulussa -- ne eivät aseista ketään --
-        joten niitä ei voi lukea takaisin. Rivi jätetään pois kokonaan.
-    arvo on ``None``
-        Tuore ajo portilla, joka ei raportoi tuntemattomia. Rivi sanoo sen
-        ääneen: "ei yhtään" olisi väite, jota mikään ei tue.
-    arvo on tyhjä
-        Tuore ajo, jossa jokainen nimi tunnistettiin. Se on terve tulos, ja
-        se sanotaan ääneen.
+    ``armed_unknown_items`` is missing
+        A skipped run. The names are not in the table -- they arm nobody --
+        so they cannot be read back. The row is left out entirely.
+    the value is ``None``
+        A fresh run with a port that does not report unknowns. The row says so
+        out loud: "none at all" would be a claim nothing supports.
+    the value is empty
+        A fresh run in which every name was recognised. That is a healthy
+        result, and it is said out loud.
 
-    Esiintymämäärä tulostetaan nimen perässä (``Uusi Ase x3``): se erottaa
-    yhden eksoottisen veitsen demoparser2:n nimeämismuutoksesta, joka osuu
-    joka riviin.
+    The number of occurrences is printed after the name (``New Weapon x3``):
+    it tells one exotic knife apart from a demoparser2 naming change, which
+    hits every row.
     """
     if "armed_unknown_items" not in stats:
         return []
@@ -1890,33 +1951,34 @@ def _armed_unknown_items(stats: dict) -> list[str]:
     if items is None:
         return [
             _line(
-                "Tuntemattomat esineet",
-                "ei tiedossa (demoportti ei raportoi tuntemattomia nimiä)",
+                "Unknown items",
+                "not known (the demo port does not report unknown names)",
             )
         ]
     items = tuple(items)
     if not items:
-        return [_line("Tuntemattomat esineet", "ei yhtään")]
+        return [_line("Unknown items", "none at all")]
 
     shown = items[:_MAX_UNKNOWN_ITEMS]
     listed = ", ".join(_unknown_item(item) for item in shown)
     hidden = len(items) - len(shown)
     if hidden:
-        listed += f" (+{hidden} muuta)"
+        listed += f" (+{hidden} more)"
     count = (
-        "1 esinenimi" if len(items) == 1 else f"{len(items)} eri esinenimeä"
+        "1 item name" if len(items) == 1 else f"{len(items)} different item names"
     )
     return [
         _line(
-            "Tuntemattomat esineet",
+            "Unknown items",
             f"{count}: {listed} "
-            "(ei laskettu aseeksi -- lisää tunnistettu ase constants.py:hyn)",
+            "(not counted as a weapon -- add a recognised weapon to "
+            "constants.py)",
         )
     ]
 
 
 def _unknown_item(item: object) -> str:
-    """Muotoile yksi tuntematon nimi esiintymämäärineen."""
+    """Format one unknown name with its number of occurrences."""
     if isinstance(item, (tuple, list)) and len(item) == 2:
         name, seen = item
         return f"{name} x{int(seen)}"
@@ -1924,17 +1986,18 @@ def _unknown_item(item: object) -> str:
 
 
 def _sample_points(stats: dict, rounds: int) -> list[str]:
-    """Näytepisteiden ja ensikontaktien rivit ``parse``-tulosteeseen.
+    """The sample point and first contact rows for the ``parse`` output.
 
-    Ilman näitä käyttäjä ei näe, syntyikö asetelmadata lainkaan: kierrosluku
-    näyttäisi samalta myös silloin, kun ``ticks.parquet`` on tyhjä. Nolla on
-    siksi yhtä tärkeä kertoa kuin suuri luku, ja se sanotaan ääneen.
+    Without these the user cannot see whether any positional data came into
+    being at all: the round count would look the same when ``ticks.parquet``
+    is empty. A zero is therefore as important to report as a large number,
+    and it is said out loud.
     """
     if "ticks_unreadable" in stats:
         return [
             _line(
-                "Näytepisteet",
-                f"lukuja ei saatu ({stats['ticks_unreadable']})",
+                "Sample points",
+                f"no counts obtained ({stats['ticks_unreadable']})",
             )
         ]
     if "tick_rows" not in stats:
@@ -1948,61 +2011,66 @@ def _sample_points(stats: dict, rounds: int) -> list[str]:
     if points:
         lines.append(
             _line(
-                "Näytepisteet",
-                f"{points} ({sampled_rounds}/{rounds} kierroksella, "
-                f"rivejä {tick_rows})",
+                "Sample points",
+                f"{points} (in {sampled_rounds}/{rounds} rounds, "
+                f"{tick_rows} rows)",
             )
         )
     else:
         lines.append(
             _line(
-                "Näytepisteet",
-                "0 -- asetelmadataa ei syntynyt",
+                "Sample points",
+                "0 -- no positional data came into being",
             )
         )
 
-    # Kierros ilman yhtään näytepistettä voi johtua neljästä syystä: ankkuri
-    # puuttuu, kierros ratkesi ennen ensimmäistä näytepistettä, näytepisteajat
-    # ovat väärin, tai jokainen pelaajarivi oli pawniton (Story 2.10) --
-    # viimeinen näkyy omalla rivillään alempana. Erotus kerrotaan, syytä ei
-    # arvata; neljäs mainitaan vain kun se on mitattu, jotta selitys ei
-    # luettele syytä jota tässä ajossa ei ollut.
+    # A round with no sample point at all can have four causes: the anchor is
+    # missing, the round was decided before the first sample point, the sample
+    # point times are wrong, or every player row was without a pawn (Story
+    # 2.10) -- the last one has a row of its own further down. The difference
+    # is reported and the cause is not guessed; the fourth is mentioned only
+    # when it has been measured, so that the explanation does not list a cause
+    # this run did not have.
     without_samples = rounds - sampled_rounds
     if without_samples > 0:
-        reason = "ankkuri puuttuu tai kierros ratkesi ennen ensimmäistä näytepistettä"
+        reason = (
+            "the anchor is missing or the round was decided before the first "
+            "sample point"
+        )
         if int(stats.get("sample_points_without_pawn") or 0):
-            reason += "; ks. myös Pawniton pelaaja"
+            reason += "; see also Player without a pawn"
         lines.append(
-            _line("Ilman näytepistettä", f"{without_samples} kierrosta ({reason})")
+            _line("No sample point", f"{without_samples} rounds ({reason})")
         )
 
     contacts = int(stats.get("first_contact_rounds", 0) or 0)
     if contacts:
-        lines.append(_line("Ensikontaktit", f"{contacts}/{rounds} kierroksella"))
+        lines.append(_line("First contacts", f"{contacts}/{rounds} rounds"))
     else:
         lines.append(
             _line(
-                "Ensikontaktit",
-                "0 -- yhdeltäkään kierrokselta ei löytynyt ristiinpuolista osumaa",
+                "First contacts",
+                "0 -- not one round yielded a cross-side hit",
             )
         )
 
-    # Adapterin omat havainnot: näitä ei voi laskea valmiista taulusta.
+    # The adapter's own observations: these cannot be computed from a finished
+    # table.
     #
-    # Kaksi riviä, jotka kertovat osin samasta tapahtumasta: pawniton pelaaja
-    # on **yksi syy** vajaaseen näytepisteeseen. Ne eivät silti yhdisty
-    # yhdeksi luvuksi -- vajaita pisteitä on muistakin syistä, ja pawnittomia
-    # rivejä on myös heittotickeiltä, jotka eivät ole näytepisteitä lainkaan.
-    # Kytkentä sanotaan siis ääneen sen sijaan että lukija laskisi saman
-    # tapahtuman kahdesti.
+    # Two rows that report partly the same event: a player without a pawn is
+    # **one cause** of a partial sample point. They still do not merge into
+    # one number -- there are partial points for other reasons too, and there
+    # are pawnless rows on throw ticks as well, which are not sample points at
+    # all. The connection is therefore said out loud rather than leaving the
+    # reader to count the same event twice.
     without_pawn = int(stats.get("sample_rows_without_pawn") or 0)
     partial = int(stats.get("partial_samples", 0) or 0)
     if partial:
-        cause = " -- pawnittomat rivit alla ovat yksi syy" if without_pawn else ""
+        cause = " -- the pawnless rows below are one cause" if without_pawn else ""
         lines.append(
             _line(
-                "Vajaat näytepisteet",
-                f"{partial} (pelaajia vähemmän kuin täydellä pisteellä{cause})",
+                "Partial sample points",
+                f"{partial} (fewer players than at a full point{cause})",
             )
         )
     lines.extend(_pawnless(stats))
@@ -2010,39 +2078,40 @@ def _sample_points(stats: dict, rounds: int) -> list[str]:
     if unknown:
         lines.append(
             _line(
-                "Puoli tuntematon",
-                f"{unknown} vahinkotapahtumaa ohitettiin ensikontaktia "
-                "etsittäessä",
+                "Side unknown",
+                f"{unknown} damage events were skipped while looking for the "
+                "first contact",
             )
         )
     return lines
 
 
 def _pawnless(stats: dict) -> list[str]:
-    """Pawnittomat rivit ``parse``-tulosteeseen (Story 2.10).
+    """The pawnless rows for the ``parse`` output (Story 2.10).
 
-    Pawniton pelaaja on **havainto eikä vika**: hänen kontrollerinsa on
-    tallella mutta hahmoaan ei ole kartalla, joten rivi ohitetaan kuten
-    katsojan. Se pienentää silti sen kierroksen asetelmaa, ja ilman omaa
-    riviään kierros näyttäisi siltä, että joukkue vain pelasi vajaalla.
+    A player without a pawn is **an observation and not a fault**: their
+    controller is there but their character is not on the map, so the row is
+    skipped like a spectator's. It still shrinks that round's setup, and
+    without a row of its own the round would look as if the team had simply
+    played a man down.
 
-    Kolme tilaa pidetään erillään samoin kuin
-    :func:`_match_restarts`issa, ja tässä ero on koko rivin olemassaolon syy:
+    Three states are kept apart, as in :func:`_match_restarts`, and here the
+    difference is the whole reason the row exists:
 
-    avain puuttuu
-        Ohitettu ajo. Riviä ei ole taulussa eikä pistettä sen
-        näytepisteissä, joten lukua ei voi lukea valmiista tuloksesta. Rivi
-        jätetään pois kokonaan.
-    arvo on ``None``
-        Tuore ajo portilla, joka ei raportoi pawnittomia rivejä. Rivi sanoo
-        sen ääneen -- "ei yhtään" olisi väite, jota mikään ei tue.
-    arvo on nolla
-        Tuore ajo, jossa jokaisella pelaajalla oli hahmo. Terve tulos, ja
-        rivi jätetään pois kuten muillakin poikkeamalaskureilla.
+    the key is missing
+        A skipped run. The row is not in the table and the point is not among
+        its sample points, so the number cannot be read out of a finished
+        result. The row is left out entirely.
+    the value is ``None``
+        A fresh run with a port that does not report pawnless rows. The row
+        says so out loud -- "none at all" would be a claim nothing supports.
+    the value is zero
+        A fresh run in which every player had a character. A healthy result,
+        and the row is left out as with the other anomaly counters.
 
-    **Kokonaan väliin jäänyt näytepiste** saa saman rivin jatkoksi eikä omaa
-    riviään: se on saman ilmiön vakavampi muoto, ja erilliset rivit
-    houkuttelisivat lukemaan ne kahdeksi eri tapahtumaksi.
+    **A sample point missed entirely** is appended to the same row rather than
+    getting one of its own: it is a graver form of the same phenomenon, and
+    separate rows would invite reading them as two different events.
     """
     if "sample_rows_without_pawn" not in stats:
         return []
@@ -2050,59 +2119,63 @@ def _pawnless(stats: dict) -> list[str]:
     if rows is None:
         return [
             _line(
-                "Pawniton pelaaja",
-                "ei tiedossa (demoportti ei raportoi pawnittomia rivejä)",
+                "Player without a pawn",
+                "not known (the demo port does not report pawnless rows)",
             )
         ]
     count = int(rows)
     if not count:
         return []
     value = (
-        f"{count} riviä ohitettiin (kontrolleri tallella, hahmoa ei kartalla)"
+        f"{count} rows were skipped (the controller is there, the character "
+        "is not on the map)"
     )
     dropped = int(stats.get("sample_points_without_pawn") or 0)
     if dropped:
-        value += f"; {dropped} näytepistettä jäi kokonaan väliin"
-    return [_line("Pawniton pelaaja", value)]
+        value += f"; {dropped} of the sample points went missing entirely"
+    return [_line("Player without a pawn", value)]
 
 
 def _deaths(stats: dict, rounds: int) -> list[str]:
-    """Kuolemataulun rivit ``parse``-tulosteeseen (Story 2.7).
+    """The deaths table's rows for the ``parse`` output (Story 2.7).
 
-    Kolme kysymystä, joihin tuloste vastaa:
+    Three questions the output answers:
 
-    **Syntyikö aineistoa.** Rivimäärä ja se, monellako kierroksella kuoltiin.
-    Jälkimmäinen on mukana siksi, että pelkkä rivimäärä ei paljastaisi, jos
-    kaikki kuolemat kasautuisivat yhdelle kierrokselle.
+    **Whether any data came into being.** The row count and how many rounds
+    had a death in them. The latter is there because the row count alone would
+    not reveal it if every death piled up in a single round.
 
-    **Katosiko jotain.** Numeroimattomat kierrokset (puukkokierros), tickitön
-    kuolema, rajojen ulkopuoliset kuolemat, uhriton tapahtuma ja puoleton uhri
-    ovat eri syitä eivätkä saa niputtua yhdeksi. Ensimmäinen on **odotettu**
-    liigademossa -- siellä puukkokierroksella kuollaan -- ja loput ovat
-    nollia tavoitetilassa.
+    **Whether anything went missing.** Unnumbered rounds (the knife round), a
+    death with no tick, deaths outside the bounds, an event with no victim and
+    a victim with no side are different causes and must not be lumped into
+    one. The first is **expected** in a league demo -- players die on the
+    knife round there -- and the rest are zeros in the target state.
 
-    **Onko havainto ehjä.** Ampujaton kuolema on havainto (putoaminen,
-    pommi), puuttuva alue ei ole. Ne ovat siksi eri riveillä: yhteinen luku
-    näyttäisi aluevialta, jota ei ole.
+    **Whether the observation is intact.** A death with no attacker is an
+    observation (a fall, the bomb), a missing area is not. They are therefore
+    on different rows: a shared number would look like an area fault that does
+    not exist.
     """
     if "deaths_unreadable" in stats:
-        return [_line("Kuolemat", f"lukuja ei saatu ({stats['deaths_unreadable']})")]
+        return [
+            _line("Deaths", f"no counts obtained ({stats['deaths_unreadable']})")
+        ]
     if "death_rows" not in stats:
         return []
 
     rows = int(stats["death_rows"])
     death_rounds = int(stats.get("death_rounds", 0) or 0)
-    lines = [_line("Kuolemat", f"{rows} ({death_rounds}/{rounds} kierroksella)")]
+    lines = [_line("Deaths", f"{rows} (in {death_rounds}/{rounds} rounds)")]
 
-    # Puukkokierroksen kuolemat: odotettu luku, ei vika. Ilman sitä pudotus
-    # olisi hiljainen -- ja juuri se pudotus on tämän taulun ainoa
-    # puukkokierrossääntö.
+    # The knife round's deaths: an expected number, not a fault. Without it
+    # the drop would be silent -- and that drop is this table's only
+    # knife-round rule.
     unnumbered = int(stats.get("deaths_unnumbered_rounds", 0) or 0)
     if unnumbered:
         lines.append(
             _line(
-                "Numeroimattomilta",
-                f"{unnumbered} kuolemaa (warmup ja puukkokierros)",
+                "From unnumbered",
+                f"{unnumbered} deaths (warmup and the knife round)",
             )
         )
 
@@ -2110,46 +2183,47 @@ def _deaths(stats: dict, rounds: int) -> list[str]:
     if without_attacker:
         lines.append(
             _line(
-                "Ampujaton kuolema",
-                f"{without_attacker} (putoaminen tai pommi; havainto eikä vika)",
+                "No attacker",
+                f"{without_attacker} (a fall or the bomb; an observation and "
+                "not a fault)",
             )
         )
 
     for key, label in (
-        ("deaths_without_victim_area", "Uhri ilman aluetta"),
-        ("deaths_without_attacker_area", "Ampuja ilman aluetta"),
+        ("deaths_without_victim_area", "Victim without area"),
+        ("deaths_without_attacker_area", "Attacker without area"),
     ):
         count = int(stats.get(key, 0) or 0)
         if count:
             lines.append(
-                _line(label, f"{count} riviä (koordinaatit silti tallessa)")
+                _line(label, f"{count} rows (the coordinates are still there)")
             )
 
     for key, label, detail in (
         (
             "deaths_without_tick",
-            "Kuolema ilman tickiä",
-            "rivi pudotettiin: ilman tickiä kierrosta eikä t_s:ää ole",
+            "Death without a tick",
+            "the row was dropped: without a tick there is no round and no t_s",
         ),
         (
             "deaths_outside_rounds",
-            "Kierrosten välissä",
-            "ei kuulu millekään kierrokselle, joten t_s:ää ei ole",
+            "Between rounds",
+            "does not belong to any round, so there is no t_s",
         ),
         (
             "deaths_without_victim",
-            "Kuolema ilman uhria",
-            "rivi pudotettiin: tapahtumalta puuttui user_steamid",
+            "Death without victim",
+            "the row was dropped: the event had no user_steamid",
         ),
         (
             "deaths_without_victim_side",
-            "Uhri ilman puolta",
-            "rivi pudotettiin: kuolema ei kuulu kummallekaan joukkueelle",
+            "Victim without side",
+            "the row was dropped: the death belongs to neither team",
         ),
         (
             "deaths_attacker_without_side",
-            "Ampuja ilman puolta",
-            "rivi säilyi, ampujan kokoonpano jäi tyhjäksi",
+            "Attacker without side",
+            "the row survived, the attacker's lineup was left empty",
         ),
     ):
         count = int(stats.get(key, 0) or 0)
@@ -2160,79 +2234,84 @@ def _deaths(stats: dict, rounds: int) -> list[str]:
 
 
 def _lineups(stats: dict) -> list[str]:
-    """Kokoonpanotaulun rivit ``parse``-tulosteeseen (Story 2.6).
+    """The lineup table's rows for the ``parse`` output (Story 2.6).
 
-    Rivi **per kokoonpano**, ei yhteislukuja: demo sisältää molempien
-    joukkueiden pelaajat, joten yhteinen klaaniluettelo on epätyhjä heti kun
-    vastustajalla on nimi eikä siis kerro subjektijoukkueesta mitään. Sama
-    koskee nimettömiä pelaajia.
+    A row **per lineup**, not joint counts: the demo holds both teams'
+    players, so a shared clan listing is non-empty as soon as the opponent has
+    a name and therefore says nothing about the subject team. The same goes
+    for players without a name.
 
-    Jokaisella rivillä on ``lineup_key``, koska käyttäjän seuraava komento on
-    ``classify --team <lineup_key>``: nimi kertoo kenestä on kyse, tunniste
-    kertoo mitä komentoriville kirjoitetaan.
+    Every row carries the ``lineup_key``, because the user's next command is
+    ``classify --team <lineup_key>``: the name says who is meant, the id says
+    what to type on the command line.
     """
     if "lineups_unreadable" in stats:
         return [
-            _line("Kokoonpanot", f"lukuja ei saatu ({stats['lineups_unreadable']})")
+            _line("Lineups", f"no counts obtained ({stats['lineups_unreadable']})")
         ]
     if "lineup_rows" not in stats:
         return []
 
-    # Avain on tarkistettu yllä, joten oletusarvoa ei tarvita: se peittäisi
-    # tuottajan ja kuluttajan erkaantumisen nollana.
+    # The key is checked above, so no default is needed: it would mask a drift
+    # between the producer and the consumer as a zero.
     rows = int(stats["lineup_rows"])
     lineups = tuple(stats.get("lineups") or ())
-    lines = [_line("Kokoonpanot", f"{rows} pelaajariviä")]
+    lines = [_line("Lineups", f"{rows} player rows")]
     for key, clan, players, without_name in lineups:
-        name = str(clan) if clan else "klaaninimeä ei havaittu"
-        detail = f"{name} ({key}) -- {int(players)} pelaajaa"
+        name = str(clan) if clan else "no clan name was observed"
+        detail = f"{name} ({key}) -- {int(players)} players"
         if int(without_name):
             detail += (
-                f", {int(without_name)} ilman nimeä (raportti näyttää heille "
-                "SteamID64:n)"
+                f", {int(without_name)} without a name (the report shows them "
+                "their SteamID64)"
             )
-        lines.append(_line("Kokoonpano", detail))
+        lines.append(_line("Lineup", detail))
 
     lines.extend(_lineup_conflicts(stats))
     return lines
 
 
 def _lineup_conflicts(stats: dict) -> list[str]:
-    """Pelaajat, joilla havaittiin useampi nimi tai klaani samalla kartalla.
+    """The players observed with more than one name or clan on the same map.
 
-    Nolla on koko kokoonpanotaulun perusoletus: nimi on kartan ominaisuus eikä
-    kierroksen, ja klaani seuraa pelaajaa eikä puolta. Taulu kirjoittaa moodin,
-    joten rikkoutunut oletus näyttäisi siellä ehjältä -- tämä luku on ainoa
-    paikka, jossa se näkyy. Nollaa ei tulosteta, koska se on odotusarvo.
+    Zero is the whole lineup table's base assumption: the name is a property
+    of the map and not of the round, and the clan follows the player and not
+    the side. The table writes the mode, so a broken assumption would look
+    intact there -- this number is the only place it shows. A zero is not
+    printed, because it is the expected value.
     """
     lines: list[str] = []
     for key, label in (
-        ("lineup_clan_conflicts", "Klaani vaihtui kesken"),
-        ("lineup_name_conflicts", "Nimi vaihtui kesken"),
+        ("lineup_clan_conflicts", "Clan changed mid-map"),
+        ("lineup_name_conflicts", "Name changed mid-map"),
     ):
         count = int(stats.get(key, 0) or 0)
         if count:
             lines.append(
                 _line(
                     label,
-                    f"{count} pelaajalla oli useampi havainto samalla kartalla "
-                    "-- tauluun kirjattiin useimmin havaittu",
+                    f"{count} of the players had more than one observation on "
+                    "the same map -- the most frequently observed one was "
+                    "written into the table",
                 )
             )
     return lines
 
 
 def _utility(stats: dict, rounds: int) -> list[str]:
-    """Utility-tapahtumien rivit ``parse``-tulosteeseen.
+    """The utility events' rows for the ``parse`` output.
 
-    Neljä kysymystä, neljä lukua: **syntyikö** utilitydataa (heitot),
-    **päättyikö** rata (räjähdykset), **osuiko** aluepäättely ja **katosiko**
-    matkalla mitään. Nolla heittoa on kelvollinen tulos -- demossa on voitu
-    jättää utility heittämättä -- mutta se sanotaan ääneen, koska kierrosluku
-    näyttäisi muuten samalta myös rikkoutuneella lukemisella.
+    Four questions, four numbers: **did** utility data come into being
+    (throws), **did** the trajectory end (detonations), **did** the area
+    reasoning land, and **did** anything go missing on the way. Zero throws is
+    a valid result -- a demo may have had no utility thrown in it -- but it is
+    said out loud, because the round count would otherwise look the same with
+    a broken read.
     """
     if "events_unreadable" in stats:
-        return [_line("Utility", f"lukuja ei saatu ({stats['events_unreadable']})")]
+        return [
+            _line("Utility", f"no counts obtained ({stats['events_unreadable']})")
+        ]
     if "event_rows" not in stats:
         return []
 
@@ -2245,81 +2324,86 @@ def _utility(stats: dict, rounds: int) -> list[str]:
         lines.append(
             _line(
                 "Utility",
-                f"{throws} heittoa, {detonations} räjähdystä "
-                f"({utility_rounds}/{rounds} kierroksella)",
+                f"{throws} throws, {detonations} detonations "
+                f"(in {utility_rounds}/{rounds} rounds)",
             )
         )
     else:
-        lines.append(_line("Utility", "0 heittoa -- utilitydataa ei syntynyt"))
+        lines.append(_line("Utility", "0 throws -- no utility data came into being"))
 
-    # Räjähtämätön kranaatti on normaali (pelaaja kuolee heitto kädessä), mutta
-    # suuri erotus tarkoittaisi, ettei radan loppua tunnisteta. Toiseen suuntaan
-    # se on mahdoton: räjähdys syntyy vain heiton parina, joten negatiivinen
-    # erotus on vika eikä havainto -- eikä sitä tulosteta miinusmerkkisenä
-    # "puuttuvien" lukuna.
+    # A grenade that does not detonate is normal (the player dies with the
+    # throw in hand), but a large difference would mean the end of the
+    # trajectory is not recognised. The other way round it is impossible: a
+    # detonation comes into being only as a throw's pair, so a negative
+    # difference is a fault and not an observation -- and it is not printed as
+    # a negative count of "missing" ones.
     if detonations > throws:
         lines.append(
             _line(
-                "Räjähdyksiä liikaa",
-                f"{detonations - throws} enemmän kuin heittoja -- "
-                "utility-taulu on epäjohdonmukainen",
+                "Too many detonations",
+                f"{detonations - throws} more than there were throws -- "
+                "the utility table is inconsistent",
             )
         )
     elif throws > detonations:
-        lines.append(_line("Ilman räjähdystä", f"{throws - detonations} kranaattia"))
+        lines.append(
+            _line("Without a detonation", f"{throws - detonations} grenades")
+        )
 
     if throws:
         lines.extend(_utility_areas(stats))
 
-    # Adapterin ja vaiheen omat havainnot: pudotettua kranaattia ei näe
-    # valmiista taulusta. Otsikot mahtuvat _PARSE_LABEL_WIDTHiin, jotta
-    # arvosarake pysyy suorassa.
+    # The adapter's and the stage's own observations: a dropped grenade cannot
+    # be seen in a finished table. The labels fit within _PARSE_LABEL_WIDTH so
+    # that the value column stays straight.
     for key, label, description in (
         (
             "grenades_without_thrower",
-            "Ilman heittäjää",
-            "lentorataa ohitettiin",
+            "Without a thrower",
+            "trajectories were skipped",
         ),
         (
             "grenades_outside_rounds",
-            "Ilman kierrosta",
-            "kranaattia (lämmittely tai kierroksen ratkeamisen jälkeen)",
+            "Without a round",
+            "grenades (warmup or after the round was decided)",
         ),
         (
             "utility_unnumbered_rounds",
-            "Ei kierrosnumeroa",
-            "heittoa numeroimattomilta kierroksilta (warmup, puukkokierros)",
+            "No round number",
+            "throws from unnumbered rounds (warmup, the knife round)",
         ),
         (
             "grenades_unknown_side",
-            "Ilman puolta",
-            "kranaattia ohitettiin (heittäjän joukkue ei ratkennut)",
+            "Without a side",
+            "grenades were skipped (the thrower's team was not resolved)",
         ),
         (
             "grenades_unknown_type",
-            "Tuntematon tyyppi",
-            "kranaattia -- demoparser2:n luokkanimi ei ole listalla",
+            "Unknown type",
+            "grenades -- demoparser2's class name is not on the list",
         ),
         (
             "grenades_fire_type_unresolved",
-            "Tulityyppi auki",
-            "kranaattia jäi molotoviksi (incendiary-erottelu ei ratkennut)",
+            "Fire type unresolved",
+            "grenades were left as molotovs (the incendiary distinction was "
+            "not resolved)",
         ),
         (
             "grenades_detonating_after_round",
-            "Räjähdys myöhässä",
-            "kierroksen päättymisen jälkeen (havainto -- alue tulee "
-            "pistepilvestä kuten muillakin)",
+            "Late detonation",
+            "after the round ended (an observation -- the area comes from the "
+            "point cloud as it does for the others)",
         ),
         (
             "grenade_ticks_without_players",
-            "Tickillä ei rivejä",
-            "heittoa ilman pelaajarivejä -- heittäjän aluetta ei voitu yrittää",
+            "No rows on the tick",
+            "throws with no player rows -- the thrower's area could not even "
+            "be attempted",
         ),
         (
             "grenades_sharing_an_entity_id",
-            "Jaettu tunniste",
-            "kranaattia jakaa pelin tunnisteen kierroksella (havainto)",
+            "Shared id",
+            "grenades share the game's id within a round (an observation)",
         ),
     ):
         count = int(stats.get(key, 0) or 0)
@@ -2329,44 +2413,48 @@ def _utility(stats: dict, rounds: int) -> list[str]:
 
 
 def _utility_areas(stats: dict) -> list[str]:
-    """Alueen lähteet erikseen: havainto, arvio ja puuttuva.
+    """The area's sources separately: observation, estimate and missing.
 
-    Kolme lukua eikä yksi, koska ne ovat eri laatua olevaa tietoa. Heiton alue
-    on heittäjän oma ``m_szLastPlaceName`` eli havainto; räjähdyksen alue on
-    pistepilven lähimmästä ruudusta johdettu arvio. Yhteen niputettuna
-    raportin lukija luulisi molempia yhtä varmoiksi.
+    Three numbers and not one, because they are information of different
+    quality. A throw's area is the thrower's own ``m_szLastPlaceName``, that
+    is, an observation; a detonation's area is an estimate derived from the
+    nearest cell of the point cloud. Lumped together, the report's reader
+    would take both to be equally certain.
 
-    Kolme lisäriviä ovat Story 2.9:n mittarit, ja ne kerrotaan **joka ajolla**
-    eikä kerran kalibroinnissa:
+    The three extra rows are Story 2.9's measures, and they are reported **on
+    every run** and not once during calibration:
 
-    ``Räjähdysalue``
-        Kattavuus ``n/m`` ja osuus. Se on ainoa luku, joka vastaa
-        kysymykseen "kuinka moni utility-rivi jää ilman aluetta".
-    ``Etäisyys ruutuun``
-        Mediaani, p90 ja suurin. Asetus kertoo kynnyksen; tämä kertoo, mihin
-        mittaus oikeasti osui -- ja suurin luku on se, joka osoittaa miksi
-        kynnys on olemassa.
-    ``Kynnyksen takana``
-        Räjähdykset, joille lähin ruutu löytyi mutta jäi kynnyksen taakse.
-        Se on kynnyksen **hinta**, ja se on eri asia kuin tyhjä pistepilvi:
-        molemmissa alue puuttuu, mutta vain tässä etäisyys on tiedossa. Rivi
-        näkyy vain kun luku on nollasta poikkeava.
+    ``Detonation area``
+        The coverage ``n/m`` and the share. It is the only number that answers
+        the question "how many utility rows are left without an area".
+    ``Distance to a cell``
+        The median, p90 and largest. The setting states the threshold; this
+        states where the measurement actually landed -- and the largest number
+        is the one that shows why the threshold exists.
+    ``Beyond the threshold``
+        The detonations for which a nearest cell was found but fell beyond the
+        threshold. That is the threshold's **price**, and it is a different
+        thing from an empty point cloud: in both the area is missing, but only
+        here is the distance known. The row appears only when the number is
+        non-zero.
 
-    **Rivi ``Heittäjä ilman riviä`` on Story 2.10:n jäljiltä.** Heiton alue
-    on heittäjän oma ``m_szLastPlaceName`` samalta tickiltä, joten ilman
-    hänen riviään alue jää tyhjäksi eikä sitä voi korvata: pistepilvi nimeää
-    räjähdyksiä, ei heittoja. Ennen pawnittoman rivin ohitusta tämä tapaus
-    kaatoi ajon; nyt heitto valuisi ilman omaa riviään hiljaa ylläolevaan
-    ``ilman aluetta`` -lukuun. Rivi näkyy vain kun luku on nollasta
-    poikkeava, ja odotusarvo on nolla.
+    **The ``Thrower without a row`` row is left over from Story 2.10.** A
+    throw's area is the thrower's own ``m_szLastPlaceName`` from the same
+    tick, so without their row the area is left empty and cannot be replaced:
+    the point cloud names detonations, not throws. Before pawnless rows were
+    skipped this case crashed the run; now the throw would drift quietly,
+    without a row of its own, into the ``without an area`` count above. The
+    row appears only when the number is non-zero, and the expected value is
+    zero.
 
-    **Rivi ``Nimetön alue`` poistui Story 2.9:ssä.** Se kertoi tapauksesta
-    "lähin pelaaja löytyi, mutta pelillä ei ole nimeä hänen alueelleen", eikä
-    sitä voi enää syntyä: pistepilveen ei pääse nimetöntä ruutua, joten
-    kynnyksen sisällä osuva räjähdys saa aina nimen. Sen tilalla on
-    ``Kynnyksen takana``, joka vastaa samaan kysymykseen -- "alue puuttui,
-    mutta mittaus onnistui" -- oikealla syyllä. Merkintä on tässä siksi, että
-    kahta ajoa version yli vertaava näkee rivin kadonneen ja saa tietää miksi.
+    **The ``Unnamed area`` row went away in Story 2.9.** It reported the case
+    "the nearest player was found, but the game has no name for their area",
+    and it can no longer come into being: an unnamed cell does not get into
+    the point cloud, so a detonation landing inside the threshold always gets
+    a name. In its place is ``Beyond the threshold``, which answers the same
+    question -- "the area was missing, but the measurement succeeded" -- with
+    the right cause. The note is here so that anyone comparing two runs across
+    versions sees the row has gone and finds out why.
     """
     observed = int(stats.get("utility_area_observed", 0) or 0)
     from_cloud = int(stats.get("utility_area_point_cloud", 0) or 0)
@@ -2374,70 +2462,70 @@ def _utility_areas(stats: dict) -> list[str]:
     without_area = int(stats.get("utility_without_area", 0) or 0)
     lines = [
         _line(
-            "Utilityn alue",
-            f"{observed} havaittua, {from_cloud} pistepilvestä, "
-            f"{without_area} ilman aluetta",
+            "Utility area",
+            f"{observed} observed, {from_cloud} from the point cloud, "
+            f"{without_area} without an area",
         )
     ]
 
     coverage = stats.get("utility_detonation_area_coverage")
     if coverage:
-        # Nimittäjä ei voi olla nolla: vaihe jättää luvun kokonaan pois, jos
-        # räjähdyksiä ei ollut. Sama sääntö kuin muillakin puuttuvilla
-        # avaimilla -- "0/0" olisi väite, jota mikään ei tue.
+        # The denominator cannot be zero: the stage leaves the number out
+        # entirely if there were no detonations. The same rule as with the
+        # other missing keys -- "0/0" would be a claim nothing supports.
         named, total = coverage
         lines.append(
-            _line("Räjähdysalue", f"{named}/{total} nimetty ({named / total:.0%})")
+            _line("Detonation area", f"{named}/{total} named ({named / total:.0%})")
         )
     spread = stats.get("utility_snap_distance")
     if spread:
         median, p90, largest = spread
         lines.append(
             _line(
-                "Etäisyys ruutuun",
-                f"mediaani {median:.0f}, p90 {p90:.0f}, suurin {largest:.0f} "
-                "yksikköä",
+                "Distance to a cell",
+                f"median {median:.0f}, p90 {p90:.0f}, largest {largest:.0f} "
+                "units",
             )
         )
     orphans = int(stats.get("grenade_throwers_without_row") or 0)
     if orphans:
         lines.append(
             _line(
-                "Heittäjä ilman riviä",
-                f"{orphans} heittoa jäi ilman aluetta (heittäjää ei ollut "
-                "heiton tickin riveissä)",
+                "Thrower without a row",
+                f"{orphans} throws were left without an area (the thrower was "
+                "not among the rows of the throw's tick)",
             )
         )
     if beyond:
         lines.append(
             _line(
-                "Kynnyksen takana",
-                f"{beyond} räjähdystä (lähin ruutu löytyi, mutta se on "
-                "kauempana kuin area_snap_units)",
+                "Beyond the threshold",
+                f"{beyond} detonations (a nearest cell was found, but it is "
+                "further away than area_snap_units)",
             )
         )
     return lines
 
 
 def _callouts(stats: dict) -> list[str]:
-    """Pistepilven rivit ``parse``-tulosteeseen.
+    """The point cloud's rows for the ``parse`` output.
 
-    **Alueiden määrä on tärkeämpi kuin ruutujen.** Ruutujen määrä kertoo vain
-    ruudun koon; alueiden määrä kertoo, tunnistiko pilvi kartan. Mitattu
-    2026-08-30: Ancient 18, Nuke 29, Anubis 28, Inferno 24. Yksinumeroinen
-    luku tarkoittaisi, että ``last_place_name`` tulee enimmäkseen tyhjänä --
-    ja silloin jokainen räjähdysalue olisi arvausta.
+    **The number of areas matters more than the number of cells.** The number
+    of cells says only how big a cell is; the number of areas says whether the
+    cloud recognised the map. Measured 2026-08-30: Ancient 18, Nuke 29, Anubis
+    28, Inferno 24. A single-digit number would mean ``last_place_name``
+    arrives mostly empty -- and then every detonation area would be a guess.
 
-    Havainnoista kerrotaan **suhde eikä pelkkä summa**. Osoittaja on taulun
-    oma ``callout_observations`` (kelvolliset rivit) ja nimittäjä
-    diagnostiikan ``callout_cloud_rows_read`` (koko tickiluku); vain
-    jälkimmäistä ei voi lukea valmiista taulusta, joten koko rivi näkyy vain
-    tuoreesta ajosta. Kelvollisten osuus on mitatussa aineistossa 71-78 %, ja
-    romahdus tarkoittaisi rikkinäistä suodatinta.
+    Of the observations a **ratio and not a bare sum** is reported. The
+    numerator is the table's own ``callout_observations`` (the usable rows)
+    and the denominator is the diagnostics' ``callout_cloud_rows_read`` (the
+    whole tick count); only the latter cannot be read from a finished table,
+    so the whole row appears only from a fresh run. The usable share is 71-78
+    % in the measured data, and a collapse would mean a broken filter.
     """
     if "callouts_unreadable" in stats:
         return [
-            _line("Pistepilvi", f"lukuja ei saatu ({stats['callouts_unreadable']})")
+            _line("Point cloud", f"no counts obtained ({stats['callouts_unreadable']})")
         ]
     if "callout_cells" not in stats:
         return []
@@ -2445,63 +2533,63 @@ def _callouts(stats: dict) -> list[str]:
     cells = int(stats.get("callout_cells", 0) or 0)
     areas = int(stats.get("callout_areas", 0) or 0)
     lines = [
-        _line("Pistepilvi", f"{cells} ruutua, {areas} aluetta")
+        _line("Point cloud", f"{cells} cells, {areas} areas")
         if cells
-        else _line("Pistepilvi", "tyhjä -- yhtäkään räjähdysaluetta ei nimetä")
+        else _line("Point cloud", "empty -- not one detonation area is named")
     ]
 
     read = int(stats.get("callout_cloud_rows_read", 0) or 0)
-    # Kelvolliset rivit tulevat taulusta eikä toisesta laskurista: ne ovat
-    # ruutujen havaintojen summa, ja kaksi lähdettä samalle luvulle voisi
-    # erkaantua.
+    # The usable rows come from the table and not from a second counter: they
+    # are the sum of the cells' observations, and two sources for the same
+    # number could drift apart.
     usable = int(stats.get("callout_observations", 0) or 0)
     if read:
         lines.append(
             _line(
-                "Pilven havainnot",
-                f"{usable}/{read} tickiriviä kelpasi ({usable / read:.0%} "
-                "elossa ja alue tiedossa)",
+                "Cloud observations",
+                f"{usable}/{read} tick rows qualified ({usable / read:.0%} "
+                "alive and with a known area)",
             )
         )
     reason = stats.get("callout_cloud_empty_reason")
     if reason:
-        lines.append(_line("Pilvi tyhjä koska", str(reason)))
+        lines.append(_line("Cloud empty because", str(reason)))
     return lines
 
 
 def _map_name(stats: dict) -> list[str]:
-    """Kartan nimi ``parse``-tulosteeseen -- myös kun sitä ei saatu.
+    """The map's name for the ``parse`` output -- also when it was not obtained.
 
-    Rivi on aina, ja se on koko pointti. Nimi on ``aggregate``n ainoa keino
-    yhdistää kaksi demoa samaksi kartaksi, eikä FACEIT-tunnisteesta sitä voi
-    päätellä. Jos demoparser2 nimeäisi ``map_name``-kentän uudelleen, jokainen
-    demo palaisi omaksi karttahaaraksi -- ja ilman tätä riviä se tapahtuisi
-    ilman yhtään merkkiä. Sama vikaluokka kuin Story 2.10:n pawnittomalla
-    pelaajalla: hiljainen paluu huonompaan tulokseen.
+    The row is always there, and that is the whole point. The name is
+    ``aggregate``'s only means of joining two demos into the same map, and it
+    cannot be inferred from the FACEIT id. If demoparser2 renamed the
+    ``map_name`` field, every demo would go back to being a map branch of its
+    own -- and without this row that would happen with no sign at all. The
+    same class of fault as Story 2.10's player without a pawn: a silent
+    return to a worse result.
 
-    Nimi tulee **valmiista taulusta**, joten se näkyy myös ohitetusta ajosta.
-    Syy puuttumiselle tulee diagnostiikasta ja näkyy vain tuoreesta ajosta,
-    koska valmis taulu ei tiedä sitä.
+    The name comes from **the finished table**, so it appears from a skipped
+    run too. The reason for its absence comes from the diagnostics and appears
+    only from a fresh run, because the finished table does not know it.
     """
     if "match_unreadable" in stats:
-        return [_line("Kartta", f"lukuja ei saatu ({stats['match_unreadable']})")]
+        return [_line("Map", f"no counts obtained ({stats['match_unreadable']})")]
     if "map_name" not in stats:
         return []
 
     name = stats.get("map_name")
     if name:
-        return [_line("Kartta", f"{name} (havaittu demon otsikosta)")]
+        return [_line("Map", f"{name} (observed from the demo's header)")]
 
     lines = [
         _line(
-            "Kartta",
-            "otsikossa ei ollut kartan nimeä -- aggregate päättelee sen "
-            "tunnisteesta",
+            "Map",
+            "the header held no map name -- aggregate infers it from the id",
         )
     ]
     reason = stats.get("header_map_name_missing_reason")
     if reason:
-        lines.append(_line("Kartta puuttuu koska", str(reason)))
+        lines.append(_line("Map missing because", str(reason)))
     return lines
 
 
@@ -2510,44 +2598,44 @@ def classify(
     target: str = typer.Argument(
         ...,
         metavar="MAP_DEMO_ID",
-        help="Parsitun demon tunniste, sama jolla parse ajettiin.",
+        help="The parsed demo's id, the same one parse was run with.",
     ),
     team: str | None = typer.Option(
         None,
         "--team",
         help=(
-            "Subjektijoukkueen kokoonpanotunniste (lineup_key) tai sen "
-            "yksikäsitteinen alkuosa. Ilman tätä komento listaa demon "
-            "kokoonpanot."
+            "The subject team's lineup id (lineup_key) or an unambiguous "
+            "beginning of it. Without this the command lists the demo's "
+            "lineups."
         ),
     ),
     all_teams: bool = typer.Option(
         False,
         "--kaikki-joukkueet",
         help=(
-            "Luokittele demo molempien joukkueiden näkökulmasta. Kumpikin saa "
-            "oman tuloksensa; --team jätetään huomiotta."
+            "Classify the demo from both teams' points of view. Each gets a "
+            "result of its own; --team is ignored."
         ),
     ),
     show: bool = typer.Option(
         False,
         "--show",
         help=(
-            "Tulosta kierroslista: kierros, puoli, raha ja varustearvo per "
-            "pelaaja, loss count, tyyppi ja perustelu."
+            "Print the round list: round, side, money and equipment value per "
+            "player, loss count, type and reasoning."
         ),
     ),
     force: bool = typer.Option(
         False,
         "--pakota",
-        help="Luokittele vaikka manifesti täsmäisi.",
+        help="Classify even if the manifest matches.",
     ),
 ) -> None:
-    """Luokittele parsitun demon kierrokset yhden joukkueen näkökulmasta.
+    """Classify a parsed demo's rounds from one team's point of view.
 
-    Kirjoittaa ``classified/<team_key>/<map_demo_id>.parquet``-taulun, saman
-    sisällön kierroslistana Markdownina ja manifestin. Demoa ei lueta, joten
-    kynnysten säätö ja uudelleenajo valmistuvat sekunneissa.
+    Writes the ``classified/<team_key>/<map_demo_id>.parquet`` table, the same
+    content as a round list in Markdown, and the manifest. The demo is not
+    read, so adjusting the thresholds and running again finish in seconds.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
@@ -2578,53 +2666,59 @@ def classify(
                 typer.echo(_render_round_list(lines))
             else:
                 typer.echo(
-                    "Kierroslistaa ei saatu luettua tuloksesta. Aja komento "
-                    "uudelleen lipulla --pakota."
+                    "The round list could not be read out of the result. Run "
+                    "the command again with the --pakota flag."
                 )
 
 
 def _render_classify(result: StageResult) -> str:
-    """Kokoa ``classify``-komennon yhteenveto.
+    """Assemble the ``classify`` command's summary.
 
-    Erotettu omaksi funktiokseen, jotta tuloste on testattavissa ilman
-    komentorivin ajamista.
+    Split into a function of its own so that the output can be tested without
+    running the command line.
     """
     stats = result.stats
     lines: list[str] = []
-    lines.append(f"{'Ohitettu' if result.skipped else 'Luokiteltu'}: {result.unit}")
+    lines.append(f"{'Skipped' if result.skipped else 'Classified'}: {result.unit}")
 
     if result.status != "ok":
-        lines.append(_line("Tila", str(result.status)))
+        lines.append(_line("Status", str(result.status)))
     if result.reason:
-        lines.append(_line("Syy", result.reason))
+        lines.append(_line("Reason", result.reason))
 
     team_key = stats.get("team_key")
     if team_key:
-        lines.append(_line("Joukkue", str(team_key)))
+        lines.append(_line("Team", str(team_key)))
 
     if "unreadable" in stats:
-        lines.append(_line("Kierrokset", f"lukuja ei saatu ({stats['unreadable']})"))
-        lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+        lines.append(_line("Rounds", f"no counts obtained ({stats['unreadable']})"))
+        lines.append(_line("Run time", _seconds(result.duration_s)))
         return "\n".join(lines)
 
-    lines.append(_line("Kierrokset", str(int(stats.get("rounds", 0) or 0))))
+    lines.append(_line("Rounds", str(int(stats.get("rounds", 0) or 0))))
 
     distribution = stats.get("by_type") or {}
     if distribution:
-        # Kierrostyyppien vakiojärjestys, jotta tuloste on vertailukelpoinen
-        # ajosta toiseen; tuntemattomat lopuksi.
+        # A fixed order for the round types, so that the output is comparable
+        # from one run to the next; the unknown ones last.
         order = [t for t in ROUND_TYPES if t in distribution]
         order += [t for t in sorted(distribution) if t not in ROUND_TYPES]
-        lines.append(_line("Tyypit", ", ".join(f"{t} {distribution[t]}" for t in order)))
+        lines.append(_line("Types", ", ".join(f"{t} {distribution[t]}" for t in order)))
 
-    # AD-9: luokittelematon kierros ei saa hukkua tyyppijakaumaan, joten se on
-    # omalla rivillään -- ja vain siellä.
+    # AD-9: an unclassified round must not be lost in the type breakdown, so
+    # it is on a row of its own -- and only there.
+    #
+    # **The label is Finnish and stays Finnish.** ``UNCLASSIFIED`` is the only
+    # visible name of a round that could not be classified, in the output and
+    # in the report's sections alike (``constants.UNCLASSIFIED``), so the
+    # console and the report have to call it the same thing.
     unclassified = int(stats.get("unclassified", 0) or 0)
     if unclassified:
         lines.append(
             _line(
                 UNCLASSIFIED.capitalize(),
-                f"{unclassified} (havainto puuttuu, syy näkyy kierroslistassa)",
+                f"{unclassified} (the observation is missing, the reason is "
+                "in the round list)",
             )
         )
 
@@ -2632,36 +2726,36 @@ def _render_classify(result: StageResult) -> str:
     if unnumbered:
         lines.append(
             _line(
-                "Numeroimattomat",
-                f"{unnumbered} (ei kierrosnumeroa, jätetty luokittelun "
-                "ulkopuolelle)",
+                "Unnumbered",
+                f"{unnumbered} (no round number, left out of the "
+                "classification)",
             )
         )
 
     for path in result.outputs:
-        lines.append(_line("Tulos", str(path)))
+        lines.append(_line("Output", str(path)))
     if result.manifest_path is not None:
-        lines.append(_line("Manifesti", str(result.manifest_path)))
-    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+        lines.append(_line("Manifest", str(result.manifest_path)))
+    lines.append(_line("Run time", _seconds(result.duration_s)))
     return "\n".join(lines)
 
 
-#: Perustelu ei mahdu sarakkeeksi, joten se tulostetaan omalle sisennetylle
-#: rivilleen -- katkaistu perustelu ei kelpaa, koska juuri sitä vasten
-#: luokittelu tarkistetaan demosta.
+#: The reasoning does not fit in a column, so it is printed on an indented row
+#: of its own -- a truncated reasoning will not do, because the classification
+#: is checked against the demo by exactly that text.
 _REASON_COLUMN = "reason"
 
 
 def _render_round_list(rows: list[dict]) -> str:
-    """Kierroslista konsoliin.
+    """The round list for the console.
 
-    Tämä on se tuloste, jolla käyttäjä tarkistaa luokittelun demoa vasten:
-    jokaisella kierroksella näkyvät sekä päätös että ne arvot, joihin se nojasi.
-    Sarakkeet tulevat vaiheen omasta ``ROUND_LIST_COLUMNS``-määrittelystä, joten
-    konsoli ja Markdown eivät voi esittää eri asioita.
+    This is the output the user checks the classification against the demo
+    with: every round shows both the decision and the values it rested on. The
+    columns come from the stage's own ``ROUND_LIST_COLUMNS`` definition, so the
+    console and the Markdown cannot present different things.
     """
     if not rows:
-        return "Kierroksia ei ole."
+        return "There are no rounds."
 
     narrow = [
         (index, label)
@@ -2693,9 +2787,9 @@ def _render_round_list(rows: list[dict]) -> str:
         if reason:
             result.append(f"    {reason}")
     result.append("")
-    result.append("Rahaluvut ovat $/pelaaja ostoajan lopussa. Käytössä = jäljellä +")
-    result.append("käytetty; jäljellä on saldo ostojen jälkeen, joten")
-    result.append("säästökierroksella se on suuri.")
+    result.append("The money figures are $/player at the end of the buy time.")
+    result.append("Available = left + spent; left is the balance after the")
+    result.append("purchases, so on a saving round it is large.")
     return "\n".join(result)
 
 
@@ -2705,23 +2799,24 @@ def aggregate(
         None,
         "--team",
         help=(
-            "Joukkueen tunniste (classified/-hakemiston nimi) tai sen "
-            "yksikäsitteinen alkuosa. Ilman tätä ajo päättyy virheeseen, "
-            "joka listaa arkiston joukkueet."
+            "The team's id (the name of the classified/ directory) or an "
+            "unambiguous beginning of it. Without this the run ends in an "
+            "error that lists the archive's teams."
         ),
     ),
     force: bool = typer.Option(
         False,
         "--pakota",
-        help="Aggregoi vaikka manifesti täsmäisi.",
+        help="Aggregate even if the manifest matches.",
     ),
 ) -> None:
-    """Kokoa joukkueen luokitellut kierrokset yhdeksi report.json-tiedostoksi.
+    """Gather a team's classified rounds into one report.json file.
 
-    Vaihe laskee kaiken: pelaajamäärät alueittain jokaisessa näytepisteessä,
-    utilityn heitto- ja räjähdysalueet aikaikkunoineen sekä ensikontaktin
-    alueet -- kartta, puoli ja kierrostyyppi kerrallaan, jokainen väite
-    otannallaan. Se ei valitse mitä raportissa sanotaan; sen tekee render.
+    The stage computes everything: the player counts by area at every sample
+    point, utility's throw and detonation areas with their time windows, and
+    the first contact's areas -- one map, side and round type at a time, every
+    claim with its sample. It does not choose what the report says; render
+    does that.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
@@ -2737,28 +2832,31 @@ def aggregate(
 
 
 def _render_aggregate(result: StageResult) -> str:
-    """Kokoa ``aggregate``-komennon yhteenveto.
+    """Assemble the ``aggregate`` command's summary.
 
-    Erotettu omaksi funktiokseen, jotta tuloste on testattavissa ilman
-    komentorivin ajamista. Otannat ovat tulosteen tärkein osa: käyttäjä
-    tarkistaa niistä, tuliko mukaan se aineisto, jonka hän odotti.
+    Split into a function of its own so that the output can be tested without
+    running the command line. The samples are the output's most important
+    part: the user checks from them whether the data they expected came in.
     """
     stats = result.stats
     lines: list[str] = []
-    lines.append(f"{'Ohitettu' if result.skipped else 'Aggregoitu'}: {result.unit}")
+    lines.append(f"{'Skipped' if result.skipped else 'Aggregated'}: {result.unit}")
 
     if result.reason:
-        lines.append(_line("Syy", result.reason))
+        lines.append(_line("Reason", result.reason))
 
-    # Nimi ennen kokoonpanoja: se on ensimmäinen asia, jonka käyttäjä
-    # tarkistaa, ja lähde kertoo onko se havainto vai tunniste sen paikalla.
+    # The name before the lineups: it is the first thing the user checks, and
+    # the source says whether it is an observation or an id standing in for
+    # one.
     if stats.get("display_name_source") == "clan_name":
-        lines.append(_line("Nimi", f"{stats.get('display_name')} (havaittu demoista)"))
+        lines.append(
+            _line("Name", f"{stats.get('display_name')} (observed from the demos)")
+        )
     elif "display_name_source" in stats:
         lines.append(
             _line(
-                "Nimi",
-                "ei havaittu -- raportti puhuu tunnisteesta "
+                "Name",
+                "not observed -- the report speaks of the id "
                 f"{stats.get('display_name')}",
             )
         )
@@ -2766,9 +2864,9 @@ def _render_aggregate(result: StageResult) -> str:
     if alternatives:
         lines.append(
             _line(
-                "Muut havaitut nimet",
-                f"{', '.join(str(n) for n in alternatives)} (demot antavat "
-                "joukkueelle useamman nimen)",
+                "Other observed names",
+                f"{', '.join(str(n) for n in alternatives)} (the demos give "
+                "the team more than one name)",
             )
         )
 
@@ -2776,16 +2874,16 @@ def _render_aggregate(result: StageResult) -> str:
     if len(lineups) > 1:
         lines.append(
             _line(
-                "Kokoonpanot",
-                f"{', '.join(str(k) for k in lineups)} (liitetty samaksi "
-                "joukkueeksi yhteisten pelaajien perusteella)",
+                "Lineups",
+                f"{', '.join(str(k) for k in lineups)} (joined into the same "
+                "team on the strength of their shared players)",
             )
         )
     roster = stats.get("roster") or []
     if roster:
-        # Nimet tulosteeseen, tunnisteet raporttiin: komentorivin tuloste on
-        # silmäys, ja kuusi SteamID64:ää täyttäisi sen kertomatta enempää.
-        # Nimetön pelaaja sanotaan ääneen eikä pudoteta.
+        # Names into the output, ids into the report: the command line's
+        # output is a glance, and six SteamID64s would fill it without saying
+        # more. A player without a name is said out loud and not dropped.
         named = ", ".join(
             str(entry.get("display_name") or entry.get("player_id"))
             for entry in roster
@@ -2793,10 +2891,10 @@ def _render_aggregate(result: StageResult) -> str:
         without = sum(1 for entry in roster if not entry.get("display_name"))
         lines.append(
             _line(
-                "Rosteri",
-                f"{len(roster)} pelaajaa havaittu: {named}"
+                "Roster",
+                f"{len(roster)} players observed: {named}"
                 + (
-                    f" ({without} ilman nimeä, tunniste sen paikalla)"
+                    f" ({without} without a name, the id stands in for it)"
                     if without
                     else ""
                 ),
@@ -2805,22 +2903,25 @@ def _render_aggregate(result: StageResult) -> str:
 
     lines.append(
         _line(
-            "Otanta",
-            f"{int(stats.get('demos', 0) or 0)} demoa, "
-            f"{int(stats.get('rounds', 0) or 0)} kierrosta",
+            "Sample",
+            f"{int(stats.get('demos', 0) or 0)} demos, "
+            f"{int(stats.get('rounds', 0) or 0)} rounds",
         )
     )
     sample = stats.get("sample") or {}
     if sample:
-        # Lokeroiden avaimet ovat englanniksi, koska ne ovat osa report.jsonin
-        # sopimusta; tuloste on suomeksi kuten kaikki muukin käyttäjälle
-        # näkyvä teksti. Sama työnjako kuin ROUND_TYPE_FI:llä.
+        # **The bucket names stay Finnish, and they are the one exception in
+        # this module.** The keys are English because they are part of
+        # ``report.json``'s contract; the names are ``SAMPLE_BUCKET_FI``, that
+        # is, report vocabulary that passes through the console (AD-11), so
+        # the reader sees the same word here and in the report. The rest of
+        # the line is console text and is English.
         lines.append(
             _line(
-                "Lokerot",
+                "Buckets",
                 ", ".join(
-                    f"{SAMPLE_BUCKET_FI[name]} {sample[name]['demos']} demoa / "
-                    f"{sample[name]['rounds']} kierrosta"
+                    f"{SAMPLE_BUCKET_FI[name]} {sample[name]['demos']} demos / "
+                    f"{sample[name]['rounds']} rounds"
                     for name in SAMPLE_BUCKETS
                     if name in sample
                 ),
@@ -2831,9 +2932,9 @@ def _render_aggregate(result: StageResult) -> str:
     if unclassified:
         lines.append(
             _line(
-                "Luokittelemattomat",
-                f"{unclassified} kierrosta (havainto puuttuu, ei mukana "
-                "rakenteessa)",
+                "Unclassified",
+                f"{unclassified} rounds (the observation is missing, not part "
+                "of the structure)",
             )
         )
 
@@ -2841,16 +2942,17 @@ def _render_aggregate(result: StageResult) -> str:
     if unpaired:
         lines.append(
             _line(
-                "Parittomat räjähdykset",
-                f"{unpaired} (heittoriviä ei löytynyt; ei mukana utilityn "
-                "luvuissa)",
+                "Unpaired detonations",
+                f"{unpaired} (no throw row was found; not part of utility's "
+                "numbers)",
             )
         )
 
-    # Poikkeamat omalle riville heti otannan jälkeen: ne ovat epicin
-    # arvokkain tuotos, ja käyttäjä tarkistaa juuri niistä, näkyikö
-    # kynnyksen säätö. Nolla poikkeamaa kirjoitetaan **kattavuuden kanssa**,
-    # koska nolla on havainto vain siitä, mitä tutkittiin.
+    # The anomalies on a row of their own right after the sample: they are the
+    # epic's most valuable output, and it is from them that the user checks
+    # whether adjusting the threshold showed. Zero anomalies is written **with
+    # the coverage**, because a zero is an observation only about what was
+    # examined.
     scan = stats.get("anomaly_scan") or {}
     anomalies = stats.get("anomalies") or []
     if scan:
@@ -2863,38 +2965,44 @@ def _render_aggregate(result: StageResult) -> str:
         no_groups = scan.get("demos_without_site_groups") or []
         deferred = scan.get("rules_deferred") or []
         detail = (
-            f"{len(anomalies)} riviä; säännöt {rules} ajettiin "
-            f"{scanned} kierrokselle -- crunch voi osua {crunch_rounds}, "
-            f"eteneminen {advance_rounds} ja stack {stack_rounds}"
+            f"{len(anomalies)} in all; the rules {rules} were run over "
+            f"{scanned} rounds -- crunch can hit {crunch_rounds}, "
+            f"the advance {advance_rounds} and stack {stack_rounds}"
         )
         if deferred:
-            detail += f"; ajamatta {', '.join(str(n) for n in deferred)}"
+            detail += f"; not run: {', '.join(str(n) for n in deferred)}"
         if blind:
             detail += (
-                f"; ilman alueorientaatiota {len(blind)} demoa: "
+                f"; without area orientation, {len(blind)} of the demos: "
                 f"{', '.join(str(d) for d in blind)}"
             )
-        # Vaiennetut demot omana lukunaan eikä orientaatiottomien perässä: ne
-        # ovat eri sokea piste (siteet eivät erotu tasoina) ja koskevat eri
-        # sääntöä. Yhteen luetteloon niputettuina käyttäjä lukisi ne samaksi
-        # puutteeksi ja etsisi korjausta väärästä paikasta.
+        # The silenced demos as a count of their own rather than after the
+        # ones without orientation: they are a different blind spot (the sites
+        # do not stand apart as levels) and concern a different rule. Lumped
+        # into one listing the user would read them as the same shortcoming
+        # and look for the fix in the wrong place.
         if no_groups:
             detail += (
-                f"; ilman siteryhmiä {len(no_groups)} demoa: "
+                f"; without site groups, {len(no_groups)} of the demos: "
                 f"{', '.join(str(d) for d in no_groups)}"
             )
-        lines.append(_line("Poikkeamat", detail))
+        lines.append(_line("Anomalies", detail))
         for entry in anomalies:
             types = ", ".join(str(t) for t in entry.get("round_types") or [])
-            # Stackin pelaajamäärä on murtoluku myös tulosteessa: neljä
-            # viidestä on puolustuksen valinta, neljä neljästä on se mitä
-            # jäljellä oli, eikä pelkkä luku erota niitä. Muilla säännöillä
-            # nimittäjää ei ole, koska niitä ei mitattu.
+            # The stack's player count is a fraction in the output too: four
+            # out of five is the defence's choice, four out of four is what
+            # was left, and the number alone does not tell them apart. The
+            # other rules have no denominator, because they were not measured.
+            #
+            # ``players_text`` is ``render``'s, and it says "1 pelaaja" /
+            # "5 pelaajaa" in Finnish. It is report vocabulary that reaches
+            # this console line through T14's package; it is not this
+            # tranche's to translate. See the report of tranche T15.
             alive = entry.get("alive_at_max")
             players = (
                 players_text(int(entry["players_max"]))
                 if alive is None
-                else f"{int(entry['players_max'])}/{int(alive)} pelaajaa"
+                else f"{int(entry['players_max'])}/{int(alive)} players"
             )
             lines.append(
                 f"  {entry['rule']} {entry['map_name']} {entry['side']} "
@@ -2904,35 +3012,35 @@ def _render_aggregate(result: StageResult) -> str:
 
     for entry in stats.get("maps") or []:
         lines.append("")
-        # Ehto on **tuntemattomasta**, ei tunnetuista: lähteitä on kolme
-        # (``demo_header``, ``map_demo_id``, ``unknown``), ja tunnettujen
-        # luetteleminen tekisi jokaisesta uudesta lähteestä hiljaa
-        # "tuntemattoman".
+        # The condition is on **the unknown one**, not on the known ones:
+        # there are three sources (``demo_header``, ``map_demo_id``,
+        # ``unknown``), and listing the known ones would quietly make every
+        # new source an "unknown" one.
         source = (
-            " (nimi tuntematon)" if entry["map_name_source"] == "unknown" else ""
+            " (name unknown)" if entry["map_name_source"] == "unknown" else ""
         )
         lines.append(
-            f"{entry['map_name']}{source}: {entry['demos']} demoa, "
-            f"{entry['rounds']} kierrosta"
+            f"{entry['map_name']}{source}: {entry['demos']} demos, "
+            f"{entry['rounds']} rounds"
         )
         for side in entry["sides"]:
             types = ", ".join(
                 f"{name} {count}" for name, count in side["round_types"].items()
             )
             small = side["small_samples"]
-            note = f"  [pieni otanta: {', '.join(small)}]" if small else ""
+            note = f"  [small sample: {', '.join(small)}]" if small else ""
             lines.append(f"  {side['side']}: {types}{note}")
 
     for missing in stats.get("missing_demos") or []:
         lines.append("")
-        lines.append(_line("Puuttuva demo", f"{missing['match']}: {missing['reason']}"))
+        lines.append(_line("Missing demo", f"{missing['match']}: {missing['reason']}"))
 
     lines.append("")
     for path in result.outputs:
-        lines.append(_line("Tulos", str(path)))
+        lines.append(_line("Output", str(path)))
     if result.manifest_path is not None:
-        lines.append(_line("Manifesti", str(result.manifest_path)))
-    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+        lines.append(_line("Manifest", str(result.manifest_path)))
+    lines.append(_line("Run time", _seconds(result.duration_s)))
     return "\n".join(lines)
 
 
@@ -2942,22 +3050,21 @@ def report(
         None,
         "--team",
         help=(
-            "Joukkueen tunniste (aggregates/-hakemiston nimi) tai sen "
-            "yksikäsitteinen alkuosa. Ilman tätä ajo päättyy virheeseen, "
-            "joka listaa aggregoidut joukkueet."
+            "The team's id (the name of the aggregates/ directory) or an "
+            "unambiguous beginning of it. Without this the run ends in an "
+            "error that lists the aggregated teams."
         ),
     ),
 ) -> None:
-    """Kirjoita joukkueen report.jsonista luettava Markdown-raportti.
+    """Write a readable Markdown report out of the team's report.json.
 
-    Vaihe ei laske mitään: jokainen luku tulee aggregoinnista sellaisenaan.
-    Raportti saa aikaleimatun nimen, joten uusi ajo ei koskaan ylikirjoita
-    aiempaa -- eikä komennossa ole siksi --pakota-valintaa.
+    The stage computes nothing: every number comes from the aggregation as it
+    is. The report gets a timestamped name, so a new run never overwrites an
+    earlier one -- and that is why the command has no --pakota option.
 
-    Karsintasäännöt (``[report]``, Story 2.13) päättävät, mitkä rivit
-    raporttiin kirjoitetaan. Ne eivät muuta report.jsonia: säännön
-    kääntäminen pois ja komennon ajaminen uudelleen tuo rivin takaisin ilman
-    aggregointia.
+    The pruning rules (``[report]``, Story 2.13) decide which rows are written
+    into the report. They do not change report.json: turning a rule off and
+    running the command again brings the row back without aggregating.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
@@ -2966,97 +3073,104 @@ def report(
 
 
 def _render_report(result: StageResult) -> str:
-    """Kokoa ``report``-komennon tuloste.
+    """Assemble the ``report`` command's output.
 
-    Tärkein rivi on tuloksen polku: käyttäjä avaa tiedoston seuraavaksi.
-    Luvut kertovat mitä siihen päätyi, jotta puuttuva kartta tai puuttuva demo
-    huomataan ennen kuin raportti liitetään Discordiin.
+    The most important line is the result's path: the user opens the file
+    next. The numbers say what went into it, so that a missing map or a
+    missing demo is noticed before the report is pasted into Discord.
     """
     stats = result.stats
-    # Ensimmäinen rivi on tiedoston polku, koska se on ainoa asia, jota
-    # käyttäjä tarvitsee seuraavaksi. Joukkuetunniste ei kelpaa: se on 16
-    # merkin tiiviste, jonka käyttäjä juuri itse kirjoitti komentoriville.
-    written = str(result.outputs[0]) if result.outputs else "(ei tiedostoa)"
-    lines = [f"Raportti kirjoitettu: {written}"]
+    # The first line is the file's path, because it is the only thing the user
+    # needs next. The team id will not do: it is a 16-character digest that
+    # the user just typed on the command line themselves.
+    written = str(result.outputs[0]) if result.outputs else "(no file)"
+    lines = [f"Report written: {written}"]
 
     team = str(stats.get("team_key", result.unit))
     if not stats.get("team_name_known", False):
-        team += " (joukkueen nimi ei tiedossa)"
-    lines.append(_line("Joukkue", team))
+        team += " (the team's name is not known)"
+    lines.append(_line("Team", team))
 
     lines.append(
         _line(
-            "Otanta",
-            f"{int(stats.get('demos', 0) or 0)} demoa, "
-            f"{int(stats.get('rounds', 0) or 0)} kierrosta",
+            "Sample",
+            f"{int(stats.get('demos', 0) or 0)} demos, "
+            f"{int(stats.get('rounds', 0) or 0)} rounds",
         )
     )
     maps = stats.get("maps") or []
     lines.append(
         _line(
-            "Kartat",
-            ", ".join(str(name) for name in maps) if maps else "ei yhtään karttaa",
+            "Maps",
+            ", ".join(str(name) for name in maps) if maps else "no maps at all",
         )
     )
     missing = int(stats.get("missing_demos", 0) or 0)
     if missing:
         lines.append(
-            _line("Puuttuvat demot", f"{missing} kpl -- lueteltu raportissa")
+            _line("Missing demos", f"{missing} in all -- listed in the report")
         )
     unclassified = int(stats.get("unclassified", 0) or 0)
     if unclassified:
         lines.append(
             _line(
-                "Luokittelemattomat",
-                f"{unclassified} kierrosta -- mainittu raportin yhteenvedossa",
+                "Unclassified",
+                f"{unclassified} rounds -- mentioned in the report's summary",
             )
         )
     lines.append(
         _line(
-            "Laajuus",
-            f"{int(stats.get('lines', 0) or 0)} riviä, "
-            f"{int(stats.get('characters', 0) or 0)} merkkiä",
+            "Extent",
+            f"{int(stats.get('lines', 0) or 0)} lines, "
+            f"{int(stats.get('characters', 0) or 0)} characters",
         )
     )
 
     lines.append("")
     if result.manifest_path is not None:
-        lines.append(_line("Manifesti", str(result.manifest_path)))
-    lines.append(_line("Ajoaika", _seconds(result.duration_s)))
+        lines.append(_line("Manifest", str(result.manifest_path)))
+    lines.append(_line("Run time", _seconds(result.duration_s)))
     return "\n".join(lines)
 
 
 def _seconds(value: float) -> str:
-    """Sekunnit suomalaisella desimaalipilkulla."""
+    """Seconds with a Finnish decimal comma.
+
+    The comma is number formatting for the same reader as
+    ``fetch.size_fi``'s ``kt/Mt/Gt`` and its comma, and the two appear on the
+    same screen. AD-11 moved the console's words into English; it did not
+    change how a number is written, and one line reading "2,6 Gt" beside
+    another reading "0.3 s" would be worse than either alone.
+    """
     return f"{value:.1f} s".replace(".", ",")
 
 
 def main() -> None:
-    """Ohjelman sisäänkäynti.
+    """The program's entry point.
 
-    Muuntaa poikkeukset käyttäjälle ymmärrettäviksi:
+    Turns exceptions into something the user can understand:
 
-    * :class:`~pappascout.errors.PappascoutError` -- odotettu tilanne, jonka
-      viesti kertoo mitä tehdä seuraavaksi. Paluukoodi 1.
-    * mikä tahansa muu poikkeus -- ohjelmavirhe, josta näytetään lyhyt
-      suomenkielinen rivi eikä pinojälkeä. Paluukoodi 2.
+    * :class:`~pappascout.errors.PappascoutError` -- an expected situation
+      whose message says what to do next. Exit code 1.
+    * any other exception -- a program fault, shown as a short line and not as
+      a traceback. Exit code 2.
 
-    Käyttäjä ei koodaa itse, joten pinojäljestä ei ole hänelle hyötyä.
+    The user does not code, so a traceback is of no use to them.
     """
     try:
         app()
     except PappascoutError as exc:
-        # Neuvo omalle rivilleen, jos virhe kantaa sellaisen. Sama sääntö kuin
-        # yksikkökohtaisilla epäonnistumisilla: neuvo tulee viasta, ei siitä
-        # mihin vika sattui lajittelemaan.
+        # The advice on a line of its own, if the error carries one. The same
+        # rule as with the per-unit failures: the advice comes from the fault,
+        # not from where the fault happened to be sorted.
         advice = getattr(exc, "advice", None)
         tail = f"\n-> {advice}" if isinstance(advice, str) and advice.strip() else ""
-        typer.secho(f"Virhe: {exc}{tail}", fg=typer.colors.RED, err=True)
+        typer.secho(f"Error: {exc}{tail}", fg=typer.colors.RED, err=True)
         sys.exit(EXIT_KNOWN_ERROR)
-    except Exception as exc:  # noqa: BLE001 - viimeinen suoja käyttäjän edessä
+    except Exception as exc:  # noqa: BLE001 - the last guard in front of the user
         typer.secho(
-            f"Odottamaton virhe: {exc}\n"
-            "Tämä on ohjelmavirhe. Kokeile uudelleen tai kirjaa tapaus ylös.",
+            f"Unexpected error: {exc}\n"
+            "This is a program fault. Try again or make a note of the case.",
             fg=typer.colors.RED,
             err=True,
         )

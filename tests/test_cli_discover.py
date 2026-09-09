@@ -1,21 +1,23 @@
-"""``pappascout discover`` -- komennon ja sen yhteenvedon testit (Story 3.2).
+"""``pappascout discover`` -- the command's and its summary's tests (Story 3.2).
 
-Kolme asiaa lukitaan täällä:
+Three things are locked down here:
 
-* **AD-3 ja kerrossääntö.** Komento antaa vaiheelle vain ``settings.league``n ja
-  ``settings.thresholds``in, ja otteluportin se pyytää
-  ``stages.discover.default_source``ilta -- ei adaptereilta. Jos komento
-  rakentaisi FACEIT-asiakkaan itse, ``cli -> stages -> adapters`` -nuoli
-  kääntyisi ja verkko olisi kiinni komentorivissä.
-* **Yhteenveto kertoo laajuuden.** Käyttäjä tarkistaa tulosteesta, näkyykö koko
-  divisioona ja ovatko rosterit oikean kokoisia -- liian pieni rosteri on ainoa
-  tapa huomata puuttuva ``substitutes``-lista avaamatta tiedostoa.
-* **Mikään pudotus ei ole hiljainen.** Tunnisteeton pelaaja, tunnisteeton
-  joukkuerivi, siirtynyt pelaaja ja kiistanalainen kokoonpano ovat kaikki
-  rivejä tulosteessa eivätkä pelkkiä kenttiä tiedostossa.
+* **AD-3 and the layering rule.** The command gives the stage only
+  ``settings.league`` and ``settings.thresholds``, and it asks
+  ``stages.discover.default_source`` for the match port -- not the adapters.
+  If the command built the FACEIT client itself, the
+  ``cli -> stages -> adapters`` arrow would turn round and the network would
+  be wired into the command line.
+* **The summary reports the scope.** The user checks from the output whether
+  the whole division shows up and whether the rosters are the right size --
+  too small a roster is the only way to notice a missing ``substitutes`` list
+  without opening the file.
+* **No drop is silent.** A player without an id, a team row without an id, a
+  transferred player and a contested lineup are all rows in the output and
+  not mere fields in a file.
 
-Vaihe itse on korvattu, joten mikään testi tässä tiedostossa ei käy verkossa
-eikä lue arkistoa.
+The stage itself is replaced, so no test in this file goes on the network or
+reads the archive.
 """
 
 from __future__ import annotations
@@ -114,7 +116,7 @@ def discover_result(**overrides) -> StageResult:
 
 
 def with_stats(**changes) -> StageResult:
-    """Tulos, jonka ``stats``ia on muutettu -- pohja pysyy yhtenä paikkana."""
+    """A result whose ``stats`` have been changed -- the base stays one place."""
     stats = dict(discover_result().stats)
     stats.update(changes)
     return discover_result(stats=stats)
@@ -131,12 +133,12 @@ def field_value(output_text: str, label: str) -> str:
         stripped = line.strip()
         if stripped.startswith(label):
             return stripped[len(label) :].strip()
-    raise AssertionError(f"riviä {label!r} ei ole tulosteessa:\n{output_text}")
+    raise AssertionError(f"there is no {label!r} row in the output:\n{output_text}")
 
 
 @pytest.fixture
 def fake_stage(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
-    """Korvaa vaiheen ja portin; palauta se, mitä vaiheelle annettiin."""
+    """Replace the stage and the port; return what the stage was given."""
     seen: dict[str, object] = {}
 
     def fake_run(league, archive, team, *, source, thresholds, **kwargs):
@@ -162,11 +164,11 @@ def fake_stage(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
     return seen
 
 
-# --- Komento antaa vaiheelle oikeat osiot ---------------------------------------
+# --- The command gives the stage the right sections ---------------------------
 
 
 def test_the_command_passes_only_league_and_thresholds(fake_stage: dict) -> None:
-    """AD-3: vaihe ei näe ``[parse]``-osiota eikä siis voi invalidoida parsintaa."""
+    """AD-3: the stage does not see ``[parse]`` and so cannot invalidate parsing."""
     result = runner.invoke(app, ["discover", "--team", "Rcave"])
 
     assert result.exit_code == 0, result.output
@@ -177,7 +179,7 @@ def test_the_command_passes_only_league_and_thresholds(fake_stage: dict) -> None
 
 
 def test_the_port_comes_from_the_stage_not_from_the_adapters(fake_stage: dict) -> None:
-    """Riippuvuusnuoli on ``cli -> stages -> adapters``, ei ``cli -> adapters``."""
+    """The dependency arrow is ``cli -> stages -> adapters``, not ``cli -> adapters``."""
     result = runner.invoke(app, ["discover"])
 
     assert result.exit_code == 0, result.output
@@ -186,29 +188,36 @@ def test_the_port_comes_from_the_stage_not_from_the_adapters(fake_stage: dict) -
 
 
 def test_the_team_option_is_optional(fake_stage: dict) -> None:
-    """Ilman ``--team`` indeksit kirjoitetaan ja divisioona luetellaan."""
+    """Without ``--team`` the indexes are written and the division is listed."""
     result = runner.invoke(app, ["discover"])
 
     assert result.exit_code == 0, result.output
     assert fake_stage["team"] is None
 
 
-def test_the_help_is_in_finnish() -> None:
-    """Käyttäjä ei koodaa itse, joten ohje on suomeksi kuten kaikki muukin."""
+def test_the_help_names_the_division_and_the_team_option() -> None:
+    """The help says what the command fetches and what ``--team`` takes.
+
+    The name of this test used to say the help is in Finnish. AD-11 moved the
+    console into English on 2026-09-07, so the claim would now be false; what
+    the assertions pin is that the help still names both.
+    """
     result = runner.invoke(app, ["discover", "--help"])
 
     assert result.exit_code == 0
-    assert "divisioonan" in result.output
-    assert "Joukkueen nimi" in result.output
+    # Single words: Typer wraps the help into a box, and a two-word needle
+    # would break on the wrap rather than on a real change.
+    assert "division's" in result.output
+    assert "unambiguous" in result.output
 
 
 def test_there_is_no_force_flag() -> None:
-    """Ei ole mitään pakotettavaa, kun mitään ei koskaan ohiteta.
+    """There is nothing to force when nothing is ever skipped.
 
-    Tarkistus on rekisteröidyistä valinnoista eikä ohjetekstistä: ohje
-    **kertoo** miksi lippua ei ole, joten merkkijonohaku löytäisi sen sieltä.
-    Väite koskee vain ``--pakota``n puuttumista -- valintalistan lukitseminen
-    kokonaan rikkoutuisi jokaisesta myöhemmästä laillisesta lisäyksestä.
+    The check is on the registered options and not on the help text: the help
+    **says** why the flag does not exist, so a string search would find it
+    there. The claim covers only the absence of ``--pakota`` -- locking the
+    whole option list down would break on every later legitimate addition.
     """
     command = next(c for c in app.registered_commands if c.name == "discover")
     names = [
@@ -221,36 +230,36 @@ def test_there_is_no_force_flag() -> None:
     assert "--team" in names
 
 
-# --- Yhteenveto -----------------------------------------------------------------
+# --- The summary --------------------------------------------------------------
 
 
 def test_the_summary_reports_the_scope_of_the_division() -> None:
     output_text = _render_discover(discover_result())
 
-    assert output_text.startswith("Divisioona haettu: 12 joukkuetta, 66 ottelua")
-    assert field_value(output_text, "Pelatut ottelut") == "6 / 66"
-    assert field_value(output_text, "Rosterit") == "6-9 pelaajaa"
+    assert output_text.startswith("Division fetched: 12 teams, 66 matches")
+    assert field_value(output_text, "Matches played") == "6 / 66"
+    assert field_value(output_text, "Rosters") == "6-9 players"
 
 
 def test_the_summary_names_every_player_in_the_standing_roster() -> None:
-    """Vakirosteri on koko tarinan tulos, joten se luetaan tulosteesta."""
+    """The standing roster is the whole story's result, so it is read here."""
     output_text = _render_discover(discover_result())
 
-    roster = field_value(output_text, "Vakirosteri")
-    assert roster.startswith("7 pelaajaa:")
+    roster = field_value(output_text, "Standing roster")
+    assert roster.startswith("7 players:")
     for nickname in RCAVE:
         assert nickname in roster
 
 
 def test_the_summary_shows_the_bridge_to_the_archive() -> None:
-    """Kokoonpanotiiviste kertoo, mikä arkiston hakemisto on tämä joukkue."""
+    """The lineup digest says which archive directory this team is."""
     output_text = _render_discover(discover_result())
 
-    assert field_value(output_text, "Arkiston kokoonpanot") == "ff03fb54599d3311"
+    assert field_value(output_text, "Archive lineups") == "ff03fb54599d3311"
 
 
 def test_the_summary_omits_the_bridge_when_there_is_none() -> None:
-    assert "Arkiston kokoonpanot" not in _render_discover(with_team(lineup_keys=[]))
+    assert "Archive lineups" not in _render_discover(with_team(lineup_keys=[]))
 
 
 def test_the_summary_lists_both_written_indexes() -> None:
@@ -261,46 +270,46 @@ def test_the_summary_lists_both_written_indexes() -> None:
 
 
 def test_the_summary_lists_the_division_when_no_team_was_asked_for() -> None:
-    """Katselmus: nimet sai näkyviin vain aiheuttamalla virheen tahallaan."""
+    """From the review: the names could be seen only by causing an error."""
     stats = dict(discover_result().stats)
     del stats["team"]
     output_text = _render_discover(discover_result(stats=stats))
 
-    assert "Vakirosteri" not in output_text
-    assert "Divisioonan joukkueet:" in output_text
+    assert "Standing roster" not in output_text
+    assert "The division's teams:" in output_text
     for row in DIVISION_ROWS:
         assert str(row["name"]) in output_text
         assert str(row["team_key"]) in output_text
 
 
 def test_the_summary_does_not_list_the_division_when_a_team_was_found() -> None:
-    """Haetun joukkueen rivit ovat vastaus; koko luettelo olisi kohinaa."""
-    assert "Divisioonan joukkueet:" not in _render_discover(discover_result())
+    """The rows of the team looked up are the answer; the listing would be noise."""
+    assert "The division's teams:" not in _render_discover(discover_result())
 
 
 def test_the_summary_names_other_observed_names() -> None:
-    """Nimenvaihto on havainto eikä sitä piiloteta."""
+    """A change of name is an observation and it is not hidden."""
     output_text = _render_discover(with_team(alternative_names=["Rcave"]))
 
-    assert field_value(output_text, "Muut havaitut nimet") == "Rcave"
+    assert field_value(output_text, "Other observed names") == "Rcave"
 
 
 def test_the_summary_says_when_one_team_has_two_source_identifiers() -> None:
-    """Identiteetti on rosteri: kaksi tunnistetta voi olla sama joukkue."""
+    """Identity is the roster: two ids can be the same team."""
     output_text = _render_discover(with_team(faction_ids=["kausi-12", "kausi-13"]))
 
-    assert "kausi-12" in field_value(output_text, "Lähteen tunnisteet")
-    assert "eri kaudet" in field_value(output_text, "Lähteen tunnisteet")
+    assert "kausi-12" in field_value(output_text, "Source ids")
+    assert "different seasons" in field_value(output_text, "Source ids")
 
 
-# --- Mikään pudotus ei ole hiljainen --------------------------------------------
+# --- No drop is silent ----------------------------------------------------------
 
 
 def test_the_summary_names_the_players_that_were_left_out() -> None:
-    """Hiljainen pudotus näyttäisi vain lyhyemmältä rosterilta.
+    """A silent drop would look like nothing but a shorter roster.
 
-    Nimi on mukana luvun lisäksi, jotta käyttäjä voi tarkistaa keneltä tunniste
-    puuttui -- pelkkä luku olisi väite ilman tarkistusmahdollisuutta.
+    The name is there beside the number so that the user can check whose id
+    was missing -- the number alone would be a claim with no way to check it.
     """
     output_text = _render_discover(
         with_stats(
@@ -312,24 +321,26 @@ def test_the_summary_names_the_players_that_were_left_out() -> None:
         )
     )
 
-    value = field_value(output_text, "Ilman SteamID64:aa")
-    assert value.startswith("2 pelaajaa")
+    value = field_value(output_text, "Without a SteamID64")
+    assert value.startswith("2 players")
     assert "eka" in value and "toka" in value
 
 
 def test_the_summary_is_silent_when_nobody_was_left_out() -> None:
-    assert "Ilman SteamID64" not in _render_discover(discover_result())
+    assert "Without a SteamID64" not in _render_discover(discover_result())
 
 
 def test_the_summary_counts_team_rows_that_had_no_identifier() -> None:
-    """Katselmus: pudotetut pelaajat kerrottiin, pudotetut joukkuerivit eivät."""
+    """From the review: dropped players were reported, dropped team rows were not."""
     output_text = _render_discover(with_stats(team_rows_without_id=3))
 
-    assert field_value(output_text, "Tunnisteettomat joukkuerivit").startswith("3 kpl")
+    assert field_value(output_text, "Team rows without id").startswith(
+        "3 were skipped"
+    )
 
 
 def test_the_summary_reports_a_player_who_changed_teams() -> None:
-    """Siirtymä muuttaa rosteria, joten se kuuluu yhteenvetoon."""
+    """A transfer changes the roster, so it belongs in the summary."""
     output_text = _render_discover(
         with_stats(
             transfers=[
@@ -343,12 +354,12 @@ def test_the_summary_reports_a_player_who_changed_teams() -> None:
         )
     )
 
-    assert "siirtyja" in field_value(output_text, "Siirtyneet pelaajat")
-    assert "Aakkoset" in field_value(output_text, "Siirtyneet pelaajat")
+    assert "siirtyja" in field_value(output_text, "Transferred players")
+    assert "Aakkoset" in field_value(output_text, "Transferred players")
 
 
 def test_the_summary_reports_a_player_two_teams_both_claim() -> None:
-    """Kiistaa ei ratkaista arpomalla, joten se on luettavissa."""
+    """A dispute is not settled by drawing lots, so it can be read here."""
     output_text = _render_discover(
         with_stats(
             transfers=[
@@ -362,41 +373,48 @@ def test_the_summary_reports_a_player_two_teams_both_claim() -> None:
         )
     )
 
-    assert "kiistelty" in field_value(output_text, "Kahdessa joukkueessa")
+    assert "kiistelty" in field_value(output_text, "In two teams")
 
 
 def test_the_summary_reports_a_contested_lineup_key() -> None:
-    """Jatkovaihe laskisi tiivisteen kahdesti tietämättä tekevänsä niin."""
+    """A later stage would count the digest twice without knowing it did."""
     output_text = _render_discover(with_stats(contested_lineup_keys=["ff03fb54"]))
 
-    assert "ff03fb54" in field_value(output_text, "Kiistanalaiset kokoonpanot")
+    assert "ff03fb54" in field_value(output_text, "Contested lineups")
 
 
 def test_the_summary_leads_with_the_reason_when_there_is_one() -> None:
-    """Tyhjä tulos ``ok``-tilassa ilman selitystä jättäisi käyttäjän arvaamaan."""
+    """An empty result in state ``ok`` with no explanation leaves the user guessing.
+
+    **The reason is the wording the stage really raises.** T5 translated
+    ``discover``, and the Finnish copy that used to stand here had stopped
+    matching the stage months before anyone would have noticed: a literal that
+    drifts makes the test measure its own string.
+    """
     output_text = _render_discover(
         discover_result(
-            reason="Kilpailusta ei löytynyt yhtään ottelua. Tarkista "
-            "[league].championship_ids asetuksista.",
+            reason="No match at all was found in the competition. Check "
+            "[league].championship_ids in the settings -- the indexes were "
+            "written empty.",
             stats=dict(discover_result().stats, matches=0, teams=0),
         )
     )
 
-    assert field_value(output_text, "Huomio").startswith("Kilpailusta ei löytynyt")
+    assert field_value(output_text, "Note").startswith("No match at all was found")
 
 
 def test_the_summary_has_no_reason_line_when_everything_was_found() -> None:
-    assert "Huomio" not in _render_discover(discover_result())
+    assert "Note" not in _render_discover(discover_result())
 
 
-# --- Virheet --------------------------------------------------------------------
+# --- The errors -----------------------------------------------------------------
 
 
 def ambiguous_error() -> PappascoutError:
-    """Sama viesti kuin vaihe oikeasti nostaa -- ei käsin kirjoitettu kopio.
+    """The same message the stage really raises -- not a hand-written copy.
 
-    Literaali menisi läpi vaikka vaiheen sanamuoto muuttuisi, eli testi
-    mittaisi omaa merkkijonoaan eikä ohjelmaa.
+    A literal would pass even if the stage's wording changed, that is, the
+    test would measure its own string and not the program.
     """
     teams = tuple(
         Team(team_key=key, name=name)
@@ -410,10 +428,15 @@ def ambiguous_error() -> PappascoutError:
     return PappascoutError(_lookup_problem(lookup, teams))
 
 
-def test_an_ambiguous_name_ends_in_a_finnish_error_and_exit_code_one(
+def test_an_ambiguous_name_lists_the_candidates_and_exits_with_code_one(
     fake_stage: dict, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """Monitulkintaisuutta ei ratkaista hiljaa: ajo päättyy, valinta pyydetään."""
+    """Ambiguity is not settled quietly: the run ends and a choice is asked for.
+
+    The name used to say the error is in Finnish. AD-11 moved the console into
+    English on 2026-09-07, so the claim would now be false; what the
+    assertions pin is the listing, the ids and the exit code.
+    """
     fake_stage["virhe"] = ambiguous_error()
     monkeypatch.setattr("sys.argv", ["pappascout", "discover", "--team", "T"])
 
@@ -424,5 +447,6 @@ def test_an_ambiguous_name_ends_in_a_finnish_error_and_exit_code_one(
     stderr = capsys.readouterr().err
     for name in ("TUUHEE", "Takakeno", "Tankkiluola vilttiketju"):
         assert name in stderr
-    # Tunniste on mukana, koska ilman sitä kahta samannimistä ei voi erottaa.
+    # The id is there because without it two teams of the same name cannot be
+    # told apart.
     assert "faction-04" in stderr

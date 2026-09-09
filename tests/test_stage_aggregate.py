@@ -682,15 +682,15 @@ def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM, "Anubis_vs_b": TEAM})
     text = _render_aggregate(run(archive))
-    assert "Otanta" in text
+    assert "Sample" in text
     assert "de_nuke" in text and "de_anubis" in text
-    assert _render_aggregate(run(archive)).startswith("Ohitettu:")
+    assert _render_aggregate(run(archive)).startswith("Skipped:")
 
 
 def test_the_summary_reports_the_roster_size(tmp_path: Path) -> None:
     """The roster line was in the output without a test."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM}, players=5)
-    assert "5 pelaajaa havaittu" in _render_aggregate(run(archive))
+    assert "5 players observed" in _render_aggregate(run(archive))
 
 
 def test_a_lineup_that_cannot_be_read_at_all_is_still_reported(
@@ -910,9 +910,11 @@ def test_the_bucket_row_names_the_counts_in_the_summary(tmp_path: Path) -> None:
     result = run(archive)
 
     text = _render_aggregate(result)
-    assert "liiga 1 demoa / 2 kierrosta" in text
-    assert "muut 1 demoa / 2 kierrosta" in text
-    assert "tuntematon 0 demoa / 0 kierrosta" in text
+    # The bucket names stay Finnish (``SAMPLE_BUCKET_FI``, AD-11); the
+    # surrounding console text was translated in T15.
+    assert "liiga 1 demos / 2 rounds" in text
+    assert "muut 1 demos / 2 rounds" in text
+    assert "tuntematon 0 demos / 0 rounds" in text
 
 
 # --- Roster class split (Story 3.9) ---------------------------------------------
@@ -2030,18 +2032,20 @@ def test_the_run_output_names_the_anomalies_and_the_coverage(
         archive.parsed_table(demo, "ticks")
     )
     text = _render_aggregate(run(archive))
-    assert "Poikkeamat" in text
+    assert "Anomalies" in text
+    # ``2 pelaajaa`` is ``render.players_text``: report vocabulary passing
+    # through the console (AD-11), so it stays Finnish.
     assert "ct_advance de_nuke CT eco: Lobby 2 pelaajaa (1/3)" in text
     assert (
-        "säännöt ct_advance, crunch, stack ajettiin 3 kierrokselle -- crunch "
-        "voi osua 3, eteneminen 3 ja stack 0"
+        "the rules ct_advance, crunch, stack were run over 3 rounds -- "
+        "crunch can hit 3, the advance 3 and stack 0"
     ) in text
     # There are no deferred rules any more, so the sentence does not belong in
     # the output. The stack rule's zero is not "not run" but a silenced demo,
     # and that is said as a figure of its own -- otherwise the user would go
     # looking for an implementation that is not missing.
-    assert "ajamatta" not in text
-    assert "ilman siteryhmiä 1 demoa: Nuke_vs_a" in text
+    assert "not run:" not in text
+    assert "without site groups, 1 of the demos: Nuke_vs_a" in text
 
 
 def test_the_run_output_says_when_a_demo_has_no_orientation(
@@ -2050,7 +2054,7 @@ def test_the_run_output_says_when_a_demo_has_no_orientation(
     """A blind spot shows in the run's output too, not only in the report."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     text = _render_aggregate(run(archive))
-    assert "ilman alueorientaatiota 1 demoa" in text
+    assert "without area orientation, 1 of the demos" in text
 
 
 def test_a_demo_without_anomalies_writes_an_empty_list(tmp_path: Path) -> None:
@@ -2113,11 +2117,11 @@ def test_the_stage_reads_the_point_cloud_and_finds_the_stack(
     assert stacks[0].rounds[0].points[0].alive == 5
     assert report.anomaly_scan.demos_without_site_groups == []
     assert report.anomaly_scan.stack_rounds == report.anomaly_scan.crunch_rounds
-    # The run's output says the same as a fraction: "4 pelaajaa" on its own
+    # The run's output says the same as a fraction: "4 players" on its own
     # would be exactly the figure whose meaninglessness is the rule's whole
     # claim.
     assert (
-        "stack de_ancient CT eco: BombsiteB 4/5 pelaajaa (1/3)"
+        "stack de_ancient CT eco: BombsiteB 4/5 players (1/3)"
         in _render_aggregate(result)
     )
 

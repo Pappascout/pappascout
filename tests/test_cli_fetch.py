@@ -1,20 +1,22 @@
-"""``pappascout fetch`` -- komennon testit (Story 3.4).
+"""``pappascout fetch`` -- the command's tests (Story 3.4).
 
-Neljä asiaa lukitaan täällä:
+Four things are locked down here:
 
-* **Kysymys ennen latausta.** Komento kertoo montako demoa haetaan, minne ja
-  paljonko tilaa ne vievät, ja odottaa vastausta. ``--kylla`` ohittaa
-  kysymyksen -- muttei suunnitelman tulostamista.
-* **Ei-vastaus ei lataa mitään.** Vahvistuksen peruminen on peruminen, ei
-  viive.
-* **Kerrossääntö.** Komento ei tuo adaptereita eikä arkistoa: portti tulee
-  ``stages.fetch.default_source``ilta ja polut ``stages.archive_paths``ilta.
-* **Muu kuin ``ok`` näkyy syineen.** Poistettu demo ja katkennut yhteys ovat
-  eri jatko, eivätkä ne saa näyttää ruudulla samalta.
+* **The question before the download.** The command says how many demos are
+  fetched, where to and how much space they take, and waits for an answer.
+  ``--kylla`` skips the question -- but not the printing of the plan.
+* **A negative answer downloads nothing.** Cancelling the confirmation is a
+  cancellation, not a delay.
+* **The layering rule.** The command imports neither the adapters nor the
+  archive: the port comes from ``stages.fetch.default_source`` and the paths
+  from ``stages.archive_paths``.
+* **Anything other than ``ok`` shows with its reason.** A demo that was
+  removed and a connection that broke are different next steps, and they must
+  not look the same on the screen.
 
-Koko ketju ``discover`` -> ``select`` -> ``fetch`` ajetaan oikeilla vaiheilla
-feikkiporttien takaa: se on ainoa tapa todistaa, että valintatiedoston muoto ja
-sen lukija pysyvät yhdessä.
+The whole ``discover`` -> ``select`` -> ``fetch`` chain is run with the real
+stages behind fake ports: that is the only way to prove that the selection
+file's shape and its reader stay together.
 """
 
 from __future__ import annotations
@@ -52,14 +54,14 @@ SUBJECT = "Potku"
 
 @pytest.fixture(params=["arkisto", "paikallinen"])
 def pipeline(request, settings_file: Path, tmp_path: Path, monkeypatch):
-    """Oikeat vaiheet, feikatut portit, arkisto väliaikaishakemistossa.
+    """The real stages, fake ports, the archive in a temporary directory.
 
-    **Molemmat demohakemistomoodit, jokaisessa testissä.** Versioitu
-    ``settings.toml`` valitsee arkiston, mutta ``[project].demos_root`` on
-    tuettu moodi -- ja moodi, jota komentotestit eivät aja, kulkisi CLI:n läpi
-    nolla kertaa. Aukon kääntäminen toisin päin ei ole korjaus.
+    **Both demo directory modes, in every test.** The versioned
+    ``settings.toml`` chooses the archive, but ``[project].demos_root`` is a
+    supported mode -- and a mode the command tests do not run goes through
+    the CLI zero times. Turning the gap the other way round is not a fix.
 
-    Palauttaa ``(archive, source, units)``.
+    Returns ``(archive, source, units)``.
     """
     if request.param == "paikallinen":
         text = settings_file.read_text(encoding="utf-8")
@@ -96,14 +98,14 @@ def pipeline(request, settings_file: Path, tmp_path: Path, monkeypatch):
     units = [
         row["map_demo_id"] for row in document["selections"] if row["roster_ok"]
     ]
-    assert units, "aineisto ei tuottanut yhtäkään valittua karttaa"
+    assert units, "the data produced no selected map at all"
 
     source = FakeDemoSource({unit: FakeDemo(DEMO_BYTES) for unit in units})
     monkeypatch.setattr(
         "pappascout.stages.fetch.default_source",
         lambda settings, archive: source,
     )
-    # Levy ei saa olla testin muuttuja: tarkistus on oma testinsä.
+    # The disk must not be a variable of the test: the check is its own test.
     monkeypatch.setattr(fetch_stage, "free_space", lambda _archive: 100 * 1024**3)
     return archive, source, units
 
@@ -113,14 +115,17 @@ def test_the_plan_is_shown_and_confirmed_before_anything_is_downloaded(
 ) -> None:
     archive, source, units = pipeline
 
+    # ``k`` and not ``y``: the Finnish answers the tool asked for until
+    # 2026-09-09 stay accepted (``_MYONTYMISET``), and this is the one place
+    # that still exercises them.
     result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="k\n")
 
     assert result.exit_code == 0, result.output
-    # **Koko luku, ei osajono.** ``str(len(units))`` osuisi yksinumeroisena
-    # karttatunnisteeseen ja ajoaikaan, ja väite menisi läpi silloinkin kun
-    # ruudulla lukee jokin aivan muu luku.
-    assert f"{len(units)} demoa" in result.output
-    assert "Ladataanko nämä demot?" in result.output
+    # **The whole figure, not a substring.** A single-digit ``str(len(units))``
+    # would hit a map id and the run time, and the claim would pass even when
+    # the screen shows some entirely different number.
+    assert f"{len(units)} to download" in result.output
+    assert "Download these demos?" in result.output
     assert source.asked == units
     for unit in units:
         assert archive.demo(unit).read_bytes() == DEMO_BYTES
@@ -129,43 +134,45 @@ def test_the_plan_is_shown_and_confirmed_before_anything_is_downloaded(
 def test_answering_no_downloads_nothing(pipeline) -> None:
     archive, source, units = pipeline
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="e\n")
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="n\n")
 
-    # Kieltävä vastaus ei ole virhe: käyttäjä sai kysymyksen ja vastasi siihen.
+    # A negative answer is not an error: the user was asked and answered.
     assert result.exit_code == 0, result.output
-    assert "Peruttu" in result.output
+    assert "Cancelled" in result.output
     assert source.asked == []
     assert archive.find_demo(units[0]) is None
 
 
-def test_the_question_and_its_options_are_in_finnish(pipeline) -> None:
-    """Kaikki käyttäjälle näkyvä on suomeksi -- myös vaihtoehdot ja peruminen.
+def test_the_question_offers_its_own_options_and_not_typers(pipeline) -> None:
+    """The prompt is this tool's own, and its options say so.
 
-    ``typer.confirm`` tulostaa ``[y/N]`` ja ``Aborted.``, eli käyttäjän pitäisi
-    painaa ``y`` ja lukea englantia työkalussa, jonka jokainen muu rivi on
-    suomeksi.
+    ``typer.confirm`` prints ``[y/N]`` and aborts with ``Aborted.`` and a
+    non-zero exit code, which would tell a user who answered the question
+    that something went wrong. The name used to say the options are in
+    Finnish; AD-11 moved the console into English, and what the assertions
+    pin is that this is not ``typer.confirm``.
     """
     _archive, source, _units = pipeline
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="e\n")
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="n\n")
 
-    assert "[k/e]" in result.output
+    assert "[y/n]" in result.output
     assert "[y/N]" not in result.output
     assert "Aborted" not in result.output
     assert source.asked == []
 
 
-def test_k_is_the_answer_that_downloads(pipeline) -> None:
+def test_y_is_the_answer_that_downloads(pipeline) -> None:
     _archive, source, units = pipeline
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="k\n")
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="y\n")
 
     assert result.exit_code == 0, result.output
     assert source.asked == units
 
 
 def test_an_empty_answer_does_not_download(pipeline) -> None:
-    """Enter ei ole kyllä: oletus on se, joka ei kuluta kiintiötä eikä levyä."""
+    """Enter is not yes: the default is the one that spends no quota and no disk."""
     _archive, source, _units = pipeline
 
     result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="\n")
@@ -175,10 +182,10 @@ def test_an_empty_answer_does_not_download(pipeline) -> None:
 
 
 def test_an_unrecognised_answer_does_not_download(pipeline) -> None:
-    """Väärin ymmärretty vastaus ei saa johtaa 2,3 GB:n lataukseen."""
+    """A misread answer must not lead to a 2.3 GB download."""
     _archive, source, _units = pipeline
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="ehkä\n")
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="maybe\n")
 
     assert result.exit_code == 0, result.output
     assert source.asked == []
@@ -190,8 +197,8 @@ def test_kylla_skips_the_question_but_not_the_plan(pipeline) -> None:
     result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
 
     assert result.exit_code == 0, result.output
-    assert "Ladataanko" not in result.output
-    assert f"{len(units)} demoa" in result.output
+    assert "Download these" not in result.output
+    assert f"{len(units)} to download" in result.output
     assert source.asked == units
 
 
@@ -214,25 +221,25 @@ def test_a_second_run_downloads_nothing_and_says_so(pipeline) -> None:
 
     assert second.exit_code == 0, second.output
     assert source.asked == []
-    assert "ei ladattavaa" in second.output
+    assert "nothing to download" in second.output
 
 
 def test_a_missing_demo_is_listed_with_its_reason(
     pipeline, monkeypatch
 ) -> None:
-    """Poistettu demo ei ole virhe, mutta se on kerrottava."""
+    """A removed demo is not an error, but it has to be reported."""
     from pappascout.errors import DemoUnavailable
 
     _archive, source, units = pipeline
     source.demos[units[0]] = DemoUnavailable(
-        "FACEIT on poistanut tallenteen (säilytys noin 30 päivää)."
+        "FACEIT has removed the recording (retention is about 30 days)."
     )
 
     result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
 
     assert result.exit_code == 0, result.output
-    assert "Ei saatavilla" in result.output
-    assert "30 päivää" in result.output
+    assert "Not available" in result.output
+    assert "30 days" in result.output
     assert units[0] in result.output
 
 
@@ -242,14 +249,15 @@ def test_a_failed_download_is_listed_separately_from_a_missing_one(
     from pappascout.errors import ApiError
 
     _archive, source, units = pipeline
-    source.demos[units[0]] = ApiError("Rajapinta ei vastannut.", status_code=503)
+    source.demos[units[0]] = ApiError("The interface did not answer.", status_code=503)
 
     result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
 
     assert result.exit_code == 0, result.output
-    assert "Epäonnistui" in result.output
-    # Otsikko **toteaa vain mitä tapahtui**: neuvo tulee vian mukana (D1).
-    assert "Epäonnistui (1) -- aja komento uudelleen" not in result.output
+    assert "Failed" in result.output
+    # The heading **states only what happened**: the advice comes with the
+    # fault (D1).
+    assert "Failed (1) -- run the command again" not in result.output
 
 
 def test_a_full_disk_stops_the_command_before_the_question(
@@ -264,8 +272,8 @@ def test_a_full_disk_stops_the_command_before_the_question(
 
     assert exit_info.value.code == EXIT_KNOWN_ERROR
     captured = capsys.readouterr()
-    assert "Levytila ei riitä" in captured.err + captured.out
-    assert "Ladataanko" not in captured.out
+    assert "no room for a single demo" in captured.err + captured.out
+    assert "Download these" not in captured.out
     assert source.asked == []
 
 
@@ -293,14 +301,15 @@ def test_without_a_selection_file_the_error_says_to_run_select(
 def test_the_local_demos_root_setting_moves_the_files_out_of_the_archive(
     settings_file_local_demos, tmp_path, monkeypatch
 ) -> None:
-    """``[project].demos_root`` ohjaa demot OneDriven ulkopuolelle.
+    """``[project].demos_root`` points the demos outside the synchronised folder.
 
-    Rivi on versioidussa tiedostossa kommentoituna -- arkisto on oletus, koska
-    se seuraa koneelta toiselle ja OneDrive vapauttaa parsitun demon tilan
-    poistamatta tiedostoa. Moodi on silti tuettu, ja tämä testi ajaa koko
-    komennon oikealla asetustiedostolla: asetus, ``ArchivePaths`` ja vaihe
-    todistetaan yhdessä, koska yksikään niistä ei yksin osoita, että tiedosto
-    päätyy toiseen hakemistoon.
+    The line is commented out in the versioned file -- the archive is the
+    default, because it follows from one machine to the other and the sync
+    client frees a parsed demo's space without deleting the file. The mode is
+    supported even so, and this test runs the whole command with a real
+    settings file: the setting, ``ArchivePaths`` and the stage are proved
+    together, because not one of them alone shows that the file ends up in
+    another directory.
     """
     from pappascout.domain.models import load_settings
 
@@ -329,7 +338,7 @@ def test_the_local_demos_root_setting_moves_the_files_out_of_the_archive(
 
 
 def _prepare(archive, monkeypatch) -> list[str]:
-    """Aja discover ja select, ja johdota demolähde valituille kartoille."""
+    """Run discover and select, and wire the demo source to the chosen maps."""
     runner.invoke(app, ["discover"])
     runner.invoke(app, ["select", "--team", SUBJECT])
     document = json.loads(
@@ -345,12 +354,13 @@ def _prepare(archive, monkeypatch) -> list[str]:
     return units
 
 
-# -- Ruudun luvut (B3, 2026-09-05) -------------------------------------------
+# -- The numbers on the screen (B3, 2026-09-05) ------------------------------
 #
-# Vahvistuskysymyksen **koko arvo on luvuissa**: "Ladataan 12 demoa, arviolta
-# 2,6 Gt" on kysymys, johon voi vastata, ja "Ladataan 1001 demoa, arviolta
-# 168,1 Gt" on eri kysymys. Jos luvut eivät ole vartioituja, ne voivat olla
-# mitä tahansa eikä mikään huomaa -- ja käyttäjä vastaisi väärään kysymykseen.
+# **The confirmation question's whole value is in the numbers**: "Demos 12 to
+# download, an estimated 2,6 Gt" is a question that can be answered, and
+# "Demos 1001 to download, an estimated 168,1 Gt" is a different question. If
+# the numbers are not guarded they can be anything and nothing notices -- and
+# the user would answer the wrong question.
 
 
 @pytest.mark.parametrize(
@@ -374,7 +384,7 @@ def test_sizes_are_formatted_with_a_finnish_decimal_comma(
 
 
 def test_the_plan_line_says_the_real_count_and_the_real_size() -> None:
-    """Suunnitelman luvut tulevat suunnitelmasta, eivät mistään muualta."""
+    """The plan's numbers come from the plan and from nowhere else."""
     todo = fetch_stage.FetchPlan(
         team_key="joukkue",
         pending=("a-0", "a-1", "b-0"),
@@ -384,8 +394,8 @@ def test_the_plan_line_says_the_real_count_and_the_real_size() -> None:
 
     text = _render_fetch_plan(todo, 9_900_000_000, r"D:\demot")
 
-    assert "Otanta: 4 karttaa, joista 1 on jo levyllä" in text
-    assert "3 demoa, arviolta 669,0 Mt" in text
+    assert "Sample: 4 maps, of which 1 already on disk" in text
+    assert "3 to download, an estimated 669,0 Mt" in text
     assert r"D:\demot" in text
     assert "9,2 Gt" in text
     for unit in todo.pending:
@@ -393,7 +403,7 @@ def test_the_plan_line_says_the_real_count_and_the_real_size() -> None:
 
 
 def test_the_plan_line_scales_with_the_plan() -> None:
-    """Sama funktio, eri suunnitelma, eri luvut -- muuten luku on koriste."""
+    """The same function, a different plan, different numbers."""
     small = _render_fetch_plan(
         fetch_stage.FetchPlan("t", pending=("a-0",), estimated_bytes=1024**2),
         None,
@@ -407,20 +417,20 @@ def test_the_plan_line_scales_with_the_plan() -> None:
         "kohde",
     )
 
-    assert "1 demoa, arviolta 1,0 Mt" in small
-    assert "1001 demoa, arviolta 1,0 Tt" in large
-    # Vapaata tilaa ei tiedetä: riviä ei keksitä.
-    assert "Levytilaa vapaana" not in small
+    assert "1 to download, an estimated 1,0 Mt" in small
+    assert "1001 to download, an estimated 1,0 Tt" in large
+    # The free space is not known: the row is not invented.
+    assert "Free disk space" not in small
 
 
 def fetch_result(unit: str, status: str, **stats) -> StageResult:
-    """Vaiheen tulos tulosteen testaamiseen.
+    """The stage's result, for testing the output.
 
-    ``next_step`` on oletuksena olemassa epäonnistuneilla, koska vaihe ei
-    tuota sellaista riviä ilman sitä (``stages.fetch._result`` vartioi asian).
+    ``next_step`` exists by default on the failures, because the stage does
+    not produce such a row without it (``stages.fetch._result`` guards that).
     """
     if status != "ok":
-        stats.setdefault("next_step", "Tee jotain.")
+        stats.setdefault("next_step", "Do something.")
     return StageResult(
         stage="fetch",
         unit=unit,
@@ -433,41 +443,41 @@ def fetch_result(unit: str, status: str, **stats) -> StageResult:
 
 
 def test_the_summary_counts_every_status_separately() -> None:
-    """Neljä lukua, neljä eri jatkoa -- eikä yksikään saa vuotaa toiseen."""
+    """Four numbers, four different next steps -- and none may leak into another."""
     todo = fetch_stage.FetchPlan("t", pending=("a-0",), present=("z-0", "z-1"))
     results = (
         fetch_result("a-0", "ok", downloaded_bytes=1024**2, demos_dir=r"D:\demot"),
         fetch_result("b-0", "ok", downloaded_bytes=2 * 1024**2, demos_dir=r"D:\demot"),
         fetch_result("c-0", "ok", skipped=True),
-        fetch_result("d-0", "no_demo", reason="FACEIT poisti tallenteen."),
-        fetch_result("e-0", "download_failed", reason="Yhteys katkesi."),
+        fetch_result("d-0", "no_demo", reason="FACEIT removed the recording."),
+        fetch_result("e-0", "download_failed", reason="The connection broke."),
     )
 
     text = _render_fetch(results, todo)
 
-    assert "2 haettu" in text
-    # Ohitetut + suunnitelman jo levyllä olleet: 1 + 2.
-    assert "3 oli jo levyllä" in text
-    assert "1 ei saatavilla" in text
-    assert "1 epäonnistui" in text
-    assert "Kirjoitettu" in text and "3,0 Mt" in text
+    assert "2 fetched" in text
+    # The skipped ones + the plan's already-on-disk ones: 1 + 2.
+    assert "3 already on disk" in text
+    assert "1 not available" in text
+    assert "1 failed" in text
+    assert "Written" in text and "3,0 Mt" in text
     assert r"D:\demot" in text
 
 
 def test_the_summary_lists_every_reason_not_just_the_count() -> None:
-    """Poistettu demo ja katkennut yhteys ovat eri jatko."""
+    """A removed demo and a broken connection are different next steps."""
     todo = fetch_stage.FetchPlan("t", pending=())
     results = (
-        fetch_result("d-0", "no_demo", reason="FACEIT poisti tallenteen 30 pv."),
-        fetch_result("e-0", "download_failed", reason="Yhteys katkesi."),
+        fetch_result("d-0", "no_demo", reason="FACEIT removed the recording."),
+        fetch_result("e-0", "download_failed", reason="The connection broke."),
     )
 
     text = _render_fetch(results, todo)
 
-    assert "Ei saatavilla (1)" in text
-    assert "FACEIT poisti tallenteen 30 pv." in text
-    assert "Epäonnistui (1)" in text
-    assert "Yhteys katkesi." in text
+    assert "Not available (1)" in text
+    assert "FACEIT removed the recording." in text
+    assert "Failed (1)" in text
+    assert "The connection broke." in text
     assert "d-0" in text and "e-0" in text
 
 
@@ -480,25 +490,29 @@ def test_the_summary_sums_the_real_byte_counts() -> None:
 
     text = _render_fetch(results, todo)
 
-    assert "12 haettu" in text
-    assert "Kirjoitettu" in text and "1,2 Gt" in text
+    assert "12 fetched" in text
+    assert "Written" in text and "1,2 Gt" in text
 
 
-# -- Story 3.7: sisarkorjaukset ----------------------------------------------
+# -- Story 3.7: the sister fixes ----------------------------------------------
 
 
 def test_a_single_map_sample_says_one_map_not_one_maps() -> None:
-    """I/O-matriisi: yhden kartan otanta -> "1 kartta", ei "1 karttaa".
+    """The I/O matrix: a one-map sample -> "1 map", not "1 maps".
 
-    Sana taipui kovakoodattuna, vaikka :func:`_maps_fi` oli olemassa ja
-    ``collect`` kaytti sita oikein. Yhden kartan otanta ei ole harvinaisuus:
-    kauden ensimmainen ajo osuu juuri siihen.
+    The word was hard-coded although :func:`_maps_fi` existed and ``collect``
+    used it correctly. A one-map sample is not a rarity: the season's first
+    run lands on exactly that.
 
-    **Vaite kattaa koko lauseen eika vain lukusanaa.** Katselmus 2026-09-06
-    loysi, etta ensimmainen korjaus siirsi virheen yhta sanaa myohemmaksi
-    ("1 kartta, **joista** 0"), ja testi, joka katsoi vain alkuun asti,
-    lukitsi vaaran muodon paikalleen. Relatiivipronomini taipuu samalla
-    luvulla (:func:`_of_which_fi`).
+    **The claim covers the whole sentence and not only the numeral.** The
+    review of 2026-09-06 found that the first fix moved the mistake one word
+    later ("1 kartta, **joista** 0"), and a test that looked only as far as
+    the beginning locked the wrong form in place.
+
+    In Finnish the relative pronoun took the same number as the noun; English
+    has one form, so :func:`_of_which_fi` returns the same word either way
+    and the third assertion below only proves the sister word is still in the
+    sentence.
     """
     yksi = _render_fetch_plan(
         fetch_stage.FetchPlan("t", pending=("a-0",), estimated_bytes=1024**2),
@@ -513,22 +527,28 @@ def test_a_single_map_sample_says_one_map_not_one_maps() -> None:
         "kohde",
     )
 
-    assert "Otanta: 1 kartta, josta 0 on jo levylla" in yksi.replace(
+    # The ``replace`` folded a Finnish letter to ASCII back when this
+    # sentence was Finnish. It is a no-op now and is kept so that the diff
+    # reads as a translation.
+    assert "Sample: 1 map, of which 0 already on disk" in yksi.replace(
         "ä", "a"
     )
-    assert "1 karttaa" not in yksi
-    assert "joista" not in yksi
-    assert "Otanta: 2 karttaa, joista 0 on jo levylla" in monta.replace(
+    assert "1 maps" not in yksi
+    # In Finnish this word inflected with the count and the assertion was
+    # ``"joista" not in yksi``. English has one form, so all that is left to
+    # claim is that the sister helper is still in the sentence.
+    assert "of which" in yksi
+    assert "Sample: 2 maps, of which 0 already on disk" in monta.replace(
         "ä", "a"
     )
 
 
 def test_the_fetch_plan_warns_when_it_does_not_fit_on_disk() -> None:
-    """I/O-matriisi: suunnitelma ei mahdu levylle -> varoitusrivi, ei porttia.
+    """The I/O matrix: the plan does not fit -> a warning row, not a gate.
 
-    Rivi lisattiin Story 3.5:ssa vain ``collect``iin, mutta se ei koske
-    divisioonaa: 12 demon otanta ei mahdu 1 Gt:n levylle sen paremmin kuin
-    132:kaan, ja kayttaja vahvistaa tassa saman kysymyksen.
+    The row was added in Story 3.5 to ``collect`` only, but it is not about
+    the division: a sample of 12 demos fits on a 1 GB disk no better than one
+    of 132, and the user confirms the same question here.
     """
     todo = fetch_stage.FetchPlan(
         "t",
@@ -537,18 +557,18 @@ def test_the_fetch_plan_warns_when_it_does_not_fit_on_disk() -> None:
     )
 
     ahdas = _render_fetch_plan(todo, 2560 * 1024**2, "kohde")
-    valjä = _render_fetch_plan(todo, 100 * 1024**3, "kohde")
+    roomy = _render_fetch_plan(todo, 100 * 1024**3, "kohde")
 
-    assert "HUOM" in ahdas and "ei mahdu levylle" in ahdas
-    assert "HUOM" not in valjä
+    assert "NOTE" in ahdas and "does not fit on the disk" in ahdas
+    assert "NOTE" not in roomy
 
 
 def test_the_fetch_plan_truncates_a_long_listing() -> None:
-    """I/O-matriisi: yli 20 tunnistetta -> luettelo katkeaa ja sanoo montako.
+    """The I/O matrix: over 20 ids -> the listing is cut and says how many.
 
-    Sama katto ja sama syy kuin ``collect``illa: toistasataa rivia
-    tunnisteita vierittaisi ruudulta pois juuri ne rivit, joiden takia
-    suunnitelma tulostetaan -- kohteen, vapaan tilan ja itse kysymyksen.
+    The same ceiling and the same reason as ``collect``'s: over a hundred
+    rows of ids would scroll off the screen exactly the rows the plan is
+    printed for -- the target, the free space and the question itself.
     """
     todo = fetch_stage.FetchPlan(
         "t",
@@ -559,16 +579,16 @@ def test_the_fetch_plan_truncates_a_long_listing() -> None:
     text = _render_fetch_plan(todo, None, "kohde")
 
     assert text.count("\n  a-") == MAX_LISTED_UNITS
-    assert "(+5 muuta" in text
+    assert "(+5 more" in text
 
 
 def test_a_successful_download_shows_its_note_on_screen() -> None:
-    """I/O-matriisi: onnistunut lataus, pituutta ei voitu todeta -> huomio nakyy.
+    """The I/O matrix: a successful download whose length could not be checked.
 
-    ``reason`` tulostettiin vain epaonnistumisten lohkoissa, joten
-    ``status="ok"`` -tuloksen huomio ei nakynyt koskaan. Niihin kuuluu
-    ``fetch._unverified_note``, jonka oma dokumentaatio sanoo etta vaiheen
-    **"on sanottava se"** -- ja vaiettu epavarmuus nayttaa varmuudelta.
+    ``reason`` was printed only in the failure blocks, so a note on a
+    ``status="ok"`` result was never seen. ``fetch._unverified_note`` is one
+    of them, and its own documentation says the stage **"has to say it"** --
+    and an unspoken uncertainty looks like certainty.
     """
     todo = fetch_stage.FetchPlan("t", pending=("a-0",))
     huomio = fetch_stage._unverified_note("a-0")
@@ -579,71 +599,80 @@ def test_a_successful_download_shows_its_note_on_screen() -> None:
 
     text = _render_fetch(results, todo)
 
-    assert "Huomiot (1)" in text
+    assert "Notes (1)" in text
     assert "did not state the size of demo a-0" in text
     assert "b-0" not in text
 
 
 def test_a_skipped_download_does_not_repeat_its_note_for_every_unit() -> None:
-    """Ohitetun tuloksen ``reason`` on "oli jo levylla" -- se on jo luku.
+    """A skipped result's ``reason`` is "already on disk" -- already a count.
 
-    Otannan mittainen luettelo samaa lausetta hukuttaisi juuri ne rivit,
-    joiden takia lohko on olemassa. Tama testi katsoo tulosteen lapi;
-    :func:`test_the_note_block_filters_skipped_results_itself` katsoo saman
-    saannon funktion omasta rungosta.
+    A listing of the same sentence as long as the sample would drown exactly
+    the rows the block exists for. This test looks through the output;
+    :func:`test_the_note_block_filters_skipped_results_itself` looks at the
+    same rule in the function's own body.
     """
     todo = fetch_stage.FetchPlan("t", pending=())
     results = tuple(
-        fetch_result(f"a-{i}", "ok", skipped=True, reason="Demo oli jo hakemistossa.")
+        fetch_result(
+            f"a-{i}", "ok", skipped=True, reason="The demo was already there."
+        )
         for i in range(12)
     )
 
     text = _render_fetch(results, todo)
 
-    assert "Huomiot" not in text
+    assert "Notes" not in text
 
 
 def test_the_note_block_filters_skipped_results_itself() -> None:
-    """**Saanto on funktiossa, ei kutsupaikassa.**
+    """**The rule is in the function, not at the call site.**
 
-    Katselmus 2026-09-06: docstring lupasi "vain ladatut", mutta ohitettujen
-    poisto oli :func:`_render_fetch`issa (se antoi valmiiksi suodatetun
-    listan). Saanto, joka ei ole siella missa sen dokumentaatio on, katoaa
-    seuraavan kutsupaikan mukana -- ja se kutsupaikka saisi otannan mittaisen
-    luettelon lausetta "demo oli jo levylla". Siksi tama testi kutsuu
-    :func:`_fetch_notes`ia **suoraan** ja antaa sille suodattamattoman listan.
+    The review of 2026-09-06: the docstring promised "only the downloaded
+    ones", but the removal of the skipped ones was in :func:`_render_fetch`
+    (it passed a pre-filtered list). A rule that is not where its
+    documentation is disappears with the next call site -- and that call site
+    would get a listing as long as the sample of the sentence "the demo was
+    already on disk". So this test calls :func:`_fetch_notes` **directly** and
+    gives it an unfiltered list.
     """
     results = (
-        fetch_result("a-0", "ok", skipped=True, reason="Demo oli jo hakemistossa."),
-        fetch_result("b-0", "no_demo", reason="FACEIT poisti tallenteen."),
-        fetch_result("c-0", "download_failed", reason="Yhteys katkesi."),
-        fetch_result("d-0", "ok", reason="Ladattu, mutta pituutta ei todettu."),
+        fetch_result(
+            "a-0", "ok", skipped=True, reason="The demo was already there."
+        ),
+        fetch_result("b-0", "no_demo", reason="FACEIT removed the recording."),
+        fetch_result("c-0", "download_failed", reason="The connection broke."),
+        fetch_result(
+            "d-0", "ok", reason="Downloaded, but the length was not confirmed."
+        ),
     )
 
     lines = _fetch_notes(results)
 
     teksti = "\n".join(lines)
-    assert "Huomiot (1)" in teksti
-    assert "d-0" in teksti and "pituutta ei todettu" in teksti
-    # Ohitettu, ei-saatavilla ja epaonnistunut eivat kuulu tahan lohkoon:
-    # kahdella viimeisella on oma lohkonsa neuvoineen (``_fetch_failures``).
+    assert "Notes (1)" in teksti
+    assert "d-0" in teksti and "length was not confirmed" in teksti
+    # The skipped, the not-available and the failed do not belong in this
+    # block: the last two have a block of their own with their advice
+    # (``_fetch_failures``).
     assert "a-0" not in teksti
     assert "b-0" not in teksti
     assert "c-0" not in teksti
 
 
 def test_the_note_block_is_empty_when_there_is_nothing_to_say() -> None:
-    """Tyhja lohko olisi otsikko ilman sisaltoa."""
+    """An empty block would be a heading with no content."""
     assert _fetch_notes(()) == []
     assert _fetch_notes((fetch_result("a-0", "ok", reason=None),)) == []
     assert _fetch_notes((fetch_result("a-0", "ok", reason="   "),)) == []
 
 
 def test_a_failed_orphan_removal_reaches_the_screen() -> None:
-    """I/O-matriisi: orpo metatiedosto, jota ei voi poistaa -> VAROITUS ruudulle.
+    """The I/O matrix: an orphaned metadata file that cannot be removed.
 
-    Vaiheen huomio ja komennon tuloste ovat eri asia: huomio, joka syntyy
-    tulokseen muttei ruudulle, on sama asia kuin vaikeneminen.
+    The stage's note and the command's output are different things: a note
+    that comes into being in the result but not on the screen is the same
+    thing as silence.
     """
     todo = fetch_stage.FetchPlan("t", pending=("a-0",))
     results = (
@@ -667,13 +696,13 @@ def test_a_failed_orphan_removal_reaches_the_screen() -> None:
 
 
 def test_the_same_byte_count_prints_the_same_string_in_every_command() -> None:
-    """Hyvaksymiskriteeri: sama tavumaara, sama merkkijono.
+    """The acceptance criterion: the same byte count, the same string.
 
-    ``cli`` muotoili tavut omalla taulullaan (``Pt`` mukana) ja ``fetch``
-    omallaan (``Tt`` viimeisena), joten sama luku saattoi tulostua eri
-    tavalla sen mukaan, mika komento sen tulosti.
+    ``cli`` formatted bytes with a table of its own (``Pt`` included) and
+    ``fetch`` with one of its own (``Tt`` last), so the same number could
+    print differently depending on which command printed it.
     """
-    tavut = 234_163_493  # arkiston suurin pakattu demo, 223,3 Mt
+    tavut = 234_163_493  # the archive's largest compressed demo, 223,3 Mt
 
     suunnitelma = _render_fetch_plan(
         fetch_stage.FetchPlan("t", pending=("a-0",), estimated_bytes=tavut),
@@ -687,22 +716,23 @@ def test_the_same_byte_count_prints_the_same_string_in_every_command() -> None:
 
     odotettu = fetch_stage.size_fi(tavut)
     assert odotettu == "223,3 Mt"
-    assert suunnitelma.count(odotettu) == 2  # arvio ja vapaa tila
+    assert suunnitelma.count(odotettu) == 2  # the estimate and the free space
     assert odotettu in yhteenveto
 
 
-# -- Oletusmoodi kulkee komennon läpi (B6) -----------------------------------
+# -- The default mode goes through the command (B6) --------------------------
 
 
 def test_without_demos_root_the_demos_go_into_the_archive(
     settings_file, monkeypatch
 ) -> None:
-    """Toimitettava oletus: demot arkiston ``demos/``iin.
+    """The default that ships: the demos into the archive's ``demos/``.
 
-    Päätetty 2026-09-05. Arkisto on OneDrivessa ja seuraa koneelta toiselle,
-    joten projektin koko tila liikkuu yhtenä kokonaisuutena -- ja Files
-    On-Demand vapauttaa parsitun demon paikallisen tilan **poistamatta
-    tiedostoa**, mikä paikallisessa kansiossa olisi lopullinen poisto.
+    Decided 2026-09-05. The archive is in a synchronised folder and follows
+    from one machine to the other, so the project's whole state moves as one
+    -- and the sync client's on-demand mode frees a parsed demo's local space
+    **without deleting the file**, which in a local folder would be a
+    permanent deletion.
     """
     from pappascout.domain.models import load_settings
 
@@ -725,21 +755,21 @@ def test_without_demos_root_the_demos_go_into_the_archive(
     for unit in units:
         assert (archive.root / "demos" / f"{unit}.dem.zst").is_file()
         assert (archive.root / "demos" / f"{unit}.meta.json").is_file()
-    assert "(paikallinen)" not in result.output
+    assert "(local)" not in result.output
 
 
-# -- Levytilaportti osuu oikeasti vaiheeseen (B9) ----------------------------
+# -- The disk space gate really reaches the stage (B9) -----------------------
 
 
 def test_a_disk_that_fills_up_between_demos_stops_only_that_demo(
     pipeline, monkeypatch
 ) -> None:
-    """Vaiheen oma portti, ei komennon: tila voi loppua kesken sarjan.
+    """The stage's own gate, not the command's: space can run out mid-series.
 
-    Testi todistaa samalla, että vaiheen ``disk_free`` todella kysyy
-    :func:`free_space`ilta ajohetkellä -- oletusarvoksi sidottu funktio ei
-    reagoisi tähän monkeypatchiin lainkaan, ja testi menisi läpi vain siksi,
-    että koneella on tilaa.
+    The test also proves that the stage's ``disk_free`` really asks
+    :func:`free_space` at run time -- a function bound as a default value
+    would not react to this monkeypatch at all, and the test would pass only
+    because the machine has space.
     """
     _archive, source, units = pipeline
     calls = {"n": 0}
@@ -757,7 +787,7 @@ def test_a_disk_that_fills_up_between_demos_stops_only_that_demo(
     assert len(source.asked) < len(units)
 
 
-# -- info-komennon Demot-rivi (B7) -------------------------------------------
+# -- The info command's Demos row (B7) ---------------------------------------
 
 
 def test_info_names_the_demo_directory(
@@ -770,13 +800,13 @@ def test_info_names_the_demo_directory(
     rendered = _render_info(load_settings())
 
     local = tmp_path / LOCAL_DEMOS_DIRNAME
-    assert f"Demot              {local} (paikallinen)" in rendered
+    assert f"Demos              {local} (local)" in rendered
 
 
 def test_info_says_the_archive_directory_when_there_is_no_local_one(
     settings_file, monkeypatch
 ) -> None:
-    """``(paikallinen)`` on väite, ei koriste: se ei saa näkyä väärässä moodissa."""
+    """``(local)`` is a claim, not a decoration: not in the wrong mode."""
     from pappascout.domain.models import load_settings
 
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
@@ -785,40 +815,41 @@ def test_info_says_the_archive_directory_when_there_is_no_local_one(
     rendered = _render_info(settings)
     archive = archive_paths(settings.project)
 
-    assert f"Demot              {archive.root / 'demos'}" in rendered
-    assert "(paikallinen)" not in rendered
+    assert f"Demos              {archive.root / 'demos'}" in rendered
+    assert "(local)" not in rendered
 
 
-# -- Kohdehakemisto on osa kysymystä (tuotteen omistaja 2026-09-05) ----------
+# -- The target directory is part of the question (product owner 2026-09-05) -
 #
-# Tuotteen omistaja ehdotti, että työkalu kysyisi mihin tallennetaan.
-# Erillistä kysymystä ei tehdä -- asetusrivi ja info-komento ovat jo se
-# vastaus, ja joka ajolla
-# toistuva kysymys olisi kohinaa. Sen sijaan **vahvistuskysymys kertoo
-# kohteen** siinä missä se kertoo lukumäärän ja koon: käyttäjä näkee mihin
-# ollaan kirjoittamassa juuri silloin kun se ratkeaa, ja voi keskeyttää jos se
-# on väärä. Polku on siksi vartioitava samalla tarkkuudella kuin luvut.
+# The product owner suggested that the tool should ask where to save. No
+# separate question is asked -- the settings line and the info command are
+# already that answer, and a question repeated on every run would be noise.
+# Instead **the confirmation question names the target** just as it gives the
+# count and the size: the user sees where the writing is about to go at the
+# moment it is decided, and can stop if it is wrong. The path is therefore to
+# be guarded as closely as the numbers.
 
 
 def test_the_target_directory_is_shown_before_the_question(pipeline) -> None:
     archive, source, _units = pipeline
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="e\n")
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="n\n")
 
-    kohde = [r for r in result.output.splitlines() if r.strip().startswith("Kohde")]
-    assert kohde, f"suunnitelmassa ei ole Kohde-riviä:\n{result.output}"
+    kohde = [r for r in result.output.splitlines() if r.strip().startswith("Target")]
+    assert kohde, f"the plan has no Target row:\n{result.output}"
     assert str(archive.demos_dir()) in kohde[0]
-    # Kysymys tulee vasta kohteen jälkeen: muuten sen näkisi vasta vastattuaan.
-    assert result.output.index("Kohde") < result.output.index("Ladataanko")
+    # The question comes only after the target: otherwise it would be seen
+    # only after answering.
+    assert result.output.index("Target") < result.output.index("Download these")
     assert source.asked == []
 
 
 def test_the_shown_target_is_the_directory_that_is_written_to(pipeline) -> None:
-    """Polku ei saa olla koriste: sen on oltava sama, johon tiedostot menevät.
+    """The path must not be a decoration: it has to be where the files go.
 
-    Kiinteä tai väärä polku menisi läpi jokaisesta pelkkää olemassaoloa
-    tarkistavasta väitteestä -- ja käyttäjä hyväksyisi latauksen väärään
-    paikkaan luullen tarkistaneensa sen.
+    A fixed or wrong path would pass every claim that checks mere existence
+    -- and the user would approve a download to the wrong place believing
+    they had checked it.
     """
     archive, _source, units = pipeline
 
@@ -827,16 +858,16 @@ def test_the_shown_target_is_the_directory_that_is_written_to(pipeline) -> None:
     assert result.exit_code == 0, result.output
     written = archive.find_demo(units[0])
     assert written is not None
-    kohde = [r for r in result.output.splitlines() if r.strip().startswith("Kohde")]
-    assert kohde, f"tulosteessa ei ole Kohde-riviä:\n{result.output}"
+    kohde = [r for r in result.output.splitlines() if r.strip().startswith("Target")]
+    assert kohde, f"the output has no Target row:\n{result.output}"
     assert all(str(written.parent) in row for row in kohde)
 
 
 def test_the_target_line_distinguishes_the_two_modes(tmp_path) -> None:
-    """Sama rivi, eri moodi, eri polku -- muuten rivi ei kerro mitään.
+    """The same row, a different mode, a different path.
 
-    Kohde tulee ``demos_dir()``iltä, joten kiinteä polku menisi läpi jokaisesta
-    pelkkää olemassaoloa tarkistavasta väitteestä.
+    The target comes from ``demos_dir()``, so a fixed path would pass every
+    claim that checks mere existence.
     """
     from pappascout.archive.paths import ArchivePaths
 
@@ -854,17 +885,17 @@ def test_the_target_line_distinguishes_the_two_modes(tmp_path) -> None:
     assert arkistorivi != paikallisrivi
 
 
-# -- Ensimmäinen oikea ajo verkkoa vasten (2026-09-05) ----------------------
+# -- The first real run against the network (2026-09-05) ---------------------
 
 
 @pytest.fixture
 def denied_pipeline(pipeline, monkeypatch):
-    """Sama ketju, mutta oikea adapteri vastaa 403:lla signauskutsuun.
+    """The same chain, but the real adapter answers the signing call with 403.
 
-    **Oikea adapteri eikä feikkiporttti**, koska juuri se sauma erosi: feikki
-    ei voi tuottaa Downloads API:n 403:a, ja sen takia kaksi katselmusta ja
-    koko testisarja menivät ohi viasta, jonka ensimmäinen oikea ajo löysi
-    seitsemässä sekunnissa.
+    **The real adapter and not a fake port**, because that is exactly where
+    the seam differed: a fake cannot produce the Downloads API's 403, and
+    that is why two reviews and the whole test suite missed a fault the first
+    real run found in seven seconds.
     """
     from test_faceit_demos import DOWNLOADS, FakeResponse, FakeSession, build
 
@@ -881,12 +912,13 @@ def denied_pipeline(pipeline, monkeypatch):
 def test_a_denied_downloads_token_does_not_tell_the_user_to_retry(
     denied_pipeline, monkeypatch, capsys
 ) -> None:
-    """**C1.** "Aja komento uudelleen" ei auta ennen kuin hakemus hyväksytään.
+    """**C1.** "Run the command again" does not help until the application is
+    approved.
 
-    Mitattu 2026-09-05: tuotteen omistajan hakemus oli jonossa ("waiting for
-    review"), ja työkalu lajitteli 403:n otsikon "Epäonnistui (2) -- aja
-    komento uudelleen" alle. Neuvo oli väärä, ja se olisi toistunut jokaisella
-    ajolla.
+    Measured 2026-09-05: the product owner's application was in the queue
+    ("waiting for review"), and the tool sorted the 403 under the heading
+    "Failed (2) -- run the command again". The advice was wrong, and it would
+    have repeated on every run.
     """
     monkeypatch.setattr(
         "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--kylla"]
@@ -902,7 +934,7 @@ def test_a_denied_downloads_token_does_not_tell_the_user_to_retry(
     # ``fetch.run_many``'s progress note is English and rides in this same
     # text, so the Finnish needle alone no longer covers the whole output.
     assert "run the command again" not in text.lower()
-    assert "Epäonnistui" not in text
+    assert "Failed" not in text
     assert "fc-downloads.loza.gg" in text
     assert "downloads-api-application" in text
     assert "FACEIT_DOWNLOADS_TOKEN" in text
@@ -911,9 +943,9 @@ def test_a_denied_downloads_token_does_not_tell_the_user_to_retry(
 def test_only_one_signing_call_is_made_before_the_run_stops(
     denied_pipeline, monkeypatch, capsys
 ) -> None:
-    """**C2.** Kahdellatoista demolla tämä olisi ollut 12 tuomittua kutsua."""
+    """**C2.** With twelve demos this would have been 12 doomed calls."""
     _archive, session, units = denied_pipeline
-    assert len(units) > 1, "aineisto ei todista mitään yhdellä yksiköllä"
+    assert len(units) > 1, "the data proves nothing with one unit"
     monkeypatch.setattr(
         "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--kylla"]
     )
@@ -941,15 +973,16 @@ def test_the_denied_message_reaches_the_screen_and_says_waiting_helps(
     assert "Waiting" in text
 
 
-# -- Vastaamatta jättäminen on vastaus (C3) ---------------------------------
+# -- Not answering is an answer (C3) -----------------------------------------
 
 
-def test_no_input_at_all_is_cancelled_in_finnish(pipeline) -> None:
-    """**C3.** ``typer`` keskeyttää EOF:iin omalla viestillään ``Aborted.``
+def test_no_input_at_all_is_cancelled_not_aborted(pipeline) -> None:
+    """**C3.** ``typer`` aborts on EOF with a message of its own, ``Aborted.``
 
-    Se tapahtuu **ennen** kuin vahvistuksen oma koodi näkee mitään, joten A7:n
-    korjaus ei kattanut tätä reittiä: sama englanninkielinen sana tuli eri
-    kautta. Putki, ajastin ja Ctrl-C osuvat kaikki tähän.
+    That happens **before** the confirmation's own code sees anything, so
+    A7's fix did not cover this route: the same word claiming a failure came
+    by another way. A pipe, a scheduler and Ctrl-C all land here. The name
+    used to say the cancellation is in Finnish; AD-11 made that false.
     """
     _archive, source, _units = pipeline
 
@@ -957,72 +990,75 @@ def test_no_input_at_all_is_cancelled_in_finnish(pipeline) -> None:
 
     assert result.exit_code == 0, result.output
     assert "Aborted" not in result.output
-    assert "Peruttu. Yhtään demoa ei ladattu." in result.output
+    assert "Cancelled. No demos were downloaded." in result.output
     assert source.asked == []
 
 
 def test_the_cancel_message_is_the_same_however_the_user_declines(
     pipeline,
 ) -> None:
-    """Kieltävä vastaus ja vastaamatta jättäminen ovat sama lopputulos.
+    """Answering no and not answering at all are the same outcome.
 
-    Kaksi eri sanamuotoa antaisi ymmärtää että ne eroavat.
+    Two different wordings would suggest that they differ.
     """
     _archive, _source, _units = pipeline
 
-    kielto = runner.invoke(app, ["fetch", "--team", SUBJECT], input="e\n")
+    kielto = runner.invoke(app, ["fetch", "--team", SUBJECT], input="n\n")
     tyhja = runner.invoke(app, ["fetch", "--team", SUBJECT], input="")
 
-    assert "Peruttu. Yhtään demoa ei ladattu." in kielto.output
-    assert "Peruttu. Yhtään demoa ei ladattu." in tyhja.output
+    assert "Cancelled. No demos were downloaded." in kielto.output
+    assert "Cancelled. No demos were downloaded." in tyhja.output
     assert kielto.exit_code == tyhja.exit_code == 0
 
 
-# -- D1: neuvo kuuluu vikaan, ei otsikkoon (live-ajo 2026-09-05) ------------
+# -- D1: the advice belongs to the fault, not to the heading (live 2026-09-05)
 #
-# Kaksi peräkkäistä oikeaa ajoa löysi saman kuvion: luokittelu oli oikein mutta
-# neuvo väärä, koska neuvo tuli otsikosta "Epäonnistui (N) -- aja komento
-# uudelleen". Se on ämpäri, johon päätyy sekä ohimenevä häiriö että pysyvä
-# vika, ja jokainen uusi vikaluokka peri väärän neuvon oletuksena.
+# Two consecutive real runs found the same pattern: the classification was
+# right but the advice was wrong, because the advice came from the heading
+# "Failed (N) -- run the command again". That is a bucket that collects both a
+# passing glitch and a permanent fault, and every new class of fault inherited
+# the wrong advice by default.
 
 
 def test_two_failures_from_different_causes_get_different_advice() -> None:
     """**Koko korjauksen pointti.**
 
-    Sama tuloste, kaksi epäonnistunutta yksikköä, kaksi eri syytä -- ja kaksi
-    eri neuvoa. Yhteinen otsikko voisi olla oikea enintään toiselle niistä, ja
-    juuri se teki 403:sta ja 400:sta "aja komento uudelleen" -tapauksia.
+    The same output, two failed units, two different causes -- and two
+    different pieces of advice. A shared heading could be right for at most
+    one of them, and that is exactly what made a 403 and a 400 into "run the
+    command again" cases.
     """
     todo = fetch_stage.FetchPlan("t", pending=("a-0", "b-0"))
     results = (
         fetch_result(
             "a-0",
             "download_failed",
-            reason="Yhteys katkesi kesken latauksen.",
-            next_step="Aja komento uudelleen.",
+            reason="The connection broke during the download.",
+            next_step="Run the command again.",
         ),
         fetch_result(
             "b-0",
             "download_failed",
-            reason="FACEIT ei hyväksynyt latauslinkkipyyntöä (HTTP 400).",
-            next_step="Tarkista FACEIT_DOWNLOADS_TOKEN koneesi .env-tiedostosta.",
+            reason="FACEIT did not accept the download link request (HTTP 400).",
+            next_step="Check FACEIT_DOWNLOADS_TOKEN in your machine's .env file.",
         ),
     )
 
     text = _render_fetch(results, todo)
 
-    assert "-> Aja komento uudelleen." in text
-    assert "-> Tarkista FACEIT_DOWNLOADS_TOKEN" in text
-    # Ja ne ovat eri riveillä eri yksiköiden alla, eivät yhteisessä otsikossa.
+    assert "-> Run the command again." in text
+    assert "-> Check FACEIT_DOWNLOADS_TOKEN" in text
+    # And they are on different rows under different units, not in a shared
+    # heading.
     rows = text.splitlines()
     a_index = next(i for i, r in enumerate(rows) if r.strip() == "a-0")
     b_index = next(i for i, r in enumerate(rows) if r.strip() == "b-0")
-    assert "Aja komento uudelleen." in rows[a_index + 2]
+    assert "Run the command again." in rows[a_index + 2]
     assert "FACEIT_DOWNLOADS_TOKEN" in rows[b_index + 2]
 
 
 def test_the_failure_heading_states_what_happened_and_nothing_more() -> None:
-    """Otsikko ei saa neuvoa, koska se ei tiedä mistä viasta on kyse."""
+    """The heading must not advise, because it does not know which fault it is."""
     todo = fetch_stage.FetchPlan("t", pending=("a-0",))
     results = (
         fetch_result("a-0", "download_failed", reason="x", next_step="y"),
@@ -1030,41 +1066,41 @@ def test_the_failure_heading_states_what_happened_and_nothing_more() -> None:
 
     text = _render_fetch(results, todo)
 
-    heading = next(r for r in text.splitlines() if r.startswith("Epäonnistui"))
-    assert heading == "Epäonnistui (1):"
+    heading = next(r for r in text.splitlines() if r.startswith("Failed"))
+    assert heading == "Failed (1):"
 
 
 def test_a_missing_demo_also_carries_its_own_advice() -> None:
-    """Sama sääntö molemmissa ämpäreissä, ei vain toisessa."""
+    """The same rule in both buckets, not in one of them only."""
     todo = fetch_stage.FetchPlan("t", pending=("a-0",))
     results = (
         fetch_result(
             "a-0",
             "no_demo",
-            reason="FACEIT on poistanut tallenteen.",
-            next_step="Tuo demo käsin, jos se on tallessa.",
+            reason="FACEIT has removed the recording.",
+            next_step="Import the demo by hand, if you still have it.",
         ),
     )
 
     text = _render_fetch(results, todo)
 
-    assert "Ei saatavilla (1):" in text
-    assert "-> Tuo demo käsin, jos se on tallessa." in text
+    assert "Not available (1):" in text
+    assert "-> Import the demo by hand, if you still have it." in text
 
 
 def test_a_multi_line_reason_stays_readable_under_its_unit() -> None:
-    """Viestit ovat monirivisiä; sisennyksen on kannettava jokainen rivi."""
+    """The messages are multi-line; the indent has to carry every row."""
     todo = fetch_stage.FetchPlan("t", pending=("a-0",))
     results = (
         fetch_result(
             "a-0",
             "download_failed",
-            reason="Eka rivi.\nToka rivi.\nKolmas rivi.",
-            next_step="Tee jotain.",
+            reason="First row.\nSecond row.\nThird row.",
+            next_step="Do something.",
         ),
     )
 
     text = _render_fetch(results, todo)
 
-    for row in ("Eka rivi.", "Toka rivi.", "Kolmas rivi."):
+    for row in ("First row.", "Second row.", "Third row."):
         assert f"    {row}" in text

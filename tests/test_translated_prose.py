@@ -306,6 +306,33 @@ TRANSLATED_TRANCHES: tuple[Tranche, ...] = (
         sources=(("src/pappascout/stages/parse.py", 1),),
         tests=("tests/test_stage_parse.py",),
     ),
+    Tranche(
+        story="T14",
+        # The whole ``render`` package, both modules. The report vocabulary and
+        # the rendered text stay Finnish permanently (AD-11); they are code
+        # strings, which this guard never reads. What it does read are the
+        # docstrings that *quote* that output, and those are exempted below.
+        sources=(("src/pappascout/render", 2),),
+        tests=("tests/test_render.py",),
+    ),
+    Tranche(
+        story="T15",
+        # The whole ``cli`` package: it holds one module. With this entry
+        # every package in the repository is translated.
+        sources=(("src/pappascout/cli", 1),),
+        tests=(
+            "tests/test_cli.py",
+            "tests/test_cli_aggregate.py",
+            "tests/test_cli_classify.py",
+            "tests/test_cli_collect.py",
+            "tests/test_cli_discover.py",
+            "tests/test_cli_fetch.py",
+            "tests/test_cli_import.py",
+            "tests/test_cli_parse.py",
+            "tests/test_cli_report.py",
+            "tests/test_cli_select.py",
+        ),
+    ),
 )
 
 #: Every listed path with its recorded minimum, flattened out of the tranches.
@@ -451,6 +478,86 @@ QUOTED_FINNISH: tuple[QuotedFinnish, ...] = (
         path="tests/test_sampling.py",
         text="Stack sitellä",
         why="The same quotation, in the test that pins the rule it defines.",
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="havaintoa jäi pois",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="näyte puuttuu",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="pelaa siteltä/nyypästä ja longilta",
+        why="The product owner's own words, quoted as evidence of what the report has to answer.",
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="ensimmäinen kuolema",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="B-siten ryhmässä",
+        why="An argument about Finnish grammar. Translating the example deletes what it demonstrates.",
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="siten B ryhmässä",
+        why="An argument about Finnish grammar. Translating the example deletes what it demonstrates.",
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="ei yhtään",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="Yhdenkään demon",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="merkitään",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="aluetta jäi pois",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="yhdenkään demon",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="pistepilvestä",
+        why="A word the test can no longer search for, named so the next reader knows why.",
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="Ensimmäinen kuolema",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="X jäi",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="ensimmäinen kuolema",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="näyte puuttuu",
+        why="The exact line the report prints. An example of real output stops being an example once it is translated.",
     ),
 )
 

@@ -1,16 +1,16 @@
-"""``pappascout aggregate`` -- komennon ja sen yhteenvedon testit.
+"""``pappascout aggregate`` -- the command's and its summary's tests.
 
-Kaksi asiaa lukitaan täällä:
+Two things are locked down here:
 
-* **AD-3**: komento antaa vaiheelle vain ``settings.thresholds`` ja
-  ``settings.league``. Jos vaihe näkisi ``[parse]``-osion, lupaus
-  "kynnysmuutos ei uudelleenparsi" ei olisi enää rakenteellinen.
-* **Otanta näkyy tulosteessa.** Käyttäjä tarkistaa yhteenvedosta, tuliko
-  mukaan se aineisto, jonka hän odotti -- ilman sitä puuttuva demo huomataan
-  vasta valmiista raportista.
+* **AD-3**: the command gives the stage only ``settings.thresholds`` and
+  ``settings.league``. If the stage saw the ``[parse]`` section, the promise
+  "a change of threshold does not reparse" would no longer be structural.
+* **The sample is in the output.** The user checks from the summary whether
+  the data they expected came in -- without it a missing demo is noticed only
+  in the finished report.
 
-Vaihe itse on korvattu, joten mikään näistä testeistä ei lue demoa eikä
-arkistoa.
+The stage itself is replaced, so none of these tests reads a demo or the
+archive.
 """
 
 from __future__ import annotations
@@ -92,12 +92,12 @@ def field_value(output_text: str, label: str) -> str:
         stripped = line.strip()
         if stripped.startswith(label):
             return stripped[len(label) :].strip()
-    raise AssertionError(f"rivia {label!r} ei ole tulosteessa:\n{output_text}")
+    raise AssertionError(f"there is no {label!r} row in the output:\n{output_text}")
 
 
 @pytest.fixture
 def fake_stage(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
-    """Korvaa ``stages.aggregate.run``; palauta se mitä vaiheelle annettiin."""
+    """Replace ``stages.aggregate.run``; return what the stage was given."""
     seen: dict[str, object] = {}
 
     def fake_run(
@@ -119,58 +119,61 @@ def fake_stage(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
     return seen
 
 
-# --- Yhteenveto -----------------------------------------------------------------
+# --- The summary ----------------------------------------------------------------
 
 
 def test_summary_reports_the_sample_first() -> None:
     output_text = _render_aggregate(aggregate_result())
-    assert output_text.startswith("Aggregoitu:")
-    assert field_value(output_text, "Otanta") == "4 demoa, 85 kierrosta"
+    assert output_text.startswith("Aggregated:")
+    assert field_value(output_text, "Sample") == "4 demos, 85 rounds"
 
 
 def test_summary_names_all_three_buckets_in_finnish() -> None:
-    """Kolme lokeroa, ei kahta -- myös silloin kun kaksi on tyhjää.
+    """Three buckets, not two -- also when two of them are empty.
 
-    Tuloste on suomeksi kuten kaikki muukin käyttäjälle näkyvä teksti; JSONin
-    avaimet pysyvät englanniksi, koska ne ovat osa sopimusta. Sama työnjako
-    kuin ``ROUND_TYPE_FI``:llä.
+    **The bucket names stay Finnish, and the name of this test stays true.**
+    They are ``SAMPLE_BUCKET_FI``, report vocabulary that passes through the
+    console (AD-11), so the reader sees the same word here as in the report.
+    The JSON keys stay English because they are part of the contract, and the
+    rest of the line is console text, which T15 translated. The same division
+    of labour as with ``ROUND_TYPE_FI``.
     """
     output_text = _render_aggregate(aggregate_result())
-    buckets = field_value(output_text, "Lokerot")
-    assert "liiga 0 demoa" in buckets
-    assert "muut 0 demoa" in buckets
-    assert "tuntematon 4 demoa / 85 kierrosta" in buckets
+    buckets = field_value(output_text, "Buckets")
+    assert "liiga 0 demos" in buckets
+    assert "muut 0 demos" in buckets
+    assert "tuntematon 4 demos / 85 rounds" in buckets
     assert "league" not in buckets and "unknown" not in buckets
 
 
 def test_summary_reports_unpaired_detonations() -> None:
-    """Hiljainen pudotus näyttäisi siltä, ettei kranaattia heitetty."""
+    """A silent drop would look as if no grenade had been thrown."""
     stats = dict(aggregate_result().stats)
     stats["unpaired_detonations"] = 3
     output_text = _render_aggregate(aggregate_result(stats=stats))
-    assert field_value(output_text, "Parittomat räjähdykset").startswith("3 ")
+    assert field_value(output_text, "Unpaired detonations").startswith("3 ")
 
 
 def test_summary_omits_unpaired_detonations_when_there_are_none() -> None:
-    assert "Parittomat" not in _render_aggregate(aggregate_result())
+    assert "Unpaired" not in _render_aggregate(aggregate_result())
 
 
 def test_summary_says_when_two_lineups_were_joined() -> None:
-    """Liittäminen on päätös, joten se on näkyvissä eikä pääteltävissä."""
+    """Joining them is a decision, so it is visible and not to be inferred."""
     output_text = _render_aggregate(aggregate_result())
-    assert TEAM_B in field_value(output_text, "Kokoonpanot")
+    assert TEAM_B in field_value(output_text, "Lineups")
 
 
 def test_summary_does_not_mention_lineups_when_there_is_only_one() -> None:
     stats = dict(aggregate_result().stats)
     stats["lineup_keys"] = [TEAM]
     output_text = _render_aggregate(aggregate_result(stats=stats))
-    assert "Kokoonpanot" not in output_text
+    assert "Lineups" not in output_text
 
 
 def test_summary_marks_small_samples_per_side() -> None:
     output_text = _render_aggregate(aggregate_result())
-    assert "pieni otanta: pistol, eco" in output_text
+    assert "small sample: pistol, eco" in output_text
     assert "T: pistol 1, eco 2, full 8" in output_text
 
 
@@ -178,22 +181,22 @@ def test_summary_shows_unclassified_rounds() -> None:
     stats = dict(aggregate_result().stats)
     stats["unclassified"] = 3
     output_text = _render_aggregate(aggregate_result(stats=stats))
-    assert field_value(output_text, "Luokittelemattomat").startswith("3 kierrosta")
+    assert field_value(output_text, "Unclassified").startswith("3 rounds")
 
 
 def test_summary_lists_missing_demos_with_their_reason() -> None:
-    """Puuttuva demo ei katoa hiljaa."""
+    """A missing demo does not disappear quietly."""
     stats = dict(aggregate_result().stats)
-    stats["missing_demos"] = [{"match": "Anubis_vs_b", "reason": "ei parsittu"}]
+    stats["missing_demos"] = [{"match": "Anubis_vs_b", "reason": "not parsed"}]
     output_text = _render_aggregate(aggregate_result(stats=stats))
-    assert field_value(output_text, "Puuttuva demo") == "Anubis_vs_b: ei parsittu"
+    assert field_value(output_text, "Missing demo") == "Anubis_vs_b: not parsed"
 
 
 def test_summary_says_when_the_stage_was_skipped() -> None:
-    result = aggregate_result(skipped=True, reason="Tulos on ajan tasalla.")
+    result = aggregate_result(skipped=True, reason="The result is up to date.")
     output_text = _render_aggregate(result)
-    assert output_text.startswith("Ohitettu:")
-    assert field_value(output_text, "Syy") == "Tulos on ajan tasalla."
+    assert output_text.startswith("Skipped:")
+    assert field_value(output_text, "Reason") == "The result is up to date."
 
 
 @pytest.mark.parametrize(
@@ -201,21 +204,21 @@ def test_summary_says_when_the_stage_was_skipped() -> None:
     [
         ("demo_header", ""),
         ("map_demo_id", ""),
-        ("unknown", " (nimi tuntematon)"),
+        ("unknown", " (name unknown)"),
     ],
 )
 def test_summary_marks_only_the_map_whose_name_is_unknown(
     source: str, note: str
 ) -> None:
-    """Merkintä kuuluu **vain** lähteelle ``unknown`` (Story 2.11).
+    """The mark belongs to the ``unknown`` source **only** (Story 2.11).
 
-    Kolme paria eikä yksi, ja se on mitattu tarve. Ehto oli alun perin
-    kirjoitettu tunnettujen lähteiden luettelona
-    (``"" if source == "map_demo_id" else " (nimi tuntematon)"``), ja kolmannen
-    lähteen tullessa se olisi merkinnyt jokaisen otsikosta luetun kartan
-    tuntemattomaksi. Yhden lähteen testi ei huomaa sitä: mutaatio, joka
-    palauttaa vanhan ehdon, läpäisee ``unknown``-tapauksen sellaisenaan ja koko
-    muun sarjan sen mukana. Vain ``demo_header``-pari punastuu.
+    Three pairs and not one, and that is a measured need. The condition was
+    originally written as a listing of the known sources
+    (``"" if source == "map_demo_id" else " (name unknown)"``), and when the
+    third source arrived it would have marked every map read from a header as
+    unknown. A one-source test does not notice that: a mutation that restores
+    the old condition passes the ``unknown`` case as it is and the whole rest
+    of the series with it. Only the ``demo_header`` pair goes red.
     """
     stats = dict(aggregate_result().stats)
     stats["maps"] = [
@@ -228,22 +231,22 @@ def test_summary_marks_only_the_map_whose_name_is_unknown(
         }
     ]
     output_text = _render_aggregate(aggregate_result(stats=stats))
-    assert f"de_ancient{note}: 2 demoa, 42 kierrosta" in output_text
+    assert f"de_ancient{note}: 2 demos, 42 rounds" in output_text
     if not note:
-        assert "nimi tuntematon" not in output_text
+        assert "name unknown" not in output_text
 
 
 def test_summary_names_the_output_and_the_manifest() -> None:
     output_text = _render_aggregate(aggregate_result())
-    assert field_value(output_text, "Tulos") == f"aggregates/{TEAM}/report.json"
+    assert field_value(output_text, "Output") == f"aggregates/{TEAM}/report.json"
     assert (
-        field_value(output_text, "Manifesti")
+        field_value(output_text, "Manifest")
         == f"aggregates/{TEAM}/report.manifest.json"
     )
-    assert field_value(output_text, "Ajoaika") == "0,4 s"
+    assert field_value(output_text, "Run time") == "0,4 s"
 
 
-# --- Komennon kytkentä ----------------------------------------------------------
+# --- The command's wiring -------------------------------------------------------
 
 
 def test_help_lists_aggregate() -> None:
@@ -253,7 +256,7 @@ def test_help_lists_aggregate() -> None:
 
 
 def test_command_passes_only_its_own_settings_sections(fake_stage: dict) -> None:
-    """AD-3: vaihe ei näe ``[parse]``- eikä ``[economy]``-osiota."""
+    """AD-3: the stage sees neither the ``[parse]`` nor the ``[economy]`` section."""
     result = runner.invoke(app, ["aggregate", "--team", TEAM])
     assert result.exit_code == 0, result.output
     assert isinstance(fake_stage["thresholds"], ThresholdSettings)
@@ -270,90 +273,94 @@ def test_force_flag_reaches_the_stage(fake_stage: dict) -> None:
 
 
 def test_without_team_the_stage_decides_what_to_say(fake_stage: dict) -> None:
-    """Joukkueluettelo on vaiheen tieto, ei komentorivin."""
+    """The team listing is the stage's knowledge, not the command line's."""
     result = runner.invoke(app, ["aggregate"])
     assert result.exit_code == 0, result.output
     assert fake_stage["team"] is None
 
 
 def test_the_team_option_help_matches_what_actually_happens() -> None:
-    """Ilman --teamia ajo päättyy virheeseen; ohje ei saa luvata listausta."""
+    """Without --team the run ends in an error; the help must not promise a listing."""
     result = runner.invoke(app, ["aggregate", "--help"])
     assert result.exit_code == 0
-    # Typer katkoo ohjetekstin laatikkoon, joten reunaviivat (Unicode-viivat
-    # tai ASCII-putket ymparistosta riippuen) ja rivinvaihdot on siivottava
-    # ennen vertailua.
+    # Typer wraps the help text into a box, so the border lines (Unicode rules
+    # or ASCII pipes depending on the environment) and the line breaks have to
+    # be cleaned away before the comparison.
     text = " ".join(
         "".join(
             " " if ord(ch) >= 0x2500 or ch == "|" else ch for ch in result.output
         ).split()
     )
-    assert "ajo päättyy virheeseen, joka listaa arkiston joukkueet" in text
-    assert "komento listaa arkiston" not in text
+    assert "the run ends in an error that lists the archive's teams" in text
+    assert "the command lists the archive" not in text
 
 
-def test_a_known_error_becomes_a_finnish_line(
+def test_a_known_error_ends_the_run_with_exit_code_one(
     fake_stage: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fake_stage["virhe"] = PappascoutError("Joukkuetta ei löytynyt.")
+    """The name used to say the line is in Finnish; the exit code is what it pins."""
+    fake_stage["virhe"] = PappascoutError("The team was not found.")
     monkeypatch.setattr("sys.argv", ["pappascout", "aggregate", "--team", TEAM])
     with pytest.raises(SystemExit) as exit_info:
         main()
     assert exit_info.value.code == EXIT_KNOWN_ERROR
 
 
-# --- Joukkueen nimi ja rosteri tulosteessa (Story 2.6) --------------------------
+# --- The team's name and roster in the output (Story 2.6) -----------------------
 
 
 def test_an_observed_name_is_reported_as_observed() -> None:
-    """Lähde on tulosteessa, ei vain nimi.
+    """The source is in the output, not just the name.
 
-    Ilman lähdettä lukija ei näe, onko otsikossa havainto vai tunniste sen
-    paikalla -- ja juuri sitä hän tulosteesta tarkistaa.
+    Without the source the reader cannot see whether the heading holds an
+    observation or an id standing in for one -- and that is exactly what they
+    check from the output.
     """
     output_text = _render_aggregate(aggregate_result())
-    assert field_value(output_text, "Nimi") == "MatureMayhem (havaittu demoista)"
+    assert field_value(output_text, "Name") == (
+        "MatureMayhem (observed from the demos)"
+    )
 
 
 def test_a_missing_name_says_the_report_speaks_of_the_key() -> None:
     numbers = dict(aggregate_result().stats)
     numbers.update(display_name=TEAM, display_name_source="team_key")
     output_text = _render_aggregate(aggregate_result(stats=numbers))
-    assert field_value(output_text, "Nimi") == (
-        f"ei havaittu -- raportti puhuu tunnisteesta {TEAM}"
+    assert field_value(output_text, "Name") == (
+        f"not observed -- the report speaks of the id {TEAM}"
     )
 
 
 def test_conflicting_names_are_listed_and_absent_when_there_is_no_conflict() -> None:
-    assert "Muut havaitut nimet" not in _render_aggregate(aggregate_result())
+    assert "Other observed names" not in _render_aggregate(aggregate_result())
 
     numbers = dict(aggregate_result().stats)
     numbers["display_name_alternatives"] = ["MM Academy", "MM B"]
     output_text = _render_aggregate(aggregate_result(stats=numbers))
-    assert field_value(output_text, "Muut havaitut nimet").startswith(
+    assert field_value(output_text, "Other observed names").startswith(
         "MM Academy, MM B"
     )
 
 
 def test_the_roster_line_lists_the_names_not_just_their_count() -> None:
-    """Kuusi SteamID64:ää täyttäisi tulosteen kertomatta enempää."""
+    """Six SteamID64s would fill the output without saying more."""
     output_text = _render_aggregate(aggregate_result())
-    assert field_value(output_text, "Rosteri") == (
-        "6 pelaajaa havaittu: pelaaja1, pelaaja2, pelaaja3, pelaaja4, "
+    assert field_value(output_text, "Roster") == (
+        "6 players observed: pelaaja1, pelaaja2, pelaaja3, pelaaja4, "
         "pelaaja5, pelaaja6"
     )
 
 
 def test_a_player_without_a_name_shows_the_id_and_is_counted() -> None:
-    """Nimetön pelaaja sanotaan ääneen eikä pudoteta."""
+    """A player with no name is said out loud and not dropped."""
     numbers = dict(aggregate_result().stats)
     numbers["roster"] = [
         {"player_id": "1", "display_name": "Sassiz"},
         {"player_id": "76561198163808926", "display_name": None},
     ]
     output_text = _render_aggregate(aggregate_result(stats=numbers))
-    value = field_value(output_text, "Rosteri")
+    value = field_value(output_text, "Roster")
     assert value == (
-        "2 pelaajaa havaittu: Sassiz, 76561198163808926 "
-        "(1 ilman nimeä, tunniste sen paikalla)"
+        "2 players observed: Sassiz, 76561198163808926 "
+        "(1 without a name, the id stands in for it)"
     )

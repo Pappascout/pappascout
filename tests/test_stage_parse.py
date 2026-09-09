@@ -2803,10 +2803,10 @@ def test_the_run_reports_players_whose_name_or_clan_changed_mid_map(
     from pappascout.cli import _render_parse
 
     text = _render_parse(again, 24)
-    assert "Klaani vaihtui kesken" in text
-    assert "Nimi vaihtui kesken" in text
+    assert "Clan changed mid-map" in text
+    assert "Name changed mid-map" in text
     # Zero is the expected value, and it is not printed.
-    assert "vaihtui kesken" not in _render_parse(result, 24)
+    assert "changed mid-map" not in _render_parse(result, 24)
 
 
 def test_the_parse_summary_renders_every_key_the_stage_produces(
@@ -2824,7 +2824,7 @@ def test_the_parse_summary_renders_every_key_the_stage_produces(
     result = run_parse(parse_settings, archive, FakeParser(), demo)
     text = _render_parse(result, 24)
 
-    assert "Kokoonpanot" in text
+    assert "Lineups" in text
     assert "MatureMayhem (aaa)" in text
     assert "KALJUKOSTAJA (bbb)" in text
 
@@ -3237,14 +3237,14 @@ def test_the_parse_summary_names_every_death_line(
     )
     text = _render_parse(run_parse(parse_settings, archive, parser, demo), 24)
 
-    assert "Kuolemat" in text and "3 (3/3 kierroksella)" in text
-    assert "Numeroimattomilta" in text and "2 kuolemaa" in text
-    assert "Ampujaton kuolema" in text and "1 (putoaminen" in text
-    assert "Uhri ilman aluetta" in text and "1 riviä" in text
-    assert "Ampuja ilman aluetta" in text
-    assert "Kierrosten välissä" in text and "2 (" in text
-    assert "Uhri ilman puolta" in text and "3 (" in text
-    assert "Ampuja ilman puolta" in text and "4 (" in text
+    assert "Deaths" in text and "3 (in 3/3 rounds)" in text
+    assert "From unnumbered" in text and "2 deaths" in text
+    assert "No attacker" in text and "1 (a fall" in text
+    assert "Victim without area" in text and "1 rows" in text
+    assert "Attacker without area" in text
+    assert "Between rounds" in text and "2 (" in text
+    assert "Victim without side" in text and "3 (" in text
+    assert "Attacker without side" in text and "4 (" in text
 
 
 def test_the_parse_summary_stays_silent_when_every_death_is_whole(
@@ -3257,13 +3257,13 @@ def test_the_parse_summary_stays_silent_when_every_death_is_whole(
     text = _render_parse(
         run_parse(parse_settings, archive, FakeParser(), demo), 24
     )
-    assert "Kuolemat" in text and "3 (3/3 kierroksella)" in text
-    assert "Ampujaton kuolema" not in text
-    assert "Uhri ilman aluetta" not in text
-    assert "Ampuja ilman aluetta" not in text
-    assert "Uhri ilman puolta" not in text
-    assert "Ampuja ilman puolta" not in text
-    assert "Kierrosten välissä" not in text
+    assert "Deaths" in text and "3 (in 3/3 rounds)" in text
+    assert "No attacker" not in text
+    assert "Victim without area" not in text
+    assert "Attacker without area" not in text
+    assert "Victim without side" not in text
+    assert "Attacker without side" not in text
+    assert "Between rounds" not in text
 
 
 def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
@@ -3308,7 +3308,7 @@ def test_an_unreadable_deaths_table_is_reported_in_a_skipped_run(
         ),
         24,
     )
-    assert "Kuolemat" in text and "lukuja ei saatu" in text
+    assert "Deaths" in text and "no counts obtained" in text
 
 
 # --- Review round: victim integrity, ordering and drop reasons -----------------
@@ -3514,8 +3514,8 @@ def test_the_new_drop_counters_reach_the_stats_and_the_summary(
     assert result.stats["deaths_without_victim"] == 3
 
     text = _render_parse(result, 24)
-    assert "Kuolema ilman tickiä" in text and "2 (" in text
-    assert "Kuolema ilman uhria" in text and "3 (" in text
+    assert "Death without a tick" in text and "2 (" in text
+    assert "Death without victim" in text and "3 (" in text
 
 
 # --- The point cloud (Story 2.9) -------------------------------------------------
@@ -3811,7 +3811,9 @@ def test_the_cloud_diagnostics_reach_the_stats_and_the_summary(
     assert result.stats["callout_observations"] == 0
 
     text = _render_parse(result, regulation_rounds=24)
-    assert "tyhjä -- yhtäkään räjähdysaluetta ei nimetä" in text
+    assert "empty -- not one detonation area is named" in text
+    # The reason is the diagnostics' own value, given by this test's fixture
+    # above; only the row around it belongs to the command line.
     assert "yhdelläkään ei ollut elossa olevaa pelaajaa" in text
 
 
@@ -4058,7 +4060,7 @@ def test_the_map_name_reaches_the_stats_and_the_summary(
     )
 
     assert result.stats["map_name"] == "de_nuke"
-    assert "de_nuke (havaittu demon otsikosta)" in _render_parse(result, 24)
+    assert "de_nuke (observed from the demo's header)" in _render_parse(result, 24)
 
 
 def test_a_missing_map_name_says_so_out_loud(parse_settings, archive, demo) -> None:
@@ -4075,7 +4077,7 @@ def test_a_missing_map_name_says_so_out_loud(parse_settings, archive, demo) -> N
 
     assert result.stats["map_name"] is None
     text = _render_parse(result, 24)
-    assert "otsikossa ei ollut kartan nimeä" in text
+    assert "the header held no map name" in text
 
 
 def test_the_reason_for_a_missing_map_name_reaches_the_summary(
@@ -4104,7 +4106,7 @@ def test_the_reason_for_a_missing_map_name_reaches_the_summary(
         result.stats["header_map_name_missing_reason"]
         == "otsikossa ei ole map_name-kenttää lainkaan"
     )
-    assert "Kartta puuttuu koska" in _render_parse(result, 24)
+    assert "Map missing because" in _render_parse(result, 24)
 
 
 def test_the_map_name_comes_back_from_a_skipped_run(

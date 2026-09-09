@@ -1,20 +1,23 @@
-"""``pappascout select`` -- komennon testit (Story 3.3).
+"""``pappascout select`` -- the command's tests (Story 3.3).
 
-Neljä asiaa lukitaan täällä:
+Four things are locked down here:
 
-* **AD-3 ja kerrossääntö.** Komento antaa vaiheelle vain ``settings.league``n ja
-  ``settings.thresholds``in, ja **ei porttia lainkaan** -- vaihe ei käy verkossa.
-* **Komento tulostaa.** Yksi testi ajaa koko ketjun ``discover`` -> ``select``
-  oikeilla vaiheilla feikkiportin takaa ja lukee ruudun. Ilman sitä ``typer.echo``
-  saisi kadota komennosta, ja komento kirjoittaisi tiedoston sanomatta mitään.
-* **Hylkäyksen syy näkyy ruudulla kokonaisena.** Käyttäjä ei koodaa itse eikä
-  avaa JSONia, joten katkaistu tai puuttuva syy tarkoittaisi päätöstä, jota hän
-  ei voi tarkistaa.
-* **Virhe on suomeksi ja kertoo mitä tehdä seuraavaksi.**
+* **AD-3 and the layering rule.** The command gives the stage only
+  ``settings.league`` and ``settings.thresholds``, and **no port at all** --
+  the stage does not go on the network.
+* **The command prints.** One test runs the whole ``discover`` -> ``select``
+  chain with the real stages behind a fake port and reads the screen. Without
+  it ``typer.echo`` could disappear from the command, and the command would
+  write the file without saying anything.
+* **A rejection's reason is on the screen in full.** The user does not code
+  and does not open the JSON, so a truncated or missing reason would mean a
+  decision they cannot check.
+* **An error says what to do next.**
 
-Yhteenvedon muotoilua (``_render_select``) testataan **oikean ajon tuloksella**
-``test_stage_select.py``:ssä. Tässä tiedostossa vaihe on korvattu vain silloin,
-kun testin kohde on komennon johdotus eikä sen tuloste.
+The formatting of the summary (``_render_select``) is tested **on a real
+run's result** in ``test_stage_select.py``. In this file the stage is
+replaced only where the test's subject is the command's wiring and not its
+output.
 """
 
 from __future__ import annotations
@@ -36,7 +39,7 @@ TEAM_KEY = "f56dd02a-6107-48e2-abfb-75e7ec7ebcb2"
 
 
 def select_result(**overrides) -> StageResult:
-    """Vaiheen tulos johdotustesteille. **Ei tulosteen testaamiseen.**"""
+    """The stage's result for the wiring tests. **Not for testing the output.**"""
     defaults: dict[str, object] = {
         "stage": "select",
         "unit": TEAM_KEY,
@@ -77,7 +80,7 @@ def select_result(**overrides) -> StageResult:
 
 @pytest.fixture
 def fake_stage(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
-    """Korvaa vaihe; palauta se, mitä vaiheelle annettiin."""
+    """Replace the stage; return what the stage was given."""
     seen: dict[str, object] = {}
 
     def fake_run(league, archive, team, *, thresholds, **kwargs):
@@ -98,11 +101,11 @@ def fake_stage(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
 
 @pytest.fixture
 def real_pipeline(settings_file, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Oikeat vaiheet, feikattu portti -- ja arkisto väliaikaishakemistossa.
+    """The real stages, a fake port -- and the archive in a temporary directory.
 
-    Tämä on se johdotus, jota mikään korvattu vaihe ei voi todistaa: asetukset
-    luetaan, arkiston polut rakennetaan, molemmat vaiheet ajetaan ja tuloste
-    muodostetaan oikeasta tuloksesta.
+    This is the wiring no replaced stage can prove: the settings are read, the
+    archive's paths are built, both stages are run and the output is assembled
+    from a real result.
     """
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
     monkeypatch.setattr(
@@ -112,11 +115,11 @@ def real_pipeline(settings_file, monkeypatch: pytest.MonkeyPatch) -> Path:
     return settings_file.parent / "arkisto"
 
 
-# --- Komento antaa vaiheelle oikeat osiot ----------------------------------
+# --- The command gives the stage the right sections ------------------------
 
 
 def test_the_command_passes_only_league_and_thresholds(fake_stage: dict) -> None:
-    """AD-3: vaihe ei näe ``[parse]``-osiota eikä siis voi invalidoida parsintaa."""
+    """AD-3: the stage does not see ``[parse]`` and so cannot invalidate parsing."""
     result = runner.invoke(app, ["select", "--team", "Rcave"])
 
     assert result.exit_code == 0, result.output
@@ -129,7 +132,7 @@ def test_the_command_passes_only_league_and_thresholds(fake_stage: dict) -> None
 def test_the_stage_gets_no_port_because_it_never_touches_the_network(
     fake_stage: dict,
 ) -> None:
-    """``select`` lukee indeksit; verkkoyhteys on ``discover``in ja ``fetch``in."""
+    """``select`` reads the indexes; the network belongs to ``discover`` and ``fetch``."""
     result = runner.invoke(app, ["select", "--team", "Rcave"])
 
     assert result.exit_code == 0, result.output
@@ -137,41 +140,50 @@ def test_the_stage_gets_no_port_because_it_never_touches_the_network(
 
 
 def test_the_team_option_is_required(fake_stage: dict) -> None:
-    """Valintatiedosto on joukkuekohtainen: ilman joukkuetta ei ole tiedostoa."""
+    """The selection file is per team: without a team there is no file."""
     result = runner.invoke(app, ["select"])
 
     assert result.exit_code != 0
     assert "team" in result.output
 
 
-def test_the_help_is_in_finnish() -> None:
+def test_the_help_names_the_threshold_and_the_team_option() -> None:
+    """The help says what the command chooses by and what ``--team`` takes.
+
+    The name of this test used to say the help is in Finnish. AD-11 moved the
+    console into English on 2026-09-07, so the claim would now be false; what
+    the assertions pin is that the help still names both.
+    """
     result = runner.invoke(app, ["select", "--help"])
 
     assert result.exit_code == 0
-    assert "rosterikynnyksellä" in result.output
-    assert "Joukkueen nimi" in result.output
+    # Single words: Typer wraps the help into a box, and a two-word needle
+    # would break on the wrap rather than on a real change.
+    assert "threshold" in result.output
+    assert "unambiguous" in result.output
 
 
-# --- Komento tulostaa, ja tuloste tulee oikeasta ajosta --------------------
+# --- The command prints, and the output comes from a real run --------------
 
 
 def test_the_command_prints_its_summary_and_writes_the_file(
     real_pipeline: Path,
 ) -> None:
-    """Koko ketju oikeilla vaiheilla: tiedosto **ja** tuloste.
+    """The whole chain with the real stages: the file **and** the output.
 
-    Ilman tulosteen tarkistusta ``typer.echo`` saisi kadota komennosta:
-    tiedosto syntyisi, ajo onnistuisi ja käyttäjä katsoisi tyhjää ruutua.
+    Without a check on the output ``typer.echo`` could disappear from the
+    command: the file would come into being, the run would succeed and the
+    user would be looking at a blank screen.
     """
     assert runner.invoke(app, ["discover"]).exit_code == 0
 
     result = runner.invoke(app, ["select", "--team", "Potku"])
 
     assert result.exit_code == 0, result.output
-    assert result.output.strip(), "komento ei tulostanut mitään"
-    assert "Valinta tehty" in result.output
+    assert result.output.strip(), "the command printed nothing"
+    assert "Selection made" in result.output
     assert "PotkukelkkaPeek" in result.output
-    assert "2 / 2 karttaa otantaan" in result.output
+    assert "2 / 2 maps into the sample" in result.output
     assert "index/selections/" in result.output
     written = list((real_pipeline / "index" / "selections").glob("*.json"))
     assert len(written) == 1
@@ -187,24 +199,33 @@ def test_the_printed_summary_names_the_written_file(real_pipeline: Path) -> None
 
 
 def test_the_summary_goes_to_stdout_not_stderr(real_pipeline: Path) -> None:
-    """Yhteenveto on komennon tulos; se kuuluu putkitettavaan virtaan."""
+    """The summary is the command's result; it belongs in the pipeable stream."""
     runner.invoke(app, ["discover"])
 
     result = runner.invoke(app, ["select", "--team", "Potku"])
 
-    assert "Valinta tehty" in result.stdout
+    assert "Selection made" in result.stdout
 
 
-# --- Virheet ovat suomeksi ja kertovat mitä tehdä --------------------------
+# --- The errors say what to do ---------------------------------------------
 
 
-def test_a_known_error_is_shown_in_finnish_without_a_traceback(
+def test_a_known_error_is_shown_without_a_traceback(
     fake_stage: dict, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """Käyttäjä ei koodaa itse: pinojälki ruudulla ei ohjaa mihinkään."""
+    """The user does not code: a traceback on the screen points them nowhere.
+
+    The name used to say the error is in Finnish. AD-11 moved the console
+    into English on 2026-09-07, so the claim would now be false.
+
+    **The message is the wording ``discover._lookup_problem`` really raises.**
+    T3 and T5 translated it, and the Finnish copy that used to stand here had
+    already stopped matching: a literal that drifts makes the test measure its
+    own string.
+    """
     fake_stage["virhe"] = PappascoutError(
-        "Haku 'T' osuu 3 joukkueeseen, joten valinta on tehtävä:\n"
-        "    TUUHEE (8 pelaajaa, tunniste faction-04)"
+        "The search 'T' hits 3 teams, so a choice has to be made:\n"
+        "    TUUHEE (8 players, id faction-04)"
     )
     monkeypatch.setattr("sys.argv", ["pappascout", "select", "--team", "T"])
 
@@ -214,17 +235,21 @@ def test_a_known_error_is_shown_in_finnish_without_a_traceback(
     assert exit_info.value.code == EXIT_KNOWN_ERROR
     stderr = capsys.readouterr().err
     assert "Traceback" not in stderr
-    assert "valinta on tehtävä" in stderr
+    assert "a choice has to be made" in stderr
     assert "TUUHEE" in stderr
 
 
 def test_a_missing_index_tells_the_user_to_run_discover(
     fake_stage: dict, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """I/O-matriisi: virhe kertoo mitä tehdä seuraavaksi, ei mitä meni pieleen."""
+    """The I/O matrix: the error says what to do next, not what went wrong.
+
+    The message is ``discover._read``'s own, translated by T5; the Finnish
+    copy that used to stand here had stopped matching it.
+    """
     fake_stage["virhe"] = PappascoutError(
-        "Arkistosta puuttuu otteluindeksi (matches.json).\n"
-        "Aja ensin: uv run pappascout discover"
+        "The archive is missing the match index (matches.json).\n"
+        "Run first: uv run pappascout discover"
     )
     monkeypatch.setattr("sys.argv", ["pappascout", "select", "--team", "Rcave"])
 
@@ -238,10 +263,10 @@ def test_a_missing_index_tells_the_user_to_run_discover(
 def test_a_bad_threshold_is_a_settings_error_not_a_program_error(
     settings_file: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    """``roster_size = 6`` on käyttäjän asetusvirhe, ei ohjelmavirhe.
+    """``roster_size = 6`` is the user's settings error, not a program fault.
 
-    Paljas ``ValueError`` päätyisi muotoon "Odottamaton virhe -- ohjelmavirhe"
-    ja paluukoodiin 2, vaikka korjaus on hänen omassa settings.tomlissaan.
+    A bare ``ValueError`` would come out as "Unexpected error -- a program
+    fault" with exit code 2, although the fix is in their own settings.toml.
     """
     from conftest import settings_text
 

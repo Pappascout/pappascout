@@ -1,24 +1,24 @@
-"""``pappascout import`` -- komennon testit (Story 3.6).
+"""``pappascout import`` -- the command's tests (Story 3.6).
 
-Neljä asiaa lukitaan täällä:
+Four things are locked down here:
 
-* **``--kylla`` EI ohita karttatarkistuksen kysymystä.** Se on epicin oma
-  vaatimus ja tämän työkalun ainoa kohta, jossa lippu ei hiljennä kysymystä.
-  Sama lippu ohittaa ylikirjoituskysymyksen, ja juuri se ero on se, mitä
-  testien on erotettava toisistaan.
-* **Kysymys ennen siirtoa, ja suunnitelma ennen kysymystä.** Järjestys on
-  vartioitu erikseen: portti voi olla kunnossa vaikka käyttäjä näkisi
-  suunnitelman vasta jälkikäteen, ja silloin hän vastaa kysymykseen jonka
-  perusteita hän ei ole nähnyt.
-* **Ei-vastaus ei siirrä mitään.**
-* **Jokainen tulosteen rivi on väite, ja väitteet tarkistetaan yksitellen.**
-  Katselmus mutatoi ruudun arvoja ja sai kuusi valhetta yhtaikaa läpi 70
-  testistä -- muun muassa tuodun demon lähteeksi ``downloads_api``, eli juuri
-  sen väitteen, jonka koko tarina on olemassa kumoamaan. Siksi tuloste
-  puretaan riveiksi ja jokainen arvo verrataan **levyltä laskettuun
-  totuuteen**, ei toiseen tulosteen riviin.
+* **``--kylla`` does NOT skip the map check's question.** That is the epic's
+  own requirement and this tool's only place where the flag does not silence
+  a question. The same flag does skip the overwrite question, and that
+  difference is exactly what the tests have to tell apart.
+* **The question before the transfer, and the plan before the question.** The
+  order is guarded separately: the gate can be in order even if the user saw
+  the plan only afterwards, and then they answer a question whose grounds
+  they have not seen.
+* **A negative answer transfers nothing.**
+* **Every row of the output is a claim, and the claims are checked one by
+  one.** A review mutated the values on the screen and got six lies through
+  70 tests at once -- among them ``downloads_api`` as an imported demo's
+  source, that is, exactly the claim the whole story exists to refute. So the
+  output is broken into rows and every value is compared against **the truth
+  computed from the disk**, not against another row of the output.
 
-Portit ovat feikkejä eikä verkkoa kosketa kertaakaan.
+The ports are fakes and the network is not touched once.
 """
 
 from __future__ import annotations
@@ -53,14 +53,14 @@ runner = CliRunner()
 
 @pytest.fixture(params=["arkisto", "paikallinen"])
 def tuonti(request, settings_file: Path, tmp_path: Path, monkeypatch):
-    """Oikea komento, feikatut portit, arkisto väliaikaishakemistossa.
+    """The real command, fake ports, the archive in a temporary directory.
 
-    **Molemmat demohakemistomoodit, jokaisessa testissä.** Sama peruste kuin
-    ``fetch``in vastaavalla kiinnikkeellä: tuettu moodi, jota komentotestit
-    eivät aja, kulkisi CLI:n läpi nolla kertaa.
+    **Both demo directory modes, in every test.** The same reasoning as with
+    ``fetch``'s corresponding fixture: a supported mode the command tests do
+    not run goes through the CLI zero times.
 
-    Palauttaa ``(archive, parser)`` -- feikkilukijan kartan nimen voi vaihtaa
-    testin sisällä ennen komennon ajoa.
+    Returns ``(archive, parser)`` -- the fake reader's map name can be changed
+    inside a test before the command is run.
     """
     if request.param == "paikallinen":
         text = settings_file.read_text(encoding="utf-8")
@@ -82,7 +82,7 @@ def tuonti(request, settings_file: Path, tmp_path: Path, monkeypatch):
         lambda settings, arc: FakeMatchSource({MATCH: match()}),
     )
     monkeypatch.setattr(import_stage, "default_parser", lambda: parser)
-    # Levy ei saa olla testin muuttuja: tarkistus on oma testinsä.
+    # The disk must not be a variable of the test: the check is its own test.
     monkeypatch.setattr(import_stage, "_free_space", lambda _path: 100 * 1024**3)
     return archive, parser
 
@@ -98,22 +98,22 @@ def imported(archive) -> Path | None:
 
 
 def rivit(output: str) -> dict[str, str]:
-    """Pura tuloste sanakirjaksi ``otsikko -> arvo``.
+    """Break the output into a dictionary of ``label -> value``.
 
-    **Väite arvosta eikä osajonosta.** ``assert polku in output`` menisi läpi
-    myös silloin, kun sama polku sattuu ruudulla toisella rivillä -- ja juuri
-    se päällekkäisyys antoi katselmuksen mutaatioiden mennä läpi: demon
-    kohdepolku tulostuu kahdesti, joten kumpi tahansa yksin sai valehdella.
-    Kun rivi puretaan otsikoksi ja arvoksi, jokainen rivi vastaa omasta
-    sisällöstään.
+    **A claim about the value and not about a substring.** ``assert path in
+    output`` would pass even when the same path happens to be on another row
+    of the screen -- and that overlap is exactly what let the review's
+    mutations through: the demo's target path is printed twice, so either one
+    alone was free to lie. When a row is broken into a label and a value,
+    every row answers for its own content.
     """
     tulos: dict[str, str] = {}
     for rivi in output.splitlines():
         if not rivi.startswith("  ") or rivi.startswith("    "):
             continue
         runko = rivi[2:]
-        # ``_line`` täyttää otsikon kiinteään leveyteen; kahden välilyönnin
-        # jono erottaa otsikon arvosta.
+        # ``_line`` pads the label to a fixed width; a run of two spaces
+        # separates the label from the value.
         if "  " not in runko:
             continue
         otsikko, _, arvo = runko.partition("  ")
@@ -121,15 +121,15 @@ def rivit(output: str) -> dict[str, str]:
     return tulos
 
 
-# -- Onnistunut tuonti -------------------------------------------------------
+# -- A successful import -----------------------------------------------------
 
 
 def test_a_matching_map_needs_no_question_at_all(tuonti) -> None:
-    """Täsmäävä kartta on täysi vastaus: ei kysyttävää.
+    """A matching map is a full answer: there is nothing to ask.
 
-    Kysymys, joka esitetään myös silloin kun mitään ei ole päätettävänä,
-    opettaa vastaamaan siihen katsomatta -- ja silloin se ei enää suojaa
-    siltä tapaukselta, jota varten se on olemassa.
+    A question that is asked even when there is nothing to decide teaches the
+    user to answer it without looking -- and then it no longer protects
+    against the case it exists for.
     """
     archive, _parser = tuonti
 
@@ -144,58 +144,58 @@ def test_a_matching_map_needs_no_question_at_all(tuonti) -> None:
     assert meta["source"] == "import"
 
 
-# -- C2: jokainen tulosteen rivi on väite ------------------------------------
+# -- C2: every row of the output is a claim ----------------------------------
 
 
 def test_the_plan_names_the_unit_that_is_imported(tuonti) -> None:
     _archive, _parser = tuonti
 
-    assert rivit(invoke().output)["Tuodaan"] == UNIT
+    assert rivit(invoke().output)["Importing"] == UNIT
 
 
 def test_the_plan_names_the_source_file_that_is_read(tuonti) -> None:
-    """Lähdepolku on oma väitteensä eikä kohdepolun kaiku."""
+    """The source path is a claim of its own and not an echo of the target."""
     archive, _parser = tuonti
     lahde = archive.import_dir() / FACEIT_NAME
 
-    assert rivit(invoke().output)["Lähde"] == str(lahde)
+    assert rivit(invoke().output)["Source"] == str(lahde)
 
 
 def test_the_plan_names_the_target_path_that_is_written(tuonti) -> None:
-    """Kohdepolku ruudulla on se polku, johon tiedosto todella syntyy."""
+    """The target path on the screen is where the file really comes into being."""
     archive, _parser = tuonti
 
-    naytetty = rivit(invoke().output)["Kohde"]
+    naytetty = rivit(invoke().output)["Target"]
 
     assert naytetty == str(archive.demos_dir() / f"{UNIT}.dem.zst")
     assert Path(naytetty).is_file()
 
 
 def test_the_plan_size_is_the_size_of_the_file_on_disk(tuonti) -> None:
-    """Koko luetaan levyltä, ei arvata.
+    """The size is read from the disk, not guessed.
 
-    Katselmus lisäsi kokoon ``+999 Gt`` kahdessa paikassa ja 70 testiä meni
-    läpi. Luku, jota mikään ei vertaa mihinkään, on koristetta.
+    The review added ``+999 Gt`` to the size in two places and 70 tests
+    passed. A number nothing compares against anything is decoration.
     """
     from pappascout.stages.fetch import size_fi
 
     _archive, _parser = tuonti
 
-    assert rivit(invoke().output)["Koko"] == size_fi(len(ZSTD_BYTES))
+    assert rivit(invoke().output)["Size"] == size_fi(len(ZSTD_BYTES))
 
 
 def test_the_plan_says_move_when_the_file_is_moved(tuonti) -> None:
     _archive, _parser = tuonti
 
-    assert rivit(invoke().output)["Tapa"] == "siirto"
+    assert rivit(invoke().output)["Method"] == "move"
 
 
 def test_the_plan_says_copy_when_the_file_is_copied(tuonti, tmp_path) -> None:
-    """Kopio ja siirto ovat eri asia, ja ruudun on erotettava ne.
+    """A copy and a move are different things, and the screen must tell them apart.
 
-    Katselmus vaihtoi tekstin "kopio (lähde jää paikalleen)" siirron kohdalle
-    ja 70 testiä meni läpi -- eli käyttäjä olisi voinut lukea ruudulta, että
-    hänen tiedostonsa jää paikalleen, ja se olisi juuri poistettu.
+    The review put the text "copy (the source stays put)" on a move and 70
+    tests passed -- that is, the user could have read from the screen that
+    their file stays put when it had just been deleted.
     """
     _archive, parser = tuonti
     ulkoa = tmp_path / "ulkoa" / "oma.dem.zst"
@@ -205,56 +205,56 @@ def test_the_plan_says_copy_when_the_file_is_copied(tuonti, tmp_path) -> None:
 
     result = invoke("--file", str(ulkoa))
 
-    assert rivit(result.output)["Tapa"] == "kopio (lähde jää paikalleen)"
+    assert rivit(result.output)["Method"] == "copy (the source stays put)"
     assert ulkoa.is_file()
 
 
 def test_the_plan_shows_both_map_observations(tuonti) -> None:
-    """Molemmat havainnot näkyvät myös silloin, kun ne täsmäävät."""
+    """Both observations are shown even when they agree."""
     _archive, _parser = tuonti
 
     rows = rivit(invoke().output)
 
-    assert rows["Kartta otsikosta"] == "de_ancient"
-    assert rows["Kartta vetotiedosta"] == "de_ancient"
-    assert rows["Karttatarkistus"] == "täsmää"
+    assert rows["Map from the header"] == "de_ancient"
+    assert rows["Map from the veto"] == "de_ancient"
+    assert rows["Map check"] == "matches"
 
 
 def test_the_screen_never_claims_a_match_when_there_is_none(tuonti) -> None:
-    """**"Karttatarkistus täsmää" aidon poikkeaman kohdalla on pahin valhe.**
+    """**"Map check matches" on a real mismatch is the worst lie of all.**
 
-    Katselmus muutti ehdon aina todeksi ja sai ruudun sanomaan "täsmää"
-    samalla ruudulla, jolla pakotettu kysymys esitetään -- eli käyttäjä
-    lukisi kysymyksen ja sen yläpuolelta vakuutuksen siitä ettei mitään ole
-    vialla.
+    The review made the condition always true and got the screen to say
+    "matches" on the same screen where the forced question is asked -- that
+    is, the user would read the question and, above it, an assurance that
+    nothing is wrong.
     """
     _archive, parser = tuonti
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    result = invoke(input="e\n")
+    result = invoke(input="n\n")
 
     rows = rivit(result.output)
-    assert rows["Karttatarkistus"].startswith("EI TÄSMÄÄ")
-    assert rows["Kartta otsikosta"] == "de_nuke"
-    assert rows["Kartta vetotiedosta"] == "de_ancient"
+    assert rows["Map check"].startswith("DOES NOT MATCH")
+    assert rows["Map from the header"] == "de_nuke"
+    assert rows["Map from the veto"] == "de_ancient"
 
 
 def test_the_plan_says_whether_completeness_could_be_checked(tuonti) -> None:
-    """Pakattu tiedosto: ehjyys on tarkistettu kehyksen kokoa vasten."""
+    """A compressed file: completeness is checked against the frame's size."""
     _archive, _parser = tuonti
 
-    assert rivit(invoke().output)["Ehjyys"].startswith("tarkistettu")
+    assert rivit(invoke().output)["Completeness"].startswith("checked")
 
 
 def test_the_plan_says_out_loud_when_completeness_cannot_be_checked(
     tuonti,
 ) -> None:
-    """**Pakkaamattomalla demolla epävarmuus on kerrottava.**
+    """**With an uncompressed demo the uncertainty has to be reported.**
 
-    Mitattu 2026-09-05: puoliväliin katkaistu tiedosto näyttää joka suhteessa
-    ehjältä -- oikea pääte, oikea kartan nimi. Pakatulla on kehyksen koko
-    vastassa; pakkaamattomalla ei ole mitään, ja vaikeneminen näyttäisi
-    varmuudelta.
+    Measured 2026-09-05: a file truncated half way looks intact in every
+    respect -- the right extension, the right map name. A compressed one has
+    the frame's size to check against; an uncompressed one has nothing, and
+    silence would look like certainty.
     """
     archive, parser = tuonti
     (archive.import_dir() / FACEIT_NAME).unlink()
@@ -263,28 +263,28 @@ def test_the_plan_says_out_loud_when_completeness_cannot_be_checked(
 
     result = invoke()
 
-    assert rivit(result.output)["Ehjyys"].startswith("EI VOITU TARKISTAA")
+    assert rivit(result.output)["Completeness"].startswith("COULD NOT BE CHECKED")
 
 
 def test_the_result_names_the_files_that_were_written(tuonti) -> None:
-    """Tuloksen polut osoittavat tiedostoihin, jotka ovat olemassa."""
+    """The result's paths point at files that exist."""
     archive, _parser = tuonti
 
     rows = rivit(invoke().output)
 
     assert rows["Demo"] == str(archive.demos_dir() / f"{UNIT}.dem.zst")
-    assert rows["Metatiedot"] == str(archive.demos_dir() / f"{UNIT}.meta.json")
+    assert rows["Metadata"] == str(archive.demos_dir() / f"{UNIT}.meta.json")
     assert Path(rows["Demo"]).is_file()
-    assert Path(rows["Metatiedot"]).is_file()
+    assert Path(rows["Metadata"]).is_file()
 
 
 def test_the_result_sha256_is_the_digest_of_the_written_file(tuonti) -> None:
-    """Tiiviste ruudulla on **sen tiedoston** tiiviste, joka syntyi.
+    """The digest on the screen is **that file's** digest, the one that was made.
 
-    Katselmus vaihtoi arvoksi ``"0"*64`` ja 70 testiä meni läpi. Tiiviste on
-    se luku, jolla tuotu demo tunnistetaan myöhemmin -- ``parse`` lukee sen
-    metatiedostosta eikä laske uudelleen, joten tämä on ainoa kerta jolloin
-    se näkyy.
+    The review changed the value to ``"0"*64`` and 70 tests passed. The
+    digest is the number an imported demo is identified by later -- ``parse``
+    reads it from the metadata file and does not compute it again, so this is
+    the only time it is seen.
     """
     archive, _parser = tuonti
 
@@ -294,25 +294,25 @@ def test_the_result_sha256_is_the_digest_of_the_written_file(tuonti) -> None:
         (archive.demos_dir() / f"{UNIT}.dem.zst").read_bytes()
     ).hexdigest()
     assert rows["sha256"] == todellinen
-    meta = json.loads(Path(rows["Metatiedot"]).read_text(encoding="utf-8"))
+    meta = json.loads(Path(rows["Metadata"]).read_text(encoding="utf-8"))
     assert meta["sha256"] == todellinen
 
 
 def test_the_result_says_the_demo_came_from_an_import(tuonti) -> None:
-    """**Katselmus sai ruudun väittämään tuotua demoa ladatuksi.**
+    """**The review got the screen to claim an imported demo was downloaded.**
 
-    ``downloads_api`` tuodun demon lähteenä on juuri se väite, jonka koko
-    tarina on olemassa kumoamaan -- ja se meni läpi 70 testistä.
+    ``downloads_api`` as an imported demo's source is exactly the claim the
+    whole story exists to refute -- and it got through 70 tests.
     """
     archive, _parser = tuonti
 
     rows = rivit(invoke().output)
 
-    assert rows["Lähdemerkintä"] == "import"
+    assert rows["Source entry"] == "import"
     meta = json.loads(
         (archive.demos_dir() / f"{UNIT}.meta.json").read_text(encoding="utf-8")
     )
-    assert rows["Lähdemerkintä"] == meta["source"]
+    assert rows["Source entry"] == meta["source"]
 
 
 def test_the_result_size_is_the_size_of_the_written_file(tuonti) -> None:
@@ -323,24 +323,24 @@ def test_the_result_size_is_the_size_of_the_written_file(tuonti) -> None:
     rows = rivit(invoke().output)
     koko = (archive.demos_dir() / f"{UNIT}.dem.zst").stat().st_size
 
-    assert rows["Koko"] == size_fi(koko)
+    assert rows["Size"] == size_fi(koko)
 
 
 def test_every_note_reaches_the_screen(tuonti) -> None:
-    """**Huomiot eivät saa kadota.**
+    """**The notes must not disappear.**
 
-    Katselmus tyhjensi huomiosilmukan ja 70 testiä meni läpi -- eli kaikki
-    varoitukset (korvattu tiedosto, orpo metatiedosto, tarkistamaton ehjyys,
-    vahvistettu karttapoikkeama) olisivat voineet kadota ruudulta yhdellä
-    rivillä.
+    The review emptied the note loop and 70 tests passed -- that is, every
+    warning (a replaced file, an orphaned metadata file, an unchecked
+    completeness, a confirmed map mismatch) could have disappeared from the
+    screen in one line.
     """
     _archive, parser = tuonti
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    result = invoke("--kylla", input="k\n")
+    result = invoke("--kylla", input="y\n")
 
     assert result.exit_code == 0, result.output
-    # Poikkeama ja lähdetiedoston kohtalo ovat molemmat omia huomioitaan.
+    # The mismatch and the source file's fate are both notes of their own.
     assert "de_nuke" in result.output
     assert "was removed from the import folder" in result.output
 
@@ -348,30 +348,29 @@ def test_every_note_reaches_the_screen(tuonti) -> None:
 def test_the_run_time_is_reported(tuonti) -> None:
     _archive, _parser = tuonti
 
-    assert "Ajoaika" in rivit(invoke().output)
+    assert "Run time" in rivit(invoke().output)
 
 
-# -- C3: suunnitelma ennen siirtoa -------------------------------------------
+# -- C3: the plan before the transfer ----------------------------------------
 
 
 def test_the_plan_is_printed_before_anything_is_transferred(
     tuonti, monkeypatch
 ) -> None:
-    """**Käyttäjän on nähtävä suunnitelma ennen kuin mitään tapahtuu.**
+    """**The user has to see the plan before anything happens.**
 
-    Portti on kunnossa ilman tätäkin testiä -- ``run`` kutsutaan vasta
-    kysymysten jälkeen -- mutta *näkeminen* ei ollut vartioitu: katselmus
-    siirsi suunnitelman tulostuksen tuloksen alapuolelle ja 28 testiä meni
-    läpi. Silloin käyttäjä vastaisi kysymykseen, jonka perusteita hän ei ole
-    nähnyt.
+    The gate is in order without this test too -- ``run`` is called only
+    after the questions -- but the *seeing* was not guarded: the review moved
+    the printing of the plan below the result and 28 tests passed. The user
+    would then answer a question whose grounds they have not seen.
 
-    Väite tehdään pysäyttämällä siirto: jos suunnitelma tulostetaan vasta
-    ``run``in jälkeen, se ei tulostu lainkaan.
+    The claim is made by stopping the transfer: if the plan is printed only
+    after ``run``, it is not printed at all.
     """
     _archive, _parser = tuonti
 
     def boom(*args, **kwargs):
-        raise PappascoutError("siirto pysäytettiin", advice="tämä on testi")
+        raise PappascoutError("the transfer was stopped", advice="this is a test")
 
     monkeypatch.setattr(import_stage, "run", boom)
 
@@ -379,32 +378,32 @@ def test_the_plan_is_printed_before_anything_is_transferred(
 
     assert result.exit_code != 0
     rows = rivit(result.output)
-    assert rows["Tuodaan"] == UNIT
-    assert "Kohde" in rows
-    assert "Karttatarkistus" in rows
+    assert rows["Importing"] == UNIT
+    assert "Target" in rows
+    assert "Map check" in rows
 
 
 def test_the_plan_is_printed_before_the_question_is_asked(tuonti) -> None:
-    """Kysymys ilman perusteita on muodollisuus, ei kysymys."""
+    """A question without its grounds is a formality, not a question."""
     _archive, parser = tuonti
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    output = invoke(input="e\n").output
+    output = invoke(input="n\n").output
 
-    assert output.index("Kartta otsikosta") < output.index(
+    assert output.index("Map from the header") < output.index(
         f"Import {UNIT} anyway?"
     )
 
 
-# -- Karttapoikkeama: --kylla EI ohita ---------------------------------------
+# -- The map mismatch: --kylla does NOT skip it ------------------------------
 
 
 def test_kylla_does_not_skip_the_map_confirmation(tuonti) -> None:
-    """**Epicin oma vaatimus.** Lippu ei hiljennä tätä kysymystä."""
+    """**The epic's own requirement.** The flag does not silence this question."""
     archive, parser = tuonti
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    result = invoke("--kylla", input="e\n")
+    result = invoke("--kylla", input="n\n")
 
     assert result.exit_code == 0, result.output
     assert "The map does not match" in result.output
@@ -416,7 +415,7 @@ def test_kylla_does_not_skip_the_map_confirmation(tuonti) -> None:
 def test_kylla_does_not_skip_the_question_when_there_is_no_veto_data(
     tuonti, monkeypatch
 ) -> None:
-    """Tarkistamattomuus ei ole täsmäys, eikä lippu saa tehdä siitä sellaista."""
+    """Not having checked is not a match, and the flag must not make it one."""
     archive, _parser = tuonti
     monkeypatch.setattr(
         import_stage,
@@ -424,7 +423,7 @@ def test_kylla_does_not_skip_the_question_when_there_is_no_veto_data(
         lambda settings, arc: FakeMatchSource({MATCH: match(picks=())}),
     )
 
-    result = invoke("--kylla", input="e\n")
+    result = invoke("--kylla", input="n\n")
 
     assert result.exit_code == 0, result.output
     assert "veto data" in result.output
@@ -434,35 +433,35 @@ def test_kylla_does_not_skip_the_question_when_there_is_no_veto_data(
 def test_the_mismatch_question_offers_the_number_that_would_be_right(
     tuonti,
 ) -> None:
-    """Kysymys tarjoaa tien eteenpäin eikä pelkkää epäilystä."""
+    """The question offers a way forward and not doubt alone."""
     _archive, parser = tuonti
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    result = invoke(input="e\n")
+    result = invoke(input="n\n")
 
     assert "--map 2" in result.output
 
 
 def test_answering_yes_to_the_mismatch_imports_anyway(tuonti) -> None:
-    """Kysymys on kysymys eikä este: käyttäjä saa tietää ja päättää."""
+    """The question is a question and not a barrier: the user is told and decides."""
     archive, parser = tuonti
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    result = invoke("--kylla", input="k\n")
+    result = invoke("--kylla", input="y\n")
 
     assert result.exit_code == 0, result.output
     assert imported(archive) is not None
 
 
-# -- Ylikirjoitus: --kylla ohittaa -------------------------------------------
+# -- Overwriting: --kylla does skip it ---------------------------------------
 
 
 def test_kylla_does_skip_the_overwrite_question(tuonti) -> None:
-    """Sama lippu, eri kysymys, eri lopputulos -- ja se on tarkoitus."""
+    """The same flag, a different question, a different outcome -- by design."""
     archive, _parser = tuonti
     vanha = archive.demos_dir() / f"{UNIT}.dem.zst"
     vanha.parent.mkdir(parents=True, exist_ok=True)
-    vanha.write_bytes(b"vanha")
+    vanha.write_bytes(b"old")
 
     result = invoke("--kylla")
 
@@ -477,45 +476,50 @@ def test_without_kylla_the_existing_file_is_not_overwritten_silently(
     archive, _parser = tuonti
     vanha = archive.demos_dir() / f"{UNIT}.dem.zst"
     vanha.parent.mkdir(parents=True, exist_ok=True)
-    vanha.write_bytes(b"vanha")
+    vanha.write_bytes(b"old")
 
-    result = invoke(input="e\n")
+    result = invoke(input="n\n")
 
     assert result.exit_code == 0, result.output
     assert f"Replace {UNIT}?" in result.output
-    assert vanha.read_bytes() == b"vanha"
+    assert vanha.read_bytes() == b"old"
 
 
-# -- Kieli -------------------------------------------------------------------
+# -- The prompt --------------------------------------------------------------
 
 
-def test_the_question_and_the_cancellation_are_in_finnish(tuonti) -> None:
-    """``typer.confirm``in ``[y/N]`` ja ``Aborted.`` eivät kuulu tänne."""
+def test_the_question_offers_its_own_options_and_not_typers(tuonti) -> None:
+    """``typer.confirm``'s ``[y/N]`` and ``Aborted.`` do not belong here.
+
+    The name used to say the question and the cancellation are in Finnish;
+    AD-11 moved the console into English, and what is left to pin is that
+    this is not ``typer.confirm``.
+    """
     _archive, parser = tuonti
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    result = invoke(input="e\n")
+    result = invoke(input="n\n")
 
-    assert "[k/e]" in result.output
+    assert "[y/n]" in result.output
     assert "[y/N]" not in result.output
     assert "Aborted" not in result.output
-    assert "Peruttu" in result.output
+    assert "Cancelled" in result.output
 
 
 def test_the_cancellation_message_says_what_was_not_done(tuonti) -> None:
-    """Peruminen kertoo mitä jäi tekemättä -- eikä puhu latauksesta."""
+    """A cancellation says what was left undone -- and not about downloading."""
     archive, parser = tuonti
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    result = invoke(input="e\n")
+    result = invoke(input="n\n")
 
-    assert "Demoa ei tuotu" in result.output
-    assert "ladattu" not in result.output
+    assert "The demo was not imported" in result.output
+    assert "downloaded" not in result.output
     assert (archive.import_dir() / FACEIT_NAME).is_file()
 
 
 def test_an_empty_answer_does_not_import(tuonti) -> None:
-    """Enter ei ole kyllä: oletus on se, joka ei muuta arkistoa."""
+    """Enter is not yes: the default is the one that does not change the archive."""
     archive, parser = tuonti
     parser.names[FACEIT_NAME] = "de_nuke"
 
@@ -526,11 +530,11 @@ def test_an_empty_answer_does_not_import(tuonti) -> None:
 
 
 def test_a_non_numeric_map_is_the_tools_own_error(tuonti, monkeypatch, capsys) -> None:
-    """**``--map abc`` ei saa kaatua typerin englanninkieliseen viestiin.**
+    """**``--map abc`` must not fail with typer's own message.**
 
-    Aiemmin komentorivi julisti arvon kokonaisluvuksi, jolloin ``typer``
-    kaatui ennen kuin vaihe näki mitään -- ja vaiheen oma suomenkielinen
-    tarkistus oli kuollutta koodia, saavuttamattomissa komentoriviltä.
+    The command line used to declare the value an integer, so ``typer``
+    failed before the stage saw anything -- and the stage's own check was
+    dead code, unreachable from the command line.
     """
     _archive, _parser = tuonti
     monkeypatch.setattr(
@@ -548,13 +552,13 @@ def test_a_non_numeric_map_is_the_tools_own_error(tuonti, monkeypatch, capsys) -
     assert "Invalid value" not in output
 
 
-# -- Virheet ruudulla --------------------------------------------------------
+# -- The errors on the screen ------------------------------------------------
 
 
 def test_a_rejection_shows_its_advice_on_its_own_line(
     tuonti, monkeypatch, capsys
 ) -> None:
-    """Neuvo kulkee virheen mukana ja tulostuu omalle rivilleen."""
+    """The advice travels with the error and prints on a row of its own."""
     _archive, _parser = tuonti
     monkeypatch.setattr(
         "sys.argv",
@@ -572,7 +576,7 @@ def test_a_rejection_shows_its_advice_on_its_own_line(
 
 
 def test_two_candidates_are_listed_on_screen(tuonti, monkeypatch, capsys) -> None:
-    """Monitulkintaisuutta ei ratkaista hiljaa -- ei myöskään ruudulla."""
+    """Ambiguity is not settled quietly -- not on the screen either."""
     archive, parser = tuonti
     (archive.import_dir() / FACEIT_NAME_PLAIN).write_bytes(PLAIN_BYTES)
     parser.names[FACEIT_NAME_PLAIN] = "de_ancient"
@@ -589,38 +593,45 @@ def test_two_candidates_are_listed_on_screen(tuonti, monkeypatch, capsys) -> Non
     output = captured.err + captured.out
     assert FACEIT_NAME in output
     assert FACEIT_NAME_PLAIN in output
-    # Neuvo ohjaa pakattuun ja on lainausmerkeissä, jotta sen voi kopioida.
+    # The advice points at the compressed one and is quoted so it can be
+    # copied.
     assert f'--file "{archive.import_dir() / FACEIT_NAME}"' in output
     assert imported(archive) is None
 
 
-# -- Ohje --------------------------------------------------------------------
+# -- The help ----------------------------------------------------------------
 
 
 def test_help_mentions_that_kylla_does_not_skip_the_map_check(tuonti) -> None:
-    """Poikkeussääntö on ohjeessa: muuten sen löytää vain törmäämällä siihen."""
+    """The exception is in the help: otherwise it is found only by hitting it."""
     result = runner.invoke(app, ["import", "--help"])
 
     assert result.exit_code == 0
-    assert "EI ohita" in result.output
+    # One word, not a phrase: Typer wraps the help into a box and a phrase
+    # would break on the wrap rather than on a real change. The capitalised
+    # ``NOT`` appears nowhere else in this command's help.
+    assert "NOT" in result.output
 
 
 def test_help_does_not_claim_the_command_stays_off_the_network(tuonti) -> None:
-    """Story 3.7 (kohta 10): ohje vaitti "Komento ei lataa mitaan verkosta."
+    """Story 3.7 (item 10): the help claimed "The command downloads nothing
+    from the network."
 
-    Vaite mitattiin vaaraksi: ``FaceitClient.match_payload`` hakee ottelun
-    rajapinnasta, jos sita ei ole vastausvalimuistissa, ja
-    ``raw/faceit/matches-1-79f71e00-....json`` kirjoitettiin tuontiajon aikana
-    5.9. klo 21:37:35. **Vaite korjattiin, ei toimintaa** -- verkosta haettu
-    vetotieto on juuri se, joka tekee karttatarkistuksesta mahdollisen.
+    The claim was measured false: ``FaceitClient.match_payload`` fetches the
+    match from the interface if it is not in the response cache, and
+    ``raw/faceit/matches-1-79f71e00-....json`` was written during an import
+    run on 2026-09-05 at 21:37:35. **The claim was fixed, not the behaviour**
+    -- the veto data fetched from the network is exactly what makes the map
+    check possible.
 
-    Ohje kertoo nyt kaksi asiaa erikseen: demoja ei ladata (se on annettu
-    tiedosto), mutta vetotieto voi tulla verkosta.
+    The help now says two things separately: demos are not downloaded (the
+    demo is the file you give it), but the veto data can come from the
+    network.
     """
     result = runner.invoke(app, ["import", "--help"])
 
     assert result.exit_code == 0
     teksti = " ".join(result.output.split())
-    assert "ei lataa mitään verkosta" not in teksti
-    assert "ei lataa demoja" in teksti
-    assert "välimuisti" in teksti
+    assert "does not download anything from the network" not in teksti
+    assert "does not download demos" in teksti
+    assert "cache" in teksti

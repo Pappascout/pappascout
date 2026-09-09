@@ -1,16 +1,19 @@
-"""``pappascout report`` -- komennon ja sen yhteenvedon testit.
+"""``pappascout report`` -- the command's and its summary's tests.
 
-Sama kuvio kuin ``test_cli_parse``, ``test_cli_classify`` ja
-``test_cli_aggregate``: komennon tuloste ja sen sopimus vaiheen kanssa
-testataan täällä, vaiheen tiedosto-operaatiot ``test_stage_render``issä.
+The same pattern as ``test_cli_parse``, ``test_cli_classify`` and
+``test_cli_aggregate``: the command's output and its contract with the stage
+are tested here, the stage's file operations in ``test_stage_render``.
 
-Kaksi asiaa lukitaan:
+Two things are locked down:
 
-* **Ensimmäinen rivi on tiedoston polku.** Käyttäjä avaa raportin
-  seuraavaksi; joukkuetunniste on se, jonka hän juuri itse kirjoitti
-  komentoriville.
-* **Komennossa ei ole ``--pakota``a.** Aikaleimattu nimi tekee siitä
-  tarpeettoman, eikä valintaa saa lisätä vahingossa takaisin.
+* **The first line is the file's path.** The user opens the report next; the
+  team id is the one they just typed on the command line themselves.
+* **The command has no ``--pakota``.** The timestamped name makes it
+  unnecessary, and the option must not be added back by accident.
+
+**The report's own text stays Finnish** (AD-11), so the needles that read the
+written report are Finnish on purpose. Only the command's console output was
+translated in T15.
 """
 
 from __future__ import annotations
@@ -61,55 +64,55 @@ def render_result(**overrides) -> StageResult:
     return StageResult(**defaults)  # type: ignore[arg-type]
 
 
-# --- Tuloste --------------------------------------------------------------------
+# --- The output -----------------------------------------------------------------
 
 
 def test_the_first_line_is_the_path_of_the_written_file() -> None:
-    """Tärkein rivi on tuloksen polku, ei 16 merkin tiiviste."""
+    """The most important line is the result's path, not a 16-character digest."""
     text = _render_report(render_result())
-    assert text.splitlines()[0] == f"Raportti kirjoitettu: {REPORT_FILE}"
+    assert text.splitlines()[0] == f"Report written: {REPORT_FILE}"
 
 
 def test_the_output_names_the_maps_and_the_sample() -> None:
     text = _render_report(render_result())
-    assert "4 demoa, 85 kierrosta" in text
+    assert "4 demos, 85 rounds" in text
     assert "de_nuke, de_ancient" in text
-    assert "367 riviä" in text
+    assert "367 lines" in text
 
 
 def test_the_output_says_when_the_team_name_is_unknown() -> None:
     text = _render_report(render_result(stats={"team_name_known": False}))
-    assert "joukkueen nimi ei tiedossa" in text
+    assert "the team's name is not known" in text
 
 
 def test_a_known_team_name_gets_no_caveat() -> None:
-    assert "ei tiedossa" not in _render_report(render_result())
+    assert "is not known" not in _render_report(render_result())
 
 
 def test_the_output_flags_missing_demos_and_unclassified_rounds() -> None:
     text = _render_report(render_result(stats={"missing_demos": 2, "unclassified": 3}))
-    assert "Puuttuvat demot" in text
-    assert "Luokittelemattomat" in text
+    assert "Missing demos" in text
+    assert "Unclassified" in text
 
 
 def test_a_clean_run_mentions_neither() -> None:
     text = _render_report(render_result())
-    assert "Puuttuvat demot" not in text
-    assert "Luokittelemattomat" not in text
+    assert "Missing demos" not in text
+    assert "Unclassified" not in text
 
 
 def test_the_output_survives_a_report_without_maps() -> None:
     text = _render_report(render_result(stats={"maps": []}))
-    assert "ei yhtään karttaa" in text
+    assert "no maps at all" in text
 
 
 def test_the_manifest_is_named_but_not_first() -> None:
     text = _render_report(render_result())
-    assert "Manifesti" in text
-    assert not text.startswith("  Manifesti")
+    assert "Manifest" in text
+    assert not text.startswith("  Manifest")
 
 
-# --- Komento kokonaisuutena -----------------------------------------------------
+# --- The command as a whole -----------------------------------------------------
 
 
 def prepare(tmp_path: Path, settings_file: Path, monkeypatch) -> Path:
@@ -127,7 +130,7 @@ def test_report_command_runs_end_to_end(
 
     result = runner.invoke(app, ["report", "--team", TEAM_KEY[:6]])
     assert result.exit_code == 0, result.output
-    assert "Raportti kirjoitettu" in result.output
+    assert "Report written" in result.output
 
     written = list((archive_root / "reports" / TEAM_KEY).glob("*.md"))
     assert len(written) == 1
@@ -160,11 +163,11 @@ def test_help_lists_report() -> None:
 
 
 def test_report_command_has_no_force_option() -> None:
-    """Aikaleimattu nimi tekee pakottamisesta tarpeetonta."""
+    """The timestamped name makes forcing unnecessary."""
     result = runner.invoke(app, ["report", "--help"])
     assert result.exit_code == 0
-    # Ohjeteksti kertoo miksi valintaa ei ole, joten sana esiintyy siinä;
-    # tarkistus koskee valintaluetteloa.
+    # The help text says why the option does not exist, so the word appears in
+    # it; the check is on the option listing.
     options = result.output.split("Options")[1]
     assert "--pakota" not in options
     assert "--team" in options
@@ -173,13 +176,13 @@ def test_report_command_has_no_force_option() -> None:
 def test_the_command_reaches_the_stage_with_its_own_section_only(
     tmp_path: Path, settings_file: Path, monkeypatch
 ) -> None:
-    """AD-3: ``render`` saa ``[report]``-osion eikä muuta.
+    """AD-3: ``render`` gets the ``[report]`` section and nothing else.
 
-    Ennen Story 2.13:a vaihe ei saanut yhtäkään osiota, koska kynnykset
-    tulevat ``report.json``ista. Karsintasäännöt ovat eri asia: ne ovat
-    esitysvalintoja, joita raportissa ei ole eikä voi olla, joten vaihe lukee
-    ne asetuksista. Muita osioita se ei silti näe, ja osion tyyppi on se,
-    mikä sen estää.
+    Before Story 2.13 the stage got no section at all, because the thresholds
+    come from ``report.json``. The pruning rules are a different thing: they
+    are presentation choices that are not and cannot be in the report, so the
+    stage reads them from the settings. It still does not see the other
+    sections, and the section's type is what prevents it.
     """
     seen: dict[str, object] = {}
 
@@ -199,24 +202,24 @@ def test_the_command_reaches_the_stage_with_its_own_section_only(
     assert seen["kwargs"] == {}
     assert hasattr(seen["archive"], "reports_dir")
     assert isinstance(seen["settings"], ReportSettings)
-    # Osa-asetus ei näe muita osioita: karsinta ei voi vahingossa riippua
-    # kynnyksestä eikä näytepistelistasta.
+    # A partial settings object does not see the other sections: the pruning
+    # cannot accidentally depend on a threshold or on the sample point list.
     assert not hasattr(seen["settings"], "thresholds")
     assert not hasattr(seen["settings"], "parse")
 
 
 def test_the_report_uses_the_fixture_report(tmp_path: Path) -> None:
-    """Varmistus siitä, että CLI-testit lukevat samaa fikstuuria kuin muut."""
+    """A check that the CLI tests read the same fixture as everyone else."""
     archive = build_archive(tmp_path)
     assert archive.report_json(TEAM_KEY).is_file()
     assert report([pistol_map()]).team.key == TEAM_KEY
 
 
-# --- Käyttäjän oma [report]-osio päätyy raporttiin ------------------------------
+# --- The user's own [report] section reaches the report -------------------------
 
 
 def written_report(archive_root: Path) -> str:
-    """Komennon kirjoittama raportti tekstinä."""
+    """The report the command wrote, as text."""
     written = list((archive_root / "reports" / TEAM_KEY).glob("*.md"))
     assert len(written) == 1, written
     return written[0].read_text(encoding="utf-8")
@@ -225,11 +228,11 @@ def written_report(archive_root: Path) -> str:
 def prepare_pruning(
     tmp_path: Path, settings_file: Path, monkeypatch, **replacements: str
 ) -> Path:
-    """Arkisto ja asetustiedosto, jossa karsintasääntö on muutettu.
+    """The archive and a settings file in which a pruning rule was changed.
 
-    ``settings_text`` korvaa rivin oikeasta ``settings.toml``ista, joten
-    testi ajaa **käyttäjän tiedostoa** eikä koodin oletuksia -- ja juuri se
-    ero on tämän testin koko sisältö.
+    ``settings_text`` replaces a line of the real ``settings.toml``, so the
+    test runs **the user's file** and not the code's defaults -- and that
+    difference is this test's whole content.
     """
     archive_root = tmp_path / "arkisto"
     settings_file.write_text(
@@ -243,19 +246,18 @@ def prepare_pruning(
 def test_the_users_own_pruning_setting_reaches_the_written_report(
     tmp_path: Path, settings_file: Path, monkeypatch
 ) -> None:
-    """Ainoa testi, joka näkee ladatun ``[report]``-osion päätyvän perille.
+    """The only test that sees the loaded ``[report]`` section arrive.
 
-    Katselmuskierros 1, kohta B: mutaatio, jossa komento antaa vaiheelle
-    ``ReportSettings()`` käyttäjän osion sijasta, läpäisi **koko sarjan**
-    (2216 passed). Ketjun jokainen lenkki oli erikseen oikein --
-    komentotesti väitti vain tyypin, kiinnikkeen asetustiedosto oli
-    oletuksilla, ja oma testi väitti oletusten olevan samat kuin
-    tiedostossa -- joten mikään ei erottanut ladattua osiota koodin
-    oletuksesta.
+    Review round 1, item B: a mutation in which the command gives the stage
+    ``ReportSettings()`` instead of the user's section passed **the whole
+    suite** (2216 passed). Every link of the chain was right on its own -- the
+    command test claimed only the type, the fixture's settings file was on the
+    defaults, and its own test claimed the defaults were the same as the
+    file's -- so nothing told a loaded section apart from the code's default.
 
-    Ero tehdään **ei-oletusarvoisella** asetuksella: ``max_kill_areas = 1``
-    jättää yhden alueen ja laskee loput kahdeksan rivin perään. Oletus 3
-    tuottaisi kuusi, joten luku erottaa nämä kaksi toisistaan.
+    The difference is made with a **non-default** setting: ``max_kill_areas =
+    1`` leaves one area and counts the other eight after the row. The default
+    3 would produce six, so the number tells the two apart.
     """
     archive_root = prepare_pruning(
         tmp_path,
@@ -271,17 +273,18 @@ def test_the_users_own_pruning_setting_reaches_the_written_report(
     assert kills, text
     assert "8 harvinaisempaa aluetta jäi pois" in kills[0]
     assert "Palace" not in kills[0]
-    # Ja lukuohje kertoo saman luvun, jonka käyttäjä kirjoitti.
+    # And the reading note gives the same number the user wrote.
     assert "kirjoitetaan 1 yleisintä aluetta" in text
 
 
 def test_a_rule_turned_off_in_the_settings_file_stops_pruning(
     tmp_path: Path, settings_file: Path, monkeypatch
 ) -> None:
-    """Sama ketju toiseen suuntaan: pois käännetty sääntö ei karsi.
+    """The same chain the other way round: a rule turned off does not prune.
 
-    Toinen suunta on tarpeen, koska pelkkä "arvo vaikuttaa" menisi läpi myös
-    toteutuksella, joka lukee osion mutta pakottaa säännön päälle.
+    The other direction is needed, because "the value has an effect" alone
+    would also pass with an implementation that reads the section but forces
+    the rule on.
     """
     archive_root = prepare_pruning(
         tmp_path,
@@ -304,10 +307,10 @@ def test_a_rule_turned_off_in_the_settings_file_stops_pruning(
 def test_the_written_report_names_the_rules_the_user_has_on(
     tmp_path: Path, settings_file: Path, monkeypatch
 ) -> None:
-    """Yhteenveto kertoo säädetyn arvon, myös kun sääntö ei osu mihinkään.
+    """The summary gives the adjusted value, also when the rule hits nothing.
 
-    Puhtaan raportin lukija ei näe karsinnasta muuta merkkiä: kappaleet
-    kirjoitetaan vain osuneista säännöistä.
+    The reader of a clean report sees no other sign of the pruning: the
+    paragraphs are written only for the rules that hit.
     """
     archive_root = prepare_pruning(
         tmp_path,
@@ -321,14 +324,14 @@ def test_the_written_report_names_the_rules_the_user_has_on(
     text = written_report(archive_root)
     summary = text.split("## Yhteenveto")[1].split("## ")[0]
     assert "skip_sample_seconds 45" in summary
-    # Karttaluvun otsikossa nimi on koodijaksona (Story 2.15, B1).
+    # In the map chapter's heading the name is a code span (Story 2.15, B1).
     assert "45 s:" not in text.split("## `de_")[1].split("**Pistooli**")[0]
 
 
 def test_the_info_command_lists_the_pruning_rules(
     tmp_path: Path, settings_file: Path, monkeypatch
 ) -> None:
-    """``info`` näyttää saman osion: säätäjä näkee arvot ilman raporttia."""
+    """``info`` shows the same section: the tuner sees the values without a report."""
     prepare_pruning(
         tmp_path,
         settings_file,
@@ -337,5 +340,5 @@ def test_the_info_command_lists_the_pruning_rules(
     )
     result = runner.invoke(app, ["info"])
     assert result.exit_code == 0, result.output
-    assert "Karsinta" in result.output
+    assert "Pruning" in result.output
     assert "max_utility_targets 4" in result.output

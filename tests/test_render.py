@@ -1,19 +1,20 @@
-"""``render`` -- raportin valinnan ja muotoilun testit.
+"""``render`` -- the tests of the report's selection and formatting.
 
-Vaihe ei lue demoa eikä arkistoa, joten koko raportti testataan käsin
-rakennetuista :class:`~pappascout.domain.report.Report`-olioista. Testit
-vastaavat spec-2-4:n I/O-matriisin rivejä ja sen hyväksymiskriteerejä.
+The stage reads neither a demo nor the archive, so the whole report is
+tested from hand-built :class:`~pappascout.domain.report.Report` objects.
+The tests match the rows of spec-2-4's I/O matrix and its acceptance
+criteria.
 
-Rakennusfunktiot ovat tässä tiedostossa, koska ``test_stage_render`` ja
-``test_cli_report`` käyttävät niitä samoina: kolme kopiota erkanisi, ja
-silloin vaiheen testi voisi mennä läpi raportilla, jota renderöinnin testi ei
-koskaan näe.
+The builder functions are in this file, because ``test_stage_render`` and
+``test_cli_report`` use the same ones: three copies would drift, and the
+stage's test could then pass on a report the rendering's test never sees.
 
-**Fikstuuri kattaa molemmat variantit jokaisesta haarasta, jossa raportti
-valitsee.** Ensikontaktin näytepiste on eri laji kuin aikanäytepiste, ja
-havaittu räjähdysalue on eri asia kuin pistepilvestä johdettu; kumpaakin paria on
-oltava fikstuurissa, tai vain toinen suunta on suojattu ja väärä oletusarvo
-menee läpi kaikista väitteistä huomaamatta.
+**The fixture covers both variants of every branch in which the report
+chooses.** A first-contact sample point is a different kind from a time
+sample point, and an observed detonation area is a different thing from one
+derived from the point cloud; both pairs have to be in the fixture, or only
+one direction is guarded and a wrong default goes through every claim
+unnoticed.
 """
 
 from __future__ import annotations
@@ -95,39 +96,41 @@ from pappascout.render.view import (
     pattern_min_rounds,
 )
 
-# Yksityinen, mutta tuotu sisään tarkoituksella: jäljitettävyysluvun selitys
-# on vakio, ja katkelman kopioiminen testiin tekisi siitä kaksi totuutta --
-# sama peruste kuin TEAM_SLUGilla ja TRACEABILITY_HEADINGilla.
+# Private, but imported on purpose: the traceability chapter's explanation
+# is a constant, and copying a fragment of it into the test would make two
+# truths of it -- the same rationale as with TEAM_SLUG and
+# TRACEABILITY_HEADING.
 from pappascout.render.view import _PRUNING_KEPT_THE_BLOCK, _TRACEABILITY_NOTE
 
 TEAM_KEY = "aaaaaaaaaaaaaaaa"
 TEAM_NAME = "MatureMayhem"
 
-#: Slug, jonka oletusraportti saa: se johdetaan NIMESTÄ eikä
-#: tunnisteesta, koska nimi on havainto. Tiedostonimen testit lukevat
-#: sen täältä, jottei sääntö ole kahdessa paikassa eri muodossa.
+#: The slug the default report gets: it is derived from the NAME and not from
+#: the id, because the name is an observation. The file-name tests read it
+#: from here, so that the rule is not in two places in two different forms.
 TEAM_SLUG = "maturemayhem"
 
-#: Rosteri, jossa jokaisella on nimi ja SteamID64. Runko puhuu nimillä ja
-#: jäljitettävyysluku kantaa tunnisteet (Story 2.12), joten kiinnikkeessä on
-#: oltava molemmat -- pelkillä nimillä liitteen väitteitä ei voisi kirjoittaa.
+#: A roster in which everyone has a name and a SteamID64. The body speaks in
+#: names and the traceability chapter carries the ids (Story 2.12), so the
+#: fixture has to hold both -- with names alone the chapter's claims could not
+#: be written.
 DEFAULT_ROSTER = [
     RosterEntry(player_id=str(n), display_name=f"pelaaja{n}")
     for n in range(1, 6)
 ]
 
-#: Rosteri, jonka tunnisteet ovat SteamID64:n **muotoisia mutta keksittyjä**.
+#: A roster whose ids are **in the shape of a SteamID64 but invented**.
 #:
-#: Oletusrosterin ``1``..``5`` eivät kelpaa siihen väitteeseen, että rungossa
-#: ei esiinny yhtään tunnistetta: ne eivät täsmää :data:`IDENTIFIER_SHAPE`en,
-#: joten väite menisi läpi myös silloin kun numerot ovat yhä rungossa. Muoto
-#: on siis se, mitä tämä kiinnike tuo -- ei kenenkään oikea tunniste.
+#: The default roster's ``1``..``5`` are not fit for the claim that no id
+#: appears in the body: they do not match :data:`IDENTIFIER_SHAPE`, so the
+#: claim would pass even when the numbers are still in the body. The shape is
+#: therefore what this fixture brings -- not anybody's real id.
 #:
-#: **Oikeat tunnisteet eivät kuulu tähän tiedostoon.** Arkisto ei ole gitissä
-#: mutta testit ovat, ja aidon pelaajanimen ja SteamID64:n pari on
-#: henkilötieto, jonka committoiminen ei tuo yhtään väitettä lisää: mittaus
-#: koskee muotoa (``7656119`` + 10 numeroa), eikä muoto tarvitse ketään
-#: oikeaa.
+#: **Real ids do not belong in this file.** The archive is not in git but the
+#: tests are, and the pair of a genuine player name and a SteamID64 is
+#: personal data whose committing adds not one claim: the measurement
+#: concerns the shape (``7656119`` + 10 digits), and the shape needs nobody
+#: real.
 STEAM_ROSTER = [
     RosterEntry(
         player_id=f"765611900000000{number:02d}", display_name=f"pelaaja{number}"
@@ -135,43 +138,45 @@ STEAM_ROSTER = [
     for number in range(1, 8)
 ]
 
-#: Tunnisteen **hahmo**: 16 merkin tiiviste tai 17 numeron SteamID64.
+#: An id's **shape**: a 16-character digest or a 17-digit SteamID64.
 #:
-#: Hahmo eikä luettelo, jotta väite "rungossa ei ole tunnisteita" ei nojaa
-#: siihen, mitkä merkkijonot testi sattuu tuntemaan. Kolme laajennusta
-#: spec-2-12:n käsintarkistuksen ``grep``iin nähden, jokainen omasta syystään:
-#: isot kirjaimet mukaan (tiiviste voi tulla eteen kumpaa tahansa kirjainkokoa
-#: käyttävästä lähteestä), ``7656119``-etuliite pois (SteamID64:n muoto on 17
-#: numeroa, eikä pelaaja ole vähemmän pelaaja koska hänen tilinsä on uudempi)
-#: ja rajaus pois hahmon reunoilta (pidempi heksajono on yhä tunniste).
+#: A shape and not a list, so that the claim "there are no ids in the body"
+#: does not lean on which strings the test happens to know. Three extensions
+#: compared with spec-2-12's manual ``grep``, each for its own reason: upper
+#: case included (a digest can come from a source using either case), the
+#: ``7656119`` prefix dropped (a SteamID64's shape is 17 digits, and a player
+#: is no less a player because his account is newer) and the anchoring
+#: removed from the shape's edges (a longer hex run is still an id).
 #:
-#: **Demotunnisteita hahmo ei tunnista eikä voi tunnistaa.**
-#: ``ANCIENT_vs_RCAVE_VETERANS`` ei muistuta tiivistettä, ja FACEIT-tunnisteen
-#: pisimmät heksajonot ovat 12 merkkiä. Ne todennetaan **kirjaimellisesti**:
-#: testi tietää fikstuurinsa demotunnisteet ja väittää niistä nimeltä.
+#: **The shape does not recognise demo ids and cannot.**
+#: ``ANCIENT_vs_RCAVE_VETERANS`` does not resemble a digest, and a FACEIT
+#: id's longest hex runs are 12 characters. They are verified
+#: **literally**: the test knows its fixture's demo ids and claims about them
+#: by name.
 IDENTIFIER_SHAPE = re.compile(r"[0-9a-fA-F]{16}|[0-9]{17}")
 
-#: Markdownin koodijakso. Tarvitaan, koska kierrosliitteen poikkeus on
-#: **kapeampi kuin luku**: tunniste saa olla polussa, ja polku on koodijakso.
+#: A Markdown code span. It is needed because the round appendix's exception
+#: is **narrower than the chapter**: an id may be in a path, and a path is a
+#: code span.
 CODE_SPAN = re.compile(r"`[^`]*`")
 
-#: FACEIT-tunniste, jossa ei ole kartan nimeä (Story 2.11). Kun kartan nimeä ei
-#: tunnisteta, ``map_name`` **on** tämä merkkijono -- eli karttaluvun otsikko
-#: on tunniste, ja se on rungon kolmas poikkeus.
+#: A FACEIT id that does not hold the map's name (Story 2.11). When the map's
+#: name is not recognised, ``map_name`` **is** this string -- that is, the map
+#: chapter's heading is an id, and that is the body's third exception.
 FACEIT_DEMO_ID = "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1"
 
-#: Demo, joka ei päässyt otantaan. Tunniste on rungossa tarkoituksella: syy
-#: sisältää komennon, jonka lukija kopioi.
+#: A demo that did not make it into the sample. The id is in the body on
+#: purpose: the reason contains a command the reader copies.
 MISSING_DEMO_ID = "ANCIENT_vs_RCAVE_VETERANS"
 
-#: Gravis vakiona: testiteksti, jossa on koodijaksoja, on helpompi lukea
-#: nimellä kuin merkillä, ja Markdownin sisäkkäiset gravikset ovat juuri
-#: se paikka, jossa lainausmerkit menevät sekaisin.
+#: The backtick as a constant: test text that contains code spans is easier
+#: to read by name than by character, and Markdown's nested backticks are
+#: precisely the place where the quoting gets muddled.
 BACKTICK = "`"
 
-#: Seitseman aluetta, joista jokaisella on tasan yksi kierros: karsinnan
-#: kynnys (3) vie ne kaikki, ja jaljelle jaa pelkka mediaani. Sama
-#: asetelma kuin retron mittaamassa RCAVEn de_anubis default -lohkossa.
+#: Seven areas each of which has exactly one round: the pruning threshold (3)
+#: takes them all, and the median alone is left. The same setup as in the
+#: RCAVE de_anubis default block the retro measured.
 FIRST_CONTACT_SPREAD = (
     "Alley",
     "BombsiteB",
@@ -184,27 +189,29 @@ FIRST_CONTACT_SPREAD = (
 
 DEMO_ID = "Ancient_vs_kaljukostaja"
 
-#: Kynnys, jonka raportti kantaa mukanaan. Sama luku kuin
-#: ``settings.toml``issa; testit lukevat sen raportista, eivät asetuksista --
-#: juuri kuten ``render`` itse.
+#: The threshold the report carries with it. The same number as in
+#: ``settings.toml``; the tests read it from the report and not from the
+#: settings -- exactly as ``render`` itself does.
 SMALL_SAMPLE = 3
 
-#: Kokoonpanojen liittämisen kynnys (``[thresholds].team_identity_min_common``,
-#: AD-6). Samassa oletuskiinnikkeessä kuin :data:`SMALL_SAMPLE`, koska
-#: kokoonpanorivi kirjoittaa sen näkyviin samalla tavalla kuin pienen otannan
-#: rivi omansa -- ja ilman sitä kiinnike ei näyttäisi oikealta raportilta.
+#: The threshold for joining lineups
+#: (``[thresholds].team_identity_min_common``, AD-6). In the same default
+#: fixture as :data:`SMALL_SAMPLE`, because the lineup row writes it out in
+#: the same way as the small-sample row writes its own -- and without it the
+#: fixture would not look like a real report.
 MIN_COMMON = 3
 
-#: Kierroslistojen polut, jotka vaihe antaisi. Absoluuttisia, koska raportti
-#: liitetään Discordiin eikä lukija tiedä missä arkiston juuri on.
+#: The round lists' paths, as the stage would hand them in. Absolute, because
+#: the report is pasted into Discord and the reader does not know where the
+#: archive's root is.
 ROUND_LISTS = (rf"C:\arkisto\classified\{TEAM_KEY}\{DEMO_ID}.md",)
 
 
-# --- Rakennusfunktiot -----------------------------------------------------------
+# --- The builder functions ------------------------------------------------------
 
 
 def sample(rounds: int, demos: int = 1, bucket: str = "unknown") -> Sample:
-    """Otanta yhdessä lokerossa; muut jäävät nolliksi."""
+    """The sample in one bucket; the others stay zero."""
     zero = SampleBucket(demos=0, rounds=0)
     buckets = {"league": zero, "other": zero, "unknown": zero}
     buckets[bucket] = SampleBucket(demos=demos, rounds=rounds)
@@ -235,7 +242,7 @@ def roster_sample(
 
 
 def area(name: str | None, m: int, bars: dict[int, int]) -> AreaDistribution:
-    """Alueen jakauma. ``bars`` on ``pelaajamäärä -> kierroksia``."""
+    """An area's distribution. ``bars`` is ``player count -> rounds``."""
     return AreaDistribution(
         area=name,
         m=m,
@@ -267,7 +274,7 @@ def position(
 def first_contact_position(
     areas: list[AreaDistribution], m: int, *, median: float | None = 9.05
 ) -> Position:
-    """Ensikontaktin näytepiste: ei nimellistä sekuntilukua, vaan mediaani."""
+    """A first-contact sample point: no nominal seconds, a median instead."""
     return position(None, areas, m, kind="first_contact", median=median)
 
 
@@ -325,15 +332,16 @@ def deaths(
     median: float | None = None,
     kills: dict[str | None, int] | None = None,
 ) -> DeathReport:
-    """Kuolemaosuus raporttiin.
+    """The deaths part of the report.
 
-    ``first`` on alue -> kierrokset, ``kills`` alue -> tapot. Nimittäjät
-    lasketaan summista, koska juuri se on mallin sopimus: ensimmäisen
-    kuoleman jakauman ``m`` on kierroksia ja tappojakauman ``m`` tappoja.
+    ``first`` is area -> rounds, ``kills`` area -> kills. The denominators
+    are computed from the sums, because that is precisely the model's
+    contract: the first-death distribution's ``m`` is rounds and the kill
+    distribution's ``m`` is kills.
 
-    ``rounds_missing`` on annettava niin, että ``m + rounds_missing`` on
-    kierrostyypin otanta -- malli tarkistaa sen. :func:`round_type` täyttää
-    sen puolestasi, kun kuolemaosuutta ei anneta.
+    ``rounds_missing`` has to be given so that ``m + rounds_missing`` is the
+    round type's sample -- the model checks that. :func:`round_type` fills it
+    in for you when no deaths part is given.
     """
     first = first or {}
     kills = kills or {}
@@ -374,8 +382,8 @@ def round_type(
         players_armed=players_armed or armed(0, {}),
         players_armored=players_armored or armored(0, {}),
         first_contact=first_contact or [],
-        # Ilman kuolemia jokainen kierros on "ei omia kuolemia" -- ja mallin
-        # ristiintarkistus vaatii, että kuolemat kattavat koko otannan.
+        # Without deaths every round is "ei omia kuolemia" -- and the model's
+        # cross-check demands that the deaths cover the whole sample.
         deaths=(
             death_report
             if death_report is not None
@@ -410,12 +418,12 @@ def map_report(
 
 
 def scan(**overrides) -> AnomalyScan:
-    """Poikkeamasääntöjen kattavuus kiinnikkeeseen.
+    """The anomaly rules' coverage for the fixture.
 
-    Oletus on **täysi kattavuus ilman sokeita pisteitä**, koska se on se
-    tila, jossa tyhjä poikkeamaluku on mitattu negatiivinen. Sokeat pisteet
-    rakennetaan erikseen niitä koskevissa testeissä -- muuten jokainen muu
-    testi mittaisi vahingossa varoituksen tekstiä.
+    The default is **full coverage without blind spots**, because that is the
+    state in which an empty anomaly chapter is a measured negative. Blind
+    spots are built separately in the tests that concern them -- otherwise
+    every other test would measure the warning's text by accident.
     """
     values: dict[str, object] = {
         "rules": ["ct_advance", "crunch", "stack"],
@@ -450,10 +458,10 @@ def report(
     entries = maps or []
     rounds = sum(m.sample.rounds for m in entries)
     demos = sum(m.sample.demos for m in entries)
-    # Lähde on kiinnikkeen OMA parametri eikä johdos nimestä. Jos se
-    # johdettaisiin säännöllä "nimi == tunniste", tapaus jota varten
-    # ``_has_name`` on kirjoitettu -- havaittu nimi, joka sattuu olemaan
-    # tunnisteen näköinen -- ei tulisi ajetuksi kertaakaan.
+    # The source is the fixture's OWN parameter and not derived from the
+    # name. Were it derived by the rule "name == id", the case ``_has_name``
+    # is written for -- an observed name that happens to look like the id --
+    # would never be exercised at all.
     source = display_name_source or (
         "team_key" if display_name == TEAM_KEY else "clan_name"
     )
@@ -462,8 +470,8 @@ def report(
         tool_versions={"pappascout": "0.1.0"},
         team=TeamReport(
             key=TEAM_KEY,
-            # Slug johdetaan näytettävästä nimestä, kuten ``aggregate`` sen
-            # johtaa; malli vartioi tämän parin.
+            # The slug is derived from the display name, as ``aggregate``
+            # derives it; the model guards this pair.
             slug=slugify(display_name) or slugify(TEAM_KEY),
             display_name=display_name,
             display_name_source=source,
@@ -488,9 +496,9 @@ def report(
                 "thresholds": {
                     "small_sample_rounds": SMALL_SAMPLE,
                     "team_identity_min_common": MIN_COMMON,
-                    # Poikkeamakynnykset kiinnikkeeseen, koska lukuohje lukee
-                    # ne raportista eikä keksi niitä. Samat luvut kuin
-                    # settings.tomlissa.
+                    # The anomaly thresholds into the fixture, because the
+                    # reading guide reads them from the report and does not
+                    # invent them. The same numbers as in settings.toml.
                     "advance_t_share": 0.80,
                     "advance_area_min_observations": 20,
                     "advance_max_sample_s": 30.0,
@@ -513,8 +521,9 @@ def report(
         unpaired_detonations=unpaired,
         missing_demos=missing_demos or [],
         unclassified_rounds=unclassified,
-        # Oletus on tyhjä: poikkeamaluku on olemassa myös silloin, kun
-        # poikkeamia ei ole, ja juuri se on jokaisen muun testin taustatila.
+        # The default is empty: the anomaly chapter exists even when there
+        # are no anomalies, and that is exactly the background state of every
+        # other test.
         anomalies=anomalies or [],
         anomaly_scan=scan_ if scan_ is not None else scan(),
         maps=entries,
@@ -522,11 +531,12 @@ def report(
 
 
 def pistol_map() -> MapReport:
-    """Yksi kartta, jolla on pistoolikierros molemmilla puolilla.
+    """One map with a pistol round on both sides.
 
-    T-puolen lohko kattaa **kaikki** rivilajit, jotka raportti osaa
-    kirjoittaa: aikanäytepiste, ensikontaktin näytepiste, kranaattimäärät,
-    kranaattien kohteet (sekä havaittu että johdettu alue) ja aseistetut.
+    The T-side block covers **every** kind of row the report can write: a
+    time sample point, a first-contact sample point, grenade counts, the
+    grenades' targets (both an observed and a derived area) and the armed
+    count.
     """
     return map_report(
         "de_ancient",
@@ -564,8 +574,8 @@ def pistol_map() -> MapReport:
                             ),
                         ],
                         players_armed=armed(1, {0: 1}),
-                        # Pistoolikierroksen koko juoni yhdellä rivillä:
-                        # aseistettuja 0, kevlareita 5.
+                        # The pistol round's whole plot on one row: 0 armed,
+                        # 5 kevlars.
                         players_armored=armored(1, {5: 1}),
                     )
                 ],
@@ -576,7 +586,9 @@ def pistol_map() -> MapReport:
 
 
 def default_map(rounds: int = 8) -> MapReport:
-    """Kartta, jonka default-lohkossa on sekä kuvio että yksittäinen havainto."""
+    """A map whose default block holds both a pattern and a single
+    observation.
+    """
     return map_report(
         "de_inferno",
         [
@@ -590,9 +602,9 @@ def default_map(rounds: int = 8) -> MapReport:
                             position(
                                 15.0,
                                 [
-                                    # Kuvio: toistuu 4 kierroksella.
+                                    # A pattern: it repeats on 4 rounds.
                                     area("Apartments", rounds, {3: 4, 0: rounds - 4}),
-                                    # Yksittäinen: 1 kierros, ei kuvio.
+                                    # A single one: 1 round, not a pattern.
                                     area("Banana", rounds, {2: 1, 0: rounds - 1}),
                                 ],
                                 rounds,
@@ -617,10 +629,11 @@ def demo_map(
     name: str = "de_nuke",
     source: str = "map_demo_id",
 ) -> MapReport:
-    """Kartta, jonka **demotunnisteet** ovat testin kohde.
+    """A map whose **demo ids** are the test's subject.
 
-    Sisältö on tarkoituksella pienin mahdollinen: näitä testejä kiinnostaa
-    kartan otsikko ja jäljitettävyysluvun karttarivi, eivät havaintorivit.
+    The content is deliberately the smallest possible: these tests care about
+    the map's heading and the traceability chapter's map row, not about the
+    observation rows.
     """
     return map_report(
         name,
@@ -631,21 +644,22 @@ def demo_map(
 
 
 def unknown_map(demo_id: str = FACEIT_DEMO_ID) -> MapReport:
-    """Kartta, jonka nimeä ei tunnistettu: **nimi on demotunniste**.
+    """A map whose name was not recognised: **the name is the demo id**.
 
-    Näin ``aggregate`` sen rakentaa (ks.
-    :class:`~pappascout.domain.report.MapReport`): ilman havaintoa ja ilman
-    poolista päättelyä nimi on ``map_demo_id`` itse ja lähde ``unknown``.
-    Kiinnike ei siis kuvittele tilannetta vaan toistaa sen.
+    This is how ``aggregate`` builds it (see
+    :class:`~pappascout.domain.report.MapReport`): without an observation and
+    without an inference from the pool, the name is the ``map_demo_id``
+    itself and the source is ``unknown``. The fixture therefore does not
+    imagine the situation but reproduces it.
     """
     return demo_map([demo_id], name=demo_id, source="unknown")
 
 
 def missing_demo(demo_id: str = MISSING_DEMO_ID) -> MissingDemo:
-    """Puuttuva demo syynä, joka sisältää ajettavan komennon.
+    """A missing demo whose reason contains a command to run.
 
-    Sanamuoto on ``aggregate``n oma (``stages/aggregate.py``): juuri se
-    komento on syy, jonka takia tunniste jää rungon riville.
+    The wording is ``aggregate``'s own (``stages/aggregate.py``): that
+    command is precisely the reason the id stays on the body's row.
     """
     return MissingDemo(
         match=demo_id,
@@ -657,18 +671,19 @@ def missing_demo(demo_id: str = MISSING_DEMO_ID) -> MissingDemo:
     )
 
 
-#: Karsintasäännöt **sellaisina kuin ne ovat ``settings.toml``issa** (Story
-#: 2.13). Testien oletus on tuotannon oletus: jos kiinnike ajaisi karsinnan
-#: pois päältä, koko testijoukko kuvaisi raporttia, jota kukaan ei saa -- ja
-#: jokainen karsinnan virhe menisi läpi huomaamatta.
+#: The pruning rules **as they are in ``settings.toml``** (Story 2.13). The
+#: tests' default is production's default: if the fixture ran with pruning
+#: switched off, the whole test set would describe a report nobody gets --
+#: and every pruning fault would pass unnoticed.
 #:
-#: ``ReportSettings()`` eikä käsin kirjoitetut arvot: oletusten yhtäpitävyys
-#: asetustiedoston kanssa on ``test_settings``in väite, eikä sitä kirjoiteta
-#: tänne toiseen kertaan.
+#: ``ReportSettings()`` and not hand-written values: that the defaults agree
+#: with the settings file is ``test_settings``'s claim, and it is not written
+#: out here a second time.
 DEFAULT_PRUNING = ReportSettings()
 
-#: Karsinta kokonaan pois. Tämän tarinan tärkein testi ajaa raportin tällä ja
-#: vaatii, että tulos on merkki merkiltä sama kuin ennen Story 2.13:a.
+#: Pruning entirely off. This story's most important test runs the report
+#: with this and demands that the result is character for character the same
+#: as before Story 2.13.
 NO_PRUNING = ReportSettings(
     drop_saturated_equipment_lines=False,
     merge_equal_equipment_lines=False,
@@ -679,7 +694,7 @@ NO_PRUNING = ReportSettings(
 
 
 def render(entry: Report, settings: ReportSettings = DEFAULT_PRUNING) -> str:
-    """Raportti kierroslistojen polkuineen -- kuten vaihe sen kirjoittaa."""
+    """The report with the round lists' paths -- as the stage writes it."""
     return render_report(entry, settings=settings, round_list_paths=ROUND_LISTS)
 
 
@@ -689,12 +704,12 @@ def view_of(
     *,
     round_list_paths: tuple[str, ...] = (),
 ):
-    """Näkymä samalla karsinnan oletuksella kuin :func:`render`.
+    """The view with the same pruning default as :func:`render`.
 
-    Kiinnike eikä suora ``build_view``-kutsu, jotta oletus on testeissä
-    **yhdessä paikassa**: kahtena kirjoitettuna toinen puolisko testijoukosta
-    voisi ajaa karsinnan päällä ja toinen pois, eikä mikään kertoisi kummasta
-    on kyse.
+    A helper and not a direct ``build_view`` call, so that the default is in
+    **one place** in the tests: written twice, one half of the test set could
+    run with pruning on and the other with it off, and nothing would say
+    which was which.
     """
     return build_view(
         entry, settings=settings, round_list_paths=round_list_paths
@@ -702,16 +717,17 @@ def view_of(
 
 
 def report_sections(text: str) -> list[tuple[str, str]]:
-    """Raportti luvuittain: ``(otsikko, sisältö ilman otsikkoriviä)``.
+    """The report chapter by chapter: ``(heading, content without the heading
+    line)``.
 
-    Otsikko ja sisältö erikseen, koska tunnisteen poikkeukset osuvat eri
-    kohtiin: karttaluvun **otsikko** voi olla demotunniste (kun kartan nimeä
-    ei tunnistettu), mutta sen sisällön on silti oltava puhdas. Yhtenä
-    merkkijonona kumpikaan väite ei olisi tehtävissä.
+    The heading and the content separately, because the id exceptions fall in
+    different places: a map chapter's **heading** can be a demo id (when the
+    map's name was not recognised), but its content still has to be clean. As
+    one string neither claim could be made.
 
-    Ensimmäinen alkio on dokumentin alku ennen yhtäkään ``## ``-otsikkoa, ja
-    sen otsikko on tyhjä merkkijono: siinä on raportin ``# ``-otsikko, joka on
-    yhtä lailla runkoa.
+    The first item is the document's start before any ``## `` heading, and
+    its heading is the empty string: it holds the report's ``# `` title,
+    which is just as much the body.
     """
     sections: list[tuple[str, list[str]]] = [("", [])]
     for line in text.splitlines():
@@ -723,28 +739,30 @@ def report_sections(text: str) -> list[tuple[str, str]]:
 
 
 def section_text(text: str, heading: str) -> str:
-    """Yhden luvun sisältö. Puuttuva luku on virhe eikä tyhjä merkkijono."""
+    """One chapter's content. A missing chapter is an error, not an empty
+    string.
+    """
     for name, content in report_sections(text):
         if name == heading:
             return content
-    raise AssertionError(f"raportissa ei ole lukua {heading!r}")
+    raise AssertionError(f"the report has no chapter {heading!r}")
 
 
 def summary_text(text: str) -> str:
-    """Yhteenvedon sisältö -- se osa, jonka lukija lukee ensimmäisenä."""
+    """The summary's content -- the part the reader reads first."""
     return section_text(text, "Yhteenveto")
 
 
 def traceability_text(text: str) -> str:
-    """Jäljitettävyysluvun sisältö."""
+    """The traceability chapter's content."""
     return section_text(text, TRACEABILITY_HEADING)
 
 
-# --- Perusmuoto -----------------------------------------------------------------
+# --- The basic shape ------------------------------------------------------------
 
 
 def test_report_has_the_structure_the_spec_asks_for() -> None:
-    """Otsikko, yhteenveto, kartta, puoli, kierrostyyppi, kolme viimeistä lukua."""
+    """Title, summary, map, side, round type, the last three chapters."""
     text = render(report([pistol_map()]))
     for expected in (
         f"# {TEAM_NAME} -- scouting-raportti",
@@ -767,19 +785,22 @@ def test_report_ends_with_exactly_one_newline() -> None:
 
 
 def test_positions_utility_and_first_contact_are_bullets_not_paragraphs() -> None:
-    """Tuotteen omistajan analyysi on ranskalaisia viivoja; raportti on samaa
-    muotoa.
+    """The product owner's analysis is bullets; the report is of the same
+    shape.
     """
     text = render(report([pistol_map()]))
     body = text.split("**Pistooli** (1 kierros)")[1].split("\n\n")[0]
-    # Ensimmäinen rivi on otsikon loppu ("-- pieni otanta"), ei havainto.
+    # The first line is the end of the heading ("-- pieni otanta"), not an
+    # observation.
     rows = [row for row in body.splitlines()[1:] if row.strip()]
     assert rows, body
     assert all(row.startswith("- ") for row in rows), rows
 
 
 def test_areas_stay_in_english_and_text_is_finnish() -> None:
-    """Calloutit englanniksi, teksti suomeksi -- suomennoskerrosta ei ole."""
+    """Callouts in English, the text in Finnish -- there is no translation
+    layer.
+    """
     text = render(report([pistol_map()]))
     assert "Middle 3" in text
     assert "MainHall 2" in text
@@ -787,15 +808,15 @@ def test_areas_stay_in_english_and_text_is_finnish() -> None:
     assert "utility:" in text
 
 
-# --- Ensikontaktin näytepiste ---------------------------------------------------
+# --- The first-contact sample point ---------------------------------------------
 
 
 def test_first_contact_position_is_labelled_by_its_median_not_by_zero_seconds() -> None:
-    """Ensikontakti ei ole aikanäytepiste, eikä sillä ole sekuntilukua.
+    """First contact is not a time sample point and has no seconds.
 
-    Ilman tätä testiä ``sample_kind``-vartijan poistaminen otsikoisi jokaisen
-    ensikontaktilohkon muotoon ``0 s`` ja mediaani katoaisi -- kaikissa
-    oikeissa raporteissa, ilman että yksikään muu väite huomaisi mitään.
+    Without this test, removing the ``sample_kind`` guard would label every
+    first-contact row as ``0 s`` and the median would vanish -- in every real
+    report, without a single other claim noticing anything.
     """
     text = render(report([pistol_map()]))
     assert "- ensikontakti (mediaani 9,1 s): Middle 2 (1/1 kierroksesta)" in text
@@ -827,7 +848,7 @@ def test_first_contact_without_a_median_is_still_labelled_first_contact() -> Non
 
 
 def test_time_and_first_contact_positions_are_told_apart() -> None:
-    """Kaksi näytepistelajia samassa lohkossa saavat eri otsikon."""
+    """Two kinds of sample point in the same block get different labels."""
     view = view_of(report([pistol_map()]), round_list_paths=ROUND_LISTS)
     labels = [
         line.label
@@ -838,21 +859,21 @@ def test_time_and_first_contact_positions_are_told_apart() -> None:
     assert any(label.startswith("ensikontakti") for label in labels)
 
 
-# --- Jokainen väite kantaa otantansa --------------------------------------------
+# --- Every claim carries its sample ---------------------------------------------
 
-#: Yhden väitteen otanta sellaisena kuin malli sen latoo.
+#: One claim's sample as the template sets it.
 _SAMPLE = re.compile(r" \(\d+/\d+ kierroksesta(?:, [^)]*)?\)")
 
 
-#: Karttaluvun otsikon alku. **Nimi on koodijaksona** (Story 2.15, B1):
-#: se on demon antamaa vapaata tekstiä, ja paljaana workshop-kartan nimi
-#: katkaisi otsikon kesken. Vakiona, koska neljä testiapuria pilkkoo
-#: raportin tästä kohdasta -- neljänä literaalina ne erkanisivat.
+#: The start of a map chapter's heading. **The name is a code span** (Story
+#: 2.15, B1): it is free text the demo gave, and bare, a workshop map's name
+#: broke the heading in the middle. A constant, because four test helpers
+#: split the report at this point -- as four literals they would drift.
 MAP_HEADING_START = "## `de_"
 
 
 def observation_rows(text: str) -> list[str]:
-    """Havaintorivit: ranskalaiset viivat, jotka eivät ole kursivoituja huomioita."""
+    """The observation rows: the bullets that are not italic notes."""
     body = text.split(MAP_HEADING_START)[1].split("## Kierrosliite")[0]
     return [
         row
@@ -862,11 +883,12 @@ def observation_rows(text: str) -> list[str]:
 
 
 def claim_segments(row: str) -> list[str]:
-    """Pilko rivi väitteiksi poistamalla otannat.
+    """Split a row into claims by removing the samples.
 
-    Palauttaa väitteiden tekstit ilman otantoja. Rivin lopun huomautus
-    (``" -- ..."``) ja alun otsikko (``"- 15 s: "``) leikataan pois, joten
-    jäljelle jää vain se osa, jonka jokaisen palan **on** kannettava otantansa.
+    Returns the claims' texts without their samples. The note at the end of
+    the row (``" -- ..."``) and the label at the start (``"- 15 s: "``) are
+    cut off, so what is left is only the part every piece of which **has to**
+    carry its sample.
     """
     part = row[2:]
     if " -- " in part:
@@ -877,16 +899,17 @@ def claim_segments(row: str) -> list[str]:
 
 
 def test_every_claim_on_every_line_carries_its_own_sample() -> None:
-    """Spec-2-4:n hyväksymiskriteeri sanatarkasti.
+    """Spec-2-4's acceptance criterion word for word.
 
-    Tarkistus on kaksisuuntainen, koska pelkkä "rivillä on otanta" menisi läpi
-    rivistä, jossa on kolme väitettä ja otanta vain yhdellä:
+    The check is two-directional, because a bare "the row has a sample" would
+    pass on a row that has three claims and a sample on only one:
 
-    1. Jokainen rivi **päättyy** otantaan, eli viimeistä väitettä ei ole
-       jätetty ilman.
-    2. Otantojen väliin jäävät palat ovat kokonaisia väitteitä eivätkä sisällä
-       erotinta ``", "`` -- jos väite jäisi ilman otantaa, se sulautuisi
-       naapuriinsa ja erotin jäisi palan sisään.
+    1. Every row **ends** in a sample, that is, the last claim has not been
+       left without one.
+    2. The pieces between the samples are whole claims and do not contain the
+       separator ``", "`` -- if a claim were left without a sample, it would
+       merge into its neighbour and the separator would stay inside the
+       piece.
     """
     text = render(report([pistol_map(), default_map()]))
     rows = observation_rows(text)
@@ -894,7 +917,7 @@ def test_every_claim_on_every_line_carries_its_own_sample() -> None:
     for row in rows:
         segments = claim_segments(row)
         if len(segments) == 1:
-            # Rivi ilman väitteitä on pelkkä huomautus (esim. puuttuva näyte).
+            # A row without claims is a bare note (a missing sample, say).
             assert "(" not in segments[0], row
             continue
         assert segments[-1] == "", row
@@ -905,10 +928,11 @@ def test_every_claim_on_every_line_carries_its_own_sample() -> None:
 
 
 def test_the_number_of_samples_matches_the_number_of_claims() -> None:
-    """Toinen suunta samasta säännöstä, laskettuna näkymämallista.
+    """The other direction of the same rule, counted from the view model.
 
-    Jos yksi väite jäisi ilman otantaa, otantojen määrä olisi väitteiden
-    määrää pienempi -- riippumatta siitä, missä kohtaa riviä se on.
+    If one claim were left without a sample, the number of samples would be
+    smaller than the number of claims -- regardless of where on the row it
+    is.
     """
     entry = report([pistol_map(), default_map()])
     text = render(entry)
@@ -929,11 +953,11 @@ def test_sample_is_written_as_n_of_m_rounds() -> None:
     assert "Middle 3 (1/1 kierroksesta)" in text
 
 
-# --- Säästökierrokset vs. default -----------------------------------------------
+# --- Saving rounds vs. the default ----------------------------------------------
 
 
 def test_default_shows_only_repeating_patterns() -> None:
-    """Täysillä ostoilla kerrotaan suuria viivoja, ei kierroskohtaista."""
+    """On full buys the broad lines are told, not the round-by-round."""
     text = render(report([default_map()]))
     assert "Apartments 3 (4/8 kierroksesta)" in text
     assert "Banana 2" not in text
@@ -941,7 +965,7 @@ def test_default_shows_only_repeating_patterns() -> None:
 
 
 def test_default_says_how_many_observations_it_left_out() -> None:
-    """Suodatus ei ole hiljainen: pois jääneiden määrä kirjoitetaan näkyviin."""
+    """The filtering is not silent: the number left out is written out."""
     text = render(report([default_map()]))
     assert re.search(
         r"toistuvat vähintään 3 kierroksella; \d+ harvinaisempaa havaintoa jäi pois",
@@ -950,7 +974,7 @@ def test_default_says_how_many_observations_it_left_out() -> None:
 
 
 def test_saving_rounds_show_every_observation() -> None:
-    """Pistooli, eco, force ja puoliosto kuvataan kierroksen tarkkuudella."""
+    """Pistol, eco, force and half-buy are described round by round."""
     single = map_report(
         "de_nuke",
         [
@@ -972,23 +996,23 @@ def test_saving_rounds_show_every_observation() -> None:
 
 
 def test_saving_rounds_never_claim_that_a_threshold_dropped_anything() -> None:
-    """Säästökierroksilla kynnys on 1, eikä yksikään pylväs voi alittaa sitä."""
+    """On saving rounds the threshold is 1, and no bar can fall below it."""
     text = render(report([pistol_map()]))
     assert "jäi pois" not in text
     assert "kynnyksen alta" not in text
 
 
 def test_the_pattern_threshold_also_applies_to_counts_and_armed_players() -> None:
-    """Kynnys koskee kaikkia rivilajeja, ei vain sijoittumisia.
+    """The threshold concerns every kind of row, not only the positions.
 
-    Kun yksikään pylväs ei toistu, koko rivi jää pois isostakin otannasta --
-    ja se on tarkoitus: hajonnut jakauma ei ole kuvio. Pois jääneet lasketaan
-    mukaan lukuun, jonka lohko kertoo.
+    When no bar repeats, the whole row is left out even from a large sample
+    -- and that is intended: a scattered distribution is not a pattern. The
+    ones left out are counted into the number the block gives.
 
-    **Panssarirvi on mukana**, koska kynnys puree oikeasti juuri
-    ``full``-haaroilla ja ne ovat raportin yleisimmät. Ilman sitä
-    panssarirvin suodatus olisi kokonaan testaamatta: jokaisessa muussa
-    testissä kierrostyyppi on ``pistol`` tai ``eco``, joissa ``min_n`` on 1.
+    **The armour row is included**, because the threshold really bites on the
+    ``full`` branches in particular and those are the report's most common.
+    Without it, the armour row's filtering would be wholly untested: in every
+    other test the round type is ``pistol`` or ``eco``, where ``min_n`` is 1.
     """
     scattered = map_report(
         "de_nuke",
@@ -999,8 +1023,8 @@ def test_the_pattern_threshold_also_applies_to_counts_and_armed_players() -> Non
                     round_type(
                         "full",
                         8,
-                        # Kahdeksan kierrosta, kahdeksan eri lukemaa: mikään
-                        # ei toistu kolmesti.
+                        # Eight rounds, eight different readings: nothing
+                        # repeats three times.
                         players_armed=armed(8, dict.fromkeys(range(8), 1)),
                         players_armored=armored(8, dict.fromkeys(range(8), 1)),
                         utility_counts=[
@@ -1015,24 +1039,26 @@ def test_the_pattern_threshold_also_applies_to_counts_and_armed_players() -> Non
     assert "aseistettuja ostoajan lopussa" not in text
     assert "panssaroituja ostoajan lopussa" not in text
     assert "utility:" not in text
-    # 8 aseistettujen pylvästä + 8 panssarin + 7 kranaatin (nolla ei ole
-    # havainto eikä siis pudotettava).
+    # 8 armed bars + 8 armour bars + 7 grenade bars (zero is not an
+    # observation and therefore not something to drop).
     assert "23 harvinaisempaa havaintoa jäi pois" in text
 
-    # **Sama luku karsinnan kanssa** (Story 2.13, katselmuskierros 1 kohta A):
-    # kynnyksen kirjanpito on väite datasta eikä esitysvalinta, joten karsinta
-    # ei kosketa sitä. Laskurit ovat tässä identtiset, eli sääntö 2 yhdistäisi
-    # rivit -- ja jos yhdistäminen tapahtuisi ennen rivinrakentajaa, luku
-    # olisi 15 ja lohko väittäisi datasta jotakin muuta kuin karsimaton
-    # raportti.
+    # **The same number with pruning** (Story 2.13, review round 1, item A):
+    # the threshold's bookkeeping is a claim about the data and not a
+    # presentation choice, so pruning does not touch it. The counters are
+    # identical here, that is, rule 2 would merge the rows -- and if the
+    # merging happened before the row builder, the number would be 15 and the
+    # block would claim something different about the data from an unpruned
+    # report.
     assert "23 harvinaisempaa havaintoa jäi pois" in render(report([scattered]))
 
 
 def test_the_pattern_threshold_keeps_a_repeating_armored_bar() -> None:
-    """Kynnys ei saa syödä kuviota, joka oikeasti toistuu.
+    """The threshold must not eat a pattern that really repeats.
 
-    Pari edellisen kanssa: pelkkä "rivi katosi" -väite menisi läpi myös
-    toteutuksella, joka pudottaa panssarirvin aina ``full``-haarasta.
+    A pair with the previous one: a bare "the row vanished" claim would pass
+    on an implementation that always drops the armour row from a ``full``
+    branch.
     """
     repeating = map_report(
         "de_nuke",
@@ -1056,7 +1082,9 @@ def test_the_pattern_threshold_keeps_a_repeating_armored_bar() -> None:
 
 
 def test_pattern_threshold_comes_from_the_report_not_from_code() -> None:
-    """Kynnys luetaan ``thresholds_used``ista; ilman sitä ei suodateta."""
+    """The threshold is read from ``thresholds_used``; without it nothing is
+    filtered.
+    """
     without = report([default_map()], thresholds_used={})
     assert pattern_min_rounds(without) is None
     text = render(without)
@@ -1066,38 +1094,42 @@ def test_pattern_threshold_comes_from_the_report_not_from_code() -> None:
 
 @pytest.mark.parametrize("value", [0, -1, "3", True, None])
 def test_unusable_threshold_is_treated_as_missing(value: object) -> None:
-    """Kelvoton kynnys ei saa muuttua hiljaa suodattimeksi."""
+    """An unusable threshold must not silently turn into a filter."""
     entry = report(
         [default_map()], thresholds_used={"thresholds": {"small_sample_rounds": value}}
     )
     assert pattern_min_rounds(entry) is None
 
 
-# --- I/O-matriisi ---------------------------------------------------------------
+# --- The I/O matrix -------------------------------------------------------------
 
 
 def test_small_sample_is_marked_not_hidden() -> None:
-    """Alle kynnyksen jäävä otanta merkitään, mutta havainto näkyy silti."""
+    """A sample below the threshold is marked, but the observation still
+    shows.
+    """
     text = render(report([pistol_map()]))
     assert "**Pistooli** (1 kierros) -- pieni otanta" in text
     assert "Middle 3" in text
 
 
 def test_unknown_league_status_is_said_out_loud() -> None:
-    """Kun yhdenkään demon lajia ei tiedetä, yhteenveto sanoo sen."""
+    """When no demo's kind is known, the summary says so."""
     text = render(report([pistol_map()]))
     assert "**Liigatieto:**" in text
     assert "tuntematon" in text
 
 
 def in_league(entry: Report) -> Report:
-    """Siirrä raportin koko otanta ``unknown``-lokerosta ``league``-lokeroon.
+    """Move the report's whole sample from the ``unknown`` bucket into the
+    ``league`` bucket.
 
-    Lokero on rakenteessa jokaisella tasolla, ja malli tarkistaa summat
-    **lokero kerrallaan**, joten pelkkä ylätason vaihtaminen ei kelpaa. Kierto
-    mallin läpi (``model_dump`` -> ``model_validate``) varmistaa samalla, että
-    raportti selviää sarjallistuksesta -- juuri sen ``render`` tekee lukiessaan
-    ``report.json``in.
+    The bucket is in the structure at every level, and the model checks the
+    sums **one bucket at a time**, so changing the top level alone will not
+    do. The round trip through the model (``model_dump`` ->
+    ``model_validate``) also makes sure that the report survives
+    serialisation -- which is exactly what ``render`` does when it reads
+    ``report.json``.
     """
     data = entry.model_dump(mode="json")
 
@@ -1292,19 +1324,20 @@ def test_unpaired_detonations_are_mentioned_in_the_summary() -> None:
 
 
 def test_a_round_type_that_does_not_exist_gets_no_empty_heading() -> None:
-    """Kartta ilman forcea: otsikkoa ei kirjoiteta tyhjänä."""
+    """A map without a force: the heading is not written empty."""
     text = render(report([pistol_map()]))
     assert "**Force**" not in text
     assert "**Eco**" not in text
 
 
 def test_a_round_type_without_observations_says_so_rather_than_going_silent() -> None:
-    """Kierrostyyppi ilman havaintoja ja kynnyksen syömä lohko ovat eri asia.
+    """A round type without observations and a block the threshold ate are
+    different things.
 
-    Kierrosmäärä on itsessään havainto: jos kierroksia on, joukkue joko
-    menetti pelaajia tai ei, ja kummastakin kerrotaan. "Ei havaintoja" on
-    siksi varattu lohkolle, jolla ei ole yhtään kierrosta -- muuten se
-    väittäisi tietämättömyyttä tilanteessa, josta tiedetään jotain.
+    The number of rounds is itself an observation: if there are rounds, the
+    team either lost players or did not, and both are told. "No observations"
+    is therefore reserved for a block that has no rounds at all -- otherwise
+    it would claim ignorance in a situation about which something is known.
     """
     nothing = map_report(
         "de_nuke",
@@ -1312,14 +1345,15 @@ def test_a_round_type_without_observations_says_so_rather_than_going_silent() ->
     )
     assert "Ei havaintoja tältä kierrostyypiltä." in render(report([nothing]))
 
-    # Sama lohko kierroksineen kertoo, ettei kukaan kuollut -- eikä väitä
-    # olevansa havainnoton.
+    # The same block with its rounds says that nobody died -- and does not
+    # claim to be without observations.
     played = map_report("de_nuke", [side("T", [round_type("eco", 4)])])
     text = render(report([played]))
     assert "ei omia kuolemia 4 kierroksella" in text
     assert "Ei havaintoja tältä kierrostyypiltä." not in text
 
-    # Täysillä ostoilla suodatussääntö kerrotaan yhä, vaikka lohkossa on rivi.
+    # On full buys the filtering rule is still told, even when the block has
+    # a row.
     default = map_report("de_nuke", [side("T", [round_type("full", 8)])])
     assert "Vain kuviot, jotka toistuvat vähintään 3 kierroksella" in render(
         report([default])
@@ -1341,7 +1375,9 @@ def test_a_map_without_sides_is_not_a_bare_heading() -> None:
 
 
 def test_area_without_a_name_is_named_and_explained() -> None:
-    """``area = null`` on tuntematon alue, ja koordinaattien puute todetaan."""
+    """``area = null`` is an unknown area, and the absence of coordinates is
+    stated.
+    """
     unknown = map_report(
         "de_anubis",
         [
@@ -1367,13 +1403,16 @@ def test_the_unknown_area_note_is_absent_when_every_area_is_known() -> None:
 
 
 def test_empty_report_still_writes_a_summary_and_says_there_is_no_data() -> None:
-    """Tyhjä raportti: yhteenveto kirjoitetaan, ja aineiston puute todetaan."""
+    """An empty report: the summary is written, and the absence of data is
+    stated.
+    """
     text = render(report([]))
     assert "## Yhteenveto" in text
     assert "Aineistoa ei ole" in text
-    # Kaksi väitettä eikä yksi: suojattu otsikko (``## `de_``) on se, jonka
-    # tämä versio latoo, mutta myös suojaamaton (``## de_``) on poissa --
-    # muuten testi menisi läpi raportilla, jossa suojaus on unohtunut.
+    # Two claims and not one: the protected heading (``## `de_``) is the one
+    # this version sets, but the unprotected one (``## de_``) is absent too
+    # -- otherwise the test would pass on a report in which the protection
+    # has been forgotten.
     assert MAP_HEADING_START not in text
     assert "## de_" not in text
 
@@ -1390,11 +1429,12 @@ def test_unknown_map_name_is_flagged_in_the_heading() -> None:
 
 @pytest.mark.parametrize("source", ["demo_header", "map_demo_id"])
 def test_a_known_map_name_is_not_flagged(source: str) -> None:
-    """Merkintä kuuluu vain lähteelle ``unknown`` (Story 2.11).
+    """The mark belongs only to the source ``unknown`` (Story 2.11).
 
-    ``demo_header`` on havainto demon otsikosta ja ``map_demo_id`` päättely
-    tunnisteesta; kumpikin on tunnistettu nimi. Ehto, joka luettelee tunnetut
-    lähteet, tekisi jokaisesta uudesta lähteestä hiljaa "tuntemattoman".
+    ``demo_header`` is an observation from the demo's header and
+    ``map_demo_id`` an inference from the id; both are recognised names. A
+    condition that lists the known sources would silently make every new
+    source "unknown".
     """
     entry = map_report(
         "de_ancient",
@@ -1407,7 +1447,9 @@ def test_a_known_map_name_is_not_flagged(source: str) -> None:
 
 
 def test_missing_sample_point_is_reported_not_dropped() -> None:
-    """45 s puuttuu kierrokselta, joka ratkesi aiemmin -- ero kirjoitetaan."""
+    """45 s is missing from a round that was decided earlier -- the
+    difference is written out.
+    """
     entry = map_report(
         "de_nuke",
         [
@@ -1432,25 +1474,26 @@ def test_missing_sample_point_is_reported_not_dropped() -> None:
 
 
 def test_grenade_counts_answer_how_many_were_thrown() -> None:
-    """Tavoiteanalyysin rivi "2 savua 2 valoo"."""
+    """The target analysis's line *"2 savua 2 valoo"*."""
     text = render(report([pistol_map()]))
     assert "savu 2 kpl (1/1 kierroksesta)" in text
     assert "valo 2 kpl (1/1 kierroksesta)" in text
 
 
 def test_grenade_uses_answer_where_it_went() -> None:
-    """Tavoiteanalyysin rivi "T-spawnista CT-savu B sitelle"."""
+    """The target analysis's line *"T-spawnista CT-savu B sitelle"*."""
     text = render(report([pistol_map()]))
     assert "savu: TSpawn -> Middle (arvio) 0-5 s (1/1 kierroksesta)" in text
 
 
 def test_only_a_derived_area_is_marked_as_an_estimate() -> None:
-    """Havaittu alue on havainto, eikä sitä saa merkitä arvioksi.
+    """An observed area is an observation and must not be marked an estimate.
 
-    Fikstuurissa on molemmat suunnat: savun räjähdysalue on johdettu
-    (``point_cloud``) ja valon havaittu (``observed``). Ilman havaittua tapausta
-    ehdon poistaminen merkitsisi **jokaisen** alueen arvioksi, ja legenda
-    väittäisi havainnot arvioiksi -- ilman että yksikään väite kaatuisi.
+    The fixture has both directions: the smoke's detonation area is derived
+    (``point_cloud``) and the flash's observed (``observed``). Without the
+    observed case, removing the condition would mark **every** area an
+    estimate, and the reading guide would claim the observations to be
+    estimates -- without a single claim failing.
     """
     text = render(report([pistol_map()]))
     assert "savu: TSpawn -> Middle (arvio)" in text
@@ -1478,10 +1521,11 @@ def test_the_estimate_note_appears_only_when_something_was_estimated() -> None:
     )
     text = render(report([observed_only]))
     assert "(arvio)" not in text
-    # Pelkkää sanaa "pistepilvestä" ei voi enää etsiä: Story 2.14 lukee
-    # siitä myös stackin siteryhmät, ja se selitys kirjoitetaan aina. Väite
-    # koskee nimenomaan räjähdysalueen arviota, joten se etsitään sen omasta
-    # lauseesta.
+    # The bare word "pistepilvestä" can no longer be searched for: since
+    # Story 2.14 the stack's site groups are read from it too, and that
+    # explanation is always written. The claim concerns the detonation area's
+    # estimate in particular, so it is searched for in that sentence of its
+    # own.
     assert "alue on luettu demon pistepilvestä" not in text
 
 
@@ -1511,7 +1555,7 @@ def test_throws_are_reported_when_they_outnumber_the_rounds() -> None:
 
 
 def test_one_line_per_grenade_type_not_per_throw() -> None:
-    """Viisi savuriviä veisi viisi riviä kertoakseen yhden asian."""
+    """Five smoke rows would take five rows to say one thing."""
     entry = map_report(
         "de_nuke",
         [
@@ -1547,7 +1591,9 @@ def test_one_line_per_grenade_type_not_per_throw() -> None:
 def test_special_bucket_names_are_not_glued_to_the_word_seconds(
     bucket: str, expected: str | None, unexpected: str | None
 ) -> None:
-    """``kaikki`` ja ``tuntematon`` eivät ole aikavälejä."""
+    """``kaikki`` ("all") and ``tuntematon`` ("unknown") are not time
+    intervals.
+    """
     entry = map_report(
         "de_nuke",
         [
@@ -1573,7 +1619,9 @@ def test_special_bucket_names_are_not_glued_to_the_word_seconds(
 
 
 def test_finnish_names_cover_every_grenade_type_the_parser_knows() -> None:
-    """Uusi kranaattityyppi ei saa jäädä ilman nimeä eikä järjestystä."""
+    """A new grenade type must be left neither without a name nor without a
+    place in the order.
+    """
     from pappascout.adapters.demo_parser import FIRE_ITEM_TYPES, GRENADE_TYPES
 
     known = set(GRENADE_TYPES.values()) | set(FIRE_ITEM_TYPES.values())
@@ -1581,11 +1629,13 @@ def test_finnish_names_cover_every_grenade_type_the_parser_knows() -> None:
     assert known <= set(GRENADE_ORDER)
 
 
-# --- Aseistetut -----------------------------------------------------------------
+# --- The armed count ------------------------------------------------------------
 
 
 def test_armed_players_are_shown_with_the_caveat_that_they_are_not_kevlar() -> None:
-    """Laskuri on "panssari JA parannettu ase" -- se ei ole kevlarien määrä."""
+    """The counter is "armour AND an upgraded weapon" -- it is not the number
+    of kevlars.
+    """
     text = render(report([pistol_map()]))
     assert "aseistettuja ostoajan lopussa: 0 (1/1 kierroksesta)" in text
     assert "kevlarien määrän" in text
@@ -1597,11 +1647,11 @@ def test_the_kevlar_caveat_is_absent_when_no_armed_line_was_written() -> None:
 
 
 def test_an_armed_line_alone_still_gets_its_own_definition() -> None:
-    """Vain aseistettujen rivi: selitys on sen oma eikä parin yhteinen.
+    """The armed row alone: the explanation is its own and not the pair's.
 
-    Kolmas haara :func:`_player_counter_legend`istä. Ilman tätä testiä
-    yksinäinen aseistettujen rivi voisi jäädä ilman määritelmää tai saada
-    lauseen, joka puhuu panssarirvistä jota raportissa ei ole.
+    The third branch of :func:`_player_counter_legend`. Without this test a
+    lone armed row could be left without a definition or get a sentence that
+    speaks of an armour row that is not in the report.
     """
     entry = map_report(
         "de_nuke",
@@ -1620,20 +1670,23 @@ def test_rounds_without_an_inventory_reading_are_reported() -> None:
     assert "havainto puuttuu 1 kierrokselta" in render(report([entry]))
 
 
-# --- Panssaroidut (Story 2.8) ---------------------------------------------------
+# --- The armour count (Story 2.8) -----------------------------------------------
 
 
 def test_the_armored_line_reads_the_product_owners_five_kevlars() -> None:
-    """*"5 kevlaria"*: panssaririvi on raportissa omana rivinään otantoineen."""
+    """*"5 kevlaria"*: the armour row is in the report as a row of its own
+    with its samples.
+    """
     text = render(report([pistol_map()]))
     assert "panssaroituja ostoajan lopussa: 5 (1/1 kierroksesta)" in text
 
 
 def test_the_two_counters_stand_side_by_side_and_differ() -> None:
-    """Molemmat rivit samassa lohkossa, eri luvut -- se ero on havainto.
+    """Both rows in the same block with different numbers -- that difference
+    is the observation.
 
-    Ilman tätä testiä toteutus, joka renderöi saman jakauman kahdesti, menisi
-    läpi jokaisesta muusta väitteestä.
+    Without this test an implementation that renders the same distribution
+    twice would pass every other claim.
     """
     view = view_of(report([pistol_map()]))
     lines = {
@@ -1645,7 +1698,7 @@ def test_the_two_counters_stand_side_by_side_and_differ() -> None:
 
 
 def test_the_armored_line_follows_the_armed_line() -> None:
-    """Järjestys on osa havaintoa: rivit luetaan parina."""
+    """The order is part of the observation: the rows are read as a pair."""
     view = view_of(report([pistol_map()]))
     labels = [line.label for line in view.maps[0].sides[0].round_types[0].lines]
     assert (
@@ -1655,11 +1708,12 @@ def test_the_armored_line_follows_the_armed_line() -> None:
 
 
 def test_the_legend_explains_the_two_counters_as_one_nested_pair() -> None:
-    """Selitys on **yksi kappale**, koska luvut ovat sisäkkäisiä.
+    """The explanation is **one paragraph**, because the numbers are nested.
 
-    Kaksi erillistä lausetta jättäisi "aseistettuja 0" ja "panssaroituja 5"
-    kahdeksi irralliseksi luvuksi. Lukuohjeen on sanottava osajoukkosuhde,
-    yhteinen tick ja yhteinen jakaja, koska niistä rivien ero syntyy.
+    Two separate sentences would leave "aseistettuja 0" and "panssaroituja 5"
+    as two loose numbers. The reading guide has to state the subset relation,
+    the shared tick and the shared divisor, because the rows' difference
+    comes about from them.
     """
     text = render(report([pistol_map()]))
     assert "aseistetut ovat panssaroitujen osajoukko" in text
@@ -1668,11 +1722,12 @@ def test_the_legend_explains_the_two_counters_as_one_nested_pair() -> None:
 
 
 def test_the_legend_says_the_counters_are_holdings_not_purchases() -> None:
-    """Panssari säilyy kierroksen yli, joten luku ei ole ostohavainto.
+    """Armour survives the round, so the number is not a buy observation.
 
-    Poikkeus on pistoolikierros, ja juuri se pelastaa rivin *"5 kevlaria"*.
-    Molemmat puolet kuuluvat lukuohjeeseen: ilman ensimmäistä lukija lukee
-    jokaisen econ ostoksena, ilman jälkimmäistä hän epäilee myös pistoolia.
+    The exception is the pistol round, and that is exactly what saves the row
+    *"5 kevlaria"*. Both halves belong in the reading guide: without the
+    first the reader reads every eco as a purchase, without the second he
+    doubts the pistol round too.
     """
     text = render(report([pistol_map()]))
     assert "hallussapitoa eivätkä ostoja" in text
@@ -1680,7 +1735,7 @@ def test_the_legend_says_the_counters_are_holdings_not_purchases() -> None:
 
 
 def test_the_armored_line_alone_still_gets_its_own_definition() -> None:
-    """Vain panssarirvi: selitys ei saa puhua aseistetuista."""
+    """The armour row alone: the explanation must not speak of the armed."""
     entry = map_report(
         "de_nuke",
         [side("T", [round_type("pistol", 1, players_armored=armored(1, {5: 1}))])],
@@ -1696,7 +1751,7 @@ def test_the_armored_legend_is_absent_when_no_armored_line_was_written() -> None
 
 
 def test_the_ancient_ct_row_reads_no_kevlars() -> None:
-    """*"Kitit ja duelit takaboksille piiloon (ei kevuja)"*: 1/5 kevlaria."""
+    """*"Kitit ja duelit takaboksille piiloon (ei kevuja)"*: 1/5 kevlars."""
     entry = map_report(
         "de_ancient",
         [side("CT", [round_type("pistol", 1, players_armored=armored(1, {1: 1}))])],
@@ -1707,13 +1762,14 @@ def test_the_ancient_ct_row_reads_no_kevlars() -> None:
 
 
 def test_a_wholly_unreadable_armor_observation_still_gets_a_line() -> None:
-    """``m=0, rounds_unknown=n``: rivi kirjoitetaan, vaikka väitteitä ei ole.
+    """``m=0, rounds_unknown=n``: the row is written although there are no
+    claims.
 
-    Ilman riviä lukija ei erottaisi haaraa "kenelläkään ei ollut panssaria"
-    (joka näkyisi nollana) haarasta "panssaria ei saatu luettua" (joka vain
-    puuttuisi) -- ja juuri sen eron säilyttäminen on tämän sarakkeen
-    olemassaolon syy. Rivi on pelkkä otsikko ja huomautus, sama muoto kuin
-    kuolemattomalla kierrostyypillä.
+    Without the row the reader could not tell the branch "nobody had armour"
+    (which would show as a zero) from the branch "the armour could not be
+    read" (which would simply be missing) -- and preserving that difference
+    is exactly why this column exists. The row is a bare label and a note,
+    the same shape as on a round type without deaths.
     """
     entry = map_report(
         "de_nuke",
@@ -1737,7 +1793,9 @@ def test_a_wholly_unreadable_armor_observation_still_gets_a_line() -> None:
 
 
 def test_a_wholly_unreadable_armed_observation_still_gets_a_line() -> None:
-    """Sama haara aseistettujen rivillä -- se oli todentamatta jo ennen tätä."""
+    """The same branch on the armed row -- it was unverified even before
+    this.
+    """
     entry = map_report(
         "de_nuke",
         [side("T", [round_type("eco", 4, players_armed=armed(0, {}, unknown=4))])],
@@ -1755,11 +1813,11 @@ def test_a_wholly_unreadable_armed_observation_still_gets_a_line() -> None:
 
 
 def test_a_note_only_counter_line_still_gets_its_legend() -> None:
-    """Otsikko ilman määritelmää olisi pahempi kuin puuttuva rivi.
+    """A label without a definition would be worse than a missing row.
 
-    Lippu nousee rivin kirjoittamisesta eikä väitteiden olemassaolosta: rivi
-    "panssaroituja ostoajan lopussa: havainto puuttuu 4 kierrokselta" on
-    lukijalle yhtä uusi käsite kuin väitteellinen rivi.
+    The flag is raised by the row being written and not by the existence of
+    claims: the row "panssaroituja ostoajan lopussa: havainto puuttuu 4
+    kierrokselta" is as new a concept to the reader as a row with claims.
     """
     entry = map_report(
         "de_nuke",
@@ -1776,7 +1834,7 @@ def test_a_note_only_counter_line_still_gets_its_legend() -> None:
 
 
 def test_rounds_without_an_armor_reading_are_reported() -> None:
-    """Puuttuva havainto sanotaan ääneen -- se ei ole nolla kevlaria."""
+    """A missing observation is said out loud -- it is not zero kevlars."""
     entry = map_report(
         "de_nuke",
         [
@@ -1789,15 +1847,17 @@ def test_rounds_without_an_armor_reading_are_reported() -> None:
     assert "havainto puuttuu 1 kierrokselta" in render(report([entry]))
 
 
-# --- Ensikontaktin läsnäololista ------------------------------------------------
+# --- First contact's presence list ----------------------------------------------
 
 
 def test_presence_only_first_contact_areas_are_not_lost() -> None:
-    """Läsnäolo ilman vastaavaa jakaumariviä kirjoitetaan omalle rivilleen.
+    """A presence without a corresponding distribution row is written on a
+    row of its own.
 
-    Raportti näyttää ensikontaktin näytepisteestä, koska se on yliaineisto.
-    Oletus ei saa jäädä oletukseksi: jos aggregointi tuottaa alueen vain
-    läsnäololistaan, havainto katoaisi muuten jäljettömiin.
+    The report shows first contact from the sample point, because that is a
+    superset. The assumption must not be left an assumption: if the
+    aggregation produced an area only into the presence list, the observation
+    would otherwise vanish without a trace.
     """
     entry = map_report(
         "de_nuke",
@@ -1820,7 +1880,7 @@ def test_presence_only_first_contact_areas_are_not_lost() -> None:
     )
     text = render(report([entry]))
     assert "ensikontakti, vain läsnäolo: Heaven (1/1 kierroksesta)" in text
-    # Ramp on jo jakaumassa, joten sitä ei toisteta.
+    # Ramp is in the distribution already, so it is not repeated.
     assert text.count("Ramp") == 1
 
 
@@ -1844,16 +1904,17 @@ def test_no_presence_line_when_the_distribution_covers_everything() -> None:
     assert "vain läsnäolo" not in render(report([entry]))
 
 
-# --- Yhteenvedon luettavuus -----------------------------------------------------
+# --- The summary's readability --------------------------------------------------
 
 
 def test_a_team_without_a_name_says_so_instead_of_repeating_the_hash() -> None:
-    """Lähde ``team_key`` tarkoittaa, ettei nimeä havaittu.
+    """The source ``team_key`` means that no name was observed.
 
-    Otsikkoon ei kirjoiteta tiivistettä nimen paikalle: se lukisi kuin joukkue
-    olisi nimeltään niin. Story 2.12: tiivistettä ei kirjoiteta myöskään
-    yhteenvedon riville -- runko kertoo puuttumisen **syyn kanssa** ja sanoo
-    mistä tunniste löytyy, ja tunniste itse on jäljitettävyysluvussa.
+    No digest is written into the title in the name's place: it would read as
+    if the team were named that. Story 2.12: neither is the digest written on
+    the summary's row -- the body states the absence **with its reason** and
+    says where the id is to be found, and the id itself is in the
+    traceability chapter.
     """
     entry = report(
         [pistol_map()], display_name=TEAM_KEY, display_name_source="team_key"
@@ -1865,19 +1926,19 @@ def test_a_team_without_a_name_says_so_instead_of_repeating_the_hash() -> None:
     assert "nimi ei ole tiedossa." in summary
     assert "team_clan_name" in summary
     assert TEAM_KEY not in summary
-    # Rivi kertoo myös mistä tunniste löytyy: nimettömältä joukkueelta se on
-    # ainoa, mitä lukijalla on.
+    # The row also says where the id is to be found: for a nameless team it
+    # is all the reader has.
     assert TRACEABILITY_HEADING in summary
     assert f"**Joukkueen tunniste:** `{TEAM_KEY}`" in traceability_text(text)
 
 
 def test_an_observed_name_that_looks_like_the_key_is_still_a_name() -> None:
-    """Lähde ratkaisee, ei vertailu tunnisteeseen (``_has_name``).
+    """The source settles it, not a comparison with the id (``_has_name``).
 
-    Tämä on se ainoa tapaus, jota varten ``_has_name`` on olemassa: joukkueen
-    klaaninimi voi olla täsmälleen tunnisteensa näköinen, ja vertailuun
-    perustuva sääntö väittäisi silloin havaintoa puuttuvaksi -- eli piilottaisi
-    demosta luetun nimen.
+    This is the one case ``_has_name`` exists for: a team's clan name can
+    look exactly like its own id, and a rule based on comparison would then
+    claim the observation was missing -- that is, it would hide a name read
+    from the demo.
     """
     entry = report(
         [pistol_map()], display_name=TEAM_KEY, display_name_source="clan_name"
@@ -1889,11 +1950,11 @@ def test_an_observed_name_that_looks_like_the_key_is_still_a_name() -> None:
 
 
 def test_a_name_with_markdown_characters_cannot_break_the_report() -> None:
-    """Demon antama merkkijono ei saa muuttua rakenteeksi (P1).
+    """A string the demo gave must not turn into structure (P1).
 
-    CS2:n nimissä esiintyy kaikkia Markdownin rakennemerkkejä. Escapetus
-    tehdään esityshetkellä, ei datassa: ``report.json`` säilyttää havainnon
-    sellaisenaan.
+    Every one of Markdown's structural characters occurs in CS2 names. The
+    escaping is done at presentation time, not in the data: ``report.json``
+    keeps the observation as it is.
     """
     entry = report(
         [pistol_map()],
@@ -1906,17 +1967,19 @@ def test_a_name_with_markdown_characters_cannot_break_the_report() -> None:
 
     assert text.startswith("# " + chr(92) + "*" + chr(92) + "|LOL" + chr(92) + "|" + chr(92) + "*")
     assert chr(92) + "<b" + chr(92) + ">hax" in text
-    # Rivinvaihto ja peräkkäiset välilyönnit siivotaan näkyvästi. Nimi on
-    # yhteenvedossa yksinään ja jäljitettävyysluvussa tunnisteensa nimiönä
-    # järjestysluvun jälkeen, joten sama escapetus on todennettava molemmista.
+    # A newline and runs of spaces are cleaned up visibly. The name is in the
+    # summary on its own and in the traceability chapter as its id's label
+    # after the ordinal, so the same escaping has to be verified in both.
     assert "a" + chr(92) + "_b c d" in summary_text(text)
     assert "**1. a" + chr(92) + "_b c d:** `1`" in traceability_text(text)
-    # Malli itse säilyttää havainnon sellaisenaan.
+    # The model itself keeps the observation as it is.
     assert entry.team.display_name == "*|LOL|*"
 
 
 def test_a_known_team_name_is_used_in_the_title() -> None:
-    """Nimi otsikkoon ja yhteenvetoon **ilman tunnistetta** (Story 2.12)."""
+    """The name into the title and the summary **without the id** (Story
+    2.12).
+    """
     text = render(report([pistol_map()]))
 
     assert text.startswith(f"# {TEAM_NAME} -- scouting-raportti")
@@ -1926,12 +1989,13 @@ def test_a_known_team_name_is_used_in_the_title() -> None:
 
 
 def test_the_roster_speaks_names_and_the_chapter_carries_the_ids() -> None:
-    """Yhteenveto nimillä, jäljitettävyysluku pareilla nimi -> SteamID64.
+    """The summary in names, the traceability chapter in name -> SteamID64
+    pairs.
 
-    Story 2.6 kirjoitti molemmat samalle riville. Peruste ei muuttunut
-    vääräksi -- tunniste on yhä ainoa jäljitettävä arvo -- mutta paikka
-    muuttui: seitsemän 17-numeroista lukua nimien rinnalla tekee rungon
-    rivistä luettelon, jota ottelua edeltävässä kiireessä ei lueta.
+    Story 2.6 wrote both on the same row. The rationale did not turn false --
+    the id is still the only traceable value -- but the place changed: seven
+    17-digit numbers beside the names make the body's row a list that is not
+    read in the rush before a match.
     """
     text = render(report([pistol_map()], roster=STEAM_ROSTER))
     summary = summary_text(text)
@@ -1949,12 +2013,13 @@ def test_the_roster_speaks_names_and_the_chapter_carries_the_ids() -> None:
 
 
 def test_a_player_without_a_name_keeps_the_row_and_says_the_name_is_missing() -> None:
-    """Nimetön pelaaja ei katoa: lukumäärä täsmää ja tunniste on omassa luvussaan.
+    """A nameless player does not vanish: the count matches and the id is in
+    its own chapter.
 
-    Kolme väitettä yhdessä, koska ne ovat sama sääntö: hiljaa pudotettu
-    pelaaja kutistaisi rosterin, nimetön paikka rivillä tekisi hänestä
-    nimettömän vahingossa, ja ilman jäljitettävyysluvun riviä hänen
-    tunnisteensa katoaisi raportista kokonaan.
+    Three claims together, because they are the same rule: a silently dropped
+    player would shrink the roster, a nameless place on the row would make
+    him nameless by accident, and without the traceability chapter's row his
+    id would vanish from the report entirely.
     """
     named, nameless = STEAM_ROSTER[0], STEAM_ROSTER[1]
     entry = report(
@@ -1974,7 +2039,9 @@ def test_a_player_without_a_name_keeps_the_row_and_says_the_name_is_missing() ->
 
 
 def test_conflicting_team_names_are_listed_instead_of_disappearing() -> None:
-    """Useimmin havaittu otsikkoon, muut lueteltuina -- ristiriita ei katoa."""
+    """The most often observed into the title, the others listed -- the
+    conflict does not vanish.
+    """
     entry = report([pistol_map()], name_alternatives=["MM Academy"])
     text = render(entry)
     assert text.startswith(f"# {TEAM_NAME} -- scouting-raportti")
@@ -1983,7 +2050,9 @@ def test_conflicting_team_names_are_listed_instead_of_disappearing() -> None:
 
 
 def test_thresholds_are_listed_once_and_without_raw_dictionaries() -> None:
-    """Kynnykset ovat alkuperätieto; aaltosulkeet ja toisto vievät tilaa turhaan."""
+    """The thresholds are provenance; braces and repetition take up space for
+    nothing.
+    """
     entry = report(
         [pistol_map()],
         classify_thresholds={"full_equip_min": 4000, "armed_players_min": 3},
@@ -2002,7 +2071,9 @@ def test_thresholds_are_listed_once_and_without_raw_dictionaries() -> None:
 
 
 def test_a_threshold_that_differs_between_the_two_records_is_shown_twice() -> None:
-    """Identtinen pari pudotetaan, eroava ei: juuri ero on se, joka kertoo jotain."""
+    """An identical pair is dropped, a differing one is not: the difference
+    is precisely what says something.
+    """
     entry = report(
         [pistol_map()],
         classify_thresholds={"full_equip_min": 4000},
@@ -2028,18 +2099,18 @@ def test_an_offset_timestamp_is_converted_to_utc_not_relabelled() -> None:
     assert "2026-08-30 09:00 UTC" in render(entry)
 
 
-# --- Rajaukset ------------------------------------------------------------------
+# --- The bounds -----------------------------------------------------------------
 
 
 def test_report_contains_no_interpretation() -> None:
-    """Ei "fake", ei "rush", ei vastastrategiaa -- vain havainnot."""
+    """No "fake", no "rush", no counter-strategy -- only the observations."""
     text = render(report([pistol_map(), default_map()])).lower()
     for word in ("fake", "rush", "antisträt", "kannattaa", "suositel"):
         assert word not in text, word
 
 
 def test_normal_buying_is_never_explained_by_the_previous_round() -> None:
-    """R-1: normaalia ostoa ei perustella edellisen kierroksen voitolla."""
+    """R-1: a normal buy is not explained by the previous round's win."""
     text = render(report([default_map()])).lower()
     for word in ("voitti", "edellisen kierroksen", "hävisi"):
         assert word not in text, word
@@ -2051,11 +2122,13 @@ def test_no_html_and_no_images() -> None:
     assert "![" not in text
 
 
-# --- Kierrosliite ---------------------------------------------------------------
+# --- The round appendix ---------------------------------------------------------
 
 
 def test_round_appendix_lists_the_paths_the_stage_resolved() -> None:
-    """Kierroskohtaisia rivejä ei ole report.jsonissa; render ei laske niitä."""
+    """There are no per-round rows in report.json; render does not compute
+    them.
+    """
     text = render(report([pistol_map()]))
     assert "## Kierrosliite" in text
     assert "eivät ole report.jsonissa" in text
@@ -2063,7 +2136,7 @@ def test_round_appendix_lists_the_paths_the_stage_resolved() -> None:
 
 
 def test_round_appendix_without_paths_does_not_dangle_a_colon() -> None:
-    """Tyhjä luettelo kaksoispisteen jälkeen lukisi kuin lista olisi kadonnut."""
+    """An empty list after a colon would read as if the list had been lost."""
     text = render_report(report([pistol_map()]), settings=DEFAULT_PRUNING)
     appendix = text.split("## Kierrosliite")[1].split("## Lukuohje")[0].strip()
     assert not appendix.endswith(":")
@@ -2071,33 +2144,33 @@ def test_round_appendix_without_paths_does_not_dangle_a_colon() -> None:
 
 
 def test_the_view_names_the_demos_but_not_the_paths() -> None:
-    """Polun rakentaminen kuuluu vaiheelle, joka näkee arkiston."""
+    """Building a path belongs to the stage, which sees the archive."""
     assert round_list_demo_ids(report([pistol_map(), default_map()])) == [
         DEMO_ID,
         "inferno_vs_ryhmarama",
     ]
 
 
-# --- Tekninen jäljitettävyys (Story 2.12) ---------------------------------------
+# --- Technical traceability (Story 2.12) ----------------------------------------
 
-#: Neljä kokoonpanotunnistetta, jotka liitettiin samaksi joukkueeksi.
+#: Four lineup ids that were joined into the same team.
 #:
-#: Muoto on mitattu RCAVE-raportista 31.8. (16 merkin tiiviste, neljä
-#: kokoonpanoa yhdellä joukkueella); arvot ovat keksittyjä samasta syystä kuin
-#: :data:`STEAM_ROSTER`in. **Viimeinen on tarkoituksella** :data:`TEAM_KEY`:
-#: ``lineups_of_same_team`` palauttaa kohteen aina mukana, joten oikeassa
-#: raportissa joukkueen oma kokoonpano on listalla -- ja juuri se tekee
-#: rungon lukumäärästä helposti yhden liian suuren.
+#: The shape is measured from the RCAVE report of 2026-08-31 (a 16-character
+#: digest, four lineups on one team); the values are invented for the same
+#: reason as :data:`STEAM_ROSTER`'s. **The last one is deliberately**
+#: :data:`TEAM_KEY`: ``lineups_of_same_team`` always returns the target
+#: included, so in a real report the team's own lineup is on the list -- and
+#: that is exactly what makes the body's count easily one too large.
 LINEUP_KEYS = ["0f1e2d3c4b5a6978", "1a2b3c4d5e6f7081", "2b3c4d5e6f708192", TEAM_KEY]
 
 
 def crowded_report() -> Report:
-    """Raportti, jossa on **jokainen** tunnisteen lähde ja jokainen poikkeus.
+    """A report that holds **every** source of an id and every exception.
 
-    Neljä liitettyä kokoonpanoa, seitsemän pelaajaa SteamID64-muotoisilla
-    tunnisteilla, kaksi nimettyä karttaa, yksi kartta jonka nimeä ei
-    tunnistettu, ja yksi puuttuva demo. Ilman jokaista näistä puhtausväite
-    olisi tosi vain siitä, mitä fikstuuri sattuu sisältämään.
+    Four joined lineups, seven players with ids in SteamID64 shape, two named
+    maps, one map whose name was not recognised, and one missing demo.
+    Without every one of these the cleanliness claim would be true only of
+    whatever the fixture happens to contain.
     """
     return report(
         [pistol_map(), default_map(), unknown_map()],
@@ -2108,12 +2181,13 @@ def crowded_report() -> Report:
 
 
 def literal_identifiers(entry: Report) -> list[str]:
-    """Fikstuurin tunnisteet **nimeltä**, niin kuin ne raportissa esiintyisivät.
+    """The fixture's ids **by name**, as they would appear in the report.
 
-    Hahmo (:data:`IDENTIFIER_SHAPE`) ei tunnista demotunnisteita eikä voi:
-    ``ANCIENT_vs_RCAVE_VETERANS`` ei muistuta tiivistettä. Ne on siis
-    lueteltava, ja luettelo johdetaan raportista eikä kirjoiteta käsin --
-    käsin kirjoitettu jäisi jälkeen heti kun fikstuuri saa uuden demon.
+    The shape (:data:`IDENTIFIER_SHAPE`) does not recognise demo ids and
+    cannot: ``ANCIENT_vs_RCAVE_VETERANS`` does not resemble a digest. They
+    therefore have to be listed, and the list is derived from the report and
+    not hand-written -- a hand-written one would fall behind as soon as the
+    fixture gets a new demo.
     """
     names = [entry.team.key, *entry.team.lineup_keys]
     names += [row.player_id for row in entry.team.roster]
@@ -2124,24 +2198,25 @@ def literal_identifiers(entry: Report) -> list[str]:
 
 
 def test_no_identifier_appears_in_the_body_outside_the_three_exceptions() -> None:
-    """Hyväksymiskriteeri kokonaisena, poikkeukset mukaan luettuina.
+    """The acceptance criterion whole, exceptions included.
 
-    Väite tehdään **luvuittain** eikä yhtenä merkkijonona, ja jokainen luku
-    joko tarkistetaan tai vapautetaan nimetyllä säännöllä. Aiempi versio tästä
-    testistä leikkasi kierrosliitteen pois ennen tarkistusta, eli se ei voinut
-    nähdä vuotoa juuri siitä paikasta, jossa tunnisteita yhä on -- ja sen
-    sääntö oli siksi näkymätön.
+    The claim is made **chapter by chapter** and not as one string, and every
+    chapter is either checked or released by a named rule. An earlier version
+    of this test cut the round appendix out before the check, that is, it
+    could not see a leak from precisely the place where ids still are -- and
+    its rule was therefore invisible.
 
-    Kolme poikkeusta, ja kumpi sääntö vapauttaa minkä:
+    Three exceptions, and which rule releases which:
 
-    1. ``Kierrosliite`` -- tunniste on **polussa**, ja polku on koodijakso.
-       Poikkeus on siis kapeampi kuin luku: koodijaksojen ulkopuolella
-       kierrosliite tarkistetaan kuten mikä tahansa runko.
-    2. ``Puuttuvat demot`` -- tunniste on osa komentoa, jonka lukija kopioi,
-       eikä komento toimi ilman sitä. Koko luku vapautuu.
-    3. Tunnistamattoman kartan **otsikko** -- silloin ``map_name`` *on*
-       ``map_demo_id``, eli tunniste on kartan ainoa nimi. Vain otsikko
-       vapautuu; luvun sisällön on oltava puhdas.
+    1. ``Kierrosliite`` -- the id is **in a path**, and a path is a code
+       span. The exception is therefore narrower than the chapter: outside
+       code spans the round appendix is checked like any other body.
+    2. ``Puuttuvat demot`` -- the id is part of a command the reader copies,
+       and the command does not work without it. The whole chapter is
+       released.
+    3. An unrecognised map's **heading** -- then ``map_name`` *is* the
+       ``map_demo_id``, that is, the id is the map's only name. Only the
+       heading is released; the chapter's content has to be clean.
     """
     entry = crowded_report()
     text = render(entry)
@@ -2159,31 +2234,31 @@ def test_no_identifier_appears_in_the_body_outside_the_three_exceptions() -> Non
 
     checked_headings = 0
     for heading, content in report_sections(text):
-        if heading not in unnamed_headings:  # poikkeus 3 koskee vain otsikkoa
-            assert_clean(heading, f"otsikko {heading!r}")
+        if heading not in unnamed_headings:  # exception 3 is only the heading
+            assert_clean(heading, f"heading {heading!r}")
             checked_headings += 1
         if heading in ("Puuttuvat demot", TRACEABILITY_HEADING):
-            continue  # poikkeus 2, ja luku joka on tunnisteita varten
+            continue  # exception 2, and the chapter that is for ids
         if heading == "Kierrosliite":
-            content = CODE_SPAN.sub("", content)  # poikkeus 1 on kapea
-        assert_clean(content, f"luku {heading!r}")
+            content = CODE_SPAN.sub("", content)  # exception 1 is narrow
+        assert_clean(content, f"chapter {heading!r}")
 
-    # Fikstuuri kattaa poikkeuksen 3 -- ilman tätä silmukka olisi voinut
-    # ohittaa sen kertaakaan kohtaamatta.
+    # The fixture covers exception 3 -- without this the loop could have
+    # passed without meeting it once.
     assert len(unnamed_headings) == 1
-    # Tarkka luku eikä alaraja: silmukka, joka ei tarkista mitään, menisi
-    # alarajalla läpi. Kymmenen lukua, joista tunnistamattoman kartan otsikko
-    # on vapautettu.
+    # An exact number and not a lower bound: a loop that checks nothing would
+    # pass a lower bound. Ten chapters, of which the unrecognised map's
+    # heading is released.
     assert checked_headings == 9
 
 
 def test_every_identifier_the_body_dropped_is_in_the_chapter() -> None:
-    """Poistaminen on **siirto**: mikään ei putoa matkalla.
+    """Removing is a **move**: nothing falls out on the way.
 
-    Puuttuvan demon tunniste ei ole luvussa eikä kuulukaan: se ei ole
-    yhdenkään karttahaaran demo vaan demo, joka jäi otannan ulkopuolelle, ja
-    se on rungossa komentonsa kanssa. Väite luettelee siis tarkalleen ne
-    lähteet, jotka rungosta poistuivat.
+    The missing demo's id is not in the chapter and does not belong there: it
+    is not any map branch's demo but a demo that stayed outside the sample,
+    and it is in the body with its command. The claim therefore lists exactly
+    the sources that left the body.
     """
     entry = crowded_report()
     traceability = traceability_text(render(entry))
@@ -2198,11 +2273,11 @@ def test_every_identifier_the_body_dropped_is_in_the_chapter() -> None:
 
 
 def test_the_exceptions_are_not_vacuous() -> None:
-    """Kolme poikkeusta ovat todellisia, eivät varmuuden vuoksi kirjoitettuja.
+    """The three exceptions are real, not written just in case.
 
-    Ilman tätä puhtaustesti voisi mennä läpi siksi, ettei vapautetuissa
-    luvuissa ole yhtään tunnistetta -- ja lukuohjeen lause poikkeuksista olisi
-    väärä toiseen suuntaan.
+    Without this the cleanliness test could pass because the released
+    chapters hold no id at all -- and the reading guide's sentence about the
+    exceptions would be false in the other direction.
     """
     entry = crowded_report()
     text = render(entry)
@@ -2220,11 +2295,11 @@ def test_the_exceptions_are_not_vacuous() -> None:
 
 
 def test_the_legend_names_all_three_exceptions() -> None:
-    """Raportti ei saa väittää itsestään enemmän kuin on totta.
+    """The report must not claim more about itself than is true.
 
-    Lukuohje on se paikka, jossa raportti kertoo omat sääntönsä. Jos se sanoo
-    "runko puhuu vain nimillä", kolme lukua sen yläpuolella tekevät lauseesta
-    valheen.
+    The reading guide is the place where the report states its own rules. If
+    it says "the body speaks in names only", three chapters above it make the
+    sentence a lie.
     """
     legend = section_text(render(crowded_report()), "Lukuohje")
 
@@ -2236,12 +2311,13 @@ def test_the_legend_names_all_three_exceptions() -> None:
 
 
 def test_the_chapter_note_separates_identifiers_from_thresholds() -> None:
-    """Kynnys ei ole tunniste, ja luvun selitys kertoo miksi.
+    """A threshold is not an id, and the chapter's explanation says why.
 
-    Kynnykset täyttävät kirjaimellisesti saman kriteerin kuin tunnisteet
-    (kone tarvitsee, ihminen ei), mutta ero on aito: kynnys kertoo **miten
-    luku laskettiin**, joten väitettä ei voi arvioida ilman sitä. Ilman tätä
-    lausetta seuraava lukija siirtäisi nekin.
+    The thresholds meet literally the same criterion as the ids (the machine
+    needs them, the human does not), but the difference is genuine: a
+    threshold says **how the number was computed**, so the claim cannot be
+    judged without it. Without this sentence the next reader would move them
+    too.
     """
     traceability = traceability_text(render(report([pistol_map()])))
 
@@ -2251,11 +2327,11 @@ def test_the_chapter_note_separates_identifiers_from_thresholds() -> None:
 
 
 def test_the_traceability_chapter_is_the_last_one() -> None:
-    """Tunnisteet lakkaavat olemasta ensimmäinen asia, jonka lukija näkee.
+    """The ids stop being the first thing the reader sees.
 
-    Luku on viimeisenä eikä missä tahansa: lukuohje kertoo mistä tunnisteet
-    löytyvät, ja lukua ennen sitä ei voi olla -- silloin tunnisteet olisivat
-    taas rungon välissä.
+    The chapter is last and not anywhere: the reading guide says where the
+    ids are to be found, and the chapter cannot come before it -- the ids
+    would then be back in the middle of the body.
     """
     headings = [heading for heading, _ in report_sections(render(crowded_report()))]
 
@@ -2263,21 +2339,22 @@ def test_the_traceability_chapter_is_the_last_one() -> None:
 
 
 def test_the_chapter_name_is_the_same_in_the_template_and_in_the_code() -> None:
-    """Otsikon omistaa malli, mutta raportin oma teksti viittaa siihen.
+    """The heading belongs to the template, but the report's own text refers
+    to it.
 
-    Ilman tätä väitettä luvun uudelleennimeäminen jättäisi yhteenvetoon ja
-    lukuohjeeseen kaksi viittausta lukuun, jota ei ole -- eikä mikään testi
-    huomaisi, koska molemmat viittaukset lukevat saman vakion.
+    Without this claim, renaming the chapter would leave in the summary and
+    the reading guide two references to a chapter that does not exist -- and
+    no test would notice, because both references read the same constant.
     """
     assert "## " + TRACEABILITY_HEADING in template_text()
 
 
 def test_the_roster_rows_are_in_the_same_order_as_the_names_in_the_body() -> None:
-    """Järjestyslupaus, jonka kaksi docstringia antavat, on tarkistettavissa.
+    """The promise about the order that two docstrings give is checkable.
 
-    Rivin nimiö on ``<järjestysluku>. <sama merkkijono kuin rungossa>``, joten
-    lukija löytää pelaajansa laskemalla. Ilman tätä testiä lupaus olisi
-    pelkkä lause: silmukoiden järjestyksen vaihtaminen ei kaataisi mitään.
+    The row's label is ``<ordinal>. <the same string as in the body>``, so
+    the reader finds his player by counting. Without this test the promise
+    would be a mere sentence: changing the loops' order would break nothing.
     """
     roster = [
         RosterEntry(player_id="76561190000000101", display_name="cee"),
@@ -2303,11 +2380,11 @@ def test_the_roster_rows_are_in_the_same_order_as_the_names_in_the_body() -> Non
 
 
 def test_two_players_without_a_name_get_two_distinguishable_rows() -> None:
-    """Nimi ei ole yksikäsitteinen avain, joten nimiö ei voi olla pelkkä nimi.
+    """A name is not a unique key, so the label cannot be the name alone.
 
-    Kaksi nimetöntä pelaajaa tuottaisivat ilman järjestyslukua kaksi
-    identtistä riviä, ja lukija ei voisi sanoa kumpi SteamID64 on kumman.
-    Sama koskee kahta samannimistä, mikä on CS2:ssa tavallista.
+    Two nameless players would without the ordinal produce two identical
+    rows, and the reader could not say which SteamID64 belongs to which. The
+    same goes for two with the same name, which is ordinary in CS2.
     """
     roster = [
         RosterEntry(player_id="76561190000000201"),
@@ -2325,12 +2402,13 @@ def test_two_players_without_a_name_get_two_distinguishable_rows() -> None:
 
 
 def test_several_lineups_are_a_checkable_count_with_its_threshold() -> None:
-    """I/O-matriisi: neljä ``lineup_keys``.
+    """I/O matrix: four ``lineup_keys``.
 
-    Rivin luku on **tarkistettavissa**: ``lineup_keys`` sisältää kohteen oman
-    kokoonpanon, joten pelkkä lukumäärä lukisi kuin liitettyjä olisi yksi
-    enemmän kuin oli. Rivi kertoo liitettyjen määrän ja kokonaismäärän, ja
-    kynnyksen jolla päätös tehtiin -- kuten naapuririvi kertoo omansa.
+    The row's number is **checkable**: ``lineup_keys`` contains the target's
+    own lineup, so a bare count would read as if one more had been joined
+    than was. The row gives the number joined and the total, and the
+    threshold the decision was made on -- as the neighbouring row gives its
+    own.
     """
     entry = report([pistol_map()], lineup_keys=LINEUP_KEYS)
     text = render(entry)
@@ -2350,11 +2428,11 @@ def test_several_lineups_are_a_checkable_count_with_its_threshold() -> None:
 
 def test_the_lineup_row_says_the_rule_in_words_when_the_threshold_is_absent(
 ) -> None:
-    """Puuttuva kynnys ei saa saada renderöintiä keksimään lukua.
+    """A missing threshold must not make the rendering invent a number.
 
-    Sama sääntö kuin kuvion rajalla: arvo luetaan raportista, ja jos sitä ei
-    ole, rivi kertoo perusteen sanoina. Kovakoodattu kynnys olisi laskentaa
-    väärässä kerroksessa.
+    The same rule as with the pattern limit: the value is read from the
+    report, and if it is not there, the row gives the rationale in words. A
+    hardcoded threshold would be computation in the wrong layer.
     """
     entry = report(
         [pistol_map()], lineup_keys=LINEUP_KEYS, thresholds_used={"thresholds": {}}
@@ -2369,22 +2447,23 @@ def test_the_lineup_row_says_the_rule_in_words_when_the_threshold_is_absent(
 
 
 def test_a_single_lineup_is_the_team_key_and_is_not_printed_twice() -> None:
-    """I/O-matriisi: yksi ``lineup_key``.
+    """I/O matrix: one ``lineup_key``.
 
-    Rungossa ei ole riviä lainkaan -- yhden kokoonpanon "liittäminen samaksi
-    joukkueeksi" ei ole havainto. Jäljitettävyysluvussa ei ole omaa riviä
-    myöskään, mutta eri syystä kuin aiemmin luultiin: ``team.key`` **on** se
-    kokoonpanotunniste, joten oma rivi toistaisi joukkuerivin sanasta sanaan.
-    Tunniste ei siis katoa, ja joukkuerivi sanoo olevansa molempia.
+    There is no row in the body at all -- "joining" one lineup into the same
+    team is not an observation. Neither is there a row of its own in the
+    traceability chapter, but for a different reason from the one previously
+    supposed: ``team.key`` **is** that lineup id, so a row of its own would
+    repeat the team row word for word. The id therefore does not vanish, and
+    the team row says it is both.
     """
     text = render(report([pistol_map()]))
     summary = summary_text(text)
     traceability = traceability_text(text)
 
     assert "- **Kokoonpanot:**" not in summary
-    # Rivin ETULIITE eikä pelkkä sana: joukkuerivin oma teksti mainitsee
-    # kokoonpanotunnisteen pienellä, ja pelkkä sanahaku menisi läpi
-    # vahingossa -- tai kaatuisi jos lause kirjoitettaisiin isolla.
+    # The row's PREFIX and not the bare word: the team row's own text
+    # mentions the lineup id in lower case, and a bare word search would pass
+    # by accident -- or fail if the sentence were written with a capital.
     assert "- **Kokoonpanotunniste" not in traceability
     assert (
         f"- **Joukkueen tunniste:** `{TEAM_KEY}` -- sama arvo kuin joukkueen "
@@ -2394,11 +2473,11 @@ def test_a_single_lineup_is_the_team_key_and_is_not_printed_twice() -> None:
 
 
 def test_an_empty_roster_says_the_source_was_empty_and_lists_nobody() -> None:
-    """I/O-matriisi: tyhjä ``roster``.
+    """I/O matrix: an empty ``roster``.
 
-    Runko kertoo lähteen olevan tyhjä kuten ennenkin, ja jäljitettävyysluvussa
-    ei ole yhtään rosteririviä -- tyhjä pari nimi -> tunniste olisi keksitty
-    rivi.
+    The body says the source is empty as before, and the traceability chapter
+    has no roster row at all -- an empty name -> id pair would be an invented
+    row.
     """
     entry = report([pistol_map()], roster=[])
     text = render(entry)
@@ -2413,10 +2492,11 @@ def test_an_empty_roster_says_the_source_was_empty_and_lists_nobody() -> None:
 
 
 def test_a_map_shows_only_the_demo_count_and_the_chapter_names_the_demos() -> None:
-    """I/O-matriisi: ``map_demo_ids`` per kartta.
+    """I/O matrix: ``map_demo_ids`` per map.
 
-    Kartan otsikko kertoo demojen **määrän**; se, mitkä demot summautuivat
-    yhdeksi haaraksi, on jäljitettävyyskysymys ja siksi omassa luvussaan.
+    The map's heading gives the **number** of demos; which demos summed into
+    one branch is a traceability question and therefore in a chapter of its
+    own.
     """
     demos = [MISSING_DEMO_ID, FACEIT_DEMO_ID]
     text = render(report([demo_map(demos, name="de_ancient")]))
@@ -2430,12 +2510,12 @@ def test_a_map_shows_only_the_demo_count_and_the_chapter_names_the_demos() -> No
 
 
 def test_a_map_whose_name_was_not_recognised_gets_a_label_that_says_so() -> None:
-    """I/O-matriisi: ``map_name_source`` on ``unknown``.
+    """I/O matrix: ``map_name_source`` is ``unknown``.
 
-    Silloin ``map_name`` on ``map_demo_id`` itse, joten nimi ei kelpaa
-    nimiöksi: rivi olisi ``- **<tunniste>:** `<sama tunniste>``` eli se ei
-    kertoisi mitään. Nimiö sanoo sen sijaan mistä on kyse, ja järjestysluku
-    kertoo minkä karttaluvun rivi koskee.
+    Then ``map_name`` is the ``map_demo_id`` itself, so the name is not fit
+    to be the label: the row would be ``- **<id>:** `<the same id>``` and
+    would say nothing. The label says instead what it is about, and the
+    ordinal says which map chapter the row concerns.
     """
     entry = report([pistol_map(), unknown_map()])
     traceability = traceability_text(render(entry))
@@ -2445,11 +2525,10 @@ def test_a_map_whose_name_was_not_recognised_gets_a_label_that_says_so() -> None
 
 
 def test_two_unrecognised_maps_do_not_get_the_same_label() -> None:
-    """Nimiö on nimiö vain jos se yksilöi rivinsä.
+    """A label is a label only if it identifies its row.
 
-    Ilman järjestyslukua kaksi tunnistamatonta karttaa tuottaisivat kaksi
-    riviä samalla nimiöllä, eli sama vika kuin kahdella nimettömällä
-    pelaajalla.
+    Without the ordinal two unrecognised maps would produce two rows with the
+    same label, that is, the same fault as with two nameless players.
     """
     other = "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1"
     entry = report([unknown_map(), unknown_map(other)])
@@ -2460,22 +2539,22 @@ def test_two_unrecognised_maps_do_not_get_the_same_label() -> None:
 
 
 def test_a_map_name_with_markdown_characters_keeps_the_row_a_single_pair() -> None:
-    """Aito vikatapaus: workshop-kartta rikkoi rivin.
+    """A genuine fault case: a workshop map broke the row.
 
-    Story 2.11 päätti, ettei otsikosta luettua nimeä validoida karttapoolia
-    vasten, joten ``*|Aim|* Botz [beta]`` on laillinen havainto. Paljaana
-    nimiön lihavointi jäi sulkeutumatta ja rivi lakkasi lukeutumasta parina
-    label/value -- ja juuri se rivi kantaa demotunnisteet. Koodijakso pitää
-    rivin yhtenä parina **millä tahansa** merkkijonolla, ilman että kartta saa
-    toisen kirjoitusasun kuin karttaluvun otsikossa.
+    Story 2.11 decided that a name read from the header is not validated
+    against a map pool, so ``*|Aim|* Botz [beta]`` is a legal observation.
+    Bare, the label's bold was left unclosed and the row stopped reading as a
+    label/value pair -- and it is that row that carries the demo ids. A code
+    span keeps the row one pair with **any** string, without the map getting
+    a different spelling from the map chapter's heading.
     """
     name = "*|Aim|* Botz [beta]"
     entry = report([demo_map([MISSING_DEMO_ID], name=name)])
     traceability = traceability_text(render(entry))
 
     assert f"- **`{name}`:** `{MISSING_DEMO_ID}`" in traceability
-    # Sama kirjoitusasu kuin karttaluvun otsikossa: escapetus tuottaisi
-    # toisen, ja raportti luetaan myös raakana.
+    # The same spelling as in the map chapter's heading: escaping would
+    # produce another, and the report is read raw as well.
     assert f"## `{name}` -- " in render(entry)
     row = next(
         line for line in traceability.splitlines() if line.startswith("- **")
@@ -2484,10 +2563,11 @@ def test_a_map_name_with_markdown_characters_keeps_the_row_a_single_pair() -> No
 
 
 def test_a_demo_id_is_a_code_span_so_it_stays_usable() -> None:
-    """Tunnisteen arvo on se, että sen voi kopioida raportista sellaisenaan.
+    """An id's worth is that it can be copied out of the report as it is.
 
-    :func:`markdown_text` suojaisi alaviivat mutta tekisi arvosta eri
-    merkkijonon, joka ei enää täsmää yhteenkään arkiston hakemistoon.
+    :func:`markdown_text` would protect the underscores but would make the
+    value a different string, which no longer matches any directory in the
+    archive.
     """
     traceability = traceability_text(render(report([demo_map([MISSING_DEMO_ID])])))
 
@@ -2496,11 +2576,11 @@ def test_a_demo_id_is_a_code_span_so_it_stays_usable() -> None:
 
 
 def test_a_backtick_in_an_identifier_falls_back_to_escaping() -> None:
-    """Gravis on ainoa merkki, jota koodijakso ei voi sisältää.
+    """The backtick is the only character a code span cannot contain.
 
-    Rikkinäinen koodijakso latoisi loppuraportin väärin, mikä on pahempi kuin
-    kopioitavuuden menetys yhdellä rivillä. Windowsissa gravis on laillinen
-    tiedostonimessä eli mahdollinen demotunnisteessa.
+    A broken code span would set the rest of the report wrongly, which is
+    worse than losing copyability on one row. On Windows the backtick is
+    legal in a file name, that is possible in a demo id.
     """
     demo_id = "demo" + chr(96) + "vs" + chr(96) + "toinen"
     traceability = traceability_text(render(report([demo_map([demo_id])])))
@@ -2513,12 +2593,13 @@ def test_a_backtick_in_an_identifier_falls_back_to_escaping() -> None:
 
 
 def test_an_empty_report_still_gets_the_traceability_chapter() -> None:
-    """Joukkueella on tunniste myös silloin, kun karttoja ei ole.
+    """A team has an id even when there are no maps.
 
-    Tyhjä raportti on juuri se tapaus, jossa lukija kysyy "mistä joukkueesta
-    tässä oli kyse" -- ja tunniste on ainoa vastaus, joka siihen on. Malli
-    latoo luvun ehdoitta, joten tyhjä jono tuottaisi paljaan otsikon; sitä ei
-    vartioida, koska :func:`build_view` ei voi tuottaa sitä.
+    An empty report is precisely the case in which the reader asks "which
+    team was this about" -- and the id is the only answer there is to that.
+    The template sets the chapter unconditionally, so an empty sequence would
+    produce a bare heading; that is not guarded, because :func:`build_view`
+    cannot produce it.
     """
     view = view_of(report([]))
 
@@ -2527,17 +2608,17 @@ def test_an_empty_report_still_gets_the_traceability_chapter() -> None:
     assert f"`{TEAM_KEY}`" in traceability_text(render(report([])))
 
 
-# --- Rakenteen kattavuus --------------------------------------------------------
+# --- The structure's coverage ---------------------------------------------------
 
 
 def test_every_round_type_has_a_place_in_the_report() -> None:
-    """Uusi kierrostyyppi ei voi kadota raportista hiljaa."""
+    """A new round type cannot vanish from the report in silence."""
     assert set(ROUND_TYPE_ORDER) == set(ROUND_TYPES)
     assert PATTERN_ROUND_TYPES <= set(ROUND_TYPES)
 
 
 def test_pistol_and_saving_rounds_come_before_default() -> None:
-    """Järjestys on spec-2-4:n rakenne: pistooli, säästöt, default."""
+    """The order is spec-2-4's structure: pistol, the savings, the default."""
     order = list(ROUND_TYPE_ORDER)
     assert order.index("pistol") == 0
     for saving in ("eco", "force", "half"):
@@ -2551,11 +2632,11 @@ def test_pistol_and_saving_rounds_come_before_default() -> None:
 def test_capitalising_a_heading_leaves_the_other_letters_alone(
     raw: str, expected: str
 ) -> None:
-    """``str.capitalize`` muuttaisi lyhenteen "OT" muotoon "Ot".
+    """``str.capitalize`` would turn the abbreviation "OT" into "Ot".
 
-    Kierrostyyppien suomennokset ovat tavallisia sanoja tänään, mutta luettelo
-    on ``constants``issa eikä täällä -- sääntö ei saa nojata siihen, mitä
-    siellä nyt sattuu olemaan.
+    The round types' Finnish names are ordinary words today, but the list is
+    in ``constants`` and not here -- the rule must not lean on whatever
+    happens to be there now.
     """
     from pappascout.render.view import _capitalise
 
@@ -2569,23 +2650,24 @@ def test_a_round_type_heading_uses_the_finnish_name_capitalised() -> None:
 
 
 def test_view_is_built_without_touching_the_report() -> None:
-    """``Report`` on jäädytetty sopimus; näkymä ei saa korjailla sitä."""
+    """``Report`` is a frozen contract; the view must not touch it up."""
     entry = report([pistol_map()])
     before = entry.model_dump_json()
     view_of(entry, round_list_paths=ROUND_LISTS)
     assert entry.model_dump_json() == before
 
 
-# --- Malli ----------------------------------------------------------------------
+# --- The template ---------------------------------------------------------------
 
 
 def test_template_digest_is_the_sha256_of_the_template_itself() -> None:
-    """Tiivisteen on oltava sidottu mallin sisältöön, ei mihin tahansa arvoon.
+    """The digest has to be bound to the template's content, not to any old
+    value.
 
-    Ilman tätä väitettä tiivisteen voisi korvata vakiolla ja molemmat sitä
-    koskevat testit menisivät läpi -- jolloin mallin muokkaus tuottaisi eri
-    raportin muuttumattomalla ``params_hash``illa, eli täsmälleen sen tilan,
-    jonka tiiviste on lisätty estämään.
+    Without this claim the digest could be replaced by a constant and both
+    tests about it would pass -- whereupon editing the template would produce
+    a different report under an unchanged ``params_hash``, that is, exactly
+    the state the digest was added to prevent.
     """
     expected = hashlib.sha256(template_text().encode("utf-8")).hexdigest()
     assert template_digest() == expected
@@ -2595,12 +2677,14 @@ def test_template_digest_is_the_sha256_of_the_template_itself() -> None:
 def test_editing_the_template_changes_both_the_digest_and_the_output(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """Tiiviste ja renderöinti lukevat saman tiedoston -- eivät eri välimuisteja."""
+    """The digest and the rendering read the same file -- not two different
+    caches.
+    """
     import pappascout.render as render_pkg
 
     original = template_text()
-    edited = tmp_path / "muokattu.md.j2"
-    edited.write_text(original + "\nLISÄRIVI\n", encoding="utf-8")
+    edited = tmp_path / "edited.md.j2"
+    edited.write_text(original + "\nEXTRA-ROW\n", encoding="utf-8")
 
     before_digest = template_digest()
     before_text = render(report([pistol_map()]))
@@ -2608,34 +2692,34 @@ def test_editing_the_template_changes_both_the_digest_and_the_output(
     monkeypatch.setattr(render_pkg, "template_path", lambda: edited)
     assert template_digest() != before_digest
     assert render(report([pistol_map()])) != before_text
-    assert "LISÄRIVI" in render(report([pistol_map()]))
+    assert "EXTRA-ROW" in render(report([pistol_map()]))
 
 
-def test_a_broken_template_is_a_finnish_error_not_a_jinja_traceback(
+def test_a_broken_template_is_a_pappascout_error_not_a_jinja_traceback(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """Jinjan ``TemplateError`` ei periydy ``PappascoutError``ista."""
+    """Jinja's ``TemplateError`` does not inherit from ``PappascoutError``."""
     from pappascout.errors import PappascoutError
 
     import pappascout.render as render_pkg
 
-    broken = tmp_path / "rikki.md.j2"
+    broken = tmp_path / "broken.md.j2"
     broken.write_text("{% for x in %}", encoding="utf-8")
     monkeypatch.setattr(render_pkg, "template_path", lambda: broken)
 
-    with pytest.raises(PappascoutError, match="Raporttimallin"):
+    with pytest.raises(PappascoutError, match="Rendering the report template"):
         render(report([pistol_map()]))
 
 
-# --- Koko dokumentin muoto ------------------------------------------------------
+# --- The whole document's shape -------------------------------------------------
 
-#: Golden-tuloste pienestä raportista.
+#: The golden output of a small report.
 #:
-#: Osamerkkijonoväitteet eivät näe dokumentin muotoa: tyhjiä rivejä, otsikoiden
-#: välejä eikä sitä, mitä ``render._tidy`` tekee mallin tuotokselle. Muoto
-#: syntyy kahdessa paikassa (malli ja jälkikäsittely), joten se lukitaan
-#: kokonaisena. Testin kaatuminen tarkoittaa, että raportin ulkoasu muuttui --
-#: se on joskus oikein, ja silloin tämä teksti päivitetään.
+#: Substring claims do not see the document's shape: blank lines, the gaps
+#: between headings, nor what ``render._tidy`` does to the template's output.
+#: The shape comes about in two places (the template and the post-processing),
+#: so it is locked whole. This test failing means that the report's layout
+#: changed -- which is sometimes right, and then this text is updated.
 GOLDEN = """\
 # MatureMayhem -- scouting-raportti
 
@@ -2706,7 +2790,7 @@ Tunnisteet, jotka eivät ole rungossa: joukkueen ja kokoonpanojen tiivisteet, pe
 
 
 def golden_report() -> Report:
-    """Pieni raportti, jonka koko tuloste on lukittu :data:`GOLDEN`iin."""
+    """A small report whose whole output is locked into :data:`GOLDEN`."""
     entry = map_report(
         "de_nuke",
         [
@@ -2721,16 +2805,16 @@ def golden_report() -> Report:
                             first_contact_position([area("Ramp", 4, {1: 2, 0: 2})], 4),
                         ],
                         utility_counts=[counts("smoke", 4, {1: 1, 0: 3})],
-                        # Molemmat pelaajalaskurit ovat mukana samasta
-                        # syystä kuin kuolemat: vain golden lukitsee sen,
-                        # että ne ovat peräkkäin ja että lukuohjeeseen tulee
-                        # kaksi eri selitystä eikä yksi.
+                        # Both player counters are included for the same
+                        # reason as the deaths: only the golden locks that
+                        # they are consecutive and that the reading guide
+                        # gets two different explanations and not one.
                         players_armed=armed(4, {0: 4}),
                         players_armored=armored(4, {5: 1, 0: 3}),
-                        # Kuolemat ovat mukana, koska juuri tämä kiinnike
-                        # lukitsee dokumentin muodon: ilman niitä rivien
-                        # paikka, huomautus ja uusi lukuohjekappale eivät
-                        # olisi missään lukittuja.
+                        # The deaths are included because it is this fixture
+                        # that locks the document's shape: without them the
+                        # rows' place, the note and the new reading-guide
+                        # paragraph would be locked nowhere.
                         death_report=deaths(
                             first={"Cave": 2, "Long": 1},
                             rounds_missing=1,
@@ -2742,10 +2826,10 @@ def golden_report() -> Report:
             )
         ],
     )
-    # Yksi poikkeama, jotta golden lukitsee myös poikkeamaluvun muodon ja
-    # paikan. Tyhjä luku on lukittu omassa testissään -- kumpaakin varianttia
-    # ei voi olla samassa tulosteessa, ja tämä on se, jossa rivin muoto on
-    # nähtävissä.
+    # One anomaly, so that the golden locks the anomaly chapter's shape and
+    # place as well. The empty chapter is locked in a test of its own -- both
+    # variants cannot be in the same output, and this is the one in which the
+    # row's shape can be seen.
     return report(
         [entry],
         anomalies=[
@@ -2764,19 +2848,19 @@ def test_the_whole_document_matches_the_golden_output() -> None:
     assert render(golden_report()) == GOLDEN
 
 
-# --- Kuolemat ja tapot (Story 2.7) ---------------------------------------------
+# --- Deaths and kills (Story 2.7) -----------------------------------------------
 
 
-#: Kierroksia :func:`death_report`in lohkossa.
+#: The number of rounds in :func:`death_report`'s block.
 DEATH_ROUNDS = 4
 
 
 def death_report(**kwargs) -> Report:
-    """Yhden pistoolikierroslohkon raportti annetulla kuolemaosuudella.
+    """A report of one pistol-round block with the given deaths part.
 
-    ``rounds_missing`` täytetään niin, että kuolemat kattavat koko otannan --
-    muuten mallin ristiintarkistus hylkäisi jokaisen kutsun, jossa
-    kuolemattomia kierroksia ei ole laskettu käsin.
+    ``rounds_missing`` is filled in so that the deaths cover the whole sample
+    -- otherwise the model's cross-check would reject every call in which the
+    deathless rounds have not been counted by hand.
     """
     kwargs.setdefault(
         "rounds_missing", DEATH_ROUNDS - sum((kwargs.get("first") or {}).values())
@@ -2788,11 +2872,12 @@ def death_report(**kwargs) -> Report:
 
 
 def test_a_round_type_gets_at_most_two_death_lines() -> None:
-    """Rajaus: enintään kaksi riviä kierrostyyppiä kohden.
+    """The bound: at most two rows per round type.
 
-    Raportti on jo satoja rivejä, ja kuolemat lisättiin selittämään muita
-    rivejä eivätkä olemaan oma lukunsa. Rivit lasketaan **luetteloriveistä**,
-    ei merkkijonohaulla: näkymä on se, jota malli latoo.
+    The report already runs to hundreds of rows, and the deaths were added to
+    explain the other rows and not to be a chapter of their own. The rows are
+    counted from the **list rows**, not by a string search: the view is what
+    the template sets.
     """
     view = view_of(
         death_report(
@@ -2803,23 +2888,27 @@ def test_a_round_type_gets_at_most_two_death_lines() -> None:
     )
     lines = view.maps[0].sides[0].round_types[0].lines
     labels = [line.label for line in lines]
-    # Kaksi literaalina eikä vakiona: vakio verrattuna itseensä on tautologia,
-    # joka menisi läpi myös silloin kun raja nostetaan vahingossa. Sama sääntö
-    # kuin skeemaversion pinnauksella.
+    # Two as a literal and not as the constant: the constant compared with
+    # itself is a tautology that would pass even when the limit is raised by
+    # accident. The same rule as with pinning the schema version.
     assert len(lines) == 2
     assert MAX_DEATH_LINES == 2
     assert labels == ["ensimmäinen kuolema (mediaani 24,0 s)", "tapot alueittain"]
 
 
 def test_the_first_death_line_reads_like_the_target_analysis() -> None:
-    """*"Ensimmäinen kuolema mediaani 24 s, useimmin Cave (3/4 kierroksesta)"*."""
+    """*"Ensimmäinen kuolema mediaani 24 s, useimmin Cave (3/4
+    kierroksesta)"*.
+    """
     text = render(death_report(first={"Cave": 3, "Long": 1}, median=24.0))
     assert "- ensimmäinen kuolema (mediaani 24,0 s): Cave (3/4 kierroksesta)" in text
     assert "Long (1/4 kierroksesta)" in text
 
 
 def test_the_kill_line_reads_like_the_target_analysis() -> None:
-    """*"Tapot: Middle 4, BombsiteB 2"* -- alue ja määrä, suurin ensin."""
+    """*"Tapot: Middle 4, BombsiteB 2"* -- the area and the count, largest
+    first.
+    """
     text = render(death_report(kills={"BombsiteB": 2, "Middle": 4}))
     assert (
         "- tapot alueittain: Middle (4/6 taposta), BombsiteB (2/6 taposta)"
@@ -2828,10 +2917,11 @@ def test_the_kill_line_reads_like_the_target_analysis() -> None:
 
 
 def test_the_kill_sample_is_kills_not_rounds() -> None:
-    """Nimittäjä on tappoja, ja rivi sanoo sen itse.
+    """The denominator is kills, and the row says so itself.
 
-    Rivi luetaan yksinään, kaukana lukuohjeesta. "4/6 kierroksesta" olisi
-    neljän kierroksen lohkossa suoraan mahdoton lause.
+    The row is read on its own, far from the reading guide. "4/6
+    kierroksesta" would in a four-round block be an outright impossible
+    sentence.
     """
     view = view_of(death_report(kills={"Middle": 4, "BombsiteB": 2}))
     line = next(
@@ -2847,18 +2937,18 @@ def test_the_kill_sample_is_kills_not_rounds() -> None:
 
 
 def test_every_other_claim_still_counts_rounds() -> None:
-    """Yksikkö on poikkeus eikä uusi oletus."""
+    """The unit is an exception and not a new default."""
     assert Claim(text="Cave", n=1, m=2).sample_text == "1/2 kierroksesta"
 
 
 def test_rounds_without_an_own_death_are_said_out_loud() -> None:
-    """Kierros, jolla joukkue ei menettänyt ketään, ei katoa hiljaa."""
+    """A round on which the team lost nobody does not vanish in silence."""
     text = render(death_report(first={"Cave": 2}, median=20.0, rounds_missing=2))
     assert "ei omia kuolemia 2 kierroksella" in text
 
 
 def test_a_first_death_line_without_a_median_is_still_labelled() -> None:
-    """Ajoituksen puuttuminen ei saa viedä aluetta."""
+    """A missing timing must not take the area away."""
     view = view_of(death_report(first={"Cave": 1}))
     assert (
         view.maps[0].sides[0].round_types[0].lines[0].label
@@ -2867,12 +2957,13 @@ def test_a_first_death_line_without_a_median_is_still_labelled() -> None:
 
 
 def test_a_round_type_where_nobody_died_still_says_so() -> None:
-    """"Ei omia kuolemia 4 kierroksella" on **havainto**, ei tyhjyys.
+    """"Ei omia kuolemia 4 kierroksella" is an **observation**, not
+    emptiness.
 
-    Se kertoo, ettei joukkue menettänyt ketään -- eri asia kuin se, ettei
-    kierrostyypistä tiedetä mitään. Rivi on siis pelkkä otsikko ja huomautus
-    ilman yhtään väitettä, ja juuri se on sääntö: rivi kirjoitetaan kun
-    sillä on väite **tai** havainto.
+    It says that the team lost nobody -- a different thing from nothing being
+    known about the round type. The row is therefore a bare label and a note
+    without a single claim, and that is precisely the rule: a row is written
+    when it has a claim **or** an observation.
     """
     view = view_of(death_report())
     lines = view.maps[0].sides[0].round_types[0].lines
@@ -2883,9 +2974,10 @@ def test_a_round_type_where_nobody_died_still_says_so() -> None:
 
 
 def test_a_round_type_without_rounds_gets_no_death_line_at_all() -> None:
-    """Vartijan toinen haara: pelkkä otsikko ilman kumpaakaan ei kelpaa.
+    """The guard's other branch: a bare label with neither will not do.
 
-    Ilman tätä edellinen testi lukisi kuin rivi kirjoitettaisiin aina.
+    Without this, the previous test would read as if the row were always
+    written.
     """
     entry = round_type("pistol", 0, death_report=deaths())
     view = view_of(report([map_report("de_ancient", [side("CT", [entry])])]))
@@ -2894,11 +2986,10 @@ def test_a_round_type_without_rounds_gets_no_death_line_at_all() -> None:
 
 
 def test_the_kill_line_stands_on_its_own_without_any_deaths() -> None:
-    """Tapporivi ei tarvitse kuolemariviä seurakseen.
+    """The kill row does not need a death row for company.
 
-    Kierrostyyppi, jolla joukkue tappoi mutta ei menettänyt ketään, on
-    tavallinen -- eikä tapporivi saa kadota siksi, että ensimmäisen kuoleman
-    rivillä ei ole väitteitä.
+    A round type on which the team killed but lost nobody is ordinary -- and
+    the kill row must not vanish because the first-death row has no claims.
     """
     view = view_of(death_report(kills={"Middle": 2}))
     labels = [line.label for line in view.maps[0].sides[0].round_types[0].lines]
@@ -2907,12 +2998,14 @@ def test_the_kill_line_stands_on_its_own_without_any_deaths() -> None:
 
 
 def test_an_unknown_first_death_area_is_named_and_explained() -> None:
-    """Tuntematon sijainti on eri asia kuin tyhjä alue -- ja se selitetään.
+    """An unknown position is a different thing from an empty area -- and it
+    is explained.
 
-    Pelkkä ``UNKNOWN_AREA in text`` ei todistaisi selitystä: ``_area(None)``
-    palauttaa juuri sen merkkijonon **väitteen tekstiksi**, joten väite
-    menisi läpi vaikka lippu jäisi nostamatta. Legendalause on eri
-    merkkijono, ja vain se kertoo lukijalle mitä nimi tarkoittaa.
+    A bare ``UNKNOWN_AREA in text`` would not prove the explanation:
+    ``_area(None)`` returns exactly that string **as the claim's text**, so
+    the claim would pass even if the flag were left unraised. The reading
+    guide's sentence is a different string, and only it tells the reader what
+    the name means.
     """
     text = render(death_report(first={None: 1}, median=9.0))
     assert f"- ensimmäinen kuolema (mediaani 9,0 s): {UNKNOWN_AREA} " in text
@@ -2920,10 +3013,11 @@ def test_an_unknown_first_death_area_is_named_and_explained() -> None:
 
 
 def test_an_unknown_kill_area_is_named_and_explained() -> None:
-    """Sama tappojen puolella: alueeton tappo ei putoa eikä jää selittämättä.
+    """The same on the kills side: a kill without an area neither drops out
+    nor goes unexplained.
 
-    Oma testinsä, koska lipun nostaa eri rivi kuin ensimmäisen kuoleman
-    kohdalla -- yhteinen testi jättäisi toisen suorittamatta.
+    A test of its own, because the flag is raised by a different row from the
+    first-death case -- a shared test would leave one of them unexercised.
     """
     text = render(death_report(kills={None: 2}))
     assert f"- tapot alueittain: {UNKNOWN_AREA} (2/2 taposta)" in text
@@ -2931,26 +3025,34 @@ def test_an_unknown_kill_area_is_named_and_explained() -> None:
 
 
 def test_the_unknown_area_note_stays_away_when_every_death_area_is_known() -> None:
-    """Selitys ilman tapausta olisi lukuohje asiasta, jota raportissa ei ole."""
+    """An explanation without a case would be a reading guide to something
+    that is not in the report.
+    """
     text = render(death_report(first={"Cave": 1}, median=9.0, kills={"Middle": 1}))
     assert "pelin aluenimeä ei saatu" not in text
 
 
 def test_the_kill_note_explains_the_denominator() -> None:
-    """Lukuohje kertoo kerran, mistä tappojen nimittäjä tulee."""
+    """The reading guide says once where the kills' denominator comes
+    from.
+    """
     text = render(death_report(kills={"Middle": 2}))
     assert "laskee tappoja eikä kierroksia" in text
     assert "ampujan" in text
 
 
 def test_the_kill_note_is_absent_when_no_kill_line_was_written() -> None:
-    """Selitys ilman riviä olisi lukuohje asiasta, jota raportissa ei ole."""
+    """An explanation without a row would be a reading guide to something
+    that is not in the report.
+    """
     text = render(death_report(first={"Cave": 1}, median=9.0))
     assert "laskee tappoja eikä kierroksia" not in text
 
 
 def test_the_pattern_threshold_also_applies_to_deaths() -> None:
-    """Täysillä ostoilla kerrotaan vain toistuvat kuviot -- myös kuolemista."""
+    """On full buys only the repeating patterns are told -- of the deaths
+    too.
+    """
     entry = round_type(
         "full",
         10,
@@ -2970,7 +3072,7 @@ def test_the_pattern_threshold_also_applies_to_deaths() -> None:
 
 
 def test_saving_rounds_keep_every_death_observation() -> None:
-    """Säästökierroksilla jokainen havainto kirjoitetaan."""
+    """On saving rounds every observation is written."""
     text = render(death_report(first={"Cave": 3, "Long": 1}, median=20.0))
     assert "Cave" in text and "Long" in text
 
@@ -2978,22 +3080,24 @@ def test_saving_rounds_keep_every_death_observation() -> None:
 def test_exceeding_the_death_line_limit_is_an_error_not_a_quiet_growth(
     monkeypatch,
 ) -> None:
-    """Vartija on olemassa ja puree.
+    """The guard exists and it bites.
 
-    Rajan ylitys ei voi syntyä nykyisellä koodilla, joten se rakennetaan
-    laskemalla raja alas. Ilman tätä testiä vartija olisi väite, jota mikään
-    ei todenna -- ja sellainen vartija katoaa seuraavassa muokkauksessa.
+    Exceeding the limit cannot come about with the present code, so it is
+    constructed by lowering the limit. Without this test the guard would be a
+    claim nothing verifies -- and such a guard disappears at the next edit.
     """
     monkeypatch.setattr(view_module, "MAX_DEATH_LINES", 1)
-    with pytest.raises(PappascoutError, match="Kuolemarivejä syntyi 2"):
+    with pytest.raises(PappascoutError, match="There were 2 death rows"):
         view_of(death_report(first={"Cave": 1}, median=9.0, kills={"Middle": 1}))
 
 
-# --- Poikkeamaluku (Story 2.5) --------------------------------------------------
+# --- The anomaly chapter (Story 2.5) --------------------------------------------
 
 
 def anomaly_text(text: str) -> str:
-    """Poikkeamaluvun sisältö. Puuttuva luku on virhe eikä tyhjä merkkijono."""
+    """The anomaly chapter's content. A missing chapter is an error, not an
+    empty string.
+    """
     return section_text(text, ANOMALY_HEADING)
 
 
@@ -3008,16 +3112,16 @@ def anomaly_round(
     alive: int | None = None,
     points: list[AnomalyPoint] | None = None,
 ) -> AnomalyRound:
-    """Yksi kierrosrivi poikkeaman alle.
+    """One round row under an anomaly.
 
-    ``seconds``, ``players`` ja ``alive`` ovat oikotie yhteen lukupariin
-    kaikilla näytepisteillä; ``points`` annetaan silloin, kun pisteillä on
-    **eri** luvut -- ja juuri se tapaus on syy siihen, ettei kierros kanna
-    yhtä maksimia.
+    ``seconds``, ``players`` and ``alive`` are a shortcut to one pair of
+    numbers at every sample point; ``points`` is given when the points have
+    **different** numbers -- and that case is exactly why a round does not
+    carry one maximum.
 
-    ``alive`` on **vain stackilla**, ja ``None`` on sen oikea arvo muualla:
-    kaksi muuta sääntöä eivät laske elossa olevia, eikä keksitty nimittäjä
-    erotu rivillä mitatusta.
+    ``alive`` is **only on a stack**, and ``None`` is its right value
+    elsewhere: the two other rules do not count the living, and an invented
+    denominator does not stand out on the row from a measured one.
     """
     return AnomalyRound(
         map_demo_id=demo,
@@ -3046,11 +3150,11 @@ def anomaly(
     m: int = 3,
     small_sample: bool = False,
 ) -> Anomaly:
-    """Yksi poikkeamarivi. Oletukset ovat kalibroinnin Ancient k18.
+    """One anomaly row. The defaults are the calibration's Ancient round 18.
 
-    ``round_types``, ``n`` ja ``players_max`` johdetaan kierroksista, koska
-    malli valvoo että ne vastaavat niitä -- kiinnike ei saa pystyä
-    rakentamaan riviä, joka on itsensä kanssa eri mieltä.
+    ``round_types``, ``n`` and ``players_max`` are derived from the rounds,
+    because the model watches that they match them -- the fixture must not be
+    able to build a row that disagrees with itself.
     """
     entries = rounds if rounds is not None else [anomaly_round()]
     types = {entry.round_type for entry in entries}
@@ -3079,7 +3183,7 @@ def anomaly(
 
 
 def crunch_anomaly(**overrides) -> Anomaly:
-    """Crunch-rivi: lähtöalueet ovat pakollisia jokaisella kierroksella."""
+    """A crunch row: the source areas are mandatory on every round."""
     overrides.setdefault("rule", "crunch")
     overrides.setdefault(
         "rounds", [anomaly_round(sources=["Arch", "TopofMid"])]
@@ -3088,11 +3192,13 @@ def crunch_anomaly(**overrides) -> Anomaly:
 
 
 def stack_anomaly(**overrides) -> Anomaly:
-    """Stack-rivi: siteryhmä ja elossa olevat ovat pakollisia, orientaatio kielletty.
+    """A stack row: the site group and the living are mandatory, the
+    orientation forbidden.
 
-    Kolme oletusta yhdessä paikassa, koska malli valvoo ne yhdessä: alue on
-    siten oma alue, ``site`` kertoo saman ryhmänä, ja jokainen kierros kertoo
-    montako pelaajaa oli elossa. Orientaatio on tyhjä -- sääntö ei lue sitä.
+    Three defaults in one place, because the model watches them together: the
+    area is the site's own area, ``site`` says the same as a group, and every
+    round says how many players were alive. The orientation is empty -- the
+    rule does not read it.
     """
     overrides.setdefault("rule", "stack")
     overrides.setdefault("area", "BombsiteB")
@@ -3105,41 +3211,44 @@ def stack_anomaly(**overrides) -> Anomaly:
 
 
 def test_the_anomaly_chapter_exists_even_without_anomalies() -> None:
-    """Tyhjä poikkeamaluku on havainto: säännöt ajettiin, ne vaikenivat."""
+    """An empty anomaly chapter is an observation: the rules were run, they
+    stayed silent.
+    """
     text = render(report([pistol_map()]))
     assert f"## {ANOMALY_HEADING}" in text
     assert "Ei poikkeamia" in anomaly_text(text)
 
 
 def test_the_empty_chapter_says_what_was_run_and_on_what() -> None:
-    """**"Ei poikkeamia" on havainto vain siitä, mitä tutkittiin.**
+    """**"No anomalies" is an observation only about what was examined.**
 
-    Neljä asiaa, joita ilman tyhjä luku väittäisi mitattua negatiivista myös
-    sokeasta pisteestä: montako kierrosta säännöt näkivät, montako
-    kierrosta **kukin** niistä voi osua, jäikö jonkin demon orientaatio
-    tyhjäksi ja jäikö joltakin demolta siteryhmät saamatta.
+    Four things without which the empty chapter would claim a measured
+    negative about a blind spot as well: how many rounds the rules saw, how
+    many rounds **each** of them can hit on, whether some demo's orientation
+    was left empty and whether the site groups went unobtained from some
+    demo.
     """
     text = anomaly_text(render(report([pistol_map()])))
     assert "CT-eteneminen, Crunch ja Stack" in text
     assert "2 kierrokselle" in text
-    # Stackin oma kattavuusluku: se ei ole crunchin luku, koska vaiennettu
-    # demo on crunchin nimittäjässä muttei stackin.
+    # The stack's own coverage number: it is not the crunch's number, because
+    # a silenced demo is in the crunch's denominator but not in the stack's.
     assert "stack 1 kierroksella" in text
     assert "sokeita pisteitä ei ole" in text
-    # Stackin sokea piste on **lukuohjeessa** eikä täällä: se kirjoitetaan
-    # myös silloin kun poikkeamia on, ja kahdesta paikasta tyhjä luku latoisi
-    # saman lauseen kahdesti.
+    # The stack's blind spot is **in the reading guide** and not here: it is
+    # written also when there are anomalies, and from two places the empty
+    # chapter would set the same sentence twice.
     assert "siteryhmiä" not in text
 
 
 def test_a_deferred_rule_is_still_named_when_there_is_one() -> None:
-    """Latonta ei saa jäädä testaamatta siksi, että luettelo on tyhjä.
+    """The setting must not go untested because the list is empty.
 
-    ``ANOMALY_RULES_DEFERRED`` tyhjeni Story 2.14:ssä, ja sen myötä koko
-    kattavuuslause olisi ilman tätä testiä ajamatonta koodia -- se heräisi
-    henkiin vasta seuraavan lykätyn säännön kanssa, jolloin kukaan ei enää
-    muista sitä olevan olemassa. Luku on kattavuuden nimittäjä, joten se on
-    pidettävä ajossa.
+    ``ANOMALY_RULES_DEFERRED`` emptied in Story 2.14, and with that the whole
+    coverage sentence would without this test be unexercised code -- it would
+    come back to life only with the next deferred rule, by which time nobody
+    remembers it exists. The number is the coverage's denominator, so it has
+    to be kept exercised.
     """
     text = anomaly_text(
         render(report([pistol_map()], scan_=scan(rules_deferred=["rotate"])))
@@ -3149,7 +3258,7 @@ def test_a_deferred_rule_is_still_named_when_there_is_one() -> None:
 
 
 def test_the_empty_chapter_names_the_blind_spots() -> None:
-    """Tyhjä orientaatio on sokea piste eikä mitattu negatiivinen."""
+    """An empty orientation is a blind spot and not a measured negative."""
     text = anomaly_text(
         render(
             report(
@@ -3163,18 +3272,18 @@ def test_the_empty_chapter_names_the_blind_spots() -> None:
 
 
 def test_the_empty_chapter_mentions_unclassified_rounds() -> None:
-    """Luokittelemattomat kierrokset ovat sääntöjen ulkopuolella."""
+    """Unclassified rounds are outside the rules."""
     text = anomaly_text(render(report([pistol_map()], unclassified=4)))
     assert "4 kierrosta jäi kokonaan tutkimatta" in text
 
 
 def test_the_empty_chapter_exists_in_an_empty_report() -> None:
-    """Myös raportti ilman karttoja saa poikkeamaluvun."""
+    """A report without maps gets the anomaly chapter too."""
     assert "Ei poikkeamia" in anomaly_text(render(report()))
 
 
 def test_an_advance_line_carries_area_sample_and_orientation() -> None:
-    """Koontirivi: mitä, missä, kuinka usein ja millä perusteella."""
+    """The summary row: what, where, how often and on what grounds."""
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
     assert "CT-eteneminen (`de_ancient`, CT-puoli, eco): TSideLower" in text
     assert "1/3 kierroksesta" in text
@@ -3182,13 +3291,15 @@ def test_an_advance_line_carries_area_sample_and_orientation() -> None:
 
 
 def test_the_round_line_carries_the_round_number() -> None:
-    """Scoutin seuraava teko on avata se kierros demolta."""
+    """The scout's next act is to open that round in the demo."""
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
     assert "  - kierros 18: 2 pelaajaa 30 s kohdalla" in text
 
 
 def test_a_crunch_line_names_its_source_areas_per_round() -> None:
-    """Matriisin rivi 2: crunchissa myös lähtöalueet -- kierroksen sisällä."""
+    """The matrix's row 2: in a crunch the source areas as well -- within the
+    round.
+    """
     text = anomaly_text(
         render(
             report(
@@ -3218,11 +3329,11 @@ def test_a_crunch_line_names_its_source_areas_per_round() -> None:
 
 
 def test_two_crunch_rounds_never_merge_their_directions() -> None:
-    """**Yhtäaikaisuus ei ylitä kierrosrajaa.**
+    """**Simultaneity does not cross the round boundary.**
 
-    Yhdiste ("suunnista A, B, C ja D") lukisi neljäksi yhtäaikaiseksi
-    suunnaksi, mikä on päinvastoin kuin määritelmä. Kierrosrivit ovat
-    olemassa juuri tämän estämiseksi.
+    The union ("suunnista A, B, C ja D") would read as four simultaneous
+    directions, which is the opposite of the definition. The round rows exist
+    precisely to prevent this.
     """
     text = anomaly_text(
         render(
@@ -3251,17 +3362,18 @@ def test_two_crunch_rounds_never_merge_their_directions() -> None:
     assert "2/4 kierroksesta" in text
     assert "kierros 3 (eco): 2 pelaajaa 15 s kohdalla, yhtä aikaa suunnista Alley ja BombsiteB" in text
     assert "kierros 10 (default): 3 pelaajaa 15 s kohdalla, yhtä aikaa suunnista Arch, LowerTunnel ja TopofMid" in text
-    # Neljän suunnan yhdistettä ei ole missään.
+    # The union of four directions is nowhere.
     assert "Alley, BombsiteB, Arch" not in text
 
 
 def test_a_stack_line_names_the_site_its_group_and_the_survivors() -> None:
-    """Stack-rivi kertoo mitä sääntö mittasi -- eikä mitään muuta.
+    """A stack row says what the rule measured -- and nothing else.
 
-    Koontirivillä alue on **siten oma alue** ja lisätieto on ryhmä, ei
-    T-osuus: sääntö ei lue orientaatiota, joten osuus koskisi toista
-    kysymystä. Kierrosrivillä pelaajamäärä on murtoluku, koska neljä
-    viidestä ja neljä neljästä ovat eri havainto.
+    On the summary row the area is **the site's own area** and the extra is
+    the group, not the T share: the rule does not read the orientation, so a
+    share would concern another question. On the round row the player count
+    is a fraction, because four out of five and four out of four are
+    different observations.
     """
     text = anomaly_text(
         render(report([pistol_map()], anomalies=[stack_anomaly(m=9)]))
@@ -3270,12 +3382,14 @@ def test_a_stack_line_names_the_site_its_group_and_the_survivors() -> None:
     assert "1/9 kierroksesta" in text
     assert "B-siten ryhmässä" in text
     assert "  - kierros 13 (eco): 4/5 pelaajaa 15 s kohdalla" in text
-    # T-osuutta ei ole, koska sitä ei mitattu.
+    # There is no T share, because it was not measured.
     assert "T-osuus" not in text
 
 
 def test_a_stack_line_never_claims_directions() -> None:
-    """Suunnat ovat crunchin havainto; stack ei laske niitä."""
+    """The directions are the crunch's observation; a stack does not count
+    them.
+    """
     text = anomaly_text(
         render(report([pistol_map()], anomalies=[stack_anomaly()]))
     )
@@ -3283,7 +3397,9 @@ def test_a_stack_line_never_claims_directions() -> None:
 
 
 def test_all_five_alive_reads_as_five_of_five() -> None:
-    """Kalibroinnin kaksi ääriosumaa: 5/5 on eri havainto kuin 4/5."""
+    """The calibration's two extreme hits: 5/5 is a different observation
+    from 4/5.
+    """
     text = anomaly_text(
         render(
             report(
@@ -3311,10 +3427,12 @@ def test_all_five_alive_reads_as_five_of_five() -> None:
 
 
 def test_the_stack_rows_sit_in_the_same_chapter_as_the_other_rules() -> None:
-    """Kolme sääntöä, yksi luku -- ja järjestys tulee ``ANOMALY_RULES``ista.
+    """Three rules, one chapter -- and the order comes from
+    ``ANOMALY_RULES``.
 
-    Poikkeamaluku on epicin arvokkain tuotos, eikä stack saa jäädä omaksi
-    lohkokseen: lukija vertaa rivejä keskenään.
+    The anomaly chapter is the epic's most valuable output, and stack must
+    not be left as a block of its own: the reader compares the rows with each
+    other.
     """
     text = anomaly_text(
         render(
@@ -3333,11 +3451,11 @@ def test_the_stack_rows_sit_in_the_same_chapter_as_the_other_rules() -> None:
 
 
 def test_the_stack_legend_names_the_silenced_demos() -> None:
-    """Vaikeneminen on kirjattava myös silloin, kun poikkeamia ON.
+    """The silence has to be recorded also when there ARE anomalies.
 
-    Tyhjän luvun teksti ei silloin ladota lainkaan, joten kattavuus jäisi
-    kertomatta juuri siinä raportissa, jossa lukija näkee rivit muilta
-    kartoilta muttei Nukelta.
+    The empty chapter's text is then not set at all, so the coverage would go
+    untold in precisely the report in which the reader sees rows from the
+    other maps but not from Nuke.
     """
     text = render(
         report(
@@ -3358,7 +3476,7 @@ def test_the_stack_legend_names_the_silenced_demos() -> None:
 
 
 def test_a_crunch_label_says_the_types_are_observations_not_a_limit() -> None:
-    """Crunchia ei ole rajattu kierrostyyppiin, ja nimiö sanoo sen."""
+    """Crunch is not restricted to a round type, and the label says so."""
     text = anomaly_text(
         render(
             report(
@@ -3381,20 +3499,24 @@ def test_a_crunch_label_says_the_types_are_observations_not_a_limit() -> None:
 
 
 def test_an_advance_line_never_claims_source_areas() -> None:
-    """Etenemisellä tyhjä lista tarkoittaa 'ei kysytty' eikä 'ei suuntia'."""
+    """For an advance an empty list means "not asked" and not "no
+    directions".
+    """
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
     assert "suunnista" not in text
 
 
 def test_the_advance_round_line_omits_the_round_type() -> None:
-    """Se on jo nimiössä; samaa sanaa ei kirjoiteta kahdesti riville."""
+    """It is in the label already; the same word is not written twice on the
+    row.
+    """
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
     assert "kierros 18: " in text
     assert "kierros 18 (eco)" not in text
 
 
 def test_several_sample_points_are_listed_as_a_finnish_list() -> None:
-    """Rivi luetaan lauseena, joten viimeinen erotin on 'ja'."""
+    """The row is read as a sentence, so the last separator is "ja"."""
     text = anomaly_text(
         render(
             report(
@@ -3407,7 +3529,7 @@ def test_several_sample_points_are_listed_as_a_finnish_list() -> None:
 
 
 def test_two_demos_give_the_same_area_two_shares() -> None:
-    """Keskiarvo olisi luku, jota ei ole havaittu."""
+    """An average would be a number that has not been observed."""
     text = anomaly_text(
         render(
             report(
@@ -3431,7 +3553,7 @@ def test_two_demos_give_the_same_area_two_shares() -> None:
 
 
 def test_two_demos_make_the_round_line_name_its_demo() -> None:
-    """Kierrosnumero ei yksilöi, kun kartalla on kaksi demoa."""
+    """The round number does not identify when the map has two demos."""
     text = anomaly_text(
         render(
             report(
@@ -3452,17 +3574,19 @@ def test_two_demos_make_the_round_line_name_its_demo() -> None:
 
 
 def test_one_demo_leaves_the_identifier_out_of_the_round_line() -> None:
-    """Vartijan toinen haara: yhdellä demolla tunniste ei kuulu runkoon."""
+    """The guard's other branch: with one demo the id does not belong in the
+    body.
+    """
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
     assert DEMO_ID not in text
 
 
 def test_each_sample_point_carries_its_own_player_count() -> None:
-    """**Maksimi ei saa palata riville.**
+    """**The maximum must not come back to the row.**
 
-    Mitattu MatureMayhem Anubis k4: 15 s kohdalla viisi pelaajaa viidestä,
-    30 s kohdalla neljä. Yhtenä maksimina rivi luki "5/5 pelaajaa 15 ja 30 s
-    kohdalla" -- väite datasta, jota ei ole.
+    Measured, MatureMayhem Anubis round 4: at 15 s five players out of five,
+    at 30 s four. As one maximum the row read "5/5 pelaajaa 15 ja 30 s
+    kohdalla" -- a claim about data that does not exist.
     """
     text = anomaly_text(
         render(
@@ -3496,10 +3620,10 @@ def test_each_sample_point_carries_its_own_player_count() -> None:
 
 
 def test_an_advance_over_two_sample_points_keeps_both_counts() -> None:
-    """Sama vika koski kaikkia kolmea sääntöä, ei vain stackia.
+    """The same fault concerned all three rules, not only the stack.
 
-    Mitattu MatureMayhem Inferno k2: 15 s kohdalla viisi pelaajaa Middlessä,
-    30 s kohdalla **yksi**. Rivi luki "5 pelaajaa 15 ja 30 s kohdalla".
+    Measured, MatureMayhem Inferno round 2: at 15 s five players in Middle,
+    at 30 s **one**. The row read "5 pelaajaa 15 ja 30 s kohdalla".
     """
     text = anomaly_text(
         render(
@@ -3526,10 +3650,11 @@ def test_an_advance_over_two_sample_points_keeps_both_counts() -> None:
 
 
 def test_equal_counts_still_collapse_into_one_phrase() -> None:
-    """Tiivistäminen jää, kun luvut ovat aidosti samat.
+    """The collapsing stays when the numbers really are the same.
 
-    Ehto vertaa **kaikkia** lukuja, joten tiivistys ei voi enää peittää eroa;
-    ilman sitä jokainen rivi luettelisi saman luvun kahdesti.
+    The condition compares **all** the numbers, so the collapsing can no
+    longer hide a difference; without it every row would list the same number
+    twice.
     """
     text = anomaly_text(
         render(
@@ -3555,11 +3680,12 @@ def test_equal_counts_still_collapse_into_one_phrase() -> None:
 
 
 def test_a_stack_over_two_demos_also_names_them() -> None:
-    """Sama vartija stackilla, vaikka sillä ei ole orientaatiota.
+    """The same guard on a stack, although it has no orientation.
 
-    Luku luetaan **kierroksista** eikä orientaatiosta juuri tämän takia:
-    orientaatiosta luettuna stackin tunniste jäisi aina pois, ja Ancientin
-    kaksi demoa ovat samassa karttaluvussa (Story 2.11).
+    The count is read **from the rounds** and not from the orientation for
+    exactly this reason: read from the orientation, a stack's id would always
+    be left out, and Ancient's two demos are in the same map chapter (Story
+    2.11).
     """
     text = anomaly_text(
         render(
@@ -3594,7 +3720,7 @@ def test_a_stack_over_two_demos_also_names_them() -> None:
 
 
 def test_a_small_sample_anomaly_is_marked_not_hidden() -> None:
-    """Yksi kierros on kelvollinen otanta ja merkitään pieneksi."""
+    """One round is a valid sample and is marked as small."""
     text = anomaly_text(
         render(
             report(
@@ -3608,10 +3734,11 @@ def test_a_small_sample_anomaly_is_marked_not_hidden() -> None:
 
 
 def test_the_small_sample_mark_is_not_confused_with_the_label() -> None:
-    """``--`` tarkoittaa rivillä vain yhtä asiaa: huomautusta.
+    """``--`` means only one thing on the row: a note.
 
-    Nimiössä oli aiemmin sama erotin, joten sama merkki tarkoitti kahta eri
-    asiaa samalla rivillä. Nimiön osat ovat nyt suluissa.
+    The label used to have the same separator, so the same mark meant two
+    different things on the same row. The label's parts are in parentheses
+    now.
     """
     text = anomaly_text(
         render(
@@ -3627,10 +3754,10 @@ def test_the_small_sample_mark_is_not_confused_with_the_label() -> None:
 
 
 def test_an_unrecognised_map_never_puts_its_identifier_in_the_body() -> None:
-    """Runko puhuu nimillä; tunnistamaton kartta nimetään paikallaan.
+    """The body speaks in names; an unrecognised map is named in place.
 
-    Nimiö on **sama merkkijono** kuin jäljitettävyysluvun karttarivillä,
-    joten lukija voi yhdistää rivin oikeaan karttalukuun.
+    The label is **the same string** as on the traceability chapter's map
+    row, so the reader can connect the row to the right map chapter.
     """
     entry = map_report(FACEIT_DEMO_ID, [side("CT", [round_type("eco", 1)])],
                        demo_ids=[FACEIT_DEMO_ID], source="unknown")
@@ -3654,7 +3781,9 @@ def test_an_unrecognised_map_never_puts_its_identifier_in_the_body() -> None:
 
 
 def test_the_anomaly_chapter_comes_before_the_map_chapters() -> None:
-    """Poikkeamat ovat epicin arvokkain tuotos eivätkä kuulu loppuun."""
+    """The anomalies are the epic's most valuable output and do not belong at
+    the end.
+    """
     text = render(report([pistol_map()], anomalies=[anomaly()]))
     headings = [heading for heading, _ in report_sections(text) if heading]
     assert headings.index(ANOMALY_HEADING) < headings.index(
@@ -3664,7 +3793,7 @@ def test_the_anomaly_chapter_comes_before_the_map_chapters() -> None:
 
 
 def test_the_anomaly_chapter_follows_the_missing_demos_chapter() -> None:
-    """Järjestys on yhteenveto, puuttuvat demot, poikkeamat, kartat."""
+    """The order is summary, missing demos, anomalies, maps."""
     text = render(
         report(
             [pistol_map()],
@@ -3681,12 +3810,12 @@ def test_the_anomaly_lines_are_bullets_not_paragraphs() -> None:
         render(report([pistol_map()], anomalies=[anomaly(), crunch_anomaly()]))
     )
     rows = [row for row in text.splitlines() if row.strip()]
-    assert len(rows) == 4  # kaksi koontiriviä ja kaksi kierrosriviä
+    assert len(rows) == 4  # two summary rows and two round rows
     assert all(row.lstrip().startswith("- ") for row in rows), rows
 
 
 def test_the_most_repeated_anomaly_comes_first() -> None:
-    """Luku nostaa esiin sen, mikä toistuu."""
+    """The chapter raises what repeats."""
     once = anomaly(area="Ramp", m=4)
     twice = anomaly(
         area="TSideLower",
@@ -3698,12 +3827,13 @@ def test_the_most_repeated_anomaly_comes_first() -> None:
 
 
 def test_the_chapter_has_a_line_cap_and_says_what_it_dropped() -> None:
-    """Luku on raportin ensimmäinen sisältöluku eikä saa kasvaa rajatta.
+    """The chapter is the report's first content chapter and must not grow
+    without bound.
 
-    Kuolemarivien katto on rakenteellinen, joten sen ylitys on virhe.
-    Poikkeamien määrä on aineiston ominaisuus, joten virhe kaataisi ajon
-    aineistosta jota ei voi valita -- rajaus tehdään ja pois jätettyjen määrä
-    kirjoitetaan näkyviin, kuten kuvion kynnyksellä.
+    The cap on death rows is structural, so exceeding it is an error. The
+    number of anomalies is a property of the data, so an error would abort
+    the run over data that cannot be chosen -- the bound is applied and the
+    number left out is written out, as with the pattern threshold.
     """
     many = [
         anomaly(area=f"Alue{i:02d}", m=MAX_ANOMALY_LINES + 5)
@@ -3711,35 +3841,40 @@ def test_the_chapter_has_a_line_cap_and_says_what_it_dropped() -> None:
     ]
     text = anomaly_text(render(report([pistol_map()], anomalies=many)))
     rows = [r for r in text.splitlines() if r.startswith("- ")]
-    # 20 koontiriviä + yksi huomautusrivi.
+    # 20 summary rows + one note row.
     assert len(rows) == MAX_ANOMALY_LINES + 1
     assert "3 poikkeamaa jäi pois" in text
     assert "report.jsonissa" in text
 
 
 def test_the_cap_note_is_absent_when_nothing_was_dropped() -> None:
-    """Vartijan toinen haara: hiljainen rajaus ei ole ainoa vaara."""
+    """The guard's other branch: a silent bound is not the only danger."""
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
     assert "jäi pois" not in text
 
 
 def test_the_chapter_heading_is_the_same_in_the_code_and_the_template() -> None:
-    """Sama vartija kuin jäljitettävyysluvulla: kaksi kopiota erkanisi."""
+    """The same guard as with the traceability chapter: two copies would
+    drift.
+    """
     assert f"## {ANOMALY_HEADING}" in template_text()
 
 
 def test_the_legend_explains_what_the_t_share_means() -> None:
-    """Lukuohje kertoo, että orientaatio on demon oma havainto."""
+    """The reading guide says that the orientation is the demo's own
+    observation.
+    """
     legend = section_text(render(report([pistol_map()])), "Lukuohje")
     assert "demon oma havainto" in legend
     assert "molempien joukkueiden" in legend
 
 
 def test_the_legend_names_the_thresholds_from_the_report() -> None:
-    """Kynnykset luetaan raportista eikä keksitä renderöinnissä.
+    """The thresholds are read from the report and not invented in the
+    rendering.
 
-    Säädetty ``settings.toml`` näkyy raportin tekstissä vain, jos teksti
-    tulee raportista -- sama sääntö kuin kuvion kynnyksellä.
+    An adjusted ``settings.toml`` shows in the report's text only if the text
+    comes from the report -- the same rule as with the pattern threshold.
     """
     legend = section_text(render(report([pistol_map()])), "Lukuohje")
     assert "vähintään 0,80" in legend
@@ -3748,7 +3883,7 @@ def test_the_legend_names_the_thresholds_from_the_report() -> None:
 
 
 def test_the_legend_follows_a_changed_threshold() -> None:
-    """Vartija sille, ettei luku ole kovakoodattu."""
+    """A guard that the number is not hardcoded."""
     legend = section_text(
         render(
             report(
@@ -3777,10 +3912,10 @@ def test_the_legend_follows_a_changed_threshold() -> None:
 
 
 def test_the_legend_defines_both_rules() -> None:
-    """Ilman määritelmiä sääntöjen epäsymmetria on näkymätön.
+    """Without the definitions the rules' asymmetry is invisible.
 
-    Lukija ei muuten voi tietää, miksi alue esiintyy ``eco``-rivillä muttei
-    ``default``-rivillä.
+    The reader cannot otherwise know why an area appears on an ``eco`` row
+    but not on a ``default`` row.
     """
     legend = section_text(render(report([pistol_map()])), "Lukuohje")
     assert "**CT-eteneminen**" in legend
@@ -3790,10 +3925,10 @@ def test_the_legend_defines_both_rules() -> None:
 
 
 def test_the_legend_is_written_even_for_an_empty_chapter() -> None:
-    """Puhtaan raportin lukija tarvitsee menetelmän enemmän kuin kukaan muu.
+    """The reader of a clean report needs the method more than anyone.
 
-    Peruste on eri kuin muilla lukuohjeen kappaleilla: nämä eivät selitä
-    riviä, joka raportissa on, vaan mitä mitattiin.
+    The rationale differs from the reading guide's other paragraphs: these do
+    not explain a row that is in the report but what was measured.
     """
     legend = section_text(render(report()), "Lukuohje")
     assert "demon oma havainto" in legend
@@ -3801,7 +3936,9 @@ def test_the_legend_is_written_even_for_an_empty_chapter() -> None:
 
 
 def test_the_areas_stay_in_english_in_the_anomaly_chapter() -> None:
-    """Calloutit englanniksi, teksti suomeksi -- sama sääntö kuin muualla."""
+    """Callouts in English, the text in Finnish -- the same rule as
+    elsewhere.
+    """
     text = anomaly_text(
         render(
             report(
@@ -3823,14 +3960,14 @@ def test_the_areas_stay_in_english_in_the_anomaly_chapter() -> None:
 
 
 def test_the_anomaly_chapter_carries_no_interpretation() -> None:
-    """Ei tulkintaa eikä vastastrategiaa -- vain havainto."""
+    """No interpretation and no counter-strategy -- only the observation."""
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
     for word in ("fake", "rush", "kannattaa", "suositus", "vastaus"):
         assert word not in text.lower()
 
 
 def test_a_single_player_is_not_written_in_the_plural() -> None:
-    """Neljä kuudesta kalibroidusta osumasta on yhden pelaajan havainto."""
+    """Four of the six calibrated hits are one player's observation."""
     text = anomaly_text(
         render(
             report(
@@ -3843,16 +3980,16 @@ def test_a_single_player_is_not_written_in_the_plural() -> None:
 
 
 def test_every_anomaly_rule_has_a_finnish_name_in_the_view() -> None:
-    """Näkymä indeksoi karttaa suoraan, joten puuttuva nimi kaataa sen."""
+    """The view indexes the map directly, so a missing name breaks it."""
     for rule in ANOMALY_RULES:
         assert ANOMALY_RULE_FI[rule]
 
 
-# --- Karsinta (Story 2.13) ------------------------------------------------------
+# --- Pruning (Story 2.13) -------------------------------------------------------
 
-#: Utilityn kohteet :func:`pruning_map`in eco-lohkossa: yhdeksän kohdetta
-#: yhdellä rivillä. Mitattuna kymmenellä rivillä oli kohteita viidestä
-#: yhdeksään, ja juuri sellainen rivi on luettelo eikä kuvio.
+#: Utility's targets in :func:`pruning_map`'s eco block: nine targets on one
+#: row. Measured, ten rows had between five and nine targets, and such a row
+#: is a list and not a pattern.
 PRUNE_UTILITY = {
     "BombsiteA": 4,
     "Palace": 3,
@@ -3865,7 +4002,7 @@ PRUNE_UTILITY = {
     "Window": 1,
 }
 
-#: Tappoalueet samassa lohkossa: yhdeksän aluetta yhdellä rivillä.
+#: The kill areas in the same block: nine areas on one row.
 PRUNE_KILLS = {
     "BombsiteA": 5,
     "Palace": 4,
@@ -3878,34 +4015,34 @@ PRUNE_KILLS = {
     "Window": 1,
 }
 
-#: Vain nimetty näytepiste pois (sääntö 3). Oletus on säilyttää, joten tämä on
-#: ainoa sääntö, jonka **päälle** kääntäminen on erillinen valinta.
+#: Only the named sample point off (rule 3). The default is to keep it, so
+#: this is the only rule whose switching **on** is a separate choice.
 SKIP_45 = ReportSettings(skip_sample_seconds=[45.0])
 
 
 def pruning_map() -> MapReport:
-    """Kartta, jonka jokainen lohko koskettaa eri karsintasääntöä.
+    """A map every block of which touches a different pruning rule.
 
-    Yksi kiinnike eikä viisi, koska säännöt vaikuttavat toisiinsa: sääntö 1
-    pudottaa rivin, jonka sääntö 2 muuten yhdistäisi, kuviosuodatus voi
-    pudottaa rivin ennen kuin karsinta ehtii, ja karsimaton lohko on
-    vertailukohta kaikille. Viisi erillistä kiinnikettä eivät koskaan
-    näyttäisi järjestystä.
+    One fixture and not five, because the rules affect each other: rule 1
+    drops a row rule 2 would otherwise merge, pattern filtering can drop a
+    row before pruning gets there, and the unpruned block is the point of
+    comparison for all of them. Five separate fixtures would never show the
+    order.
 
-    * **eco** -- kylläinen panssaririvi (sääntö 1), aseistettujen rivi joka
-      **ei** ole kylläinen, neljä aikanäytepistettä (sääntö 3), yhdeksän
-      utilityn kohdetta (sääntö 4) ja yhdeksän tappoaluetta (sääntö 5).
-    * **force** -- identtiset kalustorivit (sääntö 2).
-    * **puoliosto** -- eroavat kalustorivit (aseistettuja 1, panssaroituja 3):
-      I/O-matriisin rivi, jolla kumpikin rivi säilyy.
-    * **default** -- ``PATTERN_ROUND_TYPES``in lohko, jossa **kuviosuodatus
-      puree**: kylläinen kalustorivi ja 45 s -näytepiste jäävät kynnyksen
-      alle. Ilman tätä lohkoa karsinnan ja kynnyksen vuorovaikutusta ei
-      saavutettaisi kertaakaan, koska muissa lohkoissa ``min_n`` on 1 --
-      ja juuri se vuorovaikutus rikkoi tarinan ydinlupauksen
-      katselmuskierroksella 1.
-    * **pistooli** -- kylläiset ja identtiset kalustorivit, neljä kohdetta,
-      viisi tappoaluetta ja 45 s -näytepiste. Mitään näistä ei karsita.
+    * **eco** -- a saturated armour row (rule 1), an armed row that is
+      **not** saturated, four time sample points (rule 3), nine utility
+      targets (rule 4) and nine kill areas (rule 5).
+    * **force** -- identical equipment rows (rule 2).
+    * **half-buy** -- differing equipment rows (1 armed, 3 armoured): the I/O
+      matrix's row on which both rows stay.
+    * **default** -- a ``PATTERN_ROUND_TYPES`` block in which **pattern
+      filtering bites**: the saturated equipment row and the 45 s sample
+      point fall below the threshold. Without this block the interaction of
+      pruning and the threshold would never be reached, because in the other
+      blocks ``min_n`` is 1 -- and it was precisely that interaction that
+      broke the story's core promise on review round 1.
+    * **pistol** -- saturated and identical equipment rows, four targets,
+      five kill areas and a 45 s sample point. None of them is pruned.
     """
     return map_report(
         "de_mirage",
@@ -4008,29 +4145,30 @@ def pruning_map() -> MapReport:
 
 
 def pruning_report() -> Report:
-    """Raportti, jossa on :func:`pruning_map` ja ei muuta."""
+    """A report that holds :func:`pruning_map` and nothing else."""
     return report([pruning_map()])
 
 
 def content_rows(text: str) -> list[str]:
-    """Karttalukujen rivit -- se luku, jota epicin mittari koskee.
+    """The map chapters' rows -- the number the epic's metric concerns.
 
-    Sama rajaus kuin :func:`observation_rows`illa, mutta mukana ovat myös
-    kursivoidut huomiot: karsinnan hinta on rivi siinäkin tapauksessa, että
-    se on huomautus, ja ilman niitä mittaus näyttäisi karsinnan
-    tehokkaammalta kuin se on.
+    The same bound as :func:`observation_rows`'s, but the italic notes are
+    included: pruning's price is a row even when that row is a note, and
+    without them the measurement would make pruning look more effective than
+    it is.
     """
     body = text.split(MAP_HEADING_START)[1].split("## Kierrosliite")[0]
     return [row for row in body.splitlines() if row.startswith("- ")]
 
 
 def map_chapter(text: str) -> str:
-    """Karttaluku kokonaisena -- se osa, jota karsinta voi koskettaa.
+    """The map chapter whole -- the part pruning can touch.
 
-    Golden lukitsee tämän eikä koko dokumenttia: yhteenveto, poikkeamaluku,
-    kierrosliite, lukuohjeen vakiokappaleet ja jäljitettävyysluku ovat jo
-    lukittuina :data:`GOLDEN`issa, ja kahtena kopiona mikä tahansa muu
-    raporttimuutos kaataisi kaksi goldenia yhden asian takia.
+    The golden locks this and not the whole document: the summary, the
+    anomaly chapter, the round appendix, the reading guide's standing
+    paragraphs and the traceability chapter are already locked in
+    :data:`GOLDEN`, and as two copies any other report change would break two
+    goldens over one thing.
     """
     return MAP_HEADING_START + text.split(MAP_HEADING_START)[1].split(
         "## Kierrosliite"
@@ -4040,12 +4178,12 @@ def map_chapter(text: str) -> str:
 
 
 def block(text: str, heading: str) -> str:
-    """Yhden kierrostyyppilohkon rivit.
+    """One round-type block's rows.
 
-    Lohko eikä koko raportti, koska jokainen karsintasääntö on
-    kierrostyyppikohtainen: väite "rivi katosi" on tehtävä siitä lohkosta,
-    josta sen pitikin kadota, tai sama väite menisi läpi myös silloin kun
-    rivi katosi väärästä lohkosta.
+    A block and not the whole report, because every pruning rule is
+    per round type: the claim "the row vanished" has to be made about the
+    block it was supposed to vanish from, or the same claim would pass even
+    when the row vanished from the wrong block.
     """
     part = text.split(f"**{heading}**", 1)[1]
     rows: list[str] = []
@@ -4059,11 +4197,12 @@ def block(text: str, heading: str) -> str:
 
 
 def threshold_note(text: str, heading: str = "Default") -> str:
-    """Lohkon kuviosuodatuksen huomautus -- **väite datasta**, ei esitystä.
+    """The block's pattern-filtering note -- **a claim about the data**, not
+    presentation.
 
-    Oma apufunktio, koska juuri tämä rivi on kohta A: karsinta ei saa muuttaa
-    sitä, ja väitteen tekeminen koko lohkosta menisi läpi myös silloin, kun
-    huomautus muuttui ja jokin muu rivi katosi samalla.
+    A helper of its own, because it is this row that is item A: pruning must
+    not change it, and making the claim about the whole block would pass even
+    when the note changed and some other row vanished at the same time.
     """
     rows = [
         row
@@ -4073,29 +4212,31 @@ def threshold_note(text: str, heading: str = "Default") -> str:
     return rows[0] if rows else ""
 
 
-# --- Kaikki säännöt pois: raportti on merkki merkiltä sama --------------------
+# --- Every rule off: the report is character for character the same ------------
 
-#: Golden :func:`pruning_map`in karttaluvusta **karsinta kokonaan pois**.
+#: The golden of :func:`pruning_map`'s map chapter with **pruning entirely
+#: off**.
 #:
-#: Väite on regressiovartija: karsinta ei muuta karttalukua mitenkään, kun
-#: jokainen sääntö on pois päältä. Kiinnike laukaisee kaikki viisi sääntöä,
-#: joten testi kaatuu myös silloin, jos jokin sääntö karsii asetuksen ollessa
-#: pois -- ja se on se virhe, jota se ensisijaisesti etsii.
+#: The claim is a regression guard: pruning does not change the map chapter
+#: in any way when every rule is switched off. The fixture triggers all five
+#: rules, so the test also fails if some rule prunes while its setting is
+#: off -- and that is the fault it is primarily looking for.
 #:
-#: **Alkuperä on toistettavissa, ei uskon asia.** Teksti on tarkistettu
-#: Story 2.13:a edeltävää koodia (baseline ``e9a8c88``) vasten, ja tarkistus
-#: toistetaan näin::
+#: **The provenance is reproducible, not a matter of faith.** The text has
+#: been checked against the code before Story 2.13 (baseline ``e9a8c88``),
+#: and the check is repeated like this::
 #:
 #:     git worktree add ../pappascout-baseline e9a8c88
-#:     # kopioi tämän tiedoston pruning_map() ja renderöi se siellä
-#:     # ilman settings-parametria; vertaa karttalukua tähän vakioon
+#:     # copy this file's pruning_map() and render it there
+#:     # without the settings parameter; compare the map chapter with this
+#:     # constant
 #:
-#: Repossa oleva väite on se, minkä repo voi itse tarkistaa joka ajolla:
-#: **tämä teksti ei muutu**, kun karsinta on pois päältä. Vahvin todiste
-#: alkuperästä on kuitenkin arkiston oikeista raporteista tehty ``diff``,
-#: joka on tyhjä: se vertaa tuotettua raporttia tiedostoon, joka
-#: kirjoitettiin ennen tätä tarinaa. Molemmat kirjataan speksin Manual
-#: checks -osioon.
+#: The claim in the repository is the one the repository can check by itself
+#: on every run: **this text does not change** when pruning is off. The
+#: strongest evidence of the provenance is nevertheless the ``diff`` made
+#: from the archive's real reports, which is empty: it compares the produced
+#: report with a file written before this story. Both are recorded in the
+#: spec's Manual checks section.
 GOLDEN_PRUNING_OFF_CHAPTER = """\
 ## `de_mirage` -- 13 kierrosta, 1 demo
 
@@ -4139,32 +4280,31 @@ GOLDEN_PRUNING_OFF_CHAPTER = """\
 
 
 def test_with_every_rule_off_the_map_chapter_is_what_it_was() -> None:
-    """Tarinan tärkein testi: karsinta ei muuta mitään muuta.
+    """The story's most important test: pruning changes nothing else.
 
-    Osamerkkijonoväitteet eivät riitä tähän: ne eivät näe rivien
-    järjestystä, väitteiden järjestystä rivin sisällä eivätkä lohkojen
-    huomautuksia, ja juuri ne ovat se, mitä "merkki merkiltä sama"
-    tarkoittaa.
+    Substring claims are not enough for this: they do not see the rows'
+    order, the claims' order within a row, nor the blocks' notes, and those
+    are exactly what "character for character the same" means.
     """
     text = render(pruning_report(), NO_PRUNING)
     assert map_chapter(text) == GOLDEN_PRUNING_OFF_CHAPTER
-    # Eikä muu dokumentti kanna karsinnasta jälkeäkään: lukuohjeessa ei ole
-    # kappaletta säännöstä, joka on pois päältä, eikä yhteenvedossa riviä
-    # säännöistä, joita ei ole. Karttaluku on lukittu goldeniin, ja nämä
-    # kaksi kattavat sen, mitä karsinta voisi muualta muuttaa -- muut luvut
-    # ovat lukittuina :data:`GOLDEN`issa.
+    # And the rest of the document carries no trace of pruning either: the
+    # reading guide has no paragraph about a rule that is off, and the
+    # summary has no row about rules that are not there. The map chapter is
+    # locked into the golden, and these two cover what pruning could change
+    # elsewhere -- the other chapters are locked in :data:`GOLDEN`.
     assert "[report]." not in section_text(text, "Lukuohje")
     assert "Karsinnan säännöt" not in summary_text(text)
 
 
 def test_the_summary_row_appears_only_when_a_rule_is_on() -> None:
-    """Kaikki säännöt pois -> ei riviä: raportti on entisellään.
+    """Every rule off -> no row: the report is as it was.
 
-    Rivi kertoo, millä säännöillä raportti kirjoitettiin. Kun yksikään ei ole
-    päällä, ilmoitettavaa ei ole -- ja rivin kirjoittaminen rikkoisi tarinan
-    tärkeimmän lupauksen, joka on merkki merkiltä sama raportti kuin ennen
-    Story 2.13:a. Yksi sääntö riittää tuomaan rivin, ja rivi luettelee
-    silloin **kaikki** arvot, myös pois käännetyt.
+    The row says with which rules the report was written. When none is on,
+    there is nothing to report -- and writing the row would break the story's
+    most important promise, which is a report character for character the
+    same as before Story 2.13. One rule is enough to bring the row, and the
+    row then lists **all** the values, the switched-off ones included.
     """
     assert "Karsinnan säännöt" not in summary_text(
         render(pruning_report(), NO_PRUNING)
@@ -4182,11 +4322,12 @@ def test_the_summary_row_appears_only_when_a_rule_is_on() -> None:
 
 
 def test_pruning_never_touches_the_report_model() -> None:
-    """``report.json`` on jäljitettävyyden lähde: karsinta ei kirjoita siihen.
+    """``report.json`` is the source of traceability: pruning does not write
+    into it.
 
-    Malli serialisoidaan ennen ja jälkeen renderöinnin ja verrataan tavuina.
-    Karsittu arvo on siis yhä koneella, ja asetuksen kääntäminen takaisin
-    vaatii vain uuden renderöinnin -- ei uudelleenaggregointia.
+    The model is serialised before and after the rendering and compared as
+    bytes. A pruned value is therefore still on the machine, and switching
+    the setting back needs only a new rendering -- not a re-aggregation.
     """
     entry = pruning_report()
     before = entry.model_dump_json()
@@ -4196,11 +4337,10 @@ def test_pruning_never_touches_the_report_model() -> None:
 
 
 def test_every_rule_is_its_own_setting() -> None:
-    """Tuotteen omistaja voi kääntää minkä tahansa säännön pois ilman
-    koodimuutosta.
+    """The product owner can switch any rule off without a code change.
 
-    Yksi kerrallaan: jokaisen säännön poiskääntäminen palauttaa oman rivinsä,
-    eikä yksi asetus ohjaa kahta sääntöä.
+    One at a time: switching each rule off brings back its own row, and one
+    setting does not drive two rules.
     """
     entry = pruning_report()
     with_defaults = render(entry)
@@ -4229,18 +4369,18 @@ def test_every_rule_is_its_own_setting() -> None:
     assert "Underpass (1/20 taposta)" not in block(with_defaults, "Eco")
 
 
-# --- Kohta A: karsinta ei muuta väitettä datasta -----------------------------
+# --- Item A: pruning does not change a claim about the data ------------------
 
 
 PRUNING_VARIANTS = {
-    "kaikki oletukset": DEFAULT_PRUNING,
-    "sääntö 3 päällä": SKIP_45,
-    "vain kylläinen": ReportSettings(
+    "all defaults": DEFAULT_PRUNING,
+    "rule 3 on": SKIP_45,
+    "saturated only": ReportSettings(
         merge_equal_equipment_lines=False,
         max_utility_targets=0,
         max_kill_areas=0,
     ),
-    "vain näytepiste": ReportSettings(
+    "sample point only": ReportSettings(
         drop_saturated_equipment_lines=False,
         merge_equal_equipment_lines=False,
         skip_sample_seconds=[45.0],
@@ -4254,17 +4394,18 @@ PRUNING_VARIANTS = {
 def test_the_pattern_threshold_note_is_the_same_with_and_without_pruning(
     name: str,
 ) -> None:
-    """Kohta A, katselmuskierros 1: lohkon kynnysmerkintä on **väite datasta**.
+    """Item A, review round 1: the block's threshold note is **a claim about
+    the data**.
 
-    Kynnyksen pudottamien havaintojen määrä ei ole esitysvalinta vaan
-    havainto siitä, mikä ei toistunut riittävästi. Jos karsinta oikosulkisi
-    rivinrakentajan, laskuri pienenisi karsinnan mukana ja lohko sanoisi
-    *"jokainen havainto ylitti kynnyksen"* raportissa, jossa yksi ei
-    ylittänyt.
+    The number of observations the threshold dropped is not a presentation
+    choice but an observation of what did not repeat enough. If pruning short
+    circuited the row builder, the counter would shrink along with the
+    pruning and the block would say *"jokainen havainto ylitti kynnyksen"* in
+    a report in which one did not.
 
-    Kiinnikkeen ``default``-lohkossa sekä kylläinen kalustorivi että 45 s
-    -näytepiste jäävät kynnyksen alle, joten molemmat karsintasäännöt osuvat
-    riviin, jota ei kirjoitettaisi muutenkaan.
+    In the fixture's ``default`` block both the saturated equipment row and
+    the 45 s sample point fall below the threshold, so both pruning rules hit
+    a row that would not be written anyway.
     """
     entry = pruning_report()
     plain = threshold_note(render(entry, NO_PRUNING))
@@ -4273,12 +4414,13 @@ def test_the_pattern_threshold_note_is_the_same_with_and_without_pruning(
 
 
 def test_a_row_the_threshold_already_dropped_is_not_claimed_as_pruned() -> None:
-    """Kohta A2: lukuohje ei väitä karsineensa riviä, jota ei kirjoitettu.
+    """Item A2: the reading guide does not claim to have pruned a row that
+    was not written.
 
-    Lohkossa on kylläinen panssaririvi, jonka kuviosuodatus pudottaa
-    (kaksi kierrosta, kynnys kolme). Sääntö 1 ei siis poistanut mitään,
-    eikä se saa sanoa poistaneensa: puuttuvan rivin syy on kynnys, ja
-    lohkon oma huomautus kertoo sen.
+    The block has a saturated armour row that pattern filtering drops (two
+    rounds, threshold three). Rule 1 therefore removed nothing, and it must
+    not say that it did: the missing row's reason is the threshold, and the
+    block's own note says so.
     """
     entry = report(
         [
@@ -4307,11 +4449,12 @@ def test_a_row_the_threshold_already_dropped_is_not_claimed_as_pruned() -> None:
 
 
 def test_a_pruned_row_does_not_leave_its_explanation_behind() -> None:
-    """Pudotetun rivin selitys ei jää lukuohjeeseen.
+    """A dropped row's explanation does not stay in the reading guide.
 
-    Ainoa tuntematon alue on 45 s -näytepisteellä, joka jätetään
-    kirjoittamatta. Lukuohje selittäisi muuten merkinnän, jota raportissa ei
-    ole -- sama virhe kuin karsintakappale säännöstä, joka ei osunut.
+    The only unknown area is on the 45 s sample point, which is left
+    unwritten. The reading guide would otherwise explain a mark that is not
+    in the report -- the same fault as a pruning paragraph about a rule that
+    did not hit.
     """
     entry = report(
         [
@@ -4339,35 +4482,39 @@ def test_a_pruned_row_does_not_leave_its_explanation_behind() -> None:
     assert UNKNOWN_AREA not in render(entry, SKIP_45)
 
 
-# --- Sääntö 1: kylläinen kalustorivi ------------------------------------------
+# --- Rule 1: the saturated equipment row --------------------------------------
 
 
 def test_a_saturated_equipment_line_is_left_out() -> None:
-    """I/O-matriisi: default-lohko, panssaroituja 5 kaikilla kierroksilla."""
+    """I/O matrix: the default block, 5 armoured on every round."""
     eco = block(render(pruning_report()), "Eco")
     assert "- panssaroituja ostoajan lopussa" not in eco
-    # Aseistettujen rivi ei ole kylläinen (0), joten se säilyy: sääntö koskee
-    # kylläistä lukemaa eikä kalustorivejä yleensä.
+    # The armed row is not saturated (0), so it stays: the rule concerns a
+    # saturated reading and not equipment rows in general.
     assert "aseistettuja ostoajan lopussa: 0 (4/4 kierroksesta)" in eco
 
 
 def test_the_legend_says_what_a_missing_equipment_line_means() -> None:
-    """Mikään ei katoa hiljaa: lukuohje kertoo mitä puuttuminen tarkoittaa."""
+    """Nothing vanishes in silence: the reading guide says what the absence
+    means.
+    """
     legend = section_text(render(pruning_report()), "Lukuohje")
     assert "Kylläinen kalustorivi on jätetty pois" in legend
     assert f"vain arvo {PLAYERS_ON_SERVER}" in legend
-    # Kylläisyys ei ole ainoa syy: kynnys voi pudottaa saman rivin, ja
-    # lukuohje ei saa väittää muuta (katselmuskierros 1, kohta D4).
+    # Saturation is not the only reason: the threshold can drop the same row,
+    # and the reading guide must not claim otherwise (review round 1, item
+    # D4).
     assert "Kylläisyys ei ole ainoa syy" in legend
     assert "[report].drop_saturated_equipment_lines" in legend
 
 
 def test_a_zero_line_is_not_saturated_even_though_it_never_varies() -> None:
-    """*"Ei kevuja"* on havainto, ei odotus.
+    """*"Ei kevuja"* is an observation, not an expectation.
 
-    Yksi pylväs arvolla 0 on yhtä yksitoikkoinen rivi kuin arvolla 5, mutta
-    se kertoo päinvastaisen asian -- ja juuri se rivi on tavoiteanalyysissä
-    (Ancient, CT). Sääntö on kirjoitettu arvolle, ei vaihtelun puutteelle.
+    One bar with the value 0 is just as monotonous a row as one with the
+    value 5, but it says the opposite thing -- and it is that row that is in
+    the target analysis (Ancient, CT). The rule is written for the value, not
+    for the absence of variation.
     """
     entry = report(
         [
@@ -4390,7 +4537,9 @@ def test_a_zero_line_is_not_saturated_even_though_it_never_varies() -> None:
 
 
 def test_a_saturated_line_with_unreadable_rounds_stays() -> None:
-    """Huomautus lukukelvottomista kierroksista on havainto, joka ei katoa."""
+    """A note about unreadable rounds is an observation and does not
+    vanish.
+    """
     entry = report(
         [
             map_report(
@@ -4416,7 +4565,9 @@ def test_a_saturated_line_with_unreadable_rounds_stays() -> None:
 
 
 def test_a_varying_equipment_line_is_not_saturated() -> None:
-    """Kaksi pylvästä tarkoittaa, että lukema vaihteli -- vaihtelu on havainto."""
+    """Two bars mean that the reading varied -- variation is an
+    observation.
+    """
     entry = report(
         [
             map_report(
@@ -4438,12 +4589,13 @@ def test_a_varying_equipment_line_is_not_saturated() -> None:
 
 
 def test_both_counters_saturated_and_identical_drop_before_they_merge() -> None:
-    """Sääntöjen järjestys on kantava: kylläinen pudotetaan **ennen** yhdistämistä.
+    """The rules' order is load-bearing: the saturated row is dropped
+    **before** the merging.
 
-    Jos yhdistäminen tapahtuisi ensin, lohkoon kirjoitettaisiin yksi rivi,
-    joka on juuri se odotus ("kaikilla viidellä sekä ase että panssari joka
-    kierroksella"), jonka sääntö 1 jättää sanomatta. Ilman tätä testiä
-    järjestys olisi dokumentoitu muttei valvottu.
+    If the merging happened first, one row would be written into the block,
+    and that row is precisely the expectation ("all five had both a weapon
+    and armour on every round") rule 1 leaves unsaid. Without this test the
+    order would be documented but not enforced.
     """
     entry = report(
         [
@@ -4476,14 +4628,14 @@ def test_both_counters_saturated_and_identical_drop_before_they_merge() -> None:
     assert "kirjoitettu yhtenä" not in legend
 
 
-# --- Sääntö 2: identtiset kalustorivit yhdeksi --------------------------------
+# --- Rule 2: identical equipment rows into one --------------------------------
 
 
 def test_identical_equipment_lines_become_one_line_that_says_both() -> None:
-    """I/O-matriisi: aseistettuja ja panssaroituja samalla jakaumalla.
+    """I/O matrix: armed and armoured with the same distribution.
 
-    Kiinnikkeessä luvut ovat 3 ja 1 -- sama sääntö, mutta ilman kylläisyyttä,
-    jotta testi mittaa yhdistämistä eikä sääntöä 1.
+    In the fixture the numbers are 3 and 1 -- the same rule, but without
+    saturation, so that the test measures the merging and not rule 1.
     """
     force = block(render(pruning_report()), "Force")
     assert MERGED_EQUIPMENT_LABEL in force
@@ -4493,11 +4645,12 @@ def test_identical_equipment_lines_become_one_line_that_says_both() -> None:
 
 
 def test_the_merged_line_keeps_both_definitions_in_the_legend() -> None:
-    """Yhdistetty rivi kantaa molempien luvun, joten molemmat määritellään.
+    """The merged row carries both numbers, so both are defined.
 
-    Ilman kumpaakin lippua lukija näkisi nimiön "aseistettuja ja
-    panssaroituja" ilman kummankaan sanan määritelmää -- ja määritelmien ero
-    on juuri se, mikä tekee identtisistä luvuista havainnon.
+    Without both flags the reader would see the label "aseistettuja ja
+    panssaroituja" without a definition of either word -- and the difference
+    between the definitions is exactly what makes identical numbers an
+    observation.
     """
     legend = section_text(render(pruning_report()), "Lukuohje")
     assert "Aseistettu = panssari JA parannettu ase" in legend
@@ -4507,7 +4660,7 @@ def test_the_merged_line_keeps_both_definitions_in_the_legend() -> None:
 
 
 def test_differing_equipment_lines_stay_two_lines() -> None:
-    """I/O-matriisi: aseistettuja 1, panssaroituja 3 -> kaksi riviä kuten ennen."""
+    """I/O matrix: 1 armed, 3 armoured -> two rows as before."""
     half = block(render(pruning_report()), "Puoliosto")
     assert "aseistettuja ostoajan lopussa: 1 (2/2 kierroksesta)" in half
     assert "panssaroituja ostoajan lopussa: 3 (2/2 kierroksesta)" in half
@@ -4515,10 +4668,11 @@ def test_differing_equipment_lines_stay_two_lines() -> None:
 
 
 def test_the_same_bars_with_a_different_note_are_not_the_same_line() -> None:
-    """Pylväät identtiset, ``rounds_unknown`` eri: rivien huomautukset eroavat.
+    """The bars identical, ``rounds_unknown`` different: the rows' notes
+    differ.
 
-    Huomautus on havainto ("havainto puuttuu 1 kierrokselta"), joten
-    yhdistetty rivi kertoisi sen vain toisesta laskurista.
+    The note is an observation ("havainto puuttuu 1 kierrokselta"), so a
+    merged row would give it for only one of the counters.
     """
     entry = report(
         [
@@ -4546,17 +4700,21 @@ def test_the_same_bars_with_a_different_note_are_not_the_same_line() -> None:
     assert "panssaroituja ostoajan lopussa: 3 (3/3 kierroksesta)" in text
 
 
-# --- Sääntö 3: näytepiste pois ------------------------------------------------
+# --- Rule 3: the sample point off ---------------------------------------------
 
 
 def test_the_late_sample_point_stays_by_default() -> None:
-    """Oletus on säilyttää: 45 s ei ole toistoa vaan ohut havainto."""
+    """The default is to keep it: 45 s is not repetition but a thin
+    observation.
+    """
     assert ReportSettings().skip_sample_seconds == []
     assert "45 s:" in block(render(pruning_report()), "Eco")
 
 
 def test_a_named_sample_point_can_be_left_out() -> None:
-    """Asetus päällä -> rivi jätetään pois, ja muut näytepisteet säilyvät."""
+    """The setting on -> the row is left out, and the other sample points
+    stay.
+    """
     eco = block(render(pruning_report(), SKIP_45), "Eco")
     assert "45 s:" not in eco
     assert "6 s:" in eco
@@ -4572,12 +4730,12 @@ def test_the_legend_says_which_sample_point_is_missing_and_why() -> None:
 
 
 def test_the_legend_does_not_quote_one_sample_points_numbers_for_another() -> None:
-    """Kappale ei väitä mitattuja lukuja näytepisteestä, jota ei mitattu.
+    """The paragraph does not claim measured numbers about a sample point
+    that was not measured.
 
-    45 s:n kattavuusluvut (53 %, 81 %) ovat ``settings.toml``issa, jossa ne
-    perustelevat oletuksen. Lukuohjeessa ne olisivat
-    väärät heti, kun asetus nimeää jonkin muun näytepisteen -- ja se on
-    kelvollinen valinta.
+    45 s's coverage numbers (53 %, 81 %) are in ``settings.toml``, where they
+    justify the default. In the reading guide they would be wrong as soon as
+    the setting names some other sample point -- and that is a valid choice.
     """
     legend = section_text(
         render(pruning_report(), ReportSettings(skip_sample_seconds=[30.0])),
@@ -4589,23 +4747,23 @@ def test_the_legend_does_not_quote_one_sample_points_numbers_for_another() -> No
 
 
 def test_the_sample_point_setting_matches_the_label_not_the_float() -> None:
-    """``45`` ja ``45.0`` tarkoittavat samaa riviä.
+    """``45`` and ``45.0`` mean the same row.
 
-    Asetuksen arvo on ihmisen kirjoittama TOML-luku ja näytepiste raportin
-    liukuluku; jos täsmäys olisi liukulukuvertailu, kirjoitusasu ratkaisisi
-    sen, poistuuko rivi.
+    The setting's value is a TOML number a human wrote and the sample point
+    is the report's float; if the match were a float comparison, the spelling
+    would settle whether the row is removed.
     """
     text = render(pruning_report(), ReportSettings(skip_sample_seconds=[45]))
     assert "45 s:" not in block(text, "Eco")
 
 
 def test_the_setting_and_the_row_label_share_one_formatter() -> None:
-    """Kaksi kerrosta, yksi muotoilu (:func:`seconds_label`).
+    """Two layers, one formatter (:func:`seconds_label`).
 
-    Latausvaiheen tarkistus "kaksi arvoa näyttäisi rivillä samalta" ja rivin
-    nimiö ovat sama funktio. Ilman yhteistä lähdettä ne sopisivat vain
-    tänään: yhden desimaalin lisääminen riville tekisi kahdesta
-    asetusarvosta saman rivin ilman että validointi huomaisi.
+    The load-time check "two values would look the same on the row" and the
+    row's label are the same function. Without a shared source they would
+    agree only today: adding one decimal to the row would make two settings
+    values the same row without the validation noticing.
     """
     assert seconds_label(45.0) == "45"
     assert seconds_label(9.5) == "9,5"
@@ -4615,10 +4773,10 @@ def test_the_setting_and_the_row_label_share_one_formatter() -> None:
 
 
 def test_first_contact_is_not_a_sample_point_that_can_be_named() -> None:
-    """Ensikontakti on kierroksen oma hetki, ei valittu näytepiste.
+    """First contact is the round's own moment, not a chosen sample point.
 
-    Sillä ei ole nimellistä sekuntilukua, joten mikään asetuksen arvo ei voi
-    osua siihen -- ei myöskään mediaanin sekuntiluku.
+    It has no nominal number of seconds, so no value of the setting can hit
+    it -- not the median's number of seconds either.
     """
     entry = report(
         [
@@ -4647,11 +4805,13 @@ def test_first_contact_is_not_a_sample_point_that_can_be_named() -> None:
     assert "ensikontakti (mediaani 9,0 s): Middle 2 (2/2 kierroksesta)" in text
 
 
-# --- Säännöt 4 ja 5: yleisimmät, ja pudotettujen määrä rivillä ----------------
+# --- Rules 4 and 5: the most common, and the number dropped on the row --------
 
 
 def test_a_utility_line_keeps_the_two_most_common_targets() -> None:
-    """I/O-matriisi: rivillä 9 kohdetta -> kaksi yleisintä + maininta."""
+    """I/O matrix: 9 targets on the row -> the two most common + a
+    mention.
+    """
     eco = block(render(pruning_report()), "Eco")
     smoke = [row for row in eco.splitlines() if row.startswith("- savu:")][0]
     assert "TSpawn -> BombsiteA (arvio) 0-5 s (4/4 kierroksesta)" in smoke
@@ -4661,12 +4821,12 @@ def test_a_utility_line_keeps_the_two_most_common_targets() -> None:
 
 
 def test_the_target_limit_counts_targets_not_claims() -> None:
-    """Kohta C: sama kohde kahdessa aikaikkunassa on **yksi** kohde.
+    """Item C: the same target in two time buckets is **one** target.
 
-    Aikaikkunat (``[aggregate].utility_seconds_buckets``) tuottavat samasta
-    kohteesta kaksi väitettä. Väitteitä rajaamalla kaksi säilytettyä paikkaa
-    voisi olla sama kohde kahdesti, ja rivi menettäisi jokaisen eri kohteen
-    samalla kun huomautus kutsuu niitä kohteiksi.
+    The time buckets (``[aggregate].utility_seconds_buckets``) produce two
+    claims about the same target. By bounding claims, the two retained places
+    could be the same target twice, and the row would lose every other target
+    while the note calls them targets.
     """
     entry = report(
         [
@@ -4709,7 +4869,7 @@ def test_the_target_limit_counts_targets_not_claims() -> None:
         for row in block(render(entry), "Eco").splitlines()
         if row.startswith("- savu:")
     ][0]
-    # Kaksi kohdetta: BombsiteA (molemmat ikkunat) ja Ramp.
+    # Two targets: BombsiteA (both buckets) and Ramp.
     assert "BombsiteA (arvio) 0-5 s" in smoke
     assert "BombsiteA (arvio) 5-10 s" in smoke
     assert "Ramp" in smoke
@@ -4718,18 +4878,18 @@ def test_the_target_limit_counts_targets_not_claims() -> None:
 
 
 def test_a_kept_claim_does_not_borrow_the_other_explanation() -> None:
-    """Arvio ja tuntematon alue eivät sytytä toisiaan.
+    """An estimate and an unknown area do not light each other up.
 
-    Rivillä on kaksi kohdetta: toisella on **havaittu** räjähdysalue mutta
-    tuntematon heittoalue, ja toinen (johdettu, "(arvio)") pudotetaan rajan
-    yli. Lukuohjeeseen kuuluu silloin tuntemattoman alueen selitys mutta
-    **ei** arvion selitystä -- ja päinvastoin, jos rajan yli menee
-    tuntematon.
+    The row has two targets: one has an **observed** detonation area but an
+    unknown throwing area, and the other (derived, "(arvio)") is dropped over
+    the limit. The reading guide then holds the unknown area's explanation
+    but **not** the estimate's -- and the other way round if it is the
+    unknown one that goes over the limit.
 
-    Löytyi omasta koodista katselmuskierroksella 1: kaksi lippua oli
-    niputettu yhdeksi totuusarvoksi, joten toinen selitys ilmestyi toisen
-    takia. Vika oli latentti, koska yhdessäkään kiinnikkeessä ei ollut
-    tuntematonta heittoaluetta havaitulla räjähdysalueella.
+    Found in our own code on review round 1: two flags had been bundled into
+    one boolean, so one explanation appeared because of the other. The fault
+    was latent, because in no fixture was there an unknown throwing area with
+    an observed detonation area.
     """
     entry = report(
         [
@@ -4769,8 +4929,9 @@ def test_a_kept_claim_does_not_borrow_the_other_explanation() -> None:
     assert UNKNOWN_AREA in legend
     assert "(arvio) räjähdysalueen perässä" not in legend
 
-    # Ja rajan toiselle puolelle: kun arvio jää riville, sen selitys tulee --
-    # ja tuntemattoman alueen selitys ei tule sen mukana.
+    # And to the other side of the limit: when the estimate stays on the row,
+    # its explanation comes -- and the unknown area's explanation does not
+    # come with it.
     entry_two = report(
         [
             map_report(
@@ -4807,7 +4968,9 @@ def test_a_kept_claim_does_not_borrow_the_other_explanation() -> None:
 
 
 def test_a_kill_line_keeps_the_three_most_common_areas() -> None:
-    """I/O-matriisi: rivillä 9 aluetta -> kolme yleisintä + maininta."""
+    """I/O matrix: 9 areas on the row -> the three most common + a
+    mention.
+    """
     eco = block(render(pruning_report()), "Eco")
     kills = [row for row in eco.splitlines() if "tapot alueittain" in row][0]
     assert "BombsiteA (5/20 taposta)" in kills
@@ -4818,12 +4981,12 @@ def test_a_kill_line_keeps_the_three_most_common_areas() -> None:
 
 
 def test_the_limit_continues_through_a_tie() -> None:
-    """Kohta E1: yhtä yleinen havainto ei ole *harvinaisempi*.
+    """Item E1: an equally common observation is not *rarer*.
 
-    Neljä yhtä yleistä aluetta kolmen rajalla: rajan katkaiseminen keskeltä
-    pudottaisi toisen kahdesta identtisen otannan havainnosta ja huomautus
-    kutsuisi sitä harvinaisemmaksi. Raja on "yleisimmät", ei "enintään
-    kolme".
+    Four equally common areas at a limit of three: cutting the limit in the
+    middle would drop one of two observations with identical samples and the
+    note would call it rarer. The limit is "the most common", not "at most
+    three".
     """
     entry = report(
         [
@@ -4864,11 +5027,12 @@ def test_the_limit_continues_through_a_tie() -> None:
 
 
 def test_the_dropped_count_follows_the_pattern_filter_wording() -> None:
-    """Sama lause kuin kuviosuodatuksella: "N harvinaisempaa X jäi pois".
+    """The same sentence as with pattern filtering: "N harvinaisempaa X jäi
+    pois".
 
-    Sanamuoto on ennakkotapaus eikä makuasia: lukija näkee saman lauseen
-    kahdesta eri syystä pois jääneistä havainnoista, ja kyse on samasta
-    asiasta -- rivi kertoo, mitä siltä puuttuu.
+    The wording is a precedent and not a matter of taste: the reader sees the
+    same sentence about observations left out for two different reasons, and
+    it is the same thing -- the row saying what is missing from it.
     """
     text = render(pruning_report())
     assert "harvinaisempaa kohdetta jäi pois" in text
@@ -4877,7 +5041,7 @@ def test_the_dropped_count_follows_the_pattern_filter_wording() -> None:
 
 
 def test_a_line_at_the_limit_gets_no_note() -> None:
-    """Tyhjä huomautus latoisi riville väliviivan ilman mitään perässä."""
+    """An empty note would set a dash on the row with nothing after it."""
     entry = report(
         [
             map_report(
@@ -4913,20 +5077,21 @@ def test_the_legend_names_the_limits_and_their_settings() -> None:
     assert "[report].max_kill_areas" in legend
 
 
-# --- Suojatut kierrostyypit ---------------------------------------------------
+# --- The protected round types ------------------------------------------------
 
 
 def test_the_pistol_block_is_not_pruned_by_any_rule() -> None:
-    """Speksin Always-sääntö: pistoolikierroksella luku on ostohavainto.
+    """The spec's Always rule: on a pistol round the number is a buy
+    observation.
 
-    Yksi testi kaikista viidestä säännöstä, koska väite on yksi: sama lohko,
-    jossa jokainen sääntö osuisi, on identtinen sekä oletusasetuksilla (ja
-    sääntö 3 päällä) että karsinta kokonaan pois päältä.
+    One test for all five rules, because the claim is one: the same block, in
+    which every rule would hit, is identical both with the default settings
+    (and rule 3 on) and with pruning entirely off.
     """
     pruned = block(render(pruning_report(), SKIP_45), "Pistooli")
     plain = block(render(pruning_report(), NO_PRUNING), "Pistooli")
     assert pruned == plain
-    # Ja nimeltä, jotta rivit eivät voi kadota molemmista yhtä aikaa.
+    # And by name, so that the rows cannot vanish from both at once.
     assert "aseistettuja ostoajan lopussa: 5 (2/2 kierroksesta)" in pruned
     assert "panssaroituja ostoajan lopussa: 5 (2/2 kierroksesta)" in pruned
     assert "45 s:" in pruned
@@ -4935,12 +5100,12 @@ def test_the_pistol_block_is_not_pruned_by_any_rule() -> None:
 
 
 def test_an_anomaly_block_is_protected_because_the_line_is_the_anomaly() -> None:
-    """``anomaly`` on talous, joka näytti mahdottomalta.
+    """``anomaly`` is an economy that looked impossible.
 
-    Kierrostyypin **koko peruste** on kalustorivi: ``classify`` merkitsi
-    kierroksen poikkeamaksi siksi, että osto ei vastannut edellisen
-    kierroksen lopputulosta. Kylläisen rivin pudottaminen poistaisi lohkon
-    ainoan syyn olla olemassa.
+    The round type's **whole rationale** is the equipment row: ``classify``
+    marked the round an anomaly because the buy did not match the previous
+    round's outcome. Dropping the saturated row would remove the block's only
+    reason to exist.
     """
     entry = report(
         [
@@ -4969,13 +5134,13 @@ def test_an_anomaly_block_is_protected_because_the_line_is_the_anomaly() -> None
 
 
 def test_overtime_is_not_protected_and_the_reason_is_measured() -> None:
-    """``ot``:tä **ei** suojata: jatkoajan aloitusraha on täysi osto.
+    """``ot`` is **not** protected: overtime's starting money is a full buy.
 
-    Jatkoajan ensimmäinen kierros näyttää pistoolikierrokselta, mutta
-    ``[league].ot_start_money`` on tässä liigassa 12 500 $, joten kaikki
-    ostavat täyden kaluston ja ``5/5`` on odotus kuten täydellä ostolla.
-    Riippuvuus on kirjoitettu ``PROTECTED_ROUND_TYPES``in docstringiin: jos
-    aloitusraha laskee pistoolitasolle, ``ot`` on suojattava.
+    Overtime's first round looks like a pistol round, but
+    ``[league].ot_start_money`` is $12,500 in this league, so everyone buys
+    full equipment and ``5/5`` is the expectation as on a full buy. The
+    dependency is written into ``PROTECTED_ROUND_TYPES``'s docstring: if the
+    starting money falls to pistol level, ``ot`` has to be protected.
     """
     entry = report(
         [
@@ -5002,21 +5167,24 @@ def test_overtime_is_not_protected_and_the_reason_is_measured() -> None:
 
 
 def test_the_protected_round_types_are_named_and_bounded() -> None:
-    """Rajaus on nimetty, jotta sen laajentaminen on sopimusmuutos."""
+    """The bound is named, so that widening it is a contract change."""
     assert PROTECTED_ROUND_TYPES == frozenset({"pistol", "anomaly"})
     assert PROTECTED_ROUND_TYPES <= set(ROUND_TYPES)
-    # Kuviorajaus ja karsinnan rajaus ovat eri joukkoja eri syistä; jos ne
-    # leikkaisivat, sama lohko olisi sekä "vain kuviot" että karsimaton.
+    # The pattern bound and the pruning bound are different sets for
+    # different reasons; if they intersected, the same block would be both
+    # "patterns only" and unpruned.
     assert not PROTECTED_ROUND_TYPES & PATTERN_ROUND_TYPES
 
 
 def test_every_pruning_paragraph_says_the_exception_out_loud() -> None:
-    """Kohta D1: ehdoton lause ja karsimaton lohko samassa raportissa.
+    """Item D1: an unqualified sentence and an unpruned block in the same
+    report.
 
-    Kappale, joka sanoo "kirjoitetaan kaksi yleisintä kohdetta", on väärä
-    lause raportissa, jonka pistoolilohko tulostaa neljä -- ellei se sano
-    poikkeusta ääneen. Väite ajetaan ``PROTECTED_ROUND_TYPES``ista, joten
-    kuudes suojattu tyyppi tai kuudes sääntö perii tarkistuksen.
+    A paragraph that says "the two most common targets are written" is a
+    false sentence in a report whose pistol block prints four -- unless it
+    says the exception out loud. The claim is driven from
+    ``PROTECTED_ROUND_TYPES``, so a sixth protected type or a sixth rule
+    inherits the check.
     """
     legend = section_text(render(pruning_report(), SKIP_45), "Lukuohje")
     paragraphs = [row for row in legend.splitlines() if "[report]." in row]
@@ -5027,23 +5195,22 @@ def test_every_pruning_paragraph_says_the_exception_out_loud() -> None:
             assert ROUND_TYPE_FI[round_type_name] in paragraph
 
 
-# --- Lohko, joka tyhjenisi ----------------------------------------------------
+# --- The block that would empty -----------------------------------------------
 
 
 def emptied_block_report() -> Report:
-    """Lohko, jonka **ainoa** rivi on kylläinen kalustorivi.
+    """A block whose **only** row is a saturated equipment row.
 
-    Tila on tarkempi kuin miltä näyttää, ja siksi se on omassa
-    funktiossaan. Kierrostyypillä, jolla on kierroksia, on lähes aina
-    kuolemarivi: jos joukkue menetti pelaajan, rivillä on alue, ja jos ei,
-    rivillä on huomautus ("ei omia kuolemia 3 kierroksella"). Kumpaakaan ei
-    karsita, joten lohko ei tyhjene.
+    The state is more particular than it looks, which is why it is in a
+    function of its own. A round type that has rounds almost always has a
+    death row: if the team lost a player, the row has an area, and if it did
+    not, the row has a note ("ei omia kuolemia 3 kierroksella"). Neither is
+    pruned, so the block does not empty.
 
-    Ainoa reitti tyhjään lohkoon kulkee **kuvion kynnyksen** kautta: täydellä
-    ostolla jokainen hajonnut ensimmäisen kuoleman alue jää kynnyksen alle,
-    ja jos joukkue menetti pelaajan joka kierroksella, huomautustakaan ei
-    ole. Silloin jäljelle jää yksi rivi, ja sen kylläisyys laukaisisi säännön
-    1.
+    The only route to an empty block runs through the **pattern threshold**:
+    on a full buy every scattered first-death area falls below the threshold,
+    and if the team lost a player on every round, there is no note either.
+    One row is then left, and its saturation would trigger rule 1.
     """
     return report(
         [
@@ -5070,24 +5237,26 @@ def emptied_block_report() -> Report:
 
 
 def test_a_rule_that_would_empty_a_block_keeps_the_lines_and_says_so() -> None:
-    """I/O-matriisi: sääntö poistaisi lohkon jokaisen rivin -> rivit säilyvät.
+    """I/O matrix: a rule would remove every row of the block -> the rows
+    stay.
 
-    Tyhjä lohko lakkaisi kertomasta mitään, ja se on **vaimennuspäätös eikä
-    karsinta** -- vaimennus on rajattu tästä tarinasta ulos.
+    An empty block would stop saying anything, and that is **a suppression
+    decision and not pruning** -- suppression is scoped out of this story.
     """
     text = render(emptied_block_report())
     assert "panssaroituja ostoajan lopussa: 5 (8/8 kierroksesta)" in text
     assert "Karsinta olisi poistanut tästä lohkosta jokaisen rivin" in text
-    # Lukuohje ei väitä karsineensa mitään, koska mitään ei karsittu.
+    # The reading guide does not claim to have pruned anything, because
+    # nothing was pruned.
     assert "Kylläinen kalustorivi on jätetty pois" not in text
 
 
 def test_the_kept_block_is_the_same_block_as_without_pruning() -> None:
-    """Paluu karsimattomaan on täydellinen eikä osittainen.
+    """The return to the unpruned form is complete and not partial.
 
-    Lohko on rivi riviltä sama kuin ilman karsintaa -- ainoa ero on
-    huomautus, joka kertoo miksi. Ilman tätä väitettä toteutus voisi
-    palauttaa yhden rivin ja karsia loput.
+    The block is row for row the same as without pruning -- the only
+    difference is the note that says why. Without this claim an
+    implementation could return one row and prune the rest.
     """
     entry = emptied_block_report()
     kept = block(render(entry), "Default")
@@ -5096,13 +5265,13 @@ def test_the_kept_block_is_the_same_block_as_without_pruning() -> None:
 
 
 def test_the_kept_block_does_not_undo_a_shortened_row() -> None:
-    """Rivin katkaisu (säännöt 4 ja 5) ei kuulu paluuseen.
+    """Truncating a row (rules 4 and 5) is no part of the return.
 
-    Katkaisu ei voi tyhjentää lohkoa, joten sen peruminen palauttaisi vain
-    sen 5-9 alkion luettelon, jota vastaan koko tarina on kirjoitettu.
-    Lohkossa on kylläinen kalustorivi (sääntö 1 pudottaisi sen) **ja**
-    yhdeksän tappoaluetta, joiden takia lohko ei tyhjene -- joten katkaisu
-    jää voimaan ja sääntö 1 peruutetaan.
+    Truncation cannot empty a block, so undoing it would only bring back the
+    5-9 item list the whole story is written against. The block has a
+    saturated equipment row (rule 1 would drop it) **and** nine kill areas,
+    because of which the block does not empty -- so the truncation stands and
+    rule 1 is undone.
     """
     entry = report(
         [
@@ -5135,10 +5304,11 @@ def test_the_kept_block_does_not_undo_a_shortened_row() -> None:
 
 
 def test_a_block_that_was_empty_anyway_is_not_blamed_on_pruning() -> None:
-    """Kynnys söi kaiken, eikä karsinta ollut siinä osallisena.
+    """The threshold ate everything, and pruning had no part in it.
 
-    Sama kiinnike kuin edellä mutta ilman kylläistä riviä: lohko tyhjenee
-    kynnyksestä, ja se sanotaan sillä lauseella, jolla se on aina sanottu.
+    The same fixture as above but without the saturated row: the block
+    empties from the threshold, and that is said with the sentence it has
+    always been said with.
     """
     entry = report(
         [
@@ -5166,14 +5336,15 @@ def test_a_block_that_was_empty_anyway_is_not_blamed_on_pruning() -> None:
     assert "Karsinta olisi poistanut" not in text
 
 
-# --- Lukuohje ja yhteenveto kertovat säännöistä ------------------------------
+# --- The reading guide and the summary tell of the rules ---------------------
 
 
 def test_the_legend_explains_only_the_rules_that_pruned_something() -> None:
-    """Selitys säännöstä, joka ei osunut, olisi väite raportista joka ei pidä.
+    """An explanation of a rule that did not hit would be a claim about the
+    report that does not hold.
 
-    Pistoolikartalla jokainen sääntö on päällä mutta yksikään ei karsi, joten
-    yhtäkään karsintakappaletta ei kirjoiteta -- ei myöskään asetusten nimiä.
+    On the pistol map every rule is on but none prunes, so not one pruning
+    paragraph is written -- nor the settings' names.
     """
     legend = section_text(render(report([pistol_map()])), "Lukuohje")
     assert "Kylläinen kalustorivi on jätetty pois" not in legend
@@ -5182,13 +5353,13 @@ def test_the_legend_explains_only_the_rules_that_pruned_something() -> None:
 
 
 def test_the_summary_names_the_rules_even_when_nothing_was_pruned() -> None:
-    """Kohta D5: puhtaan raportin lukija näkee säädetyn arvon.
+    """Item D5: the reader of a clean report sees the adjusted value.
 
-    Karsintakappaleet kirjoitetaan vain osuneista säännöistä, joten niiden
-    puuttuminen ei kerro, oliko sääntö päällä. Yhteenveto luettelee
-    ``[report]``-osion samalla perusteella kuin kynnykset: lukija arvioi
-    väitettä sillä, miten se laskettiin -- ja karsinta päättää, mitkä
-    väitteet hän näkee.
+    The pruning paragraphs are written only about the rules that hit, so
+    their absence does not say whether a rule was on. The summary lists the
+    ``[report]`` section on the same grounds as the thresholds: the reader
+    judges a claim by how it was computed -- and pruning decides which claims
+    he sees.
     """
     summary = summary_text(render(report([pistol_map()]), SKIP_45))
     assert "Karsinnan säännöt" in summary
@@ -5199,11 +5370,12 @@ def test_the_summary_names_the_rules_even_when_nothing_was_pruned() -> None:
 
 
 def test_the_summary_row_is_mechanical_so_a_sixth_rule_joins_it() -> None:
-    """Rivi syntyy osion kentistä, ei käsin kirjoitetusta lauseesta.
+    """The row comes about from the section's fields, not from a
+    hand-written sentence.
 
-    Käsin kirjoitettu lause jäisi jälkeen juuri silloin, kun sääntö
-    lisätään -- ja se on tämän tarinan oma epäonnistumistapa (asetus, joka ei
-    näy missään).
+    A hand-written sentence would fall behind precisely when a rule is added
+    -- and that is this story's own failure mode (a setting that shows
+    nowhere).
     """
     summary = summary_text(render(report([pistol_map()])))
     row = [line for line in summary.splitlines() if "Karsinnan säännöt" in line][0]
@@ -5211,37 +5383,40 @@ def test_the_summary_row_is_mechanical_so_a_sixth_rule_joins_it() -> None:
     assert "ei yhtään" in row
 
 
-# --- Mittari: paljonko lyhenee ------------------------------------------------
+# --- The metric: how much shorter ---------------------------------------------
 
 
 def test_the_delivered_defaults_shorten_the_report() -> None:
-    """**Toimitettu kokoonpano** lyhentää raporttia, ei jokin muu.
+    """**The delivered configuration** shortens the report, not some other
+    one.
 
-    Aiempi versio tästä testistä mittasi säännön 3 kanssa, joka on
-    oletuksena pois -- eli sitä kokoonpanoa, jota kukaan ei aja. Luku on
-    kiinnikkeen eikä RCAVE-raportin, joten se ei ole mitattu prosentti;
-    väite on suunta ja se, että jokainen pois jäänyt rivi on selitetty.
+    An earlier version of this test measured with rule 3, which is off by
+    default -- that is, the configuration nobody runs. The number is the
+    fixture's and not the RCAVE report's, so it is not a measured percentage;
+    the claim is the direction, and that every row left out is explained.
     """
     plain = content_rows(render(pruning_report(), NO_PRUNING))
     delivered = content_rows(render(pruning_report(), DEFAULT_PRUNING))
     assert len(delivered) < len(plain)
-    # Kaksi riviä: eco-lohkon kylläinen panssaririvi ja yhdistetyn parin
-    # toinen puolisko. Default-lohkon kylläinen rivi ei ole mukana, koska
-    # kynnys pudotti sen jo -- ja 45 s -rivi säilyy, koska sääntö 3 on
-    # oletuksena pois.
+    # Two rows: the eco block's saturated armour row and the other half of
+    # the merged pair. The default block's saturated row is not among them,
+    # because the threshold dropped it already -- and the 45 s row stays,
+    # because rule 3 is off by default.
     assert len(plain) - len(delivered) == 2
-    # Sääntö 3 päällä myös näytepiste lähtee: yksi rivi eco-lohkosta,
-    # pistoolilohko on suojattu ja default-lohkon rivi oli jo kynnyksen alla.
+    # With rule 3 on the sample point goes too: one row from the eco block,
+    # the pistol block is protected and the default block's row was below the
+    # threshold already.
     with_rule_three = content_rows(render(pruning_report(), SKIP_45))
     assert len(delivered) - len(with_rule_three) == 1
 
 
-# --- Story 2.15: retron konsistenssikorjaukset ----------------------------------
+# --- Story 2.15: the retro's consistency fixes -----------------------------------
 
 
-#: Retron mittaama tapaus (A2): RCAVE ``de_anubis`` default. Yhdeksän
-#: kierrosta, seitsemällä oma kuolema ja **jokainen eri alueella**, joten
-#: jokaisen aluerivin toistuma on 1 ja karsintakynnys (3) vie ne kaikki.
+#: The case the retro measured (A2): RCAVE ``de_anubis`` default. Nine
+#: rounds, an own death on seven and **every one in a different area**, so
+#: every area row's repetition is 1 and the pruning threshold (3) takes them
+#: all.
 PRUNED_AWAY_DEATHS = {
     "Alley": 1,
     "BombsiteB": 1,
@@ -5254,11 +5429,10 @@ PRUNED_AWAY_DEATHS = {
 
 
 def pruned_death_report(**kwargs) -> Report:
-    """Default-lohko, jota karsinta koskee (``full`` on kuviotyyppi).
+    """A default block that pruning concerns (``full`` is a pattern type).
 
-    :func:`death_report` rakentaa pistoolilohkon, ja pistooli on
-    **suojattu** karsinnalta (``PROTECTED_ROUND_TYPES``) -- siellä A2 ei voi
-    toistua.
+    :func:`death_report` builds a pistol block, and pistol is **protected**
+    from pruning (``PROTECTED_ROUND_TYPES``) -- A2 cannot recur there.
     """
     rounds = kwargs.pop("rounds", 9)
     kwargs.setdefault(
@@ -5269,14 +5443,15 @@ def pruned_death_report(**kwargs) -> Report:
 
 
 def test_a_median_left_alone_by_pruning_carries_its_own_sample() -> None:
-    """A2: karsinta voi riisua otannan väitteeltä, joka jää jäljelle.
+    """A2: pruning can strip the sample from a claim that is left behind.
 
-    Mitattu RCAVEn raportista: kun jokainen seitsemästä kuolemasta oli eri
-    alueella, kaikki aluerivit putosivat kynnyksen alle ja rivistä jäi
+    Measured from the RCAVE report: when each of the seven deaths was in a
+    different area, every area row fell below the threshold and the row was
+    left as
     ``ensimmäinen kuolema (mediaani 14,2 s): ei omia kuolemia 2 kierroksella``
-    -- ajoitus ilman yhtäkään lukua siitä, mistä se on laskettu. Epicin toinen
-    kriteeri on *"eikä yhtäkään väitettä esitetä ilman otantaa"*, ja mediaani
-    on väite.
+    -- a timing without a single number saying what it was computed from. The
+    epic's second criterion is *"and not one claim is presented without a
+    sample"*, and a median is a claim.
     """
     text = render(pruned_death_report(first=PRUNED_AWAY_DEATHS, median=14.2))
     assert (
@@ -5286,11 +5461,12 @@ def test_a_median_left_alone_by_pruning_carries_its_own_sample() -> None:
 
 
 def test_a_median_beside_its_areas_is_not_given_a_second_sample() -> None:
-    """A2:n toinen suunta: rivi, jolla otanta jo on, ei muutu.
+    """A2's other direction: a row that already has a sample does not
+    change.
 
-    **Tämä on korjauksen rajaus.** Aluerivit kantavat otannan itse, ja
-    otsikkoon lisätty luku olisi sama otanta kahdesti samalla rivillä --
-    ja muuttaisi jokaisen toimivan rivin raportissa.
+    **This is the fix's bound.** The area rows carry the sample themselves,
+    and a number added to the label would be the same sample twice on the
+    same row -- and would change every working row in the report.
     """
     text = render(
         pruned_death_report(
@@ -5300,8 +5476,8 @@ def test_a_median_beside_its_areas_is_not_given_a_second_sample() -> None:
     row = next(
         line for line in text.splitlines() if "ensimmäinen kuolema" in line
     )
-    # Väite koskee **tätä riviä**, ei raporttia: "kierroksesta)" osuu mihin
-    # tahansa raportin kohtaan, joten se ei todistaisi mitään otsikosta.
+    # The claim concerns **this row**, not the report: "kierroksesta)" hits
+    # anywhere in the report, so it would prove nothing about the label.
     assert row == (
         "- ensimmäinen kuolema (mediaani 19,1 s): Outside (4/7 kierroksesta), "
         "Ramp (3/7 kierroksesta) -- ei omia kuolemia 1 kierroksella"
@@ -5309,11 +5485,11 @@ def test_a_median_beside_its_areas_is_not_given_a_second_sample() -> None:
 
 
 def test_a_first_death_line_without_a_median_stays_a_bare_label() -> None:
-    """Ilman mediaania rivillä ei ole väitettä, joten ei myöskään otantaa.
+    """Without a median the row has no claim, so it has no sample either.
 
-    ``ei omia kuolemia 9 kierroksella`` on kattavuushuomio: se kertoo, ettei
-    joukkue menettänyt ketään. Otanta kertoisi otannan väitteelle, jota ei
-    ole.
+    ``ei omia kuolemia 9 kierroksella`` is a coverage note: it says that the
+    team lost nobody. A sample would give a sample to a claim that is not
+    there.
     """
     text = render(pruned_death_report(first={}, median=None))
     assert "- ensimmäinen kuolema: ei omia kuolemia 9 kierroksella" in text
@@ -5321,21 +5497,22 @@ def test_a_first_death_line_without_a_median_stays_a_bare_label() -> None:
 
 
 def test_a_workshop_map_name_is_protected_in_the_chapter_heading() -> None:
-    """B1: kartan nimi oli rungon ainoa suojaamaton demon antama merkkijono.
+    """B1: the map's name was the body's only unprotected string the demo
+    gave.
 
-    Story 2.11 teki ``map_name``ista vapaata demotekstiä: ``*|Aim|* Botz
-    [beta]`` on laillinen havainto. Paljaana otsikko katkesi kesken, ja
-    lihavointi jäi sulkeutumatta koko loppuraportiksi.
+    Story 2.11 made ``map_name`` free demo text: ``*|Aim|* Botz [beta]`` is a
+    legal observation. Bare, the heading broke in the middle and the bold was
+    left unclosed for the whole rest of the report.
 
-    Suojaus on **koodijakso eikä escapetus**, ja mekanismi on lainattu
-    ``_map_label``ista: sama kartta kahdella kirjoitusasulla lukisi kahtena
-    karttana, ja raportti luetaan myös raakana.
+    The protection is **a code span and not escaping**, and the mechanism is
+    borrowed from ``_map_label``: the same map in two spellings would read as
+    two maps, and the report is read raw as well.
     """
     name = "*|Aim|* Botz [beta]"
     text = render(report([demo_map([MISSING_DEMO_ID], name=name)]))
     assert f"## {BACKTICK}{name}{BACKTICK} -- " in text
-    # Otsikkorivi ei sisällä yhtään paritonta korostusmerkkiä koodijakson
-    # ulkopuolella: juuri se katkaisi rivin ennen korjausta.
+    # The heading line contains no unpaired emphasis character outside the
+    # code span: that is exactly what broke the row before the fix.
     heading = next(
         line
         for line in text.splitlines()
@@ -5346,10 +5523,10 @@ def test_a_workshop_map_name_is_protected_in_the_chapter_heading() -> None:
 
 
 def test_a_workshop_map_name_is_protected_on_the_anomaly_line() -> None:
-    """B1: sama sääntö poikkeamarivillä.
+    """B1: the same rule on the anomaly row.
 
-    Rivi kantaa poikkeaman otannan, joten sen katkeaminen veisi mukanaan
-    juuri sen luvun, jonka takia rivi on olemassa.
+    The row carries the anomaly's sample, so breaking it would take with it
+    precisely the number the row exists for.
     """
     name = "*|Aim|* Botz [beta]"
     text = anomaly_text(
@@ -5364,10 +5541,11 @@ def test_a_workshop_map_name_is_protected_on_the_anomaly_line() -> None:
 
 
 def test_an_unrecognised_map_label_is_our_own_text_and_stays_bare() -> None:
-    """B1:n rajaus: tunnistamattoman kartan nimiössä ei ole demon merkkejä.
+    """B1's bound: an unrecognised map's label holds no character the demo
+    gave.
 
-    Nimiö on ``UNKNOWN_MAP_LABEL``, eli meidän kirjoittamamme lause, ja
-    koodijakso tekisi siitä tunnisteen näköisen.
+    The label is ``UNKNOWN_MAP_LABEL``, that is a sentence we wrote, and a
+    code span would make it look like an id.
     """
     text = anomaly_text(
         render(
@@ -5390,13 +5568,12 @@ def test_an_unrecognised_map_label_is_our_own_text_and_stays_bare() -> None:
 
 
 def test_both_threshold_readers_agree_on_a_value_below_one() -> None:
-    """B4: kaksi lukijaa, yksi haku -- ja kopiot olivat jo erkaantuneet.
+    """B4: two readers, one lookup -- and the copies had already drifted.
 
-    ``_threshold_int`` vaati positiivista arvoa, ``_threshold_float``
-    hyväksyi nollan ja negatiiviset, vaikka edellisen oma perustelu on
-    *"Kahtena kopiona toinen erkaantuisi"*. ``ThresholdSettings`` vaatii
-    jokaiselta kynnykseltä positiivista arvoa, joten nolla ei ole kynnys
-    kummallekaan.
+    ``_threshold_int`` demanded a positive value, ``_threshold_float``
+    accepted zero and negatives, although the former's own rationale is
+    *"as two copies one would drift"*. ``ThresholdSettings`` demands a
+    positive value from every threshold, so zero is a threshold for neither.
     """
     entry = report([pistol_map()], thresholds_used={"thresholds": {
         "small_sample_rounds": 0,
@@ -5410,82 +5587,90 @@ def test_both_threshold_readers_agree_on_a_value_below_one() -> None:
 
 
 def test_only_the_type_and_its_own_floor_differ_between_the_readers() -> None:
-    """B4: kutsujille jää kaksi ehtoa, ja molemmat ovat tyypin sanelemia.
+    """B4: two conditions are left to the callers, and both are dictated by
+    the type.
 
-    Sallittu tyyppi (``int`` vs. mikä tahansa luku) ja alaraja siinä
-    muodossa, jonka tyyppi vaatii (``>= 1`` lukumäärälle, ``> 0``
-    osuudelle). Alarajat eivät ole sama ehto kahdesti vaan sama sääntö --
-    kynnys on positiivinen -- kahdessa yksikössä: ``advance_t_share = 0,80``
-    on pienin käytössä oleva kynnys, ja kokonaisluvun alaraja hylkäisi sen.
+    The permitted type (``int`` vs. any number) and the floor in the form the
+    type requires (``>= 1`` for a count, ``> 0`` for a share). The floors are
+    not the same condition twice but the same rule -- a threshold is positive
+    -- in two units: ``advance_t_share = 0.80`` is the smallest threshold in
+    use, and an integer floor would reject it.
 
-    Kaikki muu -- osio, avain, ``bool``, äärellisyys -- on samaa koodia,
-    joten se ei voi erkaantua.
+    Everything else -- the section, the key, ``bool``, finiteness -- is the
+    same code, so it cannot drift.
     """
     entry = report([pistol_map()], thresholds_used={"thresholds": {
         "advance_t_share": 0.80,
         "small_sample_rounds": 3,
-        "kytkin": True,
-        "teksti": "kolme",
-        "aareton": float("inf"),
+        "a-switch": True,
+        "a-string": "three",
+        "an-infinity": float("inf"),
     }})
     assert view_module._threshold_float(entry, "advance_t_share") == 0.80
     assert view_module._threshold_int(entry, "advance_t_share") is None
     assert view_module._threshold_int(entry, "small_sample_rounds") == 3
     assert view_module._threshold_float(entry, "small_sample_rounds") == 3.0
-    for name in ("kytkin", "teksti", "aareton", "puuttuu"):
+    for name in ("a-switch", "a-string", "an-infinity", "no-such-threshold"):
         assert view_module._threshold_int(entry, name) is None, name
         assert view_module._threshold_float(entry, name) is None, name
 
 
 def test_a_report_without_a_threshold_section_reads_as_no_threshold() -> None:
-    """B4: jaettu ehto, ei kahta kopiota -- puuttuva osio on sama molemmille."""
+    """B4: a shared condition, not two copies -- a missing section is the
+    same for both.
+    """
     entry = report([pistol_map()], thresholds_used={})
     assert view_module._threshold_int(entry, "small_sample_rounds") is None
     assert view_module._threshold_float(entry, "advance_t_share") is None
 
 
 def test_the_anomaly_legend_has_as_many_paragraphs_as_it_claims() -> None:
-    """B5: docstring on säännön ainoa lausumispaikka, joten se on vartioitava.
+    """B5: the docstring is the rule's only statement, so it has to be
+    guarded.
 
-    Kappaleita oli kolme Story 2.5:ssä ja viisi Story 2.14:n jälkeen, mutta
-    docstring sanoi yhä kolme. Luku on tässä testissä, jotta seuraava sääntö
-    ei voi lisätä kappaletta docstringin vanhetessa hiljaa.
+    There were three paragraphs in Story 2.5 and five after Story 2.14, but
+    the docstring still said three. The number is in this test, so that the
+    next rule cannot add a paragraph while the docstring goes stale in
+    silence.
     """
     entry = report([pistol_map()])
     assert len(view_module._anomaly_legend(entry)) == 5
 
 
 def test_the_module_docstring_names_only_functions_that_exist() -> None:
-    """B5: moduulin docstringin funktioluettelo ei saa nimetä olematonta.
+    """B5: the module docstring's list of functions must not name one that
+    does not exist.
 
-    **Tämä on heikompi väite kuin edellinen versio lupasi, ja se on
-    tarkoituksellista.** Aiempi testi toisti docstringin kuusi nimeä käsin,
-    jolloin seitsemäs funktio olisi mennyt läpi hiljaa -- se lupasi
-    vartijan, jota ei ollut. Joukkoa ei voi johtaa koodista syntaktisesti:
-    ``_identifier``in kutsujia on yhdeksän, mutta osa niistä (``_map_label``,
-    ``_team_key_text``) **on** jäljitettävyysluku eikä runko, ja ero on
-    merkityksessä eikä muodossa.
+    **This is a weaker claim than the previous version promised, and that is
+    deliberate.** The earlier test repeated the docstring's six names by
+    hand, whereupon a seventh function would have passed in silence -- it
+    promised a guard that was not there. The set cannot be derived from the
+    code syntactically: ``_identifier`` has nine callers, but some of them
+    (``_map_label``, ``_team_key_text``) **are** the traceability chapter and
+    not the body, and the difference is in the meaning and not in the form.
 
-    Se, mitä voi todistaa, todistetaan: jokainen nimetty funktio on
-    olemassa. Luettelon täydellisyys jää katselmuksen asiaksi, ja tämä
-    docstring sanoo sen sen sijaan että testin nimi väittäisi muuta.
+    What can be proved is proved: every named function exists. The list's
+    completeness is left to review, and this docstring says so instead of the
+    test's name claiming otherwise.
     """
     doc = view_module.__doc__ or ""
     named = set(re.findall(r":func:`(_[a-z_]+)`", doc))
-    assert named, "moduulin docstring ei nimeä yhtäkään funktiota"
+    assert named, "the module docstring names no function at all"
     missing = sorted(name for name in named if not hasattr(view_module, name))
     assert not missing, missing
-    # Story 2.15:n oma löydös: ``_anomaly_map_label`` puuttui luettelosta.
+    # Story 2.15's own finding: ``_anomaly_map_label`` was missing from the
+    # list.
     assert "_anomaly_map_label" in named
 
 
 def test_a_first_contact_median_left_alone_by_pruning_carries_its_sample() -> None:
-    """Sama vika kuin A2:ssa, yhtä funktiota kauempana samassa raportissa.
+    """The same fault as in A2, one function further away in the same
+    report.
 
-    ``_position_label`` latoi ``ensikontakti (mediaani 14,2 s)`` ilman
-    otantaa, ja ``_position_line`` kirjoittaa rivin myös silloin kun karsinta
-    on vienyt kaikki aluevaateet. Jäljelle jäi **merkki merkiltä sama muoto**,
-    jonka A2 korjasi ensimmäisen kuoleman riviltä:
+    ``_position_label`` set ``ensikontakti (mediaani 14,2 s)`` without a
+    sample, and ``_position_line`` writes the row also when pruning has taken
+    every area claim. What was left was the **character for character same
+    shape** A2 fixed on the first-death row:
     ``ensikontakti (mediaani 14,2 s): näyte puuttuu 2 kierrokselta``.
     """
     entry = round_type(
@@ -5514,7 +5699,7 @@ def test_a_first_contact_median_left_alone_by_pruning_carries_its_sample() -> No
 
 
 def test_a_first_contact_median_beside_its_areas_is_left_alone() -> None:
-    """Korjauksen rajaus: rivi, jolla otanta jo on, ei muutu."""
+    """The fix's bound: a row that already has a sample does not change."""
     entry = round_type(
         "full",
         9,
@@ -5539,11 +5724,10 @@ def test_a_first_contact_median_beside_its_areas_is_left_alone() -> None:
 
 
 def test_a_time_sample_left_alone_by_pruning_gets_no_invented_sample() -> None:
-    """Aikanäytepisteen nimiö on hetken nimi eikä väite.
+    """A time sample point's label is the name of a moment and not a claim.
 
-    ``15 s`` ei väitä mitään, joten rivillä ei ole otantaa, jonka se voisi
-    kantaa -- ja keksitty luku näyttäisi rivillä täsmälleen samalta kuin
-    mitattu.
+    ``15 s`` claims nothing, so the row has no sample it could carry -- and
+    an invented number would look on the row exactly like a measured one.
     """
     entry = round_type(
         "full",
@@ -5566,12 +5750,13 @@ def test_a_time_sample_left_alone_by_pruning_gets_no_invented_sample() -> None:
 
 
 def test_a_hostile_area_name_does_not_break_the_position_line() -> None:
-    """Alue on demon antamaa tekstiä siinä missä joukkueen ja kartan nimi.
+    """The area is text the demo gave just as the team's and the map's names
+    are.
 
-    Peli antaa ``m_szLastPlaceName``in, eikä sitä validoida mitään luetteloa
-    vasten: workshop-kartan alue ``*|Aim|* Botz [beta]`` on laillinen
-    havainto. Paljaana se katkaisi havaintorivin kesken -- ja rivi kantaa
-    väitteen otannan.
+    The game gives ``m_szLastPlaceName``, and it is not validated against any
+    list: a workshop map's area ``*|Aim|* Botz [beta]`` is a legal
+    observation. Bare it broke the observation row in the middle -- and the
+    row carries the claim's sample.
     """
     hostile = "*|Aim|* Botz [beta]"
     entry = round_type(
@@ -5584,11 +5769,11 @@ def test_a_hostile_area_name_does_not_break_the_position_line() -> None:
 
 
 def test_a_hostile_area_name_does_not_break_the_anomaly_line() -> None:
-    """Poikkeamarivin **molemmat** puoliskot ovat demon antamaa tekstiä.
+    """**Both** halves of an anomaly row are text the demo gave.
 
-    Kartan nimi suojattiin Story 2.15:ssä koodijaksona, mutta saman rivin
-    alue jäi paljaaksi -- eli rivi katkesi yhä, nyt oikeasta puoliskostaan.
-    Kumpikin yksin ei riitä.
+    The map's name was protected as a code span in Story 2.15, but the same
+    row's area was left bare -- that is, the row still broke, now from its
+    right half. Either alone is not enough.
     """
     hostile = "*|Aim|* Botz [beta]"
     text = anomaly_text(
@@ -5604,15 +5789,15 @@ def test_a_hostile_area_name_does_not_break_the_anomaly_line() -> None:
 
 
 def test_a_real_area_name_is_untouched_by_the_protection() -> None:
-    """Suojauksen hinta on nolla oikeilla alueilla.
+    """The protection's price is zero on real areas.
 
-    Yhdessäkään CS2:n ``env_cs_place``-nimessä ei ole Markdownin
-    rakennemerkkejä, joten raportti ei muutu -- juuri siksi suojaus voitiin
-    lisätä muuttamatta yhtäkään lukua.
+    Not one of CS2's ``env_cs_place`` names holds a Markdown structural
+    character, so the report does not change -- which is exactly why the
+    protection could be added without changing a single number.
     """
     text = render(report([pistol_map()]))
     rows = observation_rows(text)
     assert rows
-    # Vain havaintorivit: kierrosliitteen polut ovat Windows-polkuja, joissa
-    # kenoviiva on sisältöä eikä pakomerkki.
+    # The observation rows only: the round appendix's paths are Windows
+    # paths, in which the backslash is content and not an escape.
     assert not [row for row in rows if "\\" in row]

@@ -1003,10 +1003,10 @@ def test_the_summary_renders_from_a_real_stage_result(
     text = _render_select(select(league, archive, thresholds))
 
     assert SUBJECT in text
-    assert "2 / 2 karttaa otantaan" in text
-    assert "Vakirosteri" in text
-    assert "8 pelaajaa, kynnys 4/5" in text
-    assert "Rosteriluokat" in text
+    assert "2 / 2 maps into the sample" in text
+    assert "Standing roster" in text
+    assert "8 players, threshold 4/5" in text
+    assert "Roster classes" in text
     assert "5/5: 2" in text
     assert "index/selections/" in text
 
@@ -1026,7 +1026,7 @@ def test_the_rejection_block_renders_from_a_real_stage_result(
 
     text = _render_select(result)
 
-    assert "Hylätyt kartat (2)" in text
+    assert "Rejected maps (2)" in text
     for row in read_selection(archive, subject_key(archive))["selections"]:
         # The reason whole, not truncated.
         assert row["roster_reason"] in text
@@ -1048,7 +1048,7 @@ def test_every_note_reaches_the_summary_on_its_own_line(
 
     text = _render_select(select(league, archive, thresholds))
 
-    notes = [line for line in text.splitlines() if "Huomio" in line]
+    notes = [line for line in text.splitlines() if "Note" in line]
     assert len(notes) == 2
     assert any("still unplayed" in line for line in notes)
     assert any("veto data is missing" in line for line in notes)
@@ -1061,8 +1061,10 @@ def test_the_summary_counts_league_matches_and_sources(
 
     text = _render_select(select(league, archive, thresholds))
 
-    assert "2 / 2 kartasta" in text
-    assert "0 havaintoa demosta, 2 ennustetta ottelurosterista" in text
+    assert "2 of 2 maps" in text
+    assert (
+        "0 observations from the demo, 2 predictions from the match roster"
+    ) in text
 
 
 # -- Helpers -----------------------------------------------------------------

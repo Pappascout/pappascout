@@ -1,15 +1,14 @@
 """``pappascout parse`` -- komennon ja sen tulosteen testit.
 
-Kaksi asiaa lukitaan täällä:
+Two things are locked down here:
 
-* **AD-3**: komento antaa vaiheelle vain ``settings.parse``, ei koko
-  ``Settings``-oliota. Jos vaihe näkisi kynnykset, lupaus "kynnysmuutos ei
-  uudelleenparsi" ei olisi enää rakenteellinen.
-* **NFR-1**: tuloste on suomeksi, kertoo kierrosten määrän, jatkoajan,
-  ohitetut kierrokset ja ajoajan -- eikä yksikään virhe päädy ruudulle
-  pinojälkenä.
+* **AD-3**: the command gives the stage only ``settings.parse``, not the
+  whole ``Settings`` object. If the stage saw the thresholds, the promise "a
+  change of threshold does not reparse" would no longer be structural.
+* **NFR-1**: the output reports the number of rounds, overtime, the skipped
+  rounds and the run time -- and no error reaches the screen as a traceback.
 
-Vaihe itse on korvattu, joten mikään näistä testeistä ei lue demoa.
+The stage itself is replaced, so none of these tests reads a demo.
 """
 
 from __future__ import annotations
@@ -34,10 +33,10 @@ runner = CliRunner()
 
 DEMO_ID = "1-abc-1"
 
-#: Sarake, josta arvot alkavat: kahden välilyönnin sisennys + otsikkosarake.
+#: The column the values start at: a two-space indent + the label column.
 _VALUE_COLUMN = 2 + _PARSE_LABEL_WIDTH
 
-#: Vaiheen luvut onnistuneesta ajosta -- 21 kierrosta, neljä näytepistettä.
+#: The stage's numbers from a successful run -- 21 rounds, four sample points.
 DEFAULT_STATS: dict[str, object] = {
     "rounds": 21,
     "rows": 42,
@@ -58,9 +57,10 @@ DEFAULT_STATS: dict[str, object] = {
     "buy_window_stale_equipment": 0,
     "armed_distribution": {0: 3, 4: 1, 5: 38},
     "armed_missing": 0,
-    # Panssarilaskuri (Story 2.8). Tarkoituksella **eri jakauma** kuin
-    # aseistettujen: pistoolikierroksilla kevlareita on vaikka aseistettuja
-    # ei ole, ja juuri se ero on rivin olemassaolon syy.
+    # The armour counter (Story 2.8). Deliberately a **different**
+    # distribution from the armed one: on pistol rounds there are kevlars
+    # although there are no armed players, and that difference is the reason
+    # the row exists.
     "armored_distribution": {0: 2, 4: 2, 5: 38},
     "armored_missing": 0,
     "armed_unknown_items": (),
@@ -69,10 +69,11 @@ DEFAULT_STATS: dict[str, object] = {
     "sample_rounds": 21,
     "first_contact_rounds": 20,
     "partial_samples": 0,
-    # Story 2.10. Nolla on puhtaan ajon arvo, eikä rivi silloin tulostu.
-    # Avaimet ovat silti tässä, koska ne kuuluvat tuoreen ajon lukuihin:
-    # ilman niitä oletusluvut kuvaisivat ohitettua ajoa, jossa avaimet
-    # puuttuvat -- ja se on tulosteessa eri tila.
+    # Story 2.10. Zero is a clean run's value, and the row is then not
+    # printed. The keys are here even so, because they belong to a fresh
+    # run's numbers: without them the default numbers would describe a
+    # skipped run, in which the keys are missing -- and that is a different
+    # state in the output.
     "sample_rows_without_pawn": 0,
     "sample_points_without_pawn": 0,
     "grenade_throwers_without_row": 0,
@@ -82,10 +83,11 @@ DEFAULT_STATS: dict[str, object] = {
     "utility_detonations": 148,
     "utility_rounds": 21,
     "utility_area_observed": 152,
-    # Story 2.9: räjähdyksen alue tulee pistepilvestä. Luvut ovat mitatun
-    # Ancient-ajon muotoisia -- 139/148 nimettyä ja 9 kynnyksen takana --
-    # koska "puhdas ajo" ei tarkoita täydellistä kattavuutta: kaukana
-    # kaikesta räjähtänyt kranaatti on oikea tulos eikä vika.
+    # Story 2.9: a detonation's area comes from the point cloud. The numbers
+    # have the shape of the measured Ancient run -- 139/148 named and 9
+    # beyond the threshold -- because a "clean run" does not mean complete
+    # coverage: a grenade that went off far from everything is a right result
+    # and not a fault.
     "utility_area_point_cloud": 139,
     "utility_area_beyond_threshold": 9,
     "utility_without_area": 9,
@@ -100,14 +102,15 @@ DEFAULT_STATS: dict[str, object] = {
     "grenades_detonating_after_round": 0,
     "grenade_ticks_without_players": 0,
     "grenades_sharing_an_entity_id": 0,
-    # Pistepilvi (Story 2.9). Luvut ovat mitatusta Ancient-ajosta.
+    # The point cloud (Story 2.9). The numbers are from the measured Ancient
+    # run.
     "callout_cells": 7703,
     "callout_areas": 18,
     "callout_observations": 1092083,
     "callout_cloud_rows_read": 1529910,
     "callout_cloud_empty_reason": None,
-    # Kokoonpanotaulu (Story 2.6). Rivi per kokoonpano:
-    # (lineup_key, klaani tai None, pelaajia, nimettömiä).
+    # The lineup table (Story 2.6). One row per lineup:
+    # (lineup_key, clan or None, players, players without a name).
     "lineup_rows": 10,
     "lineups": (
         ("a1b2c3d4e5f60718", "MatureMayhem", 5, 0),
@@ -115,9 +118,9 @@ DEFAULT_STATS: dict[str, object] = {
     ),
     "lineup_name_conflicts": 0,
     "lineup_clan_conflicts": 0,
-    # Kuolemataulu (Story 2.7). Nämä ovat oletuksissa, jotta jokainen
-    # kuolemarivin otsikko on leveysvartijan nähtävissä -- vartija renderöi
-    # tästä sanakirjasta, eikä avaimeton lohko tulostu koskaan.
+    # The deaths table (Story 2.7). These are in the defaults so that every
+    # death row's label is visible to the width guard -- the guard renders
+    # from this dictionary, and a block whose key is missing never prints.
     "death_rows": 141,
     "death_rounds": 20,
     "deaths_without_attacker": 1,
@@ -133,7 +136,7 @@ DEFAULT_STATS: dict[str, object] = {
 
 
 def parse_result(**overrides) -> StageResult:
-    """Vaiheen tulos oletusarvoilla; testi muuttaa vain sen mitä tutkii."""
+    """The stage's result with defaults; a test changes only what it studies."""
     defaults: dict[str, object] = {
         "stage": "parse",
         "unit": DEMO_ID,
@@ -149,14 +152,14 @@ def parse_result(**overrides) -> StageResult:
 
 
 def stats(**overrides) -> dict[str, object]:
-    """Vaiheen luvut oletuksilla; testi muuttaa vain sen mitä tutkii."""
+    """The stage's numbers with defaults; a test changes only what it studies."""
     numbers = dict(DEFAULT_STATS)
     numbers.update(overrides)
     return numbers
 
 
 def field_value(output_text: str, label: str) -> str:
-    """Poimi yhden rivin arvo otsikon perusteella."""
+    """Pick one row's value by its label."""
     for line in output_text.splitlines():
         stripped = line.strip()
         if stripped.startswith(label):
@@ -166,7 +169,7 @@ def field_value(output_text: str, label: str) -> str:
 
 @pytest.fixture
 def demo(tmp_path: Path) -> Path:
-    """Demon paikkamerkki -- vaihe on korvattu, joten sisältöä ei lueta."""
+    """A placeholder for the demo -- the stage is replaced, so it is not read."""
     path = tmp_path / f"{DEMO_ID}.dem"
     path.write_bytes(b"PBDEMS2" + bytes(1))
     return path
@@ -174,7 +177,7 @@ def demo(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def fake_stage(settings_file: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
-    """Korvaa ``stages.parse.run`` ja portti; palauta se mitä vaiheelle annettiin."""
+    """Replace ``stages.parse.run`` and the port; return what the stage got."""
     seen: dict[str, object] = {}
 
     def fake_run(settings, archive, map_demo_id, parser, **kwargs):
@@ -186,7 +189,7 @@ def fake_stage(settings_file: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
         return seen.get("tulos") or parse_result(unit=map_demo_id)
 
     def fake_port(settings):
-        # Ensikontaktin sääntö on asetus, joten portti saa [parse]-osion.
+        # The first contact rule is a setting, so the port gets [parse].
         seen["portin_asetukset"] = settings
         return "portti"
 
@@ -196,22 +199,22 @@ def fake_stage(settings_file: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
     return seen
 
 
-# --- Tuloste -------------------------------------------------------------------
+# --- The output ----------------------------------------------------------------
 
 
 def test_reports_rounds_skips_and_duration() -> None:
     output_text = _render_parse(parse_result(), regulation_rounds=24)
-    assert field_value(output_text, "Kierrokset") == "21 (rivejä 42)"
-    assert field_value(output_text, "Ohitetut kierrokset").startswith("1 (warmup")
-    assert field_value(output_text, "Ajoaika") == "12,3 s"
+    assert field_value(output_text, "Rounds") == "21 (42 rows)"
+    assert field_value(output_text, "Skipped rounds").startswith("1 (warmup")
+    assert field_value(output_text, "Run time") == "12,3 s"
     assert "rounds.parquet" in output_text
 
 
 def test_columns_line_up() -> None:
-    """Arvot alkavat samasta sarakkeesta, myös pisimmän otsikon rivillä.
+    """The values start at the same column, on the longest label's row too.
 
-    Pisin otsikko on ``Ohitetut kierrokset``; ennen sen lisäämistä tuloste
-    hyppäsi juuri sillä rivillä sarakkeen yli.
+    The longest label is ``Partial sample points``; before it was added the
+    output jumped past the column on exactly that row.
     """
     result = parse_result(
         stats=stats(
@@ -229,15 +232,16 @@ def test_columns_line_up() -> None:
 
     for line in lines:
         assert line.startswith("  "), line
-        # Arvo alkaa aina samasta sarakkeesta, ja otsikko mahtuu sen eteen.
-        assert line[_VALUE_COLUMN] != " ", f"arvo ei ala sarakkeesta: {line!r}"
-        assert line[_VALUE_COLUMN - 1] == " ", f"otsikko ja arvo kiinni: {line!r}"
-        assert line[2:_VALUE_COLUMN].strip(), f"otsikko puuttuu: {line!r}"
+        # The value always starts at the same column, and the label fits in
+        # front of it.
+        assert line[_VALUE_COLUMN] != " ", f"the value misses the column: {line!r}"
+        assert line[_VALUE_COLUMN - 1] == " ", f"label and value touch: {line!r}"
+        assert line[2:_VALUE_COLUMN].strip(), f"the label is missing: {line!r}"
 
 
 def test_mentions_overtime_only_when_earned() -> None:
-    assert field_value(_render_parse(parse_result(), regulation_rounds=24), "Jatkoaika") == (
-        "ei (21/24)"
+    assert field_value(_render_parse(parse_result(), regulation_rounds=24), "Overtime") == (
+        "no (21/24)"
     )
 
     overtime = parse_result(
@@ -249,8 +253,8 @@ def test_mentions_overtime_only_when_earned() -> None:
             no_freeze_end=0,
         )
     )
-    line = field_value(_render_parse(overtime, regulation_rounds=24), "Jatkoaika")
-    assert line.startswith("kyllä")
+    line = field_value(_render_parse(overtime, regulation_rounds=24), "Overtime")
+    assert line.startswith("yes")
     assert "28" in line
 
 
@@ -264,16 +268,16 @@ def test_hides_the_skip_line_when_nothing_was_skipped() -> None:
             no_freeze_end=0,
         )
     )
-    assert "Ohitetut kierrokset" not in _render_parse(result, regulation_rounds=24)
+    assert "Skipped rounds" not in _render_parse(result, regulation_rounds=24)
 
 
 def test_reports_match_restarts_separately_from_skipped_rounds() -> None:
-    """Ottelun uudelleenaloitus ei ole edes kierros, joten sillä on oma rivi.
+    """A match restart is not even a round, so it has a row of its own.
 
-    Se ei sisälly ohitettujen kierrosten lukuun: uudelleenaloitus ei tule
-    kierrostauluun lainkaan, kun taas ohitettu kierros on siellä ilman
-    kierrosnumeroa. Siksi ohitettujen kierrosten rivi ei myöskään enää
-    mainitse uudelleenkäynnistyksiä -- kaksi riviä laskisi saman asian.
+    It is not included in the count of skipped rounds: a restart does not
+    reach the rounds table at all, whereas a skipped round is there without a
+    round number. That is also why the skipped rounds row no longer mentions
+    restarts -- two rows would count the same thing.
     """
     result = parse_result(
         stats=stats(
@@ -286,48 +290,49 @@ def test_reports_match_restarts_separately_from_skipped_rounds() -> None:
         )
     )
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Uudelleenaloitukset") == (
-        "1 kierrosraja ilman demon omaa numeroa -- ei kierros, ei riviä tauluun"
+    assert field_value(output_text, "Match restarts") == (
+        "1 round boundary with no number of the demo's own -- not a round, "
+        "not a row in the table"
     )
-    assert field_value(output_text, "Ohitetut kierrokset") == (
-        "1 (warmup ja puukkokierros)"
+    assert field_value(output_text, "Skipped rounds") == (
+        "1 (warmup and the knife round)"
     )
 
 
 def test_more_than_one_restart_takes_the_plural() -> None:
-    """``1 kierrosraja`` mutta ``2 kierrosrajaa`` -- luku taivuttaa yksikön."""
+    """``1 round boundary`` but ``2 round boundaries`` -- the count inflects it."""
     result = parse_result(stats=stats(match_restarts=2))
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Uudelleenaloitukset").startswith(
-        "2 kierrosrajaa "
+    assert field_value(output_text, "Match restarts").startswith(
+        "2 round boundaries "
     )
 
 
 def test_says_out_loud_when_there_were_no_restarts() -> None:
-    """Nolla on havainto: tuore ajo sanoo sen ääneen eikä vaikene."""
+    """Zero is an observation: a fresh run says it out loud and does not hush."""
     result = parse_result(stats=stats(match_restarts=0))
     assert field_value(
-        _render_parse(result, regulation_rounds=24), "Uudelleenaloitukset"
-    ) == "ei yhtään"
+        _render_parse(result, regulation_rounds=24), "Match restarts"
+    ) == "none at all"
 
 
 def test_a_port_that_cannot_report_restarts_is_not_a_zero() -> None:
-    """``None`` on eri asia kuin nolla: väitettä ei tehdä ilman havaintoa."""
+    """``None`` is a different thing from zero: no claim without an observation."""
     result = parse_result(stats=stats(match_restarts=None))
     assert field_value(
-        _render_parse(result, regulation_rounds=24), "Uudelleenaloitukset"
-    ).startswith("ei tiedossa")
+        _render_parse(result, regulation_rounds=24), "Match restarts"
+    ).startswith("not known")
 
 
 def test_a_skipped_run_does_not_claim_there_were_no_restarts() -> None:
-    """Ohitetussa ajossa avainta ei ole: rivi jätetään pois kokonaan.
+    """A skipped run has no key: the row is left out entirely.
 
-    Uudelleenaloitus ei ole missään taulussa, joten sen määrää ei voi lukea
-    valmiista tuloksesta. Nolla olisi väite, jota mikään ei tue.
+    A restart is in no table, so its number cannot be read out of a finished
+    result. Zero would be a claim nothing supports.
     """
     without = {k: v for k, v in DEFAULT_STATS.items() if k != "match_restarts"}
     result = parse_result(skipped=True, stats=without)
-    assert "Uudelleenaloitukset" not in _render_parse(result, regulation_rounds=24)
+    assert "Match restarts" not in _render_parse(result, regulation_rounds=24)
 
 
 def test_reports_rounds_without_a_freeze_anchor() -> None:
@@ -341,26 +346,26 @@ def test_reports_rounds_without_a_freeze_anchor() -> None:
         )
     )
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Ilman ankkuria").startswith("2 (freezetime")
+    assert field_value(output_text, "Without an anchor").startswith("2 (the freezetime")
 
 
 def test_says_when_the_stage_was_skipped() -> None:
-    result = parse_result(skipped=True, reason="Tulos on ajan tasalla.")
+    result = parse_result(skipped=True, reason="The result is up to date.")
     output_text = _render_parse(result, regulation_rounds=24)
-    assert output_text.startswith("Ohitettu:")
-    assert field_value(output_text, "Syy") == "Tulos on ajan tasalla."
+    assert output_text.startswith("Skipped:")
+    assert field_value(output_text, "Reason") == "The result is up to date."
 
 
 def test_shows_a_non_ok_status_and_its_reason() -> None:
-    """AD-9: epäonnistunut yksikkö ei saa näyttää onnistuneelta."""
-    result = parse_result(status="no_freeze_end", reason="Ankkuri puuttui.")
+    """AD-9: a failed unit must not look like a successful one."""
+    result = parse_result(status="no_freeze_end", reason="The anchor was missing.")
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Tila") == "no_freeze_end"
-    assert field_value(output_text, "Syy") == "Ankkuri puuttui."
+    assert field_value(output_text, "Status") == "no_freeze_end"
+    assert field_value(output_text, "Reason") == "The anchor was missing."
 
 
 def test_ok_status_is_not_repeated_on_its_own_line() -> None:
-    assert "Tila" not in _render_parse(parse_result(), regulation_rounds=24)
+    assert "Status" not in _render_parse(parse_result(), regulation_rounds=24)
 
 
 def test_says_when_the_tick_rate_is_a_default() -> None:
@@ -375,7 +380,7 @@ def test_says_when_the_tick_rate_is_a_default() -> None:
             tick_rate_measured=False,
         )
     )
-    assert "oletus" in field_value(_render_parse(result, regulation_rounds=24), "Tickrate")
+    assert "a default" in field_value(_render_parse(result, regulation_rounds=24), "Tickrate")
 
 
 def test_measured_tick_rate_is_not_mentioned() -> None:
@@ -394,303 +399,306 @@ def test_measured_tick_rate_is_not_mentioned() -> None:
 
 
 def test_never_claims_zero_rounds_when_the_result_is_unreadable() -> None:
-    result = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
+    result = parse_result(skipped=True, stats={"unreadable": "OSError: broken"})
     output_text = _render_parse(result, regulation_rounds=24)
-    assert "lukuja ei saatu" in output_text
-    assert field_value(output_text, "Kierrokset").startswith("lukuja ei saatu")
+    assert "no counts obtained" in output_text
+    assert field_value(output_text, "Rounds").startswith("no counts obtained")
 
 
-# --- Näytepisteet ja ensikontaktit ---------------------------------------------
+# --- Sample points and first contacts ------------------------------------------
 
 
 def test_reports_sample_points_and_first_contacts() -> None:
-    """Käyttäjän on nähtävä, että asetelmadata syntyi."""
+    """The user has to see that positional data came into being."""
     output_text = _render_parse(parse_result(), regulation_rounds=24)
-    line = field_value(output_text, "Näytepisteet")
-    assert line.startswith("78 (21/21 kierroksella")
+    line = field_value(output_text, "Sample points")
+    assert line.startswith("78 (in 21/21 rounds")
     assert "780" in line
-    assert field_value(output_text, "Ensikontaktit") == "20/21 kierroksella"
+    assert field_value(output_text, "First contacts") == "20/21 rounds"
 
 
 def test_rounds_without_any_sample_point_are_named() -> None:
-    """Nollan syytä ei arvata: erotus kerrotaan, mahdolliset syyt luetellaan.
+    """A zero's cause is not guessed: the difference and the possible causes.
 
-    Ankkurin puute ja hyvin lyhyt kierros tuottavat saman nollan, joten
-    yhden syyn nimeäminen olisi arvaus.
+    A missing anchor and a very short round produce the same zero, so naming
+    one cause would be a guess.
     """
     result = parse_result(stats=stats(sample_rounds=18))
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Näytepisteet").startswith("78 (18/21 kierroksella")
-    line = field_value(output_text, "Ilman näytepistettä")
-    assert line.startswith("3 kierrosta")
-    assert "ankkuri" in line
+    assert field_value(output_text, "Sample points").startswith("78 (in 18/21 rounds")
+    line = field_value(output_text, "No sample point")
+    assert line.startswith("3 rounds")
+    assert "anchor" in line
 
 
 def test_every_round_sampled_hides_the_difference_line() -> None:
-    assert "Ilman näytepistettä" not in _render_parse(
+    assert "No sample point" not in _render_parse(
         parse_result(), regulation_rounds=24
     )
 
 
 def test_armed_player_distribution_is_reported() -> None:
-    """Jakauma ja sääntö kerrotaan ajon yhteydessä.
+    """The distribution and the rule are reported during the run.
 
-    Väärä sääntö ei näy taulussa mitenkään: se läpäisisi jokaisen
-    skeematarkistuksen. Jakauma on halvin tapa huomata se ajossa eikä vasta
-    raportissa, ja säännön nimeäminen tarvitaan sen tulkitsemiseen.
+    A wrong rule does not show in the table at all: it would pass every
+    schema check. The distribution is the cheapest way to notice it during
+    the run rather than only in the report, and naming the rule is needed to
+    interpret it.
     """
     line = field_value(
-        _render_parse(parse_result(), regulation_rounds=24), "Aseistettuja"
+        _render_parse(parse_result(), regulation_rounds=24), "Armed"
     )
-    assert line.startswith("panssari ja ase hallussa ostoajan lopussa; ")
-    assert "0 -> 3 riviä" in line
-    assert "4 -> 1 riviä" in line
-    assert "5 -> 38 riviä" in line
+    assert line.startswith("armour and a weapon held at the end of the buy time; ")
+    assert "0 -> 3 rows" in line
+    assert "4 -> 1 rows" in line
+    assert "5 -> 38 rows" in line
 
 
 def test_unknown_inventory_items_are_named_with_their_counts() -> None:
-    """Tuntemattomat nimet kerrotaan esiintymämäärineen, ei vain lasketa.
+    """Unknown names are reported with their counts, not merely counted.
 
-    Luokittelu on sallittujen aseiden luettelo, joten tuntematon nimi ei
-    aseista ketään. Uusi veitsiskini on odotettu tulos ja uusi **ase** on
-    merkki siitä, että luettelo on jäänyt jälkeen -- ilman nimiä ne
-    näyttäisivät täsmälleen samalta. Määrä erottaa ne vielä tarkemmin: yksi
-    eksoottinen veitsi näkyy kerran, nimeämismuutos joka rivillä.
+    The classification is a list of allowed weapons, so an unknown name arms
+    nobody. A new knife skin is an expected result and a new **weapon** is a
+    sign that the list has fallen behind -- without the names they would look
+    exactly alike. The count tells them apart more sharply still: one exotic
+    knife shows once, a naming change on every row.
     """
     result = parse_result(
-        stats=stats(armed_unknown_items=(("Uusi Ase", 12), ("Outo Veitsi", 1)))
+        stats=stats(armed_unknown_items=(("New Weapon", 12), ("Odd Knife", 1)))
     )
     line = field_value(
-        _render_parse(result, regulation_rounds=24), "Tuntemattomat esineet"
+        _render_parse(result, regulation_rounds=24), "Unknown items"
     )
-    assert line.startswith("2 eri esinenimeä: Uusi Ase x12, Outo Veitsi x1")
-    assert "ei laskettu aseeksi" in line
+    assert line.startswith("2 different item names: New Weapon x12, Odd Knife x1")
+    assert "not counted as a weapon" in line
 
 
 def test_one_unknown_item_is_named_in_the_singular() -> None:
-    """Yksi nimi ei ole "1 eri esinenimeä"."""
-    result = parse_result(stats=stats(armed_unknown_items=(("Outo Veitsi", 1),)))
+    """One name is not "1 different item names"."""
+    result = parse_result(stats=stats(armed_unknown_items=(("Odd Knife", 1),)))
     line = field_value(
-        _render_parse(result, regulation_rounds=24), "Tuntemattomat esineet"
+        _render_parse(result, regulation_rounds=24), "Unknown items"
     )
-    assert line.startswith("1 esinenimi: Outo Veitsi x1")
+    assert line.startswith("1 item name: Odd Knife x1")
 
 
 def test_unknown_item_list_is_truncated() -> None:
-    """Satojen nimien rivi ei ole luettava -- eikä se ole edes tarpeen.
+    """A row of hundreds of names is not readable -- nor is it even needed.
 
-    Jos demoparser2 muuttaa nimeämistapaansa, **jokainen** nimi on
-    tuntematon. Silloin käyttäjän on nähtävä yhdellä silmäyksellä että jokin
-    on pahasti pielessä, ei selattava kolmea riviä nimiä.
+    If demoparser2 changes the way it names things, **every** name is
+    unknown. The user then has to see at a glance that something is badly
+    wrong, not scroll through three rows of names.
     """
-    many = tuple((f"Nimi {index:02d}", 1) for index in range(30))
+    many = tuple((f"Name {index:02d}", 1) for index in range(30))
     result = parse_result(stats=stats(armed_unknown_items=many))
     line = field_value(
-        _render_parse(result, regulation_rounds=24), "Tuntemattomat esineet"
+        _render_parse(result, regulation_rounds=24), "Unknown items"
     )
-    assert line.startswith("30 eri esinenimeä: ")
-    assert "Nimi 19 x1" in line
-    assert "Nimi 20" not in line
-    assert "(+10 muuta)" in line
+    assert line.startswith("30 different item names: ")
+    assert "Name 19 x1" in line
+    assert "Name 20" not in line
+    assert "(+10 more)" in line
 
 
 def test_no_unknown_inventory_items_says_so() -> None:
-    """Tyhjä luettelo sanotaan ääneen: se on ajon terve tulos."""
+    """An empty listing is said out loud: it is the run's healthy result."""
     line = field_value(
         _render_parse(parse_result(), regulation_rounds=24),
-        "Tuntemattomat esineet",
+        "Unknown items",
     )
-    assert line == "ei yhtään"
+    assert line == "none at all"
 
 
 def test_unknown_item_line_is_absent_when_the_run_was_skipped() -> None:
-    """Ohitettu ajo ei tiedä nimiä: rivi puuttuu, se ei väitä tyhjää.
+    """A skipped run does not know the names: the row is absent, not empty.
 
-    Nimet eivät ole taulussa -- ne eivät aseista ketään -- joten ohitetusta
-    ajosta niitä ei voi lukea takaisin. "Ei yhtään" olisi silloin väite,
-    jota mikään ei tue.
+    The names are not in the table -- they arm nobody -- so they cannot be
+    read back from a skipped run. "None at all" would then be a claim nothing
+    supports.
     """
     numbers = stats()
     numbers.pop("armed_unknown_items")
-    assert "Tuntemattomat esineet" not in _render_parse(
+    assert "Unknown items" not in _render_parse(
         parse_result(stats=numbers), regulation_rounds=24
     )
 
 
 def test_unknown_item_line_says_when_the_port_does_not_report() -> None:
-    """Kolmas tila: tuore ajo portilla, joka ei kerro tuntemattomia.
+    """The third state: a fresh run with a port that does not report unknowns.
 
-    ``None`` on eri asia kuin tyhjä. Jos ne yhdistettäisiin, portin
-    hiljeneminen näyttäisi siltä, että jokainen nimi tunnistettiin.
+    ``None`` is a different thing from empty. If they were merged, the port
+    going quiet would look as if every name had been recognised.
     """
     result = parse_result(stats=stats(armed_unknown_items=None))
     line = field_value(
-        _render_parse(result, regulation_rounds=24), "Tuntemattomat esineet"
+        _render_parse(result, regulation_rounds=24), "Unknown items"
     )
-    assert "ei tiedossa" in line
+    assert "not known" in line
 
 
 def test_armed_player_line_separates_a_skewed_distribution_from_a_healthy_one() -> None:
-    """Ääripäät eivät riitä: 41 riviä nollaa ja yksi viitonen on eri asia.
+    """The extremes are not enough: 41 rows of zero and one five is different.
 
-    Molemmat tuottaisivat ääripäinä "0-5", joka näyttää terveeltä. Tämä on
-    koko syy siihen, että rivillä on jakauma eikä min ja max.
+    Both would give "0-5" as extremes, which looks healthy. That is the whole
+    reason the row carries a distribution and not a min and a max.
     """
     healthy = parse_result(stats=stats(armed_distribution={0: 3, 4: 1, 5: 38}))
     skewed = parse_result(stats=stats(armed_distribution={0: 41, 5: 1}))
 
-    healthy_line = field_value(_render_parse(healthy, regulation_rounds=24), "Aseistettuja")
-    skewed_line = field_value(_render_parse(skewed, regulation_rounds=24), "Aseistettuja")
+    healthy_line = field_value(_render_parse(healthy, regulation_rounds=24), "Armed")
+    skewed_line = field_value(_render_parse(skewed, regulation_rounds=24), "Armed")
 
     assert healthy_line != skewed_line
-    assert "0 -> 41 riviä" in skewed_line
-    assert "5 -> 1 riviä" in skewed_line
+    assert "0 -> 41 rows" in skewed_line
+    assert "5 -> 1 rows" in skewed_line
 
 
 def test_armed_player_line_names_the_rows_without_an_observation() -> None:
     result = parse_result(stats=stats(armed_missing=2))
-    line = field_value(_render_parse(result, regulation_rounds=24), "Aseistettuja")
-    assert line.endswith("havainto puuttuu 2 riviltä")
+    line = field_value(_render_parse(result, regulation_rounds=24), "Armed")
+    assert line.endswith("the observation is missing from 2 rows")
 
 
 def test_armed_player_line_says_when_there_is_no_observation_at_all() -> None:
-    """Tyhjä jakauma ei ole nolla: se on "ei tiedetä" jokaisella rivillä."""
+    """An empty distribution is not zero: it is "not known" on every row."""
     result = parse_result(stats=stats(armed_distribution={}, armed_missing=42))
-    line = field_value(_render_parse(result, regulation_rounds=24), "Aseistettuja")
-    assert "ei yhtään havaintoa (42 riviä)" in line
+    line = field_value(_render_parse(result, regulation_rounds=24), "Armed")
+    assert "no observations at all (42 rows)" in line
 
 
 def test_armed_player_line_is_absent_without_the_numbers() -> None:
-    """Lukukelvoton tulos ei saa väittää jakaumaa, jota ei ole."""
+    """An unreadable result must not claim a distribution that is not there."""
     numbers = stats()
     numbers.pop("armed_distribution")
     numbers.pop("armed_unknown_items")
-    assert "Aseistettuja" not in _render_parse(
+    assert "Armed" not in _render_parse(
         parse_result(stats=numbers), regulation_rounds=24
     )
 
 
 def test_armored_player_line_reports_its_own_distribution() -> None:
-    """Panssaririvi on oma rivinsä eikä aseistettujen rivin kaiku.
+    """The armour row is a row of its own and not an echo of the armed row.
 
-    Molemmat ovat tulosteessa, ja niiden **on** voitava näyttää eri luvut:
-    jos rivi lukisi samaa saraketta, jakaumat olisivat identtiset ja koko
-    story olisi turha.
+    Both are in the output, and they **have** to be able to show different
+    numbers: if the row read the same column, the distributions would be
+    identical and the whole story would be pointless.
     """
     output_text = _render_parse(parse_result(), regulation_rounds=24)
-    armed_line = field_value(output_text, "Aseistettuja")
-    armored_line = field_value(output_text, "Panssaroituja")
+    armed_line = field_value(output_text, "Armed")
+    armored_line = field_value(output_text, "Armoured")
 
-    assert "0 -> 2 riviä" in armored_line
-    assert "5 -> 38 riviä" in armored_line
+    assert "0 -> 2 rows" in armored_line
+    assert "5 -> 38 rows" in armored_line
     assert armored_line != armed_line
-    # Sääntö on rivillä mukana: ilman sitä kaksi lähes samannimistä riviä
-    # peräkkäin luetaan väärin.
-    assert "aseesta riippumatta" in armored_line
+    # The rule is on the row: without it two rows with nearly the same name
+    # in succession are read wrongly.
+    assert "regardless of weapon" in armored_line
 
 
 def test_armored_player_line_separates_a_skewed_distribution_from_a_healthy_one() -> None:
-    """Ääripäät eivät riitä täälläkään: jakauma, ei min ja max."""
+    """The extremes are not enough here either: a distribution, not min and max."""
     healthy = parse_result(stats=stats(armored_distribution={0: 3, 5: 39}))
     skewed = parse_result(stats=stats(armored_distribution={0: 41, 5: 1}))
 
     healthy_line = field_value(
-        _render_parse(healthy, regulation_rounds=24), "Panssaroituja"
+        _render_parse(healthy, regulation_rounds=24), "Armoured"
     )
     skewed_line = field_value(
-        _render_parse(skewed, regulation_rounds=24), "Panssaroituja"
+        _render_parse(skewed, regulation_rounds=24), "Armoured"
     )
 
     assert healthy_line != skewed_line
-    assert "0 -> 41 riviä" in skewed_line
+    assert "0 -> 41 rows" in skewed_line
 
 
 def test_armored_player_line_names_the_rows_without_an_observation() -> None:
     result = parse_result(stats=stats(armored_missing=2))
-    line = field_value(_render_parse(result, regulation_rounds=24), "Panssaroituja")
-    assert line.endswith("havainto puuttuu 2 riviltä")
+    line = field_value(_render_parse(result, regulation_rounds=24), "Armoured")
+    assert line.endswith("the observation is missing from 2 rows")
 
 
 def test_armored_player_line_says_when_there_is_no_observation_at_all() -> None:
-    """Tyhjä jakauma ei ole nolla kevlaria: se on "ei tiedetä" joka rivillä."""
+    """An empty distribution is not zero kevlars: it is "not known" on every row."""
     result = parse_result(stats=stats(armored_distribution={}, armored_missing=42))
-    line = field_value(_render_parse(result, regulation_rounds=24), "Panssaroituja")
-    assert "ei yhtään havaintoa (42 riviä)" in line
+    line = field_value(_render_parse(result, regulation_rounds=24), "Armoured")
+    assert "no observations at all (42 rows)" in line
 
 
 def test_armored_player_line_is_absent_without_the_numbers() -> None:
-    """Lukukelvoton tulos ei saa väittää jakaumaa, jota ei ole."""
+    """An unreadable result must not claim a distribution that is not there."""
     numbers = stats()
     numbers.pop("armored_distribution")
-    assert "Panssaroituja" not in _render_parse(
+    assert "Armoured" not in _render_parse(
         parse_result(stats=numbers), regulation_rounds=24
     )
 
 
 def test_partial_sample_points_are_reported() -> None:
-    """Vajaa näytepiste on adapterin havainto -- taulusta sitä ei näe."""
+    """A partial sample point is the adapter's observation -- not in the table."""
     result = parse_result(stats=stats(partial_samples=4))
-    line = field_value(_render_parse(result, regulation_rounds=24), "Vajaat näytepisteet")
+    line = field_value(_render_parse(result, regulation_rounds=24), "Partial sample points")
     assert line.startswith("4 (")
 
 
 def test_a_pawnless_player_gets_its_own_line() -> None:
-    """Story 2.10: ohitettu rivi pienentää asetelmaa, ja lukijan on nähtävä se.
+    """Story 2.10: a skipped row shrinks the setup, and the reader must see it.
 
-    Ilman omaa riviään kierros näyttäisi siltä, että joukkue vain pelasi
-    vajaalla -- eikä siltä, että yksi pelaaja putosi kartalta.
+    Without a row of its own the round would look as if the team had simply
+    played a man down -- and not as if one player had dropped off the map.
     """
     result = parse_result(stats=stats(sample_rows_without_pawn=3))
-    line = field_value(_render_parse(result, regulation_rounds=24), "Pawniton pelaaja")
-    assert line.startswith("3 riviä ohitettiin")
-    assert "kontrolleri tallella" in line
-    # Nolla pudonnutta pistettä ei saa tuottaa lisälausetta.
-    assert "kokonaan väliin" not in line
+    line = field_value(_render_parse(result, regulation_rounds=24), "Player without a pawn")
+    assert line.startswith("3 rows were skipped")
+    assert "the controller is there" in line
+    # Zero dropped points must not produce the extra clause.
+    assert "went missing entirely" not in line
 
 
 def test_a_dropped_sample_point_joins_the_pawnless_line() -> None:
-    """Kokonaan väliin jäänyt piste on vakavampi kuin vajaa, ja se sanotaan.
+    """A point missed entirely is graver than a partial one, and it is said.
 
-    Se ei ole ``partial_samples``issa eikä saa jäädä pelkän rivimäärän
-    varaan: kymmenen ohitettua riviä tarkoittaa eri asiaa sen mukaan,
-    jakautuivatko ne kymmenelle pisteelle vai tyhjensivätkö ne yhden.
+    It is not in ``partial_samples`` and must not be left to the row count
+    alone: ten skipped rows mean a different thing depending on whether they
+    spread over ten points or emptied one.
     """
     result = parse_result(
         stats=stats(sample_rows_without_pawn=10, sample_points_without_pawn=1)
     )
-    line = field_value(_render_parse(result, regulation_rounds=24), "Pawniton pelaaja")
-    assert "10 riviä ohitettiin" in line
-    assert "1 näytepistettä jäi kokonaan väliin" in line
+    line = field_value(_render_parse(result, regulation_rounds=24), "Player without a pawn")
+    assert "10 rows were skipped" in line
+    assert "1 of the sample points went missing entirely" in line
 
 
 def test_the_partial_line_names_pawnless_rows_as_a_cause() -> None:
-    """Sama tapahtuma ei saa näyttää kahdelta eri tapahtumalta.
+    """The same event must not look like two different events.
 
-    Yksi pawniton pelaaja tuottaa sekä vajaan näytepisteen että ohitetun
-    rivin. Docstring tuntee syy-yhteyden; ilman tätä tuloste ei.
+    One player without a pawn produces both a partial sample point and a
+    skipped row. The docstring knows the connection; without this the output
+    does not.
     """
     both = _render_parse(
         parse_result(stats=stats(partial_samples=1, sample_rows_without_pawn=1)),
         regulation_rounds=24,
     )
-    assert "pawnittomat rivit alla ovat yksi syy" in field_value(
-        both, "Vajaat näytepisteet"
+    assert "the pawnless rows below are one cause" in field_value(
+        both, "Partial sample points"
     )
 
-    # Ilman pawnittomia rivejä syytä ei väitetä.
+    # Without pawnless rows the cause is not claimed.
     alone = _render_parse(
         parse_result(stats=stats(partial_samples=1, sample_rows_without_pawn=0)),
         regulation_rounds=24,
     )
-    assert "pawnittomat" not in field_value(alone, "Vajaat näytepisteet")
+    assert "pawnless" not in field_value(alone, "Partial sample points")
 
 
 def test_a_dropped_point_is_named_among_the_reasons_for_a_missing_sample() -> None:
-    """Neljäs syy kierrokselle ilman näytepistettä on Story 2.10:n oma.
+    """The fourth cause of a round with no sample point is Story 2.10's own.
 
-    Selitys luetteli kolme syytä -- puuttuva ankkuri, aikainen ratkeaminen ja
-    väärät näytepisteajat -- ja niistä yksikään ei ole tämä. Syy mainitaan
-    vain kun se on mitattu, jottei selitys luettele syytä jota ei ollut.
+    The explanation listed three causes -- a missing anchor, an early
+    decision and wrong sample point times -- and none of them is this one.
+    The cause is mentioned only when it has been measured, so that the
+    explanation does not list a cause there was none of.
     """
     numbers = stats(
         sample_rounds=20,
@@ -699,28 +707,29 @@ def test_a_dropped_point_is_named_among_the_reasons_for_a_missing_sample() -> No
     )
     line = field_value(
         _render_parse(parse_result(stats=numbers), regulation_rounds=24),
-        "Ilman näytepistettä",
+        "No sample point",
     )
-    assert "Pawniton pelaaja" in line
+    assert "Player without a pawn" in line
 
     clean = stats(sample_rounds=20, sample_points_without_pawn=0)
-    assert "Pawniton" not in field_value(
+    assert "Player without a pawn" not in field_value(
         _render_parse(parse_result(stats=clean), regulation_rounds=24),
-        "Ilman näytepistettä",
+        "No sample point",
     )
 
 
 def test_a_clean_run_hides_the_pawnless_line() -> None:
-    """Nolla ei tulostu, kuten muillakaan poikkeamalaskureilla."""
-    assert "Pawniton pelaaja" not in _render_parse(
+    """A zero is not printed, as with the other anomaly counters."""
+    assert "Player without a pawn" not in _render_parse(
         parse_result(stats=stats(sample_rows_without_pawn=0)), regulation_rounds=24
     )
 
 
 def test_a_skipped_run_does_not_claim_a_clean_lineup() -> None:
-    """Ohitetusta ajosta pawnittomia ei voi lukea, eikä niitä keksitä.
+    """Pawnless rows cannot be read from a skipped run, and are not invented.
 
-    Rivi jää pois kokonaan -- ei nollana, joka näyttäisi mittaukselta.
+    The row is left out entirely -- not as a zero, which would look like a
+    measurement.
     """
     numbers = {
         key: value
@@ -730,38 +739,38 @@ def test_a_skipped_run_does_not_claim_a_clean_lineup() -> None:
     text = _render_parse(
         parse_result(skipped=True, stats=numbers), regulation_rounds=24
     )
-    assert "Pawniton pelaaja" not in text
+    assert "Player without a pawn" not in text
 
 
 def test_a_port_that_cannot_count_pawnless_rows_says_so() -> None:
-    """``None`` on eri asia kuin nolla: tuntemattomuus ei ole puhdas tulos."""
+    """``None`` is a different thing from zero: not knowing is not a clean result."""
     line = field_value(
         _render_parse(
             parse_result(stats=stats(sample_rows_without_pawn=None)),
             regulation_rounds=24,
         ),
-        "Pawniton pelaaja",
+        "Player without a pawn",
     )
-    assert "ei tiedossa" in line
+    assert "not known" in line
 
 
 def test_a_thrower_without_a_row_gets_its_own_line() -> None:
-    """Story 2.10 loi uuden pudotuksen, ja sillä on oltava syy tulosteessa.
+    """Story 2.10 created a new drop, and it has to have a cause in the output.
 
-    Pawnittoman heittäjän heitto jää ilman aluetta. Ilman omaa riviään se
-    valuisi ``Utilityn alue`` -rivin "ilman aluetta" -lukuun, jossa se
-    näyttäisi kynnyksen hinnalta.
+    A throw by a thrower without a pawn is left without an area. Without a
+    row of its own it would drift into the ``Utility area`` row's "without an
+    area" count, where it would look like the threshold's price.
     """
     line = field_value(
         _render_parse(
             parse_result(stats=stats(grenade_throwers_without_row=2)),
             regulation_rounds=24,
         ),
-        "Heittäjä ilman riviä",
+        "Thrower without a row",
     )
-    assert line.startswith("2 heittoa jäi ilman aluetta")
+    assert line.startswith("2 throws were left without an area")
 
-    assert "Heittäjä ilman riviä" not in _render_parse(
+    assert "Thrower without a row" not in _render_parse(
         parse_result(stats=stats(grenade_throwers_without_row=0)),
         regulation_rounds=24,
     )
@@ -769,18 +778,18 @@ def test_a_thrower_without_a_row_gets_its_own_line() -> None:
 
 def test_events_with_an_unknown_side_are_reported() -> None:
     result = parse_result(stats=stats(unknown_side_events=2))
-    line = field_value(_render_parse(result, regulation_rounds=24), "Puoli tuntematon")
-    assert line.startswith("2 vahinkotapahtumaa")
+    line = field_value(_render_parse(result, regulation_rounds=24), "Side unknown")
+    assert line.startswith("2 damage events")
 
 
 def test_clean_run_hides_both_diagnostic_lines() -> None:
     output_text = _render_parse(parse_result(), regulation_rounds=24)
-    assert "Vajaat näytepisteet" not in output_text
-    assert "Puoli tuntematon" not in output_text
+    assert "Partial sample points" not in output_text
+    assert "Side unknown" not in output_text
 
 
 def test_unreadable_ticks_do_not_hide_the_round_counts() -> None:
-    """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
+    """One broken table must not take another one's numbers with it."""
     numbers = stats()
     for key in (
         "tick_rows",
@@ -789,39 +798,39 @@ def test_unreadable_ticks_do_not_hide_the_round_counts() -> None:
         "first_contact_rounds",
     ):
         numbers.pop(key)
-    numbers["ticks_unreadable"] = "OSError: rikki"
+    numbers["ticks_unreadable"] = "OSError: broken"
     output_text = _render_parse(
         parse_result(skipped=True, stats=numbers), regulation_rounds=24
     )
-    assert field_value(output_text, "Kierrokset") == "21 (rivejä 42)"
-    assert field_value(output_text, "Näytepisteet").startswith("lukuja ei saatu")
+    assert field_value(output_text, "Rounds") == "21 (42 rows)"
+    assert field_value(output_text, "Sample points").startswith("no counts obtained")
 
 
 def test_zero_sample_points_is_said_out_loud() -> None:
-    """Nolla ei saa hukkua: kierrosluku näyttäisi samalta tyhjällä taululla."""
+    """A zero must not be lost: the round count would look the same when empty."""
     result = parse_result(
         stats=stats(tick_rows=0, sample_points=0, sample_rounds=0,
                     first_contact_rounds=0)
     )
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Näytepisteet").startswith("0 --")
-    assert field_value(output_text, "Ensikontaktit").startswith("0 --")
+    assert field_value(output_text, "Sample points").startswith("0 --")
+    assert field_value(output_text, "First contacts").startswith("0 --")
 
 
 def test_zero_first_contacts_is_said_out_loud_even_with_samples() -> None:
-    """Purematon ensikontaktisääntö ei saa näyttää normaalilta ajolta."""
+    """A first contact rule that never bites must not look like a normal run."""
     result = parse_result(stats=stats(first_contact_rounds=0))
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Näytepisteet").startswith("78 ")
-    assert field_value(output_text, "Ensikontaktit").startswith("0 --")
+    assert field_value(output_text, "Sample points").startswith("78 ")
+    assert field_value(output_text, "First contacts").startswith("0 --")
 
 
 def test_sample_lines_are_absent_when_the_result_was_unreadable() -> None:
-    """Ilman lukuja ei keksitä nollaa -- se väittäisi tyhjää tulosta."""
-    result = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
+    """Without numbers a zero is not invented -- it would claim an empty result."""
+    result = parse_result(skipped=True, stats={"unreadable": "OSError: broken"})
     output_text = _render_parse(result, regulation_rounds=24)
-    assert "Näytepisteet" not in output_text
-    assert "Ensikontaktit" not in output_text
+    assert "Sample points" not in output_text
+    assert "First contacts" not in output_text
 
 
 def test_both_output_tables_are_listed() -> None:
@@ -836,11 +845,11 @@ def test_both_output_tables_are_listed() -> None:
     assert "ticks.parquet" in output_text
 
 
-# --- Komento -------------------------------------------------------------------
+# --- The command ----------------------------------------------------------------
 
 
 def test_stage_gets_only_the_parse_section(fake_stage, demo: Path) -> None:
-    """AD-3: vaihe ei saa nähdä kynnyksiä eikä liiga-asetuksia."""
+    """AD-3: the stage must see neither the thresholds nor the league settings."""
     result = runner.invoke(app, ["parse", str(demo)])
     assert result.exit_code == 0, result.output
 
@@ -850,7 +859,8 @@ def test_stage_gets_only_the_parse_section(fake_stage, demo: Path) -> None:
         assert not hasattr(settings, forbidden)
     assert fake_stage["unit"] == DEMO_ID
     assert fake_stage["parser"] == "portti"
-    # Portti saa saman [parse]-osion: ensikontaktin sääntö on asetus.
+    # The port gets the same [parse] section: the first contact rule is a
+    # setting.
     assert fake_stage["portin_asetukset"] is settings
     assert fake_stage["kwargs"]["force"] is False
     assert fake_stage["kwargs"]["demo_path"] == demo
@@ -863,7 +873,7 @@ def test_force_flag_reaches_the_stage(fake_stage, demo: Path) -> None:
 
 
 def test_overtime_line_uses_the_league_format(fake_stage, demo: Path) -> None:
-    """Säännönmukaisten kierrosten määrä on 2 x liigan MR-arvo."""
+    """The number of regulation rounds is 2 x the league's MR value."""
     fake_stage["tulos"] = parse_result(
         stats=stats(
             rounds=28,
@@ -875,21 +885,26 @@ def test_overtime_line_uses_the_league_format(fake_stage, demo: Path) -> None:
     )
     result = runner.invoke(app, ["parse", str(demo)])
     assert result.exit_code == 0, result.output
-    # settings.tomlissa mr = 12 -> 24 saannonmukaista kierrosta.
-    assert "säännönmukaisia 24" in result.output
+    # In settings.toml mr = 12 -> 24 regulation rounds.
+    assert "regulation is 24" in result.output
 
 
 def test_run_is_announced_before_it_starts(fake_stage, demo: Path) -> None:
-    """Useiden sekuntien hiljaisuus näyttäisi jumittumiselta."""
+    """Several seconds of silence would look like a hang."""
     result = runner.invoke(app, ["parse", str(demo)])
     assert result.exit_code == 0, result.output
-    assert f"Parsitaan {DEMO_ID}" in result.output
+    assert f"Parsing {DEMO_ID}" in result.output
 
 
-def test_missing_demo_is_finnish_without_a_traceback(
+def test_missing_demo_ends_in_one_line_without_a_traceback(
     settings_file: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
-    """Käyttäjä ei koodaa itse: paluukoodi 1 ja suomenkielinen rivi."""
+    """The user does not code: exit code 1 and one line.
+
+    The name used to say the line is in Finnish. It was true only while the
+    CLI's own ``Virhe:`` heading was Finnish; T15 translated it, so the name
+    says what the message does instead.
+    """
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
     monkeypatch.setattr("sys.argv", ["pappascout", "parse", "1-ei-tallaista-demoa-1"])
 
@@ -898,65 +913,65 @@ def test_missing_demo_is_finnish_without_a_traceback(
 
     assert exc.value.code == EXIT_KNOWN_ERROR
     error = capsys.readouterr().err
-    assert "Virhe:" in error
+    assert "Error:" in error
     # The body of the message comes from ``stages.parse.resolve_demo``, which
-    # T8 translated; the CLI's own wrapper around it is still Finnish, and it
-    # is what keeps this test's name true.
+    # T8 translated; the CLI's own wrapper around it is the ``Error:``
+    # heading, which T15 translated.
     assert "was not found" in error
     assert "Traceback" not in error
 
 
-# --- Utility -------------------------------------------------------------------
+# --- Utility ---------------------------------------------------------------------
 
 
 def test_reports_utility_throws_detonations_and_areas() -> None:
-    """Neljä lukua, neljä eri kysymystä: syntyikö, päättyikö, osuiko, katosiko."""
+    """Four numbers, four questions: did it come into being, end, land, vanish."""
     output_text = _render_parse(parse_result(), regulation_rounds=24)
     line = field_value(output_text, "Utility ")
-    assert line.startswith("152 heittoa, 148 räjähdystä")
-    assert "21/21 kierroksella" in line
-    assert field_value(output_text, "Ilman räjähdystä").startswith("4 kranaattia")
-    assert field_value(output_text, "Utilityn alue") == (
-        "152 havaittua, 139 pistepilvestä, 9 ilman aluetta"
+    assert line.startswith("152 throws, 148 detonations")
+    assert "in 21/21 rounds" in line
+    assert field_value(output_text, "Without a detonation").startswith("4 grenades")
+    assert field_value(output_text, "Utility area") == (
+        "152 observed, 139 from the point cloud, 9 without an area"
     )
 
 
 def test_observed_and_derived_areas_are_never_lumped_together() -> None:
-    """Heiton alue on havainto, räjähdyksen arvio -- yhteen niputettuna
-    raportin lukija luulisi molempia yhtä varmoiksi."""
-    line = field_value(_render_parse(parse_result(), regulation_rounds=24), "Utilityn alue")
-    assert "havaittua" in line
-    assert "pistepilvestä" in line
+    """A throw's area is an observation, a detonation's an estimate -- lumped
+    together the report's reader would take both to be equally certain."""
+    line = field_value(_render_parse(parse_result(), regulation_rounds=24), "Utility area")
+    assert "observed" in line
+    assert "from the point cloud" in line
 
 
 def test_the_detonation_area_coverage_is_reported_as_a_share() -> None:
-    """Story 2.9:n tärkein luku: kuinka moni räjähdys sai alueen.
+    """Story 2.9's most important number: how many detonations got an area.
 
-    Osuus eikä pelkkä osoittaja -- 139 aluetta on eri uutinen 148:sta kuin
-    1 480:stä, eikä lukija laske sitä itse tulosteesta.
+    A share and not the numerator alone -- 139 areas is different news out of
+    148 than out of 1,480, and the reader does not work it out themselves.
     """
-    line = field_value(_render_parse(parse_result(), regulation_rounds=24), "Räjähdysalue")
-    assert line == "139/148 nimetty (94%)"
+    line = field_value(_render_parse(parse_result(), regulation_rounds=24), "Detonation area")
+    assert line == "139/148 named (94%)"
 
 
 def test_the_snap_distance_spread_is_reported() -> None:
-    """Asetus kertoo kynnyksen; tämä kertoo mihin mittaus oikeasti osui.
+    """The setting states the threshold; this states where it really landed.
 
-    Suurin luku on se, joka osoittaa miksi kynnys on olemassa: ilman sitä
-    "lähin ruutu löytyy aina" näyttäisi kattavuudelta.
+    The largest number is the one that shows why the threshold exists:
+    without it "a nearest cell is always found" would look like coverage.
     """
     line = field_value(
-        _render_parse(parse_result(), regulation_rounds=24), "Etäisyys ruutuun"
+        _render_parse(parse_result(), regulation_rounds=24), "Distance to a cell"
     )
-    assert line == "mediaani 15, p90 210, suurin 1873 yksikköä"
+    assert line == "median 15, p90 210, largest 1873 units"
 
 
 def test_detonations_beyond_the_threshold_get_their_own_line() -> None:
-    """"Lähin ruutu on kaukana" ja "pistepilvi oli tyhjä" ovat eri asioita."""
+    """"The nearest cell is far away" and "the cloud was empty" differ."""
     line = field_value(
-        _render_parse(parse_result(), regulation_rounds=24), "Kynnyksen takana"
+        _render_parse(parse_result(), regulation_rounds=24), "Beyond the threshold"
     )
-    assert line.startswith("9 räjähdystä")
+    assert line.startswith("9 detonations")
 
 
 def test_full_coverage_hides_the_threshold_line() -> None:
@@ -969,86 +984,91 @@ def test_full_coverage_hides_the_threshold_line() -> None:
         )
     )
     output_text = _render_parse(result, regulation_rounds=24)
-    assert "Kynnyksen takana" not in output_text
-    assert field_value(output_text, "Räjähdysalue") == "148/148 nimetty (100%)"
+    assert "Beyond the threshold" not in output_text
+    assert field_value(output_text, "Detonation area") == "148/148 named (100%)"
 
 
-# --- Pistepilvi (Story 2.9) ------------------------------------------------------
+# --- The point cloud (Story 2.9) -------------------------------------------------
 
 
 def test_the_point_cloud_block_names_cells_and_areas() -> None:
-    """Alueiden määrä on tärkeämpi kuin ruutujen: se kertoo tunnistiko pilvi
-    kartan. Yksinumeroinen luku tarkoittaisi tyhjää ``last_place_name``ia."""
+    """The number of areas matters more than the number of cells: it says
+    whether the cloud recognised the map. A single-digit number would mean an
+    empty ``last_place_name``."""
     output_text = _render_parse(parse_result(), regulation_rounds=24)
-    assert field_value(output_text, "Pistepilvi") == "7703 ruutua, 18 aluetta"
-    assert field_value(output_text, "Pilven havainnot") == (
-        "1092083/1529910 tickiriviä kelpasi (71% elossa ja alue tiedossa)"
+    assert field_value(output_text, "Point cloud") == "7703 cells, 18 areas"
+    assert field_value(output_text, "Cloud observations") == (
+        "1092083/1529910 tick rows qualified (71% alive and with a known "
+        "area)"
     )
 
 
 def test_an_empty_point_cloud_says_so_and_says_why() -> None:
-    """I/O-matriisi: tyhjä pistepilvi -- ajo ei kaadu, syy kerrotaan.
+    """The I/O matrix: an empty point cloud -- the run survives, the cause is
+    reported.
 
-    Ilman syytä tyhjä pilvi näyttäisi demolta, jossa ei heitetty utilityä.
+    Without the cause an empty cloud would look like a demo in which no
+    utility was thrown.
     """
     result = parse_result(
         stats=stats(
             callout_cells=0,
             callout_areas=0,
             callout_observations=0,
-            callout_cloud_empty_reason="1529910 tickiriviä luettiin, mutta "
-            "yhdelläkään ei ollut elossa olevaa pelaajaa nimetyllä alueella",
+            callout_cloud_empty_reason="1529910 tick rows were read, but not "
+            "one of them had a living player in a named area",
         )
     )
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Pistepilvi") == (
-        "tyhjä -- yhtäkään räjähdysaluetta ei nimetä"
+    assert field_value(output_text, "Point cloud") == (
+        "empty -- not one detonation area is named"
     )
-    assert field_value(output_text, "Pilvi tyhjä koska").startswith("1529910 tickiriviä")
+    assert field_value(output_text, "Cloud empty because").startswith("1529910 tick rows")
 
 
 def test_a_healthy_point_cloud_hides_the_reason_line() -> None:
-    assert "Pilvi tyhjä koska" not in _render_parse(
+    assert "Cloud empty because" not in _render_parse(
         parse_result(), regulation_rounds=24
     )
 
 
 def test_unreadable_callouts_do_not_hide_the_other_counts() -> None:
-    """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
+    """One broken table must not take another one's numbers with it."""
     numbers = stats()
     for key in ("callout_cells", "callout_areas", "callout_observations"):
         numbers.pop(key)
-    numbers["callouts_unreadable"] = "OSError: rikki"
+    numbers["callouts_unreadable"] = "OSError: broken"
     output_text = _render_parse(
         parse_result(skipped=True, stats=numbers), regulation_rounds=24
     )
-    assert field_value(output_text, "Pistepilvi").startswith("lukuja ei saatu")
-    assert field_value(output_text, "Kierrokset") == "21 (rivejä 42)"
+    assert field_value(output_text, "Point cloud").startswith("no counts obtained")
+    assert field_value(output_text, "Rounds") == "21 (42 rows)"
 
 
 def test_more_detonations_than_throws_is_never_a_negative_count() -> None:
-    """Miinusmerkkinen "ilman räjähdystä" olisi luettavissa väärin päin.
+    """A negative "without a detonation" would be readable the wrong way round.
 
-    Räjähdys syntyy vain heiton parina, joten ylimäärä on vika eikä havainto.
+    A detonation comes into being only as a throw's pair, so a surplus is a
+    fault and not an observation.
     """
     result = parse_result(stats=stats(utility_throws=10, utility_detonations=13))
     output_text = _render_parse(result, regulation_rounds=24)
-    assert "Ilman räjähdystä" not in output_text
-    assert field_value(output_text, "Räjähdyksiä liikaa").startswith("3 enemmän")
+    assert "Without a detonation" not in output_text
+    assert field_value(output_text, "Too many detonations").startswith("3 more than")
 
 
 def test_utility_dropped_by_the_stage_is_reported() -> None:
-    """Numeroimattomilta kierroksilta pudonnut utility ei saa kadota hiljaa."""
+    """Utility dropped from unnumbered rounds must not vanish quietly."""
     result = parse_result(stats=stats(utility_unnumbered_rounds=9))
-    line = field_value(_render_parse(result, regulation_rounds=24), "Ei kierrosnumeroa")
-    assert line.startswith("9 heittoa")
+    line = field_value(_render_parse(result, regulation_rounds=24), "No round number")
+    assert line.startswith("9 throws")
 
 
 def test_the_remaining_utility_diagnostics_are_reported() -> None:
-    """Jokainen hiljainen pudotus- tai epävarmuussyy näkyy omalla rivillään.
+    """Every silent drop or uncertainty gets a row of its own.
 
-    Rivit tarkistetaan myös leveydeltään: yhteenvedon sarakkeet menevät
-    sekaisin, jos yksi kuvaus on kaksi kertaa muiden mittainen.
+    The rows are checked for width too: the summary's columns go astray if
+    one description is twice as long as the others.
     """
     result = parse_result(
         stats=stats(
@@ -1060,21 +1080,21 @@ def test_the_remaining_utility_diagnostics_are_reported() -> None:
         )
     )
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Tuntematon tyyppi").startswith("2 kranaattia")
-    assert field_value(output_text, "Tulityyppi auki").startswith("5 kranaattia")
-    assert field_value(output_text, "Räjähdys myöhässä").startswith("3 kierroksen")
-    assert field_value(output_text, "Tickillä ei rivejä").startswith("1 heittoa")
+    assert field_value(output_text, "Unknown type").startswith("2 grenades")
+    assert field_value(output_text, "Fire type unresolved").startswith("5 grenades")
+    assert field_value(output_text, "Late detonation").startswith("3 after the round")
+    assert field_value(output_text, "No rows on the tick").startswith("1 throws")
 
-    # Jaettu tunniste on **havainto eikä vika**, ja rivin on sanottava se.
-    # Koko arvo tarkistetaan, ei vain alkuosaa: pelkkä startswith päästi läpi
-    # sekä väärän yksikön ("kranaattiparia") että parquet-sarakkeen nimen.
-    shared = field_value(output_text, "Jaettu tunniste")
-    assert shared == "4 kranaattia jakaa pelin tunnisteen kierroksella (havainto)"
+    # A shared id is **an observation and not a fault**, and the row has to
+    # say so. The whole value is checked and not only its beginning: a bare
+    # startswith let through both a wrong unit and a parquet column name.
+    shared = field_value(output_text, "Shared id")
+    assert shared == "4 grenades share the game's id within a round (an observation)"
     assert "grenade_no" not in output_text
 
 
 def test_zero_utility_is_said_out_loud() -> None:
-    """Nolla ei saa hukkua: kierrosluku näyttäisi samalta tyhjällä taululla."""
+    """A zero must not be lost: the round count would look the same when empty."""
     result = parse_result(
         stats=stats(
             event_rows=0,
@@ -1090,17 +1110,17 @@ def test_zero_utility_is_said_out_loud() -> None:
         )
     )
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Utility").startswith("0 heittoa --")
-    assert "Utilityn alue" not in output_text
+    assert field_value(output_text, "Utility").startswith("0 throws --")
+    assert "Utility area" not in output_text
 
 
 def test_every_grenade_detonated_hides_the_difference_line() -> None:
     result = parse_result(stats=stats(utility_detonations=152))
-    assert "Ilman räjähdystä" not in _render_parse(result, regulation_rounds=24)
+    assert "Without a detonation" not in _render_parse(result, regulation_rounds=24)
 
 
 def test_dropped_grenades_are_reported_not_hidden() -> None:
-    """Pudotettua kranaattia ei näe valmiista taulusta -- luku on ainoa jälki."""
+    """A dropped grenade is not visible in a finished table -- the count is all."""
     result = parse_result(
         stats=stats(
             grenades_without_thrower=2,
@@ -1109,20 +1129,20 @@ def test_dropped_grenades_are_reported_not_hidden() -> None:
         )
     )
     output_text = _render_parse(result, regulation_rounds=24)
-    assert field_value(output_text, "Ilman heittäjää").startswith("2 lentorataa")
-    assert field_value(output_text, "Ilman kierrosta").startswith("7 kranaattia")
-    assert field_value(output_text, "Ilman puolta").startswith("1 kranaattia")
+    assert field_value(output_text, "Without a thrower").startswith("2 trajectories")
+    assert field_value(output_text, "Without a round").startswith("7 grenades")
+    assert field_value(output_text, "Without a side").startswith("1 grenades")
 
 
 def test_a_clean_run_hides_the_dropped_grenade_lines() -> None:
     output_text = _render_parse(parse_result(), regulation_rounds=24)
-    assert "Ilman heittäjää" not in output_text
-    assert "Ilman kierrosta" not in output_text
-    assert "Ilman puolta" not in output_text
+    assert "Without a thrower" not in output_text
+    assert "Without a round" not in output_text
+    assert "Without a side" not in output_text
 
 
 def test_unreadable_events_do_not_hide_the_other_counts() -> None:
-    """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
+    """One broken table must not take another one's numbers with it."""
     numbers = stats()
     for key in (
         "event_rows",
@@ -1137,18 +1157,18 @@ def test_unreadable_events_do_not_hide_the_other_counts() -> None:
         "utility_snap_distance",
     ):
         numbers.pop(key)
-    numbers["events_unreadable"] = "OSError: rikki"
+    numbers["events_unreadable"] = "OSError: broken"
     output_text = _render_parse(
         parse_result(skipped=True, stats=numbers), regulation_rounds=24
     )
-    assert field_value(output_text, "Kierrokset") == "21 (rivejä 42)"
-    assert field_value(output_text, "Näytepisteet").startswith("78 ")
-    assert field_value(output_text, "Utility").startswith("lukuja ei saatu")
+    assert field_value(output_text, "Rounds") == "21 (42 rows)"
+    assert field_value(output_text, "Sample points").startswith("78 ")
+    assert field_value(output_text, "Utility").startswith("no counts obtained")
 
 
 def test_utility_lines_are_absent_when_the_result_was_unreadable() -> None:
-    """Ilman lukuja ei keksitä nollaa -- se väittäisi tyhjää tulosta."""
-    result = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
+    """Without numbers a zero is not invented -- it would claim an empty result."""
+    result = parse_result(skipped=True, stats={"unreadable": "OSError: broken"})
     assert "Utility" not in _render_parse(result, regulation_rounds=24)
 
 
@@ -1166,42 +1186,43 @@ def test_all_three_output_tables_are_listed() -> None:
     assert "events.parquet" in output_text
 
 
-# --- Ostoikkuna (Story 1.9) ---------------------------------------------------
+# --- The buy window (Story 1.9) -------------------------------------------------
 
 
 def test_the_measurement_point_is_always_named() -> None:
-    """Ajo kertoo, mistä hetkestä talousluvut on luettu.
+    """The run says which moment the economy numbers were read from.
 
-    Mittaushetki on asetus, joten kaksi eri arvolla ajettua tulosta ovat eri
-    lukuja samannäköisessä taulussa. Ilman tätä riviä lukija ei voi tietää
-    kumpaa hän katsoo.
+    The moment of measurement is a setting, so two results run with two
+    different values are different numbers in identical-looking tables.
+    Without this row the reader cannot know which of the two they are
+    looking at.
     """
     text = _render_parse(
         parse_result(stats=stats(buy_window_seconds=20.0)), regulation_rounds=24
     )
-    line = field_value(text, "Mittauspiste")
-    assert "ostoajan lopusta" in line
+    line = field_value(text, "Measurement point")
+    assert "end of the buy time" in line
     assert "20,0 s" in line
 
 
 def test_a_zero_window_says_it_measured_the_anchor() -> None:
-    """Ikkuna 0 mittaa freezetimen lopusta, ja se sanotaan sillä nimellä.
+    """Window 0 measures at the end of the freezetime, and is said by that name.
 
-    "Ostoajan loppu, ikkuna 0,0 s" olisi totta mutta harhaanjohtavaa: juuri
-    sen niminen mittaus oli se vika, jonka tämä tarina korjaa.
+    "The end of the buy time, window 0.0 s" would be true but misleading: a
+    measurement by exactly that name was the fault this story fixes.
     """
     text = _render_parse(
         parse_result(stats=stats(buy_window_seconds=0.0)), regulation_rounds=24
     )
-    assert "freezetimen lopusta" in field_value(text, "Mittauspiste")
+    assert "end of the freezetime" in field_value(text, "Measurement point")
 
 
 def test_a_clean_death_cut_is_reported_as_zero_not_silence() -> None:
-    """Nolla menetettyä ostosta sanotaan ääneen.
+    """Zero lost purchases is said out loud.
 
-    Kuolema katkaisee ikkunan noin puolella kierroksista, joten katkaisujen
-    määrä ei ole hälytys. Hälytys on se, jäikö ostoja katkaisun taakse -- ja
-    vaiettu nolla ei erottuisi vaietusta viidestä.
+    A death cuts the window short in about half the rounds, so the number of
+    cuts is not an alarm. The alarm is whether purchases were left behind the
+    cut -- and an unspoken zero would not stand apart from an unspoken five.
     """
     text = _render_parse(
         parse_result(
@@ -1213,13 +1234,13 @@ def test_a_clean_death_cut_is_reported_as_zero_not_silence() -> None:
         ),
         regulation_rounds=24,
     )
-    line = field_value(text, "Kuoleman katkaisu")
-    assert "13 kierrosta" in line
-    assert "yksikään osto ei jäänyt" in line
+    line = field_value(text, "Cut short by a death")
+    assert "13 rounds" in line
+    assert "not one purchase was left" in line
 
 
 def test_a_purchase_lost_behind_the_cut_is_reported() -> None:
-    """Menetetty ostos näkyy tulosteessa lukuna, ei pelkkänä katkaisumääränä."""
+    """A lost purchase shows in the output as a number, not just a cut count."""
     text = _render_parse(
         parse_result(
             stats=stats(
@@ -1230,16 +1251,16 @@ def test_a_purchase_lost_behind_the_cut_is_reported() -> None:
         ),
         regulation_rounds=24,
     )
-    line = field_value(text, "Kuoleman katkaisu")
-    assert "2 pelaajaa osti vielä katkaisun jälkeen" in line
+    line = field_value(text, "Cut short by a death")
+    assert "2 players bought after the cut" in line
 
 
 def test_a_skipped_run_does_not_claim_a_clean_buy_window() -> None:
-    """Ohitetusta ajosta lukuja ei ole, joten rivejä ei myöskään ole.
+    """A skipped run has no numbers, so it has no rows either.
 
-    Katkaisujen ja menetettyjen ostosten määrää ei voi lukea valmiista
-    taulusta. "Ei yhtään" olisi väite, jota mikään ei tue -- sama sääntö kuin
-    uudelleenaloituksilla ja tuntemattomilla esineillä.
+    The number of cuts and of lost purchases cannot be read from a finished
+    table. "None at all" would be a claim nothing supports -- the same rule
+    as with the restarts and the unknown items.
     """
     numbers = {
         key: value
@@ -1249,30 +1270,31 @@ def test_a_skipped_run_does_not_claim_a_clean_buy_window() -> None:
     text = _render_parse(
         parse_result(skipped=True, stats=numbers), regulation_rounds=24
     )
-    assert "Mittauspiste" not in text
-    assert "Kuoleman katkaisu" not in text
+    assert "Measurement point" not in text
+    assert "Cut short by a death" not in text
 
 
 def test_an_unknown_buy_window_is_not_claimed_to_be_the_anchor() -> None:
-    """Portti, joka ei kerro ikkunaa, ei saa näyttää ankkurimittaukselta.
+    """A port that does not report the window must not look like an anchor read.
 
-    ``None`` ja ``0.0`` ovat eri asioita: jälkimmäinen on valinta, edellinen
-    tietämättömyys. "Talous luettu freezetimen lopusta" olisi varma väite
-    hetkestä, jota mikään ei tue.
+    ``None`` and ``0.0`` are different things: the latter is a choice, the
+    former is not knowing. "Economy read at the end of the freezetime" would
+    be a confident claim about a moment nothing supports.
     """
     text = _render_parse(
         parse_result(stats=stats(buy_window_seconds=None)), regulation_rounds=24
     )
-    line = field_value(text, "Mittauspiste")
-    assert "ei tiedossa" in line
-    assert "freezetimen lopusta" not in line
+    line = field_value(text, "Measurement point")
+    assert "not known" in line
+    assert "end of the freezetime" not in line
 
 
 def test_a_defaulted_tick_rate_makes_the_window_an_estimate() -> None:
-    """Ikkuna lasketaan tickratesta, joten mittaamaton tickrate on kerrottava.
+    """The window is computed from the tickrate, so a defaulted one is reported.
 
-    Rivi tulostaa sekunnit yhtä varmasti kummassakin tapauksessa, joten ilman
-    tätä lisäystä oletukseen nojaava 20,0 s näyttäisi mittaukselta.
+    The row prints the seconds with equal confidence in both cases, so
+    without this addition a 20,0 s resting on a default would look like a
+    measurement.
     """
     text = _render_parse(
         parse_result(
@@ -1282,14 +1304,14 @@ def test_a_defaulted_tick_rate_makes_the_window_an_estimate() -> None:
         ),
         regulation_rounds=24,
     )
-    assert "tickrate oletus" in field_value(text, "Mittauspiste")
+    assert "tickrate a default" in field_value(text, "Measurement point")
 
 
 def test_the_real_measurement_offsets_are_shown() -> None:
-    """Asetus lupaa ikkunan pituuden; jakauma kertoo mihin mittaus osui.
+    """The setting promises the window's length; the spread says where it landed.
 
-    Se on ``buy_end_tick``-sarakkeen ainoa näkyvä muoto: jos ikkuna on 20 s
-    mutta mediaani 12 s, kuolema katkaisee ikkunan useammin kuin ei.
+    It is the ``buy_end_tick`` column's only visible form: if the window is
+    20 s but the median is 12 s, a death cuts it short more often than not.
     """
     text = _render_parse(
         parse_result(
@@ -1297,16 +1319,16 @@ def test_the_real_measurement_offsets_are_shown() -> None:
         ),
         regulation_rounds=24,
     )
-    line = field_value(text, "Mittauspiste")
+    line = field_value(text, "Measurement point")
     assert "3,5 s-20,0 s" in line
-    assert "mediaani 12,0 s" in line
+    assert "median 12,0 s" in line
 
 
 def test_an_unchecked_cut_is_told_apart_from_a_clean_one() -> None:
-    """Tarkistamatta jäänyt katkaisu sanotaan erikseen.
+    """A cut that went unchecked is said separately.
 
-    Ilman sitä ``buy_window_purchases_after_cut``in nolla tarkoittaisi kahta
-    eri asiaa: "mitään ei menetetty" ja "ei tiedetä".
+    Without it ``buy_window_purchases_after_cut``'s zero would mean two
+    different things: "nothing was lost" and "it is not known".
     """
     text = _render_parse(
         parse_result(
@@ -1319,15 +1341,15 @@ def test_an_unchecked_cut_is_told_apart_from_a_clean_one() -> None:
         ),
         regulation_rounds=24,
     )
-    line = field_value(text, "Kuoleman katkaisu")
-    assert "yksikään osto ei jäänyt" in line
-    assert "2 kierrosta ei voitu tarkistaa" in line
+    line = field_value(text, "Cut short by a death")
+    assert "not one purchase was left" in line
+    assert "2 rounds could not be checked" in line
 
 
 def test_a_lost_purchase_names_the_rounds() -> None:
-    """Menetetty ostos on jäljitettävissä: rivi nimeää kierrokset.
+    """A lost purchase can be traced: the row names the rounds.
 
-    Yksi luku koko demolle ei anna käyttäjälle mitään mistä jatkaa.
+    One number for the whole demo gives the user nothing to go on.
     """
     text = _render_parse(
         parse_result(
@@ -1340,16 +1362,18 @@ def test_a_lost_purchase_names_the_rounds() -> None:
         ),
         regulation_rounds=24,
     )
-    line = field_value(text, "Kuoleman katkaisu")
-    assert "2 pelaajaa osti vielä katkaisun jälkeen" in line
+    line = field_value(text, "Cut short by a death")
+    assert "2 players bought after the cut" in line
     assert "round_raw) 7, 12" in line
 
 
-def test_the_singular_forms_are_finnish() -> None:
-    """Luvulla 1 partitiivi taipuu: "1 kierros", "1 pelaaja".
+def test_the_singular_forms_inflect() -> None:
+    """At 1 the noun inflects: "1 round", "1 player".
 
-    Yksi menetetty ostos on juuri se tapaus, jota rivi on kertomassa, joten
-    "1 pelaajaa" olisi väärin juuri silloin kun rivi eniten merkitsee.
+    One lost purchase is exactly the case the row is reporting, so "1
+    players" would be wrong at the very moment the row matters most. The
+    name used to say the forms are Finnish; the rule survived the
+    translation, the language did not.
     """
     text = _render_parse(
         parse_result(
@@ -1362,16 +1386,17 @@ def test_the_singular_forms_are_finnish() -> None:
         ),
         regulation_rounds=24,
     )
-    line = field_value(text, "Kuoleman katkaisu")
-    assert "1 kierros mitattiin aiemmin" in line
-    assert "1 pelaaja osti vielä" in line
+    line = field_value(text, "Cut short by a death")
+    assert "1 round measured earlier" in line
+    assert "1 player bought after" in line
 
 
 def test_an_empty_buy_tick_is_reported_as_a_fault() -> None:
-    """Tyhjä ostotick on vika, ja se saa oman rivinsä.
+    """An empty buy tick is a fault, and it gets a row of its own.
 
-    Se on ainoa polku, jonka ``ParseDiagnostics`` merkitsee sanoilla "vika eikä
-    havainto", ja ilman riviä mittaus olisi hiljaa palannut ankkuriin.
+    It is the only path ``ParseDiagnostics`` marks with the words "a fault
+    and not an observation", and without the row the measurement would have
+    fallen back to the anchor quietly.
     """
     text = _render_parse(
         parse_result(
@@ -1381,13 +1406,13 @@ def test_an_empty_buy_tick_is_reported_as_a_fault() -> None:
         ),
         regulation_rounds=24,
     )
-    line = field_value(text, "Ostoajan tick tyhjä")
-    assert "2 kierrosta" in line
-    assert "palautui freezetimen ankkuriin" in line
+    line = field_value(text, "Buy-end tick empty")
+    assert "2 rounds" in line
+    assert "fell back to the freezetime anchor" in line
 
 
 def test_players_lost_from_the_buy_tick_are_reported() -> None:
-    """Kadonneet pelaajat ja kokonaan tyhjä joukkuerivi näkyvät samalla rivillä."""
+    """Players lost and an entirely empty team row show on the same row."""
     text = _render_parse(
         parse_result(
             stats=stats(
@@ -1398,47 +1423,48 @@ def test_players_lost_from_the_buy_tick_are_reported() -> None:
         ),
         regulation_rounds=24,
     )
-    line = field_value(text, "Kadonneet pelaajat")
-    assert "5 pelaajaa" in line
-    assert "1 joukkueriviä jäi kokonaan tyhjäksi" in line
+    line = field_value(text, "Players lost")
+    assert "5 players" in line
+    assert "1 of the team rows ended up entirely empty" in line
 
 
 def test_stale_equipment_gets_its_own_line() -> None:
-    """Palautuksen jättämä vanhentunut varustearvo kerrotaan ja rajataan."""
+    """The stale equipment value a refund leaves is reported and bounded."""
     text = _render_parse(
         parse_result(
             stats=stats(buy_window_seconds=20.0, buy_window_stale_equipment=1)
         ),
         regulation_rounds=24,
     )
-    line = field_value(text, "Vanhentunut arvo")
-    assert "1 pelaaja" in line
-    assert "1000 $/pelaaja" in line
+    line = field_value(text, "Stale value")
+    assert "1 player" in line
+    assert "$1000 per player" in line
 
 
 def test_a_clean_run_does_not_print_the_fault_lines() -> None:
-    """Nollat eivät toistu joka ajossa.
+    """The zeros do not repeat on every run.
 
-    Nämä neljä ovat vikoja eivätkä normaalia. Nollan toistaminen opettaisi
-    lukijan ohittamaan rivin juuri ennen kuin se kerran merkitsee.
+    All four of these are faults and not the normal state. Repeating a zero
+    would teach the reader to skip the row just before the one time it
+    matters.
     """
     text = _render_parse(parse_result(), regulation_rounds=24)
     for label in (
-        "Ostoajan tick tyhjä",
-        "Kadonneet pelaajat",
-        "Vanhentunut arvo",
+        "Buy-end tick empty",
+        "Players lost",
+        "Stale value",
     ):
         assert label not in text
 
 
 def test_every_parse_label_fits_the_column() -> None:
-    """Jokainen otsikko mahtuu sarakkeeseen, myös harvoin näkyvät.
+    """Every label fits the column, the rarely seen ones too.
 
-    ``_line`` täyttää otsikon kiinteään leveyteen; liian pitkä otsikko syö
-    välilyönnin ja arvo liimautuu siihen kiinni ("Vanhentunut varustearvo1
-    pelaaja"). Vikarivit näkyvät vain kun jokin on rikki, joten ilman tätä
-    testiä muotoiluvirhe paljastuisi vasta silloin kun rivin pitäisi olla
-    selkein mahdollinen.
+    ``_line`` pads the label to a fixed width; too long a label eats the
+    space and the value sticks to it ("Stale equipment value1 player"). The
+    fault rows appear only when something is broken, so without this test a
+    formatting mistake would come to light exactly when the row should be as
+    clear as possible.
     """
     every = stats(
         buy_window_seconds=20.0,
@@ -1451,16 +1477,16 @@ def test_every_parse_label_fits_the_column() -> None:
         buy_window_sides_without_rows=1,
         buy_window_stale_equipment=1,
         armed_unknown_items=(("Tuntematon Ase", 3),),
-        # Kuolemalohkon vikarivit tulostuvat vain nollasta poikkeavina, ja
-        # juuri ne ovat pisimmät otsikot koko tulosteessa.
+        # The deaths block's fault rows print only when non-zero, and they
+        # are the longest labels in the whole output.
         deaths_without_victim_area=1,
         deaths_without_attacker_area=1,
         deaths_without_tick=1,
         deaths_without_victim=1,
         deaths_without_victim_side=1,
         deaths_attacker_without_side=1,
-        # Story 2.10: uudet otsikot ovat vartijan nähtävissä vain nollasta
-        # poikkeavilla luvuilla.
+        # Story 2.10: the new labels are visible to the guard only with
+        # non-zero numbers.
         sample_rows_without_pawn=1,
         sample_points_without_pawn=1,
         grenade_throwers_without_row=1,
@@ -1475,49 +1501,49 @@ def test_every_parse_label_fits_the_column() -> None:
         if not body.strip():
             continue
         seen += 1
-        # Väite on **täytteestä**, ei erottimen etsimisestä. Liian pitkä
-        # otsikko syö oman täytteensä, jolloin arvo alkaa heti sen perästä
-        # eikä riviltä löydy kahta peräkkäistä välilyöntiä lainkaan --
-        # ja juuri sitä erotinta vanha versio etsi. Se siis ohitti
-        # täsmälleen ne rivit, joita sen piti tarkistaa.
+        # The claim is about **the padding**, not about looking for a
+        # separator. Too long a label eats its own padding, the value then
+        # starts right after it and the row holds no two consecutive spaces
+        # at all -- and that separator is exactly what the old version looked
+        # for. So it skipped precisely the rows it was meant to check.
         column = body[:_PARSE_LABEL_WIDTH]
         assert column != column.rstrip(), (
-            f"otsikko {body.split('  ')[0]!r} täyttää koko "
-            f"{_PARSE_LABEL_WIDTH} merkin sarakkeen, joten arvo liimautuu "
-            "siihen kiinni"
+            f"the label {body.split('  ')[0]!r} fills the whole "
+            f"{_PARSE_LABEL_WIDTH}-character column, so the value sticks "
+            "to it"
         )
-    # Ilman tätä tyhjä tuloste läpäisisi vartijan: silmukka ei kävisi
-    # kertaakaan eikä yksikään väite suoriutuisi.
-    assert seen > 20, f"vain {seen} otsikkoriviä tarkistettavana"
+    # Without this an empty output would pass the guard: the loop would not
+    # run once and no claim would be made.
+    assert seen > 20, f"only {seen} label rows to check"
 
 
-# --- Kokoonpanolohko (Story 2.6) -------------------------------------------------
+# --- The lineup block (Story 2.6) ------------------------------------------------
 
 
 def test_the_lineup_block_names_the_clan_and_its_lineup_key() -> None:
-    """Nimi kertoo kenestä on kyse, tunniste kertoo mitä komentoriville kirjoitetaan.
+    """The name says who is meant, the id says what to type on the command line.
 
-    Käyttäjän seuraava komento on ``classify --team <lineup_key>``, ja vaiheella
-    on molemmat arvot kädessä.
+    The user's next command is ``classify --team <lineup_key>``, and the
+    stage has both values in hand.
     """
     output_text = _render_parse(parse_result(), regulation_rounds=24)
 
-    assert field_value(output_text, "Kokoonpanot") == "10 pelaajariviä"
+    assert field_value(output_text, "Lineups") == "10 player rows"
     lines = [
         line.strip()
         for line in output_text.splitlines()
-        if line.strip().startswith("Kokoonpano ")
+        if line.strip().startswith("Lineup ")
     ]
     assert len(lines) == 2
-    assert "MatureMayhem (a1b2c3d4e5f60718) -- 5 pelaajaa" in lines[0]
-    assert "KALJUKOSTAJA (b4ebc1ae68a589b6) -- 5 pelaajaa" in lines[1]
+    assert "MatureMayhem (a1b2c3d4e5f60718) -- 5 players" in lines[0]
+    assert "KALJUKOSTAJA (b4ebc1ae68a589b6) -- 5 players" in lines[1]
 
 
 def test_a_lineup_without_a_clan_says_so_on_its_own_row() -> None:
-    """Vastustajan nimi ei saa peittää sitä, ettei tällä joukkueella ole nimeä.
+    """The opponent's name must not hide that this team has no name.
 
-    Yhteinen klaaniluettelo olisi epätyhjä heti kun jommallakummalla on nimi,
-    eikä siis kertoisi kummastakaan mitään.
+    A shared clan listing would be non-empty as soon as either of them has a
+    name, and so would say nothing about either.
     """
     numbers = stats(
         lineups=(
@@ -1528,15 +1554,15 @@ def test_a_lineup_without_a_clan_says_so_on_its_own_row() -> None:
     output_text = _render_parse(
         parse_result(stats=numbers), regulation_rounds=24
     )
-    assert "klaaninimeä ei havaittu (aaaa) -- 5 pelaajaa" in output_text
-    assert "5 ilman nimeä" in output_text
-    assert "KALJUKOSTAJA (bbbb) -- 5 pelaajaa" in output_text
+    assert "no clan name was observed (aaaa) -- 5 players" in output_text
+    assert "5 without a name" in output_text
+    assert "KALJUKOSTAJA (bbbb) -- 5 players" in output_text
 
 
 def test_a_conflicting_name_or_clan_is_reported_and_zero_is_not() -> None:
-    """Nolla on odotusarvo; poikkeama on se oire, joka on kerrottava."""
+    """Zero is the expected value; the anomaly is the symptom to report."""
     quiet = _render_parse(parse_result(), regulation_rounds=24)
-    assert "vaihtui kesken" not in quiet
+    assert "changed mid-map" not in quiet
 
     loud = _render_parse(
         parse_result(
@@ -1544,24 +1570,24 @@ def test_a_conflicting_name_or_clan_is_reported_and_zero_is_not() -> None:
         ),
         regulation_rounds=24,
     )
-    assert field_value(loud, "Klaani vaihtui kesken").startswith("2 pelaajalla")
-    assert field_value(loud, "Nimi vaihtui kesken").startswith("1 pelaajalla")
+    assert field_value(loud, "Clan changed mid-map").startswith("2 of the players had")
+    assert field_value(loud, "Name changed mid-map").startswith("1 of the players had")
 
 
 def test_unreadable_lineups_do_not_hide_the_other_counts() -> None:
-    """Yksi rikki mennyt taulu ei saa viedä toisen lukuja."""
+    """One broken table must not take another one's numbers with it."""
     numbers = stats()
     for key in ("lineup_rows", "lineups"):
         numbers.pop(key)
-    numbers["lineups_unreadable"] = "OSError: rikki"
+    numbers["lineups_unreadable"] = "OSError: broken"
     output_text = _render_parse(
         parse_result(skipped=True, stats=numbers), regulation_rounds=24
     )
-    assert field_value(output_text, "Kierrokset") == "21 (rivejä 42)"
-    assert field_value(output_text, "Kokoonpanot").startswith("lukuja ei saatu")
+    assert field_value(output_text, "Rounds") == "21 (42 rows)"
+    assert field_value(output_text, "Lineups").startswith("no counts obtained")
 
 
 def test_the_lineup_block_is_absent_when_the_result_was_unreadable() -> None:
-    """Ilman lukuja ei keksitä nollaa -- se väittäisi tyhjää kokoonpanoa."""
-    result = parse_result(skipped=True, stats={"unreadable": "OSError: rikki"})
-    assert "Kokoonpano" not in _render_parse(result, regulation_rounds=24)
+    """Without numbers a zero is not invented -- it would claim an empty lineup."""
+    result = parse_result(skipped=True, stats={"unreadable": "OSError: broken"})
+    assert "Lineup" not in _render_parse(result, regulation_rounds=24)

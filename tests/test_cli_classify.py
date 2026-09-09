@@ -1,15 +1,15 @@
-"""``pappascout classify`` -- komennon ja kierroslistan testit.
+"""``pappascout classify`` -- the command's and the round list's tests.
 
-Kaksi asiaa lukitaan täällä:
+Two things are locked down here:
 
-* **AD-3**: komento antaa vaiheelle vain ``settings.thresholds`` ja
-  ``settings.league``. Jos vaihe näkisi ``[parse]``-osion, lupaus "kynnysmuutos
-  ei uudelleenparsi" ei olisi enää rakenteellinen.
-* **SM-2**: ``--show`` tulostaa sen listan, jolla käyttäjä tarkistaa
-  luokittelun demoa vasten -- jokaisella kierroksella tyyppi, lähtöarvot ja
-  perustelu, eikä perustelua katkaista.
+* **AD-3**: the command gives the stage only ``settings.thresholds`` and
+  ``settings.league``. If the stage saw the ``[parse]`` section, the promise
+  "a change of threshold does not reparse" would no longer be structural.
+* **SM-2**: ``--show`` prints the list the user checks the classification
+  against the demo with -- for every round the type, the input values and the
+  reasoning, and the reasoning is not truncated.
 
-Vaihe itse on korvattu, joten mikään näistä testeistä ei lue demoa.
+The stage itself is replaced, so none of these tests reads a demo.
 """
 
 from __future__ import annotations
@@ -57,7 +57,10 @@ def row(**overrides) -> dict:
         "spent_per_player": 530,
         "equip_per_player": 730,
         "players": 5,
-        "reason": "Kierros 1 on pistoolikierros (kierrokset 1, 13).",
+        # The stage's own wording (``economy``, translated by T10), so the
+        # needles below stay pointed at the text the user really sees.
+        "reason": "Round 1 is a pistol round (1, 13), so the economy "
+        "reasoning is not applied.",
     }
     defaults.update(overrides)
     return defaults
@@ -98,12 +101,14 @@ def field_value(output_text: str, label: str) -> str:
         stripped = r.strip()
         if stripped.startswith(label):
             return stripped[len(label) :].strip()
-    raise AssertionError(f"rivia {label!r} ei ole tulosteessa:" + chr(10) + output_text)
+    raise AssertionError(
+        f"there is no {label!r} row in the output:" + chr(10) + output_text
+    )
 
 
 @pytest.fixture
 def fake_stage(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
-    """Korvaa ``stages.classify.run``; palauta se mitä vaiheelle annettiin."""
+    """Replace ``stages.classify.run``; return what the stage was given."""
     seen: dict[str, object] = {"kutsut": []}
 
     def fake_run(
@@ -130,34 +135,39 @@ def fake_stage(settings_file, monkeypatch: pytest.MonkeyPatch) -> dict:
     return seen
 
 
-# --- Yhteenveto -------------------------------------------------------------------
+# --- The summary --------------------------------------------------------------------
 
 
 def test_summary_reports_team_rounds_and_type_distribution() -> None:
     output_text = _render_classify(classify_result())
-    assert output_text.startswith("Luokiteltu:")
-    assert field_value(output_text, "Joukkue") == TEAM
-    assert field_value(output_text, "Kierrokset") == "3"
-    assert field_value(output_text, "Tyypit") == "pistol 1, eco 1, full 1"
-    assert field_value(output_text, "Ajoaika") == "0,4 s"
+    assert output_text.startswith("Classified:")
+    assert field_value(output_text, "Team") == TEAM
+    assert field_value(output_text, "Rounds") == "3"
+    assert field_value(output_text, "Types") == "pistol 1, eco 1, full 1"
+    assert field_value(output_text, "Run time") == "0,4 s"
 
 
 def test_summary_lists_both_outputs() -> None:
-    """Parquet ja kierroslista ovat molemmat ajon tuloksia."""
+    """The Parquet and the round list are both results of the run."""
     output_text = _render_classify(classify_result())
     assert ".parquet" in output_text
     assert ".md" in output_text
 
 
 def test_summary_says_when_the_stage_was_skipped() -> None:
-    result = classify_result(skipped=True, reason="Tulos on ajan tasalla.")
+    result = classify_result(skipped=True, reason="The result is up to date.")
     output_text = _render_classify(result)
-    assert output_text.startswith("Ohitettu:")
-    assert field_value(output_text, "Syy") == "Tulos on ajan tasalla."
+    assert output_text.startswith("Skipped:")
+    assert field_value(output_text, "Reason") == "The result is up to date."
 
 
 def test_summary_shows_unclassified_rounds_exactly_once() -> None:
-    """Luokittelematon on tila, ei kierrostyyppi -- ei siis tyyppijakaumaan."""
+    """Unclassified is a state, not a round type -- so not in the breakdown.
+
+    ``UNCLASSIFIED`` is ``constants``' Finnish word and stays Finnish: it is
+    the only visible name of such a round, in this output and in the report's
+    sections alike, so the two have to call it the same thing.
+    """
     result = classify_result(
         stats={
             "team_key": TEAM,
@@ -169,9 +179,11 @@ def test_summary_shows_unclassified_rounds_exactly_once() -> None:
         }
     )
     output_text = _render_classify(result)
-    assert field_value(output_text, UNCLASSIFIED.capitalize()).startswith("1 (havainto puuttuu")
+    assert field_value(output_text, UNCLASSIFIED.capitalize()).startswith(
+        "1 (the observation is missing"
+    )
     assert output_text.lower().count(UNCLASSIFIED) == 1
-    assert field_value(output_text, "Tyypit") == "pistol 2"
+    assert field_value(output_text, "Types") == "pistol 2"
 
 
 def test_summary_reports_rounds_dropped_for_having_no_number() -> None:
@@ -185,23 +197,23 @@ def test_summary_reports_rounds_dropped_for_having_no_number() -> None:
             "rows": [],
         }
     )
-    assert field_value(_render_classify(result), "Numeroimattomat").startswith("2 (")
+    assert field_value(_render_classify(result), "Unnumbered").startswith("2 (")
 
 
 def test_summary_hides_the_counters_that_are_zero() -> None:
     output_text = _render_classify(classify_result())
     assert UNCLASSIFIED.capitalize() not in output_text
-    assert "Numeroimattomat" not in output_text
+    assert "Unnumbered" not in output_text
 
 
 def test_summary_never_claims_zero_rounds_when_unreadable() -> None:
     result = classify_result(
-        skipped=True, stats={"team_key": TEAM, "unreadable": "OSError: rikki"}
+        skipped=True, stats={"team_key": TEAM, "unreadable": "OSError: broken"}
     )
-    assert "lukuja ei saatu" in _render_classify(result)
+    assert "no counts obtained" in _render_classify(result)
 
 
-# --- Kierroslista -----------------------------------------------------------------
+# --- The round list ---------------------------------------------------------------
 
 
 def test_round_list_shows_every_input_the_decision_used() -> None:
@@ -217,8 +229,8 @@ def test_round_list_shows_every_input_the_decision_used() -> None:
 
 
 def test_round_list_never_truncates_the_reason() -> None:
-    """Perustelu on juuri se, jota vasten luokittelu tarkistetaan demosta."""
-    long_reason = "Eco hävityn kierroksen jälkeen: " + "x" * 200
+    """The reasoning is exactly what the classification is checked against."""
+    long_reason = "Eco after a lost round: " + "x" * 200
     output_text = _render_round_list([row(reason=long_reason)])
     assert long_reason in output_text
 
@@ -230,7 +242,7 @@ def test_round_list_shows_the_opponent_type_too() -> None:
 
 
 def test_round_list_marks_an_unclassified_round() -> None:
-    """Puuttuva luokittelu näkyy nimeltä ja puuttuva arvo viivana, ei nollana."""
+    """A missing classification shows by name and a missing value as a dash."""
     output_text = _render_round_list(
         [
             row(
@@ -239,7 +251,7 @@ def test_round_list_marks_an_unclassified_round() -> None:
                 money_available_per_player=None,
                 spent_per_player=None,
                 equip_per_player=None,
-                reason="Kierrosta 1 ei luokitella: tila on 'no_freeze_end'.",
+                reason="Round 1 is not classified: the status is 'no_freeze_end'.",
             )
         ]
     )
@@ -274,15 +286,15 @@ def test_round_list_columns_line_up() -> None:
 
 
 def test_console_and_markdown_share_one_column_definition() -> None:
-    """Kaksi sarakemäärittelyä erkanisi, ja tulosteet väittäisivät eri asioita."""
+    """Two column definitions would drift, and the outputs would differ."""
     headers = [o for o, _ in ROUND_LIST_COLUMNS]
     output_text = _render_round_list([row()])
     header_line = output_text.splitlines()[0]
-    # Perustelu on omalla rivillään, muut sarakkeet otsikkorivillä.
+    # The reasoning is on a row of its own, the other columns on the header row.
     for label in headers[:-1]:
         assert label in header_line
     assert headers[-1] == "Reason"
-    # Solut tulevat vaiheen omasta funktiosta, eivät komentorivin kopiosta.
+    # The cells come from the stage's own function, not from a copy in the CLI.
     cells = round_list_cells(row())
     assert len(cells) == len(ROUND_LIST_COLUMNS)
     for cell in cells[:-1]:
@@ -290,19 +302,20 @@ def test_console_and_markdown_share_one_column_definition() -> None:
 
 
 def test_empty_round_list_says_so() -> None:
-    assert _render_round_list([]) == "Kierroksia ei ole."
+    assert _render_round_list([]) == "There are no rounds."
 
 
-# --- Komento ------------------------------------------------------------------------
+# --- The command --------------------------------------------------------------------
 
 
 def test_stage_gets_only_the_three_sections_it_reads(fake_stage) -> None:
-    """AD-3: vaihe ei saa nähdä ``[parse]``- eikä ``[project]``-osiota.
+    """AD-3: the stage must see neither ``[parse]`` nor ``[project]``.
 
-    ``[economy]`` tuli mukaan Story 1.10:ssä, koska puolioston ehto B lukee
-    siitä häviöbonuksen portaat. Partitio ei silti löystynyt: vaihe saa yhä
-    valmiit osiot eikä koko ``Settings``-oliota, joten se ei voi vahingossa
-    alkaa lukea arkiston polkua tai parsinnan ikkunaa.
+    ``[economy]`` came in with Story 1.10, because the half-buy's condition B
+    reads the loss bonus steps from it. The partition did not loosen even so:
+    the stage still gets ready-made sections and not the whole ``Settings``
+    object, so it cannot accidentally start reading the archive's path or the
+    parsing window.
     """
     result = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM])
     assert result.exit_code == 0, result.output
@@ -338,39 +351,44 @@ def test_round_list_is_printed_only_with_show(fake_stage) -> None:
     with_show = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM, "--show"])
     assert with_show.exit_code == 0, with_show.output
     assert "Round" in with_show.output
-    assert "pistoolikierros" in with_show.output
+    assert "is a pistol round" in with_show.output
 
 
 def test_all_teams_flag_classifies_both_lineups(fake_stage) -> None:
-    """Molemmat joukkueet luokitellaan joka tapauksessa -- tämä myös tallentaa ne."""
+    """Both teams are classified in any case -- this also saves them."""
     result = runner.invoke(app, ["classify", DEMO_ID, "--kaikki-joukkueet"])
     assert result.exit_code == 0, result.output
     assert fake_stage["kutsut"] == [TEAM, TEAM_B]
-    assert result.output.count("Luokiteltu:") == 2
+    assert result.output.count("Classified:") == 2
 
 
 def test_missing_team_is_passed_through_as_none(fake_stage) -> None:
-    """Vaihe päättää virheilmoituksen, koska vain se tuntee demon kokoonpanot."""
+    """The stage decides the error, because only it knows the demo's lineups."""
     runner.invoke(app, ["classify", DEMO_ID])
     assert fake_stage["team"] is None
 
 
 def test_missing_round_list_tells_what_to_do(fake_stage) -> None:
     fake_stage["tulos"] = classify_result(
-        skipped=True, stats={"team_key": TEAM, "unreadable": "OSError: rikki"}
+        skipped=True, stats={"team_key": TEAM, "unreadable": "OSError: broken"}
     )
     result = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM, "--show"])
     assert result.exit_code == 0, result.output
-    assert "Kierroslistaa ei saatu luettua" in result.output
+    assert "The round list could not be read" in result.output
     assert "--pakota" in result.output
 
 
-def test_unknown_team_is_finnish_without_a_traceback(
+def test_unknown_team_gets_a_listing_without_a_traceback(
     fake_stage, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
+    """The name used to say the error is in Finnish; AD-11 made that false.
+
+    **The message is ``classify._resolve``'s own wording**, translated by T6;
+    the Finnish copy that used to stand here had stopped matching it.
+    """
     fake_stage["virhe"] = PappascoutError(
-        "Kokoonpanotunniste 'xxx' ei täsmää kumpaankaan demon kokoonpanoon.\n"
-        "Demon kokoonpanot ovat:\n    aaa\n    bbb"
+        "The lineup key 'xxx' matches neither lineup of demo 1-abc-1.\n"
+        "The demo's lineups are:\n    aaa\n    bbb"
     )
     monkeypatch.setattr(
         "sys.argv", ["pappascout", "classify", DEMO_ID, "--team", "xxx"]
@@ -380,6 +398,6 @@ def test_unknown_team_is_finnish_without_a_traceback(
 
     assert exc.value.code == EXIT_KNOWN_ERROR
     error = capsys.readouterr().err
-    assert "ei täsmää" in error
-    assert "kokoonpanot ovat" in error
+    assert "matches neither lineup" in error
+    assert "lineups are" in error
     assert "Traceback" not in error

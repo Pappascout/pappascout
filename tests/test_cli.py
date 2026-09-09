@@ -1,12 +1,12 @@
-"""CLI:n testit: ``info`` ja ``parse``.
+"""The CLI's tests: ``info`` and ``parse``.
 
-Kolme vaatimusta, jotka näissä testeissä lukitaan:
+Three requirements are locked down in these tests:
 
-* avaimen **tila** näkyy, avaimen **arvo** ei koskaan,
-* käyttäjä ei näe koskaan raakaa pinojälkeä -- jokainen virhe tulee ulos
-  suomenkielisenä rivinä ja paluukoodina, ja
-* ``parse``-komennon tuloste kertoo kierrosten määrän, jatkoajan, ohitetut
-  kierrokset ja ajoajan.
+* a credential's **state** is shown, its **value** never is,
+* the user never sees a raw traceback -- every error comes out as one line
+  and an exit code, and
+* the ``parse`` command's output reports the number of rounds, overtime, the
+  skipped rounds and the run time.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ def test_help_lists_info() -> None:
     assert "info" in result.output
 
 
-# --- info: sisältö -----------------------------------------------------------
+# --- info: the content -------------------------------------------------------
 
 
 def test_info_shows_settings_archive_and_key_status(
@@ -62,7 +62,7 @@ def test_info_shows_settings_archive_and_key_status(
     settings = load_settings(settings_file, env_files=(env,))
     output_text = _render_info(settings)
 
-    # Asetukset
+    # The settings
     assert "PotkukelkkaPeek" in output_text
     assert "de_mirage" in output_text
     assert "MR12" in output_text
@@ -70,7 +70,7 @@ def test_info_shows_settings_archive_and_key_status(
     assert "4000" in output_text
     assert str(settings_file) in output_text
 
-    # Avaimet: tila kyllä, arvo ei
+    # The credentials: the state yes, the value no
     assert "FACEIT_API_KEY" in output_text
     # The status word is matched on its own line, not anywhere in the output:
     # ``set`` is a substring of every path that names ``settings``, so a
@@ -81,7 +81,7 @@ def test_info_shows_settings_archive_and_key_status(
 
 
 def _key_status(output_text: str, name: str) -> str:
-    """The status word ``info`` printed for one key."""
+    """The status word ``info`` printed for one credential."""
     line = next(
         row for row in output_text.splitlines() if row.strip().startswith(name)
     )
@@ -94,7 +94,7 @@ def test_info_reports_missing_key_without_crashing(
     env = env_file(FACEIT_DOWNLOADS_TOKEN=FAKE_TOKEN)
     settings = load_settings(settings_file, env_files=(env,))
     output_text = _render_info(settings)
-    keys_section = _section(output_text, "Avaimet")
+    keys_section = _section(output_text, "Credentials")
     assert "FACEIT_API_KEY" in keys_section
     # On its own line for the same reason as above: the temporary directory
     # in the path beside it is named after this test, which contains
@@ -103,15 +103,21 @@ def test_info_reports_missing_key_without_crashing(
     assert FAKE_TOKEN not in output_text
 
 
-def test_info_is_finnish(settings_file: Path) -> None:
+def test_info_names_every_section(settings_file: Path) -> None:
+    """The three sections and the settings the user checks first are all there.
+
+    The name of this test used to say the output is in Finnish. AD-11 moved
+    the console into English on 2026-09-07, so the claim would now be false;
+    what the assertion really pins is that no section quietly disappears.
+    """
     settings = load_settings(settings_file, env_files=())
     output_text = _render_info(settings)
-    for word in ("Asetukset", "Oma joukkue", "Karttapooli", "Arkisto", "Avaimet"):
+    for word in ("Settings", "Own team", "Map pool", "Archive", "Credentials"):
         assert word in output_text
 
 
 def _section(output_text: str, heading: str) -> str:
-    """Poimi yhden osion rivit, jotta assertio ei osu vahingossa toiseen osioon."""
+    """Pick one section's rows, so that an assertion cannot hit another one."""
     lines = output_text.splitlines()
     start = lines.index(heading) + 1
     end = start
@@ -120,21 +126,23 @@ def _section(output_text: str, heading: str) -> str:
     return "\n".join(lines[start:end])
 
 
-# --- info: arkiston rivi -----------------------------------------------------
+# --- info: the archive row ---------------------------------------------------
 
 
 def test_info_reports_missing_archive_precisely(
     tmp_path: Path, settings_file: Path
 ) -> None:
-    """Arkiston puuttuminen näkyy arkisto-osiossa, eikä hakemistoa luoda."""
+    """A missing archive shows in the archive section, and no directory is made."""
     settings = load_settings(settings_file, env_files=())
-    archive_section = _section(_render_info(settings), "Arkisto")
+    archive_section = _section(_render_info(settings), "Archive")
 
     missing_dir = tmp_path / "arkisto"
     assert str(missing_dir) in archive_section
-    assert "Tila" in archive_section
-    assert "puuttuu" in archive_section
-    assert "löytyy" not in archive_section
+    assert "Status" in archive_section
+    # The whole phrase, not the word: the temporary directory beside it is
+    # named after this test, and that name contains ``missing`` too.
+    assert "missing -- the directory is created" in archive_section
+    assert "found" not in archive_section
     assert not missing_dir.exists()
 
 
@@ -147,16 +155,18 @@ def test_info_reports_existing_archive(tmp_path: Path) -> None:
     target.write_text(settings_text(archive_dir), encoding="utf-8")
     settings = load_settings(target, env_files=())
 
-    section = _section(_render_info(settings), "Arkisto")
-    assert "löytyy" in section
-    assert "puuttuu" not in section
-    # Kokoa ei lasketa ilman --koko.
-    assert "ei laskettu" in section
+    section = _section(_render_info(settings), "Archive")
+    assert "found" in section
+    assert "missing" not in section
+    # The size is not computed without --koko.
+    assert "not computed" in section
+    # ``size_fi``'s unit for a small archive; it stays Finnish as number
+    # formatting, so the needle stays Finnish too.
     assert "tavua" not in section
 
 
 def test_info_computes_size_only_when_asked(tmp_path: Path) -> None:
-    """NFR-1: info on nopea tilannekatsaus, joten koko on valinnainen."""
+    """NFR-1: info is a fast status check, so the size is optional."""
     archive_dir = tmp_path / "arkisto"
     (archive_dir / "index").mkdir(parents=True)
     (archive_dir / "index" / "teams.json").write_bytes(b"12345")
@@ -165,9 +175,9 @@ def test_info_computes_size_only_when_asked(tmp_path: Path) -> None:
     target.write_text(settings_text(archive_dir), encoding="utf-8")
     settings = load_settings(target, env_files=())
 
-    section = _section(_render_info(settings, show_size=True), "Arkisto")
+    section = _section(_render_info(settings, show_size=True), "Archive")
     assert "5 tavua" in section
-    assert "ei laskettu" not in section
+    assert "not computed" not in section
 
 
 def test_size_flag_runs_end_to_end(
@@ -185,7 +195,7 @@ def test_size_flag_runs_end_to_end(
     assert "4 tavua" in result.output
 
 
-# --- info: koko putki läpi ---------------------------------------------------
+# --- info: the whole pipeline through --------------------------------------
 
 
 def test_info_command_runs_end_to_end(
@@ -193,7 +203,7 @@ def test_info_command_runs_end_to_end(
 ) -> None:
     env = env_file(FACEIT_API_KEY=FAKE_KEY)
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
-    # cli sitoi nimen importissa, joten patch kohdistuu cli-moduuliin.
+    # cli bound the name at import time, so the patch targets the cli module.
     monkeypatch.setattr("pappascout.cli.secrets_env_path", lambda: env)
     monkeypatch.setattr("pappascout.domain.models.secrets_env_path", lambda: env)
 
@@ -207,7 +217,7 @@ def test_info_command_runs_end_to_end(
 def test_secrets_path_shown_comes_from_cli_module(
     settings_file: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Ilman .env-tiedostoa info näyttää cli:n oman oletuspolun."""
+    """Without a .env file, info shows the cli's own default path."""
     fake_path = tmp_path / "vale" / ".env"
     monkeypatch.setattr("pappascout.cli.secrets_env_path", lambda: fake_path)
     settings = load_settings(settings_file, env_files=())
@@ -215,13 +225,18 @@ def test_secrets_path_shown_comes_from_cli_module(
     assert str(fake_path) in _render_info(settings)
 
 
-# --- main(): virheiden käsittely (NFR-1) -------------------------------------
+# --- main(): handling the errors (NFR-1) -------------------------------------
 
 
-def test_main_turns_known_error_into_finnish_line(
+def test_main_turns_known_error_into_one_line_and_exit_code_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
-    """Puuttuva asetustiedosto -> paluukoodi 1, suomenkielinen rivi, ei tracebackia."""
+    """A missing settings file -> exit code 1, one line, no traceback.
+
+    The name used to say the line is in Finnish. That stopped being true when
+    AD-11 moved the console into English; what the assertions pin is the
+    heading, the exit code and the absence of a traceback.
+    """
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(tmp_path / "ei-ole.toml"))
     monkeypatch.setattr(
         "pappascout.domain.models._repo_root", lambda: tmp_path / "ei-repoa"
@@ -233,7 +248,7 @@ def test_main_turns_known_error_into_finnish_line(
 
     assert exc.value.code == EXIT_KNOWN_ERROR
     err_text = capsys.readouterr().err
-    assert err_text.startswith("Virhe:")
+    assert err_text.startswith("Error:")
     assert "Traceback" not in err_text
     assert "settings.toml" in err_text
 
@@ -241,11 +256,11 @@ def test_main_turns_known_error_into_finnish_line(
 def test_main_never_shows_a_traceback_for_a_bug(
     settings_file: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
-    """Ohjelmavirhe -> paluukoodi 2 ja lyhyt suomenkielinen rivi."""
+    """A program fault -> exit code 2 and a short line."""
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
 
     def boom():
-        raise RuntimeError("odottamaton hajoaminen")
+        raise RuntimeError("an unexpected breakage")
 
     monkeypatch.setattr("pappascout.cli.load_settings", lambda *a, **k: boom())
     monkeypatch.setattr("sys.argv", ["pappascout", "info"])
@@ -255,7 +270,7 @@ def test_main_never_shows_a_traceback_for_a_bug(
 
     assert exc.value.code == EXIT_UNEXPECTED_ERROR
     err_text = capsys.readouterr().err
-    assert err_text.startswith("Odottamaton virhe:")
+    assert err_text.startswith("Unexpected error:")
     assert "Traceback" not in err_text
 
 
@@ -272,7 +287,7 @@ def test_main_exits_zero_on_success(
     assert "PotkukelkkaPeek" in capsys.readouterr().out
 
 
-# --- Tavumäärän muotoilu (Story 3.7, kohta 7) --------------------------------
+# --- Formatting a byte count (Story 3.7, item 7) -----------------------------
 
 
 @pytest.mark.parametrize(
@@ -293,35 +308,35 @@ def test_main_exits_zero_on_success(
 def test_size_fi_covers_everything_the_cli_formatter_covered(
     num_bytes: int, expected: str
 ) -> None:
-    """``size_fi`` muotoilee sen, minkä ``cli._human_size`` muotoili.
+    """``size_fi`` formats everything ``cli._human_size`` formatted.
 
-    Sama taulukko kuin ``_human_size``illa oli, ``Pt``-rivit mukaan lukien:
-    yhdistäminen ei saanut kaventaa kummankaan kattamaa aluetta.
+    The same table ``_human_size`` had, the ``Pt`` rows included: merging them
+    was not allowed to narrow the range either of them covered.
     """
     assert size_fi(num_bytes) == expected
 
 
 def test_only_one_byte_formatter_exists() -> None:
-    """**Tavumäärän muotoilijoita on tasan yksi koko paketissa.**
+    """**There is exactly one byte-count formatter in the whole package.**
 
-    Kaksi kopiota olivat jo erkaantuneet: ``cli._SIZE_UNITS`` päättyi
-    ``"Pt"``:hen ja ``fetch._SIZE_UNITS`` ``"Tt"``:hen, eli sama luku saattoi
-    tulostua eri tavalla sen mukaan, mikä komento sen tulosti. Väite luetaan
-    syntaksipuusta eikä merkkijonoista: mikään moduuli
-    ``stages/fetch.py``:n lisäksi ei saa sijoittaa nimeä ``_SIZE_UNITS``,
-    eikä yksikään moduuli saa määritellä tai kutsua nimeä ``_human_size``.
+    The two copies had already drifted apart: ``cli._SIZE_UNITS`` ended at
+    ``"Pt"`` and ``fetch._SIZE_UNITS`` at ``"Tt"``, so the same number could
+    print differently depending on which command printed it. The claim is read
+    from the syntax tree and not from strings: no module other than
+    ``stages/fetch.py`` may assign the name ``_SIZE_UNITS``, and no module at
+    all may define or call the name ``_human_size``.
 
-    **Poikkeus on polku eikä tiedostonimi**, ja **sijoitus katsotaan
-    molemmissa muodoissaan.** Katselmus 2026-09-06 loysi kaksi aukkoa:
-    ``path.name != "fetch.py"`` olisi päästänyt minkä tahansa muun
-    ``fetch.py``:n puussa saamaan oman taulunsa, ja pelkkä ``ast.Assign``
-    olisi ohittanut tyypitetyn ``_SIZE_UNITS: tuple[str, ...] = (...)``:n,
-    joka on ``ast.AnnAssign``. Molemmat ovat halpoja, ja tämä vartija on
-    kohdan ainoa rakenteellinen suoja.
+    **The exemption is a path and not a file name**, and **an assignment is
+    looked at in both of its forms.** The review of 2026-09-06 found two
+    gaps: ``path.name != "fetch.py"`` would have let any other ``fetch.py`` in
+    the tree have a table of its own, and a bare ``ast.Assign`` would have
+    missed the annotated ``_SIZE_UNITS: tuple[str, ...] = (...)``, which is an
+    ``ast.AnnAssign``. Both are cheap, and this guard is the item's only
+    structural protection.
 
-    Vartija on olemassa siksi, että paluu vanhaan on yhden funktion mittainen
-    ja se ei näkyisi missään tulosteessa ennen kuin luku sattuu olemaan
-    riittävän suuri.
+    The guard exists because going back to the old way is one function long
+    and would not show in any output until the number happened to be large
+    enough.
     """
     src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
     sallittu = src / "stages" / "fetch.py"
@@ -351,20 +366,21 @@ def test_only_one_byte_formatter_exists() -> None:
             ):
                 loytymat.append(f"{rel}:{node.lineno} _human_size()")
     assert loytymat == [], (
-        "Tavumäärän muotoilijoita on enemmän kuin yksi: sama luku tulostuisi "
-        f"eri tavalla eri komennoissa. {loytymat}"
+        "There is more than one byte-count formatter: the same number would "
+        f"print differently in different commands. {loytymat}"
     )
 
 
-# --- Rakenne ------------------------------------------------------------------
+# --- The structure ------------------------------------------------------------
 
 
 def test_pipeline_packages_expose_their_contracts() -> None:
-    """Story 1.2 loi putken ensimmäisen vaiheen ja sen portin.
+    """Story 1.2 created the pipeline's first stage and its port.
 
-    Korvaa Story 1.1:n ``test_no_pipeline_stages_exist_yet``-testin, joka
-    vartioi sitä, ettei runkostory toteuta putkea etuajassa. Tarkistetaan
-    nimetty symboli eikä pelkkää tuontia: tyhjä paketti läpäisisi jälkimmäisen.
+    Replaces Story 1.1's ``test_no_pipeline_stages_exist_yet``, which guarded
+    against the skeleton story implementing the pipeline ahead of time. A
+    named symbol is checked rather than the import alone: an empty package
+    would pass the latter.
     """
     import importlib
 
@@ -373,7 +389,7 @@ def test_pipeline_packages_expose_their_contracts() -> None:
         "pappascout.stages.parse": ("run", "resolve_demo", "default_parser"),
         "pappascout.stages.classify": ("run", "resolve_team", "team_keys"),
         "pappascout.stages.aggregate": ("run", "resolve_team", "team_keys"),
-        # Story 2.4: putken viimeinen vaihe ja sen esityskerros.
+        # Story 2.4: the pipeline's last stage and its presentation layer.
         "pappascout.stages.render": (
             "run",
             "resolve_team",
@@ -387,8 +403,9 @@ def test_pipeline_packages_expose_their_contracts() -> None:
             "template_digest",
             "round_list_demo_ids",
         ),
-        # Story 2.3: raporttimalli on aggregointi- ja render-vaiheen jaettu
-        # sopimus, joten sen nimi ja skeemaversio ovat osa rakennetta.
+        # Story 2.3: the report model is the shared contract between the
+        # aggregate and render stages, so its name and its schema version are
+        # part of the structure.
         "pappascout.domain.report": ("Report", "REPORT_SCHEMA_VERSION"),
         "pappascout.domain.aggregate": ("build_report", "positions_for"),
         "pappascout.adapters": (
@@ -411,10 +428,10 @@ def test_help_lists_parse() -> None:
 
 
 def test_help_lists_every_pipeline_command() -> None:
-    """Putken komennot ovat luettelossa siinä järjestyksessä kuin ne ajetaan.
+    """The pipeline's commands are in the listing, in the order they are run.
 
-    Yhden komennon lisääminen ilman tätä väitettä jättäisi sen ohjeesta
-    huomaamatta -- eikä käyttäjä, joka ei koodaa itse, löytäisi sitä mistään.
+    Adding one command without this claim would leave it out of the help
+    unnoticed -- and the user, who does not code, would find it nowhere.
     """
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
@@ -433,21 +450,21 @@ def test_help_lists_every_pipeline_command() -> None:
         assert command in result.output, command
 
 
-# -- Story 3.7 (kohdat 8, 9): vaite, joka ei pida paikkaansa -----------------
+# -- Story 3.7 (items 8, 9): a claim that is not true -------------------------
 #
-# Tassa projektissa vaara vaite on vaarallisempi kuin puuttuva tieto: seuraava
-# lukija luottaa siihen. Naiden testien kohde on siis dokumentaatio, ei
-# kaytos -- ja se on tarkoituksellista.
+# In this project a wrong claim is more dangerous than missing information:
+# the next reader trusts it. The subject of these tests is therefore the
+# documentation and not the behaviour -- and that is deliberate.
 
 
 def test_no_module_claims_that_a_pipeline_module_decides_the_order() -> None:
-    """Moduulia ``stages.pipeline`` ei ole olemassa.
+    """There is no ``stages.pipeline`` module.
 
-    Kaksi pakettien docstringia ja ``stages.fetch``in moduulidocstring
-    vaittivat sen paattavan vaiheiden jarjestyksen. Jarjestyksen paattaa
-    kayttaja komento kerrallaan. Lukija, joka etsii moduulia, etsii sita
-    turhaan -- ja lukija, joka uskoo sen olevan olemassa, olettaa ketjutuksen
-    olevan jonkun muun vastuulla.
+    Two package docstrings and ``stages.fetch``'s module docstring claimed
+    that it decides the order of the stages. The order is decided by the user,
+    one command at a time. A reader who looks for the module looks in vain --
+    and a reader who believes it exists assumes the chaining is somebody
+    else's responsibility.
     """
     src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
     assert not (src / "stages" / "pipeline.py").exists()
@@ -460,18 +477,18 @@ def test_no_module_claims_that_a_pipeline_module_decides_the_order() -> None:
             if "stages.pipeline" in rivi or "``pipeline``" in rivi:
                 vaitteet.append(f"{path.name}:{numero}")
     assert vaitteet == [], (
-        "Joku vaittaa yha, etta pipeline-moduuli paattaa jarjestyksen. "
+        "Something still claims that a pipeline module decides the order. "
         f"{vaitteet}"
     )
 
 
 def test_the_team_index_does_not_promise_a_rename_to_a_shipped_story() -> None:
-    """``discover`` lupasi arkiston uudelleennimeamisen "Story 3.4:ssa".
+    """``discover`` promised the archive would be renamed "in Story 3.4".
 
-    Story 3.4 oli demojen lataus Downloads API:lla eika koskenut arkiston
-    nimeamiseen lainkaan. Toteutunut tarina, joka ei tehnyt luvattua, on
-    pahempi kuin kirjaamaton tyo: lukija tarkistaa tarinan, ei loyda mitaan,
-    eika tieda kumpi on vaarin.
+    Story 3.4 was downloading demos with the Downloads API and did not touch
+    the naming of the archive at all. A story that shipped without doing what
+    was promised is worse than unrecorded work: the reader checks the story,
+    finds nothing, and does not know which of the two is wrong.
     """
     src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
     lahde = (src / "stages" / "discover.py").read_text(encoding="utf-8")
