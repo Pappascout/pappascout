@@ -412,7 +412,7 @@ def test_the_nearest_player_method_is_gone_from_the_area_sources() -> None:
     would not see which of them named it.
 
     An old ``events.parquet`` therefore does not load into this enum, and that
-    is intended: ``parse`` runs the recording again without the ``--pakota``
+    is intended: ``parse`` runs the recording again without the ``--force``
     flag.
     """
     assert AREA_SOURCES == ("observed", "point_cloud")

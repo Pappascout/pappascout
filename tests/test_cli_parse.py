@@ -867,7 +867,7 @@ def test_stage_gets_only_the_parse_section(fake_stage, demo: Path) -> None:
 
 
 def test_force_flag_reaches_the_stage(fake_stage, demo: Path) -> None:
-    result = runner.invoke(app, ["parse", str(demo), "--pakota"])
+    result = runner.invoke(app, ["parse", str(demo), "--force"])
     assert result.exit_code == 0, result.output
     assert fake_stage["kwargs"]["force"] is True
 

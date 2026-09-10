@@ -257,19 +257,19 @@ def test_collect_reaches_matches_that_no_selection_file_contains(
             encoding="utf-8"
         )
     )
-    otanta = {r["map_demo_id"] for r in document["selections"] if r["roster_ok"]}
-    assert otanta, "the data produced no selected map at all"
+    sample = {r["map_demo_id"] for r in document["selections"] if r["roster_ok"]}
+    assert sample, "the data produced no selected map at all"
 
-    runner.invoke(app, ["collect", "--kylla"])
+    runner.invoke(app, ["collect", "--yes"])
 
-    haetut = set(division.source.asked)
-    assert otanta < haetut, "the collection has to be wider than the sample"
-    assert haetut == set(division.units)
+    fetched = set(division.source.asked)
+    assert sample < fetched, "the collection has to be wider than the sample"
+    assert fetched == set(division.units)
 
 
 def test_an_unplayed_match_never_reaches_the_port(division) -> None:
     """An unplayed match has no demo: asking would spend quota."""
-    runner.invoke(app, ["collect", "--kylla"])
+    runner.invoke(app, ["collect", "--yes"])
 
     unplayed = division.unplayed_ids()
     assert unplayed, "the data holds no unplayed matches"
@@ -280,17 +280,17 @@ def test_an_unplayed_match_never_reaches_the_port(division) -> None:
 def test_own_team_is_not_filtered_out_of_the_division(division) -> None:
     """The division means the division -- our own matches are collected too."""
     own = division.settings.project.own_team_name
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
-    pelatut = set(division.played_ids())
-    omat = [
+    played = set(division.played_ids())
+    own = [
         m.match_id
         for m in division.matches
-        if m.match_id in pelatut and any(s.name == own for s in m.teams)
+        if m.match_id in played and any(s.name == own for s in m.teams)
     ]
-    assert omat, "the data holds no played matches of our own team"
-    for match_id in omat:
+    assert own, "the data holds no played matches of our own team"
+    for match_id in own:
         assert f"{match_id}-0" in division.source.asked
 
 
@@ -317,8 +317,8 @@ def test_no_input_at_all_is_cancelled_not_aborted(division) -> None:
     assert division.source.asked == []
 
 
-def test_kylla_skips_the_question_but_not_the_plan(division) -> None:
-    result = runner.invoke(app, ["collect", "--kylla"])
+def test_yes_skips_the_question_but_not_the_plan(division) -> None:
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert "Download these" not in result.output
@@ -329,32 +329,32 @@ def test_kylla_skips_the_question_but_not_the_plan(division) -> None:
 def test_the_target_directory_is_shown_before_the_question(division) -> None:
     result = runner.invoke(app, ["collect"], input="n\n")
 
-    kohde = [r for r in result.output.splitlines() if r.strip().startswith("Target")]
-    assert kohde, f"the plan has no Target row:\n{result.output}"
-    assert str(division.archive.demos_dir()) in kohde[0]
+    target = [r for r in result.output.splitlines() if r.strip().startswith("Target")]
+    assert target, f"the plan has no Target row:\n{result.output}"
+    assert str(division.archive.demos_dir()) in target[0]
     assert result.output.index("Target") < result.output.index("Download these")
 
 
 def test_the_shown_target_is_the_directory_that_is_written_to(division) -> None:
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
     written = division.archive.find_demo(division.units[0])
     assert written is not None
-    kohde = [r for r in result.output.splitlines() if r.strip().startswith("Target")]
-    assert kohde
-    assert all(str(written.parent) in row for row in kohde)
+    target = [r for r in result.output.splitlines() if r.strip().startswith("Target")]
+    assert target
+    assert all(str(written.parent) in row for row in target)
 
 
 # -- Safe to run at any time -------------------------------------------------
 
 
 def test_a_second_run_downloads_nothing_and_says_so(division) -> None:
-    first = runner.invoke(app, ["collect", "--kylla"])
+    first = runner.invoke(app, ["collect", "--yes"])
     assert first.exit_code == 0, first.output
     division.source.asked.clear()
 
-    second = runner.invoke(app, ["collect", "--kylla"])
+    second = runner.invoke(app, ["collect", "--yes"])
 
     assert second.exit_code == 0, second.output
     assert division.source.asked == []
@@ -365,9 +365,9 @@ def test_a_second_run_downloads_nothing_and_says_so(division) -> None:
 
 def test_a_second_run_still_counts_the_demos_that_are_on_disk(division) -> None:
     """"Nothing to download" must not look as if the sample had shrunk."""
-    runner.invoke(app, ["collect", "--kylla"])
+    runner.invoke(app, ["collect", "--yes"])
 
-    second = runner.invoke(app, ["collect", "--kylla"])
+    second = runner.invoke(app, ["collect", "--yes"])
 
     assert f"of which {len(division.units)} already on disk" in second.output
 
@@ -382,12 +382,12 @@ def test_a_played_match_without_map_picks_is_shown_with_its_reason(
     matches = played_matches(map_picks=())
     division.discover(matches)
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
-    pelatut = division.played_ids()
-    assert f"Played match with no veto data ({len(pelatut)})" in result.output
-    for match_id in pelatut:
+    played = division.played_ids()
+    assert f"Played match with no veto data ({len(played)})" in result.output
+    for match_id in played:
         assert match_id in result.output
     # And not one port call: the ids cannot be formed.
     assert division.source.asked == []
@@ -398,14 +398,14 @@ def test_a_match_without_map_picks_is_not_called_unplayed(division) -> None:
     """A wrong reason is worse than none: it is a claim that is not true."""
     division.discover(played_matches(map_picks=()))
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
-    lohko = result.output.split("Played match with no veto data", 1)[1]
-    assert "not played" not in lohko.lower()
-    assert "map list" in lohko
+    block = result.output.split("Played match with no veto data", 1)[1]
+    assert "not played" not in block.lower()
+    assert "map list" in block
     # The data's matches are weeks old, so the advice is an import and not a
     # rerun of discover -- see test_the_advice_branches_on_the_age.
-    assert "uv run pappascout import" in lohko
+    assert "uv run pappascout import" in block
 
 
 def test_the_no_veto_block_is_shown_even_when_there_is_something_to_download(
@@ -413,14 +413,14 @@ def test_the_no_veto_block_is_shown_even_when_there_is_something_to_download(
 ) -> None:
     """The block must not vanish behind there being something else to download."""
     matches = list(division_matches())
-    rikki = matches[0]
-    matches[0] = rikki.__class__(**{**rikki.__dict__, "map_picks": ()})
+    broken = matches[0]
+    matches[0] = broken.__class__(**{**broken.__dict__, "map_picks": ()})
     division.discover(tuple(matches))
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert "Played match with no veto data (1)" in result.output
-    assert rikki.match_id in result.output
+    assert broken.match_id in result.output
     assert division.source.asked, "the other matches were left unfetched"
 
 
@@ -450,7 +450,7 @@ def test_a_missing_best_of_makes_the_output_say_the_length_is_unknown(
     matches = played_matches(best_of=None)
     division.discover(matches)
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert "unknown in" in result.output
@@ -478,17 +478,17 @@ def test_a_bo3_that_ended_two_nil_still_tries_the_third_map(division) -> None:
         best_of=3, map_picks=("de_ancient", "de_nuke", "de_mirage")
     )
     units = division.discover(matches)
-    kolmannet = [u for u in units if u.endswith("-2")]
-    assert len(kolmannet) >= 3, "the data proves nothing with one match"
-    for unit in kolmannet:
+    thirds = [u for u in units if u.endswith("-2")]
+    assert len(thirds) >= 3, "the data proves nothing with one match"
+    for unit in thirds:
         del division.source.demos[unit]
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert division.source.asked == list(units)
-    assert f"{len(kolmannet)} not available" in result.output
-    assert f"{len(units) - len(kolmannet)} fetched" in result.output
+    assert f"{len(thirds)} not available" in result.output
+    assert f"{len(units) - len(thirds)} fetched" in result.output
 
 
 def test_the_same_fault_three_times_stops_the_series_and_every_unit_gets_a_row(
@@ -512,11 +512,11 @@ def test_the_same_fault_three_times_stops_the_series_and_every_unit_gets_a_row(
         for unit in units
     }
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
-    raja = fetch_stage.IDENTICAL_FAILURE_LIMIT
-    assert division.source.asked == list(units[:raja])
+    limit = fetch_stage.IDENTICAL_FAILURE_LIMIT
+    assert division.source.asked == list(units[:limit])
     assert f"{len(units)} failed" in result.output
     for unit in units:
         assert unit in result.output
@@ -533,7 +533,7 @@ def test_the_summary_separates_all_four_outcomes(division) -> None:
 
     units = division.units
     # One is already on disk before the run: the first run fetches it.
-    runner.invoke(app, ["collect", "--kylla"])
+    runner.invoke(app, ["collect", "--yes"])
     for unit in units[1:]:
         demo = division.archive.find_demo(unit)
         assert demo is not None
@@ -547,7 +547,7 @@ def test_the_summary_separates_all_four_outcomes(division) -> None:
         "The connection broke.", status_code=503, advice="Run the command again."
     )
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert f"Download done: {len(units) - 3} fetched" in result.output
@@ -589,14 +589,14 @@ def test_the_row_carries_the_time_the_match_ended() -> None:
 
 def test_the_row_scales_with_the_timestamp_it_is_given() -> None:
     """A fixed text would pass every check of mere existence."""
-    eka = "\n".join(_collect_no_veto((no_veto_row(),)))
-    toka = "\n".join(
+    first = "\n".join(_collect_no_veto((no_veto_row(),)))
+    second = "\n".join(
         _collect_no_veto((no_veto_row(finished_at="2026-08-01T10:00:00+00:00"),))
     )
 
-    assert "2026-09-05T20:14:00+00:00" in eka
-    assert "2026-08-01T10:00:00+00:00" in toka
-    assert eka != toka
+    assert "2026-09-05T20:14:00+00:00" in first
+    assert "2026-08-01T10:00:00+00:00" in second
+    assert first != second
 
 
 def test_a_row_without_a_timestamp_does_not_print_the_word_none() -> None:
@@ -623,10 +623,10 @@ def test_the_advice_branches_on_the_age_of_the_match() -> None:
     most one of them.
     """
     nyt = datetime.now(UTC)
-    tuore = "\n".join(
+    fresh = "\n".join(
         _collect_no_veto((no_veto_row(finished_at=nyt.isoformat()),))
     )
-    vanha = "\n".join(
+    old = "\n".join(
         _collect_no_veto(
             (
                 no_veto_row(
@@ -638,10 +638,10 @@ def test_the_advice_branches_on_the_age_of_the_match() -> None:
         )
     )
 
-    assert "uv run pappascout discover" in tuore
-    assert "import" not in tuore
-    assert "uv run pappascout import" in vanha
-    assert "discover probably will not bring it" in vanha
+    assert "uv run pappascout discover" in fresh
+    assert "import" not in fresh
+    assert "uv run pappascout import" in old
+    assert "discover probably will not bring it" in old
 
 
 def test_an_unknown_age_gets_the_cheap_advice_not_the_expensive_one() -> None:
@@ -670,15 +670,15 @@ def test_an_empty_division_does_not_claim_everything_is_on_disk(
     The situation comes from a wrong or foreign ``championship_ids``, from
     another division's index, and from a season that has not been played yet.
     """
-    pelaamattomat = tuple(
+    unplayed = tuple(
         match.__class__(
             **{**match.__dict__, "status": "SCHEDULED", "map_picks": ()}
         )
         for match in division_matches()
     )
-    division.discover(pelaamattomat, lowercase=False)
+    division.discover(unplayed, lowercase=False)
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert "nothing to download" in result.output
@@ -695,35 +695,35 @@ def test_an_empty_division_does_not_claim_everything_is_on_disk(
 def test_the_empty_message_names_the_ids_it_filtered_with() -> None:
     """``league_ids`` is a field that is read, not filled. Two different
     settings, two different messages -- otherwise the field is decoration."""
-    yksi = _render_collect_plan(
+    one = _render_collect_plan(
         fetch_stage.CollectPlan(league_ids=("aaa-111",)), None, "kohde"
     )
-    kaksi = _render_collect_plan(
+    two = _render_collect_plan(
         fetch_stage.CollectPlan(league_ids=("aaa-111", "bbb-222")), None, "kohde"
     )
 
-    assert "aaa-111" in yksi
-    assert "bbb-222" not in yksi
-    assert "aaa-111, bbb-222" in kaksi
+    assert "aaa-111" in one
+    assert "bbb-222" not in one
+    assert "aaa-111, bbb-222" in two
 
 
 def test_all_on_disk_and_nothing_known_are_different_messages() -> None:
     """Two empty plans, two different situations, two different messages."""
-    levylla = _render_collect_plan(
+    on_disk = _render_collect_plan(
         fetch_stage.CollectPlan(
             league_ids=("aaa-111",), present=("a-0", "a-1"), matches_played=1
         ),
         None,
         "kohde",
     )
-    tyhja = _render_collect_plan(
+    empty = _render_collect_plan(
         fetch_stage.CollectPlan(league_ids=("aaa-111",)), None, "kohde"
     )
 
-    assert "Every demo in the division is already on disk" in levylla
-    assert "no played match from this division" not in levylla
-    assert "Every demo in the division is already on disk" not in tyhja
-    assert "no played match from this division" in tyhja
+    assert "Every demo in the division is already on disk" in on_disk
+    assert "no played match from this division" not in on_disk
+    assert "Every demo in the division is already on disk" not in empty
+    assert "no played match from this division" in empty
 
 
 # -- The disk warning: one fits, not all (review 2026-09-06) -----------------
@@ -738,14 +738,14 @@ def test_a_plan_that_does_not_fit_warns_but_does_not_stop(
     is kept for good. The stage checks the space separately for every demo,
     so the run stops of its own accord at the right point.
     """
-    yksi_mahtuu = (
+    one_fits = (
         fetch_stage.DEMO_SIZE_ESTIMATE_BYTES + fetch_stage.DISK_RESERVE_BYTES
     )
     todo = fetch_stage.plan_division(division.archive, division.settings.league)
-    assert todo.estimated_bytes > yksi_mahtuu, "the data proves nothing"
-    vapaana = yksi_mahtuu + fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
-    assert vapaana < todo.estimated_bytes
-    monkeypatch.setattr(fetch_stage, "free_space", lambda _a: vapaana)
+    assert todo.estimated_bytes > one_fits, "the data proves nothing"
+    free = one_fits + fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
+    assert free < todo.estimated_bytes
+    monkeypatch.setattr(fetch_stage, "free_space", lambda _a: free)
 
     result = runner.invoke(app, ["collect"], input="n\n")
 
@@ -776,9 +776,9 @@ def test_the_warning_says_how_many_of_the_plan_would_fit() -> None:
         matches_played=50,
         estimated_bytes=100 * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES,
     )
-    vapaana = fetch_stage.DISK_RESERVE_BYTES + 3 * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
+    free = fetch_stage.DISK_RESERVE_BYTES + 3 * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
 
-    text = _render_collect_plan(todo, vapaana, "kohde")
+    text = _render_collect_plan(todo, free, "kohde")
 
     assert "an estimated 3 of the 100 demos" in text
 
@@ -791,9 +791,9 @@ def test_the_warning_never_promises_more_than_the_plan_holds() -> None:
         # The estimate is larger than the free space, so the warning fires...
         estimated_bytes=fetch_stage.DISK_RESERVE_BYTES * 100,
     )
-    vapaana = fetch_stage.DISK_RESERVE_BYTES + 9 * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
+    free = fetch_stage.DISK_RESERVE_BYTES + 9 * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
 
-    text = _render_collect_plan(todo, vapaana, "kohde")
+    text = _render_collect_plan(todo, free, "kohde")
 
     assert "an estimated 3 of the 3 demos" in text
 
@@ -817,8 +817,8 @@ def test_a_long_unit_list_is_truncated_and_says_how_many_are_hidden() -> None:
         "kohde",
     )
 
-    rivit = [r for r in text.splitlines() if r.startswith("  a-")]
-    assert len(rivit) == MAX_LISTED_UNITS
+    rows = [r for r in text.splitlines() if r.startswith("  a-")]
+    assert len(rows) == MAX_LISTED_UNITS
     assert f"(+{132 - MAX_LISTED_UNITS} more" in text
     # And the Demos row still gives the whole number: the cut is on the
     # listing.
@@ -905,25 +905,25 @@ def test_the_unknown_length_line_says_how_many_matches_it_means(
     division,
 ) -> None:
     """An observation without its scope cannot be checked."""
-    kaikki = played_matches(best_of=None)
-    division.discover(kaikki)
-    pelatut = len(division.played_ids())
+    all_of_them = played_matches(best_of=None)
+    division.discover(all_of_them)
+    played = len(division.played_ids())
 
     result = runner.invoke(app, ["collect"], input="n\n")
 
-    assert f"unknown in {pelatut} of the matches" in result.output
+    assert f"unknown in {played} of the matches" in result.output
 
 
 def test_the_unknown_length_count_scales_with_the_plan() -> None:
     """A fixed number would pass every check of mere existence."""
-    yksi = _render_collect_plan(
+    one = _render_collect_plan(
         fetch_stage.CollectPlan(
             pending=("a-0",), matches_played=1, best_of_unknown=("a",)
         ),
         None,
         "kohde",
     )
-    monta = _render_collect_plan(
+    many = _render_collect_plan(
         fetch_stage.CollectPlan(
             pending=("a-0",), matches_played=9, best_of_unknown=tuple("abcdefghi")
         ),
@@ -931,8 +931,8 @@ def test_the_unknown_length_count_scales_with_the_plan() -> None:
         "kohde",
     )
 
-    assert "unknown in 1 of the matches" in yksi
-    assert "unknown in 9 of the matches" in monta
+    assert "unknown in 1 of the matches" in one
+    assert "unknown in 9 of the matches" in many
 
 
 def test_the_unknown_length_line_says_what_to_do_about_it() -> None:
@@ -977,7 +977,7 @@ def test_without_a_match_index_the_error_says_to_run_discover(
     settings_file, monkeypatch, capsys
 ) -> None:
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
-    monkeypatch.setattr("sys.argv", ["pappascout", "collect", "--kylla"])
+    monkeypatch.setattr("sys.argv", ["pappascout", "collect", "--yes"])
 
     with pytest.raises(SystemExit) as exit_info:
         main()
@@ -1026,7 +1026,7 @@ def test_the_plan_is_shown_in_full_before_the_first_403(
 ) -> None:
     """The plan is an output of its own: it shows even if no download starts."""
     world, _session = denied
-    monkeypatch.setattr("sys.argv", ["pappascout", "collect", "--kylla"])
+    monkeypatch.setattr("sys.argv", ["pappascout", "collect", "--yes"])
 
     with pytest.raises(SystemExit) as exit_info:
         main()
@@ -1044,7 +1044,7 @@ def test_only_one_signing_call_is_made_before_the_run_stops(
     """With twelve demos this would have been 12 doomed calls."""
     world, session = denied
     assert len(world.units) > 1
-    monkeypatch.setattr("sys.argv", ["pappascout", "collect", "--kylla"])
+    monkeypatch.setattr("sys.argv", ["pappascout", "collect", "--yes"])
 
     with pytest.raises(SystemExit):
         main()
@@ -1056,7 +1056,7 @@ def test_only_one_signing_call_is_made_before_the_run_stops(
 def test_the_denied_message_names_the_status_page(
     denied, monkeypatch, capsys
 ) -> None:
-    monkeypatch.setattr("sys.argv", ["pappascout", "collect", "--kylla"])
+    monkeypatch.setattr("sys.argv", ["pappascout", "collect", "--yes"])
 
     with pytest.raises(SystemExit):
         main()
@@ -1087,7 +1087,7 @@ def test_the_production_port_is_wired_on_the_collect_path(
 
     monkeypatch.setattr("pappascout.stages.fetch.default_source", spy)
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
     assert len(seen) == 1
@@ -1101,14 +1101,14 @@ def test_the_production_port_is_wired_on_the_collect_path(
 
 def test_the_summary_counts_match_the_files_that_are_on_disk(division) -> None:
     """Story 3.4's lesson: a hard-coded number would pass every claim."""
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
-    levylla = division.on_disk()
-    assert levylla == sorted(division.units)
-    assert f"Download done: {len(levylla)} fetched" in result.output
-    kirjoitettu = fetch_stage.size_fi(len(levylla) * len(DEMO_BYTES))
-    assert kirjoitettu in result.output
+    on_disk = division.on_disk()
+    assert on_disk == sorted(division.units)
+    assert f"Download done: {len(on_disk)} fetched" in result.output
+    written = fetch_stage.size_fi(len(on_disk) * len(DEMO_BYTES))
+    assert written in result.output
 
 
 def test_the_plan_line_says_the_real_count_and_the_real_size(division) -> None:
@@ -1118,10 +1118,10 @@ def test_the_plan_line_says_the_real_count_and_the_real_size(division) -> None:
     text = _render_collect_plan(todo, 9_900_000_000, r"D:\demot")
 
     assert f"{len(division.units)} to download" in text
-    odotettu = fetch_stage.size_fi(
+    expected = fetch_stage.size_fi(
         len(division.units) * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
     )
-    assert odotettu in text
+    assert expected in text
     assert r"D:\demot" in text
     assert "9,2 Gt" in text
     for unit in division.units:
@@ -1155,20 +1155,20 @@ def test_the_plan_line_scales_with_the_plan() -> None:
 
 def test_the_plan_says_the_index_age_it_was_given() -> None:
     """The age comes from the plan: a fixed text would pass on every run."""
-    vanha = _render_collect_plan(
+    old = _render_collect_plan(
         fetch_stage.CollectPlan(index_generated_at="2026-09-04T18:20:11+00:00"),
         None,
         "kohde",
     )
-    tuore = _render_collect_plan(
+    fresh = _render_collect_plan(
         fetch_stage.CollectPlan(index_generated_at="2026-09-06T17:05:00+00:00"),
         None,
         "kohde",
     )
 
-    assert "2026-09-04T18:20:11+00:00" in vanha
-    assert "2026-09-06T17:05:00+00:00" in tuore
-    assert vanha != tuore
+    assert "2026-09-04T18:20:11+00:00" in old
+    assert "2026-09-06T17:05:00+00:00" in fresh
+    assert old != fresh
 
 
 def test_an_index_without_a_timestamp_does_not_invent_one() -> None:
@@ -1198,7 +1198,7 @@ def test_the_local_demos_root_setting_moves_the_files_out_of_the_archive(
     world = Division(archive, settings, source)
     units = world.discover()
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
     for unit in units:
@@ -1225,7 +1225,7 @@ def test_without_demos_root_the_demos_go_into_the_archive(
     world = Division(archive, settings, source)
     units = world.discover()
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
     for unit in units:
@@ -1241,7 +1241,7 @@ def test_collect_does_not_touch_the_match_index(division) -> None:
     path = division.archive.matches_index()
     before = path.read_bytes()
 
-    runner.invoke(app, ["collect", "--kylla"])
+    runner.invoke(app, ["collect", "--yes"])
 
     assert path.read_bytes() == before
 
@@ -1254,14 +1254,14 @@ def test_collect_does_not_run_discover(division, monkeypatch) -> None:
     monkeypatch.setattr(discover_stage, "run", refuse)
     monkeypatch.setattr(discover_stage, "default_source", refuse)
 
-    result = runner.invoke(app, ["collect", "--kylla"])
+    result = runner.invoke(app, ["collect", "--yes"])
 
     assert result.exit_code == 0, result.output
 
 
 def test_collect_writes_no_selection_file(division) -> None:
     """The roster threshold is ``select``'s business; collecting makes no selection."""
-    runner.invoke(app, ["collect", "--kylla"])
+    runner.invoke(app, ["collect", "--yes"])
 
     selections = division.archive.resolve("index/selections")
     assert not selections.exists() or not list(selections.glob("*.json"))

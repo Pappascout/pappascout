@@ -65,7 +65,7 @@ loud.** The selection file is **not** in this stage's manifest ``inputs``: one
 new ``select`` run would otherwise force the whole archive to be classified
 again. The price is that a finished table can carry an old value, so a skipped
 run **warns** when the selection file was written after this classification
-(:func:`selection_staleness_note`), and advises ``--pakota``. A documented rule
+(:func:`selection_staleness_note`), and advises ``--force``. A documented rule
 alone would rest on a human's memory; the warning makes a silently wrong figure
 visible.
 
@@ -342,7 +342,7 @@ def _read_rounds(
         raise PappascoutError(
             f"The rounds table {path} could not be read: {exc}\n"
             f"Parse it again: uv run pappascout parse {map_demo_id} "
-            "--pakota"
+            "--force"
         ) from exc
 
     # By default validate speaks to the developer ("add the column or fix the
@@ -357,7 +357,7 @@ def _read_rounds(
         "rounds",
         advice=(
             "The table was parsed with an older version of the program. Parse "
-            f"it again: uv run pappascout parse {map_demo_id} --pakota"
+            f"it again: uv run pappascout parse {map_demo_id} --force"
         ),
     )
 
@@ -372,7 +372,7 @@ def _read_rounds(
             f"({', '.join(foreign)}), although it should be the table of demo "
             f"{map_demo_id}.\n"
             f"Remove the directory and parse again: uv run pappascout "
-            f"parse {map_demo_id} --pakota"
+            f"parse {map_demo_id} --force"
         )
 
     numbered = df.filter(pl.col("round_no").is_not_null())
@@ -384,7 +384,7 @@ def _read_rounds(
             f"The rounds table {path} has not one numbered round, so there is "
             "nothing to classify.\n"
             f"Parse it again: uv run pappascout parse {map_demo_id} "
-            "--pakota"
+            "--force"
         )
     return numbered, unnumbered
 
@@ -410,7 +410,7 @@ def _read_parse_manifest(archive: ArchivePaths, map_demo_id: str) -> Manifest:
             f"{manifest.status!r}, so its result is not classified.\n"
             f"Reason: {manifest.reason or 'not recorded'}\n"
             f"Parse it again: uv run pappascout parse {map_demo_id} "
-            "--pakota"
+            "--force"
         )
     return manifest
 
@@ -817,7 +817,7 @@ def selection_staleness_note(
     either. Without this, staleness would be documented but observable from
     nowhere: the table would carry an old ``is_league``, and the report would
     look up to date. The cheapest fix is **to say it in the skip's reason** and
-    to advise ``--pakota``.
+    to advise ``--force``.
 
     **It never raises.** A skipped run does not read the values at all, so a
     broken selection file must not turn a finished result into an error; an
@@ -847,7 +847,7 @@ def selection_staleness_note(
         f"{newest.isoformat()}, this classification {manifest.created_at.isoformat()}. "
         "The selection file is not an input of this stage, so is_league and "
         "roster_class may be stale -- run again with the flag "
-        "--pakota if you want them as the file has them."
+        "--force if you want them as the file has them."
     )
 
 

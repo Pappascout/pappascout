@@ -28,7 +28,7 @@ the match list **changes constantly** (measured 2026-09-04: 60 matches out of
 66 were still unplayed), and the whole point of the stage is to see the new
 matches. A skip would save one call and would cost exactly what the command is
 run for. For the same reason the adapter does not cache the match list and the
-command has no ``--pakota`` flag: there is nothing to force when nothing is
+command has no ``--force`` flag: there is nothing to force when nothing is
 ever skipped.
 
 Why ``status`` is always ``ok``

@@ -770,7 +770,7 @@ def test_a_lineup_that_no_team_owns_leaves_both_empty(settings, parsed) -> None:
 def test_each_team_gets_the_facts_from_its_own_selection_file(
     settings, parsed
 ) -> None:
-    """``--kaikki-joukkueet``: each run reads its own team's file."""
+    """``--all-teams``: each run reads its own team's file."""
     write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [B]})
     write_selection(parsed, [selection_row(roster_class="5/5")], team_key=TEAM_KEY)
     write_selection(
@@ -981,7 +981,7 @@ def test_the_selection_file_is_not_a_manifest_input(settings, parsed) -> None:
     """A skipped run carries the old value, and that is deliberate.
 
     The test pins where the connection stops: the selection file appearing does
-    **not** invalidate a finished result, and ``--pakota`` is how the value is
+    **not** invalidate a finished result, and ``--force`` is how the value is
     updated. Without this claim somebody would add the file to the manifest's
     ``inputs`` without noticing that it would force the whole archive to be
     classified again.
@@ -1033,7 +1033,7 @@ def test_a_newer_selection_file_warns_and_names_the_flag(
     The selection file is not a manifest input, so changing it does not
     invalidate the result -- and so it does not say anything about itself.
     Without the warning the table would carry an old ``is_league`` and the
-    report would look up to date, and ``--pakota`` would rest on a human's
+    report would look up to date, and ``--force`` would rest on a human's
     memory.
     """
     write_teams_index(parsed, {TEAM_KEY: [A]})
@@ -1050,7 +1050,7 @@ def test_a_newer_selection_file_warns_and_names_the_flag(
     result = run_classify(settings, parsed)
 
     assert result.skipped
-    assert "--pakota" in (result.reason or "")
+    assert "--force" in (result.reason or "")
     assert classify_stage.SKIP_REASON in (result.reason or "")
     # And when the file is older, there is no warning.
     write_selection(parsed, [selection_row()])
@@ -1221,7 +1221,7 @@ def test_a_forced_reparse_with_the_same_result_does_not_rerun_classify(
 ) -> None:
     """The classification's input is the parsing's **result**, not the moment it ran.
 
-    Without this, every ``parse --pakota`` would force a new classification as
+    Without this, every ``parse --force`` would force a new classification as
     well, even when the rounds table was byte for byte the same.
     """
     run_classify(settings, parsed)
@@ -1376,7 +1376,7 @@ def test_outdated_rounds_table_tells_the_user_to_reparse(
     assert ARMED_COLUMN in message
     # The advice is an action the user takes, not a code change.
     assert "parsed with an older version of the program" in message
-    assert f"pappascout parse {MAP_DEMO_ID} --pakota" in message
+    assert f"pappascout parse {MAP_DEMO_ID} --force" in message
     # The developer's advice must not leak in: it would tell the reader to edit
     # code the user does not write.
     #

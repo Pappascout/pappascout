@@ -285,10 +285,10 @@ def test_the_truncation_fixture_decompresses_partially_not_to_nothing() -> None:
     check, and removing the frame-size guard would show only in the wording of
     an error message.
     """
-    osittainen = partial_size(BIG_TRUNCATED)
+    partial = partial_size(BIG_TRUNCATED)
 
-    assert osittainen > 0, "the input decompresses to nothing -- it hits the old guard"
-    assert osittainen < len(BIG_DEMO), "the input is not partial at all"
+    assert partial > 0, "the input decompresses to nothing -- it hits the old guard"
+    assert partial < len(BIG_DEMO), "the input is not partial at all"
 #
 # Measured 2026-09-05 with a real demo: ``ANCIENT_vs_RCAVE_VETERANS.dem.zst``
 # (148,871,905 bytes) cut in half decompressed to 104,464,384 bytes **without

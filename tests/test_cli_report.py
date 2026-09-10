@@ -8,7 +8,7 @@ Two things are locked down:
 
 * **The first line is the file's path.** The user opens the report next; the
   team id is the one they just typed on the command line themselves.
-* **The command has no ``--pakota``.** The timestamped name makes it
+* **The command has no ``--force``.** The timestamped name makes it
   unnecessary, and the option must not be added back by accident.
 
 **The report's own text stays Finnish** (AD-11), so the needles that read the
@@ -169,7 +169,7 @@ def test_report_command_has_no_force_option() -> None:
     # The help text says why the option does not exist, so the word appears in
     # it; the check is on the option listing.
     options = result.output.split("Options")[1]
-    assert "--pakota" not in options
+    assert "--force" not in options
     assert "--team" in options
 
 

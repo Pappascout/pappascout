@@ -2,7 +2,7 @@
 
 Four things are locked down here:
 
-* **``--kylla`` does NOT skip the map check's question.** That is the epic's
+* **``--yes`` does NOT skip the map check's question.** That is the epic's
   own requirement and this tool's only place where the flag does not silence
   a question. The same flag does skip the overwrite question, and that
   difference is exactly what the tests have to tell apart.
@@ -52,7 +52,7 @@ runner = CliRunner()
 
 
 @pytest.fixture(params=["arkisto", "paikallinen"])
-def tuonti(request, settings_file: Path, tmp_path: Path, monkeypatch):
+def import_env(request, settings_file: Path, tmp_path: Path, monkeypatch):
     """The real command, fake ports, the archive in a temporary directory.
 
     **Both demo directory modes, in every test.** The same reasoning as with
@@ -97,7 +97,7 @@ def imported(archive) -> Path | None:
     return archive.find_demo(UNIT)
 
 
-def rivit(output: str) -> dict[str, str]:
+def rows(output: str) -> dict[str, str]:
     """Break the output into a dictionary of ``label -> value``.
 
     **A claim about the value and not about a substring.** ``assert path in
@@ -107,31 +107,31 @@ def rivit(output: str) -> dict[str, str]:
     alone was free to lie. When a row is broken into a label and a value,
     every row answers for its own content.
     """
-    tulos: dict[str, str] = {}
-    for rivi in output.splitlines():
-        if not rivi.startswith("  ") or rivi.startswith("    "):
+    result: dict[str, str] = {}
+    for row in output.splitlines():
+        if not row.startswith("  ") or row.startswith("    "):
             continue
-        runko = rivi[2:]
+        body = row[2:]
         # ``_line`` pads the label to a fixed width; a run of two spaces
         # separates the label from the value.
-        if "  " not in runko:
+        if "  " not in body:
             continue
-        otsikko, _, arvo = runko.partition("  ")
-        tulos[otsikko.strip()] = arvo.strip()
-    return tulos
+        heading, _, value = body.partition("  ")
+        result[heading.strip()] = value.strip()
+    return result
 
 
 # -- A successful import -----------------------------------------------------
 
 
-def test_a_matching_map_needs_no_question_at_all(tuonti) -> None:
+def test_a_matching_map_needs_no_question_at_all(import_env) -> None:
     """A matching map is a full answer: there is nothing to ask.
 
     A question that is asked even when there is nothing to decide teaches the
     user to answer it without looking -- and then it no longer protects
     against the case it exists for.
     """
-    archive, _parser = tuonti
+    archive, _parser = import_env
 
     result = invoke()
 
@@ -147,31 +147,31 @@ def test_a_matching_map_needs_no_question_at_all(tuonti) -> None:
 # -- C2: every row of the output is a claim ----------------------------------
 
 
-def test_the_plan_names_the_unit_that_is_imported(tuonti) -> None:
-    _archive, _parser = tuonti
+def test_the_plan_names_the_unit_that_is_imported(import_env) -> None:
+    _archive, _parser = import_env
 
-    assert rivit(invoke().output)["Importing"] == UNIT
+    assert rows(invoke().output)["Importing"] == UNIT
 
 
-def test_the_plan_names_the_source_file_that_is_read(tuonti) -> None:
+def test_the_plan_names_the_source_file_that_is_read(import_env) -> None:
     """The source path is a claim of its own and not an echo of the target."""
-    archive, _parser = tuonti
-    lahde = archive.import_dir() / FACEIT_NAME
+    archive, _parser = import_env
+    source = archive.import_dir() / FACEIT_NAME
 
-    assert rivit(invoke().output)["Source"] == str(lahde)
+    assert rows(invoke().output)["Source"] == str(source)
 
 
-def test_the_plan_names_the_target_path_that_is_written(tuonti) -> None:
+def test_the_plan_names_the_target_path_that_is_written(import_env) -> None:
     """The target path on the screen is where the file really comes into being."""
-    archive, _parser = tuonti
+    archive, _parser = import_env
 
-    naytetty = rivit(invoke().output)["Target"]
+    shown = rows(invoke().output)["Target"]
 
-    assert naytetty == str(archive.demos_dir() / f"{UNIT}.dem.zst")
-    assert Path(naytetty).is_file()
+    assert shown == str(archive.demos_dir() / f"{UNIT}.dem.zst")
+    assert Path(shown).is_file()
 
 
-def test_the_plan_size_is_the_size_of_the_file_on_disk(tuonti) -> None:
+def test_the_plan_size_is_the_size_of_the_file_on_disk(import_env) -> None:
     """The size is read from the disk, not guessed.
 
     The review added ``+999 Gt`` to the size in two places and 70 tests
@@ -179,48 +179,48 @@ def test_the_plan_size_is_the_size_of_the_file_on_disk(tuonti) -> None:
     """
     from pappascout.stages.fetch import size_fi
 
-    _archive, _parser = tuonti
+    _archive, _parser = import_env
 
-    assert rivit(invoke().output)["Size"] == size_fi(len(ZSTD_BYTES))
-
-
-def test_the_plan_says_move_when_the_file_is_moved(tuonti) -> None:
-    _archive, _parser = tuonti
-
-    assert rivit(invoke().output)["Method"] == "move"
+    assert rows(invoke().output)["Size"] == size_fi(len(ZSTD_BYTES))
 
 
-def test_the_plan_says_copy_when_the_file_is_copied(tuonti, tmp_path) -> None:
+def test_the_plan_says_move_when_the_file_is_moved(import_env) -> None:
+    _archive, _parser = import_env
+
+    assert rows(invoke().output)["Method"] == "move"
+
+
+def test_the_plan_says_copy_when_the_file_is_copied(import_env, tmp_path) -> None:
     """A copy and a move are different things, and the screen must tell them apart.
 
     The review put the text "copy (the source stays put)" on a move and 70
     tests passed -- that is, the user could have read from the screen that
     their file stays put when it had just been deleted.
     """
-    _archive, parser = tuonti
-    ulkoa = tmp_path / "ulkoa" / "oma.dem.zst"
-    ulkoa.parent.mkdir(parents=True, exist_ok=True)
-    ulkoa.write_bytes(ZSTD_BYTES)
+    _archive, parser = import_env
+    outside = tmp_path / "ulkoa" / "oma.dem.zst"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_bytes(ZSTD_BYTES)
     parser.names["oma.dem.zst"] = "de_ancient"
 
-    result = invoke("--file", str(ulkoa))
+    result = invoke("--file", str(outside))
 
-    assert rivit(result.output)["Method"] == "copy (the source stays put)"
-    assert ulkoa.is_file()
+    assert rows(result.output)["Method"] == "copy (the source stays put)"
+    assert outside.is_file()
 
 
-def test_the_plan_shows_both_map_observations(tuonti) -> None:
+def test_the_plan_shows_both_map_observations(import_env) -> None:
     """Both observations are shown even when they agree."""
-    _archive, _parser = tuonti
+    _archive, _parser = import_env
 
-    rows = rivit(invoke().output)
+    fields = rows(invoke().output)
 
-    assert rows["Map from the header"] == "de_ancient"
-    assert rows["Map from the veto"] == "de_ancient"
-    assert rows["Map check"] == "matches"
+    assert fields["Map from the header"] == "de_ancient"
+    assert fields["Map from the veto"] == "de_ancient"
+    assert fields["Map check"] == "matches"
 
 
-def test_the_screen_never_claims_a_match_when_there_is_none(tuonti) -> None:
+def test_the_screen_never_claims_a_match_when_there_is_none(import_env) -> None:
     """**"Map check matches" on a real mismatch is the worst lie of all.**
 
     The review made the condition always true and got the screen to say
@@ -228,26 +228,26 @@ def test_the_screen_never_claims_a_match_when_there_is_none(tuonti) -> None:
     is, the user would read the question and, above it, an assurance that
     nothing is wrong.
     """
-    _archive, parser = tuonti
+    _archive, parser = import_env
     parser.names[FACEIT_NAME] = "de_nuke"
 
     result = invoke(input="n\n")
 
-    rows = rivit(result.output)
-    assert rows["Map check"].startswith("DOES NOT MATCH")
-    assert rows["Map from the header"] == "de_nuke"
-    assert rows["Map from the veto"] == "de_ancient"
+    fields = rows(result.output)
+    assert fields["Map check"].startswith("DOES NOT MATCH")
+    assert fields["Map from the header"] == "de_nuke"
+    assert fields["Map from the veto"] == "de_ancient"
 
 
-def test_the_plan_says_whether_completeness_could_be_checked(tuonti) -> None:
+def test_the_plan_says_whether_completeness_could_be_checked(import_env) -> None:
     """A compressed file: completeness is checked against the frame's size."""
-    _archive, _parser = tuonti
+    _archive, _parser = import_env
 
-    assert rivit(invoke().output)["Completeness"].startswith("checked")
+    assert rows(invoke().output)["Completeness"].startswith("checked")
 
 
 def test_the_plan_says_out_loud_when_completeness_cannot_be_checked(
-    tuonti,
+    import_env,
 ) -> None:
     """**With an uncompressed demo the uncertainty has to be reported.**
 
@@ -256,29 +256,29 @@ def test_the_plan_says_out_loud_when_completeness_cannot_be_checked(
     the frame's size to check against; an uncompressed one has nothing, and
     silence would look like certainty.
     """
-    archive, parser = tuonti
+    archive, parser = import_env
     (archive.import_dir() / FACEIT_NAME).unlink()
     (archive.import_dir() / FACEIT_NAME_PLAIN).write_bytes(PLAIN_BYTES)
     parser.names[FACEIT_NAME_PLAIN] = "de_ancient"
 
     result = invoke()
 
-    assert rivit(result.output)["Completeness"].startswith("COULD NOT BE CHECKED")
+    assert rows(result.output)["Completeness"].startswith("COULD NOT BE CHECKED")
 
 
-def test_the_result_names_the_files_that_were_written(tuonti) -> None:
+def test_the_result_names_the_files_that_were_written(import_env) -> None:
     """The result's paths point at files that exist."""
-    archive, _parser = tuonti
+    archive, _parser = import_env
 
-    rows = rivit(invoke().output)
+    fields = rows(invoke().output)
 
-    assert rows["Demo"] == str(archive.demos_dir() / f"{UNIT}.dem.zst")
-    assert rows["Metadata"] == str(archive.demos_dir() / f"{UNIT}.meta.json")
-    assert Path(rows["Demo"]).is_file()
-    assert Path(rows["Metadata"]).is_file()
+    assert fields["Demo"] == str(archive.demos_dir() / f"{UNIT}.dem.zst")
+    assert fields["Metadata"] == str(archive.demos_dir() / f"{UNIT}.meta.json")
+    assert Path(fields["Demo"]).is_file()
+    assert Path(fields["Metadata"]).is_file()
 
 
-def test_the_result_sha256_is_the_digest_of_the_written_file(tuonti) -> None:
+def test_the_result_sha256_is_the_digest_of_the_written_file(import_env) -> None:
     """The digest on the screen is **that file's** digest, the one that was made.
 
     The review changed the value to ``"0"*64`` and 70 tests passed. The
@@ -286,47 +286,47 @@ def test_the_result_sha256_is_the_digest_of_the_written_file(tuonti) -> None:
     reads it from the metadata file and does not compute it again, so this is
     the only time it is seen.
     """
-    archive, _parser = tuonti
+    archive, _parser = import_env
 
-    rows = rivit(invoke().output)
+    fields = rows(invoke().output)
 
-    todellinen = hashlib.sha256(
+    actual = hashlib.sha256(
         (archive.demos_dir() / f"{UNIT}.dem.zst").read_bytes()
     ).hexdigest()
-    assert rows["sha256"] == todellinen
-    meta = json.loads(Path(rows["Metadata"]).read_text(encoding="utf-8"))
-    assert meta["sha256"] == todellinen
+    assert fields["sha256"] == actual
+    meta = json.loads(Path(fields["Metadata"]).read_text(encoding="utf-8"))
+    assert meta["sha256"] == actual
 
 
-def test_the_result_says_the_demo_came_from_an_import(tuonti) -> None:
+def test_the_result_says_the_demo_came_from_an_import(import_env) -> None:
     """**The review got the screen to claim an imported demo was downloaded.**
 
     ``downloads_api`` as an imported demo's source is exactly the claim the
     whole story exists to refute -- and it got through 70 tests.
     """
-    archive, _parser = tuonti
+    archive, _parser = import_env
 
-    rows = rivit(invoke().output)
+    fields = rows(invoke().output)
 
-    assert rows["Source entry"] == "import"
+    assert fields["Source entry"] == "import"
     meta = json.loads(
         (archive.demos_dir() / f"{UNIT}.meta.json").read_text(encoding="utf-8")
     )
-    assert rows["Source entry"] == meta["source"]
+    assert fields["Source entry"] == meta["source"]
 
 
-def test_the_result_size_is_the_size_of_the_written_file(tuonti) -> None:
+def test_the_result_size_is_the_size_of_the_written_file(import_env) -> None:
     from pappascout.stages.fetch import size_fi
 
-    archive, _parser = tuonti
+    archive, _parser = import_env
 
-    rows = rivit(invoke().output)
-    koko = (archive.demos_dir() / f"{UNIT}.dem.zst").stat().st_size
+    fields = rows(invoke().output)
+    size = (archive.demos_dir() / f"{UNIT}.dem.zst").stat().st_size
 
-    assert rows["Size"] == size_fi(koko)
+    assert fields["Size"] == size_fi(size)
 
 
-def test_every_note_reaches_the_screen(tuonti) -> None:
+def test_every_note_reaches_the_screen(import_env) -> None:
     """**The notes must not disappear.**
 
     The review emptied the note loop and 70 tests passed -- that is, every
@@ -334,10 +334,10 @@ def test_every_note_reaches_the_screen(tuonti) -> None:
     completeness, a confirmed map mismatch) could have disappeared from the
     screen in one line.
     """
-    _archive, parser = tuonti
+    _archive, parser = import_env
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    result = invoke("--kylla", input="y\n")
+    result = invoke("--yes", input="y\n")
 
     assert result.exit_code == 0, result.output
     # The mismatch and the source file's fate are both notes of their own.
@@ -345,17 +345,17 @@ def test_every_note_reaches_the_screen(tuonti) -> None:
     assert "was removed from the import folder" in result.output
 
 
-def test_the_run_time_is_reported(tuonti) -> None:
-    _archive, _parser = tuonti
+def test_the_run_time_is_reported(import_env) -> None:
+    _archive, _parser = import_env
 
-    assert "Run time" in rivit(invoke().output)
+    assert "Run time" in rows(invoke().output)
 
 
 # -- C3: the plan before the transfer ----------------------------------------
 
 
 def test_the_plan_is_printed_before_anything_is_transferred(
-    tuonti, monkeypatch
+    import_env, monkeypatch
 ) -> None:
     """**The user has to see the plan before anything happens.**
 
@@ -367,7 +367,7 @@ def test_the_plan_is_printed_before_anything_is_transferred(
     The claim is made by stopping the transfer: if the plan is printed only
     after ``run``, it is not printed at all.
     """
-    _archive, _parser = tuonti
+    _archive, _parser = import_env
 
     def boom(*args, **kwargs):
         raise PappascoutError("the transfer was stopped", advice="this is a test")
@@ -377,15 +377,15 @@ def test_the_plan_is_printed_before_anything_is_transferred(
     result = invoke()
 
     assert result.exit_code != 0
-    rows = rivit(result.output)
-    assert rows["Importing"] == UNIT
-    assert "Target" in rows
-    assert "Map check" in rows
+    fields = rows(result.output)
+    assert fields["Importing"] == UNIT
+    assert "Target" in fields
+    assert "Map check" in fields
 
 
-def test_the_plan_is_printed_before_the_question_is_asked(tuonti) -> None:
+def test_the_plan_is_printed_before_the_question_is_asked(import_env) -> None:
     """A question without its grounds is a formality, not a question."""
-    _archive, parser = tuonti
+    _archive, parser = import_env
     parser.names[FACEIT_NAME] = "de_nuke"
 
     output = invoke(input="n\n").output
@@ -395,15 +395,15 @@ def test_the_plan_is_printed_before_the_question_is_asked(tuonti) -> None:
     )
 
 
-# -- The map mismatch: --kylla does NOT skip it ------------------------------
+# -- The map mismatch: --yes does NOT skip it ------------------------------
 
 
-def test_kylla_does_not_skip_the_map_confirmation(tuonti) -> None:
+def test_yes_does_not_skip_the_map_confirmation(import_env) -> None:
     """**The epic's own requirement.** The flag does not silence this question."""
-    archive, parser = tuonti
+    archive, parser = import_env
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    result = invoke("--kylla", input="n\n")
+    result = invoke("--yes", input="n\n")
 
     assert result.exit_code == 0, result.output
     assert "The map does not match" in result.output
@@ -412,18 +412,18 @@ def test_kylla_does_not_skip_the_map_confirmation(tuonti) -> None:
     assert (archive.import_dir() / FACEIT_NAME).read_bytes() == ZSTD_BYTES
 
 
-def test_kylla_does_not_skip_the_question_when_there_is_no_veto_data(
-    tuonti, monkeypatch
+def test_yes_does_not_skip_the_question_when_there_is_no_veto_data(
+    import_env, monkeypatch
 ) -> None:
     """Not having checked is not a match, and the flag must not make it one."""
-    archive, _parser = tuonti
+    archive, _parser = import_env
     monkeypatch.setattr(
         import_stage,
         "default_source",
         lambda settings, arc: FakeMatchSource({MATCH: match(picks=())}),
     )
 
-    result = invoke("--kylla", input="n\n")
+    result = invoke("--yes", input="n\n")
 
     assert result.exit_code == 0, result.output
     assert "veto data" in result.output
@@ -431,10 +431,10 @@ def test_kylla_does_not_skip_the_question_when_there_is_no_veto_data(
 
 
 def test_the_mismatch_question_offers_the_number_that_would_be_right(
-    tuonti,
+    import_env,
 ) -> None:
     """The question offers a way forward and not doubt alone."""
-    _archive, parser = tuonti
+    _archive, parser = import_env
     parser.names[FACEIT_NAME] = "de_nuke"
 
     result = invoke(input="n\n")
@@ -442,60 +442,60 @@ def test_the_mismatch_question_offers_the_number_that_would_be_right(
     assert "--map 2" in result.output
 
 
-def test_answering_yes_to_the_mismatch_imports_anyway(tuonti) -> None:
+def test_answering_yes_to_the_mismatch_imports_anyway(import_env) -> None:
     """The question is a question and not a barrier: the user is told and decides."""
-    archive, parser = tuonti
+    archive, parser = import_env
     parser.names[FACEIT_NAME] = "de_nuke"
 
-    result = invoke("--kylla", input="y\n")
+    result = invoke("--yes", input="y\n")
 
     assert result.exit_code == 0, result.output
     assert imported(archive) is not None
 
 
-# -- Overwriting: --kylla does skip it ---------------------------------------
+# -- Overwriting: --yes does skip it ---------------------------------------
 
 
-def test_kylla_does_skip_the_overwrite_question(tuonti) -> None:
+def test_yes_does_skip_the_overwrite_question(import_env) -> None:
     """The same flag, a different question, a different outcome -- by design."""
-    archive, _parser = tuonti
-    vanha = archive.demos_dir() / f"{UNIT}.dem.zst"
-    vanha.parent.mkdir(parents=True, exist_ok=True)
-    vanha.write_bytes(b"old")
+    archive, _parser = import_env
+    old = archive.demos_dir() / f"{UNIT}.dem.zst"
+    old.parent.mkdir(parents=True, exist_ok=True)
+    old.write_bytes(b"old")
 
-    result = invoke("--kylla")
+    result = invoke("--yes")
 
     assert result.exit_code == 0, result.output
     assert f"Replace {UNIT}?" not in result.output
-    assert vanha.read_bytes() == ZSTD_BYTES
+    assert old.read_bytes() == ZSTD_BYTES
 
 
-def test_without_kylla_the_existing_file_is_not_overwritten_silently(
-    tuonti,
+def test_without_yes_the_existing_file_is_not_overwritten_silently(
+    import_env,
 ) -> None:
-    archive, _parser = tuonti
-    vanha = archive.demos_dir() / f"{UNIT}.dem.zst"
-    vanha.parent.mkdir(parents=True, exist_ok=True)
-    vanha.write_bytes(b"old")
+    archive, _parser = import_env
+    old = archive.demos_dir() / f"{UNIT}.dem.zst"
+    old.parent.mkdir(parents=True, exist_ok=True)
+    old.write_bytes(b"old")
 
     result = invoke(input="n\n")
 
     assert result.exit_code == 0, result.output
     assert f"Replace {UNIT}?" in result.output
-    assert vanha.read_bytes() == b"old"
+    assert old.read_bytes() == b"old"
 
 
 # -- The prompt --------------------------------------------------------------
 
 
-def test_the_question_offers_its_own_options_and_not_typers(tuonti) -> None:
+def test_the_question_offers_its_own_options_and_not_typers(import_env) -> None:
     """``typer.confirm``'s ``[y/N]`` and ``Aborted.`` do not belong here.
 
     The name used to say the question and the cancellation are in Finnish;
     AD-11 moved the console into English, and what is left to pin is that
     this is not ``typer.confirm``.
     """
-    _archive, parser = tuonti
+    _archive, parser = import_env
     parser.names[FACEIT_NAME] = "de_nuke"
 
     result = invoke(input="n\n")
@@ -506,9 +506,9 @@ def test_the_question_offers_its_own_options_and_not_typers(tuonti) -> None:
     assert "Cancelled" in result.output
 
 
-def test_the_cancellation_message_says_what_was_not_done(tuonti) -> None:
+def test_the_cancellation_message_says_what_was_not_done(import_env) -> None:
     """A cancellation says what was left undone -- and not about downloading."""
-    archive, parser = tuonti
+    archive, parser = import_env
     parser.names[FACEIT_NAME] = "de_nuke"
 
     result = invoke(input="n\n")
@@ -518,9 +518,9 @@ def test_the_cancellation_message_says_what_was_not_done(tuonti) -> None:
     assert (archive.import_dir() / FACEIT_NAME).is_file()
 
 
-def test_an_empty_answer_does_not_import(tuonti) -> None:
+def test_an_empty_answer_does_not_import(import_env) -> None:
     """Enter is not yes: the default is the one that does not change the archive."""
-    archive, parser = tuonti
+    archive, parser = import_env
     parser.names[FACEIT_NAME] = "de_nuke"
 
     result = invoke(input="\n")
@@ -529,14 +529,16 @@ def test_an_empty_answer_does_not_import(tuonti) -> None:
     assert imported(archive) is None
 
 
-def test_a_non_numeric_map_is_the_tools_own_error(tuonti, monkeypatch, capsys) -> None:
+def test_a_non_numeric_map_is_the_tools_own_error(
+    import_env, monkeypatch, capsys
+) -> None:
     """**``--map abc`` must not fail with typer's own message.**
 
     The command line used to declare the value an integer, so ``typer``
     failed before the stage saw anything -- and the stage's own check was
     dead code, unreachable from the command line.
     """
-    _archive, _parser = tuonti
+    _archive, _parser = import_env
     monkeypatch.setattr(
         "sys.argv",
         ["pappascout", "import", "--match", MATCH, "--map", "abc"],
@@ -556,10 +558,10 @@ def test_a_non_numeric_map_is_the_tools_own_error(tuonti, monkeypatch, capsys) -
 
 
 def test_a_rejection_shows_its_advice_on_its_own_line(
-    tuonti, monkeypatch, capsys
+    import_env, monkeypatch, capsys
 ) -> None:
     """The advice travels with the error and prints on a row of its own."""
-    _archive, _parser = tuonti
+    _archive, _parser = import_env
     monkeypatch.setattr(
         "sys.argv",
         ["pappascout", "import", "--match", MATCH, "--map", "0"],
@@ -575,14 +577,14 @@ def test_a_rejection_shows_its_advice_on_its_own_line(
     assert "-> " in output
 
 
-def test_two_candidates_are_listed_on_screen(tuonti, monkeypatch, capsys) -> None:
+def test_two_candidates_are_listed_on_screen(import_env, monkeypatch, capsys) -> None:
     """Ambiguity is not settled quietly -- not on the screen either."""
-    archive, parser = tuonti
+    archive, parser = import_env
     (archive.import_dir() / FACEIT_NAME_PLAIN).write_bytes(PLAIN_BYTES)
     parser.names[FACEIT_NAME_PLAIN] = "de_ancient"
     monkeypatch.setattr(
         "sys.argv",
-        ["pappascout", "import", "--match", MATCH, "--map", "1", "--kylla"],
+        ["pappascout", "import", "--match", MATCH, "--map", "1", "--yes"],
     )
 
     with pytest.raises(SystemExit) as exit_info:
@@ -602,7 +604,7 @@ def test_two_candidates_are_listed_on_screen(tuonti, monkeypatch, capsys) -> Non
 # -- The help ----------------------------------------------------------------
 
 
-def test_help_mentions_that_kylla_does_not_skip_the_map_check(tuonti) -> None:
+def test_help_mentions_that_yes_does_not_skip_the_map_check(import_env) -> None:
     """The exception is in the help: otherwise it is found only by hitting it."""
     result = runner.invoke(app, ["import", "--help"])
 
@@ -613,7 +615,7 @@ def test_help_mentions_that_kylla_does_not_skip_the_map_check(tuonti) -> None:
     assert "NOT" in result.output
 
 
-def test_help_does_not_claim_the_command_stays_off_the_network(tuonti) -> None:
+def test_help_does_not_claim_the_command_stays_off_the_network(import_env) -> None:
     """Story 3.7 (item 10): the help claimed "The command downloads nothing
     from the network."
 
@@ -631,7 +633,7 @@ def test_help_does_not_claim_the_command_stays_off_the_network(tuonti) -> None:
     result = runner.invoke(app, ["import", "--help"])
 
     assert result.exit_code == 0
-    teksti = " ".join(result.output.split())
-    assert "does not download anything from the network" not in teksti
-    assert "does not download demos" in teksti
-    assert "cache" in teksti
+    text = " ".join(result.output.split())
+    assert "does not download anything from the network" not in text
+    assert "does not download demos" in text
+    assert "cache" in text

@@ -67,7 +67,7 @@ from pappascout.errors import SettingsError
 __all__ = [
     "ROSTER_SOURCES",
     "RosterSource",
-    "ROSTER_SOURCE_FI",
+    "ROSTER_SOURCE_LABELS",
     "map_demo_id",
     "guaranteed_maps",
     "class_labels",
@@ -95,12 +95,11 @@ RosterSource = Literal["observed", "predicted"]
 
 #: The name of the source for the user's console output and for the reason.
 #:
-#: The ``_FI`` suffix is a leftover from the time when the console spoke
-#: Finnish. This is **console vocabulary, not report content** (AD-11): the
-#: value reaches the screen through ``roster_reason`` in the ``select``
-#: command's output, and never through ``render/``. It is therefore in
-#: English, unlike the report vocabulary that keeps the same suffix.
-ROSTER_SOURCE_FI: Final[dict[str, str]] = {
+#: This is **console vocabulary, not report content** (AD-11): the value
+#: reaches the screen through ``roster_reason`` in the ``select`` command's
+#: output, and never through ``render/``. It is therefore in English, unlike
+#: the report vocabulary that carries the ``_FI`` suffix and stays Finnish.
+ROSTER_SOURCE_LABELS: Final[dict[str, str]] = {
     "observed": "observation",
     "predicted": "prediction",
 }
@@ -349,13 +348,12 @@ class MapSelection:
             )
 
     @property
-    def source_fi(self) -> str:
+    def source_label(self) -> str:
         """The source as a word: ``observation`` or ``prediction``.
 
-        The ``_fi`` in the name is a leftover from the Finnish console; see
-        :data:`ROSTER_SOURCE_FI`.
+        The words themselves are in :data:`ROSTER_SOURCE_LABELS`.
         """
-        return ROSTER_SOURCE_FI[self.roster_source]
+        return ROSTER_SOURCE_LABELS[self.roster_source]
 
     @property
     def drifted(self) -> bool:
@@ -634,7 +632,7 @@ def _reason(
     The same skeleton for the accepted and the rejected row, because the user
     checks both in the same place. The difference is in the first sentence.
     """
-    origin = ROSTER_SOURCE_FI[source]
+    origin = ROSTER_SOURCE_LABELS[source]
     origin_text = (
         "lineup from the demo"
         if source == "observed"

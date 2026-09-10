@@ -462,11 +462,11 @@ def test_a_map_that_does_not_match_the_veto_is_a_forced_question(
     todo = make_plan(archive, source, parser)
 
     assert len(todo.confirmations) == 1
-    kysymys = todo.confirmations[0]
-    assert kysymys.forced is True
-    assert "de_nuke" in kysymys.detail
-    assert "de_ancient" in kysymys.detail
-    assert import_stage.unanswered(todo.confirmations, kylla=True) == (kysymys,)
+    question = todo.confirmations[0]
+    assert question.forced is True
+    assert "de_nuke" in question.detail
+    assert "de_ancient" in question.detail
+    assert import_stage.unanswered(todo.confirmations, yes=True) == (question,)
 
 
 def test_a_mismatch_names_the_map_number_that_would_be_right(
@@ -537,7 +537,7 @@ def test_a_match_without_veto_data_cannot_be_cross_checked_so_it_asks(
     assert len(todo.confirmations) == 1
     assert todo.confirmations[0].forced is True
     assert "veto data" in todo.confirmations[0].detail
-    assert import_stage.unanswered(todo.confirmations, kylla=True) != ()
+    assert import_stage.unanswered(todo.confirmations, yes=True) != ()
 
 
 def test_a_demo_without_a_map_name_in_its_header_also_asks(
@@ -642,10 +642,10 @@ def test_a_zstd_file_that_is_not_a_demo_inside_is_refused(archive, source) -> No
 # -- Matrix: the target is already in the archive ----------------------------
 
 
-def test_an_existing_target_is_a_question_that_kylla_may_skip(
+def test_an_existing_target_is_a_question_that_yes_may_skip(
     archive, source, parser
 ) -> None:
-    """Overwriting is asked about, but ``--kylla`` may skip it.
+    """Overwriting is asked about, but ``--yes`` may skip it.
 
     The row is in the frozen I/O matrix. The justification is not "it can be
     fetched again" -- there is no Downloads authorisation -- but that what is
@@ -662,8 +662,8 @@ def test_an_existing_target_is_a_question_that_kylla_may_skip(
     assert len(todo.confirmations) == 1
     assert todo.confirmations[0].forced is False
     assert str(existing) in todo.confirmations[0].detail
-    assert import_stage.unanswered(todo.confirmations, kylla=True) == ()
-    assert import_stage.unanswered(todo.confirmations, kylla=False) != ()
+    assert import_stage.unanswered(todo.confirmations, yes=True) == ()
+    assert import_stage.unanswered(todo.confirmations, yes=False) != ()
     assert existing.read_bytes() == b"vanha sisalto"
 
 
@@ -711,11 +711,11 @@ def test_a_failed_removal_warns_instead_of_claiming_success(
 
     result = import_stage.run(archive, todo, now=lambda: CLOCK)
 
-    varoitus = str(result.reason).split("WARNING")[1]
-    assert "two files" in varoitus
+    warning = str(result.reason).split("WARNING")[1]
+    assert "two files" in warning
     # Both files by name, so that the user knows which to delete.
-    assert old.name in varoitus
-    assert todo.target_path.name in varoitus
+    assert old.name in warning
+    assert todo.target_path.name in warning
     # And the old one is still in place -- the note claims nothing else.
     assert old.is_file()
 
@@ -730,21 +730,21 @@ def test_the_import_writes_where_the_demo_already_is(
 
     If the target were always chosen by ``demos_dir()``, a demo in the archive
     (a synchronised folder, shared) would be deleted as "replaced", although
-    the difference is the directory and not the file -- and ``--kylla`` would
+    the difference is the directory and not the file -- and ``--yes`` would
     skip the question. The justification "it can be fetched again" does not
     hold: there is no Downloads authorisation, and that is exactly why this
     command exists.
     """
     place(local_archive, FACEIT_NAME)
-    arkistossa = local_archive.archive_demos_dir() / f"{UNIT}.dem.zst"
-    arkistossa.parent.mkdir(parents=True, exist_ok=True)
-    arkistossa.write_bytes(b"vanha arkistodemo")
+    in_archive = local_archive.archive_demos_dir() / f"{UNIT}.dem.zst"
+    in_archive.parent.mkdir(parents=True, exist_ok=True)
+    in_archive.write_bytes(b"vanha arkistodemo")
 
     todo, _result = do_import(local_archive, source, parser)
 
     # The new content went into the archive, because the demo was there.
-    assert todo.target_path == arkistossa
-    assert arkistossa.read_bytes() == ZSTD_BYTES
+    assert todo.target_path == in_archive
+    assert in_archive.read_bytes() == ZSTD_BYTES
     assert todo.replaces is None
     # No second copy appeared in the local directory.
     assert not (local_archive.demos_root / f"{UNIT}.dem.zst").exists()
@@ -755,13 +755,13 @@ def test_the_meta_goes_beside_the_demo_not_into_the_write_directory(
 ) -> None:
     """The metadata file is a claim about that exact file, and it follows it."""
     place(local_archive, FACEIT_NAME)
-    arkistossa = local_archive.archive_demos_dir() / f"{UNIT}.dem.zst"
-    arkistossa.parent.mkdir(parents=True, exist_ok=True)
-    arkistossa.write_bytes(b"vanha")
+    in_archive = local_archive.archive_demos_dir() / f"{UNIT}.dem.zst"
+    in_archive.parent.mkdir(parents=True, exist_ok=True)
+    in_archive.write_bytes(b"vanha")
 
     todo, _result = do_import(local_archive, source, parser)
 
-    assert todo.meta_path.parent == arkistossa.parent
+    assert todo.meta_path.parent == in_archive.parent
     assert not (local_archive.demos_root / f"{UNIT}.meta.json").exists()
 
 
@@ -776,17 +776,17 @@ def test_an_orphan_meta_in_another_directory_is_removed(
     importing now does the same.
     """
     place(local_archive, FACEIT_NAME)
-    orpo = local_archive.demos_root / f"{UNIT}.meta.json"
-    orpo.parent.mkdir(parents=True, exist_ok=True)
-    orpo.write_text(json.dumps({"sha256": "vanha"}), encoding="utf-8")
-    arkistossa = local_archive.archive_demos_dir() / f"{UNIT}.dem.zst"
-    arkistossa.parent.mkdir(parents=True, exist_ok=True)
-    arkistossa.write_bytes(b"vanha")
+    orphan = local_archive.demos_root / f"{UNIT}.meta.json"
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    orphan.write_text(json.dumps({"sha256": "vanha"}), encoding="utf-8")
+    in_archive = local_archive.archive_demos_dir() / f"{UNIT}.dem.zst"
+    in_archive.parent.mkdir(parents=True, exist_ok=True)
+    in_archive.write_bytes(b"vanha")
 
     todo, result = do_import(local_archive, source, parser)
 
-    assert todo.orphan_meta == orpo
-    assert not orpo.exists()
+    assert todo.orphan_meta == orphan
+    assert not orphan.exists()
     assert "was removed" in str(result.reason)
     assert read_meta(todo.meta_path)["sha256"] != "vanha"
 
@@ -805,36 +805,36 @@ def test_a_file_in_the_import_folder_is_never_treated_as_the_target(
     that importing does not own. The old code would have deleted it and broken
     the spec's Never rule "nothing is written anywhere but demos/".
     """
-    kanoninen = archive.import_dir()
-    kanoninen.mkdir(parents=True, exist_ok=True)
-    toinen = kanoninen / f"{UNIT}.dem.zst"
-    toinen.write_bytes(b"toisen demon tavut")
+    canonical = archive.import_dir()
+    canonical.mkdir(parents=True, exist_ok=True)
+    second = canonical / f"{UNIT}.dem.zst"
+    second.write_bytes(b"toisen demon tavut")
 
-    ulkoa = tmp_path / "lataukset" / "oma.dem.zst"
-    ulkoa.parent.mkdir(parents=True)
-    ulkoa.write_bytes(ZSTD_BYTES)
+    outside = tmp_path / "lataukset" / "oma.dem.zst"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes(ZSTD_BYTES)
     parser = FakeMapNameParser({"oma.dem.zst": "de_ancient"})
 
-    todo, _result = do_import(archive, source, parser, file=ulkoa)
+    todo, _result = do_import(archive, source, parser, file=outside)
 
     assert todo.replaces is None
     assert todo.target_path.parent == archive.demos_dir()
-    assert toinen.read_bytes() == b"toisen demon tavut"
+    assert second.read_bytes() == b"toisen demon tavut"
 
 
 def test_an_import_folder_file_is_not_a_reason_to_ask_about_overwriting(
     archive, source, tmp_path
 ) -> None:
     """A file in ``import/`` is not a "target already in the archive" case."""
-    kanoninen = archive.import_dir()
-    kanoninen.mkdir(parents=True, exist_ok=True)
-    (kanoninen / f"{UNIT}.dem.zst").write_bytes(b"toisen demon tavut")
+    canonical = archive.import_dir()
+    canonical.mkdir(parents=True, exist_ok=True)
+    (canonical / f"{UNIT}.dem.zst").write_bytes(b"toisen demon tavut")
 
-    ulkoa = tmp_path / "oma.dem.zst"
-    ulkoa.write_bytes(ZSTD_BYTES)
+    outside = tmp_path / "oma.dem.zst"
+    outside.write_bytes(ZSTD_BYTES)
     parser = FakeMapNameParser({"oma.dem.zst": "de_ancient"})
 
-    todo = make_plan(archive, source, parser, file=ulkoa)
+    todo = make_plan(archive, source, parser, file=outside)
 
     assert todo.confirmations == ()
 
@@ -930,16 +930,16 @@ def test_the_identifier_is_built_by_the_domain_builder(archive) -> None:
     around it. The claim is about the call: a parallel ``f"{match}-{index}"``
     would bypass the domain's own check and show up nowhere.
     """
-    import pappascout.stages.import_demo as moduuli
+    import pappascout.stages.import_demo as module
 
-    lahde = Path(moduuli.__file__).read_text(encoding="utf-8")
-    puu = ast.parse(lahde)
-    kutsut = {
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    calls = {
         node.func.id
-        for node in ast.walk(puu)
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
-    assert "build_map_demo_id" in kutsut
+    assert "build_map_demo_id" in calls
 
 
 def test_a_match_id_too_long_for_a_path_is_refused_with_advice(
@@ -952,12 +952,12 @@ def test_a_match_id_too_long_for_a_path_is_refused_with_advice(
     ``archive.paths`` raises its own error without advice, and the message names
     the id ``map_demo_id`` -- which the user never gave.
     """
-    pitka = "1" * 119
+    long = "1" * 119
 
     with pytest.raises(PappascoutError) as err:
         import_stage.plan(
             archive,
-            pitka,
+            long,
             1,
             source=source,
             parser=parser,
@@ -976,12 +976,12 @@ def test_an_unknown_match_is_refused_and_names_the_index(
 ) -> None:
     """The advice names the file where the ids are to be found."""
     place(archive, FACEIT_NAME)
-    tuntematon = "1-00000000-0000-0000-0000-000000000000"
+    unknown = "1-00000000-0000-0000-0000-000000000000"
 
     with pytest.raises(PappascoutError) as err:
         import_stage.plan(
             archive,
-            tuntematon,
+            unknown,
             1,
             source=source,
             parser=parser,
@@ -990,7 +990,7 @@ def test_an_unknown_match_is_refused_and_names_the_index(
 
     assert "index/matches.json" in str(err.value.advice)
     assert "discover" in str(err.value.advice)
-    assert archive.find_demo(f"{tuntematon}-0") is None
+    assert archive.find_demo(f"{unknown}-0") is None
 
 
 # -- Matrix: the source file is not found ------------------------------------
@@ -1081,10 +1081,10 @@ def test_the_ambiguity_advice_quotes_a_path_with_spaces(
     with pytest.raises(PappascoutError) as err:
         make_plan(archive, source, parser)
 
-    neuvo = err.value.advice
-    polku = str(archive.import_dir() / FACEIT_NAME)
-    assert " " in polku, "the test measures nothing without a space in the path"
-    assert f'--file "{polku}"' in neuvo
+    advice = err.value.advice
+    path = str(archive.import_dir() / FACEIT_NAME)
+    assert " " in path, "the test measures nothing without a space in the path"
+    assert f'--file "{path}"' in advice
 
 
 def test_the_search_pattern_does_not_confuse_map_1_with_map_10(
@@ -1298,13 +1298,13 @@ def test_nothing_else_in_the_import_folder_is_touched(
     show up nowhere.
     """
     place(archive, FACEIT_NAME)
-    naapuri = place(archive, "Ancient_vs_kaljukostaja.dem", PLAIN_BYTES)
-    muistiinpano = place(archive, "LUE-MINUT.txt", b"tarkeaa")
+    neighbour = place(archive, "Ancient_vs_kaljukostaja.dem", PLAIN_BYTES)
+    note = place(archive, "LUE-MINUT.txt", b"tarkeaa")
 
     do_import(archive, source, parser)
 
-    assert naapuri.read_bytes() == PLAIN_BYTES
-    assert muistiinpano.read_bytes() == b"tarkeaa"
+    assert neighbour.read_bytes() == PLAIN_BYTES
+    assert note.read_bytes() == b"tarkeaa"
 
 
 def test_the_local_demo_directory_is_honoured(local_archive, source, parser) -> None:
@@ -1329,43 +1329,43 @@ def test_the_only_difference_to_a_fetched_demo_is_the_source_field(
     from test_stage_fetch import FakeDemo, FakeDemoSource
     from pappascout.stages import fetch as fetch_stage
 
-    ladattu = ArchivePaths(root=tmp_path / "ladattu")
-    tuotu = ArchivePaths(root=tmp_path / "tuotu")
+    downloaded = ArchivePaths(root=tmp_path / "ladattu")
+    imported = ArchivePaths(root=tmp_path / "tuotu")
     # **The same byte string for both.** With different content the test would
     # compare two different demos, and sha256 and size could not be part of the
     # comparison at all.
     demo_bytes = ZSTD_BYTES + bytes(1024 * 1024)
 
     fetch_stage.run(
-        ladattu,
+        downloaded,
         UNIT,
         source=FakeDemoSource({UNIT: FakeDemo(demo_bytes)}),
         disk_free=lambda _a: ROOMY,
         now=lambda: CLOCK,
     )
 
-    path = tuotu.import_dir()
+    path = imported.import_dir()
     path.mkdir(parents=True)
     (path / FACEIT_NAME).write_bytes(demo_bytes)
     todo = import_stage.plan(
-        tuotu,
+        imported,
         MATCH,
         1,
         source=source,
         parser=FakeMapNameParser({FACEIT_NAME: "de_ancient"}),
         disk_free=lambda _p: ROOMY,
     )
-    import_stage.run(tuotu, todo, now=lambda: CLOCK)
+    import_stage.run(imported, todo, now=lambda: CLOCK)
 
-    a = read_meta(ladattu.demos_dir() / f"{UNIT}.meta.json")
-    b = read_meta(tuotu.demos_dir() / f"{UNIT}.meta.json")
+    a = read_meta(downloaded.demos_dir() / f"{UNIT}.meta.json")
+    b = read_meta(imported.demos_dir() / f"{UNIT}.meta.json")
     assert set(a) == set(b)
     assert {k: v for k, v in a.items() if k != "source"} == {
         k: v for k, v in b.items() if k != "source"
     }
     assert (a["source"], b["source"]) == ("downloads_api", "import")
-    assert (ladattu.demos_dir() / f"{UNIT}.dem.zst").read_bytes() == (
-        tuotu.demos_dir() / f"{UNIT}.dem.zst"
+    assert (downloaded.demos_dir() / f"{UNIT}.dem.zst").read_bytes() == (
+        imported.demos_dir() / f"{UNIT}.dem.zst"
     ).read_bytes()
 
 
@@ -1382,16 +1382,16 @@ def test_no_module_branches_on_the_source_field() -> None:
     same ``ast.Constant``, so evasion is not possible.
     """
     src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
-    lukijat: list[str] = []
+    readers: list[str] = []
     for path in sorted(src.rglob("*.py")):
-        puu = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(puu):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
             if (
                 isinstance(node, ast.Subscript)
                 and isinstance(node.slice, ast.Constant)
                 and node.slice.value == "source"
             ):
-                lukijat.append(f"{path.name}:{node.lineno} subscript")
+                readers.append(f"{path.name}:{node.lineno} subscript")
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
@@ -1400,11 +1400,11 @@ def test_no_module_branches_on_the_source_field() -> None:
                 and isinstance(node.args[0], ast.Constant)
                 and node.args[0].value == "source"
             ):
-                lukijat.append(f"{path.name}:{node.lineno} .get")
-    assert lukijat == [], (
+                readers.append(f"{path.name}:{node.lineno} .get")
+    assert readers == [], (
         "Something reads the metadata file's source field: the difference "
         "between an imported and a downloaded demo is traceability information "
-        f"and not control. {lukijat}"
+        f"and not control. {readers}"
     )
 
 
@@ -1437,12 +1437,12 @@ def test_default_source_really_builds_a_port(
     env = env_file(".env", FACEIT_API_KEY="salainen-avain-XYZZY-42")
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
     settings = load_settings(settings_file, env_files=(env,))
-    arkisto = ArchivePaths(root=tmp_path / "arkisto")
+    archive_dir = ArchivePaths(root=tmp_path / "arkisto")
 
-    port = import_stage.default_source(settings, arkisto)
+    port = import_stage.default_source(settings, archive_dir)
 
     assert isinstance(port, MatchSource)
-    assert port.cache_dir == arkisto.raw_faceit()
+    assert port.cache_dir == archive_dir.raw_faceit()
     # The key must not show in the representation.
     assert "XYZZY" not in repr(port)
 

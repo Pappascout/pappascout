@@ -51,7 +51,7 @@ end up in the archive under the name ``.dem.zst``: the name is what every
 later reader infers from how to open the file.
 
 **The map name is an observation, the veto data is a cross-check.** A
-discrepancy is a confirmation question that ``--kylla`` does not skip, and it
+discrepancy is a confirmation question that ``--yes`` does not skip, and it
 is the project's only place where the flag does not skip a question: a
 wrongly named demo brings nothing down, it would spoil the report quietly.
 
@@ -178,7 +178,7 @@ class Confirmation:
         detail: The observation that is the reason for asking. Without it the
             question would be unanswerable -- a user cannot weigh a discrepancy
             that is not shown to them.
-        forced: Whether the question has to be put **even with the ``--kylla``
+        forced: Whether the question has to be put **even with the ``--yes``
             flag**. True only for the map check, and that is the epic's own
             requirement.
     """
@@ -553,7 +553,7 @@ def candidates(
     currently do; that is a change to the port and not this story's business.
     Until then the assumption is **visible** here, and the map check is what
     falls over in the safe direction: a wrong position produces a discrepancy,
-    and a discrepancy is a question ``--kylla`` does not skip -- a question
+    and a discrepancy is a question ``--yes`` does not skip -- a question
     that also says under which number the header's map is found in the veto
     (:func:`_other_pick`).
 
@@ -666,16 +666,16 @@ def same_map(observed: str, expected: str) -> bool:
 
 
 def unanswered(
-    confirmations: Sequence[Confirmation], *, kylla: bool
+    confirmations: Sequence[Confirmation], *, yes: bool
 ) -> tuple[Confirmation, ...]:
     """The questions that **have to be put** with the given flag.
 
     One place rather than a condition at the call site, because the rule is the
     epic's own requirement and therefore exactly the one that has to be
-    testable on its own: ``--kylla`` skips the questions **except** those where
+    testable on its own: ``--yes`` skips the questions **except** those where
     ``forced`` is true.
     """
-    if not kylla:
+    if not yes:
         return tuple(confirmations)
     return tuple(item for item in confirmations if item.forced)
 
@@ -1123,7 +1123,7 @@ def _cross_check(
     """The question about the map matching, or ``None`` when everything matches.
 
     Three different situations, **one shared consequence**: the question is
-    put, and ``--kylla`` does not skip it. They are still kept apart in the
+    put, and ``--yes`` does not skip it. They are still kept apart in the
     text, because the user's next step differs.
 
     The only case where nothing is asked is the one where **both observations
@@ -1204,7 +1204,7 @@ def _overwrite_question(unit: str, existing: Path) -> Confirmation:
     """The question about replacing a demo that is already in the archive.
 
     ``forced`` is **false**, and that is a row of the frozen I/O matrix ("The
-    target is already in the archive ... ``--kylla`` skips this"). The review
+    target is already in the archive ... ``--yes`` skips this"). The review
     took issue with the justification, and rightly: the earlier text said the
     file being replaced could be "fetched again", and that is not the case --
     there is no Downloads authorisation, and that is exactly why this command

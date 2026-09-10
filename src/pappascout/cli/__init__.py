@@ -121,7 +121,7 @@ def _root(
 def info(
     size: bool = typer.Option(
         False,
-        "--koko",
+        "--size",
         help=(
             "Compute the archive's total size as well. Off by default, "
             "because it reads through the whole directory tree."
@@ -236,7 +236,7 @@ def _render_info(settings: Settings, show_size: bool = False) -> str:
         )
     else:
         lines.append("  Status             found")
-        lines.append("  Size               not computed (--koko computes it)")
+        lines.append("  Size               not computed (--size computes it)")
     lines.append("")
 
     lines.append("Credentials")
@@ -270,7 +270,7 @@ def discover(
 
     The command fetches the match list **every single time**: it is not cached
     and the run is not skipped, because seeing the new matches is the whole
-    point of the command. That is why there is no --pakota option here.
+    point of the command. That is why there is no --force option here.
 
     The archive's directories are not renamed. The bridge to the archive is
     visible in the lineup_keys field of index/teams.json.
@@ -643,7 +643,7 @@ def _select_rejections(stats: dict) -> list[str]:
 #:
 #: One string and not two: answering no and not answering at all are the same
 #: outcome, and two different wordings would suggest that they differ.
-_PERUTTU = "Cancelled. No demos were downloaded."
+_CANCELLED = "Cancelled. No demos were downloaded."
 
 #: The answers that are read as consent.
 #:
@@ -653,13 +653,13 @@ _PERUTTU = "Cancelled. No demos were downloaded."
 #: season of muscle memory should not turn into a cancelled download. **The
 #: no-answers are not listed**: anything other than consent is a no, because
 #: a misread answer must never lead to a download.
-_MYONTYMISET = frozenset({"k", "kylla", "kyllä", "y", "yes", "j", "joo"})
+_CONSENT_ANSWERS = frozenset({"k", "kylla", "kyllä", "y", "yes", "j", "joo"})
 
 
-def _vahvista(kysymys: str, peruttu: str = _PERUTTU) -> None:
+def _confirm(question: str, cancelled: str = _CANCELLED) -> None:
     """Ask for confirmation and stop cleanly if the answer is no.
 
-    ``peruttu`` is the sentence printed for a negative answer. A parameter and
+    ``cancelled`` is the sentence printed for a negative answer. A parameter and
     not a constant, because the sentence says **what was left undone**: on a
     download "no demos were downloaded", on an import "the demo was not
     imported". A shared wording would be wrong for one of the two.
@@ -673,7 +673,7 @@ def _vahvista(kysymys: str, peruttu: str = _PERUTTU) -> None:
     than ``Aborted.``, which looks as if something had gone wrong.
     """
     try:
-        vastaus = typer.prompt(f"{kysymys} [y/n]", default="n", show_default=False)
+        answer = typer.prompt(f"{question} [y/n]", default="n", show_default=False)
     except (typer.Abort, EOFError):
         # **The same message as for a negative answer, and for the same
         # reason.** A command run without input (a pipe, a scheduler, Ctrl-C)
@@ -682,10 +682,10 @@ def _vahvista(kysymys: str, peruttu: str = _PERUTTU) -> None:
         # a failure where there was none -- it just arrives by another route.
         # Not answering is an answer too, and it is "no".
         typer.echo("")
-        typer.echo(peruttu)
+        typer.echo(cancelled)
         raise typer.Exit() from None
-    if str(vastaus).strip().lower() not in _MYONTYMISET:
-        typer.echo(peruttu)
+    if str(answer).strip().lower() not in _CONSENT_ANSWERS:
+        typer.echo(cancelled)
         raise typer.Exit()
 
 
@@ -700,9 +700,9 @@ def fetch(
             "alternatives and chooses nothing."
         ),
     ),
-    kylla: bool = typer.Option(
+    yes: bool = typer.Option(
         False,
-        "--kylla",
+        "--yes",
         help="Do not ask for confirmation. The plan is still shown.",
     ),
 ) -> None:
@@ -725,7 +725,7 @@ def fetch(
     Before the download it shows how many demos are fetched, where to and how
     much disk space they take, and asks for confirmation. A download spends
     FACEIT's Downloads quota and hundreds of megabytes of disk space, so the
-    question is deliberate; --kylla skips it.
+    question is deliberate; --yes skips it.
     """
     settings = load_settings()
     archive = archive_paths(settings.project)
@@ -738,17 +738,17 @@ def fetch(
     if not todo.pending:
         return
 
-    _levytilaportti(str(archive.demos_dir()), free)
+    _disk_space_gate(str(archive.demos_dir()), free)
 
-    if not kylla:
-        _vahvista("Download these demos?")
+    if not yes:
+        _confirm("Download these demos?")
 
     source = fetch_stage.default_source(settings, archive)
     results = fetch_stage.run_many(archive, todo.pending, source=source)
     typer.echo(_render_fetch(results, todo))
 
 
-def _levytilaportti(demos_dir: str, free: int | None) -> None:
+def _disk_space_gate(demos_dir: str, free: int | None) -> None:
     """Stop if not one demo would fit on the disk.
 
     **The gate comes before the question.** Asking for confirmation of a
@@ -866,13 +866,13 @@ def _render_fetch_plan(todo, free: int | None, demos_dir: str) -> str:
     confirms the same question here. Two different plan outputs for the same
     download were a difference, not a decision.
 
-    The inflection of the noun comes from :func:`_maps_fi` and not from a
+    The inflection of the noun comes from :func:`_maps` and not from a
     hard-coded "maps": a one-map sample is the normal state of the season's
     first run, and "1 maps" is a mistake on every line it appears on.
     """
     lines = [
-        f"Sample: {_maps_fi(todo.selected)}, "
-        f"{_of_which_fi(todo.selected)} {len(todo.present)} already on disk"
+        f"Sample: {_maps(todo.selected)}, "
+        f"{_of_which(todo.selected)} {len(todo.present)} already on disk"
     ]
     if not todo.pending:
         lines.append(
@@ -936,9 +936,9 @@ def _render_fetch(results, todo) -> str:
 
 @app.command("collect")
 def collect(
-    kylla: bool = typer.Option(
+    yes: bool = typer.Option(
         False,
-        "--kylla",
+        "--yes",
         help="Do not ask for confirmation. The plan is still shown.",
     ),
 ) -> None:
@@ -963,7 +963,7 @@ def collect(
     own with its reason. It is neither zero maps nor an unplayed match.
 
     Before the download it shows how many demos are fetched, where to and how
-    much disk space they take, and asks for confirmation. --kylla skips the
+    much disk space they take, and asks for confirmation. --yes skips the
     question, not the printing of the plan.
     """
     settings = load_settings()
@@ -976,10 +976,10 @@ def collect(
     if not todo.pending:
         return
 
-    _levytilaportti(str(archive.demos_dir()), free)
+    _disk_space_gate(str(archive.demos_dir()), free)
 
-    if not kylla:
-        _vahvista("Download these demos?")
+    if not yes:
+        _confirm("Download these demos?")
 
     source = fetch_stage.default_source(settings, archive)
     results = fetch_stage.run_many(archive, todo.pending, source=source)
@@ -1038,8 +1038,8 @@ def _render_collect_plan(
     that is not.
     """
     lines = [
-        f"Division: {_matches_fi(todo.matches_played)}, "
-        f"{_maps_fi(todo.selected)}, {_of_which_fi(todo.selected)} "
+        f"Division: {_matches_played(todo.matches_played)}, "
+        f"{_maps(todo.selected)}, {_of_which(todo.selected)} "
         f"{len(todo.present)} already on disk"
     ]
     lines.append(
@@ -1087,35 +1087,35 @@ def _render_collect_plan(
     return "\n".join(lines)
 
 
-def _matches_fi(count: int) -> str:
+def _matches_played(count: int) -> str:
     """``1 match played`` / ``6 matches played``.
 
     The noun inflects at 1, and the same pattern is already in
-    :func:`_rounds_fi` and :func:`_players_fi`. A one-match division is not a
+    :func:`_rounds` and :func:`_players`. A one-match division is not a
     rarity: the season's first run lands on exactly that.
     """
     return f"{count} match played" if count == 1 else f"{count} matches played"
 
 
-def _maps_fi(count: int) -> str:
+def _maps(count: int) -> str:
     """``1 map`` / ``12 maps``."""
     return f"{count} map" if count == 1 else f"{count} maps"
 
 
-def _of_which_fi(count: int) -> str:
+def _of_which(count: int) -> str:
     """``of which`` -- **and in English it does not inflect with the number**.
 
     In Finnish the relative pronoun took the same number as the noun before
     it, and that is why this helper exists at all rather than two conditions
     at the call sites: two separate conditions would drift apart, and Story
     3.7 is about exactly that drift. The review of 2026-09-06 found that
-    adopting ``_maps_fi`` fixed the numeral but left the next word alone --
+    adopting ``_maps`` fixed the numeral but left the next word alone --
     "1 kartta, **joista** 0 on jo levylla". A fix that moves the mistake one
     word later is not a fix.
 
     English has one form, so both branches now return the same word. **The
     branch is kept and the call sites are unchanged**: the sentence they build
-    still depends on the count through :func:`_maps_fi`, and this helper is
+    still depends on the count through :func:`_maps`, and this helper is
     where a future language with two forms would put them back.
     """
     return "of which" if count == 1 else "of which"
@@ -1154,7 +1154,7 @@ def _space_warning(
     The stage checks the space separately for every demo, so the run stops of
     its own accord at the right point and does not fill the disk.
 
-    **The gate and the warning are different things.** :func:`_levytilaportti`
+    **The gate and the warning are different things.** :func:`_disk_space_gate`
     stops a run that could not fit a single demo -- there is then nothing the
     run could achieve. This line says that not everything fits, and leaves the
     decision to the user, who is about to be asked. Measured 2026-09-06: the
@@ -1163,14 +1163,14 @@ def _space_warning(
     """
     if free >= todo.estimated_bytes:
         return []
-    mahtuu = max(0, free - fetch_stage.DISK_RESERVE_BYTES) // max(
+    fits = max(0, free - fetch_stage.DISK_RESERVE_BYTES) // max(
         1, fetch_stage.DEMO_SIZE_ESTIMATE_BYTES
     )
     return [
         _line(
             "NOTE",
             f"the whole plan does not fit on the disk: there is room for an "
-            f"estimated {min(mahtuu, len(todo.pending))} of the "
+            f"estimated {min(fits, len(todo.pending))} of the "
             f"{len(todo.pending)} demos. The rest are left unfetched, and "
             "they can be fetched later by running the command again.",
         )
@@ -1273,12 +1273,12 @@ def _is_older_than(moment: str | None, days: int) -> bool | None:
 
 #: The message when nothing is imported because of the user's answer.
 #:
-#: A sentence of its own rather than :data:`_PERUTTU`, because a cancellation
+#: A sentence of its own rather than :data:`_CANCELLED`, because a cancellation
 #: says what was left undone -- and this command downloads nothing, so "no
 #: demos were downloaded" would answer a question that was not asked. The
 #: latter half is the same promise as the rejections make: the source file is
 #: not touched.
-_PERUTTU_TUONTI = (
+_CANCELLED_IMPORT = (
     "Cancelled. The demo was not imported, and the source file was not touched."
 )
 
@@ -1310,9 +1310,9 @@ def import_demo(
             "name. A file outside the import folder is copied, not moved."
         ),
     ),
-    kylla: bool = typer.Option(
+    yes: bool = typer.Option(
         False,
-        "--kylla",
+        "--yes",
         help=(
             "Do not ask for confirmation. Does NOT skip the map check's "
             "question: a demo saved under the wrong name would quietly spoil "
@@ -1333,7 +1333,7 @@ def import_demo(
 
     The map's name is read from the demo's own header and compared against the
     FACEIT match's veto data. A mismatch -- and the fact that the comparison
-    could not be made at all -- is a confirmation question that --kylla does
+    could not be made at all -- is a confirmation question that --yes does
     NOT skip. It is this tool's only question that the flag does not silence.
 
     The command does not download demos: the demo is the file you give it. The
@@ -1365,10 +1365,10 @@ def import_demo(
     )
     typer.echo(_render_import_plan(todo))
 
-    for kysymys in import_stage.unanswered(todo.confirmations, kylla=kylla):
+    for confirmation in import_stage.unanswered(todo.confirmations, yes=yes):
         typer.echo("")
-        typer.echo(kysymys.detail)
-        _vahvista(kysymys.question, _PERUTTU_TUONTI)
+        typer.echo(confirmation.detail)
+        _confirm(confirmation.question, _CANCELLED_IMPORT)
 
     result = import_stage.run(archive, todo)
     typer.echo(_render_import(result))
@@ -1466,7 +1466,7 @@ def parse(
     ),
     force: bool = typer.Option(
         False,
-        "--pakota",
+        "--force",
         help=(
             "Parse even if the manifest matches. Use this if you suspect the "
             "archive's result is out of date."
@@ -1657,13 +1657,13 @@ def _buy_window(stats: dict) -> list[str]:
 
     if truncated:
         cut = (
-            f"{_rounds_fi(truncated)} measured earlier, because the round's "
+            f"{_rounds(truncated)} measured earlier, because the round's "
             "first death cut the window short"
         )
     else:
         cut = "none at all -- the window ran to its end in every round"
     if missed:
-        cut += f"; {_players_fi(missed)} bought after the cut"
+        cut += f"; {_players(missed)} bought after the cut"
         rounds = tuple(stats.get("buy_window_rounds_with_lost_purchases") or ())
         if rounds:
             shown = rounds[:_MAX_LOST_PURCHASE_ROUNDS]
@@ -1677,7 +1677,7 @@ def _buy_window(stats: dict) -> list[str]:
         cut += "; not one purchase was left behind the cut"
     if unchecked:
         cut += (
-            f"; {_rounds_fi(unchecked)} could not be checked at all "
+            f"; {_rounds(unchecked)} could not be checked at all "
             "(no players were obtained from the window's last tick)"
         )
     lines.append(_line("Cut short by a death", cut))
@@ -1735,7 +1735,7 @@ def _buy_window_faults(stats: dict) -> list[str]:
         lines.append(
             _line(
                 "Buy-end tick empty",
-                f"{_rounds_fi(empty)} -- no players were obtained from the "
+                f"{_rounds(empty)} -- no players were obtained from the "
                 "tick, the measurement fell back to the freezetime anchor",
             )
         )
@@ -1744,7 +1744,7 @@ def _buy_window_faults(stats: dict) -> list[str]:
     sides = int(stats.get("buy_window_sides_without_rows", 0) or 0)
     if lost:
         text = (
-            f"{_players_fi(lost)} could be read at the anchor but no longer "
+            f"{_players(lost)} could be read at the anchor but no longer "
             "at the measurement point"
         )
         if sides:
@@ -1759,19 +1759,19 @@ def _buy_window_faults(stats: dict) -> list[str]:
         lines.append(
             _line(
                 "Stale value",
-                f"{_players_fi(stale)}: the value rose without a purchase -- "
+                f"{_players(stale)}: the value rose without a purchase -- "
                 "the trace of a refund, at most $1000 per player",
             )
         )
     return lines
 
 
-def _rounds_fi(count: int) -> str:
+def _rounds(count: int) -> str:
     """``1 round`` / ``13 rounds`` -- the noun inflects at 1."""
     return f"{count} round" if count == 1 else f"{count} rounds"
 
 
-def _players_fi(count: int) -> str:
+def _players(count: int) -> str:
     """``1 player`` / ``2 players``.
 
     One lost purchase is exactly the case the row is reporting, so "1 players"
@@ -2611,7 +2611,7 @@ def classify(
     ),
     all_teams: bool = typer.Option(
         False,
-        "--kaikki-joukkueet",
+        "--all-teams",
         help=(
             "Classify the demo from both teams' points of view. Each gets a "
             "result of its own; --team is ignored."
@@ -2627,7 +2627,7 @@ def classify(
     ),
     force: bool = typer.Option(
         False,
-        "--pakota",
+        "--force",
         help="Classify even if the manifest matches.",
     ),
 ) -> None:
@@ -2667,7 +2667,7 @@ def classify(
             else:
                 typer.echo(
                     "The round list could not be read out of the result. Run "
-                    "the command again with the --pakota flag."
+                    "the command again with the --force flag."
                 )
 
 
@@ -2806,7 +2806,7 @@ def aggregate(
     ),
     force: bool = typer.Option(
         False,
-        "--pakota",
+        "--force",
         help="Aggregate even if the manifest matches.",
     ),
 ) -> None:
@@ -3060,7 +3060,7 @@ def report(
 
     The stage computes nothing: every number comes from the aggregation as it
     is. The report gets a timestamped name, so a new run never overwrites an
-    earlier one -- and that is why the command has no --pakota option.
+    earlier one -- and that is why the command has no --force option.
 
     The pruning rules (``[report]``, Story 2.13) decide which rows are written
     into the report. They do not change report.json: turning a rule off and

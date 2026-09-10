@@ -15,7 +15,7 @@ import pytest
 from conftest import OVERLAPPING_SITE_CLOUD, SITE_CLOUD
 from pappascout.domain.aggregate import (
     CLASSIFY_THRESHOLD_KEYS,
-    MISSING_ROSTER_CLASS_FI,
+    MISSING_ROSTER_CLASS_LABEL,
     ROSTER_SAMPLE_BUCKETS,
     area_distributions,
     armed_players_for,
@@ -933,7 +933,7 @@ def test_a_partly_classified_demo_is_a_different_fault_from_a_contradiction() ->
     The fix differs -- reclassify the whole demo rather than resolve two
     claims -- so the message has to differ too. And it must not print
     Python's ``None`` into the sentence: the column is empty, and
-    :data:`MISSING_ROSTER_CLASS_FI` is the word for that.
+    :data:`MISSING_ROSTER_CLASS_LABEL` is the word for that.
     """
     rows = [
         classified_row("x", 1, roster_class="5/5"),
@@ -942,7 +942,7 @@ def test_a_partly_classified_demo_is_a_different_fault_from_a_contradiction() ->
     with pytest.raises(AggregateError, match="interrupted one") as err:
         roster_demo_buckets(rows)
     message = str(err.value)
-    assert MISSING_ROSTER_CLASS_FI in message
+    assert MISSING_ROSTER_CLASS_LABEL in message
     assert "None" not in message
     assert "two different roster_class values" not in message
 

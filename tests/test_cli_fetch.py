@@ -4,7 +4,7 @@ Four things are locked down here:
 
 * **The question before the download.** The command says how many demos are
   fetched, where to and how much space they take, and waits for an answer.
-  ``--kylla`` skips the question -- but not the printing of the plan.
+  ``--yes`` skips the question -- but not the printing of the plan.
 * **A negative answer downloads nothing.** Cancelling the confirmation is a
   cancellation, not a delay.
 * **The layering rule.** The command imports neither the adapters nor the
@@ -116,7 +116,7 @@ def test_the_plan_is_shown_and_confirmed_before_anything_is_downloaded(
     archive, source, units = pipeline
 
     # ``k`` and not ``y``: the Finnish answers the tool asked for until
-    # 2026-09-09 stay accepted (``_MYONTYMISET``), and this is the one place
+    # 2026-09-09 stay accepted (``_CONSENT_ANSWERS``), and this is the one place
     # that still exercises them.
     result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="k\n")
 
@@ -191,10 +191,10 @@ def test_an_unrecognised_answer_does_not_download(pipeline) -> None:
     assert source.asked == []
 
 
-def test_kylla_skips_the_question_but_not_the_plan(pipeline) -> None:
+def test_yes_skips_the_question_but_not_the_plan(pipeline) -> None:
     archive, source, units = pipeline
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--yes"])
 
     assert result.exit_code == 0, result.output
     assert "Download these" not in result.output
@@ -213,11 +213,11 @@ def test_the_plan_names_the_target_directory(pipeline) -> None:
 def test_a_second_run_downloads_nothing_and_says_so(pipeline) -> None:
     _archive, source, units = pipeline
 
-    first = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
+    first = runner.invoke(app, ["fetch", "--team", SUBJECT, "--yes"])
     assert first.exit_code == 0, first.output
     source.asked.clear()
 
-    second = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
+    second = runner.invoke(app, ["fetch", "--team", SUBJECT, "--yes"])
 
     assert second.exit_code == 0, second.output
     assert source.asked == []
@@ -235,7 +235,7 @@ def test_a_missing_demo_is_listed_with_its_reason(
         "FACEIT has removed the recording (retention is about 30 days)."
     )
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--yes"])
 
     assert result.exit_code == 0, result.output
     assert "Not available" in result.output
@@ -251,7 +251,7 @@ def test_a_failed_download_is_listed_separately_from_a_missing_one(
     _archive, source, units = pipeline
     source.demos[units[0]] = ApiError("The interface did not answer.", status_code=503)
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--yes"])
 
     assert result.exit_code == 0, result.output
     assert "Failed" in result.output
@@ -287,7 +287,7 @@ def test_without_a_selection_file_the_error_says_to_run_select(
     )
     runner.invoke(app, ["discover"])
     monkeypatch.setattr(
-        "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--kylla"]
+        "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--yes"]
     )
 
     with pytest.raises(SystemExit) as exit_info:
@@ -327,7 +327,7 @@ def test_the_local_demos_root_setting_moves_the_files_out_of_the_archive(
 
     units = _prepare(archive, monkeypatch)
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--yes"])
 
     assert result.exit_code == 0, result.output
     for unit in units:
@@ -500,7 +500,7 @@ def test_the_summary_sums_the_real_byte_counts() -> None:
 def test_a_single_map_sample_says_one_map_not_one_maps() -> None:
     """The I/O matrix: a one-map sample -> "1 map", not "1 maps".
 
-    The word was hard-coded although :func:`_maps_fi` existed and ``collect``
+    The word was hard-coded although :func:`_maps` existed and ``collect``
     used it correctly. A one-map sample is not a rarity: the season's first
     run lands on exactly that.
 
@@ -510,16 +510,16 @@ def test_a_single_map_sample_says_one_map_not_one_maps() -> None:
     the beginning locked the wrong form in place.
 
     In Finnish the relative pronoun took the same number as the noun; English
-    has one form, so :func:`_of_which_fi` returns the same word either way
+    has one form, so :func:`_of_which` returns the same word either way
     and the third assertion below only proves the sister word is still in the
     sentence.
     """
-    yksi = _render_fetch_plan(
+    one = _render_fetch_plan(
         fetch_stage.FetchPlan("t", pending=("a-0",), estimated_bytes=1024**2),
         None,
         "kohde",
     )
-    monta = _render_fetch_plan(
+    many = _render_fetch_plan(
         fetch_stage.FetchPlan(
             "t", pending=("a-0", "a-1"), estimated_bytes=2 * 1024**2
         ),
@@ -530,15 +530,15 @@ def test_a_single_map_sample_says_one_map_not_one_maps() -> None:
     # The ``replace`` folded a Finnish letter to ASCII back when this
     # sentence was Finnish. It is a no-op now and is kept so that the diff
     # reads as a translation.
-    assert "Sample: 1 map, of which 0 already on disk" in yksi.replace(
+    assert "Sample: 1 map, of which 0 already on disk" in one.replace(
         "ä", "a"
     )
-    assert "1 maps" not in yksi
+    assert "1 maps" not in one
     # In Finnish this word inflected with the count and the assertion was
     # ``"joista" not in yksi``. English has one form, so all that is left to
     # claim is that the sister helper is still in the sentence.
-    assert "of which" in yksi
-    assert "Sample: 2 maps, of which 0 already on disk" in monta.replace(
+    assert "of which" in one
+    assert "Sample: 2 maps, of which 0 already on disk" in many.replace(
         "ä", "a"
     )
 
@@ -556,10 +556,10 @@ def test_the_fetch_plan_warns_when_it_does_not_fit_on_disk() -> None:
         estimated_bytes=12 * fetch_stage.DEMO_SIZE_ESTIMATE_BYTES,
     )
 
-    ahdas = _render_fetch_plan(todo, 2560 * 1024**2, "kohde")
+    tight = _render_fetch_plan(todo, 2560 * 1024**2, "kohde")
     roomy = _render_fetch_plan(todo, 100 * 1024**3, "kohde")
 
-    assert "NOTE" in ahdas and "does not fit on the disk" in ahdas
+    assert "NOTE" in tight and "does not fit on the disk" in tight
     assert "NOTE" not in roomy
 
 
@@ -591,9 +591,9 @@ def test_a_successful_download_shows_its_note_on_screen() -> None:
     and an unspoken uncertainty looks like certainty.
     """
     todo = fetch_stage.FetchPlan("t", pending=("a-0",))
-    huomio = fetch_stage._unverified_note("a-0")
+    note = fetch_stage._unverified_note("a-0")
     results = (
-        fetch_result("a-0", "ok", downloaded_bytes=1024**2, reason=huomio),
+        fetch_result("a-0", "ok", downloaded_bytes=1024**2, reason=note),
         fetch_result("b-0", "ok", downloaded_bytes=1024**2),
     )
 
@@ -649,15 +649,15 @@ def test_the_note_block_filters_skipped_results_itself() -> None:
 
     lines = _fetch_notes(results)
 
-    teksti = "\n".join(lines)
-    assert "Notes (1)" in teksti
-    assert "d-0" in teksti and "length was not confirmed" in teksti
+    text = "\n".join(lines)
+    assert "Notes (1)" in text
+    assert "d-0" in text and "length was not confirmed" in text
     # The skipped, the not-available and the failed do not belong in this
     # block: the last two have a block of their own with their advice
     # (``_fetch_failures``).
-    assert "a-0" not in teksti
-    assert "b-0" not in teksti
-    assert "c-0" not in teksti
+    assert "a-0" not in text
+    assert "b-0" not in text
+    assert "c-0" not in text
 
 
 def test_the_note_block_is_empty_when_there_is_nothing_to_say() -> None:
@@ -702,22 +702,22 @@ def test_the_same_byte_count_prints_the_same_string_in_every_command() -> None:
     ``fetch`` with one of its own (``Tt`` last), so the same number could
     print differently depending on which command printed it.
     """
-    tavut = 234_163_493  # the archive's largest compressed demo, 223,3 Mt
+    bytes_text = 234_163_493  # the archive's largest compressed demo, 223,3 Mt
 
-    suunnitelma = _render_fetch_plan(
-        fetch_stage.FetchPlan("t", pending=("a-0",), estimated_bytes=tavut),
-        tavut,
+    plan = _render_fetch_plan(
+        fetch_stage.FetchPlan("t", pending=("a-0",), estimated_bytes=bytes_text),
+        bytes_text,
         "kohde",
     )
-    yhteenveto = _render_fetch(
-        (fetch_result("a-0", "ok", downloaded_bytes=tavut),),
+    summary = _render_fetch(
+        (fetch_result("a-0", "ok", downloaded_bytes=bytes_text),),
         fetch_stage.FetchPlan("t", pending=("a-0",)),
     )
 
-    odotettu = fetch_stage.size_fi(tavut)
-    assert odotettu == "223,3 Mt"
-    assert suunnitelma.count(odotettu) == 2  # the estimate and the free space
-    assert odotettu in yhteenveto
+    expected = fetch_stage.size_fi(bytes_text)
+    assert expected == "223,3 Mt"
+    assert plan.count(expected) == 2  # the estimate and the free space
+    assert expected in summary
 
 
 # -- The default mode goes through the command (B6) --------------------------
@@ -749,7 +749,7 @@ def test_without_demos_root_the_demos_go_into_the_archive(
 
     units = _prepare(archive, monkeypatch)
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--yes"])
 
     assert result.exit_code == 0, result.output
     for unit in units:
@@ -780,7 +780,7 @@ def test_a_disk_that_fills_up_between_demos_stops_only_that_demo(
 
     monkeypatch.setattr(fetch_stage, "free_space", shrinking)
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--yes"])
 
     assert result.exit_code == 0, result.output
     assert "Not enough disk space" in result.output
@@ -835,9 +835,9 @@ def test_the_target_directory_is_shown_before_the_question(pipeline) -> None:
 
     result = runner.invoke(app, ["fetch", "--team", SUBJECT], input="n\n")
 
-    kohde = [r for r in result.output.splitlines() if r.strip().startswith("Target")]
-    assert kohde, f"the plan has no Target row:\n{result.output}"
-    assert str(archive.demos_dir()) in kohde[0]
+    target = [r for r in result.output.splitlines() if r.strip().startswith("Target")]
+    assert target, f"the plan has no Target row:\n{result.output}"
+    assert str(archive.demos_dir()) in target[0]
     # The question comes only after the target: otherwise it would be seen
     # only after answering.
     assert result.output.index("Target") < result.output.index("Download these")
@@ -853,14 +853,14 @@ def test_the_shown_target_is_the_directory_that_is_written_to(pipeline) -> None:
     """
     archive, _source, units = pipeline
 
-    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--kylla"])
+    result = runner.invoke(app, ["fetch", "--team", SUBJECT, "--yes"])
 
     assert result.exit_code == 0, result.output
     written = archive.find_demo(units[0])
     assert written is not None
-    kohde = [r for r in result.output.splitlines() if r.strip().startswith("Target")]
-    assert kohde, f"the output has no Target row:\n{result.output}"
-    assert all(str(written.parent) in row for row in kohde)
+    target = [r for r in result.output.splitlines() if r.strip().startswith("Target")]
+    assert target, f"the output has no Target row:\n{result.output}"
+    assert all(str(written.parent) in row for row in target)
 
 
 def test_the_target_line_distinguishes_the_two_modes(tmp_path) -> None:
@@ -871,18 +871,18 @@ def test_the_target_line_distinguishes_the_two_modes(tmp_path) -> None:
     """
     from pappascout.archive.paths import ArchivePaths
 
-    arkisto = ArchivePaths(root=tmp_path / "arkisto")
-    paikallinen = ArchivePaths(
+    archive_dir = ArchivePaths(root=tmp_path / "arkisto")
+    local = ArchivePaths(
         root=tmp_path / "arkisto", demos_root=tmp_path / LOCAL_DEMOS_DIRNAME
     )
 
     todo = fetch_stage.FetchPlan("t", pending=("a-0",), estimated_bytes=1024**2)
-    arkistorivi = _render_fetch_plan(todo, None, str(arkisto.demos_dir()))
-    paikallisrivi = _render_fetch_plan(todo, None, str(paikallinen.demos_dir()))
+    archive_row = _render_fetch_plan(todo, None, str(archive_dir.demos_dir()))
+    local_row = _render_fetch_plan(todo, None, str(local.demos_dir()))
 
-    assert str(tmp_path / "arkisto" / "demos") in arkistorivi
-    assert str(tmp_path / LOCAL_DEMOS_DIRNAME) in paikallisrivi
-    assert arkistorivi != paikallisrivi
+    assert str(tmp_path / "arkisto" / "demos") in archive_row
+    assert str(tmp_path / LOCAL_DEMOS_DIRNAME) in local_row
+    assert archive_row != local_row
 
 
 # -- The first real run against the network (2026-09-05) ---------------------
@@ -921,7 +921,7 @@ def test_a_denied_downloads_token_does_not_tell_the_user_to_retry(
     have repeated on every run.
     """
     monkeypatch.setattr(
-        "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--kylla"]
+        "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--yes"]
     )
 
     with pytest.raises(SystemExit) as exit_info:
@@ -947,7 +947,7 @@ def test_only_one_signing_call_is_made_before_the_run_stops(
     _archive, session, units = denied_pipeline
     assert len(units) > 1, "the data proves nothing with one unit"
     monkeypatch.setattr(
-        "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--kylla"]
+        "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--yes"]
     )
 
     with pytest.raises(SystemExit):
@@ -962,7 +962,7 @@ def test_the_denied_message_reaches_the_screen_and_says_waiting_helps(
 ) -> None:
     _archive, _session, _units = denied_pipeline
     monkeypatch.setattr(
-        "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--kylla"]
+        "sys.argv", ["pappascout", "fetch", "--team", SUBJECT, "--yes"]
     )
 
     with pytest.raises(SystemExit):
@@ -1003,12 +1003,12 @@ def test_the_cancel_message_is_the_same_however_the_user_declines(
     """
     _archive, _source, _units = pipeline
 
-    kielto = runner.invoke(app, ["fetch", "--team", SUBJECT], input="n\n")
-    tyhja = runner.invoke(app, ["fetch", "--team", SUBJECT], input="")
+    refusal = runner.invoke(app, ["fetch", "--team", SUBJECT], input="n\n")
+    empty = runner.invoke(app, ["fetch", "--team", SUBJECT], input="")
 
-    assert "Cancelled. No demos were downloaded." in kielto.output
-    assert "Cancelled. No demos were downloaded." in tyhja.output
-    assert kielto.exit_code == tyhja.exit_code == 0
+    assert "Cancelled. No demos were downloaded." in refusal.output
+    assert "Cancelled. No demos were downloaded." in empty.output
+    assert refusal.exit_code == empty.exit_code == 0
 
 
 # -- D1: the advice belongs to the fault, not to the heading (live 2026-09-05)

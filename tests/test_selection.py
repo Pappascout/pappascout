@@ -30,7 +30,7 @@ from test_teams import steam_id
 
 from pappascout.constants import ROSTER_CLASSES
 from pappascout.domain.selection import (
-    ROSTER_SOURCE_FI,
+    ROSTER_SOURCE_LABELS,
     ROSTER_SOURCES,
     MapCandidate,
     MapSelection,
@@ -205,7 +205,7 @@ def test_an_unknown_source_cannot_be_built() -> None:
     """``Literal`` is a check for the type checker, not at run time.
 
     Without the guard an invalid value would be built and would blow up only
-    as a KeyError from ``source_fi`` somewhere else entirely.
+    as a KeyError from ``source_label`` somewhere else entirely.
     """
     with pytest.raises(ValueError, match="The source of the selection row"):
         MapSelection(**row(roster_source="guessed"))
@@ -341,7 +341,7 @@ def test_an_unparsed_map_is_a_prediction_and_says_so() -> None:
     decided = decide(candidate(REGULARS[:5]))
 
     assert decided.roster_source == "predicted"
-    assert decided.source_fi == "prediction"
+    assert decided.source_label == "prediction"
     assert "prediction" in decided.roster_reason
 
 
@@ -351,7 +351,7 @@ def test_a_parsed_map_is_an_observation_and_says_so() -> None:
     decided = decide(candidate(REGULARS[:5], observed=REGULARS[:5]))
 
     assert decided.roster_source == "observed"
-    assert decided.source_fi == "observation"
+    assert decided.source_label == "observation"
     assert "observation" in decided.roster_reason
 
 
@@ -577,6 +577,6 @@ def test_the_counts_are_computed_from_the_rows_themselves() -> None:
 
 
 def test_the_source_names_cover_every_source() -> None:
-    assert set(ROSTER_SOURCE_FI) == set(ROSTER_SOURCES)
-    assert ROSTER_SOURCE_FI["observed"] == "observation"
-    assert ROSTER_SOURCE_FI["predicted"] == "prediction"
+    assert set(ROSTER_SOURCE_LABELS) == set(ROSTER_SOURCES)
+    assert ROSTER_SOURCE_LABELS["observed"] == "observation"
+    assert ROSTER_SOURCE_LABELS["predicted"] == "prediction"

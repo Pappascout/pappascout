@@ -693,7 +693,7 @@ def _aggregate(
             "result means the lineup filter did not hit: the rounds tables "
             "were written under different lineup keys than the ones joined to "
             "this team. Parse them again: "
-            "uv run pappascout parse <map_demo_id> --pakota\n"
+            "uv run pappascout parse <map_demo_id> --force\n"
             "Without this check every round type would report its armour "
             "distribution as nothing but 'the observation is missing' -- that "
             "is, as an observation that there is no observation."
@@ -727,7 +727,7 @@ def _aggregate(
             "result means the lineup filter did not hit: the deaths tables "
             "were written under different lineup keys than the ones joined to "
             "this team. Parse them again: "
-            "uv run pappascout parse <map_demo_id> --pakota\n"
+            "uv run pappascout parse <map_demo_id> --force\n"
             "Without this check every round type would report 'no own deaths' "
             "-- that is, as an observation that there is no observation."
         )
@@ -805,7 +805,7 @@ def _read_classified(
         advice=(
             "The table was classified with an older version of the program. "
             f"Classify it again: uv run pappascout classify {map_demo_id} "
-            f"--team {lineup} --pakota"
+            f"--team {lineup} --force"
         ),
     )
     return _in_schema_order(df, CLASSIFIED)
@@ -959,7 +959,7 @@ def _read_map_name(archive: ArchivePaths, map_demo_id: str) -> str | None:
             "observation ``null``, and out of two rows the name would be "
             "picked by row order.\n"
             f"Parse it again: uv run pappascout parse {map_demo_id} "
-            "--pakota"
+            "--force"
         )
     name = df["map_name"][0]
     return None if name is None else str(name)
@@ -976,7 +976,7 @@ def _read_parsed(
         table,
         advice=(
             "The table was parsed with an older version of the program. Parse "
-            f"it again: uv run pappascout parse {map_demo_id} --pakota"
+            f"it again: uv run pappascout parse {map_demo_id} --force"
         ),
     )
     return _in_schema_order(df, schema)
@@ -1105,7 +1105,7 @@ HASHED_THRESHOLD_KEYS: tuple[str, ...] = (
     # groups from the demo's point cloud), so forgetting them would leave in
     # the report anomalies computed with the old division of areas -- and
     # whoever adjusted the threshold would see the effect only with
-    # ``--pakota``.
+    # ``--force``.
     "stack_min_players",
     "stack_group_margin",
     "stack_site_separation_min",

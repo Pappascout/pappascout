@@ -1245,11 +1245,11 @@ def test_a_duplicate_match_does_not_produce_a_duplicate_download(
     from pappascout.stages import discover as discover_stage
 
     write_matches_index(archive, [match_row("1-aaa")])
-    kahdesti = discover_stage.matches_from_index(
+    twice = discover_stage.matches_from_index(
         {"matches": [match_row("1-aaa")]}
     ) * 2
     monkeypatch.setattr(
-        "pappascout.stages.discover.matches_from_index", lambda _d: kahdesti
+        "pappascout.stages.discover.matches_from_index", lambda _d: twice
     )
 
     todo = fetch_stage.plan_division(archive, league_settings())
@@ -1267,11 +1267,11 @@ def test_a_duplicate_that_is_already_on_disk_is_counted_once(
 
     write_matches_index(archive, [match_row("1-aaa")])
     place(archive.archive_demos_dir(), "1-aaa-0")
-    kahdesti = discover_stage.matches_from_index(
+    twice = discover_stage.matches_from_index(
         {"matches": [match_row("1-aaa")]}
     ) * 2
     monkeypatch.setattr(
-        "pappascout.stages.discover.matches_from_index", lambda _d: kahdesti
+        "pappascout.stages.discover.matches_from_index", lambda _d: twice
     )
 
     todo = fetch_stage.plan_division(archive, league_settings())
@@ -1286,12 +1286,12 @@ def test_the_dedup_keeps_the_index_order(archive, monkeypatch) -> None:
 
     rows = [match_row("1-aaa"), match_row("1-bbb"), match_row("1-ccc")]
     write_matches_index(archive, rows)
-    alkuperainen = discover_stage.matches_from_index({"matches": rows})
+    original = discover_stage.matches_from_index({"matches": rows})
     # A repeat in the middle: a naive set operation would move rows to the
     # wrong place.
-    limittyva = alkuperainen[:2] + alkuperainen
+    overlapping = original[:2] + original
     monkeypatch.setattr(
-        "pappascout.stages.discover.matches_from_index", lambda _d: limittyva
+        "pappascout.stages.discover.matches_from_index", lambda _d: overlapping
     )
 
     todo = fetch_stage.plan_division(archive, league_settings())
@@ -1732,13 +1732,13 @@ def test_plan_does_not_shadow_the_module_level_map_demo_id() -> None:
     import inspect
     import textwrap
 
-    puu = ast.parse(textwrap.dedent(inspect.getsource(fetch_stage.plan)))
-    sidotut = {
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fetch_stage.plan)))
+    bound = {
         node.id
-        for node in ast.walk(puu)
+        for node in ast.walk(tree)
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
     }
-    assert "map_demo_id" not in sidotut
+    assert "map_demo_id" not in bound
 
 
 def test_an_orphan_meta_that_cannot_be_removed_is_never_claimed_removed(
@@ -1758,14 +1758,14 @@ def test_an_orphan_meta_that_cannot_be_removed_is_never_claimed_removed(
     orphan = orphan_dir / f"{UNIT}.meta.json"
     orphan.write_text(json.dumps({"sha256": "orphan", "size": 1}), encoding="utf-8")
 
-    oikea_unlink = Path.unlink
+    real_unlink = Path.unlink
 
-    def kieltaydy(self: Path, *args: Any, **kwargs: Any):
+    def refuse(self: Path, *args: Any, **kwargs: Any):
         if str(self) == str(orphan):
             raise PermissionError(13, "the sync client is holding the file locked")
-        return oikea_unlink(self, *args, **kwargs)
+        return real_unlink(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "unlink", kieltaydy)
+    monkeypatch.setattr(Path, "unlink", refuse)
 
     result = run(local_archive, source)
 

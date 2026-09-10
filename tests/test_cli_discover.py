@@ -216,7 +216,7 @@ def test_there_is_no_force_flag() -> None:
 
     The check is on the registered options and not on the help text: the help
     **says** why the flag does not exist, so a string search would find it
-    there. The claim covers only the absence of ``--pakota`` -- locking the
+    there. The claim covers only the absence of ``--force`` -- locking the
     whole option list down would break on every later legitimate addition.
     """
     command = next(c for c in app.registered_commands if c.name == "discover")
@@ -226,7 +226,7 @@ def test_there_is_no_force_flag() -> None:
         for parameter in getattr(value, "param_decls", ())
     ]
 
-    assert "--pakota" not in names
+    assert "--force" not in names
     assert "--team" in names
 
 

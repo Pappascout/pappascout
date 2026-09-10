@@ -344,7 +344,7 @@ def require_parsed(*map_demo_ids: str) -> Path:
             pytest.skip(
                 f"Demo {map_demo_id} has not been classified into this "
                 f"archive. Run: uv run pappascout classify {map_demo_id} "
-                "--kaikki-joukkueet"
+                "--all-teams"
             )
     return ARCHIVE_ROOT
 

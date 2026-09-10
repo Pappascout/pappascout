@@ -90,7 +90,7 @@ into a report. Every command is safe to run again.
 ```powershell
 # --- what is configured and what is on disk ---
 uv run pappascout info                 # settings, archive state, key presence
-uv run pappascout info --koko          # same, plus total archive size
+uv run pappascout info --size          # same, plus total archive size
 
 # --- getting the material (needs the network) ---
 uv run pappascout discover                            # division match + team index
@@ -102,7 +102,7 @@ uv run pappascout import --match <match_id> --map 1   # file a browser-downloade
 # --- turning it into a report (no network) ---
 uv run pappascout parse <file|map_demo_id>            # demo to rounds, positions, events
 uv run pappascout classify <map_demo_id> --team <key> --show
-uv run pappascout classify <map_demo_id> --kaikki-joukkueet
+uv run pappascout classify <map_demo_id> --all-teams
 uv run pappascout aggregate --team <key>              # writes report.json
 uv run pappascout report --team <key>                 # writes Markdown
 ```
@@ -111,7 +111,7 @@ Notes that matter in practice:
 
 - **`discover` first.** `select`, `fetch` and `collect` all read the match index
   it writes; they never refresh it themselves.
-- **`--kylla` skips confirmation prompts** in `fetch`, `collect` and `import` —
+- **`--yes` skips confirmation prompts** in `fetch`, `collect` and `import` —
   except the map-name check in `import`, which is the one question the flag
   cannot silence. A demo filed under the wrong map would corrupt a report
   silently.

@@ -267,7 +267,7 @@ def test_command_passes_only_its_own_settings_sections(fake_stage: dict) -> None
 
 
 def test_force_flag_reaches_the_stage(fake_stage: dict) -> None:
-    result = runner.invoke(app, ["aggregate", "--team", TEAM, "--pakota"])
+    result = runner.invoke(app, ["aggregate", "--team", TEAM, "--force"])
     assert result.exit_code == 0, result.output
     assert fake_stage["kwargs"] == {"force": True}
 

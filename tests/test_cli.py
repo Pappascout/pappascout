@@ -158,7 +158,7 @@ def test_info_reports_existing_archive(tmp_path: Path) -> None:
     section = _section(_render_info(settings), "Archive")
     assert "found" in section
     assert "missing" not in section
-    # The size is not computed without --koko.
+    # The size is not computed without --size.
     assert "not computed" in section
     # ``size_fi``'s unit for a small archive; it stays Finnish as number
     # formatting, so the needle stays Finnish too.
@@ -190,7 +190,7 @@ def test_size_flag_runs_end_to_end(
     target.write_text(settings_text(archive_dir), encoding="utf-8")
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(target))
 
-    result = runner.invoke(app, ["info", "--koko"])
+    result = runner.invoke(app, ["info", "--size"])
     assert result.exit_code == 0, result.output
     assert "4 tavua" in result.output
 
@@ -339,35 +339,35 @@ def test_only_one_byte_formatter_exists() -> None:
     enough.
     """
     src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
-    sallittu = src / "stages" / "fetch.py"
-    loytymat: list[str] = []
+    allowed = src / "stages" / "fetch.py"
+    not_found: list[str] = []
     for path in sorted(src.rglob("*.py")):
-        puu = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         rel = path.relative_to(src).as_posix()
-        for node in ast.walk(puu):
-            kohteet: list[ast.expr] = []
+        for node in ast.walk(tree):
+            targets: list[ast.expr] = []
             if isinstance(node, ast.Assign):
-                kohteet = list(node.targets)
+                targets = list(node.targets)
             elif isinstance(node, ast.AnnAssign):
-                kohteet = [node.target]
-            for target in kohteet:
+                targets = [node.target]
+            for target in targets:
                 if (
                     isinstance(target, ast.Name)
                     and target.id == "_SIZE_UNITS"
-                    and path != sallittu
+                    and path != allowed
                 ):
-                    loytymat.append(f"{rel}:{node.lineno} _SIZE_UNITS")
+                    not_found.append(f"{rel}:{node.lineno} _SIZE_UNITS")
             if isinstance(node, ast.FunctionDef) and node.name == "_human_size":
-                loytymat.append(f"{rel}:{node.lineno} def _human_size")
+                not_found.append(f"{rel}:{node.lineno} def _human_size")
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)
                 and node.func.id == "_human_size"
             ):
-                loytymat.append(f"{rel}:{node.lineno} _human_size()")
-    assert loytymat == [], (
+                not_found.append(f"{rel}:{node.lineno} _human_size()")
+    assert not_found == [], (
         "There is more than one byte-count formatter: the same number would "
-        f"print differently in different commands. {loytymat}"
+        f"print differently in different commands. {not_found}"
     )
 
 
@@ -469,16 +469,16 @@ def test_no_module_claims_that_a_pipeline_module_decides_the_order() -> None:
     src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
     assert not (src / "stages" / "pipeline.py").exists()
 
-    vaitteet: list[str] = []
+    claims: list[str] = []
     for path in sorted(src.rglob("*.py")):
-        for numero, rivi in enumerate(
+        for number, row in enumerate(
             path.read_text(encoding="utf-8").splitlines(), 1
         ):
-            if "stages.pipeline" in rivi or "``pipeline``" in rivi:
-                vaitteet.append(f"{path.name}:{numero}")
-    assert vaitteet == [], (
+            if "stages.pipeline" in row or "``pipeline``" in row:
+                claims.append(f"{path.name}:{number}")
+    assert claims == [], (
         "Something still claims that a pipeline module decides the order. "
-        f"{vaitteet}"
+        f"{claims}"
     )
 
 
@@ -491,9 +491,9 @@ def test_the_team_index_does_not_promise_a_rename_to_a_shipped_story() -> None:
     finds nothing, and does not know which of the two is wrong.
     """
     src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
-    lahde = (src / "stages" / "discover.py").read_text(encoding="utf-8")
+    source = (src / "stages" / "discover.py").read_text(encoding="utf-8")
 
     # T5 translated ``discover``: the Finnish sentence this guard used to look
     # for is no longer in the file, so a guard for it would pass for ever
     # without guarding anything.
-    assert "renaming is Story" not in lahde
+    assert "renaming is Story" not in source

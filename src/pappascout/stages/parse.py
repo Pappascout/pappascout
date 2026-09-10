@@ -132,7 +132,7 @@ matching manifest is not enough on its own as the condition for skipping: the
 stage also requires that **every** table file this version produces is in
 place (``expected_outputs``) and that they still match the contract in force
 (:func:`_schema_is_current`). An archived demo missing ``lineups.parquet`` is
-therefore not up to date, and it is reparsed without the ``--pakota`` flag.
+therefore not up to date, and it is reparsed without the ``--force`` flag.
 
 The demo's digest is read from its own ``.meta.json`` file. If there is none
 (a demo copied into the archive by hand), the id is the file's **size and
@@ -1085,7 +1085,7 @@ def _schema_is_current(
     from the ``AREA_SOURCES`` list, so an old ``events.parquet`` no longer
     loads into this version's Enum -- and ``callouts.parquet`` is missing from
     it entirely. Either is enough: the demo is reparsed without the
-    ``--pakota`` flag.
+    ``--force`` flag.
 
     An unreadable table is **a different defect and not this function's
     business**: it is no more likely to be cured by rereading the demo than

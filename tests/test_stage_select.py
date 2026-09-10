@@ -1163,21 +1163,21 @@ def test_a_write_that_fails_on_disk_is_a_clear_error_with_advice(
     wrong diagnosis and the wrong action.
     """
     index(archive, league, thresholds)
-    kohde = archive.selection(subject_key(archive))
-    kohde.parent.mkdir(parents=True, exist_ok=True)
-    kohde.mkdir()
-    (kohde / "esteena.txt").write_text("x", encoding="utf-8")
+    target = archive.selection(subject_key(archive))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.mkdir()
+    (target / "esteena.txt").write_text("x", encoding="utf-8")
 
     with pytest.raises(PappascoutError) as err:
         select(league, archive, thresholds)
 
-    viesti = str(err.value)
+    message = str(err.value)
     # **The siblings' guards claim the same things.** Two fixes made
     # explicitly as siblings must not be left guarded to different degrees --
     # that difference is exactly what Story 3.7 is putting right.
-    assert "programming error" not in viesti
-    assert "failed with a disk error" in viesti
-    assert kohde.name in viesti
+    assert "programming error" not in message
+    assert "failed with a disk error" in message
+    assert target.name in message
     assert err.value.advice
-    assert not kohde.is_file()
+    assert not target.is_file()
     assert not has_temp_leftovers(archive.root)

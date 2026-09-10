@@ -339,7 +339,7 @@ def test_stage_gets_only_the_three_sections_it_reads(fake_stage) -> None:
 
 
 def test_force_flag_reaches_the_stage(fake_stage) -> None:
-    result = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM, "--pakota"])
+    result = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM, "--force"])
     assert result.exit_code == 0, result.output
     assert fake_stage["kwargs"]["force"] is True
 
@@ -356,7 +356,7 @@ def test_round_list_is_printed_only_with_show(fake_stage) -> None:
 
 def test_all_teams_flag_classifies_both_lineups(fake_stage) -> None:
     """Both teams are classified in any case -- this also saves them."""
-    result = runner.invoke(app, ["classify", DEMO_ID, "--kaikki-joukkueet"])
+    result = runner.invoke(app, ["classify", DEMO_ID, "--all-teams"])
     assert result.exit_code == 0, result.output
     assert fake_stage["kutsut"] == [TEAM, TEAM_B]
     assert result.output.count("Classified:") == 2
@@ -375,7 +375,7 @@ def test_missing_round_list_tells_what_to_do(fake_stage) -> None:
     result = runner.invoke(app, ["classify", DEMO_ID, "--team", TEAM, "--show"])
     assert result.exit_code == 0, result.output
     assert "The round list could not be read" in result.output
-    assert "--pakota" in result.output
+    assert "--force" in result.output
 
 
 def test_unknown_team_gets_a_listing_without_a_traceback(

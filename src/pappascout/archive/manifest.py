@@ -202,7 +202,7 @@ class Manifest(BaseModel):
 
         The creation time is left out deliberately: the same input with the
         same settings produces the same result, and a bare re-run
-        (``--pakota``) must not force the next stage to run again. Everything
+        (``--force``) must not force the next stage to run again. Everything
         else is included, so a changed demo, a changed setting or a changed
         tool version shows up immediately.
 

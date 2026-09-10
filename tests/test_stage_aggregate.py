@@ -1456,7 +1456,7 @@ def test_an_outdated_deaths_table_tells_the_user_to_reparse(
     with pytest.raises(SchemaError) as exc:
         run(archive)
     assert "attacker_area" in str(exc.value)
-    assert "uv run pappascout parse Ancient_vs_a --pakota" in str(exc.value)
+    assert "uv run pappascout parse Ancient_vs_a --force" in str(exc.value)
 
 
 def test_an_attackerless_own_death_survives_the_lineup_filter(
@@ -1520,7 +1520,7 @@ def test_a_deaths_table_that_names_no_known_lineup_is_refused(
     with pytest.raises(PappascoutError) as exc:
         run(archive, force=True)
     assert "Not one death was found" in str(exc.value)
-    assert "--pakota" in str(exc.value)
+    assert "--force" in str(exc.value)
 
 
 # --- The rounds table and the armour counter (Story 2.8) ------------------------
@@ -1541,7 +1541,7 @@ def test_an_outdated_rounds_table_tells_the_user_to_reparse(
     with pytest.raises(SchemaError) as exc:
         run(archive)
     assert ARMORED_COLUMN in str(exc.value)
-    assert "uv run pappascout parse Ancient_vs_a --pakota" in str(exc.value)
+    assert "uv run pappascout parse Ancient_vs_a --force" in str(exc.value)
 
 
 def test_an_extra_column_in_the_rounds_table_is_refused_too(
@@ -1621,7 +1621,7 @@ def test_rounds_that_name_no_known_lineup_are_refused(tmp_path: Path) -> None:
     with pytest.raises(PappascoutError) as exc:
         run(archive, force=True)
     assert "Not one round row was found" in str(exc.value)
-    assert "--pakota" in str(exc.value)
+    assert "--force" in str(exc.value)
 
 
 # --- The map's name from the header (Story 2.11) ------------------------------
@@ -2181,7 +2181,7 @@ def test_every_anomaly_threshold_changes_the_params_hash(
     """Without this, adjusting a threshold would not re-run the aggregation.
 
     The same defect as in Story 1.8: the report would keep the old anomalies,
-    and the user would see the effect of the adjustment only with ``--pakota``.
+    and the user would see the effect of the adjustment only with ``--force``.
 
     **This is a runtime guard**, unlike
     :func:`test_every_setting_the_stage_reads_is_in_the_params_hash`, which

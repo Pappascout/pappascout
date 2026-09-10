@@ -298,13 +298,13 @@ def test_the_team_row_carries_identifier_lists_not_counts(
     discover(league, archive, thresholds, source)
 
     document = read_index(archive, "teams.json")
-    potku = next(t for t in document["teams"] if t["name"] == "PotkukelkkaPeek")
+    kick = next(t for t in document["teams"] if t["name"] == "PotkukelkkaPeek")
 
-    assert len(potku["match_ids"]) == 11
-    assert potku["played_match_ids"] == ["1-match-01"]
-    assert potku["roster_size"] == len(potku["roster"]) == 8
+    assert len(kick["match_ids"]) == 11
+    assert kick["played_match_ids"] == ["1-match-01"]
+    assert kick["roster_size"] == len(kick["roster"]) == 8
     known = {row["match_id"] for row in read_index(archive, "matches.json")["matches"]}
-    assert set(potku["match_ids"]) <= known
+    assert set(kick["match_ids"]) <= known
 
 
 def test_both_indexes_order_matches_the_same_way(
@@ -510,23 +510,23 @@ def test_a_write_that_fails_on_disk_is_a_clear_error_with_advice(
     write's last step. The same fix and the same word as in ``select``: its
     read path caught ``OSError`` already, its write path did not.
     """
-    kohde = archive.teams_index()
-    kohde.parent.mkdir(parents=True, exist_ok=True)
-    kohde.mkdir()
-    (kohde / "esteena.txt").write_text("x", encoding="utf-8")
+    target = archive.teams_index()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.mkdir()
+    (target / "esteena.txt").write_text("x", encoding="utf-8")
 
     with pytest.raises(PappascoutError) as err:
         discover(league, archive, thresholds, source)
 
-    viesti = str(err.value)
+    message = str(err.value)
     # **The siblings' guards claim the same things.** Two fixes made
     # explicitly as siblings must not be left guarded to different degrees --
     # that difference is exactly what Story 3.7 is putting right.
-    assert "programming error" not in viesti
-    assert "failed with a disk error" in viesti
-    assert kohde.name in viesti
+    assert "programming error" not in message
+    assert "failed with a disk error" in message
+    assert target.name in message
     assert err.value.advice
-    assert not kohde.is_file()
+    assert not target.is_file()
     assert not has_temp_leftovers(archive.root)
     # The pair is still unwritten: neither was swapped into place.
     assert not archive.matches_index().is_file()
@@ -547,22 +547,22 @@ def test_a_failure_on_the_outer_index_says_the_pair_may_be_odd(
     The sibling test covers the inner direction; without this test half of
     ``_write_pair``'s failure surface would go unrun.
     """
-    kohde = archive.matches_index()
-    kohde.parent.mkdir(parents=True, exist_ok=True)
-    kohde.mkdir()
-    (kohde / "esteena.txt").write_text("x", encoding="utf-8")
+    target = archive.matches_index()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.mkdir()
+    (target / "esteena.txt").write_text("x", encoding="utf-8")
 
     with pytest.raises(PappascoutError) as err:
         discover(league, archive, thresholds, source)
 
-    viesti = str(err.value)
-    assert "programming error" not in viesti
-    assert "failed with a disk error" in viesti
-    assert kohde.name in viesti
+    message = str(err.value)
+    assert "programming error" not in message
+    assert "failed with a disk error" in message
+    assert target.name in message
     assert err.value.advice
     # The message is not silent about the odd pair and does not promise the
     # impossible.
-    assert "generated_at" in viesti
+    assert "generated_at" in message
     # And the pair IS odd: teams got into place, matches did not.
     assert archive.teams_index().is_file()
     assert not archive.matches_index().is_file()
@@ -868,8 +868,8 @@ def test_a_lineup_claimed_by_two_teams_is_flagged_in_the_index(
     rcave = list(MEASURED_RCAVE_IDS.values())
     # Three of Rcave's players and three of PotkukelkkaPeek's: both cross the
     # threshold of 3, and neither is "more right".
-    potku_ids = [steam_id(200 + index) for index in range(3)]
-    write_lineups(archive, "1-match-00-0", {"kiistanalainen": rcave[:3] + potku_ids})
+    kick_ids = [steam_id(200 + index) for index in range(3)]
+    write_lineups(archive, "1-match-00-0", {"kiistanalainen": rcave[:3] + kick_ids})
 
     result = discover(league, archive, thresholds, source)
 

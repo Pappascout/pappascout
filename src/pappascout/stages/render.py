@@ -315,7 +315,7 @@ def read_report(path: Path, team_key: str) -> Report:
         raise PappascoutError(
             f"File {path} could not be read as JSON: {exc}\n"
             f"Run the aggregate again: uv run pappascout aggregate --team "
-            f"{team_key} --pakota"
+            f"{team_key} --force"
         ) from exc
 
     version = raw.get("schema_version") if isinstance(raw, dict) else None
@@ -327,7 +327,7 @@ def read_report(path: Path, team_key: str) -> Report:
             "No report is written, because an old structure can look valid "
             "and still mean something different.\n"
             f"Run the aggregate again: uv run pappascout aggregate --team "
-            f"{team_key} --pakota"
+            f"{team_key} --force"
         )
 
     try:
@@ -336,7 +336,7 @@ def read_report(path: Path, team_key: str) -> Report:
         raise PappascoutError(
             f"File {path} does not match the report model: {exc}\n"
             f"Run the aggregate again: uv run pappascout aggregate --team "
-            f"{team_key} --pakota"
+            f"{team_key} --force"
         ) from exc
 
     if report.team.key != team_key:
@@ -346,7 +346,7 @@ def read_report(path: Path, team_key: str) -> Report:
             "No report is written, because it would be named after the "
             "directory but would tell of another team.\n"
             f"Run the aggregate again: uv run pappascout aggregate --team "
-            f"{report.team.key} --pakota"
+            f"{report.team.key} --force"
         )
     return report
 

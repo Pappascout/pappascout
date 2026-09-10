@@ -5987,17 +5987,17 @@ def test_read_map_name_uses_the_same_reader_as_the_full_parse(
     adapter = Demoparser2Adapter()
     adapter._open = lambda *args, **kwargs: fake  # type: ignore[method-assign]
 
-    nahdyt: list[Path] = []
-    oikea = adapter._header_map_name
+    seen: list[Path] = []
+    real = adapter._header_map_name
 
-    def vakooja(parser, original_path):
-        nahdyt.append(original_path)
-        return oikea(parser, original_path)
+    def spy(parser, original_path):
+        seen.append(original_path)
+        return real(parser, original_path)
 
-    adapter._header_map_name = vakooja  # type: ignore[method-assign]
+    adapter._header_map_name = spy  # type: ignore[method-assign]
 
     assert adapter.read_map_name(demo) == "de_nuke"
-    assert nahdyt == [demo], (
+    assert seen == [demo], (
         "read_map_name did not call the adapter's own _header_map_name "
         "reader: a parallel reader would diverge from the full parse "
         "unnoticed"
@@ -6024,24 +6024,24 @@ def test_read_map_name_reads_a_compressed_demo_in_the_default_run(
     demo = tmp_path / "feikki.dem.zst"
     demo.write_bytes(zstandard.ZstdCompressor().compress(raw))
 
-    nahdyt: list[tuple[Path, bytes]] = []
+    seen: list[tuple[Path, bytes]] = []
     adapter = Demoparser2Adapter()
 
-    def avaa(demo_path, original_path):
+    def opens(demo_path, original_path):
         # The content is read **here**: the decompression directory is cleaned
         # up as soon as ``readable_demo`` closes, so there is nothing to read
         # afterwards.
         path = Path(demo_path)
-        nahdyt.append((path, path.read_bytes()))
+        seen.append((path, path.read_bytes()))
         return fake
 
-    adapter._open = avaa  # type: ignore[method-assign]
+    adapter._open = opens  # type: ignore[method-assign]
 
     assert adapter.read_map_name(demo) == "de_ancient"
-    assert len(nahdyt) == 1
-    annettu, sisalto = nahdyt[0]
-    assert annettu != demo, "the library was given the compressed file"
-    assert sisalto == raw
+    assert len(seen) == 1
+    given, content = seen[0]
+    assert given != demo, "the library was given the compressed file"
+    assert content == raw
 
 
 def test_read_map_name_refuses_a_truncated_compressed_demo(
@@ -6068,15 +6068,15 @@ def test_read_map_name_refuses_a_truncated_compressed_demo(
     """
     raw = DEMO_MAGIC + b"x" * 40_000_000
     whole = zstandard.ZstdCompressor().compress(raw)
-    katkaistu = whole[: len(whole) // 2]
+    truncated = whole[: len(whole) // 2]
     demo = tmp_path / "katkennut.dem.zst"
-    demo.write_bytes(katkaistu)
+    demo.write_bytes(truncated)
     # The input's property is measured with the library directly and not with
     # the code the input exists to test.
-    osittainen = len(
-        zstandard.ZstdDecompressor().stream_reader(io.BytesIO(katkaistu)).read()
+    partial = len(
+        zstandard.ZstdDecompressor().stream_reader(io.BytesIO(truncated)).read()
     )
-    assert 0 < osittainen < len(raw), (
+    assert 0 < partial < len(raw), (
         "the input does not decompress partially but not emptily"
     )
 
@@ -6088,7 +6088,7 @@ def test_read_map_name_refuses_a_truncated_compressed_demo(
         adapter.read_map_name(demo)
 
     assert "came up short" in str(err.value)
-    assert str(osittainen) in str(err.value)
+    assert str(partial) in str(err.value)
     assert fake.header_calls == 0
 
 

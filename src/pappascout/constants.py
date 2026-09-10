@@ -281,7 +281,7 @@ EventKind = Literal["grenade_thrown", "grenade_detonate"]
 #: source: two parallel methods would make the row uninterpretable, because
 #: the reader would not see which of them named it. An old ``events.parquet``
 #: therefore does not load into this enum, and that is intended -- ``parse``
-#: runs the recording again without the ``--pakota`` flag.
+#: runs the recording again without the ``--force`` flag.
 AREA_SOURCES: Final[tuple[str, ...]] = ("observed", "point_cloud")
 AreaSource = Literal["observed", "point_cloud"]
 

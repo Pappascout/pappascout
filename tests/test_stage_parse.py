@@ -1764,7 +1764,7 @@ def test_an_old_table_without_the_armored_column_is_reparsed(
     The I/O matrix's "old archive" row. **The manifest is not touched**: it
     matches, and that is the heart of the test. The schema check alone is
     enough to force a rerun, so the user does not need to know about the
-    ``--pakota`` flag and the old table does not stay silently in force.
+    ``--force`` flag and the old table does not stay silently in force.
     """
     parser = FakeParser(build_rounds(played=3))
     run_parse(parse_settings, archive, parser, demo)
@@ -2719,7 +2719,7 @@ def test_a_duplicate_roster_row_is_refused(parse_settings, archive, demo) -> Non
 def test_an_archive_without_the_lineups_table_is_not_up_to_date(
     parse_settings, archive, demo
 ) -> None:
-    """A schema change forces a reparse without the --pakota flag.
+    """A schema change forces a reparse without the --force flag.
 
     The manifest's parameter hash does not move when more tables appear, so a
     manifest match on its own would accept the old result as up to date.
@@ -3130,7 +3130,7 @@ def test_an_archive_without_the_deaths_table_is_not_up_to_date(
 def test_a_stale_deaths_table_missing_a_column_is_reparsed(
     parse_settings, archive, demo
 ) -> None:
-    """A contract change forces a reparse without ``--pakota``."""
+    """A contract change forces a reparse without ``--force``."""
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)
 
@@ -3728,7 +3728,7 @@ def test_an_events_table_with_the_retired_enum_value_is_reparsed(
     Story 2.8 ``events.parquet`` whose ``area_source`` is
     ``Enum(["observed", "snapped"])``. Both ``constants.py`` and
     ``_schema_is_current`` promise that it will not do and that the demo is
-    parsed again **without** the ``--pakota`` flag. Other tests cover a
+    parsed again **without** the ``--force`` flag. Other tests cover a
     missing table and a dropped column; this covers the wrong value set,
     which is a different defect: the columns are in order and the rows can be
     read.
@@ -3999,7 +3999,7 @@ def test_a_missing_match_table_forces_a_reparse(
     and demoparser2's version, so a schema change on its own does **not**
     invalidate the archive. ``expected_outputs`` is the only thing standing
     between eight already parsed demos and being left without the map name --
-    and without the ``--pakota`` flag.
+    and without the ``--force`` flag.
     """
     parser = FakeParser()
     run_parse(parse_settings, archive, parser, demo)

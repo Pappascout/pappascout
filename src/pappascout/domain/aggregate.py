@@ -153,7 +153,7 @@ __all__ = [
     "demo_buckets",
     "sample_for",
     "roster_class_values",
-    "MISSING_ROSTER_CLASS_FI",
+    "MISSING_ROSTER_CLASS_LABEL",
     "roster_demo_buckets",
     "roster_sample_for",
     "players_distribution",
@@ -648,7 +648,7 @@ def demo_buckets(rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
                 "belong to two sample buckets.\n"
                 "is_league describes the match and not the round. Run the "
                 "classification again: "
-                "uv run pappascout classify <map_demo_id> --pakota"
+                "uv run pappascout classify <map_demo_id> --force"
             )
         value = next(iter(values))
         buckets[demo] = (
@@ -699,15 +699,15 @@ def roster_class_values() -> tuple[str, ...]:
 #: ``None`` tells the reader nothing; the column is empty, and that is how it
 #: is said.
 #:
-#: **The ``_FI`` suffix is a leftover and the value is English.** Measured
-#: 2026-09-09: this constant has exactly one production consumer, an
-#: ``AggregateError`` message, and none at all under ``render/``. It is
-#: console vocabulary, not report vocabulary, so AD-11 puts it in English --
-#: the same case as ``ROSTER_SOURCE_FI``, and the same conclusion T9 reached
-#: for that one. The name is left alone because renaming a symbol is a change
-#: of its own; both want ``_LABEL`` and neither should get it inside a
-#: translation diff.
-MISSING_ROSTER_CLASS_FI = "empty"
+#: **The value is English.** Measured 2026-09-09: this constant has exactly
+#: one production consumer, an ``AggregateError`` message, and none at all
+#: under ``render/``. It is console vocabulary, not report vocabulary, so
+#: AD-11 puts it in English -- the same case as
+#: :data:`~pappascout.domain.selection.ROSTER_SOURCE_LABELS`, and the same
+#: conclusion T9 reached for that one. It is a ``_LABEL`` and not a member of
+#: :data:`~pappascout.constants.ROSTER_CLASSES`: the word stands for the
+#: absence of a class, not for a class.
+MISSING_ROSTER_CLASS_LABEL = "empty"
 
 
 def _classified_value(row: Mapping[str, Any], column: str, demo: str) -> Any:
@@ -731,7 +731,7 @@ def _classified_value(row: Mapping[str, Any], column: str, demo: str) -> Any:
             + ", so the roster breakdown cannot be computed.\n"
             "The table was written before the column existed. Run the "
             "classification again: "
-            "uv run pappascout classify <map_demo_id> --pakota"
+            "uv run pappascout classify <map_demo_id> --force"
         ) from None
 
 
@@ -778,18 +778,18 @@ def roster_demo_buckets(
                 "two roster buckets.\n"
                 "roster_class describes the map and not the round. Run the "
                 "classification again: "
-                "uv run pappascout classify <map_demo_id> --pakota"
+                "uv run pappascout classify <map_demo_id> --force"
             )
         if known and None in values:
             raise AggregateError(
                 f"Some of demo {demo}'s rounds carry the roster_class value "
-                f"{known[0]} and some are {MISSING_ROSTER_CLASS_FI}, so the "
+                f"{known[0]} and some are {MISSING_ROSTER_CLASS_LABEL}, so the "
                 "demo would belong to two roster buckets.\n"
                 "This is not a contradictory classification but an "
                 "interrupted one: some of the rounds were classified before "
                 "the selection file gave the map a class. Run the whole "
                 "classification again: "
-                "uv run pappascout classify <map_demo_id> --pakota"
+                "uv run pappascout classify <map_demo_id> --force"
             )
         if not known:
             buckets[demo] = "unknown"
@@ -928,7 +928,7 @@ def _sample_seconds(row: Mapping[str, Any]) -> float:
             f"A sample point is missing sample_t_s (demo "
             f"{row['map_demo_id']!r}, round {row['round_no']!r}, "
             f"sample_kind={row['sample_kind']!r}). Run the parse again: "
-            f"uv run pappascout parse {row['map_demo_id']} --pakota"
+            f"uv run pappascout parse {row['map_demo_id']} --force"
         )
     return float(value)
 
@@ -1084,7 +1084,7 @@ def armored_by_round(rounds: Sequence[Mapping[str, Any]]) -> dict[SideRoundKey, 
                 f"same round {key}: {lookup[key]} and {int(value)}.\n"
                 "Whichever happens to be last would reach the report. "
                 "Run the parse again: uv run pappascout parse "
-                f"{demo} --pakota"
+                f"{demo} --force"
             )
         lookup[key] = int(value)
     return lookup
@@ -2046,7 +2046,7 @@ def _broken_tick(tick: Mapping[str, Any], what: str) -> str:
         f"On a sample point row {what} (demo {demo!r}, round "
         f"{tick['round_no']!r}), so the anomaly rule cannot be run for it."
         f"{NEWLINE}Run the parse again: uv run pappascout parse {demo} "
-        "--pakota"
+        "--force"
     )
 
 
@@ -2127,7 +2127,7 @@ def classify_thresholds(
             f"they cannot be counted into the same sample: {'; '.join(mixed)}.\n"
             "Run the classification again for every demo with the same "
             "settings: uv run pappascout classify <map_demo_id> --team "
-            "<tunniste> --pakota"
+            "<id> --force"
         )
     found = {name: next(iter(v)) for name, v in sorted(seen.items())}
     if expected is not None:
@@ -2145,7 +2145,7 @@ def classify_thresholds(
                 f"{'; '.join(stale)}.\n"
                 "Run the classification again before the aggregation: "
                 "uv run pappascout classify <map_demo_id> --team "
-                "<tunniste> --pakota"
+                "<id> --force"
             )
     return found
 
@@ -2449,7 +2449,7 @@ def _round_types_for(
                     "without a round number, so it cannot be joined to the "
                     "sample points.\n"
                     f"Run the classification again: uv run pappascout classify "
-                    f"{row['map_demo_id']} --pakota"
+                    f"{row['map_demo_id']} --force"
                 )
             keys.append(key)
         sample = sample_for(type_rows, buckets)
