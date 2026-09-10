@@ -227,11 +227,11 @@ __all__ = [
 class _ParsedTables:
     """One demo's finished, checked tables and their drop counts.
 
-    A dataclass and not a tuple: the return value holds five frames and three
-    bare integers, and two adjacent ``int`` values can be swapped with each
-    other without any type check noticing. The same pattern as with
+    A dataclass and not a tuple: the return value holds seven frames and
+    three bare integers, and two adjacent ``int`` values can be swapped with
+    each other without any type check noticing. The same pattern as with
     :class:`~pappascout.adapters.protocols.DemoTables` and the adapter's
-    counter classes -- and the next table will not grow the tuple to nine.
+    counter classes -- and the next table will not grow the tuple to eleven.
 
     Attributes:
         skipped_rounds: The unnumbered round boundaries (warm-up, the knife
@@ -1191,7 +1191,7 @@ def run(
     demo_path: Path | None = None,
     force: bool = False,
 ) -> StageResult:
-    """Parse one demo into six tables.
+    """Parse one demo into seven tables.
 
     Args:
         settings: The ``[parse]`` section -- the only section this stage sees.
@@ -1977,7 +1977,7 @@ def _check_single_match_row(match: pl.DataFrame, demo_path: Path) -> None:
 def _check_callout_cells(callouts: pl.DataFrame) -> None:
     """Make sure a cell is unique and that it has an area.
 
-    Two defects that would pass the schema but would break the detonation
+    Three defects that would pass the schema but would break the detonation
     areas:
 
     * **A duplicate cell.** The same ``(cell_x, cell_y, cell_z)`` twice would
@@ -1997,7 +1997,7 @@ def _check_callout_cells(callouts: pl.DataFrame) -> None:
       both the ``callout_observations`` number and the run's usable-row ratio
       silently downwards.
 
-    An empty table is neither of these: it is a valid result, and its reason
+    An empty table is none of these: it is a valid result, and its reason
     is given in the run's summary.
 
     Raises:

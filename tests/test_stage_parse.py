@@ -3801,12 +3801,12 @@ def test_the_cloud_diagnostics_reach_the_stats_and_the_summary(
         tick_rate_measured=True,
         rounds_seen=3,
         callout_cloud_rows_read=1529910,
-        callout_cloud_empty_reason="1529910 tickiriviä luettiin, mutta "
-        "yhdelläkään ei ollut elossa olevaa pelaajaa nimetyllä alueella",
+        callout_cloud_empty_reason="1529910 tick rows were read, but not "
+        "one of them had a living player in a named area",
     )
     result = run_parse(parse_settings, archive, parser, demo)
     assert result.stats["callout_cloud_rows_read"] == 1529910
-    assert result.stats["callout_cloud_empty_reason"].startswith("1529910 tickiriviä")
+    assert result.stats["callout_cloud_empty_reason"].startswith("1529910 tick rows")
     # The usable rows come from the table, not from another counter.
     assert result.stats["callout_observations"] == 0
 
@@ -3814,7 +3814,7 @@ def test_the_cloud_diagnostics_reach_the_stats_and_the_summary(
     assert "empty -- not one detonation area is named" in text
     # The reason is the diagnostics' own value, given by this test's fixture
     # above; only the row around it belongs to the command line.
-    assert "yhdelläkään ei ollut elossa olevaa pelaajaa" in text
+    assert "not one of them had a living player" in text
 
 
 def test_the_detonation_area_coverage_and_distance_reach_the_stats(
@@ -4097,14 +4097,16 @@ def test_the_reason_for_a_missing_map_name_reaches_the_summary(
         tick_rate=64.0,
         tick_rate_measured=True,
         rounds_seen=3,
-        header_map_name_missing_reason="otsikossa ei ole map_name-kenttää lainkaan",
+        header_map_name_missing_reason="the header has no map_name field at "
+        "all -- demoparser2 has most likely renamed it",
     )
 
     result = run_parse(parse_settings, archive, parser, demo)
 
     assert (
         result.stats["header_map_name_missing_reason"]
-        == "otsikossa ei ole map_name-kenttää lainkaan"
+        == "the header has no map_name field at all -- demoparser2 has most "
+        "likely renamed it"
     )
     assert "Map missing because" in _render_parse(result, 24)
 

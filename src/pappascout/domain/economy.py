@@ -75,7 +75,7 @@ The order is deliberately steep, and the first match wins:
 2. **Pistol** -- from the round number (``pistol_rounds``), not from money.
 3. **Overtime** -- ``round_no > regulation_rounds``.
 4. **A negative purchase** -- the equipment value fell from the start of the
-   round to the end of freezetime. The observations contradict each other, so
+   round to the end of buy time. The observations contradict each other, so
    the result is ``anomaly``; damping it to zero would hide the fault. This is
    **before** the full buy: if the observations contradict each other, no
    class is read off them, however high the equipment value is.
@@ -227,9 +227,11 @@ matters is that neither observed set is close.
 
 There are no gaps left
 ----------------------
-The loss branch is exhaustive: the fourth row (``eco``) covers everything the
-first three do not, so no interval is left in the economy reasoning that would
-fall through as an anomaly. ``anomaly`` is now reserved for situations in which
+The loss branch is exhaustive: ``eco`` covers every round on which the
+purchase precondition ``force_buy_min`` is not met, and inside the purchase
+branch ``force`` is the last row that is reached when nothing above it
+matched, so no interval is left in the economy reasoning that would fall
+through as an anomaly. ``anomaly`` is now reserved for situations in which
 the **observation** is contradictory (a negative purchase, a missing or
 non-contiguous previous round) or in which practically nothing was bought after
 a win.

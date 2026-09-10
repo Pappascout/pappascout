@@ -213,7 +213,7 @@ def test_an_impossible_tick_rate_is_refused(rate: float) -> None:
 
 
 def test_a_negative_sample_second_is_refused() -> None:
-    """A negative point would point into buy time, where nobody has moved."""
+    """A negative point would point into freezetime, where nobody has moved."""
     with pytest.raises(ValueError, match="is negative"):
         sample_ticks([bounds(90)], RATE, [-1.0, 6.0])
 

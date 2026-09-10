@@ -8,7 +8,8 @@ The tree is fixed in the spine's convention table::
     index/selections/<team_key>.json             written only by select
     index/next_opponent/<team_key>.json          written only by discover
     demos/<map_demo_id>.dem.zst  + .meta.json    written only by fetch / import
-    parsed/<map_demo_id>/{ticks,events,rounds,lineups,deaths}.parquet + manifest
+    parsed/<map_demo_id>/{rounds,ticks,events,lineups,deaths,
+                          callouts,match}.parquet + manifest
     classified/<team_key>/<map_demo_id>.parquet + .md + manifest
     aggregates/<team_key>/report.json
     reports/<team_key>/<YYYY-MM-DDTHHMM>-<team_slug>.md + same name .manifest.json

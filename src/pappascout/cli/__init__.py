@@ -1473,11 +1473,11 @@ def parse(
         ),
     ),
 ) -> None:
-    """Parse a demo into six tables.
+    """Parse a demo into seven tables.
 
     Writes the ``parsed/<map_demo_id>/rounds.parquet``, ``ticks.parquet``,
-    ``events.parquet``, ``lineups.parquet``, ``deaths.parquet`` and
-    ``callouts.parquet`` tables and their manifest.
+    ``events.parquet``, ``lineups.parquet``, ``deaths.parquet``,
+    ``callouts.parquet`` and ``match.parquet`` tables and their manifest.
     If the manifest matches, the stage is skipped and the demo is not read
     again.
     """

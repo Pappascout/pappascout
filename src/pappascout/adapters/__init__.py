@@ -5,7 +5,7 @@ translates the concepts of a foreign library or interface into pappascout's
 own tables, and a stage sees only the protocol -- not demoparser2, not FACEIT,
 not HTTP (AD-8).
 
-This package has three parts:
+This package has four parts:
 
 ``protocols``
     The ports the stages take as a parameter. The import is light and does not
@@ -17,6 +17,9 @@ This package has three parts:
 ``demo_parser``
     The demoparser2 implementation. The **only** module in which the game's
     prop names (``CCSPlayerPawn.*``) appear.
+``faceit``
+    The FACEIT Data API implementation. The **only** module that makes HTTP
+    calls.
 
 ``demo_parser`` is deliberately imported by name only (``from
 pappascout.adapters.demo_parser import Demoparser2Adapter``): that way a plain

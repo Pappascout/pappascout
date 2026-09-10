@@ -5869,7 +5869,7 @@ def test_reading_the_map_name_does_not_parse_the_demo(tmp_path: Path) -> None:
 
     This is the reason the whole operation exists. The import needs the map's
     name before the file is moved into place, and if the name could only be
-    got by parsing, every import would cost a 230 MB pass into six tables --
+    got by parsing, every import would cost a 230 MB pass into seven tables --
     that is, more than the import itself.
 
     The claim is about call counters and not about run time: a slow machine

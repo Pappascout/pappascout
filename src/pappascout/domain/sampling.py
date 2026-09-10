@@ -1286,7 +1286,7 @@ def _unique_sorted_seconds(sample_seconds: Sequence[float]) -> list[float]:
         raise ValueError(
             f"The sample point {negative[0]:g} s is negative. Sample points "
             "are measured forward from the end of freezetime, so a negative "
-            "value would point into buy time, where the players have not "
+            "value would point into freezetime, where the players have not "
             "moved yet."
         )
     return sorted(set(values))

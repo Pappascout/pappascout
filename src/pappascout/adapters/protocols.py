@@ -574,7 +574,7 @@ class DemoParser(Protocol):
     **Two operations and not one (Story 3.6).** Reading the header used to be
     the adapter's private step inside a full parse, because nobody needed it
     on its own. The import does: it asks for the map's name before the file is
-    moved into place, and decompressing 230 MB into six tables is not an
+    moved into place, and decompressing 230 MB into seven tables is not an
     answer to that question. There were three alternatives, and two were
     rejected: calling the private ``_header_map_name`` (it would break the
     layer boundary that ``tests/test_layering.py`` polices, and it would tie

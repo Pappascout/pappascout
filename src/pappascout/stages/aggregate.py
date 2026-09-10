@@ -1,9 +1,9 @@
 """``aggregate`` -- the pipeline's third stage: a report from classified rounds.
 
 The stage reads a team's classified rounds from the archive
-(``classified/<team_key>/<map_demo_id>.parquet``) together with their sample
-point, event, lineup and deaths tables
-(``parsed/<map_demo_id>/{ticks,events,lineups,deaths}.parquet``) and writes
+(``classified/<team_key>/<map_demo_id>.parquet``) together with all seven of
+the demo's parsed tables (rounds, sample points, events, lineups, deaths, the
+point cloud and the match row, under ``parsed/<map_demo_id>/``) and writes
 **one file**: ``aggregates/<team_key>/report.json``, which is the
 :class:`~pappascout.domain.report.Report` model as JSON. The demo is not read.
 
@@ -20,9 +20,10 @@ only observations and counts. The interpreting is done by a human.
 
 ``team_key`` in this story
 --------------------------
-The team index (``index/teams.json``) comes into being only in the ``select``
-stage (Epic 3), so for now ``--team`` is the name of the ``classified/``
-directory, that is, the lineup key -- exactly as in the ``classify`` stage.
+The team index (``index/teams.json``) is written by the ``discover`` stage,
+but this stage does not read it, so ``--team`` is the name of the
+``classified/`` directory, that is, the lineup key -- exactly as in the
+``classify`` stage.
 
 A lineup key is a hash of the players who played the map, so **one
 substitution produces a new key**: MatureMayhem is under two different keys

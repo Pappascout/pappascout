@@ -7,7 +7,7 @@ builds its tables by hand, and not one of them needs a demo.
 
 What is computed here
 ---------------------
-Six observations, each with its own sample, at the level map -> side ->
+Seven observations, each with its own sample, at the level map -> side ->
 round type:
 
 ``positions``
@@ -40,8 +40,8 @@ round type:
     made kills. *"Cave dies so they play from the site"* and *"the enemy came
     through the secret yard"* are read from here.
 
-Two rules that do not bend
---------------------------
+Three rules that do not bend
+----------------------------
 **The player count is taken from the living only.** A dead player produces no
 row for an area; he is in the round, but not on the map.
 

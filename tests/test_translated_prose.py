@@ -1,9 +1,10 @@
 """The ratchet for prose: what has been translated stays translated.
 
 Story 3.11 started translating this repository's docstrings and comments from
-Finnish into English, one tranche at a time. Six tranches over a codebase this
-size drift without a guard: tranche four adds a Finnish docstring to something
-tranche one translated, and nobody notices until the next audit.
+Finnish into English, one tranche at a time. Seventeen tranches over a
+codebase this size drift without a guard: tranche four adds a Finnish
+docstring to something tranche one translated, and nobody notices until the
+next audit.
 
 So the work already done is **listed**, and this file re-reads the tree every
 run. Adding an entry to :data:`TRANSLATED_TRANCHES` before its tranche is done

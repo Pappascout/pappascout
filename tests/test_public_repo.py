@@ -16,6 +16,7 @@ guards against.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,38 @@ def _published_by_git() -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def _count_in_watched_files(
+    names: Iterable[str],
+) -> dict[str, tuple[int, list[str]]]:
+    """How often each name occurs in the watched set, and in which files.
+
+    Counting is case-insensitive substring counting, the same rule the
+    ceilings in the denylist were measured with. The total is accumulated
+    here rather than parsed back out of the per-file strings, so that the
+    number the guard compares and the number the failure prints are the same
+    number.
+
+    Returns:
+        Name mapped to its total across the tree and to one
+        ``path (count)`` entry per file it occurs in.
+    """
+    totals = {name: 0 for name in names}
+    places: dict[str, list[str]] = {name: [] for name in totals}
+    for path in _watched_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):  # pragma: no cover - machine
+            continue
+        lowered = text.lower()
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        for name in totals:
+            count = lowered.count(name.lower())
+            if count:
+                totals[name] += count
+                places[name].append(f"{relative} ({count})")
+    return {name: (total, places[name]) for name, total in totals.items()}
+
+
 def test_the_watched_set_is_not_empty() -> None:
     """A walker that finds nothing would pass every guard below.
 
@@ -135,40 +168,67 @@ def test_the_watched_set_is_not_empty() -> None:
     assert "conftest.py" in names
 
 
-def test_no_forbidden_name_exceeds_its_ceiling() -> None:
-    """No identifying name may appear more often than its recorded ceiling.
+def test_every_forbidden_name_is_exactly_at_its_ceiling() -> None:
+    """Every identifying name occurs exactly as often as the denylist records.
 
-    A name that is already gone has a ceiling of 0, so writing the old path
-    back into any file in the tree fails here. A name still present in prose
-    awaiting the per-package translation work carries its measured count, so
-    it cannot spread in the meantime.
+    **Equality, not "at most", and that is the whole point of the ceiling.**
+    Until 2026-09-10 this compared with ``>``, so it failed only when a name
+    spread. A name could be *removed* without the ceiling being lowered and
+    nothing went red -- the ceiling then recorded a past number, and the
+    next change could spend the slack and put the mentions back up to it.
+    That is exactly the drift the ceiling was written to stop, so a count
+    below the ceiling has to be a failure too.
 
-    The failure names the files, because a count alone does not tell the
-    reader what to fix.
+    **A ceiling of 0 loses nothing by this.** A count cannot go negative, so
+    at 0 the two comparisons are the same test. Every file ceiling on this
+    machine's list is 0 once the sync product's last two mentions are gone
+    (2026-09-10), so equality bites only where it is meant to: on a
+    positive, measured ceiling that is supposed to fall as the work removes
+    mentions.
+
+    **Falling below is a bookkeeping failure, not a defect in the tree**, so
+    the message says what to do: lower the ceiling in the machine-local file
+    in the same commit that removed the mentions, and copy the file to the
+    second machine. There is no other way to know a removal happened -- the
+    denylist is outside the repository and its two copies drift on their
+    own, and with ``>`` a stale, too-high copy passed in silence.
+
+    **The commit-metadata guard below deliberately keeps ``>``.** Its counts
+    come from ``git log --all``, whose ref set differs between clones and
+    machines, so one machine can legitimately measure fewer occurrences than
+    the machine the ceiling was measured on -- and there would be no single
+    correct number to write down. Its ceilings are all 0 today, where the
+    two comparisons coincide anyway. The asymmetry is a decision, not an
+    oversight.
+
+    Neither failure prints the name itself: the point of keeping the list
+    outside the repository is that the names do not get published, and a
+    failure message ends up in logs. A ceiling and a count identify the line
+    for anyone holding the file.
     """
     denylist = _file_ceilings()
-    hits: dict[str, list[str]] = {name: [] for name in denylist}
-    for path in _watched_files():
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):  # pragma: no cover - machine
-            continue
-        lowered = text.lower()
-        relative = path.relative_to(REPO_ROOT).as_posix()
-        for name in denylist:
-            count = lowered.count(name.lower())
-            if count:
-                hits[name].append(f"{relative} ({count})")
-
-    over = {
-        name: places
-        for name, places in hits.items()
-        if sum(int(place.rsplit("(", 1)[1].rstrip(")")) for place in places)
-        > denylist[name]
-    }
-    assert not over, "a forbidden name is over its ceiling: " + "; ".join(
-        f"in {len(places)} files -> {', '.join(places)}"
-        for places in over.values()
+    measured = _count_in_watched_files(denylist)
+    over: list[str] = []
+    under: list[str] = []
+    for name, (found, places) in measured.items():
+        ceiling = denylist[name]
+        if found > ceiling:
+            over.append(
+                f"ceiling {ceiling}, now {found}, in " + ", ".join(places)
+            )
+        elif found < ceiling:
+            where = ", ".join(places) if places else "gone from the tree"
+            under.append(f"ceiling {ceiling}, now {found} ({where})")
+    assert not over, (
+        "a forbidden name is over its ceiling. Remove the new occurrences; "
+        "never raise a ceiling: " + "; ".join(over)
+    )
+    assert not under, (
+        "a forbidden name is under its ceiling, so the ceiling records a "
+        "past number and a later change could spend the difference. Lower "
+        f"it to the measured count in {FORBIDDEN_NAMES_FILE}, in the same "
+        "commit that removed the mentions, and copy that file to the other "
+        "machine. Never raise a ceiling: " + "; ".join(under)
     )
 
 

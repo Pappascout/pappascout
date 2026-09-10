@@ -1,4 +1,4 @@
-"""The demoparser2 implementation of all six parse tables (AD-8).
+"""The demoparser2 implementation of all seven parse tables (AD-8).
 
 **This is the only module where the game's prop names appear.** The stage sees
 only the :class:`~pappascout.adapters.protocols.DemoParser` port, so replacing
@@ -563,12 +563,12 @@ TICK_PROPS: tuple[str, ...] = (
 #: boundaries: the setup needs only position, side and whether the player is
 #: alive -- the economy values are a property of the round, not of the moment.
 #:
-#: **One of these is a controller field and four are the pawn's.**
+#: **One of these is a controller field and five are the pawn's.**
 #: ``m_iTeamNum`` comes from ``CCSPlayerController`` and is there even for a
-#: player who has no character on the map; the other four are
+#: player who has no character on the map; the other five are
 #: ``CCSPlayerPawn`` fields and disappear with him. The difference is measured
 #: in this module's documentation, and it is the reason why
-#: :meth:`Demoparser2Adapter._read_sample_ticks` looks at four fields and not
+#: :meth:`Demoparser2Adapter._read_sample_ticks` looks at five fields and not
 #: one.
 SAMPLE_TICK_PROPS: tuple[str, ...] = (
     _TEAM_NUM,

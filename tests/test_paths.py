@@ -478,7 +478,7 @@ def test_an_unset_variable_in_demos_root_is_refused(
     Without the check the run would create a directory named literally
     ``%DEMOS%`` and write 2.3 GB of demos into it. This has already happened
     once in this repository, on the archive root (see
-    ``test_an_unset_variable_in_the_path_is_refused``).
+    ``test_unset_variable_is_an_error_not_a_literal_directory``).
     """
     monkeypatch.delenv("DOES_NOT_EXIST", raising=False)
 

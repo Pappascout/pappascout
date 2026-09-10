@@ -1250,7 +1250,8 @@ class TeamReport(_Node):
     lineup_keys: list[str]
     roster: list[RosterEntry]
     #: Where ``roster`` comes from. ``lineups`` = observed from the demos;
-    #: ``index`` = from the team index (Epic 3, does not exist yet).
+    #: ``index`` = from the team index (``index/teams.json``, which the
+    #: ``discover`` stage writes). No stage produces the ``index`` value yet.
     roster_source: Literal["lineups", "index"]
 
     @model_validator(mode="after")

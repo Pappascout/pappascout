@@ -91,9 +91,9 @@ RoundType = Literal["pistol", "eco", "half", "force", "full", "ot", "anomaly"]
 #: A pistol round is **not** a saving round even though there is little money:
 #: neither side has buying power then, so an advance says nothing about a plan.
 #:
-#: **NOTE: the word "saving round" means something else in the README.** There
-#: it is a rendering rule -- the round types the report describes round by
-#: round (``pistol``, ``eco``, ``force``, ``half``) as opposed to
+#: **NOTE: the word "saving round" means something else in the rendering.**
+#: There it is a rendering rule -- the round types the report describes round
+#: by round (``pistol``, ``eco``, ``force``, ``half``) as opposed to
 #: ``render.view.PATTERN_ROUND_TYPES`` (``full``, ``ot``). This list is
 #: **economic**: the round types on which a team cannot afford a normal buy.
 #: The pistol round belongs to the former but not to this one, and that is the

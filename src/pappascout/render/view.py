@@ -3041,7 +3041,8 @@ def _title(report: Report) -> str:
     The name goes into the title only if it has been **observed**. Without
     the observation, no digest is written into the title in the name's place:
     ``# 9ac92660986558d3 -- scouting-raportti`` reads as if the team were
-    named that. The id is in the summary, where it is an id and not a name.
+    named that. The id is in the chapter :data:`TRACEABILITY_HEADING`, where
+    it is an id and not a name.
     """
     team = report.team
     if _has_name(team):

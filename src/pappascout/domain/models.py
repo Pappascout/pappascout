@@ -476,9 +476,11 @@ class ParseSettings(_Section):
 
         Three ways to break silently:
 
-        * **An empty list** got past the ``min_length=1`` check only when the
-          key is missing altogether -- but ``[]`` is a different thing: the
-          table would then hold nothing but first contacts, and a faulty
+        * **An empty list** never reaches this validator: ``min_length=1``
+          refuses ``[]`` as ``too_short`` and a missing key as ``Field
+          required`` (measured on pydantic 2.13.4). The check below is a
+          second lock that says the consequence out loud: the table would
+          otherwise hold nothing but first contacts, and a faulty
           configuration would look like a successful run.
         * **NaN or infinity** would break the ``round()`` call in the middle
           of parsing, after hundreds of megabytes have been read.
@@ -545,16 +547,17 @@ class ThresholdSettings(_Section):
       data would give the same result over a wide range
       (``normal_buy_players_min``).
 
-    The sampling bounds (``small_sample_rounds``, ``stack_min_players``,
-    ``roster_*``) are still waiting for data of their own.
+    The sampling bounds (``small_sample_rounds``, ``roster_*``) are still
+    waiting for data of their own.
 
     Story 2.5's anomaly thresholds (``advance_*``, ``crunch_*``) are
     ``[kalibroitu]``: each was measured on eight demos and two different
     teams (``kalibrointi-ct-eteneminen.md``), and how often they fire is of
     the order of an anomaly rather than of ordinary play.
-    ``stack_min_players`` goes unused -- the stack rule was measured to be
-    impossible with the present division into areas and was moved into a
-    story of its own.
+    ``stack_min_players`` sat unused until Story 2.14: the stack rule became
+    possible once the missing piece -- a mapping area -> area group -- could
+    be derived from the demo's own point cloud, and the rule reads the
+    threshold now.
 
     The sums of money are dollars **per player**, except
     ``normal_buy_money_min``, which is **one player's** own balance and not
@@ -1186,7 +1189,7 @@ class Settings(BaseSettings):
         # and without the check either class would vanish silently.
         # The anomaly time bound selects among the SAMPLE POINTS, which
         # [parse] decides. A bound smaller than the earliest sample point
-        # silences both anomaly rules permanently -- and the report would
+        # silences all three anomaly rules permanently -- and the report would
         # then claim "no anomalies" as an observation although not one sample
         # point was ever examined. Neither section can check this alone, so
         # the check is here.
