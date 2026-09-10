@@ -94,10 +94,19 @@ def _commit_ceilings() -> dict[str, int]:
     }
 
 
-def _identity_fields() -> list[str]:
-    """Author and committer name and mail from every commit in the history."""
+def _published_by_git() -> list[str]:
+    """Everything git publishes about a commit besides its content.
+
+    Author and committer name and mail, **and the message**. The message half
+    was added 2026-09-10, after the first history rewrite: the guard had read
+    identities only, and Story 3.10's own commit message still named the
+    employer -- in a sentence explaining that it had removed the employer's
+    name. Neither guard could see it. The file walker does not read commit
+    data at all and this one was not reading messages, so a name could sit in
+    the one place both of them looked past.
+    """
     result = subprocess.run(
-        ["git", "log", "--all", "--format=%an%n%ae%n%cn%n%ce"],
+        ["git", "log", "--all", "--format=%an%n%ae%n%cn%n%ce%n%B"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -189,13 +198,14 @@ def test_the_history_is_not_empty() -> None:
     no commits at all. That is the same no-op this file already refuses for
     the file walker.
     """
-    fields = _identity_fields()
+    fields = _published_by_git()
     assert len(fields) >= 40, len(fields)
     assert any("@" in field for field in fields), "no mail address in any commit"
+    assert any("Story" in field for field in fields), "no message text in any commit"
 
 
 def test_no_forbidden_name_is_in_the_commit_metadata() -> None:
-    """Author and committer identity carry no name the denylist forbids.
+    """Identity **and message** carry no name the denylist forbids.
 
     **This guard exists because its absence was the leak.** Every other check
     here walks files, and files were clean: the sweep that removed the
@@ -215,7 +225,7 @@ def test_no_forbidden_name_is_in_the_commit_metadata() -> None:
         "the denylist records no commit: entries, so this guard checks "
         "nothing -- see COMMIT_PREFIX"
     )
-    fields = [field.lower() for field in _identity_fields()]
+    fields = [field.lower() for field in _published_by_git()]
     over: dict[str, tuple[int, int]] = {}
     for name, ceiling in ceilings.items():
         found = sum(field.count(name.lower()) for field in fields)
