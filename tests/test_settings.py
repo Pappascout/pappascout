@@ -562,9 +562,7 @@ def test_the_shipped_settings_fail_loudly_without_the_environment_variable(
     settings = load_settings(REAL_SETTINGS, env_files=())
 
     with pytest.raises(PappascoutError) as exc:
-        ArchivePaths.from_settings(
-            settings.project.archive_root, settings.project.demos_root
-        )
+        ArchivePaths.from_settings(settings.project.archive_root)
 
     message = str(exc.value)
     assert ARCHIVE_ROOT_ENV_VAR in message
@@ -581,9 +579,7 @@ def test_the_environment_variable_reaches_the_shipped_settings(
     """
     monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "arkisto"))
     settings = load_settings(REAL_SETTINGS, env_files=())
-    archive = ArchivePaths.from_settings(
-        settings.project.archive_root, settings.project.demos_root
-    )
+    archive = ArchivePaths.from_settings(settings.project.archive_root)
     assert archive.root == tmp_path / "arkisto"
 
 
@@ -1509,8 +1505,7 @@ def test_a_zero_z_weight_is_allowed(tmp_path: Path) -> None:
 def test_the_shipped_settings_keep_demos_in_the_archive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The demos go into the archive, and that is a decision and not a
-    missing value.
+    """A run configured the normal way puts the demos in the archive.
 
     Decided 2026-09-05 after new information. Two grounds:
 
@@ -1521,36 +1516,49 @@ def test_the_shipped_settings_keep_demos_in_the_archive(
     2. **A synchronised folder frees a parsed demo's space without deleting
        the file.** In a local folder freeing that space is a final deletion.
 
-    The claim is about the **versioned settings file**, and that is the same
-    place the decision would live if it were reversed: taking the line out of
-    the comments switches the mode, and this test then says so.
+    **This test used to pass vacuously and now does not** (2026-09-10). It
+    asserted that the shipped ``[project].demos_root`` was unset and that the
+    demos therefore went into the archive -- but the archive override ignored
+    that setting whatever its value, so the second claim followed from the
+    first not at all. The setting is gone; what is left is the claim that
+    actually needs proving, and the only one this configuration can break:
+    the demos land inside the archive **this run resolved**, not inside some
+    other one. That is what makes ``PAPPASCOUT_ARCHIVE_ROOT`` real isolation,
+    and its counterpart is
+    ``test_the_demos_root_variable_wins_over_the_redirected_archive``.
     """
     # The versioned ``archive_root`` is a placeholder that fails without the
-    # environment variable (Story 3.10). This test's claim is about
-    # ``demos_root``, so point the archive at tmp_path -- never at the
-    # machine's own.
+    # environment variable (Story 3.10), so point the archive at tmp_path --
+    # never at the machine's own.
     monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "arkisto"))
 
     settings = load_settings(REAL_SETTINGS)
-    assert settings.project.demos_root is None
+    archive = ArchivePaths.from_settings(settings.project.archive_root)
 
-    archive = ArchivePaths.from_settings(
-        settings.project.archive_root, settings.project.demos_root
-    )
-    assert archive.demos_dir() == archive.root / "demos"
+    assert archive.root == tmp_path / "arkisto"
+    assert archive.demos_root is None
+    assert archive.demos_dir() == tmp_path / "arkisto" / "demos"
     assert archive.demos_dir() == archive.archive_demos_dir()
 
 
-def test_the_demos_root_setting_stays_documented_in_the_shipped_file() -> None:
-    """The commented-out line is guidance, not a leftover.
+def test_the_demo_directory_escape_hatch_stays_documented_in_the_shipped_file() -> None:
+    """The comment is guidance, not a leftover.
 
-    The setting is a supported mode for when disk space runs out on a machine
-    where the cloud is not an option. If the line vanished from the file, the
-    only way to find it would be to read the source -- and the user does not
-    write code.
+    Moving the demos out is a supported mode for when disk space runs out on
+    a machine where the cloud is not an option, and since 2026-09-10 the only
+    way to do it is ``PAPPASCOUT_DEMOS_ROOT``. The setting that used to be
+    here was removed because the archive override had made it dead on every
+    real run -- but the file is where the user looks, so the capability is
+    named here even though it is not configured here. If it vanished from the
+    file, the only way to find it would be to read the source.
     """
     text = REAL_SETTINGS.read_text(encoding="utf-8")
-    assert "# demos_root = " in text
+    assert "PAPPASCOUT_DEMOS_ROOT" in text
+    # The removed setting must not linger as a line the user could uncomment:
+    # it would read as a supported mode, and pydantic refuses the key.
+    assert not [
+        row for row in text.splitlines() if row.lstrip("# ").startswith("demos_root")
+    ]
     # The rationale is beside the line and not in someone's memory -- and it
     # is described as a property rather than as a product name, because the
     # repository is public. Keeping the product name out of the file is the

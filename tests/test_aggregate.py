@@ -48,7 +48,12 @@ from pappascout.domain.aggregate import (
 )
 from pappascout.constants import ROSTER_CLASS_BUCKET
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
-from pappascout.domain.report import MissingDemo, RosterEntry, TeamReport
+from pappascout.domain.report import (
+    SLUG_FALLBACK,
+    MissingDemo,
+    RosterEntry,
+    TeamReport,
+)
 from pappascout.domain.sampling import AreaObservations, CloudCell
 from pappascout.domain.schemas import (
     ARMED_COLUMN,
@@ -844,6 +849,23 @@ def test_unknown_lineup_is_an_error_not_an_empty_team() -> None:
 
 def test_team_slug_survives_an_identifier_that_is_not_a_filename() -> None:
     assert team_slug("Mature Mayhem / 2026") == "mature-mayhem-2026"
+
+
+def test_the_shared_slug_fallback_is_the_english_word() -> None:
+    """The value itself, pinned -- because it reaches a file name.
+
+    Every other claim about the fallback compares against the constant
+    (``slug != SLUG_FALLBACK``), so the constant could be changed to anything
+    at all and the suite would stay green. It is a **user-visible file name**,
+    ``<timestamp>-team.md``, so it is pinned as a literal here and nowhere
+    else: changing it has to be a decision that shows in a diff.
+
+    It is English while the report's content is Finnish, and that is the
+    boundary rather than an oversight (decided 2026-09-10): a file name is
+    not content.
+    """
+    assert SLUG_FALLBACK == "team"
+    assert team_slug("Кибер") == SLUG_FALLBACK
 
 
 # --- Sampling -------------------------------------------------------------------

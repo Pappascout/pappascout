@@ -36,6 +36,7 @@ from pappascout.constants import (
     ROUND_TYPE_FI,
     ROUND_TYPES,
     SAMPLE_KINDS,
+    SampleBucketName,
     SIDES,
     EventKind,
     RosterClass,
@@ -59,6 +60,7 @@ PAIRS = [
     ("AREA_SOURCES", AREA_SOURCES, AreaSource),
     ("ROSTER_CLASSES", ROSTER_CLASSES, RosterClass),
     ("SITE_GROUPS", SITE_GROUPS, SiteGroup),
+    ("SAMPLE_BUCKETS", SAMPLE_BUCKETS, SampleBucketName),
 ]
 
 

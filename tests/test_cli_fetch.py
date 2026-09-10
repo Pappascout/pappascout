@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 from test_stage_discover import CHAMPIONSHIP, FakeSource, division_matches
 from conftest import LOCAL_DEMOS_DIRNAME
+from pappascout.archive.paths import DEMOS_ROOT_ENV_VAR
 from test_stage_fetch import DEMO_BYTES, FakeDemo, FakeDemoSource
 from typer.testing import CliRunner
 
@@ -56,22 +57,15 @@ SUBJECT = "Potku"
 def pipeline(request, settings_file: Path, tmp_path: Path, monkeypatch):
     """The real stages, fake ports, the archive in a temporary directory.
 
-    **Both demo directory modes, in every test.** The versioned
-    ``settings.toml`` chooses the archive, but ``[project].demos_root`` is a
-    supported mode -- and a mode the command tests do not run goes through
-    the CLI zero times. Turning the gap the other way round is not a fix.
+    **Both demo directory modes, in every test.** Without a variable the
+    demos go into the archive, but ``PAPPASCOUT_DEMOS_ROOT`` is a supported
+    mode -- and a mode the command tests do not run goes through the CLI zero
+    times. Turning the gap the other way round is not a fix.
 
     Returns ``(archive, source, units)``.
     """
     if request.param == "paikallinen":
-        text = settings_file.read_text(encoding="utf-8")
-        line = next(
-            r for r in text.splitlines() if r.startswith("# demos_root = ")
-        )
-        settings_file.write_text(
-            text.replace(line, f"demos_root = '{tmp_path / 'paikalliset'}'", 1),
-            encoding="utf-8",
-        )
+        monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, str(tmp_path / "paikalliset"))
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
     monkeypatch.setattr(
         "pappascout.stages.discover.default_source",
@@ -298,23 +292,22 @@ def test_without_a_selection_file_the_error_says_to_run_select(
     assert "select" in captured.err + captured.out
 
 
-def test_the_local_demos_root_setting_moves_the_files_out_of_the_archive(
-    settings_file_local_demos, tmp_path, monkeypatch
+def test_the_local_demos_root_variable_moves_the_files_out_of_the_archive(
+    settings_file, local_demos_root, monkeypatch
 ) -> None:
-    """``[project].demos_root`` points the demos outside the synchronised folder.
+    """``PAPPASCOUT_DEMOS_ROOT`` points the demos outside the synchronised folder.
 
-    The line is commented out in the versioned file -- the archive is the
-    default, because it follows from one machine to the other and the sync
-    client frees a parsed demo's space without deleting the file. The mode is
-    supported even so, and this test runs the whole command with a real
-    settings file: the setting, ``ArchivePaths`` and the stage are proved
-    together, because not one of them alone shows that the file ends up in
-    another directory.
+    Unset, the demos go into the archive -- the default, because the archive
+    follows from one machine to the other and the sync client frees a parsed
+    demo's space without deleting the file. The other mode is supported even
+    so, and this test runs the whole command with a real settings file: the
+    variable, ``ArchivePaths`` and the stage are proved together, because not
+    one of them alone shows that the file ends up in another directory.
     """
     from pappascout.domain.models import load_settings
 
-    local = tmp_path / LOCAL_DEMOS_DIRNAME
-    monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file_local_demos))
+    local = local_demos_root
+    monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
     monkeypatch.setattr(
         "pappascout.stages.discover.default_source",
         lambda settings, archive: FakeSource({CHAMPIONSHIP: division_matches()}),
@@ -723,7 +716,7 @@ def test_the_same_byte_count_prints_the_same_string_in_every_command() -> None:
 # -- The default mode goes through the command (B6) --------------------------
 
 
-def test_without_demos_root_the_demos_go_into_the_archive(
+def test_without_the_demos_root_variable_the_demos_go_into_the_archive(
     settings_file, monkeypatch
 ) -> None:
     """The default that ships: the demos into the archive's ``demos/``.
@@ -791,16 +784,15 @@ def test_a_disk_that_fills_up_between_demos_stops_only_that_demo(
 
 
 def test_info_names_the_demo_directory(
-    settings_file_local_demos, monkeypatch, tmp_path
+    settings_file, local_demos_root, monkeypatch
 ) -> None:
     from pappascout.domain.models import load_settings
 
-    monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file_local_demos))
+    monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
 
     rendered = _render_info(load_settings())
 
-    local = tmp_path / LOCAL_DEMOS_DIRNAME
-    assert f"Demos              {local} (local)" in rendered
+    assert f"Demos              {local_demos_root} (local)" in rendered
 
 
 def test_info_says_the_archive_directory_when_there_is_no_local_one(
@@ -822,8 +814,8 @@ def test_info_says_the_archive_directory_when_there_is_no_local_one(
 # -- The target directory is part of the question (product owner 2026-09-05) -
 #
 # The product owner suggested that the tool should ask where to save. No
-# separate question is asked -- the settings line and the info command are
-# already that answer, and a question repeated on every run would be noise.
+# separate question is asked -- the environment variable and the info command
+# are already that answer, and a question repeated on every run would be noise.
 # Instead **the confirmation question names the target** just as it gives the
 # count and the size: the user sees where the writing is about to go at the
 # moment it is decided, and can stop if it is wrong. The path is therefore to

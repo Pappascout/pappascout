@@ -17,7 +17,11 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from pappascout.archive.paths import ARCHIVE_ROOT_ENV_VAR, ArchivePaths
+from pappascout.archive.paths import (
+    ARCHIVE_ROOT_ENV_VAR,
+    DEMOS_ROOT_ENV_VAR,
+    ArchivePaths,
+)
 from pappascout.domain.schemas import Schema
 from pappascout.errors import PappascoutError
 
@@ -479,11 +483,11 @@ def settings_text(archive_root: Path | str, **replacements: str) -> str:
 def settings_file(tmp_path: Path) -> Path:
     """A copy of the real ``settings.toml``, the archive redirected to tmp_path.
 
-    The demos go into the archive's own ``demos/``, because that is what the
-    versioned settings file does too. The other mode is
-    :func:`settings_file_local_demos`, and **both have to be run through a
-    command**: the mode a fixture does not cover never passes through the CLI
-    at all, and its breaking would show only in the stage tests.
+    The demos go into the archive's own ``demos/``, because that is what a
+    run without ``PAPPASCOUT_DEMOS_ROOT`` does too. The other mode is
+    :func:`local_demos_root`, and **both have to be run through a command**:
+    the mode a fixture does not cover never passes through the CLI at all,
+    and its breaking would show only in the stage tests.
     """
     archive_dir = tmp_path / "arkisto"
     target = tmp_path / "settings.toml"
@@ -491,31 +495,31 @@ def settings_file(tmp_path: Path) -> Path:
     return target
 
 
-#: Where the downloaded demos are when ``[project].demos_root`` is in use.
+#: Where the downloaded demos are when ``PAPPASCOUT_DEMOS_ROOT`` is set.
 LOCAL_DEMOS_DIRNAME = "paikalliset-demot"
 
 
 @pytest.fixture
-def settings_file_local_demos(tmp_path: Path) -> Path:
-    """The same settings file, but with the demos **outside** the archive.
+def local_demos_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The other demo directory mode: the demos **outside** the archive.
 
-    The line is commented out in the versioned file (the archive is the
-    default, because it follows from one machine to the other and the sync
-    client can free a parsed demo's space without deleting the file). It is a
-    supported mode all the same -- and a supported mode that no command test
-    runs is a mode whose breaking the user is the first to notice.
+    The archive is the default, because it follows from one machine to the
+    other and the sync client can free a parsed demo's space without deleting
+    the file. Moving them out is a supported mode all the same -- and a
+    supported mode that no command test runs is a mode whose breaking the
+    user is the first to notice.
+
+    It is set through the environment and not through ``settings.toml``,
+    because that is the only way there is: the setting was removed
+    2026-09-10 (it had been dead since Story 3.10 made the archive override
+    normal), and ``PAPPASCOUT_DEMOS_ROOT`` is what the user has. A fixture
+    that wrote a settings line would prove a path production never takes.
+
+    Use it beside :func:`settings_file`, which the command still needs.
     """
-    archive_dir = tmp_path / "arkisto"
-    target = tmp_path / "settings.toml"
-    text = settings_text(archive_dir)
-    marker = "# demos_root = "
-    assert marker in text, "the versioned settings.toml has no demos_root line"
-    line = next(r for r in text.splitlines() if r.startswith(marker))
-    text = text.replace(
-        line, f"demos_root = '{tmp_path / LOCAL_DEMOS_DIRNAME}'", 1
-    )
-    target.write_text(text, encoding="utf-8")
-    return target
+    local = tmp_path / LOCAL_DEMOS_DIRNAME
+    monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, str(local))
+    return local
 
 
 @pytest.fixture

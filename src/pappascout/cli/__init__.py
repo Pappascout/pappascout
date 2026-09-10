@@ -712,10 +712,11 @@ def fetch(
     whose roster_ok is true and which are not on the disk yet. Run select
     first if there is no selection file.
 
-    The demos are written into the directory named by the [project].demos_root
-    setting, or into the archive's demos directory if the setting is not
-    there. A demo that is already in either one is skipped -- so taking the
-    setting into use does not download anything again.
+    The demos are written into the directory named by the
+    PAPPASCOUT_DEMOS_ROOT environment variable, or into the archive's demos
+    directory if that variable is not set. A demo that is already in either
+    one is skipped -- so setting the variable does not download anything
+    again.
 
     The download is safe to run again, and one demo failing does not stop the
     others. A demo that FACEIT no longer offers is marked with the status
@@ -787,7 +788,7 @@ def _disk_space_gate(demos_dir: str, free: int | None) -> None:
             f"reservation needs {fetch_stage.size_fi(need)}.\n"
             "Free some space by deleting demos that have been parsed (the "
             "parsed tables stay) or point the demos at another disk with the "
-            "[project].demos_root setting."
+            "PAPPASCOUT_DEMOS_ROOT environment variable."
         )
 
 

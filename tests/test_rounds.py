@@ -249,7 +249,7 @@ def test_ct_wins_when_nobody_does_anything() -> None:
     check_win_reasons(wins(("CT", True, "time_ran_out"), ("T", False, "time_ran_out")))
 
 
-@pytest.mark.parametrize("reason", ["t_killed", "bomb_defused", "t_saved"])
+@pytest.mark.parametrize("reason", sorted(CT_WIN_REASONS))
 def test_t_cannot_win_by_a_ct_reason(reason: str) -> None:
     with pytest.raises(ParseError) as exc:
         check_win_reasons(wins(("T", True, reason)))
@@ -258,7 +258,7 @@ def test_t_cannot_win_by_a_ct_reason(reason: str) -> None:
     assert "wrong way round" in message
 
 
-@pytest.mark.parametrize("reason", ["ct_killed", "bomb_exploded"])
+@pytest.mark.parametrize("reason", sorted(T_WIN_REASONS))
 def test_ct_cannot_win_by_a_t_reason(reason: str) -> None:
     with pytest.raises(ParseError, match="against the rules"):
         check_win_reasons(wins(("CT", True, reason)))

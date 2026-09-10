@@ -264,34 +264,12 @@ class ProjectSettings(_Section):
         own_team_name: Own team.
         archive_root: The archive root. In a synchronised folder and shared
             by both machines.
-        demos_root: **A directory for downloaded demos outside the archive**,
-            or ``None`` = the archive's own ``demos/``.
-
-            **The default is ``None``, and that is a decision and not a
-            missing value** (2026-09-05). The archive is in a synchronised
-            folder and follows from one machine to the other; demos in a
-            local folder do not follow, and on the other machine they would
-            be fetched from FACEIT again -- which works for about 30 days
-            only. On top of that, a sync client frees the local space a
-            parsed demo takes **without deleting the file**, leaving a cloud
-            placeholder, whereas in a local folder freeing that space is a
-            final deletion. The difference in size (a demo 142-223 MB, its
-            parsed result about 1 MB) would argue for a local directory, but
-            that solves disk space only -- and the cloud solves it without
-            the material being left on one machine.
-
-            The setting exists all the same, because disk space can run out
-            on a machine where the cloud is not an option. Changing it
-            **downloads nothing again**: demos already in the archive are
-            still found (see
-            :meth:`~pappascout.archive.paths.ArchivePaths.find_demo`).
         language: The user interface language.
         lock_ttl_seconds: The archive lock's expiry time.
     """
 
     own_team_name: str
     archive_root: Path
-    demos_root: Path | None = None
     language: Literal["fi"] = "fi"
     lock_ttl_seconds: PositiveInt = 600
 

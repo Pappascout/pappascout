@@ -468,7 +468,85 @@ def test_find_demo_accepts_both_compressions(tmp_path: Path) -> None:
 # -- The demo directory: environment variables and guards (Story 3.4) --------
 
 
-def test_an_unset_variable_in_demos_root_is_refused(
+def test_a_set_variable_in_the_demo_directory_is_expanded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The variable's own value is expanded, exactly as the archive root is.
+
+    Otherwise the demo directory would be the only path that cannot be
+    written machine-independently.
+    """
+    monkeypatch.setenv("DEMOS_DRIVE", str(tmp_path))
+    monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, r"%DEMOS_DRIVE%\demos")
+
+    archive = ArchivePaths.from_settings(r"C:\archive")
+
+    assert archive.demos_root == tmp_path / "demos"
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_demo_directory_means_the_archive_directory(
+    blank: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A blank variable is "not set", not an empty path.
+
+    Without this branch ``Path("")`` would point at the working directory,
+    and the demos would go wherever the command happened to be run from.
+    A whitespace value is the one that needs the branch: it is truthy.
+    """
+    monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, blank)
+
+    archive = ArchivePaths.from_settings(r"C:\archive")
+
+    assert archive.demos_root is None
+    assert archive.demos_dir() == archive.archive_demos_dir()
+
+
+def test_the_demos_follow_the_redirected_archive_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Isolation is not isolation if it covers only some of the paths.
+
+    ``PAPPASCOUT_ARCHIVE_ROOT`` exists precisely so a run can be pointed at
+    a test archive without touching the production files. If anything else
+    could hold the demos back, a ``fetch`` run against a test archive would
+    write and read the **production** demo directory -- silently, and because
+    of idempotence in such a way that the run would appear to succeed without
+    downloading anything. Since 2026-09-10 nothing can: there is no setting
+    left to disagree, and the only other source is the variable below.
+    """
+    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "test-archive"))
+
+    archive = ArchivePaths.from_settings(r"C:\production")
+
+    assert archive.root == tmp_path / "test-archive"
+    assert archive.demos_root is None
+    assert archive.demos_dir() == tmp_path / "test-archive" / "demos"
+
+
+def test_the_demos_root_variable_wins_over_the_redirected_archive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Saying it explicitly wins: "demos here" even in a redirected run."""
+    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "test-archive"))
+    monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, str(tmp_path / "separate"))
+
+    archive = ArchivePaths.from_settings(r"C:\production")
+
+    assert archive.demos_root == tmp_path / "separate"
+
+
+def test_the_demos_root_variable_works_without_an_archive_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, str(tmp_path / "separate"))
+
+    archive = ArchivePaths.from_settings(r"C:\production")
+
+    assert archive.demos_root == tmp_path / "separate"
+
+
+def test_an_unset_variable_in_the_demos_root_variable_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The same guard as on the archive root, and for the same reason.
@@ -481,92 +559,15 @@ def test_an_unset_variable_in_demos_root_is_refused(
     ``test_unset_variable_is_an_error_not_a_literal_directory``).
     """
     monkeypatch.delenv("DOES_NOT_EXIST", raising=False)
-
-    with pytest.raises(PappascoutError) as excinfo:
-        ArchivePaths.from_settings(r"C:\archive", r"%DOES_NOT_EXIST%\demos")
-
-    message = str(excinfo.value)
-    assert "DOES_NOT_EXIST" in message
-    # The message names the **demo directory** and not the archive root: the
-    # wrong name would send the reader to fix the wrong settings.toml line.
-    assert "The demo directory path" in message
-    assert "demos_root" in message
-
-
-def test_a_set_variable_in_demos_root_is_expanded(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setenv("DEMOS_DRIVE", str(tmp_path))
-
-    archive = ArchivePaths.from_settings(r"C:\archive", r"%DEMOS_DRIVE%\demos")
-
-    assert archive.demos_root == tmp_path / "demos"
-
-
-@pytest.mark.parametrize("blank", ["", "   "])
-def test_a_blank_demos_root_means_the_archive_directory(blank: str) -> None:
-    """A blank line in the settings file is "not set", not an empty path.
-
-    Without this branch ``Path("")`` would point at the working directory,
-    and the demos would go wherever the command happened to be run from.
-    """
-    archive = ArchivePaths.from_settings(r"C:\archive", blank)
-
-    assert archive.demos_root is None
-    assert archive.demos_dir() == archive.archive_demos_dir()
-
-
-def test_overriding_the_archive_root_takes_the_demos_with_it(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Isolation is not isolation if it covers only some of the paths.
-
-    ``PAPPASCOUT_ARCHIVE_ROOT`` exists precisely so a run can be pointed at
-    a test archive without touching the production files. If ``demos_root``
-    stayed in force, a ``fetch`` run against a test archive would write and
-    read the **production** demo directory -- silently, and because of
-    idempotence in such a way that the run would appear to succeed without
-    downloading anything.
-    """
-    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "test-archive"))
-
-    archive = ArchivePaths.from_settings(r"C:\production", r"C:\production-demos")
-
-    assert archive.root == tmp_path / "test-archive"
-    assert archive.demos_root is None
-    assert archive.demos_dir() == tmp_path / "test-archive" / "demos"
-
-
-def test_the_demos_root_variable_wins_over_both(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Saying it explicitly wins: "demos here" even in a redirected run."""
-    monkeypatch.setenv(ARCHIVE_ROOT_ENV_VAR, str(tmp_path / "test-archive"))
-    monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, str(tmp_path / "separate"))
-
-    archive = ArchivePaths.from_settings(r"C:\production", r"C:\production-demos")
-
-    assert archive.demos_root == tmp_path / "separate"
-
-
-def test_the_demos_root_variable_works_without_an_archive_override(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, str(tmp_path / "separate"))
-
-    archive = ArchivePaths.from_settings(r"C:\production", r"C:\production-demos")
-
-    assert archive.demos_root == tmp_path / "separate"
-
-
-def test_an_unset_variable_in_the_demos_root_variable_is_refused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The same guard for the variable's value too, and it names the source."""
-    monkeypatch.delenv("DOES_NOT_EXIST", raising=False)
     monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, r"%DOES_NOT_EXIST%\demos")
 
     with pytest.raises(PappascoutError) as excinfo:
         ArchivePaths.from_settings(r"C:\archive")
 
-    assert DEMOS_ROOT_ENV_VAR in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "DOES_NOT_EXIST" in message
+    # The message names the **demo directory** and not the archive root, and
+    # it names the variable: the wrong name would send the reader to fix the
+    # wrong thing.
+    assert "The demo directory path" in message
+    assert DEMOS_ROOT_ENV_VAR in message

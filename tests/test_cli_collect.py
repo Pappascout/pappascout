@@ -26,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import LOCAL_DEMOS_DIRNAME
+from pappascout.archive.paths import DEMOS_ROOT_ENV_VAR
 from test_stage_discover import CHAMPIONSHIP, FakeSource, division_matches
 from test_stage_fetch import DEMO_BYTES, FakeDemo, FakeDemoSource
 from typer.testing import CliRunner
@@ -179,12 +179,7 @@ def division(request, settings_file: Path, tmp_path: Path, monkeypatch) -> Divis
     the command tests do not run goes through the CLI zero times.
     """
     if request.param == "paikallinen":
-        text = settings_file.read_text(encoding="utf-8")
-        line = next(r for r in text.splitlines() if r.startswith("# demos_root = "))
-        settings_file.write_text(
-            text.replace(line, f"demos_root = '{tmp_path / 'paikalliset'}'", 1),
-            encoding="utf-8",
-        )
+        monkeypatch.setenv(DEMOS_ROOT_ENV_VAR, str(tmp_path / "paikalliset"))
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
 
     settings = load_settings()
@@ -1180,11 +1175,11 @@ def test_an_index_without_a_timestamp_does_not_invent_one() -> None:
 # -- The default mode and the local mode go through the command --------------
 
 
-def test_the_local_demos_root_setting_moves_the_files_out_of_the_archive(
-    settings_file_local_demos, tmp_path, monkeypatch
+def test_the_local_demos_root_variable_moves_the_files_out_of_the_archive(
+    settings_file, local_demos_root, monkeypatch
 ) -> None:
-    local = tmp_path / LOCAL_DEMOS_DIRNAME
-    monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file_local_demos))
+    local = local_demos_root
+    monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
     monkeypatch.setattr(fetch_stage, "free_space", lambda _archive: 100 * 1024**3)
 
     settings = load_settings()
@@ -1208,7 +1203,7 @@ def test_the_local_demos_root_setting_moves_the_files_out_of_the_archive(
     assert str(local) in result.output
 
 
-def test_without_demos_root_the_demos_go_into_the_archive(
+def test_without_the_demos_root_variable_the_demos_go_into_the_archive(
     settings_file, monkeypatch
 ) -> None:
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))

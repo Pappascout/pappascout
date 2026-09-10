@@ -1468,8 +1468,8 @@ def _archive_outputs(
 
     The same rule and the same justification as in
     ``stages.fetch._archive_outputs``: by contract ``outputs`` is **a path
-    relative to the inside of the archive**, and ``[project].demos_root`` is
-    outside the archive.
+    relative to the inside of the archive**, and a local demo directory
+    (``PAPPASCOUT_DEMOS_ROOT``) is outside the archive.
     """
     inside: list[PurePosixPath] = []
     for path in paths:

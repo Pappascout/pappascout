@@ -30,7 +30,7 @@ from conftest import has_temp_leftovers
 
 from pappascout.adapters.decompress import ZSTD_MAGIC
 from pappascout.adapters.protocols import DemoSource, DemoStream
-from pappascout.archive.paths import ArchivePaths
+from pappascout.archive.paths import DEMOS_ROOT_ENV_VAR, ArchivePaths
 from pappascout.errors import ApiError, DemoUnavailable, PappascoutError
 from pappascout.stages import fetch as fetch_stage
 from pappascout.stages import select as select_stage
@@ -1482,9 +1482,10 @@ def test_a_demos_root_that_is_a_file_is_reported_with_advice(
     result = run(archive, source, disk_free=lambda _a: 100 * 1024**3)
 
     assert result.status == "download_failed"
-    assert "demos_root" in (result.reason or "") + result.stats["next_step"]
-    # The advice is in a field of its own and not in the heading (D1).
-    assert "settings.toml" in result.stats["next_step"]
+    assert "demo directory" in (result.reason or "")
+    # The advice is in a field of its own and not in the heading (D1), and it
+    # names the one thing the user can change.
+    assert DEMOS_ROOT_ENV_VAR in result.stats["next_step"]
     # The most important claim: no connection was opened, so no quota was spent.
     assert source.asked == []
 

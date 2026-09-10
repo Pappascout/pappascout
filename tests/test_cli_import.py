@@ -29,6 +29,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LOCAL_DEMOS_DIRNAME
+from pappascout.archive.paths import DEMOS_ROOT_ENV_VAR
 from test_stage_import import (
     FACEIT_NAME,
     FACEIT_NAME_PLAIN,
@@ -63,11 +64,8 @@ def import_env(request, settings_file: Path, tmp_path: Path, monkeypatch):
     inside a test before the command is run.
     """
     if request.param == "paikallinen":
-        text = settings_file.read_text(encoding="utf-8")
-        line = next(r for r in text.splitlines() if r.startswith("# demos_root = "))
-        settings_file.write_text(
-            text.replace(line, f"demos_root = '{tmp_path / LOCAL_DEMOS_DIRNAME}'", 1),
-            encoding="utf-8",
+        monkeypatch.setenv(
+            DEMOS_ROOT_ENV_VAR, str(tmp_path / LOCAL_DEMOS_DIRNAME)
         )
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
 

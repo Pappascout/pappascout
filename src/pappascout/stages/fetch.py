@@ -6,14 +6,14 @@ them::
     index/selections/<team_key>.json  ->  <demos_dir>/<map_demo_id>.dem.zst
                                           <demos_dir>/<map_demo_id>.meta.json
 
-``<demos_dir>`` is ``[project].demos_root`` when that is set, otherwise the
-archive's own ``demos/``. **Decided 2026-09-05:** a demo is large (142-223 MB)
-and can be fetched again, its parsed result is small (about 1 MB) and
-irreplaceable -- so the large one stays on the local disk and the small one
-stays in the synchronised folder. The metadata file always goes **next to the
-demo**: it is a claim about that exact file, and in separate directories the
-two would drift apart. Idempotence looks at both locations, so turning the
-setting on does not download anything again.
+``<demos_dir>`` is ``PAPPASCOUT_DEMOS_ROOT`` when that variable is set,
+otherwise the archive's own ``demos/``. **Decided 2026-09-05:** a demo is
+large (142-223 MB) and can be fetched again, its parsed result is small
+(about 1 MB) and irreplaceable -- so the large one stays on the local disk
+and the small one stays in the synchronised folder. The metadata file always
+goes **next to the demo**: it is a claim about that exact file, and in
+separate directories the two would drift apart. Idempotence looks at both
+locations, so setting the variable does not download anything again.
 
 The stage is **per unit**: one call, one MapDemo, one
 :class:`~pappascout.stages.StageResult`. The series is run by :func:`run_many`,
@@ -1143,9 +1143,10 @@ def _writable_problem(directory: Path) -> PappascoutError | None:
             f"The demo directory {directory} could not be created: {exc}\n"
             "The download was not started.",
             advice=(
-                "Check the [project].demos_root line in settings.toml: does it "
-                "point at a drive that exists, and is there a file of the same "
-                "name on the path?"
+                "Check the path: does it point at a drive that exists, and "
+                "is there a file of the same name on the path? It comes from "
+                "the PAPPASCOUT_DEMOS_ROOT environment variable when that is "
+                "set, otherwise from the archive root."
             ),
         )
     probe = directory / f".pappascout-write-probe{temp_suffix()}"
@@ -1157,8 +1158,9 @@ def _writable_problem(directory: Path) -> PappascoutError | None:
             "The download was not started, so that no Downloads quota would "
             "be spent for nothing.",
             advice=(
-                "Check the [project].demos_root line in settings.toml and the "
-                "directory's write permissions, then run the command again."
+                "Check the directory's write permissions -- and the "
+                "PAPPASCOUT_DEMOS_ROOT environment variable if it is set -- "
+                "then run the command again."
             ),
         )
     finally:
@@ -1193,8 +1195,8 @@ def _space_error(
         f"{archive.demos_dir()} -- the parsed tables stay, and the report does "
         "not need the demo file again.\n"
         "  2. Free disk space elsewhere on the machine.\n"
-        "  3. Point the demos at another disk with the setting "
-        "[project].demos_root.",
+        "  3. Point the demos at another disk with the "
+        "PAPPASCOUT_DEMOS_ROOT environment variable.",
         advice=(
             f"Free at least {size_fi(need - free)} of disk space and run the "
             "command again."
@@ -1428,7 +1430,8 @@ def _archive_outputs(
     **By contract ``outputs`` is a path relative to the inside of the
     archive**, and that is a deliberate constraint: an absolute path would
     break the archive on another machine. When the demos go into a local
-    ``demos_root``, they are outside the archive and no such path exists.
+    demo directory (``PAPPASCOUT_DEMOS_ROOT``), they are outside the archive
+    and no such path exists.
 
     The answer is to **leave them out rather than lie**: a file outside must
     not appear in a list that promises to hold archive paths. The absolute

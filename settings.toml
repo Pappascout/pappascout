@@ -46,8 +46,9 @@ own_team_name = "PotkukelkkaPeek"
 # Windows-only muutenkin (ks. README).
 archive_root = '%PAPPASCOUT_ARCHIVE_ROOT%'
 
-# Ladattujen demojen hakemisto. Kommentoituna demot menevat arkiston
-# demos-hakemistoon, ja se on tarkoituksellinen oletus (paatetty 5.9.2026).
+# Ladattujen demojen hakemisto EI ole asetus vaan ymparistomuuttuja
+# PAPPASCOUT_DEMOS_ROOT. Ilman sita demot menevat arkiston demos-hakemistoon,
+# ja se on tarkoituksellinen oletus (paatetty 5.9.2026).
 #
 # Kaksi syyta pitaa demot arkistossa eli synkronoidussa kansiossa:
 #
@@ -60,13 +61,20 @@ archive_root = '%PAPPASCOUT_ARCHIVE_ROOT%'
 #    Paikallisessa kansiossa tilan vapauttaminen tarkoittaa demon lopullista
 #    poistamista. Tama kone on 96 % taynna, joten ero on kaytannon etu.
 #
-# Ota rivi kayttoon, jos levytila loppuu eika pilvi ole vaihtoehto. Aiemmin
+# Aseta muuttuja, jos levytila loppuu eika pilvi ole vaihtoehto. Aiemmin
 # ladatut demot loytyvat yha eivatka lataudu uudelleen: seka fetch etta parse
 # etsivat demoja tasta hakemistosta, arkiston demos-hakemistosta ja arkiston
 # import-hakemistosta -- tassa jarjestyksessa.
 #
+# Miksi muuttuja eika rivi tassa tiedostossa: hakemisto on KONEEN ominaisuus,
+# ja tama tiedosto on versioitu ja yhteinen molemmille koneille. Asetusta myos
+# kokeiltiin: Story 3.4 lisasi [project].demos_root, Story 3.10 teki
+# PAPPASCOUT_ARCHIVE_ROOTista normaalin konfiguraation, ja arkiston ohitus
+# jatti asetuksen huomiotta joka ajolla -- eli dokumentoitu tila oli kuollut.
+# Asetus poistettiin 10.9.2026; kyky ei poistunut sen mukana.
+#
 # Polussa saa kayttaa ymparistomuuttujia ja tildea kuten archive_rootissa.
-# demos_root = '%USERPROFILE%\pappascout-demot'
+#   $env:PAPPASCOUT_DEMOS_ROOT = '%USERPROFILE%\pappascout-demot'
 
 # Kaikki käyttäjälle näkyvä teksti on suomeksi.
 language = "fi"

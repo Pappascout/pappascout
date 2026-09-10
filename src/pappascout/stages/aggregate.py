@@ -750,7 +750,7 @@ def _aggregate(
         # is three-part on purpose: a Cyrillic or CJK clan name exists and was
         # observed, but not one ASCII character is left of it. ``team_slug``'s
         # own fallback would then give every such team the same file name
-        # ``<timestamp>-joukkue.md``, so the name would disappear and the files
+        # ``<timestamp>-team.md``, so the name would disappear and the files
         # would collide with each other. A slug derived from the id is
         # unambiguous. The same rule is written into ``TeamReport``'s contract,
         # so that a report read from disk cannot disagree.

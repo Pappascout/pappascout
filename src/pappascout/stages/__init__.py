@@ -84,10 +84,11 @@ def archive_paths(project: ProjectSettings) -> ArchivePaths:
     This is ``cli``'s only way into the archive: the command line does not
     import the ``archive`` package itself, it asks this layer for the paths.
 
-    ``demos_root`` travels along too; it is the only path outside the
-    archive. It is given here rather than separately in every stage, so that
-    the demos' location is **one decision in one place**: a stage that read
-    the setting itself would before long decide differently from its
+    The demo directory travels along too; it is the only path outside the
+    archive. ``ArchivePaths`` reads it from ``PAPPASCOUT_DEMOS_ROOT``, and
+    every stage is handed the answer rather than the variable, so that the
+    demos' location is **one decision in one place**: a stage that read the
+    environment itself would before long decide differently from its
     neighbour.
     """
-    return ArchivePaths.from_settings(project.archive_root, project.demos_root)
+    return ArchivePaths.from_settings(project.archive_root)

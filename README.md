@@ -191,11 +191,15 @@ its own section: `[project] [league] [parse] [thresholds] [aggregate] [report]
 [economy] [faceit]`. Each value's comment names its source — research, a
 measurement, or a calibration still waiting for data.
 
-Two environment variables override settings for a single run, which is also how
+Two environment variables decide the paths for a single run, which is also how
 the tests stay off the real archive:
 
-- `PAPPASCOUT_ARCHIVE_ROOT` — point the whole archive somewhere else
-- `PAPPASCOUT_DEMOS_ROOT` — point only the demo directory somewhere else
+- `PAPPASCOUT_ARCHIVE_ROOT` — point the whole archive somewhere else. It
+  overrides `[project].archive_root`, whose versioned value is a placeholder
+  that fails on purpose when the variable is unset.
+- `PAPPASCOUT_DEMOS_ROOT` — point only the demo directory somewhere else. It
+  overrides nothing: there is no counterpart in `settings.toml`, because the
+  demo directory is a property of one machine and the file is shared by both.
 
 ## The FACEIT cache is split by call type
 

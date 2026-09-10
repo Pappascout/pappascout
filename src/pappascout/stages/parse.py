@@ -318,10 +318,10 @@ def resolve_demo(archive: ArchivePaths, target: str) -> tuple[str, Path]:
     The target may be either a path to a demo file or a bare ``map_demo_id``,
     in which case the demo is looked for in **three places, in this order**:
 
-    1. ``[project].demos_root`` -- the local directory of downloaded demos, if
-       the setting is in use,
-    2. the archive's ``demos/`` -- that is where downloads went before the
-       setting existed,
+    1. ``PAPPASCOUT_DEMOS_ROOT`` -- the local directory of downloaded demos,
+       if the variable is set,
+    2. the archive's ``demos/`` -- the default, and where downloads went
+       before the variable existed,
     3. the archive's ``import/`` -- demos imported by hand **under the
        canonical name** (FACEIT's own ``...-1-1.dem`` does not match here; see
        :meth:`~pappascout.archive.paths.ArchivePaths.demo_dirs`).

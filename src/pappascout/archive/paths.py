@@ -94,14 +94,27 @@ _MANIFEST_SUFFIX = ".manifest.json"
 #: having to edit the versioned settings.toml.
 ARCHIVE_ROOT_ENV_VAR = "PAPPASCOUT_ARCHIVE_ROOT"
 
-#: Environment variable that overrides the demo directory separately.
+#: Environment variable that puts the downloaded demos outside the archive.
 #:
-#: **It exists because redirecting the archive would otherwise be half a
-#: job.** ``PAPPASCOUT_ARCHIVE_ROOT`` exists precisely so that a run can be
-#: pointed at a test archive without touching the production files -- but
-#: ``demos_root`` is a path outside the archive, and it would not follow
-#: along. A ``fetch`` run against a test archive would write and read the
-#: production demo directory, silently and entirely by accident.
+#: **It is the only way to move them, and that is deliberate** (2026-09-10).
+#: The demos live in the archive's own ``demos/`` because the archive is a
+#: synchronised folder: it follows from one machine to the other, and the
+#: sync client can free a parsed demo's local space **without deleting the
+#: file**, whereas in a local folder freeing that space is a final deletion.
+#: The escape hatch stays all the same, because disk space can run out on a
+#: machine where the cloud is not an option.
+#:
+#: **A variable and not a line in ``settings.toml``, for two reasons.** The
+#: choice is a property of *this machine*, and ``settings.toml`` is versioned
+#: and shared by both. And the setting was tried and failed: Story 3.4 added
+#: ``[project].demos_root``, Story 3.10 made ``PAPPASCOUT_ARCHIVE_ROOT`` the
+#: normal configuration, and the archive override then ignored the setting --
+#: so from that day the documented mode was dead on every real run while the
+#: docstrings went on offering it. The setting was removed 2026-09-10; the
+#: capability was not.
+#:
+#: Setting it downloads **nothing** again: :meth:`ArchivePaths.find_demo`
+#: looks in this directory, in the archive's ``demos/`` and in ``import/``.
 DEMOS_ROOT_ENV_VAR = "PAPPASCOUT_DEMOS_ROOT"
 
 #: Characters allowed in a path component. The ids (team_key, map_demo_id,
@@ -432,8 +445,8 @@ def _check_expanded(
         expanded: The result of ``os.path.expandvars``.
         raw: The original value, for the error message.
         source: Where the value came from, so the user knows what to fix.
-        subject: Which path this is about. The same guard also covers
-            ``demos_root``, which is outside the archive, and a wrong name in
+        subject: Which path this is about. The same guard also covers the
+            demo directory, which is outside the archive, and a wrong name in
             the message would send the reader to fix the wrong line.
 
     Raises:
@@ -464,28 +477,25 @@ class ArchivePaths:
     Attributes:
         root: The archive root (a synchronised folder).
         demos_root: Local directory for downloaded demos, **outside** the
-            archive, or ``None``. See
-            :attr:`~pappascout.domain.models.ProjectSettings.demos_root`.
-            This is the only path in this class that is not inside the
-            archive, which is why it is a field of its own and not derived
-            from the root.
+            archive, or ``None`` = the archive's own ``demos/``. Its one
+            source is :data:`DEMOS_ROOT_ENV_VAR`. This is the only path in
+            this class that is not inside the archive, which is why it is a
+            field of its own and not derived from the root.
     """
 
     root: Path
     demos_root: Path | None = None
 
     @classmethod
-    def from_settings(
-        cls, archive_root: Path | str, demos_root: Path | str | None = None
-    ) -> ArchivePaths:
+    def from_settings(cls, archive_root: Path | str) -> ArchivePaths:
         """Build the archive paths from the settings value.
 
         The path is expanded twice, so that the same versioned
         ``settings.toml`` works on both machines: ``%USERPROFILE%``-style
         environment variables and ``~`` are replaced with the machine's own
-        values. The same expansion is applied to ``demos_root`` -- otherwise
-        the local directory would be the only path that cannot be written
-        machine-independently.
+        values. The same expansion is applied to
+        :data:`DEMOS_ROOT_ENV_VAR`, otherwise the demo directory would be the
+        only path that cannot be written machine-independently.
 
         **The environment variable is the only source of the real path.** The
         repository is public, so ``settings.toml`` does not carry the archive
@@ -504,17 +514,20 @@ class ArchivePaths:
         complain: the stages create what is missing, so the run would look
         like a success while filling a second, empty archive.
 
-        **Redirecting the archive takes the demos with it.** When
-        ``PAPPASCOUT_ARCHIVE_ROOT`` is set, ``demos_root`` is ignored and the
-        demos go into the redirected archive's own ``demos/``. Otherwise a
-        ``fetch`` run against a test archive would write and read the
-        **production** demo directory -- and because idempotence only looks
-        at whether a file exists, the test run would appear to succeed
-        without downloading anything, and could overwrite real files.
-        Isolation is not isolation if it covers only some of the paths.
+        **The demos follow the archive.** They go into whichever root this
+        call resolves, so pointing a run at a test archive points the demos
+        there too -- isolation is not isolation if it covers only some of the
+        paths. If they did not, a ``fetch`` run against a test archive would
+        write and read the **production** demo directory, and because
+        idempotence only looks at whether a file exists, the run would appear
+        to succeed without downloading anything, and could overwrite real
+        files.
 
-        ``PAPPASCOUT_DEMOS_ROOT`` overrides both: it is the way to say
-        explicitly "demos here" even when the archive is redirected.
+        :data:`DEMOS_ROOT_ENV_VAR` is the one way to say "demos here"
+        instead, and it wins whether the root came from the variable or from
+        the file. ``settings.toml`` has no say in it at all: the file is
+        versioned and shared by both machines, and a demo directory is a
+        property of one of them.
 
         Raises:
             PappascoutError: If after expansion the path still holds an
@@ -541,25 +554,17 @@ class ArchivePaths:
         root = Path(expanded).expanduser()
         _check_absolute(root, raw, source)
 
-        demos_override = os.environ.get(DEMOS_ROOT_ENV_VAR)
-        if demos_override:
-            raw_demos: str | None = demos_override
-            demos_source = f"the environment variable {DEMOS_ROOT_ENV_VAR}"
-        elif override:
-            # A redirected archive takes the demos with it; see the docstring.
-            raw_demos = None
-            demos_source = ""
-        else:
-            raw_demos = None if demos_root is None else str(demos_root)
-            demos_source = "the setting [project].demos_root in settings.toml"
-
+        raw_demos = os.environ.get(DEMOS_ROOT_ENV_VAR)
         local: Path | None = None
+        # A blank value is "not set" and not an empty path: ``Path("")``
+        # points at the working directory, so the demos would go wherever the
+        # command happened to be run from.
         if raw_demos is not None and raw_demos.strip():
             expanded_demos = os.path.expandvars(raw_demos)
             _check_expanded(
                 expanded_demos,
                 raw_demos,
-                demos_source,
+                f"the environment variable {DEMOS_ROOT_ENV_VAR}",
                 subject="The demo directory path",
             )
             local = Path(expanded_demos).expanduser()

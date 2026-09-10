@@ -430,17 +430,27 @@ def test_a_demo_without_parsed_tables_is_reported_missing(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize(
-    "table", ["rounds", "ticks", "events", "lineups", "deaths", "match"]
+    "table",
+    ["rounds", "ticks", "events", "lineups", "deaths", "match", "callouts"],
 )
 def test_each_required_parsed_table_is_guarded_on_its_own(
     tmp_path: Path, table: str
 ) -> None:
-    """Each of the six tables is named when it is absent.
+    """Each of the seven tables is named when it is absent.
 
     One shared test that removes a single table leaves the rest unguarded:
     ``_demo_unusable`` returns the first absence, so a table near the head of
     the list hides every one after it. Verified by removing ``"ticks"`` from
     the list -- the whole suite passed.
+
+    **The list has to hold every name the guard holds.** It fell one short
+    from Story 2.14 until 2026-09-10: ``callouts`` was added to
+    ``_demo_unusable`` and not here, and being last in the guard's tuple it
+    was the member every other absence hid. It was not unguarded --
+    :func:`test_a_demo_without_the_callouts_table_is_reported_missing` makes
+    the same absence its subject -- but the list is what a reader compares
+    against the guard by eye, and a list that is a member short reads as a
+    guard that is a member short.
     """
     archive = build_archive(
         tmp_path, {"Ancient_vs_a": TEAM, "Nuke_vs_b": TEAM}
@@ -1237,7 +1247,7 @@ def test_a_clan_name_without_ascii_still_names_its_own_file(tmp_path: Path) -> N
 
     Not one character is left of the slug, but the name was observed all the
     same. If the fallback were a shared constant, every such team would get the
-    file name ``<timestamp>-joukkue.md`` -- so the reports would collide with
+    file name ``<timestamp>-team.md`` -- so the reports would collide with
     each other and the name would disappear from the file name entirely.
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM}, clan="Кибер")
@@ -1247,7 +1257,7 @@ def test_a_clan_name_without_ascii_still_names_its_own_file(tmp_path: Path) -> N
     assert team.display_name == "Кибер"
     assert team.display_name_source == "clan_name"
     assert team.slug == TEAM
-    assert team.slug != "joukkue"
+    assert team.slug != "team"
 
 
 def test_conflicting_clan_names_are_resolved_and_the_rest_listed(

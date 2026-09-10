@@ -252,7 +252,15 @@ _NON_WORD = re.compile(r"[^a-z0-9]+")
 #: The slug used when nothing is left of the name. It is a **shared
 #: constant**, so it identifies nothing -- two teams would get the same file
 #: name. Use it only as a last resort, when not even the id yields a slug.
-SLUG_FALLBACK = "joukkue"
+#:
+#: **English, and that is not a breach of the Finnish report** (decided
+#: 2026-09-10). The report's content stays Finnish permanently, but this
+#: value never reaches the content: it reaches the **file name**
+#: ``<timestamp>-<slug>.md``, and a file name is not content. Every other
+#: slug is derived from an observed team name or from a FACEIT id, neither
+#: of which is translated either; a Finnish word here was the one place the
+#: file name spoke a language of its own.
+SLUG_FALLBACK = "team"
 
 
 def slugify(text: str) -> str:
