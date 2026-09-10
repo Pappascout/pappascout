@@ -334,6 +334,21 @@ TRANSLATED_TRANCHES: tuple[Tranche, ...] = (
             "tests/test_cli_select.py",
         ),
     ),
+    Tranche(
+        story="4.1",
+        # **Not a translation, and listed anyway.** ``stages/pipeline.py``
+        # and its two test files were written in English from the first
+        # line, because the translation was finished before Story 4.1
+        # started. The ratchet's job is that nothing already English drifts
+        # back, and a file listed nowhere is outside it whatever language it
+        # started in -- which is how roughly 7 000 lines in ``tests/`` came
+        # to be unguarded once already.
+        sources=(("src/pappascout/stages/pipeline.py", 1),),
+        tests=(
+            "tests/test_stage_pipeline.py",
+            "tests/test_cli_scout.py",
+        ),
+    ),
 )
 
 #: Every listed path with its recorded minimum, flattened out of the tranches.

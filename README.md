@@ -85,9 +85,14 @@ Check it with `uv run pappascout info`, which prints the resolved archive path.
 ## Usage
 
 The pipeline has two halves: the first gets the material, the second turns it
-into a report. Every command is safe to run again.
+into a report. `scout` runs both halves in one command; the single-stage
+commands are how you stop and look at an intermediate result. Every command is
+safe to run again.
 
 ```powershell
+# --- the whole chain in one command ---
+uv run pappascout scout --team "Rcave" --yes   # discover .. report, one summary
+
 # --- what is configured and what is on disk ---
 uv run pappascout info                 # settings, archive state, key presence
 uv run pappascout info --size          # same, plus total archive size
@@ -121,13 +126,18 @@ Notes that matter in practice:
   about 30 days.
 - **`import` does not download demos** — the demo is the file you give it. It
   does reach FACEIT for the match's veto data, to check the map name.
+- **`scout` asks the download question once**, before the first download, for
+  the plan as a whole; `--yes` skips it and nothing else in the run asks
+  anything. A demo that cannot be fetched or cannot be parsed gets a status in
+  the summary and the chain carries on with the rest.
 
 ## How it works
 
 Seven stages. Each is a function whose only inputs are archive files, its own
 typed settings section and the ports it is given, and whose only outputs are
-archive files. A stage never calls another stage; the user decides the order,
-one command at a time.
+archive files. A stage never calls another stage: the order is decided by
+`stages/pipeline.py`, which the `scout` command runs from end to end, and
+running one stage at a time by hand stays a supported way to work.
 
 | Stage | Reads | Writes |
 | --- | --- | --- |
@@ -227,7 +237,7 @@ depends on it.
 | Path | Contents |
 | --- | --- |
 | `src/pappascout/domain/` | Pure logic, no I/O: Polars schemas, typed settings, round numbering, round-type economy, position sampling, roster threshold, team identity, utility geometry, and the report model with its aggregation |
-| `src/pappascout/stages/` | The seven stages above. Each writes only its own output area |
+| `src/pappascout/stages/` | The seven stages above, each writing only its own output area, plus `pipeline.py` — the one module allowed to know the order, and the only one that calls a stage |
 | `src/pappascout/adapters/` | Everything that talks to the outside: the FACEIT client (the only place that makes HTTP calls), the demoparser2 implementation (the only place that knows the game's property names), zstd decompression, and the port protocols stages take as parameters |
 | `src/pappascout/archive/` | Directory layout as relative paths, atomic write, manifests |
 | `src/pappascout/render/` | The report's view model (**what** is said) and a Jinja2 template (**how** it is said), so wording changes without touching code |

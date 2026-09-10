@@ -3,8 +3,10 @@
 Every stage is a function ``run(settings, archive, unit, *ports) -> StageResult``
 whose input and result are files in the archive. A stage does not call another
 stage and does not write into another stage's result area; **the order is
-decided by the user one command at a time**, and no module chaining the stages
-together exists.
+decided by** :mod:`pappascout.stages.pipeline` (Story 4.1), which is the one
+module allowed to know it. The single-stage commands stay beside it and are
+still how a person stops at an intermediate result; both shapes are
+deliberate.
 
 A stage is given **only its own settings section** (AD-3). It therefore cannot
 read the other sections, which is why for instance changing a

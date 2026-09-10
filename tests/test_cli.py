@@ -446,6 +446,7 @@ def test_help_lists_every_pipeline_command() -> None:
         "classify",
         "aggregate",
         "report",
+        "scout",
     ):
         assert command in result.output, command
 
@@ -457,28 +458,34 @@ def test_help_lists_every_pipeline_command() -> None:
 # documentation and not the behaviour -- and that is deliberate.
 
 
-def test_no_module_claims_that_a_pipeline_module_decides_the_order() -> None:
-    """There is no ``stages.pipeline`` module.
+def test_the_module_that_decides_the_order_exists() -> None:
+    """``stages.pipeline`` is there, so the claim about it is now true.
 
-    Two package docstrings and ``stages.fetch``'s module docstring claimed
-    that it decides the order of the stages. The order is decided by the user,
-    one command at a time. A reader who looks for the module looks in vain --
-    and a reader who believes it exists assumes the chaining is somebody
-    else's responsibility.
+    **This test used to assert the opposite**, and both versions guard the
+    same thing: that no docstring claims a module that does not exist. Story
+    3.7 found two package docstrings and ``stages.fetch``'s promising a
+    ``stages.pipeline`` that had never been written, and deleted the claims.
+    Story 4.1 wrote the module, so the claims may come back -- and this is
+    the assertion that has to change with them, in the same commit, rather
+    than being left pointing the other way.
+
+    The wrong half is now the old sentence. A docstring still saying the
+    order is decided one command at a time would send a reader looking for
+    the chaining in the command line, where it no longer is.
     """
     src = Path(__file__).resolve().parents[1] / "src" / "pappascout"
-    assert not (src / "stages" / "pipeline.py").exists()
+    assert (src / "stages" / "pipeline.py").is_file()
 
+    stale = "no module chaining the stages"
     claims: list[str] = []
     for path in sorted(src.rglob("*.py")):
         for number, row in enumerate(
             path.read_text(encoding="utf-8").splitlines(), 1
         ):
-            if "stages.pipeline" in row or "``pipeline``" in row:
+            if stale in row:
                 claims.append(f"{path.name}:{number}")
     assert claims == [], (
-        "Something still claims that a pipeline module decides the order. "
-        f"{claims}"
+        "Something still claims that no module chains the stages. " f"{claims}"
     )
 
 

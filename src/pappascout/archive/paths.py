@@ -48,18 +48,23 @@ __all__ = [
     "matches_index",
     "selection",
     "next_opponent",
+    "demos_root",
     "demo",
     "demo_meta",
     "parsed_root",
     "parsed_dir",
     "parsed_table",
     "parsed_manifest",
+    "classified_root",
     "classified",
     "classified_round_list",
     "classified_manifest",
+    "aggregates_root",
     "report_json",
     "report_manifest",
+    "reports_root",
     "reports_dir",
+    "RESULT_AREAS",
     "REPORT_TIMESTAMP_FORMAT",
     "MAX_REPORTS_PER_MINUTE",
     "report_name",
@@ -198,9 +203,14 @@ def next_opponent(team_key: str) -> PurePosixPath:
     return index_dir() / "next_opponent" / f"{safe_component(team_key, 'team_key')}.json"
 
 
+def demos_root() -> PurePosixPath:
+    """Root of the demo files. See :func:`parsed_root` for why it is a function."""
+    return PurePosixPath("demos")
+
+
 def demo(map_demo_id: str, suffix: str = DEFAULT_DEMO_SUFFIX) -> PurePosixPath:
     """The compressed demo file."""
-    return PurePosixPath("demos") / f"{safe_component(map_demo_id, 'map_demo_id')}{suffix}"
+    return demos_root() / f"{safe_component(map_demo_id, 'map_demo_id')}{suffix}"
 
 
 def demo_meta(map_demo_id: str) -> PurePosixPath:
@@ -209,7 +219,7 @@ def demo_meta(map_demo_id: str) -> PurePosixPath:
     Manifests read the digest from this file rather than recomputing it from
     the demo -- hashing 233 MB on every run would be too slow.
     """
-    return PurePosixPath("demos") / f"{safe_component(map_demo_id, 'map_demo_id')}.meta.json"
+    return demos_root() / f"{safe_component(map_demo_id, 'map_demo_id')}.meta.json"
 
 
 def parsed_root() -> PurePosixPath:
@@ -241,9 +251,14 @@ def parsed_manifest(map_demo_id: str) -> PurePosixPath:
     return parsed_dir(map_demo_id) / f"parse{_MANIFEST_SUFFIX}"
 
 
+def classified_root() -> PurePosixPath:
+    """Root of the classified rounds. See :func:`parsed_root`."""
+    return PurePosixPath("classified")
+
+
 def classified(team_key: str, map_demo_id: str) -> PurePosixPath:
     return (
-        PurePosixPath("classified")
+        classified_root()
         / safe_component(team_key, "team_key")
         / f"{safe_component(map_demo_id, 'map_demo_id')}.parquet"
     )
@@ -260,7 +275,7 @@ def classified_round_list(team_key: str, map_demo_id: str) -> PurePosixPath:
     write into another stage's result area.
     """
     return (
-        PurePosixPath("classified")
+        classified_root()
         / safe_component(team_key, "team_key")
         / f"{safe_component(map_demo_id, 'map_demo_id')}.md"
     )
@@ -268,28 +283,63 @@ def classified_round_list(team_key: str, map_demo_id: str) -> PurePosixPath:
 
 def classified_manifest(team_key: str, map_demo_id: str) -> PurePosixPath:
     return (
-        PurePosixPath("classified")
+        classified_root()
         / safe_component(team_key, "team_key")
         / f"{safe_component(map_demo_id, 'map_demo_id')}{_MANIFEST_SUFFIX}"
     )
 
 
+def aggregates_root() -> PurePosixPath:
+    """Root of the aggregated reports. See :func:`parsed_root`."""
+    return PurePosixPath("aggregates")
+
+
 def report_json(team_key: str) -> PurePosixPath:
     """The ``aggregate`` stage's result: the ``Report`` model as JSON."""
-    return PurePosixPath("aggregates") / safe_component(team_key, "team_key") / "report.json"
+    return aggregates_root() / safe_component(team_key, "team_key") / "report.json"
 
 
 def report_manifest(team_key: str) -> PurePosixPath:
     return (
-        PurePosixPath("aggregates")
+        aggregates_root()
         / safe_component(team_key, "team_key")
         / f"report{_MANIFEST_SUFFIX}"
     )
 
 
+def reports_root() -> PurePosixPath:
+    """Root of the Markdown reports. See :func:`parsed_root`."""
+    return PurePosixPath("reports")
+
+
 def reports_dir(team_key: str) -> PurePosixPath:
     """Directory for the Markdown reports."""
-    return PurePosixPath("reports") / safe_component(team_key, "team_key")
+    return reports_root() / safe_component(team_key, "team_key")
+
+
+#: The directories a run writes its **results** into, and nothing else.
+#:
+#: Gathered here rather than in the module that walks them, for the reason
+#: :func:`parsed_root` already gives: the archive tree has one source, and a
+#: list of directory names copied into a stage is a second one.
+#:
+#: What is deliberately **not** here is as much of the contract as what is.
+#: The archive holds three trees that a run does not own, and a check that
+#: walked them would report the human's own files as the tool's faults:
+#:
+#: * ``raw/faceit`` is an HTTP cache and may be emptied at any time;
+#: * ``import/`` is the human's inbox (AD-8) and holds hand-named files --
+#:   with no download authorisation it is the **only** route a demo takes
+#:   into the archive;
+#: * ``logs/<host>/`` is per-machine by design.
+RESULT_AREAS: tuple[PurePosixPath, ...] = (
+    index_dir(),
+    demos_root(),
+    parsed_root(),
+    classified_root(),
+    aggregates_root(),
+    reports_root(),
+)
 
 
 #: The timestamp in a report's file name, in **local time**, to the minute.

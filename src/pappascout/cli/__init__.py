@@ -17,8 +17,10 @@ archive, and they are the same outcome of three different unit choices:
 ``fetch`` downloads one team's sample, ``collect`` the whole division's
 finished matches from the match index, and ``import`` takes in a demo
 downloaded with a browser -- and **``import`` is the only route when there is
-no Downloads permission**. The rest (``scout``, ``next``) come in later
-stories.
+no Downloads permission**. ``scout`` (Story 4.1) runs the whole chain for one
+team in one command, over ``stages.pipeline``; the single-stage commands stay
+beside it, because they are how a person stops and looks at an intermediate
+result. ``next`` comes in a later story.
 
 **The listing does not open with a count.** The line still promised seven
 commands when there were nine: a hand-maintained number that no test guards
@@ -44,6 +46,8 @@ The user does not code, so no error may reach the screen as a raw traceback:
 from __future__ import annotations
 
 import sys
+import textwrap
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 
 import typer
@@ -66,6 +70,7 @@ from pappascout.stages import discover as discover_stage
 from pappascout.stages import fetch as fetch_stage
 from pappascout.stages import import_demo as import_stage
 from pappascout.stages import parse as parse_stage
+from pappascout.stages import pipeline as pipeline_stage
 from pappascout.stages import render as render_stage
 from pappascout.stages import select as select_stage
 
@@ -656,13 +661,24 @@ _CANCELLED = "Cancelled. No demos were downloaded."
 _CONSENT_ANSWERS = frozenset({"k", "kylla", "kyllä", "y", "yes", "j", "joo"})
 
 
-def _confirm(question: str, cancelled: str = _CANCELLED) -> None:
+def _confirm(
+    question: str,
+    cancelled: str = _CANCELLED,
+    *,
+    before_cancelling: Callable[[], None] | None = None,
+) -> None:
     """Ask for confirmation and stop cleanly if the answer is no.
 
     ``cancelled`` is the sentence printed for a negative answer. A parameter and
     not a constant, because the sentence says **what was left undone**: on a
     download "no demos were downloaded", on an import "the demo was not
     imported". A shared wording would be wrong for one of the two.
+
+    ``before_cancelling`` is printed **before** that sentence and only on the
+    way out. It exists for ``scout``, where the question sits in the middle
+    of a chain: a caller who answers no has to be told what the run already
+    did, and after the cancellation sentence is too late for something the
+    reader stops at.
 
     ``typer.confirm`` will not do, and the reason survived the translation:
     its abort message is ``Aborted.`` and its exit code is not zero, so a user
@@ -672,6 +688,12 @@ def _confirm(question: str, cancelled: str = _CANCELLED) -> None:
     The exit code is therefore 0 and the message states what happened, rather
     than ``Aborted.``, which looks as if something had gone wrong.
     """
+
+    def cancel() -> None:
+        if before_cancelling is not None:
+            before_cancelling()
+        typer.echo(cancelled)
+
     try:
         answer = typer.prompt(f"{question} [y/n]", default="n", show_default=False)
     except (typer.Abort, EOFError):
@@ -682,10 +704,10 @@ def _confirm(question: str, cancelled: str = _CANCELLED) -> None:
         # a failure where there was none -- it just arrives by another route.
         # Not answering is an answer too, and it is "no".
         typer.echo("")
-        typer.echo(cancelled)
+        cancel()
         raise typer.Exit() from None
     if str(answer).strip().lower() not in _CONSENT_ANSWERS:
-        typer.echo(cancelled)
+        cancel()
         raise typer.Exit()
 
 
@@ -3132,6 +3154,345 @@ def _render_report(result: StageResult) -> str:
         lines.append(_line("Manifest", str(result.manifest_path)))
     lines.append(_line("Run time", _seconds(result.duration_s)))
     return "\n".join(lines)
+
+
+@app.command("scout")
+def scout(
+    team: str = typer.Option(
+        ...,
+        "--team",
+        help=(
+            "The team's name, an unambiguous part of it, or the team id. "
+            "Letter case does not matter. An ambiguous name lists the "
+            "alternatives and chooses nothing."
+        ),
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        help="Do not ask for confirmation. The plan is still shown.",
+    ),
+) -> None:
+    """Run the whole chain for one team and write the report.
+
+    discover, select, fetch, parse, classify, aggregate and report, in that
+    order, in one command. The stages are the same ones the single-stage
+    commands run, and each decides for itself whether its result is already
+    current -- the chain does not decide it for them.
+
+    A demo that cannot be fetched or cannot be parsed gets a status and the
+    chain carries on with the rest, so one bad recording does not cost the
+    others their place in the report. The run stops only when nothing can
+    proceed at all, and even then the summary of what did happen is printed
+    first.
+
+    Before the first download it shows how many demos are fetched, where to
+    and how much disk space they take, and asks for confirmation -- once for
+    the whole plan, not once per demo. --yes skips the question; nothing
+    else in the run asks anything.
+
+    **Answering no ends the whole run**, not only the download: nothing is
+    parsed, classified or aggregated after it, and no report is written.
+    The exit code is 0, because the caller was asked and answered, and the
+    last line says so in those words rather than leaving the missing report
+    to be discovered. Not answering at all -- a pipe, a scheduler, Ctrl-C --
+    reads as no.
+    """
+    settings = load_settings()
+    archive = archive_paths(settings.project)
+
+    def before_download(
+        todo: fetch_stage.FetchPlan, so_far: pipeline_stage.PipelineRun
+    ) -> None:
+        # The same three steps as the ``fetch`` command's, in the same order
+        # and through the same functions: show the plan, refuse a download
+        # that does not fit, then ask. The disk gate is **not** behind
+        # ``--yes`` there either -- a plan that does not fit on the disk is a
+        # plan with no right answer, whether or not anybody is asked.
+        free = fetch_stage.free_space(archive)
+        typer.echo(_render_fetch_plan(todo, free, str(archive.demos_dir())))
+        _disk_space_gate(str(archive.demos_dir()), free)
+        if not yes:
+            # **The wording is this command's own, and the summary goes out
+            # with it.** A "no" here ends the whole chain at exit 0 with no
+            # report, and ``fetch``'s sentence -- "No demos were
+            # downloaded" -- is exactly what a normal run with no download
+            # authorisation says, except that one writes a report. An
+            # unattended caller told that would go looking for a file that
+            # is not there. It is also told what did happen before the
+            # question, which is otherwise lost entirely.
+            _confirm(
+                "Download these demos?",
+                _CANCELLED_SCOUT,
+                before_cancelling=lambda: typer.echo(_render_scout(so_far)),
+            )
+
+    typer.echo(f"Scouting {team}...", err=True)
+    try:
+        result = pipeline_stage.run(
+            settings,
+            archive,
+            team,
+            match_source=discover_stage.default_source(settings, archive),
+            demo_source=lambda: fetch_stage.default_source(settings, archive),
+            parser=lambda: parse_stage.default_parser(settings.parse),
+            before_download=before_download,
+        )
+    except pipeline_stage.RunStopped as stopped:
+        # The summary first, the error after it. The run may have parsed and
+        # classified a dozen demos before the step that could not go on, and
+        # the caller acts on the summary -- losing it here would leave them
+        # with the last line of a run they cannot see.
+        typer.echo(_render_scout(stopped.run))
+        raise stopped.cause from stopped
+    typer.echo(_render_scout(result))
+
+
+#: What ``scout`` says when the download question is answered no.
+#:
+#: **Not** :data:`_CANCELLED`. That sentence -- "No demos were downloaded" --
+#: is true of a normal ``scout`` run with no download authorisation as well,
+#: and that run *writes a report*. A caller told only that, at exit 0, has no
+#: way to tell the two apart and will go looking for a file that was never
+#: written. So this one names what was actually cancelled, which is the whole
+#: chain, and says the report is missing rather than leaving it to be
+#: discovered.
+#:
+#: The same reason ``import`` has a sentence of its own: the wording says
+#: **what was left undone**, and here that is everything after the download.
+_CANCELLED_SCOUT = (
+    "Cancelled. Nothing was downloaded, and the rest of the chain -- parse, "
+    "classify, aggregate, report -- was not run either, so no report was "
+    "written. Run scout again and answer yes, or run it with --yes."
+)
+
+#: The outcome column's width. The longest word is ``no-units`` (8), and a
+#: value needs a space after it.
+_OUTCOME_WIDTH = 10
+
+#: The stage column's width. The longest stage name is ``aggregate`` (9).
+_STAGE_WIDTH = 11
+
+#: How wide the unit column may grow before it stops padding. A
+#: ``map_demo_id`` built from a FACEIT match id is around 40 characters, and
+#: one of those must not push the detail off the screen for every other row.
+_MAX_UNIT_WIDTH = 42
+
+#: The order the totals are counted in -- the same words the rows use, so a
+#: total can be matched to the lines it counts.
+OUTCOME_ORDER: tuple[str, ...] = pipeline_stage.OUTCOMES
+
+#: What each outcome word means, one entry per word in
+#: :data:`~pappascout.stages.pipeline.OUTCOMES`.
+#:
+#: A mapping and not a paragraph, because the legend is **built by walking
+#: ``OUTCOMES``**: a fifth outcome with no entry here raises a ``KeyError``
+#: from every render, which is every test that prints a summary. Written out
+#: as prose it drifted silently -- the words could be added to the pipeline
+#: and never explained, or explained here and never set.
+_OUTCOME_LEGEND: dict[str, str] = {
+    "ran": "the stage did the work",
+    "skipped": "the work was not needed and was not done",
+    "failed": "the unit did not come through and the chain went on",
+    "no-units": "the stage had nothing to do",
+}
+
+#: How wide the legend's paragraphs are wrapped. The label column is
+#: :data:`_OUTCOME_WIDTH` wide, and the whole line stays inside 79 columns.
+_LEGEND_WIDTH = 78
+
+#: Below this many seconds a step's own time is not printed.
+#:
+#: ``_seconds`` shows one decimal, so anything under this rounds to
+#: ``0,0 s`` -- a number that measures nothing and would sit on almost every
+#: row of a run whose real cost is in two of them.
+_STEP_TIME_FLOOR = 0.05
+
+
+def _render_scout(run: pipeline_stage.PipelineRun) -> str:
+    """Assemble the ``scout`` command's summary.
+
+    **This output is the whole interface.** A person running the nine
+    commands sees each result and adapts; a model running this one sees only
+    this, so it has to distinguish what ran, what was skipped and what failed
+    without the reader inferring anything from a number or an absence. That
+    is why every step gets a line even when it did nothing, why the outcome
+    is a literal word in the first column rather than a symbol, and why a
+    failed step's next command is printed under it instead of being left to
+    be worked out.
+
+    The stages with no skip are named in the legend rather than silently
+    reported as ``ran`` every time: ``discover`` fetches the match list on
+    every run because seeing the new matches is the point of it, ``select``
+    rewrites the selection file, and ``render`` writes a report -- a skipped
+    report would leave the caller without the file they asked for. Each says
+    so in its own module documentation, and a reader who did not know it
+    would read "ran" as a change. **The names come from
+    ``pipeline.NO_SKIP_STAGES``**, which is also what the test reads the
+    three modules' source against, so the sentence and the behaviour cannot
+    part company.
+
+    Two of the trailing rows report a **check** rather than a result, and
+    each has three states, not two: found something, found nothing, and did
+    not run. A run cancelled at the download question never reaches the
+    conflict scan, and "none" there would be a clean result nobody measured.
+    """
+    lines = [_line("Team", f"{run.team} ({run.team_key})")]
+    if run.lineup_key is not None:
+        lines.append(_line("Lineup", run.lineup_key))
+    lines.append("")
+    lines.extend(_scout_legend())
+    lines.append("")
+
+    width = min(
+        _MAX_UNIT_WIDTH, max((len(s.unit) for s in run.steps), default=1) + 1
+    )
+    for step in run.steps:
+        lines.extend(_scout_step(step, width))
+
+    lines.append("")
+    lines.append(
+        _line(
+            "Totals",
+            ", ".join(
+                f"{outcome} {run.count(outcome)}" for outcome in OUTCOME_ORDER
+            ),
+        )
+    )
+    written = run.report
+    lines.append(_line("Report", str(written) if written else "(none written)"))
+    lines.extend(_scout_left_out(run.lineups_left_out))
+    lines.append(
+        _line("Conflict copies", _found_or_not(run.conflicts, str))
+    )
+    lines.append(_line("Run time", _seconds(run.duration_s)))
+    return "\n".join(lines)
+
+
+def _found_or_not(found: Sequence[object] | None, show) -> str:
+    """A check's result in three states, because it has three.
+
+    ``None`` is "the check did not run". A check whose clean answer is
+    silence cannot be told from one that never happened -- and neither can a
+    check whose clean answer is the same word as its unmeasured one.
+    """
+    if found is None:
+        return "(not checked -- the run did not get that far)"
+    if not found:
+        return "none"
+    return f"{len(found)}: " + ", ".join(show(item) for item in found)
+
+
+def _scout_legend() -> list[str]:
+    """The legend, built from the pipeline's own lists.
+
+    Neither the words nor the skipless stages are written out here. The
+    words come from ``pipeline.OUTCOMES`` through :data:`_OUTCOME_LEGEND`,
+    which raises if one of them has no explanation, and the stage names come
+    from ``pipeline.NO_SKIP_STAGES``.
+
+    **No legend line opens with an outcome word.** A line beginning
+    ``ran = ...`` reads as a row of the table below it, both to a person
+    scanning the left column and to anything matching on it -- which is
+    exactly what the first draft did, and what ``outcome_rows`` in the tests
+    counted as an eighth step.
+    """
+    words = "; ".join(
+        f"{word} = {_OUTCOME_LEGEND[word]}" for word in pipeline_stage.OUTCOMES
+    )
+    skipless = _and_list(pipeline_stage.NO_SKIP_STAGES)
+    note = (
+        f"{skipless} have no skip -- they do their work on every run."
+        if len(pipeline_stage.NO_SKIP_STAGES) != 1
+        else f"{skipless} has no skip -- it does its work on every run."
+    )
+    return [
+        *_wrapped("Outcomes:", f"{words}.", _OUTCOME_WIDTH),
+        *_wrapped("Note:", note, _OUTCOME_WIDTH),
+    ]
+
+
+def _and_list(names: Sequence[str]) -> str:
+    """``a, b and c``. Built from the list, so a fourth name reads correctly."""
+    if len(names) < 2:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def _wrapped(label: str, text: str, indent_width: int) -> list[str]:
+    """One labelled paragraph, wrapped, with the continuation lines indented."""
+    return textwrap.wrap(
+        text,
+        width=_LEGEND_WIDTH,
+        initial_indent=f"{label:<{indent_width}}",
+        subsequent_indent=" " * indent_width,
+    )
+
+
+def _scout_left_out(left_out: tuple[str, ...] | None) -> list[str]:
+    """The lineups that were classified as this team but are not in the report.
+
+    See :func:`~pappascout.stages.pipeline.lineups_left_out` for why the two
+    can differ. The line is printed on every run, including the ordinary one
+    where it says ``none``: a silent clean result is a result nobody can
+    tell from a check that was dropped -- and the whole reason this row
+    exists is that these demos leave no other trace, not even in the
+    report's own missing-demos list.
+    """
+    lines = [_line("Lineups left out", _found_or_not(left_out, str))]
+    if not left_out:
+        return lines
+    lines.extend(
+        _wrapped(
+            "",
+            "These lineups share enough players with the team's standing "
+            "roster to be classified as this team, but not enough with the "
+            "report's own lineup to be joined to it, so their demos are in "
+            "neither the report nor its missing-demos list. Report each on "
+            "its own: uv run pappascout aggregate --team <key> and then "
+            "uv run pappascout report --team <key>.",
+            _PARSE_LABEL_WIDTH + 2,
+        )
+    )
+    return lines
+
+
+def _scout_step(step: pipeline_stage.Step, width: int) -> list[str]:
+    """One step's lines: the row itself, then its reason and its next step.
+
+    The reason goes on a line of its own rather than into the row, because a
+    stage's reason can be a paragraph -- ``fetch``'s disk errors and
+    ``classify``'s selection notes both are -- and a paragraph inside a
+    column destroys the columns for every other row.
+
+    **The step's own time is on the row when there is one.** Twelve demos
+    through the chain is minutes, and which of them cost them is a question
+    the summary is the only place to answer; SM-1 is measured against this
+    command. A time below the threshold is left off rather than printed as
+    ``0,0 s``, which is a measurement of nothing.
+    """
+    head = (
+        f"{step.outcome:<{_OUTCOME_WIDTH}}"
+        f"{step.stage:<{_STAGE_WIDTH}}"
+        f"{step.unit:<{width}}"
+    )
+    tail = step.detail or ""
+    if step.duration_s >= _STEP_TIME_FLOOR:
+        tail = f"{tail}  [{_seconds(step.duration_s)}]" if tail else (
+            f"[{_seconds(step.duration_s)}]"
+        )
+    # The padding is kept when something follows it and dropped when nothing
+    # does: a row of trailing spaces is invisible on the screen and awkward
+    # in anything that reads the output back.
+    head = f"{head}  {tail}" if tail else head.rstrip()
+    rows = [head]
+    trailer = (step.reason, f"-> {step.next_step}" if step.next_step else None)
+    for text in trailer:
+        if not text:
+            continue
+        for row in str(text).splitlines():
+            rows.append(f"{'':<{_OUTCOME_WIDTH}}{row}")
+    return rows
 
 
 def _seconds(value: float) -> str:
