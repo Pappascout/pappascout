@@ -17,7 +17,11 @@ from pappascout import constants
 from pappascout.domain.selection import class_labels
 from pappascout.constants import (
     ANOMALY_RULE_FI,
+    ANOMALY_RULE_SIDE,
     ANOMALY_RULES,
+    CRUNCH,
+    CT_ADVANCE,
+    STACK,
     SAMPLE_BUCKETS,
     SAMPLE_BUCKET_FI,
     SAVING_ROUND_TYPES,
@@ -94,6 +98,37 @@ def test_finnish_labels_cover_every_anomaly_rule() -> None:
     the map full.
     """
     assert set(ANOMALY_RULE_FI) == set(ANOMALY_RULES)
+
+
+def test_the_anomaly_rule_names_are_the_ones_the_rules_produce() -> None:
+    """The rule that produces a hit and the list that validates it agree.
+
+    The three names lived in ``domain.sampling`` until Epic 2's retrospective
+    action (9), and ``ANOMALY_RULES`` repeated their values as string
+    literals. That is the drift this pair of claims forbids: the tuple is now
+    **derived** from the names, so the two cannot come apart at all -- and
+    ``domain.sampling`` reads the names from here instead of writing its own.
+
+    The names themselves are pinned as literals on purpose. They are written
+    into ``report.json`` and into every ``classified/`` table, so renaming one
+    is a schema change and not a refactor; a test that only compared the
+    constants with each other would wave that change through.
+    """
+    assert (CT_ADVANCE, CRUNCH, STACK) == ("ct_advance", "crunch", "stack")
+    assert ANOMALY_RULES == (CT_ADVANCE, CRUNCH, STACK)
+    assert set(ANOMALY_RULE_FI) == {CT_ADVANCE, CRUNCH, STACK}
+
+
+def test_the_side_the_anomaly_rules_examine_is_one_of_the_sides() -> None:
+    """A side outside ``SIDES`` would silence all three rules at once.
+
+    ``domain.sampling`` filters the rows with it and
+    ``domain.aggregate`` counts the coverage denominators with the same
+    value. A typo would leave both at zero: no hits, and a coverage figure
+    saying the rules examined nothing -- without a single row disagreeing.
+    """
+    assert ANOMALY_RULE_SIDE in SIDES
+    assert ANOMALY_RULE_SIDE == "CT"
 
 
 def test_the_site_groups_are_derived_from_the_site_areas() -> None:

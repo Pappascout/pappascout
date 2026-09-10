@@ -81,14 +81,18 @@ from typing import Any
 import polars as pl
 
 from pappascout.constants import (
+    ANOMALY_RULE_SIDE,
     ANOMALY_RULES,
     ANOMALY_RULES_DEFERRED,
+    CRUNCH,
+    CT_ADVANCE,
     ROSTER_BUCKETS,
     ROSTER_CLASS_BUCKET,
     ROUND_TYPES,
     SAMPLE_BUCKETS,
     SAVING_ROUND_TYPES,
     SIDES,
+    STACK,
     UTILITY_BUCKET_ALL,
     UTILITY_BUCKET_UNKNOWN,
     RosterBucketName,
@@ -1668,7 +1672,7 @@ def anomalies_for(
                 _grouped_anomalies(
                     type_rows,
                     hits_by_round,
-                    rule=sampling.CT_ADVANCE,
+                    rule=CT_ADVANCE,
                     map_name=map_name,
                     map_name_source=source,
                     side=side,
@@ -1692,8 +1696,8 @@ def anomalies_for(
             if groups_by_demo.get(str(row["map_demo_id"])) is not None
         ]
         for rule, branch_rows in (
-            (sampling.CRUNCH, side_rows),
-            (sampling.STACK, stack_rows),
+            (CRUNCH, side_rows),
+            (STACK, stack_rows),
         ):
             if not branch_rows:
                 continue
@@ -1711,17 +1715,17 @@ def anomalies_for(
 
     # The coverage is computed from what the rule CAN examine, not from how
     # many rounds the loop walked through. All three rules read only
-    # ``sampling.RULE_SIDE`` rows, so a T-side round cannot produce a hit in
+    # ``constants.ANOMALY_RULE_SIDE`` rows, so a T-side round cannot produce a hit in
     # any of them -- and the bare total number of rounds would promise a
     # coverage that does not exist (measured: of RCAVE's 92 rounds 45 are CT
     # and 8 of those are saving rounds, so the advance saw 8 and not 92).
     crunch_rounds = sum(
-        1 for row in rows if str(row["side"]) == sampling.RULE_SIDE
+        1 for row in rows if str(row["side"]) == ANOMALY_RULE_SIDE
     )
     advance_rounds = sum(
         1
         for row in rows
-        if str(row["side"]) == sampling.RULE_SIDE
+        if str(row["side"]) == ANOMALY_RULE_SIDE
         and str(row["round_type"]) in SAVING_ROUND_TYPES
     )
     # The stack's denominator IS NOT crunch's denominator, even though
@@ -1732,7 +1736,7 @@ def anomalies_for(
     stack_rounds = sum(
         1
         for row in rows
-        if str(row["side"]) == sampling.RULE_SIDE
+        if str(row["side"]) == ANOMALY_RULE_SIDE
         and groups_by_demo.get(str(row["map_demo_id"])) is not None
     )
     blind = sorted(

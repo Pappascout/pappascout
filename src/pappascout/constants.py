@@ -18,6 +18,10 @@ __all__ = [
     "ROUND_TYPES",
     "RoundType",
     "SAVING_ROUND_TYPES",
+    "CT_ADVANCE",
+    "CRUNCH",
+    "STACK",
+    "ANOMALY_RULE_SIDE",
     "ANOMALY_RULES",
     "ANOMALY_RULES_DEFERRED",
     "AnomalyRule",
@@ -101,9 +105,50 @@ RoundType = Literal["pistol", "eco", "half", "force", "full", "ot", "anomaly"]
 #: meaning.
 SAVING_ROUND_TYPES: Final[tuple[str, ...]] = ("eco", "half", "force")
 
+#: CT advance: the subject's CT player in an area that is held by the T side
+#: **in that demo**, on a saving round.
+CT_ADVANCE: Final[str] = "ct_advance"
+
+#: Crunch: the same area, but at least two players having **arrived** from at
+#: least two different directions at the same time -- **on any round type**.
+#: The same orientation condition as the advance, one requirement more and one
+#: restriction fewer, so the rules' hit sets intersect each other and neither
+#: contains the other.
+CRUNCH: Final[str] = "crunch"
+
+#: Stack: at least ``min_players`` of the subject's living CT players in the
+#: same site's group, and at least one of them on the site's **own** area.
+#:
+#: The rule reads neither the orientation nor the round type. It is a third
+#: question about the same observation, not a variant of the other two.
+STACK: Final[str] = "stack"
+
+#: The side whose rows the anomaly rules examine.
+#:
+#: All three rules ask what **the subject does as CT**, so T-side rows cannot
+#: produce a hit under any of them. A constant because the same value is
+#: needed in two places: in the filtering of the rows
+#: (``domain.sampling._is_ct_time_row``) and in the aggregation's coverage
+#: figure, which says on how many rounds the rule **can** hit. Written out
+#: twice, the coverage could promise more than the rule examines.
+#:
+#: One of :data:`SIDES`, and a test holds it to that: a value outside them
+#: would silence all three rules at once without a single row disagreeing.
+ANOMALY_RULE_SIDE: Final[str] = "CT"
+
 #: The anomaly rules (AD-10, Story 2.5 and 2.14). The same value in the code,
 #: in ``report.json`` and in the report; the Finnish appears in the
 #: presentation only (:data:`ANOMALY_RULE_FI`).
+#:
+#: **The tuple is derived from the three names above and is not a second copy
+#: of them.** The names lived in ``domain.sampling`` until Epic 2's
+#: retrospective action (9) moved them here: the module that produces a hit
+#: and the list that validates it are two readers of one vocabulary, and two
+#: hand-written copies can drift apart. Deriving the tuple makes the drift
+#: impossible rather than merely detectable -- the same reason
+#: :data:`SITE_GROUPS` is derived from :data:`SITE_AREAS`. ``AnomalyRule``
+#: below cannot be derived (a ``Literal`` needs literals), so the test
+#: ``test_literal_matches_runtime_tuple`` is what keeps it in step.
 #:
 #: **Three rules are three different questions about the same observation, and
 #: not one of them contains another.** ``ct_advance`` and ``crunch`` share the
@@ -121,7 +166,7 @@ SAVING_ROUND_TYPES: Final[tuple[str, ...]] = ("eco", "half", "force")
 #: The order is the report's order: ``render.view._anomaly_rank`` sorts by
 #: ``ANOMALY_RULES.index``, so a new rule's place in the section is decided
 #: **here** and not in the rendering.
-ANOMALY_RULES: Final[tuple[str, ...]] = ("ct_advance", "crunch", "stack")
+ANOMALY_RULES: Final[tuple[str, ...]] = (CT_ADVANCE, CRUNCH, STACK)
 AnomalyRule = Literal["ct_advance", "crunch", "stack"]
 
 #: The anomaly rules the architecture (AD-10) names but which are not

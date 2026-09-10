@@ -14,12 +14,15 @@ from __future__ import annotations
 import pytest
 
 from conftest import OVERLAPPING_SITE_CLOUD, SITE_CLOUD
-from pappascout.constants import SAMPLE_KINDS, SAVING_ROUND_TYPES
-from pappascout.domain.sampling import (
+from pappascout.constants import (
     CRUNCH,
     CT_ADVANCE,
-    FIRST_CONTACT_SAMPLE,
+    SAMPLE_KINDS,
+    SAVING_ROUND_TYPES,
     STACK,
+)
+from pappascout.domain.sampling import (
+    FIRST_CONTACT_SAMPLE,
     TIME_SAMPLE,
     AnomalyHit,
     AreaObservations,

@@ -299,10 +299,10 @@ def _check_rounds_add_up(
     made both on the total and on **each bucket separately**, because a round
     could otherwise change bucket without the total changing.
 
-    Demos are not summed: the same demo produces rounds for both sides and for
-    several round types, so the sum of the lower levels' demo counts is larger
-    than the upper level's. The map level is the only exception, and it is
-    checked there separately.
+    Demos are not summed here: the same demo produces rounds for both sides
+    and for several round types, so the sum of the lower levels' demo counts
+    is larger than the upper level's. The report/map level is the one place
+    where the sum does hold, and :func:`_check_demos_add_up` is that check.
 
     Raises:
         AggregateError: If the sum does not match. The message names the level
@@ -329,6 +329,95 @@ def _check_rounds_add_up(
                 "The difference means a round was lost between the levels -- "
                 "usually in the join (map_demo_id, round_no)."
             )
+
+
+def _check_demos_add_up(total: "Sample", parts: "list[Sample]") -> None:
+    """The report's demos are the sum of the maps', **bucket by bucket**.
+
+    The counterpart of :func:`_check_rounds_add_up` for the one dimension it
+    leaves alone. Demos sum only here: every demo is on exactly one map, and
+    ``is_league`` describes the match, so it is also in exactly one bucket --
+    at the side and round-type levels neither holds and the sum is
+    meaningless.
+
+    **The per-bucket comparison is the point, and it was missing.** The total
+    was checked from Story 2.3 on; Epic 2's retrospective action (11) asked
+    for the buckets to be reconciled the way the rounds already were, and the
+    gap is the same one the rounds' docstring names: a demo can move from
+    ``league`` to ``other`` between the levels without the total changing at
+    all. Measured at ``16d8f69``: a report claiming two league demos over one
+    league map and one other map was accepted, and the summary would then have
+    said "two league demos" over a section showing one.
+
+    ``rounds`` is not compared here. :func:`_check_rounds_add_up` already does
+    it at the same call site and in the same buckets, and a second wording of
+    one fault would only make the reader look for two.
+
+    Raises:
+        AggregateError: If the sum does not match. The message names the
+            bucket.
+    """
+    # The same bucket list as everywhere else, for the same reason: a copy
+    # would drift, and a new bucket would go unchecked.
+    for bucket in (None, *SAMPLE_BUCKETS):
+        got = total.demos if bucket is None else getattr(total, bucket).demos
+        parts_sum = sum(
+            (p.demos if bucket is None else getattr(p, bucket).demos)
+            for p in parts
+        )
+        if got != parts_sum:
+            where = "in total" if bucket is None else f"in bucket {bucket}"
+            raise AggregateError(
+                f"The report's sample claims {got} demos {where}, but the "
+                f"sum of the maps is {parts_sum}. Every demo is on exactly "
+                "one map and in exactly one bucket, so the sum has to match."
+            )
+
+
+def _check_seconds(seconds: list[float], where: str) -> None:
+    """Sample points: finite, non-negative and distinct from one another.
+
+    Three conditions in one place, so that every list of sample points is
+    checked against the same conditions. NaN is worse here than a wrong
+    figure: it would pass every comparison as false, and the report would
+    format it as ``nan s kohdalla`` -- that is, as a figure the reader cannot
+    interpret.
+
+    **Two lists, not one.** The promise above was written for
+    :class:`AnomalyRound`'s ``points`` and covered only them until Epic 2's
+    retrospective action (10); the round type's ``positions`` is the report's
+    other list of sample points and was unchecked, so ``nan``, ``inf``, a
+    negative second and the same second twice all passed. The caller passes
+    the seconds, not the objects, precisely because the two lists carry them
+    in differently named fields.
+
+    Args:
+        seconds: The moments, in whatever order. Ordering is **not** checked
+            here: ``AnomalyRound`` requires ascending order and checks it
+            itself, and the round type's sample points do not promise one
+            (``aggregate`` sorts first contact last, after the time points,
+            because it is an event and not a clock reading).
+        where: Names the offending node in the message.
+    """
+    for value in seconds:
+        if not isfinite(value):
+            raise ValueError(
+                f"{where}: sample point {value!r} is not a finite number. "
+                "A sample point is a number of seconds from the round's "
+                "anchor."
+            )
+        if value < 0:
+            raise ValueError(
+                f"{where}: sample point {value:g} s is negative. "
+                "Sample points are measured forward from the end of "
+                "freezetime, so a negative value would point into the buy "
+                "time."
+            )
+    if len(set(seconds)) != len(seconds):
+        raise ValueError(
+            f"{where}: sample points repeat ({seconds}); the same moment is "
+            "one observation."
+        )
 
 
 class _Node(BaseModel):
@@ -1089,6 +1178,37 @@ class RoundTypeReport(_Node):
     deaths: DeathReport
 
     @model_validator(mode="after")
+    def _check_sample_points(self) -> RoundTypeReport:
+        """The sample points: finite, non-negative and each moment once.
+
+        The same three conditions :class:`AnomalyRound` holds its own sample
+        points to, from the same function -- the round type's ``positions``
+        is the report's other list of sample points, and until Epic 2's
+        retrospective action (10) it was the one nobody checked. Measured at
+        ``16d8f69``: ``seconds=nan``, ``seconds=inf``, ``seconds=-5.0`` and
+        two ``time`` points at 6.0 s were all accepted, and the report would
+        have written ``nan s kohdalla`` and the same moment as two
+        observations.
+
+        Only the ``time`` points are compared. A ``first_contact`` point has
+        no nominal second by contract (``_check_seconds_matches_kind``), so
+        there is nothing to compare -- its moment is ``seconds_median``, one
+        per round. That leaves one case outside this guard: **two**
+        first-contact points in the same round type, which ``aggregate``
+        cannot produce (it groups them into one) and which nothing here
+        forbids.
+
+        Raises:
+            ValueError: If a sample point is not a finite non-negative
+                number, or if the same moment appears twice.
+        """
+        _check_seconds(
+            [p.seconds for p in self.positions if p.seconds is not None],
+            f"round type {self.round_type}",
+        )
+        return self
+
+    @model_validator(mode="after")
     def _check_deaths_cover_the_rounds(self) -> RoundTypeReport:
         """The deaths' rounds are exactly the round type's rounds.
 
@@ -1405,36 +1525,6 @@ class AreaOrientation(_Node):
     map_demo_id: str
     t_share: float = Field(ge=0.0, le=1.0)
     observations: int = Field(gt=0)
-
-
-def _check_seconds(seconds: list[float], where: str) -> None:
-    """Sample points: finite, non-negative and distinct from one another.
-
-    Three conditions in one place, so that every list of sample points is
-    checked against the same conditions. NaN is worse here than a wrong
-    figure: it would pass every comparison as false, and the report would
-    format it as ``nan s kohdalla`` -- that is, as a figure the reader cannot
-    interpret.
-    """
-    for value in seconds:
-        if not isfinite(value):
-            raise ValueError(
-                f"{where}: sample point {value!r} is not a finite number. "
-                "A sample point is a number of seconds from the round's "
-                "anchor."
-            )
-        if value < 0:
-            raise ValueError(
-                f"{where}: sample point {value:g} s is negative. "
-                "Sample points are measured forward from the end of "
-                "freezetime, so a negative value would point into the buy "
-                "time."
-            )
-    if len(set(seconds)) != len(seconds):
-        raise ValueError(
-            f"{where}: sample points repeat ({seconds}); the same moment is "
-            "one observation."
-        )
 
 
 class AnomalyPoint(_Node):
@@ -2052,13 +2142,7 @@ class Report(_Node):
         _check_rounds_add_up(
             self.sample, [m.sample for m in self.maps], "report", "map"
         )
-        demos = sum(m.sample.demos for m in self.maps)
-        if self.sample.demos != demos:
-            raise AggregateError(
-                f"The report's sample claims {self.sample.demos} demos, but "
-                f"the sum of the maps is {demos}. Every demo is on exactly "
-                "one map, so the sum has to match."
-            )
+        _check_demos_add_up(self.sample, [m.sample for m in self.maps])
         self._check_breakdowns_agree()
         self._check_anomalies()
         return self

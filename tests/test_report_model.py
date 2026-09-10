@@ -616,6 +616,81 @@ def test_first_contact_sample_has_no_nominal_second() -> None:
     assert position.seconds_median == 12.5
 
 
+def _round_type_with_positions(positions: list[Position]) -> RoundTypeReport:
+    """A round type whose only content is its sample points."""
+    return RoundTypeReport(
+        round_type="pistol",
+        sample=sample(unknown=2),
+        small_sample=True,
+        positions=positions,
+        utility=[],
+        utility_counts=[],
+        players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+        players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
+        first_contact=[],
+        deaths=DeathReport(m=0, rounds_missing=2),
+    )
+
+
+def _time_point(seconds: float) -> Position:
+    """A time sample point with no areas, for the sample-point guards."""
+    return Position(
+        sample_kind="time", seconds=seconds, m=0, rounds_missing=0, areas=[]
+    )
+
+
+@pytest.mark.parametrize("value", [-5.0, float("nan"), float("inf")])
+def test_an_impossible_sample_point_is_refused_in_a_round_type(
+    value: float,
+) -> None:
+    """The round type's sample points meet the anomaly round's conditions.
+
+    ``AnomalyRound`` has held its own sample points to these three
+    conditions, and ``RoundTypeReport`` held its to nothing at all: measured
+    at ``16d8f69``, every one of these values was accepted. NaN is the worst
+    of them, because it passes every comparison as false and the report
+    writes it out as ``nan s kohdalla``.
+    """
+    with pytest.raises(ValidationError, match="sample point"):
+        _round_type_with_positions([_time_point(value)])
+
+
+def test_the_same_sample_point_twice_is_refused_in_a_round_type() -> None:
+    """Two rows from one moment would be one observation shown as two.
+
+    The distributions are per sample point, so ``6 s`` twice puts the same
+    moment into the report with two of them and no way to tell which is the
+    moment's.
+    """
+    with pytest.raises(ValidationError, match="sample points repeat"):
+        _round_type_with_positions([_time_point(6.0), _time_point(6.0)])
+
+
+def test_a_round_type_still_accepts_its_own_sample_points() -> None:
+    """The guard's other direction: the real sample points pass.
+
+    ``[parse].snapshot_seconds`` is ``6, 15, 30, 45`` plus first contact,
+    whose ``seconds`` is ``None`` by contract and is therefore not compared.
+    Without that exemption every real round type would fail here.
+    """
+    entry = _round_type_with_positions(
+        [
+            _time_point(6.0),
+            _time_point(15.0),
+            _time_point(30.0),
+            Position(
+                sample_kind="first_contact",
+                seconds=None,
+                seconds_median=12.5,
+                m=0,
+                rounds_missing=0,
+                areas=[],
+            ),
+        ]
+    )
+    assert [p.seconds for p in entry.positions] == [6.0, 15.0, 30.0, None]
+
+
 # --- Utility --------------------------------------------------------------------
 
 
@@ -1039,6 +1114,165 @@ def test_a_report_must_be_the_sum_of_its_maps() -> None:
                 )
             ],
         )
+
+
+def _map_with_bucketed_demo(
+    map_name: str, bucket: str, rounds: int
+) -> MapReport:
+    """A one-demo map whose whole sample sits in one league bucket.
+
+    ``rounds=0`` is a real state and not a degenerate fixture: a demo whose
+    rounds all fell out of the level keeps its demo count and loses its
+    rounds, which is exactly what :class:`SampleBucket` allows and what makes
+    a demo-only mismatch possible to build at all.
+    """
+    buckets = {
+        name: SampleBucket(
+            demos=1 if name == bucket else 0,
+            rounds=rounds if name == bucket else 0,
+        )
+        for name in ("league", "other", "unknown")
+    }
+    map_sample = Sample(demos=1, rounds=rounds, **buckets)
+    sides = (
+        []
+        if rounds == 0
+        else [
+            SideReport(
+                side="T",
+                sample=map_sample,
+                round_types=[
+                    RoundTypeReport(
+                        round_type="pistol",
+                        sample=map_sample,
+                        small_sample=False,
+                        positions=[],
+                        utility=[],
+                        utility_counts=[],
+                        players_armed=ArmedPlayers(
+                            m=0, rounds_unknown=0, counts=[]
+                        ),
+                        players_armored=ArmoredPlayers(
+                            m=0, rounds_unknown=0, counts=[]
+                        ),
+                        first_contact=[],
+                        deaths=DeathReport(m=0, rounds_missing=rounds),
+                    )
+                ],
+            )
+        ]
+    )
+    return MapReport(
+        map_name=map_name,
+        map_name_source="map_demo_id",
+        map_demo_ids=[f"{map_name}_vs_a"],
+        sample=map_sample,
+        sides=sides,
+    )
+
+
+def test_a_demo_moving_between_buckets_is_caught() -> None:
+    """The demo total can match even when a demo changed bucket.
+
+    The sibling of :func:`test_a_round_moving_between_buckets_is_caught`, and
+    the gap Epic 2's retrospective action (11) named: the rounds were
+    reconciled bucket by bucket between the levels and the demos only in
+    total. Measured at ``16d8f69``, this report was accepted -- the summary
+    would have claimed two league demos over a map section showing one league
+    demo and one other.
+
+    **Every round figure here agrees**, in the total and in each bucket: the
+    second demo carries no rounds, so the only thing out of place is which
+    bucket its demo is counted in. Without that the round check would fire
+    first and this test would not measure what its name says.
+    """
+    with pytest.raises(AggregateError, match="in bucket league"):
+        Report(
+            generated_at=datetime(2026, 8, 30, tzinfo=UTC),
+            team=team(),
+            sample=Sample(
+                demos=2,
+                rounds=2,
+                league=SampleBucket(demos=2, rounds=2),
+                other=SampleBucket(demos=0, rounds=0),
+                unknown=SampleBucket(demos=0, rounds=0),
+            ),
+            roster_sample=RosterSample(
+                demos=2,
+                rounds=2,
+                full=SampleBucket(demos=2, rounds=2),
+                partial=SampleBucket(demos=0, rounds=0),
+                unknown=SampleBucket(demos=0, rounds=0),
+            ),
+            anomaly_scan=scan(
+                rounds_scanned=2, crunch_rounds=2, stack_rounds=2
+            ),
+            maps=[
+                _map_with_bucketed_demo("de_nuke", "league", 2),
+                _map_with_bucketed_demo("de_anubis", "other", 0),
+            ],
+        )
+
+
+def test_a_report_must_be_the_sum_of_its_maps_in_demos() -> None:
+    """A demo that is on a map but not in the summary.
+
+    The demo total has been compared with the maps since Story 2.3, but
+    nothing tested it: measured at ``16d8f69`` and again here, neutering the
+    whole comparison left this the only red test. It is written now because
+    the comparison moved into :func:`_check_demos_add_up`, and a branch
+    nobody exercises is a branch a refactor can drop in silence.
+
+    The second map carries no rounds, so every round figure still agrees and
+    the demo total is the only thing wrong.
+    """
+    with pytest.raises(AggregateError, match="demos in total"):
+        Report(
+            generated_at=datetime(2026, 8, 30, tzinfo=UTC),
+            team=team(),
+            sample=sample(unknown=3),
+            roster_sample=roster_sample(unknown=3),
+            anomaly_scan=scan(rounds_scanned=3, crunch_rounds=3, stack_rounds=3),
+            maps=[
+                _map_with_bucketed_demo("de_nuke", "unknown", 3),
+                _map_with_bucketed_demo("de_anubis", "unknown", 0),
+            ],
+        )
+
+
+def test_the_demo_buckets_still_add_up_when_they_are_right() -> None:
+    """The guard's other direction: two demos in two buckets is normal.
+
+    One league demo and one other demo is an ordinary archive -- a league
+    match and a FACEIT queue game -- so the guard must pass it. The figures
+    are the same two demos and two rounds as in the test above; only the
+    bucketing of the second demo is now what the maps say.
+    """
+    report = Report(
+        generated_at=datetime(2026, 8, 30, tzinfo=UTC),
+        team=team(),
+        sample=Sample(
+            demos=2,
+            rounds=2,
+            league=SampleBucket(demos=1, rounds=2),
+            other=SampleBucket(demos=1, rounds=0),
+            unknown=SampleBucket(demos=0, rounds=0),
+        ),
+        roster_sample=RosterSample(
+            demos=2,
+            rounds=2,
+            full=SampleBucket(demos=2, rounds=2),
+            partial=SampleBucket(demos=0, rounds=0),
+            unknown=SampleBucket(demos=0, rounds=0),
+        ),
+        anomaly_scan=scan(rounds_scanned=2, crunch_rounds=2, stack_rounds=2),
+        maps=[
+            _map_with_bucketed_demo("de_nuke", "league", 2),
+            _map_with_bucketed_demo("de_anubis", "other", 0),
+        ],
+    )
+    assert report.sample.league.demos == 1
+    assert report.sample.other.demos == 1
 
 
 def test_unclassified_rounds_stay_outside_the_sample() -> None:

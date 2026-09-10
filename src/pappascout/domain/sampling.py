@@ -79,10 +79,14 @@ from dataclasses import dataclass
 from statistics import median
 
 from pappascout.constants import (
+    ANOMALY_RULE_SIDE,
+    CRUNCH,
+    CT_ADVANCE,
     SAVING_ROUND_TYPES,
     SIDES,
     SITE_AREAS,
     SITE_GROUPS,
+    STACK,
 )
 
 __all__ = [
@@ -96,9 +100,6 @@ __all__ = [
     "seconds_since_freeze_end",
     "sample_ticks",
     "first_contact_tick",
-    "CT_ADVANCE",
-    "CRUNCH",
-    "STACK",
     "SITE_AREAS",
     "SITE_GROUPS",
     "SPAWN_AREAS",
@@ -111,7 +112,6 @@ __all__ = [
     "ct_advance_hits",
     "crunch_hits",
     "stack_hits",
-    "RULE_SIDE",
 ]
 
 #: A time-based sample point.
@@ -360,35 +360,15 @@ def first_contact_tick(
 
 
 # -- The anomaly rules (AD-10, Story 2.5) -------------------------------------
+#
+# The rule names (``CT_ADVANCE``, ``CRUNCH``, ``STACK``) and the side they
+# examine (``ANOMALY_RULE_SIDE``) are **not** defined here. They are shared
+# vocabulary -- ``constants.ANOMALY_RULES`` validates against them and
+# ``render`` orders the section by them -- so they live where the other shared
+# vocabularies live, and ``ANOMALY_RULES`` is derived from them there. Epic
+# 2's retrospective action (9). Only what is the rule's own and nobody else's
+# stays below.
 
-
-#: CT advance: the subject's CT player in an area that is held by the T side
-#: **in that demo**, on a saving round.
-CT_ADVANCE = "ct_advance"
-
-#: The side whose rows the anomaly rules examine.
-#:
-#: All three rules ask what **the subject does as CT**, so T-side rows cannot
-#: produce a hit under any of them. A constant because the same value is
-#: needed in two places: in the filtering of the rows
-#: (:func:`_is_ct_time_row`) and in the aggregation's coverage figure, which
-#: says on how many rounds the rule **can** hit. Written out twice, the
-#: coverage could promise more than the rule examines.
-RULE_SIDE = "CT"
-
-#: Crunch: the same area, but at least two players having **arrived** from at
-#: least two different directions at the same time -- **on any round type**.
-#: The same orientation condition as the advance, one requirement more and one
-#: restriction fewer, so the rules' hit sets intersect each other and neither
-#: contains the other.
-CRUNCH = "crunch"
-
-#: Stack: at least ``min_players`` of the subject's living CT players in the
-#: same site's group, and at least one of them on the site's **own** area.
-#:
-#: The rule reads neither the orientation nor the round type. It is a third
-#: question about the same observation, not a variant of the other two.
-STACK = "stack"
 
 #: The areas that **do not count** towards the stack computation.
 #:
@@ -499,7 +479,9 @@ class AnomalyHit:
     source-area list on an advance row means "not asked", not "no directions".
 
     Attributes:
-        rule: :data:`CT_ADVANCE`, :data:`CRUNCH` or :data:`STACK`.
+        rule: :data:`~pappascout.constants.CT_ADVANCE`,
+            :data:`~pappascout.constants.CRUNCH` or
+            :data:`~pappascout.constants.STACK`.
         area: The area the hit was observed on. Never ``None``: an area with
             no name cannot be the T side's area. On a stack it is the
             **site's own area** (:data:`SITE_AREAS`), because that is the
@@ -1162,7 +1144,7 @@ def _is_ct_time_row(row: AreaPresence) -> bool:
     """
     return (
         row.is_alive
-        and row.side == RULE_SIDE
+        and row.side == ANOMALY_RULE_SIDE
         and row.sample_kind == TIME_SAMPLE
     )
 
