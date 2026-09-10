@@ -1206,8 +1206,8 @@ def test_the_host_shape_is_anchored_to_the_end_of_the_stem(
 ) -> None:
     """The sync client appends the host; it does not sprinkle it about.
 
-    Unanchored, this machine's tag ``fplt166`` matched inside the report of
-    any team whose slug began with it -- ``2026-09-10T1200-fplt166-gaming.md``
+    Unanchored, a machine tag such as ``box7`` matched inside the report of
+    any team whose slug began with it -- ``2026-09-10T1200-box7-gaming.md``
     -- and every run of that team ended in ``RunStopped``. The same shape as
     the ``"set"``-inside-``"settings"`` guard this repository found in T11.
 

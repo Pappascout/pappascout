@@ -56,7 +56,7 @@ class StageResult:
             but the result can still be empty or incomplete, and "0 rows"
             without a word about why would leave the user guessing. A new
             ``UnitStatus`` value is not an option: it would extend
-            ``CLASSIFIED``'s polars enum, that is, change the schema contract
+            ``ROUNDS``'s polars enum, that is, change the schema contract
             of the parquet files already in the archive.
 
             **One string, even when there are many notes.** A stage that can

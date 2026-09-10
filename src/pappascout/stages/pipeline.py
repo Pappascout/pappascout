@@ -1286,8 +1286,8 @@ def _looks_forked(name: str, host: str) -> bool:
     **The host shape is anchored to the end of the stem**, because that is
     where the sync client puts it -- ``teams.json`` becomes
     ``teams-<host>.json``. An unanchored search was a false positive
-    waiting for a team slug: this machine's tag is ``fplt166``, so a team
-    called ``fplt166-gaming`` produced ``...-fplt166-gaming.md`` and ended
+    waiting for a team slug: if this machine's tag were ``box7``, a team
+    called ``box7-gaming`` would produce ``...-box7-gaming.md`` and end
     every run in ``RunStopped``. It is the same shape as the guard this
     repository found in T11, where ``"set"`` matched inside ``"settings"``.
     """
