@@ -9,6 +9,7 @@ contradictions between the sections are caught at load time.
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -1045,6 +1046,44 @@ def test_aggregate_default_matches_the_settings_file() -> None:
     buckets had gone.
     """
     assert AggregateSettings().utility_seconds_buckets == [5.0, 10.0, 20.0]
+
+
+def test_threshold_defaults_match_the_settings_file(settings_file: Path) -> None:
+    """The code default must not differ from the settings file.
+
+    ``[report]`` and ``[aggregate]`` have had this guard since Story 2.13;
+    ``[thresholds]`` did not, and on 2026-09-11 that cost a review round. The
+    margin was changed in ``settings.toml`` while ``ThresholdSettings``'s own
+    default stayed behind, and nothing said so -- although
+    ``tests/test_aggregate.py`` builds its limits from those defaults at 53
+    call sites, so the whole fast suite went on exercising the old value while
+    every comment in the tree described the new one.
+
+    ``pistol_rounds`` has no default (it is the one threshold the model
+    refuses to guess), so it is taken from the file to build the comparison;
+    every other field is compared as it stands.
+
+    **The key sets are compared first, and that is not decoration.** A value
+    read through the loader falls back to the model default when the key is
+    missing from the file, so a field present in the model and absent from
+    ``settings.toml`` would compare equal and pass. ``[faceit]`` and
+    ``[parse]`` already have this assertion (``tests/test_faceit.py`` and
+    ``tests/test_stage_parse.py``); ``[thresholds]`` did not.
+    """
+    raw = tomllib.loads(settings_file.read_text(encoding="utf-8"))
+    assert set(raw["thresholds"]) == set(ThresholdSettings.model_fields), (
+        "Every threshold the model knows must be written in settings.toml, "
+        "and nothing else. A key only in the model would silently fall back "
+        "to its default; a key only in the file would never be read."
+    )
+    from_file = _load(settings_file).thresholds
+    defaults = ThresholdSettings(pistol_rounds=from_file.pistol_rounds)
+    differing = {
+        name: (getattr(defaults, name), getattr(from_file, name))
+        for name in type(defaults).model_fields
+        if getattr(defaults, name) != getattr(from_file, name)
+    }
+    assert differing == {}
 
 
 # --- The pruning rules (Story 2.13) -------------------------------------------

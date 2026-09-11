@@ -367,6 +367,52 @@ def require_parsed(*map_demo_ids: str) -> Path:
 #: maps -- because that is exactly what makes excluding the spawns a
 #: definition and not a tidy-up.
 #:
+#: ``Outside`` at 43 and ``TopofMid`` at 45 are **the margin's test areas**,
+#: and they are the only reason this cloud can see the setting at all. Their
+#: ratios straddle the shipped 1.25 from both sides:
+#:
+#: ===============  =========  ====================================
+#: area             ratio      at the shipped 1.25
+#: ===============  =========  ====================================
+#: ``Outside``      57/43      **1.3256** -- grouped; drops if raised
+#: ``TopofMid``     55/45      **1.2222** -- ungrouped; joins if lowered
+#: ===============  =========  ====================================
+#:
+#: Without them this cloud groups identically for **every margin from 1.00 to
+#: 5.66** (swept in 0.01 steps): the nearest other area, ``Ramp``, only moves
+#: at 5.67.
+#:
+#: **There were two holes on 2026-09-11 and they are worth telling apart.**
+#: The wrong margin got through because ``settings.toml`` was edited while
+#: ``ThresholdSettings``'s default stayed behind, so every rule test went on
+#: building its limits from the old value -- that is default drift, and
+#: ``test_threshold_defaults_match_the_settings_file`` is what closes it. This
+#: cloud's flatness is the *second* hole: it would have hidden a **coherent**
+#: change too, anywhere in that range. Measured: with both values moved
+#: together, the pre-fix suite caught 1.5 (3 red) but not 1.24 (value lock
+#: only). So neither fix subsumes the other.
+#:
+#: With both areas the blind band around the shipped value is
+#: ``[1.2222, 1.3256)`` -- about a tenth wide instead of four and a half, and
+#: two-sided, because a threshold can be wrong in either direction.
+#:
+#: The ratios are taken from the real map: across the three Ancient demos
+#: ``Outside`` measures 1.3479 / 1.3314 / 1.4095 and ``TopofMid`` measures
+#: 1.2472 / 1.1587 / 1.1983 -- and 1.2472 is **0.003 below** the shipped
+#: threshold, which is the real razor edge and points downward.
+#: **The rest of the cloud is not a model of Ancient** and must not be read as
+#: one: the real ``House`` is 1.38-1.45 where this one is 9.0, and the real
+#: ``TopofMid`` is in ``ANCIENT_SHARED`` where this one is deliberately
+#: grouped. Only these two ratios are drawn from measurement.
+#:
+#: **The area names are not unique across the test suite.** ``Outside`` is
+#: also Nuke's yard in ``test_aggregate``'s advance tests and Nuke's outside
+#: in ``test_sampling``'s ``SHARED_AREA``; ``TopofMid`` appears in the crunch
+#: tests. Those tests pass **no point cloud**, so the names carry no group
+#: there. Give one of them ``point_clouds=stack_cloud(...)`` and the name
+#: would suddenly be a grouped area -- so do not, without checking here
+#: first.
+#:
 #: One copy instead of three: the rule (``test_sampling``), the aggregation
 #: (``test_aggregate``) and the stage (``test_stage_aggregate``) measure the
 #: same geometry, and three copies could drift apart.
@@ -381,6 +427,8 @@ SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
     ("SideEntrance", 90, 0, 0),
     ("Ramp", 85, 0, 0),
     ("Middle", 50, 0, 0),
+    ("Outside", 43, 0, 0),
+    ("TopofMid", 45, 0, 0),
     ("CTSpawn", 5, 0, 0),
     ("TSpawn", 95, 0, 0),
 )

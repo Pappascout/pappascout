@@ -3174,6 +3174,57 @@ def test_the_stack_threshold_is_read_from_the_settings() -> None:
     assert stacks(5) == []
 
 
+def test_the_group_margin_is_a_setting_not_code() -> None:
+    """The same set-up speaks or stays silent depending on the margin.
+
+    This test exists because on 2026-09-11 the margin was raised 1.25 -> 1.5
+    and the fast suite stayed green apart from the value lock, which the same
+    commit edited. ``SITE_CLOUD`` grouped identically for every margin from
+    1.00 to 5.66, so the rule layer could not see the setting.
+    ``OVERLAPPING_SITE_CLOUD`` *can* see it -- its ``House`` regroups just
+    above 1.25, which is why ``test_the_separation_threshold_is_a_setting_not_code``
+    was already sensitive. The blindness was ``SITE_CLOUD``'s alone.
+
+    ``Outside`` is the area that fixes that: its ratio is 57/43 = **1.3256**,
+    so it is in A's group at the shipped 1.25 and out of it at 1.5. Four
+    players in A's group become three and the hit disappears -- exactly the
+    shape of the change that went unnoticed.
+
+    **This is a wiring test, not a guard on the shipped value.** Both margins
+    are written in, so it stays green whatever ``settings.toml`` says; what it
+    proves is that the setting reaches the rule at all. The shipped value is
+    pinned by ``test_threshold_values`` and by
+    ``test_threshold_defaults_match_the_settings_file``. Should the margin ever
+    legitimately become 1.5, the second assertion has to be rewritten rather
+    than kept as a pinned negative.
+
+    The set-up also rests on ``stack_min_players = 4``: four in the group
+    dropping to three is what removes the hit, so lowering that threshold
+    would turn this red for a reason that is not the margin.
+    """
+    demo = "Ancient_vs_x"
+    rows = stack_round(
+        demo,
+        1,
+        site="BombsiteA",
+        others=("House", "Outside"),
+        elsewhere=("BombsiteB",),
+    )
+
+    def stacks(margin: float) -> list[str]:
+        report = anomaly_report(
+            eco_ct(demo, 1, 2),
+            rows,
+            demo=demo,
+            limits=thresholds(stack_group_margin=margin),
+            point_clouds=stack_cloud(demo),
+        )
+        return areas_of(report, "stack")
+
+    assert stacks(1.25) == ["BombsiteA"]
+    assert stacks(1.5) == []
+
+
 def test_the_separation_threshold_is_a_setting_not_code() -> None:
     """The same demo stays silent or speaks depending on which threshold is
     set.

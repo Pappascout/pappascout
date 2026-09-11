@@ -21,6 +21,7 @@ from pappascout.constants import (
     SAVING_ROUND_TYPES,
     STACK,
 )
+from pappascout.domain.models import ThresholdSettings
 from pappascout.domain.sampling import (
     FIRST_CONTACT_SAMPLE,
     TIME_SAMPLE,
@@ -901,7 +902,17 @@ def test_the_infernos_five_player_crunch_is_measured_as_five() -> None:
 CLOUD = SITE_CLOUD
 CLOUD_OVERLAPPING = OVERLAPPING_SITE_CLOUD
 
-MARGIN = 1.25
+#: **Read from the model's default, not written here.** A hand-written copy
+#: made this module blind to the setting: on 2026-09-11 the shipped margin
+#: changed and every test in this file went on measuring 1.25.
+#:
+#: The chain is two links, and it is worth being exact about what each
+#: catches. ``test_threshold_defaults_match_the_settings_file`` pins this
+#: default to ``settings.toml``; the grouping tests below then react to the
+#: default. An edit to ``settings.toml`` **alone** is caught by that equality
+#: assertion and not by behaviour here; an edit to both is caught here.
+#: Neither link is sufficient on its own.
+MARGIN = ThresholdSettings(pistol_rounds=[1, 13]).stack_group_margin
 SEPARATION_MIN = 2.0
 STACK_MIN_PLAYERS = 4
 
@@ -930,6 +941,45 @@ def stack(
     )
 
 
+def test_the_cloud_can_see_the_margin_move() -> None:
+    """The fixture must be able to SEE ``stack_group_margin`` change.
+
+    Without this guard the sensitive areas in ``conftest.SITE_CLOUD`` are
+    decoration. Measured on 2026-09-11: before they were added the cloud
+    grouped **identically for every margin from 1.00 to 5.66** (swept in 0.01
+    steps), and a wrong shipped value passed a green fast suite. A suite
+    cannot guard a number it cannot see.
+
+    ``Outside`` (1.3256) and ``TopofMid`` (1.2222) straddle the shipped 1.25,
+    so the blind band is ``[1.2222, 1.3256)``. This test asserts against the
+    **shipped** margin rather than a constant, and it is red on both sides:
+    above 1.3256 there is nothing left to drop, and at or below about 1.10
+    ``MARGIN * 1.2`` no longer reaches ``Outside``'s ratio. Red here means
+    "the fixture has gone blind at the shipped value", not "the margin is
+    wrong" -- the repair is a new sensitive area, not a new number.
+
+    The probe ``MARGIN * 1.2`` only certifies that *some* breakpoint lies in
+    ``(MARGIN, 1.2 * MARGIN]``. The two assertions below name which areas must
+    do the work, so a future repair cannot satisfy the guard while leaving
+    ``Outside`` decorative.
+    """
+    at_shipped = groups()
+    wider = site_groups(cloud(), margin=MARGIN * 1.2, separation_min=SEPARATION_MIN)
+    assert at_shipped != wider, (
+        f"The cloud groups identically at {MARGIN} and {MARGIN * 1.2}, so no "
+        "test in this file can see the margin. Add an area whose ratio falls "
+        "between them."
+    )
+    assert "Outside" in at_shipped and "Outside" not in wider, (
+        "``Outside`` is the area meant to move with the margin: grouped at "
+        f"{MARGIN}, ungrouped at {MARGIN * 1.2}."
+    )
+    assert "TopofMid" not in at_shipped, (
+        "``TopofMid`` is the downward sensor and must be UNgrouped at the "
+        f"shipped {MARGIN}, so that a LOWERED margin is visible too."
+    )
+
+
 def test_the_site_groups_are_read_off_the_demos_own_point_cloud() -> None:
     """Every area gets its group from the nearer site -- or neither.
 
@@ -942,12 +992,16 @@ def test_the_site_groups_are_read_off_the_demos_own_point_cloud() -> None:
         "BombsiteA": "A",
         "BombsiteB": "B",
         "House": "A",
+        "Outside": "A",
         "CTSpawn": "A",
         "SideEntrance": "B",
         "Ramp": "B",
         "TSpawn": "B",
     }
     assert "Middle" not in found
+    # ``TopofMid`` (1.2222) sits just below the shipped margin, so it is
+    # ungrouped here -- that is what makes a LOWERED margin visible.
+    assert "TopofMid" not in found
 
 
 def test_four_defenders_in_one_sites_group_are_a_stack() -> None:
