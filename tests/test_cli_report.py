@@ -256,8 +256,13 @@ def test_the_users_own_pruning_setting_reaches_the_written_report(
     file's -- so nothing told a loaded section apart from the code's default.
 
     The difference is made with a **non-default** setting: ``max_kill_areas =
-    1`` leaves one area and counts the other eight after the row. The default
-    3 would produce six, so the number tells the two apart.
+    1`` leaves one area and counts the other four after the row. The default
+    3 would produce two, so the number tells the two apart.
+
+    Four and not eight since 2026-09-11: the block is pattern-filtered now,
+    and the four areas with a single kill are gone before the limit is
+    consulted. The note counts what the **limit** dropped, so the numbers
+    that tell a loaded section from a default one moved with it.
     """
     archive_root = prepare_pruning(
         tmp_path,
@@ -271,7 +276,7 @@ def test_the_users_own_pruning_setting_reaches_the_written_report(
     text = written_report(archive_root)
     kills = [row for row in text.splitlines() if "tapot alueittain" in row]
     assert kills, text
-    assert "8 harvinaisempaa aluetta jäi pois" in kills[0]
+    assert "4 harvinaisempaa aluetta jäi pois" in kills[0]
     assert "Palace" not in kills[0]
     # And the reading note gives the same number the user wrote.
     assert "kirjoitetaan 1 yleisintä aluetta" in text

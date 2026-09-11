@@ -93,6 +93,7 @@ from pappascout.render.view import (
     UNKNOWN_MAP_LABEL,
     UNNAMED_PLAYER,
     Claim,
+    block_min_rounds,
     pattern_min_rounds,
 )
 
@@ -953,7 +954,7 @@ def test_sample_is_written_as_n_of_m_rounds() -> None:
     assert "Middle 3 (1/1 kierroksesta)" in text
 
 
-# --- Saving rounds vs. the default ----------------------------------------------
+# --- Filtered round types vs. protected ones ------------------------------------
 
 
 def test_default_shows_only_repeating_patterns() -> None:
@@ -973,33 +974,202 @@ def test_default_says_how_many_observations_it_left_out() -> None:
     ), text
 
 
-def test_saving_rounds_show_every_observation() -> None:
-    """Pistol, eco, force and half-buy are described round by round."""
-    single = map_report(
-        "de_nuke",
-        [
-            side(
-                "T",
-                [
-                    round_type(
-                        "eco",
-                        4,
-                        positions=[position(6.0, [area("Ramp", 4, {2: 1, 0: 3})], 4)],
-                    )
-                ],
+def one_block_report(round_type_name: str, rounds: int, **kwargs) -> Report:
+    """A report of one map, one side and one round-type block.
+
+    The block's round count is the second argument, because the pattern
+    threshold is capped at it: a fixture that does not say the round count
+    out loud says nothing about which threshold was used.
+    """
+    entry = round_type(round_type_name, rounds, **kwargs)
+    return report([map_report("de_nuke", [side("T", [entry])])])
+
+
+def test_a_saving_round_is_filtered_like_the_default() -> None:
+    """``eco``, ``force`` and ``half`` are pattern types too (2026-09-11).
+
+    They used to be written round by round, which in a block of a handful of
+    rounds meant writing every single observation: in the real three-map
+    report ``eco`` took 27 % of the body for 7 % of the rounds, and almost
+    every row of a two-round block read ``(1/2 kierroksesta)`` -- one
+    observation out of two, which is not a pattern.
+
+    The fixture has four rounds, so the threshold is the report's own 3 and
+    the cap does not come into it: the bar seen once goes and the bar seen
+    three times stays.
+    """
+    for name in ("eco", "force", "half"):
+        text = render(
+            one_block_report(
+                name,
+                4,
+                positions=[position(6.0, [area("Ramp", 4, {2: 3, 1: 1})], 4)],
             )
-        ],
-    )
-    text = render(report([single]))
-    assert "Ramp 2 (1/4 kierroksesta)" in text
-    assert "vain toistuvat kuviot" not in text
+        )
+        assert "Ramp 1 (1/4 kierroksesta)" not in text, name
+        assert "Ramp 2 (3/4 kierroksesta)" in text, name
+        assert "vain toistuvat kuviot" in text, name
+        assert (
+            "Vain kuviot, jotka toistuvat vähintään 3 kierroksella; "
+            "1 harvinaisempaa havaintoa jäi pois."
+        ) in text, name
 
 
-def test_saving_rounds_never_claim_that_a_threshold_dropped_anything() -> None:
-    """On saving rounds the threshold is 1, and no bar can fall below it."""
+def test_a_protected_round_type_shows_every_observation() -> None:
+    """Pistol and anomaly are the round-by-round ones, and only they.
+
+    The same fixture as above: on a protected type the bar seen once stays
+    and no block claims to have filtered anything.
+    """
+    for name in ("pistol", "anomaly"):
+        text = render(
+            one_block_report(
+                name,
+                4,
+                positions=[position(6.0, [area("Ramp", 4, {2: 3, 1: 1})], 4)],
+            )
+        )
+        assert "Ramp 1 (1/4 kierroksesta)" in text, name
+        assert "vain toistuvat kuviot" not in text, name
+        assert "jäi pois" not in text, name
+
+
+def test_every_round_type_is_either_filtered_or_protected() -> None:
+    """There is no third state, and the gap is what this change closed.
+
+    Until 2026-09-11 ``eco``, ``force`` and ``half`` were on neither list:
+    not filtered, and not protected for any stated reason. A round type that
+    falls between the two is written round by round by accident rather than
+    by decision, and nothing in the code says so.
+    """
+    assert PATTERN_ROUND_TYPES | PROTECTED_ROUND_TYPES == set(ROUND_TYPES)
+    assert not PATTERN_ROUND_TYPES & PROTECTED_ROUND_TYPES
+
+
+def test_protected_round_types_never_claim_that_a_threshold_dropped_anything() -> None:
+    """On a protected round type the threshold is 1, and no bar can fall
+    below it.
+    """
     text = render(report([pistol_map()]))
     assert "jäi pois" not in text
     assert "kynnyksen alta" not in text
+
+
+# --- The threshold is capped at the block's round count (2026-09-11) ------------
+
+
+@pytest.mark.parametrize(
+    ("threshold", "rounds", "expected"),
+    [
+        (3, 2, 2),  # two rounds: only what happened in both
+        (3, 3, 3),
+        (3, 4, 3),  # the cap is inert as soon as the block is big enough
+        (3, 6, 3),
+        (3, 62, 3),  # the block that holds the data is untouched
+        (3, 1, 1),  # nothing can repeat; the filter demands nothing
+        (3, 0, 1),  # a floor, so that no block claims to filter at 0
+        (None, 4, None),  # no threshold in the report -> no filtering
+    ],
+)
+def test_the_threshold_is_capped_at_the_blocks_round_count(
+    threshold: int | None, rounds: int, expected: int | None
+) -> None:
+    """A cap and not a proportion.
+
+    "At least half the rounds" was the first proposal: at 62 rounds it would
+    demand 31 and gut the one block that actually holds the data. The 62-row
+    is in the table for precisely that reason -- it is the row a proportional
+    rule would fail.
+    """
+    assert block_min_rounds(threshold, rounds) == expected
+
+
+def test_a_two_round_block_keeps_only_what_happened_in_both_rounds() -> None:
+    """The cap is what makes filtering a two-round block possible at all.
+
+    At the report's uncapped threshold of 3 the block would empty; at the
+    cap of 2 the observation made on both rounds stays and the one made on
+    one round goes.
+    """
+    text = render(
+        one_block_report(
+            "eco",
+            2,
+            positions=[position(6.0, [area("Ramp", 2, {2: 1, 0: 1})], 2)],
+            players_armed=armed(2, {1: 2}),
+        )
+    )
+    assert "aseistettuja ostoajan lopussa: 1 (2/2 kierroksesta)" in text
+    assert "Ramp 2 (1/2 kierroksesta)" not in text
+    assert "Ramp 0 (1/2 kierroksesta)" not in text
+
+
+def test_the_block_states_the_threshold_it_really_used() -> None:
+    """A block that said "3" while filtering at 2 would be a false claim.
+
+    The sentence states the number, so with the cap it has to be the capped
+    number -- and the two wordings say which of the two rules produced it.
+    """
+    two = render(one_block_report("eco", 2, players_armed=armed(2, {1: 2})))
+    assert "toistuvat kaikilla 2 kierroksella" in two
+    assert "vähintään 3" not in two
+
+    four = render(one_block_report("eco", 4, players_armed=armed(4, {1: 4})))
+    assert "toistuvat vähintään 3 kierroksella" in four
+    assert "kaikilla 4" not in four
+
+
+def test_a_one_round_block_is_not_marked_as_filtered() -> None:
+    """At a capped threshold of 1 the filter demands nothing.
+
+    Every observation in a one-round block was made on every round of it, so
+    marking the block "vain toistuvat kuviot" would claim a selection that
+    was not made. The round count in the heading already says why.
+    """
+    text = render(
+        one_block_report(
+            "eco",
+            1,
+            positions=[position(6.0, [area("Ramp", 1, {2: 1})], 1)],
+        )
+    )
+    assert "Ramp 2 (1/1 kierroksesta)" in text
+    assert "vain toistuvat kuviot" not in text
+    assert "toistuvat" not in text
+
+
+def test_a_block_the_cap_empties_says_the_sample_was_too_small() -> None:
+    """A bare heading is not an answer, and neither is a bare threshold.
+
+    When the cap takes every row, the reason is not that the team did
+    nothing repeatedly -- it is that two rounds cannot hold a repetition.
+    The sentence says that, and it points at ``report.json`` so that the
+    reader knows the observations still exist.
+    """
+    text = render(
+        one_block_report(
+            "eco",
+            2,
+            death_report=deaths(first={"Ramp": 1, "Palace": 1}),
+        )
+    )
+    assert (
+        "Yksikään havainto ei toistunut kaikilla 2 kierroksella: otanta on "
+        "liian pieni, jotta mikään ehtisi toistua. Havainnot ovat "
+        "report.jsonissa."
+    ) in text
+
+
+def test_a_block_with_no_observations_does_not_blame_the_threshold() -> None:
+    """Nothing was offered to the threshold, so it took nothing.
+
+    The branch used to ask whether the round type was filtered at all, which
+    answers a different question: a ``full`` block with nothing in it was
+    made to say that nothing passed the threshold.
+    """
+    text = render(one_block_report("full", 0))
+    assert "Ei havaintoja tältä kierrostyypiltä." in text
+    assert "Ei kuvioita, jotka ylittäisivät kynnyksen." not in text
 
 
 def test_the_pattern_threshold_also_applies_to_counts_and_armed_players() -> None:
@@ -2745,14 +2915,15 @@ GOLDEN = """\
 
 ### T-puoli -- 4 kierrosta
 
-**Eco** (4 kierrosta)
-- 6 s: Ramp 2 (1/4 kierroksesta)
-- ensikontakti (mediaani 9,1 s): Ramp 1 (2/4 kierroksesta)
-- utility: savu 1 kpl (1/4 kierroksesta)
+**Eco** (4 kierrosta) -- vain toistuvat kuviot
+- 6 s: Ramp 2 (3/4 kierroksesta)
+- ensikontakti (mediaani 9,1 s): Ramp 1 (3/4 kierroksesta)
+- utility: savu 1 kpl (3/4 kierroksesta)
 - aseistettuja ostoajan lopussa: 0 (4/4 kierroksesta)
-- panssaroituja ostoajan lopussa: 0 (3/4 kierroksesta), 5 (1/4 kierroksesta)
-- ensimmäinen kuolema (mediaani 24,0 s): Cave (2/3 kierroksesta), Long (1/3 kierroksesta) -- ei omia kuolemia 1 kierroksella
-- tapot alueittain: Middle (4/6 taposta), BombsiteB (2/6 taposta)
+- panssaroituja ostoajan lopussa: 3 (4/4 kierroksesta)
+- ensimmäinen kuolema (mediaani 24,0 s): Cave (3/3 kierroksesta) -- ei omia kuolemia 1 kierroksella
+- tapot alueittain: Middle (4/7 taposta), BombsiteB (3/7 taposta)
+- *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; jokainen havainto ylitti kynnyksen.*
 
 ## Kierrosliite
 
@@ -2790,7 +2961,15 @@ Tunnisteet, jotka eivät ole rungossa: joukkueen ja kokoonpanojen tiivisteet, pe
 
 
 def golden_report() -> Report:
-    """A small report whose whole output is locked into :data:`GOLDEN`."""
+    """A small report whose whole output is locked into :data:`GOLDEN`.
+
+    **Every row repeats at least three times** (2026-09-11). ``eco`` is a
+    pattern round type now, so a bar seen once or twice is not written at
+    all -- and a golden whose rows the threshold removes locks the shape of
+    an empty block rather than of a report. The numbers were raised for
+    that and for nothing else; the rows, their order and their labels are
+    the same ones.
+    """
     entry = map_report(
         "de_nuke",
         [
@@ -2801,25 +2980,28 @@ def golden_report() -> Report:
                         "eco",
                         4,
                         positions=[
-                            position(6.0, [area("Ramp", 4, {2: 1, 0: 3})], 4),
-                            first_contact_position([area("Ramp", 4, {1: 2, 0: 2})], 4),
+                            position(6.0, [area("Ramp", 4, {2: 3, 0: 1})], 4),
+                            first_contact_position([area("Ramp", 4, {1: 3, 0: 1})], 4),
                         ],
-                        utility_counts=[counts("smoke", 4, {1: 1, 0: 3})],
+                        utility_counts=[counts("smoke", 4, {1: 3, 0: 1})],
                         # Both player counters are included for the same
                         # reason as the deaths: only the golden locks that
                         # they are consecutive and that the reading guide
-                        # gets two different explanations and not one.
+                        # gets two different explanations and not one. The
+                        # values differ (0 and 3) so that rule 2 does not
+                        # merge them, and neither is 5, so that rule 1 does
+                        # not drop one.
                         players_armed=armed(4, {0: 4}),
-                        players_armored=armored(4, {5: 1, 0: 3}),
+                        players_armored=armored(4, {3: 4}),
                         # The deaths are included because it is this fixture
                         # that locks the document's shape: without them the
                         # rows' place, the note and the new reading-guide
                         # paragraph would be locked nowhere.
                         death_report=deaths(
-                            first={"Cave": 2, "Long": 1},
+                            first={"Cave": 3},
                             rounds_missing=1,
                             median=24.0,
-                            kills={"Middle": 4, "BombsiteB": 2},
+                            kills={"Middle": 4, "BombsiteB": 3},
                         ),
                     )
                 ],
@@ -3990,25 +4172,34 @@ def test_every_anomaly_rule_has_a_finnish_name_in_the_view() -> None:
 #: Utility's targets in :func:`pruning_map`'s eco block: nine targets on one
 #: row. Measured, ten rows had between five and nine targets, and such a row
 #: is a list and not a pattern.
+#:
+#: **Five of the nine repeat at least three times** (2026-09-11). ``eco`` is
+#: a filtered round type now, so the pattern threshold reaches this row
+#: before rule 4 does: with only two targets above the threshold the row
+#: would already be at the limit and rule 4 would prune nothing, and the
+#: tests that watch rule 4 would pass without the rule existing.
 PRUNE_UTILITY = {
     "BombsiteA": 4,
-    "Palace": 3,
-    "Connector": 2,
-    "Ramp": 2,
-    "Apartments": 1,
+    "Palace": 4,
+    "Connector": 3,
+    "Ramp": 3,
+    "Apartments": 3,
     "Catwalk": 1,
     "Jungle": 1,
     "Underpass": 1,
     "Window": 1,
 }
 
-#: The kill areas in the same block: nine areas on one row.
+#: The kill areas in the same block: nine areas on one row. Five of them
+#: repeat at least three times, for the same reason as in
+#: :data:`PRUNE_UTILITY` -- rule 5's limit is three, so fewer than four
+#: surviving areas would leave the rule nothing to do.
 PRUNE_KILLS = {
     "BombsiteA": 5,
     "Palace": 4,
-    "Connector": 3,
-    "Ramp": 2,
-    "Apartments": 2,
+    "Connector": 4,
+    "Ramp": 3,
+    "Apartments": 3,
     "Catwalk": 1,
     "Jungle": 1,
     "Underpass": 1,
@@ -4035,14 +4226,32 @@ def pruning_map() -> MapReport:
     * **force** -- identical equipment rows (rule 2).
     * **half-buy** -- differing equipment rows (1 armed, 3 armoured): the I/O
       matrix's row on which both rows stay.
-    * **default** -- a ``PATTERN_ROUND_TYPES`` block in which **pattern
-      filtering bites**: the saturated equipment row and the 45 s sample
-      point fall below the threshold. Without this block the interaction of
-      pruning and the threshold would never be reached, because in the other
-      blocks ``min_n`` is 1 -- and it was precisely that interaction that
-      broke the story's core promise on review round 1.
+    * **default** -- a block in which **pattern filtering bites**: the
+      armour row and the 45 s sample point fall below the threshold, so
+      neither is ever built and rule 3 has nothing to skip. It was precisely
+      that interaction that broke the story's core promise on review round
+      1.
     * **pistol** -- saturated and identical equipment rows, four targets,
       five kill areas and a 45 s sample point. None of them is pruned.
+
+    **Every block but the pistol one is pattern-filtered since 2026-09-11**,
+    and the fixture had to be re-measured for it. Two things changed, and
+    both are the same requirement -- *a rule can only be watched where it
+    has something left to do*:
+
+    1. **What each row observes now repeats often enough to survive the
+       threshold.** Before, the eco, force and half-buy blocks were written
+       round by round, so a bar of ``1`` reached the pruning rules; now it
+       does not reach them, and a fixture left as it was would have tested
+       the rules by deleting their input.
+    2. **The default block has four rounds and not two.** The threshold is
+       capped at the block's round count, so a two-round block filters at 2
+       -- and at 2 the saturated row (``5`` on two rounds out of two) passes
+       the threshold and rule 1 drops it, which is the exact opposite of
+       what this block is here to show. Four rounds keeps the block at the
+       report's own threshold of 3, where the row falls below it. The cost
+       is that the block is no longer a small sample; the small-sample mark
+       is watched elsewhere.
     """
     return map_report(
         "de_mirage",
@@ -4054,10 +4263,10 @@ def pruning_map() -> MapReport:
                         "eco",
                         4,
                         positions=[
-                            position(6.0, [area("Middle", 4, {2: 2, 0: 2})], 4),
-                            position(15.0, [area("Middle", 4, {2: 2, 0: 2})], 4),
-                            position(30.0, [area("Middle", 4, {1: 2, 0: 2})], 4),
-                            position(45.0, [area("Middle", 4, {1: 1, 0: 3})], 4),
+                            position(6.0, [area("Middle", 4, {2: 4})], 4),
+                            position(15.0, [area("Middle", 4, {2: 4})], 4),
+                            position(30.0, [area("Middle", 4, {1: 4})], 4),
+                            position(45.0, [area("Middle", 4, {1: 3, 0: 1})], 4),
                         ],
                         utility=[
                             use("smoke", "TSpawn", target, n=n, m=4)
@@ -4066,7 +4275,7 @@ def pruning_map() -> MapReport:
                         players_armed=armed(4, {0: 4}),
                         players_armored=armored(4, {5: 4}),
                         death_report=deaths(
-                            first={"Palace": 2, "Ramp": 1},
+                            first={"Palace": 3},
                             rounds_missing=1,
                             kills=PRUNE_KILLS,
                         ),
@@ -4074,8 +4283,8 @@ def pruning_map() -> MapReport:
                     round_type(
                         "force",
                         3,
-                        players_armed=armed(3, {3: 2, 1: 1}),
-                        players_armored=armored(3, {3: 2, 1: 1}),
+                        players_armed=armed(3, {3: 3}),
+                        players_armored=armored(3, {3: 3}),
                     ),
                     round_type(
                         "half",
@@ -4085,22 +4294,24 @@ def pruning_map() -> MapReport:
                     ),
                     round_type(
                         "full",
-                        SMALL_SAMPLE - 1,
+                        SMALL_SAMPLE + 1,
                         positions=[
                             position(
                                 6.0,
-                                [area("Middle", SMALL_SAMPLE - 1, {2: 2})],
-                                SMALL_SAMPLE - 1,
+                                [area("Middle", SMALL_SAMPLE + 1, {2: 4})],
+                                SMALL_SAMPLE + 1,
                             ),
                             position(
                                 45.0,
-                                [area("Middle", SMALL_SAMPLE - 1, {1: 1, 0: 1})],
-                                SMALL_SAMPLE - 1,
+                                [area("Middle", SMALL_SAMPLE + 1, {1: 2, 0: 2})],
+                                SMALL_SAMPLE + 1,
                             ),
                         ],
-                        players_armored=armored(SMALL_SAMPLE - 1, {5: 2}),
+                        players_armored=armored(SMALL_SAMPLE + 1, {5: 2, 4: 2}),
                         death_report=deaths(
-                            first={"Palace": 1, "Ramp": 1}, median=20.0
+                            first={"Palace": 1, "Ramp": 1},
+                            rounds_missing=2,
+                            median=20.0,
                         ),
                     ),
                 ],
@@ -4222,50 +4433,56 @@ def threshold_note(text: str, heading: str = "Default") -> str:
 #: rules, so the test also fails if some rule prunes while its setting is
 #: off -- and that is the fault it is primarily looking for.
 #:
-#: **The provenance is reproducible, not a matter of faith.** The text has
-#: been checked against the code before Story 2.13 (baseline ``e9a8c88``),
-#: and the check is repeated like this::
+#: **The provenance was reproducible against the code before Story 2.13**
+#: (baseline ``e9a8c88``), by copying this file's ``pruning_map()`` into a
+#: worktree at that commit and rendering it there without the settings
+#: parameter. **That reproduction no longer holds, and it must not be
+#: attempted** (2026-09-11): the pattern threshold now reaches ``eco``,
+#: ``force`` and ``half`` and is capped at the block's round count, so the
+#: unpruned chapter at ``e9a8c88`` is a different text on purpose. The
+#: fixture's numbers were raised in the same change, which would make the
+#: comparison meaningless even if the filter had not moved.
 #:
-#:     git worktree add ../pappascout-baseline e9a8c88
-#:     # copy this file's pruning_map() and render it there
-#:     # without the settings parameter; compare the map chapter with this
-#:     # constant
-#:
-#: The claim in the repository is the one the repository can check by itself
-#: on every run: **this text does not change** when pruning is off. The
-#: strongest evidence of the provenance is nevertheless the ``diff`` made
-#: from the archive's real reports, which is empty: it compares the produced
-#: report with a file written before this story. Both are recorded in the
-#: spec's Manual checks section.
+#: The claim the repository can still check by itself on every run is the
+#: one that matters here: **this text does not change** when pruning is off.
+#: Story 2.13's own evidence -- the empty ``diff`` against the archive's
+#: real reports -- stands as a record of that story and is in the spec's
+#: Manual checks section; it is not re-runnable against today's renderer,
+#: and the measurement that replaces it is the re-rendered report recorded
+#: with the 2026-09-11 change.
 GOLDEN_PRUNING_OFF_CHAPTER = """\
-## `de_mirage` -- 13 kierrosta, 1 demo
+## `de_mirage` -- 15 kierrosta, 1 demo
 
-### T-puoli -- 11 kierrosta
+### T-puoli -- 13 kierrosta
 
-**Eco** (4 kierrosta)
-- 6 s: Middle 2 (2/4 kierroksesta)
-- 15 s: Middle 2 (2/4 kierroksesta)
-- 30 s: Middle 1 (2/4 kierroksesta)
-- 45 s: Middle 1 (1/4 kierroksesta)
-- savu: TSpawn -> BombsiteA (arvio) 0-5 s (4/4 kierroksesta), TSpawn -> Palace (arvio) 0-5 s (3/4 kierroksesta), TSpawn -> Connector (arvio) 0-5 s (2/4 kierroksesta), TSpawn -> Ramp (arvio) 0-5 s (2/4 kierroksesta), TSpawn -> Apartments (arvio) 0-5 s (1/4 kierroksesta), TSpawn -> Catwalk (arvio) 0-5 s (1/4 kierroksesta), TSpawn -> Jungle (arvio) 0-5 s (1/4 kierroksesta), TSpawn -> Underpass (arvio) 0-5 s (1/4 kierroksesta), TSpawn -> Window (arvio) 0-5 s (1/4 kierroksesta)
+**Eco** (4 kierrosta) -- vain toistuvat kuviot
+- 6 s: Middle 2 (4/4 kierroksesta)
+- 15 s: Middle 2 (4/4 kierroksesta)
+- 30 s: Middle 1 (4/4 kierroksesta)
+- 45 s: Middle 1 (3/4 kierroksesta)
+- savu: TSpawn -> BombsiteA (arvio) 0-5 s (4/4 kierroksesta), TSpawn -> Palace (arvio) 0-5 s (4/4 kierroksesta), TSpawn -> Apartments (arvio) 0-5 s (3/4 kierroksesta), TSpawn -> Connector (arvio) 0-5 s (3/4 kierroksesta), TSpawn -> Ramp (arvio) 0-5 s (3/4 kierroksesta)
 - aseistettuja ostoajan lopussa: 0 (4/4 kierroksesta)
 - panssaroituja ostoajan lopussa: 5 (4/4 kierroksesta)
-- ensimmäinen kuolema: Palace (2/3 kierroksesta), Ramp (1/3 kierroksesta) -- ei omia kuolemia 1 kierroksella
-- tapot alueittain: BombsiteA (5/20 taposta), Palace (4/20 taposta), Connector (3/20 taposta), Apartments (2/20 taposta), Ramp (2/20 taposta), Catwalk (1/20 taposta), Jungle (1/20 taposta), Underpass (1/20 taposta), Window (1/20 taposta)
+- ensimmäinen kuolema: Palace (3/3 kierroksesta) -- ei omia kuolemia 1 kierroksella
+- tapot alueittain: BombsiteA (5/23 taposta), Connector (4/23 taposta), Palace (4/23 taposta), Apartments (3/23 taposta), Ramp (3/23 taposta)
+- *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; 8 harvinaisempaa havaintoa jäi pois.*
 
-**Force** (3 kierrosta)
-- aseistettuja ostoajan lopussa: 3 (2/3 kierroksesta), 1 (1/3 kierroksesta)
-- panssaroituja ostoajan lopussa: 3 (2/3 kierroksesta), 1 (1/3 kierroksesta)
+**Force** (3 kierrosta) -- vain toistuvat kuviot
+- aseistettuja ostoajan lopussa: 3 (3/3 kierroksesta)
+- panssaroituja ostoajan lopussa: 3 (3/3 kierroksesta)
 - ensimmäinen kuolema: ei omia kuolemia 3 kierroksella
+- *Vain kuviot, jotka toistuvat kaikilla 3 kierroksella; jokainen havainto ylitti kynnyksen.*
 
-**Puoliosto** (2 kierrosta) -- pieni otanta
+**Puoliosto** (2 kierrosta) -- pieni otanta -- vain toistuvat kuviot
 - aseistettuja ostoajan lopussa: 1 (2/2 kierroksesta)
 - panssaroituja ostoajan lopussa: 3 (2/2 kierroksesta)
 - ensimmäinen kuolema: ei omia kuolemia 2 kierroksella
+- *Vain kuviot, jotka toistuvat kaikilla 2 kierroksella; jokainen havainto ylitti kynnyksen.*
 
-**Default** (2 kierrosta) -- pieni otanta -- vain toistuvat kuviot
+**Default** (4 kierrosta) -- vain toistuvat kuviot
+- 6 s: Middle 2 (4/4 kierroksesta)
+- ensimmäinen kuolema (mediaani 20,0 s, 2/4 kierroksesta): ei omia kuolemia 2 kierroksella
 - *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; 5 harvinaisempaa havaintoa jäi pois.*
-- *Ei kuvioita, jotka ylittäisivät kynnyksen.*
 
 ### CT-puoli -- 2 kierrosta
 
@@ -4360,13 +4577,17 @@ def test_every_rule_is_its_own_setting() -> None:
     assert "45 s:" in block(with_defaults, "Eco")
     assert "45 s:" not in block(render(entry, SKIP_45), "Eco")
 
+    # The row each limit brings back has to be one the **limit** removed:
+    # the pattern threshold reaches this block too now, and a target seen on
+    # one round out of four is gone before the limit is consulted -- such a
+    # row would show the rule working while the rule did nothing.
     without_target_limit = render(entry, ReportSettings(max_utility_targets=0))
-    assert "Window" in block(without_target_limit, "Eco")
-    assert "Window" not in block(with_defaults, "Eco")
+    assert "Apartments" in block(without_target_limit, "Eco")
+    assert "Apartments" not in block(with_defaults, "Eco")
 
     without_kill_limit = render(entry, ReportSettings(max_kill_areas=0))
-    assert "Underpass (1/20 taposta)" in block(without_kill_limit, "Eco")
-    assert "Underpass (1/20 taposta)" not in block(with_defaults, "Eco")
+    assert "Apartments (3/23 taposta)" in block(without_kill_limit, "Eco")
+    assert "Apartments (3/23 taposta)" not in block(with_defaults, "Eco")
 
 
 # --- Item A: pruning does not change a claim about the data ------------------
@@ -4417,10 +4638,21 @@ def test_a_row_the_threshold_already_dropped_is_not_claimed_as_pruned() -> None:
     """Item A2: the reading guide does not claim to have pruned a row that
     was not written.
 
-    The block has a saturated armour row that pattern filtering drops (two
-    rounds, threshold three). Rule 1 therefore removed nothing, and it must
-    not say that it did: the missing row's reason is the threshold, and the
-    block's own note says so.
+    Rule 3 leaves the 45 s sample point unwritten, but here the threshold
+    got there first: the point's only visible bar was seen on two rounds out
+    of four, so the row is never built. Rule 3 therefore removed nothing,
+    and it must not say that it did -- the missing row's reason is the
+    threshold, and the block's own note says so.
+
+    **The rule this is asked of changed on 2026-09-11**, and the reason is
+    the cap. It used to be rule 1, on a two-round block whose saturated
+    armour row the threshold dropped before rule 1 could see it. Saturation
+    means the one bar carries every round (``n = m``) and the threshold is
+    now capped at the block's round count, so a saturated row always clears
+    it: that combination no longer exists, and a test built on it would
+    watch an impossible state. Rule 3's row has no such tie between ``n``
+    and ``m``, so the order of the two mechanisms is still observable
+    there.
     """
     entry = report(
         [
@@ -4432,8 +4664,25 @@ def test_a_row_the_threshold_already_dropped_is_not_claimed_as_pruned() -> None:
                         [
                             round_type(
                                 "full",
-                                SMALL_SAMPLE - 1,
-                                players_armored=armored(SMALL_SAMPLE - 1, {5: 2}),
+                                SMALL_SAMPLE + 1,
+                                positions=[
+                                    position(
+                                        6.0,
+                                        [area("Middle", SMALL_SAMPLE + 1, {2: 4})],
+                                        SMALL_SAMPLE + 1,
+                                    ),
+                                    position(
+                                        45.0,
+                                        [
+                                            area(
+                                                "Middle",
+                                                SMALL_SAMPLE + 1,
+                                                {1: 2, 0: 2},
+                                            )
+                                        ],
+                                        SMALL_SAMPLE + 1,
+                                    ),
+                                ],
                             )
                         ],
                     )
@@ -4441,10 +4690,11 @@ def test_a_row_the_threshold_already_dropped_is_not_claimed_as_pruned() -> None:
             )
         ]
     )
-    text = render(entry)
-    assert "- panssaroituja ostoajan lopussa" not in text
+    text = render(entry, SKIP_45)
+    assert "6 s: Middle 2 (4/4 kierroksesta)" in text
+    assert "45 s:" not in text
     legend = section_text(text, "Lukuohje")
-    assert "Kylläinen kalustorivi on jätetty pois" not in legend
+    assert "Näytepistettä 45 s ei kirjoiteta" not in legend
     assert "[report]." not in legend
 
 
@@ -4634,12 +4884,12 @@ def test_both_counters_saturated_and_identical_drop_before_they_merge() -> None:
 def test_identical_equipment_lines_become_one_line_that_says_both() -> None:
     """I/O matrix: armed and armoured with the same distribution.
 
-    In the fixture the numbers are 3 and 1 -- the same rule, but without
-    saturation, so that the test measures the merging and not rule 1.
+    In the fixture the number is 3 on every round -- not 5, so that the test
+    measures the merging and not rule 1.
     """
     force = block(render(pruning_report()), "Force")
     assert MERGED_EQUIPMENT_LABEL in force
-    assert "3 (2/3 kierroksesta), 1 (1/3 kierroksesta)" in force
+    assert "3 (3/3 kierroksesta)" in force
     assert "- aseistettuja ostoajan lopussa" not in force
     assert "- panssaroituja ostoajan lopussa" not in force
 
@@ -4815,9 +5065,12 @@ def test_a_utility_line_keeps_the_two_most_common_targets() -> None:
     eco = block(render(pruning_report()), "Eco")
     smoke = [row for row in eco.splitlines() if row.startswith("- savu:")][0]
     assert "TSpawn -> BombsiteA (arvio) 0-5 s (4/4 kierroksesta)" in smoke
-    assert "TSpawn -> Palace (arvio) 0-5 s (3/4 kierroksesta)" in smoke
+    assert "TSpawn -> Palace (arvio) 0-5 s (4/4 kierroksesta)" in smoke
     assert "Connector" not in smoke
-    assert "7 harvinaisempaa kohdetta jäi pois" in smoke
+    # Three and not seven: the four targets seen on a single round fell
+    # below the pattern threshold, and this note counts only what the
+    # **limit** dropped.
+    assert "3 harvinaisempaa kohdetta jäi pois" in smoke
 
 
 def test_the_target_limit_counts_targets_not_claims() -> None:
@@ -4842,19 +5095,19 @@ def test_the_target_limit_counts_targets_not_claims() -> None:
                                 utility=[
                                     use(
                                         "smoke", "TSpawn", "BombsiteA",
-                                        n=4, m=6, bucket="0-5",
+                                        n=5, m=6, bucket="0-5",
                                     ),
                                     use(
                                         "smoke", "TSpawn", "BombsiteA",
-                                        n=3, m=6, bucket="5-10",
+                                        n=4, m=6, bucket="5-10",
                                     ),
                                     use(
                                         "smoke", "TSpawn", "Ramp",
-                                        n=2, m=6, bucket="0-5",
+                                        n=4, m=6, bucket="0-5",
                                     ),
                                     use(
                                         "smoke", "TSpawn", "Palace",
-                                        n=1, m=6, bucket="0-5",
+                                        n=3, m=6, bucket="0-5",
                                     ),
                                 ],
                             )
@@ -4973,11 +5226,13 @@ def test_a_kill_line_keeps_the_three_most_common_areas() -> None:
     """
     eco = block(render(pruning_report()), "Eco")
     kills = [row for row in eco.splitlines() if "tapot alueittain" in row][0]
-    assert "BombsiteA (5/20 taposta)" in kills
-    assert "Palace (4/20 taposta)" in kills
-    assert "Connector (3/20 taposta)" in kills
+    assert "BombsiteA (5/23 taposta)" in kills
+    assert "Connector (4/23 taposta)" in kills
+    assert "Palace (4/23 taposta)" in kills
     assert "Ramp" not in kills
-    assert "6 harvinaisempaa aluetta jäi pois" in kills
+    # Two and not six: the four areas with a single kill fell below the
+    # pattern threshold, and this note counts only what the limit dropped.
+    assert "2 harvinaisempaa aluetta jäi pois" in kills
 
 
 def test_the_limit_continues_through_a_tie() -> None:
@@ -5003,10 +5258,10 @@ def test_the_limit_continues_through_a_tie() -> None:
                                     first={"Middle": 4},
                                     median=20.0,
                                     kills={
-                                        "BombsiteA": 2,
-                                        "Palace": 2,
-                                        "Ramp": 2,
-                                        "Jungle": 2,
+                                        "BombsiteA": 3,
+                                        "Palace": 3,
+                                        "Ramp": 3,
+                                        "Jungle": 3,
                                     },
                                 ),
                             )
@@ -5055,7 +5310,7 @@ def test_a_line_at_the_limit_gets_no_note() -> None:
                                 2,
                                 utility=[
                                     use("smoke", "TSpawn", "Middle", n=2, m=2),
-                                    use("smoke", "TSpawn", "Ramp", n=1, m=2),
+                                    use("smoke", "TSpawn", "Ramp", n=2, m=2),
                                 ],
                             )
                         ],

@@ -759,6 +759,14 @@ utility_seconds_buckets = [5.0, 10.0, 20.0]
 # kirjoitettuun raporttiin on tyhjä. Silloin myös yhteenvedon karsintarivi
 # jää pois, koska ilmoitettavaa ei ole.
 #
+# TÄMÄ EI ENÄÄ PIDÄ 2026-09-11 JÄLKEEN, eikä karsinnan takia: kuviosuodatus
+# laajeni samana päivänä eco-, force- ja puoliostolohkoihin ja sen kynnys
+# katkaistiin lohkon kierrosmäärään. Viisi sääntöä pois palauttaa yhä sen
+# raportin, jossa yhtään karsintasääntöä ei ole ajettu -- mutta se raportti
+# ei ole sama kuin ennen Story 2.13:a, koska suodatus ei ole karsintaa.
+# Lupaus, joka tästä jää voimaan, on se joka testataan joka ajolla: nämä
+# viisi asetusta eivät muuta raporttia, kun ne ovat pois päältä.
+#
 # SUOJATUT KIERROSTYYPIT: pistol ja anomaly. Niitä ei karsita yhdelläkään
 # säännöllä, ja molemmissa syy on sama: kalustorivi ON se havainto.
 # Pistoolikierroksella panssariluku on ostohavainto (Story 2.8) -- muualla se
@@ -788,6 +796,15 @@ utility_seconds_buckets = [5.0, 10.0, 20.0]
 # SE EI OLE VIELÄ SIVU (noin 40 riviä kartalta): sivu vaatii kokonaisten
 # kierrostyyppilohkojen vaimennuksen, joka on rajattu Story 2.13:sta ulos
 # (tuotteen omistaja 31.8.: "lisäys ensin, vaimennus myöhemmin").
+#
+# EIKÄ KUVIOSUODATUKSEN LAAJENTAMINEN (2026-09-11) OLLUT SEKÄÄN SIVU.
+# Mitattu kolmen kartan raportista: 411 -> 390 riviä ja 6 008 -> 5 199
+# sanaa, eli 21 riviä koko raportista. Syy on lohkokoko: 25
+# kierrostyyppilohkosta yhdeksässä on yksi kierros, ja yhden kierroksen
+# lohkossa katkaistu kynnys on 1 eikä suodata mitään. Yksi lohko myös
+# PITENI kymmenellä rivillä -- yhden kierroksen jatkoaikalohko, jonka
+# katkaisematon kynnys 3 tyhjensi ennen. Sanamäärä laski 13 %, rivimäärä
+# 5 %: suodatus lyhentää rivejä enemmän kuin poistaa niitä.
 # Mittausdokumentit asuvat BMAD-tuotoksissa
 # (_bmad-output/implementation-artifacts/, karsinta-mittaus.md) eivätkä tässä
 # repossa.
@@ -799,9 +816,17 @@ utility_seconds_buckets = [5.0, 10.0, 20.0]
 # normaali osto (tätä ei muuten tarvitse analyyseissä toistaa)".
 #
 # POISTUU: 24 riviä (RCAVE) ja 20 riviä (MM) suojaamattomista lohkoista.
-# Kylläisyys ei ole ainoa syy, jonka takia rivi voi puuttua: täydellä ostolla
+# Kylläisyys ei ole ainoa syy, jonka takia kalustorivi voi puuttua:
 # kuviosuodatus pudottaa sen ennen karsintaa, ja silloin tämä sääntö ei
 # poistanut mitään. [mitattu 2026-09-02]
+#
+# TARKENNUS 2026-09-11: *kylläinen* rivi ei enää voi pudota kuviosuodatuksen
+# takia. Kylläisyys tarkoittaa, että yksi pylväs kantaa jokaisen havainnon
+# (n = m), ja kynnys on nyt katkaistu lohkon kierrosmäärään, joten
+# kylläinen rivi ylittää sen aina. Kuviosuodatus pudottaa yhä kalustorivin,
+# jonka pylväät ovat pieniä -- mutta silloin sääntö 1 ei koskaan koskenut
+# sitä. Suodatus ei myöskään rajoitu enää täyteen ostoon: se koskee kaikkia
+# muita kierrostyyppejä paitsi suojattuja.
 drop_saturated_equipment_lines = true
 
 # SÄÄNTÖ 2. Aseistettujen ja panssaroitujen rivi yhtenä, kun jakaumat ovat

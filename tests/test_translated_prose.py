@@ -502,6 +502,26 @@ QUOTED_FINNISH: tuple[QuotedFinnish, ...] = (
     ),
     QuotedFinnish(
         path="src/pappascout/render/view.py",
+        text="vähintään N kierroksella",
+        why=(
+            "One of the two wordings the block's filtering note is built "
+            "from, named so that the docstring says which string the "
+            "function returns. Translated, it would name a string that is "
+            "not in the report."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text='"vähintään 3"',
+        why=(
+            "The argument is that two Finnish wordings state the same "
+            "requirement with the same number. It cannot be made in "
+            "English: the reader has to see both strings as the report "
+            "prints them."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
         text="näyte puuttuu",
         why="The exact line the report prints. An example of real output stops being an example once it is translated.",
     ),

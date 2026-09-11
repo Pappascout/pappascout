@@ -12,13 +12,24 @@ The rules that show in every function
 "claim + sample", and a claim cannot be built without an ``n`` and an ``m``.
 Without the sample one round would look like a pattern.
 
-**Saving rounds and the default are of different shapes.** Pistol, eco,
-force and half-buy are described round by round: every observation is
-written. Full buys (``full``) and overtime (``ot``) are described **only as
-repeating patterns**, and the repetition limit is read from the report
-(``thresholds_used.thresholds.small_sample_rounds``) -- it is not invented
-here. The number of observations left out is written out, so the filtering
-is not silent.
+**Protected round types and filtered ones are of different shapes.**
+Pistol and anomaly are described round by round: every observation is
+written. Every other round type (:data:`PATTERN_ROUND_TYPES`) is described
+**only as repeating patterns**, and the repetition limit is read from the
+report (``thresholds_used.thresholds.small_sample_rounds``) -- it is not
+invented here. The number of observations left out is written out, so the
+filtering is not silent.
+
+**The limit is capped at the block's own round count**
+(:func:`block_min_rounds`). A block of two rounds cannot hold a repetition
+of three, so an uncapped limit would either empty the block or -- as it did
+for ``eco``, ``force`` and ``half`` before 2026-09-11 -- never be applied at
+all and let every single observation through as though it were a pattern.
+The cap leaves a large block exactly as it was (62 rounds still demand 3)
+and bites only where nothing *can* repeat three times. Because the limit
+then differs from block to block, **the block's own note states the number
+that block used** -- a block that said "3" while filtering at 2 would be a
+false claim about the data.
 
 **No interpretations.** The rows tell player counts, grenades and areas. The
 words "fake", "rush" or "good" are nowhere -- the conclusion is the
@@ -157,6 +168,7 @@ __all__ = [
     "ReportView",
     "build_view",
     "round_list_demo_ids",
+    "block_min_rounds",
     "pattern_min_rounds",
     "rounds_text",
     "demos_text",
@@ -212,7 +224,27 @@ ROUND_TYPE_ORDER: tuple[str, ...] = (
 #: tries to spot only the broad lines". A full buy is the least clear and the
 #: most common round plan, so telling it round by round would be mostly
 #: repetition.
-PATTERN_ROUND_TYPES: frozenset[str] = frozenset({"full", "ot"})
+#:
+#: **The set is the complement of :data:`PROTECTED_ROUND_TYPES`, and that is
+#: the point of it** (2026-09-11). Until then it held ``full`` and ``ot``
+#: only, and ``eco``, ``force`` and ``half`` fell between the two lists:
+#: neither filtered nor protected, and for no stated reason. Measured from
+#: the real three-map report, ``eco`` then took 27 % of the body for 7 % of
+#: the rounds, because in a two-round block every single observation was
+#: written and almost every one of them read ``(1/2 kierroksesta)`` -- one
+#: observation out of two, which is not a pattern. A round type that is not
+#: protected is filtered; a type that must not be filtered goes on the
+#: protected list with its measured reason. There is no third state, and
+#: ``test_every_round_type_is_either_filtered_or_protected`` keeps it that
+#: way.
+#:
+#: The filtering is only usable on a small block because the threshold is
+#: capped at the block's round count (:func:`block_min_rounds`): without the
+#: cap, adding these three types would have emptied every two-round block
+#: instead of shortening it.
+PATTERN_ROUND_TYPES: frozenset[str] = frozenset(
+    {"eco", "force", "full", "half", "ot"}
+)
 
 #: The round types that **no rule prunes** (Story 2.13).
 #:
@@ -876,6 +908,46 @@ def pattern_min_rounds(report: Report) -> int | None:
         A positive number of rounds, or ``None`` if there was no value.
     """
     return _threshold_int(report, "small_sample_rounds")
+
+
+def block_min_rounds(threshold: int | None, rounds: int) -> int | None:
+    """The repetition threshold **this block** uses: the report's, capped.
+
+    The report-wide threshold (:func:`pattern_min_rounds`) says how many
+    rounds a repetition needs. A block of two rounds cannot hold three of
+    anything, so applied as it is the threshold would not select patterns
+    there -- it would delete the block. The cap is therefore the block's own
+    round count: a two-round block keeps what happened on **both** rounds, a
+    four-round block still demands three, and a 62-round block is untouched.
+
+    **A cap and not a proportion.** "At least half the rounds" was the first
+    proposal and it is the wrong shape: at 62 rounds it would demand 31 and
+    gut the one block that actually holds the data. The requirement was to
+    shorten the small blocks, and the cap is the rule that does only that --
+    it is inert wherever ``rounds >= threshold``, which is every block the
+    threshold was written for.
+
+    **The number is computed and not configured.** Both inputs already
+    exist: the threshold is read from the report (``view.py:19``) and the
+    round count is the block's own ``sample.rounds``. A setting of its own
+    would be a third source for a number the report already states twice.
+
+    Args:
+        threshold: The report's threshold, or ``None`` if it had none.
+        rounds: The block's round count.
+
+    Returns:
+        ``None`` when there was no threshold -- then nothing is filtered and
+        the block says so. Otherwise at least ``1``: a floor is needed
+        because a block can have ``0`` rounds, and a threshold of ``0`` would
+        be a claim that the block filtered at a limit no observation can
+        even be measured against. At ``1`` the filter demands nothing, which
+        is the truth about a one-round block, and the caller writes no note
+        about a rule that cannot drop anything.
+    """
+    if threshold is None:
+        return None
+    return max(1, min(threshold, rounds))
 
 
 def _threshold_value(report: Report, name: str) -> int | float | None:
@@ -1610,10 +1682,18 @@ def _equipment_rows(
     * The row builder is the only place that counts the bars pattern
       filtering dropped. A short circuit before it would shrink the block's
       note, that is, pruning would change a **claim about the data**.
-    * A saturated row can also be left unwritten **because of the
-      threshold** (on a full buy two rounds are not enough for a pattern).
-      Rule 1 then removed nothing, and it must not say in the reading guide
-      that it did.
+    * An equipment row can also be left unwritten **because of the
+      threshold** (two bars of two rounds each are not a pattern in a
+      four-round block). Rule 1 then removed nothing, and it must not say in
+      the reading guide that it did.
+
+      **A saturated row is no longer one of those**, and that follows from
+      the cap (2026-09-11): saturation means one bar carrying every round of
+      the observation (``n = m``), and the threshold is capped at the
+      block's round count, so a saturated row always clears it. Before the
+      cap, a two-round block filtered at 3 and dropped the row first. The
+      order between the two mechanisms is therefore no longer observable on
+      *this* rule -- it still is on rule 3, and that is where it is watched.
 
     The order between the rules is the rule number: the saturated row is
     dropped **first**, because if both are saturated, merging would write a
@@ -1739,9 +1819,12 @@ def _is_saturated(bars: Sequence[tuple[int, int]], rounds_unknown: int) -> bool:
     follows from it and does not have to be checked separately.
 
     **Saturation is not the only reason** a row can be left unwritten:
-    pattern filtering drops it on a full buy if the sample is not enough for
-    a pattern. That is why this is asked only of a row that was really built
-    (:func:`_equipment_rows`).
+    pattern filtering drops a row whose bars do not repeat often enough.
+    That is why this is asked only of a row that was really built
+    (:func:`_equipment_rows`) -- even though a *saturated* row now always
+    survives the threshold, because ``n = m`` and the threshold is capped at
+    the block's round count. The guard is kept because it is about the order
+    of the two mechanisms and not about this one distribution's arithmetic.
     """
     return (
         len(bars) == 1
@@ -1878,6 +1961,22 @@ def _round_type_lines(
     return kept, False
 
 
+def _repetition_requirement(threshold: int, rounds: int) -> str:
+    """How often a pattern had to repeat, in the block's own words.
+
+    ``kaikilla N kierroksella`` when the cap bit -- the requirement is then
+    every round of the block -- and ``vähintään N kierroksella`` otherwise.
+    Two wordings and not one, because the number on its own does not say
+    which of the two the block did: in a three-round block "vähintään 3" and
+    "kaikilla 3" are the same requirement, and only the second tells the
+    reader that the block could not have demanded more. The two are the same
+    length, so the distinction costs the report nothing.
+    """
+    if threshold >= rounds:
+        return f"kaikilla {threshold} kierroksella"
+    return f"vähintään {threshold} kierroksella"
+
+
 def _round_type_view(
     report_type: RoundTypeReport,
     threshold: int | None,
@@ -1886,9 +1985,17 @@ def _round_type_view(
 ) -> RoundTypeView:
     """Assemble one round type's rows.
 
+    **The threshold this block filters at is not the one handed in.** The
+    argument is the whole report's threshold; the block caps it at its own
+    round count (:func:`block_min_rounds`), and every sentence the block
+    writes about filtering states the capped number. The two are the same
+    in every block large enough for the report's threshold to mean
+    something, and they differ exactly where they must.
+
     Args:
         report_type: The round type's observations from the report.
-        threshold: The repetition threshold, or ``None`` if there was none.
+        threshold: The report's repetition threshold, or ``None`` if there
+            was none. Uncapped -- see above.
         flags: The report-wide collector. The explanations (unknown area,
             estimate, armed) are written **once** at the end of the report,
             so they have to be collected across all the round types and not
@@ -1897,12 +2004,22 @@ def _round_type_view(
             whole, because a protected round type is resolved here -- see
             :meth:`_Pruning.for_round_type`.
     """
-    pattern_only = report_type.round_type in PATTERN_ROUND_TYPES
+    filtered = report_type.round_type in PATTERN_ROUND_TYPES
+    rounds = report_type.sample.rounds
     dropped_before = flags.dropped
-    # On saving rounds every observation is written (min_n = 1); on full buys
-    # only the repeating ones. The threshold comes from the report, not from
-    # here.
-    min_n = threshold if (pattern_only and threshold is not None) else 1
+    # On a protected round type every observation is written (min_n = 1); on
+    # every other type only the repeating ones. The threshold comes from the
+    # report, not from here, and the cap comes from this block's own round
+    # count (:func:`block_min_rounds`).
+    block_threshold = block_min_rounds(threshold, rounds) if filtered else None
+    min_n = block_threshold if block_threshold is not None else 1
+    # **The label and the note are about a rule that can really drop
+    # something.** At a capped threshold of 1 -- a one-round block -- the
+    # filter demands nothing: every observation in it was made on every
+    # round of it. Marking the block "vain toistuvat kuviot" would then
+    # claim a selection that was not made, and the block's round count,
+    # which is in its heading, already says why.
+    pattern_only = filtered and (block_threshold is None or block_threshold > 1)
 
     pruning = _Pruning.for_round_type(settings, report_type.round_type)
     lines, kept_the_block = _round_type_lines(
@@ -1927,28 +2044,51 @@ def _round_type_view(
             "yksittäisiäkään havaintoja ei suodatettu pois."
         )
     elif pattern_only:
-        note = f"Vain kuviot, jotka toistuvat vähintään {threshold} kierroksella"
+        # **The number is the one this block filtered at**, not the report's
+        # uncapped threshold: with the cap they differ per block, and a
+        # block that said "3" while filtering at 2 would be a false claim
+        # about the data. When the cap bit, the requirement is every round
+        # of the block, and the wording says so in the same breath and in
+        # the same number of words (:func:`_repetition_requirement`).
+        note = (
+            "Vain kuviot, jotka toistuvat "
+            + _repetition_requirement(block_threshold, rounds)
+        )
         note += (
             f"; {dropped} harvinaisempaa havaintoa jäi pois."
             if dropped
             else "; jokainen havainto ylitti kynnyksen."
         )
         notes.append(note)
-    # On saving rounds the threshold is 1, and no bar of a distribution can
-    # fall below it: the model demands ``n > 0`` from every one. Telling of
-    # filtering would therefore be a claim about a threshold that never
-    # applied -- which is why there is no third branch here. The counter is
-    # protected at the source: ``flags.dropped`` grows only when
-    # ``min_n > 1``.
+    # On a protected round type -- and on a block the cap took down to 1 --
+    # the threshold is 1, and no bar of a distribution can fall below it:
+    # the model demands ``n > 0`` from every one. Telling of filtering would
+    # therefore be a claim about a threshold that never applied -- which is
+    # why there is no third branch here. The counter is protected at the
+    # source: ``flags.dropped`` grows only when ``min_n > 1``.
     if not lines:
-        # Two different things: the threshold ate everything, or there were
-        # no observations in the first place. The same sentence for both
-        # would hide the difference.
-        notes.append(
-            "Ei kuvioita, jotka ylittäisivät kynnyksen."
-            if pattern_only and threshold is not None
-            else "Ei havaintoja tältä kierrostyypiltä."
-        )
+        # Three different things, and one sentence for all of them would
+        # hide the difference: the cap took everything (the sample is too
+        # small for anything to repeat), the report-wide threshold took
+        # everything, or there were no observations in the first place.
+        #
+        # **The third is told apart by ``dropped`` and not by the round
+        # type.** Until 2026-09-11 the branch asked whether the type was
+        # filtered at all, which answered a different question: a ``full``
+        # block with no observations was made to say that nothing passed the
+        # threshold, when nothing had been offered to it. ``dropped`` counts
+        # what the threshold really removed, so it is the one that knows.
+        if not dropped:
+            notes.append("Ei havaintoja tältä kierrostyypiltä.")
+        elif block_threshold is not None and block_threshold >= rounds:
+            notes.append(
+                "Yksikään havainto ei toistunut "
+                f"{_repetition_requirement(block_threshold, rounds)}: otanta "
+                "on liian pieni, jotta mikään ehtisi toistua. Havainnot ovat "
+                "report.jsonissa."
+            )
+        else:
+            notes.append("Ei kuvioita, jotka ylittäisivät kynnyksen.")
     # Last, because this is an **exception** and not the block's rule: the
     # threshold's note says how the block was assembled, and this says what
     # was then left undone.
@@ -3198,9 +3338,9 @@ def _pruning_legend(flags: _Flags, settings: ReportSettings) -> list[str]:
             "kierrokselta, rivi sanoo että kaikilla viidellä oli panssari "
             "(tai ase) joka kierroksella -- se on odotus eikä havainto. Luku "
             "on yhä report.jsonissa. **Kylläisyys ei ole ainoa syy, jonka "
-            "takia kalustorivi voi puuttua**: täydellä ostolla myös "
-            "toistumisen kynnys voi pudottaa sen, ja silloin lohkon oma "
-            f"huomautus kertoo siitä. {exception} Asetus: "
+            "takia kalustorivi voi puuttua**: myös toistumisen kynnys voi "
+            "pudottaa sen, ja silloin lohkon oma huomautus kertoo siitä. "
+            f"{exception} Asetus: "
             "[report].drop_saturated_equipment_lines."
         )
     if flags.equipment_merged:

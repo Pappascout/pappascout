@@ -95,14 +95,17 @@ RoundType = Literal["pistol", "eco", "half", "force", "full", "ot", "anomaly"]
 #: A pistol round is **not** a saving round even though there is little money:
 #: neither side has buying power then, so an advance says nothing about a plan.
 #:
-#: **NOTE: the word "saving round" means something else in the rendering.**
-#: There it is a rendering rule -- the round types the report describes round
-#: by round (``pistol``, ``eco``, ``force``, ``half``) as opposed to
-#: ``render.view.PATTERN_ROUND_TYPES`` (``full``, ``ot``). This list is
+#: **NOTE: this list is not a rendering rule, and it never was.** The
+#: rendering's own split is between ``render.view.PROTECTED_ROUND_TYPES``
+#: (``pistol``, ``anomaly``, described round by round) and
+#: ``render.view.PATTERN_ROUND_TYPES`` (everything else, described only as
+#: repeating patterns); since 2026-09-11 the two are complements and all
+#: three of the types below are on the pattern side. This list is
 #: **economic**: the round types on which a team cannot afford a normal buy.
-#: The pistol round belongs to the former but not to this one, and that is the
-#: whole difference. Two concepts under one word, so each place names its own
-#: meaning.
+#: The two splits once looked alike -- the rendering's round-by-round side
+#: used to be exactly ``pistol`` plus these three -- and that resemblance
+#: was a coincidence of two lists, not a shared rule. Naming which list is
+#: meant is therefore the point of this note.
 SAVING_ROUND_TYPES: Final[tuple[str, ...]] = ("eco", "half", "force")
 
 #: CT advance: the subject's CT player in an area that is held by the T side
