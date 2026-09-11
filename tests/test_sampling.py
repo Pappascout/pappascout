@@ -13,7 +13,12 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import OVERLAPPING_SITE_CLOUD, SITE_CLOUD
+from conftest import (
+    JUST_OVER_SEPARATION_SITE_CLOUD,
+    JUST_UNDER_SEPARATION_SITE_CLOUD,
+    OVERLAPPING_SITE_CLOUD,
+    SITE_CLOUD,
+)
 from pappascout.constants import (
     CRUNCH,
     CT_ADVANCE,
@@ -913,7 +918,10 @@ CLOUD_OVERLAPPING = OVERLAPPING_SITE_CLOUD
 #: assertion and not by behaviour here; an edit to both is caught here.
 #: Neither link is sufficient on its own.
 MARGIN = ThresholdSettings(pistol_rounds=[1, 13]).stack_group_margin
-SEPARATION_MIN = 2.0
+#: Read from the model's default for the same reason as ``MARGIN`` above.
+SEPARATION_MIN = ThresholdSettings(
+    pistol_rounds=[1, 13]
+).stack_site_separation_min
 STACK_MIN_PLAYERS = 4
 
 
@@ -977,6 +985,125 @@ def test_the_cloud_can_see_the_margin_move() -> None:
     assert "TopofMid" not in at_shipped, (
         "``TopofMid`` is the downward sensor and must be UNgrouped at the "
         f"shipped {MARGIN}, so that a LOWERED margin is visible too."
+    )
+
+
+def test_the_clouds_can_see_the_separation_threshold_move() -> None:
+    """``stack_site_separation_min`` must be visible to a fixture too.
+
+    Measured 2026-09-11, before these two clouds existed: raising the shipped
+    2.0 to **10.0** -- a five-fold error, still inside the model's ceiling of
+    20 -- failed **one test of 3 225**, the value lock, and nothing at rule
+    level. The suite owned two clouds with separation ratios 25 and 0.05, and
+    every value the model allows falls between them, so no fixture could see
+    the setting at all.
+
+    It is the more dangerous of the two geometry thresholds: it decides
+    whether a map's site division is trusted **at all**. Too high and maps go
+    quiet while the coverage says they were examined; too low and Nuke's
+    vertically overlapping sites are reported as a real division.
+
+    **What these fixtures do and do not buy.** On the archive as it stands, no
+    value in ``[0.6, 3.6]`` changes any map's outcome -- the real ratios are
+    Nuke 0.47-0.54 and the others 3.70-5.04, so the archive suite catches the
+    ends of the range and is itself blind across ``[0.55, 3.69]``. These
+    fixtures therefore guard two things the archive cannot: a machine with no
+    archive at all (the fast suite must stand alone), and a future map whose
+    ratio lands in the middle band -- which is exactly the case
+    ``settings.toml`` anticipates when it says including Nuke needs its own
+    derivation for vertically separated sites.
+
+    The pair is two-sided on purpose. ``JUST_OVER_SEPARATION`` (ratio 2.25)
+    speaks at the shipped value and goes quiet if it is raised past 2.25;
+    ``JUST_UNDER_SEPARATION`` (1.75) is silent at the shipped value and speaks
+    if it is lowered **to 1.75 or below** -- the condition is
+    ``separation < separation_min * span``, so an equal ratio is accepted. The
+    With the two probes below the guard is red outside ``(1.875, 2.1875]`` --
+    tighter than the fixtures' own ``(1.75, 2.25]``, because probe 1 needs
+    ``1.75 >= 0.8 * shipped`` and probe 2 needs ``2.25 < 1.2 * shipped``. Red
+    here means the fixtures have gone blind at the shipped value: the repair
+    is a new ratio, not a new threshold.
+
+    **The two probes are not decoration.** ``site_groups`` returns ``None``
+    for four different reasons -- a missing site, zero span, zero separation,
+    and this threshold -- and a bare ``is None`` cannot tell them apart.
+    Measured: rename ``BombsiteB`` in the silent fixture and it still returns
+    ``None``, for the wrong reason, while both assertions stay green and the
+    downward sensor is gone without a word. The probes move the threshold
+    instead of the cloud, so only the separation rule can satisfy them.
+
+    They **bound** the ratios rather than pinning them: probe 1 forces the
+    silent cloud into ``[0.8 * shipped, shipped)`` and probe 2 the speaking one
+    into ``[shipped, 1.2 * shipped)``. A fixture edit inside those windows
+    still passes -- measured, adding one cell at x=5 to the speaking cloud
+    drops its ratio to exactly 2.0 and 401 tests stay green -- so the windows
+    are a fence, not a pin.
+
+    The last assertion guards the **boundary itself**. The code refuses on
+    ``separation < separation_min * span``, so a ratio *equal* to the threshold
+    is accepted, and an off-by-one edit to ``<=`` would reverse that. Measured:
+    that mutation survives all 778 tests in the seven files that touch this
+    code. No fixture sits at ratio == threshold, and x=8 -- the offset that
+    would -- is avoided deliberately, so the boundary has to be probed
+    explicitly instead.
+    """
+    speaks = groups(JUST_OVER_SEPARATION_SITE_CLOUD)
+    assert speaks == {"BombsiteA": "A", "BombsiteB": "B"}, (
+        f"At the shipped {SEPARATION_MIN} a cloud whose sites separate by a "
+        "ratio of 2.25 must yield both sites' groups. If this is red, the "
+        "shipped threshold has risen past 2.25, or the fixture's sites have "
+        "been renamed and it is no longer measuring separation at all."
+    )
+    assert groups(JUST_UNDER_SEPARATION_SITE_CLOUD) is None, (
+        f"At the shipped {SEPARATION_MIN} a cloud whose sites separate by "
+        "only 1.75 must be refused. If this is red, the shipped threshold has "
+        "fallen to 1.75 or below -- the direction that reports a map whose "
+        "sites do not separate as though they did."
+    )
+    # The silent one must be silent BECAUSE of the threshold: lower it and the
+    # same cloud speaks. Without this, a renamed site would pass the assertion
+    # above for the wrong reason.
+    assert (
+        site_groups(
+            cloud(JUST_UNDER_SEPARATION_SITE_CLOUD),
+            margin=MARGIN,
+            separation_min=SEPARATION_MIN * 0.8,
+        )
+        is not None
+    ), (
+        "The silent fixture must speak once the threshold drops below its "
+        "ratio. If this is red, its ``None`` came from something other than "
+        "the separation rule -- a missing site, or a zero span."
+    )
+    # And the speaking one must go quiet when the threshold rises above its
+    # ratio, which pins that ratio from the other side.
+    assert (
+        site_groups(
+            cloud(JUST_OVER_SEPARATION_SITE_CLOUD),
+            margin=MARGIN,
+            separation_min=SEPARATION_MIN * 1.2,
+        )
+        is None
+    ), (
+        "The speaking fixture must fall silent once the threshold rises above "
+        "its ratio. If this is red, its ratio has drifted upward and the "
+        "blind band is wider than this test claims."
+    )
+    # The boundary is inclusive: a ratio EQUAL to the threshold is accepted.
+    # Without this, changing ``<`` to ``<=`` in site_groups passes every test
+    # in the suite -- measured, 778 of 778 green.
+    assert (
+        site_groups(
+            cloud(JUST_OVER_SEPARATION_SITE_CLOUD),
+            margin=MARGIN,
+            separation_min=2.25,
+        )
+        is not None
+    ), (
+        "A cloud whose separation ratio is EXACTLY the threshold must be "
+        "accepted: the refusal is ``separation < separation_min * span``. If "
+        "this is red, that comparison has become ``<=`` and every map sitting "
+        "exactly on the threshold now goes quiet."
     )
 
 

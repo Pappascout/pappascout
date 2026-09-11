@@ -447,6 +447,57 @@ OVERLAPPING_SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
     ("House", 10, 0, 0),
 )
 
+#: Two clouds that straddle ``stack_site_separation_min`` (shipped 2.0), for
+#: the same reason ``Outside`` and ``TopofMid`` straddle the margin.
+#:
+#: **This threshold was invisible across its entire valid range.** Measured
+#: 2026-09-11: raising it 2.0 -> 10.0 -- a five-fold error, still inside the
+#: model's ceiling of 20 -- failed exactly **one test of 3 225**, the value
+#: lock, and nothing at rule level. The cause was that the suite owned only
+#: two clouds, with separation ratios **25** and **0.05**, and every value the
+#: model allows falls between them. No fixture could see the setting.
+#:
+#: It is the more dangerous of the two thresholds. It decides whether a map's
+#: site division is trusted **at all** -- it is what silences Nuke. Set too
+#: high, maps that should be examined go quiet and rounds leave the coverage
+#: without a word; set too low, Nuke's vertically overlapping sites are
+#: reported as a real division. Both produce plausible numbers in a report a
+#: team reads before a match.
+#:
+#: The ratio is ``separation / span``: the distance between the site centres
+#: divided by the sites' own combined size. Both clouds keep the sites three
+#: cells wide (span 4.0) and move only B, so the ratio is readable off the
+#: offset: 9/4 = 2.25 and 7/4 = 1.75. The blind band is what lies between
+#: them, and 8 is avoided deliberately -- it gives exactly 2.0, and the
+#: condition is ``>=``, so it would sit on the boundary.
+JUST_OVER_SEPARATION_SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
+    ("BombsiteA", 0, 0, 0),
+    ("BombsiteA", 2, 0, 0),
+    ("BombsiteA", -2, 0, 0),
+    ("BombsiteB", 9, 0, 0),
+    ("BombsiteB", 11, 0, 0),
+    ("BombsiteB", 7, 0, 0),
+)
+
+#: Ratio 1.75, just **below** the shipped 2.0, so this one stays silent and a
+#: threshold lowered **to 1.75 or below** is what makes it speak (the
+#: condition is ``separation < separation_min * span``, so an equal ratio is
+#: accepted). Nothing actually *overlaps* here -- the centres are 7 apart
+#: with a spread of 2 each, a clear gap of 3 -- which is why the name says
+#: `under separation` and not `overlapping`. The genuinely overlapping
+#: cloud is :data:`OVERLAPPING_SITE_CLOUD` below, whose centres are 2 apart
+#: with a spread of 20. The pair is deliberately
+#: two-sided: lowering the threshold is the direction that reports a map whose
+#: sites do not separate as though they did, which is the worse failure.
+JUST_UNDER_SEPARATION_SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
+    ("BombsiteA", 0, 0, 0),
+    ("BombsiteA", 2, 0, 0),
+    ("BombsiteA", -2, 0, 0),
+    ("BombsiteB", 7, 0, 0),
+    ("BombsiteB", 9, 0, 0),
+    ("BombsiteB", 5, 0, 0),
+)
+
 #: Environment variables that must not leak from the machine into the tests.
 LEAKY_ENV_VARS = (
     "FACEIT_API_KEY",
