@@ -3637,7 +3637,17 @@ def test_the_stack_legend_names_the_silenced_demos() -> None:
 
     The empty chapter's text is then not set at all, so the coverage would go
     untold in precisely the report in which the reader sees rows from the
-    other maps but not from Nuke.
+    other maps but not from the silenced one.
+
+    **The reason clause is asserted and not only the tail.** Until Story 4.3
+    this paragraph told the reader that on a map where A and B are stacked on
+    different floors the distance to the site cannot say which one it is, and
+    named Nuke as the case. That change is the proof it can -- on the other
+    axis -- so the sentence is now about failing on *both* axes. Nothing
+    pinned the old wording: the tail sentence was asserted and the clause
+    carrying the claim was not, so it could have been replaced by anything
+    and stayed green. That is the guard that stops guarding in silence, and
+    this assertion is what closes it.
     """
     text = render(
         report(
@@ -3653,7 +3663,12 @@ def test_the_stack_legend_names_the_silenced_demos() -> None:
     )
     assert "Stackin kattavuus on 4/9 CT-kierroksesta" in text
     assert "1 demo ilman siteryhmiä" in text
+    assert "kummallakaan akselilla" in text
+    assert "ei vaakatasossa eikä korkeudella" in text
     assert "muttei havainto siitä, ettei stackeja ollut" in text
+    # The superseded reason must not come back: it was a claim about one
+    # axis written as a claim about the map.
+    assert "mikä tahansa" not in text
     assert "Alley, Arch" not in text
 
 

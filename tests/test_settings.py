@@ -776,6 +776,26 @@ def test_threshold_values(settings_file: Path) -> None:
     assert t.stack_min_players == 4
     assert t.stack_group_margin == 1.25
     assert t.stack_site_separation_min == 2.0
+    # The stacked-map branch (Story 4.3), on the same grounds: each was
+    # measured over the archive on 2026-09-12 and changing one without
+    # changing this test would mean the rationale went unread.
+    #
+    # The gap of 0.40 is **a share of the sites' own combined height and not
+    # a count of cells**, so the grid size cancels out of it the way it
+    # cancels out of the two ratios above. It sits between Nuke's 0.75 --
+    # which all three of its demos agree on -- and Anubis's 0.14. The trim of
+    # 0.05 is the middle of the plateau 0.02..0.10: below it one of Nuke's
+    # three demos stops counting as stacked and the map would divide
+    # differently across its own demos, above it Anubis joins. The weight of
+    # 3 is where agreement with the product owner's own Nuke grouping stops
+    # improving (10/15, 13/15, 14/15, then flat), and it is the one of the
+    # four fitted against a human division rather than read from geometry.
+    # The share of 0.10 sits between the bridges' 21 % and every other area's
+    # 3 %.
+    assert t.site_floor_gap_ratio == 0.40
+    assert t.site_floor_band_trim == 0.05
+    assert t.site_floor_z_weight == 3.0
+    assert t.site_bridge_void_share == 0.10
 
 
 @pytest.mark.parametrize(

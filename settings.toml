@@ -541,24 +541,25 @@ small_sample_rounds = 3
 # projektikansiossa _bmad-output/implementation-artifacts/.
 #
 # 4 EIKÄ 3: neljä on kalibroitu, kolme ei. Viisi ei ole tyhjä joukko vaan
-# säännön aito ääripää (2 kierrosta 66:sta), joten yläraja on kentällä
-# olevien määrä (5) eikä 4.
+# säännön aito ääripää, joten yläraja on kentällä olevien määrä (5) eikä 4.
 #
-# Mitattu kahdeksasta demosta: 10 osumaa 9 kierroksella, 66 tutkittua
-# CT-kierrosta 93:sta. Aikaraja on YHTEINEN advance_max_sample_s:n kanssa
-# eikä oma kynnys -- <= 45 s toisi kaksi osumaa lisää, <= 15 s pudottaisi
-# neljä.
+# LUVUT PÄIVITETTY 2026-09-12 (Story 4.3). Nuke ei enää vaikene, joten koko
+# arkisto on tutkittu: 27 osumaa 23 kierroksella, 93 tutkittua CT-kierrosta
+# 93:sta. Aiemmin tässä luki 10 osumaa 9 kierroksella ja 66 tutkittua -- ne
+# olivat oikein silloin kun Nuken 27 kierrosta olivat sokea piste.
+# Aikaraja on YHTEINEN advance_max_sample_s:n kanssa eikä oma kynnys.
 #
 # SITEN OMALLA ALUEELLA RIITTÄÄ YKSI PELAAJA, ja se on mitattu valinta eikä
 # oletusarvo. Vaihtoehdot samasta aineistosta:
 #
 #   vaatimus   kierroksia   osumia
-#   >= 1        9 / 66       10     <- nykyinen
-#   >= 2        5 / 66        5
-#   >= 3        2 / 66        2
+#   >= 1       23 / 93       27     <- nykyinen
+#   >= 2        7 / 93        7
+#   >= 3        2 / 93        2
 #
-# Osumista viidellä on tasan yksi pelaaja sitellä, kolmella kaksi ja kahdella
-# kolme. Tiukennus ei siis poistaisi kohinaa vaan puolet havainnoista -- ja
+# Osumista kahdellakymmenellä on tasan yksi pelaaja sitellä, viidellä kaksi
+# ja kahdella kolme. Tiukennus ei siis poistaisi kohinaa vaan kolme neljästä
+# havainnosta -- ja
 # pelaajamäärä on raportin rivillä joka tapauksessa muodossa 4/5, joten
 # lukija arvioi itse onko kyse asetelmasta vai sattumasta. Vaatimus ei ole
 # asetus, koska sen muuttaminen muuttaisi säännön määritelmää eikä sen
@@ -597,19 +598,98 @@ stack_group_margin = 1.25
 # eikä jätetä hiljaiseksi: nolla osumaa vaiennetulla demolla ei ole mitattu
 # negatiivinen vaan sokea piste.
 #
-# 2,0 on MITATTU eikä valittu. Nukella BombsiteA (z -15..-8) ja BombsiteB
-# (z -25..-17) ovat päällekkäin eri kerroksissa, joten mikä tahansa
-# A/B-etäisyysmittari on siellä mieletön:
+# 2,0 on MITATTU eikä valittu. Nukella siteet ovat päällekkäin vaakatasossa,
+# ja tämä mittari lukee ne siksi erottumattomiksi:
 #
 #   de_anubis  4,95 - 5,04
 #   de_inferno 4,54
 #   de_ancient 3,70 - 3,95
-#   de_nuke    0,47 - 0,54   <- vaikenee
+#   de_nuke    0,47 - 0,54   <- ei erotu VAAKATASOSSA
 #
-# Kynnys erottaa nämä puhtaasti ILMAN ETTÄ KARTTAA NIMETÄÄN KOODISSA. Nuken
-# ottaminen mukaan vaatii oman johtamistapansa pystysuunnassa erottuville
-# siteille -- ei tämän säännön löysentämistä.
+# Kynnys erottaa nämä puhtaasti ILMAN ETTÄ KARTTAA NIMETÄÄN KOODISSA.
+#
+# HUOM (Story 4.3): tässä luki aiemmin, että "mikä tahansa A/B-etäisyysmittari
+# on Nukella mieletön". Se oli väite yhdestä akselista esitettynä väitteenä
+# kartasta, ja se on nyt kumottu mittauksella -- Nuken siteiden korkeuskaistat
+# eivät leikkaa lainkaan. Sama tekstikappale vaati, että Nuken mukaan ottaminen
+# tapahtuu OMALLA JOHTAMISTAVALLAAN eikä tätä sääntöä löysentämällä, ja niin
+# tehtiinkin: kynnys on yhä 2,0 ja alla on erillinen kerrossääntö. Tätä
+# vartijaa sovelletaan enää kartoille joita EI lueta kerroksellisiksi.
 stack_site_separation_min = 2.0
+
+# --- Kartta jonka siteet ovat eri kerroksissa (Story 4.3) ----------------------
+# Ylläoleva erottuvuusvartija mittaa etäisyyden KOLMIULOTTEISENA, ja Nukella se
+# mittaa väärää akselia: siteet ovat päällekkäin vaakatasossa ja erillään
+# pystysuunnassa, joten suhde jää 0,47-0,54 eikä kartta saa jakoa lainkaan.
+# Nämä kolme päättävät milloin korkeus on se akseli. Kaikki kolme on MITATTU
+# 2026-09-12; koko perustelu on kalibrointi-nimetty-kuvio.md:ssä.
+
+# Kuinka paljon tyhjää korkeutta siteiden kaistojen väliin pitää jäädä,
+# ennen kuin kartta luetaan KERROKSELLISEKSI -- OSUUTENA siteiden omasta
+# yhteenlasketusta korkeudesta, ei soluina. Suhdeluku siksi, että solu ei ole
+# koordinaatti: [parse].callout_grid_units kertoo jokaisen etäisyyden samalla
+# luvulla, joten absoluuttinen raja vaihtaisi merkitystään ruudukon mukana.
+# Kaksinkertaisella ruudukolla Nuken kuusi solua olisi kolme. Osuudessa
+# ruudukko supistuu pois, kuten kahdessa yllä olevassa kynnyksessä.
+#
+# Solujen 5.-95. persentiili, ei ääriarvot: m_szLastPlaceName on VIIMEKSI
+# NIMETTY alue, joten kourallinen soluja kantaa nimeä muualta, ja yksi niistä
+# toisessa kerroksessa venyttäisi kaistan juuri sen aukon yli jota etsitään.
+# Persentiili on itsessään kynnys, ja se on oma asetuksensa alla.
+#
+# Mitattu 2026-09-12 (positiivinen = kaistat ovat erillään):
+#
+#   de_nuke      0,75   0,75   0,75      ERILLÄÄN, kolme demoa samaa mieltä
+#   de_anubis    0,14   0,00              koskettavat
+#   de_ancient  -0,20  -0,20   0,00       päällekkäin
+#   de_inferno  -0,38                     päällekkäin
+#
+# Nuke on ainoa kartta jonka siteet eivät jaa yhtään korkeutta. Kynnys 0,40 on
+# Nuken 0,75:n ja Anubiksen 0,14:n välissä, eikä se ole hienosäädettävissä
+# kumpaankaan suuntaan ilman että toinen niistä vaihtaa puolta.
+
+# Mikä persentiili rajaa siteen korkeuskaistan. Tämä on kynnys siinä missä
+# muutkin, ja se on tässä koska tulos kääntyy sen varassa. Mitattu 2026-09-12
+# kaikilla yhdeksällä demolla, haarukoituna kahdestatoista pisteestä:
+#
+#   0,00        yksikään kartta ei ole kerroksellinen -- Nukekin putoaa
+#   0,01        vain KAKSI Nuken kolmesta demosta; kartta jakautuisi eri
+#               tavoin omien demojensa välillä, mikä on pahin mahdollinen tila
+#   0,02..0,10  TASANKO: täsmälleen kolme demoa, kaikki de_nuke
+#   0,12..      Anubis muuttuu kerrokselliseksi -- väärä kartta
+#
+# 0,05 on tasangon keskellä eikä sen reunalla. Kumpikin reuna on lähempänä
+# kuin puolet: alle 0,02 tulos hajoaa saman kartan sisällä, yli 0,10 se
+# leviää väärälle kartalle.
+site_floor_band_trim = 0.05
+site_floor_gap_ratio = 0.40
+
+# Kuinka paljon korkeus painaa etäisyydessä kerroksellisella kartalla.
+# Mitattu tuotteen omistajan omaa Nuke-ryhmittelyä vasten: paino 1 toistaa
+# 10 aluetta 15:stä, paino 2 antaa 13, PAINO 3 ANTAA 14, ja paino 5 ja 8
+# antavat nekin 14 -- tulos lakkaa paranemasta kolmessa. Tasaisella kartalla
+# paino on 1,0 eikä mikään muutu.
+#
+# Tämä on ainoa kolmesta joka on kalibroitu IHMISEN antamaa jakoa vasten eikä
+# pelkästä geometriasta. AD-13 sallii sen, mutta se on syytä sanoa ääneen:
+# 14/15 mitattiin kahdella sillalla (Ramp, Vents), ja lähetetty sääntö jättää
+# pois kolme -- Secret oli se ainoa erimielisyys, jonka siltasääntö korjaa.
+site_floor_z_weight = 3.0
+
+# Kuinka suuren osan alueen soluista pitää olla kerrosten välisessä tyhjässä
+# kaistassa, ennen kuin alue luetaan SILLAKSI ja jätetään molempien ryhmien
+# ulkopuolelle. Silta on läpikulku eikä paikka jommallakummalla puolella,
+# joten lähin-keskipiste-mittari joutuisi sijoittamaan sen toiselle puolelle
+# ja kumpikin vastaus olisi väärä.
+#
+# Mitattu Nuken tyhjässä kaistassa (-18..-14):
+#   Ramp 40 %   Secret 31 %   Vents 21 %   <- tuotteen omistajan omat kolme
+#   Observation 3 %, BombsiteB 1 %, Tunnels 1 %, BombsiteA 1 %
+#   muut 22 aluetta 0 %
+#
+# Kynnys 0,10 on 21 %:n ja 3 %:n välissä. Johtaminen löytää siis täsmälleen
+# ne kolme aluetta jotka hän olisi joutunut antamaan käsin.
+site_bridge_void_share = 0.10
 
 # --- Orientaatiosäännöt (Story 2.5) ---
 # Kaksi sääntöä, joilla on YHTEINEN orientaatioehto. Stack (yllä) ei lue

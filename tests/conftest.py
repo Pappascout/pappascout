@@ -433,6 +433,113 @@ SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
     ("TSpawn", 95, 0, 0),
 )
 
+#: A map whose sites are on different floors -- Nuke's shape, sharpened.
+#:
+#: The sites sit at the same place in plan view and ten cells apart in height,
+#: which is the one arrangement the plan-view separation guard cannot read:
+#: separation 10 against a span of 12 gives a ratio of 0.83, well under the
+#: threshold of 2.0, so **without the floor branch this cloud is silenced**.
+#: Measured on the real map the ratio is 0.47-0.54, so this fixture is the
+#: same failure a little less extreme.
+#:
+#: ``Ladder`` is the bridge: every one of its cells lies in the empty band
+#: between the two sites, so it is a way between floors rather than a place on
+#: either. ``House`` sits on A's floor and ``Vault`` on B's, so the two groups
+#: still have a member each and the test can tell "held out" from "silenced".
+#:
+#: **Two of the offsets are load-bearing and were measured wrong first.**
+#: ``Ladder`` is at -4 rather than midway: exactly between the floors it is
+#: left out by the *margin* — neither site nearer — so a test asserting it is
+#: absent would pass with the bridge rule deleted. Off-centre it lands in A's
+#: group without the rule, and the test discriminates. ``Balcony`` at x=20 on
+#: A's floor is the z weight's witness: the weight cannot change which site is
+#: nearer when the sites differ only in height, it changes the *ratio* — at
+#: weight 1 the ratio is 1.12 and it falls under the margin, at weight 3 it is
+#: 1.80 and clears it. Without ``Balcony`` the weight can be deleted and every
+#: test stays green.
+#: **The sites have a height of their own, and that is the point.** The gap
+#: is measured as a share of that height rather than in cells, so a fixture
+#: whose sites are flat planes would divide by zero and could not straddle
+#: the threshold at all. Here each site spans 2 cells and 3 cells of void lie
+#: between them: a ratio of 3 / (2 + 2) = **0.75**, which is exactly what the
+#: archive measures on Nuke, against a shipped threshold of 0.40. Raising the
+#: threshold to 1.0 -- inside the model's ceiling of 2.0 -- switches the
+#: branch off, and two tests use that to prove the branch is load-bearing.
+#:
+#: ``Balcony`` is the **z-weight witness**, and its position is calculated
+#: rather than chosen. Weight cannot flip which site an area is nearer when
+#: the two sites share a plan position -- that comparison cancels x out
+#: entirely -- so it is the group margin it has to move. At (8, 0, 0) the
+#: second-nearest / nearest ratio is **1.11 at weight 1** and **1.69 at
+#: weight 3**, straddling the shipped margin of 1.25: at weight 1 the area is
+#: too evenly placed to be assigned and is left out, at weight 3 height
+#: dominates and it belongs to A. An earlier x of 20 gave 1.02 and 1.15,
+#: both below the margin, and the test could not see the weight at all.
+STACKED_SITE_CLOUD: tuple[tuple[str, int, int, int], ...] = (
+    ("BombsiteA", 0, 0, 0),
+    ("BombsiteA", 6, 0, 1),
+    ("BombsiteA", -6, 0, 2),
+    ("BombsiteB", 0, 0, -5),
+    ("BombsiteB", 6, 0, -4),
+    ("BombsiteB", -6, 0, -3),
+    ("House", 10, 0, 1),
+    ("Vault", 10, 0, -4),
+    ("Ladder", 1, 0, -1),
+    ("Ladder", 1, 0, -2),
+    ("Ladder", 1, 0, -1),
+    ("Balcony", 8, 0, 0),
+)
+
+
+def _trimmed_stacked_cloud() -> tuple[tuple[str, int, int, int], ...]:
+    """The stacked cloud again, but big enough that the **trim bites**.
+
+    ``STACKED_SITE_CLOUD`` gives each site three cells, and with three cells
+    the 5th and 95th percentile are simply the lowest and the highest: the
+    trim removes nothing, and no site cell can lie inside the void. That
+    makes it useless for the one contract that depends on the trim biting --
+    that a site is never dropped as a bridge -- and a test written against it
+    passes whether or not the carve-out exists. This cloud exists so that
+    test is not a tautology.
+
+    Forty cells a side, which is the smallest count at which the trim cuts
+    both ends: the low index is ``int(40 * 0.05) = 2`` and the high index
+    ``int(40 * 0.95) = 38``, so two cells fall off each end. Two of each
+    site's cells are placed **inside the other floor's void** -- the stray
+    names ``m_szLastPlaceName`` leaves behind -- so each site's own void
+    share is **0.05 for A** (2 of 40) and **0.025 for B** (1 of 40).
+
+    Those are the boundaries. At a ``bridge_void_share`` under them -- and
+    0.02 is a legal setting, the model asks only for ``gt=0.0`` -- both sites
+    would be read as bridges and the result would be ``{}`` rather than
+    ``None``.
+    The bands themselves are the same as in the smaller cloud (A 0..2,
+    B -5..-3, void -3..0, ratio 0.75), so the map is still stacked.
+    """
+    cells: list[tuple[str, int, int, int]] = []
+    # The trim is not symmetric at forty cells and the counts follow it: the
+    # low index is int(40 * 0.05) = 2, so two cells fall off the bottom, but
+    # the high index is int(40 * 0.95) = 38 against a last index of 39, so
+    # only one falls off the top. Each site therefore puts its strays where
+    # that site's trim actually cuts.
+    #
+    # BombsiteA: 2 strays down in the void, 37 in the band, 1 high outlier.
+    cells += [("BombsiteA", 0, 0, -2)] * 2
+    cells += [("BombsiteA", i % 7 - 3, 0, i % 3) for i in range(37)]
+    cells += [("BombsiteA", 0, 0, 5)]
+    # BombsiteB: 1 stray up in the void, 37 in the band, 2 low outliers.
+    cells += [("BombsiteB", 0, 0, -1)]
+    cells += [("BombsiteB", i % 7 - 3, 0, -5 + i % 3) for i in range(37)]
+    cells += [("BombsiteB", 0, 0, -8)] * 2
+    # The bridge, wholly inside the void, as in the smaller cloud.
+    cells += [("Ladder", 1, 0, -1), ("Ladder", 1, 0, -2)]
+    return tuple(cells)
+
+
+#: See :func:`_trimmed_stacked_cloud`. Built rather than written out: eighty
+#: cells as a literal would hide the three numbers that matter.
+TRIMMED_STACKED_SITE_CLOUD = _trimmed_stacked_cloud()
+
 #: The same cloud, but with the sites on top of each other: the difference
 #: between the centres is 2 cells and the sites' own size 20 + 20, that is, a
 #: ratio of 0.05. The ratio measured on Nuke is 0.47-0.54 and the threshold

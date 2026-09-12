@@ -3468,10 +3468,10 @@ def _anomaly_legend(report: Report) -> list[str]:
 def _stack_legend(report: Report) -> list[str]:
     """The stack's two paragraphs: what the rule is and what it did not see.
 
-    **The coverage is here and not only in the empty chapter's text.** A map
-    like Nuke stays silent also when there are hits on other maps -- and
-    precisely then the reader sees a chapter without Nuke in it and nothing
-    that says why. The empty chapter's text (:func:`_no_anomalies_text`) is
+    **The coverage is here and not only in the empty chapter's text.** A
+    silenced map stays silent also when there are hits on other maps -- and
+    precisely then the reader sees a chapter without that map in it and
+    nothing that says why. The empty chapter's text (:func:`_no_anomalies_text`) is
     then not set at all.
 
     The group is said to be **derived** and not given, because that is the
@@ -3519,11 +3519,11 @@ def _stack_legend(report: Report) -> list[str]:
     if scan.demos_without_site_groups:
         coverage += (
             f" Erotus on {demos_text(len(scan.demos_without_site_groups))} "
-            "ilman siteryhmiä: kartalla, jolla A ja B ovat päällekkäin eri "
-            "kerroksissa (Nuke), etäisyys siteeseen ei kerro kummasta "
-            "puolesta on kyse, eikä jakoa saa keksiä. **Sääntö vaikenee "
-            "siellä**, ja vaikeneminen on oikea vastaus -- muttei havainto "
-            "siitä, ettei stackeja ollut."
+            "ilman siteryhmiä: demosta ei saatu A:n ja B:n välille jakoa "
+            "kummallakaan akselilla -- ei vaakatasossa eikä korkeudella -- "
+            "eikä jakoa saa keksiä. **Sääntö vaikenee siellä**, ja "
+            "vaikeneminen on oikea vastaus -- muttei havainto siitä, ettei "
+            "stackeja ollut."
         )
     else:
         coverage += " Jokaiselta demolta saatiin siteryhmät."

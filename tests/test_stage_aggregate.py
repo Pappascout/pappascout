@@ -2183,6 +2183,16 @@ HASHED_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
     ("stack_min_players", {"stack_min_players": 5}),
     ("stack_group_margin", {"stack_group_margin": 1.5}),
     ("stack_site_separation_min", {"stack_site_separation_min": 3.0}),
+    # The stacked-map branch (Story 4.3).
+    # 0.40 -> 1.0 is inside the ceiling of 2.0 and is the value that switches
+    # the stacked branch off on every map in the archive, so it changes the
+    # division rather than merely the hash.
+    ("site_floor_gap_ratio", {"site_floor_gap_ratio": 1.0}),
+    # 0.05 -> 0.02 is the plateau's lower edge: the same answer on this
+    # fixture, a different one on Nuke, and a different hash either way.
+    ("site_floor_band_trim", {"site_floor_band_trim": 0.02}),
+    ("site_floor_z_weight", {"site_floor_z_weight": 2.0}),
+    ("site_bridge_void_share", {"site_bridge_void_share": 0.25}),
     # The two that are not anomaly rules. They were exempt from the
     # completeness guard below until 2026-09-12 -- **because of how they are
     # named** -- and that is why this table is keyed on what is hashed rather

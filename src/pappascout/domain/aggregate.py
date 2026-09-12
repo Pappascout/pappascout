@@ -1630,6 +1630,10 @@ def anomalies_for(
             point_clouds[demo],
             margin=thresholds.stack_group_margin,
             separation_min=thresholds.stack_site_separation_min,
+            floor_band_trim=thresholds.site_floor_band_trim,
+            floor_gap_ratio=thresholds.site_floor_gap_ratio,
+            floor_z_weight=thresholds.site_floor_z_weight,
+            bridge_void_share=thresholds.site_bridge_void_share,
         )
 
     # (map, side) -> round type -> round rows. One split, from which both the
@@ -1729,10 +1733,12 @@ def anomalies_for(
         and str(row["round_type"]) in SAVING_ROUND_TYPES
     )
     # The stack's denominator IS NOT crunch's denominator, even though
-    # neither scopes by round type: a silenced demo's (the sites do not
-    # separate) CT rounds are in crunch's denominator but not in stack's.
-    # Without a figure of its own, Nuke's 27 rounds would look examined with
-    # a nil result.
+    # neither scopes by round type: a silenced demo's (the sites separate on
+    # neither axis) CT rounds are in crunch's denominator but not in stack's.
+    # Without a figure of its own, those rounds would look examined with a
+    # nil result. Nuke used to be the worked example here -- 27 rounds -- and
+    # since Story 4.3 it is divided by height instead, so the archive has no
+    # silenced demo left. The two denominators still differ in kind.
     stack_rounds = sum(
         1
         for row in rows

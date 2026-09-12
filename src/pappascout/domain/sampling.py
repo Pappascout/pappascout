@@ -671,11 +671,46 @@ def t_side_shares(
     return passed
 
 
+def _z_band(
+    points: Sequence[tuple[float, float, float]], trim: float
+) -> tuple[float, float]:
+    """The height an area occupies, as its 5th and 95th percentile of z.
+
+    Percentiles and not the extremes: ``m_szLastPlaceName`` is the *last
+    named* area, so a handful of cells carry a name from somewhere else
+    entirely, and one of those on another floor would stretch the band across
+    the very gap the caller is looking for.
+    """
+    zs = sorted(z for _, _, z in points)
+    if not zs:
+        return (0.0, 0.0)
+    lo = zs[int(len(zs) * trim)]
+    hi = zs[min(len(zs) - 1, int(len(zs) * (1.0 - trim)))]
+    return (lo, hi)
+
+
+def _void_share(
+    points: Sequence[tuple[float, float, float]], void: tuple[float, float]
+) -> float:
+    """The share of an area's cells that sit in the empty band between sites.
+
+    Zero for an area wholly on one floor, and the measure of a bridge.
+    """
+    if not points:
+        return 0.0
+    lo, hi = void
+    return sum(1 for _, _, z in points if lo < z < hi) / len(points)
+
+
 def site_groups(
     cells: Iterable[CloudCell],
     *,
     margin: float,
     separation_min: float,
+    floor_gap_ratio: float,
+    floor_band_trim: float,
+    floor_z_weight: float,
+    bridge_void_share: float,
 ) -> dict[str, str] | None:
     """A mapping ``area -> "A" | "B"`` **from the demo's own point cloud**.
 
@@ -708,31 +743,71 @@ def site_groups(
        further away. Otherwise the area is left without a group (the map's
        shared middle), and no direction is guessed.
 
-    **A map whose sites do not separate goes quiet.** On Nuke ``BombsiteA``
-    and ``BombsiteB`` are on top of each other on different floors, so *any*
-    A/B distance measure is meaningless there. The guard is a ratio and not a
-    list of maps: the distance between the sites' centres divided by the
-    sites' own size is 0.47-0.54 on Nuke and 3.70-5.04 on the three other
-    maps, so a threshold of 2.0 separates them cleanly **without naming a map
-    in the code**. Going quiet is the right answer and not a shortfall -- but
-    it has to be recorded in the coverage
-    (``AnomalyScan.demos_without_site_groups``), not left silent.
+    **A map whose sites do not separate on either axis goes quiet.** The
+    guard is a ratio and not a list of maps: the distance between the sites'
+    centres divided by the sites' own size is 0.47-0.54 on Nuke and 3.70-5.04
+    on the three other maps, so a threshold of 2.0 separates them cleanly
+    **without naming a map in the code**. Going quiet is the right answer
+    where it stands, and it has to be recorded in the coverage
+    (``AnomalyScan.demos_without_site_groups``) rather than left silent.
+
+    **Story 4.3 narrowed what that guard covers, and the earlier record of it
+    was wrong.** Until then this docstring said that on Nuke, where the sites
+    sit on different floors, *any* A/B distance measure is meaningless. That
+    was a statement about one axis mistaken for a statement about the map.
+    Measured over the archive on 2026-09-12: the plan-view ratio does fail on
+    Nuke, and it fails for a reason -- but the sites' height bands there do
+    not overlap at all (a gap of 0.75 of their own combined height, agreed by
+    all three of its demos), while every other map's bands touch or overlap.
+    Nuke's division was available the whole time on the axis the guard was
+    not measuring. The separation guard is therefore applied **only when the
+    map is not stacked**; on a stacked map it would answer for the wrong
+    axis, and going quiet there would be a shortfall rather than a verdict.
 
     **The grid size cancels out, and that is why it is not given.** A cell
     index is not a coordinate: the real coordinate is
-    ``cell * [parse].callout_grid_units``. Both thresholds are, however,
-    **quotients of two distances**, and the grid size multiplies every
-    distance by the same number, so it cancels out of both comparisons. That
-    is exactly why this function -- and the aggregation as its caller -- does
-    not read the ``[parse]`` section at all. **If an absolute distance limit
-    is ever added here, the conversion is mandatory**, and its source does not
-    yet exist in the aggregation.
+    ``cell * [parse].callout_grid_units``. Every threshold here is, however,
+    **a quotient of two distances or a share of a count**, and the grid size
+    multiplies every distance by the same number, so it cancels out of every
+    comparison. That is exactly why this function -- and the aggregation as
+    its caller -- does not read the ``[parse]`` section at all. **If an
+    absolute distance limit is ever added here, the conversion is
+    mandatory**, and its source does not yet exist in the aggregation.
+
+    Story 4.3 came close to breaking that rule and is the reason it is
+    restated here. The floor gap was first written as a count of cells,
+    which would have made the branch change meaning with the grid: at twice
+    the grid Nuke's gap of six cells is three, and the archive -- parsed at
+    one grid size -- could not have noticed. It is now divided by the sites'
+    own combined height, so it is a ratio like the rest.
 
     Args:
         cells: The demo's point cloud cells. In any order; an empty cloud is
             a valid input and produces ``None``.
         margin: ``[thresholds].stack_group_margin``. At least 1.0.
         separation_min: ``[thresholds].stack_site_separation_min``.
+        floor_gap_ratio: ``[thresholds].site_floor_gap_ratio``. How much
+            empty height must lie between the two sites' bands, **as a share
+            of the sites' own combined height**, before the map counts as
+            **stacked** -- its sites on different floors rather than side by
+            side. A ratio and not a cell count, so the grid size cancels out.
+            On a stacked map the plan-view separation guard is not applied,
+            because it measures the wrong axis there.
+        floor_band_trim: ``[thresholds].site_floor_band_trim``. Which
+            percentile bounds a site's band. A threshold in its own right,
+            and not an implementation detail: ``m_szLastPlaceName`` is the
+            **last** name entered, so a handful of a site's cells carry its
+            name from elsewhere, and one of those on another floor would
+            stretch the band across the gap. Measured, the answer is stable
+            from 0.02 to 0.10 and wrong on both sides of that.
+        floor_z_weight: ``[thresholds].site_floor_z_weight``. How much height
+            counts in the distance on a stacked map. Exactly 1.0 on every
+            other map, so nothing changes where the sites are side by side.
+        bridge_void_share: ``[thresholds].site_bridge_void_share``. The share
+            of an area's cells that must sit in the empty band between the
+            floors before the area is treated as a **bridge** and left out of
+            both groups. Only applies on a stacked map; a flat map has no
+            void to span.
 
     Returns:
         ``area -> "A" | "B"`` for the areas that have a group, or ``None`` if
@@ -740,16 +815,44 @@ def site_groups(
         group are **absent** from the mapping; a ``None`` value is not
         written, so that ``groups.get(area)`` is unambiguous.
 
-        **The result cannot be an empty mapping.** A site's distance to its
-        own centre is 0, so each site always belongs to its own group under
-        any margin; if the function gets this far, the mapping holds at least
-        those two. An empty dictionary is therefore possible only as a
-        caller's own value (in a test, for instance), not as this function's
-        result, and the code must not lean on telling it apart from ``None``.
+        **Two different things are absent from the mapping and the caller
+        cannot tell them apart.** An area may be missing because it is the
+        map's shared middle -- neither site is nearer by the margin -- or,
+        on a stacked map, because it is a bridge between the floors. Both are
+        "no group", and that is enough for the rules that consume this; an
+        API that distinguished them would be a different function.
+
+        **The result cannot be an empty mapping, and Story 4.3 had to work
+        to keep it that way.** A site's distance to its own centre is 0, so
+        each site always belongs to its own group under any margin; if the
+        function gets this far, the mapping holds at least those two. An
+        empty dictionary is therefore possible only as a caller's own value
+        (in a test, for instance), not as this function's result, and the
+        code must not lean on telling it apart from ``None``.
+
+        The bridge rule is tested **before** the distance test and could
+        otherwise drop a site: a site's own cells reach into the void by the
+        width of the percentile trim, so a ``bridge_void_share`` below about
+        0.05 would exclude both sites and return ``{}``. That is why the
+        bridge test excludes the two sites by name rather than relying on a
+        threshold to keep them. The guarantee matters two layers up:
+        ``aggregate`` reads an empty mapping as "the map has a division and
+        nobody is on either side of it" -- an observation -- while ``None``
+        is a blind spot it records in the coverage. A ``{}`` leaking out of
+        here would be counted as a scanned round with no hits, which is the
+        one thing ``demos_without_site_groups`` exists to prevent.
 
     Raises:
-        ValueError: If ``margin`` is below 1.0 or ``separation_min`` is not
-            positive. The former would make the "nearer" one the further one,
+        ValueError: If ``floor_band_trim`` is not strictly between 0 and 0.5,
+            if ``floor_gap_ratio`` or ``bridge_void_share`` is not positive
+            and finite, if ``floor_z_weight`` is below 1.0, if ``margin`` is
+            below 1.0, or if ``separation_min`` is not positive. Each message
+            says what the value would do rather than merely that it is out of
+            range: a trim of 0 leaves no map in the archive stacked at all, a
+            gap ratio of 0 makes every map whose bands merely touch stacked,
+            a weight below 1 would make height count for less than plan
+            distance on the one map where height is the answer. For the last
+            two: the former would make the "nearer" one the further one,
             the latter would remove the guard altogether -- that is, a
             division would be derived from Nuke's overlapping sites that does
             not exist.
@@ -767,6 +870,36 @@ def site_groups(
             "finite. With the value 0 the guard would silence no map at all, "
             "that is, an area division that does not exist would be derived "
             "from overlapping sites."
+        )
+    if not (0.0 < floor_band_trim < 0.5 and math.isfinite(floor_band_trim)):
+        raise ValueError(
+            f"The floor band trim {floor_band_trim!r} is not a share strictly "
+            "between 0 and 0.5. At zero the band is the raw extremes and a "
+            "single stray cell carrying a name from another floor stretches "
+            "it across the very gap being looked for -- measured, no map in "
+            "the archive is stacked at all at zero. At 0.5 the band collapses "
+            "to the median and has no height to compare."
+        )
+    if not (floor_gap_ratio > 0.0 and math.isfinite(floor_gap_ratio)):
+        raise ValueError(
+            f"The floor gap ratio {floor_gap_ratio!r} is not positive and "
+            "finite. At zero every map whose site bands merely touch would be "
+            "treated as stacked -- measured, Anubis touches at 0.00 and 0.14 "
+            "and would qualify, which is the opposite of what the gap is for."
+        )
+    if not (floor_z_weight >= 1.0 and math.isfinite(floor_z_weight)):
+        raise ValueError(
+            f"The floor z weight {floor_z_weight!r} is below 1.0 or is not "
+            "finite. Below one, height would count for *less* on the one kind "
+            "of map where height is the only thing that tells the sites "
+            "apart."
+        )
+    if not 0.0 < bridge_void_share <= 1.0:
+        raise ValueError(
+            f"The bridge share {bridge_void_share!r} is outside (0, 1]. At or "
+            "below zero every area with a single stray cell between the "
+            "floors would be called a bridge and dropped from both groups; "
+            "above one no area could ever be one."
         )
 
     points: dict[str, list[tuple[float, float, float]]] = {}
@@ -806,11 +939,88 @@ def site_groups(
     # any area.
     if span <= 0.0 or separation <= 0.0:
         return None
-    if separation < separation_min * span:
+
+    # **The sites may separate vertically instead, and then the ratio above
+    # measures the wrong axis.** On Nuke the two sites sit on different floors
+    # and overlap in plan view, so their distance-over-size ratio is 0.47-0.54
+    # against a threshold of 2.0 and the map went silent -- while their cells
+    # share no height at all. Measured 2026-09-12 over the archive:
+    #
+    #   de_nuke      A -13..-11   B -25..-19   gap  6 cells, disjoint
+    #   de_anubis    A  -6..-2    B  -1..2     gap -1..0, touching
+    #   de_ancient   A   1..4     B   3..5     overlap
+    #   de_inferno   A   3..8     B   4..7     overlap
+    #
+    # Nuke is the only map whose sites are disjoint on z, and the margin
+    # between its 6 and Anubis's -1 is what ``floor_gap_ratio`` sits in. The
+    # question the separation ratio really asks is *are the sites
+    # distinguishable at all*; on a stacked map the answer is yes, on another
+    # axis, so the silence is lifted rather than the threshold loosened.
+    a_band = _z_band(points[site_a], floor_band_trim)
+    b_band = _z_band(points[site_b], floor_band_trim)
+    void = (min(a_band[1], b_band[1]), max(a_band[0], b_band[0]))
+    # **A ratio and not a cell count**, for the same reason the two thresholds
+    # above are quotients: a cell index is not a coordinate, and the grid size
+    # multiplies every distance by the same number. An absolute gap would
+    # silently change meaning if ``[parse].callout_grid_units`` ever moved --
+    # at twice the grid Nuke's gap of six cells becomes three. Dividing by the
+    # sites' own vertical size cancels the grid out. Measured over the archive
+    # (positive = the bands are apart):
+    #
+    #   de_nuke     0.75  0.75  0.75
+    #   de_anubis   0.14  0.00
+    #   de_ancient -0.20 -0.20  0.00
+    #   de_inferno -0.38
+    heights = (a_band[1] - a_band[0]) + (b_band[1] - b_band[0])
+    gap = void[1] - void[0]
+    # Sites with no height of their own are a degenerate cloud rather than a
+    # flat map: a real site spans several cells. Treat them as stacked when
+    # anything at all separates them, because a gap measured against zero own
+    # size is as separated as a pair can be -- silently answering "not
+    # stacked" would be a worse lie than either verdict.
+    stacked = gap / heights >= floor_gap_ratio if heights > 0.0 else gap > 0.0
+
+    if not stacked and separation < separation_min * span:
         return None
+
+    # On a stacked map height is what tells the sites apart, so it has to
+    # carry more than one third of the distance. Measured against the product
+    # owner's own Nuke grouping: weight 1 reproduces 10 of 15 area
+    # assignments, weight 2 gives 13, weight 3 gives 14, and weights above 3
+    # add nothing. On a flat map the weight is 1 and nothing changes.
+    weight = floor_z_weight if stacked else 1.0
+    if weight != 1.0:
+        centres = {
+            area: _cell_median([(x, y, z * weight) for x, y, z in pts])
+            for area, pts in points.items()
+        }
 
     found: dict[str, str] = {}
     for area, centre in centres.items():
+        # **An area that spans the empty band between the sites is a bridge,
+        # and it belongs to neither.** It is a way through rather than a place
+        # on one side, so a nearest-centre measure must put it on one side and
+        # both answers are wrong. Measured 2026-09-12, share of each area's
+        # cells inside Nuke's void: ``Ramp`` 40 %, ``Secret`` 31 %, ``Vents``
+        # 21 %, and every one of the other 26 areas at 3 % or below. Those
+        # three are exactly the ones the product owner names as connecting the
+        # levels, so the derivation finds what he would have had to supply.
+        #
+        # **A site is never a bridge**, and the exclusion is structural rather
+        # than a matter of threshold. Without it the contract below -- that
+        # the result can never be an empty mapping -- is reachable: a site's
+        # own cells extend into the void by the width of the percentile trim,
+        # so a share below about 0.05 drops both sites and returns ``{}``.
+        # That would be worse than silence, because ``aggregate`` reads an
+        # empty mapping as "the map has a division and nobody is on either
+        # side of it" -- an observation -- while ``None`` is a blind spot it
+        # records in the coverage.
+        if (
+            stacked
+            and area not in (site_a, site_b)
+            and _void_share(points[area], void) >= bridge_void_share
+        ):
+            continue
         to_a = math.dist(centre, centres[site_a])
         to_b = math.dist(centre, centres[site_b])
         # Genuinely nearer BEFORE the margin: with margin == 1.0 the margin

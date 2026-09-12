@@ -32,6 +32,7 @@ from typing import NamedTuple
 
 import polars as pl
 import pytest
+from pydantic import ValidationError
 
 from conftest import REAL_SETTINGS, require_parsed
 from pappascout.adapters.demo_parser import _armed_count
@@ -1060,12 +1061,15 @@ CALIBRATION_DEMOS = (
 )
 
 #: The calibration's numbers, from the document's section
-#: "Osumat: 9 kierrosta 66:sta".
-STACK_HITS = 10
-STACK_ROUNDS = 9
-STACK_SCANNED = 66
+#: "Osumat uudelleen: 23 kierrosta 93:sta (Story 4.3, 2026-09-12)". That
+#: section supersedes "Osumat: 9 kierrosta 66:sta", which was measured while
+#: Nuke's three demos were silenced and is still in the document as the
+#: earlier reading.
+STACK_HITS = 27
+STACK_ROUNDS = 23
+STACK_SCANNED = 93
 STACK_CT_ROUNDS = 93
-STACK_SILENCED_ROUNDS = 27
+STACK_SILENCED_ROUNDS = 0
 
 #: The hit table **by sample point**: (map, demo, round, type, moment,
 #: group, players, alive). One row per hit, as in the document -- Anubis's
@@ -1077,37 +1081,48 @@ STACK_SILENCED_ROUNDS = 27
 #: maps and the teams are processed.
 STACK_TABLE = sorted(
     [
-        ("de_ancient", "ANCIENT_vs_RCAVE_VETERANS", 13, "pistol", 15.0, "B", 4, 5),
-        ("de_ancient", "ANCIENT_vs_RCAVE_VETERANS", 15, "full", 15.0, "B", 4, 5),
-        ("de_ancient", "ANCIENT_vs_RCAVE_VETERANS", 18, "eco", 15.0, "B", 4, 5),
-        (
-            "de_ancient",
-            "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1",
-            16,
-            "full",
-            30.0,
-            "A",
-            4,
-            5,
-        ),
-        ("de_ancient", "Ancient_vs_kaljukostaja", 2, "eco", 30.0, "A", 5, 5),
-        ("de_ancient", "Ancient_vs_kaljukostaja", 7, "eco", 6.0, "A", 4, 5),
-        ("de_ancient", "Ancient_vs_kaljukostaja", 12, "full", 30.0, "A", 4, 5),
-        ("de_anubis", "Anubis_vs_ryhmarama", 4, "eco", 15.0, "B", 5, 5),
-        ("de_anubis", "Anubis_vs_ryhmarama", 4, "eco", 30.0, "B", 4, 5),
-        ("de_anubis", "Anubis_vs_ryhmarama", 11, "full", 15.0, "B", 4, 5),
+        ('de_ancient', '1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1', 16, 'full', 30.0, 'A', 4, 5),
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 13, 'pistol', 15.0, 'B', 4, 5),
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 15, 'full', 15.0, 'B', 4, 5),
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 15.0, 'B', 4, 5),
+        ('de_ancient', 'Ancient_vs_kaljukostaja', 2, 'eco', 30.0, 'A', 5, 5),
+        ('de_ancient', 'Ancient_vs_kaljukostaja', 7, 'eco', 6.0, 'A', 4, 5),
+        ('de_ancient', 'Ancient_vs_kaljukostaja', 12, 'full', 30.0, 'A', 4, 5),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 4, 'eco', 15.0, 'B', 5, 5),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 4, 'eco', 30.0, 'B', 4, 5),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 11, 'full', 15.0, 'B', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 13, 'pistol', 15.0, 'A', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 14, 'full', 15.0, 'A', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 15, 'full', 15.0, 'A', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 17, 'full', 15.0, 'A', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 17, 'full', 30.0, 'A', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 18, 'full', 15.0, 'A', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 19, 'full', 30.0, 'A', 4, 4),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 22, 'full', 15.0, 'A', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 23, 'full', 15.0, 'A', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 26, 'ot', 15.0, 'A', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 26, 'ot', 30.0, 'A', 4, 5),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 27, 'ot', 15.0, 'A', 4, 5),
+        ('de_nuke', 'Nuke_vs_imuaijat', 1, 'pistol', 15.0, 'A', 4, 5),
+        ('de_nuke', 'Nuke_vs_imuaijat', 4, 'full', 15.0, 'A', 4, 5),
+        ('de_nuke', 'Nuke_vs_imuaijat', 4, 'full', 30.0, 'A', 4, 5),
+        ('de_nuke', 'Nuke_vs_imuaijat', 9, 'full', 30.0, 'A', 4, 4),
+        ('de_nuke', 'Nuke_vs_imuaijat', 10, 'full', 30.0, 'A', 4, 4),
     ]
 )
 
 #: How many hits arise if MORE than one player is required to be on the
-#: site's OWN area: (requirement, rounds, hits). Measured 2026-09-03.
+#: site's OWN area: (requirement, rounds, hits). Measured 2026-09-03,
+#: re-measured 2026-09-12 when Story 4.3 brought Nuke's 27 rounds into the
+#: denominator -- the figures were 9/66/10, 5/66/5 and 2/66/2 while they
+#: were a blind spot.
 #:
 #: The table is here so that the choice "one is enough" is **deliberate and
 #: not a default**: its alternatives have been measured, and their price is
-#: visible. Of the hits, five have exactly one player on the site, three have
-#: two and two have three, so tightening it would not remove noise but half
-#: the observations.
-SITE_PRESENCE_TABLE = ((1, 9, 10), (2, 5, 5), (3, 2, 2))
+#: visible. Of the 27 hits, **twenty** have exactly one player on the site,
+#: five have two and two have three, so tightening it to two would not
+#: remove noise but three of every four observations.
+SITE_PRESENCE_TABLE = ((1, 23, 27), (2, 7, 7), (3, 2, 2))
 
 
 def _real_settings():
@@ -1134,6 +1149,10 @@ def _site_groups(root: Path, map_demo_id: str, limits: ThresholdSettings):
         cells,
         margin=limits.stack_group_margin,
         separation_min=limits.stack_site_separation_min,
+        floor_band_trim=limits.site_floor_band_trim,
+        floor_gap_ratio=limits.site_floor_gap_ratio,
+        floor_z_weight=limits.site_floor_z_weight,
+        bridge_void_share=limits.site_bridge_void_share,
     )
 
 
@@ -1205,17 +1224,106 @@ def test_the_ancient_site_groups_are_identical_in_all_three_demos() -> None:
 
 
 @pytest.mark.archive
-def test_nuke_stays_silent_because_its_sites_do_not_separate() -> None:
-    """The guard silences Nuke **without naming the map in the code**.
+def test_nuke_is_divided_by_height_not_by_plan_distance() -> None:
+    """Nuke used to be silenced here, and that was the wrong answer.
 
-    The ratio ``separation / (radius_A + radius_B)`` is 0.47-0.54 on Nuke and
-    3.70-5.04 on the three other maps; a threshold of 2.0 separates them
-    cleanly.
+    The plan-view ratio ``separation / (radius_A + radius_B)`` is 0.47-0.54 on
+    Nuke against 3.70-5.04 on the other three, so the guard says no -- and it
+    is **right about the question it asks**. It asks whether the sites are
+    distinguishable side by side, and on Nuke they are not: they are stacked,
+    ten cells apart in height and on top of each other in plan view.
+
+    Silence was the measure answering the wrong question. Measured
+    2026-09-12, the two sites' cells share no height at all (A -13..-11,
+    B -25..-19, six empty cells between), and no other map in the archive has
+    a gap -- Anubis's bands touch at -1..0, Ancient's and Inferno's overlap.
+    So height is what tells them apart, and Story 4.3 divides Nuke on it.
+
+    **The plan-view guard is unchanged and still says no**, which is why this
+    test asserts both halves: the ratio still fails, and the map is divided
+    anyway.
     """
     root = require_parsed(*NUKE_DEMOS)
     limits = _real_settings().thresholds
     for demo in NUKE_DEMOS:
-        assert _site_groups(root, demo, limits) is None, demo
+        # Divided now.
+        found = _site_groups(root, demo, limits)
+        assert found is not None, demo
+        assert found["BombsiteA"] == "A" and found["BombsiteB"] == "B", demo
+        # And the three areas that span the void between the floors are held
+        # out of both groups -- the product owner names these as the ways
+        # between the levels, and the derivation finds them without being
+        # told. Measured: Ramp 40 % of its cells in the void, Secret 31 %,
+        # Vents 21 %, every other area 3 % or less.
+        for bridge in ("Ramp", "Vents", "Secret"):
+            assert bridge not in found, f"{demo}: {bridge}"
+        # Still refused by the plan-view guard: raise the floor gap past
+        # Nuke's own six cells and the stacked branch never fires, leaving
+        # exactly the behaviour this test used to assert.
+        flat = limits.model_copy(update={"site_floor_gap_ratio": 1.0})
+        assert _site_groups(root, demo, flat) is None, demo
+
+
+@pytest.mark.archive
+def test_the_band_trim_is_a_threshold_and_the_plateau_is_where_it_sits() -> None:
+    """The percentile is not an implementation detail; the answer turns on it.
+
+    ``m_szLastPlaceName`` is the **last** name a player entered, so a handful
+    of each site's cells carry its name from somewhere else, and one of those
+    on another floor stretches the band across the very gap being measured.
+    The band is therefore trimmed -- and the trim is a threshold, with a
+    plateau and two edges, both of which this pins.
+
+    Measured over the archive 2026-09-12 at twelve points, asking which demos
+    come out stacked:
+
+    * **0.00** -- nothing at all, Nuke included: the raw extremes always
+      overlap, because the strays reach into the other floor by definition.
+    * **0.01** -- only **two** of Nuke's three demos. This is the worst of
+      the three failures and the reason the lower edge is asserted: the map
+      would divide one way in one demo and another way in the next, and the
+      archive would hold two contradictory answers for the same map with
+      nothing reporting a problem.
+    * **0.02 .. 0.10** -- exactly the three Nuke demos. The shipped 0.05 is
+      the middle of this.
+    * **0.12 and above** -- Anubis joins, whose bands merely touch. A map
+      that is not stacked would be divided by height.
+
+    The upper edge is also pinned by the model: ``MAX_SITE_FLOOR_BAND_TRIM``
+    is the plateau's own top, so 0.12 cannot be configured at all. It is
+    reachable here only by calling the function directly, which is what makes
+    it worth asserting -- the bound is a claim about the measurement, not a
+    typing guard.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    limits = _real_settings().thresholds
+
+    def stacked_demos(trim: float) -> set[str]:
+        found = set()
+        for demo in CALIBRATION_DEMOS:
+            at = limits.model_copy(update={"site_floor_band_trim": trim})
+            plan_blind = at.model_copy(
+                update={"stack_site_separation_min": 20.0}
+            )
+            # With the plan-view guard raised out of reach, a demo that still
+            # produces groups can only have done so through the floor branch.
+            if _site_groups(root, demo, plan_blind) is not None:
+                found.add(demo)
+        return found
+
+    assert stacked_demos(0.05) == set(NUKE_DEMOS)
+    assert stacked_demos(0.02) == set(NUKE_DEMOS)
+    assert stacked_demos(0.10) == set(NUKE_DEMOS)
+    # The lower edge: one Nuke demo drops out, so the map disagrees with
+    # itself. Asserting the count is the point -- which demo survives is an
+    # accident of its cells.
+    assert len(stacked_demos(0.01)) == 1
+    assert stacked_demos(0.01) < set(NUKE_DEMOS)
+    # The upper edge: a map whose bands only touch becomes stacked.
+    assert stacked_demos(0.12) > set(NUKE_DEMOS)
+    # And that value is not configurable, because the ceiling is the plateau.
+    with pytest.raises(ValidationError):
+        ThresholdSettings(pistol_rounds=[1, 13], site_floor_band_trim=0.12)
 
 
 @pytest.mark.archive
@@ -1233,7 +1341,11 @@ def test_every_other_map_does_give_site_groups() -> None:
         for demo in CALIBRATION_DEMOS
         if _site_groups(root, demo, limits) is not None
     }
-    assert speaking == set(CALIBRATION_DEMOS) - set(NUKE_DEMOS)
+    # Every demo is divided as of Story 4.3: the flat maps by plan distance
+    # and Nuke by height. The claim this test was written for still holds and
+    # is now stronger -- a threshold raised far enough would silence the rule,
+    # and here that shows as a missing demo rather than as zero hits.
+    assert speaking == set(CALIBRATION_DEMOS)
 
 
 @pytest.mark.archive
@@ -1258,11 +1370,18 @@ def test_the_stack_rule_finds_exactly_the_calibrated_sample_points() -> None:
 
 @pytest.mark.archive
 def test_the_stack_coverage_says_what_it_could_not_see() -> None:
-    """66 scanned out of 93; 27 silenced on Nuke.
+    """93 scanned out of 93; nothing silenced, as of Story 4.3.
 
-    The coverage is three numbers and not one: there are 93 CT rounds, of
-    which stack saw 66, and the difference of 27 is Nuke's two demos. Without
-    that separation Nuke's zero hits would read as a measured negative.
+    The coverage is three numbers and not one, and it is still three even
+    when the third is zero -- that is the point of keeping it. Until
+    2026-09-12 stack saw 66 CT rounds of 93 and the missing 27 were Nuke's
+    two demos, silenced because the sites could not be told apart in plan
+    view. They are told apart by height instead now, so every round is
+    scanned and ``demos_without_site_groups`` is empty.
+
+    **The zero is an assertion and not an omission.** A demo that goes quiet
+    again must show up here rather than as a quietly smaller denominator,
+    which is the failure the three numbers exist to prevent.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
     reports = _stack_reports(root)
@@ -1276,6 +1395,55 @@ def test_the_stack_coverage_says_what_it_could_not_see() -> None:
     assert ct_rounds == STACK_CT_ROUNDS
     assert scanned == STACK_SCANNED
     assert ct_rounds - scanned == STACK_SILENCED_ROUNDS
+    assert silenced == set()
+
+
+#: What the coverage read while Nuke was a blind spot, and what it reads
+#: again the moment the floor branch is switched off. Measured 2026-09-12.
+SILENCED_ROUNDS_WITHOUT_THE_FLOOR_BRANCH = 27
+SCANNED_WITHOUT_THE_FLOOR_BRANCH = 66
+
+
+@pytest.mark.archive
+def test_switching_the_floor_branch_off_silences_nuke_again() -> None:
+    """The silenced path still works, and this is what proves it.
+
+    **An assertion that a set is empty does not fail when the mechanism that
+    fills it breaks.** Until Story 4.3 the suite pinned a non-empty
+    ``demos_without_site_groups`` end to end through the aggregation, because
+    Nuke was genuinely silent. Nuke is now divided by height, so the sibling
+    test above can only assert ``set()`` -- and every way of breaking the
+    coverage would leave that green.
+
+    This test restores the old claim as a live guard instead of retiring it.
+    With ``site_floor_gap_ratio`` raised to 1.0 -- inside the model's ceiling
+    of 2.0, and above Nuke's measured 0.75 -- the map is no longer read as
+    stacked, the plan-view separation guard applies again, and the archive
+    goes back to exactly the numbers it had before: **66 rounds scanned of
+    93, 27 silenced, both Nuke demos named**.
+
+    It therefore pins three things at once: that a silenced demo is still
+    recorded by name rather than vanishing from the denominator, that the
+    difference between the two denominators is real and not an artefact, and
+    that the floor branch -- not some other change -- is what brought those
+    27 rounds in.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    settings = _real_settings()
+    without = settings.thresholds.model_copy(
+        update={"site_floor_gap_ratio": 1.0}
+    )
+    reports = _stack_reports(root, without)
+    ct_rounds = sum(r.anomaly_scan.crunch_rounds for r in reports)
+    scanned = sum(r.anomaly_scan.stack_rounds for r in reports)
+    silenced = {
+        demo
+        for r in reports
+        for demo in r.anomaly_scan.demos_without_site_groups
+    }
+    assert ct_rounds == STACK_CT_ROUNDS
+    assert scanned == SCANNED_WITHOUT_THE_FLOOR_BRANCH
+    assert ct_rounds - scanned == SILENCED_ROUNDS_WITHOUT_THE_FLOOR_BRANCH
     assert silenced == set(NUKE_DEMOS)
 
 
@@ -1309,8 +1477,9 @@ def test_requiring_more_players_on_the_site_itself_halves_the_hits(
 
     The rule requires at least one. The alternatives have been measured, and
     they are here as a table, so that the choice is deliberate and not a
-    default: with two players there are 5 hits and with three 2. Tightening
-    it would therefore not remove noise but half the observations -- and the
+    default: with two players there are 7 hits and with three 2. Tightening
+    it would therefore not remove noise but strip the observations to a
+    handful -- 27 down to 7 down to 2 -- and the
     number of players is on the row in any case, so the reader judges for
     themselves.
 

@@ -1957,9 +1957,13 @@ class AnomalyScan(_Node):
             exists to prevent.
             *Not the same figure as* ``crunch_rounds``, although neither of
             them restricts the round type: a map on which the sites do not
-            separate (Nuke) silences stack completely, and its rounds are in
+            separate silences stack completely, and its rounds are in
             crunch's denominator but not in stack's. Without a figure of its
-            own, Nuke's rounds would look examined with a zero result.
+            own, those rounds would look examined with a zero result. **No
+            map in the archive is in that state since Story 4.3** -- Nuke,
+            which was, is now divided by height -- but the figure stays,
+            because it is the difference between "nothing happened" and
+            "nothing was looked at" and the archive is not every map.
         demos_without_orientation: The demos from whose sample points not a
             single area came out above the observation threshold. On those
             **advance and crunch** stay silent, and that is not a measured
@@ -1967,8 +1971,9 @@ class AnomalyScan(_Node):
         demos_without_site_groups: The demos from which no site groups could
             be obtained: a site is missing from the point cloud, or the
             distance between the sites' centres relative to the sites' own
-            size falls below the threshold (on Nuke the sites are on top of
-            each other on different floors). On those **stack** stays silent.
+            size falls below the threshold **and** the sites' height bands
+            are not separated either -- a map has to fail on both axes to
+            land here. On those **stack** stays silent.
             The same grounds as for the previous one: silence is the right
             answer, but it has to be recorded -- unspoken it would read as a
             zero hit.

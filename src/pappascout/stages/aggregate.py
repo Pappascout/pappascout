@@ -1110,6 +1110,14 @@ HASHED_THRESHOLD_KEYS: tuple[str, ...] = (
     "stack_min_players",
     "stack_group_margin",
     "stack_site_separation_min",
+    # The stacked-map branch (Story 4.3). These three decide whether a map's
+    # sites are told apart by plan distance or by height, so they change the
+    # area division itself -- the same quiet trap as the two above, and for
+    # the same reason they must invalidate the aggregation.
+    "site_floor_band_trim",
+    "site_floor_gap_ratio",
+    "site_floor_z_weight",
+    "site_bridge_void_share",
 )
 HASHED_LEAGUE_KEYS: tuple[str, ...] = ("map_pool",)
 

@@ -65,6 +65,9 @@ __all__ = [
     "MAX_ADVANCE_SAMPLE_SECONDS",
     "MAX_STACK_GROUP_MARGIN",
     "MAX_STACK_SITE_SEPARATION",
+    "MAX_SITE_FLOOR_BAND_TRIM",
+    "MAX_SITE_FLOOR_GAP_RATIO",
+    "MAX_SITE_FLOOR_Z_WEIGHT",
     "MAX_FACEIT_PAGE_SIZE",
     "MAX_FACEIT_RETRY_ATTEMPTS",
     "PLAYERS_ON_SERVER",
@@ -215,6 +218,45 @@ MAX_STACK_GROUP_MARGIN = 10.0
 #: was examined. 20.0 leaves fourfold room over the measured maximum and
 #: stops a typing error.
 MAX_STACK_SITE_SEPARATION = 20.0
+
+#: A map counts as stacked when the empty height between the two sites' bands
+#: reaches this share of the sites' own combined height. A **ratio** and not a
+#: cell count: a cell index is not a coordinate, and the grid size multiplies
+#: every distance by the same number, so an absolute limit would change
+#: meaning with ``[parse].callout_grid_units``. Measured 2026-09-12 over the
+#: archive, positive meaning the bands are apart: Nuke 0.75 on all three of
+#: its demos, Anubis 0.14 and 0.00, Ancient -0.20 and 0.00, Inferno -0.38.
+#:
+#: The ceiling of 2.0 is **a guard and not a measured crossover**, and is
+#: written down as such rather than dressed up: the void would have to be
+#: twice the height of both sites together. The archive's largest is 0.75 and
+#: the value the tests use to switch the branch off is 1.0, so both sit
+#: strictly inside it -- the ceiling stops a typing error without being the
+#: off switch itself.
+MAX_SITE_FLOOR_GAP_RATIO = 2.0
+
+#: How far into each site's own cells the band may be trimmed. Measured
+#: 2026-09-12 at twelve points across the archive: 0.00 leaves no map stacked
+#: at all, 0.01 catches only two of Nuke's three demos, **0.02 to 0.10 is a
+#: plateau** giving exactly those three, and from 0.12 Anubis joins them. The
+#: ceiling is the plateau's own upper edge -- past it the rule answers for a
+#: map the measurement says is not stacked, which is not a calibration but a
+#: wrong answer.
+MAX_SITE_FLOOR_BAND_TRIM = 0.10
+
+#: How much height may count in the distance on a stacked map. Measured
+#: against the product owner's own Nuke grouping: weight 1 reproduces 10 of 15
+#: area assignments, 2 gives 13, **3 gives 14**, and 5 and 8 give 14 as well
+#: -- the result stops improving at 3. This is the one of the three that is
+#: fitted against a human division rather than read from geometry alone;
+#: AD-13 permits it, and saying so is part of the record. The 14 was measured
+#: holding out two bridges (Ramp, Vents); the shipped rule holds out three,
+#: and Secret -- the single remaining disagreement -- is the one it adds.
+#:
+#: The ceiling of 20 is a guard rather than a measured crossover: nothing
+#: here establishes where the plan view stops contributing, only that the
+#: answer has not moved since 3.
+MAX_SITE_FLOOR_Z_WEIGHT = 20.0
 
 #: The edge of a point-cloud cell. The bounds are performance and sense, not
 #: a matter of taste. **Lower bound 8**: the nearest-cell search is a cross
@@ -614,6 +656,32 @@ class ThresholdSettings(_Section):
         float,
         Field(gt=0.0, le=MAX_STACK_SITE_SEPARATION, allow_inf_nan=False),
     ] = 2.0
+
+    # A map whose sites sit on different floors (Story 4.3). The separation
+    # guard above measures distance in plan view, which is the wrong axis
+    # there -- so these three decide when height is the axis instead. All
+    # three are MEASURED; the value-by-value rationale is in settings.toml
+    # and in full in kalibrointi-nimetty-kuvio.md.
+    #
+    # The upper bounds are the same shape as MAX_STACK_SITE_SEPARATION: a
+    # value beyond them would not be a calibration but a different rule.
+    site_floor_gap_ratio: Annotated[
+        float, Field(gt=0.0, le=MAX_SITE_FLOOR_GAP_RATIO, allow_inf_nan=False)
+    ] = 0.40
+    # The trim is a threshold in its own right and is here rather than buried
+    # in the function, because the answer turns on it: below 0.02 one of
+    # Nuke's three demos stops counting as stacked and the map would divide
+    # differently across its own demos; at 0.12 Anubis starts counting.
+    # Its bounds are what the measurement supports and nothing wider.
+    site_floor_band_trim: Annotated[
+        float, Field(gt=0.0, le=MAX_SITE_FLOOR_BAND_TRIM, allow_inf_nan=False)
+    ] = 0.05
+    site_floor_z_weight: Annotated[
+        float, Field(ge=1.0, le=MAX_SITE_FLOOR_Z_WEIGHT, allow_inf_nan=False)
+    ] = 3.0
+    site_bridge_void_share: Annotated[
+        float, Field(gt=0.0, le=1.0, allow_inf_nan=False)
+    ] = 0.10
 
     # The anomaly rules (Story 2.5). All six are MEASURED rather than chosen:
     # the rationale value by value is in settings.toml's comments and in full

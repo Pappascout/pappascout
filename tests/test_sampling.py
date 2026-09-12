@@ -15,6 +15,8 @@ import pytest
 
 from conftest import (
     JUST_OVER_SEPARATION_SITE_CLOUD,
+    STACKED_SITE_CLOUD,
+    TRIMMED_STACKED_SITE_CLOUD,
     JUST_UNDER_SEPARATION_SITE_CLOUD,
     OVERLAPPING_SITE_CLOUD,
     SITE_CLOUD,
@@ -922,6 +924,12 @@ MARGIN = ThresholdSettings(pistol_rounds=[1, 13]).stack_group_margin
 SEPARATION_MIN = ThresholdSettings(
     pistol_rounds=[1, 13]
 ).stack_site_separation_min
+#: The stacked-map branch, read from the model's default for the same reason.
+_SHIPPED = ThresholdSettings(pistol_rounds=[1, 13])
+FLOOR_GAP_RATIO = _SHIPPED.site_floor_gap_ratio
+FLOOR_BAND_TRIM = _SHIPPED.site_floor_band_trim
+FLOOR_Z_WEIGHT = _SHIPPED.site_floor_z_weight
+BRIDGE_VOID_SHARE = _SHIPPED.site_bridge_void_share
 STACK_MIN_PLAYERS = 4
 
 
@@ -929,10 +937,17 @@ def cloud(cells=CLOUD) -> list[CloudCell]:
     return [CloudCell(area, x, y, z) for area, x, y, z in cells]
 
 
-def groups(cells=CLOUD) -> dict[str, str] | None:
-    return site_groups(
-        cloud(cells), margin=MARGIN, separation_min=SEPARATION_MIN
-    )
+def groups(cells=CLOUD, **over) -> dict[str, str] | None:
+    kw: dict[str, float] = {
+        "margin": MARGIN,
+        "separation_min": SEPARATION_MIN,
+        "floor_band_trim": FLOOR_BAND_TRIM,
+        "floor_gap_ratio": FLOOR_GAP_RATIO,
+        "floor_z_weight": FLOOR_Z_WEIGHT,
+        "bridge_void_share": BRIDGE_VOID_SHARE,
+    }
+    kw.update(over)
+    return site_groups(cloud(cells), **kw)
 
 
 def stack(
@@ -972,7 +987,15 @@ def test_the_cloud_can_see_the_margin_move() -> None:
     ``Outside`` decorative.
     """
     at_shipped = groups()
-    wider = site_groups(cloud(), margin=MARGIN * 1.2, separation_min=SEPARATION_MIN)
+    wider = site_groups(
+            cloud(),
+            margin=MARGIN * 1.2,
+            separation_min=SEPARATION_MIN,
+            floor_band_trim=FLOOR_BAND_TRIM,
+            floor_gap_ratio=FLOOR_GAP_RATIO,
+            floor_z_weight=FLOOR_Z_WEIGHT,
+            bridge_void_share=BRIDGE_VOID_SHARE,
+        )
     assert at_shipped != wider, (
         f"The cloud groups identically at {MARGIN} and {MARGIN * 1.2}, so no "
         "test in this file can see the margin. Add an area whose ratio falls "
@@ -1068,6 +1091,10 @@ def test_the_clouds_can_see_the_separation_threshold_move() -> None:
             cloud(JUST_UNDER_SEPARATION_SITE_CLOUD),
             margin=MARGIN,
             separation_min=SEPARATION_MIN * 0.8,
+            floor_band_trim=FLOOR_BAND_TRIM,
+            floor_gap_ratio=FLOOR_GAP_RATIO,
+            floor_z_weight=FLOOR_Z_WEIGHT,
+            bridge_void_share=BRIDGE_VOID_SHARE,
         )
         is not None
     ), (
@@ -1082,6 +1109,10 @@ def test_the_clouds_can_see_the_separation_threshold_move() -> None:
             cloud(JUST_OVER_SEPARATION_SITE_CLOUD),
             margin=MARGIN,
             separation_min=SEPARATION_MIN * 1.2,
+            floor_band_trim=FLOOR_BAND_TRIM,
+            floor_gap_ratio=FLOOR_GAP_RATIO,
+            floor_z_weight=FLOOR_Z_WEIGHT,
+            bridge_void_share=BRIDGE_VOID_SHARE,
         )
         is None
     ), (
@@ -1097,6 +1128,10 @@ def test_the_clouds_can_see_the_separation_threshold_move() -> None:
             cloud(JUST_OVER_SEPARATION_SITE_CLOUD),
             margin=MARGIN,
             separation_min=2.25,
+            floor_band_trim=FLOOR_BAND_TRIM,
+            floor_gap_ratio=FLOOR_GAP_RATIO,
+            floor_z_weight=FLOOR_Z_WEIGHT,
+            bridge_void_share=BRIDGE_VOID_SHARE,
         )
         is not None
     ), (
@@ -1105,6 +1140,140 @@ def test_the_clouds_can_see_the_separation_threshold_move() -> None:
         "this is red, that comparison has become ``<=`` and every map sitting "
         "exactly on the threshold now goes quiet."
     )
+
+
+# --- A map whose sites are on different floors (Story 4.3) --------------------
+
+
+def test_a_map_whose_sites_are_on_different_floors_is_not_silenced() -> None:
+    """Height tells the sites apart where plan distance cannot.
+
+    Measured on the archive: Nuke's sites are ten cells apart vertically and
+    on top of each other in plan view, so the separation ratio is 0.47-0.54
+    against a threshold of 2.0 and all three Nuke demos went quiet -- while
+    their cells share no height at all (A -13..-11, B -25..-19). Going quiet
+    was the measure answering the wrong question: **the sites are
+    distinguishable, just not on the axis it looks at.**
+
+    The fixture is that shape a little less extreme, and it is the whole
+    point that it would be silenced without the branch -- the sibling test
+    below proves that half.
+    """
+    found = groups(STACKED_SITE_CLOUD)
+    assert found == {
+        "BombsiteA": "A",
+        "BombsiteB": "B",
+        "House": "A",
+        "Vault": "B",
+        "Balcony": "A",
+    }
+
+
+def test_without_the_floor_branch_the_same_cloud_is_silenced() -> None:
+    """The other half: this cloud fails the plan-view guard.
+
+    Raising ``floor_gap_ratio`` past the cloud's own gap turns the branch off
+    without touching anything else, and the map goes quiet exactly as it did
+    before Story 4.3. If this ever passes, the fixture has stopped being the
+    hard case it was built to be.
+    """
+    assert groups(STACKED_SITE_CLOUD, floor_gap_ratio=1.0) is None
+
+
+def test_a_bridge_between_the_floors_belongs_to_neither_group() -> None:
+    """``Ladder``'s cells all lie in the empty band between the sites.
+
+    A bridge is a way through rather than a place on one side, so a
+    nearest-centre measure would have to put it on one side and both answers
+    would be wrong. Measured on Nuke: ``Ramp`` 40 %, ``Secret`` 31 % and
+    ``Vents`` 21 % of their cells sit in the void, against 3 % or less for
+    every one of the other 26 areas -- and those three are exactly the ones
+    the product owner names as connecting the levels.
+
+    Absent from the mapping, like the shared middle. The two cannot be told
+    apart from outside, and that is stated in :func:`site_groups`'s contract.
+    """
+    found = groups(STACKED_SITE_CLOUD)
+    assert found is not None
+    assert "Ladder" not in found
+    # Not silence and not an empty result: the other five areas are grouped,
+    # so the absence is the bridge rule and nothing else.
+    assert len(found) == 5
+    # And it is absent for the bridge rule rather than for the margin.
+    # ``Ladder`` sits off-centre between the floors, so with the rule removed
+    # it lands in A's group -- measured, and the reason the fixture puts it at
+    # -4 instead of midway. A midway bridge would be left out by the margin
+    # and this assertion would pass with the rule deleted.
+    without = groups(STACKED_SITE_CLOUD, bridge_void_share=1.0)
+    assert without is not None and "Ladder" not in without
+
+
+def test_height_counts_more_on_a_stacked_map() -> None:
+    """The weight changes the ratio, not which site is nearer.
+
+    When the sites differ only in height, both distances grow together and no
+    weight can reverse them -- so the weight does its work through the
+    **margin**. ``Balcony`` is the witness: on A's floor and far out in plan
+    view, its ratio is 1.12 at weight 1 and falls under the margin of 1.25, and
+    1.80 at the shipped weight 3, which clears it.
+
+    Measured against the product owner's own Nuke grouping: weight 1
+    reproduces 10 of 15 area assignments, 2 gives 13, 3 gives 14, and every
+    larger weight also gives 14 -- it stops improving at 3.
+    """
+    assert groups(STACKED_SITE_CLOUD)["Balcony"] == "A"
+    flat = groups(STACKED_SITE_CLOUD, floor_z_weight=1.0)
+    assert flat is not None and "Balcony" not in flat
+
+
+def test_a_flat_map_is_untouched_by_the_floor_branch() -> None:
+    """Everything else must behave exactly as it did.
+
+    Measured over the archive 2026-09-12, hits by demo: Ancient 1, 3 and 3;
+    Anubis 3 and 0; Inferno 0. That is **ten**, which is exactly what the
+    whole archive scored before this change, and the other seventeen -- Nuke
+    12 and 5 -- come from the map that had been blind. The flat maps are
+    untouched to the hit, not merely to the total.
+
+    This is that check in miniature: the shared cloud is flat, so the branch
+    cannot fire whatever the thresholds say. Each of the three is moved to
+    the far end of its range, one at a time.
+    """
+    flat = groups()
+    assert flat == groups(floor_gap_ratio=1.0)
+    assert flat == groups(floor_band_trim=0.02)
+    assert flat == groups(floor_z_weight=20.0)
+    assert flat == groups(bridge_void_share=1.0)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"floor_gap_ratio": 0.0}, "not positive"),
+        ({"floor_gap_ratio": -1.0}, "not positive"),
+        ({"floor_band_trim": 0.0}, "strictly between"),
+        ({"floor_band_trim": 0.5}, "strictly between"),
+        ({"floor_band_trim": -0.1}, "strictly between"),
+        ({"floor_z_weight": 0.9}, "below 1.0"),
+        ({"bridge_void_share": 0.0}, "outside"),
+        ({"bridge_void_share": 1.1}, "outside"),
+        ({"bridge_void_share": -0.1}, "outside"),
+    ],
+)
+def test_the_floor_thresholds_are_refused_when_they_would_break_the_rule(
+    kwargs: dict[str, float], message: str
+) -> None:
+    """Each bound is a hole in the rule, not a just-in-case check.
+
+    A gap of zero makes every map whose bands merely touch count as stacked --
+    Anubis touches at 0 and would qualify, which is the opposite of the gap's
+    purpose. A weight below one would make height count for *less* on the one
+    kind of map where height is the only thing that separates the sites. A
+    share at zero would call any area with one stray cell a bridge and drop it
+    from both groups.
+    """
+    with pytest.raises(ValueError, match=message):
+        groups(STACKED_SITE_CLOUD, **kwargs)
 
 
 def test_the_site_groups_are_read_off_the_demos_own_point_cloud() -> None:
@@ -1341,8 +1510,15 @@ def test_the_group_margin_leaves_the_shared_middle_out() -> None:
     margin of 1.0, because neither site is genuinely nearer.
     """
     near_a = [CloudCell("Corner", 40, 0, 0), *cloud()]
-    loose = site_groups(near_a, margin=1.0, separation_min=SEPARATION_MIN)
-    tight = site_groups(near_a, margin=1.6, separation_min=SEPARATION_MIN)
+    fixed = {
+        "separation_min": SEPARATION_MIN,
+        "floor_band_trim": FLOOR_BAND_TRIM,
+        "floor_gap_ratio": FLOOR_GAP_RATIO,
+        "floor_z_weight": FLOOR_Z_WEIGHT,
+        "bridge_void_share": BRIDGE_VOID_SHARE,
+    }
+    loose = site_groups(near_a, margin=1.0, **fixed)
+    tight = site_groups(near_a, margin=1.6, **fixed)
     assert loose is not None and tight is not None
     assert loose["Corner"] == "A"
     assert "Corner" not in tight
@@ -1352,9 +1528,25 @@ def test_the_group_margin_leaves_the_shared_middle_out() -> None:
 def test_the_stack_thresholds_are_refused_when_they_would_break_the_rule() -> None:
     """Three values that would silently make the rule something else."""
     with pytest.raises(ValueError, match=r"below 1\.0"):
-        site_groups(cloud(), margin=0.9, separation_min=SEPARATION_MIN)
+        site_groups(
+            cloud(),
+            margin=0.9,
+            separation_min=SEPARATION_MIN,
+            floor_band_trim=FLOOR_BAND_TRIM,
+            floor_gap_ratio=FLOOR_GAP_RATIO,
+            floor_z_weight=FLOOR_Z_WEIGHT,
+            bridge_void_share=BRIDGE_VOID_SHARE,
+        )
     with pytest.raises(ValueError, match="is not positive"):
-        site_groups(cloud(), margin=MARGIN, separation_min=0.0)
+        site_groups(
+            cloud(),
+            margin=MARGIN,
+            separation_min=0.0,
+            floor_band_trim=FLOOR_BAND_TRIM,
+            floor_gap_ratio=FLOOR_GAP_RATIO,
+            floor_z_weight=FLOOR_Z_WEIGHT,
+            bridge_void_share=BRIDGE_VOID_SHARE,
+        )
     with pytest.raises(ValueError, match="is not positive"):
         stack_hits([], groups={}, max_sample_s=MAX_SAMPLE_S, min_players=0)
 
@@ -1434,3 +1626,37 @@ def test_a_hit_cannot_carry_a_field_its_rule_did_not_measure() -> None:
             alive=4,
             site="A",
         )
+
+
+def test_a_site_is_never_excluded_as_a_bridge_however_low_the_share() -> None:
+    """``site_groups`` never returns an empty mapping, and this is the hole.
+
+    The bridge rule runs **before** the distance test, so without an explicit
+    carve-out for the two sites it can drop them. A site's own cells reach
+    into the void by the width of the percentile trim -- at the shipped trim
+    of 0.05 that is about five per cent of them -- so any
+    ``bridge_void_share`` under that would read both sites as bridges and
+    return ``{}``.
+
+    ``TRIMMED_STACKED_SITE_CLOUD`` exists for this test and not the smaller
+    cloud: with three cells a side the percentile **is** the minimum and the
+    maximum, nothing is trimmed, and no site cell can be in the void at all.
+    Against that cloud this test passes whether or not the carve-out exists.
+    Measured on the forty-cell one, A's own void share is 0.05 and B's 0.025,
+    and 0.02 is a legal setting -- the model asks only for ``gt=0.0``. So the
+    exclusion is by identity and not by a threshold that happens to clear it.
+
+    **Empty is worse than silent**, and that is why this is a test and not a
+    comment. Two layers up, ``None`` is recorded as a blind spot in
+    ``demos_without_site_groups`` while ``{}`` means "the division exists and
+    nobody is on either side of it" -- a scanned round with no hits. A site
+    lost here would be counted as evidence of absence.
+    """
+    for share in (0.02, 0.01, 0.001):
+        result = groups(TRIMMED_STACKED_SITE_CLOUD, bridge_void_share=share)
+        assert result is not None, f"share {share} silenced the map"
+        assert result != {}, f"share {share} emptied the mapping"
+        assert result["BombsiteA"] == "A"
+        assert result["BombsiteB"] == "B"
+        # The bridge is still excluded: the carve-out is for sites only.
+        assert "Ladder" not in result
