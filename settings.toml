@@ -545,7 +545,27 @@ small_sample_rounds = 3
 #
 # LUVUT PÄIVITETTY 2026-09-12 (Story 4.3). Nuke ei enää vaikene, joten koko
 # arkisto on tutkittu: 27 osumaa 23 kierroksella, 93 tutkittua CT-kierrosta
-# 93:sta. Aiemmin tässä luki 10 osumaa 9 kierroksella ja 66 tutkittua -- ne
+# 93:sta.
+#
+# VARAUS, MITATTU SAMANA PÄIVÄNÄ: Nuken 17 osumaa ovat YLÄRAJA eivätkä arvio.
+# Mitattu, missä osumien pelaajat oikeasti seisovat: suurin yksittäinen alue
+# on Outside (44 havaintoa) ja kolmanneksi suurin Lobby (16) -- ne kaksi,
+# jotka tuotteen omistaja nimeää "ei A eikä B" (piha ja lobby). Osalla
+# kierroksista viisi pelaajaa on viidessä eri alueessa, ja geometria lukee
+# neljä niistä samaan ryhmään. Marginaalin nosto 1,25 -> 1,5 pudottaisi
+# arkiston 27 osumasta 15, ja niistä 13 on Nukea -- eli Nuke on tälle
+# kynnykselle selvästi herkempi kuin muut kartat.
+#
+# Marginaalia EI silti nosteta: 1,5 on mitattu ylituottavan midiä muilla
+# kartoilla, ja stackin oma kalibrointi (sama aluejako Ancientilla kaikista
+# kolmesta demosta) on tehty arvolla 1,25. Ratkaisu on nimetä ne alueet, ei
+# löysentää kynnystä. Kysymys on tuotepäätös -- onko neljä pelaajaa pihalla
+# stack vai ei -- ja se on tuotteen omistajalla sokkolistana
+# (sokkolista-stack-2026-09-12.md). Kunnes hän vastaa, luvut jäävät ennalleen
+# ja tämä varaus on osa niitä.
+#
+# Kerrosjako oli silti oikea muutos: sokea piste on huonompi kuin liian
+# antelias osuma, koska sokeaa pistettä ei voi korjata jälkikäteen. Aiemmin tässä luki 10 osumaa 9 kierroksella ja 66 tutkittua -- ne
 # olivat oikein silloin kun Nuken 27 kierrosta olivat sokea piste.
 # Aikaraja on YHTEINEN advance_max_sample_s:n kanssa eikä oma kynnys.
 #
