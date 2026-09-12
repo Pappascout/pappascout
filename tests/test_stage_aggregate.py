@@ -812,7 +812,13 @@ def test_every_setting_the_stage_reads_is_in_the_params_hash() -> None:
     )
     ignore = {"model_dump"}
     read = set(re.findall(THRESHOLD_READ, source)) - ignore
-    assert read <= set(aggregate_stage.HASHED_THRESHOLD_KEYS), read
+    # Equality, not a subset. A hashed-but-unread key would re-aggregate every
+    # report for a value the stage never looks at -- "the same work done
+    # twice", which HASHED_THRESHOLD_KEYS's own docstring names as the cost --
+    # and the completeness guard would then force a runtime case for it that
+    # passes vacuously, blessing the stale key. Measured 2026-09-12: the two
+    # sets are equal, 11 and 11.
+    assert read == set(aggregate_stage.HASHED_THRESHOLD_KEYS), read
     league_read = set(re.findall(LEAGUE_READ, source)) - ignore
     assert league_read <= set(aggregate_stage.HASHED_LEAGUE_KEYS), league_read
 
@@ -2161,7 +2167,7 @@ def test_a_demo_without_the_callouts_table_is_reported_missing(
 #: source directions) and the validator forbids more source directions than
 #: players, so its only way up raises ``crunch_min_players`` as well. That is
 #: said out loud here, so that a missing key does not look like an oversight.
-ANOMALY_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
+HASHED_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
     ("advance_t_share", {"advance_t_share": 0.9}),
     ("advance_area_min_observations", {"advance_area_min_observations": 40}),
     ("advance_max_sample_s", {"advance_max_sample_s": 15.0}),
@@ -2177,15 +2183,24 @@ ANOMALY_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
     ("stack_min_players", {"stack_min_players": 5}),
     ("stack_group_margin", {"stack_group_margin": 1.5}),
     ("stack_site_separation_min", {"stack_site_separation_min": 3.0}),
+    # The two that are not anomaly rules. They were exempt from the
+    # completeness guard below until 2026-09-12 -- **because of how they are
+    # named** -- and that is why this table is keyed on what is hashed rather
+    # than on what is an anomaly. Both reach the report: ``small_sample_rounds``
+    # marks every anomaly line and prunes rows in ``pattern_only`` mode, and
+    # ``team_identity_min_common`` decides which matches count as the same
+    # roster at all.
+    ("small_sample_rounds", {"small_sample_rounds": 5}),
+    ("team_identity_min_common", {"team_identity_min_common": 4}),
 )
 
 
 @pytest.mark.parametrize(
     "key,overrides",
-    ANOMALY_THRESHOLD_CHANGES,
-    ids=[name for name, _ in ANOMALY_THRESHOLD_CHANGES],
+    HASHED_THRESHOLD_CHANGES,
+    ids=[name for name, _ in HASHED_THRESHOLD_CHANGES],
 )
-def test_every_anomaly_threshold_changes_the_params_hash(
+def test_every_hashed_threshold_changes_the_params_hash(
     tmp_path: Path, key: str, overrides: dict[str, object]
 ) -> None:
     """Without this, adjusting a threshold would not re-run the aggregation.
@@ -2196,8 +2211,23 @@ def test_every_anomaly_threshold_changes_the_params_hash(
     **This is a runtime guard**, unlike
     :func:`test_every_setting_the_stage_reads_is_in_the_params_hash`, which
     reads the fields that are read from the source text with a regex and does
-    not run the hash at all. A threshold's effect on **the report's content**
-    is proved separately in ``test_aggregate.py``'s anomaly block.
+    not run the hash at all.
+
+    **What it proves is the hash, not the report.** The chain it exercises is
+    ``run`` -> ``_params_hash`` -> the manifest, and a case passes as soon as
+    the key is in :data:`~pappascout.stages.aggregate.HASHED_THRESHOLD_KEYS`
+    and the value differs. Whether the threshold changes what the report
+    *says* is a separate question, proved elsewhere per threshold -- and that
+    delegation is not uniformly honoured. As of 2026-09-12 it holds for
+    ``small_sample_rounds`` (``test_aggregate.py::test_the_small_sample_
+    threshold_decides_the_mark_both_ways``, which reads the shipped default),
+    and it does **not** hold for ``team_identity_min_common``: the name does
+    not appear in ``test_aggregate.py`` at all, and the three tests of its
+    rule pass the literal ``3`` by hand, so **no test of the rule** reads the
+    shipped value. (``tests/test_stage_discover.py`` builds its fixture from
+    the defaults, so the value is exercised somewhere -- but not by anything
+    asserting on what the threshold decides.) That gap is recorded in ``deferred-work.md``; it is not closed
+    by this guard and this guard does not claim to close it.
     """
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
@@ -2212,18 +2242,74 @@ def test_every_anomaly_threshold_changes_the_params_hash(
     assert Manifest.read(archive.report_manifest(TEAM)).params_hash != before
 
 
-def test_every_hashed_anomaly_threshold_has_a_runtime_case() -> None:
+def test_every_hashed_threshold_has_a_runtime_case() -> None:
     """The list must not go stale silently.
 
-    The hashed keys and this file's runtime cases have to cover the same
-    anomaly thresholds. Without this a new threshold could end up in the hash
-    with not one run proving that it has an effect -- that is, exactly the
-    state the review found ``crunch_min_sources`` in.
+    The hashed keys and this file's runtime cases have to cover **the same
+    set**. Without this a new threshold could end up in the hash with not one
+    run proving that it has an effect -- that is, exactly the state the review
+    found ``crunch_min_sources`` in.
+
+    **The denominator is every hashed key, and it used to be a name prefix.**
+    Until 2026-09-12 it read
+    ``if key.startswith(("advance_", "crunch_", "stack_"))``, which exempted
+    ``small_sample_rounds`` and ``team_identity_min_common`` from the rule by
+    spelling: eleven keys were hashed and nine were checked. The guard read as
+    complete and was not -- the vice the spine names on the layer table, where
+    an incomplete list is worse than none because it looks finished.
+    ``small_sample_rounds`` is the one that was invisible **because of** the
+    prefix; the two stack thresholds fixed in ``0e627e2`` and ``14cc738`` were
+    inside it all along and had runtime cases -- their blind spot was
+    behavioural coverage, which is a different guard.
     """
-    hashed = {
-        key
-        for key in aggregate_stage.HASHED_THRESHOLD_KEYS
-        if key.startswith(("advance_", "crunch_", "stack_"))
-    }
-    covered = {name for name, _ in ANOMALY_THRESHOLD_CHANGES}
-    assert hashed == covered
+    hashed = set(aggregate_stage.HASHED_THRESHOLD_KEYS)
+    covered = {name for name, _ in HASHED_THRESHOLD_CHANGES}
+    assert hashed == covered, (
+        "Every hashed threshold needs a runtime case. Missing: "
+        f"{sorted(hashed - covered)}; extra: {sorted(covered - hashed)}."
+    )
+
+
+def test_no_runtime_case_uses_the_shipped_value_as_its_probe() -> None:
+    """An override equal to the default proves nothing and fails confusingly.
+
+    Each case above changes a threshold and asserts the params hash moves. If
+    an override ever equals the shipped default, the hash cannot move and the
+    test goes red with a message about hashing -- pointing at the stage rather
+    than at the stale probe. Measured 2026-09-11: setting the shipped
+    ``stack_group_margin`` to 1.5 did exactly that, because the table's probe
+    for it is the literal 1.5.
+
+    So the table's numbers are not free: they must stay away from the shipped
+    defaults. It compares against the **model** defaults, which
+    ``test_settings.py::test_threshold_defaults_match_the_settings_file`` pins
+    to ``settings.toml`` -- that lock is what makes this a statement about the
+    shipped configuration rather than about the model alone.
+
+    **The unit is the case's own key, not the override dict.** Two rules were
+    tried and measured against the one two-key case, ``crunch_min_sources``,
+    whose override carries a companion only to satisfy the validator:
+
+    * key-by-key flags ``crunch_min_sources`` whenever its *companion*
+      collides, sending the reader to change a number that is not the problem;
+    * every-key (``all``) misses the real collision, because the companion
+      differing hides it. Measured with defaults ``crunch_min_players=4,
+      crunch_min_sources=3`` (valid), the case probes with the shipped 3 and
+      nothing goes red.
+
+    Checking ``overrides[name]`` alone gets both right, and it is the honest
+    statement: the case claims to probe **that** threshold, so that is the
+    value which must differ. A ``KeyError`` here means a case whose override
+    does not contain its own key, which is a broken case.
+    """
+    shipped = thresholds()
+    collisions = sorted(
+        name
+        for name, overrides in HASHED_THRESHOLD_CHANGES
+        if getattr(shipped, name) == overrides[name]
+    )
+    assert collisions == [], (
+        "These runtime cases probe with values the model already ships, so "
+        f"their params hash cannot move: {collisions}. Pick a different "
+        "probe."
+    )
