@@ -1456,21 +1456,39 @@ def test_an_unclassified_round_is_counted_but_not_placed() -> None:
 
 
 def test_a_small_sample_is_marked_but_still_reported() -> None:
-    limits = thresholds(small_sample_rounds=3)
+    """The threshold is read from the shipped default, not passed in.
+
+    This is the round-type path (``RoundTypeReport.small_sample``), the
+    sibling of the anomaly path below. Both were blind to the setting until
+    2026-09-12.
+    """
     report = report_for(
         [classified_row("Nuke_vs_a", n, round_type="eco") for n in (1, 2)],
-        limits=limits,
+        limits=thresholds(),
     )
     assert branch(report, "de_nuke", "T", "eco").small_sample is True
 
 
 def test_a_sample_at_or_above_the_threshold_is_not_marked_small() -> None:
-    limits = thresholds(small_sample_rounds=3)
+    """Two sizes at and above the threshold, and the second one is why.
+
+    At the threshold alone, ``rounds < threshold`` and ``rounds != threshold``
+    agree, so a mutation from one to the other survives. Measured
+    2026-09-12: ``<`` -> ``!=`` passed all 968 tests in the targeted set. The
+    four-round case is what separates them -- under ``!=`` it would be marked
+    small, which is the flag's meaning inverted on every well-sampled branch
+    in a regulation match.
+    """
     report = report_for(
         [classified_row("Nuke_vs_a", n, round_type="eco") for n in (1, 2, 3)],
-        limits=limits,
+        limits=thresholds(),
     )
     assert branch(report, "de_nuke", "T", "eco").small_sample is False
+    above = report_for(
+        [classified_row("Nuke_vs_a", n, round_type="eco") for n in (1, 2, 3, 4)],
+        limits=thresholds(),
+    )
+    assert branch(above, "de_nuke", "T", "eco").small_sample is False
 
 
 def test_the_sample_check_holds_across_every_area_of_a_real_shaped_branch() -> None:
@@ -2797,24 +2815,61 @@ def test_the_small_sample_threshold_decides_the_mark_both_ways() -> None:
     The mutation ``m <`` -> ``m <=`` would mark every three-round branch's
     anomaly as a small sample, and a one-directional claim would not notice
     it.
+
+    **The threshold is read from the shipped default and not passed in.**
+    Measured 2026-09-12: with ``small_sample_rounds=3`` written into both
+    branches, this test could not see the setting at all -- the value could be
+    moved anywhere from 1 to 10 and **not one behavioural test in the tree
+    went red**, fast suite or archive. The only two that reacted were the
+    value lock and a test asserting the number is echoed into
+    ``thresholds_used``, neither of which is behaviour.
+
+    That matters more here than for the geometry thresholds, and for two
+    reasons rather than one. The flag becomes the ``pieni otanta`` note on
+    **every** anomaly line and drives the reading guide's paragraph about it:
+    at 1 nothing is ever marked and a one-round observation reads to a team as
+    an established pattern; at 10 everything is marked and genuine patterns
+    are discounted. **And in ``pattern_only`` mode the same number is a
+    pruning threshold** (``render.view.pattern_min_rounds`` /
+    ``block_min_rounds``): rows below it are dropped from the report
+    altogether, not merely footnoted. So a wrong value does not just change
+    how a human weighs a line -- it decides whether the line is there.
+
+    Reading the default makes the branches straddle the shipped value: two
+    rounds below it and three at it. Move the setting either way and one of
+    the four assertions below goes red. The default itself is pinned to
+    ``settings.toml`` by
+    ``test_settings.py::test_threshold_defaults_match_the_settings_file``, so
+    the chain from the shipped file to this behaviour is closed.
     """
     demo = "Ancient_vs_x"
     small = anomaly_report(
         eco_ct(demo, 1, 2),
         advance_round(demo, 1),
         demo=demo,
-        limits=thresholds(small_sample_rounds=3),
+        limits=thresholds(),
     )
     big = anomaly_report(
         eco_ct(demo, 1, 2, 3),
         advance_round(demo, 1),
         demo=demo,
-        limits=thresholds(small_sample_rounds=3),
+        limits=thresholds(),
+    )
+    above = anomaly_report(
+        eco_ct(demo, 1, 2, 3, 4),
+        advance_round(demo, 1),
+        demo=demo,
+        limits=thresholds(),
     )
     assert small.anomalies[0].small_sample is True
     assert small.anomalies[0].m == 2
     assert big.anomalies[0].small_sample is False
     assert big.anomalies[0].m == 3
+    # Four rounds, not three: at the threshold alone ``m < threshold`` and
+    # ``m != threshold`` agree, so a mutation between them survives. Measured
+    # 2026-09-12, ``<`` -> ``!=`` passed all 968 tests in the targeted set.
+    assert above.anomalies[0].small_sample is False
+    assert above.anomalies[0].m == 4
 
 
 # --- Grouping and coverage ------------------------------------------------------
