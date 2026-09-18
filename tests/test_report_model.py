@@ -49,7 +49,7 @@ from pappascout.domain.report import (
     UtilityCounts,
     UtilityUse,
 )
-from pappascout.constants import ROSTER_BUCKETS
+from pappascout.constants import ROSTER_BUCKETS, SITE_AREAS
 from pappascout.errors import AggregateError
 
 
@@ -1480,6 +1480,13 @@ def test_the_two_player_distributions_use_different_field_names() -> None:
     assert armored["counts"][0] == {"armored": 5, "n": 1}
 
 
+#: The schema version under which a report **in the shape the test below
+#: builds** was last written. Story 4.4 required ``AnomalyPoint.areas`` on
+#: stack rows, so that shape is 9.0.0's and no longer validates; the constant
+#: is here rather than inline so that the assertion reads as the rule it is.
+LAST_SCHEMA_VERSION_THAT_WROTE_IT = "9.0.0"
+
+
 def test_the_schema_version_says_the_structure_changed() -> None:
     """An old report does not validate = the version rises.
 
@@ -1504,8 +1511,45 @@ def test_the_schema_version_says_the_structure_changed() -> None:
     ``stack``, so a **new** file is not valid for the old model -- and an old
     file would be valid, but its coverage would name stack as not implemented
     and stay silent about how many rounds it can hit.
+
+    **The test pins the rule and not the number.** Until Story 4.4 it asserted
+    ``== "9.0.0"``, which is the guard inverted: it went red exactly when
+    somebody did the right thing and green while the model rejected the
+    archive's own files under an unchanged version. What is asserted now is
+    the condition itself -- a file in the previous schema's shape does not
+    validate, therefore the constant cannot still be that schema's version.
     """
-    assert REPORT_SCHEMA_VERSION == "9.0.0"
+    # A report in the 9.0.0 shape: everything as it is written today, except
+    # that a stack row carries no ``areas``. That is precisely the difference
+    # Story 4.4 made, and the archive's own report.json files die on it.
+    current = _report_with_anomalies([_stack()])
+    old_shaped = current.model_dump(mode="json")
+    for entry in old_shaped["anomalies"]:
+        for round_entry in entry["rounds"]:
+            for point in round_entry["points"]:
+                point.pop("areas", None)
+
+    try:
+        Report.model_validate(old_shaped)
+    except ValidationError:
+        validates = False
+    else:
+        validates = True
+
+    assert not validates, (
+        "A report in the 9.0.0 shape validates against this model. Then "
+        "either the model no longer requires the stack's areas, or this "
+        "test's idea of the old shape is stale -- and the version rule "
+        "cannot be checked from here until one of the two is put right."
+    )
+    assert REPORT_SCHEMA_VERSION != LAST_SCHEMA_VERSION_THAT_WROTE_IT, (
+        "A file written under schema "
+        f"{LAST_SCHEMA_VERSION_THAT_WROTE_IT} no longer validates, so "
+        "REPORT_SCHEMA_VERSION has to have moved past it. Left unchanged, "
+        "the version gate in stages/render.py lets the old file through and "
+        "render dies on a pydantic error instead of saying that aggregation "
+        "has to be run again."
+    )
 
 
 def test_the_map_name_source_covers_all_three_sources() -> None:
@@ -1602,9 +1646,17 @@ def test_too_many_covered_rounds_is_refused_too() -> None:
 # --- Anomalies (Story 2.5) ------------------------------------------------------
 
 
-def _point(seconds: float = 30.0, players: int = 2, alive=None) -> AnomalyPoint:
-    """One sample point with its observation."""
-    return AnomalyPoint(sample_t_s=seconds, players=players, alive=alive)
+def _point(
+    seconds: float = 30.0, players: int = 2, alive=None, areas=()
+) -> AnomalyPoint:
+    """One sample point with its observation.
+
+    ``areas`` is the stack's own field (Story 4.4) and empty on the two other
+    rules, exactly as ``alive`` is.
+    """
+    return AnomalyPoint(
+        sample_t_s=seconds, players=players, alive=alive, areas=list(areas)
+    )
 
 
 def _round(**overrides) -> AnomalyRound:
@@ -1616,11 +1668,12 @@ def _round(**overrides) -> AnomalyRound:
     seconds = overrides.pop("seconds", [30.0])
     players = overrides.pop("players", 2)
     alive = overrides.pop("alive", None)
+    areas = overrides.pop("areas", ())
     values: dict[str, object] = {
         "map_demo_id": "demo",
         "round_no": 18,
         "round_type": "eco",
-        "points": [_point(value, players, alive) for value in seconds],
+        "points": [_point(value, players, alive, areas) for value in seconds],
     }
     values.update(overrides)
     return AnomalyRound(**values)
@@ -1749,7 +1802,7 @@ def test_two_sample_points_keep_their_own_player_counts() -> None:
 
 
 def test_a_point_cannot_have_more_players_than_are_alive() -> None:
-    """Those in the group are a subset of those alive."""
+    """The crowd on the named areas is a subset of those alive."""
     with pytest.raises(ValidationError, match="subset of those alive"):
         _point(15.0, players=5, alive=4)
 
@@ -1765,32 +1818,92 @@ def test_the_alive_count_is_on_every_point_or_none() -> None:
         )
 
 
+def test_the_crowds_areas_are_on_every_point_or_none() -> None:
+    """The same all-or-none rule on the areas, and for the same reason.
+
+    The round's own area list is the union over its points, so a half-filled
+    row would present an observation of part of the round as one of the whole.
+    """
+    with pytest.raises(ValidationError, match="on all of them or on none"):
+        AnomalyRound(
+            map_demo_id="demo",
+            round_no=4,
+            round_type="eco",
+            points=[
+                _point(15.0, 4, 5, ("BombsiteB",)),
+                _point(30.0, 4, 5),
+            ],
+        )
+
+
 def _stack(**overrides) -> Anomaly:
-    """A stack row: site group and alive required, orientation forbidden."""
+    """A stack row: site group, alive and the crowd's areas required.
+
+    The defaults are the archive's Anubis round 4 in shape: four of five on
+    two areas of the B group, and the row's area is the one that held most of
+    them -- not the group's own site.
+    """
     values: dict[str, object] = {
         "rule": "stack",
-        "area": "BombsiteB",
+        "area": "BackofB",
         "site": "B",
         "orientation": [],
-        "rounds": [_round(round_no=13, seconds=[15.0], players=4, alive=5)],
+        "rounds": [
+            _round(
+                round_no=13,
+                seconds=[15.0],
+                players=4,
+                alive=5,
+                areas=("BackofB", "BombsiteB"),
+            )
+        ],
         "players_max": 4,
     }
     values.update(overrides)
     return _anomaly(**values)
 
 
-def test_a_stack_carries_its_site_group_and_survivors() -> None:
-    """Three fields that separate stack from the two other rules."""
+def test_a_stack_carries_its_site_group_survivors_and_areas() -> None:
+    """Four fields that separate stack from the two other rules."""
     stack = _stack()
-    assert (stack.site, stack.area) == ("B", "BombsiteB")
+    assert (stack.site, stack.area) == ("B", "BackofB")
     assert stack.rounds[0].points[0].alive == 5
+    assert stack.rounds[0].areas == ["BackofB", "BombsiteB"]
     assert stack.orientation == []
 
 
-def test_a_stack_whose_site_and_area_disagree_is_refused() -> None:
-    """The field is in the structure only so the reader need not infer it."""
-    with pytest.raises(ValidationError, match="disagree: the group's own area"):
-        _stack(site="A")
+def test_a_stack_whose_area_is_not_among_its_own_areas_is_refused() -> None:
+    """The row's area is the one the crowd stood on, so it is in the evidence.
+
+    Since Story 4.4 the area no longer follows from the group -- it is the
+    crowd's own -- so the old equality ``SITE_AREAS[site] == area`` is gone.
+    What replaces it is membership: a summary row cannot name a place its
+    rounds did not see.
+    """
+    with pytest.raises(ValidationError, match="is not among the areas"):
+        _stack(area="Ramp")
+
+
+def test_a_stack_standing_on_the_other_groups_site_is_refused() -> None:
+    """A site's own area is always in its own group, so this contradicts.
+
+    The area -> group mapping is derived per demo and is not in the report, so
+    this is the part of "the area belongs to the group" that the model can
+    see: ``BombsiteA`` cannot be in the B group on any map.
+    """
+    with pytest.raises(ValidationError, match="the other group's own site"):
+        _stack(
+            area="BackofB",
+            rounds=[
+                _round(
+                    round_no=13,
+                    seconds=[15.0],
+                    players=4,
+                    alive=5,
+                    areas=("BackofB", "BombsiteA"),
+                )
+            ],
+        )
 
 
 def test_a_stack_without_a_site_group_is_refused() -> None:
@@ -1799,10 +1912,28 @@ def test_a_stack_without_a_site_group_is_refused() -> None:
         _stack(site=None)
 
 
+def test_a_stack_without_the_crowds_areas_is_refused() -> None:
+    """A concentration without its areas reports a crowd from nowhere."""
+    with pytest.raises(ValidationError, match="do not say which areas"):
+        _stack(
+            area="BombsiteB",
+            rounds=[_round(round_no=13, seconds=[15.0], players=4, alive=5)],
+        )
+
+
 def test_a_stack_without_the_alive_count_is_refused() -> None:
     """Four out of five and four out of four are a different observation."""
     with pytest.raises(ValidationError, match="how many players were alive"):
-        _stack(rounds=[_round(round_no=13, seconds=[15.0], players=4)])
+        _stack(
+            rounds=[
+                _round(
+                    round_no=13,
+                    seconds=[15.0],
+                    players=4,
+                    areas=("BackofB", "BombsiteB"),
+                )
+            ]
+        )
 
 
 def test_a_stack_that_carries_orientation_is_refused() -> None:
@@ -1827,6 +1958,17 @@ def test_an_orientation_rule_cannot_carry_the_alive_count() -> None:
     """Neither orientation rule counts the living."""
     with pytest.raises(ValidationError, match="the number of the living"):
         _anomaly(rounds=[_round(alive=5)])
+
+
+def test_an_orientation_rule_cannot_carry_the_crowds_areas() -> None:
+    """Only stack measures a concentration, so only stack names its areas.
+
+    The guard is in both directions for the same reason as the others: the
+    report's reader sees a field's value and not its source, so a list here
+    would look measured although the rule never asked where the crowd stood.
+    """
+    with pytest.raises(ValidationError, match="names the areas the crowd"):
+        _anomaly(rounds=[_round(areas=("TSideLower", "Ramp"))])
 
 
 def test_a_crunch_without_source_areas_is_refused() -> None:
@@ -2113,6 +2255,48 @@ def test_the_same_area_on_two_rules_is_not_a_duplicate() -> None:
     """The rule is part of the key: advance and crunch are different rows."""
     report = _report_with_anomalies([_anomaly(), _crunch()])
     assert len(report.anomalies) == 2
+
+
+def test_the_same_area_in_two_site_groups_is_not_a_duplicate() -> None:
+    """The group is part of a stack's key since Story 4.4.
+
+    The row's area is the crowd's own now, and a map's two demos can read the
+    same area into different groups -- measured, Anubis's ``Middle`` does.
+    Those are two observations, and merging them would give one row a group
+    that half of its rounds were not in.
+    """
+    report = _report_with_anomalies(
+        [
+            _stack(area="Middle", site="A", rounds=[_stack_round("A")]),
+            _stack(area="Middle", site="B", rounds=[_stack_round("B")]),
+        ]
+    )
+    assert [(a.area, a.site) for a in report.anomalies] == [
+        ("Middle", "A"),
+        ("Middle", "B"),
+    ]
+
+
+def test_the_same_area_in_the_same_group_is_still_a_duplicate() -> None:
+    """The group widens the key; it does not switch the guard off."""
+    with pytest.raises(AggregateError, match="same anomaly is in the section twice"):
+        _report_with_anomalies(
+            [
+                _stack(area="Middle", site="A", rounds=[_stack_round("A")]),
+                _stack(area="Middle", site="A", rounds=[_stack_round("A")], m=4),
+            ]
+        )
+
+
+def _stack_round(group: str) -> AnomalyRound:
+    """One stack round whose crowd stands on ``Middle`` and the group's site."""
+    return _round(
+        round_no=13 if group == "A" else 14,
+        seconds=[15.0],
+        players=4,
+        alive=5,
+        areas=("Middle", SITE_AREAS[group]),
+    )
 
 
 def test_the_same_area_on_two_round_types_is_not_a_duplicate() -> None:

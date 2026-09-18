@@ -39,7 +39,7 @@ from pydantic import (
 from pydantic import ValidationError as _ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from pappascout.constants import seconds_label
+from pappascout.constants import is_sample_point, seconds_label
 from pappascout.errors import SettingsError
 
 __all__ = [
@@ -185,6 +185,15 @@ MajorityShare = Annotated[float, Field(gt=0.5, le=1.0, allow_inf_nan=False)]
 #: bound of 115.0 would let through a value that looks like a bound but
 #: bounds nothing; 60.0 lets through every sensible choice of sample point
 #: and stops the typing error ``300``.
+#:
+#: **Two consumers since Story 4.4, and their failure modes are opposite.**
+#: ``advance_max_sample_s`` is a ceiling, and a value above the sample points
+#: bounds nothing; ``stack_sample_s`` **is** a sample point, and a value that
+#: is not one of them selects nothing -- the rule then reads no row at all,
+#: at 61 s as at 16 s. This constant cannot see that difference, which is why
+#: the stack's value is also checked against ``[parse].snapshot_seconds`` in
+#: :meth:`Settings._check_sections_agree`. The shared ceiling is kept for the
+#: typing error alone.
 MAX_ADVANCE_SAMPLE_SECONDS = 60.0
 
 #: The upper bound on the stack rule's group margin.
@@ -577,7 +586,10 @@ class ThresholdSettings(_Section):
     ``stack_min_players`` sat unused until Story 2.14: the stack rule became
     possible once the missing piece -- a mapping area -> area group -- could
     be derived from the demo's own point cloud, and the rule reads the
-    threshold now.
+    threshold now. Story 4.4 added ``stack_max_areas`` and ``stack_sample_s``
+    beside it: measured against 43 of the product owner's own judgements,
+    both bounded from both sides by them, and together they are what tells a
+    crowd from a defence spread across half the map.
 
     The sums of money are dollars **per player**, except
     ``normal_buy_money_min``, which is **one player's** own balance and not
@@ -640,6 +652,39 @@ class ThresholdSettings(_Section):
     # this kind: a cell index is not a coordinate, it has to be multiplied by
     # the cell size first.
     stack_min_players: PositiveInt = 4
+    # The concentration bound and the setup point (Story 4.4). Both are
+    # MEASURED against the product owner's own 43 judgements, and both are
+    # bounded FROM BOTH SIDES by them; the measurement is
+    # stack-saanto-mitattu-2026-09-18.md and the figures are in
+    # settings.toml's comments.
+    #
+    # stack_max_areas is what makes the rule a stack rule: without it the
+    # question is "how many are in the group", and a group is half the map.
+    #
+    # TWO POPULATIONS, AND EVERY FIGURE NAMES ITS OWN. Over all 43 judged
+    # rounds: at 1 area the condition finds 3 of his 8 stack-like rounds, at 2
+    # all 8 and none of his 33 "not a stack" rounds, at 3 it fires on 9 of
+    # them. Eleven of the 43 are the opponent's CT rounds, which this rule
+    # cannot scan; inside its own scope (the subject's 93 CT rounds) the
+    # judgements are 4 stacks, 2 named pushes and 26 "not a stack", and the
+    # shipped value finds 4 of the 4 and fires on 0 of the 26. At 3 areas it
+    # adds 8 of those 26.
+    stack_max_areas: PositiveInt = 2
+    # The setup point is ONE moment and not a bound: a setup IS a moment,
+    # while the other two rules ask about movement and therefore have only a
+    # ceiling (advance_max_sample_s). At 6 s this would measure the walk out
+    # of spawn (the rule fires on 34 rounds of 93 instead of 5), at 30 s the
+    # reaction to the round.
+    #
+    # THE RANGE BELOW IS NOT THE REAL CONDITION. The value has to BE one of
+    # [parse].snapshot_seconds: 16.0 is inside every bound here and still
+    # selects no row on any round, and the coverage would go on reporting
+    # 93/93 scanned. That is checked in Settings._check_sections_agree,
+    # because neither section can see it alone -- this one does not know the
+    # sample points and [parse] does not know the rule.
+    stack_sample_s: Annotated[
+        float, Field(gt=0.0, le=MAX_ADVANCE_SAMPLE_SECONDS, allow_inf_nan=False)
+    ] = 15.0
     # The lower bound 1.0 is a definition and not a dial: the margin says how
     # much further away the other site has to be before an area is counted
     # into the nearer one's group, and below 1 the "nearer" site could be the
@@ -731,9 +776,10 @@ class ThresholdSettings(_Section):
             "crunch_min_players",
             # Stack is the only threshold measured RIGHT UP TO the upper
             # bound: four is calibrated and five is a genuine extreme
-            # (2 rounds out of 66), so five is a valid value and the guard
-            # must not reject it. Six defenders, on the other hand, is an
-            # impossible observation.
+            # (2 rounds of the archive's 93 -- the figure was 2 of 66 while
+            # Nuke was silenced, before Story 4.3), so five is a valid value
+            # and the guard must not reject it. Six defenders, on the other
+            # hand, is an impossible observation.
             "stack_min_players",
         ):
             value = getattr(self, name)
@@ -743,6 +789,20 @@ class ThresholdSettings(_Section):
                     f"on the server ({on_server}), so the condition cannot be "
                     "met on any round and the rule could never fire."
                 )
+        # stack_max_areas is checked against the same number but in the
+        # OPPOSITE direction, so it is not on the list above: the bound is a
+        # ceiling, and a ceiling above the number of players never binds. Five
+        # players can stand on five areas at most, so from six upwards the
+        # rule would be the one Story 4.4 replaced -- "four somewhere in half
+        # the map" -- under the name of the new one.
+        if self.stack_max_areas > on_server:
+            raise ValueError(
+                f"stack_max_areas ({self.stack_max_areas}) is greater than the "
+                f"number of players on the server ({on_server}), so the "
+                "concentration bound could never exclude a single round. The "
+                "rule would report every group of four as a stack, which is "
+                "precisely the definition Story 4.4 measured as wrong."
+            )
         if self.force_buy_min >= self.full_equip_min:
             raise ValueError(
                 f"force_buy_min ({self.force_buy_min}) must be smaller than "
@@ -1235,10 +1295,13 @@ class Settings(BaseSettings):
         # and without the check either class would vanish silently.
         # The anomaly time bound selects among the SAMPLE POINTS, which
         # [parse] decides. A bound smaller than the earliest sample point
-        # silences all three anomaly rules permanently -- and the report would
+        # silences both orientation rules permanently -- and the report would
         # then claim "no anomalies" as an observation although not one sample
         # point was ever examined. Neither section can check this alone, so
         # the check is here.
+        #
+        # The stack is NOT among them since Story 4.4: it reads one sample
+        # point of its own (stack_sample_s) and this bound does not touch it.
         earliest_sample = min(self.parse.snapshot_seconds)
         if self.thresholds.advance_max_sample_s < earliest_sample:
             raise ValueError(
@@ -1246,10 +1309,39 @@ class Settings(BaseSettings):
                 f"({self.thresholds.advance_max_sample_s:g} s) is smaller "
                 f"than the earliest parse.snapshot_seconds "
                 f"({earliest_sample:g} s), so not one sample point fits "
-                "inside the anomaly rules' time bound.\n"
-                "All three rules would fall silent permanently, and the "
-                "report's anomaly count would claim 'no anomalies' as an "
-                "observation -- although nothing was examined."
+                "inside the orientation rules' time bound.\n"
+                "The CT advance and the crunch would fall silent permanently, "
+                "and the report's anomaly count would claim 'no anomalies' as "
+                "an observation -- although nothing was examined."
+            )
+        # The stack reads ONE sample point, so for it the hazard is not a
+        # bound that is too small but a value that names no sample point at
+        # all: 16.0 against snapshot_seconds [6, 15, 30, 45] selects no row,
+        # the rule finds nothing, and the coverage still reports every CT
+        # round as scanned -- "no stacks" read out as a measured negative over
+        # a blind spot. It is the same harm as above and it needs the same
+        # guard; the tolerance is the shared one, so the settings and the rule
+        # cannot disagree about what "is this sample point" means.
+        #
+        # The check is here and not in either section for the same reason as
+        # the one above: [thresholds] does not know the sample points and
+        # [parse] does not know the rule.
+        if not any(
+            is_sample_point(value, self.thresholds.stack_sample_s)
+            for value in self.parse.snapshot_seconds
+        ):
+            points = ", ".join(
+                f"{value:g}" for value in self.parse.snapshot_seconds
+            )
+            raise ValueError(
+                f"thresholds.stack_sample_s "
+                f"({self.thresholds.stack_sample_s:g} s) is not one of the "
+                f"parse.snapshot_seconds ({points}), so the stack rule would "
+                "read no row at all.\n"
+                "The rule reads exactly this one sample point, so it would "
+                "find nothing on every round -- and the coverage would still "
+                "report every CT round as scanned, which turns a blind spot "
+                "into 'no stacks' as an observation."
             )
         smallest_bonus = min(self.economy.loss_bonus_steps)
         if self.thresholds.normal_buy_money_min <= smallest_bonus:

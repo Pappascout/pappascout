@@ -522,11 +522,53 @@ roster_min_regulars = 4
 # Alle tämän kierrosmäärän otanta merkitään raportissa pieneksi. [spine] AD-3
 small_sample_rounds = 3
 
-# --- Stack-sääntö (Story 2.14) ---
-# Stack = vähintään näin monta subjektin elossa olevaa CT-pelaajaa saman siten
-# ryhmässä samassa näytepisteessä, ja vähintään yksi heistä siten OMALLA
-# alueella (BombsiteA / BombsiteB). Spawnit eivät laske. [spine] AD-10
-# [kalibroitu]
+# --- Stack-sääntö (Story 2.14, määritelmä uusittu Story 4.4) ---
+# Stack = vähintään stack_min_players subjektin elossa olevaa CT-pelaajaa
+# ENINTÄÄN stack_max_areas alueella, jotka kuuluvat saman siten ryhmään,
+# asetelmanäytepisteessä stack_sample_s. Spawnit eivät laske eikä alue,
+# jonka geometria jättää ilman ryhmää, tuota osumaa lainkaan. Se EI ole sama
+# asia kuin "mid rajataan pois" -- ks. alla oleva kohta 7 vs. 5.
+# [spine] AD-10 [kalibroitu]
+#
+# MÄÄRITELMÄ VAIHDETTIIN 2026-09-18, eikä kyse ollut kynnyksistä. Kaksi
+# sokkolistaa (43 tuomittua kierrosta) osoittivat säännön olevan väärässä
+# 22:lla niistä 23 kierroksesta jotka se raportoi. Vika oli kahdessa ehdossa:
+#
+#   1. ONSITE-EHTO POISTETTIIN. Vanha sääntö vaati, että vähintään yksi
+#      pelaaja seisoo siten omalla alueella. Mittauksen mukaan se vaientaisi
+#      kuusi seitsemästä ehdokasosumasta, ja tämän arkiston viidestä
+#      osumasta neljä: viisi CT:tä Alleyssa on tuotteen omistajan omin
+#      sanoin "B stack", eikä kukaan ole BombsiteB:llä. Siksi myös raportin
+#      rivi nimeää nyt ne alueet joilla joukko oikeasti on.
+#   2. KESKITTYMÄEHTO LISÄTTIIN (stack_max_areas). Vanha sääntö kysyi vain
+#      "montako siten ryhmässä", ja ryhmä on puoli karttaa: viisi pelaajaa
+#      viidellä A:n puolen alueella on normaali puolustus, ei stack.
+#      Alueiden rajaus kahteen vie säännön arkistossa 24 kierroksesta 5:een.
+#
+# Koko mittaus on stack-saanto-mitattu-2026-09-18.md:ssä, joka EI ole tässä
+# repossa vaan projektikansiossa _bmad-output/implementation-artifacts/.
+#
+# ARKISTON LUVUT UUDELLA MÄÄRITELMÄLLÄ (mitattu ajamalla 2026-09-18):
+# 5 osumaa 5 kierroksella, 93 tutkittua CT-kierrosta 93:sta. Yksikään niistä
+# ei ole kierros jonka tuotteen omistaja luki "ei stackiksi": neljä on hänen
+# stackejaan ja yksi hänen nimeämänsä pusku. Vanha määritelmä tuotti samasta
+# arkistosta 27 osumaa 23 kierroksella.
+#
+# Mittausdokumentissa sama ehdokassääntö tuottaa 7 kierrosta. Ero tiedetään
+# mutta se EI OLE RATKAISTU, ja se on syytä lukea sellaisenaan: mittaus luki
+# ryhmättömän alueen omaksi ryhmäkseen, tämä sääntö ei lue ryhmätöntä aluetta
+# lainkaan. Erotus on Ancientin kaksi Middle-kierrosta
+# (Ancient_vs_kaljukostaja k2 ja k10).
+#
+# Kyse ei ole periaatteesta vaan geometriasta, ja se on demokohtaista:
+# Infernon Middle KUULUU A-ryhmään ja on yksi viidestä osumasta, Ancientin ei
+# kuulu kumpaankaan, ja Anubiksen Middle on A-ryhmässä demossa
+# anubis_vs_RCAVE_VETERANS mutta ryhmätön demossa Anubis_vs_ryhmarama --
+# sama mid-kasauma olisi siis saman kartan toisessa demossa osuma ja
+# toisessa näkymätön. Sääntö ei siis "rajaa midiä pois"; se raportoi
+# kasauman YHDEN johdetun ryhmän alueilla, olivatpa ne mitä tahansa.
+# Kuuluuko mid-kasauma raporttiin omana kuvionaan on avoin tuotepäätös
+# (mittauksen luku 5), eikä sitä ratkaista tässä.
 #
 # Sääntö oli KÄYTTÄMÄTÖN Story 2.5:stä 2.14:ään: neljä puolustajaa samalla
 # env_cs_place-alueella tuotti 0 osumaa 93 kierroksesta, koska peli jakaa
@@ -540,51 +582,97 @@ small_sample_rounds = 3
 # Koko perustelu on kalibrointi-stack.md:ssä, joka EI ole tässä repossa vaan
 # projektikansiossa _bmad-output/implementation-artifacts/.
 #
-# 4 EIKÄ 3: neljä on kalibroitu, kolme ei. Viisi ei ole tyhjä joukko vaan
-# säännön aito ääripää, joten yläraja on kentällä olevien määrä (5) eikä 4.
+# VARAUS 2026-09-12 ON RAUENNUT. Tässä luki, että Nuken 17 osumaa ovat
+# yläraja, että kysymys "onko neljä pelaajaa pihalla stack" on tuotteen
+# omistajalla sokkolistana ja että luvut jäävät ennalleen kunnes hän vastaa.
+# Hän vastasi 2026-09-13 ja 2026-09-18, ja vastaus muutti MÄÄRITELMÄN eikä
+# marginaalia: stack_group_margin on yhä 1,25 ja sen oma perustelu alla on
+# ennallaan. Nuken piha- ja lobby-osumat eivät kadonneet nimeämällä alueita
+# vaan keskittymäehdolla -- ne olivat neljä pelaajaa neljällä eri alueella.
 #
-# LUVUT PÄIVITETTY 2026-09-12 (Story 4.3). Nuke ei enää vaikene, joten koko
-# arkisto on tutkittu: 27 osumaa 23 kierroksella, 93 tutkittua CT-kierrosta
-# 93:sta.
+# Kerrosjako (Story 4.3) oli silti oikea muutos: sokea piste on huonompi kuin
+# liian antelias osuma, koska sokeaa pistettä ei voi korjata jälkikäteen.
+# Nuken 27 kierrosta ovat yhä tutkittuja; nyt niistä osuu kaksi.
 #
-# VARAUS, MITATTU SAMANA PÄIVÄNÄ: Nuken 17 osumaa ovat YLÄRAJA eivätkä arvio.
-# Mitattu, missä osumien pelaajat oikeasti seisovat: suurin yksittäinen alue
-# on Outside (44 havaintoa) ja kolmanneksi suurin Lobby (16) -- ne kaksi,
-# jotka tuotteen omistaja nimeää "ei A eikä B" (piha ja lobby). Osalla
-# kierroksista viisi pelaajaa on viidessä eri alueessa, ja geometria lukee
-# neljä niistä samaan ryhmään. Marginaalin nosto 1,25 -> 1,5 pudottaisi
-# arkiston 27 osumasta 15, ja niistä 13 on Nukea -- eli Nuke on tälle
-# kynnykselle selvästi herkempi kuin muut kartat.
-#
-# Marginaalia EI silti nosteta: 1,5 on mitattu ylituottavan midiä muilla
-# kartoilla, ja stackin oma kalibrointi (sama aluejako Ancientilla kaikista
-# kolmesta demosta) on tehty arvolla 1,25. Ratkaisu on nimetä ne alueet, ei
-# löysentää kynnystä. Kysymys on tuotepäätös -- onko neljä pelaajaa pihalla
-# stack vai ei -- ja se on tuotteen omistajalla sokkolistana
-# (sokkolista-stack-2026-09-12.md). Kunnes hän vastaa, luvut jäävät ennalleen
-# ja tämä varaus on osa niitä.
-#
-# Kerrosjako oli silti oikea muutos: sokea piste on huonompi kuin liian
-# antelias osuma, koska sokeaa pistettä ei voi korjata jälkikäteen. Aiemmin tässä luki 10 osumaa 9 kierroksella ja 66 tutkittua -- ne
-# olivat oikein silloin kun Nuken 27 kierrosta olivat sokea piste.
-# Aikaraja on YHTEINEN advance_max_sample_s:n kanssa eikä oma kynnys.
-#
-# SITEN OMALLA ALUEELLA RIITTÄÄ YKSI PELAAJA, ja se on mitattu valinta eikä
-# oletusarvo. Vaihtoehdot samasta aineistosta:
-#
-#   vaatimus   kierroksia   osumia
-#   >= 1       23 / 93       27     <- nykyinen
-#   >= 2        7 / 93        7
-#   >= 3        2 / 93        2
-#
-# Osumista kahdellakymmenellä on tasan yksi pelaaja sitellä, viidellä kaksi
-# ja kahdella kolme. Tiukennus ei siis poistaisi kohinaa vaan kolme neljästä
-# havainnosta -- ja
-# pelaajamäärä on raportin rivillä joka tapauksessa muodossa 4/5, joten
-# lukija arvioi itse onko kyse asetelmasta vai sattumasta. Vaatimus ei ole
-# asetus, koska sen muuttaminen muuttaisi säännön määritelmää eikä sen
-# rajaa; jos se joskus halutaan asetukseksi, luvut mitataan uudelleen.
+# 4 EIKÄ 3 eikä 5, ja raja on nyt mitattu MOLEMMILTA PUOLILTA hänen omilla
+# tuomioillaan: viiden rajalla putoaisi 1N (*"B stack"*, hänen ainoa
+# sokkolista 1:n stackinsa, jossa luku on 4), ja kolme laukeaisi kierroksilla
+# jotka hän luki normaaleiksi. Yläraja on kentällä olevien määrä (5) eikä 4:
+# viisi ei ole tyhjä joukko vaan säännön aito ääripää (arkistossa 2
+# kierrosta).
 stack_min_players = 4
+
+# Kuinka monella alueella joukko saa enintään olla. TÄMÄ EHTO TEKEE SÄÄNNÖSTÄ
+# STACK-SÄÄNNÖN: ilman sitä kysymys on "montako siten ryhmässä", ja ryhmä on
+# puoli karttaa.
+#
+# KAKSI PERUSJOUKKOA, JA KUMPIKIN LUKU SANOO OMANSA. Tämä on korjattu
+# 2026-09-18 katselmoinnin jälkeen: ensimmäinen versio tästä taulukosta
+# esitti 43 tuomion luvut säännön omina lukuina, vaikka 11 tuomituista
+# kierroksista on VASTUSTAJAN CT-kierroksia joita sääntö ei voi tutkia
+# lainkaan.
+#
+# (a) Kaikki 43 tuomiota, 15 s kohdalla -- mittaa EHDON MUOTOA:
+#
+#   alueita      löytää stackin tyyliset   laukeaa "ei"-kierroksilla
+#   1            3 / 8                      0
+#   2            8 / 8                      0    <- nykyinen
+#   3            8 / 8                      9
+#   rajaamatta   8 / 8                     21
+#
+# (b) Säännön oma laajuus, subjektin 93 CT-kierrosta. Tuomituista kierroksista
+#     32 on tässä joukossa: 4 stackin tyylistä, 2 nimettyä puskua ja 26 "ei".
+#     Nykyarvo löytää 4 / 4 ja laukeaa 0 / 26. Kolmen alueen rajalla mukaan
+#     tulee 8 niistä 26:sta (kolme niistä on epäröiviä tuomioita: 1A "ei
+#     (osittainen)", 1F "ei, mutta ...oletettava pieni stack sille puolelle",
+#     2C "ei ihan").
+#
+# Arvo on siis molemmilta puolilta hänen omien tuomioidensa kiinnittämä eikä
+# yhteen havaintoon sovitettu: yksi ei löydä, kolme laukeaa väärin. Kaksi
+# eikä yksi, koska 1N on BackofB 2 + BombsiteB 2 -- yhden alueen raja
+# pudottaisi hänen ainoan sokkolista 1:n stackinsa. Ne neljä laajuuden
+# ulkopuolista stackia EIVÄT ole roskaa: ne ovat saman muodon aitoja
+# tuomioita, ja siksi ne ovat yllä (a)-rivillä eivätkä piilossa.
+#
+# Vaikutus subjektin 93 CT-kierrokseen (mitattu ajamalla 2026-09-18):
+# 1 -> 2 kierrosta, 2 -> 5, 3 -> 13, 4 tai 5 -> 24.
+#
+# Yläraja on kentällä olevien määrä (5), ja sen tarkistaa
+# ThresholdSettings._check_ranges_are_consistent: viisi pelaajaa mahtuu
+# enintään viidelle alueelle, joten kuudesta ylöspäin ehto ei rajaisi mitään.
+# HUOM: jo arvo 5 ON vanha sääntö -- se laukeaa 21:llä hänen 33
+# "ei"-tuomiostaan -- eli vartija estää vain mahdottoman arvon, ei huonoa.
+# Arvon valinta on kalibrointi, ja se on tässä.
+stack_max_areas = 2
+
+# Asetelmanäytepiste: sääntö lukee TÄMÄN yhden näytepisteen eikä aikarajaa.
+# Muut kaksi sääntöä kysyvät LIIKKEESTÄ, jolla on vain katto
+# (advance_max_sample_s); asetelma on HETKI, jolla on sekä lattia että katto.
+# Jakaminen ei siis katkennut vahingossa vaan se korvattiin -- ja crunch ja
+# CT-eteneminen jakavat advance_max_sample_s:n edelleen keskenään.
+#
+# Mitattu, subjektin 93 CT-kierroksesta:
+#
+#   näytepiste   kierroksia
+#   6 s          34     <- kartan uloskävely spawnista, ei asetelma
+#   15 s          5     <- nykyinen
+#   30 s          6
+#   45 s          2
+#
+# 6 s EI ole tiukempi versio samasta kysymyksestä: siinä 76 kierrosta 93:sta
+# ylittää pelkän pelaajarajan, koska pelaajat eivät ole ehtineet hajaantua --
+# Nukella Hell+Outside laukeaa lähes joka kierroksella. Yläraja tulee toisesta
+# päästä ja on hänen omin sanoin: *"30 s kohdalla on voitu jo hyvinkin
+# reagoida kierroksen tapahtumiin"* -- ja mitattuna 30 s tuo mukaan kolme
+# kierrosta jotka hän luki "ei stackiksi" eikä yhtäkään stackia.
+#
+# Rajat: yli 0,0 ja enintään 60,0 (MAX_ADVANCE_SAMPLE_SECONDS). Lisäksi arvon
+# on vastattava jotakin [parse].snapshot_seconds -pistettä, ja sen tarkistaa
+# Settings._check_sections_agree: muuhun arvoon ei osu yksikään rivi, jolloin
+# sääntö ei löydä mitään -- eikä nolla osumaa ole silloin havainto vaan sokea
+# piste, jonka kattavuus lukisi silti muodossa 93/93. Sama vahinko kuin
+# advance_max_sample_s:n omassa vartijassa, ja siksi sama vartija.
+stack_sample_s = 15.0
 
 # Kuinka paljon kauempana toisen siten on oltava, ennen kuin alue luetaan
 # lähemmän siten ryhmään. Alle marginaalin jäävä alue ei ole kummankaan
@@ -764,17 +852,22 @@ advance_area_min_observations = 20
 # kuin suunnitelmalla) eikä yhtäkään varmaa: jokainen 6-30 s välillä merkitty
 # kierros osuu jo aiemmalla näytepisteellä.
 #
-# KAIKKIEN KOLMEN SÄÄNNÖN YHTEINEN, myös stackin (Story 2.14) -- ei uutta
-# kynnystä. Perustelu on sama kuin advance_t_share:n jakamisella: kolme
-# sääntöä kysyvät samasta havainnosta, ja kahdella aikarajalla ne voisivat
-# olla eri mieltä siitä, milloin kierroksen alku loppuu. Stackilla mitattu
-# vaikutus: ≤ 45 s toisi 2 osumaa lisää, ≤ 15 s pudottaisi 4.
+# KUMMANKIN ORIENTAATIOSÄÄNNÖN YHTEINEN -- ei kummankaan oma kynnys.
+# Perustelu on sama kuin advance_t_share:n jakamisella: ne kysyvät samasta
+# havainnosta, ja kahdella aikarajalla ne voisivat olla eri mieltä siitä,
+# milloin kierroksen alku loppuu.
+#
+# STACK EI ENÄÄ JAA TÄTÄ (Story 4.4). Se lukee yhden näytepisteen
+# (stack_sample_s) eikä aikarajaa, koska se kysyy eri kysymyksen: nämä kaksi
+# kysyvät liikkeestä, jolla on vain katto, kun taas asetelma on hetki, jolla
+# on sekä lattia että katto. Jakaminen siis korvattiin harkiten eikä se
+# katkennut vahingossa.
 #
 # Rajat: yli 0,0 ja enintään 60,0 (MAX_ADVANCE_SAMPLE_SECONDS). Lisäksi arvon
 # on oltava vähintään pienin [parse].snapshot_seconds -piste, ja sen tarkistaa
-# Settings._check_sections_agree: pienempi arvo vaientaisi KAIKKI KOLME
-# sääntöä pysyvästi, ja raportti väittäisi silloin "ei poikkeamia" havaintona
-# vaikka yhtäkään näytepistettä ei tutkittu.
+# Settings._check_sections_agree: pienempi arvo vaientaisi MOLEMMAT
+# orientaatiosäännöt pysyvästi, ja raportti väittäisi silloin "ei poikkeamia"
+# havaintona vaikka yhtäkään näytepistettä ei tutkittu.
 advance_max_sample_s = 30.0
 
 # Montako CT-pelaajaa T:n alueella riittää etenemiseksi. Tuotteen omistaja

@@ -483,17 +483,49 @@ class QuotedFinnish:
 QUOTED_FINNISH: tuple[QuotedFinnish, ...] = (
     QuotedFinnish(
         path="src/pappascout/domain/sampling.py",
-        text="Stack sitellä",
+        text="stack sitellä",
         why=(
-            "The players' own phrase, and the only source for what the stack "
-            "rule means. The point of quoting it is that both loanwords are "
-            "inflected into Finnish; translated, it stops being evidence."
+            "The players' own phrase, quoted since Story 4.4 as the "
+            "REFUTED justification of the dropped onsite condition: it is "
+            "what the rule used to rest on, and the measurement that "
+            "overturned it is only readable beside it. The point of quoting "
+            "it is that both loanwords are inflected into Finnish; "
+            "translated, it stops being evidence."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/domain/sampling.py",
+        text="voinut lähteä elämään",
+        why=(
+            "The product owner's own sentence about the 30 s sample point, "
+            "and the measured reason the stack rule reads 15 s instead. "
+            "Quoted in full rather than as the fragment that fits an English "
+            "line: the claim the rule rests on is that a setup and a reaction "
+            "to the round are different things, and it is HIS distinction, "
+            "not the model's. Translated it becomes the model's paraphrase of "
+            "the evidence for its own threshold."
         ),
     ),
     QuotedFinnish(
         path="tests/test_sampling.py",
-        text="Stack sitellä",
-        why="The same quotation, in the test that pins the rule it defines.",
+        text="voinut lähteä elämään",
+        why=(
+            "The same quotation, in the test that pins the sample point it "
+            "justifies. The test asserts that 30 s is not read; his sentence "
+            "is why, and a translated why would be the model's own."
+        ),
+    ),
+    QuotedFinnish(
+        path="tests/test_calibration.py",
+        text="toki tämäkin on hyödyllistä tietoa",
+        why=(
+            "One of the three hedged verdicts in the table of rounds the "
+            "product owner read as not a stack. The hedge is the point -- he "
+            "said no and then said why the opposite reading is defensible -- "
+            "and it survives only verbatim. A translation would turn a "
+            "hedged judgement into a flat one, which is exactly the error "
+            "this story's review round found in the prose."
+        ),
     ),
     QuotedFinnish(
         path="src/pappascout/render/view.py",

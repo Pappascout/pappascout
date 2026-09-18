@@ -2288,11 +2288,24 @@ def _anomaly_round_text(anomaly: Anomaly, entry: AnomalyRound) -> str:
     says nothing about the anomaly without the number alive: four out of five
     is the defence's choice, four out of four is what was left. The rule
     counts both, so the row says both as well.
+
+    **A stack's places are the crowd's own** (Story 4.4). The row names them
+    when there is more than one, because "at most two areas" is the rule
+    itself: the summary row carries the area most of the crowd stood on, and
+    it alone would read as a crowd on one area where the rule saw it on two.
     """
     text = f"kierros {entry.round_no}"
     if anomaly.rule != "ct_advance":
         text += f" ({ROUND_TYPE_FI.get(entry.round_type, entry.round_type)})"
     text += f": {_anomaly_points_text(entry)}"
+    if len(entry.areas) > 1:
+        # The crowd's OWN areas, and only when there is more than one of them.
+        # The summary row already names the area that held most of them, so
+        # repeating a single area would say the same word twice; two or more
+        # is the observation the summary cannot carry -- "at most two areas"
+        # is the rule itself, and the row would otherwise claim a crowd on one
+        # area where the rule saw it on two.
+        text += f", alueilla {_areas_text(entry.areas)}"
     if entry.sources:
         # The directions only in a crunch, and **simultaneous** because they
         # are the same round's observation. On the others an empty list means
@@ -3485,10 +3498,12 @@ def _stack_legend(report: Report) -> list[str]:
         return []
     players = _threshold_int(report, "stack_min_players")
     margin = _threshold_float(report, "stack_group_margin")
+    areas = _threshold_int(report, "stack_max_areas")
+    moment = _threshold_float(report, "stack_sample_s")
 
     rule = (
         f"**{ANOMALY_RULE_FI['stack']}**: subjektin puolustus kasautuneena "
-        "yhden siten ympärille. Alueryhmä on **johdettu tästä demosta**: "
+        "saman alueryhmän alueille. Alueryhmä on **johdettu tästä demosta**: "
         "jokaisen alueen keskipiste lasketaan demon omasta pistepilvestä, ja "
         "alue kuuluu lähemmän siten ryhmään"
     )
@@ -3498,13 +3513,29 @@ def _stack_legend(report: Report) -> list[str]:
         ". Ei karttatietokantaa eikä käsin annettua aluejakoa. Osuma vaatii "
     )
     if players is not None:
-        rule += f"vähintään {players_text(players)} saman siten ryhmässä ja "
+        rule += f"vähintään {players_text(players)} "
+    if areas is not None:
+        rule += f"enintään {areas} saman siten ryhmän alueella"
+    else:
+        rule += "saman siten ryhmässä"
+    if moment is not None:
+        rule += f" {_seconds(moment)} sekunnin kohdalla"
     rule += (
-        "vähintään yhden heistä sitellä itsellään; spawnissa seisova ei "
-        "laske. Rivin luku on muotoa 4/5 -- ryhmässä olleet kaikista elossa "
-        "olleista. **Stackia ei ole rajattu kierrostyyppiin** eikä se lue "
-        "alueen T-osuutta, joten se ei ole kummankaan toisen säännön tiukempi "
-        "eikä löysempi muoto."
+        ". Spawnissa seisova ei laske, eikä alue jonka geometria jättää "
+        "**ilman ryhmää** tuota osumaa -- ja se on demokohtainen havainto "
+        "eikä sääntö: Infernon Middle kuuluu A-ryhmään ja näkyy siksi "
+        "rivinä, Ancientin ei kuulu kumpaankaan. **Rivin alue on vain rivin "
+        "nimilappu**: ensimmäinen kierroksen nimeämistä alueista, suurin "
+        "ensin ja tasatilanteessa aakkosissa ensimmäinen -- ei väite siitä, "
+        "että juuri siellä olisi ollut eniten pelaajia. Havainto on "
+        "kierrosrivin alueissa: viisi pelaajaa Alleyssa on B-siten stack, "
+        "vaikka kukaan ei seiso BombsiteB:llä. Rivin luku on muotoa 4/5 -- "
+        "kasassa olleet kaikista elossa olleista, myös spawnissa tai "
+        "ryhmättömällä alueella seisovista. **Stackia ei ole rajattu "
+        "kierrostyyppiin** eikä se lue alueen T-osuutta, joten se ei ole "
+        "kummankaan toisen säännön tiukempi eikä löysempi muoto. Sääntö ei "
+        "myöskään nimeä kuviota: **kasauma on havainto, ei nimi** -- "
+        "odottaako se paikallaan vai puskeeko se, ei erotu tästä havainnosta."
     )
     notes = [rule]
 

@@ -10,6 +10,7 @@ not depend on ``domain``).
 from __future__ import annotations
 
 import hashlib
+import math
 from typing import Final, Literal
 
 __all__ = [
@@ -62,6 +63,8 @@ __all__ = [
     "KNOWN_INVENTORY_ITEMS",
     "weapon_classification_digest",
     "seconds_label",
+    "SAMPLE_POINT_TOLERANCE_S",
+    "is_sample_point",
 ]
 
 #: The side of the row's team.
@@ -220,10 +223,18 @@ ANOMALY_RULE_FI: Final[dict[str, str]] = {
 #: itself is not a division but the anchor the division is measured from.
 #:
 #: The vocabulary is here rather than next to the rule, because two domain
-#: modules read it: the rule (``domain.sampling``) and the report model
-#: (``domain.report``, which makes sure that ``Anomaly.site`` and
-#: ``Anomaly.area`` cannot disagree). Of two copies it was exactly that pair
-#: that diverged.
+#: modules read it -- **and since Story 4.4 the stack rule is no longer one of
+#: them**:
+#:
+#: * ``domain.sampling.site_groups``, the derivation, which anchors each group
+#:   on its own site. ``stack_hits`` itself stopped reading these names when
+#:   the ``onsite`` condition was dropped; it reads only the derived groups.
+#: * ``domain.report``, which checks what it can of the agreement between
+#:   ``Anomaly.site`` and the row's areas. The row's area is the crowd's own
+#:   now, so the two no longer determine each other, and what is decidable
+#:   there is that no row names the OTHER group's own site.
+#:
+#: Of two copies it was exactly that pair that diverged.
 SITE_AREAS: Final[dict[str, str]] = {"A": "BombsiteA", "B": "BombsiteB"}
 
 #: The ids of the site groups in their fixed order. **Derived, not a second
@@ -588,6 +599,39 @@ def weapon_classification_digest() -> str:
         for label, arms, names in sorted(_CLASSIFICATION)
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+#: How far apart two writings of the **same** nominal sample point may be.
+#:
+#: The comparison is never between two different sample points -- those are
+#: seconds apart -- but between the same second written twice: in
+#: ``[parse].snapshot_seconds``, in ``[thresholds].stack_sample_s`` and in the
+#: ``sample_t_s`` column the parse stage wrote from the first of those. ``==``
+#: would be right in principle and brittle in practice, because the number
+#: travels through a parquet column; a microsecond cannot reach the
+#: neighbouring point.
+#:
+#: **A row's real moment is ``t_s`` and is a different figure.** It is not
+#: compared with this tolerance anywhere: it differs from the nominal second
+#: by the tick rounding, which is far larger than this.
+#:
+#: The constant and its function are here rather than next to the rule,
+#: because two layers have to agree about them -- the settings' load-time
+#: check (``Settings._check_sections_agree``) and the stack rule
+#: (``domain.sampling.stack_hits``). The same reason as
+#: :func:`seconds_label`'s: as two copies they would agree only today.
+SAMPLE_POINT_TOLERANCE_S: Final[float] = 1e-6
+
+
+def is_sample_point(value: float, nominal: float) -> bool:
+    """Is ``value`` the nominal sample point ``nominal``.
+
+    See :data:`SAMPLE_POINT_TOLERANCE_S` for why this is a tolerance and not
+    an equality, and for what it must not be used on.
+    """
+    return math.isclose(
+        value, nominal, rel_tol=0.0, abs_tol=SAMPLE_POINT_TOLERANCE_S
+    )
 
 
 def seconds_label(value: float) -> str:

@@ -12,6 +12,7 @@ seconds and the ticks are readable: 6 s = 384 ticks.
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from conftest import (
     JUST_OVER_SEPARATION_SITE_CLOUD,
@@ -931,6 +932,11 @@ FLOOR_BAND_TRIM = _SHIPPED.site_floor_band_trim
 FLOOR_Z_WEIGHT = _SHIPPED.site_floor_z_weight
 BRIDGE_VOID_SHARE = _SHIPPED.site_bridge_void_share
 STACK_MIN_PLAYERS = 4
+#: The stack's definition (Story 4.4), read from the model's default for the
+#: same reason as ``MARGIN``: the rule's behaviour has to react to the shipped
+#: value, not to a number this file invented.
+STACK_MAX_AREAS = _SHIPPED.stack_max_areas
+STACK_SAMPLE_S = _SHIPPED.stack_sample_s
 
 
 def cloud(cells=CLOUD) -> list[CloudCell]:
@@ -955,11 +961,14 @@ def stack(
     *,
     cells=CLOUD,
     min_players: int = STACK_MIN_PLAYERS,
+    max_areas: int = STACK_MAX_AREAS,
+    sample_s: float = STACK_SAMPLE_S,
 ):
     return stack_hits(
         rows,
         groups=groups(cells),
-        max_sample_s=MAX_SAMPLE_S,
+        sample_s=sample_s,
+        max_areas=max_areas,
         min_players=min_players,
     )
 
@@ -1300,27 +1309,24 @@ def test_the_site_groups_are_read_off_the_demos_own_point_cloud() -> None:
     assert "TopofMid" not in found
 
 
-def test_four_defenders_in_one_sites_group_are_a_stack() -> None:
-    """The I/O matrix's first row: 4 CT in the B group, one on the site.
+def test_a_crowd_on_one_area_is_a_stack_and_the_row_names_that_area() -> None:
+    """The I/O matrix's first row: 5 CT on one area of the B group.
 
-    The hit says four things: the area (the site's own), the player count,
-    those alive and the sample point. The area is ``BombsiteB`` and not
-    ``SideEntrance``, even though the latter holds more players: the row names
-    **the group's anchor**, not the area that happened to be crowded.
+    The area is ``SideEntrance`` and **not** ``BombsiteB``, although nobody is
+    standing on the site itself. Until Story 4.4 the row named the group's own
+    site here, and measured, that made the report say ``BombsiteB`` while all
+    five players were in ``Alley`` -- which is the product owner's own "B
+    stack". The group is still on the row, as ``site``.
     """
-    rows = (
-        at(15.0, "BombsiteB", "ct1")
-        + at(15.0, "SideEntrance", "ct2", "ct3")
-        + at(15.0, "Ramp", "ct4")
-        + at(15.0, "House", "ct5")
-    )
+    rows = at(15.0, "SideEntrance", "ct1", "ct2", "ct3", "ct4", "ct5")
     hits = stack(rows)
     assert len(hits) == 1
     hit = hits[0]
     assert hit.rule == STACK
-    assert hit.area == "BombsiteB"
+    assert hit.area == "SideEntrance"
+    assert hit.areas == ("SideEntrance",)
     assert hit.site == "B"
-    assert hit.players == 4
+    assert hit.players == 5
     assert hit.alive == 5
     assert hit.sample_t_s == 15.0
     # The orientation does not concern the stack, and the empty field is what
@@ -1330,20 +1336,77 @@ def test_four_defenders_in_one_sites_group_are_a_stack() -> None:
     assert hit.sources == ()
 
 
-def test_half_the_map_is_not_a_site() -> None:
-    """The I/O matrix's second row: four in the group, none on the site.
+def test_a_crowd_on_two_areas_is_one_hit_and_both_areas_are_named() -> None:
+    """The I/O matrix's second row: 2 + 2 + 1 in the B group.
 
-    The players' own phrase "Stack sitellä" means being on the site, not being
-    on that half of the map. Measured: the condition drops 17 rounds -> 9.
+    Four of the five are on two areas, so the rule fires on **four** and not
+    on five: the count is the crowd on the areas it names and not everybody in
+    the group. The areas come out largest first and ties by name, so the row
+    reads the same from one run to the next.
     """
-    rows = at(15.0, "SideEntrance", "ct1", "ct2") + at(
-        15.0, "Ramp", "ct3", "ct4"
+    rows = (
+        at(15.0, "Ramp", "ct1", "ct2")
+        + at(15.0, "BombsiteB", "ct3", "ct4")
+        + at(15.0, "SideEntrance", "ct5")
+    )
+    hits = stack(rows)
+    assert len(hits) == 1
+    hit = hits[0]
+    assert hit.areas == ("BombsiteB", "Ramp")
+    assert hit.area == "BombsiteB"
+    assert (hit.players, hit.alive) == (4, 5)
+
+
+def test_four_spread_over_three_areas_are_not_a_stack() -> None:
+    """The I/O matrix's third row: four in the group, on three areas.
+
+    This is the condition the whole rewrite turns on. A group is half the map,
+    so "four somewhere in the A group" is an ordinary defence: measured
+    against the product owner's 43 judgements, bounding the areas to two
+    finds all 8 of his stacks and fires on none of the 33 rounds he read as
+    not a stack, while an unbounded rule fires on 21 of them.
+    """
+    rows = (
+        at(15.0, "BombsiteA", "ct1", "ct2")
+        + at(15.0, "Outside", "ct3")
+        + at(15.0, "House", "ct4")
+    )
+    assert stack(rows) == []
+    # And the same four players on two areas do hit: the difference is the
+    # concentration and nothing else.
+    together = at(15.0, "BombsiteA", "ct1", "ct2") + at(
+        15.0, "Outside", "ct3", "ct4"
+    )
+    assert len(stack(together)) == 1
+
+
+def test_a_crowd_split_across_the_two_sites_is_not_a_stack() -> None:
+    """The I/O matrix's fourth row: two on each site.
+
+    The pair of areas has to lie inside **one** group: a defence with two on
+    each site is the opposite of a stack, and without the group condition the
+    two biggest areas of the whole map would be read as one crowd.
+    """
+    rows = at(15.0, "BombsiteA", "ct1", "ct2") + at(
+        15.0, "BombsiteB", "ct3", "ct4"
     )
     assert stack(rows) == []
 
 
+def test_a_crowd_on_the_shared_middle_is_not_a_stack() -> None:
+    """The I/O matrix's fifth row: five players on an area with no group.
+
+    ``Middle`` belongs to neither site in this cloud, and a stack is a *site*
+    observation: a crowd in the shared middle is a different phenomenon and is
+    not reported under this name. The rule reads the derived groups only --
+    there is no map database and no hand-written area division to ask.
+    """
+    assert "Middle" not in (groups() or {})
+    assert stack(at(15.0, "Middle", "ct1", "ct2", "ct3", "ct4", "ct5")) == []
+
+
 def test_a_player_in_spawn_does_not_defend_a_site() -> None:
-    """The I/O matrix's third row: two in spawn, two left.
+    """Two in spawn, two left.
 
     ``CTSpawn`` is in the A group in this cloud, as on Ancient. Without the
     spawn restriction the starting setup alone would fire the rule.
@@ -1360,13 +1423,15 @@ def test_a_player_in_spawn_does_not_defend_a_site() -> None:
     )
     assert stack(b_side) == []
     # The guard's other direction: the same four players on the group's areas
-    # do hit.
+    # do hit, and the spawn is not among the areas the row names.
     ok = at(15.0, "BombsiteA", "ct1", "ct2") + at(15.0, "House", "ct3", "ct4")
-    assert len(stack(ok)) == 1
+    hits = stack(ok)
+    assert len(hits) == 1
+    assert hits[0].areas == ("BombsiteA", "House")
 
 
 def test_a_map_whose_sites_do_not_separate_stays_silent() -> None:
-    """The I/O matrix's fourth row: Nuke's sites are on top of each other.
+    """The I/O matrix's sixth row, the other half: the groups are missing.
 
     The guard is **a ratio and not a list of maps**: no map is named in the
     code, the distance between the sites is divided by the sites' own size
@@ -1379,7 +1444,7 @@ def test_a_map_whose_sites_do_not_separate_stays_silent() -> None:
 
 
 def test_the_dead_are_not_the_denominator() -> None:
-    """The I/O matrix's fifth row: 4 alive, all in the group -> 4/4.
+    """4 alive, all of them in the crowd -> 4/4.
 
     Four out of five is the defence's choice, four out of four is what was
     left. The player count alone does not tell them apart.
@@ -1395,7 +1460,7 @@ def test_the_dead_are_not_the_denominator() -> None:
 
 
 def test_a_cloud_without_a_site_gives_no_groups() -> None:
-    """The I/O matrix's sixth row: an empty cloud or a missing site.
+    """An empty cloud or a missing site.
 
     The absence of an observation is not an observation that the division is
     absent, so both are ``None``.
@@ -1430,14 +1495,45 @@ def test_two_sites_at_the_same_point_are_silenced() -> None:
     assert groups(same) is None
 
 
-def test_a_late_sample_point_is_outside_the_shared_time_bound() -> None:
-    """The I/O matrix's seventh row: a hit at 45 s only is not a hit.
+def test_only_the_setup_sample_point_is_read() -> None:
+    """The I/O matrix's seventh row: no rows at the setup point, no hit.
 
-    The time bound is **shared** with the two other rules
-    (``advance_max_sample_s``), not a threshold of the stack's own.
+    The stack reads **one** sample point and no longer shares
+    ``advance_max_sample_s`` (Story 4.4): the other two rules ask about
+    movement, which has only a ceiling, while a setup is a moment and has both
+    a floor and a ceiling. Both neighbours are measured and both are wrong for
+    this question: at 6 s the rule would measure the walk out of spawn (34 of
+    the archive's 93 rounds), at 30 s the reaction to the round: *"30 s
+    kohdalla on voitu jo hyvinkin reagoida kierroksen tapahtumiin joten
+    strategiaa on voinut lähteä elämään."*
     """
-    rows = at(45.0, "BombsiteB", "ct1", "ct2", "ct3", "ct4")
-    assert stack(rows) == []
+    crowd = ("ct1", "ct2", "ct3", "ct4")
+    assert stack(at(6.0, "BombsiteB", *crowd)) == []
+    assert stack(at(30.0, "BombsiteB", *crowd)) == []
+    assert stack(at(45.0, "BombsiteB", *crowd)) == []
+    # The sample point is a setting: the same rows are a hit at the point the
+    # rule is told to read.
+    assert len(stack(at(30.0, "BombsiteB", *crowd), sample_s=30.0)) == 1
+
+
+def test_the_setup_point_is_the_only_one_counted_on_a_round() -> None:
+    """Rows from the other sample points do not reach the hit at all.
+
+    A round is one observation now and no longer one per sample point: the
+    count, those alive and the areas are all read at ``stack_sample_s``, so a
+    crowd that gathers at 30 s is not this rule's observation -- it is the
+    reaction the product owner separated from the setup by name.
+    """
+    rows = (
+        at(6.0, "BombsiteB", "ct1", "ct2", "ct3", "ct4", "ct5")
+        + at(15.0, "BombsiteB", "ct1", "ct2")
+        + at(15.0, "House", "ct3", "ct4", "ct5")
+        + at(30.0, "BombsiteB", "ct1", "ct2", "ct3", "ct4", "ct5")
+    )
+    hits = stack(rows)
+    # Two on B's site and three in the A group: neither reaches four on at
+    # most two areas at 15 s, although both of the other points would.
+    assert hits == []
 
 
 def test_the_player_threshold_comes_from_the_settings() -> None:
@@ -1452,8 +1548,136 @@ def test_the_player_threshold_comes_from_the_settings() -> None:
     )
     assert len(stack(four)) == 1
     assert stack(four, min_players=5) == []
-    five = four + at(15.0, "Ramp", "ct5")
+    # The fifth player joins one of the SAME two areas: a third area would
+    # test the area bound instead of the player count.
+    five = four + at(15.0, "BombsiteB", "ct5")
     assert len(stack(five, min_players=5)) == 1
+
+
+def test_the_crowd_is_the_biggest_union_and_not_the_biggest_areas() -> None:
+    """The crowd is a **union**, so the areas cannot be taken in order of size.
+
+    Ranking by per-area count is maximal only while every player is on one
+    area. Here three of the four are on ``Ramp`` as well at the same sample
+    point, so ``Ramp`` 3 + ``BombsiteB`` 2 is the biggest pair by count and
+    holds only three distinct players, while ``BombsiteB`` 2 +
+    ``SideEntrance`` 2 holds four. The greedy choice silenced this hit; a
+    blind spot is the worse direction, because it cannot be corrected
+    afterwards.
+    """
+    rows = (
+        at(15.0, "BombsiteB", "ct1", "ct2")
+        + at(15.0, "SideEntrance", "ct3", "ct4")
+        + at(15.0, "Ramp", "ct1", "ct2", "ct3")
+    )
+    hits = stack(rows)
+    assert len(hits) == 1
+    assert hits[0].players == 4
+    assert len(hits[0].areas) == 2
+
+
+def test_an_area_that_adds_nobody_is_not_named_on_the_row() -> None:
+    """Fewer areas win at an equal crowd, and that is not tidying.
+
+    An area that brings no player the others do not already have is not where
+    the crowd is standing, so naming it would be a place without an
+    observation -- and it would also break the hit's own invariant that every
+    area holds at least one of the players. That invariant is reachable
+    whenever ``max_areas > min_players``, and ``stack_max_areas = 5`` is a
+    legal setting: before Story 4.4's review round the same construction
+    raised ``ValueError`` out of the rule, that is, crashed the stage where
+    the answer is "no hit" or a smaller row.
+    """
+    rows = (
+        at(15.0, "BombsiteB", "ct1", "ct2", "ct3", "ct4")
+        + at(15.0, "Ramp", "ct1")
+        + at(15.0, "SideEntrance", "ct2")
+    )
+    hits = stack(rows, max_areas=3)
+    assert len(hits) == 1
+    assert hits[0].areas == ("BombsiteB",)
+    assert hits[0].players == 4
+    # And the case that used to raise: more areas than players, at a bound
+    # the settings allow.
+    two = at(15.0, "BombsiteB", "ct1") + at(15.0, "Ramp", "ct1") + at(
+        15.0, "SideEntrance", "ct2"
+    )
+    small = stack(two, max_areas=5, min_players=2)
+    assert len(small) == 1
+    assert small[0].players == 2
+    assert len(small[0].areas) <= small[0].players
+
+
+def test_the_area_bound_comes_from_the_settings() -> None:
+    """The concentration bound is read from the settings and not hard-coded.
+
+    The same claim as the acceptance criterion ``stack_max_areas = 3``, but
+    without demos: four players on three areas are nothing at the shipped
+    value and a hit at three. The archive's own answer to the same change is
+    5 rounds -> 13, and 8 of the 8 added rounds are ones the product owner
+    read as not a stack.
+    """
+    rows = (
+        at(15.0, "BombsiteB", "ct1", "ct2")
+        + at(15.0, "SideEntrance", "ct3")
+        + at(15.0, "Ramp", "ct4")
+    )
+    assert stack(rows) == []
+    loose = stack(rows, max_areas=3)
+    assert len(loose) == 1
+    assert loose[0].areas == ("BombsiteB", "Ramp", "SideEntrance")
+    assert loose[0].players == 4
+
+
+def test_a_sample_point_is_matched_with_a_tolerance_and_not_exactly() -> None:
+    """Both directions of :func:`is_sample_point`, and the first is the point.
+
+    The tolerance exists because the nominal second is the same number
+    written twice -- in ``[parse].snapshot_seconds`` and in the ``sample_t_s``
+    column the parse stage wrote from it -- and it travels through a parquet
+    column on the way. Nothing pinned that direction before the review: every
+    ``sample_t_s`` in the archive happens to be exactly 6, 15, 30 or 45, so
+    replacing the tolerance with ``==`` passed the whole suite.
+
+    The other direction is what keeps the tolerance from becoming a bound: a
+    neighbouring sample point is seconds away and must never match.
+    """
+    crowd = ("ct1", "ct2", "ct3", "ct4")
+    nudged = at(15.0 + 1e-9, "BombsiteB", *crowd)
+    assert len(stack(nudged)) == 1
+    assert len(stack(at(15.0, "BombsiteB", *crowd))) == 1
+    # A tenth of a second is already a different reading of the round, and
+    # 30 s is the neighbouring point.
+    assert stack(at(15.1, "BombsiteB", *crowd)) == []
+    assert stack(at(30.0, "BombsiteB", *crowd)) == []
+
+
+def test_a_player_in_spawn_is_alive_although_he_is_not_in_the_crowd() -> None:
+    """``alive`` counts every acceptable row, the filtered ones included.
+
+    The row's figure is ``4/5`` and the reading guide tells the reader that
+    the difference between four out of five and four out of four is the
+    observation. The denominator is therefore counted **before** the spawn
+    and the ungrouped areas are filtered out: a player does not stop being
+    alive because he is standing in the wrong place.
+
+    Mutation-proved gap: moving the ``alive`` count below those filters left
+    the whole suite green, and this set-up is what it reads as ``4/4``.
+    """
+    rows = (
+        at(15.0, "BombsiteB", "ct1", "ct2")
+        + at(15.0, "SideEntrance", "ct3", "ct4")
+        + at(15.0, "CTSpawn", "ct5")
+        + at(15.0, "Middle", "ct6")
+    )
+    hits = stack(rows)
+    assert len(hits) == 1
+    assert (hits[0].players, hits[0].alive) == (4, 6)
+    assert "CTSpawn" not in hits[0].areas
+    assert "Middle" not in hits[0].areas
+    # The dead are still not counted, so the denominator is not "every row".
+    with_dead = rows + at(15.0, "House", "ct7", alive=False)
+    assert stack(with_dead)[0].alive == 6
 
 
 def test_the_same_player_twice_does_not_raise_the_stack_count() -> None:
@@ -1481,23 +1705,24 @@ def test_stack_reads_only_alive_ct_time_rows() -> None:
     )
 
 
-def test_two_sample_points_are_two_stack_hits_on_one_round() -> None:
-    """A hit is **one sample point's** observation, as on the two other rules.
+def test_both_groups_can_hit_at_the_same_sample_point() -> None:
+    """A hit is **one group's** observation, and a round can hold two.
 
-    Grouping them into a sample is done in the aggregation, not here. In the
-    calibration Anubis round 4 is exactly this case: 15 s and 30 s, 5/5 and
-    4/5.
+    With ten rows -- which no real round has -- both sites' groups meet the
+    condition, and the rule reports both: the hits are grouped into a sample in
+    the aggregation and not here. The order is the one the contract promises,
+    ``(sample_t_s, area)``.
     """
     rows = (
-        at(15.0, "BombsiteB", "ct1", "ct2")
-        + at(15.0, "SideEntrance", "ct3", "ct4", "ct5")
-        + at(30.0, "BombsiteB", "ct1", "ct2", "ct3", "ct4")
-        + at(30.0, "House", "ct5")
+        at(15.0, "BombsiteA", "a1", "a2")
+        + at(15.0, "House", "a3", "a4")
+        + at(15.0, "BombsiteB", "b1", "b2")
+        + at(15.0, "Ramp", "b3", "b4")
     )
     hits = stack(rows)
-    assert [(h.sample_t_s, h.players, h.alive) for h in hits] == [
-        (15.0, 5, 5),
-        (30.0, 4, 5),
+    assert [(h.area, h.site, h.players, h.alive) for h in hits] == [
+        ("BombsiteA", "A", 4, 8),
+        ("BombsiteB", "B", 4, 8),
     ]
 
 
@@ -1548,7 +1773,28 @@ def test_the_stack_thresholds_are_refused_when_they_would_break_the_rule() -> No
             bridge_void_share=BRIDGE_VOID_SHARE,
         )
     with pytest.raises(ValueError, match="is not positive"):
-        stack_hits([], groups={}, max_sample_s=MAX_SAMPLE_S, min_players=0)
+        stack_hits(
+            [],
+            groups={},
+            sample_s=STACK_SAMPLE_S,
+            max_areas=STACK_MAX_AREAS,
+            min_players=0,
+        )
+
+
+def test_an_area_bound_below_one_is_refused_by_name() -> None:
+    """The I/O matrix's last row: ``stack_max_areas`` below 1.
+
+    The error names the threshold, because the caller's next act is to open
+    ``settings.toml`` at that line. Below one the crowd would have nowhere to
+    stand: the rule could not fire on any round, and zero hits would look like
+    an observation.
+    """
+    with pytest.raises(ValueError, match="stack_max_areas"):
+        stack(at(15.0, "BombsiteB", "ct1", "ct2", "ct3", "ct4"), max_areas=0)
+    # The settings refuse it one step earlier, and there too by name.
+    with pytest.raises(ValidationError, match="stack_max_areas"):
+        ThresholdSettings(pistol_rounds=[1, 13], stack_max_areas=0)
 
 
 def test_a_group_that_is_not_a_site_is_refused() -> None:
@@ -1557,7 +1803,8 @@ def test_a_group_that_is_not_a_site_is_refused() -> None:
         stack_hits(
             at(15.0, "BombsiteB", "ct1"),
             groups={"BombsiteB": "C"},
-            max_sample_s=MAX_SAMPLE_S,
+            sample_s=STACK_SAMPLE_S,
+            max_areas=STACK_MAX_AREAS,
             min_players=1,
         )
 
@@ -1575,14 +1822,13 @@ def test_a_silenced_demo_looks_the_same_as_a_measured_negative_from_here() -> No
     dictionary. The rule still stands up to it, because it is public.
     """
     rows = at(15.0, "BombsiteB", "ct1", "ct2", "ct3", "ct4")
-    assert (
-        stack_hits(rows, groups=None, max_sample_s=MAX_SAMPLE_S, min_players=4)
-        == []
-    )
-    assert (
-        stack_hits(rows, groups={}, max_sample_s=MAX_SAMPLE_S, min_players=4)
-        == []
-    )
+    shared = {
+        "sample_s": STACK_SAMPLE_S,
+        "max_areas": STACK_MAX_AREAS,
+        "min_players": 4,
+    }
+    assert stack_hits(rows, groups=None, **shared) == []
+    assert stack_hits(rows, groups={}, **shared) == []
     # And the claim that an empty mapping cannot come out of the derivation.
     assert groups() != {}
 
@@ -1625,6 +1871,58 @@ def test_a_hit_cannot_carry_a_field_its_rule_did_not_measure() -> None:
             players=5,
             alive=4,
             site="A",
+            areas=("BombsiteA",),
+        )
+    # The crowd's areas are stack's own field, and the guard is in both
+    # directions just like ``alive`` and ``site`` (Story 4.4).
+    with pytest.raises(ValueError, match="does not say which areas"):
+        AnomalyHit(
+            rule=STACK,
+            area="BombsiteA",
+            sample_t_s=15.0,
+            players=4,
+            alive=5,
+            site="A",
+        )
+    with pytest.raises(ValueError, match="carries the stack's fields"):
+        AnomalyHit(
+            rule=CRUNCH,
+            area=T_AREA,
+            sample_t_s=6.0,
+            players=2,
+            t_share=0.9,
+            observations=30,
+            areas=(T_AREA,),
+        )
+    with pytest.raises(ValueError, match="is not the first of its areas"):
+        AnomalyHit(
+            rule=STACK,
+            area="BombsiteA",
+            sample_t_s=15.0,
+            players=4,
+            alive=5,
+            site="A",
+            areas=("House", "BombsiteA"),
+        )
+    with pytest.raises(ValueError, match="the same area twice"):
+        AnomalyHit(
+            rule=STACK,
+            area="BombsiteA",
+            sample_t_s=15.0,
+            players=4,
+            alive=5,
+            site="A",
+            areas=("BombsiteA", "BombsiteA"),
+        )
+    with pytest.raises(ValueError, match="areas but 1 players"):
+        AnomalyHit(
+            rule=STACK,
+            area="BombsiteA",
+            sample_t_s=15.0,
+            players=1,
+            alive=5,
+            site="A",
+            areas=("BombsiteA", "House"),
         )
 
 

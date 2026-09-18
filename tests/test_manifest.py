@@ -326,7 +326,15 @@ def test_threshold_change_does_not_change_parse_hash(tmp_path: Path) -> None:
 
 
 def test_parse_change_does_change_parse_hash(tmp_path: Path) -> None:
-    """A change to the snapshot points, by contrast, FORCES a reparse."""
+    """A change to the snapshot points, by contrast, FORCES a reparse.
+
+    ``stack_sample_s`` moves with the sample point, and that is the fixture
+    bending rather than the guard: since Story 4.4 the settings refuse a stack
+    sample point that is not one of ``snapshot_seconds``, because the rule
+    reads that one point and would otherwise read no row at all. A fixture
+    that moved 15 s out from under the rule and left the threshold behind
+    would be asserting a settings file the tool refuses to run.
+    """
     a = tmp_path / "a.toml"
     b = tmp_path / "b.toml"
     a.write_text(settings_text(tmp_path / "archive"), encoding="utf-8")
@@ -336,7 +344,8 @@ def test_parse_change_does_change_parse_hash(tmp_path: Path) -> None:
             **{
                 "snapshot_seconds = [6.0, 15.0, 30.0, 45.0]": (
                     "snapshot_seconds = [6.0, 20.0, 30.0, 45.0]"
-                )
+                ),
+                "stack_sample_s = 15.0": "stack_sample_s = 20.0",
             },
         ),
         encoding="utf-8",

@@ -2390,15 +2390,19 @@ def stack_round(
     round_no: int,
     *,
     site: str = "BombsiteB",
-    others: tuple[str, ...] = ("SideEntrance", "Ramp"),
+    others: tuple[str, ...] = ("SideEntrance", "SideEntrance"),
     elsewhere: tuple[str, ...] = ("BombsiteA",),
     seconds: float = 15.0,
 ) -> list[dict[str, object]]:
-    """Four CT players in the same site's group, one on the site itself.
+    """Four CT players on **two areas** of the same site's group.
+
+    Two areas and not four (Story 4.4): the rule is a concentration, so four
+    players spread over four areas of the group are an ordinary defence and
+    produce nothing.
 
     ``elsewhere`` is outside the group: it raises the number of living players
-    to five without raising the group's size -- that is, exactly the
-    difference ``4/5`` measures.
+    to five without raising the crowd -- that is, exactly the difference
+    ``4/5`` measures.
     """
     areas = (site, site, *others, *elsewhere)
     return [
@@ -3077,7 +3081,7 @@ def test_a_duplicated_sample_row_does_not_silence_the_crunch() -> None:
 
 
 def test_a_stack_anomaly_carries_the_site_its_group_and_the_survivors() -> None:
-    """The row names the site's own area, the group and the survivors.
+    """The row names the crowd's area, the group, the survivors and the areas.
 
     The denominator is **all of the side's rounds**, as with crunch: the rule
     does not know the round type, and splitting into an eco row and a default
@@ -3102,9 +3106,41 @@ def test_a_stack_anomaly_carries_the_site_its_group_and_the_survivors() -> None:
     assert [(p.sample_t_s, p.players, p.alive) for p in stack.rounds[0].points] == [
         (15.0, 4, 5)
     ]
+    # The crowd's own areas reach the row, and the row's area is the first of
+    # them (Story 4.4).
+    assert stack.rounds[0].areas == ["BombsiteB", "SideEntrance"]
     # The orientation is empty: the rule does not read it, so a figure would
     # have been invented.
     assert stack.orientation == []
+
+
+def test_a_stack_row_names_the_crowds_area_and_not_the_site() -> None:
+    """Nobody on the site itself, and the row still says where they stood.
+
+    This is the defect Story 4.4 was written for: with the old rule the report
+    said ``BombsiteB`` while all five players were in ``Alley``. Here the crowd
+    is on ``SideEntrance`` and ``Ramp``, and neither the row nor its evidence
+    names a site area -- but the group is still on the row, as ``site``.
+    """
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2),
+        stack_round(
+            demo,
+            1,
+            site="SideEntrance",
+            others=("Ramp", "Ramp"),
+            elsewhere=("BombsiteA",),
+        ),
+        demo=demo,
+        limits=thresholds(),
+        point_clouds=stack_cloud(demo),
+    )
+    stack = next(a for a in report.anomalies if a.rule == "stack")
+    assert stack.area == "Ramp"
+    assert stack.site == "B"
+    assert stack.rounds[0].areas == ["Ramp", "SideEntrance"]
+    assert "BombsiteB" not in stack.rounds[0].areas
 
 
 def test_a_stack_spanning_round_types_is_one_row() -> None:
@@ -3116,7 +3152,10 @@ def test_a_stack_spanning_round_types_is_one_row() -> None:
     demo = "Ancient_vs_x"
     report = anomaly_report(
         eco_ct(demo, 1) + eco_ct(demo, 2, 3, round_type="full"),
-        stack_round(demo, 1) + stack_round(demo, 2, seconds=30.0),
+        # Both rounds at the setup sample point: since Story 4.4 the rule
+        # reads that one point, so a second point would be a silent zero here
+        # rather than a second round type.
+        stack_round(demo, 1) + stack_round(demo, 2),
         demo=demo,
         limits=thresholds(),
         point_clouds=stack_cloud(demo),
@@ -3125,6 +3164,95 @@ def test_a_stack_spanning_round_types_is_one_row() -> None:
     assert stack.round_types == ["eco", "full"]
     assert (stack.n, stack.m) == (2, 3)
     assert [entry.round_no for entry in stack.rounds] == [1, 2]
+
+
+def test_the_row_label_is_the_first_area_and_a_tie_goes_by_name() -> None:
+    """The consequence of keying the row on the area, pinned rather than left.
+
+    The row's area is ``areas[0]``: the largest of the crowd's areas, and on a
+    tie the first by name. Two consequences follow, and both are here so that
+    a change to them is deliberate:
+
+    * On an exact tie the **alphabet** decides the label. The archive's
+      ``BackofB`` 2 + ``BombsiteB`` 2 -- the product owner's only list-1 stack
+      -- is labelled ``BackofB`` for no other reason.
+    * The label is therefore the row's **identity**: the same two-area habit
+      whose majority alternates between rounds becomes two rows of ``n=1``
+      instead of one of ``n=2``. Keying on the set of areas instead would
+      merge these and split the opposite case (the same crowd on one area on
+      one round and on two on the next); neither case occurs in the archive,
+      and ``_grouped_anomalies`` records why the area was kept.
+    """
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2),
+        # Round 1: BombsiteB 2 + Ramp 2, an exact tie -> the label is the
+        # alphabetically first. Round 2: the same pair, Ramp in the majority.
+        stack_round(demo, 1, site="BombsiteB", others=("Ramp", "Ramp"), elsewhere=())
+        + stack_round(
+            demo, 2, site="Ramp", others=("Ramp", "BombsiteB"), elsewhere=()
+        ),
+        demo=demo,
+        limits=thresholds(),
+        point_clouds=stack_cloud(demo),
+    )
+    stacks = [a for a in report.anomalies if a.rule == "stack"]
+    assert [(a.area, a.n) for a in stacks] == [("BombsiteB", 1), ("Ramp", 1)]
+    # The observation itself is not lost: both rounds name both areas.
+    assert [entry.areas for a in stacks for entry in a.rounds] == [
+        ["BombsiteB", "Ramp"],
+        ["Ramp", "BombsiteB"],
+    ]
+
+
+def test_the_same_area_in_two_groups_is_two_rows_and_not_one() -> None:
+    """A map's two demos can read the same area into different groups.
+
+    The division is derived **per demo** (AD-13) and nothing makes it agree
+    across a map's demos, so the same area can come out in different groups.
+    Since Story 4.4 the row's area is the crowd's own, so such an area can now
+    BE the row -- and grouped by area alone the row would name one site group
+    for observations made in two, with whichever hit came last silently
+    deciding.
+
+    **This is a state the derivation allows, not one the archive shows**, and
+    the difference is worth being exact about: checked over all three
+    multi-demo maps, no area is read into different A/B groups by two demos of
+    the same map. What does differ is grouped vs. ungrouped (Anubis
+    ``Middle``, Nuke ``Control`` and ``Garage``), and an ungrouped area
+    produces no hit at all. An earlier version of this docstring called the
+    collision measured; it is not.
+
+    ``House`` is the fixture's own version of the area: A's group in
+    ``SITE_CLOUD`` and B's in ``OVERLAPPING_SITE_CLOUD``. The separation guard
+    is lowered so that the second cloud speaks at all; that is the only reason
+    the threshold is moved here.
+    """
+    first = "ANCIENT_vs_a"
+    second = "Ancient_vs_b"
+    clouds = stack_cloud(first)
+    clouds[second] = [
+        CloudCell(a, x, y, z) for a, x, y, z in OVERLAPPING_SITE_CLOUD
+    ]
+    report = anomaly_report(
+        eco_ct(first, 1) + eco_ct(second, 1),
+        stack_round(
+            first, 1, site="House", others=("House", "BombsiteA"), elsewhere=()
+        )
+        + stack_round(
+            second, 1, site="House", others=("House", "BombsiteB"), elsewhere=()
+        ),
+        demo=first,
+        limits=thresholds(stack_site_separation_min=0.01),
+        orientation={first: {}, second: {}},
+        map_names={first: "de_ancient", second: "de_ancient"},
+        point_clouds=clouds,
+    )
+    stacks = [a for a in report.anomalies if a.rule == "stack"]
+    assert [(a.area, a.site, a.n) for a in stacks] == [
+        ("House", "A", 1),
+        ("House", "B", 1),
+    ]
 
 
 def test_a_silenced_demo_is_in_the_coverage_and_not_in_the_denominator() -> None:
@@ -3262,7 +3390,7 @@ def test_the_group_margin_is_a_setting_not_code() -> None:
         demo,
         1,
         site="BombsiteA",
-        others=("House", "Outside"),
+        others=("Outside", "Outside"),
         elsewhere=("BombsiteB",),
     )
 

@@ -619,7 +619,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # A literal and not the constant: comparing against the constant would be
     # a tautology -- the code wrote the value from that very constant. When the
     # version rises, this line MUST fail, so that the rise is deliberate.
-    assert data["schema_version"] == "9.0.0"
+    assert data["schema_version"] == "10.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -680,7 +680,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "9.0.0"
+    assert read_report(archive).schema_version == "10.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -2097,8 +2097,13 @@ def test_a_demo_without_anomalies_writes_an_empty_list(tmp_path: Path) -> None:
 
 
 def stack_ticks(demo: str, round_no: int) -> list[dict[str, object]]:
-    """Four CT players in B's group, the fifth on A -- one sample point."""
-    areas = ("BombsiteB", "BombsiteB", "SideEntrance", "Ramp", "BombsiteA")
+    """Four CT players on two areas of B's group, the fifth on A.
+
+    Two areas and not four (Story 4.4): the rule is a concentration, so the
+    fixture has to be one -- four players spread over the group's four areas
+    are the ordinary defence the rewrite stopped reporting.
+    """
+    areas = ("BombsiteB", "BombsiteB", "SideEntrance", "SideEntrance", "BombsiteA")
     return [
         tick_row(demo, round_no, f"{TEAM}-p{i}", area, side="CT", sample_t_s=15.0)
         for i, area in enumerate(areas)
@@ -2131,6 +2136,8 @@ def test_the_stage_reads_the_point_cloud_and_finds_the_stack(
     assert (stacks[0].area, stacks[0].site) == ("BombsiteB", "B")
     assert stacks[0].rounds[0].players_max == 4
     assert stacks[0].rounds[0].points[0].alive == 5
+    # The crowd's own areas travel the whole chain into report.json.
+    assert stacks[0].rounds[0].areas == ["BombsiteB", "SideEntrance"]
     assert report.anomaly_scan.demos_without_site_groups == []
     assert report.anomaly_scan.stack_rounds == report.anomaly_scan.crunch_rounds
     # The run's output says the same as a fraction: "4 players" on its own
@@ -2181,6 +2188,11 @@ HASHED_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
     # but its INPUT -- the site groups from the demo's point cloud -- and that
     # is exactly why they would be the easiest to forget from the hash.
     ("stack_min_players", {"stack_min_players": 5}),
+    # The stack's definition itself (Story 4.4). Both change which rounds the
+    # rule fires on: 2 -> 3 areas takes the archive from 5 rounds to 13, and
+    # 15 s -> 30 s reads the reaction to the round instead of the setup.
+    ("stack_max_areas", {"stack_max_areas": 3}),
+    ("stack_sample_s", {"stack_sample_s": 30.0}),
     ("stack_group_margin", {"stack_group_margin": 1.5}),
     ("stack_site_separation_min", {"stack_site_separation_min": 3.0}),
     # The stacked-map branch (Story 4.3).

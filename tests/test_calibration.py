@@ -10,8 +10,12 @@ environment**.
     turned into team totals by multiplying by five. These tests need nothing
     from the machine: they build the rows by hand.
 
-``kalibrointi-stack.md`` (Story 2.14)
+``kalibrointi-stack.md`` (Story 2.14) and
+``stack-saanto-mitattu-2026-09-18.md`` (Story 4.4)
     The stack rule's area grouping, coverage and hit table from eight demos.
+    The second document replaced the rule's **definition** -- not its
+    thresholds -- against 43 rounds the product owner judged blind, and the
+    hit table below was re-derived by running the new rule over the archive.
     These tests **read the real archive** (``parsed/`` and ``classified/``,
     not the demo files) and write nothing into it. They are marked
     ``@pytest.mark.archive``, so that they can be selected and excluded
@@ -1060,69 +1064,141 @@ CALIBRATION_DEMOS = (
     "inferno_vs_ryhmarama",
 )
 
-#: The calibration's numbers, from the document's section
-#: "Osumat uudelleen: 23 kierrosta 93:sta (Story 4.3, 2026-09-12)". That
-#: section supersedes "Osumat: 9 kierrosta 66:sta", which was measured while
-#: Nuke's three demos were silenced and is still in the document as the
-#: earlier reading.
-STACK_HITS = 27
-STACK_ROUNDS = 23
+#: The stack's numbers **after Story 4.4 rewrote the rule's definition**,
+#: re-derived by running the rule over the archive on 2026-09-18 and not
+#: copied from any document: 5 hits on 5 rounds of the 93 scanned.
+#:
+#: They supersede 27 hits on 23 rounds, which was the old definition's
+#: reading of the same archive -- and which the product owner read as wrong
+#: on 22 of those 23 rounds
+#: (``sokkolista-stack-2026-09-12.md``, ``sokkolista-2-ohitukset-2026-09-13.md``).
+#:
+#: One hit per round now, because the rule reads one sample point: the
+#: distinction between hits and rounds is kept all the same, since it is the
+#: structure's own (an anomaly is grouped by sample point) and a change that
+#: made the two differ must show up here.
+#:
+#: The measurement document reports **7** rounds for the same candidate rule,
+#: and the difference is known rather than a contradiction: it counted an
+#: ungrouped area as a group of its own, and this rule does not read ungrouped
+#: areas at all. The two rounds are Ancient's ``Middle`` crowds
+#: (``Ancient_vs_kaljukostaja`` 2 and 10), which sit in the map's shared
+#: middle and around neither site -- a stack is a *site* observation, and the
+#: mid concentration is a different phenomenon awaiting its own decision.
+STACK_HITS = 5
+STACK_ROUNDS = 5
 STACK_SCANNED = 93
 STACK_CT_ROUNDS = 93
 STACK_SILENCED_ROUNDS = 0
 
-#: The hit table **by sample point**: (map, demo, round, type, moment,
-#: group, players, alive). One row per hit, as in the document -- Anubis's
-#: round 4 is therefore there twice, 5/5 at 15 s and 4/5 at 30 s. That pair
-#: is exactly why a round cannot carry one maximum: as a single row it would
-#: claim five players at 30 s as well.
+#: The hit table: (map, demo, round, type, moment, group, players, alive,
+#: the crowd's areas). One row per hit, **re-derived by running the rule
+#: against the archive** on 2026-09-18 -- not copied from a document and not
+#: adjusted by hand.
+#:
+#: Every row is at 15 s, because that is what the rule reads now
+#: (``stack_sample_s``), and every row names the areas the players are
+#: really on: two of the five have nobody on the site's own area at all, and
+#: under the old definition they were silenced for exactly that reason.
+#:
+#: What the product owner said about these five rounds, blind:
+#:
+#: * ``1-a52ebff2…`` r14 (``Alley`` 5) -- *"B stack tyylinen"*
+#: * ``Anubis_vs_ryhmarama`` r4 (``BackofB`` 2 + ``BombsiteB`` 2) -- *"B stack"*
+#: * ``inferno_vs_ryhmarama`` r2 (``Middle`` 5) -- *"mid stack tai pusku"*
+#: * ``Nuke_vs_imuaijat`` r5 (``Outside`` 3 + ``Hut`` 1) -- *"pienimuotoinen stack"*
+#: * ``1-79f71e00…`` r20 (``Outside`` 3 + ``Catwalk`` 1) -- *"outside pusku"*
+#:
+#: Four stacks and one named push, and **not one round he read as normal**.
+#: The rule does not name the pattern (measured as not separable from this
+#: data), so the push is a hit here and that is deliberate.
 #:
 #: Sorted, so that the comparison is independent of the order in which the
 #: maps and the teams are processed.
 STACK_TABLE = sorted(
     [
-        ('de_ancient', '1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1', 16, 'full', 30.0, 'A', 4, 5),
-        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 13, 'pistol', 15.0, 'B', 4, 5),
-        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 15, 'full', 15.0, 'B', 4, 5),
-        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 15.0, 'B', 4, 5),
-        ('de_ancient', 'Ancient_vs_kaljukostaja', 2, 'eco', 30.0, 'A', 5, 5),
-        ('de_ancient', 'Ancient_vs_kaljukostaja', 7, 'eco', 6.0, 'A', 4, 5),
-        ('de_ancient', 'Ancient_vs_kaljukostaja', 12, 'full', 30.0, 'A', 4, 5),
-        ('de_anubis', 'Anubis_vs_ryhmarama', 4, 'eco', 15.0, 'B', 5, 5),
-        ('de_anubis', 'Anubis_vs_ryhmarama', 4, 'eco', 30.0, 'B', 4, 5),
-        ('de_anubis', 'Anubis_vs_ryhmarama', 11, 'full', 15.0, 'B', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 13, 'pistol', 15.0, 'A', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 14, 'full', 15.0, 'A', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 15, 'full', 15.0, 'A', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 17, 'full', 15.0, 'A', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 17, 'full', 30.0, 'A', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 18, 'full', 15.0, 'A', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 19, 'full', 30.0, 'A', 4, 4),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 22, 'full', 15.0, 'A', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 23, 'full', 15.0, 'A', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 26, 'ot', 15.0, 'A', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 26, 'ot', 30.0, 'A', 4, 5),
-        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 27, 'ot', 15.0, 'A', 4, 5),
-        ('de_nuke', 'Nuke_vs_imuaijat', 1, 'pistol', 15.0, 'A', 4, 5),
-        ('de_nuke', 'Nuke_vs_imuaijat', 4, 'full', 15.0, 'A', 4, 5),
-        ('de_nuke', 'Nuke_vs_imuaijat', 4, 'full', 30.0, 'A', 4, 5),
-        ('de_nuke', 'Nuke_vs_imuaijat', 9, 'full', 30.0, 'A', 4, 4),
-        ('de_nuke', 'Nuke_vs_imuaijat', 10, 'full', 30.0, 'A', 4, 4),
+        ('de_ancient', '1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1', 14, 'eco', 15.0, 'B', 5, 5, ('Alley',)),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 4, 'eco', 15.0, 'B', 4, 5, ('BackofB', 'BombsiteB')),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 15.0, 'A', 5, 5, ('Middle',)),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 20, 'eco', 15.0, 'A', 4, 5, ('Outside', 'Catwalk')),
+        ('de_nuke', 'Nuke_vs_imuaijat', 5, 'eco', 15.0, 'A', 4, 5, ('Outside', 'Hut')),
     ]
 )
 
-#: How many hits arise if MORE than one player is required to be on the
-#: site's OWN area: (requirement, rounds, hits). Measured 2026-09-03,
-#: re-measured 2026-09-12 when Story 4.3 brought Nuke's 27 rounds into the
-#: denominator -- the figures were 9/66/10, 5/66/5 and 2/66/2 while they
-#: were a blind spot.
+#: The rounds the product owner read as **not a stack** that the rule starts
+#: reporting when the area bound is loosened by one, 2 -> 3. The demo and the
+#: round number come from the two blind lists' keys and his verdicts from
+#: their answer tables; the rule's own answer is measured in the test.
 #:
-#: The table is here so that the choice "one is enough" is **deliberate and
-#: not a default**: its alternatives have been measured, and their price is
-#: visible. Of the 27 hits, **twenty** have exactly one player on the site,
-#: five have two and two have three, so tightening it to two would not
-#: remove noise but three of every four observations.
-SITE_PRESENCE_TABLE = ((1, 23, 27), (2, 7, 7), (3, 2, 2))
+#: This table is the guard that keeps ``stack_max_areas`` honest: a threshold
+#: whose looser value costs nothing is not a measured threshold. All eight
+#: rounds added at 3 are rounds he judged normal -- a subset of
+#: :data:`JUDGED_NOT_A_STACK_IN_SCOPE`, and the test asserts that too, so the
+#: two tables cannot drift apart.
+#:
+#: The measurement document's figure for the same change is **9**, and the
+#: difference is the population and not a disagreement: it counts all 43
+#: judged rounds, of which 11 are the opponent's and outside this rule's
+#: scope.
+JUDGED_NOT_A_STACK_AT_THREE_AREAS = (
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 16),  # list 2 L, "normi"
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 26),  # list 1 H, "normaali"
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 27),  # list 1 W, "normaali"
+    ("ANCIENT_vs_RCAVE_VETERANS", 13),  # list 1 F, "aika normaalilta"
+    ("ANCIENT_vs_RCAVE_VETERANS", 18),  # list 1 A, "hajallaan"
+    ("Anubis_vs_ryhmarama", 1),  # list 2 C, "ei ihan stack ainakaan"
+    ("Anubis_vs_ryhmarama", 11),  # list 1 G, "pieni b painotus"
+    ("Nuke_vs_imuaijat", 4),  # list 1 S, "normaali"
+)
+
+#: Every round **inside the rule's scope** that the product owner read as not
+#: a stack: 21 of blind list 1 and 5 of blind list 2, with the list letter
+#: beside each. The other 7 of his 33 "not a stack" verdicts are the
+#: opponent's CT rounds, which the rule cannot scan -- naming the population
+#: is the whole point of this constant, because the first version of this
+#: story's text used the 43-round figures as if they were the rule's own.
+#:
+#: Three of them are **hedged** rather than flat: 1A *"ei (osittainen)"*,
+#: 1F *"ei ... toki tämäkin on hyödyllistä tietoa, koska se on oletettava
+#: pieni stack sille puolelle"* and 2C *"ei ihan stack ainakaan"*. They are
+#: kept on the list -- his answer to "is this a stack" was no in all three --
+#: and the hedging is recorded rather than smoothed away.
+JUDGED_NOT_A_STACK_IN_SCOPE = (
+    ("ANCIENT_vs_RCAVE_VETERANS", 18),  # 1A, hedged: "ei (osittainen)"
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 14),  # 1B
+    ("1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1", 16),  # 1C
+    ("Nuke_vs_imuaijat", 10),  # 1D
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 22),  # 1E
+    ("ANCIENT_vs_RCAVE_VETERANS", 13),  # 1F, hedged: "oletettava pieni stack"
+    ("Anubis_vs_ryhmarama", 11),  # 1G
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 26),  # 1H
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 23),  # 1I
+    ("Ancient_vs_kaljukostaja", 7),  # 1J
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 18),  # 1K
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 15),  # 1L
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 19),  # 1M
+    ("Nuke_vs_imuaijat", 1),  # 1O
+    ("Ancient_vs_kaljukostaja", 12),  # 1P
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 17),  # 1R
+    ("Nuke_vs_imuaijat", 4),  # 1S
+    ("Nuke_vs_imuaijat", 9),  # 1T
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 13),  # 1U
+    ("ANCIENT_vs_RCAVE_VETERANS", 15),  # 1V
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 27),  # 1W
+    ("Anubis_vs_ryhmarama", 1),  # 2C, hedged: "ei ihan stack ainakaan"
+    ("Nuke_vs_imuaijat", 11),  # 2E
+    ("1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1", 16),  # 2L
+    ("Ancient_vs_kaljukostaja", 8),  # 2P
+    ("1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1", 18),  # 2Q
+)
+
+#: The rounds the rule reports once the area bound stops binding (4 or 5
+#: areas: five players cannot occupy more than five). Measured 2026-09-18.
+UNBOUNDED_STACK_ROUNDS = 24
+
+#: What the 6 s sample point would measure instead: the walk out of spawn.
+#: 34 rounds of 93, measured 2026-09-18 by running the rule at that point.
+STACK_ROUNDS_AT_THE_SPAWN_EXIT = 34
 
 
 def _real_settings():
@@ -1181,7 +1257,12 @@ def _stack_reports(root: Path, limits: ThresholdSettings | None = None):
 
 
 def _stack_points(reports) -> list[tuple]:
-    """All the reports' stack hits by sample point, sorted."""
+    """All the reports' stack hits by sample point, sorted.
+
+    The crowd's areas are part of the row (Story 4.4): without them the table
+    would pin how many players were seen but not where -- which is exactly
+    what the old rule got wrong.
+    """
     found = []
     for report in reports:
         for anomaly in report.anomalies:
@@ -1199,6 +1280,7 @@ def _stack_points(reports) -> list[tuple]:
                             anomaly.site,
                             point.players,
                             point.alive,
+                            tuple(point.areas),
                         )
                     )
     return sorted(found)
@@ -1352,20 +1434,50 @@ def test_every_other_map_does_give_site_groups() -> None:
 def test_the_stack_rule_finds_exactly_the_calibrated_sample_points() -> None:
     """The calibration's hit table row by row, from both teams.
 
-    The table is **by sample point** and not by round, and Anubis's round 4
-    is therefore there twice: 5/5 at 15 s and 4/5 at 30 s. That pair is
-    exactly what would break a structure carrying one maximum per round.
+    The table is **by sample point** and not by round; that the two now give
+    the same count is a property of the rule and not of the table.
 
     **The subject's rows are identified from the lineup ids**, not from the
     ``classified/`` directory's name: the same demo is in the archive twice,
     once for each team, and the wrong source gave 7 hits out of 59 rounds in
     the calibration's first version -- from the opponent's rounds.
+
+    Since Story 4.4 the table is one row per round, because the rule reads one
+    sample point; Anubis round 4 was the pair 15 s / 30 s that this structure
+    was built for, and it is now its 15 s row alone.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
+    limits = _real_settings().thresholds
     found = _stack_points(_stack_reports(root))
     assert found == STACK_TABLE
     assert len(found) == STACK_HITS
     assert len({(row[1], row[2]) for row in found}) == STACK_ROUNDS
+    # Every row is checked against the SHIPPED thresholds and against the
+    # demo's own derived groups.
+    #
+    # **What this loop does and does not prove.** Three of the four threshold
+    # comparisons are true by construction -- the rule writes ``sample_t_s``
+    # from ``stack_sample_s``, and the player and area bounds are its own
+    # filters -- so they catch a changed setting that the table above did not
+    # follow, and nothing else. The claim that once stood here, that a table
+    # edited to match a broken rule would fail here, is false: measured under
+    # a mutated rule (``<=`` instead of the sample point) all of them hold
+    # while 35 wrong rows are emitted.
+    #
+    # The group membership below is the part that is **not** enforced
+    # anywhere in the pipeline: ``Anomaly`` cannot check it (the area ->
+    # group map is derived per demo and is not in the report, see
+    # ``_check_stack_fields``), and the rule reads one group at a time, so a
+    # row whose areas came from two groups could only ever be caught here.
+    for row in found:
+        _, demo, _, _, seconds, site, players, alive, areas = row
+        assert seconds == limits.stack_sample_s
+        assert players >= limits.stack_min_players
+        assert 0 < len(areas) <= limits.stack_max_areas
+        assert players <= alive
+        groups = _site_groups(root, demo, limits)
+        assert groups is not None
+        assert {groups.get(area) for area in areas} == {site}
 
 
 @pytest.mark.archive
@@ -1452,8 +1564,12 @@ def test_five_defenders_are_the_rules_real_extreme_not_an_empty_set() -> None:
     """``stack_min_players = 5`` gives 2 rounds, not 0.
 
     The threshold is therefore **genuinely read from the settings** and not
-    hard-coded, and five is the rule's genuine extreme: Ancient's
-    kaljukostaja round 2 and Anubis's ryhmarama round 4.
+    hard-coded, and five is the rule's genuine extreme: the two rounds on
+    which the whole defence stands on one area (``Alley`` and ``Middle``).
+
+    It is also why the threshold stays at **four**: the product owner's only
+    stack on the first blind list is ``Anubis_vs_ryhmarama`` round 4, which
+    is four players, and five would drop exactly it.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
     limits = _real_settings().thresholds.model_copy(
@@ -1461,49 +1577,118 @@ def test_five_defenders_are_the_rules_real_extreme_not_an_empty_set() -> None:
     )
     rounds = {(row[1], row[2]) for row in _stack_points(_stack_reports(root, limits))}
     assert sorted(rounds) == [
-        ("Ancient_vs_kaljukostaja", 2),
-        ("Anubis_vs_ryhmarama", 4),
+        ("1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1", 14),
+        ("inferno_vs_ryhmarama", 2),
     ]
+    at_four = {(row[1], row[2]) for row in _stack_points(_stack_reports(root))}
+    assert ("Anubis_vs_ryhmarama", 4) in at_four - rounds
 
 
 @pytest.mark.archive
-@pytest.mark.parametrize(
-    "required,rounds,hits", SITE_PRESENCE_TABLE, ids=lambda v: str(v)
-)
-def test_requiring_more_players_on_the_site_itself_halves_the_hits(
-    required: int, rounds: int, hits: int
-) -> None:
-    """Why **one** player on the site's own area is enough.
+def test_the_rule_fires_on_none_of_the_rounds_he_read_as_normal() -> None:
+    """The story's central claim, over the population the rule can scan.
 
-    The rule requires at least one. The alternatives have been measured, and
-    they are here as a table, so that the choice is deliberate and not a
-    default: with two players there are 7 hits and with three 2. Tightening
-    it would therefore not remove noise but strip the observations to a
-    handful -- 27 down to 7 down to 2 -- and the
-    number of players is on the row in any case, so the reader judges for
-    themselves.
+    Twenty-six of the product owner's "not a stack" verdicts are the
+    subject's own CT rounds. The shipped rule fires on **none** of them, and
+    the five rounds it does report are four of his stack-like rounds and one
+    he named a push. Nothing else in the suite states this: the hit table
+    pins what the rule found, and this pins what it did not.
 
-    The number is computed **from the same hits in the same archive**, so the
-    test fails if the alternative's price changes without the table changing.
+    The other 7 of his 33 "not a stack" verdicts are the opponent's CT
+    rounds. They are not asserted here, because the rule cannot scan them --
+    that is the population correction this story's text needed.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
-    on_site = _players_on_the_site(root, _stack_reports(root))
-    kept = [entry for entry in on_site if entry[2] >= required]
-    assert len(kept) == hits
-    assert len({(demo, round_no) for demo, round_no, _ in kept}) == rounds
+    found = {(row[1], row[2]) for row in _stack_points(_stack_reports(root))}
+    assert len(JUDGED_NOT_A_STACK_IN_SCOPE) == 26
+    assert found & set(JUDGED_NOT_A_STACK_IN_SCOPE) == set()
+    assert sorted(JUDGED_NOT_A_STACK_AT_THREE_AREAS) == sorted(
+        set(JUDGED_NOT_A_STACK_AT_THREE_AREAS) & set(JUDGED_NOT_A_STACK_IN_SCOPE)
+    )
 
 
-def _players_on_the_site(root: Path, reports) -> list[tuple[str, int, int]]:
-    """``(demo, round, how many on the site)`` for every stack hit.
+@pytest.mark.archive
+def test_one_more_area_starts_reporting_the_rounds_he_read_as_normal() -> None:
+    """Why ``stack_max_areas`` is 2, measured against his own judgements.
 
-    The rule requires at least one player on the site's **own** area; this
-    counts how many there really were. The subject's rows are identified from
-    the lineup ids, the way the aggregation identifies them -- the same demo
-    is in the archive twice, and read from the directory name half of the
-    rows would be the opponent's.
+    The bound is the condition the whole rewrite turns on, so its price has
+    to be visible: loosened by one, the rule reports 13 rounds instead of 5,
+    and **every one of the eight added rounds is a round the product owner
+    read as not a stack** -- "normi", "normaali", "ei ihan stack ainakaan".
+
+    This is the guard that keeps the threshold honest. A pinned count alone
+    would stay green if the rule started firing on other rounds instead; the
+    named rounds are what tie the number to his answers.
+
+    The other side of the bound is in
+    ``test_five_defenders_are_the_rules_real_extreme_not_an_empty_set`` and in
+    the rule's own tests: at 1 the rule finds only the two one-area rounds and
+    loses his ``BackofB`` + ``BombsiteB`` stack.
     """
+    root = require_parsed(*CALIBRATION_DEMOS)
+
+    def rounds(value: int) -> set[tuple[str, int]]:
+        limits = _real_settings().thresholds.model_copy(
+            update={"stack_max_areas": value}
+        )
+        return {(row[1], row[2]) for row in _stack_points(_stack_reports(root, limits))}
+
+    at_two = {(row[1], row[2]) for row in _stack_points(_stack_reports(root))}
+    at_three = rounds(3)
+    assert len(at_two) == STACK_ROUNDS
+    assert at_two < at_three
+    assert sorted(at_three - at_two) == sorted(JUDGED_NOT_A_STACK_AT_THREE_AREAS)
+    # The looser values are pinned too, and not only the neighbour: at 4 and
+    # at 5 the bound stops excluding anything the archive contains, and the
+    # rule then reports 24 rounds -- 18 of them rounds he read as normal.
+    # Five is therefore not "useless but harmless": it is the definition this
+    # story replaced, and the settings say so where the value is chosen.
+    assert len(rounds(4)) == len(rounds(5)) == UNBOUNDED_STACK_ROUNDS
+    assert len(rounds(4) & set(JUDGED_NOT_A_STACK_IN_SCOPE)) == 18
+    # And the tight side: one area finds only the two one-area crowds and
+    # loses his BackofB + BombsiteB stack, which is why the bound is 2.
+    assert rounds(1) < at_two
+    assert ("Anubis_vs_ryhmarama", 4) in at_two - rounds(1)
+
+
+@pytest.mark.archive
+def test_the_setup_point_is_not_the_walk_out_of_spawn() -> None:
+    """Why ``stack_sample_s`` is 15 s and not the first sample point.
+
+    At 6 s the rule would fire on 34 rounds of 93 -- on Nuke nearly every
+    round, where ``Hell`` and ``Outside`` are simply the way out of spawn.
+    The players have not had time to spread out, so the measurement would be
+    the map's own geometry and not the defence's choice.
+
+    The number is measured here rather than argued: a sample point that costs
+    nothing to move is not a measured setting.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    limits = _real_settings().thresholds.model_copy(update={"stack_sample_s": 6.0})
+    rounds = {(row[1], row[2]) for row in _stack_points(_stack_reports(root, limits))}
+    assert len(rounds) == STACK_ROUNDS_AT_THE_SPAWN_EXIT
+    assert len(rounds) > STACK_ROUNDS
+
+
+@pytest.mark.archive
+def test_the_hits_stand_where_the_players_really_are() -> None:
+    """Every row's areas are read back from the archive's own ticks.
+
+    The row's area is the crowd's own since Story 4.4, and this is the test
+    that the report does not invent it: for every hit, the players standing on
+    the named areas at the named sample point are counted from
+    ``ticks.parquet`` -- and they have to be the row's own player count.
+
+    It also pins the part the old rule got wrong: **four of the five rounds
+    have nobody at all on the site's own area** -- the old onsite condition
+    would silence all four, and three of them are rounds the product owner
+    named a stack. Only ``Anubis_vs_ryhmarama`` round 4 has a player there.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    reports = _stack_reports(root)
     cache: dict[str, pl.DataFrame] = {}
-    found: list[tuple[str, int, int]] = []
+    without_anybody_on_the_site = 0
+    hits = 0
     for report in reports:
         lineups = list(report.team.lineup_keys)
         for anomaly in report.anomalies:
@@ -1522,13 +1707,18 @@ def _players_on_the_site(root: Path, reports) -> list[tuple[str, int, int]]:
                     & (pl.col("side") == "CT")
                     & (pl.col("sample_kind") == "time")
                     & pl.col("is_alive").fill_null(False)
-                    & (pl.col("area") == site)
                 )
                 for point in entry.points:
+                    hits += 1
                     at_point = rows.filter(
                         pl.col("sample_t_s") == point.sample_t_s
                     )
-                    found.append(
-                        (demo, entry.round_no, at_point["player_id"].n_unique())
+                    on_the_areas = at_point.filter(
+                        pl.col("area").is_in(point.areas)
                     )
-    return found
+                    assert on_the_areas["player_id"].n_unique() == point.players
+                    assert at_point["player_id"].n_unique() == point.alive
+                    if at_point.filter(pl.col("area") == site).is_empty():
+                        without_anybody_on_the_site += 1
+    assert hits == STACK_HITS
+    assert without_anybody_on_the_site == 4

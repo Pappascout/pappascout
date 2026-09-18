@@ -776,6 +776,14 @@ def test_threshold_values(settings_file: Path) -> None:
     assert t.stack_min_players == 4
     assert t.stack_group_margin == 1.25
     assert t.stack_site_separation_min == 2.0
+    # The stack's definition (Story 4.4), measured against 43 rounds the
+    # product owner judged blind (``stack-saanto-mitattu-2026-09-18.md``).
+    # Both are bounded from BOTH sides by his own answers: at 1 area the rule
+    # finds 3 of his 8 stacks, at 3 it fires on 9 rounds he read as normal; at
+    # 6 s it measures the walk out of spawn, at 30 s the reaction to the
+    # round.
+    assert t.stack_max_areas == 2
+    assert t.stack_sample_s == 15.0
     # The stacked-map branch (Story 4.3), on the same grounds: each was
     # measured over the archive on 2026-09-12 and changing one without
     # changing this test would mean the rationale went unread.
@@ -882,6 +890,37 @@ def test_an_anomaly_player_minimum_above_the_server_is_refused(key: str) -> None
     """
     with pytest.raises(ValidationError, match="players on the server"):
         ThresholdSettings(pistol_rounds=[1, 13], **{key: 6})
+
+
+def test_an_area_bound_above_the_server_is_refused() -> None:
+    """A ceiling above the number of players never binds.
+
+    The direction is the opposite of the player minimums above, which is why
+    it is not on that list: five players can stand on five areas at most, so
+    from six upwards the concentration bound would exclude nothing.
+
+    **Five is allowed, and the reason is not that it is harmless.** Measured
+    against the product owner's 43 judgements, five *is* the rule Story 4.4
+    replaced: it fires on 21 of his 33 "not a stack" rounds. What this guard
+    stops is the value that cannot bind at all, which is a settings mistake;
+    choosing 2 over 5 is calibration, and calibration lives in
+    ``settings.toml`` and in the archive tests, not in a range check. A model
+    that refused 5 would be deciding the calibration in the wrong layer --
+    the same reason ``stack_min_players = 5`` is allowed although 4 is what
+    is measured.
+    """
+    with pytest.raises(ValidationError, match="could never exclude"):
+        ThresholdSettings(pistol_rounds=[1, 13], stack_max_areas=6)
+    assert (
+        ThresholdSettings(pistol_rounds=[1, 13], stack_max_areas=5).stack_max_areas
+        == 5
+    )
+
+
+def test_an_area_bound_below_one_is_refused() -> None:
+    """Below one the crowd would have nowhere to stand."""
+    with pytest.raises(ValidationError, match="stack_max_areas"):
+        ThresholdSettings(pistol_rounds=[1, 13], stack_max_areas=0)
 
 
 def test_five_defenders_is_a_valid_stack_threshold() -> None:
@@ -1016,6 +1055,71 @@ def test_a_time_bound_at_the_first_sample_point_is_allowed(
         **{"advance_max_sample_s = 30.0": "advance_max_sample_s = 6.0"},
     )
     assert load_settings(target).thresholds.advance_max_sample_s == 6.0
+
+
+def test_a_stack_sample_point_that_is_not_a_sample_point_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The stack reads ONE point, so a value between the points reads nothing.
+
+    The hazard is not the same as the time bound's above and that is why it
+    needs its own check: a bound that is too small silences the two
+    orientation rules, while ``stack_sample_s = 16.0`` selects no row at all
+    -- and the coverage would still report every CT round as scanned. A blind
+    spot read out as "no stacks".
+
+    16.0 and not 60.0, because the model's own range already stops values
+    outside 0..60: the gap this closes is **inside** the range, between two
+    sample points, where nothing else looks wrong.
+    """
+    target = _write_variant(
+        tmp_path, **{"stack_sample_s = 15.0": "stack_sample_s = 16.0"}
+    )
+    with pytest.raises(SettingsError, match="is not one of the parse.snapshot_seconds"):
+        load_settings(target)
+
+
+def test_moving_the_sample_points_under_the_stack_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The other direction, and the one nothing would have shown.
+
+    ``[parse].snapshot_seconds`` is nowhere near the stack block, so changing
+    it alone used to silence the rule silently. The guard is between the
+    sections precisely because neither of them can see this by itself.
+    """
+    target = _write_variant(
+        tmp_path,
+        **{
+            "snapshot_seconds = [6.0, 15.0, 30.0, 45.0]": (
+                "snapshot_seconds = [6.0, 20.0, 30.0, 45.0]"
+            )
+        },
+    )
+    with pytest.raises(SettingsError, match="stack_sample_s"):
+        load_settings(target)
+
+
+def test_the_stack_sample_point_moves_with_the_sample_points(
+    tmp_path: Path,
+) -> None:
+    """The guard's other branch: both moved together is a valid settings file.
+
+    Without this the pair above would be satisfied by a check that refuses
+    every value, and the rule's sample point is a **setting** -- 30 s is a
+    thing somebody may legitimately want to measure, even though 15 s is what
+    is calibrated.
+    """
+    target = _write_variant(
+        tmp_path,
+        **{
+            "snapshot_seconds = [6.0, 15.0, 30.0, 45.0]": (
+                "snapshot_seconds = [6.0, 20.0, 30.0, 45.0]"
+            ),
+            "stack_sample_s = 15.0": "stack_sample_s = 20.0",
+        },
+    )
+    assert load_settings(target).thresholds.stack_sample_s == 20.0
 
 
 @pytest.mark.parametrize(

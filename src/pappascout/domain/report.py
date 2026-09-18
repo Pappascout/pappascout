@@ -242,7 +242,23 @@ __all__ = [
 #: again". A default would have been worse than a hard failure: it would have
 #: had to invent bucket counts, and the only honest invention -- everything
 #: ``unknown`` -- is indistinguishable from a measured all-unknown archive.
-REPORT_SCHEMA_VERSION = "9.0.0"
+#:
+#: **10.0.0 (Story 4.4): the stack rule's definition changed, and with it the
+#: meaning of a field that kept its name.** Two changes, and the second is the
+#: reason the version had to move even though the first would have sufficed:
+#:
+#: * :attr:`AnomalyPoint.areas` is **required on every stack row**, so every
+#:   ``report.json`` written before this story fails to validate -- measured:
+#:   the archive's own files die at ``anomalies.3``. That is the mechanical
+#:   half, and on its own it is the familiar "run aggregate again" case.
+#: * :attr:`Anomaly.area` **changed meaning on stack** from the site's own
+#:   area (``BombsiteA`` / ``BombsiteB``) to the area the crowd stood on. An
+#:   old file would be read with the new meaning: the reader would take
+#:   ``BombsiteB`` as "this is where they were standing", which is precisely
+#:   what the old rule did not measure. A field that keeps its name and
+#:   changes its meaning is the most dangerous change this constant exists
+#:   for, because nothing else in the file shows it.
+REPORT_SCHEMA_VERSION = "10.0.0"
 
 
 #: Characters that a file name will not take. The slug is an ASCII subset,
@@ -1541,31 +1557,62 @@ class AnomalyPoint(_Node):
     Attributes:
         sample_t_s: The sample point's nominal time in seconds.
         players: The player count at **this** sample point -- not the round's
-            largest.
+            largest. On stack it is the crowd standing on this point's
+            ``areas`` and not everybody in the site's group: the two differ
+            whenever the group holds players outside the areas the rule
+            named.
         alive: The subject's living CT players at this sample point. **Only on
             stack**, and there at every point: four out of five and four out
             of four are a different observation, and the player count alone
             does not tell them apart. On the two other rules the figure would
             be invented -- neither of them counts the living.
+        areas: The areas the crowd was standing on at this sample point, the
+            largest first. **Only on stack**, and there never empty: the rule
+            is a concentration ("four players on at most two areas"), so
+            without the areas the row would report a crowd without saying
+            where it stood -- and until Story 4.4 the row named the site's own
+            area even when nobody was on it. The list is per sample point for
+            the same reason as ``players``: where the defence stands at 15 s
+            is an observation of that moment and of no other.
     """
 
     sample_t_s: float
     players: int = Field(gt=0)
     alive: int | None = Field(default=None, gt=0)
+    areas: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_point(self) -> AnomalyPoint:
-        """Those in the group are a subset of those alive.
+        """The crowd is a subset of those alive.
 
         Raises:
-            ValueError: If there are more players than living ones. That is
-                not a stricter observation but a broken one.
+            ValueError: If there are more players than living ones, if an area
+                is named twice or is nameless, or if there are more areas than
+                players. Each is a broken observation and not a stricter one:
+                every area on the list holds at least one of the crowd.
         """
         if self.alive is not None and self.alive < self.players:
             raise ValueError(
                 f"At sample point {self.sample_t_s:g} s there are "
-                f"{self.players} players but {self.alive} alive. Those in the "
-                "group are a subset of those alive."
+                f"{self.players} players but {self.alive} alive. The crowd "
+                "is a subset of those alive."
+            )
+        if len(set(self.areas)) != len(self.areas):
+            raise ValueError(
+                f"At sample point {self.sample_t_s:g} s the same area is "
+                f"named twice ({self.areas}). One area is one place."
+            )
+        if any(not name.strip() for name in self.areas):
+            raise ValueError(
+                f"At sample point {self.sample_t_s:g} s there is a nameless "
+                f"area among the crowd's areas ({self.areas}). A nameless "
+                "area is not a place the defence can stand on."
+            )
+        if len(self.areas) > self.players:
+            raise ValueError(
+                f"At sample point {self.sample_t_s:g} s there are "
+                f"{len(self.areas)} areas but {self.players} players. Every "
+                "area on the list holds at least one of them."
             )
         return self
 
@@ -1623,6 +1670,28 @@ class AnomalyRound(_Node):
     def points_without_alive(self) -> list[AnomalyPoint]:
         """The sample points that do not give the number of the living."""
         return [point for point in self.points if point.alive is None]
+
+    @property
+    def points_without_areas(self) -> list[AnomalyPoint]:
+        """The sample points that do not say where the crowd stood."""
+        return [point for point in self.points if not point.areas]
+
+    @property
+    def areas(self) -> list[str]:
+        """The areas the crowd stood on during the round, largest first.
+
+        **The union across the round's sample points and not one of them**:
+        the same defence can move between two points, and a list read from one
+        of them would name a place the other did not see. The order is each
+        point's own (the largest area first), first occurrence first -- a
+        sorted list would put the crowd's own area anywhere on the row.
+        """
+        found: list[str] = []
+        for point in self.points:
+            for name in point.areas:
+                if name not in found:
+                    found.append(name)
+        return found
 
     @model_validator(mode="after")
     def _check_round(self) -> AnomalyRound:
@@ -1682,6 +1751,18 @@ class AnomalyRound(_Node):
                 "of them or on none -- otherwise the same row would set two "
                 "different units."
             )
+        # The crowd's areas are all-or-none for the same reason (Story 4.4).
+        # Half a row would name the places at one sample point and leave the
+        # other bare, and the round's own area list -- which the report's row
+        # is written from -- would then be an observation of part of the
+        # round presented as one of the whole.
+        placeless = len(self.points_without_areas)
+        if placeless not in (0, len(self.points)):
+            raise ValueError(
+                f"{where}: {placeless} sample points out of "
+                f"{len(self.points)} do not say which areas the crowd stood "
+                "on. The list is on all of them or on none."
+            )
         return self
 
 
@@ -1723,15 +1804,23 @@ class Anomaly(_Node):
             row states the side and the reader must not have to infer it from
             the rule's name.
         area: The game's own ``env_cs_place`` area. **Never empty**: an area
-            without a name cannot be T territory. On stack it is **the site's
-            own area** (``BombsiteA`` / ``BombsiteB``), which is the group's
-            anchor and the rule's extra condition -- not the area that held
-            the most players.
+            without a name cannot be T territory. On stack it is the **label**
+            of the row: the first of the crowd's own areas -- the largest of
+            them, and on a tie the first by name. It is not a claim that most
+            of the crowd stood there (measured: ``BackofB`` 2 + ``BombsiteB``
+            2 is labelled ``BackofB`` by the alphabet), and the observation is
+            in the rounds' own ``areas``. Until Story 4.4 the label was the
+            site's own area (``BombsiteA`` / ``BombsiteB``) even when nobody
+            stood there, and the row then said ``BombsiteB`` while all five
+            players were in ``Alley``.
         site: The site group, ``"A"`` or ``"B"``. **Only on stack.** The field
-            is in the structure although ``area`` determines it: a reader of
-            ``report.json`` should not have to infer from the string
-            ``"BombsiteB"`` that this is about group B, and the model enforces
-            that the two cannot disagree.
+            no longer follows from ``area`` -- the crowd's own area can be any
+            area of the group -- so it is the row's own observation: which
+            site's group the defence piled into. It is also part of the row's
+            identity: two rows can share an area and differ here.
+            ``_check_stack_fields`` enforces what this model can see of the
+            agreement between the two, which is **less than the whole**: see
+            that method.
         round_types: The round types on which the anomaly was observed, in
             ``ROUND_TYPES`` order. Exactly one on advance.
         rounds: The rounds with their observations. "When", "from where" and
@@ -1865,19 +1954,45 @@ class Anomaly(_Node):
     def _check_stack_fields(self) -> None:
         """Stack's fields belong to stack, and the others do not carry them.
 
-        Three fields separate stack from the two other rules, and each of them
-        is here in both directions: ``site`` and ``AnomalyPoint.alive`` are
-        stack's observations, ``orientation`` is not. Without the guard a row
-        could carry a figure its rule did not measure -- and a reader of the
-        report does not see a field's source, only its value.
+        Four fields separate stack from the two other rules, and each of them
+        is here in both directions: ``site``, ``AnomalyPoint.alive`` and
+        ``AnomalyPoint.areas`` are stack's observations, ``orientation`` is
+        not. Without the guard a row could carry a figure its rule did not
+        measure -- and a reader of the report does not see a field's source,
+        only its value.
+
+        **The group and the area no longer determine each other** (Story 4.4):
+        the row's area is the one the crowd stood on, which is any area of the
+        group, so the old equality ``SITE_AREAS[site] == area`` is gone.
+
+        **What is checked here is narrower than "the areas belong to the
+        group", and the limit is stated rather than implied.** The area ->
+        group mapping is derived per demo (``domain.sampling.site_groups``)
+        and is not in the report, so this model cannot look an area up. Two
+        things it can see, and they are what it enforces:
+
+        * the row's area is one of its own evidence's areas -- a summary
+          cannot name a place its rounds did not see;
+        * no area named on the row is the **other** group's own site, which is
+          decidable because a site's own area is always in its own group.
+
+        Everything else passes: ``site='B'`` with areas ``['MainHall',
+        'House']`` -- both Ancient's A group -- is **accepted here**. That the
+        areas are really of one group is the rule's invariant
+        (:func:`~pappascout.domain.sampling.stack_hits` reads one group's
+        areas at a time), and the archive-wide check that they are is in
+        ``tests/test_calibration.py``.
 
         Raises:
             ValueError: If a field is on the wrong rule, is missing from its
-                own, or if ``site`` and ``area`` disagree about which site
-                this is.
+                own, or if ``site`` and the row's areas contradict each other
+                in one of the two ways above.
         """
         without_alive = [
             entry for entry in self.rounds if entry.points_without_alive
+        ]
+        without_areas = [
+            entry for entry in self.rounds if entry.points_without_areas
         ]
         if self.rule != "stack":
             if self.site is not None:
@@ -1893,6 +2008,13 @@ class Anomaly(_Node):
                     "The figure would look measured but would not concern "
                     "this row."
                 )
+            if len(without_areas) != len(self.rounds):
+                raise ValueError(
+                    f"The rule {self.rule} in area {self.area!r} names the "
+                    "areas the crowd stood on, although only stack measures "
+                    "a concentration. The list would look measured but would "
+                    "not concern this row."
+                )
             return
         if self.site not in SITE_AREAS:
             raise ValueError(
@@ -1901,13 +2023,48 @@ class Anomaly(_Node):
                 "The group is the row's anchor, and it cannot be left "
                 "unnamed."
             )
-        if SITE_AREAS[self.site] != self.area:
+        if without_areas:
             raise ValueError(
-                f"The stack's site group {self.site!r} and area {self.area!r} "
-                f"disagree: the group's own area is "
-                f"{SITE_AREAS[self.site]!r}. The field is in the structure "
-                "only so that the reader does not have to infer the group "
-                "from the area name, so the two have to say the same thing."
+                f"The stack in area {self.area!r} carries rounds that do not "
+                "say which areas the players were standing on "
+                f"({sorted(entry.round_no for entry in without_areas)}). The "
+                "rule is a concentration -- four players on at most two areas "
+                "-- so a row without the areas reports a crowd without "
+                "saying where it stood."
+            )
+        elsewhere = [
+            entry
+            for entry in self.rounds
+            if self.area not in entry.areas
+        ]
+        if elsewhere:
+            raise ValueError(
+                f"The stack's area {self.area!r} is not among the areas of "
+                f"the rounds "
+                f"{sorted(entry.round_no for entry in elsewhere)}. The row's "
+                "area is the one the crowd stood on, so it has to be in the "
+                "evidence the row was assembled from."
+            )
+        other_site = {
+            name: group
+            for group, name in SITE_AREAS.items()
+            if group != self.site
+        }
+        strays = sorted(
+            {
+                name
+                for entry in self.rounds
+                for name in entry.areas
+                if name in other_site
+            }
+        )
+        if strays:
+            raise ValueError(
+                f"The stack of site group {self.site!r} in area "
+                f"{self.area!r} stands on {strays}, which is the other "
+                "group's own site. A site's own area is always in its own "
+                "group, so the row's group and its areas contradict each "
+                "other."
             )
         if without_alive:
             raise ValueError(
@@ -1949,8 +2106,21 @@ class AnomalyScan(_Node):
         advance_rounds: Of those, the ones **CT advance can hit**: the CT
             side's saving rounds. The narrowest figure, and it is exactly
             advance's real denominator as coverage.
-        stack_rounds: Of those, the ones **stack can hit**: the CT rounds
-            **from those demos in which the site groups could be derived**.
+        stack_rounds: Of those, the CT rounds **from those demos in which the
+            site groups could be derived**.
+            *Since Story 4.4 that is no longer quite the same thing as "the
+            rounds stack can hit"*, and the difference is recorded here rather
+            than left for a reader to discover: the rule reads one sample
+            point (``stack_sample_s``), so a round with no living CT row at
+            that point cannot produce a hit and is still in this figure. It is
+            a second cause of non-examination and this node names only the
+            first. Measured 2026-09-18: all 93 of the subject's CT rounds do
+            have a living CT row at 15 s, so the two figures coincide on this
+            archive -- the settings guard
+            (``Settings._check_sections_agree``) stops the whole-archive
+            version of the same hazard, a sample point that exists for no
+            round at all. A per-round figure is deferred work, not a
+            measured negative.
             Required and not defaulted, like the two other coverage figures:
             a missing key would be read quietly as zero, that is, a blind spot
             would be read as a measured negative -- exactly what this node
@@ -2219,9 +2389,24 @@ class Report(_Node):
                 "The reader would look for a map section that was never "
                 "written."
             )
+        # The key carries the round type on an advance (it is grouped by
+        # type) and the site group on a stack. The group is part of the
+        # stack's identity since Story 4.4: the row's area is the crowd's own,
+        # so the same area CAN be read into different groups by two demos of
+        # the same map -- the division is derived per demo by design (AD-13),
+        # and nothing in the derivation makes it agree across demos.
+        #
+        # **Possible and not measured**, and the distinction is the point:
+        # checked over all three of the archive's multi-demo maps, no area is
+        # read into different A/B groups by two demos of the same map. What
+        # does differ is grouped vs. ungrouped (Anubis ``Middle``, Nuke
+        # ``Control``, Nuke ``Garage``), and an ungrouped area produces no hit
+        # at all. So this guard is defence against a state the derivation
+        # allows, not a fix for one the archive shows.
         keys = [
             (a.rule, a.map_name, a.side, a.area)
             + (tuple(a.round_types) if a.rule == "ct_advance" else ())
+            + ((a.site,) if a.rule == "stack" else ())
             for a in self.anomalies
         ]
         twice = sorted({key for key in keys if keys.count(key) > 1})
@@ -2229,7 +2414,7 @@ class Report(_Node):
             raise AggregateError(
                 f"The same anomaly is in the section twice: {twice}.\n"
                 "The grouping key is (rule, map, side, area) plus the round "
-                "type on advance. Two rows with the same key mean that the "
-                "grouping did not do its work: the same observation would "
-                "show twice with different samples."
+                "type on advance and the site group on a stack. Two rows with "
+                "the same key mean that the grouping did not do its work: the "
+                "same observation would show twice with different samples."
             )

@@ -507,6 +507,8 @@ def report(
                     "crunch_min_players": 2,
                     "crunch_min_sources": 2,
                     "stack_min_players": 4,
+                    "stack_max_areas": 2,
+                    "stack_sample_s": 15.0,
                     "stack_group_margin": 1.25,
                     "stack_site_separation_min": 2.0,
                 }
@@ -2902,7 +2904,7 @@ GOLDEN = """\
 - **Rosteriluokka:** yhdenkään demon rosteriluokkaa ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otanta erottele 5/5- ja 4/5-karttoja
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta
 - **Luokittelun kynnykset:** full_equip_min 4000
-- **Aggregoinnin kynnykset:** advance_area_min_observations 20, advance_max_sample_s 30, advance_min_players 1, advance_t_share 0,8, crunch_min_players 2, crunch_min_sources 2, small_sample_rounds 3, stack_group_margin 1,25, stack_min_players 4, stack_site_separation_min 2, team_identity_min_common 3
+- **Aggregoinnin kynnykset:** advance_area_min_observations 20, advance_max_sample_s 30, advance_min_players 1, advance_t_share 0,8, crunch_min_players 2, crunch_min_sources 2, small_sample_rounds 3, stack_group_margin 1,25, stack_max_areas 2, stack_min_players 4, stack_sample_s 15, stack_site_separation_min 2, team_identity_min_common 3
 - **Karsinnan säännöt:** drop_saturated_equipment_lines kyllä, max_kill_areas 3, max_utility_targets 2, merge_equal_equipment_lines kyllä, skip_sample_seconds ei yhtään
 - **Aineisto koottu:** 2026-08-30 12:00 UTC (pappascout 0.1.0)
 
@@ -2938,7 +2940,7 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 - Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 20 havaintoa; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
 - **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta.
 - **Crunch**: sama T:n alue, mutta pelaajien on **saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on pelaajan oma alue edellisellä näytepisteellä. Vähintään 2 pelaajaa ja 2 eri suuntaa. **Crunchia ei ole rajattu kierrostyyppiin**, toisin kuin etenemistä, joten sen otanta on puolen kaikki kierrokset ja nimiö kertoo millä kierrostyypeillä se havaittiin. Sama kierros voi siis tuottaa molemmat rivit, ja täysi osto vain crunchin.
-- **Stack**: subjektin puolustus kasautuneena yhden siten ympärille. Alueryhmä on **johdettu tästä demosta**: jokaisen alueen keskipiste lasketaan demon omasta pistepilvestä, ja alue kuuluu lähemmän siten ryhmään, jos toinen site on vähintään 1,25 kertaa kauempana. Ei karttatietokantaa eikä käsin annettua aluejakoa. Osuma vaatii vähintään 4 pelaajaa saman siten ryhmässä ja vähintään yhden heistä sitellä itsellään; spawnissa seisova ei laske. Rivin luku on muotoa 4/5 -- ryhmässä olleet kaikista elossa olleista. **Stackia ei ole rajattu kierrostyyppiin** eikä se lue alueen T-osuutta, joten se ei ole kummankaan toisen säännön tiukempi eikä löysempi muoto.
+- **Stack**: subjektin puolustus kasautuneena saman alueryhmän alueille. Alueryhmä on **johdettu tästä demosta**: jokaisen alueen keskipiste lasketaan demon omasta pistepilvestä, ja alue kuuluu lähemmän siten ryhmään, jos toinen site on vähintään 1,25 kertaa kauempana. Ei karttatietokantaa eikä käsin annettua aluejakoa. Osuma vaatii vähintään 4 pelaajaa enintään 2 saman siten ryhmän alueella 15 sekunnin kohdalla. Spawnissa seisova ei laske, eikä alue jonka geometria jättää **ilman ryhmää** tuota osumaa -- ja se on demokohtainen havainto eikä sääntö: Infernon Middle kuuluu A-ryhmään ja näkyy siksi rivinä, Ancientin ei kuulu kumpaankaan. **Rivin alue on vain rivin nimilappu**: ensimmäinen kierroksen nimeämistä alueista, suurin ensin ja tasatilanteessa aakkosissa ensimmäinen -- ei väite siitä, että juuri siellä olisi ollut eniten pelaajia. Havainto on kierrosrivin alueissa: viisi pelaajaa Alleyssa on B-siten stack, vaikka kukaan ei seiso BombsiteB:llä. Rivin luku on muotoa 4/5 -- kasassa olleet kaikista elossa olleista, myös spawnissa tai ryhmättömällä alueella seisovista. **Stackia ei ole rajattu kierrostyyppiin** eikä se lue alueen T-osuutta, joten se ei ole kummankaan toisen säännön tiukempi eikä löysempi muoto. Sääntö ei myöskään nimeä kuviota: **kasauma on havainto, ei nimi** -- odottaako se paikallaan vai puskeeko se, ei erotu tästä havainnosta.
 - Stackin kattavuus on 1/1 CT-kierroksesta. Jokaiselta demolta saatiin siteryhmät.
 - Aseistettu = panssari JA parannettu ase ostoajan lopussa; panssaroitu = panssari, aseesta riippumatta. Luvut ovat **sisäkkäisiä**: aseistetut ovat panssaroitujen osajoukko, molemmat on luettu samalta tickiltä samasta pelaajajoukosta, ja jakaja on sama. Rivien ero on siis se havainto -- pistoolikierroksella aseistettuja on tyypillisesti 0 (800 $ ei riitä sekä kevlariin että parannettuun aseeseen), joten panssaririvi on se, joka kertoo kevlarien määrän.
 - Molemmat luvut ovat **hallussapitoa eivätkä ostoja**: panssari ja ase säilyvät kierroksen yli hengissä selvinneellä, eikä vaurioitunutta panssaria eroteta ehjästä. Poikkeus on pistoolikierros -- puoliaika alkaa puhtaalta pöydältä, joten siellä luvut kertovat mitä ostettiin.
@@ -3292,6 +3294,7 @@ def anomaly_round(
     players: int = 2,
     sources: list[str] | None = None,
     alive: int | None = None,
+    areas: list[str] | None = None,
     points: list[AnomalyPoint] | None = None,
 ) -> AnomalyRound:
     """One round row under an anomaly.
@@ -3301,9 +3304,10 @@ def anomaly_round(
     **different** numbers -- and that case is exactly why a round does not
     carry one maximum.
 
-    ``alive`` is **only on a stack**, and ``None`` is its right value
-    elsewhere: the two other rules do not count the living, and an invented
-    denominator does not stand out on the row from a measured one.
+    ``alive`` and ``areas`` are **only on a stack**, and ``None`` is their
+    right value elsewhere: the two other rules do not count the living and do
+    not ask where the crowd stood, and an invented figure does not stand out
+    on the row from a measured one.
     """
     return AnomalyRound(
         map_demo_id=demo,
@@ -3312,7 +3316,12 @@ def anomaly_round(
         points=points
         if points is not None
         else [
-            AnomalyPoint(sample_t_s=value, players=players, alive=alive)
+            AnomalyPoint(
+                sample_t_s=value,
+                players=players,
+                alive=alive,
+                areas=list(areas or ()),
+            )
             for value in (seconds if seconds is not None else [30.0])
         ],
         sources=sources or [],
@@ -3374,20 +3383,29 @@ def crunch_anomaly(**overrides) -> Anomaly:
 
 
 def stack_anomaly(**overrides) -> Anomaly:
-    """A stack row: the site group and the living are mandatory, the
-    orientation forbidden.
+    """A stack row: the site group, the living and the crowd's areas are
+    mandatory, the orientation forbidden.
 
-    Three defaults in one place, because the model watches them together: the
-    area is the site's own area, ``site`` says the same as a group, and every
-    round says how many players were alive. The orientation is empty -- the
-    rule does not read it.
+    Four defaults in one place, because the model watches them together: the
+    area is the one the crowd stood on and has to be among the round's own
+    areas, ``site`` names the group, and every round says how many players
+    were alive. The orientation is empty -- the rule does not read it.
     """
     overrides.setdefault("rule", "stack")
     overrides.setdefault("area", "BombsiteB")
     overrides.setdefault("site", "B")
     overrides.setdefault("orientation", [])
     overrides.setdefault(
-        "rounds", [anomaly_round(round_no=13, seconds=[15.0], players=4, alive=5)]
+        "rounds",
+        [
+            anomaly_round(
+                round_no=13,
+                seconds=[15.0],
+                players=4,
+                alive=5,
+                areas=["BombsiteB"],
+            )
+        ],
     )
     return anomaly(**overrides)
 
@@ -3551,11 +3569,15 @@ def test_two_crunch_rounds_never_merge_their_directions() -> None:
 def test_a_stack_line_names_the_site_its_group_and_the_survivors() -> None:
     """A stack row says what the rule measured -- and nothing else.
 
-    On the summary row the area is **the site's own area** and the extra is
-    the group, not the T share: the rule does not read the orientation, so a
-    share would concern another question. On the round row the player count
-    is a fraction, because four out of five and four out of four are
-    different observations.
+    On the summary row the area is **the area the crowd stood on** and the
+    extra is the group, not the T share: the rule does not read the
+    orientation, so a share would concern another question. On the round row
+    the player count is a fraction, because four out of five and four out of
+    four are different observations.
+
+    The round row does not repeat a single area after the summary row has
+    named it: one area is the summary's own figure, and the row would say the
+    same word twice.
     """
     text = anomaly_text(
         render(report([pistol_map()], anomalies=[stack_anomaly(m=9)]))
@@ -3566,6 +3588,103 @@ def test_a_stack_line_names_the_site_its_group_and_the_survivors() -> None:
     assert "  - kierros 13 (eco): 4/5 pelaajaa 15 s kohdalla" in text
     # There is no T share, because it was not measured.
     assert "T-osuus" not in text
+
+
+def test_a_stack_round_row_names_the_areas_the_crowd_is_on() -> None:
+    """Two areas is the observation the summary row cannot carry.
+
+    "At most two areas" is the rule itself, so a row that named only the
+    biggest of them would read as a crowd on one area where the rule saw it on
+    two. This is the archive's Anubis round 4 in shape: ``BackofB`` 2 +
+    ``BombsiteB`` 2, and the product owner's own "B stack".
+    """
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    stack_anomaly(
+                        area="BackofB",
+                        m=9,
+                        rounds=[
+                            anomaly_round(
+                                round_no=4,
+                                seconds=[15.0],
+                                players=4,
+                                alive=5,
+                                areas=["BackofB", "BombsiteB"],
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+    )
+    assert "Stack (`de_ancient`, CT-puoli, havaittu: eco): BackofB" in text
+    assert (
+        "  - kierros 4 (eco): 4/5 pelaajaa 15 s kohdalla, alueilla BackofB ja "
+        "BombsiteB"
+    ) in text
+
+
+def test_a_one_area_stack_row_does_not_repeat_the_area() -> None:
+    """The summary row has named it already, so the round row stays quiet.
+
+    The alternative was measured against the report's own rows and rejected:
+    "Alley ... alueella Alley" says the same word twice on a row whose whole
+    job is the round number, the fraction and the moment.
+    """
+    text = anomaly_text(
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[
+                    stack_anomaly(
+                        area="Alley",
+                        m=9,
+                        rounds=[
+                            anomaly_round(
+                                round_no=14,
+                                seconds=[15.0],
+                                players=5,
+                                alive=5,
+                                areas=["Alley"],
+                            )
+                        ],
+                    )
+                ],
+            )
+        )
+    )
+    assert "havaittu: eco): Alley" in text
+    assert "  - kierros 14 (eco): 5/5 pelaajaa 15 s kohdalla" in text
+    assert "alueella Alley" not in text
+    assert "alueilla" not in text
+
+
+def test_the_stack_legend_states_the_concentration_and_the_moment() -> None:
+    """The reading guide describes the rule the code actually runs.
+
+    Three claims that were wrong in it until Story 4.4: the area bound, the
+    single sample point, and that the row's area is the crowd's own and not
+    the site's. The numbers come from the report's own thresholds, so a
+    changed setting changes the sentence.
+    """
+    text = render(report([pistol_map()], anomalies=[stack_anomaly()]))
+    assert (
+        "Osuma vaatii vähintään 4 pelaajaa enintään 2 saman siten ryhmän "
+        "alueella 15 sekunnin kohdalla" in text
+    )
+    assert "Rivin alue on vain rivin nimilappu" in text
+    assert "ilman ryhmää" in text
+    # The old conditions are gone from the guide, not merely from the code.
+    assert "sitellä itsellään" not in text
+    # And two claims the guide must NOT make (round 1, items 4 and 7): that a
+    # crowd in the map's middle cannot produce a row -- Inferno's Middle is
+    # one of the archive's five -- and that the row's area holds most of the
+    # crowd, which a tie decides by the alphabet.
+    assert "kartan jaettu keski" not in text
+    assert "jolla joukosta on suurin osa" not in text
 
 
 def test_a_stack_line_never_claims_directions() -> None:
@@ -3593,10 +3712,18 @@ def test_all_five_alive_reads_as_five_of_five() -> None:
                         m=12,
                         rounds=[
                             anomaly_round(
-                                round_no=2, seconds=[30.0], players=5, alive=5
+                                round_no=2,
+                                seconds=[30.0],
+                                players=5,
+                                alive=5,
+                                areas=["BombsiteA"],
                             ),
                             anomaly_round(
-                                round_no=7, seconds=[6.0], players=4, alive=5
+                                round_no=7,
+                                seconds=[6.0],
+                                players=4,
+                                alive=5,
+                                areas=["BombsiteA"],
                             ),
                         ],
                     )
@@ -3797,10 +3924,16 @@ def test_each_sample_point_carries_its_own_player_count() -> None:
                                 round_no=4,
                                 points=[
                                     AnomalyPoint(
-                                        sample_t_s=15.0, players=5, alive=5
+                                        sample_t_s=15.0,
+                                        players=5,
+                                        alive=5,
+                                        areas=["BombsiteB"],
                                     ),
                                     AnomalyPoint(
-                                        sample_t_s=30.0, players=4, alive=5
+                                        sample_t_s=30.0,
+                                        players=4,
+                                        alive=5,
+                                        areas=["BombsiteB"],
                                     ),
                                 ],
                             )
@@ -3866,6 +3999,7 @@ def test_equal_counts_still_collapse_into_one_phrase() -> None:
                                 seconds=[15.0, 30.0],
                                 players=4,
                                 alive=5,
+                                areas=["BombsiteB"],
                             )
                         ],
                     )
@@ -3898,6 +4032,7 @@ def test_a_stack_over_two_demos_also_names_them() -> None:
                                 seconds=[15.0],
                                 players=4,
                                 alive=5,
+                                areas=["BombsiteB"],
                             ),
                             anomaly_round(
                                 round_no=16,
@@ -3905,6 +4040,7 @@ def test_a_stack_over_two_demos_also_names_them() -> None:
                                 seconds=[30.0],
                                 players=4,
                                 alive=5,
+                                areas=["BombsiteB"],
                             ),
                         ],
                     )

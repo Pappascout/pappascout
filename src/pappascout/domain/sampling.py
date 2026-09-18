@@ -51,14 +51,16 @@ preference: computed on the subject's own rows every true positive disappears,
 because the anomaly eats its own detection (:class:`AreaObservations`).
 
 Story 2.14 adds a third one, :func:`stack_hits`. It **does not read the
-orientation at all**: it asks whether the subject's own defence has piled into
-one site's group. Its derived input is :func:`site_groups` -- a mapping
-``area -> "A" | "B"`` from the demo's own point cloud -- and it is in this same
-module as the rule, so that the rule and its input cannot disagree. The same
-justification as with the orientation: **no map database, no human-supplied
-area division, no table accumulating across the archive**. An accumulating
-source would give the same demo a different result depending on what other
-demos are in the archive.
+orientation at all**: it asks whether the subject's own defence is standing
+crowded together -- four or more of them on at most two areas of the same
+site's group, at the setup sample point. Its derived input is
+:func:`site_groups` -- a mapping ``area -> "A" | "B"`` from the demo's own
+point cloud -- and it is in this same module as the rule, so that the rule
+and its input cannot disagree. The same justification as with the
+orientation: **no map database, no human-supplied area division, no table
+accumulating across the archive**. An accumulating source would give the
+same demo a different result depending on what other demos are in the
+archive.
 
 The three rules are three different questions about the same observation, and
 not one of them is a stricter or a looser form of another.
@@ -73,6 +75,7 @@ function call away here.
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -87,6 +90,7 @@ from pappascout.constants import (
     SITE_AREAS,
     SITE_GROUPS,
     STACK,
+    is_sample_point,
 )
 
 __all__ = [
@@ -471,7 +475,7 @@ class AnomalyHit:
     area can hit at several sample points and on several rounds; grouping
     them into a sample (``n/m``) is done in the aggregation, not here.
 
-    **A field belongs to the rule that measured it.** Four fields are
+    **A field belongs to the rule that measured it.** Five fields are
     rule-specific, and :meth:`__post_init__` requires them from exactly the
     right rule. Without the guard a hit could carry a number its rule did not
     compute -- and the report's row would claim as measured something that was
@@ -483,14 +487,24 @@ class AnomalyHit:
             :data:`~pappascout.constants.CRUNCH` or
             :data:`~pappascout.constants.STACK`.
         area: The area the hit was observed on. Never ``None``: an area with
-            no name cannot be the T side's area. On a stack it is the
-            **site's own area** (:data:`SITE_AREAS`), because that is the
-            group's anchor and the rule's extra condition -- not the area
-            that happened to hold the most players.
+            no name cannot be the T side's area. On a stack it is **the first
+            of** ``areas`` -- the largest of the areas the crowd is on, and on
+            a tie the first by name. It is the row's **label** and not a claim
+            that most of the crowd was there: measured, ``BackofB`` 2 +
+            ``BombsiteB`` 2 is labelled ``BackofB`` by the alphabet alone, and
+            the row's own ``areas`` is where the observation is. Until Story
+            4.4 the label was the site's own area (:data:`SITE_AREAS`) even
+            when nobody stood there, and the report then said ``BombsiteB``
+            while all five players were in ``Alley``. The group is still on
+            the row, as ``site``.
         sample_t_s: The sample point the hit was observed at.
         players: The number of distinct players. On the advance every CT
             player on the area, on the crunch only those who **arrived** (see
-            :func:`crunch_hits`), on the stack those in the group.
+            :func:`crunch_hits`), on the stack those standing on the areas the
+            hit names -- **not** everyone in the group. Group ``X`` 3, ``Y`` 1,
+            ``Z`` 1 with ``stack_max_areas = 2`` gives ``players = 4`` while
+            five are in the group, and that is the rule: the crowd is what was
+            measured.
         t_share: The area's T share in this demo. **Only on the orientation
             rules**: the stack does not read the orientation, so the number
             would be invented there.
@@ -504,6 +518,13 @@ class AnomalyHit:
             alone does not tell them apart.
         site: The site's group (:data:`SITE_GROUPS`) the players were in. Only
             on the stack.
+        areas: The areas the crowd is standing on, **the largest first** and
+            ties broken by name; at most ``stack_max_areas`` of them, and
+            every one of them holds at least one of ``players``. Only on the
+            stack, and there never empty. It is the hit's own concentration:
+            "four players on at most two areas" is the whole rule, and without
+            the list the row could not say which two. ``area`` is ``areas[0]``,
+            so the summary row and its evidence cannot name different places.
     """
 
     rule: str
@@ -515,6 +536,7 @@ class AnomalyHit:
     sources: tuple[str, ...] = ()
     alive: int | None = None
     site: str | None = None
+    areas: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """The rule-specific fields belong to their own rule.
@@ -558,16 +580,43 @@ class AnomalyHit:
                 )
             if not 0 < self.players <= self.alive:
                 raise ValueError(
-                    f"A stack hit claims {self.players} players in the group "
-                    f"when {self.alive} are alive. Those in the group are a "
-                    "subset of those alive."
+                    f"A stack hit claims {self.players} players on its areas "
+                    f"when {self.alive} are alive. The crowd is a subset of "
+                    "those alive."
+                )
+            if not self.areas:
+                raise ValueError(
+                    f"A stack hit on area {self.area!r} does not say which "
+                    "areas the players were standing on. The concentration "
+                    "is the rule itself -- four players on at most two areas "
+                    "-- so a hit without the areas would report a crowd "
+                    "without saying where it stood."
+                )
+            if len(set(self.areas)) != len(self.areas):
+                raise ValueError(
+                    f"A stack hit's areas {list(self.areas)} hold the same "
+                    "area twice. One area is one place, and a repeat would "
+                    "make the concentration bound count it twice."
+                )
+            if self.areas[0] != self.area:
+                raise ValueError(
+                    f"A stack hit's area {self.area!r} is not the first of "
+                    f"its areas {list(self.areas)}. The row's area is the one "
+                    "holding most of the crowd, so the summary and its "
+                    "evidence cannot name different places."
+                )
+            if len(self.areas) > self.players:
+                raise ValueError(
+                    f"A stack hit names {len(self.areas)} areas but "
+                    f"{self.players} players. Every area on the list holds at "
+                    "least one of them, so the observation is broken."
                 )
         else:
-            if self.alive is not None or self.site is not None:
+            if self.alive is not None or self.site is not None or self.areas:
                 raise ValueError(
                     f"The hit {self.rule!r} on area {self.area!r} carries the "
-                    "stack's fields (alive, site group), although the rule "
-                    "does not measure them."
+                    "stack's fields (alive, site group, the crowd's areas), "
+                    "although the rule does not measure them."
                 )
         if self.sources and self.rule != CRUNCH:
             raise ValueError(
@@ -1200,26 +1249,78 @@ def stack_hits(
     presences: Iterable[AreaPresence],
     *,
     groups: Mapping[str, str] | None,
-    max_sample_s: float,
+    sample_s: float,
+    max_areas: int,
     min_players: int,
 ) -> list[AnomalyHit]:
     """One round's stacks.
 
     The rule: **at least** ``min_players`` of the subject's living CT players
-    in the same site's group at one time sample point, **and at least one of
-    them on the site's own area** (:data:`SITE_AREAS`).
+    standing on **at most** ``max_areas`` areas of the same site's group, at
+    the setup sample point ``sample_s``.
 
-    The two extra conditions are not fine-tuning but definition:
+    Story 4.4 rewrote the definition, and it was the definition and not the
+    thresholds that was wrong: on two blind lists (43 judged rounds) the old
+    rule read 22 of the 23 rounds it reported differently from the product
+    owner. Two conditions changed:
 
-    * **The site's own area.** The players' own phrase "Stack sitellä" means
-      being on the site, not being on that half of the map. Without the
-      condition Ancient's ``Alley`` alone produces hits at 6 s -- it is the
-      CT spawn's exit corridor, not a site. Measured: the condition drops
-      17 rounds -> 9 (26 hits -> 10).
-    * **The spawns out** (:data:`SPAWN_AREAS`). Standing in spawn is not
-      defending a site, and ``CTSpawn`` falls into the A group on Ancient and
-      into the B group on Inferno -- without the restriction the starting
-      setup alone would fire the rule on both maps.
+    * **The concentration is the rule.** The old rule asked only how many
+      players were in the group, and a group is half the map: five players on
+      five different areas of the A side is a normal defence, not a stack.
+      Measured at 15 s over the archive's 93 CT rounds, bounding the areas to
+      two takes the rule from 24 rounds to 5. **Two populations, and they
+      must not be confused** (they were in the first version of this text):
+
+      - *Inside the rule's scope*, that is, the subject's 93 CT rounds: 32 of
+        the 43 judged rounds. The rule finds all **4** of his stack-like
+        rounds there and fires on **none** of the 26 he read as not a stack.
+      - *Over all 43 judgements*, opponent-side rounds included, the same
+        condition separates them without one exception: 8 of 8 stacks reach
+        four players on at most two areas, and all 33 "not a stack" rounds
+        stay at three or fewer. Four of those 8 are the opponent's CT rounds,
+        which this rule cannot scan at all; they are evidence about the
+        *shape* and not about this archive's hits.
+    * **The site's own area is not required.** The old rule demanded that at
+      least one player stand on :data:`SITE_AREAS`, on the reasoning that
+      "stack sitellä" means being on the site. Measured, that condition
+      silences six of the measurement's seven candidate hits and four of the
+      five this rule reports: five CT players in ``Alley`` is his own "B
+      stack" and not one of them is on ``BombsiteB``. The hit therefore names
+      the areas the crowd is really on (``areas``, ``area``) and keeps the
+      group as ``site``.
+
+    What did not change: **the spawns stay out** (:data:`SPAWN_AREAS` -- a
+    player standing in spawn is not defending a site, and ``CTSpawn`` falls
+    into the A group on Ancient and into the B group on Inferno), and an area
+    the demo's own geometry left **without a group** produces no hit.
+
+    **That last one is a property of the derivation and not a definition, and
+    the difference matters.** Whether an area has a group is measured per demo
+    from that demo's point cloud, so a map's middle can be in a group on one
+    map and in none on another -- Inferno's ``Middle`` is group A and is one
+    of this archive's five hits, while Ancient's is in neither group.
+    Measured, ``Middle`` is even group A in ``anubis_vs_RCAVE_VETERANS`` and
+    ungrouped in ``Anubis_vs_ryhmarama``, two demos of the same map. So the
+    rule does not exclude "the middle": it reports a crowd on the areas of
+    **one derived group**, whatever those areas are. Whether a mid
+    concentration belongs in the report under a name of its own is an open
+    product question (measurement §5) and is not decided here.
+
+    **One sample point and not a time bound.** The other two rules ask about
+    *movement*, which has only a ceiling; a setup is a *moment* and has both a
+    floor and a ceiling, so the stack reads exactly ``sample_s`` and no longer
+    shares ``advance_max_sample_s``. Measured: at 6 s the rule fires on 34 of
+    the archive's 93 CT rounds instead of 5 -- on Nuke nearly every round,
+    where ``Hell`` and ``Outside`` are the way out of spawn -- and 30 s is
+    already the reaction to the round. The product owner's own words, in full
+    because a fragment of them would be a paraphrase: *"30 s kohdalla on
+    voitu jo hyvinkin reagoida kierroksen tapahtumiin joten strategiaa on
+    voinut lähteä elämään."*
+
+    **The pattern is not named here.** Whether a concentration is a stack or a
+    push was measured as *not separable* from this data (neither the share of
+    the crowd that held its place nor the areas' T share separates his own
+    judgements), so the rule reports what it saw and not what to call it.
 
     The rule **is not limited by round type** and does not read the area's
     orientation. So it is not a stricter or a looser form of either of the
@@ -1227,15 +1328,19 @@ def stack_hits(
 
     Args:
         presences: The round's sample point rows, in any order. Anything other
-            than living CT rows from the time sample points is skipped here.
+            than living CT rows from the time sample point ``sample_s`` is
+            skipped here.
         groups: The result of :func:`site_groups` for this demo. ``None`` (the
             map has no A/B division that separates evenly) **silences the
             rule**, and that is the right answer and not a shortfall -- but
             the caller has to record it in the coverage, not leave it silent.
-        max_sample_s: ``[thresholds].advance_max_sample_s``. **Shared** with
-            the two other rules and not a threshold of its own: three rules
-            ask about the same observation, and with two time bounds they
-            could disagree about when the start of the round ends.
+        sample_s: ``[thresholds].stack_sample_s``, the setup sample point. A
+            row is read when its ``sample_t_s`` is this point; both numbers
+            are the same nominal second written twice (in the settings and in
+            the table), so they are compared with a tolerance and not with
+            ``==``.
+        max_areas: ``[thresholds].stack_max_areas``, how many areas the crowd
+            may be spread over.
         min_players: ``[thresholds].stack_min_players``.
 
     Returns:
@@ -1244,16 +1349,23 @@ def stack_hits(
         cannot be told apart from here** -- the difference is in the coverage.
 
     Raises:
-        ValueError: If ``min_players`` is not positive, or if ``groups`` names
-            a group that does not exist. The former would fire the rule at
-            every sample point, the latter would mean that the groups come
-            from somewhere other than :func:`site_groups`.
+        ValueError: If ``min_players`` or ``max_areas`` is not positive, or if
+            ``groups`` names a group that does not exist. The first would fire
+            the rule at every sample point, the second would leave the
+            concentration with no areas to be on, and the third would mean
+            that the groups come from somewhere other than :func:`site_groups`.
     """
     if min_players < 1:
         raise ValueError(
             f"The stack's minimum player count {min_players!r} is not "
             "positive. With zero the rule would hit at every sample point at "
             "which there is nobody in the site's group."
+        )
+    if max_areas < 1:
+        raise ValueError(
+            f"The stack's area bound stack_max_areas {max_areas!r} is not "
+            "positive. Below one the crowd would have nowhere to stand and "
+            "the rule could not fire on any round at all."
         )
     if groups is None:
         return []
@@ -1268,40 +1380,39 @@ def stack_hits(
     # spawn and on an area without a group: it is the hit's denominator
     # ("four out of five"), and a player does not stop being alive because
     # they are standing in the wrong place.
-    alive: dict[float, set[str]] = {}
-    # (sample point, group) -> player -> their areas. The players are the keys
-    # and not the rows: a duplicated row for the same player must not raise
-    # the player count, because that count is precisely the report's number.
-    members: dict[tuple[float, str], dict[str, set[str]]] = {}
+    alive: set[str] = set()
+    # group -> area -> the distinct players on it. The players are a set and
+    # not a row count: a duplicated row for the same player must not raise the
+    # player count, because that count is precisely the report's number.
+    members: dict[str, dict[str, set[str]]] = {}
     for row in presences:
-        if not _is_ct_time_row(row) or row.sample_t_s > max_sample_s:
+        if not _is_ct_time_row(row) or not is_sample_point(
+            row.sample_t_s, sample_s
+        ):
             continue
-        alive.setdefault(row.sample_t_s, set()).add(row.player_id)
+        alive.add(row.player_id)
         area = normalize_area(row.area)
         if area is None or area in SPAWN_AREAS:
             continue
         group = groups.get(area)
         if group is None:
             continue
-        members.setdefault((row.sample_t_s, group), {}).setdefault(
-            row.player_id, set()
-        ).add(area)
+        members.setdefault(group, {}).setdefault(area, set()).add(row.player_id)
 
     hits: list[AnomalyHit] = []
-    for (seconds, group), by_player in members.items():
-        if len(by_player) < min_players:
-            continue
-        site = SITE_AREAS[group]
-        if not any(site in areas for areas in by_player.values()):
+    for group, by_area in members.items():
+        chosen, crowd = _biggest_crowd(by_area, max_areas)
+        if len(crowd) < min_players:
             continue
         hits.append(
             AnomalyHit(
                 rule=STACK,
-                area=site,
-                sample_t_s=seconds,
-                players=len(by_player),
-                alive=len(alive[seconds]),
+                area=chosen[0],
+                sample_t_s=sample_s,
+                players=len(crowd),
+                alive=len(alive),
                 site=group,
+                areas=tuple(chosen),
             )
         )
     return sorted(hits, key=lambda hit: (hit.sample_t_s, hit.area))
@@ -1341,6 +1452,61 @@ def _spread(
     for the two other Ancient demos, the median 3.70 against 3.82-3.95.
     """
     return median(math.dist(point, centre) for point in points)
+
+
+def _biggest_crowd(
+    by_area: Mapping[str, set[str]], max_areas: int
+) -> tuple[tuple[str, ...], set[str]]:
+    """The largest crowd that stands on at most ``max_areas`` of these areas.
+
+    **The crowd is a union and not a sum**, and that is why the areas cannot
+    simply be taken in order of size. Ranking by per-area count is maximal
+    only while every player is on exactly one area; a player who appears on
+    two of them at the same sample point is counted twice by the ranking, and
+    the two biggest areas can then hold fewer distinct players than a smaller
+    pair. Measured, that silences a real hit -- and a blind spot is the worse
+    direction, because it cannot be corrected afterwards.
+
+    Two rules decide between combinations, and the second is not tidying:
+
+    * **The most players.** That is the question the rule asks.
+    * **Then the fewest areas.** An area that brings no player the others do
+      not already have is not where the crowd is standing, and naming it on
+      the row would be a place without an observation. It also keeps the hit's
+      own invariant true by construction -- every area on the list holds at
+      least one of the crowd, so there can never be more areas than players,
+      which is otherwise reachable whenever ``max_areas > min_players``
+      (``stack_max_areas = 5`` is a legal setting).
+
+    Ties beyond that are broken by the areas' own order -- the biggest first,
+    equal ones by name -- so that the row reads the same from one run to the
+    next. The order cannot change the player count; it decides only which of
+    two equally large areas is named first.
+
+    Args:
+        by_area: The group's areas and the distinct players on each.
+        max_areas: ``[thresholds].stack_max_areas``.
+
+    Returns:
+        The chosen areas in the row's order (the largest first, ties by name)
+        and the distinct players standing on them. With no areas at all, an
+        empty pair.
+    """
+    ranked = sorted(by_area, key=lambda name: (-len(by_area[name]), name))
+    best: tuple[str, ...] = ()
+    best_crowd: set[str] = set()
+    # Combinations are generated over the ranked order, so the first
+    # combination that reaches a given crowd size is the one this order
+    # prefers -- the comparison below keeps it and only a strictly bigger
+    # crowd, or the same crowd on fewer areas, replaces it.
+    for size in range(1, min(max_areas, len(ranked)) + 1):
+        for combination in itertools.combinations(ranked, size):
+            crowd: set[str] = set()
+            for area in combination:
+                crowd |= by_area[area]
+            if len(crowd) > len(best_crowd):
+                best, best_crowd = combination, crowd
+    return best, best_crowd
 
 
 def _is_ct_time_row(row: AreaPresence) -> bool:

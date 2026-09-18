@@ -1843,8 +1843,15 @@ def _rule_hits(
             # raises an error already in ``anomalies_for``, because it would
             # mean the caller left the demo out.
             groups=groups_by_demo[demo],
-            # The time bound is COMMON to all three rules and not stack's own.
-            max_sample_s=thresholds.advance_max_sample_s,
+            # The stack reads ONE sample point and no longer shares
+            # advance_max_sample_s (Story 4.4). The shared bound exists so
+            # that the rules agree about when the start of the round ends,
+            # and the other two still share it: they ask about MOVEMENT,
+            # which has only a ceiling. A setup is a MOMENT and has both a
+            # floor and a ceiling, so the sharing is replaced deliberately
+            # and not dropped by accident.
+            sample_s=thresholds.stack_sample_s,
+            max_areas=thresholds.stack_max_areas,
             min_players=thresholds.stack_min_players,
         )
     return found
@@ -1868,7 +1875,39 @@ def _grouped_anomalies(
     rows are given.
     """
     m = len(branch_rows)
-    tally: defaultdict[str, _AnomalyTally] = defaultdict(_AnomalyTally)
+    # The key is the area AND the site group, not the area alone. On the two
+    # orientation rules the group is always ``None`` and the key is therefore
+    # the area, exactly as before. On the stack the area is no longer the
+    # group's own site (Story 4.4) but the area the crowd stands on, so the
+    # SAME area CAN be read into a different group by two demos of the same
+    # map: the division is derived per demo by design (AD-13) and nothing
+    # makes it agree across demos. Keyed by the area alone, such a row would
+    # name one group for observations made in two, and ``_AnomalyTally.add``
+    # would let the last hit decide which.
+    #
+    # **Possible and not measured.** Checked over all three multi-demo maps in
+    # the archive, no area is read into different A/B groups by two of a map's
+    # demos; what differs is grouped vs. ungrouped (Anubis ``Middle``, Nuke
+    # ``Control``, ``Garage``), and an ungrouped area produces no hit. This is
+    # defence against a state the derivation allows, not a repair of one it
+    # produced.
+    #
+    # **The area and not the SET of areas, and that is a decision.** Keyed by
+    # the set, two rounds of the same two-area habit whose majority alternates
+    # would stay one row; keyed by the area, they become two rows of n=1.
+    # Keyed by the set, the opposite pair fragments instead: the same crowd on
+    # ``Outside`` alone on one round and ``Outside`` + ``Hut`` on the next
+    # would be two rows where the area keeps them one. Neither case occurs in
+    # this archive (all five rows are n=1 and no two share a map, a side and a
+    # group), so nothing measured decides it. The area keeps the report's
+    # identity where the rest of the chapter already has it -- (rule, map,
+    # side, area), the same key Report._check_anomalies enforces -- and the
+    # round rows name their own areas either way, so no observation is lost.
+    # The consequence is pinned in test_aggregate.py rather than left to be
+    # discovered.
+    tally: defaultdict[tuple[str, str | None], _AnomalyTally] = defaultdict(
+        _AnomalyTally
+    )
     for row in branch_rows:
         key = _round_key(row)
         if key is None:
@@ -1876,10 +1915,10 @@ def _grouped_anomalies(
         for hit in hits_by_round.get(key, ()):
             if hit.rule != rule:
                 continue
-            tally[hit.area].add(key, str(row["round_type"]), hit)
+            tally[(hit.area, hit.site)].add(key, str(row["round_type"]), hit)
 
     return [
-        tally[area].to_anomaly(
+        tally[(area, site)].to_anomaly(
             rule=rule,
             area=area,
             map_name=map_name,
@@ -1888,7 +1927,7 @@ def _grouped_anomalies(
             m=m,
             small_sample=m < thresholds.small_sample_rounds,
         )
-        for area in sorted(tally)
+        for area, site in sorted(tally)
     ]
 
 
@@ -1909,21 +1948,26 @@ class _RoundTally:
     """
 
     round_type: str
-    #: Sample point -> (players, alive). A dictionary and not a list: the same
-    #: rule produces at most one hit per sample point for one area, so the key
-    #: is unique and the order comes from the sort.
-    points: dict[float, tuple[int, int | None]] = field(default_factory=dict)
+    #: Sample point -> (players, alive, the crowd's areas). A dictionary and
+    #: not a list: the same rule produces at most one hit per sample point for
+    #: one area, so the key is unique and the order comes from the sort. The
+    #: areas are the stack's own and empty on the other two rules -- and they
+    #: are kept per sample point for the same reason as the player count: they
+    #: are an observation of that moment and of no other.
+    points: dict[float, tuple[int, int | None, tuple[str, ...]]] = field(
+        default_factory=dict
+    )
     sources: set[str] = field(default_factory=set)
 
     def add(self, hit: sampling.AnomalyHit) -> None:
-        self.points[hit.sample_t_s] = (hit.players, hit.alive)
+        self.points[hit.sample_t_s] = (hit.players, hit.alive, hit.areas)
         self.sources.update(hit.sources)
 
     @property
     def players_max(self) -> int:
         """The largest player count on the round; the source of the row's
         ``players_max``."""
-        return max(players for players, _ in self.points.values())
+        return max(players for players, _, _ in self.points.values())
 
 
 @dataclass
@@ -1941,8 +1985,10 @@ class _AnomalyTally:
     #: force choosing a mean that was never observed. **Empty for stack**: the
     #: rule does not read the orientation, so it has none to record.
     orientation: dict[str, tuple[float, int]] = field(default_factory=dict)
-    #: The site's group. Only for stack; every hit for the same area is from
-    #: the same group, because the area **is** the group's own site.
+    #: The site's group. Only for stack; every hit tallied here is from the
+    #: same group, because the group is **part of the key** -- since Story 4.4
+    #: the area is the crowd's own and no longer the group's site, so the area
+    #: alone no longer determines it.
     site: str | None = None
 
     def add(
@@ -1976,9 +2022,12 @@ class _AnomalyTally:
                 round_type=entry.round_type,
                 points=[
                     AnomalyPoint(
-                        sample_t_s=seconds, players=players, alive=alive
+                        sample_t_s=seconds,
+                        players=players,
+                        alive=alive,
+                        areas=list(areas),
                     )
-                    for seconds, (players, alive) in sorted(
+                    for seconds, (players, alive, areas) in sorted(
                         entry.points.items()
                     )
                 ],

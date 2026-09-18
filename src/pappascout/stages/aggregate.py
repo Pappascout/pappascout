@@ -1110,6 +1110,14 @@ HASHED_THRESHOLD_KEYS: tuple[str, ...] = (
     "stack_min_players",
     "stack_group_margin",
     "stack_site_separation_min",
+    # The stack's definition itself (Story 4.4): the concentration bound and
+    # the setup sample point. Both decide which rounds the rule fires on, so
+    # without them a changed definition would leave the old anomalies in the
+    # report. ``stack_sample_s`` is the quieter of the two: it is the only
+    # threshold here whose change is invisible everywhere else in the
+    # settings, because the rule stopped sharing ``advance_max_sample_s``.
+    "stack_max_areas",
+    "stack_sample_s",
     # The stacked-map branch (Story 4.3). These three decide whether a map's
     # sites are told apart by plan distance or by height, so they change the
     # area division itself -- the same quiet trap as the two above, and for
