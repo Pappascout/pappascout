@@ -25,9 +25,14 @@ from pappascout.archive.manifest import (
 )
 from pappascout.archive.paths import MAX_REPORTS_PER_MINUTE, ArchivePaths, report_name
 from pappascout.domain.models import ReportSettings
-from pappascout.domain.report import REPORT_SCHEMA_VERSION, Report
+from pappascout.domain.report import (
+    REPORT_SCHEMA_CHANGE,
+    REPORT_SCHEMA_VERSION,
+    Report,
+)
 from pappascout.errors import PappascoutError
 from pappascout.stages import render as render_stage
+from pappascout.stages.render import NEWER_REPORT_NOTE
 from test_render import (
     DEFAULT_PRUNING,
     DEMO_ID,
@@ -377,7 +382,100 @@ def test_a_different_schema_version_refuses_and_says_to_aggregate(
     assert "schema version" in message
     assert "0.9.0" in message
     assert "aggregate" in message
+    # **What changed, and not only that something did** (Story 4.8). The
+    # sentence is taken from the constant rather than quoted here: quoted, the
+    # assertion would go on passing over a sentence describing a change two
+    # versions old, which is the failure mode this branch exists to avoid.
+    assert REPORT_SCHEMA_CHANGE in message
     assert reports(archive) == []
+
+
+def test_the_refusal_names_the_change_and_not_only_the_version(
+    tmp_path: Path,
+) -> None:
+    """The sentence the gate adds says what the re-run will produce.
+
+    A version mismatch on its own tells the reader that two numbers differ.
+    They are being sent to run aggregation again over a real archive, which is
+    not free, and the message is the only place that says what they get for
+    it. Story 4.8's acceptance criterion is that an old file is refused with a
+    message **naming the record**.
+
+    **Two assertions that were not worth what they looked like** are gone.
+    ``REPORT_SCHEMA_VERSION in message`` is satisfied by the pre-existing
+    mismatch sentence ("this program knows version '11.0.0'") and says
+    nothing about the change sentence at all. And a bare ``"record" in
+    message`` would be satisfied by a future sentence about *recording*
+    something else. So the word is required to come **from the constant**:
+    remove the constant's text and the word must go with it.
+    """
+    archive = build_archive(tmp_path)
+    path = archive.report_json(TEAM_KEY)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["schema_version"] = "10.0.0"
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(PappascoutError) as excinfo:
+        run(archive)
+    message = str(excinfo.value)
+    assert REPORT_SCHEMA_CHANGE in message
+    assert "record" in message
+    assert "record" not in message.replace(REPORT_SCHEMA_CHANGE, "")
+
+
+def test_a_newer_report_is_not_described_as_an_older_one(
+    tmp_path: Path,
+) -> None:
+    """A file from a **newer** version gets the message that is true of it.
+
+    Measured 2026-09-23 before the fix: a ``report.json`` at 12.0.0 read by a
+    program at 11.0.0 was refused with "Version 11.0.0 gives every round type
+    its win-loss record, which an older report does not carry at all" -- the
+    file is newer and does carry it. The gate compares with ``!=``, so both
+    directions arrive here, and the sentence reasoned about only one.
+
+    **It is reachable on this project rather than theoretical.** The archive
+    is a folder two machines share through a sync product while the code
+    travels separately through git, so the machine that is behind routinely
+    reads what the machine that is ahead wrote. The advice matters as much as
+    the wording: running the aggregate here would rewrite the newer report at
+    this program's older version.
+    """
+    archive = build_archive(tmp_path)
+    path = archive.report_json(TEAM_KEY)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["schema_version"] = "12.0.0"
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(PappascoutError) as excinfo:
+        run(archive)
+    message = str(excinfo.value)
+    assert NEWER_REPORT_NOTE in message
+    assert REPORT_SCHEMA_CHANGE not in message
+    assert "older report" not in message
+
+
+def test_an_unreadable_version_claims_no_direction(tmp_path: Path) -> None:
+    """When neither sentence can be shown true, neither is written.
+
+    The file is still refused -- the acceptance test is the exact ``!=``
+    above, not this -- but nothing is claimed about which side of the gap it
+    is on. A message that is wrong about the file in front of the reader is
+    worse than one that is silent.
+    """
+    archive = build_archive(tmp_path)
+    path = archive.report_json(TEAM_KEY)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["schema_version"] = "not-a-version"
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(PappascoutError) as excinfo:
+        run(archive)
+    message = str(excinfo.value)
+    assert "not-a-version" in message
+    assert "aggregate" in message
+    assert REPORT_SCHEMA_CHANGE not in message
+    assert NEWER_REPORT_NOTE not in message
 
 
 def test_a_broken_report_json_is_a_clear_error_not_a_stack_trace(

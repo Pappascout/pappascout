@@ -86,7 +86,7 @@
 
 {% endif %}
 {% for round_type in side.round_types %}
-**{{ round_type.heading }}** ({{ round_type.rounds_text }})
+**{{ round_type.heading }}** ({{ round_type.rounds_text }}, {{ round_type.record_text }})
 {%- if round_type.small_sample %} -- pieni otanta{% endif %}
 {%- if round_type.pattern_only %} -- vain toistuvat kuviot{% endif %}
 

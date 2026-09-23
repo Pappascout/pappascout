@@ -1107,6 +1107,68 @@ NUKE_DEMOS = (
 #: them would count the same rounds twice.
 CALIBRATION_TEAMS = ("9ac92660986558d3", "ff03fb54599d3311")
 
+#: Every round type's win-loss record in the archive, measured 2026-09-23 by
+#: running :func:`_reports` over it -- **the same code path the test that
+#: reads this back uses**, so the file records what the tool produces and not
+#: a hand-count of the parquet files.
+#:
+#: **Why this is a data file and not a table in a comment.** The record is
+#: the one figure in a block a reader acts on, and nothing else in the suite
+#: could see it go wrong. ``_check_record_covers_the_rounds`` compares
+#: **totals**, and ``sample_for`` and ``record_for`` both count one round per
+#: row, so the model can only notice a record built from a different *number*
+#: of rows: measured 2026-09-23, swapping the wins and the losses
+#: (``RoundRecord(wins=losses, losses=wins, ...)``) left ``-m archive`` at 20
+#: passed, and so did counting the wrong rows at the right length. The report
+#: would have printed ``voitettu 7-15`` where the truth is ``15-7``, on the
+#: real archive, with the only suite that reads real data silent. Any single
+#: row of this table kills both.
+#:
+#: **What is checkable from this repository, and what is not.** Without the
+#: archive: nothing about the numbers. The file is data, the tests that read
+#: it are ``-m archive``, and on a machine without the archive they skip --
+#: so a clone can read the table but cannot confirm it. With the archive:
+#: every number, because the test re-derives the whole table and compares it
+#: whole.
+#:
+#: **It is an observation and not a rule.** Re-classifying the archive,
+#: adding a demo or changing a classification threshold changes these numbers
+#: legitimately; the answer is then to measure the table again and say so in
+#: the commit, not to loosen the test. The one thing it must never do is
+#: change because of a change to ``record_for`` or ``record_text``.
+ROUND_RECORDS = json.loads(
+    (Path(__file__).parent / "data" / "round_records.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+#: The teams the record table covers: :data:`CALIBRATION_TEAMS` **and the
+#: scouted team**.
+#:
+#: The third team is in the archive but was never a calibration subject, and
+#: it is the one the story's own measurement was taken from -- the records
+#: the spec quotes (Nuke T default 9-20, Nuke CT default 15-7, Dust2 CT eco
+#: 1-7) are its, and the calibration teams do not even have a ``de_dust2``.
+#: Pinning only the calibration teams would have left every number the story
+#: rests on unpinned.
+RECORDED_TEAMS = tuple(ROUND_RECORDS["teams"])
+
+#: Every demo those teams' reports are built from, for the skip gate.
+RECORDED_DEMOS = tuple(
+    sorted(
+        {
+            demo
+            for entry in ROUND_RECORDS["teams"].values()
+            for demo in entry["demos"]
+        }
+    )
+)
+
+#: The group the reading guide's example record comes from
+#: (``render.view._LEGEND_RECORD``), named here so the tie between the guide
+#: and the table is a lookup and not a sentence in a docstring.
+LEGEND_RECORD_GROUP = ("1e1965abbc06133b", "de_nuke", "CT", "full")
+
 #: All eight demos in the archive.
 CALIBRATION_DEMOS = (
     *ANCIENT_DEMOS,
@@ -1342,8 +1404,16 @@ def _reports(
     limits: ThresholdSettings | None = None,
     *,
     seconds: Sequence[float] | None | _GridNotGiven = _SENTINEL_GRID,
+    teams: Sequence[str] = CALIBRATION_TEAMS,
 ):
-    """Both teams' reports **in memory**, without changing the archive.
+    """The named teams' reports **in memory**, without changing the archive.
+
+    ``teams`` defaults to :data:`CALIBRATION_TEAMS`, which is what every
+    caller before Story 4.8 wanted: the two teams whose thresholds were
+    calibrated. It is an argument because the win-loss record's own table
+    (:data:`ROUND_RECORDS`) covers :data:`RECORDED_TEAMS` -- the same two
+    **and** the scouted team the story's measurement was taken from, which is
+    in the archive but was never a calibration subject.
 
     The stage's own ``run`` would write ``report.json`` into the developer's
     archive; a test must not change the data it measures against.
@@ -1371,7 +1441,7 @@ def _reports(
                 settings.league,
                 settings.aggregate,
             )
-            for team in CALIBRATION_TEAMS
+            for team in teams
         ]
 
 
@@ -2463,3 +2533,173 @@ def test_the_recorded_orientation_counts_are_the_archives_own() -> None:
             if value[grid] is not None
         }
         assert recorded == counts, demo
+
+
+def _records_from(root: Path) -> dict[tuple[str, str, str, str], dict]:
+    """Every group's record in the archive, keyed as the table keys it."""
+    found: dict[tuple[str, str, str, str], dict] = {}
+    for team, report in zip(RECORDED_TEAMS, _reports(root, teams=RECORDED_TEAMS)):
+        for map_report in report.maps:
+            for side_report in map_report.sides:
+                for entry in side_report.round_types:
+                    key = (
+                        team,
+                        map_report.map_name,
+                        side_report.side,
+                        entry.round_type,
+                    )
+                    found[key] = {
+                        "rounds": entry.sample.rounds,
+                        "record": [
+                            entry.record.wins,
+                            entry.record.losses,
+                            entry.record.unknown,
+                        ],
+                    }
+    return found
+
+
+def _recorded_groups() -> dict[tuple[str, str, str, str], dict]:
+    """The same, read out of :data:`ROUND_RECORDS`."""
+    return {
+        (team, map_name, side, round_type): body
+        for team, entry in ROUND_RECORDS["teams"].items()
+        for map_name, sides in entry["maps"].items()
+        for side, types in sides.items()
+        for round_type, body in types.items()
+    }
+
+
+@pytest.mark.archive
+def test_every_groups_record_is_the_one_the_archive_holds() -> None:
+    """The whole record table, re-derived and compared whole.
+
+    **This is the only test that can see a wrong record.** The model's
+    cross-check compares totals, and both sides count one round per row, so a
+    record that is the right length and the wrong content passes it --
+    measured 2026-09-23: swapping the wins and the losses left ``-m archive``
+    at 20 passed before this test existed, and so did counting the wrong rows
+    at the right length. Both change a number in this table, so both go red
+    here.
+
+    Compared as **one equality over the whole table** rather than row by row,
+    so a group that appears or disappears fails as loudly as a group whose
+    numbers moved. A drifted table is re-measured, not loosened -- see
+    :data:`ROUND_RECORDS`.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    recorded = _recorded_groups()
+    assert len(recorded) == 78, len(recorded)
+    assert _records_from(root) == recorded
+
+
+@pytest.mark.archive
+def test_the_record_table_names_the_demos_the_reports_are_built_from() -> None:
+    """The table's demo lists are the reports' own, and its totals too.
+
+    Without this the demo lists would be load-bearing only in the wrong
+    direction: they feed :func:`require_parsed`, so a **wrong** id makes the
+    archive tests skip, and a skip is green. This catches an id that is wrong
+    but present.
+
+    **The limit is worth stating**: an id that is wrong *and* absent from the
+    archive still skips, and that is indistinguishable from running on a
+    machine whose archive is partial -- which is the behaviour the skip gate
+    is for. Nothing here can tell those two apart.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    for team, report in zip(RECORDED_TEAMS, _reports(root, teams=RECORDED_TEAMS)):
+        entry = ROUND_RECORDS["teams"][team]
+        demos = sorted(
+            demo
+            for map_report in report.maps
+            for demo in map_report.map_demo_ids
+        )
+        assert demos == entry["demos"], team
+        assert report.sample.rounds == entry["rounds"], team
+
+
+def test_the_reading_guides_example_is_a_record_the_archive_holds() -> None:
+    """``render.view._LEGEND_RECORD`` is a group in the table, not an invention.
+
+    The reading guide tells the reader that ``voitettu 15-7`` is the shape of
+    the line, and its docstring claims the pair is the archive's own Nuke CT
+    default block. That claim now fails here if it stops being true, instead
+    of sitting in ``src/`` with nothing watching it.
+
+    **No archive needed**: both sides are in the repository. What ties the
+    table to the archive is
+    :func:`test_every_groups_record_is_the_one_the_archive_holds`, and the
+    two together are what make the guide's example checkable.
+    """
+    from pappascout.render.view import _LEGEND_RECORD
+
+    body = _recorded_groups()[LEGEND_RECORD_GROUP]
+    assert body["record"] == [
+        _LEGEND_RECORD.wins,
+        _LEGEND_RECORD.losses,
+        _LEGEND_RECORD.unknown,
+    ]
+
+
+@pytest.mark.archive
+def test_every_record_in_the_real_archive_covers_its_own_sample() -> None:
+    """The record and the sample agree on every group the archive produces.
+
+    A property of the real data: the values are read from the archive on both
+    sides of the comparison, so there is nothing here to go stale. What it
+    catches is the fault the model's cross-check was written for -- a record
+    counted from a different *number* of rounds than the observations beside
+    it -- on the only rounds that are real.
+
+    Weaker than the table above and kept for its failure message: the table
+    pins the numbers, this says which invariant they broke. ``_aggregate``
+    builds the model, so a disagreement would already have raised inside it;
+    the assertion is here as well because the failure this test names is a
+    **measurement** claim and not a constructor's.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    groups = [
+        round_type
+        for report in _reports(root, teams=RECORDED_TEAMS)
+        for map_report in report.maps
+        for side_report in map_report.sides
+        for round_type in side_report.round_types
+    ]
+    assert len(groups) == 78, len(groups)
+    for group in groups:
+        assert group.record.rounds == group.sample.rounds, group.round_type
+
+
+@pytest.mark.archive
+def test_the_archive_has_no_round_with_an_unknown_outcome() -> None:
+    """Measured 2026-09-23: 0 nulls in the archive's 511 classified rounds.
+
+    **This test states a fact about today's archive, not a rule.** ``won`` is
+    nullable and the unknown bucket is written for that reason; if this ever
+    goes red, the answer is not to widen the model but to read the round it
+    names -- an unread outcome has appeared in real data for the first time,
+    and the report's unknown clause is about to be printed for the first time
+    too.
+
+    **It covers :data:`RECORDED_TEAMS` and not the whole archive.** The 511
+    is the figure from reading every ``classified/`` table directly; these
+    three teams are the part of it this suite can build a report from without
+    writing to the archive, and the rounds outside them belong to lineups
+    that are the same teams under another id.
+
+    Kept apart from the test above so the two failures cannot be confused: one
+    says the record disagrees with its sample, this one says the archive
+    changed.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    groups = [
+        (key, entry)
+        for key, entry in _records_from(root).items()
+    ]
+    # A floor, because the assertion below is that a list is **empty**: an
+    # archive that yielded no group at all would satisfy it while covering
+    # nothing.
+    assert len(groups) == 78, len(groups)
+    unknown = [key for key, entry in groups if entry["record"][2]]
+    assert unknown == [], unknown

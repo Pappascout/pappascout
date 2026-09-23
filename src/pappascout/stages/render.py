@@ -92,7 +92,11 @@ from pappascout.archive.paths import (
 )
 from pappascout.domain.aggregate import team_slug
 from pappascout.domain.models import ReportSettings
-from pappascout.domain.report import REPORT_SCHEMA_VERSION, Report
+from pappascout.domain.report import (
+    REPORT_SCHEMA_CHANGE,
+    REPORT_SCHEMA_VERSION,
+    Report,
+)
 from pappascout.errors import PappascoutError
 from pappascout.render import render_report, round_list_demo_ids, template_digest
 from pappascout.stages import StageResult
@@ -100,6 +104,7 @@ from pappascout.stages import StageResult
 __all__ = [
     "STAGE",
     "TOOLS",
+    "NEWER_REPORT_NOTE",
     "run",
     "team_keys",
     "resolve_team",
@@ -286,14 +291,80 @@ def _team_listing(available: list[str]) -> str:
 # -- Reading the input -----------------------------------------------------------
 
 
+#: What the gate adds when the file on disk is **newer** than this program.
+#:
+#: The direction is worth telling apart rather than glossing, and on this
+#: project it is reachable rather than theoretical: the archive is a folder
+#: two machines share through a sync product, while the code travels
+#: separately through git, so the machine that is behind routinely reads what
+#: the machine that is ahead wrote. The advice is the opposite of the older
+#: file's -- running the aggregate here would rewrite the newer report at
+#: this program's older version, and the other machine would lose it.
+#:
+#: The wording follows :meth:`~pappascout.archive.manifest.Manifest.read`,
+#: which has said "written by a newer version" about the manifest since
+#: Story 1.1.
+NEWER_REPORT_NOTE = (
+    "This report.json was written by a newer version of pappascout than the "
+    "one running here, so it is this program that is behind. Update it "
+    "rather than running the aggregate, which would rewrite the newer "
+    "report at this version."
+)
+
+
+def _version_numbers(value: object) -> tuple[int, ...] | None:
+    """A dotted version as numbers, or ``None`` if it is not one.
+
+    Only used to decide **which sentence is true**, never to decide whether
+    the file is accepted -- that stays the exact ``!=`` comparison above, so
+    an unparseable version is still refused.
+    """
+    if not isinstance(value, str):
+        return None
+    parts = value.split(".")
+    if not parts or not all(part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def _version_note(version: object) -> str:
+    """The sentence that says what the version gap means, or nothing.
+
+    Three outcomes, and the third is the point of writing this as a function
+    rather than a conditional expression: the file is **older** (say what
+    this version added), the file is **newer** (say that this program is
+    behind, :data:`NEWER_REPORT_NOTE`), or the direction **cannot be
+    established** because one of the two strings is not a dotted number --
+    and then nothing is claimed at all.
+
+    Before Story 4.8's review the change sentence was added unconditionally,
+    so a 12.0.0 file read by an 11.0.0 program was told that "an older report
+    does not carry" the very field it carries. A message that is wrong about
+    the file in front of the reader is worse than a message that is silent.
+    """
+    mine = _version_numbers(REPORT_SCHEMA_VERSION)
+    theirs = _version_numbers(version)
+    if mine is None or theirs is None:
+        return ""
+    if theirs > mine:
+        return NEWER_REPORT_NOTE + "\n"
+    return REPORT_SCHEMA_CHANGE + "\n"
+
+
 def read_report(path: Path, team_key: str) -> Report:
     """Read and check ``report.json``.
 
     There are four checks, and each produces advice of its own: a missing
     file, the wrong schema version, broken content and **the wrong team**. The
     first three are not the same error -- in the first the aggregate has not
-    been run, in the second it was run by an old version, in the third the
-    file is corrupt.
+    been run, in the second it was run by a version that is not this one, in
+    the third the file is corrupt.
+
+    **The second check does not assume which way the gap goes.** Acceptance is
+    the exact ``!=``, but the sentence it explains itself with is chosen by
+    :func:`_version_note`: what this version added when the file is older,
+    :data:`NEWER_REPORT_NOTE` when the file is newer, and nothing at all when
+    the direction cannot be established.
 
     The fourth is the subtlest: ``aggregate`` writes ``team.key`` the same as
     the directory's name, so a difference means the file has been moved or
@@ -324,8 +395,9 @@ def read_report(path: Path, team_key: str) -> Report:
             f"The report model's schema version does not match: {path} is of "
             f"version {version!r}, but this program knows version "
             f"{REPORT_SCHEMA_VERSION!r}.\n"
-            "No report is written, because an old structure can look valid "
-            "and still mean something different.\n"
+            "No report is written, because a structure from another version "
+            "can look valid and still mean something different.\n"
+            f"{_version_note(version)}"
             f"Run the aggregate again: uv run pappascout aggregate --team "
             f"{team_key} --force"
         )

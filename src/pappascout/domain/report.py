@@ -137,6 +137,7 @@ from pappascout.errors import AggregateError
 
 __all__ = [
     "REPORT_SCHEMA_VERSION",
+    "REPORT_SCHEMA_CHANGE",
     "slugify",
     "team_slug",
     "SLUG_FALLBACK",
@@ -157,6 +158,7 @@ __all__ = [
     "FirstDeathArea",
     "KillArea",
     "DeathReport",
+    "RoundRecord",
     "RoundTypeReport",
     "SideReport",
     "MapReport",
@@ -177,6 +179,26 @@ __all__ = [
 #: that an old ``report.json`` no longer validates -- then ``render`` says
 #: that aggregation has to be run again, instead of silently formatting half
 #: a report.
+#:
+#: **The condition, in one place, because the history below is ninety lines
+#: and Story 4.4 read this constant and still failed to raise it.** Raise the
+#: version when **either** holds:
+#:
+#: 1. an old ``report.json`` would no longer validate against this model --
+#:    a new required field, a removed or added enumeration value, a
+#:    tightening that rejects a file already written; **or**
+#: 2. an old file *would* validate, but a value in it would now be **read as
+#:    something it is not** -- a field that kept its name and changed its
+#:    meaning, or a default that cannot be told apart from an observation.
+#:
+#: The second is the one that gets missed, and it is the reason the condition
+#: is not "was a new field added". Every entry below is an instance of one or
+#: the other, and each says which.
+#:
+#: **Every rise also rewrites :data:`REPORT_SCHEMA_CHANGE`**, which names the
+#: current version in the sentence a stage refuses an old file with. A test
+#: holds the two together, so a rise that leaves the wording alone fails
+#: rather than misinforming the reader.
 #:
 #: **5.0.0 (Story 2.9): the structure did not change, but the value set did.**
 #: ``snapped`` was dropped from the ``AreaSource`` enumeration and
@@ -258,7 +280,46 @@ __all__ = [
 #:   what the old rule did not measure. A field that keeps its name and
 #:   changes its meaning is the most dangerous change this constant exists
 #:   for, because nothing else in the file shows it.
-REPORT_SCHEMA_VERSION = "10.0.0"
+#:
+#: **11.0.0 (Story 4.8): every round type carries its win-loss record.**
+#: :attr:`RoundTypeReport.record` is **required**, so every ``report.json``
+#: written before this story fails to validate -- which is the point, and the
+#: same shape as 9.0.0's roster breakdown. A default would have been worse
+#: here than at any earlier version: the only default a record can have is
+#: ``0-0``, and ``0-0`` does not read as a missing measurement -- it reads
+#: as a round type nobody won and nobody lost. The reader is preparing for a
+#: match, and a habit that wins and a habit that loses are opposite pieces of
+#: advice.
+REPORT_SCHEMA_VERSION = "11.0.0"
+
+#: What the newest version changed, in one sentence, for the message a stage
+#: refuses an old ``report.json`` with.
+#:
+#: A version mismatch on its own tells the reader that two numbers differ; it
+#: does not tell them what the run they are about to repeat will add, and
+#: ``aggregate --force`` over a real archive is not free. **Only the newest
+#: change is named**, and not a changelog: the gate compares against exactly
+#: one version, so any older file is refused by the same sentence, and a list
+#: of every change since 5.0.0 would bury the one that matters. The history
+#: is on :data:`REPORT_SCHEMA_VERSION`, where it is read deliberately.
+#:
+#: **It names the current version, and a test makes it.** The sentence is a
+#: durable contract with nothing in the type system tying it to the constant
+#: above: left alone across a bump it would go on describing the change
+#: *before* last, and the reader would be sent to re-run an aggregate for
+#: something they already have. That is Story 4.4's failure one level up --
+#: the version number is guarded as a rule, so the sentence has to be too.
+#: :func:`tests.test_report_model
+#: .test_the_change_sentence_names_the_current_version` asserts that
+#: :data:`REPORT_SCHEMA_VERSION` appears here, which is why the sentence
+#: opens with the number.
+#:
+#: English, like every other line the CLI prints (AD-11). It never reaches
+#: the report.
+REPORT_SCHEMA_CHANGE = (
+    "Version 11.0.0 gives every round type its win-loss record, which an "
+    "older report does not carry at all."
+)
 
 
 #: Characters that a file name will not take. The slug is an ASCII subset,
@@ -530,6 +591,12 @@ class Sample(_Node):
 
     ``demos`` and ``rounds`` are the bucket sums, precomputed so that
     ``render`` does not add them up.
+
+    **This ``unknown`` counts demos, and :class:`RoundRecord`'s counts
+    rounds.** The two words sit side by side in a round type's node of
+    ``report.json`` and mean different things: here, a demo whose kind is not
+    known; there, a round whose outcome was not read. Neither implies the
+    other.
     """
 
     demos: int = Field(ge=0)
@@ -572,7 +639,9 @@ class RosterSample(_Node):
     would be a claim nobody made.
 
     ``demos`` and ``rounds`` are the bucket sums, precomputed so that
-    ``render`` does not add them up (AD-8).
+    ``render`` does not add them up (AD-10; the rule is AD-10's, and an
+    earlier version of this line cited AD-8, which is the ports and the
+    import command).
     """
 
     demos: int = Field(ge=0)
@@ -585,6 +654,69 @@ class RosterSample(_Node):
     def _check_totals(self) -> RosterSample:
         _check_bucket_totals(self, ROSTER_BUCKETS, "roster breakdown")
         return self
+
+
+class RoundRecord(_Node):
+    """One group's win-loss record: how its rounds ended.
+
+    A sibling of :class:`Sample` and not a part of it: the sample says **how
+    many rounds were observed**, the record says **how they ended**. Both are
+    counted from the same rows, and
+    :meth:`RoundTypeReport._check_record_covers_the_rounds` holds them to the
+    same total -- to the same *total* and no further, which that method's own
+    docstring sets out. What holds the three counts to the archive is
+    ``tests/data/round_records.json``.
+
+    ``unknown`` is a bucket of its own and **never a loss**. ``won`` in the
+    ``CLASSIFIED`` schema is ``pl.Boolean`` and therefore nullable, so a round
+    whose outcome was not read is a real state of the table. Folding it into
+    ``losses`` would turn a gap in the recording into a claim about the team,
+    and the record is exactly the figure a reader acts on. Measured
+    2026-09-23: 0 nulls in the real archive's 511 classified rounds, so the
+    bucket is unobserved today -- which is why it is written down rather than
+    assumed away.
+
+    **It is not the same ``unknown`` as :class:`Sample`'s**, although the two
+    sit side by side in the same node of ``report.json``. ``Sample.unknown``
+    is a bucket of **demos** whose ``is_league`` is empty; this is a count of
+    **rounds** whose outcome was not read. Nothing links them: a group can
+    have every demo's league status known and still hold an unread round, and
+    the other way round.
+
+    **There is no cross-field invariant left inside this class**, which is
+    why it carries no validator of its own. ``Field(ge=0)`` states everything
+    the three counts owe each other; the one real constraint is that they add
+    up to the group's sample, and only
+    :meth:`RoundTypeReport._check_record_covers_the_rounds` can see both
+    sides of it.
+
+    **No rate and no verdict.** The model holds three counts and nothing
+    derived from them. Two wins in three rounds is not a finding; the report
+    states the count and the reader is the analyst.
+    """
+
+    #: Rounds this team won.
+    wins: int = Field(ge=0)
+    #: Rounds this team lost. A round whose outcome is unknown is **not**
+    #: here -- see the class docstring.
+    losses: int = Field(ge=0)
+    #: Rounds whose ``won`` was empty in the classified table.
+    unknown: int = Field(ge=0)
+
+    @property
+    def rounds(self) -> int:
+        """The three buckets together: every round the record accounts for.
+
+        **A property is not serialised into ``report.json``**, and that is
+        the fact that decides which totals are fields and which are not. Any
+        number the report *prints* has to be a field, or ``render`` would
+        have to add it up and AD-10 forbids ``render`` computing anything.
+        :class:`Sample`'s ``rounds`` is printed, so it is a field; this total
+        is never printed -- it exists only for the cross-check against the
+        sample -- so it is derived, and a stored copy would be a second
+        number free to disagree with the buckets beside it.
+        """
+        return self.wins + self.losses + self.unknown
 
 
 class PlayersCount(_Node):
@@ -1171,6 +1303,16 @@ class RoundTypeReport(_Node):
     ``small_sample`` is a mark and not a filter: a sample of fewer than
     ``[thresholds].small_sample_rounds`` rounds is still shown, but marked.
     One repetition is not a pattern, and the report has to say so.
+
+    **No field here takes a default, and that is a property of the node and
+    not of any one field.** All of them are bare annotations, so a
+    ``report.json`` missing any of them is refused instead of read. The
+    reason is the same every time: an empty default is indistinguishable
+    from a measured absence, so a branch computed with an older version
+    would render as a round type on which nobody had armour, nobody died or
+    nobody won -- which is exactly the difference
+    :data:`REPORT_SCHEMA_VERSION` exists to tell apart. A field below carries
+    a comment only where something is peculiar to it.
     """
 
     round_type: RoundType
@@ -1180,18 +1322,19 @@ class RoundTypeReport(_Node):
     utility: list[UtilityUse]
     utility_counts: list[UtilityCounts]
     players_armed: ArmedPlayers
-    #: The armoured as an observation of their own alongside the armed. **No
-    #: default**, for the same reason as with ``deaths``: an empty default
-    #: would let a branch computed with an old version look like a round type
-    #: on which nobody had armour -- and that is exactly the difference the
-    #: schema version tells apart.
+    #: The armoured as an observation of their own alongside the armed, and
+    #: not a second reading of the same count -- see :class:`ArmoredPlayers`.
     players_armored: ArmoredPlayers
     first_contact: list[FirstContactArea]
-    #: Own deaths and kills. No default: an empty default would let a branch
-    #: computed with an old version look like a round type on which nobody
-    #: died -- and that is exactly the difference the schema version tells
-    #: apart.
+    #: Own deaths and kills.
     deaths: DeathReport
+    #: How the round type's rounds ended. **The node's no-default rule bites
+    #: hardest here**: an empty distribution at least looks empty, whereas
+    #: the only default a record could carry is ``0-0``, which does not read
+    #: as absent data at all -- it reads as a round type nobody won and
+    #: nobody lost. ``render`` therefore never prints that string for a
+    #: measured group either (:func:`~pappascout.render.view.record_text`).
+    record: RoundRecord
 
     @model_validator(mode="after")
     def _check_sample_points(self) -> RoundTypeReport:
@@ -1250,6 +1393,55 @@ class RoundTypeReport(_Node):
                 "The difference means the deaths were computed from a "
                 "different set of rounds than the other observations -- the "
                 "distribution would still look internally correct."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_record_covers_the_rounds(self) -> RoundTypeReport:
+        """The record's three buckets are exactly the round type's rounds.
+
+        The counterpart of :meth:`_check_deaths_cover_the_rounds`, and it is
+        here rather than inside :class:`RoundRecord` for the reason that
+        method gives: the record is internally consistent whatever rows it
+        was counted from, so only the level that holds **both** the record
+        and the sample can see that they were counted from the same ones.
+
+        The report states this count without a rate beside it, so a reader
+        has nothing to notice a drift against: a record covering 29 rounds
+        printed on a 22-round block looks exactly as authoritative as the
+        right one. That is why the disagreement is refused here rather than
+        rendered.
+
+        **What this guard weighs, and what it cannot** -- the same
+        qualification :meth:`SampleBucket._check_rounds_have_a_demo` makes
+        about itself, and it matters more here. ``sample_for`` and
+        ``record_for`` are handed the **same sequence** and each counts one
+        round per row, so both totals are ``len(rows)``: on the pipeline's
+        own path this is an **identity and can never fire**. It is a **length
+        check and not a content check** -- it catches a hand-edited
+        ``report.json`` and a future second pass over a differently filtered
+        frame, but a record built from the wrong rows of the right length
+        passes it, and so does a record whose wins and losses are the wrong
+        way round. Read beside
+        :meth:`_check_deaths_cover_the_rounds`, which guards a live join and
+        really can fire on the pipeline's path, the two look alike and are
+        not. What catches the content is the archive table in
+        ``tests/data/round_records.json``.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If the wins, losses and
+                unknown outcomes are not together the round type's sample.
+        """
+        if self.record.rounds != self.sample.rounds:
+            raise AggregateError(
+                f"The record of round type {self.round_type} covers "
+                f"{self.record.rounds} rounds ({self.record.wins} won, "
+                f"{self.record.losses} lost, {self.record.unknown} with an "
+                f"unknown outcome), but the round type's sample is "
+                f"{self.sample.rounds} rounds.\n"
+                "The difference means the record was counted from a "
+                "different set of rounds than the other observations -- the "
+                "record would still add up on its own."
             )
         return self
 

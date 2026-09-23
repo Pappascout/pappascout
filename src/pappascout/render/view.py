@@ -55,6 +55,20 @@ are left off a row, the row states how many were dropped
 explanation is written only about a rule that really pruned something, and
 it names its setting.
 
+**Which strings in this module are Finnish, and how to tell** (AD-11).
+Everything here is English -- identifiers, docstrings, comments -- except
+**the text this module lays into the report**, which stays Finnish
+permanently because Finnish team-mates read the report before a match. The
+boundary is not the ``*_FI`` naming convention and it is not the package:
+measured 2026-09-10 and again 2026-09-23, this module holds seventeen
+constants that carry no ``*_FI`` in their names and reach the report anyway
+(:data:`UNKNOWN_AREA`, :data:`ESTIMATE_MARK`, :data:`TRACEABILITY_HEADING`,
+:data:`UNNAMED_PLAYER`, :data:`RECORD_VERB`,
+:data:`RECORD_UNKNOWN_OUTCOME` and eleven others). **Trace a value to its
+consumer**; the name does not tell you. A constant added below inherits this
+paragraph, which is why it is here and not attached to whichever constant
+happened to be the last one to need saying so.
+
 **Some of the round types are protected** (:data:`PROTECTED_ROUND_TYPES`),
 and every pruning paragraph of the reading guide says so out loud: the same
 report holds unpruned blocks, so an unqualified sentence would be false.
@@ -137,6 +151,7 @@ from pappascout.domain.report import (
     DeathReport,
     Position,
     Report,
+    RoundRecord,
     RoundTypeReport,
     UtilityCounts,
     UtilityUse,
@@ -153,6 +168,8 @@ __all__ = [
     "MAX_DEATH_LINES",
     "KILL_SAMPLE_UNIT",
     "UNKNOWN_AREA",
+    "RECORD_VERB",
+    "RECORD_UNKNOWN_OUTCOME",
     "TRACEABILITY_HEADING",
     "ANOMALY_HEADING",
     "MAX_ANOMALY_LINES",
@@ -171,6 +188,7 @@ __all__ = [
     "block_min_rounds",
     "pattern_min_rounds",
     "rounds_text",
+    "record_text",
     "demos_text",
     "players_text",
 ]
@@ -312,6 +330,61 @@ KILL_SAMPLE_UNIT = "taposta"
 #: unknown position is a different thing from an empty area.
 UNKNOWN_AREA = "tuntematon alue"
 
+#: The win-loss record's verb on the round type's sample line (Story 4.8):
+#: ``**Default** (22 kierrosta, voitettu 15-7)``.
+#:
+#: **A verb and not a ratio.** The report writes the count and nothing
+#: derived from it -- no percentage, no rate and no verdict. Two wins in
+#: three rounds is not a finding, and a number the report does not compute is
+#: one the reader cannot mistake for one.
+#:
+#: The separator is an ASCII hyphen, not an en dash. Measured 2026-09-23: the
+#: source tree holds no en or em dash anywhere, and the template writes its
+#: own separators as ``--``. One typographic exception inside a heading line
+#: would be the only non-ASCII punctuation in the report.
+#:
+#: **Awaiting the product owner's word** (Story 4.8, "Ask First"), as are
+#: :data:`RECORD_UNKNOWN_OUTCOME` and the record's sentence in the reading
+#: guide. The line is read before a match and the words are his; these three
+#: are the implementation's suggestion and not his choice. The open question
+#: is in the architecture memlog, because a contract question recorded only
+#: in a source docstring is not in the decision record.
+RECORD_VERB = "voitettu"
+
+#: How the record names rounds whose outcome is not known.
+#:
+#: The unknown is **named and not hidden**, and it is never folded into the
+#: losses: ``won`` is nullable in the classified table, so an unread outcome
+#: is a gap in the recording and not a defeat. Written as the whole
+#: sentence-fragment rather than a bare count, because ``2 tuntematonta``
+#: leaves the reader to guess what is unknown -- the round, the side or the
+#: figure before it.
+#:
+#: Measured 2026-09-23: 0 of the real archive's 511 classified rounds have an
+#: empty ``won``, so nothing in the archive prints this today. It is written
+#: because the column allows it, not because it was seen.
+#:
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+RECORD_UNKNOWN_OUTCOME = "kierroksen tulos ei tiedossa"
+
+#: The record the reading guide shows as its example, as a record and not as
+#: text: the guide's sentence runs it through :func:`record_text`, the same
+#: function the heading uses, so the example cannot come to explain a string
+#: the report no longer prints.
+#:
+#: **The precedent is :data:`KILL_SAMPLE_UNIT` four constants above** and not
+#: ``SITE_GROUPS = tuple(SITE_AREAS)``: nothing here is derived from anything
+#: -- the numbers are an independent literal -- and what the guide and the
+#: heading share is the **function**. That is exactly the kill row's problem
+#: ("written twice, one of them would go on telling of rounds"), and it has
+#: the same answer.
+#:
+#: The numbers are the real archive's Nuke CT default block, and they are
+#: **pinned** rather than merely stated: ``tests/data/round_records.json``
+#: carries that group's record and an ``-m archive`` test compares it against
+#: the archive, so this example stops being true loudly rather than quietly.
+_LEGEND_RECORD = RoundRecord(wins=15, losses=7, unknown=0)
+
 #: The mark for an area that is an **estimate** and not an observation: the
 #: detonation's area has been read from the nearest cell of the demo's point
 #: cloud. Without the mark the report would present an estimate as an
@@ -452,6 +525,11 @@ class RoundTypeView:
     round_type: str
     heading: str
     rounds_text: str
+    #: The win-loss record as the reader sees it, beside the round count on
+    #: the same line. Already formatted, like ``rounds_text``: the record's
+    #: three counts are the model's, and the sentence built from them is this
+    #: layer's.
+    record_text: str
     small_sample: bool
     pattern_only: bool
     lines: tuple[Line, ...]
@@ -799,6 +877,47 @@ def markdown_text(value: str) -> str:
 def rounds_text(count: int) -> str:
     """``1 kierros`` / ``5 kierrosta``: one round / five rounds."""
     return "1 kierros" if count == 1 else f"{count} kierrosta"
+
+
+def record_text(record: RoundRecord) -> str:
+    """The record as one fragment: ``voitettu 15-7``.
+
+    When some outcome was not read, the unknown is named after the record and
+    not inside it -- ``voitettu 15-7, 2 kierroksen tulos ei tiedossa``. Two
+    separate claims: this many were won and lost, and this many were not
+    known either way. Adding the unknown into the pair would make the two
+    numbers stop being the wins and the losses.
+
+    **The clause is left out when there is nothing to report.** A standing ``0
+    kierroksen tulos ei tiedossa`` on every block would be a sentence about
+    an absence, and there are hundreds of blocks.
+
+    **And the pair is left out when nothing was won or lost**, so that a
+    block whose every outcome is unknown reads ``3 kierroksen tulos ei
+    tiedossa`` and not ``voitettu 0-0, 3 kierroksen tulos ei tiedossa``.
+    ``0-0`` is the exact string :data:`~pappascout.domain.report
+    .REPORT_SCHEMA_VERSION` refuses as a default, and for the reason that
+    applies here word for word: it does not read as a missing measurement, it
+    reads as a round type nobody won and nobody lost -- and it would sit in
+    the position the eye lands on, repaired by a trailing clause. The shape
+    is the report's own: ``ei omia kuolemia 3 kierroksella`` likewise
+    replaces the figure instead of printing a zero beside it
+    (:func:`_death_lines`).
+
+    An **empty** record -- nothing won, nothing lost, nothing unknown --
+    still reads ``voitettu 0-0``, and there the string is true: no round was
+    won or lost because the group has no rounds. It cannot reach the report
+    in any case, because ``aggregate`` writes no group without rounds.
+
+    There is no rate here and there is not meant to be one (Story 4.8): the
+    report states the count and the reader is the analyst.
+    """
+    if record.unknown and not (record.wins or record.losses):
+        return f"{record.unknown} {RECORD_UNKNOWN_OUTCOME}"
+    text = f"{RECORD_VERB} {record.wins}-{record.losses}"
+    if record.unknown:
+        text += f", {record.unknown} {RECORD_UNKNOWN_OUTCOME}"
+    return text
 
 
 def demos_text(count: int) -> str:
@@ -2103,6 +2222,7 @@ def _round_type_view(
         round_type=report_type.round_type,
         heading=heading,
         rounds_text=rounds_text(report_type.sample.rounds),
+        record_text=record_text(report_type.record),
         small_sample=report_type.small_sample,
         pattern_only=pattern_only,
         lines=tuple(lines),
@@ -2500,7 +2620,7 @@ def _sample_text(sample: Any) -> str:
 def _roster_sample_text(sample: Any) -> str:
     """The roster breakdown as one line. All three buckets, empty ones too.
 
-    Reads and formats; it counts nothing (AD-8). Every number here is a field
+    Reads and formats; it counts nothing (AD-10). Every number here is a field
     of ``report.json``, so the line cannot disagree with the sample it
     describes. Whether the line is written at all is decided by the caller --
     an all-unknown split is noise dressed as information.
@@ -3254,6 +3374,20 @@ def _legend(
         "kertoo, monellako kierroksella ajoitus mitattiin. Saman rivin "
         "aluevaateet laskevat sen sijaan vain niitä kierroksia, joilla "
         "havainto oli olemassa, joten niiden nimittäjä on pienempi."
+    )
+    # Unconditional, like the two notes above it and unlike the flagged ones
+    # below: the record is on every round type's heading, so there is no state
+    # in which it is absent and the note would explain a line that is not
+    # there. The last sentence is the one the guide exists for -- the reader
+    # is told that the missing rate is a decision and not an omission.
+    notes.append(
+        "Kierrostyypin otsikon tulos (esimerkiksi "
+        f'"{record_text(_LEGEND_RECORD)}") laskee '
+        "lohkon omat kierrokset: ensin voitetut, sitten hävityt. Ne ovat "
+        "samat kierrokset, jotka otsikon kierrosmäärä laskee. "
+        "Jos jonkin kierroksen tulosta ei saatu, se sanotaan otsikossa "
+        "erikseen eikä lasketa tappioksi. Raportti kertoo luvun eikä "
+        "johda siitä osuutta tai arviota: tulkinta on lukijan."
     )
     notes.append(
         "Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä "

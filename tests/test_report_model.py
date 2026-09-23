@@ -36,10 +36,12 @@ from pappascout.domain.report import (
     MissingDemo,
     PlayersCount,
     Position,
+    REPORT_SCHEMA_CHANGE,
     REPORT_SCHEMA_VERSION,
     Report,
     RosterEntry,
     RosterSample,
+    RoundRecord,
     RoundTypeReport,
     SLUG_FALLBACK,
     Sample,
@@ -360,6 +362,11 @@ def _report_with_breakdowns(league: Sample, roster: RosterSample) -> Report:
                                 deaths=DeathReport(
                                     m=0, rounds_missing=league.rounds
                                 ),
+                                record=RoundRecord(
+                                    wins=0,
+                                    losses=league.rounds,
+                                    unknown=0,
+                                ),
                             )
                         ],
                     )
@@ -629,6 +636,7 @@ def _round_type_with_positions(positions: list[Position]) -> RoundTypeReport:
         players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
         first_contact=[],
         deaths=DeathReport(m=0, rounds_missing=2),
+        record=RoundRecord(wins=0, losses=2, unknown=0),
     )
 
 
@@ -790,6 +798,7 @@ def _round_type_with_first_contact(areas: list[FirstContactArea]):
         ),
         first_contact=areas,
         deaths=DeathReport(m=0, rounds_missing=2),
+        record=RoundRecord(wins=0, losses=2, unknown=0),
     )
 
 
@@ -861,6 +870,7 @@ def full_report() -> Report:
         ),
         first_contact=[],
         deaths=DeathReport(m=0, rounds_missing=1),
+        record=RoundRecord(wins=1, losses=0, unknown=0),
     )
     return Report(
         generated_at=datetime(2026, 8, 30, 12, 0, tzinfo=UTC),
@@ -950,6 +960,9 @@ def _report_with_anomalies(anomalies: list[Anomaly]) -> Report:
                                     m=0, rounds_unknown=0, counts=[]
                                 ),
                                 deaths=DeathReport(m=0, rounds_missing=1),
+                                record=RoundRecord(
+                                    wins=0, losses=1, unknown=0
+                                ),
                             )
                         ],
                     )
@@ -1017,6 +1030,7 @@ def side_with(rounds: int) -> SideReport:
                 players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
                 first_contact=[],
                 deaths=DeathReport(m=0, rounds_missing=rounds),
+                record=RoundRecord(wins=0, losses=rounds, unknown=0),
             )
         ],
     )
@@ -1040,6 +1054,7 @@ def test_a_side_must_be_the_sum_of_its_round_types() -> None:
                     players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
                     first_contact=[],
                     deaths=DeathReport(m=0, rounds_missing=2),
+                    record=RoundRecord(wins=0, losses=2, unknown=0),
                 )
             ],
         )
@@ -1091,6 +1106,7 @@ def test_a_round_moving_between_buckets_is_caught() -> None:
                     players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
                     first_contact=[],
                     deaths=DeathReport(m=0, rounds_missing=3),
+                    record=RoundRecord(wins=0, losses=3, unknown=0),
                 )
             ],
         )
@@ -1157,6 +1173,9 @@ def _map_with_bucketed_demo(
                         ),
                         first_contact=[],
                         deaths=DeathReport(m=0, rounds_missing=rounds),
+                        record=RoundRecord(
+                            wins=0, losses=rounds, unknown=0
+                        ),
                     )
                 ],
             )
@@ -1430,6 +1449,7 @@ def test_the_round_type_report_requires_its_death_block() -> None:
             players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
             players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
             first_contact=[],
+            record=RoundRecord(wins=0, losses=1, unknown=0),
         )
 
 
@@ -1451,6 +1471,7 @@ def test_the_round_type_report_requires_its_armored_block() -> None:
             players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
             first_contact=[],
             deaths=DeathReport(m=0, rounds_missing=1),
+            record=RoundRecord(wins=0, losses=1, unknown=0),
         )
 
 
@@ -1481,10 +1502,18 @@ def test_the_two_player_distributions_use_different_field_names() -> None:
 
 
 #: The schema version under which a report **in the shape the test below
-#: builds** was last written. Story 4.4 required ``AnomalyPoint.areas`` on
-#: stack rows, so that shape is 9.0.0's and no longer validates; the constant
-#: is here rather than inline so that the assertion reads as the rule it is.
-LAST_SCHEMA_VERSION_THAT_WROTE_IT = "9.0.0"
+#: builds** was last written. Story 4.8 required
+#: :attr:`RoundTypeReport.record` on every round type, so that shape is
+#: 10.0.0's and no longer validates; the constant is here rather than inline
+#: so that the assertion reads as the rule it is.
+#:
+#: **It moves with every version that breaks the old shape, and the shape the
+#: test builds moves with it.** Left at 9.0.0 while the constant said 11.0.0
+#: the assertion would still pass -- and it would pass for the wrong reason:
+#: the two versions differ, but nothing would have checked that *10.0.0's*
+#: file is refused, which is the file the archive actually holds. A stale
+#: value here does not go red; it stops guarding in silence.
+LAST_SCHEMA_VERSION_THAT_WROTE_IT = "10.0.0"
 
 
 def test_the_schema_version_says_the_structure_changed() -> None:
@@ -1512,22 +1541,44 @@ def test_the_schema_version_says_the_structure_changed() -> None:
     file would be valid, but its coverage would name stack as not implemented
     and stay silent about how many rounds it can hit.
 
+    Story 4.8 is 9.0.0's pattern again: :attr:`RoundTypeReport.record` is
+    required, so every file written before it fails to validate. It is also
+    the case the condition exists for at its sharpest -- the only default a
+    win-loss record could have carried is ``0-0``, and ``0-0`` does not read
+    as absent data, it reads as a round type nobody won.
+
     **The test pins the rule and not the number.** Until Story 4.4 it asserted
     ``== "9.0.0"``, which is the guard inverted: it went red exactly when
     somebody did the right thing and green while the model rejected the
     archive's own files under an unchanged version. What is asserted now is
     the condition itself -- a file in the previous schema's shape does not
     validate, therefore the constant cannot still be that schema's version.
+
+    **The old shape is built by removing what the newest version added**, so
+    the fixture stays the current model's own dump and cannot drift into a
+    hand-written report nobody ever wrote. It is the previous version's shape
+    and not the oldest one still around: the gate compares against exactly one
+    version, so refusing 10.0.0's file is what makes every older file refused
+    too, and 10.0.0's is the one the archive holds today.
     """
-    # A report in the 9.0.0 shape: everything as it is written today, except
-    # that a stack row carries no ``areas``. That is precisely the difference
-    # Story 4.4 made, and the archive's own report.json files die on it.
+    # A report in the 10.0.0 shape: everything as it is written today, except
+    # that a round type carries no ``record``. That is precisely the
+    # difference Story 4.8 made, and the archive's own report.json files die
+    # on it. The stack row keeps its ``areas``: those are 10.0.0's, not
+    # 11.0.0's, and removing them too would make the assertion pass on the
+    # wrong difference.
     current = _report_with_anomalies([_stack()])
     old_shaped = current.model_dump(mode="json")
-    for entry in old_shaped["anomalies"]:
-        for round_entry in entry["rounds"]:
-            for point in round_entry["points"]:
-                point.pop("areas", None)
+    removed = 0
+    for map_entry in old_shaped["maps"]:
+        for side_entry in map_entry["sides"]:
+            for round_type in side_entry["round_types"]:
+                removed += round_type.pop("record", None) is not None
+    assert removed, (
+        "The fixture holds no round type with a record, so removing the "
+        "record changes nothing and the assertion below would pass over an "
+        "unchanged file. Give _report_with_anomalies a round type again."
+    )
 
     try:
         Report.model_validate(old_shaped)
@@ -1537,9 +1588,9 @@ def test_the_schema_version_says_the_structure_changed() -> None:
         validates = True
 
     assert not validates, (
-        "A report in the 9.0.0 shape validates against this model. Then "
-        "either the model no longer requires the stack's areas, or this "
-        "test's idea of the old shape is stale -- and the version rule "
+        "A report in the 10.0.0 shape validates against this model. Then "
+        "either the model no longer requires the round type's record, or "
+        "this test's idea of the old shape is stale -- and the version rule "
         "cannot be checked from here until one of the two is put right."
     )
     assert REPORT_SCHEMA_VERSION != LAST_SCHEMA_VERSION_THAT_WROTE_IT, (
@@ -1550,6 +1601,29 @@ def test_the_schema_version_says_the_structure_changed() -> None:
         "render dies on a pydantic error instead of saying that aggregation "
         "has to be run again."
     )
+
+
+def test_the_change_sentence_names_the_current_version() -> None:
+    """``REPORT_SCHEMA_CHANGE`` moves when ``REPORT_SCHEMA_VERSION`` does.
+
+    The sentence is a durable contract with nothing in the type system
+    binding it to the constant it describes, and both tests on it were
+    tautologies until this one: one asserted that the constant appears in the
+    refusal (true whatever the sentence says), the other that the word
+    "record" is in it (true for ever, once the word is there). Measured
+    2026-09-23: rewriting the sentence to name **10.0.0** -- the very version
+    the gate refuses -- left ``test_stage_render.py test_report_model.py
+    test_render.py test_stage_aggregate.py`` at 587 passed.
+
+    So the next bump could leave the wording naming Story 4.8 while the gate
+    refuses 11.0.0 files, and the reader would be sent to re-run an aggregate
+    for something they already have. That is Story 4.4's failure one level
+    up: the version *number* is guarded as a rule, and now the *sentence* is
+    too.
+
+    One line, because the constant is written to open with the number.
+    """
+    assert REPORT_SCHEMA_VERSION in REPORT_SCHEMA_CHANGE
 
 
 def test_the_map_name_source_covers_all_three_sources() -> None:
@@ -1598,6 +1672,7 @@ def _round_type_with(entry: DeathReport, rounds: int) -> RoundTypeReport:
         players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
         first_contact=[],
         deaths=entry,
+        record=RoundRecord(wins=0, losses=rounds, unknown=0),
     )
 
 
@@ -1641,6 +1716,119 @@ def test_too_many_covered_rounds_is_refused_too() -> None:
     """A difference either way is the same fault, and both must be stopped."""
     with pytest.raises(AggregateError, match="cover 5 rounds"):
         _round_type_with(DeathReport(m=0, rounds_missing=5), rounds=4)
+
+
+# --- The win-loss record (Story 4.8) --------------------------------------------
+
+
+def _round_type_with_record(record: RoundRecord, rounds: int) -> RoundTypeReport:
+    """A round type with the given record and sample, everything else empty."""
+    return RoundTypeReport(
+        round_type="pistol",
+        sample=sample(unknown=rounds),
+        small_sample=False,
+        positions=[],
+        utility=[],
+        utility_counts=[],
+        players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+        players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
+        first_contact=[],
+        deaths=DeathReport(m=0, rounds_missing=rounds),
+        record=record,
+    )
+
+
+def test_the_round_type_report_requires_its_record() -> None:
+    """No default for the record: an empty one would read as a measurement.
+
+    The same grounds as with the deaths and the armour, and one more of its
+    own: the only default a record could carry is ``0-0``, and unlike an empty
+    distribution ``0-0`` does not look like absent data -- it looks like a
+    round type nobody won and nobody lost. An old ``report.json`` must not
+    validate quietly against this model, so the schema version rises.
+    """
+    with pytest.raises(ValidationError, match="record"):
+        RoundTypeReport(
+            round_type="pistol",
+            sample=sample(unknown=1),
+            small_sample=True,
+            positions=[],
+            utility=[],
+            utility_counts=[],
+            players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+            players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
+            first_contact=[],
+            deaths=DeathReport(m=0, rounds_missing=1),
+        )
+
+
+def test_the_record_must_cover_the_round_types_whole_sample() -> None:
+    """The record's counterpart of the deaths' cross-check.
+
+    A record is internally consistent whatever rows it was counted from, so
+    only the level that holds both it and the sample can see that the two came
+    from the same ones. The report prints the record with no rate beside it,
+    which leaves the reader nothing to notice a drift against.
+    """
+    with pytest.raises(AggregateError, match="covers 3 rounds"):
+        _round_type_with_record(
+            RoundRecord(wins=1, losses=2, unknown=0), rounds=4
+        )
+
+
+def test_too_many_rounds_in_the_record_is_refused_too() -> None:
+    """A difference either way is the same fault, and both must be stopped."""
+    with pytest.raises(AggregateError, match="covers 5 rounds"):
+        _round_type_with_record(
+            RoundRecord(wins=3, losses=2, unknown=0), rounds=4
+        )
+
+
+def test_a_record_that_covers_the_sample_is_accepted() -> None:
+    """The guard's other branch.
+
+    Without it the two preceding tests would prove only that something raises
+    an exception.
+    """
+    entry = _round_type_with_record(
+        RoundRecord(wins=1, losses=2, unknown=1), rounds=4
+    )
+    assert entry.record.rounds == entry.sample.rounds
+
+
+def test_an_unknown_outcome_counts_towards_the_sample() -> None:
+    """The unknown bucket is part of the total, not a round set aside.
+
+    If it were left out of :attr:`RoundRecord.rounds`, a group with unknown
+    outcomes could only satisfy the cross-check by counting those rounds as
+    wins or losses -- which is the one thing the bucket exists to prevent.
+    """
+    entry = _round_type_with_record(
+        RoundRecord(wins=0, losses=0, unknown=3), rounds=3
+    )
+    assert entry.record.rounds == 3
+    assert entry.record.losses == 0
+
+
+def test_a_negative_count_is_refused_in_the_record() -> None:
+    """No bucket of the record can be negative."""
+    for field in ("wins", "losses", "unknown"):
+        values = {"wins": 0, "losses": 0, "unknown": 0}
+        values[field] = -1
+        with pytest.raises(ValidationError):
+            RoundRecord(**values)
+
+
+def test_the_record_is_three_counts_and_nothing_derived() -> None:
+    """No rate, no percentage and no verdict in the model (Story 4.8).
+
+    ``rounds`` is the buckets' sum and exists for the cross-check; anything
+    beyond it would be the model deciding what the counts mean, and that is
+    the reader's job.
+    """
+    record = RoundRecord(wins=15, losses=7, unknown=0)
+    assert set(record.model_dump()) == {"wins", "losses", "unknown"}
+    assert record.rounds == 22
 
 
 # --- Anomalies (Story 2.5) ------------------------------------------------------

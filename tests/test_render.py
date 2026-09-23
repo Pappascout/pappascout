@@ -59,6 +59,7 @@ from pappascout.domain.report import (
     Report,
     RosterEntry,
     RosterSample,
+    RoundRecord,
     RoundTypeReport,
     Sample,
     SampleBucket,
@@ -87,6 +88,8 @@ from pappascout.render.view import (
     MERGED_EQUIPMENT_LABEL,
     PATTERN_ROUND_TYPES,
     PROTECTED_ROUND_TYPES,
+    RECORD_UNKNOWN_OUTCOME,
+    RECORD_VERB,
     ROUND_TYPE_ORDER,
     TRACEABILITY_HEADING,
     UNKNOWN_AREA,
@@ -95,6 +98,8 @@ from pappascout.render.view import (
     Claim,
     block_min_rounds,
     pattern_min_rounds,
+    record_text,
+    rounds_text,
 )
 
 # Private, but imported on purpose: the traceability chapter's explanation
@@ -102,6 +107,11 @@ from pappascout.render.view import (
 # truths of it -- the same rationale as with TEAM_SLUG and
 # TRACEABILITY_HEADING.
 from pappascout.render.view import _PRUNING_KEPT_THE_BLOCK, _TRACEABILITY_NOTE
+
+# Private for the same reason: the reading guide's record example is
+# built from this value through ``record_text``, and a fragment copied
+# into the test would be the second copy the constant exists to avoid.
+from pappascout.render.view import _LEGEND_RECORD
 
 TEAM_KEY = "aaaaaaaaaaaaaaaa"
 TEAM_NAME = "MatureMayhem"
@@ -372,11 +382,20 @@ def round_type(
     first_contact: list[FirstContactArea] | None = None,
     death_report: DeathReport | None = None,
     small_sample: bool | None = None,
+    record: RoundRecord | None = None,
 ) -> RoundTypeReport:
     return RoundTypeReport(
         round_type=name,
         sample=sample(rounds),
         small_sample=rounds < SMALL_SAMPLE if small_sample is None else small_sample,
+        # Every round lost unless the test says otherwise. Not a neutral
+        # default: the model demands that the record cover the sample, so
+        # SOME record has to be here, and a loss is the one value that cannot
+        # be mistaken for the fixture making a point. A test about the record
+        # passes its own.
+        record=record if record is not None else RoundRecord(
+            wins=0, losses=rounds, unknown=0
+        ),
         positions=positions or [],
         utility=utility or [],
         utility_counts=utility_counts or [],
@@ -774,7 +793,7 @@ def test_report_has_the_structure_the_spec_asks_for() -> None:
         "## `de_ancient` -- 2 kierrosta, 1 demo",
         "### T-puoli -- 1 kierros",
         "### CT-puoli -- 1 kierros",
-        "**Pistooli** (1 kierros)",
+        "**Pistooli** (1 kierros, voitettu 0-1)",
         "## Kierrosliite",
         "## Lukuohje",
         f"## {TRACEABILITY_HEADING}",
@@ -793,7 +812,8 @@ def test_positions_utility_and_first_contact_are_bullets_not_paragraphs() -> Non
     shape.
     """
     text = render(report([pistol_map()]))
-    body = text.split("**Pistooli** (1 kierros)")[1].split("\n\n")[0]
+    body = text.split("**Pistooli** (1 kierros, voitettu 0-1)")[1]
+    body = body.split("\n\n")[0]
     # The first line is the end of the heading ("-- pieni otanta"), not an
     # observation.
     rows = [row for row in body.splitlines()[1:] if row.strip()]
@@ -1282,7 +1302,7 @@ def test_small_sample_is_marked_not_hidden() -> None:
     shows.
     """
     text = render(report([pistol_map()]))
-    assert "**Pistooli** (1 kierros) -- pieni otanta" in text
+    assert "**Pistooli** (1 kierros, voitettu 0-1) -- pieni otanta" in text
     assert "Middle 3" in text
 
 
@@ -2816,10 +2836,211 @@ def test_capitalising_a_heading_leaves_the_other_letters_alone(
     assert _capitalise(raw) == expected
 
 
+# --- The win-loss record (Story 4.8) --------------------------------------------
+
+
+def test_the_record_is_on_the_round_types_own_sample_line() -> None:
+    """The record stands beside the round count, not in a row of its own.
+
+    The line the reader sees is the block's heading, so the record is read at
+    the same moment as the sample it belongs to. A bullet of its own would
+    have put it below the observations, where the reader meets it after
+    forming a view of them.
+    """
+    entry = map_report(
+        "de_nuke",
+        [side("T", [round_type("full", 22, record=RoundRecord(
+            wins=15, losses=7, unknown=0
+        ))])],
+    )
+    text = render(report([entry]))
+    assert "**Default** (22 kierrosta, voitettu 15-7)" in text
+
+
+@pytest.mark.parametrize("unknown", [1, 2])
+def test_the_record_names_the_unknown_outcomes_instead_of_hiding_them(
+    unknown: int,
+) -> None:
+    """An unread outcome is named on the line and is never a loss.
+
+    Measured 2026-09-23: nothing in the real archive reaches this branch (0
+    nulls in 511 classified rounds), which is precisely why the wording is
+    pinned rather than left to the first archive that does.
+
+    **Parametrised over one and two, and one is not decoration.** With only
+    ``unknown=2`` here, changing the condition in
+    :func:`~pappascout.render.view.record_text` from ``if record.unknown`` to
+    ``if record.unknown > 1`` left the whole suite green (measured
+    2026-09-23: 782 passed over the five files that touch the record). A
+    23-round block with one unread outcome would then print ``voitettu
+    15-7`` and drop the round in silence, against a heading that says 23 --
+    and the reading guide promises those are the same rounds. The first null
+    to appear in real data will almost certainly be a single round, because
+    the bucket is unobserved today.
+    """
+    entry = map_report(
+        "de_nuke",
+        [side("T", [round_type("full", 22 + unknown, record=RoundRecord(
+            wins=15, losses=7, unknown=unknown
+        ))])],
+    )
+    text = render(report([entry]))
+    assert (
+        f"**Default** ({22 + unknown} kierrosta, voitettu 15-7, "
+        f"{unknown} kierroksen tulos ei tiedossa)" in text
+    )
+
+
+def test_a_block_whose_every_outcome_is_unknown_does_not_say_nobody_won(
+) -> None:
+    """``voitettu 0-0`` is never printed for a measured group (Story 4.8).
+
+    It is the exact string
+    :data:`~pappascout.domain.report.REPORT_SCHEMA_VERSION` refuses as a
+    default, for a reason that applies to the rendering word for word: it
+    does not read as a missing measurement, it reads as a round type nobody
+    won and nobody lost. Printed first on the line, with the repair in a
+    trailing clause, it would be read before the clause that corrects it.
+
+    The shape is the report's own -- ``ei omia kuolemia 3 kierroksella``
+    likewise replaces the figure instead of printing a zero beside it.
+    """
+    entry = map_report(
+        "de_nuke",
+        [side("T", [round_type("eco", 3, record=RoundRecord(
+            wins=0, losses=0, unknown=3
+        ))])],
+    )
+    text = render(report([entry]))
+    heading = next(row for row in text.splitlines() if row.startswith("**Eco**"))
+    assert "3 kierroksen tulos ei tiedossa" in heading
+    assert "0-0" not in heading
+    assert RECORD_VERB not in heading
+
+
+def test_a_group_without_unknown_outcomes_says_nothing_about_them() -> None:
+    """No standing clause about an absence on hundreds of blocks."""
+    assert RECORD_UNKNOWN_OUTCOME not in record_text(
+        RoundRecord(wins=15, losses=7, unknown=0)
+    )
+    assert record_text(RoundRecord(wins=15, losses=7, unknown=0)) == (
+        f"{RECORD_VERB} 15-7"
+    )
+
+
+def test_the_report_states_the_record_without_deriving_a_rate() -> None:
+    """No percentage, no ratio and no verdict (Story 4.8).
+
+    **An equality and not a list of absences.** The first version of this
+    test asserted that ``"%"`` and ``"68"`` were missing from the heading,
+    which constrains almost nothing: a reviewer appended the derived verdict
+    ``-- enemmist\u00f6 voitettu`` -- no percent sign, no digits -- and the test
+    named for this property stayed green. What the report owes the reader is
+    that the heading is **the sample and the record and nothing else**, so
+    that is what is compared, composed from the two functions that build it.
+
+    Checked on the rendered document and not on ``record_text``, because a
+    derived figure could be appended anywhere between the model and the
+    template; the marks the block already carries are matched explicitly so
+    that a new one cannot slip in beside them.
+    """
+    record = RoundRecord(wins=15, losses=7, unknown=0)
+    entry = map_report(
+        "de_nuke",
+        [side("T", [round_type("full", 22, record=record)])],
+    )
+    text = render(report([entry]))
+    line = next(
+        row for row in text.splitlines() if row.startswith("**Default**")
+    )
+    assert line == (
+        f"**Default** ({rounds_text(22)}, {record_text(record)})"
+        " -- vain toistuvat kuviot"
+    )
+
+
+def test_every_round_type_block_carries_a_record() -> None:
+    """Not one heading in the document is left without one.
+
+    The gap this story closes is that the report describes a habit without
+    saying whether it worked. A record on some blocks and not others would
+    leave the reader to guess which silence means what.
+    """
+    text = render(pruning_report(), NO_PRUNING)
+    headings = [
+        row
+        for row in text.splitlines()
+        if row.startswith("**") and "kierros" in row
+    ]
+    # A floor, because the body of the loop is the whole assertion: an empty
+    # list would pass while covering nothing. The fixture has five blocks.
+    assert len(headings) == 5, headings
+    for heading in headings:
+        assert RECORD_VERB in heading, heading
+
+
+def test_a_clean_sweep_is_still_marked_a_small_sample() -> None:
+    """Three rounds, three wins: ``3-0`` -- and the block is still marked.
+
+    The record and the small-sample mark are separate claims and the record
+    must not quieten the mark. Three wins out of three is the shape most
+    likely to read as a finding, and it is exactly the shape the threshold
+    exists to hedge: one repetition is not a pattern, and the block has to go
+    on saying so beside the count.
+    """
+    entry = map_report(
+        "de_nuke",
+        [side("T", [round_type("full", 3, small_sample=True, record=RoundRecord(
+            wins=3, losses=0, unknown=0
+        ))])],
+    )
+    text = render(report([entry]))
+    heading = next(
+        row for row in text.splitlines() if row.startswith("**Default**")
+    )
+    assert "voitettu 3-0" in heading
+    assert "pieni otanta" in heading
+
+
+def test_the_reading_guide_explains_the_record() -> None:
+    """Every convention in the report is defined in the guide, this one too.
+
+    **And the example it shows is the heading's own string**, produced by the
+    same function, so the guide cannot come to explain a line the report no
+    longer prints. A fragment written out here by hand would be a third copy
+    of it and would go on passing after the wording changed.
+    """
+    entry = map_report(
+        "de_nuke",
+        [side("T", [round_type("full", 22, record=_LEGEND_RECORD)])],
+    )
+    text = render(report([entry]))
+    guide = text.split("## Lukuohje")[1]
+    example = record_text(_LEGEND_RECORD)
+    assert example in guide
+    heading = next(
+        row for row in text.splitlines() if row.startswith("**Default**")
+    )
+    assert example in heading
+
+
+def test_the_reading_guide_says_the_missing_rate_is_a_decision() -> None:
+    """The guide states that no share is derived from the record.
+
+    Without the sentence the absence of a percentage reads as an omission,
+    and the next reader asks for one. Story 4.8: the report states the count
+    and the reader is the analyst.
+    """
+    text = render(report([pistol_map()]))
+    guide = text.split("## Lukuohje")[1]
+    assert "osuutta tai arviota" in guide
+    assert "%" not in guide.split("Ensikontaktin rivi")[0]
+
+
 def test_a_round_type_heading_uses_the_finnish_name_capitalised() -> None:
     entry = map_report("de_nuke", [side("T", [round_type("ot", 4)])])
     text = render(report([entry]))
-    assert "**Jatkoaika** (4 kierrosta)" in text
+    assert "**Jatkoaika** (4 kierrosta, voitettu 0-4)" in text
 
 
 def test_view_is_built_without_touching_the_report() -> None:
@@ -2918,7 +3139,7 @@ GOLDEN = """\
 
 ### T-puoli -- 4 kierrosta
 
-**Eco** (4 kierrosta) -- vain toistuvat kuviot
+**Eco** (4 kierrosta, voitettu 0-4) -- vain toistuvat kuviot
 - 6 s: Ramp 2 (3/4 kierroksesta)
 - ensikontakti (mediaani 9,1 s): Ramp 1 (3/4 kierroksesta)
 - utility: savu 1 kpl (3/4 kierroksesta)
@@ -2937,6 +3158,7 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 ## Lukuohje
 
 - Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on kierrokset, joissa havainto tehtiin, m kyseisen kierrostyypin kaikki kierrokset. Mediaanin otanta rivin otsikossa (esimerkiksi "mediaani 14,2 s, 7/9 kierroksesta") noudattaa tätä sääntöä: se kertoo, monellako kierroksella ajoitus mitattiin. Saman rivin aluevaateet laskevat sen sijaan vain niitä kierroksia, joilla havainto oli olemassa, joten niiden nimittäjä on pienempi.
+- Kierrostyypin otsikon tulos (esimerkiksi "voitettu 15-7") laskee lohkon omat kierrokset: ensin voitetut, sitten hävityt. Ne ovat samat kierrokset, jotka otsikon kierrosmäärä laskee. Jos jonkin kierroksen tulosta ei saatu, se sanotaan otsikossa erikseen eikä lasketa tappioksi. Raportti kertoo luvun eikä johda siitä osuutta tai arviota: tulkinta on lukijan.
 - Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui.
 - Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 5 havaintoa näytepistettä kohden; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
 - **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta.
@@ -4650,7 +4872,7 @@ GOLDEN_PRUNING_OFF_CHAPTER = """\
 
 ### T-puoli -- 13 kierrosta
 
-**Eco** (4 kierrosta) -- vain toistuvat kuviot
+**Eco** (4 kierrosta, voitettu 0-4) -- vain toistuvat kuviot
 - 6 s: Middle 2 (4/4 kierroksesta)
 - 15 s: Middle 2 (4/4 kierroksesta)
 - 30 s: Middle 1 (4/4 kierroksesta)
@@ -4662,26 +4884,26 @@ GOLDEN_PRUNING_OFF_CHAPTER = """\
 - tapot alueittain: BombsiteA (5/23 taposta), Connector (4/23 taposta), Palace (4/23 taposta), Apartments (3/23 taposta), Ramp (3/23 taposta)
 - *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; 8 harvinaisempaa havaintoa jäi pois.*
 
-**Force** (3 kierrosta) -- vain toistuvat kuviot
+**Force** (3 kierrosta, voitettu 0-3) -- vain toistuvat kuviot
 - aseistettuja ostoajan lopussa: 3 (3/3 kierroksesta)
 - panssaroituja ostoajan lopussa: 3 (3/3 kierroksesta)
 - ensimmäinen kuolema: ei omia kuolemia 3 kierroksella
 - *Vain kuviot, jotka toistuvat kaikilla 3 kierroksella; jokainen havainto ylitti kynnyksen.*
 
-**Puoliosto** (2 kierrosta) -- pieni otanta -- vain toistuvat kuviot
+**Puoliosto** (2 kierrosta, voitettu 0-2) -- pieni otanta -- vain toistuvat kuviot
 - aseistettuja ostoajan lopussa: 1 (2/2 kierroksesta)
 - panssaroituja ostoajan lopussa: 3 (2/2 kierroksesta)
 - ensimmäinen kuolema: ei omia kuolemia 2 kierroksella
 - *Vain kuviot, jotka toistuvat kaikilla 2 kierroksella; jokainen havainto ylitti kynnyksen.*
 
-**Default** (4 kierrosta) -- vain toistuvat kuviot
+**Default** (4 kierrosta, voitettu 0-4) -- vain toistuvat kuviot
 - 6 s: Middle 2 (4/4 kierroksesta)
 - ensimmäinen kuolema (mediaani 20,0 s, 2/4 kierroksesta): ei omia kuolemia 2 kierroksella
 - *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; 5 harvinaisempaa havaintoa jäi pois.*
 
 ### CT-puoli -- 2 kierrosta
 
-**Pistooli** (2 kierrosta) -- pieni otanta
+**Pistooli** (2 kierrosta, voitettu 0-2) -- pieni otanta
 - 30 s: Middle 2 (2/2 kierroksesta)
 - 45 s: Middle 1 (2/2 kierroksesta)
 - valo: CTSpawn -> BombsiteA (arvio) 0-5 s (2/2 kierroksesta), CTSpawn -> Connector (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Jungle (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Palace (arvio) 0-5 s (1/2 kierroksesta)

@@ -1,0 +1,726 @@
+{
+ "measured": "2026-09-23",
+ "teams": {
+  "9ac92660986558d3": {
+   "demos": [
+    "Ancient_vs_kaljukostaja",
+    "Anubis_vs_ryhmarama",
+    "Nuke_vs_imuaijat",
+    "inferno_vs_ryhmarama"
+   ],
+   "rounds": 85,
+   "maps": {
+    "de_nuke": {
+     "T": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 2,
+       "record": [
+        0,
+        2,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 8,
+       "record": [
+        5,
+        3,
+        0
+       ]
+      }
+     },
+     "CT": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 3,
+       "record": [
+        0,
+        3,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 8,
+       "record": [
+        5,
+        3,
+        0
+       ]
+      }
+     }
+    },
+    "de_anubis": {
+     "T": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 7,
+       "record": [
+        5,
+        2,
+        0
+       ]
+      }
+     },
+     "CT": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        1,
+        0,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 2,
+       "record": [
+        0,
+        2,
+        0
+       ]
+      },
+      "half": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 8,
+       "record": [
+        3,
+        5,
+        0
+       ]
+      }
+     }
+    },
+    "de_ancient": {
+     "T": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        1,
+        0,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 2,
+       "record": [
+        1,
+        1,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 5,
+       "record": [
+        2,
+        3,
+        0
+       ]
+      }
+     },
+     "CT": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 3,
+       "record": [
+        0,
+        3,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 1,
+       "record": [
+        1,
+        0,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 7,
+       "record": [
+        2,
+        5,
+        0
+       ]
+      }
+     }
+    },
+    "de_inferno": {
+     "T": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 1,
+       "record": [
+        1,
+        0,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 6,
+       "record": [
+        4,
+        2,
+        0
+       ]
+      }
+     },
+     "CT": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 2,
+       "record": [
+        1,
+        1,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 9,
+       "record": [
+        7,
+        2,
+        0
+       ]
+      }
+     }
+    }
+   }
+  },
+  "ff03fb54599d3311": {
+   "demos": [
+    "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1",
+    "1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1",
+    "ANCIENT_vs_RCAVE_VETERANS",
+    "anubis_vs_RCAVE_VETERANS"
+   ],
+   "rounds": 92,
+   "maps": {
+    "de_ancient": {
+     "T": {
+      "pistol": {
+       "rounds": 2,
+       "record": [
+        1,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 2,
+       "record": [
+        0,
+        2,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 4,
+       "record": [
+        0,
+        4,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 16,
+       "record": [
+        10,
+        6,
+        0
+       ]
+      }
+     },
+     "CT": {
+      "pistol": {
+       "rounds": 2,
+       "record": [
+        1,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 2,
+       "record": [
+        0,
+        2,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 1,
+       "record": [
+        1,
+        0,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 13,
+       "record": [
+        8,
+        5,
+        0
+       ]
+      }
+     }
+    },
+    "de_nuke": {
+     "T": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 2,
+       "record": [
+        0,
+        2,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 9,
+       "record": [
+        6,
+        3,
+        0
+       ]
+      },
+      "ot": {
+       "rounds": 1,
+       "record": [
+        1,
+        0,
+        0
+       ]
+      }
+     },
+     "CT": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        1,
+        0,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 2,
+       "record": [
+        1,
+        1,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 8,
+       "record": [
+        4,
+        4,
+        0
+       ]
+      },
+      "ot": {
+       "rounds": 3,
+       "record": [
+        3,
+        0,
+        0
+       ]
+      }
+     }
+    },
+    "de_anubis": {
+     "T": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 7,
+       "record": [
+        5,
+        2,
+        0
+       ]
+      }
+     },
+     "CT": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 9,
+       "record": [
+        4,
+        5,
+        0
+       ]
+      }
+     }
+    }
+   }
+  },
+  "1e1965abbc06133b": {
+   "demos": [
+    "1-4c98a93e-19da-4baa-8633-f0f8d2e9a809-0",
+    "1-4c98a93e-19da-4baa-8633-f0f8d2e9a809-1",
+    "1-59f69cad-5d14-47d5-85c5-805ecf208076-0",
+    "1-59f69cad-5d14-47d5-85c5-805ecf208076-1",
+    "1-63d01f95-4728-45d3-8f5a-d95ae1f58a79-0",
+    "1-63d01f95-4728-45d3-8f5a-d95ae1f58a79-1",
+    "1-83a63e1a-8156-48ba-b779-bd48630417e2-0",
+    "1-83a63e1a-8156-48ba-b779-bd48630417e2-1"
+   ],
+   "rounds": 157,
+   "maps": {
+    "de_nuke": {
+     "T": {
+      "pistol": {
+       "rounds": 4,
+       "record": [
+        3,
+        1,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 7,
+       "record": [
+        1,
+        6,
+        0
+       ]
+      },
+      "half": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 7,
+       "record": [
+        3,
+        4,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 29,
+       "record": [
+        9,
+        20,
+        0
+       ]
+      }
+     },
+     "CT": {
+      "pistol": {
+       "rounds": 4,
+       "record": [
+        2,
+        2,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 5,
+       "record": [
+        2,
+        3,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 3,
+       "record": [
+        1,
+        2,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 22,
+       "record": [
+        15,
+        7,
+        0
+       ]
+      }
+     }
+    },
+    "de_dust2": {
+     "T": {
+      "pistol": {
+       "rounds": 3,
+       "record": [
+        1,
+        2,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 5,
+       "record": [
+        1,
+        4,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 8,
+       "record": [
+        6,
+        2,
+        0
+       ]
+      }
+     },
+     "CT": {
+      "pistol": {
+       "rounds": 3,
+       "record": [
+        1,
+        2,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 8,
+       "record": [
+        1,
+        7,
+        0
+       ]
+      },
+      "half": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 23,
+       "record": [
+        8,
+        15,
+        0
+       ]
+      }
+     }
+    },
+    "de_inferno": {
+     "T": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        1,
+        0,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "half": {
+       "rounds": 1,
+       "record": [
+        1,
+        0,
+        0
+       ]
+      },
+      "force": {
+       "rounds": 1,
+       "record": [
+        0,
+        1,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 6,
+       "record": [
+        4,
+        2,
+        0
+       ]
+      }
+     },
+     "CT": {
+      "pistol": {
+       "rounds": 1,
+       "record": [
+        1,
+        0,
+        0
+       ]
+      },
+      "eco": {
+       "rounds": 2,
+       "record": [
+        1,
+        1,
+        0
+       ]
+      },
+      "full": {
+       "rounds": 9,
+       "record": [
+        5,
+        4,
+        0
+       ]
+      }
+     }
+    }
+   }
+  }
+ }
+}

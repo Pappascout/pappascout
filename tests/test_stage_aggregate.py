@@ -619,8 +619,37 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # A literal and not the constant: comparing against the constant would be
     # a tautology -- the code wrote the value from that very constant. When the
     # version rises, this line MUST fail, so that the rise is deliberate.
-    assert data["schema_version"] == "10.0.0"
+    assert data["schema_version"] == "11.0.0"
     assert data["team"]["roster_source"] == "lineups"
+
+
+def test_the_written_report_carries_every_groups_record(tmp_path: Path) -> None:
+    """The record reaches ``report.json`` and not only the model (Story 4.8).
+
+    The stage's own file is the contract between ``aggregate`` and ``render``,
+    and it is the one place a field can be lost between them: the model is
+    built in memory, dumped, and read back by a different process. Asserted on
+    the JSON rather than on the returned object for that reason.
+
+    The numbers are checked against the file's **own** sample and not against
+    a copied table -- the fixture's rounds are synthetic, and a hand-written
+    pair here would say nothing about the archive.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    run(archive)
+    data = json.loads(archive.report_json(TEAM).read_text(encoding="utf-8"))
+    groups = [
+        round_type
+        for map_report in data["maps"]
+        for side in map_report["sides"]
+        for round_type in side["round_types"]
+    ]
+    assert groups
+    for group in groups:
+        record = group["record"]
+        assert set(record) == {"wins", "losses", "unknown"}
+        total = record["wins"] + record["losses"] + record["unknown"]
+        assert total == group["sample"]["rounds"], group["round_type"]
 
 
 def test_a_corrupt_classified_table_is_named(tmp_path: Path) -> None:
@@ -680,7 +709,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "10.0.0"
+    assert read_report(archive).schema_version == "11.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:

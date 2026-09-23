@@ -36,6 +36,7 @@ from pappascout.domain.aggregate import (
     weakest_map_source,
     players_distribution,
     positions_for,
+    record_for,
     sample_for,
     seconds_bucket,
     team_slug,
@@ -125,12 +126,16 @@ def classified_row(
     is_league: bool | None = None,
     roster_class: str | None = None,
     armed: int | None = 5,
+    won: bool | None = True,
 ) -> dict[str, object]:
     return {
         "map_demo_id": demo,
         "round_no": round_no,
         "side": side,
-        "won": True,
+        # ``None`` is a value a caller may pass and not a missing argument:
+        # ``won`` is nullable in the CLASSIFIED schema, and the record's
+        # unknown bucket cannot be tested without it.
+        "won": won,
         "round_type": round_type,
         "opp_round_type": "pistol",
         "loss_count": 1,
@@ -3493,3 +3498,105 @@ def test_the_separation_threshold_is_a_setting_not_code() -> None:
 
     assert stacks(2.0) == []
     assert stacks(0.01) == ["BombsiteB"]
+
+
+# --- The win-loss record --------------------------------------------------------
+
+
+def test_the_record_counts_wins_and_losses_from_the_rows() -> None:
+    """The three counts are the rows', and nothing is derived from them."""
+    rows = [classified_row("Nuke_vs_a", n, won=n < 3) for n in range(5)]
+    record = record_for(rows)
+    assert (record.wins, record.losses, record.unknown) == (3, 2, 0)
+    assert record.rounds == 5
+
+
+def test_an_unknown_outcome_is_its_own_bucket_and_never_a_loss() -> None:
+    """``won`` is nullable, and a gap in the recording is not a defeat.
+
+    Measured 2026-09-23: 0 of the real archive's 511 classified rounds have an
+    empty ``won``, so nothing observed exercises this. That is the reason it
+    is pinned here rather than left to the first archive that does.
+    """
+    rows = [
+        classified_row("Nuke_vs_a", 0, won=True),
+        classified_row("Nuke_vs_a", 1, won=None),
+        classified_row("Nuke_vs_a", 2, won=None),
+    ]
+    record = record_for(rows)
+    assert (record.wins, record.losses, record.unknown) == (1, 0, 2)
+    assert record.losses == 0, "an unread outcome was counted as a defeat"
+
+
+def test_a_row_without_the_column_is_unknown_and_not_a_loss() -> None:
+    """The floor under a broken row: unknown, never a loss.
+
+    ``stages.aggregate._read_classified`` validates every frame against the
+    CLASSIFIED schema, so the pipeline cannot hand this function a row with no
+    ``won`` at all. The floor is written because the function is a public
+    domain helper and the alternative to it is inventing defeats.
+    """
+    assert record_for([{"round_no": 0}]).unknown == 1
+
+
+def test_the_records_of_two_round_types_are_each_their_own() -> None:
+    """The record comes from the group's rows, not from the side's.
+
+    **This is the guard that goes red if the source is broken**, and the
+    fixture is built so that it cannot pass by luck. Two round types of
+    **equal size** with **opposite** outcomes, interleaved: pistol wins both
+    of its rounds, eco loses both of its. Every cross-type slice of the
+    side's rows is then wrong in **value** while right in **length** --
+    ``rows[:2]`` is one win and one loss, which is neither ``2-0`` nor
+    ``0-2``.
+
+    That shape is the point. ``RoundTypeReport._check_record_covers_the_rounds``
+    compares totals, and ``sample_for`` and ``record_for`` both count one
+    round per row, so the model can only see a record built from a
+    **different number** of rows. Two mistakes are available at the call site
+    and only one of them changes the count: passing ``rows`` (the side's, and
+    longer) makes the model raise, while passing ``rows[: len(type_rows)]``
+    -- the wrong rows at the right length -- slips past it entirely. With the
+    fixture's earlier shape (one pistol row first, then two eco rows) the
+    second mutation happened to be caught only because ``rows[:1]`` was not
+    the pistol row; reorder the fixture and it would have passed.
+    """
+    rows = [
+        classified_row("Nuke_vs_a", 0, round_type="pistol", won=True),
+        classified_row("Nuke_vs_a", 1, round_type="eco", won=False),
+        classified_row("Nuke_vs_a", 2, round_type="pistol", won=True),
+        classified_row("Nuke_vs_a", 3, round_type="eco", won=False),
+    ]
+    report = report_for(rows)
+    pistol = branch(report, "de_nuke", "T", "pistol")
+    eco = branch(report, "de_nuke", "T", "eco")
+    assert pistol.sample.rounds == eco.sample.rounds == 2
+    assert (pistol.record.wins, pistol.record.losses) == (2, 0)
+    assert (eco.record.wins, eco.record.losses) == (0, 2)
+    assert pistol.record.rounds == pistol.sample.rounds
+    assert eco.record.rounds == eco.sample.rounds
+
+
+def test_the_record_of_a_group_adds_up_to_its_sample() -> None:
+    """Every group in a whole report, unknown outcomes included."""
+    rows = [
+        classified_row("Nuke_vs_a", 0, round_type="pistol", won=True),
+        classified_row("Nuke_vs_a", 1, round_type="pistol", won=None),
+        classified_row("Nuke_vs_a", 2, round_type="full", side="CT", won=False),
+    ]
+    report = report_for(rows)
+    groups = [
+        rt
+        for m in report.maps
+        for side_report in m.sides
+        for rt in side_report.round_types
+    ]
+    assert groups
+    for group in groups:
+        assert group.record.rounds == group.sample.rounds, group.round_type
+    pistol = branch(report, "de_nuke", "T", "pistol")
+    assert (pistol.record.wins, pistol.record.losses, pistol.record.unknown) == (
+        1,
+        0,
+        1,
+    )

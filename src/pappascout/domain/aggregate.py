@@ -124,6 +124,7 @@ from pappascout.domain.report import (
     Report,
     RosterEntry,
     RosterSample,
+    RoundRecord,
     RoundTypeReport,
     Sample,
     SampleBucket,
@@ -167,6 +168,7 @@ __all__ = [
     "utility_counts_for",
     "unpaired_detonations",
     "armed_players_for",
+    "record_for",
     "SideRoundKey",
     "armored_by_round",
     "armored_players_for",
@@ -1034,6 +1036,45 @@ def armed_players_for(
             ArmedCount(armed=armed, n=tally[armed]) for armed in sorted(tally)
         ],
     )
+
+
+def record_for(rows: Sequence[Mapping[str, Any]]) -> RoundRecord:
+    """The win-loss record of one group, counted from its own rows.
+
+    **The argument is the same sequence the group's sample is counted from**,
+    and that is the whole design of this function: it takes rows rather than
+    a filter, so there is no second pass over a differently filtered frame
+    for the record to drift against, and
+    ``RoundTypeReport._check_record_covers_the_rounds`` refuses the drift
+    if one is ever introduced.
+
+    The observation is ``won`` as ``classify`` stored it -- the subject
+    lineup's own row from the parsed rounds table, copied across unchanged
+    (``stages.classify``), so it means "this team won this round" and nothing
+    narrower.
+
+    **An empty ``won`` goes to ``unknown`` and never to ``losses``.** The
+    column is ``pl.Boolean`` and therefore nullable, so an unread outcome is
+    a real state of the table; counting it as a loss would turn a gap in the
+    recording into a claim about the team. A **missing** ``won`` key is
+    treated the same way, and that is a deliberate floor rather than a
+    silence: ``stages.aggregate._read_classified`` validates every frame
+    against the ``CLASSIFIED`` schema before it gets here, so the key cannot
+    be absent on the pipeline's path -- and if it ever were, the report would
+    say that no outcome was known instead of inventing defeats.
+    """
+    wins = 0
+    losses = 0
+    unknown = 0
+    for row in rows:
+        value = row.get("won")
+        if value is None:
+            unknown += 1
+        elif bool(value):
+            wins += 1
+        else:
+            losses += 1
+    return RoundRecord(wins=wins, losses=losses, unknown=unknown)
 
 
 def _armed(row: Mapping[str, Any]) -> int | None:
@@ -2571,6 +2612,11 @@ def _round_types_for(
             RoundTypeReport(
                 round_type=round_type,
                 sample=sample,
+                # From ``type_rows``, the same sequence ``sample_for`` was
+                # just handed. Not ``rows`` and not a fresh filter: the model
+                # checks that the record covers the sample, and the cheapest
+                # way to keep that true is to give both the same rows.
+                record=record_for(type_rows),
                 small_sample=sample.rounds < thresholds.small_sample_rounds,
                 positions=positions_for(ticks, keys),
                 utility=utility_uses(
