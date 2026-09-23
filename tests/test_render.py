@@ -501,11 +501,12 @@ def report(
                     # reading guide reads them from the report and does not
                     # invent them. The same numbers as in settings.toml.
                     "advance_t_share": 0.80,
-                    "advance_area_min_observations": 20,
+                    "advance_area_min_observations_per_point": 5,
                     "advance_max_sample_s": 30.0,
                     "advance_min_players": 1,
                     "crunch_min_players": 2,
                     "crunch_min_sources": 2,
+                    "crunch_lookback_s": 9.0,
                     "stack_min_players": 4,
                     "stack_max_areas": 2,
                     "stack_sample_s": 15.0,
@@ -2904,7 +2905,7 @@ GOLDEN = """\
 - **Rosteriluokka:** yhdenkään demon rosteriluokkaa ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otanta erottele 5/5- ja 4/5-karttoja
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta
 - **Luokittelun kynnykset:** full_equip_min 4000
-- **Aggregoinnin kynnykset:** advance_area_min_observations 20, advance_max_sample_s 30, advance_min_players 1, advance_t_share 0,8, crunch_min_players 2, crunch_min_sources 2, small_sample_rounds 3, stack_group_margin 1,25, stack_max_areas 2, stack_min_players 4, stack_sample_s 15, stack_site_separation_min 2, team_identity_min_common 3
+- **Aggregoinnin kynnykset:** advance_area_min_observations_per_point 5, advance_max_sample_s 30, advance_min_players 1, advance_t_share 0,8, crunch_lookback_s 9, crunch_min_players 2, crunch_min_sources 2, small_sample_rounds 3, stack_group_margin 1,25, stack_max_areas 2, stack_min_players 4, stack_sample_s 15, stack_site_separation_min 2, team_identity_min_common 3
 - **Karsinnan säännöt:** drop_saturated_equipment_lines kyllä, max_kill_areas 3, max_utility_targets 2, merge_equal_equipment_lines kyllä, skip_sample_seconds ei yhtään
 - **Aineisto koottu:** 2026-08-30 12:00 UTC (pappascout 0.1.0)
 
@@ -2937,9 +2938,9 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 
 - Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on kierrokset, joissa havainto tehtiin, m kyseisen kierrostyypin kaikki kierrokset. Mediaanin otanta rivin otsikossa (esimerkiksi "mediaani 14,2 s, 7/9 kierroksesta") noudattaa tätä sääntöä: se kertoo, monellako kierroksella ajoitus mitattiin. Saman rivin aluevaateet laskevat sen sijaan vain niitä kierroksia, joilla havainto oli olemassa, joten niiden nimittäjä on pienempi.
 - Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui.
-- Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 20 havaintoa; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
+- Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 5 havaintoa näytepistettä kohden; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
 - **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta.
-- **Crunch**: sama T:n alue, mutta pelaajien on **saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on pelaajan oma alue edellisellä näytepisteellä. Vähintään 2 pelaajaa ja 2 eri suuntaa. **Crunchia ei ole rajattu kierrostyyppiin**, toisin kuin etenemistä, joten sen otanta on puolen kaikki kierrokset ja nimiö kertoo millä kierrostyypeillä se havaittiin. Sama kierros voi siis tuottaa molemmat rivit, ja täysi osto vain crunchin.
+- **Crunch**: sama T:n alue, mutta pelaajien on **saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on pelaajan oma alue 9 sekuntia aiemmin. Vähintään 2 pelaajaa ja 2 eri suuntaa. **Crunchia ei ole rajattu kierrostyyppiin**, toisin kuin etenemistä, joten sen otanta on puolen kaikki kierrokset ja nimiö kertoo millä kierrostyypeillä se havaittiin. Sama kierros voi siis tuottaa molemmat rivit, ja täysi osto vain crunchin.
 - **Stack**: subjektin puolustus kasautuneena saman alueryhmän alueille. Alueryhmä on **johdettu tästä demosta**: jokaisen alueen keskipiste lasketaan demon omasta pistepilvestä, ja alue kuuluu lähemmän siten ryhmään, jos toinen site on vähintään 1,25 kertaa kauempana. Ei karttatietokantaa eikä käsin annettua aluejakoa. Osuma vaatii vähintään 4 pelaajaa enintään 2 saman siten ryhmän alueella 15 sekunnin kohdalla. Spawnissa seisova ei laske, eikä alue jonka geometria jättää **ilman ryhmää** tuota osumaa -- ja se on demokohtainen havainto eikä sääntö: Infernon Middle kuuluu A-ryhmään ja näkyy siksi rivinä, Ancientin ei kuulu kumpaankaan. **Rivin alue on vain rivin nimilappu**: ensimmäinen kierroksen nimeämistä alueista, suurin ensin ja tasatilanteessa aakkosissa ensimmäinen -- ei väite siitä, että juuri siellä olisi ollut eniten pelaajia. Havainto on kierrosrivin alueissa: viisi pelaajaa Alleyssa on B-siten stack, vaikka kukaan ei seiso BombsiteB:llä. Rivin luku on muotoa 4/5 -- kasassa olleet kaikista elossa olleista, myös spawnissa tai ryhmättömällä alueella seisovista. **Stackia ei ole rajattu kierrostyyppiin** eikä se lue alueen T-osuutta, joten se ei ole kummankaan toisen säännön tiukempi eikä löysempi muoto. Sääntö ei myöskään nimeä kuviota: **kasauma on havainto, ei nimi** -- odottaako se paikallaan vai puskeeko se, ei erotu tästä havainnosta.
 - Stackin kattavuus on 1/1 CT-kierroksesta. Jokaiselta demolta saatiin siteryhmät.
 - Aseistettu = panssari JA parannettu ase ostoajan lopussa; panssaroitu = panssari, aseesta riippumatta. Luvut ovat **sisäkkäisiä**: aseistetut ovat panssaroitujen osajoukko, molemmat on luettu samalta tickiltä samasta pelaajajoukosta, ja jakaja on sama. Rivien ero on siis se havainto -- pistoolikierroksella aseistettuja on tyypillisesti 0 (800 $ ei riitä sekä kevlariin että parannettuun aseeseen), joten panssaririvi on se, joka kertoo kevlarien määrän.
@@ -4211,12 +4212,21 @@ def test_the_legend_names_the_thresholds_from_the_report() -> None:
     """
     legend = section_text(render(report([pistol_map()])), "Lukuohje")
     assert "vähintään 0,80" in legend
-    assert "vähintään 20 havaintoa" in legend
+    assert "vähintään 5 havaintoa näytepistettä kohden" in legend
     assert "enintään 30 sekunnin kohdalla" in legend
+    assert "9 sekuntia aiemmin" in legend
 
 
 def test_the_legend_follows_a_changed_threshold() -> None:
-    """A guard that the number is not hardcoded."""
+    """A guard that the number is not hardcoded.
+
+    ``crunch_lookback_s`` was added to this report's thresholds in Story 4.6
+    and asserted on by nothing -- the legend's sentence would have gone on
+    saying 9 seconds under any setting and the golden report would still have
+    matched, because the golden is rendered at the default. The look-back is
+    the one number in this paragraph a reader cannot check against a row, so
+    the row for it is here.
+    """
     legend = section_text(
         render(
             report(
@@ -4226,11 +4236,12 @@ def test_the_legend_follows_a_changed_threshold() -> None:
                         "small_sample_rounds": SMALL_SAMPLE,
                         "team_identity_min_common": MIN_COMMON,
                         "advance_t_share": 0.9,
-                        "advance_area_min_observations": 40,
+                        "advance_area_min_observations_per_point": 10,
                         "advance_max_sample_s": 15.0,
                         "advance_min_players": 2,
                         "crunch_min_players": 3,
                         "crunch_min_sources": 3,
+                        "crunch_lookback_s": 6.0,
                     }
                 },
             )
@@ -4238,10 +4249,43 @@ def test_the_legend_follows_a_changed_threshold() -> None:
         "Lukuohje",
     )
     assert "vähintään 0,90" in legend
-    assert "vähintään 40 havaintoa" in legend
+    assert "vähintään 10 havaintoa näytepistettä kohden" in legend
     assert "enintään 15 sekunnin kohdalla" in legend
     assert "Vähintään 2 pelaajaa alueella" in legend
     assert "Vähintään 3 pelaajaa ja 3 eri suuntaa" in legend
+    assert "6 sekuntia aiemmin" in legend
+    assert "9 sekuntia aiemmin" not in legend
+
+
+def test_the_legend_says_the_rule_in_words_when_the_look_back_is_absent() -> None:
+    """An old report has no ``crunch_lookback_s``, and the sentence must still
+    be true.
+
+    The rendering falls back to a wording that names no number at all (the
+    exact phrase is in the assertion below) rather than printing one it does
+    not have. The alternative it must not take is the one this branch exists
+    to prevent: writing the code's default beside a report that was produced
+    with some other value. The branch had no test, so the fallback could have
+    been deleted or turned into a hardcoded 9 in silence.
+    """
+    legend = section_text(
+        render(
+            report(
+                [pistol_map()],
+                thresholds_used={
+                    "thresholds": {
+                        "small_sample_rounds": SMALL_SAMPLE,
+                        "team_identity_min_common": MIN_COMMON,
+                        "crunch_min_players": 2,
+                        "crunch_min_sources": 2,
+                    }
+                },
+            )
+        ),
+        "Lukuohje",
+    )
+    assert "pelaajan oma alue hetkeä aiemmin" in legend
+    assert "sekuntia aiemmin" not in legend
 
 
 def test_the_legend_defines_both_rules() -> None:

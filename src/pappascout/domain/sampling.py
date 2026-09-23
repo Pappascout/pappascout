@@ -65,6 +65,34 @@ archive.
 The three rules are three different questions about the same observation, and
 not one of them is a stricter or a looser form of another.
 
+Two of them must not read the sampling grid
+-------------------------------------------
+Story 4.6. The grid (``[parse].snapshot_seconds``) is a **tool for looking**,
+so changing it must change how well a rule sees and not what the rule asks.
+Two rules were written in the grid's own units and therefore did change
+meaning when it was densified: the orientation's observation gate was a raw
+count of rows (:func:`t_side_shares`), and the crunch's arrival was read from
+"the previous sample point" (:func:`_source_areas`). Measured on the archive,
+four points against fourteen and nothing else changed, the CT advance went
+from 10 hits on 6 rounds to 45 on 9 and the crunch from 5 hits on 4 rounds to
+2 on 2. Both are now **asked** in units the grid cannot move -- observations
+**per sample point** and a look-back **in seconds** -- and the grid's own size
+is derived from the rows (:func:`sample_point_count`), never from the setting.
+
+**Asked, not answered: neither rule is density-invariant and neither is
+claimed to be.** What the units remove is the part of the dependence that is
+arithmetic; what is left is a property of the observation, and both residuals
+are measured rather than argued about. The orientation's is in
+``tests/data/orientation_by_grid.json`` (10 areas lost and 2 gained between
+the two grids, and three of those are ``advance_t_share``'s doing and not the
+gate's). The crunch's is in :func:`_source_areas`: the look-back can only be
+honoured as nearly as the grid allows, and on the one demo that exists on
+both grids 67 of 320 shared source look-ups resolve to a different area.
+
+The stack is the counter-example that shows the rule is about units and not
+about caution: it reads one named sample point (``stack_sample_s``) and its
+five rounds did not move between the two grids at all.
+
 An empty result is a **valid result** and not a shortfall: a demo with no
 anomalies in it is an observation that there were no anomalies.
 
@@ -91,6 +119,7 @@ from pappascout.constants import (
     SITE_GROUPS,
     STACK,
     is_sample_point,
+    source_point_index,
 )
 
 __all__ = [
@@ -111,6 +140,7 @@ __all__ = [
     "AreaPresence",
     "AnomalyHit",
     "CloudCell",
+    "sample_point_count",
     "t_side_shares",
     "site_groups",
     "ct_advance_hits",
@@ -652,11 +682,73 @@ class CloudCell:
     cell_z: int
 
 
+def sample_point_count(presences: Iterable[AreaPresence]) -> int:
+    """How many **time sample points some round of the demo reached**.
+
+    The orientation's observation gate is a count *per sample point*
+    (:func:`t_side_shares`), so the rule has to know how many points the demo
+    was sampled at. The number is derived here, **from the presence rows
+    themselves**, and it is deliberately not read from
+    ``[parse].snapshot_seconds``.
+
+    **It is therefore the grid's size only when some round reached the whole
+    grid, and that is a real difference and not a quibble.** A point is
+    dropped when it would fall after the round ended (see the module
+    docstring), so the count is of the distinct seconds the demo's rows
+    actually carry. A match whose every round was settled before 45 s has no
+    45 s point anywhere, its divisor is 3 and not 4, and its gate is a quarter
+    looser than the calibrated one -- **with nobody choosing that**. The
+    alternative is worse in the same direction: the setting would divide a
+    demo's rows by a grid those rows were never sampled at (below), and it
+    would be wrong on every demo rather than on the short ones. Short rounds
+    are also what the gate exists to be careful about, so the bias is
+    recorded here and is not smoothed over by rounding the count up to the
+    setting's length.
+
+    **Why that is not the same as reading the setting.** The setting is an
+    intention and the rows are the observation, and the two are allowed to
+    differ: an archive parsed at one grid and a settings file edited to
+    another is the ordinary state between a settings change and the next
+    parse. A gate that trusted the setting would then divide a table's
+    observations by a number of points those rows were never sampled at, and
+    it would do so silently -- the very failure this story exists to remove,
+    in the other direction. Reading the setting would also reach outside
+    ``domain`` (AD-2), which is why the derivation is in this module beside
+    the rule that uses it: the same justification as :func:`site_groups`, and
+    so the rule and its input cannot disagree.
+
+    **Every time row counts, alive or dead and either side.** The grid is a
+    property of the parse and not of who survived the round: counting only
+    living CT rows would shrink the divisor exactly on the rounds where the
+    defence died early, and the gate would then admit the thinnest evidence
+    where the evidence is thinnest. First contact is left out for the reason
+    given in :func:`_is_ct_time_row` -- its moment is measured per round, so
+    it is not a point of a grid at all.
+
+    Args:
+        presences: **The whole demo's** sample point rows and not one round's.
+            A round that was settled early has fewer points than the grid has
+            (see the module docstring), and the orientation these are compared
+            against was counted over the whole demo. Derived per round, the
+            gate would move with the round's length.
+
+    Returns:
+        The number of distinct ``sample_t_s`` values among the time rows. Zero
+        when there are none, and that is an answer and not a gap: nobody was
+        seen anywhere, so no area is oriented (:func:`t_side_shares`) and the
+        demo is recorded as one without an orientation.
+    """
+    return len(
+        {row.sample_t_s for row in presences if row.sample_kind == TIME_SAMPLE}
+    )
+
+
 def t_side_shares(
     orientation: Mapping[str | None, AreaObservations],
     *,
     t_share_min: float,
-    min_observations: int,
+    min_observations_per_point: int,
+    sample_points: int,
 ) -> dict[str, AreaObservations]:
     """The areas that are held by the T side **in this demo**.
 
@@ -665,28 +757,68 @@ def t_side_shares(
     question, and with two computations they could disagree about whose area
     an area is.
 
+    **The observation gate is a count per sample point and not a raw count**
+    (Story 4.6). An area's observations are one row per living player per
+    round per sample point, so a raw bound means something different on every
+    grid: the same demo sampled at fourteen points instead of four multiplies
+    the counts and the bound admits areas it was calibrated to exclude.
+    Measured on the archive, the CT advance went from 10 hits on 6 rounds to
+    45 on 9 when nothing but the grid changed. Dividing by the grid's own size
+    puts the bound in a unit the grid cannot move.
+
+    **The equivalence at four points is exact and arithmetic, not a
+    recalibration**: ``20 / 4 = 5``, so the shipped 5 per point selects the
+    same areas as the raw 20 it replaces. The comparison is done by
+    multiplication (``total >= per_point * points``) and not by division, so
+    no rounding decides an area's orientation.
+
+    **This does not make the orientation density-invariant, and it is not
+    claimed to be.** An area's observations grow with the grid only in
+    proportion to how long it is occupied, not uniformly: measured on the
+    eight calibration demos parsed on both grids, the growth from four points
+    to fourteen runs from 1.08x (``Water``, occupied at the start of a round
+    and nowhere else) to 4.90x (``TSideUpper``), so the "about 3.5x" of the
+    average is the property of no single area. ``advance_t_share`` moves too,
+    because a denser grid weights a round's later seconds differently. What
+    this unit removes is the part of the dependence that is arithmetic; the
+    rest is a property of the observation, and it is recorded as data in
+    ``tests/data/orientation_by_grid.json`` rather than argued about.
+
     Args:
         orientation: Area -> its observations. The key ``None`` (the area's
             name could not be obtained) is **skipped**: a nameless area cannot
             be either side's area, and a hit "on an unknown area" would not
             say where.
         t_share_min: ``[thresholds].advance_t_share``.
-        min_observations: ``[thresholds].advance_area_min_observations``. The
+        min_observations_per_point:
+            ``[thresholds].advance_area_min_observations_per_point``. The
             comparison is ``>=``: **an area exactly at the bound counts**, and
-            an area with exactly 20 observations is therefore included. The
-            precision carries weight here, because the whole calibration of
-            the thresholds leans on exact bounds (Nuke's outside is exactly
-            0.70). An area that falls **below** the bound is neither the T
-            side's nor the CT side's area -- an orientation is not guessed
-            from a thin observation.
+            an area with exactly 5 observations per point is therefore
+            included. The precision carries weight here, because the whole
+            calibration of the thresholds leans on exact bounds (Nuke's
+            outside is exactly 0.70). An area that falls **below** the bound
+            is neither the T side's nor the CT side's area -- an orientation
+            is not guessed from a thin observation.
+        sample_points: How many time sample points the demo was sampled at,
+            from :func:`sample_point_count`. An argument and not a derivation
+            here, because this function is given the orientation and not the
+            rows it was counted from. **Zero is a valid input**: a demo with
+            no time sample point has no area anybody was seen on, so no area
+            is oriented -- and that is not silence, it is the demo landing in
+            the coverage's ``demos_without_orientation``. It is a valid input
+            and **not a shortcut past the checks**: a contradictory map is
+            refused at zero points exactly as it is at four.
 
     Returns:
         Area -> observations, only for the areas that passed the thresholds.
 
     Raises:
-        ValueError: If ``t_share_min`` is not in the range 0..1 or
-            ``min_observations`` is not positive. Either would silently make
-            the rule impossible or fire it on every area.
+        ValueError: If ``t_share_min`` is not in the range 0..1, if
+            ``min_observations_per_point`` is not positive, or if
+            ``sample_points`` is negative. The first two would silently make
+            the rule impossible or fire it on every area; the third is not a
+            thinner grid but an impossible one, so it means the caller counted
+            something else.
     """
     if not 0.0 <= t_share_min <= 1.0:
         raise ValueError(
@@ -695,12 +827,21 @@ def t_side_shares(
             "area's observations, so a threshold outside it would either "
             "silence the rule altogether or make every area the T side's."
         )
-    if min_observations < 1:
+    if min_observations_per_point < 1:
         raise ValueError(
-            f"The area's minimum observation count {min_observations!r} is "
-            "not positive. Without an observation an area has no orientation, "
-            "and it must not be guessed."
+            f"The area's minimum observation count per sample point "
+            f"{min_observations_per_point!r} is not positive. Without an "
+            "observation an area has no orientation, and it must not be "
+            "guessed."
         )
+    if sample_points < 0:
+        raise ValueError(
+            f"The demo has {sample_points!r} time sample points, which is not "
+            "a grid at all. A count of points cannot be negative, so this is "
+            "not a thinner observation but a caller that counted something "
+            "else."
+        )
+    minimum = min_observations_per_point * sample_points
     seen_raw: set[str] = set()
     passed: dict[str, AreaObservations] = {}
     for raw_area, obs in orientation.items():
@@ -715,7 +856,19 @@ def t_side_shares(
                 "one normalisation (domain.sampling.normalize_area)."
             )
         seen_raw.add(area)
-        if obs.total >= min_observations and obs.t_share >= t_share_min:
+        # ``sample_points == 0`` means no time sample point, so nobody was
+        # seen anywhere and no area has an orientation. Not silence: the demo
+        # lands in the coverage's ``demos_without_orientation``, which is the
+        # same answer an empty orientation map gives.
+        #
+        # **It is a condition here and not an early return above the loop**,
+        # which is where it stood until review round 1 measured what that
+        # cost: a map holding the same area in two spellings was refused at
+        # four points and accepted in silence at zero, so a consistency guard
+        # stopped guarding on exactly one input. The zero case must not be a
+        # different function with a looser contract. ``minimum`` cannot carry
+        # it -- it is ``0`` there, which every ``total`` clears.
+        if sample_points and obs.total >= minimum and obs.t_share >= t_share_min:
             passed[area] = obs
     return passed
 
@@ -1088,7 +1241,8 @@ def ct_advance_hits(
     round_type: str | None,
     orientation: Mapping[str | None, AreaObservations],
     t_share_min: float,
-    area_min_observations: int,
+    area_min_observations_per_point: int,
+    sample_points: int,
     max_sample_s: float,
     min_players: int,
 ) -> list[AnomalyHit]:
@@ -1114,7 +1268,15 @@ def ct_advance_hits(
         orientation: Area -> observations from the demo's **unfiltered**
             table.
         t_share_min: ``[thresholds].advance_t_share``.
-        area_min_observations: ``[thresholds].advance_area_min_observations``.
+        area_min_observations_per_point:
+            ``[thresholds].advance_area_min_observations_per_point``.
+        sample_points: The **demo's** number of time sample points, from
+            :func:`sample_point_count`. It comes as an argument for the same
+            reason as ``orientation``: both are per-demo observations, and
+            this function sees one round. Derived from this round's
+            ``presences`` it would be the round's own point count, so a round
+            settled in 30 seconds would lower the orientation's bound -- and
+            the four-point behaviour this story preserves would move.
         max_sample_s: ``[thresholds].advance_max_sample_s``.
         min_players: ``[thresholds].advance_min_players``.
 
@@ -1127,7 +1289,8 @@ def ct_advance_hits(
     t_areas = t_side_shares(
         orientation,
         t_share_min=t_share_min,
-        min_observations=area_min_observations,
+        min_observations_per_point=area_min_observations_per_point,
+        sample_points=sample_points,
     )
     if not t_areas:
         return []
@@ -1156,8 +1319,10 @@ def crunch_hits(
     *,
     orientation: Mapping[str | None, AreaObservations],
     t_share_min: float,
-    area_min_observations: int,
+    area_min_observations_per_point: int,
+    sample_points: int,
     max_sample_s: float,
+    lookback_s: float,
     min_players: int,
     min_sources: int,
 ) -> list[AnomalyHit]:
@@ -1166,8 +1331,19 @@ def crunch_hits(
     The rule reads the same orientation as :func:`ct_advance_hits`, but it
     also requires the players to have **arrived** on the area from at least
     ``min_sources`` different directions at the same time. A source area is
-    the player's own area at the **previous** time sample point, that is, an
+    the player's own area ``lookback_s`` seconds earlier, that is, an
     observation -- not map geometry and not a table of neighbouring areas.
+
+    **The look-back is a duration and no longer "the previous sample point"**
+    (Story 4.6). Read as the previous point, the rule's reach was whatever the
+    grid's spacing happened to be -- 9 s from one point and 15 s from another
+    at four points, 3 s at fourteen -- so densifying the grid silently changed
+    what the rule asks. Measured, the crunch fell from 5 hits on 4 rounds to
+    2 on 2 when nothing but the grid changed. A duration is the same question
+    on every grid. **The answer still is not**, and the residual is measured
+    rather than claimed away: the grid decides how nearly the look-back can be
+    honoured, and on the one demo that exists on both grids 67 of 320 shared
+    source look-ups land on a different area (:func:`_source_areas`).
 
     **A crunch is not limited to saving rounds even though the advance is.**
     The epic sets the economic condition on the advance only, and the
@@ -1177,26 +1353,37 @@ def crunch_hits(
     so the hit sets intersect each other.
 
     ``players`` is the number of those who **arrived** and not of those on the
-    area: a player who was already on the area at the previous sample point
-    did not arrive there from anywhere. The same sample point can therefore
-    produce an advance hit with three players and a crunch hit with two, and
-    those are two different observations of the same moment.
+    area: a player who was already on the area ``lookback_s`` earlier did not
+    arrive there from anywhere. The same sample point can therefore produce an
+    advance hit with three players and a crunch hit with two, and those are
+    two different observations of the same moment.
 
-    A player whose previous area is not known (a nameless area or the round's
-    first sample point) **has not arrived from anywhere**: no direction is
-    guessed.
+    A player whose source area is not known (a nameless area, or no sample
+    point that far back on this round) **has not arrived from anywhere**: no
+    direction is guessed. That is also the answer when the look-back reaches
+    past the round's own start -- the rule does not reach into freezetime or
+    into the round before.
 
     Args:
-        presences: The round's sample point rows, in any order. Because of the
-            source areas, **all** of the round's time sample points have to be
-            included, also the ones after ``max_sample_s`` -- otherwise the
-            previous sample point can be missing and the arrival would go
-            unseen.
+        presences: The round's sample point rows, in any order. Rows after
+            ``max_sample_s`` may be included and are simply not targets.
+            **They are not needed for the sources either**, and the docstring
+            said otherwise from Story 2.5 until this was measured in review:
+            a source is at or before ``t - lookback_s`` and the target ``t``
+            is itself bounded by ``max_sample_s``, so a source can never lie
+            after the bound -- with the look-back and with the previous-point
+            rule that preceded it alike. The requirement was contentless, and
+            the test that guarded it could not fail; both are gone rather than
+            carried forward as a reason that never was one.
         orientation: As in :func:`ct_advance_hits`.
         t_share_min: ``[thresholds].advance_t_share``, **shared** with the
             advance.
-        area_min_observations: ``[thresholds].advance_area_min_observations``.
+        area_min_observations_per_point:
+            ``[thresholds].advance_area_min_observations_per_point``.
+        sample_points: As in :func:`ct_advance_hits`.
         max_sample_s: ``[thresholds].advance_max_sample_s``.
+        lookback_s: ``[thresholds].crunch_lookback_s``, how far back the
+            arrival is read from.
         min_players: ``[thresholds].crunch_min_players``.
         min_sources: ``[thresholds].crunch_min_sources``.
 
@@ -1206,12 +1393,13 @@ def crunch_hits(
     t_areas = t_side_shares(
         orientation,
         t_share_min=t_share_min,
-        min_observations=area_min_observations,
+        min_observations_per_point=area_min_observations_per_point,
+        sample_points=sample_points,
     )
     if not t_areas:
         return []
     rows = [row for row in presences if _is_ct_time_row(row)]
-    previous = _previous_areas(rows)
+    previous = _source_areas(rows, lookback_s)
 
     arrivals: dict[tuple[float, str], dict[str, str]] = {}
     for row in rows:
@@ -1547,28 +1735,56 @@ def _players_by_point(
     return found
 
 
-def _previous_areas(
-    rows: Sequence[AreaPresence],
+def _source_areas(
+    rows: Sequence[AreaPresence], lookback_s: float
 ) -> dict[tuple[str, float], str]:
-    """``(player, sample point) -> the area at the previous sample point``.
+    """``(player, sample point) -> the area the player was on earlier``.
+
+    "Earlier" is ``lookback_s`` **seconds** and not "one sample point back"
+    (Story 4.6). The rule asks where a player came from, and a question asked
+    in sample points is a different question on every grid: at four points the
+    previous point is 9 s back at 15 s and 15 s back at 30 s, at fourteen
+    points it is 3 s back at both. The duration is the same question
+    everywhere.
+
+    **Which point answers it** is
+    :func:`~pappascout.constants.source_point_index`'s decision: the latest
+    point at or before ``t - lookback_s``. It is in ``constants`` and not here
+    because the settings' load-time check uses the same selector to prove that
+    the crunch can fire at all on the configured grid; as two copies they
+    would agree only today. Measured against the four-point grid, the shipped
+    ``lookback_s = 9`` reproduces it exactly: at 15 s ``15 - 9 = 6`` is a
+    point, and at 30 s ``30 - 9 = 21`` is not, so the answer falls back to
+    15 s -- which is what the previous-point rule read there.
+
+    **The question is the same on every grid; the answer is not, and that is
+    measured.** The grid decides how nearly the look-back can be honoured, so
+    a denser grid answers the same question more precisely rather than
+    differently in kind -- but it does answer it differently. Same demo, four
+    points against fourteen, shipped look-back: of 320 source look-ups the two
+    grids share, **67 resolve to a different area** (at 15 s 0 of 136, at 30 s
+    40 of 107, at 45 s 27 of 77), because ``30 - 9`` lands on the 15 s point
+    on one grid and on the 21 s point on the other. The residual is pinned by
+    :func:`tests.test_calibration.test_the_look_backs_answer_still_depends_on_the_grid`,
+    which runs the two grids against each other on the archive's one demo that
+    exists on both.
 
     Named areas only: ``None`` is not a direction. A missing key therefore
-    means two things at once -- the round's first sample point or an unknown
-    previous area -- and both are the same answer: the player did not arrive
-    from anywhere.
+    means two things at once -- no sample point that far back on this round,
+    or an unknown area there -- and both are the same answer: the player did
+    not arrive from anywhere.
 
-    **The sample point is collapsed first and only then paired up.** Without
-    that, a duplicated row for the same player at the same sample point would
-    pair up with itself, so the source area would become the target area --
-    and ``source == area`` would silence the arrival altogether. A duplicated
-    row is not theoretical: the same guard is already in
-    :func:`_players_by_point`, where the players are a set. If the same player
-    is on two different areas at the same sample point, the table is
-    contradictory; the alphabetically first one is then chosen, so that the
-    result is the same from one run to the next.
+    **The sample point is collapsed first and only then looked up.** Without
+    that, a duplicated row for the same player at the same sample point could
+    make the source area the target area -- and ``source == area`` would
+    silence the arrival altogether. A duplicated row is not theoretical: the
+    same guard is already in :func:`_players_by_point`, where the players are
+    a set. If the same player is on two different areas at the same sample
+    point, the table is contradictory; the alphabetically first one is then
+    chosen, so that the result is the same from one run to the next.
     """
     # (player, sample point) -> the areas as a set. The set collapses a
-    # duplicated row into one observation before the pairing up.
+    # duplicated row into one observation before the look-up.
     by_point: dict[tuple[str, float], set[str]] = {}
     for row in rows:
         area = normalize_area(row.area)
@@ -1580,14 +1796,19 @@ def _previous_areas(
     for player, seconds in by_point:
         seconds_by_player.setdefault(player, []).append(seconds)
 
-    previous: dict[tuple[str, float], str] = {}
+    sources: dict[tuple[str, float], str] = {}
     for player, seconds_list in seconds_by_player.items():
         ordered = sorted(seconds_list)
-        for earlier, later in zip(ordered, ordered[1:]):
-            areas = by_point[(player, earlier)]
+        for later in ordered:
+            index = source_point_index(ordered, later, lookback_s)
+            if index is None:
+                # The look-back reaches past this round's first sample point.
+                # No source, and the round's start is not reached behind.
+                continue
+            areas = by_point[(player, ordered[index])]
             if areas:
-                previous[(player, later)] = min(areas)
-    return previous
+                sources[(player, later)] = min(areas)
+    return sources
 
 
 def _first_matching(

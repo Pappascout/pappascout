@@ -711,6 +711,38 @@ def test_the_retired_money_left_threshold_names_its_three_replacements(
         assert replacement in message
 
 
+def test_the_renamed_observation_gate_says_what_to_divide_by(
+    tmp_path: Path,
+) -> None:
+    """Story 4.6 renamed the gate **and changed its unit**: both are advice.
+
+    This is the ordinary situation and not the exception. The project runs on
+    two machines against one shared archive, so the other machine's
+    ``settings.toml`` holds the old key until it is pulled -- and a rename
+    alone would let the user put the old 20 behind the new name, which is a
+    gate four times too high rather than an error. The advice therefore names
+    the arithmetic (``20 / 4 = 5``) and not only the new spelling.
+    """
+    target = _write_variant(
+        tmp_path,
+        **{
+            "advance_area_min_observations_per_point = 5": (
+                "advance_area_min_observations = 20"
+            )
+        },
+    )
+    with pytest.raises(SettingsError) as exc:
+        _load(target)
+
+    message = str(exc.value)
+    assert "advance_area_min_observations" in message
+    assert "[thresholds]" in message
+    assert "advance_area_min_observations_per_point" in message
+    # The unit and the conversion, not merely the new name.
+    assert "PER TIME SAMPLE POINT" in message
+    assert "20 / 4 = 5" in message
+
+
 def test_every_removed_setting_has_an_instruction() -> None:
     """Every removed setting says what to do, not merely that it is gone.
 
@@ -763,11 +795,18 @@ def test_threshold_values(settings_file: Path) -> None:
     # and two teams (``kalibrointi-ct-eteneminen.md``), and changing a value
     # without changing this test would mean the rationale went unread.
     assert t.advance_t_share == 0.80
-    assert t.advance_area_min_observations == 20
+    # PER SAMPLE POINT since Story 4.6, and 5 x 4 = 20 is the raw bound the
+    # calibration measured: the value moved into a unit the sampling grid
+    # cannot shift, not to a new calibration.
+    assert t.advance_area_min_observations_per_point == 5
     assert t.advance_max_sample_s == 30.0
     assert t.advance_min_players == 1
     assert t.crunch_min_players == 2
     assert t.crunch_min_sources == 2
+    # Measured against the four-point grid: 15 - 9 = 6 is a sample point and
+    # 30 - 9 = 21 is not, so the source falls back to 15 -- the two answers
+    # the previous-point rule gave (Story 4.6).
+    assert t.crunch_lookback_s == 9.0
     # The stack rule's three thresholds (Story 2.14), on the same grounds:
     # each was measured on eight demos (``kalibrointi-stack.md``). Four is
     # calibrated and three is not; 1.25 produces the same division into areas
@@ -1044,17 +1083,121 @@ def test_a_time_bound_below_the_first_sample_point_is_refused(
         load_settings(target)
 
 
-def test_a_time_bound_at_the_first_sample_point_is_allowed(
+def test_a_time_bound_that_admits_only_one_sample_point_is_refused(
     tmp_path: Path,
 ) -> None:
-    """The guard's other branch: exactly the earliest sample point is
-    valid.
+    """A bound at exactly the earliest point silences the crunch for good.
+
+    **This supersedes an allow-test.** Until Story 4.6's review round this
+    value was asserted to be *valid*, on the grounds that the guard above only
+    refuses a bound **below** the earliest point. It is not valid: the crunch
+    reads a source from an earlier sample point, and with one point inside the
+    bound there is no earlier point at any look-back whatever. The rule then
+    never fires and the report still counts every CT round as scanned -- the
+    blind spot read out as a measured negative that this guard family exists
+    to prevent.
+
+    The advance's own branch is tested by
+    :func:`test_a_time_bound_at_a_later_sample_point_is_allowed` instead.
     """
     target = _write_variant(
         tmp_path,
         **{"advance_max_sample_s = 30.0": "advance_max_sample_s = 6.0"},
     )
-    assert load_settings(target).thresholds.advance_max_sample_s == 6.0
+    with pytest.raises(SettingsError, match="crunch can fire on no sample point"):
+        load_settings(target)
+
+
+def test_a_time_bound_at_a_later_sample_point_is_allowed(
+    tmp_path: Path,
+) -> None:
+    """The guard's allow-branch: two points inside the bound is enough.
+
+    15.0 and not the shipped 30.0, so that the test moves if the guard starts
+    demanding more than the rule does.
+    """
+    target = _write_variant(
+        tmp_path,
+        **{"advance_max_sample_s = 30.0": "advance_max_sample_s = 15.0"},
+    )
+    assert load_settings(target).thresholds.advance_max_sample_s == 15.0
+
+
+def test_a_look_back_longer_than_the_grid_reaches_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The look-back's upper end: 25 s cannot be answered by any point.
+
+    The furthest the shipped grid reaches inside the time bound is 30 - 6 =
+    24 s, so at 25 the crunch finds no source on any round at all.
+    """
+    target = _write_variant(
+        tmp_path,
+        **{"crunch_lookback_s = 9.0": "crunch_lookback_s = 25.0"},
+    )
+    with pytest.raises(SettingsError, match="crunch can fire on no sample point"):
+        load_settings(target)
+
+
+def test_a_look_back_at_the_grids_furthest_reach_is_allowed(
+    tmp_path: Path,
+) -> None:
+    """The same guard's allow-branch, at the exact bound: 24 s is answerable.
+
+    ``30 - 24 = 6`` is a sample point, so the reach is honoured exactly. A
+    guard that refused this would be a calibration opinion and not a proof
+    that the rule can fire.
+    """
+    target = _write_variant(
+        tmp_path,
+        **{"crunch_lookback_s = 9.0": "crunch_lookback_s = 24.0"},
+    )
+    assert load_settings(target).thresholds.crunch_lookback_s == 24.0
+
+
+def test_a_look_back_below_the_sample_point_tolerance_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The look-back's other end, and the one no range check can see.
+
+    A look-back smaller than
+    :data:`~pappascout.constants.SAMPLE_POINT_TOLERANCE_S` puts the cutoff at
+    or after the target's own sample point, so the selector answers with the
+    target itself -- the player was "already there" and every arrival is
+    discarded. The value is inside every range the model declares and it
+    silences the rule completely, which is why the proof is run with the
+    rule's own selector rather than against a bound.
+    """
+    target = _write_variant(
+        tmp_path,
+        **{"crunch_lookback_s = 9.0": "crunch_lookback_s = 1e-9"},
+    )
+    with pytest.raises(SettingsError, match="crunch can fire on no sample point"):
+        load_settings(target)
+
+
+def test_moving_the_sample_points_under_the_crunch_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The guard's third input, and the one furthest from the rule.
+
+    ``[parse].snapshot_seconds`` is in another section altogether, so thinning
+    the grid until the look-back can bridge no pair at all would silence the
+    crunch with nothing in ``[thresholds]`` looking wrong. The grid kept here
+    still holds 15.0, so the stack's own guard stays quiet and this one has to
+    be the guard that speaks: 15 is then the only point inside the time bound
+    and ``15 - 9 = 6`` is no longer a point, so the rule can fire nowhere.
+    """
+    target = _write_variant(
+        tmp_path,
+        **{
+            "snapshot_seconds = [6.0, 15.0, 30.0, 45.0]": (
+                "snapshot_seconds = [15.0, 45.0]"
+            )
+        },
+    )
+    with pytest.raises(SettingsError, match="crunch can fire on no sample point"):
+        load_settings(target)
 
 
 def test_a_stack_sample_point_that_is_not_a_sample_point_is_refused(

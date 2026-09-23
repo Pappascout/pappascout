@@ -39,7 +39,11 @@ from pydantic import (
 from pydantic import ValidationError as _ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from pappascout.constants import is_sample_point, seconds_label
+from pappascout.constants import (
+    is_sample_point,
+    seconds_label,
+    source_point_index,
+)
 from pappascout.errors import SettingsError
 
 __all__ = [
@@ -117,6 +121,18 @@ REMOVED_SETTINGS: Final[dict[tuple[str, str], str]] = {
         "(default 3): a half-buy is told from a force by how many players can "
         "make a normal buy on the next round, and from an eco by how many "
         "were armed. Add the three new lines and remove this one."
+    ),
+    ("thresholds", "advance_area_min_observations"): (
+        "Renamed in Story 4.6 to advance_area_min_observations_per_point, and "
+        "the unit changed with the name: the bound is now the area's alive "
+        "observations PER TIME SAMPLE POINT and no longer a raw count of "
+        "rows. A raw count asked a different question on every grid, because "
+        "an observation is one row per living player per round per sample "
+        "point -- measured, the CT advance went from 10 hits on 6 rounds to "
+        "45 on 9 when nothing but [parse].snapshot_seconds changed. Divide "
+        "the old value by the number of sample points it was calibrated at: "
+        "the shipped 20 was measured at four points, and 20 / 4 = 5 selects "
+        "exactly the same areas. Rename the line and write the quotient."
     ),
 }
 
@@ -739,7 +755,20 @@ class ThresholdSettings(_Section):
     # so it is not a stricter form of an advance but a different cut through
     # the same observation.
     advance_t_share: MajorityShare = 0.80
-    advance_area_min_observations: PositiveInt = 20
+    # PER SAMPLE POINT and not a raw count of rows (Story 4.6). An area's
+    # observations are one row per living player per round per sample point,
+    # so a raw bound asks a different question on every grid: measured, the
+    # advance went from 10 hits on 6 rounds to 45 on 9 when nothing but
+    # [parse].snapshot_seconds changed, four points to fourteen. 20 / 4 = 5,
+    # so the value below selects exactly the areas the raw 20 selected -- an
+    # arithmetic identity at four points and not a recalibration.
+    #
+    # THE DIVISOR IS THE DEMO'S OWN NUMBER OF SAMPLE POINTS, derived from its
+    # rows (domain.sampling.sample_point_count) and not from
+    # [parse].snapshot_seconds. A parsed table and an edited settings file are
+    # allowed to disagree -- that is the ordinary state between a settings
+    # change and the next parse -- and the rows are the observation.
+    advance_area_min_observations_per_point: PositiveInt = 5
     advance_max_sample_s: Annotated[
         float, Field(gt=0.0, le=MAX_ADVANCE_SAMPLE_SECONDS, allow_inf_nan=False)
     ] = 30.0
@@ -751,6 +780,40 @@ class ThresholdSettings(_Section):
     # something the code no longer requires.
     crunch_min_players: PositiveInt = 2
     crunch_min_sources: Annotated[int, Field(ge=2)] = 2
+    # How far back the crunch reads a player's arrival, in SECONDS (Story
+    # 4.6). It used to be "the previous sample point", which is not a duration
+    # at all but the grid's spacing: 9 s at 15 s and 15 s at 30 s on the
+    # four-point grid, 3 s at both on the fourteen-point one. Measured, the
+    # crunch fell from 5 hits on 4 rounds to 2 on 2 on the same demos when
+    # only the grid changed.
+    #
+    # 9.0 IS MEASURED AGAINST THE FOUR-POINT GRID and reproduces it exactly:
+    # 15 - 9 = 6, which is a sample point, and 30 - 9 = 21, which is not, so
+    # the source falls back to 15 -- the same two answers the previous-point
+    # rule gave. Above 9 the 15 s target loses its source and the rule stops
+    # finding two of its four rounds.
+    #
+    # WHAT "MEASURED" DOES NOT MEAN HERE, said plainly because the word is
+    # load-bearing everywhere else in this file: every value in (0, 9] gives
+    # the same four rounds and the same source areas, so the measurement
+    # bounds 9.0 from above only. 15 - x lands on the 6 s point and 30 - x on
+    # the 15 s point for every x in that interval, which makes the sweep flat
+    # below 9 by arithmetic rather than by observation. 9.0 is the LARGEST of
+    # those equals, and is chosen so that the rule asks no narrower a question
+    # than the previous-point rule it replaces -- not because its lower
+    # neighbours were shown to cost anything. A grid with three-second spacing
+    # does separate them (tests/test_calibration.py's
+    # DENSE_DEMO_LOOKBACK_SWEEP), so this threshold has to be measured again
+    # if the grid is ever densified; the flat stretch is that grid's
+    # blindness and must not be read as robustness.
+    #
+    # The upper bound is the family's own
+    # (MAX_ADVANCE_SAMPLE_SECONDS); the value that binds in practice is
+    # checked against the grid in Settings._check_sections_agree, because
+    # neither section can see it alone.
+    crunch_lookback_s: Annotated[
+        float, Field(gt=0.0, le=MAX_ADVANCE_SAMPLE_SECONDS, allow_inf_nan=False)
+    ] = 9.0
 
     @model_validator(mode="after")
     def _check_ranges_are_consistent(self) -> "ThresholdSettings":
@@ -1342,6 +1405,65 @@ class Settings(BaseSettings):
                 "find nothing on every round -- and the coverage would still "
                 "report every CT round as scanned, which turns a blind spot "
                 "into 'no stacks' as an observation."
+            )
+        # EVERY TIME THRESHOLD MUST PROVE THE RULE IT GOVERNS CAN FIRE AT ALL
+        # (Story 4.6, review round 1). The two guards above each prove it for
+        # one rule -- the advance needs a sample point inside its bound, the
+        # stack needs its point to exist -- and the crunch needs more than
+        # either: a target inside the bound **and** an earlier point the
+        # look-back actually reaches. Three settings decide that between them
+        # and no section can see it alone, so the proof is here.
+        #
+        # It is a proof and not an approximation: the same selector the rule
+        # uses (constants.source_point_index) is run over the configured grid.
+        # A bound of its own shape would be a second copy of the rule's reach
+        # and would agree with it only today. Measured before this was
+        # written, against the real settings.toml: advance_max_sample_s = 10
+        # was ACCEPTED although only one point fits inside it, and
+        # crunch_lookback_s = 1e-9 was ACCEPTED although the cutoff then
+        # reaches the target's own point, so every arrival is discarded as
+        # "already there". Both print "crunchin kattavuus 93/93 CT-kierroksesta"
+        # with no rows -- a measured negative over a blind spot, which is the
+        # harm this whole guard family exists to prevent.
+        #
+        # The source may be ANY earlier point and not only one inside the
+        # bound (the rule reads rows past it), so the targets are filtered and
+        # the sources are not.
+        points = sorted(self.parse.snapshot_seconds)
+        targets = [
+            value
+            for value in points
+            if value <= self.thresholds.advance_max_sample_s
+        ]
+        reachable = [
+            value
+            for value in targets
+            if (
+                index := source_point_index(
+                    points, value, self.thresholds.crunch_lookback_s
+                )
+            )
+            is not None
+            and points[index] < value
+        ]
+        if not reachable:
+            named = ", ".join(f"{value:g}" for value in points)
+            raise ValueError(
+                f"The crunch can fire on no sample point at all.\n"
+                f"parse.snapshot_seconds is ({named}) s, "
+                f"thresholds.advance_max_sample_s is "
+                f"{self.thresholds.advance_max_sample_s:g} s and "
+                f"thresholds.crunch_lookback_s is "
+                f"{self.thresholds.crunch_lookback_s:g} s. The rule reads a "
+                "player's source area from the latest sample point at or "
+                "before t - crunch_lookback_s, so it needs a point inside the "
+                "bound that has an earlier point that far back -- and with "
+                "these three values not one point does.\n"
+                "The rule would fall silent permanently and the report would "
+                "still count every CT round as scanned, which turns a blind "
+                "spot into 'no crunches' as an observation. Widen "
+                "advance_max_sample_s, shorten crunch_lookback_s, or add a "
+                "sample point."
             )
         smallest_bonus = min(self.economy.loss_bonus_steps)
         if self.thresholds.normal_buy_money_min <= smallest_bonus:

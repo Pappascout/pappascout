@@ -1096,11 +1096,16 @@ HASHED_THRESHOLD_KEYS: tuple[str, ...] = (
     # (``test_every_setting_the_stage_reads_is_in_the_params_hash``), which
     # reads the fields that are read from the source.
     "advance_t_share",
-    "advance_area_min_observations",
+    "advance_area_min_observations_per_point",
     "advance_max_sample_s",
     "advance_min_players",
     "crunch_min_players",
     "crunch_min_sources",
+    # The crunch's look-back (Story 4.6). It decides which sample point is
+    # read as a player's source area, so a changed value changes which rounds
+    # the rule fires on -- and without it here the report would keep the
+    # anomalies measured with the old reach.
+    "crunch_lookback_s",
     # The stack rule's three thresholds (Story 2.14). The latter two are the
     # story's quietest trap: they change not one rule but its INPUT (the site
     # groups from the demo's point cloud), so forgetting them would leave in

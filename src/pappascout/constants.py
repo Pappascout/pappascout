@@ -9,8 +9,10 @@ not depend on ``domain``).
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import math
+from collections.abc import Sequence
 from typing import Final, Literal
 
 __all__ = [
@@ -65,6 +67,7 @@ __all__ = [
     "seconds_label",
     "SAMPLE_POINT_TOLERANCE_S",
     "is_sample_point",
+    "source_point_index",
 ]
 
 #: The side of the row's team.
@@ -632,6 +635,53 @@ def is_sample_point(value: float, nominal: float) -> bool:
     return math.isclose(
         value, nominal, rel_tol=0.0, abs_tol=SAMPLE_POINT_TOLERANCE_S
     )
+
+
+def source_point_index(
+    ordered: Sequence[float], target: float, lookback: float
+) -> int | None:
+    """Which sample point answers "where was the player ``lookback`` s ago".
+
+    The answer is **the latest point at or before ``target - lookback``**, and
+    ``None`` when there is none -- the look-back then reaches past the first
+    point the caller gave, which on a round means past the round's own start.
+
+    At or *before*, so the answer is never newer than the question: the
+    nearest point in either direction could report an arrival from a moment
+    after the look-back, which would make the reach shorter than the setting
+    says it is.
+
+    **This is here and not beside the rule because two layers have to agree
+    about it** -- the same reason as :func:`is_sample_point`'s. The crunch
+    resolves a source area with it
+    (:func:`~pappascout.domain.sampling._source_areas`), and the settings'
+    load-time check proves with it that the rule can fire at all on the
+    configured grid (``Settings._check_sections_agree``). As two copies they
+    would agree only today, and the settings would then vouch for a reach the
+    rule does not have.
+
+    The comparison carries :data:`SAMPLE_POINT_TOLERANCE_S` for the same
+    reason as :func:`is_sample_point`: the seconds travel through a parquet
+    column, and a microsecond must not push a point that **is** the
+    look-back's moment over to the one before it. The tolerance is orders of
+    magnitude below any spacing, so it cannot reach a neighbour.
+
+    Args:
+        ordered: The sample points in **ascending order**. Not sorted here:
+            the caller has them sorted already, and sorting a second time
+            would hide a caller that does not.
+        target: The moment the question is asked at.
+        lookback: How far back to ask, in seconds.
+
+    Returns:
+        The index into ``ordered``, or ``None`` when no point is far enough
+        back. A returned index may be ``target``'s own point when ``lookback``
+        is smaller than the tolerance; that is not a source but the question
+        answering itself, and both callers refuse it.
+    """
+    cutoff = target - lookback + SAMPLE_POINT_TOLERANCE_S
+    index = bisect.bisect_right(ordered, cutoff) - 1
+    return index if index >= 0 else None
 
 
 def seconds_label(value: float) -> str:

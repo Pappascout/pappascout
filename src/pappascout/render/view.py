@@ -3423,11 +3423,14 @@ def _anomaly_legend(report: Report) -> list[str]:
     -- and without the explanation that looks like a missing observation.
     """
     share = _threshold_float(report, "advance_t_share")
-    observations = _threshold_int(report, "advance_area_min_observations")
+    observations = _threshold_int(
+        report, "advance_area_min_observations_per_point"
+    )
     bound = _threshold_float(report, "advance_max_sample_s")
     advance_players = _threshold_int(report, "advance_min_players")
     crunch_players = _threshold_int(report, "crunch_min_players")
     crunch_sources = _threshold_int(report, "crunch_min_sources")
+    crunch_lookback = _threshold_float(report, "crunch_lookback_s")
 
     orientation = (
         f"Luvun {ANOMALY_HEADING} T-osuus on **demon oma havainto** siitä, "
@@ -3440,8 +3443,9 @@ def _anomaly_legend(report: Report) -> list[str]:
     if share is not None and observations is not None:
         orientation += (
             f" Alue on T:n aluetta, kun osuus on vähintään {_share(share)} ja "
-            f"alueella on vähintään {observations} havaintoa; sitä vähemmällä "
-            "alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa."
+            f"alueella on vähintään {observations} havaintoa näytepistettä "
+            "kohden; sitä vähemmällä alue ei ole kummankaan puolen aluetta "
+            "eikä tuota poikkeamaa."
         )
     notes = [orientation]
 
@@ -3457,10 +3461,15 @@ def _anomaly_legend(report: Report) -> list[str]:
         )
     notes.append(advance)
 
+    lookback_text = (
+        f"pelaajan oma alue {_seconds(crunch_lookback)} sekuntia aiemmin"
+        if crunch_lookback is not None
+        else "pelaajan oma alue hetkeä aiemmin"
+    )
     crunch = (
         f"**{ANOMALY_RULE_FI['crunch']}**: sama T:n alue, mutta pelaajien on "
-        "**saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on "
-        "pelaajan oma alue edellisellä näytepisteellä."
+        f"**saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on "
+        f"{lookback_text}."
     )
     if crunch_players is not None and crunch_sources is not None:
         crunch += (

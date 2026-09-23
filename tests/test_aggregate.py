@@ -2673,21 +2673,73 @@ def test_the_t_share_threshold_decides_whether_the_row_exists() -> None:
 
 
 def test_the_observation_minimum_decides_whether_the_row_exists() -> None:
-    """A thin area is neither side's area -- the threshold decides."""
+    """A thin area is neither side's area -- the threshold decides.
+
+    The rows sit on **one** sample point, so the bound per point and the raw
+    bound are the same number here (Story 4.6): 20 against 6 observations
+    excludes, 6 against 6 includes, exactly as before the unit changed.
+    """
     demo = "Ancient_vs_x"
     classified = eco_ct(demo, 1, 2)
     ticks = advance_round(demo, 1, area="Ramp")
     orientation = {demo: {"Ramp": AreaObservations(t=5, total=6)}}
     strict = anomaly_report(
         classified, ticks, demo=demo, orientation=orientation,
-        limits=thresholds(advance_area_min_observations=20),
+        limits=thresholds(advance_area_min_observations_per_point=20),
     )
     loose = anomaly_report(
         classified, ticks, demo=demo, orientation=orientation,
-        limits=thresholds(advance_area_min_observations=6),
+        limits=thresholds(advance_area_min_observations_per_point=6),
     )
     assert areas_of(strict, "ct_advance") == []
     assert areas_of(loose, "ct_advance") == ["Ramp"]
+
+
+def test_the_observation_minimum_is_divided_by_the_demos_grid_not_the_rounds() -> None:
+    """The divisor is **the demo's** sample points and never one round's.
+
+    An anomaly rule sees one round at a time, so the obvious place to count
+    the grid is the rows it was handed -- and that is wrong, because a round
+    that was settled early holds fewer points than the grid has. The gate
+    would then sink exactly on the short rounds, which is where the evidence
+    is thinnest. Short rounds are not a corner: measured on the archive,
+    ``ANCIENT_vs_RCAVE_VETERANS`` has 4 rounds with 2 sample points and 6 with
+    3, and ``1-59f69cad-...-1`` has 5 and 5.
+
+    The two divisors are set apart here on purpose, because nothing else in
+    the suite could tell them apart. The demo's grid is four points (round 1
+    runs to 45 s), the hit sits on a round that ended after 15 s and so has
+    two, and the orientation holds 12 observations:
+
+    * per demo -- ``5 x 4 = 20`` -- 12 is thin, no area is oriented, no row;
+    * per round -- ``5 x 2 = 10`` -- 12 passes and ``TSideLower`` produces an
+      advance row **on a demo the same report lists as having no
+      orientation**, because the coverage figure is computed per demo. A
+      report that contradicts itself is the tell.
+    """
+    demo = "Ancient_vs_x"
+    classified = eco_ct(demo, 1, 2)
+    # Round 1 runs the full grid, on an area nobody is oriented about.
+    long_round = [
+        row
+        for seconds in (6.0, 15.0, 30.0, 45.0)
+        for row in advance_round(demo, 1, area="CTSpawn", seconds=seconds)
+    ]
+    # Round 2 was settled early: two sample points, and a CT on the T area.
+    short_round = [
+        row
+        for seconds in (6.0, 15.0)
+        for row in advance_round(demo, 2, area=ANOMALY_AREA, seconds=seconds)
+    ]
+    report = anomaly_report(
+        classified,
+        long_round + short_round,
+        demo=demo,
+        orientation={demo: {ANOMALY_AREA: AreaObservations(t=11, total=12)}},
+        limits=thresholds(),
+    )
+    assert areas_of(report, "ct_advance") == []
+    assert report.anomaly_scan.demos_without_orientation == [demo]
 
 
 def test_the_time_bound_decides_whether_the_row_exists() -> None:

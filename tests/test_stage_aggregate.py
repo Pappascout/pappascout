@@ -2067,8 +2067,15 @@ def test_the_run_output_names_the_anomalies_and_the_coverage(
 def test_the_run_output_says_when_a_demo_has_no_orientation(
     tmp_path: Path,
 ) -> None:
-    """A blind spot shows in the run's output too, not only in the report."""
-    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    """A blind spot shows in the run's output too, not only in the report.
+
+    ``players=2`` and not the default five: the orientation's gate is a count
+    **per sample point** (Story 4.6) and this archive has one point, so five
+    players on two rounds would be ten observations at that point -- thick
+    evidence and no blind spot at all. Two players give four, which is below
+    the bound, and the blind spot is the thing this test is about.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM}, players=2)
     text = _render_aggregate(run(archive))
     assert "without area orientation, 1 of the demos" in text
 
@@ -2076,13 +2083,16 @@ def test_the_run_output_says_when_a_demo_has_no_orientation(
 def test_a_demo_without_anomalies_writes_an_empty_list(tmp_path: Path) -> None:
     """An empty anomaly list is a valid result and not a missing field.
 
-    The coverage is written all the same: the default archive's sample points
-    hold only two areas and three observations, so not one crosses the
-    observation threshold -- that is, the empty figure is a **blind spot** and
-    not a measured negative, and saying exactly that difference is the
-    coverage's job.
+    The coverage is written all the same: this archive's sample points hold
+    two areas whose observations do not cross the observation threshold --
+    that is, the empty figure is a **blind spot** and not a measured negative,
+    and saying exactly that difference is the coverage's job.
+
+    ``players=2`` for the reason given in
+    :func:`test_the_run_output_says_when_a_demo_has_no_orientation`: the gate
+    is per sample point and this archive has one point.
     """
-    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM}, players=2)
     run(archive)
     report = read_report(archive)
     assert report.anomalies == []
@@ -2176,7 +2186,10 @@ def test_a_demo_without_the_callouts_table_is_reported_missing(
 #: said out loud here, so that a missing key does not look like an oversight.
 HASHED_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
     ("advance_t_share", {"advance_t_share": 0.9}),
-    ("advance_area_min_observations", {"advance_area_min_observations": 40}),
+    (
+        "advance_area_min_observations_per_point",
+        {"advance_area_min_observations_per_point": 10},
+    ),
     ("advance_max_sample_s", {"advance_max_sample_s": 15.0}),
     ("advance_min_players", {"advance_min_players": 2}),
     ("crunch_min_players", {"crunch_min_players": 3}),
@@ -2184,6 +2197,11 @@ HASHED_THRESHOLD_CHANGES: tuple[tuple[str, dict[str, object]], ...] = (
         "crunch_min_sources",
         {"crunch_min_players": 3, "crunch_min_sources": 3},
     ),
+    # The crunch's look-back (Story 4.6). 6.0 and not something larger,
+    # because the value has to stay inside the grid's own reach: the guard in
+    # Settings._check_sections_agree refuses a look-back longer than the span
+    # from the earliest sample point to the latest one the rule may target.
+    ("crunch_lookback_s", {"crunch_lookback_s": 6.0}),
     # The stack rule's three (Story 2.14). The latter two change not the rule
     # but its INPUT -- the site groups from the demo's point cloud -- and that
     # is exactly why they would be the easiest to forget from the hash.

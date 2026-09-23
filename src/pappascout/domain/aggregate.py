@@ -1570,7 +1570,7 @@ def anomalies_for(
             not a map database and not a table accumulated across the archive.
             The cloud is not filtered to the team's lineups and must not be:
             the map is where it is, no matter which team is the subject.
-        thresholds: The ``[thresholds]`` section. Nine anomaly thresholds and
+        thresholds: The ``[thresholds]`` section. Ten anomaly thresholds and
             ``small_sample_rounds`` are read from it.
 
     Returns:
@@ -1605,6 +1605,38 @@ def anomalies_for(
     for map_name, demos in by_map.items():
         for demo in demos:
             map_of_demo[demo] = map_name
+
+    # The demo's sampling grid **once** per demo: how many time sample points
+    # it was parsed at (Story 4.6). The orientation's observation gate is a
+    # count per sample point, so the rules need the divisor -- and it is
+    # derived from the rows, never read from ``[parse].snapshot_seconds``
+    # (``domain.sampling.sample_point_count`` says why).
+    #
+    # **Per demo and over all its rounds, not per round.** A round settled in
+    # 30 seconds has fewer points than the grid has, and the orientation the
+    # gate is applied to was counted over the whole demo; a per-round divisor
+    # would lower the bound exactly on the short rounds.
+    #
+    # The lineup filter on ``ticks`` does not touch this: the grid is a
+    # property of the parse, and both teams' rows lie on the same points.
+    #
+    # The rows are turned into presences twice -- here and again per round in
+    # ``_rule_hits`` -- and that is a deliberate trade: the alternative is to
+    # count the distinct seconds here by hand, which would be a second copy of
+    # the definition that ``sample_point_count`` holds. Counted 2026-09-23,
+    # not estimated: the eight calibration demos are 11 105 sample point rows
+    # and the whole archive of seventeen is 19 805, so the second pass costs a
+    # fraction of a second. (The figure here said "some thirty thousand" until
+    # a reviewer counted; the conclusion held, the number did not.)
+    presences_by_demo: defaultdict[str, list[sampling.AreaPresence]] = defaultdict(
+        list
+    )
+    for key, tick_rows in ticks_by_round.items():
+        presences_by_demo[key[0]].extend(_presence(tick) for tick in tick_rows)
+    points_by_demo: dict[str, int] = {
+        demo: sampling.sample_point_count(presences_by_demo.get(demo, ()))
+        for demo in {str(row["map_demo_id"]) for row in rows}
+    }
 
     # The site groups **once** per demo: demo -> (area -> "A"|"B") or None,
     # when the map has no A/B split that separates on the level. ``None`` and
@@ -1657,7 +1689,12 @@ def anomalies_for(
         branches[(map_name, str(row["side"]))][str(row["round_type"])].append(row)
 
     hits_by_round = _rule_hits(
-        rows, ticks_by_round, area_orientation, groups_by_demo, thresholds
+        rows,
+        ticks_by_round,
+        area_orientation,
+        groups_by_demo,
+        points_by_demo,
+        thresholds,
     )
 
     anomalies: list[Anomaly] = []
@@ -1751,7 +1788,10 @@ def anomalies_for(
         if not sampling.t_side_shares(
             area_orientation[demo],
             t_share_min=thresholds.advance_t_share,
-            min_observations=thresholds.advance_area_min_observations,
+            min_observations_per_point=(
+                thresholds.advance_area_min_observations_per_point
+            ),
+            sample_points=points_by_demo[demo],
         )
     )
     # The silenced demos: ``None`` and not an empty description. An empty
@@ -1779,6 +1819,7 @@ def _rule_hits(
     ticks_by_round: Mapping[RoundKey, Sequence[Mapping[str, Any]]],
     area_orientation: Mapping[str, Mapping[str | None, sampling.AreaObservations]],
     groups_by_demo: Mapping[str, Mapping[str, str] | None],
+    points_by_demo: Mapping[str, int],
     thresholds: ThresholdSettings,
 ) -> dict[RoundKey, list[sampling.AnomalyHit]]:
     """All three rules' hits round by round, computed once.
@@ -1798,6 +1839,13 @@ def _rule_hits(
     independence is worth the trade here. If the sample grows to tens of demos
     in Epic 3, the right fix is a cache keyed by demo, not a change to the
     rule's contract.
+
+    **The sampling grid's size is per demo and comes in the same shape as the
+    orientation** (Story 4.6): ``points_by_demo`` is derived once by the
+    caller from the demo's own rows. It cannot be derived here, because here
+    the rows are one round's -- and a round settled early holds fewer points
+    than the grid has, so the orientation's gate would sink with the round's
+    length.
     """
     found: dict[RoundKey, list[sampling.AnomalyHit]] = {}
     for row in rows:
@@ -1825,15 +1873,22 @@ def _rule_hits(
             round_type=str(row["round_type"]),
             orientation=orientation,
             t_share_min=thresholds.advance_t_share,
-            area_min_observations=thresholds.advance_area_min_observations,
+            area_min_observations_per_point=(
+                thresholds.advance_area_min_observations_per_point
+            ),
+            sample_points=points_by_demo[demo],
             max_sample_s=thresholds.advance_max_sample_s,
             min_players=thresholds.advance_min_players,
         ) + sampling.crunch_hits(
             presences,
             orientation=orientation,
             t_share_min=thresholds.advance_t_share,
-            area_min_observations=thresholds.advance_area_min_observations,
+            area_min_observations_per_point=(
+                thresholds.advance_area_min_observations_per_point
+            ),
+            sample_points=points_by_demo[demo],
             max_sample_s=thresholds.advance_max_sample_s,
+            lookback_s=thresholds.crunch_lookback_s,
             min_players=thresholds.crunch_min_players,
             min_sources=thresholds.crunch_min_sources,
         ) + sampling.stack_hits(

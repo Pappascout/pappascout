@@ -834,16 +834,49 @@ site_bridge_void_share = 0.10
 # molempien -- arvolla 0,0 jokainen kartan alue olisi T:n aluetta.
 advance_t_share = 0.80
 
-# Alueelta vaaditaan vähintään näin monta elossa-havaintoa, ennen kuin sillä
-# on orientaatio lainkaan. Vertailu on >=, eli TASAN 20 havainnon alue on
-# mukana; alue, joka ALITTAA rajan, ei ole T:n eikä CT:n aluetta --
-# orientaatiota ei arvata ohuesta havainnosta.
+# Alueelta vaaditaan vähintään näin monta elossa-havaintoa NÄYTEPISTETTÄ
+# KOHDEN, ennen kuin sillä on orientaatio lainkaan. Vertailu on >=, eli tasan
+# rajalla oleva alue on mukana; alue, joka ALITTAA rajan, ei ole T:n eikä CT:n
+# aluetta -- orientaatiota ei arvata ohuesta havainnosta.
 #
-# Mitattu: 20 erottaa kartan pelatut alueet (10-12 demoa kohden) satunnaisista
-# läpikuluista. Kynnykset 10 ja 20 antavat aineistossa identtisen tuloksen; 5
-# toisi mukaan alueen, jonka T-osuus 0,83 nojaa viiteen havaintoon kuudesta
-# (Ancientin Ramp).
-advance_area_min_observations = 20
+# Mitattu: 20 raakahavaintoa erottaa kartan pelatut alueet (10-12 demoa
+# kohden) satunnaisista läpikuluista. TÄMÄ MITTAUS ON TEHTY NELJÄÄ
+# NÄYTEPISTETTÄ KOHDEN, ja se on koko syy tähän yksikköön: havainto on yksi
+# rivi per elossa oleva pelaaja per kierros per näytepiste, joten raaka luku
+# kysyy eri kysymyksen jokaisella ruudukolla. Mitattu 22.9.2026 arkistolla:
+# pelkkä ruudukon tihentäminen neljästä neljääntoista pisteeseen vei
+# CT-etenemisen 10 osumasta 6 kierroksella 45 osumaan 9 kierroksella, eikä
+# yhtäkään kynnystä koskettu. Kynnykset 10 ja 20 antavat aineistossa
+# identtisen tuloksen; 5 raakahavaintoa toisi mukaan alueen, jonka T-osuus
+# 0,83 nojaa viiteen havaintoon kuudesta (Ancientin Ramp).
+#
+# 20 / 4 = 5. Arvo alla valitsee siis neljällä näytepisteellä TÄSMÄLLEEN ne
+# alueet jotka raaka 20 valitsi -- laskutoimitus, ei uusi kalibrointi.
+#
+# JAKAJA ON DEMON OMA NÄYTEPISTEMÄÄRÄ, joka johdetaan sen omista riveistä
+# (domain.sampling.sample_point_count) eikä lueta [parse].snapshot_seconds
+# -asetuksesta: jäsennetty taulu ja muokattu asetustiedosto saavat olla eri
+# mieltä, ja rivit ovat havainto.
+#
+# TÄMÄ EI TEE ORIENTAATIOSTA TIHEYSRIIPPUMATONTA eikä väitä tekevänsä.
+#
+# Alueen havainnot kasvavat ruudukon mukana vain sen verran kuin aluetta
+# käytetään, eivät tasaisesti. Mitattu 22.9.2026 kahdeksalla
+# kalibrointidemolla, jotka jäsennettiin molemmilla ruudukoilla: kasvu
+# neljästä pisteestä neljääntoista on 1,08-kertainen (Water, jolla käyntejä
+# vain kierroksen alussa) ... 4,90-kertainen (TSideUpper). Yhtenäinen
+# ~3,5-kertainen kasvu on siis keskiarvo eikä alueen ominaisuus, ja tämä
+# yksikkö poistaa tiheysriippuvuudesta vain sen osan, joka on laskutoimitus.
+#
+# Myös advance_t_share liikkuu, vaikka se on osuus: tiheämpi ruudukko
+# painottaa kierroksen loppupuolta eri tavalla (TSideUpper 0,800 -> 0,704 ja
+# 0,818 -> 0,645, Tunnels 0,917 -> 0,778).
+#
+# Jäljelle jäävä ero -- 10 aluetta menetetään, 2 saadaan -- on kirjattu
+# mittauksena REPOON (tests/data/orientation_by_grid.json) eikä siloteltu
+# pois. tests/test_calibration.py laskee siitä lopputuloksen säännön omalla
+# funktiolla, joten se menee punaiseksi jos kynnys tai laskutapa muuttuu.
+advance_area_min_observations_per_point = 5
 
 # Poikkeama luetaan vain näytepisteiltä, jotka ovat enintään näin kauan
 # kierroksen ankkurista. Raja on MITATTU eikä valittu: se pudottaa kaksi
@@ -898,6 +931,46 @@ advance_min_players = 1
 # järjestystä, koska crunch ei ole etenemisen tiukempi muoto.
 crunch_min_players = 2
 crunch_min_sources = 2
+
+# Kuinka kaukaa taaksepäin crunch lukee pelaajan saapumissuunnan, SEKUNTEINA.
+#
+# MIKSI KESTO EIKÄ "EDELLINEN NÄYTEPISTE" (Story 4.6). Edellinen näytepiste ei
+# ole kesto lainkaan vaan ruudukon väli: neljällä pisteellä se on 9 s kohdassa
+# 15 s ja 15 s kohdassa 30 s, neljällätoista 3 s molemmissa. Sääntö siis
+# muutti merkitystään kun ruudukkoa tihennettiin, vaikka yhtäkään kynnystä ei
+# koskettu -- mitattu 22.9.2026 arkistolla: 5 osumaa 4 kierroksella putosi
+# 2 osumaan 2 kierroksella.
+#
+# LÄHDE ON VIIMEISIN NÄYTEPISTE HETKELLÄ t - crunch_lookback_s TAI SITÄ ENNEN.
+# Ruudukolla on harvoin pistettä täsmälleen siinä, joten valinta on tehtävä ja
+# kirjattava eikä jätettävä välin päätettäväksi. "Tai sitä ennen", jotta
+# vastaus ei koskaan ole kysymystä tuoreempi.
+#
+# 9,0 ON MITATTU NELJÄN PISTEEN RUUDUKKOA VASTEN ja toistaa sen täsmälleen:
+# 15 - 9 = 6 on näytepiste, ja 30 - 9 = 21 ei ole, joten lähde putoaa
+# pisteeseen 15 -- juuri ne kaksi vastausta jotka vanha sääntö antoi. Mitattu
+# 22.9.2026: arvoilla 3, 6 ja 9 neljän pisteen ruudukko antaa samat 5 osumaa
+# 4 kierroksella; arvosta 12 ylöspäin kohde 15 s jää ilman lähdettä ja sääntö
+# menettää kaksi neljästä kierroksestaan.
+#
+# MITÄ "MITATTU" EI TÄSSÄ TARKOITA. Mittaus rajaa arvon vain ylhäältä: jokainen
+# arvo välillä (0, 9] antaa samat neljä kierrosta ja samat lähdealueet, koska
+# 15 - x osuu pisteeseen 6 ja 30 - x pisteeseen 15 koko välillä. Tasaisuus on
+# siis laskutoimitus eikä havainto. 9,0 on näistä yhtä hyvistä SUURIN, ja se
+# valittiin jotta sääntö ei kysyisi kapeampaa kysymystä kuin edellisen
+# näytepisteen sääntö, jonka se korvaa -- ei siksi että pienemmät arvot olisi
+# mitattu huonommiksi. Kolmen sekunnin välein otettu ruudukko erottaa ne
+# toisistaan (mitattu 23.9.2026 arkiston ainoalla 14 pisteen demolla: 4,5 ja
+# 6,0 löytävät sieltä yhden kierroksen, 9,0 ei yhtään), joten jos ruudukkoa
+# tihennetään, tämä kynnys on mitattava uudelleen. Tasainen väli on tämän
+# ruudukon sokeus, ei kynnyksen kestävyys.
+#
+# Yläraja on perheen oma (MAX_ADVANCE_SAMPLE_SECONDS). Käytännössä sitova
+# ehto on ruudukkoa vasten: arvo ei saa olla pidempi kuin matka aikaisimmasta
+# näytepisteestä viimeiseen, jonka advance_max_sample_s vielä päästää läpi --
+# sitä pidempi vaientaisi crunchin pysyvästi. Tarkistaa
+# Settings._check_sections_agree, koska kumpikaan osio ei näe sitä yksin.
+crunch_lookback_s = 9.0
 
 
 [aggregate]

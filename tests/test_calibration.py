@@ -22,6 +22,29 @@ environment**.
     (``pytest -m "not archive"``), and they skip themselves cleanly on a
     machine that has no archive.
 
+The two orientation rules (Story 4.6)
+    The CT advance's and the crunch's hit tables, and what the sampling grid
+    does to them. There is no document behind these: they were **re-derived by
+    running the rules over the archive** on 2026-09-22, because their absence
+    is the defect the story fixed -- neither rule had a hit-count constant, so
+    a change of grid re-calibrated both of them and the suite stayed green.
+    These read the real archive too.
+
+    **The archive's tables are not guaranteed to be on the grid the settings
+    declare**, and this block is the one place that cannot ignore it. One demo
+    is permanently on the fourteen-point grid of the branch
+    ``story-4-5-dense-sampling``, because its source file is gone and it can
+    never be parsed again; :func:`_on_grid` names it and says why the filter
+    is a requirement rather than a precaution.
+
+    **And nothing here may rest on the archive being in a wrong state.** The
+    cross-density measurement first read its dense side from the archive,
+    which carried that grid only because a branch had been left without
+    re-parsing. When that was repaired the test went red, and correctly so: a
+    fault is not a fixture. The observations now live in
+    ``tests/data/orientation_by_grid.json`` and the verdict is computed from
+    them by the rule's own function, so that guard needs no archive at all.
+
 **In both, the document is the truth.** If some row of the table does not
 pass, the code is wrong -- the table is not adjusted to match the code, and
 no threshold is nudged so that a single row passes. The thresholds are read
@@ -31,8 +54,11 @@ prove nothing about the settings file the tool is run with.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Sequence
+from contextlib import contextmanager
 from pathlib import Path
-from typing import NamedTuple
+from typing import Final, NamedTuple
 
 import polars as pl
 import pytest
@@ -52,11 +78,37 @@ from pappascout.domain.models import (
     ThresholdSettings,
     load_settings,
 )
-from pappascout.domain.sampling import CloudCell, site_groups
+from pappascout.domain.aggregate import _presence
+from pappascout.domain.sampling import (
+    AreaObservations,
+    CloudCell,
+    _is_ct_time_row,
+    _source_areas,
+    site_groups,
+    t_side_shares,
+)
 from pappascout.domain.schemas import ARMED_COLUMN, MONEY_DISTRIBUTION_COLUMN
 from pappascout.errors import SchemaError
 from pappascout.stages import aggregate as aggregate_stage
 from pappascout.stages.aggregate import collect_team
+
+
+class _GridNotGiven:
+    """The type of :data:`_SENTINEL_GRID`, and the reason it has one.
+
+    ``()`` cannot be a sentinel: CPython interns the empty tuple, so a caller
+    that passed ``()`` -- "filter the tables down to no sample point at all"
+    -- would be ``is``-identical to the default and would silently get the
+    settings file's grid instead. A class of its own is identical to nothing
+    a caller can construct by accident.
+    """
+
+
+#: "The grid was not given", as distinct from "no filtering" and from "an
+#: empty grid". A default of ``None`` could not tell them apart, and ``None``
+#: is the value that reads the archive's tables exactly as they were parsed
+#: (:func:`_on_grid`).
+_SENTINEL_GRID: Final = _GridNotGiven()
 
 #: The lineup size the document's per-player numbers were computed with.
 PLAYERS = 5
@@ -1232,7 +1284,65 @@ def _site_groups(root: Path, map_demo_id: str, limits: ThresholdSettings):
     )
 
 
-def _stack_reports(root: Path, limits: ThresholdSettings | None = None):
+@contextmanager
+def _on_grid(seconds: Sequence[float] | None):
+    """Read the archive's sample point rows **on one grid** for the duration.
+
+    ``None`` leaves the tables as they are; a list of seconds keeps only the
+    time rows whose nominal ``sample_t_s`` is on it. Filtering a denser table
+    down to a subset is exactly what a parse at that subset would have
+    written: every sample point is converted from its own nominal second and
+    is dropped only if it falls after the round ended, so no point's rows
+    depend on any other point's.
+
+    **Why a test needs this at all, permanently** (Story 4.6). The archive's
+    ``parsed/`` tables are **not** guaranteed to be on the grid
+    ``settings.toml`` declares, and on this archive one demo never will be:
+    ``1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1`` is parsed on the
+    fourteen-point grid of the branch ``story-4-5-dense-sampling`` and its
+    source file exists in neither ``demos/`` nor ``import/``, so it **cannot
+    be parsed again**. It is in :data:`CALIBRATION_DEMOS` and in
+    :data:`NUKE_DEMOS`, so the tests below read it whatever else happens. This
+    filter is therefore a requirement and not a precaution.
+
+    It began as a precaution: on 2026-09-22 nine demos carried the dense grid
+    because the branch had been left and not re-parsed. Eight of the nine were
+    repaired the same day; the ninth is the one above. A calibration test that
+    read the tables bare would pin whichever grid the last parse happened to
+    write -- and being blind to the grid is the very defect this story exists
+    to remove. So the grid is named here.
+
+    The stack's numbers do not move between the two grids (measured: the same
+    five rounds, row for row), so this filter changes nothing the stack tests
+    below assert; it makes explicit which grid they assert it on.
+
+    The seam is ``_read_parsed`` because ``_aggregate`` reads the archive
+    itself and takes no rows as an argument.
+    """
+    original = aggregate_stage._read_parsed
+
+    def on_grid(archive, demo, name, schema):
+        df = original(archive, demo, name, schema)
+        if name == "ticks" and seconds is not None:
+            df = df.filter(
+                (pl.col("sample_kind") != "time")
+                | pl.col("sample_t_s").is_in(list(seconds))
+            )
+        return df
+
+    aggregate_stage._read_parsed = on_grid
+    try:
+        yield
+    finally:
+        aggregate_stage._read_parsed = original
+
+
+def _reports(
+    root: Path,
+    limits: ThresholdSettings | None = None,
+    *,
+    seconds: Sequence[float] | None | _GridNotGiven = _SENTINEL_GRID,
+):
     """Both teams' reports **in memory**, without changing the archive.
 
     The stage's own ``run`` would write ``report.json`` into the developer's
@@ -1240,20 +1350,29 @@ def _stack_reports(root: Path, limits: ThresholdSettings | None = None):
     ``_aggregate`` is a function of the same module and does exactly what
     ``run`` does before the write -- the underscore is a sign that it should
     not be called from production code, not that it must not be read.
+
+    The sample points default to the ones ``settings.toml`` declares; see
+    :func:`_on_grid` for why that is stated rather than assumed.
     """
     settings = _real_settings()
     thresholds = limits or settings.thresholds
+    grid = (
+        list(settings.parse.snapshot_seconds)
+        if seconds is _SENTINEL_GRID
+        else seconds
+    )
     archive = ArchivePaths(root=root)
-    return [
-        aggregate_stage._aggregate(
-            archive,
-            collect_team(archive, team, thresholds),
-            thresholds,
-            settings.league,
-            settings.aggregate,
-        )
-        for team in CALIBRATION_TEAMS
-    ]
+    with _on_grid(grid):
+        return [
+            aggregate_stage._aggregate(
+                archive,
+                collect_team(archive, team, thresholds),
+                thresholds,
+                settings.league,
+                settings.aggregate,
+            )
+            for team in CALIBRATION_TEAMS
+        ]
 
 
 def _stack_points(reports) -> list[tuple]:
@@ -1448,7 +1567,7 @@ def test_the_stack_rule_finds_exactly_the_calibrated_sample_points() -> None:
     """
     root = require_parsed(*CALIBRATION_DEMOS)
     limits = _real_settings().thresholds
-    found = _stack_points(_stack_reports(root))
+    found = _stack_points(_reports(root))
     assert found == STACK_TABLE
     assert len(found) == STACK_HITS
     assert len({(row[1], row[2]) for row in found}) == STACK_ROUNDS
@@ -1496,7 +1615,7 @@ def test_the_stack_coverage_says_what_it_could_not_see() -> None:
     which is the failure the three numbers exist to prevent.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
-    reports = _stack_reports(root)
+    reports = _reports(root)
     ct_rounds = sum(r.anomaly_scan.crunch_rounds for r in reports)
     scanned = sum(r.anomaly_scan.stack_rounds for r in reports)
     silenced = {
@@ -1545,7 +1664,7 @@ def test_switching_the_floor_branch_off_silences_nuke_again() -> None:
     without = settings.thresholds.model_copy(
         update={"site_floor_gap_ratio": 1.0}
     )
-    reports = _stack_reports(root, without)
+    reports = _reports(root, without)
     ct_rounds = sum(r.anomaly_scan.crunch_rounds for r in reports)
     scanned = sum(r.anomaly_scan.stack_rounds for r in reports)
     silenced = {
@@ -1575,12 +1694,12 @@ def test_five_defenders_are_the_rules_real_extreme_not_an_empty_set() -> None:
     limits = _real_settings().thresholds.model_copy(
         update={"stack_min_players": 5}
     )
-    rounds = {(row[1], row[2]) for row in _stack_points(_stack_reports(root, limits))}
+    rounds = {(row[1], row[2]) for row in _stack_points(_reports(root, limits))}
     assert sorted(rounds) == [
         ("1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1", 14),
         ("inferno_vs_ryhmarama", 2),
     ]
-    at_four = {(row[1], row[2]) for row in _stack_points(_stack_reports(root))}
+    at_four = {(row[1], row[2]) for row in _stack_points(_reports(root))}
     assert ("Anubis_vs_ryhmarama", 4) in at_four - rounds
 
 
@@ -1599,7 +1718,7 @@ def test_the_rule_fires_on_none_of_the_rounds_he_read_as_normal() -> None:
     that is the population correction this story's text needed.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
-    found = {(row[1], row[2]) for row in _stack_points(_stack_reports(root))}
+    found = {(row[1], row[2]) for row in _stack_points(_reports(root))}
     assert len(JUDGED_NOT_A_STACK_IN_SCOPE) == 26
     assert found & set(JUDGED_NOT_A_STACK_IN_SCOPE) == set()
     assert sorted(JUDGED_NOT_A_STACK_AT_THREE_AREAS) == sorted(
@@ -1631,9 +1750,9 @@ def test_one_more_area_starts_reporting_the_rounds_he_read_as_normal() -> None:
         limits = _real_settings().thresholds.model_copy(
             update={"stack_max_areas": value}
         )
-        return {(row[1], row[2]) for row in _stack_points(_stack_reports(root, limits))}
+        return {(row[1], row[2]) for row in _stack_points(_reports(root, limits))}
 
-    at_two = {(row[1], row[2]) for row in _stack_points(_stack_reports(root))}
+    at_two = {(row[1], row[2]) for row in _stack_points(_reports(root))}
     at_three = rounds(3)
     assert len(at_two) == STACK_ROUNDS
     assert at_two < at_three
@@ -1665,7 +1784,7 @@ def test_the_setup_point_is_not_the_walk_out_of_spawn() -> None:
     """
     root = require_parsed(*CALIBRATION_DEMOS)
     limits = _real_settings().thresholds.model_copy(update={"stack_sample_s": 6.0})
-    rounds = {(row[1], row[2]) for row in _stack_points(_stack_reports(root, limits))}
+    rounds = {(row[1], row[2]) for row in _stack_points(_reports(root, limits))}
     assert len(rounds) == STACK_ROUNDS_AT_THE_SPAWN_EXIT
     assert len(rounds) > STACK_ROUNDS
 
@@ -1685,7 +1804,7 @@ def test_the_hits_stand_where_the_players_really_are() -> None:
     named a stack. Only ``Anubis_vs_ryhmarama`` round 4 has a player there.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
-    reports = _stack_reports(root)
+    reports = _reports(root)
     cache: dict[str, pl.DataFrame] = {}
     without_anybody_on_the_site = 0
     hits = 0
@@ -1722,3 +1841,625 @@ def test_the_hits_stand_where_the_players_really_are() -> None:
                         without_anybody_on_the_site += 1
     assert hits == STACK_HITS
     assert without_anybody_on_the_site == 4
+
+
+# --- Two rules that must not read the sampling grid (Story 4.6) -----------------
+#
+# Neither the CT advance nor the crunch had a hit-count constant before this
+# story, and that is exactly why a grid change could re-calibrate them in
+# silence: the archive suite ran green while the advance went from 10 hits on
+# 6 rounds to 45 on 9 and the crunch from 5 on 4 to 2 on 2. The tables below
+# were **re-derived by running the rules over the archive** on 2026-09-22 --
+# not copied from any document.
+#
+# Every number here is measured **on the grid ``settings.toml`` declares**,
+# which the helper ``_on_grid`` states rather than assumes; see its docstring
+# for why the archive's tables cannot be trusted to carry that grid.
+
+#: The CT advance at the shipped four-point grid: 10 hits on 6 rounds.
+#:
+#: A hit is one sample point on one round, so the two figures differ on
+#: purpose: three of the six rounds hit at both 15 s and 30 s, and
+#: ``inferno_vs_ryhmarama`` round 2 hits on two areas at 30 s.
+ADVANCE_HITS = 10
+ADVANCE_ROUNDS = 6
+
+#: The hit table: (map, demo, round, type, moment, area, players).
+ADVANCE_TABLE = sorted(
+    [
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 15.0, 'TSideUpper', 1),
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 30.0, 'TSideLower', 2),
+        ('de_ancient', 'Ancient_vs_kaljukostaja', 4, 'eco', 30.0, 'TSideUpper', 1),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 3, 'eco', 15.0, 'Bridge', 1),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 6, 'half', 30.0, 'OutsideLong', 1),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 15.0, 'OutsideLong', 2),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 30.0, 'Bridge', 3),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 15.0, 'Middle', 5),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 30.0, 'Middle', 1),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 30.0, 'SecondMid', 1),
+    ]
+)
+
+#: The crunch at the same grid: 5 hits on 4 rounds.
+#:
+#: The same five the rule found when its look-back was "the previous sample
+#: point". Reproducing them exactly was Story 4.6's stop condition, so they
+#: are asserted row for row and not only as a count.
+CRUNCH_HITS = 5
+CRUNCH_ROUNDS = 4
+
+#: The hit table: (map, demo, round, type, moment, area, players, sources).
+#:
+#: The sources are the **round's** directions and the moment is the sample
+#: point's, because that is the shape the report node has.
+CRUNCH_TABLE = sorted(
+    [
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 30.0, 'TSideLower', 2,
+         ('SideEntrance', 'TSideUpper')),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 10, 'full', 15.0, 'OutsideLong', 3,
+         ('Alley', 'BombsiteB', 'LowerTunnel')),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 15.0, 'OutsideLong', 2,
+         ('Alley', 'BombsiteB')),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 30.0, 'Bridge', 3,
+         ('BombsiteB', 'Middle', 'OutsideLong')),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 15.0, 'Middle', 5,
+         ('Arch', 'TopofMid')),
+    ]
+)
+
+#: What the look-back does to the four-point grid, swept 2026-09-22:
+#: ``lookback_s -> the number of rounds the crunch finds``.
+#:
+#: Every value up to 9 s reproduces the four rounds, because on this grid the
+#: source of a 15 s target is the 6 s point for any look-back of 9 or less,
+#: and the source of a 30 s target is the 15 s point for any look-back of 15
+#: or less. From 12 s up the 15 s target loses its source altogether and two
+#: rounds go with it.
+#:
+#: **9.0 is therefore the largest value that reproduces the grid it replaces**,
+#: and that is why it is the shipped one: a shorter value would reproduce the
+#: same rounds while asking a narrower question than the rule used to ask.
+LOOKBACK_SWEEP = {
+    3.0: 4,
+    6.0: 4,
+    9.0: 4,
+    12.0: 2,
+    15.0: 2,
+    24.0: 1,
+}
+
+#: The archive's one demo that is **permanently** on the fourteen-point grid.
+#:
+#: Its source file is in neither ``demos/`` nor ``import/``, so it cannot be
+#: parsed again on any other grid; :func:`_on_grid` says what that costs. It
+#: is also the only demo the two grids can be compared on without parsing
+#: anything, which is why the two measurements below are of this demo alone
+#: and are stated as this demo's and not as the archive's.
+DENSE_DEMO = "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1"
+
+#: The same sweep on :data:`DENSE_DEMO`'s own grid, measured 2026-09-23:
+#: ``lookback_s -> the number of crunch rounds found on that demo``.
+#:
+#: **This is what :data:`LOOKBACK_SWEEP` cannot see.** On the four-point grid
+#: every value in ``(0, 9]`` gives the same four rounds, because the points
+#: are 9 and 15 seconds apart and ``15 - x`` lands on 6 s for all of them. The
+#: flat stretch is arithmetic, not evidence, and a threshold picked inside it
+#: is picked on a grid that cannot tell its candidates apart. Three-second
+#: spacing can: 4.5 and 6.0 find a round here that 9.0 does not.
+#:
+#: **Not an argument for a different value.** The shipped 9.0 is calibrated
+#: against the grid the tool ships with and reproduces the rule it replaces
+#: exactly; this records that the calibration's resolution is the grid's, so
+#: that a future densification knows the threshold has to be measured again
+#: and does not read the flat stretch as robustness.
+DENSE_DEMO_LOOKBACK_SWEEP = {
+    3.0: 0,
+    4.5: 1,
+    6.0: 1,
+    9.0: 0,
+}
+
+#: The crunch's residual across the two grids, measured 2026-09-23 on
+#: :data:`DENSE_DEMO` with the shipped look-back:
+#: ``sample point -> (source look-ups that differ, source look-ups shared)``.
+#:
+#: **The question is density-free; the answer is not, and this is the size of
+#: the difference.** The source is the latest point at or before
+#: ``t - 9``, so at four points a 30 s target falls back to 15 s while at
+#: fourteen it lands on 21 s. 15 s agrees exactly on both grids, because
+#: ``15 - 9 = 6`` is a point of each -- which is why the split by sample point
+#: is recorded and not only the total: it is what identifies the cause.
+LOOKBACK_RESIDUAL = {
+    15.0: (0, 136),
+    30.0: (40, 107),
+    45.0: (27, 77),
+}
+
+#: The measurement the cross-density claim rests on: the eight calibration
+#: demos' orientation observations, area by area, on both grids.
+#:
+#: **Data in the repository and not values copied into an assertion.** The
+#: numbers are the input the rule reads (``AreaObservations`` per area, plus
+#: each grid's point count); the test below feeds them to the real
+#: ``t_side_shares`` with the real thresholds and derives the verdict. So the
+#: guard goes red when the gate's arithmetic changes, when
+#: ``advance_area_min_observations_per_point`` changes and when
+#: ``advance_t_share`` changes -- and it needs no archive at all, which is the
+#: whole point: the first version of this test measured the fourteen-point
+#: side from the archive, and the archive carried that grid only because it
+#: was in an inconsistent state. **A fault is not a fixture.**
+#:
+#: Provenance, 2026-09-22: seven of the eight demos were parsed again on the
+#: fourteen-point grid into a scratch archive for this measurement, and the
+#: eighth (``1-79f71e00-...-1-1``, whose source file no longer exists) was
+#: read from the archive, which still carries it densely. The four-point
+#: counts were derived by filtering the dense tables and then checked against
+#: the real archive's own four-point tables -- zero differences over the seven
+#: -- which is both the tie to the archive and the evidence that filtering a
+#: grid down is the same thing as parsing on it. The check is kept as a test
+#: (``test_the_recorded_orientation_counts_are_the_archives_own``).
+#:
+#: **What is checked against what, and what is not checkable at all.** The
+#: provenance above says where the numbers came from; this says what a run can
+#: still prove, because the two are not the same thing and a provenance note
+#: read as a guarantee is exactly the confusion this round found elsewhere.
+#:
+#: * the **four-point** column of the seven four-point demos, and the
+#:   **fourteen-point** column of ``1-79f71e00-...-1-1``: checked against the
+#:   real archive, row for row, every ``-m archive`` run;
+#: * the **fourteen-point** column of those seven demos: **not checkable from
+#:   this repository and not checkable from the real archive either.** The
+#:   scratch archive it was parsed into is gone and is not worth keeping; the
+#:   real archive holds those demos on four points and must, because that is
+#:   the grid the tool ships with. Re-deriving it means re-parsing seven demos
+#:   on a grid the settings do not declare;
+#: * therefore that column is held to **internal** consistency instead, and
+#:   that is a weaker claim stated as one: each demo's recorded sums must
+#:   equal its own per-area rows, and the four points being four of the
+#:   fourteen means no fourteen-point count may be smaller than its four-point
+#:   partner (``test_every_recorded_observation_is_load_bearing``). Those two
+#:   make every entry load-bearing -- a single number changed by one goes red
+#:   -- but they cannot tell a consistent wrong table from a right one.
+#:
+#: The consequence is worth stating rather than leaving to be inferred: if the
+#: dense column is wrong, it is wrong in a way no test here will find, and the
+#: residual constants below inherit that. They are the best measurement the
+#: archive allows, not a proof.
+ORIENTATION_BY_GRID = json.loads(
+    (Path(__file__).parent / "data" / "orientation_by_grid.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+#: The oriented areas the fourteen-point grid does **not** reproduce, measured
+#: 2026-09-22 with the shipped thresholds: ``(demo, area)``.
+#:
+#: **This is the residual the story did not remove, recorded rather than
+#: smoothed away.** Normalising the observation gate by the grid's size makes
+#: the four-point behaviour exact by arithmetic, but it does not make the
+#: orientation density-invariant, and the reason is measured: an area's
+#: observations grow with the grid only in proportion to how long it is
+#: occupied. ``Water`` and ``TSpawn`` are occupied at the start of a round and
+#: nowhere else, so their rows grow 1.08x-2.38x while the gate's divisor grows
+#: 3.5x, and they fall out.
+#:
+#: The last three are not the gate's doing at all but ``advance_t_share``'s,
+#: which the story's spec put out of scope as "already density-independent".
+#: It is a share, but it is measurably not invariant: a denser grid weights a
+#: round's later seconds differently, and ``TSideUpper`` goes 0.800 -> 0.704
+#: and 0.818 -> 0.645 while ``Tunnels`` goes 0.917 -> 0.778 -- across the 0.80
+#: bound in all three.
+ORIENTATION_LOST_AT_FOURTEEN = (
+    # The observation gate: occupied early only, so the rows do not multiply.
+    ('1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 'TSpawn'),
+    ('ANCIENT_vs_RCAVE_VETERANS', 'Water'),
+    ('Ancient_vs_kaljukostaja', 'TSpawn'),
+    ('Ancient_vs_kaljukostaja', 'Water'),
+    ('Anubis_vs_ryhmarama', 'TSpawn'),
+    ('Nuke_vs_imuaijat', 'TSpawn'),
+    ('inferno_vs_ryhmarama', 'TSpawn'),
+    # advance_t_share crosses its own bound; not the gate's doing.
+    ('1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 'Tunnels'),
+    ('ANCIENT_vs_RCAVE_VETERANS', 'TSideUpper'),
+    ('Ancient_vs_kaljukostaja', 'TSideUpper'),
+)
+
+#: The areas the denser grid orients that the four-point grid does not.
+#:
+#: ``Squeaky`` is the gate's own and is a **genuinely new observation**: 17
+#: rows over four points is 4.25 per point and below the bound, 82 over
+#: fourteen is 5.86 and above it -- the denser grid simply saw the area
+#: better. ``Trophy`` is ``advance_t_share`` again, 0.789 -> 0.815.
+ORIENTATION_GAINED_AT_FOURTEEN = (
+    ('1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 'Trophy'),
+    ('Nuke_vs_imuaijat', 'Squeaky'),
+)
+
+
+def _rule_points(reports, rule: str) -> list[tuple]:
+    """All the reports' hits of one rule by sample point, sorted."""
+    found = []
+    for report in reports:
+        for anomaly in report.anomalies:
+            if anomaly.rule != rule:
+                continue
+            for entry in anomaly.rounds:
+                for point in entry.points:
+                    row = (
+                        anomaly.map_name,
+                        entry.map_demo_id,
+                        entry.round_no,
+                        entry.round_type,
+                        point.sample_t_s,
+                        anomaly.area,
+                        point.players,
+                    )
+                    if rule == "crunch":
+                        row += (tuple(entry.sources),)
+                    found.append(row)
+    return sorted(set(found))
+
+
+def _oriented_on(demo: str, grid: str) -> set[str]:
+    """The demo's T areas on one grid, from the recorded observations.
+
+    The observations are read from :data:`ORIENTATION_BY_GRID` and the verdict
+    is then computed by the **rule's own function** with the **real**
+    thresholds. So what is recorded is the measurement and what is executed is
+    the code under test: a change to the gate's arithmetic, to
+    ``advance_area_min_observations_per_point`` or to ``advance_t_share``
+    moves this and the test says so.
+    """
+    body = ORIENTATION_BY_GRID["demos"][demo]
+    limits = _real_settings().thresholds
+    observations = {
+        area: AreaObservations(t=counts[grid][0], total=counts[grid][1])
+        for area, counts in body["areas"].items()
+        if counts[grid] is not None
+    }
+    return set(
+        t_side_shares(
+            observations,
+            t_share_min=limits.advance_t_share,
+            min_observations_per_point=(
+                limits.advance_area_min_observations_per_point
+            ),
+            sample_points=body["points"][grid],
+        )
+    )
+
+
+def _sources_by_round(ticks: pl.DataFrame) -> dict[tuple[int, str, float], str]:
+    """``(round, player, sample point) -> the crunch's source area``.
+
+    The rows are turned into the rule's records by ``domain.aggregate``'s own
+    :func:`~pappascout.domain.aggregate._presence` and handed to the rule's
+    own ``_source_areas`` with the real look-back, so what is measured here is
+    the shipped selector and not a second implementation of it. The grouping
+    is per round for the same reason the rule is: a look-back does not reach
+    into the round before.
+    """
+    by_round: dict[int, list] = {}
+    for tick in ticks.to_dicts():
+        by_round.setdefault(int(tick["round_no"]), []).append(_presence(tick))
+    lookback = _real_settings().thresholds.crunch_lookback_s
+    found: dict[tuple[int, str, float], str] = {}
+    for round_no, presences in by_round.items():
+        rows = [row for row in presences if _is_ct_time_row(row)]
+        for (player, seconds), area in _source_areas(rows, lookback).items():
+            found[(round_no, player, seconds)] = area
+    return found
+
+
+def _archive_orientation(root: Path, demo: str) -> tuple[str, dict]:
+    """The demo's grid name and its orientation counts, from the archive.
+
+    The grid is read from the table and not assumed: the archive may hold
+    demos on either grid (see :func:`_on_grid`), and the recorded measurement
+    has to be checked against the grid the demo is really on.
+    """
+    ticks = pl.read_parquet(root / "parsed" / demo / "ticks.parquet")
+    points = (
+        ticks.filter(pl.col("sample_kind") == "time")["sample_t_s"]
+        .unique()
+        .to_list()
+    )
+    grids = ORIENTATION_BY_GRID["grids"]
+    grid = next(
+        (name for name, seconds in grids.items() if sorted(points) == seconds),
+        None,
+    )
+    if grid is None:
+        pytest.fail(
+            f"Demo {demo} is parsed on {sorted(points)}, which is neither of "
+            f"the grids the recorded measurement holds ({sorted(grids)}). "
+            "Either the measurement or the archive has moved; neither may be "
+            "guessed at."
+        )
+    counts = {
+        area: (obs.t, obs.total)
+        for area, obs in aggregate_stage._area_orientation(ticks).items()
+        if area is not None
+    }
+    return grid, counts
+
+
+@pytest.mark.archive
+def test_the_ct_advance_finds_exactly_the_rows_it_was_calibrated_on() -> None:
+    """The advance's hit table, row for row, on the shipped grid.
+
+    The absence of this table is the reason Story 4.5's grid change could
+    re-calibrate the rule without one test going red.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    found = _rule_points(_reports(root), "ct_advance")
+    assert found == ADVANCE_TABLE
+    assert len(found) == ADVANCE_HITS
+    assert len({(row[1], row[2]) for row in found}) == ADVANCE_ROUNDS
+
+
+@pytest.mark.archive
+def test_the_crunch_finds_exactly_the_rows_it_was_calibrated_on() -> None:
+    """The crunch's hit table, row for row, on the shipped grid.
+
+    These five are the rounds the rule found when its look-back was "the
+    previous sample point". The unit changed; the calibration did not.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    found = _rule_points(_reports(root), "crunch")
+    assert found == CRUNCH_TABLE
+    assert len(found) == CRUNCH_HITS
+    assert len({(row[1], row[2]) for row in found}) == CRUNCH_ROUNDS
+
+
+@pytest.mark.archive
+def test_the_look_back_is_calibrated_and_not_merely_valid() -> None:
+    """The sweep says where 9.0 sits, and what the four-point grid cannot say.
+
+    9.0 is the **largest** value that still reproduces the four rounds, and
+    the next value the grid allows loses two of them. That is the whole of
+    what this grid can decide: **its lower neighbours cost nothing**, because
+    ``15 - x`` lands on the 6 s point and ``30 - x`` on the 15 s point for
+    every ``x`` in ``(0, 9]``, so the sweep is flat below 9 by arithmetic and
+    not by measurement. 9.0 is picked as the largest of those equals, so that
+    the rule asks no narrower a question than the previous-point rule it
+    replaces -- not because its lower neighbours were shown to be worse.
+
+    **A denser grid does separate them**, which is the evidence that the flat
+    stretch is this grid's blindness and not the threshold's: measured on the
+    archive's one fourteen-point demo (:data:`ORIENTATION_BY_GRID` says which),
+    4.5 s and 6.0 s each find one crunch round there and 9.0 s finds none.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    settings = _real_settings()
+    found = {}
+    for lookback in LOOKBACK_SWEEP:
+        limits = settings.thresholds.model_copy(
+            update={"crunch_lookback_s": lookback}
+        )
+        rows = _rule_points(_reports(root, limits), "crunch")
+        found[lookback] = len({(row[1], row[2]) for row in rows})
+    assert found == LOOKBACK_SWEEP
+    assert settings.thresholds.crunch_lookback_s == max(
+        value
+        for value, rounds in LOOKBACK_SWEEP.items()
+        if rounds == CRUNCH_ROUNDS
+    )
+
+
+@pytest.mark.archive
+def test_the_sweeps_flat_stretch_is_the_grids_blindness_and_not_the_rules() -> None:
+    """The look-back's lower neighbours are equal **on this grid only**.
+
+    Without this the sentence above would be the round's own complaint: a
+    claim about a denser grid, stated where a reader meets it and checked by
+    nothing. Here it is run. The archive's one genuinely fourteen-point demo
+    is read on its own grid (``seconds=None`` leaves every table as parsed;
+    the other seven are four-point and are filtered out by demo id), and
+    there the values that the four-point sweep cannot tell apart give
+    different answers.
+
+    The direction is not the point and must not be read as one -- 4.5 s
+    finding a round that 9.0 s does not is **not** evidence that 4.5 s is the
+    better threshold. The point is only that the flat stretch below 9 is a
+    property of a grid whose points are 9 and 15 seconds apart, so the
+    four-point archive cannot calibrate within it.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    settings = _real_settings()
+    found = {}
+    for lookback in DENSE_DEMO_LOOKBACK_SWEEP:
+        limits = settings.thresholds.model_copy(
+            update={"crunch_lookback_s": lookback}
+        )
+        rows = _rule_points(_reports(root, limits, seconds=None), "crunch")
+        dense = {(row[1], row[2]) for row in rows if row[1] == DENSE_DEMO}
+        found[lookback] = len(dense)
+    assert found == DENSE_DEMO_LOOKBACK_SWEEP
+    assert len(set(found.values())) > 1
+
+
+@pytest.mark.archive
+def test_the_look_backs_answer_still_depends_on_the_grid() -> None:
+    """The crunch's **question** is density-free; its **answer** is not.
+
+    This is the residual :func:`~pappascout.domain.sampling._source_areas`
+    names, run rather than asserted in prose. A duration is the same question
+    on every grid, but the grid decides how nearly it can be honoured: the
+    source is the latest point **at or before** ``t - lookback_s``, and at
+    four points ``30 - 9 = 21`` falls back to the 15 s point while at fourteen
+    it lands on 21 s itself.
+
+    The same demo is read both ways -- as parsed (fourteen points) and
+    filtered to the four-point grid -- and only the look-ups the two grids
+    **share** are compared, since the dense grid has ten more points per round
+    that the sparse one cannot answer at all. The split by sample point is
+    part of the assertion and not decoration: it is what shows the difference
+    is the arithmetic above and not noise. At 15 s the two grids agree
+    exactly, because ``15 - 9 = 6`` is a point of both.
+    """
+    root = require_parsed(DENSE_DEMO)
+    ticks = pl.read_parquet(root / "parsed" / DENSE_DEMO / "ticks.parquet")
+    dense = _sources_by_round(ticks)
+    four = _sources_by_round(
+        ticks.filter(
+            (pl.col("sample_kind") != "time")
+            | pl.col("sample_t_s").is_in(ORIENTATION_BY_GRID["grids"]["four"])
+        )
+    )
+    shared = set(dense) & set(four)
+    differing = {key for key in shared if dense[key] != four[key]}
+    by_point = {
+        seconds: (
+            len({key for key in differing if key[2] == seconds}),
+            len({key for key in shared if key[2] == seconds}),
+        )
+        for seconds in sorted({key[2] for key in shared})
+    }
+    assert by_point == LOOKBACK_RESIDUAL
+    assert (len(differing), len(shared)) == (
+        sum(bad for bad, _ in LOOKBACK_RESIDUAL.values()),
+        sum(total for _, total in LOOKBACK_RESIDUAL.values()),
+    )
+
+
+def test_the_grid_sentinel_cannot_be_a_value_a_caller_passes() -> None:
+    """``_SENTINEL_GRID`` has to be distinguishable from every real argument.
+
+    It was ``()`` until review round 1. CPython interns the empty tuple, so
+    ``_reports(root, seconds=())`` -- "keep no time sample point at all" --
+    was ``is``-identical to the default and silently read the settings file's
+    four points instead. The bug was latent, since no caller passes ``()``
+    today; the guard is here so that the sentinel cannot quietly become a
+    value again.
+    """
+    empty: tuple[float, ...] = ()
+    assert _SENTINEL_GRID is not empty
+    assert _SENTINEL_GRID is not None
+    assert not isinstance(_SENTINEL_GRID, Sequence)
+
+
+def test_the_orientation_at_fourteen_points_is_measured_and_not_assumed() -> None:
+    """The same demos read on two grids: what the per-point gate does not fix.
+
+    The claim pinned here is **not** "the same areas are oriented on both
+    grids" -- measured, that is false, and the two constants above say which
+    areas differ and why. What is pinned is the size and the shape of the
+    residual, so that a change which makes it worse goes red instead of
+    passing as "roughly the same".
+
+    **No archive mark and no archive.** The observations are in the repository
+    (:data:`ORIENTATION_BY_GRID`), so this runs on every machine and on every
+    run, including a fresh clone. The version of this test that read the
+    fourteen-point side from the archive could only run while the archive was
+    in an inconsistent state, and it went red the moment that state was
+    repaired -- which is the right answer to a test resting on a fault.
+    """
+    lost: set[tuple[str, str]] = set()
+    gained: set[tuple[str, str]] = set()
+    for demo in ORIENTATION_BY_GRID["demos"]:
+        at_four = _oriented_on(demo, "four")
+        at_fourteen = _oriented_on(demo, "fourteen")
+        lost |= {(demo, area) for area in at_four - at_fourteen}
+        gained |= {(demo, area) for area in at_fourteen - at_four}
+    assert sorted(lost) == sorted(ORIENTATION_LOST_AT_FOURTEEN)
+    assert sorted(gained) == sorted(ORIENTATION_GAINED_AT_FOURTEEN)
+
+
+def test_the_recorded_measurement_covers_the_calibration_demos() -> None:
+    """The data file holds every calibration demo and both grids for each.
+
+    Without this a demo could quietly drop out of the file and the residual
+    would shrink to whatever was left -- the finding would weaken and nothing
+    would say so.
+
+    The grid is stated **once** and read everywhere else. Before the review
+    its length lived in three places -- ``grids``, each demo's ``points``, and
+    a literal in this module -- with nothing tying them together, so a file
+    whose ``points`` said 14 over a ten-point grid would have passed while
+    every quotient it produced was wrong.
+    """
+    grids = ORIENTATION_BY_GRID["grids"]
+    assert grids["four"] == list(_real_settings().parse.snapshot_seconds)
+    assert set(grids["four"]) < set(grids["fourteen"])
+    assert sorted(ORIENTATION_BY_GRID["demos"]) == sorted(CALIBRATION_DEMOS)
+    for demo, body in ORIENTATION_BY_GRID["demos"].items():
+        assert sorted(body["points"]) == sorted(grids), demo
+        for name, seconds in grids.items():
+            assert body["points"][name] == len(seconds), (demo, name)
+        assert body["areas"], demo
+
+
+def test_every_recorded_observation_is_load_bearing() -> None:
+    """No entry of the data file may sit there unread.
+
+    Measured in review round 1: **185 of 186** unchecked entries tolerated a
+    change of one to ``total`` with the whole suite green, because only the
+    entries near a threshold could move the derived verdict. An unread number
+    in a repository is the same defect as a value copied into an assertion --
+    it looks like evidence and nothing checks it.
+
+    Two guards close it, and between them every entry is read twice:
+
+    * the **per-demo sums**. They are recorded beside the per-area rows and
+      must equal them, so changing any single observation by one reddens this
+      test wherever that observation sits;
+    * the **nesting** of the two grids. The four points are four of the
+      fourteen, so every four-point row is also a fourteen-point row: an area
+      seen at four must be seen at fourteen, neither count may shrink, and the
+      T rows the ten extra points add cannot outnumber the rows they add.
+
+    The sums themselves are the archive's own for the grid each demo is really
+    parsed on (:func:`test_the_recorded_orientation_counts_are_the_archives_own`),
+    so this is not two copies of one number agreeing with each other.
+    """
+    for demo, body in ORIENTATION_BY_GRID["demos"].items():
+        for grid, (t_sum, total_sum) in body["totals"].items():
+            counts = [
+                value[grid] for value in body["areas"].values() if value[grid]
+            ]
+            assert sum(t for t, _ in counts) == t_sum, (demo, grid)
+            assert sum(total for _, total in counts) == total_sum, (demo, grid)
+        for area, value in body["areas"].items():
+            where = (demo, area)
+            # The domain type is the check for 0 <= t <= total and total > 0.
+            # A pair of inequalities written here would be a second copy of a
+            # rule AreaObservations already owns.
+            observed = {
+                grid: AreaObservations(t=counts[0], total=counts[1])
+                for grid, counts in value.items()
+                if counts
+            }
+            assert "fourteen" in observed, where
+            if "four" not in observed:
+                continue
+            four, fourteen = observed["four"], observed["fourteen"]
+            assert four.t <= fourteen.t, where
+            assert four.total <= fourteen.total, where
+            assert fourteen.t - four.t <= fourteen.total - four.total, where
+
+
+@pytest.mark.archive
+def test_the_recorded_orientation_counts_are_the_archives_own() -> None:
+    """The measurement in the repository is the archive's, not a set of numbers.
+
+    Each demo is checked against the grid it is **really** parsed on, so the
+    tie holds whichever way the archive stands: seven of the eight are on the
+    four-point grid and are checked against the file's four-point counts, and
+    ``1-79f71e00-...-1-1`` is permanently on fourteen and is checked against
+    its fourteen-point counts.
+
+    This is what keeps the data file honest. The file's own four-point counts
+    were derived by filtering the dense tables, so a green run here is also
+    the evidence that filtering a grid down to a subset is the same thing as
+    parsing on that subset -- which is what :func:`_on_grid` rests on.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    for demo, body in ORIENTATION_BY_GRID["demos"].items():
+        grid, counts = _archive_orientation(root, demo)
+        recorded = {
+            area: tuple(value[grid])
+            for area, value in body["areas"].items()
+            if value[grid] is not None
+        }
+        assert recorded == counts, demo

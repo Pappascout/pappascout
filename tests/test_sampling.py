@@ -43,6 +43,7 @@ from pappascout.domain.sampling import (
     ct_advance_hits,
     first_contact_tick,
     normalize_weapon,
+    sample_point_count,
     sample_ticks,
     seconds_since_freeze_end,
     site_groups,
@@ -412,8 +413,18 @@ def test_the_exclude_list_is_normalised_too() -> None:
 #: not from the settings file -- the rule is a function, and its parameters
 #: are arguments.
 T_SHARE = 0.80
-MIN_OBSERVATIONS = 20
+#: The grid the hand-built tables are written on: the four sample points of
+#: ``settings.toml``. The orientation's gate is a count PER SAMPLE POINT
+#: (Story 4.6), so the observation counts below only mean what the calibration
+#: measured if the divisor is stated beside them -- 5 x 4 = 20, the raw bound
+#: they were calibrated against.
+SAMPLE_POINTS = 4
+MIN_OBSERVATIONS_PER_POINT = 5
 MAX_SAMPLE_S = 30.0
+#: The crunch's look-back, as in ``settings.toml``. On this grid it reaches
+#: the 6 s point from 15 s and the 15 s point from 30 s -- the two answers the
+#: rule gave when it read "the previous sample point".
+LOOKBACK_S = 9.0
 
 #: An area held by the T side in the demo: Ancient's B long, T share 0.88
 #: (n 24).
@@ -470,7 +481,8 @@ def advance(
         round_type=round_type,
         orientation=areas if areas is not None else orientation(),
         t_share_min=T_SHARE,
-        area_min_observations=MIN_OBSERVATIONS,
+        area_min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+        sample_points=SAMPLE_POINTS,
         max_sample_s=MAX_SAMPLE_S,
         min_players=min_players,
     )
@@ -482,13 +494,16 @@ def crunch(
     areas: dict[str | None, AreaObservations] | None = None,
     min_players: int = 2,
     min_sources: int = 2,
+    lookback_s: float = LOOKBACK_S,
 ):
     return crunch_hits(
         rows,
         orientation=areas if areas is not None else orientation(),
         t_share_min=T_SHARE,
-        area_min_observations=MIN_OBSERVATIONS,
+        area_min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+        sample_points=SAMPLE_POINTS,
         max_sample_s=MAX_SAMPLE_S,
+        lookback_s=lookback_s,
         min_players=min_players,
         min_sources=min_sources,
     )
@@ -503,7 +518,10 @@ def test_an_area_is_t_side_when_it_passes_both_thresholds() -> None:
         "Thin": observed(1.00, 8),
     }
     passed = t_side_shares(
-        areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+        areas,
+        t_share_min=T_SHARE,
+        min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+        sample_points=SAMPLE_POINTS,
     )
     assert set(passed) == {T_AREA}
 
@@ -513,7 +531,10 @@ def test_an_unnamed_area_is_neither_sides_area() -> None:
     areas = {None: observed(1.00, 100)}
     assert (
         t_side_shares(
-            areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+            areas,
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=SAMPLE_POINTS,
         )
         == {}
     )
@@ -522,12 +543,249 @@ def test_an_unnamed_area_is_neither_sides_area() -> None:
 @pytest.mark.parametrize("share", [-0.1, 1.1])
 def test_an_impossible_t_share_threshold_is_refused(share: float) -> None:
     with pytest.raises(ValueError, match="is not in the range 0..1"):
-        t_side_shares(orientation(), t_share_min=share, min_observations=20)
+        t_side_shares(
+            orientation(),
+            t_share_min=share,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=SAMPLE_POINTS,
+        )
 
 
 def test_a_non_positive_observation_threshold_is_refused() -> None:
     with pytest.raises(ValueError, match="is not positive"):
-        t_side_shares(orientation(), t_share_min=T_SHARE, min_observations=0)
+        t_side_shares(
+            orientation(),
+            t_share_min=T_SHARE,
+            min_observations_per_point=0,
+            sample_points=SAMPLE_POINTS,
+        )
+
+
+# --- The grid must not move these two rules (Story 4.6) -------------------------
+
+
+def test_the_observation_gate_is_a_count_per_sample_point() -> None:
+    """The same area, the same rows, two grids -- two different answers.
+
+    ``20 / 4 = 5``: the shipped bound admits an area with 20 observations on
+    the four-point grid, which is exactly what the raw bound of 20 did. On a
+    fourteen-point grid the same 20 rows are **thin** -- one and a half per
+    point -- and no orientation is guessed from them. Before Story 4.6 the
+    bound was a raw count, so the denser grid admitted them unchanged.
+    """
+    areas = {T_AREA: observed(0.90, 20)}
+    assert set(
+        t_side_shares(
+            areas,
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=4,
+        )
+    ) == {T_AREA}
+    assert (
+        t_side_shares(
+            areas,
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=14,
+        )
+        == {}
+    )
+    # The same real occupancy seen at fourteen points is 3.5x the rows, and
+    # there the area is oriented again: the quotient is what the bound reads.
+    assert set(
+        t_side_shares(
+            {T_AREA: observed(0.90, 70)},
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=14,
+        )
+    ) == {T_AREA}
+
+
+def test_density_alone_cannot_move_an_area_seen_on_one_round() -> None:
+    """The quotient of a one-round area is the same at four points and at
+    fourteen.
+
+    **The name and the claim are weaker than they were, and deliberately so.**
+    The spec's matrix row says *"one round, many points -- still below the
+    gate"*, and that is false: an area every one of the five players stands on
+    for the whole round gives ``5 x points`` observations, which is exactly
+    the bound, so one round is enough to orient it -- at four points and at
+    fourteen alike. The old test asserted only the refusing half with three
+    observations per point and its name promised the general claim; that is
+    the shape of guard this review round exists to remove.
+
+    What is true, and what both halves below pin, is the invariant the story
+    is actually about: a one-round area's observations scale with the grid, so
+    the **verdict does not move with the grid** -- densifying cannot promote a
+    thin area and cannot demote a full one.
+    """
+    for points in (4, 14):
+        # Three per point: below the bound, and it stays below.
+        assert (
+            t_side_shares(
+                {T_AREA: observed(1.00, 3 * points)},
+                t_share_min=T_SHARE,
+                min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+                sample_points=points,
+            )
+            == {}
+        )
+        # Five players all round: exactly the bound, so one round orients the
+        # area -- on both grids, which is the half the old test left out.
+        assert set(
+            t_side_shares(
+                {T_AREA: observed(1.00, MIN_OBSERVATIONS_PER_POINT * points)},
+                t_share_min=T_SHARE,
+                min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+                sample_points=points,
+            )
+        ) == {T_AREA}
+
+
+def test_a_demo_without_time_sample_points_orients_nothing() -> None:
+    """Zero points is an answer and not a raise.
+
+    No time sample point means nobody was seen anywhere, so no area has an
+    orientation -- and the demo lands in the coverage's
+    ``demos_without_orientation`` instead of disappearing behind an error.
+    """
+    assert (
+        t_side_shares(
+            orientation(),
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=0,
+        )
+        == {}
+    )
+
+
+def test_a_negative_sample_point_count_is_refused() -> None:
+    """A count of points cannot be negative: the caller counted something else."""
+    with pytest.raises(ValueError, match="not a grid at all"):
+        t_side_shares(
+            orientation(),
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=-1,
+        )
+
+
+def test_the_sample_point_count_comes_from_the_rows_and_counts_every_row() -> None:
+    """The grid is a property of the parse, not of who survived the round.
+
+    Dead players and T rows count, because they were sampled at the same
+    points; first contact does not, because its moment is measured per round
+    and is no point of a grid.
+    """
+    rows = (
+        at(6.0, "Arch", "ct1")
+        + at(6.0, "Arch", "t1", side="T")
+        + at(15.0, T_AREA, "ct1", alive=False)
+        + at(21.0, T_AREA, "ct1", kind=FIRST_CONTACT_SAMPLE)
+    )
+    assert sample_point_count(rows) == 2
+    assert sample_point_count([]) == 0
+
+
+def test_a_demo_whose_rounds_all_end_early_has_a_smaller_divisor() -> None:
+    """The count is the points the rows reached, not the grid that was set.
+
+    The name of the function says "the demo's grid", and this is where that
+    stops being exactly true: a point that would fall after the round ended is
+    never written, so a match settled inside 30 s every round has three points
+    and not four -- and its observation gate is a quarter looser than the
+    calibrated one, with nobody choosing that. It is recorded here rather than
+    hidden, because the alternative (reading ``[parse].snapshot_seconds``)
+    would be wrong on every demo instead of on the short ones and would be
+    wrong silently.
+    """
+    full = [
+        row
+        for seconds in (6.0, 15.0, 30.0, 45.0)
+        for row in at(seconds, T_AREA, "ct1")
+    ]
+    short = [
+        row for seconds in (6.0, 15.0, 30.0) for row in at(seconds, T_AREA, "ct1")
+    ]
+    assert sample_point_count(full) == 4
+    assert sample_point_count(short) == 3
+    # The same area, the same 15 observations: a bound of 5 per point admits
+    # it on the short demo and refuses it on the full one.
+    observations = {T_AREA: observed(1.00, 15)}
+    assert set(
+        t_side_shares(
+            observations,
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=sample_point_count(short),
+        )
+    ) == {T_AREA}
+    assert (
+        t_side_shares(
+            observations,
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=sample_point_count(full),
+        )
+        == {}
+    )
+
+
+def test_the_crunchs_look_back_is_a_duration_and_not_the_previous_point() -> None:
+    """The same arrival, two grids, one answer.
+
+    A player who walks from ``SideEntrance`` on to the T area between 6 s and
+    15 s is an arrival at 15 s on both grids. Read as "the previous sample
+    point", the dense grid asks only about the last three seconds and does not
+    see it -- which is how the archive's crunch fell from 5 hits on 4 rounds
+    to 2 on 2 when nothing but the grid changed.
+    """
+    sparse = (
+        at(6.0, "SideEntrance", "ct1")
+        + at(6.0, "TSideUpper", "ct2")
+        + at(15.0, T_AREA, "ct1", "ct2")
+    )
+    dense = sparse + at(9.0, T_AREA, "ct1", "ct2") + at(12.0, T_AREA, "ct1", "ct2")
+    assert [hit.sources for hit in crunch(sparse)] == [
+        ("SideEntrance", "TSideUpper")
+    ]
+    at_fifteen = [hit for hit in crunch(dense) if hit.sample_t_s == 15.0]
+    assert [hit.sources for hit in at_fifteen] == [("SideEntrance", "TSideUpper")]
+
+
+def test_the_look_back_falls_back_to_the_latest_point_before_it() -> None:
+    """Matrix row: the grid has no sample point at ``t - lookback``.
+
+    The choice is documented and deterministic -- the latest point **at or
+    before** the look-back's moment, never a newer one. ``30 - 9 = 21`` is not
+    a point here, so the answer is 15 s and not 24 s: a newer point would make
+    the reach shorter than the setting says it is.
+    """
+    rows = (
+        at(15.0, "SideEntrance", "ct1")
+        + at(15.0, "TSideUpper", "ct2")
+        + at(24.0, T_AREA, "ct1", "ct2")
+        + at(30.0, T_AREA, "ct1", "ct2")
+    )
+    hits = [hit for hit in crunch(rows) if hit.sample_t_s == 30.0]
+    assert [hit.sources for hit in hits] == [("SideEntrance", "TSideUpper")]
+
+
+def test_a_look_back_longer_than_the_round_finds_no_source() -> None:
+    """Matrix row: the look-back reaches past the round's own start.
+
+    No source and therefore no hit -- the rule does not reach into freezetime
+    or into the round before to find a direction.
+    """
+    rows = (
+        at(6.0, "SideEntrance", "ct1")
+        + at(6.0, "TSideUpper", "ct2")
+        + at(15.0, T_AREA, "ct1", "ct2")
+    )
+    assert crunch(rows, lookback_s=20.0) == []
 
 
 @pytest.mark.parametrize(
@@ -684,12 +942,18 @@ def test_a_player_already_on_the_area_did_not_arrive() -> None:
 
 
 def test_the_first_sample_point_of_a_round_has_no_source() -> None:
-    """Without a previous sample point no direction is guessed."""
+    """The look-back reaches past the round's start, so no direction is guessed.
+
+    Matrix row: a hit at the first sample point. ``6 - 9`` is before the round
+    began, and the rule does not reach into freezetime or into the round
+    before -- it answers "from nowhere", exactly as it did when there was no
+    previous point.
+    """
     rows = at(6.0, T_AREA, "ct1", "ct2")
     assert crunch(rows) == []
 
 
-def test_an_unknown_previous_area_is_not_a_direction() -> None:
+def test_an_unknown_source_area_is_not_a_direction() -> None:
     """``None`` is not a direction, so it does not do as a source area."""
     rows = (
         at(15.0, None, "ct1")
@@ -766,21 +1030,17 @@ def test_a_late_crunch_is_outside_the_rule() -> None:
     assert crunch(rows) == []
 
 
-def test_a_source_after_the_time_bound_still_counts_as_a_source() -> None:
-    """The source area comes from the previous point, not the time bound.
-
-    Without this a 30 s crunch would lose its source area if the previous
-    sample point were outside the time bound -- and the arrival would go
-    unseen.
-    """
-    rows = (
-        at(6.0, "SideEntrance", "ct1")
-        + at(6.0, "TSideUpper", "ct2")
-        + at(30.0, T_AREA, "ct1", "ct2")
-        + at(45.0, T_AREA, "ct1", "ct2")
-    )
-    hits = crunch(rows)
-    assert [hit.sample_t_s for hit in hits] == [30.0]
+# ``test_a_source_after_the_time_bound_still_counts_as_a_source`` stood here
+# from Story 2.5 until review round 1 of Story 4.6 measured it: it could not
+# fail. A source is at or before ``t - lookback_s``, which is earlier than the
+# target ``t``, and ``t`` is itself bounded by ``max_sample_s`` -- so a source
+# can never lie after the bound, with the look-back and with the previous-point
+# rule alike. Measured by mutation: filtering ``presences`` down to
+# ``sample_t_s <= max_sample_s`` before ``_source_areas`` leaves all 147 tests
+# of this module green **and** ``-m archive`` (16) green. The requirement it
+# claimed to guard was contentless, so the requirement and the test are gone
+# together rather than the wording being carried forward; ``crunch_hits``'s
+# ``presences`` argument says the same thing in its docstring.
 
 
 def test_the_source_minimum_is_a_threshold() -> None:
@@ -836,17 +1096,32 @@ def test_an_empty_area_name_is_not_an_area() -> None:
     """``""`` is not an area: it would otherwise make it into the T areas."""
     areas = {"": observed(1.00, 100), T_AREA: observed(0.88, 24)}
     assert set(t_side_shares(
-        areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+        areas,
+        t_share_min=T_SHARE,
+        min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+        sample_points=SAMPLE_POINTS,
     )) == {T_AREA}
     assert advance(at(30.0, "", "ct1"), areas=areas) == []
 
 
-def test_the_same_area_in_two_spellings_is_refused() -> None:
-    """One of two spellings cannot be chosen -- the caller normalises."""
+@pytest.mark.parametrize("points", [SAMPLE_POINTS, 0])
+def test_the_same_area_in_two_spellings_is_refused(points: int) -> None:
+    """One of two spellings cannot be chosen -- the caller normalises.
+
+    **At zero sample points as well**, and that is the parameter's whole
+    reason. The zero case used to return ``{}`` before the loop ran, so the
+    very same contradictory map was refused at four points and accepted in
+    silence at zero: a consistency guard that stopped guarding on one input.
+    A demo without a time sample point is an ordinary answer, not a relaxed
+    contract.
+    """
     areas = {T_AREA: observed(0.88, 24), f" {T_AREA}": observed(0.20, 30)}
     with pytest.raises(ValueError, match="twice in different"):
         t_side_shares(
-            areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+            areas,
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=points,
         )
 
 
@@ -860,7 +1135,10 @@ def test_an_area_exactly_at_the_observation_bound_is_included() -> None:
     areas = {T_AREA: observed(0.90, 20)}
     assert set(
         t_side_shares(
-            areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+            areas,
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=SAMPLE_POINTS,
         )
     ) == {T_AREA}
     assert len(advance(at(30.0, T_AREA, "ct1"), areas=areas)) == 1
@@ -871,7 +1149,10 @@ def test_an_area_one_observation_below_the_bound_is_excluded() -> None:
     areas = {T_AREA: observed(0.90, 19)}
     assert (
         t_side_shares(
-            areas, t_share_min=T_SHARE, min_observations=MIN_OBSERVATIONS
+            areas,
+            t_share_min=T_SHARE,
+            min_observations_per_point=MIN_OBSERVATIONS_PER_POINT,
+            sample_points=SAMPLE_POINTS,
         )
         == {}
     )
