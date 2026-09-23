@@ -75,9 +75,15 @@ It is made by the rule that already exists,
 :func:`~pappascout.domain.teams.assign_lineup_keys`, with the archive's own
 threshold ``[thresholds].team_identity_min_common`` -- the same rule
 ``discover`` uses to fill ``index/teams.json``'s ``lineup_keys``. It is
-applied here to **one demo at a time**, because the index is written before
-this run parses anything and therefore cannot know a lineup that this run
-has just observed for the first time.
+applied here to **one demo at a time**, and since Story 4.7 that is no longer
+because the index cannot know this run's lineups: ``_refresh_index`` brings
+the index up to date between ``parse`` and ``classify``, so it can. The reason
+now is that the index is not *guaranteed* to know them at this point and this
+answer must not depend on whether it does. The refresh runs only when
+something was parsed, it declines to write on a table it could not read, and
+``pappascout classify --team`` does not run it at all -- so reading the answer
+out of the index would make it right on most runs and quietly wrong on the
+rest. Per demo, it is right on all of them.
 
 Layering
 --------
@@ -469,6 +475,7 @@ def run(
         if fetch_stage.in_archive(archive, unit)
     ]
     parsed = _parse_steps(settings, archive, units, parser, steps)
+    subject = _refresh_index(settings, archive, parsed, subject, steps)
     lineups = _classify_steps(settings, archive, parsed, subject, steps)
 
     try:
@@ -832,6 +839,82 @@ def _parse_steps(
     return ready
 
 
+# -- the join between parse and classify -------------------------------------
+
+
+def _refresh_index(
+    settings: Settings,
+    archive: ArchivePaths,
+    parsed: Sequence[str],
+    subject: Team,
+    steps: list[Step],
+) -> Team:
+    """Attach the demos this run parsed to the teams, before they are classified.
+
+    **The first fault of Story 4.7, and it is an ordering fault.** ``discover``
+    runs at the head of the chain and ``parse`` fourth, so on the first run for
+    a team whose demos have never been in the archive, the team index was
+    written before a single one of that team's lineups existed. ``classify``
+    then found no owner for the lineup, and ``is_league`` and ``roster_class``
+    stayed empty for every map -- measured on eight demos on 2026-09-21, whose
+    values ``select`` had computed correctly a minute earlier. The bridge is
+    rebuilt here, between the two stages, which is the only place where both
+    the index and this run's demos exist.
+
+    **No second rule and no second stage.** The work is
+    :func:`~pappascout.stages.discover.refresh_lineup_keys`, which is
+    ``discover``'s own bridge builder with the archive's own
+    ``[thresholds].team_identity_min_common``; this module only says *when*.
+    It is not a :class:`Step` either, for the same reason ``subject_lineups``
+    is not one: a join between two stages is not a stage, and a line in the
+    summary that no stage stands behind would be read as one.
+
+    A **failure** does get a line, and it gets it as ``discover``'s. The work
+    is ``discover``'s, the file is ``discover``'s and the next step says to
+    run ``discover``; filing it under ``classify`` -- which is where its
+    *consequence* is seen -- would make :attr:`Step.stage` mean two different
+    things in one summary, and would send a reader who follows the column to
+    the wrong command. The consequence is said in the reason, where it
+    belongs. The chain carries on either way: the classification can still be
+    made, and its values stay empty with their reason stated, which is what
+    AD-9 asks of a fault that does not stop the work.
+
+    Returns:
+        The subject team as the index now has it -- the same team, with the
+        lineups this run made visible. When there is nothing to refresh, or
+        the refresh failed, the team that came in.
+    """
+    if not parsed:
+        # Nothing was parsed, so no lineup exists that ``discover`` did not
+        # already see at the head of this run. The refresh reads every
+        # ``lineups.parquet`` in the archive, and paying for that to learn
+        # what the index already says is a cost with no question behind it.
+        return subject
+
+    started = time.perf_counter()
+    try:
+        teams = discover_stage.refresh_lineup_keys(archive, settings.thresholds)
+    except UNIT_ERRORS as exc:
+        steps.append(
+            _failed(
+                discover_stage.STAGE,
+                TEAM_UNIT,
+                reason=(
+                    "The team index could not be brought up to date with the "
+                    f"demos this run parsed: {exc}\n"
+                    "The demos are classified all the same, but is_league and "
+                    "roster_class may stay empty for the ones parsed now."
+                ),
+                next_step=_advice(
+                    exc, "Run again: uv run pappascout discover"
+                ),
+                duration_s=time.perf_counter() - started,
+            )
+        )
+        return subject
+    return next((t for t in teams if t.team_key == subject.team_key), subject)
+
+
 # -- classify ----------------------------------------------------------------
 
 
@@ -954,11 +1037,18 @@ def subject_lineups(
     second rule for the same question would let two parts of the run disagree
     about whose demo this is.
 
-    It is applied to one demo rather than read out of the index because the
-    index is written at the head of this run, before anything has been
-    parsed. A demo parsed for the first time in this very run has a lineup
-    the index cannot know yet, and asking the index would fail exactly on the
-    demos the run has just made available.
+    It is applied to one demo rather than read out of the index, and the
+    reason changed in Story 4.7. It used to be that the index **could not**
+    know a lineup parsed in this very run, the index having been written at
+    the head of it; :func:`_refresh_index` now rebuilds the bridge between
+    ``parse`` and ``classify``, so it usually does know. What it is not is
+    *guaranteed* to know, and this answer must not depend on the difference:
+    the refresh runs only when something was parsed, declines to write when a
+    ``lineups.parquet`` would not open, and is not run at all by
+    ``pappascout classify --team``. Asking the index would therefore be right
+    on most runs and quietly wrong on the rest -- and "quietly" is the word
+    that matters, because a wrong answer here is an empty ``is_league``
+    column, not an error.
 
     Returns:
         The keys, in the order the rule assigned them. Empty means the team

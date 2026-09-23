@@ -13,6 +13,19 @@ Both have **one writer, and it is this stage**. The other stages read --
 :func:`read_indexes` is that reader, so that not every later stage unpacks the
 JSON by hand and reads ``schema_version`` in a way of its own.
 
+``index/teams.json`` has **two write paths inside this one writer**, and they
+are not interchangeable (Story 4.7). :func:`run` builds the file from a fresh
+fetch and writes it whole, as a pair with the match index. Beside it,
+:func:`refresh_lineup_keys` writes only the archive-side bridge -- it is
+called by ``pipeline`` between ``parse`` and ``classify``, makes no network
+call, and is bound by three constraints the first path does not have: it
+changes **only** ``lineup_keys`` and ``contested_lineup_keys``, it **keeps**
+``generated_at`` so the pair still joins, and it **declines to write at all**
+when the lineup evidence it read was short. The second path exists because
+this stage runs before ``parse`` in the chain, and the constraints exist
+because it overwrites a good file rather than creating one. A third writer
+elsewhere would have none of them.
+
 Why there is no separate roster lookup
 --------------------------------------
 Measured 2026-09-04 (``mittaus-faceit-aineisto.md`` chapter 1): every match row
@@ -61,7 +74,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, NamedTuple
 
 import polars as pl
 
@@ -94,6 +107,7 @@ __all__ = [
     "PLAYED_STATUSES",
     "run",
     "default_source",
+    "refresh_lineup_keys",
     "read_matches_index",
     "read_teams_index",
     "read_indexes",
@@ -220,8 +234,14 @@ def run(
     built = build_teams(
         observations, min_common=thresholds.team_identity_min_common
     )
+    # ``complete`` is deliberately not read here. This stage **builds** the
+    # bridge rather than writing over one, so a table it could not read costs
+    # this run a lineup it never had; the next run, or the refresh, attaches
+    # it. Declining to write would cost the whole match list instead.
     teams, contested = assign_lineup_keys(
-        built, _archive_lineups(archive), thresholds.team_identity_min_common
+        built,
+        _archive_lineups(archive).lineups,
+        thresholds.team_identity_min_common,
     )
 
     matches_rel = matches_index()
@@ -258,6 +278,113 @@ def run(
         duration_s=time.perf_counter() - started,
         stats=stats,
     )
+
+
+def refresh_lineup_keys(
+    archive: ArchivePaths, thresholds: ThresholdSettings
+) -> tuple[Team, ...]:
+    """Attach the archive's lineups to the teams in the index, again.
+
+    **Why this exists, measured 2026-09-21.** ``scout`` runs :func:`run` first
+    and ``parse`` fourth, so on the first run for a team that has never had a
+    demo in the archive the team index is written before any of that team's
+    lineups exist. ``lineup_keys`` is then ``[]``, ``classify`` finds no owner
+    for the lineup, and ``is_league`` and ``roster_class`` stay empty for every
+    map of the run -- the report said "unknown 8 / 157" of a team whose values
+    had all been computed. Running ``discover`` again afterwards filled them
+    in, which is the shape of the fix; telling the user to do that by hand is
+    not.
+
+    **It is the same rule and it is not a second one.** The bridge is rebuilt
+    with :func:`~pappascout.domain.teams.assign_lineup_keys` over
+    :func:`_archive_lineups`, exactly as :func:`run` builds it, with the same
+    ``[thresholds].team_identity_min_common``. The only difference is where the
+    teams come from: out of the index this time, not out of a fresh fetch. The
+    match list is therefore not touched, no network call is made, and nothing
+    but ``lineup_keys`` and ``contested_lineup_keys`` can change.
+
+    **``generated_at`` is kept.** :func:`read_indexes` refuses to join two
+    indexes whose stamps differ, and rightly: a differing pair means the write
+    was cut off between the files. The pair here is still from the same
+    ``discover`` run -- everything that came from the match list is untouched,
+    and only the archive-side bridge is recomputed -- so changing the stamp
+    would report an interrupted write that did not happen.
+
+    **It writes only on whole evidence.** This function *replaces* a bridge
+    rather than building one, so a lineup missing from the reading is not the
+    same as a lineup the team no longer has -- and only the reader knows which
+    it is looking at. If any ``lineups.parquet`` exists and will not open
+    (:attr:`_ArchiveLineups.complete`), the index is left exactly as it was
+    and the teams are returned as the index has them. Measured: without this,
+    one unreadable table took a team's whole bridge away, ``classify`` wrote
+    both match-fact columns back as null, and the change cascaded into
+    ``aggregate`` and the report -- the very failure this story was opened
+    for. The trigger is not hypothetical: the refresh runs immediately after
+    ``parse`` has replaced those files, which is where this environment's
+    confirmed ``PermissionError [WinError 5]`` strikes.
+
+    **Declining is not silent.** The demo whose table would not open is read
+    again a moment later by
+    :func:`~pappascout.stages.pipeline._lineup_members`, which **raises** on
+    exactly that case, and the chain turns it into that demo's own ``failed``
+    step with the reader's own fault in it. So the fault is reported by the
+    unit it belongs to, and this function's part is only to not act on half an
+    answer.
+
+    Args:
+        archive: The archive's paths.
+        thresholds: The ``[thresholds]`` section; ``team_identity_min_common``
+            is read from it.
+
+    Returns:
+        The teams as the index now has them. **Empty when there is no index**
+        -- nothing to refresh is not an error, and the caller learns the same
+        thing it would learn from an index with no teams in it.
+
+    Raises:
+        ~pappascout.errors.PappascoutError: If the index is there but broken,
+            or if the rewrite fails on a disk error. The caller decides what
+            that means for the run; for ``pipeline`` it is one step's failure
+            and not the end of the chain.
+    """
+    if not archive.teams_index().is_file():
+        return ()
+
+    document = read_teams_index(archive)
+    before = teams_from_index(document)
+    observed = _archive_lineups(archive)
+    if not observed.complete:
+        return before
+
+    teams, contested = assign_lineup_keys(
+        before, observed.lineups, thresholds.team_identity_min_common
+    )
+    if teams == before and list(document.get("contested_lineup_keys") or ()) == list(
+        contested
+    ):
+        # Nothing moved: the file is not rewritten. A write that changes
+        # nothing still costs a sync round trip on this archive, and it would
+        # make every run look as though the index had been edited.
+        return teams
+
+    # **The rows are edited, not rebuilt.** Writing them again with
+    # :func:`_team_row` would be a round trip through the reader, and a field
+    # the reader does not know would disappear from a file this function only
+    # ever meant to touch in one place. Two keys change and nothing else can.
+    assigned = {team.team_key: team for team in teams}
+    rows: list[dict[str, Any]] = []
+    for row in document["teams"]:
+        row = dict(row)
+        team = assigned.get(row.get("team_key"))
+        if team is not None:
+            row["lineup_keys"] = list(team.lineup_keys)
+        rows.append(row)
+
+    refreshed = dict(document)
+    refreshed["contested_lineup_keys"] = list(contested)
+    refreshed["teams"] = rows
+    _write_teams(archive, refreshed)
+    return teams
 
 
 def default_source(settings: Settings, archive: ArchivePaths) -> MatchSource:
@@ -429,41 +556,82 @@ def _is_played(match: Match) -> bool:
 # -- The bridge to the archive -----------------------------------------------
 
 
-def _archive_lineups(archive: ArchivePaths) -> dict[str, set[str]]:
+class _ArchiveLineups(NamedTuple):
+    """The archive's lineups, and whether the evidence behind them is whole.
+
+    **The second field is the whole point of the type.** A table that is not
+    there and a table that will not open used to be one answer here -- both
+    were skipped -- and for :func:`run` they legitimately are one: it builds
+    the bridge from nothing, so a table it could not read means only that this
+    run knows less than the next one will. For :func:`refresh_lineup_keys`
+    they are not one answer at all. It writes **over** a bridge that already
+    exists, and a lineup missing because its table would not open looks, in
+    the result, exactly like a lineup that is genuinely no longer the team's.
+    Acting on the first as though it were the second empties ``is_league`` for
+    every one of that team's demos -- the defect this story exists to abolish,
+    produced by the fix for it.
+    """
+
+    #: ``lineup_key`` -> the set of the players' SteamID64s.
+    lineups: dict[str, set[str]]
+    #: ``False`` when a table exists and could not be read, so the mapping is
+    #: **known to be short** and must not be used to take anything away.
+    complete: bool
+
+
+def _archive_lineups(archive: ArchivePaths) -> _ArchiveLineups:
     """The archive's lineups: ``lineup_key`` -> the set of players' SteamID64s.
 
     The source is ``lineups.parquet``, the same as for ``aggregate``: its set
-    of players is **exactly the one** ``lineup_key`` was computed from. An
-    unreadable or missing table is skipped -- the bridge is extra information,
-    and a missing bridge is no reason to leave the index unwritten.
+    of players is **exactly the one** ``lineup_key`` was computed from. A
+    missing table is skipped -- the bridge is extra information, and a missing
+    bridge is no reason to leave the index unwritten. A table that **exists
+    and will not open** is skipped as well, but it is reported in
+    :attr:`_ArchiveLineups.complete`, because then the answer is short and
+    only the caller knows whether a short answer may be acted on.
     """
     root = archive.parsed_root()
     if not root.is_dir():
-        return {}
+        return _ArchiveLineups({}, True)
     lineups: dict[str, set[str]] = {}
+    complete = True
     for directory in sorted(root.iterdir()):
         if not directory.is_dir():
             continue
-        _read_lineups(archive, directory.name, lineups)
-    return lineups
+        # Not ``and``: every demo is read, and one unreadable table must not
+        # stop the ones after it from being read.
+        complete = _read_lineups(archive, directory.name, lineups) and complete
+    return _ArchiveLineups(lineups, complete)
 
 
 def _read_lineups(
     archive: ArchivePaths, map_demo_id: str, into: dict[str, set[str]]
-) -> None:
+) -> bool:
+    """Read one demo's lineups into ``into``.
+
+    Returns:
+        Whether what this demo had to say was heard in full. A demo with no
+        lineup table, and a directory whose name is not an id at all, are both
+        ``True``: there was nothing there and nothing was lost. A table that
+        is there and will not open is ``False`` -- the same distinction
+        :func:`~pappascout.stages.pipeline._lineup_members` makes, made here
+        for the same reason and reported instead of raised, because this
+        reader serves a stage that must still write its index.
+    """
     try:
         path = archive.resolve(parsed_table(map_demo_id, "lineups"))
     except PappascoutError:
         # A directory whose name is not valid as an id is not a parsed demo.
-        return
+        return True
     if not path.is_file():
-        return
+        return True
     try:
         frame = pl.read_parquet(path, columns=["lineup_key", "player_id"])
     except (OSError, pl.exceptions.PolarsError):
-        return
+        return False
     for row in frame.unique().iter_rows(named=True):
         into.setdefault(str(row["lineup_key"]), set()).add(str(row["player_id"]))
+    return True
 
 
 # -- The name lookup ---------------------------------------------------------
@@ -730,6 +898,42 @@ def _write_pair(
             "off between the two swaps, the indexes can still be left of "
             "different ages -- the reader notices that from the generated_at "
             "comparison and does not join them silently.",
+            advice=(
+                "Free some disk space or wait until the sync client releases "
+                "the file lock, then run the command again."
+            ),
+        ) from exc
+
+
+def _write_teams(archive: ArchivePaths, document: dict[str, Any]) -> None:
+    """Write the team index alone, for :func:`refresh_lineup_keys`.
+
+    **Alone and not as a pair**, and that is the whole reason it is a second
+    writer: the refresh changes nothing that came from the match list, so
+    rewriting ``index/matches.json`` beside it would claim a new match list
+    that was never fetched. The pair's own invariant is kept by the caller
+    instead -- it leaves ``generated_at`` as it was, so the two files still
+    say they are from the same run, because they are.
+
+    Raises:
+        ~pappascout.errors.PappascoutError: If the write does not succeed. The
+            same families and the same reasoning as in :func:`_write_pair`: a
+            full disk and a file the sync client holds open are the user's
+            situations and not programming errors.
+    """
+    path = archive.resolve(teams_index())
+    try:
+        with atomic_path(path) as tmp:
+            _dump(tmp, document)
+    except OSError as exc:
+        raise PappascoutError(
+            f"Rewriting the archive's team index ({path.name}) failed with a "
+            f"disk error ({type(exc).__name__}: {exc}).\n"
+            f"The target was {path.parent}.\n"
+            "The most common causes: the disk filled up during the write, the "
+            "sync client held the file locked, or the network drive dropped.\n"
+            "No incomplete file was left on the disk, and the old index is "
+            "still in place.",
             advice=(
                 "Free some disk space or wait until the sync client releases "
                 "the file lock, then run the command again."

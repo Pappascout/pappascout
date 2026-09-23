@@ -57,6 +57,7 @@ from pappascout.domain.schemas import (
 )
 from pappascout.errors import PappascoutError, SchemaError
 from test_calibration import TRUTH_TABLE
+from pappascout.stages import aggregate as aggregate_stage
 from pappascout.stages import classify as classify_stage
 from pappascout.stages import discover as discover_stage
 from pappascout.stages import parse as parse_stage
@@ -480,9 +481,12 @@ TEAM_KEY = "0047af32-5ff8-449e-b665-8fd390e6a44d"
 OTHER_TEAM_KEY = "f257054b-46d5-41bb-8e01-543777cd7092"
 
 
-#: The fixtures' timestamp, **in the past**: the selection file is then older
-#: than the manifest the run produces, and the staleness warning does not fire.
-#: The warning has a test of its own with a timestamp of its own.
+#: The fixtures' timestamp. It was in the past because the staleness warning
+#: of Stories 3.x fired on a selection file newer than the classification;
+#: since Story 4.7 the file's stamp is not read at all -- the input is
+#: identified by the two values this stage reads, and
+#: ``test_a_change_the_demo_does_not_read_does_not_rerun_the_stage`` is what
+#: holds that. The value stays as it was so the fixtures stay comparable.
 PAST = "2026-09-01T12:00:00+00:00"
 
 #: The format versions of the indexes and of the selection file **as
@@ -977,14 +981,40 @@ def test_a_broken_selection_file_advises_running_select(settings, parsed) -> Non
     assert not parsed.classified(A, MAP_DEMO_ID).exists()
 
 
-def test_the_selection_file_is_not_a_manifest_input(settings, parsed) -> None:
-    """A skipped run carries the old value, and that is deliberate.
+# --- The match facts as a declared input (Story 4.7) ----------------------------
+#
+# Until 2026-09-23 the two index files were read but not declared, and the
+# whole chain believed a result was current that was not. The tests below are
+# the two halves of the fix and they have to fail separately: the connection
+# exists (a change re-runs the stage and cascades) **and** it is narrow (a
+# change to something this demo does not read does not).
 
-    The test pins where the connection stops: the selection file appearing does
-    **not** invalidate a finished result, and ``--force`` is how the value is
-    updated. Without this claim somebody would add the file to the manifest's
-    ``inputs`` without noticing that it would force the whole archive to be
-    classified again.
+
+def run_aggregate(settings, archive, team=A):
+    """The real aggregation over the real classification, for the cascade.
+
+    Built from the same archive the classification wrote, not from a
+    hand-written manifest: the claim of Story 4.7 is that the cascade works
+    end to end with no ``--force``, and a fixture that wrote the input
+    manifest itself would prove only that the fixture changed.
+    """
+    return aggregate_stage.run(
+        settings.thresholds,
+        settings.league,
+        archive,
+        team,
+        aggregate_settings=settings.aggregate,
+    )
+
+
+def test_the_selection_file_is_a_manifest_input(settings, parsed) -> None:
+    """The defect of 2026-09-21, from the stage's own end.
+
+    The selection file appearing is a change to what this stage reads, so the
+    finished result is **not** current and the values are filled in with no
+    ``--force`` anywhere. The test this replaces asserted the opposite and was
+    right to: until the input was declared, the skip really did carry the old
+    value.
     """
     run_classify(settings, parsed)
     assert facts_of(parsed) == ([None], [None])
@@ -992,24 +1022,372 @@ def test_the_selection_file_is_not_a_manifest_input(settings, parsed) -> None:
     write_teams_index(parsed, {TEAM_KEY: [A]})
     write_selection(parsed, [selection_row()])
 
-    skipped = run_classify(settings, parsed)
-    assert skipped.skipped, "the manifest matches: the selection file is not an input"
-    assert facts_of(parsed) == ([None], [None])
+    again = run_classify(settings, parsed)
+    assert not again.skipped, "the selection file is an input of this stage"
+    assert facts_of(parsed) == ([True], ["5/5"])
+
+    assert run_classify(settings, parsed).skipped, "and nothing changed after that"
+
+
+def test_the_input_is_named_in_the_manifest_beside_the_parse_result(
+    settings, parsed
+) -> None:
+    """Two inputs, and the second one says what it identifies.
+
+    **The id is pinned as a literal**, not as
+    ``classify_stage.match_facts_input_id()``. Comparing the manifest against
+    the function that wrote it passes for any id at all, including one inside
+    the ``parsed/`` namespace -- and that one would matter: ``run``'s fallback
+    for an unreadable file picks last time's value out of ``existing.inputs``
+    by this id, so an id that collided with the parse input's would take the
+    wrong value and skip on it.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+    run_classify(settings, parsed)
+
+    manifest = Manifest.read(parsed.classified_manifest(A, MAP_DEMO_ID))
+    ids = sorted(i.result_id for i in manifest.inputs)
+    assert ids == ["match-facts", f"parsed/{MAP_DEMO_ID}"]
+    assert classify_stage.match_facts_input_id() == "match-facts"
+    assert not classify_stage.match_facts_input_id().startswith("parsed/"), (
+        "an id in the parse namespace would be picked up by run's fallback"
+    )
+    declared = next(
+        i
+        for i in manifest.inputs
+        if i.result_id == classify_stage.match_facts_input_id()
+    )
+    assert declared.sha256 == (
+        classify_stage.match_facts_input(parsed, A, MAP_DEMO_ID).sha256
+    ), "the manifest records the same identity the stage computes"
+
+
+def test_a_changed_selection_value_reruns_classify_and_aggregate(
+    settings, parsed
+) -> None:
+    """The story's first acceptance criterion, measured end to end.
+
+    ``select`` re-run with a different answer -> ``classify`` re-runs ->
+    its fingerprint changes -> ``aggregate`` re-runs. **With no ``--force``
+    anywhere**, which is the whole point: on 2026-09-21 every value was
+    correct at every step and the only thing missing was the declaration that
+    would have made the chain notice.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(is_league=True)])
+    run_classify(settings, parsed)
+    run_aggregate(settings, parsed)
+    assert run_aggregate(settings, parsed).skipped, "precondition: nothing to do"
+
+    write_selection(parsed, [selection_row(is_league=False)])
+
+    classified = run_classify(settings, parsed)
+    assert not classified.skipped
+    assert facts_of(parsed) == ([False], ["5/5"])
+    assert not run_aggregate(settings, parsed).skipped, (
+        "the classification's fingerprint changed, so the report is not current"
+    )
+
+
+def test_a_bare_force_does_not_cascade_into_the_aggregation(
+    settings, parsed
+) -> None:
+    """The property ``Manifest.fingerprint``'s docstring protects, still held.
+
+    A re-run that produces the same result must not force the next stage to
+    run again -- otherwise ``--force`` on one demo would re-render the whole
+    report. Declaring a new input must not buy the cascade above at the price
+    of this.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+    run_classify(settings, parsed)
+    run_aggregate(settings, parsed)
 
     forced = run_classify(settings, parsed, force=True)
-    assert not forced.skipped
-    assert facts_of(parsed) == ([True], ["5/5"])
+    assert not forced.skipped, "precondition: the flag really did re-run it"
+    assert run_aggregate(settings, parsed).skipped, (
+        "the same result has the same fingerprint, so the aggregation stands"
+    )
+
+
+def test_a_change_the_demo_does_not_read_does_not_rerun_the_stage(
+    settings, parsed
+) -> None:
+    """**The narrow identity, and it is the claim most easily lost.**
+
+    A digest of either index file as a whole would satisfy every other test in
+    this block and would re-classify the whole archive after every
+    ``discover``: both files carry a wall-clock ``generated_at`` that is
+    rewritten on every run. Five changes that this demo does not read, and not
+    one of them may re-run it.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+    run_classify(settings, parsed)
+
+    # 1. The stamp alone: what every select run changes.
+    write_selection(
+        parsed, [selection_row()], generated_at="2099-01-01T00:00:00+00:00"
+    )
+    assert run_classify(settings, parsed).skipped, "a new timestamp is not a change"
+
+    # 2. Another demo's row in the same file.
+    write_selection(
+        parsed,
+        [selection_row(), selection_row(map_demo_id="1-toinen-demo-1-1")],
+        generated_at="2099-01-01T00:00:00+00:00",
+    )
+    assert run_classify(settings, parsed).skipped, "another demo is not this one"
+
+    # 3. A field of this demo's own row that this stage does not read.
+    write_selection(
+        parsed,
+        [
+            selection_row(roster_ok=False),
+            selection_row(map_demo_id="1-toinen-demo-1-1"),
+        ],
+        generated_at="2099-01-01T00:00:00+00:00",
+    )
+    assert run_classify(settings, parsed).skipped, (
+        "roster_ok is the sample's business and this stage never reads it"
+    )
+
+    # 4. Another team in the index, owning a lineup that is not this one.
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [B]})
+    assert run_classify(settings, parsed).skipped, "another team's lineup is not ours"
+
+    # 5. **A second owner of this very lineup, with nothing to say about it.**
+    # The owners steer the reason and never the table: this team has no
+    # selection file, so the consensus is unchanged and a re-run would write
+    # the same bytes. Digesting the owners invalidated exactly this, and it
+    # is the reason they are not in the digest.
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
+    assert run_classify(settings, parsed).skipped, (
+        "an owner with no selection file cannot change the table"
+    )
+
+    # And the value itself still re-runs it, so the test above is not passing
+    # because the comparison was switched off.
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(roster_class="4/5")])
+    assert not run_classify(settings, parsed).skipped
+    assert facts_of(parsed) == ([True], ["4/5"])
+
+
+def test_the_second_owners_value_is_in_the_identity_too(
+    settings, parsed
+) -> None:
+    """**Every hit, not the first one.**
+
+    The edge-case matrix's own row: one lineup, two owners. ``_facts_of`` puts
+    every hit through ``_consensus``, so the second owner's ``is_league`` can
+    turn an agreed ``True`` into an empty value -- and a digest built from the
+    first hit alone would leave the old table standing and call it current.
+    That is data going wrong, not a message going wrong, and the whole
+    docstring of :func:`read_match_facts` is about this case.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row(is_league=True)], team_key=TEAM_KEY)
+    write_selection(
+        parsed, [selection_row(is_league=True)], team_key=OTHER_TEAM_KEY
+    )
+    run_classify(settings, parsed)
+    assert facts_of(parsed) == ([True], ["5/5"]), "precondition: they agree"
+
+    # Only the SECOND owner's file changes.
+    write_selection(
+        parsed, [selection_row(is_league=False)], team_key=OTHER_TEAM_KEY
+    )
+
+    result = run_classify(settings, parsed)
+
+    assert not result.skipped, "the second owner is part of what this stage reads"
+    assert facts_of(parsed) == ([None], ["5/5"]), (
+        "is_league describes the match, so a disagreement empties it"
+    )
+    assert "is_league" in (result.reason or "")
+
+
+def test_the_order_of_the_hits_does_not_change_the_identity(
+    settings, parsed
+) -> None:
+    """The owners are read in the index's order, and that order is not an input.
+
+    ``discover`` writes the teams in the order it happened to build them in. If
+    that order reached the digest, rebuilding the index would re-classify the
+    archive for no reason -- the same false invalidation the whole narrow
+    identity exists to avoid, arriving by the back door. The sort is what
+    stops it.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A], OTHER_TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()], team_key=TEAM_KEY)
+    write_selection(parsed, [selection_row()], team_key=OTHER_TEAM_KEY)
+    run_classify(settings, parsed)
+    before = classify_stage.match_facts_input(parsed, A, MAP_DEMO_ID).sha256
+
+    # The same two owners, written into the index the other way round.
+    write_teams_index(parsed, {OTHER_TEAM_KEY: [A], TEAM_KEY: [A]})
+
+    assert classify_stage.match_facts_input(parsed, A, MAP_DEMO_ID).sha256 == before
+    assert run_classify(settings, parsed).skipped
+
+
+def test_two_rows_that_cannot_be_ordered_still_get_an_identity(
+    settings, parsed
+) -> None:
+    """``key=str`` is not decoration: without it the sort raises.
+
+    One file may hold two rows for the same demo -- a duplicate is put through
+    the same consensus as a second owner. Two such rows that agree up to the
+    last field, where one says ``5/5`` and the other says nothing, make the
+    plain comparison reach ``None < "5/5"`` and raise ``TypeError`` -- inside
+    the identity, on the skip path, for a file that is perfectly readable.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(
+        parsed, [selection_row(), selection_row(roster_class=None)]
+    )
+
+    declared = classify_stage.match_facts_input(parsed, A, MAP_DEMO_ID)
+    assert declared is not None and declared.sha256
+
+    result = run_classify(settings, parsed)
+    assert result.status == "ok"
+    assert facts_of(parsed) == ([True], [None]), (
+        "the two rows disagree about the class, so it stays empty"
+    )
+    assert run_classify(settings, parsed).skipped
+
+
+def test_an_unreadable_input_masks_only_itself(settings, parsed) -> None:
+    """**The grace is one input wide, and that is the whole of it.**
+
+    When the match facts cannot be read, ``run`` takes last time's value for
+    **that one input** from the finished manifest. Taking the whole recorded
+    list instead would be a one-line simplification and would let a corrupt
+    selection file hold a classification current over a demo that has been
+    parsed again -- a result standing on a rounds table it was not computed
+    from. Nothing else in the suite notices the difference.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+    run_classify(settings, parsed)
+    parsed.selection(TEAM_KEY).write_text("not json", encoding="utf-8")
+    assert run_classify(settings, parsed).skipped, "precondition: the grace applies"
+
+    # A new demo behind the same id: the parse input changes, and no grace
+    # covers it.
+    demo = parsed.import_dir() / f"{MAP_DEMO_ID}.dem"
+    demo.write_bytes(b"PBDEMS2\x00" + b"z" * 8192)
+    write_parse(parsed, rounds_frame(match()), settings.parse)
+
+    with pytest.raises(PappascoutError) as err:
+        run_classify(settings, parsed)
+
+    assert "pappascout select" in str(err.value), (
+        "the stage ran, reached the broken file and said so -- it did not skip"
+    )
+
+
+def test_a_selection_file_that_is_not_utf8_is_a_read_fault_not_a_crash(
+    settings, parsed
+) -> None:
+    """Valid bytes, invalid text: a half-written sync, a foreign code page.
+
+    ``read_text(encoding="utf-8")`` raises ``UnicodeDecodeError``, which is a
+    ``ValueError``: neither reader catches it and ``json.JSONDecodeError`` does
+    not cover it. Measured 2026-09-23 -- it came out of the stage raw, and it
+    did so before this story as well, through the staleness note. "It never
+    raises" is now a load-bearing claim about the reading, so it has to be
+    true.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+    run_classify(settings, parsed)
+
+    parsed.selection(TEAM_KEY).write_bytes(b'{"is_league": "\xff\xfe"}')
+
+    assert classify_stage.match_facts_input(parsed, A, MAP_DEMO_ID) is None
+    result = run_classify(settings, parsed)
+    assert result.skipped
+    assert "UTF-8" in (result.reason or "")
+
+    with pytest.raises(PappascoutError) as err:
+        run_classify(settings, parsed, force=True)
+
+    assert "UTF-8" in str(err.value)
+    assert "pappascout discover" in str(err.value)
+
+
+def test_an_invalid_value_stops_the_run_and_does_not_read_as_unreadable(
+    settings, parsed
+) -> None:
+    """A row that changed into something invalid is a change, and it fails.
+
+    The behaviour follows from declaring the input and it is meant: the value
+    really did change and really is invalid, so the stage runs and the schema
+    check stops it. Under ``scout`` that is one demo's ``failed`` step, not a
+    dead chain.
+
+    The claim pinned here is the **message**. A reader who gets
+    ``unchecked_facts_note``'s "could not be read" for this case would go
+    looking for a corrupt file and find a perfectly readable one with a typo
+    in it. The two states are told apart by the reading, so they must be told
+    apart by the words.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+    run_classify(settings, parsed)
+
+    write_selection(parsed, [selection_row(roster_class="6/5")])
+
+    with pytest.raises(SchemaError) as err:
+        run_classify(settings, parsed)
+
+    message = str(err.value)
+    assert "6/5" in message
+    assert "could not be read" not in message, (
+        "the file was read perfectly well; the value in it is not a class"
+    )
+    assert "pappascout select" in message
+
+
+def test_a_missing_selection_file_is_a_declared_input_too(
+    settings, parsed
+) -> None:
+    """Absence is a value, not a missing input.
+
+    The boundary of the story: declaring the input must not turn a
+    hand-imported demo into an error, and it must not leave the stage without
+    an identity to compare either -- otherwise the file **appearing** would
+    look like nothing having happened.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+
+    result = run_classify(settings, parsed)
+    assert result.status == "ok"
+    assert not result.skipped
+    assert facts_of(parsed) == ([None], [None])
+    assert "pappascout select" in (result.reason or ""), "the reason is stated"
+    assert classify_stage.match_facts_input(parsed, A, MAP_DEMO_ID) is not None
+
+    assert run_classify(settings, parsed).skipped
+    write_selection(parsed, [selection_row()])
+    assert not run_classify(settings, parsed).skipped
 
 
 def test_a_broken_selection_file_does_not_break_a_skipped_run(
     settings, parsed
 ) -> None:
-    """The facts are read **after the skip branch**, and this pins the order.
+    """A file that cannot be read is not evidence that it changed.
 
-    If the read is moved to the top of the function "into one place", one
-    corrupted selection file would turn the whole archive's finished
-    classifications into errors -- and not one other test would fail, because
-    they all make a fresh run.
+    One corrupted selection file must not turn the whole archive's finished
+    classifications into errors. Since Story 4.7 the file is read **before**
+    the skip is decided, so the protection can no longer come from the order
+    of the code; it comes from the skip standing on the value the manifest
+    recorded, and from the reason saying that the input went unchecked.
     """
     write_teams_index(parsed, {TEAM_KEY: [A]})
     write_selection(parsed, [selection_row()])
@@ -1017,44 +1395,62 @@ def test_a_broken_selection_file_does_not_break_a_skipped_run(
     assert not first.skipped
 
     parsed.selection(TEAM_KEY).write_text("not json", encoding="utf-8")
+    assert classify_stage.match_facts_input(parsed, A, MAP_DEMO_ID) is None
 
     result = run_classify(settings, parsed)
 
     assert result.skipped, "a finished result is neither re-read nor broken"
     assert result.status == "ok"
     assert facts_of(parsed) == ([True], ["5/5"])
+    assert classify_stage.SKIP_REASON in (result.reason or "")
+    assert "could not be read" in (result.reason or ""), (
+        "the skip says the input went unchecked, rather than saying nothing"
+    )
+    assert "--force" in (result.reason or "")
 
 
-def test_a_newer_selection_file_warns_and_names_the_flag(
+def test_a_broken_selection_file_still_stops_a_run_that_classifies(
     settings, parsed
 ) -> None:
-    """Staleness is observable and not merely documented.
+    """The other half: the error is not swallowed, only deferred.
 
-    The selection file is not a manifest input, so changing it does not
-    invalidate the result -- and so it does not say anything about itself.
-    Without the warning the table would carry an old ``is_league`` and the
-    report would look up to date, and ``--force`` would rest on a human's
-    memory.
+    The reading never raises, so the fault has to be raised by the caller that
+    needs the values. Without this test the deferral could turn into a silent
+    ``MatchFacts()`` and the two columns would go empty with no reason given.
+    """
+    write_teams_index(parsed, {TEAM_KEY: [A]})
+    write_selection(parsed, [selection_row()])
+    run_classify(settings, parsed)
+    parsed.selection(TEAM_KEY).write_text("not json", encoding="utf-8")
+
+    with pytest.raises(PappascoutError) as err:
+        run_classify(settings, parsed, force=True)
+
+    assert "pappascout select" in str(err.value)
+
+
+def test_an_unchanged_selection_file_skips_without_a_word(
+    settings, parsed
+) -> None:
+    """The staleness warning is gone, and this is why it may be gone.
+
+    Before Story 4.7 a skipped run warned whenever the selection file was
+    newer than the classification, because a timestamp was the only evidence
+    there was. Now the input is declared: a file written again with the same
+    two values is not a change, and a warning on its timestamp would fire
+    after every single ``select`` run and say nothing true.
     """
     write_teams_index(parsed, {TEAM_KEY: [A]})
     write_selection(parsed, [selection_row()])
     run_classify(settings, parsed)
 
-    # Newer than the classification's manifest: select has been run again.
     write_selection(
-        parsed,
-        [selection_row(is_league=False)],
-        generated_at="2099-01-01T00:00:00+00:00",
+        parsed, [selection_row()], generated_at="2099-01-01T00:00:00+00:00"
     )
 
     result = run_classify(settings, parsed)
-
     assert result.skipped
-    assert "--force" in (result.reason or "")
-    assert classify_stage.SKIP_REASON in (result.reason or "")
-    # And when the file is older, there is no warning.
-    write_selection(parsed, [selection_row()])
-    assert run_classify(settings, parsed).reason == classify_stage.SKIP_REASON
+    assert result.reason == classify_stage.SKIP_REASON
 
 
 # --- The round list as Markdown --------------------------------------------------

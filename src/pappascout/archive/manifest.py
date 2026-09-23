@@ -8,7 +8,10 @@ because the ``parse`` manifest's ``params_hash`` is computed from the
 ``[parse]`` section alone and does not change.
 
 Input digests are **not recomputed from the files**; they are read from the
-inputs' own meta or manifest files. Hashing one demo is 233 MB of work, and
+inputs' own meta or manifest files, or -- for an input that has neither --
+computed from the values the stage reads out of it (:class:`ManifestInput`
+says why, and which stage owns which case). Hashing one demo is 233 MB of
+work, and
 in the synchronised folder that is both slow and prone to false
 invalidations. The mechanism behind both: the sync client is free to release
 a file's local copy while keeping the file itself, so hashing it drags all
@@ -66,10 +69,63 @@ MANIFEST_SCHEMA_VERSION = "1.0.0"
 
 
 class ManifestInput(BaseModel):
-    """One input to a stage: the previous result's id and its digest.
+    """One input to a stage: the input's id and the value that identifies it.
 
-    ``sha256`` is read from the input's own meta or manifest file, not
-    computed from the file again.
+    ``sha256`` is **never produced by hashing the input file again**, and it
+    is not a list of permitted forms either. It is one rule:
+
+        **The same value means the same input.** A value satisfies the rule
+        when every value the stage reads out of that input is inside it, so
+        that no change the stage could see can leave it unmoved.
+
+    That is the whole requirement, and note what it does **not** say. It does
+    not say the value is a hash of the file, and it does not say the value is
+    exactly what the stage reads. An identity may be **wider** than what the
+    stage reads, and in this archive most of them are: ``parse`` records the
+    demo's sha256 although it reads a fraction of the file, and ``classify``
+    and ``aggregate`` record the previous stage's whole
+    :meth:`Manifest.fingerprint` although they read one of its tables. Wider
+    is the safe direction -- it can only run work that need not have been run
+    -- and it is the default.
+
+    An identity may be **narrower** than the input only where breadth has a
+    **measured** price, and the narrowing then belongs to the stage that
+    declared it, with its measurement written down. There is one, from Story
+    4.7 (2026-09-23): ``classify``'s match facts. ``index/teams.json`` and
+    ``index/selections/<team_key>.json`` both carry a wall-clock
+    ``generated_at`` that ``discover`` rewrites on every run, so the wide
+    value -- a digest of either file -- would change for every demo after
+    every ``discover``, re-running ``classify`` over the whole archive and
+    cascading into ``aggregate`` and the report. That is the behaviour this
+    file exists to prevent, so there the value is computed from the two
+    fields the stage reads into its result; see
+    :func:`~pappascout.stages.classify.match_facts_input`, which owns both
+    the computation and the argument. (Digesting "the file except these
+    fields" was rejected too: it still re-runs every demo whenever any team's
+    data changes, and the exception list must be maintained every time a
+    field is added.)
+
+    Where the value comes from, as **examples of the rule and not as a closed
+    list** -- the repo already holds four shapes and will hold more:
+
+    * a demo -- the sha256 in ``parse``'s meta file, or, when there is no
+      meta, ``size-<bytes>-mtime-<ns>`` from the file itself
+      (``parse._demo_fingerprint``); the fallback is weaker evidence of
+      sameness than a digest and is deliberate, because hashing 233 MB in a
+      synchronised folder is both slow and prone to false invalidations;
+    * another stage's result -- that stage's :meth:`Manifest.fingerprint`;
+    * a file with neither meta nor manifest -- a value the reading stage
+      computes, as above;
+    * **an input whose identity is not available at all** -- ``render``
+      records the aggregate with ``sha256=""`` when its manifest is missing
+      (``render._inputs``). That is the opposite policy to ``classify``'s,
+      which omits the input instead, and both are deliberate: ``render``
+      never skips, so an empty value costs nothing and keeps the row
+      traceable, whereas ``classify`` does skip, and an input recorded as
+      "unknown" would be compared as though it were known.
+
+    A stage that needs a new shape does not extend a list here; it satisfies
+    the rule above and writes down its measurement where it declares it.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

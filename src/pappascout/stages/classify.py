@@ -60,14 +60,38 @@ different values for it in the normal course of things. A field that is
 disagreed on stays empty -- the other one does not -- and neither is settled by
 drawing lots.
 
-**The connection is not in the manifest's input, and staleness is said out
-loud.** The selection file is **not** in this stage's manifest ``inputs``: one
-new ``select`` run would otherwise force the whole archive to be classified
-again. The price is that a finished table can carry an old value, so a skipped
-run **warns** when the selection file was written after this classification
-(:func:`selection_staleness_note`), and advises ``--force``. A documented rule
-alone would rest on a human's memory; the warning makes a silently wrong figure
-visible.
+**What is read is declared, and it is declared narrowly** (Story 4.7,
+2026-09-23). Until then the two index files were read but not named in the
+manifest's ``inputs``, so a re-run of ``select`` changed the values and nothing
+noticed: ``classify`` skipped, its fingerprint stayed the same, ``aggregate``
+skipped after it, and the report said "unknown" of eight demos whose
+``is_league`` had been computed a minute earlier. A stage with an undeclared
+input is the one thing AD-1's whole guarantee rests on not happening.
+
+The declaration is :func:`match_facts_input`, and it does **not** digest either
+file as a whole. Both carry a wall-clock ``generated_at`` that ``discover``
+rewrites on every run, so a whole-file digest would re-classify the archive
+after every ``discover`` -- the behaviour the manifest exists to prevent. The
+input's identity is therefore computed from *what this stage reads into the
+result*: this demo's ``is_league`` and ``roster_class``, one entry for every
+selection row found, from every owner. Not from what it reads into the
+**reason** -- who owns the lineup, whether there is an index at all, which
+owners have no selection file -- because none of that reaches a written byte,
+and digesting it would invalidate results that a re-run would reproduce
+identically. A change elsewhere in either index does not re-run the stage; a
+change to either value, from any owner, does, and it cascades into
+``aggregate`` on its own, with no ``--force`` anywhere.
+
+**The price is paid where it can be seen: the index files are read before the
+skip is decided**, not after it as they were until Story 4.7. They are two
+small JSON documents that the stage already parsed on the path it takes when it
+does not skip, so the cost is a parse of two files per demo and no demo read.
+The one behaviour that had to be kept deliberately is that a **broken**
+selection file does not turn a finished result into an error: an input that
+cannot be read is not evidence that it changed, so the skip stands and the
+reason says out loud that the input could not be checked
+(:func:`unchecked_facts_note`). A run that does not skip reads the values for
+real and fails on the broken file exactly as it always did.
 
 Re-running
 ----------
@@ -82,21 +106,38 @@ a player can make a normal buy on the next round, and the answer depends on the
 loss bonus (``loss_bonus_steps``). Without the section in the hash, changing a
 step would leave the old result in place and it would look up to date.
 
-The input is the ``parse`` stage's result. Its id is written into the
-``ManifestInput.sha256`` field, but **it is not the file's hash**; it is the
-parameter hash computed from the content of the parse manifest (see
-:meth:`~pappascout.archive.manifest.Manifest.fingerprint`). The field is named
-a hash in the manifest model
-because ``parse`` writes the demo's sha256 into it; in this stage the input is
-another stage's result, which has no hash of its own, so its identity is
-computed from the manifest. The comparison works the same way in either case:
-the same value means the same input.
+The stage has **two** inputs. The first is the ``parse`` stage's result: its id
+is written into the ``ManifestInput.sha256`` field, but **it is not the file's
+hash**; it is the parameter hash computed from the content of the parse
+manifest (see :meth:`~pappascout.archive.manifest.Manifest.fingerprint`). The
+field is named a hash in the manifest model
+because ``parse`` writes the demo's sha256 into it; here the input is another
+stage's result, which has no hash of its own, so its identity is computed from
+the manifest. The second is the match facts (:func:`match_facts_input`), whose
+identity is computed the same way for the same reason: the index files have no
+manifest either. The comparison works the same way in all three cases -- the
+same value means the same input -- and that, not "the value is a file hash", is
+what :class:`~pappascout.archive.manifest.ManifestInput` promises.
+
+An old manifest that names only the parse input therefore does not match, and
+the demo is classified once more. That is the migration and it is meant: the
+stage does not read the demo, so re-classifying the archive costs seconds per
+demo, and the alternative would be to leave results standing whose second input
+nobody ever checked.
+
+**With one exception, and it is a consequence of the rule below rather than a
+hole in it** (measured 2026-09-23): if an old manifest meets a selection file
+that cannot be read, the identity cannot be computed, the expectation falls
+back to what the manifest recorded -- which is the parse input alone -- and the
+demo skips, keeping its single-input manifest. It is not migrated until the
+file can be read. That is the same rule as everywhere else here ("an input that
+cannot be read is not evidence that it changed"), and it is not silent: the
+skip's reason says the input went unchecked.
 """
 
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
 
@@ -142,7 +183,9 @@ __all__ = [
     "resolve_team",
     "team_keys",
     "read_match_facts",
-    "selection_staleness_note",
+    "match_facts_input",
+    "match_facts_input_id",
+    "unchecked_facts_note",
     "classify_rounds",
     "round_list_rows",
     "round_list_cells",
@@ -193,7 +236,10 @@ def run(
         ~pappascout.errors.PappascoutError: If the demo has not been parsed,
             ``team`` matches neither lineup, or the team index or the selection
             file is broken. A **missing** selection file is not an error: then
-            ``is_league`` and ``roster_class`` stay empty.
+            ``is_league`` and ``roster_class`` stay empty. A **broken** one
+            stops a run that classifies; it does not stop a run that skips,
+            because an input that cannot be read is not evidence that it
+            changed (:func:`unchecked_facts_note`).
         ~pappascout.errors.SchemaError: If the rounds table or the result does
             not match the contract, or if the selection file's
             ``roster_class`` is not valid for the ``CLASSIFIED`` schema's enum.
@@ -217,6 +263,16 @@ def run(
     list_abs = archive.resolve(list_rel)
     manifest_abs = archive.resolve(manifest_rel)
 
+    # **Read before the skip is decided, and that is the change Story 4.7
+    # made.** Until then the index files were read only after the skip branch,
+    # which is what let a re-run of ``select`` change the values with nothing
+    # noticing. They are the stage's second input, so they have to be in hand
+    # before the manifest can be compared. The reading itself never raises: a
+    # file that cannot be read is turned into ``reading.error`` and the error
+    # is paid where it belongs, on the path that actually uses the values.
+    reading = _read_selection_data(archive, lineup_key, map_demo_id)
+    facts_input = _facts_input(reading, map_demo_id)
+
     inputs = [
         # The input's id is from the content of the parse MANIFEST, not from
         # a hash of the rounds table: the table is a derived output, and its
@@ -227,15 +283,31 @@ def run(
             sha256=parse_manifest.fingerprint(),
         )
     ]
+    if facts_input is not None:
+        inputs.append(facts_input)
     params_hash = _params_hash(thresholds, league, economy)
 
     existing = Manifest.read_if_exists(manifest_abs)
+    # **An input that cannot be read is not evidence that it changed.** When
+    # the identity could not be computed, the value the finished manifest
+    # recorded is taken as the expectation, so a broken selection file leaves
+    # a finished result standing instead of turning the whole archive's
+    # classifications into errors -- and the skip says out loud that the input
+    # went unchecked. Without this the declaration of the input would have
+    # bought the cascade at the price of that regression.
+    expected = inputs
+    if facts_input is None and existing is not None:
+        expected = [
+            *inputs,
+            *(i for i in existing.inputs if i.result_id == match_facts_input_id()),
+        ]
+
     ready = None
     if (
         not force
         and existing is not None
         and existing.is_current(
-            inputs=inputs,
+            inputs=expected,
             params_hash=params_hash,
             tool_versions={},
             root=archive.root,
@@ -250,20 +322,17 @@ def run(
             skipped=True,
             outputs=tuple(PurePosixPath(o) for o in existing.outputs),
             manifest_path=manifest_rel,
-            reason=_skip_reason(archive, lineup_key, existing),
+            reason=_skip_reason(reading),
             duration_s=time.perf_counter() - started,
             stats=_stats(
                 round_list_rows(ready), lineup_key, list_rel, unnumbered
             ),
         )
 
-    # **Read only here, after the skip branch.** A skipped run does not read
-    # the values at all, so one broken selection file does not turn the whole
-    # archive's finished classifications into errors. Moving this to the top of
-    # the function would be exactly that regression;
-    # ``test_a_broken_selection_file_does_not_break_a_skipped_run``
-    # pins the order.
-    facts = read_match_facts(archive, lineup_key, map_demo_id)
+    # The values themselves, from the same reading. This is where a broken
+    # file is raised, and it is why ``facts_input`` is never ``None`` by the
+    # time the manifest below is written.
+    facts = _facts_of(reading, lineup_key, map_demo_id)
 
     df, rows = classify_rounds(
         rounds, lineup_key, thresholds, map_demo_id, economy=economy, facts=facts
@@ -612,7 +681,117 @@ def read_match_facts(
         ~pappascout.errors.SchemaError: If the row's ``is_league`` or
             ``roster_class`` is not valid for the ``CLASSIFIED`` schema.
     """
+    return _facts_of(
+        _read_selection_data(archive, lineup_key, map_demo_id),
+        lineup_key,
+        map_demo_id,
+    )
+
+
+class _SelectionReading(NamedTuple):
+    """What the two index files hold about **this** demo, read once.
+
+    One reading serves both purposes, and that is the point of the type: the
+    manifest input (:func:`match_facts_input`) and the values themselves
+    (:func:`_facts_of`) are two views of the same bytes. Reading twice would
+    let the identity a result was skipped on differ from the values a result
+    was written from -- two copies of the same observation, which is what the
+    ``lineup_keys`` bridge already refuses elsewhere.
+
+    Attributes:
+        index_present: Whether ``index/teams.json`` is in the archive at all.
+        owners: The teams that own this lineup key, in the index's order.
+        hits: ``(team_key, row)`` for every selection row of this demo, from
+            every owner's file. **The rows as they were read**, not the values
+            picked off them: the picking checks them against the schema and
+            may raise, and a reading must not.
+        missing_file: The owners that have no selection file at all.
+        error: The fault that stopped the reading, or ``None``. Carried rather
+            than raised, because whether it is an error depends on what the
+            caller does next -- see :func:`unchecked_facts_note`.
+    """
+
+    index_present: bool
+    owners: tuple[str, ...] = ()
+    hits: tuple[tuple[str, dict[str, Any]], ...] = ()
+    missing_file: tuple[str, ...] = ()
+    error: PappascoutError | None = None
+
+
+def _read_selection_data(
+    archive: ArchivePaths, lineup_key: str, map_demo_id: str
+) -> _SelectionReading:
+    """Read the owners and this demo's selection rows. **It never raises.**
+
+    The reading happens before the skip is decided (Story 4.7), so a fault in
+    it must not be the same thing as a fault in the run: the archive holds
+    hundreds of finished classifications that do not care that one team's
+    selection file was cut off mid-sync. The fault is therefore carried on the
+    result and raised by :func:`_facts_of`, which is the caller that really
+    needs the values.
+
+    **``UnicodeDecodeError`` is caught beside the readers' own error, and it
+    has to be.** Both readers decode with ``read_text(encoding="utf-8")`` and
+    neither catches it: it is a ``ValueError``, not an ``OSError``, and
+    ``json.JSONDecodeError`` does not cover it. A file of valid bytes that is
+    not valid UTF-8 -- a half-synced write, a foreign code page -- therefore
+    came out of them raw. It reached this stage before Story 4.7 as well,
+    through the staleness note on the skip path, so this is not a fault the
+    declaration introduced; but "it never raises" is now a load-bearing claim
+    and a claim has to be true. It is turned into the reader's own kind of
+    error, with the reader's own advice, so that the run that really needs the
+    values fails with a sentence rather than with a traceback.
+    """
     if not archive.teams_index().is_file():
+        return _SelectionReading(index_present=False)
+    try:
+        owners = tuple(_owners(archive, lineup_key))
+        hits: list[tuple[str, dict[str, Any]]] = []
+        missing_file: list[str] = []
+        for team_key in owners:
+            if not archive.selection(team_key).is_file():
+                missing_file.append(team_key)
+                continue
+            for row in _selection_rows(archive, team_key, map_demo_id):
+                hits.append((team_key, row))
+    except PappascoutError as exc:
+        return _SelectionReading(index_present=True, error=exc)
+    except UnicodeDecodeError as exc:
+        return _SelectionReading(
+            index_present=True,
+            error=PappascoutError(
+                "A file of the archive's index is not valid UTF-8 text, so "
+                "the match's kind and roster class could not be read "
+                f"({exc}).\n"
+                "The file has most likely been left half written. Run again: "
+                "uv run pappascout discover, and after it "
+                "uv run pappascout select."
+            ),
+        )
+    return _SelectionReading(
+        index_present=True,
+        owners=owners,
+        hits=tuple(hits),
+        missing_file=tuple(missing_file),
+    )
+
+
+def _facts_of(
+    reading: _SelectionReading, lineup_key: str, map_demo_id: str
+) -> MatchFacts:
+    """The two values from a reading, with the reason when one is absent.
+
+    Raises:
+        ~pappascout.errors.PappascoutError: The fault the reading carried, if
+            any. It is raised **here** and not where it was met: a caller that
+            only needs the input's identity does not need the values, and a
+            broken file must not take a finished result down with it.
+        ~pappascout.errors.SchemaError: If a row's ``is_league`` or
+            ``roster_class`` is not valid for the ``CLASSIFIED`` schema.
+    """
+    if reading.error is not None:
+        raise reading.error
+    if not reading.index_present:
         return MatchFacts(
             note=(
                 "There is no team index, so the match's kind and roster class "
@@ -622,7 +801,7 @@ def read_match_facts(
             )
         )
 
-    owners = _owners(archive, lineup_key)
+    owners = list(reading.owners)
     if not owners:
         return MatchFacts(
             note=(
@@ -633,14 +812,11 @@ def read_match_facts(
             )
         )
 
-    hits: list[tuple[str, MatchFacts]] = []
-    missing_file: list[str] = []
-    for team_key in owners:
-        if not archive.selection(team_key).is_file():
-            missing_file.append(team_key)
-            continue
-        for row in _selection_rows(archive, team_key, map_demo_id):
-            hits.append((team_key, _match_facts(row, team_key, map_demo_id)))
+    hits = [
+        (team_key, _match_facts(row, team_key, map_demo_id))
+        for team_key, row in reading.hits
+    ]
+    missing_file = list(reading.missing_file)
 
     if not hits:
         if len(missing_file) == len(owners):
@@ -684,6 +860,126 @@ def read_match_facts(
         is_league=is_league,
         roster_class=roster_class,
         note=" ".join(notes) if notes else None,
+    )
+
+
+# -- The match facts as a declared input (Story 4.7) ----------------------------
+
+
+def match_facts_input_id() -> str:
+    """The id under which the match facts are declared in the manifest.
+
+    It names **what is read**, not a file: the values come out of two files and
+    out of neither of them whole. ``parse`` sets the precedent with
+    ``demo/<map_demo_id>`` for an input that is not another stage's result.
+
+    **The id is a name; the digest is a value, and they answer different
+    questions.** The name has to be stable enough that
+    :func:`run` can find last time's value by it, and no more specific than
+    that: the manifest it lives in is already the manifest of one lineup key
+    and one demo, so putting either into the name would repeat what the file's
+    own path says, and a lookup by a name that varies is a lookup that can
+    miss. The digest, on the other hand, **does** carry the demo id -- see
+    :func:`_facts_input` -- because a value's job is to say what was read, and
+    there the demo id is part of what was read rather than part of the
+    address. Neither is a copy of the other.
+
+    It is a literal and not a format string, and
+    ``test_the_input_is_named_in_the_manifest_beside_the_parse_result`` pins
+    the literal rather than this function's own return value. An id that
+    drifted into the ``parsed/`` namespace would be found by :func:`run`'s
+    fallback filter as though it were the parse input.
+    """
+    return "match-facts"
+
+
+def match_facts_input(
+    archive: ArchivePaths, lineup_key: str, map_demo_id: str
+) -> ManifestInput | None:
+    """This demo's match facts as a manifest input, or ``None`` if unreadable.
+
+    The identity is **narrow on purpose**, and the reasoning is in
+    :class:`~pappascout.archive.manifest.ManifestInput`: both index files carry
+    a wall-clock ``generated_at`` that ``discover`` rewrites on every run, so a
+    digest of either file as a whole would re-classify the archive after every
+    ``discover`` and cascade into ``aggregate``.
+
+    **The rule is what the stage reads into the result, not what it reads into
+    the reason.** The value is computed from this demo's ``is_league`` and
+    ``roster_class``, one entry per selection row that was found, and from
+    nothing else. Everything else the reading collects -- who owns the lineup,
+    whether the index is there at all, which owners have no selection file --
+    steers only :attr:`MatchFacts.note`, which is a sentence about the run and
+    is written into no file. Digesting it would invalidate finished results
+    that would be recomputed byte for byte: a second team crossing the roster
+    threshold, with no selection file of its own, changes the owners and
+    changes nothing in the table.
+
+    The cost of that rule, stated so it is not discovered later: a skipped
+    run's reason can name a state that has since changed -- an owner that has
+    come or gone without bringing a value with it. That is acceptable because
+    the reason is recomputed on every run that classifies, is persisted
+    nowhere, and is read by nothing downstream; the moment such a change
+    brings a **value** with it, the digest moves and the stage runs.
+
+    What follows, and is the property worth guarding: a change elsewhere in
+    either index -- another demo's row, another team's roster, an owner with
+    nothing to say, the timestamp -- does **not** re-run this stage, and a
+    change to this demo's two values, **from any owner**, does.
+
+    Returns:
+        The input, or ``None`` when the files are there but cannot be read.
+        ``None`` is not "no input": it is "the input could not be identified",
+        and :func:`run` treats it as no evidence of a change rather than as
+        evidence of one.
+    """
+    return _facts_input(
+        _read_selection_data(archive, lineup_key, map_demo_id), map_demo_id
+    )
+
+
+def _facts_input(
+    reading: _SelectionReading, map_demo_id: str
+) -> ManifestInput | None:
+    """:func:`match_facts_input` over a reading that has already been made."""
+    if reading.error is not None:
+        return None
+    return ManifestInput(
+        result_id=match_facts_input_id(),
+        sha256=compute_params_hash(
+            {
+                # The demo's id is in the digest so that the value says which
+                # demo it identifies and not only what was read.
+                "map_demo_id": map_demo_id,
+                # **Every hit, and only the two fields.** Every hit, because
+                # ``_facts_of`` runs them all through ``_consensus``: with two
+                # owners, a change to the second one's ``is_league`` turns the
+                # agreed value into an empty one, so a digest of the first hit
+                # alone would leave a table standing that is now wrong. Only
+                # the two fields, because the rest of a selection row --
+                # ``roster_ok``, the player lists, the match id -- belongs to
+                # other stages, and a field this stage does not read must not
+                # re-run it.
+                #
+                # ``key=str`` makes the order of the hits irrelevant, which is
+                # what ``_consensus`` already does with the same key: the
+                # owners are read in the index's order, and that order is not
+                # something this stage reads. A plain sort would compare
+                # ``None`` with a string and raise.
+                #
+                # Neither the owners nor ``missing_file`` is here, and the
+                # docstring above says why: they reach the note and never the
+                # table. The manifest identifies the result, not the sentence
+                # the run printed about it.
+                "rows": sorted(
+                    [
+                        [team_key, row.get("is_league"), row.get("roster_class")]
+                        for team_key, row in reading.hits
+                    ],
+                    key=str,
+                ),
+            }
+        ),
     )
 
 
@@ -793,73 +1089,50 @@ def _match_facts(
     return MatchFacts(is_league=is_league, roster_class=roster_class)
 
 
-#: The reason for the skip, without the staleness warning.
+#: The reason for the skip, without the note about an unchecked input.
 SKIP_REASON = (
     "The result is up to date: the manifest matches and the rounds do not "
     "need to be classified again."
 )
 
 
-def _skip_reason(
-    archive: ArchivePaths, lineup_key: str, manifest: Manifest
-) -> str:
-    note = selection_staleness_note(archive, lineup_key, manifest)
+def _skip_reason(reading: _SelectionReading) -> str:
+    note = unchecked_facts_note(reading)
     return SKIP_REASON if note is None else f"{SKIP_REASON} {note}"
 
 
-def selection_staleness_note(
-    archive: ArchivePaths, lineup_key: str, manifest: Manifest
-) -> str | None:
-    """A warning if the selection file is newer than the finished classification.
+def unchecked_facts_note(reading: _SelectionReading) -> str | None:
+    """A warning when the match-facts input could not be checked.
 
-    The selection file is **not** a manifest input, so changing it does not
-    invalidate the result -- and so it does not say anything about itself
-    either. Without this, staleness would be documented but observable from
-    nowhere: the table would carry an old ``is_league``, and the report would
-    look up to date. The cheapest fix is **to say it in the skip's reason** and
-    to advise ``--force``.
+    **This replaces the staleness warning of Stories 3.x, and it replaces it
+    because the old one became false** (Story 4.7). Until then the selection
+    file was not an input, so a file newer than the classification really did
+    mean the table might carry an old value, and the timestamp was the only
+    evidence available. Now the input is declared and narrow: a file written
+    again with the same two values is not a change, and a warning that fired
+    on its timestamp would fire after every single ``select`` run and say
+    nothing true.
 
-    **It never raises.** A skipped run does not read the values at all, so a
-    broken selection file must not turn a finished result into an error; an
-    unreadable file means here only that nothing can be said about staleness.
+    What is left is the one case the declaration cannot cover. When the index
+    or the selection file is there but cannot be read, the identity cannot be
+    computed, the skip stands on the value the manifest recorded, and nobody
+    has checked whether the file still says it. That is worth a sentence,
+    because the alternative -- failing -- would turn one corrupt file into an
+    error on every finished classification in the archive.
 
     Returns:
-        The warning, or ``None`` if the file is older, is not there or its
-        timestamp cannot be read.
+        The warning with the reader's own fault in it, or ``None`` when the
+        input was checked.
     """
-    newest: datetime | None = None
-    whose: str | None = None
-    try:
-        owners = _owners(archive, lineup_key) if archive.teams_index().is_file() else []
-        for team_key in owners:
-            if not archive.selection(team_key).is_file():
-                continue
-            moment = _moment(read_selection(archive, team_key).get("generated_at"))
-            if moment is not None and (newest is None or moment > newest):
-                newest, whose = moment, team_key
-    except PappascoutError:
-        return None
-
-    if newest is None or newest <= manifest.created_at:
+    if reading.error is None:
         return None
     return (
-        f"Note: the selection file of team {whose} was written "
-        f"{newest.isoformat()}, this classification {manifest.created_at.isoformat()}. "
-        "The selection file is not an input of this stage, so is_league and "
-        "roster_class may be stale -- run again with the flag "
-        "--force if you want them as the file has them."
+        "Note: the match facts could not be read, so it could not be checked "
+        "whether is_league and roster_class are still what the selection file "
+        f"says ({reading.error}).\n"
+        "The result stands as it is. Fix the file and run again, with the "
+        "flag --force if you want the values re-read in any case."
     )
-
-
-def _moment(value: object) -> datetime | None:
-    """An ISO timestamp with a time zone, or ``None`` if it cannot be read."""
-    if not isinstance(value, str):
-        return None
-    try:
-        moment = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
 # -- Classification --------------------------------------------------------------

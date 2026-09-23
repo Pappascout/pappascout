@@ -75,9 +75,19 @@ What this stage does **not** do
 -------------------------------
 It does not download demos (Story 3.4), does not write into the
 ``aggregates/`` or ``classified/`` directories, and does not touch the veto,
-the ban or the pick (Epic 4). It also **does not wire** the ``is_league`` and
-``roster_class`` values into the ``classify`` stage: that would change the
-archive's classification and the reports' text, and it is a story of its own.
+the ban or the pick (Epic 4).
+
+**The wiring of ``is_league`` and ``roster_class`` into ``classify`` exists,
+and it is still not done here** -- this sentence said it did not exist until
+Story 4.7 finished it (2026-09-23). This stage remains their **only
+computer**: it writes them into ``index/selections/<team_key>.json`` and stops
+there, exactly as before. ``classify`` is their reader -- it finds the demo's
+row through ``index/teams.json``'s ``lineup_keys`` and sets the values onto
+the rounds without recomputing either -- and it now **declares** what it read
+as an input of its own manifest, so a run of this stage that changes one of
+the two values re-classifies that demo and re-aggregates the report with no
+``--force`` anywhere. What this stage must not acquire is the other half:
+reading the classification back, or writing into it.
 """
 
 from __future__ import annotations

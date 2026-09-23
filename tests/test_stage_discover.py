@@ -188,6 +188,14 @@ def read_index(archive: ArchivePaths, name: str) -> dict[str, Any]:
     return json.loads((archive.root / "index" / name).read_text(encoding="utf-8"))
 
 
+def write_json_index(archive: ArchivePaths, document: dict[str, Any]) -> None:
+    """Write the team index back as the stage writes it."""
+    (archive.root / "index" / "teams.json").write_text(
+        json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 # -- One call, two indexes ---------------------------------------------------
 
 
@@ -878,6 +886,252 @@ def test_a_lineup_claimed_by_two_teams_is_flagged_in_the_index(
     owners = [t["name"] for t in document["teams"] if t["lineup_keys"]]
     assert len(owners) == 2
     assert document["contested_lineup_keys"] == ["kiistanalainen"]
+
+
+# -- Rebuilding the bridge after a parse (Story 4.7) --------------------------
+#
+# The chain writes the index first and parses fourth, so on the first run for a
+# team whose demos have never been in the archive the bridge is empty at the
+# moment ``classify`` needs it. ``refresh_lineup_keys`` rebuilds it between the
+# two stages -- with the same rule, without a fetch, and without claiming a new
+# match list.
+
+
+def test_the_refresh_attaches_a_lineup_parsed_after_the_index_was_written(
+    league, archive, thresholds, source
+) -> None:
+    """The first fault of Story 4.7, in the order it really happens."""
+    result = discover(league, archive, thresholds, source, team="Rcave")
+    assert result.stats["team"]["lineup_keys"] == [], (
+        "precondition: nothing of this team's has been parsed yet"
+    )
+
+    write_lineups(
+        archive,
+        "1-match-00-0",
+        {"ff03fb54599d3311": list(MEASURED_RCAVE_IDS.values())},
+    )
+    teams = discover_stage.refresh_lineup_keys(archive, thresholds)
+
+    rcave = next(t for t in teams if t.name == "Rcave Veterans")
+    assert list(rcave.lineup_keys) == ["ff03fb54599d3311"]
+    document = read_index(archive, "teams.json")
+    written = next(t for t in document["teams"] if t["name"] == "Rcave Veterans")
+    assert written["lineup_keys"] == ["ff03fb54599d3311"]
+
+
+def test_the_refresh_keeps_the_two_indexes_joinable(
+    league, archive, thresholds, source
+) -> None:
+    """``generated_at`` is not touched, and that is not laziness.
+
+    ``read_indexes`` refuses to join two indexes whose stamps differ, because a
+    differing pair means the write was cut off between the files. Nothing that
+    came from the match list changed here, so a new stamp would report an
+    interrupted write that did not happen -- and ``select`` would stop.
+    """
+    discover(league, archive, thresholds, source, team="Rcave")
+    before_teams = read_index(archive, "teams.json")["generated_at"]
+    matches_before = (archive.root / "index" / "matches.json").read_bytes()
+
+    write_lineups(
+        archive,
+        "1-match-00-0",
+        {"ff03fb54599d3311": list(MEASURED_RCAVE_IDS.values())},
+    )
+    discover_stage.refresh_lineup_keys(archive, thresholds)
+
+    assert read_index(archive, "teams.json")["generated_at"] == before_teams
+    assert (archive.root / "index" / "matches.json").read_bytes() == matches_before
+    discover_stage.read_indexes(archive)  # raises if the pair no longer joins
+
+
+def test_the_refresh_changes_nothing_but_the_bridge(
+    league, archive, thresholds, source
+) -> None:
+    """Every other field of every team row survives it, byte for byte.
+
+    The rows are edited rather than rebuilt from :class:`Team` objects. A round
+    trip through the reader would quietly drop any field the reader does not
+    know, and this file is the archive's only record of a standing roster.
+
+    **So the fixture puts a field in that the reader does not know**, at both
+    levels, before the refresh. Without them the test passed against a round
+    trip as well -- every field in the file had been written by ``_team_row``,
+    so there was nothing for the reader to lose and the docstring's claim was
+    the one thing the test did not check. The names say what they stand for:
+    the next field somebody adds to this file and forgets to add to
+    :func:`~pappascout.stages.discover.teams_from_index`.
+    """
+    discover(league, archive, thresholds, source, team="Rcave")
+    document = read_index(archive, "teams.json")
+    document["a_field_written_by_a_newer_version"] = {"note": "top level"}
+    for row in document["teams"]:
+        row["a_team_field_the_reader_does_not_know"] = ["kept", 1]
+    write_json_index(archive, document)
+    before = read_index(archive, "teams.json")
+
+    write_lineups(
+        archive,
+        "1-match-00-0",
+        {"ff03fb54599d3311": list(MEASURED_RCAVE_IDS.values())},
+    )
+    discover_stage.refresh_lineup_keys(archive, thresholds)
+    after = read_index(archive, "teams.json")
+
+    assert after["a_field_written_by_a_newer_version"] == {"note": "top level"}
+    assert all(
+        row["a_team_field_the_reader_does_not_know"] == ["kept", 1]
+        for row in after["teams"]
+    ), "a round trip through the reader would have dropped this"
+    assert set(after) == set(before)
+    for key in before:
+        if key in ("teams", "contested_lineup_keys"):
+            continue
+        assert after[key] == before[key], key
+    for old, new in zip(before["teams"], after["teams"], strict=True):
+        assert set(new) == set(old)
+        for field in old:
+            if field == "lineup_keys":
+                continue
+            assert new[field] == old[field], f"{old['team_key']}.{field}"
+
+
+def test_a_refresh_with_nothing_to_attach_does_not_rewrite_the_file(
+    league, archive, thresholds, source
+) -> None:
+    """A write that changes nothing still costs a sync round trip here."""
+    discover(league, archive, thresholds, source, team="Rcave")
+    path = archive.root / "index" / "teams.json"
+    before = path.stat().st_mtime_ns
+
+    teams = discover_stage.refresh_lineup_keys(archive, thresholds)
+
+    assert teams, "the teams are returned even when nothing moved"
+    assert path.stat().st_mtime_ns == before
+
+
+def test_a_refresh_without_an_index_is_not_an_error(archive, thresholds) -> None:
+    """Nothing to refresh is nothing to refresh, and the chain goes on."""
+    assert discover_stage.refresh_lineup_keys(archive, thresholds) == ()
+    assert not (archive.root / "index" / "teams.json").exists()
+
+
+def test_an_unreadable_lineup_table_does_not_take_the_bridge_away(
+    league, archive, thresholds, source
+) -> None:
+    """**The regression this guard exists for, measured 2026-09-23.**
+
+    A table that will not open makes the reading *short*, and a short reading
+    is not evidence that a team has stopped owning a lineup. Acting on it took
+    ``['ff03fb54599d3311']`` to ``[]``, which made ``classify`` write both
+    match-fact columns back as null and cascade into ``aggregate`` and the
+    report -- the "unknown 8 / 157" this story exists to abolish, produced by
+    the fix for it. The trigger is not hypothetical: the refresh runs
+    immediately after ``parse`` has replaced these very files.
+    """
+    write_lineups(
+        archive,
+        "1-match-00-0",
+        {"ff03fb54599d3311": list(MEASURED_RCAVE_IDS.values())},
+    )
+    discover(league, archive, thresholds, source, team="Rcave")
+    path = archive.root / "index" / "teams.json"
+    before = path.read_bytes()
+    assert b"ff03fb54599d3311" in before, "precondition: the bridge was built"
+
+    archive.parsed_table("1-match-00-0", "lineups").write_bytes(b"not a parquet")
+
+    teams = discover_stage.refresh_lineup_keys(archive, thresholds)
+
+    assert path.read_bytes() == before, "the index is not written on a short read"
+    rcave = next(t for t in teams if t.name == "Rcave Veterans")
+    assert list(rcave.lineup_keys) == ["ff03fb54599d3311"], (
+        "and the teams come back as the index has them, not as the short read "
+        "would have them"
+    )
+
+
+def test_one_unreadable_table_does_not_hide_the_demos_after_it(
+    league, archive, thresholds, source
+) -> None:
+    """The reading goes on; only the decision to write is withheld.
+
+    ``complete`` is folded with ``and`` **after** the call, not before it, so
+    a broken table early in the sort order cannot stop the later ones from
+    being read. Without this the flag would be right and the mapping would be
+    missing lineups nobody ever tried to read.
+    """
+    write_lineups(archive, "1-match-00-0", {"rikki": ["76561197960000001"]})
+    write_lineups(
+        archive,
+        "1-match-01-0",
+        {"ff03fb54599d3311": list(MEASURED_RCAVE_IDS.values())},
+    )
+    archive.parsed_table("1-match-00-0", "lineups").write_bytes(b"not a parquet")
+
+    observed = discover_stage._archive_lineups(archive)
+
+    assert not observed.complete, "the short read is reported"
+    assert "ff03fb54599d3311" in observed.lineups, (
+        "the demo after the broken one was still read"
+    )
+
+
+def test_the_refresh_reads_the_threshold_from_the_settings(
+    league, archive, thresholds, source
+) -> None:
+    """**The same rule means the same number, and the number is a setting.**
+
+    The function's central claim is that it is not a second identity rule.
+    Fixing the threshold, or passing a different one, would break that claim
+    without breaking anything else -- so a lineup that shares two players is
+    the team's at 2 and is not the team's at 3. The same guard
+    ``pipeline.subject_lineups`` already has.
+    """
+    rcave = list(MEASURED_RCAVE_IDS.values())
+    discover(league, archive, thresholds, source)
+    # Three players of no team in the division, so the only team that can
+    # reach the threshold is the one whose two players are in the lineup.
+    known = {
+        player["game_player_id"]
+        for team in read_index(archive, "teams.json")["teams"]
+        for player in team["roster"]
+    }
+    outsiders = [steam_id(90_000 + index) for index in range(3)]
+    assert not known & set(outsiders), "the outsiders really are outsiders"
+    write_lineups(archive, "1-match-00-0", {"puolikas": rcave[:2] + outsiders})
+
+    at_three = discover_stage.refresh_lineup_keys(
+        archive, ThresholdSettings(pistol_rounds=[1, 13], team_identity_min_common=3)
+    )
+    assert all(not t.lineup_keys for t in at_three), (
+        "two shared players do not meet a threshold of three"
+    )
+
+    at_two = discover_stage.refresh_lineup_keys(
+        archive, ThresholdSettings(pistol_rounds=[1, 13], team_identity_min_common=2)
+    )
+    owner = next(t for t in at_two if t.lineup_keys)
+    assert list(owner.lineup_keys) == ["puolikas"]
+    assert owner.name == "Rcave Veterans"
+
+
+def test_the_refresh_flags_a_contested_lineup_as_the_stage_does(
+    league, archive, thresholds, source
+) -> None:
+    """The same rule, so the same answer -- including the ambiguous one."""
+    rcave = list(MEASURED_RCAVE_IDS.values())
+    kick_ids = [steam_id(200 + index) for index in range(3)]
+    discover(league, archive, thresholds, source)
+
+    write_lineups(archive, "1-match-00-0", {"kiistanalainen": rcave[:3] + kick_ids})
+    discover_stage.refresh_lineup_keys(archive, thresholds)
+
+    document = read_index(archive, "teams.json")
+    assert document["contested_lineup_keys"] == ["kiistanalainen"]
+    owners = [t["name"] for t in document["teams"] if t["lineup_keys"]]
+    assert len(owners) == 2
 
 
 def test_a_missing_or_unreadable_lineup_table_is_not_a_reason_to_fail(

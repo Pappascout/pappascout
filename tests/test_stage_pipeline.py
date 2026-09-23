@@ -31,7 +31,9 @@ them.
 from __future__ import annotations
 
 import ast
+import json
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 import polars as pl
@@ -1086,6 +1088,157 @@ def test_the_threshold_is_read_from_the_settings_and_not_fixed(
     write_lineups(archive, DEMO_A, {LINEUP: half})
     assert pipeline.subject_lineups(archive, DEMO_A, subject(), 2) == (LINEUP,)
     assert pipeline.subject_lineups(archive, DEMO_A, subject(), 3) == ()
+
+
+# --- The bridge is rebuilt between parse and classify (Story 4.7) -------------
+
+
+def write_teams_index(archive: ArchivePaths, team: Team) -> None:
+    """A team index as ``discover`` writes it, with an empty bridge.
+
+    Empty is the state that matters: it is what the index holds on the first
+    run for a team whose demos have never been in the archive, because the
+    stage that writes it runs before the stage that parses them.
+    """
+    path = archive.teams_index()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document = discover_stage._teams_document(
+        (team,), (), ["kilpailu"], datetime(2026, 9, 1, 12, tzinfo=UTC)
+    )
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+
+def test_the_index_is_brought_up_to_date_before_the_demos_are_classified(
+    tmp_path: Path,
+) -> None:
+    """Fault 1 of Story 4.7, on real files.
+
+    Without this the team index says the team owns no lineup at the moment
+    ``classify`` looks the owner up, so ``is_league`` and ``roster_class``
+    stay empty for every map of the run -- measured on eight demos,
+    2026-09-21.
+    """
+    settings, archive = settings_for(tmp_path)
+    write_teams_index(archive, subject())
+    write_lineups(archive, DEMO_A, {LINEUP: OURS, OTHER_LINEUP: THEIRS})
+    steps: list[pipeline.Step] = []
+
+    refreshed = pipeline._refresh_index(
+        settings, archive, [DEMO_A], subject(), steps
+    )
+
+    assert list(refreshed.lineup_keys) == [LINEUP]
+    written = discover_stage.teams_from_index(
+        discover_stage.read_teams_index(archive)
+    )
+    assert list(written[0].lineup_keys) == [LINEUP], "the index carries it too"
+    assert steps == [], "a join between two stages is not a line in the summary"
+
+
+def test_nothing_parsed_is_nothing_to_refresh(tmp_path: Path) -> None:
+    """The index was written from this same archive at the head of the run.
+
+    The refresh reads every ``lineups.parquet`` there is, so paying for it to
+    learn what the index already says is a cost with no question behind it.
+    """
+    settings, archive = settings_for(tmp_path)
+    write_teams_index(archive, subject())
+    write_lineups(archive, DEMO_A, {LINEUP: OURS})
+    steps: list[pipeline.Step] = []
+
+    assert pipeline._refresh_index(settings, archive, [], subject(), steps) == (
+        subject()
+    )
+    assert (
+        discover_stage.teams_from_index(discover_stage.read_teams_index(archive))[
+            0
+        ].lineup_keys
+        == ()
+    )
+
+
+def test_the_refresh_happens_after_parse_and_before_classify(
+    tmp_path: Path, chain: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The order is the whole fix: earlier is what was broken."""
+
+    def refresh(_archive, _thresholds):
+        chain.note("refresh", pipeline.TEAM_UNIT)
+        return ()
+
+    monkeypatch.setattr(discover_stage, "refresh_lineup_keys", refresh)
+    run_chain(tmp_path, monkeypatch=monkeypatch, recorder=chain)
+
+    assert chain.stages.index("parse") < chain.stages.index("refresh")
+    assert chain.stages.index("refresh") < chain.stages.index("classify")
+
+
+def test_a_failed_refresh_is_a_status_and_the_demos_are_classified_anyway(
+    tmp_path: Path, chain: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AD-9: the classification can still be made, and its reason is stated.
+
+    A fault here costs the two match-fact columns, not the round types. Ending
+    the run over it would throw away everything the chain had already done;
+    saying nothing would leave the empty columns with no explanation.
+
+    **It is filed under ``discover``, whose work it is**, and not under
+    ``classify``, where its consequence is seen. ``Step.stage`` names the
+    stage that did the work, every other stage-wide fault in this module is
+    filed that way, and the next step this row carries says to run
+    ``discover``. A row whose stage column and whose advice point at two
+    different commands teaches the reader to stop trusting the column.
+    """
+
+    def refresh(_archive, _thresholds):
+        raise PappascoutError("the sync client is holding the index open")
+
+    monkeypatch.setattr(discover_stage, "refresh_lineup_keys", refresh)
+    run = run_chain(tmp_path, monkeypatch=monkeypatch, recorder=chain)
+
+    assert "classify" in chain.stages, "the demos are still classified"
+    failed = [step for step in run.steps if step.outcome == "failed"]
+    assert len(failed) == 1
+    assert failed[0].stage == discover_stage.STAGE
+    assert failed[0].unit == pipeline.TEAM_UNIT
+    assert "holding the index open" in (failed[0].reason or "")
+    assert "is_league" in (failed[0].reason or ""), (
+        "the consequence is in the reason, which is where it belongs"
+    )
+    assert "pappascout discover" in (failed[0].next_step or "")
+
+
+def test_the_run_hands_the_refreshed_team_on_to_the_aggregation(
+    tmp_path: Path, chain: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``run`` consumes what the refresh returns; dropping it is invisible.
+
+    The refreshed team is what makes ``subject_candidates`` see a lineup this
+    run observed for the first time. Written as ``_refresh_index(...)`` with
+    the assignment dropped, every other test here still passes: they either
+    check the return value in isolation or monkeypatch the refresh to return
+    nothing at all.
+    """
+    seen: list[tuple[str, ...]] = []
+
+    def refresh(_archive, _thresholds):
+        return (subject(lineup_keys=(LINEUP, OTHER_LINEUP)),)
+
+    def candidates(_archive, keys):
+        seen.append(tuple(keys))
+        return (LINEUP,)
+
+    monkeypatch.setattr(discover_stage, "refresh_lineup_keys", refresh)
+    monkeypatch.setattr(pipeline, "subject_candidates", candidates)
+    monkeypatch.setattr(pipeline, "subject_lineups", lambda *_a, **_k: ())
+
+    run_chain(tmp_path, monkeypatch=monkeypatch, recorder=chain)
+
+    assert seen, "the aggregation's candidates were built"
+    assert OTHER_LINEUP in seen[0], (
+        "the lineup only the refreshed index knows about reached the "
+        "aggregation, so run() did not throw the refreshed team away"
+    )
 
 
 def classify_dir(archive: ArchivePaths, lineup: str, demo: str = DEMO_A) -> None:
