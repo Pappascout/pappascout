@@ -84,7 +84,7 @@ adjusting a threshold re-runs this stage but not the parsing.
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -115,6 +115,7 @@ from pappascout.domain.aggregate import (
     SLUG_FALLBACK,
     build_report,
     lineups_of_same_team,
+    match_of,
     roster_entries,
     slugify,
     team_identity,
@@ -151,6 +152,7 @@ from pappascout.domain.schemas import (
 )
 from pappascout.errors import PappascoutError
 from pappascout.stages import StageResult
+from pappascout.stages.discover import read_matches_index
 
 __all__ = [
     "STAGE",
@@ -160,6 +162,9 @@ __all__ = [
     "resolve_team",
     "collect_team",
     "TeamSources",
+    "match_order",
+    "match_order_input",
+    "match_order_input_id",
 ]
 
 STAGE = "aggregate"
@@ -251,7 +256,12 @@ def run(
     json_abs = archive.resolve(json_rel)
     manifest_abs = archive.resolve(manifest_rel)
 
-    inputs = _inputs(archive, sources.demos)
+    # Read once and used twice: the digest that decides whether to skip and
+    # the value the report is built from have to be the same reading, or a
+    # ``discover`` landing between them would make the manifest describe a
+    # report that was never built.
+    order = match_order(archive)
+    inputs = [*_inputs(archive, sources.demos), match_order_input(order, sources.demos)]
     params_hash = _params_hash(thresholds, league, aggregate_settings)
 
     existing = Manifest.read_if_exists(manifest_abs)
@@ -601,8 +611,16 @@ def _aggregate(
     thresholds: ThresholdSettings,
     league: LeagueSettings,
     aggregate_settings: AggregateSettings,
+    order: Sequence[str] | None = None,
 ) -> Report:
-    """Read the tables and build the report."""
+    """Read the tables and build the report.
+
+    ``order`` is the matches newest first (:func:`match_order`). It is an
+    argument rather than a read, because :func:`run` has to declare the same
+    reading in the manifest that the report is built from; ``None`` means
+    "read it here", which is what a caller outside the stage -- the
+    calibration tests -- wants.
+    """
     classified_frames: list[pl.DataFrame] = []
     tick_frames: list[pl.DataFrame] = []
     event_frames: list[pl.DataFrame] = []
@@ -788,9 +806,182 @@ def _aggregate(
         map_names=map_names,
         area_orientation=area_orientation,
         point_clouds=point_clouds,
+        match_order=match_order(archive) if order is None else order,
         generated_at=datetime.now(UTC),
         tool_versions={"pappascout": __version__},
         missing_demos=sources.missing,
+    )
+
+
+def match_order(archive: ArchivePaths) -> list[str]:
+    """The archive's matches, **newest first**, for the report's recency mark.
+
+    The one thing ``aggregate`` cannot read from its own tables (Story 4.9).
+    ``CLASSIFIED`` carries ``map_demo_id`` and nothing else about the match,
+    so the report can count matches without this but cannot say which of them
+    is the latest -- and "is this still true?" is the reader's actual
+    question. The times come from ``index/matches.json``, which ``discover``
+    writes.
+
+    **A missing index is an empty order and not an error.** ``aggregate`` has
+    never needed either index, and it must go on working on an archive built
+    entirely from hand-imported demos -- two of the three teams in the
+    developer's archive are exactly that. What it costs is stated rather than
+    hidden: a map of more than one match then carries no recency mark, and
+    the model's ``null`` is what says so (:attr:`~pappascout.domain.report
+    .PlayersCount.newest`). A **broken** index is not silenced the same way;
+    :func:`~pappascout.stages.discover.read_matches_index` raises, and a file
+    that is there and unreadable is a fault the user can fix.
+
+    **The shape of the match list is checked here**, and that is a line this
+    function has to hold rather than inherit. ``read_matches_index`` validates
+    that the file is JSON, that it is an object and that its
+    ``schema_version`` is known, and **nothing about ``matches``** -- so
+    before this check a list that was ``null`` raised ``TypeError: 'NoneType'
+    object is not iterable`` and a list of strings raised ``AttributeError``,
+    both of which the command line reports as *"This is a program fault"*.
+    That is a regression measured 2026-09-24: at the baseline ``aggregate``
+    never read this file, so the same archive aggregated normally. A malformed
+    index is the user's to fix and the message has to say so.
+
+    **Malformed raises; valid-but-unusable is skipped**, and the line between
+    them is the one that matters here. A match with no ``finished_at`` is
+    ordinary data -- FACEIT gives no time for a match that has not finished --
+    so it is left out silently. A ``matches`` that is not a list of objects is
+    not data at all, and skipping it would turn a broken file into an archive
+    that quietly has no recency anywhere.
+
+    A match with no ``finished_at`` is **left out** rather than sorted last.
+    The value is the only thing here that orders anything, and a match without
+    it has no place -- put last, it would claim to be the oldest, and put
+    first it would silence the mark on every group it touches by claiming to
+    be the newest. Left out, it makes the order incomplete, which
+    :func:`~pappascout.domain.aggregate.newest_match` already answers
+    ``null`` to. Measured 2026-09-24: 35 of the developer archive's 66 indexed
+    matches have none, and not one of them has a demo in the archive.
+
+    The order is total: ties are broken on the match id, so the same index
+    gives the same order from one run to the next.
+
+    **Strings are sorted, and that is sorting time only because of a
+    normalisation two layers away.** ``finished_at`` reaches the index through
+    :func:`pappascout.adapters.faceit._moment`, which builds every moment from
+    epoch seconds as **UTC-aware** (``datetime.fromtimestamp(value, UTC)``),
+    and :func:`pappascout.stages.discover._moment`, which writes it with
+    ``isoformat()``. Every value is therefore
+    ``YYYY-MM-DDTHH:MM:SS+00:00`` -- one offset, fixed width -- and
+    lexicographic order is chronological order. Measured 2026-09-24 on the
+    developer's index: 31 values, every one 25 characters, every one ending
+    ``+00:00``.
+
+    **Nothing enforces that at the point of use.**
+    :func:`~pappascout.stages.discover.read_matches_index` returns raw JSON
+    and validates no field, so a value written with a local offset would sort
+    into the wrong place and the recency mark would be wrong on some blocks
+    with nothing to show it. The contract is therefore: **if another source
+    ever writes this field, parse before sorting.** It is stated rather than
+    guarded because parsing here would need a policy for an unparseable value,
+    and today there is exactly one writer.
+    """
+    if not archive.matches_index().exists():
+        return []
+    document = read_matches_index(archive)
+    rows = document.get("matches", [])
+    if not isinstance(rows, list) or not all(
+        isinstance(row, Mapping) for row in rows
+    ):
+        raise PappascoutError(
+            "The archive's match index (matches.json) has no readable match "
+            "list, so the matches cannot be put in order.\n"
+            "Run again: uv run pappascout discover"
+        )
+    dated = [
+        (str(row["finished_at"]), str(row["match_id"]))
+        for row in rows
+        if row.get("finished_at") and row.get("match_id")
+    ]
+    return [match for _, match in sorted(dated, reverse=True)]
+
+
+def match_order_input_id() -> str:
+    """The id under which the match order is declared in the manifest.
+
+    It names **what is read** and not a file, the way ``classify``'s
+    ``match-facts`` does (Story 4.7) and ``parse``'s ``demo/<map_demo_id>``
+    did before it: the value is a property of ``index/matches.json`` that no
+    other stage reads, and the file holds a great deal this stage never looks
+    at.
+
+    A literal, and outside the ``classified/`` namespace :func:`_inputs` fills,
+    so that neither can be mistaken for the other when a manifest is read
+    back.
+    """
+    return "match-order"
+
+
+def match_order_input(
+    order: Sequence[str], demos: Sequence[tuple[str, str]]
+) -> ManifestInput:
+    """The match order as a manifest input, narrowed to what is read.
+
+    **The defect this closes** (Story 4.9, found in review): ``aggregate``
+    began reading ``index/matches.json`` and declared nothing, which is Story
+    4.7's defect in the stage next door. The ordinary sequence makes it bite:
+    the archive holds 35 of 66 indexed matches with no ``finished_at``, so a
+    report aggregated today has no recency mark; ``discover`` later fills the
+    times in; and aggregating again **skips**, leaving the report unmarked
+    while telling the user it is up to date. Only ``--force`` recovered it.
+
+    **Identified by the values, not by the file**, and that is the same rule
+    and the same file as 4.7's: ``discover`` rewrites ``matches.json`` on every
+    run and stamps a wall-clock ``generated_at`` into it, so a whole-file
+    digest would re-aggregate every team after every ``discover`` and cascade
+    into ``render``.
+
+    What this stage reads out of that file is **the order among its own
+    matches, and whether each of them is placed at all** -- nothing else
+    reaches a number in the report, because
+    :func:`~pappascout.domain.aggregate.newest_match` looks up only the keys
+    of the demos the report is built from. So the digest is two lists:
+
+    ``placed``
+        The report's own match keys in the index's order. It moves when one of
+        them changes place relative to another, which is exactly when a map's
+        newest match can change.
+    ``unplaced``
+        The report's own match keys the index does not place, sorted. It moves
+        when a match gains or loses its ``finished_at``, which is when a mark
+        appears or disappears.
+
+    **Global position is deliberately not in it.** Digesting each key's rank
+    in the whole list would move whenever any unrelated match gained a finish
+    time -- the commonest thing ``discover`` does -- and re-run every team for
+    a value none of their numbers depend on.
+
+    The demo set is **not** in this digest and does not need to be: a demo
+    joining or leaving changes :func:`_inputs`, which carries one entry per
+    demo. The two together identify the reading completely.
+
+    Args:
+        order: The matches newest first, as :func:`match_order` returns them.
+        demos: The ``(lineup, map_demo_id)`` pairs the report is built from.
+
+    Returns:
+        The input. **Never ``None``**, unlike ``classify``'s: a missing index
+        is a legitimate reading here (every key unplaced) and a malformed one
+        has already raised in :func:`match_order`, so there is no state left
+        in which the input cannot be identified.
+    """
+    own = {match_of(demo) for _, demo in demos}
+    placed = [key for key in order if key in own]
+    return ManifestInput(
+        result_id=match_order_input_id(),
+        sha256=compute_params_hash(
+            {
+                "placed": placed,
+                "unplaced": sorted(own.difference(placed)),
+            }
+        ),
     )
 
 

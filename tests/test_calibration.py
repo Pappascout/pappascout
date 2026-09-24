@@ -67,6 +67,7 @@ from pydantic import ValidationError
 from conftest import REAL_SETTINGS, require_parsed
 from pappascout.adapters.demo_parser import _armed_count
 from pappascout.archive.paths import ArchivePaths
+from pappascout.render import render_report
 from pappascout.constants import KNOWN_INVENTORY_ITEMS, SITE_AREAS
 from pappascout.domain.economy import (
     classify_round,
@@ -2703,3 +2704,294 @@ def test_the_archive_has_no_round_with_an_unknown_outcome() -> None:
     assert len(groups) == 78, len(groups)
     unknown = [key for key, entry in groups if entry["record"][2]]
     assert unknown == [], unknown
+
+
+# --- Matches, not only rounds (Story 4.9) ---------------------------------------
+
+
+#: Every level's match count in the archive, measured 2026-09-24 by running
+#: :func:`_reports` over it -- **the same code path the test that reads it
+#: back uses**, so the file records what the tool produces and not a
+#: hand-count of the parquet files. The precedent and the reasoning are
+#: :data:`ROUND_RECORDS`'s, and the same three things need saying about this
+#: table too.
+#:
+#: **Why a data file and not a table in a comment.** The match count is the
+#: number the report was changed to state, and almost nothing else in the
+#: suite can see it go wrong. The model's own checks are inclusions on the
+#: pipeline's path (``positions_for`` counts a subset of the rounds
+#: ``sample_for`` counted), so a count taken from the wrong place is
+#: internally consistent; every group-level figure and the two area tables are
+#: here so that a wrong one is a wrong number in a file.
+#:
+#: **What is checkable from this repository, and what is not.** Without the
+#: archive: nothing is re-derived, so no number here is confirmed. Three of
+#: the five tests that read this file are ``-m archive`` and skip on a machine
+#: without one; the other two assert on the file's **own** contents and pass
+#: anywhere, which is a different job and their docstrings say so. With the
+#: archive: every number, because the three re-derive each table and compare
+#: it whole.
+#:
+#: (``ROUND_RECORDS`` carries the sentence "the tests that read it are
+#: ``-m archive``" and there it is true. It was carried across to this file
+#: without re-checking and was wrong here -- the copy-without-re-measuring
+#: this project keeps catching, found in the Story 4.9 verification review.)
+#:
+#: **What this table cannot catch, and it is the important half.** Measured
+#: 2026-09-24 over this file: of its **91** rows carrying both a demo and a
+#: match count, **90 have them equal** -- the one exception is the report root
+#: (8 demos, 4 matches). So a match count that was silently the **demo** count
+#: passes every row here except that one, and the only test that sees it is
+#: :func:`test_the_archives_report_holds_fewer_matches_than_demos`, which
+#: compares those two root totals.
+#:
+#: That is true of :attr:`~pappascout.domain.report.Sample.matches` and of
+#: **nothing else**: ``Position.matches_m``, ``AreaDistribution.matches_m``,
+#: ``PlayersCount.matches`` and :class:`~pappascout.domain.report
+#: .FirstContactArea`'s two are all equal to a demo count on this archive, and
+#: what guards them is the unit fixtures in ``tests/test_aggregate.py`` that
+#: put **three demos over two matches** on purpose. Nor is it the model: its
+#: between-level bounds accept the substitution exactly, measured, and
+#: :func:`~pappascout.domain.report._check_matches_are_bounded` says why.
+#:
+#: **It is an observation and not a rule.** Adding a demo or re-classifying
+#: changes these numbers legitimately; the answer is then to measure the table
+#: again and say so in the commit, not to loosen the test.
+MATCH_COUNTS = json.loads(
+    (Path(__file__).parent / "data" / "match_counts.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+#: The recorded teams' reports, built once for the three tests below.
+#:
+#: **A cache and not a fixture**, because the three tests read the *same*
+#: reports on the *same* settings and the models are frozen -- there is
+#: nothing for one test to leave behind for another. What it buys is
+#: measured 2026-09-24 on the developer's machine: ``-m archive`` runs the 22
+#: tests that came before this story in 61 s, the 25 with the cache in 67 s
+#: and the 25 without it in 74 s. ``-m archive`` is the suite CLAUDE.md asks
+#: to be run every time, because it is the only one that reads the real
+#: ``settings.toml`` against the real archive, so what it costs is a decision
+#: and not an accident.
+_MATCH_REPORTS: dict[Path, dict[str, object]] = {}
+
+
+def _recorded_reports(root: Path) -> dict[str, object]:
+    """Team key -> its report, built once per archive root."""
+    if root not in _MATCH_REPORTS:
+        _MATCH_REPORTS[root] = dict(
+            zip(RECORDED_TEAMS, _reports(root, teams=RECORDED_TEAMS), strict=True)
+        )
+    return _MATCH_REPORTS[root]
+
+
+def _match_groups_from(root: Path) -> dict[tuple[str, str, str, str], dict]:
+    """Every group's rounds, demos and matches, from the archive."""
+    found: dict[tuple[str, str, str, str], dict] = {}
+    for team, report in _recorded_reports(root).items():
+        for map_report in report.maps:
+            for side in map_report.sides:
+                for entry in side.round_types:
+                    key = (team, map_report.map_name, side.side, entry.round_type)
+                    found[key] = {
+                        "rounds": entry.sample.rounds,
+                        "demos": entry.sample.demos,
+                        "matches": entry.sample.matches,
+                    }
+    return found
+
+
+def _match_groups_recorded() -> dict[tuple[str, str, str, str], dict]:
+    """The same, read out of :data:`MATCH_COUNTS`."""
+    return {
+        (team, map_name, side, round_type): body
+        for team, entry in MATCH_COUNTS["teams"].items()
+        for map_name, map_body in entry["maps"].items()
+        for side, side_body in map_body["sides"].items()
+        for round_type, body in side_body["round_types"].items()
+    }
+
+
+def _area_rows_from(report, map_name: str, side: str, round_type: str) -> list[dict]:
+    """One group's whole sample-point table, in the pinned shape."""
+    entry = next(m for m in report.maps if m.map_name == map_name)
+    side_report = next(s for s in entry.sides if s.side == side)
+    group = next(
+        rt for rt in side_report.round_types if rt.round_type == round_type
+    )
+    return [
+        {
+            "sample_kind": point.sample_kind,
+            "seconds": point.seconds,
+            "matches_m": point.matches_m,
+            "area": spot.area,
+            "players": bar.players,
+            "n": bar.n,
+            "matches": bar.matches,
+            "newest": bar.newest,
+        }
+        for point in group.positions
+        for spot in point.areas
+        for bar in spot.players_dist
+    ]
+
+
+@pytest.mark.archive
+def test_every_groups_match_count_is_the_one_the_archive_holds() -> None:
+    """The whole table, re-derived and compared whole.
+
+    One equality over every group rather than row by row, for
+    :func:`test_every_groups_record_is_the_one_the_archive_holds`'s reason: a
+    group that appears or disappears has to fail as loudly as a group whose
+    numbers moved.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    recorded = _match_groups_recorded()
+    assert len(recorded) == 78, len(recorded)
+    assert _match_groups_from(root) == recorded
+
+
+@pytest.mark.archive
+def test_the_archives_report_holds_fewer_matches_than_demos() -> None:
+    """The story's premise, on the real data: a demo is not a match.
+
+    The scouted team's eight demos are four matches of two maps each, so the
+    summary said ``8 demoa`` to a reader counting matches. **This is the one
+    test in the suite that can tell a match count from a demo count**: at and
+    below the map level the two are equal on this archive, so every group row
+    in :data:`MATCH_COUNTS` would pass with either.
+
+    The other two teams are hand-imported demos and are one match each; they
+    are asserted as well, because "fewer than demos" must not become the rule
+    the code follows.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    totals = {
+        team: (report.sample.demos, report.sample.matches)
+        for team, report in _recorded_reports(root).items()
+    }
+    recorded = {
+        team: (entry["demos"], entry["matches"])
+        for team, entry in MATCH_COUNTS["teams"].items()
+    }
+    assert totals == recorded
+    assert any(demos > matches for demos, matches in totals.values())
+
+
+@pytest.mark.archive
+def test_the_pistol_rows_of_the_measurement_carry_their_two_numbers() -> None:
+    """The Intent's own example, whole and from the archive -- in the **model**.
+
+    It was called ``..._render_their_two_numbers`` and rendered nothing:
+    ``test_calibration`` calls ``render()`` nowhere, so this compares model
+    fields. The Intent's acceptance criterion is about the printed line, and
+    :func:`test_the_archives_pistol_lines_read_as_the_intent_says` is what
+    pins that; the two are separate because a model table and a rendered line
+    fail for different reasons and should say which.
+
+    ``de_nuke`` T pistol at 15 s is what the story was written from
+    (``recency-measured-2026-09-23.md``): Outside in three matches and the
+    newest not among them, Control in one and that one **is** the newest. The
+    whole sample-point table is compared, so the seconds, the areas and the
+    marks are all pinned -- and ``de_nuke`` T full is pinned beside it because
+    it is the group where a bar's matches and its rounds differ (**29 rounds
+    over 4 matches**), which the pistol group cannot show: there every match
+    contributes exactly one round.
+
+    (An earlier version of this line said 17. 17 is the ``n`` of one bar in
+    that group -- ``Lobby 1`` at 15 s, 17 rounds over 4 matches -- read off a
+    measurement printout and written down as the group's round count. The
+    group's own figure is 29, which the spec's Code Map, the pinned file and
+    :func:`test_the_pinned_full_table_holds_a_bar_whose_matches_are_not_its_rounds`
+    all agree on.)
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    reports = _recorded_reports(root)
+    for key, rows in MATCH_COUNTS["areas"].items():
+        team, map_name, side, round_type = key.split("/")
+        got = _area_rows_from(reports[team], map_name, side, round_type)
+        assert got == rows, key
+
+
+def test_the_pinned_pistol_table_says_what_the_measurement_says() -> None:
+    """The pinned rows are the ones the measurement document describes.
+
+    The document (``recency-measured-2026-09-23.md``) is not in this
+    repository, so what is checked here is the **shape of the claim** the
+    story rests on: at 15 s the top Outside observation spans three matches
+    and excludes the newest, and the Control observation is the newest match
+    alone. If a future measurement changes that, this fails beside the table
+    rather than leaving the story's premise unguarded.
+
+    **No archive needed**: both sides are in the repository. What ties the
+    table to the archive is the test above it.
+    """
+    key = "1e1965abbc06133b/de_nuke/T/pistol"
+    rows = [
+        row
+        for row in MATCH_COUNTS["areas"][key]
+        if row["seconds"] == 15.0 and row["players"] > 0
+    ]
+    outside = next(
+        row for row in rows if row["area"] == "Outside" and row["players"] == 3
+    )
+    assert (outside["n"], outside["matches"], outside["newest"]) == (3, 3, False)
+    control = next(
+        row for row in rows if row["area"] == "Control" and row["players"] == 4
+    )
+    assert (control["n"], control["matches"], control["newest"]) == (1, 1, True)
+
+
+def test_the_pinned_full_table_holds_a_bar_whose_matches_are_not_its_rounds() -> None:
+    """The distinction the pistol group cannot show.
+
+    In ``de_nuke`` T pistol every match contributes exactly one round, so
+    ``matches == n`` on every bar and a mutation that returned the round count
+    as the match count would pass. The full-buy group has 29 rounds over 4
+    matches, so its bars separate the two.
+
+    **No archive needed**, for the reason the test above it gives.
+    """
+    key = "1e1965abbc06133b/de_nuke/T/full"
+    rows = MATCH_COUNTS["areas"][key]
+    assert any(row["matches"] < row["n"] for row in rows)
+    assert all(row["matches"] <= row["n"] for row in rows)
+    assert all(row["matches"] <= row["matches_m"] for row in rows)
+
+
+@pytest.mark.archive
+def test_the_archives_pistol_lines_read_as_the_intent_says() -> None:
+    """The Intent's acceptance criterion, **rendered**, from the real archive.
+
+    *"Given ``de_nuke`` T pistol, when the report is rendered, then the
+    ``Outside 3`` line states that it was seen in three matches and that the
+    newest is not one of them."*
+
+    **The only thing that rendered the archive before this was nothing**
+    (Story 4.9 verification review): ``test_calibration`` called ``render()``
+    zero times, so the criterion was pinned by a hand-built golden and by
+    model fields, and no test put the archive's own numbers through the view.
+    A view that stopped printing the mark, or printed the match fraction
+    where it equals the round fraction, would have kept this file green.
+
+    The match fraction is **absent by design** on this row and that is
+    asserted too: a pistol round is one per map, so ``3/4 ottelussa`` would
+    be ``3/4 kierroksesta`` again in another word, and the product owner had
+    it dropped (2026-09-24). The mark is what is left, and it is the finding.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    settings = _real_settings()
+    report = _recorded_reports(root)["1e1965abbc06133b"]
+    text = render_report(
+        report, settings=settings.report, round_list_paths=[]
+    )
+    line = next(
+        row
+        for row in text.splitlines()
+        if row.startswith("- 15 s:") and "Control 4" in row
+    )
+    assert "Outside 3 (3/4 kierroksesta, ei uusimmassa)" in line
+    assert "Control 4 (1/4 kierroksesta, uusin mukana)" in line
+    assert "ottelussa" not in line

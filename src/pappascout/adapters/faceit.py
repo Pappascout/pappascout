@@ -119,6 +119,7 @@ from pappascout.adapters.protocols import (
     MatchTeam,
     RosterPlayer,
 )
+from pappascout.domain import selection
 from pappascout.domain.models import (
     MAX_FACEIT_PAGE_SIZE,
     MAX_FACEIT_RETRY_ATTEMPTS,
@@ -1587,27 +1588,39 @@ MAX_DEMO_CHUNK_BYTES = 64 * 1024 * 1024
 
 
 def split_map_demo_id(map_demo_id: str) -> tuple[str, int]:
-    """Split ``{match_id}-{map_index}`` into its parts.
+    """Split ``{match_id}-{map_index}`` into its parts, or refuse the id.
 
-    The split is at **the last hyphen** and not the first: FACEIT's
-    ``match_id`` is itself of the form ``1-<uuid>`` and holds five hyphens.
-    Splitting at the first one would give ``"1"`` as the ``match_id`` and
-    would succeed quietly -- there is no match ``1``, but the error would come
-    only from the interface and would look like a network fault.
+    The split itself is
+    :func:`pappascout.domain.selection.split_map_demo_id`, which sits beside
+    the :func:`~pappascout.domain.selection.map_demo_id` that composes the id.
+    The id's form is one convention -- the spine's *Consistency Conventions*
+    table, row *Tunnisteet* -- and written out here as well the two would come
+    to disagree about which hyphen it is: FACEIT's ``match_id`` is itself of
+    the form ``1-<uuid>`` and holds five hyphens, so a split at the first one
+    gives ``"1"`` as the match and succeeds quietly -- there is no match
+    ``1``, but the error would come only from the interface and would look
+    like a network fault. (This docstring cited AD-7 until 2026-09-24; AD-7
+    is the archive's rule and says nothing about the id's form.)
+
+    What belongs to **this** layer and not to the domain is the refusal. The
+    domain returns ``None``, because an id outside the form is a real state of
+    the archive (a demo imported by hand) and one of its readers counts it as
+    a match of its own; only a caller that has a demo to fetch knows that it
+    cannot carry on.
 
     Raises:
         ~pappascout.errors.DemoUnavailable: If the id is not of this form.
             **Not ``ApiError``**: an id of the wrong form is not the
             interface's fault, and it must not be retried.
     """
-    head, sep, tail = str(map_demo_id).rpartition("-")
-    if not sep or not head or not tail.isdigit():
+    parts = selection.split_map_demo_id(str(map_demo_id))
+    if parts is None:
         raise DemoUnavailable(
             f"The id {map_demo_id!r} is not of the form "
             "'{match_id}-{map_index}', so no demo can be fetched for it.\n"
             "The end of the id must be the map's 0-based ordinal."
         )
-    return head, int(tail)
+    return parts
 
 
 def _round_number(value: Any) -> int | None:

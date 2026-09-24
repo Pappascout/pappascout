@@ -55,16 +55,28 @@ from pappascout.constants import ROSTER_BUCKETS, SITE_AREAS
 from pappascout.errors import AggregateError
 
 
-def sample(league: int = 0, other: int = 0, unknown: int = 1) -> Sample:
-    """A sample with one demo per bucket that has rounds."""
+def sample(
+    league: int = 0,
+    other: int = 0,
+    unknown: int = 1,
+    matches: int | None = None,
+) -> Sample:
+    """A sample with one demo per bucket that has rounds.
+
+    ``matches`` defaults to the demo count, which is what a sample of
+    single-map matches gives -- the shape every test written before Story 4.9
+    assumed. A test about the match count itself states its own number.
+    """
     buckets = {
         "league": SampleBucket(demos=1 if league else 0, rounds=league),
         "other": SampleBucket(demos=1 if other else 0, rounds=other),
         "unknown": SampleBucket(demos=1 if unknown else 0, rounds=unknown),
     }
+    demos = sum(b.demos for b in buckets.values())
     return Sample(
-        demos=sum(b.demos for b in buckets.values()),
+        demos=demos,
         rounds=sum(b.rounds for b in buckets.values()),
+        matches=demos if matches is None else matches,
         **buckets,
     )
 
@@ -234,6 +246,7 @@ def test_sample_totals_must_match_the_buckets() -> None:
         Sample(
             demos=9,
             rounds=1,
+            matches=9,
             league=SampleBucket(demos=0, rounds=0),
             other=SampleBucket(demos=0, rounds=0),
             unknown=SampleBucket(demos=1, rounds=1),
@@ -263,6 +276,7 @@ def test_the_totals_error_names_which_breakdown_failed() -> None:
         Sample(
             demos=9,
             rounds=0,
+            matches=9,
             league=SampleBucket(demos=0, rounds=0),
             other=SampleBucket(demos=0, rounds=0),
             unknown=SampleBucket(demos=0, rounds=0),
@@ -429,7 +443,8 @@ def test_area_distribution_requires_the_sample_to_add_up() -> None:
         AreaDistribution(
             area="BombsiteA",
             m=4,
-            players_dist=[PlayersCount(players=3, n=1)],
+            matches_m=4,
+            players_dist=[PlayersCount(players=3, n=1, matches=1, newest=None)],
         )
 
 
@@ -438,9 +453,10 @@ def test_area_distribution_with_a_zero_bucket_adds_up() -> None:
     dist = AreaDistribution(
         area="BombsiteB",
         m=4,
+        matches_m=4,
         players_dist=[
-            PlayersCount(players=0, n=3),
-            PlayersCount(players=2, n=1),
+            PlayersCount(players=0, n=3, matches=3, newest=None),
+            PlayersCount(players=2, n=1, matches=1, newest=None),
         ],
     )
     assert sum(p.n for p in dist.players_dist) == dist.m
@@ -451,9 +467,10 @@ def test_area_distribution_rejects_the_same_player_count_twice() -> None:
         AreaDistribution(
             area="Middle",
             m=2,
+            matches_m=2,
             players_dist=[
-                PlayersCount(players=1, n=1),
-                PlayersCount(players=1, n=1),
+                PlayersCount(players=1, n=1, matches=1, newest=None),
+                PlayersCount(players=1, n=1, matches=1, newest=None),
             ],
         )
 
@@ -465,10 +482,16 @@ def test_position_areas_must_share_the_positions_sample() -> None:
             sample_kind="time",
             seconds=15.0,
             m=3,
+            matches_m=3,
             rounds_missing=0,
             areas=[
                 AreaDistribution(
-                    area="Middle", m=2, players_dist=[PlayersCount(players=0, n=2)]
+                    area="Middle",
+                    m=2,
+                    matches_m=2,
+                    players_dist=[
+                        PlayersCount(players=0, n=2, matches=2, newest=None)
+                    ],
                 )
             ],
         )
@@ -560,17 +583,20 @@ def test_a_position_refuses_the_same_area_twice() -> None:
             sample_kind="time",
             seconds=15.0,
             m=2,
+            matches_m=2,
             rounds_missing=0,
             areas=[
                 AreaDistribution(
                     area="Middle",
                     m=2,
-                    players_dist=[PlayersCount(players=3, n=2)],
+                    matches_m=2,
+                    players_dist=[PlayersCount(players=3, n=2, matches=2, newest=None)],
                 ),
                 AreaDistribution(
                     area="Middle",
                     m=2,
-                    players_dist=[PlayersCount(players=1, n=2)],
+                    matches_m=2,
+                    players_dist=[PlayersCount(players=1, n=2, matches=2, newest=None)],
                 ),
             ],
         )
@@ -582,13 +608,24 @@ def test_a_position_still_accepts_two_different_areas() -> None:
         sample_kind="time",
         seconds=15.0,
         m=2,
+        matches_m=2,
         rounds_missing=0,
         areas=[
             AreaDistribution(
-                area="Middle", m=2, players_dist=[PlayersCount(players=3, n=2)]
+                area="Middle",
+                m=2,
+                matches_m=2,
+                players_dist=[
+                    PlayersCount(players=3, n=2, matches=2, newest=None)
+                ],
             ),
             AreaDistribution(
-                area="Ramp", m=2, players_dist=[PlayersCount(players=1, n=2)]
+                area="Ramp",
+                m=2,
+                matches_m=2,
+                players_dist=[
+                    PlayersCount(players=1, n=2, matches=2, newest=None)
+                ],
             ),
         ],
     )
@@ -598,7 +635,12 @@ def test_a_position_still_accepts_two_different_areas() -> None:
 def test_time_sample_must_carry_its_nominal_second() -> None:
     with pytest.raises(ValidationError, match="A time sample point"):
         Position(
-            sample_kind="time", seconds=None, m=0, rounds_missing=0, areas=[]
+            sample_kind="time",
+            seconds=None,
+            m=0,
+            matches_m=0,
+            rounds_missing=0,
+            areas=[],
         )
 
 
@@ -609,6 +651,7 @@ def test_first_contact_sample_has_no_nominal_second() -> None:
             sample_kind="first_contact",
             seconds=12.0,
             m=0,
+            matches_m=0,
             rounds_missing=0,
             areas=[],
         )
@@ -617,6 +660,7 @@ def test_first_contact_sample_has_no_nominal_second() -> None:
         seconds=None,
         seconds_median=12.5,
         m=0,
+        matches_m=0,
         rounds_missing=0,
         areas=[],
     )
@@ -643,7 +687,12 @@ def _round_type_with_positions(positions: list[Position]) -> RoundTypeReport:
 def _time_point(seconds: float) -> Position:
     """A time sample point with no areas, for the sample-point guards."""
     return Position(
-        sample_kind="time", seconds=seconds, m=0, rounds_missing=0, areas=[]
+        sample_kind="time",
+        seconds=seconds,
+        m=0,
+        matches_m=0,
+        rounds_missing=0,
+        areas=[],
     )
 
 
@@ -691,6 +740,7 @@ def test_a_round_type_still_accepts_its_own_sample_points() -> None:
                 seconds=None,
                 seconds_median=12.5,
                 m=0,
+                matches_m=0,
                 rounds_missing=0,
                 areas=[],
             ),
@@ -778,7 +828,9 @@ def test_area_source_cannot_appear_without_its_area() -> None:
 
 def test_first_contact_area_cannot_exceed_its_sample() -> None:
     with pytest.raises(AggregateError, match="The first-contact area"):
-        FirstContactArea(area="Banana", n=3, m=2)
+        FirstContactArea(
+            area="Banana", n=3, m=2, matches=2, matches_m=2, newest=None
+        )
 
 
 def _round_type_with_first_contact(areas: list[FirstContactArea]):
@@ -815,8 +867,12 @@ def test_first_contact_refuses_the_same_area_twice() -> None:
     with pytest.raises(ValidationError, match="same area twice"):
         _round_type_with_first_contact(
             [
-                FirstContactArea(area="Middle", n=2, m=2),
-                FirstContactArea(area="Middle", n=1, m=2),
+                FirstContactArea(
+                    area="Middle", n=2, m=2, matches=1, matches_m=1, newest=True
+                ),
+                FirstContactArea(
+                    area="Middle", n=1, m=2, matches=1, matches_m=1, newest=True
+                ),
             ]
         )
 
@@ -825,8 +881,12 @@ def test_first_contact_still_accepts_two_different_areas() -> None:
     """The guard's other direction: two areas from one moment is normal."""
     entry = _round_type_with_first_contact(
         [
-            FirstContactArea(area="Middle", n=2, m=2),
-            FirstContactArea(area="Ramp", n=1, m=2),
+            FirstContactArea(
+                area="Middle", n=2, m=2, matches=1, matches_m=1, newest=True
+            ),
+            FirstContactArea(
+                area="Ramp", n=1, m=2, matches=1, matches_m=1, newest=True
+            ),
         ]
     )
     assert [a.area for a in entry.first_contact] == ["Middle", "Ramp"]
@@ -845,17 +905,24 @@ def full_report() -> Report:
                 sample_kind="time",
                 seconds=6.0,
                 m=1,
+                matches_m=1,
                 rounds_missing=0,
                 areas=[
                     AreaDistribution(
                         area="BombsiteA",
                         m=1,
-                        players_dist=[PlayersCount(players=3, n=1)],
+                        matches_m=1,
+                        players_dist=[
+                            PlayersCount(players=3, n=1, matches=1, newest=None)
+                        ],
                     ),
                     AreaDistribution(
                         area="BombsiteB",
                         m=1,
-                        players_dist=[PlayersCount(players=2, n=1)],
+                        matches_m=1,
+                        players_dist=[
+                            PlayersCount(players=2, n=1, matches=1, newest=None)
+                        ],
                     ),
                 ],
             )
@@ -1090,6 +1157,7 @@ def test_a_round_moving_between_buckets_is_caught() -> None:
             sample=Sample(
                 demos=1,
                 rounds=3,
+                matches=1,
                 league=SampleBucket(demos=1, rounds=3),
                 other=SampleBucket(demos=0, rounds=0),
                 unknown=SampleBucket(demos=0, rounds=0),
@@ -1149,7 +1217,7 @@ def _map_with_bucketed_demo(
         )
         for name in ("league", "other", "unknown")
     }
-    map_sample = Sample(demos=1, rounds=rounds, **buckets)
+    map_sample = Sample(demos=1, rounds=rounds, matches=1, **buckets)
     sides = (
         []
         if rounds == 0
@@ -1212,6 +1280,7 @@ def test_a_demo_moving_between_buckets_is_caught() -> None:
             sample=Sample(
                 demos=2,
                 rounds=2,
+                matches=2,
                 league=SampleBucket(demos=2, rounds=2),
                 other=SampleBucket(demos=0, rounds=0),
                 unknown=SampleBucket(demos=0, rounds=0),
@@ -1273,6 +1342,7 @@ def test_the_demo_buckets_still_add_up_when_they_are_right() -> None:
         sample=Sample(
             demos=2,
             rounds=2,
+            matches=2,
             league=SampleBucket(demos=1, rounds=2),
             other=SampleBucket(demos=1, rounds=0),
             unknown=SampleBucket(demos=0, rounds=0),
@@ -2521,3 +2591,422 @@ def test_a_report_without_the_scan_is_refused() -> None:
     data.pop("anomaly_scan")
     with pytest.raises(ValidationError):
         Report.model_validate(data)
+
+# --- The match count (Story 4.9) ------------------------------------------------
+
+
+def _match_position(
+    areas: list[AreaDistribution], m: int, matches_m: int
+) -> Position:
+    return Position(
+        sample_kind="time",
+        seconds=15.0,
+        m=m,
+        matches_m=matches_m,
+        rounds_missing=0,
+        areas=areas,
+    )
+
+
+def _match_round_type(
+    positions: list[Position],
+    rounds: int,
+    matches: int,
+    first_contact: list[FirstContactArea] | None = None,
+) -> RoundTypeReport:
+    """A round type whose only content is its sample points."""
+    return RoundTypeReport(
+        round_type="pistol",
+        sample=_matched_sample(rounds, matches),
+        small_sample=True,
+        positions=positions,
+        utility=[],
+        utility_counts=[],
+        players_armed=ArmedPlayers(m=0, rounds_unknown=rounds, counts=[]),
+        players_armored=ArmoredPlayers(m=0, rounds_unknown=rounds, counts=[]),
+        first_contact=first_contact or [],
+        deaths=DeathReport(m=0, rounds_missing=rounds),
+        record=RoundRecord(wins=0, losses=rounds, unknown=0),
+    )
+
+
+def test_a_sample_cannot_hold_more_matches_than_demos() -> None:
+    """A match is counted through its demos, so it cannot outnumber them."""
+    with pytest.raises(AggregateError, match="matches from"):
+        sample(unknown=4, matches=2).model_copy(update={"matches": 9})
+    with pytest.raises(AggregateError, match="matches from"):
+        Sample(
+            demos=1,
+            rounds=4,
+            matches=2,
+            league=SampleBucket(demos=0, rounds=0),
+            other=SampleBucket(demos=0, rounds=0),
+            unknown=SampleBucket(demos=1, rounds=4),
+        )
+
+
+def test_demos_without_a_match_are_refused() -> None:
+    """The other direction: every demo is some match's demo."""
+    with pytest.raises(AggregateError, match="from no match at all"):
+        Sample(
+            demos=1,
+            rounds=4,
+            matches=0,
+            league=SampleBucket(demos=0, rounds=0),
+            other=SampleBucket(demos=0, rounds=0),
+            unknown=SampleBucket(demos=1, rounds=4),
+        )
+
+
+def test_fewer_demos_than_matches_is_the_ordinary_case() -> None:
+    """Two maps of one match: two demos, one match. Not an error."""
+    entry = sample(unknown=4, matches=1)
+    assert (entry.demos, entry.matches) == (1, 1)
+    two_maps = Sample(
+        demos=2,
+        rounds=4,
+        matches=1,
+        league=SampleBucket(demos=0, rounds=0),
+        other=SampleBucket(demos=0, rounds=0),
+        unknown=SampleBucket(demos=2, rounds=4),
+    )
+    assert (two_maps.demos, two_maps.matches) == (2, 1)
+
+
+def test_a_bar_cannot_span_more_matches_than_the_sample_point() -> None:
+    """An observation cannot be made in more matches than it is measured over."""
+    with pytest.raises(AggregateError, match="claims 3 matches"):
+        AreaDistribution(
+            area="Outside",
+            m=4,
+            matches_m=2,
+            players_dist=[
+                PlayersCount(players=1, n=3, matches=3, newest=None),
+                PlayersCount(players=0, n=1, matches=1, newest=None),
+            ],
+        )
+
+
+def test_a_bar_cannot_span_more_matches_than_its_own_rounds() -> None:
+    """Every match in the observation contributes at least one of its rounds."""
+    with pytest.raises(AggregateError, match="but claims 3 matches"):
+        AreaDistribution(
+            area="Outside",
+            m=4,
+            matches_m=4,
+            players_dist=[
+                PlayersCount(players=1, n=2, matches=3, newest=None),
+                PlayersCount(players=0, n=2, matches=2, newest=None),
+            ],
+        )
+
+
+def test_a_sample_point_cannot_hold_more_matches_than_rounds() -> None:
+    with pytest.raises(AggregateError, match="matches over"):
+        AreaDistribution(
+            area="Outside",
+            m=2,
+            matches_m=3,
+            players_dist=[PlayersCount(players=1, n=2, matches=2, newest=None)],
+        )
+
+
+def test_the_areas_of_one_moment_share_the_match_denominator_too() -> None:
+    """Two figures from the same moment have to be comparable in both units."""
+    with pytest.raises(AggregateError, match="matches, but the sample point"):
+        _match_position(
+            [
+                AreaDistribution(
+                    area="Outside",
+                    m=2,
+                    matches_m=2,
+                    players_dist=[
+                        PlayersCount(players=1, n=2, matches=2, newest=None)
+                    ],
+                ),
+                AreaDistribution(
+                    area="Lobby",
+                    m=2,
+                    matches_m=1,
+                    players_dist=[
+                        PlayersCount(players=0, n=2, matches=1, newest=None)
+                    ],
+                ),
+            ],
+            m=2,
+            matches_m=2,
+        )
+
+
+def _matched_sample(rounds: int, matches: int) -> Sample:
+    """One bucket, with the match count stated and enough demos to carry it.
+
+    The demo count follows the matches, because ``Sample`` refuses more
+    matches than demos: a fixture about the **row** level must not fail at the
+    sample level first.
+    """
+    return Sample(
+        demos=matches,
+        rounds=rounds,
+        matches=matches,
+        league=SampleBucket(demos=0, rounds=0),
+        other=SampleBucket(demos=0, rounds=0),
+        unknown=SampleBucket(demos=matches, rounds=rounds),
+    )
+
+
+def test_a_line_claiming_more_matches_than_its_group_is_refused() -> None:
+    """The acceptance criterion: the heading and the row cannot disagree.
+
+    The round type holds two matches; the sample point claims three. The row
+    would print ``3/3 ottelusta`` under a heading saying two, and nothing on
+    the page would say which of the two is the measurement.
+    """
+    position = _match_position(
+        [
+            AreaDistribution(
+                area="Outside",
+                m=3,
+                matches_m=3,
+                players_dist=[PlayersCount(players=1, n=3, matches=3, newest=None)],
+            )
+        ],
+        m=3,
+        matches_m=3,
+    )
+    with pytest.raises(AggregateError, match="the round type holds 2"):
+        _match_round_type([position], rounds=3, matches=2)
+    # The other direction: the same row under a heading that does hold it.
+    assert _match_round_type([position], rounds=3, matches=3).positions
+
+
+def test_a_first_contact_row_claiming_more_matches_than_its_group_is_refused() -> None:
+    """The same rule for the report's other presence list."""
+    areas = [
+        FirstContactArea(
+            area="Banana", n=3, m=3, matches=3, matches_m=3, newest=True
+        )
+    ]
+    with pytest.raises(AggregateError, match="covers 3 matches"):
+        _match_round_type([], rounds=3, matches=2, first_contact=areas)
+    assert _match_round_type(
+        [], rounds=3, matches=3, first_contact=areas
+    ).first_contact
+
+
+def test_a_first_contact_row_cannot_exceed_its_own_match_sample() -> None:
+    with pytest.raises(AggregateError, match="appears in 3 matches"):
+        FirstContactArea(
+            area="Banana", n=3, m=3, matches=3, matches_m=2, newest=None
+        )
+
+
+def test_a_first_contact_denominator_cannot_exceed_its_rounds() -> None:
+    """Every match contributes at least one round to the presence list.
+
+    **One of two raises this class carried with no test of its own**, found
+    in the Story 4.9 verification review: removing either of them
+    individually left the whole suite green, while removing all three at once
+    reddened one test -- which made the block look covered. The three are now
+    checked one at a time.
+    """
+    with pytest.raises(AggregateError, match="a sample of 4 matches over 3"):
+        FirstContactArea(
+            area="Banana", n=3, m=3, matches=3, matches_m=4, newest=None
+        )
+
+
+def test_a_first_contact_row_cannot_span_more_matches_than_rounds() -> None:
+    """The other one: a match in the observation brought one of its rounds."""
+    with pytest.raises(AggregateError, match="on 2 rounds but in 3 matches"):
+        FirstContactArea(
+            area="Banana", n=2, m=4, matches=3, matches_m=4, newest=None
+        )
+
+
+def _side_with_matches(rounds: int, matches: int, group: int) -> SideReport:
+    """A side claiming ``matches`` over one round type claiming ``group``."""
+    return SideReport(
+        side="T",
+        sample=_matched_sample(rounds, matches),
+        round_types=[_match_round_type([], rounds=rounds, matches=group)],
+    )
+
+
+def test_the_match_bounds_are_checked_at_the_side_level_too() -> None:
+    """The side's own call site, which nothing reached.
+
+    **Measured in the Story 4.9 verification review**: deleting the
+    ``_check_matches_are_bounded`` call from :class:`SideReport` was green,
+    and so was deleting it from :class:`MapReport`, because the report-level
+    fixtures build maps with ``sides=[]`` and never descend. Both inner call
+    sites now have a test of their own.
+    """
+    with pytest.raises(AggregateError, match="at level side claims 1 matches"):
+        SideReport(
+            side="T",
+            sample=_matched_sample(3, 1),
+            round_types=[_match_round_type([], rounds=3, matches=2)],
+        )
+
+
+def test_the_match_bounds_are_checked_at_the_map_level_too() -> None:
+    """The map's call site: its sides cannot hold more than it claims."""
+    side = _side_with_matches(rounds=3, matches=2, group=2)
+    with pytest.raises(AggregateError, match="at level map claims 1 matches"):
+        MapReport(
+            map_name="de_nuke",
+            map_name_source="map_demo_id",
+            map_demo_ids=["a-0"],
+            sample=_matched_sample(3, 1),
+            sides=[side],
+        )
+
+
+def _map_with_matches(
+    map_name: str, demo_ids: list[str], rounds: int, matches: int
+) -> MapReport:
+    """A map whose demo and match counts are both stated.
+
+    :func:`_map_with_bucketed_demo` is one demo and one match; the bounds
+    between the report and its maps cannot be built from it, because they are
+    about a map that holds more than one of either.
+    """
+    map_sample = Sample(
+        demos=len(demo_ids),
+        rounds=rounds,
+        matches=matches,
+        league=SampleBucket(demos=0, rounds=0),
+        other=SampleBucket(demos=0, rounds=0),
+        unknown=SampleBucket(demos=len(demo_ids), rounds=rounds),
+    )
+    return MapReport(
+        map_name=map_name,
+        map_name_source="map_demo_id",
+        map_demo_ids=demo_ids,
+        sample=map_sample,
+        sides=[],
+    )
+
+
+def _report_with_maps(
+    demos: int, rounds: int, matches: int, maps: list[MapReport]
+) -> Report:
+    summary = Sample(
+        demos=demos,
+        rounds=rounds,
+        matches=matches,
+        league=SampleBucket(demos=0, rounds=0),
+        other=SampleBucket(demos=0, rounds=0),
+        unknown=SampleBucket(demos=demos, rounds=rounds),
+    )
+    return Report(
+        generated_at=datetime(2026, 8, 30, tzinfo=UTC),
+        team=team(),
+        sample=summary,
+        roster_sample=RosterSample(
+            demos=demos,
+            rounds=rounds,
+            full=SampleBucket(demos=0, rounds=0),
+            partial=SampleBucket(demos=0, rounds=0),
+            unknown=SampleBucket(demos=demos, rounds=rounds),
+        ),
+        anomaly_scan=scan(),
+        maps=maps,
+    )
+
+
+def test_the_report_cannot_hold_fewer_matches_than_its_busiest_map() -> None:
+    """Every map's matches are the report's own."""
+    maps = [_map_with_matches("de_nuke", ["a-0", "b-0"], 0, 2)]
+    with pytest.raises(AggregateError, match="but one map alone holds"):
+        _report_with_maps(demos=2, rounds=0, matches=1, maps=maps)
+
+
+def test_a_hand_edited_report_cannot_invent_a_match_the_maps_do_not_hold() -> None:
+    """A match reaches the report only through a map.
+
+    **This pins the bound and not a defence against the demo count**, and the
+    difference was measured rather than argued. The obvious reading -- that a
+    report whose match count was taken from the demos breaks the upper bound
+    -- is false: :func:`_check_demos_add_up` is an equality, so the maps'
+    demos always sum to the report's, and applying the substitution to the
+    maps as well lands on the bound exactly. Measured 2026-09-24 on this very
+    fixture: with the maps at ``matches = 2`` and ``matches = 1`` and the
+    report at 3, ``2 <= 3 <= 3`` passes. The earlier version of this test
+    applied the mistake to the report only, left the maps correct, and its
+    name claimed the catch.
+
+    What the bound really guards is a ``report.json`` edited by hand, and that
+    is what this builds: three matches claimed over maps that hold one each.
+    """
+    maps = [
+        _map_with_matches("de_nuke", ["a-0", "a-1"], 0, 1),
+        _map_with_matches("de_dust2", ["b-0"], 0, 1),
+    ]
+    with pytest.raises(AggregateError, match="but the map levels hold"):
+        _report_with_maps(demos=3, rounds=0, matches=3, maps=maps)
+
+
+def test_the_bounds_do_not_see_a_match_count_taken_from_the_demos() -> None:
+    """The measured negative, written down so the claim cannot come back.
+
+    Substituting the demo count for the match count **uniformly** -- which is
+    what the mistake would look like, because one function fills every level
+    -- passes both bounds on the real archive's own numbers: the report's 8
+    demos against maps of 4, 3 and 1 demos, where ``4 <= 8 <= 8``. The upper
+    bound is an equality there, and it always is, because the demos sum by an
+    equality of their own.
+
+    This test exists because two docstrings and a test name once said the
+    opposite. It asserts the **acceptance**, so it fails the moment anyone
+    makes the bound stronger without re-reading the reason -- at which point
+    the honest paragraphs in ``report.py`` have to be rewritten too.
+    """
+    maps = [
+        _map_with_matches("de_nuke", [f"m{n}-1" for n in range(4)], 0, 4),
+        _map_with_matches("de_dust2", [f"m{n}-0" for n in range(3)], 0, 3),
+        _map_with_matches("de_inferno", ["m3-0"], 0, 1),
+    ]
+    wrong = _report_with_maps(demos=8, rounds=0, matches=8, maps=maps)
+    assert wrong.sample.matches == 8
+    assert sum(m.sample.matches for m in wrong.maps) == 8
+
+
+def test_the_real_archives_shape_is_accepted() -> None:
+    """The measured shape passes, and a **sum** written here would refuse it.
+
+    Measured 2026-09-24: the scouted team's report is 8 demos and 4 matches,
+    and its maps hold 4, 3 and 1 matches. The maps' matches add up to 8, so
+    the rule that works for demos (:func:`_check_demos_add_up`, an equality)
+    would reject the real archive on its first run. That is the whole reason
+    the match check is two inequalities.
+
+    The lower bound is **touched** here and not cleared: the report holds 4
+    and its busiest map holds 4, which is the ordinary case whenever one map
+    carries every match. Only the upper bound has slack -- and
+    :func:`test_the_bounds_do_not_see_a_match_count_taken_from_the_demos`
+    is what that slack costs.
+    """
+    maps = [
+        _map_with_matches("de_nuke", [f"m{n}-1" for n in range(4)], 0, 4),
+        _map_with_matches("de_dust2", [f"m{n}-0" for n in range(3)], 0, 3),
+        _map_with_matches("de_inferno", ["m3-0"], 0, 1),
+    ]
+    report = _report_with_maps(demos=8, rounds=0, matches=4, maps=maps)
+    assert report.sample.matches == 4
+    assert [m.sample.matches for m in report.maps] == [4, 3, 1]
+    assert sum(m.sample.matches for m in report.maps) == 8
+
+
+def test_the_recency_mark_has_three_states_and_not_two() -> None:
+    """``null`` is "the order is not known" and not "the newest is absent".
+
+    The difference is the whole reason the field is nullable: a report built
+    from hand-imported demos has no match index behind it, and a ``False``
+    there would tell the reader that the observation stopped -- which nobody
+    measured.
+    """
+    for mark in (True, False, None):
+        bar = PlayersCount(players=1, n=2, matches=1, newest=mark)
+        assert bar.newest is mark

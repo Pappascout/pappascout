@@ -60,14 +60,15 @@ Everything here is English -- identifiers, docstrings, comments -- except
 **the text this module lays into the report**, which stays Finnish
 permanently because Finnish team-mates read the report before a match. The
 boundary is not the ``*_FI`` naming convention and it is not the package:
-measured 2026-09-10 and again 2026-09-23, this module holds seventeen
-constants that carry no ``*_FI`` in their names and reach the report anyway
-(:data:`UNKNOWN_AREA`, :data:`ESTIMATE_MARK`, :data:`TRACEABILITY_HEADING`,
-:data:`UNNAMED_PLAYER`, :data:`RECORD_VERB`,
-:data:`RECORD_UNKNOWN_OUTCOME` and eleven others). **Trace a value to its
-consumer**; the name does not tell you. A constant added below inherits this
-paragraph, which is why it is here and not attached to whichever constant
-happened to be the last one to need saying so.
+measured 2026-09-10, again 2026-09-23 and again 2026-09-24, this module holds
+**twenty** constants that carry no ``*_FI`` in their names and reach the
+report anyway (:data:`UNKNOWN_AREA`, :data:`ESTIMATE_MARK`,
+:data:`TRACEABILITY_HEADING`, :data:`UNNAMED_PLAYER`, :data:`RECORD_VERB`,
+:data:`RECORD_UNKNOWN_OUTCOME`, :data:`MATCH_SAMPLE_UNIT`,
+:data:`RECENCY_NEWEST_INCLUDED`, :data:`RECENCY_NEWEST_ABSENT` and eleven
+others). **Trace a value to its consumer**; the name does not tell you. A
+constant added below inherits this paragraph, which is why it is here and not
+attached to whichever constant happened to be the last one to need saying so.
 
 **Some of the round types are protected** (:data:`PROTECTED_ROUND_TYPES`),
 and every pruning paragraph of the reading guide says so out loud: the same
@@ -330,6 +331,67 @@ KILL_SAMPLE_UNIT = "taposta"
 #: unknown position is a different thing from an empty area.
 UNKNOWN_AREA = "tuntematon alue"
 
+#: The match sample's **unit**: ``4 kierrosta 4 ottelussa``.
+#:
+#: **The inessive, and it is the product owner's own word** (2026-09-24): if
+#: the sentence to be made is "four rounds in four matches", then the
+#: inessive is the right case. (His words are translated here rather than
+#: quoted, as :data:`PATTERN_ROUND_TYPES` translates his; AD-11 keeps Finnish
+#: to the report's own content and a docstring is not that.) The
+#: implementation had proposed the elative ``ottelusta``, to match
+#: :attr:`Claim.unit`'s ``kierroksesta`` beside it; that argument is recorded
+#: here because it lost, not because it is still open. The sentence
+#: the heading makes is "four rounds **in** four matches", and the rounds are
+#: in the matches rather than out of them.
+#:
+#: A constant and not a literal, for :data:`KILL_SAMPLE_UNIT`'s reason: the
+#: reading guide explains this word and the rows print it, and written twice
+#: one of them would go on saying something the report no longer says.
+#:
+#: What is still **awaiting the product owner's word** (Story 4.9, "Ask
+#: First"), as :data:`RECORD_VERB` is: :data:`RECENCY_NEWEST_INCLUDED`,
+#: :data:`RECENCY_NEWEST_ABSENT`, :func:`played_maps_text` and the reading
+#: guide's three entries. The unit itself is settled.
+MATCH_SAMPLE_UNIT = "ottelussa"
+
+#: The recency mark when the newest of the matches is among them.
+#:
+#: The reader's question before a match is *"is this still true?"*, and a
+#: count cannot answer it: measured 2026-09-23, ``de_nuke`` T pistol reads
+#: *Outside 3 (3/4 kierroksesta)* where the truth is "in the three oldest
+#: matches and not in the newest" -- the opposite piece of advice. The mark
+#: is the answer in the fewest words that are still plain; an arrow or a star
+#: would be shorter and would have to be looked up.
+#:
+#: **A mark and not a weight.** The product owner chose this over weighting
+#: recent matches more heavily (option A, 2026-09-24): a weighted count
+#: cannot be checked against the demos, and every number in this report has to
+#: be one the reader could re-derive by watching.
+#:
+#: **It is written only where it can be false**, and that is the cost this
+#: constant carries rather than the rule that carries it. Two of the three
+#: teams in the developer's archive are entirely hand-imported demos, one map
+#: per match, so most of their blocks hold a single match -- and there every
+#: observation is in the newest match by definition. Printed, this word would
+#: be on every line of those reports, always true, and a reader learns to skip
+#: a mark that never varies. :func:`_block_states_matches` is where the block
+#: is left unmarked, and the reading guide names that reason beside the other
+#: one (an order that is not known), because a reader cannot tell the two
+#: apart from the line.
+#:
+#: **Awaiting the product owner's word**, as :data:`MATCH_SAMPLE_UNIT` says.
+RECENCY_NEWEST_INCLUDED = "uusin mukana"
+
+#: The recency mark when the newest of the matches is **not** among them.
+#:
+#: Written out rather than left off, and that is the whole of its value: an
+#: absent mark would be the ordinary case for every row the story does not
+#: touch, so silence cannot mean "not in the newest". The words are short
+#: because the line already says ``ottelusta`` immediately before them.
+#:
+#: **Awaiting the product owner's word**, as :data:`MATCH_SAMPLE_UNIT` says.
+RECENCY_NEWEST_ABSENT = "ei uusimmassa"
+
 #: The win-loss record's verb on the round type's sample line (Story 4.8):
 #: ``**Default** (22 kierrosta, voitettu 15-7)``.
 #:
@@ -458,6 +520,15 @@ class Claim:
 
     A claim cannot be built without a sample: ``n`` is the rounds on which
     the observation was made, ``m`` all of that level's rounds.
+
+    **The match sample is optional and the round sample is not**, and that
+    asymmetry is Story 4.9's boundary rather than an oversight. Every claim in
+    the report counts rounds; the ones the model gives a match count to are
+    the sample-point rows and the first-contact row, which is where the
+    measurement of 2026-09-23 found the report saying the opposite of the
+    truth. A claim built without ``matches_n`` prints exactly what it printed
+    before, character for character. The rows still without one are named in
+    :mod:`pappascout.domain.report`'s own docstring, where the reason belongs.
     """
 
     text: str
@@ -473,10 +544,93 @@ class Claim:
     #: there. The unit is a field and not part of an already formatted
     #: string, so that ``n`` and ``m`` stay numbers in the view.
     unit: str = "kierroksesta"
+    #: The same observation in **matches**: how many of the ``matches_m``
+    #: matches the denominator covers it was made in. Both or neither --
+    #: :meth:`__post_init__` refuses one without the other, because half a
+    #: fraction is not a sample.
+    matches_n: int | None = None
+    matches_m: int | None = None
+    #: Whether the **map's** newest match is among the matches the observation
+    #: was made in, or ``None`` when the matches' order is not known. The
+    #: model's own three states
+    #: (:attr:`~pappascout.domain.report.PlayersCount.newest`), carried
+    #: through unchanged: ``render`` does not decide what a missing order
+    #: means, and it does not decide which match is the newest either.
+    #:
+    #: **It is independent of the fraction above**, and that is deliberate.
+    #: A block of one match prints no fraction (every one would be ``1/1``)
+    #: and still prints the mark, because since the mark became the *map's*
+    #: the answer is no longer a foregone one: a one-match block is either
+    #: the map's newest or it is stale, and which of the two is the most
+    #: useful thing on the line.
+    newest: bool | None = None
+
+    def __post_init__(self) -> None:
+        """A match sample is a fraction, so it is both numbers or neither.
+
+        The pair is two fields and not one node because ``Claim`` is a
+        dataclass the whole module builds by keyword; what a node would buy is
+        exactly this check, and here it is. Without it a claim could carry
+        ``matches_n`` alone and :attr:`sample_text` would have to choose
+        between printing a numerator with no denominator and dropping a
+        measured number in silence.
+
+        ``newest`` is **not** part of the pair; see its own comment.
+
+        Raises:
+            ValueError: If exactly one of the two is given.
+        """
+        if (self.matches_n is None) != (self.matches_m is None):
+            raise ValueError(
+                "A claim's match sample needs both its numerator and its "
+                f"denominator; it has matches_n={self.matches_n!r} and "
+                f"matches_m={self.matches_m!r}. A fraction with one half "
+                "missing is not a sample."
+            )
 
     @property
     def sample_text(self) -> str:
-        return f"{self.n}/{self.m} {self.unit}"
+        """The sample as the reader sees it, in one unit or in two.
+
+        ``3/4 kierroksesta`` when the model has no match count for this row,
+        ``3/4 kierroksesta, 2/4 ottelussa, ei uusimmassa`` when it has. The
+        order is rounds, matches, recency: the round count is the honest
+        sample size and stays where the reader's eye already is, and the mark
+        comes last because it qualifies the pair rather than being a third
+        count.
+
+        **The match fraction is dropped when it is the same fraction**, and
+        that is the product owner's decision of 2026-09-24 taken on the
+        rendered pistol block: every entry there printed ``3/4 kierroksesta,
+        3/4 ottelussa`` because a pistol round is one per map, so the second
+        half was the first half again in another word. The heading states the
+        block's match count, so nothing is lost -- and the line was 330
+        characters where it had been 150, in a document read in the rush
+        before a match.
+
+        **The mark is not dropped with it, ever.** It is the one thing on the
+        line that the round fraction cannot say: *"Outside on three rounds of
+        four"* reads the same whether those three are the three oldest
+        matches or the three newest, and that is the whole finding this story
+        was written from. It is printed whenever the model knows it, including
+        on blocks that print no fraction at all.
+        """
+        text = f"{self.n}/{self.m} {self.unit}"
+        # Identical fractions, not identical numbers: (3, 4) and (3, 4) say
+        # the same thing twice, while (2, 4) beside (3, 4) is the observation
+        # the story exists for.
+        if self.matches_n is not None and (
+            (self.matches_n, self.matches_m) != (self.n, self.m)
+        ):
+            text += f", {self.matches_n}/{self.matches_m} {MATCH_SAMPLE_UNIT}"
+        if self.newest is not None:
+            mark = (
+                RECENCY_NEWEST_INCLUDED
+                if self.newest
+                else RECENCY_NEWEST_ABSENT
+            )
+            text += f", {mark}"
+        return text
 
 
 @dataclass(frozen=True)
@@ -925,6 +1079,50 @@ def demos_text(count: int) -> str:
     return "1 demo" if count == 1 else f"{count} demoa"
 
 
+def matches_text(count: int) -> str:
+    """``1 ottelussa`` / ``4 ottelussa``: in one match / in four matches.
+
+    The **inessive**, unlike :func:`demos_text` and :func:`rounds_text` beside
+    it, because of where the three are used. Those two name a quantity
+    (``8 demoa``, ``157 kierrosta``); this one always follows one of them and
+    says what that quantity is inside -- ``4 kierrosta 4 ottelussa``. In the
+    nominative the two would read as a list of two separate counts, which is
+    exactly the reading Story 4.9 exists to prevent: the rounds are **in** the
+    matches. The case is the product owner's own
+    (:data:`MATCH_SAMPLE_UNIT`).
+
+    The same word as :data:`MATCH_SAMPLE_UNIT`, and deliberately so: a heading
+    that said ``ottelua`` over rows that said ``ottelussa`` would look like
+    two different measurements. The unit is one constant and this function
+    only puts a number in front of it.
+    """
+    return f"{count} {MATCH_SAMPLE_UNIT}"
+
+
+def played_maps_text(count: int) -> str:
+    """``1 pelattu kartta`` / ``8 pelattua karttaa``: the summary's own unit.
+
+    **The root of the report counts played maps and not matches**, and that is
+    the product owner's decision of 2026-09-24: the count of played maps --
+    eight of them -- is what he wants there, and it is enough. The summary had
+    read ``8 demoa 4 ottelussa``, which is true, because every match of that
+    sample was a ``best_of 2`` that played two maps; the distinction is simply
+    not one he wants at the root. Below the root the headings keep both
+    counts, where they are equal anyway on this archive.
+
+    **It is the same number as** :func:`demos_text`'s, in the reader's word
+    instead of the pipeline's: one demo is one played map. The two words are
+    not merged, because ``demoa`` is still right where the report is talking
+    about the **files** -- the map chapter's heading and the traceability
+    chapter's ids -- and this one is right where it is talking about what the
+    opponent played.
+
+    **Awaiting the product owner's word**, as :data:`RECENCY_NEWEST_INCLUDED`
+    is: the number is his, the wording around it is the implementation's.
+    """
+    return "1 pelattu kartta" if count == 1 else f"{count} pelattua karttaa"
+
+
 def players_text(count: int) -> str:
     """``1 pelaaja`` / ``5 pelaajaa``: one player / five players.
 
@@ -1140,8 +1338,70 @@ def _threshold_float(report: Report, name: str) -> float | None:
 # -- Building the rows -----------------------------------------------------------
 
 
-def _position_line(position: Position, min_n: int, flags: _Flags) -> Line | None:
-    """One sample point's row: the areas and their player counts."""
+#: Whether a block's claims carry a match **fraction**.
+#:
+#: **A block of one match says so in its heading, and every fraction in it
+#: would be ``1/1``**: the sample point's matches are a subset of that one
+#: match. Two of the three teams in the developer's archive are entirely
+#: hand-imported demos, one map per match, so this is not a corner -- without
+#: the rule their whole report gains a tautology on every claim.
+#:
+#: **The recency mark has its own rule one level up**
+#: (:func:`_map_states_recency`), because since the mark became the **map's**
+#: a one-match *block* still says something: whether its single match is the
+#: map's most recent. Only a one-match **map** makes it a tautology.
+#:
+#: The rule is **selection and not computation** (AD-10): the number comes
+#: from the model, and what is chosen here is which observations earn a place
+#: on the line -- the same kind of choice as the pattern threshold.
+def _block_states_matches(report_type: RoundTypeReport) -> bool:
+    return report_type.sample.matches > 1
+
+
+#: Whether a map's claims carry a **recency mark**.
+#:
+#: **A map of one match has nothing to mark.** Every observation on it is in
+#: that match, and that match is by definition the map's most recent, so the
+#: mark would read *the newest is among them* on every line of the chapter --
+#: and the chapter heading already says ``1 ottelussa``.
+#:
+#: **Measured, and it is why this rule is at the map level and not the
+#: block's** (2026-09-24, all three teams of the developer's archive
+#: rendered). With the rule at the block level the two hand-imported teams,
+#: whose maps hold one demo each, printed the mark 304 and 197 times against
+#: 2 and 2 of the other form: a mark that is effectively always the same word
+#: is one the reader learns to skip, and that cost falls on the maps where it
+#: does discriminate. With the rule here, those chapters carry no mark at
+#: all, and the scouted team -- whose maps hold three and four matches --
+#: keeps its 326 against 155.
+#:
+#: The **fraction**'s rule stays at the block level
+#: (:func:`_block_states_matches`), because a fraction's denominator is the
+#: sample point's matches and that is a property of the block.
+#:
+#: The reading guide names both reasons a mark can be missing -- one match on
+#: the map, or an order that is not known -- because a reader cannot tell them
+#: apart from the line. The first is visible in the map's heading; the second
+#: is not.
+def _map_states_recency(map_report: MapReport) -> bool:
+    return map_report.sample.matches > 1
+
+
+def _position_line(
+    position: Position,
+    min_n: int,
+    flags: _Flags,
+    *,
+    matches: bool,
+    recency: bool,
+) -> Line | None:
+    """One sample point's row: the areas and their player counts.
+
+    ``matches`` is :func:`_block_states_matches` and ``recency`` is
+    :func:`_map_states_recency`; when either is false that half of the match
+    sample is left off the claims. They are two flags and not one because
+    they are decided at two levels, and those functions say why.
+    """
     claims: list[tuple[int, int, str, Claim]] = []
     for area in position.areas:
         for bar in area.players_dist:
@@ -1163,7 +1423,14 @@ def _position_line(position: Position, min_n: int, flags: _Flags) -> Line | None
                     -bar.players,
                     -bar.n,
                     name,
-                    Claim(text=f"{name} {bar.players}", n=bar.n, m=area.m),
+                    Claim(
+                        text=f"{name} {bar.players}",
+                        n=bar.n,
+                        m=area.m,
+                        matches_n=bar.matches if matches else None,
+                        matches_m=area.matches_m if matches else None,
+                        newest=bar.newest if recency else None,
+                    ),
                 )
             )
 
@@ -1449,7 +1716,12 @@ def _bucket_text(bucket: str) -> str:
 
 
 def _first_contact_gap_line(
-    report_type: RoundTypeReport, min_n: int, flags: _Flags
+    report_type: RoundTypeReport,
+    min_n: int,
+    flags: _Flags,
+    *,
+    matches: bool,
+    recency: bool,
 ) -> Line | None:
     """First contact's areas that are **not** in the corresponding sample
     point.
@@ -1485,7 +1757,20 @@ def _first_contact_gap_line(
         name = _area(entry.area)
         if entry.area is None:
             flags.unknown_area = True
-        claims.append((-entry.n, name, Claim(text=name, n=entry.n, m=entry.m)))
+        claims.append(
+            (
+                -entry.n,
+                name,
+                Claim(
+                    text=name,
+                    n=entry.n,
+                    m=entry.m,
+                    matches_n=entry.matches if matches else None,
+                    matches_m=entry.matches_m if matches else None,
+                    newest=entry.newest if recency else None,
+                ),
+            )
+        )
     if not claims:
         return None
     claims.sort(key=lambda item: item[:2])
@@ -2001,6 +2286,7 @@ def _round_type_lines(
     min_n: int,
     flags: _Flags,
     pruning: _Pruning,
+    recency: bool,
 ) -> tuple[list[Line], bool]:
     """One round type's rows in order, pruning included.
 
@@ -2021,10 +2307,15 @@ def _round_type_lines(
     """
     rows: list[_Row] = []
     skipped_samples: list[str] = []
+    # Decided once for the whole block, because it is a property of the block
+    # and not of any row: see :func:`_block_states_matches`.
+    states_matches = _block_states_matches(report_type)
 
     for position in report_type.positions:
         scratch = _Flags()
-        line = _position_line(position, min_n, scratch)
+        line = _position_line(
+            position, min_n, scratch, matches=states_matches, recency=recency
+        )
         if line is None:
             # The row never came about, so pruning has nothing to say about
             # it. The threshold's bookkeeping transfers all the same.
@@ -2051,7 +2342,9 @@ def _round_type_lines(
     )
     rows.extend(equipment)
 
-    gap = _first_contact_gap_line(report_type, min_n, flags)
+    gap = _first_contact_gap_line(
+        report_type, min_n, flags, matches=states_matches, recency=recency
+    )
     if gap is not None:
         keep_all([gap])
 
@@ -2101,6 +2394,7 @@ def _round_type_view(
     threshold: int | None,
     flags: _Flags,
     settings: ReportSettings,
+    recency: bool,
 ) -> RoundTypeView:
     """Assemble one round type's rows.
 
@@ -2142,7 +2436,7 @@ def _round_type_view(
 
     pruning = _Pruning.for_round_type(settings, report_type.round_type)
     lines, kept_the_block = _round_type_lines(
-        report_type, min_n, flags, pruning
+        report_type, min_n, flags, pruning, recency
     )
 
     # The two things about filtering -- the rule and its price -- are on the
@@ -2221,7 +2515,10 @@ def _round_type_view(
     return RoundTypeView(
         round_type=report_type.round_type,
         heading=heading,
-        rounds_text=rounds_text(report_type.sample.rounds),
+        rounds_text=(
+            f"{rounds_text(report_type.sample.rounds)} "
+            f"{matches_text(report_type.sample.matches)}"
+        ),
         record_text=record_text(report_type.record),
         small_sample=report_type.small_sample,
         pattern_only=pattern_only,
@@ -2605,14 +2902,33 @@ def _round_type_rank(round_type: str) -> int:
 
 
 def _sample_text(sample: Any) -> str:
-    """The sample in three buckets. All three always, the empty ones too."""
+    """The sample in three buckets. All three always, the empty ones too.
+
+    **The row leads with played maps and states no match count**, which is the
+    product owner's decision of 2026-09-24 (:func:`played_maps_text`). His
+    sample is four ``best_of 2`` matches over eight maps, and what he wants at
+    the root is the eight.
+
+    That leaves the report's match count in ``report.json`` and off this row,
+    which is deliberate and not an omission: :attr:`.report.Sample.matches` is
+    still measured, still validated and still printed **under** the root, on
+    every map, side and round-type heading. A reader adding those up gets more
+    than the root holds, because a match that played two maps is in two of
+    them -- the reading guide says so, because it is the one thing a Finnish
+    reader needs in order to read the numbers and it cannot live in a
+    docstring (:func:`_legend`).
+
+    The bucket breakdown stays in demos and rounds: ``is_league`` buckets
+    demos, and a match count per bucket would be a fourth copy of the same
+    split (:attr:`~pappascout.domain.report.Sample.matches`).
+    """
     parts = [
         f"{SAMPLE_BUCKET_FI[name]} {getattr(sample, name).demos} / "
         f"{getattr(sample, name).rounds}"
         for name in SAMPLE_BUCKETS
     ]
     return (
-        f"{demos_text(sample.demos)}, {rounds_text(sample.rounds)} "
+        f"{played_maps_text(sample.demos)}, {rounds_text(sample.rounds)} "
         f"(demoa/kierrosta: {', '.join(parts)})"
     )
 
@@ -3206,19 +3522,29 @@ def build_view(
     maps: list[MapView] = []
     for map_report in report.maps:
         sides: list[SideView] = []
+        # One decision per map chapter: see ``_map_states_recency``.
+        states_recency = _map_states_recency(map_report)
         for side in map_report.sides:
             views: list[RoundTypeView] = []
             for entry in sorted(
                 side.round_types, key=lambda rt: _round_type_rank(rt.round_type)
             ):
                 views.append(
-                    _round_type_view(entry, threshold, flags, settings)
+                    _round_type_view(
+                        entry, threshold, flags, settings, states_recency
+                    )
                 )
             sides.append(
                 SideView(
                     side=side.side,
                     heading=f"{side.side}-puoli",
-                    rounds_text=rounds_text(side.sample.rounds),
+                    # The match count goes beside the round count and never
+                    # instead of it (Story 4.9): the rounds are the honest
+                    # sample size and ``small_sample`` is read from them.
+                    rounds_text=(
+                        f"{rounds_text(side.sample.rounds)} "
+                        f"{matches_text(side.sample.matches)}"
+                    ),
                     round_types=tuple(views),
                     note=None if views else _NO_ROUND_TYPES,
                 )
@@ -3247,10 +3573,15 @@ def build_view(
         # would give the map **a different spelling** from the one on the
         # traceability chapter's row. The report is read raw as well, and the
         # same map in two spellings would read as two maps.
+        # The map's heading names all three units, and the demos stay: a demo
+        # is the file the reader opens to check a claim, and the map chapter
+        # is where the traceability chapter's ids are counted from. The
+        # matches are what the reader is asking about.
         heading = (
             f"{_identifier(map_report.map_name)} -- "
             f"{rounds_text(map_report.sample.rounds)}, "
-            f"{demos_text(map_report.sample.demos)}"
+            f"{demos_text(map_report.sample.demos)} "
+            f"{matches_text(map_report.sample.matches)}"
         )
         if name_unknown:
             heading += " (kartan nimeä ei tunnistettu tunnisteesta)"
@@ -3388,6 +3719,72 @@ def _legend(
         "Jos jonkin kierroksen tulosta ei saatu, se sanotaan otsikossa "
         "erikseen eikä lasketa tappioksi. Raportti kertoo luvun eikä "
         "johda siitä osuutta tai arviota: tulkinta on lukijan."
+    )
+    # THREE PARAGRAPHS, ALL UNCONDITIONAL, ALL AWAITING THE PRODUCT OWNER'S
+    # WORD (Story 4.9). Unconditional for the record's reason: every heading
+    # carries the match count, so there is no report in which they explain a
+    # line that is not there.
+    #
+    # The third one is not an explanation of a formatting choice but **an
+    # invariant the reader cannot read the numbers without**. The map
+    # headings say 4, 3 and 1 matches under a root that counts eight played
+    # maps; adding the three gives eight as well, and a reader who adds them
+    # concludes eight matches. Nothing else on the Finnish side says
+    # otherwise -- the reasoning lives in ``domain``'s English docstrings,
+    # where no team-mate looks before a match, and that is an AD-11 question
+    # and not a wording one.
+    #
+    # The second one names **two** causes for a row that is marked absent all
+    # the way across, because there are two and only one of them used to be
+    # written. Measured 2026-09-24 on the real archive: ``de_nuke`` T force at
+    # 6 s prints only bars that exclude the newest match, while the bar that
+    # includes it (``Outside 5``) was dropped by the repetition threshold and
+    # ``rounds_missing`` is zero. Every claim on that row is true; the
+    # paragraph's account of them was not.
+    notes.append(
+        f"Kierrosten rinnalla luetaan ottelut (n/m {MATCH_SAMPLE_UNIT}): "
+        "kolme kierrosta kolmesta ottelusta on tapa, kolme kierrosta yhdestä "
+        "ottelusta tapahtui kerran, ja pelkkä kierrosmäärä kirjoittaa ne "
+        "samalla tavalla. Otsikot kertovat ottelumäärän aina. Väitekohtainen "
+        "ottelumäärä on näytepisteiden riveillä ja ensikontaktin "
+        "läsnäolorivillä; muilla riveillä lukee vain kierrokset, ja niiden "
+        "nimittäjä on otsikon ottelumäärä. Ottelumäärä jätetään riviltä pois "
+        "silloin, kun se on sama murtoluku kuin kierrosmäärä -- esimerkiksi "
+        "pistoolilohkossa, jossa jokainen ottelu antaa yhden kierroksen -- ja "
+        "kokonaan silloin, kun lohkossa on vain yksi ottelu. Tuoreusmerkintä "
+        "kirjoitetaan siltikin, jos kartalla on useampi ottelu."
+    )
+    notes.append(
+        f'Merkintä "{RECENCY_NEWEST_INCLUDED}" tai '
+        f'"{RECENCY_NEWEST_ABSENT}" kertoo, onko **kartan uusin ottelu** '
+        "niiden joukossa, joissa havainto tehtiin. Se vastaa kysymykseen "
+        "\"päteekö tämä yhä\" -- osuus ei vastaa: sama 3/4 syntyy kolmesta "
+        "vanhimmasta ottelusta ja kolmesta uusimmasta. **Uusin on kartan "
+        "uusin eikä lohkon oma uusin**, ja se on merkinnän koko arvo: jos "
+        f'lohkossa ei ole yhtään kierrosta kartan uusimmasta ottelusta, koko '
+        f'lohko lukee "{RECENCY_NEWEST_ABSENT}" -- eli tämä lohko on vanhaa '
+        "tietoa. Kokonaan merkitty rivi voi syntyä myös siitä, että "
+        "uusimman ottelun havainnot jäivät rivin kynnyksen alle tai "
+        "näytepisteestä puuttuu kierroksia; rivin oma huomautus kertoo "
+        "puuttuvat kierrokset ja lohkon huomautus kertoo karsitut havainnot. "
+        "Ottelut eivät ole painotettuja millään luvulla: raportti kertoo "
+        "havainnot siinä järjestyksessä kuin ne tapahtuivat, jotta jokainen "
+        "luku on tarkistettavissa demoilta. Merkintä puuttuu kahdessa "
+        "tapauksessa: kun kartalla on vain yksi ottelu, jolloin jokainen "
+        "havainto on siinä ja kartan otsikko sanoo sen jo, ja kun otteluiden "
+        "järjestystä ei tiedetä -- esimerkiksi käsin tuodulle demolle, jota "
+        "ei ole otteluindeksissä."
+    )
+    notes.append(
+        "**Ottelumäärät eivät laske yhteen tasojen välillä, kierrosmäärät "
+        "laskevat.** Sama ottelu voi pelata kaksi karttaa ja pelaa aina "
+        "molemmat puolet, joten se on mukana useamman otsikon "
+        "ottelumäärässä: karttojen ottelumäärät yhteen laskettuna saa "
+        "suuremman luvun kuin otteluita on. Kierrokset sen sijaan jakautuvat "
+        "kartoille, puolille ja kierrostyypeille kukin täsmälleen kerran, "
+        "joten ne laskevat yhteen. Yhteenvedon rivi kertoo pelattujen "
+        "karttojen määrän juuri tästä syystä: se on luku, jonka voi laskea "
+        "yhteen."
     )
     notes.append(
         "Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä "

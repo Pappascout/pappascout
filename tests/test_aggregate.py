@@ -32,6 +32,8 @@ from pappascout.domain.aggregate import (
     roster_sample_for,
     team_identity,
     map_name_for,
+    matches_of,
+    newest_match,
     observed_map_name,
     weakest_map_source,
     players_distribution,
@@ -443,6 +445,7 @@ def report_for(
     map_names: dict[str, str | None] | None = None,
     area_orientation: dict[str, dict[str | None, AreaObservations]] | None = None,
     point_clouds: dict[str, list[CloudCell]] | None = None,
+    match_order: list[str] | None = None,
 ):
     """A report from hand-built rows.
 
@@ -477,6 +480,10 @@ def report_for(
     if point_clouds is None:
         point_clouds = {str(row["map_demo_id"]): [] for row in classified}
     return build_report(
+        # Empty unless a test says otherwise: an archive with no match index
+        # is a real state, and it is the one every test written before Story
+        # 4.9 is about. A recency test names its own order.
+        match_order=match_order or [],
         classified=classified_frame(classified),
         ticks=ticks_frame(ticks or []),
         events=events_frame(events or []),
@@ -1046,7 +1053,9 @@ def test_the_two_breakdowns_of_one_sample_agree_on_the_totals() -> None:
 
 
 def test_players_distribution_keeps_the_zero_bucket() -> None:
-    dist = players_distribution([0, 0, 3])
+    dist = players_distribution(
+        [(("d", 1), 0), (("d", 2), 0), (("d", 3), 3)], None
+    )
     assert [(p.players, p.n) for p in dist] == [(0, 2), (3, 1)]
 
 
@@ -1057,7 +1066,7 @@ def test_area_without_players_still_gets_a_row() -> None:
         ("d", 1): [{"area": "BombsiteA"}, {"area": "BombsiteA"}],
         ("d", 2): [{"area": "BombsiteB"}],
     }
-    dists = {d.area: d for d in area_distributions(rows)}
+    dists = {d.area: d for d in area_distributions(rows, None)}
     assert [(p.players, p.n) for p in dists["BombsiteA"].players_dist] == [
         (0, 1),
         (2, 1),
@@ -1070,7 +1079,7 @@ def test_dead_players_do_not_count_towards_an_area() -> None:
         tick_row("d", 1, "p1", "BombsiteA"),
         tick_row("d", 1, "p2", "BombsiteA", is_alive=False),
     ]
-    position = positions_for(ticks, [("d", 1)])[0]
+    position = positions_for(ticks, [("d", 1)], None)[0]
     assert [(p.players, p.n) for p in position.areas[0].players_dist] == [(1, 1)]
 
 
@@ -1081,7 +1090,7 @@ def test_a_round_where_everyone_died_still_belongs_to_the_sample() -> None:
         tick_row("d", 1, "p1", "BombsiteA"),
         tick_row("d", 2, "p1", "BombsiteA", is_alive=False),
     ]
-    position = positions_for(ticks, [("d", 1), ("d", 2)])[0]
+    position = positions_for(ticks, [("d", 1), ("d", 2)], None)[0]
     assert position.m == 2
     assert [(p.players, p.n) for p in position.areas[0].players_dist] == [
         (0, 1),
@@ -1097,7 +1106,9 @@ def test_a_sample_point_that_the_round_never_reached_is_reported_missing() -> No
         tick_row("d", 2, "p1", "A", sample_t_s=6.0),
         tick_row("d", 1, "p1", "A", sample_t_s=45.0),
     ]
-    positions = {p.seconds: p for p in positions_for(ticks, [("d", 1), ("d", 2)])}
+    positions = {
+        p.seconds: p for p in positions_for(ticks, [("d", 1), ("d", 2)], None)
+    }
     assert (positions[6.0].m, positions[6.0].rounds_missing) == (2, 0)
     assert (positions[45.0].m, positions[45.0].rounds_missing) == (1, 1)
 
@@ -1108,7 +1119,7 @@ def test_first_contact_is_one_position_not_one_per_round() -> None:
         tick_row("d", 1, "p1", "A", sample_kind="first_contact", sample_t_s=11.0),
         tick_row("d", 2, "p1", "A", sample_kind="first_contact", sample_t_s=23.0),
     ]
-    positions = positions_for(ticks, [("d", 1), ("d", 2)])
+    positions = positions_for(ticks, [("d", 1), ("d", 2)], None)
     assert len(positions) == 1
     assert positions[0].sample_kind == "first_contact"
     assert positions[0].seconds is None
@@ -1122,7 +1133,10 @@ def test_first_contact_areas_count_presence_not_players() -> None:
         tick_row("d", 2, "p1", "Banana", sample_kind="first_contact", sample_t_s=9.0),
         tick_row("d", 2, "p2", "Apartments", sample_kind="first_contact", sample_t_s=9.0),
     ]
-    areas = {a.area: (a.n, a.m) for a in first_contact_areas(ticks, [("d", 1), ("d", 2)])}
+    areas = {
+        a.area: (a.n, a.m)
+        for a in first_contact_areas(ticks, [("d", 1), ("d", 2)], None)
+    }
     assert areas == {"Banana": (2, 2), "Apartments": (1, 2)}
 
 
@@ -1526,13 +1540,24 @@ def test_a_lost_round_breaks_the_sample_check_loudly() -> None:
             sample_kind="time",
             seconds=6.0,
             m=3,
+            matches_m=3,
             rounds_missing=0,
             areas=[
                 AreaDistribution(
-                    area="Ramp", m=3, players_dist=[PlayersCount(players=0, n=3)]
+                    area="Ramp",
+                    m=3,
+                    matches_m=3,
+                    players_dist=[
+                        PlayersCount(players=0, n=3, matches=3, newest=None)
+                    ],
                 ),
                 AreaDistribution(
-                    area="Hell", m=2, players_dist=[PlayersCount(players=0, n=2)]
+                    area="Hell",
+                    m=2,
+                    matches_m=2,
+                    players_dist=[
+                        PlayersCount(players=0, n=2, matches=2, newest=None)
+                    ],
                 ),
             ],
         )
@@ -1648,7 +1673,7 @@ def test_first_contact_median_is_taken_over_rounds_not_player_rows() -> None:
     ] + [
         tick_row("d", 2, "p1", "A", sample_kind="first_contact", sample_t_s=20.0)
     ]
-    position = positions_for(ticks, [("d", 1), ("d", 2)])[0]
+    position = positions_for(ticks, [("d", 1), ("d", 2)], None)[0]
     assert position.seconds_median == 15.0
 
 
@@ -1656,7 +1681,7 @@ def test_a_time_sample_without_its_second_is_an_error_not_a_crash() -> None:
     row = tick_row("d", 1, "p1", "A")
     row["sample_t_s"] = None
     with pytest.raises(AggregateError, match="sample_t_s"):
-        positions_for([row], [("d", 1)])
+        positions_for([row], [("d", 1)], None)
 
 
 def test_a_grenade_that_detonates_in_the_next_round_keeps_its_area() -> None:
@@ -3600,3 +3625,330 @@ def test_the_record_of_a_group_adds_up_to_its_sample() -> None:
         0,
         1,
     )
+
+# --- Matches instead of rounds (Story 4.9) --------------------------------------
+
+
+#: Two maps of the **same** match, and one map of another.
+#:
+#: The ids are FACEIT's own form (the spine's *Consistency Conventions* table,
+#: row *Tunnisteet*), because that is what makes them a match at all:
+#: :func:`~pappascout.domain.selection.match_of` resolves an id only when its
+#: head really looks like a match id, so a short invented ``1-aaa-0`` is one
+#: match of its own and would make the opposite fixture from the one intended.
+#: Every other fixture in this file uses hand-import names, which are one
+#: match each. Measured 2026-09-24, the real archive holds both shapes -- the
+#: scouted team's eight demos are four matches of two maps, and the two
+#: calibration teams' demos are imported files.
+MATCH_A = "1-4c98a93e-19da-4baa-8633-f0f8d2e9a809"
+MATCH_B = "1-59f69cad-5d14-47d5-85c5-805ecf208076"
+MATCH_C = "1-63d01f95-4728-45d3-8f5a-d95ae1f58a79"
+MATCH_D = "1-83a63e1a-8156-48ba-b779-bd48630417e2"
+MATCH_A_MAP_0 = f"{MATCH_A}-0"
+MATCH_A_MAP_1 = f"{MATCH_A}-1"
+MATCH_B_MAP_0 = f"{MATCH_B}-0"
+
+
+def test_two_maps_of_one_match_are_one_match_and_two_demos() -> None:
+    """The story in one assertion: a demo is not a match.
+
+    Measured 2026-09-24 on the real archive -- the scouted team's report is 8
+    demos and 4 matches -- and this is that shape in miniature. Before Story
+    4.9 the summary said "8 demoa" to a reader counting matches, and there was
+    nothing else on the row to tell them otherwise.
+    """
+    rows = [
+        classified_row(MATCH_A_MAP_0, 0),
+        classified_row(MATCH_A_MAP_1, 0),
+        classified_row(MATCH_B_MAP_0, 0),
+    ]
+    entry = sample_for(rows, demo_buckets(rows))
+    assert (entry.demos, entry.matches, entry.rounds) == (3, 2, 3)
+
+
+def test_the_match_count_comes_from_the_rows_the_sample_comes_from() -> None:
+    """One pass, so the two counts cannot drift -- ``record_for``'s design.
+
+    The guard is the pair: hand ``sample_for`` a **subset** and both numbers
+    move together. A second pass over a differently filtered frame is exactly
+    what this shape leaves no room for, and it is why the match count is not a
+    function of its own taking a filter.
+    """
+    rows = [
+        classified_row(MATCH_A_MAP_0, 0),
+        classified_row(MATCH_A_MAP_1, 0),
+        classified_row(MATCH_B_MAP_0, 0),
+    ]
+    whole = sample_for(rows, demo_buckets(rows))
+    half = sample_for(rows[:1], demo_buckets(rows))
+    assert (whole.demos, whole.matches) == (3, 2)
+    assert (half.demos, half.matches) == (1, 1)
+
+
+def test_a_hand_imported_demo_is_a_match_of_its_own() -> None:
+    """An id outside AD-7's form is one match and not an unknown.
+
+    Two of the three teams in the developer's archive are entirely such
+    demos. Counting them as "no match" would leave those reports without a
+    match count at all; counting them together would merge unrelated matches.
+    """
+    rows = [
+        classified_row("Ancient_vs_a", 0),
+        classified_row("Nuke_vs_b", 0),
+    ]
+    entry = sample_for(rows, demo_buckets(rows))
+    assert (entry.demos, entry.matches) == (2, 2)
+
+
+def test_matches_of_reads_the_match_from_the_round_key() -> None:
+    assert matches_of([(MATCH_A_MAP_0, 1), (MATCH_A_MAP_1, 2)]) == {MATCH_A}
+    assert matches_of([]) == set()
+
+
+def test_one_match_is_its_own_newest_without_any_order() -> None:
+    """The case that lets a hand-imported demo's map still carry the mark."""
+    assert newest_match({MATCH_A}, {}) == MATCH_A
+
+
+def test_the_newest_is_unknown_when_one_match_has_no_place() -> None:
+    """A mark that is right most of the time is worse here than no mark.
+
+    The reader acts on it, so an order that does not settle the question
+    answers ``None`` instead of naming the newest of the matches it happens to
+    know about.
+    """
+    order = {MATCH_A: 0}
+    assert newest_match({MATCH_A, MATCH_B}, order) is None
+    whole = {**order, MATCH_B: 1}
+    assert newest_match({MATCH_A, MATCH_B}, whole) == MATCH_A
+    assert newest_match(set(), order) is None
+
+
+def test_a_sample_point_counts_the_matches_its_rounds_came_from() -> None:
+    """Three rounds over three demos and **two** matches.
+
+    **The three numbers are deliberately all different**, and that is the
+    fixture's whole job rather than an accident of rounding. Measured
+    2026-09-24 on the pinned archive table: of its 91 rows carrying both a
+    demo and a match count, **90 have them equal** -- only the report root is
+    8 against 4 -- so neither the archive suite nor a two-demo fixture can
+    tell a match count from a demo count anywhere below ``Sample``. Two maps
+    of ``MATCH_A`` and one of ``MATCH_B`` gives 3 rounds, 3 demos and 2
+    matches, and a sample point that reported demos would say 3.
+    """
+    ticks = [
+        tick_row(MATCH_A_MAP_0, 1, "p1", "Ramp"),
+        tick_row(MATCH_A_MAP_1, 1, "p1", "Ramp"),
+        tick_row(MATCH_B_MAP_0, 1, "p1", "Ramp"),
+    ]
+    keys = [(MATCH_A_MAP_0, 1), (MATCH_A_MAP_1, 1), (MATCH_B_MAP_0, 1)]
+    position = positions_for(ticks, keys, None)[0]
+    # rounds 3, demos 3, matches 2 -- the demo count is not on the node at
+    # all, which is the point: nothing here may be able to return it.
+    assert (position.m, position.matches_m) == (3, 2)
+    ramp = next(a for a in position.areas if a.area == "Ramp")
+    assert ramp.matches_m == 2
+    bar = next(b for b in ramp.players_dist if b.players == 1)
+    assert (bar.n, bar.matches) == (3, 2)
+
+
+def test_the_bars_matches_do_not_add_up_to_the_sample_points() -> None:
+    """The match counts break the rule the round counts keep, by construction.
+
+    One match, two rounds, two different player counts: each bar holds the
+    same match, so the bars' match counts sum to two over a sample point of
+    one. The model must accept this -- an equality there would refuse the
+    ordinary case -- and this is the fixture that says so out loud.
+    """
+    ticks = [
+        tick_row(MATCH_A_MAP_0, 1, "p1", "Ramp"),
+        tick_row(MATCH_A_MAP_0, 2, "p1", "Ramp"),
+        tick_row(MATCH_A_MAP_0, 2, "p2", "Ramp"),
+    ]
+    keys = [(MATCH_A_MAP_0, 1), (MATCH_A_MAP_0, 2)]
+    position = positions_for(ticks, keys, None)[0]
+    ramp = next(a for a in position.areas if a.area == "Ramp")
+    assert position.matches_m == 1
+    assert sum(b.matches for b in ramp.players_dist) == 2
+
+
+def test_the_newest_match_is_marked_on_the_bar_that_holds_it() -> None:
+    """The Intent's pistol case, in miniature.
+
+    Three matches show one player in Outside and the newest shows two in
+    Control. The round counts alone read as "mostly Outside"; the mark is what
+    says the newest match did something else, and it is the answer to "is this
+    still true?".
+    """
+    demos = [f"{m}-0" for m in (MATCH_A, MATCH_B, MATCH_C, MATCH_D)]
+    ticks = [tick_row(demo, 1, "p1", "Outside") for demo in demos[:3]]
+    ticks += [
+        tick_row(demos[3], 1, "p1", "Control"),
+        tick_row(demos[3], 1, "p2", "Control"),
+    ]
+    keys = [(demo, 1) for demo in demos]
+    position = positions_for(ticks, keys, MATCH_D)[0]
+    assert position.matches_m == 4
+    outside = next(a for a in position.areas if a.area == "Outside")
+    one_player = next(b for b in outside.players_dist if b.players == 1)
+    assert (one_player.n, one_player.matches, one_player.newest) == (3, 3, False)
+    control = next(a for a in position.areas if a.area == "Control")
+    two_players = next(b for b in control.players_dist if b.players == 2)
+    assert (two_players.n, two_players.matches, two_players.newest) == (1, 1, True)
+
+
+def test_without_an_order_no_bar_claims_anything_about_recency() -> None:
+    """``None`` and not ``False``: not knowing is not the same as absent."""
+    demos = [f"{MATCH_A}-0", f"{MATCH_B}-0"]
+    ticks = [tick_row(demo, 1, "p1", "Outside") for demo in demos]
+    position = positions_for(ticks, [(d, 1) for d in demos], None)[0]
+    outside = next(a for a in position.areas if a.area == "Outside")
+    assert all(bar.newest is None for bar in outside.players_dist)
+
+
+def test_first_contact_presence_counts_matches_and_marks_the_newest() -> None:
+    """The presence list's own denominator, in the same two units."""
+    ticks = [
+        tick_row(
+            MATCH_A_MAP_0,
+            1,
+            "p1",
+            "Banana",
+            sample_kind="first_contact",
+            sample_t_s=9.0,
+        ),
+        tick_row(
+            MATCH_A_MAP_1,
+            1,
+            "p1",
+            "Banana",
+            sample_kind="first_contact",
+            sample_t_s=9.0,
+        ),
+        tick_row(
+            MATCH_B_MAP_0,
+            1,
+            "p1",
+            "Apartments",
+            sample_kind="first_contact",
+            sample_t_s=9.0,
+        ),
+    ]
+    keys = [(MATCH_A_MAP_0, 1), (MATCH_A_MAP_1, 1), (MATCH_B_MAP_0, 1)]
+    areas = {a.area: a for a in first_contact_areas(ticks, keys, MATCH_B)}
+    # Three demos, three rounds, two matches: a count that was really the
+    # demo count would say 3 for Banana and for the denominator.
+    assert (areas["Banana"].n, areas["Banana"].matches) == (2, 1)
+    assert areas["Banana"].matches_m == 2
+    assert areas["Banana"].newest is False
+    assert (areas["Apartments"].n, areas["Apartments"].matches) == (1, 1)
+    assert areas["Apartments"].newest is True
+
+
+def test_the_reports_matches_are_a_union_and_not_a_sum() -> None:
+    """Two maps of one match: the report holds one match, the maps one each.
+
+    This is what the report level's own check exists for. The demos add up
+    (``_check_demos_add_up``) and the matches do not, and a match count taken
+    from the demos would claim two here.
+    """
+    rows = [
+        classified_row(MATCH_A_MAP_0, 0),
+        classified_row(MATCH_A_MAP_1, 0),
+    ]
+    report = report_for(
+        rows,
+        map_names={MATCH_A_MAP_0: "de_nuke", MATCH_A_MAP_1: "de_dust2"},
+    )
+    assert report.sample.demos == 2
+    assert report.sample.matches == 1
+    assert [m.sample.matches for m in report.maps] == [1, 1]
+
+
+def test_the_match_order_reaches_the_bars_through_build_report() -> None:
+    """The argument is threaded and not dropped somewhere on the way.
+
+    Without this the whole chain could be right and the stage's order still
+    never arrive: every unit test above passes its own order straight to the
+    function under test.
+    """
+    rows = [
+        classified_row(f"{MATCH_A}-0", 0),
+        classified_row(f"{MATCH_B}-0", 0),
+    ]
+    ticks = [
+        tick_row(f"{MATCH_A}-0", 0, "p1", "Ramp"),
+        tick_row(f"{MATCH_B}-0", 0, "p1", "Ramp"),
+        tick_row(f"{MATCH_B}-0", 0, "p2", "Ramp"),
+    ]
+    report = report_for(
+        rows,
+        ticks,
+        map_names={f"{MATCH_A}-0": "de_nuke", f"{MATCH_B}-0": "de_nuke"},
+        match_order=[MATCH_B, MATCH_A],
+    )
+    position = branch(report, "de_nuke", "T", "pistol").positions[0]
+    ramp = next(a for a in position.areas if a.area == "Ramp")
+    marks = {bar.players: bar.newest for bar in ramp.players_dist}
+    assert marks == {1: False, 2: True}
+
+def test_the_newest_is_the_blocks_and_not_the_sample_points_own() -> None:
+    """A moment the newest match never reached marks every bar as not newest.
+
+    The 45-second sample is missing from a round that ended at 30, so a sample
+    point can cover fewer matches than its block -- measured 2026-09-24, 15 of
+    the real archive's 377 points do. Measured against the point's own
+    matches, "uusin" would mean *the newest match that has a 45-second
+    sample*, and 14 of those 15 print the mark: the reader would be told it
+    about a match that is not the newest.
+
+    Here the newest match has a 6-second sample only. Its 45-second row reads
+    as not including the newest on every bar, which is true, and the row's own
+    ``rounds_missing`` note is what says the sample is short.
+    """
+    ticks = [
+        tick_row(f"{MATCH_A}-0", 1, "p1", "Ramp", sample_t_s=6.0),
+        tick_row(f"{MATCH_A}-0", 1, "p1", "Ramp", sample_t_s=45.0),
+        tick_row(f"{MATCH_B}-0", 1, "p1", "Ramp", sample_t_s=6.0),
+    ]
+    keys = [(f"{MATCH_A}-0", 1), (f"{MATCH_B}-0", 1)]
+    points = {p.seconds: p for p in positions_for(ticks, keys, MATCH_B)}
+    early = next(a for a in points[6.0].areas if a.area == "Ramp")
+    late = next(a for a in points[45.0].areas if a.area == "Ramp")
+    assert points[45.0].matches_m == 1
+    assert points[45.0].rounds_missing == 1
+    assert all(bar.newest is False for bar in late.players_dist)
+    # The same observation at a moment the newest match did reach.
+    assert any(bar.newest is True for bar in early.players_dist)
+
+
+def test_first_contacts_denominator_is_the_sampled_rounds_and_not_the_branch() -> None:
+    """``matches_m`` counts the rounds that **have** a first-contact sample.
+
+    **Measured gap** (Story 4.9 review): replacing ``rounds_with_sample`` with
+    the branch's whole key list passed ``-m archive`` and the fast suite,
+    because no block in the archive has a round without a first-contact sample
+    whose match brings nothing else -- 0 blocks where the two differ. The
+    distinction the docstring draws was therefore tested nowhere.
+
+    Here the second match's only round never reaches first contact, so the
+    branch holds two matches and the presence list one.
+    """
+    ticks = [
+        tick_row(
+            f"{MATCH_A}-0",
+            1,
+            "p1",
+            "Banana",
+            sample_kind="first_contact",
+            sample_t_s=9.0,
+        ),
+        # The second match's round has a time sample and no first contact.
+        tick_row(f"{MATCH_B}-0", 1, "p1", "Banana", sample_t_s=6.0),
+    ]
+    keys = [(f"{MATCH_A}-0", 1), (f"{MATCH_B}-0", 1)]
+    areas = first_contact_areas(ticks, keys, MATCH_B)
+    assert [a.m for a in areas] == [1]
+    assert [a.matches_m for a in areas] == [1]
+    # And the mark is still the map's newest, which this list does not hold.
+    assert [a.newest for a in areas] == [False]

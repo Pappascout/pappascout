@@ -57,6 +57,7 @@ list, and the comparison is made by the stage, which can see the settings.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping, Sequence, Set
 from dataclasses import dataclass
 from typing import Final, Literal
@@ -69,6 +70,8 @@ __all__ = [
     "RosterSource",
     "ROSTER_SOURCE_LABELS",
     "map_demo_id",
+    "split_map_demo_id",
+    "match_of",
     "guaranteed_maps",
     "class_labels",
     "MapCandidate",
@@ -106,7 +109,15 @@ ROSTER_SOURCE_LABELS: Final[dict[str, str]] = {
 
 
 def map_demo_id(match: str, index: int) -> str:
-    """The unit's id: ``{match_id}-{map_index}`` (AD-7).
+    """The unit's id: ``{match_id}-{map_index}``.
+
+    The form is the architecture spine's *Consistency Conventions* table, row
+    *Tunnisteet*. It cited AD-7 until 2026-09-24 and that was wrong: AD-7 is
+    the archive's rule -- only state, relative paths, sha256 once, the lock,
+    atomic writes -- and states no id form. The citation is corrected here and
+    not only on the two functions Story 4.9 added, because this module now
+    owns **both** directions of the convention and two answers in one file is
+    the fault the correction is for.
 
     ``map_index`` is the **0-based index** into the match's list of maps, and
     this is where it is first written into an id -- ``parse`` and ``classify``
@@ -129,6 +140,126 @@ def map_demo_id(match: str, index: int) -> str:
             "0-based place in the match's list of maps."
         )
     return f"{match}-{index}"
+
+
+def split_map_demo_id(value: str) -> tuple[str, int] | None:
+    """The inverse of :func:`map_demo_id`, or ``None`` if the id is not of
+    that form.
+
+    The split is at **the last hyphen** and not the first: a FACEIT
+    ``match_id`` is itself of the form ``1-<uuid>`` and holds five hyphens, so
+    splitting at the first one would give ``"1"`` as the match.
+
+    >>> split_map_demo_id("1-f6a06dc8-0")
+    ('1-f6a06dc8', 0)
+    >>> split_map_demo_id("Ancient_vs_someone") is None
+    True
+
+    **``None`` is a state and not a failure**, which is why this returns it
+    instead of raising. The form is the one ``select`` and ``fetch`` write; a
+    demo imported by hand carries the file's own name, and for one reader of
+    this function (:func:`match_of`) that is an answer rather than an error.
+    The reader who cannot carry on without the parts --
+    ``adapters.faceit.split_map_demo_id``, which has a demo to fetch -- turns
+    the ``None`` into its own refusal, with its own advice.
+
+    **Where the convention is written, and where it is not.** The id's form
+    is the architecture spine's *Consistency Conventions* table, row
+    *Tunnisteet* (``map_demo_id = {match_id}-{map_index}``) -- **not AD-7**,
+    whose Rule is archive-as-only-state, relative paths, the sha256-once rule,
+    the advisory lock and atomic writes, and which never states the id's form
+    at all. Earlier versions of this docstring cited AD-7 and were wrong.
+
+    **The last-hyphen rule is this module's own and is in no spine text.**
+    The table gives the form; that a ``match_id`` may itself contain hyphens,
+    and that the split therefore has to be the last one, is a consequence
+    nobody wrote down. This module owns both directions of the convention --
+    :func:`map_demo_id` composes and this splits -- so the consequence is
+    owned here as well, and the spine amendment that would make the citation
+    unnecessary is drafted in the architecture memlog.
+    """
+    head, sep, tail = str(value).rpartition("-")
+    if not sep or not head or not tail.isdigit():
+        return None
+    return head, int(tail)
+
+
+#: What a FACEIT ``match_id`` looks like: ``1-`` and a UUID.
+#:
+#: **Measured and not assumed** (2026-09-24): all 66 match ids in the
+#: developer archive's ``index/matches.json`` match this exactly, every one 38
+#: characters, every one prefixed ``1-``. The leading number is left as
+#: ``[0-9]+`` all the same -- it is FACEIT's own namespace digit and nothing
+#: here has a reason to pin it at one.
+#:
+#: It is here rather than in ``adapters`` because :func:`match_of` needs it to
+#: tell a composed id from a file name, and that is a question about the
+#: convention (the spine's *Consistency Conventions* table, row *Tunnisteet*)
+#: and not about the interface. The archive's own ids are the only evidence
+#: either layer has.
+_FACEIT_MATCH_ID = re.compile(
+    r"[0-9]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
+
+#: A composed id: a match id followed by one or more numeric components.
+#:
+#: Two conventions produce that shape and **both are matches counted the same
+#: way**: ``{match_id}-{map_index}``, which :func:`map_demo_id` writes, and
+#: ``{match_id}-{round}-{instance}``, which is the demo **file** name a
+#: hand-imported demo keeps (``archive.paths``). Two maps of one match and two
+#: instances of one map are both one match, so stripping every numeric tail is
+#: the right answer for counting and not a guess.
+_COMPOSED_ID = re.compile(rf"^({_FACEIT_MATCH_ID.pattern})(?:-[0-9]+)+$", re.IGNORECASE)
+
+
+def match_of(value: str) -> str:
+    """The match a map demo belongs to, or the id itself when it says nothing.
+
+    The form is the spine's *Consistency Conventions* table, row *Tunnisteet*;
+    :func:`split_map_demo_id` says why that citation and not AD-7's.
+
+    Used to count **matches** where the report has until now counted demos: a
+    ``best_of`` match plays several maps, so two demos of the same match are
+    one observation of the opponent and not two.
+
+    >>> match_of("1-4c98a93e-19da-4baa-8633-f0f8d2e9a809-0")
+    '1-4c98a93e-19da-4baa-8633-f0f8d2e9a809'
+    >>> match_of("1-4c98a93e-19da-4baa-8633-f0f8d2e9a809-1-1")
+    '1-4c98a93e-19da-4baa-8633-f0f8d2e9a809'
+    >>> match_of("Nuke_vs_imuaijat-2026-09-20")
+    'Nuke_vs_imuaijat-2026-09-20'
+
+    **The head has to be a match id, and that is the whole of the rule.**
+    Splitting at the last hyphen and keeping whatever is in front of it is
+    what an earlier version did, and it was wrong in the direction that
+    matters: measured 2026-09-24, ``Nuke_vs_imuaijat-2026-09-20`` and
+    ``Nuke_vs_imuaijat-2026-09-13`` both yielded
+    ``Nuke_vs_imuaijat-2026-09``, so **two matches counted as one** -- and a
+    block of one match is marked as containing the newest, so the report would
+    have added a false recency assurance on top of a halved count. Nothing
+    prevents such names: ``parse`` takes the id from the file name and
+    ``archive.paths.safe_component`` allows hyphens and digits, and the
+    archive already holds six hand-named demos.
+
+    **So an id that is not composed is its own match**, which is true and
+    safe: one imported demo is one match's demo.
+
+    **The error can now only go one way, and it is the harmless one.** Two
+    demos of *different* matches can never share a key: sharing one requires
+    both to be a match id plus numeric tails, and then the match id is the
+    same match. Two demos of the *same* match can still get different keys --
+    if one is named by the convention and the other by hand, only the first
+    resolves. So **the count can be too high and never too low**. That is the
+    direction to want: too high reads as a habit spread over more matches than
+    it was, which understates a pattern, while too low would invent one.
+
+    For the recency mark the same direction holds: an unresolvable id is in no
+    match index, so its block loses the mark rather than getting a wrong one
+    (:func:`~pappascout.domain.aggregate.newest_match`).
+    """
+    match = _COMPOSED_ID.match(str(value))
+    return match.group(1) if match else str(value)
 
 
 def guaranteed_maps(best_of: int | None) -> int | None:

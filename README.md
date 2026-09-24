@@ -146,7 +146,7 @@ running one stage at a time by hand stays a supported way to work.
 | `fetch` / `collect` | selection file / match index | `demos/<map_demo_id>.dem.zst` + `.meta.json` |
 | `parse` | one demo | `parsed/<map_demo_id>/*.parquet` |
 | `classify` | parsed rounds | `classified/<team_key>/<map_demo_id>.parquet` |
-| `aggregate` | classified rounds | `aggregates/<team_key>/report.json` |
+| `aggregate` | classified rounds, match index (order only) | `aggregates/<team_key>/report.json` |
 | `report` | `report.json` | `reports/<team_key>/<timestamp>.md` |
 
 Three ideas carry most of the design:

@@ -584,6 +584,10 @@ def test_the_manifest_records_every_demo_as_an_input(tmp_path: Path) -> None:
     assert sorted(i.result_id for i in manifest.inputs) == [
         f"classified/{TEAM}/Anubis_vs_b",
         f"classified/{TEAM}/Nuke_vs_a",
+        # The match order is an input too (Story 4.9). It is outside the
+        # ``classified/`` namespace on purpose, so the two kinds cannot be
+        # confused when a manifest is read back.
+        aggregate_stage.match_order_input_id(),
     ]
     assert manifest.tool_versions == {}
 
@@ -619,7 +623,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # A literal and not the constant: comparing against the constant would be
     # a tautology -- the code wrote the value from that very constant. When the
     # version rises, this line MUST fail, so that the rise is deliberate.
-    assert data["schema_version"] == "11.0.0"
+    assert data["schema_version"] == "12.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -709,7 +713,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "11.0.0"
+    assert read_report(archive).schema_version == "12.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -2382,3 +2386,297 @@ def test_no_runtime_case_uses_the_shipped_value_as_its_probe() -> None:
         f"their params hash cannot move: {collisions}. Pick a different "
         "probe."
     )
+
+# --- The matches' order (Story 4.9) ---------------------------------------------
+
+
+def _write_matches_index(archive: ArchivePaths, matches: list[dict]) -> None:
+    """Write a match index with the given rows, as ``discover`` would."""
+    path = archive.matches_index()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generated_at": "2026-09-24T00:00:00+00:00",
+                "competition_ids": [],
+                "matches": matches,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_the_match_order_is_newest_first(tmp_path: Path) -> None:
+    """The stage reads the times and hands the domain a place.
+
+    A place and not a time, because ``domain`` reads no file and must not own
+    a clock: it has one thing to look up and one thing to say when the lookup
+    fails.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    _write_matches_index(
+        archive,
+        [
+            {"match_id": "1-old", "finished_at": "2026-08-30T18:25:59+00:00"},
+            {"match_id": "1-new", "finished_at": "2026-09-20T18:39:44+00:00"},
+            {"match_id": "1-mid", "finished_at": "2026-09-06T18:12:00+00:00"},
+        ],
+    )
+    assert aggregate_stage.match_order(archive) == ["1-new", "1-mid", "1-old"]
+
+
+def test_a_match_without_a_finish_time_is_left_out_of_the_order(
+    tmp_path: Path,
+) -> None:
+    """Left out and not sorted last.
+
+    Put last it would claim to be the oldest and first the newest, and either
+    silences or flips the mark on every group it touches. Left out, the order
+    is merely incomplete, which is a state ``newest_match`` already answers
+    ``null`` to. Measured 2026-09-24: 35 of the developer archive's 66 indexed
+    matches carry no ``finished_at``.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    _write_matches_index(
+        archive,
+        [
+            {"match_id": "1-dated", "finished_at": "2026-09-20T18:39:44+00:00"},
+            {"match_id": "1-undated", "finished_at": None},
+            {"match_id": "1-missing"},
+        ],
+    )
+    assert aggregate_stage.match_order(archive) == ["1-dated"]
+
+
+def test_without_a_match_index_the_order_is_empty_and_not_an_error(
+    tmp_path: Path,
+) -> None:
+    """``aggregate`` has never needed an index and must not start now.
+
+    Two of the three teams in the developer's archive are entirely
+    hand-imported demos, and an archive built that way has no ``discover`` run
+    behind it at all. What the absence costs is stated rather than hidden:
+    a group of more than one match then carries no recency mark.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    assert not archive.matches_index().exists()
+    assert aggregate_stage.match_order(archive) == []
+    # And the whole stage still runs.
+    assert not run(archive).skipped
+
+
+def test_the_written_report_carries_every_levels_match_count(
+    tmp_path: Path,
+) -> None:
+    """The count reaches ``report.json`` and not only the model.
+
+    The stage's file is the contract between ``aggregate`` and ``render``, and
+    it is the one place a field can be lost between them -- the same reason
+    the win-loss record has a test here.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    run(archive)
+    data = json.loads(archive.report_json(TEAM).read_text(encoding="utf-8"))
+    assert data["sample"]["matches"] == 1
+    for entry in data["maps"]:
+        assert entry["sample"]["matches"] == 1
+        for side_entry in entry["sides"]:
+            assert side_entry["sample"]["matches"] == 1
+            for group in side_entry["round_types"]:
+                assert group["sample"]["matches"] == 1
+                for point in group["positions"]:
+                    assert point["matches_m"] == 1
+                    for spot in point["areas"]:
+                        assert spot["matches_m"] == 1
+                        for bar in spot["players_dist"]:
+                            assert bar["matches"] == 1
+                            # One demo is one match, so its own match is the
+                            # newest -- no index needed for that.
+                            assert bar["newest"] is True
+
+
+# --- The match order is a declared input (Story 4.9) ----------------------------
+
+
+def _write_index(archive: ArchivePaths, matches: list[dict]) -> None:
+    path = archive.matches_index()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "generated_at": "2026-09-24T00:00:00+00:00",
+                "competition_ids": [],
+                "matches": matches,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+#: Two maps of two different FACEIT matches, named as ``select`` names them.
+_M1 = "1-4c98a93e-19da-4baa-8633-f0f8d2e9a809"
+_M2 = "1-59f69cad-5d14-47d5-85c5-805ecf208076"
+
+
+def _marks(archive: ArchivePaths) -> set[object]:
+    """Every recency mark in the written report."""
+    data = json.loads(archive.report_json(TEAM).read_text(encoding="utf-8"))
+    return {
+        bar["newest"]
+        for entry in data["maps"]
+        for side in entry["sides"]
+        for group in side["round_types"]
+        for point in group["positions"]
+        for spot in point["areas"]
+        for bar in spot["players_dist"]
+    }
+
+
+def test_a_finish_time_arriving_later_re_runs_the_aggregate(
+    tmp_path: Path,
+) -> None:
+    """The defect this input was declared for, end to end.
+
+    ``discover`` writes a match with no ``finished_at`` -- 35 of the 66 in the
+    developer's archive are like that -- so the first report has no recency
+    mark. ``discover`` runs again and the times arrive. Before the match order
+    was a declared input the second aggregate **skipped**, and the report kept
+    saying nothing about recency while the manifest said it was up to date.
+    """
+    archive = build_archive(
+        tmp_path, {f"{_M1}-0": TEAM, f"{_M2}-0": TEAM}, map_names={
+            f"{_M1}-0": "de_nuke", f"{_M2}-0": "de_nuke"
+        }
+    )
+    _write_index(
+        archive,
+        [{"match_id": _M1}, {"match_id": _M2}],
+    )
+    run(archive)
+    assert _marks(archive) == {None}
+
+    _write_index(
+        archive,
+        [
+            {"match_id": _M1, "finished_at": "2026-09-13T18:04:44+00:00"},
+            {"match_id": _M2, "finished_at": "2026-09-20T18:39:44+00:00"},
+        ],
+    )
+    assert not run(archive).skipped
+    assert _marks(archive) != {None}
+
+
+def test_another_matchs_finish_time_does_not_re_run_the_aggregate(
+    tmp_path: Path,
+) -> None:
+    """The reason the digest is narrow, and the cost of getting it wrong.
+
+    ``discover`` rewrites ``matches.json`` on every run and fills in finish
+    times for matches all over the competition. A digest of the file -- or of
+    each own match's **global** rank -- would re-aggregate every team every
+    time, and cascade into ``render``. What this stage reads is the order
+    among **its own** matches, and a stranger gaining a time changes none of
+    it.
+    """
+    archive = build_archive(
+        tmp_path, {f"{_M1}-0": TEAM, f"{_M2}-0": TEAM}, map_names={
+            f"{_M1}-0": "de_nuke", f"{_M2}-0": "de_nuke"
+        }
+    )
+    dated = [
+        {"match_id": _M1, "finished_at": "2026-09-13T18:04:44+00:00"},
+        {"match_id": _M2, "finished_at": "2026-09-20T18:39:44+00:00"},
+    ]
+    _write_index(archive, dated)
+    run(archive)
+    # A match this team never played, newer than both, and the index's own
+    # timestamp with it.
+    _write_index(
+        archive,
+        [
+            *dated,
+            {
+                "match_id": "1-63d01f95-4728-45d3-8f5a-d95ae1f58a79",
+                "finished_at": "2026-09-27T18:00:00+00:00",
+            },
+        ],
+    )
+    assert run(archive).skipped
+
+
+def test_the_two_own_matches_swapping_places_re_runs_the_aggregate(
+    tmp_path: Path,
+) -> None:
+    """A corrected finish time is a changed answer, not a changed file.
+
+    The digest keeps the **relative** order of the report's own matches, so a
+    correction that puts them the other way round moves it -- which is exactly
+    when the map's newest match changes and every mark in the chapter flips.
+    """
+    archive = build_archive(
+        tmp_path, {f"{_M1}-0": TEAM, f"{_M2}-0": TEAM}, map_names={
+            f"{_M1}-0": "de_nuke", f"{_M2}-0": "de_nuke"
+        }
+    )
+    _write_index(
+        archive,
+        [
+            {"match_id": _M1, "finished_at": "2026-09-13T18:04:44+00:00"},
+            {"match_id": _M2, "finished_at": "2026-09-20T18:39:44+00:00"},
+        ],
+    )
+    run(archive)
+    _write_index(
+        archive,
+        [
+            {"match_id": _M1, "finished_at": "2026-09-27T18:04:44+00:00"},
+            {"match_id": _M2, "finished_at": "2026-09-20T18:39:44+00:00"},
+        ],
+    )
+    assert not run(archive).skipped
+
+
+def test_a_malformed_match_list_is_the_users_fault_and_says_so(
+    tmp_path: Path,
+) -> None:
+    """Not a program fault: at the baseline this archive aggregated normally.
+
+    ``read_matches_index`` validates that the file is JSON, that it is an
+    object and that its ``schema_version`` is known, and nothing about
+    ``matches`` -- so before this check ``null`` raised ``TypeError`` and a
+    list of strings raised ``AttributeError``, both reported to the user as a
+    fault in the program.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    archive.matches_index().parent.mkdir(parents=True, exist_ok=True)
+    for broken in (None, ["1-abc"], {"a": 1}):
+        archive.matches_index().write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "generated_at": "2026-09-24T00:00:00+00:00",
+                    "matches": broken,
+                }
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(PappascoutError, match="no readable match list"):
+            aggregate_stage.match_order(archive)
+
+
+def test_a_match_with_no_finish_time_is_still_only_skipped(
+    tmp_path: Path,
+) -> None:
+    """The line between malformed and valid-but-unusable, in one test."""
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    _write_index(
+        archive,
+        [
+            {"match_id": "1-dated", "finished_at": "2026-09-20T18:39:44+00:00"},
+            {"match_id": "1-undated", "finished_at": None},
+            {"match_id": "1-no-key-at-all"},
+        ],
+    )
+    assert aggregate_stage.match_order(archive) == ["1-dated"]

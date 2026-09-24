@@ -33,6 +33,37 @@ observation for every area in which the team had a player. The full
 distribution from the same moment is in the ``positions`` list's
 ``first_contact`` sample point.
 
+Two units, and the second one is not everywhere yet
+---------------------------------------------------
+Story 4.9 added a **third** count beside ``n`` and ``m``: the **matches** the
+rounds come from. A ``best_of`` match plays several maps, so a demo is not a
+match either -- measured 2026-09-24, the scouted team's report is 8 demos and
+4 matches. Three rounds from three matches is a habit and three rounds from
+one match is one thing that happened once, and ``n`` alone writes them
+identically.
+
+The counts do **not** obey the rule above. ``Σ n = m`` is an equality because
+a round produces exactly one observation; a match produces one per round, so
+``Σ matches`` exceeds the match denominator whenever a match contributed two
+rounds. What holds is ``matches <= matches_m`` and ``matches <= n``, and
+between the levels a pair of inequalities rather than a sum
+(:func:`_check_matches_are_bounded`).
+
+**Where the count is, and where it is not.** :class:`Sample` carries it at
+every level, so every group heading and the summary state it.
+:class:`PlayersCount`, :class:`AreaDistribution`, :class:`Position` and
+:class:`FirstContactArea` carry it per observation -- the sample-point rows
+and the first-contact row, which is where the measurement of 2026-09-23 found
+the report saying the opposite of the truth. :class:`FirstDeathArea`,
+:class:`KillArea`, :class:`ArmedPlayers`, :class:`ArmoredPlayers`,
+:class:`UtilityCounts`, :class:`UtilityUse` and :class:`Anomaly` **do not**:
+their rows still state rounds only, under the heading's match count. That is a
+**bound of the story and not a property of those rows**, and two of them would
+need a decision before they could follow: :class:`KillArea`'s denominator is
+kills and not rounds, so "in how many matches" needs a second denominator of
+its own, and an :class:`Anomaly`'s ``m`` is a different set of rounds from its
+own list's.
+
 In one place ``m`` **is not rounds**: :class:`KillArea` counts kills, so its
 ``Σ n = the number of kills``. A round type can have more kills than rounds, so
 "n/m of the rounds" would be a plainly wrong sentence there -- and
@@ -290,7 +321,24 @@ __all__ = [
 #: as a round type nobody won and nobody lost. The reader is preparing for a
 #: match, and a habit that wins and a habit that loses are opposite pieces of
 #: advice.
-REPORT_SCHEMA_VERSION = "11.0.0"
+#:
+#: **12.0.0 (Story 4.9): every count is also a count of matches.**
+#: :attr:`Sample.matches`, :attr:`Position.matches_m`,
+#: :attr:`AreaDistribution.matches_m`, :attr:`PlayersCount.matches` and
+#: ``.newest``, and :class:`FirstContactArea`'s three are all **required**, so
+#: **an old ``report.json`` no longer validates** -- the first of the two
+#: conditions above.
+#:
+#: The second holds as well, and it is why no default was available: a
+#: defaulted match count would be **read as something it is not**. The only
+#: value a default could take is the demo count beside it, and measured
+#: 2026-09-24 the two really differ -- the scouted team's report is 8 demos
+#: and 4 matches -- so the default would state the wrong number while looking
+#: exactly like a measured one, which is the whole failure this story was
+#: written to end. ``newest`` has a third state (``null``, order not known)
+#: for the same reason: the absence of the mark must not be read as its
+#: negation.
+REPORT_SCHEMA_VERSION = "12.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
 #: refuses an old ``report.json`` with.
@@ -317,8 +365,8 @@ REPORT_SCHEMA_VERSION = "11.0.0"
 #: English, like every other line the CLI prints (AD-11). It never reaches
 #: the report.
 REPORT_SCHEMA_CHANGE = (
-    "Version 11.0.0 gives every round type its win-loss record, which an "
-    "older report does not carry at all."
+    "Version 12.0.0 states every count in matches as well as in rounds, "
+    "which an older report does not carry at all."
 )
 
 
@@ -449,6 +497,87 @@ def _check_demos_add_up(total: "Sample", parts: "list[Sample]") -> None:
                 f"sum of the maps is {parts_sum}. Every demo is on exactly "
                 "one map and in exactly one bucket, so the sum has to match."
             )
+
+
+def _check_matches_are_bounded(
+    total: "Sample", parts: "list[Sample]", level: str, child: str
+) -> None:
+    """The level's matches, against its children's, as **two inequalities**.
+
+    The third count's counterpart to :func:`_check_rounds_add_up` and
+    :func:`_check_demos_add_up`, and it is inequalities rather than a sum
+    because of what a match is. Rounds sum at every level; demos sum at the
+    report/map level only; **matches sum nowhere**. A ``best_of`` match plays
+    several maps and every match plays both sides, so the same match is
+    counted in several children -- measured 2026-09-24, the scouted team's
+    report holds 4 matches over maps of 4, 3 and 1, and the sum 8 is the
+    answer to nothing.
+
+    What holds at every level is the pair of bounds a union obeys:
+
+    * the level cannot hold **fewer** matches than its busiest child, because
+      that child's matches are all its own, and
+    * it cannot hold **more** than its children added up, because a match
+      reaches the level only through a child.
+
+    **What this does not catch, measured rather than reasoned.** It is
+    tempting to read the upper bound as the guard against a match count taken
+    from the **demos**, and it is not: :func:`_check_demos_add_up` is an
+    *equality*, so the children's demos always sum to the level's, and
+    substituting demos for matches uniformly lands the upper bound on
+    ``8 <= 8`` exactly. Measured 2026-09-24 on the real archive's own numbers
+    (report 8 demos / 4 matches over maps of 4, 3 and 1): the truth passes and
+    the substitution passes. There is no archive on which it would not --
+    the slack between 4 and 8 that makes the bound look strong is the very
+    slack the substitution fills.
+
+    **And on the pipeline's path it cannot fire at all**, which is the same
+    qualification ``RoundTypeReport``'s own row check makes about itself.
+    Every level's matches are derived by
+    :func:`~pappascout.domain.aggregate.sample_for` from a subset of one
+    frame, so the union relations hold structurally. What is left is worth
+    keeping and is all it is: a hand-edited ``report.json``, and a future
+    second pass that filters differently.
+
+    **Where the guard against the wrong count actually is**: nowhere
+    structural. It is :attr:`Sample.matches` existing as a field at all --
+    measured, written, and re-derivable -- and ``tests/data/match_counts.json``,
+    which pins what the real archive produces so a wrong number is a wrong
+    number in a file.
+
+    A level with no children is not checked: a map without sides is a state
+    :class:`MapReport` allows, and an empty ``max`` is not a claim about
+    anything.
+
+    Args:
+        total: The level's own sample.
+        parts: Its children's samples.
+        level: The level's name, for the message.
+        child: The child level's name, for the message.
+
+    Raises:
+        AggregateError: If either bound is broken. The message names both
+            levels, because the fault is between them and not in either.
+    """
+    if not parts:
+        return
+    largest = max(p.matches for p in parts)
+    together = sum(p.matches for p in parts)
+    if total.matches < largest:
+        raise AggregateError(
+            f"The sample at level {level} claims {total.matches} matches, "
+            f"but one {child} alone holds {largest}. Every {child}'s matches "
+            f"are also the {level}'s, so the {level} cannot hold fewer."
+        )
+    if total.matches > together:
+        raise AggregateError(
+            f"The sample at level {level} claims {total.matches} matches, "
+            f"but the {child} levels hold {together} between them. A match "
+            f"reaches the {level} only through a {child}, so the {level} "
+            "cannot hold more. (The sum is an upper bound and not the value: "
+            "the same match is in several children whenever it played "
+            "several maps or both sides.)"
+        )
 
 
 def _check_seconds(seconds: list[float], where: str) -> None:
@@ -597,10 +726,37 @@ class Sample(_Node):
     ``report.json`` and mean different things: here, a demo whose kind is not
     known; there, a round whose outcome was not read. Neither implies the
     other.
+
+    ``matches`` is the third count and it answers the reader's own question
+    (Story 4.9). A ``best_of`` match plays several maps, so **a demo is not a
+    match**: measured 2026-09-24 on the real archive, the scouted team's
+    report is 8 demos and 4 matches, and until this field existed the summary
+    said "8 demoa" to a reader counting matches. Three rounds from three
+    matches is a habit and three rounds from one match is one thing that
+    happened once, and the round count alone writes them identically.
     """
 
     demos: int = Field(ge=0)
     rounds: int = Field(ge=0)
+    #: The matches these demos come from (:func:`.selection.match_of`).
+    #:
+    #: **It is not bucketed and it is not summed**, and both are properties of
+    #: what a match is rather than omissions.
+    #:
+    #: Not bucketed: ``league``, ``other`` and ``unknown`` are buckets of
+    #: **demos**, and :func:`_check_bucket_totals` holds the totals to their
+    #: sum. A match's maps all carry the same ``is_league``, so a per-bucket
+    #: match count would be a fourth copy of the same split with no reading of
+    #: its own -- and the bucket sum would have to be an inequality, which is
+    #: not what that function checks.
+    #:
+    #: Not summed: :func:`_check_demos_add_up` works because every demo is on
+    #: exactly one map. A match's two maps are two branches, so the report's
+    #: matches are **fewer** than the maps' matches added up (measured: 4
+    #: against 4 + 3 + 1). What does hold between the levels is an inequality,
+    #: and :meth:`Report._check_matches_are_not_invented` is where it is
+    #: checked.
+    matches: int = Field(ge=0)
     league: SampleBucket
     other: SampleBucket
     unknown: SampleBucket
@@ -608,6 +764,43 @@ class Sample(_Node):
     @model_validator(mode="after")
     def _check_totals(self) -> Sample:
         _check_bucket_totals(self, SAMPLE_BUCKETS, "league breakdown")
+        return self
+
+    @model_validator(mode="after")
+    def _check_matches_have_demos(self) -> Sample:
+        """A match is counted through its demos, so it cannot outnumber them.
+
+        The counterpart of :meth:`SampleBucket._check_rounds_have_a_demo` for
+        the third count, and it carries that method's qualification too: on
+        the pipeline's path :func:`~pappascout.domain.aggregate.sample_for`
+        derives both from the same rows, so this cannot fire there. It catches
+        a hand-edited ``report.json`` and a future second pass -- and, unlike
+        the round check, it is **not** a bare length comparison: ``demos`` and
+        ``matches`` really are different numbers on the real archive (8 and
+        4), so a wrong one of them is a wrong number and not merely a wrongly
+        totalled one.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If the matches outnumber the
+                demos, or if demos were counted without a match.
+        """
+        if self.matches > self.demos:
+            raise AggregateError(
+                f"The sample claims {self.matches} matches from "
+                f"{self.demos} demos. Every match is counted through the "
+                "demos it left in the archive, so there cannot be more "
+                "matches than demos.\n"
+                "Aggregation does not produce a figure like this: report.json "
+                "has been edited by hand. Run aggregation again."
+            )
+        if self.demos and not self.matches:
+            raise AggregateError(
+                f"The sample claims {self.demos} demos from no match at all. "
+                "Every demo is some match's demo, so a sample that holds "
+                "demos holds at least one match.\n"
+                "Aggregation does not produce a figure like this: report.json "
+                "has been edited by hand. Run aggregation again."
+            )
         return self
 
 
@@ -725,10 +918,63 @@ class PlayersCount(_Node):
     ``players`` is the number of **living** players in the area at the sample
     point -- a dead player produces no row for the area. ``n`` is the number
     of rounds in which the area held exactly that many.
+
+    ``matches`` and ``newest`` are the same observation counted in the
+    reader's own unit (Story 4.9). ``n = 3`` is the same string whether those
+    three rounds are three matches or one, and the two are opposite pieces of
+    advice before a match.
     """
 
     players: int = Field(ge=0)
     n: int = Field(gt=0)
+    #: The **matches** those ``n`` rounds come from.
+    #:
+    #: ``Σ matches`` over a distribution is **not** ``matches_m``, and that is
+    #: the one thing to know about this field. ``Σ n = m`` holds because a
+    #: round produces exactly one bar per area; a match produces as many bars
+    #: as it has rounds, so the same match is counted in several bars of the
+    #: same area (four rounds of one match, four different player counts).
+    #: The only relation upward is ``matches <= matches_m``, and
+    #: :meth:`AreaDistribution._check_matches` is where that is checked --
+    #: here there is nothing to compare it with.
+    matches: int = Field(gt=0)
+    #: Whether the **map's newest match** is among the matches this
+    #: observation was made in, or ``null`` when the matches' order is not
+    #: known.
+    #:
+    #: The reader's question before a match is "is this still true?", and a
+    #: count cannot answer it: *Outside on 3 of 4 rounds* reads as "mostly
+    #: Outside" whether those three rounds are the three oldest matches or the
+    #: three newest. Measured 2026-09-23 on the real archive, ``de_nuke`` T
+    #: pistol at 15 s, they are the three oldest and the newest match does
+    #: something else entirely.
+    #:
+    #: **The map's, and neither the sample point's nor the round type's**, and
+    #: both narrower scopes were tried and measured out (2026-09-24). The
+    #: sample point's: 15 of the real archive's 377 points cover fewer matches
+    #: than their round type (a round decided at 30 seconds has no 45-second
+    #: sample), 11 of them print a mark, and it would have meant *the newest
+    #: match that has a 45-second sample*. The round type's: **11 of the
+    #: scouted team's 26 round-type groups hold no round from that team's
+    #: newest match at all**, and each marked an older match as the newest --
+    #: the sharpest a one-round eco block whose only match is three weeks and
+    #: three matches behind. The map is the level the reader asks at, because
+    #: the report is read map by map -- and the team's newest match has no
+    #: ``de_dust2`` demo at all, so the narrower scopes had that whole chapter
+    #: marked against a match never played on it.
+    #:
+    #: The consequence is deliberate and is the value: a block with nothing
+    #: from the map's newest match reads as not including it on **every** row,
+    #: which says the block is stale. ``matches_m`` stays the sample point's,
+    #: so a row can read ``2/2 ottelussa, ei uusimmassa`` -- in both matches
+    #: this moment exists in, and the map's newest is not one of them.
+    #:
+    #: ``null`` is a third state and not a false: the order of the matches
+    #: comes from the match index, and a demo imported by hand has no entry
+    #: there (:func:`~pappascout.domain.aggregate.newest_match`). Then nothing
+    #: is known about recency, which is a different thing from knowing that
+    #: the newest match is absent -- and ``render`` writes no mark at all.
+    newest: bool | None
 
 
 class AreaDistribution(_Node):
@@ -740,6 +986,11 @@ class AreaDistribution(_Node):
     The distribution also holds the value ``players = 0``, so the sum of the
     ``n`` values is always ``m``. Bars whose ``n`` is zero are not written --
     they would claim as an observation that there is no observation.
+
+    ``matches_m`` is ``m`` in the reader's own unit: the matches those ``m``
+    rounds come from. It is the denominator every bar's ``matches`` is read
+    against, and it is **not** the sum of them -- see
+    :attr:`PlayersCount.matches`.
     """
 
     #: The game's own ``env_cs_place`` area. ``null`` = the player's area was
@@ -747,6 +998,10 @@ class AreaDistribution(_Node):
     #: different thing from an empty area.
     area: str | None
     m: int = Field(ge=0)
+    #: The matches the ``m`` rounds come from. Every area of the same sample
+    #: point shares it, exactly as ``m`` is shared
+    #: (:meth:`Position._check_areas_share_the_sample`).
+    matches_m: int = Field(ge=0)
     players_dist: list[PlayersCount]
 
     @model_validator(mode="after")
@@ -780,6 +1035,55 @@ class AreaDistribution(_Node):
             )
         return self
 
+    @model_validator(mode="after")
+    def _check_matches(self) -> AreaDistribution:
+        """No bar spans more matches than the sample point has, or than it
+        has rounds.
+
+        **Two conditions and not one sum**, and the difference from
+        :meth:`_check_sample` above is the whole reason this is a method of
+        its own. ``Σ n = m`` is an equality because a round produces exactly
+        one bar per area; a match produces one bar per round, so ``Σ matches``
+        exceeds ``matches_m`` whenever any match contributed two rounds -- on
+        the real archive, most blocks. An equality here would refuse the
+        ordinary case.
+
+        What is left is the pair of bounds the report's sentence rests on: an
+        observation cannot have been made in more matches than the figure is
+        measured over, and it cannot have been made in more matches than
+        rounds, because a match contributes at least one round to each of its
+        matches in the bar.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If a bar claims more matches
+                than the sample point covers, or more matches than its own
+                rounds.
+        """
+        if self.matches_m > self.m:
+            raise AggregateError(
+                f"Area {self.area!r} claims {self.matches_m} matches over "
+                f"{self.m} rounds. Every match contributes at least one round "
+                "to the sample point, so there cannot be more matches than "
+                "rounds."
+            )
+        for bar in self.players_dist:
+            if bar.matches > self.matches_m:
+                raise AggregateError(
+                    f"In area {self.area!r} the observation "
+                    f"'{bar.players} players' claims {bar.matches} matches, "
+                    f"but the sample point covers {self.matches_m}. An "
+                    "observation cannot be made in more matches than the "
+                    "figure is measured over."
+                )
+            if bar.matches > bar.n:
+                raise AggregateError(
+                    f"In area {self.area!r} the observation "
+                    f"'{bar.players} players' was made on {bar.n} rounds but "
+                    f"claims {bar.matches} matches. Every match in the "
+                    "observation contributes at least one of those rounds."
+                )
+        return self
+
 
 class Position(_Node):
     """One sample point: every area's distribution from the same moment.
@@ -800,12 +1104,21 @@ class Position(_Node):
     sample is missing from a round that was decided in 30 seconds.
     ``rounds_missing`` gives the difference, so that a round does not vanish
     quietly.
+
+    ``matches_m`` is the same sample in matches, and it inherits that
+    difference: a sample point missing from some match's rounds covers fewer
+    matches than the round type does. The recency mark on the bars is **not**
+    measured against this set, nor against the round type's, but against the
+    **map's**; :attr:`PlayersCount.newest` says why.
     """
 
     sample_kind: SampleKind
     seconds: float | None
     seconds_median: float | None = None
     m: int = Field(ge=0)
+    #: The matches the ``m`` rounds come from. Shared by every area, like
+    #: ``m`` itself.
+    matches_m: int = Field(ge=0)
     rounds_missing: int = Field(ge=0)
     areas: list[AreaDistribution]
 
@@ -819,6 +1132,12 @@ class Position(_Node):
         point. Without it the row would set
         ``Middle 3 (2/2 kierroksesta), Middle 1 (2/2 kierroksesta)``, that is,
         the same area as two observations whose sum exceeds the sample.
+
+        **Both denominators are checked, for one reason twice.** The rounds
+        and the matches are printed side by side on the same claim, so an
+        area whose match denominator differed from its neighbour's would set
+        two figures from the same moment that are not comparable -- which is
+        this method's whole sentence, in the unit Story 4.9 added.
         """
         for area in self.areas:
             if area.m != self.m:
@@ -829,12 +1148,50 @@ class Position(_Node):
                     "has to share the same sample -- otherwise two figures "
                     "from the same moment are not comparable."
                 )
+            if area.matches_m != self.matches_m:
+                raise AggregateError(
+                    f"At sample point {self.seconds!r} area {area.area!r} "
+                    f"claims a sample of {area.matches_m} matches, but the "
+                    f"sample point has {self.matches_m}. Every area of the "
+                    "same sample point has to share the same sample -- "
+                    "otherwise two figures from the same moment are not "
+                    "comparable."
+                )
         seen = [area.area for area in self.areas]
         if len(seen) != len(set(seen)):
             raise ValueError(
                 f"Sample point {self.seconds!r} has the same area twice in "
                 "its distribution; a sample point has one distribution per "
                 "area."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_matches_fit_the_sample(self) -> Position:
+        """A sample point holds no more matches than it holds rounds.
+
+        **Here and not only in :class:`AreaDistribution`**, which makes the
+        same comparison, because a sample point with **no areas** is
+        reachable: ``area_distributions`` builds the area list from the union
+        of the rounds' living players, so a moment at which every player of
+        every round had already fallen yields ``m > 0`` and ``areas == []``.
+        The round is in the sample by design -- dropping it would break
+        ``Sigma n = m`` -- and with no area to carry the check, this
+        denominator would be the one number in the node that nothing looked
+        at. The group-level bound still applied to it
+        (:meth:`RoundTypeReport._check_no_row_claims_more_matches_than_the_group`),
+        so what was missing is exactly this floor.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If the sample point claims more
+                matches than rounds.
+        """
+        if self.matches_m > self.m:
+            raise AggregateError(
+                f"Sample point {self.seconds!r} claims {self.matches_m} "
+                f"matches over {self.m} rounds. Every match contributes at "
+                "least one round to the sample point, so there cannot be "
+                "more matches than rounds."
             )
         return self
 
@@ -1108,11 +1465,27 @@ class FirstContactArea(_Node):
     produces an observation for every area in which the team had a player. The
     full distribution from the same moment is in the ``positions`` list's
     ``first_contact`` sample point.
+
+    The match counts follow the rounds into that shape (Story 4.9): ``Σ
+    matches`` is not ``matches_m`` either, and here it is not even the
+    :attr:`PlayersCount.matches` reason -- it is this class's own. A round
+    with players in three areas is counted in three areas' match counts,
+    whether or not its match had another round.
     """
 
     area: str | None
     n: int = Field(gt=0)
     m: int = Field(ge=0)
+    #: The matches those ``n`` rounds come from.
+    matches: int = Field(gt=0)
+    #: The matches the ``m`` rounds come from: the presence list's
+    #: denominator, in the same unit.
+    matches_m: int = Field(ge=0)
+    #: Whether the map's newest match is among them, or ``null`` when the
+    #: matches' order is not known. The same field as
+    #: :attr:`PlayersCount.newest` and measured the same way, for the reason
+    #: given there.
+    newest: bool | None
 
     @model_validator(mode="after")
     def _check_counts(self) -> FirstContactArea:
@@ -1120,6 +1493,24 @@ class FirstContactArea(_Node):
             raise AggregateError(
                 f"The first-contact area {self.area!r} appears on {self.n} "
                 f"rounds, although there are {self.m} rounds."
+            )
+        if self.matches_m > self.m:
+            raise AggregateError(
+                f"The first-contact area {self.area!r} claims a sample of "
+                f"{self.matches_m} matches over {self.m} rounds. Every match "
+                "contributes at least one round to the sample."
+            )
+        if self.matches > self.matches_m:
+            raise AggregateError(
+                f"The first-contact area {self.area!r} appears in "
+                f"{self.matches} matches, although the presence list covers "
+                f"{self.matches_m}."
+            )
+        if self.matches > self.n:
+            raise AggregateError(
+                f"The first-contact area {self.area!r} appears on {self.n} "
+                f"rounds but in {self.matches} matches. Every match in the "
+                "observation contributes at least one of those rounds."
             )
         return self
 
@@ -1446,6 +1837,68 @@ class RoundTypeReport(_Node):
         return self
 
     @model_validator(mode="after")
+    def _check_no_row_claims_more_matches_than_the_group(self) -> RoundTypeReport:
+        """No row spans more matches than the round type itself holds.
+
+        The match counts are built at three levels and the group's own is the
+        outermost: a sample point's matches are a subset of the round type's,
+        because its rounds are. A row claiming more would put a denominator on
+        the line that the heading above it contradicts -- ``3/5 ottelusta``
+        under ``4 ottelusta`` -- and the reader has no way to tell which of
+        the two is the measurement.
+
+        **What it weighs, and what it cannot.** Like
+        :meth:`_check_record_covers_the_rounds`, it cannot fire on the
+        pipeline's own path: ``positions_for`` and ``first_contact_areas``
+        derive their matches from a subset of the very round keys
+        ``sample_for`` counted, so the inclusion is structural. Unlike that
+        one it is **not a length check** -- the two sides are the sizes of two
+        independently built sets, so a row assembled from the wrong rounds
+        fails it as soon as those rounds bring in a match the group does not
+        have. What it will not catch is a count taken from the **demos**
+        instead of the matches, because demos are never fewer: on this
+        archive the two are equal at and below the map level, and the check
+        that sees that mistake is :func:`_check_matches_are_bounded` at the
+        report level, where a match's two maps make them differ.
+
+        **It checks the denominators only, and that is enough because of a
+        chain that is worth writing down.** A bar's own count is bounded by
+        its area's (:meth:`AreaDistribution._check_matches`), an area's by its
+        sample point's (:meth:`Position._check_areas_share_the_sample`, which
+        holds them equal), and the sample point's by the group's, here. So
+        ``bar.matches <= area.matches_m == position.matches_m <=
+        sample.matches`` without any link being stated twice.
+
+        **A row type added later has to supply its own first link.**
+        :class:`FirstContactArea` does it inside itself, because its list has
+        no per-moment node to share a denominator with. Whoever adds the next
+        one chooses between those two shapes; what they must not do is rely on
+        this method, which never sees a numerator.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If a sample point or a
+                first-contact row claims more matches than the round type's
+                sample.
+        """
+        for position in self.positions:
+            if position.matches_m > self.sample.matches:
+                raise AggregateError(
+                    f"At sample point {position.seconds!r} of round type "
+                    f"{self.round_type} the sample is {position.matches_m} "
+                    f"matches, but the round type holds "
+                    f"{self.sample.matches}. A sample point's matches are "
+                    "the round type's own, so it cannot cover more."
+                )
+        for entry in self.first_contact:
+            if entry.matches_m > self.sample.matches:
+                raise AggregateError(
+                    f"The first-contact presence list of round type "
+                    f"{self.round_type} covers {entry.matches_m} matches, "
+                    f"but the round type holds {self.sample.matches}."
+                )
+        return self
+
+    @model_validator(mode="after")
     def _check_first_contact_areas_are_unique(self) -> RoundTypeReport:
         """The same area once in the first-contact presence list.
 
@@ -1482,6 +1935,12 @@ class SideReport(_Node):
         _check_rounds_add_up(
             self.sample, [rt.sample for rt in self.round_types], "side", "round type"
         )
+        _check_matches_are_bounded(
+            self.sample,
+            [rt.sample for rt in self.round_types],
+            "side",
+            "round type",
+        )
         return self
 
 
@@ -1511,6 +1970,9 @@ class MapReport(_Node):
     @model_validator(mode="after")
     def _check_rounds(self) -> MapReport:
         _check_rounds_add_up(
+            self.sample, [s.sample for s in self.sides], "map", "side"
+        )
+        _check_matches_are_bounded(
             self.sample, [s.sample for s in self.sides], "map", "side"
         )
         if self.sample.demos != len(self.map_demo_ids):
@@ -2510,9 +2972,39 @@ class Report(_Node):
             self.sample, [m.sample for m in self.maps], "report", "map"
         )
         _check_demos_add_up(self.sample, [m.sample for m in self.maps])
+        self._check_matches_are_not_invented()
         self._check_breakdowns_agree()
         self._check_anomalies()
         return self
+
+    def _check_matches_are_not_invented(self) -> None:
+        """The report's matches, against the maps', as an **inequality**.
+
+        Demos sum (:func:`_check_demos_add_up`) because every demo is on
+        exactly one map. Matches do not: a ``best_of`` match plays several
+        maps, so the same match is in several branches. Measured 2026-09-24 on
+        the real archive, the scouted team's report is 4 matches over maps of
+        4, 3 and 1 -- the sum is 8, and it is not the answer to anything.
+
+        What does hold is a pair of bounds: the report cannot hold **fewer**
+        matches than its busiest map (that map's matches are all in the
+        report), and it cannot hold **more** than the maps added up (a match
+        reaches the report only through a map).
+
+        **They do not catch a match count taken from the demos**, which is
+        the mistake this story exists to stop. Measured 2026-09-24 on this
+        archive's own numbers, the substitution passes the upper bound
+        exactly, and :func:`_check_matches_are_bounded` sets out why no
+        archive would make it fail. What these bounds guard is a hand-edited
+        file and a future second pass, and they cannot fire on the pipeline's
+        path at all.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If either bound is broken.
+        """
+        _check_matches_are_bounded(
+            self.sample, [m.sample for m in self.maps], "report", "map"
+        )
 
     def _check_breakdowns_agree(self) -> None:
         """The two breakdowns of the summary sample must have equal totals.

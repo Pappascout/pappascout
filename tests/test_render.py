@@ -92,6 +92,9 @@ from pappascout.render.view import (
     RECORD_VERB,
     ROUND_TYPE_ORDER,
     TRACEABILITY_HEADING,
+    MATCH_SAMPLE_UNIT,
+    RECENCY_NEWEST_ABSENT,
+    RECENCY_NEWEST_INCLUDED,
     UNKNOWN_AREA,
     UNKNOWN_MAP_LABEL,
     UNNAMED_PLAYER,
@@ -99,6 +102,7 @@ from pappascout.render.view import (
     block_min_rounds,
     pattern_min_rounds,
     record_text,
+    matches_text,
     rounds_text,
 )
 
@@ -200,6 +204,16 @@ FIRST_CONTACT_SPREAD = (
 
 DEMO_ID = "Ancient_vs_kaljukostaja"
 
+#: A ``best_of`` match: two demos of it are two maps and **one** match.
+#:
+#: A real-shaped FACEIT id, because :func:`~pappascout.domain.selection
+#: .match_of` resolves only ids of the convention's form -- a made-up
+#: ``1-abc-0`` is its own match and would not make the fixture it is for.
+_BO2_MATCH = "1-4c98a93e-19da-4baa-8633-f0f8d2e9a809"
+
+#: A second match, for a map two different matches were played on.
+_OTHER_MATCH = "1-59f69cad-5d14-47d5-85c5-805ecf208076"
+
 #: The threshold the report carries with it. The same number as in
 #: ``settings.toml``; the tests read it from the report and not from the
 #: settings -- exactly as ``render`` itself does.
@@ -221,14 +235,26 @@ ROUND_LISTS = (rf"C:\arkisto\classified\{TEAM_KEY}\{DEMO_ID}.md",)
 # --- The builder functions ------------------------------------------------------
 
 
-def sample(rounds: int, demos: int = 1, bucket: str = "unknown") -> Sample:
-    """The sample in one bucket; the others stay zero."""
+def sample(
+    rounds: int,
+    demos: int = 1,
+    bucket: str = "unknown",
+    matches: int | None = None,
+) -> Sample:
+    """The sample in one bucket; the others stay zero.
+
+    ``matches`` defaults to the demo count -- a sample of single-map matches,
+    which is what every fixture written before Story 4.9 describes. A test
+    about the match count states its own number.
+    """
     zero = SampleBucket(demos=0, rounds=0)
     buckets = {"league": zero, "other": zero, "unknown": zero}
     buckets[bucket] = SampleBucket(demos=demos, rounds=rounds)
+    total = sum(b.demos for b in buckets.values())
     return Sample(
-        demos=sum(b.demos for b in buckets.values()),
+        demos=total,
         rounds=sum(b.rounds for b in buckets.values()),
+        matches=total if matches is None else matches,
         **buckets,
     )
 
@@ -252,13 +278,38 @@ def roster_sample(
     )
 
 
-def area(name: str | None, m: int, bars: dict[int, int]) -> AreaDistribution:
-    """An area's distribution. ``bars`` is ``player count -> rounds``."""
+def area(
+    name: str | None,
+    m: int,
+    bars: dict[int, int],
+    *,
+    matches_m: int | None = None,
+    matches: dict[int, int] | None = None,
+    newest: dict[int, bool | None] | None = None,
+) -> AreaDistribution:
+    """An area's distribution. ``bars`` is ``player count -> rounds``.
+
+    The match counts default to **one match**, which is the shape the
+    one-demo fixtures in this file have and what every test written before
+    Story 4.9 means. ``matches`` and ``newest`` are ``player count -> value``
+    for a test that is about those columns.
+    """
+    matches = matches or {}
+    newest = newest or {}
+    total = 1 if matches_m is None else matches_m
     return AreaDistribution(
         area=name,
         m=m,
+        matches_m=total,
         players_dist=[
-            PlayersCount(players=players, n=n) for players, n in bars.items() if n
+            PlayersCount(
+                players=players,
+                n=n,
+                matches=matches.get(players, min(n, total)),
+                newest=newest.get(players),
+            )
+            for players, n in bars.items()
+            if n
         ],
     )
 
@@ -271,22 +322,35 @@ def position(
     kind: str = "time",
     median: float | None = None,
     missing: int = 0,
+    matches_m: int | None = None,
 ) -> Position:
     return Position(
         sample_kind=kind,
         seconds=seconds,
         seconds_median=median,
         m=m,
+        matches_m=1 if matches_m is None else matches_m,
         rounds_missing=missing,
         areas=areas,
     )
 
 
 def first_contact_position(
-    areas: list[AreaDistribution], m: int, *, median: float | None = 9.05
+    areas: list[AreaDistribution],
+    m: int,
+    *,
+    median: float | None = 9.05,
+    matches_m: int | None = None,
 ) -> Position:
     """A first-contact sample point: no nominal seconds, a median instead."""
-    return position(None, areas, m, kind="first_contact", median=median)
+    return position(
+        None,
+        areas,
+        m,
+        kind="first_contact",
+        median=median,
+        matches_m=matches_m,
+    )
 
 
 def armed(m: int, bars: dict[int, int], unknown: int = 0) -> ArmedPlayers:
@@ -383,10 +447,12 @@ def round_type(
     death_report: DeathReport | None = None,
     small_sample: bool | None = None,
     record: RoundRecord | None = None,
+    demos: int = 1,
+    matches: int | None = None,
 ) -> RoundTypeReport:
     return RoundTypeReport(
         round_type=name,
-        sample=sample(rounds),
+        sample=sample(rounds, demos=demos, matches=matches),
         small_sample=rounds < SMALL_SAMPLE if small_sample is None else small_sample,
         # Every round lost unless the test says otherwise. Not a neutral
         # default: the model demands that the record cover the sample, so
@@ -412,10 +478,30 @@ def round_type(
     )
 
 
-def side(name: str, round_types: list[RoundTypeReport]) -> SideReport:
+def side(
+    name: str,
+    round_types: list[RoundTypeReport],
+    *,
+    demos: int = 1,
+    matches: int | None = None,
+) -> SideReport:
+    """One side. ``demos`` is the demos its rounds come from.
+
+    It has to be stated rather than inferred, and Story 4.9 is what made that
+    matter: a match count is a **union** and not a sum, so the model holds
+    each level to holding no more matches than its children hold between them
+    (:func:`~pappascout.domain.report._check_matches_are_bounded`). A side
+    left at one demo under a three-demo map is a report that cannot exist,
+    and it used to build without complaint because demo counts are not
+    compared at this level.
+    """
     return SideReport(
         side=name,
-        sample=sample(sum(rt.sample.rounds for rt in round_types)),
+        sample=sample(
+            sum(rt.sample.rounds for rt in round_types),
+            demos=demos,
+            matches=matches,
+        ),
         round_types=round_types,
     )
 
@@ -432,7 +518,11 @@ def map_report(
         map_name=name,
         map_name_source=source,
         map_demo_ids=ids,
-        sample=sample(sum(s.sample.rounds for s in sides), demos=len(ids)),
+        sample=sample(
+            sum(s.sample.rounds for s in sides),
+            demos=len(ids),
+            matches=max((s.sample.matches for s in sides), default=None),
+        ),
         sides=sides,
     )
 
@@ -474,6 +564,7 @@ def report(
     lineup_keys: list[str] | None = None,
     generated_at: datetime | None = None,
     roster_sample_: RosterSample | None = None,
+    matches: int | None = None,
 ) -> Report:
     entries = maps or []
     rounds = sum(m.sample.rounds for m in entries)
@@ -500,7 +591,7 @@ def report(
             roster=list(roster if roster is not None else DEFAULT_ROSTER),
             roster_source="lineups",
         ),
-        sample=sample(rounds, demos=demos),
+        sample=sample(rounds, demos=demos, matches=matches),
         # The roster breakdown defaults to **the same sample, wholly
         # unknown**, which is the archive's state for as long as ``select``
         # has not been run over it. The league and roster totals are equal,
@@ -660,7 +751,13 @@ def demo_map(
     """
     return map_report(
         name,
-        [side("T", [round_type("eco", 2)])],
+        [
+            side(
+                "T",
+                [round_type("eco", 2, demos=len(demo_ids))],
+                demos=len(demo_ids),
+            )
+        ],
         demo_ids=demo_ids,
         source=source,
     )
@@ -790,10 +887,10 @@ def test_report_has_the_structure_the_spec_asks_for() -> None:
     for expected in (
         f"# {TEAM_NAME} -- scouting-raportti",
         "## Yhteenveto",
-        "## `de_ancient` -- 2 kierrosta, 1 demo",
+        "## `de_ancient` -- 2 kierrosta, 1 demo 1 ottelussa",
         "### T-puoli -- 1 kierros",
         "### CT-puoli -- 1 kierros",
-        "**Pistooli** (1 kierros, voitettu 0-1)",
+        "**Pistooli** (1 kierros 1 ottelussa, voitettu 0-1)",
         "## Kierrosliite",
         "## Lukuohje",
         f"## {TRACEABILITY_HEADING}",
@@ -812,7 +909,7 @@ def test_positions_utility_and_first_contact_are_bullets_not_paragraphs() -> Non
     shape.
     """
     text = render(report([pistol_map()]))
-    body = text.split("**Pistooli** (1 kierros, voitettu 0-1)")[1]
+    body = text.split("**Pistooli** (1 kierros 1 ottelussa, voitettu 0-1)")[1]
     body = body.split("\n\n")[0]
     # The first line is the end of the heading ("-- pieni otanta"), not an
     # observation.
@@ -843,7 +940,10 @@ def test_first_contact_position_is_labelled_by_its_median_not_by_zero_seconds() 
     report, without a single other claim noticing anything.
     """
     text = render(report([pistol_map()]))
-    assert "- ensikontakti (mediaani 9,1 s): Middle 2 (1/1 kierroksesta)" in text
+    assert (
+        "- ensikontakti (mediaani 9,1 s): "
+        "Middle 2 (1/1 kierroksesta)" in text
+    )
     assert "- 0 s:" not in text
 
 
@@ -1302,7 +1402,10 @@ def test_small_sample_is_marked_not_hidden() -> None:
     shows.
     """
     text = render(report([pistol_map()]))
-    assert "**Pistooli** (1 kierros, voitettu 0-1) -- pieni otanta" in text
+    assert (
+        "**Pistooli** (1 kierros 1 ottelussa, voitettu 0-1) -- pieni otanta"
+        in text
+    )
     assert "Middle 3" in text
 
 
@@ -1361,7 +1464,7 @@ def three_demo_report(rounds: int = 6) -> Report:
         [
             map_report(
                 "de_nuke",
-                [side("T", [round_type("full", rounds)])],
+                [side("T", [round_type("full", rounds, demos=3)], demos=3)],
                 demo_ids=["Nuke_vs_a", "Nuke_vs_b", "Nuke_vs_c"],
             )
         ]
@@ -2063,8 +2166,22 @@ def test_presence_only_first_contact_areas_are_not_lost() -> None:
                         1,
                         positions=[first_contact_position([area("Ramp", 1, {2: 1})], 1)],
                         first_contact=[
-                            FirstContactArea(area="Ramp", n=1, m=1),
-                            FirstContactArea(area="Heaven", n=1, m=1),
+                            FirstContactArea(
+                                area="Ramp",
+                                n=1,
+                                m=1,
+                                matches=1,
+                                matches_m=1,
+                                newest=None,
+                            ),
+                            FirstContactArea(
+                                area="Heaven",
+                                n=1,
+                                m=1,
+                                matches=1,
+                                matches_m=1,
+                                newest=None,
+                            ),
                         ],
                     )
                 ],
@@ -2072,7 +2189,10 @@ def test_presence_only_first_contact_areas_are_not_lost() -> None:
         ],
     )
     text = render(report([entry]))
-    assert "ensikontakti, vain läsnäolo: Heaven (1/1 kierroksesta)" in text
+    assert (
+        "ensikontakti, vain läsnäolo: Heaven (1/1 kierroksesta)"
+        in text
+    )
     # Ramp is in the distribution already, so it is not repeated.
     assert text.count("Ramp") == 1
 
@@ -2088,7 +2208,16 @@ def test_no_presence_line_when_the_distribution_covers_everything() -> None:
                         "pistol",
                         1,
                         positions=[first_contact_position([area("Ramp", 1, {2: 1})], 1)],
-                        first_contact=[FirstContactArea(area="Ramp", n=1, m=1)],
+                        first_contact=[
+                            FirstContactArea(
+                                area="Ramp",
+                                n=1,
+                                m=1,
+                                matches=1,
+                                matches_m=1,
+                                newest=None,
+                            )
+                        ],
                     )
                 ],
             )
@@ -2695,7 +2824,7 @@ def test_a_map_shows_only_the_demo_count_and_the_chapter_names_the_demos() -> No
     text = render(report([demo_map(demos, name="de_ancient")]))
     traceability = traceability_text(text)
 
-    assert "`de_ancient` -- 2 kierrosta, 2 demoa" in text
+    assert "`de_ancient` -- 2 kierrosta, 2 demoa 2 ottelussa" in text
     for demo_id in demos:
         assert demo_id not in summary_text(text)
         assert "`" + demo_id + "`" in traceability
@@ -2854,7 +2983,7 @@ def test_the_record_is_on_the_round_types_own_sample_line() -> None:
         ))])],
     )
     text = render(report([entry]))
-    assert "**Default** (22 kierrosta, voitettu 15-7)" in text
+    assert "**Default** (22 kierrosta 1 ottelussa, voitettu 15-7)" in text
 
 
 @pytest.mark.parametrize("unknown", [1, 2])
@@ -2886,7 +3015,7 @@ def test_the_record_names_the_unknown_outcomes_instead_of_hiding_them(
     )
     text = render(report([entry]))
     assert (
-        f"**Default** ({22 + unknown} kierrosta, voitettu 15-7, "
+        f"**Default** ({22 + unknown} kierrosta 1 ottelussa, voitettu 15-7, "
         f"{unknown} kierroksen tulos ei tiedossa)" in text
     )
 
@@ -2954,7 +3083,8 @@ def test_the_report_states_the_record_without_deriving_a_rate() -> None:
         row for row in text.splitlines() if row.startswith("**Default**")
     )
     assert line == (
-        f"**Default** ({rounds_text(22)}, {record_text(record)})"
+        f"**Default** ({rounds_text(22)} {matches_text(1)}, "
+        f"{record_text(record)})"
         " -- vain toistuvat kuviot"
     )
 
@@ -3040,7 +3170,7 @@ def test_the_reading_guide_says_the_missing_rate_is_a_decision() -> None:
 def test_a_round_type_heading_uses_the_finnish_name_capitalised() -> None:
     entry = map_report("de_nuke", [side("T", [round_type("ot", 4)])])
     text = render(report([entry]))
-    assert "**Jatkoaika** (4 kierrosta, voitettu 0-4)" in text
+    assert "**Jatkoaika** (4 kierrosta 1 ottelussa, voitettu 0-4)" in text
 
 
 def test_view_is_built_without_touching_the_report() -> None:
@@ -3121,7 +3251,7 @@ GOLDEN = """\
 
 - **Joukkue:** MatureMayhem
 - **Rosteri:** 5 pelaajaa (havaittu demoista): pelaaja1, pelaaja2, pelaaja3, pelaaja4, pelaaja5
-- **Otanta:** 1 demo, 4 kierrosta (demoa/kierrosta: liiga 0 / 0, muut 0 / 0, tuntematon 1 / 4)
+- **Otanta:** 4 pelattua karttaa, 8 kierrosta (demoa/kierrosta: liiga 0 / 0, muut 0 / 0, tuntematon 4 / 8)
 - **Liigatieto:** yhdenkään demon lajia ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otannassa ole yhtään varmistettua liigaottelua
 - **Rosteriluokka:** yhdenkään demon rosteriluokkaa ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otanta erottele 5/5- ja 4/5-karttoja
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta
@@ -3135,18 +3265,27 @@ GOLDEN = """\
 - CT-eteneminen (`de_nuke`, CT-puoli, eco): Lobby (1/4 kierroksesta, T-osuus 0,89 alueen 64 havainnosta)
   - kierros 23: 2 pelaajaa 30 s kohdalla
 
-## `de_nuke` -- 4 kierrosta, 1 demo
+## `de_nuke` -- 4 kierrosta, 2 demoa 2 ottelussa
 
-### T-puoli -- 4 kierrosta
+### T-puoli -- 4 kierrosta 2 ottelussa
 
-**Eco** (4 kierrosta, voitettu 0-4) -- vain toistuvat kuviot
-- 6 s: Ramp 2 (3/4 kierroksesta)
-- ensikontakti (mediaani 9,1 s): Ramp 1 (3/4 kierroksesta)
+**Eco** (4 kierrosta 2 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
+- 6 s: Ramp 2 (3/4 kierroksesta, 2/2 ottelussa, uusin mukana)
+- ensikontakti (mediaani 9,1 s): Ramp 1 (3/4 kierroksesta, 2/2 ottelussa, uusin mukana)
 - utility: savu 1 kpl (3/4 kierroksesta)
 - aseistettuja ostoajan lopussa: 0 (4/4 kierroksesta)
 - panssaroituja ostoajan lopussa: 3 (4/4 kierroksesta)
 - ensimmäinen kuolema (mediaani 24,0 s): Cave (3/3 kierroksesta) -- ei omia kuolemia 1 kierroksella
 - tapot alueittain: Middle (4/7 taposta), BombsiteB (3/7 taposta)
+- *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; jokainen havainto ylitti kynnyksen.*
+
+## `de_dust2` -- 4 kierrosta, 2 demoa 2 ottelussa
+
+### T-puoli -- 4 kierrosta 2 ottelussa
+
+**Eco** (4 kierrosta 2 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
+- 6 s: LongA 2 (3/4 kierroksesta, 2/2 ottelussa)
+- ensimmäinen kuolema: ei omia kuolemia 4 kierroksella
 - *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; jokainen havainto ylitti kynnyksen.*
 
 ## Kierrosliite
@@ -3159,6 +3298,9 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 
 - Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on kierrokset, joissa havainto tehtiin, m kyseisen kierrostyypin kaikki kierrokset. Mediaanin otanta rivin otsikossa (esimerkiksi "mediaani 14,2 s, 7/9 kierroksesta") noudattaa tätä sääntöä: se kertoo, monellako kierroksella ajoitus mitattiin. Saman rivin aluevaateet laskevat sen sijaan vain niitä kierroksia, joilla havainto oli olemassa, joten niiden nimittäjä on pienempi.
 - Kierrostyypin otsikon tulos (esimerkiksi "voitettu 15-7") laskee lohkon omat kierrokset: ensin voitetut, sitten hävityt. Ne ovat samat kierrokset, jotka otsikon kierrosmäärä laskee. Jos jonkin kierroksen tulosta ei saatu, se sanotaan otsikossa erikseen eikä lasketa tappioksi. Raportti kertoo luvun eikä johda siitä osuutta tai arviota: tulkinta on lukijan.
+- Kierrosten rinnalla luetaan ottelut (n/m ottelussa): kolme kierrosta kolmesta ottelusta on tapa, kolme kierrosta yhdestä ottelusta tapahtui kerran, ja pelkkä kierrosmäärä kirjoittaa ne samalla tavalla. Otsikot kertovat ottelumäärän aina. Väitekohtainen ottelumäärä on näytepisteiden riveillä ja ensikontaktin läsnäolorivillä; muilla riveillä lukee vain kierrokset, ja niiden nimittäjä on otsikon ottelumäärä. Ottelumäärä jätetään riviltä pois silloin, kun se on sama murtoluku kuin kierrosmäärä -- esimerkiksi pistoolilohkossa, jossa jokainen ottelu antaa yhden kierroksen -- ja kokonaan silloin, kun lohkossa on vain yksi ottelu. Tuoreusmerkintä kirjoitetaan siltikin, jos kartalla on useampi ottelu.
+- Merkintä "uusin mukana" tai "ei uusimmassa" kertoo, onko **kartan uusin ottelu** niiden joukossa, joissa havainto tehtiin. Se vastaa kysymykseen "päteekö tämä yhä" -- osuus ei vastaa: sama 3/4 syntyy kolmesta vanhimmasta ottelusta ja kolmesta uusimmasta. **Uusin on kartan uusin eikä lohkon oma uusin**, ja se on merkinnän koko arvo: jos lohkossa ei ole yhtään kierrosta kartan uusimmasta ottelusta, koko lohko lukee "ei uusimmassa" -- eli tämä lohko on vanhaa tietoa. Kokonaan merkitty rivi voi syntyä myös siitä, että uusimman ottelun havainnot jäivät rivin kynnyksen alle tai näytepisteestä puuttuu kierroksia; rivin oma huomautus kertoo puuttuvat kierrokset ja lohkon huomautus kertoo karsitut havainnot. Ottelut eivät ole painotettuja millään luvulla: raportti kertoo havainnot siinä järjestyksessä kuin ne tapahtuivat, jotta jokainen luku on tarkistettavissa demoilta. Merkintä puuttuu kahdessa tapauksessa: kun kartalla on vain yksi ottelu, jolloin jokainen havainto on siinä ja kartan otsikko sanoo sen jo, ja kun otteluiden järjestystä ei tiedetä -- esimerkiksi käsin tuodulle demolle, jota ei ole otteluindeksissä.
+- **Ottelumäärät eivät laske yhteen tasojen välillä, kierrosmäärät laskevat.** Sama ottelu voi pelata kaksi karttaa ja pelaa aina molemmat puolet, joten se on mukana useamman otsikon ottelumäärässä: karttojen ottelumäärät yhteen laskettuna saa suuremman luvun kuin otteluita on. Kierrokset sen sijaan jakautuvat kartoille, puolille ja kierrostyypeille kukin täsmälleen kerran, joten ne laskevat yhteen. Yhteenvedon rivi kertoo pelattujen karttojen määrän juuri tästä syystä: se on luku, jonka voi laskea yhteen.
 - Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui.
 - Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 5 havaintoa näytepistettä kohden; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
 - **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta.
@@ -3181,7 +3323,8 @@ Tunnisteet, jotka eivät ole rungossa: joukkueen ja kokoonpanojen tiivisteet, pe
 - **3. pelaaja3:** `3`
 - **4. pelaaja4:** `4`
 - **5. pelaaja5:** `5`
-- **`de_nuke`:** `Ancient_vs_kaljukostaja`
+- **`de_nuke`:** `Ancient_vs_kaljukostaja`, `ANCIENT_vs_RCAVE_VETERANS`
+- **`de_dust2`:** `Dust2_vs_a`, `Dust2_vs_b`
 """
 
 
@@ -3204,9 +3347,44 @@ def golden_report() -> Report:
                     round_type(
                         "eco",
                         4,
+                        demos=2,
+                        # The recency mark is in the golden because it is
+                        # the one thing on a claim that is not a number:
+                        # locked nowhere, a rendering that stopped writing
+                        # it would leave every other test green. The block
+                        # holds two matches, so both marks appear and the
+                        # match fraction is not the round fraction -- a
+                        # one-match block would print neither.
                         positions=[
-                            position(6.0, [area("Ramp", 4, {2: 3, 0: 1})], 4),
-                            first_contact_position([area("Ramp", 4, {1: 3, 0: 1})], 4),
+                            position(
+                                6.0,
+                                [
+                                    area(
+                                        "Ramp",
+                                        4,
+                                        {2: 3, 0: 1},
+                                        matches_m=2,
+                                        matches={2: 2, 0: 1},
+                                        newest={2: True, 0: False},
+                                    )
+                                ],
+                                4,
+                                matches_m=2,
+                            ),
+                            first_contact_position(
+                                [
+                                    area(
+                                        "Ramp",
+                                        4,
+                                        {1: 3, 0: 1},
+                                        matches_m=2,
+                                        matches={1: 2, 0: 1},
+                                        newest={1: True, 0: False},
+                                    )
+                                ],
+                                4,
+                                matches_m=2,
+                            ),
                         ],
                         utility_counts=[counts("smoke", 4, {1: 3, 0: 1})],
                         # Both player counters are included for the same
@@ -3230,15 +3408,66 @@ def golden_report() -> Report:
                         ),
                     )
                 ],
+                demos=2,
             )
         ],
+        demo_ids=[DEMO_ID, MISSING_DEMO_ID],
+    )
+    # A SECOND MAP WHOSE MATCHES HAVE NO KNOWN ORDER, so that the golden holds
+    # one rendered bar with ``newest = null`` (Story 4.9, verification
+    # review). Every bar of the first map is ``true``, so the state that
+    # separates "the newest is not among them" from "nobody knows which is
+    # newest" reached no golden at all, and the mutation collapsing ``null``
+    # to ``false`` in the view was caught only by older fixtures that happen
+    # to default the field to ``None``.
+    #
+    # It is a whole map and not a single bar because the state is a property
+    # of the map: the mark is the map's newest match, so within one chapter
+    # the answer is known for every bar or for none. Two hand-imported demos
+    # of one map is exactly the shape -- two matches, so the chapter does
+    # carry match fractions, and no order, so it carries no mark.
+    unordered = map_report(
+        "de_dust2",
+        [
+            side(
+                "T",
+                [
+                    round_type(
+                        "eco",
+                        4,
+                        demos=2,
+                        matches=2,
+                        positions=[
+                            position(
+                                6.0,
+                                [
+                                    area(
+                                        "LongA",
+                                        4,
+                                        {2: 3, 0: 1},
+                                        matches_m=2,
+                                        matches={2: 2, 0: 1},
+                                        newest={2: None, 0: None},
+                                    )
+                                ],
+                                4,
+                                matches_m=2,
+                            )
+                        ],
+                    )
+                ],
+                demos=2,
+                matches=2,
+            )
+        ],
+        demo_ids=["Dust2_vs_a", "Dust2_vs_b"],
     )
     # One anomaly, so that the golden locks the anomaly chapter's shape and
     # place as well. The empty chapter is locked in a test of its own -- both
     # variants cannot be in the same output, and this is the one in which the
     # row's shape can be seen.
     return report(
-        [entry],
+        [entry, unordered],
         anomalies=[
             anomaly(
                 map_name="de_nuke",
@@ -4343,7 +4572,7 @@ def test_the_anomaly_chapter_comes_before_the_map_chapters() -> None:
     text = render(report([pistol_map()], anomalies=[anomaly()]))
     headings = [heading for heading, _ in report_sections(text) if heading]
     assert headings.index(ANOMALY_HEADING) < headings.index(
-        "`de_ancient` -- 2 kierrosta, 1 demo"
+        "`de_ancient` -- 2 kierrosta, 1 demo 1 ottelussa"
     )
     assert headings.index("Yhteenveto") < headings.index(ANOMALY_HEADING)
 
@@ -4868,11 +5097,11 @@ def threshold_note(text: str, heading: str = "Default") -> str:
 #: and the measurement that replaces it is the re-rendered report recorded
 #: with the 2026-09-11 change.
 GOLDEN_PRUNING_OFF_CHAPTER = """\
-## `de_mirage` -- 15 kierrosta, 1 demo
+## `de_mirage` -- 15 kierrosta, 1 demo 1 ottelussa
 
-### T-puoli -- 13 kierrosta
+### T-puoli -- 13 kierrosta 1 ottelussa
 
-**Eco** (4 kierrosta, voitettu 0-4) -- vain toistuvat kuviot
+**Eco** (4 kierrosta 1 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
 - 6 s: Middle 2 (4/4 kierroksesta)
 - 15 s: Middle 2 (4/4 kierroksesta)
 - 30 s: Middle 1 (4/4 kierroksesta)
@@ -4884,26 +5113,26 @@ GOLDEN_PRUNING_OFF_CHAPTER = """\
 - tapot alueittain: BombsiteA (5/23 taposta), Connector (4/23 taposta), Palace (4/23 taposta), Apartments (3/23 taposta), Ramp (3/23 taposta)
 - *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; 8 harvinaisempaa havaintoa jäi pois.*
 
-**Force** (3 kierrosta, voitettu 0-3) -- vain toistuvat kuviot
+**Force** (3 kierrosta 1 ottelussa, voitettu 0-3) -- vain toistuvat kuviot
 - aseistettuja ostoajan lopussa: 3 (3/3 kierroksesta)
 - panssaroituja ostoajan lopussa: 3 (3/3 kierroksesta)
 - ensimmäinen kuolema: ei omia kuolemia 3 kierroksella
 - *Vain kuviot, jotka toistuvat kaikilla 3 kierroksella; jokainen havainto ylitti kynnyksen.*
 
-**Puoliosto** (2 kierrosta, voitettu 0-2) -- pieni otanta -- vain toistuvat kuviot
+**Puoliosto** (2 kierrosta 1 ottelussa, voitettu 0-2) -- pieni otanta -- vain toistuvat kuviot
 - aseistettuja ostoajan lopussa: 1 (2/2 kierroksesta)
 - panssaroituja ostoajan lopussa: 3 (2/2 kierroksesta)
 - ensimmäinen kuolema: ei omia kuolemia 2 kierroksella
 - *Vain kuviot, jotka toistuvat kaikilla 2 kierroksella; jokainen havainto ylitti kynnyksen.*
 
-**Default** (4 kierrosta, voitettu 0-4) -- vain toistuvat kuviot
+**Default** (4 kierrosta 1 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
 - 6 s: Middle 2 (4/4 kierroksesta)
 - ensimmäinen kuolema (mediaani 20,0 s, 2/4 kierroksesta): ei omia kuolemia 2 kierroksella
 - *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; 5 harvinaisempaa havaintoa jäi pois.*
 
-### CT-puoli -- 2 kierrosta
+### CT-puoli -- 2 kierrosta 1 ottelussa
 
-**Pistooli** (2 kierrosta, voitettu 0-2) -- pieni otanta
+**Pistooli** (2 kierrosta 1 ottelussa, voitettu 0-2) -- pieni otanta
 - 30 s: Middle 2 (2/2 kierroksesta)
 - 45 s: Middle 1 (2/2 kierroksesta)
 - valo: CTSpawn -> BombsiteA (arvio) 0-5 s (2/2 kierroksesta), CTSpawn -> Connector (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Jungle (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Palace (arvio) 0-5 s (1/2 kierroksesta)
@@ -5469,7 +5698,10 @@ def test_first_contact_is_not_a_sample_point_that_can_be_named() -> None:
         ]
     )
     text = render(entry, ReportSettings(skip_sample_seconds=[9.0]))
-    assert "ensikontakti (mediaani 9,0 s): Middle 2 (2/2 kierroksesta)" in text
+    assert (
+        "ensikontakti (mediaani 9,0 s): "
+        "Middle 2 (2/2 kierroksesta)" in text
+    )
 
 
 # --- Rules 4 and 5: the most common, and the number dropped on the row --------
@@ -6437,7 +6669,10 @@ def test_a_hostile_area_name_does_not_break_the_position_line() -> None:
     text = render(report([map_report("de_ancient", [side("CT", [entry])])]))
     row = next(line for line in text.splitlines() if line.startswith("- 15 s"))
     assert hostile not in row
-    assert "\\*\\|Aim\\|\\* Botz \\[beta\\] 2 (3/3 kierroksesta)" in row
+    assert (
+        "\\*\\|Aim\\|\\* Botz \\[beta\\] 2 (3/3 kierroksesta)"
+        in row
+    )
 
 
 def test_a_hostile_area_name_does_not_break_the_anomaly_line() -> None:
@@ -6473,3 +6708,370 @@ def test_a_real_area_name_is_untouched_by_the_protection() -> None:
     # The observation rows only: the round appendix's paths are Windows
     # paths, in which the backslash is content and not an escape.
     assert not [row for row in rows if "\\" in row]
+
+# --- The match count and the recency mark (Story 4.9) ---------------------------
+
+
+def test_a_claim_states_both_units_and_the_round_count_comes_first() -> None:
+    """``7/9 kierroksesta, 3/4 ottelussa`` -- the rounds stay where they were.
+
+    The order is the decision: the round count is the honest sample size and
+    ``small_sample`` is read from it, so it keeps the place the reader's eye
+    already goes to and the match count is added beside it.
+    """
+    claim = Claim(text="Outside 3", n=7, m=9, matches_n=3, matches_m=4)
+    assert claim.sample_text == "7/9 kierroksesta, 3/4 ottelussa"
+
+
+def test_a_match_fraction_identical_to_the_round_one_is_not_printed() -> None:
+    """The product owner's decision of 2026-09-24, taken on the rendered block.
+
+    A pistol round is one per map, so every entry in that block printed the
+    same fraction twice -- ``3/4 kierroksesta, 3/4 ottelussa`` -- and the
+    heading already states the block's match count. The mark is **not**
+    dropped with it: it is the one thing on the line the round fraction
+    cannot say.
+    """
+    same = Claim(text="Outside 3", n=3, m=4, matches_n=3, matches_m=4)
+    assert same.sample_text == "3/4 kierroksesta"
+    marked = Claim(
+        text="Outside 3", n=3, m=4, matches_n=3, matches_m=4, newest=False
+    )
+    assert marked.sample_text == "3/4 kierroksesta, ei uusimmassa"
+
+
+def test_a_one_match_map_carries_no_recency_mark() -> None:
+    """A map of one match has nothing to mark, and it is the common shape.
+
+    Measured 2026-09-24 over all three teams of the developer's archive: with
+    this rule at the **block** level instead, the two hand-imported teams
+    printed the mark 304 and 197 times against 2 and 2 of the other form,
+    because their maps hold one demo each. With it here they print 1 and 2 --
+    only on the one map either of them played twice -- and the scouted team,
+    whose maps hold three and four matches, keeps 235 against 155.
+    """
+    entry = round_type(
+        "eco",
+        2,
+        positions=[position(15.0, [area("Ramp", 2, {2: 2})], 2)],
+    )
+    text = render(report([map_report("de_nuke", [side("T", [entry])])]))
+    row = next(line for line in text.splitlines() if line.startswith("- 15 s"))
+    assert row == "- 15 s: Ramp 2 (2/2 kierroksesta)"
+    assert RECENCY_NEWEST_INCLUDED not in text.split("## Lukuohje")[0]
+
+
+def test_a_one_match_block_on_a_many_match_map_keeps_its_mark() -> None:
+    """The rule is the map's and not the block's, and this is the difference.
+
+    Since the mark became the map's newest match, a block holding one match
+    still says something: whether that match is the map's most recent. The
+    reviewer's sharpest case was exactly this -- a one-round eco block whose
+    only match was the oldest, printing that the newest was among them.
+    """
+    stale = round_type(
+        "eco",
+        1,
+        positions=[
+            position(
+                15.0,
+                [area("TopofMid", 1, {4: 1}, newest={4: False})],
+                1,
+            )
+        ],
+    )
+    fresh = round_type(
+        "full",
+        4,
+        demos=2,
+        matches=2,
+        positions=[
+            position(
+                15.0,
+                [area("Ramp", 4, {2: 4}, matches_m=2, matches={2: 2},
+                      newest={2: True})],
+                4,
+                matches_m=2,
+            )
+        ],
+    )
+    text = render(
+        report(
+            [
+                map_report(
+                    "de_dust2",
+                    [side("T", [stale, fresh], demos=2, matches=2)],
+                    demo_ids=[f"{_BO2_MATCH}-0", f"{_OTHER_MATCH}-0"],
+                )
+            ],
+            matches=2,
+        )
+    )
+    assert f"TopofMid 4 (1/1 kierroksesta, {RECENCY_NEWEST_ABSENT})" in text
+    assert (
+        f"Ramp 2 (4/4 kierroksesta, 2/2 ottelussa, {RECENCY_NEWEST_INCLUDED})"
+        in text
+    )
+
+
+def test_a_one_match_block_states_no_match_sample_on_its_claims() -> None:
+    """Both halves would repeat the heading on every line of the block.
+
+    Two of the three teams in the developer's archive are entirely
+    hand-imported demos, one map per match, so this is the common shape and
+    not a corner: every claim would gain ``1/1 ottelussa, uusin mukana``,
+    both true and both already known from ``(2 kierrosta 1 ottelussa)``.
+    """
+    entry = round_type(
+        "eco",
+        2,
+        positions=[position(15.0, [area("Ramp", 2, {2: 2})], 2)],
+    )
+    text = render(report([map_report("de_nuke", [side("T", [entry])])]))
+    row = next(line for line in text.splitlines() if line.startswith("- 15 s"))
+    assert row == "- 15 s: Ramp 2 (2/2 kierroksesta)"
+    assert "**Eco** (2 kierrosta 1 ottelussa," in text
+
+
+def test_a_claim_without_a_match_sample_prints_what_it_always_printed() -> None:
+    """The rows the model gives no match count to are unchanged, exactly."""
+    assert Claim(text="Middle 2", n=1, m=2).sample_text == "1/2 kierroksesta"
+
+
+def test_a_claim_refuses_half_a_match_sample() -> None:
+    """A fraction with one half missing is not a sample."""
+    with pytest.raises(ValueError, match="both its numerator"):
+        Claim(text="Outside 3", n=3, m=4, matches_n=3)
+    with pytest.raises(ValueError, match="both its numerator"):
+        Claim(text="Outside 3", n=3, m=4, matches_m=4)
+
+
+def test_the_recency_mark_says_which_way_round_it_is() -> None:
+    """Both forms are written; neither is the absence of the other."""
+    present = Claim(text="Control 4", n=1, m=4, matches_n=1, matches_m=4, newest=True)
+    absent = Claim(text="Outside 3", n=3, m=4, matches_n=3, matches_m=4, newest=False)
+    assert present.sample_text.endswith(RECENCY_NEWEST_INCLUDED)
+    assert absent.sample_text.endswith(RECENCY_NEWEST_ABSENT)
+    assert RECENCY_NEWEST_INCLUDED != RECENCY_NEWEST_ABSENT
+
+
+def test_no_mark_is_written_when_the_order_is_not_known() -> None:
+    """``None`` writes nothing rather than choosing one of the two words.
+
+    The reading guide is what says that a missing mark means the matches have
+    no order -- the row itself must not claim anything, and a ``False`` here
+    would tell the reader the observation had stopped.
+    """
+    claim = Claim(text="Outside 3", n=7, m=9, matches_n=3, matches_m=4, newest=None)
+    assert claim.sample_text == "7/9 kierroksesta, 3/4 ottelussa"
+    assert RECENCY_NEWEST_ABSENT not in claim.sample_text
+
+
+def test_the_pistol_case_of_the_intent_renders_both_numbers_and_the_mark() -> None:
+    """The measurement of 2026-09-23, rendered.
+
+    ``de_nuke`` T pistol at 15 s: Outside on three rounds of four, and those
+    three are the three **oldest** matches. The old line read ``Outside 1 (3/4
+    kierroksesta)`` and a reader concluded "mostly Outside"; the new one says
+    in the same breath that the newest match is not among them.
+    """
+    entry = round_type(
+        "pistol",
+        4,
+        demos=4,
+        positions=[
+            position(
+                15.0,
+                [
+                    area(
+                        "Outside",
+                        4,
+                        {1: 3, 0: 1},
+                        matches_m=4,
+                        matches={1: 3, 0: 1},
+                        newest={1: False, 0: True},
+                    ),
+                    area(
+                        "Control",
+                        4,
+                        {4: 1, 0: 3},
+                        matches_m=4,
+                        matches={4: 1, 0: 3},
+                        newest={4: True, 0: False},
+                    ),
+                ],
+                4,
+                matches_m=4,
+            )
+        ],
+    )
+    text = render(
+        report(
+            [
+                map_report(
+                    "de_nuke",
+                    [side("T", [entry], demos=4)],
+                    demo_ids=[f"1-m{n}-0" for n in range(4)],
+                )
+            ]
+        )
+    )
+    row = next(line for line in text.splitlines() if line.startswith("- 15 s"))
+    # The fractions are identical -- a pistol round is one per map -- so only
+    # the mark is left, which is the whole finding.
+    assert "Outside 1 (3/4 kierroksesta, ei uusimmassa)" in row
+    assert "Control 4 (1/4 kierroksesta, uusin mukana)" in row
+
+
+def test_the_round_type_heading_states_the_match_count() -> None:
+    """Every block's heading, so that every row has a match denominator."""
+    entry = round_type("pistol", 4, demos=4)
+    text = render(
+        report(
+            [
+                map_report(
+                    "de_nuke",
+                    [side("T", [entry], demos=4)],
+                    demo_ids=[f"1-m{n}-0" for n in range(4)],
+                )
+            ]
+        )
+    )
+    assert "**Pistooli** (4 kierrosta 4 ottelussa, voitettu 0-4)" in text
+    assert "### T-puoli -- 4 kierrosta 4 ottelussa" in text
+
+
+def test_the_summary_says_how_many_matches_the_demos_came_from() -> None:
+    """The row that used to mislead: 8 demos over 4 matches.
+
+    Measured 2026-09-24 on the real archive -- every match of the scouted team
+    played two maps. ``8 demoa`` was the whole of the row, and a reader
+    counting matches had nothing else on it.
+    """
+    maps = [
+        map_report(
+            "de_nuke",
+            [side("T", [round_type("eco", 4, demos=4)], demos=4)],
+            demo_ids=[f"1-m{n}-1" for n in range(4)],
+        ),
+        map_report(
+            "de_dust2",
+            [side("T", [round_type("eco", 4, demos=4)], demos=4)],
+            demo_ids=[f"1-m{n}-0" for n in range(4)],
+        ),
+    ]
+    text = render(report(maps, matches=4))
+    assert "**Otanta:** 8 pelattua karttaa, 8 kierrosta" in text
+    # The root states no match count at all; the map headings still do, and
+    # adding those up gives more than the report holds.
+    assert "4 ottelussa" not in summary_text(text)
+    assert "`de_nuke` -- 4 kierrosta, 4 demoa 4 ottelussa" in text
+
+
+def test_the_map_heading_states_demos_and_matches_both() -> None:
+    """Both, because they answer different questions.
+
+    The demo is the file the reader opens to check a claim; the match is what
+    they are asking about. On this archive a map's two numbers differ only
+    when the same match played it twice, so the pair is written and not
+    reasoned about.
+    """
+    text = render(
+        report(
+            [
+                map_report(
+                    "de_nuke",
+                    [side("T", [round_type("eco", 2, demos=2)], demos=2)],
+                    demo_ids=["1-m1-0", "1-m2-0"],
+                )
+            ]
+        )
+    )
+    assert "## `de_nuke` -- 2 kierrosta, 2 demoa 2 ottelussa" in text
+
+
+def test_the_reading_guide_explains_both_the_unit_and_the_mark() -> None:
+    """Written always, like the record's entry: every heading carries the count.
+
+    The paragraph has to name **which rows** carry a per-claim match count,
+    because the rows that do not are the majority -- their silence must not be
+    read as "one match".
+    """
+    text = render(report([pistol_map()]))
+    legend = text.split("## Lukuohje")[1]
+    assert MATCH_SAMPLE_UNIT in legend
+    assert RECENCY_NEWEST_INCLUDED in legend
+    assert RECENCY_NEWEST_ABSENT in legend
+    assert "ensikontaktin" in legend
+    assert "järjestystä ei tiedetä" in legend
+
+
+def test_every_heading_states_matches_and_not_demos() -> None:
+    """The three headings are told apart from the demo count, not assumed.
+
+    **Measured gap** (Story 4.9 review): every other fixture in this file
+    gives its sample as many matches as demos, so a rendering that put
+    ``sample.demos`` on the map, side or round-type heading passed the whole
+    render suite -- and the archive suite does not render. One ``best_of``
+    match over two maps is the shape that separates them, and it is the real
+    archive's shape: eight demos, four matches.
+
+    All three headings are asserted in one test on purpose. Split, each would
+    be satisfied by the number that happens to be right on its own level.
+    """
+    entry = round_type("full", 6, demos=2, matches=1)
+    text = render(
+        report(
+            [
+                map_report(
+                    "de_nuke",
+                    [side("T", [entry], demos=2, matches=1)],
+                    demo_ids=[f"{_BO2_MATCH}-0", f"{_BO2_MATCH}-1"],
+                )
+            ],
+            matches=1,
+        )
+    )
+    assert "## `de_nuke` -- 6 kierrosta, 2 demoa 1 ottelussa" in text
+    assert "### T-puoli -- 6 kierrosta 1 ottelussa" in text
+    assert "**Default** (6 kierrosta 1 ottelussa," in text
+    # The demo count must not have been printed as the match count anywhere.
+    assert "2 ottelussa" not in text
+
+
+def test_the_presence_line_prints_its_own_match_numerator() -> None:
+    """``n`` and ``matches`` differ on the presence row too, and it shows.
+
+    **Measured gap** (Story 4.9 verification review): every fixture that
+    rendered this row had ``n == matches``, so passing ``entry.n`` as the
+    match numerator was green -- while the identical mutation on the
+    sample-point row reddened seven tests. Three rounds over two matches is
+    the smallest fixture that separates them.
+    """
+    entry = round_type(
+        "full",
+        3,
+        demos=2,
+        matches=2,
+        first_contact=[
+            FirstContactArea(
+                area="Banana", n=3, m=3, matches=2, matches_m=2, newest=True
+            )
+        ],
+    )
+    text = render(
+        report(
+            [
+                map_report(
+                    "de_inferno",
+                    [side("T", [entry], demos=2, matches=2)],
+                    demo_ids=[f"{_BO2_MATCH}-0", f"{_OTHER_MATCH}-0"],
+                )
+            ],
+            matches=2,
+        )
+    )
+    assert (
+        "ensikontakti, vain läsnäolo: Banana "
+        f"(3/3 kierroksesta, 2/2 ottelussa, {RECENCY_NEWEST_INCLUDED})" in text
+    )

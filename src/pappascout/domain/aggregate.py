@@ -99,6 +99,7 @@ from pappascout.constants import (
 )
 from pappascout.domain import sampling
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
+from pappascout.domain.selection import match_of
 from pappascout.domain.report import (
     MAP_NAME_SOURCES,
     SLUG_FALLBACK,
@@ -142,6 +143,10 @@ __all__ = [
     "LEAGUE_BUCKETS",
     "ROSTER_SAMPLE_BUCKETS",
     "RoundKey",
+    "MatchOrder",
+    "match_of",
+    "matches_of",
+    "newest_match",
     "bucket_labels",
     "seconds_bucket",
     "map_name_for",
@@ -201,6 +206,94 @@ ROSTER_SAMPLE_BUCKETS: tuple[str, ...] = ROSTER_BUCKETS
 #: A round's key across the whole archive. ``round_no`` on its own would mix
 #: up the rounds of different maps.
 RoundKey = tuple[str, int]
+
+#: The matches' order, newest first: match key -> place, ``0`` = newest.
+#:
+#: **An order and not a date**, and the difference is the layering. A match's
+#: own time is not in any table ``aggregate`` reads -- ``CLASSIFIED`` carries
+#: ``map_demo_id`` and nothing else about the match -- so it comes from the
+#: match index, which ``discover`` writes and only the stage can read (AD-2:
+#: ``domain`` reads no file). Handed a list of times, this module would have
+#: to decide what a missing one means; handed a place, it has one thing to
+#: look up and one thing to say when the lookup fails.
+#:
+#: A match key that is **not** in it has no known place. That is a real state
+#: and not a fault: a demo imported by hand is in no match index, and
+#: :func:`newest_match` answers ``None`` rather than guessing.
+#:
+#: **A mapping here and a sequence at the edge.** :func:`build_report` takes
+#: the matches as a list, newest first, because that is what a caller has and
+#: the only shape in which "newest first" is self-evident; it is turned into
+#: this mapping once, at the top of that function. Every reader below asks
+#: one question -- where does this key sit -- and asking it of a list would be
+#: a scan per round type, with the ordering re-derived at each use.
+MatchOrder = Mapping[str, int]
+
+
+def matches_of(round_keys: Iterable[RoundKey]) -> set[str]:
+    """The matches a set of rounds comes from (:func:`.selection.match_of`).
+
+    **One function for every match count in the report**, and that is the
+    point of it rather than brevity: the counts are built at five levels and
+    in three shapes, and a second spelling of "which match is this round's"
+    would let two of them come to disagree -- the failure
+    ``SITE_GROUPS = tuple(SITE_AREAS)`` exists to prevent one level up.
+    """
+    return {match_of(demo) for demo, _ in round_keys}
+
+
+def newest_match(matches: Iterable[str], order: MatchOrder) -> str | None:
+    """The newest of these matches, or ``None`` if it cannot be told.
+
+    The report's recency mark rests on this: an observation is marked as
+    including the newest match, or as not including it, and the reader's
+    question before a match ("is this still true?") is answered by which.
+
+    **One match is its own newest, order or no order.** A set of a single
+    match needs no index to be sure which of them is the latest, and saying
+    so here rather than in each caller is what keeps the answer true for a
+    hand-imported demo. It is the common case in this archive: of the three
+    teams measured 2026-09-24, two are entirely hand-imported demos, so most
+    of their **maps** hold one match.
+
+    **The caller asks this at the map level and not at the block's**, and the
+    difference is what makes the answer worth printing.
+    :func:`positions_for` has the measurement: a block that holds no round
+    from the map's newest match is exactly the block a reader needs to be
+    told is stale, and asking the block would have told them the opposite.
+    On a map of one match the answer is therefore the same for every block,
+    and it is still information -- it says the map has one match and this is
+    it.
+
+    **The key this looks up is** :func:`.selection.match_of`'s, which resolves
+    a composed id to its match and leaves anything else as its own match. An
+    id that does not resolve is in no match index either, so a set holding one
+    loses the mark rather than getting a wrong one -- and that is the safe
+    direction: the mark is absent where it cannot be trusted.
+
+    **Otherwise every match has to have a place.** With one match unplaced,
+    the newest of the rest may or may not be the newest of all, and a mark
+    that is right most of the time is worse here than no mark: the reader
+    would act on it. ``None`` is then the answer, and the report writes
+    nothing rather than a guess.
+
+    Args:
+        matches: The match keys to choose between.
+        order: Match key -> place, newest first. See :data:`MatchOrder`.
+
+    Returns:
+        The newest match's key, or ``None`` when the order does not settle it
+        -- including when ``matches`` is empty, because then there is no
+        newest match rather than an unknown one. The two are the same answer
+        to the caller: there is nothing to mark.
+    """
+    keys = set(matches)
+    if len(keys) == 1:
+        return next(iter(keys))
+    if not keys or any(key not in order for key in keys):
+        return None
+    return min(keys, key=lambda key: order[key])
+
 
 #: A round row's key **including the side**. The ``ROUNDS`` table has two rows
 #: per round, one for each team, so :data:`RoundKey` on its own would hit both
@@ -666,14 +759,26 @@ def demo_buckets(rows: Sequence[Mapping[str, Any]]) -> dict[str, str]:
 def sample_for(
     rows: Sequence[Mapping[str, Any]], buckets: Mapping[str, str]
 ) -> Sample:
-    """One level's sample: demos and rounds in three buckets."""
+    """One level's sample: demos, matches and rounds in three buckets.
+
+    **The matches are counted from the same rows, in the same pass**, which is
+    the whole reason this is one function and not two -- the same design
+    :func:`record_for` states for the win-loss record. A second pass over a
+    differently filtered frame is what lets two numbers on the same line come
+    to disagree, and this one cannot drift because there is no second pass.
+
+    The match count is **not bucketed**; :attr:`.report.Sample.matches` says
+    why.
+    """
     demos: defaultdict[str, set[str]] = defaultdict(set)
     rounds: Counter[str] = Counter()
+    matches: set[str] = set()
     for row in rows:
         demo = str(row["map_demo_id"])
         bucket = buckets[demo]
         demos[bucket].add(demo)
         rounds[bucket] += 1
+        matches.add(match_of(demo))
     made = {
         name: SampleBucket(demos=len(demos[name]), rounds=rounds[name])
         for name in LEAGUE_BUCKETS
@@ -681,6 +786,7 @@ def sample_for(
     return Sample(
         demos=sum(b.demos for b in made.values()),
         rounds=sum(b.rounds for b in made.values()),
+        matches=len(matches),
         **made,
     )
 
@@ -857,22 +963,54 @@ def roster_sample_for(
 # -- Distributions ---------------------------------------------------------------
 
 
-def players_distribution(counts: Iterable[int]) -> list[PlayersCount]:
+def players_distribution(
+    counts: Iterable[tuple[RoundKey, int]],
+    newest: str | None,
+) -> list[PlayersCount]:
     """The player counts' distribution as bars.
 
     The input is **one element per round**, zeros included: they are exactly
     what produces the ``players = 0`` bar, without which ``Σ n = m`` would not
     hold.
+
+    **The round's key travels with its count**, and that is Story 4.9's one
+    change to the shape of this function. The bar's rounds and its matches are
+    then counted in the same pass over the same elements, so they cannot be
+    made from different sets -- the same reason
+    :func:`record_for` takes rows and not a filter. A second function that
+    re-derived the matches from the sample point would be free to disagree
+    with the bar beside it, and nothing in the report would show it.
+
+    Args:
+        counts: ``(round key, players in the area)``, one per round.
+        newest: The newest match of the denominator these bars are read
+            against, or ``None`` when the matches' order is not known
+            (:func:`newest_match`). Every bar's ``newest`` is then ``null``,
+            which the report writes as no mark at all rather than as a
+            denial. **It takes no default**, for the reason the report model
+            gives no field one: a default would be a silent ``null``, and a
+            recency mark that is quietly absent reads exactly like a report
+            whose matches have no order.
     """
-    tally = Counter(int(c) for c in counts)
+    per_count: defaultdict[int, set[RoundKey]] = defaultdict(set)
+    for key, value in counts:
+        per_count[int(value)].add(key)
     return [
-        PlayersCount(players=players, n=tally[players])
-        for players in sorted(tally)
+        PlayersCount(
+            players=players,
+            n=len(per_count[players]),
+            matches=len(matches_of(per_count[players])),
+            newest=(
+                None if newest is None else newest in matches_of(per_count[players])
+            ),
+        )
+        for players in sorted(per_count)
     ]
 
 
 def area_distributions(
     rows_by_round: Mapping[RoundKey, Sequence[Mapping[str, Any]]],
+    newest: str | None,
 ) -> list[AreaDistribution]:
     """The areas' distributions at one sample point.
 
@@ -885,8 +1023,11 @@ def area_distributions(
     Args:
         rows_by_round: Round -> the sample point's rows. **The living only**;
             a dead player is not counted.
+        newest: The sample point's newest match, or ``None``. Passed on to
+            every bar; see :func:`players_distribution`.
     """
     m = len(rows_by_round)
+    matches_m = len(matches_of(rows_by_round.keys()))
     areas: set[str | None] = set()
     per_round: dict[RoundKey, Counter[str | None]] = {}
     for key, rows in rows_by_round.items():
@@ -900,8 +1041,10 @@ def area_distributions(
         AreaDistribution(
             area=area,
             m=m,
+            matches_m=matches_m,
             players_dist=players_distribution(
-                per_round[key][area] for key in rows_by_round
+                ((key, per_round[key][area]) for key in rows_by_round),
+                newest,
             ),
         )
         for area in sorted(areas, key=_area_sort_key)
@@ -955,12 +1098,57 @@ def _round_key(row: Mapping[str, Any]) -> RoundKey | None:
 def positions_for(
     ticks: Sequence[Mapping[str, Any]],
     round_keys: Sequence[RoundKey],
+    newest: str | None,
 ) -> list[Position]:
     """The sample points of one map/side/round type branch.
 
     Time sample points are grouped by ``sample_t_s``, first contact into
     **one** sample point: its moment differs on every round, so grouping it by
     ``sample_t_s`` would produce one sample point per round.
+
+    **The newest match is the map's, and it is handed in rather than derived
+    here.** Which match the mark names is a question about the whole map
+    chapter and not about this branch, so the caller settles it once
+    (:func:`build_report`) and every branch of the map gets the same answer.
+
+    That scope was measured into place, twice, and both numbers below were
+    re-measured on 2026-09-24 after a review found the first pair wrong.
+
+    Taken from the **sample point's** own matches, the mark would have meant
+    *the newest match that has a 45-second sample*: of the real archive's 377
+    sample points, **15** cover fewer matches than their branch, **14** of
+    those have any bar at all and **11** print a mark. (An earlier version of
+    this paragraph said 14 printed one; 14 is the count of non-empty points.)
+
+    Taken from the **branch's**, it was still wrong in the way a reader would
+    act on: **11 of the scouted team's 26 round-type groups** hold no round
+    from that team's newest match, and each marked an older one as the newest.
+    The sharpest is a one-round eco block whose only match is the **oldest**,
+    three weeks and three matches behind.
+
+    The map is the level the reader asks at, because the report is read per
+    map: inside a Nuke chapter, "the newest" is the most recent Nuke demo. It
+    also removes a contradiction the narrower scopes produced inside one
+    chapter: the scouted team's newest match has **no ``de_dust2`` demo at
+    all**, so every Dust2 block was being marked against a match never played
+    on that map, and rows a few lines apart disagreed about it.
+
+    The consequence is deliberate and is the point: a block holding nothing
+    from the map's newest match reads "not in the newest" on **every** line,
+    which says the whole block is stale -- exactly what a reader preparing
+    for a match needs to know. Measured after the change: **4** of those 26
+    groups read that way, against 11 under the branch scope.
+
+    ``matches_m`` stays the **sample point's**, because it is the denominator
+    beside ``m`` and has to be measured over the same rounds. So a row can
+    read ``2/2 ottelussa, ei uusimmassa``: in both matches this moment exists
+    in, and the map's newest is not one of them.
+
+    Args:
+        ticks: The branch's sample point rows.
+        round_keys: The branch's rounds.
+        newest: The map's newest match, or ``None`` when the matches' order
+            does not settle it (:func:`newest_match`).
     """
     total_rounds = len(round_keys)
     groups: defaultdict[
@@ -998,6 +1186,7 @@ def positions_for(
             if kind == "first_contact"
             else []
         )
+        matches = matches_of(rows_by_round.keys())
         positions.append(
             Position(
                 sample_kind=kind,
@@ -1006,8 +1195,9 @@ def positions_for(
                     round(median(contact_times), 3) if contact_times else None
                 ),
                 m=len(rows_by_round),
+                matches_m=len(matches),
                 rounds_missing=total_rounds - len(rows_by_round),
-                areas=area_distributions(rows_by_round),
+                areas=area_distributions(rows_by_round, newest),
             )
         )
     # Time sample points in ascending order, first contact last: it is not a
@@ -1183,6 +1373,7 @@ def armored_players_for(
 def first_contact_areas(
     ticks: Sequence[Mapping[str, Any]],
     round_keys: Sequence[RoundKey],
+    newest: str | None,
 ) -> list[FirstContactArea]:
     """The areas the team had a player in at the moment of first contact.
 
@@ -1190,6 +1381,18 @@ def first_contact_areas(
     for every area in which the team had a living player. ``Σ n = m``
     therefore does not hold and is not meant to -- the full distribution from
     the same moment is in the ``positions`` list's first-contact sample point.
+
+    The match counts are taken from the **same** ``set`` of round keys the
+    rounds are counted from, in the same pass; there is no second walk over
+    the ticks for them to differ from. The denominator ``matches_m`` is the
+    matches of the rounds that have a first-contact sample, and the recency
+    mark is the **map's** newest match, for the reason :func:`positions_for`
+    sets out.
+
+    Args:
+        ticks: The branch's sample point rows.
+        round_keys: The branch's rounds.
+        newest: The map's newest match, or ``None``.
     """
     keys = set(round_keys)
     rounds_with_sample: set[RoundKey] = set()
@@ -1205,8 +1408,16 @@ def first_contact_areas(
             present[row["area"]].add(key)
 
     m = len(rounds_with_sample)
+    sampled_matches = matches_of(rounds_with_sample)
     areas = [
-        FirstContactArea(area=area, n=len(rounds), m=m)
+        FirstContactArea(
+            area=area,
+            n=len(rounds),
+            m=m,
+            matches=len(matches_of(rounds)),
+            matches_m=len(sampled_matches),
+            newest=(None if newest is None else newest in matches_of(rounds)),
+        )
         for area, rounds in present.items()
     ]
     areas.sort(key=lambda a: _by_count_then_area((a.area, a.n)))
@@ -2319,6 +2530,7 @@ def build_report(
     map_names: Mapping[str, str | None],
     area_orientation: Mapping[str, Mapping[str | None, sampling.AreaObservations]],
     point_clouds: Mapping[str, Sequence[sampling.CloudCell]],
+    match_order: Sequence[str],
     generated_at: datetime,
     tool_versions: Mapping[str, str] | None = None,
     missing_demos: Sequence[MissingDemo] = (),
@@ -2390,6 +2602,22 @@ def build_report(
             oversight and not a property of the demo. Every included demo has
             to be in the map; a missing key raises an error, because it is a
             different thing from a cloud that yielded no groups.
+        match_order: The matches whose place in time is known, **newest
+            first** (Story 4.9). Only the order is passed and not the times:
+            ``domain`` reads no file (AD-2), and a match's time is in the
+            match index, which ``discover`` writes and the stage reads.
+
+            The argument is **mandatory and has no default**, for the reason
+            ``map_names`` and ``area_orientation`` are: an empty default would
+            quietly turn the whole recency mark off, and a report with no
+            marks looks exactly like an archive whose matches have no order.
+            An **empty sequence** is a legitimate value and says that -- it is
+            what an archive with no match index gives.
+
+            A match missing from the list has no known place, which is a
+            state and not a fault: a demo imported by hand is in no match
+            index. Then a group of more than one match carries ``null``
+            instead of a mark (:func:`newest_match`).
         generated_at: The moment of the run.
         tool_versions: The tool versions, for the report's own field.
         missing_demos: The matches whose data was not there.
@@ -2399,6 +2627,9 @@ def build_report(
         level, the model itself raises
         :class:`~pappascout.errors.AggregateError`.
     """
+    # Place, not time: every reader of it asks "which of these is the newest",
+    # and a place answers that without this module owning a clock.
+    order = {match: rank for rank, match in enumerate(match_order)}
     rows = classified.to_dicts()
     tick_rows = ticks.to_dicts()
     event_rows = events.to_dicts()
@@ -2477,6 +2708,11 @@ def build_report(
                     thresholds,
                     aggregate,
                     team.lineup_keys,
+                    # The map's newest match, decided once for the
+                    # whole chapter: see positions_for.
+                    newest_match(
+                        {match_of(demo) for demo in demos}, order
+                    ),
                 ),
             )
         )
@@ -2541,6 +2777,7 @@ def _sides_for(
     thresholds: ThresholdSettings,
     aggregate: AggregateSettings,
     lineup_keys: Sequence[str],
+    newest: str | None,
 ) -> list[SideReport]:
     """The sides in a fixed order; a side with no rounds is left out."""
     sides: list[SideReport] = []
@@ -2562,6 +2799,7 @@ def _sides_for(
                     thresholds,
                     aggregate,
                     lineup_keys,
+                    newest,
                 ),
             )
         )
@@ -2578,6 +2816,7 @@ def _round_types_for(
     thresholds: ThresholdSettings,
     aggregate: AggregateSettings,
     lineup_keys: Sequence[str],
+    newest: str | None,
 ) -> list[RoundTypeReport]:
     """The round types in a fixed order.
 
@@ -2618,14 +2857,14 @@ def _round_types_for(
                 # way to keep that true is to give both the same rows.
                 record=record_for(type_rows),
                 small_sample=sample.rounds < thresholds.small_sample_rounds,
-                positions=positions_for(ticks, keys),
+                positions=positions_for(ticks, keys, newest),
                 utility=utility_uses(
                     events, keys, aggregate.utility_seconds_buckets
                 ),
                 utility_counts=utility_counts_for(events, keys),
                 players_armed=armed_players_for(type_rows),
                 players_armored=armored_players_for(type_rows, armored),
-                first_contact=first_contact_areas(ticks, keys),
+                first_contact=first_contact_areas(ticks, keys, newest),
                 deaths=deaths_for(deaths, keys, lineup_keys),
             )
         )

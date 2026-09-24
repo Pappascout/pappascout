@@ -1,0 +1,2582 @@
+{
+  "areas": {
+    "1e1965abbc06133b/de_nuke/T/full": [
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 5,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Vending",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "BombsiteB",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "BombsiteB",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Control",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Control",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Garage",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Hut",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Vending",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Admin",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Admin",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Control",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Control",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Heaven",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Heaven",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Hell",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Hell",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "HutRoof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "HutRoof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Mini",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Vending",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Control",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Control",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Control",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Garage",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Roof",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Squeaky",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "TSpawn",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Tunnels",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Vents",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Vents",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      }
+    ],
+    "1e1965abbc06133b/de_nuke/T/pistol": [
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "Control",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Control",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Heaven",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Heaven",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Hell",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Hell",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Hut",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Hut",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Mini",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 2,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Mini",
+        "matches": 2,
+        "matches_m": 2,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Vending",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "Vending",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      }
+    ]
+  },
+  "measured": "2026-09-24",
+  "teams": {
+    "1e1965abbc06133b": {
+      "demos": 8,
+      "maps": {
+        "de_dust2": {
+          "demos": 3,
+          "matches": 3,
+          "rounds": 53,
+          "sides": {
+            "CT": {
+              "matches": 3,
+              "round_types": {
+                "eco": {
+                  "demos": 3,
+                  "matches": 3,
+                  "rounds": 8
+                },
+                "force": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "full": {
+                  "demos": 3,
+                  "matches": 3,
+                  "rounds": 23
+                },
+                "half": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "pistol": {
+                  "demos": 3,
+                  "matches": 3,
+                  "rounds": 3
+                }
+              },
+              "rounds": 36
+            },
+            "T": {
+              "matches": 3,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "force": {
+                  "demos": 3,
+                  "matches": 3,
+                  "rounds": 5
+                },
+                "full": {
+                  "demos": 2,
+                  "matches": 2,
+                  "rounds": 8
+                },
+                "pistol": {
+                  "demos": 3,
+                  "matches": 3,
+                  "rounds": 3
+                }
+              },
+              "rounds": 17
+            }
+          }
+        },
+        "de_inferno": {
+          "demos": 1,
+          "matches": 1,
+          "rounds": 22,
+          "sides": {
+            "CT": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 2
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 9
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 12
+            },
+            "T": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "force": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 6
+                },
+                "half": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 10
+            }
+          }
+        },
+        "de_nuke": {
+          "demos": 4,
+          "matches": 4,
+          "rounds": 82,
+          "sides": {
+            "CT": {
+              "matches": 4,
+              "round_types": {
+                "eco": {
+                  "demos": 3,
+                  "matches": 3,
+                  "rounds": 5
+                },
+                "force": {
+                  "demos": 2,
+                  "matches": 2,
+                  "rounds": 3
+                },
+                "full": {
+                  "demos": 4,
+                  "matches": 4,
+                  "rounds": 22
+                },
+                "pistol": {
+                  "demos": 4,
+                  "matches": 4,
+                  "rounds": 4
+                }
+              },
+              "rounds": 34
+            },
+            "T": {
+              "matches": 4,
+              "round_types": {
+                "eco": {
+                  "demos": 3,
+                  "matches": 3,
+                  "rounds": 7
+                },
+                "force": {
+                  "demos": 4,
+                  "matches": 4,
+                  "rounds": 7
+                },
+                "full": {
+                  "demos": 4,
+                  "matches": 4,
+                  "rounds": 29
+                },
+                "half": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "pistol": {
+                  "demos": 4,
+                  "matches": 4,
+                  "rounds": 4
+                }
+              },
+              "rounds": 48
+            }
+          }
+        }
+      },
+      "matches": 4,
+      "rounds": 157
+    },
+    "9ac92660986558d3": {
+      "demos": 4,
+      "maps": {
+        "de_ancient": {
+          "demos": 1,
+          "matches": 1,
+          "rounds": 20,
+          "sides": {
+            "CT": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 3
+                },
+                "force": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 7
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 12
+            },
+            "T": {
+              "matches": 1,
+              "round_types": {
+                "force": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 2
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 5
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 8
+            }
+          }
+        },
+        "de_anubis": {
+          "demos": 1,
+          "matches": 1,
+          "rounds": 22,
+          "sides": {
+            "CT": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 2
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 8
+                },
+                "half": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 12
+            },
+            "T": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "force": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 7
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 10
+            }
+          }
+        },
+        "de_inferno": {
+          "demos": 1,
+          "matches": 1,
+          "rounds": 20,
+          "sides": {
+            "CT": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 2
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 9
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 12
+            },
+            "T": {
+              "matches": 1,
+              "round_types": {
+                "force": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 6
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 8
+            }
+          }
+        },
+        "de_nuke": {
+          "demos": 1,
+          "matches": 1,
+          "rounds": 23,
+          "sides": {
+            "CT": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 3
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 8
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 12
+            },
+            "T": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 2
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 8
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 11
+            }
+          }
+        }
+      },
+      "matches": 4,
+      "rounds": 85
+    },
+    "ff03fb54599d3311": {
+      "demos": 4,
+      "maps": {
+        "de_ancient": {
+          "demos": 2,
+          "matches": 2,
+          "rounds": 42,
+          "sides": {
+            "CT": {
+              "matches": 2,
+              "round_types": {
+                "eco": {
+                  "demos": 2,
+                  "matches": 2,
+                  "rounds": 2
+                },
+                "force": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "full": {
+                  "demos": 2,
+                  "matches": 2,
+                  "rounds": 13
+                },
+                "pistol": {
+                  "demos": 2,
+                  "matches": 2,
+                  "rounds": 2
+                }
+              },
+              "rounds": 18
+            },
+            "T": {
+              "matches": 2,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 2
+                },
+                "force": {
+                  "demos": 2,
+                  "matches": 2,
+                  "rounds": 4
+                },
+                "full": {
+                  "demos": 2,
+                  "matches": 2,
+                  "rounds": 16
+                },
+                "pistol": {
+                  "demos": 2,
+                  "matches": 2,
+                  "rounds": 2
+                }
+              },
+              "rounds": 24
+            }
+          }
+        },
+        "de_anubis": {
+          "demos": 1,
+          "matches": 1,
+          "rounds": 22,
+          "sides": {
+            "CT": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "force": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 9
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 12
+            },
+            "T": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "force": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 7
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 10
+            }
+          }
+        },
+        "de_nuke": {
+          "demos": 1,
+          "matches": 1,
+          "rounds": 28,
+          "sides": {
+            "CT": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "force": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 2
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 8
+                },
+                "ot": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 3
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 15
+            },
+            "T": {
+              "matches": 1,
+              "round_types": {
+                "eco": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 2
+                },
+                "full": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 9
+                },
+                "ot": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                },
+                "pistol": {
+                  "demos": 1,
+                  "matches": 1,
+                  "rounds": 1
+                }
+              },
+              "rounds": 13
+            }
+          }
+        }
+      },
+      "matches": 4,
+      "rounds": 92
+    }
+  }
+}
