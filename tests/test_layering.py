@@ -167,3 +167,90 @@ def test_domain_does_no_file_io_except_settings_loading() -> None:
     source_code = (SRC / "domain" / "schemas.py").read_text(encoding="utf-8")
     for forbidden in ("open(", "read_text", "write_text", "read_parquet"):
         assert forbidden not in source_code, forbidden
+
+
+# --- The opponent is stated and never grouped by (Story 4.10) -----------------
+
+
+#: Where the opponent's name may be **read**, as ``module -> the functions``.
+#:
+#: **The property is an absence, and an absence is guarded by reading the
+#: source** -- the shape this file already uses for the dependency arrows and
+#: ``test_stage_aggregate``'s ``THRESHOLD_READ`` uses for the settings a stage
+#: touches. There is no report you can render that demonstrates the absence of
+#: a grouping; there is only the fact that nothing in the tree groups.
+#:
+#: The rule (Story 4.10, "Never"): **the opponent is stated, never grouped or
+#: filtered by.** Measured 2026-09-23
+#: (``opponent-buy-measured-2026-09-23.md``): a new axis takes rounds away
+#: from the groups that have them and gives them to the groups that do not.
+#: The reading guide says so to the Finnish reader in one clause, and before
+#: this test that clause was held up by the golden document's text alone --
+#: the only place in 29 mutations where a golden was carrying work a rule
+#: should do.
+#:
+#: What each permitted reader does, and why neither is a grouping:
+#:
+#: ``_played_map_line``
+#:     prints the name on the map's own row. Stating it is the story.
+#: ``build_view``
+#:     asks whether it is ``None``, to decide whether the reading guide should
+#:     explain the mark that absence prints. It reads the presence and never
+#:     the value.
+#: ``played_maps_for``
+#:     copies it from the match's facts onto the row. A move, not a decision.
+#:
+#: A fourth reader is not forbidden on principle -- it is forbidden until
+#: somebody names it here and says which of the two things it does.
+OPPONENT_READERS: dict[str, set[str]] = {
+    "render/view.py": {"_played_map_line", "build_view"},
+    "domain/aggregate.py": {"played_maps_for"},
+}
+
+
+def _functions_reading(tree: ast.AST, attribute: str) -> set[str]:
+    """Every top-level function or method that reads ``x.<attribute>``."""
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Attribute) and inner.attr == attribute:
+                found.add(node.name)
+    return found
+
+
+@pytest.mark.parametrize("module", sorted(OPPONENT_READERS))
+def test_the_opponent_is_only_read_where_it_is_stated(module: str) -> None:
+    """Nothing in the tree groups, filters or sorts by the opponent.
+
+    A new reader fails this by name, which is the point: the next person to
+    add one has to decide, in this list, whether it is stating the opponent
+    or splitting by it -- and the second is a spine decision and not an
+    implementation detail.
+
+    Nested functions report under their enclosing function, which is right
+    here: the claim is about which piece of work touches the value.
+    """
+    path = SRC / module
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    readers = _functions_reading(tree, "opponent")
+    assert readers == OPPONENT_READERS[module], (
+        f"{module} reads .opponent in {sorted(readers)}, but this rule allows "
+        f"{sorted(OPPONENT_READERS[module])}. The opponent is stated and "
+        "never grouped or filtered by (Story 4.10); a new reader belongs in "
+        "OPPONENT_READERS with a sentence saying which of the two it does."
+    )
+
+
+def test_the_reader_list_is_not_vacuous() -> None:
+    """Each named function really does read the value.
+
+    Without this the rule could pass because the tree stopped reading the
+    opponent at all -- which is what deleting the feature looks like, and it
+    must not look like compliance.
+    """
+    for module, expected in OPPONENT_READERS.items():
+        tree = ast.parse((SRC / module).read_text(encoding="utf-8"))
+        assert _functions_reading(tree, "opponent") == expected, module
+        assert expected, module

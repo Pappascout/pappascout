@@ -79,7 +79,7 @@ from pappascout.domain.models import (
     ThresholdSettings,
     load_settings,
 )
-from pappascout.domain.aggregate import _presence
+from pappascout.domain.aggregate import _presence, match_of
 from pappascout.domain.sampling import (
     AreaObservations,
     CloudCell,
@@ -2995,3 +2995,167 @@ def test_the_archives_pistol_lines_read_as_the_intent_says() -> None:
     assert "Outside 3 (3/4 kierroksesta, ei uusimmassa)" in line
     assert "Control 4 (1/4 kierroksesta, uusin mukana)" in line
     assert "ottelussa" not in line
+
+
+#: Every map's demo list from the archive, as Story 4.10 prints it: for each
+#: row, whether the match is in the index, the day it was played and whether
+#: an opponent could be named.
+#:
+#: **No team name and no demo id, and that is the shape and not a
+#: convenience.** The repository is public and the denylist that guards it
+#: lives outside the repository (AD-12), so a pinned table of real league
+#: opponents would put the one thing the guard exists for into the one file
+#: the guard cannot be asked about. What is pinned instead is everything
+#: about the lookup **except** the names: the order, the dates, and whether
+#: each row resolved at all. The names themselves are checked against the
+#: archive's own index at run time
+#: (:func:`test_the_named_opponent_is_never_the_scouted_team_itself`), where
+#: they are read and not written.
+#:
+#: **What this table cannot catch.** Two opponents swapped between two rows
+#: of the same date keep every value here. What sees that is
+#: ``test_aggregate.test_a_maps_demos_come_out_newest_first``, the only place
+#: where two **different** opponent names appear in one list, and at stage
+#: level ``test_stage_aggregate
+#: .test_the_written_report_carries_the_date_and_the_opponent``, whose two
+#: matches were given two names for exactly this reason.
+#:
+#: Naming the tests that do the work rather than "a unit fixture somewhere"
+#: is the point: the first version of this note pointed at a fixture that
+#: distinguishes **rosters** and not names, which answers a different
+#: question. The division of labour is Story 4.9's and holds for the same
+#: reason -- the archive cannot hold this evidence without holding the names.
+#:
+#: **It is an observation and not a rule.** Importing a demo or running
+#: ``discover`` again changes these rows legitimately; the answer is then to
+#: measure the table again and say so in the commit.
+PLAYED_MAPS = MATCH_COUNTS["played"]
+
+
+def _played_rows_from(root: Path) -> dict[str, dict[str, list[dict]]]:
+    """Every team's played-map rows, from the archive, in the pinned shape."""
+    return {
+        team: {
+            entry.map_name: [
+                {
+                    "indexed": row.indexed,
+                    "played_on": (
+                        row.played_on.isoformat() if row.played_on else None
+                    ),
+                    "opponent_named": row.opponent is not None,
+                }
+                for row in entry.played_maps
+            ]
+            for entry in report.maps
+        }
+        for team, report in _recorded_reports(root).items()
+    }
+
+
+@pytest.mark.archive
+def test_every_maps_demo_list_is_the_one_the_archive_holds() -> None:
+    """The whole table, re-derived and compared whole.
+
+    One equality over every team rather than row by row, for
+    :func:`test_every_groups_match_count_is_the_one_the_archive_holds`'s
+    reason: a map that appears or disappears has to fail as loudly as a row
+    whose date moved.
+
+    The count is asserted as well, because an empty table compares equal to an
+    empty table: sixteen rows over three teams, which is the archive's eight
+    map-demos for the scouted team and four each for the two hand-imported
+    ones.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    found = _played_rows_from(root)
+    assert sum(len(rows) for team in found.values() for rows in team.values()) == 16
+    assert found == PLAYED_MAPS
+
+
+@pytest.mark.archive
+def test_the_scouted_teams_maps_are_listed_newest_first() -> None:
+    """The story's acceptance criterion on the real data.
+
+    *"Given the scouted team, when the report is rendered, then ``de_nuke``'s
+    section lists four maps newest first with their dates."* The dates are
+    read out of the **pinned** table and compared against the archive's own
+    report, so the assertion cannot drift into re-deriving what it checks.
+
+    The descending order is asserted separately from the dates themselves: a
+    list with the right four dates in the wrong order passes an equality
+    against a set, and the order is the half the reader acts on.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    report = _recorded_reports(root)["1e1965abbc06133b"]
+    entry = next(m for m in report.maps if m.map_name == "de_nuke")
+    dates = [row.played_on for row in entry.played_maps]
+
+    assert len(dates) == 4
+    assert all(day is not None for day in dates)
+    assert dates == sorted(dates, reverse=True)
+    assert [day.isoformat() for day in dates] == [
+        row["played_on"] for row in PLAYED_MAPS["1e1965abbc06133b"]["de_nuke"]
+    ]
+    assert entry.every_demo_is_placed
+
+
+@pytest.mark.archive
+def test_the_named_opponent_is_never_the_scouted_team_itself() -> None:
+    """The opponent is the **other** side, and the archive can see that.
+
+    The one thing a name-free pinned table cannot check, checked against the
+    index instead of against a written-down name: the rule picks the side of
+    the match entry that shares no player with the subject's own roster, and
+    the failure that rule can have is picking the subject. Measured
+    2026-09-24 on this archive, the separation is not a near thing -- one side
+    holds 7 of the subject's 7 observed players and the other 0 -- but the
+    check costs nothing and the wrong answer would be a report that names the
+    scouted team as its own opponent on every row.
+
+    The team's **alternative** names are checked too, because
+    ``display_name`` is the most often observed clan name and a team that
+    appeared under two names would otherwise be caught only half the time.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    for team, report in _recorded_reports(root).items():
+        own = {report.team.display_name, *report.team.display_name_alternatives}
+        named = [
+            row.opponent
+            for entry in report.maps
+            for row in entry.played_maps
+            if row.opponent is not None
+        ]
+        assert own.isdisjoint(named), (team, sorted(own & set(named)))
+
+
+@pytest.mark.archive
+def test_one_match_gives_the_same_date_and_opponent_on_every_map() -> None:
+    """A ``best_of`` match is one meeting, and its two maps say so.
+
+    Measured 2026-09-24: **all four** of the scouted team's matches played
+    two maps -- three of them ``de_nuke`` with ``de_dust2`` and the newest
+    ``de_nuke`` with ``de_inferno``. So a lookup keyed on the demo instead of
+    on the match would show the same evening as two different opponents or
+    two different days. Nothing in the pinned table would move: both rows
+    would still be indexed, dated and named.
+
+    **This is the archive's own multi-map case and the only one it has.** The
+    two hand-imported teams are one map per match, so the assertion is
+    guarded against becoming vacuous by requiring that the four really are on
+    two maps each.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    seen: dict[tuple[str, str], set[tuple]] = {}
+    maps_of: dict[tuple[str, str], set[str]] = {}
+    for team, report in _recorded_reports(root).items():
+        for entry in report.maps:
+            for row in entry.played_maps:
+                key = (team, match_of(row.map_demo_id))
+                seen.setdefault(key, set()).add((row.played_on, row.opponent))
+                maps_of.setdefault(key, set()).add(entry.map_name)
+    # Not vacuous: every one of the scouted team's four matches played two
+    # maps, and no other team's did.
+    assert sum(1 for names in maps_of.values() if len(names) > 1) == 4, maps_of
+    assert sum(1 for key in seen if key[0] == "1e1965abbc06133b") == 4, seen
+    for key, values in seen.items():
+        assert len(values) == 1, (key, values)

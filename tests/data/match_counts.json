@@ -1976,6 +1976,114 @@
     ]
   },
   "measured": "2026-09-24",
+  "played": {
+    "1e1965abbc06133b": {
+      "de_dust2": [
+        {
+          "indexed": true,
+          "opponent_named": true,
+          "played_on": "2026-09-13"
+        },
+        {
+          "indexed": true,
+          "opponent_named": true,
+          "played_on": "2026-09-06"
+        },
+        {
+          "indexed": true,
+          "opponent_named": true,
+          "played_on": "2026-08-30"
+        }
+      ],
+      "de_inferno": [
+        {
+          "indexed": true,
+          "opponent_named": true,
+          "played_on": "2026-09-20"
+        }
+      ],
+      "de_nuke": [
+        {
+          "indexed": true,
+          "opponent_named": true,
+          "played_on": "2026-09-20"
+        },
+        {
+          "indexed": true,
+          "opponent_named": true,
+          "played_on": "2026-09-13"
+        },
+        {
+          "indexed": true,
+          "opponent_named": true,
+          "played_on": "2026-09-06"
+        },
+        {
+          "indexed": true,
+          "opponent_named": true,
+          "played_on": "2026-08-30"
+        }
+      ]
+    },
+    "9ac92660986558d3": {
+      "de_ancient": [
+        {
+          "indexed": false,
+          "opponent_named": false,
+          "played_on": null
+        }
+      ],
+      "de_anubis": [
+        {
+          "indexed": false,
+          "opponent_named": false,
+          "played_on": null
+        }
+      ],
+      "de_inferno": [
+        {
+          "indexed": false,
+          "opponent_named": false,
+          "played_on": null
+        }
+      ],
+      "de_nuke": [
+        {
+          "indexed": false,
+          "opponent_named": false,
+          "played_on": null
+        }
+      ]
+    },
+    "ff03fb54599d3311": {
+      "de_ancient": [
+        {
+          "indexed": false,
+          "opponent_named": false,
+          "played_on": null
+        },
+        {
+          "indexed": false,
+          "opponent_named": false,
+          "played_on": null
+        }
+      ],
+      "de_anubis": [
+        {
+          "indexed": false,
+          "opponent_named": false,
+          "played_on": null
+        }
+      ],
+      "de_nuke": [
+        {
+          "indexed": false,
+          "opponent_named": false,
+          "played_on": null
+        }
+      ]
+    }
+  },
   "teams": {
     "1e1965abbc06133b": {
       "demos": 8,

@@ -7,7 +7,7 @@ every row of the I/O matrix is in this file as a test of its own.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import polars as pl
 import pytest
@@ -17,6 +17,7 @@ from pappascout.domain.aggregate import (
     CLASSIFY_THRESHOLD_KEYS,
     MISSING_ROSTER_CLASS_LABEL,
     ROSTER_SAMPLE_BUCKETS,
+    MatchFact,
     area_distributions,
     armed_players_for,
     armored_by_round,
@@ -34,6 +35,7 @@ from pappascout.domain.aggregate import (
     map_name_for,
     matches_of,
     newest_match,
+    played_maps_for,
     observed_map_name,
     weakest_map_source,
     players_distribution,
@@ -446,6 +448,7 @@ def report_for(
     area_orientation: dict[str, dict[str | None, AreaObservations]] | None = None,
     point_clouds: dict[str, list[CloudCell]] | None = None,
     match_order: list[str] | None = None,
+    match_facts: dict[str, MatchFact] | None = None,
 ):
     """A report from hand-built rows.
 
@@ -483,7 +486,13 @@ def report_for(
         # Empty unless a test says otherwise: an archive with no match index
         # is a real state, and it is the one every test written before Story
         # 4.9 is about. A recency test names its own order.
+        #
+        # The facts default the same way and for the same reason (Story
+        # 4.10): with no index, every demo's row says the match is not in it,
+        # which is what two of the three archive teams really produce. A test
+        # about a date or an opponent names its own facts.
         match_order=match_order or [],
+        match_facts=match_facts or {},
         classified=classified_frame(classified),
         ticks=ticks_frame(ticks or []),
         events=events_frame(events or []),
@@ -3952,3 +3961,206 @@ def test_first_contacts_denominator_is_the_sampled_rounds_and_not_the_branch() -
     assert [a.matches_m for a in areas] == [1]
     # And the mark is still the map's newest, which this list does not hold.
     assert [a.newest for a in areas] == [False]
+
+
+# --- Who and when: the map's own demo list (Story 4.10) -------------------------
+
+
+#: The two opponents the unit fixtures name. **Invented and not the
+#: archive's**: the repository is public and the denylist that guards it is
+#: machine-local (AD-12), so a fixture that wanted a real league team would be
+#: writing the one thing the guard exists for into a file the guard cannot be
+#: asked about. Nothing in this story's logic depends on what the string is.
+OPPONENT_A = "Teekkarit"
+OPPONENT_B = "Vastarannan kiiski"
+
+
+def test_a_maps_demos_come_out_newest_first() -> None:
+    """The list is ordered by the matches' order and not by the demo id.
+
+    Deliberately built so the two orders disagree: ``MATCH_A``'s id sorts
+    before ``MATCH_B``'s, and the order says ``MATCH_B`` is the newer. A list
+    sorted on the id would come out the other way round and would look
+    perfectly reasonable.
+    """
+    entries = played_maps_for(
+        [MATCH_A_MAP_0, MATCH_B_MAP_0],
+        {MATCH_B: 0, MATCH_A: 1},
+        {
+            MATCH_A: MatchFact(played_on=date(2026, 8, 30), opponent=OPPONENT_A),
+            MATCH_B: MatchFact(played_on=date(2026, 9, 20), opponent=OPPONENT_B),
+        },
+    )
+    assert [e.map_demo_id for e in entries] == [MATCH_B_MAP_0, MATCH_A_MAP_0]
+    assert [e.played_on for e in entries] == [date(2026, 9, 20), date(2026, 8, 30)]
+    assert [e.opponent for e in entries] == [OPPONENT_B, OPPONENT_A]
+    assert MATCH_A_MAP_0 < MATCH_B_MAP_0, "precondition: the ids sort the other way"
+
+
+def test_two_maps_of_one_match_share_its_date_and_its_opponent() -> None:
+    """A ``best_of`` match is one meeting, and both its maps say the same.
+
+    The lookup is by :func:`match_of` and not by the demo, so two demos whose
+    ids differ by the map index land on the same row of the index. Measured
+    2026-09-24: all four of the scouted team's matches played two maps, so
+    this is the archive's ordinary case and not an edge.
+    """
+    entries = played_maps_for(
+        [MATCH_A_MAP_1, MATCH_A_MAP_0],
+        {MATCH_A: 0},
+        {MATCH_A: MatchFact(played_on=date(2026, 8, 30), opponent=OPPONENT_A)},
+    )
+    assert [e.map_demo_id for e in entries] == [MATCH_A_MAP_0, MATCH_A_MAP_1]
+    assert {e.opponent for e in entries} == {OPPONENT_A}
+    assert {e.played_on for e in entries} == {date(2026, 8, 30)}
+
+
+def test_a_demo_the_index_does_not_hold_is_listed_and_says_so() -> None:
+    """A hand-imported demo keeps its row; it just cannot be named.
+
+    The row is **not** dropped and the map's sample is what decides that: the
+    demo played rounds that the map counts, so a list that left it out would
+    disagree with the count beside it -- which the model refuses outright.
+    """
+    entries = played_maps_for(
+        ["Nuke_vs_a"], {}, {}
+    )
+    assert [e.indexed for e in entries] == [False]
+    assert [e.played_on for e in entries] == [None]
+    assert [e.opponent for e in entries] == [None]
+
+
+def test_an_unplaced_demo_goes_last_and_does_not_claim_a_date() -> None:
+    """No place is not "oldest", so the row that has none goes after.
+
+    Sorted among the dated rows it would claim a position in time it does not
+    have, and the list's own heading promises newest first. Put last, it is
+    out of the claim and its row says why.
+    """
+    entries = played_maps_for(
+        ["Nuke_vs_hand", MATCH_A_MAP_0, MATCH_B_MAP_0],
+        {MATCH_B: 0, MATCH_A: 1},
+        {
+            MATCH_A: MatchFact(played_on=date(2026, 8, 30), opponent=OPPONENT_A),
+            MATCH_B: MatchFact(played_on=date(2026, 9, 20), opponent=OPPONENT_B),
+        },
+    )
+    assert [e.map_demo_id for e in entries] == [
+        MATCH_B_MAP_0,
+        MATCH_A_MAP_0,
+        "Nuke_vs_hand",
+    ]
+
+
+def test_an_indexed_match_with_no_finish_time_is_still_named() -> None:
+    """The date and the name fail apart, and the row says which is missing.
+
+    Measured 2026-09-24: 35 of the archive's 66 indexed matches carry no
+    ``finished_at``, and every one of them names two teams. A row that
+    dropped the opponent along with the date would throw away the half the
+    index does hold.
+
+    Such a match is also **not in the order** -- ``match_order`` leaves it
+    out -- so this is the state in which the two readings of the same file
+    disagree, and the row shows it: named, dated ``None``, and last.
+    """
+    entries = played_maps_for(
+        [MATCH_A_MAP_0, MATCH_B_MAP_0],
+        {MATCH_B: 0},
+        {
+            MATCH_A: MatchFact(played_on=None, opponent=OPPONENT_A),
+            MATCH_B: MatchFact(played_on=date(2026, 9, 20), opponent=OPPONENT_B),
+        },
+    )
+    assert [e.map_demo_id for e in entries] == [MATCH_B_MAP_0, MATCH_A_MAP_0]
+    undated = entries[1]
+    assert undated.indexed
+    assert undated.played_on is None
+    assert undated.opponent == OPPONENT_A
+
+
+def test_an_indexed_match_whose_opponent_is_unknown_keeps_its_date() -> None:
+    """The other half of the pair above, so neither absence implies the other."""
+    entries = played_maps_for(
+        [MATCH_A_MAP_0],
+        {MATCH_A: 0},
+        {MATCH_A: MatchFact(played_on=date(2026, 8, 30), opponent=None)},
+    )
+    assert entries[0].indexed
+    assert entries[0].played_on == date(2026, 8, 30)
+    assert entries[0].opponent is None
+
+
+def test_the_match_facts_reach_the_map_through_build_report() -> None:
+    """The argument is threaded and not dropped somewhere on the way.
+
+    The same guard :func:`test_the_match_order_reaches_the_bars_through_build_report`
+    is for the order: every unit test above hands the facts straight to the
+    function under test, so none of them would notice ``build_report``
+    passing an empty mapping on.
+    """
+    report = report_for(
+        [
+            classified_row(MATCH_A_MAP_0, 0),
+            classified_row(MATCH_B_MAP_0, 0),
+        ],
+        map_names={MATCH_A_MAP_0: "de_nuke", MATCH_B_MAP_0: "de_nuke"},
+        match_order=[MATCH_B, MATCH_A],
+        match_facts={
+            MATCH_A: MatchFact(played_on=date(2026, 8, 30), opponent=OPPONENT_A),
+            MATCH_B: MatchFact(played_on=date(2026, 9, 20), opponent=OPPONENT_B),
+        },
+    )
+    entry = next(m for m in report.maps if m.map_name == "de_nuke")
+    assert [row.opponent for row in entry.played_maps] == [OPPONENT_B, OPPONENT_A]
+    assert entry.every_demo_is_placed
+
+
+def test_without_an_index_every_row_says_the_match_is_not_in_it() -> None:
+    """The default state of two of the three archive teams, end to end.
+
+    ``build_report`` with no facts must not look like a report whose index
+    simply held nothing to say: every row is ``indexed=False``, and the map
+    says its order is not known.
+    """
+    report = report_for(
+        [classified_row("Nuke_vs_a", 0), classified_row("Nuke_vs_b", 0)],
+        map_names={"Nuke_vs_a": "de_nuke", "Nuke_vs_b": "de_nuke"},
+    )
+    entry = next(m for m in report.maps if m.map_name == "de_nuke")
+    assert [row.indexed for row in entry.played_maps] == [False, False]
+    assert not entry.every_demo_is_placed
+
+
+def test_an_unplaced_demo_stays_last_even_when_the_index_repeats_a_match() -> None:
+    """The sentinel rank cannot collide with a real one.
+
+    ``played_maps_for`` gives an unplaced demo a rank past every rank in use.
+    The first version used ``len(order)``, which is wrong the moment the
+    index holds a match twice: ``order`` is a **mapping** built from a list
+    that ``_order_of`` does not deduplicate, so two rows with one id give it
+    fewer keys than ranks. Measured 2026-09-25: the list ``[1-aaa, 1-aaa,
+    1-bbb]`` yields ``{1-aaa: 1, 1-bbb: 2}`` -- ``len`` is 2 and 2 is a rank
+    in use -- and the unplaced demo then ties with the last placed one, with
+    the demo id breaking the tie.
+
+    The ids here are chosen so the tie breaks the wrong way: ``0_hand`` sorts
+    before ``1-bbb-0``, so under the old sentinel the dateless row came
+    **first** in a list the reader takes as newest first.
+    """
+    order = {
+        match: rank
+        for rank, match in enumerate([MATCH_A, MATCH_A, MATCH_B])
+    }
+    assert max(order.values()) >= len(order), (
+        "precondition: the duplicate must make the mapping shorter than its "
+        "highest rank, or this test cannot see the collision"
+    )
+    hand = "0_vs_hand"
+    assert hand < MATCH_B_MAP_0, (
+        "precondition: the unplaced id must sort first, or the tie the old "
+        "sentinel produced would break the right way by luck"
+    )
+    entries = played_maps_for([MATCH_B_MAP_0, hand], order, {})
+    assert [e.map_demo_id for e in entries] == [MATCH_B_MAP_0, hand]
+    assert entries[-1].indexed is False

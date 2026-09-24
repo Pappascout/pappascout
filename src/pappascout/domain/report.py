@@ -139,7 +139,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from math import isfinite
 from typing import Any, Literal
 
@@ -192,6 +192,7 @@ __all__ = [
     "RoundRecord",
     "RoundTypeReport",
     "SideReport",
+    "PlayedMap",
     "MapReport",
     "RosterEntry",
     "TeamReport",
@@ -338,7 +339,29 @@ __all__ = [
 #: written to end. ``newest`` has a third state (``null``, order not known)
 #: for the same reason: the absence of the mark must not be read as its
 #: negation.
-REPORT_SCHEMA_VERSION = "12.0.0"
+#:
+#: **13.0.0 (Story 4.10): the map says who it was played against, and when.**
+#: :attr:`MapReport.played_maps` is **required** and it **replaces**
+#: ``map_demo_ids``, so an old ``report.json`` fails on both halves of the
+#: first condition at once: the new field is missing, and the old one is
+#: refused by ``extra="forbid"``. The replacement is deliberate and not a
+#: rename -- the ids were the only thing the old list held, and a report that
+#: carried both lists would hold the same eight ids twice with nothing making
+#: them agree. :attr:`MapReport.map_demo_ids` is now derived from this list
+#: and is not a field.
+#:
+#: The second condition is what made a default impossible, and it bites
+#: hardest on the field that looks harmless. :attr:`PlayedMap.indexed` is the
+#: difference between *"this match is not in the archive's match index, so
+#: nobody can say who it was against"* and *"the index has this match and
+#: names no opponent"*, and a default of either value would state one of them
+#: as a measurement. ``opponent`` and ``played_on`` are nullable for the same
+#: reason the recency mark is: absence is a third state and must not read as
+#: a negation -- a report with an empty opponent would say the map was played
+#: against nobody. Measured 2026-09-24: two of the developer archive's three
+#: teams are entirely hand-imported demos and no row of theirs can be named
+#: at all, so the unnamed case is the common one and not the corner.
+REPORT_SCHEMA_VERSION = "13.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
 #: refuses an old ``report.json`` with.
@@ -365,8 +388,8 @@ REPORT_SCHEMA_VERSION = "12.0.0"
 #: English, like every other line the CLI prints (AD-11). It never reaches
 #: the report.
 REPORT_SCHEMA_CHANGE = (
-    "Version 12.0.0 states every count in matches as well as in rounds, "
-    "which an older report does not carry at all."
+    "Version 13.0.0 lists every map's own demos with the date they were "
+    "played and the opponent, which an older report does not carry at all."
 )
 
 
@@ -901,13 +924,34 @@ class RoundRecord(_Node):
         """The three buckets together: every round the record accounts for.
 
         **A property is not serialised into ``report.json``**, and that is
-        the fact that decides which totals are fields and which are not. Any
-        number the report *prints* has to be a field, or ``render`` would
-        have to add it up and AD-10 forbids ``render`` computing anything.
-        :class:`Sample`'s ``rounds`` is printed, so it is a field; this total
-        is never printed -- it exists only for the cross-check against the
-        sample -- so it is derived, and a stored copy would be a second
-        number free to disagree with the buckets beside it.
+        the fact that decides which totals are fields and which are not.
+
+        **The rule is about computing, not about printing** (restated in
+        Story 4.10, architecture review). It read "any number the report
+        *prints* has to be a field", and that story falsified it in the same
+        commit: :attr:`MapReport.map_demo_ids` became a property and its ids
+        **are** printed, by the traceability chapter and by the round
+        appendix. The defence available -- that those are a list and not a
+        number -- is the reading this note was written to stop, so the rule is
+        stated as scope instead:
+
+        * a property may **project** a field that is already in the file, the
+          way ``map_demo_ids`` reads one value out of each ``played_maps``
+          row, and it may exist purely for a cross-check, the way this total
+          does;
+        * it may **not** be the only home of a value the report had to
+          *compute* in order to print it. That is what AD-10 forbids
+          ``render`` doing, and moving the arithmetic into the model's
+          property instead of the view would keep the letter and lose the
+          point.
+
+        This total is on the second side of that line only by accident of not
+        being printed; it is on the first side by design, because it adds up
+        three fields of its own node. :class:`Sample`'s ``rounds`` is a field
+        because the report prints it **and** it is a sum across nodes -- a
+        stored copy of that is a number the buckets beside it could come to
+        disagree with, which is why the model checks it rather than deriving
+        it.
         """
         return self.wins + self.losses + self.unknown
 
@@ -1944,6 +1988,141 @@ class SideReport(_Node):
         return self
 
 
+class PlayedMap(_Node):
+    """One demo of one map: which file, when it was played, against whom.
+
+    The report has never said **who** a map was played against or **when**
+    (Story 4.10), and the product owner asked for both twice in one
+    conversation on 2026-09-24. A reader preparing for a match cannot tell a
+    three-week-old observation from last week's, and the id on its own says
+    nothing: ``1-59f69cad-5d14-47d5-85c5-805ecf208076-1`` is a file name.
+
+    **Three states and not two, which is why no field here takes a default.**
+
+    ``indexed`` false
+        The match is not in the archive's match index at all. Then there is
+        nothing to name: a hand-imported demo has no FACEIT match behind it,
+        and the report says so instead of reading a name out of the file
+        name. **The common case and not the corner**, re-measured 2026-09-25
+        against ``tests/data/match_counts.json``: of the developer archive's
+        three teams and sixteen map-demos, one team's eight rows are all in
+        the index and the other two teams' eight are **none of them** -- so
+        half the archive's demos can be given no opponent at all.
+
+        The first version of this paragraph said "a third of the fourth
+        team's demos", and there is no fourth team; the number was not
+        counted. What it seems to have reached for is true and smaller: one
+        of the two unindexed teams carries a **FACEIT-shaped** id
+        (``1-a52ebff2-…-1-1``, one of its four) that the index still does not
+        hold, so the shape of an id is not evidence that the index has it.
+    ``indexed`` true, a value missing
+        The index has the match and one of the two values cannot be read: 35
+        of the archive's 66 indexed matches carry no ``finished_at``, and a
+        malformed entry may name no opponent. The row then states the absence
+        rather than leaving a blank, which would read as "played against
+        nobody" and as "played on no day".
+    ``indexed`` true, both present
+        The ordinary league match.
+
+    ``opponent`` is **a name and never a judgement** (Story 4.10, "Never"):
+    no strength, no seeding, no "against a weak team". The report states who;
+    the reader is the analyst. It is also never grouped or filtered by --
+    measured 2026-09-23, a new axis takes rounds away from the groups that
+    have them to give to the groups that do not.
+
+    ``played_on`` is a **date and not a moment**, because the question is
+    "how old is this" and an hour does not answer it any better. It is the
+    UTC date: ``finished_at`` is written UTC-aware throughout
+    (:func:`pappascout.adapters.faceit._moment`), and measured 2026-09-24 all
+    31 dated matches in the developer's index finished between 16 and 19 UTC,
+    so the local date is the same one. A source that wrote evening matches
+    after 21 UTC would make that no longer true, and then the conversion
+    would have to be a decision rather than an omission.
+    """
+
+    map_demo_id: str
+    #: Whether the demo's match is in the archive's match index. **Not
+    #: derivable from the two fields below**: an indexed match with neither a
+    #: finish time nor a readable opponent looks exactly like an unindexed
+    #: one, and the two are different things to say to the reader.
+    indexed: bool
+    #: The day the match finished, or ``None`` when the index does not say.
+    played_on: date | None
+    #: The opponent's name, or ``None`` when it cannot be named.
+    opponent: str | None
+
+    @field_validator("opponent")
+    @classmethod
+    def _empty_is_not_a_name(cls, value: str | None) -> str | None:
+        """An empty string is not an opponent -- it is ``None``.
+
+        The same rule as :meth:`RosterEntry._empty_is_not_a_name`, and for the
+        sharper reason: rendered, an empty name would leave the row reading
+        "played against " and the reader would take the blank for a team whose
+        name is missing from their own knowledge rather than from the index.
+        """
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @model_validator(mode="after")
+    def _check_the_index_is_the_source(self) -> PlayedMap:
+        """A demo outside the index carries neither a date nor a name.
+
+        Both values come from the match index and from nowhere else (Story
+        4.10's frozen Intent: "An opponent is named only when the match is in
+        the index"). A row that claims one while saying the match is not
+        indexed has taken it from somewhere the report cannot account for --
+        the file name being the obvious candidate and the one this story
+        exists to refuse.
+
+        **It cannot fire on the pipeline's path, and the first draft of this
+        docstring claimed in bold that it could** (Story 4.10, architecture
+        review). Measured: ``played_maps_for(["1-aaa-1"], {}, {})`` yields
+        ``indexed=False, played_on=None, opponent=None``, and nothing else can
+        come out of that function, because all three values are taken from
+        **one** mapping lookup -- a missing key forces the two ``None``s that
+        make the raise unreachable. That is the defect
+        :func:`_check_matches_are_bounded` was corrected for one story ago,
+        repeated in a docstring that cites it: a reader believes the bold, not
+        the clause after it.
+
+        **What it does guard**, which is real and is why the check stays --
+        two paths, and the first is walked on every run:
+
+        * ``render`` reads ``report.json`` back and validates it **through
+          this model** (:func:`~pappascout.stages.render.read_report`), so a
+          file edited by hand or written by something else is refused rather
+          than formatted. That is the ordinary path for every report the user
+          rereads, not a hypothetical one, and it is what makes the check
+          worth its lines even though ``aggregate`` cannot trip it.
+        * a second builder of this list that resolved the date from one source
+          and the name from another. Not hypothetical in kind: the name this
+          story refuses to invent is the one sitting in a hand-imported demo's
+          file name (``Nuke_vs_imuaijat``), and a caller reading it there
+          would produce exactly the row below. None exists today, and this is
+          the only place that would stop one.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If an unindexed demo carries a
+                date or an opponent.
+        """
+        if self.indexed:
+            return self
+        if self.played_on is not None or self.opponent is not None:
+            raise AggregateError(
+                f"The demo {self.map_demo_id} is recorded as being outside "
+                "the archive's match index, but carries "
+                f"{'a date' if self.played_on is not None else ''}"
+                f"{' and ' if self.played_on is not None and self.opponent else ''}"
+                f"{'an opponent' if self.opponent else ''}.\n"
+                "Both come from the match index, so a demo that is not in it "
+                "has neither -- and a name guessed from the file name is "
+                "exactly what the report must not print."
+            )
+        return self
+
+
 class MapReport(_Node):
     """Both sides of one map.
 
@@ -1961,11 +2140,70 @@ class MapReport(_Node):
 
     map_name: str
     map_name_source: MapNameSource
-    #: The map's demos. Two demos from the same map add up into one branch,
-    #: and this list says which ones.
-    map_demo_ids: list[str]
+    #: The map's demos, **newest first**, each with its date and its opponent
+    #: (Story 4.10). Two demos from the same map add up into one branch, and
+    #: this list says which ones -- it is what ``map_demo_ids`` was, with the
+    #: two values the reader asked for beside each id.
+    #:
+    #: **Newest first as far as the order is known.** The demos whose match
+    #: the index places come first, newest to oldest; the rest follow, and
+    #: each of those rows says on its own face that it has no date. So the
+    #: order is a claim only where it is true, and
+    #: :attr:`every_demo_is_placed` is what a reader of the model asks before
+    #: repeating the claim in words.
+    played_maps: list[PlayedMap]
     sample: Sample
     sides: list[SideReport]
+
+    @property
+    def map_demo_ids(self) -> list[str]:
+        """The map's demo ids, in :attr:`played_maps`' order.
+
+        **Derived and not stored**, the way ``SITE_GROUPS = tuple(SITE_AREAS)``
+        is derived one layer down: this list used to be a field, and keeping
+        it beside :attr:`played_maps` would put the same eight ids in
+        ``report.json`` twice with nothing holding them to each other.
+
+        **The traceability chapter gets these ids in this order**, so a map's
+        row there lists its demos newest first, exactly as the map chapter's
+        own list does. The round appendix does **not**, and the difference is
+        in :func:`~pappascout.render.view.round_list_demo_ids`, not here: it
+        returns ``sorted(set(...))`` over every map, so its paths are
+        alphabetical, deduplicated and merged across the whole report. That
+        is right for a list of files to open and it is not this list's order.
+
+        **The consequence for a hand-reader**, which is the half worth
+        writing down because this module's own opening says ``report.json``
+        is read by hand: a map object in the file **no longer carries the
+        flat list at all**. Somebody grepping a report for a demo id now
+        finds it under ``maps[].played_maps[].map_demo_id`` and nowhere else,
+        one occurrence per demo instead of two. That is the point of the
+        change rather than a side effect -- the second occurrence was the
+        copy that could go stale -- and it is what a reader of an older file
+        will notice first.
+
+        It is a **projection** and not a computation, which is the line
+        :meth:`RoundRecord.rounds` draws: every id here is a value already in
+        the file, read out of a row, and nothing is added up.
+        """
+        return [entry.map_demo_id for entry in self.played_maps]
+
+    @property
+    def every_demo_is_placed(self) -> bool:
+        """Whether every demo's place in time is known.
+
+        The one question :attr:`played_maps`' order cannot be read without.
+        A list whose rows all carry a date really is newest first; one with a
+        dateless row among them is not, and a heading that said so would be
+        false about that row. The rule is
+        :func:`~pappascout.domain.aggregate.newest_match`'s -- **all or
+        nothing**, because with one demo unplaced the rest may or may not be
+        in the order the list shows.
+
+        An empty list answers ``True`` and cannot reach the report: a map
+        without demos has no rounds, and ``aggregate`` writes no such map.
+        """
+        return all(entry.played_on is not None for entry in self.played_maps)
 
     @model_validator(mode="after")
     def _check_rounds(self) -> MapReport:
@@ -1975,16 +2213,43 @@ class MapReport(_Node):
         _check_matches_are_bounded(
             self.sample, [s.sample for s in self.sides], "map", "side"
         )
-        if self.sample.demos != len(self.map_demo_ids):
+        if self.sample.demos != len(self.played_maps):
             raise AggregateError(
                 f"Map {self.map_name} claims a sample of "
                 f"{self.sample.demos} demos, but lists "
-                f"{len(self.map_demo_ids)}: "
+                f"{len(self.played_maps)}: "
                 f"{', '.join(self.map_demo_ids)}.\n"
                 "The map's demos have to be listed exactly, because they are "
                 "what the rounds added up from."
             )
+        self._check_each_demo_is_listed_once()
         return self
+
+    def _check_each_demo_is_listed_once(self) -> None:
+        """No demo twice in the same map's list.
+
+        The count check above passes a list of four rows that names three
+        demos and one of them twice -- ``sample.demos`` would still be four.
+        Since Story 4.10 the list is **printed**, so a repeat is a map the
+        reader sees played twice on the same day against the same opponent,
+        and it would inflate what they take the sample to be. ``aggregate``
+        builds the list from a dictionary keyed on the demo and cannot produce
+        one; this guard is for a ``report.json`` edited by hand or written
+        elsewhere, which is the same standing this model's other totals have.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If an id appears twice.
+        """
+        ids = self.map_demo_ids
+        twice = sorted({key for key in ids if ids.count(key) > 1})
+        if twice:
+            raise AggregateError(
+                f"Map {self.map_name} lists the same demo more than once: "
+                f"{', '.join(twice)}.\n"
+                "Each demo is one played map, so a repeated id would show the "
+                "reader a map that was played once as though it had been "
+                "played twice."
+            )
 
 
 class RosterEntry(_Node):

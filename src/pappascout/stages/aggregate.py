@@ -23,7 +23,11 @@ only observations and counts. The interpreting is done by a human.
 The team index (``index/teams.json``) is written by the ``discover`` stage,
 but this stage does not read it, so ``--team`` is the name of the
 ``classified/`` directory, that is, the lineup key -- exactly as in the
-``classify`` stage.
+``classify`` stage. **That still holds after Story 4.10**, which names the
+opponent of every map: the match index gives both teams' rosters as
+SteamID64s, and the subject is recognised by the players the demos were
+observed to hold (:func:`_opponent_name`). The stage reads one index file, not
+two.
 
 A lineup key is a hash of the players who played the map, so **one
 substitution produces a new key**: MatureMayhem is under two different keys
@@ -67,7 +71,7 @@ says where the name came from (``demo_header`` -> ``map_demo_id`` ->
 stays its own under the name of its id.
 
 Two demos of the same map are **one branch**: the name is the same, the rounds
-add up and ``map_demo_ids`` lists the demos. This is exactly what does not
+add up and ``played_maps`` lists the demos. This is exactly what does not
 happen without the header, because a FACEIT id (``1-79f71e00-...``) does not
 carry the map's name.
 
@@ -85,8 +89,8 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -113,6 +117,7 @@ from pappascout.constants import SIDES
 from pappascout.domain.aggregate import (
     LEAGUE_BUCKETS,
     SLUG_FALLBACK,
+    MatchFact,
     build_report,
     lineups_of_same_team,
     match_of,
@@ -162,9 +167,11 @@ __all__ = [
     "resolve_team",
     "collect_team",
     "TeamSources",
+    "MatchIndexReading",
     "match_order",
-    "match_order_input",
-    "match_order_input_id",
+    "read_match_index",
+    "match_index_input",
+    "match_index_input_id",
 ]
 
 STAGE = "aggregate"
@@ -197,7 +204,17 @@ class TeamSources:
             directory.
         lineup_keys: The lineup keys joined into the same team.
         demos: ``(lineup_key, map_demo_id)`` for every demo taken along.
-        roster: The players observed across all the joined lineups.
+        roster: The players observed across all the joined lineups -- the
+            **union over the whole sample**, and what the report's roster row
+            states.
+        lineup_players: ``lineup_key -> the players observed in that lineup``
+            (Story 4.10). The same observations ``roster`` is the union of,
+            kept unmerged, because the union answers "who plays for this
+            team" and some questions are about **one match**. See
+            :func:`_match_rosters`, where using the union was a defect.
+
+            A default of ``{}`` only so that a caller built before this field
+            existed still constructs; every caller in the tree fills it.
         missing: The demos whose data was not there. They do not vanish
             silently.
     """
@@ -207,6 +224,7 @@ class TeamSources:
     demos: list[tuple[str, str]]
     roster: list[str]
     missing: list[MissingDemo]
+    lineup_players: dict[str, frozenset[str]] = field(default_factory=dict)
 
 
 def run(
@@ -257,11 +275,19 @@ def run(
     manifest_abs = archive.resolve(manifest_rel)
 
     # Read once and used twice: the digest that decides whether to skip and
-    # the value the report is built from have to be the same reading, or a
+    # the values the report is built from have to be the same reading, or a
     # ``discover`` landing between them would make the manifest describe a
     # report that was never built.
-    order = match_order(archive)
-    inputs = [*_inputs(archive, sources.demos), match_order_input(order, sources.demos)]
+    #
+    # **It was read twice until Story 4.10**, measured on this line: the
+    # reading was made here and then made again inside ``_aggregate``, whose
+    # ``order`` argument this call did not pass -- so the comment above stated
+    # a guarantee the code did not keep. It is passed now.
+    reading = read_match_index(archive, _match_rosters(sources))
+    inputs = [
+        *_inputs(archive, sources.demos),
+        match_index_input(reading, sources.demos),
+    ]
     params_hash = _params_hash(thresholds, league, aggregate_settings)
 
     existing = Manifest.read_if_exists(manifest_abs)
@@ -293,7 +319,7 @@ def run(
             )
 
     report = _aggregate(
-        archive, sources, thresholds, league, aggregate_settings
+        archive, sources, thresholds, league, aggregate_settings, reading
     )
 
     atomic_write_text(json_abs, report.model_dump_json(indent=2) + "\n")
@@ -504,7 +530,17 @@ def collect_team(
                 else ""
             )
         )
-    return TeamSources(team_key, lineup_keys, demos, sorted(roster), missing)
+    return TeamSources(
+        team_key,
+        lineup_keys,
+        demos,
+        sorted(roster),
+        missing,
+        # The same observations the union above was built from, unmerged.
+        # ``known`` holds every lineup the archive has; only the joined ones
+        # are this team's.
+        {lineup: frozenset(known[lineup]) for lineup in lineup_keys},
+    )
 
 
 def _unique_by_match(entries: Iterable[MissingDemo]) -> list[MissingDemo]:
@@ -611,16 +647,30 @@ def _aggregate(
     thresholds: ThresholdSettings,
     league: LeagueSettings,
     aggregate_settings: AggregateSettings,
-    order: Sequence[str] | None = None,
+    reading: MatchIndexReading | None = None,
 ) -> Report:
     """Read the tables and build the report.
 
-    ``order`` is the matches newest first (:func:`match_order`). It is an
-    argument rather than a read, because :func:`run` has to declare the same
-    reading in the manifest that the report is built from; ``None`` means
+    ``reading`` is what the archive's match index says (:func:`read_match_index`
+    ): the matches newest first and, per match, its date and the opponent. It
+    is an argument rather than a read, because :func:`run` has to declare the
+    same reading in the manifest that the report is built from; ``None`` means
     "read it here", which is what a caller outside the stage -- the
     calibration tests -- wants.
+
+    **One object and not two arguments**, since Story 4.10 takes two things
+    out of the same file: split, a caller could hand an order from one reading
+    and facts from another, and the report would mark recency against matches
+    it did not name.
     """
+    # Resolved before the tables and not beside ``build_report``: a malformed
+    # index is the user's to fix, and saying so takes a moment here where it
+    # would take the whole parquet read below first.
+    index = (
+        read_match_index(archive, _match_rosters(sources))
+        if reading is None
+        else reading
+    )
     classified_frames: list[pl.DataFrame] = []
     tick_frames: list[pl.DataFrame] = []
     event_frames: list[pl.DataFrame] = []
@@ -806,7 +856,8 @@ def _aggregate(
         map_names=map_names,
         area_orientation=area_orientation,
         point_clouds=point_clouds,
-        match_order=match_order(archive) if order is None else order,
+        match_order=index.order,
+        match_facts=index.facts,
         generated_at=datetime.now(UTC),
         tool_versions={"pappascout": __version__},
         missing_demos=sources.missing,
@@ -833,9 +884,10 @@ def match_order(archive: ArchivePaths) -> list[str]:
     :func:`~pappascout.stages.discover.read_matches_index` raises, and a file
     that is there and unreadable is a fault the user can fix.
 
-    **The shape of the match list is checked here**, and that is a line this
-    function has to hold rather than inherit. ``read_matches_index`` validates
-    that the file is JSON, that it is an object and that its
+    **The shape of the match list is checked in the reader this shares with
+    the opponent lookup** (:func:`_match_index_rows`, Story 4.10), and that is
+    a line the stage has to hold rather than inherit. ``read_matches_index``
+    validates that the file is JSON, that it is an object and that its
     ``schema_version`` is known, and **nothing about ``matches``** -- so
     before this check a list that was ``null`` raised ``TypeError: 'NoneType'
     object is not iterable`` and a list of strings raised ``AttributeError``,
@@ -882,6 +934,43 @@ def match_order(archive: ArchivePaths) -> list[str]:
     ever writes this field, parse before sorting.** It is stated rather than
     guarded because parsing here would need a policy for an unparseable value,
     and today there is exactly one writer.
+
+    Story 4.10 parses the same field in :func:`_finish_date` and **that does
+    not settle the contract above** -- asked directly in review, 2026-09-25.
+    The parsed value is printed; this sort is still lexicographic on the raw
+    string. So with mixed offsets a map's list could carry a date on every
+    row, be headed "newest first", and descend out of order: the printed
+    dates would be UTC and the order would not. Unreachable while ``discover``
+    is the only writer (all 31 dated rows end ``+00:00``), and the fix when it
+    is needed is one line -- sort on :func:`_finish_date`'s value instead --
+    with one consequence to accept: a row whose ``finished_at`` is present but
+    unparseable or naive would then be **unplaced** rather than placed at an
+    arbitrary point, which is the better answer and a different one.
+
+    **This list is not deduplicated**, and that mattered one layer away:
+    :func:`~pappascout.domain.aggregate.played_maps_for` turned it into a
+    mapping and used ``len`` of the mapping as a rank past every real one.
+    Measured 2026-09-25, ``[A, A, B]`` becomes ``{A: 1, B: 2}`` -- two keys,
+    highest rank two -- so the sentinel collided with a rank in use and a
+    dateless demo could sort above a dated one. That function now takes
+    ``max(...) + 1`` and no longer depends on this list being distinct.
+    """
+    return _order_of(_match_index_rows(archive))
+
+
+def _match_index_rows(archive: ArchivePaths) -> list[Mapping[str, Any]]:
+    """The match index's rows, or an empty list when there is no index.
+
+    **The one reader of the file in this stage** (Story 4.10). The order and
+    the per-match facts are two readings of the same rows, and taking them
+    from two reads would let a ``discover`` land between them: the report
+    would then mark recency against one version of the index and name
+    opponents from another. So the file is opened here and nowhere else, and
+    :func:`read_match_index` is what both readings come out of.
+
+    The shape check is :func:`match_order`'s, moved down a level with it: the
+    guarantee the callers need is "every row is a mapping", and it holds for
+    both readings or for neither.
     """
     if not archive.matches_index().exists():
         return []
@@ -895,6 +984,11 @@ def match_order(archive: ArchivePaths) -> list[str]:
             "list, so the matches cannot be put in order.\n"
             "Run again: uv run pappascout discover"
         )
+    return list(rows)
+
+
+def _order_of(rows: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The rows' matches newest first. See :func:`match_order`."""
     dated = [
         (str(row["finished_at"]), str(row["match_id"]))
         for row in rows
@@ -903,26 +997,337 @@ def match_order(archive: ArchivePaths) -> list[str]:
     return [match for _, match in sorted(dated, reverse=True)]
 
 
-def match_order_input_id() -> str:
-    """The id under which the match order is declared in the manifest.
+@dataclass(frozen=True)
+class MatchIndexReading:
+    """Everything ``aggregate`` takes out of ``index/matches.json``, once.
+
+    Two readings of one file (Story 4.10), kept together because they are one
+    reading of the archive: ``order`` decides which of a map's matches is the
+    newest, ``facts`` says when each was played and against whom, and a report
+    built from two different moments of that file would mark recency against
+    matches it did not name.
+
+    Attributes:
+        order: The matches whose place in time is known, newest first
+            (:func:`match_order`). A match with no ``finished_at`` is **not**
+            in it.
+        facts: Match key -> the date and the opponent. A match with no
+            ``finished_at`` **is** in it, with ``played_on`` ``None``: it is
+            in the index and its opponent can still be named. That asymmetry
+            is the reason these are two fields and not one.
+    """
+
+    order: tuple[str, ...]
+    facts: Mapping[str, MatchFact]
+
+
+def _match_rosters(sources: TeamSources) -> dict[str, frozenset[str]]:
+    """Match key -> the subject's players **observed in that match**.
+
+    The comparison set :func:`_opponent_name` recognises the subject by, and
+    it is deliberately **not** :attr:`TeamSources.roster` (Story 4.10, found
+    in architecture review). The union over the whole sample is who plays for
+    this team; the question here is who played *this match*, and the two
+    differ the moment a roster changes mid-season.
+
+    **Measured on the developer's archive 2026-09-24:** the subject's report
+    roster is 7 players, its FACEIT squad (``roster`` + ``substitutes``) is
+    the same 8 people in all four matches, and the 7 are a subset of the 8
+    every time. So the union works *here* -- and that is exactly why the
+    defect it causes is worth stating rather than waiting for. A player who
+    joined in week 3 is in the union, is in week 3's and week 4's squad
+    entries and is in **neither of week 1's and week 2's**; the subject would
+    then fail to be recognised in the two older matches and both would lose
+    their opponent, silently, for a reason that has nothing to do with them.
+    Per match, the comparison set is the five who actually played, who are by
+    definition registered for that match.
+
+    A match whose demos come from several lineups (a substitution inside a
+    ``best_of``) gets the union of those lineups and nothing wider.
+
+    Matches the report has no demo of are **absent** from the result. They
+    are still in :attr:`MatchIndexReading.facts` -- the index holds them and
+    ``indexed`` says so -- but with no name, because nothing was observed
+    against which to recognise a side. No reader asks: the report looks up
+    only its own demos' matches.
+    """
+    found: dict[str, set[str]] = {}
+    for lineup, demo in sources.demos:
+        found.setdefault(match_of(demo), set()).update(
+            sources.lineup_players.get(lineup, frozenset())
+        )
+    return {match: frozenset(players) for match, players in found.items()}
+
+
+def read_match_index(
+    archive: ArchivePaths, rosters: Mapping[str, frozenset[str]]
+) -> MatchIndexReading:
+    """Read the match index once and take both readings from it.
+
+    Args:
+        archive: The archive's paths.
+        rosters: Match key -> the subject's players observed in that match, as
+            :func:`_match_rosters` builds it. It is what tells the subject's
+            own side of a match from the opponent's; see
+            :func:`_opponent_name`. A match that is not a key here gets no
+            opponent, which is right: nothing was observed in it.
+
+    Returns:
+        The reading. A missing index gives an empty order and no facts, which
+        is a legitimate state and not an error -- see :func:`match_order`.
+    """
+    rows = _match_index_rows(archive)
+    return MatchIndexReading(
+        order=tuple(_order_of(rows)), facts=_facts_of(rows, rosters)
+    )
+
+
+def _facts_of(
+    rows: Sequence[Mapping[str, Any]], rosters: Mapping[str, frozenset[str]]
+) -> dict[str, MatchFact]:
+    """Match key -> what the index says about it (Story 4.10).
+
+    **Presence in this mapping is itself a fact**: it is what
+    :attr:`~pappascout.domain.report.PlayedMap.indexed` records, and it is a
+    different statement from an entry whose two values are both ``None``.
+    "This match is not in the archive's index" and "the index holds this match
+    and says neither when nor against whom" are two different things to tell a
+    reader who is deciding whether to go and look.
+
+    A row with no usable ``match_id`` is skipped rather than keyed on an empty
+    string, which would collect every such row under one match.
+
+    **This row test is stricter than :func:`_order_of`'s**, and the two are
+    written out rather than left to be noticed. That one places any row whose
+    ``match_id`` is merely truthy -- a number, a list -- and keys the order on
+    ``str(...)`` of it; this one requires a non-empty ``str``. A row with,
+    say, a numeric id would therefore be **placed in the order and absent
+    from the facts**, and the report would print
+    :data:`~pappascout.render.view.MATCH_NOT_INDEXED` about a match the index
+    holds: the one place in this story that would state *presence* wrongly
+    rather than merely omitting a value. It is unreachable
+    while ``discover`` is the only writer -- it writes ``match_id`` from
+    FACEIT's string id -- and it is recorded because "unreachable today" is
+    the sort of premise this file has already watched expire.
+
+    Measured 2026-09-24 on the developer's index: 66 rows, 66 distinct match
+    ids, every row two teams, not one team name empty. A duplicate id would
+    leave the last row's values, and nothing here needs a rule for it: the
+    file has one writer and it keys on the match.
+    """
+    facts: dict[str, MatchFact] = {}
+    for row in rows:
+        match = row.get("match_id")
+        if not isinstance(match, str) or not match:
+            continue
+        facts[match] = MatchFact(
+            played_on=_finish_date(row.get("finished_at")),
+            opponent=_opponent_name(
+                row.get("teams"), rosters.get(match, frozenset())
+            ),
+        )
+    return facts
+
+
+def _finish_date(value: Any) -> date | None:
+    """The day a match finished, or ``None`` when the index does not say it.
+
+    **A date and not a moment**, because the reader's question is how old the
+    observation is.
+
+    **It is the UTC date, and it is converted rather than assumed** (Story
+    4.10, review). An earlier version took ``.date()`` off the parsed value
+    and said in two docstrings that the result was UTC. It was not:
+    ``2026-09-21T01:30:00+03:00`` is 22:30 UTC on the **20th** and yielded the
+    21st. ``discover`` writes every value ``+00:00`` today
+    (:func:`~pappascout.adapters.faceit._moment` builds it with
+    ``datetime.fromtimestamp(value, UTC)`` and
+    :func:`~pappascout.stages.discover._moment` writes ``isoformat()``, and
+    measured 2026-09-24 all 31 dated rows end ``+00:00``), so nothing in the
+    archive showed it -- but the format permits an offset and the sentence
+    promised a conversion the code did not make.
+
+    **A value with no zone yields ``None``.** Its day depends on a zone
+    nobody wrote down, and this story's answer to an unknown is to say it is
+    unknown rather than to pick the likely reading: the row then states that
+    the date is missing, which is true. It costs nothing today (no naive
+    value exists in the index) and the order is unaffected --
+    :func:`_order_of` sorts the strings and never comes here.
+
+    **Parsed here although :func:`_order_of` sorts the same field as a
+    string.** That is not an inconsistency but the answer to the contract
+    :func:`match_order` states and cannot enforce: sorting strings is only
+    chronological while every value carries the same offset, and a value that
+    broke that assumption would sort wrongly in silence. It cannot produce a
+    wrong **date** here -- an unparseable value yields ``None`` and the row
+    says the date is missing, which is the safe direction and the same one
+    every other absence in this story takes.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return None
+    return moment.astimezone(UTC).date()
+
+
+def _opponent_name(teams: Any, roster: frozenset[str]) -> str | None:
+    """The other team's name, or ``None`` when it cannot be told.
+
+    **Whose match this is, is not in the index entry.** A row names two teams
+    and nothing in it says which of them the report is about, so the subject
+    has to be recognised. The only observation this stage holds is which
+    players it saw -- SteamID64s from the demos' ``LINEUPS`` rows -- and the
+    index carries each team's ``roster`` and ``substitutes`` in the same ids.
+
+    **The rule, in full, because every clause is load-bearing:** the row must
+    name exactly two sides; one of them must hold **every** player the
+    subject was observed to field in that match, and the other must hold
+    **none** of them; the opponent is that other side. Anything else names
+    nobody.
+
+    **The short form of this rule was wrong and shipped** (found in Story
+    4.10's architecture review, reproduced here before the fix). It read "the
+    opponent is the side that shares no player with the subject", which is
+    sound only under an unstated premise -- that exactly one side shares a
+    player with us -- and three rows break it:
+
+    * a row naming **one** side, disjoint from us. ``teams`` is built by
+      :func:`~pappascout.adapters.faceit._to_match` from the payload's
+      faction mapping, keeping only mappings, so a bye or an un-drawn
+      opponent yields one entry. Measured: the developer's 66 rows all carry
+      two, so this is latent and not live. It named the side that was there.
+    * a row naming **three**, one of them disjoint. It named that one.
+    * and the one that must not ship: the subject's observed five are all
+      outside its own registered squad while one of them is registered with
+      the opponent. The disjoint side is then **ours**, and the report printed
+      *our own team* as the opponent.
+
+    The two arity cases are closed by the first clause, which is checked and
+    not implied -- the code already defends against ``teams`` not being a
+    list, an entry not being a mapping and a name that is missing, and arity
+    was the one shape it did not test. The third is closed by "holds every
+    player": in that row neither side holds all five, so neither can be the
+    subject.
+
+    **The comparison set is one match's players and not the team's roster**
+    (:func:`_match_rosters`); with the season's union here, a mid-season
+    signing would silence the opponent on every earlier match.
+
+    The alternative was the team index (``index/teams.json``), which maps a
+    lineup key to a faction id. ``aggregate`` does not read it and the stage's
+    own module docstring says so; making it do so would add a second index
+    file to a stage that has needed neither, for a lookup the demos already
+    answer. Ids and not names, for :class:`~pappascout.domain.report
+    .RosterEntry`'s reason: a name changes between matches, an id does not.
+
+    **This is the codebase's third team-identity rule** and the first that
+    asks its question the other way round -- the other two ask for
+    ``thresholds.team_identity_min_common`` players **in common**
+    (:func:`~pappascout.domain.teams.assign_lineup_keys` and
+    :func:`~pappascout.domain.aggregate.lineups_of_same_team`), and this one
+    asks for all of them on one side and none on the other, with no
+    threshold. AD-6's standing note in the spine says two exist and may
+    disagree; that note is now short by one, and the memlog entry of
+    2026-09-25 records it. See :mod:`pappascout.domain.teams`, where the three
+    are named together.
+
+    **What it costs, stated rather than discovered.** A match in which the
+    subject fielded somebody the index does not list in either squad is a
+    match with no opponent in the report, and the row says so. That is the
+    safe direction: the failure this replaces printed a name.
+
+    Measured 2026-09-24 on the developer's archive: the scouted team's eight
+    demos all resolve, every one with 7 of its 7 observed players on one side
+    and 0 on the other, so the separation is not a near thing on this data.
+
+    Args:
+        teams: The entry's ``teams`` value, as the index holds it. Anything
+            that is not a list of two objects yields ``None`` -- the entry is
+            malformed or is not a match between two sides, and the report says
+            the name is missing rather than failing the run, because an index
+            row this stage never needed is not worth refusing a report over.
+        roster: The subject's players observed **in this match**.
+
+    Returns:
+        The opponent's name, or ``None``. **The name is used as the index
+        wrote it**, with no check that it is a string: a numeric ``name``
+        prints as its digits. That is consistent with every other value read
+        out of this file -- it is free text from an external source and the
+        report quotes it -- and it is stated because the alternative (refusing
+        a name that is not a string) would silently drop a real opponent over
+        a type.
+
+        An empty or blank name is ``None``;
+        :class:`~pappascout.domain.report.PlayedMap` holds that contract too,
+        so the report cannot print a blank that reads as "nobody".
+    """
+    # Arity first, stated rather than implied -- and **redundant, measured**.
+    # With the two counts below in place, removing ``len(teams) != 2`` changes
+    # no answer this function gives: a one-side row already fails on
+    # ``len(ours) != 1`` and a three-side row on one of the two. The mutation
+    # that removes it survives the whole unit suite (860 passed, 2026-09-25),
+    # and that is recorded here rather than left for the next reader to
+    # discover, because a redundant check that reads as load-bearing is the
+    # defect this story's review round found nine of. It is kept because the
+    # contract is "a match between two sides" and a reader should meet that
+    # here instead of inferring it from two counts further down.
+    if not isinstance(teams, list) or len(teams) != 2:
+        return None
+    ours: list[frozenset[str]] = []
+    theirs: list[Mapping[str, Any]] = []
+    for entry in teams:
+        if not isinstance(entry, Mapping):
+            return None
+        members = frozenset(
+            str(player)
+            for key in ("roster", "substitutes")
+            for player in (entry.get(key) or [])
+        )
+        if members.isdisjoint(roster):
+            theirs.append(entry)
+        else:
+            ours.append(members)
+    if len(theirs) != 1 or len(ours) != 1:
+        return None
+    # Every observed player on the side that is not the opponent. An empty
+    # ``roster`` cannot reach here: it is disjoint from both sides, so both
+    # land in ``theirs``.
+    if not roster <= ours[0]:
+        return None
+    return str(theirs[0].get("name") or "").strip() or None
+
+
+def match_index_input_id() -> str:
+    """The id under which the match index reading is declared in the manifest.
 
     It names **what is read** and not a file, the way ``classify``'s
     ``match-facts`` does (Story 4.7) and ``parse``'s ``demo/<map_demo_id>``
-    did before it: the value is a property of ``index/matches.json`` that no
+    did before it: the values are properties of ``index/matches.json`` that no
     other stage reads, and the file holds a great deal this stage never looks
     at.
+
+    **It was ``match-order`` until Story 4.10** and the name had to move with
+    the reading: the same input now also identifies each match's date and the
+    opponent's name, and an id that went on saying "order" would describe a
+    narrower reading than the digest covers -- which is the drift the id
+    exists to prevent. The rename costs one re-aggregation per team, on a
+    story that bumps the report schema and forces one anyway.
 
     A literal, and outside the ``classified/`` namespace :func:`_inputs` fills,
     so that neither can be mistaken for the other when a manifest is read
     back.
     """
-    return "match-order"
+    return "match-order-and-opponents"
 
 
-def match_order_input(
-    order: Sequence[str], demos: Sequence[tuple[str, str]]
+def match_index_input(
+    reading: MatchIndexReading, demos: Sequence[tuple[str, str]]
 ) -> ManifestInput:
-    """The match order as a manifest input, narrowed to what is read.
+    """The match index reading as a manifest input, narrowed to what is read.
 
     **The defect this closes** (Story 4.9, found in review): ``aggregate``
     began reading ``index/matches.json`` and declared nothing, which is Story
@@ -938,48 +1343,89 @@ def match_order_input(
     digest would re-aggregate every team after every ``discover`` and cascade
     into ``render``.
 
+    **The declaration was widened in Story 4.10, in the same commit as the
+    reading.** Until then this stage took the order out of the file and
+    nothing else; now it also takes each of its own matches' **date** and
+    **opponent's name**, and both are printed. Left as it was, the digest
+    would have missed a class of change it is there to catch: a match whose
+    ``finished_at`` moves to another day without changing its place among the
+    report's own matches, and an opponent that renames itself on FACEIT.
+    Either one leaves the digest unmoved, ``aggregate`` skipping, and a
+    printed line stating something the index no longer says.
+
     What this stage reads out of that file is **the order among its own
-    matches, and whether each of them is placed at all** -- nothing else
-    reaches a number in the report, because
-    :func:`~pappascout.domain.aggregate.newest_match` looks up only the keys
-    of the demos the report is built from. So the digest is two lists:
+    matches, and for each of them the date and the opponent** -- nothing
+    else reaches the report, because
+    :func:`~pappascout.domain.aggregate.newest_match` and
+    :func:`~pappascout.domain.aggregate.played_maps_for` both look up only
+    the keys of the demos the report is built from. So the digest is two
+    lists:
 
     ``placed``
         The report's own match keys in the index's order. It moves when one of
         them changes place relative to another, which is exactly when a map's
         newest match can change.
-    ``unplaced``
-        The report's own match keys the index does not place, sorted. It moves
-        when a match gains or loses its ``finished_at``, which is when a mark
-        appears or disappears.
+    ``facts``
+        One row per own match key, sorted by the key: the key, and then the
+        date and the opponent, or ``null`` where the index does not hold the
+        match at all. It moves when a date or a name changes, and when a match
+        enters or leaves the index.
+
+    **``unplaced`` is gone and is not missing.** Story 4.9's digest listed the
+    own keys the index does not place, to catch a ``finished_at`` appearing or
+    disappearing. Every one of those keys is in ``facts`` now, with its
+    ``played_on`` -- so the old list is derivable from the new one, and
+    keeping it would be the same value twice in the same digest.
+
+    **It covers more than "what this stage reads out of that file", and the
+    extra is worth naming.** ``facts`` digests the **resolved** opponent and
+    not the row it was resolved from, so it also moves when the *subject's*
+    side of the row changes: a demo joining or leaving the sample changes
+    :func:`_match_rosters`, which can change which side
+    :func:`_opponent_name` recognises as ours, and the digest follows. The
+    demo set is in :func:`_inputs` as well, so that particular change is
+    caught twice -- but a digest of the raw row would not have caught it at
+    all, and the value the report prints is the resolved one.
 
     **Global position is deliberately not in it.** Digesting each key's rank
     in the whole list would move whenever any unrelated match gained a finish
     time -- the commonest thing ``discover`` does -- and re-run every team for
-    a value none of their numbers depend on.
+    a value none of their numbers depend on. Nor is any other match's date or
+    opponent: the report names its own matches only.
 
     The demo set is **not** in this digest and does not need to be: a demo
     joining or leaving changes :func:`_inputs`, which carries one entry per
     demo. The two together identify the reading completely.
 
     Args:
-        order: The matches newest first, as :func:`match_order` returns them.
+        reading: The match index as :func:`read_match_index` read it.
         demos: The ``(lineup, map_demo_id)`` pairs the report is built from.
 
     Returns:
         The input. **Never ``None``**, unlike ``classify``'s: a missing index
-        is a legitimate reading here (every key unplaced) and a malformed one
-        has already raised in :func:`match_order`, so there is no state left
-        in which the input cannot be identified.
+        is a legitimate reading here (every key unindexed) and a malformed one
+        has already raised in :func:`_match_index_rows`, so there is no state
+        left in which the input cannot be identified.
     """
     own = {match_of(demo) for _, demo in demos}
-    placed = [key for key in order if key in own]
+    facts = []
+    for key in sorted(own):
+        fact = reading.facts.get(key)
+        facts.append(
+            [key, None]
+            if fact is None
+            else [
+                key,
+                fact.played_on.isoformat() if fact.played_on else None,
+                fact.opponent,
+            ]
+        )
     return ManifestInput(
-        result_id=match_order_input_id(),
+        result_id=match_index_input_id(),
         sha256=compute_params_hash(
             {
-                "placed": placed,
-                "unplaced": sorted(own.difference(placed)),
+                "placed": [key for key in reading.order if key in own],
+                "facts": facts,
             }
         ),
     )

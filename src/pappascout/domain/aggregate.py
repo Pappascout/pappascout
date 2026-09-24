@@ -73,7 +73,7 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from math import isfinite
 from statistics import median
 from typing import Any
@@ -120,6 +120,7 @@ from pappascout.domain.report import (
     KillArea,
     MapReport,
     MissingDemo,
+    PlayedMap,
     PlayersCount,
     Position,
     Report,
@@ -144,9 +145,11 @@ __all__ = [
     "ROSTER_SAMPLE_BUCKETS",
     "RoundKey",
     "MatchOrder",
+    "MatchFact",
     "match_of",
     "matches_of",
     "newest_match",
+    "played_maps_for",
     "bucket_labels",
     "seconds_bucket",
     "map_name_for",
@@ -295,6 +298,102 @@ def newest_match(matches: Iterable[str], order: MatchOrder) -> str | None:
     return min(keys, key=lambda key: order[key])
 
 
+@dataclass(frozen=True)
+class MatchFact:
+    """What the archive's match index says about one match (Story 4.10).
+
+    **Values and not a file**, the same line :data:`MatchOrder` holds: the
+    index is ``index/matches.json``, which ``discover`` writes and only a
+    stage may read (AD-2). What reaches this module is a date that has
+    already been parsed and a name that has already been picked, so nothing
+    here needs a clock, a time zone or a rule for which of a match's two
+    teams is the opponent.
+
+    A match key **absent** from the mapping is a match the index does not
+    hold, which is an ordinary state and not a fault: a hand-imported demo is
+    in no index. A key that is present with both fields ``None`` is a
+    different statement -- the index holds the match and says neither -- and
+    :class:`~pappascout.domain.report.PlayedMap` keeps the two apart with its
+    ``indexed`` flag.
+
+    Attributes:
+        played_on: The day the match finished, or ``None`` when the index
+            gives no finish time. Measured 2026-09-24: 35 of the developer
+            archive's 66 indexed matches have none.
+        opponent: The other team's name, or ``None`` when the entry does not
+            yield one.
+    """
+
+    played_on: date | None
+    opponent: str | None
+
+
+def played_maps_for(
+    demos: Iterable[str], order: MatchOrder, facts: Mapping[str, MatchFact]
+) -> list[PlayedMap]:
+    """One map's demos as the report lists them: **newest first**.
+
+    The list the product owner asked for twice on 2026-09-24 -- how many maps,
+    played when, and against whom. Every value on a row is looked up by the
+    demo's **match** (:func:`match_of`), because two demos of one ``best_of``
+    match were played on the same day against the same team and must not be
+    read as two meetings.
+
+    **The order is the report's own recency order and not a second sort.**
+    ``order`` is the same mapping :func:`newest_match` reads, so the row the
+    list puts first is the match every block's recency mark is decided
+    against. A demo the order does not place has no place at all: it is not
+    "oldest" and not "newest", so it goes after the placed ones, where its own
+    row says it carries no date. Sorting it among them by anything else --
+    the id, the map name, the order the files were read -- would put a number
+    in a position that claims a date it does not have.
+
+    Ties are broken on the demo id so the list is the same from one run to
+    the next. A tie is real and not hypothetical: a ``best_of`` match's two
+    demos share a match key, and so do two recordings of the same map.
+
+    Args:
+        demos: The map's ``map_demo_id`` values, in any order.
+        order: Match key -> place, newest first. See :data:`MatchOrder`.
+        facts: Match key -> what the index says. A key that is missing means
+            the index does not hold that match.
+
+    Returns:
+        One :class:`~pappascout.domain.report.PlayedMap` per demo. The list
+        is as long as ``demos`` -- nothing is grouped away here, because the
+        map's sample counts demos and
+        :class:`~pappascout.domain.report.MapReport` holds the two to being
+        equal.
+    """
+    # Past every rank in use, so an unplaced demo sorts after every placed
+    # one. **Not ``len(order)``**, which was the first version and is wrong
+    # when the index holds a match twice: ``order`` is a mapping built from a
+    # list that :func:`~pappascout.stages.aggregate._order_of` does not
+    # deduplicate, so two rows with one id give it fewer keys than ranks --
+    # measured 2026-09-25, the list ``[A, A, B]`` yields ``{A: 1, B: 2}``,
+    # where ``len`` is 2 and 2 is a rank in use. The unplaced demo would then
+    # tie with the last placed one and the id would break the tie, putting a
+    # dateless row above a dated one.
+    unplaced = max(order.values(), default=-1) + 1
+    rows: list[tuple[int, str, PlayedMap]] = []
+    for demo in demos:
+        match = match_of(demo)
+        fact = facts.get(match)
+        rows.append(
+            (
+                order.get(match, unplaced),
+                demo,
+                PlayedMap(
+                    map_demo_id=demo,
+                    indexed=fact is not None,
+                    played_on=fact.played_on if fact else None,
+                    opponent=fact.opponent if fact else None,
+                ),
+            )
+        )
+    return [entry for _, _, entry in sorted(rows, key=lambda row: row[:2])]
+
+
 #: A round row's key **including the side**. The ``ROUNDS`` table has two rows
 #: per round, one for each team, so :data:`RoundKey` on its own would hit both
 #: -- and the opponent's armour would look like ours. A classified row carries
@@ -414,7 +513,7 @@ MAP_NAME_SOURCE_RANK: dict[str, int] = {
 def weakest_map_source(sources: Iterable[str]) -> str:
     """A branch's source is the **weakest** of its demos, not the strongest.
 
-    Two demos from the same map are one branch (``map_demo_ids`` lists them),
+    Two demos from the same map are one branch (``played_maps`` lists them),
     and the source of their name can differ: one had the map in its header,
     the other did not.
 
@@ -2531,6 +2630,7 @@ def build_report(
     area_orientation: Mapping[str, Mapping[str | None, sampling.AreaObservations]],
     point_clouds: Mapping[str, Sequence[sampling.CloudCell]],
     match_order: Sequence[str],
+    match_facts: Mapping[str, MatchFact],
     generated_at: datetime,
     tool_versions: Mapping[str, str] | None = None,
     missing_demos: Sequence[MissingDemo] = (),
@@ -2618,6 +2718,22 @@ def build_report(
             state and not a fault: a demo imported by hand is in no match
             index. Then a group of more than one match carries ``null``
             instead of a mark (:func:`newest_match`).
+        match_facts: Match key -> the date and the opponent the archive's
+            match index holds for it (Story 4.10). A **key that is missing**
+            says the index does not hold that match, which is what every
+            hand-imported demo is.
+
+            **Mandatory and without a default**, for the reason ``map_names``
+            and ``match_order`` are and with a sharper edge: an empty default
+            would print "not in the match index" on every row of every
+            report, which is a **claim about the archive** and not a missing
+            formatting. An empty mapping is still a legitimate value and says
+            exactly that -- it is what an archive with no match index gives.
+
+            Separate from ``match_order`` although both come out of the same
+            file and the same read, because they answer different questions
+            and fail apart: a match with no finish time is in the facts and
+            not in the order.
         generated_at: The moment of the run.
         tool_versions: The tool versions, for the report's own field.
         missing_demos: The matches whose data was not there.
@@ -2650,7 +2766,8 @@ def build_report(
         by_demo[str(row["map_demo_id"])].append(row)
 
     # Two demos from the same map are one branch: the rounds add up, and
-    # map_demo_ids says where they came from.
+    # ``played_maps`` says where they came from -- and, since Story 4.10,
+    # when each was played and against whom.
     #
     # THE GROUPING IS **BY NAME**, NOT BY THE PAIR (name, source). The pair
     # would look right but would break the map apart exactly the way a
@@ -2696,7 +2813,7 @@ def build_report(
             MapReport(
                 map_name=map_name,
                 map_name_source=source,
-                map_demo_ids=demos,
+                played_maps=played_maps_for(demos, order, match_facts),
                 sample=sample_for(map_rows, buckets),
                 sides=_sides_for(
                     map_rows,
@@ -2716,8 +2833,17 @@ def build_report(
                 ),
             )
         )
-    # The most played maps first; on a tie the name, so that the order is the
-    # same from one run to the next.
+    # The maps with the most ROUNDS first; on a tie the name, so that the
+    # order is the same from one run to the next.
+    #
+    # "The most played maps first" is what this said, and Story 4.10 made the
+    # imprecision matter: the summary's map-pool row prints each map's
+    # **demo** count in this order, and rounds and demos do not agree.
+    # Measured 2026-09-25 on the real archive -- a map of 1 demo and 28 rounds
+    # precedes one of 1 demo and 22 rounds, and four maps of one demo each
+    # come out in round order and not alphabetically. The sort stays on
+    # rounds, because the chapter's size is what a table of contents should
+    # follow; both texts now name the key rather than describing it.
     maps.sort(key=lambda m: (-m.sample.rounds, m.map_name))
 
     # The anomalies are computed **after the maps** and not before, and the

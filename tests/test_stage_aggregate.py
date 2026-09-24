@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 from collections.abc import Sequence
 from pathlib import Path
 from time import sleep
@@ -38,6 +39,7 @@ THRESHOLD_READ = r"\bthresholds\.([a-z_]+)"
 LEAGUE_READ = r"\bleague\.([a-z_]+)"
 from pappascout.errors import AggregateError, PappascoutError, SchemaError
 from pappascout.stages import aggregate as aggregate_stage
+from pappascout.stages.aggregate import TeamSources, collect_team
 from test_aggregate import (
     OPPONENT,
     OPPONENT_CLAN,
@@ -584,10 +586,11 @@ def test_the_manifest_records_every_demo_as_an_input(tmp_path: Path) -> None:
     assert sorted(i.result_id for i in manifest.inputs) == [
         f"classified/{TEAM}/Anubis_vs_b",
         f"classified/{TEAM}/Nuke_vs_a",
-        # The match order is an input too (Story 4.9). It is outside the
+        # The match index reading is an input too (Story 4.9, widened in 4.10
+        # to each own match's date and opponent). It is outside the
         # ``classified/`` namespace on purpose, so the two kinds cannot be
         # confused when a manifest is read back.
-        aggregate_stage.match_order_input_id(),
+        aggregate_stage.match_index_input_id(),
     ]
     assert manifest.tool_versions == {}
 
@@ -623,7 +626,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # A literal and not the constant: comparing against the constant would be
     # a tautology -- the code wrote the value from that very constant. When the
     # version rises, this line MUST fail, so that the rise is deliberate.
-    assert data["schema_version"] == "12.0.0"
+    assert data["schema_version"] == "13.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -713,7 +716,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "12.0.0"
+    assert read_report(archive).schema_version == "13.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -2680,3 +2683,594 @@ def test_a_match_with_no_finish_time_is_still_only_skipped(
         ],
     )
     assert aggregate_stage.match_order(archive) == ["1-dated"]
+
+
+# --- Who and when: the opponent and the date (Story 4.10) -----------------------
+
+
+#: The two team names the fixtures below use. **Invented and not the
+#: archive's**: the repository is public, the denylist that guards it is
+#: machine-local (AD-12), and nothing in the lookup depends on what the
+#: string is -- it depends on the player ids beside it.
+_OURS = "Kotijoukkue"
+_THEIRS = "Vastarannan kiiski"
+#: A second invented opponent, for the rows that must not share a name.
+_THEIRS_LATER = "Lumihanki"
+
+#: The subject team's players as ``build_archive`` writes them into the
+#: tables, and therefore as they reach ``TeamSources.roster``.
+_OUR_PLAYERS = [f"{TEAM}-p{i}" for i in range(5)]
+
+#: Five ids that are on no subject roster in these fixtures.
+_THEIR_PLAYERS = [f"{OPPONENT}-p{i}" for i in range(5)]
+
+
+def _entry(
+    match_id: str,
+    *,
+    ours: list[str] | None = None,
+    theirs: list[str] | None = None,
+    finished_at: str | None = "2026-09-20T18:39:44+00:00",
+    substitutes: list[str] | None = None,
+) -> dict:
+    """One match index row with two named teams, as ``discover`` writes it."""
+    row: dict = {
+        "match_id": match_id,
+        "teams": [
+            {
+                "name": _OURS,
+                "roster": _OUR_PLAYERS if ours is None else ours,
+                "substitutes": substitutes or [],
+            },
+            {
+                "name": _THEIRS,
+                "roster": _THEIR_PLAYERS if theirs is None else theirs,
+                "substitutes": [],
+            },
+        ],
+    }
+    if finished_at is not None:
+        row["finished_at"] = finished_at
+    return row
+
+
+def _facts(archive: ArchivePaths) -> dict:
+    """The facts the stage reads for the subject team."""
+    sources = collect_team(archive, TEAM, thresholds())
+    return dict(
+        aggregate_stage.read_match_index(
+            archive, aggregate_stage._match_rosters(sources)
+        ).facts
+    )
+
+
+def test_the_opponent_is_the_side_that_shares_no_player(tmp_path: Path) -> None:
+    """Whose match this is, is not written in the index entry.
+
+    A row names two teams and nothing in it says which of them the report is
+    about. The subject is recognised by the players the demos were observed
+    to hold, which is the only observation this stage has: it does not read
+    the team index (see the module docstring), and a name comparison would
+    rest on a string that changes between matches.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(archive, [_entry(_M1)])
+    assert _facts(archive)[_M1].opponent == _THEIRS
+
+
+def test_the_side_is_recognised_from_the_substitutes_too(tmp_path: Path) -> None:
+    """A stand-in is on our side and not on theirs.
+
+    The index keeps a squad's substitutes in a field of their own, and a map
+    played by one of them would otherwise make our own side look like a
+    stranger -- and with both sides then strangers, the row would lose its
+    name. Measured 2026-09-24: every one of the archive's own matches lists
+    three substitutes beside the five regulars.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(archive, [_entry(_M1, ours=[], substitutes=_OUR_PLAYERS)])
+    assert _facts(archive)[_M1].opponent == _THEIRS
+
+
+def test_no_opponent_is_named_when_both_sides_are_strangers(
+    tmp_path: Path,
+) -> None:
+    """Two candidates is not a choice, so the row says the name is missing.
+
+    The report would otherwise pick one of them, and a wrong opponent is
+    worse than no opponent because it reads exactly like a right one.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(archive, [_entry(_M1, ours=["nobody-1"])])
+    fact = _facts(archive)[_M1]
+    assert fact.opponent is None
+    # The date still comes through: the two absences are independent.
+    assert fact.played_on == date(2026, 9, 20)
+
+
+def test_no_opponent_is_named_when_a_player_is_on_both_sides(
+    tmp_path: Path,
+) -> None:
+    """No candidate either, and for the opposite reason. Same answer.
+
+    A player listed in both squads -- a transfer the index has not caught up
+    with -- makes both sides ours. There is then nothing to name, and naming
+    the side that happens to come second would be a coin toss.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(
+        archive, [_entry(_M1, theirs=[*_THEIR_PLAYERS, _OUR_PLAYERS[0]])]
+    )
+    assert _facts(archive)[_M1].opponent is None
+
+
+def test_an_entry_that_names_no_opponent_still_places_the_match(
+    tmp_path: Path,
+) -> None:
+    """A malformed ``teams`` costs the name and nothing else.
+
+    The match is still in the index, so the report says the opponent is not
+    known and not that the match is outside the index -- two different things
+    to tell a reader who is deciding whether to go looking.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(
+        archive,
+        [{"match_id": _M1, "finished_at": "2026-09-20T18:39:44+00:00"}],
+    )
+    fact = _facts(archive)[_M1]
+    assert fact.opponent is None
+    assert fact.played_on == date(2026, 9, 20)
+
+
+def test_a_match_with_no_finish_time_is_still_named(tmp_path: Path) -> None:
+    """The order leaves it out; the facts keep it.
+
+    This is the state in which the file's two readings disagree, and the
+    reason they are two fields: 35 of the archive's 66 indexed matches carry
+    no ``finished_at`` and every one of them names two teams. Dropping the
+    name along with the date would throw away the half the index does hold.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(archive, [_entry(_M1, finished_at=None)])
+    reading = aggregate_stage.read_match_index(archive, {_M1: frozenset(_OUR_PLAYERS)})
+    assert reading.order == ()
+    assert reading.facts[_M1].played_on is None
+    assert reading.facts[_M1].opponent == _THEIRS
+
+
+def test_the_date_is_the_day_the_match_finished(tmp_path: Path) -> None:
+    """A day and not a moment, and read rather than sliced off the string.
+
+    An unparseable value costs the date and nothing else: the row then says
+    the day is missing, which is true, where a slice of the first ten
+    characters would print whatever they happened to be.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM, f"{_M2}-0": TEAM})
+    _write_index(
+        archive,
+        [
+            _entry(_M1, finished_at="2026-08-30T18:25:59+00:00"),
+            _entry(_M2, finished_at="eilen illalla"),
+        ],
+    )
+    facts = _facts(archive)
+    assert facts[_M1].played_on == date(2026, 8, 30)
+    assert facts[_M2].played_on is None
+    assert facts[_M2].opponent == _THEIRS
+
+
+def test_without_an_index_there_are_no_facts_and_that_is_not_an_error(
+    tmp_path: Path,
+) -> None:
+    """The state two of the three archive teams are in.
+
+    An empty mapping is the honest answer and it is what makes every row say
+    the match is not in the index -- which is a claim about the archive and
+    true of it.
+    """
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    assert not archive.matches_index().exists()
+    reading = aggregate_stage.read_match_index(archive, {_M1: frozenset(_OUR_PLAYERS)})
+    assert reading.order == ()
+    assert reading.facts == {}
+
+
+def test_the_written_report_carries_the_date_and_the_opponent(
+    tmp_path: Path,
+) -> None:
+    """End to end: the values reach ``report.json`` and not only the reader.
+
+    Two demos of the same map from two different matches, so the list is
+    ordered and both rows have to be right -- one demo would pass with a
+    lookup that ignored the match key entirely.
+    """
+    archive = build_archive(
+        tmp_path,
+        {f"{_M1}-0": TEAM, f"{_M2}-0": TEAM},
+        map_names={f"{_M1}-0": "de_nuke", f"{_M2}-0": "de_nuke"},
+    )
+    newer = _entry(_M2, finished_at="2026-09-20T18:39:44+00:00")
+    # A second name, so that the binding of opponent to match is checked by
+    # the name and not only by the date beside it: with one name shared by
+    # both rows, a lookup that returned the wrong match's opponent would be
+    # invisible here.
+    newer["teams"][1]["name"] = _THEIRS_LATER
+    _write_index(
+        archive,
+        [_entry(_M1, finished_at="2026-09-13T18:04:44+00:00"), newer],
+    )
+    run(archive)
+    data = json.loads(archive.report_json(TEAM).read_text(encoding="utf-8"))
+    rows = data["maps"][0]["played_maps"]
+    assert [row["map_demo_id"] for row in rows] == [f"{_M2}-0", f"{_M1}-0"]
+    assert [row["played_on"] for row in rows] == ["2026-09-20", "2026-09-13"]
+    assert [row["opponent"] for row in rows] == [_THEIRS_LATER, _THEIRS]
+    assert [row["indexed"] for row in rows] == [True, True]
+
+
+def test_a_demo_the_index_does_not_hold_is_written_as_unindexed(
+    tmp_path: Path,
+) -> None:
+    """The common case, end to end: a hand-imported demo beside a league one."""
+    archive = build_archive(
+        tmp_path,
+        {f"{_M1}-0": TEAM, "Nuke_vs_hand": TEAM},
+        map_names={f"{_M1}-0": "de_nuke", "Nuke_vs_hand": "de_nuke"},
+    )
+    _write_index(archive, [_entry(_M1)])
+    run(archive)
+    data = json.loads(archive.report_json(TEAM).read_text(encoding="utf-8"))
+    rows = {row["map_demo_id"]: row for row in data["maps"][0]["played_maps"]}
+    assert rows["Nuke_vs_hand"] == {
+        "map_demo_id": "Nuke_vs_hand",
+        "indexed": False,
+        "played_on": None,
+        "opponent": None,
+    }
+    assert rows[f"{_M1}-0"]["opponent"] == _THEIRS
+
+
+def test_a_finish_day_moving_re_runs_the_aggregate(tmp_path: Path) -> None:
+    """The half Story 4.9's digest could not see.
+
+    The two matches keep their order relative to each other, so ``placed`` is
+    unchanged and so was the whole digest before Story 4.10 widened it. The
+    printed date moves by a week. Without the facts in the digest the second
+    run **skips** and the report goes on stating the old day.
+    """
+    archive = build_archive(
+        tmp_path,
+        {f"{_M1}-0": TEAM, f"{_M2}-0": TEAM},
+        map_names={f"{_M1}-0": "de_nuke", f"{_M2}-0": "de_nuke"},
+    )
+    _write_index(
+        archive,
+        [
+            _entry(_M1, finished_at="2026-09-13T18:04:44+00:00"),
+            _entry(_M2, finished_at="2026-09-20T18:39:44+00:00"),
+        ],
+    )
+    run(archive)
+    assert run(archive).skipped, "precondition: nothing else has changed"
+
+    _write_index(
+        archive,
+        [
+            _entry(_M1, finished_at="2026-09-06T18:04:44+00:00"),
+            _entry(_M2, finished_at="2026-09-20T18:39:44+00:00"),
+        ],
+    )
+    assert not run(archive).skipped
+    data = json.loads(archive.report_json(TEAM).read_text(encoding="utf-8"))
+    days = {row["played_on"] for row in data["maps"][0]["played_maps"]}
+    assert days == {"2026-09-20", "2026-09-06"}
+
+
+def test_an_opponent_renaming_itself_re_runs_the_aggregate(
+    tmp_path: Path,
+) -> None:
+    """The other half, and the one nothing about the order can reach.
+
+    A team that changes its name on FACEIT changes a **printed word** and not
+    a single number, so every other input is identical. Left out of the
+    digest, the report would go on naming a team that no longer exists under
+    that name, and only ``--force`` would recover it.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(archive, [_entry(_M1)])
+    run(archive)
+    assert run(archive).skipped, "precondition: nothing else has changed"
+
+    renamed = _entry(_M1)
+    renamed["teams"][1]["name"] = "Uusi nimi"
+    _write_index(archive, [renamed])
+    assert not run(archive).skipped
+    data = json.loads(archive.report_json(TEAM).read_text(encoding="utf-8"))
+    assert data["maps"][0]["played_maps"][0]["opponent"] == "Uusi nimi"
+
+
+def test_a_stranger_renaming_itself_does_not_re_run_the_aggregate(
+    tmp_path: Path,
+) -> None:
+    """The digest stayed narrow when it was widened.
+
+    ``discover`` rewrites the whole competition's matches on every run, so a
+    digest that covered every row's name would re-aggregate every team after
+    every ``discover`` and cascade into ``render`` -- exactly what Story 4.9
+    kept the global rank out of the digest to avoid.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    other = _entry("1-63d01f95-4728-45d3-8f5a-d95ae1f58a79")
+    _write_index(archive, [_entry(_M1), other])
+    run(archive)
+
+    other["teams"][1]["name"] = "Jonkun muun uusi nimi"
+    _write_index(archive, [_entry(_M1), other])
+    assert run(archive).skipped
+
+
+def test_the_match_index_is_read_once_per_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The digest and the report come out of the **same** reading.
+
+    ``run`` states this as its own guarantee, and it did not hold: Story 4.9
+    made the reading in ``run`` and then made it again inside ``_aggregate``,
+    whose argument ``run`` never passed. A ``discover`` landing between the
+    two would write a manifest describing a report that was never built --
+    and the next run would skip, so the mismatch would persist.
+
+    Counting the reads is the only way to see it: both readings are of the
+    same file and give the same answer whenever nothing changes in between,
+    which is every test but this one.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(archive, [_entry(_M1)])
+    reads = 0
+    original = aggregate_stage.read_match_index
+
+    def counted(*args, **kwargs):
+        nonlocal reads
+        reads += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(aggregate_stage, "read_match_index", counted)
+    run(archive)
+    assert reads == 1, reads
+
+
+# --- Who and when: the cases the rule's docstring enumerates (Story 4.10) ------
+#
+# One test per case, which is the rule this review round produced: when a
+# docstring enumerates cases, every case gets a test. ``_opponent_name``'s
+# list was three rows long and two of them shipped unguarded.
+
+
+def test_a_row_naming_one_side_names_no_opponent(tmp_path: Path) -> None:
+    """The arity case, and the code's own text already promised it.
+
+    The shipped rule said the opponent is the side sharing no player with us,
+    and its docstring listed "the row names one team" among the states that
+    answer ``None`` -- while the code returned that one team's name. Measured
+    before the fix: a single entry disjoint from us came back as the
+    opponent.
+
+    Reachable in kind and not in this archive:
+    :func:`~pappascout.adapters.faceit._to_match` builds ``teams`` from the
+    payload's faction mapping keeping only the mappings, so a bye, a forfeit
+    or an un-drawn opponent yields one entry. Measured 2026-09-24: all 66
+    rows of the developer's index carry exactly two, so it is latent.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(
+        archive,
+        [
+            {
+                "match_id": _M1,
+                "finished_at": "2026-09-20T18:39:44+00:00",
+                "teams": [{"name": _THEIRS, "roster": _THEIR_PLAYERS}],
+            }
+        ],
+    )
+    fact = _facts(archive)[_M1]
+    assert fact.opponent is None
+    # The date is unaffected: only the side lookup failed.
+    assert fact.played_on == date(2026, 9, 20)
+
+
+def test_a_row_naming_three_sides_names_no_opponent(tmp_path: Path) -> None:
+    """The other arity case. One side disjoint is not one side identified.
+
+    With three entries and one of them a stranger, the shipped rule named
+    that stranger: it counted candidates for "not us" and never checked that
+    what was left was one side, and ours.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(
+        archive,
+        [
+            {
+                "match_id": _M1,
+                "finished_at": "2026-09-20T18:39:44+00:00",
+                "teams": [
+                    {"name": _OURS, "roster": _OUR_PLAYERS[:2]},
+                    {"name": _THEIRS, "roster": _THEIR_PLAYERS},
+                    {"name": "Kolmas", "roster": _OUR_PLAYERS[2:]},
+                ],
+            }
+        ],
+    )
+    assert _facts(archive)[_M1].opponent is None
+
+
+def test_a_lineup_of_strangers_does_not_make_us_our_own_opponent(
+    tmp_path: Path,
+) -> None:
+    """The case that must not ship, and the one the shipped rule got wrong.
+
+    The subject fields five players none of whom is in its own registered
+    squad, and one of them is registered with the opponent. The side that
+    shares no player with us is then **ours**, and the shipped rule printed
+    our own name as the opponent -- the worst wrong answer available, because
+    it reads exactly like a right one.
+
+    Closed by the clause that the subject's side must hold **every** player
+    observed in the match: here neither side does, so neither can be the
+    subject and nobody is named.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(
+        archive,
+        [
+            _entry(
+                _M1,
+                # Our own registered squad holds nobody we actually played.
+                ours=["registered-1", "registered-2"],
+                # ...and one of the players we did play is registered there.
+                theirs=[*_THEIR_PLAYERS, _OUR_PLAYERS[0]],
+            )
+        ],
+    )
+    assert _facts(archive)[_M1].opponent is None
+
+
+def test_a_player_the_index_lists_nowhere_costs_only_that_match() -> None:
+    """What the rule costs, and that the cost is confined to one match.
+
+    "The subject's side holds **every** player observed in the match" means
+    a match in which the subject fielded somebody the index lists nowhere has
+    no opponent. That is the safe direction -- the alternative printed a name
+    -- and it is per match because the comparison set is per match
+    (:func:`~pappascout.stages.aggregate._match_rosters`).
+
+    **This is the test that separates the two comparison sets.** With the
+    team's whole-sample roster, which the first version used, one
+    unregistered player would silence the opponent on *every* match of the
+    report, including the ones he did not play: the union carries him into
+    each comparison. Here the two matches are given their own players, and
+    only the second loses its name.
+
+    Built on the reading function rather than on an archive, because what is
+    under test is the rule and not the plumbing: two lineups joined into one
+    team need a fixture forty lines long and would add nothing to the claim.
+    """
+    first = frozenset(_OUR_PLAYERS)
+    second = frozenset({*_OUR_PLAYERS[:4], "never-registered"})
+    reading = aggregate_stage.MatchIndexReading(
+        order=(_M2, _M1),
+        facts=aggregate_stage._facts_of(
+            [
+                _entry(_M1, finished_at="2026-09-13T18:04:44+00:00"),
+                _entry(_M2, finished_at="2026-09-20T18:39:44+00:00"),
+            ],
+            {_M1: first, _M2: second},
+        ),
+    )
+    assert reading.facts[_M1].opponent == _THEIRS
+    assert reading.facts[_M2].opponent is None
+    # Both are still in the index and both still carry their day.
+    assert reading.facts[_M2].played_on == date(2026, 9, 20)
+    assert first != second, (
+        "precondition: the two matches must have different players, or this "
+        "test cannot tell a per-match set from the team's union"
+    )
+
+
+def test_the_comparison_set_is_the_players_of_that_matchs_demos() -> None:
+    """:func:`_match_rosters` keys on the match and unions only its lineups.
+
+    Asserted on the mapping itself and not through a name, because this is
+    the value the rule above rests on: were it to become the team's whole
+    roster again, every other test in this block would still pass on an
+    archive whose squads happen to be stable -- which the developer's is.
+
+    The two maps of one ``best_of`` share a key, and a substitution inside it
+    unions the two lineups and nothing wider.
+    """
+    sources = TeamSources(
+        team_key=TEAM,
+        lineup_keys=["one", "two"],
+        demos=[("one", f"{_M1}-0"), ("two", f"{_M1}-1"), ("one", f"{_M2}-0")],
+        roster=["a", "b", "c", "d"],
+        missing=[],
+        lineup_players={
+            "one": frozenset({"a", "b", "c"}),
+            "two": frozenset({"a", "b", "d"}),
+        },
+    )
+    rosters = aggregate_stage._match_rosters(sources)
+
+    assert set(rosters) == {_M1, _M2}
+    # The best_of's two maps came from two lineups: their union, and only it.
+    assert rosters[_M1] == frozenset({"a", "b", "c", "d"})
+    # The other match saw one lineup, so it is narrower than the team's union.
+    assert rosters[_M2] == frozenset({"a", "b", "c"})
+    assert rosters[_M2] < frozenset(sources.roster)
+
+
+def test_a_match_with_no_demo_of_ours_gets_no_opponent(tmp_path: Path) -> None:
+    """Nothing was observed in it, so no side can be recognised.
+
+    Such a match is still **in** the facts -- the index holds it and
+    ``indexed`` says so -- and no reader asks for its name: the report looks
+    up only its own demos' matches. The value is asserted rather than left
+    unstated, because the alternative would be a name resolved against some
+    other match's players.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    stranger = "1-63d01f95-4728-45d3-8f5a-d95ae1f58a79"
+    _write_index(archive, [_entry(_M1), _entry(stranger)])
+    facts = _facts(archive)
+    assert facts[_M1].opponent == _THEIRS
+    assert stranger in facts
+    assert facts[stranger].opponent is None
+    assert facts[stranger].played_on == date(2026, 9, 20)
+
+
+def test_an_offset_is_converted_and_not_sliced(tmp_path: Path) -> None:
+    """The UTC date, which two docstrings claimed before the code did it.
+
+    ``2026-09-21T01:30:00+03:00`` is 22:30 UTC on the **20th**, and taking
+    ``.date()`` off the parsed value gave the 21st. ``discover`` writes every
+    value ``+00:00`` today -- measured 2026-09-24, all 31 dated rows -- so
+    nothing in the archive showed it, and the format permits the offset.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(
+        archive, [_entry(_M1, finished_at="2026-09-21T01:30:00+03:00")]
+    )
+    assert _facts(archive)[_M1].played_on == date(2026, 9, 20)
+
+
+def test_a_timestamp_without_a_zone_yields_no_date(tmp_path: Path) -> None:
+    """Its day depends on a zone nobody wrote down.
+
+    This story's answer to an unknown is to say it is unknown, so the row
+    states that the date is missing rather than picking the likely reading.
+    It costs nothing today -- no naive value is in the index -- and the order
+    is unaffected, because that sorts the raw strings.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    _write_index(archive, [_entry(_M1, finished_at="2026-09-20T18:39:44")])
+    fact = _facts(archive)[_M1]
+    assert fact.played_on is None
+    # Still indexed and still named: only the day is unknown.
+    assert fact.opponent == _THEIRS
+
+
+def test_a_name_that_is_not_a_string_is_printed_as_it_stands(
+    tmp_path: Path,
+) -> None:
+    """The index is free text and the report quotes it.
+
+    A test rather than only a sentence in the prose, because the alternative
+    -- refusing a name that is not a string -- would silently drop a real
+    opponent over a type, and a reader should see which of the two was
+    chosen.
+    """
+    archive = build_archive(tmp_path, {f"{_M1}-0": TEAM})
+    numeric = _entry(_M1)
+    numeric["teams"][1]["name"] = 123
+    _write_index(archive, [numeric])
+    assert _facts(archive)[_M1].opponent == "123"

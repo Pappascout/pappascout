@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -54,6 +54,7 @@ from pappascout.domain.report import (
     KillArea,
     MapReport,
     MissingDemo,
+    PlayedMap,
     PlayersCount,
     Position,
     Report,
@@ -93,6 +94,13 @@ from pappascout.render.view import (
     ROUND_TYPE_ORDER,
     TRACEABILITY_HEADING,
     MATCH_SAMPLE_UNIT,
+    MAP_POOL_LABEL,
+    MATCH_DATE_MISSING,
+    MATCH_NOT_INDEXED,
+    OPPONENT_MISSING,
+    OPPONENT_PREFIX,
+    PLAYED_MAPS_ORDERED,
+    PLAYED_MAPS_UNORDERED,
     RECENCY_NEWEST_ABSENT,
     RECENCY_NEWEST_INCLUDED,
     UNKNOWN_AREA,
@@ -104,6 +112,7 @@ from pappascout.render.view import (
     record_text,
     matches_text,
     rounds_text,
+    times_text,
 )
 
 # Private, but imported on purpose: the traceability chapter's explanation
@@ -506,18 +515,39 @@ def side(
     )
 
 
+def hand_imported(*ids: str) -> list[PlayedMap]:
+    """A map's demo list as a **hand-imported** archive gives it.
+
+    The default for every fixture that says nothing about dates or
+    opponents, and it is this archive's common case rather than a null
+    object: measured 2026-09-24, two of the three teams in the developer's
+    archive are entirely hand-imported demos and no row of theirs is in the
+    match index. A fixture that wants the league case is claiming something,
+    so it builds its rows itself and passes them as ``played``.
+    """
+    return [
+        PlayedMap(map_demo_id=demo, indexed=False, played_on=None, opponent=None)
+        for demo in ids
+    ]
+
+
 def map_report(
     name: str,
     sides: list[SideReport],
     *,
     demo_ids: list[str] | None = None,
+    played: list[PlayedMap] | None = None,
     source: str = "map_demo_id",
 ) -> MapReport:
-    ids = demo_ids or [DEMO_ID]
+    ids = (
+        [entry.map_demo_id for entry in played]
+        if played
+        else (demo_ids or [DEMO_ID])
+    )
     return MapReport(
         map_name=name,
         map_name_source=source,
-        map_demo_ids=ids,
+        played_maps=played if played else hand_imported(*ids),
         sample=sample(
             sum(s.sample.rounds for s in sides),
             demos=len(ids),
@@ -2528,7 +2558,7 @@ def test_no_identifier_appears_in_the_body_outside_the_three_exceptions() -> Non
     could not see a leak from precisely the place where ids still are -- and
     its rule was therefore invisible.
 
-    Three exceptions, and which rule releases which:
+    Four exceptions, and which rule releases which:
 
     1. ``Kierrosliite`` -- the id is **in a path**, and a path is a code
        span. The exception is therefore narrower than the chapter: outside
@@ -2539,11 +2569,22 @@ def test_no_identifier_appears_in_the_body_outside_the_three_exceptions() -> Non
     3. An unrecognised map's **heading** -- then ``map_name`` *is* the
        ``map_demo_id``, that is, the id is the map's only name. Only the
        heading is released; the chapter's content has to be clean.
+    4. A map chapter's demo list (Story 4.10) -- the id says which demo the
+       row is about, and on a hand-imported demo, which has neither a date
+       nor an opponent, it is the row's only distinguishing mark. Released
+       **as narrowly as the round appendix**: only inside a code span, so a
+       bare id anywhere in a map chapter still fails.
+
+    The name is kept even though the exception grew, because it is the name
+    the reading guide's own sentence is checked against in
+    :func:`test_the_legend_names_all_three_exceptions`, and renaming a test
+    is not what makes the count true.
     """
     entry = crowded_report()
     text = render(entry)
     view = view_of(entry, round_list_paths=ROUND_LISTS)
     unnamed_headings = {m.heading for m in view.maps if m.name_unknown}
+    map_headings = {m.heading for m in view.maps}
     literals = literal_identifiers(entry)
 
     def assert_clean(what: str, where: str) -> None:
@@ -2561,8 +2602,9 @@ def test_no_identifier_appears_in_the_body_outside_the_three_exceptions() -> Non
             checked_headings += 1
         if heading in ("Puuttuvat demot", TRACEABILITY_HEADING):
             continue  # exception 2, and the chapter that is for ids
-        if heading == "Kierrosliite":
-            content = CODE_SPAN.sub("", content)  # exception 1 is narrow
+        if heading in map_headings or heading == "Kierrosliite":
+            # Exceptions 1 and 4, both narrow: a code span and nothing else.
+            content = CODE_SPAN.sub("", content)
         assert_clean(content, f"chapter {heading!r}")
 
     # The fixture covers exception 3 -- without this the loop could have
@@ -2595,7 +2637,7 @@ def test_every_identifier_the_body_dropped_is_in_the_chapter() -> None:
 
 
 def test_the_exceptions_are_not_vacuous() -> None:
-    """The three exceptions are real, not written just in case.
+    """The four exceptions are real, not written just in case.
 
     Without this the cleanliness test could pass because the released
     chapters hold no id at all -- and the reading guide's sentence about the
@@ -2615,20 +2657,40 @@ def test_the_exceptions_are_not_vacuous() -> None:
     headings = [heading for heading, _ in report_sections(text)]
     assert FACEIT_DEMO_ID in " ".join(headings)
 
+    # Exception 4: the demo list carries the id of every demo of every map,
+    # and it carries it in a code span. Both halves are asserted -- the first
+    # is what releases the chapter, the second is what keeps the release
+    # narrow.
+    for map_report in entry.maps:
+        chapter = next(
+            content
+            for heading, content in report_sections(text)
+            if map_report.map_name in heading
+        )
+        for demo_id in map_report.map_demo_ids:
+            assert f"`{demo_id}`" in chapter, (map_report.map_name, demo_id)
+
 
 def test_the_legend_names_all_three_exceptions() -> None:
     """The report must not claim more about itself than is true.
 
     The reading guide is the place where the report states its own rules. If
-    it says "the body speaks in names only", three chapters above it make the
+    it says "the body speaks in names only", four chapters above it make the
     sentence a lie.
+
+    The count is asserted as the Finnish word the sentence uses, because that
+    is the half a new exception leaves behind: Story 4.10 added the map
+    chapter's demo list, and the list of named exceptions below would have
+    gone on passing while the sentence still said "three".
     """
     legend = section_text(render(crowded_report()), "Lukuohje")
 
     assert TRACEABILITY_HEADING in legend
+    assert "Neljä poikkeusta" in legend
     assert "kierrosliitteen polut" in legend
     assert "puuttuvan demon rivi" in legend
     assert "nimeä ei tunnistettu" in legend
+    assert "karttojen listan rivit" in legend
     assert "vain nimillä" not in legend
 
 
@@ -3252,6 +3314,7 @@ GOLDEN = """\
 - **Joukkue:** MatureMayhem
 - **Rosteri:** 5 pelaajaa (havaittu demoista): pelaaja1, pelaaja2, pelaaja3, pelaaja4, pelaaja5
 - **Otanta:** 4 pelattua karttaa, 8 kierrosta (demoa/kierrosta: liiga 0 / 0, muut 0 / 0, tuntematon 4 / 8)
+- **Karttavalikoima:** `de_nuke` 2 kertaa; `de_dust2` 2 kertaa
 - **Liigatieto:** yhdenkään demon lajia ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otannassa ole yhtään varmistettua liigaottelua
 - **Rosteriluokka:** yhdenkään demon rosteriluokkaa ei ole vahvistettu: kaikki ovat lokerossa tuntematon, eikä otanta erottele 5/5- ja 4/5-karttoja
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta
@@ -3267,6 +3330,10 @@ GOLDEN = """\
 
 ## `de_nuke` -- 4 kierrosta, 2 demoa 2 ottelussa
 
+- **Kartat:**
+  - ei otteluindeksissä (`Ancient_vs_kaljukostaja`)
+  - ei otteluindeksissä (`ANCIENT_vs_RCAVE_VETERANS`)
+
 ### T-puoli -- 4 kierrosta 2 ottelussa
 
 **Eco** (4 kierrosta 2 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
@@ -3280,6 +3347,10 @@ GOLDEN = """\
 - *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; jokainen havainto ylitti kynnyksen.*
 
 ## `de_dust2` -- 4 kierrosta, 2 demoa 2 ottelussa
+
+- **Kartat:**
+  - ei otteluindeksissä (`Dust2_vs_a`)
+  - ei otteluindeksissä (`Dust2_vs_b`)
 
 ### T-puoli -- 4 kierrosta 2 ottelussa
 
@@ -3301,6 +3372,8 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 - Kierrosten rinnalla luetaan ottelut (n/m ottelussa): kolme kierrosta kolmesta ottelusta on tapa, kolme kierrosta yhdestä ottelusta tapahtui kerran, ja pelkkä kierrosmäärä kirjoittaa ne samalla tavalla. Otsikot kertovat ottelumäärän aina. Väitekohtainen ottelumäärä on näytepisteiden riveillä ja ensikontaktin läsnäolorivillä; muilla riveillä lukee vain kierrokset, ja niiden nimittäjä on otsikon ottelumäärä. Ottelumäärä jätetään riviltä pois silloin, kun se on sama murtoluku kuin kierrosmäärä -- esimerkiksi pistoolilohkossa, jossa jokainen ottelu antaa yhden kierroksen -- ja kokonaan silloin, kun lohkossa on vain yksi ottelu. Tuoreusmerkintä kirjoitetaan siltikin, jos kartalla on useampi ottelu.
 - Merkintä "uusin mukana" tai "ei uusimmassa" kertoo, onko **kartan uusin ottelu** niiden joukossa, joissa havainto tehtiin. Se vastaa kysymykseen "päteekö tämä yhä" -- osuus ei vastaa: sama 3/4 syntyy kolmesta vanhimmasta ottelusta ja kolmesta uusimmasta. **Uusin on kartan uusin eikä lohkon oma uusin**, ja se on merkinnän koko arvo: jos lohkossa ei ole yhtään kierrosta kartan uusimmasta ottelusta, koko lohko lukee "ei uusimmassa" -- eli tämä lohko on vanhaa tietoa. Kokonaan merkitty rivi voi syntyä myös siitä, että uusimman ottelun havainnot jäivät rivin kynnyksen alle tai näytepisteestä puuttuu kierroksia; rivin oma huomautus kertoo puuttuvat kierrokset ja lohkon huomautus kertoo karsitut havainnot. Ottelut eivät ole painotettuja millään luvulla: raportti kertoo havainnot siinä järjestyksessä kuin ne tapahtuivat, jotta jokainen luku on tarkistettavissa demoilta. Merkintä puuttuu kahdessa tapauksessa: kun kartalla on vain yksi ottelu, jolloin jokainen havainto on siinä ja kartan otsikko sanoo sen jo, ja kun otteluiden järjestystä ei tiedetä -- esimerkiksi käsin tuodulle demolle, jota ei ole otteluindeksissä.
 - **Ottelumäärät eivät laske yhteen tasojen välillä, kierrosmäärät laskevat.** Sama ottelu voi pelata kaksi karttaa ja pelaa aina molemmat puolet, joten se on mukana useamman otsikon ottelumäärässä: karttojen ottelumäärät yhteen laskettuna saa suuremman luvun kuin otteluita on. Kierrokset sen sijaan jakautuvat kartoille, puolille ja kierrostyypeille kukin täsmälleen kerran, joten ne laskevat yhteen. Yhteenvedon rivi kertoo pelattujen karttojen määrän juuri tästä syystä: se on luku, jonka voi laskea yhteen.
+- Jokaisen kartan alussa on karttojen lista: yksi rivi per pelattu kartta, ja rivillä pelipäivä, vastustaja ja demon tunniste. Listan otsikko on "Kartat uusin ensin" silloin, kun jokaisen rivin pelipäivä tiedetään, ja pelkkä "Kartat" silloin, kun yhdenkin rivin päivä puuttuu -- järjestystä ei silloin voi luvata. Päivä ja vastustaja tulevat arkiston otteluindeksistä, jonka discover-vaihe kirjoittaa, eikä raportti arvaa kumpaakaan mistään muualta. Raportti kertoo vastustajan nimen eikä arvioi sitä: vahvuus, sijoitus ja vastaavat ovat lukijan tulkintaa. Lukuja ei myöskään ryhmitellä vastustajan mukaan -- se veisi kierroksia niiltä lohkoilta, joilla niitä on, niille joilla ei ole. Yhteenvedon "Karttavalikoima" laskee samat kartat: kuinka monta kertaa kukin kartta on pelattu, yhteensä yhtä monta kuin otannan pelatut kartat.
+- "ei otteluindeksissä" kartan rivillä tarkoittaa, ettei demon ottelua löydy arkiston otteluindeksistä -- tavallisimmin siksi, että demo on tuotu käsin eikä sen takana ole liigaottelua. Silloin rivillä ei ole päivää eikä vastustajaa, eikä raportti lue niitä tiedostonimestä: tiedostonimi ei ole havainto, ja siitä luettu nimi olisi väite, jota ei voi tarkistaa. Rivin tunniste kertoo, mistä demosta on kyse.
 - Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui.
 - Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 5 havaintoa näytepistettä kohden; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
 - **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta.
@@ -3310,12 +3383,12 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 - Aseistettu = panssari JA parannettu ase ostoajan lopussa; panssaroitu = panssari, aseesta riippumatta. Luvut ovat **sisäkkäisiä**: aseistetut ovat panssaroitujen osajoukko, molemmat on luettu samalta tickiltä samasta pelaajajoukosta, ja jakaja on sama. Rivien ero on siis se havainto -- pistoolikierroksella aseistettuja on tyypillisesti 0 (800 $ ei riitä sekä kevlariin että parannettuun aseeseen), joten panssaririvi on se, joka kertoo kevlarien määrän.
 - Molemmat luvut ovat **hallussapitoa eivätkä ostoja**: panssari ja ase säilyvät kierroksen yli hengissä selvinneellä, eikä vaurioitunutta panssaria eroteta ehjästä. Poikkeus on pistoolikierros -- puoliaika alkaa puhtaalta pöydältä, joten siellä luvut kertovat mitä ostettiin.
 - Tapot alueittain: alue on **ampujan** oma alue tappohetkellä, ja otanta (n/m taposta) laskee tappoja eikä kierroksia -- kierrostyypillä on yleensä enemmän tappoja kuin kierroksia.
-- Runko puhuu nimillä: joukkueen ja kokoonpanojen tiivisteet, pelaajien SteamID64 ja karttojen demotunnisteet ovat raportin viimeisessä luvussa Tekninen jäljitettävyys. Kolme poikkeusta, joissa tunniste on rungossa siksi että se on siellä ainoa käyttökelpoinen muoto: kierrosliitteen polut, puuttuvan demon rivi (tunniste on osa komentoa, jonka voi kopioida) ja kartta, jonka nimeä ei tunnistettu (tunniste on kartan ainoa nimi).
+- Runko puhuu nimillä: joukkueen ja kokoonpanojen tiivisteet, pelaajien SteamID64 ja karttojen demotunnisteet ovat raportin viimeisessä luvussa Tekninen jäljitettävyys. Neljä poikkeusta, joissa tunniste on rungossa siksi että se on siellä ainoa käyttökelpoinen muoto: kierrosliitteen polut, puuttuvan demon rivi (tunniste on osa komentoa, jonka voi kopioida), kartta, jonka nimeä ei tunnistettu (tunniste on kartan ainoa nimi), ja karttojen listan rivit (tunniste kertoo, minkä demon rivistä on kyse, ja käsin tuodulla demolla se on rivin ainoa tuntomerkki).
 - Raportti kuvaa vain havainnot. Tulkinta ja vastastrategia ovat lukijan.
 
 ## Tekninen jäljitettävyys
 
-Tunnisteet, jotka eivät ole rungossa: joukkueen ja kokoonpanojen tiivisteet, pelaajien SteamID64 ja karttojen demotunnisteet. Mitään ei ole poistettu -- ne ovat täällä, koska ne palvelevat vain jäljittämistä. Kynnykset, työkaluversiot ja aikaleima jäivät yhteenvetoon, koska ne kertovat miten luku laskettiin, eikä väitettä voi arvioida ilman niitä; tunniste ei muuta yhtäkään raportin lukua. Rungossa tunniste on vain siellä, missä se on ainoa käyttökelpoinen muoto: kierrosliitteen polussa, puuttuvan demon komennossa ja kartassa, jonka nimeä ei tunnistettu.
+Tunnisteet, jotka eivät ole rungossa: joukkueen ja kokoonpanojen tiivisteet, pelaajien SteamID64 ja karttojen demotunnisteet. Mitään ei ole poistettu -- ne ovat täällä, koska ne palvelevat vain jäljittämistä. Kynnykset, työkaluversiot ja aikaleima jäivät yhteenvetoon, koska ne kertovat miten luku laskettiin, eikä väitettä voi arvioida ilman niitä; tunniste ei muuta yhtäkään raportin lukua. Rungossa tunniste on vain siellä, missä se on ainoa käyttökelpoinen muoto: kierrosliitteen polussa, puuttuvan demon komennossa, kartassa, jonka nimeä ei tunnistettu, ja karttaluvun karttalistan riveillä, joilla se kertoo minkä demon rivistä on kyse.
 
 - **Joukkueen tunniste:** `aaaaaaaaaaaaaaaa` -- sama arvo kuin joukkueen ainoa kokoonpanotunniste
 - **1. pelaaja1:** `1`
@@ -5098,6 +5171,9 @@ def threshold_note(text: str, heading: str = "Default") -> str:
 #: with the 2026-09-11 change.
 GOLDEN_PRUNING_OFF_CHAPTER = """\
 ## `de_mirage` -- 15 kierrosta, 1 demo 1 ottelussa
+
+- **Kartat:**
+  - ei otteluindeksissä (`Mirage_vs_karsinta`)
 
 ### T-puoli -- 13 kierrosta 1 ottelussa
 
@@ -7075,3 +7151,548 @@ def test_the_presence_line_prints_its_own_match_numerator() -> None:
         "ensikontakti, vain läsnäolo: Banana "
         f"(3/3 kierroksesta, 2/2 ottelussa, {RECENCY_NEWEST_INCLUDED})" in text
     )
+
+
+# --- Who and when: the map's demo list and the map pool (Story 4.10) ------------
+
+
+#: The opponent the fixtures below name. **Invented and not the archive's**:
+#: the repository is public and the denylist that guards it is machine-local
+#: (AD-12). Nothing in the rendering depends on what the string is.
+OPPONENT_NAME = "Vastarannan kiiski"
+
+
+def league_demo(
+    demo_id: str,
+    *,
+    day: date | None = date(2026, 9, 20),
+    opponent: str | None = OPPONENT_NAME,
+) -> PlayedMap:
+    """One demo whose match the index holds."""
+    return PlayedMap(
+        map_demo_id=demo_id, indexed=True, played_on=day, opponent=opponent
+    )
+
+
+def listed(played: list[PlayedMap]) -> tuple[str, tuple[str, ...]]:
+    """The label and the rows a one-map report prints for that demo list."""
+    n = len(played)
+    view = view_of(
+        report(
+            [
+                map_report(
+                    "de_nuke",
+                    [
+                        side(
+                            "T",
+                            [round_type("pistol", n, demos=n, matches=n)],
+                            demos=n,
+                            matches=n,
+                        )
+                    ],
+                    played=played,
+                )
+            ]
+        )
+    )
+    return view.maps[0].played_maps_label, view.maps[0].played_maps
+
+
+def test_a_league_demo_states_the_day_the_opponent_and_the_file() -> None:
+    """The ordinary row, whole. Three parts in one order on every row."""
+    _, rows = listed([league_demo("a-0")])
+    assert rows == (f"2026-09-20, vastustaja {OPPONENT_NAME} (`a-0`)",)
+
+
+def test_a_demo_outside_the_index_says_so_once_for_both_absences() -> None:
+    """One phrase, because there is one reason.
+
+    A hand-imported demo has no date and no opponent, and it has neither for
+    the same single reason. Two "not known" marks on one row would read as
+    two independent gaps.
+    """
+    _, rows = listed(hand_imported("Nuke_vs_hand"))
+    assert rows == (f"{MATCH_NOT_INDEXED} (`Nuke_vs_hand`)",)
+
+
+def test_an_indexed_demo_names_each_absence_on_its_own() -> None:
+    """Here the two really are independent, so the row says both.
+
+    The index holds 35 of 66 matches with no finish time, and every one of
+    them names its teams: a row that folded the two together would tell the
+    reader the match is not in the index, which is false and sends them
+    looking in the wrong place.
+    """
+    _, undated = listed([league_demo("a-0", day=None)])
+    assert undated == (
+        f"{MATCH_DATE_MISSING}, vastustaja {OPPONENT_NAME} (`a-0`)",
+    )
+
+    _, unnamed = listed([league_demo("a-0", opponent=None)])
+    assert unnamed == (f"2026-09-20, {OPPONENT_MISSING} (`a-0`)",)
+
+
+def test_an_opponents_name_is_escaped_and_the_id_is_a_code_span() -> None:
+    """Two strings from two sources, protected in two different ways.
+
+    The name is free text the match index gave, so it is escaped: a team
+    whose name holds an asterisk would otherwise set the rest of the chapter
+    in italics. The id has to survive copying byte for byte, so it is a code
+    span -- the same split the round appendix and the traceability chapter
+    make.
+    """
+    _, rows = listed([league_demo("a_0", opponent="*Aim* [beta]")])
+    assert rows == (
+        "2026-09-20, vastustaja \\*Aim\\* \\[beta\\] (`a_0`)",
+    )
+
+
+def test_the_label_promises_the_order_only_when_it_is_known() -> None:
+    """The one sentence a reader could check against the rows below it.
+
+    With every date known the list really is newest first. With one row
+    dateless it is not, and a heading that said so would be false about that
+    row -- so the claim is dropped rather than qualified.
+    """
+    label, _ = listed([league_demo("a-0"), league_demo("b-0", day=date(2026, 8, 30))])
+    assert label == PLAYED_MAPS_ORDERED
+
+    mixed, _ = listed([league_demo("a-0"), *hand_imported("Nuke_vs_hand")])
+    assert mixed == PLAYED_MAPS_UNORDERED
+
+
+def test_the_summary_states_the_map_pool() -> None:
+    """Which maps the team plays and how many times each.
+
+    The order is the report's own -- most played first -- so the row reads as
+    a table of contents for the chapters below it.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_nuke",
+                [
+                    side(
+                        "T",
+                        [round_type("pistol", 4, demos=2, matches=2)],
+                        demos=2,
+                        matches=2,
+                    )
+                ],
+                played=[league_demo(f"n-{i}") for i in range(2)],
+            ),
+            map_report(
+                "de_dust2",
+                [side("T", [round_type("pistol", 2)])],
+                played=[league_demo("d-0")],
+            ),
+        ],
+        matches=3,
+    )
+    row = next(
+        item for item in view_of(entry).summary if item.label == MAP_POOL_LABEL
+    )
+    assert row.value == (
+        f"`de_nuke` {times_text(2)}; `de_dust2` {times_text(1)}"
+    )
+
+
+def test_the_map_pool_counts_demos_and_not_matches() -> None:
+    """The printed number is the played maps, on a map where the two differ.
+
+    **The test this replaces checked neither half of its name.** Its first
+    assertion, ``sum(m.sample.demos) == sample.demos``, is a ``Report``
+    invariant the fixture must satisfy to be constructible -- it cannot fail
+    from any change to ``view.py``. Its second counted the words ``kertaa``
+    and ``kerran``, which counts **maps** and never reads the number beside
+    them. Measured: swapping ``entry.sample.demos`` for ``entry.sample.matches``
+    was green across 354 tests, and no archive fixture can see it -- every
+    map of all three teams has ``demos == matches``.
+
+    So the fixture here is a map of **two demos from one match**, which is
+    the I/O matrix's "possible in principle" row, and the assertion is the
+    printed string. The claim matters beyond the test: the reading guide
+    tells the Finnish reader that ``Karttavalikoima`` totals the sample's
+    played maps, and under that mutation the sentence becomes false on
+    exactly this map while the report states it anyway.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_nuke",
+                [
+                    side(
+                        "T",
+                        [round_type("pistol", 4, demos=2, matches=1)],
+                        demos=2,
+                        matches=1,
+                    )
+                ],
+                played=[league_demo(f"n-{i}") for i in range(2)],
+            ),
+            map_report(
+                "de_dust2",
+                [side("T", [round_type("pistol", 2)])],
+                played=[league_demo("d-0")],
+            ),
+        ],
+        matches=2,
+    )
+    nuke = next(m for m in entry.maps if m.map_name == "de_nuke")
+    assert (nuke.sample.demos, nuke.sample.matches) == (2, 1), (
+        "precondition: the map must have more demos than matches, or the "
+        "printed number cannot tell the two apart"
+    )
+    row = next(
+        item for item in view_of(entry).summary if item.label == MAP_POOL_LABEL
+    )
+    assert row.value == (
+        f"`de_nuke` {times_text(2)}; `de_dust2` {times_text(1)}"
+    )
+    # The guide's promise, on this report: the pool totals the played maps.
+    assert 2 + 1 == entry.sample.demos
+
+
+def test_the_map_pool_names_an_unrecognised_map_by_its_ordinal() -> None:
+    """The summary must not be where a demo id comes back.
+
+    When the name could not be read, ``map_name`` **is** the ``map_demo_id``
+    -- so a row built from the name alone would put an id in the chapter the
+    reader sees first, which Story 2.12 emptied of ids. The spelling is the
+    traceability chapter's, so the reader can connect the two rows.
+    """
+    entry = report(
+        [
+            map_report(
+                FACEIT_DEMO_ID,
+                [side("T", [round_type("pistol", 2)])],
+                demo_ids=[FACEIT_DEMO_ID],
+                source="unknown",
+            )
+        ]
+    )
+    row = next(
+        item for item in view_of(entry).summary if item.label == MAP_POOL_LABEL
+    )
+    assert FACEIT_DEMO_ID not in row.value
+    assert row.value.startswith(UNKNOWN_MAP_LABEL.format(index=1))
+
+
+def test_an_empty_report_states_no_map_pool() -> None:
+    """A bare label would say the team plays no maps.
+
+    What is true is that this archive holds none of them, and the ``Otanta``
+    row and the empty-data note already say that. The same shape as the
+    ``Liigatieto`` row, which is silent on an empty sample for the same
+    reason.
+    """
+    labels = [item.label for item in view_of(report([])).summary]
+    assert MAP_POOL_LABEL not in labels
+
+
+def test_the_guide_explains_the_unindexed_mark_only_when_it_appears() -> None:
+    """A flagged note, so it never explains a mark that is on no row.
+
+    On a report built entirely from league demos the sentence would describe
+    a phrase the reader cannot find -- the failure the pruning notes are
+    flagged to avoid. The sentence itself is what tells the reader the report
+    will **not** read an opponent out of a file name, so it has to be there
+    whenever the phrase is.
+    """
+    with_hand = report(
+        [
+            map_report(
+                "de_nuke",
+                [side("T", [round_type("pistol", 2)])],
+                played=[*hand_imported("Nuke_vs_hand")],
+            )
+        ]
+    )
+    all_league = report(
+        [
+            map_report(
+                "de_nuke",
+                [side("T", [round_type("pistol", 2)])],
+                played=[league_demo("a-0")],
+            )
+        ]
+    )
+    assert any(MATCH_NOT_INDEXED in note for note in view_of(with_hand).legend)
+    assert not any(
+        MATCH_NOT_INDEXED in note for note in view_of(all_league).legend
+    )
+
+
+def test_the_guide_always_explains_the_list_itself() -> None:
+    """Unconditional, because every map chapter carries the list.
+
+    The two things the rows cannot say for themselves are where the name
+    comes from and that the report passes no judgement on it -- and the
+    second is a boundary the story set rather than a formatting choice.
+    """
+    notes = view_of(
+        report(
+            [
+                map_report(
+                    "de_nuke",
+                    [side("T", [round_type("pistol", 2)])],
+                    played=[league_demo("a-0")],
+                )
+            ]
+        )
+    ).legend
+    note = next(note for note in notes if "karttojen lista" in note)
+    assert PLAYED_MAPS_ORDERED in note
+    assert PLAYED_MAPS_UNORDERED in note
+    assert "otteluindeksistä" in note
+    assert "eikä arvioi sitä" in note
+    # The story's sharpest **Never**, and until this line the only thing
+    # holding it was the golden document's prose. Measured 2026-09-23:
+    # a new axis takes rounds from the groups that have them and gives
+    # them to the groups that do not. The absence itself is guarded in
+    # ``test_layering`` by reading the source.
+    assert "ryhmitellä vastustajan mukaan" in note
+    assert MAP_POOL_LABEL in note
+
+
+# --- Who and when: the cases the review round found unguarded (Story 4.10) ----
+
+
+def test_an_indexed_but_undated_row_drops_the_orders_promise() -> None:
+    """The commonest cause of a missing date, and it reached no test.
+
+    :func:`test_the_label_promises_the_order_only_when_it_is_known` exercised
+    the unordered case with a **hand-imported** row only, so the whole label
+    rested on ``indexed`` and nothing showed it: mutating
+    ``every_demo_is_placed`` from ``played_on is not None`` to ``indexed``
+    left ``-m "not demo"`` at 3485 passed, 0 failed, and the archive cannot
+    see it either -- its one indexed team is all-dated and the other two are
+    all-unindexed.
+
+    The mutation prints :data:`PLAYED_MAPS_ORDERED` over a list whose last
+    row reads :data:`MATCH_DATE_MISSING`, which is the exact sentence the
+    two labels exist to keep true. Measured: 35 of the archive's 66 indexed
+    matches carry no finish time, so this row is the ordinary one.
+    """
+    label, rows = listed(
+        [league_demo("a-0"), league_demo("b-0", day=None)]
+    )
+    assert label == PLAYED_MAPS_UNORDERED
+    assert any(MATCH_DATE_MISSING in row for row in rows)
+    # And the row is still indexed, so the mutation's own condition holds.
+    assert not any(MATCH_NOT_INDEXED in row for row in rows)
+
+
+def test_the_guide_defines_the_marks_of_an_indexed_row() -> None:
+    """The highest finding of the round: a mark printed and never defined.
+
+    Both ``MATCH_DATE_MISSING`` and ``OPPONENT_MISSING`` were explained in
+    the note gated on "some demo is outside the index", so a report whose
+    every demo **is** indexed -- the scouted team's own -- could print either
+    with nothing in the reading guide saying what it meant.
+
+    The two flags are asserted apart, in both directions, because one flag
+    covering both marks is exactly the defect.
+    """
+    undated = report(
+        [
+            map_report(
+                "de_nuke",
+                [side("T", [round_type("pistol", 2)])],
+                played=[league_demo("a-0", day=None)],
+            )
+        ]
+    )
+    notes = view_of(undated).legend
+    assert any(MATCH_DATE_MISSING in note for note in notes)
+    assert any(OPPONENT_MISSING in note for note in notes)
+    # ...and the note about a demo OUTSIDE the index is not written,
+    # because no row is outside it. Asserted on that note's own sentence
+    # and not on the constant: the note above quotes the constant too, to
+    # tell the reader the two marks are different things.
+    assert not any("tiedostonimest" in note for note in notes)
+
+
+def test_the_two_kinds_of_absence_are_explained_apart() -> None:
+    """A report with a hand-imported demo explains that mark and not the others.
+
+    The inverse of the test above, so neither flag can quietly become the
+    other: an unindexed row says one thing, and the two marks an indexed row
+    can carry say another.
+    """
+    notes = view_of(
+        report(
+            [
+                map_report(
+                    "de_nuke",
+                    [side("T", [round_type("pistol", 2)])],
+                    played=[*hand_imported("Nuke_vs_hand")],
+                )
+            ]
+        )
+    ).legend
+    assert any(MATCH_NOT_INDEXED in note for note in notes)
+    assert not any(MATCH_DATE_MISSING in note for note in notes)
+
+
+def test_the_guide_says_the_opponent_lookup_can_fail_and_not_only_the_index() -> None:
+    """``OPPONENT_MISSING`` is not only "the index holds no name".
+
+    :func:`~pappascout.stages.aggregate._opponent_name` returns ``None``
+    whenever the row's two sides cannot be told apart by the players
+    observed, and the first version of this note told the reader the archive
+    did not hold a name -- while the index may name both teams perfectly
+    well. A guide sentence is a standing claim and not a measurement of
+    today's index.
+    """
+    note = next(
+        note
+        for note in view_of(
+            report(
+                [
+                    map_report(
+                        "de_nuke",
+                        [side("T", [round_type("pistol", 2)])],
+                        played=[league_demo("a-0", opponent=None)],
+                    )
+                ]
+            )
+        ).legend
+        if OPPONENT_MISSING in note
+    )
+    assert "ei voi erottaa" in note
+    assert "ei arvaa" in note or "arvaisi" in note
+
+
+def test_an_empty_report_explains_no_map_list_and_no_pool() -> None:
+    """The guide and the summary have to agree about what is on the page.
+
+    An empty report has no map chapter and no ``Karttavalikoima`` row -- the
+    summary omits the row deliberately, with a comment saying the two rows
+    have to agree -- and the guide's paragraph describes both. Three
+    reviewers reported this independently, which is what a paragraph marked
+    "unconditional" in a comment earns.
+    """
+    view = view_of(report([]))
+    assert MAP_POOL_LABEL not in [item.label for item in view.summary]
+    assert not any(PLAYED_MAPS_ORDERED in note for note in view.legend)
+    assert not any(MAP_POOL_LABEL in note for note in view.legend)
+    # The empty report still says why it is empty.
+    assert view.empty_note
+
+
+def test_the_map_pool_separates_with_a_semicolon() -> None:
+    """Because the unknown-map label carries a comma of its own.
+
+    ``kartta 2, nimeä ei tunnistettu`` comma-joined turned two maps into
+    three fragments in **Yhteenveto**, the first chapter. The label's two
+    other uses put it in a bold key on a row of its own, where its comma
+    never meets another; this row is the first place it sits in a list.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_nuke",
+                [side("T", [round_type("pistol", 4)])],
+                played=[league_demo("n-0")],
+            ),
+            map_report(
+                FACEIT_DEMO_ID,
+                [side("T", [round_type("pistol", 2)])],
+                demo_ids=[FACEIT_DEMO_ID],
+                source="unknown",
+            ),
+        ],
+        matches=2,
+    )
+    row = next(
+        item for item in view_of(entry).summary if item.label == MAP_POOL_LABEL
+    )
+    assert row.value == (
+        f"`de_nuke` {times_text(1)}; "
+        f"{UNKNOWN_MAP_LABEL.format(index=2)} {times_text(1)}"
+    )
+    # One separator between two maps, not two.
+    assert row.value.count(";") == 1
+
+
+def test_the_map_pool_follows_the_chapters_and_not_its_own_number() -> None:
+    """The row inherits ``build_report``'s order, which is in rounds.
+
+    Its docstring said "most played first and the name on a tie", which is
+    the sort's comment word for word and describes neither the key nor the
+    number printed. Measured on the real archive: a map of one demo and 28
+    rounds precedes one of one demo and 22, and four maps of one demo each
+    come out in round order rather than alphabetically.
+
+    Here the counts descend while the rounds ascend, so a row sorted by its
+    own number would be in the other order.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_dust2",
+                [side("T", [round_type("pistol", 10)])],
+                played=[league_demo("d-0")],
+            ),
+            map_report(
+                "de_nuke",
+                [
+                    side(
+                        "T",
+                        [round_type("pistol", 3, demos=3, matches=3)],
+                        demos=3,
+                        matches=3,
+                    )
+                ],
+                played=[league_demo(f"n-{i}") for i in range(3)],
+            ),
+        ],
+        matches=4,
+    )
+    assert [m.map_name for m in entry.maps] == ["de_dust2", "de_nuke"]
+    row = next(
+        item for item in view_of(entry).summary if item.label == MAP_POOL_LABEL
+    )
+    assert row.value == (
+        f"`de_dust2` {times_text(1)}; `de_nuke` {times_text(3)}"
+    )
+
+
+def test_the_traceability_row_lists_a_maps_demos_newest_first() -> None:
+    """``map_demo_ids`` projects the played-map order, and the chapter shows it.
+
+    The round appendix does **not** get that order -- it sorts and merges
+    across the whole report -- and the property's docstring now says so. This
+    pins the half that is true.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_nuke",
+                [
+                    side(
+                        "T",
+                        [round_type("pistol", 2, demos=2, matches=2)],
+                        demos=2,
+                        matches=2,
+                    )
+                ],
+                played=[
+                    league_demo("zeta-0"),
+                    league_demo("alpha-0", day=date(2026, 8, 30)),
+                ],
+            )
+        ],
+        matches=2,
+    )
+    assert entry.maps[0].map_demo_ids == ["zeta-0", "alpha-0"]
+    row = next(
+        item
+        for item in view_of(entry).traceability
+        if "de_nuke" in item.label
+    )
+    assert row.value == "`zeta-0`, `alpha-0`"
+    # The appendix's own order is alphabetical and merged, which is a
+    # different thing and is right for a list of files.
+    assert round_list_demo_ids(entry) == ["alpha-0", "zeta-0"]

@@ -8,11 +8,18 @@ tables, no archive and no demos.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import json
+from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import get_args
 
 import pytest
 from pydantic import ValidationError
+
+# Private, but imported on purpose: the version arithmetic below has to be
+# the **same** parse the gate in ``stages/render.py`` uses, or the two could
+# disagree about what "one version behind" means.
+from pappascout.stages.render import _version_numbers
 
 from pappascout.domain.report import (
     MAP_NAME_SOURCES,
@@ -34,6 +41,7 @@ from pappascout.domain.report import (
     KillArea,
     MapReport,
     MissingDemo,
+    PlayedMap,
     PlayersCount,
     Position,
     REPORT_SCHEMA_CHANGE,
@@ -53,6 +61,22 @@ from pappascout.domain.report import (
 )
 from pappascout.constants import ROSTER_BUCKETS, SITE_AREAS
 from pappascout.errors import AggregateError
+
+
+def hand_imported(*ids: str) -> list[PlayedMap]:
+    """A map's demo list as a **hand-imported** archive gives it.
+
+    The default for every fixture that is not about the date or the opponent,
+    and it is the archive's own common case rather than a null object:
+    measured 2026-09-24, two of the three teams in the developer's archive
+    are entirely hand-imported demos and no row of theirs is in the match
+    index. A fixture that wants a date or a name builds its rows itself,
+    because either is a claim.
+    """
+    return [
+        PlayedMap(map_demo_id=demo, indexed=False, played_on=None, opponent=None)
+        for demo in ids
+    ]
 
 
 def sample(
@@ -352,7 +376,7 @@ def _report_with_breakdowns(league: Sample, roster: RosterSample) -> Report:
             MapReport(
                 map_name="de_nuke",
                 map_name_source="map_demo_id",
-                map_demo_ids=["Nuke_vs_a"],
+                played_maps=hand_imported("Nuke_vs_a"),
                 sample=league,
                 sides=[
                     SideReport(
@@ -953,7 +977,7 @@ def full_report() -> Report:
             MapReport(
                 map_name="de_anubis",
                 map_name_source="map_demo_id",
-                map_demo_ids=["Anubis_vs_ryhmarama"],
+                played_maps=hand_imported("Anubis_vs_ryhmarama"),
                 sample=sample(unknown=1),
                 sides=[
                     SideReport(
@@ -1005,7 +1029,7 @@ def _report_with_anomalies(anomalies: list[Anomaly]) -> Report:
             MapReport(
                 map_name="de_ancient",
                 map_name_source="demo_header",
-                map_demo_ids=["demo"],
+                played_maps=hand_imported("demo"),
                 sample=sample(unknown=1),
                 sides=[
                     SideReport(
@@ -1132,7 +1156,7 @@ def test_a_map_must_be_the_sum_of_its_sides() -> None:
         MapReport(
             map_name="de_nuke",
             map_name_source="map_demo_id",
-            map_demo_ids=["Nuke_vs_a"],
+            played_maps=hand_imported("Nuke_vs_a"),
             sample=sample(unknown=9),
             sides=[side_with(3)],
         )
@@ -1143,7 +1167,7 @@ def test_a_map_must_list_exactly_its_own_demos() -> None:
         MapReport(
             map_name="de_nuke",
             map_name_source="map_demo_id",
-            map_demo_ids=["Nuke_vs_a", "Nuke_vs_b"],
+            played_maps=hand_imported("Nuke_vs_a", "Nuke_vs_b"),
             sample=sample(unknown=3),
             sides=[side_with(3)],
         )
@@ -1192,7 +1216,7 @@ def test_a_report_must_be_the_sum_of_its_maps() -> None:
                 MapReport(
                     map_name="de_nuke",
                     map_name_source="map_demo_id",
-                    map_demo_ids=["Nuke_vs_a"],
+                    played_maps=hand_imported("Nuke_vs_a"),
                     sample=sample(unknown=3),
                     sides=[side_with(3)],
                 )
@@ -1252,7 +1276,7 @@ def _map_with_bucketed_demo(
     return MapReport(
         map_name=map_name,
         map_name_source="map_demo_id",
-        map_demo_ids=[f"{map_name}_vs_a"],
+        played_maps=hand_imported(f"{map_name}_vs_a"),
         sample=map_sample,
         sides=sides,
     )
@@ -1377,7 +1401,7 @@ def test_unclassified_rounds_stay_outside_the_sample() -> None:
             MapReport(
                 map_name="de_nuke",
                 map_name_source="map_demo_id",
-                map_demo_ids=["Nuke_vs_a"],
+                played_maps=hand_imported("Nuke_vs_a"),
                 sample=sample(unknown=3),
                 sides=[side_with(3)],
             )
@@ -1572,10 +1596,10 @@ def test_the_two_player_distributions_use_different_field_names() -> None:
 
 
 #: The schema version under which a report **in the shape the test below
-#: builds** was last written. Story 4.8 required
-#: :attr:`RoundTypeReport.record` on every round type, so that shape is
-#: 10.0.0's and no longer validates; the constant is here rather than inline
-#: so that the assertion reads as the rule it is.
+#: builds** was last written. Story 4.10 required
+#: :attr:`MapReport.played_maps` on every map and dropped ``map_demo_ids``,
+#: so that shape is 12.0.0's and no longer validates; the constant is here
+#: rather than inline so that the assertion reads as the rule it is.
 #:
 #: **It moves with every version that breaks the old shape, and the shape the
 #: test builds moves with it.** Left at 9.0.0 while the constant said 11.0.0
@@ -1583,7 +1607,72 @@ def test_the_two_player_distributions_use_different_field_names() -> None:
 #: the two versions differ, but nothing would have checked that *10.0.0's*
 #: file is refused, which is the file the archive actually holds. A stale
 #: value here does not go red; it stops guarding in silence.
-LAST_SCHEMA_VERSION_THAT_WROTE_IT = "10.0.0"
+#:
+#: **It was left at 10.0.0 through 11.0.0 and 12.0.0**, which is that failure
+#: happening rather than being warned about: the fixture went on building
+#: 4.8's difference and the constant went on naming 4.8's version, so two
+#: schema rises passed this test without it looking at either of them.
+#:
+#: **It is now derived and no longer moved by hand.** Story 4.10's review
+#: measured that the third silence was one story away: the only assertion
+#: touching it was ``!=``, which any two different strings satisfy, so
+#: setting it back to ``"10.0.0"`` left all 179 tests in this file passing,
+#: and raising the schema to 14.0.0 without touching it left both schema
+#: tests passing. A guard that has gone silently wrong twice does not get
+#: moved by hand a third time; it gets bound. The major below is exactly one
+#: behind :data:`REPORT_SCHEMA_VERSION`'s by construction, and
+#: :data:`SCHEMA_CHANGES` is what forces the **fixture** to move with it --
+#: the two halves the review showed were independently unguarded.
+LAST_SCHEMA_VERSION_THAT_WROTE_IT = (
+    f"{_version_numbers(REPORT_SCHEMA_VERSION)[0] - 1}.0.0"
+)
+
+#: Per schema version, the field paths that version made **required**, read
+#: from ``tests/data/schema_changes.json``.
+#:
+#: **The machine-readable half is in the repository and the prose explains
+#: it** -- CLAUDE.md's rule, and the reason this is a data file rather than a
+#: literal here: the fixture below is *built* from it, so a version rise with
+#: no entry raises ``KeyError`` instead of quietly going on building some
+#: older version's difference.
+#:
+#: Only newly **required** paths belong in it. A field that kept its name and
+#: changed its meaning is the second half of
+#: :data:`~pappascout.domain.report.REPORT_SCHEMA_VERSION`'s condition and
+#: cannot be tested this way; a field a version **removed** is covered by
+#: :func:`test_an_old_report_that_lists_demo_ids_is_refused`, which is why
+#: 13.0.0's entry names ``played_maps`` and not ``map_demo_ids``.
+SCHEMA_CHANGES: dict[str, list[str]] = json.loads(
+    (Path(__file__).parent / "data" / "schema_changes.json").read_text(
+        encoding="utf-8"
+    )
+)["versions"]
+
+
+def _without_paths(document: dict, paths: list[str]) -> int:
+    """Delete each path from ``document`` in place; return how many went.
+
+    The path language is two shapes and no more, because the model needs no
+    others: ``a.b`` descends one object and ``a[].b`` descends every element
+    of a list. A wider language here would be a second schema to get wrong.
+    """
+    removed = 0
+    for path in paths:
+        nodes: list = [document]
+        segments = path.split(".")
+        for segment in segments[:-1]:
+            if segment.endswith("[]"):
+                nodes = [
+                    item
+                    for node in nodes
+                    for item in node.get(segment[:-2], [])
+                ]
+            else:
+                nodes = [node[segment] for node in nodes if segment in node]
+        last = segments[-1]
+        for node in nodes:
+            removed += node.pop(last, None) is not None
+    return removed
 
 
 def test_the_schema_version_says_the_structure_changed() -> None:
@@ -1624,45 +1713,63 @@ def test_the_schema_version_says_the_structure_changed() -> None:
     the condition itself -- a file in the previous schema's shape does not
     validate, therefore the constant cannot still be that schema's version.
 
-    **The old shape is built by removing what the newest version added**, so
-    the fixture stays the current model's own dump and cannot drift into a
+    Story 4.10 is the same pattern once more and adds a wrinkle: a map's
+    ``played_maps`` is required **and** the ``map_demo_ids`` it replaced is
+    refused by ``extra="forbid"``, so a 12.0.0 file fails twice over. Only the
+    first half is built here; the second is
+    :func:`test_an_old_report_that_lists_demo_ids_is_refused`, and keeping
+    them apart is what lets each say which difference it measured.
+
+    **The old shape is built by removing what the newest version made
+    required**, and *what that is* comes from :data:`SCHEMA_CHANGES` rather
+    than from a line in this function. That is the change Story 4.10's
+    verification review forced: with the field named here, a later version
+    could add its own and leave this fixture building 4.10's difference
+    forever, green and measuring nothing -- which is exactly what happened to
+    the constant through two rises. Now a rise with no entry in the data file
+    raises ``KeyError`` on the line below.
+
+    The fixture stays the current model's own dump, so it cannot drift into a
     hand-written report nobody ever wrote. It is the previous version's shape
     and not the oldest one still around: the gate compares against exactly one
-    version, so refusing 10.0.0's file is what makes every older file refused
-    too, and 10.0.0's is the one the archive holds today.
+    version, so refusing the previous version's file is what makes every older
+    file refused too.
     """
-    # A report in the 10.0.0 shape: everything as it is written today, except
-    # that a round type carries no ``record``. That is precisely the
-    # difference Story 4.8 made, and the archive's own report.json files die
-    # on it. The stack row keeps its ``areas``: those are 10.0.0's, not
-    # 11.0.0's, and removing them too would make the assertion pass on the
-    # wrong difference.
+    # Everything as it is written today, minus the paths the current version
+    # made required. Nothing else is touched: the round type keeps its
+    # ``record`` and the stack row its ``areas``, because those are older
+    # versions' differences and removing them would make the assertion below
+    # pass on the wrong one.
+    required_now = SCHEMA_CHANGES[REPORT_SCHEMA_VERSION]
     current = _report_with_anomalies([_stack()])
     old_shaped = current.model_dump(mode="json")
-    removed = 0
-    for map_entry in old_shaped["maps"]:
-        for side_entry in map_entry["sides"]:
-            for round_type in side_entry["round_types"]:
-                removed += round_type.pop("record", None) is not None
+    removed = _without_paths(old_shaped, required_now)
     assert removed, (
-        "The fixture holds no round type with a record, so removing the "
-        "record changes nothing and the assertion below would pass over an "
-        "unchanged file. Give _report_with_anomalies a round type again."
+        f"Removing {required_now} changed nothing in the fixture, so the "
+        "assertion below would pass over an unchanged file. Either the "
+        "fixture no longer reaches those paths or the data file names paths "
+        "the model does not have."
     )
 
     try:
         Report.model_validate(old_shaped)
-    except ValidationError:
+    except ValidationError as error:
         validates = False
+        message = str(error)
     else:
         validates = True
+        message = ""
 
     assert not validates, (
-        "A report in the 10.0.0 shape validates against this model. Then "
-        "either the model no longer requires the round type's record, or "
-        "this test's idea of the old shape is stale -- and the version rule "
-        "cannot be checked from here until one of the two is put right."
+        f"A report in the {LAST_SCHEMA_VERSION_THAT_WROTE_IT} shape "
+        "validates against this model. Then either the model no longer "
+        "requires what the data file says this version added, or that entry "
+        "is stale -- and the version rule cannot be checked from here until "
+        "one of the two is put right."
     )
+    # The refusal names the field, which is what the user is shown. Without
+    # this the fixture could be failing for some unrelated reason.
+    assert all(path.split(".")[-1] in message for path in required_now), message
     assert REPORT_SCHEMA_VERSION != LAST_SCHEMA_VERSION_THAT_WROTE_IT, (
         "A file written under schema "
         f"{LAST_SCHEMA_VERSION_THAT_WROTE_IT} no longer validates, so "
@@ -1707,7 +1814,7 @@ def test_the_map_name_source_covers_all_three_sources() -> None:
         return MapReport(
             map_name="de_ancient",
             map_name_source=source,
-            map_demo_ids=["Ancient_vs_a"],
+            played_maps=hand_imported("Ancient_vs_a"),
             sample=sample(unknown=1),
             sides=[
                 SideReport(
@@ -2857,7 +2964,7 @@ def test_the_match_bounds_are_checked_at_the_map_level_too() -> None:
         MapReport(
             map_name="de_nuke",
             map_name_source="map_demo_id",
-            map_demo_ids=["a-0"],
+            played_maps=hand_imported("a-0"),
             sample=_matched_sample(3, 1),
             sides=[side],
         )
@@ -2883,7 +2990,7 @@ def _map_with_matches(
     return MapReport(
         map_name=map_name,
         map_name_source="map_demo_id",
-        map_demo_ids=demo_ids,
+        played_maps=hand_imported(*demo_ids),
         sample=map_sample,
         sides=[],
     )
@@ -3010,3 +3117,237 @@ def test_the_recency_mark_has_three_states_and_not_two() -> None:
     for mark in (True, False, None):
         bar = PlayersCount(players=1, n=2, matches=1, newest=mark)
         assert bar.newest is mark
+
+
+# --- Who and when: the map's own demo list (Story 4.10) -------------------------
+
+
+def _sideless_sample(demos: int) -> Sample:
+    """A map-level sample with no rounds, for the map's own list checks.
+
+    ``sample()`` above counts one demo per bucket that has rounds, so it
+    cannot state a demo count of its own; and a map with sides would have to
+    carry rounds that add up. The checks below are about the played-map list
+    and nothing else, so the map is sideless and the rounds are zero.
+    """
+    return Sample(
+        demos=demos,
+        rounds=0,
+        matches=demos,
+        league=SampleBucket(demos=0, rounds=0),
+        other=SampleBucket(demos=0, rounds=0),
+        unknown=SampleBucket(demos=demos, rounds=0),
+    )
+
+
+def test_a_demo_outside_the_index_cannot_carry_a_date_or_an_opponent() -> None:
+    """Both values come from the index, so a row outside it has neither.
+
+    The failure this refuses is the one the story exists to prevent: a file
+    name like ``Nuke_vs_imuaijat`` looks as though it held an opponent, and a
+    caller that read one out of it would produce exactly this row. The report
+    would then state a claim nothing can check.
+
+    Each value is refused on its own, because a guard that only fired when
+    both were present would pass the half-done version of the same mistake.
+    """
+    for kwargs in (
+        {"played_on": date(2026, 9, 20), "opponent": None},
+        {"played_on": None, "opponent": "Teekkarit"},
+        {"played_on": date(2026, 9, 20), "opponent": "Teekkarit"},
+    ):
+        with pytest.raises(AggregateError, match="match index"):
+            PlayedMap(map_demo_id="Nuke_vs_a", indexed=False, **kwargs)
+
+
+def test_an_indexed_demo_may_carry_neither_value() -> None:
+    """The state the guard above must not catch.
+
+    "The index holds this match and says neither when nor against whom" is a
+    real reading -- a match with no finish time whose entry is malformed --
+    and it is a different statement from "the match is not in the index".
+    """
+    entry = PlayedMap(
+        map_demo_id="Nuke_vs_a", indexed=True, played_on=None, opponent=None
+    )
+    assert entry.indexed
+    assert entry.played_on is None
+    assert entry.opponent is None
+
+
+def test_an_empty_opponent_name_is_no_name_at_all() -> None:
+    """A blank is not a team, and rendered it would read as one.
+
+    The same rule as :meth:`RosterEntry._empty_is_not_a_name` one level up,
+    and the report leans on it: the row prints the absence in words, and it
+    can only do that if the absence is ``None`` and not ``"   "``.
+    """
+    entry = PlayedMap(
+        map_demo_id="a-0", indexed=True, played_on=None, opponent="   "
+    )
+    assert entry.opponent is None
+
+
+def test_a_map_cannot_list_the_same_demo_twice() -> None:
+    """A repeat is a played map the reader is shown twice.
+
+    The demo count would still be right -- four rows, four demos -- so the
+    check beside it passes the file. What the reader sees is one evening
+    listed as two, and the map's sample looks wider than it is.
+    """
+    with pytest.raises(AggregateError, match="more than once"):
+        MapReport(
+            map_name="de_nuke",
+            map_name_source="map_demo_id",
+            played_maps=hand_imported("Nuke_vs_a", "Nuke_vs_a"),
+            sample=_sideless_sample(2),
+            sides=[],
+        )
+
+
+def test_the_demo_ids_are_derived_from_the_played_maps_and_not_stored() -> None:
+    """One list in the file, two readings of it.
+
+    ``map_demo_ids`` was a field until Story 4.10 and is now a property. Kept
+    as a field beside ``played_maps`` it would be the same ids written twice
+    into ``report.json`` with nothing holding them to each other -- the
+    two-copies drift this codebase refuses elsewhere. The order is the
+    played-map list's, so the traceability chapter and the map chapter cannot
+    print the demos in two different orders.
+    """
+    entry = MapReport(
+        map_name="de_nuke",
+        map_name_source="map_demo_id",
+        played_maps=hand_imported("Nuke_vs_b", "Nuke_vs_a"),
+        sample=_sideless_sample(2),
+        sides=[],
+    )
+    written = entry.model_dump(mode="json")
+    assert entry.map_demo_ids == ["Nuke_vs_b", "Nuke_vs_a"]
+    assert "map_demo_ids" not in written
+    assert [row["map_demo_id"] for row in written["played_maps"]] == [
+        "Nuke_vs_b",
+        "Nuke_vs_a",
+    ]
+
+
+def test_an_old_report_that_lists_demo_ids_is_refused() -> None:
+    """The 12.0.0 spelling does not quietly validate as the current one.
+
+    ``extra="forbid"`` is what does it, and the assertion is here rather than
+    left to the schema-version test because the two say different things: that
+    one asks whether the version rose, this one that the **field name** cannot
+    come back without the list coming with it.
+    """
+    with pytest.raises(ValidationError):
+        MapReport.model_validate(
+            {
+                "map_name": "de_nuke",
+                "map_name_source": "map_demo_id",
+                "map_demo_ids": ["Nuke_vs_a"],
+                "sample": _sideless_sample(1).model_dump(mode="json"),
+                "sides": [],
+            }
+        )
+
+
+def test_a_map_whose_list_is_short_is_refused_as_before() -> None:
+    """The count check survived the field's replacement.
+
+    It was ``sample.demos != len(map_demo_ids)`` and is now the same check
+    over ``played_maps``. Without this the replacement could have dropped it
+    in silence -- the model would still build, and a map would be free to
+    list two of its four demos.
+    """
+    with pytest.raises(AggregateError, match="claims a sample of"):
+        MapReport(
+            map_name="de_nuke",
+            map_name_source="map_demo_id",
+            played_maps=hand_imported("Nuke_vs_a"),
+            sample=_sideless_sample(2),
+            sides=[],
+        )
+
+
+def test_a_map_states_whether_its_order_is_known() -> None:
+    """All or nothing, because one unplaced demo unsettles the rest.
+
+    With a dateless row among them the list is not newest first, and the
+    heading the report writes over it must not say that it is. The rule is
+    :func:`~pappascout.domain.aggregate.newest_match`'s, and the reason is the
+    same: the newest of the placed ones may or may not be the newest of all.
+    """
+    dated = [
+        PlayedMap(
+            map_demo_id="a-0",
+            indexed=True,
+            played_on=date(2026, 9, 20),
+            opponent="Teekkarit",
+        ),
+        PlayedMap(
+            map_demo_id="b-0",
+            indexed=True,
+            played_on=date(2026, 8, 30),
+            opponent="Teekkarit",
+        ),
+    ]
+    both = MapReport(
+        map_name="de_nuke",
+        map_name_source="map_demo_id",
+        played_maps=dated,
+        sample=_sideless_sample(2),
+        sides=[],
+    )
+    assert both.every_demo_is_placed
+
+    mixed = MapReport(
+        map_name="de_nuke",
+        map_name_source="map_demo_id",
+        played_maps=[*dated, *hand_imported("Nuke_vs_hand")],
+        sample=_sideless_sample(3),
+        sides=[],
+    )
+    assert not mixed.every_demo_is_placed
+
+
+def test_every_recorded_schema_change_is_its_own() -> None:
+    """No version's entry repeats another's path, and none is empty.
+
+    **What this catches**: the realistic drift, which is the next story
+    copying the previous version's entry forward and leaving the fixture
+    building a difference that is not its own. A repeated path is that
+    mistake in its only visible form.
+
+    **What it does not catch, stated because the guard would otherwise read
+    as stronger than it is.** Nothing in this repository holds the *previous*
+    model, so nothing can check that an entry names the field **that version**
+    made required rather than some other required field. Measured
+    2026-09-25: changing 13.0.0's entry to ``maps[].sample`` -- an older
+    version's field, still required -- leaves
+    :func:`test_the_schema_version_says_the_structure_changed` green, because
+    removing any required field makes the document invalid.
+
+    Closing that would take a recorded previous-version document to validate
+    against, which is a fixture the repository does not have and a decision
+    bigger than this story. What the data file does buy is the half that was
+    measured broken: a version rise with **no** entry raises ``KeyError``
+    instead of leaving the fixture silently building the story-before-last's
+    difference.
+    """
+    entries = SCHEMA_CHANGES
+    assert entries, "the data file records no version at all"
+    seen: dict[str, str] = {}
+    for version, paths in entries.items():
+        assert paths, f"{version} records no path, so its fixture removes nothing"
+        for path in paths:
+            assert path not in seen, (
+                f"{version} names {path!r}, which {seen[path]} already claims. "
+                "A path belongs to the one version that made it required; a "
+                "repeat means an entry was copied forward instead of written."
+            )
+            seen[path] = version
+    assert REPORT_SCHEMA_VERSION in entries, (
+        f"The current schema {REPORT_SCHEMA_VERSION} has no entry in "
+        "tests/data/schema_changes.json, so the fixture has nothing to build "
+        "the previous version's shape from."
+    )

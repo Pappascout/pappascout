@@ -667,6 +667,34 @@ def find_teams(teams: Sequence[Team], query: str) -> TeamLookup:
 
 
 # -- The bridge to the archive -----------------------------------------------
+#
+# THREE TEAM-IDENTITY RULES EXIST IN THIS CODEBASE, AND THIS IS WHERE THEY ARE
+# NAMED TOGETHER (Story 4.10). AD-6's standing note in the architecture spine
+# says there are two and that they may disagree; it was short by one from
+# 2026-09-25, and the memlog entry of that date records the third.
+#
+# 1. ``assign_lineup_keys`` (below). Does this lineup belong to this team? At
+#    least ``thresholds.team_identity_min_common`` players in common with the
+#    team's **standing roster**. ``discover`` fills ``index/teams.json`` with
+#    it and ``stages.pipeline.subject_lineups`` chooses the subject with it.
+# 2. ``domain.aggregate.lineups_of_same_team``. The same question and the same
+#    threshold, against the **chosen target lineup** instead of the standing
+#    roster, and it does not chain. ``aggregate`` joins a team's lineups with
+#    it. The two can disagree -- measured 2026-09-10, and the case is in the
+#    spine under AD-6.
+# 3. ``stages.aggregate._opponent_name`` (Story 4.10). Which side of a
+#    match-index row is **not** the subject? It asks the opposite question --
+#    **all** of the subject's observed players on one side and **none** on the
+#    other -- against a third comparison set, the index's ``roster`` +
+#    ``substitutes``, and with **no threshold**.
+#
+# The third is not in this module because it unpacks a row of
+# ``index/matches.json``, whose field names are ``discover``'s business and
+# not ``domain``'s -- the same reason ``discover.teams_from_index`` lives in
+# that stage. Moving the decision here without the unpacking is a real option
+# and is recorded as one in the memlog; what is not an option is leaving the
+# three unconnected, because a reader who finds one of them has no way to
+# learn that the others exist.
 
 
 def assign_lineup_keys(

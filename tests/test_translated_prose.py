@@ -627,6 +627,19 @@ QUOTED_FINNISH: tuple[QuotedFinnish, ...] = (
         text="näyte puuttuu",
         why="The exact line the report prints. An example of real output stops being an example once it is translated.",
     ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="kartta 2, nimeä ei tunnistettu",
+        why=(
+            "The defect is the comma inside the label (Story 4.10): joined "
+            "with a comma, the map-pool row printed two maps as three "
+            "fragments in the report's first chapter. The argument cannot be "
+            "made in English, because the reader has to see the punctuation "
+            "the string itself carries -- the same ground as the "
+            "'at least 3' exemption above. It is what UNKNOWN_MAP_LABEL "
+            "formats, quoted as the report prints it."
+        ),
+    ),
 )
 
 

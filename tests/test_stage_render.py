@@ -403,15 +403,15 @@ def test_the_refusal_names_the_change_and_not_only_the_version(
 
     **Two assertions that were not worth what they looked like** are gone.
     ``REPORT_SCHEMA_VERSION in message`` is satisfied by the pre-existing
-    mismatch sentence ("this program knows version '12.0.0'") and says
-    nothing about the change sentence at all. And a bare ``"matches" in
-    message`` would be satisfied by a future sentence about *matching*
-    something else. So the word is required to come **from the constant**:
+    mismatch sentence ("this program knows version '13.0.0'") and says
+    nothing about the change sentence at all. And a bare ``"opponent" in
+    message`` would be satisfied by a future sentence about an opponent
+    somewhere else. So the word is required to come **from the constant**:
     remove the constant's text and the word must go with it.
 
-    The word moved with the version (Story 4.9): 11.0.0 named the record,
-    12.0.0 names the matches, and the assertion follows the sentence rather
-    than outliving it.
+    The word moves with the version: 11.0.0 named the record, 12.0.0 the
+    matches, 13.0.0 the opponent, and the assertion follows the sentence
+    rather than outliving it.
     """
     archive = build_archive(tmp_path)
     path = archive.report_json(TEAM_KEY)
@@ -423,8 +423,8 @@ def test_the_refusal_names_the_change_and_not_only_the_version(
         run(archive)
     message = str(excinfo.value)
     assert REPORT_SCHEMA_CHANGE in message
-    assert "matches" in message
-    assert "matches" not in message.replace(REPORT_SCHEMA_CHANGE, "")
+    assert "opponent" in message
+    assert "opponent" not in message.replace(REPORT_SCHEMA_CHANGE, "")
 
 
 def test_a_newer_report_is_not_described_as_an_older_one(
@@ -440,7 +440,10 @@ def test_a_newer_report_is_not_described_as_an_older_one(
 
     The number in the fixture is **one above the current version** and has to
     stay that way: at 12.0.0 the literal below stopped being newer than the
-    program and the test passed while measuring nothing (Story 4.9).
+    program and the test passed while measuring nothing (Story 4.9). The same
+    thing happened again at 13.0.0 (Story 4.10) and the literal moved with
+    it -- twice in two stories, so the number here is the one to check first
+    when the schema rises.
 
     **It is reachable on this project rather than theoretical.** The archive
     is a folder two machines share through a sync product while the code
@@ -452,7 +455,7 @@ def test_a_newer_report_is_not_described_as_an_older_one(
     archive = build_archive(tmp_path)
     path = archive.report_json(TEAM_KEY)
     data = json.loads(path.read_text(encoding="utf-8"))
-    data["schema_version"] = "13.0.0"
+    data["schema_version"] = "14.0.0"
     path.write_text(json.dumps(data), encoding="utf-8")
 
     with pytest.raises(PappascoutError) as excinfo:

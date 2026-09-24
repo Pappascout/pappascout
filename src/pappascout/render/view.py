@@ -59,16 +59,26 @@ it names its setting.
 Everything here is English -- identifiers, docstrings, comments -- except
 **the text this module lays into the report**, which stays Finnish
 permanently because Finnish team-mates read the report before a match. The
-boundary is not the ``*_FI`` naming convention and it is not the package:
-measured 2026-09-10, again 2026-09-23 and again 2026-09-24, this module holds
-**twenty** constants that carry no ``*_FI`` in their names and reach the
-report anyway (:data:`UNKNOWN_AREA`, :data:`ESTIMATE_MARK`,
+boundary is not the ``*_FI`` naming convention and it is not the package.
+This module is full of constants that carry no ``*_FI`` in their names and
+reach the report anyway -- :data:`UNKNOWN_AREA`, :data:`ESTIMATE_MARK`,
 :data:`TRACEABILITY_HEADING`, :data:`UNNAMED_PLAYER`, :data:`RECORD_VERB`,
-:data:`RECORD_UNKNOWN_OUTCOME`, :data:`MATCH_SAMPLE_UNIT`,
-:data:`RECENCY_NEWEST_INCLUDED`, :data:`RECENCY_NEWEST_ABSENT` and eleven
-others). **Trace a value to its consumer**; the name does not tell you. A
-constant added below inherits this paragraph, which is why it is here and not
-attached to whichever constant happened to be the last one to need saying so.
+:data:`MATCH_SAMPLE_UNIT`, :data:`RECENCY_NEWEST_INCLUDED`,
+:data:`MATCH_NOT_INDEXED`, :data:`MAP_POOL_LABEL`, and so on down the file.
+**Trace a value to its consumer**; the name does not tell you. A constant
+added below inherits this paragraph, which is why it is here and not attached
+to whichever constant happened to be the last one to need saying so.
+
+**This paragraph used to say how many there were, and the number was wrong in
+four stories running**: fifteen, then seventeen (Story 4.8), then twenty
+(Story 4.9) -- and Story 4.10 added seven while the word "twenty" stayed, in
+a sentence carrying that story's own date. The count is gone rather than
+corrected a fifth time, and the reason is the pattern and not the
+arithmetic: it is a property of the file below, it moves whenever anybody
+adds a line, and **nothing in the repository re-reads it**. What does re-read
+the tree is :mod:`tests.test_translated_prose`, on every run, and it is the
+only thing that does -- so the **rule** lives here, where a constant's author
+meets it, and the counting lives there, where it cannot go stale in silence.
 
 **Some of the round types are protected** (:data:`PROTECTED_ROUND_TYPES`),
 and every pruning paragraph of the reading guide says so out loud: the same
@@ -89,11 +99,11 @@ than silent growth.
 **The body speaks in names, and the ids have a chapter of their own.** The
 team's and the lineups' digests, the players' SteamID64s and the maps' demo
 ids are not in the body but in the chapter :data:`TRACEABILITY_HEADING`. The
-rule is here and not only inside the functions, because it concerns six of
+rule is here and not only inside the functions, because it concerns seven of
 them (:func:`_title`, :func:`_team_text`, :func:`_roster_text`,
-:func:`_summary`, :func:`_traceability`, :func:`_anomaly_map_label`) --
-written inside one of them it would not say that there are exactly three
-exceptions:
+:func:`_summary`, :func:`_traceability`, :func:`_anomaly_map_label`,
+:func:`_played_map_line`) -- written inside one of them it would not say that
+there are exactly four exceptions:
 
 1. **The round appendix's path.** A path is usable only as it is, and it is
    a reading aid rather than a traceability entry.
@@ -104,6 +114,15 @@ exceptions:
    ``map_demo_id`` (see :class:`~pappascout.domain.report.MapReport`), that
    is, the id is the map's only name -- the alternative would be a nameless
    map chapter.
+4. **A row of a map chapter's demo list** (Story 4.10). The id says which
+   demo the row is about, and on a hand-imported demo -- which has neither a
+   date nor an opponent -- it is the row's only distinguishing mark.
+
+This list grew from three to four in Story 4.10, and three other texts had to
+grow with it: the reading guide's sentence, :data:`_TRACEABILITY_NOTE`, and
+the test that holds the guide to the code. A number written in four places is
+exactly the shape the paragraph above this one was deleted for, and it
+survives here only because a **test** reads the guide's wording back.
 
 The exceptions are said out loud in the reading guide. Without that the
 report would claim more about itself than is true, and that is precisely the
@@ -150,6 +169,7 @@ from pappascout.domain.report import (
     ArmedPlayers,
     ArmoredPlayers,
     DeathReport,
+    PlayedMap,
     Position,
     Report,
     RoundRecord,
@@ -175,6 +195,13 @@ __all__ = [
     "ANOMALY_HEADING",
     "MAX_ANOMALY_LINES",
     "UNKNOWN_MAP_LABEL",
+    "PLAYED_MAPS_ORDERED",
+    "PLAYED_MAPS_UNORDERED",
+    "MATCH_NOT_INDEXED",
+    "MATCH_DATE_MISSING",
+    "OPPONENT_MISSING",
+    "OPPONENT_PREFIX",
+    "MAP_POOL_LABEL",
     "UNNAMED_PLAYER",
     "Claim",
     "Line",
@@ -191,6 +218,7 @@ __all__ = [
     "rounds_text",
     "record_text",
     "demos_text",
+    "times_text",
     "players_text",
 ]
 
@@ -510,6 +538,89 @@ MAX_ANOMALY_LINES = 20
 #: silence.
 UNKNOWN_MAP_LABEL = "kartta {index}, nimeä ei tunnistettu"
 
+#: The map chapter's demo list label when **every** demo's date is known.
+#:
+#: The label carries a claim, and that is why there are two of these. The list
+#: is ordered by the matches' own order, which the archive's match index
+#: gives; a demo the index does not place is appended, and then the list is
+#: not newest first at all. A label that said so anyway would be the one
+#: sentence in the chapter a reader could check against the rows and find
+#: false. The rule is :func:`~pappascout.domain.aggregate.newest_match`'s --
+#: all or nothing, because one unplaced demo makes the rest's order
+#: unknowable, not merely incomplete.
+#:
+#: **Awaiting the product owner's word** (Story 4.10), as
+#: :data:`MATCH_SAMPLE_UNIT` is: he asked for the maps, the dates and the
+#: opponents, and the wording around them is the implementation's.
+PLAYED_MAPS_ORDERED = "Kartat uusin ensin"
+
+#: The same label when at least one demo has no date. See
+#: :data:`PLAYED_MAPS_ORDERED`.
+PLAYED_MAPS_UNORDERED = "Kartat"
+
+#: A demo whose match is not in the archive's match index at all.
+#:
+#: **One phrase for two absences**, and that is the honest shape rather than
+#: brevity: such a demo has neither a date nor an opponent, and it has neither
+#: for the same single reason. Two separate "not known" marks on one row would
+#: read as two independent gaps.
+#:
+#: The reading guide says what it means and, more to the point, what the
+#: report **will not** do about it: a hand-imported demo's file name often
+#: contains something that looks like an opponent, and reading a name out of
+#: it would put a claim in the report that nothing can check.
+#:
+#: **Awaiting the product owner's word**, as :data:`PLAYED_MAPS_ORDERED` is.
+MATCH_NOT_INDEXED = "ei otteluindeksissä"
+
+#: A demo whose match is in the index but carries no finish time. Measured
+#: 2026-09-24: 35 of the archive's 66 indexed matches are like this.
+#:
+#: **Awaiting the product owner's word**, as :data:`PLAYED_MAPS_ORDERED` is.
+MATCH_DATE_MISSING = "päivämäärä ei tiedossa"
+
+#: A demo whose match is in the index but whose opponent cannot be named --
+#: a malformed entry, or one whose two sides cannot be told apart from the
+#: team's own observed roster (:func:`~pappascout.stages.aggregate
+#: ._opponent_name`).
+#:
+#: **Written out and never left blank.** A row that simply stopped after the
+#: date would read as a map played against nobody, which is the one thing the
+#: absence must not look like.
+#:
+#: **Awaiting the product owner's word**, as :data:`PLAYED_MAPS_ORDERED` is.
+OPPONENT_MISSING = "vastustaja ei tiedossa"
+
+#: How the opponent is introduced on the row: ``vastustaja Teekkarit``.
+#:
+#: A word and not a punctuation mark, because the name is free text from the
+#: index and stands beside a date: ``2026-09-20, Teekkarit`` reads as a second
+#: field of the same kind, and a team called after a date would be unreadable.
+#:
+#: **The example team is invented** (Story 4.10, AD-12): this illustrates a
+#: format, and any string would do it, so a real league team's name has no
+#: business here. The rule -- a real name is written where it identifies the
+#: evidence a claim rests on, and not where a string is merely needed -- is in
+#: the architecture memlog of 2026-09-25.
+#:
+#: **The report states the name and judges nothing** (Story 4.10, "Never"):
+#: no strength, no seeding, no "against a weak team". The reader is the
+#: analyst.
+#:
+#: **Awaiting the product owner's word**, as :data:`PLAYED_MAPS_ORDERED` is.
+OPPONENT_PREFIX = "vastustaja"
+
+#: The summary row that states the map pool: which maps the team plays and how
+#: many times each.
+#:
+#: The product owner asked for it in the same conversation as the opponent
+#: (2026-09-24): *"it also tells which maps the team plays, so that is
+#: genuinely useful information too"* -- translated here, as
+#: :data:`MATCH_SAMPLE_UNIT` translates his words rather than quoting them.
+#:
+#: **Awaiting the product owner's word**, as :data:`PLAYED_MAPS_ORDERED` is.
+MAP_POOL_LABEL = "Karttavalikoima"
+
 
 # -- The view model's parts ------------------------------------------------------
 
@@ -721,6 +832,22 @@ class MapView:
     heading: str
     name_unknown: bool
     sides: tuple[SideView, ...]
+    #: The label over the demo list, which states the order **only when the
+    #: order is known** (:data:`PLAYED_MAPS_ORDERED`).
+    played_maps_label: str = PLAYED_MAPS_ORDERED
+    #: The map's demos as the reader sees them, one already-formatted string
+    #: each: when it was played, against whom, and the id (Story 4.10).
+    #:
+    #: Formatted strings and not :class:`Line` objects, for
+    #: :attr:`AnomalyView.rounds`' reason: a row here carries no sample of its
+    #: own, so :class:`Claim`'s contract ("a claim cannot be built without a
+    #: sample") does not hold for it. The sample is the map's heading.
+    #:
+    #: The default is empty only because the field was added to an existing
+    #: class; :func:`build_view` fills it in always, because every map in the
+    #: report has at least one demo -- the model refuses a map whose demo
+    #: count and demo list disagree.
+    played_maps: tuple[str, ...] = ()
     note: str | None = None
 
 
@@ -794,6 +921,34 @@ class _Flags:
     armed_shown: bool = False
     armored_shown: bool = False
     kills_shown: bool = False
+    #: At least one map's demo list holds a demo the match index does not
+    #: hold (Story 4.10). The reading guide then says what that means and,
+    #: more to the point, that the report will not read an opponent out of a
+    #: file name. Flagged and not unconditional, for the pruning flags'
+    #: reason: on a report built entirely from FACEIT demos the sentence would
+    #: explain a mark that is on no row.
+    #:
+    #: Raised in :func:`build_view` and not through :meth:`absorb`, because it
+    #: is a property of the map chapter and not of a row that pruning can
+    #: remove.
+    unindexed_demo: bool = False
+    #: At least one demo **is** in the match index and is missing the date or
+    #: the opponent (:data:`MATCH_DATE_MISSING`, :data:`OPPONENT_MISSING`).
+    #:
+    #: **A second flag and not the one above, because the inverse is the one
+    #: that costs the reader** (found in Story 4.10's edge-case review, live
+    #: on the scouted team's own report). Both marks were explained in the
+    #: note gated on :attr:`unindexed_demo`, which is raised only when some
+    #: demo is **outside** the index -- so a report whose every demo is
+    #: indexed could print :data:`MATCH_DATE_MISSING` with nothing in the
+    #: guide defining it. That is not a corner: 35 of the archive's 66
+    #: indexed matches carry no ``finished_at``, and
+    #: :func:`~pappascout.stages.aggregate._opponent_name` returns ``None`` on
+    #: several states it handles deliberately.
+    #:
+    #: The flag above says "explain a mark only where it appears"; this one is
+    #: the same rule applied to the marks it did not cover.
+    unknown_in_index: bool = False
     dropped: int = 0
 
     # -- Pruning (Story 2.13). One flag per rule, because the reading guide
@@ -1121,6 +1276,21 @@ def played_maps_text(count: int) -> str:
     is: the number is his, the wording around it is the implementation's.
     """
     return "1 pelattu kartta" if count == 1 else f"{count} pelattua karttaa"
+
+
+def times_text(count: int) -> str:
+    """``1 kerran`` / ``4 kertaa``: once / four times.
+
+    The map pool's unit (Story 4.10). It counts the **same thing**
+    :func:`played_maps_text` counts -- one demo is one played map -- and says
+    it in the case the pool row needs: that row names a map first and the
+    number answers "how often", where the summary's own row names the number
+    first and answers "how many". ``de_nuke 4 pelattua karttaa`` would read as
+    four maps called ``de_nuke``.
+
+    **Awaiting the product owner's word**, as :data:`PLAYED_MAPS_ORDERED` is.
+    """
+    return "1 kerran" if count == 1 else f"{count} kertaa"
 
 
 def players_text(count: int) -> str:
@@ -2659,8 +2829,9 @@ def _anomaly_map_label(anomaly: Anomaly, index_of: Mapping[str, int]) -> str:
     went unnoticed while the rule was written under only one of the two
     function names.
 
-    The mechanism is **the same as in the two other places where the same
-    name is set** (:func:`_map_label`, the map chapter's heading), and it was
+    The mechanism is **the same as in the three other places where the same
+    name is set** (:func:`_map_label`, which the summary's map-pool row also
+    calls since Story 4.10, and the map chapter's heading), and it was
     not chosen again: a code span preserves exactly the same characters,
     whereas escaping would give this row a different spelling from the map
     chapter's -- and this row's whole job is to steer the reader to the right
@@ -2933,6 +3104,74 @@ def _sample_text(sample: Any) -> str:
     )
 
 
+def _map_pool_text(report: Report) -> str:
+    """The map pool: which maps were played and how many times each.
+
+    The product owner asked for this beside the opponent, 2026-09-24, and it
+    is scouting information in its own right -- which maps a team picks and
+    plays is a fact about the team, not bookkeeping about the sample.
+
+    **It computes nothing and brings in no new value** (AD-10), and that is
+    why the story adds no field for it: every number here is
+    ``maps[].sample.demos``, which the map's own heading already states, and a
+    field would be the same eight demos counted a second time in
+    ``report.json`` with nothing holding the two to each other. The precedent
+    is :func:`_traceability`, which collects the report's ids into a chapter
+    without the model growing a list of them.
+
+    **The order is the map chapters' own, and it is an order in rounds while
+    the number printed is demos.** ``build_report`` sorts the maps on
+    ``-sample.rounds`` with the name breaking a tie, so this row reads as a
+    table of contents for the chapters below it -- which is the property
+    worth having -- and it is **not** sorted by the count it shows. Measured
+    2026-09-25 on the real archive: one team's four maps all tie at one demo
+    and are printed nuke, anubis, ancient, inferno, which is the round order
+    and not the alphabet; another prints ``de_nuke`` before ``de_anubis``
+    on 28 rounds against 22, though both are one demo. A map of 2 demos over
+    10 rounds precedes one of 3 demos over 3, so the counts can descend,
+    ascend or neither.
+
+    The earlier wording here said "most played first and the name on a tie",
+    which is ``build_report``'s comment word for word and was harmless until
+    this story started **printing the demo count in that order**. Two
+    sentences now have to agree, and they do: ``aggregate``'s comment says
+    which key it sorts on, and this one says the row inherits that order
+    rather than imposing one.
+
+    The names are code spans for :func:`_map_label`'s reason: since Story 2.11
+    a map name is free text from the demo's header, and a workshop map called
+    ``*|Aim|* Botz [beta]`` would otherwise set the rest of the row in bold.
+
+    **An unrecognised map is named by its ordinal and not by its id**, which
+    is :data:`UNKNOWN_MAP_LABEL`'s whole purpose and was found here by the
+    test that guards it: when the name could not be read, ``map_name`` **is**
+    the ``map_demo_id``, so a row built from the name alone would put a demo
+    id in the summary -- the one chapter the reader sees first and the one
+    Story 2.12 emptied of ids.
+
+    **The label comes from :func:`_map_label` and is not spelled again here.**
+    The first draft of this row had a copy of that rule, which would have made
+    three copies of it with only two of them arguing for themselves -- and
+    :func:`_anomaly_map_label` says out loud that there are *two other
+    places*, a sentence a third copy falsifies without touching it.
+
+    **The separator is a semicolon and not a comma**, which is this row's own
+    problem and nothing else's: :data:`UNKNOWN_MAP_LABEL` **contains a
+    comma of its own**, and comma-joined it turned two maps into three
+    fragments in the report's first chapter. (The string is not quoted
+    here; the constant is two hundred lines up and the test that pins
+    this row quotes it, under a named exemption.) The label's two other
+    uses put it in a bold key on a row of its own, where its comma never
+    meets another; this is the first place it sits in a list. Changing the
+    label instead would have moved the punctuation into a string three
+    chapters share.
+    """
+    return "; ".join(
+        f"{_map_label(index, entry)} {times_text(entry.sample.demos)}"
+        for index, entry in enumerate(report.maps, start=1)
+    )
+
+
 def _roster_sample_text(sample: Any) -> str:
     """The roster breakdown as one line. All three buckets, empty ones too.
 
@@ -3142,6 +3381,15 @@ def _summary(
         )
 
     items.append(SummaryItem("Otanta", _sample_text(report.sample)))
+
+    # The pool immediately under the sample, because it is the same eight
+    # played maps broken down -- and above every note about what is missing
+    # from them. Omitted on an empty report rather than written as an empty
+    # list: a bare label would say the team plays no maps, where the truth is
+    # that this archive holds none of them. The ``Otanta`` row and the
+    # empty-data note already say that, and the two rows have to agree.
+    if report.maps:
+        items.append(SummaryItem(MAP_POOL_LABEL, _map_pool_text(report)))
 
     # Both breakdown notes are silent on an empty sample. "Yhdenkään demon
     # lajia ei ole vahvistettu" is a claim about demos, and with none in the
@@ -3440,7 +3688,15 @@ def _team_key_text(team: Any) -> str:
 
 
 def _map_label(index: int, map_report: Any) -> str:
-    """The map row's label in the traceability chapter.
+    """How a chapter names one map: its name, or its ordinal when unknown.
+
+    **Three callers since Story 4.10** -- the traceability chapter's map row,
+    the summary's map-pool row (:func:`_map_pool_text`) and, through
+    :data:`UNKNOWN_MAP_LABEL`, the anomaly row -- and one rule between them,
+    so that a reader can carry a map from one chapter to another by the
+    string. The paragraphs below argue the traceability row because that is
+    where the rule was first needed; every word of them holds for the other
+    callers.
 
     **The name as a code span and not as escaped text.** Since Story 2.11 the
     map's name is an observation from the demo's header, and it is not
@@ -3480,12 +3736,64 @@ _TRACEABILITY_NOTE = (
     "kertovat miten luku laskettiin, eikä väitettä voi arvioida ilman niitä; "
     "tunniste ei muuta yhtäkään raportin lukua. Rungossa tunniste on vain "
     "siellä, missä se on ainoa käyttökelpoinen muoto: kierrosliitteen "
-    "polussa, puuttuvan demon komennossa ja kartassa, jonka nimeä ei "
-    "tunnistettu."
+    "polussa, puuttuvan demon komennossa, kartassa, jonka nimeä ei "
+    "tunnistettu, ja karttaluvun karttalistan riveillä, joilla se kertoo "
+    "minkä demon rivistä on kyse."
 )
 
 
 # -- The public build function ---------------------------------------------------
+
+
+def _played_map_line(entry: PlayedMap) -> str:
+    """One row of a map's demo list: when, against whom, and which file.
+
+    **A row whose match is in the index has three parts in one order**, so
+    the column the eye lands on is the same one on each: **when**, **who**,
+    and the id in brackets. Neither of the first two is dropped when its
+    value is missing -- the absence is written out instead
+    (:data:`MATCH_DATE_MISSING`, :data:`OPPONENT_MISSING`) -- because a
+    dropped part would move the others and a reader scanning four rows for a
+    date would find a name in its place. The two are named separately
+    because they are independent: 35 of the archive's 66 indexed matches have
+    no finish time and every one of them can still be named.
+
+    **A row whose match is not in the index has two**, and that is the one
+    deliberate exception to the shape above. It has no date and no opponent
+    and it has neither for a single reason, so it says that reason once
+    (:data:`MATCH_NOT_INDEXED`) rather than printing two "not known" marks
+    side by side, which would read as two independent gaps. The cost is real
+    and is the smaller one: that row's id does sit further left than an
+    indexed row's. The first draft of this docstring asserted "three parts on
+    every row" and then described this exception two paragraphs later;
+    measured 2026-09-25, a map is in practice all one kind or the other --
+    each of the archive's three teams has either every demo in the index or
+    none of them.
+
+    **The id is on the row and not only in the traceability chapter**, which
+    is a deliberate exception to "the body speaks in names" (Story 2.12) and
+    the same one the missing-demo row and the unrecognised map take. Here it
+    is what the reader copies into ``uv run pappascout parse`` to go and watch
+    the map, and for a hand-imported demo it is the row's **only** identifier:
+    there is no date and no opponent to tell it from the map's other rows.
+
+    A code span, so the id survives copying byte for byte
+    (:func:`_identifier`), and the opponent's name is escaped as text: it is
+    free text from the match index, and a team whose name contains an
+    asterisk would otherwise set the rest of the chapter in italics.
+    """
+    if not entry.indexed:
+        parts = [MATCH_NOT_INDEXED]
+    else:
+        parts = [
+            entry.played_on.isoformat()
+            if entry.played_on is not None
+            else MATCH_DATE_MISSING,
+            f"{OPPONENT_PREFIX} {markdown_text(entry.opponent)}"
+            if entry.opponent is not None
+            else OPPONENT_MISSING,
+        ]
+    return f"{', '.join(parts)} ({_identifier(entry.map_demo_id)})"
 
 
 def build_view(
@@ -3585,12 +3893,33 @@ def build_view(
         )
         if name_unknown:
             heading += " (kartan nimeä ei tunnistettu tunnisteesta)"
+        # The demo list belongs to the map chapter and not to the summary:
+        # it is the map's own sample spelled out, and a reader who has
+        # stopped at ``de_nuke`` is exactly the reader asking how old these
+        # four observations are.
+        #
+        # Two flags and not one: a demo outside the index and a demo inside it
+        # with a value missing print different marks, and each mark is
+        # explained only where it appears. See ``_Flags.unknown_in_index``.
+        for entry in map_report.played_maps:
+            if not entry.indexed:
+                flags.unindexed_demo = True
+            elif entry.played_on is None or entry.opponent is None:
+                flags.unknown_in_index = True
         maps.append(
             MapView(
                 map_name=map_report.map_name,
                 heading=heading,
                 name_unknown=name_unknown,
                 sides=tuple(sides),
+                played_maps_label=(
+                    PLAYED_MAPS_ORDERED
+                    if map_report.every_demo_is_placed
+                    else PLAYED_MAPS_UNORDERED
+                ),
+                played_maps=tuple(
+                    _played_map_line(entry) for entry in map_report.played_maps
+                ),
                 note=None if sides else _NO_SIDES,
             )
         )
@@ -3786,6 +4115,58 @@ def _legend(
         "karttojen määrän juuri tästä syystä: se on luku, jonka voi laskea "
         "yhteen."
     )
+    # Conditional, and it was written "unconditional" in the first draft --
+    # wrongly, twice over. An empty report has no map chapter, so the list it
+    # describes is not there; and its last sentence names the
+    # ``Karttavalikoima`` row, which ``_summary`` deliberately omits on an
+    # empty report with a comment saying the two rows have to agree. The
+    # condition is therefore the same one the summary row uses.
+    if report.maps:
+        notes.append(
+            "Jokaisen kartan alussa on karttojen lista: yksi rivi per "
+            "pelattu kartta, ja rivillä pelipäivä, vastustaja ja demon "
+            f'tunniste. Listan otsikko on "{PLAYED_MAPS_ORDERED}" silloin, '
+            "kun jokaisen rivin pelipäivä tiedetään, ja pelkkä "
+            f'"{PLAYED_MAPS_UNORDERED}" silloin, kun yhdenkin rivin päivä '
+            "puuttuu -- järjestystä ei silloin voi luvata. Päivä ja "
+            "vastustaja tulevat arkiston otteluindeksistä, jonka "
+            "discover-vaihe kirjoittaa, eikä raportti arvaa kumpaakaan "
+            "mistään muualta. Raportti kertoo vastustajan nimen eikä arvioi "
+            "sitä: vahvuus, sijoitus ja vastaavat ovat lukijan tulkintaa. "
+            "Lukuja ei myöskään ryhmitellä vastustajan mukaan -- se veisi "
+            "kierroksia niiltä lohkoilta, joilla niitä on, niille joilla ei "
+            f'ole. Yhteenvedon "{MAP_POOL_LABEL}" laskee samat kartat: '
+            "kuinka monta kertaa kukin kartta on pelattu, yhteensä yhtä "
+            "monta kuin otannan pelatut kartat."
+        )
+    if flags.unindexed_demo:
+        notes.append(
+            f'"{MATCH_NOT_INDEXED}" kartan rivillä tarkoittaa, ettei demon '
+            "ottelua löydy arkiston otteluindeksistä -- tavallisimmin siksi, "
+            "että demo on tuotu käsin eikä sen takana ole liigaottelua. "
+            "Silloin rivillä ei ole päivää eikä vastustajaa, eikä raportti "
+            "lue niitä tiedostonimestä: tiedostonimi ei ole havainto, ja "
+            "siitä luettu nimi olisi väite, jota ei voi tarkistaa. Rivin "
+            "tunniste kertoo, mistä demosta on kyse."
+        )
+    # The two marks a row inside the index can carry, explained under a flag
+    # of their own. Folded into the note above they were invisible on exactly
+    # the report that prints them most: one whose every demo IS indexed.
+    if flags.unknown_in_index:
+        notes.append(
+            f'"{MATCH_DATE_MISSING}" ja "{OPPONENT_MISSING}" kartan rivillä '
+            "tarkoittavat, että ottelu **on** otteluindeksissä, mutta tietoa "
+            "ei saatu siitä. Päivä puuttuu, jos ottelulle ei ole kirjattu "
+            "päättymisaikaa. Vastustaja jää nimeämättä kahdesta eri syystä, "
+            "joita rivi ei erottele: joko indeksin rivi ei nimeä joukkueita, "
+            "tai nimet ovat siellä mutta rivin kahta puolta ei voi erottaa "
+            "toisistaan -- raportti tunnistaa scoutattavan joukkueen siitä, "
+            "kumman puolen kokoonpanosta sen havaitut pelaajat löytyvät, ja "
+            "jos tämä ei ratkea, raportti jättää nimen kertomatta sen sijaan "
+            "että arvaisi kumman tahansa. Kumpikaan ei tarkoita samaa kuin "
+            f'"{MATCH_NOT_INDEXED}", joka tarkoittaa ettei ottelua ole '
+            "indeksissä lainkaan."
+        )
     notes.append(
         "Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä "
         "hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui."
@@ -3813,11 +4194,13 @@ def _legend(
     notes.append(
         "Runko puhuu nimillä: joukkueen ja kokoonpanojen tiivisteet, "
         "pelaajien SteamID64 ja karttojen demotunnisteet ovat raportin "
-        f"viimeisessä luvussa {TRACEABILITY_HEADING}. Kolme poikkeusta, "
+        f"viimeisessä luvussa {TRACEABILITY_HEADING}. Neljä poikkeusta, "
         "joissa tunniste on rungossa siksi että se on siellä ainoa "
         "käyttökelpoinen muoto: kierrosliitteen polut, puuttuvan demon rivi "
-        "(tunniste on osa komentoa, jonka voi kopioida) ja kartta, jonka "
-        "nimeä ei tunnistettu (tunniste on kartan ainoa nimi)."
+        "(tunniste on osa komentoa, jonka voi kopioida), kartta, jonka "
+        "nimeä ei tunnistettu (tunniste on kartan ainoa nimi), ja karttojen "
+        "listan rivit (tunniste kertoo, minkä demon rivistä on kyse, ja "
+        "käsin tuodulla demolla se on rivin ainoa tuntomerkki)."
     )
     notes.append(
         "Raportti kuvaa vain havainnot. Tulkinta ja vastastrategia ovat lukijan."

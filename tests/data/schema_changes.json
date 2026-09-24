@@ -1,0 +1,10 @@
+{
+  "measured": "2026-09-25",
+  "note": "Per report schema version, the field paths that version made REQUIRED. tests/test_report_model.py builds the previous version's shape by deleting the current version's paths from a current dump, so a version rise with no entry here fails loudly instead of leaving the fixture building some older version's difference. A path segment ending in [] is a list whose every element is descended into. Only the newly REQUIRED paths belong here: a field that merely changed meaning is caught by the version rule and not by this fixture, and a field the new version REMOVED is covered separately by the extra='forbid' test.",
+  "limit": "Measured 2026-09-25: naming a DIFFERENT still-required path here (maps[].sample instead of maps[].played_maps) leaves the fixture's test green, because removing any required field makes the document invalid. Nothing in this repository holds the previous model, so nothing can check that an entry describes that version's own difference rather than some other required field. What IS enforced: an entry must exist for the current version, and no version may repeat another's path. See test_every_recorded_schema_change_is_its_own.",
+  "versions": {
+    "13.0.0": [
+      "maps[].played_maps"
+    ]
+  }
+}

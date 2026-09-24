@@ -74,6 +74,13 @@
 {% for map_view in view.maps %}
 ## {{ map_view.heading }}
 
+{% if map_view.played_maps %}
+- **{{ map_view.played_maps_label }}:**
+{% for played in map_view.played_maps %}
+  - {{ played }}
+{% endfor %}
+
+{% endif %}
 {% if map_view.note %}
 - *{{ map_view.note }}*
 
