@@ -23,6 +23,19 @@
   antaa. Rivit ovat ranskalaisia viivoja, eivät kappaleita: raportti luetaan
   ottelua edeltävässä kiireessä.
 
+  POIKKEUS: pistoolilohkon reittirivit (route.rows) ladotaan sellaisinaan,
+  koska ne ovat VALMIITA MARKDOWN-LISTARIVEJÄ -- oma merkki ja sisennys
+  mukana. Jakautuminen on listan sisäkkäisyyttä, ja sisäkkäisyys on
+  sisältöä: se erottaa "nämä tapahtuivat peräkkäin" siitä, että "nämä
+  tapahtuivat toistensa sijaan". Malli ei siis saa lisätä riveihin omaa
+  sisennystä eikä omaa merkkiä; rivit tulevat valmiina view._route_rowsista.
+
+  Rivit alkoivat aiemmin merkkijonolla "-> ", joka ei ole listamerkki:
+  CommonMark luki ne edellisen listarivin kappaleen jatkoksi ja HEITTI
+  SISENNYKSEN POIS, jolloin koko lohko valui esikatselussa yhdeksi riviksi.
+  Jos tätä muotoa muuttaa, tulos on tarkistettava Markdown-esikatselusta eikä
+  silmämääräisesti raakatekstistä.
+
   HUOM: mallin sisällön sha256 menee render-vaiheen parametrihashiin, joten
   tämän tiedoston muokkaaminen näkyy manifestissa.
 -#}
@@ -97,6 +110,15 @@
 {%- if round_type.small_sample %} -- pieni otanta{% endif %}
 {%- if round_type.pattern_only %} -- vain toistuvat kuviot{% endif %}
 
+{% for route in round_type.routes %}
+- **{{ route.heading }}** ({{ route.round_text }})
+{% if route.note %}
+  - *{{ route.note }}*
+{% endif %}
+{% for row in route.rows %}
+{{ row }}
+{% endfor %}
+{% endfor %}
 {% for line in round_type.lines %}
 {{ bullet(line) }}
 {% endfor %}

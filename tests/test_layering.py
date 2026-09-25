@@ -199,11 +199,19 @@ def test_domain_does_no_file_io_except_settings_loading() -> None:
 #:     the value.
 #: ``played_maps_for``
 #:     copies it from the match's facts onto the row. A move, not a decision.
+#: ``_route_heading``
+#:     prints the name on a pistol round's own row (Story 4.11). The same
+#:     thing ``_played_map_line`` does, one level in: the row states when the
+#:     round was played and against whom, and the value is **looked up** on
+#:     the map's own demo list by ``map_demo_id``. The route carries neither
+#:     the name nor the date, so nothing is grouped by either -- the rounds'
+#:     order is the map's demo order, decided in ``routes_for``, which never
+#:     sees an opponent at all.
 #:
-#: A fourth reader is not forbidden on principle -- it is forbidden until
+#: A further reader is not forbidden on principle -- it is forbidden until
 #: somebody names it here and says which of the two things it does.
 OPPONENT_READERS: dict[str, set[str]] = {
-    "render/view.py": {"_played_map_line", "build_view"},
+    "render/view.py": {"_played_map_line", "build_view", "_route_heading"},
     "domain/aggregate.py": {"played_maps_for"},
 }
 

@@ -190,6 +190,10 @@ __all__ = [
     "KillArea",
     "DeathReport",
     "RoundRecord",
+    "ROUTE_ROUND_TYPE",
+    "RouteFate",
+    "RouteStep",
+    "RoundRoute",
     "RoundTypeReport",
     "SideReport",
     "PlayedMap",
@@ -361,7 +365,28 @@ __all__ = [
 #: against nobody. Measured 2026-09-24: two of the developer archive's three
 #: teams are entirely hand-imported demos and no row of theirs can be named
 #: at all, so the unnamed case is the common one and not the corner.
-REPORT_SCHEMA_VERSION = "13.0.0"
+#:
+#: **14.0.0 (Story 4.11): the pistol round carries the way they came.**
+#: :attr:`RoundTypeReport.routes` is **required** on every round type, so no
+#: ``report.json`` written before this story validates -- the first condition,
+#: and the same shape as 11.0.0's record and 9.0.0's roster breakdown.
+#:
+#: **No default was available, and the reason is not the usual one.** The
+#: usual reason is that a default would be *rendered* as a measurement; here
+#: it would not be rendered at all, because
+#: :meth:`RoundTypeReport._check_routes_are_the_round_types_own_rounds`
+#: requires a pistol block's list to be exactly as long as its sample.
+#: Measured 2026-09-25: ``routes=[]`` on a two-round pistol block raises
+#: ``AggregateError`` rather than producing anything. So the only default
+#: this field could take is refused by the model one line later -- a default
+#: that cannot validate is not a default -- and that is what makes the field
+#: required rather than any argument about how it would read.
+#:
+#: The empty list is still an **observation** where it is legal: on a
+#: non-pistol type it says "this type reports no route", and on a single
+#: :class:`RoundRoute` an empty ``steps`` says "this round was sampled at no
+#: moment at all". Neither can be reached by defaulting.
+REPORT_SCHEMA_VERSION = "14.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
 #: refuses an old ``report.json`` with.
@@ -388,8 +413,9 @@ REPORT_SCHEMA_VERSION = "13.0.0"
 #: English, like every other line the CLI prints (AD-11). It never reaches
 #: the report.
 REPORT_SCHEMA_CHANGE = (
-    "Version 13.0.0 lists every map's own demos with the date they were "
-    "played and the opponent, which an older report does not carry at all."
+    "Version 14.0.0 follows each pistol round's players from sample point to "
+    "sample point -- the way they came, round by round -- which an older "
+    "report does not carry at all."
 )
 
 
@@ -1732,6 +1758,256 @@ class DeathReport(_Node):
         return self
 
 
+#: The one round type the route is reported for (Story 4.11).
+#:
+#: **A constant and not a literal in three places.** The model's own guard,
+#: ``aggregate``'s builder and every test read this name, and the story that
+#: extends the route to the other buy classes has to change one line rather
+#: than find three. The restriction itself is the spec's ("Later, not here"):
+#: a pistol round is **one round per map per side**, so a match is an
+#: observation and no aggregation is needed. A ``full`` block is 29 rounds on
+#: one map of the real archive, and 29 round-by-round blocks is not a summary
+#: of anything.
+ROUTE_ROUND_TYPE: RoundType = "pistol"
+
+#: What became of a group of players at one sample point.
+#:
+#: Three values, and what they are for is the story's own discipline: *"nobody
+#: went to X"*, *"nobody was alive to go anywhere"* and *"the round was
+#: already over"* are three different claims, and a missing sample point is
+#: evidence for none of them. The first mock read an absence as a death and
+#: printed ``4 kuoli`` for a round that had been won.
+#:
+#: ``seen``
+#:     The players were observed alive in :attr:`RouteStep.area` at
+#:     :attr:`RouteStep.seconds`. The area may still be ``None`` -- the game
+#:     gives no ``last_place_name`` everywhere -- and that is *"somewhere the
+#:     map does not name"*, not *"gone"*.
+#: ``died``
+#:     A death record proves they were killed. ``area`` is ``victim_area``
+#:     and ``seconds`` is the death's own ``t_s`` -- **not** the sample
+#:     point's, because the reader is told where and when, and the sample
+#:     point is neither.
+#: ``gone``
+#:     The sample point exists, the player has no row on it and **no death
+#:     record accounts for them**. The report says that and no more: a death
+#:     the archive does not hold is not a death the report may state.
+#:
+#: So two of the three claims are values here and the third is not.
+#: *"Nobody was alive to go anywhere"* is ``died`` where the archive proves
+#: it and ``gone`` where it does not; *"nobody went to X"* is not a node at
+#: all -- it is an area that no branch names.
+#:
+#: **The third claim is the absence of children on a ``seen`` step, and it is
+#: weaker than "the round was already over".** All it says is that the
+#: sample holds no later moment for those players, and the commonest reason
+#: is that **the grid ran out while the round went on**: measured over the
+#: archive, 280 of the 293 rounds that reach the grid's last point have a
+#: death recorded after it (:data:`~pappascout.domain.aggregate
+#: .ROUTE_SAMPLING_MEASURED`). :class:`RouteStep` lists the three ways an
+#: empty ``steps`` arises; this type does not distinguish them, because the
+#: report says the same thing about all three, which is nothing.
+RouteFate = Literal["seen", "died", "gone"]
+
+
+class RouteStep(_Node):
+    """One group of players at one moment, and where the group then divided.
+
+    The node is a **group and not a player**: the product owner's form writes
+    the shared stretch once ("4 Outside -> 4 Control") and gives rows of their
+    own only to the parts that separated. :attr:`players` is how many the
+    group held, and :attr:`steps` are the parts it became at the next sample
+    point.
+
+    **An empty ``steps`` is four different things**, and the model tells only
+    the first from the rest, by this node's own ``fate``. The other three it
+    deliberately leaves together, because the report says the same thing
+    about all of them, which is nothing:
+
+    * ``fate="died"`` -- the players were killed, and a step after it would
+      show the reader a dead player moving. ``fate="gone"`` with no steps is
+      the same shape for a different reason: the sample has no position for
+      them here and none later either.
+    * ``fate="seen"`` **on the grid's last point** -- the sampling ran out
+      while the round went on. **This is the common case by a wide margin**:
+      measured over the archive, 280 of the 293 rounds that reach the last
+      point have a death recorded after it
+      (:data:`~pappascout.domain.aggregate.ROUTE_SAMPLING_MEASURED`).
+    * ``fate="seen"`` and the round really did end there. The remaining 13 of
+      those 293 are the **candidates** for this and not the proof of it: all
+      that was measured is that they record no death after the last point,
+      which a round still running can also do.
+    * ``fate="seen"`` and this round was sampled at no later moment for some
+      other reason, which nothing in the archive shows but nothing forbids.
+
+    **So the end of a row is not the end of the round**, and no reader of
+    this model may treat it as one. That is the inverse of the mistake the
+    first mock made at the other end: it read an absence as a death and
+    printed ``4 kuoli`` for a round that had been won.
+    """
+
+    fate: RouteFate
+    #: The moment, in seconds from the end of freezetime. For ``died`` it is
+    #: the death's own moment and not the sample point's.
+    seconds: float
+    #: Where they were, where they died, or ``None``. ``None`` on a ``seen``
+    #: step is an observed position the game gave no name to -- the same
+    #: ``None`` every area distribution in this model carries -- and on a
+    #: ``gone`` step it is the only value allowed, because a step that cannot
+    #: account for its players cannot place them either.
+    area: str | None
+    players: int = Field(ge=1)
+    #: What the group became at the next sample point. Empty where the branch
+    #: ends -- see the class docstring for the three ways that happens.
+    steps: list[RouteStep] = Field(default_factory=list)
+
+    @field_validator("seconds")
+    @classmethod
+    def _check_the_moment(cls, value: float) -> float:
+        """A moment is a finite, non-negative number of seconds.
+
+        The same three conditions :func:`_check_seconds` holds the round
+        type's sample points to, minus uniqueness, which does not apply: two
+        branches of one round are at the *same* moment by construction, and
+        a division at 30 s produces four steps that all read 30.0.
+        """
+        _check_seconds([value], "route step")
+        return value
+
+    @model_validator(mode="after")
+    def _check_a_gone_step_names_no_place(self) -> RouteStep:
+        """``gone`` names no area.
+
+        The step exists **because** the sample holds no position for those
+        players at this moment. An area on it would be a place the archive
+        does not put them.
+
+        **It may still carry steps, and that is a different question.**
+        ``gone`` says nothing about this moment; it does not say "for ever".
+        A player the sample lost here may be observed again at a later one,
+        and then following the branch prints positions the archive really
+        holds. Forbidding the continuation is what made
+        :func:`~pappascout.domain.aggregate._route_steps` discard those
+        positions and report a loss it could itself disprove. ``died`` is
+        the opposite case and stays terminal
+        (:meth:`_check_a_dead_branch_ends`): a killed player does not come
+        back.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If a ``gone`` step names an
+                area.
+        """
+        if self.fate != "gone" or self.area is None:
+            return self
+        raise AggregateError(
+            f"A route step for {self.players} player(s) at "
+            f"{self.seconds:g} s says the sample holds no position for them, "
+            f"and then names the area {self.area!r}.\n"
+            "A player with no sample point and no death record is a player "
+            "the archive cannot place at that moment; saying where they were "
+            "would be an invention."
+        )
+
+    @model_validator(mode="after")
+    def _check_a_dead_branch_ends(self) -> RouteStep:
+        """A death ends the branch.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If a ``died`` step carries
+                steps.
+        """
+        if self.fate == "died" and self.steps:
+            raise AggregateError(
+                f"A route step for {self.players} player(s) who died at "
+                f"{self.seconds:g} s follows them to another sample point.\n"
+                "A death is the end of that branch; a step after it would "
+                "show the reader a dead player moving."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_the_group_divides_into_itself(self) -> RouteStep:
+        """The parts of a group are the whole of it.
+
+        The route's only arithmetic, and the one thing that can go wrong in
+        silence: a player dropped between two sample points would leave every
+        row internally plausible and the chain quietly narrower than the team
+        was. ``aggregate`` partitions the group, so it cannot produce one --
+        this is the same standing the model's other totals have, and it is
+        also what refuses a hand-edited ``report.json``.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If the steps' players do not
+                add up to this step's.
+        """
+        if not self.steps:
+            return self
+        parts = sum(step.players for step in self.steps)
+        if parts != self.players:
+            raise AggregateError(
+                f"A group of {self.players} player(s) at {self.seconds:g} s "
+                f"divides into parts holding {parts} between them.\n"
+                "Every player of the group goes on to exactly one of its "
+                "parts -- observed somewhere, killed, or lost from the "
+                "sample -- so the parts are the whole group."
+            )
+        return self
+
+
+class RoundRoute(_Node):
+    """One round's route: which way its players came, as a chain.
+
+    One of these per round of the pistol block, **newest match first**
+    (:func:`~pappascout.domain.aggregate.routes_for`). The round is an
+    observation in its own right and is not aggregated with the others: a
+    pistol round happens once per map per side, so four matches are four
+    rounds, and averaging them into a distribution is precisely what hid the
+    route finding until Story 4.9.
+
+    **The round is identified and not described.** ``map_demo_id`` and
+    ``round_no`` are here; the date and the opponent are **not**, although
+    the rendered row states both. They are in :class:`PlayedMap` on the map
+    this round's block sits under, one row per demo, and copying them here
+    would put the same date in ``report.json`` once per pistol round with
+    nothing holding the copies to each other -- the second copy
+    :attr:`MapReport.map_demo_ids` was turned into a projection to be rid of.
+    ``render`` joins on ``map_demo_id`` (:func:`~pappascout.render.view
+    ._route_views`).
+
+    ``won`` is the round's own outcome, copied from ``CLASSIFIED.won``. The
+    product owner asked for it on the row on 2026-09-25: he could not tell
+    from the row how the round had ended, and asked whether it could say
+    which of the two it was. ``None`` is a real state and not a missing
+    value: the column is nullable, and an unread outcome must not read as a
+    defeat. It is **not** derivable from :attr:`RoundTypeReport.record`, which
+    is the block's total and says nothing about which round was which.
+
+    **An empty ``steps`` says the round reached no sample point at all** --
+    settled inside the first of them. That is an observation, and it is the
+    reason the field it lives in takes no default: see
+    :data:`REPORT_SCHEMA_VERSION`'s 14.0.0 entry.
+    """
+
+    map_demo_id: str
+    round_no: int = Field(ge=1)
+    #: Whether the team won the round, or ``None`` when the outcome was not
+    #: read. See the class docstring: ``None`` is a state, not an absence.
+    won: bool | None
+    #: Where the players started, biggest group first. Each is the head of
+    #: one chain through the round's sample points.
+    #:
+    #: **No ``players`` total beside it.** A property summing this list was
+    #: written and then deleted in the same story: nothing in ``render``
+    #: read it, its only reference was the test asserting it, and the
+    #: docstring justifying it was **wrong** -- it named the archive's
+    #: nine-row round as the case a five-player assumption would break, and
+    #: that round is a ``full`` buy, so no route is ever built from it.
+    #: Measured 2026-09-25: every one of the archive's 126 routes starts
+    #: with exactly five players. A derived value is cheap; a derived value
+    #: nobody reads, defended by a measurement about something else, is not.
+    steps: list[RouteStep] = Field(default_factory=list)
+
+
 class RoundTypeReport(_Node):
     """Every observation of one round type on one map and side.
 
@@ -1770,6 +2046,20 @@ class RoundTypeReport(_Node):
     #: nobody lost. ``render`` therefore never prints that string for a
     #: measured group either (:func:`~pappascout.render.view.record_text`).
     record: RoundRecord
+    #: The route of every round of this type, **newest match first** -- and
+    #: empty on every type but :data:`ROUTE_ROUND_TYPE` (Story 4.11).
+    #:
+    #: **It sits here and not on :class:`MapReport`**, although the product
+    #: owner's framing is per map. His own sketch nests the sides inside the
+    #: map's ``Pistoolit`` heading, and a route belongs to one side of one
+    #: map: a per-map node would have to carry the side on every row and
+    #: would then hold the side twice, once in its own field and once in the
+    #: tree it hangs in. This is the node that already means "one map, one
+    #: side, one round type", which is exactly the block the rows go in.
+    #:
+    #: Empty is an observation and not an absence -- see
+    #: :class:`RoundRoute`.
+    routes: list[RoundRoute]
 
     @model_validator(mode="after")
     def _check_sample_points(self) -> RoundTypeReport:
@@ -1963,6 +2253,69 @@ class RoundTypeReport(_Node):
             raise ValueError(
                 f"The first-contact presence list of round type "
                 f"{self.round_type} holds the same area twice."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_routes_are_the_round_types_own_rounds(self) -> RoundTypeReport:
+        """One route per round, this type's rounds, each of them once.
+
+        Three conditions and each is a different way the list can lie, so
+        each gets its own message rather than one that covers all of them:
+
+        * **A route on a type that reports none.** Only
+          :data:`ROUTE_ROUND_TYPE` carries routes (Story 4.11's scope), and
+          a list under ``full`` would render 29 round-by-round blocks that
+          nothing has decided how to summarise.
+        * **A count that is not the sample.** The list is *every* round of
+          the block, including the ones that reached no sample point, so a
+          shorter list is a round that vanished -- and the block's heading
+          would go on stating the count the list no longer shows. This is
+          the counterpart of :meth:`_check_record_covers_the_rounds`, and it
+          is **also a length check**: the pipeline hands
+          :func:`~pappascout.domain.aggregate.routes_for` the same rows
+          ``sample_for`` counted, so on that path it is an identity. What it
+          catches is a hand-edited file and a future second pass.
+        * **The same round twice.** The count check above passes a list of
+          four rows naming three rounds. Rendered, the reader would see one
+          round played twice against the same opponent -- the fault
+          :meth:`MapReport._check_each_demo_is_listed_once` refuses one level
+          up, for the same reason: the rows are printed.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If any of the three fails.
+        """
+        if self.round_type != ROUTE_ROUND_TYPE and self.routes:
+            raise AggregateError(
+                f"Round type {self.round_type} carries "
+                f"{len(self.routes)} round routes, but only "
+                f"{ROUTE_ROUND_TYPE} reports them.\n"
+                "The other buy classes hold many rounds per match and need "
+                "an aggregation that has not been designed; a per-round "
+                "block for each of them would not be a summary."
+            )
+        if self.round_type != ROUTE_ROUND_TYPE:
+            return self
+        if len(self.routes) != self.sample.rounds:
+            raise AggregateError(
+                f"Round type {self.round_type} lists {len(self.routes)} "
+                f"round routes, but its sample is {self.sample.rounds} "
+                "rounds.\n"
+                "Every round of the block gets a row, including one that "
+                "reached no sample point at all -- that row states it. A "
+                "shorter list is a round the reader is never shown while "
+                "the heading goes on counting it."
+            )
+        seen = [(route.map_demo_id, route.round_no) for route in self.routes]
+        twice = sorted({key for key in seen if seen.count(key) > 1})
+        if twice:
+            raise AggregateError(
+                f"Round type {self.round_type} lists the same round more "
+                "than once: "
+                + ", ".join(f"{demo} round {no}" for demo, no in twice)
+                + ".\n"
+                "Each round is one row, so a repeat would show the reader "
+                "one round as two."
             )
         return self
 

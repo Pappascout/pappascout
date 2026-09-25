@@ -126,8 +126,11 @@ from pappascout.domain.report import (
     Report,
     RosterEntry,
     RosterSample,
+    ROUTE_ROUND_TYPE,
     RoundRecord,
+    RoundRoute,
     RoundTypeReport,
+    RouteStep,
     Sample,
     SampleBucket,
     SideReport,
@@ -1364,6 +1367,410 @@ def record_for(rows: Sequence[Mapping[str, Any]]) -> RoundRecord:
         else:
             losses += 1
     return RoundRecord(wins=wins, losses=losses, unknown=unknown)
+
+
+#: What the archive's sample points really look like, measured 2026-09-25 and
+#: written down **once** (Story 4.11).
+#:
+#: Every claim the route rests on about the sampling is here, and no other
+#: docstring restates a number from it -- they name this constant instead. A
+#: measurement copied into two docstrings is the shape that left a schema
+#: count wrong four stories running, and a docstring is exactly where a stale
+#: copy is least visible.
+#:
+#: The archive is seventeen demos. Over all of them:
+#:
+#: * **1 619 time sample points**, of which **1 615 carry ten rows** -- one
+#:   per player of both teams, alive or dead -- and **four carry nine**.
+#: * Those four are **all four points of one round** (``anubis`` round 19),
+#:   and the player missing from it has rows in **every other round of that
+#:   demo, before it and after it**. A missing row is therefore not a player
+#:   who left the server, and not evidence about the round either. That
+#:   round is a ``full`` buy, so no route is ever built from it.
+#: * **293 rounds reach the last point of the grid, and 280 of them -- 95.6
+#:   per cent -- have a death recorded after it.** The grid ends; the round
+#:   does not. This is the measurement that forbids reading the end of a
+#:   route row as the end of the round.
+#: * **2 513 death rows, none missing ``t_s``** (:func:`_route_deaths`).
+#:
+#: It is an observation and not a rule: importing a demo changes every
+#: number here legitimately, and the answer is then to measure again and say
+#: so in the commit.
+ROUTE_SAMPLING_MEASURED = "2026-09-25"
+
+
+def _route_observations(
+    ticks: Sequence[Mapping[str, Any]], keys: set[RoundKey]
+) -> tuple[
+    dict[RoundKey, list[float]],
+    dict[RoundKey, set[str]],
+    dict[RoundKey, dict[str, dict[float, str | None]]],
+]:
+    """One pass over the sample points, for the three things a route needs.
+
+    **Which moments a round was sampled at comes from the rows themselves**,
+    and that is the whole reason this walks the table instead of taking the
+    sampling grid as an argument. ``parse`` creates a time sample point only
+    while the round is still running (:func:`~pappascout.domain.sampling
+    .sample_ticks`: *"there are no points after the round ended"*), and it
+    writes a row there for **every** player, alive or dead.
+
+    :data:`ROUTE_SAMPLING_MEASURED` is the measurement behind that, and it is
+    stated in one place because a number restated is a number that goes
+    stale. Its one exception is worth reading before trusting the rule: four
+    of the archive's sample points carry nine rows, and they are all four
+    points of a single round from which one player is missing **who has rows
+    in every other round of that demo, before and after**. So a missing row
+    is not a player who left the server, and this function must not read a
+    player's absence as the round's.
+
+    **A moment with no row at all is a moment this round was not sampled
+    at.** It is emphatically *not* "a moment the round did not reach": the
+    grid stops at its last point while the round runs on, and
+    :data:`ROUTE_SAMPLING_MEASURED` shows how often. What the route may say
+    about such a moment is nothing, which is what an empty ``steps`` says.
+
+    The rows are the team's own (the ``aggregate`` stage filters on
+    ``lineup_key``), so strictly this reads "no player **of the scouted
+    team** was sampled". The two differ only if all five of the team's
+    players are missing from a point the opponent still has, which the
+    measurement does not show and which would in any case end the row rather
+    than claim anything.
+
+    Args:
+        ticks: The branch's sample point rows, both sample kinds.
+        keys: The rounds to read. Others are skipped.
+
+    Returns:
+        Three mappings from round key: the moments the round reached in
+        ascending order, the players who have any row on it, and, per player,
+        the area they were observed alive in at each moment. A player is in
+        the second and not in the third exactly when they were dead or
+        unsampled at every moment.
+    """
+    points: defaultdict[RoundKey, set[float]] = defaultdict(set)
+    players: defaultdict[RoundKey, set[str]] = defaultdict(set)
+    at: defaultdict[RoundKey, dict[str, dict[float, str | None]]] = defaultdict(
+        dict
+    )
+    for row in ticks:
+        key = _round_key(row)
+        if key is None or key not in keys:
+            continue
+        if str(row["sample_kind"]) != sampling.TIME_SAMPLE:
+            continue
+        seconds = _sample_seconds(row)
+        player = str(row["player_id"])
+        points[key].add(seconds)
+        players[key].add(player)
+        if bool(row["is_alive"]):
+            at[key].setdefault(player, {})[seconds] = _observed_area(row["area"])
+    return (
+        {key: sorted(value) for key, value in points.items()},
+        dict(players),
+        dict(at),
+    )
+
+
+def _route_deaths(
+    deaths: Sequence[Mapping[str, Any]],
+    keys: set[RoundKey],
+    lineup_keys: Iterable[str],
+) -> dict[RoundKey, dict[str, tuple[str | None, float]]]:
+    """Per round, where and when each of the team's players was killed.
+
+    **The route states a death only from this table** (Story 4.11's frozen
+    Intent): *"nobody went to X"*, *"nobody was alive to go anywhere"* and
+    *"the round was already over"* are three claims, and a missing sample
+    point tells them apart from none of them. The first mock inferred the
+    second from an absence and printed ``4 kuoli`` for a round that had been
+    won.
+
+    **A row whose ``t_s`` is missing or negative does not produce a death
+    step**, and the player then reaches the route unaccounted for. The
+    report's form states the moment (*"kuoli Mini (27 s)"*), and neither of
+    those is a moment in the round: there is nothing to print for the first,
+    and the second would put a death before the freezetime ended. Both
+    understate -- the archive does know that player died -- and they
+    understate in the direction the story asks for, which is to claim less
+    than the data supports rather than more. Neither is a case the archive
+    meets: see :data:`ROUTE_SAMPLING_MEASURED` for the death rows, and a
+    negative ``t_s`` has never been observed either.
+
+    **Skipped here rather than refused**, which is a deliberate difference
+    from :meth:`~pappascout.domain.report.RouteStep._check_the_moment`. That
+    validator rejects a negative second because a **built** step must carry a
+    real moment; this reader meets the raw table, where one bad row would
+    otherwise take the whole report down with a ``pydantic`` traceback
+    instead of a report missing one claim.
+
+    Args:
+        deaths: The ``DEATHS`` rows as the stage filtered them -- on the
+            victim **or** the attacker, so most rows here are not own deaths.
+        keys: The rounds to read.
+        lineup_keys: The team's lineup ids, against which a row is our own
+            death.
+
+    Returns:
+        Round key -> player id -> ``(area, seconds)``. The **earliest**
+        usable row per player: a player dies once in a round, so a second row
+        would be a broken table rather than a second death, and taking the
+        earliest is what :func:`deaths_for` does for the round's first death.
+    """
+    own = set(lineup_keys)
+    died: defaultdict[RoundKey, dict[str, tuple[str | None, float]]] = (
+        defaultdict(dict)
+    )
+    for row in deaths:
+        key = _round_key(row)
+        if key is None or key not in keys:
+            continue
+        if row["victim_lineup_key"] not in own or row["t_s"] is None:
+            continue
+        player = str(row["victim_id"])
+        moment = float(row["t_s"])
+        if moment < 0:
+            continue
+        current = died[key].get(player)
+        if current is None or moment < current[1]:
+            died[key][player] = (_observed_area(row["victim_area"]), moment)
+    return dict(died)
+
+
+def _route_steps(
+    group: Sequence[str],
+    points: Sequence[float],
+    at: Mapping[str, Mapping[float, str | None]],
+    died: Mapping[str, tuple[str | None, float]],
+) -> list[RouteStep]:
+    """What a group of players became at ``points[0]``, and onwards.
+
+    The traversal the product owner's form is read from: a group that stays
+    together is **one** part and grows the chain, and only where it divides do
+    the parts become rows of their own. That reading is the renderer's
+    (:func:`~pappascout.render.view._route_rows`); what this builds is the
+    tree it reads -- which part held how many players, and where each part
+    went next.
+
+    **Every player of the group lands in exactly one part**, which is what
+    :meth:`~pappascout.domain.report.RouteStep
+    ._check_the_group_divides_into_itself` then holds the tree to. There are
+    three parts and no more:
+
+    * observed alive at this moment -> grouped by area, ``fate="seen"``, and
+      followed into the remaining moments;
+    * not observed, and a death record places them **at or before this
+      moment** -> ``fate="died"``, one part per ``(area, moment)``;
+    * not observed and nothing accounts for them -> one ``fate="gone"``
+      part, followed into the remaining moments **only if the sample has a
+      position for one of them there**.
+
+    **A death is used only when it happened by this moment**, and that
+    condition is not decoration. Most of the archive's deaths are after the
+    grid ends -- see :data:`ROUTE_SAMPLING_MEASURED` -- and what keeps them
+    off the row today is that their players are still observed at every
+    point. Without the condition, a player merely **missing** a row would be
+    reported as having died at a second the round had not reached, which is
+    a fate stated about a moment in the future.
+
+    **A ``gone`` part that is observed again is followed**, and this is the
+    asymmetry with ``died``: a killed player cannot come back, an unsampled
+    one can. Without it a player whose rows begin after the first moment was
+    reported lost and **every position the archive held for them was
+    discarded** -- the report claiming a loss it could itself disprove. It
+    does not repeat itself on the ordinary path: a player the sample really
+    lost has nothing later, so the branch ends there, which is what the
+    first mock's "a player who is gone is gone" rule got right.
+
+    **An empty ``points`` returns no steps**, and that is the claim none of
+    the three parts makes: there is no later moment in the sample, so the
+    branch ends and says nothing at all about the time after it. It does not
+    mean the round ended -- see :data:`ROUTE_SAMPLING_MEASURED`.
+
+    The order inside a moment is **the biggest part first, then the area's
+    own name**, with the unnamed area last (:func:`_area_sort_key`); the
+    ``died`` parts break a tie on the **moment** before the area, so two
+    deaths in one area come out in the order they happened. It is
+    deliberately not the order the rows happened to arrive in: that is the
+    order of the parquet file's players, which is arbitrary and would still
+    be arbitrary after somebody re-parsed the demo.
+
+    **Two deaths in one area whose seconds differ but round to the same
+    number stay two parts** and print the same sentence twice. The grouping
+    is on the measured moment, because this layer does not know how the
+    moment will be spelled; an exact tie does merge. The boundary is
+    recorded rather than removed -- moving it would put a rendering decision
+    into ``domain``.
+    """
+    if not points:
+        return []
+    moment, rest = points[0], points[1:]
+    seen: defaultdict[str | None, list[str]] = defaultdict(list)
+    gone: list[str] = []
+    killed: defaultdict[tuple[str | None, float], list[str]] = defaultdict(list)
+    for player in group:
+        where = at.get(player, {})
+        if moment in where:
+            seen[where[moment]].append(player)
+        elif player in died and died[player][1] <= moment:
+            killed[died[player]].append(player)
+        else:
+            gone.append(player)
+
+    steps = [
+        RouteStep(
+            fate="seen",
+            seconds=moment,
+            area=area,
+            players=len(members),
+            steps=_route_steps(members, rest, at, died),
+        )
+        for area, members in sorted(
+            seen.items(), key=lambda kv: (-len(kv[1]), _area_sort_key(kv[0]))
+        )
+    ]
+    steps.extend(
+        RouteStep(
+            fate="died",
+            seconds=seconds,
+            area=area,
+            players=len(members),
+        )
+        for (area, seconds), members in sorted(
+            killed.items(),
+            key=lambda kv: (-len(kv[1]), kv[0][1], _area_sort_key(kv[0][0])),
+        )
+    )
+    if gone:
+        # Followed on only where the sample really has them again. Recursing
+        # unconditionally would write "poistui otannasta" once per remaining
+        # moment for every player the sample lost for good, which is the same
+        # absence said four times.
+        returns = any(
+            later in at.get(player, {}) for player in gone for later in rest
+        )
+        steps.append(
+            RouteStep(
+                fate="gone",
+                seconds=moment,
+                area=None,
+                players=len(gone),
+                steps=_route_steps(gone, rest, at, died) if returns else [],
+            )
+        )
+    return steps
+
+
+def routes_for(
+    rows: Sequence[Mapping[str, Any]],
+    ticks: Sequence[Mapping[str, Any]],
+    deaths: Sequence[Mapping[str, Any]],
+    lineup_keys: Iterable[str],
+    demo_order: Mapping[str, int],
+) -> list[RoundRoute]:
+    """One round's route per round of the group, **newest match first**.
+
+    The story's whole output (Story 4.11). The report has always said where a
+    team's players *were* and never which way they *came*; a route is a
+    sequence, and this is the same rows the sample points are counted from,
+    **grouped by player instead of by area**.
+
+    **Only** :data:`~pappascout.domain.report.ROUTE_ROUND_TYPE` **reaches
+    this function**, and the caller decides that rather than this function,
+    because the model already refuses routes on any other type: two places
+    asking the same question would be the second copy this codebase keeps
+    removing.
+
+    **A row for every round, including one with no route.** A round settled
+    inside the first sample point produces a :class:`RoundRoute` with no
+    steps, which the report states; dropping it would leave the block's
+    heading counting a round the reader is never shown.
+
+    Args:
+        rows: The group's own ``CLASSIFIED`` rows -- **the same sequence**
+            :func:`sample_for` and :func:`record_for` are handed, which is
+            what makes one row per round an identity rather than a join
+            (:meth:`~pappascout.domain.report.RoundTypeReport
+            ._check_routes_are_the_round_types_own_rounds`).
+        ticks: The map's sample point rows, filtered to the team's lineups by
+            the stage. Rows of other rounds are skipped here.
+        deaths: The map's ``DEATHS`` rows, filtered on victim **or**
+            attacker. Splitting out our own deaths is :func:`_route_deaths`'s
+            job, as it is :func:`deaths_for`'s.
+        lineup_keys: The team's lineup ids.
+        demo_order: ``map_demo_id`` -> place, newest first. **The report's own
+            recency order and not a second sort**: the caller builds it from
+            :func:`played_maps_for`'s result, so the round the block lists
+            first belongs to the demo the map's own list puts first. A demo
+            the order does not place sorts last, where its row carries no
+            date to contradict -- :func:`played_maps_for`'s rule, and its
+            reason.
+
+    Returns:
+        One :class:`~pappascout.domain.report.RoundRoute` per row in ``rows``,
+        newest match first and, inside a demo, in round order.
+    """
+    # A dict and not a set, although only membership is asked of it below.
+    # The routes are built in **this** order and then sorted, and a set of
+    # tuples iterates in hash order: measured 2026-09-25, dropping
+    # ``round_no`` from the sort below still passed 11 runs in 12, because
+    # the pre-sort order rode on Python's string hash randomisation. An
+    # insertion-ordered mapping makes the product deterministic and the sort
+    # the only thing deciding the order, which is what the test can then pin.
+    outcome: dict[RoundKey, bool | None] = {}
+    for row in rows:
+        key = _round_key(row)
+        if key is None:
+            # The same broken table ``_round_types_for`` refuses, and it
+            # refuses it before this is ever called; the guard is here so the
+            # function is safe to call on its own.
+            raise AggregateError(
+                f"The classified table {row['map_demo_id']!r} holds a row "
+                "without a round number, so its route cannot be joined to "
+                "the sample points.\n"
+                f"Run the classification again: uv run pappascout classify "
+                f"{row['map_demo_id']} --force"
+            )
+        value = row.get("won")
+        outcome[key] = None if value is None else bool(value)
+
+    keys = set(outcome)
+    points, players, at = _route_observations(ticks, keys)
+    died = _route_deaths(deaths, keys, lineup_keys)
+    # Past every place in use, so a demo the order does not place sorts after
+    # every placed one.
+    #
+    # **Not ``len(demo_order)``**, and the reason is this function's argument
+    # rather than ``played_maps_for``'s duplicate-match hazard, which cannot
+    # arise here: ``build_report`` builds the mapping with ``enumerate``, so
+    # its places are 0..n-1 and ``max + 1`` and ``len`` agree. What does not
+    # agree is a mapping a **direct** caller hands in -- ``demo_order`` is a
+    # plain mapping and nothing constrains its values -- and there ``len``
+    # would be a place already in use, tying an unplaced demo with a placed
+    # one.
+    unplaced = max(demo_order.values(), default=-1) + 1
+    routes = [
+        RoundRoute(
+            map_demo_id=demo,
+            round_no=round_no,
+            won=outcome[(demo, round_no)],
+            steps=_route_steps(
+                sorted(players.get((demo, round_no), ())),
+                points.get((demo, round_no), []),
+                at.get((demo, round_no), {}),
+                died.get((demo, round_no), {}),
+            ),
+        )
+        for demo, round_no in outcome
+    ]
+    routes.sort(
+        key=lambda route: (
+            demo_order.get(route.map_demo_id, unplaced),
+            route.map_demo_id,
+            route.round_no,
+        )
+    )
+    return routes
 
 
 def _armed(row: Mapping[str, Any]) -> int | None:
@@ -2809,11 +3216,12 @@ def build_report(
         map_ticks = [r for demo in demos for r in ticks_by_demo.get(demo, [])]
         map_events = [r for demo in demos for r in events_by_demo.get(demo, [])]
         map_deaths = [r for demo in demos for r in deaths_by_demo.get(demo, [])]
+        played_maps = played_maps_for(demos, order, match_facts)
         maps.append(
             MapReport(
                 map_name=map_name,
                 map_name_source=source,
-                played_maps=played_maps_for(demos, order, match_facts),
+                played_maps=played_maps,
                 sample=sample_for(map_rows, buckets),
                 sides=_sides_for(
                     map_rows,
@@ -2830,6 +3238,16 @@ def build_report(
                     newest_match(
                         {match_of(demo) for demo in demos}, order
                     ),
+                    # The pistol routes' order, **read off the list the map
+                    # chapter prints** rather than sorted again from
+                    # ``order``: the block's first round then belongs to the
+                    # demo the map's own list puts first, and the two cannot
+                    # come to disagree about which match is the newest
+                    # (Story 4.11).
+                    {
+                        entry.map_demo_id: place
+                        for place, entry in enumerate(played_maps)
+                    },
                 ),
             )
         )
@@ -2904,6 +3322,7 @@ def _sides_for(
     aggregate: AggregateSettings,
     lineup_keys: Sequence[str],
     newest: str | None,
+    demo_order: Mapping[str, int],
 ) -> list[SideReport]:
     """The sides in a fixed order; a side with no rounds is left out."""
     sides: list[SideReport] = []
@@ -2926,6 +3345,7 @@ def _sides_for(
                     aggregate,
                     lineup_keys,
                     newest,
+                    demo_order,
                 ),
             )
         )
@@ -2943,6 +3363,7 @@ def _round_types_for(
     aggregate: AggregateSettings,
     lineup_keys: Sequence[str],
     newest: str | None,
+    demo_order: Mapping[str, int],
 ) -> list[RoundTypeReport]:
     """The round types in a fixed order.
 
@@ -2992,6 +3413,17 @@ def _round_types_for(
                 players_armored=armored_players_for(type_rows, armored),
                 first_contact=first_contact_areas(ticks, keys, newest),
                 deaths=deaths_for(deaths, keys, lineup_keys),
+                # Only the pistol type has routes (Story 4.11's scope, and
+                # the model refuses them elsewhere). The condition is here
+                # and not inside ``routes_for``, so the function does one
+                # thing and the scope is stated where the scope is decided.
+                routes=(
+                    routes_for(
+                        type_rows, ticks, deaths, lineup_keys, demo_order
+                    )
+                    if round_type == ROUTE_ROUND_TYPE
+                    else []
+                ),
             )
         )
     return reports

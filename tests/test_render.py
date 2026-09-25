@@ -60,8 +60,11 @@ from pappascout.domain.report import (
     Report,
     RosterEntry,
     RosterSample,
+    ROUTE_ROUND_TYPE,
     RoundRecord,
+    RoundRoute,
     RoundTypeReport,
+    RouteStep,
     Sample,
     SampleBucket,
     SideReport,
@@ -103,6 +106,9 @@ from pappascout.render.view import (
     PLAYED_MAPS_UNORDERED,
     RECENCY_NEWEST_ABSENT,
     RECENCY_NEWEST_INCLUDED,
+    ROUND_LABEL,
+    ROUTE_ARROW,
+    ROUTE_DIED,
     UNKNOWN_AREA,
     UNKNOWN_MAP_LABEL,
     UNNAMED_PLAYER,
@@ -119,7 +125,11 @@ from pappascout.render.view import (
 # is a constant, and copying a fragment of it into the test would make two
 # truths of it -- the same rationale as with TEAM_SLUG and
 # TRACEABILITY_HEADING.
-from pappascout.render.view import _PRUNING_KEPT_THE_BLOCK, _TRACEABILITY_NOTE
+from pappascout.render.view import (
+    _PRUNING_KEPT_THE_BLOCK,
+    _TRACEABILITY_NOTE,
+    _identifier,
+)
 
 # Private for the same reason: the reading guide's record example is
 # built from this value through ``record_text``, and a fragment copied
@@ -458,6 +468,7 @@ def round_type(
     record: RoundRecord | None = None,
     demos: int = 1,
     matches: int | None = None,
+    routes: list[RoundRoute] | None = None,
 ) -> RoundTypeReport:
     return RoundTypeReport(
         round_type=name,
@@ -483,6 +494,32 @@ def round_type(
             death_report
             if death_report is not None
             else deaths(rounds_missing=rounds)
+        ),
+        # A pistol block carries one route row per round and no other type
+        # carries any (Story 4.11), so the default has to follow the name:
+        # a fixture that is not about the route still has to satisfy the
+        # model. The default rows have no steps -- the round that was over
+        # before the first sample point, which is a real state and the
+        # cheapest one that asserts nothing about a route.
+        #
+        # The demo id is a **fixed** one and deliberately not the map's: this
+        # helper is called before ``map_report`` and cannot know the map's
+        # demos, and a route whose demo the map does not list renders as the
+        # bare id. That keeps the filler visibly filler in the goldens, and
+        # it is the state
+        # ``test_a_route_whose_demo_the_map_does_not_list_carries_the_id``
+        # pins. A test about the heading passes its own ``routes``.
+        routes=(
+            routes
+            if routes is not None
+            else (
+                [
+                    RoundRoute(map_demo_id="Nuke_vs_a", round_no=n, won=False)
+                    for n in range(1, rounds + 1)
+                ]
+                if name == ROUTE_ROUND_TYPE
+                else []
+            )
         ),
     )
 
@@ -937,6 +974,18 @@ def test_report_ends_with_exactly_one_newline() -> None:
 def test_positions_utility_and_first_contact_are_bullets_not_paragraphs() -> None:
     """The product owner's analysis is bullets; the report is of the same
     shape.
+
+    **Two shapes since Story 4.11 and not one**, and the difference is stated
+    rather than absorbed into a looser pattern: an observation row is a
+    bullet at the block's own level, and a pistol route adds rows that are a
+    nested bullet (a starting group) or an indented continuation (``-> 4
+    Control``). None of the three is a paragraph, which is what this test is
+    about -- the report is read in the minutes before a match.
+
+    So the assertion is split: **every** row is one of the three, and the
+    observation rows in particular are still flush-left bullets. Written as
+    one pattern over all of them, a row that lost its dash would pass as long
+    as it happened to be indented.
     """
     text = render(report([pistol_map()]))
     body = text.split("**Pistooli** (1 kierros 1 ottelussa, voitettu 0-1)")[1]
@@ -945,7 +994,15 @@ def test_positions_utility_and_first_contact_are_bullets_not_paragraphs() -> Non
     # observation.
     rows = [row for row in body.splitlines()[1:] if row.strip()]
     assert rows, body
-    assert all(row.startswith("- ") for row in rows), rows
+    assert all(
+        row.startswith("- ") or row.lstrip().startswith(("- ", "-> "))
+        for row in rows
+    ), rows
+    # The route rows are the ones the block opens with; everything after them
+    # is an observation and is a bullet of the block's own level.
+    observations = [row for row in rows if not row.startswith("  ")]
+    assert all(row.startswith("- ") for row in observations), observations
+    assert any("s: " in row for row in observations), observations
 
 
 def test_areas_stay_in_english_and_text_is_finnish() -> None:
@@ -5209,6 +5266,10 @@ GOLDEN_PRUNING_OFF_CHAPTER = """\
 ### CT-puoli -- 2 kierrosta 1 ottelussa
 
 **Pistooli** (2 kierrosta 1 ottelussa, voitettu 0-2) -- pieni otanta
+- **`Nuke_vs_a` -- häviö** (kierros 1)
+  - *kierros ratkesi ennen ensimmäistä näytepistettä*
+- **`Nuke_vs_a` -- häviö** (kierros 2)
+  - *kierros ratkesi ennen ensimmäistä näytepistettä*
 - 30 s: Middle 2 (2/2 kierroksesta)
 - 45 s: Middle 1 (2/2 kierroksesta)
 - valo: CTSpawn -> BombsiteA (arvio) 0-5 s (2/2 kierroksesta), CTSpawn -> Connector (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Jungle (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Palace (arvio) 0-5 s (1/2 kierroksesta)
@@ -7696,3 +7757,798 @@ def test_the_traceability_row_lists_a_maps_demos_newest_first() -> None:
     # The appendix's own order is alphabetical and merged, which is a
     # different thing and is right for a list of files.
     assert round_list_demo_ids(entry) == ["alpha-0", "zeta-0"]
+
+
+# --- The pistol round's route (Story 4.11) --------------------------------------
+
+
+def seen(
+    area: str | None,
+    players: int,
+    seconds: float,
+    steps: list[RouteStep] | None = None,
+) -> RouteStep:
+    """A group observed alive somewhere."""
+    return RouteStep(
+        fate="seen",
+        seconds=seconds,
+        area=area,
+        players=players,
+        steps=steps or [],
+    )
+
+
+def killed(area: str | None, seconds: float, players: int = 1) -> RouteStep:
+    """A group a death record places."""
+    return RouteStep(fate="died", seconds=seconds, area=area, players=players)
+
+
+def lost(seconds: float, players: int = 1) -> RouteStep:
+    """A group the sample lost, with nothing to account for it."""
+    return RouteStep(fate="gone", seconds=seconds, area=None, players=players)
+
+
+def one_route(
+    steps: list[RouteStep],
+    *,
+    won: bool | None = True,
+    round_no: int = 1,
+    demo: str = DEMO_ID,
+) -> list[RoundRoute]:
+    return [
+        RoundRoute(map_demo_id=demo, round_no=round_no, won=won, steps=steps)
+    ]
+
+
+def route_report(
+    steps: list[RouteStep],
+    *,
+    won: bool | None = True,
+    round_no: int = 1,
+    played: list[PlayedMap] | None = None,
+) -> Report:
+    """A one-map report whose pistol block holds exactly this one route."""
+    demo = played[0].map_demo_id if played else DEMO_ID
+    entry = round_type(
+        "pistol",
+        1,
+        routes=one_route(steps, won=won, round_no=round_no, demo=demo),
+    )
+    return report([map_report("de_nuke", [side("T", [entry])], played=played)])
+
+
+def route_rows(text: str) -> list[str]:
+    """The route rows of the rendered pistol block, in order."""
+    return [
+        row
+        for row in block(text, "Pistooli").splitlines()
+        if row.startswith("- **") or row.startswith("  ")
+    ]
+
+
+def test_a_group_that_stays_together_writes_the_shared_stretch_once() -> None:
+    """The product owner's rejection of the first two renderings, as a test.
+
+    He asked twice for this: the first mock gave every leaf a whole row and
+    repeated ``4 OutsideTunnel -> 4 UpperTunnel`` four times, and he asked
+    why it repeated. So the stretch appears **once** in the whole block, and
+    the assertion counts rather than matches -- a substring check would pass
+    on the repeating version too.
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 4, 6.0, [
+                    seen("Control", 4, 15.0, [
+                        seen("Ramp", 2, 30.0, [seen("Ramp", 2, 45.0)]),
+                        seen("Hell", 2, 30.0, [seen("Hell", 2, 45.0)]),
+                    ]),
+                ]),
+            ]
+        )
+    )
+    assert route_rows(text)[1:] == [
+        "  - 4 Outside",
+        "    - 4 Control",
+        "      - 2 Ramp -> 2 Ramp",
+        "      - 2 Hell -> 2 Hell",
+    ]
+    assert text.count("4 Control") == 1, text
+
+
+def test_a_terminal_division_is_read_on_one_line() -> None:
+    """The spec's "terminal split" row, in his own words and numbers.
+
+    ``2 Ramp, 1 Heaven, 1 Hell`` is how he wrote it, and it is one row
+    because none of the three goes anywhere afterwards: three rows would
+    spend three lines saying where a round ended.
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 4, 6.0, [
+                    seen("Control", 4, 15.0, [
+                        seen("Ramp", 2, 30.0),
+                        seen("Heaven", 1, 30.0),
+                        seen("Hell", 1, 30.0),
+                    ]),
+                ]),
+            ]
+        )
+    )
+    assert route_rows(text)[1:] == [
+        "  - 4 Outside",
+        "    - 4 Control -> 2 Ramp, 1 Heaven, 1 Hell",
+    ]
+
+
+def test_a_division_that_keeps_moving_is_nested_under_the_point_it_split_at(
+) -> None:
+    """The approved form's own example, rendered.
+
+    Two spaces per list level, and the division is the **nesting**: the row
+    ends where the group came apart and each part is an item one level in,
+    so a reader's eye runs down a column of list markers that a Markdown
+    preview turns into a nested list.
+    """
+    text = render(
+        route_report(
+            [
+                seen("OutsideTunnel", 4, 6.0, [
+                    seen("UpperTunnel", 4, 15.0, [
+                        seen("UpperTunnel", 1, 30.0, [
+                            seen("UpperTunnel", 1, 45.0)
+                        ]),
+                        seen("LowerTunnel", 1, 30.0, [seen("Catwalk", 1, 45.0)]),
+                        seen("Middle", 1, 30.0, [seen("LowerTunnel", 1, 45.0)]),
+                        seen("MidDoors", 1, 30.0, [killed("MidDoors", 37.0)]),
+                    ]),
+                ]),
+                seen("OutsideLong", 1, 6.0, [
+                    seen("TopofMid", 1, 15.0, [
+                        seen("OutsideLong", 1, 30.0, [
+                            seen("OutsideLong", 1, 45.0)
+                        ])
+                    ])
+                ]),
+            ]
+        )
+    )
+    assert route_rows(text)[1:] == [
+        "  - 4 OutsideTunnel",
+        "    - 4 UpperTunnel",
+        "      - 1 UpperTunnel -> 1 UpperTunnel",
+        "      - 1 LowerTunnel -> 1 Catwalk",
+        "      - 1 Middle -> 1 LowerTunnel",
+        "      - 1 MidDoors -> 1 kuoli MidDoors (37 s)",
+        "  - 1 OutsideLong",
+        "    - 1 TopofMid -> 1 OutsideLong -> 1 OutsideLong",
+    ]
+
+
+def test_the_parts_of_one_division_are_siblings_and_not_a_sequence(
+) -> None:
+    """The defect the form pass was called to fix, pinned.
+
+    ``2 Outside`` divides at 30 s into a player who goes on and a player who
+    was killed at 27 s. The old rendering spliced the survivor's chain onto
+    the shared row and shifted the death underneath it, so the death read as
+    something that happened **after** a row ending in a later second -- the
+    seconds ran backwards down the page. They are two parts of one moment
+    and are now two items at one level.
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 4, 6.0, [
+                    seen("Outside", 2, 15.0, [
+                        seen("Mini", 1, 30.0, [seen("Mini", 1, 45.0)]),
+                        killed("Mini", 27.0),
+                    ]),
+                    seen("Vending", 1, 15.0, [
+                        seen("Lobby", 1, 30.0, [seen("Lobby", 1, 45.0)])
+                    ]),
+                    seen("Lobby", 1, 15.0, [
+                        seen("Hut", 1, 30.0, [seen("Hut", 1, 45.0)])
+                    ]),
+                ]),
+            ]
+        )
+    )
+    rows = route_rows(text)[1:]
+    assert rows == [
+        "  - 4 Outside",
+        "    - 2 Outside",
+        "      - 1 Mini -> 1 Mini",
+        "      - 1 kuoli Mini (27 s)",
+        "    - 1 Vending -> 1 Lobby -> 1 Lobby",
+        "    - 1 Lobby -> 1 Hut -> 1 Hut",
+    ]
+    # The two parts of the 30 s division are SIBLINGS, at one indent, and
+    # neither is spliced onto the row that carried the shared stretch.
+    survivor, dead = rows[2], rows[3]
+    assert survivor.index("-") == dead.index("-"), (survivor, dead)
+
+
+def test_a_death_states_its_place_and_its_own_moment() -> None:
+    """``kuoli`` and where, which is the product owner's correction.
+
+    The seconds are the **death's** and not the sample point's -- 27 s under
+    a 30-second point -- which is the whole reason the number is printed.
+    """
+    text = render(
+        route_report([seen("Outside", 1, 6.0, [killed("Mini", 27.0)])])
+    )
+    assert "  - 1 Outside" in text
+    assert "    - 1 kuoli Mini (27 s)" in text
+
+
+def test_a_player_the_sample_lost_is_not_written_as_a_death() -> None:
+    """The two claims the story exists to keep apart, side by side.
+
+    A missing sample point is not evidence of a death, and the row says only
+    what is true: the sample lost the player. Asserted **negatively as
+    well**, because the failure this guards is the row reading as a death.
+
+    The negative assertion covers **the whole block**. It used to be bounded
+    by splitting on ``"- 6 s"``, a token this fixture's block does not
+    contain at all -- so the split was a no-op dressed as a bound, and a
+    reader would have taken the claim to be narrower than it was.
+    """
+    text = render(route_report([seen("Outside", 1, 6.0, [lost(15.0)])]))
+    rows = block(text, "Pistooli")
+    assert "    - 1 poistui otannasta" in rows
+    assert ROUTE_DIED not in rows
+
+
+def test_a_round_that_reached_no_sample_point_says_so_and_claims_no_route(
+) -> None:
+    """The row is written and states why it is empty.
+
+    Dropping it would leave the heading counting a round the reader never
+    sees; writing a bare bold line would leave a heading with nothing under
+    it.
+    """
+    text = render(route_report([]))
+    assert route_rows(text)[1:] == [
+        "  - *kierros ratkesi ennen ensimmäistä näytepistettä*"
+    ]
+
+
+def test_the_rows_heading_says_when_against_whom_and_how_it_ended() -> None:
+    """Three things in one order, and the round number beside them.
+
+    The date and the opponent come from the map's own demo list and not from
+    the route, so this also checks that the join by ``map_demo_id`` holds.
+    """
+    played = [
+        PlayedMap(
+            map_demo_id="1-aaa-0",
+            indexed=True,
+            played_on=date(2026, 9, 20),
+            opponent="popsiCS",
+        )
+    ]
+    text = render(
+        route_report(
+            [seen("Outside", 1, 6.0)], won=True, round_no=13, played=played
+        )
+    )
+    assert (
+        "- **2026-09-20, vastustaja popsiCS -- voitto** (kierros 13)" in text
+    )
+
+
+@pytest.mark.parametrize(
+    ("won", "expected"),
+    [(True, "voitto"), (False, "häviö"), (None, "kierroksen tulos ei tiedossa")],
+)
+def test_every_outcome_including_the_unread_one_is_written_out(
+    won: bool | None, expected: str
+) -> None:
+    """Three states and three words, and the third is not a defeat.
+
+    ``won`` is nullable in the classified table, so an unread outcome is a
+    gap in the recording. It borrows the block record's own wording, because
+    it is the same state of the same column.
+    """
+    text = render(route_report([seen("Outside", 1, 6.0)], won=won))
+    assert f"-- {expected}** ({ROUND_LABEL} 1, " in text
+
+
+def test_a_hand_imported_demo_says_it_is_not_in_the_index() -> None:
+    """The same phrase the map's own demo list uses, for the same absence.
+
+    Two "not known" marks side by side would read as two independent gaps;
+    the demo has neither a date nor an opponent for one single reason.
+    """
+    text = render(route_report([seen("Outside", 1, 6.0)]))
+    assert (
+        f"- **{MATCH_NOT_INDEXED} -- voitto** (kierros 1, "
+        f"{_identifier(DEMO_ID)})" in text
+    )
+
+
+def test_a_route_whose_demo_the_map_does_not_list_carries_the_id() -> None:
+    """A hand-edited report, and the one thing about it that is certainly
+    true.
+
+    ``aggregate`` cannot produce this -- a map's routes are built from the
+    map's own rows -- and the row must not print :data:`MATCH_NOT_INDEXED`,
+    which would be a **claim about the match index** for a demo that may
+    well be in it under another map.
+    """
+    played = [
+        PlayedMap(
+            map_demo_id="1-aaa-0",
+            indexed=True,
+            played_on=date(2026, 9, 20),
+            opponent="popsiCS",
+        )
+    ]
+    entry = round_type(
+        "pistol", 1, routes=one_route([seen("Outside", 1, 6.0)], demo="elsewhere")
+    )
+    text = render(
+        report([map_report("de_nuke", [side("T", [entry])], played=played)])
+    )
+    assert "- **`elsewhere` -- voitto** (kierros 1)" in text
+    assert "ei otteluindeksissä -- voitto" not in text
+
+
+def test_the_routes_come_before_the_blocks_observation_rows() -> None:
+    """His sketch's order: the route is what the pistol block is about.
+
+    Set after the marginal distributions they would read as a footnote to
+    them, which is the opposite of what he asked for.
+    """
+    text = render(
+        route_report([seen("Outside", 1, 6.0)])
+    )
+    rows = block(text, "Pistooli").splitlines()
+    first_observation = next(
+        index
+        for index, row in enumerate(rows)
+        if row.startswith("- ensimmäinen kuolema")
+    )
+    assert rows[0].startswith(f"- **{MATCH_NOT_INDEXED} -- voitto**"), rows
+    assert rows[1] == "  - 1 Outside", rows
+    assert first_observation == 2, rows
+
+
+def test_the_reading_guide_explains_the_route_only_where_there_is_one() -> None:
+    """Flagged, like the two match-index notes and unlike the record's.
+
+    A report with no pistol block would otherwise carry a paragraph defining
+    an indentation that appears nowhere in it -- the same rule the unindexed
+    demo's note follows.
+    """
+    with_route = render(route_report([seen("Outside", 1, 6.0)]))
+    without = render(
+        report([map_report("de_nuke", [side("T", [round_type("eco", 1)])])])
+    )
+    assert "Pistoolilohkon rivit kertovat reitin" in with_route
+    assert "Pistoolilohkon rivit kertovat reitin" not in without
+    assert "poistui otannasta" in with_route
+    assert "poistui otannasta" not in without
+
+
+def test_the_reading_guide_says_the_arrow_is_not_adjacency() -> None:
+    """The spec's "Never", written where the reader meets the arrow.
+
+    These are positions several seconds apart, and the product owner
+    corrected exactly that reading once, on ``Ruins -> Banana 27``: the way
+    goes through an area the sampling never saw.
+    """
+    guide = render(route_report([seen("Outside", 1, 6.0)])).split("## Lukuohje")[1]
+    assert "ei tarkoita, että alueet olisivat vierekkäin" in guide
+
+
+def test_the_reading_guide_denies_that_a_rows_end_is_the_rounds_end() -> None:
+    """The one sentence that tells the reader how to read the end of a row.
+
+    It said *"kierros oli jo ohi"* and was **wrong for 95.6 per cent of the
+    rows it described**: measured over the archive, 280 of the 293 rounds
+    that reach the grid's last point record a death after it, so the usual
+    reason a row stops is that the sampling ran out while the round ran on.
+
+    The negative assertion is the one that matters: a sentence that merely
+    mentions the grid while still telling the reader the round was over
+    would satisfy a positive check on its own.
+    """
+    guide = render(route_report([seen("Outside", 1, 6.0)])).split("## Lukuohje")[1]
+    assert "Rivin loppuminen ei tarkoita, että kierros olisi ohi" in guide
+    assert "otanta loppui kesken kierroksen" in guide
+    assert "kierros oli jo ohi" not in guide
+
+
+def test_an_unnamed_area_on_a_route_is_marked_and_explained() -> None:
+    """A living tick the game gave no place name is the report's own
+    ``tuntematon alue``.
+
+    It raises the same flag every other area row raises, so the reading
+    guide's existing paragraph covers it -- and it is emphatically not
+    "poistui otannasta", which is a player the sample lost.
+    """
+    text = render(route_report([seen(None, 1, 6.0)]))
+    assert "  - 1 tuntematon alue" in text
+    assert "tuntematon alue: pelin aluenimeä ei saatu" in text
+    assert "poistui otannasta" not in block(text, "Pistooli")
+
+
+def test_an_area_name_from_a_workshop_map_cannot_break_the_row() -> None:
+    """The fourth string the demo gives, escaped as the other three are.
+
+    An area is free text out of ``m_szLastPlaceName``; unescaped, a name
+    holding an asterisk would set the rest of the chapter in italics -- and
+    the row carries the claim.
+    """
+    text = render(route_report([seen("*|Aim|* Botz", 1, 6.0)]))
+    assert r"  - 1 \*\|Aim\|\* Botz" in text
+
+
+@pytest.mark.parametrize(
+    ("played_on", "opponent", "expected"),
+    [
+        (None, "popsiCS", "päivämäärä ei tiedossa, vastustaja popsiCS"),
+        (date(2026, 9, 20), None, "2026-09-20, vastustaja ei tiedossa"),
+        (None, None, "päivämäärä ei tiedossa, vastustaja ei tiedossa"),
+    ],
+)
+def test_an_indexed_demo_writes_out_whichever_half_is_missing(
+    played_on: date | None, opponent: str | None, expected: str
+) -> None:
+    """Two parts in one order, and neither is dropped when it is absent.
+
+    ``_played_map_line``'s rule, and the same reason: a dropped part would
+    move the other, and a reader scanning four rows for a date would find a
+    name in its place. They are independent -- 35 of the archive's 66
+    indexed matches carry no finish time and every one of them can still be
+    named -- so all three combinations are written out.
+
+    Not one of them is :data:`MATCH_NOT_INDEXED`, which means something
+    else: the index does not hold the match at all.
+    """
+    played = [
+        PlayedMap(
+            map_demo_id="1-aaa-0",
+            indexed=True,
+            played_on=played_on,
+            opponent=opponent,
+        )
+    ]
+    text = render(route_report([seen("Outside", 1, 6.0)], played=played))
+    assert f"- **{expected} -- voitto** (kierros 1)" in text
+    assert "ei otteluindeksissä" not in block(text, "Pistooli")
+
+
+def test_a_deaths_second_is_rounded_and_not_truncated() -> None:
+    """The one place the two differ, pinned without the archive.
+
+    Measured 2026-09-25: mutating ``round`` to ``int`` left **839
+    non-archive tests passing**, because every other fixture's death lands
+    on a whole second. The archive's own ``t_s`` is four decimals, so this
+    is the shape of every real row and not a corner.
+
+    Both directions are here, because a rounding is two claims: 21.9531
+    must not read as the second before it, and 26.4 must not read as the
+    second after.
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 2, 6.0, [
+                    killed("Lobby", 21.9531),
+                    killed("Mini", 26.4),
+                ]),
+            ]
+        )
+    )
+    assert "1 kuoli Lobby (22 s)" in text
+    assert "1 kuoli Mini (26 s)" in text
+    assert "(21 s)" not in text
+
+
+def test_a_half_second_rounds_to_even_and_the_guide_does_not_promise_otherwise(
+) -> None:
+    """``round`` is half-to-even, and the docstring says so rather than
+    hiding it.
+
+    26.5 s prints ``26`` and 27.5 s prints ``28``. It is pinned because it
+    is surprising, not because it is right: the archive's ``t_s`` is tick
+    arithmetic and never lands on an exact half, so this is a property of
+    the stdlib call and the place a future reader will trip.
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 2, 6.0, [
+                    killed("Lobby", 26.5),
+                    killed("Mini", 27.5),
+                ]),
+            ]
+        )
+    )
+    assert "1 kuoli Lobby (26 s)" in text
+    assert "1 kuoli Mini (28 s)" in text
+
+
+def test_a_block_whose_rounds_reached_no_sample_point_gets_no_route_guide(
+) -> None:
+    """The flag counts **rows**, and this is the state that tells them apart.
+
+    Measured 2026-09-25: gating the flag on ``entry.routes`` instead of on
+    the rows they render left all 784 non-archive tests passing, because no
+    fixture held a pistol block made only of rounds that reached no sample
+    point. Such a block prints the note and not one route row, so the
+    guide's two paragraphs would define an indentation, an arrow and a
+    ``poistui otannasta`` that appear nowhere in the report -- which is the
+    exact failure ``_Flags.routes_shown`` exists to prevent.
+    """
+    text = render(route_report([]))
+    assert "*kierros ratkesi ennen ensimmäistä näytepistettä*" in text
+    assert ROUTE_ARROW not in block(text, "Pistooli")
+    assert "Pistoolilohkon rivit kertovat reitin" not in text
+    assert "Rivin loppuminen ei tarkoita" not in text
+
+
+def test_a_player_the_sample_lost_and_finds_again_keeps_their_route() -> None:
+    """The rendered half of the ``gone`` continuation.
+
+    The domain builds the branch; this is what the reader sees of it. The
+    row must **not** stop at the loss, because the two areas under it are
+    positions the archive really holds.
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 1, 6.0),
+                RouteStep(
+                    fate="gone",
+                    seconds=6.0,
+                    area=None,
+                    players=1,
+                    steps=[seen("Lobby", 1, 15.0, [seen("Hut", 1, 30.0)])],
+                ),
+            ]
+        )
+    )
+    assert "  - 1 poistui otannasta" in text
+    assert "    - 1 Lobby -> 1 Hut" in text
+
+
+# --- The form pass (Story 4.11, review round 2) ---------------------------------
+
+
+def test_every_route_row_is_a_markdown_list_item() -> None:
+    """The shape a Markdown preview needs, asserted without a renderer.
+
+    **Why this is a test and not a matter of taste.** The rows used to open
+    with ``-> ``, which is not a list marker. Rendered through CommonMark --
+    which is how the product owner reads the report -- those lines were lazy
+    continuations of the paragraph in the item above, **every space of their
+    indentation was discarded**, and a whole block collapsed into one line:
+    a reader saw an eleven-step chain where the data held a division. That
+    is the one misreading this story exists to prevent.
+
+    Three properties, and each is a different way to break it again:
+
+    * every row is a list item (``- `` after its indent), so nothing is a
+      lazy continuation;
+    * every indent is a whole number of two-space levels, so a marker never
+      lands between columns;
+    * no row jumps more than one level deeper than the row before it, which
+      is what CommonMark needs to nest rather than to start a new list.
+
+    Asserted on the raw rows and not through a Markdown library on purpose:
+    a rendering dependency in the test suite would be a second thing to keep
+    working for a property the shape itself states.
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 3, 6.0, [
+                    seen("Outside", 2, 15.0, [
+                        seen("Mini", 1, 30.0, [seen("Mini", 1, 45.0)]),
+                        killed("Mini", 27.0),
+                    ]),
+                    seen("Lobby", 1, 15.0, [seen("Hut", 1, 30.0)]),
+                ]),
+                seen("TSpawn", 1, 6.0, [seen("Outside", 1, 15.0)]),
+            ]
+        )
+    )
+    rows = [row for row in route_rows(text) if row.startswith(" ")]
+    assert len(rows) >= 5, rows
+
+    levels = []
+    for row in rows:
+        indent = len(row) - len(row.lstrip(" "))
+        assert indent % 2 == 0, row
+        assert row[indent:].startswith("- "), row
+        assert not row.lstrip().startswith(ROUTE_ARROW), row
+        levels.append(indent // 2)
+
+    assert min(levels) == 1, levels
+    for before, after in zip(levels, levels[1:], strict=False):
+        assert after <= before + 1, (before, after, rows)
+
+
+def test_no_part_of_a_division_is_spliced_onto_the_row_above_it() -> None:
+    """The row ends at the division point. Every part, no exceptions.
+
+    The old rendering gave the **first** part's chain to the parent's row
+    and only the rest their own, which made one arbitrary part look like the
+    continuation of the group and the others like afterthoughts. Here the
+    group divides three ways at 15 s: the row carrying ``4 Outside`` must
+    end there, and all three parts must be at one level under it.
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 4, 6.0, [
+                    seen("Lobby", 2, 15.0, [seen("Hut", 2, 30.0)]),
+                    seen("Vending", 1, 15.0, [seen("Mini", 1, 30.0)]),
+                    seen("Ramp", 1, 15.0, [seen("Heaven", 1, 30.0)]),
+                ]),
+            ]
+        )
+    )
+    assert route_rows(text)[1:] == [
+        "  - 4 Outside",
+        "    - 2 Lobby -> 2 Hut",
+        "    - 1 Vending -> 1 Mini",
+        "    - 1 Ramp -> 1 Heaven",
+    ]
+
+
+def test_two_deaths_that_print_alike_are_written_once_with_their_count() -> None:
+    """The near-tie merge, inline.
+
+    26.4 s and 26.49 s are two observations in the model and round to the
+    same second, so unmerged the reader is shown ``1 kuoli Mini (26 s)``
+    twice and cannot tell one death written twice from two. Merged it reads
+    as the same two deaths at an identical moment always have --
+    ``aggregate`` groups those into one step, so without this the rendering
+    disagreed with itself either side of a rounding boundary.
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 3, 6.0, [
+                    killed("Mini", 26.4),
+                    killed("Mini", 26.49),
+                    killed("Lobby", 19.0),
+                ]),
+            ]
+        )
+    )
+    assert route_rows(text)[1:] == [
+        "  - 3 Outside",
+        "    - 2 kuoli Mini (26 s), 1 kuoli Lobby (19 s)",
+    ]
+
+
+def test_deaths_a_second_apart_stay_two_parts() -> None:
+    """The merge is on the **printed** text and nothing wider.
+
+    Two deaths that round to different seconds are two claims the reader can
+    act on separately, and merging them would hide a real difference. The
+    boundary is exactly "would these two rows read alike".
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 2, 6.0, [
+                    killed("Mini", 26.4),
+                    killed("Mini", 27.6),
+                ]),
+            ]
+        )
+    )
+    assert route_rows(text)[1:] == [
+        "  - 2 Outside",
+        "    - 1 kuoli Mini (26 s), 1 kuoli Mini (28 s)",
+    ]
+
+
+def test_parts_that_print_alike_but_carry_branches_stay_apart() -> None:
+    """Only leaves merge, and a branch is never a leaf.
+
+    Two parts whose heads read the same still went different ways, so the
+    rows are not the same row however they begin -- merging them would throw
+    one of the two journeys away. The heads here are identical by
+    construction.
+    """
+    text = render(
+        route_report(
+            [
+                seen("Outside", 2, 6.0, [
+                    RouteStep(
+                        fate="gone", seconds=15.0, area=None, players=1,
+                        steps=[seen("Lobby", 1, 30.0)],
+                    ),
+                    RouteStep(
+                        fate="gone", seconds=15.0, area=None, players=1,
+                        steps=[seen("Ramp", 1, 30.0)],
+                    ),
+                ]),
+            ]
+        )
+    )
+    assert route_rows(text)[1:] == [
+        "  - 2 Outside",
+        "    - 1 poistui otannasta -> 1 Lobby",
+        "    - 1 poistui otannasta -> 1 Ramp",
+    ]
+
+
+def test_an_unindexed_demo_is_told_apart_by_its_id() -> None:
+    """Two rows that would otherwise be the same row.
+
+    An unindexed demo has no date and no opponent, so two of them on one map
+    whose pistol rounds share a number and an outcome render identically --
+    the confusion :meth:`~pappascout.domain.report.RoundTypeReport
+    ._check_routes_are_the_round_types_own_rounds` refuses one layer up, let
+    through by the rendering. The id is what tells them apart, exactly as it
+    does on the map's own demo list.
+    """
+    played = hand_imported("Nuke_vs_a", "Nuke_vs_b")
+    entry = round_type(
+        "pistol",
+        2,
+        routes=[
+            RoundRoute(
+                map_demo_id=demo, round_no=1, won=True,
+                steps=[seen("Outside", 1, 6.0)],
+            )
+            for demo in ("Nuke_vs_a", "Nuke_vs_b")
+        ],
+        record=RoundRecord(wins=2, losses=0, unknown=0),
+        demos=2,
+    )
+    text = render(
+        report([map_report("de_nuke", [side("T", [entry], demos=2)], played=played)])
+    )
+    headings = [row for row in route_rows(text) if row.startswith("- **")]
+    assert headings == [
+        f"- **{MATCH_NOT_INDEXED} -- voitto** (kierros 1, `Nuke_vs_a`)",
+        f"- **{MATCH_NOT_INDEXED} -- voitto** (kierros 1, `Nuke_vs_b`)",
+    ]
+    assert len(set(headings)) == 2, headings
+
+
+def test_an_indexed_demo_carries_no_id_on_the_row() -> None:
+    """The id is on the row only where it is the row's only identifier.
+
+    An indexed row is already told apart by its date and its opponent, and
+    an id on it would do the traceability chapter's work twice in the body
+    -- which is the rule the report keeps everywhere else.
+    """
+    played = [
+        PlayedMap(
+            map_demo_id="1-aaa-0",
+            indexed=True,
+            played_on=date(2026, 9, 20),
+            opponent="popsiCS",
+        )
+    ]
+    text = render(
+        route_report([seen("Outside", 1, 6.0)], played=played)
+    )
+    assert "(kierros 1)" in text
+    assert "1-aaa-0" not in block(text, "Pistooli")
+
+
+def test_the_reading_guide_calls_the_division_a_nesting() -> None:
+    """The guide describes the carrier the form actually uses.
+
+    It described **indentation**, which a Markdown preview discards; the
+    rows are list items now and the division is the nesting. The paragraph
+    also has to say the thing a nested list does not say by itself: rows at
+    one level are alternatives to each other and not a sequence, which is
+    why their seconds are not in increasing order.
+    """
+    guide = render(route_report([seen("Outside", 1, 6.0)])).split("## Lukuohje")[1]
+    assert "Jakautuminen on listan sisennys, ei nuoli" in guide
+    assert "toistensa vaihtoehtoja" in guide

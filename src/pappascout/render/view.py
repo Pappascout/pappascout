@@ -173,7 +173,9 @@ from pappascout.domain.report import (
     Position,
     Report,
     RoundRecord,
+    RoundRoute,
     RoundTypeReport,
+    RouteStep,
     UtilityCounts,
     UtilityUse,
 )
@@ -456,6 +458,99 @@ RECORD_VERB = "voitettu"
 #:
 #: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
 RECORD_UNKNOWN_OUTCOME = "kierroksen tulos ei tiedossa"
+
+#: The outcome on a pistol round's own row (Story 4.11). The product owner
+#: asked for it on 2026-09-25, in the words recorded in
+#: ``raportin-muoto-2026-09-25.md``: he could not tell from the row how the
+#: round had ended, and asked whether it could say which of the two it was.
+#:
+#: **One word and not a verb phrase**, unlike :data:`RECORD_VERB` beside it,
+#: and the difference is the unit: the record counts a block's rounds and
+#: needs a verb to say what the count is of, whereas this labels **one**
+#: round, where the outcome is the whole statement.
+#:
+#: A round whose outcome was not read takes :data:`RECORD_UNKNOWN_OUTCOME` --
+#: the same string the block's record uses, because it is the same state of
+#: the same nullable column, and two wordings for it would read as two
+#: different gaps.
+#:
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+ROUND_WON = "voitto"
+
+#: The other outcome. See :data:`ROUND_WON`.
+ROUND_LOST = "häviö"
+
+#: How a round is named on its own row: ``(kierros 13)``.
+#:
+#: The number is on the row because the reader's next act is to open the demo
+#: at that round -- the same reason :class:`~pappascout.domain.report
+#: .AnomalyRound` carries one. It is the **played** round number, so 1 and 13
+#: are regulation time's two pistol rounds.
+#:
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+ROUND_LABEL = "kierros"
+
+#: How a route states a death: ``1 kuoli Mini (27 s)``.
+#:
+#: The product owner's own word and his correction, 2026-09-25: he asked for
+#: this verb in place of the mock's, and for the place to be stated as well.
+#: The place is ``victim_area`` and the moment ``t_s``, both read from
+#: ``parsed/<map_demo_id>/deaths.parquet`` -- **measured and never inferred
+#: from a missing sample point**, which is the defect the first mock shipped.
+ROUTE_DIED = "kuoli"
+
+#: What a route says about a player it cannot account for: the sample point
+#: exists, the player has no row on it, and no death record places them.
+#:
+#: **It is not a death and must not read as one.** The three claims this
+#: story keeps apart are *"nobody went there"*, *"nobody was alive to go
+#: anywhere"* and *"the round was already over"*; this string is the honest
+#: form of the second where the archive holds no proof of it.
+#:
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+ROUTE_GONE = "poistui otannasta"
+
+#: What a pistol round's row says when the round reached no sample point at
+#: all -- settled inside the first of them, so there is no route to state.
+#:
+#: The row is still written. Dropping it would leave the block's heading
+#: counting a round the reader never sees, and the shorter list would be
+#: taken for the sample.
+#:
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+ROUTE_NO_SAMPLE = "kierros ratkesi ennen ensimmäistä näytepistettä"
+
+#: The arrow between two sample points **within one row**.
+#:
+#: **It is not adjacency and the reading guide says so** (Story 4.11,
+#: "Never"): these are positions several seconds apart, so ``A -> B`` means
+#: the players were in A and then in B, not that A touches B. The product
+#: owner corrected exactly that reading once, on ``Ruins -> Banana 27``.
+#:
+#: **It never begins a row.** A row is a Markdown list item and starts with
+#: its marker; the arrow only ever joins moments a group passed through
+#: while it stayed together. Where a group divides, the division is the
+#: **nesting** and not an arrow -- which is what lets a reader tell "these
+#: four happened one after another" from "these four happened instead of
+#: each other".
+ROUTE_ARROW = "->"
+
+#: One level of **list nesting** under the point a group divided at.
+#:
+#: The shape is the product owner's, settled 2026-09-25 after he rejected
+#: two renderings: the first put every leaf on a full row and he asked why
+#: the shared stretch repeated; the second indented but repeated it still.
+#: So the shared stretch is written **once** and only the parts that
+#: separated are nested under it.
+#:
+#: **Two spaces and not four, because the rows are list items.** Every route
+#: row opens with ``- ``, and a nested list has to start at or past the
+#: content column of the item above it -- which two spaces per level gives
+#: exactly (``  - `` -> ``    - `` -> ``      - ``). The four-space version
+#: belonged to rows that opened with ``-> ``, and those were not list items
+#: at all: CommonMark read them as lazy paragraph continuations and threw
+#: the indentation away. See :func:`_route_rows`.
+ROUTE_INDENT = "  "
 
 #: The record the reading guide shows as its example, as a record and not as
 #: text: the guide's sentence runs it through :func:`record_text`, the same
@@ -784,6 +879,46 @@ class AnomalyView:
 
 
 @dataclass(frozen=True)
+class RouteView:
+    """One pistol round's block: whose round it was, and the way they came.
+
+    ``heading`` is the round's identity -- when, against whom, and how it
+    ended -- and ``round_text`` the round number beside it. Two fields and
+    not one, because the template sets the first in bold and the second
+    outside it, which is the product owner's own shape.
+
+    ``rows`` is **already-formatted Markdown list items, marker and
+    indentation included**, for :attr:`AnomalyView.rounds`' reason and one
+    of its own. The reason it shares: a row carries no sample of its own, so
+    :class:`Claim`'s contract ("a claim cannot be built without a sample")
+    does not hold for it. The reason of its own: the row's *nesting is its
+    meaning* -- a division sits one list level under the point it divided at
+    -- and a tuple of ``(depth, text)`` pairs would move the decision of how
+    a level is spelled into the template, which is where it was in the first
+    mock and where it was hardest to read.
+
+    **A row is a real list item and not an indented line.** The rows once
+    opened with ``-> ``, and a Markdown preview -- which is how the report
+    is read -- discarded every space of their indentation and ran a whole
+    block together into one line. Whoever changes this shape has to check it
+    through a CommonMark renderer and not by eye: the indentation looks
+    right in the raw file either way, and that is exactly why the defect
+    survived to be shipped.
+
+    ``note`` is filled in **instead of** ``rows`` when the round reached no
+    sample point at all (:data:`ROUTE_NO_SAMPLE`). Exactly one of the two is
+    ever set: a block with neither would be a bold heading with nothing under
+    it, which is the shape :class:`SideView`'s note exists to prevent one
+    level up.
+    """
+
+    heading: str
+    round_text: str
+    rows: tuple[str, ...] = ()
+    note: str | None = None
+
+
+@dataclass(frozen=True)
 class RoundTypeView:
     """One round type's part on one map and side."""
 
@@ -799,6 +934,20 @@ class RoundTypeView:
     pattern_only: bool
     lines: tuple[Line, ...]
     notes: tuple[str, ...] = ()
+    #: One block per round of this type, newest match first -- empty on every
+    #: type but the pistol (Story 4.11).
+    #:
+    #: **First in the block and before** :attr:`lines`, which is a content
+    #: decision and the product owner's: his sketch puts ``date - opponent -
+    #: reitti`` directly under the side's heading, so the route is what the
+    #: pistol block is *about* and the marginal distributions are what is
+    #: known besides. Set after the rows, they would read as the block's
+    #: findings and the route as a footnote to them.
+    #:
+    #: The default is empty only because the field was added to an existing
+    #: class; :func:`build_view` fills it in always, from a list the model
+    #: holds to being exactly as long as the block's sample.
+    routes: tuple[RouteView, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -974,6 +1123,26 @@ class _Flags:
     utility_targets_capped: bool = False
     #: Rule 5 shortened at least one kill row. The same rationale.
     kill_areas_capped: bool = False
+    #: At least one pistol round printed a **route row** (Story 4.11). The
+    #: reading guide then explains how one is read -- the indentation, the
+    #: arrow that is not adjacency, the difference between a death and a
+    #: player the sample lost, and what the end of a row does *not* mean.
+    #:
+    #: Flagged and not unconditional, for :attr:`unindexed_demo`'s reason: on
+    #: a report with no pistol block the paragraphs would explain rows that
+    #: are nowhere in it.
+    #:
+    #: **Rows and not routes, and the difference is a live state rather than
+    #: a nicety.** A round that reached no sample point is a real
+    #: :class:`~pappascout.domain.report.RoundRoute` that renders as the
+    #: :data:`ROUTE_NO_SAMPLE` note and no rows at all, so a block made only
+    #: of those would have raised a flag counting routes and printed two
+    #: paragraphs about an indentation the reader never meets. That is the
+    #: exact failure this flag exists to prevent, one level in.
+    #:
+    #: Raised in :func:`build_view` and not through :meth:`absorb`, because
+    #: the routes are not a row pruning can remove.
+    routes_shown: bool = False
 
     def absorb(self, other: "_Flags", *, keep: bool) -> None:
         """Merge one row's flags into the whole report's bookkeeping.
@@ -1314,8 +1483,10 @@ def _seconds(value: float) -> str:
     the same on the row" uses the same function. As two copies they would
     agree only today.
 
-    The name stays here, because this module uses it in twenty places and not
-    one of them is a settings match.
+    The name stays here, because this module calls it in **nine** places and
+    not one of them is a settings match. (The count said "twenty" until
+    2026-09-25, when it was counted rather than recalled; Story 4.11 added
+    the ninth.)
     """
     return seconds_label(value)
 
@@ -2559,12 +2730,336 @@ def _repetition_requirement(threshold: int, rounds: int) -> str:
     return f"vähintään {threshold} kierroksella"
 
 
+def _route_step_text(step: RouteStep, flags: _Flags) -> str:
+    """One group at one moment, as the row reads it.
+
+    Three forms for :data:`~pappascout.domain.report.RouteFate`'s three
+    values, and they are three because the story exists to keep three claims
+    apart:
+
+    ``seen``
+        ``4 Control`` -- this many players were observed there. An area the
+        game gave no name to reads :data:`UNKNOWN_AREA`, exactly as every
+        other area row in the report does: it is an **observed position the
+        map does not name**, not a player who went missing.
+    ``died``
+        ``1 kuoli Mini (27 s)`` -- the place and the moment, both from
+        ``deaths.parquet``. The moment is the death's own and not the sample
+        point's, which is why the seconds are worth printing at all.
+
+        **Whole seconds**, as the approved form writes them, and **rounded
+        and not truncated**: the archive's own values are ``t_s`` to four
+        decimals (21.9531), and truncating that to 21 states a second that
+        did not happen when 22 is the same number of characters. The
+        rounding goes through :func:`_seconds` rather than a format string
+        of its own, so the decimal mark stays the one the rest of the report
+        uses. One decimal, as the first-death median carries, would claim a
+        precision the reader has no use for on a single round.
+
+        **``round`` is half-to-even**, so 26.5 s prints ``26`` and 27.5 s
+        prints ``28``. That is stated rather than fixed: the argument above
+        is about a whole second of error and this is half of one, the
+        archive's ``t_s`` is tick arithmetic that never lands on an exact
+        half, and a hand-rolled half-up rounder would be a second spelling
+        of a number the report already knows how to print.
+    ``gone``
+        ``1 poistui otannasta`` -- the sample point exists, the player has no
+        row on it, and nothing accounts for them. No area, because there is
+        none to state.
+
+    An unnamed area raises :attr:`_Flags.unknown_area` on **both** of the
+    first two forms and on neither's account in particular: the game names no
+    place for a death either (``victim_area`` is nullable), and the reading
+    guide's one paragraph covers the mark wherever it is printed.
+    """
+    return f"{step.players} {_route_step_label(step, flags)}"
+
+
+def _route_step_label(step: RouteStep, flags: _Flags) -> str:
+    """The same text **without the player count** in front of it.
+
+    Split out for :func:`_route_parts`, which merges sibling leaves whose
+    text is identical: the merge adds the counts up, so it has to compare
+    what is left after the count. Nothing else should call it -- a label on
+    its own is a group with no size, which is not a claim this report makes.
+    """
+    if step.fate == "gone":
+        return ROUTE_GONE
+    if step.area is None:
+        flags.unknown_area = True
+    if step.fate == "died":
+        return (
+            f"{ROUTE_DIED} {_area(step.area)} "
+            f"({_seconds(round(step.seconds))} s)"
+        )
+    return _area(step.area)
+
+
+def _route_parts(
+    steps: Sequence[RouteStep], flags: _Flags
+) -> list[tuple[str, RouteStep | None]]:
+    """One part per row of a division, **leaves that print alike merged**.
+
+    Two deaths in one area at 26.4 s and 26.49 s are two observations in the
+    model and print the same sentence, so as two parts the reader is shown
+    ``1 kuoli Mini (26 s)`` twice and has to guess whether that is one death
+    written twice or two. Merged, it is ``2 kuoli Mini (26 s)``, which is
+    what the same two deaths at an identical moment have always produced --
+    ``aggregate`` groups those into one step (:func:`~pappascout.domain
+    .aggregate._route_steps`), and until this merge existed the rendering
+    disagreed with itself either side of a rounding boundary.
+
+    **The merge is here and not in ``domain``**, and that boundary is the
+    point: whether two moments print alike is a question about the spelling
+    of a second, and the model must not know how anything is spelled. It
+    keeps the measured moments; this layer merges what it has just decided
+    to show as the same.
+
+    **Only leaves merge.** A part that still has steps carries a branch of
+    its own, so two of them are never the same row however their heads read.
+
+    Returns:
+        ``(text, step)`` per part in order, the step being ``None`` for a
+        merged leaf -- there is no single step such a part came from, and
+        the caller has nothing left to follow.
+    """
+    parts: list[tuple[int, str, RouteStep | None]] = []
+    for step in steps:
+        label = _route_step_label(step, flags)
+        if step.steps:
+            parts.append((step.players, label, step))
+            continue
+        for index, (count, seen, owner) in enumerate(parts):
+            if owner is None and seen == label:
+                parts[index] = (count + step.players, seen, None)
+                break
+        else:
+            parts.append((step.players, label, None))
+    return [(f"{count} {label}", owner) for count, label, owner in parts]
+
+
+def _route_chain(
+    steps: Sequence[RouteStep], depth: int, flags: _Flags
+) -> list[tuple[int, str]]:
+    """Follow a group until it divides, then give the parts rows of their own.
+
+    **The shared stretch is written once.** That is the product owner's
+    decision of 2026-09-25 and the one he arrived at by rejecting two
+    renderings: the first gave every leaf a full row and repeated
+    ``4 OutsideTunnel -> 4 UpperTunnel`` four times, and he asked why it
+    repeated; the second indented and repeated it still.
+
+    So the three shapes, and there are only three:
+
+    * **A group that stays together grows the row.** One part -> its text
+      joins the chain with an arrow and the walk goes on into that part.
+      This holds whatever that part's fate is: a single death ends the row
+      it is on (``1 Mini -> 1 kuoli Mini (36 s)``), and a single ``gone``
+      that the sample finds again carries on through it.
+    * **A division that goes no further is read inline**, on the row it
+      divided on: ``4 Control -> 2 Ramp, 1 Heaven, 1 Hell``. "No further"
+      means not one part carries a step after this moment.
+    * **A division whose parts move on ends the row at the division point**,
+      and every part gets a row of its own one level in. **No part is
+      spliced onto the parent's row.**
+
+    **The splice is what this function used to do, and it put the seconds
+    backwards on the page.** The first part's chain was joined to the shared
+    row and the remaining parts were shifted underneath it, so on the
+    archive's 2026-09-06 ``de_nuke`` T pistol round ``1 kuoli Mini (26 s)``
+    sat indented beneath a row ending ``1 kuoli Mini (36 s)`` -- reading as
+    something that happened *after* a death ten seconds later, when the two
+    are siblings of one division at the 30 s point. Every part now sits at
+    the same level as its siblings, because that is what they are. The
+    ``shift`` arithmetic that computed the old offsets is gone with it.
+
+    Returns:
+        ``(depth, text)`` pairs, the depth in **list nesting levels**.
+        :func:`_route_rows` turns them into list items; this function owns
+        the shape and not the markers.
+    """
+    segments: list[str] = []
+    while steps:
+        if len(steps) == 1:
+            segments.append(_route_step_text(steps[0], flags))
+            steps = steps[0].steps
+            continue
+        parts = _route_parts(steps, flags)
+        if all(owner is None for _, owner in parts):
+            segments.append(", ".join(text for text, _ in parts))
+            break
+        rows = [(depth, f" {ROUTE_ARROW} ".join(segments))] if segments else []
+        # The parts sit one level under the row that carried the shared
+        # stretch -- and at the same level as it when there was none, which
+        # is a group that divided at the very first moment it was followed to.
+        below = depth + 1 if segments else depth
+        for text, owner in parts:
+            if owner is None:
+                rows.append((below, text))
+            else:
+                rows.extend(_route_chain([owner], below, flags))
+        return rows
+    return [(depth, f" {ROUTE_ARROW} ".join(segments))] if segments else []
+
+
+def _route_rows(route: RoundRoute, flags: _Flags) -> tuple[str, ...]:
+    """One round's route as the lines the template sets.
+
+    The first moment is a bullet of its own for every starting group -- the
+    product owner's shape, and the reason is that a side does not always
+    leave from one place. Measured 2026-09-25 on the rendered archive: all
+    three of ``de_dust2`` CT pistol's rounds start from **four** places,
+    against two on ``de_nuke`` T pistol, because a defence spreads to hold
+    positions and does not travel as a body. The block is therefore several
+    short rows, and **that is the finding** rather than a rendering fault
+    (Story 4.11's frozen Always, where it is a reading note since both sides
+    were asked for). Both of those blocks are pinned whole in
+    ``tests/data/pistol_routes.json``, so the claim fails there if it stops
+    being true.
+
+    Everything after the first moment is a chain under its start
+    (:func:`_route_chain`), and every row is a **real Markdown list item**
+    nested under the row above it.
+
+    **That is a correction and the reason is measured.** The rows used to
+    open with ``-> ``, which is not a list marker, so in a Markdown preview
+    -- which is how the product owner reads the report -- CommonMark took
+    them as lazy continuations of the paragraph in the list item above and
+    **discarded every space of the indentation**. Rendered in a browser the
+    newlines became spaces and a whole block collapsed into one line: a
+    reader saw ``4 Outside -> 2 Outside -> 1 Mini -> ... -> 1 Vending ...``
+    as a single eleven-step chain, which is exactly the "one group travelled
+    all of this" misreading this story exists to prevent. Verified both
+    ways through ``markdown-it-py``: with list markers the nesting survives
+    as nested ``<ul>``.
+
+    So the indentation is **two spaces per level**, which is what puts each
+    marker at or past the content column of the item above it, and the row
+    depth is a list level rather than a decoration.
+    """
+    rows: list[str] = []
+    for start in route.steps:
+        rows.append(f"{ROUTE_INDENT}- {_route_step_text(start, flags)}")
+        for depth, text in _route_chain(start.steps, 0, flags):
+            rows.append(f"{ROUTE_INDENT * (depth + 2)}- {text}")
+    return tuple(rows)
+
+
+def _route_heading(route: RoundRoute, played: PlayedMap | None) -> str:
+    """When the round was played, against whom, and how it ended.
+
+    **The date and the opponent are looked up and not stored on the route.**
+    They belong to the demo, one row per demo in :attr:`MapReport
+    .played_maps`, and a copy on every pistol round would be the same date in
+    ``report.json`` once per round with nothing holding the copies together.
+
+    The absences are written out rather than dropped, exactly as
+    :func:`_played_map_line` writes them: a row that simply began with the
+    opponent would read as a match played on no day.
+
+    **The opponent is introduced by name of its field** (``vastustaja X``,
+    :data:`OPPONENT_PREFIX`), as the map's own row does. The approved form's
+    example wrote it bare, and that left the report labelling only the
+    absence: a **known** opponent appeared unlabelled beside a date while an
+    unknown one read ``vastustaja ei tiedossa``, which is the labelling
+    backwards. The prefix's own reason applies here unchanged -- the name is
+    free text standing next to a date, and a team named after a date would
+    be unreadable without it.
+
+    **``played`` is ``None`` when the map's own demo list does not hold this
+    route's demo, and the row then carries the id and says nothing else.**
+    ``aggregate`` cannot produce that state -- a map's routes are built from
+    the map's own rows -- so it is a hand-edited ``report.json`` and the id
+    is the only thing about it that is certainly true.
+    :data:`MATCH_NOT_INDEXED` would be **worse than useless** there: it is a
+    claim about the archive's match index, and the demo may well be in it,
+    listed under another map.
+    """
+    if played is None:
+        parts = [_identifier(route.map_demo_id)]
+    elif not played.indexed:
+        parts = [MATCH_NOT_INDEXED]
+    else:
+        parts = [
+            played.played_on.isoformat()
+            if played.played_on is not None
+            else MATCH_DATE_MISSING,
+            f"{OPPONENT_PREFIX} {markdown_text(played.opponent)}"
+            if played.opponent is not None
+            else OPPONENT_MISSING,
+        ]
+    if route.won is None:
+        outcome = RECORD_UNKNOWN_OUTCOME
+    else:
+        outcome = ROUND_WON if route.won else ROUND_LOST
+    return f"{', '.join(parts)} -- {outcome}"
+
+
+def _route_round_text(route: RoundRoute, played: PlayedMap | None) -> str:
+    """The round number beside the heading, and the demo id where it is the
+    row's only identifier.
+
+    ``(kierros 13)`` ordinarily. For a demo the match index does not hold,
+    ``(kierros 13, `Nuke_vs_hand`)``: such a row has no date and no
+    opponent, so without the id **two unindexed demos of one map whose
+    pistol rounds share a number and an outcome render as the same row** --
+    the confusion :meth:`~pappascout.domain.report.RoundTypeReport
+    ._check_routes_are_the_round_types_own_rounds` refuses one layer up, let
+    through by the rendering.
+
+    It mirrors :func:`_played_map_line`, which carries the id on **every**
+    row for the same reason and calls it that row's only identifier for a
+    hand-imported demo. Here it is carried only where it is needed: an
+    indexed row is already told apart by its date and its opponent, and an
+    id on it would be the traceability chapter's work done twice in the
+    body.
+
+    A code span, so the id survives copying byte for byte, and **outside the
+    bold**: it is an identifier and not part of the claim.
+    """
+    text = f"{ROUND_LABEL} {route.round_no}"
+    if played is not None and not played.indexed:
+        return f"{text}, {_identifier(route.map_demo_id)}"
+    return text
+
+
+def _route_views(
+    report_type: RoundTypeReport,
+    played_maps: Mapping[str, PlayedMap],
+    flags: _Flags,
+) -> tuple[RouteView, ...]:
+    """Every round's block, in the order the model holds them: newest first.
+
+    **The order is not re-sorted here.** ``aggregate`` built it from the same
+    list the map chapter prints (:func:`~pappascout.domain.aggregate
+    .routes_for`), so a second sort in this layer could only ever come to
+    disagree with the list a few lines above it in the report.
+
+    A round that reached no sample point gets the note instead of rows -- see
+    :class:`RouteView`.
+    """
+    views: list[RouteView] = []
+    for route in report_type.routes:
+        rows = _route_rows(route, flags)
+        played = played_maps.get(route.map_demo_id)
+        views.append(
+            RouteView(
+                heading=_route_heading(route, played),
+                round_text=_route_round_text(route, played),
+                rows=rows,
+                note=None if rows else ROUTE_NO_SAMPLE,
+            )
+        )
+    return tuple(views)
+
+
 def _round_type_view(
     report_type: RoundTypeReport,
     threshold: int | None,
     flags: _Flags,
     settings: ReportSettings,
     recency: bool,
+    played_maps: Mapping[str, PlayedMap],
 ) -> RoundTypeView:
     """Assemble one round type's rows.
 
@@ -2694,6 +3189,7 @@ def _round_type_view(
         pattern_only=pattern_only,
         lines=tuple(lines),
         notes=tuple(notes),
+        routes=_route_views(report_type, played_maps, flags),
     )
 
 
@@ -3832,6 +4328,13 @@ def build_view(
         sides: list[SideView] = []
         # One decision per map chapter: see ``_map_states_recency``.
         states_recency = _map_states_recency(map_report)
+        # The map's demos by id, so a pistol round's row can say when it was
+        # played and against whom without the route carrying a second copy
+        # of either (Story 4.11). The model refuses a map that lists a demo
+        # twice, so the mapping cannot lose a row.
+        played_by_demo = {
+            entry.map_demo_id: entry for entry in map_report.played_maps
+        }
         for side in map_report.sides:
             views: list[RoundTypeView] = []
             for entry in sorted(
@@ -3839,9 +4342,20 @@ def build_view(
             ):
                 views.append(
                     _round_type_view(
-                        entry, threshold, flags, settings, states_recency
+                        entry,
+                        threshold,
+                        flags,
+                        settings,
+                        states_recency,
+                        played_by_demo,
                     )
                 )
+                # The rows and not the routes: a round that reached no
+                # sample point is a route that prints no route row, and the
+                # guide's paragraphs would then explain an indentation
+                # nothing in the report shows. See ``_Flags.routes_shown``.
+                if any(view.rows for view in views[-1].routes):
+                    flags.routes_shown = True
             sides.append(
                 SideView(
                     side=side.side,
@@ -4171,6 +4685,76 @@ def _legend(
         "Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä "
         "hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui."
     )
+    # THE ROUTE'S OWN PARAGRAPH (Story 4.11). Flagged, like the two index
+    # notes above and unlike the record's: a report with no route ROW has
+    # nothing for it to define. The flag counts rows and not routes, because
+    # a round that reached no sample point is a route with no rows at all --
+    # gated on the routes, a block of such rounds would print a paragraph
+    # about an indentation nothing in the report shows.
+    #
+    # It says four things, and the last three are the ones the block cannot
+    # say for itself. The arrow is **not** adjacency -- these are positions
+    # more than ten seconds apart, and the product owner corrected exactly
+    # that reading once. A death is stated only from the death table. A
+    # player the sample lost is NOT a death.
+    #
+    # AND A ROW THAT SIMPLY ENDS DOES NOT MEAN THE ROUND ENDED. It means the
+    # sampling has no later moment for those players, and measured over the
+    # archive the usual reason is that the grid ran out while the round went
+    # on: 280 of the 293 rounds reaching the last point record a death after
+    # it (domain.aggregate.ROUTE_SAMPLING_MEASURED). The first wording of
+    # this paragraph said "kierros oli jo ohi" and was wrong for 95.6 per
+    # cent of the rows it described -- and it was the one sentence in the
+    # report that told the reader how to read the end of a row.
+    #
+    # THE WORDING IS THE IMPLEMENTATION'S AND AWAITS THE PRODUCT OWNER'S
+    # WORD, as every other Finnish string this story added does (see
+    # ROUND_WON and the constants beside it). What is not his to soften is
+    # the fact underneath it.
+    if flags.routes_shown:
+        notes.append(
+            "Pistoolilohkon rivit kertovat reitin: yksi lihavoitu rivi per "
+            "kierros, ja sen alla lista, jossa on yksi kohta jokaisesta "
+            f"paikasta, josta lähdettiin. Nuoli ({ROUTE_ARROW}) vie "
+            "näytepisteestä seuraavaan saman rivin sisällä, ja luku sen "
+            "edessä on pelaajien määrä. **Nuoli ei tarkoita, että alueet "
+            "olisivat vierekkäin**: näytepisteiden väli on useita "
+            f"sekunteja, joten \"A {ROUTE_ARROW} B\" tarkoittaa että "
+            "pelaajat olivat ensin A:ssa ja sitten B:ssä -- väliin jäänyttä "
+            "reittiä otanta ei näe."
+        )
+        notes.append(
+            "**Jakautuminen on listan sisennys, ei nuoli.** Yhdessä pysyvä "
+            "ryhmä jatkaa samaa riviä; siellä missä ryhmä jakautuu, rivi "
+            "päättyy siihen kohtaan ja jokainen osa saa oman rivinsä yhtä "
+            "tasoa sisempänä. Yhteistä alkuosaa ei toisteta. Saman tason "
+            "rivit ovat siis **toistensa vaihtoehtoja** -- eri pelaajia, "
+            "samaan aikaan -- eivätkä peräkkäisiä tapahtumia, ja siksi "
+            "niiden sekunnit eivät ole kasvavassa järjestyksessä. "
+            "Jakautuminen, joka ei enää jatku, luetaan samalta riviltä "
+            "pilkuilla eroteltuna. Kierrokset ovat uusin ottelu ensin, "
+            "samassa järjestyksessä kuin kartan karttalista."
+        )
+        notes.append(
+            f'"{ROUTE_DIED}" reitillä on **mitattu kuolema**: paikka ja '
+            "hetki tulevat demon kuolemataulusta, eivät siitä että pelaaja "
+            f'puuttuu näytepisteeltä. "{ROUTE_GONE}" tarkoittaa juuri sitä '
+            "eroa: näytepiste on olemassa, pelaajalla ei ole siinä riviä, "
+            "eikä yksikään kuolemarivi kerro mihin hän jäi -- raportti ei "
+            "silloin väitä kuolemaa, jota se ei ole mitannut. Raportti "
+            "nimeää alueet; kuvion nimeäminen on lukijan."
+        )
+        notes.append(
+            "**Rivin loppuminen ei tarkoita, että kierros olisi ohi.** Se "
+            "tarkoittaa vain, ettei otannassa ole näille pelaajille "
+            "myöhempää näytepistettä -- ja tavallisin syy on, että otanta "
+            "loppui kesken kierroksen: näytepisteitä otetaan vain "
+            "kierroksen ensimmäisiltä sekunneilta, ja arkistosta mitattuna "
+            "280 niistä 293 kierroksesta, jotka yltävät viimeiseen "
+            "näytepisteeseen, kirjaavat kuoleman vielä sen jälkeen. Rivin "
+            "viimeinen kohta on siis viimeinen havainto eikä kierroksen "
+            "loppu, eikä rivi väitä mitään sen jälkeisestä ajasta."
+        )
     notes.extend(_anomaly_legend(report))
     if flags.unknown_area:
         notes.append(

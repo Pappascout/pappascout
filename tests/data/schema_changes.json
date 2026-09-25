@@ -5,6 +5,9 @@
   "versions": {
     "13.0.0": [
       "maps[].played_maps"
+    ],
+    "14.0.0": [
+      "maps[].sides[].round_types[].routes"
     ]
   }
 }

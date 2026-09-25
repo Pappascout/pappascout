@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
+from types import EllipsisType
 
 import polars as pl
 import pytest
@@ -41,6 +42,7 @@ from pappascout.domain.aggregate import (
     players_distribution,
     positions_for,
     record_for,
+    routes_for,
     sample_for,
     seconds_bucket,
     team_slug,
@@ -57,6 +59,8 @@ from pappascout.domain.report import (
     SLUG_FALLBACK,
     MissingDemo,
     RosterEntry,
+    RoundRoute,
+    RouteStep,
     TeamReport,
 )
 from pappascout.domain.sampling import AreaObservations, CloudCell
@@ -3596,10 +3600,10 @@ def test_the_records_of_two_round_types_are_each_their_own() -> None:
     the pistol row; reorder the fixture and it would have passed.
     """
     rows = [
-        classified_row("Nuke_vs_a", 0, round_type="pistol", won=True),
-        classified_row("Nuke_vs_a", 1, round_type="eco", won=False),
-        classified_row("Nuke_vs_a", 2, round_type="pistol", won=True),
-        classified_row("Nuke_vs_a", 3, round_type="eco", won=False),
+        classified_row("Nuke_vs_a", 1, round_type="pistol", won=True),
+        classified_row("Nuke_vs_a", 2, round_type="eco", won=False),
+        classified_row("Nuke_vs_a", 3, round_type="pistol", won=True),
+        classified_row("Nuke_vs_a", 4, round_type="eco", won=False),
     ]
     report = report_for(rows)
     pistol = branch(report, "de_nuke", "T", "pistol")
@@ -3614,9 +3618,9 @@ def test_the_records_of_two_round_types_are_each_their_own() -> None:
 def test_the_record_of_a_group_adds_up_to_its_sample() -> None:
     """Every group in a whole report, unknown outcomes included."""
     rows = [
-        classified_row("Nuke_vs_a", 0, round_type="pistol", won=True),
-        classified_row("Nuke_vs_a", 1, round_type="pistol", won=None),
-        classified_row("Nuke_vs_a", 2, round_type="full", side="CT", won=False),
+        classified_row("Nuke_vs_a", 1, round_type="pistol", won=True),
+        classified_row("Nuke_vs_a", 2, round_type="pistol", won=None),
+        classified_row("Nuke_vs_a", 3, round_type="full", side="CT", won=False),
     ]
     report = report_for(rows)
     groups = [
@@ -3667,9 +3671,9 @@ def test_two_maps_of_one_match_are_one_match_and_two_demos() -> None:
     nothing else on the row to tell them otherwise.
     """
     rows = [
-        classified_row(MATCH_A_MAP_0, 0),
-        classified_row(MATCH_A_MAP_1, 0),
-        classified_row(MATCH_B_MAP_0, 0),
+        classified_row(MATCH_A_MAP_0, 1),
+        classified_row(MATCH_A_MAP_1, 1),
+        classified_row(MATCH_B_MAP_0, 1),
     ]
     entry = sample_for(rows, demo_buckets(rows))
     assert (entry.demos, entry.matches, entry.rounds) == (3, 2, 3)
@@ -3684,9 +3688,9 @@ def test_the_match_count_comes_from_the_rows_the_sample_comes_from() -> None:
     function of its own taking a filter.
     """
     rows = [
-        classified_row(MATCH_A_MAP_0, 0),
-        classified_row(MATCH_A_MAP_1, 0),
-        classified_row(MATCH_B_MAP_0, 0),
+        classified_row(MATCH_A_MAP_0, 1),
+        classified_row(MATCH_A_MAP_1, 1),
+        classified_row(MATCH_B_MAP_0, 1),
     ]
     whole = sample_for(rows, demo_buckets(rows))
     half = sample_for(rows[:1], demo_buckets(rows))
@@ -3702,8 +3706,8 @@ def test_a_hand_imported_demo_is_a_match_of_its_own() -> None:
     match count at all; counting them together would merge unrelated matches.
     """
     rows = [
-        classified_row("Ancient_vs_a", 0),
-        classified_row("Nuke_vs_b", 0),
+        classified_row("Ancient_vs_a", 1),
+        classified_row("Nuke_vs_b", 1),
     ]
     entry = sample_for(rows, demo_buckets(rows))
     assert (entry.demos, entry.matches) == (2, 2)
@@ -3862,8 +3866,8 @@ def test_the_reports_matches_are_a_union_and_not_a_sum() -> None:
     from the demos would claim two here.
     """
     rows = [
-        classified_row(MATCH_A_MAP_0, 0),
-        classified_row(MATCH_A_MAP_1, 0),
+        classified_row(MATCH_A_MAP_0, 1),
+        classified_row(MATCH_A_MAP_1, 1),
     ]
     report = report_for(
         rows,
@@ -3882,13 +3886,13 @@ def test_the_match_order_reaches_the_bars_through_build_report() -> None:
     function under test.
     """
     rows = [
-        classified_row(f"{MATCH_A}-0", 0),
-        classified_row(f"{MATCH_B}-0", 0),
+        classified_row(f"{MATCH_A}-0", 1),
+        classified_row(f"{MATCH_B}-0", 1),
     ]
     ticks = [
-        tick_row(f"{MATCH_A}-0", 0, "p1", "Ramp"),
-        tick_row(f"{MATCH_B}-0", 0, "p1", "Ramp"),
-        tick_row(f"{MATCH_B}-0", 0, "p2", "Ramp"),
+        tick_row(f"{MATCH_A}-0", 1, "p1", "Ramp"),
+        tick_row(f"{MATCH_B}-0", 1, "p1", "Ramp"),
+        tick_row(f"{MATCH_B}-0", 1, "p2", "Ramp"),
     ]
     report = report_for(
         rows,
@@ -4101,8 +4105,8 @@ def test_the_match_facts_reach_the_map_through_build_report() -> None:
     """
     report = report_for(
         [
-            classified_row(MATCH_A_MAP_0, 0),
-            classified_row(MATCH_B_MAP_0, 0),
+            classified_row(MATCH_A_MAP_0, 1),
+            classified_row(MATCH_B_MAP_0, 1),
         ],
         map_names={MATCH_A_MAP_0: "de_nuke", MATCH_B_MAP_0: "de_nuke"},
         match_order=[MATCH_B, MATCH_A],
@@ -4124,7 +4128,7 @@ def test_without_an_index_every_row_says_the_match_is_not_in_it() -> None:
     says its order is not known.
     """
     report = report_for(
-        [classified_row("Nuke_vs_a", 0), classified_row("Nuke_vs_b", 0)],
+        [classified_row("Nuke_vs_a", 1), classified_row("Nuke_vs_b", 1)],
         map_names={"Nuke_vs_a": "de_nuke", "Nuke_vs_b": "de_nuke"},
     )
     entry = next(m for m in report.maps if m.map_name == "de_nuke")
@@ -4164,3 +4168,823 @@ def test_an_unplaced_demo_stays_last_even_when_the_index_repeats_a_match() -> No
     entries = played_maps_for([MATCH_B_MAP_0, hand], order, {})
     assert [e.map_demo_id for e in entries] == [MATCH_B_MAP_0, hand]
     assert entries[-1].indexed is False
+
+
+# --- The pistol round's route (Story 4.11) --------------------------------------
+
+
+#: The moments **these fixtures' own tables carry**, and nothing more.
+#:
+#: It does **not** claim to be ``[parse].snapshot_seconds`` and must not be
+#: read as a copy of it. The first version of this comment said it was "as
+#: ``settings.toml`` sets it", which is the hand-copied-value-with-a-claim
+#: shape that left a schema constant wrong four stories running -- and it
+#: would have been wrong here too: one demo of the developer's archive is
+#: parsed on a fourteen-point grid, so the settings' four are not even a
+#: property of every table the code meets.
+#:
+#: The route reads its moments out of the rows it is given
+#: (:func:`~pappascout.domain.aggregate._route_observations`), so these
+#: tests own the grid the same way they own the areas and the deaths: by
+#: writing it. Nothing here needs it to match a file, and the archive's own
+#: grid is pinned where it belongs, in ``tests/data/pistol_routes.json``.
+GRID = (6.0, 15.0, 30.0, 45.0)
+
+
+def route_ticks(
+    demo: str,
+    round_no: int,
+    paths: dict[str, list[str | None | EllipsisType]],
+    *,
+    points: Sequence[float] = GRID,
+    lineup: str = TEAM,
+) -> list[dict[str, object]]:
+    """A round's sample points, one player per entry of ``paths``.
+
+    ``paths`` is player -> where they were at each moment of ``points``, and
+    it has **three** values because the route reads three states apart:
+
+    * an area -- alive and observed there;
+    * ``None`` -- alive, and the game gave the position no name. A real
+      state of ``TICKS`` and not a fixture shorthand;
+    * ``...`` -- not alive. A path that simply **stops short** means the same
+      for every remaining moment, which is the ordinary way a player leaves.
+
+    **The row is written either way**, because that is what ``parse`` does: a
+    time sample point exists for every player while the round runs and
+    carries ``is_alive``. Leaving the row out instead would make every one of
+    these tests say the round had ended -- the distinction they exist to
+    check. To end the round, pass a shorter ``points``.
+    """
+    rows: list[dict[str, object]] = []
+    for player, areas in paths.items():
+        for index, seconds in enumerate(points):
+            where = areas[index] if index < len(areas) else ...
+            alive = where is not ...
+            rows.append(
+                tick_row(
+                    demo,
+                    round_no,
+                    player,
+                    None if where is ... else where,
+                    lineup=lineup,
+                    sample_t_s=seconds,
+                    is_alive=alive,
+                )
+            )
+    return rows
+
+
+def route_of(
+    paths: dict[str, list[str | None]],
+    *,
+    deaths: Sequence[dict[str, object]] = (),
+    points: Sequence[float] = GRID,
+    won: bool | None = True,
+    demo: str = "Nuke_vs_a",
+    round_no: int = 1,
+) -> RoundRoute:
+    """One round's route, the shortest way to ask for one."""
+    routes = routes_for(
+        [classified_row(demo, round_no, won=won)],
+        route_ticks(demo, round_no, paths, points=points),
+        list(deaths),
+        [TEAM],
+        {demo: 0},
+    )
+    assert len(routes) == 1, routes
+    return routes[0]
+
+
+def shape(steps: Sequence[RouteStep]) -> list[object]:
+    """A step tree as plain tuples, so a test asserts on one value.
+
+    ``(players, fate, area, seconds, children)`` -- every field the model
+    carries, because a test that compared only the areas would pass over a
+    branch that had lost its players or its moment.
+    """
+    return [
+        (step.players, step.fate, step.area, step.seconds, shape(step.steps))
+        for step in steps
+    ]
+
+
+def test_a_group_that_stays_together_is_one_chain() -> None:
+    """The ordinary round: five players, one way, one chain of four steps."""
+    route = route_of(
+        {
+            f"p{n}": ["Outside", "Control", "Ramp", "BombsiteA"]
+            for n in range(1, 6)
+        }
+    )
+    assert shape(route.steps) == [
+        (5, "seen", "Outside", 6.0, [
+            (5, "seen", "Control", 15.0, [
+                (5, "seen", "Ramp", 30.0, [
+                    (5, "seen", "BombsiteA", 45.0, []),
+                ]),
+            ]),
+        ]),
+    ]
+
+
+def test_a_split_that_keeps_moving_gives_each_part_its_own_branch() -> None:
+    """The spec's "split that keeps moving" row.
+
+    The shared stretch is **one** node holding four players, and the parts
+    hang under the moment they separated at -- which is the tree the renderer
+    then writes without repeating the stretch.
+    """
+    route = route_of(
+        {
+            "p1": ["Outside", "Control", "Ramp", "Ramp"],
+            "p2": ["Outside", "Control", "Ramp", "Ramp"],
+            "p3": ["Outside", "Control", "Heaven", "Heaven"],
+            "p4": ["Outside", "Control", "Hell", "Hell"],
+        }
+    )
+    assert shape(route.steps) == [
+        (4, "seen", "Outside", 6.0, [
+            (4, "seen", "Control", 15.0, [
+                (2, "seen", "Ramp", 30.0, [(2, "seen", "Ramp", 45.0, [])]),
+                (1, "seen", "Heaven", 30.0, [(1, "seen", "Heaven", 45.0, [])]),
+                (1, "seen", "Hell", 30.0, [(1, "seen", "Hell", 45.0, [])]),
+            ]),
+        ]),
+    ]
+
+
+def test_a_terminal_split_is_the_last_thing_the_tree_holds() -> None:
+    """The division at the last moment the round reached.
+
+    The tree is the same shape as the one above minus the leaves; it is the
+    **renderer** that reads it as one inline row (``2 Ramp, 1 Heaven, 1
+    Hell``), and that separation is the point of this test sitting beside
+    the one before it.
+    """
+    route = route_of(
+        {
+            "p1": ["Outside", "Control", "Ramp"],
+            "p2": ["Outside", "Control", "Ramp"],
+            "p3": ["Outside", "Control", "Heaven"],
+        },
+        points=GRID[:3],
+    )
+    assert shape(route.steps) == [
+        (3, "seen", "Outside", 6.0, [
+            (3, "seen", "Control", 15.0, [
+                (2, "seen", "Ramp", 30.0, []),
+                (1, "seen", "Heaven", 30.0, []),
+            ]),
+        ]),
+    ]
+
+
+def test_the_player_who_went_neither_way_is_a_branch_of_his_own() -> None:
+    """The lurker (the spec's row), stated and not named.
+
+    The product owner's own reason for wanting him: one player left in the
+    Lobby says something about the defence's rotations. The tree gives him a
+    starting node of his own, and **nothing in the model calls him
+    anything** -- the areas are stated and he names the pattern.
+    """
+    route = route_of(
+        {
+            "p1": ["Outside", "Control", "Ramp"],
+            "p2": ["Outside", "Control", "Ramp"],
+            "p3": ["Outside", "Control", "Ramp"],
+            "p4": ["Outside", "Control", "Ramp"],
+            "p5": ["TSpawn", "Outside", "Outside"],
+        },
+        points=GRID[:3],
+    )
+    assert shape(route.steps) == [
+        (4, "seen", "Outside", 6.0, [
+            (4, "seen", "Control", 15.0, [(4, "seen", "Ramp", 30.0, [])]),
+        ]),
+        (1, "seen", "TSpawn", 6.0, [
+            (1, "seen", "Outside", 15.0, [(1, "seen", "Outside", 30.0, [])]),
+        ]),
+    ]
+
+
+def test_a_death_is_read_from_the_death_table_with_its_place_and_moment() -> None:
+    """The spec's "a death" row: proved, placed and timed.
+
+    The moment on the step is the **death's** ``t_s`` (26.5 s) and not the
+    sample point's (30 s), which is the whole reason the number is worth
+    printing. The area is ``victim_area`` and not the player's last living
+    tick.
+    """
+    route = route_of(
+        {
+            "p1": ["Outside", "Lobby", "Hut"],
+            "p2": ["Outside", "Lobby", ...],
+        },
+        deaths=[
+            death_row(
+                "Nuke_vs_a", 1, victim="p2", victim_area="Mini", t_s=26.5
+            )
+        ],
+        points=GRID[:3],
+    )
+    assert shape(route.steps) == [
+        (2, "seen", "Outside", 6.0, [
+            (2, "seen", "Lobby", 15.0, [
+                (1, "seen", "Hut", 30.0, []),
+                (1, "died", "Mini", 26.5, []),
+            ]),
+        ]),
+    ]
+
+
+def test_a_player_gone_without_a_death_record_is_not_called_dead() -> None:
+    """The spec's "gone without a death record" row.
+
+    Two claims the report must keep apart, and this is the one that has no
+    proof: the sample point exists, the player has no row on it, and the
+    archive holds nothing that says what became of them. The step says that
+    and names no area.
+    """
+    route = route_of(
+        {
+            "p1": ["Outside", "Lobby", "Hut"],
+            "p2": ["Outside", "Lobby", ...],
+        },
+        points=GRID[:3],
+    )
+    assert shape(route.steps) == [
+        (2, "seen", "Outside", 6.0, [
+            (2, "seen", "Lobby", 15.0, [
+                (1, "seen", "Hut", 30.0, []),
+                (1, "gone", None, 30.0, []),
+            ]),
+        ]),
+    ]
+
+
+def test_a_point_the_round_never_reached_ends_the_row_and_claims_nothing() -> None:
+    """The spec's "round over" row -- **the defect this story nearly shipped**.
+
+    The round is decided at 20 s, so the 30- and 45-second sample points do
+    not exist (``sampling.sample_ticks``: there are no points after the round
+    ended). Nobody is dead and nobody is unaccounted for: the chain simply
+    stops, and the tree holds neither a ``died`` nor a ``gone`` step to be
+    read as a fate.
+
+    The first mock inferred death from this very absence and printed ``4
+    kuoli`` for a round that had been won -- which is why ``won=True`` here.
+    """
+    route = route_of(
+        {f"p{n}": ["Outside", "Control"] for n in range(1, 6)},
+        points=GRID[:2],
+        won=True,
+    )
+    assert shape(route.steps) == [
+        (5, "seen", "Outside", 6.0, [(5, "seen", "Control", 15.0, [])]),
+    ]
+    assert route.won is True
+
+
+def test_a_team_dead_before_the_second_point_says_so_and_states_no_route() -> None:
+    """The spec's "dead early" row: nobody alive at 15 s.
+
+    The round **did** reach 15 s -- the opponent was alive, so the point
+    exists and every one of our players has a row on it -- and each of them
+    is placed by a death record. The route therefore states three deaths and
+    goes no further, which is a different thing from the row above: there,
+    nothing is claimed; here, the claim is that they were killed.
+    """
+    route = route_of(
+        {f"p{n}": ["OutsideTunnel"] for n in range(1, 4)},
+        deaths=[
+            death_row(
+                "Nuke_vs_a",
+                1,
+                victim=f"p{n}",
+                victim_area="UpperTunnel",
+                t_s=float(9 + n),
+            )
+            for n in range(1, 4)
+        ],
+        points=GRID[:2],
+        won=False,
+    )
+    assert shape(route.steps) == [
+        (3, "seen", "OutsideTunnel", 6.0, [
+            (1, "died", "UpperTunnel", 10.0, []),
+            (1, "died", "UpperTunnel", 11.0, []),
+            (1, "died", "UpperTunnel", 12.0, []),
+        ]),
+    ]
+
+
+def test_a_round_that_reached_no_sample_point_is_a_row_with_no_steps() -> None:
+    """A round settled inside the first sample point still gets a row.
+
+    Dropping it would leave the block's heading counting a round the reader
+    never sees -- and the model refuses a list shorter than the sample for
+    exactly that reason, so this is the state that makes the two agree.
+    """
+    routes = routes_for(
+        [classified_row("Nuke_vs_a", 1)],
+        [],
+        [],
+        [TEAM],
+        {"Nuke_vs_a": 0},
+    )
+    assert [route.steps for route in routes] == [[]]
+    assert [(r.map_demo_id, r.round_no) for r in routes] == [("Nuke_vs_a", 1)]
+
+
+def test_an_area_the_game_did_not_name_is_an_observation_and_not_a_loss() -> None:
+    """A living tick with no ``last_place_name`` is ``seen`` with no area.
+
+    The distinction the first mock lost the other way round: it treated a
+    falsy area as "gone", so a player standing somewhere the map does not
+    name was reported as one the sample had lost. Here the player is alive,
+    observed, and in a place with no name -- which is what every other area
+    distribution in this report already says with ``area=None``.
+    """
+    route = route_of({"p1": [None]}, points=GRID[:1])
+    assert shape(route.steps) == [(1, "seen", None, 6.0, [])]
+
+
+def test_a_death_with_no_moment_cannot_be_stated_as_a_death() -> None:
+    """The documented floor: no ``t_s``, no death step.
+
+    The rendered form states the moment, and there is none here to state, so
+    the player reaches the route as one the sample lost. Measured 2026-09-25:
+    of the developer archive's 2 513 death rows not one is missing ``t_s``,
+    so this is a floor and not a case the report meets -- and it is tested
+    because the column allows it.
+    """
+    route = route_of(
+        {"p1": ["Outside", ...]},
+        deaths=[
+            death_row("Nuke_vs_a", 1, victim="p1", victim_area="Mini", t_s=None)
+        ],
+        points=GRID[:2],
+    )
+    assert shape(route.steps) == [
+        (1, "seen", "Outside", 6.0, [(1, "gone", None, 15.0, [])]),
+    ]
+
+
+def test_only_the_teams_own_deaths_place_a_player() -> None:
+    """An opponent's death row does not account for one of our players.
+
+    The deaths table reaches this code filtered on the victim **or** the
+    attacker, so most of its rows are the team's own kills -- a row whose
+    victim is an opponent must not be read as a fate for a player of ours
+    who happens to be unsampled.
+    """
+    route = route_of(
+        {"p1": ["Outside", ...]},
+        deaths=[
+            death_row(
+                "Nuke_vs_a",
+                1,
+                victim="o1",
+                victim_lineup=OPPONENT,
+                victim_side="CT",
+                victim_area="Mini",
+                attacker="p1",
+                attacker_lineup=TEAM,
+                attacker_side="T",
+                t_s=12.0,
+            )
+        ],
+        points=GRID[:2],
+    )
+    assert shape(route.steps) == [
+        (1, "seen", "Outside", 6.0, [(1, "gone", None, 15.0, [])]),
+    ]
+
+
+def test_the_earliest_death_row_is_the_one_that_places_the_player() -> None:
+    """Two rows for one player is a broken table, not a second death.
+
+    The earliest is taken, which is :func:`deaths_for`'s rule for the round's
+    first death and is the same choice for the same reason: whatever the
+    second row is, the player was already dead.
+    """
+    route = route_of(
+        {"p1": ["Outside", ...]},
+        deaths=[
+            death_row("Nuke_vs_a", 1, victim="p1", victim_area="Late", t_s=20.0),
+            death_row("Nuke_vs_a", 1, victim="p1", victim_area="Early", t_s=8.0),
+        ],
+        points=GRID[:2],
+    )
+    assert shape(route.steps) == [
+        (1, "seen", "Outside", 6.0, [(1, "died", "Early", 8.0, [])]),
+    ]
+
+
+def test_the_parts_of_one_moment_are_ordered_biggest_first_then_by_area() -> None:
+    """A deterministic order, and deliberately not the rows' own.
+
+    The mock ordered ties by whichever player the parquet listed first, which
+    is arbitrary and would still be arbitrary after a re-parse. The report's
+    other area lists are read biggest first and alphabetically on a tie
+    (:func:`_area_sort_key`), so these are too -- and the unnamed area is
+    last, as it is everywhere else.
+    """
+    route = route_of(
+        {
+            "p1": ["Zebra"],
+            "p2": ["Zebra"],
+            "p3": ["Middle"],
+            "p4": ["Alpha"],
+            "p5": [None],
+        },
+        points=GRID[:1],
+    )
+    assert [(step.players, step.area) for step in route.steps] == [
+        (2, "Zebra"),
+        (1, "Alpha"),
+        (1, "Middle"),
+        (1, None),
+    ]
+
+
+def test_the_rounds_come_newest_match_first() -> None:
+    """The block's order is the map's own demo list, handed in.
+
+    Not re-derived here and not sorted by date: ``build_report`` passes the
+    places it read off :func:`played_maps_for`'s result, so the first route
+    belongs to the demo the map chapter prints first. Inside one demo the
+    rounds are in round order, because 1 and 13 are the two halves and the
+    reader follows the match.
+    """
+    rows = [
+        classified_row("old", 13),
+        classified_row("old", 1),
+        classified_row("new", 1),
+    ]
+    ticks = [
+        row
+        for demo, number in [("old", 13), ("old", 1), ("new", 1)]
+        for row in route_ticks(demo, number, {"p1": ["Outside"]}, points=GRID[:1])
+    ]
+    routes = routes_for(rows, ticks, [], [TEAM], {"new": 0, "old": 1})
+    assert [(r.map_demo_id, r.round_no) for r in routes] == [
+        ("new", 1),
+        ("old", 1),
+        ("old", 13),
+    ]
+
+
+def test_a_demo_the_order_does_not_place_sorts_last() -> None:
+    """An unplaced demo has no place, so it goes after every placed one.
+
+    :func:`played_maps_for`'s rule, and the same reason: a hand-imported
+    demo carries no date, and sorting it among the dated ones by its id
+    would give it a position that claims one.
+    """
+    rows = [classified_row("hand", 1), classified_row("faceit", 1)]
+    ticks = [
+        row
+        for demo in ("hand", "faceit")
+        for row in route_ticks(demo, 1, {"p1": ["Outside"]}, points=GRID[:1])
+    ]
+    routes = routes_for(rows, ticks, [], [TEAM], {"faceit": 0})
+    assert [r.map_demo_id for r in routes] == ["faceit", "hand"]
+
+
+@pytest.mark.parametrize("won", [True, False, None])
+def test_the_rounds_own_outcome_is_copied_and_never_guessed(
+    won: bool | None,
+) -> None:
+    """``won`` comes straight from the classified row, ``None`` included.
+
+    The column is nullable, and an unread outcome is a gap in the recording
+    and not a defeat -- :func:`record_for`'s rule, and the route states one
+    round where the record counts many, so it needs the same discipline.
+    """
+    assert route_of({"p1": ["Outside"]}, points=GRID[:1], won=won).won is won
+
+
+def test_the_route_reads_only_the_time_sample_points() -> None:
+    """A first-contact row is not a moment on the grid.
+
+    Its ``sample_t_s`` is the measured moment of the round's first hit and
+    differs on every round, so reading it as a sample point would put a
+    different number of moments into every round's chain -- the very
+    confusion ``TICKS``'s own contract warns about.
+    """
+    ticks = route_ticks("Nuke_vs_a", 1, {"p1": ["Outside"]}, points=GRID[:1])
+    ticks.append(
+        tick_row(
+            "Nuke_vs_a",
+            1,
+            "p1",
+            "Lobby",
+            sample_kind="first_contact",
+            sample_t_s=9.3,
+        )
+    )
+    routes = routes_for(
+        [classified_row("Nuke_vs_a", 1)], ticks, [], [TEAM], {"Nuke_vs_a": 0}
+    )
+    assert shape(routes[0].steps) == [(1, "seen", "Outside", 6.0, [])]
+
+
+def test_only_the_pistol_block_is_given_a_route() -> None:
+    """The scope, measured through the whole report and not only the model.
+
+    The other buy classes hold many rounds per match and need an aggregation
+    this story deliberately does not design, so ``aggregate`` builds their
+    lists empty -- and the pistol block's is as long as its sample. The model
+    refuses the first of those states; only a report built end to end shows
+    that the builder really produces it.
+    """
+    classified = [
+        classified_row("Nuke_vs_a", 1),
+        classified_row("Nuke_vs_a", 13, side="CT"),
+        classified_row("Nuke_vs_a", 2, round_type="eco"),
+        classified_row("Nuke_vs_a", 3, round_type="eco"),
+    ]
+    ticks = [
+        row
+        for number, side in [(1, "T"), (13, "CT"), (2, "T"), (3, "T")]
+        for row in route_ticks(
+            "Nuke_vs_a", number, {"p1": ["Outside"]}, points=GRID[:1]
+        )
+    ]
+    report = report_for(classified, ticks)
+    found = {
+        (side.side, entry.round_type): entry
+        for map_report in report.maps
+        for side in map_report.sides
+        for entry in side.round_types
+    }
+    assert set(found) == {("T", "pistol"), ("CT", "pistol"), ("T", "eco")}, found
+    for key, entry in found.items():
+        expected = entry.sample.rounds if key[1] == "pistol" else 0
+        assert len(entry.routes) == expected, key
+    assert found[("T", "eco")].sample.rounds == 2, (
+        "precondition: the eco block must hold rounds, or an empty route "
+        "list would prove nothing"
+    )
+
+
+def test_a_classified_row_without_a_round_number_is_named_and_refused() -> None:
+    """The floor under a broken classified table, and it is reachable.
+
+    ``_round_types_for`` refuses such a row before this function is ever
+    called on the pipeline's path, so the guard exists for a **direct**
+    caller -- this test is that caller, which is what keeps the docstring's
+    claim from being a claim about an unreachable branch. Without it the
+    round key would be ``None`` and the failure would be a ``TypeError``
+    while unpacking it, with no instruction in it.
+    """
+    with pytest.raises(AggregateError, match="without a round number"):
+        routes_for(
+            [classified_row("Nuke_vs_a", 1) | {"round_no": None}],
+            [],
+            [],
+            [TEAM],
+            {"Nuke_vs_a": 0},
+        )
+
+
+# --- The review pass's findings (Story 4.11, review round 1) --------------------
+
+
+def test_a_player_observed_again_is_followed_and_not_written_off() -> None:
+    """A player whose rows begin after the first moment keeps their route.
+
+    **The defect this fixes, stated as it was found:** the player was called
+    ``gone`` at 6 s and the branch ended there, so ``Lobby`` and ``Hut`` --
+    two positions the archive really holds -- were never printed. The report
+    claimed to have lost a player it could itself place twice.
+
+    The model could not catch it: a ``gone`` step with no children and the
+    right count satisfies every guard on the node.
+    """
+    route = route_of(
+        {
+            "p1": ["Outside", "Lobby", "Hut"],
+            "p2": [..., "Lobby", "Hut"],
+        },
+        points=GRID[:3],
+    )
+    assert shape(route.steps) == [
+        (1, "seen", "Outside", 6.0, [
+            (1, "seen", "Lobby", 15.0, [(1, "seen", "Hut", 30.0, [])]),
+        ]),
+        (1, "gone", None, 6.0, [
+            (1, "seen", "Lobby", 15.0, [(1, "seen", "Hut", 30.0, [])]),
+        ]),
+    ]
+
+
+def test_a_gap_in_the_middle_of_a_players_rows_is_followed_through() -> None:
+    """The same defect one moment in: absent at 15 s, back at 30 s.
+
+    A ``gone`` step is not a claim about for ever, and the branch under it
+    is the archive's own observation.
+    """
+    route = route_of(
+        {"p1": ["Outside", ..., "Hut"]},
+        points=GRID[:3],
+    )
+    assert shape(route.steps) == [
+        (1, "seen", "Outside", 6.0, [
+            (1, "gone", None, 15.0, [(1, "seen", "Hut", 30.0, [])]),
+        ]),
+    ]
+
+
+def test_a_player_the_sample_never_sees_again_ends_the_branch() -> None:
+    """The other half, and the reason the continuation is conditional.
+
+    Recursing unconditionally would write the same absence once per
+    remaining moment -- ``poistui otannasta`` three times over for a player
+    lost at 6 s. The first mock's "a player who is gone is gone" rule was
+    right about this case and wrong about the one above it, and the
+    condition is what keeps both.
+    """
+    route = route_of(
+        {"p1": ["Outside", "Lobby", "Hut"], "p2": ["Outside"]},
+        points=GRID[:3],
+    )
+    assert shape(route.steps) == [
+        (2, "seen", "Outside", 6.0, [
+            (1, "seen", "Lobby", 15.0, [(1, "seen", "Hut", 30.0, [])]),
+            (1, "gone", None, 15.0, []),
+        ]),
+    ]
+
+
+def test_a_death_after_this_moment_does_not_place_a_player_at_it() -> None:
+    """A fate is never stated about a moment the death had not happened by.
+
+    Most of the archive's deaths are after the grid's last point (see
+    ``ROUTE_SAMPLING_MEASURED``), and what keeps them off the rows today is
+    that their players are still observed at every point -- **not** any rule.
+    A player merely missing a row would otherwise be reported as having died
+    at a second the route had not yet reached.
+
+    Here the player has no row at 15 s and the death record is at 40 s. The
+    honest step is the one that says the sample cannot place them, and the
+    death belongs to the branch only once the route arrives at 40 s or later.
+    """
+    route = route_of(
+        {"p1": ["Outside", ...]},
+        deaths=[
+            death_row("Nuke_vs_a", 1, victim="p1", victim_area="Mini", t_s=40.0)
+        ],
+        points=GRID[:2],
+    )
+    assert shape(route.steps) == [
+        (1, "seen", "Outside", 6.0, [(1, "gone", None, 15.0, [])]),
+    ]
+
+
+def test_a_death_at_the_moment_itself_does_place_the_player() -> None:
+    """The boundary of the rule above is inclusive.
+
+    A death recorded exactly at a sample point is a death that had happened
+    by it; excluding it would lose the one row where the two numbers agree.
+    """
+    route = route_of(
+        {"p1": ["Outside", ...]},
+        deaths=[
+            death_row("Nuke_vs_a", 1, victim="p1", victim_area="Mini", t_s=15.0)
+        ],
+        points=GRID[:2],
+    )
+    assert shape(route.steps) == [
+        (1, "seen", "Outside", 6.0, [(1, "died", "Mini", 15.0, [])]),
+    ]
+
+
+def test_a_death_at_a_negative_second_is_not_a_moment_in_the_round() -> None:
+    """A floor under the table, and the reason it is a skip and not a raise.
+
+    ``t_s`` is measured from the end of freezetime, so a negative value puts
+    a death in the buy time. The **model** refuses such a moment on a built
+    step; this reader meets the raw table, where refusing would take the
+    whole report down with a ``pydantic`` traceback instead of leaving one
+    claim unmade. Never observed: 0 of the archive's 2 513 death rows.
+    """
+    route = route_of(
+        {"p1": ["Outside", ...]},
+        deaths=[
+            death_row("Nuke_vs_a", 1, victim="p1", victim_area="Mini", t_s=-2.0)
+        ],
+        points=GRID[:2],
+    )
+    assert shape(route.steps) == [
+        (1, "seen", "Outside", 6.0, [(1, "gone", None, 15.0, [])]),
+    ]
+
+
+def test_two_deaths_in_one_area_come_out_in_the_order_they_happened() -> None:
+    """The ``died`` sort key's **seconds**, which nothing else pins.
+
+    Measured 2026-09-25: dropping ``kv[0][1]`` from the key left 839
+    non-archive tests passing, because every other test's deaths arrive in
+    chronological order already and ``sorted`` is stable. Here they arrive
+    reversed, in one area, so only the key can put them right.
+    """
+    route = route_of(
+        {"p1": ["Outside", "Lobby"], "p2": ["Outside", "Lobby"]},
+        deaths=[
+            death_row("Nuke_vs_a", 1, victim="p1", victim_area="Lobby", t_s=22.0),
+            death_row("Nuke_vs_a", 1, victim="p2", victim_area="Lobby", t_s=19.0),
+        ],
+        points=GRID[:3],
+    )
+    dead = [child for step in route.steps for child in step.steps[0].steps]
+    assert [(s.fate, s.area, s.seconds) for s in dead] == [
+        ("died", "Lobby", 19.0),
+        ("died", "Lobby", 22.0),
+    ]
+
+
+def test_an_empty_area_string_is_the_same_observation_as_no_area() -> None:
+    """``_observed_area``'s normalisation, on both of the route's readers.
+
+    Measured 2026-09-25: replacing it with the raw column in either reader
+    left all 772 tests passing. It matters because ``_area("")`` and
+    ``_area(None)`` both render ``tuntematon alue`` -- so a table mixing the
+    two would produce **two** steps at one moment printing the same sentence
+    with separate counts, which is the fault the normaliser exists for.
+
+    ``parse`` writes an empty ``last_place_name`` as null, but the schema
+    allows a string and a table written by an older version has not been
+    through that rule.
+    """
+    route = route_of(
+        {"p1": ["", ...], "p2": [None, ...], "p3": ["Outside", ...]},
+        deaths=[
+            death_row("Nuke_vs_a", 1, victim="p1", victim_area="", t_s=12.0),
+            death_row("Nuke_vs_a", 1, victim="p2", victim_area=None, t_s=12.0),
+            death_row("Nuke_vs_a", 1, victim="p3", victim_area="", t_s=12.0),
+        ],
+        points=GRID[:2],
+    )
+    # One unnamed start holding both players, not two of one each.
+    assert [(s.players, s.area) for s in route.steps] == [(2, None), (1, "Outside")]
+    # And one unnamed death holding all three, not two rows that print alike.
+    dead = [child for step in route.steps for child in step.steps]
+    assert [(d.players, d.fate, d.area) for d in dead] == [
+        (2, "died", None, ),
+        (1, "died", None, ),
+    ]
+
+
+def test_the_rounds_of_one_demo_are_sorted_and_not_merely_collected() -> None:
+    """The round number in the sort key, pinned deterministically.
+
+    Measured 2026-09-25: dropping ``route.round_no`` from the sort passed 11
+    runs in 12, because the routes were collected from a **set** of tuples
+    and their pre-sort order rode on string hash randomisation. The builder
+    now collects them in the rows' own order, so feeding the rows backwards
+    makes the sort the only thing that can put them right -- every run.
+    """
+    rows = [classified_row("Nuke_vs_a", n) for n in (13, 5, 1)]
+    ticks = [
+        row
+        for n in (13, 5, 1)
+        for row in route_ticks("Nuke_vs_a", n, {"p1": ["Outside"]}, points=GRID[:1])
+    ]
+    routes = routes_for(rows, ticks, [], [TEAM], {"Nuke_vs_a": 0})
+    assert [route.round_no for route in routes] == [1, 5, 13]
+
+
+def test_the_unplaced_demo_sentinel_survives_a_gapped_order() -> None:
+    """``max + 1`` and not ``len``, for this function's own argument.
+
+    ``build_report`` builds ``demo_order`` with ``enumerate``, so its places
+    are 0..n-1 and the two agree -- mutating the sentinel to ``len`` passed
+    772 tests. What does not agree is a mapping a direct caller hands in,
+    and ``routes_for`` takes a plain mapping with nothing constraining its
+    values. Here ``len`` would be 2, which is a place already in use, and
+    the unplaced demo would tie with the demo at place 2 and be sorted
+    before it by id.
+    """
+    order = {"mmm": 0, "zzz": 2}
+    unplaced = "aaa"
+    assert len(order) in order.values(), (
+        "precondition: len must collide with a place in use, or the mutation "
+        "this test refuses would be harmless"
+    )
+    assert unplaced < "zzz", (
+        "precondition: the unplaced id must sort BEFORE the demo it would "
+        "tie with, or the id tie-break hides the mutation -- which is how "
+        "the first version of this test passed under it"
+    )
+    demos = ("mmm", "zzz", unplaced)
+    rows = [classified_row(d, 1) for d in demos]
+    ticks = [
+        row
+        for d in demos
+        for row in route_ticks(d, 1, {"p1": ["Outside"]}, points=GRID[:1])
+    ]
+    routes = routes_for(rows, ticks, [], [TEAM], order)
+    assert [route.map_demo_id for route in routes] == ["mmm", "zzz", unplaced]

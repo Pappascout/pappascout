@@ -55,6 +55,7 @@ prove nothing about the settings file the tool is run with.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -68,7 +69,9 @@ from conftest import REAL_SETTINGS, require_parsed
 from pappascout.adapters.demo_parser import _armed_count
 from pappascout.archive.paths import ArchivePaths
 from pappascout.render import render_report
+from pappascout.render.view import build_view
 from pappascout.constants import KNOWN_INVENTORY_ITEMS, SITE_AREAS
+from pappascout.domain.report import ROUTE_ROUND_TYPE
 from pappascout.domain.economy import (
     classify_round,
     loss_bonus_if_lost,
@@ -3159,3 +3162,254 @@ def test_one_match_gives_the_same_date_and_opponent_on_every_map() -> None:
     assert sum(1 for key in seen if key[0] == "1e1965abbc06133b") == 4, seen
     for key, values in seen.items():
         assert len(values) == 1, (key, values)
+
+
+# --- The pistol round's route (Story 4.11) --------------------------------------
+
+
+#: The pistol blocks' route rows from the real archive, measured 2026-09-25
+#: by running :func:`_route_blocks_from` over it -- the same code path the
+#: test that reads it back uses, so the file records what the tool produces
+#: and not a hand-written expectation. The precedent is
+#: :data:`MATCH_COUNTS`'s, and the same three things need saying here.
+#:
+#: **Why a data file and not a table in a comment.** The route is what this
+#: story added, and almost nothing else in the suite can see it go wrong on
+#: real data: the unit tests build their own sample points, and the model's
+#: own guards are internal consistency. The rows are here so that a route
+#: that changes shape is a changed file and not a changed opinion. It is also
+#: CLAUDE.md's rule about citing ``_bmad-output/`` -- the machine-readable
+#: half belongs in the repository, and the document explains it.
+#:
+#: **All twenty of the archive's pistol blocks**, and that is a correction
+#: rather than a choice: it held three, and :func:`_route_blocks_from`
+#: skipped every key it did not hold, so seventeen blocks were outside every
+#: guard and a block that appeared could not fail the comparison at all. The
+#: helper now collects them all.
+#:
+#: **What is checkable from this repository, and what is not.** Without the
+#: archive: nothing is re-derived, so no row here is confirmed -- the tests
+#: that read it without one assert on its **own** contents, which is a
+#: different job and their docstrings say so. With the archive:
+#: :func:`test_the_archives_pistol_routes_are_the_ones_recorded` re-derives
+#: every block and compares it whole.
+#:
+#: **On the grid ``settings.toml`` declares**, because
+#: :func:`_route_blocks_from` builds from :func:`_recorded_reports`, which
+#: goes through :func:`_on_grid`. One demo of this archive is parsed on a
+#: fourteen-point grid and cannot be parsed again, so the filter is
+#: permanent -- and this table is therefore the report **on that grid**, not
+#: on whatever grid a demo happens to carry. A table generated without the
+#: filter disagrees with the test that reads it, which is how this was
+#: found.
+#:
+#: **Why no opponent and no date.** The block's heading states both, and both
+#: are deliberately absent here: the repository is public and the denylist
+#: that guards it lives outside the repository (AD-12), so a pinned table of
+#: real league opponents would put the one thing the guard exists for into
+#: the one file the guard cannot be asked about. The heading's own values are
+#: covered by :data:`PLAYED_MAPS`, which pins the dates and whether each row
+#: resolved without naming anybody.
+#:
+#: **It is an observation and not a rule.** Importing a demo or re-parsing
+#: one changes these rows legitimately; the answer is then to measure the
+#: table again and say so in the commit, not to loosen the test.
+PISTOL_ROUTES = json.loads(
+    (Path(__file__).parent / "data" / "pistol_routes.json").read_text(
+        encoding="utf-8"
+    )
+)["blocks"]
+
+
+def _route_blocks_from(root: Path) -> dict[str, list[dict]]:
+    """Every recorded pistol block's route rows, as the view renders them.
+
+    Through :func:`~pappascout.render.view.build_view` and not through the
+    model alone, because the rows **are** the product: the shared stretch
+    written once, the indentation under the point a group divided at and the
+    inline terminal division are all decisions this layer makes, and a model
+    comparison would leave every one of them unpinned.
+
+    **Every pistol block, and no lookup against the recorded table.** The
+    first version skipped any key the table did not hold, which made the
+    comparison one-sided: a block that **appeared** could never fail it,
+    while the test above claimed that a block appearing or disappearing
+    fails as loudly as a changed row. Three of the archive's twenty blocks
+    were pinned and the other seventeen sat outside every guard.
+    :func:`_match_groups_from`, the precedent this follows, has no such
+    filter, and this has none now either.
+    """
+    settings = _real_settings()
+    found: dict[str, list[dict]] = {}
+    for team, report in _recorded_reports(root).items():
+        view = build_view(report, settings=settings.report)
+        by_map = {entry.map_name: entry for entry in report.maps}
+        for map_view in view.maps:
+            model_map = by_map[map_view.map_name]
+            for side_view in map_view.sides:
+                model_side = next(
+                    s for s in model_map.sides if s.side == side_view.side
+                )
+                type_view = next(
+                    (
+                        v
+                        for v in side_view.round_types
+                        if v.round_type == ROUTE_ROUND_TYPE
+                    ),
+                    None,
+                )
+                if type_view is None:
+                    continue
+                key = (
+                    f"{team}/{map_view.map_name}/{side_view.side}/"
+                    f"{ROUTE_ROUND_TYPE}"
+                )
+                model = next(
+                    rt
+                    for rt in model_side.round_types
+                    if rt.round_type == ROUTE_ROUND_TYPE
+                )
+                found[key] = [
+                    {
+                        "round_no": route.round_no,
+                        "won": route.won,
+                        "rows": list(row_view.rows),
+                        "note": row_view.note,
+                    }
+                    for route, row_view in zip(
+                        model.routes, type_view.routes, strict=True
+                    )
+                ]
+    return found
+
+
+@pytest.mark.archive
+def test_the_archives_pistol_routes_are_the_ones_recorded() -> None:
+    """The whole table, re-derived and compared whole.
+
+    One equality over every block rather than row by row, for
+    :func:`test_every_groups_match_count_is_the_one_the_archive_holds`'s
+    reason: a block that appears or disappears has to fail as loudly as a
+    row whose areas moved. :func:`_route_blocks_from` collects **all** of
+    them for exactly that reason -- it filtered against this table once, and
+    the claim in this sentence was false for half of its directions while it
+    did.
+
+    The length assertion is a **floor against a vacuous comparison**, the
+    same one :func:`test_every_groups_match_count_is_the_one_the_archive_holds`
+    makes with 78: two empty dictionaries are equal, and an archive that
+    yielded no block at all would satisfy the line below while covering
+    nothing.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    assert len(PISTOL_ROUTES) == 20, sorted(PISTOL_ROUTES)
+    assert _route_blocks_from(root) == PISTOL_ROUTES
+
+
+def test_the_recorded_routes_show_the_newest_match_taking_a_new_way() -> None:
+    """The story's acceptance criterion, on the pinned table.
+
+    *"Given ``de_nuke`` T pistol, when the report is rendered, then the
+    2026-09-20 line states four players through ``Control`` and the three
+    older lines do not mention ``Control`` at all."*
+
+    The blocks are recorded **newest match first**, so the criterion is read
+    off the order: the first block, and only the first, goes through
+    ``Control``. That is the finding the whole story exists for -- Story
+    4.9's report could say ``Control 4 (1/4 kierroksesta, uusin mukana)``,
+    and as a route it says which way they came and that the way is new.
+
+    **No archive needed**: the table is in the repository. What ties it to
+    the archive is the test above it.
+    """
+    blocks = PISTOL_ROUTES["1e1965abbc06133b/de_nuke/T/pistol"]
+    assert len(blocks) == 4, blocks
+    newest, *older = blocks
+    assert any("4 Control" in row for row in newest["rows"]), newest
+    for block_entry in older:
+        assert not any("Control" in row for row in block_entry["rows"]), (
+            block_entry
+        )
+
+
+def test_the_recorded_routes_name_nobody_and_date_nothing() -> None:
+    """The table carries areas, counts and seconds -- never a name.
+
+    The repository is public and the denylist is outside it (AD-12), so this
+    file cannot be checked against the forbidden names the way the tree is.
+    What it can be held to is a **shape**: every row is an indented Markdown
+    list item that holds no date, and the only fields beside the rows are a
+    round number, an outcome and the empty-round note.
+
+    A date is the cheap half and it is checked because it is the half that
+    would arrive by accident -- somebody pinning the rendered block whole
+    rather than its rows. The **heading** is the part that names an
+    opponent, and a heading is a dated string, so the date check is what
+    would catch that paste.
+
+    The marker half is the form pass's own property, measured on the
+    archive's own rows: a route row is a real list item (``- `` after an
+    even indent) and never opens with the arrow. Together with
+    ``test_every_route_row_is_a_markdown_list_item`` the claim is pinned on
+    hand-built rows and on measured ones.
+
+    **No archive needed**, for the reason the test above it gives.
+    """
+    allowed = {"round_no", "won", "rows", "note"}
+    dated = re.compile(r"\d{4}-\d{2}-\d{2}")
+    for key, blocks in PISTOL_ROUTES.items():
+        for entry in blocks:
+            assert set(entry) == allowed, (key, sorted(entry))
+            for row in entry["rows"]:
+                indent = len(row) - len(row.lstrip(" "))
+                assert indent >= 2 and indent % 2 == 0, (key, row)
+                assert row[indent:].startswith("- "), (key, row)
+                assert not row.lstrip().startswith("->"), (key, row)
+                assert not dated.search(row), (key, row)
+
+
+def test_every_recorded_route_row_states_a_group_of_players() -> None:
+    """A row's every step names a count, and the counts are the round's.
+
+    The pinned rows are strings, so nothing in the file itself enforces the
+    model's arithmetic. What can be read off them is the one property a
+    reader relies on: **every step on every row begins with a number**, so
+    no row silently drops the count and reads as a bare list of areas --
+    which is what the report said before this story and what the route was
+    built not to say.
+
+    **No archive needed**, for the reason the tests above give.
+    """
+    step = re.compile(r"^\d+ \S")
+    for key, blocks in PISTOL_ROUTES.items():
+        for entry in blocks:
+            for row in entry["rows"]:
+                body = row.lstrip().removeprefix("- ").removeprefix("-> ")
+                for part in body.split(" -> "):
+                    for piece in part.split(", "):
+                        assert step.match(piece), (key, row, piece)
+
+
+def test_the_recorded_ct_blocks_are_several_short_rows_and_that_is_the_finding(
+) -> None:
+    """The measurement behind the old "T side only" restriction, kept.
+
+    *"A defence does not travel as a body"* -- the spec's reading note since
+    2026-09-25, when both sides were asked for. ``de_nuke`` CT pistol starts
+    from more places than ``de_nuke`` T pistol does, and the block is
+    therefore several short rows. That is the observation and not a
+    rendering fault, so it is pinned rather than left as a sentence.
+
+    **No archive needed**, for the reason the tests above give.
+    """
+    def starts(key: str) -> list[int]:
+        return [
+            sum(1 for row in entry["rows"] if row.startswith("  - "))
+            for entry in PISTOL_ROUTES[key]
+        ]
+
+    attack = starts("1e1965abbc06133b/de_nuke/T/pistol")
+    defence = starts("1e1965abbc06133b/de_nuke/CT/pistol")
+    assert max(attack) == 2, attack
+    assert max(defence) >= 3, defence
+    assert sum(defence) > sum(attack), (defence, attack)

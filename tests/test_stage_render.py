@@ -32,7 +32,7 @@ from pappascout.domain.report import (
 )
 from pappascout.errors import PappascoutError
 from pappascout.stages import render as render_stage
-from pappascout.stages.render import NEWER_REPORT_NOTE
+from pappascout.stages.render import NEWER_REPORT_NOTE, _version_numbers
 from test_render import (
     DEFAULT_PRUNING,
     DEMO_ID,
@@ -47,6 +47,18 @@ from test_render import (
 
 OTHER_TEAM = "bbbbbbbbbbbbbbbb"
 STAMP = datetime(2026, 8, 30, 3, 7)
+
+#: A schema version one **above** the current one, for the two tests about a
+#: report written by a newer program.
+#:
+#: **Derived and no longer a literal**, which is the same correction
+#: :data:`~tests.test_report_model.LAST_SCHEMA_VERSION_THAT_WROTE_IT` was
+#: given in Story 4.10. The literal it replaces had to be raised by hand with
+#: every schema rise and was missed twice in two stories: left behind, it
+#: names a version the program has caught up with, the file stops being
+#: newer, and both tests pass while measuring nothing. A guard that has gone
+#: silently wrong twice does not get moved by hand a third time.
+NEWER_SCHEMA_VERSION = f"{_version_numbers(REPORT_SCHEMA_VERSION)[0] + 1}.0.0"
 
 
 # --- Building the archive -------------------------------------------------------
@@ -404,14 +416,14 @@ def test_the_refusal_names_the_change_and_not_only_the_version(
     **Two assertions that were not worth what they looked like** are gone.
     ``REPORT_SCHEMA_VERSION in message`` is satisfied by the pre-existing
     mismatch sentence ("this program knows version '13.0.0'") and says
-    nothing about the change sentence at all. And a bare ``"opponent" in
-    message`` would be satisfied by a future sentence about an opponent
+    nothing about the change sentence at all. And a bare ``"pistol" in
+    message`` would be satisfied by a future sentence about a pistol round
     somewhere else. So the word is required to come **from the constant**:
     remove the constant's text and the word must go with it.
 
     The word moves with the version: 11.0.0 named the record, 12.0.0 the
-    matches, 13.0.0 the opponent, and the assertion follows the sentence
-    rather than outliving it.
+    matches, 13.0.0 the opponent, 14.0.0 the pistol round, and the assertion
+    follows the sentence rather than outliving it.
     """
     archive = build_archive(tmp_path)
     path = archive.report_json(TEAM_KEY)
@@ -423,8 +435,8 @@ def test_the_refusal_names_the_change_and_not_only_the_version(
         run(archive)
     message = str(excinfo.value)
     assert REPORT_SCHEMA_CHANGE in message
-    assert "opponent" in message
-    assert "opponent" not in message.replace(REPORT_SCHEMA_CHANGE, "")
+    assert "pistol" in message
+    assert "pistol" not in message.replace(REPORT_SCHEMA_CHANGE, "")
 
 
 def test_a_newer_report_is_not_described_as_an_older_one(
@@ -438,12 +450,12 @@ def test_a_newer_report_is_not_described_as_an_older_one(
     file is newer and does carry it. The gate compares with ``!=``, so both
     directions arrive here, and the sentence reasoned about only one.
 
-    The number in the fixture is **one above the current version** and has to
-    stay that way: at 12.0.0 the literal below stopped being newer than the
-    program and the test passed while measuring nothing (Story 4.9). The same
-    thing happened again at 13.0.0 (Story 4.10) and the literal moved with
-    it -- twice in two stories, so the number here is the one to check first
-    when the schema rises.
+    The number in the fixture is **one above the current version**, and since
+    Story 4.11 it is :data:`NEWER_SCHEMA_VERSION` and is derived rather than
+    written down: at 12.0.0 the literal it replaced stopped being newer than
+    the program and the test passed while measuring nothing (Story 4.9), and
+    the same thing happened again at 13.0.0 (Story 4.10). Twice in two
+    stories is what a derived value is for.
 
     **It is reachable on this project rather than theoretical.** The archive
     is a folder two machines share through a sync product while the code
@@ -455,7 +467,7 @@ def test_a_newer_report_is_not_described_as_an_older_one(
     archive = build_archive(tmp_path)
     path = archive.report_json(TEAM_KEY)
     data = json.loads(path.read_text(encoding="utf-8"))
-    data["schema_version"] = "14.0.0"
+    data["schema_version"] = NEWER_SCHEMA_VERSION
     path.write_text(json.dumps(data), encoding="utf-8")
 
     with pytest.raises(PappascoutError) as excinfo:

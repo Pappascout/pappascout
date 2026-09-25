@@ -49,8 +49,11 @@ from pappascout.domain.report import (
     Report,
     RosterEntry,
     RosterSample,
+    ROUTE_ROUND_TYPE,
     RoundRecord,
+    RoundRoute,
     RoundTypeReport,
+    RouteStep,
     SLUG_FALLBACK,
     Sample,
     SampleBucket,
@@ -76,6 +79,25 @@ def hand_imported(*ids: str) -> list[PlayedMap]:
     return [
         PlayedMap(map_demo_id=demo, indexed=False, played_on=None, opponent=None)
         for demo in ids
+    ]
+
+
+def _pistol_routes(
+    rounds: int, demo: str = "Nuke_vs_a"
+) -> list[RoundRoute]:
+    """One routeless route per round, for the fixtures that are about
+    something else.
+
+    The model holds a pistol block's route list to being exactly as long as
+    its sample, so every pistol fixture in this file has to carry one -- and
+    almost none of them is about the route. **Every row has no steps**, which
+    is a real state and not a null object: it is the round that was settled
+    before the first sample point, and it is the cheapest row that satisfies
+    the count without asserting anything about a route.
+    """
+    return [
+        RoundRoute(map_demo_id=demo, round_no=number, won=False)
+        for number in range(1, rounds + 1)
     ]
 
 
@@ -405,6 +427,7 @@ def _report_with_breakdowns(league: Sample, roster: RosterSample) -> Report:
                                     losses=league.rounds,
                                     unknown=0,
                                 ),
+                                routes=_pistol_routes(league.rounds),
                             )
                         ],
                     )
@@ -705,6 +728,7 @@ def _round_type_with_positions(positions: list[Position]) -> RoundTypeReport:
         first_contact=[],
         deaths=DeathReport(m=0, rounds_missing=2),
         record=RoundRecord(wins=0, losses=2, unknown=0),
+        routes=_pistol_routes(2),
     )
 
 
@@ -875,6 +899,7 @@ def _round_type_with_first_contact(areas: list[FirstContactArea]):
         first_contact=areas,
         deaths=DeathReport(m=0, rounds_missing=2),
         record=RoundRecord(wins=0, losses=2, unknown=0),
+        routes=_pistol_routes(2),
     )
 
 
@@ -962,6 +987,7 @@ def full_report() -> Report:
         first_contact=[],
         deaths=DeathReport(m=0, rounds_missing=1),
         record=RoundRecord(wins=1, losses=0, unknown=0),
+        routes=_pistol_routes(1),
     )
     return Report(
         generated_at=datetime(2026, 8, 30, 12, 0, tzinfo=UTC),
@@ -1054,6 +1080,7 @@ def _report_with_anomalies(anomalies: list[Anomaly]) -> Report:
                                 record=RoundRecord(
                                     wins=0, losses=1, unknown=0
                                 ),
+                                routes=[],
                             )
                         ],
                     )
@@ -1122,6 +1149,7 @@ def side_with(rounds: int) -> SideReport:
                 first_contact=[],
                 deaths=DeathReport(m=0, rounds_missing=rounds),
                 record=RoundRecord(wins=0, losses=rounds, unknown=0),
+                routes=_pistol_routes(rounds),
             )
         ],
     )
@@ -1146,6 +1174,7 @@ def test_a_side_must_be_the_sum_of_its_round_types() -> None:
                     first_contact=[],
                     deaths=DeathReport(m=0, rounds_missing=2),
                     record=RoundRecord(wins=0, losses=2, unknown=0),
+                    routes=_pistol_routes(2),
                 )
             ],
         )
@@ -1199,6 +1228,7 @@ def test_a_round_moving_between_buckets_is_caught() -> None:
                     first_contact=[],
                     deaths=DeathReport(m=0, rounds_missing=3),
                     record=RoundRecord(wins=0, losses=3, unknown=0),
+                    routes=_pistol_routes(3),
                 )
             ],
         )
@@ -1268,6 +1298,7 @@ def _map_with_bucketed_demo(
                         record=RoundRecord(
                             wins=0, losses=rounds, unknown=0
                         ),
+                        routes=_pistol_routes(rounds),
                     )
                 ],
             )
@@ -1544,6 +1575,7 @@ def test_the_round_type_report_requires_its_death_block() -> None:
             players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
             first_contact=[],
             record=RoundRecord(wins=0, losses=1, unknown=0),
+            routes=_pistol_routes(1),
         )
 
 
@@ -1566,6 +1598,7 @@ def test_the_round_type_report_requires_its_armored_block() -> None:
             first_contact=[],
             deaths=DeathReport(m=0, rounds_missing=1),
             record=RoundRecord(wins=0, losses=1, unknown=0),
+            routes=_pistol_routes(1),
         )
 
 
@@ -1770,14 +1803,18 @@ def test_the_schema_version_says_the_structure_changed() -> None:
     # The refusal names the field, which is what the user is shown. Without
     # this the fixture could be failing for some unrelated reason.
     assert all(path.split(".")[-1] in message for path in required_now), message
-    assert REPORT_SCHEMA_VERSION != LAST_SCHEMA_VERSION_THAT_WROTE_IT, (
-        "A file written under schema "
-        f"{LAST_SCHEMA_VERSION_THAT_WROTE_IT} no longer validates, so "
-        "REPORT_SCHEMA_VERSION has to have moved past it. Left unchanged, "
-        "the version gate in stages/render.py lets the old file through and "
-        "render dies on a pydantic error instead of saying that aggregation "
-        "has to be run again."
-    )
+    # THE ASSERTION THAT USED TO CLOSE THIS TEST IS GONE, AND ITS ABSENCE IS
+    # THE POINT. It read ``REPORT_SCHEMA_VERSION !=
+    # LAST_SCHEMA_VERSION_THAT_WROTE_IT``, which was a real check while that
+    # constant was written by hand -- and became a **tautology** the moment
+    # Story 4.10 derived it as ``major - 1``. Two different strings are two
+    # different strings; the line could not fail, so it measured nothing and
+    # read as though it did.
+    #
+    # What it was for is now structural: the constant IS one major behind by
+    # construction, and what still needs checking -- that the previous
+    # version's shape is refused -- is the assertion above it. A guard that
+    # cannot fail is worse than no guard, because the next reader counts it.
 
 
 def test_the_change_sentence_names_the_current_version() -> None:
@@ -1850,6 +1887,7 @@ def _round_type_with(entry: DeathReport, rounds: int) -> RoundTypeReport:
         first_contact=[],
         deaths=entry,
         record=RoundRecord(wins=0, losses=rounds, unknown=0),
+        routes=_pistol_routes(rounds),
     )
 
 
@@ -1912,6 +1950,7 @@ def _round_type_with_record(record: RoundRecord, rounds: int) -> RoundTypeReport
         first_contact=[],
         deaths=DeathReport(m=0, rounds_missing=rounds),
         record=record,
+        routes=_pistol_routes(rounds),
     )
 
 
@@ -1936,6 +1975,7 @@ def test_the_round_type_report_requires_its_record() -> None:
             players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
             first_contact=[],
             deaths=DeathReport(m=0, rounds_missing=1),
+            routes=_pistol_routes(1),
         )
 
 
@@ -2734,6 +2774,7 @@ def _match_round_type(
         first_contact=first_contact or [],
         deaths=DeathReport(m=0, rounds_missing=rounds),
         record=RoundRecord(wins=0, losses=rounds, unknown=0),
+        routes=_pistol_routes(rounds),
     )
 
 
@@ -3351,3 +3392,247 @@ def test_every_recorded_schema_change_is_its_own() -> None:
         "tests/data/schema_changes.json, so the fixture has nothing to build "
         "the previous version's shape from."
     )
+
+
+# --- The pistol round's route (Story 4.11) --------------------------------------
+
+
+def _pistol_block(routes: list[RoundRoute], rounds: int = 1) -> RoundTypeReport:
+    """A pistol block carrying exactly the routes given."""
+    return RoundTypeReport(
+        round_type=ROUTE_ROUND_TYPE,
+        sample=sample(unknown=rounds),
+        small_sample=True,
+        positions=[],
+        utility=[],
+        utility_counts=[],
+        players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+        players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
+        first_contact=[],
+        deaths=DeathReport(m=0, rounds_missing=rounds),
+        record=RoundRecord(wins=0, losses=rounds, unknown=0),
+        routes=routes,
+    )
+
+
+def test_the_round_type_report_requires_its_routes() -> None:
+    """No default for the route list: empty would read as a measurement.
+
+    The same grounds as the deaths, the armour and the record, with one edge
+    of its own. An empty list **is** an observation here -- on the pistol
+    type it says "not one of these rounds reached a sample point", which is
+    a real state a round settled in five seconds produces -- so a default
+    would render every report written before this schema as a block of
+    rounds that ended before they began.
+    """
+    with pytest.raises(ValidationError, match="routes"):
+        RoundTypeReport(
+            round_type=ROUTE_ROUND_TYPE,
+            sample=sample(unknown=1),
+            small_sample=True,
+            positions=[],
+            utility=[],
+            utility_counts=[],
+            players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+            players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
+            first_contact=[],
+            deaths=DeathReport(m=0, rounds_missing=1),
+            record=RoundRecord(wins=0, losses=1, unknown=0),
+        )
+
+
+def test_only_the_pistol_type_may_carry_routes() -> None:
+    """The story's scope, in the model and not only in the builder.
+
+    The other buy classes hold many rounds per match; a per-round block for
+    each would not be a summary of anything, and the aggregation that would
+    make one has not been designed.
+    """
+    with pytest.raises(AggregateError, match="only pistol reports them"):
+        RoundTypeReport(
+            round_type="eco",
+            sample=sample(unknown=1),
+            small_sample=True,
+            positions=[],
+            utility=[],
+            utility_counts=[],
+            players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+            players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
+            first_contact=[],
+            deaths=DeathReport(m=0, rounds_missing=1),
+            record=RoundRecord(wins=0, losses=1, unknown=0),
+            routes=[RoundRoute(map_demo_id="Nuke_vs_a", round_no=1, won=True)],
+        )
+
+
+def test_a_block_lists_one_route_for_every_round_of_its_sample() -> None:
+    """A round missing from the list is a round the reader never sees.
+
+    The heading goes on counting it, so the two would contradict each other
+    with nothing on the page to say which is the measurement. Both
+    directions are refused, because a list **longer** than the sample is the
+    same disagreement the other way up.
+    """
+    with pytest.raises(AggregateError, match="but its sample is 2 rounds"):
+        _pistol_block(_pistol_routes(1), rounds=2)
+    with pytest.raises(AggregateError, match="but its sample is 1 rounds"):
+        _pistol_block(_pistol_routes(2), rounds=1)
+
+
+def test_a_block_does_not_list_the_same_round_twice() -> None:
+    """The count check passes a list of two rows naming one round.
+
+    Rendered, the reader would see one round played twice against the same
+    opponent -- the fault :meth:`MapReport._check_each_demo_is_listed_once`
+    refuses one level up, and it matters here for the same reason: the rows
+    are printed.
+    """
+    twice = [
+        RoundRoute(map_demo_id="Nuke_vs_a", round_no=1, won=True),
+        RoundRoute(map_demo_id="Nuke_vs_a", round_no=1, won=False),
+    ]
+    with pytest.raises(AggregateError, match="the same round more than once"):
+        _pistol_block(twice, rounds=2)
+
+
+def test_a_route_step_refuses_a_moment_that_is_not_a_number_of_seconds() -> None:
+    """``nan``, ``inf`` and a negative second, the three
+    :func:`_check_seconds` refuses.
+
+    The report would otherwise print ``nan s`` beside a death, and a reader
+    cannot interpret that at all. Negative points into freezetime, where
+    nobody has moved yet.
+    """
+    for value in (float("nan"), float("inf"), -1.0):
+        with pytest.raises(ValidationError):
+            RouteStep(fate="seen", seconds=value, area="Ramp", players=1)
+
+
+def test_two_branches_of_one_round_may_share_a_moment() -> None:
+    """Uniqueness is **not** one of the conditions, and deliberately so.
+
+    A division at 30 s produces parts that all read 30.0. The round type's
+    sample point list forbids a repeat because there the same moment is one
+    observation; here it is one moment observed of several groups.
+    """
+    step = RouteStep(
+        fate="seen",
+        seconds=15.0,
+        area="Control",
+        players=2,
+        steps=[
+            RouteStep(fate="seen", seconds=30.0, area="Ramp", players=1),
+            RouteStep(fate="seen", seconds=30.0, area="Hell", players=1),
+        ],
+    )
+    assert [child.seconds for child in step.steps] == [30.0, 30.0]
+
+
+def test_a_player_the_sample_lost_is_given_no_place() -> None:
+    """``gone`` names no area.
+
+    The step exists **because** the sample holds no position for those
+    players at this moment; an area on it would put them somewhere the
+    archive does not.
+    """
+    with pytest.raises(AggregateError, match="holds no position"):
+        RouteStep(fate="gone", seconds=30.0, area="Ramp", players=1)
+
+
+def test_a_player_the_sample_lost_may_still_be_observed_again() -> None:
+    """``gone`` **may** carry steps, and the permission is the point.
+
+    The first version of this model forbade it on the grounds that a
+    continuation would follow players the report had said it lost. That read
+    ``gone`` as "for ever" when it only ever meant "not at this moment", and
+    it made :func:`~pappascout.domain.aggregate._route_steps` throw away
+    every position the archive held for a player whose rows begin late --
+    the report claiming a loss it could itself disprove.
+
+    ``died`` is the case that really is for ever and stays terminal, which
+    is why the two are separate validators rather than one.
+    """
+    step = RouteStep(
+        fate="gone",
+        seconds=30.0,
+        area=None,
+        players=1,
+        steps=[RouteStep(fate="seen", seconds=45.0, area="Ramp", players=1)],
+    )
+    assert [child.area for child in step.steps] == ["Ramp"]
+
+
+def test_a_death_ends_its_branch() -> None:
+    """A step after a death would show the reader a dead player moving."""
+    with pytest.raises(AggregateError, match="follows them to another"):
+        RouteStep(
+            fate="died",
+            seconds=27.0,
+            area="Mini",
+            players=1,
+            steps=[RouteStep(fate="seen", seconds=45.0, area="Ramp", players=1)],
+        )
+
+
+def test_the_parts_of_a_group_are_the_whole_of_it() -> None:
+    """The route's only arithmetic, and the one thing that fails in silence.
+
+    A player dropped between two sample points leaves every row internally
+    plausible and the chain quietly narrower than the team was -- there is
+    no total on the page to notice it against.
+    """
+    with pytest.raises(AggregateError, match="parts holding 3 between them"):
+        RouteStep(
+            fate="seen",
+            seconds=15.0,
+            area="Control",
+            players=4,
+            steps=[
+                RouteStep(fate="seen", seconds=30.0, area="Ramp", players=2),
+                RouteStep(fate="seen", seconds=30.0, area="Hell", players=1),
+            ],
+        )
+
+
+def test_a_group_holds_at_least_one_player() -> None:
+    """A part with nobody in it is not a part; it is a row about nothing."""
+    with pytest.raises(ValidationError):
+        RouteStep(fate="seen", seconds=15.0, area="Control", players=0)
+
+
+def test_a_round_route_carries_its_starts_and_no_total_beside_them() -> None:
+    """The deleted property stays deleted.
+
+    A ``players`` property summing :attr:`RoundRoute.steps` was written and
+    removed inside the same story: nothing in ``render`` read it, its only
+    reference anywhere was the test asserting it, and the docstring
+    justifying it was wrong -- it named the archive's nine-row round as the
+    case that breaks a five-player assumption, and that round is a ``full``
+    buy from which no route is ever built. The total is one ``sum`` away for
+    whoever needs it; a value nobody reads is a value whose justification
+    nobody re-measures.
+    """
+    route = RoundRoute(
+        map_demo_id="Nuke_vs_a",
+        round_no=1,
+        won=True,
+        steps=[
+            RouteStep(fate="seen", seconds=6.0, area="Outside", players=3),
+            RouteStep(fate="seen", seconds=6.0, area="TSpawn", players=1),
+        ],
+    )
+    assert "players" not in route.model_dump()
+    assert not hasattr(route, "players")
+
+
+def test_an_unread_outcome_is_a_state_and_not_a_missing_value() -> None:
+    """``won`` is nullable, and ``None`` must not be read as a defeat.
+
+    :func:`record_for`'s rule, at the level of one round: the column is
+    nullable in the classified table, so an unread outcome is a gap in the
+    recording. The field is **required** all the same -- the absence has to
+    be written down, not omitted.
+    """
+    assert RoundRoute(map_demo_id="d", round_no=1, won=None).won is None
+    with pytest.raises(ValidationError, match="won"):
+        RoundRoute(map_demo_id="d", round_no=1)

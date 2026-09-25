@@ -1,0 +1,494 @@
+{
+  "blocks": {
+    "1e1965abbc06133b/de_dust2/CT/pistol": [
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 2 BDoors",
+          "    - 1 BDoors -> 1 CTSpawn -> 1 kuoli UnderA (36 s)",
+          "    - 1 BombsiteB -> 1 MidDoors -> 1 CTSpawn",
+          "  - 1 ExtendedA",
+          "    - 1 Catwalk -> 1 kuoli Catwalk (26 s)",
+          "  - 1 Middle",
+          "    - 1 LowerTunnel -> 1 LowerTunnel -> 1 ExtendedA",
+          "  - 1 UnderA",
+          "    - 1 ShortStairs -> 1 kuoli ShortStairs (29 s)"
+        ],
+        "won": false
+      },
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 2 UnderA",
+          "    - 1 Catwalk -> 1 kuoli Catwalk (25 s)",
+          "    - 1 ShortStairs -> 1 ShortStairs -> 1 ShortStairs",
+          "  - 1 ExtendedA",
+          "    - 1 ShortStairs -> 1 kuoli Catwalk (24 s)",
+          "  - 1 LowerTunnel",
+          "    - 1 UpperTunnel -> 1 kuoli UpperTunnel (17 s)",
+          "  - 1 Middle",
+          "    - 1 LowerTunnel -> 1 LowerTunnel -> 1 BombsiteB"
+        ],
+        "won": true
+      },
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 2 UnderA",
+          "    - 2 Catwalk",
+          "      - 1 ExtendedA -> 1 kuoli ExtendedA (45 s)",
+          "      - 1 ShortStairs -> 1 ExtendedA",
+          "  - 1 BDoors",
+          "    - 1 BombsiteB -> 1 BombsiteB -> 1 CTSpawn",
+          "  - 1 ExtendedA",
+          "    - 1 Catwalk -> 1 ShortStairs -> 1 ExtendedA",
+          "  - 1 MidDoors",
+          "    - 1 BDoors -> 1 CTSpawn -> 1 UnderA"
+        ],
+        "won": false
+      }
+    ],
+    "1e1965abbc06133b/de_dust2/T/pistol": [
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 4 OutsideLong",
+          "    - 1 Catwalk, 1 Middle, 1 kuoli Catwalk (12 s), 1 kuoli Catwalk (14 s)",
+          "  - 1 TSpawn",
+          "    - 1 Catwalk"
+        ],
+        "won": false
+      },
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 3 OutsideTunnel",
+          "    - 1 kuoli UpperTunnel (10 s), 1 kuoli UpperTunnel (13 s), 1 kuoli UpperTunnel (14 s)",
+          "  - 1 OutsideLong",
+          "    - 1 OutsideLong",
+          "  - 1 TSpawn",
+          "    - 1 OutsideTunnel"
+        ],
+        "won": false
+      },
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 4 OutsideTunnel",
+          "    - 4 UpperTunnel",
+          "      - 1 LowerTunnel -> 1 Catwalk",
+          "      - 1 MidDoors -> 1 kuoli MidDoors (37 s)",
+          "      - 1 Middle -> 1 LowerTunnel",
+          "      - 1 UpperTunnel -> 1 UpperTunnel",
+          "  - 1 OutsideLong",
+          "    - 1 TopofMid -> 1 OutsideLong -> 1 OutsideLong"
+        ],
+        "won": true
+      }
+    ],
+    "1e1965abbc06133b/de_inferno/CT/pistol": [
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 3 Ruins",
+          "    - 2 Banana -> 2 Middle -> 1 Apartments, 1 TopofMid",
+          "    - 1 BombsiteB -> 1 Library -> 1 Arch",
+          "  - 2 BombsiteA",
+          "    - 1 Balcony -> 1 Balcony -> 1 BombsiteA",
+          "    - 1 Pit -> 1 Pit -> 1 BombsiteA"
+        ],
+        "won": true
+      }
+    ],
+    "1e1965abbc06133b/de_inferno/T/pistol": [
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 3 TSpawn",
+          "    - 1 LowerMid -> 1 Banana -> 1 Middle",
+          "    - 1 Middle -> 1 kuoli Middle (15 s)",
+          "    - 1 TRamp -> 1 Middle -> 1 BombsiteA",
+          "  - 2 LowerMid",
+          "    - 2 SecondMid",
+          "      - 1 Apartments -> 1 BombsiteA",
+          "      - 1 kuoli SecondMid (16 s)"
+        ],
+        "won": true
+      }
+    ],
+    "1e1965abbc06133b/de_nuke/CT/pistol": [
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 3 Hell",
+          "    - 1 Admin -> 1 Hell -> 1 Ramp",
+          "    - 1 BombsiteA -> 1 Hut -> 1 Ramp",
+          "    - 1 BombsiteB -> 1 Secret -> 1 Tunnels",
+          "  - 1 Admin",
+          "    - 1 BombsiteB -> 1 Secret -> 1 Tunnels",
+          "  - 1 Outside",
+          "    - 1 Outside -> 1 Vents -> 1 Decon"
+        ],
+        "won": false
+      },
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 3 Hell",
+          "    - 1 BombsiteA -> 1 BombsiteA -> 1 BombsiteA",
+          "    - 1 Rafters -> 1 Heaven -> 1 BombsiteB",
+          "    - 1 Ramp -> 1 BombsiteB -> 1 BombsiteB",
+          "  - 2 Outside",
+          "    - 1 BombsiteA -> 1 Roof -> 1 Lobby",
+          "    - 1 Mini -> 1 kuoli Outside (23 s)"
+        ],
+        "won": true
+      },
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 3 Hell",
+          "    - 1 Admin, 1 BombsiteA, 1 Ramp",
+          "  - 2 Outside",
+          "    - 1 BombsiteA, 1 kuoli Hut (15 s)"
+        ],
+        "won": true
+      },
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 3 Hell",
+          "    - 1 BombsiteA -> 1 kuoli BombsiteA (20 s)",
+          "    - 1 Control -> 1 Hell",
+          "    - 1 HutRoof -> 1 kuoli HutRoof (19 s)",
+          "  - 2 Outside",
+          "    - 1 BombsiteA -> 1 kuoli BombsiteA (17 s)",
+          "    - 1 Outside -> 1 kuoli Mini (25 s)"
+        ],
+        "won": false
+      }
+    ],
+    "1e1965abbc06133b/de_nuke/T/pistol": [
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 4 Outside",
+          "    - 4 Control -> 2 Ramp, 1 Heaven, 1 Hell",
+          "  - 1 TSpawn",
+          "    - 1 Outside -> 1 Outside"
+        ],
+        "won": true
+      },
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 4 Outside",
+          "    - 2 Lobby -> 1 kuoli Lobby (19 s), 1 kuoli Lobby (22 s)",
+          "    - 2 Outside -> 1 Mini, 1 kuoli Mini (27 s)",
+          "  - 1 TSpawn",
+          "    - 1 Outside -> 1 kuoli BombsiteA (29 s)"
+        ],
+        "won": false
+      },
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 4 Outside",
+          "    - 2 Outside",
+          "      - 1 Mini -> 1 kuoli Mini (36 s)",
+          "      - 1 kuoli Mini (26 s)",
+          "    - 1 Lobby -> 1 Squeaky -> 1 Lobby",
+          "    - 1 Vending -> 1 Hut -> 1 Mini",
+          "  - 1 TSpawn",
+          "    - 1 Outside -> 1 BombsiteA -> 1 Squeaky"
+        ],
+        "won": true
+      },
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 4 Outside",
+          "    - 2 Outside",
+          "      - 1 Mini -> 1 Mini",
+          "      - 1 kuoli Mini (27 s)",
+          "    - 1 Lobby -> 1 Hut -> 1 Hut",
+          "    - 1 Vending -> 1 Lobby -> 1 Lobby",
+          "  - 1 TSpawn",
+          "    - 1 Outside -> 1 Mini -> 1 BombsiteA"
+        ],
+        "won": true
+      }
+    ],
+    "9ac92660986558d3/de_ancient/CT/pistol": [
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 3 Alley",
+          "    - 1 Alley -> 1 BombsiteB -> 1 CTSpawn",
+          "    - 1 BombsiteB -> 1 BombsiteB -> 1 House",
+          "    - 1 SideEntrance -> 1 kuoli SideEntrance (17 s)",
+          "  - 2 BombsiteA",
+          "    - 2 BombsiteA",
+          "      - 1 Alley -> 1 CTSpawn",
+          "      - 1 CTSpawn -> 1 BombsiteA"
+        ],
+        "won": false
+      }
+    ],
+    "9ac92660986558d3/de_ancient/T/pistol": [
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 4 Outside",
+          "    - 1 Middle -> 1 kuoli SideHall (20 s)",
+          "    - 1 Outside -> 1 BombsiteA -> 1 TopofMid",
+          "    - 1 kuoli Middle (10 s)",
+          "    - 1 kuoli Middle (14 s)",
+          "  - 1 TSpawn",
+          "    - 1 Outside -> 1 BombsiteA -> 1 Middle"
+        ],
+        "won": true
+      }
+    ],
+    "9ac92660986558d3/de_anubis/CT/pistol": [
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 2 Alley",
+          "    - 2 Connector -> 2 Canal -> 2 BombsiteA",
+          "  - 2 Middle",
+          "    - 1 Bridge -> 1 Canal -> 1 kuoli Main (35 s)",
+          "    - 1 Walkway -> 1 TunnelStairs -> 1 kuoli Heaven (36 s)",
+          "  - 1 PalaceInterior",
+          "    - 1 BackofB -> 1 BackofB -> 1 kuoli Middle (45 s)"
+        ],
+        "won": true
+      }
+    ],
+    "9ac92660986558d3/de_anubis/T/pistol": [
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 4 Ruins",
+          "    - 2 Bridge -> 1 kuoli Canal (21 s), 1 kuoli BackofB (29 s)",
+          "    - 1 OutsideLong -> 1 BombsiteB -> 1 kuoli Connector (44 s)",
+          "    - 1 kuoli OutsideLong (15 s)",
+          "  - 1 TSpawn",
+          "    - 1 Bridge -> 1 kuoli BombsiteB (23 s)"
+        ],
+        "won": false
+      }
+    ],
+    "9ac92660986558d3/de_inferno/CT/pistol": [
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 2 Ruins",
+          "    - 1 Banana -> 1 BombsiteB -> 1 CTSpawn",
+          "    - 1 Ruins -> 1 BombsiteB -> 1 CTSpawn",
+          "  - 1 Arch",
+          "    - 1 Arch -> 1 Arch -> 1 kuoli BombsiteA (32 s)",
+          "  - 1 BombsiteA",
+          "    - 1 Apartments -> 1 kuoli Balcony (27 s)",
+          "  - 1 TopofMid",
+          "    - 1 Balcony -> 1 kuoli BombsiteA (30 s)"
+        ],
+        "won": false
+      }
+    ],
+    "9ac92660986558d3/de_inferno/T/pistol": [
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 4 TSpawn",
+          "    - 2 LowerMid -> 2 LowerMid -> 2 LowerMid",
+          "    - 1 Bridge -> 1 Apartments -> 1 Upstairs",
+          "    - 1 TSpawn -> 1 TSpawn -> 1 TSpawn",
+          "  - 1 LowerMid",
+          "    - 1 TRamp -> 1 TRamp -> 1 TRamp"
+        ],
+        "won": false
+      }
+    ],
+    "9ac92660986558d3/de_nuke/CT/pistol": [
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 4 Hell",
+          "    - 1 Admin -> 1 Ramp -> 1 kuoli Ramp (40 s)",
+          "    - 1 BombsiteA -> 1 BombsiteA -> 1 BombsiteB",
+          "    - 1 HutRoof -> 1 Vents -> 1 BombsiteB",
+          "    - 1 Ramp -> 1 kuoli BombsiteB (27 s)",
+          "  - 1 Outside",
+          "    - 1 Mini -> 1 Tunnels -> 1 BombsiteB"
+        ],
+        "won": false
+      }
+    ],
+    "9ac92660986558d3/de_nuke/T/pistol": [
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 5 Outside",
+          "    - 4 Control",
+          "      - 2 Hell -> 1 kuoli Heaven (32 s), 1 kuoli Heaven (33 s)",
+          "      - 1 Admin -> 1 Admin",
+          "      - 1 kuoli Control (16 s)",
+          "    - 1 Lobby -> 1 Ramp -> 1 Admin"
+        ],
+        "won": false
+      }
+    ],
+    "ff03fb54599d3311/de_ancient/CT/pistol": [
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 3 Alley",
+          "    - 2 Alley",
+          "      - 1 Alley -> 1 BombsiteA",
+          "      - 1 BombsiteB -> 1 BombsiteA",
+          "    - 1 BombsiteB -> 1 SideEntrance -> 1 BombsiteA",
+          "  - 1 BombsiteA",
+          "    - 1 BombsiteA -> 1 BombsiteA -> 1 kuoli BombsiteA (38 s)",
+          "  - 1 House",
+          "    - 1 House -> 1 House -> 1 kuoli CTSpawn (39 s)"
+        ],
+        "won": false
+      },
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 3 Alley",
+          "    - 1 Alley, 1 BombsiteB, 1 SideEntrance",
+          "  - 1 BombsiteA",
+          "    - 1 BombsiteA",
+          "  - 1 House",
+          "    - 1 Alley"
+        ],
+        "won": true
+      }
+    ],
+    "ff03fb54599d3311/de_ancient/T/pistol": [
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 5 Outside",
+          "    - 2 Middle",
+          "      - 1 House -> 1 CTSpawn",
+          "      - 1 Middle -> 1 Middle",
+          "    - 2 TopofMid",
+          "      - 1 House -> 1 CTSpawn",
+          "      - 1 kuoli House (16 s)",
+          "    - 1 kuoli Middle (10 s)"
+        ],
+        "won": false
+      },
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 5 Outside",
+          "    - 4 MainHall -> 4 BombsiteA -> 3 BombsiteA, 1 kuoli BombsiteA (31 s)",
+          "    - 1 Outside -> 1 Middle -> 1 House"
+        ],
+        "won": true
+      }
+    ],
+    "ff03fb54599d3311/de_anubis/CT/pistol": [
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 2 Middle",
+          "    - 1 Middle -> 1 PalaceInterior",
+          "    - 1 Walkway -> 1 CTSpawn",
+          "  - 1 Alley",
+          "    - 1 Alley -> 1 Alley",
+          "  - 1 BombsiteB",
+          "    - 1 Connector -> 1 Connector",
+          "  - 1 PalaceInterior",
+          "    - 1 BackofB -> 1 BackofB"
+        ],
+        "won": false
+      }
+    ],
+    "ff03fb54599d3311/de_anubis/T/pistol": [
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 2 Ruins",
+          "    - 2 OutsideLong -> 1 kuoli BombsiteB (22 s), 1 kuoli BombsiteB (30 s)",
+          "  - 2 Street",
+          "    - 1 Canal -> 1 kuoli Connector (18 s)",
+          "    - 1 kuoli Canal (11 s)",
+          "  - 1 OutsideLong",
+          "    - 1 BombsiteB -> 1 kuoli BombsiteB (16 s)"
+        ],
+        "won": false
+      }
+    ],
+    "ff03fb54599d3311/de_nuke/CT/pistol": [
+      {
+        "note": null,
+        "round_no": 13,
+        "rows": [
+          "  - 4 Hell",
+          "    - 1 Admin -> 1 Outside",
+          "    - 1 BombsiteA -> 1 HutRoof",
+          "    - 1 Catwalk -> 1 Rafters",
+          "    - 1 Ramp -> 1 Squeaky",
+          "  - 1 Outside",
+          "    - 1 Outside -> 1 Garage"
+        ],
+        "won": true
+      }
+    ],
+    "ff03fb54599d3311/de_nuke/T/pistol": [
+      {
+        "note": null,
+        "round_no": 1,
+        "rows": [
+          "  - 5 Outside",
+          "    - 5 Lobby",
+          "      - 1 BombsiteA -> 1 kuoli BombsiteA (31 s)",
+          "      - 1 Hut -> 1 kuoli Hut (31 s)",
+          "      - 1 Mini -> 1 BombsiteA",
+          "      - 1 kuoli BombsiteA (26 s)",
+          "      - 1 kuoli BombsiteA (27 s)"
+        ],
+        "won": false
+      }
+    ]
+  },
+  "limit": "A row is a string, so this catches the model and the renderer together and cannot say which of the two moved. It cannot be re-derived without the archive: the tests that read it without one assert on its own contents, which is a different job. The rows are read on the grid settings.toml declares, because _on_grid filters one demo of this archive down to it permanently -- so the table is the report on THAT grid and not on whatever grid a demo happens to be parsed at. It is an observation and not a rule: importing a demo changes these rows legitimately, and the answer is then to measure the table again and say so in the commit.",
+  "measured": "2026-09-25",
+  "note": "EVERY pistol block of every recorded team, keyed team/map/side/pistol, with the route rows as the view renders them from the real archive (Story 4.11). Produced by running tests/test_calibration._route_blocks_from over the archive -- the same code path the test that reads it back uses -- so the file records what the tool produces and not a hand-written expectation. The rows carry areas, player counts and measured seconds only: the block's heading, which names the opponent and the date, is DELIBERATELY NOT HERE -- the repository is public and the denylist that guards it lives outside the repository (AD-12). What the heading states is pinned without the names in match_counts.json's played table."
+}
