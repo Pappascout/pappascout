@@ -103,6 +103,406 @@
       },
       {
         "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 15,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 15,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Vending",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Vending",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Lobby",
         "matches": 1,
         "matches_m": 4,
         "n": 2,
@@ -320,6 +720,1306 @@
         "players": 2,
         "sample_kind": "time",
         "seconds": 15.0
+      },
+      {
+        "area": "Garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Garage",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Mini",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Roof",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 13,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Control",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Control",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Garage",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Roof",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 13,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Vending",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Control",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Control",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Garage",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 15,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Vending",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Control",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Control",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Garage",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 13,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "TSpawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Vending",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
       },
       {
         "area": "BombsiteB",
@@ -690,6 +2390,1666 @@
         "players": 2,
         "sample_kind": "time",
         "seconds": 30.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Control",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Control",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Hell",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Hell",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Hut",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 9,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Mini",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Vending",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Admin",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Admin",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Control",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Control",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Hut",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 10,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Mini",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Mini",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Vending",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Vending",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Control",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Control",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Control",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Heaven",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Heaven",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Hell",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Hell",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Hut",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "HutRoof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "HutRoof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Mini",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Mini",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 13,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Vending",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Catwalk",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Catwalk",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Control",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Control",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Control",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "HutRoof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "HutRoof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 9,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Mini",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Rafters",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Rafters",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Tunnels",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Vending",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
       },
       {
         "area": "Admin",
@@ -1524,6 +4884,136 @@
         "seconds": 6.0
       },
       {
+        "area": "Lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
         "area": "Control",
         "matches": 3,
         "matches_m": 4,
@@ -1614,6 +5104,406 @@
         "seconds": 15.0
       },
       {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Vending",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Vending",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Vending",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Vending",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Vending",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "Admin",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Admin",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Mini",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Vending",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "Vending",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
         "area": "BombsiteA",
         "matches": 3,
         "matches_m": 4,
@@ -1802,6 +5692,496 @@
         "players": 1,
         "sample_kind": "time",
         "seconds": 30.0
+      },
+      {
+        "area": "Admin",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Admin",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Hell",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Hell",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Mini",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Rafters",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "Rafters",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Hell",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Hell",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "LockerRoom",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "LockerRoom",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Rafters",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "Rafters",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Hut",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Mini",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Outside",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Outside",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Rafters",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Rafters",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "BombsiteA",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Hut",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Lobby",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Mini",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "Squeaky",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
       },
       {
         "area": "BombsiteA",
@@ -1975,6 +6355,7 @@
       }
     ]
   },
+  "areas_measured": "2026-09-25",
   "measured": "2026-09-24",
   "played": {
     "1e1965abbc06133b": {

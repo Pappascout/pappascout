@@ -87,6 +87,8 @@ from pappascout.render.view import (
     ANOMALY_HEADING,
     GRENADE_ORDER,
     GRENADE_TYPE_FI,
+    HABITS_LABEL,
+    HABITS_POINTER,
     MAX_ANOMALY_LINES,
     MAX_DEATH_LINES,
     MERGED_EQUIPMENT_LABEL,
@@ -3377,19 +3379,23 @@ GOLDEN = """\
 - **Pieni otanta:** alle 3 kierrosta merkitään (pieni otanta); havaintoa ei silti piiloteta
 - **Luokittelun kynnykset:** full_equip_min 4000
 - **Aggregoinnin kynnykset:** advance_area_min_observations_per_point 5, advance_max_sample_s 30, advance_min_players 1, advance_t_share 0,8, crunch_lookback_s 9, crunch_min_players 2, crunch_min_sources 2, small_sample_rounds 3, stack_group_margin 1,25, stack_max_areas 2, stack_min_players 4, stack_sample_s 15, stack_site_separation_min 2, team_identity_min_common 3
-- **Karsinnan säännöt:** drop_saturated_equipment_lines kyllä, max_kill_areas 3, max_utility_targets 2, merge_equal_equipment_lines kyllä, skip_sample_seconds ei yhtään
+- **Karsinnan säännöt:** anomaly_min_matches 0, drop_saturated_equipment_lines kyllä, max_kill_areas 3, max_utility_targets 2, merge_equal_equipment_lines kyllä, skip_sample_seconds ei yhtään
 - **Aineisto koottu:** 2026-08-30 12:00 UTC (pappascout 0.1.0)
 
 ## Poikkeamat
 
-- CT-eteneminen (`de_nuke`, CT-puoli, eco): Lobby (1/4 kierroksesta, T-osuus 0,89 alueen 64 havainnosta)
-  - kierros 23: 2 pelaajaa 30 s kohdalla
+- Crunch (`de_nuke`, CT-puoli, havaittu: eco): Lobby (1/4 kierroksesta, T-osuus 0,89 alueen 64 havainnosta)
+  - kierros 23 (eco): 2 pelaajaa, yhtä aikaa suunnista Arch ja TopofMid
+- *CT-etenemiset ovat karttalukujen kohdassa Huomioitavaa: ne kertovat pelaajan tai joukkueen tavasta eivätkä joukkueen strategiasta.*
 
 ## `de_nuke` -- 4 kierrosta, 2 demoa 2 ottelussa
 
 - **Kartat:**
   - ei otteluindeksissä (`Ancient_vs_kaljukostaja`)
   - ei otteluindeksissä (`ANCIENT_vs_RCAVE_VETERANS`)
+
+- **Huomioitavaa:**
+  - CT-pelaaja alueella Squeaky säästökierroksilla (1/4 säästökierroksesta, 1/2 ottelussa; eco k23 `Ancient_vs_kaljukostaja`)
 
 ### T-puoli -- 4 kierrosta 2 ottelussa
 
@@ -3433,7 +3439,7 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 - "ei otteluindeksissä" kartan rivillä tarkoittaa, ettei demon ottelua löydy arkiston otteluindeksistä -- tavallisimmin siksi, että demo on tuotu käsin eikä sen takana ole liigaottelua. Silloin rivillä ei ole päivää eikä vastustajaa, eikä raportti lue niitä tiedostonimestä: tiedostonimi ei ole havainto, ja siitä luettu nimi olisi väite, jota ei voi tarkistaa. Rivin tunniste kertoo, mistä demosta on kyse.
 - Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui.
 - Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 5 havaintoa näytepistettä kohden; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
-- **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta.
+- **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta. Kirjataan tavaksi karttaluvun kohtaan Huomioitavaa eikä Poikkeamat-lukuun, ja saman alueen säästökierrokset lasketaan yhdessä kierrostyypistä riippumatta.
 - **Crunch**: sama T:n alue, mutta pelaajien on **saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on pelaajan oma alue 9 sekuntia aiemmin. Vähintään 2 pelaajaa ja 2 eri suuntaa. **Crunchia ei ole rajattu kierrostyyppiin**, toisin kuin etenemistä, joten sen otanta on puolen kaikki kierrokset ja nimiö kertoo millä kierrostyypeillä se havaittiin. Sama kierros voi siis tuottaa molemmat rivit, ja täysi osto vain crunchin.
 - **Stack**: subjektin puolustus kasautuneena saman alueryhmän alueille. Alueryhmä on **johdettu tästä demosta**: jokaisen alueen keskipiste lasketaan demon omasta pistepilvestä, ja alue kuuluu lähemmän siten ryhmään, jos toinen site on vähintään 1,25 kertaa kauempana. Ei karttatietokantaa eikä käsin annettua aluejakoa. Osuma vaatii vähintään 4 pelaajaa enintään 2 saman siten ryhmän alueella 15 sekunnin kohdalla. Spawnissa seisova ei laske, eikä alue jonka geometria jättää **ilman ryhmää** tuota osumaa -- ja se on demokohtainen havainto eikä sääntö: Infernon Middle kuuluu A-ryhmään ja näkyy siksi rivinä, Ancientin ei kuulu kumpaankaan. **Rivin alue on vain rivin nimilappu**: ensimmäinen kierroksen nimeämistä alueista, suurin ensin ja tasatilanteessa aakkosissa ensimmäinen -- ei väite siitä, että juuri siellä olisi ollut eniten pelaajia. Havainto on kierrosrivin alueissa: viisi pelaajaa Alleyssa on B-siten stack, vaikka kukaan ei seiso BombsiteB:llä. Rivin luku on muotoa 4/5 -- kasassa olleet kaikista elossa olleista, myös spawnissa tai ryhmättömällä alueella seisovista. **Stackia ei ole rajattu kierrostyyppiin** eikä se lue alueen T-osuutta, joten se ei ole kummankaan toisen säännön tiukempi eikä löysempi muoto. Sääntö ei myöskään nimeä kuviota: **kasauma on havainto, ei nimi** -- odottaako se paikallaan vai puskeeko se, ei erotu tästä havainnosta.
 - Stackin kattavuus on 1/1 CT-kierroksesta. Jokaiselta demolta saatiin siteryhmät.
@@ -3592,10 +3598,11 @@ def golden_report() -> Report:
         ],
         demo_ids=["Dust2_vs_a", "Dust2_vs_b"],
     )
-    # One anomaly, so that the golden locks the anomaly chapter's shape and
-    # place as well. The empty chapter is locked in a test of its own -- both
-    # variants cannot be in the same output, and this is the one in which the
-    # row's shape can be seen.
+    # One crunch, so that the golden locks the anomaly chapter's shape and
+    # place as well, and one CT advance, which since Story 4.5 is a habit
+    # printed in its map chapter. The empty chapter is locked in a test of its
+    # own -- both variants cannot be in the same output, and this is the one
+    # in which the row's shape can be seen.
     return report(
         [entry, unordered],
         anomalies=[
@@ -3605,7 +3612,15 @@ def golden_report() -> Report:
                 rounds=[anomaly_round(round_no=23, seconds=[30.0])],
                 orientation=[(DEMO_ID, 0.89, 64)],
                 m=4,
-            )
+            ),
+            anomaly(
+                rule="ct_advance",
+                map_name="de_nuke",
+                area="Squeaky",
+                rounds=[anomaly_round(round_no=23, seconds=[30.0], players=1)],
+                orientation=[(DEMO_ID, 0.95, 98)],
+                m=4,
+            ),
         ],
     )
 
@@ -3867,6 +3882,10 @@ def anomaly_text(text: str) -> str:
     return section_text(text, ANOMALY_HEADING)
 
 
+#: The directions a crunch fixture's points get when a test names none.
+DEFAULT_SOURCES = ["Arch", "TopofMid"]
+
+
 def anomaly_round(
     *,
     round_no: int = 18,
@@ -3890,6 +3909,10 @@ def anomaly_round(
     right value elsewhere: the two other rules do not count the living and do
     not ask where the crowd stood, and an invented figure does not stand out
     on the row from a measured one.
+
+    ``sources`` is the crunch's and goes onto **every** point the shortcut
+    builds (Story 4.5: the directions are a sample point's observation). A
+    test whose points differ in their directions gives ``points`` itself.
     """
     return AnomalyRound(
         map_demo_id=demo,
@@ -3903,16 +3926,16 @@ def anomaly_round(
                 players=players,
                 alive=alive,
                 areas=list(areas or ()),
+                sources=list(sources or ()),
             )
             for value in (seconds if seconds is not None else [30.0])
         ],
-        sources=sources or [],
     )
 
 
 def anomaly(
     *,
-    rule: str = "ct_advance",
+    rule: str = "crunch",
     map_name: str = "de_ancient",
     map_name_source: str = "map_demo_id",
     side: str = "CT",
@@ -3928,8 +3951,28 @@ def anomaly(
     ``round_types``, ``n`` and ``players_max`` are derived from the rounds,
     because the model watches that they match them -- the fixture must not be
     able to build a row that disagrees with itself.
+
+    **A crunch by default since Story 4.5**: the CT advance left the anomaly
+    chapter for the map chapters' habits block, so a test of the chapter's
+    own mechanics needs a rule the chapter prints. A crunch round given
+    without directions gets :data:`DEFAULT_SOURCES` on every point, because
+    the model requires them there.
     """
     entries = rounds if rounds is not None else [anomaly_round()]
+    if rule == "crunch":
+        entries = [
+            entry.model_copy(
+                update={
+                    "points": [
+                        point
+                        if point.sources
+                        else point.model_copy(update={"sources": DEFAULT_SOURCES})
+                        for point in entry.points
+                    ]
+                }
+            )
+            for entry in entries
+        ]
     types = {entry.round_type for entry in entries}
     return Anomaly(
         rule=rule,
@@ -4064,10 +4107,10 @@ def test_the_empty_chapter_exists_in_an_empty_report() -> None:
     assert "Ei poikkeamia" in anomaly_text(render(report()))
 
 
-def test_an_advance_line_carries_area_sample_and_orientation() -> None:
+def test_an_anomaly_line_carries_area_sample_and_orientation() -> None:
     """The summary row: what, where, how often and on what grounds."""
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
-    assert "CT-eteneminen (`de_ancient`, CT-puoli, eco): TSideLower" in text
+    assert "Crunch (`de_ancient`, CT-puoli, havaittu: eco): TSideLower" in text
     assert "1/3 kierroksesta" in text
     assert "T-osuus 0,88 alueen 24 havainnosta" in text
 
@@ -4075,7 +4118,7 @@ def test_an_advance_line_carries_area_sample_and_orientation() -> None:
 def test_the_round_line_carries_the_round_number() -> None:
     """The scout's next act is to open that round in the demo."""
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
-    assert "  - kierros 18: 2 pelaajaa 30 s kohdalla" in text
+    assert "  - kierros 18 (eco): 2 pelaajaa" in text
 
 
 def test_a_crunch_line_names_its_source_areas_per_round() -> None:
@@ -4105,7 +4148,7 @@ def test_a_crunch_line_names_its_source_areas_per_round() -> None:
     )
     assert "Crunch (`de_ancient`, CT-puoli, havaittu: eco): Middle" in text
     assert (
-        "  - kierros 2 (eco): 5 pelaajaa 15 s kohdalla, yhtä aikaa "
+        "  - kierros 2 (eco): 5 pelaajaa, yhtä aikaa "
         "suunnista Arch ja TopofMid"
     ) in text
 
@@ -4116,6 +4159,13 @@ def test_two_crunch_rounds_never_merge_their_directions() -> None:
     The union ("suunnista A, B, C ja D") would read as four simultaneous
     directions, which is the opposite of the definition. The round rows exist
     precisely to prevent this.
+
+    **The narrower boundary is a sample point** since Story 4.5, and this
+    fixture cannot reach it: each round here has one point. That invariant is
+    pinned where it can be --
+    :func:`test_a_crunch_round_entered_twice_says_it_was_not_simultaneous`
+    and :func:`test_a_crunch_is_simultaneous_when_one_point_holds_every_direction`
+    build rounds with two points and different directions.
     """
     text = anomaly_text(
         render(
@@ -4142,8 +4192,11 @@ def test_two_crunch_rounds_never_merge_their_directions() -> None:
         )
     )
     assert "2/4 kierroksesta" in text
-    assert "kierros 3 (eco): 2 pelaajaa 15 s kohdalla, yhtä aikaa suunnista Alley ja BombsiteB" in text
-    assert "kierros 10 (default): 3 pelaajaa 15 s kohdalla, yhtä aikaa suunnista Arch, LowerTunnel ja TopofMid" in text
+    assert "kierros 3 (eco): 2 pelaajaa, yhtä aikaa suunnista Alley ja BombsiteB" in text
+    assert (
+        "kierros 10 (default): 3 pelaajaa, yhtä aikaa suunnista Arch, "
+        "LowerTunnel ja TopofMid"
+    ) in text
     # The union of four directions is nowhere.
     assert "Alley, BombsiteB, Arch" not in text
 
@@ -4167,7 +4220,11 @@ def test_a_stack_line_names_the_site_its_group_and_the_survivors() -> None:
     assert "Stack (`de_ancient`, CT-puoli, havaittu: eco): BombsiteB" in text
     assert "1/9 kierroksesta" in text
     assert "B-siten ryhmässä" in text
-    assert "  - kierros 13 (eco): 4/5 pelaajaa 15 s kohdalla" in text
+    assert "  - kierros 13 (eco): 4/5 pelaajaa" in text
+    # The sample point is NOT on the row (Story 4.5). The rule still reads
+    # 15 s and the legend still says so; what is gone is the seconds in the
+    # round row, where a dense grid would have written a list of them.
+    assert "kohdalla" not in text
     # There is no T share, because it was not measured.
     assert "T-osuus" not in text
 
@@ -4204,7 +4261,7 @@ def test_a_stack_round_row_names_the_areas_the_crowd_is_on() -> None:
     )
     assert "Stack (`de_ancient`, CT-puoli, havaittu: eco): BackofB" in text
     assert (
-        "  - kierros 4 (eco): 4/5 pelaajaa 15 s kohdalla, alueilla BackofB ja "
+        "  - kierros 4 (eco): 4/5 pelaajaa, alueilla BackofB ja "
         "BombsiteB"
     ) in text
 
@@ -4214,7 +4271,8 @@ def test_a_one_area_stack_row_does_not_repeat_the_area() -> None:
 
     The alternative was measured against the report's own rows and rejected:
     "Alley ... alueella Alley" says the same word twice on a row whose whole
-    job is the round number, the fraction and the moment.
+    job is the round number and the fraction. (The moment was on it too
+    until Story 4.5 took it off.)
     """
     text = anomaly_text(
         render(
@@ -4239,7 +4297,7 @@ def test_a_one_area_stack_row_does_not_repeat_the_area() -> None:
         )
     )
     assert "havaittu: eco): Alley" in text
-    assert "  - kierros 14 (eco): 5/5 pelaajaa 15 s kohdalla" in text
+    assert "  - kierros 14 (eco): 5/5 pelaajaa" in text
     assert "alueella Alley" not in text
     assert "alueilla" not in text
 
@@ -4313,32 +4371,33 @@ def test_all_five_alive_reads_as_five_of_five() -> None:
             )
         )
     )
-    assert "  - kierros 2 (eco): 5/5 pelaajaa 30 s kohdalla" in text
-    assert "  - kierros 7 (eco): 4/5 pelaajaa 6 s kohdalla" in text
+    assert "  - kierros 2 (eco): 5/5 pelaajaa" in text
+    assert "  - kierros 7 (eco): 4/5 pelaajaa" in text
 
 
 def test_the_stack_rows_sit_in_the_same_chapter_as_the_other_rules() -> None:
-    """Three rules, one chapter -- and the order comes from
+    """The chapter's rules share one chapter -- and the order comes from
     ``ANOMALY_RULES``.
 
     The anomaly chapter is the epic's most valuable output, and stack must
     not be left as a block of its own: the reader compares the rows with each
-    other.
+    other. The CT advance is **not** here since Story 4.5 -- it is a habit and
+    sits in the map chapter (:func:`test_an_advance_is_a_habit_in_the_map_chapter`).
     """
     text = anomaly_text(
         render(
             report(
                 [pistol_map()],
-                anomalies=[stack_anomaly(), crunch_anomaly(), anomaly()],
+                anomalies=[stack_anomaly(), crunch_anomaly()],
             )
         )
     )
     order = [
-        text.index("CT-eteneminen ("),
         text.index("Crunch ("),
         text.index("Stack ("),
     ]
     assert order == sorted(order)
+    assert "CT-eteneminen (" not in text
 
 
 def test_the_stack_legend_names_the_silenced_demos() -> None:
@@ -4404,25 +4463,37 @@ def test_a_crunch_label_says_the_types_are_observations_not_a_limit() -> None:
     assert "havaittu: eco, default" in text
 
 
-def test_an_advance_line_never_claims_source_areas() -> None:
+def test_an_advance_never_claims_source_areas() -> None:
     """For an advance an empty list means "not asked" and not "no
-    directions".
+    directions" -- and the habit row, where advances are printed since
+    Story 4.5, says nothing about where anybody came from.
     """
+    text = render(report([pistol_map()], anomalies=[_advance()]))
+    assert "suunnista" not in text.split("## Lukuohje")[0]
+
+
+def test_a_chapter_round_line_names_its_round_type() -> None:
+    """The chapter's rules are not scoped by round type, so each round row
+    says which type it was."""
     text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
-    assert "suunnista" not in text
+    assert "kierros 18 (eco): " in text
 
 
-def test_the_advance_round_line_omits_the_round_type() -> None:
-    """It is in the label already; the same word is not written twice on the
-    row.
+def test_the_round_row_never_enumerates_the_sample_points() -> None:
+    """Story 4.5: the sample points are a tool, not the report's content.
+
+    This row used to list them ("15 ja 30 s kohdalla"), and that was the last
+    place ``[parse].snapshot_seconds`` reached the reader. The grid is now a
+    dense internal series, so the same round would read
+    "12/15/18/21/24 s kohdalla" -- a sentence about the settings file rather
+    than about the opponent.
+
+    **A negative guard, and deliberately a wide one.** It does not search for
+    the old phrasing: a row that wrote the seconds some other way would slip
+    past that and still be the defect. It searches for the seconds
+    themselves, in a fixture whose two sample points are numbers that appear
+    nowhere else on the row.
     """
-    text = anomaly_text(render(report([pistol_map()], anomalies=[anomaly()])))
-    assert "kierros 18: " in text
-    assert "kierros 18 (eco)" not in text
-
-
-def test_several_sample_points_are_listed_as_a_finnish_list() -> None:
-    """The row is read as a sentence, so the last separator is "ja"."""
     text = anomaly_text(
         render(
             report(
@@ -4431,7 +4502,11 @@ def test_several_sample_points_are_listed_as_a_finnish_list() -> None:
             )
         )
     )
-    assert "15 ja 30 s kohdalla" in text
+    row = text.split("- kierros 18 (eco):")[1].splitlines()[0]
+    assert row.strip() == "2 pelaajaa, yhtä aikaa suunnista Arch ja TopofMid"
+    assert "15" not in row
+    assert "30" not in row
+    assert "kohdalla" not in text
 
 
 def test_two_demos_give_the_same_area_two_shares() -> None:
@@ -4476,7 +4551,10 @@ def test_two_demos_make_the_round_line_name_its_demo() -> None:
             )
         )
     )
-    assert "kierros 1: 2 pelaajaa 30 s kohdalla -- `demo-a`" in text
+    assert (
+        "kierros 1 (eco): 2 pelaajaa, yhtä aikaa suunnista Arch ja TopofMid "
+        "-- `demo-a`"
+    ) in text
 
 
 def test_one_demo_leaves_the_identifier_out_of_the_round_line() -> None:
@@ -4487,12 +4565,20 @@ def test_one_demo_leaves_the_identifier_out_of_the_round_line() -> None:
     assert DEMO_ID not in text
 
 
-def test_each_sample_point_carries_its_own_player_count() -> None:
-    """**The maximum must not come back to the row.**
+def test_differing_counts_read_as_an_upper_bound() -> None:
+    """**The maximum must not come back as a per-moment claim.**
 
     Measured, MatureMayhem Anubis round 4: at 15 s five players out of five,
-    at 30 s four. As one maximum the row read "5/5 pelaajaa 15 ja 30 s
-    kohdalla" -- a claim about data that does not exist.
+    at 30 s four. The row once read "5/5 pelaajaa 15 ja 30 s kohdalla" -- the
+    maximum attached to **both** moments, a claim about data that does not
+    exist. That was fixed by giving each moment its own number; Story 4.5
+    cannot do that, because there are no moments on the row any more.
+
+    What it says instead is ``enintään``: a bound over the round's observed
+    moments, which is as true at fourteen sample points as at four. The
+    defect the older test guarded against is still guarded -- 5/5 must not
+    stand as the round's count -- it is refused by the word now rather than
+    by the seconds.
     """
     text = anomaly_text(
         render(
@@ -4510,12 +4596,14 @@ def test_each_sample_point_carries_its_own_player_count() -> None:
                                         players=5,
                                         alive=5,
                                         areas=["BombsiteB"],
+                                        sources=[],
                                     ),
                                     AnomalyPoint(
                                         sample_t_s=30.0,
                                         players=4,
                                         alive=5,
                                         areas=["BombsiteB"],
+                                        sources=[],
                                     ),
                                 ],
                             )
@@ -4525,17 +4613,20 @@ def test_each_sample_point_carries_its_own_player_count() -> None:
             )
         )
     )
-    assert (
-        "  - kierros 4 (eco): 5/5 pelaajaa 15 s ja 4/5 pelaajaa 30 s kohdalla"
-    ) in text
-    assert "5/5 pelaajaa 15 ja 30 s kohdalla" not in text
+    assert "  - kierros 4 (eco): enintään 5/5 pelaajaa" in text
+    # The bound is marked as one. An unmarked "5/5 pelaajaa" would be the
+    # old defect in new clothes: the peak read as the round's observation.
+    assert "  - kierros 4 (eco): 5/5 pelaajaa" not in text
+    assert "kohdalla" not in text
 
 
-def test_an_advance_over_two_sample_points_keeps_both_counts() -> None:
+def test_an_advance_over_two_sample_points_reads_as_an_upper_bound() -> None:
     """The same fault concerned all three rules, not only the stack.
 
     Measured, MatureMayhem Inferno round 2: at 15 s five players in Middle,
-    at 30 s **one**. The row read "5 pelaajaa 15 ja 30 s kohdalla".
+    at 30 s **one**. The row read "5 pelaajaa 15 ja 30 s kohdalla", which
+    claimed five at a moment where there was one. It now says at most five,
+    which is what was observed.
     """
     text = anomaly_text(
         render(
@@ -4548,8 +4639,12 @@ def test_an_advance_over_two_sample_points_keeps_both_counts() -> None:
                             anomaly_round(
                                 round_no=2,
                                 points=[
-                                    AnomalyPoint(sample_t_s=15.0, players=5),
-                                    AnomalyPoint(sample_t_s=30.0, players=1),
+                                    AnomalyPoint(
+                                        sample_t_s=15.0, players=5, sources=[]
+                                    ),
+                                    AnomalyPoint(
+                                        sample_t_s=30.0, players=1, sources=[]
+                                    ),
                                 ],
                             )
                         ],
@@ -4558,15 +4653,17 @@ def test_an_advance_over_two_sample_points_keeps_both_counts() -> None:
             )
         )
     )
-    assert "  - kierros 2: 5 pelaajaa 15 s ja 1 pelaaja 30 s kohdalla" in text
+    assert "  - kierros 2 (eco): enintään 5 pelaajaa" in text
+    assert "  - kierros 2 (eco): 5 pelaajaa" not in text
 
 
-def test_equal_counts_still_collapse_into_one_phrase() -> None:
-    """The collapsing stays when the numbers really are the same.
+def test_equal_counts_are_stated_without_a_bound() -> None:
+    """When every moment saw the same count, that count is an observation.
 
-    The condition compares **all** the numbers, so the collapsing can no
-    longer hide a difference; without it every row would list the same number
-    twice.
+    The condition compares **all** the numbers, so ``enintään`` appears only
+    where the moments really differ. Written on every row it would turn an
+    observation into a bound and lose the difference between the two -- the
+    mirror image of the fault the bound exists to prevent.
     """
     text = anomaly_text(
         render(
@@ -4589,7 +4686,8 @@ def test_equal_counts_still_collapse_into_one_phrase() -> None:
             )
         )
     )
-    assert "  - kierros 4 (eco): 4/5 pelaajaa 15 ja 30 s kohdalla" in text
+    assert "  - kierros 4 (eco): 4/5 pelaajaa" in text
+    assert "enintään" not in text
 
 
 def test_a_stack_over_two_demos_also_names_them() -> None:
@@ -4630,8 +4728,8 @@ def test_a_stack_over_two_demos_also_names_them() -> None:
             )
         )
     )
-    assert "kierros 13 (eco): 4/5 pelaajaa 15 s kohdalla -- `demo-a`" in text
-    assert "kierros 16 (eco): 4/5 pelaajaa 30 s kohdalla -- `demo-b`" in text
+    assert "kierros 13 (eco): 4/5 pelaajaa -- `demo-a`" in text
+    assert "kierros 16 (eco): 4/5 pelaajaa -- `demo-b`" in text
 
 
 def test_a_small_sample_anomaly_is_marked_not_hidden() -> None:
@@ -4722,7 +4820,12 @@ def test_the_anomaly_chapter_follows_the_missing_demos_chapter() -> None:
 
 def test_the_anomaly_lines_are_bullets_not_paragraphs() -> None:
     text = anomaly_text(
-        render(report([pistol_map()], anomalies=[anomaly(), crunch_anomaly()]))
+        render(
+            report(
+                [pistol_map()],
+                anomalies=[anomaly(area="Ramp"), crunch_anomaly()],
+            )
+        )
     )
     rows = [row for row in text.splitlines() if row.strip()]
     assert len(rows) == 4  # two summary rows and two round rows
@@ -4934,7 +5037,7 @@ def test_a_single_player_is_not_written_in_the_plural() -> None:
             )
         )
     )
-    assert "kierros 18: 1 pelaaja 30 s kohdalla" in text
+    assert "kierros 18 (eco): 1 pelaaja" in text
 
 
 def test_every_anomaly_rule_has_a_finnish_name_in_the_view() -> None:
@@ -5410,11 +5513,51 @@ def test_the_pattern_threshold_note_is_the_same_with_and_without_pruning(
     In the fixture's ``default`` block both the saturated equipment row and
     the 45 s sample point fall below the threshold, so both pruning rules hit
     a row that would not be written anyway.
+
+    **Rule 3 is the exception since Story 4.5, and it is compared against
+    the report that never had the point.** A skipped sample point is the
+    analysis's grid, not a row the report dropped, so its observations are
+    not "harvinaisempaa" in the block's note -- the dense grid doubled that
+    count once (97 -> 204) with nothing on the page to account for it. So
+    with rule 3 on, the note must equal the note of the same report with the
+    skipped points removed from ``report.json`` and pruning off: hiding a
+    point and never having had it read the same.
     """
     entry = pruning_report()
+    settings = PRUNING_VARIANTS[name]
     plain = threshold_note(render(entry, NO_PRUNING))
     assert "harvinaisempaa havaintoa jäi pois" in plain
-    assert threshold_note(render(entry, PRUNING_VARIANTS[name])) == plain
+    expected = (
+        threshold_note(
+            render(_without_time_points(entry, settings.skip_sample_seconds),
+                   NO_PRUNING)
+        )
+        if settings.skip_sample_seconds
+        else plain
+    )
+    assert threshold_note(render(entry, settings)) == expected
+    if settings.skip_sample_seconds:
+        # And the removal is visible: the fixture's 45 s point carries
+        # observations the threshold drops, so the two notes differ.
+        assert expected != plain
+
+
+def _without_time_points(entry: Report, seconds) -> Report:
+    """The same report with the named time sample points taken out of
+    every block, as a parse that never sampled them would have written it."""
+    hidden = {float(value) for value in seconds}
+    data = entry.model_dump(mode="json")
+    for map_body in data["maps"]:
+        for side_body in map_body["sides"]:
+            for type_body in side_body["round_types"]:
+                type_body["positions"] = [
+                    p
+                    for p in type_body["positions"]
+                    if not (
+                        p["sample_kind"] == "time" and p["seconds"] in hidden
+                    )
+                ]
+    return Report.model_validate(data)
 
 
 def test_a_row_the_threshold_already_dropped_is_not_claimed_as_pruned() -> None:
@@ -5755,11 +5898,31 @@ def test_a_named_sample_point_can_be_left_out() -> None:
     assert "30 s:" in eco
 
 
-def test_the_legend_says_which_sample_point_is_missing_and_why() -> None:
+def test_the_legend_says_in_words_that_the_analysis_samples_more_densely() -> None:
+    """The paragraph gives the reason and the setting -- **and no seconds**.
+
+    Story 4.5: the rules read a dense series so that they see the players
+    move, and the report says what happened in the round rather than where
+    everyone was at each second. The reader learns that once, in words. The
+    paragraph used to name the missing points, and on the dense grid that
+    was ten seconds in a row -- the grid on the page, which is the thing the
+    story keeps off it. The claim it made before that -- that
+    ``[parse].snapshot_seconds`` has not changed -- is gone too, because it is
+    exactly what did change.
+    """
     legend = section_text(render(pruning_report(), SKIP_45), "Lukuohje")
-    assert "Näytepistettä 45 s ei kirjoiteta tähän raporttiin" in legend
-    assert "[parse].snapshot_seconds ole muuttunut" in legend
-    assert "[report].skip_sample_seconds" in legend
+    paragraph = [row for row in legend.splitlines() if "skip_sample_seconds" in row]
+    assert len(paragraph) == 1
+    assert "näytepisteitä, joita raportti ei tulosta" in paragraph[0]
+    # Of what was read: conditional on the demo, because an archive can mix
+    # dense and four-point demos (review round 1).
+    assert "tiheämmin jäsennetyistä demoista" in paragraph[0]
+    assert "koskee vain tulostettuja näytepisteitä" in paragraph[0]
+    assert "45" not in paragraph[0]
+    assert "Näytepistettä" not in paragraph[0]
+    # The refuted sentence is gone rather than reworded: it said the parse
+    # grid had not moved, and it has.
+    assert "[parse].snapshot_seconds ole muuttunut" not in legend
 
 
 def test_the_legend_does_not_quote_one_sample_points_numbers_for_another() -> None:
@@ -5774,7 +5937,7 @@ def test_the_legend_does_not_quote_one_sample_points_numbers_for_another() -> No
         render(pruning_report(), ReportSettings(skip_sample_seconds=[30.0])),
         "Lukuohje",
     )
-    assert "Näytepistettä 30 s ei kirjoiteta" in legend
+    assert "[report].skip_sample_seconds" in legend
     assert "53 %" not in legend
     assert "81 %" not in legend
 
@@ -6121,23 +6284,41 @@ def test_the_legend_names_the_limits_and_their_settings() -> None:
 # --- The protected round types ------------------------------------------------
 
 
-def test_the_pistol_block_is_not_pruned_by_any_rule() -> None:
+def test_the_pistol_block_is_not_pruned_by_any_pruning_rule() -> None:
     """The spec's Always rule: on a pistol round the number is a buy
     observation.
 
-    One test for all five rules, because the claim is one: the same block, in
-    which every rule would hit, is identical both with the default settings
-    (and rule 3 on) and with pruning entirely off.
+    One test for the four rules that prune, because the claim is one: the
+    same block, in which every one of them would hit, is identical with the
+    delivered settings and with pruning entirely off.
+
+    **Rule 3 is compared separately, because Story 4.5 took it out of the
+    set.** It no longer preserves a row when it is switched off -- it prints
+    the internal sample-point grid, fourteen rows per block on this
+    archive -- so leaving it on here is not a weakening of the protection.
+    The comparison is therefore against "pruning off **but** rule 3 on",
+    which is the exact claim: everything the protection covers is untouched,
+    and the one thing it no longer covers is.
     """
     pruned = block(render(pruning_report(), SKIP_45), "Pistooli")
-    plain = block(render(pruning_report(), NO_PRUNING), "Pistooli")
+    plain = block(
+        render(
+            pruning_report(),
+            NO_PRUNING.model_copy(update={"skip_sample_seconds": [45.0]}),
+        ),
+        "Pistooli",
+    )
     assert pruned == plain
     # And by name, so that the rows cannot vanish from both at once.
     assert "aseistettuja ostoajan lopussa: 5 (2/2 kierroksesta)" in pruned
     assert "panssaroituja ostoajan lopussa: 5 (2/2 kierroksesta)" in pruned
-    assert "45 s:" in pruned
     assert "CTSpawn -> Palace" in pruned
     assert "Window (1/8 taposta)" in pruned
+    # Rule 3 reaches this block, and that is the change. Without the
+    # assertion the comparison above would also pass if rule 3 had stopped
+    # working altogether.
+    assert "45 s:" not in pruned
+    assert "45 s:" in block(render(pruning_report(), NO_PRUNING), "Pistooli")
 
 
 def test_an_anomaly_block_is_protected_because_the_line_is_the_anomaly() -> None:
@@ -6226,11 +6407,23 @@ def test_every_pruning_paragraph_says_the_exception_out_loud() -> None:
     says the exception out loud. The claim is driven from
     ``PROTECTED_ROUND_TYPES``, so a sixth protected type or a sixth rule
     inherits the check.
+
+    **Rule 3's paragraph must NOT carry the sentence**, and that is asserted
+    here rather than left out. Since Story 4.5 rule 3 applies on a protected
+    round type too, so the exception sentence would be a claim the same
+    report refutes -- the very fault this test exists to catch, pointing the
+    other way.
     """
     legend = section_text(render(pruning_report(), SKIP_45), "Lukuohje")
     paragraphs = [row for row in legend.splitlines() if "[report]." in row]
     assert len(paragraphs) == 5
+    rule_three = [row for row in paragraphs if "skip_sample_seconds" in row]
+    assert len(rule_three) == 1
     for paragraph in paragraphs:
+        if paragraph in rule_three:
+            assert "Karsinta ei koske näitä kierrostyyppejä" not in paragraph
+            assert "koskee myös suojattuja kierrostyyppejä" in paragraph
+            continue
         assert "Karsinta ei koske näitä kierrostyyppejä" in paragraph
         for round_type_name in PROTECTED_ROUND_TYPES:
             assert ROUND_TYPE_FI[round_type_name] in paragraph
@@ -6303,6 +6496,94 @@ def test_the_kept_block_is_the_same_block_as_without_pruning() -> None:
     kept = block(render(entry), "Default")
     plain = block(render(entry, NO_PRUNING), "Default")
     assert kept == plain + f"\n- *{_PRUNING_KEPT_THE_BLOCK}*"
+
+
+def test_a_skipped_sample_point_never_prints_even_when_it_would_empty_the_block(
+) -> None:
+    """No hidden sample point reaches the page, **including** the block
+    pruning would otherwise have emptied.
+
+    The branch this story was revived from let such a row back through the
+    empty-block return (Story 2.13's "Ask First": an empty block is
+    suppression), and on the dense archive it printed ``42 s: BombsiteA`` in
+    a report that shows four seconds -- which the story's acceptance
+    criterion forbids. A hidden point is the analysis's grid and not a row
+    the report chose to drop, so it is never built into the block at all and
+    the return has nothing to bring back. The block keeps what it prints
+    anyway (here, first deaths), and no "kept unpruned" note appears, because
+    nothing was pruned.
+    """
+    entry = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "CT",
+                        [
+                            round_type(
+                                "full",
+                                8,
+                                positions=[
+                                    position(
+                                        9.0, [area("BombsiteA", 8, {1: 8})], 8
+                                    )
+                                ],
+                                death_report=deaths(
+                                    first={f"Alue{n}": 1 for n in range(8)}
+                                ),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    text = block(render(entry, ReportSettings(skip_sample_seconds=[9.0])), "Default")
+    assert "9 s:" not in text
+    assert _PRUNING_KEPT_THE_BLOCK not in text
+    # The row exists, so the test is not vacuous: unhidden, it prints.
+    assert "9 s: BombsiteA 1 (8/8 kierroksesta)" in block(
+        render(entry, NO_PRUNING), "Default"
+    )
+    # And the other branch: with a second row to fall back on, the skipped
+    # sample point really does go. Without this the test above would pass for
+    # a rule 3 that had stopped working.
+    with_company = report(
+        [
+            map_report(
+                "de_ancient",
+                [
+                    side(
+                        "CT",
+                        [
+                            round_type(
+                                "full",
+                                8,
+                                positions=[
+                                    position(
+                                        9.0, [area("BombsiteA", 8, {1: 8})], 8
+                                    ),
+                                    position(
+                                        15.0, [area("Ramp", 8, {1: 8})], 8
+                                    ),
+                                ],
+                                death_report=deaths(
+                                    first={f"Alue{n}": 1 for n in range(8)}
+                                ),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
+    other = block(
+        render(with_company, ReportSettings(skip_sample_seconds=[9.0])), "Default"
+    )
+    assert "9 s:" not in other
+    assert "15 s: Ramp 1 (8/8 kierroksesta)" in other
+    assert _PRUNING_KEPT_THE_BLOCK not in other
 
 
 def test_the_kept_block_does_not_undo_a_shortened_row() -> None:
@@ -6406,7 +6687,10 @@ def test_the_summary_names_the_rules_even_when_nothing_was_pruned() -> None:
     assert "Karsinnan säännöt" in summary
     for key in ReportSettings.model_fields:
         assert key in summary
-    assert "skip_sample_seconds 45" in summary
+    # A count and not the seconds (Story 4.5): the list is the analysis's
+    # grid, and the summary does not show the grid either.
+    assert "skip_sample_seconds 1 näytepiste" in summary
+    assert "skip_sample_seconds 45" not in summary
     assert "max_kill_areas 3" in summary
 
 
@@ -6444,11 +6728,12 @@ def test_the_delivered_defaults_shorten_the_report() -> None:
     # because the threshold dropped it already -- and the 45 s row stays,
     # because rule 3 is off by default.
     assert len(plain) - len(delivered) == 2
-    # With rule 3 on the sample point goes too: one row from the eco block,
-    # the pistol block is protected and the default block's row was below the
+    # With rule 3 on the sample point goes too: one row from the eco block
+    # and one from the pistol block -- the protection does not cover rule 3
+    # since Story 4.5 -- while the default block's row was below the pattern
     # threshold already.
     with_rule_three = content_rows(render(pruning_report(), SKIP_45))
-    assert len(delivered) - len(with_rule_three) == 1
+    assert len(delivered) - len(with_rule_three) == 2
 
 
 # --- Story 2.15: the retro's consistency fixes -----------------------------------
@@ -6578,7 +6863,7 @@ def test_a_workshop_map_name_is_protected_on_the_anomaly_line() -> None:
             )
         )
     )
-    assert f"CT-eteneminen ({BACKTICK}{name}{BACKTICK}, CT-puoli, eco)" in text
+    assert f"Crunch ({BACKTICK}{name}{BACKTICK}, CT-puoli, havaittu: eco)" in text
 
 
 def test_an_unrecognised_map_label_is_our_own_text_and_stays_bare() -> None:
@@ -6605,7 +6890,7 @@ def test_an_unrecognised_map_label_is_our_own_text_and_stays_bare() -> None:
         )
     )
     label = UNKNOWN_MAP_LABEL.format(index=1)
-    assert f"CT-eteneminen ({label}, CT-puoli, eco)" in text
+    assert f"Crunch ({label}, CT-puoli, havaittu: eco)" in text
 
 
 def test_both_threshold_readers_agree_on_a_value_below_one() -> None:
@@ -8147,8 +8432,8 @@ def test_the_reading_guide_says_the_arrow_is_not_adjacency() -> None:
 def test_the_reading_guide_denies_that_a_rows_end_is_the_rounds_end() -> None:
     """The one sentence that tells the reader how to read the end of a row.
 
-    It said *"kierros oli jo ohi"* and was **wrong for 95.6 per cent of the
-    rows it described**: measured over the archive, 280 of the 293 rounds
+    It said *"kierros oli jo ohi"* and was **wrong for 97.3 per cent of the
+    rows it described**: measured over the archive, 285 of the 293 rounds
     that reach the grid's last point record a death after it, so the usual
     reason a row stops is that the sampling ran out while the round ran on.
 
@@ -8552,3 +8837,450 @@ def test_the_reading_guide_calls_the_division_a_nesting() -> None:
     guide = render(route_report([seen("Outside", 1, 6.0)])).split("## Lukuohje")[1]
     assert "Jakautuminen on listan sisennys, ei nuoli" in guide
     assert "toistensa vaihtoehtoja" in guide
+
+
+def test_a_crunch_round_entered_twice_says_it_was_not_simultaneous() -> None:
+    """Story 4.5: ``yhtä aikaa`` only when every sample point names the same
+    directions.
+
+    The round below reached the area at two moments from two different pairs
+    of directions, with two players each time. Its union is four directions,
+    and "yhtä aikaa suunnista" over four would claim a moment with four
+    directions and two players -- the state the model now refuses on a single
+    point. The row says ``eri hetkinä`` instead, and names no moment.
+    """
+    entry = AnomalyRound(
+        map_demo_id=DEMO_ID,
+        round_no=3,
+        round_type="eco",
+        points=[
+            AnomalyPoint(sample_t_s=27.0, players=2, sources=["Middle", "OutsideLong"]),
+            AnomalyPoint(sample_t_s=30.0, players=2, sources=["MidDoors", "Ruins"]),
+        ],
+    )
+    text = anomaly_text(
+        render(report([pistol_map()], anomalies=[crunch_anomaly(rounds=[entry])]))
+    )
+    assert (
+        "kierros 3 (eco): 2 pelaajaa, suunnista MidDoors, Middle, OutsideLong "
+        "ja Ruins eri hetkinä"
+    ) in text
+    assert "yhtä aikaa" not in text
+    # The other branch: the same directions at both moments are simultaneous.
+    same = entry.model_copy(
+        update={
+            "points": [
+                AnomalyPoint(sample_t_s=s, players=2, sources=["Arch", "TopofMid"])
+                for s in (27.0, 30.0)
+            ]
+        }
+    )
+    text = anomaly_text(
+        render(report([pistol_map()], anomalies=[crunch_anomaly(rounds=[same])]))
+    )
+    assert "2 pelaajaa, yhtä aikaa suunnista Arch ja TopofMid" in text
+    assert "eri hetkinä" not in text
+
+
+# --- The match rule, and the advance as a habit (Story 4.5) --------------------
+
+#: The product owner's rule as shipped: printed from two matches on.
+MATCH_RULE = ReportSettings(anomaly_min_matches=2)
+
+#: Two league matches of one map: two demo ids of different matches, dated.
+MATCH_A = "1-aaaaaaaa-0000-0000-0000-000000000001-0"
+MATCH_B = "1-bbbbbbbb-0000-0000-0000-000000000002-0"
+
+
+def _two_match_map() -> MapReport:
+    """``de_nuke`` from two dated matches, with a CT eco and force block."""
+    return map_report(
+        "de_nuke",
+        [
+            side(
+                "CT",
+                [
+                    round_type("eco", 3, demos=2, matches=2),
+                    round_type("force", 2, demos=2, matches=2),
+                ],
+                demos=2,
+                matches=2,
+            )
+        ],
+        played=[
+            PlayedMap(map_demo_id=MATCH_B, indexed=True,
+                      played_on=date(2026, 9, 20), opponent="B-joukkue"),
+            PlayedMap(map_demo_id=MATCH_A, indexed=True,
+                      played_on=date(2026, 9, 13), opponent="A-joukkue"),
+        ],
+    )
+
+
+def _advance(rounds=None, *, map_name="de_ancient", area="TSideLower", m=3):
+    """A CT advance row. One eco round of one demo unless told otherwise."""
+    entries = rounds if rounds is not None else [anomaly_round()]
+    return anomaly(
+        rule="ct_advance",
+        map_name=map_name,
+        area=area,
+        rounds=entries,
+        orientation=[
+            (demo, 0.93, 296)
+            for demo in dict.fromkeys(entry.map_demo_id for entry in entries)
+        ],
+        m=m,
+    )
+
+
+def _lobby_habit() -> Anomaly:
+    """The product owner's own example: Nuke, Lobby, eco in one match and
+    force in another -- one habit, *"sama tapa"*."""
+    return _advance(
+        [
+            anomaly_round(demo=MATCH_A, round_no=19, round_type="force", players=1),
+            anomaly_round(demo=MATCH_B, round_no=14, round_type="eco", players=1),
+        ],
+        map_name="de_nuke",
+        area="Lobby",
+        m=5,
+    )
+
+
+def _map_chapter(text: str, name: str) -> str:
+    """One map chapter's text, heading to the next chapter."""
+    return text.split(f"## `{name}`")[1].split(chr(10) + "## ")[0]
+
+
+def test_an_advance_is_a_habit_in_the_map_chapter() -> None:
+    """His distinction, 2026-09-25: an advance is a habit and not a strategy.
+
+    It is printed in the map chapter under the habits label, **not** in the
+    anomaly chapter, and the anomaly chapter says where it went.
+    """
+    text = render(report([_two_match_map()], anomalies=[_lobby_habit()]), MATCH_RULE)
+    chapter = _map_chapter(text, "de_nuke")
+    assert f"- **{HABITS_LABEL}:**" in chapter
+    assert (
+        "  - CT-pelaaja alueella Lobby säästökierroksilla (2/5 "
+        "säästökierroksesta, 2/2 ottelussa; eco k14 2026-09-20, force k19 "
+        "2026-09-13)"
+    ) in chapter
+    # Newest match first, as the played-maps list above it -- although the
+    # model holds the rounds the other way round.
+    assert [e.map_demo_id for e in _lobby_habit().rounds] == [MATCH_A, MATCH_B]
+    anomalies = anomaly_text(text)
+    assert "CT-eteneminen (" not in anomalies
+    assert HABITS_POINTER in anomalies
+
+
+def test_a_habit_is_worded_as_an_observation_and_names_no_pattern() -> None:
+    """A habit must not read as a strategy: none of the strategy words, no
+    "usein", nothing about why."""
+    text = render(report([_two_match_map()], anomalies=[_lobby_habit()]), MATCH_RULE)
+    row = [r for r in _map_chapter(text, "de_nuke").splitlines() if "Lobby" in r][0]
+    for word in ("crunch", "rush", "stack", "pusku", "usein", "strat"):
+        assert word not in row.lower(), word
+
+
+def test_eco_and_force_in_two_matches_are_one_habit() -> None:
+    """Grouped per map and area across save types, the example passes the
+    rule; per type it was two one-match rows and neither did."""
+    habit = _lobby_habit()
+    assert habit.matches == 2
+    assert habit.round_types == ["eco", "force"]
+    split = [
+        _advance([entry], map_name="de_nuke", area="Lobby") for entry in habit.rounds
+    ]
+    assert [row.matches for row in split] == [1, 1]
+
+
+def test_a_one_match_advance_is_counted_and_not_raised() -> None:
+    """*"jos jokin tällainen toistuu ottelusta toiseen se tulee nostaa
+    esiin"* -- and one match's visit is not that, but it is still counted."""
+    text = render(report([pistol_map()], anomalies=[_advance()]), MATCH_RULE)
+    chapter = _map_chapter(text, "de_ancient")
+    assert f"- **{HABITS_LABEL}:**" in chapter
+    assert (
+        "1 T:n alue, jolla CT-pelaaja nähtiin vain yhdessä ottelussa, jäi "
+        "nostamatta"
+    ) in chapter
+    assert "alueella TSideLower" not in chapter
+
+
+def test_a_map_with_no_advance_has_no_habits_block() -> None:
+    """No block, not an empty one."""
+    text = render(report([pistol_map()], anomalies=[]), MATCH_RULE)
+    assert HABITS_LABEL not in _map_chapter(text, "de_ancient")
+
+
+def test_two_maps_of_one_match_are_one_match_for_the_rule() -> None:
+    """A best-of series is one opponent on one evening, not a habit across
+    matches: the two demos below are maps ``-0`` and ``-1`` of one match."""
+    row = _advance(
+        [
+            anomaly_round(demo=MATCH_A, round_no=4),
+            anomaly_round(demo=MATCH_A[:-1] + "1", round_no=9),
+        ]
+    )
+    assert row.matches == 1
+
+
+def test_a_one_match_crunch_is_counted_and_not_printed() -> None:
+    """The crunch is a strategy and stays in the anomaly chapter, match-ruled
+    per area; the stack is printed as before."""
+    text = anomaly_text(
+        render(
+            report([pistol_map()], anomalies=[crunch_anomaly(), stack_anomaly()]),
+            MATCH_RULE,
+        )
+    )
+    assert "Crunch (" not in text
+    assert "Stack (" in text
+    assert "1 crunch-rivi jäi pois, koska se havaittiin vain yhdessä ottelussa" in text
+    assert "[report].anomaly_min_matches" in text
+
+
+def test_a_two_match_crunch_is_printed() -> None:
+    """The other branch."""
+    row = anomaly(
+        rounds=[
+            anomaly_round(demo=MATCH_A, round_no=4),
+            anomaly_round(demo=MATCH_B, round_no=9),
+        ],
+        orientation=[(MATCH_A, 0.88, 24), (MATCH_B, 0.88, 24)],
+    )
+    text = anomaly_text(render(report([pistol_map()], anomalies=[row]), MATCH_RULE))
+    assert "Crunch (" in text
+    assert "jäi pois" not in text
+
+
+def test_the_rule_off_raises_every_advance_and_prints_every_crunch() -> None:
+    """``0`` is off, as every false value in the section is."""
+    text = render(report([pistol_map()], anomalies=[_advance(), crunch_anomaly(area="Ramp")]))
+    assert "alueella TSideLower säästökierroksilla (1/3 säästökierroksesta" in text
+    assert "Crunch (" in anomaly_text(text)
+    assert "jäi nostamatta" not in text
+
+
+# --- Review round 1 (Story 4.5): the cases each claim names ---------------------
+
+
+def test_advances_elsewhere_do_not_make_the_chapter_say_no_anomalies() -> None:
+    """With CT advances in the report and no crunch or stack printed, the
+    chapter must not state that the advance rule found nothing beside its
+    rows in Huomioitavaa."""
+    text = anomaly_text(
+        render(report([_two_match_map()], anomalies=[_lobby_habit()]), MATCH_RULE)
+    )
+    assert "Ei poikkeamia" not in text
+    assert "ei ole crunch- eikä stack-rivejä" in text
+    assert HABITS_POINTER in text
+    # The other branch: a report with no anomaly at all still says so.
+    empty = anomaly_text(render(report([pistol_map()], anomalies=[]), MATCH_RULE))
+    assert "Ei poikkeamia" in empty
+    assert HABITS_POINTER not in empty
+
+
+def _habit_row(rounds) -> str:
+    """The one habit row a two-match ``de_nuke`` Lobby advance prints."""
+    text = render(
+        report(
+            [_two_match_map()],
+            anomalies=[_advance(rounds, map_name="de_nuke", area="Lobby", m=5)],
+        ),
+        MATCH_RULE,
+    )
+    chapter = _map_chapter(text, "de_nuke")
+    return [row for row in chapter.splitlines() if "Lobby" in row][0]
+
+
+def _pts(*counts: int) -> list[AnomalyPoint]:
+    """Advance points three seconds apart with these player counts."""
+    return [
+        AnomalyPoint(sample_t_s=15.0 + 3 * i, players=count, sources=[])
+        for i, count in enumerate(counts)
+    ]
+
+
+def test_a_habit_states_one_player_as_the_singular() -> None:
+    """Every point of every round saw one player."""
+    row = _habit_row(
+        [
+            anomaly_round(demo=MATCH_A, round_no=4, points=_pts(1, 1)),
+            anomaly_round(demo=MATCH_B, round_no=9, points=_pts(1)),
+        ]
+    )
+    assert row.startswith("  - CT-pelaaja alueella Lobby")
+
+
+def test_a_habit_states_an_equal_count_as_the_observation() -> None:
+    """Every point saw two: the count is the observation, not a bound."""
+    row = _habit_row(
+        [
+            anomaly_round(demo=MATCH_A, round_no=4, points=_pts(2, 2)),
+            anomaly_round(demo=MATCH_B, round_no=9, points=_pts(2)),
+        ]
+    )
+    assert row.startswith("  - 2 CT-pelaajaa alueella Lobby")
+
+
+def test_a_habit_states_differing_points_as_a_bound_within_one_round() -> None:
+    """The dense grid's case: one round's points saw 3, 5 and 1 players.
+
+    Compared by the rounds' maxima both rounds read 5 and the row would print
+    a flat "5 CT-pelaajaa" -- a peak stated as a fact (review round 1,
+    measured on ``de_inferno`` Middle, 3/4/5/5/4/2/2/1).
+    """
+    row = _habit_row(
+        [
+            anomaly_round(demo=MATCH_A, round_no=4, points=_pts(3, 5, 1)),
+            anomaly_round(demo=MATCH_B, round_no=9, points=_pts(5)),
+        ]
+    )
+    assert row.startswith("  - enintään 5 CT-pelaajaa alueella Lobby")
+
+
+def test_a_crunch_is_simultaneous_when_one_point_holds_every_direction() -> None:
+    """``Anubis_vs_ryhmarama`` round 10 on the dense grid: three directions at
+    15 s, two of them again at 18 s. One moment held all three, so the row
+    says ``yhtä aikaa`` on either grid (review round 1)."""
+    entry = AnomalyRound(
+        map_demo_id=DEMO_ID,
+        round_no=10,
+        round_type="full",
+        points=[
+            AnomalyPoint(
+                sample_t_s=15.0,
+                players=3,
+                sources=["Alley", "BombsiteB", "LowerTunnel"],
+            ),
+            AnomalyPoint(
+                sample_t_s=18.0, players=3, sources=["Alley", "BombsiteB"]
+            ),
+        ],
+    )
+    text = anomaly_text(
+        render(report([pistol_map()], anomalies=[crunch_anomaly(rounds=[entry])]))
+    )
+    assert "yhtä aikaa suunnista Alley, BombsiteB ja LowerTunnel" in text
+    assert "eri hetkinä" not in text
+
+
+def test_the_cap_counts_only_rows_the_match_rule_prints() -> None:
+    """The match rule runs first, so the cap's count is of printable rows: 22
+    two-match crunches and one one-match crunch leave 2 over the cap and 1 to
+    the match rule -- not 3 over the cap."""
+
+    def two_match(index: int) -> Anomaly:
+        return anomaly(
+            area=f"Alue{index:02d}",
+            m=MAX_ANOMALY_LINES + 5,
+            rounds=[
+                anomaly_round(demo=MATCH_A, round_no=4),
+                anomaly_round(demo=MATCH_B, round_no=9),
+            ],
+            orientation=[(MATCH_A, 0.88, 24), (MATCH_B, 0.88, 24)],
+        )
+
+    rows = [two_match(index) for index in range(MAX_ANOMALY_LINES + 2)]
+    rows.append(anomaly(area="Yksi", m=MAX_ANOMALY_LINES + 5))
+    text = anomaly_text(render(report([pistol_map()], anomalies=rows), MATCH_RULE))
+    assert "2 poikkeamaa jäi pois" in text
+    assert "1 crunch-rivi jäi pois" in text
+
+
+def test_a_threshold_above_two_says_fewer_than_n_matches() -> None:
+    """``alle N ottelussa`` -- the form the shipped two never prints."""
+    text = anomaly_text(
+        render(
+            report([pistol_map()], anomalies=[crunch_anomaly()]),
+            ReportSettings(anomaly_min_matches=3),
+        )
+    )
+    assert "koska se havaittiin alle 3 ottelussa" in text
+
+
+def test_habits_are_ordered_by_matches_then_rounds_then_area() -> None:
+    """``(-matches, -n, area)``: the most recurrent first."""
+    third = "1-cccccccc-0000-0000-0000-000000000003-0"
+    played = [
+        PlayedMap(
+            map_demo_id=demo,
+            indexed=True,
+            played_on=date(2026, 9, day),
+            opponent="X",
+        )
+        for demo, day in ((third, 27), (MATCH_B, 20), (MATCH_A, 13))
+    ]
+    nuke = map_report(
+        "de_nuke",
+        [
+            side(
+                "CT",
+                [round_type("eco", 6, demos=3, matches=3)],
+                demos=3,
+                matches=3,
+            )
+        ],
+        played=played,
+    )
+
+    def habit(area: str, demos_rounds) -> Anomaly:
+        return _advance(
+            [anomaly_round(demo=demo, round_no=no) for demo, no in demos_rounds],
+            map_name="de_nuke",
+            area=area,
+            m=6,
+        )
+
+    rows = [
+        habit("Alpha", [(MATCH_A, 1), (MATCH_B, 2)]),
+        habit("Beta", [(MATCH_A, 3), (MATCH_B, 4), (MATCH_B, 5)]),
+        habit("Gamma", [(MATCH_A, 6), (MATCH_B, 7), (third, 8)]),
+        habit("Aaa", [(MATCH_A, 9), (MATCH_B, 10)]),
+    ]
+    text = render(report([nuke], anomalies=rows), MATCH_RULE)
+    order = [
+        area
+        for line in _map_chapter(text, "de_nuke").splitlines()
+        for area in ("Gamma", "Beta", "Aaa", "Alpha")
+        if f"alueella {area} " in line
+    ]
+    # Gamma: 3 matches. Beta: 2 matches, 3 rounds. Aaa and Alpha: 2 and 2, by
+    # area name.
+    assert order == ["Gamma", "Beta", "Aaa", "Alpha"]
+
+
+@pytest.mark.parametrize("five_alive_first", [True, False])
+def test_a_tied_peak_takes_the_moment_with_more_alive(five_alive_first: bool) -> None:
+    """Of two moments with four players, the one with five alive is the
+    defence's choice: the row reads ``enintään 4/5`` whichever comes first,
+    and ``4/4`` would be the other claim."""
+    alive = (5, 4) if five_alive_first else (4, 5)
+    points = [
+        AnomalyPoint(
+            sample_t_s=15.0, players=4, alive=alive[0], areas=["BombsiteB"],
+            sources=[],
+        ),
+        AnomalyPoint(
+            sample_t_s=30.0, players=4, alive=alive[1], areas=["BombsiteB"],
+            sources=[],
+        ),
+        AnomalyPoint(
+            sample_t_s=45.0, players=3, alive=5, areas=["BombsiteB"], sources=[]
+        ),
+    ]
+    entry = AnomalyRound(
+        map_demo_id=DEMO_ID, round_no=13, round_type="eco", points=points
+    )
+    text = anomaly_text(
+        render(report([pistol_map()], anomalies=[stack_anomaly(rounds=[entry])]))
+    )
+    assert "kierros 13 (eco): enintään 4/5 pelaajaa" in text
+
+
+def test_the_summary_counts_hidden_points_in_the_plural() -> None:
+    """``10 näytepistettä`` -- the plural beside the singular tested above."""
+    settings = ReportSettings(skip_sample_seconds=[float(s) for s in range(1, 11)])
+    summary = summary_text(render(report([pistol_map()]), settings))
+    assert "skip_sample_seconds 10 näytepistettä" in summary

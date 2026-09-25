@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from conftest import has_temp_leftovers, settings_text
+from conftest import has_temp_leftovers, replace_array, settings_text
 from pappascout.archive.manifest import (
     MANIFEST_SCHEMA_VERSION,
     Manifest,
@@ -338,15 +338,24 @@ def test_parse_change_does_change_parse_hash(tmp_path: Path) -> None:
     a = tmp_path / "a.toml"
     b = tmp_path / "b.toml"
     a.write_text(settings_text(tmp_path / "archive"), encoding="utf-8")
+    # The routes' points follow the printed points, or the load refuses the
+    # file (Story 4.5); here the skip list hides none of the four.
     b.write_text(
-        settings_text(
-            tmp_path / "archive",
-            **{
-                "snapshot_seconds = [6.0, 15.0, 30.0, 45.0]": (
-                    "snapshot_seconds = [6.0, 20.0, 30.0, 45.0]"
+        replace_array(
+            replace_array(
+                replace_array(
+                    settings_text(
+                        tmp_path / "archive",
+                        **{"stack_sample_s = 15.0": "stack_sample_s = 20.0"},
+                    ),
+                    "snapshot_seconds",
+                    "[6.0, 20.0, 30.0, 45.0]",
                 ),
-                "stack_sample_s = 15.0": "stack_sample_s = 20.0",
-            },
+                "skip_sample_seconds",
+                "[]",
+            ),
+            "route_sample_seconds",
+            "[6.0, 20.0, 30.0, 45.0]",
         ),
         encoding="utf-8",
     )

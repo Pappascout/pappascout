@@ -86,7 +86,16 @@ report holds unpruned blocks, so an unqualified sentence would be false.
 
 ``Report``, ``report.json`` and ``REPORT_SCHEMA_VERSION`` do not change, and
 every pruned value is still in them -- it merely goes untold in *this*
-report. The measured rationales and the numbers are in ``settings.toml``;
+report. **Rule 3 differs in one way since Story 4.5, and it is written here
+because this is where the rule is stated**: its points are the analysis's
+dense grid and not report content, so they are **not built into a block at
+all** -- they do not enter the block's "harvinaisempaa" count and the
+empty-block return cannot bring them back. They are still in ``report.json``.
+The pistol routes read only the printed points, through
+``[aggregate].route_sample_seconds``, which the settings hold equal to them;
+the aggregate stage hashes that list as part of its own section and no
+``[report]`` value (AD-3).
+The measured rationales and the numbers are in ``settings.toml``;
 the measurement documents themselves live in the BMAD output and not in this
 repository.
 
@@ -169,6 +178,7 @@ from pappascout.domain.report import (
     ArmedPlayers,
     ArmoredPlayers,
     DeathReport,
+    MapReport,
     PlayedMap,
     Position,
     Report,
@@ -649,6 +659,28 @@ UNKNOWN_MAP_LABEL = "kartta {index}, nimeä ei tunnistettu"
 #: opponents, and the wording around them is the implementation's.
 PLAYED_MAPS_ORDERED = "Kartat uusin ensin"
 
+#: The section the CT advances are printed in, per map (Story 4.5).
+#:
+#: **Awaiting the product owner's final wording**: he wrote *"huomioitavaa
+#: tms"*, 2026-09-25. The distinction behind it is his and is the point: an
+#: advance is a habit -- one player's, or the team's way of working a site --
+#: and not a strategy, so it does not stand among the anomalies (crunch,
+#: stack) that the report can state as a pattern.
+HABITS_LABEL = "Huomioitavaa"
+
+#: The unit of a habit row's round sample: the side's **save** rounds on the
+#: map, which is the advance's denominator (Story 4.5). **Awaiting the
+#: product owner's wording.**
+HABIT_SAMPLE_UNIT = "säästökierroksesta"
+
+#: The anomaly chapter's pointer to where the CT advances are (Story 4.5).
+#: **Awaiting the product owner's wording.** It names the reason as his:
+#: a habit, not a strategy.
+HABITS_POINTER = (
+    f"CT-etenemiset ovat karttalukujen kohdassa {HABITS_LABEL}: ne kertovat "
+    "pelaajan tai joukkueen tavasta eivätkä joukkueen strategiasta."
+)
+
 #: The same label when at least one demo has no date. See
 #: :data:`PLAYED_MAPS_ORDERED`.
 PLAYED_MAPS_UNORDERED = "Kartat"
@@ -863,9 +895,9 @@ class AnomalyView:
     Two levels on purpose. The summary row carries the sample and the
     orientation, the round rows what was observed on each round -- and it is
     precisely the round row that stops the row being read wrong: a crunch's
-    source directions are simultaneous only within the same round, so the
-    union of two rounds would claim more simultaneous directions than were
-    observed.
+    source directions are simultaneous only at one sample point, so a union
+    across rounds -- or across two moments of one round -- would claim more
+    simultaneous directions than were observed.
 
     ``rounds`` is already formatted strings and not :class:`Line` objects:
     they have no sample of their own, so :class:`Claim`'s contract ("a claim
@@ -998,6 +1030,11 @@ class MapView:
     #: count and demo list disagree.
     played_maps: tuple[str, ...] = ()
     note: str | None = None
+    #: The map's CT advances that recur across matches, one formatted row
+    #: each (Story 4.5, :func:`_habit_views`). Empty when there are none.
+    habits: tuple[str, ...] = ()
+    #: How many one-match advances on this map were not raised, or ``None``.
+    habits_note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1029,16 +1066,22 @@ class ReportView:
     #: The anomaly chapter's rows -- every map and side in the same sequence,
     #: as in ``Report.anomalies``. An empty sequence is a valid state.
     anomalies: tuple[AnomalyView, ...] = ()
-    #: The text that is read **instead of** the anomaly rows when there are
-    #: none. :func:`build_view` always fills in exactly one of these two: the
-    #: anomaly chapter exists even when there are no anomalies, and it then
-    #: says out loud what was examined and what was left in a blind spot
-    #: (:func:`_no_anomalies_text`).
+    #: The text that is read **instead of** the anomaly rows when none is
+    #: printed. :func:`build_view` fills it exactly when :attr:`anomalies` is
+    #: empty. It is then the match rule's count of crunch rows left out if
+    #: there were any, otherwise the coverage (:func:`_no_anomalies_text`),
+    #: and in both cases followed by the pointer to the map chapters' habits
+    #: when the report has CT advances (Story 4.5).
     anomalies_note: str | None = None
-    #: The note about the anomalies the row cap dropped. Separate from
-    #: :attr:`anomalies_note`, because the two are different states: one is
-    #: "none were found", the other "more were found than the chapter shows".
+    #: The note under printed anomaly rows: the match rule's count of crunch
+    #: rows left out, the row cap's count, and the habits pointer -- each only
+    #: when it applies. ``None`` when :attr:`anomalies` is empty (the same
+    #: text is then :attr:`anomalies_note`) or when none applies.
     anomalies_dropped_note: str | None = None
+    #: The label over each map's habits block (:data:`HABITS_LABEL`). On the
+    #: view rather than in the template so the template holds no report
+    #: wording of its own.
+    habits_label: str = HABITS_LABEL
 
 
 @dataclass
@@ -1110,9 +1153,11 @@ class _Flags:
     saturated_dropped: bool = False
     #: Rule 2 wrote at least one equipment row merged.
     equipment_merged: bool = False
-    #: Rule 3 left these sample points unwritten -- the labels as they would
-    #: have read on the row (``"45"``), so that the reading guide can name the
-    #: missing row by the same number as the other rows show theirs.
+    #: Rule 3 left these sample points unwritten, as the labels they would
+    #: have carried (``"45"``). **Only whether it is empty is read** since
+    #: Story 4.5: the reading guide says in words that the analysis samples
+    #: more densely than the report prints, and a list of the hidden seconds
+    #: would put the grid back on the page.
     skipped_samples: list[str] = field(default_factory=list)
     #: Rule 4 shortened at least one of utility's target rows.
     #:
@@ -1249,6 +1294,22 @@ class _Pruning:
     therefore neither does it require undoing a row's truncation (rules 4 and
     5). Truncation cannot empty a block, so undoing it would only bring back
     the 5-9 item list the whole story is written against.
+
+    **Rule 3 is the one exception, and Story 4.5 made it one.** Every other
+    rule prunes: it drops a row the report could have written, and a
+    protected round type is protected precisely from that. Rule 3 no longer
+    does that job. ``[parse].snapshot_seconds`` is now a dense internal
+    series that the rules read and the reader does not, and
+    ``skip_sample_seconds`` is what holds the two apart -- so switching it
+    off on a protected round type does not preserve a row, it prints the
+    grid. Measured on this archive with the rule switched off here: 80
+    sample-point rows in one report's pistol blocks and 52 in the other's,
+    while every unprotected block in the same reports kept its four.
+
+    The exception is therefore not a weakening of the protection but a
+    recognition that one member of the list stopped being a pruning rule.
+    The reading guide says so in its own words: rule 3's paragraph is the
+    only one that does not carry :func:`_protected_round_types_text`.
     """
 
     #: Rule 1.
@@ -1268,27 +1329,37 @@ class _Pruning:
     def for_round_type(
         cls, settings: ReportSettings, round_type: str
     ) -> "_Pruning":
+        skipped = frozenset(
+            seconds_label(value) for value in settings.skip_sample_seconds
+        )
         if round_type in PROTECTED_ROUND_TYPES:
-            return cls.off()
+            # Rule 3 survives the protection; see the class docstring. It is
+            # passed in rather than read inside :meth:`off`, so that "off"
+            # keeps meaning off and the exception is visible at the one place
+            # that knows about the protection.
+            return cls.off(skipped_seconds=skipped)
         return cls(
             drop_saturated=settings.drop_saturated_equipment_lines,
             merge_equal=settings.merge_equal_equipment_lines,
-            skipped_seconds=frozenset(
-                seconds_label(value) for value in settings.skip_sample_seconds
-            ),
+            skipped_seconds=skipped,
             max_utility_targets=settings.max_utility_targets,
             max_kill_areas=settings.max_kill_areas,
         )
 
     @classmethod
-    def off(cls) -> "_Pruning":
+    def off(cls, *, skipped_seconds: frozenset[str] = frozenset()) -> "_Pruning":
         """Pruning off: the report is the one that was there before Story
         2.13.
+
+        Args:
+            skipped_seconds: Rule 3, which is not pruning and therefore is
+                not switched off with the rest. The default is the empty set,
+                so the name still tells the truth on its own.
         """
         return cls(
             drop_saturated=False,
             merge_equal=False,
-            skipped_seconds=frozenset(),
+            skipped_seconds=skipped_seconds,
             max_utility_targets=0,
             max_kill_areas=0,
         )
@@ -2653,6 +2724,32 @@ def _round_type_lines(
     states_matches = _block_states_matches(report_type)
 
     for position in report_type.positions:
+        if pruning.skips(position):
+            # **Not built at all** (Story 4.5). A hidden sample point is the
+            # analysis's grid and not a row the report chose to drop, so it
+            # takes part in nothing the reader sees: its observations are not
+            # counted as "harvinaisempaa" in the block's note, and it cannot
+            # come back through the empty-block return below -- which it did
+            # once, printing ``42 s`` in a report that shows four seconds.
+            #
+            # The row is built into a **throwaway** bookkeeping only to ask
+            # whether it would have existed: the reading guide explains rule
+            # 3 only when it hid a row, and a point whose every bar the
+            # threshold drops hid nothing.
+            label = _sample_key(position)
+            would_print = (
+                _position_line(
+                    position,
+                    min_n,
+                    _Flags(),
+                    matches=states_matches,
+                    recency=recency,
+                )
+                is not None
+            )
+            if would_print and label is not None and label not in skipped_samples:
+                skipped_samples.append(label)
+            continue
         scratch = _Flags()
         line = _position_line(
             position, min_n, scratch, matches=states_matches, recency=recency
@@ -2662,13 +2759,7 @@ def _round_type_lines(
             # it. The threshold's bookkeeping transfers all the same.
             flags.absorb(scratch, keep=False)
             continue
-        if pruning.skips(position):
-            label = _sample_key(position)
-            if label is not None and label not in skipped_samples:
-                skipped_samples.append(label)
-            rows.append(_Row(plain=line, kept=None, flags=scratch))
-        else:
-            rows.append(_Row(plain=line, kept=line, flags=scratch))
+        rows.append(_Row(plain=line, kept=line, flags=scratch))
 
     def keep_all(lines: Sequence[Line]) -> None:
         rows.extend(_Row(plain=line, kept=line) for line in lines)
@@ -2692,7 +2783,7 @@ def _round_type_lines(
     keep_all(_death_lines(report_type.deaths, min_n, flags, pruning))
 
     kept = [row.kept for row in rows if row.kept is not None]
-    if rows and not kept and (saturated_dropped or skipped_samples):
+    if rows and not kept and saturated_dropped:
         # Pruning would have left the block empty: the rows stay unpruned,
         # and not one rule is marked as used -- otherwise the reading guide
         # would explain a removal that was not made.
@@ -3193,30 +3284,203 @@ def _round_type_view(
     )
 
 
-def _anomaly_views(
-    report: Report,
-) -> tuple[tuple[AnomalyView, ...], str | None]:
-    """The anomaly rows and the row cap's note.
+def _one_match_text(minimum: int) -> str:
+    """``vain yhdessä ottelussa`` at the shipped two; ``alle N ottelussa``
+    otherwise."""
+    return "vain yhdessä ottelussa" if minimum == 2 else f"alle {minimum} ottelussa"
 
-    Two return values, because the cap cannot be applied in silence: the
-    number left out is written out under the same rule as the observations
-    the pattern threshold dropped.
+
+def _crunch_rule_note(left_out: int, minimum: int) -> str:
+    """How many crunch rows the match rule did not print.
+
+    The count is said out loud for the reason every pruning rule says what
+    it left out: an absent row must not read as an absent observation.
+    **Awaiting the product owner's wording** (Story 4.5).
+    """
+    one = left_out == 1
+    rows = "crunch-rivi jäi" if one else "crunch-riviä jäi"
+    subject = "se" if one else "ne"
+    return (
+        f"{left_out} {rows} pois, koska {subject} havaittiin "
+        f"{_one_match_text(minimum)}: crunch nostetaan esiin vasta, kun sama "
+        f"toistuu vähintään {minimum} ottelussa. Kaikki ovat report.jsonissa "
+        "kentässä anomalies. Asetus: [report].anomaly_min_matches."
+    )
+
+
+def _habits_note(left_out: int, minimum: int) -> str:
+    """How many of a map's advance rows were not raised, and why.
+
+    **The unit is the row, and a row is one T area** (per map, across the
+    save round types), so the count is of areas -- not of observations,
+    which a row holds several of. **Awaiting the product owner's wording**
+    (Story 4.5). The reason is his: a single brief visit is usually a
+    reaction to a sound or a kill.
+    """
+    one = left_out == 1
+    what = "T:n alue" if one else "T:n aluetta"
+    relative = "jolla" if one else "joilla"
+    return (
+        f"{left_out} {what}, {relative} CT-pelaaja nähtiin "
+        f"{_one_match_text(minimum)}, jäi nostamatta -- yksittäinen käynti on "
+        "usein reaktio ääneen tai tappoon. Kaikki ovat report.jsonissa "
+        "kentässä anomalies. Asetus: [report].anomaly_min_matches."
+    )
+
+
+def _habit_players_text(anomaly: Anomaly) -> str:
+    """Who: ``CT-pelaaja``, ``2 CT-pelaajaa``, or ``enintään 3
+    CT-pelaajaa``.
+
+    **The bound :func:`_anomaly_points_text` uses, read over every sample
+    point of every round**: when all of them saw the same count, that count
+    is the observation; when any two differ, the largest is stated as a
+    bound. Read over the rounds' maxima instead, a round seen at 3, 4, 5, 5,
+    4, 2, 2 and 1 players would print a flat "5" -- a peak stated as a fact.
+    """
+    counts = {point.players for entry in anomaly.rounds for point in entry.points}
+    if len(counts) > 1:
+        return f"enintään {max(counts)} CT-pelaajaa"
+    count = counts.pop()
+    return "CT-pelaaja" if count == 1 else f"{count} CT-pelaajaa"
+
+
+def _habit_text(
+    anomaly: Anomaly, played: Mapping[str, PlayedMap], matches_m: int | None
+) -> str:
+    """One habit, stated as observed: who, where, on which save rounds, and
+    its sample.
+
+    **Worded as a habit and never as a strategy** (the product owner,
+    2026-09-25): no pattern is named, nothing is said about why, and the row
+    reads ``CT-pelaaja alueella Lobby säästökierroksilla (2/8
+    säästökierroksesta, 2/4 ottelussa; eco k14 2026-09-20, force k19
+    2026-09-13)``. **Awaiting his wording.**
+
+    **It carries its sample like every claim in the report** (the reading
+    guide's first promise), built through :class:`Claim`: the rounds over the
+    side's save rounds on the map, and the matches over the map's matches.
+
+    Each round carries its match's date so the scout knows which demo to
+    open: round numbers are per demo, and at the shipped threshold a habit
+    spans at least two matches (with the rule off it may span one).
+    Without a date the demo id stands in, as elsewhere. The rounds are in
+    **the map's own list order** -- newest match first, the order the
+    played-maps list directly above prints -- so the two cannot disagree.
+    """
+    place = {demo: index for index, demo in enumerate(played)}
+    ordered = sorted(
+        anomaly.rounds,
+        key=lambda entry: (
+            place.get(entry.map_demo_id, len(place)),
+            entry.map_demo_id,
+            entry.round_no,
+        ),
+    )
+    rounds = []
+    for entry in ordered:
+        match = played.get(entry.map_demo_id)
+        when = (
+            match.played_on.isoformat()
+            if match is not None and match.played_on is not None
+            else _identifier(entry.map_demo_id)
+        )
+        name = ROUND_TYPE_FI.get(entry.round_type, entry.round_type)
+        rounds.append(f"{name} k{entry.round_no} {when}")
+    claim = Claim(
+        text=_area(anomaly.area),
+        n=anomaly.n,
+        m=anomaly.m,
+        unit=HABIT_SAMPLE_UNIT,
+        matches_n=anomaly.matches if matches_m is not None else None,
+        matches_m=matches_m,
+    )
+    return (
+        f"{_habit_players_text(anomaly)} alueella {claim.text} "
+        f"säästökierroksilla ({claim.sample_text}; {', '.join(rounds)})"
+    )
+
+
+def _habit_views(
+    report: Report, map_report: MapReport, settings: ReportSettings
+) -> tuple[tuple[str, ...], str | None]:
+    """The map's CT advances, as habits, and the count of those not raised.
+
+    **Per map and not in the anomaly chapter** (Story 4.5). The product owner
+    separated them: an advance is a habit and a crunch or a stack is a
+    strategy. The block sits in the map chapter, under the played-maps list,
+    because that is the one place the current structure is already per map
+    and the change is a list item added, not a chapter moved -- the map-first
+    reorganisation is the next story.
+
+    The match rule reads the row grouped per map and area across the save
+    round types (:attr:`~pappascout.domain.report.Anomaly.matches`).
+    """
+    played = {entry.map_demo_id: entry for entry in map_report.played_maps}
+    advances = [
+        entry
+        for entry in report.anomalies
+        if entry.rule == "ct_advance" and entry.map_name == map_report.map_name
+    ]
+    minimum = settings.anomaly_min_matches
+    raised = sorted(
+        (entry for entry in advances if entry.matches >= minimum),
+        key=lambda entry: (-entry.matches, -entry.n, entry.area),
+    )
+    left_out = len(advances) - len(raised)
+    return (
+        tuple(
+            _habit_text(entry, played, map_report.sample.matches)
+            for entry in raised
+        ),
+        _habits_note(left_out, minimum) if left_out else None,
+    )
+
+
+def _anomaly_views(
+    report: Report, settings: ReportSettings
+) -> tuple[tuple[AnomalyView, ...], str | None]:
+    """The anomaly rows and the notes on what was not printed.
+
+    Two return values, because neither the match rule nor the cap can be
+    applied in silence: the number left out is written out under the same
+    rule as the observations the pattern threshold dropped.
+
+    **The match rule first, then the cap** (Story 4.5), so the cap counts
+    only rows the match rule would print: a row that recurs in one match is
+    not a candidate for the chapter at all.
 
     **The order is by repetition, not by map.** The chapter is the report's
     first content chapter and its job is to raise what repeats; on a tie the
     key is (map, side, rule, area), so the equally often observed stay in map
     order and the result is the same from one run to the next.
     """
-    ordered = sorted(report.anomalies, key=_anomaly_rank)
+    minimum = settings.anomaly_min_matches
+    # The CT advances are habits and live in the map chapters
+    # (:func:`_habit_views`); the stack stands on single-round judgements and
+    # is not match-ruled; the crunch is a strategy and is.
+    strategies = [
+        entry for entry in report.anomalies if entry.rule != "ct_advance"
+    ]
+    eligible = [
+        entry
+        for entry in strategies
+        if entry.rule != "crunch" or entry.matches >= minimum
+    ]
+    left_out = len(strategies) - len(eligible)
+    ordered = sorted(eligible, key=_anomaly_rank)
     kept = ordered[:MAX_ANOMALY_LINES]
     dropped = len(ordered) - len(kept)
-    note = None
+    notes: list[str] = []
+    if left_out:
+        notes.append(_crunch_rule_note(left_out, minimum))
     if dropped:
-        note = (
+        notes.append(
             f"{dropped} poikkeamaa jäi pois: luvussa näytetään enintään "
             f"{MAX_ANOMALY_LINES} useimmin toistuvaa. Kaikki ovat "
             "report.jsonissa kentässä anomalies."
         )
+    note = " ".join(notes) or None
     # The maps' ordinals from the same source as in the traceability
     # chapter, so that an unrecognised map's label is the same string in both
     # and the reader can connect the rows.
@@ -3243,12 +3507,13 @@ def _anomaly_view(
 ) -> AnomalyView:
     """One anomaly: the summary row and the round rows.
 
-    **Simultaneity does not cross the round boundary.** The summary row gives
-    the area, the sample and the orientation; the sample points, the
-    directions and the player count are on the round rows, because only there
-    are they simultaneous. The union of two rounds' directions would read as
-    more simultaneous directions than were observed -- the opposite of the
-    definition.
+    **Simultaneity does not cross a sample point.** The summary row gives
+    the area, the sample and the orientation; the directions and the player
+    count are on the round rows, which read them per sample point
+    (:func:`_anomaly_round_text`). The union of two rounds' directions would
+    read as more simultaneous directions than were observed -- the opposite
+    of the definition -- and so, as Story 4.5 measured, would the union of
+    two moments of one round.
 
     The label's map goes through :func:`_anomaly_map_label`, so an
     unrecognised map does not bring a demo id into the body (Story 2.12).
@@ -3342,31 +3607,36 @@ def _anomaly_map_label(anomaly: Anomaly, index_of: Mapping[str, int]) -> str:
 
 
 def _round_type_suffix(anomaly: Anomaly) -> str:
-    """The round types into the label -- or a mention that they are no
+    """The round types into the label, as a mention that they are no
     restriction.
 
-    An advance is grouped by round type, so it has exactly one and it belongs
-    in the label as an observation. Crunch knows no round type: its
+    The chapter's rules (crunch, stack) know no round type: their
     denominator is all the side's rounds, so the label says **on which types
-    it was observed** and not what it is restricted to. Without the
-    difference the reader would read a crunch's ``eco`` mark as a restriction
-    and wonder why there is no ``default`` row.
+    it was observed** and not what it is restricted to. Without the wording
+    the reader would read a crunch's ``eco`` mark as a restriction and wonder
+    why there is no ``default`` row. The CT advance, which was grouped by
+    round type and carried a bare type here, left the chapter in Story 4.5
+    (:func:`_habit_views`).
     """
     names = ", ".join(
         ROUND_TYPE_FI.get(name, name) for name in anomaly.round_types
     )
-    if anomaly.rule == "ct_advance":
-        return f", {names}"
     return f", havaittu: {names}"
 
 
 def _anomaly_round_text(anomaly: Anomaly, entry: AnomalyRound) -> str:
-    """One round's observation: when, how many and from where.
+    """One round's observation: its type, how many, and where from.
 
     The round number first, because the scout's next act is to open that
-    round in the demo. The round type is included only for crunch and stack:
-    for an advance it is in the label already, and the same word is not
-    written twice on the same row.
+    round in the demo, then the round's type, since the chapter's rules are
+    not scoped by it.
+
+    **The row no longer says when** (Story 4.5). It used to name the sample
+    points, and that was the last place where ``[parse].snapshot_seconds``
+    reached the reader: the grid is now a dense internal series, so the same
+    round would read ``12/15/18/21/24 s kohdalla`` -- a sentence about the
+    settings file rather than about the opponent. See
+    :func:`_anomaly_points_text` for what replaced it.
 
     **A stack's player count is a fraction and not a number.** "4 players"
     says nothing about the anomaly without the number alive: four out of five
@@ -3378,9 +3648,10 @@ def _anomaly_round_text(anomaly: Anomaly, entry: AnomalyRound) -> str:
     itself: the summary row carries the area most of the crowd stood on, and
     it alone would read as a crowd on one area where the rule saw it on two.
     """
-    text = f"kierros {entry.round_no}"
-    if anomaly.rule != "ct_advance":
-        text += f" ({ROUND_TYPE_FI.get(entry.round_type, entry.round_type)})"
+    text = (
+        f"kierros {entry.round_no} "
+        f"({ROUND_TYPE_FI.get(entry.round_type, entry.round_type)})"
+    )
     text += f": {_anomaly_points_text(entry)}"
     if len(entry.areas) > 1:
         # The crowd's OWN areas, and only when there is more than one of them.
@@ -3391,10 +3662,9 @@ def _anomaly_round_text(anomaly: Anomaly, entry: AnomalyRound) -> str:
         # area where the rule saw it on two.
         text += f", alueilla {_areas_text(entry.areas)}"
     if entry.sources:
-        # The directions only in a crunch, and **simultaneous** because they
-        # are the same round's observation. On the others an empty list means
+        # The directions only in a crunch. On the others an empty list means
         # "not asked" and not "no directions", so it is not said out loud.
-        text += f", yhtä aikaa suunnista {_areas_text(entry.sources)}"
+        text += f", {_sources_text(entry)}"
     # Two demos on the same map: the round number does not identify without
     # the demo id. The id is a code span, because that is the only usable
     # form here -- the same rationale as with the round appendix.
@@ -3410,29 +3680,84 @@ def _anomaly_round_text(anomaly: Anomaly, entry: AnomalyRound) -> str:
     return text
 
 
-def _anomaly_points_text(entry: AnomalyRound) -> str:
-    """The round's sample points with their counts.
+def _sources_text(entry: AnomalyRound) -> str:
+    """A crunch round's directions, and whether they were simultaneous.
 
-    **A number belongs to its moment.** When the sample points have different
-    counts, each gets its own
-    (``5/5 pelaajaa 15 s ja 4/5 pelaajaa 30 s kohdalla``); when the counts
-    are the same, they are collapsed into one
-    (``4/5 pelaajaa 15 ja 30 s kohdalla``). Collapsing is safe only because
-    the condition compares **all** the counts: the row used to set the
-    round's maximum for every sample point, and measured, it claimed five
-    players on Inferno round 2 at 30 s as well, where there was one.
+    **``yhtä aikaa`` only when it is true** (Story 4.5). The directions are
+    simultaneous at one sample point (:class:`~pappascout.domain.report
+    .AnomalyPoint`), so when **one point holds every direction the round
+    names** the row can say so: ``yhtä aikaa suunnista Arch ja TopofMid``.
+    That is the condition and not "every point names the same ones": a denser
+    grid adds points that see a subset of the arrival (``Anubis_vs_ryhmarama``
+    round 10 reads three directions at 15 s and two at 18 s), and a claim
+    that flipped to ``eri hetkinä`` on that would depend on the grid. When no
+    single moment holds them all, the round's list is a union across moments
+    and the row says ``eri hetkinä`` instead
+    -- measured on the first dense grid, ``anubis_vs_RCAVE_VETERANS`` round 3
+    reached ``Bridge`` from four directions with three players, which
+    ``yhtä aikaa`` would have stated as a single impossible moment.
+
+    **The moments are not named**, for the reason the seconds left the row
+    (:func:`_anomaly_points_text`): the sample points are a tool.
+    """
+    names = _areas_text(entry.sources)
+    if any(point.sources == entry.sources for point in entry.points):
+        return f"yhtä aikaa suunnista {names}"
+    return f"suunnista {names} eri hetkinä"
+
+
+def _anomaly_points_text(entry: AnomalyRound) -> str:
+    """How many players the round was seen with -- **without the seconds**.
+
+    **Sample points are a tool for forming the analysis, not the analysis.**
+    The product owner, 2026-09-13 and again 2026-09-21: *"Mitta pisteitä ei
+    tule laittaa varmaan lopulliseen raporttiin vaan ne ovat työkalu
+    muodostaa analyysi raporttiin."* Since Story 4.5
+    ``[parse].snapshot_seconds`` is a dense internal series, so a list of
+    grid seconds is a statement about the settings file: the same round read
+    ``15 ja 30 s kohdalla`` on four points and would read
+    ``12/15/18/21/24 s kohdalla`` on fourteen, although the opponent did the
+    same thing in both.
+
+    **What replaced the enumeration is an upper bound, not a peak dressed up
+    as a fact.** The rule is overturned, not edited: the old docstring argued
+    that *"a number belongs to its moment"*, and it was right about the
+    hazard it named -- the row before it took the round's maximum and
+    attached it to **every** sample point, claiming five players on Inferno
+    round 2 at 30 s where there was one. Naming the seconds was one way to
+    stop that. Dropping them is another, and it is the one that survives a
+    dense grid: with no moment on the row, no count is attached to a moment
+    it was not observed at. So
+
+    * when every sample point of the round saw the same count, that count is
+      the observation (``4/5 pelaajaa``);
+    * when they differ, the row says ``enintään`` and the largest
+      (``enintään 4 pelaajaa``) -- a bound over the round's observed moments,
+      which is true whatever the grid's density.
+
+    **The number of moments is not written either**, and for the same reason
+    the seconds are not: it counts sample points. Measured 2026-09-13, the
+    stack's hits went 69 -> 396 on the same archive when the grid went from 4
+    points to 22, while the rounds they sit on went 54 -> 82. A count of
+    moments would be the same figure in a different coat.
+
+    **A stack reads one point** (``stack_sample_s``), so on the pipeline's
+    path its row has one point and takes the first branch, and the fraction
+    is a real observation from a real moment. The model does not enforce
+    one point, and a row built with two takes the second branch like any
+    other.
     """
     counts = {(point.players, point.alive) for point in entry.points}
     if len(counts) == 1:
         players, alive = counts.pop()
-        seconds = _seconds_list([point.sample_t_s for point in entry.points])
-        return f"{_players_of(players, alive)} {seconds} s kohdalla"
-    parts = [
-        f"{_players_of(point.players, point.alive)} "
-        f"{_seconds(point.sample_t_s)} s"
-        for point in entry.points
-    ]
-    return f"{_join_fi(parts)} kohdalla"
+        return _players_of(players, alive)
+    # The largest crowd of the round, ties broken by the **most** alive: of
+    # two moments with four players, the one with five alive is the defence
+    # choosing to be there, and the one with four alive is what was left of
+    # it. The stronger claim is the choice, and picking it deliberately keeps
+    # the tie-break from depending on the order the points arrive in.
+    peak = max(entry.points, key=lambda point: (point.players, point.alive or 0))
+    return f"enintään {_players_of(peak.players, peak.alive)}"
 
 
 def _players_of(players: int, alive: int | None) -> str:
@@ -3473,11 +3798,6 @@ def _share(value: float) -> str:
     return f"{value:.2f}".replace(".", ",")
 
 
-def _seconds_list(values: Sequence[float]) -> str:
-    """``[15.0, 30.0] -> '15 ja 30'``."""
-    return _join_fi([_seconds(value) for value in values])
-
-
 def _areas_text(areas: Sequence[str]) -> str:
     """The area names as a list; the callouts stay in English."""
     return _join_fi([_area(name) for name in areas])
@@ -3495,7 +3815,7 @@ def _join_fi(parts: Sequence[str]) -> str:
     return f"{', '.join(parts[:-1])} ja {parts[-1]}"
 
 
-def _no_anomalies_text(report: Report) -> str:
+def _no_anomalies_text(report: Report, *, habits_elsewhere: bool = False) -> str:
     """The text for an empty anomaly chapter -- the coverage included.
 
     **"No anomalies" is an observation only about what was examined.** The
@@ -3517,8 +3837,19 @@ def _no_anomalies_text(report: Report) -> str:
     rules = _join_fi(
         [ANOMALY_RULE_FI.get(name, name) for name in scan.rules]
     )
+    # **Not "no anomalies" when the advances found something** (Story 4.5):
+    # they are printed as habits in the map chapters, so an empty chapter
+    # means only that no crunch or stack row is printed here. Saying "Ei
+    # poikkeamia" beside the rule list would state that the advance rule
+    # found nothing, next to its rows in Huomioitavaa. **Awaiting the product
+    # owner's wording.**
+    opening = (
+        "Tässä luvussa ei ole crunch- eikä stack-rivejä."
+        if habits_elsewhere
+        else "Ei poikkeamia."
+    )
     parts = [
-        f"Ei poikkeamia. Säännöt ({rules}) ajettiin "
+        f"{opening} Säännöt ({rules}) ajettiin "
         f"{scan.rounds_scanned} kierrokselle, mutta kaikki tutkivat vain "
         f"CT-puolen rivejä: crunch voi osua {scan.crunch_rounds} "
         f"kierroksella, CT-eteneminen {scan.advance_rounds} "
@@ -3781,13 +4112,18 @@ def _pruning_value(value: Any) -> str:
 
     An empty list is ``ei yhtään`` ("none at all") and not an empty string:
     the row ``skip_sample_seconds`` without a value would read as if the
-    value had been lost on the way. The seconds are formatted with
-    :func:`~pappascout.constants.seconds_label`, that is in the same way as
-    the sample point rows' labels -- otherwise the summary and the body would
-    speak of the same number in two ways.
+    value had been lost on the way. A non-empty list is its **count**
+    (``10 näytepistettä``) and not its seconds: since Story 4.5 the list is
+    the analysis's grid minus what the report prints, and the seconds on the
+    summary row would be the grid on the page.
     """
     if isinstance(value, list):
-        return "/".join(seconds_label(item) for item in value) or "ei yhtään"
+        # A count and not the seconds (Story 4.5): the one list in the
+        # section is skip_sample_seconds, and its members are the analysis's
+        # grid, which the report does not show.
+        if not value:
+            return "ei yhtään"
+        return f"{len(value)} näytepiste" + ("" if len(value) == 1 else "ttä")
     return _value(value)
 
 
@@ -4420,6 +4756,7 @@ def build_view(
                 flags.unindexed_demo = True
             elif entry.played_on is None or entry.opponent is None:
                 flags.unknown_in_index = True
+        habits, habits_note = _habit_views(report, map_report, settings)
         maps.append(
             MapView(
                 map_name=map_report.map_name,
@@ -4435,16 +4772,38 @@ def build_view(
                     _played_map_line(entry) for entry in map_report.played_maps
                 ),
                 note=None if sides else _NO_SIDES,
+                habits=habits,
+                habits_note=habits_note,
             )
         )
 
-    anomaly_views, dropped_note = _anomaly_views(report)
+    anomaly_views, dropped_note = _anomaly_views(report, settings)
+    # Where the advances went, said in the chapter the reader looks for them
+    # in -- once, and only when there are any (Story 4.5).
+    pointer = (
+        HABITS_POINTER
+        if any(entry.rule == "ct_advance" for entry in report.anomalies)
+        else None
+    )
+    chapter_note = " ".join(
+        part
+        for part in (
+            dropped_note
+            or _no_anomalies_text(report, habits_elsewhere=pointer is not None),
+            pointer,
+        )
+        if part
+    )
+    trailing_note = " ".join(part for part in (dropped_note, pointer) if part)
     return ReportView(
         title=_title(report),
         summary=tuple(_summary(report, threshold, settings)),
         anomalies=anomaly_views,
-        anomalies_note=None if anomaly_views else _no_anomalies_text(report),
-        anomalies_dropped_note=dropped_note,
+        # When the match rule left nothing to print, its note is the
+        # chapter: "Ei poikkeamia" would claim a measured negative about rows
+        # that exist in report.json.
+        anomalies_note=None if anomaly_views else chapter_note,
+        anomalies_dropped_note=(trailing_note or None) if anomaly_views else None,
         # The label is a demo id and it **stays on the body's row**: the
         # reason contains a command the reader copies (``uv run pappascout
         # parse <demo>``), and the command does not work without the id. A
@@ -4701,9 +5060,9 @@ def _legend(
     # AND A ROW THAT SIMPLY ENDS DOES NOT MEAN THE ROUND ENDED. It means the
     # sampling has no later moment for those players, and measured over the
     # archive the usual reason is that the grid ran out while the round went
-    # on: 280 of the 293 rounds reaching the last point record a death after
+    # on: 285 of the 293 rounds reaching the last point record a death after
     # it (domain.aggregate.ROUTE_SAMPLING_MEASURED). The first wording of
-    # this paragraph said "kierros oli jo ohi" and was wrong for 95.6 per
+    # this paragraph said "kierros oli jo ohi" and was wrong for 97.3 per
     # cent of the rows it described -- and it was the one sentence in the
     # report that told the reader how to read the end of a row.
     #
@@ -4750,7 +5109,7 @@ def _legend(
             "myöhempää näytepistettä -- ja tavallisin syy on, että otanta "
             "loppui kesken kierroksen: näytepisteitä otetaan vain "
             "kierroksen ensimmäisiltä sekunneilta, ja arkistosta mitattuna "
-            "280 niistä 293 kierroksesta, jotka yltävät viimeiseen "
+            "285 niistä 293 kierroksesta, jotka yltävät viimeiseen "
             "näytepisteeseen, kirjaavat kuoleman vielä sen jälkeen. Rivin "
             "viimeinen kohta on siis viimeinen havainto eikä kierroksen "
             "loppu, eikä rivi väitä mitään sen jälkeisestä ajasta."
@@ -4864,15 +5223,28 @@ def _pruning_legend(flags: _Flags, settings: ReportSettings) -> list[str]:
             f"{exception} Asetus: [report].merge_equal_equipment_lines."
         )
     if flags.skipped_samples:
-        samples = _join_fi([f"{value} s" for value in flags.skipped_samples])
+        # **In words and not as a list** (Story 4.5): the reader learns once
+        # that the analysis samples more densely than the report prints, and
+        # does not see the grid. A list of the hidden seconds is the settings
+        # file on the page.
+        # **Of what was read, not of the archive in general** (review round
+        # 1): the paragraph appears only when a block really held a hidden
+        # point, and an archive can mix demos parsed densely with demos parsed
+        # at the printed points alone -- so the sentence is conditional on the
+        # demo rather than a claim about every map.
         notes.append(
-            f"**Näytepistettä {samples} ei kirjoiteta tähän raporttiin.** "
-            "Puuttuva näytepiste ei tarkoita puuttuvaa havaintoa: se on "
-            "report.jsonissa ja parsituissa tauluissa sellaisenaan, eikä "
-            "[parse].snapshot_seconds ole muuttunut -- kyse on vain siitä, "
-            "tulostetaanko rivi. Myöhäinen näytepiste kertoo eloonjääneistä "
-            f"eikä asetelmasta. {exception} Asetus: "
-            "[report].skip_sample_seconds."
+            "**Säännöt lukevat tiheämmin jäsennetyistä demoista näytepisteitä, "
+            "joita raportti ei tulosta.** Niissä säännöt näkevät pelaajien "
+            "liikkeen tiheästä näytepistesarjasta; raportti tulostaa niistä "
+            "vain osan, koska se kertoo mitä kierroksella tapahtui eikä missä "
+            "kukin oli kunkin sekunnin kohdalla. Tulostamaton näytepiste ei ole "
+            "puuttuva "
+            "havainto: se on report.jsonissa ja parsituissa tauluissa "
+            "sellaisenaan. Lohkojen huomautusten harvinaisempien havaintojen "
+            "määrä koskee vain tulostettuja näytepisteitä. Tämä on ainoa "
+            "näistä säännöistä, joka koskee myös suojattuja kierrostyyppejä: "
+            "se ei karsi riviä pois vaan pitää näytepisteruudukon raportin "
+            "ulkopuolella. Asetus: [report].skip_sample_seconds."
         )
     if flags.utility_targets_capped:
         notes.append(
@@ -4957,6 +5329,14 @@ def _anomaly_legend(report: Report) -> list[str]:
             f" Vähintään {players_text(advance_players)} alueella ja havainto "
             f"enintään {_seconds(bound)} sekunnin kohdalla kierroksen alusta."
         )
+    # Where it is printed, since Story 4.5. **Awaiting the product owner's
+    # wording.** Stated in the definition because the reader meets the rule
+    # here and its rows elsewhere.
+    advance += (
+        f" Kirjataan tavaksi karttaluvun kohtaan {HABITS_LABEL} eikä "
+        "Poikkeamat-lukuun, ja saman alueen säästökierrokset lasketaan "
+        "yhdessä kierrostyypistä riippumatta."
+    )
     notes.append(advance)
 
     lookback_text = (

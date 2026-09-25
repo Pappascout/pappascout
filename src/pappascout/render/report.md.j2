@@ -94,6 +94,16 @@
 {% endfor %}
 
 {% endif %}
+{% if map_view.habits or map_view.habits_note %}
+- **{{ view.habits_label }}:**
+{% for habit in map_view.habits %}
+  - {{ habit }}
+{% endfor %}
+{% if map_view.habits_note %}
+  - *{{ map_view.habits_note }}*
+{% endif %}
+
+{% endif %}
 {% if map_view.note %}
 - *{{ map_view.note }}*
 

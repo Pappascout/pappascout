@@ -1766,8 +1766,8 @@ def _source_areas(
     40 of 107, at 45 s 27 of 77), because ``30 - 9`` lands on the 15 s point
     on one grid and on the 21 s point on the other. The residual is pinned by
     :func:`tests.test_calibration.test_the_look_backs_answer_still_depends_on_the_grid`,
-    which runs the two grids against each other on the archive's one demo that
-    exists on both.
+    which runs the two grids against each other on one demo, read as parsed
+    and filtered down to the four points.
 
     Named areas only: ``None`` is not a direction. A missing key therefore
     means two things at once -- no sample point that far back on this round,

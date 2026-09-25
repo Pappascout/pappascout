@@ -22,7 +22,7 @@ from pathlib import Path, PurePosixPath
 
 from typer.testing import CliRunner
 
-from conftest import settings_text
+from conftest import replace_array, settings_text
 from pappascout.cli import _render_report, app
 from pappascout.domain.models import SETTINGS_ENV_VAR, ReportSettings
 from pappascout.stages import StageResult
@@ -226,18 +226,27 @@ def written_report(archive_root: Path) -> str:
 
 
 def prepare_pruning(
-    tmp_path: Path, settings_file: Path, monkeypatch, **replacements: str
+    tmp_path: Path,
+    settings_file: Path,
+    monkeypatch,
+    arrays: dict[str, str] | None = None,
+    **replacements: str,
 ) -> Path:
     """The archive and a settings file in which a pruning rule was changed.
 
     ``settings_text`` replaces a line of the real ``settings.toml``, so the
     test runs **the user's file** and not the code's defaults -- and that
     difference is this test's whole content.
+
+    ``arrays`` is for the settings that are written as a list: since Story
+    4.5 ``skip_sample_seconds`` holds ten values, and a literal replacement
+    would pin the file's spelling of them rather than the rule under test.
     """
     archive_root = tmp_path / "arkisto"
-    settings_file.write_text(
-        settings_text(archive_root, **replacements), encoding="utf-8"
-    )
+    text = settings_text(archive_root, **replacements)
+    for key, value in (arrays or {}).items():
+        text = replace_array(text, key, value)
+    settings_file.write_text(text, encoding="utf-8")
     monkeypatch.setenv(SETTINGS_ENV_VAR, str(settings_file))
     build_archive(tmp_path, teams={TEAM_KEY: pruning_report()})
     return archive_root
@@ -321,14 +330,21 @@ def test_the_written_report_names_the_rules_the_user_has_on(
         tmp_path,
         settings_file,
         monkeypatch,
-        **{"skip_sample_seconds = []": "skip_sample_seconds = [45.0]"},
+        # The four-point grid with 45 s hidden, and the routes' points
+        # agreeing with what is printed -- the load refuses the file otherwise
+        # (Story 4.5).
+        arrays={
+            "snapshot_seconds": "[6.0, 15.0, 30.0, 45.0]",
+            "skip_sample_seconds": "[45.0]",
+            "route_sample_seconds": "[6.0, 15.0, 30.0]",
+        },
     )
     result = runner.invoke(app, ["report", "--team", TEAM_KEY])
     assert result.exit_code == 0, result.output
 
     text = written_report(archive_root)
     summary = text.split("## Yhteenveto")[1].split("## ")[0]
-    assert "skip_sample_seconds 45" in summary
+    assert "skip_sample_seconds 1 näytepiste" in summary
     # In the map chapter's heading the name is a code span (Story 2.15, B1).
     assert "45 s:" not in text.split("## `de_")[1].split("**Pistooli**")[0]
 

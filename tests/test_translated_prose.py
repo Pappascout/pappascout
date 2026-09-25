@@ -598,6 +598,154 @@ QUOTED_FINNISH: tuple[QuotedFinnish, ...] = (
         why="The exact line the report prints. An example of real output stops being an example once it is translated.",
     ),
     QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="Mitta pisteitä",
+        why=(
+            "The product owner's decision that sample points are a tool for "
+            "forming the analysis and not the analysis, quoted where the "
+            "function that stopped printing them is defined. His own "
+            "spelling, the space in the middle of the compound included: it "
+            "is the sentence the rule rests on, and a translation would be "
+            "the model's paraphrase of the reason for its own behaviour."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="ne ovat työkalu",
+        why=(
+            "The second line of the same quotation. Split by the line width "
+            "and not by choice; the exemption matches text, so a quotation "
+            "that wraps needs one entry per line it wraps onto."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/domain/models.py",
+        text="tällainen toistuu ottelusta",
+        why=(
+            "The product owner's rule of 2026-09-25 that an advance is reported "
+            "only when it recurs from match to match, quoted where the setting is"
+            " defined. It is the sentence the rule rests on; a translation would "
+            "be the model's paraphrase of his reason."
+        ),
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="tällainen toistuu ottelusta",
+        why=(
+            "The product owner's rule of 2026-09-25 that an advance is reported "
+            "only when it recurs from match to match, quoted where the setting is"
+            " defined. It is the sentence the rule rests on; a translation would "
+            "be the model's paraphrase of his reason."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/domain/report.py",
+        text="yhtä aikaa",
+        why=(
+            "The exact words the report prints. An example of real output stops "
+            "being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="yhtä aikaa",
+        why=(
+            "The exact words the report prints. An example of real output stops "
+            "being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="eri hetkinä",
+        why=(
+            "The exact words the report prints. An example of real output stops "
+            "being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="näytepistettä",
+        why=(
+            "The exact words the report prints. An example of real output stops "
+            "being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="yhtä aikaa",
+        why=(
+            "The exact words the report prints. An example of real output stops "
+            "being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="eri hetkinä",
+        why=(
+            "The exact words the report prints. An example of real output stops "
+            "being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="tests/test_aggregate.py",
+        text="Sama tapa ja siitä ilmoitetaan",
+        why=(
+            "The product owner's answer of 2026-09-25 that an eco and a force push"
+            " into one area are one habit, quoted where the grouping it decided is"
+            " tested. Translated, it would be the model's paraphrase of his ruling."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="vain yhdessä ottelussa",
+        why=(
+            "The exact words the report prints. An example of real output stops"
+            " being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="säästökierroksilla",
+        why=(
+            "The exact words the report prints. An example of real output stops"
+            " being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/domain/models.py",
+        text="ennen ensimmäistä näytepistettä",
+        why=(
+            "The exact words the report prints. An example of real output stops"
+            " being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="säästökierroksesta",
+        why=(
+            "The exact words the report prints. An example of real output stops"
+            " being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="10 näytepistettä",
+        why=(
+            "The exact words the report prints. An example of real output stops"
+            " being an example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="enintään",
+        why="The exact word the report prints on a round row whose moments disagree. An example of real output stops being an example once it is translated.",
+    ),
+    QuotedFinnish(
+        path="tests/test_render.py",
+        text="enintään",
+        why="The same word, in the tests that pin the rows it appears on. Translated, the docstring would name a string the report does not contain.",
+    ),
+    QuotedFinnish(
         path="tests/test_render.py",
         text="yhdenkään demon",
         why="The exact line the report prints. An example of real output stops being an example once it is translated.",

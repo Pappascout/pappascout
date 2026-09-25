@@ -121,10 +121,71 @@ ot_start_money = 12500
 [parse]
 # Näytepisteet sekunteina viimeisestä round_freeze_endistä.
 # ~6 s CT-suunta näkyy, ~10-15 s T rush erottuu defaultista, 25-30 s ja 45 s
-# näyttävät kierroksen kehityksen. [domain] [spine] AD-3 oletus [6, 15, 30, 45].
+# näyttävät kierroksen kehityksen. [domain] [spine] AD-3.
 # Arvojen on oltava positiivisia, äärellisiä, keskenään eri suuria ja enintään
 # kierroksen keston (115 s) mittaisia; lataus tarkistaa tämän.
-snapshot_seconds = [6.0, 15.0, 30.0, 45.0]
+#
+# NÄYTEPISTEET OVAT TYÖKALU EIVÄTKÄ RAPORTIN SISÄLTÖÄ (Story 4.5). Tuotteen
+# omistaja 13.9.2026 ja uudelleen 21.9.2026: "Mitta pisteitä ei tule laittaa
+# varmaan lopulliseen raporttiin vaan ne ovat työkalu muodostaa analyysi
+# raporttiin." Tämä sarja on siis sisäinen: säännöt lukevat sitä ("säännöt
+# eivät saa lukea vähemmällä kuin analyysi", 23.9.2026), mutta raportti
+# tulostaa yhä samat neljä näytepisteriviä ja pistoolireitit samoilla neljällä
+# pisteellä, koska kymmenen lisättyä on lueteltu
+# [report].skip_sample_seconds:issä -- se päättää mitä TULOSTETAAN, ei mitä
+# taulussa on.
+#
+# MIKSI 3 SEKUNNIN VÄLI -- MITATTU, EI VALITTU. Kaksi demoa
+# (ANCIENT_vs_RCAVE_VETERANS ja nuke_vs_RCAVE_VETERANS) jäsennettiin 1 s
+# ruudukolla 6..45 s, ja ehdokasjoukot poimittiin siitä jälkikäteen.
+#
+#   ruudukko                        pisteitä   alueista nähdään   siirtymiä
+#   entinen [6, 15, 30, 45]                4    60,7 % / 62,4 %   40 % / 40 %
+#   8 pistettä                             8    81,8 % / 80,6 %   71 % / 64 %
+#   11 pistettä, ~4 s välein              11    84,7 % / 84,3 %   77 % / 71 %
+#   TÄMÄ: 3 s väli, 6..45                 14    88,4 % / 88,8 %   82 % / 79 %
+#   2 s 30 s asti + 15 s + 5 s loppuun    17    92,6 % / 93,6 %   88 % / 86 %
+#   1 s väli, 6..45 (vertailukohta)       40     100 %  /  100 %  100 % / 100 %
+#
+# Luvut ovat Ancient / Nuke. "Alueista nähdään" on se osuus niistä alueista
+# joissa pelaaja tosiasiassa kävi, jonka ruudukko näkee; "siirtymiä" se osuus
+# peräkkäisten pisteiden välisistä alueenvaihdoksista, jonka se havaitsee.
+# [mitattu 2026-09-21, haarassa story-4-5-dense-sampling]
+#
+# KOLME EHTOA RATKAISEE VALINNAN:
+#
+#  1. RUUDUKON ON SISÄLLETTÄVÄ 6, 15, 30 JA 45. stack_sample_s = 15.0 on
+#     valitsin, jonka on osuttava johonkin pisteeseen
+#     (Settings._check_sections_agree), ja Story 4.4:n kalibrointi on mitattu
+#     siinä. Ylijoukko jättää sen koskematta -- ja mitattuna jätti: STACK_TABLE
+#     rivilleen sama, 5 osumaa 5 kierroksella, kattavuus 93/93.
+#  2. VÄLIN ON OLTAVA TASAINEN. Orientaation havaintoraja on havaintoja
+#     NÄYTEPISTETTÄ KOHDEN (advance_area_min_observations_per_point), eli se
+#     kohtelee jokaista pistettä saman mittaisena otoksena kierroksesta.
+#     Epätasainen ruudukko painottaisi tiheää jaksoa ilman että kukaan
+#     valitsi sitä. Tasainen väli, joka sisältää kaikki neljä, on mahdollinen
+#     vain jos väli jakaa erotukset 9, 15 ja 15 -- syt(9, 15, 15) = 3.
+#     KOKONAISINA SEKUNTEINA ehdolla ovat siis 1 s ja 3 s; murtolukuvälit
+#     (1,5 s, 0,75 s ...) täyttäisivät saman ehdon, mutta ruudukko pidetään
+#     kokonaisissa sekunneissa. (Haarassa perusteena oli crunchin
+#     "edellinen näytepiste"; Story 4.6 teki siitä keston, joten se peruste
+#     ei enää päde, mutta tämä pätee.)
+#  3. 1 s EI TOIMI TÄLLÄ ARKISTOLLA. Anubis_vs_ryhmarama, round_raw 14,
+#     t = 25 s (tick 109545) ei palauta yhtään pelaajariviä, ja parse pysähtyy
+#     virheeseen. Toistettu myös yksinään ([25.0] kaatuu, [24.0, 27.0] menee
+#     läpi), joten se on demon ominaisuus eikä kohinaa.
+#
+# Jäljelle jää 3 s. Yli 45 s ei mennä: ensikontakteista vain 4,4 % on 45 s
+# jälkeen (mediaani 16,8 s, p90 31,8 s), joten sinne lisätty piste ei toisi
+# mitään. [mitattu 2026-09-13, valinta 2026-09-21]
+#
+# HINTA: haarassa koko arkisto (8 demoa) peräkkäin 62,8 s neljällä pisteellä
+# ja 64,0 s neljällätoista eli +1,9 %; dokumentin arvio oli +12 %. Mitattu
+# uudelleen 2026-09-25, ks. Story 4.5:n raportti.
+snapshot_seconds = [
+    6.0, 9.0, 12.0, 15.0, 18.0, 21.0, 24.0,
+    27.0, 30.0, 33.0, 36.0, 39.0, 42.0, 45.0,
+]
 
 # Ostoajan pituus sekunteina freezetimen päättymisestä. Talousluvut luetaan
 # ostoajan lopusta, ei freezetimen lopusta. Mittauspiste on
@@ -1001,6 +1062,19 @@ crunch_lookback_s = 9.0
 # [lausuttu 2026-08-30, odottaa havaintoa]
 utility_seconds_buckets = [5.0, 10.0, 20.0]
 
+# Pistoolireitin näytepisteet (Story 4.5). Reitti luetaan vain niiltä
+# pisteiltä, jotka raportti tulostaa: tuotteen omistaja 25.9.2026,
+# "raporttiin emme voi noin paljon näytepisteitä laittaa". Tulostetut pisteet
+# ovat [parse].snapshot_seconds miinus [report].skip_sample_seconds, mutta
+# aggregate-vaihe ei saa lukea [report]-osiota (AD-3: jokaisen vaiheen
+# parametrihash vain omista osioistaan), joten lista on tässä ja lataus
+# (Settings._check_sections_agree) kieltäytyy, jos se eroaa tulostetuista
+# pisteistä. Vertailu tehdään nimiöinä (constants.seconds_label), kuten
+# Story 2.13:n sääntö sekunneille kerrosten välillä. Tyhjä lista kielletään:
+# reitti ilman pisteitä väittäisi jokaisen kierroksen ratkenneen ennen
+# ensimmäistä näytepistettä.
+route_sample_seconds = [6.0, 15.0, 30.0, 45.0]
+
 
 [report]
 # Karsintasäännöt: mitä raportti jättää kirjoittamatta (Story 2.13).
@@ -1032,6 +1106,20 @@ utility_seconds_buckets = [5.0, 10.0, 20.0]
 # ei ole sama kuin ennen Story 2.13:a, koska suodatus ei ole karsintaa.
 # Lupaus, joka tästä jää voimaan, on se joka testataan joka ajolla: nämä
 # viisi asetusta eivät muuta raporttia, kun ne ovat pois päältä.
+#
+# STORY 4.5 MUUTTI KAHTA ASIAA, ja ne kuuluvat tähän eikä vain kutsuihin:
+#  * SÄÄNTÖ 3 (skip_sample_seconds) EI ENÄÄ KARSI RIVIÄ vaan pitää tiheän
+#    näytepisteruudukon raportin ulkopuolella. Sen pisteitä ei rakenneta
+#    lohkoon lainkaan, joten ne eivät kuulu lohkon "harvinaisempaa
+#    havaintoa" -lukuun eivätkä palaa tyhjän lohkon kautta; report.jsonissa
+#    ne ovat yhä. Se koskee myös suojattuja kierrostyyppejä. Pistoolireitti
+#    luetaan samoilta tulostetuilta pisteiltä [aggregate].route_sample_seconds
+#    -listan kautta, ja lataus pitää listan tulostettujen pisteiden kanssa
+#    samana -- aggregate-vaiheen hashiin ei tule tämän osion arvoa (AD-3).
+#  * KUUDES ASETUS, anomaly_min_matches, ei karsi kierrostyyppilohkoja vaan
+#    poikkeamarivejä: CT-eteneminen ja crunch tulostetaan vasta, kun ne
+#    toistuvat ottelusta toiseen. Sen ja säännön 3 koodioletus on "pois";
+#    tiedosto kantaa tuotteen omistajan päätöksen molemmista.
 #
 # SUOJATUT KIERROSTYYPIT: pistol ja anomaly. Niitä ei karsita yhdelläkään
 # säännöllä, ja molemmissa syy on sama: kalustorivi ON se havainto.
@@ -1108,9 +1196,10 @@ drop_saturated_equipment_lines = true
 # [mitattu 2026-09-02]
 merge_equal_equipment_lines = true
 
-# SÄÄNTÖ 3, OLETUKSENA POIS. Aikanäytepisteet, joita ei kirjoiteta.
+# SÄÄNTÖ 3. Aikanäytepisteet, joita ei kirjoiteta.
 #
-# Miksi oletus on säilyttää. Mitattu kaikista kahdeksasta demosta:
+# Miksi neljä alkuperäistä pistettä säilytetään. Mitattu kaikista
+# kahdeksasta demosta:
 #
 #   näytepiste | pelaajia elossa | näytepiste olemassa
 #   6 s        | 100 %           | 354/354 kierrospuolta
@@ -1132,7 +1221,57 @@ merge_equal_equipment_lines = true
 # samaa riviä. Lista järjestetään latauksessa, koska se menee renderöinnin
 # parametrihashiin: järjestys ei muuta raporttia, joten se ei saa muuttaa
 # hashia.
-skip_sample_seconds = []
+#
+# STORY 4.5: TÄSSÄ OVAT TIHEÄN SARJAN LISÄPISTEET, EIVÄT KARSINTAA.
+# [parse].snapshot_seconds on 3 sekunnin sarja (14 pistettä), jotta säännöt
+# näkisivät pelaajien liikkeen. Raportin ei silti pidä pidentyä: kymmenen
+# lisättyä pistettä on lueteltu tässä, joten raportti tulostaa yhä täsmälleen
+# samat neljä näytepisteriviä (6, 15, 30 ja 45 s) kuin ennen -- myös
+# suojatuilla kierrostyypeillä, koska tämä ei enää karsi riviä vaan pitää
+# ruudukon raportin ulkopuolella -- ja pistoolireitti luetaan samoilta neljältä
+# pisteeltä (domain.aggregate.routes_for).
+#
+# Tämä on ERI HARKINTA kuin yllä oleva 45 s -pohdinta, ja molemmat pätevät:
+# 45 s on edelleen raportissa, koska sen poistaminen maksaisi sisältöä.
+# Poistettu on vain se, mitä raportissa ei ennenkään ollut.
+#
+# Lista on koko lisäys eikä valikoima: jos [parse].snapshot_seconds tihenee
+# lisää, tämän on kasvettava samalla, tai raportti pitenee huomaamatta.
+# Vartija on tests/test_settings.py:n
+# test_the_report_prints_exactly_the_four_original_sample_points.
+skip_sample_seconds = [9.0, 12.0, 18.0, 21.0, 24.0, 27.0, 33.0, 36.0, 39.0, 42.0]
+
+# CT-ETENEMINEN JA CRUNCH TULOSTETAAN VAIN, KUN NE TOISTUVAT OTTELUSTA TOISEEN.
+# Tuotteen omistaja 25.9.2026: "Usein tällaiset ovat kuitenkin reagointia
+# tapahtumiin kuten ääniin tai tappoihin, mutta jos jokin tällainen toistuu
+# ottelusta toiseen se tulee nostaa esiin." Yksikkö on siis OTTELU, ei
+# kierros eikä pelaajamäärä: rivi tulostetaan, kun sen kierrokset tulevat
+# vähintään näin monesta ottelusta (saman ottelun kaksi karttaa on yksi
+# ottelu, Story 4.9:n match_of). 2 = "ottelusta toiseen" -- sanamuodon arvo,
+# ei viritetty kynnys. Stack ei lue tätä: sen rivit nojaavat tuotteen
+# omistajan sokkoarvioihin yksittäisistä kierroksista (Story 4.4).
+#
+# Rivi pysyy report.jsonissa. Pois jääneet lasketaan näkyviin: crunch-rivit
+# poikkeamaluvussa, CT-etenemiset kunkin karttaluvun Huomioitavaa-kohdassa
+# (CT-eteneminen on tapa eikä strategia, tuotteen omistaja 25.9.2026). Arvo 0
+# on sääntö pois; arvo 1 kielletään, koska jokainen rivi täyttää sen.
+#
+# MITATTU 25.9.2026 kolmen joukkueen raporteilla toimitetulla koodilla,
+# arkistosta sen jälkeen, kun se jäsennettiin kokonaan 14 pisteen
+# ruudukolla. Rivi = raportin rivi: CT-etenemisellä kartta ja alue kaikkien
+# säästökierrostyyppien yli, crunchilla kartta ja alue.
+#
+#   ruudukko                        CT-eteneminen          crunch
+#   4 pisteen osajoukko             13 riviä, nousee 1     6 riviä, tulostuu 0
+#   14 pistettä (toimitettu)        21 riviä, nousee 3     8 riviä, tulostuu 1
+#
+# Neljällä pisteellä nouseva on de_nuke Lobby (eco k14 ja force k19, kaksi
+# ottelua) -- tuotteen omistajan oma esimerkki. Neljällätoista mukaan tulevat
+# de_dust2 TopofMid ja de_ancient TSideLower, ja crunchista de_ancient
+# TSideLower: tiheä ruudukko näkee toisen ottelun käynnin, jota neljä pistettä
+# ei näe. Tiheä havainto on se, joka pätee ("säännöt eivät saa lukea
+# vähemmällä kuin analyysi", 23.9.2026); kynnystä ei ole säädetty.
+anomaly_min_matches = 2
 
 # SÄÄNTÖ 4. Utilityn kohderiviltä N yleisintä KOHDETTA. Kohde on
 # räjähdysalue, ei väite: sama kohde voi olla rivillä useammin kuin kerran

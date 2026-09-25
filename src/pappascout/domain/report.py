@@ -56,13 +56,14 @@ every level, so every group heading and the summary state it.
 and the first-contact row, which is where the measurement of 2026-09-23 found
 the report saying the opposite of the truth. :class:`FirstDeathArea`,
 :class:`KillArea`, :class:`ArmedPlayers`, :class:`ArmoredPlayers`,
-:class:`UtilityCounts`, :class:`UtilityUse` and :class:`Anomaly` **do not**:
-their rows still state rounds only, under the heading's match count. That is a
-**bound of the story and not a property of those rows**, and two of them would
-need a decision before they could follow: :class:`KillArea`'s denominator is
-kills and not rounds, so "in how many matches" needs a second denominator of
-its own, and an :class:`Anomaly`'s ``m`` is a different set of rounds from its
-own list's.
+:class:`UtilityCounts` and :class:`UtilityUse` **do not**: their rows still
+state rounds only, under the heading's match count. That is a **bound of the
+story and not a property of those rows**, and :class:`KillArea` would need a
+decision before it could follow: its denominator is kills and not rounds, so
+"in how many matches" needs a second denominator of its own. :class:`Anomaly`
+has a match count since Story 4.5, **derived and not stored**
+(:attr:`Anomaly.matches`): the product owner's match rule reads it, and it is
+derivable from the row's own rounds through the same ``match_of``.
 
 In one place ``m`` **is not rounds**: :class:`KillArea` counts kills, so its
 ``Σ n = the number of kills``. A round type can have more kills than rounds, so
@@ -104,8 +105,9 @@ can be read as one section without the reader hunting for its place in the
 tree.
 
 **The denominator is per rule, and that is intended.** ``ct_advance`` is a
-phenomenon of the saving rounds, so the round type is part of the observation
-and ``m`` is that round type's rounds on the map and side. ``crunch`` does not
+phenomenon of the saving rounds, so ``m`` is all the side's save rounds on the
+map, and ``round_types`` lists which save types it was seen on (Story 4.5:
+the type no longer splits the row). ``crunch`` does not
 know the round type at all, so grouping it by round type would break the same
 pattern into an eco row and a default row with different denominators -- that
 is, it would reproduce inside the section the very scatter the section was made
@@ -119,13 +121,17 @@ responsibility. :class:`Anomaly` instead enforces its **internal** consistency:
 and ``round_types`` its set of types, so the summary cannot disagree with the
 rows it was assembled from.
 
-A row does not claim simultaneity across a round boundary
----------------------------------------------------------
-:class:`AnomalyRound` is a node of its own because crunch's **source
-directions are simultaneous only within the same round**. The union of two
-rounds' directions ("from the directions A, B, C and D") would read as four
-simultaneous directions, which is the opposite of the definition. The same
-holds for the sample points and the player count. The round number is in the
+A row does not claim simultaneity across a sample point
+-------------------------------------------------------
+Crunch's **source directions are simultaneous only at one sample point**, so
+they are on :class:`AnomalyPoint` and not on the round. The union of two
+moments' directions ("from the directions A, B, C and D") would read as four
+simultaneous directions, which is the opposite of the definition -- and it is
+not hypothetical: at fourteen sample points one round entered the same area
+twice from different directions, and the round-level union failed the model
+with four directions for three players (Story 4.5). The same holds for the
+player count. :class:`AnomalyRound` is still a node of its own, because the
+round is what the scout opens in the demo. The round number is in the
 same node, because the scout's next act is to watch that round on the demo --
 and the section is useless if it says that something happened but not where to
 see it.
@@ -156,6 +162,7 @@ from pappascout.constants import (
     ROSTER_BUCKETS,
     ROUND_TYPES,
     SAMPLE_BUCKETS,
+    SAVING_ROUND_TYPES,
     SITE_AREAS,
     AnomalyRule,
     AreaSource,
@@ -164,6 +171,7 @@ from pappascout.constants import (
     Side,
     SiteGroup,
 )
+from pappascout.domain.selection import match_of
 from pappascout.errors import AggregateError
 
 __all__ = [
@@ -386,7 +394,28 @@ __all__ = [
 #: non-pistol type it says "this type reports no route", and on a single
 #: :class:`RoundRoute` an empty ``steps`` says "this round was sampled at no
 #: moment at all". Neither can be reached by defaulting.
-REPORT_SCHEMA_VERSION = "14.0.0"
+#:
+#: **15.0.0 (Story 4.5): a crunch's directions belong to a sample point.**
+#: :attr:`AnomalyRound.sources` was a field holding the union of the round's
+#: directions, held to the round's largest crowd; it is now derived, and each
+#: :class:`AnomalyPoint` carries its own ``sources``, **required**. Both
+#: refusals are the first condition, twice over: a 14.0.0 file's round-level
+#: list is refused by ``extra="forbid"``, and its points lack the required
+#: field. The reason is
+#: measured, not tidied: on the first fourteen-point archive one round
+#: entered the same area twice from different directions, and the union --
+#: four directions for three players -- stopped ``aggregate`` with a program
+#: fault. The directions are simultaneous only at one moment, so that is
+#: where the contract puts them.
+#:
+#: **The same version changes what a CT advance row means**, the second
+#: condition: a 14.0.0 advance row was one save-round type's, with ``m`` that
+#: type's rounds; a 15.0.0 row gathers every save type for one area, with
+#: ``m`` all the side's save rounds (the product owner, 2026-09-25: an eco
+#: and a force push into one area are *"sama tapa"*). An old file's advance
+#: rows would validate and be read as per-area rows they are not; the
+#: required field above is what refuses them.
+REPORT_SCHEMA_VERSION = "15.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
 #: refuses an old ``report.json`` with.
@@ -413,9 +442,10 @@ REPORT_SCHEMA_VERSION = "14.0.0"
 #: English, like every other line the CLI prints (AD-11). It never reaches
 #: the report.
 REPORT_SCHEMA_CHANGE = (
-    "Version 14.0.0 follows each pistol round's players from sample point to "
-    "sample point -- the way they came, round by round -- which an older "
-    "report does not carry at all."
+    "Version 15.0.0 records a crunch's directions per sample point instead "
+    "of per round, and counts a CT advance once per area across the save "
+    "rounds instead of once per round type; an older report holds both in a "
+    "shape or a meaning this version refuses."
 )
 
 
@@ -1161,9 +1191,12 @@ class Position(_Node):
     There are two kinds of sample point, and ``sample_kind`` tells them apart:
 
     ``time``
-        The ``[parse].snapshot_seconds`` figure as it stands (6, 15, 30, 45 s),
-        the same on every round and therefore comparable. ``seconds`` is that
-        figure.
+        The ``[parse].snapshot_seconds`` figure as it stands, the same on
+        every round and therefore comparable. ``seconds`` is that figure.
+        The grid is a **dense internal series** (Story 4.5) and the report
+        prints only the points ``[report].skip_sample_seconds`` leaves
+        through, so the number of these in ``report.json`` is not the number
+        of rows a reader sees.
     ``first_contact``
         The round's first cross-side hit. The moment is different on every
         round, so ``seconds`` is ``null`` and ``seconds_median`` gives the
@@ -1802,7 +1835,7 @@ ROUTE_ROUND_TYPE: RoundType = "pistol"
 #: weaker than "the round was already over".** All it says is that the
 #: sample holds no later moment for those players, and the commonest reason
 #: is that **the grid ran out while the round went on**: measured over the
-#: archive, 280 of the 293 rounds that reach the grid's last point have a
+#: archive, 285 of the 293 rounds that reach the grid's last point have a
 #: death recorded after it (:data:`~pappascout.domain.aggregate
 #: .ROUTE_SAMPLING_MEASURED`). :class:`RouteStep` lists the three ways an
 #: empty ``steps`` arises; this type does not distinguish them, because the
@@ -1830,10 +1863,10 @@ class RouteStep(_Node):
       them here and none later either.
     * ``fate="seen"`` **on the grid's last point** -- the sampling ran out
       while the round went on. **This is the common case by a wide margin**:
-      measured over the archive, 280 of the 293 rounds that reach the last
+      measured over the archive, 285 of the 293 rounds that reach the last
       point have a death recorded after it
       (:data:`~pappascout.domain.aggregate.ROUTE_SAMPLING_MEASURED`).
-    * ``fate="seen"`` and the round really did end there. The remaining 13 of
+    * ``fate="seen"`` and the round really did end there. The remaining 8 of
       those 293 are the **candidates** for this and not the proof of it: all
       that was measured is that they record no death after the last point,
       which a round still running can also do.
@@ -2846,12 +2879,23 @@ class AnomalyPoint(_Node):
             area even when nobody was on it. The list is per sample point for
             the same reason as ``players``: where the defence stands at 15 s
             is an observation of that moment and of no other.
+        sources: The directions the ``players`` arrived from **at this
+            sample point**, in alphabetical order. **Only on crunch**, and
+            there never empty. Per point and not per round (Story 4.5): the
+            directions are simultaneous only here -- two arrivals into the
+            same area at two moments of one round are two observations, and
+            their union is a claim about no moment at all.
     """
 
     sample_t_s: float
     players: int = Field(gt=0)
     alive: int | None = Field(default=None, gt=0)
     areas: list[str] = Field(default_factory=list)
+    #: **Required, with no default** (15.0.0): a 14.0.0 file carried the
+    #: directions on the round, and a default here would read such a file's
+    #: crunch points as "no direction observed". See
+    #: :data:`REPORT_SCHEMA_VERSION`.
+    sources: list[str]
 
     @model_validator(mode="after")
     def _check_point(self) -> AnomalyPoint:
@@ -2886,21 +2930,49 @@ class AnomalyPoint(_Node):
                 f"{len(self.areas)} areas but {self.players} players. Every "
                 "area on the list holds at least one of them."
             )
+        if len(set(self.sources)) != len(self.sources):
+            raise ValueError(
+                f"At sample point {self.sample_t_s:g} s the source areas "
+                f"repeat ({self.sources}); the same direction is one "
+                "direction."
+            )
+        # Namelessness before order: a nameless area is not a direction at
+        # all, and there is no point saying anything about its place in the
+        # list.
+        if any(not name.strip() for name in self.sources):
+            raise ValueError(
+                f"At sample point {self.sample_t_s:g} s there is a nameless "
+                f"area among the source areas ({self.sources}). A nameless "
+                "area is not a direction."
+            )
+        if sorted(self.sources) != self.sources:
+            raise ValueError(
+                f"At sample point {self.sample_t_s:g} s the source areas are "
+                f"not in alphabetical order ({self.sources}). The directions "
+                "are simultaneous, so they have no order of their own -- a "
+                "fixed order makes the report's row the same from one run to "
+                "the next."
+            )
+        if len(self.sources) > self.players:
+            raise ValueError(
+                f"At sample point {self.sample_t_s:g} s there are "
+                f"{len(self.sources)} source areas but {self.players} "
+                "players. Every direction needs a player of its own, so the "
+                "observation is broken."
+            )
         return self
 
 
 class AnomalyRound(_Node):
     """One round on which an anomaly was observed.
 
-    **This node is what makes the row read correctly.** Crunch's source
-    directions are simultaneous only within the same round: the union of two
-    rounds' directions ("from the directions A, B, C and D") would read as
-    four simultaneous directions, which is the opposite of the definition.
-
-    The player count goes one step further: it is not simultaneous even within
-    the same round, because every sample point is an observation of its own.
-    That is why the figures are :class:`AnomalyPoint` rows and not one maximum
-    with a list of seconds.
+    **Nothing on a round is simultaneous except what one sample point
+    holds.** The player count and crunch's source directions are both
+    :class:`AnomalyPoint` fields, because every sample point is an
+    observation of its own: one maximum set against a list of seconds claimed
+    five players where there was one, and one round-level list of directions
+    claimed four directions for three players (Story 4.5, the first dense
+    grid). What the round adds is the identity the scout opens in the demo.
 
     Attributes:
         map_demo_id: The demo the round is from. One map can have two demos
@@ -2912,15 +2984,26 @@ class AnomalyRound(_Node):
             row, because neither of them knows it.
         points: The sample points with their observations, in **ascending
             order**.
-        sources: The source areas on this round -- **simultaneous**. Only on
-            crunch.
     """
 
     map_demo_id: str = Field(min_length=1)
     round_no: int = Field(gt=0)
     round_type: RoundType
     points: list[AnomalyPoint] = Field(min_length=1)
-    sources: list[str] = Field(default_factory=list)
+
+    @property
+    def sources(self) -> list[str]:
+        """Every direction the round's arrivals came from, sorted.
+
+        **Derived and not simultaneous.** It is the union over the round's
+        sample points, so it can hold more directions than any one moment
+        had players -- which is exactly why it is not a field any more and
+        is held to nothing. A reader that needs "at the same time" reads one
+        point's ``sources``; :func:`~pappascout.render.view
+        ._anomaly_round_text` says ``yhtä aikaa`` only when every point
+        names the same directions.
+        """
+        return sorted({name for point in self.points for name in point.sources})
 
     @property
     def seconds(self) -> list[float]:
@@ -2984,32 +3067,6 @@ class AnomalyRound(_Node):
                 f"{where}: the sample points are not in ascending order "
                 f"({seconds})."
             )
-        if len(set(self.sources)) != len(self.sources):
-            raise ValueError(
-                f"{where}: the source areas repeat ({self.sources}); the same "
-                "direction is one direction."
-            )
-        # Namelessness before order: a nameless area is not a direction at
-        # all, and there is no point saying anything about its place in the
-        # list.
-        if any(not name.strip() for name in self.sources):
-            raise ValueError(
-                f"{where}: there is a nameless area among the source areas "
-                f"({self.sources}). A nameless area is not a direction."
-            )
-        if sorted(self.sources) != self.sources:
-            raise ValueError(
-                f"{where}: the source areas are not in alphabetical order "
-                f"({self.sources}). The directions are simultaneous, so they "
-                "have no order of their own -- a fixed order makes the "
-                "report's row the same from one run to the next."
-            )
-        if len(self.sources) > self.players_max:
-            raise ValueError(
-                f"{where}: there are {len(self.sources)} source areas but "
-                f"{self.players_max} players. Every direction needs a player "
-                "of its own, so the observation is broken."
-            )
         # The alive figure is on every point or on none of them. Half a row
         # would set "4/5 ja 4 pelaajaa", that is, two different units on the
         # same row. Which of them is right is decided by the rule
@@ -3041,15 +3098,18 @@ class AnomalyRound(_Node):
 class Anomaly(_Node):
     """One anomalous setup together with its sample.
 
-    A row is **one (rule, map, side, area)** combination, plus the round type
-    on advance, and not one round: the same area on two eco rounds is one row
+    A row is **one (rule, map, side, area)** combination, plus the site group
+    on a stack, and not one round: the same area on two eco rounds is one row
     with the sample ``2/m``, not two rows. Without the grouping a repeated
     anomaly would look like two different observations, and it is exactly the
     repetition that tells a plan from a coincidence.
 
     **The denominator is per rule.** ``ct_advance`` is a phenomenon of the
-    saving rounds, so ``m`` is that round type's rounds on the map and side
-    and ``round_types`` has a single element. ``crunch`` does not know the
+    saving rounds, so ``m`` is **all** the side's save rounds on the map and
+    ``round_types`` lists which save types it was observed on (Story 4.5: an
+    eco push and a force push into the same area are one habit, the product
+    owner's *"sama tapa"*, and the type no longer splits the row).
+    ``crunch`` does not know the
     round type, so ``m`` is **all** of the side's rounds on the map and
     ``round_types`` says on which types it was observed. One round is a valid
     sample; it is marked as small by the same rule as the others
@@ -3094,15 +3154,16 @@ class Anomaly(_Node):
             agreement between the two, which is **less than the whole**: see
             that method.
         round_types: The round types on which the anomaly was observed, in
-            ``ROUND_TYPES`` order. Exactly one on advance.
-        rounds: The rounds with their observations. "When", "from where" and
-            "how many" are read from here in a way that does not let the row
-            claim simultaneity across a round boundary.
+            ``ROUND_TYPES`` order. On an advance only save types, and as
+            many of them as the row's rounds hold (Story 4.5).
+        rounds: The rounds with their observations. "From where" and "how
+            many" are per sample point inside them, so the row cannot claim
+            simultaneity across two moments, let alone two rounds.
         orientation: The area's orientation from those demos in which the
             anomaly was observed -- the anomaly's piece of evidence. **Empty
             on stack and only there**: the rule does not read the orientation,
             so the figure would be invented for it. The same rule as with
-            ``AnomalyRound.sources`` -- empty means "not asked", not "not
+            ``AnomalyPoint.sources`` -- empty means "not asked", not "not
             observed".
         players_max: The largest observed player count on the whole row. A
             summary of ``rounds``, and the model enforces that it matches
@@ -3126,6 +3187,24 @@ class Anomaly(_Node):
     n: int = Field(gt=0)
     m: int = Field(gt=0)
     small_sample: bool = False
+
+    @property
+    def matches(self) -> int:
+        """How many matches the row's rounds come from.
+
+        **Derived, not a field**, and through the same
+        :func:`~pappascout.domain.selection.match_of` every other match
+        count in the report goes through (Story 4.9), so it cannot come to
+        disagree with them and is derivable from ``report.json`` alone. It
+        is what the product owner's rule of 2026-09-25 reads (Story 4.5): a
+        row is raised when what it records recurs *ottelusta toiseen*. For
+        the advance that recurrence is a **habit** -- a single match's visit
+        is usually a reaction to a sound or a kill; the crunch is a
+        **strategy** and the same count decides whether it is printed. Two
+        demos of one match are one match, so the rule cannot be met by a
+        ``best_of`` series alone.
+        """
+        return len({match_of(entry.map_demo_id) for entry in self.rounds})
 
     @model_validator(mode="after")
     def _check_observation(self) -> Anomaly:
@@ -3169,13 +3248,15 @@ class Anomaly(_Node):
                 f"{expected_types}. A summary cannot name a type that no "
                 "round is -- nor leave out a type that is there."
             )
-        if self.rule == "ct_advance" and len(self.round_types) != 1:
+        outside = [
+            name for name in self.round_types if name not in SAVING_ROUND_TYPES
+        ]
+        if self.rule == "ct_advance" and outside:
             raise ValueError(
-                f"The CT advance in area {self.area!r} carries "
-                f"{len(self.round_types)} round types ({self.round_types}). "
-                "Advance is grouped by round type, because it is a phenomenon "
-                "of the saving rounds and the round type is part of the "
-                "observation, so one row has exactly one type."
+                f"The CT advance in area {self.area!r} carries the round "
+                f"types {outside}, which are not save rounds. The advance is a "
+                "phenomenon of the save rounds only; since Story 4.5 one row "
+                "gathers all of them, listing which, but never another type."
             )
         biggest = max(entry.players_max for entry in self.rounds)
         if self.players_max != biggest:
@@ -3184,13 +3265,14 @@ class Anomaly(_Node):
                 f"{self.players_max}, but the largest of the rounds is "
                 f"{biggest}."
             )
-        with_sources = [entry for entry in self.rounds if entry.sources]
-        if self.rule == "crunch" and len(with_sources) != len(self.rounds):
+        points = [point for entry in self.rounds for point in entry.points]
+        with_sources = [point for point in points if point.sources]
+        if self.rule == "crunch" and len(with_sources) != len(points):
             raise ValueError(
-                f"The crunch in area {self.area!r} carries rounds without "
-                "source areas. Crunch is arrival into an area from several "
-                "directions at the same time, so a round without directions "
-                "would be a different rule under the same name."
+                f"The crunch in area {self.area!r} carries sample points "
+                "without source areas. Crunch is arrival into an area from "
+                "several directions at the same time, so a moment without "
+                "directions would be a different rule under the same name."
             )
         if self.rule != "crunch" and with_sources:
             raise ValueError(
@@ -3691,8 +3773,9 @@ class Report(_Node):
                 "The reader would look for a map section that was never "
                 "written."
             )
-        # The key carries the round type on an advance (it is grouped by
-        # type) and the site group on a stack. The group is part of the
+        # The key carries the site group on a stack. It carried the round
+        # type on an advance until Story 4.5, when the product owner ruled
+        # that the save-round types do not divide one habit. The group is part of the
         # stack's identity since Story 4.4: the row's area is the crowd's own,
         # so the same area CAN be read into different groups by two demos of
         # the same map -- the division is derived per demo by design (AD-13),
@@ -3707,7 +3790,6 @@ class Report(_Node):
         # allows, not a fix for one the archive shows.
         keys = [
             (a.rule, a.map_name, a.side, a.area)
-            + (tuple(a.round_types) if a.rule == "ct_advance" else ())
             + ((a.site,) if a.rule == "stack" else ())
             for a in self.anomalies
         ]
@@ -3715,8 +3797,8 @@ class Report(_Node):
         if twice:
             raise AggregateError(
                 f"The same anomaly is in the section twice: {twice}.\n"
-                "The grouping key is (rule, map, side, area) plus the round "
-                "type on advance and the site group on a stack. Two rows with "
+                "The grouping key is (rule, map, side, area) plus the site "
+                "group on a stack. Two rows with "
                 "the same key mean that the grouping did not do its work: the "
                 "same observation would show twice with different samples."
             )

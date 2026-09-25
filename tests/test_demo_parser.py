@@ -85,7 +85,11 @@ FAKE_DEMO = DEMO_MAGIC + b"\x00" + b"tekaistua sisaltoa" * 64
 #: cannot diverge. A constant rather than a settings load, so that importing
 #: the module does not read files -- that would happen in a
 #: ``-m "not demo"`` run too, where no demo is touched.
-SNAPSHOT_SECONDS: tuple[float, ...] = (6.0, 15.0, 30.0, 45.0)
+#:
+#: Written as the series it is rather than as fourteen numbers: Story 4.5
+#: made the grid a uniform 3 s series from 6 s to 45 s, and fourteen literals
+#: would hide the one property the demo figures below depend on.
+SNAPSHOT_SECONDS: tuple[float, ...] = tuple(float(s) for s in range(6, 46, 3))
 
 
 @lru_cache(maxsize=1)
@@ -1163,10 +1167,17 @@ def test_ancient_first_contact_is_found_on_every_round(
 def test_ancient_sample_point_count_is_exact(ancient_ticks: pl.DataFrame) -> None:
     """Ancient's exact number of sample points, locked down here.
 
-    21 rounds played and four sample points would give 84 time points, but
-    there are no points after a round has ended: the real figure is 73. There
-    is one first contact per round, and the knife round (``round_raw`` 1)
-    brings its own on top -- 94 sample points in all from 21 rounds played.
+    21 rounds played and fourteen sample points would give 294 time points,
+    but there are no points after a round has ended: the real figure is 259.
+    There is one first contact per round, and the knife round (``round_raw``
+    1) brings its own on top -- 280 sample points in all from 21 rounds
+    played.
+
+    **Re-measured for Story 4.5, not converted.** The four-point grid gave
+    73 / 94 / 940 here. None of the three is the old one times 3.5, and that
+    is the reason these are run rather than scaled: the missing points are
+    the ones after a round ended, and adding points between 6 s and 45 s adds
+    more of them to a short round than to a long one.
     """
     played = ancient_ticks.filter(pl.col("round_raw") > 1)
     point_count = played.select("round_raw", "sample_kind", "sample_t_s").n_unique()
@@ -1180,26 +1191,33 @@ def test_ancient_sample_point_count_is_exact(ancient_ticks: pl.DataFrame) -> Non
         .select("round_raw")
         .n_unique()
     )
-    assert time_point_count == 73
+    assert time_point_count == 259
     assert contact_count == ANCIENT_ROUNDS == 21
-    assert point_count == 94
+    assert point_count == 280
     assert point_count < ANCIENT_ROUNDS * (len(SNAPSHOT_SECONDS) + 1)
-    assert played.height == 940
+    assert played.height == 2800
 
 
 @pytest.mark.demo
 def test_ancient_reports_no_partial_samples(ancient_tables) -> None:
     """The rounds played have no partial sample points.
 
-    The partial ones are the knife round's two sample points -- its 6-second
-    point and its first contact -- where one player had not yet joined a team.
-    Two is therefore the right figure; more would mean a prop fault. The knife
+    The partial ones are all the knife round's, where one player of the ten
+    had not yet joined a team. **How many of them there are is a property of
+    the grid and not of the demo**: the knife round is short, so the count is
+    the number of ``[parse].snapshot_seconds`` points that fall inside it plus
+    its own first contact. Measured on the 3 s grid (Story 4.5): 6 s, 9 s,
+    12 s and first contact at 10.3 s, nine players on each -- four. On the
+    four-point grid it was two (6 s and first contact).
+
+    More than that would mean a prop fault, and the arithmetic is the guard:
+    a fifth would have to come from a round that **is** played. The knife
     round is not played and does not reach the archive, so the shortfall does
-    not show in the result; it shows only in this figure, and that is where it
-    belongs.
+    not show in the result; it shows only in this figure, and that is where
+    it belongs.
     """
     diagnostics_obj = ancient_tables[1]
-    assert diagnostics_obj.partial_samples == 2
+    assert diagnostics_obj.partial_samples == 4
     assert diagnostics_obj.unknown_side_events == 0
 
 

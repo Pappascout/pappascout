@@ -116,6 +116,13 @@ SAVING_ROUND_TYPES: Final[tuple[str, ...]] = ("eco", "half", "force")
 
 #: CT advance: the subject's CT player in an area that is held by the T side
 #: **in that demo**, on a saving round.
+#:
+#: **Rendered as a habit, not as an anomaly** (Story 4.5): the report prints
+#: it in each map chapter's Huomioitavaa block and not in the anomaly
+#: chapter, because the product owner separated the two -- an advance is a
+#: player's or a team's way of working a site, while a crunch or a stack is a
+#: strategy the report can state as a pattern. The domain still produces it
+#: as an :class:`~pappascout.domain.report.Anomaly` row like the others.
 CT_ADVANCE: Final[str] = "ct_advance"
 
 #: Crunch: the same area, but at least two players having **arrived** from at

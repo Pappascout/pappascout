@@ -626,7 +626,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # A literal and not the constant: comparing against the constant would be
     # a tautology -- the code wrote the value from that very constant. When the
     # version rises, this line MUST fail, so that the rise is deliberate.
-    assert data["schema_version"] == "14.0.0"
+    assert data["schema_version"] == "15.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -716,7 +716,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "14.0.0"
+    assert read_report(archive).schema_version == "15.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -3274,3 +3274,21 @@ def test_a_name_that_is_not_a_string_is_printed_as_it_stands(
     numeric["teams"][1]["name"] = 123
     _write_index(archive, [numeric])
     assert _facts(archive)[_M1].opponent == "123"
+
+
+def test_the_route_points_change_the_params_hash(tmp_path: Path) -> None:
+    """Story 4.5: the pistol routes read ``[aggregate].route_sample_seconds``,
+    which changes ``report.json``, so the stage must run again when it moves.
+    It is this stage's own section and hashed whole (AD-3), so nothing from
+    ``[report]`` is in the hash."""
+    archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
+    run(archive)
+    before = Manifest.read(archive.report_manifest(TEAM)).params_hash
+    aggregate_stage.run(
+        thresholds(),
+        _league(),
+        archive,
+        TEAM,
+        aggregate_settings=aggregate_settings(route_sample_seconds=[6.0, 15.0]),
+    )
+    assert Manifest.read(archive.report_manifest(TEAM)).params_hash != before

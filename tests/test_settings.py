@@ -15,13 +15,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from conftest import REAL_SETTINGS, settings_text
+from conftest import REAL_SETTINGS, replace_array, settings_text
 from pappascout.archive.paths import (
     ARCHIVE_ROOT_ENV_VAR,
     ArchivePaths,
     _UNEXPANDED_VAR,
 )
-from pappascout.constants import seconds_label
+from pappascout.constants import is_sample_point, seconds_label
 from pappascout.domain.models import (
     AggregateSettings,
     MAX_BUY_WINDOW_SECONDS,
@@ -48,6 +48,19 @@ FAKE_TOKEN = "kokeilutoken-abcdefghij"
 
 def _load(settings_file: Path, env: Path | None = None) -> Settings:
     return load_settings(settings_file, env_files=(env,) if env else ())
+
+
+#: The sample points the **report** prints, which Story 4.5 promised not to
+#: change while the parse grid got denser.
+#:
+#: Not a copy of a measured value but the promise itself: the measurement is
+#: which grid the rules read (``[parse].snapshot_seconds``, with its table in
+#: ``settings.toml``), and this is the separate commitment that the reader's
+#: page stays as it was. The two are tied together by
+#: :func:`test_the_report_prints_exactly_the_four_original_sample_points`,
+#: which derives ``skip_sample_seconds`` from the grid and this tuple rather
+#: than listing it.
+PRINTED_SAMPLE_SECONDS = (6.0, 15.0, 30.0, 45.0)
 
 
 def _write_variant(tmp_path: Path, **replacements: str) -> Path:
@@ -606,7 +619,10 @@ def test_league_values_match_season_13(settings_file: Path) -> None:
 
 def test_parse_values(settings_file: Path) -> None:
     s = _load(settings_file)
-    assert s.parse.snapshot_seconds == [6.0, 15.0, 30.0, 45.0]
+    # A uniform 3 s series since Story 4.5, measured rather than chosen: see
+    # test_the_sample_point_grid_is_uniform_and_holds_the_four_printed_points
+    # for the two properties the number rests on.
+    assert s.parse.snapshot_seconds == [float(v) for v in range(6, 46, 3)]
     assert s.parse.first_contact_fallback_death is True
     assert "hegrenade" in s.parse.first_contact_exclude_weapons
     # Calibrated in Story 2.9 on all six demos (2,544 explosions): 95.4% fall
@@ -1188,13 +1204,18 @@ def test_moving_the_sample_points_under_the_crunch_is_refused(
     be the guard that speaks: 15 is then the only point inside the time bound
     and ``15 - 9 = 6`` is no longer a point, so the rule can fire nowhere.
     """
-    target = _write_variant(
-        tmp_path,
-        **{
-            "snapshot_seconds = [6.0, 15.0, 30.0, 45.0]": (
-                "snapshot_seconds = [15.0, 45.0]"
-            )
-        },
+    target = tmp_path / "muunnos.toml"
+    target.write_text(
+        replace_array(
+            replace_array(
+                settings_text(tmp_path / "arkisto"),
+                "snapshot_seconds",
+                "[15.0, 45.0]",
+            ),
+            "route_sample_seconds",
+            "[15.0, 45.0]",
+        ),
+        encoding="utf-8",
     )
     with pytest.raises(SettingsError, match="crunch can fire on no sample point"):
         load_settings(target)
@@ -1231,16 +1252,24 @@ def test_moving_the_sample_points_under_the_stack_is_refused(
     it alone used to silence the rule silently. The guard is between the
     sections precisely because neither of them can see this by itself.
     """
-    target = _write_variant(
-        tmp_path,
-        **{
-            "snapshot_seconds = [6.0, 15.0, 30.0, 45.0]": (
-                "snapshot_seconds = [6.0, 20.0, 30.0, 45.0]"
-            )
-        },
+    target = tmp_path / "muunnos.toml"
+    target.write_text(
+        replace_array(
+            settings_text(tmp_path / "arkisto"),
+            "snapshot_seconds",
+            "[6.0, 20.0, 30.0, 45.0]",
+        ),
+        encoding="utf-8",
     )
-    with pytest.raises(SettingsError, match="stack_sample_s"):
+    with pytest.raises(SettingsError) as exc:
         load_settings(target)
+    # **Both** settings by name. Only one of the two is wrong, and which one
+    # is the reader's decision: 15 s may be the value worth keeping, or the
+    # grid may be. A message naming one of them would hand over an answer the
+    # settings file cannot have.
+    message = str(exc.value)
+    assert "stack_sample_s" in message
+    assert "parse.snapshot_seconds" in message
 
 
 def test_the_stack_sample_point_moves_with_the_sample_points(
@@ -1253,16 +1282,141 @@ def test_the_stack_sample_point_moves_with_the_sample_points(
     thing somebody may legitimately want to measure, even though 15 s is what
     is calibrated.
     """
-    target = _write_variant(
-        tmp_path,
-        **{
-            "snapshot_seconds = [6.0, 15.0, 30.0, 45.0]": (
-                "snapshot_seconds = [6.0, 20.0, 30.0, 45.0]"
+    target = tmp_path / "muunnos.toml"
+    target.write_text(
+        replace_array(
+            replace_array(
+                replace_array(
+                    settings_text(
+                        tmp_path / "arkisto",
+                        **{"stack_sample_s = 15.0": "stack_sample_s = 20.0"},
+                    ),
+                    "snapshot_seconds",
+                    "[6.0, 20.0, 30.0, 45.0]",
+                ),
+                "skip_sample_seconds",
+                "[]",
             ),
-            "stack_sample_s = 15.0": "stack_sample_s = 20.0",
-        },
+            "route_sample_seconds",
+            "[6.0, 20.0, 30.0, 45.0]",
+        ),
+        encoding="utf-8",
     )
     assert load_settings(target).thresholds.stack_sample_s == 20.0
+
+
+#: Thresholds that **select** one sample point: the rule reads that row and
+#: no other, so a value off the grid selects nothing at all.
+#:
+#: The distinction from :data:`SAMPLE_POINT_BOUNDS` is the whole reason this
+#: pair of names exists, and it is not cosmetic: a bound that is off the grid
+#: still bounds (it just binds at the nearest point below it), while a
+#: selector that is off the grid reads no row and reports its silence as a
+#: measured negative over a blind spot.
+SAMPLE_POINT_SELECTORS = ("stack_sample_s",)
+
+#: Thresholds that **bound** the sample points from one side, selecting every
+#: point up to themselves. These need not be on the grid.
+SAMPLE_POINT_BOUNDS = ("advance_max_sample_s",)
+
+
+def test_every_sample_point_threshold_is_classified() -> None:
+    """A new ``*_sample_s`` threshold cannot be added without deciding which
+    of the two kinds it is.
+
+    Without this the guard below would keep passing while quietly covering
+    one setting fewer than the settings file has: the list would still be a
+    real list of real names, and nothing counts what it leaves out. The same
+    shape as the tranche counts in ``test_translated_prose``.
+    """
+    named = {
+        name
+        for name in ThresholdSettings.model_fields
+        if name.endswith("_sample_s")
+    }
+    assert named == set(SAMPLE_POINT_SELECTORS) | set(SAMPLE_POINT_BOUNDS)
+
+
+def test_the_grid_holds_every_sample_point_a_threshold_selects(
+    settings_file: Path,
+) -> None:
+    """The real settings file's selectors are all on the real grid.
+
+    ``Settings._check_sections_agree`` refuses a file where this is false, so
+    this cannot fail on its own -- it fails **together with** the load, and
+    that is the point of having it: it says which property the load-time
+    check is protecting, in one line, next to the settings it is about.
+
+    The comparison goes through :func:`is_sample_point` and not ``==``,
+    because that is what the rule uses: a number that travels through a
+    parquet column comes back a fraction of a microsecond off, and a test
+    that compared exactly would pass for a reason the rule does not share.
+    """
+    settings = _load(settings_file)
+    grid = settings.parse.snapshot_seconds
+    for name in SAMPLE_POINT_SELECTORS:
+        value = getattr(settings.thresholds, name)
+        assert any(is_sample_point(point, value) for point in grid), (
+            f"{name} = {value:g} is not on the grid {grid}"
+        )
+
+
+def test_the_sample_point_grid_is_uniform_and_holds_the_four_printed_points(
+    settings_file: Path,
+) -> None:
+    """The two properties Story 4.5 chose the grid's density on.
+
+    **It holds 6, 15, 30 and 45.** ``stack_sample_s`` selects 15 s and Story
+    4.4's calibration was measured there, so a grid that is a superset leaves
+    that calibration untouched -- and measured, it did: the same five rounds
+    of 93 with the same table.
+
+    **Its spacing is uniform.** The orientation's gate counts observations
+    **per sample point** (``advance_area_min_observations_per_point``), which
+    treats every point as the same length of round; an uneven grid would
+    weight its dense stretch without anybody choosing that. (The crunch's
+    old reason -- it read "the previous point" -- is gone: Story 4.6 made
+    its look-back a duration.) A uniform step that keeps all four points has
+    to divide 15 - 6, 30 - 15 and 45 - 30; among **whole-second** steps that
+    leaves 1 s and 3 s, and 1 s fails on this archive, so 3 s is the choice.
+    Fractional divisors of 3 would pass the same arithmetic and were not
+    considered: the grid is kept to whole seconds.
+
+    Both are asserted as properties rather than against a listed grid,
+    because the grid is a measurement and may be re-measured; these two are
+    the constraints it has to be measured **within**.
+    """
+    grid = _load(settings_file).parse.snapshot_seconds
+    assert set(PRINTED_SAMPLE_SECONDS) <= set(grid)
+    assert grid == sorted(grid)
+    steps = {round(later - earlier, 6) for earlier, later in zip(grid, grid[1:])}
+    assert len(steps) == 1, f"the grid is not evenly spaced: steps {sorted(steps)}"
+
+
+def test_the_report_prints_exactly_the_four_original_sample_points(
+    settings_file: Path,
+) -> None:
+    """Story 4.5's promise: a denser grid, the same page.
+
+    The rules read fourteen sample points; the reader sees four, the same
+    four as before. ``[report].skip_sample_seconds`` is what makes the
+    difference, and this derives the printed set from the two settings rather
+    than listing it -- a test that listed ten skipped seconds would pass by
+    repeating the settings file instead of checking it, and it would keep
+    passing if the grid grew and the skip list did not.
+
+    The match is made with :func:`seconds_label` because that is what
+    ``render`` matches with (``view._Pruning.skips``): as an exact float
+    comparison this would agree with the report only by luck.
+    """
+    settings = _load(settings_file)
+    skipped = {seconds_label(value) for value in settings.report.skip_sample_seconds}
+    printed = [
+        value
+        for value in settings.parse.snapshot_seconds
+        if seconds_label(value) not in skipped
+    ]
+    assert printed == list(PRINTED_SAMPLE_SECONDS)
 
 
 @pytest.mark.parametrize(
@@ -1370,7 +1524,11 @@ def test_report_section_is_read_from_the_settings_file(
     s = _load(settings_file)
     assert s.report.drop_saturated_equipment_lines is True
     assert s.report.merge_equal_equipment_lines is True
-    assert s.report.skip_sample_seconds == []
+    assert s.report.skip_sample_seconds == [
+        value
+        for value in s.parse.snapshot_seconds
+        if value not in PRINTED_SAMPLE_SECONDS
+    ]
     assert s.report.max_utility_targets == 2
     assert s.report.max_kill_areas == 3
     assert not hasattr(s.aggregate, "max_kill_areas")
@@ -1379,26 +1537,57 @@ def test_report_section_is_read_from_the_settings_file(
 
 
 def test_report_defaults_match_the_settings_file(settings_file: Path) -> None:
-    """The code default must not differ from the settings file.
+    """The code default must not differ from the settings file -- except for
+    the one setting that is now a decision rather than a default.
 
-    Pruning is on by default for four rules and off for one. If the code
-    default differed from the file, a forgotten key would prune differently
-    from what the file says -- and nothing would say which of the two the
-    report came from.
+    If the code default differed from the file, a forgotten key would prune
+    differently from what the file says, and nothing would say which of the
+    two the report came from. That still holds for four of the five rules,
+    and this asserts it by building the defaults with **only**
+    ``skip_sample_seconds`` taken from the file: every other field has to
+    match on its own.
+
+    ``skip_sample_seconds`` is the exception since Story 4.5, and
+    deliberately. Its code default is the empty list, which is the right
+    answer for the job the class also does -- typesetting an **old**
+    ``report.json`` whose grid was the four points -- and the wrong answer
+    for this repository's own settings file, whose grid is dense. A default
+    cannot be both, so the file carries the decision and
+    :func:`test_the_report_prints_exactly_the_four_original_sample_points`
+    is what keeps the file honest.
+
+    ``anomaly_min_matches`` is the second exception, for the same reason: it
+    is the product owner's decision of 2026-09-25 (an advance is printed only
+    when it recurs across matches), carried by the file. Its code default is
+    ``0``, the rule off, so a class built without the file prints every row
+    and states nothing it did not decide.
     """
-    assert ReportSettings() == _load(settings_file).report
+    loaded = _load(settings_file).report
+    assert loaded == ReportSettings(
+        skip_sample_seconds=loaded.skip_sample_seconds,
+        anomaly_min_matches=loaded.anomaly_min_matches,
+    )
+    assert loaded.skip_sample_seconds != ReportSettings().skip_sample_seconds
+    assert loaded.anomaly_min_matches == 2
+    assert ReportSettings().anomaly_min_matches == 0
 
 
-def test_the_late_sample_point_is_off_by_default() -> None:
+def test_the_late_sample_point_is_kept(settings_file: Path) -> None:
     """Rule 3 is a measurement result: 45 s is not repetition but a thin
     observation.
 
     Measured on all eight demos: the 45 s point describes 53% of the team and
     exists on 285/354 round halves. It is skewed, but the product owner's
     analyses hold late-round observations, so removing it can cost content --
-    the setting exists, the default is to keep it.
+    the setting exists, and 45 s is not on it.
+
+    The assertion is against the **real settings file** and not against the
+    code default, because Story 4.5 filled the setting: the code default is
+    now empty for a different reason (an old ``report.json``'s grid), so
+    ``ReportSettings().skip_sample_seconds == []`` would pass for a reason
+    that has nothing to do with 45 s.
     """
-    assert ReportSettings().skip_sample_seconds == []
+    assert 45.0 not in _load(settings_file).report.skip_sample_seconds
 
 
 @pytest.mark.parametrize(
@@ -1462,10 +1651,18 @@ def test_the_sample_point_list_is_ordered_at_load(tmp_path: Path) -> None:
         15.0,
         45.0,
     ]
-    target = _write_variant(
-        tmp_path, **{"skip_sample_seconds = []": "skip_sample_seconds = [45.0, 15.0]"}
+    target = tmp_path / "muunnos.toml"
+    # The shipped skip list, written back to front: the report still prints
+    # the same four points, so the route's list still agrees.
+    shipped = _load(REAL_SETTINGS).report.skip_sample_seconds
+    backwards = "[" + ", ".join(f"{v:g}.0" for v in reversed(shipped)) + "]"
+    target.write_text(
+        replace_array(
+            settings_text(tmp_path / "arkisto"), "skip_sample_seconds", backwards
+        ),
+        encoding="utf-8",
     )
-    assert _load(target).report.skip_sample_seconds == [15.0, 45.0]
+    assert _load(target).report.skip_sample_seconds == shipped
 
 
 def test_the_validator_and_the_report_share_one_seconds_format() -> None:
@@ -1871,3 +2068,55 @@ def test_the_demo_directory_escape_hatch_stays_documented_in_the_shipped_file() 
     # repository-wide guard's business (tests/test_public_repo.py): the name
     # does not belong in this file either.
     assert "POISTAMATTA tiedostoa" in text
+
+
+# --- The route reads what the report prints (Story 4.5) -------------------------
+
+
+def _with_arrays(tmp_path: Path, **arrays: str) -> Path:
+    """The real settings with the named arrays rewritten."""
+    text = settings_text(tmp_path / "arkisto")
+    for key, value in arrays.items():
+        text = replace_array(text, key, value)
+    target = tmp_path / "muunnos.toml"
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
+def test_the_route_points_must_be_the_printed_points(tmp_path: Path) -> None:
+    """A route through a point the report hides, refused naming all three
+    settings -- which one is wrong is the reader's decision."""
+    target = _with_arrays(tmp_path, route_sample_seconds="[6.0, 9.0, 15.0, 30.0, 45.0]")
+    with pytest.raises(SettingsError) as exc:
+        load_settings(target)
+    message = str(exc.value)
+    for name in (
+        "aggregate.route_sample_seconds",
+        "parse.snapshot_seconds",
+        "report.skip_sample_seconds",
+    ):
+        assert name in message
+
+
+def test_the_route_points_are_compared_as_labels(tmp_path: Path) -> None:
+    """Story 2.13's rule: ``9.0000001`` in the skip list hides the 9 s section
+    in the report (its label is ``9``), so the route may not read 9 s either --
+    and the check agrees with the renderer rather than with the float."""
+    assert seconds_label(9.0000001) == "9"
+    skip = "[9.0000001, 12.0, 18.0, 21.0, 24.0, 27.0, 33.0, 36.0, 39.0, 42.0]"
+    assert load_settings(_with_arrays(tmp_path, skip_sample_seconds=skip))
+
+
+def test_an_empty_route_list_is_refused() -> None:
+    """A route with no points would say every round ended before its first."""
+    with pytest.raises(ValidationError, match="route_sample_seconds is empty"):
+        AggregateSettings(route_sample_seconds=[])
+
+
+def test_one_match_as_the_threshold_is_refused() -> None:
+    """``0`` is the rule's only off: ``1`` would print everything while the
+    summary named the rule as set (review round 1)."""
+    with pytest.raises(ValidationError, match="anomaly_min_matches is 1"):
+        ReportSettings(anomaly_min_matches=1)
+    assert ReportSettings(anomaly_min_matches=0).anomaly_min_matches == 0
+    assert ReportSettings(anomaly_min_matches=2).anomaly_min_matches == 2

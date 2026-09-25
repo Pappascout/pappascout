@@ -31,11 +31,10 @@ The two orientation rules (Story 4.6)
     These read the real archive too.
 
     **The archive's tables are not guaranteed to be on the grid the settings
-    declare**, and this block is the one place that cannot ignore it. One demo
-    is permanently on the fourteen-point grid of the branch
-    ``story-4-5-dense-sampling``, because its source file is gone and it can
-    never be parsed again; :func:`_on_grid` names it and says why the filter
-    is a requirement rather than a precaution.
+    declare**, and this block is the one place that cannot ignore it: a
+    settings change and the next parse are two moments, and a test that read
+    the tables bare would pin whichever grid the last parse wrote.
+    :func:`_on_grid` names the grid each test reads.
 
     **And nothing here may rest on the archive being in a wrong state.** The
     cross-density measurement first read its dense side from the archive,
@@ -1361,22 +1360,16 @@ def _on_grid(seconds: Sequence[float] | None):
     is dropped only if it falls after the round ended, so no point's rows
     depend on any other point's.
 
-    **Why a test needs this at all, permanently** (Story 4.6). The archive's
-    ``parsed/`` tables are **not** guaranteed to be on the grid
-    ``settings.toml`` declares, and on this archive one demo never will be:
-    ``1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1`` is parsed on the
-    fourteen-point grid of the branch ``story-4-5-dense-sampling`` and its
-    source file exists in neither ``demos/`` nor ``import/``, so it **cannot
-    be parsed again**. It is in :data:`CALIBRATION_DEMOS` and in
-    :data:`NUKE_DEMOS`, so the tests below read it whatever else happens. This
-    filter is therefore a requirement and not a precaution.
-
-    It began as a precaution: on 2026-09-22 nine demos carried the dense grid
-    because the branch had been left and not re-parsed. Eight of the nine were
-    repaired the same day; the ninth is the one above. A calibration test that
-    read the tables bare would pin whichever grid the last parse happened to
-    write -- and being blind to the grid is the very defect this story exists
-    to remove. So the grid is named here.
+    **Why a test needs this at all** (Story 4.6). The archive's ``parsed/``
+    tables are **not** guaranteed to be on the grid ``settings.toml``
+    declares: a settings change and the re-parse that follows it are two
+    moments, and on 2026-09-22 nine demos carried a dense grid because a
+    branch had been left without re-parsing. A calibration test that read the
+    tables bare would pin whichever grid the last parse happened to write --
+    and being blind to the grid is the very defect Story 4.6 removed. So the
+    grid is named here, and it is also how the ``*_AT_FOUR`` tables are read
+    from the four-point subset of an archive that has been dense since Story
+    4.5 re-parsed it (2026-09-25).
 
     The stack's numbers do not move between the two grids (measured: the same
     five rounds, row for row), so this filter changes nothing the stack tests
@@ -1926,20 +1919,29 @@ def test_the_hits_stand_where_the_players_really_are() -> None:
 # were **re-derived by running the rules over the archive** on 2026-09-22 --
 # not copied from any document.
 #
-# Every number here is measured **on the grid ``settings.toml`` declares**,
-# which the helper ``_on_grid`` states rather than assumes; see its docstring
-# for why the archive's tables cannot be trusted to carry that grid.
+# Two grids since Story 4.5. The ``*_AT_FOUR`` tables are the calibration,
+# read from the four-point subset (the points the report prints); the plain
+# tables are the same rules on the shipped fourteen-point grid, re-derived by
+# running after the archive was re-parsed (2026-09-25). ``_on_grid`` names the
+# grid each test reads rather than assuming the archive carries it.
 
-#: The CT advance at the shipped four-point grid: 10 hits on 6 rounds.
+#: The CT advance on the **four-point calibration grid**: 10 hits on 6 rounds.
+#:
+#: This is the table the rule was calibrated on (2026-09-22), and since
+#: Story 4.5 it is read from the **four-point subset** of the re-parsed
+#: archive -- the points the report prints, ``[aggregate]
+#: .route_sample_seconds``. It still reproduces row for row, which is the
+#: evidence that the fourteen-point grid is a superset of the calibration and
+#: not a replacement of it.
 #:
 #: A hit is one sample point on one round, so the two figures differ on
 #: purpose: three of the six rounds hit at both 15 s and 30 s, and
 #: ``inferno_vs_ryhmarama`` round 2 hits on two areas at 30 s.
-ADVANCE_HITS = 10
-ADVANCE_ROUNDS = 6
+ADVANCE_HITS_AT_FOUR = 10
+ADVANCE_ROUNDS_AT_FOUR = 6
 
 #: The hit table: (map, demo, round, type, moment, area, players).
-ADVANCE_TABLE = sorted(
+ADVANCE_TABLE_AT_FOUR = sorted(
     [
         ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 15.0, 'TSideUpper', 1),
         ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 30.0, 'TSideLower', 2),
@@ -1954,19 +1956,20 @@ ADVANCE_TABLE = sorted(
     ]
 )
 
-#: The crunch at the same grid: 5 hits on 4 rounds.
+#: The crunch on the same four-point subset: 5 hits on 4 rounds.
 #:
 #: The same five the rule found when its look-back was "the previous sample
 #: point". Reproducing them exactly was Story 4.6's stop condition, so they
 #: are asserted row for row and not only as a count.
-CRUNCH_HITS = 5
-CRUNCH_ROUNDS = 4
+CRUNCH_HITS_AT_FOUR = 5
+CRUNCH_ROUNDS_AT_FOUR = 4
 
 #: The hit table: (map, demo, round, type, moment, area, players, sources).
 #:
-#: The sources are the **round's** directions and the moment is the sample
-#: point's, because that is the shape the report node has.
-CRUNCH_TABLE = sorted(
+#: The sources are the **sample point's** directions, the simultaneous ones
+#: (Story 4.5); at four points every row here is its round's only point for
+#: its area, so they equal what the round-level list said.
+CRUNCH_TABLE_AT_FOUR = sorted(
     [
         ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 30.0, 'TSideLower', 2,
          ('SideEntrance', 'TSideUpper')),
@@ -1978,6 +1981,101 @@ CRUNCH_TABLE = sorted(
          ('BombsiteB', 'Middle', 'OutsideLong')),
         ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 15.0, 'Middle', 5,
          ('Arch', 'TopofMid')),
+    ]
+)
+
+#: The CT advance on the **shipped fourteen-point grid**: 44 hits on 9 rounds,
+#: re-derived by running the rule over the re-parsed archive on 2026-09-25
+#: (Story 4.5, step 6) -- not scaled from the four-point table.
+#:
+#: The rounds the four points could not see are the moments between 15 s and
+#: 30 s: ``Nuke_vs_imuaijat`` round 5 in ``Lobby`` at 21 and 24 s,
+#: ``1-a52ebff2`` round 19, ``anubis_vs_RCAVE_VETERANS`` round 2 in ``Canal`` at
+#: 12 s, and ``1-79f71e00`` round 24, whose ``Trophy`` is the one row an
+#: orientation change adds. ``Ancient_vs_kaljukostaja`` round 4 is gone:
+#: ``TSideUpper`` loses its orientation on the dense grid
+#: (:data:`ORIENTATION_LOST_AT_FOURTEEN`). The product owner ruled that the
+#: dense observation is the one that counts: the rules must not read less
+#: than the analysis does (2026-09-23).
+ADVANCE_HITS = 44
+ADVANCE_ROUNDS = 9
+
+#: The hit table: (map, demo, round, type, moment, area, players).
+ADVANCE_TABLE = sorted(
+    [
+        ('de_ancient', '1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1', 19, 'force', 24.0, 'TSideLower', 1),
+        ('de_ancient', '1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1', 19, 'force', 27.0, 'Ruins', 1),
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 21.0, 'TSideLower', 1),
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 24.0, 'TSideLower', 2),
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 27.0, 'TSideLower', 3),
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 30.0, 'TSideLower', 2),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 3, 'eco', 15.0, 'Bridge', 1),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 3, 'eco', 18.0, 'Bridge', 1),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 3, 'eco', 21.0, 'Bridge', 1),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 3, 'eco', 24.0, 'Ruins', 1),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 6, 'half', 18.0, 'Bridge', 1),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 6, 'half', 21.0, 'Bridge', 1),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 6, 'half', 24.0, 'Ruins', 1),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 6, 'half', 27.0, 'OutsideLong', 1),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 6, 'half', 30.0, 'OutsideLong', 1),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 2, 'force', 12.0, 'Canal', 1),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 15.0, 'OutsideLong', 2),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 18.0, 'OutsideLong', 2),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 18.0, 'Ruins', 1),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 21.0, 'Ruins', 3),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 24.0, 'Ruins', 3),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 27.0, 'Bridge', 3),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 27.0, 'Ruins', 1),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 30.0, 'Bridge', 3),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 9.0, 'Middle', 3),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 12.0, 'Middle', 4),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 15.0, 'Middle', 5),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 18.0, 'Middle', 5),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 21.0, 'Middle', 4),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 21.0, 'SecondMid', 1),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 24.0, 'Middle', 2),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 24.0, 'SecondMid', 2),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 27.0, 'Middle', 2),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 30.0, 'Middle', 1),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 30.0, 'SecondMid', 1),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 24, 'force', 18.0, 'Trophy', 2),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 24, 'force', 21.0, 'Lobby', 1),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 24, 'force', 21.0, 'Trophy', 1),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 24, 'force', 24.0, 'Lobby', 1),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 24, 'force', 27.0, 'Lobby', 1),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 24, 'force', 27.0, 'Squeaky', 1),
+        ('de_nuke', '1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1', 24, 'force', 30.0, 'Trophy', 1),
+        ('de_nuke', 'Nuke_vs_imuaijat', 5, 'eco', 21.0, 'Lobby', 1),
+        ('de_nuke', 'Nuke_vs_imuaijat', 5, 'eco', 24.0, 'Lobby', 1),
+    ]
+)
+
+#: The crunch on the shipped grid: 11 hits on 5 rounds, measured the same way.
+#:
+#: The rule's round moves from 4 to 5: ``1-a52ebff2`` round 20 (a full buy)
+#: enters ``TSideLower`` from ``Middle`` and ``TSideUpper`` at 27 s, a moment
+#: four points did not sample. ``anubis_vs_RCAVE_VETERANS`` round 3 now also
+#: reaches ``Ruins`` and, at 27 and 30 s, ``Bridge`` from two different pairs
+#: of directions -- the state that crashed the round-level source list and
+#: moved the directions onto the sample point.
+CRUNCH_HITS = 11
+CRUNCH_ROUNDS = 5
+
+#: The hit table: (map, demo, round, type, moment, area, players, sources);
+#: the sources are the point's own.
+CRUNCH_TABLE = sorted(
+    [
+        ('de_ancient', '1-a52ebff2-a23d-45eb-beb7-37271d96ddfd-1-1', 20, 'full', 27.0, 'TSideLower', 2, ('Middle', 'TSideUpper')),
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 24.0, 'TSideLower', 2, ('Middle', 'TSideUpper')),
+        ('de_ancient', 'ANCIENT_vs_RCAVE_VETERANS', 18, 'eco', 27.0, 'TSideLower', 3, ('Middle', 'TSideUpper')),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 10, 'full', 15.0, 'OutsideLong', 3, ('Alley', 'BombsiteB', 'LowerTunnel')),
+        ('de_anubis', 'Anubis_vs_ryhmarama', 10, 'full', 18.0, 'OutsideLong', 3, ('Alley', 'BombsiteB')),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 15.0, 'OutsideLong', 2, ('Alley', 'BombsiteB')),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 21.0, 'Ruins', 3, ('BackofB', 'BombsiteB')),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 24.0, 'Ruins', 3, ('BombsiteB', 'OutsideLong')),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 27.0, 'Bridge', 3, ('Middle', 'OutsideLong')),
+        ('de_anubis', 'anubis_vs_RCAVE_VETERANS', 3, 'eco', 30.0, 'Bridge', 3, ('MidDoors', 'Ruins')),
+        ('de_inferno', 'inferno_vs_ryhmarama', 2, 'eco', 15.0, 'Middle', 5, ('Arch', 'TopofMid')),
     ]
 )
 
@@ -1993,6 +2091,9 @@ CRUNCH_TABLE = sorted(
 #: **9.0 is therefore the largest value that reproduces the grid it replaces**,
 #: and that is why it is the shipped one: a shorter value would reproduce the
 #: same rounds while asking a narrower question than the rule used to ask.
+#:
+#: Read from the four-point subset since the archive was re-parsed (Story
+#: 4.5); it reproduces exactly.
 LOOKBACK_SWEEP = {
     3.0: 4,
     6.0: 4,
@@ -2002,13 +2103,33 @@ LOOKBACK_SWEEP = {
     24.0: 1,
 }
 
-#: The archive's one demo that is **permanently** on the fourteen-point grid.
+#: The same sweep on the **shipped fourteen-point grid**, measured 2026-09-25
+#: on the re-parsed archive: ``lookback_s -> crunch rounds``.
+#:
+#: **9.0 is inside a flat stretch here too, and not at its edge.** Every value
+#: from 4.5 to 12 finds five rounds; 3.0 finds two and 15.0 four. So the
+#: four-point argument -- 9.0 is the largest value that reproduces -- does not
+#: carry over: on this grid 12.0 reproduces the same count. **Recorded, not
+#: acted on.** Re-choosing the threshold would be re-tuning on a grid the
+#: product owner has not ruled on, so the shipped 9.0 stands and this is what
+#: the next calibration has to start from.
+LOOKBACK_SWEEP_SHIPPED = {
+    3.0: 2,
+    4.5: 5,
+    6.0: 5,
+    9.0: 5,
+    12.0: 5,
+    15.0: 4,
+    24.0: 1,
+}
+
+#: The demo the two cross-grid measurements below were taken on, 2026-09-23,
+#: when it was the archive's only fourteen-point demo.
 #:
 #: Its source file is in neither ``demos/`` nor ``import/``, so it cannot be
-#: parsed again on any other grid; :func:`_on_grid` says what that costs. It
-#: is also the only demo the two grids can be compared on without parsing
-#: anything, which is why the two measurements below are of this demo alone
-#: and are stated as this demo's and not as the archive's.
+#: parsed again; since the archive was re-parsed on fourteen points (Story
+#: 4.5) it is on the same grid as every other demo, with the same parse
+#: parameters. The measurements stay this demo's and are stated as such.
 DENSE_DEMO = "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1"
 
 #: The same sweep on :data:`DENSE_DEMO`'s own grid, measured 2026-09-23:
@@ -2021,11 +2142,10 @@ DENSE_DEMO = "1-79f71e00-1396-4f53-a0b4-782ee9742023-1-1"
 #: is picked on a grid that cannot tell its candidates apart. Three-second
 #: spacing can: 4.5 and 6.0 find a round here that 9.0 does not.
 #:
-#: **Not an argument for a different value.** The shipped 9.0 is calibrated
-#: against the grid the tool ships with and reproduces the rule it replaces
-#: exactly; this records that the calibration's resolution is the grid's, so
-#: that a future densification knows the threshold has to be measured again
-#: and does not read the flat stretch as robustness.
+#: **Not an argument for a different value.** The shipped 9.0 was calibrated
+#: against the four-point grid and reproduces the rule it replaces there; this
+#: records that the calibration's resolution is the grid's. The whole archive
+#: is now dense, and :data:`LOOKBACK_SWEEP_SHIPPED` is that re-measurement.
 DENSE_DEMO_LOOKBACK_SWEEP = {
     3.0: 0,
     4.5: 1,
@@ -2061,7 +2181,9 @@ LOOKBACK_RESIDUAL = {
 #: ``advance_t_share`` changes -- and it needs no archive at all, which is the
 #: whole point: the first version of this test measured the fourteen-point
 #: side from the archive, and the archive carried that grid only because it
-#: was in an inconsistent state. **A fault is not a fixture.**
+#: was in an inconsistent state. **A fault is not a fixture.** (Since Story
+#: 4.5 the archive is on fourteen points by design, and both columns are
+#: checked against it -- see below.)
 #:
 #: Provenance, 2026-09-22: seven of the eight demos were parsed again on the
 #: fourteen-point grid into a scratch archive for this measurement, and the
@@ -2073,32 +2195,16 @@ LOOKBACK_RESIDUAL = {
 #: grid down is the same thing as parsing on it. The check is kept as a test
 #: (``test_the_recorded_orientation_counts_are_the_archives_own``).
 #:
-#: **What is checked against what, and what is not checkable at all.** The
-#: provenance above says where the numbers came from; this says what a run can
-#: still prove, because the two are not the same thing and a provenance note
-#: read as a guarantee is exactly the confusion this round found elsewhere.
-#:
-#: * the **four-point** column of the seven four-point demos, and the
-#:   **fourteen-point** column of ``1-79f71e00-...-1-1``: checked against the
-#:   real archive, row for row, every ``-m archive`` run;
-#: * the **fourteen-point** column of those seven demos: **not checkable from
-#:   this repository and not checkable from the real archive either.** The
-#:   scratch archive it was parsed into is gone and is not worth keeping; the
-#:   real archive holds those demos on four points and must, because that is
-#:   the grid the tool ships with. Re-deriving it means re-parsing seven demos
-#:   on a grid the settings do not declare;
-#: * therefore that column is held to **internal** consistency instead, and
-#:   that is a weaker claim stated as one: each demo's recorded sums must
-#:   equal its own per-area rows, and the four points being four of the
-#:   fourteen means no fourteen-point count may be smaller than its four-point
-#:   partner (``test_every_recorded_observation_is_load_bearing``). Those two
-#:   make every entry load-bearing -- a single number changed by one goes red
-#:   -- but they cannot tell a consistent wrong table from a right one.
-#:
-#: The consequence is worth stating rather than leaving to be inferred: if the
-#: dense column is wrong, it is wrong in a way no test here will find, and the
-#: residual constants below inherit that. They are the best measurement the
-#: archive allows, not a proof.
+#: **What is checked against what.** Since Story 4.5 re-parsed the archive on
+#: the fourteen-point grid, **every entry of both columns, of all eight demos,
+#: is checked against the real archive** every ``-m archive`` run
+#: (``test_the_recorded_orientation_counts_are_the_archives_own``): the
+#: fourteen-point column as parsed, the four-point column by filtering to the
+#: four points. The fourteen-point column of seven demos was not checkable
+#: before that -- it came from a scratch archive -- and it matched the
+#: re-parse with zero differences. The internal-consistency guards
+#: (``test_every_recorded_observation_is_load_bearing``) stay: they run
+#: without an archive.
 ORIENTATION_BY_GRID = json.loads(
     (Path(__file__).parent / "data" / "orientation_by_grid.json").read_text(
         encoding="utf-8"
@@ -2169,7 +2275,10 @@ def _rule_points(reports, rule: str) -> list[tuple]:
                         point.players,
                     )
                     if rule == "crunch":
-                        row += (tuple(entry.sources),)
+                        # The point's own directions, which are the
+                        # simultaneous ones (Story 4.5), and not the round's
+                        # union across its points.
+                        row += (tuple(point.sources),)
                     found.append(row)
     return sorted(set(found))
 
@@ -2258,12 +2367,23 @@ def _archive_orientation(root: Path, demo: str) -> tuple[str, dict]:
     return grid, counts
 
 
+def _printed_points() -> list[float]:
+    """The four points the report prints -- the calibration grid.
+
+    Read from ``[aggregate].route_sample_seconds``, which the settings hold
+    equal to ``[parse].snapshot_seconds`` minus ``[report]
+    .skip_sample_seconds``, so it is not a second copy of the four.
+    """
+    return list(_real_settings().aggregate.route_sample_seconds)
+
+
 @pytest.mark.archive
 def test_the_ct_advance_finds_exactly_the_rows_it_was_calibrated_on() -> None:
     """The advance's hit table, row for row, on the shipped grid.
 
     The absence of this table is the reason Story 4.5's grid change could
-    re-calibrate the rule without one test going red.
+    re-calibrate the rule without one test going red; since step 6 it is the
+    fourteen-point table, and the calibration it grew from is pinned below.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
     found = _rule_points(_reports(root), "ct_advance")
@@ -2276,8 +2396,9 @@ def test_the_ct_advance_finds_exactly_the_rows_it_was_calibrated_on() -> None:
 def test_the_crunch_finds_exactly_the_rows_it_was_calibrated_on() -> None:
     """The crunch's hit table, row for row, on the shipped grid.
 
-    These five are the rounds the rule found when its look-back was "the
-    previous sample point". The unit changed; the calibration did not.
+    Fourteen points since Story 4.5. The four-point calibration -- the five
+    hits the rule found when its look-back was "the previous sample point" --
+    is pinned in the test below it.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
     found = _rule_points(_reports(root), "crunch")
@@ -2300,9 +2421,13 @@ def test_the_look_back_is_calibrated_and_not_merely_valid() -> None:
     replaces -- not because its lower neighbours were shown to be worse.
 
     **A denser grid does separate them**, which is the evidence that the flat
-    stretch is this grid's blindness and not the threshold's: measured on the
-    archive's one fourteen-point demo (:data:`ORIENTATION_BY_GRID` says which),
-    4.5 s and 6.0 s each find one crunch round there and 9.0 s finds none.
+    stretch is this grid's blindness and not the threshold's: measured on
+    :data:`DENSE_DEMO` at fourteen points, 4.5 s and 6.0 s each find one crunch
+    round there and 9.0 s finds none -- and over the whole re-parsed archive,
+    :data:`LOOKBACK_SWEEP_SHIPPED`.
+
+    Read on the four-point subset since Story 4.5 re-parsed the archive
+    (:func:`_printed_points`), where it reproduces exactly.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
     settings = _real_settings()
@@ -2311,14 +2436,55 @@ def test_the_look_back_is_calibrated_and_not_merely_valid() -> None:
         limits = settings.thresholds.model_copy(
             update={"crunch_lookback_s": lookback}
         )
-        rows = _rule_points(_reports(root, limits), "crunch")
+        rows = _rule_points(
+            _reports(root, limits, seconds=_printed_points()), "crunch"
+        )
         found[lookback] = len({(row[1], row[2]) for row in rows})
     assert found == LOOKBACK_SWEEP
     assert settings.thresholds.crunch_lookback_s == max(
         value
         for value, rounds in LOOKBACK_SWEEP.items()
-        if rounds == CRUNCH_ROUNDS
+        if rounds == CRUNCH_ROUNDS_AT_FOUR
     )
+
+
+@pytest.mark.archive
+def test_the_calibration_still_reproduces_on_the_printed_points() -> None:
+    """The four-point subset of the dense archive gives the calibrated tables.
+
+    Filtering a grid down is parsing on it (:func:`_on_grid`), so the
+    calibration is still checked against the real archive after Story 4.5
+    re-parsed it on fourteen points -- and it reproduces row for row, which is
+    what "the dense grid is a superset" means in numbers.
+    """
+    root = require_parsed(*CALIBRATION_DEMOS)
+    reports = _reports(root, seconds=_printed_points())
+    advance = _rule_points(reports, "ct_advance")
+    crunch = _rule_points(reports, "crunch")
+    assert advance == ADVANCE_TABLE_AT_FOUR
+    assert len(advance) == ADVANCE_HITS_AT_FOUR
+    assert len({(row[1], row[2]) for row in advance}) == ADVANCE_ROUNDS_AT_FOUR
+    assert crunch == CRUNCH_TABLE_AT_FOUR
+    assert len(crunch) == CRUNCH_HITS_AT_FOUR
+    assert len({(row[1], row[2]) for row in crunch}) == CRUNCH_ROUNDS_AT_FOUR
+
+
+@pytest.mark.archive
+def test_the_look_back_sweep_on_the_shipped_grid() -> None:
+    """:data:`LOOKBACK_SWEEP_SHIPPED`, re-derived: 9.0 sits inside a flat
+    stretch of five rounds on fourteen points, and its count is the shipped
+    table's."""
+    root = require_parsed(*CALIBRATION_DEMOS)
+    settings = _real_settings()
+    found = {}
+    for lookback in LOOKBACK_SWEEP_SHIPPED:
+        limits = settings.thresholds.model_copy(
+            update={"crunch_lookback_s": lookback}
+        )
+        rows = _rule_points(_reports(root, limits), "crunch")
+        found[lookback] = len({(row[1], row[2]) for row in rows})
+    assert found == LOOKBACK_SWEEP_SHIPPED
+    assert found[settings.thresholds.crunch_lookback_s] == CRUNCH_ROUNDS
 
 
 @pytest.mark.archive
@@ -2327,11 +2493,11 @@ def test_the_sweeps_flat_stretch_is_the_grids_blindness_and_not_the_rules() -> N
 
     Without this the sentence above would be the round's own complaint: a
     claim about a denser grid, stated where a reader meets it and checked by
-    nothing. Here it is run. The archive's one genuinely fourteen-point demo
-    is read on its own grid (``seconds=None`` leaves every table as parsed;
-    the other seven are four-point and are filtered out by demo id), and
-    there the values that the four-point sweep cannot tell apart give
-    different answers.
+    nothing. Here it is run. :data:`DENSE_DEMO` is read on its own
+    fourteen-point grid (``seconds=None`` leaves every table as parsed; the
+    other demos' rows are filtered out by demo id, so the measurement stays
+    this demo's), and there the values that the four-point sweep cannot tell
+    apart give different answers.
 
     The direction is not the point and must not be read as one -- 4.5 s
     finding a round that 9.0 s does not is **not** evidence that 4.5 s is the
@@ -2452,9 +2618,18 @@ def test_the_recorded_measurement_covers_the_calibration_demos() -> None:
     a literal in this module -- with nothing tying them together, so a file
     whose ``points`` said 14 over a ten-point grid would have passed while
     every quotient it produced was wrong.
+
+    **Since Story 4.5 the shipped grid is the fourteen-point one**, and the
+    four-point grid is what the report prints of it: the grid minus
+    ``[report].skip_sample_seconds``. Both are read from the settings, so the
+    file's two grids stay tied to what the tool parses and what it prints.
     """
     grids = ORIENTATION_BY_GRID["grids"]
-    assert grids["four"] == list(_real_settings().parse.snapshot_seconds)
+    settings = _real_settings()
+    shipped = list(settings.parse.snapshot_seconds)
+    assert grids["fourteen"] == shipped
+    hidden = set(settings.report.skip_sample_seconds)
+    assert grids["four"] == [value for value in shipped if value not in hidden]
     assert set(grids["four"]) < set(grids["fourteen"])
     assert sorted(ORIENTATION_BY_GRID["demos"]) == sorted(CALIBRATION_DEMOS)
     for demo, body in ORIENTATION_BY_GRID["demos"].items():
@@ -2517,26 +2692,42 @@ def test_every_recorded_observation_is_load_bearing() -> None:
 def test_the_recorded_orientation_counts_are_the_archives_own() -> None:
     """The measurement in the repository is the archive's, not a set of numbers.
 
-    Each demo is checked against the grid it is **really** parsed on, so the
-    tie holds whichever way the archive stands: seven of the eight are on the
-    four-point grid and are checked against the file's four-point counts, and
-    ``1-79f71e00-...-1-1`` is permanently on fourteen and is checked against
-    its fourteen-point counts.
-
-    This is what keeps the data file honest. The file's own four-point counts
-    were derived by filtering the dense tables, so a green run here is also
-    the evidence that filtering a grid down to a subset is the same thing as
-    parsing on that subset -- which is what :func:`_on_grid` rests on.
+    **Both columns, all eight demos** since Story 4.5 re-parsed the archive on
+    fourteen points: each demo is checked against the grid it is really
+    parsed on (fourteen), and then against the four-point column by filtering
+    its table to the four -- the four-point subset the file's own four-point
+    counts were derived from. A green run is therefore also the evidence that
+    filtering a grid down to a subset is the same thing as parsing on it,
+    which is what :func:`_on_grid` rests on.
     """
     root = require_parsed(*CALIBRATION_DEMOS)
+    checked = 0
     for demo, body in ORIENTATION_BY_GRID["demos"].items():
         grid, counts = _archive_orientation(root, demo)
-        recorded = {
-            area: tuple(value[grid])
-            for area, value in body["areas"].items()
-            if value[grid] is not None
-        }
-        assert recorded == counts, demo
+        for name in ORIENTATION_BY_GRID["grids"]:
+            if name == grid:
+                observed = counts
+            else:
+                ticks = pl.read_parquet(root / "parsed" / demo / "ticks.parquet")
+                subset = ticks.filter(
+                    (pl.col("sample_kind") != "time")
+                    | pl.col("sample_t_s").is_in(ORIENTATION_BY_GRID["grids"][name])
+                )
+                observed = {
+                    area: (obs.t, obs.total)
+                    for area, obs in aggregate_stage._area_orientation(
+                        subset
+                    ).items()
+                    if area is not None
+                }
+            recorded = {
+                area: tuple(value[name])
+                for area, value in body["areas"].items()
+                if value[name] is not None
+            }
+            assert recorded == observed, (demo, name)
+            checked += 1
+    assert checked == 2 * len(ORIENTATION_BY_GRID["demos"])
 
 
 def _records_from(root: Path) -> dict[tuple[str, str, str, str], dict]:
@@ -3196,12 +3387,12 @@ def test_one_match_gives_the_same_date_and_opponent_on_every_map() -> None:
 #:
 #: **On the grid ``settings.toml`` declares**, because
 #: :func:`_route_blocks_from` builds from :func:`_recorded_reports`, which
-#: goes through :func:`_on_grid`. One demo of this archive is parsed on a
-#: fourteen-point grid and cannot be parsed again, so the filter is
-#: permanent -- and this table is therefore the report **on that grid**, not
-#: on whatever grid a demo happens to carry. A table generated without the
-#: filter disagrees with the test that reads it, which is how this was
-#: found.
+#: goes through :func:`_on_grid` -- so this table is the report **on that
+#: grid**, not on whatever grid a demo happens to carry. Since Story 4.5 the
+#: grid is fourteen points and the route reads only the points the report
+#: prints (``[aggregate].route_sample_seconds``), and the table did not move
+#: when the archive was re-parsed on it (2026-09-25): the route is the one
+#: the four printed points give.
 #:
 #: **Why no opponent and no date.** The block's heading states both, and both
 #: are deliberately absent here: the repository is public and the denylist

@@ -250,9 +250,17 @@ def match_of(value: str) -> str:
     both to be a match id plus numeric tails, and then the match id is the
     same match. Two demos of the *same* match can still get different keys --
     if one is named by the convention and the other by hand, only the first
-    resolves. So **the count can be too high and never too low**. That is the
-    direction to want: too high reads as a habit spread over more matches than
-    it was, which understates a pattern, while too low would invent one.
+    resolves. So **the count can be too high and never too low**. Which
+    direction is harmless **depends on the reader of the count**, and since
+    Story 4.5 there are two. Where a count only describes a sample (the
+    group headings, the bars), too high spreads a habit over more matches
+    than it was and understates it. Where a count **decides** something --
+    the product owner's match rule prints a CT advance or a crunch only from
+    two matches on (:attr:`~pappascout.domain.report.Anomaly.matches`) --
+    too high can make one match's hand-named and convention-named demos
+    read as two matches and **raise** a row that did not recur. The
+    archive's demos are named one way per match, so it has not happened; the
+    ids of an imported match should follow the convention for that reason.
 
     For the recency mark the same direction holds: an unresolvable id is in no
     match index, so its block loses the mark rather than getting a wrong one

@@ -11,6 +11,7 @@ result would depend on the machine.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from pathlib import Path
 
@@ -248,21 +249,32 @@ PAWNLESS_DEMO_FILE: tuple[int, str] = (
     "e9dcf35da6836f6d81d30d14029c62b8fc7661861ba685c0b89a18511035b7b5",
 )
 
-#: The fault demo's measured numbers (2026-08-31, with production's
-#: ``[parse]`` settings).
+#: The fault demo's measured numbers (2026-08-31, re-measured 2026-09-21 on
+#: Story 4.5's grid, with production's ``[parse]`` settings).
 #:
 #: ``PAWNLESS_DEMO_ROUNDS``
-#:     Rounds played. The result was 13-9, that is, an MR12 match.
+#:     Rounds played. The result was 13-9, that is, an MR12 match. Does not
+#:     depend on the sample points.
 #: ``PAWNLESS_DEMO_ROWS``
 #:     Pawnless player rows skipped: **one player** (``egerrrrr``,
-#:     76561199635619622) on **one round** (round_no 19). Five from the sample
-#:     points' ticks and ten from the utility throw ticks; the same tick is
-#:     counted once.
+#:     76561199635619622) on **one round** (round_no 19). Fifteen from the
+#:     sample points' ticks and ten from the utility throw ticks; the same
+#:     tick is counted once.
+#:
+#:     **This figure moves with ``[parse].snapshot_seconds``, and that is the
+#:     whole of the change**: it was 15 (five plus ten) on the four-point
+#:     grid, and the fifteen sample-point rows are the fourteen time points of
+#:     the 3 s grid plus that round's first-contact tick -- one row each,
+#:     because one player of the ten is missing. The utility half is unchanged,
+#:     as it must
+#:     be: throws are read at their own ticks and not at sample points. The
+#:     number is re-measured by running, not scaled.
 #: ``PAWNLESS_DEMO_POINTS``
 #:     Sample points missed entirely. Zero: one missing player out of ten
-#:     leaves a point short of players, not empty.
+#:     leaves a point short of players, not empty. Independent of the grid for
+#:     the same reason.
 PAWNLESS_DEMO_ROUNDS = 22
-PAWNLESS_DEMO_ROWS = 15
+PAWNLESS_DEMO_ROWS = 25
 PAWNLESS_DEMO_POINTS = 0
 
 
@@ -682,6 +694,31 @@ def settings_text(archive_root: Path | str, **replacements: str) -> str:
     for old, new in replacements.items():
         assert old in text, f"nothing to replace: {old}"
         text = text.replace(old, new)
+    return text
+
+
+def replace_array(text: str, key: str, value: str) -> str:
+    """Rewrite one ``key = [...]`` array in a settings text.
+
+    :func:`settings_text`'s replacements are literal, so they cannot reach an
+    array ``settings.toml`` writes over several lines -- and a test that
+    pinned the file's line breaks would fail on a reflow rather than on a
+    change of meaning. This matches the assignment through its closing
+    bracket, so the same call works whether the array is on one line or four.
+
+    ``key`` is anchored at the start of a line, so a mention of the same name
+    inside a comment (``[parse].snapshot_seconds``) is not the thing that
+    gets rewritten.
+
+    Raises:
+        AssertionError: If the key is not assigned an array. A silent no-op
+            would leave the test asserting against the very settings it meant
+            to change away from -- the same failure mode
+            :func:`settings_text` guards with its own assertion.
+    """
+    pattern = rf"^{re.escape(key)} *= *\[[^\]]*\]"
+    text, count = re.subn(pattern, f"{key} = {value}", text, count=1, flags=re.M)
+    assert count == 1, f"nothing to replace: {key} = [...]"
     return text
 
 

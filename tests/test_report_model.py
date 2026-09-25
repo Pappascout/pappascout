@@ -2052,15 +2052,19 @@ def test_the_record_is_three_counts_and_nothing_derived() -> None:
 
 
 def _point(
-    seconds: float = 30.0, players: int = 2, alive=None, areas=()
+    seconds: float = 30.0, players: int = 2, alive=None, areas=(), sources=()
 ) -> AnomalyPoint:
     """One sample point with its observation.
 
     ``areas`` is the stack's own field (Story 4.4) and empty on the two other
-    rules, exactly as ``alive`` is.
+    rules, exactly as ``alive`` is; ``sources`` is the crunch's (Story 4.5).
     """
     return AnomalyPoint(
-        sample_t_s=seconds, players=players, alive=alive, areas=list(areas)
+        sample_t_s=seconds,
+        players=players,
+        alive=alive,
+        areas=list(areas),
+        sources=list(sources),
     )
 
 
@@ -2074,11 +2078,14 @@ def _round(**overrides) -> AnomalyRound:
     players = overrides.pop("players", 2)
     alive = overrides.pop("alive", None)
     areas = overrides.pop("areas", ())
+    sources = overrides.pop("sources", ())
     values: dict[str, object] = {
         "map_demo_id": "demo",
         "round_no": 18,
         "round_type": "eco",
-        "points": [_point(value, players, alive, areas) for value in seconds],
+        "points": [
+            _point(value, players, alive, areas, sources) for value in seconds
+        ],
     }
     values.update(overrides)
     return AnomalyRound(**values)
@@ -2378,7 +2385,9 @@ def test_an_orientation_rule_cannot_carry_the_crowds_areas() -> None:
 
 def test_a_crunch_without_source_areas_is_refused() -> None:
     """Crunch is by definition arrival from several directions."""
-    with pytest.raises(ValidationError, match="rounds without source areas"):
+    with pytest.raises(
+        ValidationError, match="sample points without source areas"
+    ):
         _anomaly(rule="crunch")
 
 
@@ -2704,18 +2713,40 @@ def _stack_round(group: str) -> AnomalyRound:
     )
 
 
-def test_the_same_area_on_two_round_types_is_not_a_duplicate() -> None:
-    """The round type is part of advance's key."""
-    report = _report_with_anomalies(
-        [
-            _anomaly(),
-            _anomaly(
-                round_types=["force"],
-                rounds=[_round(round_type="force")],
-            ),
-        ]
+def test_the_same_area_on_two_round_types_is_a_duplicate() -> None:
+    """Story 4.5: the round type is no longer part of the advance's key.
+
+    Eco and force into the same area are one habit (the product owner's
+    *"sama tapa"*), so two advance rows for one area are the grouping failing
+    to do its work -- the same refusal every other rule gets.
+    """
+    with pytest.raises(AggregateError, match="in the section twice"):
+        _report_with_anomalies(
+            [
+                _anomaly(),
+                _anomaly(
+                    round_types=["force"],
+                    rounds=[_round(round_type="force")],
+                ),
+            ]
+        )
+
+
+def test_an_advance_may_span_the_save_round_types() -> None:
+    """One row, eco and force listed on it."""
+    anomaly = _anomaly(
+        n=2,
+        m=3,
+        round_types=["eco", "force"],
+        rounds=[_round(round_no=1), _round(round_no=2, round_type="force")],
     )
-    assert len(report.anomalies) == 2
+    assert anomaly.round_types == ["eco", "force"]
+
+
+def test_an_advance_on_a_full_buy_is_refused() -> None:
+    """The advance is a save-round phenomenon; a full buy cannot be on it."""
+    with pytest.raises(ValidationError, match="not save rounds"):
+        _anomaly(round_types=["full"], rounds=[_round(round_type="full")])
 
 
 def test_a_stale_report_json_is_validated_the_same_way() -> None:
@@ -3636,3 +3667,39 @@ def test_an_unread_outcome_is_a_state_and_not_a_missing_value() -> None:
     assert RoundRoute(map_demo_id="d", round_no=1, won=None).won is None
     with pytest.raises(ValidationError, match="won"):
         RoundRoute(map_demo_id="d", round_no=1)
+
+
+def test_a_14_report_with_round_level_sources_is_refused() -> None:
+    """15.0.0's removed field (Story 4.5): the round no longer carries a
+    ``sources`` list, and a 14.0.0 file that does is refused by
+    ``extra="forbid"`` rather than having its union read as simultaneous."""
+    with pytest.raises(ValidationError, match="sources"):
+        AnomalyRound(
+            map_demo_id="demo",
+            round_no=3,
+            round_type="eco",
+            points=[_point(sources=["A", "B"])],
+            sources=["A", "B"],
+        )
+
+
+def test_a_rounds_directions_may_exceed_one_moments_crowd() -> None:
+    """The dense-grid state, on the model: two moments of two players each,
+    four directions over the round. Valid, because no single moment claims
+    more directions than it had players; the round's list is derived."""
+    entry = _round(
+        points=[
+            _point(27.0, 2, sources=["Middle", "OutsideLong"]),
+            _point(30.0, 2, sources=["MidDoors", "Ruins"]),
+        ]
+    )
+    assert entry.sources == ["MidDoors", "Middle", "OutsideLong", "Ruins"]
+    with pytest.raises(ValidationError, match="Every direction needs"):
+        _point(27.0, 2, sources=["A", "B", "C"])
+
+
+def test_unsorted_point_sources_are_refused() -> None:
+    """The fourth case of a point's directions (review round 1): out of
+    alphabetical order."""
+    with pytest.raises(ValidationError, match="not in alphabetical order"):
+        _point(sources=["B", "A"])

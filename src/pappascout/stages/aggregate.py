@@ -81,8 +81,12 @@ The inputs are the ``classify`` manifests of every demo taken along, and their
 id is computed with
 :meth:`~pappascout.archive.manifest.Manifest.fingerprint` -- the same
 definition with which ``classify`` recognises its own input. The parameter hash
-is computed from the ``[thresholds]`` and ``[league]`` sections only (AD-3), so
-adjusting a threshold re-runs this stage but not the parsing.
+is computed from the named ``[thresholds]`` and ``[league]`` keys and from the
+whole ``[aggregate]`` section (AD-3), so adjusting a threshold re-runs this
+stage but not the parsing. ``[aggregate]`` holds the pistol routes' points
+(``route_sample_seconds``, Story 4.5) as well: the routes read only the points
+the report prints, and that list is this stage's own rather than a read of
+``[report]``, which is render's.
 """
 
 from __future__ import annotations

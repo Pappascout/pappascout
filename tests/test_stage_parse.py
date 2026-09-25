@@ -16,7 +16,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from conftest import has_temp_leftovers, settings_text
+from conftest import has_temp_leftovers, replace_array, settings_text
 from pappascout.adapters.demo_parser import Demoparser2Adapter
 from pappascout.adapters.protocols import (
     CALLOUTS_ADAPTER_COLUMNS,
@@ -1513,14 +1513,21 @@ def test_parse_setting_change_triggers_a_reparse(tmp_path: Path, archive, demo) 
     base_toml = tmp_path / "perus.toml"
     base_toml.write_text(settings_text(archive.root), encoding="utf-8")
     changed_toml = tmp_path / "muutettu.toml"
+    # The routes' points follow the printed points, or the load refuses the
+    # file (Story 4.5); here the skip list hides none of the four.
     changed_toml.write_text(
-        settings_text(
-            archive.root,
-            **{
-                "snapshot_seconds = [6.0, 15.0, 30.0, 45.0]": (
-                    "snapshot_seconds = [6.0, 15.0, 30.0, 50.0]"
-                )
-            },
+        replace_array(
+            replace_array(
+                replace_array(
+                    settings_text(archive.root),
+                    "snapshot_seconds",
+                    "[6.0, 15.0, 30.0, 50.0]",
+                ),
+                "skip_sample_seconds",
+                "[]",
+            ),
+            "route_sample_seconds",
+            "[6.0, 15.0, 30.0, 50.0]",
         ),
         encoding="utf-8",
     )

@@ -2632,13 +2632,19 @@ def test_a_crunch_on_two_round_types_is_one_row_over_the_whole_side() -> None:
     assert [entry.round_type for entry in crunch.rounds] == ["eco", "full"]
 
 
-def test_the_advance_is_still_keyed_by_round_type() -> None:
-    """The advance is a phenomenon of the saving rounds, so the type is part
-    of the observation."""
+def test_the_advance_is_one_row_across_the_save_round_types() -> None:
+    """Story 4.5: eco and force into the same area are one habit.
+
+    The product owner, 2026-09-25: *"Sama tapa ja siitä ilmoitetaan"*. So one
+    row lists both types, and its denominator is **every** save round of the
+    side on the map -- here two eco and two force, and the default round
+    beside them is not a save round and is not counted.
+    """
     demo = "Ancient_vs_x"
     classified = (
         eco_ct(demo, 1, 2)
         + eco_ct(demo, 3, 4, round_type="force")
+        + eco_ct(demo, 5, round_type="full")
     )
     report = anomaly_report(
         classified,
@@ -2648,24 +2654,23 @@ def test_the_advance_is_still_keyed_by_round_type() -> None:
     )
     advances = [a for a in report.anomalies if a.rule == "ct_advance"]
     assert [(a.round_types, a.n, a.m) for a in advances] == [
-        (["eco"], 1, 2),
-        (["force"], 1, 2),
+        (["eco", "force"], 2, 4),
     ]
 
 
-def test_an_advance_row_never_carries_two_round_types() -> None:
-    """The model enforces it, but the grouping has to produce it correctly."""
+def test_an_advance_row_never_carries_a_full_buy() -> None:
+    """The model enforces it, but the grouping has to produce it correctly:
+    the advance's rows are the save rounds only."""
     demo = "Ancient_vs_x"
-    classified = eco_ct(demo, 1) + eco_ct(demo, 2, round_type="force")
+    classified = eco_ct(demo, 1) + eco_ct(demo, 2, round_type="full")
     report = anomaly_report(
         classified,
         advance_round(demo, 1) + advance_round(demo, 2),
         demo=demo,
         limits=thresholds(),
     )
-    for anomaly in report.anomalies:
-        if anomaly.rule == "ct_advance":
-            assert len(anomaly.round_types) == 1
+    advances = [a for a in report.anomalies if a.rule == "ct_advance"]
+    assert [a.round_types for a in advances] == [["eco"]]
 
 
 def test_the_crunch_denominator_is_the_side_not_the_round_type() -> None:
@@ -4179,9 +4184,9 @@ def test_an_unplaced_demo_stays_last_even_when_the_index_repeats_a_match() -> No
 #: read as a copy of it. The first version of this comment said it was "as
 #: ``settings.toml`` sets it", which is the hand-copied-value-with-a-claim
 #: shape that left a schema constant wrong four stories running -- and it
-#: would have been wrong here too: one demo of the developer's archive is
-#: parsed on a fourteen-point grid, so the settings' four are not even a
-#: property of every table the code meets.
+#: would have been wrong here too: the settings' grid and the grid a table
+#: was parsed on can differ between a settings change and the next parse,
+#: and since Story 4.5 the settings declare fourteen points, not four.
 #:
 #: The route reads its moments out of the rows it is given
 #: (:func:`~pappascout.domain.aggregate._route_observations`), so these
@@ -4988,3 +4993,129 @@ def test_the_unplaced_demo_sentinel_survives_a_gapped_order() -> None:
     ]
     routes = routes_for(rows, ticks, [], [TEAM], order)
     assert [route.map_demo_id for route in routes] == ["mmm", "zzz", unplaced]
+
+
+# --- The route reads the printed points only (Story 4.5) ----------------------
+
+#: A three-second grid over the first nine seconds, and which of its points
+#: the report prints. Written here for the same reason as :data:`GRID`: the
+#: tests own the grid by writing it.
+DENSE = (6.0, 9.0, 12.0, 15.0)
+PRINTED = (6.0, 15.0)
+
+
+def _dense_route(
+    route_seconds: Sequence[float] | None, points: Sequence[float] = DENSE
+):
+    """Two players who part at 9 s and 12 s only, and meet again at 15 s."""
+    paths: dict[str, list[str | None | EllipsisType]] = {
+        "p1": ["Outside", "Lobby", "Ramp", "BombsiteA"],
+        "p2": ["Outside", "Squeaky", "Vending", "BombsiteA"],
+    }
+    rows = route_ticks("Nuke_vs_a", 1, paths, points=DENSE)
+    rows = [row for row in rows if row["sample_t_s"] in points]
+    routes = routes_for(
+        [classified_row("Nuke_vs_a", 1, won=True)],
+        rows,
+        [],
+        [TEAM],
+        {"Nuke_vs_a": 0},
+        route_seconds,
+    )
+    return routes[0]
+
+
+def test_a_hidden_sample_point_is_read_as_if_it_was_never_parsed() -> None:
+    """The docstring's exactness claim, run: hiding a point is the same route
+    as a parse that never had it.
+
+    Hiding is not the same thing as deleting a level from a built tree, and
+    this fixture is where the two part: the players divide **only** at the
+    hidden moments, so a tree built densely has a division the printed
+    points never saw. Reading the rows without those moments gives the one
+    chain a four-point parse would have given.
+    """
+    assert shape(_dense_route(PRINTED).steps) == shape(
+        _dense_route(None, points=PRINTED).steps
+    )
+    assert shape(_dense_route(PRINTED).steps) == [
+        (2, "seen", "Outside", 6.0, [
+            (2, "seen", "BombsiteA", 15.0, []),
+        ]),
+    ]
+
+
+def test_without_a_hidden_point_the_dense_route_divides() -> None:
+    """The other branch: the filter is what removes the division.
+
+    Without this the test above would also pass if the fixture never divided
+    at all, and the claim would rest on nothing.
+    """
+    route = _dense_route(None)
+    assert len(route.steps[0].steps) == 2
+
+
+def test_the_route_points_are_matched_as_labels() -> None:
+    """Story 2.13's rule for one second across layers: ``15.0000001`` is the
+    label ``15``, so it names the 15 s point and the route reads it -- the
+    renderer would print that section, and the route must agree with it."""
+    assert shape(_dense_route([6.0, 15.0000001]).steps) == shape(
+        _dense_route(PRINTED).steps
+    )
+
+
+# --- A crunch's directions are per sample point (Story 4.5) --------------------
+
+
+def _two_arrivals(demo: str, round_no: int) -> list[dict[str, object]]:
+    """One area entered twice in one round, **by different players from
+    different directions**: two at 15 s from ``SideEntrance`` and
+    ``TSideUpper``, two more at 30 s from ``Middle`` and ``Ramp``.
+
+    This is the state the archive reached at fourteen sample points
+    (``anubis_vs_RCAVE_VETERANS`` round 3, ``Bridge``: Middle + OutsideLong
+    at 27 s, MidDoors + Ruins at 30 s) and it is reachable on four points as
+    well: nothing in the rule stops one area being entered twice.
+    """
+    first = [("p0", "SideEntrance"), ("p1", "TSideUpper")]
+    second = [("p2", "Middle"), ("p3", "Ramp")]
+    rows: list[dict[str, object]] = []
+    for player, source in first:
+        rows.append(tick_row(demo, round_no, f"{TEAM}-{player}", source,
+                             side="CT", sample_t_s=6.0))
+        rows.append(tick_row(demo, round_no, f"{TEAM}-{player}", ANOMALY_AREA,
+                             side="CT", sample_t_s=15.0))
+    for player, source in second:
+        rows.append(tick_row(demo, round_no, f"{TEAM}-{player}", source,
+                             side="CT", sample_t_s=15.0))
+        rows.append(tick_row(demo, round_no, f"{TEAM}-{player}", ANOMALY_AREA,
+                             side="CT", sample_t_s=30.0))
+    return rows
+
+
+def test_a_crunch_entered_twice_in_a_round_keeps_each_moments_directions() -> None:
+    """The dense grid's crash, pinned from the state that caused it.
+
+    The round-level list used to be the **union** of the round's directions
+    and the model required it to fit the round's largest crowd: four
+    directions, two players at either moment, and ``aggregate`` stopped with
+    a program fault. The directions are simultaneous only at one sample
+    point, so that is where they live now, and each point is held to its own
+    crowd.
+    """
+    demo = "Ancient_vs_x"
+    report = anomaly_report(
+        eco_ct(demo, 1, 2, 3),
+        _two_arrivals(demo, 1),
+        demo=demo,
+        limits=thresholds(),
+    )
+    crunch = next(a for a in report.anomalies if a.rule == "crunch")
+    entry = crunch.rounds[0]
+    assert [(p.sample_t_s, p.sources) for p in entry.points] == [
+        (15.0, ["SideEntrance", "TSideUpper"]),
+        (30.0, ["Middle", "Ramp"]),
+    ]
+    # The round's view is derived, and it is not claimed to be simultaneous.
+    assert entry.sources == ["Middle", "Ramp", "SideEntrance", "TSideUpper"]
+    assert entry.players_max == 2

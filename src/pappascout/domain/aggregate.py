@@ -71,7 +71,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from math import isfinite
@@ -96,6 +96,7 @@ from pappascout.constants import (
     UTILITY_BUCKET_ALL,
     UTILITY_BUCKET_UNKNOWN,
     RosterBucketName,
+    seconds_label,
 )
 from pappascout.domain import sampling
 from pappascout.domain.models import AggregateSettings, ThresholdSettings
@@ -1378,19 +1379,24 @@ def record_for(rows: Sequence[Mapping[str, Any]]) -> RoundRecord:
 #: count wrong four stories running, and a docstring is exactly where a stale
 #: copy is least visible.
 #:
-#: The archive is seventeen demos. Over all of them:
+#: The archive is seventeen demos, all parsed on the fourteen-point grid
+#: since Story 4.5 re-parsed it (re-measured 2026-09-25). Over all of them:
 #:
-#: * **1 619 time sample points**, of which **1 615 carry ten rows** -- one
-#:   per player of both teams, alive or dead -- and **four carry nine**.
-#: * Those four are **all four points of one round** (``anubis`` round 19),
-#:   and the player missing from it has rows in **every other round of that
-#:   demo, before it and after it**. A missing row is therefore not a player
-#:   who left the server, and not evidence about the round either. That
-#:   round is a ``full`` buy, so no route is ever built from it.
-#: * **293 rounds reach the last point of the grid, and 280 of them -- 95.6
+#: * **4 735 time sample points**, of which **4 721 carry ten rows** -- one
+#:   per player of both teams, alive or dead -- and **fourteen carry nine**.
+#: * Those fourteen are **all fourteen points of one round**
+#:   (``anubis_vs_RCAVE_VETERANS`` round 19), and the player missing from it
+#:   has rows in **every other round of that demo, before it and after it**.
+#:   A missing row is therefore not a player who left the server, and not
+#:   evidence about the round either. That round is a ``full`` buy, so no
+#:   route is ever built from it.
+#: * **293 rounds reach the last point of the grid, and 285 of them -- 97.3
 #:   per cent -- have a death recorded after it.** The grid ends; the round
 #:   does not. This is the measurement that forbids reading the end of a
-#:   route row as the end of the round.
+#:   route row as the end of the round. (The figure recorded before the
+#:   re-parse was 280; re-run on the pre-re-parse backup, the same count
+#:   gives 285 there too, so the difference is the earlier count's and not
+#:   the grid's -- the last point, 45 s, is on both grids.)
 #: * **2 513 death rows, none missing ``t_s``** (:func:`_route_deaths`).
 #:
 #: It is an observation and not a rule: importing a demo changes every
@@ -1400,7 +1406,9 @@ ROUTE_SAMPLING_MEASURED = "2026-09-25"
 
 
 def _route_observations(
-    ticks: Sequence[Mapping[str, Any]], keys: set[RoundKey]
+    ticks: Sequence[Mapping[str, Any]],
+    keys: set[RoundKey],
+    route_labels: frozenset[str] | None = None,
 ) -> tuple[
     dict[RoundKey, list[float]],
     dict[RoundKey, set[str]],
@@ -1417,9 +1425,9 @@ def _route_observations(
 
     :data:`ROUTE_SAMPLING_MEASURED` is the measurement behind that, and it is
     stated in one place because a number restated is a number that goes
-    stale. Its one exception is worth reading before trusting the rule: four
-    of the archive's sample points carry nine rows, and they are all four
-    points of a single round from which one player is missing **who has rows
+    stale. Its one exception is worth reading before trusting the rule: the
+    archive's sample points that carry nine rows are all the points of a
+    single round, from which one player is missing **who has rows
     in every other round of that demo, before and after**. So a missing row
     is not a player who left the server, and this function must not read a
     player's absence as the round's.
@@ -1437,9 +1445,27 @@ def _route_observations(
     measurement does not show and which would in any case end the row rather
     than claim anything.
 
+    **A moment outside ``route_labels`` is treated exactly as a moment the
+    round was not sampled at** (Story 4.5), which is what makes the route
+    read only the points the report prints. The grid is a dense internal
+    series; a route read from all of it would be a fourteen-step row, and the
+    product owner ruled on 2026-09-25 that the report cannot carry that many
+    sample points. Skipping the rows **before** anything is built is what
+    makes this exact: the route is then the one a parse at those points alone
+    would have produced, because no point's rows depend on any other point's.
+
+    The points are matched **as labels** (:func:`~pappascout.constants
+    .seconds_label`), Story 2.13's rule for naming one second across layers:
+    the renderer decides by label which sample-point section it prints, so a
+    float comparison here could print a route through a point whose section
+    is hidden (``9.0000001`` is the label ``9``).
+
     Args:
         ticks: The branch's sample point rows, both sample kinds.
         keys: The rounds to read. Others are skipped.
+        route_labels: The labels of the points the route reads
+            (``[aggregate].route_sample_seconds``). ``None`` reads every
+            moment the rows carry.
 
     Returns:
         Three mappings from round key: the moments the round reached in
@@ -1460,6 +1486,11 @@ def _route_observations(
         if str(row["sample_kind"]) != sampling.TIME_SAMPLE:
             continue
         seconds = _sample_seconds(row)
+        if (
+            route_labels is not None
+            and seconds_label(seconds) not in route_labels
+        ):
+            continue
         player = str(row["player_id"])
         points[key].add(seconds)
         players[key].add(player)
@@ -1667,6 +1698,7 @@ def routes_for(
     deaths: Sequence[Mapping[str, Any]],
     lineup_keys: Iterable[str],
     demo_order: Mapping[str, int],
+    route_seconds: Collection[float] | None = None,
 ) -> list[RoundRoute]:
     """One round's route per round of the group, **newest match first**.
 
@@ -1705,6 +1737,12 @@ def routes_for(
             the order does not place sorts last, where its row carries no
             date to contradict -- :func:`played_maps_for`'s rule, and its
             reason.
+        route_seconds: The time sample points the route reads
+            (``[aggregate].route_sample_seconds``, which the settings hold
+            equal to the points the report prints); see
+            :func:`_route_observations`. ``None``, the default, reads every
+            point the rows carry, which is what a direct caller with a
+            four-point table wants.
 
     Returns:
         One :class:`~pappascout.domain.report.RoundRoute` per row in ``rows``,
@@ -1735,7 +1773,13 @@ def routes_for(
         outcome[key] = None if value is None else bool(value)
 
     keys = set(outcome)
-    points, players, at = _route_observations(ticks, keys)
+    points, players, at = _route_observations(
+        ticks,
+        keys,
+        None
+        if route_seconds is None
+        else frozenset(seconds_label(value) for value in route_seconds),
+    )
     died = _route_deaths(deaths, keys, lineup_keys)
     # Past every place in use, so a demo the order does not place sorts after
     # every placed one.
@@ -2280,20 +2324,20 @@ def anomalies_for(
     cannot: it calls them with the right demo's orientation, **groups the hits
     into a sample** and records what was examined in the first place.
 
-    **The grouping key is per rule.** ``ct_advance`` is grouped by ``(map,
-    side, round type, area)``, because it is a phenomenon of the saving rounds
-    and the round type is part of the observation. ``crunch`` and ``stack``
-    are grouped by ``(map, side, area)`` **without the round type**: neither
-    of them knows it, and splitting into an eco row and a default row would
-    give the same pattern two different denominators and the reader would not
-    see the total -- that is, the figure would reproduce inside itself the
-    very scatter it was made to remove.
+    **The grouping key is ``(map, side, area)`` for every rule**, plus the
+    site group on a stack. ``ct_advance`` was grouped by round type as well
+    until Story 4.5; the product owner ruled that an eco and a force push
+    into one area are *"sama tapa"*, so it now gathers every save type and
+    lists them. Splitting by type would give one habit two rows and two
+    denominators, and the reader would not see the total -- that is, the
+    figure would reproduce inside itself the very scatter it was made to
+    remove.
 
     ``n`` is the number of **rounds** on which the hit was observed: the same
     area on two eco rounds is one row with a sample of ``2/m``, not two rows,
     and the same round with two sample points does not raise ``n`` to two.
-    ``m`` is all of the grouping level's rounds -- for the advance the round
-    type's, for crunch and stack the side's.
+    ``m`` is all of the grouping level's rounds -- for the advance the
+    side's save rounds, for crunch and stack all the side's rounds.
 
     **The site groups are derived once per demo**, not once per round like the
     orientation's threshold filtering. The difference is measured: a point
@@ -2427,8 +2471,8 @@ def anomalies_for(
         )
 
     # (map, side) -> round type -> round rows. One split, from which both the
-    # advance's denominator (round type included) and crunch's and stack's
-    # (round type left out) can be read.
+    # advance's denominator (the save types together) and crunch's and
+    # stack's (every type) can be read.
     branches: defaultdict[
         tuple[str, str], defaultdict[str, list[Mapping[str, Any]]]
     ] = defaultdict(lambda: defaultdict(list))
@@ -2460,16 +2504,23 @@ def anomalies_for(
         by_type = branches[(map_name, side)]
         side_rows = [row for type_rows in by_type.values() for row in type_rows]
         source = map_sources.get(map_name, "unknown")
-        # The advance first: its denominator is narrower, so the reader sees
-        # the per-round-type observation first and then the whole side's
-        # crunch and stack. The order is the same from one run to the next.
-        for round_type in ROUND_TYPES:
-            type_rows = by_type.get(round_type)
-            if not type_rows:
-                continue
+        # The advance first, over **all the side's save rounds at once**
+        # (Story 4.5). It was grouped per round type until the product owner
+        # ruled, 2026-09-25, that an eco push and a force push into the same
+        # area in two matches are *"sama tapa"* -- one habit. Split by type,
+        # his own example (Nuke Lobby, eco in one match and force in another)
+        # was two one-match rows and neither reached the report. The round
+        # types are still on the row (``Anomaly.round_types``); they no longer
+        # divide it, and the denominator is the save rounds the rule can see.
+        save_rows = [
+            row
+            for round_type in SAVING_ROUND_TYPES
+            for row in by_type.get(round_type, ())
+        ]
+        if save_rows:
             anomalies.extend(
                 _grouped_anomalies(
-                    type_rows,
+                    save_rows,
                     hits_by_round,
                     rule=CT_ADVANCE,
                     map_name=map_name,
@@ -2683,7 +2734,7 @@ def _grouped_anomalies(
     """One rule's anomalies at one grouping level.
 
     ``branch_rows`` is the set that determines the denominator: for the
-    advance one round type's rounds, for crunch all of the side's rounds. The
+    advance the side's save rounds, for crunch all of the side's rounds. The
     same function serves both, because the difference is **only** in which
     rows are given.
     """
@@ -2746,12 +2797,15 @@ def _grouped_anomalies(
 
 @dataclass
 class _RoundTally:
-    """One round's tally: the sample points with their observations, and the
-    source directions.
+    """One round's tally: the sample points with their observations.
 
-    The directions are collected **inside the round**, because only there are
-    they simultaneous. The union of two rounds would read as more simultaneous
-    directions than were observed.
+    **Nothing here is simultaneous across two sample points**, the source
+    directions included. They were once collected per round on the belief
+    that a round was the unit of simultaneity; at fourteen sample points one
+    round entered the same area twice from different directions and the union
+    -- four directions, three players -- failed the model (Story 4.5). So the
+    directions are kept per sample point, beside the player count, for the
+    reason the next paragraph gives for the count.
 
     **The player count is not simultaneous even inside a round.** One maximum
     and a list of sample points set the maximum against every point in the
@@ -2761,35 +2815,40 @@ class _RoundTally:
     """
 
     round_type: str
-    #: Sample point -> (players, alive, the crowd's areas). A dictionary and
-    #: not a list: the same rule produces at most one hit per sample point for
-    #: one area, so the key is unique and the order comes from the sort. The
-    #: areas are the stack's own and empty on the other two rules -- and they
-    #: are kept per sample point for the same reason as the player count: they
-    #: are an observation of that moment and of no other.
-    points: dict[float, tuple[int, int | None, tuple[str, ...]]] = field(
-        default_factory=dict
-    )
-    sources: set[str] = field(default_factory=set)
+    #: Sample point -> (players, alive, the crowd's areas, the sources). A
+    #: dictionary and not a list: the same rule produces at most one hit per
+    #: sample point for one area, so the key is unique and the order comes
+    #: from the sort. The areas are the stack's own and the sources the
+    #: crunch's, each empty on the other rules -- and both are kept per sample
+    #: point for the same reason as the player count: they are an observation
+    #: of that moment and of no other.
+    points: dict[
+        float, tuple[int, int | None, tuple[str, ...], tuple[str, ...]]
+    ] = field(default_factory=dict)
 
     def add(self, hit: sampling.AnomalyHit) -> None:
-        self.points[hit.sample_t_s] = (hit.players, hit.alive, hit.areas)
-        self.sources.update(hit.sources)
+        self.points[hit.sample_t_s] = (
+            hit.players,
+            hit.alive,
+            hit.areas,
+            tuple(hit.sources),
+        )
 
     @property
     def players_max(self) -> int:
         """The largest player count on the round; the source of the row's
         ``players_max``."""
-        return max(players for players, _, _ in self.points.values())
+        return max(players for players, _, _, _ in self.points.values())
 
 
 @dataclass
 class _AnomalyTally:
     """One area's tally at one grouping level.
 
-    Per-round bookkeeping and not one set: the report's row says four things
-    (how often, when, from where, how many), and three of them are true only
-    inside a round.
+    Per-round bookkeeping and not one set: the report's row says how often,
+    from where and how many, and the last two are true only inside a round
+    -- inside one sample point of it, since Story 4.5. It no longer says when
+    (the seconds are a tool, not the report's content).
     """
 
     rounds: dict[RoundKey, _RoundTally] = field(default_factory=dict)
@@ -2839,12 +2898,12 @@ class _AnomalyTally:
                         players=players,
                         alive=alive,
                         areas=list(areas),
+                        sources=sorted(sources),
                     )
-                    for seconds, (players, alive, areas) in sorted(
+                    for seconds, (players, alive, areas, sources) in sorted(
                         entry.points.items()
                     )
                 ],
-                sources=sorted(entry.sources),
             )
             for (demo, round_no), entry in sorted(self.rounds.items())
         ]
@@ -3248,6 +3307,15 @@ def build_report(
                         entry.map_demo_id: place
                         for place, entry in enumerate(played_maps)
                     },
+                    # The pistol routes read only these points (Story 4.5):
+                    # this stage's own section, which the settings hold equal
+                    # to the points the report prints. Only the routes read
+                    # it -- the sample-point sections keep every point in
+                    # report.json and the renderer decides what is printed,
+                    # while a route is a chain built from the points it reads
+                    # and cannot be shortened afterwards without merging
+                    # groups that divided only at a dropped moment.
+                    aggregate.route_sample_seconds,
                 ),
             )
         )
@@ -3323,6 +3391,7 @@ def _sides_for(
     lineup_keys: Sequence[str],
     newest: str | None,
     demo_order: Mapping[str, int],
+    route_seconds: Collection[float],
 ) -> list[SideReport]:
     """The sides in a fixed order; a side with no rounds is left out."""
     sides: list[SideReport] = []
@@ -3346,6 +3415,7 @@ def _sides_for(
                     lineup_keys,
                     newest,
                     demo_order,
+                    route_seconds,
                 ),
             )
         )
@@ -3364,6 +3434,7 @@ def _round_types_for(
     lineup_keys: Sequence[str],
     newest: str | None,
     demo_order: Mapping[str, int],
+    route_seconds: Collection[float],
 ) -> list[RoundTypeReport]:
     """The round types in a fixed order.
 
@@ -3419,7 +3490,12 @@ def _round_types_for(
                 # thing and the scope is stated where the scope is decided.
                 routes=(
                     routes_for(
-                        type_rows, ticks, deaths, lineup_keys, demo_order
+                        type_rows,
+                        ticks,
+                        deaths,
+                        lineup_keys,
+                        demo_order,
+                        route_seconds,
                     )
                     if round_type == ROUTE_ROUND_TYPE
                     else []

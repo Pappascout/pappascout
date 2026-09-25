@@ -934,6 +934,60 @@ class AggregateSettings(_Section):
         default_factory=lambda: [5.0, 10.0, 20.0]
     )
 
+    #: The time sample points the pistol routes are built from (Story 4.5).
+    #:
+    #: **This stage's own list, and a positive one.** The routes read only the
+    #: points the report prints, because the product owner ruled that the
+    #: report cannot carry the dense grid; the points printed are
+    #: ``[parse].snapshot_seconds`` minus ``[report].skip_sample_seconds``.
+    #: Reading that ``[report]`` value here would put render's section into
+    #: this stage's parameter hash, which AD-3 forbids -- so the list lives in
+    #: the section of the stage that reads it, and
+    #: :meth:`Settings._check_sections_agree` refuses a file where it differs
+    #: from the printed points, compared as labels
+    #: (:func:`~pappascout.constants.seconds_label`). Two copies of one fact,
+    #: but a checked pair: neither can move without the load failing.
+    #:
+    #: **Never empty**: a route with no points would print "kierros ratkesi
+    #: ennen ensimmäistä näytepistettä" for a round that was sampled.
+    #:
+    #: The default is the file's, as :attr:`utility_seconds_buckets`' is.
+    route_sample_seconds: list[float] = Field(
+        default_factory=lambda: [6.0, 15.0, 30.0, 45.0]
+    )
+
+    @model_validator(mode="after")
+    def _check_route_points(self) -> "AggregateSettings":
+        """The route's points: present, finite, positive and distinct as
+        labels.
+
+        Empty is refused (a route with nothing to read would state that every
+        round ended before its first point). Distinct **as labels** because
+        the points are matched by label, so ``15`` and ``15.0000001`` would
+        be one point listed twice.
+        """
+        if not self.route_sample_seconds:
+            raise ValueError(
+                "route_sample_seconds is empty, so no pistol route could read "
+                "a single sample point: every route would say the round was "
+                "settled before its first point, although it was sampled. "
+                "List the points the report prints."
+            )
+        for value in self.route_sample_seconds:
+            if not isfinite(value) or value <= 0:
+                raise ValueError(
+                    f"route_sample_seconds holds {value!r}, which is not a "
+                    "positive finite number of seconds."
+                )
+        labels = [seconds_label(value) for value in self.route_sample_seconds]
+        if len(labels) != len(set(labels)):
+            raise ValueError(
+                "route_sample_seconds holds the same sample point twice "
+                f"({', '.join(labels)}). The points are matched by their "
+                "label, so two values that print alike are one point."
+            )
+        return self
+
     @model_validator(mode="after")
     def _check_utility_buckets(self) -> "AggregateSettings":
         """The time buckets are a setting, so they are checked at load time.
@@ -996,7 +1050,9 @@ class ReportSettings(_Section):
 
     Story 2.13. The report ran to **about 96 content lines per map**, the
     product owner's own analysis to about 30, and part of the length was pure
-    repetition. Five rules leave that unwritten.
+    repetition. Five rules leave that unwritten. Story 4.5 changed what rule
+    3 is and added a sixth field (:attr:`anomaly_min_matches`); both are
+    written out below where they depart from the other four.
 
     **The measured rationales and the numbers are in ``settings.toml``**, not
     here. They are measurement results that the person adjusting a value
@@ -1017,16 +1073,36 @@ class ReportSettings(_Section):
     switched off the report is character for character the same as before
     this story. The defaults are ``settings.toml``'s defaults: a code default
     that differed from the file would prune silently in a different way
-    whenever the key has been forgotten from the file.
+    whenever the key has been forgotten from the file. **Two fields are the
+    exception since Story 4.5**, :attr:`skip_sample_seconds` and
+    :attr:`anomaly_min_matches`: the file carries a product decision for each
+    (the dense grid kept off the page, the match rule), and their code
+    defaults are "off", so a class built without the file decides nothing.
 
     **Pruning does not change a single number** -- neither in
     ``report.json`` nor in the report. In particular it does not change the
     bookkeeping of a block's pattern filtering: the row is always built first
     and pruned only afterwards (:mod:`pappascout.render.view`).
 
-    **Some round types are protected from every rule**, and the list is owned
-    by :data:`pappascout.render.view.PROTECTED_ROUND_TYPES`, because it is a
-    presentation choice and not an adjustable value.
+    **Rule 3 is the exception to that last sentence since Story 4.5**, and
+    deliberately: its points are the analysis's dense grid, not report
+    content, so they are **not built at all** -- they take no part in a
+    block's "harvinaisempaa" count and cannot come back through the
+    empty-block return. ``report.json`` still holds them. The pistol routes,
+    which ``aggregate`` builds, read only the printed points through
+    ``[aggregate].route_sample_seconds``; that is the aggregate stage's own
+    list, and :meth:`Settings._check_sections_agree` holds it equal to
+    ``[parse].snapshot_seconds`` minus this section's
+    :attr:`skip_sample_seconds`, so no ``[report]`` value enters another
+    stage's hash (AD-3).
+
+    **Some round types are protected from every rule but rule 3**, and the
+    list is owned by :data:`pappascout.render.view.PROTECTED_ROUND_TYPES`,
+    because it is a presentation choice and not an adjustable value. Rule 3
+    applies to them too because it no longer drops a row the report could
+    have written: it keeps the grid off the page. :attr:`anomaly_min_matches`
+    reads anomaly rows, not round-type blocks, so the protection does not
+    concern it.
 
     **A requirement for a new field: a false value means "rule off."**
     ``False``, an empty list and ``0`` all mean "does not prune", and
@@ -1051,10 +1127,18 @@ class ReportSettings(_Section):
     #: Rule 3: the time sample points that are **not written** into the
     #: report.
     #:
-    #: The default is empty, that is, the rule is off, and that is a
-    #: measurement result: a late sample point is thin and skewed but **not
-    #: repetition** like rules 1, 2, 4 and 5, so leaving it out can cost
-    #: content. The numbers are in ``settings.toml``.
+    #: **What it is for since Story 4.5**: ``[parse].snapshot_seconds`` is a
+    #: dense internal series, and this list holds the points that were added
+    #: to it, so the report keeps printing exactly the four sample-point rows
+    #: it printed before. The rule is therefore no longer "off by default" --
+    #: it is what keeps the report's length independent of the grid's
+    #: density. The numbers and the measurement are in ``settings.toml``.
+    #:
+    #: The one sample point that is **not** on the list although it was a
+    #: candidate is 45 s, and that is its own measurement: it is thin and
+    #: skewed (about half a team on four rounds in five) but **not
+    #: repetition** like rules 1, 2, 4 and 5, so leaving it out would cost
+    #: content.
     #:
     #: **Not the same thing as** ``[parse].snapshot_seconds``: the sample
     #: point stays in the table and in ``report.json``, the question is only
@@ -1067,6 +1151,40 @@ class ReportSettings(_Section):
     #: report that is character for character the same, so an unsorted list
     #: would give two identical reports different parameter hashes.
     skip_sample_seconds: list[float] = Field(default_factory=list)
+
+    #: The CT advance and the crunch are **printed** only when their row's
+    #: rounds come from at least this many matches (Story 4.5). The product
+    #: owner, 2026-09-25: a single brief visit is usually a reaction to a
+    #: sound or a kill, *"mutta jos jokin tällainen toistuu ottelusta
+    #: toiseen se tulee nostaa esiin"* -- so the unit is matches, not rounds
+    #: and not players (:attr:`~pappascout.domain.report.Anomaly.matches`).
+    #:
+    #: Like every rule in this section it decides what is printed and not
+    #: what is in ``report.json``. The crunch rows left out are counted in
+    #: the anomaly chapter; the advances, which are printed as habits in each
+    #: map chapter's Huomioitavaa block, are counted there, per map. The stack
+    #: is not read by it: its rows stand on the product owner's blind
+    #: judgements of single rounds (Story 4.4).
+    #:
+    #: **``0`` is off, and it is the only off.** ``1`` is refused at load:
+    #: every row has at least one match, so ``1`` would print everything
+    #: while the summary named a rule as set -- two meanings for one effect.
+    #: The shipped value and its measurement are in ``settings.toml``.
+    anomaly_min_matches: NonNegativeInt = 0
+
+    @field_validator("anomaly_min_matches")
+    @classmethod
+    def _check_anomaly_min_matches(cls, value: int) -> int:
+        """``0`` (off) or at least two: ``1`` is the rule off by another
+        name, and the summary would state it as on."""
+        if value == 1:
+            raise ValueError(
+                "anomaly_min_matches is 1, which every row meets, so the rule "
+                "would print everything while the report's summary named it "
+                "as set. Use 0 to switch it off, or 2 or more to require "
+                "recurrence across matches."
+            )
+        return value
 
     #: Rule 4: at most this many **targets** on utility's target row.
     #:
@@ -1405,6 +1523,35 @@ class Settings(BaseSettings):
                 "find nothing on every round -- and the coverage would still "
                 "report every CT round as scanned, which turns a blind spot "
                 "into 'no stacks' as an observation."
+            )
+        # THE ROUTE READS WHAT THE REPORT PRINTS (Story 4.5). The route's
+        # points are [aggregate]'s own list so that the aggregate stage hashes
+        # only its own section (AD-3); the points the report prints are
+        # [parse] minus [report]. Neither section can see the other, so the
+        # pair is held here. Compared as LABELS -- Story 2.13's rule for one
+        # second across layers -- because the renderer hides a section by
+        # label: 9.0000001 in skip_sample_seconds hides the 9 s section, and a
+        # float comparison would still let the route read 9 s.
+        hidden = {seconds_label(v) for v in self.report.skip_sample_seconds}
+        printed = [
+            value
+            for value in self.parse.snapshot_seconds
+            if seconds_label(value) not in hidden
+        ]
+        printed_labels = [seconds_label(v) for v in sorted(printed)]
+        route_labels = [
+            seconds_label(v) for v in sorted(self.aggregate.route_sample_seconds)
+        ]
+        if set(printed_labels) != set(route_labels):
+            raise ValueError(
+                "aggregate.route_sample_seconds must be the sample points the "
+                "report prints, that is parse.snapshot_seconds minus "
+                "report.skip_sample_seconds.\n"
+                f"The report prints ({', '.join(printed_labels)}) s, but the "
+                f"routes would read ({', '.join(route_labels)}) s. A route "
+                "through a point the report hides would put the grid back on "
+                "the page; a route missing a printed point would skip a "
+                "moment the reader sees. Change one of the three settings."
             )
         # EVERY TIME THRESHOLD MUST PROVE THE RULE IT GOVERNS CAN FIRE AT ALL
         # (Story 4.6, review round 1). The two guards above each prove it for
