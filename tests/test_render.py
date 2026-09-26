@@ -32,6 +32,7 @@ from pappascout.constants import (
     ANOMALY_RULES,
     ROUND_TYPE_FI,
     ROUND_TYPES,
+    SIDES,
     UTILITY_BUCKET_ALL,
     UTILITY_BUCKET_UNKNOWN,
     seconds_label,
@@ -97,6 +98,7 @@ from pappascout.render.view import (
     RECORD_UNKNOWN_OUTCOME,
     RECORD_VERB,
     ROUND_TYPE_ORDER,
+    SIDE_ORDER,
     TRACEABILITY_HEADING,
     MATCH_SAMPLE_UNIT,
     MAP_POOL_LABEL,
@@ -131,6 +133,7 @@ from pappascout.render.view import (
     _PRUNING_KEPT_THE_BLOCK,
     _TRACEABILITY_NOTE,
     _identifier,
+    _join_fi,
 )
 
 # Private for the same reason: the reading guide's record example is
@@ -927,6 +930,16 @@ def report_sections(text: str) -> list[tuple[str, str]]:
     return [(heading, "\n".join(lines)) for heading, lines in sections]
 
 
+def side_of(view, side: str = "T"):
+    """The first map's side by name, not by position.
+
+    Since Story 4.12 the view lists the sides CT first (``SIDE_ORDER``), so
+    ``sides[0]`` on a two-side map is the CT side; a test that means the T
+    side says so.
+    """
+    return next(entry for entry in view.maps[0].sides if entry.side == side)
+
+
 def section_text(text: str, heading: str) -> str:
     """One chapter's content. A missing chapter is an error, not an empty
     string.
@@ -951,15 +964,21 @@ def traceability_text(text: str) -> str:
 
 
 def test_report_has_the_structure_the_spec_asks_for() -> None:
-    """Title, summary, map, side, round type, the last three chapters."""
+    """Title, summary, map, buy class, side, the last three chapters.
+
+    Since Story 4.12 the buy class is the section and the side heads the
+    block inside it; the side's own sample is a row at the top of the map.
+    """
     text = render(report([pistol_map()]))
     for expected in (
         f"# {TEAM_NAME} -- scouting-raportti",
         "## Yhteenveto",
         "## `de_ancient` -- 2 kierrosta, 1 demo 1 ottelussa",
-        "### T-puoli -- 1 kierros",
-        "### CT-puoli -- 1 kierros",
-        "**Pistooli** (1 kierros 1 ottelussa, voitettu 0-1)",
+        "- **CT-puoli:** 1 kierros 1 ottelussa",
+        "- **T-puoli:** 1 kierros 1 ottelussa",
+        "### Pistooli",
+        "**CT-puoli** (1 kierros 1 ottelussa, voitettu 0-1)",
+        "**T-puoli** (1 kierros 1 ottelussa, voitettu 0-1)",
         "## Kierrosliite",
         "## Lukuohje",
         f"## {TRACEABILITY_HEADING}",
@@ -990,7 +1009,9 @@ def test_positions_utility_and_first_contact_are_bullets_not_paragraphs() -> Non
     as it happened to be indented.
     """
     text = render(report([pistol_map()]))
-    body = text.split("**Pistooli** (1 kierros 1 ottelussa, voitettu 0-1)")[1]
+    # The T block, the one with observation rows (under ``### Pistooli``
+    # since Story 4.12).
+    body = text.split("**T-puoli** (1 kierros 1 ottelussa, voitettu 0-1)")[1]
     body = body.split("\n\n")[0]
     # The first line is the end of the heading ("-- pieni otanta"), not an
     # observation.
@@ -1065,7 +1086,7 @@ def test_time_and_first_contact_positions_are_told_apart() -> None:
     view = view_of(report([pistol_map()]), round_list_paths=ROUND_LISTS)
     labels = [
         line.label
-        for line in view.maps[0].sides[0].round_types[0].lines
+        for line in side_of(view).round_types[0].lines
         if line.label and ("s" in line.label or "ensikontakti" in line.label)
     ]
     assert "15 s" in labels
@@ -1491,8 +1512,9 @@ def test_small_sample_is_marked_not_hidden() -> None:
     shows.
     """
     text = render(report([pistol_map()]))
+    assert "### Pistooli" in text
     assert (
-        "**Pistooli** (1 kierros 1 ottelussa, voitettu 0-1) -- pieni otanta"
+        "**T-puoli** (1 kierros 1 ottelussa, voitettu 0-1) -- pieni otanta"
         in text
     )
     assert "Middle 3" in text
@@ -1709,10 +1731,16 @@ def test_unpaired_detonations_are_mentioned_in_the_summary() -> None:
 
 
 def test_a_round_type_that_does_not_exist_gets_no_empty_heading() -> None:
-    """A map without a force: the heading is not written empty."""
+    """A map without a force: the heading is not written empty.
+
+    Since Story 4.12 a round type is a section heading (``### Force``), so
+    that is what must be absent; the block heading names the side. The
+    pistol section is asserted present so the absence is not vacuous.
+    """
     text = render(report([pistol_map()]))
-    assert "**Force**" not in text
-    assert "**Eco**" not in text
+    assert "### Pistooli" in text
+    assert "### Force" not in text
+    assert "### Eco" not in text
 
 
 def test_a_round_type_without_observations_says_so_rather_than_going_silent() -> None:
@@ -1746,10 +1774,13 @@ def test_a_round_type_without_observations_says_so_rather_than_going_silent() ->
 
 
 def test_a_side_without_round_types_is_not_a_bare_heading() -> None:
+    """Since Story 4.12 the side is a row at the top of the map chapter, and
+    its note stands directly under that row."""
     entry = map_report("de_nuke", [side("CT", [])])
     text = render(report([entry]))
-    assert "### CT-puoli" in text
-    assert "Ei yhtään luokiteltua kierrostyyppiä" in text
+    row = next(line for line in text.splitlines() if line.startswith("- **CT-"))
+    after = text.split(row + "\n", 1)[1]
+    assert after.startswith("  - *Ei yhtään luokiteltua kierrostyyppiä"), after
 
 
 def test_a_map_without_sides_is_not_a_bare_heading() -> None:
@@ -2076,7 +2107,7 @@ def test_the_two_counters_stand_side_by_side_and_differ() -> None:
     view = view_of(report([pistol_map()]))
     lines = {
         line.label: tuple(claim.text for claim in line.claims)
-        for line in view.maps[0].sides[0].round_types[0].lines
+        for line in side_of(view).round_types[0].lines
     }
     assert lines["aseistettuja ostoajan lopussa"] == ("0",)
     assert lines["panssaroituja ostoajan lopussa"] == ("5",)
@@ -2085,7 +2116,7 @@ def test_the_two_counters_stand_side_by_side_and_differ() -> None:
 def test_the_armored_line_follows_the_armed_line() -> None:
     """The order is part of the observation: the rows are read as a pair."""
     view = view_of(report([pistol_map()]))
-    labels = [line.label for line in view.maps[0].sides[0].round_types[0].lines]
+    labels = [line.label for line in side_of(view).round_types[0].lines]
     assert (
         labels.index("panssaroituja ostoajan lopussa")
         == labels.index("aseistettuja ostoajan lopussa") + 1
@@ -3068,6 +3099,166 @@ def test_pistol_and_saving_rounds_come_before_default() -> None:
         assert order.index(saving) < order.index("full")
 
 
+def test_the_buy_classes_run_in_the_product_owners_order() -> None:
+    """*"ct-pistol, t pistol --> ct force, t force --> ct eco, t eco --> ct
+    half, t half"* (2026-09-26, Story 4.12): force before eco, and default,
+    which he did not name, after the half-buy."""
+    order = [name for name in ROUND_TYPE_ORDER if name in PO_BUY_CLASSES]
+    assert order == list(PO_BUY_CLASSES)
+
+
+def test_every_side_has_a_place_in_the_side_order() -> None:
+    """A side missing from ``SIDE_ORDER`` would sort last in silence rather
+    than vanish, but it would also break "CT before T" without a word."""
+    assert set(SIDE_ORDER) == set(SIDES)
+    assert SIDE_ORDER == ("CT", "T")
+
+
+#: The product owner's buy classes in his order, and the section headings
+#: they print as. Written out here as the claim under test -- the view's
+#: order is what is being checked, so it cannot be the source.
+PO_BUY_CLASSES = ("pistol", "force", "eco", "half", "full")
+PO_HEADINGS = ["Pistooli", "Force", "Eco", "Puoliosto", "Default"]
+
+
+def _both_sides_map(
+    ct_types: tuple[str, ...] = PO_BUY_CLASSES,
+    t_types: tuple[str, ...] = PO_BUY_CLASSES,
+) -> MapReport:
+    """A map whose sides played these buy classes, given in the **reverse**
+    of the report's order and with T first, so an order that merely followed
+    the model would fail."""
+    return map_report(
+        "de_nuke",
+        [
+            side("T", [round_type(name, 2) for name in reversed(t_types)]),
+            side("CT", [round_type(name, 2) for name in reversed(ct_types)]),
+        ],
+    )
+
+
+def _sections(text: str) -> list[tuple[str, list[str]]]:
+    """The map chapter's buy-class sections: heading and the block headings
+    under it, in the order printed."""
+    chapter = _map_chapter(text, "de_nuke")
+    sections: list[tuple[str, list[str]]] = []
+    for line in chapter.splitlines():
+        if line.startswith("### "):
+            sections.append((line[4:], []))
+        elif line.startswith("**") and sections:
+            sections[-1][1].append(line.split("**")[1])
+    return sections
+
+
+def test_a_map_is_ordered_by_buy_class_then_side() -> None:
+    """The I/O matrix's first row: every class, each with CT then T."""
+    sections = _sections(render(report([_both_sides_map()])))
+    assert [heading for heading, _ in sections] == PO_HEADINGS
+    for heading, blocks in sections:
+        assert blocks == ["CT-puoli", "T-puoli"], heading
+
+
+def test_a_side_that_never_played_a_class_gets_no_empty_block() -> None:
+    """No CT half-buy: the half-buy section holds the T block only."""
+    ct = tuple(name for name in PO_BUY_CLASSES if name != "half")
+    sections = dict(_sections(render(report([_both_sides_map(ct_types=ct)]))))
+    assert sections["Puoliosto"] == ["T-puoli"]
+    assert sections["Force"] == ["CT-puoli", "T-puoli"]
+
+
+def test_a_class_neither_side_played_has_no_section() -> None:
+    """No half-buys at all: no section, not an empty one."""
+    types = tuple(name for name in PO_BUY_CLASSES if name != "half")
+    text = render(report([_both_sides_map(types, types)]))
+    assert [heading for heading, _ in _sections(text)] == [
+        heading for heading in PO_HEADINGS if heading != "Puoliosto"
+    ]
+    assert "### Puoliosto" not in text
+
+
+def test_the_side_rows_come_ct_first_with_their_samples() -> None:
+    """The side's own sample, which was its heading until Story 4.12, is a
+    row at the top of the map chapter -- CT first, like the blocks."""
+    text = render(report([_both_sides_map()]))
+    chapter = text.split("## `de_nuke`")[1]
+    ct = chapter.index("- **CT-puoli:** 10 kierrosta 1 ottelussa")
+    t = chapter.index("- **T-puoli:** 10 kierrosta 1 ottelussa")
+    assert ct < t < chapter.index("### Pistooli")
+
+
+def test_every_block_is_printed_once_under_its_own_class() -> None:
+    """The regrouping neither drops nor duplicates: the view's classes hold
+    exactly the sides' blocks, as the same objects."""
+    view = view_of(report([_both_sides_map(ct_types=("pistol", "eco"))]))
+    chapter = view.maps[0]
+    regrouped = [
+        (side.side, block.round_type)
+        for buy_class in chapter.buy_classes
+        for side, block in buy_class.blocks
+    ]
+    original = [
+        (side.side, block.round_type)
+        for side in chapter.sides
+        for block in side.round_types
+    ]
+    assert sorted(regrouped) == sorted(original)
+    assert len(regrouped) == len(set(regrouped))
+    for buy_class in chapter.buy_classes:
+        for side, block in buy_class.blocks:
+            assert block.round_type == buy_class.round_type
+            assert any(block is entry for entry in side.round_types)
+
+
+def test_two_blocks_of_one_type_on_one_side_are_both_printed() -> None:
+    """``_buy_class_views`` says so: the model does not forbid it, and the
+    regrouping must neither merge the two nor keep only one."""
+    entry = map_report(
+        "de_nuke",
+        [side("T", [round_type("eco", 2), round_type("eco", 3)])],
+    )
+    sections = dict(_sections(render(report([entry]))))
+    assert sections == {"Eco": ["T-puoli", "T-puoli"]}
+
+
+def test_the_reading_guide_states_the_order_the_report_prints() -> None:
+    """The structure sentence names the round types **this report prints**,
+    in the order it prints them, and the sides in ``SIDE_ORDER``.
+
+    Both expectations are derived from the same source -- the fixture's types
+    sorted by ``ROUND_TYPE_ORDER`` -- and checked, one against the guide and
+    one against the printed headings, so the guide and the sections cannot
+    disagree without one of the two failing. The fixture leaves out the
+    half-buy, and poikkeama and jatkoaika are absent too: the sentence must
+    not name a section the report lacks.
+    """
+    played = ("pistol", "force", "eco", "full")
+    text = render(report([_both_sides_map(played, played)]))
+    expected = [
+        ROUND_TYPE_FI[name] for name in ROUND_TYPE_ORDER if name in played
+    ]
+    sides = " ja sitten ".join(f"{side}-puolen" for side in SIDE_ORDER)
+    guide = text.split("## Lukuohje")[1]
+    assert (
+        "Kartan luku etenee kierrostyypeittäin; tämän raportin kierrostyypit "
+        f"järjestyksessä: {_join_fi(expected)}. Kunkin kierrostyypin alla on "
+        f"ensin {sides} lohko."
+    ) in guide
+    assert "puoliosto" not in guide.split("Kartan luku")[1].split(".")[0]
+    assert [heading.lower() for heading, _ in _sections(text)] == expected
+    for _, blocks in _sections(text):
+        assert blocks == [f"{side}-puoli" for side in SIDE_ORDER]
+
+
+def test_an_empty_report_has_no_structure_sentence() -> None:
+    """No map, no map chapter: the guide must not describe one. And a map
+    whose sides printed no round type at all has no section for the sentence
+    to list, so it is left out there too rather than listing nothing."""
+    assert "Kartan luku etenee" not in render(report([]))
+    no_sides = render(report([map_report("de_nuke", [])]))
+    assert "## `de_nuke`" in no_sides
+    assert "Kartan luku etenee" not in no_sides
+
+
 @pytest.mark.parametrize(
     "raw,expected",
     [("eco", "Eco"), ("OT", "OT"), ("HE", "HE"), ("puoliosto", "Puoliosto"), ("", "")],
@@ -3104,7 +3295,7 @@ def test_the_record_is_on_the_round_types_own_sample_line() -> None:
         ))])],
     )
     text = render(report([entry]))
-    assert "**Default** (22 kierrosta 1 ottelussa, voitettu 15-7)" in text
+    assert "**T-puoli** (22 kierrosta 1 ottelussa, voitettu 15-7)" in text
 
 
 @pytest.mark.parametrize("unknown", [1, 2])
@@ -3136,7 +3327,7 @@ def test_the_record_names_the_unknown_outcomes_instead_of_hiding_them(
     )
     text = render(report([entry]))
     assert (
-        f"**Default** ({22 + unknown} kierrosta 1 ottelussa, voitettu 15-7, "
+        f"**T-puoli** ({22 + unknown} kierrosta 1 ottelussa, voitettu 15-7, "
         f"{unknown} kierroksen tulos ei tiedossa)" in text
     )
 
@@ -3162,7 +3353,7 @@ def test_a_block_whose_every_outcome_is_unknown_does_not_say_nobody_won(
         ))])],
     )
     text = render(report([entry]))
-    heading = next(row for row in text.splitlines() if row.startswith("**Eco**"))
+    heading = next(row for row in text.splitlines() if row.startswith("**T-puoli**"))
     assert "3 kierroksen tulos ei tiedossa" in heading
     assert "0-0" not in heading
     assert RECORD_VERB not in heading
@@ -3201,10 +3392,10 @@ def test_the_report_states_the_record_without_deriving_a_rate() -> None:
     )
     text = render(report([entry]))
     line = next(
-        row for row in text.splitlines() if row.startswith("**Default**")
+        row for row in text.splitlines() if row.startswith("**T-puoli**")
     )
     assert line == (
-        f"**Default** ({rounds_text(22)} {matches_text(1)}, "
+        f"**T-puoli** ({rounds_text(22)} {matches_text(1)}, "
         f"{record_text(record)})"
         " -- vain toistuvat kuviot"
     )
@@ -3247,7 +3438,7 @@ def test_a_clean_sweep_is_still_marked_a_small_sample() -> None:
     )
     text = render(report([entry]))
     heading = next(
-        row for row in text.splitlines() if row.startswith("**Default**")
+        row for row in text.splitlines() if row.startswith("**T-puoli**")
     )
     assert "voitettu 3-0" in heading
     assert "pieni otanta" in heading
@@ -3270,7 +3461,7 @@ def test_the_reading_guide_explains_the_record() -> None:
     example = record_text(_LEGEND_RECORD)
     assert example in guide
     heading = next(
-        row for row in text.splitlines() if row.startswith("**Default**")
+        row for row in text.splitlines() if row.startswith("**T-puoli**")
     )
     assert example in heading
 
@@ -3291,7 +3482,9 @@ def test_the_reading_guide_says_the_missing_rate_is_a_decision() -> None:
 def test_a_round_type_heading_uses_the_finnish_name_capitalised() -> None:
     entry = map_report("de_nuke", [side("T", [round_type("ot", 4)])])
     text = render(report([entry]))
-    assert "**Jatkoaika** (4 kierrosta 1 ottelussa, voitettu 0-4)" in text
+    # The section heading since Story 4.12; the block under it names the side.
+    assert "### Jatkoaika" in text
+    assert "**T-puoli** (4 kierrosta 1 ottelussa, voitettu 0-4)" in text
 
 
 def test_view_is_built_without_touching_the_report() -> None:
@@ -3365,6 +3558,13 @@ def test_a_broken_template_is_a_pappascout_error_not_a_jinja_traceback(
 #: The shape comes about in two places (the template and the post-processing),
 #: so it is locked whole. This test failing means that the report's layout
 #: changed -- which is sometimes right, and then this text is updated.
+#: Last updated in Story 4.12. What changed, exactly: each side heading
+#: (``### T-puoli -- …``) became a side row (``- **T-puoli:** …``); each
+#: block heading's label changed from the round type (``**Eco**``) to the
+#: side (``**T-puoli**``) under a new ``### Eco`` section, with the rest of
+#: the heading line unchanged; the habit row was reworded; four reading-guide
+#: paragraphs changed and one was added. Every block's body lines are
+#: unchanged.
 GOLDEN = """\
 # MatureMayhem -- scouting-raportti
 
@@ -3395,11 +3595,13 @@ GOLDEN = """\
   - ei otteluindeksissä (`ANCIENT_vs_RCAVE_VETERANS`)
 
 - **Huomioitavaa:**
-  - CT-pelaaja alueella Squeaky säästökierroksilla (1/4 säästökierroksesta, 1/2 ottelussa; eco k23 `Ancient_vs_kaljukostaja`)
+  - CT-pelaaja puskee alueelle Squeaky säästökierroksilla, kerran: eco 1 (1/4 säästökierroksesta, 1/2 ottelussa; eco k23 `Ancient_vs_kaljukostaja`)
 
-### T-puoli -- 4 kierrosta 2 ottelussa
+- **T-puoli:** 4 kierrosta 2 ottelussa
 
-**Eco** (4 kierrosta 2 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
+### Eco
+
+**T-puoli** (4 kierrosta 2 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
 - 6 s: Ramp 2 (3/4 kierroksesta, 2/2 ottelussa, uusin mukana)
 - ensikontakti (mediaani 9,1 s): Ramp 1 (3/4 kierroksesta, 2/2 ottelussa, uusin mukana)
 - utility: savu 1 kpl (3/4 kierroksesta)
@@ -3415,9 +3617,11 @@ GOLDEN = """\
   - ei otteluindeksissä (`Dust2_vs_a`)
   - ei otteluindeksissä (`Dust2_vs_b`)
 
-### T-puoli -- 4 kierrosta 2 ottelussa
+- **T-puoli:** 4 kierrosta 2 ottelussa
 
-**Eco** (4 kierrosta 2 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
+### Eco
+
+**T-puoli** (4 kierrosta 2 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
 - 6 s: LongA 2 (3/4 kierroksesta, 2/2 ottelussa)
 - ensimmäinen kuolema: ei omia kuolemia 4 kierroksella
 - *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; jokainen havainto ylitti kynnyksen.*
@@ -3430,16 +3634,17 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 
 ## Lukuohje
 
-- Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on kierrokset, joissa havainto tehtiin, m kyseisen kierrostyypin kaikki kierrokset. Mediaanin otanta rivin otsikossa (esimerkiksi "mediaani 14,2 s, 7/9 kierroksesta") noudattaa tätä sääntöä: se kertoo, monellako kierroksella ajoitus mitattiin. Saman rivin aluevaateet laskevat sen sijaan vain niitä kierroksia, joilla havainto oli olemassa, joten niiden nimittäjä on pienempi.
-- Kierrostyypin otsikon tulos (esimerkiksi "voitettu 15-7") laskee lohkon omat kierrokset: ensin voitetut, sitten hävityt. Ne ovat samat kierrokset, jotka otsikon kierrosmäärä laskee. Jos jonkin kierroksen tulosta ei saatu, se sanotaan otsikossa erikseen eikä lasketa tappioksi. Raportti kertoo luvun eikä johda siitä osuutta tai arviota: tulkinta on lukijan.
-- Kierrosten rinnalla luetaan ottelut (n/m ottelussa): kolme kierrosta kolmesta ottelusta on tapa, kolme kierrosta yhdestä ottelusta tapahtui kerran, ja pelkkä kierrosmäärä kirjoittaa ne samalla tavalla. Otsikot kertovat ottelumäärän aina. Väitekohtainen ottelumäärä on näytepisteiden riveillä ja ensikontaktin läsnäolorivillä; muilla riveillä lukee vain kierrokset, ja niiden nimittäjä on otsikon ottelumäärä. Ottelumäärä jätetään riviltä pois silloin, kun se on sama murtoluku kuin kierrosmäärä -- esimerkiksi pistoolilohkossa, jossa jokainen ottelu antaa yhden kierroksen -- ja kokonaan silloin, kun lohkossa on vain yksi ottelu. Tuoreusmerkintä kirjoitetaan siltikin, jos kartalla on useampi ottelu.
+- Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on kierrokset, joissa havainto tehtiin, m lohkon kaikki kierrokset eli saman puolen kyseisen kierrostyypin kierrokset. Mediaanin otanta rivin otsikossa (esimerkiksi "mediaani 14,2 s, 7/9 kierroksesta") noudattaa tätä sääntöä: se kertoo, monellako kierroksella ajoitus mitattiin. Saman rivin aluevaateet laskevat sen sijaan vain niitä kierroksia, joilla havainto oli olemassa, joten niiden nimittäjä on pienempi.
+- Lohkon otsikon tulos (esimerkiksi "voitettu 15-7") laskee lohkon omat kierrokset: ensin voitetut, sitten hävityt. Ne ovat samat kierrokset, jotka otsikon kierrosmäärä laskee. Jos jonkin kierroksen tulosta ei saatu, se sanotaan otsikossa erikseen eikä lasketa tappioksi. Raportti kertoo luvun eikä johda siitä osuutta tai arviota: tulkinta on lukijan.
+- Kierrosten rinnalla luetaan ottelut (n/m ottelussa): kolme kierrosta kolmesta ottelusta on tapa, kolme kierrosta yhdestä ottelusta tapahtui kerran, ja pelkkä kierrosmäärä kirjoittaa ne samalla tavalla. Kartan otsikko, puolten rivit ja lohkojen otsikot kertovat ottelumäärän aina. Väitekohtainen ottelumäärä on näytepisteiden riveillä ja ensikontaktin läsnäolorivillä; muilla riveillä lukee vain kierrokset, ja niiden nimittäjä on otsikon ottelumäärä. Ottelumäärä jätetään riviltä pois silloin, kun se on sama murtoluku kuin kierrosmäärä -- esimerkiksi pistoolilohkossa, jossa jokainen ottelu antaa yhden kierroksen -- ja kokonaan silloin, kun lohkossa on vain yksi ottelu. Tuoreusmerkintä kirjoitetaan siltikin, jos kartalla on useampi ottelu.
 - Merkintä "uusin mukana" tai "ei uusimmassa" kertoo, onko **kartan uusin ottelu** niiden joukossa, joissa havainto tehtiin. Se vastaa kysymykseen "päteekö tämä yhä" -- osuus ei vastaa: sama 3/4 syntyy kolmesta vanhimmasta ottelusta ja kolmesta uusimmasta. **Uusin on kartan uusin eikä lohkon oma uusin**, ja se on merkinnän koko arvo: jos lohkossa ei ole yhtään kierrosta kartan uusimmasta ottelusta, koko lohko lukee "ei uusimmassa" -- eli tämä lohko on vanhaa tietoa. Kokonaan merkitty rivi voi syntyä myös siitä, että uusimman ottelun havainnot jäivät rivin kynnyksen alle tai näytepisteestä puuttuu kierroksia; rivin oma huomautus kertoo puuttuvat kierrokset ja lohkon huomautus kertoo karsitut havainnot. Ottelut eivät ole painotettuja millään luvulla: raportti kertoo havainnot siinä järjestyksessä kuin ne tapahtuivat, jotta jokainen luku on tarkistettavissa demoilta. Merkintä puuttuu kahdessa tapauksessa: kun kartalla on vain yksi ottelu, jolloin jokainen havainto on siinä ja kartan otsikko sanoo sen jo, ja kun otteluiden järjestystä ei tiedetä -- esimerkiksi käsin tuodulle demolle, jota ei ole otteluindeksissä.
 - **Ottelumäärät eivät laske yhteen tasojen välillä, kierrosmäärät laskevat.** Sama ottelu voi pelata kaksi karttaa ja pelaa aina molemmat puolet, joten se on mukana useamman otsikon ottelumäärässä: karttojen ottelumäärät yhteen laskettuna saa suuremman luvun kuin otteluita on. Kierrokset sen sijaan jakautuvat kartoille, puolille ja kierrostyypeille kukin täsmälleen kerran, joten ne laskevat yhteen. Yhteenvedon rivi kertoo pelattujen karttojen määrän juuri tästä syystä: se on luku, jonka voi laskea yhteen.
 - Jokaisen kartan alussa on karttojen lista: yksi rivi per pelattu kartta, ja rivillä pelipäivä, vastustaja ja demon tunniste. Listan otsikko on "Kartat uusin ensin" silloin, kun jokaisen rivin pelipäivä tiedetään, ja pelkkä "Kartat" silloin, kun yhdenkin rivin päivä puuttuu -- järjestystä ei silloin voi luvata. Päivä ja vastustaja tulevat arkiston otteluindeksistä, jonka discover-vaihe kirjoittaa, eikä raportti arvaa kumpaakaan mistään muualta. Raportti kertoo vastustajan nimen eikä arvioi sitä: vahvuus, sijoitus ja vastaavat ovat lukijan tulkintaa. Lukuja ei myöskään ryhmitellä vastustajan mukaan -- se veisi kierroksia niiltä lohkoilta, joilla niitä on, niille joilla ei ole. Yhteenvedon "Karttavalikoima" laskee samat kartat: kuinka monta kertaa kukin kartta on pelattu, yhteensä yhtä monta kuin otannan pelatut kartat.
+- Kartan luku etenee kierrostyypeittäin; tämän raportin kierrostyypit järjestyksessä: eco. Kunkin kierrostyypin alla on ensin CT-puolen ja sitten T-puolen lohko. Puoli, joka ei pelannut kierrostyyppiä, jää siitä pois, eikä kierrostyyppiä, jota kumpikaan puoli ei pelannut, kirjoiteta. Puolten omat kierros- ja ottelumäärät ovat kartan luvussa omilla riveillään ennen ensimmäistä kierrostyyppiä.
 - "ei otteluindeksissä" kartan rivillä tarkoittaa, ettei demon ottelua löydy arkiston otteluindeksistä -- tavallisimmin siksi, että demo on tuotu käsin eikä sen takana ole liigaottelua. Silloin rivillä ei ole päivää eikä vastustajaa, eikä raportti lue niitä tiedostonimestä: tiedostonimi ei ole havainto, ja siitä luettu nimi olisi väite, jota ei voi tarkistaa. Rivin tunniste kertoo, mistä demosta on kyse.
 - Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui.
 - Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 5 havaintoa näytepistettä kohden; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
-- **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta. Kirjataan tavaksi karttaluvun kohtaan Huomioitavaa eikä Poikkeamat-lukuun, ja saman alueen säästökierrokset lasketaan yhdessä kierrostyypistä riippumatta.
+- **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta. Kirjataan tavaksi karttaluvun kohtaan Huomioitavaa eikä Poikkeamat-lukuun, ja saman alueen säästökierrokset lasketaan yhdessä kierrostyypistä riippumatta. Rivi sanoo, että CT-pelaajat puskevat alueelle: T:n hallussa olevalla alueella oleminen säästökierroksella on jo etenemistä. Stack- ja crunch-rivit eivät sano puskusta mitään, eri syistä: stack on kasauma CT:n omalla sitellä, eikä siitä erotu, odottaako se vai puskeeko se; crunchilla on oma nimensä strategiana, ja tapa ei ole strategia.
 - **Crunch**: sama T:n alue, mutta pelaajien on **saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on pelaajan oma alue 9 sekuntia aiemmin. Vähintään 2 pelaajaa ja 2 eri suuntaa. **Crunchia ei ole rajattu kierrostyyppiin**, toisin kuin etenemistä, joten sen otanta on puolen kaikki kierrokset ja nimiö kertoo millä kierrostyypeillä se havaittiin. Sama kierros voi siis tuottaa molemmat rivit, ja täysi osto vain crunchin.
 - **Stack**: subjektin puolustus kasautuneena saman alueryhmän alueille. Alueryhmä on **johdettu tästä demosta**: jokaisen alueen keskipiste lasketaan demon omasta pistepilvestä, ja alue kuuluu lähemmän siten ryhmään, jos toinen site on vähintään 1,25 kertaa kauempana. Ei karttatietokantaa eikä käsin annettua aluejakoa. Osuma vaatii vähintään 4 pelaajaa enintään 2 saman siten ryhmän alueella 15 sekunnin kohdalla. Spawnissa seisova ei laske, eikä alue jonka geometria jättää **ilman ryhmää** tuota osumaa -- ja se on demokohtainen havainto eikä sääntö: Infernon Middle kuuluu A-ryhmään ja näkyy siksi rivinä, Ancientin ei kuulu kumpaankaan. **Rivin alue on vain rivin nimilappu**: ensimmäinen kierroksen nimeämistä alueista, suurin ensin ja tasatilanteessa aakkosissa ensimmäinen -- ei väite siitä, että juuri siellä olisi ollut eniten pelaajia. Havainto on kierrosrivin alueissa: viisi pelaajaa Alleyssa on B-siten stack, vaikka kukaan ei seiso BombsiteB:llä. Rivin luku on muotoa 4/5 -- kasassa olleet kaikista elossa olleista, myös spawnissa tai ryhmättömällä alueella seisovista. **Stackia ei ole rajattu kierrostyyppiin** eikä se lue alueen T-osuutta, joten se ei ole kummankaan toisen säännön tiukempi eikä löysempi muoto. Sääntö ei myöskään nimeä kuviota: **kasauma on havainto, ei nimi** -- odottaako se paikallaan vai puskeeko se, ei erotu tästä havainnosta.
 - Stackin kattavuus on 1/1 CT-kierroksesta. Jokaiselta demolta saatiin siteryhmät.
@@ -4565,7 +4770,7 @@ def test_one_demo_leaves_the_identifier_out_of_the_round_line() -> None:
     assert DEMO_ID not in text
 
 
-def test_differing_counts_read_as_an_upper_bound() -> None:
+def test_differing_counts_read_as_a_peak() -> None:
     """**The maximum must not come back as a per-moment claim.**
 
     Measured, MatureMayhem Anubis round 4: at 15 s five players out of five,
@@ -4574,11 +4779,16 @@ def test_differing_counts_read_as_an_upper_bound() -> None:
     exist. That was fixed by giving each moment its own number; Story 4.5
     cannot do that, because there are no moments on the row any more.
 
-    What it says instead is ``enintään``: a bound over the round's observed
-    moments, which is as true at fourteen sample points as at four. The
-    defect the older test guarded against is still guarded -- 5/5 must not
-    stand as the round's count -- it is refused by the word now rather than
-    by the seconds.
+    What it says instead is ``jopa``: the most seen at any of the round's
+    observed moments, marked as a peak, which is as true at fourteen sample
+    points as at four. The defect the older test guarded against is still
+    guarded -- 5/5 must not stand as the round's count -- it is refused by
+    the word now rather than by the seconds.
+
+    **``jopa`` and not ``enintään`` since Story 4.12** (the product owner,
+    2026-09-26): ``enintään`` read as a cap. The word changed; what the
+    number is did not. The old word is asserted absent from the row so a
+    half-done rename cannot pass.
     """
     text = anomaly_text(
         render(
@@ -4613,20 +4823,21 @@ def test_differing_counts_read_as_an_upper_bound() -> None:
             )
         )
     )
-    assert "  - kierros 4 (eco): enintään 5/5 pelaajaa" in text
-    # The bound is marked as one. An unmarked "5/5 pelaajaa" would be the
+    assert "  - kierros 4 (eco): jopa 5/5 pelaajaa" in text
+    assert "enintään 5/5" not in text
+    # The peak is marked as one. An unmarked "5/5 pelaajaa" would be the
     # old defect in new clothes: the peak read as the round's observation.
     assert "  - kierros 4 (eco): 5/5 pelaajaa" not in text
     assert "kohdalla" not in text
 
 
-def test_an_advance_over_two_sample_points_reads_as_an_upper_bound() -> None:
+def test_an_advance_over_two_sample_points_reads_as_a_peak() -> None:
     """The same fault concerned all three rules, not only the stack.
 
     Measured, MatureMayhem Inferno round 2: at 15 s five players in Middle,
     at 30 s **one**. The row read "5 pelaajaa 15 ja 30 s kohdalla", which
-    claimed five at a moment where there was one. It now says at most five,
-    which is what was observed.
+    claimed five at a moment where there was one. It now says as many as
+    five (``jopa``), which is what was observed.
     """
     text = anomaly_text(
         render(
@@ -4653,17 +4864,19 @@ def test_an_advance_over_two_sample_points_reads_as_an_upper_bound() -> None:
             )
         )
     )
-    assert "  - kierros 2 (eco): enintään 5 pelaajaa" in text
+    assert "  - kierros 2 (eco): jopa 5 pelaajaa" in text
     assert "  - kierros 2 (eco): 5 pelaajaa" not in text
 
 
-def test_equal_counts_are_stated_without_a_bound() -> None:
+def test_equal_counts_are_stated_without_a_peak_mark() -> None:
     """When every moment saw the same count, that count is an observation.
 
-    The condition compares **all** the numbers, so ``enintään`` appears only
+    The condition compares **all** the numbers, so ``jopa`` appears only
     where the moments really differ. Written on every row it would turn an
-    observation into a bound and lose the difference between the two -- the
-    mirror image of the fault the bound exists to prevent.
+    observation into a peak and lose the difference between the two -- the
+    mirror image of the fault the mark exists to prevent. ``enintään`` is
+    asserted absent as well: it was the mark before Story 4.12, and a guard
+    on the new word alone would not see the old one come back.
     """
     text = anomaly_text(
         render(
@@ -4687,6 +4900,7 @@ def test_equal_counts_are_stated_without_a_bound() -> None:
         )
     )
     assert "  - kierros 4 (eco): 4/5 pelaajaa" in text
+    assert "jopa" not in text
     assert "enintään" not in text
 
 
@@ -5274,8 +5488,13 @@ def block(text: str, heading: str) -> str:
     per round type: the claim "the row vanished" has to be made about the
     block it was supposed to vanish from, or the same claim would pass even
     when the row vanished from the wrong block.
+
+    Since Story 4.12 the round type is a section (``### Eco``) and the block
+    under it is headed by its side; this takes the section's **first**
+    block, which on the one-side reports these tests build is the only one.
     """
-    part = text.split(f"**{heading}**", 1)[1]
+    section = text.split(f"\n### {heading}\n", 1)[1]
+    part = section.split("\n**", 1)[1]
     rows: list[str] = []
     for row in part.splitlines()[1:]:
         if not row.strip():
@@ -5329,15 +5548,46 @@ def threshold_note(text: str, heading: str = "Default") -> str:
 #: Manual checks section; it is not re-runnable against today's renderer,
 #: and the measurement that replaces it is the re-rendered report recorded
 #: with the 2026-09-11 change.
+#: Re-set in Story 4.12 for the buy-class order. What changed, exactly: the
+#: side headings became side rows, CT first; each block heading's label
+#: changed from its round type to its side, under a ``### <round type>``
+#: section; the blocks run in the new order. Every block's body lines, and
+#: the rest of each heading line, are unchanged.
 GOLDEN_PRUNING_OFF_CHAPTER = """\
 ## `de_mirage` -- 15 kierrosta, 1 demo 1 ottelussa
 
 - **Kartat:**
   - ei otteluindeksissä (`Mirage_vs_karsinta`)
 
-### T-puoli -- 13 kierrosta 1 ottelussa
+- **CT-puoli:** 2 kierrosta 1 ottelussa
+- **T-puoli:** 13 kierrosta 1 ottelussa
 
-**Eco** (4 kierrosta 1 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
+### Pistooli
+
+**CT-puoli** (2 kierrosta 1 ottelussa, voitettu 0-2) -- pieni otanta
+- **`Nuke_vs_a` -- häviö** (kierros 1)
+  - *kierros ratkesi ennen ensimmäistä näytepistettä*
+- **`Nuke_vs_a` -- häviö** (kierros 2)
+  - *kierros ratkesi ennen ensimmäistä näytepistettä*
+- 30 s: Middle 2 (2/2 kierroksesta)
+- 45 s: Middle 1 (2/2 kierroksesta)
+- valo: CTSpawn -> BombsiteA (arvio) 0-5 s (2/2 kierroksesta), CTSpawn -> Connector (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Jungle (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Palace (arvio) 0-5 s (1/2 kierroksesta)
+- aseistettuja ostoajan lopussa: 5 (2/2 kierroksesta)
+- panssaroituja ostoajan lopussa: 5 (2/2 kierroksesta)
+- ensimmäinen kuolema: Connector (2/2 kierroksesta)
+- tapot alueittain: BombsiteA (3/8 taposta), Palace (2/8 taposta), Connector (1/8 taposta), Jungle (1/8 taposta), Window (1/8 taposta)
+
+### Force
+
+**T-puoli** (3 kierrosta 1 ottelussa, voitettu 0-3) -- vain toistuvat kuviot
+- aseistettuja ostoajan lopussa: 3 (3/3 kierroksesta)
+- panssaroituja ostoajan lopussa: 3 (3/3 kierroksesta)
+- ensimmäinen kuolema: ei omia kuolemia 3 kierroksella
+- *Vain kuviot, jotka toistuvat kaikilla 3 kierroksella; jokainen havainto ylitti kynnyksen.*
+
+### Eco
+
+**T-puoli** (4 kierrosta 1 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
 - 6 s: Middle 2 (4/4 kierroksesta)
 - 15 s: Middle 2 (4/4 kierroksesta)
 - 30 s: Middle 1 (4/4 kierroksesta)
@@ -5349,37 +5599,20 @@ GOLDEN_PRUNING_OFF_CHAPTER = """\
 - tapot alueittain: BombsiteA (5/23 taposta), Connector (4/23 taposta), Palace (4/23 taposta), Apartments (3/23 taposta), Ramp (3/23 taposta)
 - *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; 8 harvinaisempaa havaintoa jäi pois.*
 
-**Force** (3 kierrosta 1 ottelussa, voitettu 0-3) -- vain toistuvat kuviot
-- aseistettuja ostoajan lopussa: 3 (3/3 kierroksesta)
-- panssaroituja ostoajan lopussa: 3 (3/3 kierroksesta)
-- ensimmäinen kuolema: ei omia kuolemia 3 kierroksella
-- *Vain kuviot, jotka toistuvat kaikilla 3 kierroksella; jokainen havainto ylitti kynnyksen.*
+### Puoliosto
 
-**Puoliosto** (2 kierrosta 1 ottelussa, voitettu 0-2) -- pieni otanta -- vain toistuvat kuviot
+**T-puoli** (2 kierrosta 1 ottelussa, voitettu 0-2) -- pieni otanta -- vain toistuvat kuviot
 - aseistettuja ostoajan lopussa: 1 (2/2 kierroksesta)
 - panssaroituja ostoajan lopussa: 3 (2/2 kierroksesta)
 - ensimmäinen kuolema: ei omia kuolemia 2 kierroksella
 - *Vain kuviot, jotka toistuvat kaikilla 2 kierroksella; jokainen havainto ylitti kynnyksen.*
 
-**Default** (4 kierrosta 1 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
+### Default
+
+**T-puoli** (4 kierrosta 1 ottelussa, voitettu 0-4) -- vain toistuvat kuviot
 - 6 s: Middle 2 (4/4 kierroksesta)
 - ensimmäinen kuolema (mediaani 20,0 s, 2/4 kierroksesta): ei omia kuolemia 2 kierroksella
-- *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; 5 harvinaisempaa havaintoa jäi pois.*
-
-### CT-puoli -- 2 kierrosta 1 ottelussa
-
-**Pistooli** (2 kierrosta 1 ottelussa, voitettu 0-2) -- pieni otanta
-- **`Nuke_vs_a` -- häviö** (kierros 1)
-  - *kierros ratkesi ennen ensimmäistä näytepistettä*
-- **`Nuke_vs_a` -- häviö** (kierros 2)
-  - *kierros ratkesi ennen ensimmäistä näytepistettä*
-- 30 s: Middle 2 (2/2 kierroksesta)
-- 45 s: Middle 1 (2/2 kierroksesta)
-- valo: CTSpawn -> BombsiteA (arvio) 0-5 s (2/2 kierroksesta), CTSpawn -> Connector (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Jungle (arvio) 0-5 s (1/2 kierroksesta), CTSpawn -> Palace (arvio) 0-5 s (1/2 kierroksesta)
-- aseistettuja ostoajan lopussa: 5 (2/2 kierroksesta)
-- panssaroituja ostoajan lopussa: 5 (2/2 kierroksesta)
-- ensimmäinen kuolema: Connector (2/2 kierroksesta)
-- tapot alueittain: BombsiteA (3/8 taposta), Palace (2/8 taposta), Connector (1/8 taposta), Jungle (1/8 taposta), Window (1/8 taposta)"""
+- *Vain kuviot, jotka toistuvat vähintään 3 kierroksella; 5 harvinaisempaa havaintoa jäi pois.*"""
 
 
 def test_with_every_rule_off_the_map_chapter_is_what_it_was() -> None:
@@ -6819,7 +7052,7 @@ def test_a_first_death_line_without_a_median_stays_a_bare_label() -> None:
     """
     text = render(pruned_death_report(first={}, median=None))
     assert "- ensimmäinen kuolema: ei omia kuolemia 9 kierroksella" in text
-    assert "kierroksesta)" not in text.split("**Default**")[1].split("##")[0]
+    assert "kierroksesta)" not in text.split("### Default")[1].split("##")[0]
 
 
 def test_a_workshop_map_name_is_protected_in_the_chapter_heading() -> None:
@@ -7252,7 +7485,8 @@ def test_a_one_match_block_states_no_match_sample_on_its_claims() -> None:
     text = render(report([map_report("de_nuke", [side("T", [entry])])]))
     row = next(line for line in text.splitlines() if line.startswith("- 15 s"))
     assert row == "- 15 s: Ramp 2 (2/2 kierroksesta)"
-    assert "**Eco** (2 kierrosta 1 ottelussa," in text
+    assert "### Eco" in text
+    assert "**T-puoli** (2 kierrosta 1 ottelussa," in text
 
 
 def test_a_claim_without_a_match_sample_prints_what_it_always_printed() -> None:
@@ -7359,8 +7593,8 @@ def test_the_round_type_heading_states_the_match_count() -> None:
             ]
         )
     )
-    assert "**Pistooli** (4 kierrosta 4 ottelussa, voitettu 0-4)" in text
-    assert "### T-puoli -- 4 kierrosta 4 ottelussa" in text
+    assert "**T-puoli** (4 kierrosta 4 ottelussa, voitettu 0-4)" in text
+    assert "- **T-puoli:** 4 kierrosta 4 ottelussa" in text
 
 
 def test_the_summary_says_how_many_matches_the_demos_came_from() -> None:
@@ -7455,8 +7689,8 @@ def test_every_heading_states_matches_and_not_demos() -> None:
         )
     )
     assert "## `de_nuke` -- 6 kierrosta, 2 demoa 1 ottelussa" in text
-    assert "### T-puoli -- 6 kierrosta 1 ottelussa" in text
-    assert "**Default** (6 kierrosta 1 ottelussa," in text
+    assert "- **T-puoli:** 6 kierrosta 1 ottelussa" in text
+    assert "**T-puoli** (6 kierrosta 1 ottelussa," in text
     # The demo count must not have been printed as the match count anywhere.
     assert "2 ottelussa" not in text
 
@@ -8960,10 +9194,11 @@ def test_an_advance_is_a_habit_in_the_map_chapter() -> None:
     text = render(report([_two_match_map()], anomalies=[_lobby_habit()]), MATCH_RULE)
     chapter = _map_chapter(text, "de_nuke")
     assert f"- **{HABITS_LABEL}:**" in chapter
+    # Said in words since Story 4.12: what they do, how often, on which buys.
     assert (
-        "  - CT-pelaaja alueella Lobby säästökierroksilla (2/5 "
-        "säästökierroksesta, 2/2 ottelussa; eco k14 2026-09-20, force k19 "
-        "2026-09-13)"
+        "  - CT-pelaaja puskee alueelle Lobby säästökierroksilla, 2 kertaa: "
+        "force 1, eco 1 (2/5 säästökierroksesta, 2/2 ottelussa; eco k14 "
+        "2026-09-20, force k19 2026-09-13)"
     ) in chapter
     # Newest match first, as the played-maps list above it -- although the
     # model holds the rounds the other way round.
@@ -8975,11 +9210,56 @@ def test_an_advance_is_a_habit_in_the_map_chapter() -> None:
 
 def test_a_habit_is_worded_as_an_observation_and_names_no_pattern() -> None:
     """A habit must not read as a strategy: none of the strategy words, no
-    "usein", nothing about why."""
+    "usein", nothing about why.
+
+    **``pusku`` left this list deliberately in Story 4.12**, and the row now
+    says ``puskee``. A habit row reports a CT player **inside ground the T
+    side holds, on a save round**; being there *is* having pushed. At the
+    shipped ``anomaly_min_matches`` 2 the row is raised only when it recurs
+    across matches (this test runs with that rule on); with the rule off a
+    one-match visit prints with the same verb.
+    :func:`test_stack_and_crunch_rows_name_no_push` pins the other half, for
+    reasons of its own. The verb is asserted present, so the change is
+    visible here and not merely unguarded: ``"pusku"`` is not a substring of
+    ``"puskee"``, so the old list would have gone on passing in silence.
+    """
     text = render(report([_two_match_map()], anomalies=[_lobby_habit()]), MATCH_RULE)
     row = [r for r in _map_chapter(text, "de_nuke").splitlines() if "Lobby" in r][0]
-    for word in ("crunch", "rush", "stack", "pusku", "usein", "strat"):
+    assert " puskee alueelle Lobby " in row, row
+    for word in ("crunch", "rush", "stack", "usein", "strat"):
         assert word not in row.lower(), word
+
+
+def test_stack_and_crunch_rows_name_no_push() -> None:
+    """The other half of Story 4.12's rule: the word stays out of the stack
+    and crunch rows, and **for different reasons**.
+
+    * **stack** -- a concentration on the CTs' own site. The project
+      refuted, twice, a rule that tried to tell it apart as waiting or
+      pushing; it cannot be told, so the row names neither.
+    * **crunch** -- it is on T-held ground too, so "being there is having
+      pushed" would fit it; that is not why the word is kept off. The crunch
+      has its own name, the product owner's word for that strategy, and a
+      habit is not a strategy (his decision, 2026-09-25), so the habit's verb
+      does not belong on it.
+
+    The stem ``pusk`` and not ``pusku``, so neither the noun nor any form of
+    the verb can slip in.
+
+    Only the chapter's rows are read: the reading guide's stack paragraph
+    says, rightly, that the observation does not tell *"odottaako se
+    paikallaan vai puskeeko se"*.
+    """
+    text = anomaly_text(
+        render(
+            report([pistol_map()], anomalies=[crunch_anomaly(), stack_anomaly()])
+        )
+    )
+    rows = [row for row in text.splitlines() if row.lstrip().startswith("- ")]
+    assert any(row.startswith("- Crunch (") for row in rows), rows
+    assert any(row.startswith("- Stack (") for row in rows), rows
+    for row in rows:
+        assert "pusk" not in row.lower(), row
 
 
 def test_eco_and_force_in_two_matches_are_one_habit() -> None:
@@ -9004,7 +9284,9 @@ def test_a_one_match_advance_is_counted_and_not_raised() -> None:
         "1 T:n alue, jolla CT-pelaaja nähtiin vain yhdessä ottelussa, jäi "
         "nostamatta"
     ) in chapter
-    assert "alueella TSideLower" not in chapter
+    # The row's own words since Story 4.12 -- "alueella" would pass vacuously.
+    assert "alueelle TSideLower" not in chapter
+    assert "puskee" not in chapter
 
 
 def test_a_map_with_no_advance_has_no_habits_block() -> None:
@@ -9057,7 +9339,9 @@ def test_a_two_match_crunch_is_printed() -> None:
 def test_the_rule_off_raises_every_advance_and_prints_every_crunch() -> None:
     """``0`` is off, as every false value in the section is."""
     text = render(report([pistol_map()], anomalies=[_advance(), crunch_anomaly(area="Ramp")]))
-    assert "alueella TSideLower säästökierroksilla (1/3 säästökierroksesta" in text
+    # "kerran" for one, not "1 kerran" (Story 4.12 review).
+    assert "alueelle TSideLower säästökierroksilla, kerran: eco 1 (1/3 " in text
+    assert "1 kerran: " not in text
     assert "Crunch (" in anomaly_text(text)
     assert "jäi nostamatta" not in text
 
@@ -9110,21 +9394,22 @@ def test_a_habit_states_one_player_as_the_singular() -> None:
             anomaly_round(demo=MATCH_B, round_no=9, points=_pts(1)),
         ]
     )
-    assert row.startswith("  - CT-pelaaja alueella Lobby")
+    # One player is not a peak: no "jopa" (Story 4.12).
+    assert row.startswith("  - CT-pelaaja puskee alueelle Lobby")
 
 
 def test_a_habit_states_an_equal_count_as_the_observation() -> None:
-    """Every point saw two: the count is the observation, not a bound."""
+    """Every point saw two: the count is the observation, not a peak."""
     row = _habit_row(
         [
             anomaly_round(demo=MATCH_A, round_no=4, points=_pts(2, 2)),
             anomaly_round(demo=MATCH_B, round_no=9, points=_pts(2)),
         ]
     )
-    assert row.startswith("  - 2 CT-pelaajaa alueella Lobby")
+    assert row.startswith("  - 2 CT-pelaajaa puskee alueelle Lobby")
 
 
-def test_a_habit_states_differing_points_as_a_bound_within_one_round() -> None:
+def test_a_habit_states_differing_points_as_a_peak_within_one_round() -> None:
     """The dense grid's case: one round's points saw 3, 5 and 1 players.
 
     Compared by the rounds' maxima both rounds read 5 and the row would print
@@ -9137,7 +9422,93 @@ def test_a_habit_states_differing_points_as_a_bound_within_one_round() -> None:
             anomaly_round(demo=MATCH_B, round_no=9, points=_pts(5)),
         ]
     )
-    assert row.startswith("  - enintään 5 CT-pelaajaa alueella Lobby")
+    # "jopa" and not "enintään" since Story 4.12: a peak, not a cap.
+    assert row.startswith("  - jopa 5 CT-pelaajaa puskee alueelle Lobby")
+
+
+def test_a_habit_counts_each_buy_type_from_its_own_rounds() -> None:
+    """How many times, and how many on each type, read from the row's own
+    rounds (Story 4.12) -- two ecos and a half-buy, so a per-type count that
+    were a flag or a guess would show, and no force is named because none of
+    these rounds was one."""
+    row = _habit_row(
+        [
+            anomaly_round(demo=MATCH_A, round_no=4, round_type="eco"),
+            anomaly_round(demo=MATCH_B, round_no=9, round_type="half"),
+            anomaly_round(demo=MATCH_B, round_no=11, round_type="eco"),
+        ]
+    )
+    assert " säästökierroksilla, 3 kertaa: eco 2, puoliosto 1 (" in row, row
+    assert "force" not in row
+
+
+def test_a_habit_states_differing_rounds_as_a_peak() -> None:
+    """Each round flat, the rounds different from each other: 2 and 2 in one,
+    3 in the other. The peak is read over **every** point of **every**
+    round, so the row says ``jopa 3`` -- reading only the first round, or
+    looking for variation only inside a round, would print a flat count."""
+    row = _habit_row(
+        [
+            anomaly_round(demo=MATCH_A, round_no=4, points=_pts(2, 2)),
+            anomaly_round(demo=MATCH_B, round_no=9, points=_pts(3)),
+        ]
+    )
+    assert row.startswith("  - jopa 3 CT-pelaajaa puskee alueelle Lobby"), row
+
+
+def test_a_habit_lists_buy_types_in_the_report_order_not_count_order() -> None:
+    """The rounds arrive eco, force, half, half: model order, count order and
+    ``ROUND_TYPE_ORDER`` all differ, so only the report's own order prints
+    ``force 1, eco 1, puoliosto 2``."""
+    row = _habit_row(
+        [
+            anomaly_round(demo=MATCH_A, round_no=4, round_type="eco"),
+            anomaly_round(demo=MATCH_A, round_no=5, round_type="force"),
+            anomaly_round(demo=MATCH_B, round_no=9, round_type="half"),
+            anomaly_round(demo=MATCH_B, round_no=10, round_type="half"),
+        ]
+    )
+    assert ", 4 kertaa: force 1, eco 1, puoliosto 2 (" in row, row
+
+
+def test_the_observed_label_uses_the_report_order() -> None:
+    """A crunch seen on eco, half and force: the model holds the types in
+    ``constants.ROUND_TYPES`` order (eco, half, force); the label prints them
+    in ``ROUND_TYPE_ORDER``, the order the sections and the habit row use,
+    so one report never lists the types two ways round."""
+    row = crunch_anomaly(
+        rounds=[
+            anomaly_round(round_no=4, round_type="eco", sources=["Arch", "Mid"]),
+            anomaly_round(round_no=5, round_type="half", sources=["Arch", "Mid"]),
+            anomaly_round(round_no=6, round_type="force", sources=["Arch", "Mid"]),
+        ],
+        m=6,
+    )
+    assert row.round_types == ["eco", "half", "force"]
+    text = anomaly_text(render(report([pistol_map()], anomalies=[row])))
+    assert "havaittu: force, eco, puoliosto)" in text, text
+
+
+def test_a_constant_player_count_is_no_peak_when_only_the_alive_differ() -> None:
+    """A stack round at 4/5 and 4/4: the same four players, the number alive
+    being the denominator. No ``jopa`` -- one player count is not a peak --
+    and the fraction is the moment with the most alive."""
+    points = [
+        AnomalyPoint(
+            sample_t_s=15.0, players=4, alive=5, areas=["BombsiteB"], sources=[]
+        ),
+        AnomalyPoint(
+            sample_t_s=30.0, players=4, alive=4, areas=["BombsiteB"], sources=[]
+        ),
+    ]
+    entry = AnomalyRound(
+        map_demo_id=DEMO_ID, round_no=13, round_type="eco", points=points
+    )
+    text = anomaly_text(
+        render(report([pistol_map()], anomalies=[stack_anomaly(rounds=[entry])]))
+    )
+    assert "kierros 13 (eco): 4/5 pelaajaa" in text, text
+    assert "jopa" not in text
 
 
 def test_a_crunch_is_simultaneous_when_one_point_holds_every_direction() -> None:
@@ -9244,7 +9615,7 @@ def test_habits_are_ordered_by_matches_then_rounds_then_area() -> None:
         area
         for line in _map_chapter(text, "de_nuke").splitlines()
         for area in ("Gamma", "Beta", "Aaa", "Alpha")
-        if f"alueella {area} " in line
+        if f"alueelle {area} " in line
     ]
     # Gamma: 3 matches. Beta: 2 matches, 3 rounds. Aaa and Alpha: 2 and 2, by
     # area name.
@@ -9254,7 +9625,7 @@ def test_habits_are_ordered_by_matches_then_rounds_then_area() -> None:
 @pytest.mark.parametrize("five_alive_first", [True, False])
 def test_a_tied_peak_takes_the_moment_with_more_alive(five_alive_first: bool) -> None:
     """Of two moments with four players, the one with five alive is the
-    defence's choice: the row reads ``enintään 4/5`` whichever comes first,
+    defence's choice: the row reads ``jopa 4/5`` whichever comes first,
     and ``4/4`` would be the other claim."""
     alive = (5, 4) if five_alive_first else (4, 5)
     points = [
@@ -9276,7 +9647,7 @@ def test_a_tied_peak_takes_the_moment_with_more_alive(five_alive_first: bool) ->
     text = anomaly_text(
         render(report([pistol_map()], anomalies=[stack_anomaly(rounds=[entry])]))
     )
-    assert "kierros 13 (eco): enintään 4/5 pelaajaa" in text
+    assert "kierros 13 (eco): jopa 4/5 pelaajaa" in text
 
 
 def test_the_summary_counts_hidden_points_in_the_plural() -> None:

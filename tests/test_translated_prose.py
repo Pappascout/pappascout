@@ -738,12 +738,22 @@ QUOTED_FINNISH: tuple[QuotedFinnish, ...] = (
     QuotedFinnish(
         path="src/pappascout/render/view.py",
         text="enintään",
-        why="The exact word the report prints on a round row whose moments disagree. An example of real output stops being an example once it is translated.",
+        why=(
+            "The exact word the report prints where it states a real bound"
+            " (the reading guide's sample-point limit), and the word Story"
+            " 4.12 took off the peak rows, named where the docstrings say"
+            " why. An example of real output stops being an example once it"
+            " is translated."
+        ),
     ),
     QuotedFinnish(
         path="tests/test_render.py",
         text="enintään",
-        why="The same word, in the tests that pin the rows it appears on. Translated, the docstring would name a string the report does not contain.",
+        why=(
+            "The same word, in the tests that pin the bounds it still states"
+            " and its absence from the peak rows. Translated, the docstring"
+            " would name a string the report does not contain."
+        ),
     ),
     QuotedFinnish(
         path="tests/test_render.py",

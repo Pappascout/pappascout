@@ -151,6 +151,7 @@ twice in two shapes, and the report has to be short.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -195,6 +196,7 @@ __all__ = [
     "GRENADE_TYPE_FI",
     "GRENADE_ORDER",
     "ROUND_TYPE_ORDER",
+    "SIDE_ORDER",
     "PATTERN_ROUND_TYPES",
     "PROTECTED_ROUND_TYPES",
     "MERGED_EQUIPMENT_LABEL",
@@ -264,19 +266,33 @@ GRENADE_ORDER: tuple[str, ...] = (
 #: The round types' presentation order: pistol, the saving rounds, then the
 #: default.
 #:
+#: **Force before eco is the product owner's order** (2026-09-26, Story
+#: 4.12): *"ct-pistol, t pistol --> ct force, t force --> ct eco, t eco -->
+#: ct half, t half"*. Default, which his sentence does not name, comes after
+#: the half-buy; of the two types that are not buy classes, ``anomaly`` sits
+#: before it and ``ot`` after. Since Story 4.12 this is also the order of the
+#: map chapter's sections --
+#: the buy class is above the side (:class:`BuyClassView`).
+#:
 #: The list covers **every**
 #: :data:`~pappascout.constants.ROUND_TYPES` value, and a test watches that.
 #: Without the coverage a new round type would vanish from the report in
 #: silence.
 ROUND_TYPE_ORDER: tuple[str, ...] = (
     "pistol",
-    "eco",
     "force",
+    "eco",
     "half",
     "anomaly",
     "full",
     "ot",
 )
+
+#: The sides' presentation order inside a buy class: **CT before T**, as the
+#: product owner wrote every pair (2026-09-26, Story 4.12). A presentation
+#: order and not the enumeration :data:`~pappascout.constants.SIDES`, which
+#: happens to list T first; a test holds the two to the same members.
+SIDE_ORDER: tuple[str, ...] = ("CT", "T")
 
 #: The round types about which **only repeating patterns** are told. The
 #: product owner: "there is no need to tell what they did on every round, it
@@ -971,7 +987,8 @@ class RoundTypeView:
     #:
     #: **First in the block and before** :attr:`lines`, which is a content
     #: decision and the product owner's: his sketch puts ``date - opponent -
-    #: reitti`` directly under the side's heading, so the route is what the
+    #: reitti`` directly under the block's heading (the side, since Story
+    #: 4.12, under its buy-class section), so the route is what the
     #: pistol block is *about* and the marginal distributions are what is
     #: known besides. Set after the rows, they would read as the block's
     #: findings and the route as a footnote to them.
@@ -986,9 +1003,17 @@ class RoundTypeView:
 class SideView:
     """One side's round types.
 
-    ``note`` is filled in when the side has no round type at all. A bare
-    heading without content would look like an interrupted report; a named
-    reason says that it was the data that ran out and not the formatting.
+    **Since Story 4.12 the side is not a section of the report.** Its
+    round types are printed under the buy class they belong to
+    (:class:`BuyClassView`), and the side itself is one row near the top of
+    the map chapter: its heading and its sample. The round types stay here
+    too, because a side is still what the model is divided by and what
+    :class:`BuyClassView` regroups -- it points at these same objects and
+    copies none of them.
+
+    ``note`` is filled in when the side has no round type at all. A side row
+    without content would look like an interrupted report; a named reason
+    says that it was the data that ran out and not the formatting.
     """
 
     side: str
@@ -996,6 +1021,30 @@ class SideView:
     rounds_text: str
     round_types: tuple[RoundTypeView, ...]
     note: str | None = None
+
+
+@dataclass(frozen=True)
+class BuyClassView:
+    """One buy class on one map: the CT block, then the T block.
+
+    **The report's order is map, then buy class, then side** -- the product
+    owner, 2026-09-26: *"kartta --> side --> ct-pistol, t pistol --> ct
+    force, t force --> ct eco, t eco --> ct half, t half... They do different
+    things on different sides ofcourse."* Before Story 4.12 it was map, side,
+    buy class.
+
+    ``blocks`` pairs each block with the side it came from, **CT first**
+    (:data:`SIDE_ORDER`), and holds the very :class:`RoundTypeView` objects of
+    :attr:`SideView.round_types` -- a regrouping, not a second build, so a
+    block cannot say one thing under its side and another under its buy
+    class. A side that never played the class has no block here, and a class
+    neither side played has no :class:`BuyClassView` at all: an empty block
+    is not printed, exactly as before.
+    """
+
+    round_type: str
+    heading: str
+    blocks: tuple[tuple[SideView, RoundTypeView], ...]
 
 
 @dataclass(frozen=True)
@@ -1035,6 +1084,11 @@ class MapView:
     habits: tuple[str, ...] = ()
     #: How many one-match advances on this map were not raised, or ``None``.
     habits_note: str | None = None
+    #: The map's round types grouped by buy class, in
+    #: :data:`ROUND_TYPE_ORDER` (Story 4.12, :func:`_buy_class_views`). The
+    #: default is empty only because the field was added to an existing
+    #: class; :func:`build_view` fills it in always.
+    buy_classes: tuple[BuyClassView, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -3329,33 +3383,92 @@ def _habits_note(left_out: int, minimum: int) -> str:
 
 
 def _habit_players_text(anomaly: Anomaly) -> str:
-    """Who: ``CT-pelaaja``, ``2 CT-pelaajaa``, or ``enintään 3
-    CT-pelaajaa``.
+    """Who, with the verb: ``CT-pelaaja puskee``, ``2 CT-pelaajaa puskee``,
+    or ``jopa 3 CT-pelaajaa puskee``.
 
-    **The bound :func:`_anomaly_points_text` uses, read over every sample
+    **The peak :func:`_anomaly_points_text` states, read over every sample
     point of every round**: when all of them saw the same count, that count
     is the observation; when any two differ, the largest is stated as a
-    bound. Read over the rounds' maxima instead, a round seen at 3, 4, 5, 5,
+    peak. Read over the rounds' maxima instead, a round seen at 3, 4, 5, 5,
     4, 2, 2 and 1 players would print a flat "5" -- a peak stated as a fact.
+
+    **A peak is ``jopa``, not ``enintään``** (the product owner, 2026-09-26,
+    quoted verbatim in the Story 4.12 spec: the old row was a bad translation
+    of *up to 4 CT players*). ``enintään`` reads as a cap; the number is the
+    most players seen, and ``jopa`` says that. One player seen
+    every time is not a peak and takes no ``jopa``. **Awaiting his word.**
+
+    **Why ``puskee`` is allowed here** (Story 4.12). This row reports a CT
+    player **inside ground the T side holds, on a save round** -- the two
+    conditions :func:`~pappascout.domain.sampling.ct_advance_hits` fires on.
+    Being there *is* having pushed: the observation contains the movement.
+    At ``[report].anomaly_min_matches`` 2 (the shipped setting) the row is
+    raised only when it recurs across matches, which is what makes it a
+    habit; with the rule off, a one-match visit prints with the same verb.
+
+    **Why it stays off the two other rows**, and the reasons differ:
+
+    * **stack** -- a concentration on the CTs' **own** site. The project
+      refuted, twice, a rule that tried to tell such a concentration apart
+      as waiting or pushing; it cannot be told, so the row names neither.
+    * **crunch** -- also on T-held ground, so "being there is having pushed"
+      would fit it too, and that is **not** the reason. The crunch already
+      has its own name, the product owner's word for that strategy, and a
+      habit is not a strategy (his decision, 2026-09-25): the habit's verb
+      does not belong on a strategy's row.
+
+    A test pins the verb here and its absence from both.
     """
     counts = {point.players for entry in anomaly.rounds for point in entry.points}
     if len(counts) > 1:
-        return f"enintään {max(counts)} CT-pelaajaa"
+        return f"jopa {max(counts)} CT-pelaajaa puskee"
     count = counts.pop()
-    return "CT-pelaaja" if count == 1 else f"{count} CT-pelaajaa"
+    return "CT-pelaaja puskee" if count == 1 else f"{count} CT-pelaajaa puskee"
+
+
+def _habit_buy_types_text(anomaly: Anomaly) -> str:
+    """How many times, and on which buy types: ``2 kertaa: force 1, eco 1``,
+    or ``kerran: eco 1``.
+
+    **Read from the row's own rounds and from nothing else** (Story 4.12):
+    the product owner's example sentence said *"ecoilla ja puoliostoilla"*
+    where the data held an eco and a force, and the row says what the data
+    says. The count is of those same rounds, so the per-type numbers always
+    add up to it. The types are in :data:`ROUND_TYPE_ORDER` and named by
+    :data:`~pappascout.constants.ROUND_TYPE_FI`, the same names the round
+    list at the end of the row uses. **Awaiting his word.**
+    """
+    per_type = Counter(entry.round_type for entry in anomaly.rounds)
+    types = ", ".join(
+        f"{ROUND_TYPE_FI.get(name, name)} {per_type[name]}"
+        for name in sorted(per_type, key=lambda name: (_round_type_rank(name), name))
+    )
+    # "kerran" for one, not the map pool's "1 kerran" (:func:`times_text`):
+    # there the number leads the row, here it would read wrongly.
+    count = len(anomaly.rounds)
+    times = "kerran" if count == 1 else f"{count} kertaa"
+    return f"{times}: {types}"
 
 
 def _habit_text(
     anomaly: Anomaly, played: Mapping[str, PlayedMap], matches_m: int | None
 ) -> str:
-    """One habit, stated as observed: who, where, on which save rounds, and
-    its sample.
+    """One habit, said in words: what they do, how often, on which buys --
+    and its sample.
 
     **Worded as a habit and never as a strategy** (the product owner,
-    2026-09-25): no pattern is named, nothing is said about why, and the row
-    reads ``CT-pelaaja alueella Lobby säästökierroksilla (2/8
+    2026-09-25): no pattern is named and nothing is said about a plan. Since
+    Story 4.12 the row states the one interpretation the observation carries
+    -- the CTs push into that area (:func:`_habit_players_text` says why
+    that word is allowed here) -- then how many times and on which buy types
+    (:func:`_habit_buy_types_text`). It reads ``jopa 4 CT-pelaajaa puskee
+    alueelle Lobby säästökierroksilla, 2 kertaa: force 1, eco 1 (2/8
     säästökierroksesta, 2/4 ottelussa; eco k14 2026-09-20, force k19
     2026-09-13)``. **Awaiting his wording.**
+
+    **The area name stays the game's own** (AD-10) and the sentence is built
+    so it needs no Finnish case ending: ``alueelle Lobby``, never
+    ``Lobbyyn``.
 
     **It carries its sample like every claim in the report** (the reading
     guide's first promise), built through :class:`Claim`: the rounds over the
@@ -3396,8 +3509,9 @@ def _habit_text(
         matches_m=matches_m,
     )
     return (
-        f"{_habit_players_text(anomaly)} alueella {claim.text} "
-        f"säästökierroksilla ({claim.sample_text}; {', '.join(rounds)})"
+        f"{_habit_players_text(anomaly)} alueelle {claim.text} "
+        f"säästökierroksilla, {_habit_buy_types_text(anomaly)} "
+        f"({claim.sample_text}; {', '.join(rounds)})"
     )
 
 
@@ -3408,10 +3522,9 @@ def _habit_views(
 
     **Per map and not in the anomaly chapter** (Story 4.5). The product owner
     separated them: an advance is a habit and a crunch or a stack is a
-    strategy. The block sits in the map chapter, under the played-maps list,
-    because that is the one place the current structure is already per map
-    and the change is a list item added, not a chapter moved -- the map-first
-    reorganisation is the next story.
+    strategy. The block sits in the map chapter, under the played-maps list
+    and above the buy-class sections (Story 4.12): a habit row spans the
+    save round types, so it belongs to the map and to no single buy class.
 
     The match rule reads the row grouped per map and area across the save
     round types (:attr:`~pappascout.domain.report.Anomaly.matches`).
@@ -3618,8 +3731,13 @@ def _round_type_suffix(anomaly: Anomaly) -> str:
     round type and carried a bare type here, left the chapter in Story 4.5
     (:func:`_habit_views`).
     """
+    # In :data:`ROUND_TYPE_ORDER`, the order the sections and the habit row
+    # use (Story 4.12), so one report never lists the types two ways round.
     names = ", ".join(
-        ROUND_TYPE_FI.get(name, name) for name in anomaly.round_types
+        ROUND_TYPE_FI.get(name, name)
+        for name in sorted(
+            anomaly.round_types, key=lambda name: (_round_type_rank(name), name)
+        )
     )
     return f", havaittu: {names}"
 
@@ -3719,21 +3837,30 @@ def _anomaly_points_text(entry: AnomalyRound) -> str:
     ``12/15/18/21/24 s kohdalla`` on fourteen, although the opponent did the
     same thing in both.
 
-    **What replaced the enumeration is an upper bound, not a peak dressed up
-    as a fact.** The rule is overturned, not edited: the old docstring argued
-    that *"a number belongs to its moment"*, and it was right about the
-    hazard it named -- the row before it took the round's maximum and
+    **What replaced the enumeration is the round's peak, stated as a peak and
+    not dressed up as a fact.** The rule is overturned, not edited: the old
+    docstring argued that *"a number belongs to its moment"*, and it was
+    right about the hazard it named -- the row before it took the round's maximum and
     attached it to **every** sample point, claiming five players on Inferno
     round 2 at 30 s where there was one. Naming the seconds was one way to
     stop that. Dropping them is another, and it is the one that survives a
     dense grid: with no moment on the row, no count is attached to a moment
     it was not observed at. So
 
-    * when every sample point of the round saw the same count, that count is
-      the observation (``4/5 pelaajaa``);
-    * when they differ, the row says ``enintään`` and the largest
-      (``enintään 4 pelaajaa``) -- a bound over the round's observed moments,
-      which is true whatever the grid's density.
+    * when every sample point of the round saw the same player count, that
+      count is the observation (``4/5 pelaajaa``) -- also when the number
+      alive differed between them, which is the denominator and not the
+      count; the fraction is then the moment with the most alive;
+    * when the player counts differ, the row says ``jopa`` and the largest
+      (``jopa 4 pelaajaa``) -- the most seen at any of the round's observed
+      moments, marked as a peak and true whatever the grid's density.
+
+    **``jopa`` and not ``enintään``** since Story 4.12, the product owner's
+    correction (2026-09-26): ``enintään`` reads as a cap, as if more were
+    impossible, while the number is the largest count observed. What the
+    number *is* did not change -- only the word that says so. ``enintään``
+    stays where the report states a real bound (the reading guide's
+    ``enintään 30 sekunnin kohdalla``).
 
     **The number of moments is not written either**, and for the same reason
     the seconds are not: it counts sample points. Measured 2026-09-13, the
@@ -3747,17 +3874,19 @@ def _anomaly_points_text(entry: AnomalyRound) -> str:
     one point, and a row built with two takes the second branch like any
     other.
     """
-    counts = {(point.players, point.alive) for point in entry.points}
-    if len(counts) == 1:
-        players, alive = counts.pop()
-        return _players_of(players, alive)
     # The largest crowd of the round, ties broken by the **most** alive: of
     # two moments with four players, the one with five alive is the defence
     # choosing to be there, and the one with four alive is what was left of
     # it. The stronger claim is the choice, and picking it deliberately keeps
     # the tie-break from depending on the order the points arrive in.
     peak = max(entry.points, key=lambda point: (point.players, point.alive or 0))
-    return f"enintään {_players_of(peak.players, peak.alive)}"
+    text = _players_of(peak.players, peak.alive)
+    # A peak only when the **player count** varied. The number alive is a
+    # denominator, not the count the row reports: 4/5 and 4/4 are the same
+    # four players, and ``jopa`` on them would call a constant a peak.
+    if len({point.players for point in entry.points}) == 1:
+        return text
+    return f"jopa {text}"
 
 
 def _players_of(players: int, alive: int | None) -> str:
@@ -3896,6 +4025,40 @@ def _round_type_rank(round_type: str) -> int:
     )
 
 
+def _side_rank(side: str) -> int:
+    return SIDE_ORDER.index(side) if side in SIDE_ORDER else len(SIDE_ORDER)
+
+
+def _buy_class_views(sides: Sequence[SideView]) -> tuple[BuyClassView, ...]:
+    """The map's blocks regrouped: buy class first, then side (Story 4.12).
+
+    Every block of every side lands in exactly one :class:`BuyClassView` --
+    the one named by its own ``round_type`` -- so nothing is dropped or
+    printed twice: the classes are the set of round types the sides hold,
+    and each class takes each side's blocks of that type. The model does not
+    forbid a side two blocks of one type (``aggregate`` never writes one);
+    were there two, both would be printed in the side's own order, because
+    the regrouping neither merges nor drops. The side order is the one
+    ``sides`` arrives in, which :func:`build_view` has sorted CT first.
+    """
+    names = sorted(
+        {entry.round_type for side in sides for entry in side.round_types},
+        key=lambda name: (_round_type_rank(name), name),
+    )
+    classes = []
+    for name in names:
+        blocks = tuple(
+            (side, entry)
+            for side in sides
+            for entry in side.round_types
+            if entry.round_type == name
+        )
+        classes.append(
+            BuyClassView(round_type=name, heading=blocks[0][1].heading, blocks=blocks)
+        )
+    return tuple(classes)
+
+
 # -- The summary -----------------------------------------------------------------
 
 
@@ -3910,11 +4073,12 @@ def _sample_text(sample: Any) -> str:
     That leaves the report's match count in ``report.json`` and off this row,
     which is deliberate and not an omission: :attr:`.report.Sample.matches` is
     still measured, still validated and still printed **under** the root, on
-    every map, side and round-type heading. A reader adding those up gets more
-    than the root holds, because a match that played two maps is in two of
-    them -- the reading guide says so, because it is the one thing a Finnish
-    reader needs in order to read the numbers and it cannot live in a
-    docstring (:func:`_legend`).
+    every map heading, side row and block heading (Story 4.12 moved the side
+    from a heading to a row and put the round type's count on the block). A
+    reader adding those up gets more than the root holds, because a match
+    that played two maps is in two of them -- the reading guide says so,
+    because it is the one thing a Finnish reader needs in order to read the
+    numbers and it cannot live in a docstring (:func:`_legend`).
 
     The bucket breakdown stays in demos and rounds: ``is_league`` buckets
     demos, and a match count per bucket would be a fourth copy of the same
@@ -4671,7 +4835,11 @@ def build_view(
         played_by_demo = {
             entry.map_demo_id: entry for entry in map_report.played_maps
         }
-        for side in map_report.sides:
+        # CT first (:data:`SIDE_ORDER`): the side rows at the top of the map
+        # chapter and the blocks inside each buy class read in the same order.
+        for side in sorted(
+            map_report.sides, key=lambda entry: _side_rank(entry.side)
+        ):
             views: list[RoundTypeView] = []
             for entry in sorted(
                 side.round_types, key=lambda rt: _round_type_rank(rt.round_type)
@@ -4774,6 +4942,7 @@ def build_view(
                 note=None if sides else _NO_SIDES,
                 habits=habits,
                 habits_note=habits_note,
+                buy_classes=_buy_class_views(sides),
             )
         )
 
@@ -4901,20 +5070,24 @@ def _legend(
     notes: list[str] = []
     notes.append(
         "Jokainen väite kantaa otantansa muodossa (n/m kierroksesta): n on "
-        "kierrokset, joissa havainto tehtiin, m kyseisen kierrostyypin kaikki "
-        "kierrokset. Mediaanin otanta rivin otsikossa (esimerkiksi "
+        "kierrokset, joissa havainto tehtiin, m lohkon kaikki kierrokset "
+        "eli saman puolen kyseisen kierrostyypin kierrokset. Mediaanin "
+        "otanta rivin otsikossa (esimerkiksi "
         "\"mediaani 14,2 s, 7/9 kierroksesta\") noudattaa tätä sääntöä: se "
         "kertoo, monellako kierroksella ajoitus mitattiin. Saman rivin "
         "aluevaateet laskevat sen sijaan vain niitä kierroksia, joilla "
         "havainto oli olemassa, joten niiden nimittäjä on pienempi."
     )
     # Unconditional, like the two notes above it and unlike the flagged ones
-    # below: the record is on every round type's heading, so there is no state
+    # below: the record is on every block's heading, so there is no state
     # in which it is absent and the note would explain a line that is not
     # there. The last sentence is the one the guide exists for -- the reader
     # is told that the missing rate is a decision and not an omission.
+    # "Lohkon" and not "Kierrostyypin" since Story 4.12: the record now sits on
+    # the block's heading, which names the side under a buy-class section.
+    # The changed word awaits the product owner's.
     notes.append(
-        "Kierrostyypin otsikon tulos (esimerkiksi "
+        "Lohkon otsikon tulos (esimerkiksi "
         f'"{record_text(_LEGEND_RECORD)}") laskee '
         "lohkon omat kierrokset: ensin voitetut, sitten hävityt. Ne ovat "
         "samat kierrokset, jotka otsikon kierrosmäärä laskee. "
@@ -4947,7 +5120,8 @@ def _legend(
         f"Kierrosten rinnalla luetaan ottelut (n/m {MATCH_SAMPLE_UNIT}): "
         "kolme kierrosta kolmesta ottelusta on tapa, kolme kierrosta yhdestä "
         "ottelusta tapahtui kerran, ja pelkkä kierrosmäärä kirjoittaa ne "
-        "samalla tavalla. Otsikot kertovat ottelumäärän aina. Väitekohtainen "
+        "samalla tavalla. Kartan otsikko, puolten rivit ja lohkojen otsikot "
+        "kertovat ottelumäärän aina. Väitekohtainen "
         "ottelumäärä on näytepisteiden riveillä ja ensikontaktin "
         "läsnäolorivillä; muilla riveillä lukee vain kierrokset, ja niiden "
         "nimittäjä on otsikon ottelumäärä. Ottelumäärä jätetään riviltä pois "
@@ -5012,6 +5186,37 @@ def _legend(
             "kuinka monta kertaa kukin kartta on pelattu, yhteensä yhtä "
             "monta kuin otannan pelatut kartat."
         )
+        # THE STRUCTURE, SAID ONCE (Story 4.12). Awaiting the product owner's
+        # word. The types are the ones **this report prints**, in the order
+        # the view sorts them by, so the sentence neither names a section
+        # the report lacks nor drifts from the order it prints.
+        # "Kierrostyyppi" and not "ostoluokka": two of the types (poikkeama,
+        # jatkoaika) are not buy classes.
+        printed = {
+            entry.round_type
+            for map_report in report.maps
+            for side_report in map_report.sides
+            for entry in side_report.round_types
+        }
+        if printed:
+            types = _join_fi(
+                [
+                    ROUND_TYPE_FI.get(name, name)
+                    for name in sorted(
+                        printed, key=lambda name: (_round_type_rank(name), name)
+                    )
+                ]
+            )
+            sides = " ja sitten ".join(f"{side}-puolen" for side in SIDE_ORDER)
+            notes.append(
+                "Kartan luku etenee kierrostyypeittäin; tämän raportin "
+                f"kierrostyypit järjestyksessä: {types}. Kunkin kierrostyypin "
+                f"alla on ensin {sides} lohko. Puoli, joka ei pelannut "
+                "kierrostyyppiä, jää siitä pois, eikä kierrostyyppiä, jota "
+                "kumpikaan puoli ei pelannut, kirjoiteta. Puolten omat "
+                "kierros- ja ottelumäärät ovat kartan luvussa omilla riveillään ennen ensimmäistä "
+                "kierrostyyppiä."
+            )
     if flags.unindexed_demo:
         notes.append(
             f'"{MATCH_NOT_INDEXED}" kartan rivillä tarkoittaa, ettei demon '
@@ -5336,6 +5541,17 @@ def _anomaly_legend(report: Report) -> list[str]:
         f" Kirjataan tavaksi karttaluvun kohtaan {HABITS_LABEL} eikä "
         "Poikkeamat-lukuun, ja saman alueen säästökierrokset lasketaan "
         "yhdessä kierrostyypistä riippumatta."
+    )
+    # Why the habit row may say "puskee" and the other two rows may not
+    # (Story 4.12, see ``_habit_players_text``). Awaiting the product owner's
+    # wording.
+    advance += (
+        " Rivi sanoo, että CT-pelaajat puskevat alueelle: T:n hallussa "
+        "olevalla alueella oleminen säästökierroksella on jo etenemistä. "
+        "Stack- ja crunch-rivit eivät sano puskusta mitään, eri syistä: "
+        "stack on kasauma CT:n omalla sitellä, eikä siitä erotu, odottaako "
+        "se vai puskeeko se; crunchilla on oma nimensä strategiana, ja tapa "
+        "ei ole strategia."
     )
     notes.append(advance)
 

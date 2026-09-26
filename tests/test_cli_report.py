@@ -225,6 +225,21 @@ def written_report(archive_root: Path) -> str:
     return written[0].read_text(encoding="utf-8")
 
 
+def _without_pistol_section(text: str) -> str:
+    """The first map chapter with its ``### Pistooli`` section cut out.
+
+    The pistol is protected from the pruning rules -- all but rule 3, the
+    skipped sample point, which survives the protection
+    (``_Pruning.for_round_type``) -- so a claim that a rule pruned "the map
+    chapter" is a claim about the other sections. Since Story 4.12 the
+    pistol section comes first; before, it was the CT side's first block and
+    the T side's blocks came ahead of it.
+    """
+    chapter = text.split("## `de_")[1].split("\n## ")[0]
+    parts = chapter.split("\n### ")
+    return "\n### ".join(part for part in parts if not part.startswith("Pistooli"))
+
+
 def prepare_pruning(
     tmp_path: Path,
     settings_file: Path,
@@ -283,7 +298,14 @@ def test_the_users_own_pruning_setting_reaches_the_written_report(
     assert result.exit_code == 0, result.output
 
     text = written_report(archive_root)
-    kills = [row for row in text.splitlines() if "tapot alueittain" in row]
+    # Outside the pistol section, which the kill-area rule does not touch:
+    # since Story 4.12 the pistol is the map chapter's first section, so the
+    # first kill row of the document is the protected one.
+    kills = [
+        row
+        for row in _without_pistol_section(text).splitlines()
+        if "tapot alueittain" in row
+    ]
     assert kills, text
     assert "4 harvinaisempaa aluetta jäi pois" in kills[0]
     assert "Palace" not in kills[0]
@@ -346,7 +368,9 @@ def test_the_written_report_names_the_rules_the_user_has_on(
     summary = text.split("## Yhteenveto")[1].split("## ")[0]
     assert "skip_sample_seconds 1 näytepiste" in summary
     # In the map chapter's heading the name is a code span (Story 2.15, B1).
-    assert "45 s:" not in text.split("## `de_")[1].split("**Pistooli**")[0]
+    # The blocks this line read before Story 4.12 moved the pistol section
+    # first: every block but the pistol's.
+    assert "45 s:" not in _without_pistol_section(text)
 
 
 def test_the_info_command_lists_the_pruning_rules(

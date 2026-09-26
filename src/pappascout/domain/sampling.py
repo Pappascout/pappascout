@@ -1258,6 +1258,13 @@ def ct_advance_hits(
     plan. The round types are
     :data:`~pappascout.constants.SAVING_ROUND_TYPES`.
 
+    **The report's wording rests on exactly these two conditions** (Story
+    4.12): the habit row says the CTs *push* into the area because a CT on
+    T-held ground on a save round has, by being there, pushed
+    (``render.view._habit_players_text``). Loosening either condition -- an
+    area not held by the T side, or a round that is not a saving round --
+    must change that wording in the same change.
+
     Args:
         presences: The round's sample point rows, in any order. Anything other
             than living CT rows from the time sample points is skipped here,

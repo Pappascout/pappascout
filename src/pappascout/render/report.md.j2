@@ -23,6 +23,13 @@
   antaa. Rivit ovat ranskalaisia viivoja, eivät kappaleita: raportti luetaan
   ottelua edeltävässä kiireessä.
 
+  JÄRJESTYS KARTAN SISÄLLÄ: kartta -> ostoluokka -> puoli (Story 4.12,
+  tuotteen omistaja 2026-09-26: "ct-pistol, t pistol --> ct force, t force
+  --> ..."). Puolet ovat kartan alussa yhtenä rivinä kukin otantoineen, ja
+  jokainen lohko sanoo puolensa omassa otsikossaan. Ostoluokat tulevat
+  view.ROUND_TYPE_ORDERin järjestyksessä ja puolet view.SIDE_ORDERin (CT
+  ensin); ryhmittely on view._buy_class_viewsissa eikä täällä.
+
   POIKKEUS: pistoolilohkon reittirivit (route.rows) ladotaan sellaisinaan,
   koska ne ovat VALMIITA MARKDOWN-LISTARIVEJÄ -- oma merkki ja sisennys
   mukana. Jakautuminen on listan sisäkkäisyyttä, ja sisäkkäisyys on
@@ -109,14 +116,19 @@
 
 {% endif %}
 {% for side in map_view.sides %}
-### {{ side.heading }} -- {{ side.rounds_text }}
-
+- **{{ side.heading }}:** {{ side.rounds_text }}
 {% if side.note %}
-- *{{ side.note }}*
+  - *{{ side.note }}*
+{% endif %}
+{% if loop.last %}
 
 {% endif %}
-{% for round_type in side.round_types %}
-**{{ round_type.heading }}** ({{ round_type.rounds_text }}, {{ round_type.record_text }})
+{% endfor %}
+{% for buy_class in map_view.buy_classes %}
+### {{ buy_class.heading }}
+
+{% for side, round_type in buy_class.blocks %}
+**{{ side.heading }}** ({{ round_type.rounds_text }}, {{ round_type.record_text }})
 {%- if round_type.small_sample %} -- pieni otanta{% endif %}
 {%- if round_type.pattern_only %} -- vain toistuvat kuviot{% endif %}
 
