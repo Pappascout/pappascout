@@ -132,6 +132,9 @@
 {%- if round_type.small_sample %} -- pieni otanta{% endif %}
 {%- if round_type.pattern_only %} -- vain toistuvat kuviot{% endif %}
 
+{% for line in round_type.patterns %}
+{{ bullet(line) }}
+{% endfor %}
 {% for route in round_type.routes %}
 - **{{ route.heading }}** ({{ route.round_text }})
 {% if route.note %}

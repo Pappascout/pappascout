@@ -131,12 +131,16 @@ from pappascout.domain.report import (
     Report,
     RosterEntry,
     RosterSample,
+    ROUTE_PATTERN_ROUND_TYPES,
     ROUTE_ROUND_TYPE,
     RoundRecord,
     RoundRoute,
     RoundTypeReport,
     RouteFate,
     RouteFlag,
+    RoutePattern,
+    RoutePatternRound,
+    RoutePlace,
     RouteStep,
     Sample,
     SampleBucket,
@@ -1634,7 +1638,10 @@ class _Token:
     ``seconds`` is the moment the player was first observed there, or the
     death's own moment, or the first moment the sample lost them. ``other``
     and ``other_flag`` are the second place of an alternation
-    (:func:`_collapse_returns`), ``None`` otherwise.
+    (:func:`_collapse_returns`), ``None`` otherwise. ``kept`` is whether the
+    place is one a path keeps in its middle (:attr:`_Place.kept`); only the
+    save rounds' patterns read it (:func:`_from_first_junction`), and it is
+    not part of :attr:`place`, so the pistol's grouping cannot see it.
     """
 
     fate: RouteFate
@@ -1643,6 +1650,7 @@ class _Token:
     seconds: float
     other: str | None = None
     other_flag: RouteFlag | None = None
+    kept: bool = True
 
     @property
     def place(self) -> tuple[object, ...]:
@@ -1703,6 +1711,7 @@ def _collapse_returns(tokens: list[_Token]) -> list[_Token]:
                     went.seconds,
                     back.label,
                     back.flag,
+                    went.kept,
                 )
             )
             index = end + 1
@@ -1775,7 +1784,9 @@ def _junction_path(
             place.flag,
         ):
             continue
-        tokens.append(_Token("seen", place.label, place.flag, moment))
+        tokens.append(
+            _Token("seen", place.label, place.flag, moment, kept=place.kept)
+        )
     tokens = _collapse_returns(tokens)
     last_seen = seen[-1][0] if seen else None
     if moments:
@@ -1914,7 +1925,9 @@ def routes_for(
 
     **Only** :data:`~pappascout.domain.report.ROUTE_ROUND_TYPE` **reaches
     this function**, and the caller decides that rather than this function,
-    because the model already refuses routes on any other type.
+    because the model already refuses routes on any other type. The save
+    rounds' patterns (:func:`route_patterns_for`) share its paths through
+    :func:`_round_paths` and not its trees: they strip the spawn first.
 
     **A row for every round, including one with no route.** A round settled
     inside the first sample point produces a :class:`RoundRoute` with no
@@ -1947,13 +1960,67 @@ def routes_for(
         One :class:`~pappascout.domain.report.RoundRoute` per row in ``rows``,
         newest match first and, inside a demo, in round order.
     """
+    outcome, paths_by_round = _round_paths(rows, ticks, deaths, lineup_keys, callouts)
+    routes = [
+        RoundRoute(
+            map_demo_id=key[0],
+            round_no=key[1],
+            won=outcome[key],
+            steps=_route_tree(sorted(paths), paths, last_seen, 0),
+        )
+        for key, (paths, last_seen) in paths_by_round.items()
+    ]
+    routes.sort(
+        key=lambda route: _demo_place(demo_order, route.map_demo_id)
+        + (route.round_no,)
+    )
+    return routes
+
+
+def _demo_place(
+    demo_order: Mapping[str, int], demo: str
+) -> tuple[int, str]:
+    """A demo's place in the report's recency order, newest first.
+
+    Past every place in use for a demo the order does not place, so it sorts
+    after every placed one. **Not ``len(demo_order)``**: a direct caller's
+    mapping is not constrained to 0..n-1, and ``len`` could be a place in use.
+    """
+    unplaced = max(demo_order.values(), default=-1) + 1
+    return (demo_order.get(demo, unplaced), demo)
+
+
+def _round_paths(
+    rows: Sequence[Mapping[str, Any]],
+    ticks: Sequence[Mapping[str, Any]],
+    deaths: Sequence[Mapping[str, Any]],
+    lineup_keys: Iterable[str],
+    callouts: MapCallouts | None,
+) -> tuple[
+    dict[RoundKey, bool | None],
+    dict[RoundKey, tuple[dict[str, list[_Token]], dict[str, float | None]]],
+]:
+    """Every round's per-player junction paths: the one route engine.
+
+    :func:`routes_for` builds the pistol's trees from these and
+    :func:`route_patterns_for` the save rounds' patterns (Story 4.14), so the
+    junction compression, the callouts, the flags and the alternation are
+    the same code for both.
+
+    Returns:
+        The rounds' outcomes, and per round each player's compressed path
+        (:func:`_junction_path`) with the moment they were last seen. A round
+        sampled at no moment has no players. Both mappings are in the order
+        of ``rows``.
+    """
     # A dict and not a set, although only membership is asked of it below.
     # The routes are built in **this** order and then sorted, and a set of
     # tuples iterates in hash order: measured 2026-09-25, dropping
-    # ``round_no`` from the sort below still passed 11 runs in 12, because
-    # the pre-sort order rode on Python's string hash randomisation. An
-    # insertion-ordered mapping makes the product deterministic and the sort
-    # the only thing deciding the order, which is what the test can then pin.
+    # ``round_no`` from the sort in routes_for still passed 11 runs in 12,
+    # because the pre-sort order rode on Python's string hash randomisation.
+    # An insertion-ordered mapping makes the product deterministic and the
+    # sort the only thing deciding the order, which is what the test can
+    # then pin.
     outcome: dict[RoundKey, bool | None] = {}
     for row in rows:
         key = _round_key(row)
@@ -1975,11 +2042,9 @@ def routes_for(
     points, players, at = _route_observations(ticks, keys)
     died = _route_deaths(deaths, keys, lineup_keys)
     uncertain = _uncertain_callouts(callouts)
-    # Past every place in use, so a demo the order does not place sorts after
-    # every placed one. **Not ``len(demo_order)``**: a direct caller's mapping
-    # is not constrained to 0..n-1, and ``len`` could be a place in use.
-    unplaced = max(demo_order.values(), default=-1) + 1
-    routes: list[RoundRoute] = []
+    by_round: dict[
+        RoundKey, tuple[dict[str, list[_Token]], dict[str, float | None]]
+    ] = {}
     for key in outcome:
         moments = points.get(key, [])
         group = sorted(players.get(key, ())) if moments else []
@@ -1995,22 +2060,179 @@ def routes_for(
                 callouts,
                 uncertain,
             )
-        routes.append(
-            RoundRoute(
-                map_demo_id=key[0],
-                round_no=key[1],
-                won=outcome[key],
-                steps=_route_tree(group, paths, last_seen, 0),
-            )
-        )
-    routes.sort(
-        key=lambda route: (
-            demo_order.get(route.map_demo_id, unplaced),
-            route.map_demo_id,
-            route.round_no,
-        )
+        by_round[key] = (paths, last_seen)
+    return outcome, by_round
+
+
+#: One place of a route as a pattern compares it: the callout, its flag, and
+#: the second place and flag of an alternation.
+_PlaceKey = tuple[str | None, RouteFlag | None, str | None, RouteFlag | None]
+
+
+def _token_place(token: _Token) -> _PlaceKey:
+    return (token.label, token.flag, token.other, token.other_flag)
+
+
+def _place_order(place: _PlaceKey) -> tuple[object, ...]:
+    return (
+        _area_sort_key(place[0]),
+        str(place[1]),
+        _area_sort_key(place[2]),
+        str(place[3]),
     )
-    return routes
+
+
+def _from_first_junction(
+    tokens: Sequence[_Token], spawns: frozenset[str | None]
+) -> list[_Token]:
+    """A path from its first junction that is not a spawn (Story 4.14).
+
+    The spec's second DECIDED rule 1. :func:`_junction_path` always keeps a
+    path's **first** place, whatever it is, so where a player starts depends
+    on where he happened to be at the first sample point: measured on the
+    archive, Ancient's ``water -> ramp`` and ``ruins -> ramp`` were one move
+    to ramp, and Nuke T's ``t spawn -> outside`` and ``outside`` one move out
+    (the first point there holds only ``Outside`` and ``TSpawn``). So the
+    leading steps are dropped until the first place that is **kept** -- a
+    junction, or a place the table has no callout for, which the route keeps
+    so its flag is seen (:func:`_route_place`) -- and is **not a spawn**.
+    Both spawns count, ``CTSpawn`` as well as ``TSpawn``
+    (:data:`~pappascout.domain.sampling.SPAWN_AREAS`).
+
+    An alternation at the head is judged by the place it went to, as its
+    label is. A player who reaches no such place has no route and is left
+    out of the patterns: the empty list.
+
+    The pistol's trees keep their first place; this is pattern extraction
+    only.
+    """
+    for index, token in enumerate(tokens):
+        if token.kept and token.label not in spawns:
+            return list(tokens[index:])
+    return []
+
+
+def route_patterns_for(
+    rows: Sequence[Mapping[str, Any]],
+    ticks: Sequence[Mapping[str, Any]],
+    deaths: Sequence[Mapping[str, Any]],
+    lineup_keys: Iterable[str],
+    demo_order: Mapping[str, int],
+    newest: str | None,
+    callouts: MapCallouts | None = None,
+) -> list[RoutePattern]:
+    """The junction paths a save-round block's rounds repeat (Story 4.14).
+
+    **The pistol's route engine and not a second one**: every player's path
+    is :func:`_junction_path`'s, from :func:`_round_paths`, so a pattern
+    names its places exactly as a pistol row does. The rules are the spec's
+    decisions, as corrected on 2026-09-26 (DECIDED, night, second) after the
+    review measured the first ruling wrong. Per round:
+
+    * **Each path starts at its first junction that is not a spawn**
+      (:func:`_from_first_junction`); a player who reaches none is left out.
+    * **Deaths and losses end a player's part** (rule 3): his path is the
+      places he was **seen** at. A death or a lost player is neither a place
+      he went nor a place he stayed.
+    * **A group at a path** is the players whose paths begin with it -- the
+      node of a route tree, which groups players by their shared stretch
+      exactly this way. Of them, those whose path ends there and who were
+      not killed or lost were **last seen alive** there.
+    * **Moved** (:attr:`~pappascout.domain.report.RoutePattern.stayed`
+      ``False``): two players or more took the path, and not all of them
+      were last seen alive at its end -- some went on, were killed or lost.
+    * **Stayed** (``True``): the players last seen alive at the path's end.
+      Two or more at any length; **one** player too (rule 4), which is where
+      one player recurs apart from the rest. One player **moving** on alone
+      is the tail of a split group and is not a pattern.
+    * **A path of one place is a pattern only when its group is a division of
+      the side** (rule 2): fewer players than the round has. The whole side
+      in one place is where everyone went, and says nothing.
+    * **A path is counted once per round and kind**, and kept if taken in
+      **at least two** rounds, the least that can recur. Which of them the
+      report prints -- the block's threshold, no redundant prefix -- is
+      ``render``'s selection, so ``report.json`` holds every recurrence.
+
+    A pattern names no pattern and claims no intent (rule 6): it says which
+    places a number of players were seen at, in order.
+
+    Args:
+        rows, ticks, deaths, lineup_keys, callouts: As :func:`routes_for`.
+        demo_order: As :func:`routes_for`: a pattern's rounds are listed
+            newest match first.
+        newest: The **map's** newest match, or ``None`` when the order is
+            not known (:func:`newest_match`).
+
+    Returns:
+        The recurring paths, most rounds first, then most matches, then by
+        the places' names and moved before stayed.
+    """
+    uncertain = _uncertain_callouts(callouts)
+    spawns = frozenset(
+        _route_place(area, callouts, uncertain).label
+        for area in sampling.SPAWN_AREAS
+    )
+    _, paths_by_round = _round_paths(rows, ticks, deaths, lineup_keys, callouts)
+    taken: dict[tuple[tuple[_PlaceKey, ...], bool], dict[RoundKey, int]] = {}
+    newest_first = sorted(
+        paths_by_round, key=lambda k: _demo_place(demo_order, k[0]) + (k[1],)
+    )
+    for key in newest_first:
+        paths, _ = paths_by_round[key]
+        side = len(paths)
+        reach: Counter[tuple[_PlaceKey, ...]] = Counter()
+        alive_at: Counter[tuple[_PlaceKey, ...]] = Counter()
+        for tokens in paths.values():
+            alive = not tokens or tokens[-1].fate == "seen"
+            seen = _from_first_junction(
+                [token for token in tokens if token.fate == "seen"], spawns
+            )
+            route = tuple(_token_place(token) for token in seen)
+            for end in range(1, len(route) + 1):
+                reach[route[:end]] += 1
+            if route and alive:
+                alive_at[route] += 1
+        for path, players in reach.items():
+            divides = len(path) > 1 or players < side
+            if players >= 2 and players > alive_at[path] and divides:
+                taken.setdefault((path, False), {})[key] = players
+        for path, players in alive_at.items():
+            if players == 1 or (len(path) > 1 or players < side):
+                taken.setdefault((path, True), {})[key] = players
+
+    recurring = sorted(
+        (
+            (path, stayed, rounds)
+            for (path, stayed), rounds in taken.items()
+            if len(rounds) >= 2
+        ),
+        key=lambda item: (
+            -len(item[2]),
+            -len(matches_of(item[2])),
+            [_place_order(place) for place in item[0]],
+            item[1],
+        ),
+    )
+    return [
+        RoutePattern(
+            path=[
+                RoutePlace(
+                    area=area,
+                    flag=flag,
+                    alternates_with=other,
+                    alternates_flag=other_flag,
+                )
+                for area, flag, other, other_flag in path
+            ],
+            stayed=stayed,
+            rounds=[
+                RoutePatternRound(map_demo_id=demo, round_no=no, players=players)
+                for (demo, no), players in rounds.items()
+            ],
+            newest=None if newest is None else newest in matches_of(rounds),
+        )
+        for path, stayed, rounds in recurring
+    ]
 
 
 def _armed(row: Mapping[str, Any]) -> int | None:
@@ -3400,7 +3622,8 @@ def build_report(
         generated_at: The moment of the run.
         callouts: The product owner's callout table, map -> area -> entry
             (:func:`~pappascout.domain.models.load_callouts`), read at the
-            edge and handed in (AD-2). Only the pistol routes read it. **No
+            edge and handed in (AD-2). Only the routes read it -- the
+            pistol's, and the save rounds' patterns (Story 4.14). **No
             default**: a forgotten table would print every route in the
             game's names, flagged, with nothing in the code to say why.
         tool_versions: The tool versions, for the report's own field.
@@ -3682,9 +3905,10 @@ def _round_types_for(
                 first_contact=first_contact_areas(ticks, keys, newest),
                 deaths=deaths_for(deaths, keys, lineup_keys),
                 # Only the pistol type has routes (Story 4.11's scope, and
-                # the model refuses them elsewhere). The condition is here
-                # and not inside ``routes_for``, so the function does one
-                # thing and the scope is stated where the scope is decided.
+                # the model refuses them elsewhere), and only the save types
+                # have patterns (Story 4.14). The conditions are here and not
+                # inside the functions, so each does one thing and the scope
+                # is stated where the scope is decided.
                 routes=(
                     routes_for(
                         type_rows,
@@ -3695,6 +3919,19 @@ def _round_types_for(
                         callouts,
                     )
                     if round_type == ROUTE_ROUND_TYPE
+                    else []
+                ),
+                route_patterns=(
+                    route_patterns_for(
+                        type_rows,
+                        ticks,
+                        deaths,
+                        lineup_keys,
+                        demo_order,
+                        newest,
+                        callouts,
+                    )
+                    if round_type in ROUTE_PATTERN_ROUND_TYPES
                     else []
                 ),
             )

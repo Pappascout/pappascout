@@ -748,6 +748,15 @@ QUOTED_FINNISH: tuple[QuotedFinnish, ...] = (
         ),
     ),
     QuotedFinnish(
+        path="src/pappascout/render/view.py",
+        text="jää",
+        why=(
+            "The exact word a stayed route pattern prints (Story 4.14): last"
+            " seen alive there. An example of real output stops being an"
+            " example once it is translated."
+        ),
+    ),
+    QuotedFinnish(
         path="tests/test_render.py",
         text="yhdenkään demon",
         why="The exact line the report prints. An example of real output stops being an example once it is translated.",

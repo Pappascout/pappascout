@@ -69,6 +69,9 @@ from pappascout.domain.report import (
     RoundRoute,
     RoundTypeReport,
     RouteFlag,
+    RoutePattern,
+    RoutePatternRound,
+    RoutePlace,
     RouteStep,
     Sample,
     SampleBucket,
@@ -117,6 +120,10 @@ from pappascout.render.view import (
     ROUND_LABEL,
     ROUTE_ARROW,
     ROUTE_DIED,
+    ROUTE_PATTERN_LABEL,
+    ROUTE_PATTERN_PEAK,
+    ROUTE_PATTERN_STAYED,
+    ROUTE_RETURN,
     UNKNOWN_AREA,
     UNKNOWN_MAP_LABEL,
     UNNAMED_PLAYER,
@@ -478,6 +485,7 @@ def round_type(
     demos: int = 1,
     matches: int | None = None,
     routes: list[RoundRoute] | None = None,
+    route_patterns: list[RoutePattern] | None = None,
 ) -> RoundTypeReport:
     return RoundTypeReport(
         round_type=name,
@@ -530,6 +538,7 @@ def round_type(
                 else []
             )
         ),
+        route_patterns=route_patterns or [],
     )
 
 
@@ -9864,3 +9873,344 @@ def test_the_summary_counts_hidden_points_in_the_plural() -> None:
     settings = ReportSettings(skip_sample_seconds=[float(s) for s in range(1, 11)])
     summary = summary_text(render(report([pistol_map()]), settings))
     assert "skip_sample_seconds 10 näytepistettä" in summary
+
+
+# --- The routes a save-round block repeats (Story 4.14) ------------------------
+
+
+def place(area: str | None, flag: RouteFlag | None = None) -> RoutePlace:
+    return RoutePlace(area=area, flag=flag)
+
+
+def pattern(
+    areas: Sequence[str],
+    players: Sequence[int],
+    *,
+    stayed: bool = False,
+    demos: Sequence[str] | None = None,
+    newest: bool | None = None,
+    flag: RouteFlag | None = None,
+) -> RoutePattern:
+    """One pattern taken in ``len(players)`` rounds, one demo each unless
+    ``demos`` names them -- each its own match, as the ids are not composed."""
+    ids = list(demos) if demos is not None else [f"d{n}" for n in range(len(players))]
+    return RoutePattern(
+        path=[place(area, flag) for area in areas],
+        stayed=stayed,
+        rounds=[
+            RoutePatternRound(map_demo_id=demo, round_no=n + 1, players=count)
+            for n, (demo, count) in enumerate(zip(ids, players, strict=True))
+        ],
+        newest=newest,
+    )
+
+
+def pattern_block(
+    patterns: list[RoutePattern],
+    *,
+    rounds: int = 7,
+    matches: int = 4,
+    name: str = "force",
+) -> Report:
+    """One save block on one map of ``matches`` hand-imported demos."""
+    ids = [f"d{n}" for n in range(matches)]
+    entry = round_type(
+        name, rounds, demos=matches, matches=matches, route_patterns=patterns
+    )
+    return report(
+        [
+            map_report(
+                "de_nuke",
+                [side("T", [entry], demos=matches, matches=matches)],
+                demo_ids=ids,
+            )
+        ],
+        matches=matches,
+    )
+
+
+def pattern_lines(entry: Report) -> list[str]:
+    return [
+        line
+        for line in render(entry).splitlines()
+        if line.startswith(f"- {ROUTE_PATTERN_LABEL}:")
+    ]
+
+
+def test_a_recurring_route_prints_his_two_numbers() -> None:
+    """The spec's first row, in his form: the rounds of the block, the
+    matches, the recency mark, and the players."""
+    entry = pattern_block(
+        [pattern(["outside", "lobby", "hut"], [3, 3, 3], newest=True)]
+    )
+    assert pattern_lines(entry) == [
+        f"- {ROUTE_PATTERN_LABEL}: outside {ROUTE_ARROW} lobby {ROUTE_ARROW} hut, "
+        f"3 pelaajaa (3/7 kierroksesta, 3/4 {MATCH_SAMPLE_UNIT}, "
+        f"{RECENCY_NEWEST_INCLUDED})"
+    ]
+
+
+def test_a_route_below_the_blocks_threshold_is_not_printed() -> None:
+    """Decision 3: the block's own threshold -- three of seven rounds at the
+    shipped setting -- decides, and two rounds do not reach it."""
+    entry = pattern_block([pattern(["outside", "lobby"], [3, 3])])
+    assert pattern_lines(entry) == []
+
+
+def test_a_small_blocks_threshold_is_capped() -> None:
+    """The cap: a two-round block needs both rounds, as its note says. A
+    one-round block prints none, because the model holds no pattern of one
+    round for it to print."""
+    two = pattern_block([pattern(["hell"], [2, 2], stayed=True)], rounds=2, matches=2)
+    assert len(pattern_lines(two)) == 1
+    view = view_of(pattern_block([], rounds=1, matches=1))
+    block = view.maps[0].buy_classes[0].blocks[0][1]
+    assert block.patterns == ()
+
+
+def test_with_no_threshold_every_recurring_path_prints() -> None:
+    """With no threshold in the report the block filters nothing, and every
+    path the model holds -- two rounds or more -- prints."""
+    entry = pattern_block([pattern(["hell"], [2, 2], stayed=True)])
+    unthresholded = entry.model_copy(update={"thresholds_used": {}})
+    assert len(pattern_lines(unthresholded)) == 1
+    view = view_of(unthresholded)
+    line = view.maps[0].buy_classes[0].blocks[0][1].patterns[0]
+    assert line.claims[0].n == 2
+
+
+def test_a_prefix_that_recurs_more_is_printed_beside_its_extension() -> None:
+    """The spec's matrix: ``outside -> lobby`` 4/7 and ``outside -> lobby ->
+    hut`` 3/7 -- both, because the prefix recurs more."""
+    entry = pattern_block(
+        [
+            pattern(["outside", "lobby"], [4, 4, 4, 4]),
+            pattern(["outside", "lobby", "hut"], [3, 3, 3], stayed=True),
+        ]
+    )
+    assert len(pattern_lines(entry)) == 2
+
+
+def test_a_prefix_as_frequent_as_its_extension_is_not_printed() -> None:
+    """The spec's matrix: both 3/7 -- only the extension, which says it."""
+    entry = pattern_block(
+        [
+            pattern(["outside", "lobby"], [4, 4, 4]),
+            pattern(["outside", "lobby", "hut"], [3, 3, 3]),
+        ]
+    )
+    (only,) = pattern_lines(entry)
+    assert "hut" in only
+
+
+def test_a_stayed_extension_does_not_hide_the_group_that_moved() -> None:
+    """The second DECIDED rule 5, from the review's measurement: two players
+    last seen alive at the end of a path are a part of the group, and must
+    not stand in for the five who took its prefix."""
+    entry = pattern_block(
+        [
+            pattern(["outside", "lobby"], [5, 5, 5]),
+            pattern(["outside", "lobby", "hut"], [2, 2, 2], stayed=True),
+        ]
+    )
+    texts = pattern_lines(entry)
+    assert len(texts) == 2
+    assert any("lobby, 5 pelaajaa (" in text for text in texts), texts
+
+
+def test_a_prefix_is_compared_with_every_printed_extension() -> None:
+    """``A`` 4, ``A -> B`` 4, ``A -> B -> C`` 3: ``A`` outnumbers the longest
+    extension and still says nothing ``A -> B`` does not."""
+    entry = pattern_block(
+        [
+            pattern(["outside"], [4, 4, 4, 4]),
+            pattern(["outside", "lobby"], [4, 4, 4, 4]),
+            pattern(["outside", "lobby", "hut"], [3, 3, 3], stayed=True),
+        ]
+    )
+    texts = pattern_lines(entry)
+    assert len(texts) == 2
+    assert not any(f"outside, " in text for text in texts), texts
+
+
+def test_a_stayed_path_is_never_suppressed_by_an_extension() -> None:
+    """Those who went further are other players: the one last seen at lobby
+    prints though the group's path through lobby to hut recurs as often."""
+    entry = pattern_block(
+        [
+            pattern(["outside", "lobby"], [1, 1, 1], stayed=True),
+            pattern(["outside", "lobby", "hut"], [3, 3, 3]),
+        ]
+    )
+    texts = pattern_lines(entry)
+    assert len(texts) == 2
+    assert any(f"1 pelaaja {ROUTE_PATTERN_STAYED} (" in text for text in texts)
+
+
+def test_a_varying_count_is_a_peak_and_a_constant_one_is_stated() -> None:
+    """Story 4.12's word: ``jopa`` when the group's size varied, the number
+    alone when it did not, and one player in the singular."""
+    entry = pattern_block(
+        [
+            pattern(["outside", "lobby"], [2, 4, 3]),
+            pattern(["hell"], [2, 2, 2], stayed=True),
+            pattern(["outside", "t roof"], [1, 1, 1], stayed=True),
+        ]
+    )
+    texts = pattern_lines(entry)
+    assert f"lobby, {ROUTE_PATTERN_PEAK} 4 pelaajaa (" in texts[0]
+    assert f"hell, 2 pelaajaa {ROUTE_PATTERN_STAYED} (" in texts[1]
+    assert f"t roof, 1 pelaaja {ROUTE_PATTERN_STAYED} (" in texts[2]
+
+
+def test_one_match_block_prints_no_match_fraction_and_one_match_map_no_mark() -> None:
+    """The rules every other row obeys: a block of one match has every
+    fraction ``1/1`` and a map of one match has nothing to mark."""
+    entry = pattern_block(
+        [pattern(["hell"], [2, 2], stayed=True, demos=["d0", "d0"], newest=True)],
+        rounds=2,
+        matches=1,
+    )
+    (only,) = pattern_lines(entry)
+    assert only.endswith("(2/2 kierroksesta)"), only
+
+
+def test_the_patterns_open_the_block_before_its_sample_point_rows() -> None:
+    """Decision 7: the routes at the top of the block -- the first row under
+    its heading -- and the sample-point rows under them as they were."""
+    entry = pattern_block(
+        [pattern(["hell"], [2, 2, 2], stayed=True)],
+    )
+    entry.maps[0].sides[0].round_types[0].positions.append(
+        Position(
+            sample_kind="time",
+            seconds=15.0,
+            m=7,
+            matches_m=4,
+            rounds_missing=0,
+            areas=[
+                AreaDistribution(
+                    area="Lobby",
+                    m=7,
+                    matches_m=4,
+                    players_dist=[
+                        PlayersCount(players=0, n=4, matches=3, newest=None),
+                        PlayersCount(players=3, n=3, matches=3, newest=None),
+                    ],
+                )
+            ],
+        )
+    )
+    lines = render(entry).splitlines()
+    first = next(
+        i for i, l in enumerate(lines) if l.startswith(f"- {ROUTE_PATTERN_LABEL}:")
+    )
+    sample_row = next(i for i, l in enumerate(lines) if l.startswith("- 15 s:"))
+    assert first < sample_row
+    assert lines[first - 1].startswith("**T-puoli**"), lines[first - 1]
+
+
+def test_the_guide_explains_the_patterns_only_when_one_printed() -> None:
+    """The paragraph for a row the report shows, and not otherwise."""
+    marker = f'"{ROUTE_PATTERN_LABEL}:"'
+    shown = pattern_block([pattern(["hell"], [2, 2, 2], stayed=True)])
+    hidden = pattern_block([pattern(["hell"], [2, 2], stayed=True)])
+    assert marker in render(shown)
+    assert marker not in render(hidden)
+
+
+def test_a_pattern_names_its_places_as_the_pistol_route_does() -> None:
+    """One spelling for both: the marks and the alternation are the pistol's
+    (``_route_place_label``), and a pattern of a map with no table names the
+    map in the guide."""
+    coarse = pattern_block(
+        [pattern(["outside", "lobby"], [2, 2, 2], stayed=True, flag="coarse")]
+    )
+    (only,) = pattern_lines(coarse)
+    assert "outside (karkea) -> lobby (karkea)" in only
+    untranslated = pattern_block(
+        [pattern(["Outside"], [2, 2, 2], stayed=True, flag="no_table")]
+    )
+    assert "Näiden karttojen reiteillä ei ole callout-taulua" in render(untranslated)
+    returning = pattern_block(
+        [
+            RoutePattern(
+                path=[
+                    RoutePlace(
+                        area="b site",
+                        flag=None,
+                        alternates_with="b doors",
+                        alternates_flag=None,
+                    )
+                ],
+                stayed=True,
+                rounds=[
+                    RoutePatternRound(map_demo_id=f"d{n}", round_no=1, players=2)
+                    for n in range(3)
+                ],
+                newest=None,
+            )
+        ]
+    )
+    (only,) = pattern_lines(returning)
+    assert f"b site {ROUTE_RETURN} b doors, 2 pelaajaa" in only
+
+
+def test_a_pattern_that_did_not_print_does_not_name_its_map_in_the_guide() -> None:
+    """The no-table sentence follows a printed row, not the model."""
+    below = pattern_block([pattern(["Outside"], [2, 2], stayed=True, flag="no_table")])
+    assert "Näiden karttojen reiteillä ei ole callout-taulua" not in render(below)
+
+
+def test_a_prefix_differing_in_a_flag_or_an_alternation_is_not_extended() -> None:
+    """The prefix rule compares whole places: ``outside -> lobby`` is not a
+    prefix of ``outside (karkea) -> lobby -> hut``, nor of ``outside ⇄ main
+    -> lobby -> hut``, so it prints beside either at an equal count."""
+    flagged = pattern_block(
+        [
+            pattern(["outside", "lobby"], [3, 3, 3]),
+            RoutePattern(
+                path=[place("outside", "coarse"), place("lobby"), place("hut")],
+                stayed=False,
+                rounds=[
+                    RoutePatternRound(map_demo_id=f"d{n}", round_no=1, players=3)
+                    for n in range(3)
+                ],
+                newest=None,
+            ),
+        ]
+    )
+    assert len(pattern_lines(flagged)) == 2
+    alternating = pattern_block(
+        [
+            pattern(["outside", "lobby"], [3, 3, 3]),
+            RoutePattern(
+                path=[
+                    RoutePlace(area="outside", flag=None, alternates_with="main"),
+                    place("lobby"),
+                    place("hut"),
+                ],
+                stayed=False,
+                rounds=[
+                    RoutePatternRound(map_demo_id=f"d{n}", round_no=1, players=3)
+                    for n in range(3)
+                ],
+                newest=None,
+            ),
+        ]
+    )
+    assert len(pattern_lines(alternating)) == 2
+
+
+def test_the_no_table_note_reads_the_printed_patterns_only() -> None:
+    """A map is named for its missing table only when a **printed** row is
+    in the game's words: an unprinted pattern flagged ``no_table`` beside a
+    printed certain one names nothing."""
+    entry = pattern_block(
+        [
+            pattern(["hell"], [2, 2, 2], stayed=True),
+            pattern(["Outside"], [2, 2], stayed=True, flag="no_table"),
+        ]
+    )
+    assert len(pattern_lines(entry)) == 1
+    assert "Näiden karttojen reiteillä ei ole callout-taulua" not in render(entry)

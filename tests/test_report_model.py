@@ -53,6 +53,10 @@ from pappascout.domain.report import (
     RoundRecord,
     RoundRoute,
     RoundTypeReport,
+    ROUTE_PATTERN_ROUND_TYPES,
+    RoutePattern,
+    RoutePatternRound,
+    RoutePlace,
     RouteStep,
     SLUG_FALLBACK,
     Sample,
@@ -62,7 +66,7 @@ from pappascout.domain.report import (
     UtilityCounts,
     UtilityUse,
 )
-from pappascout.constants import ROSTER_BUCKETS, SITE_AREAS
+from pappascout.constants import ROSTER_BUCKETS, SAVING_ROUND_TYPES, SITE_AREAS
 from pappascout.errors import AggregateError
 
 
@@ -438,6 +442,7 @@ def _report_with_breakdowns(league: Sample, roster: RosterSample) -> Report:
                                     unknown=0,
                                 ),
                                 routes=_pistol_routes(league.rounds),
+                                route_patterns=[],
                             )
                         ],
                     )
@@ -739,6 +744,7 @@ def _round_type_with_positions(positions: list[Position]) -> RoundTypeReport:
         deaths=DeathReport(m=0, rounds_missing=2),
         record=RoundRecord(wins=0, losses=2, unknown=0),
         routes=_pistol_routes(2),
+        route_patterns=[],
     )
 
 
@@ -910,6 +916,7 @@ def _round_type_with_first_contact(areas: list[FirstContactArea]):
         deaths=DeathReport(m=0, rounds_missing=2),
         record=RoundRecord(wins=0, losses=2, unknown=0),
         routes=_pistol_routes(2),
+        route_patterns=[],
     )
 
 
@@ -998,6 +1005,7 @@ def full_report() -> Report:
         deaths=DeathReport(m=0, rounds_missing=1),
         record=RoundRecord(wins=1, losses=0, unknown=0),
         routes=_pistol_routes(1),
+        route_patterns=[],
     )
     return Report(
         generated_at=datetime(2026, 8, 30, 12, 0, tzinfo=UTC),
@@ -1091,6 +1099,7 @@ def _report_with_anomalies(anomalies: list[Anomaly]) -> Report:
                                     wins=0, losses=1, unknown=0
                                 ),
                                 routes=[],
+                                route_patterns=[],
                             )
                         ],
                     )
@@ -1160,6 +1169,7 @@ def side_with(rounds: int) -> SideReport:
                 deaths=DeathReport(m=0, rounds_missing=rounds),
                 record=RoundRecord(wins=0, losses=rounds, unknown=0),
                 routes=_pistol_routes(rounds),
+                route_patterns=[],
             )
         ],
     )
@@ -1185,6 +1195,7 @@ def test_a_side_must_be_the_sum_of_its_round_types() -> None:
                     deaths=DeathReport(m=0, rounds_missing=2),
                     record=RoundRecord(wins=0, losses=2, unknown=0),
                     routes=_pistol_routes(2),
+                    route_patterns=[],
                 )
             ],
         )
@@ -1239,6 +1250,7 @@ def test_a_round_moving_between_buckets_is_caught() -> None:
                     deaths=DeathReport(m=0, rounds_missing=3),
                     record=RoundRecord(wins=0, losses=3, unknown=0),
                     routes=_pistol_routes(3),
+                    route_patterns=[],
                 )
             ],
         )
@@ -1309,6 +1321,7 @@ def _map_with_bucketed_demo(
                             wins=0, losses=rounds, unknown=0
                         ),
                         routes=_pistol_routes(rounds),
+                        route_patterns=[],
                     )
                 ],
             )
@@ -1586,6 +1599,7 @@ def test_the_round_type_report_requires_its_death_block() -> None:
             first_contact=[],
             record=RoundRecord(wins=0, losses=1, unknown=0),
             routes=_pistol_routes(1),
+            route_patterns=[],
         )
 
 
@@ -1609,6 +1623,7 @@ def test_the_round_type_report_requires_its_armored_block() -> None:
             deaths=DeathReport(m=0, rounds_missing=1),
             record=RoundRecord(wins=0, losses=1, unknown=0),
             routes=_pistol_routes(1),
+            route_patterns=[],
         )
 
 
@@ -1906,6 +1921,7 @@ def _round_type_with(entry: DeathReport, rounds: int) -> RoundTypeReport:
         deaths=entry,
         record=RoundRecord(wins=0, losses=rounds, unknown=0),
         routes=_pistol_routes(rounds),
+        route_patterns=[],
     )
 
 
@@ -1969,6 +1985,7 @@ def _round_type_with_record(record: RoundRecord, rounds: int) -> RoundTypeReport
         deaths=DeathReport(m=0, rounds_missing=rounds),
         record=record,
         routes=_pistol_routes(rounds),
+        route_patterns=[],
     )
 
 
@@ -1994,6 +2011,7 @@ def test_the_round_type_report_requires_its_record() -> None:
             first_contact=[],
             deaths=DeathReport(m=0, rounds_missing=1),
             routes=_pistol_routes(1),
+            route_patterns=[],
         )
 
 
@@ -2824,6 +2842,7 @@ def _match_round_type(
         deaths=DeathReport(m=0, rounds_missing=rounds),
         record=RoundRecord(wins=0, losses=rounds, unknown=0),
         routes=_pistol_routes(rounds),
+        route_patterns=[],
     )
 
 
@@ -3461,6 +3480,7 @@ def _pistol_block(routes: list[RoundRoute], rounds: int = 1) -> RoundTypeReport:
         deaths=DeathReport(m=0, rounds_missing=rounds),
         record=RoundRecord(wins=0, losses=rounds, unknown=0),
         routes=routes,
+        route_patterns=[],
     )
 
 
@@ -3487,6 +3507,7 @@ def test_the_round_type_report_requires_its_routes() -> None:
             first_contact=[],
             deaths=DeathReport(m=0, rounds_missing=1),
             record=RoundRecord(wins=0, losses=1, unknown=0),
+            route_patterns=[],
         )
 
 
@@ -3511,6 +3532,7 @@ def test_only_the_pistol_type_may_carry_routes() -> None:
             deaths=DeathReport(m=0, rounds_missing=1),
             record=RoundRecord(wins=0, losses=1, unknown=0),
             routes=[RoundRoute(map_demo_id="Nuke_vs_a", round_no=1, won=True)],
+            route_patterns=[],
         )
 
 
@@ -3786,3 +3808,152 @@ def test_unsorted_point_sources_are_refused() -> None:
     alphabetical order."""
     with pytest.raises(ValidationError, match="not in alphabetical order"):
         _point(sources=["B", "A"])
+
+
+# --- The save rounds' route patterns (Story 4.14) ------------------------------
+
+
+def _pattern(
+    demos: Sequence[str] = ("d0", "d0"), *, rounds: Sequence[int] | None = None
+) -> RoutePattern:
+    numbers = list(rounds) if rounds is not None else list(range(1, len(demos) + 1))
+    return RoutePattern(
+        path=[RoutePlace(area="outside", flag="coarse")],
+        stayed=True,
+        rounds=[
+            RoutePatternRound(map_demo_id=demo, round_no=no, players=2)
+            for demo, no in zip(demos, numbers, strict=True)
+        ],
+        newest=None,
+    )
+
+
+def _save_block(
+    patterns: list[RoutePattern],
+    *,
+    round_type: str = "force",
+    rounds: int = 3,
+    matches: int | None = None,
+) -> RoundTypeReport:
+    return RoundTypeReport(
+        round_type=round_type,
+        sample=sample(unknown=rounds, matches=matches),
+        small_sample=False,
+        positions=[],
+        utility=[],
+        utility_counts=[],
+        players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+        players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
+        first_contact=[],
+        deaths=DeathReport(m=0, rounds_missing=rounds),
+        record=RoundRecord(wins=0, losses=rounds, unknown=0),
+        routes=(
+            [
+                RoundRoute(map_demo_id="d0", round_no=n, won=False)
+                for n in range(1, rounds + 1)
+            ]
+            if round_type == ROUTE_ROUND_TYPE
+            else []
+        ),
+        route_patterns=patterns,
+    )
+
+
+def test_the_round_type_report_requires_its_route_patterns() -> None:
+    """No default: an empty list is an observation (*nothing recurred*), and
+    a 16.0.0 file defaulted to it would read as blocks sharing no route."""
+    with pytest.raises(ValidationError, match="route_patterns"):
+        RoundTypeReport(
+            round_type="force",
+            sample=sample(unknown=1),
+            small_sample=True,
+            positions=[],
+            utility=[],
+            utility_counts=[],
+            players_armed=ArmedPlayers(m=0, rounds_unknown=0, counts=[]),
+            players_armored=ArmoredPlayers(m=0, rounds_unknown=0, counts=[]),
+            first_contact=[],
+            deaths=DeathReport(m=0, rounds_missing=1),
+            record=RoundRecord(wins=0, losses=1, unknown=0),
+            routes=[],
+        )
+
+
+def test_only_the_save_types_may_carry_route_patterns() -> None:
+    """The story's scope, in the model: eco, force and half -- and the
+    pistol, which has its own rows, refused."""
+    for name in ROUTE_PATTERN_ROUND_TYPES:
+        assert _save_block([_pattern()], round_type=name).route_patterns
+    with pytest.raises(AggregateError, match="route patterns, but only eco"):
+        _save_block([_pattern()], round_type=ROUTE_ROUND_TYPE)
+    with pytest.raises(AggregateError, match="route patterns, but only eco"):
+        _save_block([_pattern()], round_type="full")
+
+
+def test_the_pattern_round_types_are_the_saving_ones() -> None:
+    """One economic list and not a second copy of it."""
+    assert ROUTE_PATTERN_ROUND_TYPES == SAVING_ROUND_TYPES
+
+
+def test_a_pattern_taken_in_more_rounds_than_the_block_is_refused() -> None:
+    """``n/m kierroksesta`` with ``n > m`` is a share over one."""
+    with pytest.raises(AggregateError, match="taken in 3 rounds"):
+        _save_block([_pattern(("d0", "d0", "d0"))], rounds=2)
+
+
+def test_a_pattern_from_more_matches_than_the_block_is_refused() -> None:
+    """The same bound in matches: two matches under a one-match block."""
+    with pytest.raises(AggregateError, match="of 2 matches"):
+        _save_block([_pattern(("d0", "d1"))], rounds=3, matches=1)
+
+
+def test_a_pattern_counts_two_maps_of_one_match_as_one() -> None:
+    """``matches`` is derived through ``match_of``, as every match count."""
+    match = "1-4c98a93e-19da-4baa-8633-f0f8d2e9a809"
+    assert _pattern((f"{match}-0", f"{match}-1")).matches == 1
+    assert _pattern(("d0", "d1")).matches == 2
+    assert _pattern(("d0", "d1")).n == 2
+
+
+def test_a_pattern_of_one_round_is_refused() -> None:
+    """One round is not a recurrence."""
+    with pytest.raises(ValidationError, match="rounds"):
+        _pattern(("d0",))
+
+
+def test_a_pattern_listing_a_round_twice_is_refused() -> None:
+    """A repeated round would state a recurrence that did not happen."""
+    with pytest.raises(AggregateError, match="same round more than once"):
+        _pattern(("d0", "d0"), rounds=(3, 3))
+
+
+def test_a_route_place_alternates_between_two_named_places() -> None:
+    """The alternation's two rules, as :class:`RouteStep` holds them."""
+    with pytest.raises(AggregateError, match="does not name"):
+        RoutePlace(area="a", flag=None, alternates_flag="coarse")
+    with pytest.raises(AggregateError, match="and itself"):
+        RoutePlace(area="a", flag=None, alternates_with="a")
+    assert RoutePlace(area="a", flag=None, alternates_with="b").alternates_with == "b"
+
+
+def test_a_pattern_naming_a_place_twice_in_a_row_is_refused() -> None:
+    """A path's places are compressed, so ``outside -> lobby -> lobby`` is a
+    fault and not a route -- refused rather than printed. The same area with
+    a different flag or an alternation is a different place and passes."""
+    rounds = [
+        RoutePatternRound(map_demo_id="d0", round_no=n, players=2) for n in (1, 2)
+    ]
+
+    def path(*places: RoutePlace) -> RoutePattern:
+        return RoutePattern(path=list(places), stayed=False, rounds=rounds, newest=None)
+
+    with pytest.raises(AggregateError, match="twice in a row"):
+        path(
+            RoutePlace(area="outside", flag="coarse"),
+            RoutePlace(area="lobby", flag=None),
+            RoutePlace(area="lobby", flag=None),
+        )
+    assert path(
+        RoutePlace(area="lobby", flag=None),
+        RoutePlace(area="lobby", flag=None, alternates_with="outside"),
+    ).n == 2

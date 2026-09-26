@@ -42,6 +42,7 @@ from pappascout.domain.aggregate import (
     players_distribution,
     positions_for,
     record_for,
+    route_patterns_for,
     routes_for,
     sample_for,
     seconds_bucket,
@@ -65,6 +66,8 @@ from pappascout.domain.report import (
     MissingDemo,
     RosterEntry,
     RoundRoute,
+    RoutePattern,
+    RoutePlace,
     RouteStep,
     TeamReport,
 )
@@ -5201,3 +5204,503 @@ def test_a_crunch_entered_twice_in_a_round_keeps_each_moments_directions() -> No
     # The round's view is derived, and it is not claimed to be simultaneous.
     assert entry.sources == ["Middle", "Ramp", "SideEntrance", "TSideUpper"]
     assert entry.players_max == 2
+
+
+# --- The routes a save-round block repeats (Story 4.14) ------------------------
+
+
+#: One round of a pattern fixture: ``(demo, round_no, paths, deaths)``, the
+#: paths in :func:`route_ticks`' form.
+PatternRound = tuple[
+    str, int, dict[str, list[str | None | EllipsisType]], list[dict[str, object]]
+]
+
+
+def patterns_of(
+    rounds: Sequence[PatternRound],
+    *,
+    newest: str | None = None,
+    demo_order: dict[str, int] | None = None,
+    callouts: MapCallouts | None = NUKE,
+) -> list[RoutePattern]:
+    """A block's patterns from hand-built rounds, through :data:`NUKE`."""
+    rows = [
+        classified_row(demo, round_no, round_type="force")
+        for demo, round_no, _, _ in rounds
+    ]
+    ticks = [
+        row
+        for demo, round_no, paths, _ in rounds
+        for row in route_ticks(demo, round_no, paths)
+    ]
+    deaths = [row for _, _, _, round_deaths in rounds for row in round_deaths]
+    order = demo_order
+    if order is None:
+        order = {demo: place for place, demo in enumerate(dict.fromkeys(
+            demo for demo, _, _, _ in rounds
+        ))}
+    return route_patterns_for(
+        rows, ticks, deaths, [TEAM], order, newest, callouts
+    )
+
+
+def place_text(place: RoutePlace) -> str:
+    """A place's **whole** key in one string: ``outside[coarse]``, and
+    ``b site<>b doors`` for an alternation -- so a lost flag fails a test
+    as a wrong name does."""
+    def one(area: str | None, flag: str | None) -> str:
+        return f"{area}[{flag}]" if flag else str(area)
+
+    text = one(place.area, place.flag)
+    if place.alternates_with is not None or place.alternates_flag is not None:
+        text += "<>" + one(place.alternates_with, place.alternates_flag)
+    return text
+
+
+def pattern_rows(patterns: Sequence[RoutePattern]) -> list[tuple[object, ...]]:
+    """``(path, stayed, [(demo, round, players)], matches, newest)`` per
+    pattern, each place its whole key (:func:`place_text`) -- every field,
+    so a lost round, a flipped kind or a lost flag fails."""
+    return [
+        (
+            tuple(place_text(place) for place in pattern.path),
+            pattern.stayed,
+            [(r.map_demo_id, r.round_no, r.players) for r in pattern.rounds],
+            pattern.matches,
+            pattern.newest,
+        )
+        for pattern in patterns
+    ]
+
+
+#: Three players moving together through lobby to ramp.
+THREE_TO_RAMP: dict[str, list[str | None | EllipsisType]] = {
+    "p1": ["Outside", "Lobby", "Ramp", "Ramp"],
+    "p2": ["Outside", "Lobby", "Ramp", "Ramp"],
+    "p3": ["Outside", "Lobby", "Ramp", "Ramp"],
+}
+
+
+def test_a_route_repeated_across_matches_is_one_pattern_with_two_numbers() -> None:
+    """The spec's first row: the same junction path in three rounds of three
+    matches -- one pattern, three rounds, three matches, the newest among
+    them. The group stays at ramp, so its whole path is the stayed one and
+    its prefix through lobby is the moved one."""
+    rounds = [
+        (MATCH_A_MAP_0, 3, THREE_TO_RAMP, []),
+        (MATCH_B_MAP_0, 4, THREE_TO_RAMP, []),
+        (f"{MATCH_C}-0", 5, THREE_TO_RAMP, []),
+    ]
+    rows = pattern_rows(patterns_of(rounds, newest=MATCH_A))
+    everywhere = [
+        (MATCH_A_MAP_0, 3, 3), (MATCH_B_MAP_0, 4, 3), (f"{MATCH_C}-0", 5, 3)
+    ]
+    assert rows == [
+        (("outside[coarse]", "lobby"), False, everywhere, 3, True),
+        (("outside[coarse]", "lobby", "ramp"), True, everywhere, 3, True),
+    ]
+
+
+def test_a_path_taken_in_one_round_is_not_a_pattern() -> None:
+    """Once is not a recurrence: a second round that went elsewhere leaves
+    nothing of the first round's route."""
+    other = {p: ["Outside", "Mini", "Mini", "Mini"] for p in THREE_TO_RAMP}
+    rounds = [
+        (MATCH_A_MAP_0, 3, THREE_TO_RAMP, []),
+        (MATCH_B_MAP_0, 4, other, []),
+    ]
+    assert patterns_of(rounds) == []
+
+
+def test_a_block_of_one_round_has_no_patterns() -> None:
+    """The spec's last row: nothing can recur in one round."""
+    assert patterns_of([(MATCH_A_MAP_0, 3, THREE_TO_RAMP, [])]) == []
+
+
+def test_two_maps_of_one_match_are_one_match() -> None:
+    """Story 4.9's counting: a force on both maps of a match is two rounds
+    and one match."""
+    rounds = [
+        (MATCH_A_MAP_0, 3, THREE_TO_RAMP, []),
+        (MATCH_A_MAP_1, 4, THREE_TO_RAMP, []),
+    ]
+    patterns = patterns_of(rounds, newest=MATCH_A)
+    assert [(p.n, p.matches, p.newest) for p in patterns] == [(2, 1, True)] * 2
+
+
+def test_the_newest_mark_is_the_maps_newest_match_or_nothing() -> None:
+    """``newest`` is whether the map's newest match is among the pattern's,
+    and ``None`` when the order is not known -- never a denial."""
+    rounds = [
+        (MATCH_A_MAP_0, 3, THREE_TO_RAMP, []),
+        (MATCH_B_MAP_0, 4, THREE_TO_RAMP, []),
+    ]
+    assert [p.newest for p in patterns_of(rounds, newest=MATCH_C)] == [False] * 2
+    assert [p.newest for p in patterns_of(rounds, newest=None)] == [None] * 2
+
+
+def test_a_patterns_rounds_are_newest_match_first() -> None:
+    """The rounds keep the report's recency order, not the rows' order."""
+    rounds = [
+        (MATCH_A_MAP_0, 3, THREE_TO_RAMP, []),
+        (MATCH_B_MAP_0, 4, THREE_TO_RAMP, []),
+    ]
+    order = {MATCH_B_MAP_0: 0, MATCH_A_MAP_0: 1}
+    for pattern in patterns_of(rounds, demo_order=order):
+        assert [r.map_demo_id for r in pattern.rounds] == [
+            MATCH_B_MAP_0,
+            MATCH_A_MAP_0,
+        ]
+
+
+def test_a_split_is_two_patterns_each_counted() -> None:
+    """Two groups of one round are two patterns, and the stretch they shared
+    is a moved pattern of its own with the whole group's count."""
+    split: dict[str, list[str | None | EllipsisType]] = {
+        "p1": ["Outside", "Lobby", "Ramp", "Ramp"],
+        "p2": ["Outside", "Lobby", "Ramp", "Ramp"],
+        "p3": ["Outside", "Lobby", "Hut", "Hut"],
+        "p4": ["Outside", "Lobby", "Hut", "Hut"],
+    }
+    rounds = [
+        (MATCH_A_MAP_0, 3, split, []),
+        (MATCH_B_MAP_0, 4, split, []),
+    ]
+    rows = pattern_rows(patterns_of(rounds))
+    assert [(path, stayed) for path, stayed, *_ in rows] == [
+        (("outside[coarse]", "lobby"), False),
+        (("outside[coarse]", "lobby", "hut[inferred]"), True),
+        (("outside[coarse]", "lobby", "ramp"), True),
+    ]
+    assert [[r[2] for r in rounds_] for _, _, rounds_, *_ in rows] == [
+        [4, 4], [2, 2], [2, 2]
+    ]
+
+
+def test_one_player_last_seen_alive_apart_is_a_one_player_pattern() -> None:
+    """Rule 4 (the spec's second DECIDED): one player last seen alive at a
+    path's end, recurring, is a pattern of one -- here the one of three who
+    was last seen in lobby while the other two went on to ramp."""
+    apart: dict[str, list[str | None | EllipsisType]] = {
+        "p1": ["Outside", "Lobby", "Ramp", "Ramp"],
+        "p2": ["Outside", "Lobby", "Ramp", "Ramp"],
+        "p3": ["Outside", "Lobby", "Lobby", "Lobby"],
+    }
+    rounds = [
+        (MATCH_A_MAP_0, 3, apart, []),
+        (MATCH_B_MAP_0, 4, apart, []),
+        (f"{MATCH_C}-0", 5, apart, []),
+    ]
+    rows = pattern_rows(patterns_of(rounds))
+    stayed_at_lobby = [r for r in rows if r[0] == ("outside[coarse]", "lobby") and r[1]]
+    assert [[entry[2] for entry in r[2]] for r in stayed_at_lobby] == [[1, 1, 1]]
+
+
+def test_a_single_player_moving_on_alone_is_not_a_moved_pattern() -> None:
+    """Rule 4: one player moving on alone is the tail of a split group, so
+    his path through hut is no moved pattern; where he was last seen alive,
+    ramp, is a one-player stayed pattern like any other."""
+    tail: dict[str, list[str | None | EllipsisType]] = {
+        "p1": ["Outside", "Lobby", "Lobby", "Lobby"],
+        "p2": ["Outside", "Lobby", "Lobby", "Lobby"],
+        "p3": ["Outside", "Hut", "Ramp", "Ramp"],
+    }
+    rounds = [
+        (MATCH_A_MAP_0, 3, tail, []),
+        (MATCH_B_MAP_0, 4, tail, []),
+    ]
+    rows = pattern_rows(patterns_of(rounds))
+    assert [(r[0], r[1]) for r in rows] == [
+        (("outside[coarse]", "hut[inferred]", "ramp"), True),
+        (("outside[coarse]", "lobby"), True),
+    ]
+
+
+def test_a_single_player_killed_is_no_pattern() -> None:
+    """Rule 3 and 4 together: a solo path that ends in a death is neither
+    moved (one player) nor stayed (not last seen alive)."""
+    tail: dict[str, list[str | None | EllipsisType]] = {
+        "p1": ["Outside", "Lobby", "Lobby", "Lobby"],
+        "p2": ["Outside", "Lobby", "Lobby", "Lobby"],
+        "p3": ["Outside", "Hut"],
+    }
+    rounds = [
+        (demo, n, tail, [death_row(demo, n, victim="p3", victim_area="Hut", t_s=20.0)])
+        for demo, n in ((MATCH_A_MAP_0, 3), (MATCH_B_MAP_0, 4))
+    ]
+    rows = pattern_rows(patterns_of(rounds))
+    assert not [r for r in rows if "hut[inferred]" in r[0]], rows
+
+
+def test_the_whole_side_in_one_place_is_not_a_pattern() -> None:
+    """Rule 2: a one-place path whose group is the whole side is where
+    everyone went -- the four starting in outside and dividing at the next
+    step -- and says nothing."""
+    divide: dict[str, list[str | None | EllipsisType]] = {
+        "p1": ["Outside", "Lobby", "Lobby", "Lobby"],
+        "p2": ["Outside", "Lobby", "Lobby", "Lobby"],
+        "p3": ["Outside", "Mini", "Mini", "Mini"],
+        "p4": ["Outside", "Mini", "Mini", "Mini"],
+    }
+    rounds = [
+        (MATCH_A_MAP_0, 3, divide, []),
+        (MATCH_B_MAP_0, 4, divide, []),
+    ]
+    rows = pattern_rows(patterns_of(rounds))
+    assert not [r for r in rows if r[0] == ("outside[coarse]",)], rows
+
+
+def test_a_one_place_path_of_part_of_the_side_is_a_pattern() -> None:
+    """Rule 2: three in hell while two are elsewhere is a division of the
+    side, moved or stayed alike -- the CT side's first place is a real
+    direction, not where everyone begins."""
+    moving: dict[str, list[str | None | EllipsisType]] = {
+        "p1": ["Hell", "Ramp", "Ramp", "Ramp"],
+        "p2": ["Hell", "Ramp", "Ramp", "Ramp"],
+        "p3": ["Hell", "Heaven", "Heaven", "Heaven"],
+        "p4": ["Mini", "Mini", "Mini", "Mini"],
+        "p5": ["Mini", "Mini", "Mini", "Mini"],
+    }
+    rounds = [
+        (MATCH_A_MAP_0, 3, moving, []),
+        (MATCH_B_MAP_0, 4, moving, []),
+    ]
+    rows = pattern_rows(patterns_of(rounds))
+    assert [(r[0], r[1], [e[2] for e in r[2]]) for r in rows] == [
+        (("hell",), False, [3, 3]),
+        (("hell", "heaven"), True, [1, 1]),
+        (("hell", "ramp"), True, [2, 2]),
+        (("main",), True, [2, 2]),
+    ]
+
+
+def test_the_start_is_stripped_to_the_first_junction() -> None:
+    """Rule 1: a leading transit place goes as a spawn does -- a player
+    first sampled passing the trophy room and one already in lobby took one
+    route. The archive's case: Ancient's ``water -> ramp`` and ``ruins ->
+    ramp``."""
+    via_transit = {p: ["Vending", "Lobby", "Ramp", "Ramp"] for p in ("p1", "p2")}
+    already_in = {p: ["Lobby", "Ramp", "Ramp", "Ramp"] for p in ("p1", "p2")}
+    rounds = [
+        (MATCH_A_MAP_0, 3, via_transit, []),
+        (MATCH_B_MAP_0, 4, already_in, []),
+    ]
+    assert [r[:2] for r in pattern_rows(patterns_of(rounds))] == [
+        (("lobby", "ramp"), True),
+    ]
+
+
+def test_a_player_who_reaches_no_junction_is_left_out() -> None:
+    """Rule 1's edge: a player seen only in transit has no route, and is in
+    no pattern -- but he is still one of the side, so the two in hell are a
+    division of it."""
+    one_out: dict[str, list[str | None | EllipsisType]] = {
+        "p1": ["Hell", "Hell", "Hell", "Hell"],
+        "p2": ["Hell", "Hell", "Hell", "Hell"],
+        "p3": ["Admin", "Admin", "Admin", "Admin"],
+    }
+    rounds = [
+        (MATCH_A_MAP_0, 3, one_out, []),
+        (MATCH_B_MAP_0, 4, one_out, []),
+    ]
+    assert pattern_rows(patterns_of(rounds)) == [
+        (("hell",), True, [(MATCH_A_MAP_0, 3, 2), (MATCH_B_MAP_0, 4, 2)], 2, None),
+    ]
+
+
+def test_a_leading_spawn_is_not_part_of_a_pattern() -> None:
+    """Rule 1: ``t spawn -> outside -> lobby`` and ``outside -> lobby`` are
+    one route, told apart only by the first sample point."""
+    from_spawn = {p: ["TSpawn", "Outside", "Lobby", "Lobby"] for p in ("p1", "p2")}
+    already_out = {p: ["Outside", "Lobby", "Lobby", "Lobby"] for p in ("p1", "p2")}
+    rounds = [
+        (MATCH_A_MAP_0, 3, from_spawn, []),
+        (MATCH_B_MAP_0, 4, already_out, []),
+    ]
+    assert [r[:2] for r in pattern_rows(patterns_of(rounds))] == [
+        (("outside[coarse]", "lobby"), True),
+    ]
+
+
+def test_the_spawn_is_stripped_without_a_callout_table_too() -> None:
+    """With no table the spawn is the game's name, and it is still a spawn:
+    the rule reads the game area, not a callout."""
+    from_spawn = {p: ["TSpawn", "Outside", "Lobby", "Lobby"] for p in ("p1", "p2")}
+    already_out = {p: ["Outside", "Lobby", "Lobby", "Lobby"] for p in ("p1", "p2")}
+    rounds = [
+        (MATCH_A_MAP_0, 3, from_spawn, []),
+        (MATCH_B_MAP_0, 4, already_out, []),
+    ]
+    rows = pattern_rows(patterns_of(rounds, callouts=None))
+    assert [r[:2] for r in rows] == [(("Outside[no_table]", "Lobby[no_table]"), True)]
+
+
+def test_the_pistol_route_keeps_its_first_place() -> None:
+    """Rule 1 is pattern extraction only: the pistol's tree is unchanged."""
+    route = route_of({p: ["TSpawn", "Outside", "Lobby", "Lobby"] for p in ("p1", "p2")})
+    assert route.steps[0].area == "t spawn"
+
+
+def test_a_spawn_alternation_is_judged_by_where_it_went() -> None:
+    """An alternation at the head is read by the place it went to, as its
+    label is: back and forth between spawn and outside starts at outside."""
+    back_and_forth: dict[str, list[str | None | EllipsisType]] = {
+        p: ["TSpawn", "Outside", "TSpawn", "Outside"] for p in ("p1", "p2")
+    }
+    back_and_forth["p3"] = ["Mini", "Mini", "Mini", "Mini"]
+    rounds = [
+        (MATCH_A_MAP_0, 3, back_and_forth, []),
+        (MATCH_B_MAP_0, 4, back_and_forth, []),
+    ]
+    rows = pattern_rows(patterns_of(rounds))
+    assert [r[:2] for r in rows] == [
+        (("main",), True),
+        (("outside[coarse]<>t spawn",), True),
+    ]
+
+
+def test_a_death_ends_a_players_part_and_is_never_staying() -> None:
+    """Rule 3: killed in ramp after lobby, or killed in lobby itself, the
+    four took ``outside -> lobby`` together and were last seen alive by
+    nobody there -- a moved pattern both times, a stayed one never. A death
+    at an unnamed area is no exception."""
+    group = {p: ["Outside", "Lobby"] for p in ("p1", "p2", "p3", "p4")}
+
+    def killed(demo: str, round_no: int, area: str | None) -> list[dict[str, object]]:
+        return [
+            death_row(demo, round_no, victim=p, victim_area=area, t_s=20.0)
+            for p in ("p1", "p2", "p3", "p4")
+        ]
+
+    for area in ("Ramp", "Lobby", None):
+        rounds = [
+            (MATCH_A_MAP_0, 3, group, killed(MATCH_A_MAP_0, 3, area)),
+            (MATCH_B_MAP_0, 4, group, killed(MATCH_B_MAP_0, 4, area)),
+        ]
+        assert [r[:2] for r in pattern_rows(patterns_of(rounds))] == [
+            (("outside[coarse]", "lobby"), False)
+        ], area
+
+
+def test_a_player_the_sample_lost_is_never_staying() -> None:
+    """Rule 3: ``gone`` ends a player's part as a death does."""
+    lost = {p: ["Outside", "Lobby"] for p in ("p1", "p2")}
+    rounds = [
+        (MATCH_A_MAP_0, 3, lost, []),
+        (MATCH_B_MAP_0, 4, lost, []),
+    ]
+    assert [r[:2] for r in pattern_rows(patterns_of(rounds))] == [
+        (("outside[coarse]", "lobby"), False)
+    ]
+
+
+def test_patterns_are_most_rounds_first() -> None:
+    """The order is the counts', then the names -- never the walk's."""
+    to_mini = {p: ["Outside", "Mini", "Mini", "Mini"] for p in ("p1", "p2")}
+    rounds = [
+        (MATCH_A_MAP_0, 3, THREE_TO_RAMP, []),
+        (MATCH_A_MAP_0, 4, to_mini, []),
+        (MATCH_B_MAP_0, 5, to_mini, []),
+        (f"{MATCH_C}-0", 6, to_mini, []),
+        (f"{MATCH_D}-0", 7, THREE_TO_RAMP, []),
+    ]
+    assert [(r[0], len(r[2])) for r in pattern_rows(patterns_of(rounds))] == [
+        (("outside[coarse]", "main"), 3),
+        (("outside[coarse]", "lobby"), 2),
+        (("outside[coarse]", "lobby", "ramp"), 2),
+    ]
+
+
+def test_the_block_carries_its_patterns_and_only_save_types_do() -> None:
+    """``build_report`` fills ``route_patterns`` on eco, force and half and
+    leaves every other type empty -- the scope stated where it is decided."""
+    rows = [
+        classified_row("Nuke_vs_a", n, round_type="force") for n in (3, 4)
+    ] + [classified_row("Nuke_vs_a", n, round_type="pistol") for n in (1, 13)]
+    ticks = [
+        row
+        for n in (1, 3, 4, 13)
+        for row in route_ticks("Nuke_vs_a", n, THREE_TO_RAMP)
+    ]
+    report = report_for(rows, ticks, callouts={"de_nuke": NUKE})
+    (side,) = report.maps[0].sides
+    by_type = {rt.round_type: rt for rt in side.round_types}
+    assert [p.n for p in by_type["force"].route_patterns] == [2, 2]
+    assert by_type["pistol"].route_patterns == []
+    assert by_type["force"].routes == []
+
+
+def test_the_ct_spawn_is_stripped_as_the_t_spawn_is() -> None:
+    """Rule 1 names both spawns: a CT first sampled in ``ct spawn`` and one
+    already in hell took one route. Stripping only the T spawn fails this."""
+    table: MapCallouts = {**NUKE, "CTSpawn": callout("ct spawn", junction=True)}
+    from_spawn = {p: ["CTSpawn", "Hell", "Ramp", "Ramp"] for p in ("p1", "p2")}
+    already_out = {p: ["Hell", "Ramp", "Ramp", "Ramp"] for p in ("p1", "p2")}
+    rounds = [
+        (MATCH_A_MAP_0, 3, from_spawn, []),
+        (MATCH_B_MAP_0, 4, already_out, []),
+    ]
+    assert [r[:2] for r in pattern_rows(patterns_of(rounds, callouts=table))] == [
+        (("hell", "ramp"), True),
+    ]
+
+
+def test_a_death_at_an_alternations_second_place_is_never_staying() -> None:
+    """Rule 3 with an alternation: two going back and forth between lobby
+    and outside and killed in outside -- the alternation's second place --
+    were last seen alive by nobody there, so no stayed pattern comes of it."""
+    group: dict[str, list[str | None | EllipsisType]] = {
+        p: ["Lobby", "Outside", "Lobby"] for p in ("p1", "p2")
+    }
+    group["p3"] = ["Mini", "Mini", "Mini", "Mini"]
+
+    def killed(demo: str, round_no: int) -> list[dict[str, object]]:
+        return [
+            death_row(demo, round_no, victim=p, victim_area="Outside", t_s=40.0)
+            for p in ("p1", "p2")
+        ]
+
+    rounds = [
+        (MATCH_A_MAP_0, 3, group, killed(MATCH_A_MAP_0, 3)),
+        (MATCH_B_MAP_0, 4, group, killed(MATCH_B_MAP_0, 4)),
+    ]
+    rows = pattern_rows(patterns_of(rounds))
+    assert [r[:2] for r in rows if r[1]] == [(("main",), True)], rows
+    assert (("lobby", "outside[coarse]<>lobby"), False) in [r[:2] for r in rows]
+
+
+def test_among_equal_rounds_more_matches_come_first() -> None:
+    """The sort's second key: of two paths taken in two rounds each, the one
+    from two matches precedes the one from a single match's two maps --
+    though its name sorts later."""
+    to_mini = {p: ["Hell", "Mini", "Mini", "Mini"] for p in ("p1", "p2")}
+    to_ramp = {p: ["Hell", "Ramp", "Ramp", "Ramp"] for p in ("p1", "p2")}
+    rounds = [
+        (MATCH_A_MAP_0, 3, to_mini, []),
+        (MATCH_A_MAP_1, 4, to_mini, []),
+        (MATCH_B_MAP_0, 5, to_ramp, []),
+        (f"{MATCH_C}-0", 6, to_ramp, []),
+    ]
+    assert [(r[0], r[3]) for r in pattern_rows(patterns_of(rounds))] == [
+        (("hell", "ramp"), 2),
+        (("hell", "main"), 1),
+    ]
+
+
+def test_on_one_path_moved_comes_before_stayed() -> None:
+    """The sort's last key: the same path as a moved and a stayed pattern in
+    the same rounds reads moved first."""
+    apart: dict[str, list[str | None | EllipsisType]] = {
+        "p1": ["Outside", "Lobby", "Ramp", "Ramp"],
+        "p2": ["Outside", "Lobby", "Ramp", "Ramp"],
+        "p3": ["Outside", "Lobby", "Lobby", "Lobby"],
+    }
+    rounds = [
+        (MATCH_A_MAP_0, 3, apart, []),
+        (MATCH_B_MAP_0, 4, apart, []),
+    ]
+    assert [r[:2] for r in pattern_rows(patterns_of(rounds))] == [
+        (("outside[coarse]", "lobby"), False),
+        (("outside[coarse]", "lobby"), True),
+        (("outside[coarse]", "lobby", "ramp"), True),
+    ]

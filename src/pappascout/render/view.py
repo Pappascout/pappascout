@@ -186,6 +186,7 @@ from pappascout.domain.report import (
     RoundRoute,
     RoundTypeReport,
     RouteFlag,
+    RoutePattern,
     RouteStep,
     UtilityCounts,
     UtilityUse,
@@ -578,6 +579,37 @@ ROUTE_ARROW = "->"
 #: at all: CommonMark read them as lazy paragraph continuations and threw
 #: the indentation away. See :func:`_route_rows`.
 ROUTE_INDENT = "  "
+
+#: The label of a save-round block's recurring route (Story 4.14):
+#: ``Reitti: outside -> lobby -> radio, 3 pelaajaa (3/7 kierroksesta, ...)``.
+#:
+#: A label and not a sentence, so the line reads as one of the block's rows
+#: beside the sample-point rows' ``15 s:`` -- and says it is a different
+#: kind of row. **No name for the pattern**: the product owner's *"lobby
+#: crunch"* is his word to give (the spec's Always); the line states
+#: callouts and counts.
+#:
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+ROUTE_PATTERN_LABEL = "Reitti"
+
+#: A pattern's player count when it varied between its rounds:
+#: ``jopa 4 pelaajaa``, the largest group seen on the path. Story 4.12's word
+#: for a peak (:func:`_habit_players_text`), and for its reason: ``enintään``
+#: would read as a cap. A count that never varied is stated as it is.
+#:
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+ROUTE_PATTERN_PEAK = "jopa"
+
+#: After the players of a pattern that **stayed** at its last place
+#: (:attr:`~pappascout.domain.report.RoutePattern.stayed`):
+#: ``outside -> lobby, 1 pelaaja jää``, ``b doors, 2 pelaajaa jää``. It
+#: means **last seen alive there** and nothing more: no intent, no name
+#: (the spec's second DECIDED, rules 3 and 6). A player killed there is not
+#: in it. The reading guide says so, because the end of a row is not the
+#: end of the round.
+#:
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+ROUTE_PATTERN_STAYED = "jää"
 
 #: The flag on a route step whose game area holds several of the product
 #: owner's callouts (``outside (karkea)``): the name is his, but coarser than
@@ -1030,6 +1062,15 @@ class RoundTypeView:
     #: class; :func:`build_view` fills it in always, from a list the model
     #: holds to being exactly as long as the block's sample.
     routes: tuple[RouteView, ...] = ()
+    #: The routes a save-round block's rounds repeat (Story 4.14), **first
+    #: in the block** and before :attr:`lines` -- the story's decision 7: the
+    #: route is what the product owner asked of these blocks, and the
+    #: sample-point rows stay under it as they were. Empty on every other
+    #: type, and on a save block where nothing recurred.
+    patterns: tuple[Line, ...] = ()
+    #: A printed pattern names a place the game's way because its map has no
+    #: callout table, so the guide names the map (:func:`build_view`).
+    patterns_untranslated: bool = False
 
 
 @dataclass(frozen=True)
@@ -1290,6 +1331,10 @@ class _Flags:
     #: map"*: their steps carry no mark, and the guide names the maps once.
     #: Raised in :func:`build_view`, beside :attr:`routes_shown`.
     route_no_table: list[str] = field(default_factory=list)
+    #: A save-round block printed a recurring route (Story 4.14), so the
+    #: guide explains those rows -- only then, for :attr:`routes_shown`'s
+    #: reason.
+    route_patterns_shown: bool = False
 
     def absorb(self, other: "_Flags", *, keep: bool) -> None:
         """Merge one row's flags into the whole report's bookkeeping.
@@ -2982,16 +3027,33 @@ def _route_step_label(step: RouteStep, flags: _Flags) -> str:
     """
     if step.fate == "gone":
         return ROUTE_GONE
-    if step.area is None:
-        flags.unknown_area = True
-    place = _route_place_text(step.area, step.flag, flags)
-    if step.alternates_with is not None:
-        flags.route_return = True
-        place += f" {ROUTE_RETURN} " + _route_place_text(
-            step.alternates_with, step.alternates_flag, flags
-        )
+    place = _route_place_label(
+        step.area, step.flag, step.alternates_with, step.alternates_flag, flags
+    )
     if step.fate == "died":
         return f"{ROUTE_DIED} {place} ({_seconds(round(step.seconds))} s)"
+    return place
+
+
+def _route_place_label(
+    area: str | None,
+    flag: RouteFlag | None,
+    other: str | None,
+    other_flag: RouteFlag | None,
+    flags: _Flags,
+) -> str:
+    """A place as a route row names it: the callout with its mark, and the
+    second place of an alternation after :data:`ROUTE_RETURN`.
+
+    One spelling for the pistol's steps and the save rounds' patterns
+    (Story 4.14), so the two cannot come to name one place two ways.
+    """
+    if area is None:
+        flags.unknown_area = True
+    place = _route_place_text(area, flag, flags)
+    if other is not None:
+        flags.route_return = True
+        place += f" {ROUTE_RETURN} " + _route_place_text(other, other_flag, flags)
     return place
 
 
@@ -3304,6 +3366,112 @@ def _route_views(
     return tuple(views)
 
 
+def _extends(longer: RoutePattern, shorter: RoutePattern) -> bool:
+    """Whether ``longer``'s path is ``shorter``'s and then more."""
+    size = len(shorter.path)
+    return len(longer.path) > size and longer.path[:size] == shorter.path
+
+
+def _route_pattern_lines(
+    report_type: RoundTypeReport,
+    threshold: int | None,
+    flags: _Flags,
+    *,
+    matches: bool,
+    recency: bool,
+) -> tuple[list[Line], bool]:
+    """The block's recurring routes as rows (Story 4.14), and whether a
+    **printed** one names a place in the game's words for want of a callout
+    table -- the guide names such a map, and only for a row it shows.
+
+    **Selection only** (AD-10); the patterns and their rounds are the
+    model's (:func:`~pappascout.domain.aggregate.route_patterns_for`). Two
+    rules, both the spec's:
+
+    * **The block's own threshold** (decision 3) -- :func:`block_min_rounds`,
+      the number the block's *"vain toistuvat kuviot"* note states, so one
+      rule decides what repeats in a block -- **with a floor of two rounds
+      that is the model's and not this function's**: the model holds only
+      paths of two rounds or more
+      (:class:`~pappascout.domain.report.RoutePattern`). So where the
+      block's threshold is one (``small_sample_rounds = 1``, or a
+      one-round block) or the report has none, every path that recurred
+      prints, and never a path of one round. The guide states the floor.
+    * **No redundant prefix** (decision 5, the second DECIDED rule 5): a
+      path a group **moved** along is printed only if it recurs in **more**
+      rounds than every printed **moved** path that extends it. An
+      extension's rounds are always among its prefix's, so an equal count
+      is the same rounds, and the extension already says it. Compared
+      against **every** printed moved extension and not only the longest:
+      of ``A`` 4, ``A -> B`` 4 and ``A -> B -> C`` 3, ``A`` says nothing
+      ``A -> B`` does not, though it outnumbers the longest. A **stayed**
+      extension does not count: it is the players last seen alive there, a
+      part of the group, and cannot stand in for the group that went on. A
+      stayed path is never suppressed either, for the same reason the other
+      way round.
+
+    The two numbers are the product owner's form, rounds of the block and
+    matches (decision 4), through :class:`Claim` so they obey the rules
+    every other row's do: ``matches`` is :func:`_block_states_matches` and
+    ``recency`` :func:`_map_states_recency`. The players are the group's
+    size on the path, :data:`ROUTE_PATTERN_PEAK` when it varied.
+    """
+    # ``None`` is a report with no threshold: nothing is filtered here, and
+    # the model's floor of two rounds is the only one (see above).
+    minimum = block_min_rounds(threshold, report_type.sample.rounds) or 1
+    recurring = [p for p in report_type.route_patterns if p.n >= minimum]
+    printed = [
+        pattern
+        for pattern in recurring
+        if not any(
+            not pattern.stayed
+            and not other.stayed
+            and _extends(other, pattern)
+            and other.n >= pattern.n
+            for other in recurring
+        )
+    ]
+    lines: list[Line] = []
+    for pattern in printed:
+        path = f" {ROUTE_ARROW} ".join(
+            _route_place_label(
+                place.area,
+                place.flag,
+                place.alternates_with,
+                place.alternates_flag,
+                flags,
+            )
+            for place in pattern.path
+        )
+        counts = {entry.players for entry in pattern.rounds}
+        players = players_text(max(counts))
+        if len(counts) > 1:
+            players = f"{ROUTE_PATTERN_PEAK} {players}"
+        if pattern.stayed:
+            players = f"{players} {ROUTE_PATTERN_STAYED}"
+        lines.append(
+            Line(
+                label=ROUTE_PATTERN_LABEL,
+                claims=(
+                    Claim(
+                        text=f"{path}, {players}",
+                        n=pattern.n,
+                        m=report_type.sample.rounds,
+                        matches_n=pattern.matches if matches else None,
+                        matches_m=report_type.sample.matches if matches else None,
+                        newest=pattern.newest if recency else None,
+                    ),
+                ),
+            )
+        )
+    if lines:
+        flags.route_patterns_shown = True
+    untranslated = any(
+        place.flag == "no_table" for pattern in printed for place in pattern.path
+    )
+    return lines, untranslated
+
+
 def _round_type_view(
     report_type: RoundTypeReport,
     threshold: int | None,
@@ -3427,6 +3595,13 @@ def _round_type_view(
     heading = _capitalise(
         ROUND_TYPE_FI.get(report_type.round_type, report_type.round_type)
     )
+    patterns, patterns_untranslated = _route_pattern_lines(
+        report_type,
+        threshold,
+        flags,
+        matches=_block_states_matches(report_type),
+        recency=recency,
+    )
 
     return RoundTypeView(
         round_type=report_type.round_type,
@@ -3441,6 +3616,8 @@ def _round_type_view(
         lines=tuple(lines),
         notes=tuple(notes),
         routes=_route_views(report_type, played_maps, flags),
+        patterns=tuple(patterns),
+        patterns_untranslated=patterns_untranslated,
     )
 
 
@@ -4971,6 +5148,14 @@ def build_view(
                         and map_report.map_name not in flags.route_no_table
                     ):
                         flags.route_no_table.append(map_report.map_name)
+                # The same for a save block's patterns (Story 4.14): only a
+                # printed row, so a map whose patterns all stayed under the
+                # threshold is not named for a table nothing printed needs.
+                if (
+                    views[-1].patterns_untranslated
+                    and map_report.map_name not in flags.route_no_table
+                ):
+                    flags.route_no_table.append(map_report.map_name)
             sides.append(
                 SideView(
                     side=side.side,
@@ -5438,6 +5623,39 @@ def _legend(
             "näytepisteeseen, kirjaavat kuoleman vielä sen jälkeen. Rivin "
             "viimeinen kohta on siis viimeinen havainto eikä kierroksen "
             "loppu, eikä rivi väitä mitään sen jälkeisestä ajasta."
+        )
+    # THE SAVE ROUNDS' ROUTES (Story 4.14), only where one printed. The
+    # wording is the implementation's and awaits the product owner's word.
+    if flags.route_patterns_shown:
+        notes.append(
+            f'"{ROUTE_PATTERN_LABEL}:" eco-, force- ja puoliostolohkon alussa '
+            "on reitti, jonka joukkue kulki lohkon kierroksilla useammin "
+            "kuin kerran. Jokaisen pelaajan reitti luetaan kuten "
+            "pistoolilohkossa -- risteykset ja viimeinen havainto "
+            "calloutteina -- mutta se alkaa ensimmäisestä risteyksestä, joka "
+            "ei ole spawn: sitä edeltävät paikat riippuvat vain siitä, missä "
+            "pelaaja sattui olemaan ensimmäisellä näytepisteellä. Pelaaja, "
+            "joka ei ehdi yhteenkään risteykseen, ei ole reiteissä mukana. "
+            "Kuolema tai otannasta poistuminen päättää pelaajan reitin, eikä "
+            "se ole reitin paikka. Reitti ilman merkintää on vähintään "
+            "kahden pelaajan yhteinen matka, josta ainakin osa jatkoi, kuoli "
+            "tai poistui otannasta; "
+            f'"{ROUTE_PATTERN_STAYED}" pelaajamäärän perässä tarkoittaa, että '
+            "nämä pelaajat nähtiin viimeksi elossa reitin viimeisessä "
+            "paikassa -- se on viimeinen havainto eikä kerro aikeista. "
+            "Yhden pelaajan reitti on mukana vain tällaisena. Yhden paikan "
+            "reitti on mukana vain, kun siinä on osa puolen pelaajista eikä "
+            "koko puoli. Rivi tulostuu, kun reitti toistuu vähintään yhtä "
+            "monella kierroksella kuin lohkon muutkin kuviot vaativat ja "
+            "aina vähintään kahdella. Lyhyempi reitti ilman merkintää "
+            "tulostuu vain, jos se toistuu useammin kuin sen pidempi jatke "
+            f'ilman merkintää; "{ROUTE_PATTERN_STAYED}"-rivejä tämä ei '
+            "koske. Luvut ovat lohkon kierroksista ja otteluista; "
+            f'"{ROUTE_PATTERN_PEAK} N pelaajaa" tarkoittaa, että ryhmän koko '
+            "vaihteli ja suurin oli N. Nuoli ei tarkoita, että paikat "
+            "olisivat vierekkäin, ja raportti ei nimeä kuviota. Kaikki "
+            "vähintään kahdella kierroksella toistuneet reitit kierroksineen "
+            "ovat report.jsonissa kentässä route_patterns."
         )
     # THE CALLOUT FLAGS (Story 4.13), each only where it is printed, for the
     # route paragraphs' reason. The wording awaits the product owner's word.

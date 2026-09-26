@@ -1,0 +1,1229 @@
+{
+  "blocks": {
+    "1e1965abbc06133b/de_dust2/CT/eco": {
+      "lines": [
+        "Reitti: long a, jopa 3 pelaajaa (5/8 kierroksesta, 3/3 ottelussa, uusin mukana)",
+        "Reitti: mid doors, 2 pelaajaa (4/8 kierroksesta, 2/3 ottelussa, ei uusimmassa)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "long a",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              4,
+              2
+            ],
+            [
+              1,
+              4,
+              2
+            ],
+            [
+              1,
+              8,
+              3
+            ],
+            [
+              2,
+              2,
+              2
+            ],
+            [
+              2,
+              4,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "mid doors",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              4,
+              2
+            ],
+            [
+              1,
+              5,
+              2
+            ],
+            [
+              2,
+              4,
+              2
+            ],
+            [
+              2,
+              11,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "b doors",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              5,
+              2
+            ],
+            [
+              2,
+              11,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "mid doors",
+              null,
+              null,
+              null
+            ],
+            [
+              "ct spawn",
+              null,
+              "mid doors",
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              2,
+              1
+            ],
+            [
+              2,
+              11,
+              1
+            ]
+          ],
+          "stayed": true
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "long a",
+              null,
+              null,
+              null
+            ],
+            [
+              "long box",
+              null,
+              "long a",
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              2,
+              2,
+              1
+            ],
+            [
+              2,
+              4,
+              1
+            ]
+          ],
+          "stayed": true
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "long a",
+              null,
+              null,
+              null
+            ],
+            [
+              "long box",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              2,
+              2,
+              1
+            ],
+            [
+              2,
+              11,
+              1
+            ]
+          ],
+          "stayed": true
+        }
+      ]
+    },
+    "1e1965abbc06133b/de_dust2/CT/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "1e1965abbc06133b/de_dust2/CT/half": {
+      "lines": [],
+      "patterns": []
+    },
+    "1e1965abbc06133b/de_dust2/T/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "1e1965abbc06133b/de_dust2/T/force": {
+      "lines": [
+        "Reitti: outside tunnels -> upper b, jopa 4 pelaajaa (4/5 kierroksesta, 3/3 ottelussa, uusin mukana)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "outside tunnels",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              14,
+              2
+            ],
+            [
+              1,
+              15,
+              4
+            ],
+            [
+              1,
+              17,
+              4
+            ],
+            [
+              2,
+              16,
+              4
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "outside tunnels",
+              null,
+              null,
+              null
+            ],
+            [
+              "upper b",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              14,
+              2
+            ],
+            [
+              1,
+              15,
+              4
+            ],
+            [
+              1,
+              17,
+              3
+            ],
+            [
+              2,
+              16,
+              4
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "outside tunnels",
+              null,
+              null,
+              null
+            ],
+            [
+              "upper b",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              15,
+              1
+            ],
+            [
+              2,
+              16,
+              2
+            ]
+          ],
+          "stayed": true
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "top mid",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              14,
+              2
+            ],
+            [
+              1,
+              14,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "outside tunnels",
+              null,
+              null,
+              null
+            ],
+            [
+              "upper b",
+              null,
+              null,
+              null
+            ],
+            [
+              "tunnelin portaat",
+              null,
+              "upper b",
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              15,
+              1
+            ],
+            [
+              1,
+              17,
+              2
+            ]
+          ],
+          "stayed": true
+        }
+      ]
+    },
+    "1e1965abbc06133b/de_inferno/CT/eco": {
+      "lines": [
+        "Reitti: b site, jopa 3 pelaajaa jää (2/2 kierroksesta)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "b site",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              4,
+              3
+            ],
+            [
+              0,
+              6,
+              1
+            ]
+          ],
+          "stayed": true
+        }
+      ]
+    },
+    "1e1965abbc06133b/de_inferno/T/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "1e1965abbc06133b/de_inferno/T/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "1e1965abbc06133b/de_inferno/T/half": {
+      "lines": [],
+      "patterns": []
+    },
+    "1e1965abbc06133b/de_nuke/CT/eco": {
+      "lines": [
+        "Reitti: hell, jopa 3 pelaajaa (5/5 kierroksesta, 3/3 ottelussa, uusin mukana)",
+        "Reitti: outside (karkea), jopa 3 pelaajaa (4/5 kierroksesta, 3/3 ottelussa, uusin mukana)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "hell",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              14,
+              3
+            ],
+            [
+              0,
+              16,
+              3
+            ],
+            [
+              2,
+              16,
+              2
+            ],
+            [
+              3,
+              14,
+              3
+            ],
+            [
+              3,
+              17,
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              14,
+              2
+            ],
+            [
+              0,
+              16,
+              2
+            ],
+            [
+              2,
+              16,
+              3
+            ],
+            [
+              3,
+              17,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "hell",
+              null,
+              null,
+              null
+            ],
+            [
+              "rafters",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              14,
+              2
+            ],
+            [
+              0,
+              16,
+              2
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
+    "1e1965abbc06133b/de_nuke/CT/force": {
+      "lines": [],
+      "patterns": [
+        {
+          "newest": false,
+          "path": [
+            [
+              "hell",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              16,
+              3
+            ],
+            [
+              2,
+              15,
+              4
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "hell",
+              null,
+              null,
+              null
+            ],
+            [
+              "ramp",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              19,
+              3
+            ],
+            [
+              2,
+              15,
+              2
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
+    "1e1965abbc06133b/de_nuke/T/eco": {
+      "lines": [
+        "Reitti: outside (karkea) -> lobby, jopa 5 pelaajaa (4/7 kierroksesta, 2/3 ottelussa, uusin mukana)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ],
+            [
+              "lobby",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              7,
+              4
+            ],
+            [
+              0,
+              8,
+              5
+            ],
+            [
+              0,
+              10,
+              4
+            ],
+            [
+              1,
+              2,
+              3
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
+    "1e1965abbc06133b/de_nuke/T/force": {
+      "lines": [
+        "Reitti: outside (karkea) -> lobby, jopa 5 pelaajaa (5/7 kierroksesta, 3/4 ottelussa, uusin mukana)",
+        "Reitti: outside (karkea) -> lobby -> squeaky -> a site, 1 pelaaja jää (3/7 kierroksesta, 3/4 ottelussa, uusin mukana)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ],
+            [
+              "lobby",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              5,
+              4
+            ],
+            [
+              1,
+              6,
+              4
+            ],
+            [
+              1,
+              12,
+              5
+            ],
+            [
+              3,
+              6,
+              4
+            ],
+            [
+              3,
+              10,
+              4
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ],
+            [
+              "lobby",
+              null,
+              null,
+              null
+            ],
+            [
+              "squeaky",
+              null,
+              null,
+              null
+            ],
+            [
+              "a site",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              5,
+              1
+            ],
+            [
+              1,
+              12,
+              1
+            ],
+            [
+              3,
+              10,
+              1
+            ]
+          ],
+          "stayed": true
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ],
+            [
+              "lobby",
+              null,
+              null,
+              null
+            ],
+            [
+              "squeaky",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              5,
+              2
+            ],
+            [
+              1,
+              12,
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ],
+            [
+              "lobby",
+              null,
+              null,
+              null
+            ],
+            [
+              "squeaky",
+              null,
+              null,
+              null
+            ],
+            [
+              "a site",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              5,
+              2
+            ],
+            [
+              1,
+              12,
+              3
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
+    "1e1965abbc06133b/de_nuke/T/half": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_ancient/CT/eco": {
+      "lines": [],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "mid talo",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              4,
+              3
+            ],
+            [
+              0,
+              7,
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "mid talo",
+              null,
+              null,
+              null
+            ],
+            [
+              "ct spawn",
+              null,
+              null,
+              null
+            ],
+            [
+              "a site",
+              null,
+              null,
+              null
+            ],
+            [
+              "a main",
+              null,
+              null,
+              null
+            ],
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              2,
+              1
+            ],
+            [
+              0,
+              7,
+              1
+            ]
+          ],
+          "stayed": true
+        }
+      ]
+    },
+    "9ac92660986558d3/de_ancient/CT/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_ancient/T/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_anubis/CT/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_anubis/CT/half": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_anubis/T/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_anubis/T/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_inferno/CT/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_inferno/T/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_nuke/CT/eco": {
+      "lines": [],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "hell",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              2,
+              4
+            ],
+            [
+              0,
+              8,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              5,
+              4
+            ],
+            [
+              0,
+              8,
+              3
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
+    "9ac92660986558d3/de_nuke/T/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_ancient/CT/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_ancient/CT/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_ancient/T/eco": {
+      "lines": [
+        "Reitti: outside (karkea) -> middle, 5 pelaajaa (2/2 kierroksesta)"
+      ],
+      "patterns": [
+        {
+          "newest": null,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ],
+            [
+              "middle",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              2,
+              5
+            ],
+            [
+              0,
+              6,
+              5
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
+    "ff03fb54599d3311/de_ancient/T/force": {
+      "lines": [],
+      "patterns": [
+        {
+          "newest": null,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ],
+            [
+              "a main",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              5,
+              5
+            ],
+            [
+              1,
+              11,
+              4
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": null,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ],
+            [
+              "a main",
+              null,
+              null,
+              null
+            ],
+            [
+              "a site",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              5,
+              2
+            ],
+            [
+              1,
+              11,
+              4
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": null,
+          "path": [
+            [
+              "outside",
+              "coarse",
+              null,
+              null
+            ],
+            [
+              "a main",
+              null,
+              null,
+              null
+            ],
+            [
+              "a site",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              5,
+              1
+            ],
+            [
+              1,
+              11,
+              1
+            ]
+          ],
+          "stayed": true
+        },
+        {
+          "newest": null,
+          "path": [
+            [
+              "ramp",
+              null,
+              null,
+              null
+            ],
+            [
+              "b site",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              8,
+              4
+            ],
+            [
+              1,
+              12,
+              4
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
+    "ff03fb54599d3311/de_anubis/CT/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_anubis/CT/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_anubis/T/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_anubis/T/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_nuke/CT/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_nuke/CT/force": {
+      "lines": [
+        "Reitti: hell, jopa 4 pelaajaa (2/2 kierroksesta)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "hell",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              16,
+              3
+            ],
+            [
+              0,
+              24,
+              4
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
+    "ff03fb54599d3311/de_nuke/T/eco": {
+      "lines": [],
+      "patterns": []
+    }
+  },
+  "measured": "2026-09-26",
+  "note": "Every recorded team's eco, force and half-buy block: the route-pattern lines the report prints and every recurring path report.json holds (Story 4.14). A round is [demo place in the map's newest-first list, round number, players]. Written by running tests/test_calibration.py's _pattern_blocks_from over the archive; re-measure, do not hand-edit."
+}

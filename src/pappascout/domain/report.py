@@ -64,6 +64,8 @@ decision before it could follow: its denominator is kills and not rounds, so
 has a match count since Story 4.5, **derived and not stored**
 (:attr:`Anomaly.matches`): the product owner's match rule reads it, and it is
 derivable from the row's own rounds through the same ``match_of``.
+:class:`RoutePattern` has one the same way since Story 4.14
+(:attr:`RoutePattern.matches`), for the same reason.
 
 In one place ``m`` **is not rounds**: :class:`KillArea` counts kills, so its
 ``Σ n = the number of kills``. A round type can have more kills than rounds, so
@@ -203,6 +205,10 @@ __all__ = [
     "RouteFlag",
     "RouteStep",
     "RoundRoute",
+    "ROUTE_PATTERN_ROUND_TYPES",
+    "RoutePlace",
+    "RoutePatternRound",
+    "RoutePattern",
     "RoundTypeReport",
     "SideReport",
     "PlayedMap",
@@ -435,7 +441,15 @@ __all__ = [
 #: on; and ``aggregate`` never gives a ``gone`` step children. A step may
 #: also carry :attr:`RouteStep.alternates_with` -- two places a player went
 #: back and forth between, one step.
-REPORT_SCHEMA_VERSION = "16.0.0"
+#:
+#: **17.0.0 (Story 4.14): the save-round blocks carry the routes they
+#: repeat.** :attr:`RoundTypeReport.route_patterns` is **required** on every
+#: round type, so a 16.0.0 file does not validate -- the first condition,
+#: 14.0.0's shape. No default, and the reason is the node's: an empty list
+#: is an observation (*no path recurred in this block*), and a 16.0.0 file
+#: defaulted to it would print every eco, force and half-buy block of an old
+#: report as a block whose rounds share no route.
+REPORT_SCHEMA_VERSION = "17.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
 #: refuses an old ``report.json`` with.
@@ -462,10 +476,9 @@ REPORT_SCHEMA_VERSION = "16.0.0"
 #: English, like every other line the CLI prints (AD-11). It never reaches
 #: the report.
 REPORT_SCHEMA_CHANGE = (
-    "Version 16.0.0 writes each pistol route through the product owner's "
-    "junctions and in his callouts, with a flag on every step that is not "
-    "his word; an older report's route steps are game areas at sample "
-    "points, which this version refuses."
+    "Version 17.0.0 adds to every eco, force and half-buy block the "
+    "junction routes its rounds repeat, each with the rounds it was taken "
+    "in; an older report has no such field, which this version refuses."
 )
 
 
@@ -2144,6 +2157,167 @@ class RoundRoute(_Node):
     steps: list[RouteStep] = Field(default_factory=list)
 
 
+#: The buy classes that carry recurring route patterns (Story 4.14): the
+#: product owner's *"eco/force kierroksilta"*, with the half buy he names
+#: beside them (*"forceja, ecoja ja puoliostoja"*). **The economic list and
+#: not a second one** -- :data:`~pappascout.constants.SAVING_ROUND_TYPES` is
+#: exactly those three, and a copy here could drift from it.
+ROUTE_PATTERN_ROUND_TYPES: tuple[str, ...] = SAVING_ROUND_TYPES
+
+
+class RoutePlace(_Node):
+    """One place of a route pattern: a callout, its flag, and an alternation.
+
+    The same four fields a :class:`RouteStep` names its place with, and the
+    same meanings (:data:`RouteFlag`, :attr:`RouteStep.alternates_with`).
+    **No fate and no moment**: a pattern is where a group went, so a death
+    or a lost player is never one of its places (Story 4.14, decision 2),
+    and a moment belongs to one round while a pattern spans several.
+    """
+
+    area: str | None
+    flag: RouteFlag | None
+    alternates_with: str | None = None
+    alternates_flag: RouteFlag | None = None
+
+    @model_validator(mode="after")
+    def _check_an_alternation_is_two_places(self) -> RoutePlace:
+        """An alternation is two different places, and a flag belongs to a
+        place that is named.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If a flag is given for no
+                second place, or the two places are one.
+        """
+        if self.alternates_with is None and self.alternates_flag is not None:
+            problem = "carries a flag for a second place it does not name"
+        elif self.alternates_with is not None and self.alternates_with == self.area:
+            problem = f"alternates between {self.area!r} and itself"
+        else:
+            return self
+        raise AggregateError(
+            f"A route pattern's place {problem}.\n"
+            "An alternation is players going back and forth between two "
+            "places they were observed in."
+        )
+
+
+class RoutePatternRound(_Node):
+    """One round a route pattern was taken in, and by how many players.
+
+    ``players`` is how many took the path in that round
+    (:func:`~pappascout.domain.aggregate.route_patterns_for`): on a moved
+    path every player whose path began with it, on a stayed path only those
+    last seen alive at its end.
+    """
+
+    map_demo_id: str
+    round_no: int = Field(ge=1)
+    players: int = Field(ge=1)
+
+
+class RoutePattern(_Node):
+    """A junction path that recurs across a save-round block's rounds.
+
+    Story 4.14. Each player's path in an eco, force or half-buy round is the
+    pistol's junction path, started at its first junction that is not a
+    spawn (:func:`~pappascout.domain.aggregate.route_patterns_for` has the
+    rules); the players sharing a stretch from that start are a group, and
+    the same stretch of the same kind (:attr:`stayed`) in several rounds is
+    this node. **Only paths taken in at least two rounds are here**, because
+    one round is not a recurrence; which of them the report prints is
+    ``render``'s selection (the block's own threshold, and no redundant
+    prefix).
+
+    **It names no pattern and claims no intent** (the spec's second DECIDED,
+    rule 6). It says which places a number of players were seen at, in
+    order, and :attr:`stayed` says where some were seen **last** -- nothing
+    about why they were there or what they meant to do.
+
+    **The rounds are carried and not only counted**, so every number the
+    report prints about the pattern is derivable from ``report.json``
+    (memlog 2026-09-25): the share is ``len(rounds)`` of the block's
+    :attr:`Sample.rounds`, the matches are :attr:`matches` of the block's
+    :attr:`Sample.matches`, and the players are read off each round.
+
+    ``newest`` is the **map's** newest match among the pattern's matches,
+    the meaning :attr:`PlayersCount.newest` has and for its reasons -- and
+    it is stored rather than derived because the map's newest match is not
+    in this node.
+    """
+
+    path: list[RoutePlace] = Field(min_length=1)
+    #: ``False``: the path a group **moved** along -- two players or more,
+    #: not all of them last seen alive at its end: some went on, were killed
+    #: or were lost by the sample. ``True``: the path to the place where
+    #: these players were **last seen alive** -- one of them or more. A
+    #: player killed or lost is in no stayed pattern: a death is not staying
+    #: anywhere. **The end of a row is not the end of the round**
+    #: (:class:`RouteStep`), so this is the last observation and no more.
+    stayed: bool
+    rounds: list[RoutePatternRound] = Field(min_length=2)
+    newest: bool | None
+
+    @property
+    def n(self) -> int:
+        """The rounds the path was taken in. **Derived, not a field**: a
+        stored count beside the list it counts is a second copy."""
+        return len(self.rounds)
+
+    @property
+    def matches(self) -> int:
+        """The matches those rounds come from, through the same
+        :func:`~pappascout.domain.selection.match_of` as every match count
+        of the report (Story 4.9): two maps of one match are one match.
+        Derived for :attr:`Anomaly.matches`' reason."""
+        return len({match_of(entry.map_demo_id) for entry in self.rounds})
+
+    @model_validator(mode="after")
+    def _check_no_place_twice_in_a_row(self) -> RoutePattern:
+        """No place follows itself.
+
+        A path is compressed so that a place is one step however long the
+        players stayed (:func:`~pappascout.domain.aggregate._junction_path`),
+        so ``outside -> lobby -> lobby`` is not a route but a fault -- one
+        that would print as a plausible line. It is refused here whether or
+        not ``aggregate`` can produce it.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If two consecutive places are
+                the same place.
+        """
+        for before, after in zip(self.path, self.path[1:]):
+            if before == after:
+                raise AggregateError(
+                    f"A route pattern names the place {after.area!r} twice in "
+                    "a row.\n"
+                    "A path's places are compressed, so one place is one step "
+                    "however long the players stayed there."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _check_each_round_once(self) -> RoutePattern:
+        """A round is counted once.
+
+        A path is one row of one round's tree, so a round listed twice would
+        put ``2/7 kierroksesta`` on a path taken once -- a recurrence that
+        did not happen, which is the one claim this node exists to make.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If a round is listed twice.
+        """
+        seen = [(entry.map_demo_id, entry.round_no) for entry in self.rounds]
+        if len(seen) != len(set(seen)):
+            raise AggregateError(
+                "A route pattern lists the same round more than once: "
+                f"{seen}.\n"
+                "Each round a path was taken in counts once; a repeat would "
+                "state a recurrence that did not happen."
+            )
+        return self
+
+
 class RoundTypeReport(_Node):
     """Every observation of one round type on one map and side.
 
@@ -2196,6 +2370,12 @@ class RoundTypeReport(_Node):
     #: Empty is an observation and not an absence -- see
     #: :class:`RoundRoute`.
     routes: list[RoundRoute]
+    #: The junction paths that recur across this block's rounds, in the
+    #: order :func:`~pappascout.domain.aggregate.route_patterns_for` gives
+    #: them -- and empty on every type but
+    #: :data:`ROUTE_PATTERN_ROUND_TYPES` (Story 4.14). Required, for
+    #: :data:`REPORT_SCHEMA_VERSION`'s 17.0.0 reason.
+    route_patterns: list[RoutePattern]
 
     @model_validator(mode="after")
     def _check_sample_points(self) -> RoundTypeReport:
@@ -2453,6 +2633,48 @@ class RoundTypeReport(_Node):
                 "Each round is one row, so a repeat would show the reader "
                 "one round as two."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _check_route_patterns_fit_the_block(self) -> RoundTypeReport:
+        """Patterns only on a save-round type, and none larger than the block.
+
+        * **A pattern on a type that reports none.** Story 4.14's scope is
+          :data:`ROUTE_PATTERN_ROUND_TYPES`; the pistol has its round-by-round
+          routes, and a default block's patterns are the product owner's to
+          ask for later.
+        * **More rounds or matches than the block holds.** The line prints
+          ``n/m kierroksesta, k/K ottelussa`` with ``m`` and ``K`` read off
+          this block's sample, so a pattern exceeding either would print a
+          share over one. It is a **bound and not a join**: the node does not
+          hold the block's round keys, so a pattern built from another
+          block's rounds of the same size passes. What pins the content is
+          ``tests/data/route_patterns.json``.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If either fails.
+        """
+        if not self.route_patterns:
+            return self
+        if self.round_type not in ROUTE_PATTERN_ROUND_TYPES:
+            raise AggregateError(
+                f"Round type {self.round_type} carries "
+                f"{len(self.route_patterns)} route patterns, but only "
+                f"{', '.join(ROUTE_PATTERN_ROUND_TYPES)} report them."
+            )
+        for pattern in self.route_patterns:
+            if (
+                pattern.n > self.sample.rounds
+                or pattern.matches > self.sample.matches
+            ):
+                raise AggregateError(
+                    f"A route pattern of round type {self.round_type} was "
+                    f"taken in {pattern.n} rounds of {pattern.matches} "
+                    f"matches, but the block holds {self.sample.rounds} "
+                    f"rounds of {self.sample.matches} matches.\n"
+                    "A pattern's rounds are the block's own, so its share "
+                    "cannot exceed the whole."
+                )
         return self
 
 

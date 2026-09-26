@@ -71,7 +71,7 @@ from pappascout.archive.paths import ArchivePaths
 from pappascout.render import render_report
 from pappascout.render.view import build_view
 from pappascout.constants import KNOWN_INVENTORY_ITEMS, SITE_AREAS, seconds_label
-from pappascout.domain.report import ROUTE_ROUND_TYPE
+from pappascout.domain.report import ROUTE_PATTERN_ROUND_TYPES, ROUTE_ROUND_TYPE
 from pappascout.domain.economy import (
     classify_round,
     loss_bonus_if_lost,
@@ -3537,6 +3537,123 @@ def test_the_recorded_routes_show_the_newest_match_taking_a_new_way() -> None:
         assert not any("radio" in row for row in block_entry["rows"]), (
             block_entry
         )
+
+
+#: Every save-round block's route patterns on the real archive (Story 4.14),
+#: **re-pinned by running** :func:`_pattern_blocks_from` on 2026-09-26, and
+#: not copied from the story's documents.
+#:
+#: Two halves per block, and each pins something the other cannot. ``lines``
+#: is what the report prints -- the threshold, the redundant prefix and the
+#: wording are ``render``'s selection, so a model comparison would leave all
+#: three unpinned. ``patterns`` is every path of two rounds or more that
+#: ``report.json`` holds, printed or not, with its rounds -- so a change in
+#: what ``aggregate`` finds fails here even when it moves nothing above the
+#: threshold. **Every** eco, force and half block of the recorded teams is a
+#: key, an empty one included, for :data:`PISTOL_ROUTES`' reason: a block that
+#: appears must fail as loudly as one that changes.
+#:
+#: **A round is ``[demo place, round number, players]``**, the place being
+#: the demo's index in the map's own list (newest match first). Not the demo
+#: id: several ids carry a real opponent's name, and this repository is
+#: public (AD-12) -- :data:`PISTOL_ROUTES` leaves them out for the same
+#: reason.
+#:
+#: It is an observation and not a rule: importing or re-parsing a demo
+#: changes these rows legitimately, and the answer is to measure again and
+#: say so in the commit.
+ROUTE_PATTERNS = json.loads(
+    (Path(__file__).parent / "data" / "route_patterns.json").read_text(
+        encoding="utf-8"
+    )
+)["blocks"]
+
+
+def _pattern_blocks_from(root: Path) -> dict[str, dict[str, list]]:
+    """Every recorded save block's pattern rows and patterns, as built."""
+    settings = _real_settings()
+    found: dict[str, dict[str, list]] = {}
+    for team, report in _recorded_reports(root).items():
+        view = build_view(report, settings=settings.report)
+        views = {
+            (map_view.map_name, side_view.side, type_view.round_type): type_view
+            for map_view in view.maps
+            for side_view in map_view.sides
+            for type_view in side_view.round_types
+        }
+        for map_report in report.maps:
+            place = {
+                entry.map_demo_id: index
+                for index, entry in enumerate(map_report.played_maps)
+            }
+            for side in map_report.sides:
+                for entry in side.round_types:
+                    if entry.round_type not in ROUTE_PATTERN_ROUND_TYPES:
+                        continue
+                    key = (
+                        f"{team}/{map_report.map_name}/{side.side}/"
+                        f"{entry.round_type}"
+                    )
+                    type_view = views[
+                        (map_report.map_name, side.side, entry.round_type)
+                    ]
+                    found[key] = {
+                        "lines": [
+                            f"{line.label}: {claim.text} ({claim.sample_text})"
+                            for line in type_view.patterns
+                            for claim in line.claims
+                        ],
+                        "patterns": [
+                            {
+                                "path": [
+                                    [
+                                        p.area,
+                                        p.flag,
+                                        p.alternates_with,
+                                        p.alternates_flag,
+                                    ]
+                                    for p in pattern.path
+                                ],
+                                "stayed": pattern.stayed,
+                                "newest": pattern.newest,
+                                "rounds": [
+                                    [place[r.map_demo_id], r.round_no, r.players]
+                                    for r in pattern.rounds
+                                ],
+                            }
+                            for pattern in entry.route_patterns
+                        ],
+                    }
+    return found
+
+
+@pytest.mark.archive
+def test_the_archives_route_patterns_are_the_ones_recorded() -> None:
+    """The whole table, re-derived and compared whole, for
+    :func:`test_the_archives_pistol_routes_are_the_ones_recorded`'s reasons
+    -- the floor included: two empty dictionaries are equal."""
+    root = require_parsed(*RECORDED_DEMOS)
+    assert len(ROUTE_PATTERNS) >= 14, sorted(ROUTE_PATTERNS)
+    assert _pattern_blocks_from(root) == ROUTE_PATTERNS
+
+
+def test_the_recorded_patterns_show_the_nuke_force_lobby_route() -> None:
+    """The finding the story was written for, readable without the archive:
+    on ``de_nuke`` T force the team went through lobby together in most of
+    its rounds, in three matches of four, the newest among them. The line
+    names places and counts and nothing else: a route row is neither a habit
+    nor a strategy (the spec's second DECIDED, rule 6).
+    What ties the table to the archive is the test above."""
+    block = ROUTE_PATTERNS["1e1965abbc06133b/de_nuke/T/force"]
+    assert block["lines"][0] == (
+        "Reitti: outside (karkea) -> lobby, jopa 5 pelaajaa "
+        "(5/7 kierroksesta, 3/4 ottelussa, uusin mukana)"
+    )
+    assert not any(
+        line.startswith("Reitti: t spawn")
+        for entry in ROUTE_PATTERNS.values()
+        for line in entry["lines"]
+    ), "a path starts at its first junction that is not a spawn (rule 1)"
 
 
 #: The derived check's bound in ``src/pappascout/callouts.toml``: an area
