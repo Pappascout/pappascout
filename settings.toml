@@ -130,10 +130,11 @@ ot_start_money = 12500
 # varmaan lopulliseen raporttiin vaan ne ovat työkalu muodostaa analyysi
 # raporttiin." Tämä sarja on siis sisäinen: säännöt lukevat sitä ("säännöt
 # eivät saa lukea vähemmällä kuin analyysi", 23.9.2026), mutta raportti
-# tulostaa yhä samat neljä näytepisteriviä ja pistoolireitit samoilla neljällä
-# pisteellä, koska kymmenen lisättyä on lueteltu
-# [report].skip_sample_seconds:issä -- se päättää mitä TULOSTETAAN, ei mitä
-# taulussa on.
+# tulostaa yhä samat neljä näytepisteriviä, koska kymmenen lisättyä on
+# lueteltu [report].skip_sample_seconds:issä -- se päättää mitä TULOSTETAAN,
+# ei mitä taulussa on. Pistoolireitti lukee Story 4.13:sta lähtien koko sarjan
+# ja tiivistää polun tuotteen omistajan risteyksiin
+# (src/pappascout/callouts.toml).
 #
 # MIKSI 3 SEKUNNIN VÄLI -- MITATTU, EI VALITTU. Kaksi demoa
 # (ANCIENT_vs_RCAVE_VETERANS ja nuke_vs_RCAVE_VETERANS) jäsennettiin 1 s
@@ -1062,19 +1063,6 @@ crunch_lookback_s = 9.0
 # [lausuttu 2026-08-30, odottaa havaintoa]
 utility_seconds_buckets = [5.0, 10.0, 20.0]
 
-# Pistoolireitin näytepisteet (Story 4.5). Reitti luetaan vain niiltä
-# pisteiltä, jotka raportti tulostaa: tuotteen omistaja 25.9.2026,
-# "raporttiin emme voi noin paljon näytepisteitä laittaa". Tulostetut pisteet
-# ovat [parse].snapshot_seconds miinus [report].skip_sample_seconds, mutta
-# aggregate-vaihe ei saa lukea [report]-osiota (AD-3: jokaisen vaiheen
-# parametrihash vain omista osioistaan), joten lista on tässä ja lataus
-# (Settings._check_sections_agree) kieltäytyy, jos se eroaa tulostetuista
-# pisteistä. Vertailu tehdään nimiöinä (constants.seconds_label), kuten
-# Story 2.13:n sääntö sekunneille kerrosten välillä. Tyhjä lista kielletään:
-# reitti ilman pisteitä väittäisi jokaisen kierroksen ratkenneen ennen
-# ensimmäistä näytepistettä.
-route_sample_seconds = [6.0, 15.0, 30.0, 45.0]
-
 
 [report]
 # Karsintasäännöt: mitä raportti jättää kirjoittamatta (Story 2.13).
@@ -1113,9 +1101,10 @@ route_sample_seconds = [6.0, 15.0, 30.0, 45.0]
 #    lohkoon lainkaan, joten ne eivät kuulu lohkon "harvinaisempaa
 #    havaintoa" -lukuun eivätkä palaa tyhjän lohkon kautta; report.jsonissa
 #    ne ovat yhä. Se koskee myös suojattuja kierrostyyppejä. Pistoolireitti
-#    luetaan samoilta tulostetuilta pisteiltä [aggregate].route_sample_seconds
-#    -listan kautta, ja lataus pitää listan tulostettujen pisteiden kanssa
-#    samana -- aggregate-vaiheen hashiin ei tule tämän osion arvoa (AD-3).
+#    ei lue tätä osiota lainkaan: Story 4.13:sta lähtien se lukee kaikki
+#    näytepisteet ja tiivistää polun tuotteen omistajan risteyksiin
+#    (src/pappascout/callouts.toml), joten aggregate-vaiheen hashiin ei
+#    tule tämän osion arvoa (AD-3).
 #  * KUUDES ASETUS, anomaly_min_matches, ei karsi kierrostyyppilohkoja vaan
 #    poikkeamarivejä: CT-eteneminen ja crunch tulostetaan vasta, kun ne
 #    toistuvat ottelusta toiseen. Sen ja säännön 3 koodioletus on "pois";
@@ -1228,8 +1217,9 @@ merge_equal_equipment_lines = true
 # lisättyä pistettä on lueteltu tässä, joten raportti tulostaa yhä täsmälleen
 # samat neljä näytepisteriviä (6, 15, 30 ja 45 s) kuin ennen -- myös
 # suojatuilla kierrostyypeillä, koska tämä ei enää karsi riviä vaan pitää
-# ruudukon raportin ulkopuolella -- ja pistoolireitti luetaan samoilta neljältä
-# pisteeltä (domain.aggregate.routes_for).
+# ruudukon raportin ulkopuolella. Pistoolireitti ei lue tätä listaa: Story
+# 4.13:sta lähtien se lukee kaikki pisteet ja tiivistää polun risteyksiin
+# (domain.aggregate.routes_for).
 #
 # Tämä on ERI HARKINTA kuin yllä oleva 45 s -pohdinta, ja molemmat pätevät:
 # 45 s on edelleen raportissa, koska sen poistaminen maksaisi sisältöä.

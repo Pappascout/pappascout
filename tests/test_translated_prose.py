@@ -712,14 +712,6 @@ QUOTED_FINNISH: tuple[QuotedFinnish, ...] = (
         ),
     ),
     QuotedFinnish(
-        path="src/pappascout/domain/models.py",
-        text="ennen ensimmäistä näytepistettä",
-        why=(
-            "The exact words the report prints. An example of real output stops"
-            " being an example once it is translated."
-        ),
-    ),
-    QuotedFinnish(
         path="src/pappascout/render/view.py",
         text="säästökierroksesta",
         why=(

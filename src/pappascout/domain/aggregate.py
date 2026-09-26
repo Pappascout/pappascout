@@ -71,7 +71,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from math import isfinite
@@ -99,7 +99,11 @@ from pappascout.constants import (
     seconds_label,
 )
 from pappascout.domain import sampling
-from pappascout.domain.models import AggregateSettings, ThresholdSettings
+from pappascout.domain.models import (
+    AggregateSettings,
+    MapCallouts,
+    ThresholdSettings,
+)
 from pappascout.domain.selection import match_of
 from pappascout.domain.report import (
     MAP_NAME_SOURCES,
@@ -131,6 +135,8 @@ from pappascout.domain.report import (
     RoundRecord,
     RoundRoute,
     RoundTypeReport,
+    RouteFate,
+    RouteFlag,
     RouteStep,
     Sample,
     SampleBucket,
@@ -1408,7 +1414,6 @@ ROUTE_SAMPLING_MEASURED = "2026-09-25"
 def _route_observations(
     ticks: Sequence[Mapping[str, Any]],
     keys: set[RoundKey],
-    route_labels: frozenset[str] | None = None,
 ) -> tuple[
     dict[RoundKey, list[float]],
     dict[RoundKey, set[str]],
@@ -1435,37 +1440,25 @@ def _route_observations(
     **A moment with no row at all is a moment this round was not sampled
     at.** It is emphatically *not* "a moment the round did not reach": the
     grid stops at its last point while the round runs on, and
-    :data:`ROUTE_SAMPLING_MEASURED` shows how often. What the route may say
-    about such a moment is nothing, which is what an empty ``steps`` says.
+    :data:`ROUTE_SAMPLING_MEASURED` shows how often.
+
+    **Every time sample point is read** (Story 4.13). Until then the route
+    read only the four points the report prints, and four points step over
+    the junctions: measured on the archive's 2026-09-20 ``de_nuke`` T pistol
+    round, the four points gave ``Outside -> Control`` where the dense series
+    runs ``Outside -> Lobby -> Trophy -> Control`` -- a way the dense moves
+    themselves rule out: ``Control`` is entered only from ``Ramp``,
+    ``Trophy`` or ``Vending`` (``saavutettavuus-mitattu-2026-09-26.md``).
+    The row stays short because each path is compressed to junctions
+    (:func:`_junction_path`), not because points are skipped.
 
     The rows are the team's own (the ``aggregate`` stage filters on
     ``lineup_key``), so strictly this reads "no player **of the scouted
-    team** was sampled". The two differ only if all five of the team's
-    players are missing from a point the opponent still has, which the
-    measurement does not show and which would in any case end the row rather
-    than claim anything.
-
-    **A moment outside ``route_labels`` is treated exactly as a moment the
-    round was not sampled at** (Story 4.5), which is what makes the route
-    read only the points the report prints. The grid is a dense internal
-    series; a route read from all of it would be a fourteen-step row, and the
-    product owner ruled on 2026-09-25 that the report cannot carry that many
-    sample points. Skipping the rows **before** anything is built is what
-    makes this exact: the route is then the one a parse at those points alone
-    would have produced, because no point's rows depend on any other point's.
-
-    The points are matched **as labels** (:func:`~pappascout.constants
-    .seconds_label`), Story 2.13's rule for naming one second across layers:
-    the renderer decides by label which sample-point section it prints, so a
-    float comparison here could print a route through a point whose section
-    is hidden (``9.0000001`` is the label ``9``).
+    team** was sampled".
 
     Args:
         ticks: The branch's sample point rows, both sample kinds.
         keys: The rounds to read. Others are skipped.
-        route_labels: The labels of the points the route reads
-            (``[aggregate].route_sample_seconds``). ``None`` reads every
-            moment the rows carry.
 
     Returns:
         Three mappings from round key: the moments the round reached in
@@ -1486,11 +1479,6 @@ def _route_observations(
         if str(row["sample_kind"]) != sampling.TIME_SAMPLE:
             continue
         seconds = _sample_seconds(row)
-        if (
-            route_labels is not None
-            and seconds_label(seconds) not in route_labels
-        ):
-            continue
         player = str(row["player_id"])
         points[key].add(seconds)
         players[key].add(player)
@@ -1568,128 +1556,339 @@ def _route_deaths(
     return dict(died)
 
 
-def _route_steps(
-    group: Sequence[str],
-    points: Sequence[float],
-    at: Mapping[str, Mapping[float, str | None]],
-    died: Mapping[str, tuple[str | None, float]],
-) -> list[RouteStep]:
-    """What a group of players became at ``points[0]``, and onwards.
+@dataclass(frozen=True)
+class _Place:
+    """One area as the route names it: the product owner's callout, or not.
 
-    The traversal the product owner's form is read from: a group that stays
-    together is **one** part and grows the chain, and only where it divides do
-    the parts become rows of their own. That reading is the renderer's
-    (:func:`~pappascout.render.view._route_rows`); what this builds is the
-    tree it reads -- which part held how many players, and where each part
-    went next.
-
-    **Every player of the group lands in exactly one part**, which is what
-    :meth:`~pappascout.domain.report.RouteStep
-    ._check_the_group_divides_into_itself` then holds the tree to. There are
-    three parts and no more:
-
-    * observed alive at this moment -> grouped by area, ``fate="seen"``, and
-      followed into the remaining moments;
-    * not observed, and a death record places them **at or before this
-      moment** -> ``fate="died"``, one part per ``(area, moment)``;
-    * not observed and nothing accounts for them -> one ``fate="gone"``
-      part, followed into the remaining moments **only if the sample has a
-      position for one of them there**.
-
-    **A death is used only when it happened by this moment**, and that
-    condition is not decoration. Most of the archive's deaths are after the
-    grid ends -- see :data:`ROUTE_SAMPLING_MEASURED` -- and what keeps them
-    off the row today is that their players are still observed at every
-    point. Without the condition, a player merely **missing** a row would be
-    reported as having died at a second the round had not reached, which is
-    a fate stated about a moment in the future.
-
-    **A ``gone`` part that is observed again is followed**, and this is the
-    asymmetry with ``died``: a killed player cannot come back, an unsampled
-    one can. Without it a player whose rows begin after the first moment was
-    reported lost and **every position the archive held for them was
-    discarded** -- the report claiming a loss it could itself disprove. It
-    does not repeat itself on the ordinary path: a player the sample really
-    lost has nothing later, so the branch ends there, which is what the
-    first mock's "a player who is gone is gone" rule got right.
-
-    **An empty ``points`` returns no steps**, and that is the claim none of
-    the three parts makes: there is no later moment in the sample, so the
-    branch ends and says nothing at all about the time after it. It does not
-    mean the round ended -- see :data:`ROUTE_SAMPLING_MEASURED`.
-
-    The order inside a moment is **the biggest part first, then the area's
-    own name**, with the unnamed area last (:func:`_area_sort_key`); the
-    ``died`` parts break a tie on the **moment** before the area, so two
-    deaths in one area come out in the order they happened. It is
-    deliberately not the order the rows happened to arrive in: that is the
-    order of the parquet file's players, which is arbitrary and would still
-    be arbitrary after somebody re-parsed the demo.
-
-    **Two deaths in one area whose seconds differ but round to the same
-    number stay two parts** and print the same sentence twice. The grouping
-    is on the measured moment, because this layer does not know how the
-    moment will be spelled; an exact tie does merge. The boundary is
-    recorded rather than removed -- moving it would put a rendering decision
-    into ``domain``.
+    ``label`` is what the row prints and ``flag`` says why it may not be his
+    word (:data:`~pappascout.domain.report.RouteFlag`). ``kept`` is whether
+    the place survives in the middle of a path (:func:`_junction_path`).
     """
-    if not points:
-        return []
-    moment, rest = points[0], points[1:]
-    seen: defaultdict[str | None, list[str]] = defaultdict(list)
-    gone: list[str] = []
-    killed: defaultdict[tuple[str | None, float], list[str]] = defaultdict(list)
-    for player in group:
-        where = at.get(player, {})
-        if moment in where:
-            seen[where[moment]].append(player)
-        elif player in died and died[player][1] <= moment:
-            killed[died[player]].append(player)
-        else:
-            gone.append(player)
 
-    steps = [
-        RouteStep(
-            fate="seen",
-            seconds=moment,
-            area=area,
-            players=len(members),
-            steps=_route_steps(members, rest, at, died),
-        )
-        for area, members in sorted(
-            seen.items(), key=lambda kv: (-len(kv[1]), _area_sort_key(kv[0]))
-        )
-    ]
-    steps.extend(
-        RouteStep(
-            fate="died",
-            seconds=seconds,
-            area=area,
-            players=len(members),
-        )
-        for (area, seconds), members in sorted(
-            killed.items(),
-            key=lambda kv: (-len(kv[1]), kv[0][1], _area_sort_key(kv[0][0])),
-        )
+    label: str | None
+    flag: RouteFlag | None
+    kept: bool
+
+
+def _uncertain_callouts(callouts: MapCallouts | None) -> frozenset[str]:
+    """The callouts of a map that print marked because an area feeding them
+    is not certain -- the coordinator's rule of 2026-09-26: a merged callout
+    is marked if **any** of its areas is ``inferred`` or ``guess``."""
+    if callouts is None:
+        return frozenset()
+    return frozenset(
+        entry.callout
+        for entry in callouts.values()
+        if entry.callout is not None and not entry.certain
     )
-    if gone:
-        # Followed on only where the sample really has them again. Recursing
-        # unconditionally would write "poistui otannasta" once per remaining
-        # moment for every player the sample lost for good, which is the same
-        # absence said four times.
-        returns = any(
-            later in at.get(player, {}) for player in gone for later in rest
-        )
+
+
+def _route_place(
+    area: str | None,
+    callouts: MapCallouts | None,
+    uncertain: frozenset[str] = frozenset(),
+) -> _Place:
+    """Translate one game area into the product owner's callout.
+
+    The outcomes, and each is a case of :data:`~pappascout.domain.report
+    .RouteFlag`:
+
+    * **no table for the map** -- the game's name, flagged ``no_table``, and
+      kept: without his junctions nothing can be called transit;
+    * **the area has a callout** -- his callout, kept if it is a junction.
+      Flagged ``coarse`` where the area holds several of his callouts,
+      ``inferred`` where the callout is in ``uncertain``
+      (:func:`_uncertain_callouts`), ``coarse_inferred`` for both, and
+      unflagged only when it is certain. Two areas with one callout get the
+      same label, which is what merges them;
+    * **the area is in the table with no callout** -- the game's name,
+      flagged ``no_callout``, and kept (:attr:`~pappascout.domain.models
+      .CalloutEntry.kept`) so the flag is seen;
+    * **the area is not in the table at all** -- the same, kept;
+    * **no area name at all** (``None``) -- stays ``None``, unflagged and
+      kept, the unnamed position every other row of the report prints as
+      unknown.
+    """
+    if area is None:
+        return _Place(None, None, True)
+    if callouts is None:
+        return _Place(area, "no_table", True)
+    entry = callouts.get(area)
+    if entry is None:
+        return _Place(area, "no_callout", True)
+    if entry.callout is None:
+        return _Place(area, "no_callout", entry.kept)
+    inferred = entry.callout in uncertain
+    flag: RouteFlag | None
+    if entry.coarse:
+        flag = "coarse_inferred" if inferred else "coarse"
+    else:
+        flag = "inferred" if inferred else None
+    return _Place(entry.callout, flag, entry.kept)
+
+
+@dataclass(frozen=True)
+class _Token:
+    """One step of one player's compressed path.
+
+    ``seconds`` is the moment the player was first observed there, or the
+    death's own moment, or the first moment the sample lost them. ``other``
+    and ``other_flag`` are the second place of an alternation
+    (:func:`_collapse_returns`), ``None`` otherwise.
+    """
+
+    fate: RouteFate
+    label: str | None
+    flag: RouteFlag | None
+    seconds: float
+    other: str | None = None
+    other_flag: RouteFlag | None = None
+
+    @property
+    def place(self) -> tuple[object, ...]:
+        """What makes two tokens the same step, the moment aside."""
+        return (self.fate, self.label, self.flag, self.other, self.other_flag)
+
+
+def _collapse_returns(tokens: list[_Token]) -> list[_Token]:
+    """Back-and-forth between two places: the first visit, then ``B ⇄ A``.
+
+    The product owner's decision of 2026-09-26, shown the archive's own
+    ``outside -> main -> outside -> main``: compress the returns, the way
+    they were shown to him. The rule, and only this one: **a run alternating
+    between exactly two places, at least A, B, A**, is compressed. Anything
+    else stays as it is -- A, B, C, A, B, C alternates between no two
+    places. A, B, C, B, A holds the run B, C, B and reads
+    ``A -> B -> C ⇄ B -> A``.
+
+    **The first place stays a step of its own** and the alternation follows
+    it: A, B, A, B is ``A -> B ⇄ A``. The coordinator's decision of
+    2026-09-26, and the reason is the split, which the product owner values
+    most: collapsing the whole run into one step made a player stop sharing
+    his first junction with a team-mate who went on -- on the archive's
+    2026-08-30 ``de_nuke`` T pistol the ``2 lobby / 2 main`` division fell
+    apart into four single players.
+
+    **The pair is in the order the player entered it**: the place he went
+    to first, then the one he came back to. With the first visit kept, every
+    player who shares the prefix enters the pair from the same side, so the
+    order decides nothing about grouping; it is kept because it reads as
+    what happened. Two players holding one angle out of phase from
+    different starting places are in different branches already, which is
+    honest -- they started apart.
+
+    The step keeps the moment of its first place in the run. Runs are found
+    left to right and do not overlap.
+    """
+    out: list[_Token] = []
+    index = 0
+    while index < len(tokens):
+        out.append(tokens[index])
+        if (
+            index + 2 < len(tokens)
+            and tokens[index + 2].place == tokens[index].place
+        ):
+            end = index + 2
+            while (
+                end + 1 < len(tokens)
+                and tokens[end + 1].place == tokens[end - 1].place
+            ):
+                end += 1
+            went, back = tokens[index + 1], tokens[index]
+            out.append(
+                _Token(
+                    "seen",
+                    went.label,
+                    went.flag,
+                    went.seconds,
+                    back.label,
+                    back.flag,
+                )
+            )
+            index = end + 1
+        else:
+            index += 1
+    return out
+
+
+def _junction_path(
+    moments: Sequence[float],
+    where: Mapping[float, str | None],
+    death: tuple[str | None, float] | None,
+    callouts: MapCallouts | None,
+    uncertain: frozenset[str] = frozenset(),
+) -> tuple[list[_Token], float | None]:
+    """One player's path through a round, compressed to junctions.
+
+    The product owner's decision of 2026-09-26 (Story 4.13): *"only the
+    start, the junctions and the end remain"*. In order:
+
+    1. every moment the player was observed alive, translated
+       (:func:`_route_place`);
+    2. **consecutive repeats dropped** -- a player standing in one place for
+       five sample points is one step, and two game areas with one callout
+       (the game's ``Trophy`` and ``Control``, his *radio*) are one step;
+    3. **transit dropped from the middle** -- the first and last places stay
+       whatever they are, and between them only the kept ones do: junctions,
+       and places with no callout. A transit room must not split a group:
+       one player passing his *trophy* on the way to radio stays in the row
+       of the three who did not;
+    4. repeats dropped again, because step 3 can put a place next to itself
+       (``lobby -> trophy -> lobby``);
+    5. **back-and-forth between two places compressed**: the first visit,
+       then one alternation step (:func:`_collapse_returns`);
+    6. the end: a **death**, from the death table and only if it happened by
+       the round's last sampled moment, or **gone** if the sample has a later
+       moment the player is not observed at and no death accounts for them.
+       Neither, and the path simply ends -- the sampling ran out, which is
+       not a claim about the round (:data:`ROUTE_SAMPLING_MEASURED`).
+
+    **A gap in a player's rows is not a step.** A player absent at one
+    moment and observed at the next continues the same path: the route
+    states places in order, not moments, so an absence in the middle says
+    nothing a row could print.
+
+    Returns:
+        The tokens, and the moment the player was last observed alive
+        (``None`` if never) -- the moment a group that stops at its last
+        place is still known to be there.
+    """
+    seen = [(moment, where[moment]) for moment in moments if moment in where]
+    runs: list[tuple[_Place, float]] = []
+    for moment, area in seen:
+        place = _route_place(area, callouts, uncertain)
+        if runs and (runs[-1][0].label, runs[-1][0].flag) == (
+            place.label,
+            place.flag,
+        ):
+            continue
+        runs.append((place, moment))
+    middle = [
+        run
+        for index, run in enumerate(runs)
+        if run[0].kept or index in (0, len(runs) - 1)
+    ]
+    tokens: list[_Token] = []
+    for place, moment in middle:
+        if tokens and (tokens[-1].label, tokens[-1].flag) == (
+            place.label,
+            place.flag,
+        ):
+            continue
+        tokens.append(_Token("seen", place.label, place.flag, moment))
+    tokens = _collapse_returns(tokens)
+    last_seen = seen[-1][0] if seen else None
+    if moments:
+        final = moments[-1]
+        if death is not None and death[1] <= final:
+            place = _route_place(death[0], callouts, uncertain)
+            tokens.append(_Token("died", place.label, place.flag, death[1]))
+        elif last_seen is None or last_seen < final:
+            lost = next(m for m in moments if last_seen is None or m > last_seen)
+            tokens.append(_Token("gone", None, None, lost))
+    return tokens, last_seen
+
+
+def _route_tree(
+    group: Sequence[str],
+    paths: Mapping[str, list[_Token]],
+    last_seen: Mapping[str, float | None],
+    depth: int,
+) -> list[RouteStep]:
+    """The steps a group of players took from ``depth`` on, as a tree.
+
+    The tree over the compressed paths (:func:`_junction_path`): players who
+    passed the same places in the same order share a node; where they part,
+    each part becomes a child. It is Story 4.11's form, which the product
+    owner confirmed again on 2026-09-26: separating how a group divides shows
+    both advancing teams of a split, and the lurkers. A lurker is simply a
+    part of one.
+
+    **Every player of a node lands in exactly one child, or the node has
+    none**, which is what :meth:`~pappascout.domain.report.RouteStep
+    ._check_the_group_divides_into_itself` holds the tree to. Paths are of
+    different lengths now, so one case needs a node of its own: some of a
+    group stop at a place while the rest go on. The ones who stop become a
+    **child at the same place**, with its flags -- ``3 hell ..., 1 ramp``
+    reads as one of four staying at ramp, which is what the sample saw --
+    with the moment they were last observed there. A group that stops as a
+    whole ends the branch, and that end is not the round's
+    (:data:`ROUTE_SAMPLING_MEASURED`).
+
+    The order inside a division is Story 4.11's: observed places first,
+    **biggest part first, then the name**, the unnamed place last
+    (:func:`_area_sort_key`); then deaths, biggest first, then by moment;
+    then the players the sample lost. Never the order the rows arrived in,
+    which is the parquet file's and arbitrary.
+
+    **Two deaths in one place whose seconds differ stay two parts**, as
+    they did in Story 4.11: the grouping is on the measured moment, and the
+    renderer merges what prints alike (:func:`~pappascout.render.view
+    ._route_parts`).
+    """
+    parts: dict[tuple[object, ...], list[str]] = {}
+    for player in group:
+        token = paths[player][depth]
+        key = token.place + ((token.seconds,) if token.fate == "died" else ())
+        parts.setdefault(key, []).append(player)
+
+    steps: list[RouteStep] = []
+    for members in parts.values():
+        head = paths[members[0]][depth]
+        moment = min(paths[player][depth].seconds for player in members)
+        children: list[RouteStep] = []
+        if head.fate == "seen":
+            going = [p for p in members if len(paths[p]) > depth + 1]
+            staying = [p for p in members if len(paths[p]) == depth + 1]
+            if going:
+                children = _route_tree(going, paths, last_seen, depth + 1)
+                if staying:
+                    children.append(
+                        RouteStep(
+                            fate="seen",
+                            seconds=min(
+                                moment if last_seen[p] is None else last_seen[p]
+                                for p in staying
+                            ),
+                            area=head.label,
+                            flag=head.flag,
+                            alternates_with=head.other,
+                            alternates_flag=head.other_flag,
+                            players=len(staying),
+                        )
+                    )
+                    children.sort(key=_route_step_order)
         steps.append(
             RouteStep(
-                fate="gone",
+                fate=head.fate,
                 seconds=moment,
-                area=None,
-                players=len(gone),
-                steps=_route_steps(gone, rest, at, died) if returns else [],
+                area=head.label,
+                flag=head.flag,
+                alternates_with=head.other,
+                alternates_flag=head.other_flag,
+                players=len(members),
+                steps=children,
             )
         )
+    steps.sort(key=_route_step_order)
     return steps
+
+
+_FATE_ORDER: dict[str, int] = {"seen": 0, "died": 1, "gone": 2}
+
+
+def _route_step_order(step: RouteStep) -> tuple[object, ...]:
+    """Observed first, then deaths, then the lost; biggest part first inside
+    each; then a death's moment; then the place's name, and the second place
+    of an alternation after it."""
+    moment = step.seconds if step.fate == "died" else 0.0
+    return (
+        _FATE_ORDER[step.fate],
+        -step.players,
+        moment,
+        _area_sort_key(step.area),
+        _area_sort_key(step.alternates_with),
+    )
 
 
 def routes_for(
@@ -1698,7 +1897,7 @@ def routes_for(
     deaths: Sequence[Mapping[str, Any]],
     lineup_keys: Iterable[str],
     demo_order: Mapping[str, int],
-    route_seconds: Collection[float] | None = None,
+    callouts: MapCallouts | None = None,
 ) -> list[RoundRoute]:
     """One round's route per round of the group, **newest match first**.
 
@@ -1707,11 +1906,15 @@ def routes_for(
     sequence, and this is the same rows the sample points are counted from,
     **grouped by player instead of by area**.
 
+    **Since Story 4.13 the route reads every sample point and speaks the
+    product owner's callouts**: each player's path is compressed to his
+    junctions (:func:`_junction_path`) and the tree is built over the
+    compressed paths (:func:`_route_tree`). Nothing else in the report is
+    translated -- the sample-point sections keep the game's names.
+
     **Only** :data:`~pappascout.domain.report.ROUTE_ROUND_TYPE` **reaches
     this function**, and the caller decides that rather than this function,
-    because the model already refuses routes on any other type: two places
-    asking the same question would be the second copy this codebase keeps
-    removing.
+    because the model already refuses routes on any other type.
 
     **A row for every round, including one with no route.** A round settled
     inside the first sample point produces a :class:`RoundRoute` with no
@@ -1732,17 +1935,13 @@ def routes_for(
         lineup_keys: The team's lineup ids.
         demo_order: ``map_demo_id`` -> place, newest first. **The report's own
             recency order and not a second sort**: the caller builds it from
-            :func:`played_maps_for`'s result, so the round the block lists
-            first belongs to the demo the map's own list puts first. A demo
-            the order does not place sorts last, where its row carries no
-            date to contradict -- :func:`played_maps_for`'s rule, and its
-            reason.
-        route_seconds: The time sample points the route reads
-            (``[aggregate].route_sample_seconds``, which the settings hold
-            equal to the points the report prints); see
-            :func:`_route_observations`. ``None``, the default, reads every
-            point the rows carry, which is what a direct caller with a
-            four-point table wants.
+            :func:`played_maps_for`'s result. A demo the order does not place
+            sorts last, where its row carries no date to contradict.
+        callouts: The map's section of the callout table
+            (:func:`~pappascout.domain.models.load_callouts`), parsed at the
+            edge and handed in (AD-2). ``None`` is a map the table does not
+            describe: the game's names throughout, every step flagged
+            ``no_table``.
 
     Returns:
         One :class:`~pappascout.domain.report.RoundRoute` per row in ``rows``,
@@ -1773,40 +1972,37 @@ def routes_for(
         outcome[key] = None if value is None else bool(value)
 
     keys = set(outcome)
-    points, players, at = _route_observations(
-        ticks,
-        keys,
-        None
-        if route_seconds is None
-        else frozenset(seconds_label(value) for value in route_seconds),
-    )
+    points, players, at = _route_observations(ticks, keys)
     died = _route_deaths(deaths, keys, lineup_keys)
+    uncertain = _uncertain_callouts(callouts)
     # Past every place in use, so a demo the order does not place sorts after
-    # every placed one.
-    #
-    # **Not ``len(demo_order)``**, and the reason is this function's argument
-    # rather than ``played_maps_for``'s duplicate-match hazard, which cannot
-    # arise here: ``build_report`` builds the mapping with ``enumerate``, so
-    # its places are 0..n-1 and ``max + 1`` and ``len`` agree. What does not
-    # agree is a mapping a **direct** caller hands in -- ``demo_order`` is a
-    # plain mapping and nothing constrains its values -- and there ``len``
-    # would be a place already in use, tying an unplaced demo with a placed
-    # one.
+    # every placed one. **Not ``len(demo_order)``**: a direct caller's mapping
+    # is not constrained to 0..n-1, and ``len`` could be a place in use.
     unplaced = max(demo_order.values(), default=-1) + 1
-    routes = [
-        RoundRoute(
-            map_demo_id=demo,
-            round_no=round_no,
-            won=outcome[(demo, round_no)],
-            steps=_route_steps(
-                sorted(players.get((demo, round_no), ())),
-                points.get((demo, round_no), []),
-                at.get((demo, round_no), {}),
-                died.get((demo, round_no), {}),
-            ),
+    routes: list[RoundRoute] = []
+    for key in outcome:
+        moments = points.get(key, [])
+        group = sorted(players.get(key, ())) if moments else []
+        round_at = at.get(key, {})
+        round_died = died.get(key, {})
+        paths: dict[str, list[_Token]] = {}
+        last_seen: dict[str, float | None] = {}
+        for player in group:
+            paths[player], last_seen[player] = _junction_path(
+                moments,
+                round_at.get(player, {}),
+                round_died.get(player),
+                callouts,
+                uncertain,
+            )
+        routes.append(
+            RoundRoute(
+                map_demo_id=key[0],
+                round_no=key[1],
+                won=outcome[key],
+                steps=_route_tree(group, paths, last_seen, 0),
+            )
         )
-        for demo, round_no in outcome
-    ]
     routes.sort(
         key=lambda route: (
             demo_order.get(route.map_demo_id, unplaced),
@@ -3098,6 +3294,7 @@ def build_report(
     match_order: Sequence[str],
     match_facts: Mapping[str, MatchFact],
     generated_at: datetime,
+    callouts: Mapping[str, MapCallouts],
     tool_versions: Mapping[str, str] | None = None,
     missing_demos: Sequence[MissingDemo] = (),
 ) -> Report:
@@ -3201,6 +3398,11 @@ def build_report(
             and fail apart: a match with no finish time is in the facts and
             not in the order.
         generated_at: The moment of the run.
+        callouts: The product owner's callout table, map -> area -> entry
+            (:func:`~pappascout.domain.models.load_callouts`), read at the
+            edge and handed in (AD-2). Only the pistol routes read it. **No
+            default**: a forgotten table would print every route in the
+            game's names, flagged, with nothing in the code to say why.
         tool_versions: The tool versions, for the report's own field.
         missing_demos: The matches whose data was not there.
 
@@ -3307,15 +3509,10 @@ def build_report(
                         entry.map_demo_id: place
                         for place, entry in enumerate(played_maps)
                     },
-                    # The pistol routes read only these points (Story 4.5):
-                    # this stage's own section, which the settings hold equal
-                    # to the points the report prints. Only the routes read
-                    # it -- the sample-point sections keep every point in
-                    # report.json and the renderer decides what is printed,
-                    # while a route is a chain built from the points it reads
-                    # and cannot be shortened afterwards without merging
-                    # groups that divided only at a dropped moment.
-                    aggregate.route_sample_seconds,
+                    # The map's section of the product owner's callout
+                    # table (Story 4.13), or None for a map it does not
+                    # describe -- which the route then flags.
+                    callouts.get(map_name),
                 ),
             )
         )
@@ -3391,7 +3588,7 @@ def _sides_for(
     lineup_keys: Sequence[str],
     newest: str | None,
     demo_order: Mapping[str, int],
-    route_seconds: Collection[float],
+    callouts: MapCallouts | None,
 ) -> list[SideReport]:
     """The sides in a fixed order; a side with no rounds is left out."""
     sides: list[SideReport] = []
@@ -3415,7 +3612,7 @@ def _sides_for(
                     lineup_keys,
                     newest,
                     demo_order,
-                    route_seconds,
+                    callouts,
                 ),
             )
         )
@@ -3434,7 +3631,7 @@ def _round_types_for(
     lineup_keys: Sequence[str],
     newest: str | None,
     demo_order: Mapping[str, int],
-    route_seconds: Collection[float],
+    callouts: MapCallouts | None,
 ) -> list[RoundTypeReport]:
     """The round types in a fixed order.
 
@@ -3495,7 +3692,7 @@ def _round_types_for(
                         deaths,
                         lineup_keys,
                         demo_order,
-                        route_seconds,
+                        callouts,
                     )
                     if round_type == ROUTE_ROUND_TYPE
                     else []

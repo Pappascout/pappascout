@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -69,7 +70,7 @@ from pappascout.adapters.demo_parser import _armed_count
 from pappascout.archive.paths import ArchivePaths
 from pappascout.render import render_report
 from pappascout.render.view import build_view
-from pappascout.constants import KNOWN_INVENTORY_ITEMS, SITE_AREAS
+from pappascout.constants import KNOWN_INVENTORY_ITEMS, SITE_AREAS, seconds_label
 from pappascout.domain.report import ROUTE_ROUND_TYPE
 from pappascout.domain.economy import (
     classify_round,
@@ -79,6 +80,7 @@ from pappascout.domain.economy import (
 from pappascout.domain.models import (
     EconomySettings,
     ThresholdSettings,
+    load_callouts,
     load_settings,
 )
 from pappascout.domain.aggregate import _presence, match_of
@@ -1929,8 +1931,8 @@ def test_the_hits_stand_where_the_players_really_are() -> None:
 #:
 #: This is the table the rule was calibrated on (2026-09-22), and since
 #: Story 4.5 it is read from the **four-point subset** of the re-parsed
-#: archive -- the points the report prints, ``[aggregate]
-#: .route_sample_seconds``. It still reproduces row for row, which is the
+#: archive -- the points the report prints (:func:`_printed_points`). It
+#: still reproduces row for row, which is the
 #: evidence that the fourteen-point grid is a superset of the calibration and
 #: not a replacement of it.
 #:
@@ -2370,11 +2372,19 @@ def _archive_orientation(root: Path, demo: str) -> tuple[str, dict]:
 def _printed_points() -> list[float]:
     """The four points the report prints -- the calibration grid.
 
-    Read from ``[aggregate].route_sample_seconds``, which the settings hold
-    equal to ``[parse].snapshot_seconds`` minus ``[report]
-    .skip_sample_seconds``, so it is not a second copy of the four.
+    Derived as the report derives them: ``[parse].snapshot_seconds`` minus
+    ``[report].skip_sample_seconds``, compared as labels (Story 2.13), so it
+    is not a second copy of the four. (Until Story 4.13 it read
+    ``[aggregate].route_sample_seconds``, which the settings held equal to
+    this; the route now reads every point and the setting is gone.)
     """
-    return list(_real_settings().aggregate.route_sample_seconds)
+    settings = _real_settings()
+    hidden = {seconds_label(v) for v in settings.report.skip_sample_seconds}
+    return [
+        value
+        for value in settings.parse.snapshot_seconds
+        if seconds_label(value) not in hidden
+    ]
 
 
 @pytest.mark.archive
@@ -3388,11 +3398,13 @@ def test_one_match_gives_the_same_date_and_opponent_on_every_map() -> None:
 #: **On the grid ``settings.toml`` declares**, because
 #: :func:`_route_blocks_from` builds from :func:`_recorded_reports`, which
 #: goes through :func:`_on_grid` -- so this table is the report **on that
-#: grid**, not on whatever grid a demo happens to carry. Since Story 4.5 the
-#: grid is fourteen points and the route reads only the points the report
-#: prints (``[aggregate].route_sample_seconds``), and the table did not move
-#: when the archive was re-parsed on it (2026-09-25): the route is the one
-#: the four printed points give.
+#: grid**, not on whatever grid a demo happens to carry. Since Story 4.13 the
+#: route reads **every** point of that grid, fourteen since Story 4.5, and
+#: compresses each path to the product owner's junctions in his callouts
+#: (``src/pappascout/callouts.toml``). Re-pinned by running on 2026-09-26.
+#: Story 4.11's four-point table is not kept here: no test read it and no
+#: code can regenerate it, which is the hand-kept second copy the house
+#: rules refuse; the comparison belongs in the story's documents.
 #:
 #: **Why no opponent and no date.** The block's heading states both, and both
 #: are deliberately absent here: the repository is public and the denylist
@@ -3498,29 +3510,98 @@ def test_the_archives_pistol_routes_are_the_ones_recorded() -> None:
 
 
 def test_the_recorded_routes_show_the_newest_match_taking_a_new_way() -> None:
-    """The story's acceptance criterion, on the pinned table.
+    """Story 4.11's acceptance criterion, kept through Story 4.13's.
 
-    *"Given ``de_nuke`` T pistol, when the report is rendered, then the
-    2026-09-20 line states four players through ``Control`` and the three
-    older lines do not mention ``Control`` at all."*
+    4.11: *"the 2026-09-20 line states four players through ``Control`` and
+    the three older lines do not mention ``Control`` at all."* 4.13 names the
+    same room his way -- the game's ``Control`` and ``Trophy`` are his
+    *radio* -- and adds what four points could not see: *"the four-player
+    branch reads through Lobby and radio to Ramp before it divides, and the
+    fifth player is a branch of his own."* Compressing to junctions must not
+    hide the finding, so the older rounds still do not mention radio.
 
     The blocks are recorded **newest match first**, so the criterion is read
-    off the order: the first block, and only the first, goes through
-    ``Control``. That is the finding the whole story exists for -- Story
-    4.9's report could say ``Control 4 (1/4 kierroksesta, uusin mukana)``,
-    and as a route it says which way they came and that the way is new.
-
-    **No archive needed**: the table is in the repository. What ties it to
-    the archive is the test above it.
+    off the order. **No archive needed**: the table is in the repository.
+    What ties it to the archive is the test above it.
     """
     blocks = PISTOL_ROUTES["1e1965abbc06133b/de_nuke/T/pistol"]
     assert len(blocks) == 4, blocks
     newest, *older = blocks
-    assert any("4 Control" in row for row in newest["rows"]), newest
+    first, *rest = newest["rows"]
+    assert first.startswith("  - 4 outside (karkea) -> lobby -> radio -> ramp"), (
+        newest
+    )
+    fifth = [row for row in rest if row.startswith("  - 1 ")]
+    assert len(fifth) == 1, newest
     for block_entry in older:
-        assert not any("Control" in row for row in block_entry["rows"]), (
+        assert not any("radio" in row for row in block_entry["rows"]), (
             block_entry
         )
+
+
+#: The derived check's bound in ``src/pappascout/callouts.toml``: an area
+#: counts as a neighbour from this many observed moves. The file's header
+#: states the rule in words; this is where the number lives, and the test
+#: below is what makes each recorded count a checked measurement.
+NEIGHBOUR_MIN_MOVES = 3
+
+
+def _derived_neighbours(root: Path) -> dict[str, dict[str, int]]:
+    """Per map, each area's distinct neighbours in the dense moves.
+
+    ``saavutettavuus-mitattu-2026-09-26.md``'s method: living players, time
+    sample points at most 3 s apart, every round and both sides, every
+    parsed demo of the map; a change of area is a move, counted both ways.
+    """
+    moves: dict[str, Counter] = defaultdict(Counter)
+    for ticks_path in sorted((root / "parsed").glob("*/ticks.parquet")):
+        map_name = pl.read_parquet(ticks_path.with_name("match.parquet"))[
+            "map_name"
+        ][0]
+        rows = (
+            pl.read_parquet(ticks_path)
+            .filter((pl.col("sample_kind") == "time") & pl.col("is_alive"))
+            .sort(["round_no", "player_id", "sample_t_s"])
+            .select(["round_no", "player_id", "sample_t_s", "area"])
+            .rows()
+        )
+        for before, after in zip(rows, rows[1:]):
+            if before[:2] != after[:2] or after[2] - before[2] > 3.001:
+                continue
+            if None in (before[3], after[3]) or before[3] == after[3]:
+                continue
+            moves[map_name][tuple(sorted((before[3], after[3])))] += 1
+    derived: dict[str, dict[str, int]] = {}
+    for map_name, pairs in moves.items():
+        areas: dict[str, int] = defaultdict(int)
+        for (one, two), count in pairs.items():
+            areas.setdefault(one, 0)
+            areas.setdefault(two, 0)
+            if count >= NEIGHBOUR_MIN_MOVES:
+                areas[one] += 1
+                areas[two] += 1
+        derived[map_name] = dict(areas)
+    return derived
+
+
+@pytest.mark.archive
+def test_every_recorded_neighbour_count_is_the_archives_own() -> None:
+    """AD-13's derivation first, held to the archive: every entry's
+    ``neighbours`` in the callout table is re-derived, and the table covers
+    exactly the areas the dense moves touch -- so an area misspelt in the
+    file has no moves and fails here, and so does an area the archive meets
+    that the table forgot.
+
+    It is an observation and not a rule: importing a demo changes these
+    counts legitimately; the answer is to measure again and say so.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    table = load_callouts(_real_settings().league.map_pool)
+    derived = _derived_neighbours(root)
+    assert set(table) <= set(derived), sorted(set(table) - set(derived))
+    for map_name, areas in table.items():
+        recorded = {area: entry.neighbours for area, entry in areas.items()}
+        assert recorded == derived[map_name], map_name
 
 
 def test_the_recorded_routes_name_nobody_and_date_nothing() -> None:
@@ -3560,14 +3641,15 @@ def test_the_recorded_routes_name_nobody_and_date_nothing() -> None:
 
 
 def test_every_recorded_route_row_states_a_group_of_players() -> None:
-    """A row's every step names a count, and the counts are the round's.
+    """Every row, and every part of a division, names its count.
 
     The pinned rows are strings, so nothing in the file itself enforces the
-    model's arithmetic. What can be read off them is the one property a
-    reader relies on: **every step on every row begins with a number**, so
-    no row silently drops the count and reads as a bare list of areas --
-    which is what the report said before this story and what the route was
-    built not to say.
+    model's arithmetic. What can be read off them is the property a reader
+    relies on: **a row begins with a number**, and so does every part of a
+    division read inline, so no row silently drops the count and reads as a
+    bare list of places. Since Story 4.13 the count is written once per row
+    and not on every step (the product owner's form B): a group that stays
+    together does not change size, so the steps after the head are names.
 
     **No archive needed**, for the reason the tests above give.
     """
@@ -3575,10 +3657,17 @@ def test_every_recorded_route_row_states_a_group_of_players() -> None:
     for key, blocks in PISTOL_ROUTES.items():
         for entry in blocks:
             for row in entry["rows"]:
-                body = row.lstrip().removeprefix("- ").removeprefix("-> ")
-                for part in body.split(" -> "):
-                    for piece in part.split(", "):
-                        assert step.match(piece), (key, row, piece)
+                head, *after = row.lstrip().removeprefix("- ").split(" -> ")
+                assert step.match(head), (key, row, head)
+                for part in after:
+                    # A division's parts are joined by ", " before a count;
+                    # the ", " inside a mark ("(karkea, arvio)") is not one.
+                    pieces = re.split(r", (?=\d)", part)
+                    if len(pieces) > 1:
+                        for piece in pieces:
+                            assert step.match(piece), (key, row, piece)
+                    else:
+                        assert not step.match(part), (key, row, part)
 
 
 def test_the_recorded_ct_blocks_are_several_short_rows_and_that_is_the_finding(

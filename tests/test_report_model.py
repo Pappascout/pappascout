@@ -90,13 +90,23 @@ def _pistol_routes(
 
     The model holds a pistol block's route list to being exactly as long as
     its sample, so every pistol fixture in this file has to carry one -- and
-    almost none of them is about the route. **Every row has no steps**, which
-    is a real state and not a null object: it is the round that was settled
-    before the first sample point, and it is the cheapest row that satisfies
-    the count without asserting anything about a route.
+    almost none of them is about the route. **Every row is one group
+    standing in one place**, the cheapest route that reaches every field of
+    :class:`RouteStep`: the schema-version fixture removes
+    ``RouteStep.flag`` from a dump (Story 4.13), and a route with no step
+    would give it nothing to remove.
     """
     return [
-        RoundRoute(map_demo_id=demo, round_no=number, won=False)
+        RoundRoute(
+            map_demo_id=demo,
+            round_no=number,
+            won=False,
+            steps=[
+                RouteStep(
+                    fate="seen", seconds=6.0, area="lobby", flag=None, players=5
+                )
+            ],
+        )
         for number in range(1, rounds + 1)
     ]
 
@@ -1704,7 +1714,12 @@ def _without_paths(document: dict, paths: list[str]) -> int:
                 nodes = [node[segment] for node in nodes if segment in node]
         last = segments[-1]
         for node in nodes:
-            removed += node.pop(last, None) is not None
+            # Present, not truthy: a field holding ``None`` is still a field
+            # the model requires, and 16.0.0's ``flag`` is ``None`` on most
+            # steps -- counting values would have reported nothing removed.
+            if last in node:
+                del node[last]
+                removed += 1
     return removed
 
 
@@ -1774,7 +1789,10 @@ def test_the_schema_version_says_the_structure_changed() -> None:
     # versions' differences and removing them would make the assertion below
     # pass on the wrong one.
     required_now = SCHEMA_CHANGES[REPORT_SCHEMA_VERSION]
-    current = _report_with_anomalies([_stack()])
+    # A fixture that reaches the current version's paths: 16.0.0's are on a
+    # pistol route's steps, which ``full_report`` carries (15.0.0's were on
+    # an anomaly's points, and the fixture here was the anomaly report).
+    current = full_report()
     old_shaped = current.model_dump(mode="json")
     removed = _without_paths(old_shaped, required_now)
     assert removed, (
@@ -3536,7 +3554,7 @@ def test_a_route_step_refuses_a_moment_that_is_not_a_number_of_seconds() -> None
     """
     for value in (float("nan"), float("inf"), -1.0):
         with pytest.raises(ValidationError):
-            RouteStep(fate="seen", seconds=value, area="Ramp", players=1)
+            RouteStep(fate="seen", seconds=value, area="Ramp", flag=None, players=1)
 
 
 def test_two_branches_of_one_round_may_share_a_moment() -> None:
@@ -3550,10 +3568,11 @@ def test_two_branches_of_one_round_may_share_a_moment() -> None:
         fate="seen",
         seconds=15.0,
         area="Control",
+        flag=None,
         players=2,
         steps=[
-            RouteStep(fate="seen", seconds=30.0, area="Ramp", players=1),
-            RouteStep(fate="seen", seconds=30.0, area="Hell", players=1),
+            RouteStep(fate="seen", seconds=30.0, area="Ramp", flag=None, players=1),
+            RouteStep(fate="seen", seconds=30.0, area="Hell", flag=None, players=1),
         ],
     )
     assert [child.seconds for child in step.steps] == [30.0, 30.0]
@@ -3567,19 +3586,17 @@ def test_a_player_the_sample_lost_is_given_no_place() -> None:
     archive does not.
     """
     with pytest.raises(AggregateError, match="holds no position"):
-        RouteStep(fate="gone", seconds=30.0, area="Ramp", players=1)
+        RouteStep(fate="gone", seconds=30.0, area="Ramp", flag=None, players=1)
 
 
 def test_a_player_the_sample_lost_may_still_be_observed_again() -> None:
-    """``gone`` **may** carry steps, and the permission is the point.
+    """``gone`` **may** carry steps: the model states what it forbids and
+    this is not among it.
 
-    The first version of this model forbade it on the grounds that a
-    continuation would follow players the report had said it lost. That read
-    ``gone`` as "for ever" when it only ever meant "not at this moment", and
-    it made :func:`~pappascout.domain.aggregate._route_steps` throw away
-    every position the archive held for a player whose rows begin late --
-    the report claiming a loss it could itself disprove.
-
+    Story 4.11 needed the permission, because its tree followed a player the
+    sample lost and found again. Since Story 4.13 ``aggregate`` builds no
+    such step -- a gap in a player's rows is not a step of the compressed
+    path -- but a model that forbade it would claim a rule nothing requires.
     ``died`` is the case that really is for ever and stays terminal, which
     is why the two are separate validators rather than one.
     """
@@ -3587,10 +3604,68 @@ def test_a_player_the_sample_lost_may_still_be_observed_again() -> None:
         fate="gone",
         seconds=30.0,
         area=None,
+        flag=None,
         players=1,
-        steps=[RouteStep(fate="seen", seconds=45.0, area="Ramp", players=1)],
+        steps=[RouteStep(fate="seen", seconds=45.0, area="Ramp", flag=None, players=1)],
     )
     assert [child.area for child in step.steps] == ["Ramp"]
+
+
+def test_a_player_the_sample_lost_carries_no_flag() -> None:
+    """A flag says why a name may not be the product owner's word; a
+    ``gone`` step has no name for it to be about (Story 4.13)."""
+    with pytest.raises(AggregateError, match="with the flag 'coarse'"):
+        RouteStep(fate="gone", seconds=30.0, area=None, flag="coarse", players=1)
+
+
+def test_a_route_step_must_say_whether_its_name_is_flagged() -> None:
+    """The flag is required, for :data:`REPORT_SCHEMA_VERSION`'s 16.0.0
+    reason: a 15.0.0 step's ``Control`` is a game area, and a default would
+    read it as an unflagged callout -- which on Nuke is a different room."""
+    with pytest.raises(ValidationError, match="flag"):
+        RouteStep.model_validate(
+            {"fate": "seen", "seconds": 6.0, "area": "Control", "players": 1}
+        )
+
+
+@pytest.mark.parametrize(
+    "flag",
+    ["coarse", "inferred", "coarse_inferred", "no_callout", "no_table", None],
+)
+def test_every_flag_the_route_knows_is_accepted(flag: str | None) -> None:
+    step = RouteStep(fate="seen", seconds=6.0, area="x", flag=flag, players=1)
+    assert step.flag == flag
+
+
+def test_a_flag_the_route_does_not_know_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        RouteStep(fate="seen", seconds=6.0, area="x", flag="guess", players=1)
+
+
+def test_an_alternation_names_two_different_places() -> None:
+    """``alternates_with`` is the second place of a back-and-forth: it needs
+    a ``seen`` step, a place other than the first, and a flag only with a
+    place (Story 4.13 review)."""
+    ok = RouteStep(
+        fate="seen", seconds=6.0, area="main", flag=None,
+        alternates_with="outside", alternates_flag="coarse", players=1,
+    )
+    assert ok.alternates_with == "outside"
+    with pytest.raises(AggregateError, match="and itself"):
+        RouteStep(
+            fate="seen", seconds=6.0, area="main", flag=None,
+            alternates_with="main", players=1,
+        )
+    with pytest.raises(AggregateError, match="alternates although"):
+        RouteStep(
+            fate="died", seconds=6.0, area="main", flag=None,
+            alternates_with="outside", players=1,
+        )
+    with pytest.raises(AggregateError, match="does not name"):
+        RouteStep(
+            fate="seen", seconds=6.0, area="main", flag=None,
+            alternates_flag="coarse", players=1,
+        )
 
 
 def test_a_death_ends_its_branch() -> None:
@@ -3600,8 +3675,15 @@ def test_a_death_ends_its_branch() -> None:
             fate="died",
             seconds=27.0,
             area="Mini",
+            flag=None,
             players=1,
-            steps=[RouteStep(fate="seen", seconds=45.0, area="Ramp", players=1)],
+            steps=[RouteStep(
+                fate="seen",
+                seconds=45.0,
+                area="Ramp",
+                flag=None,
+                players=1,
+            )],
         )
 
 
@@ -3617,10 +3699,11 @@ def test_the_parts_of_a_group_are_the_whole_of_it() -> None:
             fate="seen",
             seconds=15.0,
             area="Control",
+            flag=None,
             players=4,
             steps=[
-                RouteStep(fate="seen", seconds=30.0, area="Ramp", players=2),
-                RouteStep(fate="seen", seconds=30.0, area="Hell", players=1),
+                RouteStep(fate="seen", seconds=30.0, area="Ramp", flag=None, players=2),
+                RouteStep(fate="seen", seconds=30.0, area="Hell", flag=None, players=1),
             ],
         )
 
@@ -3628,7 +3711,7 @@ def test_the_parts_of_a_group_are_the_whole_of_it() -> None:
 def test_a_group_holds_at_least_one_player() -> None:
     """A part with nobody in it is not a part; it is a row about nothing."""
     with pytest.raises(ValidationError):
-        RouteStep(fate="seen", seconds=15.0, area="Control", players=0)
+        RouteStep(fate="seen", seconds=15.0, area="Control", flag=None, players=0)
 
 
 def test_a_round_route_carries_its_starts_and_no_total_beside_them() -> None:
@@ -3648,8 +3731,8 @@ def test_a_round_route_carries_its_starts_and_no_total_beside_them() -> None:
         round_no=1,
         won=True,
         steps=[
-            RouteStep(fate="seen", seconds=6.0, area="Outside", players=3),
-            RouteStep(fate="seen", seconds=6.0, area="TSpawn", players=1),
+            RouteStep(fate="seen", seconds=6.0, area="Outside", flag=None, players=3),
+            RouteStep(fate="seen", seconds=6.0, area="TSpawn", flag=None, players=1),
         ],
     )
     assert "players" not in route.model_dump()

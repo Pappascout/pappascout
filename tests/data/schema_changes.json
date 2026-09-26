@@ -11,6 +11,9 @@
     ],
     "15.0.0": [
       "anomalies[].rounds[].points[].sources"
+    ],
+    "16.0.0": [
+      "maps[].sides[].round_types[].routes[].steps[].flag"
     ]
   }
 }

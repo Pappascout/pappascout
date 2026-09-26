@@ -1,0 +1,1041 @@
+# The product owner's callouts and junctions, per map (Story 4.13, AD-13).
+#
+# WHAT THIS IS. The pistol route prints his callouts instead of the game's
+# area names, and compresses each player's path to the places that matter:
+# the start, the junctions and the end. Both need knowledge the demo does not
+# hold -- what he calls a place, and which places he treats as junctions --
+# and this file is that knowledge. Nothing else in the report reads it: the
+# sample-point sections, the habits and the anomalies keep the game's names.
+#
+# WHY A TABLE (AD-13). Derivation runs first and wins where it can answer;
+# the table holds what it structurally cannot. Two things here are of that
+# kind, and AD-13 names both: his VOCABULARY where it differs from the
+# game's (the game's Control is his radio, its Observation his control), and
+# which places are his DECISION POINTS. The measurement that made the table
+# necessary: on the archive's 2026-09-20 de_nuke T pistol round the
+# four-point route read "Outside -> Control", which the dense moves rule out
+# (Control is entered only from Ramp, Trophy or Vending;
+# saavutettavuus-mitattu-2026-09-26.md), and the real way ran through Lobby.
+#
+# WHY HIS LIST WINS OVER THE NEIGHBOUR COUNT. A neighbour count answers "an
+# area with many exits", not "his decision point": Nuke's Garage has one
+# neighbour and is a contact point in his account, Admin has five and is
+# transit to him. Derivation cannot answer the question he answers, which is
+# AD-13's own exception, so ``neighbours`` is recorded as advisory and never
+# read by the route. The rule that decides every entry:
+#   junction = his account names the place as a junction, a contact point or
+#              a point where the way divides, or it is a bomb site or spawn;
+#   otherwise transit.
+# An entry gives a reason of its own only where his words say more than that.
+#
+# WHERE IT CAME FROM. Every entry names its source: a document of the BMAD
+# output by file name (his answers in the Story 4.13 review are in
+# alueomistus-pohja-2026-09-26.md, section "Answers of 2026-09-26 in the
+# Story 4.13 review"), or the project memory by name. Those documents are not in
+# this repository (they live beside it), so an entry quotes the words it
+# rests on. Nothing here was written from memory. One document is cited
+# without its file name: the product owner's first route model (Nuke,
+# Ancient, Anubis, 2026-09-02 to 09-12) is named after him, and the public
+# repository names no person, so it appears as "the first route model
+# (reittimalli-<owner>.md)" -- a placeholder that matches no other file.
+#
+# CONFIDENCE, and what the route prints for it:
+#   stated   -- his words, or a callout he confirmed for the place
+#   guide    -- the game area's own name is one of the guide's callouts for
+#               the map (calloutit.md's list, compared ignoring case and
+#               spaces: Alley = ALLEY)
+#   inferred -- a reading the source itself marks as inferred, unconfirmed or
+#               a match of names that is not exact
+#   guess    -- he offered it as his own guess
+#   unnamed  -- the place has no callout at all (``callout`` is absent)
+# stated and guide are CERTAIN and print unmarked; inferred and guess print
+# with a mark, and a callout fed by several areas is marked if any of them is
+# not certain. unnamed prints the game's name with its own mark.
+#
+# THE KEYS. One section per map, ``[<map>.<game area>]``. An unknown map is
+# refused at load (it must be in ``[league].map_pool``), and so is an unknown
+# key in an entry or an empty map. An area name is NOT checked at load -- the
+# loader has no list of the game's areas; a misspelt area is caught only by
+# ``-m archive`` (tests/test_calibration.py re-derives every entry's
+# neighbour count and requires the table to cover exactly the areas the
+# archive moves through).
+#   callout         -- his callout for the area, compared ignoring case and
+#                      surrounding spaces. ABSENT means the place has no
+#                      callout: the route prints the game's name, flagged.
+#                      Two areas with one callout are one place to him and
+#                      the route merges them.
+#   coarse          -- the area holds several of his callouts (Nuke's yard is
+#                      one game area); the route prints the coarse name,
+#                      flagged as needing coordinates. Never split by guess.
+#   junction        -- see the rule above. A transit place drops out of the
+#                      middle of a route; a place with no callout is always
+#                      kept, so the flag stays visible.
+#   junction_source -- the words that make it a junction.
+#   neighbours      -- the derived, advisory check: how many distinct areas
+#                      the dense archive moves between this one and, counting
+#                      a neighbour only when at least three moves were
+#                      observed. Living players, time sample points at most
+#                      3 s apart, every round and both sides, every demo of
+#                      the map. Measured 2026-09-26 and re-derived by
+#                      ``-m archive``, so it is a checked measurement and not
+#                      a copy.
+#   confidence, source, note -- as above.
+#
+# Only callout, junction, coarse and confidence change the report, and only
+# those go into the aggregate's parameter hash (AD-1): editing one of them
+# re-runs ``aggregate``; editing a source, a note, a neighbour count or a
+# comment does not.
+
+[de_nuke.Admin]
+callout = "admin"
+junction = false
+neighbours = 5
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke, his words: 'ct piha, garage, mini, hell, heaven, ct red, a site, admin ja ramppi'"
+
+[de_nuke.BombsiteA]
+callout = "a site"
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+neighbours = 11
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: BombsiteA = a site"
+
+[de_nuke.BombsiteB]
+callout = "b site"
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+neighbours = 4
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: BombsiteB = B site"
+
+[de_nuke.CTSpawn]
+callout = "ct spawn"
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+neighbours = 1
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke, his words: 'CT:t aloittavat ct spawnista'"
+
+[de_nuke.Catwalk]
+callout = "rafters"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'hutista ... rafterille'"
+neighbours = 5
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Catwalk confirmed 2026-09-26, 'vanha callout aikalailla synonyymi rafterille'"
+note = "Two game areas, one callout: merged with Rafters."
+
+[de_nuke.Control]
+callout = "radio"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'radiosta rampille'"
+neighbours = 4
+confidence = "stated"
+source = "project memory nuken-aluenimet; the first route model (reittimalli-<owner>.md) 2026-09-12: the game's Control is his radio"
+note = "Crossed on purpose: the game's Control is his radio and the game's Observation his control."
+
+[de_nuke.Crane]
+junction = false
+neighbours = 1
+confidence = "unnamed"
+source = "alueomistus-pohja-2026-09-26.md de_nuke: 'Not in his account (derived only)'; no guide callout in calloutit.md"
+
+[de_nuke.Decon]
+callout = "sinkku"
+junction = false
+neighbours = 3
+confidence = "stated"
+source = "the first route model (reittimalli-<owner>.md) Nuke 2026-09-03: 'Decon = sinkku' (the guide's DECON in calloutit.md is the same place under the guide's name)"
+
+[de_nuke.Garage]
+callout = "garage"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'pihalla kontaktilta t red/garage/main/secret'"
+neighbours = 1
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Garage = garage"
+
+[de_nuke.Heaven]
+callout = "heaven"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'hutista ... heaveniin'"
+neighbours = 6
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Heaven = heaven"
+
+[de_nuke.Hell]
+callout = "hell"
+junction = true
+junction_source = "the first route model (reittimalli-<owner>.md) 2026-09-12, his words: 'Hell on kai heavenin alla ensimmäinen solmukohta' -- hedged ('kai'): he names it a junction with a 'presumably'"
+neighbours = 8
+confidence = "stated"
+source = "the first route model (reittimalli-<owner>.md) 'Nuken tarkennukset 2026-09-12': Hell; calloutit.md guide: HELL"
+note = "The junction rests on his hedged 'kai'; the name itself is the guide's."
+
+[de_nuke.Hut]
+callout = "hut"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'hutista A sitelle/rafterille/heaveniin'"
+neighbours = 4
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Hut = hut"
+
+[de_nuke.HutRoof]
+callout = "top of hut"
+junction = false
+neighbours = 4
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: HutRoof = top of hut"
+
+[de_nuke.Lobby]
+callout = "lobby"
+junction = true
+junction_source = "the first route model (reittimalli-<owner>.md) Nuke T side, his claims 'Lobbystä ovelta tai hutista A:lle' and 'Lobbystä rampille': the T side's branch point; saavutettavuus-mitattu-2026-09-26.md: Vending is entered only through it"
+neighbours = 10
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Lobby = lobby"
+
+[de_nuke.LockerRoom]
+callout = "lockers"
+junction = false
+neighbours = 2
+confidence = "inferred"
+source = "calloutit.md guide: LOCKERS -- a match of names only"
+
+[de_nuke.Mini]
+callout = "main"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'ovesta mainiin' and 'pihalla kontaktilta ... main'"
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'Nuken mini on sama kuin mitä kutsun mainiksi'; also the first route model (reittimalli-<owner>.md) Nuke 2026-09-03: 'Mini = main'"
+
+[de_nuke.Observation]
+callout = "control"
+junction = false
+neighbours = 3
+confidence = "stated"
+source = "project memory nuken-aluenimet; the first route model (reittimalli-<owner>.md) 2026-09-12: the game's Observation is his control (called 'ikkuna' in the first route model (reittimalli-<owner>.md) 2026-09-03)"
+
+[de_nuke.Outside]
+callout = "outside"
+coarse = true
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'pihalla kontaktilta t red/garage/main/secret'"
+neighbours = 15
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Outside = the whole yard; open item 1: ct piha, T red, ct red and the contact near silo are all inside it"
+note = "One game area holding several of his callouts: the coarse name, flagged until coordinates split it."
+
+[de_nuke.Rafters]
+callout = "rafters"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'hutista ... rafterille'"
+neighbours = 8
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Rafters, Catwalk = A site rafters"
+
+[de_nuke.Ramp]
+callout = "ramp"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'radiosta rampille'"
+neighbours = 6
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Ramp = ramppi; calloutit.md guide: RAMP"
+
+[de_nuke.Roof]
+callout = "t roof"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke, his words: 'Siitä pääsee tikkaita pitkin lobbyyn tai hyppimään siilolle'"
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Roof = T roof, lobby's roof outside (his correction, 2026-09-26)"
+
+[de_nuke.Secret]
+callout = "secret"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'pihalla kontaktilta ... secret'"
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Secret = secret"
+
+[de_nuke.Silo]
+callout = "silo"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'siilon päältä samat pihan paikat'"
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Silo = siilo"
+
+[de_nuke.Squeaky]
+callout = "squeaky"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'ovesta mainiin/Asitelle'"
+neighbours = 4
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Squeaky = ovi (squeaky); calloutit.md guide: SQUEAKY"
+
+[de_nuke.TSpawn]
+callout = "t spawn"
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+neighbours = 2
+confidence = "stated"
+source = "calloutit.md guide: T SPAWN; the first route model (reittimalli-<owner>.md) Nuke T side: 'T spawnista kaikki etenemään'"
+
+[de_nuke.Trophy]
+callout = "radio"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'radiosta rampille'"
+neighbours = 4
+confidence = "stated"
+source = "project memory nuken-aluenimet; the first route model (reittimalli-<owner>.md): 'Trophy ja Control ovat molemmat radio'"
+note = "Two game areas, one callout: merged with Control."
+
+[de_nuke.Tunnels]
+callout = "secret"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'pihalla kontaktilta ... secret'"
+neighbours = 6
+confidence = "stated"
+source = "the first route model (reittimalli-<owner>.md): 'Nuken Tunnels + Secret -> molemmat secret' (one word, two game areas)"
+note = "Two game areas, one callout: merged with Secret."
+
+[de_nuke.Vending]
+callout = "trophy"
+junction = false
+neighbours = 3
+confidence = "stated"
+source = "project memory nuken-aluenimet: the game's Vending is his trophy"
+note = "A transit room: the product owner chose the form in which a player passing it stays in the group's row (spec-4-13-the-route-through-his-junctions.md)."
+
+[de_nuke.Vents]
+callout = "vent"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke, his words: 'Ramppi, piha (ja sieltä secret) ja A sitellä ventti ovat ainoita reittejä alas B sitelle'; project memory nuken-aluenimet: one of the three bridges between the floors"
+neighbours = 5
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_nuke table: Vents = ventti; calloutit.md: vent / ventti = VENT"
+note = "Named as one of the three ways down to B, not as a contact point."
+
+[de_dust2.ARamp]
+callout = "ramp"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'siinä crosin kohdalla on paljastunut ct spawniin'"
+neighbours = 3
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: ARamp = ramp (the cross); calloutit.md guide: RAMP, CROSS"
+
+[de_dust2.BDoors]
+callout = "b doors"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md contact points: 'beyond mid doors on mid-to-B: CT spawn, B window or B doors'"
+neighbours = 3
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: BDoors = B doors; calloutit.md guide: B DOORS"
+
+[de_dust2.BombsiteA]
+callout = "a site"
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+neighbours = 4
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: BombsiteA = A site"
+
+[de_dust2.BombsiteB]
+callout = "b site"
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+neighbours = 4
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: BombsiteB = B site"
+
+[de_dust2.CTSpawn]
+callout = "ct spawn"
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+neighbours = 3
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: CTSpawn = ct spawn"
+
+[de_dust2.Catwalk]
+callout = "catwalk"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'CT:t voivat olla catwalkilla vastassa'"
+neighbours = 4
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: Catwalk = catwalk / cat; calloutit.md guide: CATWALK"
+
+[de_dust2.ExtendedA]
+callout = "short a"
+junction = false
+neighbours = 4
+confidence = "inferred"
+source = "reittimalli-dust2-2026-09-26.md section 3: ExtendedA = short A (inferred); calloutit.md guide: SHORT A"
+
+[de_dust2.Hole]
+callout = "window"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md contact points: 'beyond mid doors on mid-to-B: CT spawn, B window or B doors'"
+neighbours = 3
+confidence = "inferred"
+source = "reittimalli-dust2-2026-09-26.md section 2: 'Hole as the window is inferred'; calloutit.md guide: WINDOW"
+
+[de_dust2.LongA]
+callout = "long a"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'kun ct pelaaja on long A kulmalla mistä näkee longboxiin'"
+neighbours = 5
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: LongA = long A; calloutit.md guide: LONG A"
+
+[de_dust2.LongDoors]
+callout = "long box"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'longbox on kontaktipiste'"
+neighbours = 4
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: LongDoors = long box / long doors -- his word is long box ('longbox on kontaktipiste'); 'long doors kai callouts kuvassa' is his reading of the guide's name"
+
+[de_dust2.LowerTunnel]
+callout = "lower b"
+junction = false
+neighbours = 4
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: LowerTunnel = lower B / alapimee; calloutit.md guide: LOWER B"
+
+[de_dust2.MidDoors]
+callout = "mid doors"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'mid ovilla tulee yleensä kontakti'"
+neighbours = 7
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: MidDoors = mid ovet / tuplaovet; calloutit.md guide: MID DOORS"
+
+[de_dust2.Middle]
+callout = "mid"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'sieltä pääsee mid ovista ... Sieltä pääsee myös catwalkia pitkin shortiin A:lle'"
+neighbours = 4
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: Middle = mid (T side of the doors); calloutit.md guide: MID"
+
+[de_dust2.OutsideLong]
+callout = "outside long"
+junction = false
+neighbours = 3
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: OutsideLong = outside long; calloutit.md guide: OUTSIDE LONG"
+
+[de_dust2.OutsideTunnel]
+callout = "outside tunnels"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'Sieltä puolelta pääsee tunneleihin upper B ja lower B'"
+neighbours = 3
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: OutsideTunnel = T plat / outside tunnels; calloutit.md guide: OUTSIDE TUNNELS"
+
+[de_dust2.Pit]
+callout = "pit"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'a siteltä voi haastaa pittiin asti'"
+neighbours = 2
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: Pit = pit"
+
+[de_dust2.ShortStairs]
+callout = "short stairs"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'viimeistään short stairs kohdalla ... tulee kontakti'"
+neighbours = 3
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: ShortStairs = short stairs"
+
+[de_dust2.Side]
+junction = false
+neighbours = 0
+confidence = "unnamed"
+source = "reittimalli-dust2-2026-09-26.md section 3: 'Thin and not named: ... Side'"
+
+[de_dust2.TRamp]
+junction = false
+neighbours = 2
+confidence = "unnamed"
+source = "reittimalli-dust2-2026-09-26.md section 3: 'Thin and not named: ... TRamp'"
+
+[de_dust2.TSpawn]
+callout = "t spawn"
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+neighbours = 4
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: TSpawn = t spawn"
+
+[de_dust2.TopofMid]
+callout = "top mid"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'T pelaajat voivat ylämidistä mennä takasin longia kohti'"
+neighbours = 5
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: TopofMid = ylämidi / top mid; calloutit.md guide: TOP MID"
+
+[de_dust2.TunnelStairs]
+callout = "tunnelin portaat"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'voisivat he tavata noon upperB:n ja lowerB:n portaissa'"
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'portaat tai tunnelin portaat'; reittimalli-dust2-2026-09-26.md section 3, confirmed by him 2026-09-26: 'TunnelStairs on varmaan portaat ala ja yläpimeän välillä'"
+
+[de_dust2.UnderA]
+callout = "short boost/elevator"
+coarse = true
+junction = false
+neighbours = 6
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'Tuo dust2 alue on CT:n ja long crossin välissä se jakautuu short boost, siitä mistä pääsee shorttiin hyppimällä lähempänä CT spawnia ja elevator on se nurkka lähempänä siteä'"
+note = "One game area holding two of his callouts (short boost, elevator): the coarse name, flagged. A route from CT spawn toward short in his words, not a contact point, so transit."
+
+[de_dust2.UpperTunnel]
+callout = "upper b"
+junction = true
+junction_source = "reittimalli-dust2-2026-09-26.md his words: 'ct:t pääsevät lähelle upperB:tä kontaktipistettä'"
+neighbours = 4
+confidence = "stated"
+source = "reittimalli-dust2-2026-09-26.md section 3: UpperTunnel = upper B / yläpimee; calloutit.md guide: UPPER B"
+
+[de_inferno.Apartments]
+callout = "ct talo"
+coarse = true
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_inferno: 'ct apps on myös kontaktipiste, mutta ei aina'"
+neighbours = 6
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: Apartments = ct talo (long hall / partsikäytävä, window room, the boiler side), corrected 2026-09-26"
+note = "One game area holding several of his callouts: the coarse name, flagged."
+
+[de_inferno.Arch]
+callout = "arch"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_inferno: 'ylämidistä myös arch side ja short ovat kontaktipisteitä'"
+neighbours = 4
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: Arch = arch (side); calloutit.md guide: ARCH"
+
+[de_inferno.BackAlley]
+callout = "back alley"
+junction = true
+junction_source = "reittimalli-inferno-2026-09-24.md section 1: 'back alleylle, josta pääsee CT appseihin portaille tai takaisin second midiin'"
+neighbours = 2
+confidence = "stated"
+source = "reittimalli-inferno-2026-09-24.md section 1: 'back alleylle'"
+
+[de_inferno.Balcony]
+callout = "balcony"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_inferno: 'balcony ja boiler ovat yleensä aina kontaktipisteitä'"
+neighbours = 4
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: Balcony = balcony"
+
+[de_inferno.Banana]
+callout = "banana"
+coarse = true
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_inferno: 'banaani on kontaktipiste'"
+neighbours = 5
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: Banana = banaani, with logs, the half-wall and car inside it; calloutit.md guide: BANANA"
+note = "One game area holding several of his callouts (logs, half-wall, car, sandbags): the coarse name, flagged."
+
+[de_inferno.BombsiteA]
+callout = "a site"
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+neighbours = 7
+confidence = "stated"
+source = "reittimalli-inferno-2026-09-24.md section 1: 'A sitelle'"
+
+[de_inferno.BombsiteB]
+callout = "b site"
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+neighbours = 3
+confidence = "stated"
+source = "reittimalli-inferno-2026-09-24.md section 1: 'B site'"
+
+[de_inferno.Bridge]
+callout = "t talo"
+junction = false
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: Upstairs, Bridge (+ kitchen) = t talo"
+note = "Two game areas, one callout: merged with Upstairs; transit for the reason given there."
+
+[de_inferno.CTSpawn]
+callout = "ct spawn"
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+neighbours = 4
+confidence = "stated"
+source = "reittimalli-inferno-2026-09-24.md section 1: 'ct spawniin'; calloutit.md guide: CT SPAWN"
+
+[de_inferno.Graveyard]
+callout = "graveyard"
+junction = false
+neighbours = 0
+confidence = "guide"
+source = "calloutit.md guide: GRAVEYARD -- the game area's own name is a guide callout"
+
+[de_inferno.Library]
+callout = "library"
+junction = false
+neighbours = 2
+confidence = "stated"
+source = "reittimalli-inferno-2026-09-24.md section 1: 'long kohti libraryä'"
+
+[de_inferno.LowerMid]
+callout = "alamidi"
+junction = true
+junction_source = "reittimalli-inferno-2026-09-24.md section 1: 'Alamidistä pääsee underpassin kautta secondiin tai jatkaa eteenpäin jolloin on myös haara secondiin'"
+neighbours = 7
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: LowerMid = alamidi; no guide callout in calloutit.md"
+
+[de_inferno.Middle]
+callout = "middle"
+junction = false
+neighbours = 7
+confidence = "guide"
+source = "calloutit.md guide: MIDDLE -- the game area's own name is a guide callout"
+
+[de_inferno.Pit]
+callout = "pit"
+junction = false
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: Pit = pit"
+
+[de_inferno.Quad]
+callout = "quad"
+junction = false
+neighbours = 2
+confidence = "inferred"
+source = "calloutit.md guide: QUAD -- a match of names only"
+
+[de_inferno.Ruins]
+callout = "ruins"
+junction = false
+neighbours = 3
+confidence = "stated"
+source = "reittimalli-inferno-2026-09-24.md 4.4: Ruins = the guide's CONSTRUCTION; 'they mostly say ruins'"
+note = "reittimalli-inferno-2026-09-24.md 4.4, his words: 'Ruins ei ole kuten hell nukessa' -- the junction is a place beside it that neither vocabulary separates."
+
+[de_inferno.SecondMid]
+callout = "second mid"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_inferno: 'second mid on myös kontaktipiste'"
+neighbours = 6
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: SecondMid = second mid"
+
+[de_inferno.TRamp]
+callout = "t ramp"
+junction = true
+junction_source = "reittimalli-inferno-2026-09-24.md section 1: 'Rampilta voi kääntyä vasemmalle banaaniin tai oikealle alamidiin'"
+neighbours = 4
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: TRamp = T ramppi; calloutit.md guide: T RAMP"
+
+[de_inferno.TSpawn]
+callout = "t spawn"
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: TSpawn = t spawn"
+
+[de_inferno.TopofMid]
+callout = "ylämidi"
+coarse = true
+junction = true
+junction_source = "reittimalli-inferno-2026-09-24.md section 1: 'Ylämidissä taas reitti jakaantuu kahteen'"
+neighbours = 6
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: TopofMid = ylämidi; short and long are the two halves of upper mid (reittimalli-inferno-2026-09-24.md section 1)"
+note = "One game area holding several of his callouts (short, long, the boiler side): the coarse name, flagged."
+
+[de_inferno.Underpass]
+callout = "underpass"
+junction = false
+neighbours = 1
+confidence = "stated"
+source = "reittimalli-inferno-2026-09-24.md section 1: 'underground / underpassiin'"
+
+[de_inferno.Upstairs]
+callout = "t talo"
+junction = false
+neighbours = 2
+confidence = "guess"
+source = "alueomistus-pohja-2026-09-26.md de_inferno table: Upstairs, Bridge (+ kitchen) = t talo; reittimalli-inferno-2026-09-24.md 4.2: 'Veikkaan että upstairs on kitchen' -- his guess"
+note = "Two game areas, one callout: merged with Bridge. Transit: his route description passes through the T house, and his Inferno contact points (second mid, ct apps, balcony, boiler, arch side, short, banana, car) do not name it."
+
+[de_ancient.Alley]
+callout = "alley"
+junction = false
+neighbours = 4
+confidence = "stated"
+source = "the first route model (reittimalli-<owner>.md) Ancient CT side, his words: 'Jos ct pelaaja aloittaa menemällä alleylle'; calloutit.md guide: ALLEY"
+
+[de_ancient.BombsiteA]
+callout = "a site"
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_ancient table: BombsiteA = A site"
+
+[de_ancient.BombsiteB]
+callout = "b site"
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+neighbours = 4
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_ancient table: BombsiteB = B site"
+
+[de_ancient.CTSpawn]
+callout = "ct spawn"
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_ancient table: CTSpawn is CT; calloutit.md guide: CT SPAWN"
+
+[de_ancient.House]
+callout = "mid talo"
+junction = true
+junction_source = "the first route model (reittimalli-<owner>.md) Ancient T side, his words: 'If they go mid house they can split to A or B depending if they go alley or ct spawn'"
+neighbours = 4
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_ancient, his answer: 'house, mid doors ja snipers nest, joita kutsun kaikki mid taloksi' -- the game's House is the guide's HOUSE (calloutit.md), which he calls mid talo"
+
+[de_ancient.MainHall]
+callout = "a main"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_ancient: 'kohtauspisteitä on ... a main sekä back site'"
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'Mainhall on A mainissa kuten epäilinkin ja hall sen vieressä'"
+note = "His hall is next to it, not inside it, so the area is not coarse; calloutit.md's mid talo -> MainHall is superseded."
+
+[de_ancient.Middle]
+callout = "middle"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_ancient: 'Kohtaispiste on t elbow ja jungle/middle'"
+neighbours = 5
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_ancient table: Middle = middle; calloutit.md: mid = MIDDLE"
+
+[de_ancient.Outside]
+callout = "outside"
+coarse = true
+junction = true
+junction_source = "the first route model (reittimalli-<owner>.md) Ancient T side, his words: 'Going past the t cube (split) torwards A main ... Going past split to middle'"
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_ancient table: Outside = T puolen outside, 't spawnista A mainiin (hall) asti'; the split is inside it (the first route model (reittimalli-<owner>.md) Ancient T side)"
+note = "One game area holding several of his callouts (the split and the T-side outside): the coarse name, flagged."
+
+[de_ancient.Ramp]
+callout = "ramp"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_ancient: 'ramp voidaan katsoa olevan kohtauspiste'"
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_ancient table: Ramp = ramp"
+
+[de_ancient.Ruins]
+callout = "ruins"
+junction = false
+neighbours = 5
+confidence = "guide"
+source = "calloutit.md guide: RUINS -- the game area's own name is a guide callout"
+note = "His own ruins callout lies at least partly in the game's SideEntrance (alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review'); this area only shares the name."
+
+[de_ancient.SideEntrance]
+callout = "ruins/dig"
+coarse = true
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_ancient: 'upper b long ja dig on kohtaamispiste'"
+neighbours = 3
+confidence = "guess"
+source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'SideEntrance on todennäköisesti ruins ja dig niputettuna yhdeksi' -- his 'todennäköisesti'"
+note = "One game area holding two of his callouts, flagged. His ruins callout spans ground the game names differently: the game also has an area called Ruins (T side, share 1.00), which keeps its own entry."
+
+[de_ancient.SideHall]
+callout = "donut"
+junction = false
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'Sidehall on siis donitsi'; calloutit.md: donitsi = DONUT/CUBE"
+note = "The dense moves agree: SideHall joins Middle and BombsiteA and never Outside. Transit: his accounts pass through the donut ('from three to donut they are going mid to A') and name no contact there."
+
+[de_ancient.TSideLower]
+callout = "lower b long"
+junction = false
+neighbours = 4
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_ancient table: TSideLower = lower b long (banaani)"
+note = "Conflict: the older table in the first route model (reittimalli-<owner>.md) gives TSideUpper and TSideLower one callout, 'B suora'; the 2026-09-26 account names the two halves, which this entry follows."
+
+[de_ancient.TSideUpper]
+callout = "upper b long"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_ancient: 'upper b long ja dig on kohtaamispiste'"
+neighbours = 4
+confidence = "guess"
+source = "alueomistus-pohja-2026-09-26.md de_ancient table: 'TSideUpper on mielestäni upper b long, mutta ... tämä on valistunut arvaukseni' -- his educated guess"
+note = "Conflict: the older table in the first route model (reittimalli-<owner>.md) gives TSideUpper and TSideLower one callout, 'B suora'."
+
+[de_ancient.TSpawn]
+callout = "t spawn"
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_ancient table: TSpawn = t spawn"
+
+[de_ancient.TopofMid]
+callout = "top mid"
+junction = false
+neighbours = 2
+confidence = "inferred"
+source = "calloutit.md guide: TOP MID -- a match of names only; alueomistus-pohja-2026-09-26.md: 'TopofMid may hold T elbow; unconfirmed'"
+
+[de_ancient.Tunnel]
+callout = "tunnel"
+junction = false
+neighbours = 3
+confidence = "guide"
+source = "calloutit.md guide: TUNNEL -- the game area's own name is a guide callout"
+
+[de_ancient.Water]
+callout = "water"
+junction = false
+neighbours = 2
+confidence = "guide"
+source = "calloutit.md guide: WATER -- the game area's own name is a guide callout"
+
+[de_anubis.Alley]
+callout = "alley"
+junction = false
+neighbours = 4
+confidence = "guide"
+source = "calloutit.md guide: ALLEY -- the game area's own name is a guide callout"
+
+[de_anubis.BackofB]
+callout = "backsite"
+junction = false
+neighbours = 4
+confidence = "inferred"
+source = "calloutit.md guide: BACKSITE -- a match of the place only"
+
+[de_anubis.BombsiteA]
+callout = "a site"
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+neighbours = 5
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: BombsiteA = A site"
+
+[de_anubis.BombsiteB]
+callout = "b site"
+junction = true
+junction_source = "a bomb site (spec-4-13-the-route-through-his-junctions.md: bomb sites are junctions)"
+neighbours = 8
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: BombsiteB = B site"
+
+[de_anubis.Bricks]
+callout = "bricks"
+junction = false
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'Anubis bricks meni oikein. Bricks on ok.'"
+note = "His description: between the museum (palace) and B site, just out of the museum, not yet on B site or back site. The dense moves agree: Bricks <- BombsiteB 10, PalaceInterior 6, BackofB 6; -> PalaceInterior 15, BombsiteB 5."
+
+[de_anubis.Bridge]
+callout = "bridge"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'silta on kontaktipiste'"
+neighbours = 5
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: Bridge = bridge (silta)"
+
+[de_anubis.CTSideUpper]
+callout = "ct side upper"
+junction = false
+neighbours = 3
+confidence = "guide"
+source = "calloutit.md guide: CT SIDE UPPER -- the game area's own name is a guide callout"
+
+[de_anubis.CTSpawn]
+callout = "ct spawn"
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis: CT by any reading; calloutit.md guide: CT SPAWN"
+
+[de_anubis.Canal]
+callout = "canal"
+coarse = true
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'Boat, canal, connector ... on kuitenkin välillä kontaktialuetta'"
+neighbours = 8
+confidence = "guide"
+source = "calloutit.md guide: CANAL -- the game area's own name is a guide callout"
+note = "One game area holding several of his callouts (canal, boat, water): the coarse name, flagged. That boat and water lie inside it is presumed by the source, not measured."
+
+[de_anubis.Connector]
+callout = "connector"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'Boat, canal, connector ... on kuitenkin välillä kontaktialuetta'"
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: Connector = connector (konnu); calloutit.md: konnu = CONNECTOR"
+
+[de_anubis.Fountain]
+callout = "fountain"
+junction = false
+neighbours = 2
+confidence = "guide"
+source = "calloutit.md guide: FOUNTAIN -- the game area's own name is a guide callout"
+
+[de_anubis.Heaven]
+callout = "heaven"
+junction = false
+neighbours = 4
+confidence = "guide"
+source = "calloutit.md guide: HEAVEN -- the game area's own name is a guide callout"
+
+[de_anubis.LowerTunnel]
+callout = "lower tunnel"
+junction = false
+neighbours = 3
+confidence = "guide"
+source = "calloutit.md guide: LOWER TUNNEL -- the game area's own name is a guide callout"
+
+[de_anubis.Main]
+callout = "main"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'kontakti tulee A mainiin jos ct ja t puolen pelaajat molemmat haluavat duelata'"
+neighbours = 5
+confidence = "guide"
+source = "calloutit.md guide: MAIN -- the game area's own name is a guide callout"
+note = "That this main is his A main is inferred: he calls ruins / outside long B main."
+
+[de_anubis.MidDoors]
+callout = "middle doors"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'ct pelaaja voi peekata mid talosta tai tuplaovien puolelta sillalle'"
+neighbours = 3
+confidence = "inferred"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: MidDoors = tuplaovet / middle doors? -- 'name match only, unconfirmed'; calloutit.md guide: MIDDLE DOORS"
+
+[de_anubis.Middle]
+callout = "middle"
+junction = true
+junction_source = "the first route model (reittimalli-<owner>.md) Anubis T side, his words: 'Midistä pääsee taas walkwayltä A:lle tai palacen eli museon kautta B:lle tai voi pudottautua myös ikkunasta alas canaaliin'"
+neighbours = 5
+confidence = "guide"
+source = "calloutit.md guide: MIDDLE -- the game area's own name is a guide callout"
+
+[de_anubis.OutsideLong]
+callout = "outside long"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'outside long osuus b mainista voi hyvinkin olla kontaktipiste'"
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: Ruins, OutsideLong = ruins / outside long = B main; calloutit.md guide: OUTSIDE LONG"
+
+[de_anubis.PalaceInterior]
+callout = "palace"
+junction = false
+neighbours = 5
+confidence = "stated"
+source = "the first route model (reittimalli-<owner>.md) Anubis T side, his words: 'palacen eli museon kautta B:lle'; calloutit.md guide: PALACE"
+
+[de_anubis.Ruins]
+callout = "ruins"
+junction = true
+junction_source = "the first route model (reittimalli-<owner>.md) Anubis T side, his words: 'Jos pelaaja menee ruins eli B main puolelle hän voi mennä B:lle, mutta siltä puolelta pääsee myös midiin'"
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: Ruins, OutsideLong = ruins / outside long = B main; calloutit.md guide: RUINS"
+
+[de_anubis.SnipersNest]
+callout = "sniper"
+junction = false
+neighbours = 1
+confidence = "inferred"
+source = "calloutit.md guide: SNIPER -- a match of the place only"
+
+[de_anubis.Street]
+callout = "street"
+junction = true
+junction_source = "the first route model (reittimalli-<owner>.md) Anubis T side, his words: 'Jos pelaaja lähtee street puolelle hän voi mennä midiin bridgelle, tai t stairsistä veteen tai matoille t side upperiin'"
+neighbours = 5
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: Street = street"
+
+[de_anubis.TSideUpper]
+callout = "t side upper"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'Boat, canal, connector, t stairs ja t side upper on kuitenkin välillä kontaktialuetta'"
+neighbours = 3
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: TSideUpper = t side upper; calloutit.md guide: T SIDE UPPER"
+
+[de_anubis.TSpawn]
+callout = "t spawn"
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions)"
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: TSpawn = t spawn"
+
+[de_anubis.TStairs]
+callout = "stairs"
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'stairsilta voi olla kontaktia connectoriin'"
+neighbours = 2
+confidence = "stated"
+source = "alueomistus-pohja-2026-09-26.md de_anubis table: TStairs = stairs (t stairs); calloutit.md guide: STAIRS"
+
+[de_anubis.Tunnel]
+callout = "tunnel"
+junction = false
+neighbours = 3
+confidence = "guide"
+source = "calloutit.md guide: TUNNEL -- the game area's own name is a guide callout"
+
+[de_anubis.TunnelStairs]
+junction = false
+neighbours = 2
+confidence = "unnamed"
+source = "alueomistus-pohja-2026-09-26.md de_anubis: thin and not named; no guide callout in calloutit.md"
+
+[de_anubis.Walkway]
+callout = "walkway"
+junction = false
+neighbours = 4
+confidence = "guide"
+source = "calloutit.md guide: WALKWAY -- the game area's own name is a guide callout"
+
+[de_anubis.Water]
+junction = false
+neighbours = 0
+confidence = "unnamed"
+source = "alueomistus-pohja-2026-09-26.md de_anubis: two observations and not named as an area; boat and water presumably inside Canal"

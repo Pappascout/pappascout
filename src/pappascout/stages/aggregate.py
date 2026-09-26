@@ -83,10 +83,12 @@ id is computed with
 definition with which ``classify`` recognises its own input. The parameter hash
 is computed from the named ``[thresholds]`` and ``[league]`` keys and from the
 whole ``[aggregate]`` section (AD-3), so adjusting a threshold re-runs this
-stage but not the parsing. ``[aggregate]`` holds the pistol routes' points
-(``route_sample_seconds``, Story 4.5) as well: the routes read only the points
-the report prints, and that list is this stage's own rather than a read of
-``[report]``, which is render's.
+stage but not the parsing. The product owner's callout table
+(``src/pappascout/callouts.toml``, Story 4.13) is in the hash too, parsed and
+only its four fields that change the report (:data:`HASHED_CALLOUT_FIELDS`):
+editing an entry's callout, junction, coarse or confidence -- or adding or
+removing an entry -- re-runs the stage; editing a source, a note, a neighbour
+count, a comment or the order of entries does not.
 """
 
 from __future__ import annotations
@@ -132,7 +134,9 @@ from pappascout.domain.aggregate import (
 from pappascout.domain.models import (
     AggregateSettings,
     LeagueSettings,
+    MapCallouts,
     ThresholdSettings,
+    load_callouts,
 )
 from pappascout.domain.report import (
     REPORT_SCHEMA_VERSION,
@@ -292,7 +296,10 @@ def run(
         *_inputs(archive, sources.demos),
         match_index_input(reading, sources.demos),
     ]
-    params_hash = _params_hash(thresholds, league, aggregate_settings)
+    # Read once, for the same reason as the index above: the hash and the
+    # report have to come from one reading of the table.
+    callouts = load_callouts(league.map_pool)
+    params_hash = _params_hash(thresholds, league, aggregate_settings, callouts)
 
     existing = Manifest.read_if_exists(manifest_abs)
     if (
@@ -323,7 +330,13 @@ def run(
             )
 
     report = _aggregate(
-        archive, sources, thresholds, league, aggregate_settings, reading
+        archive,
+        sources,
+        thresholds,
+        league,
+        aggregate_settings,
+        reading,
+        callouts,
     )
 
     atomic_write_text(json_abs, report.model_dump_json(indent=2) + "\n")
@@ -652,8 +665,12 @@ def _aggregate(
     league: LeagueSettings,
     aggregate_settings: AggregateSettings,
     reading: MatchIndexReading | None = None,
+    callouts: Mapping[str, MapCallouts] | None = None,
 ) -> Report:
     """Read the tables and build the report.
+
+    ``callouts`` is the product owner's callout table, as :func:`run` read it
+    for the parameter hash; ``None`` reads it here, as ``reading`` does.
 
     ``reading`` is what the archive's match index says (:func:`read_match_index`
     ): the matches newest first and, per match, its date and the opponent. It
@@ -863,6 +880,9 @@ def _aggregate(
         match_order=index.order,
         match_facts=index.facts,
         generated_at=datetime.now(UTC),
+        callouts=(
+            load_callouts(league.map_pool) if callouts is None else callouts
+        ),
         tool_versions={"pappascout": __version__},
         missing_demos=sources.missing,
     )
@@ -1775,11 +1795,25 @@ HASHED_THRESHOLD_KEYS: tuple[str, ...] = (
 )
 HASHED_LEAGUE_KEYS: tuple[str, ...] = ("map_pool",)
 
+#: The callout table's fields that **change the report** (Story 4.13):
+#: the name, whether the place is kept, whether it is flagged coarse, and --
+#: since the review round -- how sure the name is, which decides the
+#: ``(arvio)`` mark. ``source``, ``junction_source``, ``note`` and
+#: ``neighbours`` are provenance and a recorded check; they change no route,
+#: so editing them does not re-run the stage.
+HASHED_CALLOUT_FIELDS: tuple[str, ...] = (
+    "callout",
+    "junction",
+    "coarse",
+    "confidence",
+)
+
 
 def _params_hash(
     thresholds: ThresholdSettings,
     league: LeagueSettings,
     aggregate_settings: AggregateSettings,
+    callouts: Mapping[str, MapCallouts],
 ) -> str:
     """AD-3: a parameter hash only of what affects this stage's result.
 
@@ -1788,6 +1822,12 @@ def _params_hash(
     cannot go stale. From the ``[thresholds]`` and ``[league]`` sections only
     the named keys are taken (:data:`HASHED_THRESHOLD_KEYS`,
     :data:`HASHED_LEAGUE_KEYS`).
+
+    **The callout table is in it** (Story 4.13, AD-13), parsed and cut to
+    :data:`HASHED_CALLOUT_FIELDS`: exactly the fields that change a route,
+    so editing an entry's callout, junction, coarse or confidence -- or
+    adding or removing an entry -- re-runs the stage, and editing its
+    provenance or a comment does not.
 
     ``[parse]`` is left out on purpose: the sample points are read from the
     table as they are, and changing them cannot affect this stage without the
@@ -1800,6 +1840,15 @@ def _params_hash(
             },
             "league": {key: getattr(league, key) for key in HASHED_LEAGUE_KEYS},
             "aggregate": aggregate_settings.model_dump(mode="json"),
+            "callouts": {
+                map_name: {
+                    area: entry.model_dump(
+                        mode="json", include=set(HASHED_CALLOUT_FIELDS)
+                    )
+                    for area, entry in areas.items()
+                }
+                for map_name, areas in callouts.items()
+            },
         }
     )
 

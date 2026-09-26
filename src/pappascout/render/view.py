@@ -91,10 +91,9 @@ because this is where the rule is stated**: its points are the analysis's
 dense grid and not report content, so they are **not built into a block at
 all** -- they do not enter the block's "harvinaisempaa" count and the
 empty-block return cannot bring them back. They are still in ``report.json``.
-The pistol routes read only the printed points, through
-``[aggregate].route_sample_seconds``, which the settings hold equal to them;
-the aggregate stage hashes that list as part of its own section and no
-``[report]`` value (AD-3).
+The pistol routes are not built from the printed points at all: since
+Story 4.13 ``aggregate`` reads every point and compresses each path to the
+product owner's junctions, so no ``[report]`` value reaches them (AD-3).
 The measured rationales and the numbers are in ``settings.toml``;
 the measurement documents themselves live in the BMAD output and not in this
 repository.
@@ -186,6 +185,7 @@ from pappascout.domain.report import (
     RoundRecord,
     RoundRoute,
     RoundTypeReport,
+    RouteFlag,
     RouteStep,
     UtilityCounts,
     UtilityUse,
@@ -546,12 +546,13 @@ ROUTE_GONE = "poistui otannasta"
 #: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
 ROUTE_NO_SAMPLE = "kierros ratkesi ennen ensimmäistä näytepistettä"
 
-#: The arrow between two sample points **within one row**.
+#: The arrow between two places **within one row**.
 #:
 #: **It is not adjacency and the reading guide says so** (Story 4.11,
-#: "Never"): these are positions several seconds apart, so ``A -> B`` means
-#: the players were in A and then in B, not that A touches B. The product
-#: owner corrected exactly that reading once, on ``Ruins -> Banana 27``.
+#: "Never"): since Story 4.13 the places are junctions with the transit
+#: between them dropped, so ``A -> B`` means the players were in A and later
+#: in B, not that A touches B. The product owner corrected exactly that
+#: reading once, on ``Ruins -> Banana 27``.
 #:
 #: **It never begins a row.** A row is a Markdown list item and starts with
 #: its marker; the arrow only ever joins moments a group passed through
@@ -577,6 +578,38 @@ ROUTE_ARROW = "->"
 #: at all: CommonMark read them as lazy paragraph continuations and threw
 #: the indentation away. See :func:`_route_rows`.
 ROUTE_INDENT = "  "
+
+#: The flag on a route step whose game area holds several of the product
+#: owner's callouts (``outside (karkea)``): the name is his, but coarser than
+#: he would say it, until coordinates split the area (Story 4.13).
+#:
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+ROUTE_COARSE_MARK = " (karkea)"
+
+#: The flag on a route step named by the **game** and not by him: the
+#: callout table gives the place no callout, or does not list the area
+#: (``Crane (pelin nimi)``). It is printed so he can see what the table is
+#: missing -- the spec's words, *"flag so he can see what is missing"*.
+#:
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+ROUTE_NO_CALLOUT_MARK = " (pelin nimi)"
+
+#: The flag on a route step whose callout is **not certain**: the table
+#: infers it, or he offered it as a guess, or a merged callout has such an
+#: area among its sources (Story 4.13 review, the coordinator's rule of
+#: 2026-09-26). An unmarked callout is his own word or the guide's callout
+#: that is the game area's own name, and nothing else.
+#:
+#: **Not :data:`ESTIMATE_MARK`'s word** (the coordinator's decision,
+#: 2026-09-26): "(arvio)" already follows an explosion area whose place is
+#: derived, and one word with two meanings in one report is one too many.
+#: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
+ROUTE_INFERRED_MARK = " (päätelty)"
+
+#: Between the two places of a back-and-forth, as one step
+#: (``outside ⇄ main``). The product owner approved the form on 2026-09-26,
+#: asking for the returns to be compressed the way they were shown to him.
+ROUTE_RETURN = "⇄"
 
 #: The record the reading guide shows as its example, as a record and not as
 #: text: the guide's sentence runs it through :func:`record_text`, the same
@@ -1242,6 +1275,21 @@ class _Flags:
     #: Raised in :func:`build_view` and not through :meth:`absorb`, because
     #: the routes are not a row pruning can remove.
     routes_shown: bool = False
+    #: A route row printed :data:`ROUTE_COARSE_MARK` (Story 4.13). The guide
+    #: then says what it means; flagged for :attr:`unindexed_demo`'s reason.
+    #: Raised by the label itself, so it tracks what is printed.
+    route_coarse: bool = False
+    #: A route row printed :data:`ROUTE_NO_CALLOUT_MARK`. The same rationale.
+    route_no_callout: bool = False
+    #: A route row printed :data:`ROUTE_INFERRED_MARK`. The same rationale.
+    route_inferred: bool = False
+    #: A route row printed :data:`ROUTE_RETURN`. The same rationale.
+    route_return: bool = False
+    #: The maps whose routes are in the game's names because the callout
+    #: table has no section for them -- the spec's *"flagged once for the
+    #: map"*: their steps carry no mark, and the guide names the maps once.
+    #: Raised in :func:`build_view`, beside :attr:`routes_shown`.
+    route_no_table: list[str] = field(default_factory=list)
 
     def absorb(self, other: "_Flags", *, keep: bool) -> None:
         """Merge one row's flags into the whole report's bookkeeping.
@@ -2883,14 +2931,18 @@ def _route_step_text(step: RouteStep, flags: _Flags) -> str:
     apart:
 
     ``seen``
-        ``4 Control`` -- this many players were observed there. An area the
-        game gave no name to reads :data:`UNKNOWN_AREA`, exactly as every
-        other area row in the report does: it is an **observed position the
-        map does not name**, not a player who went missing.
+        ``4 radio`` -- this many players were observed there. The name is the
+        product owner's callout (Story 4.13), with :data:`ROUTE_COARSE_MARK`
+        or :data:`ROUTE_NO_CALLOUT_MARK` where it is not quite or not at all
+        his word. An area the game gave no name to reads
+        :data:`UNKNOWN_AREA`, exactly as every other area row in the report
+        does: it is an **observed position the map does not name**, not a
+        player who went missing.
     ``died``
-        ``1 kuoli Mini (27 s)`` -- the place and the moment, both from
-        ``deaths.parquet``. The moment is the death's own and not the sample
-        point's, which is why the seconds are worth printing at all.
+        ``1 kuoli main (27 s)`` -- the place and the moment, both from
+        ``deaths.parquet``, the place translated and flagged like any
+        other. The moment is the death's own and not the sample point's,
+        which is why the seconds are worth printing at all.
 
         **Whole seconds**, as the approved form writes them, and **rounded
         and not truncated**: the archive's own values are ``t_s`` to four
@@ -2932,12 +2984,40 @@ def _route_step_label(step: RouteStep, flags: _Flags) -> str:
         return ROUTE_GONE
     if step.area is None:
         flags.unknown_area = True
-    if step.fate == "died":
-        return (
-            f"{ROUTE_DIED} {_area(step.area)} "
-            f"({_seconds(round(step.seconds))} s)"
+    place = _route_place_text(step.area, step.flag, flags)
+    if step.alternates_with is not None:
+        flags.route_return = True
+        place += f" {ROUTE_RETURN} " + _route_place_text(
+            step.alternates_with, step.alternates_flag, flags
         )
-    return _area(step.area)
+    if step.fate == "died":
+        return f"{ROUTE_DIED} {place} ({_seconds(round(step.seconds))} s)"
+    return place
+
+
+def _route_place_text(
+    area: str | None, flag: RouteFlag | None, flags: _Flags
+) -> str:
+    """One place of a route with its mark, raising the mark's guide flag.
+
+    ``coarse`` and ``inferred`` together print as one bracket holding
+    :data:`ROUTE_COARSE_MARK`'s word and :data:`ROUTE_INFERRED_MARK`'s, so
+    the reader meets the two words the guide explains and not a new third
+    one. ``no_table`` prints no mark: the map
+    is named once in the guide instead (:attr:`_Flags.route_no_table`).
+    """
+    marks: list[str] = []
+    if flag in ("coarse", "coarse_inferred"):
+        flags.route_coarse = True
+        marks.append(ROUTE_COARSE_MARK.strip(" ()"))
+    if flag in ("inferred", "coarse_inferred"):
+        flags.route_inferred = True
+        marks.append(ROUTE_INFERRED_MARK.strip(" ()"))
+    if flag == "no_callout":
+        flags.route_no_callout = True
+        marks.append(ROUTE_NO_CALLOUT_MARK.strip(" ()"))
+    text = _area(area)
+    return f"{text} ({', '.join(marks)})" if marks else text
 
 
 def _route_parts(
@@ -2951,7 +3031,7 @@ def _route_parts(
     written twice or two. Merged, it is ``2 kuoli Mini (26 s)``, which is
     what the same two deaths at an identical moment have always produced --
     ``aggregate`` groups those into one step (:func:`~pappascout.domain
-    .aggregate._route_steps`), and until this merge existed the rendering
+    .aggregate._route_tree`), and until this merge existed the rendering
     disagreed with itself either side of a rounding boundary.
 
     **The merge is here and not in ``domain``**, and that boundary is the
@@ -2996,17 +3076,22 @@ def _route_chain(
 
     So the three shapes, and there are only three:
 
-    * **A group that stays together grows the row.** One part -> its text
+    * **A group that stays together grows the row.** One part -> its name
       joins the chain with an arrow and the walk goes on into that part.
       This holds whatever that part's fate is: a single death ends the row
-      it is on (``1 Mini -> 1 kuoli Mini (36 s)``), and a single ``gone``
-      that the sample finds again carries on through it.
+      it is on (``1 main -> kuoli main (36 s)``).
     * **A division that goes no further is read inline**, on the row it
-      divided on: ``4 Control -> 2 Ramp, 1 Heaven, 1 Hell``. "No further"
-      means not one part carries a step after this moment.
+      divided on: ``4 radio -> ramp -> 2 hell, 1 heaven, 1 admin``. "No
+      further" means not one part carries a step after this one.
     * **A division whose parts move on ends the row at the division point**,
       and every part gets a row of its own one level in. **No part is
       spliced onto the parent's row.**
+
+    **The count is written once per row**, at its head: a group that stays
+    together does not change size, so ``4 outside -> 4 lobby`` said the same
+    number twice. The product owner chose that compressed form on 2026-09-26
+    (Story 4.13, form B). The parts of an inline division keep theirs,
+    because there the number is what differs.
 
     **The splice is what this function used to do, and it put the seconds
     backwards on the page.** The first part's chain was joined to the shared
@@ -3026,7 +3111,11 @@ def _route_chain(
     segments: list[str] = []
     while steps:
         if len(steps) == 1:
-            segments.append(_route_step_text(steps[0], flags))
+            segments.append(
+                _route_step_label(steps[0], flags)
+                if segments
+                else _route_step_text(steps[0], flags)
+            )
             steps = steps[0].steps
             continue
         parts = _route_parts(steps, flags)
@@ -3050,9 +3139,12 @@ def _route_chain(
 def _route_rows(route: RoundRoute, flags: _Flags) -> tuple[str, ...]:
     """One round's route as the lines the template sets.
 
-    The first moment is a bullet of its own for every starting group -- the
-    product owner's shape, and the reason is that a side does not always
-    leave from one place. Measured 2026-09-25 on the rendered archive: all
+    Every starting group is a bullet of its own -- the product owner's shape,
+    and the reason is that a side does not always leave from one place. **A
+    start that stays together carries its chain on the same row** since
+    Story 4.13 (``- 4 outside -> lobby -> radio -> ramp``, his form B);
+    before it, the start was a row of its own and the chain began one level
+    in. Measured 2026-09-25 on the rendered archive: all
     three of ``de_dust2`` CT pistol's rounds start from **four** places,
     against two on ``de_nuke`` T pistol, because a defence spreads to hold
     positions and does not travel as a body. The block is therefore several
@@ -3062,9 +3154,8 @@ def _route_rows(route: RoundRoute, flags: _Flags) -> tuple[str, ...]:
     ``tests/data/pistol_routes.json``, so the claim fails there if it stops
     being true.
 
-    Everything after the first moment is a chain under its start
-    (:func:`_route_chain`), and every row is a **real Markdown list item**
-    nested under the row above it.
+    Each start is followed as a chain (:func:`_route_chain`), and every row
+    is a **real Markdown list item** nested under the row above it.
 
     **That is a correction and the reason is measured.** The rows used to
     open with ``-> ``, which is not a list marker, so in a Markdown preview
@@ -3084,10 +3175,25 @@ def _route_rows(route: RoundRoute, flags: _Flags) -> tuple[str, ...]:
     """
     rows: list[str] = []
     for start in route.steps:
-        rows.append(f"{ROUTE_INDENT}- {_route_step_text(start, flags)}")
-        for depth, text in _route_chain(start.steps, 0, flags):
-            rows.append(f"{ROUTE_INDENT * (depth + 2)}- {text}")
+        for depth, text in _route_chain([start], 0, flags):
+            rows.append(f"{ROUTE_INDENT * (depth + 1)}- {text}")
     return tuple(rows)
+
+
+def _route_is_untranslated(routes: Sequence[RoundRoute]) -> bool:
+    """Whether a block's routes are in the game's names for want of a table.
+
+    ``aggregate`` flags every step of such a map ``no_table``, so one step
+    decides it; the walk looks for the first rather than trusting the first
+    route to have a step.
+    """
+    pending = [step for route in routes for step in route.steps]
+    while pending:
+        step = pending.pop()
+        if step.flag == "no_table":
+            return True
+        pending.extend(step.steps)
+    return False
 
 
 def _route_heading(route: RoundRoute, played: PlayedMap | None) -> str:
@@ -4860,6 +4966,11 @@ def build_view(
                 # nothing in the report shows. See ``_Flags.routes_shown``.
                 if any(view.rows for view in views[-1].routes):
                     flags.routes_shown = True
+                    if (
+                        _route_is_untranslated(entry.routes)
+                        and map_report.map_name not in flags.route_no_table
+                    ):
+                        flags.route_no_table.append(map_report.map_name)
             sides.append(
                 SideView(
                     side=side.side,
@@ -5257,10 +5368,11 @@ def _legend(
     # about an indentation nothing in the report shows.
     #
     # It says four things, and the last three are the ones the block cannot
-    # say for itself. The arrow is **not** adjacency -- these are positions
-    # more than ten seconds apart, and the product owner corrected exactly
-    # that reading once. A death is stated only from the death table. A
-    # player the sample lost is NOT a death.
+    # say for itself. The arrow is **not** adjacency -- since Story 4.13 the
+    # places are junctions with the transit between them dropped, and the
+    # product owner corrected exactly that reading once. A death is stated
+    # only from the death table. A player the sample lost is NOT a death.
+    # And the places are callouts, which the rest of the report is not.
     #
     # AND A ROW THAT SIMPLY ENDS DOES NOT MEAN THE ROUND ENDED. It means the
     # sampling has no later moment for those players, and measured over the
@@ -5279,25 +5391,33 @@ def _legend(
         notes.append(
             "Pistoolilohkon rivit kertovat reitin: yksi lihavoitu rivi per "
             "kierros, ja sen alla lista, jossa on yksi kohta jokaisesta "
-            f"paikasta, josta lähdettiin. Nuoli ({ROUTE_ARROW}) vie "
-            "näytepisteestä seuraavaan saman rivin sisällä, ja luku sen "
-            "edessä on pelaajien määrä. **Nuoli ei tarkoita, että alueet "
-            "olisivat vierekkäin**: näytepisteiden väli on useita "
-            f"sekunteja, joten \"A {ROUTE_ARROW} B\" tarkoittaa että "
-            "pelaajat olivat ensin A:ssa ja sitten B:ssä -- väliin jäänyttä "
-            "reittiä otanta ei näe."
+            "paikasta, josta lähdettiin. Reitti luetaan kaikista "
+            "näytepisteistä, mutta rivillä on vain lähtöpaikka, risteykset, "
+            "paikat joille ei ole calloutia, ja viimeinen havainto: "
+            "läpikulkupaikat jätetään pois, jottei yhden pelaajan kulkema "
+            "välihuone jakaisi ryhmää. Paikka, jolle ei ole calloutia, "
+            "pidetään rivillä, jotta puuttuva nimi näkyy -- ja siksi se voi "
+            "jakaa ryhmän. Paikat ovat calloutteja eivätkä pelin aluenimiä, "
+            "toisin kuin muualla raportissa; merkitsemätön paikka on varma "
+            "callout. "
+            f"Nuoli ({ROUTE_ARROW}) vie paikasta seuraavaan saman "
+            "rivin sisällä, ja rivin alussa oleva luku on pelaajien määrä. "
+            "**Nuoli ei tarkoita, että paikat olisivat vierekkäin**: "
+            f"\"A {ROUTE_ARROW} B\" tarkoittaa, että pelaajat olivat ensin "
+            "A:ssa ja myöhemmin B:ssä."
         )
         notes.append(
             "**Jakautuminen on listan sisennys, ei nuoli.** Yhdessä pysyvä "
             "ryhmä jatkaa samaa riviä; siellä missä ryhmä jakautuu, rivi "
             "päättyy siihen kohtaan ja jokainen osa saa oman rivinsä yhtä "
             "tasoa sisempänä. Yhteistä alkuosaa ei toisteta. Saman tason "
-            "rivit ovat siis **toistensa vaihtoehtoja** -- eri pelaajia, "
-            "samaan aikaan -- eivätkä peräkkäisiä tapahtumia, ja siksi "
-            "niiden sekunnit eivät ole kasvavassa järjestyksessä. "
-            "Jakautuminen, joka ei enää jatku, luetaan samalta riviltä "
-            "pilkuilla eroteltuna. Kierrokset ovat uusin ottelu ensin, "
-            "samassa järjestyksessä kuin kartan karttalista."
+            "rivit ovat siis **toistensa vaihtoehtoja** -- eri pelaajia "
+            "-- eivätkä peräkkäisiä tapahtumia, ja siksi niiden sekunnit "
+            "eivät ole kasvavassa järjestyksessä. Jos osa ryhmästä jää "
+            "paikkaan, josta muut jatkavat, jääneet ovat oma osansa saman "
+            "paikan nimellä. Jakautuminen, joka ei enää jatku, luetaan "
+            "samalta riviltä pilkuilla eroteltuna. Kierrokset ovat uusin "
+            "ottelu ensin, samassa järjestyksessä kuin kartan karttalista."
         )
         notes.append(
             f'"{ROUTE_DIED}" reitillä on **mitattu kuolema**: paikka ja '
@@ -5318,6 +5438,38 @@ def _legend(
             "näytepisteeseen, kirjaavat kuoleman vielä sen jälkeen. Rivin "
             "viimeinen kohta on siis viimeinen havainto eikä kierroksen "
             "loppu, eikä rivi väitä mitään sen jälkeisestä ajasta."
+        )
+    # THE CALLOUT FLAGS (Story 4.13), each only where it is printed, for the
+    # route paragraphs' reason. The wording awaits the product owner's word.
+    if flags.route_coarse:
+        notes.append(
+            f"({ROUTE_COARSE_MARK.strip(' ()')}) reitin paikan perässä: "
+            "pelin alue kattaa useamman callout-paikan, joten rivi käyttää "
+            "karkeampaa nimeä. Tarkempi paikka vaatii koordinaatit."
+        )
+    if flags.route_inferred:
+        notes.append(
+            f"({ROUTE_INFERRED_MARK.strip(' ()')}) reitin paikan perässä: "
+            "callout on päätelty tai arvaus eikä vielä vahvistettu nimi."
+        )
+    if flags.route_return:
+        notes.append(
+            f"A {ROUTE_RETURN} B reitillä: pelaajat kulkivat edestakaisin "
+            "kahden paikan välillä, ja edestakainen kulku on yksi kohta. "
+            "Ensimmäinen käynti on oma kohtansa ennen sitä, ja parin "
+            "ensimmäinen paikka on se, johon mentiin ensin."
+        )
+    if flags.route_no_callout:
+        notes.append(
+            f"({ROUTE_NO_CALLOUT_MARK.strip(' ()')}) reitin paikan perässä: "
+            "paikalle ei ole calloutia, joten rivi käyttää pelin aluenimeä."
+        )
+    if flags.route_no_table:
+        maps = ", ".join(_identifier(name) for name in flags.route_no_table)
+        notes.append(
+            "Näiden karttojen reiteillä ei ole callout-taulua, joten niiden "
+            "paikat ovat pelin aluenimiä eikä mitään paikkaa ole jätetty pois "
+            f"läpikulkuna: {maps}."
         )
     notes.extend(_anomaly_legend(report))
     if flags.unknown_area:
@@ -5507,6 +5659,11 @@ def _anomaly_legend(report: Report) -> list[str]:
     crunch_sources = _threshold_int(report, "crunch_min_sources")
     crunch_lookback = _threshold_float(report, "crunch_lookback_s")
 
+    # "EI KARTTATIETOKANTAA" STAYS TRUE HERE AFTER STORY 4.13 (AD-13's
+    # traceability clause, considered and not skipped): the callout table
+    # feeds only the pistol route's names and junctions. This share and the
+    # stack's site groups below are still derived from the demo alone, so
+    # the sentence is true of the numbers it stands beside.
     orientation = (
         f"Luvun {ANOMALY_HEADING} T-osuus on **demon oma havainto** siitä, "
         "kumman puolen aluetta alue on: se on alueen elossa-havainnoista "
@@ -5604,6 +5761,9 @@ def _stack_legend(report: Report) -> list[str]:
     areas = _threshold_int(report, "stack_max_areas")
     moment = _threshold_float(report, "stack_sample_s")
 
+    # The same sentence, true for the same reason: the site groups are
+    # derived from the demo's point cloud, and the callout table does not
+    # reach them.
     rule = (
         f"**{ANOMALY_RULE_FI['stack']}**: subjektin puolustus kasautuneena "
         "saman alueryhmän alueille. Alueryhmä on **johdettu tästä demosta**: "

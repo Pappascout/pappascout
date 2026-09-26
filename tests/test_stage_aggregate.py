@@ -626,7 +626,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # A literal and not the constant: comparing against the constant would be
     # a tautology -- the code wrote the value from that very constant. When the
     # version rises, this line MUST fail, so that the rise is deliberate.
-    assert data["schema_version"] == "15.0.0"
+    assert data["schema_version"] == "16.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -716,7 +716,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "15.0.0"
+    assert read_report(archive).schema_version == "16.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -3276,19 +3276,47 @@ def test_a_name_that_is_not_a_string_is_printed_as_it_stands(
     assert _facts(archive)[_M1].opponent == "123"
 
 
-def test_the_route_points_change_the_params_hash(tmp_path: Path) -> None:
-    """Story 4.5: the pistol routes read ``[aggregate].route_sample_seconds``,
-    which changes ``report.json``, so the stage must run again when it moves.
-    It is this stage's own section and hashed whole (AD-3), so nothing from
-    ``[report]`` is in the hash."""
+def test_the_callout_table_changes_the_params_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Story 4.13, AD-13: the callout table is an input to the parameter hash,
+    so editing a callout or a junction runs the stage again -- and reading
+    the same table again does not. Mutated through the stage's own name for
+    the loader, because the stage reads the file shipped with the code."""
     archive = build_archive(tmp_path, {"Nuke_vs_a": TEAM})
     run(archive)
-    before = Manifest.read(archive.report_manifest(TEAM)).params_hash
-    aggregate_stage.run(
-        thresholds(),
-        _league(),
-        archive,
-        TEAM,
-        aggregate_settings=aggregate_settings(route_sample_seconds=[6.0, 15.0]),
+    first = Manifest.read(archive.report_manifest(TEAM)).params_hash
+    run(archive)
+    assert Manifest.read(archive.report_manifest(TEAM)).params_hash == first
+
+    real = aggregate_stage.load_callouts
+
+    def edit(**update):
+        def edited(map_pool: list[str]):
+            table = real(map_pool)
+            lobby = table["de_nuke"]["Lobby"]
+            table["de_nuke"]["Lobby"] = lobby.model_copy(update=update)
+            return table
+
+        return edited
+
+    # Provenance changes no route, so it does not re-run the stage.
+    monkeypatch.setattr(
+        aggregate_stage, "load_callouts", edit(note="an edited note", neighbours=9)
     )
-    assert Manifest.read(archive.report_manifest(TEAM)).params_hash != before
+    assert run(archive).skipped
+    assert Manifest.read(archive.report_manifest(TEAM)).params_hash == first
+
+    # Each of the four fields that change a route does.
+    for update in (
+        {"callout": "aula"},
+        {"junction": False, "junction_source": None},
+        {"coarse": True},
+        {"confidence": "inferred"},
+    ):
+        monkeypatch.setattr(aggregate_stage, "load_callouts", edit(**update))
+        assert not run(archive).skipped, update
+        edited_hash = Manifest.read(archive.report_manifest(TEAM)).params_hash
+        assert edited_hash != first, update
+        monkeypatch.setattr(aggregate_stage, "load_callouts", real)
+        run(archive)

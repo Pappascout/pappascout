@@ -37,6 +37,9 @@ from pappascout.constants import (
     UTILITY_BUCKET_UNKNOWN,
     seconds_label,
 )
+from conftest import REAL_SETTINGS
+from pappascout.domain.aggregate import routes_for
+from pappascout.domain.models import load_callouts, load_settings
 from pappascout.domain.report import (
     Anomaly,
     AnomalyPoint,
@@ -65,6 +68,7 @@ from pappascout.domain.report import (
     RoundRecord,
     RoundRoute,
     RoundTypeReport,
+    RouteFlag,
     RouteStep,
     Sample,
     SampleBucket,
@@ -8286,25 +8290,38 @@ def seen(
     players: int,
     seconds: float,
     steps: list[RouteStep] | None = None,
+    *,
+    flag: RouteFlag | None = None,
 ) -> RouteStep:
     """A group observed alive somewhere."""
     return RouteStep(
         fate="seen",
         seconds=seconds,
         area=area,
+        flag=flag,
         players=players,
         steps=steps or [],
     )
 
 
-def killed(area: str | None, seconds: float, players: int = 1) -> RouteStep:
+def killed(
+    area: str | None,
+    seconds: float,
+    players: int = 1,
+    *,
+    flag: RouteFlag | None = None,
+) -> RouteStep:
     """A group a death record places."""
-    return RouteStep(fate="died", seconds=seconds, area=area, players=players)
+    return RouteStep(
+        fate="died", seconds=seconds, area=area, flag=flag, players=players
+    )
 
 
 def lost(seconds: float, players: int = 1) -> RouteStep:
     """A group the sample lost, with nothing to account for it."""
-    return RouteStep(fate="gone", seconds=seconds, area=None, players=players)
+    return RouteStep(
+        fate="gone", seconds=seconds, area=None, flag=None, players=players
+    )
 
 
 def one_route(
@@ -8367,12 +8384,11 @@ def test_a_group_that_stays_together_writes_the_shared_stretch_once() -> None:
         )
     )
     assert route_rows(text)[1:] == [
-        "  - 4 Outside",
-        "    - 4 Control",
-        "      - 2 Ramp -> 2 Ramp",
-        "      - 2 Hell -> 2 Hell",
+        "  - 4 Outside -> Control",
+        "    - 2 Ramp -> Ramp",
+        "    - 2 Hell -> Hell",
     ]
-    assert text.count("4 Control") == 1, text
+    assert text.count("-> Control") == 1, text
 
 
 def test_a_terminal_division_is_read_on_one_line() -> None:
@@ -8396,8 +8412,7 @@ def test_a_terminal_division_is_read_on_one_line() -> None:
         )
     )
     assert route_rows(text)[1:] == [
-        "  - 4 Outside",
-        "    - 4 Control -> 2 Ramp, 1 Heaven, 1 Hell",
+        "  - 4 Outside -> Control -> 2 Ramp, 1 Heaven, 1 Hell",
     ]
 
 
@@ -8434,14 +8449,12 @@ def test_a_division_that_keeps_moving_is_nested_under_the_point_it_split_at(
         )
     )
     assert route_rows(text)[1:] == [
-        "  - 4 OutsideTunnel",
-        "    - 4 UpperTunnel",
-        "      - 1 UpperTunnel -> 1 UpperTunnel",
-        "      - 1 LowerTunnel -> 1 Catwalk",
-        "      - 1 Middle -> 1 LowerTunnel",
-        "      - 1 MidDoors -> 1 kuoli MidDoors (37 s)",
-        "  - 1 OutsideLong",
-        "    - 1 TopofMid -> 1 OutsideLong -> 1 OutsideLong",
+        "  - 4 OutsideTunnel -> UpperTunnel",
+        "    - 1 UpperTunnel -> UpperTunnel",
+        "    - 1 LowerTunnel -> Catwalk",
+        "    - 1 Middle -> LowerTunnel",
+        "    - 1 MidDoors -> kuoli MidDoors (37 s)",
+        "  - 1 OutsideLong -> TopofMid -> OutsideLong -> OutsideLong",
     ]
 
 
@@ -8478,10 +8491,10 @@ def test_the_parts_of_one_division_are_siblings_and_not_a_sequence(
     assert rows == [
         "  - 4 Outside",
         "    - 2 Outside",
-        "      - 1 Mini -> 1 Mini",
+        "      - 1 Mini -> Mini",
         "      - 1 kuoli Mini (27 s)",
-        "    - 1 Vending -> 1 Lobby -> 1 Lobby",
-        "    - 1 Lobby -> 1 Hut -> 1 Hut",
+        "    - 1 Vending -> Lobby -> Lobby",
+        "    - 1 Lobby -> Hut -> Hut",
     ]
     # The two parts of the 30 s division are SIBLINGS, at one indent, and
     # neither is spliced onto the row that carried the shared stretch.
@@ -8498,8 +8511,7 @@ def test_a_death_states_its_place_and_its_own_moment() -> None:
     text = render(
         route_report([seen("Outside", 1, 6.0, [killed("Mini", 27.0)])])
     )
-    assert "  - 1 Outside" in text
-    assert "    - 1 kuoli Mini (27 s)" in text
+    assert "  - 1 Outside -> kuoli Mini (27 s)" in text
 
 
 def test_a_player_the_sample_lost_is_not_written_as_a_death() -> None:
@@ -8516,7 +8528,7 @@ def test_a_player_the_sample_lost_is_not_written_as_a_death() -> None:
     """
     text = render(route_report([seen("Outside", 1, 6.0, [lost(15.0)])]))
     rows = block(text, "Pistooli")
-    assert "    - 1 poistui otannasta" in rows
+    assert "  - 1 Outside -> poistui otannasta" in rows
     assert ROUTE_DIED not in rows
 
 
@@ -8660,7 +8672,7 @@ def test_the_reading_guide_says_the_arrow_is_not_adjacency() -> None:
     goes through an area the sampling never saw.
     """
     guide = render(route_report([seen("Outside", 1, 6.0)])).split("## Lukuohje")[1]
-    assert "ei tarkoita, että alueet olisivat vierekkäin" in guide
+    assert "ei tarkoita, että paikat olisivat vierekkäin" in guide
 
 
 def test_the_reading_guide_denies_that_a_rows_end_is_the_rounds_end() -> None:
@@ -8826,14 +8838,14 @@ def test_a_player_the_sample_lost_and_finds_again_keeps_their_route() -> None:
                     fate="gone",
                     seconds=6.0,
                     area=None,
+                    flag=None,
                     players=1,
                     steps=[seen("Lobby", 1, 15.0, [seen("Hut", 1, 30.0)])],
                 ),
             ]
         )
     )
-    assert "  - 1 poistui otannasta" in text
-    assert "    - 1 Lobby -> 1 Hut" in text
+    assert "  - 1 poistui otannasta -> Lobby -> Hut" in text
 
 
 # --- The form pass (Story 4.11, review round 2) ---------------------------------
@@ -8915,9 +8927,9 @@ def test_no_part_of_a_division_is_spliced_onto_the_row_above_it() -> None:
     )
     assert route_rows(text)[1:] == [
         "  - 4 Outside",
-        "    - 2 Lobby -> 2 Hut",
-        "    - 1 Vending -> 1 Mini",
-        "    - 1 Ramp -> 1 Heaven",
+        "    - 2 Lobby -> Hut",
+        "    - 1 Vending -> Mini",
+        "    - 1 Ramp -> Heaven",
     ]
 
 
@@ -8943,8 +8955,7 @@ def test_two_deaths_that_print_alike_are_written_once_with_their_count() -> None
         )
     )
     assert route_rows(text)[1:] == [
-        "  - 3 Outside",
-        "    - 2 kuoli Mini (26 s), 1 kuoli Lobby (19 s)",
+        "  - 3 Outside -> 2 kuoli Mini (26 s), 1 kuoli Lobby (19 s)",
     ]
 
 
@@ -8966,8 +8977,7 @@ def test_deaths_a_second_apart_stay_two_parts() -> None:
         )
     )
     assert route_rows(text)[1:] == [
-        "  - 2 Outside",
-        "    - 1 kuoli Mini (26 s), 1 kuoli Mini (28 s)",
+        "  - 2 Outside -> 1 kuoli Mini (26 s), 1 kuoli Mini (28 s)",
     ]
 
 
@@ -8984,11 +8994,13 @@ def test_parts_that_print_alike_but_carry_branches_stay_apart() -> None:
             [
                 seen("Outside", 2, 6.0, [
                     RouteStep(
-                        fate="gone", seconds=15.0, area=None, players=1,
+                        fate="gone", seconds=15.0, area=None, flag=None,
+                        players=1,
                         steps=[seen("Lobby", 1, 30.0)],
                     ),
                     RouteStep(
-                        fate="gone", seconds=15.0, area=None, players=1,
+                        fate="gone", seconds=15.0, area=None, flag=None,
+                        players=1,
                         steps=[seen("Ramp", 1, 30.0)],
                     ),
                 ]),
@@ -8997,8 +9009,8 @@ def test_parts_that_print_alike_but_carry_branches_stay_apart() -> None:
     )
     assert route_rows(text)[1:] == [
         "  - 2 Outside",
-        "    - 1 poistui otannasta -> 1 Lobby",
-        "    - 1 poistui otannasta -> 1 Ramp",
+        "    - 1 poistui otannasta -> Lobby",
+        "    - 1 poistui otannasta -> Ramp",
     ]
 
 
@@ -9114,6 +9126,203 @@ def test_a_crunch_round_entered_twice_says_it_was_not_simultaneous() -> None:
     )
     assert "2 pelaajaa, yhtä aikaa suunnista Arch ja TopofMid" in text
     assert "eri hetkinä" not in text
+
+
+# --- The route in his callouts (Story 4.13) -----------------------------------
+
+
+def test_the_count_is_written_once_at_the_head_of_a_row() -> None:
+    """Form B, which the product owner chose on 2026-09-26: a group that stays
+    together does not change size, so the count is the row's and not every
+    step's. The parts of a division keep theirs, because there the number is
+    what differs."""
+    text = render(
+        route_report(
+            [
+                seen("outside", 4, 6.0, [
+                    seen("lobby", 4, 9.0, [
+                        seen("radio", 4, 12.0, [
+                            seen("ramp", 4, 18.0, [
+                                seen("hell", 2, 21.0),
+                                seen("admin", 2, 21.0),
+                            ]),
+                        ]),
+                    ]),
+                ], flag="coarse"),
+            ]
+        )
+    )
+    assert route_rows(text)[1:] == [
+        "  - 4 outside (karkea) -> lobby -> radio -> ramp -> 2 hell, 2 admin",
+    ]
+
+
+def test_a_coarse_place_is_marked_and_the_guide_explains_the_mark() -> None:
+    text = render(route_report([seen("outside", 1, 6.0, flag="coarse")]))
+    assert "  - 1 outside (karkea)" in route_rows(text)
+    guide = text.split("## Lukuohje")[1]
+    assert "(karkea) reitin paikan perässä" in guide
+    assert "(pelin nimi) reitin paikan perässä" not in guide
+
+
+def test_a_game_name_is_marked_and_the_guide_explains_the_mark() -> None:
+    text = render(route_report([seen("Crane", 1, 6.0, flag="no_callout")]))
+    assert "  - 1 Crane (pelin nimi)" in route_rows(text)
+    guide = text.split("## Lukuohje")[1]
+    assert "(pelin nimi) reitin paikan perässä" in guide
+    assert "(karkea) reitin paikan perässä" not in guide
+
+
+def test_a_death_in_a_flagged_place_carries_the_mark_before_its_second() -> None:
+    text = render(
+        route_report(
+            [seen("lobby", 1, 6.0, [killed("outside", 27.0, flag="coarse")])]
+        )
+    )
+    assert "  - 1 lobby -> kuoli outside (karkea) (27 s)" in route_rows(text)
+
+
+def test_a_map_without_a_table_is_named_once_and_its_steps_are_unmarked() -> None:
+    """The spec's matrix: *"game names throughout, flagged once for the
+    map"* -- no mark on the steps, one sentence naming the map."""
+    text = render(
+        route_report(
+            [seen("Lobby", 2, 6.0, [seen("Vending", 2, 9.0, flag="no_table")],
+                  flag="no_table")]
+        )
+    )
+    assert route_rows(text)[1:] == ["  - 2 Lobby -> Vending"]
+    guide = text.split("## Lukuohje")[1]
+    assert "ei ole callout-taulua" in guide
+    assert "`de_nuke`" in guide.split("ei ole callout-taulua")[1]
+
+
+def test_no_callout_note_is_printed_for_a_translated_route() -> None:
+    """Each flag's paragraph only where its mark is printed."""
+    guide = render(route_report([seen("lobby", 1, 6.0)])).split("## Lukuohje")[1]
+    assert "callout-taulua" not in guide
+    assert "(karkea)" not in guide
+    assert "(pelin nimi)" not in guide
+
+
+def test_the_reading_guide_says_the_route_keeps_only_the_junctions() -> None:
+    """The steps are not sample points any more, and the guide must stop
+    saying they are: the route reads every point and keeps the start, the
+    junctions and the last observation, in callouts."""
+    guide = render(route_report([seen("lobby", 1, 6.0)])).split("## Lukuohje")[1]
+    assert "läpikulkupaikat jätetään pois" in guide
+    assert "calloutteja eivätkä pelin aluenimiä" in guide
+    assert "näytepisteestä seuraavaan" not in guide
+
+
+def test_the_nuke_pistol_the_product_owner_saw_reads_through_his_junctions() -> None:
+    """Story 4.13's acceptance criterion, built through the **shipped** table
+    and the real ``aggregate`` -> ``render`` path rather than hand-built
+    steps: the archive's 2026-09-20 ``de_nuke`` T pistol, its players' dense
+    paths as the archive holds them (``tests/data/pistol_routes.json`` pins
+    the archive's own rendering; this is the same round in miniature). Four
+    run through Lobby and radio to Ramp before they divide, one of them via
+    his *trophy* without leaving the row, and the fifth is a branch of his
+    own.
+    """
+    table = load_callouts(
+        load_settings(REAL_SETTINGS, env_files=()).league.map_pool
+    )["de_nuke"]
+    grid = [6.0 + 3 * n for n in range(7)]
+    # Every player has a row at every moment, as ``parse`` writes them; a
+    # shorter path here would read as a player the sample lost.
+    paths = {
+        "p1": ["TSpawn", "Outside", "Outside", "Outside", "Outside", "Outside",
+               "Outside"],
+        "p2": ["Outside", "Lobby", "Trophy", "Control", "Ramp", "Hell", "Hell"],
+        "p3": ["Outside", "Lobby", "Trophy", "Control", "Ramp", "Admin", "Hell"],
+        "p4": ["Outside", "Lobby", "Trophy", "Control", "Ramp", "Heaven",
+               "Heaven"],
+        "p5": ["Outside", "Lobby", "Vending", "Control", "Ramp", "Hell", "Hell"],
+    }
+    ticks = [
+        {
+            "map_demo_id": DEMO_ID,
+            "round_no": 1,
+            "player_id": player,
+            "sample_kind": "time",
+            "sample_t_s": grid[index],
+            "area": area,
+            "is_alive": True,
+        }
+        for player, areas in paths.items()
+        for index, area in enumerate(areas)
+    ]
+    routes = routes_for(
+        [{"map_demo_id": DEMO_ID, "round_no": 1, "won": True}],
+        ticks,
+        [],
+        ["team"],
+        {DEMO_ID: 0},
+        table,
+    )
+    text = render(route_report(routes[0].steps))
+    assert route_rows(text)[1:] == [
+        "  - 4 outside (karkea) -> lobby -> radio -> ramp -> 3 hell, 1 heaven",
+        "  - 1 t spawn -> outside (karkea)",
+    ]
+
+
+def test_an_uncertain_callout_is_marked_and_explained() -> None:
+    """Story 4.13 review: an inferred or guessed callout does not print like
+    his word."""
+    text = render(route_report([seen("window", 1, 6.0, flag="inferred")]))
+    assert "  - 1 window (päätelty)" in route_rows(text)
+    guide = text.split("## Lukuohje")[1]
+    assert "(päätelty) reitin paikan perässä" in guide
+    assert "(arvio) reitin" not in guide
+
+
+def test_a_coarse_uncertain_place_prints_both_words_in_one_bracket() -> None:
+    text = render(route_report([seen("canal", 1, 6.0, flag="coarse_inferred")]))
+    assert "  - 1 canal (karkea, päätelty)" in route_rows(text)
+    guide = text.split("## Lukuohje")[1]
+    assert "(karkea) reitin paikan perässä" in guide
+    assert "(päätelty) reitin paikan perässä" in guide
+
+
+def test_a_back_and_forth_prints_both_places_with_their_marks() -> None:
+    step = RouteStep(
+        fate="seen", seconds=6.0, area="main", flag=None,
+        alternates_with="outside", alternates_flag="coarse", players=1,
+        steps=[seen("a site", 1, 20.0)],
+    )
+    text = render(route_report([step]))
+    assert route_rows(text)[1:] == ["  - 1 main ⇄ outside (karkea) -> a site"]
+    assert "edestakaisin" in text.split("## Lukuohje")[1]
+
+
+def test_the_no_table_note_names_each_map_once() -> None:
+    """Two blocks of one untranslated map, and a second map: each named
+    once, in the order the report meets them."""
+    def block_of(map_name: str, sides: list[str]):
+        return map_report(
+            map_name,
+            [
+                side(
+                    name,
+                    [round_type("pistol", 1, routes=one_route(
+                        [seen("Lobby", 1, 6.0, flag="no_table")]
+                    ))],
+                )
+                for name in sides
+            ],
+        )
+
+    text = render(report([
+        block_of("de_mirage", ["CT", "T"]), block_of("de_cache", ["T"])
+    ]))
+    guide = text.split("## Lukuohje")[1]
+    note = next(
+        line for line in guide.splitlines() if "ei ole callout-taulua" in line
+    )
+    assert note.count("`de_mirage`") == 1, note
+    assert note.count("`de_cache`") == 1, note
 
 
 # --- The match rule, and the advance as a habit (Story 4.5) --------------------

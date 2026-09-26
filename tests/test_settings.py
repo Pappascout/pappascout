@@ -24,6 +24,7 @@ from pappascout.archive.paths import (
 from pappascout.constants import is_sample_point, seconds_label
 from pappascout.domain.models import (
     AggregateSettings,
+    CalloutEntry,
     MAX_BUY_WINDOW_SECONDS,
     MAX_SNAPSHOT_SECONDS,
     REMOVED_SETTINGS,
@@ -36,6 +37,7 @@ from pappascout.domain.models import (
     ReportSettings,
     Settings,
     ThresholdSettings,
+    load_callouts,
     load_settings,
     secrets_env_path,
     settings_search_paths,
@@ -1207,12 +1209,8 @@ def test_moving_the_sample_points_under_the_crunch_is_refused(
     target = tmp_path / "muunnos.toml"
     target.write_text(
         replace_array(
-            replace_array(
-                settings_text(tmp_path / "arkisto"),
-                "snapshot_seconds",
-                "[15.0, 45.0]",
-            ),
-            "route_sample_seconds",
+            settings_text(tmp_path / "arkisto"),
+            "snapshot_seconds",
             "[15.0, 45.0]",
         ),
         encoding="utf-8",
@@ -1286,19 +1284,15 @@ def test_the_stack_sample_point_moves_with_the_sample_points(
     target.write_text(
         replace_array(
             replace_array(
-                replace_array(
-                    settings_text(
-                        tmp_path / "arkisto",
-                        **{"stack_sample_s = 15.0": "stack_sample_s = 20.0"},
-                    ),
-                    "snapshot_seconds",
-                    "[6.0, 20.0, 30.0, 45.0]",
+                settings_text(
+                    tmp_path / "arkisto",
+                    **{"stack_sample_s = 15.0": "stack_sample_s = 20.0"},
                 ),
-                "skip_sample_seconds",
-                "[]",
+                "snapshot_seconds",
+                "[6.0, 20.0, 30.0, 45.0]",
             ),
-            "route_sample_seconds",
-            "[6.0, 20.0, 30.0, 45.0]",
+            "skip_sample_seconds",
+            "[]",
         ),
         encoding="utf-8",
     )
@@ -2083,34 +2077,241 @@ def _with_arrays(tmp_path: Path, **arrays: str) -> Path:
     return target
 
 
-def test_the_route_points_must_be_the_printed_points(tmp_path: Path) -> None:
-    """A route through a point the report hides, refused naming all three
-    settings -- which one is wrong is the reader's decision."""
-    target = _with_arrays(tmp_path, route_sample_seconds="[6.0, 9.0, 15.0, 30.0, 45.0]")
-    with pytest.raises(SettingsError) as exc:
+def test_the_route_points_setting_is_gone_and_says_where(tmp_path: Path) -> None:
+    """Story 4.13 removed ``[aggregate].route_sample_seconds``: the route reads
+    every point now. An old file holding it is refused with the advice, not
+    with pydantic's bare "extra inputs" -- an archive shared by two machines
+    makes an old file the ordinary case."""
+    line = "utility_seconds_buckets = [5.0, 10.0, 20.0]"
+    text = settings_text(tmp_path / "arkisto")
+    assert line in text, "precondition: the anchor line is in [aggregate]"
+    text = text.replace(
+        line, line + "\nroute_sample_seconds = [6.0, 15.0, 30.0, 45.0]", 1
+    )
+    target = tmp_path / "vanha.toml"
+    target.write_text(text, encoding="utf-8")
+    with pytest.raises(SettingsError, match="Removed in Story 4.13") as exc:
         load_settings(target)
-    message = str(exc.value)
-    for name in (
-        "aggregate.route_sample_seconds",
-        "parse.snapshot_seconds",
-        "report.skip_sample_seconds",
-    ):
-        assert name in message
+    assert "callouts.toml" in str(exc.value)
 
 
-def test_the_route_points_are_compared_as_labels(tmp_path: Path) -> None:
-    """Story 2.13's rule: ``9.0000001`` in the skip list hides the 9 s section
-    in the report (its label is ``9``), so the route may not read 9 s either --
-    and the check agrees with the renderer rather than with the float."""
-    assert seconds_label(9.0000001) == "9"
-    skip = "[9.0000001, 12.0, 18.0, 21.0, 24.0, 27.0, 33.0, 36.0, 39.0, 42.0]"
-    assert load_settings(_with_arrays(tmp_path, skip_sample_seconds=skip))
+# --- The callout table (Story 4.13, AD-13) ------------------------------------
 
 
-def test_an_empty_route_list_is_refused() -> None:
-    """A route with no points would say every round ended before its first."""
-    with pytest.raises(ValidationError, match="route_sample_seconds is empty"):
-        AggregateSettings(route_sample_seconds=[])
+def _table(tmp_path: Path, text: str) -> Path:
+    path = tmp_path / "callouts.toml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+_ENTRY = (
+    'callout = "lobby"\njunction = true\njunction_source = "his words"\n'
+    'neighbours = 3\nconfidence = "stated"\nsource = "a document"\n'
+)
+
+
+def test_the_shipped_callout_table_loads_against_the_shipped_pool() -> None:
+    """The file in the repository is valid against the settings in the
+    repository -- the check every other test here assumes."""
+    table = load_callouts(load_settings(REAL_SETTINGS, env_files=()).league.map_pool)
+    assert set(table) == {
+        "de_nuke", "de_dust2", "de_inferno", "de_ancient", "de_anubis"
+    }
+
+
+def test_the_shipped_table_carries_the_crossed_nuke_names() -> None:
+    """The one mapping the project has had to write down twice because it
+    was read wrongly (project memory ``nuken-aluenimet``): his *radio* is the
+    game's ``Control`` and ``Trophy``, his *trophy* the game's ``Vending``,
+    his *control* the game's ``Observation`` -- read from the file, so a
+    table that uncrossed them fails here."""
+    nuke = load_callouts(
+        load_settings(REAL_SETTINGS, env_files=()).league.map_pool
+    )["de_nuke"]
+    assert {area: nuke[area].callout for area in (
+        "Control", "Trophy", "Vending", "Observation"
+    )} == {
+        "Control": "radio",
+        "Trophy": "radio",
+        "Vending": "trophy",
+        "Observation": "control",
+    }
+    assert nuke["Vending"].junction is False
+    assert nuke["Outside"].coarse is True
+
+
+def test_every_shipped_entry_names_a_source() -> None:
+    """AD-13: an entry without the measurement or the words behind it does
+    not belong in the table. ``min_length`` refuses an empty one; this
+    refuses one that is only whitespace, and requires a junction to say
+    whose words made it one."""
+    table = load_callouts(load_settings(REAL_SETTINGS, env_files=()).league.map_pool)
+    for map_name, areas in table.items():
+        for area, entry in areas.items():
+            assert entry.source.strip(), (map_name, area)
+            if entry.junction:
+                assert (entry.junction_source or "").strip(), (map_name, area)
+
+
+def test_a_map_outside_the_pool_is_refused(tmp_path: Path) -> None:
+    """AD-13: an unknown section is an error and not a skip."""
+    path = _table(tmp_path, "[de_nukee.Lobby]\n" + _ENTRY)
+    with pytest.raises(SettingsError, match="de_nukee"):
+        load_callouts(["de_nuke"], path)
+
+
+def test_an_unknown_key_in_an_entry_is_refused(tmp_path: Path) -> None:
+    path = _table(tmp_path, "[de_nuke.Lobby]\n" + _ENTRY + "junktion = true\n")
+    with pytest.raises(SettingsError, match="junktion"):
+        load_callouts(["de_nuke"], path)
+
+
+def test_a_junction_without_its_words_is_refused(tmp_path: Path) -> None:
+    entry = _ENTRY.replace('junction_source = "his words"\n', "")
+    with pytest.raises(SettingsError, match="junction and junction_source"):
+        load_callouts(["de_nuke"], _table(tmp_path, "[de_nuke.Lobby]\n" + entry))
+
+
+def test_transit_with_a_junction_source_is_refused(tmp_path: Path) -> None:
+    entry = _ENTRY.replace("junction = true", "junction = false")
+    with pytest.raises(SettingsError, match="junction and junction_source"):
+        load_callouts(["de_nuke"], _table(tmp_path, "[de_nuke.Lobby]\n" + entry))
+
+
+def test_a_coarse_area_without_a_callout_is_refused(tmp_path: Path) -> None:
+    entry = _ENTRY.replace('callout = "lobby"\n', "coarse = true\n")
+    with pytest.raises(SettingsError, match="coarse is set"):
+        load_callouts(["de_nuke"], _table(tmp_path, "[de_nuke.Lobby]\n" + entry))
+
+
+def test_two_areas_of_one_callout_must_agree(tmp_path: Path) -> None:
+    """One callout is one place; a junction on one side of the room and
+    transit on the other would split what he calls one place."""
+    transit = _ENTRY.replace("junction = true", "junction = false").replace(
+        'junction_source = "his words"\n', ""
+    )
+    text = "[de_nuke.Lobby]\n" + _ENTRY + "[de_nuke.Hall]\n" + transit
+    with pytest.raises(SettingsError, match="disagree on junction or coarse"):
+        load_callouts(["de_nuke"], _table(tmp_path, text))
+
+
+def test_a_map_section_holding_a_plain_value_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(SettingsError, match="one \\[de_nuke.<game area>\\] table"):
+        load_callouts(["de_nuke"], _table(tmp_path, "[de_nuke]\nLobby = 1\n"))
+
+
+def test_a_missing_callout_table_is_named(tmp_path: Path) -> None:
+    with pytest.raises(SettingsError, match="could not be read"):
+        load_callouts(["de_nuke"], tmp_path / "nowhere.toml")
+
+
+def test_a_callout_table_that_is_not_toml_is_named(tmp_path: Path) -> None:
+    with pytest.raises(SettingsError, match="not valid TOML"):
+        load_callouts(["de_nuke"], _table(tmp_path, "[de_nuke.Lobby\n"))
+
+
+def test_an_area_without_a_callout_is_kept_whatever_its_junction_says() -> None:
+    """``CalloutEntry.kept``: a place with no callout is always kept, so the
+    flag asking for its callout is seen; otherwise a junction is kept and
+    transit is not."""
+    base = {"neighbours": 0, "source": "s"}
+    assert CalloutEntry(junction=False, confidence="unnamed", **base).kept
+    assert CalloutEntry(
+        callout="x", junction=True, junction_source="w", confidence="stated",
+        **base,
+    ).kept
+    assert not CalloutEntry(
+        callout="x", junction=False, confidence="stated", **base
+    ).kept
+
+
+def test_an_unnamed_place_says_so_and_a_named_one_does_not() -> None:
+    """``confidence = "unnamed"`` exactly when there is no callout: a place
+    with no name has no mapping to be sure of."""
+    base = {"neighbours": 0, "source": "s", "junction": False}
+    with pytest.raises(ValidationError, match="unnamed"):
+        CalloutEntry(confidence="stated", **base)
+    with pytest.raises(ValidationError, match="unnamed"):
+        CalloutEntry(callout="x", confidence="unnamed", **base)
+
+
+@pytest.mark.parametrize(
+    ("confidence", "certain"),
+    [("stated", True), ("guide", True), ("inferred", False), ("guess", False)],
+)
+def test_only_stated_and_guide_are_certain(confidence: str, certain: bool) -> None:
+    entry = CalloutEntry(
+        callout="x", junction=False, neighbours=0, source="s",
+        confidence=confidence,
+    )
+    assert entry.certain is certain
+
+
+def test_a_callout_is_normalised_so_one_name_is_one_place() -> None:
+    """``"radio"`` and ``"Radio "`` must not become two callouts."""
+    entry = CalloutEntry(
+        callout="  Radio  Room ", junction=False, neighbours=0, source="s",
+        confidence="stated",
+    )
+    assert entry.callout == "radio room"
+
+
+def test_an_empty_map_section_is_refused(tmp_path: Path) -> None:
+    """A map that is described but describes nothing would hide the
+    ``no_table`` note."""
+    with pytest.raises(SettingsError, match="at least one"):
+        load_callouts(["de_nuke"], _table(tmp_path, "[de_nuke]\n"))
+
+
+def test_two_areas_of_one_callout_must_agree_on_coarse(tmp_path: Path) -> None:
+    coarse = _ENTRY + "coarse = true\n"
+    text = "[de_nuke.Lobby]\n" + _ENTRY + "[de_nuke.Hall]\n" + coarse
+    with pytest.raises(SettingsError, match="disagree on junction or coarse"):
+        load_callouts(["de_nuke"], _table(tmp_path, text))
+
+
+def _shipped_entries():
+    table = load_callouts(load_settings(REAL_SETTINGS, env_files=()).league.map_pool)
+    return [
+        (map_name, area, entry)
+        for map_name, areas in table.items()
+        for area, entry in areas.items()
+    ]
+
+
+def test_every_shipped_callout_appears_in_its_own_source() -> None:
+    """A callout is quoted from its source, so each of its parts appears in
+    the entry's own source, junction source or note. Replacing ``long box``
+    with ``long corner`` fails here; nothing else would notice."""
+    for map_name, area, entry in _shipped_entries():
+        if entry.callout is None:
+            continue
+        text = " ".join(
+            filter(None, (entry.source, entry.junction_source, entry.note))
+        ).lower()
+        for part in entry.callout.split("/"):
+            assert part in text, (map_name, area, part)
+
+
+#: The words by which a source marks its own reading as uncertain.
+_GUESS_WORDS = ("guess", "arvaus", "veikkaan", "todennäköisesti")
+_INFERRED_WORDS = ("inferred", "unconfirmed", "match of names", "match of the place")
+
+
+def test_every_shipped_confidence_matches_its_sources_hedging() -> None:
+    """Where the source hedges, the entry says so, and an entry that claims
+    less than certainty has a hedge to show for it -- the review's finding
+    was 28 hedged mappings printing like his words."""
+    for map_name, area, entry in _shipped_entries():
+        source = entry.source.lower()
+        guessed = any(word in source for word in _GUESS_WORDS)
+        inferred = any(word in source for word in _INFERRED_WORDS)
+        if guessed:
+            assert entry.confidence == "guess", (map_name, area)
+        elif inferred:
+            assert entry.confidence == "inferred", (map_name, area)
+        else:
+            assert entry.confidence not in ("guess", "inferred"), (map_name, area)
 
 
 def test_one_match_as_the_threshold_is_refused() -> None:

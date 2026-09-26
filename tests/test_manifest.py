@@ -338,24 +338,19 @@ def test_parse_change_does_change_parse_hash(tmp_path: Path) -> None:
     a = tmp_path / "a.toml"
     b = tmp_path / "b.toml"
     a.write_text(settings_text(tmp_path / "archive"), encoding="utf-8")
-    # The routes' points follow the printed points, or the load refuses the
-    # file (Story 4.5); here the skip list hides none of the four.
+    # The skip list is emptied: it may hide only points the new grid has.
     b.write_text(
         replace_array(
             replace_array(
-                replace_array(
-                    settings_text(
-                        tmp_path / "archive",
-                        **{"stack_sample_s = 15.0": "stack_sample_s = 20.0"},
-                    ),
-                    "snapshot_seconds",
-                    "[6.0, 20.0, 30.0, 45.0]",
+                settings_text(
+                    tmp_path / "archive",
+                    **{"stack_sample_s = 15.0": "stack_sample_s = 20.0"},
                 ),
-                "skip_sample_seconds",
-                "[]",
+                "snapshot_seconds",
+                "[6.0, 20.0, 30.0, 45.0]",
             ),
-            "route_sample_seconds",
-            "[6.0, 20.0, 30.0, 45.0]",
+            "skip_sample_seconds",
+            "[]",
         ),
         encoding="utf-8",
     )

@@ -1513,21 +1513,16 @@ def test_parse_setting_change_triggers_a_reparse(tmp_path: Path, archive, demo) 
     base_toml = tmp_path / "perus.toml"
     base_toml.write_text(settings_text(archive.root), encoding="utf-8")
     changed_toml = tmp_path / "muutettu.toml"
-    # The routes' points follow the printed points, or the load refuses the
-    # file (Story 4.5); here the skip list hides none of the four.
+    # The skip list is emptied: it may hide only points the new grid has.
     changed_toml.write_text(
         replace_array(
             replace_array(
-                replace_array(
-                    settings_text(archive.root),
-                    "snapshot_seconds",
-                    "[6.0, 15.0, 30.0, 50.0]",
-                ),
-                "skip_sample_seconds",
-                "[]",
+                settings_text(archive.root),
+                "snapshot_seconds",
+                "[6.0, 15.0, 30.0, 50.0]",
             ),
-            "route_sample_seconds",
-            "[6.0, 15.0, 30.0, 50.0]",
+            "skip_sample_seconds",
+            "[]",
         ),
         encoding="utf-8",
     )

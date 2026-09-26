@@ -18,6 +18,12 @@ rotated credential in its own version history.
 
 Every dollar threshold is **per player** unless the name says otherwise. The
 sources of the starting values are recorded line by line in ``settings.toml``.
+
+**The product owner's callout table is loaded here too** (Story 4.13,
+AD-13): ``src/pappascout/callouts.toml``, read by :func:`load_callouts` into
+:class:`CalloutEntry` values. It is not a settings section -- it ships with
+the code and is the same on every machine -- but it is parsed at the same
+edge and with the same stance: an unknown section or key is an error.
 """
 
 from __future__ import annotations
@@ -76,6 +82,12 @@ __all__ = [
     "MAX_FACEIT_RETRY_ATTEMPTS",
     "PLAYERS_ON_SERVER",
     "REMOVED_SETTINGS",
+    "CALLOUT_TABLE_PATH",
+    "CERTAIN_CONFIDENCE",
+    "CalloutConfidence",
+    "CalloutEntry",
+    "MapCallouts",
+    "load_callouts",
 ]
 
 SETTINGS_FILENAME = "settings.toml"
@@ -133,6 +145,13 @@ REMOVED_SETTINGS: Final[dict[tuple[str, str], str]] = {
         "the old value by the number of sample points it was calibrated at: "
         "the shipped 20 was measured at four points, and 20 / 4 = 5 selects "
         "exactly the same areas. Rename the line and write the quotient."
+    ),
+    ("aggregate", "route_sample_seconds"): (
+        "Removed in Story 4.13. The pistol route no longer reads only the "
+        "printed sample points: it reads every point the demo holds and "
+        "compresses each player's path to the product owner's junctions, "
+        "which live in src/pappascout/callouts.toml. Remove the line from "
+        "the file -- nothing needs to be put in its place."
     ),
 }
 
@@ -934,60 +953,6 @@ class AggregateSettings(_Section):
         default_factory=lambda: [5.0, 10.0, 20.0]
     )
 
-    #: The time sample points the pistol routes are built from (Story 4.5).
-    #:
-    #: **This stage's own list, and a positive one.** The routes read only the
-    #: points the report prints, because the product owner ruled that the
-    #: report cannot carry the dense grid; the points printed are
-    #: ``[parse].snapshot_seconds`` minus ``[report].skip_sample_seconds``.
-    #: Reading that ``[report]`` value here would put render's section into
-    #: this stage's parameter hash, which AD-3 forbids -- so the list lives in
-    #: the section of the stage that reads it, and
-    #: :meth:`Settings._check_sections_agree` refuses a file where it differs
-    #: from the printed points, compared as labels
-    #: (:func:`~pappascout.constants.seconds_label`). Two copies of one fact,
-    #: but a checked pair: neither can move without the load failing.
-    #:
-    #: **Never empty**: a route with no points would print "kierros ratkesi
-    #: ennen ensimmäistä näytepistettä" for a round that was sampled.
-    #:
-    #: The default is the file's, as :attr:`utility_seconds_buckets`' is.
-    route_sample_seconds: list[float] = Field(
-        default_factory=lambda: [6.0, 15.0, 30.0, 45.0]
-    )
-
-    @model_validator(mode="after")
-    def _check_route_points(self) -> "AggregateSettings":
-        """The route's points: present, finite, positive and distinct as
-        labels.
-
-        Empty is refused (a route with nothing to read would state that every
-        round ended before its first point). Distinct **as labels** because
-        the points are matched by label, so ``15`` and ``15.0000001`` would
-        be one point listed twice.
-        """
-        if not self.route_sample_seconds:
-            raise ValueError(
-                "route_sample_seconds is empty, so no pistol route could read "
-                "a single sample point: every route would say the round was "
-                "settled before its first point, although it was sampled. "
-                "List the points the report prints."
-            )
-        for value in self.route_sample_seconds:
-            if not isfinite(value) or value <= 0:
-                raise ValueError(
-                    f"route_sample_seconds holds {value!r}, which is not a "
-                    "positive finite number of seconds."
-                )
-        labels = [seconds_label(value) for value in self.route_sample_seconds]
-        if len(labels) != len(set(labels)):
-            raise ValueError(
-                "route_sample_seconds holds the same sample point twice "
-                f"({', '.join(labels)}). The points are matched by their "
-                "label, so two values that print alike are one point."
-            )
-        return self
-
     @model_validator(mode="after")
     def _check_utility_buckets(self) -> "AggregateSettings":
         """The time buckets are a setting, so they are checked at load time.
@@ -1089,12 +1054,9 @@ class ReportSettings(_Section):
     content, so they are **not built at all** -- they take no part in a
     block's "harvinaisempaa" count and cannot come back through the
     empty-block return. ``report.json`` still holds them. The pistol routes,
-    which ``aggregate`` builds, read only the printed points through
-    ``[aggregate].route_sample_seconds``; that is the aggregate stage's own
-    list, and :meth:`Settings._check_sections_agree` holds it equal to
-    ``[parse].snapshot_seconds`` minus this section's
-    :attr:`skip_sample_seconds`, so no ``[report]`` value enters another
-    stage's hash (AD-3).
+    which ``aggregate`` builds, read every sample point since Story 4.13 and
+    compress each path to junctions, so no setting of this section reaches
+    them either.
 
     **Some round types are protected from every rule but rule 3**, and the
     list is owned by :data:`pappascout.render.view.PROTECTED_ROUND_TYPES`,
@@ -1524,35 +1486,6 @@ class Settings(BaseSettings):
                 "report every CT round as scanned, which turns a blind spot "
                 "into 'no stacks' as an observation."
             )
-        # THE ROUTE READS WHAT THE REPORT PRINTS (Story 4.5). The route's
-        # points are [aggregate]'s own list so that the aggregate stage hashes
-        # only its own section (AD-3); the points the report prints are
-        # [parse] minus [report]. Neither section can see the other, so the
-        # pair is held here. Compared as LABELS -- Story 2.13's rule for one
-        # second across layers -- because the renderer hides a section by
-        # label: 9.0000001 in skip_sample_seconds hides the 9 s section, and a
-        # float comparison would still let the route read 9 s.
-        hidden = {seconds_label(v) for v in self.report.skip_sample_seconds}
-        printed = [
-            value
-            for value in self.parse.snapshot_seconds
-            if seconds_label(value) not in hidden
-        ]
-        printed_labels = [seconds_label(v) for v in sorted(printed)]
-        route_labels = [
-            seconds_label(v) for v in sorted(self.aggregate.route_sample_seconds)
-        ]
-        if set(printed_labels) != set(route_labels):
-            raise ValueError(
-                "aggregate.route_sample_seconds must be the sample points the "
-                "report prints, that is parse.snapshot_seconds minus "
-                "report.skip_sample_seconds.\n"
-                f"The report prints ({', '.join(printed_labels)}) s, but the "
-                f"routes would read ({', '.join(route_labels)}) s. A route "
-                "through a point the report hides would put the grid back on "
-                "the page; a route missing a printed point would skip a "
-                "moment the reader sees. Change one of the three settings."
-            )
         # EVERY TIME THRESHOLD MUST PROVE THE RULE IT GOVERNS CAN FIRE AT ALL
         # (Story 4.6, review round 1). The two guards above each prove it for
         # one rule -- the advance needs a sample point inside its bound, the
@@ -1855,3 +1788,198 @@ def _format_validation_error(exc: _ValidationError) -> str:
         location = ".".join(str(part) for part in error["loc"]) or "(root)"
         lines.append(f"    {location}: {error['msg']}")
     return "\n".join(lines)
+
+
+# -- The product owner's callout table (Story 4.13, AD-13) ---------------------
+
+#: The callout table: a static file **shipped with the code**, not in the
+#: archive and not in the machine's settings (AD-13). It sits beside the
+#: package's modules rather than beside ``settings.toml`` because it is not a
+#: setting anybody adjusts per machine -- it is the product owner's knowledge
+#: of the maps, and every entry in it names the document it came from.
+CALLOUT_TABLE_PATH = Path(__file__).resolve().parent.parent / "callouts.toml"
+
+#: How sure an entry is, **as its source says** -- ``callouts.toml``'s header
+#: defines each value. ``stated`` and ``guide`` are certain and print
+#: unmarked; ``inferred`` and ``guess`` print marked; ``unnamed`` is the one
+#: value an entry with no callout takes, because there is no mapping to be
+#: sure of.
+CalloutConfidence = Literal["stated", "guide", "inferred", "guess", "unnamed"]
+
+#: The confidence values the route prints without a mark.
+CERTAIN_CONFIDENCE: frozenset[str] = frozenset({"stated", "guide"})
+
+
+class CalloutEntry(_Section):
+    """One game area of one map, as the product owner names and reads it.
+
+    ``callout`` absent is a statement and not a gap in the file: the place
+    has no callout, and the route prints the game's name **flagged**, so the
+    reader sees what is missing. See ``callouts.toml``'s header for every key.
+
+    The three rules checked here are the ones a single entry can break:
+
+    * ``junction`` and ``junction_source`` come together -- a junction the
+      file cannot trace to his words is exactly what AD-13 forbids, and a
+      source on a transit area would claim a reason nothing uses;
+    * ``coarse`` needs a ``callout``: a coarse name is a name;
+    * ``confidence`` is ``unnamed`` exactly when there is no ``callout`` --
+      a place with no name has no mapping to be sure of, and a named one
+      must say how sure it is.
+
+    **A callout is compared ignoring case and surrounding spaces**, and it
+    is normalised to that form here, so ``"radio"`` and ``"Radio "`` in two
+    entries are one place and cannot become two steps.
+    """
+
+    callout: str | None = Field(default=None, min_length=1)
+    coarse: bool = False
+    junction: bool
+    junction_source: str | None = Field(default=None, min_length=1)
+    #: The derived check (AD-13: derivation first). Recorded, never read by
+    #: the route: where it disagrees with :attr:`junction`, his list wins.
+    neighbours: int = Field(ge=0)
+    confidence: CalloutConfidence
+    source: str = Field(min_length=1)
+    note: str | None = Field(default=None, min_length=1)
+
+    @field_validator("callout")
+    @classmethod
+    def _normalise_the_callout(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normal = " ".join(value.split()).lower()
+        if not normal:
+            raise ValueError("a callout cannot be blank")
+        return normal
+
+    @model_validator(mode="after")
+    def _check_the_entry(self) -> "CalloutEntry":
+        if self.junction != (self.junction_source is not None):
+            raise ValueError(
+                "junction and junction_source come together: a junction "
+                "names the words that make it one, and a transit area has "
+                "none."
+            )
+        if self.coarse and self.callout is None:
+            raise ValueError(
+                "coarse is set on an area with no callout; a coarse name is "
+                "still a callout."
+            )
+        if (self.callout is None) != (self.confidence == "unnamed"):
+            raise ValueError(
+                "confidence is 'unnamed' exactly when there is no callout: a "
+                "place with no name has no mapping to be sure of, and a "
+                "named place must say how sure its name is."
+            )
+        return self
+
+    @property
+    def certain(self) -> bool:
+        """Whether the callout prints unmarked: his words or the guide's
+        callout that is the game area's own name (:data:`CERTAIN_CONFIDENCE`).
+        An entry with no callout is not certain -- it prints its own mark."""
+        return self.confidence in CERTAIN_CONFIDENCE
+
+    @property
+    def kept(self) -> bool:
+        """Whether the route keeps this area in the middle of a path.
+
+        A junction is kept; so is a place with no callout, whatever its
+        ``junction`` says, because dropping it would hide the flag that asks
+        for the missing callout -- which is the point of the flag.
+        """
+        return self.junction or self.callout is None
+
+
+#: One map's table: game area -> entry.
+MapCallouts = dict[str, CalloutEntry]
+
+
+def load_callouts(
+    map_pool: list[str], path: Path = CALLOUT_TABLE_PATH
+) -> dict[str, MapCallouts]:
+    """Read the callout table, refusing what it cannot vouch for.
+
+    **An unknown map is an error and not a skip** (AD-13, the same stance as
+    ``settings.toml``'s ``extra="forbid"``): a misspelt map section would
+    otherwise leave that map's routes in the game's names with nothing to
+    say why. The allowed maps are ``[league].map_pool``, handed in, so the
+    list of maps is not kept twice.
+
+    **Two areas that share a callout must agree** on ``junction`` and
+    ``coarse``. They are one place to him, so the route treats them as one;
+    an entry that disagreed would make the same place a junction on one
+    side of the room and transit on the other. They may differ in
+    ``confidence``: the route marks the merged callout if any of them is not
+    certain.
+
+    **An empty map section is refused**: it would say the map is described
+    while describing nothing, and every route on it would lose the
+    ``no_table`` note that says so.
+
+    **The limit, stated:** an area name is not checked here. The loader has
+    no list of the game's areas, so a misspelt area loads and simply never
+    matches; ``-m archive`` catches it (``tests/test_calibration.py``
+    requires the table to cover exactly the areas the archive moves
+    through).
+
+    Raises:
+        SettingsError: The file is missing, is not TOML, names a map outside
+            the pool, or holds an entry that is not valid.
+    """
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise SettingsError(
+            f"The callout table {path} could not be read: {exc}\n"
+            "It ships with the code; restore it from the repository."
+        ) from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise SettingsError(
+            f"The callout table {path} is not valid TOML: {exc}"
+        ) from exc
+    unknown = sorted(set(data) - set(map_pool))
+    if unknown:
+        raise SettingsError(
+            f"The callout table {path} holds a section for "
+            f"{', '.join(unknown)}, which is not in [league].map_pool "
+            f"({', '.join(map_pool)}).\n"
+            "Fix the map's name, or add the map to the pool."
+        )
+    table: dict[str, MapCallouts] = {}
+    for map_name, areas in data.items():
+        if not isinstance(areas, dict) or not areas or not all(
+            isinstance(entry, dict) for entry in areas.values()
+        ):
+            raise SettingsError(
+                f"The callout table {path}: [{map_name}] must hold one "
+                f"[{map_name}.<game area>] table per area and nothing else, "
+                "and at least one."
+            )
+        try:
+            entries = {
+                area: CalloutEntry(**entry) for area, entry in areas.items()
+            }
+        except _ValidationError as exc:
+            raise SettingsError(
+                f"The callout table {path} holds an entry of [{map_name}] "
+                f"that is not valid:\n{_format_validation_error(exc)}"
+            ) from exc
+        by_callout: dict[str, tuple[str, CalloutEntry]] = {}
+        for area, entry in entries.items():
+            if entry.callout is None:
+                continue
+            first = by_callout.setdefault(entry.callout, (area, entry))
+            if (first[1].junction, first[1].coarse) != (
+                entry.junction,
+                entry.coarse,
+            ):
+                raise SettingsError(
+                    f"The callout table {path}: [{map_name}.{first[0]}] and "
+                    f"[{map_name}.{area}] are both {entry.callout!r} but "
+                    "disagree on junction or coarse. One callout is one "
+                    "place, so the two entries must say the same."
+                )
+        table[map_name] = entries
+    return table

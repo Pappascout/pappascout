@@ -352,13 +352,10 @@ def test_the_written_report_names_the_rules_the_user_has_on(
         tmp_path,
         settings_file,
         monkeypatch,
-        # The four-point grid with 45 s hidden, and the routes' points
-        # agreeing with what is printed -- the load refuses the file otherwise
-        # (Story 4.5).
+        # The four-point grid with 45 s hidden.
         arrays={
             "snapshot_seconds": "[6.0, 15.0, 30.0, 45.0]",
             "skip_sample_seconds": "[45.0]",
-            "route_sample_seconds": "[6.0, 15.0, 30.0]",
         },
     )
     result = runner.invoke(app, ["report", "--team", TEAM_KEY])

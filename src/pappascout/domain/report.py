@@ -200,6 +200,7 @@ __all__ = [
     "RoundRecord",
     "ROUTE_ROUND_TYPE",
     "RouteFate",
+    "RouteFlag",
     "RouteStep",
     "RoundRoute",
     "RoundTypeReport",
@@ -415,7 +416,26 @@ __all__ = [
 #: and a force push into one area are *"sama tapa"*). An old file's advance
 #: rows would validate and be read as per-area rows they are not; the
 #: required field above is what refuses them.
-REPORT_SCHEMA_VERSION = "15.0.0"
+#:
+#: **16.0.0 (Story 4.13): a route step is a junction in the product owner's
+#: callouts.** Both conditions. The first: :attr:`RouteStep.flag` is
+#: **required**, so a 15.0.0 file's steps do not validate. The second, and
+#: the reason the field takes no default: a 15.0.0 step's ``area`` is a game
+#: area at a sample point, and a 16.0.0 step's is his callout at a junction
+#: -- an old file's ``Control`` would validate as a place called Control,
+#: which on Nuke is a different room (his *control* is the game's
+#: ``Observation``). A default ``None`` flag would have let exactly that
+#: through as an unflagged callout.
+#:
+#: The same version changes three meanings on fields that did not move, and
+#: they are named so nobody reads a 16.0.0 tree with 15.0.0 eyes:
+#: ``RouteStep.seconds`` on a ``seen`` step is the **first observation at
+#: the place**, not a sample point's moment; a part **at the same place as
+#: its parent**, with no steps, is players who stayed while the rest went
+#: on; and ``aggregate`` never gives a ``gone`` step children. A step may
+#: also carry :attr:`RouteStep.alternates_with` -- two places a player went
+#: back and forth between, one step.
+REPORT_SCHEMA_VERSION = "16.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
 #: refuses an old ``report.json`` with.
@@ -442,10 +462,10 @@ REPORT_SCHEMA_VERSION = "15.0.0"
 #: English, like every other line the CLI prints (AD-11). It never reaches
 #: the report.
 REPORT_SCHEMA_CHANGE = (
-    "Version 15.0.0 records a crunch's directions per sample point instead "
-    "of per round, and counts a CT advance once per area across the save "
-    "rounds instead of once per round type; an older report holds both in a "
-    "shape or a meaning this version refuses."
+    "Version 16.0.0 writes each pistol route through the product owner's "
+    "junctions and in his callouts, with a flag on every step that is not "
+    "his word; an older report's route steps are game areas at sample "
+    "points, which this version refuses."
 )
 
 
@@ -1803,7 +1823,7 @@ class DeathReport(_Node):
 #: of anything.
 ROUTE_ROUND_TYPE: RoundType = "pistol"
 
-#: What became of a group of players at one sample point.
+#: What became of a group of players at one step of their route.
 #:
 #: Three values, and what they are for is the story's own discipline: *"nobody
 #: went to X"*, *"nobody was alive to go anywhere"* and *"the round was
@@ -1812,7 +1832,7 @@ ROUTE_ROUND_TYPE: RoundType = "pistol"
 #: printed ``4 kuoli`` for a round that had been won.
 #:
 #: ``seen``
-#:     The players were observed alive in :attr:`RouteStep.area` at
+#:     The players were observed alive in :attr:`RouteStep.area`, first at
 #:     :attr:`RouteStep.seconds`. The area may still be ``None`` -- the game
 #:     gives no ``last_place_name`` everywhere -- and that is *"somewhere the
 #:     map does not name"*, not *"gone"*.
@@ -1822,8 +1842,9 @@ ROUTE_ROUND_TYPE: RoundType = "pistol"
 #:     point's, because the reader is told where and when, and the sample
 #:     point is neither.
 #: ``gone``
-#:     The sample point exists, the player has no row on it and **no death
-#:     record accounts for them**. The report says that and no more: a death
+#:     The sample holds a later moment than the player's last observation,
+#:     the player is not observed at it and **no death record accounts for
+#:     them**. The report says that and no more: a death
 #:     the archive does not hold is not a death the report may state.
 #:
 #: So two of the three claims are values here and the third is not.
@@ -1842,18 +1863,56 @@ ROUTE_ROUND_TYPE: RoundType = "pistol"
 #: report says the same thing about all three, which is nothing.
 RouteFate = Literal["seen", "died", "gone"]
 
+#: Why a route step's name may not be the product owner's word (Story 4.13).
+#:
+#: ``None`` on a step means exactly this: a **certain** callout -- his own
+#: word, or the guide's callout that is the game area's own name
+#: (``callouts.toml``'s ``stated`` and ``guide``) -- and, for a merged
+#: callout, every area feeding it certain; or the position the game gave no
+#: name at all. Every other case is printed with a mark so he can see what
+#: the table is missing:
+#:
+#: ``coarse``
+#:     A certain callout, but the game area holds several of his callouts
+#:     (Nuke's yard is one game area) -- the coarse name, until coordinates
+#:     split it.
+#: ``inferred``
+#:     A callout the table infers or he offered as a guess
+#:     (``inferred``/``guess``), or a merged callout one of whose areas is.
+#: ``coarse_inferred``
+#:     Both of the above at once (Anubis' canal, Ancient's ruins/dig).
+#: ``no_callout``
+#:     The game's area name: the table says the place has no callout, or
+#:     does not list the area at all.
+#: ``no_table``
+#:     The game's area name, because the map has no callout table. Every
+#:     named step of such a map carries it -- an unnamed position and a
+#:     ``gone`` step carry none -- and the report says so once for the map.
+RouteFlag = Literal[
+    "coarse", "inferred", "coarse_inferred", "no_callout", "no_table"
+]
+
 
 class RouteStep(_Node):
-    """One group of players at one moment, and where the group then divided.
+    """One group of players at one place of their route, and where the group
+    then divided.
 
     The node is a **group and not a player**: the product owner's form writes
-    the shared stretch once ("4 Outside -> 4 Control") and gives rows of their
-    own only to the parts that separated. :attr:`players` is how many the
-    group held, and :attr:`steps` are the parts it became at the next sample
-    point.
+    the shared stretch once (``4 outside -> lobby -> radio -> ramp``) and
+    gives rows of their own only to the parts that separated. :attr:`players`
+    is how many the group held, and :attr:`steps` are the parts it became at
+    its next place.
 
-    **An empty ``steps`` is four different things**, and the model tells only
-    the first from the rest, by this node's own ``fate``. The other three it
+    **A place is a junction and not a sample point** since Story 4.13: each
+    player's path is compressed to the start, the product owner's junctions
+    and the end (:func:`~pappascout.domain.aggregate._junction_path`), and
+    :attr:`area` is his callout for the place -- :attr:`flag` says where it
+    is not. Where some of a group stop at a place while the rest go on, the
+    ones who stop are a part **at the same place** with no steps, which is
+    how the parts still add up to the group.
+
+    **An empty ``steps`` is five different things**, and the model tells
+    only the first from the rest, by this node's own ``fate``. The others it
     deliberately leaves together, because the report says the same thing
     about all of them, which is nothing:
 
@@ -1861,10 +1920,10 @@ class RouteStep(_Node):
       show the reader a dead player moving. ``fate="gone"`` with no steps is
       the same shape for a different reason: the sample has no position for
       them here and none later either.
-    * ``fate="seen"`` **on the grid's last point** -- the sampling ran out
-      while the round went on. **This is the common case by a wide margin**:
-      measured over the archive, 285 of the 293 rounds that reach the last
-      point have a death recorded after it
+    * ``fate="seen"`` **where the players were last observed** -- the
+      sampling ran out while the round went on. **This is the common case
+      by a wide margin**: measured over the archive, 285 of the 293 rounds
+      that reach the last point have a death recorded after it
       (:data:`~pappascout.domain.aggregate.ROUTE_SAMPLING_MEASURED`).
     * ``fate="seen"`` and the round really did end there. The remaining 8 of
       those 293 are the **candidates** for this and not the proof of it: all
@@ -1872,6 +1931,10 @@ class RouteStep(_Node):
       which a round still running can also do.
     * ``fate="seen"`` and this round was sampled at no later moment for some
       other reason, which nothing in the archive shows but nothing forbids.
+    * ``fate="seen"`` **at the same place as its parent** -- the players who
+      stayed there while the rest of the group went on (Story 4.13). Their
+      last observation is at that place, so it is one of the cases above for
+      them, told apart only by where the step sits.
 
     **So the end of a row is not the end of the round**, and no reader of
     this model may treat it as one. That is the inverse of the mistake the
@@ -1880,8 +1943,11 @@ class RouteStep(_Node):
     """
 
     fate: RouteFate
-    #: The moment, in seconds from the end of freezetime. For ``died`` it is
-    #: the death's own moment and not the sample point's.
+    #: The moment, in seconds from the end of freezetime: when the group was
+    #: first observed at the place (the earliest of its players), when the
+    #: sample lost them, or -- for ``died`` -- the death's own moment. For a
+    #: part that stopped where the rest went on, the moment they were last
+    #: observed there. Never printed for ``seen``; the row states places.
     seconds: float
     #: Where they were, where they died, or ``None``. ``None`` on a ``seen``
     #: step is an observed position the game gave no name to -- the same
@@ -1889,9 +1955,23 @@ class RouteStep(_Node):
     #: ``gone`` step it is the only value allowed, because a step that cannot
     #: account for its players cannot place them either.
     area: str | None
+    #: Why :attr:`area` may not be the product owner's word -- see
+    #: :data:`RouteFlag`. **Required**, for :data:`REPORT_SCHEMA_VERSION`'s
+    #: 16.0.0 reason.
+    flag: RouteFlag | None
+    #: The second of two places the group went back and forth between, as
+    #: one step (``outside -> main ⇄ outside``: the first visit is a step of
+    #: its own, then the alternation, in the order entered), or ``None``. The
+    #: product owner's decision of 2026-09-26: compress the returns.
+    #: ``None`` is the ordinary step and is what every
+    #: step written by 16.0.0 carries unless it alternates; the version rule
+    #: is carried by :attr:`flag`, which is required.
+    alternates_with: str | None = None
+    #: :attr:`alternates_with`'s own flag, as :attr:`flag` is :attr:`area`'s.
+    alternates_flag: RouteFlag | None = None
     players: int = Field(ge=1)
-    #: What the group became at the next sample point. Empty where the branch
-    #: ends -- see the class docstring for the three ways that happens.
+    #: What the group became at its next place. Empty where the branch ends
+    #: -- see the class docstring for the ways that happens.
     steps: list[RouteStep] = Field(default_factory=list)
 
     @field_validator("seconds")
@@ -1909,36 +1989,59 @@ class RouteStep(_Node):
 
     @model_validator(mode="after")
     def _check_a_gone_step_names_no_place(self) -> RouteStep:
-        """``gone`` names no area.
+        """``gone`` names no area and carries no flag.
 
         The step exists **because** the sample holds no position for those
         players at this moment. An area on it would be a place the archive
-        does not put them.
+        does not put them, and a flag says why a name may not be the product
+        owner's -- there is no name here to say it about.
 
-        **It may still carry steps, and that is a different question.**
-        ``gone`` says nothing about this moment; it does not say "for ever".
-        A player the sample lost here may be observed again at a later one,
-        and then following the branch prints positions the archive really
-        holds. Forbidding the continuation is what made
-        :func:`~pappascout.domain.aggregate._route_steps` discard those
-        positions and report a loss it could itself disprove. ``died`` is
-        the opposite case and stays terminal
-        (:meth:`_check_a_dead_branch_ends`): a killed player does not come
-        back.
+        **The model does not forbid steps under it**, although ``aggregate``
+        no longer builds any since Story 4.13: a gap in a player's rows is
+        not a step of the compressed path, so ``gone`` only ever ends one.
+        ``died`` is terminal by rule (:meth:`_check_a_dead_branch_ends`): a
+        killed player does not come back.
 
         Raises:
             ~pappascout.errors.AggregateError: If a ``gone`` step names an
-                area.
+                area or carries a flag.
         """
-        if self.fate != "gone" or self.area is None:
+        if self.fate != "gone" or (self.area is None and self.flag is None):
             return self
         raise AggregateError(
             f"A route step for {self.players} player(s) at "
             f"{self.seconds:g} s says the sample holds no position for them, "
-            f"and then names the area {self.area!r}.\n"
+            f"and then names the area {self.area!r} with the flag "
+            f"{self.flag!r}.\n"
             "A player with no sample point and no death record is a player "
             "the archive cannot place at that moment; saying where they were "
             "would be an invention."
+        )
+
+    @model_validator(mode="after")
+    def _check_an_alternation_is_two_places(self) -> RouteStep:
+        """An alternation is a ``seen`` step between two different places.
+
+        Raises:
+            ~pappascout.errors.AggregateError: If a flag is given for no
+                second place, the step is not ``seen``, or the two places
+                are one.
+        """
+        if self.alternates_with is None:
+            if self.alternates_flag is None:
+                return self
+            problem = "carries a flag for a second place it does not name"
+        elif self.fate != "seen":
+            problem = f"alternates although its fate is {self.fate!r}"
+        elif self.alternates_with == self.area:
+            problem = f"alternates between {self.area!r} and itself"
+        else:
+            return self
+        raise AggregateError(
+            f"A route step for {self.players} player(s) at "
+            f"{self.seconds:g} s {problem}.\n"
+            "An alternation is players going back and forth between two "
+            "places they were observed in."
         )
 
     @model_validator(mode="after")
