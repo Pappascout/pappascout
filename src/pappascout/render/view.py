@@ -631,8 +631,11 @@ ROUTE_NO_CALLOUT_MARK = " (pelin nimi)"
 #: The flag on a place whose callout is **not certain**: the table infers
 #: it, or he offered it as a guess, or a merged callout has such an area
 #: among its sources (Story 4.13 review, the coordinator's rule of
-#: 2026-09-26). An unmarked callout is his own word or the guide's callout
-#: that is the game area's own name, and nothing else.
+#: 2026-09-26). An unmarked callout is his own word, the guide's callout
+#: that is the game area's own name where the coordinates do not contradict
+#: it, or a callout another source proposed that the coordinates confirm
+#: (Story 4.16), and nothing else. A callout only the coordinates propose
+#: keeps this mark: they confirm, they never name.
 #:
 #: **Not :data:`ESTIMATE_MARK`'s word** (the coordinator's decision,
 #: 2026-09-26): "(arvio)" already follows an explosion area whose place is

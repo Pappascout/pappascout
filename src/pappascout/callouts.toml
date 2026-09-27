@@ -45,14 +45,35 @@
 #   stated   -- his words, or a callout he confirmed for the place
 #   guide    -- the game area's own name is one of the guide's callouts for
 #               the map (calloutit.md's list, compared ignoring case and
-#               spaces: Alley = ALLEY)
+#               spaces: Alley = ALLEY), UNLESS THE COORDINATES CONTRADICT
+#               IT. A name match is not a place match: the game's Ruins on
+#               de_ancient shares the guide's name RUINS but lies on the
+#               guide's B DOORS (koordinaatit-mitattu-2026-09-27.md section
+#               1). A new guide entry is certain on the name alone until the
+#               coordinates check it; the entries checked on 2026-09-27 are
+#               those in tests/data/guide_fit.json or in section 1 of that
+#               document, and every one of them but Ruins holds.
+#   measured -- the coordinates CONFIRM a callout another source already
+#               proposed (his words, his guess, or a guide name): the area's
+#               live ticks, projected onto the guide image, meet that
+#               callout's label box in tests/data/guide_fit.json. The boxes
+#               are read by hand from the image; the fit is
+#               koordinaatit-mitattu-2026-09-27.md's, and the check runs on
+#               the archive (-m archive). It raises a mark and never gives a
+#               name: a callout only the coordinates propose stays inferred,
+#               which is why Ruins = b doors is inferred. A measured area may
+#               spill onto guide labels that are not his callouts --
+#               TSideUpper touches CAT, ExtendedA reaches NINJA -- and it is
+#               coarse only when it covers several of HIS callouts.
 #   inferred -- a reading the source itself marks as inferred, unconfirmed or
-#               a match of names that is not exact
+#               a match of names that is not exact, or a callout only the
+#               coordinates propose
 #   guess    -- he offered it as his own guess
 #   unnamed  -- the place has no callout at all (``callout`` is absent)
-# stated and guide are CERTAIN and print unmarked; inferred and guess print
-# with a mark, and a callout fed by several areas is marked if any of them is
-# not certain. unnamed prints the game's name with its own mark.
+# stated, guide and measured are CERTAIN and print unmarked; inferred and
+# guess print with a mark, and a callout fed by several areas is marked if
+# any of them is not certain. unnamed prints the game's name with its own
+# mark.
 #
 # THE KEYS. One section per map, ``[<map>.<game area>]``. An unknown map is
 # refused at load (it must be in ``[league].map_pool``), and so is an unknown
@@ -203,8 +224,8 @@ source = "alueomistus-pohja-2026-09-26.md de_nuke table: Lobby = lobby"
 callout = "lockers"
 junction = false
 neighbours = 2
-confidence = "inferred"
-source = "calloutit.md guide: LOCKERS -- a match of names only"
+confidence = "measured"
+source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/nuke-lockerroom.png: the ticks lie on the guide label -- all 18 on LOCKERS. Before the measurement: calloutit.md guide: LOCKERS -- a match of names only"
 
 [de_nuke.Mini]
 callout = "main"
@@ -374,16 +395,16 @@ source = "reittimalli-dust2-2026-09-26.md section 3: Catwalk = catwalk / cat; ca
 callout = "short a"
 junction = false
 neighbours = 4
-confidence = "inferred"
-source = "reittimalli-dust2-2026-09-26.md section 3: ExtendedA = short A (inferred); calloutit.md guide: SHORT A"
+confidence = "measured"
+source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/dust2-epavarmat.png: the ticks lie on the guide label -- the top of SHORT A, up to NINJA. Before the measurement: reittimalli-dust2-2026-09-26.md section 3: ExtendedA = short A (inferred); calloutit.md guide: SHORT A"
 
 [de_dust2.Hole]
 callout = "window"
 junction = true
 junction_source = "reittimalli-dust2-2026-09-26.md contact points: 'beyond mid doors on mid-to-B: CT spawn, B window or B doors'"
 neighbours = 3
-confidence = "inferred"
-source = "reittimalli-dust2-2026-09-26.md section 2: 'Hole as the window is inferred'; calloutit.md guide: WINDOW"
+confidence = "measured"
+source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/dust2-epavarmat.png: the ticks lie on the guide label -- on WINDOW. Before the measurement: reittimalli-dust2-2026-09-26.md section 2: 'Hole as the window is inferred'; calloutit.md guide: WINDOW"
 
 [de_dust2.LongA]
 callout = "long a"
@@ -759,12 +780,12 @@ confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_ancient table: Ramp = ramp"
 
 [de_ancient.Ruins]
-callout = "ruins"
+callout = "b doors"
 junction = false
 neighbours = 5
-confidence = "guide"
-source = "calloutit.md guide: RUINS -- the game area's own name is a guide callout"
-note = "His own ruins callout lies at least partly in the game's SideEntrance (alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review'); this area only shares the name."
+confidence = "inferred"
+source = "koordinaatit-mitattu-2026-09-27.md section 1, picture koordinaatit-2026-09-27/ancient-epavarmat.png (red): by coordinates the game's Ruins is the guide's B DOORS, with a streak towards WATER -- a reading of coordinates, not his word, so inferred"
+note = "Until 2026-09-27 this entry was callout ruins, confidence guide, because the game's name equals the guide's callout RUINS; the old note already said this area only shares the name. His ruins, with dig, is the game's SideEntrance (koordinaatit-mitattu-2026-09-27.md section 1; alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review'). The one measured case where a name match is not a place match."
 
 [de_ancient.SideEntrance]
 callout = "ruins/dig"
@@ -772,9 +793,9 @@ coarse = true
 junction = true
 junction_source = "alueomistus-pohja-2026-09-26.md de_ancient: 'upper b long ja dig on kohtaamispiste'"
 neighbours = 3
-confidence = "guess"
-source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'SideEntrance on todennäköisesti ruins ja dig niputettuna yhdeksi' -- his 'todennäköisesti'"
-note = "One game area holding two of his callouts, flagged. His ruins callout spans ground the game names differently: the game also has an area called Ruins (T side, share 1.00), which keeps its own entry."
+confidence = "measured"
+source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/ancient-epavarmat.png: the ticks lie on the guide label -- covers the RUINS corridor and DIG: both, so coarse is right. Before the measurement: alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'SideEntrance on todennäköisesti ruins ja dig niputettuna yhdeksi' -- his 'todennäköisesti'"
+note = "One game area holding two of his callouts, flagged. The game's own area called Ruins is not his ruins: by coordinates it is the guide's B DOORS (koordinaatit-mitattu-2026-09-27.md section 1), and its entry says so."
 
 [de_ancient.SideHall]
 callout = "donut"
@@ -797,8 +818,8 @@ callout = "upper b long"
 junction = true
 junction_source = "alueomistus-pohja-2026-09-26.md de_ancient: 'upper b long ja dig on kohtaamispiste'"
 neighbours = 4
-confidence = "guess"
-source = "alueomistus-pohja-2026-09-26.md de_ancient table: 'TSideUpper on mielestäni upper b long, mutta ... tämä on valistunut arvaukseni' -- his educated guess"
+confidence = "measured"
+source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/ancient-epavarmat.png: the ticks lie on the guide label -- covers CAT and the UPPER B LONG pointer. Before the measurement: alueomistus-pohja-2026-09-26.md de_ancient table: 'TSideUpper on mielestäni upper b long, mutta ... tämä on valistunut arvaukseni' -- his educated guess"
 note = "Conflict: the older table in the first route model (reittimalli-<owner>.md) gives TSideUpper and TSideLower one callout, 'B suora'."
 
 [de_ancient.TSpawn]
@@ -813,8 +834,8 @@ source = "alueomistus-pohja-2026-09-26.md de_ancient table: TSpawn = t spawn"
 callout = "top mid"
 junction = false
 neighbours = 2
-confidence = "inferred"
-source = "calloutit.md guide: TOP MID -- a match of names only; alueomistus-pohja-2026-09-26.md: 'TopofMid may hold T elbow; unconfirmed'"
+confidence = "measured"
+source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/ancient-kaikki-alueet.png: the ticks lie on the guide label -- on the TOP MID pointer. Before the measurement: calloutit.md guide: TOP MID -- a match of names only; alueomistus-pohja-2026-09-26.md: 'TopofMid may hold T elbow; unconfirmed'"
 
 [de_ancient.Tunnel]
 callout = "tunnel"
@@ -841,8 +862,8 @@ source = "calloutit.md guide: ALLEY -- the game area's own name is a guide callo
 callout = "backsite"
 junction = false
 neighbours = 4
-confidence = "inferred"
-source = "calloutit.md guide: BACKSITE -- a match of the place only"
+confidence = "measured"
+source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/anubis-epavarmat.png: the ticks lie on the guide label -- on BACKSITE. Before the measurement: calloutit.md guide: BACKSITE -- a match of the place only"
 
 [de_anubis.BombsiteA]
 callout = "a site"
@@ -944,8 +965,8 @@ callout = "middle doors"
 junction = true
 junction_source = "alueomistus-pohja-2026-09-26.md de_anubis: 'ct pelaaja voi peekata mid talosta tai tuplaovien puolelta sillalle'"
 neighbours = 3
-confidence = "inferred"
-source = "alueomistus-pohja-2026-09-26.md de_anubis table: MidDoors = tuplaovet / middle doors? -- 'name match only, unconfirmed'; calloutit.md guide: MIDDLE DOORS"
+confidence = "measured"
+source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/anubis-epavarmat.png: the ticks lie on the guide label -- on MIDDLE DOORS. Before the measurement: alueomistus-pohja-2026-09-26.md de_anubis table: MidDoors = tuplaovet / middle doors? -- 'name match only, unconfirmed'; calloutit.md guide: MIDDLE DOORS"
 
 [de_anubis.Middle]
 callout = "middle"
@@ -982,8 +1003,8 @@ source = "alueomistus-pohja-2026-09-26.md de_anubis table: Ruins, OutsideLong = 
 callout = "sniper"
 junction = false
 neighbours = 1
-confidence = "inferred"
-source = "calloutit.md guide: SNIPER -- a match of the place only"
+confidence = "measured"
+source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/anubis-epavarmat.png: the ticks lie on the guide label -- on SNIPER (6 ticks). Before the measurement: calloutit.md guide: SNIPER -- a match of the place only"
 
 [de_anubis.Street]
 callout = "street"

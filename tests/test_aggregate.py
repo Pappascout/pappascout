@@ -5852,6 +5852,31 @@ def test_places_list_the_table_and_every_other_observed_area() -> None:
     ] == [("Control", "Control", "no_table")]
 
 
+def test_a_measured_place_prints_unmarked() -> None:
+    """``measured`` (Story 4.16) is certain: the coordinates confirmed a
+    callout another source proposed, so the place prints with no mark --
+    alone, merged with a ``stated`` area, and coarse with only the coarse
+    mark. The same path names every route step and statistic
+    (:func:`places_for` through ``_route_place``), and without this test only
+    the archive's pinned pistol routes would notice a measured place printed
+    with the inferred mark."""
+    table: MapCallouts = {
+        "LockerRoom": callout("lockers", confidence="measured"),
+        "Squeaky": callout("ovi", junction=True),
+        "Doors": callout("ovi", junction=True, confidence="measured"),
+        "Yard": callout("piha", coarse=True, confidence="measured"),
+    }
+    places = {
+        place.area: (place.callout, place.flag)
+        for place in places_for(table, [])
+    }
+    assert places == {
+        "LockerRoom": ("lockers", None),
+        "Squeaky": ("ovi", None),
+        "Doors": ("ovi", None),
+        "Yard": ("piha", "coarse"),
+    }
+
 def test_build_report_gives_each_map_its_places() -> None:
     """The table reaches the places by map name, and the observed areas of
     all three tables are in them: a sample point's, a grenade's and a

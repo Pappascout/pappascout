@@ -8,6 +8,7 @@ contradictions between the sections are caught at load time.
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -2237,9 +2238,14 @@ def test_an_unnamed_place_says_so_and_a_named_one_does_not() -> None:
 
 @pytest.mark.parametrize(
     ("confidence", "certain"),
-    [("stated", True), ("guide", True), ("inferred", False), ("guess", False)],
+    [
+        ("stated", True), ("guide", True), ("measured", True),
+        ("inferred", False), ("guess", False),
+    ],
 )
-def test_only_stated_and_guide_are_certain(confidence: str, certain: bool) -> None:
+def test_only_stated_guide_and_measured_are_certain(
+    confidence: str, certain: bool
+) -> None:
     entry = CalloutEntry(
         callout="x", junction=False, neighbours=0, source="s",
         confidence=confidence,
@@ -2298,6 +2304,11 @@ _GUESS_WORDS = ("guess", "arvaus", "veikkaan", "todennäköisesti")
 _INFERRED_WORDS = ("inferred", "unconfirmed", "match of names", "match of the place")
 
 
+#: The document the coordinates check of 2026-09-27 is recorded in (Story
+#: 4.16); a ``measured`` entry cites it.
+_COORDINATES = "koordinaatit-mitattu-2026-09-27.md"
+
+
 def test_every_shipped_confidence_matches_its_sources_hedging() -> None:
     """Where the source hedges, the entry says so, and an entry that claims
     less than certainty has a hedge to show for it -- the review's finding
@@ -2306,6 +2317,12 @@ def test_every_shipped_confidence_matches_its_sources_hedging() -> None:
         source = entry.source.lower()
         guessed = any(word in source for word in _GUESS_WORDS)
         inferred = any(word in source for word in _INFERRED_WORDS)
+        if entry.confidence == "measured":
+            # The measurement settles the hedge the older source still
+            # quotes; which entries are measured is held to the claims in
+            # tests/data/guide_fit.json, not to their wording
+            # (test_the_measured_entries_are_exactly_the_confirmed_claims).
+            continue
         if guessed:
             assert entry.confidence == "guess", (map_name, area)
         elif inferred:
@@ -2340,3 +2357,90 @@ def test_a_callout_spelled_like_an_unnamed_area_is_refused(tmp_path: Path) -> No
         load_callouts(["de_nuke"], path)
     path.write_text(base.format(name="cranes"), encoding="utf-8")
     assert load_callouts(["de_nuke"], path)["de_nuke"]["Lobby"].callout == "cranes"
+
+
+def test_the_loader_accepts_measured_as_certain(tmp_path: Path) -> None:
+    """``measured`` (Story 4.16) loads from the file and prints unmarked;
+    a confidence outside the vocabulary is still refused."""
+    entry = _ENTRY.replace('"stated"', '"measured"')
+    table = load_callouts(["de_nuke"], _table(tmp_path, "[de_nuke.Lobby]\n" + entry))
+    assert table["de_nuke"]["Lobby"].certain is True
+    unknown = _ENTRY.replace('"stated"', '"measurd"')
+    with pytest.raises(SettingsError, match="confidence"):
+        load_callouts(["de_nuke"], _table(tmp_path, "[de_nuke.Lobby]\n" + unknown))
+
+
+def test_the_game_s_ancient_ruins_is_b_doors_by_coordinates() -> None:
+    """A name match is not a place match (Story 4.16): the game's ``Ruins``
+    on de_ancient lies on the guide's B DOORS, so the table names it that,
+    marked, and cites the measurement. Before it printed *ruins*, the same
+    word his ruins/dig -- the game's ``SideEntrance`` -- prints."""
+    ruins = load_callouts(
+        load_settings(REAL_SETTINGS, env_files=()).league.map_pool
+    )["de_ancient"]["Ruins"]
+    assert (ruins.callout, ruins.confidence) == ("b doors", "inferred")
+    assert _COORDINATES in ruins.source
+
+
+def test_no_part_of_a_shipped_split_callout_is_another_area_s_callout() -> None:
+    """A callout written ``a/b`` names two of his places in one game area;
+    another area of the map printing ``a`` alone would give one of his
+    places to two different grounds. That is exactly what de_ancient's
+    ``Ruins`` (*ruins*) and ``SideEntrance`` (*ruins/dig*) did until the
+    coordinates check of 2026-09-27. For the same reason no part may be
+    shared by two split callouts, nor be spelled like an area the table
+    leaves unnamed (that area prints the game's name).
+
+    **The limit, stated:** only a callout written with ``/`` shows its
+    parts. A coarse callout written as one word (Nuke's *outside*, Inferno's
+    *banana*) holds several of his places under a single name, and nothing
+    here can see which, so a second area printing one of them passes."""
+    table = load_callouts(load_settings(REAL_SETTINGS, env_files=()).league.map_pool)
+    for map_name, areas in table.items():
+        callouts = {area: entry.callout for area, entry in areas.items()}
+        unnamed = {area.lower() for area, c in callouts.items() if c is None}
+        owner: dict[str, str] = {}
+        for area, callout in callouts.items():
+            if callout is None or "/" not in callout:
+                continue
+            for part in (part.strip() for part in callout.split("/")):
+                clash = [a for a, c in callouts.items() if c == part]
+                assert not clash, (map_name, area, part, clash)
+                assert part not in unnamed, (map_name, area, part)
+                assert owner.setdefault(part, area) == area, (
+                    map_name, area, part, owner[part]
+                )
+
+
+def test_the_measured_entries_are_exactly_the_confirmed_claims() -> None:
+    """``measured`` is derived from repository data, not from an entry's
+    wording (Story 4.16): an entry is measured exactly when
+    ``tests/data/guide_fit.json`` holds a claim for its area whose callout
+    another source proposed first. A claim only the coordinates propose
+    (de_ancient ``Ruins``) stays ``inferred``. Each claim's labels, lower-cased
+    and joined with ``/``, are the entry's callout, so a claim cannot confirm
+    one name while the table prints another. Whether the claims hold on the
+    archive is ``tests/test_calibration.py``'s ``-m archive`` check."""
+    fit = json.loads(
+        (Path(__file__).parent / "data" / "guide_fit.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    table = load_callouts(load_settings(REAL_SETTINGS, env_files=()).league.map_pool)
+    measured = {
+        (map_name, area)
+        for map_name, areas in table.items()
+        for area, entry in areas.items()
+        if entry.confidence == "measured"
+    }
+    confirmed = {
+        (claim["map"], claim["area"])
+        for claim in fit["claims"]
+        if claim["proposed_by"] != "coordinates"
+    }
+    assert measured == confirmed
+    for claim in fit["claims"]:
+        entry = table[claim["map"]][claim["area"]]
+        assert entry.callout == "/".join(claim["meets"]).lower(), claim["area"]
+        if claim["proposed_by"] == "coordinates":
+            assert entry.confidence == "inferred", claim["area"]

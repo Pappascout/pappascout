@@ -1,0 +1,211 @@
+{
+  "_comment": "The coordinates check of the callout table (Story 4.16). Per map: the guide image in pappascout-archive/callouts/, the fit that projects a game position onto it (px = sx*x + bx, py = -sy*y + by; zmin keeps only positions at or above that height -- Nuke's image draws its lower floor apart, so only the upper floor is fitted), and the guide labels the check uses as boxes in image pixels [x0, y0, x1, y1]. The fit comes from koordinaatit-mitattu-2026-09-27.md; the label boxes are read by hand from the guide images. Each claim names a game area, the labels its ticks must meet (their names, lower-cased and joined with '/', are the area's callout in callouts.toml) and the labels they must miss, and who proposed the callout before the coordinates: 'his guess', 'guide name' or 'coordinates'. A callout another source proposed and the coordinates confirm is 'measured' in callouts.toml; one only the coordinates propose stays 'inferred'. tests/test_settings.py holds the table to this file; tests/test_calibration.py checks the claims against the archive under -m archive, and the result cannot be re-derived without it.",
+  "maps": {
+    "de_nuke": {
+      "image": "kartta12_sivu16_748x749.png",
+      "fit": {
+        "sx": 0.1004,
+        "sy": 0.1015,
+        "bx": 353.75,
+        "by": 360.0
+      },
+      "zmin": -500,
+      "labels": {
+        "LOCKERS": [
+          455,
+          424,
+          515,
+          437
+        ]
+      }
+    },
+    "de_dust2": {
+      "image": "kartta04_sivu4_1024x1024.png",
+      "fit": {
+        "sx": 0.2253,
+        "sy": 0.2337,
+        "bx": 559.7,
+        "by": 768.8
+      },
+      "labels": {
+        "WINDOW": [
+          235,
+          150,
+          282,
+          162
+        ],
+        "SHORT A": [
+          622,
+          165,
+          660,
+          330
+        ]
+      }
+    },
+    "de_ancient": {
+      "image": "kartta08_sivu8_1350x1350.png",
+      "fit": {
+        "sx": 0.2391,
+        "sy": 0.2361,
+        "bx": 770.9,
+        "by": 662.8
+      },
+      "labels": {
+        "UPPER B LONG": [
+          835,
+          860,
+          850,
+          875
+        ],
+        "TOP MID": [
+          658,
+          648,
+          672,
+          662
+        ],
+        "RUINS": [
+          875,
+          600,
+          900,
+          700
+        ],
+        "DIG": [
+          790,
+          765,
+          842,
+          792
+        ],
+        "B DOORS": [
+          953,
+          925,
+          1100,
+          955
+        ]
+      }
+    },
+    "de_anubis": {
+      "image": "kartta15_sivu20_1480x1546.png",
+      "fit": {
+        "sx": 0.2996,
+        "sy": 0.3046,
+        "bx": 699.0,
+        "by": 984.8
+      },
+      "labels": {
+        "BACKSITE": [
+          483,
+          695,
+          525,
+          835
+        ],
+        "MIDDLE DOORS": [
+          700,
+          797,
+          815,
+          860
+        ],
+        "SNIPER": [
+          310,
+          370,
+          435,
+          445
+        ]
+      }
+    }
+  },
+  "claims": [
+    {
+      "map": "de_nuke",
+      "area": "LockerRoom",
+      "meets": [
+        "LOCKERS"
+      ],
+      "misses": [],
+      "proposed_by": "guide name"
+    },
+    {
+      "map": "de_dust2",
+      "area": "Hole",
+      "meets": [
+        "WINDOW"
+      ],
+      "misses": [],
+      "proposed_by": "guide name"
+    },
+    {
+      "map": "de_dust2",
+      "area": "ExtendedA",
+      "meets": [
+        "SHORT A"
+      ],
+      "misses": [],
+      "proposed_by": "guide name"
+    },
+    {
+      "map": "de_ancient",
+      "area": "TSideUpper",
+      "meets": [
+        "UPPER B LONG"
+      ],
+      "misses": [],
+      "proposed_by": "his guess"
+    },
+    {
+      "map": "de_ancient",
+      "area": "TopofMid",
+      "meets": [
+        "TOP MID"
+      ],
+      "misses": [],
+      "proposed_by": "guide name"
+    },
+    {
+      "map": "de_ancient",
+      "area": "SideEntrance",
+      "meets": [
+        "RUINS",
+        "DIG"
+      ],
+      "misses": [],
+      "proposed_by": "his guess"
+    },
+    {
+      "map": "de_ancient",
+      "area": "Ruins",
+      "meets": [
+        "B DOORS"
+      ],
+      "misses": [
+        "RUINS"
+      ],
+      "proposed_by": "coordinates"
+    },
+    {
+      "map": "de_anubis",
+      "area": "BackofB",
+      "meets": [
+        "BACKSITE"
+      ],
+      "misses": [],
+      "proposed_by": "guide name"
+    },
+    {
+      "map": "de_anubis",
+      "area": "MidDoors",
+      "meets": [
+        "MIDDLE DOORS"
+      ],
+      "misses": [],
+      "proposed_by": "guide name"
+    },
+    {
+      "map": "de_anubis",
+      "area": "SnipersNest",
+      "meets": [
+        "SNIPER"
+      ],
+      "misses": [],
+      "proposed_by": "guide name"
+    }
+  ]
+}

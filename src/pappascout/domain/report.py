@@ -1917,8 +1917,12 @@ RouteFate = Literal["seen", "died", "gone"]
 #: same values and the same meaning.
 #:
 #: ``None`` on a step means exactly this: a **certain** callout -- his own
-#: word, or the guide's callout that is the game area's own name
-#: (``callouts.toml``'s ``stated`` and ``guide``) -- and, for a merged
+#: word, the guide's callout that is the game area's own name where the
+#: coordinates do not contradict it, or a callout another source proposed
+#: that the coordinates confirm -- they confirm and never name, so a callout
+#: only they propose is marked (``callouts.toml``'s ``stated``, ``guide`` and
+#: ``measured``;
+#: :data:`~pappascout.domain.models.CERTAIN_CONFIDENCE`) -- and, for a merged
 #: callout, every area feeding it certain; or the position the game gave no
 #: name at all. Every other case is printed with a mark so he can see what
 #: the table is missing:

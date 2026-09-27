@@ -1800,14 +1800,35 @@ def _format_validation_error(exc: _ValidationError) -> str:
 CALLOUT_TABLE_PATH = Path(__file__).resolve().parent.parent / "callouts.toml"
 
 #: How sure an entry is, **as its source says** -- ``callouts.toml``'s header
-#: defines each value. ``stated`` and ``guide`` are certain and print
-#: unmarked; ``inferred`` and ``guess`` print marked; ``unnamed`` is the one
-#: value an entry with no callout takes, because there is no mapping to be
-#: sure of.
-CalloutConfidence = Literal["stated", "guide", "inferred", "guess", "unnamed"]
+#: defines each value. ``stated``, ``guide`` and ``measured`` are certain and
+#: print unmarked; ``inferred`` and ``guess`` print marked; ``unnamed`` is the
+#: one value an entry with no callout takes, because there is no mapping to
+#: be sure of.
+#:
+#: **A name match is certain only while the coordinates do not contradict
+#: it** (Story 4.16). ``guide`` rests on the game area's name equalling a
+#: guide callout, and once, on real data, that was not the place: de_ancient's
+#: ``Ruins`` lies on the guide's B DOORS, not its RUINS
+#: (``koordinaatit-mitattu-2026-09-27.md``). A new ``guide`` entry is certain
+#: on the name alone until the coordinates check it; the entries checked on
+#: 2026-09-27 are those in ``tests/data/guide_fit.json`` or in section 1 of
+#: that document.
+#:
+#: **``measured`` confirms and never names.** The coordinates confirm a
+#: callout another source already proposed -- his words, his guess or a
+#: guide name: the area's projected ticks meet that callout's label box in
+#: ``tests/data/guide_fit.json``. The boxes are read by hand from the guide
+#: image; the fit and the check run on the archive (``-m archive``). A
+#: callout only the coordinates propose stays ``inferred``, which is why
+#: ``Ruins`` = *b doors* is. A measured area may spill onto guide labels that
+#: are not his callouts (``TSideUpper`` touches CAT, ``ExtendedA`` reaches
+#: NINJA); it is coarse only when it covers several of **his** callouts.
+CalloutConfidence = Literal[
+    "stated", "guide", "measured", "inferred", "guess", "unnamed"
+]
 
 #: The confidence values the route prints without a mark.
-CERTAIN_CONFIDENCE: frozenset[str] = frozenset({"stated", "guide"})
+CERTAIN_CONFIDENCE: frozenset[str] = frozenset({"stated", "guide", "measured"})
 
 
 class CalloutEntry(_Section):
@@ -1876,9 +1897,11 @@ class CalloutEntry(_Section):
 
     @property
     def certain(self) -> bool:
-        """Whether the callout prints unmarked: his words or the guide's
-        callout that is the game area's own name (:data:`CERTAIN_CONFIDENCE`).
-        An entry with no callout is not certain -- it prints its own mark."""
+        """Whether the callout prints unmarked: his words, the guide's
+        callout that is the game area's own name where the coordinates do not
+        contradict it, or a callout another source proposed that the
+        coordinates confirm (:data:`CERTAIN_CONFIDENCE`). An entry with no
+        callout is not certain -- it prints its own mark."""
         return self.confidence in CERTAIN_CONFIDENCE
 
     @property

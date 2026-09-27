@@ -7,9 +7,9 @@
         "rows": [
           "  - 2 b doors",
           "    - 1 b site ⇄ b doors -> mid doors -> ct spawn -> short boost/elevator (karkea) -> kuoli short boost/elevator (karkea) (36 s)",
-          "    - 1 b site -> window (päätelty) -> mid doors -> ct spawn",
-          "  - 1 mid -> tunnelin portaat ⇄ mid -> catwalk -> short a (päätelty)",
-          "  - 1 short a (päätelty) -> short stairs -> catwalk -> kuoli catwalk (26 s)",
+          "    - 1 b site -> window -> mid doors -> ct spawn",
+          "  - 1 mid -> tunnelin portaat ⇄ mid -> catwalk -> short a",
+          "  - 1 short a -> short stairs -> catwalk -> kuoli catwalk (26 s)",
           "  - 1 short boost/elevator (karkea) -> short stairs -> kuoli short stairs (29 s)"
         ],
         "won": false
@@ -23,7 +23,7 @@
           "    - 1 catwalk -> kuoli catwalk (25 s)",
           "  - 1 lower b -> tunnelin portaat -> upper b -> kuoli upper b (17 s)",
           "  - 1 mid -> tunnelin portaat -> upper b -> b site",
-          "  - 1 short a (päätelty) -> short stairs -> catwalk -> kuoli catwalk (24 s)"
+          "  - 1 short a -> short stairs -> catwalk -> kuoli catwalk (24 s)"
         ],
         "won": true
       },
@@ -31,10 +31,10 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 2 short boost/elevator (karkea) -> short stairs -> catwalk ⇄ short stairs -> short a (päätelty) -> 1 short a (päätelty), 1 kuoli short a (päätelty) (45 s)",
+          "  - 2 short boost/elevator (karkea) -> short stairs -> catwalk ⇄ short stairs -> short a -> 1 short a, 1 kuoli short a (45 s)",
           "  - 1 b doors -> b site ⇄ b doors -> mid doors -> ct spawn",
           "  - 1 mid doors -> b doors ⇄ mid doors -> ct spawn -> short boost/elevator (karkea)",
-          "  - 1 short a (päätelty) -> short stairs -> catwalk ⇄ short stairs -> short a (päätelty)"
+          "  - 1 short a -> short stairs -> catwalk ⇄ short stairs -> short a"
         ],
         "won": false
       }
@@ -46,7 +46,7 @@
         "rows": [
           "  - 4 outside long -> top mid",
           "    - 3 catwalk -> 1 kuoli catwalk (12 s), 1 kuoli catwalk (14 s), 1 kuoli catwalk (18 s)",
-          "    - 1 mid -> catwalk -> short stairs -> kuoli short a (päätelty) (23 s)",
+          "    - 1 mid -> catwalk -> short stairs -> kuoli short a (23 s)",
           "  - 1 t spawn -> top mid -> catwalk -> short stairs"
         ],
         "won": false
@@ -222,7 +222,7 @@
         "rows": [
           "  - 3 alley",
           "    - 2 b site -> mid talo -> 1 ct spawn, 1 mid talo",
-          "    - 1 ruins/dig (karkea, päätelty) -> kuoli ruins/dig (karkea, päätelty) (17 s)",
+          "    - 1 ruins/dig (karkea) -> kuoli ruins/dig (karkea) (17 s)",
           "  - 2 a site",
           "    - 1 ct spawn ⇄ a site",
           "    - 1 ct spawn -> mid talo ⇄ ct spawn"
@@ -237,7 +237,7 @@
         "rows": [
           "  - 4 outside (karkea)",
           "    - 3 middle -> 1 kuoli middle (10 s), 1 kuoli middle (14 s), 1 kuoli donut (20 s)",
-          "    - 1 a main -> a site -> middle -> top mid (päätelty)",
+          "    - 1 a main -> a site -> middle -> top mid",
           "  - 1 t spawn -> outside (karkea) -> a main -> a site -> middle"
         ],
         "won": true
@@ -264,7 +264,7 @@
         "rows": [
           "  - 4 ruins",
           "    - 2 bridge -> canal (karkea)",
-          "      - 1 connector -> b site -> backsite (päätelty) -> kuoli backsite (päätelty) (29 s)",
+          "      - 1 connector -> b site -> backsite -> kuoli backsite (29 s)",
           "      - 1 kuoli canal (karkea) (21 s)",
           "    - 2 outside long",
           "      - 1 b site -> connector -> kuoli connector (44 s)",
@@ -342,7 +342,7 @@
         "rows": [
           "  - 3 alley -> b site",
           "    - 2 ct spawn -> a site",
-          "    - 1 ruins/dig (karkea, päätelty) ⇄ b site -> ct spawn -> a site",
+          "    - 1 ruins/dig (karkea) ⇄ b site -> ct spawn -> a site",
           "  - 1 a site -> kuoli a site (38 s)",
           "  - 1 mid talo -> ct spawn -> kuoli ct spawn (39 s)"
         ],
@@ -354,8 +354,8 @@
         "rows": [
           "  - 3 alley",
           "    - 1 alley",
-          "    - 1 b site -> ruins/dig (karkea, päätelty)",
-          "    - 1 ruins/dig (karkea, päätelty) -> b site -> kuoli b site (17 s)",
+          "    - 1 b site -> ruins/dig (karkea)",
+          "    - 1 ruins/dig (karkea) -> b site -> kuoli b site (17 s)",
           "  - 1 a site -> ct spawn -> alley",
           "  - 1 mid talo -> b site"
         ],
@@ -371,7 +371,7 @@
           "    - 4 middle",
           "      - 2 mid talo -> ct spawn",
           "      - 1 middle",
-          "      - 1 top mid (päätelty) -> kuoli mid talo (16 s)",
+          "      - 1 top mid -> kuoli mid talo (16 s)",
           "    - 1 kuoli middle (10 s)"
         ],
         "won": false
@@ -394,10 +394,10 @@
         "rows": [
           "  - 2 middle",
           "    - 1 TunnelStairs (pelin nimi) -> ct spawn -> alley",
-          "    - 1 b site -> backsite (päätelty) -> kuoli backsite (päätelty) (38 s)",
+          "    - 1 b site -> backsite -> kuoli backsite (38 s)",
           "  - 1 alley -> b site",
           "  - 1 b site -> connector ⇄ b site -> kuoli b site (35 s)",
-          "  - 1 palace -> b site -> backsite (päätelty) -> kuoli backsite (päätelty) (40 s)"
+          "  - 1 palace -> b site -> backsite -> kuoli backsite (40 s)"
         ],
         "won": false
       }
@@ -446,6 +446,6 @@
     ]
   },
   "limit": "A row is a string, so this catches the model and the renderer together and cannot say which of the two moved. It cannot be re-derived without the archive: the tests that read it without one assert on its own contents, which is a different job. The rows are read on the grid settings.toml declares, because _on_grid filters one demo of this archive down to it permanently -- so the table is the report on THAT grid and not on whatever grid a demo happens to be parsed at. It is an observation and not a rule: importing a demo changes these rows legitimately, and the answer is then to measure the table again and say so in the commit.",
-  "measured": "2026-09-26",
+  "measured": "2026-09-27",
   "note": "EVERY pistol block of every recorded team, keyed team/map/side/pistol, with the route rows as the view renders them from the real archive (Stories 4.11 and 4.13). Produced by running tests/test_calibration._route_blocks_from over the archive -- the same code path the test that reads it back uses -- so the file records what the tool produces and not a hand-written expectation. Since Story 4.13 the route reads every sample point, compresses each player's path to the product owner's junctions and speaks his callouts (src/pappascout/callouts.toml). The rows carry callouts, player counts and measured seconds only: the block's heading, which names the opponent and the date, is DELIBERATELY NOT HERE -- the repository is public and the denylist that guards it lives outside the repository (AD-12). What the heading states is pinned without the names in match_counts.json's played table."
 }

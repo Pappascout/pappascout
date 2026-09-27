@@ -3503,7 +3503,13 @@ def test_one_match_gives_the_same_date_and_opponent_on_every_map() -> None:
 #: grid**, not on whatever grid a demo happens to carry. Since Story 4.13 the
 #: route reads **every** point of that grid, fourteen since Story 4.5, and
 #: compresses each path to the product owner's junctions in his callouts
-#: (``src/pappascout/callouts.toml``). Re-pinned by running on 2026-09-26.
+#: (``src/pappascout/callouts.toml``). Re-pinned by running on 2026-09-26,
+#: and again on 2026-09-27 (Story 4.16), when the coordinates confirmed
+#: nine entries (seven inferred, two his guesses) and they lost their
+#: mark. Here that moved marks on five callouts -- short a, window,
+#: ruins/dig, top mid and backsite -- and no name: the other measured
+#: callouts appear in no pinned pistol route, and de_ancient's Ruins,
+#: renamed b doors, is transit and never appears in one.
 #: Story 4.11's four-point table is not kept here: no test read it and no
 #: code can regenerate it, which is the hand-kept second copy the house
 #: rules refuse; the comparison belongs in the story's documents.
@@ -3821,6 +3827,89 @@ def test_every_recorded_neighbour_count_is_the_archives_own() -> None:
     for map_name, areas in table.items():
         recorded = {area: entry.neighbours for area, entry in areas.items()}
         assert recorded == derived[map_name], map_name
+
+
+#: The coordinates check of the callout table (Story 4.16): per map the guide
+#: image's fit and hand-read label boxes, and the claims -- which game area's
+#: ticks meet which label. ``tests/test_settings.py`` holds ``callouts.toml``'s
+#: ``measured`` entries to the claims without the archive; the claims
+#: themselves need the archive and are checked below.
+GUIDE_FIT = json.loads(
+    (Path(__file__).parent / "data" / "guide_fit.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+def _overlaps(one: Sequence[float], two: Sequence[float]) -> bool:
+    """Whether two ``[x0, y0, x1, y1]`` boxes share any point."""
+    return (
+        one[0] <= two[2] and two[0] <= one[2]
+        and one[1] <= two[3] and two[1] <= one[3]
+    )
+
+
+def _area_boxes(root: Path) -> dict[tuple[str, str], list[float]]:
+    """Each claimed area's live ticks projected onto its map's guide image,
+    as the 5th-95th percentile box ``[x0, y0, x1, y1]`` in image pixels.
+
+    The percentiles and not the extremes, so a handful of stray positions
+    (a death thrown across a wall, a jump) cannot make an area reach a
+    label it does not lie on.
+    """
+    wanted = {(claim["map"], claim["area"]) for claim in GUIDE_FIT["claims"]}
+    frames: dict[str, list[pl.DataFrame]] = defaultdict(list)
+    for ticks_path in sorted((root / "parsed").glob("*/ticks.parquet")):
+        map_name = pl.read_parquet(ticks_path.with_name("match.parquet"))[
+            "map_name"
+        ][0]
+        if map_name in GUIDE_FIT["maps"]:
+            frames[map_name].append(
+                pl.read_parquet(
+                    ticks_path, columns=["x", "y", "z", "area", "is_alive"]
+                ).filter(pl.col("is_alive"))
+            )
+    boxes = {}
+    for map_name, area in sorted(wanted):
+        guide = GUIDE_FIT["maps"][map_name]
+        fit = guide["fit"]
+        ticks = pl.concat(frames[map_name]).filter(pl.col("area") == area)
+        if "zmin" in guide:
+            ticks = ticks.filter(pl.col("z") >= guide["zmin"])
+        px = ticks["x"].cast(pl.Float64) * fit["sx"] + fit["bx"]
+        py = -ticks["y"].cast(pl.Float64) * fit["sy"] + fit["by"]
+        boxes[(map_name, area)] = [
+            px.quantile(0.05), py.quantile(0.05),
+            px.quantile(0.95), py.quantile(0.95),
+        ]
+    return boxes
+
+
+@pytest.mark.archive
+def test_every_coordinates_claim_holds_on_the_archive() -> None:
+    """Every claim of ``tests/data/guide_fit.json`` re-derived: the area's
+    projected ticks meet each label they must meet and miss each label they
+    must miss. This is what makes ``measured`` in ``callouts.toml`` a
+    checked measurement and not a copy of the night's reading, and it is the
+    one measured case of a name match that is not a place match: the game's
+    ``Ruins`` on de_ancient meets B DOORS and misses RUINS.
+
+    The label boxes are read by hand from the images and the judgement "lies
+    on the label" is reduced to "the percentile box touches the label box",
+    so a box drawn too generously would pass an area beside the label. It is
+    an observation and not a rule: importing a demo moves the boxes, and the
+    answer is to look at the picture again, not to redraw a label box until
+    the test passes.
+    """
+    root = require_parsed(*RECORDED_DEMOS)
+    boxes = _area_boxes(root)
+    for claim in GUIDE_FIT["claims"]:
+        labels = GUIDE_FIT["maps"][claim["map"]]["labels"]
+        box = boxes[(claim["map"], claim["area"])]
+        for label in claim["meets"]:
+            assert _overlaps(box, labels[label]), (claim["area"], label, box)
+        for label in claim["misses"]:
+            assert not _overlaps(box, labels[label]), (claim["area"], label, box)
 
 
 def test_the_recorded_routes_name_nobody_and_date_nothing() -> None:
