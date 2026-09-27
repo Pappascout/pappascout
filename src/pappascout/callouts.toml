@@ -90,7 +90,37 @@
 #                      one.
 #   coarse          -- the area holds several of his callouts (Nuke's yard is
 #                      one game area); the report prints the coarse name,
-#                      flagged as needing coordinates. Never split by guess.
+#                      flagged -- unless the area is split (below); then only
+#                      its rule rows and the positions the split cannot
+#                      place do. Never split by guess: only by his own
+#                      division.
+#   split           -- the area divided by POSITION into his callouts (Story
+#                      4.17), on his guide image's own grid, as he gave it
+#                      half-cell by half-cell. Only a coarse area is split,
+#                      and its own callout stays what a RULE row on the whole
+#                      area prints (the rules measured the whole area and are
+#                      calibrated there). Its keys: image, fit (the Story
+#                      4.16 projection px = sx*x + bx, py = -sy*y + by --
+#                      the one copy; tests/data/guide_fit.json reads it from
+#                      here), zmin (a position below it is not on the floor
+#                      the image draws and keeps the coarse name), origin
+#                      and cell (the grid's top-left pixel and one cell's
+#                      size), columns and rows, source, and parts. A part
+#                      is one of his places: callout, junction,
+#                      junction_source, confidence, source and note as an
+#                      area's, plus cells (half-cells he named, e.g. K13b:
+#                      a top-left, b top-right, c bottom-left, d
+#                      bottom-right) and boxes (pixel rectangles
+#                      [x0, y0, x1, y1] for a place smaller than a
+#                      half-cell, overriding the half-cells beneath). A
+#                      half-cell nobody names takes its NEAREST named
+#                      half-cell's callout, by centre distance, a tie to the
+#                      part first in the file (his "liitä loput
+#                      lähimpään"); that is derived in code
+#                      (CellSplit.inherited), never written here. A part
+#                      named like an area IS that place: the two must agree
+#                      on junction, and the area must not be coarse; the
+#                      counts merge.
 #   junction        -- see the rule above. A transit place drops out of the
 #                      middle of a route; a place with no callout is always
 #                      kept, so the flag stays visible.
@@ -105,10 +135,10 @@
 #                      a copy.
 #   confidence, source, note -- as above.
 #
-# Only callout, junction, coarse and confidence change the report, and only
-# those go into the aggregate's parameter hash (AD-1): editing one of them
-# re-runs ``aggregate``; editing a source, a note, a neighbour count or a
-# comment does not.
+# Only callout, junction, coarse, confidence and split change the report, and
+# only those go into the aggregate's parameter hash (AD-1): editing one of
+# them re-runs ``aggregate``; editing a source, a note, a neighbour count, a
+# split's image or a comment does not.
 
 [de_nuke.Admin]
 callout = "admin"
@@ -250,7 +280,192 @@ junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'piha
 neighbours = 15
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_nuke table: Outside = the whole yard; open item 1: ct piha, T red, ct red and the contact near silo are all inside it"
-note = "One game area holding several of his callouts: the coarse name, flagged until coordinates split it."
+note = "One game area holding several of his callouts. Since Story 4.17 its positions are counted under his yard callouts by the split below; the coarse name, flagged, stays for a rule row on the whole area and for a position the split cannot place."
+
+[de_nuke.Outside.split]
+image = "kartta12_sivu16_748x749.png"
+zmin = -500.0
+origin = [21.0, 21.0]
+cell = [43.0, 42.2]
+columns = "ABCDEFGHIJKLMNOP"
+rows = 17
+source = "nuke-piha-vastaus-2026-09-27.md, the half-cell answer and 'FINAL table (source for Story 4.17)': the yard divided half-cell by half-cell on the guide image's own grid (16 columns A-P, rows 1-17, origin at image pixel (21, 21), one cell 43 x 42.2 px, half-cells a top-left, b top-right, c bottom-left, d bottom-right), and 'Every other half-cell holding Outside ticks takes its nearest named half-cell's callout (his: liitä loput lähimpään)'. The fit and zmin are koordinaatit-mitattu-2026-09-27.md's (Story 4.16): Nuke's image draws its lower floor apart, so only the upper floor is fitted."
+
+[de_nuke.Outside.split.fit]
+sx = 0.1004
+sy = 0.1015
+bx = 353.75
+by = 360.0
+
+
+[[de_nuke.Outside.split.parts]]
+callout = "t spawn"
+cells = ["F11a", "F11b", "F11c", "F11d"]
+junction = true
+junction_source = "a spawn (spec-4-13-the-route-through-his-junctions.md: spawns are junctions); the game's TSpawn is his t spawn and the two merge"
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 't spawn | F11a, F11b, F11c, F11d'; F11a and F11c hold no Outside position (nuke-piha-vastaus-2026-09-27.md section 'Measured by the 4.17 implementer before building'): kept as he gave them"
+
+[[de_nuke.Outside.split.parts]]
+callout = "outsideLobby"
+cells = ["G10c", "G10d", "G11a"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'outsideLobby | G10c, G10d, G11a'; his name, same section: 'matkalla lobbyyn voisi olla outsideLobby'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "Tladder"
+cells = ["G11c", "G11d"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'Tladder | G11c, G11d'; his name, same section: 'matkalla T katolle voisi olla Tladder'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "Toutside"
+cells = ["G12a", "G12c", "G12d", "G13b", "H13a", "H13c"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'Toutside | G12a, G12c, G12d, G13b, H13a, H13c'; his name, same section: 'Matkalla kontaktille Toutside'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "kontakti"
+cells = ["H13d", "I13c", "I13d", "H14b", "I14a"]
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'pihalla kontaktilta t red/garage/main/secret' -- his contact point (spec-4-17 decision 9)"
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'kontakti | H13d, I13c, I13d, H14b, I14a'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "t red"
+cells = ["I14b", "I14d", "J14c"]
+junction = true
+junction_source = "spec-4-17-the-nuke-yard-by-his-cells.md decision 9: a named contested and held place where groups divide; alueomistus-pohja-2026-09-26.md de_nuke open item 1 names it inside the yard ('ct piha, T red, ct red and the contact near silo are all inside it')"
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 't red | I14b, I14d, J14c'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "glaive"
+cells = ["J13c", "J13d", "J14a", "J14b"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'glaive | J13c, J13d, J14a, J14b'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "main"
+cells = ["J12d", "J13a", "J13b", "K13a", "K12c"]
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'ovesta mainiin' and 'pihalla kontaktilta ... main' -- the game's Mini is his main and the two merge"
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'main | J12d, J13a, J13b, K13a, K12c'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "mainin takana"
+cells = ["I12d", "I13b"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'mainin takana | I12d, I13b'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "cross"
+cells = ["J14d", "K14a", "K14c"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'cross | J14d, K14a, K14c'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "secret top"
+cells = ["K14b", "L14a"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'secret top | K14b, L14a'; L14a holds no Outside position (nuke-piha-vastaus-2026-09-27.md section 'Measured by the 4.17 implementer before building'): kept as he gave it; splitting the game's Secret is later"
+
+[[de_nuke.Outside.split.parts]]
+callout = "secret entrance"
+cells = ["K14d"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'secret entrance | K14d'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "secret stairs"
+cells = ["L14c"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'secret stairs | L14c'; L14c holds no Outside position (nuke-piha-vastaus-2026-09-27.md section 'Measured by the 4.17 implementer before building'): kept as he gave it, so it receives nothing in 4.17; splitting the game's Secret is later"
+
+[[de_nuke.Outside.split.parts]]
+callout = "porattava"
+cells = ["K12a"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'porattava | K12a'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "ct red"
+cells = ["K12b", "K12d", "K13c", "K13d", "K13b"]
+junction = true
+junction_source = "spec-4-17-the-nuke-yard-by-his-cells.md decision 9: a named contested and held place where groups divide; alueomistus-pohja-2026-09-26.md de_nuke open item 1 names it inside the yard ('ct piha, T red, ct red and the contact near silo are all inside it')"
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'ct red | K12b, K12d, K13c, K13d, K13b (except its top edge)'; its top edge is postimerkki's box, which overrides it"
+
+[[de_nuke.Outside.split.parts]]
+callout = "postimerkki"
+boxes = [[483.25, 516.85, 504.75, 537.95]]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'postimerkki | the top edge where K13b and L13a meet'. A point on an edge, so the box straddles it as ct box straddles its own: centred where the K/L column border (x 494) meets row 13's top edge (y 527.4), half a half-cell (10.55 px) above and below the edge and half a half-cell (10.75 px) into K and into L -- the smallest box that holds the meeting point on every side. His last round: 'K13b ja L13a postimerkki yläreunan risteyksessä'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "garage"
+cells = ["L13a"]
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'pihalla kontaktilta t red/garage/main/secret' -- the game's Garage is his garage and the two merge"
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'garage | L13a (except its top edge)'; its top edge is postimerkki's box, which overrides it"
+
+[[de_nuke.Outside.split.parts]]
+callout = "garagen takana"
+cells = ["L12a", "L12b", "L12c", "L12d"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'garagen takana | L12a, L12b, L12c, L12d'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "ct piha"
+cells = ["K11a", "K11b", "K11c", "K11d", "L11a", "L11b", "L11c", "L11d", "L10c", "L10d"]
+junction = true
+junction_source = "spec-4-17-the-nuke-yard-by-his-cells.md decision 9: a named contested and held place where groups divide; alueomistus-pohja-2026-09-26.md de_nuke open item 1 names it inside the yard ('ct piha, T red, ct red and the contact near silo are all inside it')"
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'ct piha | K11a–d, L11a–d, L10c, L10d'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "hellin portaat"
+cells = ["L10a", "L10b"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'hellin portaat | L10a, L10b'"
+
+[[de_nuke.Outside.split.parts]]
+callout = "ct box"
+boxes = [[537.0, 432.45, 558.5, 453.55]]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'ct box | where M10c and M11a meet'. The box is the smallest that honours it: the whole of the two half-cells' shared edge (x 537-558.5, y 443) and half a half-cell (10.55 px) into each; the rest of M10c and M11a goes to the nearest. It catches almost nothing (nuke-piha-vastaus-2026-09-27.md section 'Measured by the 4.17 implementer before building'), accepted"
+
+[[de_nuke.Outside.split.parts]]
+callout = "lockers"
+cells = ["K10c", "K10d"]
+junction = false
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'lockers | K10c, K10d'; the game's LockerRoom is his lockers and the two merge"
+
+[[de_nuke.Outside.split.parts]]
+callout = "hell"
+cells = ["K10a", "K10b"]
+junction = true
+junction_source = "the first route model (reittimalli-<owner>.md) 2026-09-12, his words: 'Hell on kai heavenin alla ensimmäinen solmukohta' -- the game's Hell is his hell and the two merge"
+confidence = "stated"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'hell | K10a, K10b'; his note: lockers is often called hell from t red's direction"
 
 [de_nuke.Rafters]
 callout = "rafters"
@@ -781,7 +996,8 @@ source = "alueomistus-pohja-2026-09-26.md de_ancient table: Ramp = ramp"
 
 [de_ancient.Ruins]
 callout = "b doors"
-junction = false
+junction = true
+junction_source = "nuke-piha-vastaus-2026-09-27.md section 'His other answers the same morning', answer 3, his words: 'B doors on solmukohta, siitä haluamme tietää meneekö pelaaja bside upperia kohti bsidelowerista vai rampille bsidelowerista'"
 neighbours = 5
 confidence = "inferred"
 source = "koordinaatit-mitattu-2026-09-27.md section 1, picture koordinaatit-2026-09-27/ancient-epavarmat.png (red): by coordinates the game's Ruins is the guide's B DOORS, with a streak towards WATER -- a reading of coordinates, not his word, so inferred"
@@ -846,7 +1062,8 @@ source = "calloutit.md guide: TUNNEL -- the game area's own name is a guide call
 
 [de_ancient.Water]
 callout = "water"
-junction = false
+junction = true
+junction_source = "nuke-piha-vastaus-2026-09-27.md section 'His other answers the same morning', answer 3, his words: 'ensimmäinen solmukohta B:tä kohti on jos pelaaja on mennyt water alueelle (callout kuva)'"
 neighbours = 2
 confidence = "guide"
 source = "calloutit.md guide: WATER -- the game area's own name is a guide callout"

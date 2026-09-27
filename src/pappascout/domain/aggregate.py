@@ -55,6 +55,15 @@ game areas against his blind judgements (Stories 4.4 and 4.5), and moving
 their input would move their calibration. The routes read the unrenamed rows
 too, because they translate each step themselves (:func:`_route_place`).
 
+**A coarse area can be split by position** (Story 4.17): Nuke's yard is one
+game area holding more than twenty of his places, and he divided it on his
+guide image's grid (``callouts.toml``'s ``split``). A split area's row is
+renamed by the row's own position (:data:`POSITION_COLUMNS`), and a route
+step by the sample point's -- through the same :func:`_route_place`, so a
+statistic and a route cannot name one position differently. A rule row on
+the split area still prints the whole area's coarse name, because its rule
+measured the whole area; no rule's input moves.
+
 Three rules that do not bend
 ----------------------------
 **The player count is taken from the living only.** A dead player produces no
@@ -91,7 +100,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from math import isfinite
 from statistics import median
-from typing import Any
+from typing import Any, Literal
 
 import polars as pl
 
@@ -116,8 +125,10 @@ from pappascout.constants import (
 from pappascout.domain import sampling
 from pappascout.domain.models import (
     AggregateSettings,
+    CellPart,
     MapCallouts,
     ThresholdSettings,
+    named_places,
 )
 from pappascout.domain.selection import match_of
 from pappascout.domain.report import (
@@ -141,6 +152,7 @@ from pappascout.domain.report import (
     MapReport,
     MissingDemo,
     PlaceName,
+    PlacePart,
     PlayedMap,
     PlayersCount,
     Position,
@@ -1437,7 +1449,7 @@ def _route_observations(
 ) -> tuple[
     dict[RoundKey, list[float]],
     dict[RoundKey, set[str]],
-    dict[RoundKey, dict[str, dict[float, str | None]]],
+    dict[RoundKey, dict[str, dict[float, _Where]]],
 ]:
     """One pass over the sample points, for the three things a route needs.
 
@@ -1485,11 +1497,12 @@ def _route_observations(
         ascending order, the players who have any row on it, and, per player,
         the area they were observed alive in at each moment. A player is in
         the second and not in the third exactly when they were dead or
-        unsampled at every moment.
+        unsampled at every moment -- the area with the position it was
+        observed at, which a split area is divided by (Story 4.17).
     """
     points: defaultdict[RoundKey, set[float]] = defaultdict(set)
     players: defaultdict[RoundKey, set[str]] = defaultdict(set)
-    at: defaultdict[RoundKey, dict[str, dict[float, str | None]]] = defaultdict(
+    at: defaultdict[RoundKey, dict[str, dict[float, _Where]]] = defaultdict(
         dict
     )
     for row in ticks:
@@ -1503,7 +1516,10 @@ def _route_observations(
         points[key].add(seconds)
         players[key].add(player)
         if bool(row["is_alive"]):
-            at[key].setdefault(player, {})[seconds] = _observed_area(row["area"])
+            at[key].setdefault(player, {})[seconds] = (
+                _observed_area(row["area"]),
+                _position(row, "area"),
+            )
     return (
         {key: sorted(value) for key, value in points.items()},
         dict(players),
@@ -1515,7 +1531,7 @@ def _route_deaths(
     deaths: Sequence[Mapping[str, Any]],
     keys: set[RoundKey],
     lineup_keys: Iterable[str],
-) -> dict[RoundKey, dict[str, tuple[str | None, float]]]:
+) -> dict[RoundKey, dict[str, _Death]]:
     """Per round, where and when each of the team's players was killed.
 
     **The route states a death only from this table** (Story 4.11's frozen
@@ -1551,15 +1567,15 @@ def _route_deaths(
             death.
 
     Returns:
-        Round key -> player id -> ``(area, seconds)``. The **earliest**
+        Round key -> player id -> ``(area, seconds, position)``, the
+        position being the victim's, which a split area is divided by
+        (Story 4.17). The **earliest**
         usable row per player: a player dies once in a round, so a second row
         would be a broken table rather than a second death, and taking the
         earliest is what :func:`deaths_for` does for the round's first death.
     """
     own = set(lineup_keys)
-    died: defaultdict[RoundKey, dict[str, tuple[str | None, float]]] = (
-        defaultdict(dict)
-    )
+    died: defaultdict[RoundKey, dict[str, _Death]] = defaultdict(dict)
     for row in deaths:
         key = _round_key(row)
         if key is None or key not in keys:
@@ -1572,7 +1588,11 @@ def _route_deaths(
             continue
         current = died[key].get(player)
         if current is None or moment < current[1]:
-            died[key][player] = (_observed_area(row["victim_area"]), moment)
+            died[key][player] = (
+                _observed_area(row["victim_area"]),
+                moment,
+                _position(row, "victim_area"),
+            )
     return dict(died)
 
 
@@ -1590,15 +1610,26 @@ class _Place:
     kept: bool
 
 
+def _part_flag(
+    part: CellPart, uncertain: frozenset[str]
+) -> Literal["inferred"] | None:
+    """A split area's part as the report marks it (Story 4.17): never
+    coarse -- it is the split's answer -- so ``inferred`` where its callout
+    is uncertain (:func:`_uncertain_callouts`), and unmarked otherwise. The
+    one rule, for the route step, the statistic and the place list alike."""
+    return "inferred" if part.callout in uncertain else None
+
+
 def _uncertain_callouts(callouts: MapCallouts | None) -> frozenset[str]:
     """The callouts of a map that print marked because an area feeding them
     is not certain -- the coordinator's rule of 2026-09-26: a merged callout
-    is marked if **any** of its areas is ``inferred`` or ``guess``."""
+    is marked if **any** of its areas -- or, since Story 4.17, any part of a
+    split area -- is ``inferred`` or ``guess``."""
     if callouts is None:
         return frozenset()
     return frozenset(
         entry.callout
-        for entry in callouts.values()
+        for _, entry in named_places(callouts)
         if entry.callout is not None and not entry.certain
     )
 
@@ -1607,6 +1638,7 @@ def _route_place(
     area: str | None,
     callouts: MapCallouts | None,
     uncertain: frozenset[str] = frozenset(),
+    position: _Position | None = None,
 ) -> _Place:
     """Translate one game area into the product owner's callout.
 
@@ -1617,6 +1649,15 @@ def _route_place(
 
     * **no table for the map** -- the game's name, flagged ``no_table``, and
       kept: without his junctions nothing can be called transit;
+    * **the area is split by position** (Story 4.17) and the position can
+      be placed (:meth:`~pappascout.domain.models.CellSplit.part_at`) --
+      the part's callout, kept if it is a junction, flagged only
+      ``inferred`` where the callout is in ``uncertain``: a part is never
+      coarse. **The one lookup** of the split, so a statistic and a route
+      step at one position cannot name it differently. A position the split
+      cannot place (none given, no coordinates, or below its floor) falls
+      through to the whole area's coarse name, below -- and so does every
+      anomaly row, whose rule measured the whole area;
     * **the area has a callout** -- his callout, kept if it is a junction.
       Flagged ``coarse`` where the area holds several of his callouts,
       ``inferred`` where the callout is in ``uncertain``
@@ -1640,6 +1681,14 @@ def _route_place(
         return _Place(area, "no_callout", True)
     if entry.callout is None:
         return _Place(area, "no_callout", entry.kept)
+    if entry.split is not None and position is not None:
+        part = entry.split.part_at(*position)
+        if part is not None:
+            return _Place(
+                part.callout,
+                _part_flag(part, uncertain),
+                part.kept,
+            )
     inferred = entry.callout in uncertain
     flag: RouteFlag | None
     if entry.coarse:
@@ -1669,6 +1718,12 @@ def named_rows(
     counted per area first, the same round is *2* twice, and no sum of the
     two distributions gives the 4 back.
 
+    **A split area is renamed by position** (Story 4.17): a column in
+    :data:`POSITION_COLUMNS` is read with the row's own coordinates, so
+    Nuke's yard is counted under his callouts half-cell by half-cell -- a
+    tick at its own ``x, y, z``, a death at the victim's or the attacker's,
+    a utility event at its own.
+
     **Copies, not the rows themselves**: the anomaly rules and the routes
     read the same rows by their game areas, and must go on reading them so.
 
@@ -1691,17 +1746,25 @@ def named_rows(
     """
     uncertain = _uncertain_callouts(callouts)
     names: dict[str | None, str | None] = {}
+    split = {
+        area for area, entry in (callouts or {}).items() if entry.split is not None
+    }
     paired = sources or {}
 
-    def name(value: Any) -> str | None:
-        area = _observed_area(value)
+    def name(row: Mapping[str, Any], column: str) -> str | None:
+        area = _observed_area(row[column])
+        if area in split:
+            # Divided by the row's own position (Story 4.17), so not cached.
+            return _route_place(
+                area, callouts, uncertain, _position(row, column)
+            ).label
         if area not in names:
             names[area] = _route_place(area, callouts, uncertain).label
         return names[area]
 
     named: list[dict[str, Any]] = []
     for row in rows:
-        entry = {**row, **{column: name(row[column]) for column in columns}}
+        entry = {**row, **{column: name(row, column) for column in columns}}
         for column, source in paired.items():
             if row[column] is not None and entry[column] is None:
                 entry[source] = None
@@ -1721,14 +1784,28 @@ def places_for(
     whether a callout is fed by several game areas is the table's answer and
     not an accident of one archive: an anomaly row on Nuke's ``Rafters``
     says which part of *rafters* it was even when nobody stood on
-    ``Catwalk``.
+    ``Catwalk``. For the same reason a split area lists **every** part of
+    its split as :attr:`~pappascout.domain.report.PlaceName.parts`, counted
+    or not (Story 4.17).
     """
     uncertain = _uncertain_callouts(callouts)
     areas = {_observed_area(value) for value in observed} | set(callouts or {})
     places = []
     for area in sorted(name for name in areas if name is not None):
         place = _route_place(area, callouts, uncertain)
-        places.append(PlaceName(area=area, callout=place.label, flag=place.flag))
+        entry = (callouts or {}).get(area)
+        parts = [
+            PlacePart(
+                callout=part.callout,
+                flag=_part_flag(part, uncertain),
+            )
+            for part in (entry.split.parts if entry and entry.split else [])
+        ]
+        places.append(
+            PlaceName(
+                area=area, callout=place.label, flag=place.flag, parts=parts
+            )
+        )
     return places
 
 
@@ -1740,6 +1817,33 @@ DEATH_AREA_COLUMNS = ("attacker_area", "victim_area")
 #: An event's area column -> the column saying where its name came from,
 #: emptied with a blank name (:func:`named_rows`).
 EVENT_SOURCE_COLUMNS = {"area": "area_source"}
+#: An area column -> the columns of the position it was observed at, which
+#: a split area is divided by (Story 4.17). A tick's and an event's ``area``
+#: is at the row's own ``x, y, z``; a death's two areas at the victim's and
+#: the attacker's.
+POSITION_COLUMNS: dict[str, tuple[str, str, str]] = {
+    "area": ("x", "y", "z"),
+    "victim_area": ("victim_x", "victim_y", "victim_z"),
+    "attacker_area": ("attacker_x", "attacker_y", "attacker_z"),
+}
+
+#: A position ``(x, y, z)``, any of which may be missing.
+_Position = tuple[Any, Any, Any]
+#: A sample point as the route reads it: the area and its position.
+_Where = tuple[str | None, _Position | None]
+#: A death as the route reads it: the victim's area, the moment, and the
+#: victim's position.
+_Death = tuple[str | None, float, _Position | None]
+
+
+def _position(row: Mapping[str, Any], column: str) -> _Position | None:
+    """The position an area column was observed at (:data:`POSITION_COLUMNS`),
+    or ``None`` where the row does not carry it -- a hand-built row of a
+    test, or a column no position belongs to."""
+    names = POSITION_COLUMNS.get(column)
+    if names is None or any(name not in row for name in names):
+        return None
+    return (row[names[0]], row[names[1]], row[names[2]])
 
 
 @dataclass(frozen=True)
@@ -1833,8 +1937,8 @@ def _collapse_returns(tokens: list[_Token]) -> list[_Token]:
 
 def _junction_path(
     moments: Sequence[float],
-    where: Mapping[float, str | None],
-    death: tuple[str | None, float] | None,
+    where: Mapping[float, _Where],
+    death: _Death | None,
     callouts: MapCallouts | None,
     uncertain: frozenset[str] = frozenset(),
 ) -> tuple[list[_Token], float | None]:
@@ -1875,8 +1979,10 @@ def _junction_path(
     """
     seen = [(moment, where[moment]) for moment in moments if moment in where]
     runs: list[tuple[_Place, float]] = []
-    for moment, area in seen:
-        place = _route_place(area, callouts, uncertain)
+    for moment, (area, position) in seen:
+        # The one lookup the statistics use too (Story 4.17): a split area's
+        # step is named by the position, as its sample-point row is.
+        place = _route_place(area, callouts, uncertain, position)
         if runs and (runs[-1][0].label, runs[-1][0].flag) == (
             place.label,
             place.flag,
@@ -1903,7 +2009,7 @@ def _junction_path(
     if moments:
         final = moments[-1]
         if death is not None and death[1] <= final:
-            place = _route_place(death[0], callouts, uncertain)
+            place = _route_place(death[0], callouts, uncertain, death[2])
             tokens.append(_Token("died", place.label, place.flag, death[1]))
         elif last_seen is None or last_seen < final:
             lost = next(m for m in moments if last_seen is None or m > last_seen)

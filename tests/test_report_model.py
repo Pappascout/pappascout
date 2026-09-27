@@ -25,6 +25,7 @@ from pappascout.domain.report import (
     MAP_NAME_SOURCES,
     Anomaly,
     PlaceName,
+    PlacePart,
     MapNameSource,
     AnomalyPoint,
     AnomalyRound,
@@ -76,7 +77,7 @@ def named(*areas: str) -> list[PlaceName]:
     stand-in for a table that names every place as the game does, so the
     tests below measure what they are about and not the place names."""
     return [
-        PlaceName(area=area, callout=area, flag=None)
+        PlaceName(area=area, callout=area, flag=None, parts=[])
         for area in sorted(set(areas))
     ]
 
@@ -4074,7 +4075,7 @@ def test_every_statistic_names_only_places_the_map_lists(rename) -> None:
     with pytest.raises(AggregateError, match="counts players under Nowhere"):
         Report.model_validate(document)
     document["maps"][0]["places"].append(
-        {"area": "Nowhere", "callout": "Nowhere", "flag": None}
+        {"area": "Nowhere", "callout": "Nowhere", "flag": None, "parts": []}
     )
     Report.model_validate(document)
 
@@ -4084,7 +4085,7 @@ def test_a_map_names_an_area_once() -> None:
     which row ``render`` read last."""
     document = full_report().model_dump(mode="json")
     document["maps"][0]["places"].append(
-        {"area": "BombsiteA", "callout": "a site", "flag": None}
+        {"area": "BombsiteA", "callout": "a site", "flag": None, "parts": []}
     )
     with pytest.raises(AggregateError, match="names the game area BombsiteA"):
         Report.model_validate(document)
@@ -4095,10 +4096,10 @@ def test_one_callout_is_marked_one_way() -> None:
     flags: the statistic counted under it has one place and one mark."""
     document = full_report().model_dump(mode="json")
     document["maps"][0]["places"] = [
-        {"area": "BombsiteA", "callout": "BombsiteA", "flag": None},
-        {"area": "BombsiteB", "callout": "BombsiteB", "flag": None},
-        {"area": "Control", "callout": "radio", "flag": None},
-        {"area": "Trophy", "callout": "radio", "flag": "inferred"},
+        {"area": "BombsiteA", "callout": "BombsiteA", "flag": None, "parts": []},
+        {"area": "BombsiteB", "callout": "BombsiteB", "flag": None, "parts": []},
+        {"area": "Control", "callout": "radio", "flag": None, "parts": []},
+        {"area": "Trophy", "callout": "radio", "flag": "inferred", "parts": []},
     ]
     with pytest.raises(AggregateError, match="gives the place radio different"):
         Report.model_validate(document)
@@ -4147,11 +4148,110 @@ def test_the_merged_callouts_are_those_several_areas_feed() -> None:
     name."""
     document = full_report().model_dump(mode="json")
     document["maps"][0]["places"] = [
-        {"area": "BombsiteA", "callout": "BombsiteA", "flag": None},
-        {"area": "BombsiteB", "callout": "BombsiteB", "flag": None},
-        {"area": "Control", "callout": "radio", "flag": None},
-        {"area": "Trophy", "callout": "radio", "flag": None},
-        {"area": "Crane", "callout": "Crane", "flag": "no_callout"},
+        {"area": "BombsiteA", "callout": "BombsiteA", "flag": None, "parts": []},
+        {"area": "BombsiteB", "callout": "BombsiteB", "flag": None, "parts": []},
+        {"area": "Control", "callout": "radio", "flag": None, "parts": []},
+        {"area": "Trophy", "callout": "radio", "flag": None, "parts": []},
+        {"area": "Crane", "callout": "Crane", "flag": "no_callout", "parts": []},
     ]
     report = Report.model_validate(document)
     assert report.maps[0].merged_callouts == frozenset({"radio"})
+
+
+# -- Story 4.17: a split game area's parts (19.0.0) ---------------------------
+
+
+def _split_places() -> list[dict]:
+    """The places of a map whose ``Outside`` is split into two parts, one of
+    which shares its name with a whole area (``Mini`` = *main*)."""
+    return [
+        {"area": "BombsiteA", "callout": "BombsiteA", "flag": None, "parts": []},
+        {"area": "BombsiteB", "callout": "BombsiteB", "flag": None, "parts": []},
+        {"area": "Mini", "callout": "main", "flag": None, "parts": []},
+        {
+            "area": "Outside",
+            "callout": "outside",
+            "flag": "coarse",
+            "parts": [
+                {"callout": "kontakti", "flag": None},
+                {"callout": "main", "flag": None},
+            ],
+        },
+    ]
+
+
+def test_a_statistic_may_name_a_part_of_a_split_area() -> None:
+    """A statistic counted under a part (*kontakti*) is a place the map
+    names, through the part and not through any area's own name -- and the
+    same document without the part is refused, so the acceptance is the
+    part's."""
+    document = full_report().model_dump(mode="json")
+    _round_type_doc(document)["positions"][0]["areas"][0]["area"] = "kontakti"
+    document["maps"][0]["places"] = _split_places()
+    Report.model_validate(document)
+    document["maps"][0]["places"][3]["parts"] = [
+        {"callout": "main", "flag": None}
+    ]
+    with pytest.raises(AggregateError, match="counts players under kontakti"):
+        Report.model_validate(document)
+
+
+def test_a_part_and_an_area_of_one_callout_are_marked_one_way() -> None:
+    """*main* fed by ``Mini`` and by a yard part is one place: marked two
+    ways it is refused, as two areas of one callout are."""
+    document = full_report().model_dump(mode="json")
+    document["maps"][0]["places"] = _split_places()
+    Report.model_validate(document)
+    document["maps"][0]["places"][3]["parts"][1]["flag"] = "inferred"
+    with pytest.raises(AggregateError, match="different flags"):
+        Report.model_validate(document)
+
+
+def test_a_part_merges_with_the_area_of_its_name() -> None:
+    """``merged_callouts`` counts a part as a feeder, so a rule row on
+    ``Mini`` says it was ``Mini`` -- the yard's *main* half-cells feed the
+    same *main*. The split area's own coarse name and a part fed only by the
+    yard are not merged."""
+    document = full_report().model_dump(mode="json")
+    document["maps"][0]["places"] = _split_places()
+    report = Report.model_validate(document)
+    assert report.maps[0].merged_callouts == frozenset({"main"})
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [
+        [
+            {"callout": "kontakti", "flag": None},
+            {"callout": "kontakti", "flag": None},
+        ],
+        [{"callout": "outside", "flag": None}],
+    ],
+)
+def test_a_split_area_lists_each_part_once_and_apart_from_its_name(parts) -> None:
+    """A part twice, or a part spelled like the area's own coarse name,
+    would give one position two readings."""
+    with pytest.raises(AggregateError, match="lists a part twice"):
+        PlaceName(area="Outside", callout="outside", flag="coarse", parts=parts)
+
+
+def test_a_part_is_never_coarse_and_never_unnamed() -> None:
+    """A part is the split's answer: only ``None`` or ``inferred``."""
+    for flag in ("coarse", "coarse_inferred", "no_callout", "no_table"):
+        with pytest.raises(ValidationError):
+            PlacePart(callout="kontakti", flag=flag)
+    assert PlacePart(callout="kontakti", flag="inferred").flag == "inferred"
+
+
+@pytest.mark.parametrize("flag", [None, "inferred", "no_callout", "no_table"])
+def test_only_a_coarse_place_has_parts(flag) -> None:
+    """The table splits only an area holding several of his callouts, so a
+    place that is not coarse cannot carry parts (review item 8); a coarse
+    one can, whether certain or inferred."""
+    parts = [PlacePart(callout="kontakti", flag=None)]
+    with pytest.raises(AggregateError, match="not coarse"):
+        PlaceName(area="Lobby", callout="lobby", flag=flag, parts=parts)
+    for coarse in ("coarse", "coarse_inferred"):
+        assert PlaceName(
+            area="Outside", callout="outside", flag=coarse, parts=parts
+        ).parts == parts

@@ -20,6 +20,9 @@
     ],
     "18.0.0": [
       "maps[].places"
+    ],
+    "19.0.0": [
+      "maps[].places[].parts"
     ]
   }
 }

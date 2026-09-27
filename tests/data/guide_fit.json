@@ -1,15 +1,8 @@
 {
-  "_comment": "The coordinates check of the callout table (Story 4.16). Per map: the guide image in pappascout-archive/callouts/, the fit that projects a game position onto it (px = sx*x + bx, py = -sy*y + by; zmin keeps only positions at or above that height -- Nuke's image draws its lower floor apart, so only the upper floor is fitted), and the guide labels the check uses as boxes in image pixels [x0, y0, x1, y1]. The fit comes from koordinaatit-mitattu-2026-09-27.md; the label boxes are read by hand from the guide images. Each claim names a game area, the labels its ticks must meet (their names, lower-cased and joined with '/', are the area's callout in callouts.toml) and the labels they must miss, and who proposed the callout before the coordinates: 'his guess', 'guide name' or 'coordinates'. A callout another source proposed and the coordinates confirm is 'measured' in callouts.toml; one only the coordinates propose stays 'inferred'. tests/test_settings.py holds the table to this file; tests/test_calibration.py checks the claims against the archive under -m archive, and the result cannot be re-derived without it.",
+  "_comment": "The coordinates check of the callout table (Story 4.16). Per map: the guide image in pappascout-archive/callouts/, the fit that projects a game position onto it (px = sx*x + bx, py = -sy*y + by; zmin keeps only positions at or above that height -- Nuke's image draws its lower floor apart, so only the upper floor is fitted), and the guide labels the check uses as boxes in image pixels [x0, y0, x1, y1]. The fit comes from koordinaatit-mitattu-2026-09-27.md; since Story 4.17 de_nuke's image, fit and zmin are product data and live once, in src/pappascout/callouts.toml's split of the named area ('fit_from': [<map>.<area>].split), which this file reads instead of holding a second copy; the label boxes are read by hand from the guide images. Each claim names a game area, the labels its ticks must meet (their names, lower-cased and joined with '/', are the area's callout in callouts.toml) and the labels they must miss, and who proposed the callout before the coordinates: 'his guess', 'guide name' or 'coordinates'. A callout another source proposed and the coordinates confirm is 'measured' in callouts.toml; one only the coordinates propose stays 'inferred'. tests/test_settings.py holds the table to this file; tests/test_calibration.py checks the claims against the archive under -m archive, and the result cannot be re-derived without it.",
   "maps": {
     "de_nuke": {
-      "image": "kartta12_sivu16_748x749.png",
-      "fit": {
-        "sx": 0.1004,
-        "sy": 0.1015,
-        "bx": 353.75,
-        "by": 360.0
-      },
-      "zmin": -500,
+      "fit_from": "de_nuke.Outside",
       "labels": {
         "LOCKERS": [
           455,

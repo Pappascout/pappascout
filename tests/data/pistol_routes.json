@@ -113,11 +113,12 @@
         "round_no": 13,
         "rows": [
           "  - 3 hell",
-          "    - 1 outside (karkea) ⇄ hell -> ramp",
+          "    - 2 ramp",
+          "      - 1 b site -> secret",
+          "      - 1 ramp",
           "    - 1 rafters -> a site -> hut -> lobby -> radio -> ramp",
-          "    - 1 ramp -> b site -> secret",
           "  - 1 admin -> ramp -> b site -> secret",
-          "  - 1 outside (karkea) -> main ⇄ outside (karkea) -> a site -> vent -> secret -> sinkku"
+          "  - 1 ct piha -> main -> a site -> vent -> secret -> sinkku"
         ],
         "won": false
       },
@@ -130,9 +131,9 @@
           "      - 1 a site -> squeaky ⇄ a site",
           "      - 1 heaven ⇄ rafters -> ramp -> b site",
           "    - 1 ramp -> b site",
-          "  - 2 outside (karkea)",
-          "    - 1 a site -> lobby -> t roof -> outside (karkea) -> lobby",
-          "    - 1 main -> kuoli outside (karkea) (23 s)"
+          "  - 2 ct piha -> main",
+          "    - 1 a site -> lobby -> t roof ⇄ lobby",
+          "    - 1 kuoli main (23 s)"
         ],
         "won": true
       },
@@ -144,7 +145,7 @@
           "    - 1 admin",
           "    - 1 rafters -> a site",
           "    - 1 ramp",
-          "  - 2 outside (karkea) -> main -> a site -> 1 vent, 1 kuoli hut (15 s)"
+          "  - 2 ct piha -> main -> a site -> 1 vent, 1 kuoli hut (15 s)"
         ],
         "won": true
       },
@@ -156,9 +157,9 @@
           "    - 1 a site -> kuoli a site (20 s)",
           "    - 1 rafters -> top of hut -> kuoli top of hut (19 s)",
           "    - 1 ramp -> radio ⇄ ramp -> hell -> heaven",
-          "  - 2 outside (karkea) -> main",
+          "  - 2 ct piha -> main",
           "    - 1 a site -> kuoli a site (17 s)",
-          "    - 1 kuoli main (25 s)"
+          "    - 1 ct red ⇄ main -> kuoli main (25 s)"
         ],
         "won": false
       }
@@ -168,10 +169,10 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 4 outside (karkea) -> lobby -> radio -> ramp",
-          "    - 3 hell -> 2 rafters, 1 outside (karkea)",
+          "  - 4 outsidelobby -> lobby -> radio -> ramp",
+          "    - 3 hell -> 2 rafters, 1 hellin portaat",
           "    - 1 heaven -> rafters -> a site",
-          "  - 1 t spawn -> outside (karkea)"
+          "  - 1 t spawn -> kontakti -> t red"
         ],
         "won": true
       },
@@ -179,11 +180,11 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 4 outside (karkea)",
-          "    - 2 lobby -> 1 kuoli lobby (19 s), 1 kuoli lobby (22 s)",
-          "    - 1 main",
-          "    - 1 kuoli main (27 s)",
-          "  - 1 t spawn -> outside (karkea) -> main -> kuoli a site (29 s)"
+          "  - 2 outsidelobby -> lobby -> 1 kuoli lobby (19 s), 1 kuoli lobby (22 s)",
+          "  - 2 toutside",
+          "    - 1 kontakti -> main -> kuoli main (27 s)",
+          "    - 1 t red -> main",
+          "  - 1 t spawn -> kontakti -> main -> kuoli a site (29 s)"
         ],
         "won": false
       },
@@ -191,13 +192,13 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 4 outside (karkea)",
-          "    - 2 lobby",
-          "      - 1 hut -> a site -> main",
-          "      - 1 squeaky -> a site -> hut -> lobby",
-          "    - 1 main -> kuoli main (36 s)",
-          "    - 1 kuoli main (26 s)",
-          "  - 1 t spawn -> outside (karkea) -> main -> a site -> squeaky"
+          "  - 2 outsidelobby -> lobby",
+          "    - 1 hut -> a site -> main",
+          "    - 1 squeaky -> a site -> hut -> lobby",
+          "  - 2 t spawn -> kontakti -> main",
+          "    - 1 a site -> squeaky",
+          "    - 1 kuoli main (36 s)",
+          "  - 1 toutside -> kontakti -> main -> kuoli main (26 s)"
         ],
         "won": true
       },
@@ -205,12 +206,13 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 4 outside (karkea)",
-          "    - 2 lobby",
-          "      - 1 a site ⇄ lobby",
-          "      - 1 hut -> a site ⇄ hut",
-          "    - 2 main -> 1 a site ⇄ main, 1 kuoli main (27 s)",
-          "  - 1 t spawn -> outside (karkea) -> main -> a site"
+          "  - 2 outsidelobby -> lobby",
+          "    - 1 a site ⇄ lobby",
+          "    - 1 hut -> a site ⇄ hut",
+          "  - 2 toutside -> kontakti",
+          "    - 1 main -> kuoli main (27 s)",
+          "    - 1 t red -> main -> a site ⇄ main",
+          "  - 1 t spawn -> kontakti -> main -> a site"
         ],
         "won": true
       }
@@ -313,7 +315,7 @@
           "    - 2 ramp",
           "      - 1 b site -> kuoli b site (27 s)",
           "      - 1 kuoli ramp (40 s)",
-          "  - 1 outside (karkea) -> main -> a site -> vent -> secret -> b site"
+          "  - 1 ct piha -> main -> a site -> vent -> secret -> b site"
         ],
         "won": false
       }
@@ -323,14 +325,12 @@
         "note": null,
         "round_no": 13,
         "rows": [
-          "  - 5 outside (karkea) -> lobby -> radio",
-          "    - 4 ramp -> hell",
-          "      - 2 heaven",
-          "        - 1 outside (karkea) -> hell -> admin",
-          "        - 1 kuoli heaven (33 s)",
-          "      - 1 outside (karkea) ⇄ hell -> admin",
-          "      - 1 kuoli heaven (32 s)",
-          "    - 1 kuoli radio (16 s)"
+          "  - 3 outsidelobby -> lobby -> radio",
+          "    - 2 ramp -> hell -> 1 admin, 1 kuoli heaven (32 s)",
+          "    - 1 kuoli radio (16 s)",
+          "  - 2 t spawn -> lobby -> radio -> ramp -> hell",
+          "    - 1 heaven ⇄ hell -> admin",
+          "    - 1 heaven -> kuoli heaven (33 s)"
         ],
         "won": false
       }
@@ -420,11 +420,11 @@
         "round_no": 13,
         "rows": [
           "  - 4 hell",
+          "    - 1 ct piha -> postimerkki",
           "    - 1 heaven -> rafters ⇄ heaven",
-          "    - 1 outside (karkea)",
           "    - 1 rafters -> a site -> top of hut",
           "    - 1 ramp -> radio -> lobby -> squeaky",
-          "  - 1 outside (karkea) -> garage"
+          "  - 1 ct piha -> main -> ct red -> ct piha -> garage"
         ],
         "won": true
       }
@@ -434,7 +434,7 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 5 outside (karkea) -> lobby",
+          "  - 5 outsidelobby -> lobby",
           "    - 3 hut",
           "      - 2 a site -> 1 kuoli a site (27 s), 1 kuoli a site (31 s)",
           "      - 1 a site ⇄ hut -> kuoli hut (31 s)",

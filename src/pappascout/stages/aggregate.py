@@ -85,10 +85,12 @@ is computed from the named ``[thresholds]`` and ``[league]`` keys and from the
 whole ``[aggregate]`` section (AD-3), so adjusting a threshold re-runs this
 stage but not the parsing. The product owner's callout table
 (``src/pappascout/callouts.toml``, Story 4.13) is in the hash too, parsed and
-only its four fields that change the report (:data:`HASHED_CALLOUT_FIELDS`):
-editing an entry's callout, junction, coarse or confidence -- or adding or
-removing an entry -- re-runs the stage; editing a source, a note, a neighbour
-count, a comment or the order of entries does not.
+only its fields that change the report (:data:`HASHED_CALLOUT_FIELDS`:
+callout, junction, coarse, confidence and split -- of a split, the geometry
+in :data:`HASHED_SPLIT_FIELDS` and each part's :data:`HASHED_PART_FIELDS`,
+Story 4.17): editing one of them -- or adding or removing an entry -- re-runs
+the stage; editing a source, a note, a neighbour count, a split's image, a
+comment or the order of entries does not.
 """
 
 from __future__ import annotations
@@ -1807,7 +1809,34 @@ HASHED_CALLOUT_FIELDS: tuple[str, ...] = (
     "junction",
     "coarse",
     "confidence",
+    "split",
 )
+#: Of a split area (Story 4.17), what changes the report: the geometry that
+#: places a position, and each part's name, half-cells, boxes, junction and
+#: confidence. The ``image`` and every ``source`` are provenance.
+HASHED_SPLIT_FIELDS: tuple[str, ...] = (
+    "fit",
+    "zmin",
+    "origin",
+    "cell",
+    "columns",
+    "rows",
+)
+HASHED_PART_FIELDS: tuple[str, ...] = (
+    "callout",
+    "cells",
+    "boxes",
+    "junction",
+    "confidence",
+)
+#: The three lists as the ``include`` of one entry's dump.
+_HASHED_ENTRY: dict[str, Any] = {
+    **{key: True for key in HASHED_CALLOUT_FIELDS},
+    "split": {
+        **{key: True for key in HASHED_SPLIT_FIELDS},
+        "parts": {"__all__": {key: True for key in HASHED_PART_FIELDS}},
+    },
+}
 
 
 def _params_hash(
@@ -1829,7 +1858,10 @@ def _params_hash(
     report -- a statistic's place, a place's mark, a route's junctions --
     so editing an entry's callout, junction, coarse or confidence -- or
     adding or removing an entry -- re-runs the stage, and editing its
-    provenance or a comment does not.
+    provenance or a comment does not. A split area's geometry and parts
+    (Story 4.17, :data:`HASHED_SPLIT_FIELDS`, :data:`HASHED_PART_FIELDS`)
+    move which callout a position is counted under, so they are in it too;
+    their sources are not.
 
     ``[parse]`` is left out on purpose: the sample points are read from the
     table as they are, and changing them cannot affect this stage without the
@@ -1844,9 +1876,7 @@ def _params_hash(
             "aggregate": aggregate_settings.model_dump(mode="json"),
             "callouts": {
                 map_name: {
-                    area: entry.model_dump(
-                        mode="json", include=set(HASHED_CALLOUT_FIELDS)
-                    )
+                    area: entry.model_dump(mode="json", include=_HASHED_ENTRY)
                     for area, entry in areas.items()
                 }
                 for map_name, areas in callouts.items()

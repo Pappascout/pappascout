@@ -214,6 +214,7 @@ __all__ = [
     "SideReport",
     "PlayedMap",
     "PlaceName",
+    "PlacePart",
     "MapReport",
     "RosterEntry",
     "TeamReport",
@@ -471,7 +472,27 @@ __all__ = [
 #: :attr:`AnomalyPoint.sources`) keep the game's areas, because the rules
 #: were calibrated on them against his blind judgements (Stories 4.4 and
 #: 4.5), and :attr:`MapReport.places` is how ``render`` names them.
-REPORT_SCHEMA_VERSION = "18.0.0"
+#:
+#: **19.0.0 (Story 4.17): one game area can feed many callouts.** Both
+#: conditions. The first: :attr:`PlaceName.parts` is **required**, so an
+#: 18.0.0 file does not validate. The second is why it takes no default: a
+#: statistic's ``area`` may now be a part of a game area chosen by the
+#: player's **position** -- Nuke's ``Outside`` is counted half-cell by
+#: half-cell under his *kontakti*, *t red*, *ct piha* and twenty more --
+#: and the part callouts are named nowhere else. An 18.0.0 file's
+#: statistics counted the whole yard as one *outside*; defaulted to "no
+#: parts", it would read as a yard that was never split and still print.
+#:
+#: **The shape AD-10 allows, and why this one.** ``places`` stays one row
+#: per game area (the anomaly rows keep game areas and look them up by area,
+#: and an area still has one name -- the coarse one its rules measured), and
+#: the row gains the **parts** its positions are counted under, each with
+#: its flag. Every printed name and mark stays derivable from
+#: ``report.json`` alone (memlog 2026-09-25): a statistic's mark is its
+#: callout's flag, found on a place or on a part, and a callout fed by
+#: several areas or parts (:attr:`MapReport.merged_callouts`) is the list's
+#: own answer.
+REPORT_SCHEMA_VERSION = "19.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
 #: refuses an old ``report.json`` with.
@@ -498,10 +519,10 @@ REPORT_SCHEMA_VERSION = "18.0.0"
 #: English, like every other line the CLI prints (AD-11). It never reaches
 #: the report.
 REPORT_SCHEMA_CHANGE = (
-    "Version 18.0.0 counts every statistic of a map under the product "
-    "owner's callouts and gives each map the names its places print with; "
-    "an older report counts game areas and has no such names, which this "
-    "version refuses."
+    "Version 19.0.0 divides a coarse game area by position into the product "
+    "owner's callouts (Nuke's yard, half-cell by half-cell) and lists each "
+    "area's parts beside its name; an older report counts the whole area as "
+    "one place, which this version refuses."
 )
 
 
@@ -2898,9 +2919,53 @@ class PlaceName(_Node):
     #: The game's ``env_cs_place`` area. Never empty: an unnamed position is
     #: ``null`` on the rows and has no name to translate.
     area: str = Field(min_length=1)
-    #: The name printed for :attr:`area`.
+    #: The name printed for :attr:`area` -- for a split area, the coarse
+    #: name its rule rows print, because the rule measured the whole area.
     callout: str = Field(min_length=1)
     flag: RouteFlag | None
+    #: The callouts the area's positions are counted under where the area
+    #: is **split by position** (Story 4.17), every part of the split
+    #: whether counted or not; empty for an area counted whole under
+    #: :attr:`callout`. **Required**, for :data:`REPORT_SCHEMA_VERSION`'s
+    #: 19.0.0 reason. A position the split cannot place keeps
+    #: :attr:`callout`. **Only a coarse place has parts**: the table splits
+    #: only an area holding several of his callouts, so a place whose flag is
+    #: not ``coarse`` or ``coarse_inferred`` with parts is refused -- it
+    #: would claim positions of a whole, certain place were counted apart.
+    parts: list["PlacePart"]
+
+    @model_validator(mode="after")
+    def _check_the_parts(self) -> PlaceName:
+        if self.parts and self.flag not in ("coarse", "coarse_inferred"):
+            raise AggregateError(
+                f"The game area {self.area} lists parts, but its place is "
+                f"flagged {self.flag!r} and not coarse. Only an area holding "
+                "several of his callouts is split by position."
+            )
+        names = [part.callout for part in self.parts]
+        if len(set(names)) != len(names) or self.callout in names:
+            raise AggregateError(
+                f"The game area {self.area} lists a part twice, or a part "
+                f"named like the area's own {self.callout!r}. Each part of a "
+                "split is one place with one name."
+            )
+        return self
+
+
+class PlacePart(_Node):
+    """One of the callouts a split game area is counted under (Story 4.17),
+    with its flag (:data:`RouteFlag`). A part is never coarse -- it is the
+    split's answer -- and it never lacks a callout, so its flag is ``None``
+    or ``inferred``."""
+
+    callout: str = Field(min_length=1)
+    flag: Literal["inferred"] | None
+
+
+def _fed_by(place: PlaceName) -> set[str]:
+    """The callouts one game area feeds: its own name, and the parts of its
+    split (Story 4.17)."""
+    return {place.callout, *(part.callout for part in place.parts)}
 
 
 def _statistic_places(sides: Sequence["SideReport"]) -> set[str]:
@@ -2956,7 +3021,9 @@ class MapReport(_Node):
     #: 18.0.0 reason. Held to three rules (:meth:`_check_places`): an area
     #: once, a callout with one flag, and every place a statistic names
     #: listed -- a statistic ``render`` could not mark would print a guess
-    #: as a certain callout.
+    #: as a certain callout. Since 19.0.0 a split area's
+    #: :attr:`PlaceName.parts` are places too: a statistic may name a part,
+    #: and a part shares one flag with any area of its name.
     places: list[PlaceName]
 
     @property
@@ -2964,12 +3031,16 @@ class MapReport(_Node):
         """The callouts several game areas of :attr:`places` feed (Story
         4.15): Nuke's *radio* is ``Control`` and ``Trophy``. A rule row on
         one of them says which game area it was, because its rule ran on
-        that area alone.
+        that area alone. A part of a split area feeds its callout as an area
+        does (Story 4.17): the yard's *main* half-cells and the game's
+        ``Mini`` are one *main*, so a rule row on ``Mini`` says so.
 
         **Derived and not stored**, as :attr:`Anomaly.matches` is: a field
         would be a second copy of what :attr:`places` already says.
         """
-        fed = Counter(place.callout for place in self.places)
+        fed = Counter(
+            name for place in self.places for name in _fed_by(place)
+        )
         return frozenset(name for name, count in fed.items() if count > 1)
 
     @property
@@ -3072,6 +3143,8 @@ class MapReport(_Node):
         flags: dict[str, set[str | None]] = {}
         for place in self.places:
             flags.setdefault(place.callout, set()).add(place.flag)
+            for part in place.parts:
+                flags.setdefault(part.callout, set()).add(part.flag)
         split = sorted(name for name, seen in flags.items() if len(seen) > 1)
         if split:
             raise AggregateError(

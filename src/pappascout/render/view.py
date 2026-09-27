@@ -3184,7 +3184,16 @@ class _Places:
         return cls(
             map_name=map_report.map_name,
             by_area={place.area: place for place in map_report.places},
-            flag_of={place.callout: place.flag for place in map_report.places},
+            # A split area's parts are places too (Story 4.17): a statistic
+            # counted under *kontakti* finds its mark on Outside's part.
+            flag_of={
+                **{place.callout: place.flag for place in map_report.places},
+                **{
+                    part.callout: part.flag
+                    for place in map_report.places
+                    for part in place.parts
+                },
+            },
             merged=map_report.merged_callouts,
         )
 
@@ -5860,8 +5869,10 @@ def _legend(
     if flags.route_coarse:
         notes.append(
             f"({ROUTE_COARSE_MARK.strip(' ()')}) paikan perässä: "
-            "pelin alue kattaa useamman callout-paikan, joten rivi käyttää "
-            "karkeampaa nimeä. Tarkempi paikka vaatii koordinaatit."
+            "pelin alue kattaa useamman callout-paikan, ja rivi on joko "
+            "koko alueen kattava sääntörivi tai paikka jota ei ole vielä "
+            "jaettu. Jaetulla alueella tilastot nimeävät paikat sijainnin "
+            "mukaan opaskuvan ruudukosta."
         )
     if flags.route_inferred:
         notes.append(
@@ -6078,12 +6089,14 @@ def _anomaly_legend(report: Report) -> list[str]:
     crunch_sources = _threshold_int(report, "crunch_min_sources")
     crunch_lookback = _threshold_float(report, "crunch_lookback_s")
 
-    # "EI KARTTATIETOKANTAA" STAYS TRUE HERE AFTER STORIES 4.13 AND 4.15
-    # (AD-13's traceability clause, considered and not skipped): the callout
-    # table names the report's places and the route's junctions, and reaches
-    # no rule. This share and the stack's site groups below are still
-    # derived from the demo alone, so the sentence is true of the numbers it
-    # stands beside -- only the rows' names are translated.
+    # "EI KARTTATIETOKANTAA" STAYS TRUE HERE AFTER STORIES 4.13, 4.15 AND
+    # 4.17 (AD-13's traceability clause, considered and not skipped): the
+    # callout table names the report's places and the route's junctions, and
+    # reaches no rule -- the split of a coarse area by position (4.17) renames
+    # statistics and route steps only, never a rule's input. This share and
+    # the stack's site groups below are still derived from the demo alone, so
+    # the sentence is true of the numbers it stands beside -- only the rows'
+    # names are translated.
     orientation = (
         f"Luvun {ANOMALY_HEADING} T-osuus on **demon oma havainto** siitä, "
         "kumman puolen aluetta alue on: se on alueen elossa-havainnoista "

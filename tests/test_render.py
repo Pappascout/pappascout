@@ -45,6 +45,7 @@ from pappascout.domain.report import (
     AnomalyPoint,
     AnomalyRound,
     PlaceName,
+    PlacePart,
     _statistic_places,
     AnomalyScan,
     AreaDistribution,
@@ -594,7 +595,7 @@ def named(*areas: str, flag: str | None = None) -> list[PlaceName]:
     every place as the game does, so every row prints its game name
     unmarked and the tests below measure what they are about."""
     return [
-        PlaceName(area=area, callout=area, flag=flag)
+        PlaceName(area=area, callout=area, flag=flag, parts=[])
         for area in sorted(set(areas))
     ]
 
@@ -10273,12 +10274,12 @@ def test_the_no_table_note_reads_the_printed_patterns_only() -> None:
 #: A Nuke-shaped set of places, invented for these tests: every mark a place
 #: can carry, and one callout (*radio*) fed by two game areas.
 NUKE_PLACES = [
-    PlaceName(area="Control", callout="radio", flag=None),
-    PlaceName(area="Crane", callout="Crane", flag="no_callout"),
-    PlaceName(area="Hut", callout="hut", flag="inferred"),
-    PlaceName(area="Lobby", callout="lobby", flag=None),
-    PlaceName(area="Outside", callout="outside", flag="coarse"),
-    PlaceName(area="Trophy", callout="radio", flag=None),
+    PlaceName(area="Control", callout="radio", flag=None, parts=[]),
+    PlaceName(area="Crane", callout="Crane", flag="no_callout", parts=[]),
+    PlaceName(area="Hut", callout="hut", flag="inferred", parts=[]),
+    PlaceName(area="Lobby", callout="lobby", flag=None, parts=[]),
+    PlaceName(area="Outside", callout="outside", flag="coarse", parts=[]),
+    PlaceName(area="Trophy", callout="radio", flag=None, parts=[]),
 ]
 
 
@@ -10461,7 +10462,7 @@ def test_a_dropped_kill_or_target_does_not_explain_its_mark() -> None:
         ),
         small_sample=False,
     )
-    places = [*NUKE_PLACES, PlaceName(area="Silo", callout="silo", flag=None)]
+    places = [*NUKE_PLACES, PlaceName(area="Silo", callout="silo", flag=None, parts=[])]
     capped = render(
         callout_report(entry, places=places),
         ReportSettings(max_kill_areas=3, max_utility_targets=2),
@@ -10505,8 +10506,8 @@ def test_a_marked_merged_callout_carries_its_game_area_in_the_marks_bracket() ->
     """The inferred mark and the game's name share one bracket, not two
     brackets in a row: the one-bracket rule the route's marks keep."""
     places = [
-        PlaceName(area="Bridge", callout="t talo", flag="inferred"),
-        PlaceName(area="Upstairs", callout="t talo", flag="inferred"),
+        PlaceName(area="Bridge", callout="t talo", flag="inferred", parts=[]),
+        PlaceName(area="Upstairs", callout="t talo", flag="inferred", parts=[]),
     ]
     crowd = stack_anomaly(
         map_name="de_inferno",
@@ -10630,3 +10631,41 @@ def test_a_no_table_map_named_only_by_a_rule_row_is_named_in_the_guide() -> None
     guide = guide_of(text)
     assert "Näillä kartoilla ei ole callout-taulua" in guide
     assert "`de_nuke`" in guide.split("ei ole callout-taulua")[1]
+
+
+def test_a_statistic_under_an_inferred_part_of_a_split_area_is_marked() -> None:
+    """Story 4.17: a statistic counted under a part of a split area finds
+    its mark on the part (``MapReport.places[].parts``), so a part that is
+    only inferred prints the inferred mark and the guide explains it -- and
+    a certain part beside it prints bare."""
+    entry = round_type(
+        "pistol",
+        1,
+        positions=[
+            position(
+                15.0,
+                [area("kontakti", 1, {1: 1}), area("t red", 1, {2: 1})],
+                1,
+            )
+        ],
+    )
+    places = [
+        place
+        for place in NUKE_PLACES
+        if place.area != "Outside"
+    ] + [
+        PlaceName(
+            area="Outside",
+            callout="outside",
+            flag="coarse",
+            parts=[
+                PlacePart(callout="kontakti", flag="inferred"),
+                PlacePart(callout="t red", flag=None),
+            ],
+        )
+    ]
+    text = render(callout_report(entry, places=places))
+    line = next(row for row in text.splitlines() if row.startswith("- 15 s:"))
+    assert "kontakti (päätelty) 1" in line
+    assert "t red 2" in line
+    assert "(päätelty) paikan perässä" in guide_of(text)

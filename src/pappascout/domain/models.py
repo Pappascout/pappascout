@@ -29,15 +29,18 @@ edge and with the same stance: an unknown section or key is an error.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
-from math import isfinite
+from math import floor, isfinite
 from pathlib import Path
-from typing import Annotated, Literal
+from collections.abc import Iterator, Mapping
+from typing import Annotated, Literal, get_args
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     SecretStr,
     field_validator,
     model_validator,
@@ -86,8 +89,13 @@ __all__ = [
     "CERTAIN_CONFIDENCE",
     "CalloutConfidence",
     "CalloutEntry",
+    "CellPart",
+    "CellSplit",
+    "GuideFit",
     "MapCallouts",
+    "NamedConfidence",
     "load_callouts",
+    "named_places",
 ]
 
 SETTINGS_FILENAME = "settings.toml"
@@ -1827,8 +1835,305 @@ CalloutConfidence = Literal[
     "stated", "guide", "measured", "inferred", "guess", "unnamed"
 ]
 
+#: The confidence of a place that has a callout: every value but
+#: ``unnamed``, **derived** from :data:`CalloutConfidence` rather than
+#: written twice, so a value added there reaches a split's parts too
+#: (Story 4.17).
+NamedConfidence = Literal[  # type: ignore[valid-type]
+    tuple(value for value in get_args(CalloutConfidence) if value != "unnamed")
+]
+
 #: The confidence values the route prints without a mark.
 CERTAIN_CONFIDENCE: frozenset[str] = frozenset({"stated", "guide", "measured"})
+
+
+def _normal_callout(value: str) -> str:
+    """A callout as it is compared: case and surrounding or doubled spaces
+    ignored (:class:`CalloutEntry`)."""
+    normal = " ".join(value.split()).lower()
+    if not normal:
+        raise ValueError("a callout cannot be blank")
+    return normal
+
+
+class GuideFit(_Section):
+    """The projection of a game position onto a guide image (Story 4.16):
+    ``px = sx * x + bx`` and ``py = -sy * y + by``, in image pixels."""
+
+    sx: float
+    sy: float
+    bx: float
+    by: float
+
+
+#: A half-cell of a guide grid as he names it: the column's letter, the
+#: row's number, and the quarter -- a top-left, b top-right, c bottom-left,
+#: d bottom-right (``nuke-piha-vastaus-2026-09-27.md``).
+_HALF_CELL = re.compile(r"([A-Z])([1-9][0-9]*)([abcd])")
+
+
+class CellPart(_Section):
+    """One of his callouts inside a split game area (Story 4.17): the
+    half-cells of the guide grid it holds, and the small pixel boxes of a
+    place smaller than a half-cell, which override the half-cells beneath
+    them.
+
+    It carries what a :class:`CalloutEntry` carries for a whole area --
+    his name, whether it is a junction and on whose words, how sure the name
+    is, and its source -- because it is a place of the report exactly as an
+    area is. It is never coarse: it is the split's answer.
+    """
+
+    callout: str = Field(min_length=1)
+    cells: list[str] = Field(default_factory=list)
+    #: ``[x0, y0, x1, y1]`` in image pixels, half-open like a half-cell.
+    boxes: list[tuple[float, float, float, float]] = Field(default_factory=list)
+    junction: bool
+    junction_source: str | None = Field(default=None, min_length=1)
+    confidence: NamedConfidence
+    source: str = Field(min_length=1)
+    note: str | None = Field(default=None, min_length=1)
+
+    @field_validator("callout")
+    @classmethod
+    def _normalise_the_callout(cls, value: str) -> str:
+        return _normal_callout(value)
+
+    @model_validator(mode="after")
+    def _check_the_part(self) -> "CellPart":
+        if self.junction != (self.junction_source is not None):
+            raise ValueError(
+                f"{self.callout!r}: junction and junction_source come "
+                "together, as on an area's entry."
+            )
+        if not self.cells and not self.boxes:
+            raise ValueError(
+                f"{self.callout!r} holds neither a half-cell nor a box, so no "
+                "position could ever be counted under it."
+            )
+        for box in self.boxes:
+            if not (box[0] < box[2] and box[1] < box[3]):
+                raise ValueError(
+                    f"{self.callout!r}: the box {list(box)} is not "
+                    "[x0, y0, x1, y1] with x0 < x1 and y0 < y1."
+                )
+        return self
+
+    #: A part is never coarse; :func:`~pappascout.domain.aggregate
+    #: ._route_place` reads it like an entry.
+    coarse: Literal[False] = False
+
+    @property
+    def certain(self) -> bool:
+        """As :attr:`CalloutEntry.certain`."""
+        return self.confidence in CERTAIN_CONFIDENCE
+
+    @property
+    def kept(self) -> bool:
+        """As :attr:`CalloutEntry.kept`: a part always has a callout, so it
+        is kept exactly when it is a junction."""
+        return self.junction
+
+
+class CellSplit(_Section):
+    """A coarse game area divided by position into his callouts, on the
+    guide image's own grid (Story 4.17).
+
+    **The geometry is the image's.** A position is projected with
+    :attr:`fit` (the fit of Story 4.16, whose one copy this is --
+    ``tests/data/guide_fit.json`` reads it from here), then placed on the
+    grid of :attr:`columns` x :attr:`rows` cells whose top-left corner is
+    :attr:`origin` and whose size is :attr:`cell`, each cell divided into
+    the four half-cells he names (``K13b``). A position below :attr:`zmin`
+    is not on the floor the image draws and is not split: it keeps the
+    area's coarse name, and so does a position with no coordinates.
+
+    **A position takes, in order:** the part whose box holds it; else the
+    part that names its half-cell; else **the nearest named half-cell's
+    part**, by the distance between half-cell centres in image pixels, a
+    tie going to the part and half-cell that come first in the table (his
+    words: join the rest to the nearest). The third is a derivation in code
+    and never a hand-filled row: :attr:`inherited` lists it for every
+    half-cell of the grid, and a position off the grid is placed by the same
+    rule.
+
+    **Refused at load:** a half-cell named twice, a half-cell outside the
+    grid, two parts with one callout, and two boxes that overlap -- each
+    would leave a position with two answers.
+    """
+
+    image: str = Field(min_length=1)
+    fit: GuideFit
+    zmin: float
+    origin: tuple[float, float]
+    cell: tuple[float, float]
+    columns: str = Field(min_length=1)
+    rows: int = Field(ge=1)
+    source: str = Field(min_length=1)
+    parts: list[CellPart] = Field(min_length=1)
+
+    _named: dict[tuple[int, int], CellPart] = PrivateAttr(default_factory=dict)
+    _nearest: dict[tuple[int, int], CellPart] = PrivateAttr(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _check_the_split(self) -> "CellSplit":
+        if self.cell[0] <= 0 or self.cell[1] <= 0:
+            raise ValueError("a grid cell has a positive width and height.")
+        if not re.fullmatch(r"[A-Z]+", self.columns) or len(
+            set(self.columns)
+        ) != len(self.columns):
+            raise ValueError(
+                f"columns {self.columns!r} must be distinct capital letters, "
+                "one per grid column, so a half-cell name reads one way."
+            )
+        right = self.origin[0] + self.cell[0] * len(self.columns)
+        bottom = self.origin[1] + self.cell[1] * self.rows
+        for part in self.parts:
+            for box in part.boxes:
+                if not (
+                    self.origin[0] <= box[0]
+                    and box[2] <= right
+                    and self.origin[1] <= box[1]
+                    and box[3] <= bottom
+                ):
+                    raise ValueError(
+                        f"The box {list(box)} of {part.callout!r} reaches "
+                        "outside the grid "
+                        f"[{self.origin[0]}, {self.origin[1]}, {right}, "
+                        f"{bottom}]; a box is a place on the guide image."
+                    )
+        callouts = [part.callout for part in self.parts]
+        twice = sorted({c for c in callouts if callouts.count(c) > 1})
+        if twice:
+            raise ValueError(
+                f"{', '.join(twice)} is given more than one row; one callout "
+                "is one row of the split."
+            )
+        named: dict[tuple[int, int], CellPart] = {}
+        for part in self.parts:
+            for name in part.cells:
+                index = self.index_of(name)
+                if index in named:
+                    raise ValueError(
+                        f"The half-cell {name} is claimed by both "
+                        f"{named[index].callout!r} and "
+                        f"{part.callout!r}. One half-cell has one callout."
+                    )
+                named[index] = part
+        boxes = [(part, box) for part in self.parts for box in part.boxes]
+        for i, (one, a) in enumerate(boxes):
+            for two, b in boxes[i + 1 :]:
+                if a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]:
+                    raise ValueError(
+                        f"The boxes of {one.callout!r} and {two.callout!r} "
+                        "overlap, so a position there would have two callouts."
+                    )
+        # Kept only once every check above has passed: pydantic sets up the
+        # private storage before an "after" validator runs, so a half-cell
+        # name is read here and never before the grid it names is checked.
+        self._named.update(named)
+        return self
+
+    def index_of(self, name: str) -> tuple[int, int]:
+        """A half-cell's name -> its (column, row) index on the half-cell
+        grid, counted from the origin.
+
+        Raises:
+            ValueError: The name is not a half-cell of this grid.
+        """
+        match = _HALF_CELL.fullmatch(name)
+        if (
+            match is None
+            or match[1] not in self.columns
+            or not 1 <= int(match[2]) <= self.rows
+        ):
+            raise ValueError(
+                f"{name!r} is not a half-cell of the grid: a column "
+                f"{self.columns[0]}-{self.columns[-1]}, a row 1-{self.rows} "
+                "and a quarter a-d, e.g. K13b."
+            )
+        quarter = "abcd".index(match[3])
+        return (
+            2 * self.columns.index(match[1]) + quarter % 2,
+            2 * (int(match[2]) - 1) + quarter // 2,
+        )
+
+    def name_of(self, index: tuple[int, int]) -> str:
+        """A half-cell index on the grid -> its name (``K13b``)."""
+        column, row = index
+        return (
+            f"{self.columns[column // 2]}{row // 2 + 1}"
+            f"{'abcd'[2 * (row % 2) + column % 2]}"
+        )
+
+    def pixel(self, x: float, y: float) -> tuple[float, float]:
+        """A game position projected onto the guide image (:attr:`fit`)."""
+        return (
+            self.fit.sx * x + self.fit.bx,
+            -self.fit.sy * y + self.fit.by,
+        )
+
+    def _part_of(self, index: tuple[int, int]) -> CellPart:
+        """The half-cell's part: named, or the nearest named one's.
+
+        **The distance is taken from the index steps**, not from two
+        absolute centres subtracted: two half-cells equally far in steps are
+        then exactly equally far in floats, so a tie is a tie and goes to
+        the table's order as documented. Measured in the Story 4.17 review:
+        subtracting centres made G12b's two neighbours at 21.1 px differ in
+        the last bits, and float noise -- not the file -- chose *toutside*
+        over *tladder*.
+        """
+        if index in self._named:
+            return self._named[index]
+        if index not in self._nearest:
+            half_width, half_height = self.cell[0] / 2, self.cell[1] / 2
+            best: tuple[float, CellPart] | None = None
+            for named, part in self._named.items():
+                distance = ((named[0] - index[0]) * half_width) ** 2 + (
+                    (named[1] - index[1]) * half_height
+                ) ** 2
+                if best is None or distance < best[0]:
+                    best = (distance, part)
+            if best is None:
+                raise ValueError("the split names no half-cell to inherit from.")
+            self._nearest[index] = best[1]
+        return self._nearest[index]
+
+    def part_at(
+        self, x: float | None, y: float | None, z: float | None
+    ) -> CellPart | None:
+        """The part a position is counted under, or ``None`` where the split
+        cannot place it: a coordinate missing or not finite (NaN or an
+        infinity is no position, as elsewhere in the codebase), or below
+        :attr:`zmin`."""
+        if any(v is None or not isfinite(v) for v in (x, y, z)):
+            return None
+        if z < self.zmin:  # type: ignore[operator]
+            return None
+        px, py = self.pixel(x, y)
+        for part in self.parts:
+            for box in part.boxes:
+                if box[0] <= px < box[2] and box[1] <= py < box[3]:
+                    return part
+        return self._part_of(
+            (
+                floor((px - self.origin[0]) / (self.cell[0] / 2)),
+                floor((py - self.origin[1]) / (self.cell[1] / 2)),
+            )
+        )
+
+    @property
+    def inherited(self) -> dict[str, str]:
+        """Every half-cell of the grid the table does not name, and the
+        callout it takes from its nearest named half-cell -- the table's
+        *"the rest to the nearest"*, written out."""
+        return {
+            self.name_of((column, row)): self._part_of((column, row)).callout
+            for row in range(2 * self.rows)
+            for column in range(2 * len(self.columns))
+            if (column, row) not in self._named
+        }
 
 
 class CalloutEntry(_Section):
@@ -1863,6 +2168,10 @@ class CalloutEntry(_Section):
     confidence: CalloutConfidence
     source: str = Field(min_length=1)
     note: str | None = Field(default=None, min_length=1)
+    #: The area divided by position into his callouts (Story 4.17), or
+    #: ``None`` for an area counted whole. Only a coarse area is split, and
+    #: its own ``callout`` stays what a rule row on the whole area prints.
+    split: CellSplit | None = None
 
     @field_validator("callout")
     @classmethod
@@ -1893,6 +2202,17 @@ class CalloutEntry(_Section):
                 "place with no name has no mapping to be sure of, and a "
                 "named place must say how sure its name is."
             )
+        if self.split is not None:
+            if not self.coarse:
+                raise ValueError(
+                    "split is set on an area that is not coarse; only an "
+                    "area holding several of his callouts is divided."
+                )
+            if self.callout in {part.callout for part in self.split.parts}:
+                raise ValueError(
+                    f"a part of the split is named {self.callout!r}, the "
+                    "whole area's own coarse name; the two would print alike."
+                )
         return self
 
     @property
@@ -1919,6 +2239,21 @@ class CalloutEntry(_Section):
 MapCallouts = dict[str, CalloutEntry]
 
 
+def named_places(
+    entries: Mapping[str, CalloutEntry],
+) -> Iterator[tuple[str, CalloutEntry | CellPart]]:
+    """Every place of a map's table with the key it is reported under: each
+    area's entry, and each part of a split area (Story 4.17) under
+    ``"<area> split"`` -- a part is a place exactly as an area is. The one
+    enumeration: the loader's rules and the aggregate's marks both read it.
+    """
+    for area, entry in entries.items():
+        yield area, entry
+        if entry.split is not None:
+            for part in entry.split.parts:
+                yield f"{area} split", part
+
+
 def load_callouts(
     map_pool: list[str], path: Path = CALLOUT_TABLE_PATH
 ) -> dict[str, MapCallouts]:
@@ -1940,6 +2275,11 @@ def load_callouts(
     side of the room and transit on the other. They may differ in
     ``confidence``: the route marks the merged callout if any of them is not
     certain.
+
+    **A part of a split area is a place like an area** (Story 4.17): its
+    callout is held to the same two rules. Nuke's yard part *main* is the
+    game's ``Mini`` (his *main*), so the two must agree, and the counts
+    merge.
 
     **An empty map section is refused**: it would say the map is described
     while describing nothing, and every route on it would lose the
@@ -1994,9 +2334,10 @@ def load_callouts(
                 f"that is not valid:\n{_format_validation_error(exc)}"
             ) from exc
         unnamed = {area for area, entry in entries.items() if entry.callout is None}
+        named = list(named_places(entries))
         clash = sorted(
             f"{area} ({entry.callout!r})"
-            for area, entry in entries.items()
+            for area, entry in named
             if entry.callout in unnamed
         )
         if clash:
@@ -2006,8 +2347,8 @@ def load_callouts(
                 "table gives no callout. That area prints the game's name, "
                 "so the report would read the two as one place."
             )
-        by_callout: dict[str, tuple[str, CalloutEntry]] = {}
-        for area, entry in entries.items():
+        by_callout: dict[str, tuple[str, CalloutEntry | CellPart]] = {}
+        for area, entry in named:
             if entry.callout is None:
                 continue
             first = by_callout.setdefault(entry.callout, (area, entry))

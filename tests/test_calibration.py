@@ -3163,34 +3163,35 @@ def test_the_pinned_pistol_table_says_what_the_measurement_says() -> None:
 
     **In the document's words and in the report's** (Story 4.15): the
     document speaks game areas, so the claim is read off ``areas_game``; the
-    report counts under callouts, so the same claim is read off ``areas``
-    under ``Outside``'s and ``Control``'s callouts. *radio* also holds
-    ``Trophy``, and the claim survives the merge because nobody stood there
-    at that moment -- which is what the second half measures.
+    report counts under callouts, so the same claim is read off ``areas``.
+    *radio* also holds ``Trophy``, and the claim survives the merge because
+    nobody stood there at that moment -- which is what the second half
+    measures. Since Story 4.17 the yard is split by position, so the three
+    players ``Outside`` held are counted under his yard callouts and no
+    single row holds three of them: in the report's words the claim is that
+    **a part of the yard's split** holds a row seen in three matches that
+    excludes the newest (his *kontakti*, two players, on the re-pin), and
+    that no row prints the whole yard's coarse name any more.
 
     **No archive needed**: both sides are in the repository. What ties the
     table to the archive is the test above it.
     """
     key = "1e1965abbc06133b/de_nuke/T/pistol"
     table = _nuke_callouts()
-    for pinned, outside_name, control_name in (
-        ("areas_game", "Outside", "Control"),
-        ("areas", table["Outside"].callout, table["Control"].callout),
+    parts = {part.callout for part in table["Outside"].split.parts}
+    for pinned, outside_names, control_name in (
+        ("areas_game", {"Outside"}, "Control"),
+        ("areas", parts, table["Control"].callout),
     ):
         rows = [
             row
             for row in MATCH_COUNTS[pinned][key]
             if row["seconds"] == 15.0 and row["players"] > 0
         ]
-        outside = next(
-            row
+        assert any(
+            row["area"] in outside_names
+            and (row["n"], row["matches"], row["newest"]) == (3, 3, False)
             for row in rows
-            if row["area"] == outside_name and row["players"] == 3
-        )
-        assert (outside["n"], outside["matches"], outside["newest"]) == (
-            3,
-            3,
-            False,
         ), pinned
         control = next(
             row
@@ -3202,6 +3203,11 @@ def test_the_pinned_pistol_table_says_what_the_measurement_says() -> None:
             1,
             True,
         ), pinned
+    assert not any(
+        row["area"] == table["Outside"].callout
+        for rows in MATCH_COUNTS["areas"].values()
+        for row in rows
+    )
 
 
 def test_the_callout_table_differs_from_the_game_table_only_where_callouts_merge(
@@ -3223,8 +3229,19 @@ def test_the_callout_table_differs_from_the_game_table_only_where_callouts_merge
     """
     table = _nuke_callouts()
     fed = Counter(entry.callout for entry in table.values() if entry.callout)
+    # A split area (Story 4.17) is not a rename either: its rows are divided
+    # by position among its parts, and each part merges with any area it
+    # shares a name with -- so the whole area's name and every part's are
+    # left out of the comparison too.
+    split: set[str] = set()
+    for entry in table.values():
+        if entry.split is not None:
+            split.add(entry.callout)
+            for part in entry.split.parts:
+                fed[part.callout] += 1
+                split.add(part.callout)
 
-    merged = {callout for callout, count in fed.items() if count > 1}
+    merged = {callout for callout, count in fed.items() if count > 1} | split
 
     def renamed(area: str | None) -> str | None:
         entry = table.get(area) if area is not None else None
@@ -3289,16 +3306,30 @@ def test_the_archives_pistol_lines_read_as_the_intent_says() -> None:
         report, settings=settings.report, round_list_paths=[]
     )
     # In his callouts since Story 4.15, read from the shipped table: the
-    # game's Outside is his coarse outside, its Control his radio.
+    # game's Control is his radio. Since Story 4.17 the yard is split, so
+    # the three matches' yard observation is the part of the split the
+    # pinned table holds it under (his kontakti, two players, on the
+    # re-pin) -- read from the pin and the table, not written here.
     table = _nuke_callouts()
-    outside = f"{table['Outside'].callout}{ROUTE_COARSE_MARK}"
+    parts = {part.callout for part in table["Outside"].split.parts}
+    yard = next(
+        row
+        for row in MATCH_COUNTS["areas"]["1e1965abbc06133b/de_nuke/T/pistol"]
+        if row["seconds"] == 15.0
+        and row["area"] in parts
+        and (row["n"], row["matches"], row["newest"]) == (3, 3, False)
+    )
     radio = table["Control"].callout
     line = next(
         row
         for row in text.splitlines()
         if row.startswith("- 15 s:") and f"{radio} 4" in row
     )
-    assert f"{outside} 3 (3/4 kierroksesta, ei uusimmassa)" in line
+    assert (
+        f"{yard['area']} {yard['players']} (3/4 kierroksesta, ei uusimmassa)"
+        in line
+    )
+    assert f"{table['Outside'].callout}{ROUTE_COARSE_MARK}" not in line
     assert f"{radio} 4 (1/4 kierroksesta, uusin mukana)" in line
     assert "ottelussa" not in line
 
@@ -3636,7 +3667,14 @@ def test_the_recorded_routes_show_the_newest_match_taking_a_new_way() -> None:
     assert len(blocks) == 4, blocks
     newest, *older = blocks
     first, *rest = newest["rows"]
-    assert first.startswith("  - 4 outside (karkea) -> lobby -> radio -> ramp"), (
+    # Since Story 4.17 the four start in the yard part his table gives to
+    # G10c -- the way to lobby -- read from the shipped table.
+    to_lobby = next(
+        part.callout
+        for part in _nuke_callouts()["Outside"].split.parts
+        if "G10c" in part.cells
+    )
+    assert first.startswith(f"  - 4 {to_lobby} -> lobby -> radio -> ramp"), (
         newest
     )
     fifth = [row for row in rest if row.startswith("  - 1 ")]
@@ -3753,9 +3791,13 @@ def test_the_recorded_patterns_show_the_nuke_force_lobby_route() -> None:
     nor a strategy (the spec's second DECIDED, rule 6).
     What ties the table to the archive is the test above."""
     block = ROUTE_PATTERNS["1e1965abbc06133b/de_nuke/T/force"]
+    # Since Story 4.17 the yard before lobby is his *outsidelobby*, a transit
+    # place, so the path starts at lobby, its first junction (rule 1). The
+    # line read five players in five rounds; on the re-pin it reads four in
+    # four -- the second demo's round 12 no longer carries this path.
     assert block["lines"][0] == (
-        "Reitti: outside (karkea) -> lobby, jopa 5 pelaajaa "
-        "(5/7 kierroksesta, 3/4 ottelussa, uusin mukana)"
+        "Reitti: lobby, 4 pelaajaa "
+        "(4/7 kierroksesta, 3/4 ottelussa, uusin mukana)"
     )
     assert not any(
         line.startswith("Reitti: t spawn")
@@ -3841,6 +3883,23 @@ GUIDE_FIT = json.loads(
 )
 
 
+def _guide_of(map_name: str) -> dict:
+    """A map's guide entry with its fit: from ``guide_fit.json``, or -- where
+    the entry says ``fit_from`` -- from the split in ``callouts.toml`` that
+    holds the one copy of it (Story 4.17: *"Derived, not a second copy"*)."""
+    guide = GUIDE_FIT["maps"][map_name]
+    if "fit_from" not in guide:
+        return guide
+    table, area = guide["fit_from"].split(".")
+    split = load_callouts(_real_settings().league.map_pool)[table][area].split
+    return {
+        **guide,
+        "image": split.image,
+        "fit": split.fit.model_dump(),
+        "zmin": split.zmin,
+    }
+
+
 def _overlaps(one: Sequence[float], two: Sequence[float]) -> bool:
     """Whether two ``[x0, y0, x1, y1]`` boxes share any point."""
     return (
@@ -3871,7 +3930,7 @@ def _area_boxes(root: Path) -> dict[tuple[str, str], list[float]]:
             )
     boxes = {}
     for map_name, area in sorted(wanted):
-        guide = GUIDE_FIT["maps"][map_name]
+        guide = _guide_of(map_name)
         fit = guide["fit"]
         ticks = pl.concat(frames[map_name]).filter(pl.col("area") == area)
         if "zmin" in guide:
@@ -3980,13 +4039,22 @@ def test_every_recorded_route_row_states_a_group_of_players() -> None:
 
 def test_the_recorded_ct_blocks_are_several_short_rows_and_that_is_the_finding(
 ) -> None:
-    """The measurement behind the old "T side only" restriction, kept.
+    """The measurement behind the old "T side only" restriction, and what
+    the split of the yard did to it.
 
     *"A defence does not travel as a body"* -- the spec's reading note since
     2026-09-25, when both sides were asked for. ``de_nuke`` CT pistol starts
-    from more places than ``de_nuke`` T pistol does, and the block is
-    therefore several short rows. That is the observation and not a
-    rendering fault, so it is pinned rather than left as a sentence.
+    from several places, and the block is therefore several short rows.
+    That is the observation and not a rendering fault, so it is pinned
+    rather than left as a sentence.
+
+    **Until Story 4.17 the T side looked more compact than it was**: every
+    T start in the yard printed as the one coarse *outside*, so T pistol
+    rounds began from at most two places. Split by his half-cells, the same
+    rounds begin at *outsidelobby*, *toutside* and *t spawn* -- up to three
+    places, as many as the CT side -- and the T side's starts now outnumber
+    the CT side's. Pinned as measured on the re-pin, so a change either way
+    is seen.
 
     **No archive needed**, for the reason the tests above give.
     """
@@ -3998,6 +4066,6 @@ def test_the_recorded_ct_blocks_are_several_short_rows_and_that_is_the_finding(
 
     attack = starts("1e1965abbc06133b/de_nuke/T/pistol")
     defence = starts("1e1965abbc06133b/de_nuke/CT/pistol")
-    assert max(attack) == 2, attack
-    assert max(defence) >= 3, defence
-    assert sum(defence) > sum(attack), (defence, attack)
+    assert max(attack) == 3, attack
+    assert max(defence) == 3, defence
+    assert sum(attack) > sum(defence), (defence, attack)

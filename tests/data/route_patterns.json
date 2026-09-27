@@ -423,8 +423,7 @@
     },
     "1e1965abbc06133b/de_nuke/CT/eco": {
       "lines": [
-        "Reitti: hell, jopa 3 pelaajaa (5/5 kierroksesta, 3/3 ottelussa, uusin mukana)",
-        "Reitti: outside (karkea), jopa 3 pelaajaa (4/5 kierroksesta, 3/3 ottelussa, uusin mukana)"
+        "Reitti: hell, jopa 3 pelaajaa (5/5 kierroksesta, 3/3 ottelussa, uusin mukana)"
       ],
       "patterns": [
         {
@@ -470,8 +469,8 @@
           "newest": true,
           "path": [
             [
-              "outside",
-              "coarse",
+              "ct piha",
+              null,
               null,
               null
             ]
@@ -483,19 +482,39 @@
               2
             ],
             [
-              0,
+              2,
               16,
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "ct piha",
+              null,
+              null,
+              null
+            ],
+            [
+              "main",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              14,
               2
             ],
             [
               2,
               16,
               3
-            ],
-            [
-              3,
-              17,
-              2
             ]
           ],
           "stayed": false
@@ -593,18 +612,42 @@
     },
     "1e1965abbc06133b/de_nuke/T/eco": {
       "lines": [
-        "Reitti: outside (karkea) -> lobby, jopa 5 pelaajaa (4/7 kierroksesta, 2/3 ottelussa, uusin mukana)"
+        "Reitti: kontakti, 3 pelaajaa (3/7 kierroksesta, 2/3 ottelussa, ei uusimmassa)",
+        "Reitti: lobby, jopa 4 pelaajaa (3/7 kierroksesta, 2/3 ottelussa, uusin mukana)"
       ],
       "patterns": [
         {
-          "newest": true,
+          "newest": false,
           "path": [
             [
-              "outside",
-              "coarse",
+              "kontakti",
+              null,
               null,
               null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              4,
+              3
             ],
+            [
+              1,
+              9,
+              3
+            ],
+            [
+              3,
+              7,
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
             [
               "lobby",
               null,
@@ -617,11 +660,6 @@
               0,
               7,
               4
-            ],
-            [
-              0,
-              8,
-              5
             ],
             [
               0,
@@ -640,19 +678,13 @@
     },
     "1e1965abbc06133b/de_nuke/T/force": {
       "lines": [
-        "Reitti: outside (karkea) -> lobby, jopa 5 pelaajaa (5/7 kierroksesta, 3/4 ottelussa, uusin mukana)",
-        "Reitti: outside (karkea) -> lobby -> squeaky -> a site, 1 pelaaja jää (3/7 kierroksesta, 3/4 ottelussa, uusin mukana)"
+        "Reitti: lobby, 4 pelaajaa (4/7 kierroksesta, 3/4 ottelussa, uusin mukana)",
+        "Reitti: lobby -> squeaky -> a site, 1 pelaaja jää (3/7 kierroksesta, 3/4 ottelussa, uusin mukana)"
       ],
       "patterns": [
         {
           "newest": true,
           "path": [
-            [
-              "outside",
-              "coarse",
-              null,
-              null
-            ],
             [
               "lobby",
               null,
@@ -672,11 +704,6 @@
               4
             ],
             [
-              1,
-              12,
-              5
-            ],
-            [
               3,
               6,
               4
@@ -692,12 +719,6 @@
         {
           "newest": true,
           "path": [
-            [
-              "outside",
-              "coarse",
-              null,
-              null
-            ],
             [
               "lobby",
               null,
@@ -737,14 +758,38 @@
           "stayed": true
         },
         {
-          "newest": true,
+          "newest": false,
           "path": [
             [
-              "outside",
-              "coarse",
+              "kontakti",
+              null,
               null,
               null
             ],
+            [
+              "t red",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              2,
+              6,
+              2
+            ],
+            [
+              3,
+              12,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
             [
               "lobby",
               null,
@@ -775,12 +820,6 @@
         {
           "newest": true,
           "path": [
-            [
-              "outside",
-              "coarse",
-              null,
-              null
-            ],
             [
               "lobby",
               null,
@@ -902,8 +941,126 @@
       "patterns": []
     },
     "9ac92660986558d3/de_ancient/T/force": {
-      "lines": [],
-      "patterns": []
+      "lines": [
+        "Reitti: b doors (päätelty), 2 pelaajaa (2/2 kierroksesta)",
+        "Reitti: water -> b doors (päätelty) -> ramp, jopa 3 pelaajaa (2/2 kierroksesta)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "b doors",
+              "inferred",
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              18,
+              2
+            ],
+            [
+              0,
+              20,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "water",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              18,
+              3
+            ],
+            [
+              0,
+              20,
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "water",
+              null,
+              null,
+              null
+            ],
+            [
+              "b doors",
+              "inferred",
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              18,
+              3
+            ],
+            [
+              0,
+              20,
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "water",
+              null,
+              null,
+              null
+            ],
+            [
+              "b doors",
+              "inferred",
+              null,
+              null
+            ],
+            [
+              "ramp",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              18,
+              3
+            ],
+            [
+              0,
+              20,
+              2
+            ]
+          ],
+          "stayed": false
+        }
+      ]
     },
     "9ac92660986558d3/de_anubis/CT/eco": {
       "lines": [],
@@ -936,32 +1093,8 @@
           "newest": true,
           "path": [
             [
-              "hell",
+              "ct piha",
               null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              2,
-              4
-            ],
-            [
-              0,
-              8,
-              2
-            ]
-          ],
-          "stayed": false
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "outside",
-              "coarse",
               null,
               null
             ]
@@ -975,7 +1108,7 @@
             [
               0,
               8,
-              3
+              2
             ]
           ],
           "stayed": false
@@ -1140,6 +1273,108 @@
           "newest": null,
           "path": [
             [
+              "water",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              8,
+              4
+            ],
+            [
+              1,
+              12,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": null,
+          "path": [
+            [
+              "water",
+              null,
+              null,
+              null
+            ],
+            [
+              "b doors",
+              "inferred",
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              8,
+              4
+            ],
+            [
+              1,
+              12,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": null,
+          "path": [
+            [
+              "water",
+              null,
+              null,
+              null
+            ],
+            [
+              "b doors",
+              "inferred",
+              null,
+              null
+            ],
+            [
+              "ramp",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              8,
+              4
+            ],
+            [
+              1,
+              12,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": null,
+          "path": [
+            [
+              "water",
+              null,
+              null,
+              null
+            ],
+            [
+              "b doors",
+              "inferred",
+              null,
+              null
+            ],
+            [
               "ramp",
               null,
               null,
@@ -1161,7 +1396,7 @@
             [
               1,
               12,
-              4
+              2
             ]
           ],
           "stayed": false

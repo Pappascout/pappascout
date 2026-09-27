@@ -2,104 +2,174 @@
   "areas": {
     "1e1965abbc06133b/de_nuke/T/full": [
       {
-        "area": "outside",
-        "matches": 2,
+        "area": "outsidelobby",
+        "matches": 4,
         "matches_m": 4,
-        "n": 2,
-        "newest": false,
+        "n": 9,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "outsidelobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
         "players": 1,
         "sample_kind": "time",
         "seconds": 6.0
       },
       {
-        "area": "outside",
+        "area": "outsidelobby",
         "matches": 4,
         "matches_m": 4,
-        "n": 7,
+        "n": 8,
         "newest": true,
         "players": 2,
         "sample_kind": "time",
         "seconds": 6.0
       },
       {
-        "area": "outside",
-        "matches": 4,
+        "area": "outsidelobby",
+        "matches": 1,
         "matches_m": 4,
-        "n": 8,
-        "newest": true,
+        "n": 2,
+        "newest": false,
         "players": 3,
         "sample_kind": "time",
         "seconds": 6.0
       },
       {
-        "area": "outside",
-        "matches": 4,
+        "area": "outsidelobby",
+        "matches": 2,
         "matches_m": 4,
-        "n": 8,
+        "n": 2,
         "newest": true,
         "players": 4,
         "sample_kind": "time",
         "seconds": 6.0
       },
       {
-        "area": "outside",
+        "area": "t spawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
         "matches": 3,
         "matches_m": 4,
-        "n": 4,
-        "newest": true,
+        "n": 5,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
         "players": 5,
         "sample_kind": "time",
         "seconds": 6.0
       },
       {
-        "area": "t spawn",
-        "matches": 3,
+        "area": "tladder",
+        "matches": 4,
         "matches_m": 4,
-        "n": 4,
+        "n": 16,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 6.0
       },
       {
-        "area": "t spawn",
+        "area": "tladder",
         "matches": 4,
         "matches_m": 4,
-        "n": 8,
+        "n": 13,
         "newest": true,
         "players": 1,
         "sample_kind": "time",
         "seconds": 6.0
       },
       {
-        "area": "t spawn",
+        "area": "toutside",
         "matches": 4,
         "matches_m": 4,
-        "n": 8,
+        "n": 14,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
         "newest": true,
         "players": 2,
         "sample_kind": "time",
         "seconds": 6.0
       },
       {
-        "area": "t spawn",
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "kontakti",
         "matches": 4,
         "matches_m": 4,
         "n": 7,
         "newest": true,
-        "players": 3,
+        "players": 1,
         "sample_kind": "time",
-        "seconds": 6.0
-      },
-      {
-        "area": "t spawn",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 2,
-        "newest": false,
-        "players": 4,
-        "sample_kind": "time",
-        "seconds": 6.0
+        "seconds": 9.0
       },
       {
         "area": "lobby",
@@ -152,42 +222,42 @@
         "seconds": 9.0
       },
       {
-        "area": "outside",
+        "area": "outsidelobby",
         "matches": 4,
         "matches_m": 4,
-        "n": 8,
+        "n": 18,
         "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "outsidelobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 9.0
       },
       {
-        "area": "outside",
-        "matches": 4,
+        "area": "outsidelobby",
+        "matches": 3,
         "matches_m": 4,
-        "n": 9,
+        "n": 3,
         "newest": true,
         "players": 2,
         "sample_kind": "time",
         "seconds": 9.0
       },
       {
-        "area": "outside",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 11,
-        "newest": true,
-        "players": 3,
-        "sample_kind": "time",
-        "seconds": 9.0
-      },
-      {
-        "area": "outside",
+        "area": "outsidelobby",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
         "newest": false,
-        "players": 4,
+        "players": 3,
         "sample_kind": "time",
         "seconds": 9.0
       },
@@ -215,7 +285,7 @@
         "area": "t spawn",
         "matches": 4,
         "matches_m": 4,
-        "n": 11,
+        "n": 8,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
@@ -233,11 +303,71 @@
       },
       {
         "area": "t spawn",
-        "matches": 2,
+        "matches": 3,
         "matches_m": 4,
-        "n": 3,
+        "n": 6,
         "newest": false,
         "players": 2,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "tladder",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "tladder",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "toutside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 3,
         "sample_kind": "time",
         "seconds": 9.0
       },
@@ -258,6 +388,36 @@
         "n": 1,
         "newest": false,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 12.0
       },
@@ -312,52 +472,32 @@
         "seconds": 12.0
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "outsidelobby",
+        "matches": 4,
         "matches_m": 4,
-        "n": 5,
+        "n": 27,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 12.0
       },
       {
-        "area": "outside",
-        "matches": 4,
+        "area": "outsidelobby",
+        "matches": 1,
         "matches_m": 4,
-        "n": 7,
-        "newest": true,
+        "n": 1,
+        "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 12.0
       },
       {
-        "area": "outside",
-        "matches": 4,
+        "area": "outsidelobby",
+        "matches": 1,
         "matches_m": 4,
-        "n": 12,
-        "newest": true,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 12.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 3,
+        "n": 1,
         "newest": false,
-        "players": 3,
-        "sample_kind": "time",
-        "seconds": 12.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 2,
-        "newest": true,
-        "players": 4,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 12.0
       },
@@ -422,6 +562,26 @@
         "seconds": 12.0
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "t red",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
         "area": "t roof",
         "matches": 4,
         "matches_m": 4,
@@ -455,7 +615,7 @@
         "area": "t spawn",
         "matches": 4,
         "matches_m": 4,
-        "n": 18,
+        "n": 14,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
@@ -463,11 +623,81 @@
       },
       {
         "area": "t spawn",
-        "matches": 3,
+        "matches": 4,
         "matches_m": 4,
-        "n": 11,
+        "n": 13,
         "newest": true,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "tladder",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "tladder",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 15,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "toutside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 3,
         "sample_kind": "time",
         "seconds": 12.0
       },
@@ -500,6 +730,56 @@
         "players": 2,
         "sample_kind": "time",
         "seconds": 12.0
+      },
+      {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
       },
       {
         "area": "lobby",
@@ -542,52 +822,22 @@
         "seconds": 15.0
       },
       {
-        "area": "outside",
-        "matches": 2,
+        "area": "outsidelobby",
+        "matches": 4,
         "matches_m": 4,
-        "n": 5,
+        "n": 20,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 15.0
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "outsidelobby",
+        "matches": 4,
         "matches_m": 4,
-        "n": 7,
-        "newest": false,
+        "n": 9,
+        "newest": true,
         "players": 1,
-        "sample_kind": "time",
-        "seconds": 15.0
-      },
-      {
-        "area": "outside",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 8,
-        "newest": true,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 15.0
-      },
-      {
-        "area": "outside",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 6,
-        "newest": true,
-        "players": 3,
-        "sample_kind": "time",
-        "seconds": 15.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 3,
-        "newest": true,
-        "players": 4,
         "sample_kind": "time",
         "seconds": 15.0
       },
@@ -647,6 +897,26 @@
         "matches_m": 4,
         "n": 5,
         "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "t red",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 15.0
@@ -675,7 +945,7 @@
         "area": "t spawn",
         "matches": 4,
         "matches_m": 4,
-        "n": 26,
+        "n": 24,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
@@ -685,9 +955,59 @@
         "area": "t spawn",
         "matches": 2,
         "matches_m": 4,
-        "n": 3,
+        "n": 4,
         "newest": true,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 15,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "toutside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "toutside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
         "sample_kind": "time",
         "seconds": 15.0
       },
@@ -722,6 +1042,26 @@
         "seconds": 15.0
       },
       {
+        "area": "ct red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "ct red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
         "area": "garage",
         "matches": 4,
         "matches_m": 4,
@@ -738,6 +1078,66 @@
         "n": 1,
         "newest": false,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "glaive",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "glaive",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 15,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
         "sample_kind": "time",
         "seconds": 18.0
       },
@@ -802,52 +1202,22 @@
         "seconds": 18.0
       },
       {
-        "area": "outside",
+        "area": "outsidelobby",
         "matches": 4,
         "matches_m": 4,
-        "n": 7,
+        "n": 25,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 18.0
       },
       {
-        "area": "outside",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 10,
-        "newest": true,
-        "players": 1,
-        "sample_kind": "time",
-        "seconds": 18.0
-      },
-      {
-        "area": "outside",
+        "area": "outsidelobby",
         "matches": 3,
         "matches_m": 4,
-        "n": 5,
+        "n": 4,
         "newest": true,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 18.0
-      },
-      {
-        "area": "outside",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 5,
-        "newest": true,
-        "players": 3,
-        "sample_kind": "time",
-        "seconds": 18.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 2,
-        "newest": true,
-        "players": 4,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 18.0
       },
@@ -886,6 +1256,26 @@
         "matches": 2,
         "matches_m": 4,
         "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "secret top",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "secret top",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
@@ -932,6 +1322,36 @@
         "seconds": 18.0
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
         "area": "t roof",
         "matches": 4,
         "matches_m": 4,
@@ -972,6 +1392,56 @@
         "seconds": 18.0
       },
       {
+        "area": "tladder",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "tladder",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "toutside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
         "area": "trophy",
         "matches": 4,
         "matches_m": 4,
@@ -1002,6 +1472,46 @@
         "seconds": 18.0
       },
       {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "cross",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "ct red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "ct red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
         "area": "garage",
         "matches": 4,
         "matches_m": 4,
@@ -1016,6 +1526,26 @@
         "matches": 2,
         "matches_m": 4,
         "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "glaive",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "glaive",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
@@ -1038,6 +1568,36 @@
         "n": 1,
         "newest": true,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 21.0
       },
@@ -1092,52 +1652,42 @@
         "seconds": 21.0
       },
       {
-        "area": "outside",
+        "area": "mainin takana",
         "matches": 4,
         "matches_m": 4,
-        "n": 8,
+        "n": 27,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 21.0
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "mainin takana",
+        "matches": 1,
         "matches_m": 4,
-        "n": 8,
+        "n": 1,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 21.0
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "outsidelobby",
+        "matches": 4,
         "matches_m": 4,
-        "n": 6,
+        "n": 27,
         "newest": true,
-        "players": 2,
+        "players": 0,
         "sample_kind": "time",
         "seconds": 21.0
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "outsidelobby",
+        "matches": 1,
         "matches_m": 4,
-        "n": 4,
-        "newest": true,
-        "players": 3,
-        "sample_kind": "time",
-        "seconds": 21.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 2,
-        "newest": true,
-        "players": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 21.0
       },
@@ -1242,6 +1792,46 @@
         "seconds": 21.0
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "t red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "t red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "t red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
         "area": "t roof",
         "matches": 4,
         "matches_m": 4,
@@ -1258,6 +1848,36 @@
         "n": 2,
         "newest": true,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "toutside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 21.0
       },
@@ -1312,6 +1932,46 @@
         "seconds": 24.0
       },
       {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "cross",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "ct red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "ct red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
         "area": "garage",
         "matches": 4,
         "matches_m": 4,
@@ -1348,6 +2008,46 @@
         "n": 1,
         "newest": true,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
         "sample_kind": "time",
         "seconds": 24.0
       },
@@ -1392,52 +2092,42 @@
         "seconds": 24.0
       },
       {
-        "area": "outside",
+        "area": "main",
         "matches": 4,
         "matches_m": 4,
-        "n": 8,
+        "n": 25,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 24.0
       },
       {
-        "area": "outside",
-        "matches": 4,
+        "area": "main",
+        "matches": 2,
         "matches_m": 4,
-        "n": 9,
-        "newest": true,
+        "n": 2,
+        "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 24.0
       },
       {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 3,
-        "newest": false,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 24.0
-      },
-      {
-        "area": "outside",
+        "area": "outsidelobby",
         "matches": 4,
         "matches_m": 4,
-        "n": 6,
+        "n": 26,
         "newest": true,
-        "players": 3,
+        "players": 0,
         "sample_kind": "time",
         "seconds": 24.0
       },
       {
-        "area": "outside",
+        "area": "outsidelobby",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
         "newest": false,
-        "players": 4,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 24.0
       },
@@ -1486,6 +2176,26 @@
         "matches": 2,
         "matches_m": 4,
         "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "secret entrance",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "secret entrance",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
         "newest": true,
         "players": 1,
         "sample_kind": "time",
@@ -1542,6 +2252,36 @@
         "seconds": 24.0
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
         "area": "t roof",
         "matches": 4,
         "matches_m": 4,
@@ -1558,6 +2298,76 @@
         "n": 1,
         "newest": true,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "tladder",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "tladder",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "toutside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 24.0
       },
@@ -1622,6 +2432,46 @@
         "seconds": 27.0
       },
       {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "cross",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
         "area": "garage",
         "matches": 4,
         "matches_m": 4,
@@ -1636,6 +2486,26 @@
         "matches": 2,
         "matches_m": 4,
         "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "glaive",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "glaive",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
@@ -1657,6 +2527,36 @@
         "matches_m": 4,
         "n": 1,
         "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
         "players": 2,
         "sample_kind": "time",
         "seconds": 27.0
@@ -1702,52 +2602,52 @@
         "seconds": 27.0
       },
       {
-        "area": "outside",
+        "area": "main",
         "matches": 4,
         "matches_m": 4,
-        "n": 8,
+        "n": 23,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 27.0
       },
       {
-        "area": "outside",
-        "matches": 4,
+        "area": "main",
+        "matches": 2,
         "matches_m": 4,
-        "n": 9,
-        "newest": true,
+        "n": 2,
+        "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 27.0
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "main",
+        "matches": 2,
         "matches_m": 4,
-        "n": 5,
+        "n": 2,
         "newest": false,
         "players": 2,
         "sample_kind": "time",
         "seconds": 27.0
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "outsidelobby",
+        "matches": 4,
         "matches_m": 4,
-        "n": 4,
+        "n": 25,
         "newest": true,
-        "players": 3,
+        "players": 0,
         "sample_kind": "time",
         "seconds": 27.0
       },
       {
-        "area": "outside",
+        "area": "outsidelobby",
         "matches": 1,
         "matches_m": 4,
-        "n": 1,
+        "n": 2,
         "newest": false,
-        "players": 4,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 27.0
       },
@@ -1828,6 +2728,26 @@
         "n": 1,
         "newest": true,
         "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "secret entrance",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "secret entrance",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 27.0
       },
@@ -1882,6 +2802,36 @@
         "seconds": 27.0
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
         "area": "t roof",
         "matches": 4,
         "matches_m": 4,
@@ -1918,6 +2868,36 @@
         "n": 2,
         "newest": false,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "toutside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "toutside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 27.0
       },
@@ -1972,6 +2952,46 @@
         "seconds": 30.0
       },
       {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "cross",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
         "area": "garage",
         "matches": 4,
         "matches_m": 4,
@@ -1983,6 +3003,26 @@
       },
       {
         "area": "garage",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "garagen takana",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "garagen takana",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
@@ -2008,6 +3048,36 @@
         "n": 4,
         "newest": true,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 30.0
       },
@@ -2052,52 +3122,72 @@
         "seconds": 30.0
       },
       {
-        "area": "outside",
+        "area": "main",
         "matches": 4,
         "matches_m": 4,
-        "n": 5,
+        "n": 20,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 30.0
       },
       {
-        "area": "outside",
-        "matches": 4,
+        "area": "main",
+        "matches": 3,
         "matches_m": 4,
-        "n": 11,
+        "n": 5,
         "newest": true,
         "players": 1,
         "sample_kind": "time",
         "seconds": 30.0
       },
       {
-        "area": "outside",
-        "matches": 3,
-        "matches_m": 4,
-        "n": 8,
-        "newest": false,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 30.0
-      },
-      {
-        "area": "outside",
+        "area": "main",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
-        "newest": true,
+        "newest": false,
         "players": 3,
         "sample_kind": "time",
         "seconds": 30.0
       },
       {
-        "area": "outside",
+        "area": "outsidelobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "outsidelobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "porattava",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "porattava",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
         "newest": false,
-        "players": 4,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 30.0
       },
@@ -2222,6 +3312,26 @@
         "seconds": 30.0
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
         "area": "t roof",
         "matches": 4,
         "matches_m": 4,
@@ -2245,7 +3355,7 @@
         "area": "t spawn",
         "matches": 4,
         "matches_m": 4,
-        "n": 25,
+        "n": 24,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
@@ -2253,11 +3363,61 @@
       },
       {
         "area": "t spawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "tladder",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "tladder",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "toutside",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
         "newest": false,
-        "players": 1,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 30.0
       },
@@ -2322,6 +3482,96 @@
         "seconds": 33.0
       },
       {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "cross",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "garagen takana",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "garagen takana",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "glaive",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "glaive",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
         "area": "hell",
         "matches": 4,
         "matches_m": 4,
@@ -2372,6 +3622,26 @@
         "seconds": 33.0
       },
       {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
         "area": "lobby",
         "matches": 3,
         "matches_m": 4,
@@ -2415,7 +3685,7 @@
         "area": "main",
         "matches": 4,
         "matches_m": 4,
-        "n": 25,
+        "n": 22,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
@@ -2423,61 +3693,41 @@
       },
       {
         "area": "main",
-        "matches": 1,
+        "matches": 2,
         "matches_m": 4,
-        "n": 1,
+        "n": 2,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 33.0
       },
       {
-        "area": "outside",
+        "area": "main",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "outsidelobby",
         "matches": 4,
         "matches_m": 4,
-        "n": 8,
+        "n": 20,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 33.0
       },
       {
-        "area": "outside",
+        "area": "outsidelobby",
         "matches": 3,
         "matches_m": 4,
-        "n": 10,
+        "n": 6,
         "newest": true,
         "players": 1,
-        "sample_kind": "time",
-        "seconds": 33.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 5,
-        "newest": false,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 33.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 2,
-        "newest": true,
-        "players": 3,
-        "sample_kind": "time",
-        "seconds": 33.0
-      },
-      {
-        "area": "outside",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": false,
-        "players": 4,
         "sample_kind": "time",
         "seconds": 33.0
       },
@@ -2582,6 +3832,26 @@
         "seconds": 33.0
       },
       {
+        "area": "secret entrance",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "secret entrance",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
         "area": "silo",
         "matches": 4,
         "matches_m": 4,
@@ -2622,6 +3892,26 @@
         "seconds": 33.0
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "t red",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
         "area": "t roof",
         "matches": 4,
         "matches_m": 4,
@@ -2636,6 +3926,26 @@
         "matches": 1,
         "matches_m": 4,
         "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
@@ -2732,6 +4042,76 @@
         "seconds": 36.0
       },
       {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "cross",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "glaive",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "glaive",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
         "area": "hut",
         "matches": 4,
         "matches_m": 4,
@@ -2747,6 +4127,26 @@
         "matches_m": 4,
         "n": 3,
         "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 36.0
@@ -2792,10 +4192,30 @@
         "seconds": 36.0
       },
       {
+        "area": "lockers",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "lockers",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
         "area": "main",
         "matches": 4,
         "matches_m": 4,
-        "n": 24,
+        "n": 21,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
@@ -2805,49 +4225,39 @@
         "area": "main",
         "matches": 2,
         "matches_m": 4,
-        "n": 2,
-        "newest": false,
+        "n": 4,
+        "newest": true,
         "players": 1,
         "sample_kind": "time",
         "seconds": 36.0
       },
       {
-        "area": "outside",
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "outsidelobby",
         "matches": 4,
         "matches_m": 4,
-        "n": 11,
+        "n": 25,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 36.0
       },
       {
-        "area": "outside",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 8,
-        "newest": true,
-        "players": 1,
-        "sample_kind": "time",
-        "seconds": 36.0
-      },
-      {
-        "area": "outside",
-        "matches": 3,
-        "matches_m": 4,
-        "n": 6,
-        "newest": true,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 36.0
-      },
-      {
-        "area": "outside",
+        "area": "outsidelobby",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
         "newest": false,
-        "players": 3,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 36.0
       },
@@ -2952,6 +4362,46 @@
         "seconds": 36.0
       },
       {
+        "area": "secret entrance",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "secret entrance",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "secret top",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "secret top",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
         "area": "silo",
         "matches": 4,
         "matches_m": 4,
@@ -2987,6 +4437,66 @@
         "matches_m": 4,
         "n": 8,
         "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 36.0
@@ -3052,6 +4562,66 @@
         "seconds": 39.0
       },
       {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "cross",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "glaive",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "glaive",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
         "area": "heaven",
         "matches": 4,
         "matches_m": 4,
@@ -3083,6 +4653,26 @@
       },
       {
         "area": "hell",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "hellin portaat",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "hellin portaat",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
@@ -3103,6 +4693,26 @@
       },
       {
         "area": "hut",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "kontakti",
         "matches": 2,
         "matches_m": 4,
         "n": 2,
@@ -3152,52 +4762,72 @@
         "seconds": 39.0
       },
       {
-        "area": "main",
+        "area": "lockers",
         "matches": 4,
         "matches_m": 4,
-        "n": 24,
+        "n": 25,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 39.0
       },
       {
-        "area": "main",
-        "matches": 2,
+        "area": "lockers",
+        "matches": 1,
         "matches_m": 4,
-        "n": 2,
+        "n": 1,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 39.0
       },
       {
-        "area": "outside",
+        "area": "main",
         "matches": 4,
         "matches_m": 4,
-        "n": 13,
+        "n": 22,
         "newest": true,
         "players": 0,
         "sample_kind": "time",
         "seconds": 39.0
       },
       {
-        "area": "outside",
+        "area": "main",
         "matches": 3,
         "matches_m": 4,
-        "n": 8,
+        "n": 3,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 39.0
       },
       {
-        "area": "outside",
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "outsidelobby",
         "matches": 4,
         "matches_m": 4,
-        "n": 5,
+        "n": 25,
         "newest": true,
-        "players": 2,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "outsidelobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 39.0
       },
@@ -3302,6 +4932,26 @@
         "seconds": 39.0
       },
       {
+        "area": "secret entrance",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "secret entrance",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
         "area": "silo",
         "matches": 4,
         "matches_m": 4,
@@ -3342,6 +4992,26 @@
         "seconds": 39.0
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
         "area": "t roof",
         "matches": 4,
         "matches_m": 4,
@@ -3376,6 +5046,26 @@
         "matches": 1,
         "matches_m": 4,
         "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
@@ -3442,6 +5132,66 @@
         "seconds": 42.0
       },
       {
+        "area": "ct piha",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "ct red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "ct red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "hellin portaat",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "hellin portaat",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
         "area": "hut",
         "matches": 4,
         "matches_m": 4,
@@ -3458,6 +5208,36 @@
         "n": 1,
         "newest": false,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 42.0
       },
@@ -3505,9 +5285,19 @@
         "area": "main",
         "matches": 4,
         "matches_m": 4,
-        "n": 24,
+        "n": 22,
         "newest": true,
         "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "main",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 42.0
       },
@@ -3517,37 +5307,7 @@
         "matches_m": 4,
         "n": 1,
         "newest": false,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 42.0
-      },
-      {
-        "area": "outside",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 14,
-        "newest": true,
-        "players": 0,
-        "sample_kind": "time",
-        "seconds": 42.0
-      },
-      {
-        "area": "outside",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 9,
-        "newest": true,
-        "players": 1,
-        "sample_kind": "time",
-        "seconds": 42.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 2,
-        "newest": false,
-        "players": 2,
+        "players": 3,
         "sample_kind": "time",
         "seconds": 42.0
       },
@@ -3712,6 +5472,26 @@
         "seconds": 42.0
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
         "area": "top of hut",
         "matches": 4,
         "matches_m": 4,
@@ -3726,6 +5506,26 @@
         "matches": 1,
         "matches_m": 4,
         "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "toutside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
         "newest": false,
         "players": 1,
         "sample_kind": "time",
@@ -3822,6 +5622,46 @@
         "seconds": 45.0
       },
       {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "cross",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "ct piha",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
         "area": "heaven",
         "matches": 4,
         "matches_m": 4,
@@ -3877,6 +5717,26 @@
         "matches_m": 4,
         "n": 1,
         "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
         "players": 1,
         "sample_kind": "time",
         "seconds": 45.0
@@ -3925,9 +5785,19 @@
         "area": "main",
         "matches": 4,
         "matches_m": 4,
-        "n": 24,
+        "n": 22,
         "newest": true,
         "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "main",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 45.0
       },
@@ -3937,37 +5807,7 @@
         "matches_m": 4,
         "n": 1,
         "newest": false,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 45.0
-      },
-      {
-        "area": "outside",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 14,
-        "newest": true,
-        "players": 0,
-        "sample_kind": "time",
-        "seconds": 45.0
-      },
-      {
-        "area": "outside",
-        "matches": 4,
-        "matches_m": 4,
-        "n": 9,
-        "newest": true,
-        "players": 1,
-        "sample_kind": "time",
-        "seconds": 45.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 2,
-        "newest": false,
-        "players": 2,
+        "players": 3,
         "sample_kind": "time",
         "seconds": 45.0
       },
@@ -4112,6 +5952,36 @@
         "seconds": 45.0
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "t red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "t red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
         "area": "top of hut",
         "matches": 4,
         "matches_m": 4,
@@ -4123,6 +5993,26 @@
       },
       {
         "area": "top of hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "toutside",
         "matches": 1,
         "matches_m": 4,
         "n": 2,
@@ -4162,6 +6052,26 @@
         "seconds": 45.0
       },
       {
+        "area": "cross",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "cross",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
         "area": "garage",
         "matches": 4,
         "matches_m": 4,
@@ -4176,6 +6086,26 @@
         "matches": 1,
         "matches_m": 4,
         "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "glaive",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "glaive",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
         "newest": false,
         "players": 1,
         "sample_kind": "first_contact",
@@ -4198,6 +6128,36 @@
         "n": 1,
         "newest": true,
         "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "kontakti",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "kontakti",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
         "sample_kind": "first_contact",
         "seconds": null
       },
@@ -4242,52 +6202,42 @@
         "seconds": null
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "main",
+        "matches": 4,
         "matches_m": 4,
-        "n": 9,
+        "n": 28,
         "newest": true,
         "players": 0,
         "sample_kind": "first_contact",
         "seconds": null
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "main",
+        "matches": 1,
         "matches_m": 4,
-        "n": 8,
+        "n": 1,
         "newest": false,
-        "players": 1,
-        "sample_kind": "first_contact",
-        "seconds": null
-      },
-      {
-        "area": "outside",
-        "matches": 3,
-        "matches_m": 4,
-        "n": 9,
-        "newest": true,
         "players": 2,
         "sample_kind": "first_contact",
         "seconds": null
       },
       {
-        "area": "outside",
-        "matches": 2,
+        "area": "outsidelobby",
+        "matches": 4,
         "matches_m": 4,
-        "n": 2,
-        "newest": false,
-        "players": 3,
+        "n": 27,
+        "newest": true,
+        "players": 0,
         "sample_kind": "first_contact",
         "seconds": null
       },
       {
-        "area": "outside",
-        "matches": 1,
+        "area": "outsidelobby",
+        "matches": 2,
         "matches_m": 4,
-        "n": 1,
-        "newest": false,
-        "players": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
         "sample_kind": "first_contact",
         "seconds": null
       },
@@ -4422,6 +6372,36 @@
         "seconds": null
       },
       {
+        "area": "t red",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 6,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "t red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
         "area": "t roof",
         "matches": 4,
         "matches_m": 4,
@@ -4455,9 +6435,69 @@
         "area": "t spawn",
         "matches": 3,
         "matches_m": 4,
-        "n": 6,
+        "n": 5,
         "newest": true,
         "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "t spawn",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "tladder",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "tladder",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "toutside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 2,
         "sample_kind": "first_contact",
         "seconds": null
       },
@@ -4504,10 +6544,20 @@
     ],
     "1e1965abbc06133b/de_nuke/T/pistol": [
       {
-        "area": "outside",
-        "matches": 4,
+        "area": "outsidelobby",
+        "matches": 3,
         "matches_m": 4,
-        "n": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "outsidelobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
         "newest": true,
         "players": 4,
         "sample_kind": "time",
@@ -4515,11 +6565,51 @@
       },
       {
         "area": "t spawn",
-        "matches": 4,
+        "matches": 3,
         "matches_m": 4,
-        "n": 4,
+        "n": 3,
         "newest": true,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "toutside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "toutside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 6.0
       },
@@ -4544,7 +6634,17 @@
         "seconds": 9.0
       },
       {
-        "area": "outside",
+        "area": "t spawn",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "t spawn",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
@@ -4554,7 +6654,17 @@
         "seconds": 9.0
       },
       {
-        "area": "outside",
+        "area": "toutside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "toutside",
         "matches": 3,
         "matches_m": 4,
         "n": 3,
@@ -4564,6 +6674,26 @@
         "seconds": 9.0
       },
       {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
         "area": "lobby",
         "matches": 1,
         "matches_m": 4,
@@ -4594,26 +6724,6 @@
         "seconds": 12.0
       },
       {
-        "area": "outside",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": true,
-        "players": 1,
-        "sample_kind": "time",
-        "seconds": 12.0
-      },
-      {
-        "area": "outside",
-        "matches": 3,
-        "matches_m": 4,
-        "n": 3,
-        "newest": false,
-        "players": 3,
-        "sample_kind": "time",
-        "seconds": 12.0
-      },
-      {
         "area": "radio",
         "matches": 3,
         "matches_m": 4,
@@ -4630,6 +6740,46 @@
         "n": 1,
         "newest": true,
         "players": 3,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "t red",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "t red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 12.0
       },
@@ -4652,6 +6802,46 @@
         "players": 1,
         "sample_kind": "time",
         "seconds": 12.0
+      },
+      {
+        "area": "glaive",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "glaive",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
       },
       {
         "area": "lobby",
@@ -4680,26 +6870,6 @@
         "n": 1,
         "newest": false,
         "players": 2,
-        "sample_kind": "time",
-        "seconds": 15.0
-      },
-      {
-        "area": "outside",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": true,
-        "players": 1,
-        "sample_kind": "time",
-        "seconds": 15.0
-      },
-      {
-        "area": "outside",
-        "matches": 3,
-        "matches_m": 4,
-        "n": 3,
-        "newest": false,
-        "players": 3,
         "sample_kind": "time",
         "seconds": 15.0
       },
@@ -4724,6 +6894,26 @@
         "seconds": 15.0
       },
       {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "toutside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
         "area": "trophy",
         "matches": 2,
         "matches_m": 4,
@@ -4742,6 +6932,56 @@
         "players": 1,
         "sample_kind": "time",
         "seconds": 15.0
+      },
+      {
+        "area": "glaive",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "glaive",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 18.0
       },
       {
         "area": "lobby",
@@ -4774,22 +7014,42 @@
         "seconds": 18.0
       },
       {
-        "area": "outside",
+        "area": "main",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "main",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
-        "newest": true,
+        "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 18.0
       },
       {
-        "area": "outside",
+        "area": "mainin takana",
         "matches": 3,
         "matches_m": 4,
         "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "mainin takana",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
         "newest": false,
-        "players": 3,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 18.0
       },
@@ -4834,6 +7094,46 @@
         "seconds": 18.0
       },
       {
+        "area": "glaive",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "glaive",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "kontakti",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
         "area": "lobby",
         "matches": 1,
         "matches_m": 4,
@@ -4864,22 +7164,32 @@
         "seconds": 21.0
       },
       {
-        "area": "outside",
+        "area": "main",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "main",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
-        "newest": true,
+        "newest": false,
         "players": 1,
         "sample_kind": "time",
         "seconds": 21.0
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "main",
+        "matches": 1,
         "matches_m": 4,
-        "n": 3,
+        "n": 1,
         "newest": false,
-        "players": 3,
+        "players": 2,
         "sample_kind": "time",
         "seconds": 21.0
       },
@@ -4904,6 +7214,26 @@
         "seconds": 21.0
       },
       {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
         "area": "trophy",
         "matches": 3,
         "matches_m": 4,
@@ -4922,6 +7252,26 @@
         "players": 1,
         "sample_kind": "time",
         "seconds": 21.0
+      },
+      {
+        "area": "glaive",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "glaive",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
       },
       {
         "area": "lobby",
@@ -4954,20 +7304,30 @@
         "seconds": 24.0
       },
       {
-        "area": "outside",
+        "area": "main",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
         "newest": true,
-        "players": 1,
+        "players": 0,
         "sample_kind": "time",
         "seconds": 24.0
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "main",
+        "matches": 1,
         "matches_m": 4,
-        "n": 3,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "main",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
         "newest": false,
         "players": 3,
         "sample_kind": "time",
@@ -5034,72 +7394,82 @@
         "seconds": 27.0
       },
       {
-        "area": "lobby",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 2,
-        "newest": true,
-        "players": 0,
-        "sample_kind": "time",
-        "seconds": 27.0
-      },
-      {
-        "area": "lobby",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": false,
-        "players": 1,
-        "sample_kind": "time",
-        "seconds": 27.0
-      },
-      {
-        "area": "lobby",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": false,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 27.0
-      },
-      {
-        "area": "main",
-        "matches": 1,
-        "matches_m": 4,
-        "n": 1,
-        "newest": true,
-        "players": 0,
-        "sample_kind": "time",
-        "seconds": 27.0
-      },
-      {
-        "area": "main",
+        "area": "glaive",
         "matches": 3,
         "matches_m": 4,
         "n": 3,
         "newest": false,
-        "players": 2,
-        "sample_kind": "time",
-        "seconds": 27.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 4,
-        "n": 2,
-        "newest": false,
         "players": 0,
         "sample_kind": "time",
         "seconds": 27.0
       },
       {
-        "area": "outside",
+        "area": "glaive",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "lobby",
         "matches": 2,
         "matches_m": 4,
         "n": 2,
         "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
         "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "main",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
         "sample_kind": "time",
         "seconds": 27.0
       },
@@ -5274,7 +7644,7 @@
         "seconds": 30.0
       },
       {
-        "area": "outside",
+        "area": "mainin takana",
         "matches": 3,
         "matches_m": 4,
         "n": 3,
@@ -5284,7 +7654,7 @@
         "seconds": 30.0
       },
       {
-        "area": "outside",
+        "area": "mainin takana",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
@@ -5424,26 +7794,6 @@
         "seconds": 33.0
       },
       {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 3,
-        "n": 2,
-        "newest": false,
-        "players": 0,
-        "sample_kind": "time",
-        "seconds": 33.0
-      },
-      {
-        "area": "outside",
-        "matches": 1,
-        "matches_m": 3,
-        "n": 1,
-        "newest": true,
-        "players": 1,
-        "sample_kind": "time",
-        "seconds": 33.0
-      },
-      {
         "area": "rafters",
         "matches": 2,
         "matches_m": 3,
@@ -5460,6 +7810,26 @@
         "n": 1,
         "newest": true,
         "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "t red",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
         "sample_kind": "time",
         "seconds": 33.0
       },
@@ -5544,7 +7914,7 @@
         "seconds": 36.0
       },
       {
-        "area": "outside",
+        "area": "rafters",
         "matches": 2,
         "matches_m": 3,
         "n": 2,
@@ -5554,7 +7924,7 @@
         "seconds": 36.0
       },
       {
-        "area": "outside",
+        "area": "rafters",
         "matches": 1,
         "matches_m": 3,
         "n": 1,
@@ -5564,7 +7934,7 @@
         "seconds": 36.0
       },
       {
-        "area": "rafters",
+        "area": "t red",
         "matches": 2,
         "matches_m": 3,
         "n": 2,
@@ -5574,7 +7944,7 @@
         "seconds": 36.0
       },
       {
-        "area": "rafters",
+        "area": "t red",
         "matches": 1,
         "matches_m": 3,
         "n": 1,
@@ -5604,6 +7974,26 @@
         "seconds": 39.0
       },
       {
+        "area": "hellin portaat",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "hellin portaat",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
         "area": "hut",
         "matches": 2,
         "matches_m": 3,
@@ -5660,26 +8050,6 @@
         "n": 1,
         "newest": false,
         "players": 1,
-        "sample_kind": "time",
-        "seconds": 39.0
-      },
-      {
-        "area": "outside",
-        "matches": 2,
-        "matches_m": 3,
-        "n": 2,
-        "newest": false,
-        "players": 0,
-        "sample_kind": "time",
-        "seconds": 39.0
-      },
-      {
-        "area": "outside",
-        "matches": 1,
-        "matches_m": 3,
-        "n": 1,
-        "newest": true,
-        "players": 2,
         "sample_kind": "time",
         "seconds": 39.0
       },
@@ -5724,6 +8094,26 @@
         "seconds": 39.0
       },
       {
+        "area": "t red",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "t red",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
         "area": "a site",
         "matches": 1,
         "matches_m": 2,
@@ -5902,6 +8292,46 @@
         "players": 1,
         "sample_kind": "time",
         "seconds": 45.0
+      },
+      {
+        "area": "glaive",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "glaive",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "kontakti",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "kontakti",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
       },
       {
         "area": "lobby",
@@ -5934,22 +8364,32 @@
         "seconds": null
       },
       {
-        "area": "outside",
+        "area": "main",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "main",
         "matches": 1,
         "matches_m": 4,
         "n": 1,
-        "newest": true,
+        "newest": false,
         "players": 1,
         "sample_kind": "first_contact",
         "seconds": null
       },
       {
-        "area": "outside",
-        "matches": 3,
+        "area": "main",
+        "matches": 1,
         "matches_m": 4,
-        "n": 3,
+        "n": 1,
         "newest": false,
-        "players": 3,
+        "players": 2,
         "sample_kind": "first_contact",
         "seconds": null
       },
@@ -5970,6 +8410,46 @@
         "n": 1,
         "newest": true,
         "players": 4,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "t red",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "t red",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "toutside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "toutside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
         "sample_kind": "first_contact",
         "seconds": null
       },
