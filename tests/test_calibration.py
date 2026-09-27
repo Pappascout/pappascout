@@ -3886,7 +3886,8 @@ GUIDE_FIT = json.loads(
 def _guide_of(map_name: str) -> dict:
     """A map's guide entry with its fit: from ``guide_fit.json``, or -- where
     the entry says ``fit_from`` -- from the split in ``callouts.toml`` that
-    holds the one copy of it (Story 4.17: *"Derived, not a second copy"*)."""
+    carries it: one value per map, held equal on every split of the map by
+    the loader (Story 4.17: *"Derived, not a second copy"*)."""
     guide = GUIDE_FIT["maps"][map_name]
     if "fit_from" not in guide:
         return guide
@@ -3896,7 +3897,8 @@ def _guide_of(map_name: str) -> dict:
         **guide,
         "image": split.image,
         "fit": split.fit.model_dump(),
-        "zmin": split.zmin,
+        # A split on an image of one floor has no zmin (de_ancient).
+        **({} if split.zmin is None else {"zmin": split.zmin}),
     }
 
 

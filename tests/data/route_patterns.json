@@ -885,54 +885,6 @@
             ]
           ],
           "stayed": false
-        },
-        {
-          "newest": true,
-          "path": [
-            [
-              "mid talo",
-              null,
-              null,
-              null
-            ],
-            [
-              "ct spawn",
-              null,
-              null,
-              null
-            ],
-            [
-              "a site",
-              null,
-              null,
-              null
-            ],
-            [
-              "a main",
-              null,
-              null,
-              null
-            ],
-            [
-              "outside",
-              "coarse",
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              2,
-              1
-            ],
-            [
-              0,
-              7,
-              1
-            ]
-          ],
-          "stayed": true
         }
       ]
     },
@@ -1129,15 +1081,16 @@
     },
     "ff03fb54599d3311/de_ancient/T/eco": {
       "lines": [
-        "Reitti: outside (karkea) -> middle, 5 pelaajaa (2/2 kierroksesta)"
+        "Reitti: t-kuutio -> middle, 3 pelaajaa (2/2 kierroksesta)",
+        "Reitti: t-kuutio -> t-elbow -> middle, 2 pelaajaa (2/2 kierroksesta)"
       ],
       "patterns": [
         {
           "newest": null,
           "path": [
             [
-              "outside",
-              "coarse",
+              "t-kuutio",
+              null,
               null,
               null
             ],
@@ -1152,12 +1105,78 @@
             [
               0,
               2,
-              5
+              3
             ],
             [
               0,
               6,
-              5
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": null,
+          "path": [
+            [
+              "t-kuutio",
+              null,
+              null,
+              null
+            ],
+            [
+              "t-elbow",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              2,
+              2
+            ],
+            [
+              0,
+              6,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": null,
+          "path": [
+            [
+              "t-kuutio",
+              null,
+              null,
+              null
+            ],
+            [
+              "t-elbow",
+              null,
+              null,
+              null
+            ],
+            [
+              "middle",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              2,
+              2
+            ],
+            [
+              0,
+              6,
+              2
             ]
           ],
           "stayed": false
@@ -1171,13 +1190,13 @@
           "newest": null,
           "path": [
             [
-              "outside",
-              "coarse",
+              "t-kuutio",
+              null,
               null,
               null
             ],
             [
-              "a main",
+              "hall",
               null,
               null,
               null
@@ -1196,78 +1215,6 @@
             ]
           ],
           "stayed": false
-        },
-        {
-          "newest": null,
-          "path": [
-            [
-              "outside",
-              "coarse",
-              null,
-              null
-            ],
-            [
-              "a main",
-              null,
-              null,
-              null
-            ],
-            [
-              "a site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              5,
-              2
-            ],
-            [
-              1,
-              11,
-              4
-            ]
-          ],
-          "stayed": false
-        },
-        {
-          "newest": null,
-          "path": [
-            [
-              "outside",
-              "coarse",
-              null,
-              null
-            ],
-            [
-              "a main",
-              null,
-              null,
-              null
-            ],
-            [
-              "a site",
-              null,
-              null,
-              null
-            ]
-          ],
-          "rounds": [
-            [
-              0,
-              5,
-              1
-            ],
-            [
-              1,
-              11,
-              1
-            ]
-          ],
-          "stayed": true
         },
         {
           "newest": null,
@@ -1459,6 +1406,6 @@
       "patterns": []
     }
   },
-  "measured": "2026-09-26",
+  "measured": "2026-09-27",
   "note": "Every recorded team's eco, force and half-buy block: the route-pattern lines the report prints and every recurring path report.json holds (Story 4.14). A round is [demo place in the map's newest-first list, round number, players]. Written by running tests/test_calibration.py's _pattern_blocks_from over the archive; re-measure, do not hand-edit."
 }

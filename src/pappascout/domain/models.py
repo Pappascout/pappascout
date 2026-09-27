@@ -94,6 +94,7 @@ __all__ = [
     "GuideFit",
     "MapCallouts",
     "NamedConfidence",
+    "SPLIT_GRID_FIELDS",
     "load_callouts",
     "named_places",
 ]
@@ -1936,17 +1937,24 @@ class CellPart(_Section):
 
 
 class CellSplit(_Section):
-    """A coarse game area divided by position into his callouts, on the
-    guide image's own grid (Story 4.17).
+    """A coarse game area divided by position into his callouts, on a grid
+    over a guide image (Story 4.17): on Nuke the guide's own grid, on Ancient
+    a generated grid of 425 game units from pixel (0, 0) (Story 4.18,
+    ``grid2.py``). In both cases he named the half-cells against pictures of
+    that grid, so the grid here must be the pictures' exactly.
 
-    **The geometry is the image's.** A position is projected with
-    :attr:`fit` (the fit of Story 4.16, whose one copy this is --
-    ``tests/data/guide_fit.json`` reads it from here), then placed on the
-    grid of :attr:`columns` x :attr:`rows` cells whose top-left corner is
+    **The geometry is the pictures'.** A position is projected with
+    :attr:`fit` (the fit of Story 4.16, unrounded as the pictures were
+    drawn; one value per map, carried by each split of the map and refused
+    at load if it differs -- ``tests/data/guide_fit.json`` reads it from
+    here through ``fit_from``), then placed on the grid of
+    :attr:`columns` x :attr:`rows` cells whose top-left corner is
     :attr:`origin` and whose size is :attr:`cell`, each cell divided into
     the four half-cells he names (``K13b``). A position below :attr:`zmin`
     is not on the floor the image draws and is not split: it keeps the
-    area's coarse name, and so does a position with no coordinates.
+    area's coarse name, and so does a position with no coordinates. A split
+    whose fit was made with no floor cut (Ancient's, Story 4.18) has no
+    :attr:`zmin`, and every position with coordinates is split.
 
     **A position takes, in order:** the part whose box holds it; else the
     part that names its half-cell; else **the nearest named half-cell's
@@ -1959,12 +1967,15 @@ class CellSplit(_Section):
 
     **Refused at load:** a half-cell named twice, a half-cell outside the
     grid, two parts with one callout, and two boxes that overlap -- each
-    would leave a position with two answers.
+    would leave a position with two answers. Across the areas of one map,
+    :func:`load_callouts` refuses splits on different grids
+    (:data:`SPLIT_GRID_FIELDS`), so a half-cell's name means one place of
+    the image on every split of the map.
     """
 
     image: str = Field(min_length=1)
     fit: GuideFit
-    zmin: float
+    zmin: float | None = None
     origin: tuple[float, float]
     cell: tuple[float, float]
     columns: str = Field(min_length=1)
@@ -2106,10 +2117,10 @@ class CellSplit(_Section):
         """The part a position is counted under, or ``None`` where the split
         cannot place it: a coordinate missing or not finite (NaN or an
         infinity is no position, as elsewhere in the codebase), or below
-        :attr:`zmin`."""
+        :attr:`zmin` where the split has one."""
         if any(v is None or not isfinite(v) for v in (x, y, z)):
             return None
-        if z < self.zmin:  # type: ignore[operator]
+        if self.zmin is not None and z < self.zmin:  # type: ignore[operator]
             return None
         px, py = self.pixel(x, y)
         for part in self.parts:
@@ -2134,6 +2145,16 @@ class CellSplit(_Section):
             for column in range(2 * len(self.columns))
             if (column, row) not in self._named
         }
+
+
+#: The fields that make a split's grid: the image and its fit, and the
+#: grid laid on it. Every split of one map must agree on them (Story 4.18:
+#: Ancient's three splits are one grid, as his pictures are), so the fit
+#: written on each is checked to be one value, not three that may drift.
+#: ``zmin`` is not the grid: a floor cut belongs to one area.
+SPLIT_GRID_FIELDS: tuple[str, ...] = (
+    "image", "fit", "origin", "cell", "columns", "rows"
+)
 
 
 class CalloutEntry(_Section):
@@ -2285,6 +2306,10 @@ def load_callouts(
     while describing nothing, and every route on it would lose the
     ``no_table`` note that says so.
 
+    **The splits of one map are on one grid** (Story 4.18): each carries
+    the image, fit and grid (:data:`SPLIT_GRID_FIELDS`), and they must be
+    equal, because his half-cell names are read off one picture grid.
+
     **The limit, stated:** an area name is not checked here. The loader has
     no list of the game's areas, so a misspelt area loads and simply never
     matches; ``-m archive`` catches it (``tests/test_calibration.py``
@@ -2346,6 +2371,18 @@ def load_callouts(
                 f"{', '.join(clash)} is spelled exactly like an area the "
                 "table gives no callout. That area prints the game's name, "
                 "so the report would read the two as one place."
+            )
+        grids = {
+            area: {key: getattr(entry.split, key) for key in SPLIT_GRID_FIELDS}
+            for area, entry in entries.items()
+            if entry.split is not None
+        }
+        if len({repr(grid) for grid in grids.values()}) > 1:
+            raise SettingsError(
+                f"The callout table {path}: the splits of [{map_name}] "
+                f"({', '.join(grids)}) are not on one grid; "
+                f"{', '.join(SPLIT_GRID_FIELDS)} must be the same on each, so "
+                "a half-cell's name means one place of the image."
             )
         by_callout: dict[str, tuple[str, CalloutEntry | CellPart]] = {}
         for area, entry in named:

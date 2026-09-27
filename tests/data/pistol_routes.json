@@ -224,7 +224,7 @@
         "rows": [
           "  - 3 alley",
           "    - 2 b site -> mid talo -> 1 ct spawn, 1 mid talo",
-          "    - 1 ruins/dig (karkea) -> kuoli ruins/dig (karkea) (17 s)",
+          "    - 1 ruins -> kuoli ruins (17 s)",
           "  - 2 a site",
           "    - 1 ct spawn ⇄ a site",
           "    - 1 ct spawn -> mid talo ⇄ ct spawn"
@@ -237,10 +237,11 @@
         "note": null,
         "round_no": 13,
         "rows": [
-          "  - 4 outside (karkea)",
-          "    - 3 middle -> 1 kuoli middle (10 s), 1 kuoli middle (14 s), 1 kuoli donut (20 s)",
-          "    - 1 a main -> a site -> middle -> top mid",
-          "  - 1 t spawn -> outside (karkea) -> a main -> a site -> middle"
+          "  - 4 t-kuutio",
+          "    - 2 t-elbow -> middle -> 1 kuoli middle (14 s), 1 kuoli donut (20 s)",
+          "    - 1 hall -> a site -> middle -> top mid",
+          "    - 1 middle -> kuoli middle (10 s)",
+          "  - 1 t spawn -> t-kuutio -> hall -> hallleft -> a site -> middle"
         ],
         "won": true
       }
@@ -342,7 +343,7 @@
         "rows": [
           "  - 3 alley -> b site",
           "    - 2 ct spawn -> a site",
-          "    - 1 ruins/dig (karkea) ⇄ b site -> ct spawn -> a site",
+          "    - 1 ruins ⇄ b site -> ct spawn -> a site",
           "  - 1 a site -> kuoli a site (38 s)",
           "  - 1 mid talo -> ct spawn -> kuoli ct spawn (39 s)"
         ],
@@ -354,8 +355,8 @@
         "rows": [
           "  - 3 alley",
           "    - 1 alley",
-          "    - 1 b site -> ruins/dig (karkea)",
-          "    - 1 ruins/dig (karkea) -> b site -> kuoli b site (17 s)",
+          "    - 1 b site -> ruins",
+          "    - 1 ruins -> b site -> kuoli b site (17 s)",
           "  - 1 a site -> ct spawn -> alley",
           "  - 1 mid talo -> b site"
         ],
@@ -367,12 +368,15 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 5 outside (karkea)",
-          "    - 4 middle",
-          "      - 2 mid talo -> ct spawn",
-          "      - 1 middle",
-          "      - 1 top mid -> kuoli mid talo (16 s)",
-          "    - 1 kuoli middle (10 s)"
+          "  - 5 t-kuutio",
+          "    - 3 t-elbow",
+          "      - 2 middle",
+          "        - 1 mid talo -> ct spawn",
+          "        - 1 top mid -> kuoli mid talo (16 s)",
+          "      - 1 kuoli middle (10 s)",
+          "    - 2 middle",
+          "      - 1 mid talo -> ct spawn",
+          "      - 1 middle"
         ],
         "won": false
       },
@@ -380,9 +384,11 @@
         "note": null,
         "round_no": 1,
         "rows": [
-          "  - 5 outside (karkea)",
-          "    - 4 a main -> a site -> 3 a site, 1 kuoli a site (31 s)",
-          "    - 1 middle -> mid talo"
+          "  - 5 t-kuutio",
+          "    - 4 hall",
+          "      - 3 a main (päätelty) -> a site -> 2 a site, 1 kuoli a site (31 s)",
+          "      - 1 a site",
+          "    - 1 t-elbow -> middle -> mid talo"
         ],
         "won": true
       }

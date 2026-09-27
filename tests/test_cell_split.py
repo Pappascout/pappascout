@@ -27,6 +27,7 @@ from pappascout.domain.aggregate import (
     places_for,
 )
 from pappascout.domain.models import (
+    SPLIT_GRID_FIELDS,
     CellPart,
     CellSplit,
     load_callouts,
@@ -53,12 +54,29 @@ def _split() -> CellSplit:
     return split
 
 
+def _every_split() -> dict[str, tuple[dict, CellSplit]]:
+    """Every shipped split as ``"<map>.<area>"`` -> (its map's table, the
+    split): Nuke's yard (Story 4.17) and Ancient's three (Story 4.18). A
+    test of what every split must satisfy runs on each."""
+    return {
+        f"{map_name}.{area}": (table, entry.split)
+        for map_name, table in load_callouts(_POOL).items()
+        for area, entry in table.items()
+        if entry.split is not None
+    }
+
+
+#: The shipped splits by key, for ``parametrize``.
+SPLITS = sorted(_every_split())
+
+
 def _at_pixel(split: CellSplit, px: float, py: float) -> tuple[float, float, float]:
-    """A game position whose projection is ``(px, py)``, on the fitted floor."""
+    """A game position whose projection is ``(px, py)``, on the fitted floor
+    (at any height where the split has no floor cut)."""
     return (
         (px - split.fit.bx) / split.fit.sx,
         (split.fit.by - py) / split.fit.sy,
-        split.zmin + 100.0,
+        (split.zmin if split.zmin is not None else 0.0) + 100.0,
     )
 
 
@@ -92,27 +110,37 @@ def _in_a_box(split: CellSplit, px: float, py: float) -> bool:
 # -- The cell lookup ---------------------------------------------------------
 
 
-def test_every_named_half_cell_places_its_centre_under_its_callout() -> None:
-    """Each half-cell of the FINAL table, at its centre, is counted under the
-    row that names it -- unless a box overrides that spot. postimerkki's box
-    straddles the corner of four half-cells and reaches exactly one of their
-    centres (K12d's, its top-left corner: a box is half-open like a
-    half-cell), so one centre is the box's and every other is checked."""
-    split = _split()
+@pytest.mark.parametrize("key", SPLITS)
+def test_every_named_half_cell_places_its_centre_under_its_callout(
+    key: str,
+) -> None:
+    """Each half-cell a table names, at its centre, is counted under the
+    row that names it -- unless another part's box overrides that spot.
+    postimerkki's box straddles the corner of four half-cells and reaches
+    exactly one of their centres (K12d's, its top-left corner: a box is
+    half-open like a half-cell), so on Nuke one centre is the box's and
+    every other is checked. dig's box on Ancient reaches H8d's centre the
+    same way, but H8d is dig's own, so nothing there is overridden."""
+    _, split = _every_split()[key]
     checked = 0
     boxed = []
     for part in split.parts:
         for name in part.cells:
             px, py = _centre(split, name)
-            if _in_a_box(split, px, py):
+            if any(
+                b[0] <= px < b[2] and b[1] <= py < b[3]
+                for other in split.parts
+                if other is not part
+                for b in other.boxes
+            ):
                 boxed.append(name)
                 continue
             assert split.part_at(*_at_pixel(split, px, py)).callout == (
                 part.callout
             ), name
             checked += 1
-    assert boxed == ["K12d"]
-    assert checked == sum(len(part.cells) for part in split.parts) - 1
+    assert boxed == (["K12d"] if key == "de_nuke.Outside" else [])
+    assert checked == sum(len(part.cells) for part in split.parts) - len(boxed)
 
 
 def test_a_half_cell_name_round_trips_and_a_foreign_one_is_refused() -> None:
@@ -133,6 +161,7 @@ def test_a_position_below_the_floor_or_without_coordinates_is_not_split() -> Non
     coordinate missing, the split has no answer and the area's coarse name
     stands."""
     split = _split()
+    assert split.zmin is not None  # Nuke's fit is of the upper floor only
     x, y, _ = _at_pixel(split, *_centre(split, "I14b"))
     assert split.part_at(x, y, split.zmin - 1.0) is None
     assert split.part_at(x, y, split.zmin).callout == "t red"
@@ -293,10 +322,14 @@ def test_a_position_off_the_grid_takes_the_nearest_named_half_cell(
     assert split.part_at(900.0, -80.0, 0.0).callout == "east"
 
 
-def test_the_shipped_inheritance_covers_the_grid_without_a_named_half_cell() -> None:
-    """*"Liitä loput lähimpään"*, written out: every half-cell of the grid is
-    named by the table or inherited, never both."""
-    split = _split()
+@pytest.mark.parametrize("key", SPLITS)
+def test_the_shipped_inheritance_covers_the_grid_without_a_named_half_cell(
+    key: str,
+) -> None:
+    """*"Liitä loput lähimpään"* on Nuke and *"mainitsematon lähimmällä"* on
+    Ancient, written out: every half-cell of the grid is named by the table
+    or inherited, never both."""
+    _, split = _every_split()[key]
     named = {name for part in split.parts for name in part.cells}
     inherited = set(split.inherited)
     assert not named & inherited
@@ -411,25 +444,26 @@ def _row_at(split: CellSplit, half_cell: str, **extra) -> dict:
     return {"area": "Outside", "x": x, "y": y, "z": z, **extra}
 
 
-def test_a_statistic_and_a_route_step_name_one_position_alike() -> None:
+@pytest.mark.parametrize("key", SPLITS)
+def test_a_statistic_and_a_route_step_name_one_position_alike(key: str) -> None:
     """The one lookup: a tick renamed for the statistics and the same
     position as a route step carry the same callout, for every part the
-    table names by half-cell."""
-    table = _shipped()
-    split = _split()
+    table names by half-cell, on every shipped split."""
+    table, split = _every_split()[key]
+    area = key.split(".")[1]
     for part in split.parts:
         for name in part.cells:
             px, py = _centre(split, name)
             if _in_a_box(split, px, py):
                 continue
-            row = _row_at(split, name)
+            row = {**_row_at(split, name), "area": area}
             (named,) = named_rows([row], TICK_AREA_COLUMNS, table)
             position = (row["x"], row["y"], row["z"])
             tokens, _ = _junction_path(
-                [6.0], {6.0: ("Outside", position)}, None, table
+                [6.0], {6.0: (area, position)}, None, table
             )
             assert named["area"] == tokens[0].label == part.callout, name
-            assert row["area"] == "Outside"  # a copy: the rules' row unmoved
+            assert row["area"] == area  # a copy: the rules' row unmoved
 
 
 def test_a_death_is_split_at_the_victims_and_the_attackers_own_positions() -> None:
@@ -602,16 +636,37 @@ def test_no_provenance_of_a_split_moves_the_hash(tmp_path: Path) -> None:
 # -- The table's cells are his words (review item B1) ------------------------
 
 
-#: A half-cell as his FINAL table writes it, with his range form ``K11a–d``.
+#: A half-cell as his tables write it, with his range form ``K11a–d``.
 _WRITTEN = re.compile(r"\b([A-P])([1-9][0-9]*)([a-d])(?:–([a-d]))?\b")
-_ROW = re.compile(r"'FINAL table \(source for Story 4\.17\)', row '([^']*)'")
+#: A table row a part's source quotes: ``section '<section>', row '<row>'``.
+#: Story 4.17's rows are in nuke-piha-vastaus's FINAL table, Story 4.18's in
+#: the tables of puoliruudut-vastaus.
+_ROW = re.compile(r"section '([^']*)', row '([^']*)'")
 
 
-def _quoted_row(source: str) -> str:
-    """The FINAL-table row a part's source quotes: ``row '<row>'``."""
-    match = _ROW.search(source)
-    assert match, source
-    return match[1]
+def _quoted_rows(source: str) -> list[tuple[str, str]]:
+    """Every table row a part's source quotes, as (callout, the half-cells
+    written), in the order quoted.
+
+    Two table shapes are quoted. ``callout | half-cells`` is a table of
+    places (``ct red | K12b, ...``; ``T-kuutio (his *split*) | D10b, ...``,
+    whose parenthesis is the table's gloss and not the name). ``half-cell |
+    was | **callout** ...`` is Story 4.18's Nuke table of the inherited
+    half-cells he named, the name in bold.
+    """
+    rows = []
+    for _, row in _ROW.findall(source):
+        columns = row.split(" | ")
+        if len(columns) == 3:
+            bold = re.search(r"\*\*([^*]+)\*\*", columns[2])
+            assert bold, row
+            rows.append((bold[1], columns[0]))
+        else:
+            assert len(columns) == 2, row
+            callout = re.sub(r"\s*\(.*\)\s*$", "", columns[0])
+            rows.append((callout, columns[1]))
+    assert rows, source
+    return rows
 
 
 def _written_cells(text: str) -> list[str]:
@@ -622,29 +677,36 @@ def _written_cells(text: str) -> list[str]:
     return cells
 
 
-def test_every_parts_cells_are_the_half_cells_its_quoted_row_names() -> None:
-    """Each part's source quotes its FINAL-table row verbatim, and the
-    half-cells that row names are exactly the part's ``cells`` -- so a typo
-    in a half-cell has to be made twice, in the words and in the list. A
-    part held by a box names the half-cells the box meets instead: every one
-    of them must share area with the box. The row's callout is the part's."""
-    split = _split()
+@pytest.mark.parametrize("key", SPLITS)
+def test_every_parts_cells_are_the_half_cells_its_quoted_row_names(
+    key: str,
+) -> None:
+    """Each part's source quotes its table rows verbatim, and the half-cells
+    those rows name, in order, begin with exactly the part's ``cells`` -- so
+    a typo in a half-cell has to be made twice, in the words and in the
+    list. A part with a box names, after or instead of its cells, the
+    half-cells the box meets (postimerkki's K13b and L13a, dig's H9b and
+    I9a): every one of them must share area with a box of the part, and a
+    part names such half-cells exactly when it has a box. Every quoted row's
+    callout is the part's."""
+    _, split = _every_split()[key]
     for part in split.parts:
-        row = _quoted_row(part.source)
-        callout, _, written = row.partition(" | ")
-        assert " ".join(callout.split()).lower() == part.callout, row
-        named = _written_cells(written)
-        if part.cells:
-            assert named == part.cells, part.callout
-            continue
-        assert named, part.callout
-        (box,) = part.boxes
-        for name in named:
+        named = []
+        for callout, written in _quoted_rows(part.source):
+            assert " ".join(callout.split()).lower() == part.callout, callout
+            named.extend(_written_cells(written))
+        assert named[: len(part.cells)] == part.cells, part.callout
+        rest = named[len(part.cells) :]
+        assert bool(rest) == bool(part.boxes), part.callout
+        for name in rest:
             column, index = split.index_of(name)
             x0 = split.origin[0] + split.cell[0] / 2 * column
             y0 = split.origin[1] + split.cell[1] / 2 * index
-            assert box[0] < x0 + split.cell[0] / 2 and x0 < box[2], name
-            assert box[1] < y0 + split.cell[1] / 2 and y0 < box[3], name
+            assert any(
+                box[0] < x0 + split.cell[0] / 2 and x0 < box[2]
+                and box[1] < y0 + split.cell[1] / 2 and y0 < box[3]
+                for box in part.boxes
+            ), name
 
 
 def test_the_row_reader_reads_his_range_form() -> None:
@@ -654,6 +716,10 @@ def test_the_row_reader_reads_his_range_form() -> None:
         "K11a", "K11b", "K11c", "K11d", "L10c"
     ]
     assert _written_cells("K13b (except its top edge)") == ["K13b"]
+    assert _quoted_rows(
+        "x section 'S', row 'T-kuutio (his *split*) | D10b, E10a'; and "
+        "section 'N', row 'G12b | tladder | **toutside** (a gloss)'"
+    ) == [("T-kuutio", "D10b, E10a"), ("toutside", "G12b")]
 
 
 # -- Robustness (review items 7 and 9) ---------------------------------------
@@ -826,15 +892,16 @@ def test_a_utility_event_and_a_death_in_the_yard_get_part_names() -> None:
     assert [area.area for area in entry.deaths.kills] == ["kontakti"]
 
 
-def test_a_tie_on_the_shipped_grid_goes_to_the_table_order() -> None:
+@pytest.mark.parametrize("key", SPLITS)
+def test_a_tie_on_the_shipped_grid_goes_to_the_table_order(key: str) -> None:
     """Every inherited half-cell of the shipped grid takes, among the named
     half-cells at the least distance, the first in the table -- the
     distance computed here in exact fractions of the table's cell size, so
     a tie is a tie. Found in the Story 4.17 review: G12b lies 21.1 px from
     both *tladder* (G11d) and *toutside* (G12d), and subtracting float
     centres let rounding noise pick *toutside*; the table lists *tladder*
-    first."""
-    split = _split()
+    first -- until Story 4.18, when he named G12b *toutside* himself."""
+    _, split = _every_split()[key]
     width = Fraction(str(split.cell[0])) / 2
     height = Fraction(str(split.cell[1])) / 2
     named = [
@@ -851,4 +918,213 @@ def test_a_tie_on_the_shipped_grid_goes_to_the_table_order() -> None:
         least = min(distance for distance, _ in distances)
         first = next(owner for distance, owner in distances if distance == least)
         assert callout == first, name
-    assert split.inherited["G12b"] == "tladder"
+
+
+# -- Story 4.18: Ancient by his cells ----------------------------------------
+
+
+def _ancient() -> dict:
+    return load_callouts(_POOL)["de_ancient"]
+
+
+#: His callouts per Ancient area as he wrote them
+#: (``puoliruudut-vastaus-2026-09-27.md``), before the loader normalises them.
+_ANCIENT_PARTS = {
+    "MainHall": ("a main", "hall", "HallLeft"),
+    "Outside": ("T-kuutio", "T-elbow", "Outside main"),
+    "SideEntrance": ("ruins", "vent", "dig"),
+}
+
+
+def test_ancient_splits_name_his_places_and_mark_the_two_readings() -> None:
+    """His names through the loader's normalisation (the hyphen is kept),
+    each part sourced from puoliruudut-vastaus. The two readings that
+    correct what he wrote -- D7a for his second C7a, D9a-d for his F9a-d --
+    say so in their source (spec decision 5) and are ``inferred``, so they
+    print marked, until he confirms them (spec 4.18 review); every other
+    part is ``stated``."""
+    table = _ancient()
+    parts = [p for area in _ANCIENT_PARTS for p in table[area].split.parts]
+    for area, names in _ANCIENT_PARTS.items():
+        assert [p.callout for p in table[area].split.parts] == [
+            " ".join(n.split()).lower() for n in names
+        ], area
+    for part in parts:
+        assert "puoliruudut-vastaus-2026-09-27.md" in part.source
+    assumed = {p.callout for p in parts if "Read as an assumption" in p.source}
+    assert assumed == {"a main", "outside main"}
+    assert {p.callout: p.confidence for p in parts if p.confidence != "stated"} == {
+        callout: "inferred" for callout in assumed
+    }
+
+
+def test_a_split_does_not_remove_its_areas_junction() -> None:
+    """MainHall, Outside and SideEntrance were each a junction as a whole,
+    and a split must not remove that (implementation lead, spec 4.18
+    review): a route through hall would otherwise lose *a main*. So every
+    part he names as a place is a junction, and each junction's source says
+    so; the parts he describes as a way to somewhere -- Outside main
+    (*"towards a main"*) and vent, the passage between ruins and dig --
+    stay transit."""
+    table = _ancient()
+    for area in _ANCIENT_PARTS:
+        assert table[area].junction, area
+    parts = [p for area in _ANCIENT_PARTS for p in table[area].split.parts]
+    assert {p.callout for p in parts if not p.junction} == {"outside main", "vent"}
+    for part in parts:
+        if part.junction:
+            assert "a split does not remove its area's junction" in (
+                part.junction_source
+            ), part.callout
+
+
+def test_mainhall_is_coarse_under_his_three_names_joined() -> None:
+    """Only a coarse area is split, so MainHall became coarse. It has no
+    guide claim, so its coarse name, for a rule row on the whole area, is
+    its parts joined with '/'."""
+    entry = _ancient()["MainHall"]
+    assert entry.coarse and entry.junction
+    assert entry.callout == "/".join(p.callout for p in entry.split.parts)
+
+
+@pytest.mark.parametrize("area", sorted(_ANCIENT_PARTS))
+def test_ancient_grid_is_grid2s(area: str) -> None:
+    """``grid2.py``'s naming, reproduced from game positions. grid2 names a
+    position by its pixel ``px = sx * x + bx``, ``py = -sy * y + by``, the
+    half-cell ``ci = floor(px / (CW / 2))``, ``ri = floor(py / (CH / 2))``
+    with ``CW = 425 * sx``, ``CH = 425 * sy``, and the name
+    ``L[ci // 2] + (ri // 2 + 1) + ('ab', 'cd')[ri % 2][ci % 2]``. Here
+    that formula is written out on its own, from the table's fit alone; the
+    split is only asked, through :meth:`CellSplit.part_at`, which callout
+    the same game position takes. Two positions per half-cell, near
+    opposite corners, off the box. The answer must be the part that names
+    grid2's half-cell in its ``cells`` as written, or else that half-cell's
+    inheritance."""
+    from math import floor
+
+    split = _ancient()[area].split
+    sx, sy, bx, by = split.fit.sx, split.fit.sy, split.fit.bx, split.fit.by
+    half_w, half_h = 425 * sx / 2, 425 * sy / 2
+    # The table's grid is grid2's, derived from the same fit: a cell rounded
+    # apart from the fit, or a fit rounded apart from the cell, fails here.
+    assert split.origin == (0.0, 0.0)
+    assert split.cell == (2 * half_w, 2 * half_h)
+    written = {name: part.callout for part in split.parts for name in part.cells}
+    checked = 0
+    for ci in range(2 * len(split.columns)):
+        for ri in range(2 * split.rows):
+            for fx, fy in ((0.1, 0.15), (0.9, 0.85)):
+                x = (half_w * (ci + fx) - bx) / sx
+                y = (by - half_h * (ri + fy)) / sy
+                px, py = sx * x + bx, -sy * y + by
+                if _in_a_box(split, px, py):
+                    continue
+                c, r = floor(px / half_w), floor(py / half_h)
+                name = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[c // 2] + (
+                    f"{r // 2 + 1}{('ab', 'cd')[r % 2][c % 2]}"
+                )
+                expected = written.get(name) or split.inherited[name]
+                assert split.part_at(x, y, 0.0).callout == expected, name
+                checked += 1
+    assert checked > 4 * len(split.columns) * split.rows
+
+
+@pytest.mark.parametrize("area", sorted(_ANCIENT_PARTS))
+def test_the_ancient_grid_covers_the_image_exactly(area: str) -> None:
+    """The grid's size is derived from the image, not trusted: its pixel
+    size is in the file name (``kartta08_sivu8_1350x1350.png``), so the
+    columns are ``ceil(width / cell_w)`` and the rows ``ceil(height /
+    cell_h)`` -- the fewest whole cells that cover it, as grid2.py's
+    pictures do. A row or a column dropped would leave the image's edge to
+    the nearest rule instead of the half-cells he could name there.
+
+    **Two limits, accepted.** A typo made identically in a part's ``cells``
+    and in the row its source quotes cannot be caught here: the quote is the
+    only copy of his table in the repo, and catching it needs an independent
+    source (his answer document is outside the repo). And there is no check
+    across the splits of one map for a half-cell used twice: each split
+    divides its own game area, and one half-cell legitimately holds
+    positions of two areas -- D9a and D9b are Outside main's by name in
+    ``Outside`` and inherited as hall in ``MainHall``."""
+    from math import ceil
+
+    split = _ancient()[area].split
+    size = re.search(r"_(\d+)x(\d+)\.png$", split.image)
+    assert size, split.image
+    width, height = int(size[1]), int(size[2])
+    assert len(split.columns) == ceil(width / split.cell[0])
+    assert split.rows == ceil(height / split.cell[1])
+
+
+def test_dig_is_the_point_where_the_top_edges_of_h9b_and_i9a_meet() -> None:
+    """His words: *"H9b ja I9a yläreunan risteyspiste"* -- as postimerkki,
+    a box centred where the H/I column border meets row 9's top edge, half
+    a half-cell to each side and above and below. Inside it: dig; in H9b
+    and I9a below it: the nearest, which is dig's H8d and I8c."""
+    split = _ancient()["SideEntrance"].split
+    (dig,) = [p for p in split.parts if p.callout == "dig"]
+    ((x0, y0, x1, y1),) = dig.boxes
+    border = split.origin[0] + split.cell[0] * split.columns.index("I")
+    top = split.origin[1] + split.cell[1] * 8
+    assert (x0 + x1) / 2 == pytest.approx(border)
+    assert (y0 + y1) / 2 == pytest.approx(top)
+    assert x1 - x0 == pytest.approx(split.cell[0] / 2)
+    assert y1 - y0 == pytest.approx(split.cell[1] / 2)
+    assert split.part_at(*_at_pixel(split, border, top)).callout == "dig"
+    assert split.inherited["H9b"] == split.inherited["I9a"] == "dig"
+
+
+#: One change per field of :data:`SPLIT_GRID_FIELDS` to the split of
+#: :func:`_toml_split`, each leaving a split that loads on its own.
+_GRID_VARIANTS = {
+    "image": ('image = "a.png"', 'image = "b.png"'),
+    "fit": ("sx = 1.0", "sx = 1.5"),
+    "origin": ("origin = [0.0, 0.0]", "origin = [1.0, 0.0]"),
+    "cell": ("cell = [20.0, 10.0]", "cell = [20.0, 11.0]"),
+    "columns": ('columns = "ABCD"', 'columns = "ABCE"'),
+    "rows": ("rows = 4", "rows = 5"),
+}
+
+
+def test_every_grid_field_has_a_variant() -> None:
+    assert set(_GRID_VARIANTS) == set(SPLIT_GRID_FIELDS)
+
+
+@pytest.mark.parametrize("field", sorted(_GRID_VARIANTS))
+def test_the_splits_of_one_map_are_refused_on_two_grids(
+    tmp_path: Path, field: str
+) -> None:
+    """His half-cell names are read off one picture, so two splits of one
+    map on different grids are refused -- here the same split copied onto
+    a second area with one grid field changed; unchanged, the two load, and
+    a different ``zmin`` loads too, because a floor cut belongs to one
+    area."""
+    one = _toml_split(_part("a", '"A1a"'))
+    two = one.replace("de_nuke.Outside", "de_nuke.Yard")
+    path = tmp_path / "callouts.toml"
+    path.write_text(one + "\n" + two, encoding="utf-8")
+    assert set(load_callouts(["de_nuke"], path)["de_nuke"]) == {"Outside", "Yard"}
+    path.write_text(
+        one + "\n" + two.replace("zmin = -500.0", "zmin = -400.0"),
+        encoding="utf-8",
+    )
+    assert set(load_callouts(["de_nuke"], path)["de_nuke"]) == {"Outside", "Yard"}
+    old, new = _GRID_VARIANTS[field]
+    assert two.count(old) == 1
+    path.write_text(one + "\n" + two.replace(old, new), encoding="utf-8")
+    with pytest.raises(SettingsError, match="not on one grid"):
+        load_callouts(["de_nuke"], path)
+
+
+def test_a_split_with_no_floor_cut_places_a_position_at_any_height(
+    tmp_path: Path,
+) -> None:
+    """Ancient's fit was made on every position, so its splits have no
+    ``zmin``: a position is split whatever its height, and one with no
+    coordinates still keeps the coarse name."""
+    split = _load(
+        tmp_path, _toml_split(_part("a", '"A1a"')).replace("zmin = -500.0\n", "")
+    )
+    assert split.zmin is None
+    assert split.part_at(1.0, -1.0, -1e6).callout == "a"
+    assert split.part_at(1.0, -1.0, None) is None

@@ -95,17 +95,26 @@
 #                      place do. Never split by guess: only by his own
 #                      division.
 #   split           -- the area divided by POSITION into his callouts (Story
-#                      4.17), on his guide image's own grid, as he gave it
-#                      half-cell by half-cell. Only a coarse area is split,
-#                      and its own callout stays what a RULE row on the whole
+#                      4.17), on a grid over his guide image -- Nuke's the
+#                      guide's own, Ancient's a generated 425-unit grid from
+#                      pixel (0, 0) (grid2.py) -- as he gave it half-cell by
+#                      half-cell against pictures of that grid. Only a
+#                      coarse area is split, and its own callout stays what
+#                      a RULE row on the whole
 #                      area prints (the rules measured the whole area and are
 #                      calibrated there). Its keys: image, fit (the Story
-#                      4.16 projection px = sx*x + bx, py = -sy*y + by --
-#                      the one copy; tests/data/guide_fit.json reads it from
-#                      here), zmin (a position below it is not on the floor
-#                      the image draws and keeps the coarse name), origin
+#                      4.16 projection px = sx*x + bx, py = -sy*y + by,
+#                      unrounded as the pictures were drawn -- one value per
+#                      map, carried by each split and refused if it differs;
+#                      tests/data/guide_fit.json reads it through
+#                      fit_from), zmin (a position below it is not on the
+#                      floor the image draws and keeps the coarse name; absent
+#                      where the fit has no floor cut), origin
 #                      and cell (the grid's top-left pixel and one cell's
-#                      size), columns and rows, source, and parts. A part
+#                      size), columns and rows, source, and parts. All
+#                      the splits of one map lie on one grid: image, fit,
+#                      origin, cell, columns and rows are the same on each
+#                      (Story 4.18), which the loader refuses otherwise. A part
 #                      is one of his places: callout, junction,
 #                      junction_source, confidence, source and note as an
 #                      area's, plus cells (half-cells he named, e.g. K13b:
@@ -289,11 +298,11 @@ origin = [21.0, 21.0]
 cell = [43.0, 42.2]
 columns = "ABCDEFGHIJKLMNOP"
 rows = 17
-source = "nuke-piha-vastaus-2026-09-27.md, the half-cell answer and 'FINAL table (source for Story 4.17)': the yard divided half-cell by half-cell on the guide image's own grid (16 columns A-P, rows 1-17, origin at image pixel (21, 21), one cell 43 x 42.2 px, half-cells a top-left, b top-right, c bottom-left, d bottom-right), and 'Every other half-cell holding Outside ticks takes its nearest named half-cell's callout (his: liitä loput lähimpään)'. The fit and zmin are koordinaatit-mitattu-2026-09-27.md's (Story 4.16): Nuke's image draws its lower floor apart, so only the upper floor is fitted."
+source = "nuke-piha-vastaus-2026-09-27.md, the half-cell answer and 'FINAL table (source for Story 4.17)': the yard divided half-cell by half-cell on the guide image's own grid (16 columns A-P, rows 1-17, origin at image pixel (21, 21), one cell 43 x 42.2 px, half-cells a top-left, b top-right, c bottom-left, d bottom-right), and 'Every other half-cell holding Outside ticks takes its nearest named half-cell's callout (his: liitä loput lähimpään)'. The fit and zmin are koordinaatit-mitattu-2026-09-27.md's (Story 4.16), the fit unrounded (sx 0.1004 and sy 0.1015 there) as nuke-piha-skriptit/nk8.py drew the picture he named the half-cells on: Nuke's image draws its lower floor apart, so only the upper floor is fitted."
 
 [de_nuke.Outside.split.fit]
-sx = 0.1004
-sy = 0.1015
+sx = 0.10037037037037035
+sy = 0.10148148148148145
 bx = 353.75
 by = 360.0
 
@@ -322,26 +331,26 @@ source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story
 
 [[de_nuke.Outside.split.parts]]
 callout = "Toutside"
-cells = ["G12a", "G12c", "G12d", "G13b", "H13a", "H13c"]
+cells = ["G12a", "G12c", "G12d", "G13b", "H13a", "H13c", "G12b", "H12a", "H13b"]
 junction = false
 confidence = "stated"
-source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'Toutside | G12a, G12c, G12d, G13b, H13a, H13c'; his name, same section: 'Matkalla kontaktille Toutside'"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'Toutside | G12a, G12c, G12d, G13b, H13a, H13c'; his name, same section: 'Matkalla kontaktille Toutside'; since Story 4.18 also puoliruudut-vastaus-2026-09-27.md section 'Nuke `Outside`: the six inherited half-cells, now named by him', row 'G12b | tladder | **toutside**', his words: 'G12b on T katolla, se on sellainen kontti t katolla eri z koordinaatti, mutta se voi olla toutside puolestani'; puoliruudut-vastaus-2026-09-27.md section 'Nuke `Outside`: the six inherited half-cells, now named by him', row 'H12a | tladder | **toutside**', his words: 'tuo yksittäinen pieni punainen piste on ulkopuolella touside alueella'; puoliruudut-vastaus-2026-09-27.md section 'Nuke `Outside`: the six inherited half-cells, now named by him', row 'H13b | kontakti | **toutside**', his words: 'tuo missä on punaisia pisteitä on juuri ja juuri siilon alla touside, z koordinaatti paljastaa'. His z remarks name places in other game areas (the t roof container, silo top), which keep their names"
 
 [[de_nuke.Outside.split.parts]]
 callout = "kontakti"
-cells = ["H13d", "I13c", "I13d", "H14b", "I14a"]
+cells = ["H13d", "I13c", "I13d", "H14b", "I14a", "H14a"]
 junction = true
 junction_source = "alueomistus-pohja-2026-09-26.md de_nuke contact points: 'pihalla kontaktilta t red/garage/main/secret' -- his contact point (spec-4-17 decision 9)"
 confidence = "stated"
-source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'kontakti | H13d, I13c, I13d, H14b, I14a'"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'kontakti | H13d, I13c, I13d, H14b, I14a'; since Story 4.18 also puoliruudut-vastaus-2026-09-27.md section 'Nuke `Outside`: the six inherited half-cells, now named by him', row 'H14a | toutside | **kontakti**', his words: 'H14a kontakti ok'"
 
 [[de_nuke.Outside.split.parts]]
 callout = "t red"
-cells = ["I14b", "I14d", "J14c"]
+cells = ["I14b", "I14d", "J14c", "I14c"]
 junction = true
 junction_source = "spec-4-17-the-nuke-yard-by-his-cells.md decision 9: a named contested and held place where groups divide; alueomistus-pohja-2026-09-26.md de_nuke open item 1 names it inside the yard ('ct piha, T red, ct red and the contact near silo are all inside it')"
 confidence = "stated"
-source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 't red | I14b, I14d, J14c'"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 't red | I14b, I14d, J14c'; since Story 4.18 also puoliruudut-vastaus-2026-09-27.md section 'Nuke `Outside`: the six inherited half-cells, now named by him', row 'I14c | kontakti | **t red**', his words: 'I14c t red, mutta suurin osa ruudusta on poissa kartalta pääsemättömällä alueella'"
 
 [[de_nuke.Outside.split.parts]]
 callout = "glaive"
@@ -360,10 +369,10 @@ source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story
 
 [[de_nuke.Outside.split.parts]]
 callout = "mainin takana"
-cells = ["I12d", "I13b"]
+cells = ["I12d", "I13b", "I13a"]
 junction = false
 confidence = "stated"
-source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'mainin takana | I12d, I13b'"
+source = "nuke-piha-vastaus-2026-09-27.md section 'FINAL table (source for Story 4.17)', row 'mainin takana | I12d, I13b'; since Story 4.18 also puoliruudut-vastaus-2026-09-27.md section 'Nuke `Outside`: the six inherited half-cells, now named by him', row 'I13a | kontakti | **mainin takana**', his words: 'tuo pieni osa missä punaisia pisteitä on mainin takana, z koordinaatti taas paljastaa'"
 
 [[de_nuke.Outside.split.parts]]
 callout = "cross"
@@ -960,13 +969,52 @@ confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_ancient, his answer: 'house, mid doors ja snipers nest, joita kutsun kaikki mid taloksi' -- the game's House is the guide's HOUSE (calloutit.md), which he calls mid talo"
 
 [de_ancient.MainHall]
-callout = "a main"
+callout = "a main/hall/hallleft"
+coarse = true
 junction = true
 junction_source = "alueomistus-pohja-2026-09-26.md de_ancient: 'kohtauspisteitä on ... a main sekä back site'"
 neighbours = 2
 confidence = "stated"
-source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'Mainhall on A mainissa kuten epäilinkin ja hall sen vieressä'"
-note = "His hall is next to it, not inside it, so the area is not coarse; calloutit.md's mid talo -> MainHall is superseded."
+source = "alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'Mainhall on A mainissa kuten epäilinkin ja hall sen vieressä'; nuke-piha-vastaus-2026-09-27.md section 'His other answers the same morning', answer 2: 'Pelin MainHall varmaan kattaa A mainin ja Hall:n, mutta callouts kuvassa ne ovat eroteltu toisistaan'; his three callouts inside it: puoliruudut-vastaus-2026-09-27.md section 'Ancient `MainHall` (not coarse today; becomes coarse and split)', his words: 'A main', 'Hall' and 'HallLeft'"
+note = "One game area holding three of his callouts, coarse since Story 4.18 so that it carries the split below. MainHall has no guide claim, so its coarse name is his three parts joined with '/' (SideEntrance's ruins/dig is instead the guide labels its ticks meet, joined, the tests/data/guide_fit.json convention); it stays for a rule row on the whole area and a position the split cannot place. Until Story 4.18 the area was a main, not coarse; calloutit.md's mid talo -> MainHall was already superseded."
+
+[de_ancient.MainHall.split]
+image = "kartta08_sivu8_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [101.60768143832684, 100.35896711051464]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+source = "puoliruudut-vastaus-2026-09-27.md, section 'Read as tables': the grid of the pictures in puoliruudut-2026-09-27/, made by grid2.py -- not the guide's own grid but one generated over the guide image: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy, about 101.61 x 100.36 px with the fit below), columns from A and rows from 1, half-cells a top-left, b top-right, c bottom-left, d bottom-right; he named the half-cells against those pictures. The pictures cannot be regenerated from the repo (the guide image and grid2.py live outside it), but the naming can: origin (0,0), cell 425 game units, columns from A, rows from 1, half-cells a/b/c/d. The fit is the unrounded one grid2.py drew the pictures with (koordinaatit-mitattu-2026-09-27.md, Story 4.16, gives it rounded to sx 0.2391, sy 0.2361, bx 770.9, by 662.8), moved here from tests/data/guide_fit.json in Story 4.18; That fit was made on every position, with no floor cut, so there is no zmin and every position is split. Section 'Ancient `MainHall` (not coarse today; becomes coarse and split)' divides the area into a main, hall and HallLeft; his last words: 'Voit käyttää nimeä mainitsematon lähimmällä ja varmistaa minulta aamulla' -- every half-cell he leaves unnamed takes the nearest named one's callout. Every split of de_ancient is on this one grid, and the loader refuses them if they disagree."
+
+[de_ancient.MainHall.split.fit]
+sx = 0.2390768975019455
+sy = 0.2361387461423874
+bx = 770.9160766601562
+by = 662.82958984375
+
+[[de_ancient.MainHall.split.parts]]
+callout = "a main"
+cells = ["C7a", "C7b", "D7a", "D7b"]
+junction = true
+junction_source = "his words: 'kohtauspisteitä on ... a main sekä back site' (alueomistus-pohja-2026-09-26.md de_ancient); the whole MainHall was a junction before the split (alueomistus-pohja-2026-09-26.md de_ancient: 'kohtauspisteitä on ... a main sekä back site'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review)"
+confidence = "inferred"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `MainHall` (not coarse today; becomes coarse and split)', row 'a main | C7a, C7b, D7a, D7b'. Read as an assumption (same section): his words are 'Ancient C7a, C7b, C7a, d7b = A main', which repeat C7a; the second C7a is read as D7a, the fourth half-cell of the A MAIN label -- to confirm with him. Confidence inferred until he confirms the reading: it rests on our reading, not on his confirmed words, so it prints marked; his confirmation makes it stated"
+
+[[de_ancient.MainHall.split.parts]]
+callout = "hall"
+cells = ["D7c", "D7d", "D8a", "D8b", "D8c", "D8d"]
+junction = true
+junction_source = "the whole MainHall was a junction before the split (alueomistus-pohja-2026-09-26.md de_ancient: 'kohtauspisteitä on ... a main sekä back site'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review); hall is a place he names"
+confidence = "stated"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `MainHall` (not coarse today; becomes coarse and split)', row 'hall | D7c, D7d, D8a, D8b, D8c, D8d'; his words: 'D7c, D7d, D8a, D8b, D8c, D8d = Hall'"
+
+[[de_ancient.MainHall.split.parts]]
+callout = "HallLeft"
+cells = ["C7c", "C7d", "C8a", "C8b", "C8c", "C8d"]
+junction = true
+junction_source = "the whole MainHall was a junction before the split (alueomistus-pohja-2026-09-26.md de_ancient: 'kohtauspisteitä on ... a main sekä back site'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review); HallLeft is a place he names"
+confidence = "stated"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `MainHall` (not coarse today; becomes coarse and split)', row 'HallLeft | C7c, C7d, C8a, C8b, C8c, C8d'; his words: 'C7c, C7d, C8a, C8b, C8c, C8d HallLeft'"
 
 [de_ancient.Middle]
 callout = "middle"
@@ -984,7 +1032,44 @@ junction_source = "the first route model (reittimalli-<owner>.md) Ancient T side
 neighbours = 3
 confidence = "stated"
 source = "alueomistus-pohja-2026-09-26.md de_ancient table: Outside = T puolen outside, 't spawnista A mainiin (hall) asti'; the split is inside it (the first route model (reittimalli-<owner>.md) Ancient T side)"
-note = "One game area holding several of his callouts (the split and the T-side outside): the coarse name, flagged."
+note = "One game area holding several of his callouts (the split and the T-side outside): the coarse name, flagged. Since Story 4.18 its positions are counted under T-kuutio, T-elbow and Outside main by the split below."
+
+[de_ancient.Outside.split]
+image = "kartta08_sivu8_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [101.60768143832684, 100.35896711051464]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+source = "puoliruudut-vastaus-2026-09-27.md, section 'Read as tables': the grid of the pictures in puoliruudut-2026-09-27/, made by grid2.py -- not the guide's own grid but one generated over the guide image: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy, about 101.61 x 100.36 px with the fit below), columns from A and rows from 1, half-cells a top-left, b top-right, c bottom-left, d bottom-right; he named the half-cells against those pictures. The pictures cannot be regenerated from the repo (the guide image and grid2.py live outside it), but the naming can: origin (0,0), cell 425 game units, columns from A, rows from 1, half-cells a/b/c/d. The fit is the unrounded one grid2.py drew the pictures with (koordinaatit-mitattu-2026-09-27.md, Story 4.16, gives it rounded to sx 0.2391, sy 0.2361, bx 770.9, by 662.8), moved here from tests/data/guide_fit.json in Story 4.18; That fit was made on every position, with no floor cut, so there is no zmin and every position is split. Section 'Ancient `Outside`' divides the area into T-kuutio, T-elbow and Outside main; his last words: 'Voit käyttää nimeä mainitsematon lähimmällä ja varmistaa minulta aamulla' -- every half-cell he leaves unnamed takes the nearest named one's callout. Every split of de_ancient is on this one grid, and the loader refuses them if they disagree."
+
+[de_ancient.Outside.split.fit]
+sx = 0.2390768975019455
+sy = 0.2361387461423874
+bx = 770.9160766601562
+by = 662.82958984375
+
+[[de_ancient.Outside.split.parts]]
+callout = "T-kuutio"
+cells = ["D10b", "D10d", "E10a", "E10b", "E10c", "E10d", "E11a", "E11b"]
+junction = true
+junction_source = "nuke-piha-vastaus-2026-09-27.md section 'His other answers the same morning', answer 3, his words: 'ensimmäinen solmukohta ... A puolella split kohdalle' -- T-kuutio is his split; the whole Outside was a junction before the split (the first route model (reittimalli-<owner>.md) Ancient T side: 'Going past the t cube (split) torwards A main ... Going past split to middle'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `Outside`', row 'T-kuutio (his *split*) | D10b, D10d, E10a, E10b, E10c, E10d, E11a, E11b'; his words: 'T-kuutio (split) = D10b,D10d, E10a-d,E11a-b'"
+
+[[de_ancient.Outside.split.parts]]
+callout = "T-elbow"
+cells = ["E9b", "E9d", "F9a", "F9b", "F9c", "F9d"]
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_ancient, his words: 'Kohtaispiste on t elbow ja jungle/middle missä he näkevät toisensa' and 'kohtauspisteitä on ... middle t elbow'; the whole Outside was a junction before the split (the first route model (reittimalli-<owner>.md) Ancient T side: 'Going past the t cube (split) torwards A main ... Going past split to middle'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `Outside`', row 'T-elbow (towards mid from the cube) | E9b, E9d, F9a, F9b, F9c, F9d'; his words: 'T-elbow = E9b,E9d,F9a-d (kohti midiä kuutiolta'"
+
+[[de_ancient.Outside.split.parts]]
+callout = "Outside main"
+cells = ["C9b", "C9d", "D9a", "D9b", "D9c", "D9d"]
+junction = false
+confidence = "inferred"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `Outside`', row 'Outside main (towards A main) | C9b, C9d, **D9a, D9b, D9c, D9d**'. Read as an assumption (same section): his words are 'Outside main (torwards a main = C9b,C9d,F9a-d', but F9a-d is T-elbow's in the line above, so it is read as D9a-d, the strip towards A main between C9 and the cube -- to confirm with him. Confidence inferred until he confirms the reading: it rests on our reading, not on his confirmed words, so it prints marked; his confirmation makes it stated. Transit although the whole Outside was a junction: he describes it as a way to somewhere ('towards a main'), not a place (spec 4.18 review)"
 
 [de_ancient.Ramp]
 callout = "ramp"
@@ -1011,7 +1096,45 @@ junction_source = "alueomistus-pohja-2026-09-26.md de_ancient: 'upper b long ja 
 neighbours = 3
 confidence = "measured"
 source = "koordinaatit-mitattu-2026-09-27.md section 2, picture koordinaatit-2026-09-27/ancient-epavarmat.png: the ticks lie on the guide label -- covers the RUINS corridor and DIG: both, so coarse is right. Before the measurement: alueomistus-pohja-2026-09-26.md, section 'Answers of 2026-09-26 in the Story 4.13 review': 'SideEntrance on todennäköisesti ruins ja dig niputettuna yhdeksi' -- his 'todennäköisesti'"
-note = "One game area holding two of his callouts, flagged. The game's own area called Ruins is not his ruins: by coordinates it is the guide's B DOORS (koordinaatit-mitattu-2026-09-27.md section 1), and its entry says so."
+note = "One game area holding two of his callouts, flagged. The game's own area called Ruins is not his ruins: by coordinates it is the guide's B DOORS (koordinaatit-mitattu-2026-09-27.md section 1), and its entry says so. Since Story 4.18 its positions are counted under ruins, vent and dig by the split below."
+
+[de_ancient.SideEntrance.split]
+image = "kartta08_sivu8_1350x1350.png"
+origin = [0.0, 0.0]
+cell = [101.60768143832684, 100.35896711051464]
+columns = "ABCDEFGHIJKLMN"
+rows = 14
+source = "puoliruudut-vastaus-2026-09-27.md, section 'Read as tables': the grid of the pictures in puoliruudut-2026-09-27/, made by grid2.py -- not the guide's own grid but one generated over the guide image: origin at image pixel (0, 0), one cell of 425 game units (425 sx by 425 sy, about 101.61 x 100.36 px with the fit below), columns from A and rows from 1, half-cells a top-left, b top-right, c bottom-left, d bottom-right; he named the half-cells against those pictures. The pictures cannot be regenerated from the repo (the guide image and grid2.py live outside it), but the naming can: origin (0,0), cell 425 game units, columns from A, rows from 1, half-cells a/b/c/d. The fit is the unrounded one grid2.py drew the pictures with (koordinaatit-mitattu-2026-09-27.md, Story 4.16, gives it rounded to sx 0.2391, sy 0.2361, bx 770.9, by 662.8), moved here from tests/data/guide_fit.json in Story 4.18; That fit was made on every position, with no floor cut, so there is no zmin and every position is split. Section 'Ancient `SideEntrance` (today *ruins/dig*, coarse)' divides the area into ruins, vent and dig; his last words: 'Voit käyttää nimeä mainitsematon lähimmällä ja varmistaa minulta aamulla' -- every half-cell he leaves unnamed takes the nearest named one's callout. Every split of de_ancient is on this one grid, and the loader refuses them if they disagree."
+
+[de_ancient.SideEntrance.split.fit]
+sx = 0.2390768975019455
+sy = 0.2361387461423874
+bx = 770.9160766601562
+by = 662.82958984375
+
+[[de_ancient.SideEntrance.split.parts]]
+callout = "ruins"
+cells = ["I6c", "I6d", "I7c", "I7d"]
+junction = true
+junction_source = "the whole SideEntrance was a junction before the split (alueomistus-pohja-2026-09-26.md de_ancient: 'upper b long ja dig on kohtaamispiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review); ruins is a place he names"
+confidence = "stated"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `SideEntrance` (today *ruins/dig*, coarse)', row 'ruins | I6c, I6d, I7c, I7d'; his words: 'Ruins = I6c, I6d, I7c, I7d'"
+
+[[de_ancient.SideEntrance.split.parts]]
+callout = "vent"
+cells = ["I8a", "I8b"]
+junction = false
+confidence = "stated"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `SideEntrance` (today *ruins/dig*, coarse)', row 'vent | I8a, I8b'; his words: 'Vent = I8a,I8b'. Transit although the whole SideEntrance was a junction: it is a passage between ruins and dig, not a place (spec 4.18 review)"
+
+[[de_ancient.SideEntrance.split.parts]]
+callout = "dig"
+cells = ["H8c", "H8d", "I8c", "I8d"]
+boxes = [[787.459531147033, 777.7819951064885, 838.2633718661964, 827.9614786617458]]
+junction = true
+junction_source = "alueomistus-pohja-2026-09-26.md de_ancient, his words: 'upper b long ja dig on kohtaamispiste' and 'kohtauspisteitä on ramp, b banaani/dig'; the whole SideEntrance was a junction before the split (alueomistus-pohja-2026-09-26.md de_ancient: 'upper b long ja dig on kohtaamispiste'), and a split does not remove its area's junction (implementation lead 2026-09-27, spec 4.18 review)"
+confidence = "stated"
+source = "puoliruudut-vastaus-2026-09-27.md section 'Ancient `SideEntrance` (today *ruins/dig*, coarse)', row 'dig | H8c, H8d, I8c, I8d; plus the point where the top edges of H9b and I9a meet'; his words: 'Dig = H8c,H8d,I8c,I8d ja H9b ja I9a yläreunan risteyspiste'. The point is a box that straddles it as Nuke's postimerkki straddles its own: centred where the H/I column border (x 812.86) meets row 9's top edge (y 802.87), half a half-cell (25.40 px) into H and into I and half a half-cell (25.09 px) above and below the edge; its upper half lies in H8d and I8c, which are dig already, and the rest of H9b and I9a goes to the nearest"
 
 [de_ancient.SideHall]
 callout = "donut"
