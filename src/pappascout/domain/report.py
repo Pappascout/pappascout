@@ -146,6 +146,7 @@ Story 2.5's addition to this same model.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Sequence
 from datetime import date, datetime
 from math import isfinite
@@ -212,6 +213,7 @@ __all__ = [
     "RoundTypeReport",
     "SideReport",
     "PlayedMap",
+    "PlaceName",
     "MapReport",
     "RosterEntry",
     "TeamReport",
@@ -449,7 +451,27 @@ __all__ = [
 #: is an observation (*no path recurred in this block*), and a 16.0.0 file
 #: defaulted to it would print every eco, force and half-buy block of an old
 #: report as a block whose rounds share no route.
-REPORT_SCHEMA_VERSION = "17.0.0"
+#:
+#: **18.0.0 (Story 4.15): the whole report speaks the product owner's
+#: callouts.** Both conditions. The first: :attr:`MapReport.places` is
+#: **required**, so a 17.0.0 file does not validate. The second is the one
+#: that forbids any default: every area a **statistic** carries --
+#: :attr:`AreaDistribution.area`, :attr:`FirstContactArea.area`,
+#: :attr:`UtilityUse.throw_area` and ``detonate_area``,
+#: :attr:`FirstDeathArea.area` and :attr:`KillArea.area` -- is now the
+#: callout the players were counted under, and two game areas with one
+#: callout are **one** place with **one** count (Nuke's ``Control`` and
+#: ``Trophy`` are one *radio*). A 17.0.0 file's ``Control`` would validate
+#: as a place called Control, which on Nuke is a different room (his
+#: *control* is the game's ``Observation``) -- 16.0.0's hazard, spread from
+#: the route to every row.
+#:
+#: What did **not** move is named so nobody reads it as moved: the anomaly
+#: rows (:attr:`Anomaly.area`, :attr:`AnomalyPoint.areas`,
+#: :attr:`AnomalyPoint.sources`) keep the game's areas, because the rules
+#: were calibrated on them against his blind judgements (Stories 4.4 and
+#: 4.5), and :attr:`MapReport.places` is how ``render`` names them.
+REPORT_SCHEMA_VERSION = "18.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
 #: refuses an old ``report.json`` with.
@@ -476,9 +498,10 @@ REPORT_SCHEMA_VERSION = "17.0.0"
 #: English, like every other line the CLI prints (AD-11). It never reaches
 #: the report.
 REPORT_SCHEMA_CHANGE = (
-    "Version 17.0.0 adds to every eco, force and half-buy block the "
-    "junction routes its rounds repeat, each with the rounds it was taken "
-    "in; an older report has no such field, which this version refuses."
+    "Version 18.0.0 counts every statistic of a map under the product "
+    "owner's callouts and gives each map the names its places print with; "
+    "an older report counts game areas and has no such names, which this "
+    "version refuses."
 )
 
 
@@ -1126,9 +1149,13 @@ class AreaDistribution(_Node):
     :attr:`PlayersCount.matches`.
     """
 
-    #: The game's own ``env_cs_place`` area. ``null`` = the player's area was
-    #: not obtained; the row does not vanish, because an unknown position is a
-    #: different thing from an empty area.
+    #: The place the players were counted under: his callout, or the game's
+    #: name where he has none (:attr:`MapReport.places` says which, since
+    #: 18.0.0). Two game
+    #: areas with one callout are **one** row -- counted together, not
+    #: summed. ``null`` = the player's area was not obtained; the row does
+    #: not vanish, because an unknown position is a different thing from an
+    #: empty area.
     area: str | None
     m: int = Field(ge=0)
     #: The matches the ``m`` rounds come from. Every area of the same sample
@@ -1362,12 +1389,14 @@ class UtilityUse(_Node):
 
     grenade_type: str
     #: The thrower's own area at the moment of the throw. An **observation**,
-    #: not an estimate.
+    #: not an estimate. Named as :attr:`AreaDistribution.area` is: the
+    #: callout, since 18.0.0.
     throw_area: str | None
     #: The area of the detonation. An **estimate**: a grenade has no area
     #: name, so it is read from the nearest cell of the demo's point cloud --
     #: from the spot on the map where players have really stood closest to the
-    #: detonation.
+    #: detonation. The game area found there is then named as
+    #: :attr:`AreaDistribution.area` is.
     detonate_area: str | None
     #: Where ``detonate_area`` came from. ``null`` always and only when
     #: ``detonate_area`` is ``null``. Without this the report would present an
@@ -1607,6 +1636,10 @@ class FirstContactArea(_Node):
     :attr:`PlayersCount.matches` reason -- it is this class's own. A round
     with players in three areas is counted in three areas' match counts,
     whether or not its match had another round.
+
+    ``area`` is named as :attr:`AreaDistribution.area` is (18.0.0): a round
+    with players in both of a callout's game areas is **one** round present
+    there, not two.
     """
 
     area: str | None
@@ -1666,9 +1699,10 @@ class FirstDeathArea(_Node):
     claim as an observation that there is no observation.
     """
 
-    #: The victim's own ``last_place_name`` at the moment of death. An
-    #: **observation**, not an estimate. ``null`` = the game's area name was
-    #: not obtained; the row does not vanish.
+    #: The victim's own ``last_place_name`` at the moment of death, named as
+    #: :attr:`AreaDistribution.area` is (18.0.0). An **observation**, not an
+    #: estimate. ``null`` = the game's area name was not obtained; the row
+    #: does not vanish.
     area: str | None
     n: int = Field(gt=0)
     m: int = Field(ge=0)
@@ -1695,6 +1729,8 @@ class KillArea(_Node):
     observation for every area, here every **kill** produces one observation
     for one area. A round type can have more kills than rounds, so the figure
     must not be read as "n rounds out of m".
+
+    ``area`` is named as :attr:`AreaDistribution.area` is (18.0.0).
     """
 
     area: str | None
@@ -1876,7 +1912,9 @@ ROUTE_ROUND_TYPE: RoundType = "pistol"
 #: report says the same thing about all three, which is nothing.
 RouteFate = Literal["seen", "died", "gone"]
 
-#: Why a route step's name may not be the product owner's word (Story 4.13).
+#: Why a route step's name may not be the product owner's word (Story 4.13)
+#: -- and since Story 4.15 any place's (:attr:`PlaceName.flag`), with the
+#: same values and the same meaning.
 #:
 #: ``None`` on a step means exactly this: a **certain** callout -- his own
 #: word, or the guide's callout that is the game area's own name
@@ -2834,6 +2872,49 @@ class PlayedMap(_Node):
         return self
 
 
+class PlaceName(_Node):
+    """One game area of a map, and the name the report prints it with
+    (Story 4.15).
+
+    ``callout`` is what every row of the map prints for the area: the
+    product owner's callout, or the game's name where the table gives none
+    -- and :attr:`flag` says which, with the route's own values
+    (:data:`RouteFlag`), so every place of the report is marked the one way
+    the pistol route's are. ``flag`` is ``None`` exactly when the name is a
+    certain callout.
+
+    **It is how ``render`` names what was not counted under callouts.** The
+    statistics already carry the callout. The anomaly rows carry the game's
+    area, because their rules run on game areas
+    (:data:`REPORT_SCHEMA_VERSION`, 18.0.0), and ``render`` looks each up
+    here; where several game areas feed one callout, the row says which of
+    them it was.
+    """
+
+    #: The game's ``env_cs_place`` area. Never empty: an unnamed position is
+    #: ``null`` on the rows and has no name to translate.
+    area: str = Field(min_length=1)
+    #: The name printed for :attr:`area`.
+    callout: str = Field(min_length=1)
+    flag: RouteFlag | None
+
+
+def _statistic_places(sides: Sequence["SideReport"]) -> set[str]:
+    """Every place a map's statistics name -- the rows ``render`` marks from
+    :attr:`MapReport.places`."""
+    names: set[str | None] = set()
+    for side in sides:
+        for entry in side.round_types:
+            for position in entry.positions:
+                names.update(area.area for area in position.areas)
+            names.update(area.area for area in entry.first_contact)
+            for use in entry.utility:
+                names.update((use.throw_area, use.detonate_area))
+            names.update(area.area for area in entry.deaths.first_death_areas)
+            names.update(area.area for area in entry.deaths.kills)
+    return {name for name in names if name is not None}
+
+
 class MapReport(_Node):
     """Both sides of one map.
 
@@ -2865,6 +2946,27 @@ class MapReport(_Node):
     played_maps: list[PlayedMap]
     sample: Sample
     sides: list[SideReport]
+    #: The map's places as the report names them (Story 4.15): every area of
+    #: the map's section of the callout table, and every other game area the
+    #: map's rows observed. **Required**, for :data:`REPORT_SCHEMA_VERSION`'s
+    #: 18.0.0 reason. Held to three rules (:meth:`_check_places`): an area
+    #: once, a callout with one flag, and every place a statistic names
+    #: listed -- a statistic ``render`` could not mark would print a guess
+    #: as a certain callout.
+    places: list[PlaceName]
+
+    @property
+    def merged_callouts(self) -> frozenset[str]:
+        """The callouts several game areas of :attr:`places` feed (Story
+        4.15): Nuke's *radio* is ``Control`` and ``Trophy``. A rule row on
+        one of them says which game area it was, because its rule ran on
+        that area alone.
+
+        **Derived and not stored**, as :attr:`Anomaly.matches` is: a field
+        would be a second copy of what :attr:`places` already says.
+        """
+        fed = Counter(place.callout for place in self.places)
+        return frozenset(name for name, count in fed.items() if count > 1)
 
     @property
     def map_demo_ids(self) -> list[str]:
@@ -2934,7 +3036,53 @@ class MapReport(_Node):
                 "what the rounds added up from."
             )
         self._check_each_demo_is_listed_once()
+        self._check_places()
         return self
+
+    def _check_places(self) -> None:
+        """The names :attr:`places` gives are one answer per area and per
+        callout, and cover every place a statistic names.
+
+        ``aggregate`` builds the list from the table and the observed areas,
+        so the first and the third can come only from a file edited by hand
+        -- the standing :meth:`_check_each_demo_is_listed_once` has. The
+        second **can** come from ``aggregate``: an area with no callout
+        prints the game's name, and a callout spelled exactly like it would
+        be the same place with two flags. ``load_callouts`` refuses that for
+        the table's own unnamed areas; an observed area the table does not
+        list at all is out of its sight, and this guard catches it loudly.
+
+        Raises:
+            ~pappascout.errors.AggregateError: An area is listed twice, a
+                callout carries two flags, or a statistic names a place the
+                list does not hold.
+        """
+        areas = [place.area for place in self.places]
+        twice = sorted({area for area in areas if areas.count(area) > 1})
+        if twice:
+            raise AggregateError(
+                f"Map {self.map_name} names the game area "
+                f"{', '.join(twice)} more than once in its places. An area "
+                "has one name."
+            )
+        flags: dict[str, set[str | None]] = {}
+        for place in self.places:
+            flags.setdefault(place.callout, set()).add(place.flag)
+        split = sorted(name for name, seen in flags.items() if len(seen) > 1)
+        if split:
+            raise AggregateError(
+                f"Map {self.map_name} gives the place {', '.join(split)} "
+                "different flags. One callout is one place, marked one way."
+            )
+        missing = sorted(_statistic_places(self.sides) - set(flags))
+        if missing:
+            raise AggregateError(
+                f"Map {self.map_name} counts players under "
+                f"{', '.join(missing)}, which its places do not name, so the "
+                "report could not say whether the name is certain.\n"
+                "Run the aggregation again: uv run pappascout aggregate "
+                "--force"
+            )
 
     def _check_each_demo_is_listed_once(self) -> None:
         """No demo twice in the same map's list.
@@ -4076,16 +4224,19 @@ class Report(_Node):
     def _check_anomalies(self) -> None:
         """Anomalies are outside the tree, so the side is pinned here.
 
-        Two conditions no :class:`Anomaly` can check by itself: a row must not
-        name a map that is not in the report (the reader would look for a map
-        section that was never written), and two rows must not share the same
+        Three conditions no :class:`Anomaly` can check by itself: a row must
+        not name a map that is not in the report (the reader would look for a
+        map section that was never written), two rows must not share the same
         grouping key (the same observation would then be in the section twice
         with different figures -- exactly what the grouping exists to
-        prevent).
+        prevent), and every game area a row names must be one of its map's
+        :attr:`MapReport.places` (Story 4.15) -- ``render`` names it from
+        there, and an area it could not look up would print as the game's
+        name with nothing to say the table was never asked.
 
         Raises:
-            AggregateError: If the map is missing from the report or a key
-                repeats.
+            AggregateError: If the map is missing from the report, a key
+                repeats, or a row names an area its map has no name for.
         """
         known = {entry.map_name for entry in self.maps}
         missing = sorted(
@@ -4097,6 +4248,32 @@ class Report(_Node):
                 f"{missing}. The report's maps are {sorted(known)}.\n"
                 "The reader would look for a map section that was never "
                 "written."
+            )
+        places = {
+            entry.map_name: {place.area for place in entry.places}
+            for entry in self.maps
+        }
+        unnamed = sorted(
+            {
+                (anomaly.map_name, area)
+                for anomaly in self.anomalies
+                for area in [anomaly.area]
+                + [
+                    name
+                    for entry in anomaly.rounds
+                    for point in entry.points
+                    for name in (*point.areas, *point.sources)
+                ]
+                if area not in places[anomaly.map_name]
+            }
+        )
+        if unnamed:
+            raise AggregateError(
+                f"An anomaly names a game area its map has no place for: "
+                f"{unnamed}. The report names every area from the map's "
+                "places, so this row could not be named.\n"
+                "Run the aggregation again: uv run pappascout aggregate "
+                "--force"
             )
         # The key carries the site group on a stack. It carried the round
         # type on an advance until Story 4.5, when the product owner ruled

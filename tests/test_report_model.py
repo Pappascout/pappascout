@@ -24,6 +24,7 @@ from pappascout.stages.render import _version_numbers
 from pappascout.domain.report import (
     MAP_NAME_SOURCES,
     Anomaly,
+    PlaceName,
     MapNameSource,
     AnomalyPoint,
     AnomalyRound,
@@ -68,6 +69,32 @@ from pappascout.domain.report import (
 )
 from pappascout.constants import ROSTER_BUCKETS, SAVING_ROUND_TYPES, SITE_AREAS
 from pappascout.errors import AggregateError
+
+
+def named(*areas: str) -> list[PlaceName]:
+    """Each game area as a certain callout of its own name -- the fixture's
+    stand-in for a table that names every place as the game does, so the
+    tests below measure what they are about and not the place names."""
+    return [
+        PlaceName(area=area, callout=area, flag=None)
+        for area in sorted(set(areas))
+    ]
+
+
+def anomaly_areas(anomalies: list[Anomaly]) -> list[str]:
+    """Every game area the anomalies name: the places their map must hold
+    (:meth:`Report._check_anomalies`)."""
+    return [
+        area
+        for anomaly in anomalies
+        for area in [anomaly.area]
+        + [
+            name
+            for entry in anomaly.rounds
+            for point in entry.points
+            for name in (*point.areas, *point.sources)
+        ]
+    ]
 
 
 def hand_imported(*ids: str) -> list[PlayedMap]:
@@ -411,6 +438,7 @@ def _report_with_breakdowns(league: Sample, roster: RosterSample) -> Report:
         maps=[
             MapReport(
                 map_name="de_nuke",
+                places=[],
                 map_name_source="map_demo_id",
                 played_maps=hand_imported("Nuke_vs_a"),
                 sample=league,
@@ -1020,6 +1048,7 @@ def full_report() -> Report:
         maps=[
             MapReport(
                 map_name="de_anubis",
+                places=named("BombsiteA", "BombsiteB"),
                 map_name_source="map_demo_id",
                 played_maps=hand_imported("Anubis_vs_ryhmarama"),
                 sample=sample(unknown=1),
@@ -1072,6 +1101,7 @@ def _report_with_anomalies(anomalies: list[Anomaly]) -> Report:
         maps=[
             MapReport(
                 map_name="de_ancient",
+                places=named(*anomaly_areas(anomalies)),
                 map_name_source="demo_header",
                 played_maps=hand_imported("demo"),
                 sample=sample(unknown=1),
@@ -1205,6 +1235,7 @@ def test_a_map_must_be_the_sum_of_its_sides() -> None:
     with pytest.raises(AggregateError, match="at level map"):
         MapReport(
             map_name="de_nuke",
+            places=[],
             map_name_source="map_demo_id",
             played_maps=hand_imported("Nuke_vs_a"),
             sample=sample(unknown=9),
@@ -1216,6 +1247,7 @@ def test_a_map_must_list_exactly_its_own_demos() -> None:
     with pytest.raises(AggregateError, match="but lists"):
         MapReport(
             map_name="de_nuke",
+            places=[],
             map_name_source="map_demo_id",
             played_maps=hand_imported("Nuke_vs_a", "Nuke_vs_b"),
             sample=sample(unknown=3),
@@ -1267,6 +1299,7 @@ def test_a_report_must_be_the_sum_of_its_maps() -> None:
             maps=[
                 MapReport(
                     map_name="de_nuke",
+                    places=[],
                     map_name_source="map_demo_id",
                     played_maps=hand_imported("Nuke_vs_a"),
                     sample=sample(unknown=3),
@@ -1329,6 +1362,7 @@ def _map_with_bucketed_demo(
     )
     return MapReport(
         map_name=map_name,
+        places=[],
         map_name_source="map_demo_id",
         played_maps=hand_imported(f"{map_name}_vs_a"),
         sample=map_sample,
@@ -1454,6 +1488,7 @@ def test_unclassified_rounds_stay_outside_the_sample() -> None:
         maps=[
             MapReport(
                 map_name="de_nuke",
+                places=[],
                 map_name_source="map_demo_id",
                 played_maps=hand_imported("Nuke_vs_a"),
                 sample=sample(unknown=3),
@@ -1883,6 +1918,7 @@ def test_the_map_name_source_covers_all_three_sources() -> None:
     def _map(source: str) -> MapReport:
         return MapReport(
             map_name="de_ancient",
+            places=[],
             map_name_source=source,
             played_maps=hand_imported("Ancient_vs_a"),
             sample=sample(unknown=1),
@@ -3072,6 +3108,7 @@ def test_the_match_bounds_are_checked_at_the_map_level_too() -> None:
     with pytest.raises(AggregateError, match="at level map claims 1 matches"):
         MapReport(
             map_name="de_nuke",
+            places=[],
             map_name_source="map_demo_id",
             played_maps=hand_imported("a-0"),
             sample=_matched_sample(3, 1),
@@ -3098,6 +3135,7 @@ def _map_with_matches(
     )
     return MapReport(
         map_name=map_name,
+        places=[],
         map_name_source="map_demo_id",
         played_maps=hand_imported(*demo_ids),
         sample=map_sample,
@@ -3307,6 +3345,7 @@ def test_a_map_cannot_list_the_same_demo_twice() -> None:
     with pytest.raises(AggregateError, match="more than once"):
         MapReport(
             map_name="de_nuke",
+            places=[],
             map_name_source="map_demo_id",
             played_maps=hand_imported("Nuke_vs_a", "Nuke_vs_a"),
             sample=_sideless_sample(2),
@@ -3326,6 +3365,7 @@ def test_the_demo_ids_are_derived_from_the_played_maps_and_not_stored() -> None:
     """
     entry = MapReport(
         map_name="de_nuke",
+        places=[],
         map_name_source="map_demo_id",
         played_maps=hand_imported("Nuke_vs_b", "Nuke_vs_a"),
         sample=_sideless_sample(2),
@@ -3371,6 +3411,7 @@ def test_a_map_whose_list_is_short_is_refused_as_before() -> None:
     with pytest.raises(AggregateError, match="claims a sample of"):
         MapReport(
             map_name="de_nuke",
+            places=[],
             map_name_source="map_demo_id",
             played_maps=hand_imported("Nuke_vs_a"),
             sample=_sideless_sample(2),
@@ -3402,6 +3443,7 @@ def test_a_map_states_whether_its_order_is_known() -> None:
     ]
     both = MapReport(
         map_name="de_nuke",
+        places=[],
         map_name_source="map_demo_id",
         played_maps=dated,
         sample=_sideless_sample(2),
@@ -3411,6 +3453,7 @@ def test_a_map_states_whether_its_order_is_known() -> None:
 
     mixed = MapReport(
         map_name="de_nuke",
+        places=[],
         map_name_source="map_demo_id",
         played_maps=[*dated, *hand_imported("Nuke_vs_hand")],
         sample=_sideless_sample(3),
@@ -3957,3 +4000,158 @@ def test_a_pattern_naming_a_place_twice_in_a_row_is_refused() -> None:
         RoutePlace(area="lobby", flag=None),
         RoutePlace(area="lobby", flag=None, alternates_with="outside"),
     ).n == 2
+
+
+# --- The map's places (Story 4.15) ----------------------------------------------
+
+
+def _round_type_doc(document: dict) -> dict:
+    return document["maps"][0]["sides"][0]["round_types"][0]
+
+
+def _name_in_positions(document: dict) -> None:
+    _round_type_doc(document)["positions"][0]["areas"][0]["area"] = "Nowhere"
+
+
+def _name_in_first_contact(document: dict) -> None:
+    _round_type_doc(document)["first_contact"] = [
+        {"area": "Nowhere", "n": 1, "m": 1, "matches": 1, "matches_m": 1,
+         "newest": None}
+    ]
+
+
+def _use(throw: str, target: str) -> dict:
+    return {
+        "grenade_type": "smoke", "throw_area": throw, "detonate_area": target,
+        "area_source": "point_cloud", "seconds_bucket": "0-5", "n": 1,
+        "throws": 1, "m": 1,
+    }
+
+
+def _name_as_throw(document: dict) -> None:
+    _round_type_doc(document)["utility"] = [_use("Nowhere", "BombsiteA")]
+
+
+def _name_as_target(document: dict) -> None:
+    _round_type_doc(document)["utility"] = [_use("BombsiteA", "Nowhere")]
+
+
+def _deaths(first: str, kill: str) -> dict:
+    return {
+        "m": 1, "rounds_missing": 0, "first_death_seconds_median": 10.0,
+        "first_death_areas": [{"area": first, "n": 1, "m": 1}],
+        "kills_total": 1, "kills": [{"area": kill, "n": 1, "m": 1}],
+    }
+
+
+def _name_as_first_death(document: dict) -> None:
+    _round_type_doc(document)["deaths"] = _deaths("Nowhere", "BombsiteA")
+
+
+def _name_as_kill(document: dict) -> None:
+    _round_type_doc(document)["deaths"] = _deaths("BombsiteA", "Nowhere")
+
+
+@pytest.mark.parametrize(
+    "rename",
+    [
+        _name_in_positions,
+        _name_in_first_contact,
+        _name_as_throw,
+        _name_as_target,
+        _name_as_first_death,
+        _name_as_kill,
+    ],
+)
+def test_every_statistic_names_only_places_the_map_lists(rename) -> None:
+    """Each statistic 18.0.0 counts under callouts (``_statistic_places``),
+    one at a time: a place ``render`` could not mark would print a guess as a
+    certain callout, so the model refuses it -- and accepts the same document
+    once the map lists the place, so the refusal is the places' and not the
+    edit's."""
+    document = full_report().model_dump(mode="json")
+    rename(document)
+    with pytest.raises(AggregateError, match="counts players under Nowhere"):
+        Report.model_validate(document)
+    document["maps"][0]["places"].append(
+        {"area": "Nowhere", "callout": "Nowhere", "flag": None}
+    )
+    Report.model_validate(document)
+
+
+def test_a_map_names_an_area_once() -> None:
+    """Two names for one game area would make the report's name depend on
+    which row ``render`` read last."""
+    document = full_report().model_dump(mode="json")
+    document["maps"][0]["places"].append(
+        {"area": "BombsiteA", "callout": "a site", "flag": None}
+    )
+    with pytest.raises(AggregateError, match="names the game area BombsiteA"):
+        Report.model_validate(document)
+
+
+def test_one_callout_is_marked_one_way() -> None:
+    """Two areas may share a callout -- that is the merge -- but not with two
+    flags: the statistic counted under it has one place and one mark."""
+    document = full_report().model_dump(mode="json")
+    document["maps"][0]["places"] = [
+        {"area": "BombsiteA", "callout": "BombsiteA", "flag": None},
+        {"area": "BombsiteB", "callout": "BombsiteB", "flag": None},
+        {"area": "Control", "callout": "radio", "flag": None},
+        {"area": "Trophy", "callout": "radio", "flag": "inferred"},
+    ]
+    with pytest.raises(AggregateError, match="gives the place radio different"):
+        Report.model_validate(document)
+    document["maps"][0]["places"][3]["flag"] = None
+    Report.model_validate(document)
+
+
+@pytest.mark.parametrize(
+    "anomaly",
+    [
+        _anomaly(area="Nowhere"),
+        _stack(
+            rounds=[
+                _round(
+                    round_no=13,
+                    seconds=[15.0],
+                    players=4,
+                    alive=5,
+                    areas=("BackofB", "Nowhere"),
+                )
+            ]
+        ),
+        _crunch(rounds=[_round(sources=["Nowhere", "Ramp"])]),
+    ],
+    ids=["area", "point-areas", "sources"],
+)
+def test_an_anomaly_names_only_areas_its_map_lists(anomaly: Anomaly) -> None:
+    """Each place an anomaly row names -- its area, a point's areas, a
+    crunch's directions -- is looked up in its map's places by ``render``,
+    so one the map does not list is refused rather than printed as the
+    game's name with nothing to say the table was never asked."""
+    report = _report_with_anomalies([anomaly])
+    document = report.model_dump(mode="json")
+    document["maps"][0]["places"] = [
+        place
+        for place in document["maps"][0]["places"]
+        if place["area"] != "Nowhere"
+    ]
+    with pytest.raises(AggregateError, match="no place for"):
+        Report.model_validate(document)
+
+
+def test_the_merged_callouts_are_those_several_areas_feed() -> None:
+    """``MapReport.merged_callouts``: derived from the places, a callout fed
+    by two game areas and not one fed by a single area or the game's own
+    name."""
+    document = full_report().model_dump(mode="json")
+    document["maps"][0]["places"] = [
+        {"area": "BombsiteA", "callout": "BombsiteA", "flag": None},
+        {"area": "BombsiteB", "callout": "BombsiteB", "flag": None},
+        {"area": "Control", "callout": "radio", "flag": None},
+        {"area": "Trophy", "callout": "radio", "flag": None},
+        {"area": "Crane", "callout": "Crane", "flag": "no_callout"},
+    ]
+    report = Report.model_validate(document)
+    assert report.maps[0].merged_callouts == frozenset({"radio"})

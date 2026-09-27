@@ -2,6 +2,6002 @@
   "areas": {
     "1e1965abbc06133b/de_nuke/T/full": [
       {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 5,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 15,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "a site",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 15,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "radio",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "t roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "garage",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "main",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 13,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "t roof",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "garage",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "radio",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 27,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "t roof",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 13,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "a site",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "garage",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "radio",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 15,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "t roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "a site",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "a site",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "garage",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 13,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "radio",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 26,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "t roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "b site",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "b site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "garage",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "hut",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "radio",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "radio",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "t roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "a site",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "hell",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "hell",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "hut",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 9,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "main",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "radio",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "radio",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "t roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 16,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "a site",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "a site",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "admin",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "admin",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "hut",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 10,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "main",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "main",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "radio",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 7,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 18,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 8,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "a site",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "a site",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "heaven",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "heaven",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "hell",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "hell",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "hut",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "main",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "main",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 13,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "radio",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "ramp",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "t roof",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "top of hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "top of hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "a site",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "a site",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 9,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 11,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "main",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "radio",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "radio",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "rafters",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "rafters",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "top of hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "top of hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "a site",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "a site",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "admin",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "admin",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "heaven",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "heaven",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "hell",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "hell",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 12,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "main",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 17,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 7,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "radio",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "ramp",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 20,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "top of hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "top of hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 21,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "garage",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "garage",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "hut",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 14,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "lobby",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 8,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 9,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "radio",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "radio",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "radio",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "secret",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 25,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "secret",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "secret",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "silo",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "squeaky",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 22,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "squeaky",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "t roof",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 24,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "t roof",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 5,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 23,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "t spawn",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 6,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 19,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "trophy",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 10,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "vent",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 28,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "vent",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      }
+    ],
+    "1e1965abbc06133b/de_nuke/T/pistol": [
+      {
+        "area": "outside",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "t spawn",
+        "matches": 4,
+        "matches_m": 4,
+        "n": 4,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 6.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 9.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "radio",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 12.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "radio",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "radio",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 15.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "trophy",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 18.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 21.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 24.0
+      },
+      {
+        "area": "admin",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "admin",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "main",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 27.0
+      },
+      {
+        "area": "a site",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "heaven",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "heaven",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "hell",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "hell",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "hut",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "hut",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "lobby",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "main",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 30.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 4,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "admin",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "admin",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "hell",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "hell",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "main",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "rafters",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "rafters",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 33.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "a site",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "hell",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "hell",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "lockers",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "lockers",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "rafters",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "rafters",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 36.0
+      },
+      {
+        "area": "a site",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "hut",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "main",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "outside",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "rafters",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "rafters",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": true,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 2,
+        "matches_m": 3,
+        "n": 2,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 1,
+        "matches_m": 3,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 39.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "main",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 42.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "a site",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "hut",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 2,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "main",
+        "matches": 2,
+        "matches_m": 2,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "squeaky",
+        "matches": 1,
+        "matches_m": 2,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "time",
+        "seconds": 45.0
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "lobby",
+        "matches": 2,
+        "matches_m": 4,
+        "n": 2,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "lobby",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 2,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "outside",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "outside",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 3,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "ramp",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": false,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "ramp",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": true,
+        "players": 4,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "trophy",
+        "matches": 3,
+        "matches_m": 4,
+        "n": 3,
+        "newest": true,
+        "players": 0,
+        "sample_kind": "first_contact",
+        "seconds": null
+      },
+      {
+        "area": "trophy",
+        "matches": 1,
+        "matches_m": 4,
+        "n": 1,
+        "newest": false,
+        "players": 1,
+        "sample_kind": "first_contact",
+        "seconds": null
+      }
+    ]
+  },
+  "areas_game": {
+    "1e1965abbc06133b/de_nuke/T/full": [
+      {
         "area": "Outside",
         "matches": 2,
         "matches_m": 4,
@@ -6355,7 +12351,8 @@
       }
     ]
   },
-  "areas_measured": "2026-09-25",
+  "areas_game_measured": "2026-09-25",
+  "areas_measured": "2026-09-27",
   "measured": "2026-09-24",
   "played": {
     "1e1965abbc06133b": {

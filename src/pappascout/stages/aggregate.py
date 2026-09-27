@@ -1797,10 +1797,11 @@ HASHED_LEAGUE_KEYS: tuple[str, ...] = ("map_pool",)
 
 #: The callout table's fields that **change the report** (Story 4.13):
 #: the name, whether the place is kept, whether it is flagged coarse, and --
-#: since the review round -- how sure the name is, which decides the
-#: ``(arvio)`` mark. ``source``, ``junction_source``, ``note`` and
-#: ``neighbours`` are provenance and a recorded check; they change no route,
-#: so editing them does not re-run the stage.
+#: since the review round -- how sure the name is, which decides whether the
+#: place prints the inferred mark (``render.view.ROUTE_INFERRED_MARK``).
+#: ``source``, ``junction_source``, ``note`` and
+#: ``neighbours`` are provenance and a recorded check; they change nothing
+#: the report prints, so editing them does not re-run the stage.
 HASHED_CALLOUT_FIELDS: tuple[str, ...] = (
     "callout",
     "junction",
@@ -1824,7 +1825,8 @@ def _params_hash(
     :data:`HASHED_LEAGUE_KEYS`).
 
     **The callout table is in it** (Story 4.13, AD-13), parsed and cut to
-    :data:`HASHED_CALLOUT_FIELDS`: exactly the fields that change a route,
+    :data:`HASHED_CALLOUT_FIELDS`: exactly the fields that change the
+    report -- a statistic's place, a place's mark, a route's junctions --
     so editing an entry's callout, junction, coarse or confidence -- or
     adding or removing an entry -- re-runs the stage, and editing its
     provenance or a comment does not.

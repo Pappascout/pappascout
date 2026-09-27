@@ -1814,7 +1814,7 @@ class CalloutEntry(_Section):
     """One game area of one map, as the product owner names and reads it.
 
     ``callout`` absent is a statement and not a gap in the file: the place
-    has no callout, and the route prints the game's name **flagged**, so the
+    has no callout, and the report prints the game's name **flagged**, so the
     reader sees what is missing. See ``callouts.toml``'s header for every key.
 
     The three rules checked here are the ones a single entry can break:
@@ -1903,9 +1903,13 @@ def load_callouts(
 
     **An unknown map is an error and not a skip** (AD-13, the same stance as
     ``settings.toml``'s ``extra="forbid"``): a misspelt map section would
-    otherwise leave that map's routes in the game's names with nothing to
+    otherwise leave that map's places in the game's names with nothing to
     say why. The allowed maps are ``[league].map_pool``, handed in, so the
     list of maps is not kept twice.
+
+    **A callout may not be spelled like an area the table leaves
+    unnamed**: that area prints the game's name, so the two would be one
+    place on the report (Story 4.15).
 
     **Two areas that share a callout must agree** on ``junction`` and
     ``coarse``. They are one place to him, so the route treats them as one;
@@ -1966,6 +1970,19 @@ def load_callouts(
                 f"The callout table {path} holds an entry of [{map_name}] "
                 f"that is not valid:\n{_format_validation_error(exc)}"
             ) from exc
+        unnamed = {area for area, entry in entries.items() if entry.callout is None}
+        clash = sorted(
+            f"{area} ({entry.callout!r})"
+            for area, entry in entries.items()
+            if entry.callout in unnamed
+        )
+        if clash:
+            raise SettingsError(
+                f"The callout table {path}: in [{map_name}], "
+                f"{', '.join(clash)} is spelled exactly like an area the "
+                "table gives no callout. That area prints the game's name, "
+                "so the report would read the two as one place."
+            )
         by_callout: dict[str, tuple[str, CalloutEntry]] = {}
         for area, entry in entries.items():
             if entry.callout is None:

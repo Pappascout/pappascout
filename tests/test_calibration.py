@@ -69,7 +69,7 @@ from conftest import REAL_SETTINGS, require_parsed
 from pappascout.adapters.demo_parser import _armed_count
 from pappascout.archive.paths import ArchivePaths
 from pappascout.render import render_report
-from pappascout.render.view import build_view
+from pappascout.render.view import ROUTE_COARSE_MARK, build_view
 from pappascout.constants import KNOWN_INVENTORY_ITEMS, SITE_AREAS, seconds_label
 from pappascout.domain.report import ROUTE_PATTERN_ROUND_TYPES, ROUTE_ROUND_TYPE
 from pappascout.domain.economy import (
@@ -1404,6 +1404,7 @@ def _reports(
     *,
     seconds: Sequence[float] | None | _GridNotGiven = _SENTINEL_GRID,
     teams: Sequence[str] = CALIBRATION_TEAMS,
+    callouts: dict | None = None,
 ):
     """The named teams' reports **in memory**, without changing the archive.
 
@@ -1422,6 +1423,10 @@ def _reports(
 
     The sample points default to the ones ``settings.toml`` declares; see
     :func:`_on_grid` for why that is stated rather than assumed.
+
+    ``callouts`` defaults to the shipped table; ``{}`` builds the report as
+    if no map had one, so every place is the game's own name -- the per-area
+    counting 17.0.0 did (Story 4.15).
     """
     settings = _real_settings()
     thresholds = limits or settings.thresholds
@@ -1439,6 +1444,7 @@ def _reports(
                 thresholds,
                 settings.league,
                 settings.aggregate,
+                callouts=callouts,
             )
             for team in teams
         ]
@@ -2961,6 +2967,15 @@ def test_the_archive_has_no_round_with_an_unknown_outcome() -> None:
 #: **It is an observation and not a rule.** Adding a demo or re-classifying
 #: changes these numbers legitimately; the answer is then to measure the table
 #: again and say so in the commit, not to loosen the test.
+#:
+#: **Two area tables since Story 4.15.** ``areas`` is the sample-point table
+#: as the code counts it now, **under the product owner's callouts**, re-pinned
+#: 2026-09-27 by running :func:`_area_rows_from` over the archive.
+#: ``areas_game`` is the same two groups as 17.0.0 counted them, per game
+#: area (measured 2026-09-25), kept because the measurement document the
+#: pistol claim rests on speaks game areas, and because the difference
+#: between the two is itself checked (:func:`test_the_callout_table_differs_
+#: from_the_game_table_only_where_callouts_merge`).
 MATCH_COUNTS = json.loads(
     (Path(__file__).parent / "data" / "match_counts.json").read_text(
         encoding="utf-8"
@@ -3117,6 +3132,23 @@ def test_the_pistol_rows_of_the_measurement_carry_their_two_numbers() -> None:
         team, map_name, side, round_type = key.split("/")
         got = _area_rows_from(reports[team], map_name, side, round_type)
         assert got == rows, key
+    # ``areas_game`` is a measured pin too (Story 4.15 review): the same
+    # groups built with no callout table, so every place is the game's own
+    # area and nothing merges -- what 17.0.0 counted.
+    teams = sorted({key.split("/")[0] for key in MATCH_COUNTS["areas_game"]})
+    untabled = dict(
+        zip(teams, _reports(root, teams=teams, callouts={}), strict=True)
+    )
+    for key, rows in MATCH_COUNTS["areas_game"].items():
+        team, map_name, side, round_type = key.split("/")
+        got = _area_rows_from(untabled[team], map_name, side, round_type)
+        assert got == rows, key
+
+
+def _nuke_callouts() -> dict:
+    """The shipped table's ``de_nuke`` section -- the names the re-pinned
+    table counts under, read from ``callouts.toml`` and not copied."""
+    return load_callouts(_real_settings().league.map_pool)["de_nuke"]
 
 
 def test_the_pinned_pistol_table_says_what_the_measurement_says() -> None:
@@ -3129,23 +3161,88 @@ def test_the_pinned_pistol_table_says_what_the_measurement_says() -> None:
     alone. If a future measurement changes that, this fails beside the table
     rather than leaving the story's premise unguarded.
 
+    **In the document's words and in the report's** (Story 4.15): the
+    document speaks game areas, so the claim is read off ``areas_game``; the
+    report counts under callouts, so the same claim is read off ``areas``
+    under ``Outside``'s and ``Control``'s callouts. *radio* also holds
+    ``Trophy``, and the claim survives the merge because nobody stood there
+    at that moment -- which is what the second half measures.
+
     **No archive needed**: both sides are in the repository. What ties the
     table to the archive is the test above it.
     """
     key = "1e1965abbc06133b/de_nuke/T/pistol"
-    rows = [
-        row
-        for row in MATCH_COUNTS["areas"][key]
-        if row["seconds"] == 15.0 and row["players"] > 0
-    ]
-    outside = next(
-        row for row in rows if row["area"] == "Outside" and row["players"] == 3
-    )
-    assert (outside["n"], outside["matches"], outside["newest"]) == (3, 3, False)
-    control = next(
-        row for row in rows if row["area"] == "Control" and row["players"] == 4
-    )
-    assert (control["n"], control["matches"], control["newest"]) == (1, 1, True)
+    table = _nuke_callouts()
+    for pinned, outside_name, control_name in (
+        ("areas_game", "Outside", "Control"),
+        ("areas", table["Outside"].callout, table["Control"].callout),
+    ):
+        rows = [
+            row
+            for row in MATCH_COUNTS[pinned][key]
+            if row["seconds"] == 15.0 and row["players"] > 0
+        ]
+        outside = next(
+            row
+            for row in rows
+            if row["area"] == outside_name and row["players"] == 3
+        )
+        assert (outside["n"], outside["matches"], outside["newest"]) == (
+            3,
+            3,
+            False,
+        ), pinned
+        control = next(
+            row
+            for row in rows
+            if row["area"] == control_name and row["players"] == 4
+        )
+        assert (control["n"], control["matches"], control["newest"]) == (
+            1,
+            1,
+            True,
+        ), pinned
+
+
+def test_the_callout_table_differs_from_the_game_table_only_where_callouts_merge(
+) -> None:
+    """Story 4.15's re-pin, accounted for: counting under callouts renames
+    every place and changes a number **only** where one callout is fed by
+    several game areas.
+
+    A callout fed by one area is that area under another name, so its rows
+    must be the game table's rows renamed, row for row. A merged callout
+    (*radio* = ``Control`` + ``Trophy``, *secret* = ``Secret`` +
+    ``Tunnels``, *rafters* = ``Catwalk`` + ``Rafters``) is one place with one
+    count and no sum of the per-area rows gives it, so its rows are excluded
+    from the comparison -- and required to exist in the full-buy group,
+    which is where the re-pin lost 36 rows to the merges.
+
+    **No archive needed**: both tables and the callout table are in the
+    repository.
+    """
+    table = _nuke_callouts()
+    fed = Counter(entry.callout for entry in table.values() if entry.callout)
+
+    merged = {callout for callout, count in fed.items() if count > 1}
+
+    def renamed(area: str | None) -> str | None:
+        entry = table.get(area) if area is not None else None
+        return area if entry is None or entry.callout is None else entry.callout
+
+    def unmerged(rows: list[dict]) -> set[tuple]:
+        return {
+            tuple(sorted(row.items())) for row in rows if row["area"] not in merged
+        }
+
+    for key, rows in MATCH_COUNTS["areas"].items():
+        game = [
+            {**row, "area": renamed(row["area"])}
+            for row in MATCH_COUNTS["areas_game"][key]
+        ]
+        assert unmerged(game) == unmerged(rows), key
+    full = MATCH_COUNTS["areas"]["1e1965abbc06133b/de_nuke/T/full"]
+    assert merged & {row["area"] for row in full}
 
 
 def test_the_pinned_full_table_holds_a_bar_whose_matches_are_not_its_rounds() -> None:
@@ -3191,13 +3288,18 @@ def test_the_archives_pistol_lines_read_as_the_intent_says() -> None:
     text = render_report(
         report, settings=settings.report, round_list_paths=[]
     )
+    # In his callouts since Story 4.15, read from the shipped table: the
+    # game's Outside is his coarse outside, its Control his radio.
+    table = _nuke_callouts()
+    outside = f"{table['Outside'].callout}{ROUTE_COARSE_MARK}"
+    radio = table["Control"].callout
     line = next(
         row
         for row in text.splitlines()
-        if row.startswith("- 15 s:") and "Control 4" in row
+        if row.startswith("- 15 s:") and f"{radio} 4" in row
     )
-    assert "Outside 3 (3/4 kierroksesta, ei uusimmassa)" in line
-    assert "Control 4 (1/4 kierroksesta, uusin mukana)" in line
+    assert f"{outside} 3 (3/4 kierroksesta, ei uusimmassa)" in line
+    assert f"{radio} 4 (1/4 kierroksesta, uusin mukana)" in line
     assert "ottelussa" not in line
 
 

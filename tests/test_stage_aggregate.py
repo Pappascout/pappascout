@@ -20,6 +20,7 @@ import pytest
 
 from conftest import (
     LEAGUE_DEMOS,
+    REAL_SETTINGS,
     SITE_CLOUD,
     has_temp_leftovers,
     require_demo,
@@ -27,7 +28,7 @@ from conftest import (
 from pappascout.archive.manifest import Manifest, ManifestInput
 from pappascout.archive.paths import ArchivePaths
 from pappascout.cli import _render_aggregate
-from pappascout.domain.models import load_settings
+from pappascout.domain.models import load_callouts, load_settings
 from pappascout.domain.report import Report
 from pappascout.domain.schemas import ARMORED_COLUMN
 
@@ -331,6 +332,18 @@ def test_four_demos_of_the_same_team_become_one_report(tmp_path: Path) -> None:
     assert report.sample.rounds == sum(m.sample.rounds for m in report.maps)
 
 
+def shipped_callout(map_name: str, area: str) -> str:
+    """The shipped table's name for a game area -- what the stage counts a
+    statistic under since Story 4.15 -- read from ``callouts.toml`` rather
+    than copied, so these tests about filtering do not pin a name."""
+    table = load_callouts(
+        load_settings(REAL_SETTINGS, env_files=()).league.map_pool
+    )
+    callout = table[map_name][area].callout
+    assert callout is not None, f"{map_name}.{area} has no callout"
+    return callout
+
+
 def test_the_opponents_rows_are_filtered_out(tmp_path: Path) -> None:
     """The opponent's sample points and grenades do not belong in this report."""
     archive = build_archive(
@@ -339,7 +352,9 @@ def test_the_opponents_rows_are_filtered_out(tmp_path: Path) -> None:
     run(archive)
     report = read_report(archive)
     position = report.maps[0].sides[0].round_types[0].positions[0]
-    assert {a.area for a in position.areas} == {"BombsiteA"}
+    assert {a.area for a in position.areas} == {
+        shipped_callout("de_nuke", "BombsiteA")
+    }
     types = {
         c.grenade_type
         for rt in report.maps[0].sides[0].round_types
@@ -626,7 +641,7 @@ def test_the_report_is_valid_utf8_json(tmp_path: Path) -> None:
     # A literal and not the constant: comparing against the constant would be
     # a tautology -- the code wrote the value from that very constant. When the
     # version rises, this line MUST fail, so that the rise is deliberate.
-    assert data["schema_version"] == "17.0.0"
+    assert data["schema_version"] == "18.0.0"
     assert data["team"]["roster_source"] == "lineups"
 
 
@@ -716,7 +731,7 @@ def test_a_report_from_a_foreign_schema_version_is_written_again(
     result = run(archive)
     assert not result.skipped
     assert result.stats["unclassified"] == 0
-    assert read_report(archive).schema_version == "17.0.0"
+    assert read_report(archive).schema_version == "18.0.0"
 
 
 def test_the_real_stats_render_without_a_key_error(tmp_path: Path) -> None:
@@ -1448,9 +1463,13 @@ def test_own_deaths_and_own_kills_both_reach_the_report(tmp_path: Path) -> None:
     entry = read_report(archive).maps[0].sides[0].round_types[0]
 
     assert entry.deaths.m == 1
+    # Cave is no area of the shipped de_ancient table, so it keeps the
+    # game's name; Middle is counted under its callout (Story 4.15).
     assert [(a.area, a.n) for a in entry.deaths.first_death_areas] == [("Cave", 1)]
     assert entry.deaths.kills_total == 1
-    assert [(k.area, k.n) for k in entry.deaths.kills] == [("Middle", 1)]
+    assert [(k.area, k.n) for k in entry.deaths.kills] == [
+        (shipped_callout("de_ancient", "Middle"), 1)
+    ]
 
 
 def test_the_opponents_own_deaths_do_not_become_ours(tmp_path: Path) -> None:
@@ -1541,7 +1560,7 @@ def test_an_attackerless_own_death_survives_the_lineup_filter(
     entry = read_report(archive).maps[0].sides[0].round_types[0]
     assert entry.deaths.m == 1
     assert [(a.area, a.n) for a in entry.deaths.first_death_areas] == [
-        ("BombsiteB", 1)
+        (shipped_callout("de_ancient", "BombsiteB"), 1)
     ]
     assert entry.deaths.kills_total == 0
 

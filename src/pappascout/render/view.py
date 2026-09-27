@@ -179,6 +179,7 @@ from pappascout.domain.report import (
     ArmoredPlayers,
     DeathReport,
     MapReport,
+    PlaceName,
     PlayedMap,
     Position,
     Report,
@@ -611,24 +612,25 @@ ROUTE_PATTERN_PEAK = "jopa"
 #: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
 ROUTE_PATTERN_STAYED = "jää"
 
-#: The flag on a route step whose game area holds several of the product
-#: owner's callouts (``outside (karkea)``): the name is his, but coarser than
-#: he would say it, until coordinates split the area (Story 4.13).
+#: The flag on a place whose game area holds several of the product owner's
+#: callouts (``outside (karkea)``): the name is his, but coarser than he would
+#: say it, until coordinates split the area (Story 4.13 on the routes, every
+#: row since Story 4.15).
 #:
 #: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
 ROUTE_COARSE_MARK = " (karkea)"
 
-#: The flag on a route step named by the **game** and not by him: the
-#: callout table gives the place no callout, or does not list the area
+#: The flag on a place named by the **game** and not by him: the callout
+#: table gives the place no callout, or does not list the area
 #: (``Crane (pelin nimi)``). It is printed so he can see what the table is
 #: missing -- the spec's words, *"flag so he can see what is missing"*.
 #:
 #: **Awaiting the product owner's word**, as :data:`RECORD_VERB` says.
 ROUTE_NO_CALLOUT_MARK = " (pelin nimi)"
 
-#: The flag on a route step whose callout is **not certain**: the table
-#: infers it, or he offered it as a guess, or a merged callout has such an
-#: area among its sources (Story 4.13 review, the coordinator's rule of
+#: The flag on a place whose callout is **not certain**: the table infers
+#: it, or he offered it as a guess, or a merged callout has such an area
+#: among its sources (Story 4.13 review, the coordinator's rule of
 #: 2026-09-26). An unmarked callout is his own word or the guide's callout
 #: that is the game area's own name, and nothing else.
 #:
@@ -1316,20 +1318,29 @@ class _Flags:
     #: Raised in :func:`build_view` and not through :meth:`absorb`, because
     #: the routes are not a row pruning can remove.
     routes_shown: bool = False
-    #: A route row printed :data:`ROUTE_COARSE_MARK` (Story 4.13). The guide
-    #: then says what it means; flagged for :attr:`unindexed_demo`'s reason.
-    #: Raised by the label itself, so it tracks what is printed.
+    #: A place printed :data:`ROUTE_COARSE_MARK` (Story 4.13; every row
+    #: since Story 4.15). The guide then says what it means; flagged for
+    #: :attr:`unindexed_demo`'s reason. Raised by the label itself, so it
+    #: tracks what is printed -- and carried by :meth:`absorb` only from a
+    #: row that stayed.
     route_coarse: bool = False
-    #: A route row printed :data:`ROUTE_NO_CALLOUT_MARK`. The same rationale.
+    #: A place printed :data:`ROUTE_NO_CALLOUT_MARK`. The same rationale.
     route_no_callout: bool = False
-    #: A route row printed :data:`ROUTE_INFERRED_MARK`. The same rationale.
+    #: A place of a map **with** a callout table was printed (Story 4.15),
+    #: so the guide says once which vocabulary the report speaks. Raised by
+    #: :func:`_route_place_text` for every named place whose flag is not
+    #: ``no_table`` -- a report of untabled maps speaks the game's names
+    #: throughout, and the no-table paragraph says that instead.
+    callouts_named: bool = False
+    #: A place printed :data:`ROUTE_INFERRED_MARK`. The same rationale.
     route_inferred: bool = False
     #: A route row printed :data:`ROUTE_RETURN`. The same rationale.
     route_return: bool = False
-    #: The maps whose routes are in the game's names because the callout
+    #: The maps whose places are in the game's names because the callout
     #: table has no section for them -- the spec's *"flagged once for the
-    #: map"*: their steps carry no mark, and the guide names the maps once.
-    #: Raised in :func:`build_view`, beside :attr:`routes_shown`.
+    #: map"*: their places carry no mark, and the guide names the maps once.
+    #: Raised in :func:`build_view` for the routes and by
+    #: :class:`_Places` for every other row.
     route_no_table: list[str] = field(default_factory=list)
     #: A save-round block printed a recurring route (Story 4.14), so the
     #: guide explains those rows -- only then, for :attr:`routes_shown`'s
@@ -1363,6 +1374,13 @@ class _Flags:
         self.equipment_merged |= other.equipment_merged
         self.utility_targets_capped |= other.utility_targets_capped
         self.kill_areas_capped |= other.kill_areas_capped
+        self.route_coarse |= other.route_coarse
+        self.route_no_callout |= other.route_no_callout
+        self.route_inferred |= other.route_inferred
+        self.callouts_named |= other.callouts_named
+        for name in other.route_no_table:
+            if name not in self.route_no_table:
+                self.route_no_table.append(name)
         for label in other.skipped_samples:
             if label not in self.skipped_samples:
                 self.skipped_samples.append(label)
@@ -1378,10 +1396,11 @@ class _UseEntry:
     one flag, one explanation would appear in the reading guide because of
     the other -- and the reading guide explains only what shows on the row.
 
-    ``target`` is the detonation area **raw** (``None`` = no name), because
-    rule 4 bounds targets: the same area from a different throwing area or a
-    different time bucket is the same target, and the label's formatting (the
-    estimate mark, the bucket) is no part of the comparison.
+    ``target`` is the detonation's place **as counted** -- the callout since
+    Story 4.15, ``None`` = no name -- because rule 4 bounds targets: the same
+    place from a different throwing area or a different time bucket is the
+    same target, and the label's formatting (the marks, the bucket) is no
+    part of the comparison.
     """
 
     #: The sort key: most common first, the text on a tie.
@@ -1390,6 +1409,9 @@ class _UseEntry:
     target: str | None
     estimated: bool
     unknown: bool
+    #: The callout marks the claim's two places printed (Story 4.15),
+    #: carried into the report's flags only if the claim is kept.
+    marks: _Flags
 
 
 @dataclass(frozen=True)
@@ -1950,6 +1972,7 @@ def _position_line(
     position: Position,
     min_n: int,
     flags: _Flags,
+    places: _Places,
     *,
     matches: bool,
     recency: bool,
@@ -1974,7 +1997,7 @@ def _position_line(
                 if min_n > 1:
                     flags.dropped += 1
                 continue
-            name = _area(area.area)
+            name = places.counted(area.area, flags)
             if area.area is None:
                 flags.unknown_area = True
             claims.append(
@@ -2134,7 +2157,11 @@ def _utility_count_line(
 
 
 def _utility_use_lines(
-    uses: Sequence[UtilityUse], min_n: int, flags: _Flags, pruning: _Pruning
+    uses: Sequence[UtilityUse],
+    min_n: int,
+    flags: _Flags,
+    pruning: _Pruning,
+    places: _Places,
 ) -> list[Line]:
     """The "from where to where" rows -- the target analysis's
     *"T-spawnista CT-savu B sitelle"*.
@@ -2168,11 +2195,15 @@ def _utility_use_lines(
             if min_n > 1:
                 flags.dropped += 1
             continue
-        target = _area(use.detonate_area)
         estimated = use.area_source == "point_cloud"
+        marks = _Flags()
+        target = places.counted(
+            use.detonate_area,
+            marks,
+            (ESTIMATE_MARK.strip(" ()"),) if estimated else (),
+        )
         text = (
-            f"{_area(use.throw_area)} -> {target}"
-            f"{ESTIMATE_MARK if estimated else ''}"
+            f"{places.counted(use.throw_area, marks)} -> {target}"
             f"{_bucket_text(use.seconds_bucket)}"
         )
         extra = f"{use.throws} heittoa" if use.throws != use.n else None
@@ -2184,6 +2215,7 @@ def _utility_use_lines(
                 target=use.detonate_area,
                 estimated=estimated,
                 unknown=unknown,
+                marks=marks,
             )
         )
 
@@ -2202,6 +2234,7 @@ def _utility_use_lines(
         for entry in kept:
             flags.unknown_area |= entry.unknown
             flags.estimated_area |= entry.estimated
+            flags.absorb(entry.marks, keep=True)
         lines.append(
             Line(
                 label=_grenade(grenade_type),
@@ -2278,6 +2311,7 @@ def _first_contact_gap_line(
     report_type: RoundTypeReport,
     min_n: int,
     flags: _Flags,
+    places: _Places,
     *,
     matches: bool,
     recency: bool,
@@ -2313,7 +2347,7 @@ def _first_contact_gap_line(
             if min_n > 1:
                 flags.dropped += 1
             continue
-        name = _area(entry.area)
+        name = places.counted(entry.area, flags)
         if entry.area is None:
             flags.unknown_area = True
         claims.append(
@@ -2341,7 +2375,11 @@ def _first_contact_gap_line(
 
 
 def _death_lines(
-    deaths: DeathReport, min_n: int, flags: _Flags, pruning: _Pruning
+    deaths: DeathReport,
+    min_n: int,
+    flags: _Flags,
+    pruning: _Pruning,
+    places: _Places,
 ) -> list[Line]:
     """At most :data:`MAX_DEATH_LINES` rows: the first death and the kills.
 
@@ -2394,7 +2432,7 @@ def _death_lines(
             if min_n > 1:
                 flags.dropped += 1
             continue
-        name = _area(entry.area)
+        name = places.counted(entry.area, flags)
         if entry.area is None:
             flags.unknown_area = True
         claims.append((-entry.n, name, Claim(text=name, n=entry.n, m=entry.m)))
@@ -2419,19 +2457,23 @@ def _death_lines(
             )
         )
 
-    kill_claims: list[tuple[int, str, Claim, bool]] = []
+    kill_claims: list[tuple[int, str, Claim, bool, _Flags]] = []
     for entry in deaths.kills:
         if entry.n < min_n:
             if min_n > 1:
                 flags.dropped += 1
             continue
-        name = _area(entry.area)
+        # The mark into a bookkeeping of its own: rule 5 may drop the area,
+        # and a dropped area's mark would explain a row that is not there.
+        marks = _Flags()
+        name = places.counted(entry.area, marks)
         kill_claims.append(
             (
                 -entry.n,
                 name,
                 Claim(text=name, n=entry.n, m=entry.m, unit=KILL_SAMPLE_UNIT),
                 entry.area is None,
+                marks,
             )
         )
     if kill_claims:
@@ -2444,12 +2486,14 @@ def _death_lines(
             flags.kill_areas_capped = True
         # The flag only from the retained areas: a dropped unknown area would
         # explain in the reading guide a row that is not there.
-        if any(unknown for _, _, _, unknown in kept):
+        if any(item[3] for item in kept):
             flags.unknown_area = True
+        for item in kept:
+            flags.absorb(item[4], keep=True)
         lines.append(
             Line(
                 label="tapot alueittain",
-                claims=tuple(claim for _, _, claim, _ in kept),
+                claims=tuple(item[2] for item in kept),
                 note=_dropped_note(dropped, "aluetta"),
             )
         )
@@ -2846,6 +2890,7 @@ def _round_type_lines(
     flags: _Flags,
     pruning: _Pruning,
     recency: bool,
+    places: _Places,
 ) -> tuple[list[Line], bool]:
     """One round type's rows in order, pruning included.
 
@@ -2889,6 +2934,7 @@ def _round_type_lines(
                     position,
                     min_n,
                     _Flags(),
+                    places,
                     matches=states_matches,
                     recency=recency,
                 )
@@ -2899,7 +2945,12 @@ def _round_type_lines(
             continue
         scratch = _Flags()
         line = _position_line(
-            position, min_n, scratch, matches=states_matches, recency=recency
+            position,
+            min_n,
+            scratch,
+            places,
+            matches=states_matches,
+            recency=recency,
         )
         if line is None:
             # The row never came about, so pruning has nothing to say about
@@ -2914,7 +2965,9 @@ def _round_type_lines(
     utility = _utility_count_line(report_type.utility_counts, min_n, flags)
     if utility is not None:
         keep_all([utility])
-    keep_all(_utility_use_lines(report_type.utility, min_n, flags, pruning))
+    keep_all(
+        _utility_use_lines(report_type.utility, min_n, flags, pruning, places)
+    )
 
     equipment, saturated_dropped, merged = _equipment_rows(
         report_type, min_n, flags, pruning
@@ -2922,12 +2975,17 @@ def _round_type_lines(
     rows.extend(equipment)
 
     gap = _first_contact_gap_line(
-        report_type, min_n, flags, matches=states_matches, recency=recency
+        report_type,
+        min_n,
+        flags,
+        places,
+        matches=states_matches,
+        recency=recency,
     )
     if gap is not None:
         keep_all([gap])
 
-    keep_all(_death_lines(report_type.deaths, min_n, flags, pruning))
+    keep_all(_death_lines(report_type.deaths, min_n, flags, pruning, places))
 
     kept = [row.kept for row in rows if row.kept is not None]
     if rows and not kept and saturated_dropped:
@@ -3058,16 +3116,24 @@ def _route_place_label(
 
 
 def _route_place_text(
-    area: str | None, flag: RouteFlag | None, flags: _Flags
+    area: str | None,
+    flag: RouteFlag | None,
+    flags: _Flags,
+    extra: Sequence[str] = (),
 ) -> str:
-    """One place of a route with its mark, raising the mark's guide flag.
+    """One place with its mark, raising the mark's guide flag -- a route's
+    step, and since Story 4.15 every place the report names.
 
     ``coarse`` and ``inferred`` together print as one bracket holding
     :data:`ROUTE_COARSE_MARK`'s word and :data:`ROUTE_INFERRED_MARK`'s, so
     the reader meets the two words the guide explains and not a new third
-    one. ``no_table`` prints no mark: the map
-    is named once in the guide instead (:attr:`_Flags.route_no_table`).
+    one. ``extra`` joins the same bracket for the same reason -- a utility
+    target's :data:`ESTIMATE_MARK` word reads ``outside (karkea, arvio)``,
+    not two brackets in a row. ``no_table`` prints no mark: the map is named
+    once in the guide instead (:attr:`_Flags.route_no_table`).
     """
+    if area is not None and flag != "no_table":
+        flags.callouts_named = True
     marks: list[str] = []
     if flag in ("coarse", "coarse_inferred"):
         flags.route_coarse = True
@@ -3078,8 +3144,80 @@ def _route_place_text(
     if flag == "no_callout":
         flags.route_no_callout = True
         marks.append(ROUTE_NO_CALLOUT_MARK.strip(" ()"))
+    marks.extend(extra)
     text = _area(area)
     return f"{text} ({', '.join(marks)})" if marks else text
+
+
+@dataclass(frozen=True)
+class _Places:
+    """One map's places as the report names them
+    (:attr:`~pappascout.domain.report.MapReport.places`, Story 4.15).
+
+    Two readings of the same list, for the two kinds of row:
+
+    * :meth:`counted` -- a **statistic**, which ``aggregate`` already counted
+      under the callout: only its mark is looked up;
+    * :meth:`ruled` -- an **anomaly** row, whose rule ran on the game's area:
+      the area is looked up, printed as its callout with the mark, and --
+      where several game areas feed that callout -- the game's name in the
+      mark's bracket, so two rows on *radio* say which part of it each was
+      (the spec's third decision).
+
+    Which callouts are merged is the model's answer
+    (:attr:`~pappascout.domain.report.MapReport.merged_callouts`); the view
+    only looks names up.
+    """
+
+    map_name: str | None
+    by_area: Mapping[str, PlaceName]
+    flag_of: Mapping[str, RouteFlag | None]
+    merged: frozenset[str]
+
+    @classmethod
+    def of(cls, map_report: MapReport | None) -> "_Places":
+        if map_report is None:
+            return cls(None, {}, {}, frozenset())
+        return cls(
+            map_name=map_report.map_name,
+            by_area={place.area: place for place in map_report.places},
+            flag_of={place.callout: place.flag for place in map_report.places},
+            merged=map_report.merged_callouts,
+        )
+
+    def _note_no_table(self, flag: RouteFlag | None, flags: _Flags) -> None:
+        if (
+            flag == "no_table"
+            and self.map_name is not None
+            and self.map_name not in flags.route_no_table
+        ):
+            flags.route_no_table.append(self.map_name)
+
+    def counted(
+        self, name: str | None, flags: _Flags, extra: Sequence[str] = ()
+    ) -> str:
+        """A statistic's place: the name it was counted under, marked."""
+        flag = self.flag_of.get(name) if name is not None else None
+        self._note_no_table(flag, flags)
+        return _route_place_text(name, flag, flags, extra)
+
+    def ruled(self, area: str | None, flags: _Flags) -> str:
+        """A rule row's game area: its callout, marked, and the game's name
+        in the same bracket where the callout is fed by several areas --
+        ``radio (Control)``, and with a mark the mark's word and the game's
+        name in one bracket, as :func:`_route_place_text` keeps every mark.
+
+        An area the list does not hold prints as it is: the model refuses
+        such a row on a map of the report
+        (:meth:`~pappascout.domain.report.Report._check_anomalies`), so it
+        is reached only by a view built of parts.
+        """
+        place = self.by_area.get(area) if area is not None else None
+        if place is None:
+            return _area(area)
+        self._note_no_table(place.flag, flags)
+        part = (_area(area),) if place.callout in self.merged else ()
+        return _route_place_text(place.callout, place.flag, flags, part)
 
 
 def _route_parts(
@@ -3479,6 +3617,7 @@ def _round_type_view(
     settings: ReportSettings,
     recency: bool,
     played_maps: Mapping[str, PlayedMap],
+    places: _Places,
 ) -> RoundTypeView:
     """Assemble one round type's rows.
 
@@ -3520,7 +3659,7 @@ def _round_type_view(
 
     pruning = _Pruning.for_round_type(settings, report_type.round_type)
     lines, kept_the_block = _round_type_lines(
-        report_type, min_n, flags, pruning, recency
+        report_type, min_n, flags, pruning, recency, places
     )
 
     # The two things about filtering -- the rule and its price -- are on the
@@ -3734,7 +3873,11 @@ def _habit_buy_types_text(anomaly: Anomaly) -> str:
 
 
 def _habit_text(
-    anomaly: Anomaly, played: Mapping[str, PlayedMap], matches_m: int | None
+    anomaly: Anomaly,
+    played: Mapping[str, PlayedMap],
+    matches_m: int | None,
+    places: _Places,
+    flags: _Flags,
 ) -> str:
     """One habit, said in words: what they do, how often, on which buys --
     and its sample.
@@ -3749,9 +3892,11 @@ def _habit_text(
     säästökierroksesta, 2/4 ottelussa; eco k14 2026-09-20, force k19
     2026-09-13)``. **Awaiting his wording.**
 
-    **The area name stays the game's own** (AD-10) and the sentence is built
-    so it needs no Finnish case ending: ``alueelle Lobby``, never
-    ``Lobbyyn``.
+    **The place is his callout** since Story 4.15, and the rule under it
+    still ran on the game's area (:meth:`_Places.ruled`): the row reads
+    ``alueelle lobby``, and a callout several game areas feed says which one
+    in brackets. The sentence is built so the name needs no Finnish case
+    ending: ``alueelle lobby``, never ``lobbyyn``.
 
     **It carries its sample like every claim in the report** (the reading
     guide's first promise), built through :class:`Claim`: the rounds over the
@@ -3784,7 +3929,7 @@ def _habit_text(
         name = ROUND_TYPE_FI.get(entry.round_type, entry.round_type)
         rounds.append(f"{name} k{entry.round_no} {when}")
     claim = Claim(
-        text=_area(anomaly.area),
+        text=places.ruled(anomaly.area, flags),
         n=anomaly.n,
         m=anomaly.m,
         unit=HABIT_SAMPLE_UNIT,
@@ -3799,7 +3944,10 @@ def _habit_text(
 
 
 def _habit_views(
-    report: Report, map_report: MapReport, settings: ReportSettings
+    report: Report,
+    map_report: MapReport,
+    settings: ReportSettings,
+    flags: _Flags,
 ) -> tuple[tuple[str, ...], str | None]:
     """The map's CT advances, as habits, and the count of those not raised.
 
@@ -3824,9 +3972,10 @@ def _habit_views(
         key=lambda entry: (-entry.matches, -entry.n, entry.area),
     )
     left_out = len(advances) - len(raised)
+    places = _Places.of(map_report)
     return (
         tuple(
-            _habit_text(entry, played, map_report.sample.matches)
+            _habit_text(entry, played, map_report.sample.matches, places, flags)
             for entry in raised
         ),
         _habits_note(left_out, minimum) if left_out else None,
@@ -3834,7 +3983,7 @@ def _habit_views(
 
 
 def _anomaly_views(
-    report: Report, settings: ReportSettings
+    report: Report, settings: ReportSettings, flags: _Flags
 ) -> tuple[tuple[AnomalyView, ...], str | None]:
     """The anomaly rows and the notes on what was not printed.
 
@@ -3884,7 +4033,19 @@ def _anomaly_views(
         entry.map_name: index
         for index, entry in enumerate(report.maps, start=1)
     }
-    return tuple(_anomaly_view(entry, index_of) for entry in kept), note
+    places = {entry.map_name: _Places.of(entry) for entry in report.maps}
+    return (
+        tuple(
+            _anomaly_view(
+                entry,
+                index_of,
+                places.get(entry.map_name, _Places.of(None)),
+                flags,
+            )
+            for entry in kept
+        ),
+        note,
+    )
 
 
 def _anomaly_rank(anomaly: Anomaly) -> tuple[int, str, str, int, str]:
@@ -3899,7 +4060,10 @@ def _anomaly_rank(anomaly: Anomaly) -> tuple[int, str, str, int, str]:
 
 
 def _anomaly_view(
-    anomaly: Anomaly, index_of: Mapping[str, int]
+    anomaly: Anomaly,
+    index_of: Mapping[str, int],
+    places: _Places,
+    flags: _Flags,
 ) -> AnomalyView:
     """One anomaly: the summary row and the round rows.
 
@@ -3925,7 +4089,7 @@ def _anomaly_view(
             label=label,
             claims=(
                 Claim(
-                    text=_area(anomaly.area),
+                    text=places.ruled(anomaly.area, flags),
                     n=anomaly.n,
                     m=anomaly.m,
                     extra=_anomaly_extra(anomaly),
@@ -3933,7 +4097,10 @@ def _anomaly_view(
             ),
             note="pieni otanta" if anomaly.small_sample else None,
         ),
-        rounds=tuple(_anomaly_round_text(anomaly, entry) for entry in anomaly.rounds),
+        rounds=tuple(
+            _anomaly_round_text(anomaly, entry, places, flags)
+            for entry in anomaly.rounds
+        ),
     )
 
 
@@ -4025,7 +4192,9 @@ def _round_type_suffix(anomaly: Anomaly) -> str:
     return f", havaittu: {names}"
 
 
-def _anomaly_round_text(anomaly: Anomaly, entry: AnomalyRound) -> str:
+def _anomaly_round_text(
+    anomaly: Anomaly, entry: AnomalyRound, places: _Places, flags: _Flags
+) -> str:
     """One round's observation: its type, how many, and where from.
 
     The round number first, because the scout's next act is to open that
@@ -4061,11 +4230,11 @@ def _anomaly_round_text(anomaly: Anomaly, entry: AnomalyRound) -> str:
         # is the observation the summary cannot carry -- "at most two areas"
         # is the rule itself, and the row would otherwise claim a crowd on one
         # area where the rule saw it on two.
-        text += f", alueilla {_areas_text(entry.areas)}"
+        text += f", alueilla {_areas_text(entry.areas, places, flags)}"
     if entry.sources:
         # The directions only in a crunch. On the others an empty list means
         # "not asked" and not "no directions", so it is not said out loud.
-        text += f", {_sources_text(entry)}"
+        text += f", {_sources_text(entry, places, flags)}"
     # Two demos on the same map: the round number does not identify without
     # the demo id. The id is a code span, because that is the only usable
     # form here -- the same rationale as with the round appendix.
@@ -4081,7 +4250,7 @@ def _anomaly_round_text(anomaly: Anomaly, entry: AnomalyRound) -> str:
     return text
 
 
-def _sources_text(entry: AnomalyRound) -> str:
+def _sources_text(entry: AnomalyRound, places: _Places, flags: _Flags) -> str:
     """A crunch round's directions, and whether they were simultaneous.
 
     **``yhtä aikaa`` only when it is true** (Story 4.5). The directions are
@@ -4101,7 +4270,7 @@ def _sources_text(entry: AnomalyRound) -> str:
     **The moments are not named**, for the reason the seconds left the row
     (:func:`_anomaly_points_text`): the sample points are a tool.
     """
-    names = _areas_text(entry.sources)
+    names = _areas_text(entry.sources, places, flags)
     if any(point.sources == entry.sources for point in entry.points):
         return f"yhtä aikaa suunnista {names}"
     return f"suunnista {names} eri hetkinä"
@@ -4210,9 +4379,10 @@ def _share(value: float) -> str:
     return f"{value:.2f}".replace(".", ",")
 
 
-def _areas_text(areas: Sequence[str]) -> str:
-    """The area names as a list; the callouts stay in English."""
-    return _join_fi([_area(name) for name in areas])
+def _areas_text(areas: Sequence[str], places: _Places, flags: _Flags) -> str:
+    """A rule row's game areas as a list of the places they print as
+    (:meth:`_Places.ruled`); the callouts stay in English."""
+    return _join_fi([places.ruled(name, flags) for name in areas])
 
 
 def _join_fi(parts: Sequence[str]) -> str:
@@ -5118,6 +5288,9 @@ def build_view(
         played_by_demo = {
             entry.map_demo_id: entry for entry in map_report.played_maps
         }
+        # The names every row of the chapter prints its places with
+        # (Story 4.15).
+        places = _Places.of(map_report)
         # CT first (:data:`SIDE_ORDER`): the side rows at the top of the map
         # chapter and the blocks inside each buy class read in the same order.
         for side in sorted(
@@ -5135,6 +5308,7 @@ def build_view(
                         settings,
                         states_recency,
                         played_by_demo,
+                        places,
                     )
                 )
                 # The rows and not the routes: a round that reached no
@@ -5220,7 +5394,7 @@ def build_view(
                 flags.unindexed_demo = True
             elif entry.played_on is None or entry.opponent is None:
                 flags.unknown_in_index = True
-        habits, habits_note = _habit_views(report, map_report, settings)
+        habits, habits_note = _habit_views(report, map_report, settings, flags)
         maps.append(
             MapView(
                 map_name=map_report.map_name,
@@ -5242,7 +5416,7 @@ def build_view(
             )
         )
 
-    anomaly_views, dropped_note = _anomaly_views(report, settings)
+    anomaly_views, dropped_note = _anomaly_views(report, settings, flags)
     # Where the advances went, said in the chapter the reader looks for them
     # in -- once, and only when there are any (Story 4.5).
     pointer = (
@@ -5557,7 +5731,8 @@ def _legend(
     # places are junctions with the transit between them dropped, and the
     # product owner corrected exactly that reading once. A death is stated
     # only from the death table. A player the sample lost is NOT a death.
-    # And the places are callouts, which the rest of the report is not.
+    # (That the places are callouts is said once for the whole report since
+    # Story 4.15, in the vocabulary paragraph below.)
     #
     # AND A ROW THAT SIMPLY ENDS DOES NOT MEAN THE ROUND ENDED. It means the
     # sampling has no later moment for those players, and measured over the
@@ -5582,9 +5757,7 @@ def _legend(
             "läpikulkupaikat jätetään pois, jottei yhden pelaajan kulkema "
             "välihuone jakaisi ryhmää. Paikka, jolle ei ole calloutia, "
             "pidetään rivillä, jotta puuttuva nimi näkyy -- ja siksi se voi "
-            "jakaa ryhmän. Paikat ovat calloutteja eivätkä pelin aluenimiä, "
-            "toisin kuin muualla raportissa; merkitsemätön paikka on varma "
-            "callout. "
+            "jakaa ryhmän. "
             f"Nuoli ({ROUTE_ARROW}) vie paikasta seuraavaan saman "
             "rivin sisällä, ja rivin alussa oleva luku on pelaajien määrä. "
             "**Nuoli ei tarkoita, että paikat olisivat vierekkäin**: "
@@ -5657,17 +5830,39 @@ def _legend(
             "vähintään kahdella kierroksella toistuneet reitit kierroksineen "
             "ovat report.jsonissa kentässä route_patterns."
         )
-    # THE CALLOUT FLAGS (Story 4.13), each only where it is printed, for the
-    # route paragraphs' reason. The wording awaits the product owner's word.
+    # THE VOCABULARY (Story 4.15), said once for the whole report: every
+    # place is his callout, a merged callout is one place with one count,
+    # and the anomaly rules still run on the game's areas -- which is why a
+    # rule row may name the game area after the callout. Only when a place
+    # of a map with a table was printed (:attr:`_Flags.callouts_named`): a
+    # report of untabled maps speaks the game's names throughout, and the
+    # no-table paragraph below says so. The wording is the implementation's
+    # and awaits the product owner's word.
+    if flags.callouts_named:
+        notes.append(
+            "Raportti nimeää paikat calloutteina: karttalukujen rivit, "
+            f"reitit, {HABITS_LABEL} ja luvun {ANOMALY_HEADING} rivit. Kaksi "
+            "pelin aluetta, joilla on sama callout, ovat yksi paikka, ja "
+            "niiden pelaajat lasketaan yhdessä yhdeksi luvuksi. Merkitsemätön "
+            "paikka on varma callout. Poikkeamasäännöt ("
+            + _join_fi([ANOMALY_RULE_FI[rule] for rule in ANOMALY_RULES])
+            + ") lasketaan kuitenkin pelin alueilla, koska ne on kalibroitu "
+            "niillä: niiden rivi nimeää paikan calloutina, ja kun callout "
+            "kattaa useamman pelin alueen, rivin oma pelin alue on calloutin "
+            "perässä suluissa, samoissa kuin paikan merkintä."
+        )
+    # THE CALLOUT FLAGS (Story 4.13; every row since Story 4.15), each only
+    # where it is printed, for the route paragraphs' reason. The wording
+    # awaits the product owner's word.
     if flags.route_coarse:
         notes.append(
-            f"({ROUTE_COARSE_MARK.strip(' ()')}) reitin paikan perässä: "
+            f"({ROUTE_COARSE_MARK.strip(' ()')}) paikan perässä: "
             "pelin alue kattaa useamman callout-paikan, joten rivi käyttää "
             "karkeampaa nimeä. Tarkempi paikka vaatii koordinaatit."
         )
     if flags.route_inferred:
         notes.append(
-            f"({ROUTE_INFERRED_MARK.strip(' ()')}) reitin paikan perässä: "
+            f"({ROUTE_INFERRED_MARK.strip(' ()')}) paikan perässä: "
             "callout on päätelty tai arvaus eikä vielä vahvistettu nimi."
         )
     if flags.route_return:
@@ -5679,15 +5874,15 @@ def _legend(
         )
     if flags.route_no_callout:
         notes.append(
-            f"({ROUTE_NO_CALLOUT_MARK.strip(' ()')}) reitin paikan perässä: "
+            f"({ROUTE_NO_CALLOUT_MARK.strip(' ()')}) paikan perässä: "
             "paikalle ei ole calloutia, joten rivi käyttää pelin aluenimeä."
         )
     if flags.route_no_table:
         maps = ", ".join(_identifier(name) for name in flags.route_no_table)
         notes.append(
-            "Näiden karttojen reiteillä ei ole callout-taulua, joten niiden "
-            "paikat ovat pelin aluenimiä eikä mitään paikkaa ole jätetty pois "
-            f"läpikulkuna: {maps}."
+            "Näillä kartoilla ei ole callout-taulua, joten niiden paikat "
+            "ovat pelin aluenimiä eikä reiteiltä ole jätetty mitään paikkaa "
+            f"pois läpikulkuna: {maps}."
         )
     notes.extend(_anomaly_legend(report))
     if flags.unknown_area:
@@ -5699,7 +5894,10 @@ def _legend(
         notes.append(
             "(arvio) räjähdysalueen perässä: kranaatilla ei ole aluenimeä, joten "
             "alue on luettu demon pistepilvestä -- siitä kohdasta kartalla, "
-            "jossa pelaajat ovat lähinnä räjähdystä oikeasti seisoneet."
+            "jossa pelaajat ovat lähinnä räjähdystä oikeasti seisoneet. Sana "
+            "on samoissa sulkeissa kuin paikan oma merkintä, jos paikalla on "
+            f'sellainen (esimerkiksi "({ROUTE_COARSE_MARK.strip(" ()")}, '
+            f'{ESTIMATE_MARK.strip(" ()")})").'
         )
     notes.extend(_player_counter_legend(flags))
     if flags.kills_shown:
@@ -5877,11 +6075,12 @@ def _anomaly_legend(report: Report) -> list[str]:
     crunch_sources = _threshold_int(report, "crunch_min_sources")
     crunch_lookback = _threshold_float(report, "crunch_lookback_s")
 
-    # "EI KARTTATIETOKANTAA" STAYS TRUE HERE AFTER STORY 4.13 (AD-13's
-    # traceability clause, considered and not skipped): the callout table
-    # feeds only the pistol route's names and junctions. This share and the
-    # stack's site groups below are still derived from the demo alone, so
-    # the sentence is true of the numbers it stands beside.
+    # "EI KARTTATIETOKANTAA" STAYS TRUE HERE AFTER STORIES 4.13 AND 4.15
+    # (AD-13's traceability clause, considered and not skipped): the callout
+    # table names the report's places and the route's junctions, and reaches
+    # no rule. This share and the stack's site groups below are still
+    # derived from the demo alone, so the sentence is true of the numbers it
+    # stands beside -- only the rows' names are translated.
     orientation = (
         f"Luvun {ANOMALY_HEADING} T-osuus on **demon oma havainto** siitä, "
         "kumman puolen aluetta alue on: se on alueen elossa-havainnoista "
@@ -5981,7 +6180,10 @@ def _stack_legend(report: Report) -> list[str]:
 
     # The same sentence, true for the same reason: the site groups are
     # derived from the demo's point cloud, and the callout table does not
-    # reach them.
+    # reach them. The examples below name no place (Story 4.15 review): a
+    # place name here would be a hand copy of the table or of the game, and
+    # untrue on a map the other one describes. The label is chosen by the
+    # game's area names, and the sentence says so.
     rule = (
         f"**{ANOMALY_RULE_FI['stack']}**: subjektin puolustus kasautuneena "
         "saman alueryhmän alueille. Alueryhmä on **johdettu tästä demosta**: "
@@ -6004,13 +6206,14 @@ def _stack_legend(report: Report) -> list[str]:
     rule += (
         ". Spawnissa seisova ei laske, eikä alue jonka geometria jättää "
         "**ilman ryhmää** tuota osumaa -- ja se on demokohtainen havainto "
-        "eikä sääntö: Infernon Middle kuuluu A-ryhmään ja näkyy siksi "
-        "rivinä, Ancientin ei kuulu kumpaankaan. **Rivin alue on vain rivin "
+        "eikä sääntö: sama alue voi kuulua ryhmään yhdellä kartalla ja "
+        "jäädä ilman ryhmää toisella. **Rivin alue on vain rivin "
         "nimilappu**: ensimmäinen kierroksen nimeämistä alueista, suurin "
-        "ensin ja tasatilanteessa aakkosissa ensimmäinen -- ei väite siitä, "
-        "että juuri siellä olisi ollut eniten pelaajia. Havainto on "
-        "kierrosrivin alueissa: viisi pelaajaa Alleyssa on B-siten stack, "
-        "vaikka kukaan ei seiso BombsiteB:llä. Rivin luku on muotoa 4/5 -- "
+        "ensin ja tasatilanteessa pelin aluenimen aakkosissa ensimmäinen -- "
+        "ei väite siitä, että juuri siellä olisi ollut eniten pelaajia. "
+        "Havainto on kierrosrivin alueissa: viisi pelaajaa B-siten ryhmän "
+        "alueella, joka ei itse ole site, on B-siten stack, vaikka kukaan ei "
+        "seiso sitellä. Rivin luku on muotoa 4/5 -- "
         "kasassa olleet kaikista elossa olleista, myös spawnissa tai "
         "ryhmättömällä alueella seisovista. **Stackia ei ole rajattu "
         "kierrostyyppiin** eikä se lue alueen T-osuutta, joten se ei ole "

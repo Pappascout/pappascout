@@ -40,6 +40,21 @@ round type:
     made kills. *"Cave dies so they play from the site"* and *"the enemy came
     through the secret yard"* are read from here.
 
+Counted under callouts, ruled on game areas (Story 4.15)
+--------------------------------------------------------
+The four of the seven that name a place -- ``positions``, ``utility``,
+``first_contact`` and ``deaths`` -- are counted **under the product owner's
+callouts** (``utility_counts``, ``players_armed`` and ``players_armored``
+name none): the map's rows have their area columns renamed first
+(:func:`named_rows`), so two game areas with one callout are one place with
+one count -- his
+*radio* holds the players of Nuke's ``Control`` and ``Trophy`` together,
+which no sum of two per-area distributions can give. The anomaly rules
+(:func:`anomalies_for`) read the **unrenamed** rows: they were calibrated on
+game areas against his blind judgements (Stories 4.4 and 4.5), and moving
+their input would move their calibration. The routes read the unrenamed rows
+too, because they translate each step themselves (:func:`_route_place`).
+
 Three rules that do not bend
 ----------------------------
 **The player count is taken from the living only.** A dead player produces no
@@ -125,6 +140,7 @@ from pappascout.domain.report import (
     KillArea,
     MapReport,
     MissingDemo,
+    PlaceName,
     PlayedMap,
     PlayersCount,
     Position,
@@ -1594,8 +1610,10 @@ def _route_place(
 ) -> _Place:
     """Translate one game area into the product owner's callout.
 
-    The outcomes, and each is a case of :data:`~pappascout.domain.report
-    .RouteFlag`:
+    The one translation of the report: the routes' steps, and since Story
+    4.15 every statistic (:func:`named_rows`) and every place's printed name
+    (:func:`places_for`). The outcomes, and each is a case of
+    :data:`~pappascout.domain.report.RouteFlag`:
 
     * **no table for the map** -- the game's name, flagged ``no_table``, and
       kept: without his junctions nothing can be called transit;
@@ -1629,6 +1647,99 @@ def _route_place(
     else:
         flag = "inferred" if inferred else None
     return _Place(entry.callout, flag, entry.kept)
+
+
+def named_rows(
+    rows: Sequence[Mapping[str, Any]],
+    columns: Sequence[str],
+    callouts: MapCallouts | None,
+    sources: Mapping[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """The rows with their area columns renamed to the product owner's
+    callouts -- what every statistic of a map is counted from (Story 4.15).
+
+    One translation for the whole report: the route's own
+    (:func:`_route_place`), so a place is named alike on a route step and on
+    a sample-point row. An area is first read as an observation
+    (:func:`_observed_area`: an empty string is no area), and a column that
+    held no name keeps ``None``.
+
+    **Renamed before counting, not after.** Two game areas with one callout
+    are one place, and a round with two players in each is *4 in radio*;
+    counted per area first, the same round is *2* twice, and no sum of the
+    two distributions gives the 4 back.
+
+    **Copies, not the rows themselves**: the anomaly rules and the routes
+    read the same rows by their game areas, and must go on reading them so.
+
+    **A blank name takes its source with it.** An area column can have a
+    column saying where the name came from (``EVENTS.area_source``), and the
+    report holds the two to "both or neither"
+    (:class:`~pappascout.domain.report.UtilityUse`). A blank name read as no
+    area would leave its source describing nothing, so ``sources`` names
+    those pairs and the source is emptied with the name. A column that was
+    ``None`` already keeps its source as it was: that is a broken table, and
+    the model refuses it loudly, as it did before this function existed.
+
+    Args:
+        rows: A map's rows of one table.
+        columns: The columns that hold a game area.
+        callouts: The map's section of the callout table, or ``None`` for a
+            map it does not describe -- whose names then stay the game's.
+        sources: Area column -> the column naming its source
+            (:data:`EVENT_SOURCE_COLUMNS`).
+    """
+    uncertain = _uncertain_callouts(callouts)
+    names: dict[str | None, str | None] = {}
+    paired = sources or {}
+
+    def name(value: Any) -> str | None:
+        area = _observed_area(value)
+        if area not in names:
+            names[area] = _route_place(area, callouts, uncertain).label
+        return names[area]
+
+    named: list[dict[str, Any]] = []
+    for row in rows:
+        entry = {**row, **{column: name(row[column]) for column in columns}}
+        for column, source in paired.items():
+            if row[column] is not None and entry[column] is None:
+                entry[source] = None
+        named.append(entry)
+    return named
+
+
+def places_for(
+    callouts: MapCallouts | None, observed: Iterable[str | None]
+) -> list[PlaceName]:
+    """A map's places as the report names them: every area of its section
+    of the callout table and every other game area its rows observed, each
+    with its printed name and flag (:attr:`~pappascout.domain.report
+    .MapReport.places`).
+
+    The table's areas are listed **whether or not they were observed**, so
+    whether a callout is fed by several game areas is the table's answer and
+    not an accident of one archive: an anomaly row on Nuke's ``Rafters``
+    says which part of *rafters* it was even when nobody stood on
+    ``Catwalk``.
+    """
+    uncertain = _uncertain_callouts(callouts)
+    areas = {_observed_area(value) for value in observed} | set(callouts or {})
+    places = []
+    for area in sorted(name for name in areas if name is not None):
+        place = _route_place(area, callouts, uncertain)
+        places.append(PlaceName(area=area, callout=place.label, flag=place.flag))
+    return places
+
+
+#: The columns of each table that hold a game area, renamed by
+#: :func:`named_rows` before a map's statistics are counted.
+TICK_AREA_COLUMNS = ("area",)
+EVENT_AREA_COLUMNS = ("area",)
+DEATH_AREA_COLUMNS = ("attacker_area", "victim_area")
+#: An event's area column -> the column saying where its name came from,
+#: emptied with a blank name (:func:`named_rows`).
+EVENT_SOURCE_COLUMNS = {"area": "area_source"}
 
 
 @dataclass(frozen=True)
@@ -1920,8 +2031,10 @@ def routes_for(
     **Since Story 4.13 the route reads every sample point and speaks the
     product owner's callouts**: each player's path is compressed to his
     junctions (:func:`_junction_path`) and the tree is built over the
-    compressed paths (:func:`_route_tree`). Nothing else in the report is
-    translated -- the sample-point sections keep the game's names.
+    compressed paths (:func:`_route_tree`). Since Story 4.15 the rest of the
+    map's statistics speak the same callouts (:func:`named_rows`); the route
+    still reads the game's areas and translates each step itself, because
+    its junctions and transit places are the table's entries per game area.
 
     **Only** :data:`~pappascout.domain.report.ROUTE_ROUND_TYPE` **reaches
     this function**, and the caller decides that rather than this function,
@@ -3622,10 +3735,11 @@ def build_report(
         generated_at: The moment of the run.
         callouts: The product owner's callout table, map -> area -> entry
             (:func:`~pappascout.domain.models.load_callouts`), read at the
-            edge and handed in (AD-2). Only the routes read it -- the
-            pistol's, and the save rounds' patterns (Story 4.14). **No
-            default**: a forgotten table would print every route in the
-            game's names, flagged, with nothing in the code to say why.
+            edge and handed in (AD-2). The routes translate their steps with
+            it, and since Story 4.15 every statistic is counted under it
+            (:func:`named_rows`); the anomaly rules never read it. **No
+            default**: a forgotten table would print the whole report in the
+            game's names with nothing in the code to say why.
         tool_versions: The tool versions, for the report's own field.
         missing_demos: The matches whose data was not there.
 
@@ -3701,6 +3815,22 @@ def build_report(
         map_events = [r for demo in demos for r in events_by_demo.get(demo, [])]
         map_deaths = [r for demo in demos for r in deaths_by_demo.get(demo, [])]
         played_maps = played_maps_for(demos, order, match_facts)
+        # The map's section of the product owner's callout table (Story
+        # 4.13), or None for a map it does not describe -- whose names then
+        # stay the game's, flagged.
+        map_callouts = callouts.get(map_name)
+        # The statistics are counted under his callouts (Story 4.15); the
+        # routes get the rows as they are and translate their own steps.
+        named = _NamedRows(
+            ticks=named_rows(map_ticks, TICK_AREA_COLUMNS, map_callouts),
+            events=named_rows(
+                map_events,
+                EVENT_AREA_COLUMNS,
+                map_callouts,
+                EVENT_SOURCE_COLUMNS,
+            ),
+            deaths=named_rows(map_deaths, DEATH_AREA_COLUMNS, map_callouts),
+        )
         maps.append(
             MapReport(
                 map_name=map_name,
@@ -3732,10 +3862,18 @@ def build_report(
                         entry.map_demo_id: place
                         for place, entry in enumerate(played_maps)
                     },
-                    # The map's section of the product owner's callout
-                    # table (Story 4.13), or None for a map it does not
-                    # describe -- which the route then flags.
-                    callouts.get(map_name),
+                    map_callouts,
+                    named,
+                ),
+                places=places_for(
+                    map_callouts,
+                    [row["area"] for row in map_ticks]
+                    + [row["area"] for row in map_events]
+                    + [
+                        row[column]
+                        for row in map_deaths
+                        for column in DEATH_AREA_COLUMNS
+                    ],
                 ),
             )
         )
@@ -3790,6 +3928,17 @@ def build_report(
     )
 
 
+@dataclass(frozen=True)
+class _NamedRows:
+    """A map's rows with their areas renamed to callouts (:func:`named_rows`)
+    -- what the statistics are counted from, beside the unrenamed rows the
+    routes read."""
+
+    ticks: list[dict[str, Any]]
+    events: list[dict[str, Any]]
+    deaths: list[dict[str, Any]]
+
+
 def _group_by_demo(
     rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, list[Mapping[str, Any]]]:
@@ -3812,6 +3961,7 @@ def _sides_for(
     newest: str | None,
     demo_order: Mapping[str, int],
     callouts: MapCallouts | None,
+    named: _NamedRows,
 ) -> list[SideReport]:
     """The sides in a fixed order; a side with no rounds is left out."""
     sides: list[SideReport] = []
@@ -3836,6 +3986,7 @@ def _sides_for(
                     newest,
                     demo_order,
                     callouts,
+                    named,
                 ),
             )
         )
@@ -3855,8 +4006,12 @@ def _round_types_for(
     newest: str | None,
     demo_order: Mapping[str, int],
     callouts: MapCallouts | None,
+    named: _NamedRows,
 ) -> list[RoundTypeReport]:
     """The round types in a fixed order.
+
+    The statistics read ``named`` -- the rows counted under the callouts --
+    and the routes read ``ticks`` and ``deaths`` as they are (Story 4.15).
 
     A type that was not played on the map is **absent from the structure** and
     is not a zero row: a zero row would claim as an observation that there is
@@ -3895,15 +4050,15 @@ def _round_types_for(
                 # way to keep that true is to give both the same rows.
                 record=record_for(type_rows),
                 small_sample=sample.rounds < thresholds.small_sample_rounds,
-                positions=positions_for(ticks, keys, newest),
+                positions=positions_for(named.ticks, keys, newest),
                 utility=utility_uses(
-                    events, keys, aggregate.utility_seconds_buckets
+                    named.events, keys, aggregate.utility_seconds_buckets
                 ),
                 utility_counts=utility_counts_for(events, keys),
                 players_armed=armed_players_for(type_rows),
                 players_armored=armored_players_for(type_rows, armored),
-                first_contact=first_contact_areas(ticks, keys, newest),
-                deaths=deaths_for(deaths, keys, lineup_keys),
+                first_contact=first_contact_areas(named.ticks, keys, newest),
+                deaths=deaths_for(named.deaths, keys, lineup_keys),
                 # Only the pistol type has routes (Story 4.11's scope, and
                 # the model refuses them elsewhere), and only the save types
                 # have patterns (Story 4.14). The conditions are here and not

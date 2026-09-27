@@ -16,6 +16,8 @@ import pytest
 from conftest import OVERLAPPING_SITE_CLOUD, SITE_CLOUD
 from pappascout.domain.aggregate import (
     CLASSIFY_THRESHOLD_KEYS,
+    EVENT_AREA_COLUMNS,
+    EVENT_SOURCE_COLUMNS,
     MISSING_ROSTER_CLASS_LABEL,
     ROSTER_SAMPLE_BUCKETS,
     MatchFact,
@@ -35,7 +37,9 @@ from pappascout.domain.aggregate import (
     team_identity,
     map_name_for,
     matches_of,
+    named_rows,
     newest_match,
+    places_for,
     played_maps_for,
     observed_map_name,
     weakest_map_source,
@@ -5704,3 +5708,210 @@ def test_on_one_path_moved_comes_before_stayed() -> None:
         (("outside[coarse]", "lobby"), True),
         (("outside[coarse]", "lobby", "ramp"), True),
     ]
+
+
+# --- The whole report in his callouts (Story 4.15) -----------------------------
+
+
+def test_two_areas_with_one_callout_are_counted_as_one_place() -> None:
+    """The spec's second decision: *radio* holds the players of ``Control``
+    and ``Trophy`` together. Two in each on one round is **radio 4** -- a
+    bar no sum of the two per-area distributions could give, since each of
+    those says 2."""
+    demo = "Nuke_vs_a"
+    ticks = [
+        tick_row(demo, 1, "p1", "Control"),
+        tick_row(demo, 1, "p2", "Control"),
+        tick_row(demo, 1, "p3", "Trophy"),
+        tick_row(demo, 1, "p4", "Trophy"),
+        tick_row(demo, 1, "p5", "Lobby"),
+    ]
+    report = report_for(
+        [classified_row(demo, 1)], ticks, callouts={"de_nuke": NUKE}
+    )
+    (position,) = branch(report, "de_nuke", "T", "pistol").positions
+    assert [
+        (area.area, [(bar.players, bar.n) for bar in area.players_dist])
+        for area in position.areas
+    ] == [("lobby", [(1, 1)]), ("radio", [(4, 1)])]
+
+
+def test_first_contact_presence_is_one_round_in_a_merged_callout() -> None:
+    """Presence under a callout: a round with players in both of *radio*'s
+    areas is **one** round present there, not two -- the model would refuse
+    ``n = 2`` over ``m = 1``, and it is the count that says so."""
+    demo = "Nuke_vs_a"
+    ticks = [
+        tick_row(demo, 1, "p1", "Control", sample_kind="first_contact"),
+        tick_row(demo, 1, "p2", "Trophy", sample_kind="first_contact"),
+    ]
+    report = report_for(
+        [classified_row(demo, 1)], ticks, callouts={"de_nuke": NUKE}
+    )
+    entry = branch(report, "de_nuke", "T", "pistol")
+    assert [(area.area, area.n, area.m) for area in entry.first_contact] == [
+        ("radio", 1, 1)
+    ]
+
+
+def test_utility_and_deaths_are_named_by_callout_too() -> None:
+    """Every statistic, not only the sample points: a grenade's throw and
+    detonation areas, the first death's area and the kill's shooter area."""
+    demo = "Nuke_vs_a"
+    report = report_for(
+        [classified_row(demo, 1)],
+        [tick_row(demo, 1, "p1", "Lobby")],
+        events=event_rows(
+            demo, 1, 1, "smoke", throw_area="Vending", detonate_area="Control"
+        ),
+        deaths=[
+            death_row(demo, 1, victim_area="Mini", attacker_area="Hell"),
+            death_row(
+                demo,
+                1,
+                victim="o1",
+                victim_lineup=OPPONENT,
+                victim_side="CT",
+                victim_area="Ramp",
+                attacker="p1",
+                attacker_lineup=TEAM,
+                attacker_side="T",
+                attacker_area="Trophy",
+                t_s=30.0,
+            ),
+        ],
+        callouts={"de_nuke": NUKE},
+    )
+    entry = branch(report, "de_nuke", "T", "pistol")
+    assert [(use.throw_area, use.detonate_area) for use in entry.utility] == [
+        ("trophy", "radio")
+    ]
+    assert [area.area for area in entry.deaths.first_death_areas] == ["main"]
+    assert [area.area for area in entry.deaths.kills] == ["radio"]
+
+
+def test_the_rules_still_run_on_the_games_areas() -> None:
+    """The spec's Never: a rule's input does not move to callouts. A CT
+    advance into ``Hut`` stays an anomaly on ``Hut`` although the table names
+    it *hut* and the sample point counts it there -- the rule was calibrated
+    on game areas, and only ``render`` translates its row."""
+    demo = "Nuke_vs_a"
+    report = report_for(
+        eco_ct(demo, 1, 2, 3),
+        advance_round(demo, 1, area="Hut"),
+        limits=thresholds(),
+        area_orientation=t_side(demo, area="Hut"),
+        callouts={"de_nuke": NUKE},
+    )
+    assert [(a.rule, a.area) for a in report.anomalies] == [("ct_advance", "Hut")]
+    position = branch(report, "de_nuke", "CT", "eco").positions[0]
+    assert [area.area for area in position.areas] == ["hut"]
+
+
+def test_named_rows_reads_an_empty_name_as_no_area_and_copies_the_rows() -> None:
+    """An empty string is no area (``_observed_area``), a map with no table
+    keeps the game's names, and the rows handed in are not changed -- the
+    rules and the routes read them after."""
+    rows = [{"area": "Control"}, {"area": ""}, {"area": None}, {"area": "Mirage"}]
+    assert [row["area"] for row in named_rows(rows, ("area",), NUKE)] == [
+        "radio",
+        None,
+        None,
+        "Mirage",
+    ]
+    assert [row["area"] for row in named_rows(rows, ("area",), None)] == [
+        "Control",
+        None,
+        None,
+        "Mirage",
+    ]
+    assert rows[0] == {"area": "Control"}
+
+
+def test_places_list_the_table_and_every_other_observed_area() -> None:
+    """Each case of :func:`places_for`: a table area nobody stood in is
+    listed (so a merge is the table's answer), an observed area the table
+    does not know is the game's name flagged ``no_callout``, a table entry
+    with no callout is the same, an empty or missing name is not a place,
+    and a map with no table names every observed area ``no_table``."""
+    places = {
+        place.area: (place.callout, place.flag)
+        for place in places_for(NUKE, ["Control", "Mirage", "", None])
+    }
+    assert places["Trophy"] == ("radio", None)
+    assert places["Control"] == ("radio", None)
+    assert places["Mirage"] == ("Mirage", "no_callout")
+    assert places["Crane"] == ("Crane", "no_callout")
+    assert places["Outside"] == ("outside", "coarse")
+    assert places["Hut"] == ("hut", "inferred")
+    assert places["Yard"] == ("piha", "coarse_inferred")
+    assert set(places) == set(NUKE) | {"Mirage"}
+    assert [
+        (place.area, place.callout, place.flag)
+        for place in places_for(None, ["Control", None])
+    ] == [("Control", "Control", "no_table")]
+
+
+def test_build_report_gives_each_map_its_places() -> None:
+    """The table reaches the places by map name, and the observed areas of
+    all three tables are in them: a sample point's, a grenade's and a
+    death's."""
+    demo = "Nuke_vs_a"
+    report = report_for(
+        [classified_row(demo, 1)],
+        [tick_row(demo, 1, "p1", "Lobby")],
+        events=event_rows(demo, 1, 1, "smoke", throw_area="Garage"),
+        deaths=[death_row(demo, 1, victim_area="Decon", attacker_area="Silo")],
+        callouts={"de_nuke": NUKE},
+    )
+    (map_report,) = report.maps
+    areas = {place.area for place in map_report.places}
+    assert set(NUKE) <= areas
+    assert {"Garage", "BombsiteB", "Decon"} <= areas
+
+
+def test_a_blank_detonation_name_takes_its_source_with_it() -> None:
+    """The review's repro: a blank detonation area read as no area must not
+    leave ``point_cloud`` describing nothing -- ``UtilityUse`` holds the two
+    to "both or neither". Before Story 4.15 this input validated with the
+    blank as its name; it validates again, with no name and no source, both
+    through the function and through ``build_report``."""
+    demo = "Nuke_vs_a"
+    rows = event_rows(demo, 1, 1, "smoke", throw_area="Ramp", detonate_area="")
+    assert rows[1]["area_source"] == "point_cloud", "precondition"
+    (use,) = utility_uses(
+        named_rows(rows, EVENT_AREA_COLUMNS, None, EVENT_SOURCE_COLUMNS),
+        [(demo, 1)],
+        [0, 5, 10, 20],
+    )
+    assert (use.throw_area, use.detonate_area, use.area_source) == (
+        "Ramp",
+        None,
+        None,
+    )
+    report = report_for(
+        [classified_row(demo, 1)],
+        [tick_row(demo, 1, "p1", "Lobby")],
+        events=rows,
+        callouts={"de_nuke": NUKE},
+    )
+    (use,) = branch(report, "de_nuke", "T", "pistol").utility
+    assert (use.throw_area, use.detonate_area, use.area_source) == (
+        "ramp",
+        None,
+        None,
+    )
+
+
+def test_a_missing_detonation_name_with_a_source_is_still_refused() -> None:
+    """The other half of ``named_rows``'s rule: a name that was ``None``
+    already keeps its source, so a broken table is refused as loudly as
+    before -- only a blank the renaming itself emptied loses its source."""
+    rows = event_rows("Nuke_vs_a", 1, 1, "smoke", detonate_area=None)
+    rows[1]["area_source"] = "point_cloud"
+    with pytest.raises((AggregateError, ValueError)):
+        utility_uses(
+            named_rows(rows, EVENT_AREA_COLUMNS, None, EVENT_SOURCE_COLUMNS),
+            [("Nuke_vs_a", 1)],
+            [0, 5, 10, 20],
+        )

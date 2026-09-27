@@ -2321,3 +2321,22 @@ def test_one_match_as_the_threshold_is_refused() -> None:
         ReportSettings(anomaly_min_matches=1)
     assert ReportSettings(anomaly_min_matches=0).anomaly_min_matches == 0
     assert ReportSettings(anomaly_min_matches=2).anomaly_min_matches == 2
+
+
+def test_a_callout_spelled_like_an_unnamed_area_is_refused(tmp_path: Path) -> None:
+    """An area the table leaves unnamed prints the game's name; a callout
+    spelled exactly like it would be read as the same place with two flags,
+    so the loader refuses it at the edge (Story 4.15 review). One letter
+    apart it loads."""
+    base = (
+        '[de_nuke.crane]\njunction = false\nneighbours = 0\n'
+        'confidence = "unnamed"\nsource = "a test"\n\n'
+        '[de_nuke.Lobby]\ncallout = "{name}"\njunction = false\n'
+        'neighbours = 0\nconfidence = "stated"\nsource = "a test"\n'
+    )
+    path = tmp_path / "callouts.toml"
+    path.write_text(base.format(name="crane"), encoding="utf-8")
+    with pytest.raises(SettingsError, match="spelled exactly like an area"):
+        load_callouts(["de_nuke"], path)
+    path.write_text(base.format(name="cranes"), encoding="utf-8")
+    assert load_callouts(["de_nuke"], path)["de_nuke"]["Lobby"].callout == "cranes"

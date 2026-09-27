@@ -44,6 +44,8 @@ from pappascout.domain.report import (
     Anomaly,
     AnomalyPoint,
     AnomalyRound,
+    PlaceName,
+    _statistic_places,
     AnomalyScan,
     AreaDistribution,
     AreaOrientation,
@@ -586,6 +588,17 @@ def hand_imported(*ids: str) -> list[PlayedMap]:
     ]
 
 
+def named(*areas: str, flag: str | None = None) -> list[PlaceName]:
+    """Each game area as a callout of its own name, with one ``flag`` --
+    by default a certain one, the fixture's stand-in for a table that names
+    every place as the game does, so every row prints its game name
+    unmarked and the tests below measure what they are about."""
+    return [
+        PlaceName(area=area, callout=area, flag=flag)
+        for area in sorted(set(areas))
+    ]
+
+
 def map_report(
     name: str,
     sides: list[SideReport],
@@ -593,6 +606,7 @@ def map_report(
     demo_ids: list[str] | None = None,
     played: list[PlayedMap] | None = None,
     source: str = "map_demo_id",
+    places: list[PlaceName] | None = None,
 ) -> MapReport:
     ids = (
         [entry.map_demo_id for entry in played]
@@ -609,6 +623,36 @@ def map_report(
             matches=max((s.sample.matches for s in sides), default=None),
         ),
         sides=sides,
+        # Unless a test names them: every place the statistics count under,
+        # each its own certain callout (:func:`named`).
+        places=places if places is not None else named(*_statistic_places(sides)),
+    )
+
+
+def _with_anomaly_places(entry: MapReport, anomalies: list[Anomaly]) -> MapReport:
+    """The map with a place for every game area its anomalies name, which
+    the model requires (Story 4.15) -- each a certain callout of its own
+    name, as :func:`named` gives, unless the test named it already."""
+    listed = {place.area for place in entry.places}
+    wanted = {
+        area
+        for anomaly in anomalies
+        if anomaly.map_name == entry.map_name
+        for area in [anomaly.area]
+        + [
+            name
+            for rows in anomaly.rounds
+            for point in rows.points
+            for name in (*point.areas, *point.sources)
+        ]
+    }
+    if wanted <= listed:
+        return entry
+    return MapReport(
+        **{
+            **dict(entry),
+            "places": [*entry.places, *named(*(wanted - listed))],
+        }
     )
 
 
@@ -725,7 +769,7 @@ def report(
         # other test.
         anomalies=anomalies or [],
         anomaly_scan=scan_ if scan_ is not None else scan(),
-        maps=entries,
+        maps=[_with_anomaly_places(entry, anomalies or []) for entry in entries],
     )
 
 
@@ -3656,10 +3700,11 @@ Kierros, tyyppi ja perustelu eivät ole report.jsonissa: se sisältää reunajak
 - Kartan luku etenee kierrostyypeittäin; tämän raportin kierrostyypit järjestyksessä: eco. Kunkin kierrostyypin alla on ensin CT-puolen ja sitten T-puolen lohko. Puoli, joka ei pelannut kierrostyyppiä, jää siitä pois, eikä kierrostyyppiä, jota kumpikaan puoli ei pelannut, kirjoiteta. Puolten omat kierros- ja ottelumäärät ovat kartan luvussa omilla riveillään ennen ensimmäistä kierrostyyppiä.
 - "ei otteluindeksissä" kartan rivillä tarkoittaa, ettei demon ottelua löydy arkiston otteluindeksistä -- tavallisimmin siksi, että demo on tuotu käsin eikä sen takana ole liigaottelua. Silloin rivillä ei ole päivää eikä vastustajaa, eikä raportti lue niitä tiedostonimestä: tiedostonimi ei ole havainto, ja siitä luettu nimi olisi väite, jota ei voi tarkistaa. Rivin tunniste kertoo, mistä demosta on kyse.
 - Ensikontaktin rivi kertoo elossa olevat pelaajat alueittain sillä hetkellä, kun kierroksen ensimmäinen ristiinpuolinen osuma tapahtui.
+- Raportti nimeää paikat calloutteina: karttalukujen rivit, reitit, Huomioitavaa ja luvun Poikkeamat rivit. Kaksi pelin aluetta, joilla on sama callout, ovat yksi paikka, ja niiden pelaajat lasketaan yhdessä yhdeksi luvuksi. Merkitsemätön paikka on varma callout. Poikkeamasäännöt (CT-eteneminen, Crunch ja Stack) lasketaan kuitenkin pelin alueilla, koska ne on kalibroitu niillä: niiden rivi nimeää paikan calloutina, ja kun callout kattaa useamman pelin alueen, rivin oma pelin alue on calloutin perässä suluissa, samoissa kuin paikan merkintä.
 - Luvun Poikkeamat T-osuus on **demon oma havainto** siitä, kumman puolen aluetta alue on: se on alueen elossa-havainnoista aikanäytepisteillä laskettu T-puolen osuus, **molempien joukkueiden** riveistä. Ei karttatietokantaa eikä käsin annettua aluejakoa -- ja eri demo voi antaa samalle alueelle eri osuuden, joten havaintomäärä on osuuden vieressä. Alue on T:n aluetta, kun osuus on vähintään 0,80 ja alueella on vähintään 5 havaintoa näytepistettä kohden; sitä vähemmällä alue ei ole kummankaan puolen aluetta eikä tuota poikkeamaa.
 - **CT-eteneminen**: subjektin CT-pelaaja alueella, joka on siinä demossa T:n hallussa, **säästökierroksella** (eco, force tai puoliosto). Vähintään 1 pelaaja alueella ja havainto enintään 30 sekunnin kohdalla kierroksen alusta. Kirjataan tavaksi karttaluvun kohtaan Huomioitavaa eikä Poikkeamat-lukuun, ja saman alueen säästökierrokset lasketaan yhdessä kierrostyypistä riippumatta. Rivi sanoo, että CT-pelaajat puskevat alueelle: T:n hallussa olevalla alueella oleminen säästökierroksella on jo etenemistä. Stack- ja crunch-rivit eivät sano puskusta mitään, eri syistä: stack on kasauma CT:n omalla sitellä, eikä siitä erotu, odottaako se vai puskeeko se; crunchilla on oma nimensä strategiana, ja tapa ei ole strategia.
 - **Crunch**: sama T:n alue, mutta pelaajien on **saavuttava** sinne yhtä aikaa eri suunnista -- lähtösuunta on pelaajan oma alue 9 sekuntia aiemmin. Vähintään 2 pelaajaa ja 2 eri suuntaa. **Crunchia ei ole rajattu kierrostyyppiin**, toisin kuin etenemistä, joten sen otanta on puolen kaikki kierrokset ja nimiö kertoo millä kierrostyypeillä se havaittiin. Sama kierros voi siis tuottaa molemmat rivit, ja täysi osto vain crunchin.
-- **Stack**: subjektin puolustus kasautuneena saman alueryhmän alueille. Alueryhmä on **johdettu tästä demosta**: jokaisen alueen keskipiste lasketaan demon omasta pistepilvestä, ja alue kuuluu lähemmän siten ryhmään, jos toinen site on vähintään 1,25 kertaa kauempana. Ei karttatietokantaa eikä käsin annettua aluejakoa. Osuma vaatii vähintään 4 pelaajaa enintään 2 saman siten ryhmän alueella 15 sekunnin kohdalla. Spawnissa seisova ei laske, eikä alue jonka geometria jättää **ilman ryhmää** tuota osumaa -- ja se on demokohtainen havainto eikä sääntö: Infernon Middle kuuluu A-ryhmään ja näkyy siksi rivinä, Ancientin ei kuulu kumpaankaan. **Rivin alue on vain rivin nimilappu**: ensimmäinen kierroksen nimeämistä alueista, suurin ensin ja tasatilanteessa aakkosissa ensimmäinen -- ei väite siitä, että juuri siellä olisi ollut eniten pelaajia. Havainto on kierrosrivin alueissa: viisi pelaajaa Alleyssa on B-siten stack, vaikka kukaan ei seiso BombsiteB:llä. Rivin luku on muotoa 4/5 -- kasassa olleet kaikista elossa olleista, myös spawnissa tai ryhmättömällä alueella seisovista. **Stackia ei ole rajattu kierrostyyppiin** eikä se lue alueen T-osuutta, joten se ei ole kummankaan toisen säännön tiukempi eikä löysempi muoto. Sääntö ei myöskään nimeä kuviota: **kasauma on havainto, ei nimi** -- odottaako se paikallaan vai puskeeko se, ei erotu tästä havainnosta.
+- **Stack**: subjektin puolustus kasautuneena saman alueryhmän alueille. Alueryhmä on **johdettu tästä demosta**: jokaisen alueen keskipiste lasketaan demon omasta pistepilvestä, ja alue kuuluu lähemmän siten ryhmään, jos toinen site on vähintään 1,25 kertaa kauempana. Ei karttatietokantaa eikä käsin annettua aluejakoa. Osuma vaatii vähintään 4 pelaajaa enintään 2 saman siten ryhmän alueella 15 sekunnin kohdalla. Spawnissa seisova ei laske, eikä alue jonka geometria jättää **ilman ryhmää** tuota osumaa -- ja se on demokohtainen havainto eikä sääntö: sama alue voi kuulua ryhmään yhdellä kartalla ja jäädä ilman ryhmää toisella. **Rivin alue on vain rivin nimilappu**: ensimmäinen kierroksen nimeämistä alueista, suurin ensin ja tasatilanteessa pelin aluenimen aakkosissa ensimmäinen -- ei väite siitä, että juuri siellä olisi ollut eniten pelaajia. Havainto on kierrosrivin alueissa: viisi pelaajaa B-siten ryhmän alueella, joka ei itse ole site, on B-siten stack, vaikka kukaan ei seiso sitellä. Rivin luku on muotoa 4/5 -- kasassa olleet kaikista elossa olleista, myös spawnissa tai ryhmättömällä alueella seisovista. **Stackia ei ole rajattu kierrostyyppiin** eikä se lue alueen T-osuutta, joten se ei ole kummankaan toisen säännön tiukempi eikä löysempi muoto. Sääntö ei myöskään nimeä kuviota: **kasauma on havainto, ei nimi** -- odottaako se paikallaan vai puskeeko se, ei erotu tästä havainnosta.
 - Stackin kattavuus on 1/1 CT-kierroksesta. Jokaiselta demolta saatiin siteryhmät.
 - Aseistettu = panssari JA parannettu ase ostoajan lopussa; panssaroitu = panssari, aseesta riippumatta. Luvut ovat **sisäkkäisiä**: aseistetut ovat panssaroitujen osajoukko, molemmat on luettu samalta tickiltä samasta pelaajajoukosta, ja jakaja on sama. Rivien ero on siis se havainto -- pistoolikierroksella aseistettuja on tyypillisesti 0 (800 $ ei riitä sekä kevlariin että parannettuun aseeseen), joten panssaririvi on se, joka kertoo kevlarien määrän.
 - Molemmat luvut ovat **hallussapitoa eivätkä ostoja**: panssari ja ase säilyvät kierroksen yli hengissä selvinneellä, eikä vaurioitunutta panssaria eroteta ehjästä. Poikkeus on pistoolikierros -- puoliaika alkaa puhtaalta pöydältä, joten siellä luvut kertovat mitä ostettiin.
@@ -9170,16 +9215,16 @@ def test_a_coarse_place_is_marked_and_the_guide_explains_the_mark() -> None:
     text = render(route_report([seen("outside", 1, 6.0, flag="coarse")]))
     assert "  - 1 outside (karkea)" in route_rows(text)
     guide = text.split("## Lukuohje")[1]
-    assert "(karkea) reitin paikan perässä" in guide
-    assert "(pelin nimi) reitin paikan perässä" not in guide
+    assert "(karkea) paikan perässä" in guide
+    assert "(pelin nimi) paikan perässä" not in guide
 
 
 def test_a_game_name_is_marked_and_the_guide_explains_the_mark() -> None:
     text = render(route_report([seen("Crane", 1, 6.0, flag="no_callout")]))
     assert "  - 1 Crane (pelin nimi)" in route_rows(text)
     guide = text.split("## Lukuohje")[1]
-    assert "(pelin nimi) reitin paikan perässä" in guide
-    assert "(karkea) reitin paikan perässä" not in guide
+    assert "(pelin nimi) paikan perässä" in guide
+    assert "(karkea) paikan perässä" not in guide
 
 
 def test_a_death_in_a_flagged_place_carries_the_mark_before_its_second() -> None:
@@ -9217,10 +9262,16 @@ def test_no_callout_note_is_printed_for_a_translated_route() -> None:
 def test_the_reading_guide_says_the_route_keeps_only_the_junctions() -> None:
     """The steps are not sample points any more, and the guide must stop
     saying they are: the route reads every point and keeps the start, the
-    junctions and the last observation, in callouts."""
+    junctions and the last observation, in callouts.
+
+    Since Story 4.15 the callouts are said once for the whole report, and
+    the route paragraph must stop claiming the rest of the report is in the
+    game's names -- it is not."""
     guide = render(route_report([seen("lobby", 1, 6.0)])).split("## Lukuohje")[1]
     assert "läpikulkupaikat jätetään pois" in guide
-    assert "calloutteja eivätkä pelin aluenimiä" in guide
+    assert "Raportti nimeää paikat calloutteina" in guide
+    assert "toisin kuin muualla raportissa" not in guide
+    assert "calloutteja eivätkä pelin aluenimiä" not in guide
     assert "näytepisteestä seuraavaan" not in guide
 
 
@@ -9283,7 +9334,7 @@ def test_an_uncertain_callout_is_marked_and_explained() -> None:
     text = render(route_report([seen("window", 1, 6.0, flag="inferred")]))
     assert "  - 1 window (päätelty)" in route_rows(text)
     guide = text.split("## Lukuohje")[1]
-    assert "(päätelty) reitin paikan perässä" in guide
+    assert "(päätelty) paikan perässä" in guide
     assert "(arvio) reitin" not in guide
 
 
@@ -9291,8 +9342,8 @@ def test_a_coarse_uncertain_place_prints_both_words_in_one_bracket() -> None:
     text = render(route_report([seen("canal", 1, 6.0, flag="coarse_inferred")]))
     assert "  - 1 canal (karkea, päätelty)" in route_rows(text)
     guide = text.split("## Lukuohje")[1]
-    assert "(karkea) reitin paikan perässä" in guide
-    assert "(päätelty) reitin paikan perässä" in guide
+    assert "(karkea) paikan perässä" in guide
+    assert "(päätelty) paikan perässä" in guide
 
 
 def test_a_back_and_forth_prints_both_places_with_their_marks() -> None:
@@ -10131,7 +10182,7 @@ def test_a_pattern_names_its_places_as_the_pistol_route_does() -> None:
     untranslated = pattern_block(
         [pattern(["Outside"], [2, 2, 2], stayed=True, flag="no_table")]
     )
-    assert "Näiden karttojen reiteillä ei ole callout-taulua" in render(untranslated)
+    assert "Näillä kartoilla ei ole callout-taulua" in render(untranslated)
     returning = pattern_block(
         [
             RoutePattern(
@@ -10159,7 +10210,7 @@ def test_a_pattern_names_its_places_as_the_pistol_route_does() -> None:
 def test_a_pattern_that_did_not_print_does_not_name_its_map_in_the_guide() -> None:
     """The no-table sentence follows a printed row, not the model."""
     below = pattern_block([pattern(["Outside"], [2, 2], stayed=True, flag="no_table")])
-    assert "Näiden karttojen reiteillä ei ole callout-taulua" not in render(below)
+    assert "ei ole callout-taulua" not in render(below)
 
 
 def test_a_prefix_differing_in_a_flag_or_an_alternation_is_not_extended() -> None:
@@ -10213,4 +10264,369 @@ def test_the_no_table_note_reads_the_printed_patterns_only() -> None:
         ]
     )
     assert len(pattern_lines(entry)) == 1
-    assert "Näiden karttojen reiteillä ei ole callout-taulua" not in render(entry)
+    assert "ei ole callout-taulua" not in render(entry)
+
+
+# --- The whole report in his callouts (Story 4.15) -----------------------------
+
+
+#: A Nuke-shaped set of places, invented for these tests: every mark a place
+#: can carry, and one callout (*radio*) fed by two game areas.
+NUKE_PLACES = [
+    PlaceName(area="Control", callout="radio", flag=None),
+    PlaceName(area="Crane", callout="Crane", flag="no_callout"),
+    PlaceName(area="Hut", callout="hut", flag="inferred"),
+    PlaceName(area="Lobby", callout="lobby", flag=None),
+    PlaceName(area="Outside", callout="outside", flag="coarse"),
+    PlaceName(area="Trophy", callout="radio", flag=None),
+]
+
+
+def callout_report(
+    round_type_: RoundTypeReport,
+    *,
+    anomalies: list[Anomaly] | None = None,
+    places: list[PlaceName] | None = None,
+) -> Report:
+    """One ``de_nuke`` block named through :data:`NUKE_PLACES`."""
+    return report(
+        [
+            map_report(
+                "de_nuke",
+                [side("CT", [round_type_])],
+                places=NUKE_PLACES if places is None else places,
+            )
+        ],
+        anomalies=anomalies,
+    )
+
+
+def guide_of(text: str) -> str:
+    return text.split("## Lukuohje")[1]
+
+
+def test_a_statistic_carries_its_places_mark_and_the_guide_explains_it() -> None:
+    """Every statistic row marks its place as the route does, from the
+    map's places: coarse, inferred and the game's own name -- and each mark's
+    paragraph is in the guide, with the vocabulary said once."""
+    entry = round_type(
+        "pistol",
+        1,
+        positions=[
+            position(
+                15.0,
+                [
+                    area("Crane", 1, {1: 1}),
+                    area("hut", 1, {1: 1}),
+                    area("outside", 1, {2: 1}),
+                ],
+                1,
+            )
+        ],
+    )
+    text = render(callout_report(entry))
+    line = next(row for row in text.splitlines() if row.startswith("- 15 s:"))
+    assert "outside (karkea) 2" in line
+    assert "hut (päätelty) 1" in line
+    assert "Crane (pelin nimi) 1" in line
+    guide = guide_of(text)
+    assert "(karkea) paikan perässä" in guide
+    assert "(päätelty) paikan perässä" in guide
+    assert "(pelin nimi) paikan perässä" in guide
+    assert guide.count("Raportti nimeää paikat calloutteina") == 1
+
+
+def test_first_contact_and_deaths_mark_their_places() -> None:
+    """The first-contact presence row, the first death and the kills read
+    the same marks -- each builder names its place through the map."""
+    entry = round_type(
+        "pistol",
+        2,
+        first_contact=[
+            FirstContactArea(
+                area="hut", n=1, m=2, matches=1, matches_m=1, newest=None
+            )
+        ],
+        death_report=deaths(first={"outside": 1}, rounds_missing=1,
+                            kills={"hut": 1}),
+    )
+    text = render(callout_report(entry))
+    assert "ensikontakti, vain läsnäolo: hut (päätelty) (1/2" in text
+    assert "ensimmäinen kuolema: outside (karkea) (1/1" in text
+    assert "tapot alueittain: hut (päätelty) (1/1" in text
+
+
+def test_an_estimated_target_carries_both_words_in_one_bracket() -> None:
+    """``outside (karkea, arvio)``: the callout's mark and the estimate's
+    word are one bracket, as the route's two marks are, so the reader meets
+    the guide's words and not a bracket after a bracket."""
+    entry = round_type(
+        "pistol", 1, utility=[use("smoke", "outside", "outside", n=1, m=1)]
+    )
+    text = render(callout_report(entry))
+    assert "savu: outside (karkea) -> outside (karkea, arvio) 0-5 s" in text
+    assert "(karkea) (arvio)" not in text
+    guide = guide_of(text)
+    assert "(arvio) räjähdysalueen perässä" in guide
+    assert "(karkea) paikan perässä" in guide
+    # The guide explains the shared bracket the row prints, not only a
+    # bare "(arvio)" the reader never meets on it.
+    estimate = next(note for note in guide.split("\n- ") if "räjähdysalueen" in note)
+    assert "samoissa sulkeissa" in estimate
+    assert '"(karkea, arvio)"' in estimate
+
+
+def test_a_rule_row_names_the_callout_and_the_game_area_where_it_merges() -> None:
+    """The spec's third decision: a stack on ``Control`` and ``Trophy`` is
+    two game areas of one *radio*, and each is named with its part. An area
+    whose callout no other area feeds takes no bracket."""
+    crowd = stack_anomaly(
+        map_name="de_nuke",
+        area="Control",
+        site="A",
+        rounds=[
+            anomaly_round(
+                round_no=13,
+                seconds=[15.0],
+                players=4,
+                alive=5,
+                areas=["Control", "Trophy"],
+            )
+        ],
+    )
+    lone = stack_anomaly(
+        map_name="de_nuke",
+        area="Lobby",
+        site="A",
+        rounds=[
+            anomaly_round(
+                round_no=14,
+                seconds=[15.0],
+                players=4,
+                alive=5,
+                areas=["Lobby"],
+            )
+        ],
+    )
+    text = render(
+        callout_report(round_type("eco", 3), anomalies=[crowd, lone])
+    )
+    chapter = text.split("## Poikkeamat")[1].split("\n## ")[0]
+    assert "): radio (Control) (" in chapter
+    assert "alueilla radio (Control) ja radio (Trophy)" in chapter
+    assert "): lobby (" in chapter
+    assert "lobby (Lobby)" not in chapter
+
+
+def test_a_crunchs_directions_and_a_habits_place_are_named_as_callouts() -> None:
+    """The two other rule rows: a crunch's directions and a CT advance's
+    habit row, which reads ``alueelle radio (Control)``."""
+    crunch = crunch_anomaly(
+        map_name="de_nuke",
+        area="Hut",
+        rounds=[anomaly_round(sources=["Lobby", "Trophy"])],
+    )
+    advance = anomaly(rule="ct_advance", map_name="de_nuke", area="Control")
+    text = render(
+        callout_report(round_type("eco", 3), anomalies=[crunch, advance]),
+        ReportSettings(anomaly_min_matches=0),
+    )
+    assert "hut (päätelty) (" in text
+    assert "suunnista lobby ja radio (Trophy)" in text
+    assert "puskee alueelle radio (Control) säästökierroksilla" in text
+    assert "(päätelty) paikan perässä" in guide_of(text)
+
+
+def test_a_dropped_kill_or_target_does_not_explain_its_mark() -> None:
+    """Pruning's rule for every presentation flag: a mark on a claim rule 4
+    or 5 dropped would explain a place the reader never sees. Without the
+    caps the same claims print and the paragraph returns, so the absence is
+    the pruning's."""
+    # Four rounds, so the block's repetition threshold (3) passes every
+    # claim below and only the caps can drop the least common, hut -- as a
+    # kill area, as a target and as a throw area (``hut -> silo``, whose
+    # target is unmarked, so only the throw can raise the mark).
+    entry = round_type(
+        "full",
+        4,
+        utility=[
+            use("smoke", "lobby", "lobby", n=4, m=4, source="observed"),
+            use("smoke", "lobby", "radio", n=4, m=4, source="observed"),
+            use("smoke", "radio", "hut", n=3, m=4, source="observed"),
+            use("smoke", "hut", "silo", n=3, m=4, source="observed"),
+        ],
+        death_report=deaths(
+            first={}, rounds_missing=4,
+            kills={"lobby": 5, "radio": 5, "outside": 4, "hut": 3},
+        ),
+        small_sample=False,
+    )
+    places = [*NUKE_PLACES, PlaceName(area="Silo", callout="silo", flag=None)]
+    capped = render(
+        callout_report(entry, places=places),
+        ReportSettings(max_kill_areas=3, max_utility_targets=2),
+    )
+    assert "hut (päätelty)" not in capped
+    assert "(päätelty) paikan perässä" not in guide_of(capped)
+    open_ = render(
+        callout_report(entry, places=places),
+        ReportSettings(max_kill_areas=0, max_utility_targets=0),
+    )
+    assert "hut (päätelty)" in open_
+    assert "(päätelty) paikan perässä" in guide_of(open_)
+
+
+def test_a_map_with_no_table_prints_game_names_and_is_named_once() -> None:
+    """``no_table`` places print unmarked, the guide names the map in its
+    no-table sentence, and the vocabulary paragraph -- which would claim
+    callouts -- is left out of a report that names none."""
+    entry = round_type(
+        "pistol",
+        1,
+        positions=[position(15.0, [area("Outside", 1, {2: 1})], 1)],
+    )
+    text = render(
+        callout_report(entry, places=named("Outside", flag="no_table"))
+    )
+    assert "Outside 2 (1/1" in text
+    guide = guide_of(text)
+    assert "Näillä kartoilla ei ole callout-taulua" in guide
+    assert "`de_nuke`" in guide.split("ei ole callout-taulua")[1]
+    assert "Raportti nimeää paikat calloutteina" not in guide
+
+
+def test_a_rule_area_no_place_names_prints_as_it_is() -> None:
+    """The one fallback of ``_Places.ruled``: reachable only by a view built
+    of parts, since the model refuses such a row on a report's map."""
+    assert view_module._Places.of(None).ruled("Hut", view_module._Flags()) == "Hut"
+
+
+def test_a_marked_merged_callout_carries_its_game_area_in_the_marks_bracket() -> None:
+    """The inferred mark and the game's name share one bracket, not two
+    brackets in a row: the one-bracket rule the route's marks keep."""
+    places = [
+        PlaceName(area="Bridge", callout="t talo", flag="inferred"),
+        PlaceName(area="Upstairs", callout="t talo", flag="inferred"),
+    ]
+    crowd = stack_anomaly(
+        map_name="de_inferno",
+        area="Bridge",
+        site="B",
+        rounds=[
+            anomaly_round(
+                round_no=4, seconds=[15.0], players=4, alive=5, areas=["Bridge"]
+            )
+        ],
+    )
+    text = render(
+        report(
+            [
+                map_report(
+                    "de_inferno",
+                    [side("CT", [round_type("eco", 3)])],
+                    places=places,
+                )
+            ],
+            anomalies=[crowd],
+        )
+    )
+    assert "): t talo (päätelty, Bridge) (" in text
+    assert "(päätelty) (Bridge)" not in text
+
+
+def test_the_vocabulary_names_every_rule_and_no_place() -> None:
+    """The rule list is the rules' own names, not a hand copy, and the stack
+    paragraph's examples name no place -- a name there would be a copy of the
+    table or the game and untrue on a map the other one describes."""
+    entry = round_type(
+        "pistol", 1, positions=[position(15.0, [area("hut", 1, {1: 1})], 1)]
+    )
+    guide = guide_of(render(callout_report(entry, anomalies=[stack_anomaly(
+        map_name="de_nuke", area="Lobby", site="A",
+        rounds=[anomaly_round(round_no=14, seconds=[15.0], players=4, alive=5,
+                              areas=["Lobby"])],
+    )])))
+    vocabulary = next(
+        note for note in guide.split("\n- ") if "nimeää paikat calloutteina" in note
+    )
+    for rule in ANOMALY_RULES:
+        assert ANOMALY_RULE_FI[rule] in vocabulary, rule
+    stack = next(note for note in guide.split("\n- ") if note.startswith("**Stack**"))
+    for name in ("Middle", "middle", "Alley", "alley", "BombsiteB", "b site"):
+        assert name not in stack, name
+
+
+def test_a_kill_rows_mark_alone_is_explained() -> None:
+    """The kill row's marks reach the guide through its own bookkeeping
+    (``_death_lines``): with the only marked place in the kill row, the
+    mark's paragraph is there."""
+    entry = round_type(
+        "pistol",
+        1,
+        death_report=deaths(first={}, rounds_missing=1, kills={"hut": 1}),
+    )
+    text = render(callout_report(entry))
+    assert "tapot alueittain: hut (päätelty)" in text
+    assert "(päätelty) paikan perässä" in guide_of(text)
+
+
+def test_a_hidden_sample_point_does_not_explain_its_mark() -> None:
+    """A sample point rule 3 hides is built into a throwaway bookkeeping, so
+    the only coarse place being on it explains nothing; shown, it does."""
+    entry = round_type(
+        "pistol",
+        1,
+        positions=[
+            position(15.0, [area("hut", 1, {1: 1})], 1),
+            position(45.0, [area("outside", 1, {1: 1})], 1),
+        ],
+    )
+    hidden = render(callout_report(entry), ReportSettings(skip_sample_seconds=[45.0]))
+    assert "outside (karkea)" not in hidden
+    assert "(karkea) paikan perässä" not in guide_of(hidden)
+    shown = render(callout_report(entry), ReportSettings(skip_sample_seconds=[]))
+    assert "(karkea) paikan perässä" in guide_of(shown)
+
+
+def test_absorb_carries_a_mark_only_from_a_row_that_stayed() -> None:
+    """``_Flags.absorb``'s rule for the callout marks, measured directly:
+    no row that names a place reaches ``keep=False`` with a mark today (a
+    position line that names one always prints), so the rule is pinned on
+    the bookkeeping itself."""
+    for name in ("route_coarse", "route_inferred", "route_no_callout",
+                 "callouts_named"):
+        dropped = view_module._Flags()
+        dropped.absorb(view_module._Flags(**{name: True}), keep=False)
+        assert getattr(dropped, name) is False, name
+        kept = view_module._Flags()
+        kept.absorb(view_module._Flags(**{name: True}), keep=True)
+        assert getattr(kept, name) is True, name
+    dropped = view_module._Flags()
+    dropped.absorb(view_module._Flags(route_no_table=["de_nuke"]), keep=False)
+    assert dropped.route_no_table == []
+
+
+def test_a_no_table_map_named_only_by_a_rule_row_is_named_in_the_guide() -> None:
+    """A map whose only printed place is on an anomaly row still gets the
+    no-table sentence: ``_Places.ruled`` notes the map as ``counted`` does."""
+    crowd = stack_anomaly(
+        map_name="de_nuke",
+        area="Lobby",
+        site="A",
+        rounds=[
+            anomaly_round(
+                round_no=14, seconds=[15.0], players=4, alive=5, areas=["Lobby"]
+            )
+        ],
+    )
+    text = render(
+        callout_report(
+            round_type("eco", 3),
+            anomalies=[crowd],
+            places=named("Lobby", flag="no_table"),
+        )
+    )
+    assert "): Lobby (" in text
+    guide = guide_of(text)
+    assert "Näillä kartoilla ei ole callout-taulua" in guide
+    assert "`de_nuke`" in guide.split("ei ole callout-taulua")[1]

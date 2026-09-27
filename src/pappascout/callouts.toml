@@ -1,11 +1,13 @@
 # The product owner's callouts and junctions, per map (Story 4.13, AD-13).
 #
-# WHAT THIS IS. The pistol route prints his callouts instead of the game's
-# area names, and compresses each player's path to the places that matter:
-# the start, the junctions and the end. Both need knowledge the demo does not
+# WHAT THIS IS. The report prints his callouts instead of the game's area
+# names (the routes since Story 4.13, every other row since Story 4.15), and
+# the routes compress each player's path to the places that matter: the
+# start, the junctions and the end. Both need knowledge the demo does not
 # hold -- what he calls a place, and which places he treats as junctions --
-# and this file is that knowledge. Nothing else in the report reads it: the
-# sample-point sections, the habits and the anomalies keep the game's names.
+# and this file is that knowledge. The statistics are counted under the
+# callouts; the anomaly rules never read this file -- they run on the game's
+# areas, where they were calibrated, and only their rows' names translate.
 #
 # WHY A TABLE (AD-13). Derivation runs first and wins where it can answer;
 # the table holds what it structurally cannot. Two things here are of that
@@ -39,7 +41,7 @@
 # repository names no person, so it appears as "the first route model
 # (reittimalli-<owner>.md)" -- a placeholder that matches no other file.
 #
-# CONFIDENCE, and what the route prints for it:
+# CONFIDENCE, and what the report prints for it:
 #   stated   -- his words, or a callout he confirmed for the place
 #   guide    -- the game area's own name is one of the guide's callouts for
 #               the map (calloutit.md's list, compared ignoring case and
@@ -61,11 +63,12 @@
 # archive moves through).
 #   callout         -- his callout for the area, compared ignoring case and
 #                      surrounding spaces. ABSENT means the place has no
-#                      callout: the route prints the game's name, flagged.
-#                      Two areas with one callout are one place to him and
-#                      the route merges them.
+#                      callout: the report prints the game's name, flagged.
+#                      Two areas with one callout are one place to him: the
+#                      route merges them and the statistics count them as
+#                      one.
 #   coarse          -- the area holds several of his callouts (Nuke's yard is
-#                      one game area); the route prints the coarse name,
+#                      one game area); the report prints the coarse name,
 #                      flagged as needing coordinates. Never split by guess.
 #   junction        -- see the rule above. A transit place drops out of the
 #                      middle of a route; a place with no callout is always
