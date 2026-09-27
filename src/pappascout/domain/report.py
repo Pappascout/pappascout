@@ -492,7 +492,18 @@ __all__ = [
 #: callout's flag, found on a place or on a part, and a callout fed by
 #: several areas or parts (:attr:`MapReport.merged_callouts`) is the list's
 #: own answer.
-REPORT_SCHEMA_VERSION = "19.0.0"
+#:
+#: **20.0.0 (Story 4.19): the pistol block carries the routes it repeats.**
+#: The second condition only -- the first time since
+#: ``tests/data/schema_changes.json`` began that a version makes nothing
+#: required. :attr:`RoundTypeReport.route_patterns` was already required on
+#: every round type and empty on the pistol by rule; it is now filled there
+#: too (:data:`ROUTE_PATTERN_ROUND_TYPES`). A 19.0.0 file's pistol ``[]``
+#: would validate and be read with 20.0.0 eyes as *no path recurred across
+#: the map's pistol rounds* -- an observation nobody made. The other way
+#: round, a 20.0.0 file's pistol patterns are refused by a 19.0.0 model's
+#: :meth:`RoundTypeReport._check_route_patterns_fit_the_block`.
+REPORT_SCHEMA_VERSION = "20.0.0"
 
 #: What the newest version changed, in one sentence, for the message a stage
 #: refuses an old ``report.json`` with.
@@ -519,10 +530,10 @@ REPORT_SCHEMA_VERSION = "19.0.0"
 #: English, like every other line the CLI prints (AD-11). It never reaches
 #: the report.
 REPORT_SCHEMA_CHANGE = (
-    "Version 19.0.0 divides a coarse game area by position into the product "
-    "owner's callouts (Nuke's yard, half-cell by half-cell) and lists each "
-    "area's parts beside its name; an older report counts the whole area as "
-    "one place, which this version refuses."
+    "Version 20.0.0 lists the routes a pistol block repeats across its rounds, "
+    "as the eco, force and half-buy blocks already do; an older report's "
+    "pistol block holds none and would read as one whose rounds shared no "
+    "route, which this version refuses."
 )
 
 
@@ -2220,12 +2231,20 @@ class RoundRoute(_Node):
     steps: list[RouteStep] = Field(default_factory=list)
 
 
-#: The buy classes that carry recurring route patterns (Story 4.14): the
-#: product owner's *"eco/force kierroksilta"*, with the half buy he names
-#: beside them (*"forceja, ecoja ja puoliostoja"*). **The economic list and
-#: not a second one** -- :data:`~pappascout.constants.SAVING_ROUND_TYPES` is
-#: exactly those three, and a copy here could drift from it.
-ROUTE_PATTERN_ROUND_TYPES: tuple[str, ...] = SAVING_ROUND_TYPES
+#: The round types that carry recurring route patterns: the pistol (Story
+#: 4.19, his first MVP example: what they did on the pistol rounds, per map)
+#: and the buy classes of Story 4.14 -- the product owner's
+#: *"eco/force kierroksilta"*, with the half buy he names beside them
+#: (*"forceja, ecoja ja puoliostoja"*). **Two existing names and not a new
+#: list**: :data:`ROUTE_ROUND_TYPE` is the pistol and
+#: :data:`~pappascout.constants.SAVING_ROUND_TYPES` exactly those three, and
+#: a copy here could drift from either. The pistol keeps its round-by-round
+#: :attr:`RoundTypeReport.routes` beside its patterns; the patterns are the
+#: summary across them.
+ROUTE_PATTERN_ROUND_TYPES: tuple[str, ...] = (
+    ROUTE_ROUND_TYPE,
+    *SAVING_ROUND_TYPES,
+)
 
 
 class RoutePlace(_Node):
@@ -2280,10 +2299,11 @@ class RoutePatternRound(_Node):
 
 
 class RoutePattern(_Node):
-    """A junction path that recurs across a save-round block's rounds.
+    """A junction path that recurs across a block's rounds.
 
-    Story 4.14. Each player's path in an eco, force or half-buy round is the
-    pistol's junction path, started at its first junction that is not a
+    Story 4.14, extended to the pistol by Story 4.19
+    (:data:`ROUTE_PATTERN_ROUND_TYPES`). Each player's path in such a round
+    is the pistol's junction path, started at its first junction that is not a
     spawn (:func:`~pappascout.domain.aggregate.route_patterns_for` has the
     rules); the players sharing a stretch from that start are a group, and
     the same stretch of the same kind (:attr:`stayed`) in several rounds is
@@ -2436,8 +2456,8 @@ class RoundTypeReport(_Node):
     #: The junction paths that recur across this block's rounds, in the
     #: order :func:`~pappascout.domain.aggregate.route_patterns_for` gives
     #: them -- and empty on every type but
-    #: :data:`ROUTE_PATTERN_ROUND_TYPES` (Story 4.14). Required, for
-    #: :data:`REPORT_SCHEMA_VERSION`'s 17.0.0 reason.
+    #: :data:`ROUTE_PATTERN_ROUND_TYPES` (Stories 4.14 and 4.19). Required,
+    #: for :data:`REPORT_SCHEMA_VERSION`'s 17.0.0 reason.
     route_patterns: list[RoutePattern]
 
     @model_validator(mode="after")
@@ -2700,12 +2720,12 @@ class RoundTypeReport(_Node):
 
     @model_validator(mode="after")
     def _check_route_patterns_fit_the_block(self) -> RoundTypeReport:
-        """Patterns only on a save-round type, and none larger than the block.
+        """Patterns only on a pattern type, and none larger than the block.
 
-        * **A pattern on a type that reports none.** Story 4.14's scope is
-          :data:`ROUTE_PATTERN_ROUND_TYPES`; the pistol has its round-by-round
-          routes, and a default block's patterns are the product owner's to
-          ask for later.
+        * **A pattern on a type that reports none.** The scope is
+          :data:`ROUTE_PATTERN_ROUND_TYPES` -- Story 4.14's save types and,
+          since Story 4.19, the pistol; a default block's patterns are the
+          product owner's to ask for later.
         * **More rounds or matches than the block holds.** The line prints
           ``n/m kierroksesta, k/K ottelussa`` with ``m`` and ``K`` read off
           this block's sample, so a pattern exceeding either would print a

@@ -19,7 +19,7 @@ from pydantic import ValidationError
 # Private, but imported on purpose: the version arithmetic below has to be
 # the **same** parse the gate in ``stages/render.py`` uses, or the two could
 # disagree about what "one version behind" means.
-from pappascout.stages.render import _version_numbers
+from pappascout.stages.render import _version_numbers, read_report
 
 from pappascout.domain.report import (
     MAP_NAME_SOURCES,
@@ -69,7 +69,7 @@ from pappascout.domain.report import (
     UtilityUse,
 )
 from pappascout.constants import ROSTER_BUCKETS, SAVING_ROUND_TYPES, SITE_AREAS
-from pappascout.errors import AggregateError
+from pappascout.errors import AggregateError, PappascoutError
 
 
 def named(*areas: str) -> list[PlaceName]:
@@ -1736,11 +1736,18 @@ LAST_SCHEMA_VERSION_THAT_WROTE_IT = (
 #: cannot be tested this way; a field a version **removed** is covered by
 #: :func:`test_an_old_report_that_lists_demo_ids_is_refused`, which is why
 #: 13.0.0's entry names ``played_maps`` and not ``map_demo_ids``.
-SCHEMA_CHANGES: dict[str, list[str]] = json.loads(
+_SCHEMA_CHANGES_FILE = json.loads(
     (Path(__file__).parent / "data" / "schema_changes.json").read_text(
         encoding="utf-8"
     )
-)["versions"]
+)
+SCHEMA_CHANGES: dict[str, list[str]] = _SCHEMA_CHANGES_FILE["versions"]
+
+#: The versions whose empty entry is deliberate -- a rise that made nothing
+#: required -- each with its reason, from the same data file. An empty entry
+#: for any other version fails
+#: :func:`test_every_recorded_schema_change_is_its_own`.
+MEANING_ONLY: dict[str, str] = _SCHEMA_CHANGES_FILE["meaning_only"]
 
 
 def _without_paths(document: dict, paths: list[str]) -> int:
@@ -1772,6 +1779,32 @@ def _without_paths(document: dict, paths: list[str]) -> int:
                 del node[last]
                 removed += 1
     return removed
+
+
+def test_the_version_gate_refuses_every_version_but_its_own(
+    tmp_path: Path,
+) -> None:
+    """The stages' gate is an exact match, whatever the data file records.
+
+    It is the only thing that refuses a previous file whose shape still
+    validates -- a version that made nothing required (``MEANING_ONLY``) --
+    so it is checked on every version and not only on such a one: the
+    previous major, a later version of the **same** major, and a newer one.
+    A gate loosened to compare majors only, or to accept any older version,
+    fails here.
+    """
+    major = _version_numbers(REPORT_SCHEMA_VERSION)[0]
+    for version in (
+        LAST_SCHEMA_VERSION_THAT_WROTE_IT,
+        f"{major}.0.1",
+        f"{major + 1}.0.0",
+    ):
+        written = full_report().model_dump(mode="json")
+        written["schema_version"] = version
+        path = tmp_path / f"{version}.json"
+        path.write_text(json.dumps(written), encoding="utf-8")
+        with pytest.raises(PappascoutError, match="schema version does not match"):
+            read_report(path, written["team"]["key"])
 
 
 def test_the_schema_version_says_the_structure_changed() -> None:
@@ -1840,6 +1873,18 @@ def test_the_schema_version_says_the_structure_changed() -> None:
     # versions' differences and removing them would make the assertion below
     # pass on the wrong one.
     required_now = SCHEMA_CHANGES[REPORT_SCHEMA_VERSION]
+    if not required_now:
+        # A rise that made nothing required (the data file's note; 20.0.0 is
+        # the first). The previous version's file has this version's shape,
+        # so no model check can refuse it: what does is the stages' version
+        # gate, tested for every version by
+        # test_the_version_gate_refuses_every_version_but_its_own. Only a
+        # version the data file lists as meaning-only may land here.
+        assert REPORT_SCHEMA_VERSION in MEANING_ONLY, (
+            f"{REPORT_SCHEMA_VERSION} records no required path and is not "
+            "listed in meaning_only in tests/data/schema_changes.json."
+        )
+        return
     # A fixture that reaches the current version's paths: 16.0.0's are on a
     # pistol route's steps, which ``full_report`` carries (15.0.0's were on
     # an anomaly's points, and the fixture here was the anomaly report).
@@ -3464,7 +3509,15 @@ def test_a_map_states_whether_its_order_is_known() -> None:
 
 
 def test_every_recorded_schema_change_is_its_own() -> None:
-    """No version's entry repeats another's path, and none is empty.
+    """No version's entry repeats another's path.
+
+    An entry may be empty only for a version the data file lists in
+    ``meaning_only`` with its reason (:data:`MEANING_ONLY`; 20.0.0 is the
+    first): a rise that made nothing required, refused through the stages'
+    version gate instead
+    (:func:`test_the_version_gate_refuses_every_version_but_its_own`). Any
+    other empty entry fails, and that list is the only thing that catches
+    an entry emptied by mistake.
 
     **What this catches**: the realistic drift, which is the next story
     copying the previous version's entry forward and leaving the fixture
@@ -3491,7 +3544,10 @@ def test_every_recorded_schema_change_is_its_own() -> None:
     assert entries, "the data file records no version at all"
     seen: dict[str, str] = {}
     for version, paths in entries.items():
-        assert paths, f"{version} records no path, so its fixture removes nothing"
+        assert paths or version in MEANING_ONLY, (
+            f"{version} records no path, so its fixture removes nothing, and "
+            "it is not listed in meaning_only."
+        )
         for path in paths:
             assert path not in seen, (
                 f"{version} names {path!r}, which {seen[path]} already claims. "
@@ -3499,6 +3555,11 @@ def test_every_recorded_schema_change_is_its_own() -> None:
                 "repeat means an entry was copied forward instead of written."
             )
             seen[path] = version
+    for version, reason in MEANING_ONLY.items():
+        assert entries.get(version) == [] and reason, (
+            f"meaning_only lists {version}, which needs an empty entry and a "
+            "reason."
+        )
     assert REPORT_SCHEMA_VERSION in entries, (
         f"The current schema {REPORT_SCHEMA_VERSION} has no entry in "
         "tests/data/schema_changes.json, so the fixture has nothing to build "
@@ -3923,20 +3984,19 @@ def test_the_round_type_report_requires_its_route_patterns() -> None:
         )
 
 
-def test_only_the_save_types_may_carry_route_patterns() -> None:
-    """The story's scope, in the model: eco, force and half -- and the
-    pistol, which has its own rows, refused."""
+def test_only_the_pattern_types_may_carry_route_patterns() -> None:
+    """The scope, in the model: eco, force and half (Story 4.14) and the
+    pistol beside its own rows (Story 4.19); a full buy, refused."""
     for name in ROUTE_PATTERN_ROUND_TYPES:
         assert _save_block([_pattern()], round_type=name).route_patterns
-    with pytest.raises(AggregateError, match="route patterns, but only eco"):
-        _save_block([_pattern()], round_type=ROUTE_ROUND_TYPE)
-    with pytest.raises(AggregateError, match="route patterns, but only eco"):
+    assert _save_block([_pattern()], round_type=ROUTE_ROUND_TYPE).routes
+    with pytest.raises(AggregateError, match="route patterns, but only pistol"):
         _save_block([_pattern()], round_type="full")
 
 
-def test_the_pattern_round_types_are_the_saving_ones() -> None:
-    """One economic list and not a second copy of it."""
-    assert ROUTE_PATTERN_ROUND_TYPES == SAVING_ROUND_TYPES
+def test_the_pattern_round_types_are_the_pistol_and_the_saving_ones() -> None:
+    """Two existing names and not a second copy of either."""
+    assert ROUTE_PATTERN_ROUND_TYPES == (ROUTE_ROUND_TYPE, *SAVING_ROUND_TYPES)
 
 
 def test_a_pattern_taken_in_more_rounds_than_the_block_is_refused() -> None:

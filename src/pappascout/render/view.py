@@ -335,6 +335,14 @@ PATTERN_ROUND_TYPES: frozenset[str] = frozenset(
 #:     treats pistol rounds **round by round** and the other round types as
 #:     patterns, and pruning follows the same split -- the same split
 #:     :data:`PATTERN_ROUND_TYPES` makes from the other end.
+#:
+#:     **A second dependency since Story 4.19**: the pistol's route-pattern
+#:     threshold is two rounds *because* the pistol is protected -- its
+#:     block filters nothing, so the model's floor decides
+#:     (:func:`_route_pattern_lines`). Taking the pistol off this list would
+#:     silently make that threshold ``min(3, rounds)`` at the shipped
+#:     setting, and a two-map route in a four-map pistol block would stop
+#:     printing.
 #: ``anomaly``
 #:     ``classify`` reserves the type for two situations: **the observation
 #:     is contradictory** (the equipment value fell during the buy time) or
@@ -581,7 +589,7 @@ ROUTE_ARROW = "->"
 #: the indentation away. See :func:`_route_rows`.
 ROUTE_INDENT = "  "
 
-#: The label of a save-round block's recurring route (Story 4.14):
+#: The label of a block's recurring route (Stories 4.14 and 4.19):
 #: ``Reitti: outside -> lobby -> radio, 3 pelaajaa (3/7 kierroksesta, ...)``.
 #:
 #: A label and not a sentence, so the line reads as one of the block's rows
@@ -1067,11 +1075,14 @@ class RoundTypeView:
     #: class; :func:`build_view` fills it in always, from a list the model
     #: holds to being exactly as long as the block's sample.
     routes: tuple[RouteView, ...] = ()
-    #: The routes a save-round block's rounds repeat (Story 4.14), **first
-    #: in the block** and before :attr:`lines` -- the story's decision 7: the
-    #: route is what the product owner asked of these blocks, and the
-    #: sample-point rows stay under it as they were. Empty on every other
-    #: type, and on a save block where nothing recurred.
+    #: The routes a block's rounds repeat (Story 4.14), **first in the
+    #: block** and before :attr:`lines` -- the story's decision 7: the route
+    #: is what the product owner asked of these blocks, and the sample-point
+    #: rows stay under it as they were. On a pistol block (Story 4.19) they
+    #: come before :attr:`routes` too, the summary before the rounds, as in
+    #: his example. Empty on every type but
+    #: :data:`~pappascout.domain.report.ROUTE_PATTERN_ROUND_TYPES`, and on
+    #: such a block where nothing recurred.
     patterns: tuple[Line, ...] = ()
     #: A printed pattern names a place the game's way because its map has no
     #: callout table, so the guide names the map (:func:`build_view`).
@@ -1345,7 +1356,7 @@ class _Flags:
     #: Raised in :func:`build_view` for the routes and by
     #: :class:`_Places` for every other row.
     route_no_table: list[str] = field(default_factory=list)
-    #: A save-round block printed a recurring route (Story 4.14), so the
+    #: A block printed a recurring route (Stories 4.14 and 4.19), so the
     #: guide explains those rows -- only then, for :attr:`routes_shown`'s
     #: reason.
     route_patterns_shown: bool = False
@@ -3106,7 +3117,7 @@ def _route_place_label(
     """A place as a route row names it: the callout with its mark, and the
     second place of an alternation after :data:`ROUTE_RETURN`.
 
-    One spelling for the pistol's steps and the save rounds' patterns
+    One spelling for the pistol's steps and the route patterns
     (Story 4.14), so the two cannot come to name one place two ways.
     """
     if area is None:
@@ -3524,7 +3535,7 @@ def _extends(longer: RoutePattern, shorter: RoutePattern) -> bool:
 
 def _route_pattern_lines(
     report_type: RoundTypeReport,
-    threshold: int | None,
+    min_n: int,
     flags: _Flags,
     *,
     matches: bool,
@@ -3538,15 +3549,21 @@ def _route_pattern_lines(
     model's (:func:`~pappascout.domain.aggregate.route_patterns_for`). Two
     rules, both the spec's:
 
-    * **The block's own threshold** (decision 3) -- :func:`block_min_rounds`,
-      the number the block's *"vain toistuvat kuviot"* note states, so one
-      rule decides what repeats in a block -- **with a floor of two rounds
-      that is the model's and not this function's**: the model holds only
-      paths of two rounds or more
-      (:class:`~pappascout.domain.report.RoutePattern`). So where the
-      block's threshold is one (``small_sample_rounds = 1``, or a
-      one-round block) or the report has none, every path that recurred
-      prints, and never a path of one round. The guide states the floor.
+    * **The block's own threshold** (decision 3) -- ``min_n``, the one
+      :func:`_round_type_view` filters the block's other rows at and its
+      *"vain toistuvat kuviot"* note states, so one rule decides what
+      repeats in a block -- **with a floor of two rounds that is the
+      model's and not this function's**: the model holds only paths of two
+      rounds or more (:class:`~pappascout.domain.report.RoutePattern`). So
+      where the block's threshold is one (``small_sample_rounds = 1``, a
+      one-round block, a report with none, or a **protected** type) every
+      path that recurred prints, and never a path of one round. The guide
+      states the floor.
+    * **The pistol's threshold is therefore two** (Story 4.19, decision 2).
+      The pistol is not in :data:`PATTERN_ROUND_TYPES` (the complement of
+      :data:`PROTECTED_ROUND_TYPES`), so its block filters nothing, ``min_n``
+      is one, and the model's floor of two rounds decides. One pistol per
+      map and side makes two rounds two maps.
     * **No redundant prefix** (decision 5, the second DECIDED rule 5): a
       path a group **moved** along is printed only if it recurs in **more**
       rounds than every printed **moved** path that extends it. An
@@ -3566,10 +3583,7 @@ def _route_pattern_lines(
     ``recency`` :func:`_map_states_recency`. The players are the group's
     size on the path, :data:`ROUTE_PATTERN_PEAK` when it varied.
     """
-    # ``None`` is a report with no threshold: nothing is filtered here, and
-    # the model's floor of two rounds is the only one (see above).
-    minimum = block_min_rounds(threshold, report_type.sample.rounds) or 1
-    recurring = [p for p in report_type.route_patterns if p.n >= minimum]
+    recurring = [p for p in report_type.route_patterns if p.n >= min_n]
     printed = [
         pattern
         for pattern in recurring
@@ -3748,7 +3762,7 @@ def _round_type_view(
     )
     patterns, patterns_untranslated = _route_pattern_lines(
         report_type,
-        threshold,
+        min_n,
         flags,
         matches=_block_states_matches(report_type),
         recency=recency,
@@ -5334,7 +5348,7 @@ def build_view(
                         and map_report.map_name not in flags.route_no_table
                     ):
                         flags.route_no_table.append(map_report.map_name)
-                # The same for a save block's patterns (Story 4.14): only a
+                # The same for a block's patterns (Story 4.14): only a
                 # printed row, so a map whose patterns all stayed under the
                 # threshold is not named for a table nothing printed needs.
                 if (
@@ -5761,8 +5775,11 @@ def _legend(
     # the fact underneath it.
     if flags.routes_shown:
         notes.append(
-            "Pistoolilohkon rivit kertovat reitin: yksi lihavoitu rivi per "
-            "kierros, ja sen alla lista, jossa on yksi kohta jokaisesta "
+            "Pistoolilohkon rivit kertovat reitin. Lohko alkaa "
+            f'"{ROUTE_PATTERN_LABEL}:"-riveillä, kun jokin reitti toistui '
+            "vähintään kahdella kartan pistoolikierroksella; niiden jälkeen "
+            "tulee yksi lihavoitu rivi per kierros, ja sen alla lista, jossa "
+            "on yksi kohta jokaisesta "
             "paikasta, josta lähdettiin. Reitti luetaan kaikista "
             "näytepisteistä, mutta rivillä on vain lähtöpaikka, risteykset, "
             "paikat joille ei ole calloutia, ja viimeinen havainto: "
@@ -5809,14 +5826,18 @@ def _legend(
             "viimeinen kohta on siis viimeinen havainto eikä kierroksen "
             "loppu, eikä rivi väitä mitään sen jälkeisestä ajasta."
         )
-    # THE SAVE ROUNDS' ROUTES (Story 4.14), only where one printed. The
-    # wording is the implementation's and awaits the product owner's word.
+    # THE BLOCKS' ROUTES (Stories 4.14 and 4.19), only where one printed.
+    # The wording is the implementation's and awaits the product owner's
+    # word. Story 4.19 added the pistol to its first words, named the trees
+    # the path is read like, and said that one player's path in a tree is
+    # not counted by an unmarked row.
     if flags.route_patterns_shown:
         notes.append(
-            f'"{ROUTE_PATTERN_LABEL}:" eco-, force- ja puoliostolohkon alussa '
+            f'"{ROUTE_PATTERN_LABEL}:" pistooli-, eco-, force- ja '
+            "puoliostolohkon alussa "
             "on reitti, jonka joukkue kulki lohkon kierroksilla useammin "
             "kuin kerran. Jokaisen pelaajan reitti luetaan kuten "
-            "pistoolilohkossa -- risteykset ja viimeinen havainto "
+            "pistoolikierrosten reittipuissa -- risteykset ja viimeinen havainto "
             "calloutteina -- mutta se alkaa ensimmäisestä risteyksestä, joka "
             "ei ole spawn: sitä edeltävät paikat riippuvat vain siitä, missä "
             "pelaaja sattui olemaan ensimmäisellä näytepisteellä. Pelaaja, "
@@ -5828,7 +5849,10 @@ def _legend(
             f'"{ROUTE_PATTERN_STAYED}" pelaajamäärän perässä tarkoittaa, että '
             "nämä pelaajat nähtiin viimeksi elossa reitin viimeisessä "
             "paikassa -- se on viimeinen havainto eikä kerro aikeista. "
-            "Yhden pelaajan reitti on mukana vain tällaisena. Yhden paikan "
+            "Yhden pelaajan reitti on mukana vain tällaisena. Siksi "
+            "merkitsemätön rivi laskee vain kierrokset, joilla vähintään kaksi "
+            "pelaajaa kulki reitin yhdessä: kierros, jonka reittipuussa sen "
+            "kulki yksi pelaaja, ei ole luvussa mukana. Yhden paikan "
             "reitti on mukana vain, kun siinä on osa puolen pelaajista eikä "
             "koko puoli. Rivi tulostuu, kun reitti toistuu vähintään yhtä "
             "monella kierroksella kuin lohkon muutkin kuviot vaativat ja "

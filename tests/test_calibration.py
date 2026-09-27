@@ -3685,9 +3685,10 @@ def test_the_recorded_routes_show_the_newest_match_taking_a_new_way() -> None:
         )
 
 
-#: Every save-round block's route patterns on the real archive (Story 4.14),
-#: **re-pinned by running** :func:`_pattern_blocks_from` on 2026-09-26, and
-#: not copied from the story's documents.
+#: Every pattern block's route patterns on the real archive (Stories 4.14 and
+#: 4.19), **re-pinned by running** :func:`_pattern_blocks_from` on
+#: 2026-09-27, and not copied from the story's documents. Story 4.19 added
+#: the pistol blocks; the save blocks were left byte-identical.
 #:
 #: Two halves per block, and each pins something the other cannot. ``lines``
 #: is what the report prints -- the threshold, the redundant prefix and the
@@ -3695,9 +3696,10 @@ def test_the_recorded_routes_show_the_newest_match_taking_a_new_way() -> None:
 #: three unpinned. ``patterns`` is every path of two rounds or more that
 #: ``report.json`` holds, printed or not, with its rounds -- so a change in
 #: what ``aggregate`` finds fails here even when it moves nothing above the
-#: threshold. **Every** eco, force and half block of the recorded teams is a
-#: key, an empty one included, for :data:`PISTOL_ROUTES`' reason: a block that
-#: appears must fail as loudly as one that changes.
+#: threshold. **Every** pistol, eco, force and half block of the recorded
+#: teams is a key (the pistol since Story 4.19), an empty one included, for
+#: :data:`PISTOL_ROUTES`' reason: a block that appears must fail as loudly
+#: as one that changes.
 #:
 #: **A round is ``[demo place, round number, players]``**, the place being
 #: the demo's index in the map's own list (newest match first). Not the demo
@@ -3716,7 +3718,7 @@ ROUTE_PATTERNS = json.loads(
 
 
 def _pattern_blocks_from(root: Path) -> dict[str, dict[str, list]]:
-    """Every recorded save block's pattern rows and patterns, as built."""
+    """Every recorded pattern block's rows and patterns, as built."""
     settings = _real_settings()
     found: dict[str, dict[str, list]] = {}
     for team, report in _recorded_reports(root).items():

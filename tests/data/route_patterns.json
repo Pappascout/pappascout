@@ -203,6 +203,42 @@
       "lines": [],
       "patterns": []
     },
+    "1e1965abbc06133b/de_dust2/CT/pistol": {
+      "lines": [
+        "Reitti: short stairs, jopa 3 pelaajaa (3/3 kierroksesta, uusin mukana)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "short stairs",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              1,
+              2
+            ],
+            [
+              1,
+              1,
+              3
+            ],
+            [
+              2,
+              1,
+              3
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
     "1e1965abbc06133b/de_dust2/T/eco": {
       "lines": [],
       "patterns": []
@@ -378,6 +414,67 @@
         }
       ]
     },
+    "1e1965abbc06133b/de_dust2/T/pistol": {
+      "lines": [
+        "Reitti: outside tunnels -> upper b, jopa 4 pelaajaa (2/3 kierroksesta, ei uusimmassa)"
+      ],
+      "patterns": [
+        {
+          "newest": false,
+          "path": [
+            [
+              "outside tunnels",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              13,
+              4
+            ],
+            [
+              2,
+              13,
+              4
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "outside tunnels",
+              null,
+              null,
+              null
+            ],
+            [
+              "upper b",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              13,
+              3
+            ],
+            [
+              2,
+              13,
+              4
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
     "1e1965abbc06133b/de_inferno/CT/eco": {
       "lines": [
         "Reitti: b site, jopa 3 pelaajaa jää (2/2 kierroksesta)"
@@ -409,6 +506,10 @@
         }
       ]
     },
+    "1e1965abbc06133b/de_inferno/CT/pistol": {
+      "lines": [],
+      "patterns": []
+    },
     "1e1965abbc06133b/de_inferno/T/eco": {
       "lines": [],
       "patterns": []
@@ -418,6 +519,10 @@
       "patterns": []
     },
     "1e1965abbc06133b/de_inferno/T/half": {
+      "lines": [],
+      "patterns": []
+    },
+    "1e1965abbc06133b/de_inferno/T/pistol": {
       "lines": [],
       "patterns": []
     },
@@ -607,6 +712,143 @@
             ]
           ],
           "stayed": false
+        }
+      ]
+    },
+    "1e1965abbc06133b/de_nuke/CT/pistol": {
+      "lines": [
+        "Reitti: hell, 3 pelaajaa (4/4 kierroksesta, uusin mukana)",
+        "Reitti: ct piha -> main, 2 pelaajaa (3/4 kierroksesta, ei uusimmassa)",
+        "Reitti: hell -> ramp, 1 pelaaja jää (2/4 kierroksesta, uusin mukana)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "hell",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              13,
+              3
+            ],
+            [
+              1,
+              13,
+              3
+            ],
+            [
+              2,
+              13,
+              3
+            ],
+            [
+              3,
+              13,
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "ct piha",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              13,
+              2
+            ],
+            [
+              2,
+              13,
+              2
+            ],
+            [
+              3,
+              13,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "ct piha",
+              null,
+              null,
+              null
+            ],
+            [
+              "main",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              13,
+              2
+            ],
+            [
+              2,
+              13,
+              2
+            ],
+            [
+              3,
+              13,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": true,
+          "path": [
+            [
+              "hell",
+              null,
+              null,
+              null
+            ],
+            [
+              "ramp",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              13,
+              1
+            ],
+            [
+              2,
+              13,
+              1
+            ]
+          ],
+          "stayed": true
         }
       ]
     },
@@ -859,6 +1101,112 @@
       "lines": [],
       "patterns": []
     },
+    "1e1965abbc06133b/de_nuke/T/pistol": {
+      "lines": [
+        "Reitti: lobby, jopa 4 pelaajaa (4/4 kierroksesta, uusin mukana)",
+        "Reitti: kontakti -> main, jopa 3 pelaajaa (3/4 kierroksesta, ei uusimmassa)"
+      ],
+      "patterns": [
+        {
+          "newest": true,
+          "path": [
+            [
+              "lobby",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              0,
+              1,
+              4
+            ],
+            [
+              1,
+              1,
+              2
+            ],
+            [
+              2,
+              1,
+              2
+            ],
+            [
+              3,
+              1,
+              2
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "kontakti",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              1,
+              2
+            ],
+            [
+              2,
+              1,
+              3
+            ],
+            [
+              3,
+              1,
+              3
+            ]
+          ],
+          "stayed": false
+        },
+        {
+          "newest": false,
+          "path": [
+            [
+              "kontakti",
+              null,
+              null,
+              null
+            ],
+            [
+              "main",
+              null,
+              null,
+              null
+            ]
+          ],
+          "rounds": [
+            [
+              1,
+              1,
+              2
+            ],
+            [
+              2,
+              1,
+              3
+            ],
+            [
+              3,
+              1,
+              2
+            ]
+          ],
+          "stayed": false
+        }
+      ]
+    },
     "9ac92660986558d3/de_ancient/CT/eco": {
       "lines": [],
       "patterns": [
@@ -889,6 +1237,10 @@
       ]
     },
     "9ac92660986558d3/de_ancient/CT/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_ancient/CT/pistol": {
       "lines": [],
       "patterns": []
     },
@@ -1014,11 +1366,19 @@
         }
       ]
     },
+    "9ac92660986558d3/de_ancient/T/pistol": {
+      "lines": [],
+      "patterns": []
+    },
     "9ac92660986558d3/de_anubis/CT/eco": {
       "lines": [],
       "patterns": []
     },
     "9ac92660986558d3/de_anubis/CT/half": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_anubis/CT/pistol": {
       "lines": [],
       "patterns": []
     },
@@ -1030,11 +1390,23 @@
       "lines": [],
       "patterns": []
     },
+    "9ac92660986558d3/de_anubis/T/pistol": {
+      "lines": [],
+      "patterns": []
+    },
     "9ac92660986558d3/de_inferno/CT/eco": {
       "lines": [],
       "patterns": []
     },
+    "9ac92660986558d3/de_inferno/CT/pistol": {
+      "lines": [],
+      "patterns": []
+    },
     "9ac92660986558d3/de_inferno/T/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_inferno/T/pistol": {
       "lines": [],
       "patterns": []
     },
@@ -1067,7 +1439,15 @@
         }
       ]
     },
+    "9ac92660986558d3/de_nuke/CT/pistol": {
+      "lines": [],
+      "patterns": []
+    },
     "9ac92660986558d3/de_nuke/T/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "9ac92660986558d3/de_nuke/T/pistol": {
       "lines": [],
       "patterns": []
     },
@@ -1076,6 +1456,10 @@
       "patterns": []
     },
     "ff03fb54599d3311/de_ancient/CT/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_ancient/CT/pistol": {
       "lines": [],
       "patterns": []
     },
@@ -1350,6 +1734,10 @@
         }
       ]
     },
+    "ff03fb54599d3311/de_ancient/T/pistol": {
+      "lines": [],
+      "patterns": []
+    },
     "ff03fb54599d3311/de_anubis/CT/eco": {
       "lines": [],
       "patterns": []
@@ -1358,11 +1746,19 @@
       "lines": [],
       "patterns": []
     },
+    "ff03fb54599d3311/de_anubis/CT/pistol": {
+      "lines": [],
+      "patterns": []
+    },
     "ff03fb54599d3311/de_anubis/T/eco": {
       "lines": [],
       "patterns": []
     },
     "ff03fb54599d3311/de_anubis/T/force": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_anubis/T/pistol": {
       "lines": [],
       "patterns": []
     },
@@ -1401,11 +1797,19 @@
         }
       ]
     },
+    "ff03fb54599d3311/de_nuke/CT/pistol": {
+      "lines": [],
+      "patterns": []
+    },
     "ff03fb54599d3311/de_nuke/T/eco": {
+      "lines": [],
+      "patterns": []
+    },
+    "ff03fb54599d3311/de_nuke/T/pistol": {
       "lines": [],
       "patterns": []
     }
   },
   "measured": "2026-09-27",
-  "note": "Every recorded team's eco, force and half-buy block: the route-pattern lines the report prints and every recurring path report.json holds (Story 4.14). A round is [demo place in the map's newest-first list, round number, players]. Written by running tests/test_calibration.py's _pattern_blocks_from over the archive; re-measure, do not hand-edit."
+  "note": "Every recorded team's pistol, eco, force and half-buy block: the route-pattern lines the report prints and every recurring path report.json holds (Stories 4.14 and 4.19). A round is [demo place in the map's newest-first list, round number, players]. Written by running tests/test_calibration.py's _pattern_blocks_from over the archive; re-measure, do not hand-edit."
 }

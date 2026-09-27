@@ -1,7 +1,10 @@
 {
   "measured": "2026-09-25",
-  "note": "Per report schema version, the field paths that version made REQUIRED. tests/test_report_model.py builds the previous version's shape by deleting the current version's paths from a current dump, so a version rise with no entry here fails loudly instead of leaving the fixture building some older version's difference. A path segment ending in [] is a list whose every element is descended into. Only the newly REQUIRED paths belong here: a field that merely changed meaning is caught by the version rule and not by this fixture, and a field the new version REMOVED is covered separately by the extra='forbid' test.",
-  "limit": "Measured 2026-09-25: naming a DIFFERENT still-required path here (maps[].sample instead of maps[].played_maps) leaves the fixture's test green, because removing any required field makes the document invalid. Nothing in this repository holds the previous model, so nothing can check that an entry describes that version's own difference rather than some other required field. What IS enforced: an entry must exist for the current version, and no version may repeat another's path. See test_every_recorded_schema_change_is_its_own.",
+  "note": "Per report schema version, the field paths that version made REQUIRED. tests/test_report_model.py builds the previous version's shape by deleting the current version's paths from a current dump, so a version rise with no entry here fails loudly instead of leaving the fixture building some older version's difference. A path segment ending in [] is a list whose every element is descended into. Only the newly REQUIRED paths belong here: a field that merely changed meaning is caught by the version rule and not by this fixture, and a field the new version REMOVED is covered separately by the extra='forbid' test. An EMPTY list means the version made nothing required: a meaning-only rise (20.0.0, Story 4.19), or a rise that changed a value set or tightened a rule. Such a version's previous file validates against this model, so no fixture built from this list can refuse it; the stages' version gate is what refuses it, and tests/test_report_model.py checks that gate on every version. An empty entry is allowed only for a version named in meaning_only below, with its reason.",
+  "limit": "Measured 2026-09-25: naming a DIFFERENT still-required path here (maps[].sample instead of maps[].played_maps) leaves the fixture's test green, because removing any required field makes the document invalid. Nothing in this repository holds the previous model, so nothing can check that an entry describes that version's own difference rather than some other required field. What IS enforced: an entry must exist for the current version, and no version may repeat another's path. See test_every_recorded_schema_change_is_its_own. An entry left EMPTY by mistake is caught only through meaning_only: an empty entry for a version not listed there fails test_every_recorded_schema_change_is_its_own, and nothing else would notice, because the version gate refuses the previous file whatever the entry says.",
+  "meaning_only": {
+    "20.0.0": "Story 4.19: RoundTypeReport.route_patterns was already required on every round type and empty on the pistol by rule; 20.0.0 fills it there. A 19.0.0 file's pistol [] would validate and be read as 'no path recurred across the map's pistol rounds', an observation nobody made."
+  },
   "versions": {
     "13.0.0": [
       "maps[].played_maps"
@@ -23,6 +26,7 @@
     ],
     "19.0.0": [
       "maps[].places[].parts"
-    ]
+    ],
+    "20.0.0": []
   }
 }

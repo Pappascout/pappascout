@@ -1855,7 +1855,7 @@ class _Token:
     and ``other_flag`` are the second place of an alternation
     (:func:`_collapse_returns`), ``None`` otherwise. ``kept`` is whether the
     place is one a path keeps in its middle (:attr:`_Place.kept`); only the
-    save rounds' patterns read it (:func:`_from_first_junction`), and it is
+    route patterns read it (:func:`_from_first_junction`), and it is
     not part of :attr:`place`, so the pistol's grouping cannot see it.
     """
 
@@ -2144,9 +2144,10 @@ def routes_for(
 
     **Only** :data:`~pappascout.domain.report.ROUTE_ROUND_TYPE` **reaches
     this function**, and the caller decides that rather than this function,
-    because the model already refuses routes on any other type. The save
-    rounds' patterns (:func:`route_patterns_for`) share its paths through
-    :func:`_round_paths` and not its trees: they strip the spawn first.
+    because the model already refuses routes on any other type. The route
+    patterns (:func:`route_patterns_for`), the pistol's own among them since
+    Story 4.19, share its paths through :func:`_round_paths` and not its
+    trees: they strip the spawn first, and the trees stay as they are.
 
     **A row for every round, including one with no route.** A round settled
     inside the first sample point produces a :class:`RoundRoute` with no
@@ -2222,7 +2223,7 @@ def _round_paths(
     """Every round's per-player junction paths: the one route engine.
 
     :func:`routes_for` builds the pistol's trees from these and
-    :func:`route_patterns_for` the save rounds' patterns (Story 4.14), so the
+    :func:`route_patterns_for` the patterns (Stories 4.14 and 4.19), so the
     junction compression, the callouts, the flags and the alternation are
     the same code for both.
 
@@ -2340,7 +2341,11 @@ def route_patterns_for(
     newest: str | None,
     callouts: MapCallouts | None = None,
 ) -> list[RoutePattern]:
-    """The junction paths a save-round block's rounds repeat (Story 4.14).
+    """The junction paths a block's rounds repeat (Stories 4.14 and 4.19).
+
+    Built for every :data:`~pappascout.domain.report.ROUTE_PATTERN_ROUND_TYPES`
+    block -- the save types and, since Story 4.19, the pistol -- with the
+    same rules for each; the caller decides the scope.
 
     **The pistol's route engine and not a second one**: every player's path
     is :func:`_junction_path`'s, from :func:`_round_paths`, so a pattern
@@ -4167,7 +4172,8 @@ def _round_types_for(
                 deaths=deaths_for(named.deaths, keys, lineup_keys),
                 # Only the pistol type has routes (Story 4.11's scope, and
                 # the model refuses them elsewhere), and only the save types
-                # have patterns (Story 4.14). The conditions are here and not
+                # and the pistol have patterns (Stories 4.14 and 4.19). The
+                # conditions are here and not
                 # inside the functions, so each does one thing and the scope
                 # is stated where the scope is decided.
                 routes=(

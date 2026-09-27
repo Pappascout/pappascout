@@ -8716,6 +8716,14 @@ def test_the_reading_guide_explains_the_route_only_where_there_is_one() -> None:
     assert "Pistoolilohkon rivit kertovat reitin" in with_route
     assert "Pistoolilohkon rivit kertovat reitin" not in without
     assert "poistui otannasta" in with_route
+    # Story 4.19: the block opens with its "Reitti:" rows before the rounds'
+    # bold rows, and the paragraph says so.
+    (trees,) = [
+        line
+        for line in with_route.splitlines()
+        if line.startswith("- Pistoolilohkon rivit")
+    ]
+    assert f'"{ROUTE_PATTERN_LABEL}:"-riveillä' in trees, trees
     assert "poistui otannasta" not in without
 
 
@@ -10160,6 +10168,35 @@ def test_the_patterns_open_the_block_before_its_sample_point_rows() -> None:
     sample_row = next(i for i, l in enumerate(lines) if l.startswith("- 15 s:"))
     assert first < sample_row
     assert lines[first - 1].startswith("**T-puoli**"), lines[first - 1]
+
+
+def test_a_pistol_route_on_two_maps_prints_before_the_rounds() -> None:
+    """Story 4.19. The pistol is protected, so its block filters nothing and
+    the model's floor of two rounds is its threshold (decision 2): a path of
+    two rounds prints in a four-round pistol block, where the same path in a
+    four-round force block stays under that block's own threshold. One
+    pistol per map makes the two fractions one, so the match count is not
+    printed again (decision 4), and the line opens the block, before the
+    per-round routes (decision 3)."""
+    patterns = [pattern(["outside", "lobby"], [3, 3], newest=True)]
+    assert pattern_lines(pattern_block(patterns, rounds=4, name="force")) == []
+    pistol = pattern_block(patterns, rounds=4, name=ROUTE_ROUND_TYPE)
+    assert pattern_lines(pistol) == [
+        f"- {ROUTE_PATTERN_LABEL}: outside {ROUTE_ARROW} lobby, 3 pelaajaa "
+        f"(2/4 kierroksesta, {RECENCY_NEWEST_INCLUDED})"
+    ]
+    lines = render(pistol).splitlines()
+    first = lines.index(pattern_lines(pistol)[0])
+    assert lines[first - 1].startswith("**T-puoli**"), lines[first - 1]
+    assert lines[first + 1].startswith("- **"), lines[first + 1]
+    # Decision 6: the guide's paragraph names the pistol block it now covers.
+    (guide,) = [l for l in lines if l.startswith(f'- "{ROUTE_PATTERN_LABEL}:"')]
+    assert "pistooli" in guide.split("lohkon alussa")[0], guide
+    # Item 8 of the review: the paragraph no longer reads a pistol block's
+    # rows "as in the pistol block", and it says a lone player's path in a
+    # tree is not counted by an unmarked row.
+    assert "kuten pistoolilohkossa" not in guide, guide
+    assert "kaksi pelaajaa kulki reitin yhdessä" in guide, guide
 
 
 def test_the_guide_explains_the_patterns_only_when_one_printed() -> None:
